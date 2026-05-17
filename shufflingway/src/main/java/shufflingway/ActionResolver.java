@@ -662,6 +662,28 @@ public class ActionResolver {
     );
 
     /**
+     * Matches "All [the] [element] Forwards/Backups/Characters [of cost N [or less|more]]
+     * [you control | opponent controls] gain +N power until [the] end of [the] turn."
+     * <ul>
+     *   <li>Group {@code element}  — optional element name</li>
+     *   <li>Group {@code targets}  — "Forwards", "Forwards and Monsters", etc.</li>
+     *   <li>Group {@code cost}     — optional CP cost value</li>
+     *   <li>Group {@code costcmp}  — optional comparison: "less" or "more"</li>
+     *   <li>Group {@code control}  — optional: "opponent controls" or "you control"</li>
+     *   <li>Group {@code amount}   — power amount to add</li>
+     * </ul>
+     */
+    private static final Pattern ALL_FIELD_POWER_BOOST_PATTERN = Pattern.compile(
+        "(?i)All\\s+(?:the\\s+)?" +
+        "(?:(?<element>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)\\s+)?" +
+        "(?<targets>Forwards?(?:\\s+and\\s+Monsters?)?|Backups?|Characters?)" +
+        "(?:\\s+of\\s+cost\\s+(?<cost>\\d+)(?:\\s+or\\s+(?<costcmp>less|more))?)?" +
+        "(?:\\s+(?<control>(?:your\\s+)?opponent\\s+controls?|you\\s+control))?" +
+        "\\s+gains?\\s+\\+(?<amount>\\d+)\\s+[Pp]ower" +
+        "\\s+until\\s+(?:the\\s+)?end\\s+of\\s+(?:the\\s+)?turn[.!]?"
+    );
+
+    /**
      * Matches "Draw N card(s)[, then discard M card(s)]".
      * <ul>
      *   <li>Group 1 — number of cards to draw</li>
@@ -776,6 +798,9 @@ public class ActionResolver {
         if (result != null) return result;
 
         result = tryParseAllFieldEffect(effectText);
+        if (result != null) return result;
+
+        result = tryParseAllFieldPowerBoost(effectText);
         if (result != null) return result;
 
         result = tryParseStandalonePowerBoostUntil(effectText, source);
@@ -2168,6 +2193,42 @@ public class ActionResolver {
             ctx.logEntry("Effect: " + logMsg);
             ctx.applyMassFieldEffect(action, inclForwards, inclBackups, inclMonsters,
                     opponentOnly, selfOnly, element, costVal, costCmp, excludeCostVal);
+        };
+    }
+
+    /**
+     * Parses "All [the] [element] [targets] [of cost N] [control] gain +N power until end of turn."
+     */
+    private static Consumer<GameContext> tryParseAllFieldPowerBoost(String text) {
+        Matcher m = ALL_FIELD_POWER_BOOST_PATTERN.matcher(text);
+        if (!m.find()) return null;
+
+        String element  = m.group("element");
+        String targets  = m.group("targets");
+        String tgtLower = targets.toLowerCase();
+        boolean inclForwards = tgtLower.contains("forward") || tgtLower.contains("character");
+        boolean inclMonsters = tgtLower.contains("monster") || tgtLower.contains("character");
+
+        String costStr = m.group("cost");
+        String costCmp = m.group("costcmp");
+        int    costVal = costStr != null ? Integer.parseInt(costStr) : -1;
+
+        String control       = m.group("control");
+        boolean opponentOnly = control != null && !control.toLowerCase().contains("you control");
+        boolean selfOnly     = control != null && control.toLowerCase().contains("you control");
+
+        int amount = Integer.parseInt(m.group("amount"));
+
+        String elemLabel    = element != null ? element + " " : "";
+        String costLabel    = costVal >= 0 ? " of cost " + costVal + (costCmp != null ? " or " + costCmp : "") : "";
+        String controlLabel = opponentOnly ? " (opponent)" : selfOnly ? " (yours)" : "";
+        String logMsg = "All " + elemLabel + targets + costLabel + controlLabel
+                + " gain +" + amount + " power until end of turn";
+
+        return ctx -> {
+            ctx.logEntry("Effect: " + logMsg);
+            ctx.applyMassFieldPowerBoost(amount, inclForwards, inclMonsters,
+                    opponentOnly, selfOnly, element, costVal, costCmp);
         };
     }
 

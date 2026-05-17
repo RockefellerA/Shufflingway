@@ -5732,6 +5732,24 @@ public class MainWindow {
 		}
 	}
 
+	/** Fires "party attacks" field abilities on every card the controller has on the field. */
+	private void triggerFieldAbilitiesForPartyAttack(boolean isP1) {
+		List<CardData> fwds = isP1 ? p1ForwardCards : p2ForwardCards;
+		for (int i = 0; i < fwds.size(); i++) {
+			CardData card = fwds.get(i);
+			for (FieldAbility fa : card.fieldAbilities())
+				if (fa.trigger().equals("party attacks"))
+					executeFieldAbility(fa, card, isP1);
+		}
+		CardData[] bkps = isP1 ? p1BackupCards : p2BackupCards;
+		for (CardData card : bkps) {
+			if (card == null) continue;
+			for (FieldAbility fa : card.fieldAbilities())
+				if (fa.trigger().equals("party attacks"))
+					executeFieldAbility(fa, card, isP1);
+		}
+	}
+
 	/**
 	 * Resolves a triggered field ability.  When the ability is optional ({@code youMay} or
 	 * {@code opponentMay}), P1 is shown a Decline / OK dialog; the AI always accepts.
@@ -7726,6 +7744,53 @@ public class MainWindow {
 				}
 			}
 
+			@Override
+			public void applyMassFieldPowerBoost(int amount, boolean inclForwards, boolean inclMonsters,
+					boolean opponentOnly, boolean selfOnly,
+					String element, int costVal, String costCmp) {
+				java.util.EnumSet<CardData.Trait> noTraits = java.util.EnumSet.noneOf(CardData.Trait.class);
+				if (!opponentOnly) {
+					if (inclForwards) {
+						for (int i = 0; i < p1ForwardCards.size(); i++) {
+							CardData c = p1Forward(i);
+							if (element != null && !c.containsElement(element)) continue;
+							if (!meetsCostConstraint(c.cost(), costVal, costCmp)) continue;
+							p1ForwardPowerBoost.set(i, p1ForwardPowerBoost.get(i) + amount);
+							logEntry(c.name() + " gains +" + amount + " power until end of turn");
+							refreshP1ForwardSlot(i);
+						}
+					}
+					if (inclMonsters) {
+						for (int i = 0; i < p1MonsterCards.size(); i++) {
+							CardData c = p1MonsterCards.get(i);
+							if (element != null && !c.containsElement(element)) continue;
+							if (!meetsCostConstraint(c.cost(), costVal, costCmp)) continue;
+							logEntry(c.name() + " gains +" + amount + " power until end of turn");
+						}
+					}
+				}
+				if (!selfOnly) {
+					if (inclForwards) {
+						for (int i = 0; i < p2ForwardCards.size(); i++) {
+							CardData c = p2ForwardCards.get(i);
+							if (element != null && !c.containsElement(element)) continue;
+							if (!meetsCostConstraint(c.cost(), costVal, costCmp)) continue;
+							p2ForwardPowerBoost.set(i, p2ForwardPowerBoost.get(i) + amount);
+							logEntry("[P2] " + c.name() + " gains +" + amount + " power until end of turn");
+							refreshP2ForwardSlot(i);
+						}
+					}
+					if (inclMonsters) {
+						for (int i = 0; i < p2MonsterCards.size(); i++) {
+							CardData c = p2MonsterCards.get(i);
+							if (element != null && !c.containsElement(element)) continue;
+							if (!meetsCostConstraint(c.cost(), costVal, costCmp)) continue;
+							logEntry("[P2] " + c.name() + " gains +" + amount + " power until end of turn");
+						}
+					}
+				}
+			}
+
 			@Override public void addEndOfTurnEffect(java.util.function.Consumer<GameContext> effect) {
 				endOfTurnEffects.add(effect);
 			}
@@ -8519,6 +8584,7 @@ public class MainWindow {
 				names.append(p1ForwardCards.get(idx).name());
 			}
 			logEntry("Party Attack! " + names + " (" + combinedPower + " combined)");
+			triggerFieldAbilitiesForPartyAttack(true);
 			p2OfferBlockParty(selection, combinedPower);
 		}
 	}

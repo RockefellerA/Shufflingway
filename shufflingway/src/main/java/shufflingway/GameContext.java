@@ -547,4 +547,19 @@ public interface GameContext {
             boolean forwards, boolean backups, boolean monsters,
             boolean opponentOnly, boolean selfOnly,
             String element, int costVal, String costCmp, int excludeCostVal);
+
+    /**
+     * Adds {@code amount} power until end of turn to every matching field card.
+     *
+     * @param inclForwards  include Forwards in the sweep
+     * @param inclMonsters  include Monsters in the sweep
+     * @param opponentOnly  only affect opponent's cards
+     * @param selfOnly      only affect own cards
+     * @param element       optional element filter; {@code null} = any
+     * @param costVal       CP cost filter value; {@code -1} = no filter
+     * @param costCmp       {@code "less"}, {@code "more"}, or {@code null} for exact
+     */
+    void applyMassFieldPowerBoost(int amount, boolean inclForwards, boolean inclMonsters,
+            boolean opponentOnly, boolean selfOnly,
+            String element, int costVal, String costCmp);
 }

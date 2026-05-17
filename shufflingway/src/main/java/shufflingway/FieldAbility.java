@@ -15,7 +15,7 @@ package shufflingway;
  *
  * <p>The {@code trigger} is normalised to one of:
  * {@code "attacks"}, {@code "blocks"}, {@code "attacks or blocks"},
- * or {@code "enters the field"}.
+ * {@code "party attacks"}, or {@code "enters the field"}.
  */
 public record FieldAbility(
         String  triggerCard,   // name of the card whose event fires this ability

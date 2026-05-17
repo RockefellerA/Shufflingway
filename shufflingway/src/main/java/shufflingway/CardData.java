@@ -418,10 +418,12 @@ public record CardData(
             String triggerRaw = m.group("trigger").trim().toLowerCase(java.util.Locale.ROOT);
             // Normalise trigger to a canonical form
             String trigger;
+            boolean cardIsParty = card.toLowerCase(java.util.Locale.ROOT).contains("party");
             if (triggerRaw.contains("attack") && triggerRaw.contains("block")) trigger = "attacks or blocks";
-            else if (triggerRaw.contains("attack"))                              trigger = "attacks";
-            else if (triggerRaw.contains("block"))                               trigger = "blocks";
-            else                                                                  trigger = "enters the field";
+            else if (triggerRaw.contains("attack") && cardIsParty)             trigger = "party attacks";
+            else if (triggerRaw.contains("attack"))                             trigger = "attacks";
+            else if (triggerRaw.contains("block"))                              trigger = "blocks";
+            else                                                                 trigger = "enters the field";
 
             String  youMayRaw   = m.group("youmay");
             boolean opponentMay = youMayRaw != null
