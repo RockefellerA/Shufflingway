@@ -162,9 +162,15 @@ public interface GameContext {
      *                       When both {@code jobFilter} and {@code cardNameFilter} are non-null
      *                       a card is eligible if it matches <em>either</em> (OR logic).
      */
+    /**
+     * @param costVal2    second exact cost value for "cost N or M" two-value filter; {@code -1} = unused
+     * @param excludeName card name to exclude from eligible choices; {@code null} = none
+     * @param entersDull  if {@code true} the placed card enters the field in a dulled state
+     */
     void playCharacterFromHand(boolean inclForwards, boolean inclBackups, boolean inclMonsters,
-            int costVal, String costCmp,
-            String jobFilter, String cardNameFilter, String categoryFilter);
+            int costVal, String costCmp, int costVal2,
+            String jobFilter, String cardNameFilter, String categoryFilter,
+            String excludeName, boolean entersDull);
 
     // ---- Zone-dispatch single-target effects --------------------------------
 

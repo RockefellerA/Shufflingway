@@ -366,12 +366,16 @@ public class ActionResolver {
     );
 
     /**
-     * Matches "Play 1 [type] of cost N [or less|more] from your hand onto the field".
+     * Matches "Play 1 [filter] [type] of cost … from your hand onto the field [dull]".
      * <ul>
-     *   <li>Group {@code targets} — card type: "Forward(s)", "Backup(s)", "Monster(s)",
-     *                               "Character(s)", or "Character Card(s)"</li>
-     *   <li>Group {@code cost}    — numeric cost threshold</li>
-     *   <li>Group {@code costcmp} — optional comparison: "less" or "more"</li>
+     *   <li>Filter alternatives (all optional): {@code f1}/{@code f2} bracket filters,
+     *       {@code cardname} written card name, {@code category}, {@code jobnm}</li>
+     *   <li>{@code targets}    — card type (optional when {@code cardname} is set)</li>
+     *   <li>Cost alternatives (all optional):
+     *       {@code dynfilter} — "equal to or less than the number of X you control";
+     *       {@code cost}/{@code costalt} — numeric cost with optional "less", "more", or a second value</li>
+     *   <li>{@code excludename} — card name to exclude ("other than Card Name X")</li>
+     *   <li>{@code dull}      — present when the card enters the field dulled</li>
      * </ul>
      */
     private static final Pattern PLAY_FROM_HAND_PATTERN = Pattern.compile(
@@ -382,15 +386,33 @@ public class ActionResolver {
             "(?:\\s+or\\s+(?<f2>\\[(?:Job|Card\\s+Name)\\s+\\([^)]+\\)\\]))?" +
             "\\s+" +
         "|" +
-            // Category filter: "Category <name> " — lookahead keeps the type in the targets group
+            // Written card name — stops at cost or "from your"
+            "Card\\s+Name\\s+(?<cardname>.+?)\\s+(?=of\\s+cost|from\\s+your|[.!])" +
+        "|" +
+            // Category filter: lookahead keeps the type in the targets group
             "Category\\s+(?<category>.+?)\\s+(?=Forwards?|Backups?|Monsters?|Characters?)" +
         "|" +
-            // Written job: "Job <name> " — lookahead keeps the type in the targets group
+            // Written job: lookahead keeps the type in the targets group
             "Job\\s+(?<jobnm>.+?)\\s+(?=Forwards?|Backups?|Monsters?|Characters?)" +
         ")?" +
-        "(?<targets>Forwards?|Backups?|Monsters?|Characters?(?:\\s+Cards?)?)\\s*" +
-        "(?:of\\s+cost\\s+(?<cost>\\d+|X)(?:\\s+or\\s+(?<costcmp>less|more))?\\s+)?" +
-        "from\\s+your\\s+hand\\s+onto\\s+(?:the\\s+)?field[.!]?"
+        // Type is optional when a card-name filter is present
+        "(?<targets>Forwards?|Backups?|Monsters?|Characters?(?:\\s+Cards?)?)?" +
+        "\\s*" +
+        "(?:" +
+            // Dynamic cost: "of cost equal to or less than the number of X you control"
+            "of\\s+cost\\s+equal\\s+to\\s+or\\s+less\\s+than\\s+the\\s+number\\s+of\\s+" +
+            "(?<dynfilter>.+?)\\s+you\\s+control" +
+        "|" +
+            // Standard / two-value: "of cost N [or less|more|M]"
+            "of\\s+cost\\s+(?<cost>\\d+|X)(?:\\s+or\\s+(?<costalt>less|more|\\d+))?" +
+        ")?" +
+        "\\s*" +
+        // Exclusion
+        "(?:other\\s+than\\s+Card\\s+Name\\s+(?<excludename>\\S+(?:\\s+\\([^)]+\\))?)\\s+)?" +
+        "from\\s+your\\s+hand\\s+onto\\s+(?:the\\s+)?field" +
+        // Dull modifier
+        "(?:\\s+(?<dull>dull))?" +
+        "[.!]?"
     );
 
     /**
@@ -926,12 +948,41 @@ public class ActionResolver {
 
         if (tryParseOpponentMill(effectText) != null)                       return "OpponentMill";
         if (tryParseOpponentRevealHand(effectText) != null)                 return "OpponentRevealHand";
-        if (tryParseRevealTopDeck(effectText, source) != null)              return "RevealTopDeck";
+        if (tryParseRevealTopDeck(effectText, source) != null)
+            return revealTopDeckDescription(effectText, source) + restrictionDesc(effectText);
         if (tryParseStandaloneDamageShields(effectText, source) != null)    return "StandaloneDamageShields";
         if (tryParseSearchDeck(effectText) != null)                         return "SearchDeck";
         if (tryParseActivateNamedCard(effectText) != null)                  return "ActivateNamedCard";
         if (tryParseExtraTurnThenLose(effectText) != null)                  return "ExtraTurnThenLose";
         return null;
+    }
+
+    private static String revealTopDeckDescription(String text, CardData source) {
+        Matcher m = REVEAL_CLAUSE_PATTERN.matcher(text);
+        List<String> clauseDescs = new ArrayList<>();
+        while (m.find()) {
+            String action = m.group("action").trim();
+            String op = normalizeRevealOp(action);
+            clauseDescs.add(op != null ? op : "?");
+        }
+        return clauseDescs.isEmpty() ? "RevealTopDeck"
+                : "RevealTopDeck / " + String.join(", ", clauseDescs);
+    }
+
+    private static String restrictionDesc(String effectText) {
+        List<String> parts = new ArrayList<>();
+        if (CardData.YOUR_TURN_ONLY_PATTERN.matcher(effectText).find())        parts.add("yourTurnOnly");
+        if (CardData.ONCE_PER_TURN_PATTERN.matcher(effectText).find())         parts.add("oncePerTurn");
+        if (CardData.MAIN_PHASE_ONLY_PATTERN.matcher(effectText).find())       parts.add("mainPhaseOnly");
+        if (CardData.WHILE_PARTY_ATTACKING_PATTERN.matcher(effectText).find()) {
+            parts.add("whilePartyAttacking");
+        } else {
+            Matcher wAtkM = CardData.WHILE_CARD_ATTACKING_PATTERN.matcher(effectText);
+            if (wAtkM.find()) parts.add("whileCardAttacking:" + wAtkM.group("card"));
+        }
+        Matcher wBlkM = CardData.WHILE_CARD_BLOCKING_PATTERN.matcher(effectText);
+        if (wBlkM.find()) parts.add("whileCardBlocking:" + wBlkM.group("card"));
+        return parts.isEmpty() ? "" : " [" + String.join(", ", parts) + "]";
     }
 
     /**
@@ -2109,8 +2160,11 @@ public class ActionResolver {
         String cardNameFilter = null;
         String categoryFilter = m.group("category") != null ? m.group("category").trim() : null;
 
-        String writtenJob = m.group("jobnm");
-        if (writtenJob != null) {
+        String writtenCardName = m.group("cardname");
+        String writtenJob      = m.group("jobnm");
+        if (writtenCardName != null) {
+            cardNameFilter = writtenCardName.trim();
+        } else if (writtenJob != null) {
             jobFilter = writtenJob.trim();
         } else {
             String f1 = m.group("f1");
@@ -2133,30 +2187,83 @@ public class ActionResolver {
             }
         }
 
-        // --- Resolve type, cost ---
+        // --- Resolve type ---
         String  targets      = m.group("targets");
-        String  tgtLower     = targets.toLowerCase();
-        boolean inclForwards = tgtLower.contains("forward") || tgtLower.contains("character");
-        boolean inclBackups  = tgtLower.contains("backup")  || tgtLower.contains("character");
-        boolean inclMonsters = tgtLower.contains("monster") || tgtLower.contains("character");
+        boolean hasFilter    = jobFilter != null || cardNameFilter != null || categoryFilter != null;
+        if (targets == null && !hasFilter) return null;
+        String  tgtLower     = targets != null ? targets.toLowerCase() : "";
+        boolean inclForwards = tgtLower.isEmpty() || tgtLower.contains("forward") || tgtLower.contains("character");
+        boolean inclBackups  = tgtLower.isEmpty() || tgtLower.contains("backup")  || tgtLower.contains("character");
+        boolean inclMonsters = tgtLower.isEmpty() || tgtLower.contains("monster") || tgtLower.contains("character");
 
-        String costStr = m.group("cost");
-        int    costVal = costStr == null                    ? -1
-                       : costStr.equalsIgnoreCase("X")     ? xValue
-                       : Integer.parseInt(costStr);
-        String costCmp = m.group("costcmp");
+        // --- Resolve cost ---
+        String dynFilterRaw = m.group("dynfilter");
+        boolean isDynamic   = dynFilterRaw != null;
+        String dynJob = null, dynName = null;
+        if (isDynamic) {
+            java.util.regex.Matcher djm = java.util.regex.Pattern.compile(
+                "(?i)Job\\s+(.+?)(?:\\s+and/or\\s+|$)").matcher(dynFilterRaw);
+            java.util.regex.Matcher dnm = java.util.regex.Pattern.compile(
+                "(?i)Card\\s+Name\\s+(\\S+(?:\\s+\\([^)]+\\))?)").matcher(dynFilterRaw);
+            if (djm.find()) dynJob  = djm.group(1).trim();
+            if (dnm.find()) dynName = dnm.group(1).trim();
+        }
+
+        String costStr  = m.group("cost");
+        String costAlt  = m.group("costalt");
+        int    costVal  = -1;
+        String costCmp  = null;
+        int    costVal2 = -1;
+        if (!isDynamic && costStr != null) {
+            costVal = costStr.equalsIgnoreCase("X") ? xValue : Integer.parseInt(costStr);
+            if (costAlt != null) {
+                if (costAlt.equalsIgnoreCase("less") || costAlt.equalsIgnoreCase("more"))
+                    costCmp = costAlt.toLowerCase();
+                else
+                    costVal2 = Integer.parseInt(costAlt);  // "cost 3 or 4"
+            }
+        }
+
+        String  excludeName = m.group("excludename") != null ? m.group("excludename").trim() : null;
+        boolean entersDull  = m.group("dull") != null;
 
         // Build log label
         StringBuilder filterDesc = new StringBuilder();
         if (jobFilter      != null) filterDesc.append(" [Job ").append(jobFilter).append("]");
         if (cardNameFilter != null) filterDesc.append(" [Name ").append(cardNameFilter).append("]");
         if (categoryFilter != null) filterDesc.append(" [Cat ").append(categoryFilter).append("]");
-        String costLabel = costVal >= 0 ? " of cost " + costVal + (costCmp != null ? " or " + costCmp : "") : "";
+        String tgtLabel  = targets != null ? " " + targets : "";
+        String costLabel = isDynamic ? " of cost ≤count[" + dynFilterRaw + "]"
+                         : costVal2 >= 0 ? " of cost " + costVal + " or " + costVal2
+                         : costVal >= 0  ? " of cost " + costVal + (costCmp != null ? " or " + costCmp : "") : "";
+        String exclLabel = excludeName != null ? " excl." + excludeName : "";
+        String dullLabel = entersDull ? " dull" : "";
 
         final String fJob = jobFilter, fName = cardNameFilter, fCat = categoryFilter;
+        final String fExclude = excludeName, fDynJob = dynJob, fDynName = dynName;
+        final int fCostVal = costVal, fCostVal2 = costVal2;
+        final String fCostCmp = costCmp;
+        final boolean fEntersDull = entersDull;
+
         return ctx -> {
-            ctx.logEntry("Effect: Play 1" + filterDesc + " " + targets + costLabel + " from hand");
-            ctx.playCharacterFromHand(inclForwards, inclBackups, inclMonsters, costVal, costCmp, fJob, fName, fCat);
+            int resolvedCost = fCostVal;
+            String resolvedCmp = fCostCmp;
+            if (isDynamic) {
+                int n;
+                if (fDynJob != null && fDynName != null) {
+                    n = ctx.countP1FieldCards(true, true, true, fDynJob, null)
+                      + ctx.countP1FieldCards(true, true, true, null, fDynName)
+                      - ctx.countP1FieldCards(true, true, true, fDynJob, fDynName);
+                } else {
+                    n = ctx.countP1FieldCards(true, true, true, fDynJob, fDynName);
+                }
+                resolvedCost = n;
+                resolvedCmp  = "less";
+            }
+            ctx.logEntry("Effect: Play 1" + filterDesc + tgtLabel + costLabel + exclLabel + dullLabel + " from hand");
+            ctx.playCharacterFromHand(inclForwards, inclBackups, inclMonsters,
+                    resolvedCost, resolvedCmp, fCostVal2,
+                    fJob, fName, fCat, fExclude, fEntersDull);
         };
     }
 

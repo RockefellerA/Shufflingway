@@ -7073,8 +7073,9 @@ public class MainWindow {
 			}
 
 			@Override public void playCharacterFromHand(boolean inclForwards, boolean inclBackups,
-					boolean inclMonsters, int costVal, String costCmp,
-					String jobFilter, String cardNameFilter, String categoryFilter) {
+					boolean inclMonsters, int costVal, String costCmp, int costVal2,
+					String jobFilter, String cardNameFilter, String categoryFilter,
+					String excludeName, boolean entersDull) {
 				java.util.List<CardData> hand = gameState.getP1Hand();
 				java.util.List<Integer> eligible = new ArrayList<>();
 				for (int i = 0; i < hand.size(); i++) {
@@ -7083,7 +7084,9 @@ public class MainWindow {
 					if (card.isBackup()   && !inclBackups)  continue;
 					if (card.isMonster()  && !inclMonsters) continue;
 					if (card.isSummon()) continue;
-					if (!meetsCostConstraint(card.cost(), costVal, costCmp)) continue;
+					boolean costOk = meetsCostConstraint(card.cost(), costVal, costCmp)
+					               || (costVal2 >= 0 && card.cost() == costVal2);
+					if (!costOk) continue;
 					// Job+name: OR when both are set; AND otherwise
 					boolean passesNameJob = (jobFilter == null && cardNameFilter == null)
 						|| (jobFilter != null && cardNameFilter != null
@@ -7091,6 +7094,7 @@ public class MainWindow {
 							: meetsJobFilter(card, jobFilter) && meetsCardNameFilter(card, cardNameFilter));
 					if (!passesNameJob) continue;
 					if (!meetsCategoryFilter(card, categoryFilter)) continue;
+					if (excludeName != null && excludeName.equalsIgnoreCase(card.name())) continue;
 					eligible.add(i);
 				}
 				if (eligible.isEmpty()) {
@@ -7108,10 +7112,19 @@ public class MainWindow {
 				if (listIdx < 0) return;
 				int handIdx = eligible.get(listIdx);
 				CardData card = hand.remove(handIdx);
-				logEntry(card.name() + " played from hand onto field");
-				if (card.isBackup())       placeCardInFirstBackupSlot(card);
-				else if (card.isMonster()) placeCardInMonsterZone(card);
-				else                       placeCardInForwardZone(card);
+				logEntry(card.name() + " played from hand onto field" + (entersDull ? " (dull)" : ""));
+				if (card.isBackup()) {
+					placeCardInFirstBackupSlot(card);
+				} else if (card.isMonster()) {
+					placeCardInMonsterZone(card);
+				} else {
+					placeCardInForwardZone(card);
+					if (entersDull) {
+						int newIdx = p1ForwardCards.size() - 1;
+						p1ForwardStates.set(newIdx, CardState.DULL);
+						refreshP1ForwardSlot(newIdx);
+					}
+				}
 				refreshP1HandLabel();
 			}
 
