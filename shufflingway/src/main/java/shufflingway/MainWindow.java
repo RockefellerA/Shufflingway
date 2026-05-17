@@ -7134,6 +7134,28 @@ public class MainWindow {
 				else          damageP2Forward(t.idx(), amount);
 			}
 
+			@Override public void gainCrystal(int count) {
+				if (isP1) gameState.addP1Crystals(count);
+				else      gameState.addP2Crystals(count);
+				refreshCrystalDisplays();
+			}
+
+			@Override public void damageFieldForwardByName(String cardName, int amount) {
+				for (int i = 0; i < p1ForwardCards.size(); i++) {
+					if (p1ForwardCards.get(i).name().equalsIgnoreCase(cardName)) {
+						damageP1Forward(i, amount);
+						return;
+					}
+				}
+				for (int i = 0; i < p2ForwardCards.size(); i++) {
+					if (p2ForwardCards.get(i).name().equalsIgnoreCase(cardName)) {
+						damageP2Forward(i, amount);
+						return;
+					}
+				}
+				logEntry("[ActionResolver] damageFieldForwardByName: \"" + cardName + "\" not found on field");
+			}
+
 			@Override public void activateTarget(ForwardTarget t) {
 				switch (t.zone()) {
 					case FORWARD -> {

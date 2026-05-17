@@ -87,8 +87,15 @@ public class ActionResolver {
     );
 
     /** Matches "deal it/them N damage". */
+    /**
+     * Matches "Deal it/them [and CardName] N damage".
+     * <ul>
+     *   <li>{@code also} — optional named Forward that also receives the damage</li>
+     *   <li>{@code amount} — fixed damage value</li>
+     * </ul>
+     */
     private static final Pattern FOLLOWUP_DAMAGE = Pattern.compile(
-        "(?i)deal\\s+(?:it|them)\\s+(\\d+)\\s+damage"
+        "(?i)deal\\s+(?:it|them)(?:\\s+and\\s+(?<also>.+?))?\\s+(?<amount>\\d+)\\s+damage"
     );
 
     /**
@@ -661,6 +668,11 @@ public class ActionResolver {
      *   <li>Group 2 — optional discard count afterward (absent = draw only)</li>
      * </ul>
      */
+    /** Matches "Gain 《C》." — the ability user gains one Crystal. */
+    private static final Pattern GAIN_CRYSTAL = Pattern.compile(
+        "(?i)Gain\\s+《C》[.!]?"
+    );
+
     private static final Pattern DRAW_CARDS = Pattern.compile(
         "(?i)Draw\\s+(\\d+)\\s+cards?(?:\\s*[,.]?\\s*then\\s+discard\\s+(\\d+)\\s+cards?)?[.!]?"
     );
@@ -817,6 +829,9 @@ public class ActionResolver {
         result = tryParseExtraTurnThenLose(effectText);
         if (result != null) return result;
 
+        result = tryParseGainCrystal(effectText);
+        if (result != null) return result;
+
         return null;
     }
 
@@ -843,6 +858,7 @@ public class ActionResolver {
         if (tryParseSearchDeck(effectText)                      != null) return "SearchDeck";
         if (tryParseActivateNamedCard(effectText)               != null) return "ActivateNamedCard";
         if (tryParseExtraTurnThenLose(effectText)               != null) return "ExtraTurnThenLose";
+        if (tryParseGainCrystal(effectText)                     != null) return "GainCrystal";
         return null;
     }
 
@@ -954,6 +970,7 @@ public class ActionResolver {
         if (tryParseSearchDeck(effectText) != null)                         return "SearchDeck";
         if (tryParseActivateNamedCard(effectText) != null)                  return "ActivateNamedCard";
         if (tryParseExtraTurnThenLose(effectText) != null)                  return "ExtraTurnThenLose";
+        if (tryParseGainCrystal(effectText)       != null)                  return "GainCrystal";
         return null;
     }
 
@@ -1297,14 +1314,18 @@ public class ActionResolver {
         // --- Damage followup (fixed amount) ---
         Matcher dmgM = FOLLOWUP_DAMAGE.matcher(primaryFollowup);
         if (dmgM.find()) {
-            int damage = Integer.parseInt(dmgM.group(1));
+            int damage = Integer.parseInt(dmgM.group("amount"));
+            String alsoCard = dmgM.group("also") != null ? dmgM.group("also").trim() : null;
             return ctx -> {
-                ctx.logEntry(choosePrefix + " — Deal " + damage + " damage");
+                ctx.logEntry(alsoCard != null
+                        ? choosePrefix + " — Deal " + damage + " damage (and to " + alsoCard + ")"
+                        : choosePrefix + " — Deal " + damage + " damage");
                 List<ForwardTarget> ts = selectTargets(ctx, maxCount, upTo,
                         opponentOnly, selfOnly, condition, element, zone, opponentZone,
                         costVal, costCmp, inclForwards, inclBackups, inclMonsters, jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons);
                 sortedByIdxDesc(ts, true) .forEach(t -> ctx.damageTarget(t, damage));
                 sortedByIdxDesc(ts, false).forEach(t -> ctx.damageTarget(t, damage));
+                if (alsoCard != null) ctx.damageFieldForwardByName(alsoCard, damage);
                 if (secondary != null) secondary.accept(ctx);
             };
         }
@@ -2554,6 +2575,14 @@ public class ActionResolver {
     }
 
     /** Parses "Take 1 more turn after this one. At the end of that turn, you lose the game." */
+    private static Consumer<GameContext> tryParseGainCrystal(String text) {
+        if (!GAIN_CRYSTAL.matcher(text).find()) return null;
+        return ctx -> {
+            ctx.logEntry("Effect: Gain 1 Crystal");
+            ctx.gainCrystal(1);
+        };
+    }
+
     private static Consumer<GameContext> tryParseExtraTurnThenLose(String text) {
         if (!EXTRA_TURN_THEN_LOSE.matcher(text).find()) return null;
         return ctx -> {

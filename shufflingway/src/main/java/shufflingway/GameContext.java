@@ -180,6 +180,15 @@ public interface GameContext {
      */
     void damageTarget(ForwardTarget t, int amount);
 
+    /**
+     * Deals {@code amount} damage to the first P1 or P2 Forward whose name matches
+     * {@code cardName} (case-insensitive). Logs a warning if no matching card is found.
+     */
+    void damageFieldForwardByName(String cardName, int amount);
+
+    /** Grants the ability user {@code count} Crystals. */
+    void gainCrystal(int count);
+
     /** Sets the target back to Active state and refreshes its slot. */
     void activateTarget(ForwardTarget t);
 
