@@ -695,6 +695,11 @@ public class ActionResolver {
         "(?i)Gain\\s+《C》[.!]?"
     );
 
+    /** Matches "Gain 《C》 for each CP paid as X." — crystal count equals the X value paid. */
+    private static final Pattern GAIN_CRYSTAL_PER_X = Pattern.compile(
+        "(?i)Gain\\s+《C》\\s+for\\s+each\\s+CP\\s+paid\\s+as\\s+X[.!]?"
+    );
+
     private static final Pattern DRAW_CARDS = Pattern.compile(
         "(?i)Draw\\s+(\\d+)\\s+cards?(?:\\s*[,.]?\\s*then\\s+discard\\s+(\\d+)\\s+cards?)?[.!]?"
     );
@@ -854,6 +859,9 @@ public class ActionResolver {
         result = tryParseExtraTurnThenLose(effectText);
         if (result != null) return result;
 
+        result = tryParseGainCrystalPerX(effectText, xValue);
+        if (result != null) return result;
+
         result = tryParseGainCrystal(effectText);
         if (result != null) return result;
 
@@ -883,7 +891,8 @@ public class ActionResolver {
         if (tryParseSearchDeck(effectText)                      != null) return "SearchDeck";
         if (tryParseActivateNamedCard(effectText)               != null) return "ActivateNamedCard";
         if (tryParseExtraTurnThenLose(effectText)               != null) return "ExtraTurnThenLose";
-        if (tryParseGainCrystal(effectText)                     != null) return "GainCrystal";
+        if (tryParseGainCrystalPerX(effectText, 0)               != null) return "GainCrystalPerX";
+        if (tryParseGainCrystal(effectText)                      != null) return "GainCrystal";
         return null;
     }
 
@@ -996,7 +1005,8 @@ public class ActionResolver {
         if (tryParseSearchDeck(effectText) != null)                         return "SearchDeck";
         if (tryParseActivateNamedCard(effectText) != null)                  return "ActivateNamedCard";
         if (tryParseExtraTurnThenLose(effectText) != null)                  return "ExtraTurnThenLose";
-        if (tryParseGainCrystal(effectText)       != null)                  return "GainCrystal";
+        if (tryParseGainCrystalPerX(effectText, 0) != null)                 return "GainCrystalPerX";
+        if (tryParseGainCrystal(effectText)        != null)                  return "GainCrystal";
         return null;
     }
 
@@ -2637,12 +2647,19 @@ public class ActionResolver {
         return null;
     }
 
-    /** Parses "Take 1 more turn after this one. At the end of that turn, you lose the game." */
     private static Consumer<GameContext> tryParseGainCrystal(String text) {
         if (!GAIN_CRYSTAL.matcher(text).find()) return null;
         return ctx -> {
             ctx.logEntry("Effect: Gain 1 Crystal");
             ctx.gainCrystal(1);
+        };
+    }
+
+    private static Consumer<GameContext> tryParseGainCrystalPerX(String text, int xValue) {
+        if (!GAIN_CRYSTAL_PER_X.matcher(text).find()) return null;
+        return ctx -> {
+            ctx.logEntry("Effect: Gain " + xValue + " Crystal(s) (for each CP paid as X)");
+            ctx.gainCrystal(xValue);
         };
     }
 

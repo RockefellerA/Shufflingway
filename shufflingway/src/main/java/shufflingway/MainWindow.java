@@ -5711,6 +5711,15 @@ public class MainWindow {
 	// Field Ability triggers
 	// -------------------------------------------------------------------------
 
+	/** Matches "pay 《cost》[.] When you do so, sub-effect[. The maximum you can pay for 《X》 is N]". */
+	private static final java.util.regex.Pattern FA_PAY_WHEN_DO_SO = java.util.regex.Pattern.compile(
+		"(?i)^pay\\s+《([^》]+)》[.,]?\\s+When\\s+you\\s+do\\s+so[,.]?\\s+(.+?)(?:[.,]?\\s+The\\s+maximum\\s+you\\s+can\\s+pay\\s+for\\s+《X》\\s+is\\s+\\d+\\.?)?$",
+		java.util.regex.Pattern.DOTALL
+	);
+	private static final java.util.regex.Pattern FA_MAX_X = java.util.regex.Pattern.compile(
+		"(?i)The\\s+maximum\\s+you\\s+can\\s+pay\\s+for\\s+《X》\\s+is\\s+(\\d+)"
+	);
+
 	private void triggerFieldAbilitiesForEntersField(CardData card, boolean isP1) {
 		for (FieldAbility fa : card.fieldAbilities()) {
 			if (!fa.triggerCard().equalsIgnoreCase(card.name())) continue;
@@ -5761,6 +5770,13 @@ public class MainWindow {
 		// opponentMay effects run from the opponent's context
 		boolean effectIsP1 = fa.opponentMay() ? !isP1 : isP1;
 
+		// Detect "pay 《X/N》. When you do so, [effect]" — requires a payment dialog before resolving.
+		java.util.regex.Matcher payM = FA_PAY_WHEN_DO_SO.matcher(fa.effectText());
+		if (payM.find()) {
+			executePayWhenDoSoFieldAbility(fa, source, isP1, effectIsP1, payM);
+			return;
+		}
+
 		java.util.function.Consumer<GameContext> effect = ActionResolver.parse(fa.effectText(), source);
 		if (effect == null) {
 			logEntry("[FieldAbility] Unrecognized effect: " + fa.effectText());
@@ -5790,6 +5806,262 @@ public class MainWindow {
 
 		logEntry("[FieldAbility] " + source.name() + " — " + fa.effectText());
 		effect.accept(buildGameContext(effectIsP1));
+	}
+
+	private void executePayWhenDoSoFieldAbility(FieldAbility fa, CardData source, boolean isP1,
+			boolean effectIsP1, java.util.regex.Matcher payM) {
+		String costToken = payM.group(1).trim();
+		String subEffect = payM.group(2).trim().replaceAll("[.!,]+$", "");
+
+		boolean isXCost  = costToken.equalsIgnoreCase("X");
+		int     fixedCost = isXCost ? 0 : Integer.parseInt(costToken);
+
+		java.util.regex.Matcher maxM = FA_MAX_X.matcher(fa.effectText());
+		int maxCp = isXCost ? (maxM.find() ? Integer.parseInt(maxM.group(1)) : Integer.MAX_VALUE) : fixedCost;
+
+		// P1 gets a confirm dialog; AI auto-accepts.
+		boolean p1GetsDialog = (fa.youMay() && isP1) || (fa.opponentMay() && !isP1);
+		if (p1GetsDialog) {
+			String prompt = (fa.youMay() ? "You may: " : "Your opponent may: ") + fa.effectText();
+			int choice = JOptionPane.showOptionDialog(frame,
+					source.name() + " — " + prompt,
+					"Field Ability",
+					JOptionPane.DEFAULT_OPTION,
+					JOptionPane.PLAIN_MESSAGE,
+					null,
+					new Object[]{"OK", "Decline"},
+					"OK");
+			if (choice != 0) {
+				logEntry("[FieldAbility] " + source.name() + " — optional effect declined");
+				return;
+			}
+		} else if (fa.youMay() || fa.opponentMay()) {
+			logEntry("[FieldAbility] [AI] auto-accepts optional ability");
+		}
+
+		if (!isP1) {
+			// AI pays the maximum it can (simplified — no backup state update for AI).
+			int paid = maxCp == Integer.MAX_VALUE ? 1 : maxCp;
+			applyPayWhenDoSoEffect(subEffect, source, paid, effectIsP1);
+			return;
+		}
+
+		String finalSubEffect = subEffect;
+		showFieldAbilityPaymentDialog(source.name(), fixedCost, maxCp, isP1,
+				paid -> applyPayWhenDoSoEffect(finalSubEffect, source, paid, effectIsP1));
+	}
+
+	private void applyPayWhenDoSoEffect(String subEffect, CardData source, int xValue, boolean effectIsP1) {
+		java.util.function.Consumer<GameContext> effect = ActionResolver.parse(subEffect, source, xValue);
+		if (effect == null) {
+			logEntry("[FieldAbility] Unrecognized 'when you do so' effect: " + subEffect);
+			return;
+		}
+		logEntry("[FieldAbility] " + source.name() + " — when you do so: " + subEffect + " (X=" + xValue + ")");
+		effect.accept(buildGameContext(effectIsP1));
+	}
+
+	/**
+	 * Payment dialog for a field ability that requires CP payment.
+	 * Shows backup cards (1 CP each) and hand cards to discard (2 CP each).
+	 * Calls {@code onConfirm} with total CP paid after dulling backups / discarding cards.
+	 */
+	private void showFieldAbilityPaymentDialog(String cardName, int minCp, int maxCp,
+			boolean isP1, java.util.function.IntConsumer onConfirm) {
+		CardData[]     bkpCards  = playerBackupCards(isP1);
+		CardState[]    bkpStates = playerBackupStates(isP1);
+		String[]       bkpUrls  = playerBackupUrls(isP1);
+		List<CardData> hand      = playerHand(isP1);
+
+		String title = (maxCp == minCp)
+				? cardName + " — Pay " + minCp + " CP"
+				: cardName + " — Pay up to " + (maxCp == Integer.MAX_VALUE ? "any" : maxCp) + " CP";
+		JDialog dlg = new JDialog(frame, title, true);
+		dlg.setResizable(false);
+		dlg.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
+
+		List<Integer> selectedBackups  = new ArrayList<>();
+		List<Integer> selectedDiscards = new ArrayList<>();
+
+		JLabel   cpLabel    = new JLabel();
+		cpLabel.setFont(FontLoader.loadPixelNESFont(11));
+		cpLabel.setHorizontalAlignment(SwingConstants.CENTER);
+
+		JButton confirmBtn = new JButton("Confirm");
+		confirmBtn.setFont(FontLoader.loadPixelNESFont(11));
+
+		List<JLabel>  backupLbls  = new ArrayList<>();
+		List<Integer> backupSlots = new ArrayList<>();
+		List<JLabel>  discardLbls = new ArrayList<>();
+		List<Integer> discardIdxs = new ArrayList<>();
+
+		boolean[] canAddBackup  = {true};
+		boolean[] canAddDiscard = {true};
+
+		Runnable updateAll = () -> {
+			int total  = selectedBackups.size() + selectedDiscards.size() * 2;
+			if (minCp == maxCp) {
+				// Fixed cost: mirrors showActionAbilityPaymentDialog overpayment rules.
+				// Allow up to 1 extra CP if cost is odd (a 2-CP discard can't be split).
+				int maxAllowed = maxCp + (maxCp % 2);
+				canAddBackup[0]  = total < maxCp;
+				canAddDiscard[0] = total < maxCp && total + 2 <= maxAllowed;
+			} else {
+				// Variable X cost: strict cap at maxCp.
+				boolean atMax = maxCp != Integer.MAX_VALUE && total >= maxCp;
+				canAddBackup[0]  = !atMax;
+				canAddDiscard[0] = maxCp == Integer.MAX_VALUE || total + 2 <= maxCp;
+			}
+			confirmBtn.setEnabled(total >= minCp);
+
+			String cap = maxCp == Integer.MAX_VALUE ? "∞" : String.valueOf(maxCp);
+			cpLabel.setText("CP paid: " + total + " / " + cap
+					+ (minCp > 0 ? "  (min " + minCp + ")" : ""));
+
+			for (int i = 0; i < backupLbls.size(); i++) {
+				JLabel  lbl = backupLbls.get(i);
+				boolean sel = selectedBackups.contains(backupSlots.get(i));
+				lbl.setBorder(BorderFactory.createLineBorder(
+						sel ? Color.YELLOW : (canAddBackup[0] ? Color.GRAY : new Color(80, 80, 80)), sel ? 3 : 1));
+				lbl.setBackground(sel || canAddBackup[0] ? Color.DARK_GRAY : new Color(50, 50, 50));
+				lbl.setCursor(sel || canAddBackup[0]
+						? Cursor.getPredefinedCursor(Cursor.HAND_CURSOR) : Cursor.getDefaultCursor());
+			}
+			for (int i = 0; i < discardLbls.size(); i++) {
+				JLabel  lbl = discardLbls.get(i);
+				boolean sel = selectedDiscards.contains(discardIdxs.get(i));
+				lbl.setBorder(BorderFactory.createLineBorder(
+						sel ? Color.YELLOW : (canAddDiscard[0] ? Color.GRAY : new Color(80, 80, 80)), sel ? 3 : 1));
+				lbl.setBackground(sel || canAddDiscard[0] ? Color.DARK_GRAY : new Color(50, 50, 50));
+				lbl.setCursor(sel || canAddDiscard[0]
+						? Cursor.getPredefinedCursor(Cursor.HAND_CURSOR) : Cursor.getDefaultCursor());
+			}
+		};
+		updateAll.run();
+
+		JPanel center = new JPanel();
+		center.setLayout(new BoxLayout(center, BoxLayout.Y_AXIS));
+
+		List<Integer> eligibleBackupSlots = new ArrayList<>();
+		for (int i = 0; i < bkpCards.length; i++)
+			if (bkpCards[i] != null && bkpStates[i] == CardState.ACTIVE) eligibleBackupSlots.add(i);
+
+		if (!eligibleBackupSlots.isEmpty()) {
+			JLabel hdr = new JLabel("Backups — dull for 1 CP each:");
+			hdr.setFont(FontLoader.loadPixelNESFont(9)); hdr.setAlignmentX(Component.LEFT_ALIGNMENT);
+			JPanel bp = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 6)); bp.setAlignmentX(Component.LEFT_ALIGNMENT);
+			for (int slot : eligibleBackupSlots) {
+				JLabel lbl = new JLabel("...", SwingConstants.CENTER);
+				lbl.setPreferredSize(new Dimension(CARD_W, CARD_H)); lbl.setMinimumSize(new Dimension(CARD_W, CARD_H));
+				lbl.setOpaque(true); lbl.setBackground(Color.DARK_GRAY); lbl.setForeground(Color.WHITE);
+				lbl.setFont(FontLoader.loadPixelNESFont(10)); lbl.setBorder(BorderFactory.createLineBorder(Color.GRAY, 1));
+				lbl.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+				final String url = bkpUrls[slot];
+				lbl.addMouseListener(new MouseAdapter() {
+					@Override public void mousePressed(MouseEvent ev) {
+						if (!selectedBackups.remove(Integer.valueOf(slot)) && canAddBackup[0]) selectedBackups.add(slot);
+						updateAll.run();
+					}
+					@Override public void mouseEntered(MouseEvent ev) { if (lbl.getIcon() != null) showZoomAt(url); }
+					@Override public void mouseExited(MouseEvent ev)  { hideZoom(); }
+				});
+				new SwingWorker<ImageIcon, Void>() {
+					@Override protected ImageIcon doInBackground() throws Exception {
+						Image img = ImageCache.load(url);
+						return img == null ? null : new ImageIcon(img.getScaledInstance(CARD_W, CARD_H, Image.SCALE_SMOOTH));
+					}
+					@Override protected void done() {
+						try { ImageIcon ic = get(); if (ic != null) { lbl.setIcon(ic); lbl.setText(null); } }
+						catch (InterruptedException | ExecutionException ignored) {}
+					}
+				}.execute();
+				backupLbls.add(lbl); backupSlots.add(slot); bp.add(lbl);
+			}
+			center.add(hdr); center.add(bp);
+		}
+
+		if (!hand.isEmpty()) {
+			JLabel discHdr = new JLabel("Hand — discard for 2 CP each:");
+			discHdr.setFont(FontLoader.loadPixelNESFont(9)); discHdr.setAlignmentX(Component.LEFT_ALIGNMENT);
+			JPanel dp = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 6)); dp.setAlignmentX(Component.LEFT_ALIGNMENT);
+			for (int i = 0; i < hand.size(); i++) {
+				final int hi = i; CardData hc = hand.get(i); boolean payable = !hc.isLightOrDark();
+				JLabel lbl = new JLabel("...", SwingConstants.CENTER);
+				lbl.setPreferredSize(new Dimension(CARD_W, CARD_H)); lbl.setMinimumSize(new Dimension(CARD_W, CARD_H));
+				lbl.setOpaque(true); lbl.setBackground(payable ? Color.DARK_GRAY : new Color(50, 50, 50));
+				lbl.setForeground(Color.WHITE); lbl.setFont(FontLoader.loadPixelNESFont(10));
+				lbl.setBorder(BorderFactory.createLineBorder(payable ? Color.GRAY : new Color(80, 80, 80), 1));
+				lbl.setCursor(payable ? Cursor.getPredefinedCursor(Cursor.HAND_CURSOR) : Cursor.getDefaultCursor());
+				final String imgUrl = hc.imageUrl();
+				if (payable) {
+					lbl.addMouseListener(new MouseAdapter() {
+						@Override public void mousePressed(MouseEvent ev) {
+							if (!selectedDiscards.remove(Integer.valueOf(hi)) && canAddDiscard[0]) selectedDiscards.add(hi);
+							updateAll.run();
+						}
+						@Override public void mouseEntered(MouseEvent ev) { if (lbl.getIcon() != null) showZoomAt(imgUrl); }
+						@Override public void mouseExited(MouseEvent ev)  { hideZoom(); }
+					});
+					discardLbls.add(lbl); discardIdxs.add(hi);
+				} else {
+					lbl.addMouseListener(new MouseAdapter() {
+						@Override public void mouseEntered(MouseEvent ev) { if (lbl.getIcon() != null) showZoomAt(imgUrl); }
+						@Override public void mouseExited(MouseEvent ev)  { hideZoom(); }
+					});
+				}
+				new SwingWorker<ImageIcon, Void>() {
+					@Override protected ImageIcon doInBackground() throws Exception {
+						Image img = ImageCache.load(imgUrl);
+						return img == null ? null : new ImageIcon(img.getScaledInstance(CARD_W, CARD_H, Image.SCALE_SMOOTH));
+					}
+					@Override protected void done() {
+						try { ImageIcon ic = get(); if (ic != null) { lbl.setIcon(ic); lbl.setText(null); } }
+						catch (InterruptedException | ExecutionException ignored) {}
+					}
+				}.execute();
+				dp.add(lbl);
+			}
+			center.add(discHdr); center.add(dp);
+		}
+
+		JButton cancelBtn = new JButton("Cancel");
+		cancelBtn.setFont(FontLoader.loadPixelNESFont(11));
+		cancelBtn.addActionListener(ev -> {
+			logEntry("[FieldAbility] " + cardName + " — payment cancelled");
+			dlg.dispose();
+		});
+		confirmBtn.addActionListener(ev -> {
+			dlg.dispose();
+			for (int slot : selectedBackups) {
+				bkpStates[slot] = CardState.DULL;
+				playerDullBackupSlot(isP1, slot);
+			}
+			List<Integer> sortedDiscards = new ArrayList<>(selectedDiscards);
+			sortedDiscards.sort(Collections.reverseOrder());
+			for (int di : sortedDiscards) playerBreakFromHand(isP1, di);
+			int paid = selectedBackups.size() + selectedDiscards.size() * 2;
+			logEntry("[FieldAbility] " + cardName + " — paid " + paid + " CP");
+			refreshP1HandLabel();
+			refreshP1BreakLabel();
+			onConfirm.accept(paid);
+		});
+
+		JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.CENTER, 12, 6));
+		buttonPanel.add(confirmBtn); buttonPanel.add(cancelBtn);
+
+		JPanel topPanel = new JPanel(new BorderLayout(0, 4));
+		topPanel.setBorder(BorderFactory.createEmptyBorder(8, 8, 4, 8));
+		topPanel.add(cpLabel, BorderLayout.CENTER);
+
+		JPanel mainPanel = new JPanel(new BorderLayout(0, 4));
+		mainPanel.setBorder(BorderFactory.createEmptyBorder(0, 8, 8, 8));
+		mainPanel.add(new JScrollPane(center), BorderLayout.CENTER);
+		mainPanel.add(buttonPanel,             BorderLayout.SOUTH);
+
+		dlg.getContentPane().setLayout(new BorderLayout());
+		dlg.getContentPane().add(topPanel,  BorderLayout.NORTH);
+		dlg.getContentPane().add(mainPanel, BorderLayout.CENTER);
+		dlg.pack(); dlg.setLocationRelativeTo(frame); dlg.setVisible(true);
 	}
 
 	private boolean canActivateHandAbility(ActionAbility ability, CardData source, boolean isP1) {
