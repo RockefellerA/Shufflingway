@@ -34,11 +34,12 @@ package shufflingway;
  * </ul>
  */
 public record FieldAbility(
-        String  triggerCard,   // card name / break-zone subject / "" for global triggers
-        String  trigger,       // normalised trigger type
-        boolean youMay,        // true = ability owner may decline the effect
-        boolean opponentMay,   // true = opponent of the ability owner may decline the effect
-        String  effectText,    // raw effect text, restrictions already stripped
-        boolean oncePerTurn,   // "This effect will trigger only once per turn"
-        boolean yourTurnOnly   // "This effect will trigger only during your turn"
+        String  triggerCard,      // card name / break-zone subject / "" for global triggers
+        String  trigger,          // normalised trigger type
+        boolean youMay,           // true = ability owner may decline the effect
+        boolean opponentMay,      // true = opponent of the ability owner may decline the effect
+        String  effectText,       // raw effect text, restrictions already stripped
+        boolean oncePerTurn,      // "This effect will trigger only once per turn"
+        boolean yourTurnOnly,     // "This effect will trigger only during your turn"
+        String  rfpConditionCard  // non-empty: trigger only if this card is in the RFP zone
 ) {}

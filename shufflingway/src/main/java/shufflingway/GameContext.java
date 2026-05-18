@@ -237,6 +237,12 @@ public interface GameContext {
     void setTargetPower(ForwardTarget t, int power);
 
     /**
+     * Reveals the top card of the ability owner's deck in a dialog.  The player may then
+     * choose to put it into the Break Zone; if they decline the card stays on top of the deck.
+     */
+    void lookAtTopDeckAndOptionallyBreak();
+
+    /**
      * Reduces the target's power by {@code amount} and temporarily removes {@code traits}
      * until the end of the turn.  If effective power drops to 0 or below the card is sent
      * to the break zone (not treated as "broken" mechanically — distinction TBD).

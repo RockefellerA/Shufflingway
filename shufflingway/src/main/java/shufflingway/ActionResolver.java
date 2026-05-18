@@ -695,6 +695,15 @@ public class ActionResolver {
      *   <li>Group 2 — optional discard count afterward (absent = draw only)</li>
      * </ul>
      */
+    /**
+     * Matches "Look at the top card of your deck. You may put it into the Break Zone."
+     * The optional sentence after the period allows for additional context text.
+     */
+    private static final Pattern LOOK_TOP_DECK_OPTIONALLY_BREAK = Pattern.compile(
+        "(?i)Look\\s+at\\s+the\\s+top\\s+card\\s+of\\s+your\\s+deck[.!]?\\s*" +
+        "You\\s+may\\s+put\\s+it\\s+into\\s+the\\s+Break\\s+Zone[.!]?"
+    );
+
     /** Matches "Gain 《C》." — the ability user gains one Crystal. */
     private static final Pattern GAIN_CRYSTAL = Pattern.compile(
         "(?i)Gain\\s+《C》[.!]?"
@@ -867,6 +876,9 @@ public class ActionResolver {
         result = tryParseGainCrystal(effectText);
         if (result != null) return result;
 
+        result = tryParseLookTopDeckOptionallyBreak(effectText);
+        if (result != null) return result;
+
         return null;
     }
 
@@ -895,6 +907,7 @@ public class ActionResolver {
         if (tryParseExtraTurnThenLose(effectText)               != null) return "ExtraTurnThenLose";
         if (tryParseGainCrystalPerX(effectText, 0)               != null) return "GainCrystalPerX";
         if (tryParseGainCrystal(effectText)                      != null) return "GainCrystal";
+        if (tryParseLookTopDeckOptionallyBreak(effectText)       != null) return "LookTopDeckOptionallyBreak";
         return null;
     }
 
@@ -1010,6 +1023,7 @@ public class ActionResolver {
         if (tryParseExtraTurnThenLose(effectText) != null)                  return "ExtraTurnThenLose";
         if (tryParseGainCrystalPerX(effectText, 0) != null)                 return "GainCrystalPerX";
         if (tryParseGainCrystal(effectText)        != null)                  return "GainCrystal";
+        if (tryParseLookTopDeckOptionallyBreak(effectText) != null)          return "LookTopDeckOptionallyBreak";
         return null;
     }
 
@@ -2669,6 +2683,14 @@ public class ActionResolver {
         return ctx -> {
             ctx.logEntry("Effect: Gain 1 Crystal");
             ctx.gainCrystal(1);
+        };
+    }
+
+    private static Consumer<GameContext> tryParseLookTopDeckOptionallyBreak(String text) {
+        if (!LOOK_TOP_DECK_OPTIONALLY_BREAK.matcher(text).find()) return null;
+        return ctx -> {
+            ctx.logEntry("Effect: Look at top of deck — may put into Break Zone");
+            ctx.lookAtTopDeckAndOptionallyBreak();
         };
     }
 

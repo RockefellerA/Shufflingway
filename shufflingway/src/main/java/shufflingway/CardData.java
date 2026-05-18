@@ -405,10 +405,23 @@ public record CardData(
             "|is\\s+put\\s+(?:from\\s+the\\s+field\\s+)?into\\s+the\\s+Break\\s+Zone" +
             "|casts?\\s+a\\s+Summon" +
             "|is\\s+put\\s+into\\s+(?:your\\s+)?Damage\\s+Zone" +
+            "|is\\s+removed\\s+from\\s+the\\s+game\\s+due\\s+to\\s+Warp" +
         ")\\s*,\\s+" +
         "(?<youmay>(?:you|your\\s+opponent)\\s+may\\s+)?" +
         "(?<effect>.+?)\\s*" +
-        "(?=\\s*\\[\\[br\\]\\]|\\s*When\\s+[^,]+?\\s+(?:attacks?|blocks?|enters?|is\\s+put)|\\s*(?:《[^》]+》)+\\s*:|\\s*$)",
+        "(?=\\s*\\[\\[br\\]\\]|\\s*When\\s+[^,]+?\\s+(?:attacks?|blocks?|enters?|is\\s+(?:put|removed))|\\s*(?:《[^》]+》)+\\s*:|\\s*$)",
+        Pattern.DOTALL
+    );
+
+    /**
+     * Separate pattern for "When a Warp Counter is removed from [CardName], [effect]".
+     * Uses {@code target} for the card whose counter is decremented.
+     */
+    private static final Pattern WARP_COUNTER_PATTERN = Pattern.compile(
+        "(?i)When\\s+a\\s+Warp\\s+Counter\\s+is\\s+removed\\s+from\\s+(?<target>[^,]+?)\\s*,\\s+" +
+        "(?<youmay>(?:you|your\\s+opponent)\\s+may\\s+)?" +
+        "(?<effect>.+?)\\s*" +
+        "(?=\\s*\\[\\[br\\]\\]|\\s*When\\s+[^,]+?\\s+(?:attacks?|blocks?|enters?|is\\s+(?:put|removed))|\\s*(?:《[^》]+》)+\\s*:|\\s*$)",
         Pattern.DOTALL
     );
 
@@ -416,6 +429,11 @@ public record CardData(
     private static final Pattern FA_TRIGGER_RESTRICTION = Pattern.compile(
         "(?i)[.!,]?\\s*This\\s+effect\\s+will\\s+trigger\\s+only\\s+" +
         "(?:(?<yourTurn>during\\s+your\\s+turn)(?:\\s+and\\s+only\\s+)?)?(?<once>once\\s+per\\s+turn)?[.!]?\\s*$"
+    );
+
+    /** Matches "This effect will trigger only if [card] is removed from the game." */
+    private static final Pattern FA_RFP_CONDITION = Pattern.compile(
+        "(?i)[.!,]?\\s*This\\s+effect\\s+will\\s+trigger\\s+only\\s+if\\s+(?<rfpCard>[^.!]+?)\\s+is\\s+removed\\s+from\\s+the\\s+game[.!]?\\s*$"
     );
 
     /**
@@ -439,7 +457,13 @@ public record CardData(
             else if (triggerRaw.contains("break zone"))                             trigger = "put into break zone";
             else if (triggerRaw.contains("summon"))                                 trigger = "cast summon";
             else if (triggerRaw.contains("damage zone"))                            trigger = "damage zone";
+            else if (triggerRaw.contains("warp"))                                   trigger = "warp placed";
             else                                                                     trigger = "enters the field";
+
+            // For "warp placed", strip the " in your hand" suffix from the card name
+            if (trigger.equals("warp placed")) {
+                card = card.replaceAll("(?i)\\s+in\\s+your\\s+hand$", "").trim();
+            }
 
             String  youMayRaw   = m.group("youmay");
             boolean opponentMay = youMayRaw != null
@@ -449,19 +473,54 @@ public record CardData(
             String effect = SUMMON_MARKUP.matcher(m.group("effect").trim()).replaceAll("").trim();
             if (effect.isEmpty()) continue;
 
-            // Strip "This effect will trigger only …" restriction sentence and record flags
-            boolean oncePerTurn = false, yourTurnOnly = false;
-            Matcher restr = FA_TRIGGER_RESTRICTION.matcher(effect);
-            if (restr.find() && (restr.group("yourTurn") != null || restr.group("once") != null)) {
-                yourTurnOnly = restr.group("yourTurn") != null;
-                oncePerTurn  = restr.group("once")     != null;
-                effect = effect.substring(0, restr.start()).trim().replaceAll("[.!,]+$", "").trim();
-            }
-            if (effect.isEmpty()) continue;
-
-            result.add(new FieldAbility(card, trigger, youMay, opponentMay, effect, oncePerTurn, yourTurnOnly));
+            FieldAbility fa = parseFieldAbilityRestrictions(card, trigger, youMay, opponentMay, effect);
+            if (fa != null) result.add(fa);
         }
+
+        // Second pass: "When a Warp Counter is removed from [CardName], [effect]"
+        Matcher wm = WARP_COUNTER_PATTERN.matcher(textEn);
+        while (wm.find()) {
+            String target     = wm.group("target").trim();
+            String youMayRaw  = wm.group("youmay");
+            boolean opponentMay = youMayRaw != null
+                    && youMayRaw.trim().toLowerCase(java.util.Locale.ROOT).startsWith("your opponent");
+            boolean youMay      = youMayRaw != null && !opponentMay;
+            String effect = SUMMON_MARKUP.matcher(wm.group("effect").trim()).replaceAll("").trim();
+            if (effect.isEmpty()) continue;
+            FieldAbility fa = parseFieldAbilityRestrictions(target, "warp counter removed", youMay, opponentMay, effect);
+            if (fa != null) result.add(fa);
+        }
+
         return List.copyOf(result);
+    }
+
+    /**
+     * Strips trigger-restriction sentences from {@code effect}, records the resulting flags,
+     * and returns a complete {@link FieldAbility}.  Returns {@code null} if the effect is empty
+     * after stripping.
+     */
+    private static FieldAbility parseFieldAbilityRestrictions(
+            String card, String trigger, boolean youMay, boolean opponentMay, String effect) {
+
+        boolean oncePerTurn = false, yourTurnOnly = false;
+        String  rfpConditionCard = "";
+
+        Matcher restr = FA_TRIGGER_RESTRICTION.matcher(effect);
+        if (restr.find() && (restr.group("yourTurn") != null || restr.group("once") != null)) {
+            yourTurnOnly = restr.group("yourTurn") != null;
+            oncePerTurn  = restr.group("once")     != null;
+            effect = effect.substring(0, restr.start()).trim().replaceAll("[.!,]+$", "").trim();
+        }
+
+        Matcher rfp = FA_RFP_CONDITION.matcher(effect);
+        if (rfp.find()) {
+            rfpConditionCard = rfp.group("rfpCard").trim();
+            effect = effect.substring(0, rfp.start()).trim().replaceAll("[.!,]+$", "").trim();
+        }
+
+        if (effect.isEmpty()) return null;
+        return new FieldAbility(card, trigger, youMay, opponentMay, effect,
+                oncePerTurn, yourTurnOnly, rfpConditionCard);
     }
 
     /** Parses a "remove … from the game" cost phrase into a list of {@link RemoveFromGameCost} items. */

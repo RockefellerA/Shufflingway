@@ -1654,12 +1654,13 @@ public class MainWindow {
 		List<GameState.WarpEntry> zone = gameState.getP1WarpZone();
 		if (zone.isEmpty()) return;
 
-		// Log the decrement for every card before we tick (zone is a live view)
+		// Log the decrement and fire counter-removed triggers before we tick
 		for (GameState.WarpEntry entry : zone) {
 			int before = entry.counters;
 			int after  = before - 1;
 			logEntry("Warp: \"" + entry.card.name() + "\" counter " + before + " → " + after
 					+ (after == 0 ? " (resolving!)" : ""));
+			triggerFieldAbilitiesForWarpCounterRemoved(entry.card);
 		}
 
 		List<CardData> resolved = gameState.tickP1WarpCounters();
@@ -4283,6 +4284,7 @@ public class MainWindow {
 		gameState.addToP1WarpZone(card, card.warpValue());
 		logEntry("Played \"" + card.name() + "\" via Warp — " + card.warpValue()
 				+ " counter" + (card.warpValue() != 1 ? "s" : "") + " → Removed From Play");
+		triggerFieldAbilitiesForWarpPlaced(card);
 		refreshP1HandLabel();
 		refreshP1BreakLabel();
 		refreshP1WarpZoneUI();
@@ -5828,6 +5830,38 @@ public class MainWindow {
 		triggerFieldAbilitiesForEvent("damage zone", isP1);
 	}
 
+	/**
+	 * Fires "warp placed" field abilities on all P1 field cards whose {@code triggerCard}
+	 * matches the card that was just moved from hand to the Warp zone.
+	 */
+	private void triggerFieldAbilitiesForWarpPlaced(CardData warped) {
+		List<CardData> all = new ArrayList<>();
+		all.addAll(p1ForwardCards);
+		for (CardData c : p1BackupCards) if (c != null) all.add(c);
+		all.addAll(p1MonsterCards);
+		for (CardData card : all)
+			for (FieldAbility fa : card.fieldAbilities())
+				if (fa.trigger().equals("warp placed")
+						&& fa.triggerCard().equalsIgnoreCase(warped.name()))
+					executeFieldAbility(fa, card, true);
+	}
+
+	/**
+	 * Fires "warp counter removed" field abilities on all P1 field cards whose
+	 * {@code triggerCard} matches the card whose counter was just decremented.
+	 */
+	private void triggerFieldAbilitiesForWarpCounterRemoved(CardData target) {
+		List<CardData> all = new ArrayList<>();
+		all.addAll(p1ForwardCards);
+		for (CardData c : p1BackupCards) if (c != null) all.add(c);
+		all.addAll(p1MonsterCards);
+		for (CardData card : all)
+			for (FieldAbility fa : card.fieldAbilities())
+				if (fa.trigger().equals("warp counter removed")
+						&& fa.triggerCard().equalsIgnoreCase(target.name()))
+					executeFieldAbility(fa, card, true);
+	}
+
 	private void triggerFieldAbilitiesForEvent(String triggerType, boolean isP1) {
 		List<CardData> fwds = new ArrayList<>(isP1 ? p1ForwardCards : p2ForwardCards);
 		CardData[]     bkps = isP1 ? p1BackupCards : p2BackupCards;
@@ -5853,6 +5887,16 @@ public class MainWindow {
 	private void executeFieldAbility(FieldAbility fa, CardData source, boolean isP1) {
 		// "only during your turn" — skip when the ability owner is not the active player
 		if (fa.yourTurnOnly() && !isP1) return;
+
+		// "only if [card] is removed from the game" — skip if that card is not in the RFP zone
+		if (!fa.rfpConditionCard().isEmpty()) {
+			String cond = fa.rfpConditionCard();
+			boolean inRfp = gameState.getP1WarpZone().stream()
+					.anyMatch(e -> e.card.name().equalsIgnoreCase(cond))
+					|| gameState.getP1PermanentRfp().stream()
+					.anyMatch(c -> c.name().equalsIgnoreCase(cond));
+			if (!inRfp) return;
+		}
 
 		// "only once per turn" — skip if already fired this turn
 		if (fa.oncePerTurn() && usedOncePerTurnAbilities
@@ -7865,6 +7909,64 @@ public class MainWindow {
 					logEntry("[P2] " + p2ForwardCards.get(idx).name() + " power becomes " + power + " until end of turn");
 					refreshP2ForwardSlot(idx);
 				}
+			}
+
+			@Override public void lookAtTopDeckAndOptionallyBreak() {
+				java.util.Deque<CardData> deck = isP1 ? gameState.getP1MainDeck() : gameState.getP2MainDeck();
+				if (deck.isEmpty()) { logEntry("Look at top: deck is empty."); return; }
+				CardData top = deck.peekFirst();
+				logEntry("Look at top of deck: " + top.name());
+
+				JDialog dlg = new JDialog(frame, "Top of Deck — " + top.name(), true);
+				dlg.setResizable(false);
+				dlg.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
+
+				JLabel cardLbl = new JLabel("...", SwingConstants.CENTER);
+				cardLbl.setPreferredSize(new Dimension(CARD_W, CARD_H));
+				cardLbl.setMinimumSize(new Dimension(CARD_W, CARD_H));
+				cardLbl.setOpaque(true);
+				cardLbl.setBackground(Color.DARK_GRAY);
+				cardLbl.setBorder(BorderFactory.createLineBorder(new Color(160, 110, 220), 1));
+				cardLbl.addMouseListener(new MouseAdapter() {
+					@Override public void mouseEntered(MouseEvent e) { showZoomAt(top.imageUrl()); }
+					@Override public void mouseExited(MouseEvent e)  { hideZoom(); }
+				});
+				new SwingWorker<ImageIcon, Void>() {
+					@Override protected ImageIcon doInBackground() throws Exception {
+						Image img = ImageCache.load(top.imageUrl());
+						return img == null ? null : new ImageIcon(img.getScaledInstance(CARD_W, CARD_H, Image.SCALE_SMOOTH));
+					}
+					@Override protected void done() {
+						try { ImageIcon ic = get(); if (ic != null) { cardLbl.setIcon(ic); cardLbl.setText(null); } }
+						catch (InterruptedException | ExecutionException ignored) {}
+					}
+				}.execute();
+
+				boolean[] sendToBreak = {false};
+				JButton breakBtn = new JButton("Break Zone");
+				breakBtn.setFont(FontLoader.loadPixelNESFont(11));
+				breakBtn.addActionListener(ae -> { sendToBreak[0] = true; hideZoom(); dlg.dispose(); });
+				JButton keepBtn = new JButton("Keep on Top");
+				keepBtn.setFont(FontLoader.loadPixelNESFont(11));
+				keepBtn.addActionListener(ae -> { hideZoom(); dlg.dispose(); });
+
+				JPanel south = new JPanel(new FlowLayout(FlowLayout.CENTER, 12, 6));
+				south.add(breakBtn); south.add(keepBtn);
+
+				dlg.getContentPane().setLayout(new BorderLayout(0, 4));
+				dlg.getContentPane().add(cardLbl, BorderLayout.CENTER);
+				dlg.getContentPane().add(south,   BorderLayout.SOUTH);
+				dlg.pack();
+				dlg.setLocationRelativeTo(frame);
+				dlg.setVisible(true);
+
+				if (sendToBreak[0]) {
+					deck.pollFirst();
+					if (isP1) { gameState.getP1BreakZone().add(top); refreshP1BreakLabel(); }
+					else      { gameState.getP2BreakZone().add(top); refreshP2BreakLabel(); }
+					logEntry(top.name() + " → Break Zone (from top of deck)");
+				}
+				if (isP1) refreshP1DeckLabel(); else refreshP2DeckLabel();
 			}
 
 			@Override public void reduceTarget(ForwardTarget t, int amount,
