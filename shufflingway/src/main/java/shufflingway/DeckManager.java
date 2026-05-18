@@ -122,6 +122,7 @@ public class DeckManager extends JDialog {
 
     private DeckDatabase db;
     private int selectedDeckId = -1;
+    private JButton addBtn;
     private JButton addMaxBtn;
     private Set<String> lbSerials = new HashSet<>();
 
@@ -322,7 +323,8 @@ public class DeckManager extends JDialog {
         clearButton.addActionListener(e -> { searchField.setText(""); browserSorter.setRowFilter(null); });
         searchField.addActionListener(e -> doSearch.run());
 
-        JButton addBtn = new JButton("Add 1 to Deck  ▼");
+        addBtn = new JButton("Add 1 to Deck  ▼");
+        addBtn.setEnabled(false);
         addBtn.addActionListener(e -> addSelectedCard());
 
         addMaxBtn = new JButton("Add Max to Deck");
@@ -694,11 +696,7 @@ public class DeckManager extends JDialog {
         boolean isLb  = lbSerials.contains(serial);
         int current   = getCardCountInDeck(serial);
 
-        if (getCombinedCardCountInDeck(serial) >= MAX_COPIES) {
-            JOptionPane.showMessageDialog(this,
-                    "You already have " + MAX_COPIES + " copies of this card in the deck.");
-            return;
-        }
+        if (getCombinedCardCountInDeck(serial) >= MAX_COPIES) return;
         if (isLb && getLbDeckTotal() >= MAX_LB_DECK_SIZE) {
             JOptionPane.showMessageDialog(this,
                     "LB deck is already at " + MAX_LB_DECK_SIZE + " cards.");
@@ -748,11 +746,12 @@ public class DeckManager extends JDialog {
         return Math.max(0, Math.min(byLimit, byZone));
     }
 
-    /** Updates the label and enabled state of the Add Max button based on the current browser selection. */
+    /** Updates the label and enabled state of the Add 1 and Add Max buttons based on the current browser selection. */
     private void refreshAddMaxBtn() {
         if (addMaxBtn == null) return;
         int viewRow = cardTable == null ? -1 : cardTable.getSelectedRow();
         if (viewRow < 0 || selectedDeckId < 0) {
+            if (addBtn != null) addBtn.setEnabled(false);
             addMaxBtn.setText("Add Max to Deck");
             addMaxBtn.setEnabled(false);
             return;
@@ -760,6 +759,7 @@ public class DeckManager extends JDialog {
         int modelRow = cardTable.convertRowIndexToModel(viewRow);
         String serial = (String) browserModel.getValueAt(modelRow, 0);
         int max = computeMaxAddable(serial);
+        if (addBtn != null) addBtn.setEnabled(max > 0);
         addMaxBtn.setText("Add " + max + " to Deck");
         addMaxBtn.setEnabled(max > 1);
     }
