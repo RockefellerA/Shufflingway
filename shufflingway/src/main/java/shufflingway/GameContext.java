@@ -453,7 +453,7 @@ public interface GameContext {
      */
     void searchDeckForCard(boolean inclForwards, boolean inclBackups, boolean inclMonsters, boolean inclSummons,
             int costVal, String costCmp, String cardNameFilter, String jobFilter,
-            String categoryFilter, String elementFilter, String excludeName, String destination);
+            String categoryFilter, String elementFilter, String excludeName, String excludeElem, String destination);
 
     /** Removes P1's backup at {@code idx} from the field and adds it to P1's hand. */
     void returnP1BackupToHand(int idx);

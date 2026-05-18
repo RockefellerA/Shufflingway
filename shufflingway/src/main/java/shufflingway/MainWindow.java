@@ -2342,7 +2342,7 @@ public class MainWindow {
 	private void searchDeckForCard(boolean inclForwards, boolean inclBackups,
 			boolean inclMonsters, boolean inclSummons,
 			int costVal, String costCmp, String cardNameFilter, String jobFilter,
-			String categoryFilter, String elementFilter, String excludeName,
+			String categoryFilter, String elementFilter, String excludeName, String excludeElem,
 			String destination) {
 		boolean anyType = !inclForwards && !inclBackups && !inclMonsters && !inclSummons;
 		List<CardData> matches = new ArrayList<>();
@@ -2363,6 +2363,12 @@ public class MainWindow {
 			if (!meetsCategoryFilter(c, categoryFilter)) continue;
 			if (!meetsElementFilter(c, elementFilter)) continue;
 			if (excludeName != null && excludeName.equalsIgnoreCase(c.name())) continue;
+			if (excludeElem != null) {
+				boolean excluded = false;
+				for (String ee : excludeElem.split("(?i)\\s+or\\s+"))
+					if (c.containsElement(ee.trim())) { excluded = true; break; }
+				if (excluded) continue;
+			}
 			matches.add(c);
 		}
 		if (matches.isEmpty()) {
@@ -7684,10 +7690,10 @@ public class MainWindow {
 			@Override public void searchDeckForCard(boolean inclForwards, boolean inclBackups,
 					boolean inclMonsters, boolean inclSummons,
 					int costVal, String costCmp, String cardNameFilter, String jobFilter,
-					String categoryFilter, String elementFilter, String excludeName,
+					String categoryFilter, String elementFilter, String excludeName, String excludeElem,
 					String destination) {
 				MainWindow.this.searchDeckForCard(inclForwards, inclBackups, inclMonsters, inclSummons,
-						costVal, costCmp, cardNameFilter, jobFilter, categoryFilter, elementFilter, excludeName, destination);
+						costVal, costCmp, cardNameFilter, jobFilter, categoryFilter, elementFilter, excludeName, excludeElem, destination);
 			}
 
 			@Override public void returnP1BackupToHand(int idx) { MainWindow.this.returnP1BackupToHand(idx); }

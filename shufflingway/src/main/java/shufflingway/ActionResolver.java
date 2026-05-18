@@ -472,7 +472,11 @@ public class ActionResolver {
         "(?:(?<elements>(?:Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)" +
             "(?:\\s+or\\s+(?:Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark))*)\\s+)?" +
         "(?<targets>Forwards?|Backups?|Monsters?|Summons?|Characters?|card)?\\s*" +
-        "(?:\\s+other\\s+than\\s+Card\\s+Name\\s+(?<excludename>.+?)(?=\\s+of\\s+cost|\\s+and\\b))?" +
+        "(?:\\s+other\\s+than\\s+(?:" +
+            "Card\\s+Name\\s+(?<excludename>.+?)(?=\\s+of\\s+cost|\\s+and\\b)" +
+            "|(?<excludeelem>(?:Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)" +
+              "(?:\\s+or\\s+(?:Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark))*)" +
+        "))?" +
         "(?:of\\s+cost\\s+(?<cost>\\d+)(?:\\s+or\\s+(?<costcmp>less|more))?\\s*)?" +
         "and\\s+" +
         "(?<destination>" +
@@ -864,7 +868,7 @@ public class ActionResolver {
         result = tryParseStandaloneDamageShields(effectText, source);
         if (result != null) return result;
 
-        result = tryParseSearchDeck(effectText);
+        result = tryParseSearchDeck(effectText, source, xValue);
         if (result != null) return result;
 
         result = tryParseActivateNamedCard(effectText);
@@ -902,7 +906,7 @@ public class ActionResolver {
         if (tryParseOpponentRevealHand(effectText)            != null) return "OpponentRevealHand";
         if (tryParseRevealTopDeck(effectText, source)         != null) return "RevealTopDeck";
         if (tryParseStandaloneDamageShields(effectText, source) != null) return "StandaloneDamageShields";
-        if (tryParseSearchDeck(effectText)                      != null) return "SearchDeck";
+        if (tryParseSearchDeck(effectText, source, 0)           != null) return "SearchDeck";
         if (tryParseActivateNamedCard(effectText)               != null) return "ActivateNamedCard";
         if (tryParseExtraTurnThenLose(effectText)               != null) return "ExtraTurnThenLose";
         if (tryParseGainCrystalPerX(effectText, 0)               != null) return "GainCrystalPerX";
@@ -1018,7 +1022,7 @@ public class ActionResolver {
         if (tryParseRevealTopDeck(effectText, source) != null)
             return revealTopDeckDescription(effectText, source) + restrictionDesc(effectText);
         if (tryParseStandaloneDamageShields(effectText, source) != null)    return "StandaloneDamageShields";
-        if (tryParseSearchDeck(effectText) != null)                         return "SearchDeck";
+        if (tryParseSearchDeck(effectText, source, 0) != null)              return "SearchDeck";
         if (tryParseActivateNamedCard(effectText) != null)                  return "ActivateNamedCard";
         if (tryParseExtraTurnThenLose(effectText) != null)                  return "ExtraTurnThenLose";
         if (tryParseGainCrystalPerX(effectText, 0) != null)                 return "GainCrystalPerX";
@@ -2734,7 +2738,7 @@ public class ActionResolver {
      * Supported destinations: "add it to your hand", "play it onto the field",
      * "put it under the top card of your/its owner's deck".
      */
-    private static Consumer<GameContext> tryParseSearchDeck(String text) {
+    private static Consumer<GameContext> tryParseSearchDeck(String text, CardData source, int xValue) {
         Matcher m = SEARCH_DECK_PATTERN.matcher(text);
         if (!m.find()) return null;
 
@@ -2787,6 +2791,10 @@ public class ActionResolver {
         // --- Exclude name (other than Card Name X) ---
         String excludeName = m.group("excludename") != null ? m.group("excludename").trim() : null;
 
+        // --- Exclude element (other than Light or Dark) ---
+        String excludeElemRaw = m.group("excludeelem");
+        String excludeElem = excludeElemRaw != null ? excludeElemRaw.trim() : null;
+
         // --- Type flags ---
         String  targets  = m.group("targets");
         boolean anyType  = targets == null || targets.equalsIgnoreCase("card");
@@ -2816,15 +2824,21 @@ public class ActionResolver {
         if (categoryFilter  != null) filterDesc.append(" [Cat ").append(categoryFilter).append("]");
         if (elementFilter   != null) filterDesc.append(" [").append(elementsRaw).append("]");
         if (excludeName     != null) filterDesc.append(" [not ").append(excludeName).append("]");
+        if (excludeElem     != null) filterDesc.append(" [not ").append(excludeElem).append("]");
         String typeDesc  = (targets != null && !anyType) ? " " + targets : "";
         String costLabel = costVal >= 0 ? " of cost " + costVal + (costCmp != null ? " or " + costCmp : "") : "";
 
+        // Secondary effect: text following this search clause (e.g. ". Gain 《C》.")
+        String afterSearch = text.substring(m.end()).trim().replaceAll("^[.!,]+\\s*", "").trim();
+        Consumer<GameContext> secondary = afterSearch.isEmpty() ? null : parse(afterSearch, source, xValue);
+
         final String fName = cardNameFilter, fJob = jobFilter, fCat = categoryFilter;
-        final String fElem = elementFilter, fExclude = excludeName;
+        final String fElem = elementFilter, fExclude = excludeName, fExclElem = excludeElem;
         final boolean fwd = inclForwards, bk = inclBackups, mn = inclMonsters, sm = inclSummons;
         return ctx -> {
             ctx.logEntry("Effect: Search deck for 1" + filterDesc + typeDesc + costLabel + " → " + destination);
-            ctx.searchDeckForCard(fwd, bk, mn, sm, costVal, costCmp, fName, fJob, fCat, fElem, fExclude, destination);
+            ctx.searchDeckForCard(fwd, bk, mn, sm, costVal, costCmp, fName, fJob, fCat, fElem, fExclude, fExclElem, destination);
+            if (secondary != null) secondary.accept(ctx);
         };
     }
 
