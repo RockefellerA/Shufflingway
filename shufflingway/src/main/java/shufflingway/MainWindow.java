@@ -5212,6 +5212,7 @@ public class MainWindow {
 			p1BackupStates[i]        = CardState.DULL;
 			p1BackupPlayedOnTurn[i]  = gameState.getTurnNumber();
 			refreshP1BackupSlot(i);
+			triggerFieldAbilitiesForEntersField(card, true);
 			break;
 		}
 	}
@@ -9824,6 +9825,7 @@ public class MainWindow {
 			p2BackupCards[i]  = card;
 			p2BackupStates[i] = CardState.DULL;
 			refreshP2BackupSlot(i);
+			triggerFieldAbilitiesForEntersField(card, false);
 			return;
 		}
 	}
