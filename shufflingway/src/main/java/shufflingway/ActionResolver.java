@@ -859,9 +859,6 @@ public class ActionResolver {
         result = tryParseExtraTurnThenLose(effectText);
         if (result != null) return result;
 
-        result = tryParseGainCrystalPerX(effectText, xValue);
-        if (result != null) return result;
-
         result = tryParseGainCrystal(effectText);
         if (result != null) return result;
 
@@ -2653,6 +2650,11 @@ public class ActionResolver {
             ctx.logEntry("Effect: Gain 1 Crystal");
             ctx.gainCrystal(1);
         };
+    }
+
+    /** Returns true when {@code text} is a "gain 《C》 for each CP paid as X" effect. */
+    static boolean isGainCrystalPerX(String text) {
+        return GAIN_CRYSTAL_PER_X.matcher(text).find();
     }
 
     private static Consumer<GameContext> tryParseGainCrystalPerX(String text, int xValue) {

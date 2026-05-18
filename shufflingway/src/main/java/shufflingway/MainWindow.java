@@ -5711,9 +5711,9 @@ public class MainWindow {
 	// Field Ability triggers
 	// -------------------------------------------------------------------------
 
-	/** Matches "pay 《cost》[.] When you do so, sub-effect[. The maximum you can pay for 《X》 is N]". */
+	/** Matches "pay 《cost》[.] When/If you do so, sub-effect[. The maximum you can pay for 《X》 is N]". */
 	private static final java.util.regex.Pattern FA_PAY_WHEN_DO_SO = java.util.regex.Pattern.compile(
-		"(?i)^pay\\s+《([^》]+)》[.,]?\\s+When\\s+you\\s+do\\s+so[,.]?\\s+(.+?)(?:[.,]?\\s+The\\s+maximum\\s+you\\s+can\\s+pay\\s+for\\s+《X》\\s+is\\s+\\d+\\.?)?$",
+		"(?i)^pay\\s+《([^》]+)》[.,]?\\s+(?:When|If)\\s+you\\s+do\\s+so[,.]?\\s+(.+?)(?:[.,]?\\s+The\\s+maximum\\s+you\\s+can\\s+pay\\s+for\\s+《X》\\s+is\\s+\\d+\\.?)?$",
 		java.util.regex.Pattern.DOTALL
 	);
 	private static final java.util.regex.Pattern FA_MAX_X = java.util.regex.Pattern.compile(
@@ -5813,8 +5813,18 @@ public class MainWindow {
 		String costToken = payM.group(1).trim();
 		String subEffect = payM.group(2).trim().replaceAll("[.!,]+$", "");
 
-		boolean isXCost  = costToken.equalsIgnoreCase("X");
-		int     fixedCost = isXCost ? 0 : Integer.parseInt(costToken);
+		boolean isXCost = costToken.equalsIgnoreCase("X");
+		int fixedCost;
+		if (!isXCost) {
+			try { fixedCost = Integer.parseInt(costToken); }
+			catch (NumberFormatException e) {
+				// Non-numeric, non-X cost token (e.g. 《C》 for crystal) — resolve normally.
+				java.util.function.Consumer<GameContext> effect = ActionResolver.parse(fa.effectText(), source);
+				if (effect != null) { logEntry("[FieldAbility] " + source.name() + " — " + fa.effectText()); effect.accept(buildGameContext(effectIsP1)); }
+				else logEntry("[FieldAbility] Unrecognized effect: " + fa.effectText());
+				return;
+			}
+		} else { fixedCost = 0; }
 
 		java.util.regex.Matcher maxM = FA_MAX_X.matcher(fa.effectText());
 		int maxCp = isXCost ? (maxM.find() ? Integer.parseInt(maxM.group(1)) : Integer.MAX_VALUE) : fixedCost;
@@ -5852,13 +5862,21 @@ public class MainWindow {
 	}
 
 	private void applyPayWhenDoSoEffect(String subEffect, CardData source, int xValue, boolean effectIsP1) {
+		GameContext ctx = buildGameContext(effectIsP1);
+		// "Gain 《C》 for each CP paid as X" must be resolved with the known xValue directly —
+		// the generic parse chain would see xValue=0 for this pattern and give 0 crystals.
+		if (ActionResolver.isGainCrystalPerX(subEffect)) {
+			ctx.logEntry("Effect: Gain " + xValue + " Crystal(s) (for each CP paid as X)");
+			ctx.gainCrystal(xValue);
+			return;
+		}
 		java.util.function.Consumer<GameContext> effect = ActionResolver.parse(subEffect, source, xValue);
 		if (effect == null) {
 			logEntry("[FieldAbility] Unrecognized 'when you do so' effect: " + subEffect);
 			return;
 		}
 		logEntry("[FieldAbility] " + source.name() + " — when you do so: " + subEffect + " (X=" + xValue + ")");
-		effect.accept(buildGameContext(effectIsP1));
+		effect.accept(ctx);
 	}
 
 	/**

@@ -10,13 +10,13 @@ import java.util.List;
 
 import org.junit.jupiter.api.Test;
 
-public class CardParsingTest {
+public class ActionAbilityParsingTest {
 
     @Test
     void reportCardParsingCoverage() throws Exception {
         File dbFile = new File("fftcg_cards.db");
         if (!dbFile.exists()) {
-            System.out.println("[CardParsingTest] fftcg_cards.db not found — skipping.");
+            System.out.println("[ActionAbilityParsingTest] fftcg_cards.db not found — skipping.");
             return;
         }
 
@@ -94,7 +94,7 @@ public class CardParsingTest {
         }
 
         int withAbilities = fullyParsed + partiallyParsed + noneParsed;
-        System.out.printf("%n=== Card Parsing Coverage ===%n");
+        System.out.printf("%n=== Action Ability Parsing Coverage ===%n");
         System.out.printf("Total cards:          %5d%n", totalCards);
         System.out.printf("No action abilities:  %5d%n", noAbilities);
         System.out.printf("With action abilities:%5d%n", withAbilities);
@@ -146,7 +146,7 @@ public class CardParsingTest {
     void reportFullPatternCoverage() throws Exception {
         File dbFile = new File("fftcg_cards.db");
         if (!dbFile.exists()) {
-            System.out.println("[CardParsingTest] fftcg_cards.db not found — skipping.");
+            System.out.println("[ActionAbilityParsingTest] fftcg_cards.db not found — skipping.");
             return;
         }
 
