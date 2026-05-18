@@ -576,6 +576,7 @@ public class MainWindow {
 
 		// Crystal sits above the full bar, pinned to the right to align with the RFP button
 		JPanel p1CrystalRow = new JPanel(new BorderLayout(0, 0));
+		p1CrystalRow.setOpaque(false);
 		p1CrystalRow.add(p1CrystalDisplay, BorderLayout.EAST);
 
 		// Restore the limit button's original height constraint
@@ -594,6 +595,7 @@ public class MainWindow {
 
 		// Wrapper: crystal row above, top bar below
 		JPanel p1NorthWrapper = new JPanel(new BorderLayout(0, 0));
+		p1NorthWrapper.setOpaque(false);
 		p1NorthWrapper.add(p1CrystalRow, BorderLayout.NORTH);
 		p1NorthWrapper.add(p1TopBar,     BorderLayout.SOUTH);
 
@@ -771,7 +773,7 @@ public class MainWindow {
 		gameLog.setEditable(false);
 		gameLog.setLineWrap(true);
 		gameLog.setWrapStyleWord(true);
-		gameLog.setFont(new Font("Courier New", Font.PLAIN, 12));
+		gameLog.setFont(new Font("Segoe UI", Font.PLAIN, 12));
 		gameLog.setBackground(Color.WHITE);
 		gameLog.setForeground(Color.BLACK);
 		gameLog.setMargin(new Insets(4, 4, 4, 4));
@@ -1449,8 +1451,9 @@ public class MainWindow {
 		p2RemoveLabel.setUrl(null);
 		refreshRemoveButtons();
 
-		// Crystal badges
-		refreshCrystalDisplays();
+		// Crystal badges — hard-reset so the display is hidden until crystals are earned
+		if (p1CrystalDisplay != null) p1CrystalDisplay.hardReset();
+		if (p2CrystalDisplay != null) p2CrystalDisplay.hardReset();
 
 		// P2 backup slots
 		for (int i = 0; i < p2BackupCards.length; i++) {
@@ -6869,7 +6872,10 @@ public class MainWindow {
 		for (String e : elems) { playerSpendCp(isP1, e, playerCpForElem(isP1, e)); playerClearCp(isP1, e); }
 
 		// Crystal cost
-		if (ability.crystalCost() > 0) playerSpendCrystals(isP1, ability.crystalCost());
+		if (ability.crystalCost() > 0) {
+			playerSpendCrystals(isP1, ability.crystalCost());
+			refreshCrystalDisplays();
+		}
 
 		// Mark once-per-turn ability as used for this turn
 		if (ability.oncePerTurn())
