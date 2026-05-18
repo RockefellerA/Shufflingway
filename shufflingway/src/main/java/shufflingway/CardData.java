@@ -398,11 +398,24 @@ public record CardData(
      * ({@code 《token》:}), or end of input.
      */
     private static final Pattern FIELD_ABILITY_PATTERN = Pattern.compile(
-        "(?i)When\\s+(?<card>[^,]+?)\\s+(?<trigger>attacks?(?:\\s+or\\s+blocks?)?|blocks?|enters?\\s+the\\s+field)\\s*,\\s+" +
+        "(?i)When\\s+(?<card>[^,]+?)\\s+" +
+        "(?<trigger>" +
+            "attacks?(?:\\s+or\\s+blocks?)?|blocks?" +
+            "|enters?\\s+the\\s+field" +
+            "|is\\s+put\\s+(?:from\\s+the\\s+field\\s+)?into\\s+the\\s+Break\\s+Zone" +
+            "|casts?\\s+a\\s+Summon" +
+            "|is\\s+put\\s+into\\s+(?:your\\s+)?Damage\\s+Zone" +
+        ")\\s*,\\s+" +
         "(?<youmay>(?:you|your\\s+opponent)\\s+may\\s+)?" +
         "(?<effect>.+?)\\s*" +
-        "(?=\\s*\\[\\[br\\]\\]|\\s*When\\s+[^,]+?\\s+(?:attacks?|blocks?|enters?)|\\s*(?:《[^》]+》)+\\s*:|\\s*$)",
+        "(?=\\s*\\[\\[br\\]\\]|\\s*When\\s+[^,]+?\\s+(?:attacks?|blocks?|enters?|is\\s+put)|\\s*(?:《[^》]+》)+\\s*:|\\s*$)",
         Pattern.DOTALL
+    );
+
+    /** Matches the restriction sentence appended to a field-ability effect, capturing flags. */
+    private static final Pattern FA_TRIGGER_RESTRICTION = Pattern.compile(
+        "(?i)[.!,]?\\s*This\\s+effect\\s+will\\s+trigger\\s+only\\s+" +
+        "(?:(?<yourTurn>during\\s+your\\s+turn)(?:\\s+and\\s+only\\s+)?)?(?<once>once\\s+per\\s+turn)?[.!]?\\s*$"
     );
 
     /**
@@ -419,11 +432,14 @@ public record CardData(
             // Normalise trigger to a canonical form
             String trigger;
             boolean cardIsParty = card.toLowerCase(java.util.Locale.ROOT).contains("party");
-            if (triggerRaw.contains("attack") && triggerRaw.contains("block")) trigger = "attacks or blocks";
-            else if (triggerRaw.contains("attack") && cardIsParty)             trigger = "party attacks";
-            else if (triggerRaw.contains("attack"))                             trigger = "attacks";
-            else if (triggerRaw.contains("block"))                              trigger = "blocks";
-            else                                                                 trigger = "enters the field";
+            if      (triggerRaw.contains("attack") && triggerRaw.contains("block")) trigger = "attacks or blocks";
+            else if (triggerRaw.contains("attack") && cardIsParty)                  trigger = "party attacks";
+            else if (triggerRaw.contains("attack"))                                 trigger = "attacks";
+            else if (triggerRaw.contains("block"))                                  trigger = "blocks";
+            else if (triggerRaw.contains("break zone"))                             trigger = "put into break zone";
+            else if (triggerRaw.contains("summon"))                                 trigger = "cast summon";
+            else if (triggerRaw.contains("damage zone"))                            trigger = "damage zone";
+            else                                                                     trigger = "enters the field";
 
             String  youMayRaw   = m.group("youmay");
             boolean opponentMay = youMayRaw != null
@@ -432,7 +448,18 @@ public record CardData(
 
             String effect = SUMMON_MARKUP.matcher(m.group("effect").trim()).replaceAll("").trim();
             if (effect.isEmpty()) continue;
-            result.add(new FieldAbility(card, trigger, youMay, opponentMay, effect));
+
+            // Strip "This effect will trigger only …" restriction sentence and record flags
+            boolean oncePerTurn = false, yourTurnOnly = false;
+            Matcher restr = FA_TRIGGER_RESTRICTION.matcher(effect);
+            if (restr.find() && (restr.group("yourTurn") != null || restr.group("once") != null)) {
+                yourTurnOnly = restr.group("yourTurn") != null;
+                oncePerTurn  = restr.group("once")     != null;
+                effect = effect.substring(0, restr.start()).trim().replaceAll("[.!,]+$", "").trim();
+            }
+            if (effect.isEmpty()) continue;
+
+            result.add(new FieldAbility(card, trigger, youMay, opponentMay, effect, oncePerTurn, yourTurnOnly));
         }
         return List.copyOf(result);
     }

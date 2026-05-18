@@ -607,6 +607,11 @@ public class ActionResolver {
         "\\s+until\\s+(?:the\\s+)?end\\s+of\\s+(?:the\\s+)?turn"
     );
 
+    /** Matches "Its/Their power becomes N until the end of the turn." — group 1 is the target power. */
+    private static final Pattern FOLLOWUP_POWER_BECOMES = Pattern.compile(
+        "(?i)(?:its?|their)\\s+power\\s+becomes?\\s+(\\d+)\\s+until\\s+(?:the\\s+)?end\\s+of\\s+(?:the\\s+)?turn[.!]?"
+    );
+
     /**
      * Matches "Until the end of the turn, it/they loses/lose [N power] [and traits]".
      * <ul>
@@ -923,6 +928,7 @@ public class ActionResolver {
         if (FOLLOWUP_MUST_ATTACK.matcher(followupText).find())                        return "MustAttack";
         if (FOLLOWUP_CANNOT_ATTACK_OR_BLOCK.matcher(followupText).find())             return "CannotAttackOrBlock";
         if (FOLLOWUP_CANNOT_ATTACK_OR_BLOCK_PERSISTENT.matcher(followupText).find())  return "CannotAttackOrBlockPersistent";
+        if (FOLLOWUP_POWER_BECOMES.matcher(followupText).find())                      return "PowerBecomes";
         if (FOLLOWUP_POWER_BOOST.matcher(followupText).find())                        return "PowerBoost";
         if (FOLLOWUP_POWER_BOOST_UNTIL.matcher(followupText).find())                  return "PowerBoostUntil";
         if (FOLLOWUP_KEYWORD_GRANT.matcher(followupText).find())                      return "KeywordGrant";
@@ -1722,6 +1728,20 @@ public class ActionResolver {
                     if (t.isP1()) ctx.setP1ForwardCannotAttackOrBlockPersistent(t.idx());
                     else          ctx.setP2ForwardCannotAttackOrBlockPersistent(t.idx());
                 }
+                if (secondary != null) secondary.accept(ctx);
+            };
+        }
+
+        // --- Power-becomes followup: "Its power becomes N until end of turn" ---
+        Matcher becomesM = FOLLOWUP_POWER_BECOMES.matcher(primaryFollowup);
+        if (becomesM.find()) {
+            int targetPower = Integer.parseInt(becomesM.group(1));
+            return ctx -> {
+                ctx.logEntry(choosePrefix + " → power becomes " + targetPower);
+                List<ForwardTarget> ts = selectTargets(ctx, maxCount, upTo,
+                        opponentOnly, selfOnly, condition, element, zone, opponentZone,
+                        costVal, costCmp, inclForwards, inclBackups, inclMonsters, jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons);
+                ts.forEach(t -> ctx.setTargetPower(t, targetPower));
                 if (secondary != null) secondary.accept(ctx);
             };
         }

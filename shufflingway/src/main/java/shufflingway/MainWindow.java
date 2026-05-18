@@ -1849,6 +1849,7 @@ public class MainWindow {
 
 		refreshP1DeckLabel();
 		logEntry("P1 takes 1 damage — " + drawn.name() + (isEx ? " [EX BURST!]" : ""));
+		triggerFieldAbilitiesForDamageZone(true);
 
 		if (gameState.getP1DamageZone().size() >= 7) {
 			triggerGameOver("7 Damage Taken - You Lose!");
@@ -1891,6 +1892,7 @@ public class MainWindow {
 		boolean isEx = drawn != null && drawn.exBurst();
 		String cardInfo = drawn != null ? " — " + drawn.name() + (isEx ? " [EX BURST!]" : "") : "";
 		logEntry("P2 takes 1 damage (" + p2DamageCount + "/7)" + cardInfo);
+		triggerFieldAbilitiesForDamageZone(false);
 
 		int slotIdx = p2DamageCount - 1;
 		if (drawn != null) animateCardToDamage(false, slotIdx);
@@ -2017,6 +2019,7 @@ public class MainWindow {
 			for (int i = 0; i < p1ForwardCards.size(); i++) refreshP1ForwardSlot(i);
 		}
 		refreshP1BreakLabel();
+		triggerFieldAbilitiesForBreakZone(card, true);
 	}
 
 	/** Removes P2's forward at {@code idx} from the field and sends it to P2's Break Zone. */
@@ -2069,6 +2072,7 @@ public class MainWindow {
 			for (int i = 0; i < p2ForwardCards.size(); i++) refreshP2ForwardSlot(i);
 		}
 		refreshP2BreakLabel();
+		triggerFieldAbilitiesForBreakZone(card, false);
 	}
 
 	private void returnP1ForwardToDeck(int idx, boolean toBottom) {
@@ -4864,6 +4868,7 @@ public class MainWindow {
 			java.util.function.Consumer<GameContext> effect = ActionResolver.parse(effectText, entry.source());
 			if (effect != null) effect.accept(ctx);
 			else logEntry("[ActionResolver] Summon effect not yet implemented: " + effectText);
+			triggerFieldAbilitiesForCastSummon(entry.isP1());
 			gameState.getP1BreakZone().add(entry.source());
 			logEntry("\"" + entry.source().name() + "\" → Break Zone");
 			refreshP1BreakLabel();
@@ -5639,6 +5644,7 @@ public class MainWindow {
 			p2BackupLabels[idx].setText(null);
 		}
 		refreshP2BreakLabel();
+		triggerFieldAbilitiesForBreakZone(c, false);
 	}
 
 	private void breakP2MonsterSlot(int idx) {
@@ -5658,6 +5664,7 @@ public class MainWindow {
 			p2MonsterPanel.repaint();
 		}
 		refreshP2BreakLabel();
+		triggerFieldAbilitiesForBreakZone(c, false);
 	}
 
 	/**
@@ -5760,6 +5767,82 @@ public class MainWindow {
 		}
 	}
 
+	/** Subject pattern for break-zone triggers: "a [Type] [you|opponent] control[s]". */
+	private static final java.util.regex.Pattern BZ_SUBJECT_TYPE = java.util.regex.Pattern.compile(
+		"(?i)^a\\s+(?<type>Character|Forward|Backup|Monster)\\s+(?<ctrl>you|opponent)\\s+controls?$"
+	);
+
+	/**
+	 * Returns true when the broken card satisfies the break-zone trigger subject of {@code fa}.
+	 * Handles named cards ("Geomancer") and type+controller phrases ("a Forward you control").
+	 */
+	private boolean matchesBreakZoneSubject(FieldAbility fa, CardData broken, boolean brokenIsP1, boolean abilityOwnerIsP1) {
+		String subject = fa.triggerCard().trim();
+		java.util.regex.Matcher m = BZ_SUBJECT_TYPE.matcher(subject);
+		if (m.matches()) {
+			boolean selfCtrl     = m.group("ctrl").equalsIgnoreCase("you");
+			boolean brokenByOwner = (brokenIsP1 == abilityOwnerIsP1);
+			if (selfCtrl != brokenByOwner) return false;
+			return switch (m.group("type").toLowerCase(java.util.Locale.ROOT)) {
+				case "forward"   -> broken.isForward();
+				case "backup"    -> broken.isBackup();
+				case "monster"   -> broken.isMonster();
+				default          -> !broken.isSummon(); // "Character" = any non-Summon field card
+			};
+		}
+		// Fall back to named card match (handles "Geomancer", etc.)
+		return broken.name().equalsIgnoreCase(subject);
+	}
+
+	/**
+	 * Fires "put into break zone" field abilities on all field cards whose subject matches
+	 * the card that just broke.  Must be called after the card is removed from the field.
+	 */
+	private void triggerFieldAbilitiesForBreakZone(CardData broken, boolean brokenIsP1) {
+		for (int pass = 0; pass < 2; pass++) {
+			boolean ownerIsP1 = (pass == 0);
+			List<CardData> fwds = new ArrayList<>(ownerIsP1 ? p1ForwardCards : p2ForwardCards);
+			CardData[]     bkps = ownerIsP1 ? p1BackupCards : p2BackupCards;
+			List<CardData> mons = new ArrayList<>(ownerIsP1 ? p1MonsterCards : p2MonsterCards);
+			for (CardData c : fwds) fireBreakZoneTriggers(c, ownerIsP1, broken, brokenIsP1);
+			for (CardData c : bkps) if (c != null) fireBreakZoneTriggers(c, ownerIsP1, broken, brokenIsP1);
+			for (CardData c : mons) fireBreakZoneTriggers(c, ownerIsP1, broken, brokenIsP1);
+		}
+	}
+
+	private void fireBreakZoneTriggers(CardData card, boolean ownerIsP1, CardData broken, boolean brokenIsP1) {
+		for (FieldAbility fa : card.fieldAbilities()) {
+			if (!fa.trigger().equals("put into break zone")) continue;
+			if (!matchesBreakZoneSubject(fa, broken, brokenIsP1, ownerIsP1)) continue;
+			executeFieldAbility(fa, card, ownerIsP1);
+		}
+	}
+
+	/** Fires "cast summon" field abilities for all field cards belonging to the casting player. */
+	private void triggerFieldAbilitiesForCastSummon(boolean isP1) {
+		triggerFieldAbilitiesForEvent("cast summon", isP1);
+	}
+
+	/** Fires "damage zone" field abilities for all field cards belonging to the player who took damage. */
+	private void triggerFieldAbilitiesForDamageZone(boolean isP1) {
+		triggerFieldAbilitiesForEvent("damage zone", isP1);
+	}
+
+	private void triggerFieldAbilitiesForEvent(String triggerType, boolean isP1) {
+		List<CardData> fwds = new ArrayList<>(isP1 ? p1ForwardCards : p2ForwardCards);
+		CardData[]     bkps = isP1 ? p1BackupCards : p2BackupCards;
+		List<CardData> mons = new ArrayList<>(isP1 ? p1MonsterCards : p2MonsterCards);
+		for (CardData c : fwds) fireEventTriggers(c, isP1, triggerType);
+		for (CardData c : bkps) if (c != null) fireEventTriggers(c, isP1, triggerType);
+		for (CardData c : mons) fireEventTriggers(c, isP1, triggerType);
+	}
+
+	private void fireEventTriggers(CardData card, boolean isP1, String triggerType) {
+		for (FieldAbility fa : card.fieldAbilities())
+			if (fa.trigger().equals(triggerType))
+				executeFieldAbility(fa, card, isP1);
+	}
+
 	/**
 	 * Resolves a triggered field ability.  When the ability is optional ({@code youMay} or
 	 * {@code opponentMay}), P1 is shown a Decline / OK dialog; the AI always accepts.
@@ -5768,6 +5851,16 @@ public class MainWindow {
 	 * perspective so that "play from hand" and similar effects target the correct player.
 	 */
 	private void executeFieldAbility(FieldAbility fa, CardData source, boolean isP1) {
+		// "only during your turn" — skip when the ability owner is not the active player
+		if (fa.yourTurnOnly() && !isP1) return;
+
+		// "only once per turn" — skip if already fired this turn
+		if (fa.oncePerTurn() && usedOncePerTurnAbilities
+				.getOrDefault(source, java.util.Set.of()).contains(fa.effectText())) {
+			logEntry("[FieldAbility] " + source.name() + " — already used this turn, skipping");
+			return;
+		}
+
 		// opponentMay effects run from the opponent's context
 		boolean effectIsP1 = fa.opponentMay() ? !isP1 : isP1;
 
@@ -5804,6 +5897,9 @@ public class MainWindow {
 		} else if (fa.youMay() || fa.opponentMay()) {
 			logEntry("[FieldAbility] [AI] auto-accepts optional ability");
 		}
+
+		if (fa.oncePerTurn())
+			usedOncePerTurnAbilities.computeIfAbsent(source, k -> new java.util.HashSet<>()).add(fa.effectText());
 
 		logEntry("[FieldAbility] " + source.name() + " — " + fa.effectText());
 		effect.accept(buildGameContext(effectIsP1));
@@ -6357,6 +6453,7 @@ public class MainWindow {
 			p1BackupLabels[idx].setText(null);
 		}
 		refreshP1BreakLabel();
+		triggerFieldAbilitiesForBreakZone(c, true);
 	}
 
 	private void breakP1MonsterSlot(int idx) {
@@ -6376,6 +6473,7 @@ public class MainWindow {
 			p1MonsterPanel.repaint();
 		}
 		refreshP1BreakLabel();
+		triggerFieldAbilitiesForBreakZone(c, true);
 	}
 
 	/**
@@ -7746,6 +7844,26 @@ public class MainWindow {
 						refreshP1ForwardSlot(i);
 						return;
 					}
+				}
+			}
+
+			@Override public void setTargetPower(ForwardTarget t, int power) {
+				if (t.zone() != ForwardTarget.CardZone.FORWARD) return;
+				int idx = t.idx();
+				if (t.isP1()) {
+					if (idx >= p1ForwardCards.size()) return;
+					int base = p1ForwardCards.get(idx).power();
+					p1ForwardPowerReduction.set(idx, 0);
+					p1ForwardPowerBoost.set(idx, power - base);
+					logEntry(p1Forward(idx).name() + " power becomes " + power + " until end of turn");
+					refreshP1ForwardSlot(idx);
+				} else {
+					if (idx >= p2ForwardCards.size()) return;
+					int base = p2ForwardCards.get(idx).power();
+					p2ForwardPowerReduction.set(idx, 0);
+					p2ForwardPowerBoost.set(idx, power - base);
+					logEntry("[P2] " + p2ForwardCards.get(idx).name() + " power becomes " + power + " until end of turn");
+					refreshP2ForwardSlot(idx);
 				}
 			}
 

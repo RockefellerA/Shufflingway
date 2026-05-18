@@ -231,6 +231,12 @@ public interface GameContext {
     void boostSourceForward(CardData source, int amount, EnumSet<CardData.Trait> traits);
 
     /**
+     * Sets the target's effective power to exactly {@code power} until the end of the turn,
+     * overriding any existing temporary boosts or reductions.
+     */
+    void setTargetPower(ForwardTarget t, int power);
+
+    /**
      * Reduces the target's power by {@code amount} and temporarily removes {@code traits}
      * until the end of the turn.  If effective power drops to 0 or below the card is sent
      * to the break zone (not treated as "broken" mechanically — distinction TBD).

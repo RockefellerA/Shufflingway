@@ -15,12 +15,30 @@ package shufflingway;
  *
  * <p>The {@code trigger} is normalised to one of:
  * {@code "attacks"}, {@code "blocks"}, {@code "attacks or blocks"},
- * {@code "party attacks"}, or {@code "enters the field"}.
+ * {@code "party attacks"}, {@code "enters the field"},
+ * {@code "put into break zone"}, {@code "cast summon"}, or {@code "damage zone"}.
+ *
+ * <p>The {@code triggerCard} field holds:
+ * <ul>
+ *   <li>For ETF / attack / block triggers — the name of the card on the field that owns the trigger.</li>
+ *   <li>For break-zone triggers — the subject description that must match the card being broken
+ *       (e.g. {@code "a Forward you control"}, {@code "Geomancer"},
+ *       {@code "a Character opponent controls"}).</li>
+ *   <li>For cast-summon / damage-zone triggers — empty string (trigger is not card-specific).</li>
+ * </ul>
+ *
+ * <p>Firing restrictions:
+ * <ul>
+ *   <li>{@code oncePerTurn} — fires at most once per turn (tracked in {@code usedOncePerTurnAbilities}).</li>
+ *   <li>{@code yourTurnOnly} — fires only during the ability owner's turn.</li>
+ * </ul>
  */
 public record FieldAbility(
-        String  triggerCard,   // name of the card whose event fires this ability
-        String  trigger,       // "attacks" | "blocks" | "attacks or blocks" | "enters the field"
+        String  triggerCard,   // card name / break-zone subject / "" for global triggers
+        String  trigger,       // normalised trigger type
         boolean youMay,        // true = ability owner may decline the effect
         boolean opponentMay,   // true = opponent of the ability owner may decline the effect
-        String  effectText     // raw effect text, "you may"/"your opponent may" already stripped
+        String  effectText,    // raw effect text, restrictions already stripped
+        boolean oncePerTurn,   // "This effect will trigger only once per turn"
+        boolean yourTurnOnly   // "This effect will trigger only during your turn"
 ) {}
