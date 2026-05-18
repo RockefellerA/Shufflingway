@@ -633,6 +633,15 @@ public record CardData(
     );
 
     /**
+     * Matches a prefix condition requiring the card's cast cost to have been paid with CP from
+     * N or more different element types:
+     * "if the cost to cast X was paid with CP of N or more different Elements, "
+     */
+    private static final Pattern FA_CAST_PAYMENT_ELEMENTS = Pattern.compile(
+        "(?i)^if\\s+the\\s+cost\\s+to\\s+cast\\s+[^,]+?\\s+was\\s+paid\\s+with\\s+CP\\s+of\\s+(?<n>\\d+)\\s+or\\s+more\\s+different\\s+Elements,?\\s+"
+    );
+
+    /**
      * Parses all Field Abilities ("When X Y, Z") from {@code textEn}.
      * The returned list is immutable.
      */
@@ -701,7 +710,9 @@ public record CardData(
 
         boolean oncePerTurn = false, yourTurnOnly = false;
         String  rfpConditionCard = "";
+        int     castPaymentMinElements = 0;
 
+        // Suffix restrictions (strip from end)
         Matcher restr = FA_TRIGGER_RESTRICTION.matcher(effect);
         if (restr.find() && (restr.group("yourTurn") != null || restr.group("once") != null)) {
             yourTurnOnly = restr.group("yourTurn") != null;
@@ -715,9 +726,16 @@ public record CardData(
             effect = effect.substring(0, rfp.start()).trim().replaceAll("[.!,]+$", "").trim();
         }
 
+        // Prefix condition: "if the cost to cast X was paid with CP of N or more different Elements, "
+        Matcher pay = FA_CAST_PAYMENT_ELEMENTS.matcher(effect);
+        if (pay.find()) {
+            castPaymentMinElements = Integer.parseInt(pay.group("n"));
+            effect = effect.substring(pay.end()).trim();
+        }
+
         if (effect.isEmpty()) return null;
         return new FieldAbility(card, trigger, youMay, opponentMay, effect,
-                oncePerTurn, yourTurnOnly, rfpConditionCard);
+                oncePerTurn, yourTurnOnly, rfpConditionCard, castPaymentMinElements);
     }
 
     /** Parses a "remove … from the game" cost phrase into a list of {@link RemoveFromGameCost} items. */

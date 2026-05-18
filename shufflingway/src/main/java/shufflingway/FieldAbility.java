@@ -39,7 +39,8 @@ public record FieldAbility(
         boolean youMay,           // true = ability owner may decline the effect
         boolean opponentMay,      // true = opponent of the ability owner may decline the effect
         String  effectText,       // raw effect text, restrictions already stripped
-        boolean oncePerTurn,      // "This effect will trigger only once per turn"
-        boolean yourTurnOnly,     // "This effect will trigger only during your turn"
-        String  rfpConditionCard  // non-empty: trigger only if this card is in the RFP zone
+        boolean oncePerTurn,           // "This effect will trigger only once per turn"
+        boolean yourTurnOnly,          // "This effect will trigger only during your turn"
+        String  rfpConditionCard,      // non-empty: trigger only if this card is in the RFP zone
+        int     castPaymentMinElements // > 0: trigger only if the card was cast with ≥ N distinct element types
 ) {}

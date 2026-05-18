@@ -261,6 +261,8 @@ public class MainWindow {
 
 	/** Tracks once-per-turn ability uses this turn; keyed by card instance identity, value is set of effectText strings used. */
 	private final java.util.IdentityHashMap<CardData, java.util.Set<String>> usedOncePerTurnAbilities = new java.util.IdentityHashMap<>();
+	/** Distinct element types used to pay the most recent card's CP cost; checked by castPaymentMinElements conditions. */
+	private int lastCastPaymentDistinctElements = 0;
 
 	/** Set when "Take 1 more turn; lose at the end of that turn" fires. */
 	private boolean p1ExtraTurnThenLose = false;
@@ -1396,6 +1398,7 @@ public class MainWindow {
 		p1AttackSelection.clear();
 		java.util.Arrays.fill(p1BackupPlayedOnTurn, 0);
 		java.util.Arrays.fill(p1BackupFrozen, false);
+		lastCastPaymentDistinctElements = 0;
 
 		// Monster zone
 		if (p1MonsterPanel != null) {
@@ -5052,6 +5055,9 @@ public class MainWindow {
 			gameState.spendP1Cp(e, gameState.getP1CpForElement(e));
 			gameState.clearP1Cp(e);
 		}
+		// Record distinct element types used for payment (checked by castPaymentMinElements field abilities)
+		lastCastPaymentDistinctElements = (int) execCpAccum.keySet().stream()
+				.filter(e -> !e.isEmpty()).distinct().count();
 		gameState.removeFromHand(cardHandIdx);
 		logEntry("Played \"" + card.name() + "\"");
 
@@ -6260,6 +6266,14 @@ public class MainWindow {
 	private void executeFieldAbility(FieldAbility fa, CardData source, boolean isP1) {
 		// "only during your turn" — skip when the ability owner is not the active player
 		if (fa.yourTurnOnly() && !isP1) return;
+
+		// cast payment element condition: "if the cost to cast X was paid with CP of N or more different Elements"
+		if (fa.castPaymentMinElements() > 0 && lastCastPaymentDistinctElements < fa.castPaymentMinElements()) {
+			logEntry("[FieldAbility] " + source.name() + " — cast payment condition not met ("
+					+ lastCastPaymentDistinctElements + " distinct element(s), needed "
+					+ fa.castPaymentMinElements() + ")");
+			return;
+		}
 
 		// "only if [card] is removed from the game" — skip if that card is not in the RFP zone
 		if (!fa.rfpConditionCard().isEmpty()) {
