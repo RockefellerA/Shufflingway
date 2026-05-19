@@ -42,5 +42,6 @@ public record FieldAbility(
         boolean oncePerTurn,           // "This effect will trigger only once per turn"
         boolean yourTurnOnly,          // "This effect will trigger only during your turn"
         String  rfpConditionCard,      // non-empty: trigger only if this card is in the RFP zone
-        int     castPaymentMinElements // > 0: trigger only if the card was cast with ≥ N distinct element types
+        int     castPaymentMinElements,// > 0: trigger only if the card was cast with ≥ N distinct element types
+        boolean castOnly               // true = "enters the field due to your cast" — only fires when cast from hand
 ) {}

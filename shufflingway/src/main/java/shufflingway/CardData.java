@@ -248,6 +248,18 @@ public record CardData(
     }
 
     /**
+     * Returns {@code true} when the card's main casting cost may only be paid with CP produced
+     * by Backups — hand-card discards are not eligible.
+     * Matches text of the form "You can only pay with CP produced by Backups to cast [Name]."
+     */
+    private static final Pattern CAST_BACKUP_CP_ONLY = Pattern.compile(
+        "(?i)You\\s+can\\s+only\\s+pay\\s+with\\s+CP\\s+produced\\s+by\\s+Backups\\s+to\\s+cast\\s+\\S[^.]*\\.?"
+    );
+    public boolean castBackupCpOnly() {
+        return CAST_BACKUP_CP_ONLY.matcher(textEn).find();
+    }
+
+    /**
      * Returns cleaned effect text for a Summon: strips the {@code [[ex]]} exBurst prefix,
      * then (when an alternate cost exists) splits on {@code [[br]]} and skips segments that
      * are trait-only lines or alternate-cost blocks.  All remaining markup tags are removed
@@ -274,22 +286,22 @@ public record CardData(
 
     // Haste: start with [[br]] or (This descriptor, middle [[br]]…[[br]], or paired with other keywords
     private static final Pattern HASTE_PATTERN = Pattern.compile(
-        "(?i)(?:^Haste\\s*(?:\\[\\[br\\]\\]|\\(This)|\\[\\[br\\]\\]Haste\\[\\[br\\]\\]|Haste\\s+First\\s+Strike)"
+        "(?i)(?:^Haste\\s*(?:\\[\\[br\\]\\]|\\(This)|\\[\\[br\\]\\]Haste\\b|Haste\\s+First\\s+Strike)"
     );
 
-    // Brave: start with [[br]] or (Attacking descriptor, middle [[br]]…[[br]], or paired with other keywords
+    // Brave: start with [[br]] or (Attacking descriptor, after any [[br]], or paired with other keywords
     private static final Pattern BRAVE_PATTERN = Pattern.compile(
-        "(?i)(?:^Brave\\s*(?:\\[\\[br\\]\\]|\\(Attacking)|\\[\\[br\\]\\]Brave\\[\\[br\\]\\]|Brave\\s*\\[\\[br\\]\\]|First\\s+Strike\\s+Brave|Haste\\s+Brave)"
+        "(?i)(?:^Brave\\s*(?:\\[\\[br\\]\\]|\\(Attacking)|\\[\\[br\\]\\]Brave\\b|Brave\\s*\\[\\[br\\]\\]|First\\s+Strike\\s+Brave|Haste\\s+Brave)"
     );
 
-    // First Strike: start of card with (If, [[br]], or paired with Haste/Brave
+    // First Strike: start of card with (If, [[br]], after any [[br]], or paired with Haste/Brave
     private static final Pattern FIRST_STRIKE_PATTERN = Pattern.compile(
-        "(?i)(?:^First\\s+Strike\\s*(?:\\(If|\\[\\[br\\]\\])|Haste\\s+First\\s+Strike|First\\s+Strike\\s+Brave)"
+        "(?i)(?:^First\\s+Strike\\s*(?:\\(If|\\[\\[br\\]\\])|\\[\\[br\\]\\]First\\s+Strike\\b|Haste\\s+First\\s+Strike|First\\s+Strike\\s+Brave)"
     );
 
-    // Back Attack: start of card with (Like, <p>, or [[br]]
+    // Back Attack: start of card with (Like, <p>, [[br]], or after any [[br]]
     private static final Pattern BACK_ATTACK_PATTERN = Pattern.compile(
-        "(?i)(?:^Back\\s+Attack\\s*(?:\\(Like|\\[\\[br\\]\\])|<p>Back\\s+Attack)"
+        "(?i)(?:^Back\\s+Attack\\s*(?:\\(Like|\\[\\[br\\]\\])|\\[\\[br\\]\\]Back\\s+Attack\\b|<p>Back\\s+Attack)"
     );
 
     private static final Pattern WARP_PATTERN = Pattern.compile(
@@ -600,7 +612,7 @@ public record CardData(
         "(?i)When\\s+(?<card>[^,]+?)\\s+" +
         "(?<trigger>" +
             "attacks?(?:\\s+or\\s+blocks?)?|blocks?" +
-            "|enters?\\s+the\\s+field" +
+            "|enters?\\s+the\\s+field(?:\\s+due\\s+to\\s+your\\s+cast)?" +
             "|leaves?\\s+the\\s+field" +
             "|is\\s+put\\s+(?:from\\s+the\\s+field\\s+)?into\\s+the\\s+Break\\s+Zone" +
             "|casts?\\s+a\\s+Summon" +
@@ -680,10 +692,11 @@ public record CardData(
                     && youMayRaw.trim().toLowerCase(java.util.Locale.ROOT).startsWith("your opponent");
             boolean youMay      = youMayRaw != null && !opponentMay;
 
+            boolean castOnly = triggerRaw.contains("due to your cast");
             String effect = SUMMON_MARKUP.matcher(m.group("effect").trim()).replaceAll("").trim();
             if (effect.isEmpty()) continue;
 
-            FieldAbility fa = parseFieldAbilityRestrictions(card, trigger, youMay, opponentMay, effect);
+            FieldAbility fa = parseFieldAbilityRestrictions(card, trigger, youMay, opponentMay, castOnly, effect);
             if (fa != null) result.add(fa);
         }
 
@@ -697,7 +710,7 @@ public record CardData(
             boolean youMay      = youMayRaw != null && !opponentMay;
             String effect = SUMMON_MARKUP.matcher(wm.group("effect").trim()).replaceAll("").trim();
             if (effect.isEmpty()) continue;
-            FieldAbility fa = parseFieldAbilityRestrictions(target, "warp counter removed", youMay, opponentMay, effect);
+            FieldAbility fa = parseFieldAbilityRestrictions(target, "warp counter removed", youMay, opponentMay, false, effect);
             if (fa != null) result.add(fa);
         }
 
@@ -710,7 +723,7 @@ public record CardData(
      * after stripping.
      */
     private static FieldAbility parseFieldAbilityRestrictions(
-            String card, String trigger, boolean youMay, boolean opponentMay, String effect) {
+            String card, String trigger, boolean youMay, boolean opponentMay, boolean castOnly, String effect) {
 
         boolean oncePerTurn = false, yourTurnOnly = false;
         String  rfpConditionCard = "";
@@ -739,7 +752,7 @@ public record CardData(
 
         if (effect.isEmpty()) return null;
         return new FieldAbility(card, trigger, youMay, opponentMay, effect,
-                oncePerTurn, yourTurnOnly, rfpConditionCard, castPaymentMinElements);
+                oncePerTurn, yourTurnOnly, rfpConditionCard, castPaymentMinElements, castOnly);
     }
 
     private static final Pattern COUNTER_COST_PATTERN = Pattern.compile(

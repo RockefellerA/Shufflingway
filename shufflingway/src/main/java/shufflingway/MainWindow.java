@@ -266,6 +266,8 @@ public class MainWindow {
 	private final java.util.IdentityHashMap<CardData, java.util.Set<String>> usedOncePerTurnAbilities = new java.util.IdentityHashMap<>();
 	/** Distinct element types used to pay the most recent card's CP cost; checked by castPaymentMinElements conditions. */
 	private int lastCastPaymentDistinctElements = 0;
+	/** True while a card is being placed as a direct result of being cast from hand; gates castOnly field abilities. */
+	private boolean lastCardWasCast = false;
 
 	/** Set when "Take 1 more turn; lose at the end of that turn" fires. */
 	private boolean p1ExtraTurnThenLose = false;
@@ -4745,6 +4747,8 @@ public class MainWindow {
 			for (String e : elems) bankCpByElem.put(e, 0);
 		}
 
+		boolean backupCpOnly = card.castBackupCpOnly();
+
 		List<Integer> selectedBackups  = new ArrayList<>();
 		List<Integer> selectedDiscards = new ArrayList<>();
 
@@ -4804,9 +4808,9 @@ public class MainWindow {
 			int total = cpByElem.values().stream().mapToInt(Integer::intValue).sum() + extraCp;
 			int unsatisfiedElems = isLD ? 0 : (int) cpByElem.values().stream().filter(v -> v < 1).count();
 			boolean canAddBackup  = total < cost;
-			canAddDiscard[0] = isLD
+			canAddDiscard[0] = !backupCpOnly && (isLD
 					? total < cost
-					: (total < cost) || (extraCp == 0 && unsatisfiedElems > 0 && total + 2 <= cost + 2 * unsatisfiedElems);
+					: (total < cost) || (extraCp == 0 && unsatisfiedElems > 0 && total + 2 <= cost + 2 * unsatisfiedElems));
 			boolean allElemsPresent = isLD || cpByElem.values().stream().allMatch(v -> v >= 1);
 			confirmBtn.setEnabled(total >= cost && allElemsPresent);
 			if (elems.length == 1) {
@@ -4903,7 +4907,8 @@ public class MainWindow {
 			centerPanel.add(backupCardsPanel);
 		}
 
-		// ── Hand discard section ─────────────────────────────────────────────
+		// ── Hand discard section (omitted when card requires Backup CP only) ──
+		if (!backupCpOnly) {
 		JLabel discardHeader = new JLabel("Hand — discard for 2 CP each:");
 		discardHeader.setFont(FontLoader.loadPixelNESFont(9));
 		discardHeader.setAlignmentX(Component.LEFT_ALIGNMENT);
@@ -4980,11 +4985,13 @@ public class MainWindow {
 		}
 		centerPanel.add(discardHeader);
 		centerPanel.add(discardCardsPanel);
+		} // end !backupCpOnly
 
 		// ── Hint ─────────────────────────────────────────────────────────────
 		JLabel hint = new JLabel(
-				"<html><center>Backups: dull for 1 CP. Hand cards (" + elem
-				+ ", non-Light/Dark): discard for 2 CP.</center></html>",
+				backupCpOnly
+				? "<html><center>Backups only: dull for 1 CP each.<br>Hand discards are not allowed for this card.</center></html>"
+				: "<html><center>Backups: dull for 1 CP. Hand cards (" + elem + ", non-Light/Dark): discard for 2 CP.</center></html>",
 				SwingConstants.CENTER);
 		hint.setFont(FontLoader.loadPixelNESFont(9));
 
@@ -5085,6 +5092,7 @@ public class MainWindow {
 		gameState.removeFromHand(cardHandIdx);
 		logEntry("Played \"" + card.name() + "\"");
 
+		lastCardWasCast = true;
 		if (card.isBackup()) {
 			placeCardInFirstBackupSlot(card);
 		} else if (card.isForward()) {
@@ -5094,6 +5102,7 @@ public class MainWindow {
 		} else if (card.isSummon()) {
 			showSummonOnStack(card);
 		}
+		lastCardWasCast = false;
 
 		refreshP1HandLabel();
 		refreshP1BreakLabel();
@@ -6312,6 +6321,9 @@ public class MainWindow {
 					+ fa.castPaymentMinElements() + ")");
 			return;
 		}
+
+		// "due to your cast" — only fires when the card entered the field by being cast from hand
+		if (fa.castOnly() && !lastCardWasCast) return;
 
 		// "only if [card] is removed from the game" — skip if that card is not in the RFP zone
 		if (!fa.rfpConditionCard().isEmpty()) {
@@ -10896,9 +10908,11 @@ public class MainWindow {
 				gameState.spendP2Cp(element, Math.min(card.cost(), gameState.getP2CpForElement(element)));
 				refreshP2LimitButton();
 				logEntry("[P2] Plays LB \"" + card.name() + "\"");
+				lastCardWasCast = true;
 				if (card.isForward())      placeP2CardInForwardZone(card);
 				else if (card.isBackup())  placeP2CardInFirstBackupSlot(card);
 				else if (card.isMonster()) placeP2CardInMonsterZone(card);
+				lastCardWasCast = false;
 				step(() -> doMainPhase(onDone));
 				return;
 			}
@@ -10952,9 +10966,11 @@ public class MainWindow {
 				}
 				for (String e : elems) { gameState.clearP2Cp(e); }
 				logEntry("[P2] Plays " + toPlay.name());
+				lastCardWasCast = true;
 				if (toPlay.isForward())      placeP2CardInForwardZone(toPlay);
 				else if (toPlay.isBackup())  placeP2CardInFirstBackupSlot(toPlay);
 				else if (toPlay.isMonster()) placeP2CardInMonsterZone(toPlay);
+				lastCardWasCast = false;
 			}
 			step(() -> doMainPhase(onDone));
 		}
