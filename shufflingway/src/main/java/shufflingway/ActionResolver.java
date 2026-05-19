@@ -299,7 +299,37 @@ public class ActionResolver {
         "(?i)During\\s+this\\s+turn,\\s+the\\s+next\\s+damage\\s+it\\s+deals\\s+to\\s+a\\s+Forward\\s+becomes\\s+0\\s+instead\\.?"
     );
 
+    /** Matches "Negate all [the] damage dealt to it/them." — removes all existing damage immediately. */
+    private static final Pattern FOLLOWUP_NEGATE_DAMAGE = Pattern.compile(
+        "(?i)Negate\\s+all\\s+(?:the\\s+)?damage\\s+dealt\\s+to\\s+(?:it|them)\\.?"
+    );
+
+    /**
+     * Matches "Activate it/them and negate all [the] damage dealt to it/them."
+     * Checked before {@link #FOLLOWUP_ACTIVATE} to prevent the simpler pattern from
+     * consuming only the "Activate it" prefix.
+     */
+    private static final Pattern FOLLOWUP_ACTIVATE_AND_NEGATE_DAMAGE = Pattern.compile(
+        "(?i)Activate\\s+(?:it|them)\\s+and\\s+negate\\s+all\\s+(?:the\\s+)?damage\\s+dealt\\s+to\\s+(?:it|them)\\.?"
+    );
+
     // ---- Standalone damage-shield patterns (apply globally or to a named card) --------
+
+    /** "Negate all [the] damage dealt to all the Forwards/Characters you control." */
+    private static final Pattern STANDALONE_NEGATE_DAMAGE_OWN = Pattern.compile(
+        "(?i)Negate\\s+all\\s+(?:the\\s+)?damage\\s+dealt\\s+to\\s+all\\s+the\\s+" +
+        "(?:Forwards?|Characters?)\\s+you\\s+control\\.?"
+    );
+
+    /**
+     * "Activate all the Forwards/Characters you control and negate all [the] damage dealt to them."
+     * Handled by {@link #tryParseNegateAllDamage} before {@link #tryParseAllFieldEffect}
+     * so that the "activate all" part does not consume the full text without the negate clause.
+     */
+    private static final Pattern STANDALONE_ACTIVATE_AND_NEGATE_DAMAGE_OWN = Pattern.compile(
+        "(?i)Activate\\s+all\\s+the\\s+(?:Forwards?|Characters?)\\s+you\\s+control" +
+        "\\s+and\\s+negate\\s+all\\s+(?:the\\s+)?damage\\s+dealt\\s+to\\s+them\\.?"
+    );
 
     /** "During this turn, if a Forward you control is dealt damage less than its power, the damage becomes 0 instead." */
     private static final Pattern STANDALONE_NONLETHAL_PROTECTION = Pattern.compile(
@@ -833,6 +863,9 @@ public class ActionResolver {
         result = tryParseDelayedEffect(effectText);
         if (result != null) return result;
 
+        result = tryParseNegateAllDamage(effectText);
+        if (result != null) return result;
+
         result = tryParseAllFieldEffect(effectText);
         if (result != null) return result;
 
@@ -907,6 +940,7 @@ public class ActionResolver {
         if (tryParseDealDamageToForwards(effectText)          != null) return "DealDamageToForwards";
         if (tryParseChooseCharacter(effectText, source, 0)    != null) return "ChooseCharacter";
         if (tryParseDelayedEffect(effectText)                 != null) return "DelayedEffect";
+        if (tryParseNegateAllDamage(effectText)                != null) return "NegateDamage";
         if (tryParseAllFieldEffect(effectText)                != null) return "AllFieldEffect";
         if (tryParseStandalonePowerBoostUntil(effectText, source) != null) return "StandalonePowerBoostUntil";
         if (tryParseStandalonePowerReduceUntil(effectText, source) != null) return "StandalonePowerReduceUntil";
@@ -941,6 +975,8 @@ public class ActionResolver {
         if (FOLLOWUP_DAMAGE_FOR_EACH.matcher(followupText).find())                    return "DamageForEach";
         if (FOLLOWUP_DAMAGE.matcher(followupText).find())                             return "Damage";
         if (FOLLOWUP_DAMAGE_EXPR.matcher(followupText).find())                        return "DamageExpr";
+        if (FOLLOWUP_ACTIVATE_AND_NEGATE_DAMAGE.matcher(followupText).find())          return "ActivateAndNegateDamage";
+        if (FOLLOWUP_NEGATE_DAMAGE.matcher(followupText).find())                      return "NegateDamage";
         if (FOLLOWUP_ACTIVATE.matcher(followupText).find())                           return "Activate";
         if (FOLLOWUP_DULL.matcher(followupText).find()
                 && !FOLLOWUP_DULL_AND_FREEZE.matcher(followupText).find())            return "Dull";
@@ -1016,6 +1052,7 @@ public class ActionResolver {
             return sb.toString();
         }
 
+        if (tryParseNegateAllDamage(effectText) != null)                     return "NegateDamage";
         if (tryParseAllFieldEffect(effectText) != null)                     return "AllFieldEffect";
         if (tryParseStandalonePowerBoostUntil(effectText, source) != null)  return "StandalonePowerBoostUntil";
         if (tryParseStandalonePowerReduceUntil(effectText, source) != null) return "StandalonePowerReduceUntil";
@@ -1464,6 +1501,32 @@ public class ActionResolver {
                     if (secondary != null) secondary.accept(ctx);
                 };
             }
+        }
+
+        // --- Activate + Negate damage followup (must precede plain Activate to avoid partial match) ---
+        if (FOLLOWUP_ACTIVATE_AND_NEGATE_DAMAGE.matcher(primaryFollowup).find()) {
+            return ctx -> {
+                ctx.logEntry(choosePrefix + " — Activate & Negate damage");
+                List<ForwardTarget> ts = selectTargets(ctx, maxCount, upTo,
+                        opponentOnly, selfOnly, condition, element, zone, opponentZone,
+                        costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters, jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons);
+                sortedByIdxDesc(ts, true) .forEach(t -> ctx.activateTarget(t));
+                sortedByIdxDesc(ts, false).forEach(t -> ctx.activateTarget(t));
+                ts.forEach(ctx::negateAllDamage);
+                if (secondary != null) secondary.accept(ctx);
+            };
+        }
+
+        // --- Negate all damage followup ---
+        if (FOLLOWUP_NEGATE_DAMAGE.matcher(primaryFollowup).find()) {
+            return ctx -> {
+                ctx.logEntry(choosePrefix + " — Negate damage");
+                List<ForwardTarget> ts = selectTargets(ctx, maxCount, upTo,
+                        opponentOnly, selfOnly, condition, element, zone, opponentZone,
+                        costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters, jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons);
+                ts.forEach(ctx::negateAllDamage);
+                if (secondary != null) secondary.accept(ctx);
+            };
         }
 
         // --- Activate followup ---
@@ -2658,6 +2721,33 @@ public class ActionResolver {
         if (lo.contains("field"))  return "playOntoField";
         if (lo.contains("hand"))   return "addToHand";
         if (lo.contains("break"))  return "putToBreakZone";
+        return null;
+    }
+
+    /**
+     * Parses standalone "negate all damage" effects:
+     * <ul>
+     *   <li>"Negate all damage dealt to all the Forwards you control."</li>
+     *   <li>"Activate all the Forwards you control and negate all damage dealt to them."</li>
+     * </ul>
+     * Must be tried before {@link #tryParseAllFieldEffect} so the compound activate+negate form
+     * is not swallowed by the simpler activate-all matcher.
+     */
+    private static Consumer<GameContext> tryParseNegateAllDamage(String text) {
+        if (STANDALONE_ACTIVATE_AND_NEGATE_DAMAGE_OWN.matcher(text).find()) {
+            return ctx -> {
+                ctx.logEntry("Effect: Activate all own Forwards and negate their damage");
+                ctx.applyMassFieldEffect(GameContext.MassAction.ACTIVATE,
+                        true, false, false, false, true, null, -1, null, -1);
+                ctx.negateAllDamageOwnForwards();
+            };
+        }
+        if (STANDALONE_NEGATE_DAMAGE_OWN.matcher(text).find()) {
+            return ctx -> {
+                ctx.logEntry("Effect: Negate all damage on own Forwards");
+                ctx.negateAllDamageOwnForwards();
+            };
+        }
         return null;
     }
 

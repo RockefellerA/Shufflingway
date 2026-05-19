@@ -7752,6 +7752,34 @@ public class MainWindow {
 				if (isP1) p1GlobalDmgReduction += reduction; else p2GlobalDmgReduction += reduction;
 			}
 
+			@Override public void negateAllDamage(ForwardTarget t) {
+				if (t.zone() != ForwardTarget.CardZone.FORWARD) return;
+				if (t.isP1()) {
+					int idx = t.idx();
+					if (idx < 0 || idx >= p1ForwardCards.size() || p1ForwardDamage.get(idx) == 0) return;
+					logEntry(p1Forward(idx).name() + " — all damage negated");
+					p1ForwardDamage.set(idx, 0);
+					refreshP1ForwardSlot(idx);
+				} else {
+					int idx = t.idx();
+					if (idx < 0 || idx >= p2ForwardCards.size() || p2ForwardDamage.get(idx) == 0) return;
+					logEntry("[P2] " + p2ForwardCards.get(idx).name() + " — all damage negated");
+					p2ForwardDamage.set(idx, 0);
+					refreshP2ForwardSlot(idx);
+				}
+			}
+
+			@Override public void negateAllDamageOwnForwards() {
+				List<CardData> fwds = isP1 ? p1ForwardCards : p2ForwardCards;
+				List<Integer>  dmg  = isP1 ? p1ForwardDamage : p2ForwardDamage;
+				for (int i = 0; i < fwds.size(); i++) {
+					if (dmg.get(i) == 0) continue;
+					logEntry((isP1 ? "" : "[P2] ") + fwds.get(i).name() + " — all damage negated");
+					dmg.set(i, 0);
+					if (isP1) refreshP1ForwardSlot(i); else refreshP2ForwardSlot(i);
+				}
+			}
+
 			@Override
 			public java.util.List<ForwardTarget> selectCharacters(
 					int maxCount, boolean upTo, boolean opponentOnly,

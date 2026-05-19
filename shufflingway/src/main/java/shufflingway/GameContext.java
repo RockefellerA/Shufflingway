@@ -292,6 +292,17 @@ public interface GameContext {
      */
     void shieldActivePlayerDamageReduction(int reduction);
 
+    /**
+     * Immediately removes all accumulated damage from the Forward at {@code t}, negating it.
+     * Has no effect on non-Forward targets or targets with no damage.
+     */
+    void negateAllDamage(ForwardTarget t);
+
+    /**
+     * Immediately removes all accumulated damage from every Forward the active player controls.
+     */
+    void negateAllDamageOwnForwards();
+
     // ---- "For each" scaling queries -------------------------------------------
 
     /** Returns the number of cards in P1's damage zone. */
