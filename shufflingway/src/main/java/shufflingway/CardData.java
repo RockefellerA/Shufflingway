@@ -690,7 +690,7 @@ public record CardData(
      * Parses all Auto Abilities ("When X Y, Z") from {@code textEn}.
      * The returned list is immutable.
      */
-    public static List<AutoAbility> parseFieldAbilities(String textEn) {
+    public static List<AutoAbility> parseAutoAbilities(String textEn) {
         if (textEn == null || textEn.isBlank()) return List.of();
         List<AutoAbility> result = new ArrayList<>();
         Matcher m = FIELD_ABILITY_PATTERN.matcher(textEn);

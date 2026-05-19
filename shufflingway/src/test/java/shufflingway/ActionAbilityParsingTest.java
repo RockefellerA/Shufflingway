@@ -69,7 +69,7 @@ public class ActionAbilityParsingTest {
                         CardData.parseWarpCost(textEn),
                         CardData.parsePrimingTarget(textEn),
                         CardData.parsePrimingCost(textEn),
-                        abilities, CardData.parseFieldAbilities(textEn), rs.getString("job_en"),
+                        abilities, CardData.parseAutoAbilities(textEn), rs.getString("job_en"),
                         rs.getString("category_1"), rs.getString("category_2"), textEn);
 
                 int parsed = 0;
@@ -190,7 +190,7 @@ public class ActionAbilityParsingTest {
                         CardData.parseWarpCost(textEn),
                         CardData.parsePrimingTarget(textEn),
                         CardData.parsePrimingCost(textEn),
-                        abilities, CardData.parseFieldAbilities(textEn), rs.getString("job_en"),
+                        abilities, CardData.parseAutoAbilities(textEn), rs.getString("job_en"),
                         rs.getString("category_1"), rs.getString("category_2"), textEn);
 
                 for (ActionAbility ab : abilities) {

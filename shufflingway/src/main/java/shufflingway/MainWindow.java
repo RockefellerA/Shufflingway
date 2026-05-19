@@ -973,7 +973,7 @@ public class MainWindow {
 							card.multicard(), CardData.parseTraits(tx),
 							CardData.parseWarpValue(tx), CardData.parseWarpCost(tx),
 							CardData.parsePrimingTarget(tx), CardData.parsePrimingCost(tx),
-							CardData.parseActionAbilities(tx), CardData.parseFieldAbilities(tx), card.job(), card.category1(), card.category2(), tx);
+							CardData.parseActionAbilities(tx), CardData.parseAutoAbilities(tx), card.job(), card.category1(), card.category2(), tx);
 					if (card.isLb()) lb.add(cd);
 					else             main.add(cd);
 				}
@@ -992,7 +992,7 @@ public class MainWindow {
 								card.multicard(), CardData.parseTraits(tx),
 								CardData.parseWarpValue(tx), CardData.parseWarpCost(tx),
 								CardData.parsePrimingTarget(tx), CardData.parsePrimingCost(tx),
-								CardData.parseActionAbilities(tx), CardData.parseFieldAbilities(tx), card.job(), card.category1(), card.category2(), tx);
+								CardData.parseActionAbilities(tx), CardData.parseAutoAbilities(tx), card.job(), card.category1(), card.category2(), tx);
 						if (card.isLb()) p2Lb.add(cd);
 						else             p2Main.add(cd);
 					}
