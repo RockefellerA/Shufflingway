@@ -783,7 +783,7 @@ public class MainWindow {
 		gameLog.setEditable(false);
 		gameLog.setLineWrap(true);
 		gameLog.setWrapStyleWord(true);
-		gameLog.setFont(new Font("Segoe UI", Font.PLAIN, 12));
+		gameLog.setFont(new Font(Font.DIALOG, Font.PLAIN, 12));
 		gameLog.setBackground(Color.WHITE);
 		gameLog.setForeground(Color.BLACK);
 		gameLog.setMargin(new Insets(4, 4, 4, 4));
@@ -1692,7 +1692,7 @@ public class MainWindow {
 			int after  = before - 1;
 			logEntry("Warp: \"" + entry.card.name() + "\" counter " + before + " → " + after
 					+ (after == 0 ? " (resolving!)" : ""));
-			triggerFieldAbilitiesForWarpCounterRemoved(entry.card);
+			triggerAutoAbilitiesForWarpCounterRemoved(entry.card);
 		}
 
 		List<CardData> resolved = gameState.tickP1WarpCounters();
@@ -1882,7 +1882,7 @@ public class MainWindow {
 
 		refreshP1DeckLabel();
 		logEntry("P1 takes 1 damage — " + drawn.name() + (isEx ? " [EX BURST!]" : ""));
-		triggerFieldAbilitiesForDamageZone(true);
+		triggerAutoAbilitiesForDamageZone(true);
 		if (isEx) triggerExBurst(drawn, true);
 
 		if (gameState.getP1DamageZone().size() >= 7) {
@@ -1926,7 +1926,7 @@ public class MainWindow {
 		boolean isEx = drawn != null && drawn.exBurst();
 		String cardInfo = drawn != null ? " — " + drawn.name() + (isEx ? " [EX BURST!]" : "") : "";
 		logEntry("P2 takes 1 damage (" + p2DamageCount + "/7)" + cardInfo);
-		triggerFieldAbilitiesForDamageZone(false);
+		triggerAutoAbilitiesForDamageZone(false);
 		if (isEx && drawn != null) triggerExBurst(drawn, false);
 
 		int slotIdx = p2DamageCount - 1;
@@ -2054,8 +2054,8 @@ public class MainWindow {
 			for (int i = 0; i < p1ForwardCards.size(); i++) refreshP1ForwardSlot(i);
 		}
 		refreshP1BreakLabel();
-		triggerFieldAbilitiesForLeavesField(card, true);
-		triggerFieldAbilitiesForBreakZone(card, true);
+		triggerAutoAbilitiesForLeavesField(card, true);
+		triggerAutoAbilitiesForBreakZone(card, true);
 	}
 
 	/** Removes P2's forward at {@code idx} from the field and sends it to P2's Break Zone. */
@@ -2108,8 +2108,8 @@ public class MainWindow {
 			for (int i = 0; i < p2ForwardCards.size(); i++) refreshP2ForwardSlot(i);
 		}
 		refreshP2BreakLabel();
-		triggerFieldAbilitiesForLeavesField(card, false);
-		triggerFieldAbilitiesForBreakZone(card, false);
+		triggerAutoAbilitiesForLeavesField(card, false);
+		triggerAutoAbilitiesForBreakZone(card, false);
 	}
 
 	private void returnP1ForwardToDeck(int idx, boolean toBottom) {
@@ -2182,7 +2182,7 @@ public class MainWindow {
 			for (int i = 0; i < p1ForwardCards.size(); i++) refreshP1ForwardSlot(i);
 		}
 		refreshP1DeckLabel();
-		triggerFieldAbilitiesForLeavesField(card, true);
+		triggerAutoAbilitiesForLeavesField(card, true);
 	}
 
 	private void returnP2ForwardToDeck(int idx, boolean toBottom) {
@@ -2236,7 +2236,7 @@ public class MainWindow {
 			for (int i = 0; i < p2ForwardCards.size(); i++) refreshP2ForwardSlot(i);
 		}
 		refreshP2DeckLabel();
-		triggerFieldAbilitiesForLeavesField(card, false);
+		triggerAutoAbilitiesForLeavesField(card, false);
 	}
 
 	private void returnP1ForwardUnderDeckTop(int idx, int position) {
@@ -2311,7 +2311,7 @@ public class MainWindow {
 			for (int i = 0; i < p1ForwardCards.size(); i++) refreshP1ForwardSlot(i);
 		}
 		refreshP1DeckLabel();
-		triggerFieldAbilitiesForLeavesField(card, true);
+		triggerAutoAbilitiesForLeavesField(card, true);
 	}
 
 	private void returnP2ForwardUnderDeckTop(int idx, int position) {
@@ -2367,7 +2367,7 @@ public class MainWindow {
 			for (int i = 0; i < p2ForwardCards.size(); i++) refreshP2ForwardSlot(i);
 		}
 		refreshP2DeckLabel();
-		triggerFieldAbilitiesForLeavesField(card, false);
+		triggerAutoAbilitiesForLeavesField(card, false);
 	}
 
 	private void searchDeckForCard(boolean inclForwards, boolean inclBackups,
@@ -2580,7 +2580,7 @@ public class MainWindow {
 			for (int i = 0; i < p1ForwardCards.size(); i++) refreshP1ForwardSlot(i);
 		}
 		refreshP1HandLabel();
-		triggerFieldAbilitiesForLeavesField(card, true);
+		triggerAutoAbilitiesForLeavesField(card, true);
 	}
 
 	private void returnP2ForwardToHand(int idx) {
@@ -2632,7 +2632,7 @@ public class MainWindow {
 			for (int i = 0; i < p2ForwardCards.size(); i++) refreshP2ForwardSlot(i);
 		}
 		refreshP2HandCountLabel();
-		triggerFieldAbilitiesForLeavesField(card, false);
+		triggerAutoAbilitiesForLeavesField(card, false);
 	}
 
 	private void returnP1BackupToHand(int idx) {
@@ -2646,7 +2646,7 @@ public class MainWindow {
 		p1BackupFrozen[idx] = false;
 		if (p1BackupLabels[idx] != null) { p1BackupLabels[idx].setIcon(null); p1BackupLabels[idx].setText(null); }
 		refreshP1HandLabel();
-		triggerFieldAbilitiesForLeavesField(c, true);
+		triggerAutoAbilitiesForLeavesField(c, true);
 	}
 
 	private void returnP2BackupToHand(int idx) {
@@ -2659,7 +2659,7 @@ public class MainWindow {
 		p2BackupStates[idx] = CardState.ACTIVE;
 		p2BackupFrozen[idx] = false;
 		if (p2BackupLabels[idx] != null) { p2BackupLabels[idx].setIcon(null); p2BackupLabels[idx].setText(null); }
-		triggerFieldAbilitiesForLeavesField(c, false);
+		triggerAutoAbilitiesForLeavesField(c, false);
 	}
 
 	private void returnP1MonsterToHand(int idx) {
@@ -2675,7 +2675,7 @@ public class MainWindow {
 		JLabel lbl = p1MonsterLabels.remove(idx);
 		if (p1MonsterPanel != null) { p1MonsterPanel.remove(lbl); p1MonsterPanel.revalidate(); p1MonsterPanel.repaint(); }
 		refreshP1HandLabel();
-		triggerFieldAbilitiesForLeavesField(c, true);
+		triggerAutoAbilitiesForLeavesField(c, true);
 	}
 
 	private void returnP2MonsterToHand(int idx) {
@@ -2690,7 +2690,7 @@ public class MainWindow {
 		p2MonsterUrls.remove(idx);
 		JLabel lbl = p2MonsterLabels.remove(idx);
 		if (p2MonsterPanel != null) { p2MonsterPanel.remove(lbl); p2MonsterPanel.revalidate(); p2MonsterPanel.repaint(); }
-		triggerFieldAbilitiesForLeavesField(c, false);
+		triggerAutoAbilitiesForLeavesField(c, false);
 	}
 
 	private int effectiveP1ForwardPower(int idx) {
@@ -2817,7 +2817,7 @@ public class MainWindow {
 		if (blockerIdx >= 0) {
 			CardData blocker = p2ForwardCards.get(blockerIdx);
 			logEntry("[P2] " + blocker.name() + " blocks!");
-			triggerFieldAbilitiesForBlock(blocker, false);
+			triggerAutoAbilitiesForBlock(blocker, false);
 			resolveCombat(attacker, true, attackerIdx, blocker, false, blockerIdx);
 		} else {
 			p2TakeDamage();
@@ -2901,7 +2901,7 @@ public class MainWindow {
 			CardData top = p1ForwardPrimedTop.get(chosen[0]);
 			CardData blocker = top != null ? top : p1ForwardCards.get(chosen[0]);
 			p1BlockingIdx = chosen[0];
-			triggerFieldAbilitiesForBlock(blocker, true);
+			triggerAutoAbilitiesForBlock(blocker, true);
 			resolveCombat(attacker, false, attackerIdx, blocker, true, chosen[0]);
 			p1BlockingIdx = -1;
 		} else {
@@ -4675,7 +4675,7 @@ public class MainWindow {
 		gameState.addToP1WarpZone(card, card.warpValue());
 		logEntry("Played \"" + card.name() + "\" via Warp — " + card.warpValue()
 				+ " counter" + (card.warpValue() != 1 ? "s" : "") + " → Removed From Play");
-		triggerFieldAbilitiesForWarpPlaced(card);
+		triggerAutoAbilitiesForWarpPlaced(card);
 		refreshP1HandLabel();
 		refreshP1BreakLabel();
 		refreshP1WarpZoneUI();
@@ -5271,7 +5271,7 @@ public class MainWindow {
 			java.util.function.Consumer<GameContext> effect = ActionResolver.parse(effectText, entry.source());
 			if (effect != null) effect.accept(ctx);
 			else logEntry("[ActionResolver] Summon effect not yet implemented: " + effectText);
-			triggerFieldAbilitiesForCastSummon(entry.isP1());
+			triggerAutoAbilitiesForCastSummon(entry.isP1());
 			gameState.getP1BreakZone().add(entry.source());
 			logEntry("\"" + entry.source().name() + "\" → Break Zone");
 			refreshP1BreakLabel();
@@ -5620,7 +5620,7 @@ public class MainWindow {
 			p1BackupStates[i]        = CardState.DULL;
 			p1BackupPlayedOnTurn[i]  = gameState.getTurnNumber();
 			refreshP1BackupSlot(i);
-			triggerFieldAbilitiesForEntersField(card, true);
+			triggerAutoAbilitiesForEntersField(card, true);
 			break;
 		}
 	}
@@ -6047,8 +6047,8 @@ public class MainWindow {
 			p2BackupLabels[idx].setText(null);
 		}
 		refreshP2BreakLabel();
-		triggerFieldAbilitiesForLeavesField(c, false);
-		triggerFieldAbilitiesForBreakZone(c, false);
+		triggerAutoAbilitiesForLeavesField(c, false);
+		triggerAutoAbilitiesForBreakZone(c, false);
 	}
 
 	private void breakP2MonsterSlot(int idx) {
@@ -6068,7 +6068,7 @@ public class MainWindow {
 			p2MonsterPanel.repaint();
 		}
 		refreshP2BreakLabel();
-		triggerFieldAbilitiesForBreakZone(c, false);
+		triggerAutoAbilitiesForBreakZone(c, false);
 	}
 
 	/**
@@ -6122,12 +6122,12 @@ public class MainWindow {
 	}
 
 	// -------------------------------------------------------------------------
-	// Field Ability triggers
+	// Auto Ability triggers
 	// -------------------------------------------------------------------------
 
 	/**
 	 * Matches "remove N [Name] Counter(s) from [CardName][.] When/If you do so, sub-effect".
-	 * Used for field-ability costs that consume a named counter before resolving an effect.
+	 * Used for auto-ability costs that consume a named counter before resolving an effect.
 	 */
 	private static final java.util.regex.Pattern FA_REMOVE_COUNTER_WHEN_DO_SO =
 			java.util.regex.Pattern.compile(
@@ -6145,42 +6145,42 @@ public class MainWindow {
 		"(?i)The\\s+maximum\\s+you\\s+can\\s+pay\\s+for\\s+《X》\\s+is\\s+(\\d+)"
 	);
 
-	private void triggerFieldAbilitiesForEntersField(CardData card, boolean isP1) {
-		for (FieldAbility fa : card.fieldAbilities()) {
+	private void triggerAutoAbilitiesForEntersField(CardData card, boolean isP1) {
+		for (AutoAbility fa : card.autoAbilities()) {
 			if (!fa.triggerCard().equalsIgnoreCase(card.name())) continue;
-			if (fa.trigger().contains("enter")) executeFieldAbility(fa, card, isP1);
+			if (fa.trigger().contains("enter")) executeAutoAbility(fa, card, isP1);
 		}
 	}
 
-	private void triggerFieldAbilitiesForAttack(CardData card, boolean isP1) {
-		for (FieldAbility fa : card.fieldAbilities()) {
+	private void triggerAutoAbilitiesForAttack(CardData card, boolean isP1) {
+		for (AutoAbility fa : card.autoAbilities()) {
 			if (!fa.triggerCard().equalsIgnoreCase(card.name())) continue;
-			if (fa.trigger().contains("attack")) executeFieldAbility(fa, card, isP1);
+			if (fa.trigger().contains("attack")) executeAutoAbility(fa, card, isP1);
 		}
 	}
 
-	private void triggerFieldAbilitiesForBlock(CardData card, boolean isP1) {
-		for (FieldAbility fa : card.fieldAbilities()) {
+	private void triggerAutoAbilitiesForBlock(CardData card, boolean isP1) {
+		for (AutoAbility fa : card.autoAbilities()) {
 			if (!fa.triggerCard().equalsIgnoreCase(card.name())) continue;
-			if (fa.trigger().contains("block")) executeFieldAbility(fa, card, isP1);
+			if (fa.trigger().contains("block")) executeAutoAbility(fa, card, isP1);
 		}
 	}
 
 	/** Fires "party attacks" field abilities on every card the controller has on the field. */
-	private void triggerFieldAbilitiesForPartyAttack(boolean isP1) {
+	private void triggerAutoAbilitiesForPartyAttack(boolean isP1) {
 		List<CardData> fwds = isP1 ? p1ForwardCards : p2ForwardCards;
 		for (int i = 0; i < fwds.size(); i++) {
 			CardData card = fwds.get(i);
-			for (FieldAbility fa : card.fieldAbilities())
+			for (AutoAbility fa : card.autoAbilities())
 				if (fa.trigger().equals("party attacks"))
-					executeFieldAbility(fa, card, isP1);
+					executeAutoAbility(fa, card, isP1);
 		}
 		CardData[] bkps = isP1 ? p1BackupCards : p2BackupCards;
 		for (CardData card : bkps) {
 			if (card == null) continue;
-			for (FieldAbility fa : card.fieldAbilities())
+			for (AutoAbility fa : card.autoAbilities())
 				if (fa.trigger().equals("party attacks"))
-					executeFieldAbility(fa, card, isP1);
+					executeAutoAbility(fa, card, isP1);
 		}
 	}
 
@@ -6193,7 +6193,7 @@ public class MainWindow {
 	 * Returns true when the broken card satisfies the break-zone trigger subject of {@code fa}.
 	 * Handles named cards ("Geomancer") and type+controller phrases ("a Forward you control").
 	 */
-	private boolean matchesBreakZoneSubject(FieldAbility fa, CardData broken, boolean brokenIsP1, boolean abilityOwnerIsP1) {
+	private boolean matchesBreakZoneSubject(AutoAbility fa, CardData broken, boolean brokenIsP1, boolean abilityOwnerIsP1) {
 		String subject = fa.triggerCard().trim();
 		java.util.regex.Matcher m = BZ_SUBJECT_TYPE.matcher(subject);
 		if (m.matches()) {
@@ -6215,7 +6215,7 @@ public class MainWindow {
 	 * Fires "put into break zone" field abilities on all field cards whose subject matches
 	 * the card that just broke.  Must be called after the card is removed from the field.
 	 */
-	private void triggerFieldAbilitiesForBreakZone(CardData broken, boolean brokenIsP1) {
+	private void triggerAutoAbilitiesForBreakZone(CardData broken, boolean brokenIsP1) {
 		for (int pass = 0; pass < 2; pass++) {
 			boolean ownerIsP1 = (pass == 0);
 			List<CardData> fwds = new ArrayList<>(ownerIsP1 ? p1ForwardCards : p2ForwardCards);
@@ -6228,10 +6228,10 @@ public class MainWindow {
 	}
 
 	private void fireBreakZoneTriggers(CardData card, boolean ownerIsP1, CardData broken, boolean brokenIsP1) {
-		for (FieldAbility fa : card.fieldAbilities()) {
+		for (AutoAbility fa : card.autoAbilities()) {
 			if (!fa.trigger().equals("put into break zone")) continue;
 			if (!matchesBreakZoneSubject(fa, broken, brokenIsP1, ownerIsP1)) continue;
-			executeFieldAbility(fa, card, ownerIsP1);
+			executeAutoAbility(fa, card, ownerIsP1);
 		}
 	}
 
@@ -6239,30 +6239,30 @@ public class MainWindow {
 	 * Fires "leaves the field" field abilities that belong to {@code departing} itself.
 	 * Call this after the card has been removed from all field tracking lists.
 	 */
-	private void triggerFieldAbilitiesForLeavesField(CardData departing, boolean isP1) {
-		for (FieldAbility fa : departing.fieldAbilities()) {
+	private void triggerAutoAbilitiesForLeavesField(CardData departing, boolean isP1) {
+		for (AutoAbility fa : departing.autoAbilities()) {
 			if (!fa.trigger().equals("leaves the field")) continue;
 			if (!fa.triggerCard().equalsIgnoreCase(departing.name())) continue;
-			executeFieldAbility(fa, departing, isP1);
+			executeAutoAbility(fa, departing, isP1);
 		}
 		gameState.clearCounters(departing);
 	}
 
 	/** Fires "cast summon" field abilities for all field cards belonging to the casting player. */
-	private void triggerFieldAbilitiesForCastSummon(boolean isP1) {
-		triggerFieldAbilitiesForEvent("cast summon", isP1);
+	private void triggerAutoAbilitiesForCastSummon(boolean isP1) {
+		triggerAutoAbilitiesForEvent("cast summon", isP1);
 	}
 
 	/** Fires "damage zone" field abilities for all field cards belonging to the player who took damage. */
-	private void triggerFieldAbilitiesForDamageZone(boolean isP1) {
-		triggerFieldAbilitiesForEvent("damage zone", isP1);
+	private void triggerAutoAbilitiesForDamageZone(boolean isP1) {
+		triggerAutoAbilitiesForEvent("damage zone", isP1);
 	}
 
 	/**
 	 * Resolves the EX Burst effect on {@code card} for the player whose damage zone received it.
 	 * The controlling player may decline; if accepted the effect resolves immediately, bypassing
 	 * the stack so neither player can respond.
-	 * Summon effects run the full card effect; forward/backup/monster effects strip the field-ability
+	 * Summon effects run the full card effect; forward/backup/monster effects strip the auto-ability
 	 * trigger prefix and run the bare effect text.
 	 */
 	private void triggerExBurst(CardData card, boolean isP1) {
@@ -6300,35 +6300,35 @@ public class MainWindow {
 	 * Fires "warp placed" field abilities on all P1 field cards whose {@code triggerCard}
 	 * matches the card that was just moved from hand to the Warp zone.
 	 */
-	private void triggerFieldAbilitiesForWarpPlaced(CardData warped) {
+	private void triggerAutoAbilitiesForWarpPlaced(CardData warped) {
 		List<CardData> all = new ArrayList<>();
 		all.addAll(p1ForwardCards);
 		for (CardData c : p1BackupCards) if (c != null) all.add(c);
 		all.addAll(p1MonsterCards);
 		for (CardData card : all)
-			for (FieldAbility fa : card.fieldAbilities())
+			for (AutoAbility fa : card.autoAbilities())
 				if (fa.trigger().equals("warp placed")
 						&& fa.triggerCard().equalsIgnoreCase(warped.name()))
-					executeFieldAbility(fa, card, true);
+					executeAutoAbility(fa, card, true);
 	}
 
 	/**
 	 * Fires "warp counter removed" field abilities on all P1 field cards whose
 	 * {@code triggerCard} matches the card whose counter was just decremented.
 	 */
-	private void triggerFieldAbilitiesForWarpCounterRemoved(CardData target) {
+	private void triggerAutoAbilitiesForWarpCounterRemoved(CardData target) {
 		List<CardData> all = new ArrayList<>();
 		all.addAll(p1ForwardCards);
 		for (CardData c : p1BackupCards) if (c != null) all.add(c);
 		all.addAll(p1MonsterCards);
 		for (CardData card : all)
-			for (FieldAbility fa : card.fieldAbilities())
+			for (AutoAbility fa : card.autoAbilities())
 				if (fa.trigger().equals("warp counter removed")
 						&& fa.triggerCard().equalsIgnoreCase(target.name()))
-					executeFieldAbility(fa, card, true);
+					executeAutoAbility(fa, card, true);
 	}
 
-	private void triggerFieldAbilitiesForEvent(String triggerType, boolean isP1) {
+	private void triggerAutoAbilitiesForEvent(String triggerType, boolean isP1) {
 		List<CardData> fwds = new ArrayList<>(isP1 ? p1ForwardCards : p2ForwardCards);
 		CardData[]     bkps = isP1 ? p1BackupCards : p2BackupCards;
 		List<CardData> mons = new ArrayList<>(isP1 ? p1MonsterCards : p2MonsterCards);
@@ -6338,25 +6338,25 @@ public class MainWindow {
 	}
 
 	private void fireEventTriggers(CardData card, boolean isP1, String triggerType) {
-		for (FieldAbility fa : card.fieldAbilities())
+		for (AutoAbility fa : card.autoAbilities())
 			if (fa.trigger().equals(triggerType))
-				executeFieldAbility(fa, card, isP1);
+				executeAutoAbility(fa, card, isP1);
 	}
 
 	/**
-	 * Resolves a triggered field ability.  When the ability is optional ({@code youMay} or
+	 * Resolves a triggered auto ability.  When the ability is optional ({@code youMay} or
 	 * {@code opponentMay}), P1 is shown a Decline / OK dialog; the AI always accepts.
 	 *
 	 * <p>For {@code opponentMay} effects the execution context is flipped to the opponent's
 	 * perspective so that "play from hand" and similar effects target the correct player.
 	 */
-	private void executeFieldAbility(FieldAbility fa, CardData source, boolean isP1) {
+	private void executeAutoAbility(AutoAbility fa, CardData source, boolean isP1) {
 		// "only during your turn" — skip when the ability owner is not the active player
 		if (fa.yourTurnOnly() && !isP1) return;
 
 		// cast payment element condition: "if the cost to cast X was paid with CP of N or more different Elements"
 		if (fa.castPaymentMinElements() > 0 && lastCastPaymentDistinctElements < fa.castPaymentMinElements()) {
-			logEntry("[FieldAbility] " + source.name() + " — cast payment condition not met ("
+			logEntry("[AutoAbility] " + source.name() + " — cast payment condition not met ("
 					+ lastCastPaymentDistinctElements + " distinct element(s), needed "
 					+ fa.castPaymentMinElements() + ")");
 			return;
@@ -6378,7 +6378,7 @@ public class MainWindow {
 		// "only once per turn" — skip if already fired this turn
 		if (fa.oncePerTurn() && usedOncePerTurnAbilities
 				.getOrDefault(source, java.util.Set.of()).contains(fa.effectText())) {
-			logEntry("[FieldAbility] " + source.name() + " — already used this turn, skipping");
+			logEntry("[AutoAbility] " + source.name() + " — already used this turn, skipping");
 			return;
 		}
 
@@ -6388,20 +6388,20 @@ public class MainWindow {
 		// Detect "remove N [Name] Counter(s) from [CardName]. When you do so, [effect]"
 		java.util.regex.Matcher ctrM = FA_REMOVE_COUNTER_WHEN_DO_SO.matcher(fa.effectText());
 		if (ctrM.find()) {
-			executeCounterRemovalWhenDoSoFieldAbility(fa, source, isP1, effectIsP1, ctrM);
+			executeCounterRemovalWhenDoSoAutoAbility(fa, source, isP1, effectIsP1, ctrM);
 			return;
 		}
 
 		// Detect "pay 《X/N》. When you do so, [effect]" — requires a payment dialog before resolving.
 		java.util.regex.Matcher payM = FA_PAY_WHEN_DO_SO.matcher(fa.effectText());
 		if (payM.find()) {
-			executePayWhenDoSoFieldAbility(fa, source, isP1, effectIsP1, payM);
+			executePayWhenDoSoAutoAbility(fa, source, isP1, effectIsP1, payM);
 			return;
 		}
 
 		java.util.function.Consumer<GameContext> effect = ActionResolver.parse(fa.effectText(), source);
 		if (effect == null) {
-			logEntry("[FieldAbility] Unrecognized effect: " + fa.effectText());
+			logEntry("[AutoAbility] Unrecognized effect: " + fa.effectText());
 			return;
 		}
 
@@ -6412,28 +6412,28 @@ public class MainWindow {
 			String prompt = (fa.youMay() ? "You may: " : "Your opponent may: ") + fa.effectText();
 			int choice = JOptionPane.showOptionDialog(frame,
 					source.name() + " — " + prompt,
-					"Field Ability",
+					"Auto Ability",
 					JOptionPane.DEFAULT_OPTION,
 					JOptionPane.PLAIN_MESSAGE,
 					null,
 					new Object[]{"OK", "Decline"},
 					"OK");
 			if (choice != 0) {
-				logEntry("[FieldAbility] " + source.name() + " — optional effect declined");
+				logEntry("[AutoAbility] " + source.name() + " — optional effect declined");
 				return;
 			}
 		} else if (fa.youMay() || fa.opponentMay()) {
-			logEntry("[FieldAbility] [AI] auto-accepts optional ability");
+			logEntry("[AutoAbility] [AI] auto-accepts optional ability");
 		}
 
 		if (fa.oncePerTurn())
 			usedOncePerTurnAbilities.computeIfAbsent(source, k -> new java.util.HashSet<>()).add(fa.effectText());
 
-		logEntry("[FieldAbility] " + source.name() + " — " + fa.effectText());
+		logEntry("[AutoAbility] " + source.name() + " — " + fa.effectText());
 		effect.accept(buildGameContext(effectIsP1));
 	}
 
-	private void executeCounterRemovalWhenDoSoFieldAbility(FieldAbility fa, CardData source,
+	private void executeCounterRemovalWhenDoSoAutoAbility(AutoAbility fa, CardData source,
 			boolean isP1, boolean effectIsP1, java.util.regex.Matcher m) {
 		int    n           = Integer.parseInt(m.group("n"));
 		String counterName = m.group("counterName").trim();
@@ -6441,7 +6441,7 @@ public class MainWindow {
 
 		// Require enough counters to be present; skip silently if not.
 		if (gameState.getCounters(source, counterName) < n) {
-			logEntry("[FieldAbility] " + source.name() + " — not enough " + counterName
+			logEntry("[AutoAbility] " + source.name() + " — not enough " + counterName
 					+ " Counters (need " + n + ", have " + gameState.getCounters(source, counterName) + ")");
 			return;
 		}
@@ -6451,33 +6451,33 @@ public class MainWindow {
 		if (p1GetsDialog) {
 			String prompt = (fa.youMay() ? "You may: " : "Your opponent may: ") + fa.effectText();
 			int choice = JOptionPane.showOptionDialog(frame,
-					source.name() + " — " + prompt, "Field Ability",
+					source.name() + " — " + prompt, "Auto Ability",
 					JOptionPane.DEFAULT_OPTION, JOptionPane.PLAIN_MESSAGE, null,
 					new Object[]{"OK", "Decline"}, "OK");
 			if (choice != 0) {
-				logEntry("[FieldAbility] " + source.name() + " — optional effect declined");
+				logEntry("[AutoAbility] " + source.name() + " — optional effect declined");
 				return;
 			}
 		} else if (fa.youMay() || fa.opponentMay()) {
-			logEntry("[FieldAbility] [AI] auto-accepts optional ability");
+			logEntry("[AutoAbility] [AI] auto-accepts optional ability");
 		}
 
 		// Remove the counter(s)
 		int removed = gameState.removeCounters(source, counterName, n);
-		logEntry("[FieldAbility] " + source.name() + " — removed " + removed + " " + counterName
+		logEntry("[AutoAbility] " + source.name() + " — removed " + removed + " " + counterName
 				+ " Counter(s)  [remaining: " + gameState.getCounters(source, counterName) + "]");
 
 		// Execute the sub-effect
 		java.util.function.Consumer<GameContext> effect = ActionResolver.parse(subEffect, source);
 		if (effect == null) {
-			logEntry("[FieldAbility] Unrecognized counter-removal sub-effect: " + subEffect);
+			logEntry("[AutoAbility] Unrecognized counter-removal sub-effect: " + subEffect);
 			return;
 		}
-		logEntry("[FieldAbility] " + source.name() + " — when you do so: " + subEffect);
+		logEntry("[AutoAbility] " + source.name() + " — when you do so: " + subEffect);
 		effect.accept(buildGameContext(effectIsP1));
 	}
 
-	private void executePayWhenDoSoFieldAbility(FieldAbility fa, CardData source, boolean isP1,
+	private void executePayWhenDoSoAutoAbility(AutoAbility fa, CardData source, boolean isP1,
 			boolean effectIsP1, java.util.regex.Matcher payM) {
 		String costToken = payM.group(1).trim();
 		String subEffect = payM.group(2).trim().replaceAll("[.!,]+$", "");
@@ -6489,8 +6489,8 @@ public class MainWindow {
 			catch (NumberFormatException e) {
 				// Non-numeric, non-X cost token (e.g. 《C》 for crystal) — resolve normally.
 				java.util.function.Consumer<GameContext> effect = ActionResolver.parse(fa.effectText(), source);
-				if (effect != null) { logEntry("[FieldAbility] " + source.name() + " — " + fa.effectText()); effect.accept(buildGameContext(effectIsP1)); }
-				else logEntry("[FieldAbility] Unrecognized effect: " + fa.effectText());
+				if (effect != null) { logEntry("[AutoAbility] " + source.name() + " — " + fa.effectText()); effect.accept(buildGameContext(effectIsP1)); }
+				else logEntry("[AutoAbility] Unrecognized effect: " + fa.effectText());
 				return;
 			}
 		} else { fixedCost = 0; }
@@ -6504,18 +6504,18 @@ public class MainWindow {
 			String prompt = (fa.youMay() ? "You may: " : "Your opponent may: ") + fa.effectText();
 			int choice = JOptionPane.showOptionDialog(frame,
 					source.name() + " — " + prompt,
-					"Field Ability",
+					"Auto Ability",
 					JOptionPane.DEFAULT_OPTION,
 					JOptionPane.PLAIN_MESSAGE,
 					null,
 					new Object[]{"OK", "Decline"},
 					"OK");
 			if (choice != 0) {
-				logEntry("[FieldAbility] " + source.name() + " — optional effect declined");
+				logEntry("[AutoAbility] " + source.name() + " — optional effect declined");
 				return;
 			}
 		} else if (fa.youMay() || fa.opponentMay()) {
-			logEntry("[FieldAbility] [AI] auto-accepts optional ability");
+			logEntry("[AutoAbility] [AI] auto-accepts optional ability");
 		}
 
 		if (!isP1) {
@@ -6526,7 +6526,7 @@ public class MainWindow {
 		}
 
 		String finalSubEffect = subEffect;
-		showFieldAbilityPaymentDialog(source.name(), fixedCost, maxCp, isP1,
+		showAutoAbilityPaymentDialog(source.name(), fixedCost, maxCp, isP1,
 				paid -> applyPayWhenDoSoEffect(finalSubEffect, source, paid, effectIsP1));
 	}
 
@@ -6541,19 +6541,19 @@ public class MainWindow {
 		}
 		java.util.function.Consumer<GameContext> effect = ActionResolver.parse(subEffect, source, xValue);
 		if (effect == null) {
-			logEntry("[FieldAbility] Unrecognized 'when you do so' effect: " + subEffect);
+			logEntry("[AutoAbility] Unrecognized 'when you do so' effect: " + subEffect);
 			return;
 		}
-		logEntry("[FieldAbility] " + source.name() + " — when you do so: " + subEffect + " (X=" + xValue + ")");
+		logEntry("[AutoAbility] " + source.name() + " — when you do so: " + subEffect + " (X=" + xValue + ")");
 		effect.accept(ctx);
 	}
 
 	/**
-	 * Payment dialog for a field ability that requires CP payment.
+	 * Payment dialog for a auto ability that requires CP payment.
 	 * Shows backup cards (1 CP each) and hand cards to discard (2 CP each).
 	 * Calls {@code onConfirm} with total CP paid after dulling backups / discarding cards.
 	 */
-	private void showFieldAbilityPaymentDialog(String cardName, int minCp, int maxCp,
+	private void showAutoAbilityPaymentDialog(String cardName, int minCp, int maxCp,
 			boolean isP1, java.util.function.IntConsumer onConfirm) {
 		CardData[]     bkpCards  = playerBackupCards(isP1);
 		CardState[]    bkpStates = playerBackupStates(isP1);
@@ -6714,7 +6714,7 @@ public class MainWindow {
 		JButton cancelBtn = new JButton("Cancel");
 		cancelBtn.setFont(FontLoader.loadPixelNESFont(11));
 		cancelBtn.addActionListener(ev -> {
-			logEntry("[FieldAbility] " + cardName + " — payment cancelled");
+			logEntry("[AutoAbility] " + cardName + " — payment cancelled");
 			dlg.dispose();
 		});
 		confirmBtn.addActionListener(ev -> {
@@ -6727,7 +6727,7 @@ public class MainWindow {
 			sortedDiscards.sort(Collections.reverseOrder());
 			for (int di : sortedDiscards) playerBreakFromHand(isP1, di);
 			int paid = selectedBackups.size() + selectedDiscards.size() * 2;
-			logEntry("[FieldAbility] " + cardName + " — paid " + paid + " CP");
+			logEntry("[AutoAbility] " + cardName + " — paid " + paid + " CP");
 			refreshP1HandLabel();
 			refreshP1BreakLabel();
 			onConfirm.accept(paid);
@@ -7033,8 +7033,8 @@ public class MainWindow {
 			p1BackupLabels[idx].setText(null);
 		}
 		refreshP1BreakLabel();
-		triggerFieldAbilitiesForLeavesField(c, true);
-		triggerFieldAbilitiesForBreakZone(c, true);
+		triggerAutoAbilitiesForLeavesField(c, true);
+		triggerAutoAbilitiesForBreakZone(c, true);
 	}
 
 	private void breakP1MonsterSlot(int idx) {
@@ -7054,8 +7054,8 @@ public class MainWindow {
 			p1MonsterPanel.repaint();
 		}
 		refreshP1BreakLabel();
-		triggerFieldAbilitiesForLeavesField(c, true);
-		triggerFieldAbilitiesForBreakZone(c, true);
+		triggerAutoAbilitiesForLeavesField(c, true);
+		triggerAutoAbilitiesForBreakZone(c, true);
 	}
 
 	/**
@@ -9537,7 +9537,7 @@ public class MainWindow {
 		p1ForwardPanel.repaint();
 
 		refreshP1ForwardSlot(idx);
-		triggerFieldAbilitiesForEntersField(card, true);
+		triggerAutoAbilitiesForEntersField(card, true);
 	}
 
 	/** Adds a Monster card to P1's monster zone (right side of forward zone, newest leftmost). */
@@ -9788,7 +9788,7 @@ public class MainWindow {
 			}
 		}
 		for (int idx : selection)
-			triggerFieldAbilitiesForAttack(p1ForwardCards.get(idx), true);
+			triggerAutoAbilitiesForAttack(p1ForwardCards.get(idx), true);
 		if (selection.size() == 1) {
 			int idx = selection.get(0);
 			CardData attacker = p1ForwardCards.get(idx);
@@ -9803,7 +9803,7 @@ public class MainWindow {
 				names.append(p1ForwardCards.get(idx).name());
 			}
 			logEntry("Party Attack! " + names + " (" + combinedPower + " combined)");
-			triggerFieldAbilitiesForPartyAttack(true);
+			triggerAutoAbilitiesForPartyAttack(true);
 			p2OfferBlockParty(selection, combinedPower);
 		}
 	}
@@ -10743,7 +10743,7 @@ public class MainWindow {
 		p2ForwardPanel.repaint();
 
 		refreshP2ForwardSlot(idx);
-		triggerFieldAbilitiesForEntersField(card, false);
+		triggerAutoAbilitiesForEntersField(card, false);
 	}
 
 	private void placeP2CardInFirstBackupSlot(CardData card) {
@@ -10753,7 +10753,7 @@ public class MainWindow {
 			p2BackupCards[i]  = card;
 			p2BackupStates[i] = CardState.DULL;
 			refreshP2BackupSlot(i);
-			triggerFieldAbilitiesForEntersField(card, false);
+			triggerAutoAbilitiesForEntersField(card, false);
 			return;
 		}
 	}
@@ -11030,7 +11030,7 @@ public class MainWindow {
 					p2ForwardStates.set(i, CardState.DULL);
 					animateDullP2Forward(i, null);
 				}
-				triggerFieldAbilitiesForAttack(attacker, false);
+				triggerAutoAbilitiesForAttack(attacker, false);
 				final int fi = i;
 				p1ChooseBlockerDialog(attacker, fi, () -> {
 					if (!gameState.isP1GameOver()) step(() -> doAttackPhase(onDone));

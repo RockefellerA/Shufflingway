@@ -3,7 +3,7 @@ package shufflingway;
 /**
  * A parsed passive "When [card] [trigger], [effect]" ability.
  *
- * <p>Field abilities fire automatically when the named game event occurs — they have no
+ * <p>Auto abilities fire automatically when the named game event occurs — they have no
  * activation cost and are not placed in a hand or played; they are always active while the
  * card is on the field.
  *
@@ -33,7 +33,7 @@ package shufflingway;
  *   <li>{@code yourTurnOnly} — fires only during the ability owner's turn.</li>
  * </ul>
  */
-public record FieldAbility(
+public record AutoAbility(
         String  triggerCard,      // card name / break-zone subject / "" for global triggers
         String  trigger,          // normalised trigger type
         boolean youMay,           // true = ability owner may decline the effect

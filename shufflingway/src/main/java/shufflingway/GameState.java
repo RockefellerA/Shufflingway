@@ -24,7 +24,7 @@ public class GameState {
         }
     }
 
-    // --- Named counters on field cards (e.g. Shuriken Counters on Yuffie) ---
+    // --- Named counters on field cards (e.g. Shuriken Counters on Character) ---
     // IdentityHashMap so different CardData instances with the same name don't alias each other.
     private final java.util.IdentityHashMap<CardData, Map<String, Integer>> cardCounters =
             new java.util.IdentityHashMap<>();

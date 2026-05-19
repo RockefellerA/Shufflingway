@@ -30,7 +30,7 @@ public record CardData(
         String primingTarget,
         List<String> primingCost,
         List<ActionAbility> actionAbilities,
-        List<FieldAbility>  fieldAbilities,
+        List<AutoAbility>  autoAbilities,
         String job,
         String category1,
         String category2,
@@ -55,7 +55,7 @@ public record CardData(
         warpCost        = List.copyOf(warpCost);
         primingCost     = List.copyOf(primingCost);
         actionAbilities = List.copyOf(actionAbilities);
-        fieldAbilities  = List.copyOf(fieldAbilities);
+        autoAbilities  = List.copyOf(autoAbilities);
         job       = job       != null ? job       : "";
         category1 = category1 != null ? category1 : "";
         category2 = category2 != null ? category2 : "";
@@ -634,7 +634,7 @@ public record CardData(
      *   <li>{@code youmay}  — "you may " or "your opponent may " prefix (optional)</li>
      *   <li>{@code effect}  — remaining effect text</li>
      * </ul>
-     * The effect capture ends at the next field-ability header, an action-ability cost sequence
+     * The effect capture ends at the next auto-ability header, an action-ability cost sequence
      * ({@code 《token》:}), or end of input.
      */
     private static final Pattern FIELD_ABILITY_PATTERN = Pattern.compile(
@@ -666,7 +666,7 @@ public record CardData(
         Pattern.DOTALL
     );
 
-    /** Matches the restriction sentence appended to a field-ability effect, capturing flags. */
+    /** Matches the restriction sentence appended to a auto-ability effect, capturing flags. */
     private static final Pattern FA_TRIGGER_RESTRICTION = Pattern.compile(
         "(?i)[.!,]?\\s*This\\s+effect\\s+will\\s+trigger\\s+only\\s+" +
         "(?:(?<yourTurn>during\\s+your\\s+turn)(?:\\s+and\\s+only\\s+)?)?(?<once>once\\s+per\\s+turn)?[.!]?\\s*$"
@@ -687,12 +687,12 @@ public record CardData(
     );
 
     /**
-     * Parses all Field Abilities ("When X Y, Z") from {@code textEn}.
+     * Parses all Auto Abilities ("When X Y, Z") from {@code textEn}.
      * The returned list is immutable.
      */
-    public static List<FieldAbility> parseFieldAbilities(String textEn) {
+    public static List<AutoAbility> parseFieldAbilities(String textEn) {
         if (textEn == null || textEn.isBlank()) return List.of();
-        List<FieldAbility> result = new ArrayList<>();
+        List<AutoAbility> result = new ArrayList<>();
         Matcher m = FIELD_ABILITY_PATTERN.matcher(textEn);
         while (m.find()) {
             String card      = m.group("card").trim();
@@ -725,7 +725,7 @@ public record CardData(
             String effect = SUMMON_MARKUP.matcher(m.group("effect").trim()).replaceAll("").trim();
             if (effect.isEmpty()) continue;
 
-            FieldAbility fa = parseFieldAbilityRestrictions(card, trigger, youMay, opponentMay, castOnly, effect);
+            AutoAbility fa = parseAutoAbilityRestrictions(card, trigger, youMay, opponentMay, castOnly, effect);
             if (fa != null) result.add(fa);
         }
 
@@ -739,7 +739,7 @@ public record CardData(
             boolean youMay      = youMayRaw != null && !opponentMay;
             String effect = SUMMON_MARKUP.matcher(wm.group("effect").trim()).replaceAll("").trim();
             if (effect.isEmpty()) continue;
-            FieldAbility fa = parseFieldAbilityRestrictions(target, "warp counter removed", youMay, opponentMay, false, effect);
+            AutoAbility fa = parseAutoAbilityRestrictions(target, "warp counter removed", youMay, opponentMay, false, effect);
             if (fa != null) result.add(fa);
         }
 
@@ -748,10 +748,10 @@ public record CardData(
 
     /**
      * Strips trigger-restriction sentences from {@code effect}, records the resulting flags,
-     * and returns a complete {@link FieldAbility}.  Returns {@code null} if the effect is empty
+     * and returns a complete {@link AutoAbility}.  Returns {@code null} if the effect is empty
      * after stripping.
      */
-    private static FieldAbility parseFieldAbilityRestrictions(
+    private static AutoAbility parseAutoAbilityRestrictions(
             String card, String trigger, boolean youMay, boolean opponentMay, boolean castOnly, String effect) {
 
         boolean oncePerTurn = false, yourTurnOnly = false;
@@ -780,7 +780,7 @@ public record CardData(
         }
 
         if (effect.isEmpty()) return null;
-        return new FieldAbility(card, trigger, youMay, opponentMay, effect,
+        return new AutoAbility(card, trigger, youMay, opponentMay, effect,
                 oncePerTurn, yourTurnOnly, rfpConditionCard, castPaymentMinElements, castOnly);
     }
 

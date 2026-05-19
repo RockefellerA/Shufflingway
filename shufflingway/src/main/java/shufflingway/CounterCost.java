@@ -5,10 +5,10 @@ package shufflingway;
  *
  * <p>Examples:
  * <ul>
- *   <li>{@code remove 2 Item Counters from Chocolatte}
- *       → {@code CounterCost("Chocolatte", "Item", 2)}</li>
- *   <li>{@code remove 1 Shuriken Counter from Yuffie}
- *       → {@code CounterCost("Yuffie", "Shuriken", 1)}</li>
+ *   <li>{@code remove 2 Item Counters from cardName1}
+ *       → {@code CounterCost("cardName1", "Item", 2)}</li>
+ *   <li>{@code remove 1 Shuriken Counter from cardName2}
+ *       → {@code CounterCost("cardName2", "Shuriken", 1)}</li>
  * </ul>
  */
 public record CounterCost(
