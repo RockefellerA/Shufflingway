@@ -346,6 +346,82 @@ public class ActionResolver {
         "(?i)(?:you\\s+)?gain\\s+control\\s+of\\s+(?:it|them)\\.?"
     );
 
+    // ---- Cannot-be-chosen followup patterns -----------------------------------------
+
+    /**
+     * "It/They gains 'This Forward/Character cannot be chosen by your opponent's [Summons/abilities].'
+     * until the end of the turn."  The grant form is semantically identical to a direct EOT shield.
+     * Checked first so the simpler cannot-be-chosen patterns do not match inside the quoted text.
+     * Group {@code scope} captures the scope string.
+     */
+    private static final Pattern FOLLOWUP_GAINS_CANNOT_BE_CHOSEN = Pattern.compile(
+        "(?i)(?:it|they)\\s+gains?\\s+['\"]This\\s+(?:Forward|Character)\\s+cannot\\s+be\\s+chosen" +
+        "\\s+by\\s+your\\s+opponent's\\s+(?<scope>Summons?(?:\\s+or\\s+abilities)?|abilities)\\.?['\"]" +
+        "\\s+until\\s+(?:the\\s+)?end\\s+of\\s+(?:the\\s+)?turn\\.?"
+    );
+
+    /**
+     * "It/They cannot be chosen by your opponent's Summons or abilities [this turn]."
+     * More specific than the Summons-only and abilities-only forms; checked first.
+     */
+    private static final Pattern FOLLOWUP_CANNOT_BE_CHOSEN_BOTH = Pattern.compile(
+        "(?i)(?:it|they)\\s+cannot\\s+be\\s+chosen\\s+by\\s+your\\s+opponent's\\s+" +
+        "Summons?\\s+or\\s+abilities\\.?"
+    );
+
+    /** "It/They cannot be chosen by your opponent's Summons [this turn]." */
+    private static final Pattern FOLLOWUP_CANNOT_BE_CHOSEN_SUMMONS = Pattern.compile(
+        "(?i)(?:it|they)\\s+cannot\\s+be\\s+chosen\\s+by\\s+your\\s+opponent's\\s+Summons?\\.?"
+    );
+
+    /** "It/They cannot be chosen by your opponent's abilities [this turn]." */
+    private static final Pattern FOLLOWUP_CANNOT_BE_CHOSEN_ABILITIES = Pattern.compile(
+        "(?i)(?:it|they)\\s+cannot\\s+be\\s+chosen\\s+by\\s+your\\s+opponent's\\s+abilities\\.?"
+    );
+
+    // ---- Standalone cannot-be-chosen patterns ---------------------------------------
+
+    /**
+     * "Activate all the Forwards/Characters you control. They cannot be chosen by
+     * your opponent's Summons [or abilities] [this turn]."
+     * Registered before {@link #tryParseAllFieldEffect} to prevent the activate-all part
+     * from consuming the text without the cannot-be-chosen clause.
+     */
+    private static final Pattern STANDALONE_ACTIVATE_AND_CANNOT_BE_CHOSEN = Pattern.compile(
+        "(?i)Activate\\s+all\\s+the\\s+(?:Forwards?|Characters?)\\s+you\\s+control\\." +
+        "\\s*They\\s+cannot\\s+be\\s+chosen\\s+by\\s+your\\s+opponent's\\s+" +
+        "(?<scope>Summons?(?:\\s+or\\s+abilities)?|abilities)\\s*\\.?"
+    );
+
+    /**
+     * "This Forward/Character cannot be chosen by your opponent's Summons/abilities."
+     * Self-referential: applies protection to the {@code source} card itself.
+     */
+    private static final Pattern STANDALONE_SELF_CANNOT_BE_CHOSEN = Pattern.compile(
+        "(?i)This\\s+(?:Forward|Character)\\s+cannot\\s+be\\s+chosen\\s+by\\s+your\\s+opponent's\\s+" +
+        "(?<scope>Summons?(?:\\s+or\\s+abilities)?|abilities)\\s*\\.?"
+    );
+
+    /**
+     * "[CardName] cannot be chosen by your opponent's Summons/abilities."
+     * Only matches when {@code cardName} equals the {@code source} card's name.
+     */
+    private static final Pattern STANDALONE_NAMED_CANNOT_BE_CHOSEN = Pattern.compile(
+        "(?i)(?<name>[A-Z][A-Za-z''\\-\\s]+?)\\s+cannot\\s+be\\s+chosen\\s+by\\s+your\\s+opponent's\\s+" +
+        "(?<scope>Summons?(?:\\s+or\\s+abilities)?|abilities)\\s*\\.?"
+    );
+
+    /**
+     * "The Job X [other than Y] Forwards/Characters you control cannot be chosen by
+     * your opponent's Summons/abilities."
+     * Group {@code job} is the job name; {@code excl} is the optional excluded card name.
+     */
+    private static final Pattern STANDALONE_JOB_CANNOT_BE_CHOSEN = Pattern.compile(
+        "(?i)The\\s+Job\\s+(?<job>[^.]+?)(?:\\s+other\\s+than\\s+(?<excl>[^.]+?))?" +
+        "\\s+(?:Forwards?|Characters?)\\s+you\\s+control\\s+cannot\\s+be\\s+chosen\\s+by\\s+your\\s+opponent's\\s+" +
+        "(?<scope>Summons?(?:\\s+or\\s+abilities)?|abilities)\\s*\\.?"
+    );
+
     // ---- Standalone damage-shield patterns (apply globally or to a named card) --------
 
     /** "Negate all [the] damage dealt to all the Forwards/Characters you control." */
@@ -896,6 +972,9 @@ public class ActionResolver {
         result = tryParseDelayedEffect(effectText);
         if (result != null) return result;
 
+        result = tryParseCannotBeChosenStandalone(effectText, source);
+        if (result != null) return result;
+
         result = tryParseNegateAllDamage(effectText);
         if (result != null) return result;
 
@@ -973,6 +1052,7 @@ public class ActionResolver {
         if (tryParseDealDamageToForwards(effectText)          != null) return "DealDamageToForwards";
         if (tryParseChooseCharacter(effectText, source, 0)    != null) return "ChooseCharacter";
         if (tryParseDelayedEffect(effectText)                 != null) return "DelayedEffect";
+        if (tryParseCannotBeChosenStandalone(effectText, source) != null) return "CannotBeChosen";
         if (tryParseNegateAllDamage(effectText)                != null) return "NegateDamage";
         if (tryParseAllFieldEffect(effectText)                != null) return "AllFieldEffect";
         if (tryParseStandalonePowerBoostUntil(effectText, source) != null) return "StandalonePowerBoostUntil";
@@ -1014,6 +1094,10 @@ public class ActionResolver {
         if (FOLLOWUP_GAIN_CONTROL_WHILE_CARD.matcher(followupText).find())            return "GainControlWhileCard";
         if (FOLLOWUP_GAIN_CONTROL_EOT.matcher(followupText).find())                   return "GainControlEOT";
         if (FOLLOWUP_GAIN_CONTROL.matcher(followupText).find())                       return "GainControl";
+        if (FOLLOWUP_GAINS_CANNOT_BE_CHOSEN.matcher(followupText).find())             return "GainsCannotBeChosen";
+        if (FOLLOWUP_CANNOT_BE_CHOSEN_BOTH.matcher(followupText).find())              return "CannotBeChosenBoth";
+        if (FOLLOWUP_CANNOT_BE_CHOSEN_SUMMONS.matcher(followupText).find())           return "CannotBeChosenSummons";
+        if (FOLLOWUP_CANNOT_BE_CHOSEN_ABILITIES.matcher(followupText).find())         return "CannotBeChosenAbilities";
         if (FOLLOWUP_ACTIVATE.matcher(followupText).find())                           return "Activate";
         if (FOLLOWUP_DULL.matcher(followupText).find()
                 && !FOLLOWUP_DULL_AND_FREEZE.matcher(followupText).find())            return "Dull";
@@ -1089,6 +1173,7 @@ public class ActionResolver {
             return sb.toString();
         }
 
+        if (tryParseCannotBeChosenStandalone(effectText, source) != null)      return "CannotBeChosen";
         if (tryParseNegateAllDamage(effectText) != null)                     return "NegateDamage";
         if (tryParseAllFieldEffect(effectText) != null)                     return "AllFieldEffect";
         if (tryParseStandalonePowerBoostUntil(effectText, source) != null)  return "StandalonePowerBoostUntil";
@@ -1590,6 +1675,28 @@ public class ActionResolver {
                 ts.forEach(t -> ctx.gainControlOfForward(t, "permanent", false));
                 if (secondary != null) secondary.accept(ctx);
             };
+        }
+
+        // --- Cannot-be-chosen followups (gains form, then both, Summons, abilities) ---
+        {   // scoped block so scope-parsing locals don't leak
+            String fp = primaryFollowup;
+            java.util.regex.Matcher gcM = FOLLOWUP_GAINS_CANNOT_BE_CHOSEN.matcher(fp);
+            if (!gcM.find()) gcM = null;
+            boolean chosenBoth      = gcM != null || FOLLOWUP_CANNOT_BE_CHOSEN_BOTH.matcher(fp).find();
+            boolean chosenSummons   = chosenBoth  || (gcM == null && FOLLOWUP_CANNOT_BE_CHOSEN_SUMMONS.matcher(fp).find());
+            boolean chosenAbilities = chosenBoth  || (gcM == null && FOLLOWUP_CANNOT_BE_CHOSEN_ABILITIES.matcher(fp).find());
+            if (chosenSummons || chosenAbilities) {
+                final boolean bs = chosenSummons, ba = chosenAbilities;
+                return ctx -> {
+                    ctx.logEntry(choosePrefix + " — Cannot be chosen by opponent's"
+                            + (bs && ba ? " Summons or abilities" : bs ? " Summons" : " abilities"));
+                    List<ForwardTarget> ts = selectTargets(ctx, maxCount, upTo,
+                            opponentOnly, selfOnly, condition, element, zone, opponentZone,
+                            costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters, jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons);
+                    ts.forEach(t -> ctx.shieldCannotBeChosen(t, bs, ba));
+                    if (secondary != null) secondary.accept(ctx);
+                };
+            }
         }
 
         // --- Activate + Negate damage followup (must precede plain Activate to avoid partial match) ---
@@ -2811,6 +2918,70 @@ public class ActionResolver {
         if (lo.contains("hand"))   return "addToHand";
         if (lo.contains("break"))  return "putToBreakZone";
         if (lo.contains("cast") && lo.contains("cost")) return "castSummonFree";
+        return null;
+    }
+
+    /**
+     * Parses standalone "cannot be chosen" protection effects:
+     * <ul>
+     *   <li>"Activate all the Forwards you control. They cannot be chosen by your opponent's Summons."</li>
+     *   <li>"This Forward/Character cannot be chosen by your opponent's Summons or abilities."</li>
+     *   <li>"[CardName] cannot be chosen by your opponent's Summons." (name must match {@code source})</li>
+     *   <li>"The Job X [other than Y] Forwards you control cannot be chosen by your opponent's Summons."</li>
+     * </ul>
+     * Registered before {@link #tryParseNegateAllDamage} and {@link #tryParseAllFieldEffect}.
+     */
+    private static Consumer<GameContext> tryParseCannotBeChosenStandalone(String text, CardData source) {
+        // 1. Compound: "Activate all Forwards + They cannot be chosen"
+        Matcher actM = STANDALONE_ACTIVATE_AND_CANNOT_BE_CHOSEN.matcher(text);
+        if (actM.find()) {
+            boolean bs = actM.group("scope").toLowerCase(java.util.Locale.ROOT).contains("summon");
+            boolean ba = actM.group("scope").toLowerCase(java.util.Locale.ROOT).contains("abilit");
+            return ctx -> {
+                ctx.logEntry("Effect: Activate all own Forwards + cannot be chosen by opponent");
+                ctx.applyMassFieldEffect(GameContext.MassAction.ACTIVATE, true, false, false, false, true, null, -1, null, -1);
+                ctx.shieldAllOwnForwardsCannotBeChosen(bs, ba);
+            };
+        }
+
+        // 2. Job filter: "The Job X [other than Y] Forwards cannot be chosen"
+        Matcher jobM = STANDALONE_JOB_CANNOT_BE_CHOSEN.matcher(text);
+        if (jobM.find()) {
+            String job  = jobM.group("job").trim();
+            String excl = jobM.group("excl") != null ? jobM.group("excl").trim() : null;
+            boolean bs  = jobM.group("scope").toLowerCase(java.util.Locale.ROOT).contains("summon");
+            boolean ba  = jobM.group("scope").toLowerCase(java.util.Locale.ROOT).contains("abilit");
+            return ctx -> {
+                ctx.logEntry("Effect: Job " + job + " Forwards cannot be chosen by opponent");
+                ctx.shieldJobForwardsCannotBeChosen(job, excl, bs, ba);
+            };
+        }
+
+        // 3. Self-referential: "This Forward/Character cannot be chosen"
+        Matcher selfM = STANDALONE_SELF_CANNOT_BE_CHOSEN.matcher(text);
+        if (selfM.find() && source != null) {
+            boolean bs = selfM.group("scope").toLowerCase(java.util.Locale.ROOT).contains("summon");
+            boolean ba = selfM.group("scope").toLowerCase(java.util.Locale.ROOT).contains("abilit");
+            String  nm = source.name();
+            return ctx -> {
+                ctx.logEntry("Effect: " + nm + " cannot be chosen by opponent");
+                ctx.shieldNamedCardCannotBeChosen(nm, bs, ba);
+            };
+        }
+
+        // 4. Named card: "[Name] cannot be chosen" — only when name matches source
+        Matcher nameM = STANDALONE_NAMED_CANNOT_BE_CHOSEN.matcher(text);
+        if (nameM.find() && source != null) {
+            String nm   = nameM.group("name").trim();
+            boolean bs  = nameM.group("scope").toLowerCase(java.util.Locale.ROOT).contains("summon");
+            boolean ba  = nameM.group("scope").toLowerCase(java.util.Locale.ROOT).contains("abilit");
+            if (nm.equalsIgnoreCase(source.name()))
+                return ctx -> {
+                    ctx.logEntry("Effect: " + nm + " cannot be chosen by opponent");
+                    ctx.shieldNamedCardCannotBeChosen(nm, bs, ba);
+                };
+        }
+
         return null;
     }
 

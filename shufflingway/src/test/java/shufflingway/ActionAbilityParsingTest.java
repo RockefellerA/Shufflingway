@@ -13,7 +13,7 @@ import org.junit.jupiter.api.Test;
 public class ActionAbilityParsingTest {
 
     @Test
-    void reportCardParsingCoverage() throws Exception {
+    void reportActionAbilityParsingCoverage() throws Exception {
         File dbFile = new File("fftcg_cards.db");
         if (!dbFile.exists()) {
             System.out.println("[ActionAbilityParsingTest] fftcg_cards.db not found — skipping.");

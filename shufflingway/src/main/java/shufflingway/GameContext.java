@@ -292,6 +292,30 @@ public interface GameContext {
      */
     void shieldActivePlayerDamageReduction(int reduction);
 
+    // ---- Cannot-be-chosen protection -----------------------------------------------
+
+    /**
+     * Registers that the Forward at {@code t} cannot be selected as a target by
+     * the opponent's Summons (if {@code bySummons}) or abilities (if {@code byAbilities}) this turn.
+     */
+    void shieldCannotBeChosen(ForwardTarget t, boolean bySummons, boolean byAbilities);
+
+    /**
+     * Applies "cannot be chosen" protection to every Forward the active player controls.
+     */
+    void shieldAllOwnForwardsCannotBeChosen(boolean bySummons, boolean byAbilities);
+
+    /**
+     * Finds the named card on the active player's field and applies "cannot be chosen" protection.
+     */
+    void shieldNamedCardCannotBeChosen(String name, boolean bySummons, boolean byAbilities);
+
+    /**
+     * Applies "cannot be chosen" protection to all Forwards matching {@code job} that the active
+     * player controls, optionally excluding the card named {@code excludeName}.
+     */
+    void shieldJobForwardsCannotBeChosen(String job, String excludeName, boolean bySummons, boolean byAbilities);
+
     /**
      * Moves the Forward at {@code t} (currently opponent-controlled) to the active player's field.
      * The card retains its current accumulated damage. No ETF auto-abilities fire.

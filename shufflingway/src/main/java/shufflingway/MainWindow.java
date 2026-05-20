@@ -265,6 +265,13 @@ public class MainWindow {
 	/** Tracks once-per-turn ability uses this turn; keyed by card instance identity, value is set of effectText strings used. */
 	private final java.util.IdentityHashMap<CardData, java.util.Set<String>> usedOncePerTurnAbilities = new java.util.IdentityHashMap<>();
 
+	/** Forwards that cannot be selected as targets by the opponent's Summons this turn. */
+	private final Set<CardData> cannotBeChosenBySummons   = new java.util.HashSet<>();
+	/** Forwards that cannot be selected as targets by the opponent's abilities this turn. */
+	private final Set<CardData> cannotBeChosenByAbilities = new java.util.HashSet<>();
+	/** Set to {@code true} while a Summon effect is resolving so {@link #selectCharacters} applies the correct protection set. */
+	private boolean currentResolutionIsSummon = false;
+
 	/**
 	 * Forwards currently stolen by P1 from P2, mapped to their restoration condition:
 	 * {@code "permanent"}, {@code "endOfTurn"}, or {@code "whileCardOnField:Name"}.
@@ -1352,6 +1359,7 @@ public class MainWindow {
                             nextIncomingDmgZeroSet.clear();   nextIncomingDmgReduceMap.clear();
                             incomingDmgIncreaseMap.clear();   nullifyAbilityDmgSet.clear();
                             nextOutgoingDmgZeroSet.clear();
+                            cannotBeChosenBySummons.clear();  cannotBeChosenByAbilities.clear();
                             p1NonLethalProtection = false;    p2NonLethalProtection = false;
                             p1GlobalDmgReduction  = 0;        p2GlobalDmgReduction  = 0;
                             for (int i = 0; i < p2ForwardCards.size(); i++) refreshP2ForwardSlot(i);
@@ -5530,8 +5538,10 @@ public class MainWindow {
 			String effectText = entry.effectText();
 			logEntry("[Summon] Resolving \"" + entry.source().name() + "\": " + effectText);
 			java.util.function.Consumer<GameContext> effect = ActionResolver.parse(effectText, entry.source());
-			if (effect != null) effect.accept(ctx);
-			else logEntry("[ActionResolver] Summon effect not yet implemented: " + effectText);
+			if (effect != null) {
+				currentResolutionIsSummon = true;
+				try { effect.accept(ctx); } finally { currentResolutionIsSummon = false; }
+			} else logEntry("[ActionResolver] Summon effect not yet implemented: " + effectText);
 			triggerAutoAbilitiesForCastSummon(entry.isP1());
 			gameState.getP1BreakZone().add(entry.source());
 			logEntry("\"" + entry.source().name() + "\" → Break Zone");
@@ -6616,7 +6626,8 @@ public class MainWindow {
 			logEntry("[EX BURST] [AI] " + card.name() + " — auto-activates");
 		}
 		logEntry("[EX BURST] " + card.name() + " — " + effect);
-		fn.accept(buildGameContext(isP1));
+		if (card.isSummon()) currentResolutionIsSummon = true;
+		try { fn.accept(buildGameContext(isP1)); } finally { currentResolutionIsSummon = false; }
 	}
 
 	/**
@@ -8050,6 +8061,43 @@ public class MainWindow {
 				}
 			}
 
+			@Override public void shieldCannotBeChosen(ForwardTarget t, boolean bySummons, boolean byAbilities) {
+				CardData c = fieldCardData(t);
+				if (c == null) return;
+				if (bySummons)   cannotBeChosenBySummons.add(c);
+				if (byAbilities) cannotBeChosenByAbilities.add(c);
+			}
+
+			@Override public void shieldAllOwnForwardsCannotBeChosen(boolean bySummons, boolean byAbilities) {
+				List<CardData> fwds = isP1 ? p1ForwardCards : p2ForwardCards;
+				for (CardData c : fwds) {
+					if (bySummons)   cannotBeChosenBySummons.add(c);
+					if (byAbilities) cannotBeChosenByAbilities.add(c);
+				}
+				logEntry("Effect: all own Forwards cannot be chosen by opponent's" +
+						(bySummons && byAbilities ? " Summons or abilities" : bySummons ? " Summons" : " abilities"));
+			}
+
+			@Override public void shieldNamedCardCannotBeChosen(String name, boolean bySummons, boolean byAbilities) {
+				List<CardData> fwds = isP1 ? p1ForwardCards : p2ForwardCards;
+				for (CardData c : fwds) {
+					if (!c.name().equalsIgnoreCase(name)) continue;
+					if (bySummons)   cannotBeChosenBySummons.add(c);
+					if (byAbilities) cannotBeChosenByAbilities.add(c);
+				}
+			}
+
+			@Override public void shieldJobForwardsCannotBeChosen(String job, String excludeName,
+					boolean bySummons, boolean byAbilities) {
+				List<CardData> fwds = isP1 ? p1ForwardCards : p2ForwardCards;
+				for (CardData c : fwds) {
+					if (!meetsJobFilter(c, job)) continue;
+					if (excludeName != null && c.name().equalsIgnoreCase(excludeName)) continue;
+					if (bySummons)   cannotBeChosenBySummons.add(c);
+					if (byAbilities) cannotBeChosenByAbilities.add(c);
+				}
+			}
+
 			@Override public void gainControlOfForward(ForwardTarget t, String condition, boolean activate) {
 				// Only supported for P1 stealing from P2 in the current implementation
 				if (!isP1 || t.isP1() || t.zone() != ForwardTarget.CardZone.FORWARD) return;
@@ -8186,8 +8234,11 @@ public class MainWindow {
 								eligible.add(new ForwardTarget(false, i, ForwardTarget.CardZone.MONSTER));
 						}
 					} else {
+						// P2 is targeting P1's cards — check "cannot be chosen" protection
+						Set<CardData> noChoose = currentResolutionIsSummon ? cannotBeChosenBySummons : cannotBeChosenByAbilities;
 						if (inclForwards) for (int i = 0; i < p1ForwardCards.size(); i++) {
 							CardData card = p1Forward(i);
+							if (noChoose.contains(card)) continue;
 							if (element != null && !card.containsElement(element)) continue;
 							if (!meetsCostConstraint(card.cost(), costVal, costCmp)) continue;
 							if (!meetsPowerConstraint(card.power(), powerVal, powerCmp)) continue;
@@ -8201,6 +8252,7 @@ public class MainWindow {
 						}
 						if (inclBackups) for (int i = 0; i < p1BackupCards.length; i++) {
 							if (p1BackupCards[i] == null) continue;
+							if (noChoose.contains(p1BackupCards[i])) continue;
 							if (element != null && !p1BackupCards[i].containsElement(element)) continue;
 							if (!meetsCostConstraint(p1BackupCards[i].cost(), costVal, costCmp)) continue;
 							if (!meetsPowerConstraint(p1BackupCards[i].power(), powerVal, powerCmp)) continue;
@@ -8213,6 +8265,7 @@ public class MainWindow {
 						}
 						if (inclMonsters) for (int i = 0; i < p1MonsterCards.size(); i++) {
 							CardData card = p1MonsterCards.get(i);
+							if (noChoose.contains(card)) continue;
 							if (element != null && !card.containsElement(element)) continue;
 							if (!meetsCostConstraint(card.cost(), costVal, costCmp)) continue;
 							if (!meetsPowerConstraint(card.power(), powerVal, powerCmp)) continue;
