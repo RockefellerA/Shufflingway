@@ -253,11 +253,15 @@ public class MainWindow {
 	private final Map<CardData, Integer> nextIncomingDmgReduceMap = new java.util.HashMap<>();
 	private final Map<CardData, Integer> incomingDmgIncreaseMap   = new java.util.HashMap<>();
 	private final Set<CardData>          nullifyAbilityDmgSet     = new java.util.HashSet<>();
+	private final Set<CardData>          nullifyAbilityOnlyDmgSet = new java.util.HashSet<>();
 	private final Set<CardData>          nextOutgoingDmgZeroSet   = new java.util.HashSet<>();
-	private boolean p1NonLethalProtection = false;
-	private boolean p2NonLethalProtection = false;
-	private int     p1GlobalDmgReduction  = 0;
-	private int     p2GlobalDmgReduction  = 0;
+	private final Set<CardData>          perCardNonLethalDmgSet   = new java.util.HashSet<>();
+	private boolean p1NonLethalProtection   = false;
+	private boolean p2NonLethalProtection   = false;
+	private boolean p1DmgReductionDisabled  = false;
+	private boolean p2DmgReductionDisabled  = false;
+	private int     p1GlobalDmgReduction    = 0;
+	private int     p2GlobalDmgReduction    = 0;
 
 	/** End-of-turn effects queued this turn; fired at the beginning of the END phase. */
 	private final List<java.util.function.Consumer<GameContext>> endOfTurnEffects = new ArrayList<>();
@@ -1358,9 +1362,11 @@ public class MainWindow {
                             p1ForwardCannotAttackPersistent.clear(); p1ForwardCannotBlockPersistent.clear();
                             nextIncomingDmgZeroSet.clear();   nextIncomingDmgReduceMap.clear();
                             incomingDmgIncreaseMap.clear();   nullifyAbilityDmgSet.clear();
+                            nullifyAbilityOnlyDmgSet.clear(); perCardNonLethalDmgSet.clear();
                             nextOutgoingDmgZeroSet.clear();
                             cannotBeChosenBySummons.clear();  cannotBeChosenByAbilities.clear();
                             p1NonLethalProtection = false;    p2NonLethalProtection = false;
+                            p1DmgReductionDisabled = false;   p2DmgReductionDisabled = false;
                             p1GlobalDmgReduction  = 0;        p2GlobalDmgReduction  = 0;
                             for (int i = 0; i < p2ForwardCards.size(); i++) refreshP2ForwardSlot(i);
                             showEndPhaseDiscardDialog();
@@ -6412,6 +6418,16 @@ public class MainWindow {
 				java.util.regex.Pattern.DOTALL
 			);
 
+	/**
+	 * Matches a card's own passive field ability text:
+	 * "If &lt;cardName&gt; is dealt damage by your opponent's Summons, the damage becomes 0 instead."
+	 * Checked inline in {@link #modifyIncomingDamage} against the receiving card's field abilities.
+	 */
+	private static final java.util.regex.Pattern FA_NULLIFY_SUMMON_DAMAGE =
+			java.util.regex.Pattern.compile(
+				"(?i)If\\s+(?<card>.+?)\\s+is\\s+dealt\\s+damage\\s+by\\s+your\\s+opponent's\\s+Summons?,\\s+the\\s+damage\\s+becomes\\s+0\\s+instead\\.?"
+			);
+
 	/** Matches "pay 《cost》[.] When/If you do so, sub-effect[. The maximum you can pay for 《X》 is N]". */
 	private static final java.util.regex.Pattern FA_PAY_WHEN_DO_SO = java.util.regex.Pattern.compile(
 		"(?i)^pay\\s+《([^》]+)》[.,]?\\s+(?:When|If)\\s+you\\s+do\\s+so[,.]?\\s+(.+?)(?:[.,]?\\s+The\\s+maximum\\s+you\\s+can\\s+pay\\s+for\\s+《X》\\s+is\\s+\\d+\\.?)?$",
@@ -8023,6 +8039,15 @@ public class MainWindow {
 			@Override public void shieldAbilityDamage(ForwardTarget t) {
 				CardData c = fieldCardData(t); if (c != null) nullifyAbilityDmgSet.add(c);
 			}
+			@Override public void shieldAbilityOnlyDamage(ForwardTarget t) {
+				CardData c = fieldCardData(t); if (c != null) nullifyAbilityOnlyDmgSet.add(c);
+			}
+			@Override public void shieldNonLethal(ForwardTarget t) {
+				CardData c = fieldCardData(t); if (c != null) perCardNonLethalDmgSet.add(c);
+			}
+			@Override public void disableOpponentDamageReduction() {
+				if (isP1) p2DmgReductionDisabled = true; else p1DmgReductionDisabled = true;
+			}
 			@Override public void shieldNextOutgoingDamage(ForwardTarget t) {
 				CardData c = fieldCardData(t); if (c != null) nextOutgoingDmgZeroSet.add(c);
 			}
@@ -9506,12 +9531,27 @@ public class MainWindow {
 		CardData card = fwds.get(idx);
 		int amount = rawAmount;
 
-		// Incoming damage increase (debuff)
+		// Incoming damage increase (debuff) — applied regardless of reduction-disabled flag
 		if (incomingDmgIncreaseMap.containsKey(card))
 			amount += incomingDmgIncreaseMap.get(card);
 
-		// Nullify damage from opponent's abilities/summons (does not block combat)
-		if (fromAbility && nullifyAbilityDmgSet.contains(card)) return 0;
+		// Source-based nullification (these block damage by type of source, not by reducing amount)
+		if (fromAbility) {
+			// Nullify all ability/summon damage
+			if (nullifyAbilityDmgSet.contains(card)) return 0;
+			// Nullify ability-only damage (not Summons)
+			if (!currentResolutionIsSummon && nullifyAbilityOnlyDmgSet.contains(card)) return 0;
+			// Passive field ability: nullify Summon-only damage
+			if (currentResolutionIsSummon) {
+				for (FieldAbility fa : card.fieldAbilities()) {
+					java.util.regex.Matcher m = FA_NULLIFY_SUMMON_DAMAGE.matcher(fa.effectText());
+					if (m.find() && m.group("card").trim().equalsIgnoreCase(card.name())) return 0;
+				}
+			}
+		}
+
+		// If damage reductions are disabled for this side, skip all target-side protections
+		if (isP1 ? p1DmgReductionDisabled : p2DmgReductionDisabled) return amount;
 
 		// One-time: next incoming damage = 0
 		if (nextIncomingDmgZeroSet.remove(card)) return 0;
@@ -9524,7 +9564,13 @@ public class MainWindow {
 		int globalRed = isP1 ? p1GlobalDmgReduction : p2GlobalDmgReduction;
 		if (globalRed > 0) amount = Math.max(0, amount - globalRed);
 
-		// Non-lethal protection: damage < forward's effective power → becomes 0
+		// Per-card non-lethal protection: damage < this card's effective power → becomes 0
+		if (perCardNonLethalDmgSet.contains(card)) {
+			int power = isP1 ? effectiveP1ForwardPower(idx) : effectiveP2ForwardPower(idx);
+			if (amount < power) return 0;
+		}
+
+		// Global non-lethal protection: damage < forward's effective power → becomes 0
 		boolean nonLethal = isP1 ? p1NonLethalProtection : p2NonLethalProtection;
 		if (nonLethal) {
 			int power = isP1 ? effectiveP1ForwardPower(idx) : effectiveP2ForwardPower(idx);
@@ -11524,8 +11570,10 @@ public class MainWindow {
 			p2ForwardCannotAttackPersistent.clear(); p2ForwardCannotBlockPersistent.clear();
 			nextIncomingDmgZeroSet.clear();   nextIncomingDmgReduceMap.clear();
 			incomingDmgIncreaseMap.clear();   nullifyAbilityDmgSet.clear();
+			nullifyAbilityOnlyDmgSet.clear(); perCardNonLethalDmgSet.clear();
 			nextOutgoingDmgZeroSet.clear();
 			p1NonLethalProtection = false;    p2NonLethalProtection = false;
+			p1DmgReductionDisabled = false;   p2DmgReductionDisabled = false;
 			p1GlobalDmgReduction  = 0;        p2GlobalDmgReduction  = 0;
 			gameState.advancePhase(); // MAIN_2 → END
 			refreshPhaseTracker();

@@ -277,8 +277,17 @@ public interface GameContext {
     /** Damage from the opponent's Summons or abilities to target becomes 0 until end of turn. */
     void shieldAbilityDamage(ForwardTarget t);
 
+    /** Damage from the opponent's abilities (not Summons) to target becomes 0 until end of turn. */
+    void shieldAbilityOnlyDamage(ForwardTarget t);
+
     /** Next damage target deals to a Forward becomes 0 (consumed on first hit). */
     void shieldNextOutgoingDamage(ForwardTarget t);
+
+    /**
+     * Until end of turn: if this Forward is dealt damage less than its power, the damage becomes 0
+     * instead (per-card variant of {@link #shieldActivePlayerNonLethal}).
+     */
+    void shieldNonLethal(ForwardTarget t);
 
     /**
      * Until end of turn: if any Forward the active player controls is dealt damage less than
@@ -291,6 +300,9 @@ public interface GameContext {
      * incoming damage (minimum 0).
      */
     void shieldActivePlayerDamageReduction(int reduction);
+
+    /** Until end of turn: damage dealt to all Forwards the opponent controls cannot be reduced. */
+    void disableOpponentDamageReduction();
 
     // ---- Cannot-be-chosen protection -----------------------------------------------
 

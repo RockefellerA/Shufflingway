@@ -299,6 +299,20 @@ public class ActionResolver {
         "(?i)During\\s+this\\s+turn,\\s+the\\s+next\\s+damage\\s+it\\s+deals\\s+to\\s+a\\s+Forward\\s+becomes\\s+0\\s+instead\\.?"
     );
 
+    /** Matches "During this turn, if it is dealt damage less than its power, the damage becomes 0 instead." */
+    private static final Pattern FOLLOWUP_SHIELD_NONLETHAL = Pattern.compile(
+        "(?i)During\\s+this\\s+turn,\\s+if\\s+it\\s+is\\s+dealt\\s+damage\\s+less\\s+than\\s+its\\s+power,\\s+the\\s+damage\\s+becomes\\s+0\\s+instead\\.?"
+    );
+
+    /**
+     * "It gains 'If this Forward is dealt damage by your opponent's abilities, the damage becomes
+     * 0 instead.' until the end of the turn."
+     */
+    private static final Pattern FOLLOWUP_GAINS_SHIELD_ABILITY_ONLY = Pattern.compile(
+        "(?i)(?:it|they)\\s+gains?\\s+['\"]If\\s+this\\s+Forward\\s+is\\s+dealt\\s+damage\\s+by\\s+your\\s+opponent's\\s+abilities,\\s+the\\s+damage\\s+becomes\\s+0\\s+instead\\.?['\"]" +
+        "\\s+until\\s+(?:the\\s+)?end\\s+of\\s+(?:the\\s+)?turn\\.?"
+    );
+
     /** Matches "Negate all [the] damage dealt to it/them." — removes all existing damage immediately. */
     private static final Pattern FOLLOWUP_NEGATE_DAMAGE = Pattern.compile(
         "(?i)Negate\\s+all\\s+(?:the\\s+)?damage\\s+dealt\\s+to\\s+(?:it|them)\\.?"
@@ -456,6 +470,11 @@ public class ActionResolver {
      */
     private static final Pattern STANDALONE_NULLIFY_ABILITY_DAMAGE = Pattern.compile(
         "(?i)During\\s+this\\s+turn,\\s+if\\s+(?<card>.+?)\\s+is\\s+dealt\\s+damage\\s+by\\s+your\\s+opponent's\\s+Summons?\\s+or\\s+abilities,\\s+the\\s+damage\\s+becomes\\s+0\\s+instead\\.?"
+    );
+
+    /** "The damage dealt to Forwards opponent controls cannot be reduced this turn." */
+    private static final Pattern STANDALONE_DISABLE_OPPONENT_DMG_REDUCTION = Pattern.compile(
+        "(?i)The\\s+damage\\s+dealt\\s+to\\s+Forwards?\\s+(?:your\\s+)?opponent\\s+controls\\s+cannot\\s+be\\s+reduced\\s+this\\s+turn\\.?"
     );
 
     /**
@@ -1136,6 +1155,8 @@ public class ActionResolver {
         if (FOLLOWUP_SHIELD_NEXT_DMG_REDUCTION.matcher(followupText).find())          return "ShieldNextDmgReduction";
         if (FOLLOWUP_DEBUFF_INCOMING_DMG_INCREASE.matcher(followupText).find())       return "DebuffIncomingDmgIncrease";
         if (FOLLOWUP_SHIELD_NEXT_OUTGOING_ZERO.matcher(followupText).find())          return "ShieldNextOutgoingZero";
+        if (FOLLOWUP_SHIELD_NONLETHAL.matcher(followupText).find())                   return "ShieldNonLethal";
+        if (FOLLOWUP_GAINS_SHIELD_ABILITY_ONLY.matcher(followupText).find())          return "GainsShieldAbilityOnly";
         if (FOLLOWUP_PUT_TO_BREAK_ZONE.matcher(followupText).find())                  return "PutToBreakZone";
         return null;
     }
@@ -2223,6 +2244,30 @@ public class ActionResolver {
             };
         }
 
+        // --- Per-card non-lethal protection followup ---
+        if (FOLLOWUP_SHIELD_NONLETHAL.matcher(primaryFollowup).find()) {
+            return ctx -> {
+                ctx.logEntry(choosePrefix + " — Shield: damage less than power becomes 0 this turn");
+                List<ForwardTarget> ts = selectTargets(ctx, maxCount, upTo,
+                        opponentOnly, selfOnly, condition, element, zone, opponentZone,
+                        costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters, jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons);
+                ts.forEach(ctx::shieldNonLethal);
+                if (secondary != null) secondary.accept(ctx);
+            };
+        }
+
+        // --- "It gains ability-damage shield" followup ---
+        if (FOLLOWUP_GAINS_SHIELD_ABILITY_ONLY.matcher(primaryFollowup).find()) {
+            return ctx -> {
+                ctx.logEntry(choosePrefix + " — Shield: gains ability-damage nullification until end of turn");
+                List<ForwardTarget> ts = selectTargets(ctx, maxCount, upTo,
+                        opponentOnly, selfOnly, condition, element, zone, opponentZone,
+                        costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters, jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons);
+                ts.forEach(ctx::shieldAbilityOnlyDamage);
+                if (secondary != null) secondary.accept(ctx);
+            };
+        }
+
         // --- End-of-turn conditional damage followup ---
         // e.g. "At the end of this turn, if you control <name>, deal it N damage."
         Matcher eotDmgM = FOLLOWUP_END_OF_TURN_COND_DAMAGE.matcher(primaryFollowup);
@@ -3056,6 +3101,14 @@ public class ActionResolver {
                     if (ctx.p1Forward(i).name().equalsIgnoreCase(cardName))
                         ctx.shieldAbilityDamage(new ForwardTarget(true, i, ForwardTarget.CardZone.FORWARD));
                 }
+            };
+        }
+
+        // "The damage dealt to Forwards opponent controls cannot be reduced this turn."
+        if (STANDALONE_DISABLE_OPPONENT_DMG_REDUCTION.matcher(text).find()) {
+            return ctx -> {
+                ctx.logEntry("Effect: Opponent's Forwards cannot benefit from damage reduction this turn");
+                ctx.disableOpponentDamageReduction();
             };
         }
 
