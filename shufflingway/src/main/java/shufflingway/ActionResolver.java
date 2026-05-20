@@ -942,11 +942,78 @@ public class ActionResolver {
      */
     /**
      * Matches "Look at the top card of your deck. You may put it into the Break Zone."
-     * The optional sentence after the period allows for additional context text.
      */
     private static final Pattern LOOK_TOP_DECK_OPTIONALLY_BREAK = Pattern.compile(
         "(?i)Look\\s+at\\s+the\\s+top\\s+card\\s+of\\s+your\\s+deck[.!]?\\s*" +
         "You\\s+may\\s+put\\s+it\\s+into\\s+the\\s+Break\\s+Zone[.!]?"
+    );
+
+    /**
+     * Matches "Look at the top card of your deck. You may place the card at the bottom of your deck."
+     */
+    private static final Pattern LOOK_TOP_DECK_BOTTOM_OR_KEEP = Pattern.compile(
+        "(?i)Look\\s+at\\s+the\\s+top\\s+card\\s+of\\s+your\\s+deck[.!]?\\s*" +
+        "You\\s+may\\s+place\\s+(?:the\\s+)?card\\s+at\\s+the\\s+bottom\\s+of\\s+your\\s+deck[.!]?"
+    );
+
+    /**
+     * Matches "Look at the top N cards of your deck. Return them to the top of your deck in any order."
+     * <ul>
+     *   <li>Group {@code count} — number of cards to look at</li>
+     * </ul>
+     */
+    private static final Pattern LOOK_TOP_DECK_RETURN_TOP_ORDERED = Pattern.compile(
+        "(?i)Look\\s+at\\s+the\\s+top\\s+(?<count>\\d+)\\s+cards?\\s+of\\s+your\\s+deck[.!]?\\s*" +
+        "Return\\s+them\\s+to\\s+the\\s+top\\s+of\\s+your\\s+deck\\s+in\\s+any\\s+order[.!]?"
+    );
+
+    /**
+     * Matches "Look at the top N cards of your deck. Add 1 card among them to your hand and
+     * return the other cards to the bottom of your deck in any order."
+     * <ul>
+     *   <li>Group {@code count} — number of cards to look at</li>
+     * </ul>
+     */
+    private static final Pattern LOOK_TOP_DECK_ADD_TO_HAND_REST_BOTTOM = Pattern.compile(
+        "(?i)Look\\s+at\\s+the\\s+top\\s+(?<count>\\d+)\\s+cards?\\s+of\\s+your\\s+deck[.!]?\\s*" +
+        "Add\\s+1\\s+card\\s+among\\s+them\\s+to\\s+your\\s+hand\\s+and\\s+" +
+        "return\\s+the\\s+other\\s+cards?\\s+to\\s+the\\s+bottom\\s+of\\s+your\\s+deck\\s+in\\s+any\\s+order[.!]?"
+    );
+
+    /**
+     * Matches "Look at the top N cards of your deck. Add 1 card among them to your hand and
+     * put the rest of the cards into the Break Zone."
+     * <ul>
+     *   <li>Group {@code count} — number of cards to look at</li>
+     * </ul>
+     */
+    private static final Pattern LOOK_TOP_DECK_ADD_TO_HAND_REST_BREAK = Pattern.compile(
+        "(?i)Look\\s+at\\s+the\\s+top\\s+(?<count>\\d+)\\s+cards?\\s+of\\s+your\\s+deck[.!]?\\s*" +
+        "Add\\s+1\\s+card\\s+among\\s+them\\s+to\\s+your\\s+hand\\s+and\\s+" +
+        "put\\s+the\\s+rest\\s+(?:of\\s+the\\s+cards?\\s+)?into\\s+the\\s+Break\\s+Zone[.!]?"
+    );
+
+    /**
+     * Matches "Look at the top N cards of your deck. Return these to the top and/or bottom of
+     * your deck in any order."
+     * <ul>
+     *   <li>Group {@code count} — number of cards to look at</li>
+     * </ul>
+     */
+    private static final Pattern LOOK_TOP_DECK_TOP_OR_BOTTOM = Pattern.compile(
+        "(?i)Look\\s+at\\s+the\\s+top\\s+(?<count>\\d+)\\s+cards?\\s+of\\s+your\\s+deck[.!]?\\s*" +
+        "Return\\s+(?:them|these)\\s+to\\s+the\\s+top\\s+and[/\\s]?(?:or\\s+)?bottom\\s+of\\s+your\\s+deck\\s+in\\s+any\\s+order[.!]?"
+    );
+
+    /**
+     * Catch-all: matches any bare "Look at the top [N cards / card] of your deck" with no
+     * further action clause — treated as a pure peek (card stays on top, player just sees it).
+     * <ul>
+     *   <li>Group {@code count} — number of cards, or absent for the singular "top card" form</li>
+     * </ul>
+     */
+    private static final Pattern LOOK_TOP_DECK_PEEK = Pattern.compile(
+        "(?i)Look\\s+at\\s+the\\s+top\\s+(?:(?<count>\\d+)\\s+cards?|card)\\s+of\\s+your\\s+deck[.!]?"
     );
 
     /**
@@ -1160,6 +1227,24 @@ public class ActionResolver {
         result = tryParseLookTopDeckOptionallyBreak(effectText);
         if (result != null) return result;
 
+        result = tryParseLookTopDeckBottomOrKeep(effectText);
+        if (result != null) return result;
+
+        result = tryParseLookTopDeckAddToHandRestBottom(effectText);
+        if (result != null) return result;
+
+        result = tryParseLookTopDeckAddToHandRestBreak(effectText);
+        if (result != null) return result;
+
+        result = tryParseLookTopDeckTopOrBottom(effectText);
+        if (result != null) return result;
+
+        result = tryParseLookTopDeckReturnTopOrdered(effectText);
+        if (result != null) return result;
+
+        result = tryParseLookTopDeckPeek(effectText);
+        if (result != null) return result;
+
         return null;
     }
 
@@ -1196,7 +1281,13 @@ public class ActionResolver {
         if (tryParseGainCrystalPerX(effectText, 0)               != null) return "GainCrystalPerX";
         if (tryParseGainCrystal(effectText)                      != null) return "GainCrystal";
         if (tryParsePlaceCounters(effectText, source)            != null) return "PlaceCounters";
-        if (tryParseLookTopDeckOptionallyBreak(effectText)       != null) return "LookTopDeckOptionallyBreak";
+        if (tryParseLookTopDeckOptionallyBreak(effectText)        != null) return "LookTopDeckOptionallyBreak";
+        if (tryParseLookTopDeckBottomOrKeep(effectText)           != null) return "LookTopDeckBottomOrKeep";
+        if (tryParseLookTopDeckAddToHandRestBottom(effectText)    != null) return "LookTopDeckAddToHandRestBottom";
+        if (tryParseLookTopDeckAddToHandRestBreak(effectText)     != null) return "LookTopDeckAddToHandRestBreak";
+        if (tryParseLookTopDeckTopOrBottom(effectText)            != null) return "LookTopDeckTopOrBottom";
+        if (tryParseLookTopDeckReturnTopOrdered(effectText)       != null) return "LookTopDeckReturnTopOrdered";
+        if (tryParseLookTopDeckPeek(effectText)                   != null) return "LookTopDeckPeek";
         return null;
     }
 
@@ -1330,7 +1421,13 @@ public class ActionResolver {
         if (tryParseGainCrystalPerX(effectText, 0) != null)                 return "GainCrystalPerX";
         if (tryParseGainCrystal(effectText)        != null)                  return "GainCrystal";
         if (tryParsePlaceCounters(effectText, source) != null)               return "PlaceCounters";
-        if (tryParseLookTopDeckOptionallyBreak(effectText) != null)          return "LookTopDeckOptionallyBreak";
+        if (tryParseLookTopDeckOptionallyBreak(effectText)        != null) return "LookTopDeckOptionallyBreak";
+        if (tryParseLookTopDeckBottomOrKeep(effectText)           != null) return "LookTopDeckBottomOrKeep";
+        if (tryParseLookTopDeckAddToHandRestBottom(effectText)    != null) return "LookTopDeckAddToHandRestBottom";
+        if (tryParseLookTopDeckAddToHandRestBreak(effectText)     != null) return "LookTopDeckAddToHandRestBreak";
+        if (tryParseLookTopDeckTopOrBottom(effectText)            != null) return "LookTopDeckTopOrBottom";
+        if (tryParseLookTopDeckReturnTopOrdered(effectText)       != null) return "LookTopDeckReturnTopOrdered";
+        if (tryParseLookTopDeckPeek(effectText)                   != null) return "LookTopDeckPeek";
         return null;
     }
 
@@ -3578,7 +3675,66 @@ public class ActionResolver {
         if (!LOOK_TOP_DECK_OPTIONALLY_BREAK.matcher(text).find()) return null;
         return ctx -> {
             ctx.logEntry("Effect: Look at top of deck — may put into Break Zone");
-            ctx.lookAtTopDeckAndOptionallyBreak();
+            ctx.lookAtTopDeck(new LookConfig(1, LookConfig.LookAction.BREAK_OR_KEEP));
+        };
+    }
+
+    private static Consumer<GameContext> tryParseLookTopDeckBottomOrKeep(String text) {
+        if (!LOOK_TOP_DECK_BOTTOM_OR_KEEP.matcher(text).find()) return null;
+        return ctx -> {
+            ctx.logEntry("Effect: Look at top of deck — may place at bottom");
+            ctx.lookAtTopDeck(new LookConfig(1, LookConfig.LookAction.BOTTOM_OR_KEEP));
+        };
+    }
+
+    private static Consumer<GameContext> tryParseLookTopDeckReturnTopOrdered(String text) {
+        java.util.regex.Matcher m = LOOK_TOP_DECK_RETURN_TOP_ORDERED.matcher(text);
+        if (!m.find()) return null;
+        int count = Integer.parseInt(m.group("count"));
+        return ctx -> {
+            ctx.logEntry("Effect: Look at top " + count + " card(s) — return to top in any order");
+            ctx.lookAtTopDeck(new LookConfig(count, LookConfig.LookAction.RETURN_TOP_ORDERED));
+        };
+    }
+
+    private static Consumer<GameContext> tryParseLookTopDeckAddToHandRestBottom(String text) {
+        java.util.regex.Matcher m = LOOK_TOP_DECK_ADD_TO_HAND_REST_BOTTOM.matcher(text);
+        if (!m.find()) return null;
+        int count = Integer.parseInt(m.group("count"));
+        return ctx -> {
+            ctx.logEntry("Effect: Look at top " + count + " card(s) — add 1 to hand, return rest to bottom");
+            ctx.lookAtTopDeck(new LookConfig(count, LookConfig.LookAction.ADD_TO_HAND_REST_BOTTOM));
+        };
+    }
+
+    private static Consumer<GameContext> tryParseLookTopDeckAddToHandRestBreak(String text) {
+        java.util.regex.Matcher m = LOOK_TOP_DECK_ADD_TO_HAND_REST_BREAK.matcher(text);
+        if (!m.find()) return null;
+        int count = Integer.parseInt(m.group("count"));
+        return ctx -> {
+            ctx.logEntry("Effect: Look at top " + count + " card(s) — add 1 to hand, rest to Break Zone");
+            ctx.lookAtTopDeck(new LookConfig(count, LookConfig.LookAction.ADD_TO_HAND_REST_BREAK));
+        };
+    }
+
+    private static Consumer<GameContext> tryParseLookTopDeckTopOrBottom(String text) {
+        java.util.regex.Matcher m = LOOK_TOP_DECK_TOP_OR_BOTTOM.matcher(text);
+        if (!m.find()) return null;
+        int count = Integer.parseInt(m.group("count"));
+        return ctx -> {
+            ctx.logEntry("Effect: Look at top " + count + " card(s) — return to top or bottom in any order");
+            ctx.lookAtTopDeck(new LookConfig(count, LookConfig.LookAction.TOP_OR_BOTTOM_ORDERED));
+        };
+    }
+
+    private static Consumer<GameContext> tryParseLookTopDeckPeek(String text) {
+        java.util.regex.Matcher m = LOOK_TOP_DECK_PEEK.matcher(text);
+        if (!m.find()) return null;
+        String countStr = m.group("count");
+        int count = (countStr != null) ? Integer.parseInt(countStr) : 1;
+        return ctx -> {
+            ctx.logEntry("Effect: Look at top " + count + " card(s) of deck");
+            ctx.lookAtTopDeck(new LookConfig(count, LookConfig.LookAction.PEEK));
         };
     }
 

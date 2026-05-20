@@ -251,10 +251,10 @@ public interface GameContext {
     int getCounters(CardData card, String counterName);
 
     /**
-     * Reveals the top card of the ability owner's deck in a dialog.  The player may then
-     * choose to put it into the Break Zone; if they decline the card stays on top of the deck.
+     * General "look at the top N cards" effect.  The {@link LookConfig} specifies how
+     * many cards to look at and what the player may do with them afterward.
      */
-    void lookAtTopDeckAndOptionallyBreak();
+    void lookAtTopDeck(LookConfig config);
 
     /**
      * Reduces the target's power by {@code amount} and temporarily removes {@code traits}
