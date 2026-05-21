@@ -8723,6 +8723,9 @@ public class MainWindow {
 						null, options, options[0]);
 				return result != 1;
 			}
+			@Override public int selectNumber(int min, int max, String prompt) {
+				return MainWindow.this.showNumberSelectDialog(prompt, min, max);
+			}
 			@Override public void returnP1ForwardToDeckBottom(int idx)   { returnP1ForwardToDeck(idx, true);  }
 			@Override public void returnP2ForwardToDeckBottom(int idx)   { returnP2ForwardToDeck(idx, true);  }
 			@Override public void returnP1ForwardToDeckTop(int idx)      { returnP1ForwardToDeck(idx, false); }
@@ -10051,6 +10054,76 @@ public class MainWindow {
 			if (card.containsElement(e.trim())) return true;
 		}
 		return false;
+	}
+
+	/**
+	 * Shows a modal number-picker dialog and returns the chosen value.
+	 * The dialog has decrement/increment arrow buttons flanking a centred value label,
+	 * with a Confirm button to commit the selection.
+	 */
+	private int showNumberSelectDialog(String prompt, int min, int max) {
+		int[] value = { min };
+
+		JDialog dlg = new JDialog(frame, "Select a Number", true);
+		dlg.setResizable(false);
+		dlg.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
+
+		JLabel promptLabel = new JLabel(prompt, SwingConstants.CENTER);
+		promptLabel.setFont(FontLoader.loadPixelNESFont(11));
+		promptLabel.setBorder(BorderFactory.createEmptyBorder(10, 12, 4, 12));
+
+		JLabel valueLabel = new JLabel(String.valueOf(value[0]), SwingConstants.CENTER);
+		valueLabel.setFont(FontLoader.loadPixelNESFont(20));
+		valueLabel.setPreferredSize(new Dimension(64, 48));
+		valueLabel.setOpaque(true);
+		valueLabel.setBackground(Color.WHITE);
+		valueLabel.setBorder(BorderFactory.createCompoundBorder(
+				BorderFactory.createLineBorder(Color.DARK_GRAY, 2),
+				BorderFactory.createEmptyBorder(2, 8, 2, 8)));
+
+		JButton leftBtn = new JButton("◄");
+		leftBtn.setFont(FontLoader.loadPixelNESFont(14));
+		leftBtn.setFocusPainted(false);
+		leftBtn.addActionListener(ae -> {
+			if (value[0] > min) {
+				value[0]--;
+				valueLabel.setText(String.valueOf(value[0]));
+			}
+		});
+
+		JButton rightBtn = new JButton("►");
+		rightBtn.setFont(FontLoader.loadPixelNESFont(14));
+		rightBtn.setFocusPainted(false);
+		rightBtn.addActionListener(ae -> {
+			if (value[0] < max) {
+				value[0]++;
+				valueLabel.setText(String.valueOf(value[0]));
+			}
+		});
+
+		JPanel pickerRow = new JPanel(new FlowLayout(FlowLayout.CENTER, 10, 10));
+		pickerRow.add(leftBtn);
+		pickerRow.add(valueLabel);
+		pickerRow.add(rightBtn);
+
+		JButton confirmBtn = new JButton("Confirm");
+		confirmBtn.setFont(FontLoader.loadPixelNESFont(11));
+		confirmBtn.setFocusPainted(false);
+		confirmBtn.addActionListener(ae -> dlg.dispose());
+
+		JPanel south = new JPanel(new FlowLayout(FlowLayout.CENTER, 0, 8));
+		south.add(confirmBtn);
+
+		dlg.getContentPane().setLayout(new BorderLayout(0, 2));
+		dlg.getContentPane().add(promptLabel, BorderLayout.NORTH);
+		dlg.getContentPane().add(pickerRow,   BorderLayout.CENTER);
+		dlg.getContentPane().add(south,       BorderLayout.SOUTH);
+
+		dlg.pack();
+		dlg.setLocationRelativeTo(frame);
+		dlg.setVisible(true);
+
+		return value[0];
 	}
 
 	/**

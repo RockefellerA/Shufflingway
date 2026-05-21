@@ -952,6 +952,46 @@ public class ActionResolver {
      *   <li>Group 2 — optional discard count afterward (absent = draw only)</li>
      * </ul>
      */
+    // ---- "Select 1 number" patterns -------------------------------------------
+
+    /** Matches the "Select 1 number." opening of an ability that lets the active player pick a cost. */
+    private static final Pattern SELECT_NUMBER_HEADER = Pattern.compile(
+        "(?i)^Select\\s+1\\s+number\\.\\s*"
+    );
+
+    /** Matches "Your opponent selects 1 number." — appears as a second header in dual-selection abilities. */
+    private static final Pattern SELECT_NUMBER_OPPONENT_ALSO = Pattern.compile(
+        "(?i)^Your\\s+opponent\\s+selects\\s+1\\s+number\\.\\s*"
+    );
+
+    /**
+     * Inner effect: "All [the] Forwards of that cost cannot attack this turn."
+     * Cannot be handled by the general substitution path since "cannot attack" is not
+     * a MassAction in {@link GameContext.MassAction}.
+     */
+    private static final Pattern SELECT_NUMBER_INNER_CANNOT_ATTACK = Pattern.compile(
+        "(?i)All\\s+(?:the\\s+)?Forwards?\\s+of\\s+that\\s+cost\\s+cannot\\s+attack\\s+this\\s+turn\\.?"
+    );
+
+    /**
+     * Inner effect for the dual-number case: "Break all Forwards of cost equal to either number."
+     * Both P1's and P2's chosen numbers are used as cost filters.
+     */
+    private static final Pattern SELECT_NUMBER_INNER_EITHER_BREAK = Pattern.compile(
+        "(?i)Break\\s+all\\s+Forwards?\\s+of\\s+cost\\s+equal\\s+to\\s+either\\s+number\\.?"
+    );
+
+    /**
+     * Followup used inside {@link #tryParseChooseCharacter}:
+     * "Select 1 number and reveal the top card of your deck.
+     *  If the revealed card is of the same cost as the selected number, break it."
+     * "It" refers to the previously chosen Forward, not the revealed card.
+     */
+    private static final Pattern FOLLOWUP_SELECT_NUMBER_REVEAL_BREAK = Pattern.compile(
+        "(?i)Select\\s+1\\s+number\\s+and\\s+reveal\\s+the\\s+top\\s+card\\s+of\\s+your\\s+deck\\.\\s+" +
+        "If\\s+the\\s+revealed\\s+card\\s+is\\s+of\\s+the\\s+same\\s+cost\\s+as\\s+the\\s+selected\\s+number,\\s+break\\s+it\\.?"
+    );
+
     /**
      * Matches "Look at the top card of your deck. You may put it into the Break Zone."
      */
@@ -1176,6 +1216,9 @@ public class ActionResolver {
         result = tryParseAllFieldPowerBoost(effectText);
         if (result != null) return result;
 
+        result = tryParseSelectNumber(effectText, source);
+        if (result != null) return result;
+
         result = tryParseStandalonePowerBoostUntil(effectText, source);
         if (result != null) return result;
 
@@ -1281,6 +1324,7 @@ public class ActionResolver {
         if (tryParseCannotBeChosenStandalone(effectText, source) != null) return "CannotBeChosen";
         if (tryParseNegateAllDamage(effectText)                != null) return "NegateDamage";
         if (tryParseAllFieldEffect(effectText)                != null) return "AllFieldEffect";
+        if (tryParseSelectNumber(effectText, source)          != null) return "SelectNumber";
         if (tryParseStandalonePowerBoostUntil(effectText, source) != null) return "StandalonePowerBoostUntil";
         if (tryParseStandaloneDoublePowerUntil(effectText, source) != null) return "StandaloneDoublePowerUntil";
         if (tryParseStandaloneDoublesItsPowerUntil(effectText, source) != null) return "StandaloneDoublesItsPowerUntil";
@@ -1377,6 +1421,7 @@ public class ActionResolver {
         if (FOLLOWUP_SHIELD_NONLETHAL.matcher(followupText).find())                   return "ShieldNonLethal";
         if (FOLLOWUP_GAINS_SHIELD_ABILITY_ONLY.matcher(followupText).find())          return "GainsShieldAbilityOnly";
         if (FOLLOWUP_PUT_TO_BREAK_ZONE.matcher(followupText).find())                  return "PutToBreakZone";
+        if (FOLLOWUP_SELECT_NUMBER_REVEAL_BREAK.matcher(followupText).find())         return "SelectNumberRevealBreak";
         return null;
     }
 
@@ -1421,6 +1466,7 @@ public class ActionResolver {
         if (tryParseCannotBeChosenStandalone(effectText, source) != null)      return "CannotBeChosen";
         if (tryParseNegateAllDamage(effectText) != null)                     return "NegateDamage";
         if (tryParseAllFieldEffect(effectText) != null)                     return "AllFieldEffect";
+        if (tryParseSelectNumber(effectText, source) != null)               return "SelectNumber";
         if (tryParseStandalonePowerBoostUntil(effectText, source) != null)  return "StandalonePowerBoostUntil";
         if (tryParseStandaloneDoublePowerUntil(effectText, source) != null) return "StandaloneDoublePowerUntil";
         if (tryParseStandaloneDoublesItsPowerUntil(effectText, source) != null) return "StandaloneDoublesItsPowerUntil";
@@ -1975,6 +2021,27 @@ public class ActionResolver {
                     (ctx.isExBurst() ? altAction : primaryAction).accept(ctx, ts);
                 };
             }
+        }
+
+        // --- "Select 1 number and reveal the top card of your deck.
+        //      If the revealed card is of the same cost as the selected number, break it." ---
+        // "it" = the chosen Forward selected in the choose step, not the revealed card.
+        // Checked against the full followup (not primaryFollowup) so the compound text isn't split.
+        if (FOLLOWUP_SELECT_NUMBER_REVEAL_BREAK.matcher(followup).find()) {
+            return ctx -> {
+                ctx.logEntry(choosePrefix + " — Select number + reveal, break if cost matches");
+                List<ForwardTarget> ts = selectTargets(ctx, maxCount, upTo,
+                        opponentOnly, selfOnly, condition, element, zone, opponentZone,
+                        costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters,
+                        jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons);
+                if (ts.isEmpty()) return;
+                ForwardTarget target = ts.get(0);
+                int n = ctx.selectNumber(0, 11, "Select a number:");
+                ctx.logEntry("Selected number: " + n);
+                ctx.revealTopDeckCard(java.util.List.of(
+                        new RevealClause(card -> card.cost() == n, null,
+                                rCtx -> rCtx.breakTarget(target))), false);
+            };
         }
 
         // --- "Deal it N damage for each [source]" followup ---
@@ -3174,6 +3241,90 @@ public class ActionResolver {
             ctx.logEntry("Effect: " + logMsg);
             ctx.applyMassFieldPowerBoost(amount, inclForwards, inclMonsters,
                     opponentOnly, selfOnly, element, costVal, costCmp);
+        };
+    }
+
+    /**
+     * Parses "Select 1 number." abilities where the selected number is used as a cost filter
+     * for a follow-on mass-field effect, damage sweep, or attack restriction.
+     *
+     * <p>Supported inner effects (appearing after "Select 1 number."):
+     * <ul>
+     *   <li>Any mass field action (Break/Dull/Freeze/Dull and Freeze) "of that cost" or
+     *       "of the same cost as the selected number" — delegates to
+     *       {@link GameContext#applyMassFieldEffect} with the chosen number as {@code costVal}.</li>
+     *   <li>"All Forwards of that cost cannot attack this turn."</li>
+     *   <li>"Deal N damage to all the Forwards of the same cost as the selected number [opponent controls]."</li>
+     * </ul>
+     * <p>Dual-selection variant: when "Your opponent selects 1 number." follows immediately,
+     * both P1's and P2's numbers are obtained and the inner "Break all Forwards of cost equal
+     * to either number." is applied for each.
+     */
+    private static Consumer<GameContext> tryParseSelectNumber(String text, CardData source) {
+        Matcher hm = SELECT_NUMBER_HEADER.matcher(text);
+        if (!hm.find()) return null;
+
+        String rest = text.substring(hm.end()).trim();
+
+        // Dual-selection variant: "Your opponent selects 1 number."
+        Matcher om = SELECT_NUMBER_OPPONENT_ALSO.matcher(rest);
+        boolean dualSelect = om.find();
+        if (dualSelect) rest = rest.substring(om.end()).trim();
+
+        final String innerText = rest;
+
+        // --- Dual variant: "Break all Forwards of cost equal to either number." ---
+        if (dualSelect && SELECT_NUMBER_INNER_EITHER_BREAK.matcher(innerText).find()) {
+            return ctx -> {
+                int n1 = ctx.selectNumber(0, 11, "Select a number:");
+                ctx.logEntry("Effect: P1 selects number " + n1);
+                int n2 = ctx.selectNumber(0, 11, "Opponent selects a number:");
+                ctx.logEntry("Effect: Opponent selects number " + n2);
+                ctx.logEntry("Effect: Break all Forwards of cost " + n1
+                        + (n1 != n2 ? " or " + n2 : ""));
+                ctx.applyMassFieldEffect(GameContext.MassAction.BREAK,
+                        true, false, false, false, false, null, n1, null, -1, null, null);
+                if (n1 != n2)
+                    ctx.applyMassFieldEffect(GameContext.MassAction.BREAK,
+                            true, false, false, false, false, null, n2, null, -1, null, null);
+            };
+        }
+
+        // --- "All Forwards of that cost cannot attack this turn." ---
+        if (SELECT_NUMBER_INNER_CANNOT_ATTACK.matcher(innerText).find()) {
+            return ctx -> {
+                int n = ctx.selectNumber(0, 11, "Select a number:");
+                ctx.logEntry("Effect: Select number " + n
+                        + " — all Forwards of cost " + n + " cannot attack this turn");
+                for (int i = 0; i < ctx.p1ForwardCount(); i++)
+                    if (ctx.p1Forward(i).cost() == n) ctx.setP1ForwardCannotAttack(i);
+                for (int i = 0; i < ctx.p2ForwardCount(); i++)
+                    if (ctx.p2Forward(i).cost() == n) ctx.setP2ForwardCannotAttack(i);
+            };
+        }
+
+        // --- General case: substitute the selected number into the inner text and re-parse. ---
+        // Supported placeholders:
+        //   "of that cost"                         → "of cost N"
+        //   "the same cost as the selected number" → "cost N"  (e.g. inside DEAL_DAMAGE_TO_FORWARDS)
+        String probeText = innerText
+                .replaceAll("(?i)of\\s+that\\s+cost\\b", "of cost 3")
+                .replaceAll("(?i)the\\s+same\\s+cost\\s+as\\s+the\\s+selected\\s+number", "cost 3");
+        if (parse(probeText, source) == null) return null;  // inner effect not yet supported
+
+        return ctx -> {
+            int n = ctx.selectNumber(0, 11, "Select a number:");
+            ctx.logEntry("Effect: Select number " + n);
+            String resolved = innerText
+                    .replaceAll("(?i)of\\s+that\\s+cost\\b", "of cost " + n)
+                    .replaceAll("(?i)the\\s+same\\s+cost\\s+as\\s+the\\s+selected\\s+number",
+                            "cost " + n);
+            Consumer<GameContext> effect = parse(resolved, source);
+            if (effect != null) {
+                effect.accept(ctx);
+            } else {
+                ctx.logEntry("[ActionResolver] SelectNumber: inner effect not parseable: " + resolved);
+            }
         };
     }
 

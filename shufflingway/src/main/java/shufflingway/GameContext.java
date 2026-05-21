@@ -517,6 +517,16 @@ public interface GameContext {
      */
     boolean askTopOrBottom(String cardName);
 
+    /**
+     * Shows a number-picker dialog and returns the chosen value.
+     *
+     * @param min    minimum selectable value (inclusive)
+     * @param max    maximum selectable value (inclusive)
+     * @param prompt label text displayed above the picker (e.g. "Select a number:" or
+     *               "Opponent selects a number:")
+     */
+    int selectNumber(int min, int max, String prompt);
+
     /** Removes P1's forward at {@code idx} from the field and adds it to P1's hand. */
     void returnP1ForwardToHand(int idx);
 
