@@ -2223,6 +2223,44 @@ public class MainWindow {
 	 * Rebuilds all P2 forward JLabels from scratch to match the current {@code p2ForwardCards} list.
 	 * Must be called after any modification to the list so the panel stays in sync.
 	 */
+	private void rebuildP1ForwardPanel() {
+		if (p1ForwardPanel == null) return;
+		p1ForwardPanel.removeAll();
+		p1ForwardLabels.clear();
+		for (int i = 0; i < p1ForwardCards.size(); i++) {
+			final int fi = i;
+			JLabel lbl = new JLabel("", SwingConstants.CENTER);
+			lbl.setPreferredSize(new Dimension(CARD_H, CARD_H));
+			lbl.setMinimumSize(new Dimension(CARD_H, CARD_H));
+			lbl.setOpaque(false);
+			lbl.setForeground(Color.DARK_GRAY);
+			lbl.setFont(FontLoader.loadPixelNESFont(11));
+			lbl.setBorder(BorderFactory.createEmptyBorder());
+			lbl.addMouseListener(new MouseAdapter() {
+				@Override public void mousePressed(MouseEvent e) {
+					if (lbl.getIcon() == null) return;
+					if (SwingUtilities.isLeftMouseButton(e)
+							&& gameState.getCurrentPhase() == GameState.GamePhase.ATTACK) {
+						handleP1ForwardLeftClick(fi);
+					} else {
+						showForwardContextMenu(fi, lbl, e);
+					}
+				}
+				@Override public void mouseEntered(MouseEvent e) {
+					if (lbl.getIcon() == null) return;
+					CardData top = p1ForwardPrimedTop.get(fi);
+					showZoomAt(top != null ? top.imageUrl() : p1ForwardUrls.get(fi));
+				}
+				@Override public void mouseExited(MouseEvent e) { hideZoom(); }
+			});
+			p1ForwardLabels.add(lbl);
+			p1ForwardPanel.add(lbl);
+		}
+		p1ForwardPanel.revalidate();
+		p1ForwardPanel.repaint();
+		for (int i = 0; i < p1ForwardCards.size(); i++) refreshP1ForwardSlot(i);
+	}
+
 	private void rebuildP2ForwardPanel() {
 		if (p2ForwardPanel == null) return;
 		p2ForwardPanel.removeAll();
@@ -5928,6 +5966,7 @@ public class MainWindow {
 	/** Places a card into the first empty P1 backup slot and renders it. */
 	private void placeCardInFirstBackupSlot(CardData card) {
 		if (p1BackupLabels == null) return;
+		sendToBreakZoneByUniquenessRule(card, true);
 		for (int i = 0; i < p1BackupLabels.length; i++) {
 			if (p1BackupLabels[i] == null || p1BackupLabels[i].getIcon() != null) continue;
 			p1BackupUrls[i]          = card.imageUrl();
@@ -8491,8 +8530,9 @@ public class MainWindow {
 				// flip which physical side they iterate when isP1 is false (P2 controls).
 				if (!opponentOnly) {
 					if (isP1) {
-						if (inclForwards) for (int i = 0; i < p1ForwardCards.size(); i++) {
+						if (inclForwards || inclMonsters) for (int i = 0; i < p1ForwardCards.size(); i++) {
 							CardData card = p1Forward(i);
+							if (!inclForwards && !card.alsoCountsAsMonster()) continue;
 							if (element != null && !card.containsElement(element)) continue;
 							if (!meetsCostConstraint(card.cost(), costVal, costCmp)) continue;
 							if (!meetsPowerConstraint(card.power(), powerVal, powerCmp)) continue;
@@ -8529,8 +8569,9 @@ public class MainWindow {
 								eligible.add(new ForwardTarget(true, i, ForwardTarget.CardZone.MONSTER));
 						}
 					} else {
-						if (inclForwards) for (int i = 0; i < p2ForwardCards.size(); i++) {
+						if (inclForwards || inclMonsters) for (int i = 0; i < p2ForwardCards.size(); i++) {
 							CardData card = p2ForwardCards.get(i);
+							if (!inclForwards && !card.alsoCountsAsMonster()) continue;
 							if (element != null && !card.containsElement(element)) continue;
 							if (!meetsCostConstraint(card.cost(), costVal, costCmp)) continue;
 							if (!meetsPowerConstraint(card.power(), powerVal, powerCmp)) continue;
@@ -8570,8 +8611,9 @@ public class MainWindow {
 				}
 				if (!selfOnly) {
 					if (isP1) {
-						if (inclForwards) for (int i = 0; i < p2ForwardCards.size(); i++) {
+						if (inclForwards || inclMonsters) for (int i = 0; i < p2ForwardCards.size(); i++) {
 							CardData card = p2ForwardCards.get(i);
+							if (!inclForwards && !card.alsoCountsAsMonster()) continue;
 							if (element != null && !card.containsElement(element)) continue;
 							if (!meetsCostConstraint(card.cost(), costVal, costCmp)) continue;
 							if (!meetsPowerConstraint(card.power(), powerVal, powerCmp)) continue;
@@ -9586,9 +9628,10 @@ public class MainWindow {
 					String element, int costVal, String costCmp, int excludeCostVal,
 					String job, String category) {
 				if (!opponentOnly) {
-					if (forwards) {
+					if (forwards || monsters) {
 						for (int i = p1ForwardCards.size() - 1; i >= 0; i--) {
 							CardData c = p1Forward(i);
+							if (!forwards && !c.alsoCountsAsMonster()) continue;
 							if (element != null && !c.containsElement(element)) continue;
 							if (!meetsCostConstraint(c.cost(), costVal, costCmp)) continue;
 							if (excludeCostVal >= 0 && c.cost() == excludeCostVal) continue;
@@ -9660,9 +9703,10 @@ public class MainWindow {
 					}
 				}
 				if (!selfOnly) {
-					if (forwards) {
+					if (forwards || monsters) {
 						for (int i = p2ForwardCards.size() - 1; i >= 0; i--) {
 							CardData c = p2ForwardCards.get(i);
+							if (!forwards && !c.alsoCountsAsMonster()) continue;
 							if (element != null && !c.containsElement(element)) continue;
 							if (!meetsCostConstraint(c.cost(), costVal, costCmp)) continue;
 							if (excludeCostVal >= 0 && c.cost() == excludeCostVal) continue;
@@ -10071,9 +10115,149 @@ public class MainWindow {
 		return false;
 	}
 
-	/** Returns {@code true} if the card's name matches {@code cardNameFilter} (case-insensitive), or if the filter is {@code null}. */
+	/**
+	 * Returns {@code true} if cards {@code a} and {@code b} share any card name (including
+	 * "is also Card Name X" aliases), meaning they would trigger the uniqueness rule.
+	 */
+	private static boolean cardNamesOverlap(CardData a, CardData b) {
+		// Primary names match
+		if (a.name().equalsIgnoreCase(b.name())) return true;
+		// a's alias matches b's primary name
+		for (String alias : a.alsoCardNames())
+			if (alias.equalsIgnoreCase(b.name())) return true;
+		// b's alias matches a's primary name
+		for (String alias : b.alsoCardNames())
+			if (alias.equalsIgnoreCase(a.name())) return true;
+		// alias-to-alias overlap
+		for (String aa : a.alsoCardNames())
+			for (String ba : b.alsoCardNames())
+				if (aa.equalsIgnoreCase(ba)) return true;
+		return false;
+	}
+
+	/**
+	 * Enforces the uniqueness rule for a card about to enter a side of the field.
+	 * Any existing card on that side whose name (or alias) overlaps with {@code incoming}
+	 * is sent directly to the Break Zone — this does NOT count as "breaking" the card,
+	 * so "cannot be broken" protection is bypassed and break-zone auto-abilities do not
+	 * fire.  "Leaves field" auto-abilities still fire.  Multicards are exempt.
+	 *
+	 * <p>Call this before adding {@code incoming} to the field so the card is not
+	 * compared against itself.
+	 */
+	private void sendToBreakZoneByUniquenessRule(CardData incoming, boolean isP1) {
+		if (incoming.multicard()) return;
+		if (isP1) {
+			// P1 forwards
+			for (int i = p1ForwardCards.size() - 1; i >= 0; i--) {
+				CardData c = p1ForwardCards.get(i);
+				if (!cardNamesOverlap(incoming, c)) continue;
+				logEntry("[Uniqueness] " + c.name() + " — sent to Break Zone");
+				CardData top = p1ForwardPrimedTop.get(i);
+				if (top != null) {
+					gameState.getP1BreakZone().add(c);
+					gameState.getP1BreakZone().add(top);
+					gameState.getP1BreakZone().remove(top);
+					gameState.addToP1PermanentRfp(top);
+				} else {
+					gameState.getP1BreakZone().add(c);
+				}
+				p1ForwardCards.remove(i); p1ForwardUrls.remove(i);
+				p1ForwardStates.remove(i); p1ForwardPlayedOnTurn.remove(i);
+				p1ForwardDamage.remove(i); p1ForwardPowerBoost.remove(i);
+				p1ForwardPowerReduction.remove(i); p1ForwardTempTraits.remove(i);
+				p1ForwardRemovedTraits.remove(i); p1ForwardPrimedTop.remove(i);
+				p1ForwardFrozen.remove(i); p1ForwardLabels.remove(i);
+				shiftBlockSet(p1ForwardCannotBlock, i); shiftBlockSet(p1ForwardMustBlock, i);
+				shiftBlockSet(p1ForwardCannotAttack, i); shiftBlockSet(p1ForwardMustAttack, i);
+				shiftBlockSet(p1ForwardCannotAttackPersistent, i); shiftBlockSet(p1ForwardCannotBlockPersistent, i);
+				stolenForwards.remove(c);
+				checkAndRestoreStolenOnLeave(c.name());
+				refreshP1BreakLabel();
+				rebuildP1ForwardPanel();
+				triggerAutoAbilitiesForLeavesField(c, true);
+			}
+			// P1 backups
+			for (int i = 0; i < p1BackupCards.length; i++) {
+				CardData c = p1BackupCards[i];
+				if (c == null || !cardNamesOverlap(incoming, c)) continue;
+				logEntry("[Uniqueness] " + c.name() + " — sent to Break Zone");
+				gameState.getP1BreakZone().add(c);
+				p1BackupCards[i] = null; p1BackupStates[i] = CardState.ACTIVE;
+				refreshP1BackupSlot(i); refreshP1BreakLabel();
+				triggerAutoAbilitiesForLeavesField(c, true);
+			}
+			// P1 monsters
+			for (int i = p1MonsterCards.size() - 1; i >= 0; i--) {
+				CardData c = p1MonsterCards.get(i);
+				if (!cardNamesOverlap(incoming, c)) continue;
+				logEntry("[Uniqueness] " + c.name() + " — sent to Break Zone");
+				gameState.getP1BreakZone().add(c);
+				p1MonsterCards.remove(i); p1MonsterStates.remove(i);
+				p1MonsterFrozen.remove(i); p1MonsterPlayedOnTurn.remove(i);
+				p1MonsterUrls.remove(i);
+				JLabel lbl = p1MonsterLabels.remove(i);
+				p1MonsterPanel.remove(lbl); p1MonsterPanel.revalidate(); p1MonsterPanel.repaint();
+				refreshP1BreakLabel();
+				triggerAutoAbilitiesForLeavesField(c, true);
+			}
+		} else {
+			// P2 forwards
+			for (int i = p2ForwardCards.size() - 1; i >= 0; i--) {
+				CardData c = p2ForwardCards.get(i);
+				if (!cardNamesOverlap(incoming, c)) continue;
+				logEntry("[Uniqueness] [P2] " + c.name() + " — sent to Break Zone");
+				gameState.getP2BreakZone().add(c);
+				p2ForwardCards.remove(i); p2ForwardUrls.remove(i);
+				p2ForwardStates.remove(i); p2ForwardPlayedOnTurn.remove(i);
+				p2ForwardDamage.remove(i); p2ForwardPowerBoost.remove(i);
+				p2ForwardPowerReduction.remove(i); p2ForwardTempTraits.remove(i);
+				p2ForwardRemovedTraits.remove(i); p2ForwardFrozen.remove(i);
+				p2ForwardLabels.remove(i);
+				shiftBlockSet(p2ForwardCannotBlock, i); shiftBlockSet(p2ForwardMustBlock, i);
+				shiftBlockSet(p2ForwardCannotAttack, i); shiftBlockSet(p2ForwardMustAttack, i);
+				shiftBlockSet(p2ForwardCannotAttackPersistent, i); shiftBlockSet(p2ForwardCannotBlockPersistent, i);
+				refreshP2BreakLabel();
+				rebuildP2ForwardPanel();
+				triggerAutoAbilitiesForLeavesField(c, false);
+			}
+			// P2 backups
+			for (int i = 0; i < p2BackupCards.length; i++) {
+				CardData c = p2BackupCards[i];
+				if (c == null || !cardNamesOverlap(incoming, c)) continue;
+				logEntry("[Uniqueness] [P2] " + c.name() + " — sent to Break Zone");
+				gameState.getP2BreakZone().add(c);
+				p2BackupCards[i] = null; p2BackupStates[i] = CardState.ACTIVE;
+				refreshP2BackupSlot(i); refreshP2BreakLabel();
+				triggerAutoAbilitiesForLeavesField(c, false);
+			}
+			// P2 monsters
+			for (int i = p2MonsterCards.size() - 1; i >= 0; i--) {
+				CardData c = p2MonsterCards.get(i);
+				if (!cardNamesOverlap(incoming, c)) continue;
+				logEntry("[Uniqueness] [P2] " + c.name() + " — sent to Break Zone");
+				gameState.getP2BreakZone().add(c);
+				p2MonsterCards.remove(i); p2MonsterStates.remove(i);
+				p2MonsterFrozen.remove(i); p2MonsterPlayedOnTurn.remove(i);
+				p2MonsterUrls.remove(i);
+				JLabel lbl = p2MonsterLabels.remove(i);
+				if (p2MonsterPanel != null) { p2MonsterPanel.remove(lbl); p2MonsterPanel.revalidate(); p2MonsterPanel.repaint(); }
+				refreshP2BreakLabel();
+				triggerAutoAbilitiesForLeavesField(c, false);
+			}
+		}
+	}
+
+	/**
+	 * Returns {@code true} if the card's primary name or any of its "is also Card Name X"
+	 * aliases match {@code cardNameFilter} (case-insensitive), or if the filter is {@code null}.
+	 */
 	private static boolean meetsCardNameFilter(CardData card, String cardNameFilter) {
-		return cardNameFilter == null || cardNameFilter.equalsIgnoreCase(card.name());
+		if (cardNameFilter == null) return true;
+		if (cardNameFilter.equalsIgnoreCase(card.name())) return true;
+		for (String alias : card.alsoCardNames())
+			if (cardNameFilter.equalsIgnoreCase(alias)) return true;
+		return false;
 	}
 
 	/** Returns {@code true} if the card belongs to {@code categoryFilter} (case-insensitive contains), or if the filter is {@code null}. */
@@ -10470,6 +10654,7 @@ public class MainWindow {
 	/** Adds a Forward card to P1's forward zone and wires up the debug context menu. */
 	private void placeCardInForwardZone(CardData card) {
 		if (p1ForwardPanel == null) return;
+		sendToBreakZoneByUniquenessRule(card, true);
 		int idx = p1ForwardLabels.size();
 
 		JLabel lbl = new JLabel("", SwingConstants.CENTER);
@@ -10521,6 +10706,7 @@ public class MainWindow {
 	/** Adds a Monster card to P1's monster zone (right side of forward zone, newest leftmost). */
 	private void placeCardInMonsterZone(CardData card) {
 		if (p1MonsterPanel == null) return;
+		sendToBreakZoneByUniquenessRule(card, true);
 		int idx = p1MonsterLabels.size();
 
 		JLabel lbl = new JLabel("", SwingConstants.CENTER);

@@ -930,6 +930,20 @@ public record CardData(
     );
 
     /**
+     * Matches "[CardName] is also Card Name X [and Card Name Y ...] in all situations."
+     * Group {@code names} captures the raw "Card Name A [and Card Name B]" list.
+     */
+    private static final Pattern IS_ALSO_CARD_NAME_PATTERN = Pattern.compile(
+        "(?i)^.+?\\s+is\\s+also\\s+(?<names>Card\\s+Name\\s+.+?)\\s+in\\s+all\\s+situations\\.?\\s*$",
+        Pattern.DOTALL
+    );
+
+    /** Matches "[CardName] is also a Monster in all situations." */
+    private static final Pattern IS_ALSO_MONSTER_PATTERN = Pattern.compile(
+        "(?i)^.+?\\s+is\\s+also\\s+a\\s+Monster\\s+in\\s+all\\s+situations\\.?\\s*$"
+    );
+
+    /**
      * Matches "[CardName] has all the Elements [except X[, Y, ...]]." as a field ability.
      * Group {@code exceptions} captures the comma- or "and"-separated exclusion list, if any.
      */
@@ -1255,6 +1269,38 @@ public record CardData(
     public boolean hasAllJobs() {
         for (FieldAbility fa : fieldAbilities())
             if (HAS_ALL_JOBS_PATTERN.matcher(fa.effectText()).matches()) return true;
+        return false;
+    }
+
+    /**
+     * Returns the set of alternate card names this card counts as, parsed from
+     * "[name] is also Card Name X [and Card Name Y] in all situations." field abilities.
+     * Returns an empty set when no such ability is present.
+     */
+    public java.util.Set<String> alsoCardNames() {
+        java.util.Set<String> result = null;
+        for (FieldAbility fa : fieldAbilities()) {
+            Matcher m = IS_ALSO_CARD_NAME_PATTERN.matcher(fa.effectText());
+            if (!m.matches()) continue;
+            if (result == null) result = new java.util.LinkedHashSet<>();
+            // Parse "Card Name X and Card Name Y" → split on " and Card Name "
+            String raw = m.group("names");
+            for (String segment : raw.split("(?i)\\s+and\\s+Card\\s+Name\\s+")) {
+                String name = segment.replaceFirst("(?i)^Card\\s+Name\\s+", "").trim();
+                if (!name.isEmpty()) result.add(name);
+            }
+        }
+        return result != null ? java.util.Collections.unmodifiableSet(result) : java.util.Set.of();
+    }
+
+    /**
+     * Returns {@code true} if any field ability on this card grants it "is also a Monster
+     * in all situations", making it eligible for Monster-targeting effects even though it
+     * occupies a non-monster zone.
+     */
+    public boolean alsoCountsAsMonster() {
+        for (FieldAbility fa : fieldAbilities())
+            if (IS_ALSO_MONSTER_PATTERN.matcher(fa.effectText()).matches()) return true;
         return false;
     }
 
