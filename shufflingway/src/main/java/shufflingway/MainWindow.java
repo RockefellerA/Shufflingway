@@ -9073,7 +9073,7 @@ public class MainWindow {
 			@Override public void playCharacterFromHand(boolean inclForwards, boolean inclBackups,
 					boolean inclMonsters, int costVal, String costCmp, int costVal2,
 					String jobFilter, String cardNameFilter, String categoryFilter,
-					String excludeName, boolean entersDull) {
+					String elementFilter, String excludeName, boolean entersDull) {
 				java.util.List<CardData> hand = gameState.getP1Hand();
 				java.util.List<Integer> eligible = new ArrayList<>();
 				for (int i = 0; i < hand.size(); i++) {
@@ -9092,6 +9092,7 @@ public class MainWindow {
 							: meetsJobFilter(card, jobFilter) && meetsCardNameFilter(card, cardNameFilter));
 					if (!passesNameJob) continue;
 					if (!meetsCategoryFilter(card, categoryFilter)) continue;
+					if (!meetsElementFilter(card, elementFilter)) continue;
 					if (excludeName != null && excludeName.equalsIgnoreCase(card.name())) continue;
 					eligible.add(i);
 				}

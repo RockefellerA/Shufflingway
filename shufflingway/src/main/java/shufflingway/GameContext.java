@@ -172,7 +172,7 @@ public interface GameContext {
     void playCharacterFromHand(boolean inclForwards, boolean inclBackups, boolean inclMonsters,
             int costVal, String costCmp, int costVal2,
             String jobFilter, String cardNameFilter, String categoryFilter,
-            String excludeName, boolean entersDull);
+            String elementFilter, String excludeName, boolean entersDull);
 
     // ---- Zone-dispatch single-target effects --------------------------------
 

@@ -565,8 +565,9 @@ public class ActionResolver {
     );
 
     /**
-     * Matches "Play 1 [filter] [type] of cost … from your hand onto the field [dull]".
+     * Matches "Play 1 [elements] [filter] [type] of cost … from your hand onto the field [dull]".
      * <ul>
+     *   <li>{@code preelems}   — element(s) appearing BEFORE the job/name filter (e.g. "Ice" in "Play 1 Ice Forward")</li>
      *   <li>Filter alternatives (all optional): {@code f1}/{@code f2} bracket filters,
      *       {@code cardname} written card name, {@code category}, {@code jobnm}</li>
      *   <li>{@code targets}    — card type (optional when {@code cardname} is set)</li>
@@ -579,6 +580,9 @@ public class ActionResolver {
      */
     private static final Pattern PLAY_FROM_HAND_PATTERN = Pattern.compile(
         "(?i)Play\\s+1\\s+" +
+        // Element(s) before any filter (e.g. "Ice" in "Play 1 Ice Forward")
+        "(?:(?<preelems>(?:Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)" +
+            "(?:\\s+or\\s+(?:Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark))*)\\s+)?" +
         "(?:" +
             // Bracket filter(s): [Job (x)] and/or [Card Name (x)]
             "(?<f1>\\[(?:Job|Card\\s+Name)\\s+\\([^)]+\\)\\])" +
@@ -1384,6 +1388,11 @@ public class ActionResolver {
         Matcher chooseM = CHOOSE_CHARACTER_PATTERN.matcher(effectText);
         if (chooseM.find()) {
             String followup      = chooseM.group("followup").trim();
+            // Check damage-instead on the full followup before the ". " split eats the condition clause.
+            // This mirrors what tryParseChooseAndFollowup does.
+            Matcher insteadM = FOLLOWUP_DAMAGE_INSTEAD.matcher(followup);
+            if (insteadM.find() && parseDamageInsteadCondition(insteadM.group("cond").trim()) != null)
+                return "ChooseCharacter / DamageInstead";
             int    dotIdx        = followup.indexOf(". ");
             String primaryPart   = dotIdx >= 0 ? followup.substring(0, dotIdx).trim() : followup;
             String secondaryTxt  = dotIdx >= 0 ? followup.substring(dotIdx + 2).trim() : null;
@@ -3234,8 +3243,14 @@ public class ActionResolver {
         String  excludeName = m.group("excludename") != null ? m.group("excludename").trim() : null;
         boolean entersDull  = m.group("dull") != null;
 
+        // --- Element filter ---
+        String elemsRaw     = m.group("preelems");
+        String elementFilter = elemsRaw != null
+                ? elemsRaw.trim().replaceAll("(?i)\\s+or\\s+", "|") : null;
+
         // Build log label
         StringBuilder filterDesc = new StringBuilder();
+        if (elementFilter  != null) filterDesc.append(" [").append(elemsRaw).append("]");
         if (jobFilter      != null) filterDesc.append(" [Job ").append(jobFilter).append("]");
         if (cardNameFilter != null) filterDesc.append(" [Name ").append(cardNameFilter).append("]");
         if (categoryFilter != null) filterDesc.append(" [Cat ").append(categoryFilter).append("]");
@@ -3247,6 +3262,7 @@ public class ActionResolver {
         String dullLabel = entersDull ? " dull" : "";
 
         final String fJob = jobFilter, fName = cardNameFilter, fCat = categoryFilter;
+        final String fElem = elementFilter;
         final String fExclude = excludeName, fDynJob = dynJob, fDynName = dynName;
         final int fCostVal = costVal, fCostVal2 = costVal2;
         final String fCostCmp = costCmp;
@@ -3270,7 +3286,7 @@ public class ActionResolver {
             ctx.logEntry("Effect: Play 1" + filterDesc + tgtLabel + costLabel + exclLabel + dullLabel + " from hand");
             ctx.playCharacterFromHand(inclForwards, inclBackups, inclMonsters,
                     resolvedCost, resolvedCmp, fCostVal2,
-                    fJob, fName, fCat, fExclude, fEntersDull);
+                    fJob, fName, fCat, fElem, fExclude, fEntersDull);
         };
     }
 
