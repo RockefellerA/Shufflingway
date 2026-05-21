@@ -1210,6 +1210,9 @@ public class ActionResolver {
     public static Consumer<GameContext> parse(String effectText, CardData source, int xValue) {
         Consumer<GameContext> result;
 
+        result = tryParseSelectNumber(effectText, source);
+        if (result != null) return result;
+
         result = tryParseDealDamageToForwards(effectText);
         if (result != null) return result;
 
@@ -1226,9 +1229,6 @@ public class ActionResolver {
         if (result != null) return result;
 
         result = tryParseNegateAllDamage(effectText);
-        if (result != null) return result;
-
-        result = tryParseSelectNumber(effectText, source);
         if (result != null) return result;
 
         result = tryParseAllFieldEffect(effectText);
@@ -1338,6 +1338,7 @@ public class ActionResolver {
 
     /** Returns the name of the first pattern that matches {@code effectText}, or {@code null}. */
     public static String matchedPatternName(String effectText, CardData source) {
+        if (tryParseSelectNumber(effectText, source)          != null) return "SelectNumber";
         if (tryParseDealDamageToForwards(effectText)          != null) return "DealDamageToForwards";
         if (tryParseChooseCharacter(effectText, source, 0)    != null) return "ChooseCharacter";
         if (tryParseEndOfEachTurnFieldAbility(effectText, source) != null) return "EndOfEachTurnFieldAbility";
@@ -1462,6 +1463,7 @@ public class ActionResolver {
         if (CardData.WHILE_CARD_ATTACKING_PATTERN.matcher(effectText).matches())  return "WhileCardAttacking";
         if (CardData.WHILE_CARD_BLOCKING_PATTERN.matcher(effectText).matches())   return "WhileCardBlocking";
         if (CardData.WHILE_CARD_IN_HAND_PATTERN.matcher(effectText).matches())   return "WhileCardInHand";
+        if (tryParseSelectNumber(effectText, source) != null)               return "SelectNumber";
         if (tryParseDealDamageToForwards(effectText) != null)               return "DealDamageToForwards";
 
         Matcher chooseM = CHOOSE_CHARACTER_PATTERN.matcher(effectText);

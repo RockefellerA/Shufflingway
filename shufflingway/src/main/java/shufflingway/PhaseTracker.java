@@ -77,7 +77,6 @@ public class PhaseTracker extends JPanel {
     private static final Color CONNECTOR_MID       = new Color(0x555555);
     private static final Color CONNECTOR_HI        = new Color(0xaaaaaa);
     private static final Color CONNECTOR_LO        = new Color(0x333333);
-    private static final Color SUB_CONNECTOR_COLOR = new Color(0x666666);
     private static final Color LABEL_FUTURE        = new Color(0xaaaaaa);
     private static final Color LABEL_PAST          = new Color(0x666666);
 
@@ -242,8 +241,8 @@ public class PhaseTracker extends JPanel {
 
         // Connectors between main stops (3-row beveled line)
         for (int i = 0; i < n - 1; i++) {
-            int x1 = cx[i]   + halfW[i]   + 1;
-            int x2 = cx[i+1] - halfW[i+1] - 1;
+            int x1 = cx[i]   + halfW[i];
+            int x2 = cx[i+1] - halfW[i+1];
             if (x2 <= x1) continue;
             g.setColor(CONNECTOR_LO);  g.fillRect(x1, centerY - 1, x2 - x1, 1);
             g.setColor(CONNECTOR_MID); g.fillRect(x1, centerY,     x2 - x1, 1);
@@ -314,13 +313,14 @@ public class PhaseTracker extends JPanel {
         int[] subCx = new int[ATTACK_SUB_STEPS];
         for (int i = 0; i < ATTACK_SUB_STEPS; i++) subCx[i] = leftCenter + i * stride;
 
-        // Thin connector between sub-diamonds
+        // Beveled connector between sub-diamonds (matches main track style)
         for (int i = 0; i < ATTACK_SUB_STEPS - 1; i++) {
-            int x1 = subCx[i]   + SUB_DIAMOND / 2 + 1;
-            int x2 = subCx[i+1] - SUB_DIAMOND / 2 - 1;
+            int x1 = subCx[i]   + SUB_DIAMOND / 2;
+            int x2 = subCx[i+1] - SUB_DIAMOND / 2;
             if (x2 <= x1) continue;
-            g.setColor(SUB_CONNECTOR_COLOR);
-            g.fillRect(x1, cy, x2 - x1, 1);
+            g.setColor(CONNECTOR_LO);  g.fillRect(x1, cy - 1, x2 - x1, 1);
+            g.setColor(CONNECTOR_MID); g.fillRect(x1, cy,     x2 - x1, 1);
+            g.setColor(CONNECTOR_HI);  g.fillRect(x1, cy + 1, x2 - x1, 1);
         }
 
         // Sub-diamonds
