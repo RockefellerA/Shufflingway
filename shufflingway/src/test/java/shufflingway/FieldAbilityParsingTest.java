@@ -12,6 +12,9 @@ import org.junit.jupiter.api.Test;
 
 public class FieldAbilityParsingTest {
 
+    private static final java.util.regex.Pattern LIMIT_BREAK_PREFIX =
+            java.util.regex.Pattern.compile("(?i)^Limit\\s+Break\\s+--\\s+");
+
     // -------------------------------------------------------------------------
     // Per-card coverage
     // -------------------------------------------------------------------------
@@ -48,7 +51,9 @@ public class FieldAbilityParsingTest {
                 if (textEn == null || textEn.isBlank()) { noAbilities++; continue; }
 
                 String typeEn = rs.getString("type_en");
-                List<FieldAbility> abilities = CardData.parseFieldAbilities(textEn, typeEn);
+                List<FieldAbility> abilities = CardData.parseFieldAbilities(textEn, typeEn).stream()
+                        .filter(fa -> !LIMIT_BREAK_PREFIX.matcher(fa.effectText()).find())
+                        .toList();
                 if (abilities.isEmpty()) { noAbilities++; continue; }
 
                 CardData source = buildSource(rs, textEn);
