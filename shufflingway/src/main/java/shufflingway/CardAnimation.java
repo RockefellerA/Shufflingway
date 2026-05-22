@@ -62,17 +62,38 @@ class CardAnimation {
 			}
 			default -> g.drawImage(card, 0, 0, null);             // pinned to top-left
 		}
+
+		// Card bounds within the square canvas depend on orientation
+		boolean dull = (state == CardState.DULL);
+		int cx = 0,  cy = dull ? CARD_H - CARD_W : 0;
+		int cw = dull ? CARD_H : CARD_W;
+		int ch = dull ? CARD_W : CARD_H;
+
 		if (selected) {
-			g.setColor(new Color(255, 165, 0));
-			g.setStroke(new BasicStroke(4f));
-			g.drawRect(2, 2, CARD_W - 5, CARD_H - 5);
+			drawGlow(g, new Color(255, 165, 0), cx, cy, cw, ch);
 		} else if (highlight) {
-			g.setColor(new Color(0, 220, 0));
-			g.setStroke(new BasicStroke(3f));
-			g.drawRect(1, 1, CARD_W - 3, CARD_H - 3);
+			drawGlow(g, new Color(0, 220, 0), cx, cy, cw, ch);
 		}
 		g.dispose();
 		return canvas;
+	}
+
+	/**
+	 * Draws a multi-layer inner glow on {@code g} within the rectangle
+	 * {@code (cx, cy, cw, ch)}.  Layers fade inward with a quadratic falloff,
+	 * matching the PhaseTracker halo style.
+	 */
+	static void drawGlow(Graphics2D g, Color color, int cx, int cy, int cw, int ch) {
+		g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+		int layers = 10;
+		for (int layer = layers; layer >= 0; layer--) {
+			float t   = (float) layer / layers;      // 1.0 at edge → 0.0 innermost
+			int alpha = Math.round(t * t * 185);     // quadratic falloff, max ~185/255
+			g.setColor(new Color(color.getRed(), color.getGreen(), color.getBlue(), alpha));
+			g.setStroke(new BasicStroke(1.5f));
+			int off = layers - layer;
+			g.drawRect(cx + off, cy + off, cw - 1 - 2 * off, ch - 1 - 2 * off);
+		}
 	}
 
 	/** Draws {@code value} in a dark pill in the bottom-right of {@code canvas} using {@code textColor}. */

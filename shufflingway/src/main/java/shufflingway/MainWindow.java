@@ -1122,7 +1122,7 @@ public class MainWindow {
 					if (selectedIdx[0] == -1) {
 						// Select this card
 						selectedIdx[0] = idx;
-						cardLabels[idx].setBorder(BorderFactory.createLineBorder(Color.YELLOW, 3));
+						cardLabels[idx].setBorder(createCardGlowBorder(Color.YELLOW));
 					} else if (selectedIdx[0] == idx) {
 						// Deselect
 						selectedIdx[0] = -1;
@@ -1686,7 +1686,7 @@ public class MainWindow {
 					@Override public void mouseExited(MouseEvent e)  { hideZoom(); }
 				});
 			} else {
-				lbl.setBorder(BorderFactory.createLineBorder(new Color(212, 175, 55), 2));
+				lbl.setBorder(createCardGlowBorder(new Color(212, 175, 55)));
 			}
 
 			new SwingWorker<ImageIcon, Void>() {
@@ -2854,12 +2854,13 @@ public class MainWindow {
 			lbl.addMouseListener(new MouseAdapter() {
 				@Override public void mouseEntered(MouseEvent e) {
 					if (lbl.getIcon() != null) showZoomAt(candidate.imageUrl());
-					lbl.setBorder(BorderFactory.createLineBorder(Color.YELLOW, 3));
+					lbl.setBorder(createCardGlowBorder(Color.YELLOW));
 				}
 				@Override public void mouseExited(MouseEvent e) {
 					hideZoom();
-					lbl.setBorder(BorderFactory.createLineBorder(
-							selection[0].equals(candidate) ? Color.YELLOW : Color.GRAY, 2));
+					lbl.setBorder(selection[0].equals(candidate)
+							? createCardGlowBorder(Color.YELLOW)
+							: BorderFactory.createLineBorder(Color.GRAY, 1));
 				}
 				@Override public void mousePressed(MouseEvent e) {
 					selection[0] = candidate;
@@ -3279,8 +3280,9 @@ public class MainWindow {
 			lbl.setMinimumSize(new Dimension(CARD_W, CARD_H));
 			lbl.setOpaque(true);
 			lbl.setBackground(Color.DARK_GRAY);
-			lbl.setBorder(BorderFactory.createLineBorder(
-					cd.exBurst() ? Color.YELLOW : Color.LIGHT_GRAY, cd.exBurst() ? 2 : 1));
+			lbl.setBorder(cd.exBurst()
+					? createCardGlowBorder(Color.YELLOW)
+					: BorderFactory.createLineBorder(Color.LIGHT_GRAY, 1));
 
 			lbl.addMouseListener(new MouseAdapter() {
 				@Override public void mouseEntered(MouseEvent e) {
@@ -3374,8 +3376,9 @@ public class MainWindow {
 			lbl.setMinimumSize(new Dimension(CARD_W, CARD_H));
 			lbl.setOpaque(true);
 			lbl.setBackground(Color.DARK_GRAY);
-			lbl.setBorder(BorderFactory.createLineBorder(
-					cd.exBurst() ? Color.YELLOW : Color.LIGHT_GRAY, cd.exBurst() ? 2 : 1));
+			lbl.setBorder(cd.exBurst()
+					? createCardGlowBorder(Color.YELLOW)
+					: BorderFactory.createLineBorder(Color.LIGHT_GRAY, 1));
 
 			lbl.addMouseListener(new MouseAdapter() {
 				@Override public void mouseEntered(MouseEvent e) {
@@ -3492,13 +3495,13 @@ public class MainWindow {
 							|| (lcd.isLightOrDark() && hasLightOrDarkOnField(true)));
 
 				if (casting) {
-					lbl.setBorder(BorderFactory.createLineBorder(new Color(255, 200, 0), 3));
+					lbl.setBorder(createCardGlowBorder(new Color(255, 200, 0)));
 				} else if (payment) {
-					lbl.setBorder(BorderFactory.createLineBorder(Color.CYAN, 3));
+					lbl.setBorder(createCardGlowBorder(Color.CYAN));
 				} else if (spent) {
 					lbl.setBorder(BorderFactory.createLineBorder(new Color(60, 60, 60), 1));
 				} else if (nameBlocked) {
-					lbl.setBorder(BorderFactory.createLineBorder(Color.RED, 2));
+					lbl.setBorder(createCardGlowBorder(Color.RED));
 				} else {
 					lbl.setBorder(BorderFactory.createLineBorder(
 							inPaymentMode ? Color.GRAY : Color.LIGHT_GRAY, 1));
@@ -3695,8 +3698,9 @@ public class MainWindow {
 					: "Ready — click Confirm to discard.");
 			confirmBtn.setEnabled(selected.size() == mustDiscard);
 			for (int i = 0; i < cardLabels.size(); i++) {
-				cardLabels.get(i).setBorder(BorderFactory.createLineBorder(
-						selected.contains(i) ? Color.RED : Color.LIGHT_GRAY, selected.contains(i) ? 3 : 1));
+				cardLabels.get(i).setBorder(selected.contains(i)
+						? createCardGlowBorder(Color.RED)
+						: BorderFactory.createLineBorder(Color.LIGHT_GRAY, 1));
 			}
 		};
 
@@ -4583,13 +4587,13 @@ public class MainWindow {
 
 			for (int i = 0; i < backupLbls.size(); i++) {
 				JLabel lbl = backupLbls.get(i); boolean sel = selectedBackups.contains(backupSlots.get(i));
-				lbl.setBorder(BorderFactory.createLineBorder(sel ? Color.YELLOW : (canAddBackup[0] ? Color.GRAY : new Color(80,80,80)), sel?3:1));
+				lbl.setBorder(sel ? createCardGlowBorder(Color.YELLOW) : BorderFactory.createLineBorder(canAddBackup[0] ? Color.GRAY : new Color(80,80,80), 1));
 				lbl.setBackground(sel || canAddBackup[0] ? Color.DARK_GRAY : new Color(50,50,50));
 				lbl.setCursor(sel || canAddBackup[0] ? Cursor.getPredefinedCursor(Cursor.HAND_CURSOR) : Cursor.getDefaultCursor());
 			}
 			for (int i = 0; i < discardLbls.size(); i++) {
 				JLabel lbl = discardLbls.get(i); boolean sel = selectedDiscards.contains(discardIdxs.get(i));
-				lbl.setBorder(BorderFactory.createLineBorder(sel ? Color.YELLOW : (canAddDiscard[0] ? Color.GRAY : new Color(80,80,80)), sel?3:1));
+				lbl.setBorder(sel ? createCardGlowBorder(Color.YELLOW) : BorderFactory.createLineBorder(canAddDiscard[0] ? Color.GRAY : new Color(80,80,80), 1));
 				lbl.setBackground(sel || canAddDiscard[0] ? Color.DARK_GRAY : new Color(50,50,50));
 				lbl.setCursor(sel || canAddDiscard[0] ? Cursor.getPredefinedCursor(Cursor.HAND_CURSOR) : Cursor.getDefaultCursor());
 			}
@@ -4821,8 +4825,7 @@ public class MainWindow {
 			for (int i = 0; i < backupLbls.size(); i++) {
 				JLabel lbl = backupLbls.get(i);
 				boolean sel = selectedBackups.contains(backupSlots.get(i));
-				lbl.setBorder(BorderFactory.createLineBorder(
-						sel ? Color.YELLOW : (canAddBackup ? Color.GRAY : new Color(80, 80, 80)), sel ? 3 : 1));
+				lbl.setBorder(sel ? createCardGlowBorder(Color.YELLOW) : BorderFactory.createLineBorder(canAddBackup ? Color.GRAY : new Color(80, 80, 80), 1));
 				lbl.setBackground(sel || canAddBackup ? Color.DARK_GRAY : new Color(50, 50, 50));
 				lbl.setCursor(sel || canAddBackup
 						? Cursor.getPredefinedCursor(Cursor.HAND_CURSOR) : Cursor.getDefaultCursor());
@@ -4830,8 +4833,7 @@ public class MainWindow {
 			for (int i = 0; i < discardLbls.size(); i++) {
 				JLabel lbl = discardLbls.get(i);
 				boolean sel = selectedDiscards.contains(discardIdxs.get(i));
-				lbl.setBorder(BorderFactory.createLineBorder(
-						sel ? Color.YELLOW : (canAddDiscard[0] ? Color.GRAY : new Color(80, 80, 80)), sel ? 3 : 1));
+				lbl.setBorder(sel ? createCardGlowBorder(Color.YELLOW) : BorderFactory.createLineBorder(canAddDiscard[0] ? Color.GRAY : new Color(80, 80, 80), 1));
 				lbl.setBackground(sel || canAddDiscard[0] ? Color.DARK_GRAY : new Color(50, 50, 50));
 				lbl.setCursor(sel || canAddDiscard[0]
 						? Cursor.getPredefinedCursor(Cursor.HAND_CURSOR) : Cursor.getDefaultCursor());
@@ -5181,9 +5183,7 @@ public class MainWindow {
 			for (int i = 0; i < backupLbls.size(); i++) {
 				JLabel  lbl      = backupLbls.get(i);
 				boolean selected = selectedBackups.contains(backupSlots.get(i));
-				lbl.setBorder(BorderFactory.createLineBorder(
-						selected ? Color.YELLOW : (canAddBackup ? Color.GRAY : new Color(80, 80, 80)),
-						selected ? 3 : 1));
+				lbl.setBorder(selected ? createCardGlowBorder(Color.YELLOW) : BorderFactory.createLineBorder(canAddBackup ? Color.GRAY : new Color(80, 80, 80), 1));
 				lbl.setBackground(selected || canAddBackup ? Color.DARK_GRAY : new Color(50, 50, 50));
 				lbl.setCursor(selected || canAddBackup
 						? Cursor.getPredefinedCursor(Cursor.HAND_CURSOR) : Cursor.getDefaultCursor());
@@ -5191,9 +5191,7 @@ public class MainWindow {
 			for (int i = 0; i < discardLbls.size(); i++) {
 				JLabel  lbl      = discardLbls.get(i);
 				boolean selected = selectedDiscards.contains(discardIdxs.get(i));
-				lbl.setBorder(BorderFactory.createLineBorder(
-						selected ? Color.YELLOW : (canAddDiscard[0] ? Color.GRAY : new Color(80, 80, 80)),
-						selected ? 3 : 1));
+				lbl.setBorder(selected ? createCardGlowBorder(Color.YELLOW) : BorderFactory.createLineBorder(canAddDiscard[0] ? Color.GRAY : new Color(80, 80, 80), 1));
 				lbl.setBackground(selected || canAddDiscard[0] ? Color.DARK_GRAY : new Color(50, 50, 50));
 				lbl.setCursor(selected || canAddDiscard[0]
 						? Cursor.getPredefinedCursor(Cursor.HAND_CURSOR) : Cursor.getDefaultCursor());
@@ -5726,9 +5724,7 @@ public class MainWindow {
 			for (int i = 0; i < backupLbls.size(); i++) {
 				JLabel  lbl      = backupLbls.get(i);
 				boolean selected = selectedBackups.contains(backupSlots.get(i));
-				lbl.setBorder(BorderFactory.createLineBorder(
-						selected ? Color.YELLOW : (canAddBackup ? Color.GRAY : new Color(80, 80, 80)),
-						selected ? 3 : 1));
+				lbl.setBorder(selected ? createCardGlowBorder(Color.YELLOW) : BorderFactory.createLineBorder(canAddBackup ? Color.GRAY : new Color(80, 80, 80), 1));
 				lbl.setBackground(selected || canAddBackup ? Color.DARK_GRAY : new Color(50, 50, 50));
 				lbl.setCursor(selected || canAddBackup
 						? Cursor.getPredefinedCursor(Cursor.HAND_CURSOR) : Cursor.getDefaultCursor());
@@ -5736,9 +5732,7 @@ public class MainWindow {
 			for (int i = 0; i < discardLbls.size(); i++) {
 				JLabel  lbl      = discardLbls.get(i);
 				boolean selected = selectedDiscards.contains(discardIdxs.get(i));
-				lbl.setBorder(BorderFactory.createLineBorder(
-						selected ? Color.YELLOW : (canAddDiscard[0] ? Color.GRAY : new Color(80, 80, 80)),
-						selected ? 3 : 1));
+				lbl.setBorder(selected ? createCardGlowBorder(Color.YELLOW) : BorderFactory.createLineBorder(canAddDiscard[0] ? Color.GRAY : new Color(80, 80, 80), 1));
 				lbl.setBackground(selected || canAddDiscard[0] ? Color.DARK_GRAY : new Color(50, 50, 50));
 				lbl.setCursor(selected || canAddDiscard[0]
 						? Cursor.getPredefinedCursor(Cursor.HAND_CURSOR) : Cursor.getDefaultCursor());
@@ -7348,8 +7342,7 @@ public class MainWindow {
 			for (int i = 0; i < backupLbls.size(); i++) {
 				JLabel  lbl = backupLbls.get(i);
 				boolean sel = selectedBackups.contains(backupSlots.get(i));
-				lbl.setBorder(BorderFactory.createLineBorder(
-						sel ? Color.YELLOW : (canAddBackup[0] ? Color.GRAY : new Color(80, 80, 80)), sel ? 3 : 1));
+				lbl.setBorder(sel ? createCardGlowBorder(Color.YELLOW) : BorderFactory.createLineBorder(canAddBackup[0] ? Color.GRAY : new Color(80, 80, 80), 1));
 				lbl.setBackground(sel || canAddBackup[0] ? Color.DARK_GRAY : new Color(50, 50, 50));
 				lbl.setCursor(sel || canAddBackup[0]
 						? Cursor.getPredefinedCursor(Cursor.HAND_CURSOR) : Cursor.getDefaultCursor());
@@ -7357,8 +7350,7 @@ public class MainWindow {
 			for (int i = 0; i < discardLbls.size(); i++) {
 				JLabel  lbl = discardLbls.get(i);
 				boolean sel = selectedDiscards.contains(discardIdxs.get(i));
-				lbl.setBorder(BorderFactory.createLineBorder(
-						sel ? Color.YELLOW : (canAddDiscard[0] ? Color.GRAY : new Color(80, 80, 80)), sel ? 3 : 1));
+				lbl.setBorder(sel ? createCardGlowBorder(Color.YELLOW) : BorderFactory.createLineBorder(canAddDiscard[0] ? Color.GRAY : new Color(80, 80, 80), 1));
 				lbl.setBackground(sel || canAddDiscard[0] ? Color.DARK_GRAY : new Color(50, 50, 50));
 				lbl.setCursor(sel || canAddDiscard[0]
 						? Cursor.getPredefinedCursor(Cursor.HAND_CURSOR) : Cursor.getDefaultCursor());
@@ -7943,13 +7935,13 @@ public class MainWindow {
 
 			for (int i = 0; i < backupLbls.size(); i++) {
 				JLabel lbl = backupLbls.get(i); boolean sel = selectedBackups.contains(backupSlots.get(i));
-				lbl.setBorder(BorderFactory.createLineBorder(sel ? Color.YELLOW : (canAddBackup[0] ? Color.GRAY : new Color(80,80,80)), sel?3:1));
+				lbl.setBorder(sel ? createCardGlowBorder(Color.YELLOW) : BorderFactory.createLineBorder(canAddBackup[0] ? Color.GRAY : new Color(80,80,80), 1));
 				lbl.setBackground(sel || canAddBackup[0] ? Color.DARK_GRAY : new Color(50,50,50));
 				lbl.setCursor(sel || canAddBackup[0] ? Cursor.getPredefinedCursor(Cursor.HAND_CURSOR) : Cursor.getDefaultCursor());
 			}
 			for (int i = 0; i < discardLbls.size(); i++) {
 				JLabel lbl = discardLbls.get(i); boolean sel = selectedDiscards.contains(discardIdxs.get(i));
-				lbl.setBorder(BorderFactory.createLineBorder(sel ? Color.YELLOW : (canAddDiscard[0] ? Color.GRAY : new Color(80,80,80)), sel?3:1));
+				lbl.setBorder(sel ? createCardGlowBorder(Color.YELLOW) : BorderFactory.createLineBorder(canAddDiscard[0] ? Color.GRAY : new Color(80,80,80), 1));
 				lbl.setBackground(sel || canAddDiscard[0] ? Color.DARK_GRAY : new Color(50,50,50));
 				lbl.setCursor(sel || canAddDiscard[0] ? Cursor.getPredefinedCursor(Cursor.HAND_CURSOR) : Cursor.getDefaultCursor());
 			}
@@ -10116,6 +10108,20 @@ public class MainWindow {
 	}
 
 	/**
+	 * Returns a zero-inset border that paints the same multi-layer inner glow used
+	 * for field-card selection, using the given {@code color}.  Suitable for any
+	 * dialog card label whose highlighted state should use the glow style.
+	 */
+	private static javax.swing.border.Border createCardGlowBorder(Color color) {
+		return new javax.swing.border.AbstractBorder() {
+			@Override
+			public void paintBorder(java.awt.Component c, Graphics g0, int x, int y, int w, int h) {
+				CardAnimation.drawGlow((Graphics2D) g0, color, x, y, w, h);
+			}
+		};
+	}
+
+	/**
 	 * Returns {@code true} if cards {@code a} and {@code b} share any card name (including
 	 * "is also Card Name X" aliases), meaning they would trigger the uniqueness rule.
 	 */
@@ -11606,13 +11612,13 @@ public class MainWindow {
 
 			for (int i = 0; i < backupLbls.size(); i++) {
 				JLabel lbl = backupLbls.get(i); boolean sel = selectedBackups.contains(backupSlots.get(i));
-				lbl.setBorder(BorderFactory.createLineBorder(sel ? Color.YELLOW : (canAddBackup ? Color.GRAY : new Color(80,80,80)), sel ? 3 : 1));
+				lbl.setBorder(sel ? createCardGlowBorder(Color.YELLOW) : BorderFactory.createLineBorder(canAddBackup ? Color.GRAY : new Color(80,80,80), 1));
 				lbl.setBackground(sel || canAddBackup ? Color.DARK_GRAY : new Color(50,50,50));
 				lbl.setCursor(sel || canAddBackup ? Cursor.getPredefinedCursor(Cursor.HAND_CURSOR) : Cursor.getDefaultCursor());
 			}
 			for (int i = 0; i < discardLbls.size(); i++) {
 				JLabel lbl = discardLbls.get(i); boolean sel = selectedDiscards.contains(discardIdxs.get(i));
-				lbl.setBorder(BorderFactory.createLineBorder(sel ? Color.YELLOW : (canAddDiscard[0] ? Color.GRAY : new Color(80,80,80)), sel ? 3 : 1));
+				lbl.setBorder(sel ? createCardGlowBorder(Color.YELLOW) : BorderFactory.createLineBorder(canAddDiscard[0] ? Color.GRAY : new Color(80,80,80), 1));
 				lbl.setBackground(sel || canAddDiscard[0] ? Color.DARK_GRAY : new Color(50,50,50));
 				lbl.setCursor(sel || canAddDiscard[0] ? Cursor.getPredefinedCursor(Cursor.HAND_CURSOR) : Cursor.getDefaultCursor());
 			}
@@ -11835,12 +11841,13 @@ public class MainWindow {
 			lbl.addMouseListener(new MouseAdapter() {
 				@Override public void mouseEntered(MouseEvent e) {
 					if (lbl.getIcon() != null) showZoomAt(candidate.imageUrl());
-					lbl.setBorder(BorderFactory.createLineBorder(Color.YELLOW, 3));
+					lbl.setBorder(createCardGlowBorder(Color.YELLOW));
 				}
 				@Override public void mouseExited(MouseEvent e) {
 					hideZoom();
-					lbl.setBorder(BorderFactory.createLineBorder(
-							selection[0].equals(candidate) ? Color.YELLOW : Color.GRAY, 2));
+					lbl.setBorder(selection[0].equals(candidate)
+							? createCardGlowBorder(Color.YELLOW)
+							: BorderFactory.createLineBorder(Color.GRAY, 1));
 				}
 				@Override public void mousePressed(MouseEvent e) {
 					selection[0] = candidate;
