@@ -10312,6 +10312,146 @@ public class MainWindow {
 	 * The dialog has decrement/increment arrow buttons flanking a centred value label,
 	 * with a Confirm button to commit the selection.
 	 */
+	/**
+	 * Shows a modal dialog for P1 to assign the blocker's power as damage across the
+	 * attacking party, in multiples of 1000.  The total must equal {@code blockerPower}
+	 * before Confirm is enabled.
+	 *
+	 * @param attackerIndices indices into {@code p1ForwardCards}
+	 * @param blockerPower    total damage to distribute (the blocker's effective power)
+	 * @return mapping of attacker index → damage assigned; empty if dialog was dismissed
+	 */
+	private Map<Integer, Integer> showPartyDamageAssignmentDialog(
+			List<Integer> attackerIndices, int blockerPower) {
+
+		int n = attackerIndices.size();
+		int[] assigned = new int[n]; // damage assigned per attacker slot, multiples of 1000
+
+		JDialog dlg = new JDialog(frame, "Assign Blocker Damage", true);
+		dlg.setResizable(false);
+		dlg.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
+
+		// Header
+		JLabel headerLabel = new JLabel(
+				"Assign " + blockerPower + " damage across the party (multiples of 1000):",
+				SwingConstants.CENTER);
+		headerLabel.setFont(FontLoader.loadPixelNESFont(9));
+		headerLabel.setBorder(BorderFactory.createEmptyBorder(10, 12, 6, 12));
+
+		// Remaining indicator and Confirm — created early so the update lambda can close over them
+		JLabel remainLabel = new JLabel("Remaining: " + blockerPower, SwingConstants.CENTER);
+		remainLabel.setFont(FontLoader.loadPixelNESFont(10));
+		remainLabel.setForeground(new Color(200, 80, 80));
+
+		boolean[] confirmed = { false };
+		JButton confirmBtn = new JButton("Confirm");
+		confirmBtn.setFont(FontLoader.loadPixelNESFont(11));
+		confirmBtn.setFocusPainted(false);
+		confirmBtn.setEnabled(blockerPower == 0); // enabled immediately only if nothing to assign
+
+		// Single update routine: refreshes both the remaining label and Confirm state
+		final Runnable updateState = () -> {
+			int total = 0;
+			for (int a : assigned) total += a;
+			int remaining = blockerPower - total;
+			remainLabel.setText("Remaining: " + remaining);
+			remainLabel.setForeground(remaining == 0 ? new Color(40, 160, 40) : new Color(200, 80, 80));
+			confirmBtn.setEnabled(total == blockerPower);
+		};
+
+		confirmBtn.addActionListener(ae -> { confirmed[0] = true; dlg.dispose(); });
+
+		// Attacker columns
+		JPanel attackersPanel = new JPanel(new FlowLayout(FlowLayout.CENTER, 16, 8));
+		JLabel[] valueLabels = new JLabel[n];
+
+		for (int i = 0; i < n; i++) {
+			final int slot = i;
+			int idx = attackerIndices.get(i);
+			CardData card = p1ForwardCards.get(idx);
+			int power = effectiveP1ForwardPower(idx);
+
+			JPanel cardPanel = new JPanel();
+			cardPanel.setLayout(new BoxLayout(cardPanel, BoxLayout.Y_AXIS));
+			cardPanel.setBorder(BorderFactory.createEmptyBorder(4, 4, 4, 4));
+
+			JLabel nameLabel = new JLabel(
+					"<html><center>" + card.name() + "<br>(" + power + ")</center></html>",
+					SwingConstants.CENTER);
+			nameLabel.setFont(FontLoader.loadPixelNESFont(8));
+			nameLabel.setAlignmentX(0.5f);
+
+			JLabel valueLabel = new JLabel("0", SwingConstants.CENTER);
+			valueLabel.setFont(FontLoader.loadPixelNESFont(16));
+			valueLabel.setPreferredSize(new Dimension(72, 40));
+			valueLabel.setMinimumSize(new Dimension(72, 40));
+			valueLabel.setOpaque(true);
+			valueLabel.setBackground(Color.WHITE);
+			valueLabel.setBorder(BorderFactory.createCompoundBorder(
+					BorderFactory.createLineBorder(Color.DARK_GRAY, 2),
+					BorderFactory.createEmptyBorder(2, 6, 2, 6)));
+			valueLabel.setAlignmentX(0.5f);
+			valueLabels[i] = valueLabel;
+
+			JButton leftBtn = new JButton("◄");
+			leftBtn.setFont(FontLoader.loadPixelNESFont(11));
+			leftBtn.setFocusPainted(false);
+			leftBtn.addActionListener(ae -> {
+				if (assigned[slot] >= 1000) {
+					assigned[slot] -= 1000;
+					valueLabels[slot].setText(String.valueOf(assigned[slot]));
+					updateState.run();
+				}
+			});
+
+			JButton rightBtn = new JButton("►");
+			rightBtn.setFont(FontLoader.loadPixelNESFont(11));
+			rightBtn.setFocusPainted(false);
+			rightBtn.addActionListener(ae -> {
+				int total = 0;
+				for (int a : assigned) total += a;
+				if (total < blockerPower) {
+					assigned[slot] += 1000;
+					valueLabels[slot].setText(String.valueOf(assigned[slot]));
+					updateState.run();
+				}
+			});
+
+			JPanel arrowRow = new JPanel(new FlowLayout(FlowLayout.CENTER, 6, 0));
+			arrowRow.setOpaque(false);
+			arrowRow.add(leftBtn);
+			arrowRow.add(valueLabel);
+			arrowRow.add(rightBtn);
+
+			cardPanel.add(nameLabel);
+			cardPanel.add(javax.swing.Box.createVerticalStrut(4));
+			cardPanel.add(arrowRow);
+			attackersPanel.add(cardPanel);
+		}
+
+		JPanel south = new JPanel(new FlowLayout(FlowLayout.CENTER, 0, 8));
+		south.add(confirmBtn);
+
+		JPanel bottomArea = new JPanel(new BorderLayout());
+		bottomArea.add(remainLabel, BorderLayout.NORTH);
+		bottomArea.add(south,       BorderLayout.CENTER);
+
+		dlg.getContentPane().setLayout(new BorderLayout(0, 4));
+		dlg.getContentPane().add(headerLabel,    BorderLayout.NORTH);
+		dlg.getContentPane().add(attackersPanel, BorderLayout.CENTER);
+		dlg.getContentPane().add(bottomArea,     BorderLayout.SOUTH);
+
+		dlg.pack();
+		dlg.setLocationRelativeTo(frame);
+		dlg.setVisible(true);
+
+		if (!confirmed[0]) return Map.of();
+		Map<Integer, Integer> result = new LinkedHashMap<>();
+		for (int i = 0; i < n; i++)
+			if (assigned[i] > 0) result.put(attackerIndices.get(i), assigned[i]);
+		return result;
+	}
+
 	private int showNumberSelectDialog(String prompt, int min, int max) {
 		int[] value = { min };
 
@@ -11310,14 +11450,14 @@ public class MainWindow {
 			int blockerPower = effectiveP2ForwardPower(bestBlockerIdx);
 			logEntry("[P2] " + blocker.name() + " blocks the party!");
 			if (combinedPower >= blockerPower) breakP2Forward(bestBlockerIdx);
-			p2AiDistributeDamage(attackerIndices, blockerPower);
+			applyPartyBlockerDamage(p2AiBuildDamageMap(attackerIndices, blockerPower));
 		} else {
 			p2TakeDamage();
 		}
 	}
 
-	private void p2AiDistributeDamage(List<Integer> attackerIndices, int blockerPower) {
-		if (attackerIndices.isEmpty() || blockerPower <= 0) return;
+	/** Builds the AI's optimal damage assignment for a party-attack block. */
+	private Map<Integer, Integer> p2AiBuildDamageMap(List<Integer> attackerIndices, int blockerPower) {
 		List<int[]> targets = new ArrayList<>();
 		for (int idx : attackerIndices) {
 			if (idx < p1ForwardCards.size()) {
@@ -11325,9 +11465,8 @@ public class MainWindow {
 				targets.add(new int[]{ idx, hp });
 			}
 		}
-		if (targets.isEmpty()) return;
+		if (targets.isEmpty()) return Map.of();
 		targets.sort((a, b) -> Integer.compare(a[1], b[1]));
-
 		Map<Integer, Integer> damageMap = new LinkedHashMap<>();
 		int remaining = blockerPower;
 		for (int[] t : targets) {
@@ -11337,24 +11476,28 @@ public class MainWindow {
 			damageMap.put(idx, dmg);
 			remaining -= dmg;
 		}
-		if (remaining > 0) {
-			int lastIdx = targets.get(targets.size() - 1)[0];
-			damageMap.merge(lastIdx, remaining, Integer::sum);
-		}
+		if (remaining > 0)
+			damageMap.merge(targets.get(targets.size() - 1)[0], remaining, Integer::sum);
+		return damageMap;
+	}
 
+	/** Applies a party-block damage map: logs, updates p1ForwardDamage, and breaks lethal targets. */
+	private void applyPartyBlockerDamage(Map<Integer, Integer> damageMap) {
+		if (damageMap.isEmpty()) return;
 		for (Map.Entry<Integer, Integer> entry : damageMap.entrySet()) {
 			int idx = entry.getKey(), dmg = entry.getValue();
+			if (idx >= p1ForwardCards.size()) continue;
 			p1ForwardDamage.set(idx, p1ForwardDamage.get(idx) + dmg);
 			logEntry("[P2] Deals " + dmg + " damage to " + p1ForwardCards.get(idx).name());
 		}
-
 		List<Integer> toBreak = new ArrayList<>();
 		for (int idx : damageMap.keySet()) {
-			if (p1ForwardDamage.get(idx) >= effectiveP1ForwardPower(idx)) toBreak.add(idx);
+			if (idx < p1ForwardCards.size()
+					&& p1ForwardDamage.get(idx) >= effectiveP1ForwardPower(idx))
+				toBreak.add(idx);
 		}
 		toBreak.sort(Collections.reverseOrder());
 		for (int idx : toBreak) breakP1Forward(idx);
-
 		for (int i = 0; i < p1ForwardCards.size(); i++) refreshP1ForwardSlot(i);
 	}
 
