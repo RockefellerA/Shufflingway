@@ -10872,7 +10872,7 @@ public class MainWindow {
 
 		p1ForwardUrls.add(card.imageUrl());
 		p1ForwardCards.add(card);
-		p1ForwardStates.add(CardState.ACTIVE);
+		p1ForwardStates.add(card.entersFieldDull() ? CardState.DULL : CardState.ACTIVE);
 		p1ForwardPlayedOnTurn.add(gameState.getTurnNumber());
 		p1ForwardDamage.add(0);
 		p1ForwardPowerBoost.add(0);
@@ -10916,7 +10916,7 @@ public class MainWindow {
 
 		p1MonsterUrls.add(card.imageUrl());
 		p1MonsterCards.add(card);
-		p1MonsterStates.add(CardState.ACTIVE);
+		p1MonsterStates.add(card.entersFieldDull() ? CardState.DULL : CardState.ACTIVE);
 		p1MonsterPlayedOnTurn.add(gameState.getTurnNumber());
 		p1MonsterFrozen.add(false);
 		p1MonsterLabels.add(lbl);
