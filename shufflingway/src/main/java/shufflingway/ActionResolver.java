@@ -759,15 +759,19 @@ public class ActionResolver {
     );
 
     /**
-     * Matches "&lt;subject&gt; gains +N power." with no duration clause — a permanent passive
-     * field-ability self-boost (e.g. "Gilgamesh gains +1000 power.").
+     * Matches "&lt;subject&gt; gains +N power [and traits]." with no duration clause — a permanent
+     * passive field-ability self-boost (e.g. "Gilgamesh gains +1000 power.",
+     * "Cid Raines gains +1000 power and First Strike.").
      * <ul>
      *   <li>Group {@code subject} — card name before "gains"</li>
      *   <li>Group {@code amount}  — numeric power amount</li>
+     *   <li>Group {@code traits}  — optional traits string (e.g. "and First Strike")</li>
      * </ul>
      */
     private static final Pattern FIELD_SELF_POWER_BOOST = Pattern.compile(
-        "(?i)(?<subject>.+?)\\s+gains?\\s+\\+(?<amount>\\d+)\\s+[Pp]ower[.!]?\\s*$"
+        "(?i)(?<subject>.+?)\\s+gains?\\s+\\+(?<amount>\\d+)\\s+[Pp]ower" +
+        "(?<traits>(?:\\s*(?:and\\s+)?(?:Haste|First\\s+Strike|Brave))*)" +
+        "[.!]?\\s*$"
     );
 
     /**
@@ -3076,9 +3080,11 @@ public class ActionResolver {
         String subject = m.group("subject").trim();
         if (!subject.equalsIgnoreCase(source.name())) return null;
         int boost = Integer.parseInt(m.group("amount"));
+        EnumSet<CardData.Trait> traits = parseTraits(m.group("traits"));
         return ctx -> {
-            ctx.logEntry(source.name() + " — Gain +" + boost + " power (field)");
-            ctx.boostSourceForward(source, boost, EnumSet.noneOf(CardData.Trait.class));
+            String traitDesc = traits.isEmpty() ? "" : " and " + traitNamesOnly(traits);
+            ctx.logEntry(source.name() + " — Gain +" + boost + " power" + traitDesc + " (field)");
+            ctx.boostSourceForward(source, boost, traits);
         };
     }
 

@@ -1007,6 +1007,10 @@ public record CardData(
             // Standalone restriction sentences that trail action/auto abilities
             if (FA_RESTRICTION_SENTENCE.matcher(seg).find()) continue;
 
+            // Name/type alias declarations — handled as static card properties, not game effects
+            if (IS_ALSO_CARD_NAME_PATTERN.matcher(seg).find()) continue;
+            if (IS_ALSO_MONSTER_PATTERN.matcher(seg).find())   continue;
+
             result.add(new FieldAbility(seg, damageThreshold));
         }
         return List.copyOf(result);

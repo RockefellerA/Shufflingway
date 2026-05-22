@@ -2769,10 +2769,11 @@ public class MainWindow {
 		List<CardData> matches = new ArrayList<>();
 		for (CardData c : gameState.getP1MainDeck()) {
 			if (!anyType) {
-				if (c.isForward() && !inclForwards) continue;
-				if (c.isBackup()  && !inclBackups)  continue;
-				if (c.isMonster() && !inclMonsters) continue;
-				if (c.isSummon()  && !inclSummons)  continue;
+				boolean typeMatch = (inclForwards && c.isForward())
+				                 || (inclBackups  && c.isBackup())
+				                 || (inclMonsters && (c.isMonster() || c.alsoCountsAsMonster()))
+				                 || (inclSummons  && c.isSummon());
+				if (!typeMatch) continue;
 			}
 			if (!meetsCostConstraint(c.cost(), costVal, costCmp)) continue;
 			// Job+name: OR when both are set (e.g. "Job X or Card Name Y"); AND otherwise
@@ -2783,7 +2784,7 @@ public class MainWindow {
 			if (!passesNameJob) continue;
 			if (!meetsCategoryFilter(c, categoryFilter)) continue;
 			if (!meetsElementFilter(c, elementFilter)) continue;
-			if (excludeName != null && excludeName.equalsIgnoreCase(c.name())) continue;
+			if (excludeName != null && meetsCardNameFilter(c, excludeName)) continue;
 			if (excludeElem != null) {
 				boolean excluded = false;
 				for (String ee : excludeElem.split("(?i)\\s+or\\s+"))
@@ -4411,7 +4412,7 @@ public class MainWindow {
 		return switch (type.toLowerCase(java.util.Locale.ROOT)) {
 			case "forward"  -> c.isForward();
 			case "backup"   -> c.isBackup();
-			case "monster"  -> c.isMonster();
+			case "monster"  -> c.isMonster() || c.alsoCountsAsMonster();
 			default         -> !c.isSummon(); // "Character" and empty = any non-Summon
 		};
 	}
@@ -7276,7 +7277,8 @@ public class MainWindow {
 
 		for (CardData c : field) {
 			if (c == null) continue;
-			if (requiredType != null && !c.type().equalsIgnoreCase(requiredType)) continue;
+			if (requiredType != null && !c.type().equalsIgnoreCase(requiredType)
+					&& !(requiredType.equalsIgnoreCase("Monster") && c.alsoCountsAsMonster())) continue;
 			if (jobFilter != null && !c.job().toLowerCase(java.util.Locale.ROOT).contains(jobFilter)) continue;
 			return true;
 		}
@@ -7567,13 +7569,13 @@ public class MainWindow {
 		CardData[]     bkps = playerBackupCards(isP1);
 		if (!bz.name().isEmpty()) {
 			for (int i = 0; i < fwds.size(); i++)
-				if (bz.name().equalsIgnoreCase(fwds.get(i).name()))
+				if (meetsCardNameFilter(fwds.get(i), bz.name()))
 					result.add(new ForwardTarget(isP1, i, ForwardTarget.CardZone.FORWARD));
 			for (int i = 0; i < mons.size(); i++)
-				if (bz.name().equalsIgnoreCase(mons.get(i).name()))
+				if (meetsCardNameFilter(mons.get(i), bz.name()))
 					result.add(new ForwardTarget(isP1, i, ForwardTarget.CardZone.MONSTER));
 			for (int i = 0; i < bkps.length; i++)
-				if (bkps[i] != null && bz.name().equalsIgnoreCase(bkps[i].name()))
+				if (bkps[i] != null && meetsCardNameFilter(bkps[i], bz.name()))
 					result.add(new ForwardTarget(isP1, i, ForwardTarget.CardZone.BACKUP));
 			return result;
 		}
@@ -7596,6 +7598,11 @@ public class MainWindow {
 				if (elemFilt != null && !mons.get(i).containsElement(elemFilt)) continue;
 				result.add(new ForwardTarget(isP1, i, ForwardTarget.CardZone.MONSTER));
 			}
+			for (int i = 0; i < fwds.size(); i++) {
+				if (!fwds.get(i).alsoCountsAsMonster()) continue;
+				if (elemFilt != null && !fwds.get(i).containsElement(elemFilt)) continue;
+				result.add(new ForwardTarget(isP1, i, ForwardTarget.CardZone.FORWARD));
+			}
 		}
 		return result;
 	}
@@ -7615,9 +7622,9 @@ public class MainWindow {
 		List<Integer> result = new ArrayList<>();
 		for (int i = 0; i < hand.size(); i++) {
 			CardData c = hand.get(i);
-			if (rfg.cardName() != null && !c.name().equalsIgnoreCase(rfg.cardName())) continue;
-			if (rfg.element()  != null && !c.containsElement(rfg.element()))          continue;
-			if (rfg.cardType() != null && !matchesDiscardType(c, rfg.cardType()))     continue;
+			if (rfg.cardName() != null && !meetsCardNameFilter(c, rfg.cardName())) continue;
+			if (rfg.element()  != null && !c.containsElement(rfg.element()))       continue;
+			if (rfg.cardType() != null && !matchesDiscardType(c, rfg.cardType()))  continue;
 			result.add(i);
 		}
 		return result;
@@ -7628,7 +7635,7 @@ public class MainWindow {
 		List<Integer> result = new ArrayList<>();
 		for (int i = 0; i < bz.size(); i++) {
 			CardData c = bz.get(i);
-			if (rfg.cardName() != null && !c.name().equalsIgnoreCase(rfg.cardName())) continue;
+			if (rfg.cardName() != null && !meetsCardNameFilter(c, rfg.cardName())) continue;
 			if (rfg.element()  != null && !c.containsElement(rfg.element()))          continue;
 			if (rfg.cardType() != null && !matchesDiscardType(c, rfg.cardType()))     continue;
 			result.add(i);
@@ -7659,7 +7666,7 @@ public class MainWindow {
 	}
 
 	private boolean matchesRfgFieldFilter(CardData c, RemoveFromGameCost rfg) {
-		if (rfg.cardName()    != null && !c.name().equalsIgnoreCase(rfg.cardName()))  return false;
+		if (rfg.cardName()    != null && !meetsCardNameFilter(c, rfg.cardName()))     return false;
 		if (rfg.element()     != null && !c.containsElement(rfg.element()))           return false;
 		if (rfg.cardType()    != null && !matchesDiscardType(c, rfg.cardType()))      return false;
 		if (rfg.excludeName() != null &&  c.name().equalsIgnoreCase(rfg.excludeName())) return false;
@@ -7685,7 +7692,7 @@ public class MainWindow {
 	}
 
 	private boolean matchesRfthFilter(CardData c, ReturnToHandCost rth) {
-		if (rth.cardName()    != null && !c.name().equalsIgnoreCase(rth.cardName()))    return false;
+		if (rth.cardName()    != null && !meetsCardNameFilter(c, rth.cardName()))       return false;
 		if (rth.cardType()    != null && !matchesDiscardType(c, rth.cardType()))        return false;
 		if (rth.category()    != null && !meetsCategoryFilter(c, rth.category()))       return false;
 		if (rth.excludeName() != null &&  c.name().equalsIgnoreCase(rth.excludeName())) return false;
@@ -8197,7 +8204,7 @@ public class MainWindow {
 				List<Integer> eligible = new ArrayList<>();
 				for (int i = 0; i < hand.size(); i++) {
 					CardData c = hand.get(i);
-					if (dc.cardName()  != null && !c.name().equalsIgnoreCase(dc.cardName())) continue;
+					if (dc.cardName()  != null && !meetsCardNameFilter(c, dc.cardName())) continue;
 					if (dc.element()   != null && !c.containsElement(dc.element()))          continue;
 					if (dc.cardType()  != null && !matchesDiscardType(c, dc.cardType()))     continue;
 					if (dc.category()  != null && !meetsCategoryFilter(c, dc.category()))    continue;
@@ -8252,7 +8259,7 @@ public class MainWindow {
 			case "summon"    -> c.isSummon();
 			case "forward"   -> c.isForward();
 			case "backup"    -> c.isBackup();
-			case "monster"   -> c.isMonster();
+			case "monster"   -> c.isMonster() || c.alsoCountsAsMonster();
 			case "character" -> !c.isSummon();
 			default          -> true;
 		};
