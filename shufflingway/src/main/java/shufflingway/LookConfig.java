@@ -1,12 +1,16 @@
 package shufflingway;
 
 /**
- * Describes the effect of a "Look at the top N cards of your deck" ability.
+ * Describes the effect of a "Look at / Reveal the top N cards of your deck" ability.
  *
- * @param count  how many cards from the top of the deck to look at
- * @param action what the player may do with those cards after looking
+ * @param count         how many cards from the top of the deck to look at
+ * @param action        what the player may do with those cards after looking
+ * @param elementFilter null = no filter; non-null = only cards of this element may be added to hand
  */
-public record LookConfig(int count, LookConfig.LookAction action) {
+public record LookConfig(int count, LookConfig.LookAction action, String elementFilter) {
+
+    /** Convenience constructor for abilities with no element filter on the hand-add. */
+    public LookConfig(int count, LookAction action) { this(count, action, null); }
 
     public enum LookAction {
         /** Just view the card(s); they remain on top of the deck in original order. */

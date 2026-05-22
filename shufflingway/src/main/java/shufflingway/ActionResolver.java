@@ -57,6 +57,7 @@ public class ActionResolver {
             "|\\[Job\\s+\\([^)]+\\)\\]" +
             "|\\[Card\\s+Name\\s+\\([^)]+\\)\\]" +
             "|Card\\s+Name\\s+\\S+(?:\\s+\\([^)]+\\))?" +
+            "|Job\\s+.+?\\s+or\\s+Card\\s+Name\\s+\\S+" +
             "|Job\\s+.+?\\s+Forwards?(?:\\s+or\\s+Job\\s+.+?\\s+Forwards?)*)" +
         "(?:\\s+of\\s+any\\s+Element\\s+except\\s+(?<excludeelem>" +
             "(?:Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)" +
@@ -1067,15 +1068,16 @@ public class ActionResolver {
     );
 
     /**
-     * Matches "Look at the top N cards of your deck. Add 1 card among them to your hand and
-     * put the rest of the cards into the Break Zone."
+     * Matches "Look at / Reveal the top N cards of your deck. Add 1 [Element] card among them
+     * to your hand and put the rest of the cards into the Break Zone."
      * <ul>
-     *   <li>Group {@code count} — number of cards to look at</li>
+     *   <li>Group {@code count}   — number of cards to look at / reveal</li>
+     *   <li>Group {@code element} — optional element filter on the card added to hand</li>
      * </ul>
      */
     private static final Pattern LOOK_TOP_DECK_ADD_TO_HAND_REST_BREAK = Pattern.compile(
-        "(?i)Look\\s+at\\s+the\\s+top\\s+(?<count>\\d+)\\s+cards?\\s+of\\s+your\\s+deck[.!]?\\s*" +
-        "Add\\s+1\\s+card\\s+among\\s+them\\s+to\\s+your\\s+hand\\s+and\\s+" +
+        "(?i)(?:Look\\s+at|Reveal)\\s+the\\s+top\\s+(?<count>\\d+)\\s+cards?\\s+of\\s+your\\s+deck[.!]?\\s*" +
+        "Add\\s+1\\s+(?:(?<element>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)\\s+)?card\\s+among\\s+them\\s+to\\s+your\\s+hand\\s+and\\s+" +
         "put\\s+the\\s+rest\\s+(?:of\\s+the\\s+cards?\\s+)?into\\s+the\\s+Break\\s+Zone[.!]?"
     );
 
@@ -1955,6 +1957,13 @@ public class ActionResolver {
         } else if (tgtLower.startsWith("card name ")) {
             cardNameFilter = targets.substring("Card Name ".length()).trim();
             jobFilter      = null;
+            inclForwards   = true;
+            inclBackups    = true;
+            inclMonsters   = true;
+        } else if (tgtLower.startsWith("job ") && tgtLower.contains(" or card name ")) {
+            int orIdx      = tgtLower.indexOf(" or card name ");
+            jobFilter      = targets.substring("Job ".length(), orIdx).trim();
+            cardNameFilter = targets.substring(orIdx + " or card name ".length()).trim();
             inclForwards   = true;
             inclBackups    = true;
             inclMonsters   = true;
@@ -3979,10 +3988,12 @@ public class ActionResolver {
     private static Consumer<GameContext> tryParseLookTopDeckAddToHandRestBreak(String text) {
         java.util.regex.Matcher m = LOOK_TOP_DECK_ADD_TO_HAND_REST_BREAK.matcher(text);
         if (!m.find()) return null;
-        int count = Integer.parseInt(m.group("count"));
+        int    count   = Integer.parseInt(m.group("count"));
+        String element = m.group("element");
+        String elemLabel = element != null ? " (" + element + ")" : "";
         return ctx -> {
-            ctx.logEntry("Effect: Look at top " + count + " card(s) — add 1 to hand, rest to Break Zone");
-            ctx.lookAtTopDeck(new LookConfig(count, LookConfig.LookAction.ADD_TO_HAND_REST_BREAK));
+            ctx.logEntry("Effect: Look/Reveal top " + count + " card(s) — add 1" + elemLabel + " to hand, rest to Break Zone");
+            ctx.lookAtTopDeck(new LookConfig(count, LookConfig.LookAction.ADD_TO_HAND_REST_BREAK, element));
         };
     }
 
