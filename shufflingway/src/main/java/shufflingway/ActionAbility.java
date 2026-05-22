@@ -57,7 +57,8 @@ public record ActionAbility(
         boolean                 whileCardInHand,       // true = ability can only be activated while this card is in hand
         String                  effectText,            // raw effect text — future work will parse this further
         int                     damageThreshold,       // > 0: only usable when controlling player has ≥ this many damage counters
-        ControlCondition        controlCondition       // null = no "if you control X" restriction; non-null = must be satisfied
+        ControlCondition        controlCondition,      // null = no "if you control X" restriction; non-null = must be satisfied
+        String                  cpBackupElement        // null = no restriction; "" = any Backup CP; "Wind" etc. = specific element
 ) {
     public ActionAbility {
         cpCost            = List.copyOf(cpCost);

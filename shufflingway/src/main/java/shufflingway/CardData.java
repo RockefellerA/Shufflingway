@@ -290,6 +290,19 @@ public record CardData(
     }
 
     /**
+     * Returns the element whose Backup CP must be used to cast/play this card, or
+     * {@code ""} if any Backup CP is accepted, or {@code null} if there is no such restriction.
+     * Detected from "You can only pay with CP produced by [Element] Backups to cast/play [CardName]"
+     * which, when present, always appears as the first {@code [[br]]}-delimited segment of the card text.
+     */
+    public String cpBackupElement() {
+        Matcher m = CP_BACKUP_ONLY_CAST.matcher(textEn);
+        if (!m.find()) return null;
+        String elem = m.group("element");
+        return elem != null ? elem : "";
+    }
+
+    /**
      * Returns the effect text to execute when this card triggers an EX Burst.
      * <ul>
      *   <li>Summons — everything after the {@code [[ex]]…[[/]]} tag, markup cleaned.</li>
@@ -552,7 +565,11 @@ public record CardData(
                 Matcher ctrlM = CONTROL_IF_PATTERN.matcher(effectRaw);
                 if (ctrlM.find()) controlCondition = parseControlCondition(ctrlM.group("condition"));
             }
-            result.add(new ActionAbility(abilityName, requiresDull, isSpecial, crystalCost, hasXCost, cpCost, breakZoneCosts, discardCosts, removeFromGameCosts, returnToHandCosts, counterCosts, yourTurnOnly, oncePerTurn, mainPhaseOnly, whileCardAtk, whileCardBlk, whilePartyAtk, whileCardInHand, effectRaw, damageThreshold, controlCondition));
+            Matcher cpBkpM = CP_BACKUP_ONLY_ABILITY.matcher(effectRaw);
+            String cpBackupElement = cpBkpM.find()
+                    ? (cpBkpM.group("element") != null ? cpBkpM.group("element") : "")
+                    : null;
+            result.add(new ActionAbility(abilityName, requiresDull, isSpecial, crystalCost, hasXCost, cpCost, breakZoneCosts, discardCosts, removeFromGameCosts, returnToHandCosts, counterCosts, yourTurnOnly, oncePerTurn, mainPhaseOnly, whileCardAtk, whileCardBlk, whilePartyAtk, whileCardInHand, effectRaw, damageThreshold, controlCondition, cpBackupElement));
         }
         return List.copyOf(result);
     }
@@ -642,11 +659,11 @@ public record CardData(
     );
 
     /**
-     * Named-card mode: "Card Name X [and Card Name Y [and Card Name Z]]"
-     * Also handles the "a Card Name X" leading article.
+     * Named-card mode: "Card Name X [and [a] Card Name Y [and [a] Card Name Z]]"
+     * The optional "a" article is allowed before each name (including subsequent ones).
      */
     private static final Pattern CONTROL_NAMED_CARDS_PATTERN = Pattern.compile(
-        "(?i)(?:a\\s+)?Card\\s+Name\\s+(?<n1>.+?)(?:\\s+and\\s+Card\\s+Name\\s+(?<n2>.+?))?(?:\\s+and\\s+Card\\s+Name\\s+(?<n3>.+?))?\\s*$"
+        "(?i)(?:a\\s+)?Card\\s+Name\\s+(?<n1>.+?)(?:\\s+and\\s+(?:a\\s+)?Card\\s+Name\\s+(?<n2>.+?))?(?:\\s+and\\s+(?:a\\s+)?Card\\s+Name\\s+(?<n3>.+?))?\\s*$"
     );
 
     /**
@@ -893,9 +910,11 @@ public record CardData(
 
     /**
      * Matches the "When " prefix common to all Auto abilities and Warp Counter triggers.
+     * The optional "EX BURST " prefix covers cards whose EX Burst text is stored inline
+     * without [[ex]]…[[/]] tag delimiters (so EX_BURST_TAG does not strip it).
      * Used to exclude auto-ability segments from field-ability parsing.
      */
-    private static final Pattern FA_AUTO_PREFIX = Pattern.compile("(?i)^When\\s+");
+    private static final Pattern FA_AUTO_PREFIX = Pattern.compile("(?i)^(?:EX\\s+BURST\\s+)?When\\s+");
 
     /**
      * Matches a "Damage N -- " threshold prefix at the start of a {@code [[br]]}-delimited
@@ -920,8 +939,30 @@ public record CardData(
         "(?i)^(?:" +
         "You\\s+can(?:\\s+only)?\\s+use\\s+this\\s+ability" +
         "|You\\s+can\\s+only\\s+pay\\s+this\\s+cost" +
+        "|You\\s+can\\s+only\\s+pay\\s+with\\s+CP\\s+produced\\s+by\\s+(?:(?:Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)\\s+)?Backups" +
         "|This\\s+effect\\s+will\\s+trigger" +
         ")"
+    );
+
+    /**
+     * Matches "You can only pay with CP produced by [Element] Backups to cast/play [CardName]…"
+     * capturing the optional {@code element} group.
+     * Covers both "to cast [Name]" and "to play [Name] from your hand onto the field".
+     */
+    private static final Pattern CP_BACKUP_ONLY_CAST = Pattern.compile(
+        "(?i)You\\s+can\\s+only\\s+pay\\s+with\\s+CP\\s+produced\\s+by\\s+" +
+        "(?:(?<element>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)\\s+)?" +
+        "Backups\\s+to\\s+(?:cast|play)\\b"
+    );
+
+    /**
+     * Matches "You can only pay with CP produced by [Element] Backups to use this ability"
+     * capturing the optional {@code element} group.
+     */
+    static final Pattern CP_BACKUP_ONLY_ABILITY = Pattern.compile(
+        "(?i)You\\s+can\\s+only\\s+pay\\s+with\\s+CP\\s+produced\\s+by\\s+" +
+        "(?:(?<element>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)\\s+)?" +
+        "Backups\\s+to\\s+use\\s+this\\s+ability[.!]?"
     );
 
     /** Matches "[CardName] has all the jobs." as a field ability. */
@@ -973,6 +1014,9 @@ public record CardData(
 
         // Remove EX Burst block entirely — it is either an action ability or a summon effect
         String text = EX_BURST_TAG.matcher(textEn).replaceAll(" ");
+        // Join "select N of M following actions" headers with their quoted sub-actions so the
+        // whole ability collapses into a single [[br]]-delimited segment (same as auto-ability parsing).
+        text = joinSelectActions(text);
 
         List<FieldAbility> result = new ArrayList<>();
         for (String raw : text.split("(?i)\\[\\[br\\]\\]")) {
