@@ -19,6 +19,9 @@ jobs:
     runs-on: windows-latest
     permissions:
       contents: write       # needed to create the GitHub Release
+    defaults:
+      run:
+        working-directory: ./shufflingway
 
     steps:
       - name: Check out source
@@ -78,5 +81,5 @@ jobs:
         with:
           generate_release_notes: true
           files: |
-            target/shufflingway.jar
-            target/dist/*.msi
+            shufflingway/target/shufflingway.jar
+            shufflingway/target/dist/*.msi
