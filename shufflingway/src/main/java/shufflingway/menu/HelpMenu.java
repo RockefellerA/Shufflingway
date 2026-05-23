@@ -85,9 +85,10 @@ public class HelpMenu extends JMenu {
 
     private void showUpdateResult(UpdateChecker.ReleaseInfo info) {
         if (!info.updateAvailable()) {
-            JOptionPane.showMessageDialog(owner,
-                    "You're up to date! (v" + info.currentVersion() + ")",
-                    "Check for Updates", JOptionPane.INFORMATION_MESSAGE);
+            String msg = "dev".equals(info.currentVersion())
+                    ? "Running a development build. Latest release is v" + info.latestVersion() + "."
+                    : "You're up to date! (v" + info.currentVersion() + ")";
+            JOptionPane.showMessageDialog(owner, msg, "Check for Updates", JOptionPane.INFORMATION_MESSAGE);
             return;
         }
 
