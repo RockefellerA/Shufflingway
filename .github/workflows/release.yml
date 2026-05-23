@@ -14,11 +14,35 @@ on:
         default: '0.1.0'
 
 jobs:
+  # ── Create the GitHub Release (both platform jobs upload into this) ────────
+  create-release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      version: ${{ steps.ver.outputs.version }}
+    steps:
+      - name: Extract version
+        id: ver
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "version=${{ github.event.inputs.version }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=${GITHUB_REF#refs/tags/v}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.ver.outputs.version }}
+          generate_release_notes: true
+
   # ── Windows installer (MSI) ────────────────────────────────────────────────
   release-windows:
+    needs: create-release
     runs-on: windows-latest
     permissions:
-      contents: write       # needed to create the GitHub Release
+      contents: write
     defaults:
       run:
         working-directory: ./shufflingway
@@ -34,36 +58,20 @@ jobs:
           distribution: 'temurin'
           cache: 'maven'
 
-      # ── Extract version (from tag v1.2.3 → 1.2.3, or manual input) ──────────
-      - name: Extract version
-        id: ver
-        shell: bash
-        run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "version=${{ github.event.inputs.version }}" >> "$GITHUB_OUTPUT"
-          else
-            echo "version=${GITHUB_REF#refs/tags/v}" >> "$GITHUB_OUTPUT"
-          fi
-
-      # ── Sync pom.xml version with the release tag so it ends up in the JAR manifest ──
       - name: Set pom version
         shell: bash
-        run: mvn versions:set -DnewVersion=${{ steps.ver.outputs.version }} -DgenerateBackupPoms=false
+        run: mvn versions:set -DnewVersion=${{ needs.create-release.outputs.version }} -DgenerateBackupPoms=false
 
-      # ── Build ──────────────────────────────────────────────────────────────
       - name: Build fat JAR
         run: mvn package -DskipTests
 
-      # ── Prepare a clean input directory for jpackage ───────────────────────
-      # jpackage includes every JAR in --input on the classpath; keeping only
-      # the fat JAR avoids bundling the leftover original-*.jar from shade.
+      # jpackage includes every JAR in --input; keep only the fat JAR
       - name: Stage fat JAR for jpackage
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force jpackage-input | Out-Null
           Copy-Item target\shufflingway.jar jpackage-input\
 
-      # ── Convert PNG icon to ICO for jpackage ──────────────────────────────
       - name: Convert icon PNG to ICO
         shell: pwsh
         run: |
@@ -80,14 +88,13 @@ jobs:
           $fs.Close()
           $icon.Dispose(); $bmp.Dispose(); $png.Dispose()
 
-      # ── Create Windows MSI installer ───────────────────────────────────────
       - name: Run jpackage (MSI)
         shell: pwsh
         run: |
           jpackage `
             --input            jpackage-input `
             --name             Shufflingway `
-            --app-version      ${{ steps.ver.outputs.version }} `
+            --app-version      ${{ needs.create-release.outputs.version }} `
             --vendor           "RockefellerA" `
             --main-jar         shufflingway.jar `
             --main-class       shufflingway.MainWindow `
@@ -99,12 +106,75 @@ jobs:
             --type             msi `
             --dest             target/dist
 
-      # ── Publish GitHub Release with both artifacts ─────────────────────────
-      - name: Create GitHub Release
+      - name: Upload MSI to release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v${{ steps.ver.outputs.version }}
-          generate_release_notes: true
-          files: |
-            shufflingway/target/shufflingway.jar
-            shufflingway/target/dist/*.msi
+          tag_name: v${{ needs.create-release.outputs.version }}
+          files: shufflingway/target/dist/*.msi
+
+  # ── macOS DMG ─────────────────────────────────────────────────────────────
+  release-macos:
+    needs: create-release
+    runs-on: macos-latest
+    permissions:
+      contents: write
+    defaults:
+      run:
+        working-directory: ./shufflingway
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Java 25
+        uses: actions/setup-java@v4
+        with:
+          java-version: '25'
+          distribution: 'temurin'
+          cache: 'maven'
+
+      - name: Set pom version
+        run: mvn versions:set -DnewVersion=${{ needs.create-release.outputs.version }} -DgenerateBackupPoms=false
+
+      - name: Build fat JAR
+        run: mvn package -DskipTests
+
+      # jpackage includes every JAR in --input; keep only the fat JAR
+      - name: Stage fat JAR for jpackage
+        run: |
+          mkdir -p jpackage-input
+          cp target/shufflingway.jar jpackage-input/
+
+      - name: Convert icon PNG to ICNS
+        run: |
+          mkdir -p Shufflingway.iconset
+          sips -z 16   16   src/main/resources/resources/shufflingway.png --out Shufflingway.iconset/icon_16x16.png
+          sips -z 32   32   src/main/resources/resources/shufflingway.png --out Shufflingway.iconset/icon_16x16@2x.png
+          sips -z 32   32   src/main/resources/resources/shufflingway.png --out Shufflingway.iconset/icon_32x32.png
+          sips -z 64   64   src/main/resources/resources/shufflingway.png --out Shufflingway.iconset/icon_32x32@2x.png
+          sips -z 128  128  src/main/resources/resources/shufflingway.png --out Shufflingway.iconset/icon_128x128.png
+          sips -z 256  256  src/main/resources/resources/shufflingway.png --out Shufflingway.iconset/icon_128x128@2x.png
+          sips -z 256  256  src/main/resources/resources/shufflingway.png --out Shufflingway.iconset/icon_256x256.png
+          sips -z 512  512  src/main/resources/resources/shufflingway.png --out Shufflingway.iconset/icon_256x256@2x.png
+          sips -z 512  512  src/main/resources/resources/shufflingway.png --out Shufflingway.iconset/icon_512x512.png
+          iconutil -c icns Shufflingway.iconset
+
+      - name: Run jpackage (DMG)
+        run: |
+          jpackage \
+            --input            jpackage-input \
+            --name             Shufflingway \
+            --app-version      ${{ needs.create-release.outputs.version }} \
+            --vendor           "RockefellerA" \
+            --main-jar         shufflingway.jar \
+            --main-class       shufflingway.MainWindow \
+            --java-options     "--enable-native-access=ALL-UNNAMED" \
+            --icon             Shufflingway.icns \
+            --type             dmg \
+            --dest             target/dist
+
+      - name: Upload DMG to release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ needs.create-release.outputs.version }}
+          files: shufflingway/target/dist/*.dmg
