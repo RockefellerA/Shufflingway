@@ -242,24 +242,32 @@ public class CardBrowser extends JDialog {
                 KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0),
                 JComponent.WHEN_IN_FOCUSED_WINDOW);
 
-        SwingWorker<Void, Void> initWorker = new SwingWorker<Void, Void>() {
+        SwingWorker<Boolean, Void> initWorker = new SwingWorker<Boolean, Void>() {
             @Override
-            protected Void doInBackground() throws Exception {
-                return null;
+            protected Boolean doInBackground() throws Exception {
+                try (java.sql.Connection c = DriverManager.getConnection(DB_URL);
+                     java.sql.Statement s = c.createStatement();
+                     java.sql.ResultSet rs = s.executeQuery("SELECT COUNT(*) FROM cards")) {
+                    return rs.next() && rs.getInt(1) > 0;
+                }
             }
             @Override
             protected void done() {
-                if (!new java.io.File("shufflingway.db").exists()) {
-                    int choice = JOptionPane.showConfirmDialog(
-                            CardBrowser.this,
-                            "No card database found. Fetch card data from the Square Enix API now?",
-                            "No Database Found",
-                            JOptionPane.YES_NO_OPTION,
-                            JOptionPane.QUESTION_MESSAGE);
-                    if (choice == JOptionPane.YES_OPTION) {
-                        runScrape(updateButton, spinner);
+                try {
+                    if (!get()) {
+                        int choice = JOptionPane.showConfirmDialog(
+                                CardBrowser.this,
+                                "No card data found. Fetch card data from the Square Enix API now?",
+                                "No Cards Found",
+                                JOptionPane.YES_NO_OPTION,
+                                JOptionPane.QUESTION_MESSAGE);
+                        if (choice == JOptionPane.YES_OPTION) {
+                            runScrape(updateButton, spinner);
+                        }
+                    } else {
+                        loadCards();
                     }
-                } else {
+                } catch (Exception e) {
                     loadCards();
                 }
             }

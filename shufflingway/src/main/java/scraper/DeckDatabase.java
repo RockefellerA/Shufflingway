@@ -45,6 +45,32 @@ public class DeckDatabase implements AutoCloseable {
     private void createSchema() throws SQLException {
         try (Statement s = conn.createStatement()) {
             s.execute("""
+                CREATE TABLE IF NOT EXISTS cards (
+                    serial       TEXT PRIMARY KEY,
+                    name_en      TEXT,
+                    type_en      TEXT,
+                    element      TEXT,
+                    cost         INTEGER,
+                    power        INTEGER,
+                    rarity       TEXT,
+                    job_en       TEXT,
+                    category_1   TEXT,
+                    category_2   TEXT,
+                    ex_burst     INTEGER NOT NULL DEFAULT 0,
+                    multicard    INTEGER NOT NULL DEFAULT 0,
+                    text_en      TEXT,
+                    thumb_name   TEXT,
+                    image_url    TEXT,
+                    image_data   BLOB,
+                    set_number   TEXT,
+                    limit_break  INTEGER NOT NULL DEFAULT 0,
+                    lb_cost      INTEGER
+                )
+                """);
+            try { s.execute("ALTER TABLE cards ADD COLUMN image_data BLOB"); } catch (SQLException ignored) {}
+            try { s.execute("ALTER TABLE cards ADD COLUMN limit_break INTEGER NOT NULL DEFAULT 0"); } catch (SQLException ignored) {}
+            try { s.execute("ALTER TABLE cards ADD COLUMN lb_cost INTEGER"); } catch (SQLException ignored) {}
+            s.execute("""
                 CREATE TABLE IF NOT EXISTS decks (
                     id         INTEGER PRIMARY KEY AUTOINCREMENT,
                     name       TEXT    NOT NULL,
