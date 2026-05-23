@@ -1056,7 +1056,7 @@ public class DeckManager extends JDialog {
         new SwingWorker<ImageIcon, Void>() {
             @Override
             protected ImageIcon doInBackground() throws Exception {
-                try (java.sql.Connection conn = DriverManager.getConnection("jdbc:sqlite:shufflingway.db");
+                try (java.sql.Connection conn = DriverManager.getConnection(scraper.AppPaths.dbUrl());
                      PreparedStatement ps = conn.prepareStatement(
                              "SELECT image_url FROM cards WHERE serial = ?")) {
                     ps.setString(1, serial);

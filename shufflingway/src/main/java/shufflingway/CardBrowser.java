@@ -45,7 +45,7 @@ import scraper.CardScraper;
 
 public class CardBrowser extends JDialog {
 
-    private static final String DB_URL = "jdbc:sqlite:shufflingway.db";
+    private static final String DB_URL = scraper.AppPaths.dbUrl();
     private static final String[] COLUMNS = {
         "Serial", "Name", "Type", "Element", "Cost", "Power",
         "Rarity", "Job", "Category 1", "Category 2", "Card Text"

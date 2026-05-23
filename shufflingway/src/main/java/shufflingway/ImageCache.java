@@ -107,7 +107,7 @@ public final class ImageCache {
 
     /** Opens the DB connection on first use; reuses it thereafter. */
     private static CardDatabase openDb() throws SQLException {
-        if (db == null) db = new CardDatabase("shufflingway.db");
+        if (db == null) db = new CardDatabase(scraper.AppPaths.dbPath());
         return db;
     }
 

@@ -25,7 +25,7 @@ import java.util.Set;
  */
 public class DeckDatabase implements AutoCloseable {
 
-    private static final String DB_URL = "jdbc:sqlite:shufflingway.db";
+    private static final String DB_URL = AppPaths.dbUrl();
 
     private final Connection conn;
 
