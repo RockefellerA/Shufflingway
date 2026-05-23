@@ -724,4 +724,11 @@ public interface GameContext {
      * "All Forwards lose Haste") is currently suppressing a game mechanic.
      */
     List<FieldAbility> getActiveFieldAbilities();
+
+    /**
+     * Registers a "during this turn, your next [filter] costs N less" modifier.
+     * The modifier is consumed the first time a matching card is cast, or discarded
+     * automatically at end of turn if unused.
+     */
+    void applyNextCastCostReduction(CostReductionModifier modifier);
 }

@@ -289,6 +289,9 @@ public class MainWindow {
 	/** End-of-turn effects queued this turn; fired at the beginning of the END phase. */
 	private final List<java.util.function.Consumer<GameContext>> endOfTurnEffects = new ArrayList<>();
 
+	/** Active "next cast costs N less" modifiers; consumed on first matching cast, or cleared at EOT. */
+	private final List<CostReductionModifier> activeCostReductions = new ArrayList<>();
+
 	/** Effects deferred until the start of P1's next Main Phase 1. */
 	private final List<java.util.function.Consumer<GameContext>> pendingMainPhase1Effects = new ArrayList<>();
 
@@ -980,6 +983,7 @@ public class MainWindow {
 		p1LbIndex = 0;
 		endOfTurnEffects.clear();
 		pendingMainPhase1Effects.clear();
+		activeCostReductions.clear();
 		computerPlayer = new ComputerPlayer();
 		clearUIZones();
 		if (nextPhaseButton != null) nextPhaseButton.setEnabled(false);
@@ -4300,6 +4304,18 @@ public class MainWindow {
 	// -------------------------------------------------------------------------
 
 	/**
+	 * Returns the effective cast cost of {@code card} after applying any active
+	 * cost-reduction modifier that matches it.  Only the first matching modifier
+	 * is applied (modifiers stack only when multiple fire independently).
+	 */
+	private int effectiveCastCost(CardData card) {
+		for (CostReductionModifier m : activeCostReductions) {
+			if (m.matches(card)) return m.apply(card.cost());
+		}
+		return card.cost();
+	}
+
+	/**
 	 * Returns true if the player can theoretically afford to play {@code card}
 	 * by combining existing CP with potential discards from hand.
 	 * {@code excludeHandIdx} is the index of the card being played (not available
@@ -4321,7 +4337,7 @@ public class MainWindow {
 				if (p1BackupCards[i] != null && p1BackupStates[i] == CardState.ACTIVE)
 					totalGenerate += 1;
 			}
-			return totalExisting + totalGenerate >= card.cost();
+			return totalExisting + totalGenerate >= effectiveCastCost(card);
 		}
 
 		boolean[] hasElemSource = new boolean[elems.length];
@@ -4352,7 +4368,7 @@ public class MainWindow {
 			}
 		}
 		for (boolean hs : hasElemSource) if (!hs) return false;
-		return totalExisting + totalGenerate >= card.cost();
+		return totalExisting + totalGenerate >= effectiveCastCost(card);
 	}
 
 	/**
@@ -5091,7 +5107,7 @@ public class MainWindow {
 		List<CardData> hand   = gameState.getP1Hand();
 		String         elem   = card.element();
 		String[]       elems  = card.elements();
-		int            cost   = card.cost();
+		int            cost   = effectiveCastCost(card);
 		boolean        isLD   = card.isLightOrDark();
 
 		// Always start from 0 — CP is generated and spent within a single payment action
@@ -5442,6 +5458,7 @@ public class MainWindow {
 		lastCastPaymentDistinctElements = (int) execCpAccum.keySet().stream()
 				.filter(e -> !e.isEmpty()).distinct().count();
 		gameState.removeFromHand(cardHandIdx);
+		activeCostReductions.removeIf(m -> m.matches(card));
 		p1CardsCastThisTurn++;
 		logEntry("Played \"" + card.name() + "\"");
 
@@ -9863,6 +9880,11 @@ public class MainWindow {
 				for (CardData c : mons) if (c != null && c.name().equalsIgnoreCase(cardName)) return true;
 				for (CardData c : bkps) if (c != null && c.name().equalsIgnoreCase(cardName)) return true;
 				return false;
+			}
+
+			@Override public void applyNextCastCostReduction(CostReductionModifier modifier) {
+				activeCostReductions.add(modifier);
+				endOfTurnEffects.add(ctx -> activeCostReductions.remove(modifier));
 			}
 
 			@Override public java.util.List<FieldAbility> getActiveFieldAbilities() {
