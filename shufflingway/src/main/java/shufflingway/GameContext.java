@@ -450,6 +450,12 @@ public interface GameContext {
     int fieldForwardPowerByName(String cardName);
 
     /**
+     * Returns the effective power of the Forward that was dulled as a "Dull N active Forward"
+     * cost payment for the current ability.  Returns {@code 0} if no such payment was made.
+     */
+    int dullForwardCostPower();
+
+    /**
      * Returns the effective power of the target Forward or Monster.
      * Returns {@code 0} for Backups or out-of-range indices.
      */

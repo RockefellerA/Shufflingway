@@ -263,6 +263,15 @@ public class MainWindow {
 	private Runnable pendingP2BlockDone   = null;
 	private int      p1BlockerSelection   = -1;   // index of forward P1 clicked to block with
 
+	// Blocking-target tracking: set between "Blocker Declared" and resolveCombat so that
+	// "Choose 1 Forward blocking [Name/Job]" effects can identify the blocking forward.
+	private CardData p1BlockedByAttacker  = null; // P2 attacker that p1BlockingIdx is blocking
+	private int      p2BlockingIdx        = -1;   // P2 forward blocking a P1 attacker
+	private CardData p2BlockedByAttacker  = null; // P1 attacker that p2BlockingIdx is blocking
+
+	// Power of the Forward dulled as "Dull N active Forward" ability cost; set during payment.
+	private int      lastDullForwardCostPower = 0;
+
 	// Separate JWindow for combat priority checkpoints (kept apart from summonStackWindow)
 	private javax.swing.JWindow       combatPriorityWindow;
 	private javax.swing.Timer         combatPriorityTimer;
@@ -6657,6 +6666,13 @@ public class MainWindow {
 			if (!p1ForwardCards.get(p1BlockingIdx).name().equalsIgnoreCase(ability.whileCardBlocking())) return false;
 		}
 		if (ability.whilePartyAttacking() && p1AttackSelection.size() < 2) return false;
+		if (ability.hasBlockingTargetEffect()) {
+			if (gameState.getCurrentPhase() != GameState.GamePhase.ATTACK) return false;
+			if (attackSubStep != 3) return false;
+			boolean anyBlocking = (p1BlockingIdx >= 0 && p1BlockingIdx < p1ForwardCards.size())
+					|| (p2BlockingIdx >= 0 && p2BlockingIdx < p2ForwardCards.size());
+			if (!anyBlocking) return false;
+		}
 		if (ability.requiresDull()) {
 			if (state != CardState.ACTIVE) return false;
 			if (playedTurn == gameState.getTurnNumber()) return false;
@@ -6676,6 +6692,8 @@ public class MainWindow {
 			if (!rfthCostSatisfied(rth, isP1)) return false;
 		for (CounterCost cc : ability.counterCosts())
 			if (!counterCostSatisfied(cc, source)) return false;
+		for (DullForwardCost dfc : ability.dullForwardCosts())
+			if (!dullForwardCostSatisfied(dfc, isP1)) return false;
 		return canAffordAbilityCost(ability, isP1);
 	}
 
@@ -7854,6 +7872,17 @@ public class MainWindow {
 		return gameState.getCounters(source, cc.counterName()) >= cc.count();
 	}
 
+	private boolean dullForwardCostSatisfied(DullForwardCost dfc, boolean isP1) {
+		List<CardData>  fwds   = isP1 ? p1ForwardCards : p2ForwardCards;
+		List<CardState> states = isP1 ? p1ForwardStates : p2ForwardStates;
+		for (int i = 0; i < fwds.size(); i++) {
+			if (states.get(i) != CardState.ACTIVE) continue;
+			if (!dfc.element().isEmpty() && !fwds.get(i).containsElement(dfc.element())) continue;
+			return true;
+		}
+		return false;
+	}
+
 	private List<ForwardTarget> eligibleBzFieldCards(BreakZoneCost bz, boolean isP1) {
 		List<ForwardTarget> result = new ArrayList<>();
 		List<CardData> fwds = playerForwardCards(isP1);
@@ -8111,7 +8140,8 @@ public class MainWindow {
 		for (ActionAbility ability : abilities) {
 			if (ability.whileCardInHand()) continue; // only usable from hand, not from the field
 			boolean hasAttackRestriction = ability.whileCardAttacking() != null
-					|| ability.whileCardBlocking() != null || ability.whilePartyAttacking();
+					|| ability.whileCardBlocking() != null || ability.whilePartyAttacking()
+					|| ability.hasBlockingTargetEffect();
 			boolean phaseOk = hasAttackRestriction ? isAttackPhase : isMainPhase;
 			JMenuItem item = new JMenuItem(buildAbilityMenuLabel(ability));
 			item.setEnabled(phaseOk && canActivateAbility(ability, isFrozen, state, playedTurn, card, isP1));
@@ -8538,6 +8568,34 @@ public class MainWindow {
 					+ gameState.getCounters(source, cc.counterName()) + "]");
 		}
 
+		// Dull-forward costs: player picks an active forward to dull; its power is stored for effect resolution
+		lastDullForwardCostPower = 0;
+		for (DullForwardCost dfc : ability.dullForwardCosts()) {
+			List<CardData> fwds = isP1 ? p1ForwardCards : p2ForwardCards;
+			List<CardState> states = isP1 ? p1ForwardStates : p2ForwardStates;
+			List<Integer> eligible = new ArrayList<>();
+			for (int i = 0; i < fwds.size(); i++) {
+				if (states.get(i) != CardState.ACTIVE) continue;
+				if (!dfc.element().isEmpty() && !fwds.get(i).containsElement(dfc.element())) continue;
+				eligible.add(i);
+			}
+			if (eligible.isEmpty()) { logEntry("No eligible active Forward for Dull cost."); continue; }
+			String[] options = eligible.stream()
+					.map(i -> fwds.get(i).name() + " (Power: " + fwds.get(i).power() + ")")
+					.toArray(String[]::new);
+			String choice = (String) JOptionPane.showInputDialog(frame,
+					"Choose an active Forward to Dull:", "Dull Forward Cost",
+					JOptionPane.PLAIN_MESSAGE, null, options, options[0]);
+			if (choice == null) continue;
+			int listIdx = java.util.Arrays.asList(options).indexOf(choice);
+			if (listIdx < 0) continue;
+			int fwdIdx = eligible.get(listIdx);
+			lastDullForwardCostPower = fwds.get(fwdIdx).power();
+			states.set(fwdIdx, CardState.DULL);
+			if (isP1) animateDullForward(fwdIdx, null); else animateDullP2Forward(fwdIdx, null);
+			logEntry("Dull cost: \"" + fwds.get(fwdIdx).name() + "\" dulled (power " + lastDullForwardCostPower + ")");
+		}
+
 		logEntry("\"" + source.name() + "\" activated ability");
 
 		gameState.pushStack(new StackEntry(source, ability, isP1, xValue));
@@ -8848,11 +8906,14 @@ public class MainWindow {
 							if (!meetsCardNameFilter(card, cardNameFilter)) continue;
 							if (!meetsCategoryFilter(card, categoryFilter)) continue;
 							if (excludeName != null && excludeName.equalsIgnoreCase(card.name())) continue;
-							if (meetsTargetCondition(p1ForwardStates.get(i), p1ForwardDamage.get(i),
-									p1AttackSelection.contains(i), false, condition))
+							if (isBlockingTargetFilter(condition)
+									? meetsBlockingTargetFilter(true, i, condition)
+									: meetsTargetCondition(p1ForwardStates.get(i), p1ForwardDamage.get(i),
+											p1AttackSelection.contains(i), false, condition))
 								eligible.add(new ForwardTarget(true, i, ForwardTarget.CardZone.FORWARD));
 						}
 						if (inclBackups) for (int i = 0; i < p1BackupCards.length; i++) {
+							if (isBlockingTargetFilter(condition)) continue;
 							if (p1BackupCards[i] == null) continue;
 							if (element != null && !p1BackupCards[i].containsElement(element)) continue;
 							if (!meetsCostConstraint(p1BackupCards[i].cost(), costVal, costCmp)) continue;
@@ -8889,11 +8950,14 @@ public class MainWindow {
 							if (!meetsCardNameFilter(card, cardNameFilter)) continue;
 							if (!meetsCategoryFilter(card, categoryFilter)) continue;
 							if (excludeName != null && excludeName.equalsIgnoreCase(card.name())) continue;
-							if (meetsTargetCondition(p2ForwardStates.get(i), p2ForwardDamage.get(i),
-									false, false, condition))
+							if (isBlockingTargetFilter(condition)
+									? meetsBlockingTargetFilter(false, i, condition)
+									: meetsTargetCondition(p2ForwardStates.get(i), p2ForwardDamage.get(i),
+											false, false, condition))
 								eligible.add(new ForwardTarget(false, i, ForwardTarget.CardZone.FORWARD));
 						}
 						if (inclBackups) for (int i = 0; i < p2BackupCards.length; i++) {
+							if (isBlockingTargetFilter(condition)) continue;
 							if (p2BackupCards[i] == null) continue;
 							if (element != null && !p2BackupCards[i].containsElement(element)) continue;
 							if (!meetsCostConstraint(p2BackupCards[i].cost(), costVal, costCmp)) continue;
@@ -8933,11 +8997,14 @@ public class MainWindow {
 							if (!meetsCardNameFilter(card, cardNameFilter)) continue;
 							if (!meetsCategoryFilter(card, categoryFilter)) continue;
 							if (excludeName != null && excludeName.equalsIgnoreCase(card.name())) continue;
-							if (meetsTargetCondition(p2ForwardStates.get(i), p2ForwardDamage.get(i),
-									false, false, condition))
+							if (isBlockingTargetFilter(condition)
+									? meetsBlockingTargetFilter(false, i, condition)
+									: meetsTargetCondition(p2ForwardStates.get(i), p2ForwardDamage.get(i),
+											false, false, condition))
 								eligible.add(new ForwardTarget(false, i, ForwardTarget.CardZone.FORWARD));
 						}
 						if (inclBackups) for (int i = 0; i < p2BackupCards.length; i++) {
+							if (isBlockingTargetFilter(condition)) continue;
 							if (p2BackupCards[i] == null) continue;
 							if (element != null && !p2BackupCards[i].containsElement(element)) continue;
 							if (!meetsCostConstraint(p2BackupCards[i].cost(), costVal, costCmp)) continue;
@@ -8976,11 +9043,14 @@ public class MainWindow {
 							if (!meetsCardNameFilter(card, cardNameFilter)) continue;
 							if (!meetsCategoryFilter(card, categoryFilter)) continue;
 							if (excludeName != null && excludeName.equalsIgnoreCase(card.name())) continue;
-							if (meetsTargetCondition(p1ForwardStates.get(i), p1ForwardDamage.get(i),
-									p1AttackSelection.contains(i), false, condition))
+							if (isBlockingTargetFilter(condition)
+									? meetsBlockingTargetFilter(true, i, condition)
+									: meetsTargetCondition(p1ForwardStates.get(i), p1ForwardDamage.get(i),
+											p1AttackSelection.contains(i), false, condition))
 								eligible.add(new ForwardTarget(true, i, ForwardTarget.CardZone.FORWARD));
 						}
 						if (inclBackups) for (int i = 0; i < p1BackupCards.length; i++) {
+							if (isBlockingTargetFilter(condition)) continue;
 							if (p1BackupCards[i] == null) continue;
 							if (noChoose.contains(p1BackupCards[i])) continue;
 							if (element != null && !p1BackupCards[i].containsElement(element)) continue;
@@ -9855,6 +9925,8 @@ public class MainWindow {
 				}
 			}
 
+			@Override public int dullForwardCostPower() { return lastDullForwardCostPower; }
+
 			@Override public int highestP1ForwardPower() {
 				int max = 0;
 				for (int i = 0; i < p1ForwardCards.size(); i++)
@@ -10608,7 +10680,11 @@ public class MainWindow {
 	private static boolean meetsTargetCondition(CardState state, int damage,
 			boolean isAttacking, boolean isBlocking, String condition) {
 		if (condition == null) return true;
-		return switch (condition.toLowerCase()) {
+		String lower = condition.toLowerCase();
+		// "blocking:Name" and "blocking-job:Job" are handled by meetsBlockingTargetFilter;
+		// if they reach here they should pass (the forward loop already applied the filter).
+		if (lower.startsWith("blocking:") || lower.startsWith("blocking-job:")) return true;
+		return switch (lower) {
 			case "active"    -> state == CardState.ACTIVE;
 			case "dull"      -> state == CardState.DULL;
 			case "damaged"   -> damage > 0;
@@ -10616,6 +10692,36 @@ public class MainWindow {
 			case "blocking"  -> isBlocking;
 			default          -> true;
 		};
+	}
+
+	/** Returns true when {@code condition} is a blocking-target filter ("blocking:..." or "blocking-job:..."). */
+	private static boolean isBlockingTargetFilter(String condition) {
+		if (condition == null) return false;
+		String lower = condition.toLowerCase();
+		return lower.startsWith("blocking:") || lower.startsWith("blocking-job:");
+	}
+
+	/**
+	 * Returns true when a forward at {@code (cardIsP1, cardIdx)} is the current blocker
+	 * whose attacker satisfies the blocking-target filter encoded in {@code condition}.
+	 */
+	private boolean meetsBlockingTargetFilter(boolean cardIsP1, int cardIdx, String condition) {
+		String lower = condition.toLowerCase();
+		if (lower.startsWith("blocking:")) {
+			String targetName = condition.substring("blocking:".length()).trim();
+			return (cardIsP1  && cardIdx == p1BlockingIdx && p1BlockedByAttacker != null
+					&& p1BlockedByAttacker.name().equalsIgnoreCase(targetName))
+				|| (!cardIsP1 && cardIdx == p2BlockingIdx && p2BlockedByAttacker != null
+					&& p2BlockedByAttacker.name().equalsIgnoreCase(targetName));
+		}
+		if (lower.startsWith("blocking-job:")) {
+			String targetJob = condition.substring("blocking-job:".length()).trim();
+			return (cardIsP1  && cardIdx == p1BlockingIdx && p1BlockedByAttacker != null
+					&& p1BlockedByAttacker.job().equalsIgnoreCase(targetJob))
+				|| (!cardIsP1 && cardIdx == p2BlockingIdx && p2BlockedByAttacker != null
+					&& p2BlockedByAttacker.job().equalsIgnoreCase(targetJob));
+		}
+		return false;
 	}
 
 	private static boolean meetsCostConstraint(int cardCost, int costVal, String costCmp) {
@@ -11659,12 +11765,14 @@ public class MainWindow {
 		if (blockerIdx >= 0 && blockerIdx < p1ForwardCards.size()) {
 			CardData top    = p1ForwardPrimedTop.get(blockerIdx);
 			CardData blocker = (top != null) ? top : p1ForwardCards.get(blockerIdx);
-			p1BlockingIdx = blockerIdx;
+			p1BlockingIdx        = blockerIdx;
+			p1BlockedByAttacker  = attacker;
 			triggerAutoAbilitiesForBlock(blocker, true);
 			setAttackSubStep(3);
 			combatPriority("Blocker Declared", false, () -> {
 				resolveCombat(attacker, false, attackerIdx, blocker, true, blockerIdx);
-				p1BlockingIdx = -1;
+				p1BlockingIdx       = -1;
+				p1BlockedByAttacker = null;
 				setAttackSubStep(-1);
 				refreshAllForwardSlots();
 				onDone.run();
@@ -11904,10 +12012,14 @@ public class MainWindow {
 					CardData blocker = p2ForwardCards.get(blockerIdx);
 					logEntry("[P2] " + blocker.name() + " blocks!");
 					triggerAutoAbilitiesForBlock(blocker, false);
+					p2BlockingIdx       = blockerIdx;
+					p2BlockedByAttacker = attacker;
 					setAttackSubStep(3);
 					// Priority window after blocker declared (P1 still attacker → P1 first)
 					combatPriority("Blocker Declared", true, () -> {
 						resolveCombat(attacker, true, idx, blocker, false, blockerIdx);
+						p2BlockingIdx       = -1;
+						p2BlockedByAttacker = null;
 						continueAttackPhase();
 					});
 				} else {

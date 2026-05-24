@@ -31,6 +31,8 @@ import java.util.List;
  *       empty when no such cost is present.</li>
  *   <li>{@link #removeFromGameCosts} — one entry per "remove X from the game" cost item;
  *       empty when no such cost is present.</li>
+ *   <li>{@link #dullForwardCosts} — one entry per "Dull N [active] [elem] Forward(s)" cost item;
+ *       empty when no such cost is present.</li>
  * </ul>
  *
  * <p>{@link #effectText} is stored as a raw string for now and will be parsed
@@ -48,6 +50,7 @@ public record ActionAbility(
         List<RemoveFromGameCost> removeFromGameCosts,  // "remove X from the game" costs (may be empty)
         List<ReturnToHandCost>   returnToHandCosts,    // "return X to its owner's hand" costs (may be empty)
         List<CounterCost>        counterCosts,         // "remove N [Name] Counter(s) from [CardName]" costs
+        List<DullForwardCost>    dullForwardCosts,     // "Dull N [active] [elem] Forward(s)" costs (may be empty)
         boolean                 yourTurnOnly,          // "can only use this ability during your turn" restriction
         boolean                 oncePerTurn,           // "can only use this ability once per turn" restriction
         boolean                 mainPhaseOnly,         // "can only use this ability during your Main Phase" restriction
@@ -55,6 +58,7 @@ public record ActionAbility(
         String                  whileCardBlocking,     // non-null = named P1 forward must be the declared blocker
         boolean                 whilePartyAttacking,   // true = P1's attack selection must have ≥ 2 forwards
         boolean                 whileCardInHand,       // true = ability can only be activated while this card is in hand
+        boolean                 hasBlockingTargetEffect, // true = effect targets a Forward blocking a named card/job
         String                  effectText,            // raw effect text — future work will parse this further
         int                     damageThreshold,       // > 0: only usable when controlling player has ≥ this many damage counters
         ControlCondition        controlCondition,      // null = no "if you control X" restriction; non-null = must be satisfied
@@ -67,5 +71,6 @@ public record ActionAbility(
         removeFromGameCosts = List.copyOf(removeFromGameCosts);
         returnToHandCosts   = List.copyOf(returnToHandCosts);
         counterCosts        = List.copyOf(counterCosts);
+        dullForwardCosts    = List.copyOf(dullForwardCosts);
     }
 }

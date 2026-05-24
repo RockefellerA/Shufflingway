@@ -68,6 +68,10 @@ public class ActionResolver {
         "(?:\\s+(?<control>(?:your\\s+)?opponent\\s+controls|you\\s+control))?" +
         "(?:\\s+other\\s+than\\s+(?:Card\\s+Name\\s+)?(?<excludename>\\S+(?:\\s+\\([^)]+\\))?))?"+
         "(?:\\s+(?<zone>(?:in|from)\\s+your(?:\\s+opponent(?:'s)?)?\\s+Break\\s+Zone))?" +
+        // "blocking [CardName]" or "blocking a [Job] [JobName]" — targets the blocker of the named card
+        "(?:\\s+blocking\\s+" +
+            "(?:a\\s+(?:Job\\s+)?(?<blockingjob>[^.,]+?)(?=\\s*[.,]))" +
+            "|(?<blockingname>[^.,]+?)(?=\\s*[.,])))?"+
         "(?:[.]\\s*|\\s+and\\s+|,\\s*)" +
         "(?<followup>.+)"
     );
@@ -138,6 +142,7 @@ public class ActionResolver {
             "(?<highest>the\\s+highest(?:\\s+power)?\\s+Forward(?:\\s+you\\s+control)?(?:'s\\s+power)?)" +
             "|half\\s+of\\s+(?<halfcard>.+?)'s\\s+power(?:\\s*\\([^)]*\\))?" +
             "|(?<itspower>(?:its|their)\\s+power)(?:\\s+minus\\s+(?<minus>\\d+))?" +
+            "|(?<dullforward>the\\s+power\\s+of\\s+the\\s+dull(?:ed)?\\s+Forward)" +
             "|(?<card>.+?)'s\\s+power" +
         ")"
     );
@@ -2060,8 +2065,14 @@ public class ActionResolver {
 
         boolean upTo         = m.group("upto") != null;
         int     maxCount     = Integer.parseInt(m.group("count"));
-        String  condition    = m.group("condition");
         String  element      = m.group("element");
+        // Resolve condition: "blocking [Name]"/"blocking a Job [Job]" overrides the standard condition.
+        String  rawCondition = m.group("condition");
+        String  blockingName = m.group("blockingname");
+        String  blockingJob  = m.group("blockingjob");
+        String  condition    = blockingName != null ? "blocking:"     + blockingName.trim()
+                             : blockingJob  != null ? "blocking-job:" + blockingJob.trim()
+                             : rawCondition;
         String  targets      = m.group("targets");
         String  tgtLower = targets.toLowerCase();
         String  jobFilter;
@@ -2350,6 +2361,17 @@ public class ActionResolver {
                             costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters, jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, fExcludeElem);
                     sortedByIdxDesc(ts, true) .forEach(t -> ctx.damageTarget(t, Math.max(0, ctx.effectiveTargetPower(t) - subtract)));
                     sortedByIdxDesc(ts, false).forEach(t -> ctx.damageTarget(t, Math.max(0, ctx.effectiveTargetPower(t) - subtract)));
+                    if (secondary != null) secondary.accept(ctx);
+                };
+            } else if (exprM.group("dullforward") != null) {
+                return ctx -> {
+                    int damage = Math.max(0, ctx.dullForwardCostPower());
+                    ctx.logEntry(choosePrefix + " — Deal " + damage + " damage (dull Forward cost power)");
+                    List<ForwardTarget> ts = selectTargets(ctx, maxCount, upTo,
+                            opponentOnly, selfOnly, condition, element, zone, opponentZone,
+                            costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters, jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, fExcludeElem);
+                    sortedByIdxDesc(ts, true) .forEach(t -> ctx.damageTarget(t, damage));
+                    sortedByIdxDesc(ts, false).forEach(t -> ctx.damageTarget(t, damage));
                     if (secondary != null) secondary.accept(ctx);
                 };
             } else if (exprM.group("card") != null) {
