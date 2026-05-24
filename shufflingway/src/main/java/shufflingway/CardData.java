@@ -709,7 +709,7 @@ public record CardData(
             "attacks?(?:\\s+or\\s+blocks?)?|blocks?" +
             // "enters the field or attacks" must precede plain "enters the field"
             "|enters?\\s+the\\s+field\\s+or\\s+attacks?" +
-            "|enters?\\s+the\\s+field(?:\\s+due\\s+to\\s+your\\s+cast)?" +
+            "|enters?\\s+the\\s+field(?:\\s+due\\s+to\\s+(?:your\\s+cast|Warp))?" +
             "|leaves?\\s+the\\s+field" +
             "|is\\s+put\\s+(?:from\\s+the\\s+field\\s+)?into\\s+the\\s+Break\\s+Zone" +
             "|casts?\\s+a\\s+Summon" +
@@ -814,6 +814,7 @@ public record CardData(
             // Normalise trigger to a canonical form
             String trigger;
             boolean cardIsParty = card.toLowerCase(java.util.Locale.ROOT).contains("party");
+            boolean warpOnly    = triggerRaw.contains("enter") && triggerRaw.contains("warp");
             if      (triggerRaw.contains("attack") && triggerRaw.contains("block")) trigger = "attacks or blocks";
             else if (triggerRaw.contains("attack") && cardIsParty)                  trigger = "party attacks";
             else if (triggerRaw.contains("enter") && triggerRaw.contains("attack")) trigger = "enters the field or attacks";
@@ -823,6 +824,7 @@ public record CardData(
             else if (triggerRaw.contains("summon"))                                 trigger = "cast summon";
             else if (triggerRaw.contains("damage zone"))                            trigger = "damage zone";
             else if (triggerRaw.contains("leaves"))                                 trigger = "leaves the field";
+            else if (warpOnly)                                                       trigger = "enters the field";
             else if (triggerRaw.contains("warp"))                                   trigger = "warp placed";
             else if (triggerRaw.contains("deals damage"))                          trigger = "deals damage to forward";
             else                                                                     trigger = "enters the field";
@@ -844,7 +846,7 @@ public record CardData(
             String thresholdStr = m.group("threshold");
             int damageThreshold = thresholdStr != null ? Integer.parseInt(thresholdStr) : 0;
 
-            AutoAbility fa = parseAutoAbilityRestrictions(card, trigger, youMay, opponentMay, castOnly, effect, damageThreshold);
+            AutoAbility fa = parseAutoAbilityRestrictions(card, trigger, youMay, opponentMay, castOnly, warpOnly, effect, damageThreshold);
             if (fa != null) result.add(fa);
         }
 
@@ -858,7 +860,7 @@ public record CardData(
             boolean youMay      = youMayRaw != null && !opponentMay;
             String effect = SUMMON_MARKUP.matcher(wm.group("effect").trim()).replaceAll("").trim();
             if (effect.isEmpty()) continue;
-            AutoAbility fa = parseAutoAbilityRestrictions(target, "warp counter removed", youMay, opponentMay, false, effect, 0);
+            AutoAbility fa = parseAutoAbilityRestrictions(target, "warp counter removed", youMay, opponentMay, false, false, effect, 0);
             if (fa != null) result.add(fa);
         }
 
@@ -871,10 +873,10 @@ public record CardData(
             String elemCap = Character.toUpperCase(element.charAt(0)) + element.substring(1).toLowerCase(java.util.Locale.ROOT);
             String effect  = SUMMON_MARKUP.matcher(sm.group("effect").trim()).replaceAll("").trim();
             if (effect.isEmpty()) continue;
-            AutoAbility fa1 = parseAutoAbilityRestrictions(card, "deals damage to forward", false, false, false, effect, 0);
+            AutoAbility fa1 = parseAutoAbilityRestrictions(card, "deals damage to forward", false, false, false, false, effect, 0);
             if (fa1 != null) result.add(fa1);
             String summonTrigger = elemCap.toLowerCase(java.util.Locale.ROOT) + " summon deals damage to forward";
-            AutoAbility fa2 = parseAutoAbilityRestrictions(card, summonTrigger, false, false, false, effect, 0);
+            AutoAbility fa2 = parseAutoAbilityRestrictions(card, summonTrigger, false, false, false, false, effect, 0);
             if (fa2 != null) result.add(fa2);
         }
 
@@ -887,8 +889,8 @@ public record CardData(
      * after stripping.
      */
     private static AutoAbility parseAutoAbilityRestrictions(
-            String card, String trigger, boolean youMay, boolean opponentMay, boolean castOnly, String effect,
-            int damageThreshold) {
+            String card, String trigger, boolean youMay, boolean opponentMay, boolean castOnly, boolean warpOnly,
+            String effect, int damageThreshold) {
 
         boolean oncePerTurn = false, yourTurnOnly = false;
         String  rfpConditionCard = "";
@@ -917,7 +919,7 @@ public record CardData(
 
         if (effect.isEmpty()) return null;
         return new AutoAbility(card, trigger, youMay, opponentMay, effect,
-                oncePerTurn, yourTurnOnly, rfpConditionCard, castPaymentMinElements, castOnly, damageThreshold);
+                oncePerTurn, yourTurnOnly, rfpConditionCard, castPaymentMinElements, castOnly, warpOnly, damageThreshold);
     }
 
     // -------------------------------------------------------------------------

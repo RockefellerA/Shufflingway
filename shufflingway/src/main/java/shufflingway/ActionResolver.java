@@ -560,6 +560,20 @@ public class ActionResolver {
         "(?:\\s+from\\s+(?:his/her|his|her|their)\\s+hand)?[.!]?"
     );
 
+    /** Matches "Your opponent randomly discards N card(s) [from his/her/their hand]". Group 1 = count. */
+    private static final Pattern OPPONENT_RANDOM_DISCARD = Pattern.compile(
+        "(?i)Your\\s+opponent\\s+randomly\\s+discards?\\s+(\\d+)\\s+cards?" +
+        "(?:\\s+from\\s+(?:his/her|his|her|their)\\s+hand)?[.!]?"
+    );
+
+    /**
+     * Matches "Your opponent draws N card(s), then randomly discards M card(s)".
+     * Group 1 = draw count, Group 2 = discard count.
+     */
+    private static final Pattern OPPONENT_DRAW_THEN_RANDOM_DISCARD = Pattern.compile(
+        "(?i)Your\\s+opponent\\s+draws?\\s+(\\d+)\\s+cards?[,.]?\\s+then\\s+randomly\\s+discards?\\s+(\\d+)\\s+cards?[.!]?"
+    );
+
     /**
      * Matches "Your opponent selects N [condition] [element] [type] they control [sep] followup".
      * <ul>
@@ -1313,6 +1327,12 @@ public class ActionResolver {
         result = tryParseStandaloneSelfBoost(effectText, source);
         if (result != null) return result;
 
+        result = tryParseOpponentDrawThenRandomDiscard(effectText);
+        if (result != null) return result;
+
+        result = tryParseOpponentRandomDiscard(effectText);
+        if (result != null) return result;
+
         result = tryParseOpponentDiscard(effectText);
         if (result != null) return result;
 
@@ -1413,6 +1433,8 @@ public class ActionResolver {
         if (tryParseStandalonePowerReduceUntil(effectText, source) != null) return "StandalonePowerReduceUntil";
         if (tryParseFieldSelfPowerBoost(effectText, source)    != null) return "FieldSelfPowerBoost";
         if (tryParseStandaloneSelfBoost(effectText, source)   != null) return "StandaloneSelfBoost";
+        if (tryParseOpponentDrawThenRandomDiscard(effectText)  != null) return "OpponentDrawThenRandomDiscard";
+        if (tryParseOpponentRandomDiscard(effectText)         != null) return "OpponentRandomDiscard";
         if (tryParseOpponentDiscard(effectText)               != null) return "OpponentDiscard";
         if (tryParseDrawCards(effectText)                     != null) return "DrawCards";
         if (tryParseDiscardThenDraw(effectText)               != null) return "DiscardThenDraw";
@@ -1560,6 +1582,8 @@ public class ActionResolver {
         if (tryParseStandaloneDoublePowerMainPhaseNextTurn(effectText, source) != null) return "StandaloneDoublePowerMainPhaseNextTurn";
         if (tryParseStandalonePowerReduceUntil(effectText, source) != null) return "StandalonePowerReduceUntil";
         if (tryParseStandaloneSelfBoost(effectText, source) != null)        return "StandaloneSelfBoost";
+        if (tryParseOpponentDrawThenRandomDiscard(effectText) != null)      return "OpponentDrawThenRandomDiscard";
+        if (tryParseOpponentRandomDiscard(effectText) != null)              return "OpponentRandomDiscard";
         if (tryParseOpponentDiscard(effectText) != null)                    return "OpponentDiscard";
         if (tryParseDrawCards(effectText) != null)                          return "DrawCards";
         if (tryParseDiscardThenDraw(effectText) != null)                    return "DiscardThenDraw";
@@ -3253,6 +3277,30 @@ public class ActionResolver {
         return ctx -> {
             ctx.logEntry("Effect: Opponent discards " + count + " card(s)");
             ctx.forceOpponentDiscard(count);
+        };
+    }
+
+    /** Parses "Your opponent randomly discards N card(s)" as a standalone effect. */
+    private static Consumer<GameContext> tryParseOpponentRandomDiscard(String text) {
+        Matcher m = OPPONENT_RANDOM_DISCARD.matcher(text);
+        if (!m.find()) return null;
+        int count = Integer.parseInt(m.group(1));
+        return ctx -> {
+            ctx.logEntry("Effect: Opponent randomly discards " + count + " card(s)");
+            ctx.forceOpponentRandomDiscard(count);
+        };
+    }
+
+    /** Parses "Your opponent draws N card(s), then randomly discards M card(s)" as a standalone effect. */
+    private static Consumer<GameContext> tryParseOpponentDrawThenRandomDiscard(String text) {
+        Matcher m = OPPONENT_DRAW_THEN_RANDOM_DISCARD.matcher(text);
+        if (!m.find()) return null;
+        int drawCount    = Integer.parseInt(m.group(1));
+        int discardCount = Integer.parseInt(m.group(2));
+        return ctx -> {
+            ctx.logEntry("Effect: Opponent draws " + drawCount + ", then randomly discards " + discardCount);
+            ctx.drawCardsForOpponent(drawCount);
+            ctx.forceOpponentRandomDiscard(discardCount);
         };
     }
 

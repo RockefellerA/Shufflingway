@@ -321,6 +321,8 @@ public class MainWindow {
 	private int lastCastPaymentDistinctElements = 0;
 	/** True while a card is being placed as a direct result of being cast from hand; gates castOnly field abilities. */
 	private boolean lastCardWasCast = false;
+	/** True while a card is entering the field via Warp resolution; gates warpOnly field abilities. */
+	private boolean lastCardWarpedIn = false;
 
 	/** Set when "Take 1 more turn; lose at the end of that turn" fires. */
 	private boolean p1ExtraTurnThenLose = false;
@@ -1807,16 +1809,21 @@ public class MainWindow {
 		List<CardData> resolved = gameState.tickP1WarpCounters();
 		for (CardData card : resolved) {
 			logEntry("Warp: \"" + card.name() + "\" enters play (auto-ability)");
-			if (card.isForward()) {
-				placeCardInForwardZone(card);
-			} else if (card.isBackup()) {
-				if (hasAvailableBackupSlot()) placeCardInFirstBackupSlot(card);
-				else {
-					gameState.getP1BreakZone().add(card);
-					logEntry("  No backup slot — \"" + card.name() + "\" → Break Zone");
+			lastCardWarpedIn = true;
+			try {
+				if (card.isForward()) {
+					placeCardInForwardZone(card);
+				} else if (card.isBackup()) {
+					if (hasAvailableBackupSlot()) placeCardInFirstBackupSlot(card);
+					else {
+						gameState.getP1BreakZone().add(card);
+						logEntry("  No backup slot — \"" + card.name() + "\" → Break Zone");
+					}
+				} else if (card.isMonster()) {
+					placeCardInMonsterZone(card);
 				}
-			} else if (card.isMonster()) {
-				placeCardInMonsterZone(card);
+			} finally {
+				lastCardWarpedIn = false;
 			}
 		}
 		if (!resolved.isEmpty()) refreshP1BreakLabel();
@@ -6923,6 +6930,9 @@ public class MainWindow {
 		// "due to your cast" — only fires when the card entered the field by being cast from hand
 		if (fa.castOnly() && !lastCardWasCast) return;
 
+		// "due to Warp" — only fires when the card entered the field via Warp resolution
+		if (fa.warpOnly() && !lastCardWarpedIn) return;
+
 		// "only if [card] is removed from the game" — skip if that card is not in the RFP zone
 		if (!fa.rfpConditionCard().isEmpty()) {
 			String cond = fa.rfpConditionCard();
@@ -9660,6 +9670,44 @@ public class MainWindow {
 					refreshP2BreakLabel();
 				} else {
 					showForcedDiscardDialog(count);
+				}
+			}
+
+			@Override public void forceOpponentRandomDiscard(int count) {
+				if (isP1) {
+					List<CardData> hand = gameState.getP2Hand();
+					int actual = Math.min(count, hand.size());
+					for (int i = 0; i < actual; i++) {
+						int idx = (int) (Math.random() * gameState.getP2Hand().size());
+						CardData d = gameState.breakP2FromHand(idx);
+						if (d != null) logEntry("[P2] Randomly discards " + d.name());
+					}
+					refreshP2HandCountLabel();
+					refreshP2BreakLabel();
+				} else {
+					List<CardData> hand = gameState.getP1Hand();
+					int actual = Math.min(count, hand.size());
+					for (int i = 0; i < actual; i++) {
+						int idx = (int) (Math.random() * gameState.getP1Hand().size());
+						CardData d = gameState.breakFromHand(idx);
+						if (d != null) logEntry("[P1] Randomly discards " + d.name());
+					}
+					refreshP1HandLabel();
+					refreshP1BreakLabel();
+				}
+			}
+
+			@Override public void drawCardsForOpponent(int count) {
+				if (isP1) {
+					gameState.drawP2ToHand(count);
+					animateCardDraw(false, count);
+					refreshP2DeckLabel();
+					refreshP2HandCountLabel();
+				} else {
+					gameState.drawToHand(count);
+					animateCardDraw(true, count);
+					refreshP1HandLabel();
+					refreshP1DeckLabel();
 				}
 			}
 

@@ -29,6 +29,8 @@ package shufflingway;
  *
  * <p>Firing restrictions:
  * <ul>
+ *   <li>{@code castOnly} — fires only when the card was cast from hand.</li>
+ *   <li>{@code warpOnly} — fires only when the card entered the field via Warp resolution.</li>
  *   <li>{@code oncePerTurn} — fires at most once per turn (tracked in {@code usedOncePerTurnAbilities}).</li>
  *   <li>{@code yourTurnOnly} — fires only during the ability owner's turn.</li>
  * </ul>
@@ -44,5 +46,6 @@ public record AutoAbility(
         String  rfpConditionCard,      // non-empty: trigger only if this card is in the RFP zone
         int     castPaymentMinElements,// > 0: trigger only if the card was cast with ≥ N distinct element types
         boolean castOnly,              // true = "enters the field due to your cast" — only fires when cast from hand
+        boolean warpOnly,              // true = "enters the field due to Warp" — only fires when entering via Warp resolution
         int     damageThreshold        // > 0: only fires when controlling player has ≥ this many damage counters
 ) {}

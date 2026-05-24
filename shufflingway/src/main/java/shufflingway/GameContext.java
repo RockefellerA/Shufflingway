@@ -464,6 +464,13 @@ public interface GameContext {
     void forceOpponentDiscard(int count);
 
     /**
+     * Forces the ability-user's opponent to discard {@code count} randomly chosen cards
+     * from hand to their Break Zone.  No CP is generated.  Neither player chooses —
+     * cards are selected at random.
+     */
+    void forceOpponentRandomDiscard(int count);
+
+    /**
      * Grants the ability user one additional turn immediately after the current turn ends.
      * At the end of that extra turn, the ability user loses the game.
      */
@@ -473,6 +480,12 @@ public interface GameContext {
      * Draws {@code count} cards from the top of the ability user's deck into their hand.
      */
     void drawCards(int count);
+
+    /**
+     * Draws {@code count} cards from the top of the opponent's deck into their hand.
+     * When P1 is the ability user the opponent is P2, and vice versa.
+     */
+    void drawCardsForOpponent(int count);
 
     /**
      * Prompts the ability user to discard {@code count} cards from their hand to
