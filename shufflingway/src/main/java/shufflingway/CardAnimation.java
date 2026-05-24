@@ -96,6 +96,16 @@ class CardAnimation {
 		}
 	}
 
+	/** Returns a zero-inset border that paints a multi-layer inner glow using the given {@code color}. */
+	static javax.swing.border.Border createCardGlowBorder(Color color) {
+		return new javax.swing.border.AbstractBorder() {
+			@Override public void paintBorder(java.awt.Component c, java.awt.Graphics g0,
+					int x, int y, int w, int h) {
+				drawGlow((Graphics2D) g0, color, x, y, w, h);
+			}
+		};
+	}
+
 	/** Draws {@code value} in a dark pill in the bottom-right of {@code canvas} using {@code textColor}. */
 	static void renderPowerOverlayRight(BufferedImage canvas, int value, Color textColor, CardState state) {
 		int rightEdge = (state == CardState.DULL) ? canvas.getWidth() : CARD_W;
