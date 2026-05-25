@@ -593,11 +593,18 @@ public class ActionResolver {
 
     /**
      * Matches "Activate &lt;cardName&gt;[.]" as a standalone named-card activate effect.
+     * Also handles "Activate Card Name X [and Card Name Y] [you control]" for
+     * multi-target Card Name notation.
      * Excludes the pronoun forms ("Activate it/them") and the mass form ("Activate all …"),
      * which are handled separately.
      */
     private static final Pattern ACTIVATE_NAMED_CARD = Pattern.compile(
         "(?i)Activate\\s+(?!(?:it|them|all)\\b)(?<card>[A-Za-z][^.]+?)\\.?\\s*$"
+    );
+
+    /** Splits "and Card Name" within an activate target list. */
+    private static final Pattern ACTIVATE_AND_CARD_NAME_SPLIT = Pattern.compile(
+        "(?i)\\s+and\\s+Card\\s+Name\\s+"
     );
 
     /**
@@ -1473,6 +1480,20 @@ public class ActionResolver {
 
         result = tryParseShuffleDeck(effectText);
         if (result != null) return result;
+
+        // Compound-sentence fallback: split on ". " between sentences and compose effects.
+        // Handles "Activate <cardName>. <cardName> gains +2000 power until the end of the turn." etc.
+        String[] sentences = effectText.split("(?<=\\.)\\s+(?=[A-Z])");
+        if (sentences.length > 1) {
+            List<Consumer<GameContext>> consumers = new ArrayList<>();
+            boolean allParsed = true;
+            for (String s : sentences) {
+                Consumer<GameContext> c = parse(s.trim(), source, xValue);
+                if (c == null) { allParsed = false; break; }
+                consumers.add(c);
+            }
+            if (allParsed) return ctx -> consumers.forEach(c -> c.accept(ctx));
+        }
 
         return null;
     }
@@ -4376,17 +4397,37 @@ public class ActionResolver {
         };
     }
 
-    /** Parses "Activate &lt;cardName&gt;[.]" — activates the named card the ability user controls. */
+    /**
+     * Parses "Activate &lt;cardName&gt;[.]" — activates named card(s) the ability user controls.
+     * Handles single plain names ("Activate <cardName>"), "Card Name X" notation, and
+     * "Card Name X and Card Name Y [you control]" multi-target form.
+     */
     private static Consumer<GameContext> tryParseActivateNamedCard(String text) {
         Matcher m = ACTIVATE_NAMED_CARD.matcher(text);
         if (!m.find()) return null;
-        String cardName = m.group("card").trim();
+
+        String raw = m.group("card").trim();
+        // Strip optional trailing "you control"
+        raw = raw.replaceAll("(?i)\\s+you\\s+control$", "").trim();
+
+        // Build list of card names, handling "Card Name X [and Card Name Y]" form
+        List<String> names = new ArrayList<>();
+        if (raw.matches("(?i)Card\\s+Name.*")) {
+            String[] parts = ACTIVATE_AND_CARD_NAME_SPLIT.split(raw);
+            for (String part : parts)
+                names.add(part.replaceAll("(?i)^Card\\s+Name\\s+", "").trim());
+        } else {
+            names.add(raw);
+        }
+
         return ctx -> {
-            ctx.logEntry("Effect: Activate " + cardName);
-            List<ForwardTarget> ts = ctx.selectCharacters(
-                    1, false, false, true, null, null, -1, null, -1, null,
-                    true, true, true, null, cardName, null, null, false, null);
-            ts.forEach(ctx::activateTarget);
+            ctx.logEntry("Effect: Activate " + String.join(", ", names));
+            for (String name : names) {
+                List<ForwardTarget> ts = ctx.selectCharacters(
+                        1, false, false, true, null, null, -1, null, -1, null,
+                        true, true, true, null, name, null, null, false, null);
+                ts.forEach(ctx::activateTarget);
+            }
         };
     }
 
