@@ -505,6 +505,13 @@ public interface GameContext {
     void removeNamedCardFromGame(String cardName);
 
     /**
+     * Removes the named card from the current Battle — marks it as having escaped so that
+     * {@code resolveCombat} skips damage resolution for that pairing.
+     * Only meaningful while the card is in Battle (attacking or blocking).
+     */
+    void removeFromBattle(String cardName);
+
+    /**
      * Grants the ability user one additional turn immediately after the current turn ends.
      * At the end of that extra turn, the ability user loses the game.
      */

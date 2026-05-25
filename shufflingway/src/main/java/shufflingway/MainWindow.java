@@ -317,6 +317,8 @@ public class MainWindow {
 	private final Set<CardData> cannotBeBrokenSet         = new java.util.HashSet<>();
 	/** Forwards that have Breaktouch (battle damage) until end of turn. */
 	private final Set<CardData> breaktouchBattleSet       = new java.util.HashSet<>();
+	/** Cards that have escaped from the current Battle via an Escape ability — combat is skipped for their pairing. */
+	private final Set<CardData> escapedFromBattle         = new java.util.HashSet<>();
 	/** The card currently dealing ability damage (null when no ability damage is in flight). */
 	private CardData currentBreaktouchSource    = null;
 	private boolean  currentBreaktouchSourceIsP1 = false;
@@ -3154,6 +3156,15 @@ public class MainWindow {
 	 */
 	private void resolveCombat(CardData attacker, boolean attackerIsP1, int attackerIdx,
 			CardData blocker, boolean blockerIsP1, int blockerIdx) {
+		if (escapedFromBattle.contains(attacker)) {
+			logEntry(attacker.name() + " escaped from the Battle — combat skipped");
+			return;
+		}
+		if (escapedFromBattle.contains(blocker)) {
+			logEntry(blocker.name() + " escaped from the Battle — combat skipped");
+			return;
+		}
+
 		boolean attackerFirst = effectiveHasTrait(attackerIsP1, attackerIdx, CardData.Trait.FIRST_STRIKE)
 				&& !effectiveHasTrait(blockerIsP1, blockerIdx, CardData.Trait.FIRST_STRIKE);
 		boolean blockerFirst = effectiveHasTrait(blockerIsP1, blockerIdx, CardData.Trait.FIRST_STRIKE)
@@ -8842,6 +8853,22 @@ public class MainWindow {
 					}
 				}
 				logEntry("[Warning] removeNamedCardFromGame: \"" + cardName + "\" not found on field");
+			}
+
+			@Override public void removeFromBattle(String cardName) {
+				for (int i = 0; i < p1ForwardCards.size(); i++) {
+					if (p1ForwardCards.get(i).name().equalsIgnoreCase(cardName)) {
+						escapedFromBattle.add(p1ForwardCards.get(i));
+						return;
+					}
+				}
+				for (int i = 0; i < p2ForwardCards.size(); i++) {
+					if (p2ForwardCards.get(i).name().equalsIgnoreCase(cardName)) {
+						escapedFromBattle.add(p2ForwardCards.get(i));
+						return;
+					}
+				}
+				logEntry("[Warning] removeFromBattle: \"" + cardName + "\" not found on field");
 			}
 
 			@Override public void takeExtraTurnThenLose() {

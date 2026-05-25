@@ -607,6 +607,11 @@ public class ActionResolver {
         "(?i)\\s+and\\s+Card\\s+Name\\s+"
     );
 
+    /** Matches "Remove &lt;cardName&gt; from [the] Battle." — Escape-type ability effect. */
+    private static final Pattern REMOVE_FROM_BATTLE = Pattern.compile(
+        "(?i)Remove\\s+(?<card>.+?)\\s+from\\s+(?:the\\s+)?Battle\\.?\\s*$"
+    );
+
     /**
      * Matches "Your opponent discards N card(s) [from his/her/their hand]".
      * <ul>
@@ -1442,6 +1447,9 @@ public class ActionResolver {
         result = tryParseActivateNamedCard(effectText);
         if (result != null) return result;
 
+        result = tryParseRemoveFromBattle(effectText);
+        if (result != null) return result;
+
         result = tryParseCostReductionThisTurn(effectText);
         if (result != null) return result;
 
@@ -1536,6 +1544,7 @@ public class ActionResolver {
         if (tryParseStandaloneDamageShields(effectText, source) != null) return "StandaloneDamageShields";
         if (tryParseSearchDeck(effectText, source, 0)           != null) return "SearchDeck";
         if (tryParseActivateNamedCard(effectText)               != null) return "ActivateNamedCard";
+        if (tryParseRemoveFromBattle(effectText)                != null) return "RemoveFromBattle";
         if (tryParseCostReductionThisTurn(effectText)            != null) return "CostReductionThisTurn";
         if (tryParseExtraTurnThenLose(effectText)               != null) return "ExtraTurnThenLose";
         if (tryParseGainCrystalPerX(effectText, 0)               != null) return "GainCrystalPerX";
@@ -4428,6 +4437,20 @@ public class ActionResolver {
                         true, true, true, null, name, null, null, false, null);
                 ts.forEach(ctx::activateTarget);
             }
+        };
+    }
+
+    /**
+     * Parses "Remove &lt;cardName&gt; from [the] Battle." — removes the named card from the current
+     * combat before damage resolves (Escape-type ability).
+     */
+    private static Consumer<GameContext> tryParseRemoveFromBattle(String text) {
+        Matcher m = REMOVE_FROM_BATTLE.matcher(text);
+        if (!m.find()) return null;
+        String cardName = m.group("card").trim();
+        return ctx -> {
+            ctx.logEntry("Effect: " + cardName + " escapes from the Battle");
+            ctx.removeFromBattle(cardName);
         };
     }
 
