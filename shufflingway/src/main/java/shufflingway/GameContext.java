@@ -517,6 +517,12 @@ public interface GameContext {
     void returnNamedCardToYourHand(String cardName);
 
     /**
+     * Grants the named card permission to attack once more this turn —
+     * clears any "cannot attack" restriction on it for this turn.
+     */
+    void grantAttackOnceMore(String cardName);
+
+    /**
      * Removes the named card from the current Battle — marks it as having escaped so that
      * {@code resolveCombat} skips damage resolution for that pairing.
      * Only meaningful while the card is in Battle (attacking or blocking).

@@ -8887,6 +8887,22 @@ public class MainWindow {
 				logEntry("[Warning] returnNamedCardToOwnersHand: \"" + cardName + "\" not found on field");
 			}
 
+			@Override public void grantAttackOnceMore(String cardName) {
+				for (int i = 0; i < p1ForwardCards.size(); i++) {
+					if (p1ForwardCards.get(i).name().equalsIgnoreCase(cardName)) {
+						p1ForwardCannotAttack.remove(i);
+						refreshP1ForwardSlot(i);
+						return;
+					}
+				}
+				for (int i = 0; i < p1MonsterCards.size(); i++) {
+					if (p1MonsterCards.get(i).name().equalsIgnoreCase(cardName)) {
+						return;
+					}
+				}
+				logEntry("[Warning] grantAttackOnceMore: \"" + cardName + "\" not found on P1's field");
+			}
+
 			@Override public void returnNamedCardToYourHand(String cardName) {
 				if (currentResolutionIsSummon && currentBreaktouchSource != null
 						&& currentBreaktouchSource.name().equalsIgnoreCase(cardName)) {

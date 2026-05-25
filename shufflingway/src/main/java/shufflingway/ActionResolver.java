@@ -622,6 +622,11 @@ public class ActionResolver {
         "(?i)Activate\\s+(?!(?:it|them|all)\\b)(?<card>[A-Za-z][^.]+?)\\.?\\s*$"
     );
 
+    /** Matches "[name] can attack once more this turn." */
+    private static final Pattern ATTACK_ONCE_MORE = Pattern.compile(
+        "(?i)(?<name>[A-Za-z][^.]+?)\\s+can\\s+attack\\s+once\\s+more\\s+this\\s+turn[.!]?"
+    );
+
     /** Splits "and Card Name" within an activate target list. */
     private static final Pattern ACTIVATE_AND_CARD_NAME_SPLIT = Pattern.compile(
         "(?i)\\s+and\\s+Card\\s+Name\\s+"
@@ -1470,6 +1475,9 @@ public class ActionResolver {
         result = tryParseActivateNamedCard(effectText);
         if (result != null) return result;
 
+        result = tryParseAttackOnceMore(effectText);
+        if (result != null) return result;
+
         result = tryParseRemoveFromBattle(effectText);
         if (result != null) return result;
 
@@ -1567,6 +1575,7 @@ public class ActionResolver {
         if (tryParseStandaloneDamageShields(effectText, source) != null) return "StandaloneDamageShields";
         if (tryParseSearchDeck(effectText, source, 0)           != null) return "SearchDeck";
         if (tryParseActivateNamedCard(effectText)               != null) return "ActivateNamedCard";
+        if (tryParseAttackOnceMore(effectText)                  != null) return "AttackOnceMore";
         if (tryParseRemoveFromBattle(effectText)                != null) return "RemoveFromBattle";
         if (tryParseCostReductionThisTurn(effectText)            != null) return "CostReductionThisTurn";
         if (tryParseExtraTurnThenLose(effectText)               != null) return "ExtraTurnThenLose";
@@ -4546,6 +4555,17 @@ public class ActionResolver {
                         true, true, true, null, name, null, null, false, null);
                 ts.forEach(ctx::activateTarget);
             }
+        };
+    }
+
+    /** Parses "[name] can attack once more this turn." */
+    private static Consumer<GameContext> tryParseAttackOnceMore(String text) {
+        Matcher m = ATTACK_ONCE_MORE.matcher(text);
+        if (!m.find()) return null;
+        String name = m.group("name").trim();
+        return ctx -> {
+            ctx.logEntry("Effect: " + name + " can attack once more this turn");
+            ctx.grantAttackOnceMore(name);
         };
     }
 
