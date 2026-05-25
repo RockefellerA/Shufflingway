@@ -281,7 +281,8 @@ public class MainWindow {
 
 	// Damage-shield / damage-modifier state (keyed by CardData identity; cleared at end of turn)
 	private final Set<CardData>          nextIncomingDmgZeroSet   = new java.util.HashSet<>();
-	private final Map<CardData, Integer> nextIncomingDmgReduceMap = new java.util.HashMap<>();
+	private final Map<CardData, Integer> nextIncomingDmgReduceMap      = new java.util.HashMap<>();
+	private final Map<CardData, Integer> nextAbilityDmgReduceMap       = new java.util.HashMap<>();
 	private final Map<CardData, Integer> incomingDmgIncreaseMap   = new java.util.HashMap<>();
 	private final Set<CardData>          nullifyAbilityDmgSet     = new java.util.HashSet<>();
 	private final Set<CardData>          nullifyAbilityOnlyDmgSet = new java.util.HashSet<>();
@@ -1456,7 +1457,7 @@ public class MainWindow {
                             p1ForwardMustAttack.clear();            p2ForwardMustAttack.clear();
                             p1ForwardCannotAttackPersistent.clear(); p1ForwardCannotBlockPersistent.clear();
                             p1TempAttackTriggers.clear();           p2TempAttackTriggers.clear();
-                            nextIncomingDmgZeroSet.clear();   nextIncomingDmgReduceMap.clear();
+                            nextIncomingDmgZeroSet.clear();   nextIncomingDmgReduceMap.clear();   nextAbilityDmgReduceMap.clear();
                             incomingDmgIncreaseMap.clear();   nullifyAbilityDmgSet.clear();
                             nullifyAbilityOnlyDmgSet.clear(); perCardNonLethalDmgSet.clear();
                             nextOutgoingDmgZeroSet.clear();
@@ -7516,6 +7517,9 @@ public class MainWindow {
 			@Override public void shieldNextIncomingDamageReduction(ForwardTarget t, int reduction) {
 				CardData c = fieldCardData(t); if (c != null) nextIncomingDmgReduceMap.merge(c, reduction, Integer::sum);
 			}
+			@Override public void shieldNextAbilityIncomingDamageReduction(ForwardTarget t, int reduction) {
+				CardData c = fieldCardData(t); if (c != null) nextAbilityDmgReduceMap.merge(c, reduction, Integer::sum);
+			}
 			@Override public void debuffIncomingDamageIncrease(ForwardTarget t, int amount) {
 				CardData c = fieldCardData(t); if (c != null) incomingDmgIncreaseMap.merge(c, amount, Integer::sum);
 			}
@@ -9380,6 +9384,10 @@ public class MainWindow {
 		// One-time: next incoming damage reduced by N
 		if (nextIncomingDmgReduceMap.containsKey(card))
 			amount = Math.max(0, amount - nextIncomingDmgReduceMap.remove(card));
+
+		// One-time: next ability/summon damage reduced by N
+		if (fromAbility && nextAbilityDmgReduceMap.containsKey(card))
+			amount = Math.max(0, amount - nextAbilityDmgReduceMap.remove(card));
 
 		// Global per-player damage reduction
 		int globalRed = isP1 ? p1GlobalDmgReduction : p2GlobalDmgReduction;
@@ -11943,7 +11951,7 @@ public class MainWindow {
 			p1ForwardMustAttack.clear();            p2ForwardMustAttack.clear();
 			p2ForwardCannotAttackPersistent.clear(); p2ForwardCannotBlockPersistent.clear();
 			p1TempAttackTriggers.clear();           p2TempAttackTriggers.clear();
-			nextIncomingDmgZeroSet.clear();   nextIncomingDmgReduceMap.clear();
+			nextIncomingDmgZeroSet.clear();   nextIncomingDmgReduceMap.clear();   nextAbilityDmgReduceMap.clear();
 			incomingDmgIncreaseMap.clear();   nullifyAbilityDmgSet.clear();
 			nullifyAbilityOnlyDmgSet.clear(); perCardNonLethalDmgSet.clear();
 			nextOutgoingDmgZeroSet.clear();

@@ -288,6 +288,9 @@ public interface GameContext {
     /** Next damage received by target is reduced by {@code reduction} (consumed on first hit). */
     void shieldNextIncomingDamageReduction(ForwardTarget t, int reduction);
 
+    /** Reduces the next damage dealt to {@code t} by abilities or Summons by {@code reduction}. */
+    void shieldNextAbilityIncomingDamageReduction(ForwardTarget t, int reduction);
+
     /** All damage received by target is increased by {@code amount} until end of turn. */
     void debuffIncomingDamageIncrease(ForwardTarget t, int amount);
 
