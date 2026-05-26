@@ -67,7 +67,7 @@ public record CardData(
     }
 
     private static final Pattern SUMMON_EX_PREFIX =
-            Pattern.compile("(?i)^\\s*\\[\\[ex\\]\\]\\s*");
+            Pattern.compile("(?i)^\\s*(?:\\[\\[ex\\]\\]|EX\\s+BURST)\\s*");
     /** Matches the full [[ex]]…[[/]] EX Burst tag anywhere in card text. */
     private static final Pattern EX_BURST_TAG =
             Pattern.compile("(?i)\\[\\[ex\\]\\].*?\\[\\[/\\]\\]\\s*", Pattern.DOTALL);

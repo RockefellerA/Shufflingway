@@ -1121,7 +1121,7 @@ public class ActionResolver {
         "(?<targets>Forwards?(?:\\s+and\\s+Monsters?)?|Backups?|Characters?)" +
         "(?:\\s+of\\s+cost\\s+(?<cost>\\d+)(?:\\s+or\\s+(?<costcmp>less|more))?)?" +
         "(?:\\s+(?<control>(?:your\\s+)?opponent\\s+controls?|you\\s+control))?" +
-        "\\s+gains?\\s+\\+(?<amount>\\d+)\\s+[Pp]ower" +
+        "\\s+(?<verb>gains?|loses?)\\s+\\+?(?<amount>\\d+)\\s+[Pp]ower" +
         "\\s+until\\s+(?:the\\s+)?end\\s+of\\s+(?:the\\s+)?turn[.!]?"
     );
 
@@ -1759,6 +1759,7 @@ public class ActionResolver {
         if (tryParseNegateAllDamage(effectText) != null)                     return "NegateDamage";
         if (tryParseSelectNumber(effectText, source) != null)               return "SelectNumber";
         if (tryParseAllFieldEffect(effectText) != null)                     return "AllFieldEffect";
+        if (tryParseAllFieldPowerBoost(effectText) != null)                 return "AllFieldPowerBoost";
         if (tryParseStandalonePowerBoostAndAttackTrigger(effectText, source) != null) return "StandalonePowerBoostAndAttackTrigger";
         if (tryParseStandalonePowerBoostUntil(effectText, source) != null)  return "StandalonePowerBoostUntil";
         if (tryParseStandaloneDoublePowerUntil(effectText, source) != null) return "StandaloneDoublePowerUntil";
@@ -3856,13 +3857,15 @@ public class ActionResolver {
         boolean opponentOnly = control != null && !control.toLowerCase().contains("you control");
         boolean selfOnly     = control != null && control.toLowerCase().contains("you control");
 
-        int amount = Integer.parseInt(m.group("amount"));
+        boolean isLose = m.group("verb").toLowerCase().startsWith("lose");
+        int amount = Integer.parseInt(m.group("amount")) * (isLose ? -1 : 1);
 
         String elemLabel    = element != null ? element + " " : "";
         String costLabel    = costVal >= 0 ? " of cost " + costVal + (costCmp != null ? " or " + costCmp : "") : "";
         String controlLabel = opponentOnly ? " (opponent)" : selfOnly ? " (yours)" : "";
+        String change       = isLose ? "-" + Math.abs(amount) : "+" + amount;
         String logMsg = "All " + elemLabel + targets + costLabel + controlLabel
-                + " gain +" + amount + " power until end of turn";
+                + " " + change + " power until end of turn";
 
         return ctx -> {
             ctx.logEntry("Effect: " + logMsg);
