@@ -1,6 +1,8 @@
 # Shufflingway
 
-![Static Badge](https://img.shields.io/badge/Buy_me_a_coffee%3A-Ko--fi-blue?style=plastic&link=https%3A%2F%2Fko-fi.com%2Frockefellera)
+<a href="https://ko-fi.com/rockefellera" target="_blank">
+  <img width="142" height="18" alt="image" src="https://github.com/user-attachments/assets/deae1d46-12c9-4e5a-9e97-fa2002b94a8f" />
+</a>
 
 Lightweight FFTCG client and fan project.
 
