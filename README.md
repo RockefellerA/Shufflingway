@@ -25,7 +25,7 @@ Use the 'Releases' section on the right to download the latest version.
 
 * .msi: Windows Installer
 
-* .dmg: MacOS
+* .dmg: MacOS 13+
 
 Once the application has been installed, you can update to any new releases from "Check for Updates..." in the Help menu.
 
