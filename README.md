@@ -1,4 +1,7 @@
 # Shufflingway
+
+![Static Badge](https://img.shields.io/badge/Buy_me_a_coffee%3A-Ko--fi-blue?style=plastic&link=https%3A%2F%2Fko-fi.com%2Frockefellera)
+
 Lightweight FFTCG client and fan project.
 
 Includes a deck manager, full card browser, and a game board and CPU opponent.
