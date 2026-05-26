@@ -1831,7 +1831,7 @@ public class MainWindow {
 				} else if (card.isBackup()) {
 					if (hasAvailableBackupSlot()) placeCardInFirstBackupSlot(card);
 					else {
-						gameState.getP1BreakZone().add(card);
+						addToP1BreakZone(card);
 						logEntry("  No backup slot — \"" + card.name() + "\" → Break Zone");
 					}
 				} else if (card.isMonster()) {
@@ -2121,14 +2121,14 @@ public class MainWindow {
 
 		if (topCard != null) {
 			// Primed: both cards move to break zone, then top card is immediately RFP'd
-			gameState.getP1BreakZone().add(card);
-			gameState.getP1BreakZone().add(topCard);
+			addToP1BreakZone(card);
+			addToP1BreakZone(topCard);
 			logEntry(card.name() + " + " + topCard.name() + " → Break Zone (Primed)");
 			gameState.getP1BreakZone().remove(topCard);
 			gameState.addToP1PermanentRfp(topCard);
 			logEntry(topCard.name() + " → Removed From Game");
 		} else {
-			gameState.getP1BreakZone().add(card);
+			addToP1BreakZone(card);
 			logEntry(card.name() + " → Break Zone");
 		}
 
@@ -2202,7 +2202,7 @@ public class MainWindow {
 		if (idx < 0 || idx >= p2ForwardCards.size()) return;
 		startBreakAnim(p2ForwardLabels.get(idx));
 		CardData card = p2ForwardCards.get(idx);
-		gameState.getP2BreakZone().add(card);
+		addToP2BreakZone(card);
 		logEntry("[P2] " + card.name() + " → Break Zone");
 
 		p2ForwardCards.remove(idx);
@@ -2544,7 +2544,7 @@ public class MainWindow {
 		CardData topCard = p1ForwardPrimedTop.get(idx);
 		String   pos     = toBottom ? "bottom" : "top";
 		if (topCard != null) {
-			gameState.getP1BreakZone().add(topCard);
+			addToP1BreakZone(topCard);
 			gameState.addToP1PermanentRfp(topCard);
 			logEntry(topCard.name() + " → Removed From Game");
 		}
@@ -2670,7 +2670,7 @@ public class MainWindow {
 		CardData card    = p1ForwardCards.get(idx);
 		CardData topCard = p1ForwardPrimedTop.get(idx);
 		if (topCard != null) {
-			gameState.getP1BreakZone().add(topCard);
+			addToP1BreakZone(topCard);
 			gameState.addToP1PermanentRfp(topCard);
 			logEntry(topCard.name() + " → Removed From Game");
 		}
@@ -2945,7 +2945,7 @@ public class MainWindow {
 		CardData card    = p1ForwardCards.get(idx);
 		CardData topCard = p1ForwardPrimedTop.get(idx);
 		if (topCard != null) {
-			gameState.getP1BreakZone().add(topCard);
+			addToP1BreakZone(topCard);
 			gameState.addToP1PermanentRfp(topCard);
 			logEntry(topCard.name() + " → Removed From Game");
 		}
@@ -4424,6 +4424,26 @@ public class MainWindow {
 		showZoomAt(url);
 	}
 
+	/**
+	 * Adds {@code card} to P1's Break Zone. LB cards enter then are immediately removed,
+	 * so "when put into the Break Zone" triggers fire but the card does not stay there.
+	 */
+	private void addToP1BreakZone(CardData card) {
+		List<CardData> zone = gameState.getP1BreakZone();
+		zone.add(card);
+		if (card.isLb()) zone.remove(card);
+	}
+
+	/**
+	 * Adds {@code card} to P2's Break Zone. LB cards enter then are immediately removed,
+	 * so "when put into the Break Zone" triggers fire but the card does not stay there.
+	 */
+	private void addToP2BreakZone(CardData card) {
+		List<CardData> zone = gameState.getP2BreakZone();
+		zone.add(card);
+		if (card.isLb()) zone.remove(card);
+	}
+
 	private void refreshP1BreakLabel() {
 		List<CardData> zone = gameState.getP1BreakZone();
 		if (zone.isEmpty()) {
@@ -5196,7 +5216,7 @@ public class MainWindow {
 				refreshP1HandLabel();
 				pendingSummonReturnToHand = false;
 			} else {
-				gameState.getP1BreakZone().add(entry.source());
+				addToP1BreakZone(entry.source());
 				logEntry("\"" + entry.source().name() + "\" → Break Zone");
 				refreshP1BreakLabel();
 			}
@@ -5690,7 +5710,7 @@ public class MainWindow {
 		if (c == null) return;
 		startBreakAnim(p2BackupLabels[idx]);
 		logEntry("[P2] " + c.name() + " → Break Zone");
-		gameState.getP2BreakZone().add(c);
+		addToP2BreakZone(c);
 		p2BackupCards[idx]  = null;
 		p2BackupUrls[idx]   = null;
 		p2BackupStates[idx] = CardState.ACTIVE;
@@ -5709,7 +5729,7 @@ public class MainWindow {
 		startBreakAnim(p2MonsterLabels.get(idx));
 		CardData c = p2MonsterCards.get(idx);
 		logEntry("[P2] " + c.name() + " → Break Zone");
-		gameState.getP2BreakZone().add(c);
+		addToP2BreakZone(c);
 		p2MonsterCards.remove(idx);
 		p2MonsterStates.remove(idx);
 		p2MonsterFrozen.remove(idx);
@@ -7184,7 +7204,7 @@ public class MainWindow {
 		if (c == null) return;
 		startBreakAnim(p1BackupLabels[idx]);
 		logEntry(c.name() + " → Break Zone");
-		gameState.getP1BreakZone().add(c);
+		addToP1BreakZone(c);
 		p1BackupCards[idx]   = null;
 		p1BackupUrls[idx]    = null;
 		p1BackupStates[idx]  = CardState.ACTIVE;
@@ -7203,7 +7223,7 @@ public class MainWindow {
 		startBreakAnim(p1MonsterLabels.get(idx));
 		CardData c = p1MonsterCards.get(idx);
 		logEntry(c.name() + " → Break Zone");
-		gameState.getP1BreakZone().add(c);
+		addToP1BreakZone(c);
 		p1MonsterCards.remove(idx);
 		p1MonsterStates.remove(idx);
 		p1MonsterFrozen.remove(idx);
@@ -8329,7 +8349,7 @@ public class MainWindow {
 								refreshP1HandLabel();
 							}
 							case "putToBreakZone" -> {
-								gameState.getP1BreakZone().add(card);
+								addToP1BreakZone(card);
 								logEntry(card.name() + " put into Break Zone from reveal");
 								refreshP1BreakLabel();
 							}
@@ -9130,7 +9150,7 @@ public class MainWindow {
 							switch (action) {
 								case BREAK -> {
 									logEntry(c.name() + " is broken");
-									gameState.getP1BreakZone().add(c);
+									addToP1BreakZone(c);
 									p1BackupCards[i] = null;
 									p1BackupStates[i] = CardState.ACTIVE;
 									refreshP1BackupSlot(i);
@@ -9154,7 +9174,7 @@ public class MainWindow {
 							switch (action) {
 								case BREAK -> {
 									logEntry(c.name() + " is broken");
-									gameState.getP1BreakZone().add(c);
+									addToP1BreakZone(c);
 									p1MonsterCards.remove(i);
 									p1MonsterStates.remove(i);
 									p1MonsterFrozen.remove(i);
@@ -9205,7 +9225,7 @@ public class MainWindow {
 							switch (action) {
 								case BREAK -> {
 									logEntry("[P2] " + c.name() + " is broken");
-									gameState.getP2BreakZone().add(c);
+									addToP2BreakZone(c);
 									p2BackupCards[i] = null;
 									p2BackupStates[i] = CardState.ACTIVE;
 									refreshP2BackupSlot(i);
@@ -9227,7 +9247,7 @@ public class MainWindow {
 							switch (action) {
 								case BREAK -> {
 									logEntry("[P2] " + c.name() + " is broken");
-									gameState.getP2BreakZone().add(c);
+									addToP2BreakZone(c);
 									p2MonsterCards.remove(i);
 									p2MonsterStates.remove(i);
 									p2MonsterFrozen.remove(i);
@@ -9657,12 +9677,12 @@ public class MainWindow {
 				logEntry("[Uniqueness] " + c.name() + " — sent to Break Zone");
 				CardData top = p1ForwardPrimedTop.get(i);
 				if (top != null) {
-					gameState.getP1BreakZone().add(c);
-					gameState.getP1BreakZone().add(top);
+					addToP1BreakZone(c);
+					addToP1BreakZone(top);
 					gameState.getP1BreakZone().remove(top);
 					gameState.addToP1PermanentRfp(top);
 				} else {
-					gameState.getP1BreakZone().add(c);
+					addToP1BreakZone(c);
 				}
 				p1ForwardCards.remove(i); p1ForwardUrls.remove(i);
 				p1ForwardStates.remove(i); p1ForwardPlayedOnTurn.remove(i);
@@ -9684,7 +9704,7 @@ public class MainWindow {
 				CardData c = p1BackupCards[i];
 				if (c == null || !cardNamesOverlap(incoming, c)) continue;
 				logEntry("[Uniqueness] " + c.name() + " — sent to Break Zone");
-				gameState.getP1BreakZone().add(c);
+				addToP1BreakZone(c);
 				p1BackupCards[i] = null; p1BackupStates[i] = CardState.ACTIVE;
 				refreshP1BackupSlot(i); refreshP1BreakLabel();
 				triggerAutoAbilitiesForLeavesField(c, true);
@@ -9694,7 +9714,7 @@ public class MainWindow {
 				CardData c = p1MonsterCards.get(i);
 				if (!cardNamesOverlap(incoming, c)) continue;
 				logEntry("[Uniqueness] " + c.name() + " — sent to Break Zone");
-				gameState.getP1BreakZone().add(c);
+				addToP1BreakZone(c);
 				p1MonsterCards.remove(i); p1MonsterStates.remove(i);
 				p1MonsterFrozen.remove(i); p1MonsterPlayedOnTurn.remove(i);
 				p1MonsterUrls.remove(i);
@@ -9709,7 +9729,7 @@ public class MainWindow {
 				CardData c = p2ForwardCards.get(i);
 				if (!cardNamesOverlap(incoming, c)) continue;
 				logEntry("[Uniqueness] [P2] " + c.name() + " — sent to Break Zone");
-				gameState.getP2BreakZone().add(c);
+				addToP2BreakZone(c);
 				p2ForwardCards.remove(i); p2ForwardUrls.remove(i);
 				p2ForwardStates.remove(i); p2ForwardPlayedOnTurn.remove(i);
 				p2ForwardDamage.remove(i); p2ForwardPowerBoost.remove(i);
@@ -9728,7 +9748,7 @@ public class MainWindow {
 				CardData c = p2BackupCards[i];
 				if (c == null || !cardNamesOverlap(incoming, c)) continue;
 				logEntry("[Uniqueness] [P2] " + c.name() + " — sent to Break Zone");
-				gameState.getP2BreakZone().add(c);
+				addToP2BreakZone(c);
 				p2BackupCards[i] = null; p2BackupStates[i] = CardState.ACTIVE;
 				refreshP2BackupSlot(i); refreshP2BreakLabel();
 				triggerAutoAbilitiesForLeavesField(c, false);
@@ -9738,7 +9758,7 @@ public class MainWindow {
 				CardData c = p2MonsterCards.get(i);
 				if (!cardNamesOverlap(incoming, c)) continue;
 				logEntry("[Uniqueness] [P2] " + c.name() + " — sent to Break Zone");
-				gameState.getP2BreakZone().add(c);
+				addToP2BreakZone(c);
 				p2MonsterCards.remove(i); p2MonsterStates.remove(i);
 				p2MonsterFrozen.remove(i); p2MonsterPlayedOnTurn.remove(i);
 				p2MonsterUrls.remove(i);
