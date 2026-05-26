@@ -130,6 +130,7 @@ public class MainWindow {
 	private float         previewAlpha  = 0f; // 0 = transparent, 1 = fully opaque
 	private javax.swing.Timer fadeTimer;      // drives fade-in / fade-out animation
 	private CardSlideAnimator cardSlideAnimator;
+	private CardBreakAnimator breakAnimator;
 	// Opening hand confirmation popup
 	private JWindow openingHandPopup;
 	// Hand hover popover (deck zone mouseover)
@@ -967,6 +968,7 @@ public class MainWindow {
 		frame.getContentPane().add(mainArea, BorderLayout.CENTER);
 		applySidePanelSide(AppSettings.getSidePanelSide());
 		cardSlideAnimator = CardSlideAnimator.install(frame);
+		breakAnimator     = CardBreakAnimator.install(frame);
 	}
 
 	// -------------------------------------------------------------------------
@@ -2113,6 +2115,7 @@ public class MainWindow {
 
 	private void breakP1Forward(int idx) {
 		if (idx < 0 || idx >= p1ForwardCards.size()) return;
+		startBreakAnim(p1ForwardLabels.get(idx));
 		CardData card    = p1ForwardCards.get(idx);
 		CardData topCard = p1ForwardPrimedTop.get(idx);
 
@@ -2197,6 +2200,7 @@ public class MainWindow {
 	/** Removes P2's forward at {@code idx} from the field and sends it to P2's Break Zone. */
 	private void breakP2Forward(int idx) {
 		if (idx < 0 || idx >= p2ForwardCards.size()) return;
+		startBreakAnim(p2ForwardLabels.get(idx));
 		CardData card = p2ForwardCards.get(idx);
 		gameState.getP2BreakZone().add(card);
 		logEntry("[P2] " + card.name() + " → Break Zone");
@@ -3186,8 +3190,12 @@ public class MainWindow {
 		int rawDmgToAttacker = modifyOutgoingCombatDamage(blockerIsP1, blockerIdx, effBlockerPow);
 		int dmgToAttacker    = modifyIncomingDamage(attackerIsP1, attackerIdx, rawDmgToAttacker, false);
 
-		boolean attackerBroken = dmgToAttacker >= effAttackerPow;
-		boolean blockerBroken  = dmgToBlocker  >= effBlockerPow;
+		List<Integer> attackerDmgList = attackerIsP1 ? p1ForwardDamage : p2ForwardDamage;
+		List<Integer> blockerDmgList  = blockerIsP1  ? p1ForwardDamage : p2ForwardDamage;
+		boolean attackerBroken = dmgToAttacker > 0
+				&& attackerDmgList.get(attackerIdx) + dmgToAttacker >= effAttackerPow;
+		boolean blockerBroken  = dmgToBlocker  > 0
+				&& blockerDmgList.get(blockerIdx)   + dmgToBlocker  >= effBlockerPow;
 
 		if (attackerFirst && blockerBroken) {
 			attackerBroken = false;
@@ -4490,6 +4498,18 @@ public class MainWindow {
 			cardSlideAnimator.startSlide(img, start, end, i * 5);
 	}
 
+	private void startBreakAnim(JLabel label) {
+		if (label == null) return;
+		javax.swing.Icon icon = label.getIcon();
+		if (!(icon instanceof ImageIcon ii)) return;
+		JLayeredPane  lp     = frame.getRootPane().getLayeredPane();
+		Point         center = SwingUtilities.convertPoint(
+				label, label.getWidth() / 2, label.getHeight() / 2, lp);
+		java.awt.image.BufferedImage img = CardAnimation.toARGB(
+				ii.getImage(), ii.getIconWidth(), ii.getIconHeight());
+		breakAnimator.startBreak(img, center);
+	}
+
 	private void animateCardToDamage(boolean isP1, int slotIdx) {
 		JLabel   deck  = isP1 ? p1DeckLabel : p2DeckLabel;
 		JPanel[] slots = isP1 ? p1DamageSlots : p2DamageSlots;
@@ -5668,6 +5688,7 @@ public class MainWindow {
 	private void breakP2BackupSlot(int idx) {
 		CardData c = p2BackupCards[idx];
 		if (c == null) return;
+		startBreakAnim(p2BackupLabels[idx]);
 		logEntry("[P2] " + c.name() + " → Break Zone");
 		gameState.getP2BreakZone().add(c);
 		p2BackupCards[idx]  = null;
@@ -5685,6 +5706,7 @@ public class MainWindow {
 
 	private void breakP2MonsterSlot(int idx) {
 		if (idx >= p2MonsterCards.size()) return;
+		startBreakAnim(p2MonsterLabels.get(idx));
 		CardData c = p2MonsterCards.get(idx);
 		logEntry("[P2] " + c.name() + " → Break Zone");
 		gameState.getP2BreakZone().add(c);
@@ -7160,6 +7182,7 @@ public class MainWindow {
 	private void breakP1BackupSlot(int idx) {
 		CardData c = p1BackupCards[idx];
 		if (c == null) return;
+		startBreakAnim(p1BackupLabels[idx]);
 		logEntry(c.name() + " → Break Zone");
 		gameState.getP1BreakZone().add(c);
 		p1BackupCards[idx]   = null;
@@ -7177,6 +7200,7 @@ public class MainWindow {
 
 	private void breakP1MonsterSlot(int idx) {
 		if (idx >= p1MonsterCards.size()) return;
+		startBreakAnim(p1MonsterLabels.get(idx));
 		CardData c = p1MonsterCards.get(idx);
 		logEntry(c.name() + " → Break Zone");
 		gameState.getP1BreakZone().add(c);
