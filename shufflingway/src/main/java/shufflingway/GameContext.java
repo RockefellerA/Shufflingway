@@ -361,6 +361,12 @@ public interface GameContext {
      */
     void shieldCannotBeBrokenByNonDmg(ForwardTarget t);
 
+    /** Registers that the named source card (found on own field) cannot be broken this turn. */
+    void shieldSourceForward(CardData source);
+
+    /** Registers that all own Forwards cannot be broken this turn. */
+    void shieldAllOwnForwards();
+
     /**
      * Grants {@code t} the Breaktouch battle effect until end of turn:
      * when this Forward deals battle damage to a Forward, that Forward is broken.

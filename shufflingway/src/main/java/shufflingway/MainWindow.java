@@ -7743,6 +7743,25 @@ public class MainWindow {
 				logEntry((t.isP1() ? "" : "[P2] ") + c.name() + " cannot be broken by opposing non-damage Summons or abilities until end of turn");
 			}
 
+			@Override public void shieldSourceForward(CardData source) {
+				List<CardData> fwds = isP1 ? p1ForwardCards : p2ForwardCards;
+				for (CardData c : fwds) {
+					if (c.name().equalsIgnoreCase(source.name())) {
+						cannotBeBrokenSet.add(c);
+						logEntry((isP1 ? "" : "[P2] ") + c.name() + " cannot be broken until end of turn");
+						return;
+					}
+				}
+			}
+
+			@Override public void shieldAllOwnForwards() {
+				List<CardData> fwds = isP1 ? p1ForwardCards : p2ForwardCards;
+				for (CardData c : fwds) {
+					cannotBeBrokenSet.add(c);
+					logEntry((isP1 ? "" : "[P2] ") + c.name() + " cannot be broken until end of turn");
+				}
+			}
+
 			@Override public void shieldBreaktouchBattle(ForwardTarget t) {
 				CardData c = fieldCardData(t);
 				if (c == null) return;

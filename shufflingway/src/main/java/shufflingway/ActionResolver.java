@@ -538,6 +538,19 @@ public class ActionResolver {
         "(?:opposing|your\\s+opponent's)\\s+Summons\\s+or\\s+abilities\\s+that\\s+don'?t\\s+deal\\s+damage\\.?"
     );
 
+    /** Standalone: "[CardName] gains '[...] cannot be broken.' until end of turn." */
+    private static final Pattern STANDALONE_SELF_SHIELD_CANNOT_BE_BROKEN = Pattern.compile(
+        "(?i)(?<subject>.+?)\\s+gains?\\s+['\"][^'\"]*?cannot\\s+be\\s+broken\\.?['\"]" +
+        "\\s+until\\s+(?:the\\s+)?end\\s+of\\s+(?:the\\s+)?turn\\.?"
+    );
+
+    /** Standalone: "All [the] Forwards you control gain '[...] cannot be broken.' until end of turn." */
+    private static final Pattern STANDALONE_ALL_FORWARDS_SHIELD_CANNOT_BE_BROKEN = Pattern.compile(
+        "(?i)All\\s+(?:the\\s+)?Forwards?\\s+you\\s+control\\s+gains?\\s+" +
+        "['\"][^'\"]*?cannot\\s+be\\s+broken\\.?['\"]" +
+        "\\s+until\\s+(?:the\\s+)?end\\s+of\\s+(?:the\\s+)?turn\\.?"
+    );
+
     /** "It gains 'When this Forward deals battle damage to a Forward, break that Forward.' until the end of the turn." */
     private static final Pattern FOLLOWUP_GAINS_BREAKTOUCH_BATTLE = Pattern.compile(
         "(?i)(?:it|they)\\s+gains?\\s+['\"]When\\s+this\\s+Forward\\s+deals\\s+battle\\s+damage\\s+to\\s+a\\s+Forward,\\s+break\\s+that\\s+Forward\\.?['\"]" +
@@ -1525,6 +1538,9 @@ public class ActionResolver {
         result = tryParseStandaloneSelfBoost(effectText, source);
         if (result != null) return result;
 
+        result = tryParseStandaloneShieldCannotBeBroken(effectText, source);
+        if (result != null) return result;
+
         result = tryParseRevealSelectHandRfp(effectText);
         if (result != null) return result;
 
@@ -1702,6 +1718,7 @@ public class ActionResolver {
         if (tryParseStandalonePowerReduceUntil(effectText, source) != null) return "StandalonePowerReduceUntil";
         if (tryParseFieldSelfPowerBoost(effectText, source)    != null) return "FieldSelfPowerBoost";
         if (tryParseStandaloneSelfBoost(effectText, source)   != null) return "StandaloneSelfBoost";
+        if (tryParseStandaloneShieldCannotBeBroken(effectText, source) != null) return "StandaloneShieldCannotBeBroken";
         if (tryParseRevealSelectHandRfp(effectText)            != null) return "RevealSelectHandRfp";
         if (tryParseOpponentRandomHandRfp(effectText)         != null) return "OpponentRandomHandRfp";
         if (tryParseOpponentHandRfp(effectText)               != null) return "OpponentHandRfp";
@@ -1865,6 +1882,7 @@ public class ActionResolver {
         if (tryParseStandaloneDoublePowerMainPhaseNextTurn(effectText, source) != null) return "StandaloneDoublePowerMainPhaseNextTurn";
         if (tryParseStandalonePowerReduceUntil(effectText, source) != null) return "StandalonePowerReduceUntil";
         if (tryParseStandaloneSelfBoost(effectText, source) != null)        return "StandaloneSelfBoost";
+        if (tryParseStandaloneShieldCannotBeBroken(effectText, source) != null) return "StandaloneShieldCannotBeBroken";
         if (tryParseRevealSelectHandRfp(effectText) != null)               return "RevealSelectHandRfp";
         if (tryParseOpponentRandomHandRfp(effectText) != null)             return "OpponentRandomHandRfp";
         if (tryParseOpponentHandRfp(effectText) != null)                   return "OpponentHandRfp";
@@ -3721,6 +3739,32 @@ public class ActionResolver {
         return ctx -> {
             ctx.logEntry(source.name() + logSuffix);
             ctx.boostSourceForward(source, boost, traits);
+        };
+    }
+
+    /**
+     * Parses standalone "cannot be broken until end of turn" grants:
+     * <ul>
+     *   <li>"[CardName] gains '[...] cannot be broken.' until end of turn." — self-shield</li>
+     *   <li>"All [the] Forwards you control gain '[...] cannot be broken.' until end of turn." — all own</li>
+     * </ul>
+     */
+    private static Consumer<GameContext> tryParseStandaloneShieldCannotBeBroken(
+            String text, CardData source) {
+        if (STANDALONE_ALL_FORWARDS_SHIELD_CANNOT_BE_BROKEN.matcher(text).find()) {
+            return ctx -> {
+                ctx.logEntry("Effect: All own Forwards cannot be broken until end of turn");
+                ctx.shieldAllOwnForwards();
+            };
+        }
+        if (source == null) return null;
+        Matcher m = STANDALONE_SELF_SHIELD_CANNOT_BE_BROKEN.matcher(text);
+        if (!m.find()) return null;
+        String subject = m.group("subject").trim();
+        if (!subject.equalsIgnoreCase(source.name())) return null;
+        return ctx -> {
+            ctx.logEntry(source.name() + " cannot be broken until end of turn");
+            ctx.shieldSourceForward(source);
         };
     }
 
