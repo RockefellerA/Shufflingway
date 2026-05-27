@@ -7262,19 +7262,6 @@ public class MainWindow {
 		};
 	}
 
-	private String fieldCardUrl(ForwardTarget t) {
-		if (t.isP1()) return switch (t.zone()) {
-			case FORWARD -> p1ForwardUrls.get(t.idx());
-			case BACKUP  -> p1BackupUrls[t.idx()];
-			case MONSTER -> p1MonsterUrls.get(t.idx());
-		};
-		return switch (t.zone()) {
-			case FORWARD -> p2ForwardUrls.get(t.idx());
-			case BACKUP  -> p2BackupUrls[t.idx()];
-			case MONSTER -> p2MonsterUrls.get(t.idx());
-		};
-	}
-
 	private void breakP1BackupSlot(int idx) {
 		CardData c = p1BackupCards[idx];
 		if (c == null) return;
@@ -9969,11 +9956,6 @@ public class MainWindow {
 		}
 	}
 
-	/**
-	 * Shows a modal number-picker dialog and returns the chosen value.
-	 * The dialog has decrement/increment arrow buttons flanking a centred value label,
-	 * with a Confirm button to commit the selection.
-	 */
 	/**
 	 * Shows a modal dialog for P1 to assign the blocker's power as damage across the
 	 * attacking party, in multiples of 1000.  The total must equal {@code blockerPower}
