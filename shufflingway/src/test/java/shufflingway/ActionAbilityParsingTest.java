@@ -117,7 +117,7 @@ public class ActionAbilityParsingTest {
             String desc = ActionResolver.fullDescription(ab.effectText(), source);
             boolean ok = ActionResolver.parse(ab.effectText(), source) != null;
             sb.append("  [").append(ok ? "OK" : "--").append("] ")
-              .append(ab.effectText()).append(dmgTag(ab.damageThreshold())).append('\n');
+              .append(ab.effectText()).append(dmgTag(ab.damageThreshold())).append(restrictionTags(ab)).append('\n');
             sb.append("       ").append(desc != null ? desc : "(none)").append('\n');
         }
         return sb.toString();
@@ -125,6 +125,19 @@ public class ActionAbilityParsingTest {
 
     private static String dmgTag(int threshold) {
         return threshold > 0 ? "  [Damage ≥" + threshold + "]" : "";
+    }
+
+    private static String restrictionTags(ActionAbility ab) {
+        StringBuilder sb = new StringBuilder();
+        if (ab.whileCardAttacking() != null)  sb.append("  [While ").append(ab.whileCardAttacking()).append(" attacking]");
+        if (ab.whileCardBlocking() != null)   sb.append("  [While ").append(ab.whileCardBlocking()).append(" blocking]");
+        if (ab.whilePartyAttacking())         sb.append("  [While party attacking]");
+        if (ab.whileCardInHand())             sb.append("  [While in hand]");
+        if (ab.sourceInBattle())              sb.append("  [While in battle]");
+        if (ab.yourTurnOnly())                sb.append("  [Your turn only]");
+        if (ab.oncePerTurn())                 sb.append("  [Once per turn]");
+        if (ab.mainPhaseOnly())               sb.append("  [Main phase only]");
+        return sb.toString();
     }
 
     /** Reservoir sampling (k=3): keeps up to 3 uniformly random items seen so far. */
