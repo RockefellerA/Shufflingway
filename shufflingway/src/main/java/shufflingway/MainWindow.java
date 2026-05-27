@@ -202,6 +202,8 @@ public class MainWindow {
 	private final List<CardData> p1MonsterCards       = new ArrayList<>();
 	private final List<CardState> p1MonsterStates      = new ArrayList<>();
 	private final List<Integer>  p1MonsterPlayedOnTurn = new ArrayList<>();
+	private final List<Integer>  p1MonsterDamage       = new ArrayList<>();
+	private int                  p1MonsterAttackIdx    = -1;
 	private JPanel p1MonsterPanel;
 
 	private final List<Boolean>   p2MonsterFrozen       = new ArrayList<>();
@@ -210,6 +212,7 @@ public class MainWindow {
 	private final List<CardData>  p2MonsterCards         = new ArrayList<>();
 	private final List<CardState> p2MonsterStates        = new ArrayList<>();
 	private final List<Integer>   p2MonsterPlayedOnTurn  = new ArrayList<>();
+	private final List<Integer>   p2MonsterDamage        = new ArrayList<>();
 	private JPanel p2MonsterPanel;
 
 	private int      p2DamageCount = 0;
@@ -843,6 +846,11 @@ public class MainWindow {
 				p1AttackSelection.clear();
 				refreshAttackButton();
 				executeP1Attack(sel);
+			} else if (p1MonsterAttackIdx >= 0) {
+				int monIdx = p1MonsterAttackIdx;
+				p1MonsterAttackIdx = -1;
+				refreshAttackButton();
+				executeP1MonsterAttack(monIdx);
 			}
 		});
 
@@ -1401,6 +1409,7 @@ public class MainWindow {
 
 			case MAIN_1 -> {
                             p1AttackSelection.clear();
+                            p1MonsterAttackIdx = -1;
                             gameState.advancePhase();   // MAIN_1 → ATTACK
                             logEntry("Attack Phase");
                             refreshAllForwardSlots();
@@ -1568,6 +1577,8 @@ public class MainWindow {
 		p1MonsterCards.clear();
 		p1MonsterStates.clear();
 		p1MonsterPlayedOnTurn.clear();
+		p1MonsterDamage.clear();
+		p1MonsterAttackIdx = -1;
 
 		if (p2MonsterPanel != null) {
 			p2MonsterPanel.removeAll();
@@ -1579,6 +1590,7 @@ public class MainWindow {
 		p2MonsterCards.clear();
 		p2MonsterStates.clear();
 		p2MonsterPlayedOnTurn.clear();
+		p2MonsterDamage.clear();
 		p2MonsterFrozen.clear();
 		spentLbIndices.clear();
 		p2SpentLbIndices.clear();
@@ -5766,6 +5778,7 @@ public class MainWindow {
 		p2MonsterStates.remove(idx);
 		p2MonsterFrozen.remove(idx);
 		p2MonsterPlayedOnTurn.remove(idx);
+		p2MonsterDamage.remove(idx);
 		p2MonsterUrls.remove(idx);
 		JLabel lbl = p2MonsterLabels.remove(idx);
 		if (p2MonsterPanel != null) {
@@ -7281,6 +7294,7 @@ public class MainWindow {
 		p1MonsterStates.remove(idx);
 		p1MonsterFrozen.remove(idx);
 		p1MonsterPlayedOnTurn.remove(idx);
+		p1MonsterDamage.remove(idx);
 		p1MonsterUrls.remove(idx);
 		JLabel lbl = p1MonsterLabels.remove(idx);
 		if (p1MonsterPanel != null) {
@@ -9857,6 +9871,7 @@ public class MainWindow {
 				addToP1BreakZone(c);
 				p1MonsterCards.remove(i); p1MonsterStates.remove(i);
 				p1MonsterFrozen.remove(i); p1MonsterPlayedOnTurn.remove(i);
+				p1MonsterDamage.remove(i);
 				p1MonsterUrls.remove(i);
 				JLabel lbl = p1MonsterLabels.remove(i);
 				p1MonsterPanel.remove(lbl); p1MonsterPanel.revalidate(); p1MonsterPanel.repaint();
@@ -9901,6 +9916,7 @@ public class MainWindow {
 				addToP2BreakZone(c);
 				p2MonsterCards.remove(i); p2MonsterStates.remove(i);
 				p2MonsterFrozen.remove(i); p2MonsterPlayedOnTurn.remove(i);
+				p2MonsterDamage.remove(i);
 				p2MonsterUrls.remove(i);
 				JLabel lbl = p2MonsterLabels.remove(i);
 				if (p2MonsterPanel != null) { p2MonsterPanel.remove(lbl); p2MonsterPanel.revalidate(); p2MonsterPanel.repaint(); }
@@ -10474,7 +10490,9 @@ public class MainWindow {
 		lbl.setBorder(BorderFactory.createEmptyBorder());
 		lbl.addMouseListener(new MouseAdapter() {
 			@Override public void mousePressed(MouseEvent e) {
-				if (lbl.getIcon() != null) showMonsterContextMenu(idx, lbl, e);
+				if (lbl.getIcon() == null) return;
+				if (SwingUtilities.isLeftMouseButton(e)) handleP1MonsterLeftClick(idx);
+				else showMonsterContextMenu(idx, lbl, e);
 			}
 			@Override public void mouseEntered(MouseEvent e) {
 				if (lbl.getIcon() != null) showZoomAt(p1MonsterUrls.get(idx));
@@ -10487,6 +10505,7 @@ public class MainWindow {
 		p1MonsterStates.add(card.entersFieldDull() ? CardState.DULL : CardState.ACTIVE);
 		p1MonsterPlayedOnTurn.add(gameState.getTurnNumber());
 		p1MonsterFrozen.add(false);
+		p1MonsterDamage.add(0);
 		p1MonsterLabels.add(lbl);
 
 		// Insert at front so newest monster appears leftmost
@@ -10505,16 +10524,26 @@ public class MainWindow {
 		CardState state = p1MonsterStates.get(idx);
 		JLabel slot  = p1MonsterLabels.get(idx);
 		if (url == null) return;
-		int power     = effectiveP1MonsterPower(idx);
-		int basePower = p1MonsterCards.get(idx).power();
+		CardData card     = p1MonsterCards.get(idx);
+		int power         = effectiveP1MonsterPower(idx);
+		int basePower     = card.power();
+		CardData.BecomeForwardAbility bfa = card.becomeForwardAbility();
+		int displayPower  = (bfa != null) ? bfa.power() : power;
+		boolean canAttack = isMonsterSelectableAsForward(idx);
+		boolean selected  = p1MonsterAttackIdx == idx;
+		int damage        = p1MonsterDamage.get(idx);
 		if (slot.getIcon() == null) slot.setIcon(new ImageIcon(CardAnimation.renderPlaceholder(state)));
 		new SwingWorker<ImageIcon, Void>() {
 			@Override protected ImageIcon doInBackground() throws Exception {
 				Image raw = ImageCache.load(url);
 				if (raw == null) return new ImageIcon(CardAnimation.renderPlaceholder(state));
 				BufferedImage canvas = CardAnimation.renderBackupCard(
-						CardAnimation.toARGB(raw, CARD_W, CARD_H), state, false, false, p1MonsterFrozen.get(idx));
-				if (power > basePower)
+						CardAnimation.toARGB(raw, CARD_W, CARD_H), state, canAttack, selected, p1MonsterFrozen.get(idx));
+				if (damage > 0)
+					CardAnimation.renderDamageOverlay(canvas, damage);
+				if (bfa != null)
+					CardAnimation.renderPowerOverlayRight(canvas, bfa.power(), new Color(80, 220, 80), state);
+				else if (power > basePower)
 					CardAnimation.renderPowerOverlayRight(canvas, power, new Color(80, 220, 80), state);
 				return new ImageIcon(canvas);
 			}
@@ -10554,6 +10583,7 @@ public class MainWindow {
 		p2MonsterStates.add(CardState.ACTIVE);
 		p2MonsterPlayedOnTurn.add(gameState.getTurnNumber());
 		p2MonsterFrozen.add(false);
+		p2MonsterDamage.add(0);
 		p2MonsterLabels.add(lbl);
 
 		p2MonsterPanel.add(lbl);
@@ -10931,6 +10961,7 @@ public class MainWindow {
 	 */
 	private void continueAttackPhase() {
 		p1AttackSelection.clear();
+		p1MonsterAttackIdx = -1;
 		refreshAllForwardSlots();
 		if (hasAttackableForward()) {
 			setAttackSubStep(1);
@@ -10938,6 +10969,110 @@ public class MainWindow {
 			logEntry("Select next attacker, or click Skip to end the Attack Phase.");
 		} else {
 			onNextPhase();
+		}
+	}
+
+	/** Returns true when the P1 monster at {@code idx} can attack as a Forward this turn. */
+	private boolean isMonsterSelectableAsForward(int idx) {
+		if (gameState.getCurrentPhase() != GameState.GamePhase.ATTACK) return false;
+		if (gameState.getCurrentPlayer() != GameState.Player.P1) return false;
+		if (idx < 0 || idx >= p1MonsterStates.size()) return false;
+		if (p1MonsterStates.get(idx) != CardState.ACTIVE) return false;
+		if (p1MonsterCards.get(idx).becomeForwardAbility() == null) return false;
+		return p1MonsterPlayedOnTurn.get(idx) != gameState.getTurnNumber();
+	}
+
+	/** Handles a left-click on a P1 monster slot during the attack phase. */
+	private void handleP1MonsterLeftClick(int idx) {
+		if (attackSubStep != 1) return;
+		if (!isMonsterSelectableAsForward(idx)) return;
+		if (!p1AttackSelection.isEmpty()) {
+			logEntry("Deselect the Forward first before selecting a Monster attacker.");
+			return;
+		}
+		if (p1MonsterAttackIdx == idx) {
+			p1MonsterAttackIdx = -1;
+		} else {
+			if (p1MonsterAttackIdx >= 0) {
+				int prev = p1MonsterAttackIdx;
+				p1MonsterAttackIdx = -1;
+				refreshP1MonsterSlot(prev);
+			}
+			p1MonsterAttackIdx = idx;
+		}
+		refreshAttackButton();
+		refreshP1MonsterSlot(idx);
+	}
+
+	/**
+	 * Executes a P1 attack where the attacker is a Monster that temporarily becomes a Forward.
+	 * The monster dulls, triggers attack auto-abilities, then resolves combat the same way a
+	 * Forward would.
+	 */
+	private void executeP1MonsterAttack(int monIdx) {
+		CardData attacker = p1MonsterCards.get(monIdx);
+		int attackerPower = attacker.becomeForwardAbility().power();
+
+		p1MonsterStates.set(monIdx, CardState.DULL);
+		refreshP1MonsterSlot(monIdx);
+		triggerAutoAbilitiesForAttack(attacker, true);
+
+		setAttackSubStep(2);
+		refreshAttackButton();
+
+		logEntry(attacker.name() + " attacks! (Forward — " + attackerPower + ")");
+		combatPriority("Attacker Declared", true, () -> {
+			int blockerIdx = p2ChooseBlocker(attackerPower);
+			if (blockerIdx >= 0) {
+				CardData blocker = p2ForwardCards.get(blockerIdx);
+				logEntry("[P2] " + blocker.name() + " blocks!");
+				triggerAutoAbilitiesForBlock(blocker, false);
+				p2BlockingIdx       = blockerIdx;
+				p2BlockedByAttacker = attacker;
+				setAttackSubStep(3);
+				combatPriority("Blocker Declared", true, () -> {
+					resolveMonsterAttackerCombat(attacker, monIdx, attackerPower, blocker, blockerIdx);
+					p2BlockingIdx       = -1;
+					p2BlockedByAttacker = null;
+					continueAttackPhase();
+				});
+			} else {
+				setAttackSubStep(3);
+				p2TakeDamage();
+				triggerAutoAbilitiesForDealsDamageToOpponent(attacker, true);
+				continueAttackPhase();
+			}
+		});
+	}
+
+	/**
+	 * Resolves combat between a P1 monster-as-Forward attacker and a P2 Forward blocker.
+	 * Damage accumulates on the monster (tracked in {@code p1MonsterDamage}) and is compared
+	 * against its become-Forward power — matching existing Forward combat rules.
+	 */
+	private void resolveMonsterAttackerCombat(CardData attacker, int monIdx, int attackerPower,
+			CardData blocker, int blockerIdx) {
+		int effBlockerPow = effectiveP2ForwardPower(blockerIdx);
+		logEntry(attacker.name() + " (" + attackerPower + ") vs [P2] "
+				+ blocker.name() + " (" + effBlockerPow + ")");
+
+		int curMonDmg   = p1MonsterDamage.get(monIdx);
+		boolean monsterBroken = effBlockerPow > 0 && curMonDmg + effBlockerPow >= attackerPower;
+		boolean blockerBroken = attackerPower > 0
+				&& p2ForwardDamage.get(blockerIdx) + attackerPower >= effBlockerPow;
+
+		if (monsterBroken) {
+			breakP1MonsterSlot(monIdx);
+		} else if (effBlockerPow > 0) {
+			p1MonsterDamage.set(monIdx, curMonDmg + effBlockerPow);
+			refreshP1MonsterSlot(monIdx);
+		}
+
+		if (blockerBroken) {
+			breakP2Forward(blockerIdx);
+		} else if (attackerPower > 0) {
+			p2ForwardDamage.set(blockerIdx, p2ForwardDamage.get(blockerIdx) + attackerPower);
+			refreshP2ForwardSlot(blockerIdx);
 		}
 	}
 
@@ -10953,7 +11088,8 @@ public class MainWindow {
 			attackButton.setEnabled(true);
 		} else {
 			int n = p1AttackSelection.size();
-			attackButton.setEnabled(inAttack && p1Turn && n > 0 && attackSubStep == 1);
+			boolean hasAnyAttacker = n > 0 || p1MonsterAttackIdx >= 0;
+			attackButton.setEnabled(inAttack && p1Turn && hasAnyAttacker && attackSubStep == 1);
 			attackButton.setText(n > 1 ? "Party Attack" : "Attack");
 		}
 
@@ -11125,6 +11261,12 @@ public class MainWindow {
 			if (p1ForwardStates.get(i) == CardState.ACTIVE
 					&& (effectiveP1HasTrait(i, CardData.Trait.HASTE)
 					    || p1ForwardPlayedOnTurn.get(i) != turn))
+				return true;
+		}
+		for (int i = 0; i < p1MonsterStates.size(); i++) {
+			if (p1MonsterStates.get(i) == CardState.ACTIVE
+					&& p1MonsterCards.get(i).becomeForwardAbility() != null
+					&& p1MonsterPlayedOnTurn.get(i) != turn)
 				return true;
 		}
 		return false;

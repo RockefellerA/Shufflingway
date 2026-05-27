@@ -1282,6 +1282,14 @@ public record CardData(
     );
 
     /**
+     * Matches "During your turn, [CardName] also becomes a Forward with [X] power."
+     * Group {@code power} captures the numeric power value.
+     */
+    private static final Pattern BECOME_FORWARD_DURING_TURN_PATTERN = Pattern.compile(
+        "(?i)^During\\s+your\\s+turn,\\s+.+?\\s+also\\s+becomes?\\s+a\\s+Forward\\s+with\\s+(?<power>\\d+)\\s+power\\.?\\s*$"
+    );
+
+    /**
      * Matches "[CardName] has all the Elements [except X[, Y, ...]]." as a field ability.
      * Group {@code exceptions} captures the comma- or "and"-separated exclusion list, if any.
      */
@@ -1349,10 +1357,11 @@ public record CardData(
             if (FA_RESTRICTION_SENTENCE.matcher(seg).find()) continue;
 
             // Name/type alias declarations and enter-dull — handled as static card properties
-            if (IS_ALSO_CARD_NAME_PATTERN.matcher(seg).find())         continue;
-            if (IS_ALSO_MONSTER_PATTERN.matcher(seg).find())           continue;
-            if (ENTERS_FIELD_DULL_PATTERN.matcher(seg).matches())      continue;
-            if (ALIAS_PLAY_RESTRICTION_PATTERN.matcher(seg).matches()) continue;
+            if (IS_ALSO_CARD_NAME_PATTERN.matcher(seg).find())              continue;
+            if (IS_ALSO_MONSTER_PATTERN.matcher(seg).find())                continue;
+            if (ENTERS_FIELD_DULL_PATTERN.matcher(seg).matches())           continue;
+            if (ALIAS_PLAY_RESTRICTION_PATTERN.matcher(seg).matches())      continue;
+            if (BECOME_FORWARD_DURING_TURN_PATTERN.matcher(seg).matches())  continue;
 
             result.add(new FieldAbility(seg, damageThreshold));
         }
@@ -1699,6 +1708,24 @@ public record CardData(
         for (String seg : rawFieldSegments())
             if (ENTERS_FIELD_DULL_PATTERN.matcher(seg).matches()) return true;
         return false;
+    }
+
+    /**
+     * Carries the parsed "During your turn, [name] also becomes a Forward with [power]"
+     * field ability. {@code power} is the printed power value (e.g. 7000).
+     */
+    public record BecomeForwardAbility(int power) {}
+
+    /**
+     * Returns the {@link BecomeForwardAbility} for this card, or {@code null} if it has no
+     * "During your turn, … also becomes a Forward with N power" field ability.
+     */
+    public BecomeForwardAbility becomeForwardAbility() {
+        for (String seg : rawFieldSegments()) {
+            Matcher m = BECOME_FORWARD_DURING_TURN_PATTERN.matcher(seg);
+            if (m.matches()) return new BecomeForwardAbility(Integer.parseInt(m.group("power")));
+        }
+        return null;
     }
 
     /**
