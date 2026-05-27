@@ -2,21 +2,33 @@ package shufflingway.menu;
 
 import shufflingway.UpdateChecker;
 
+import scraper.AppPaths;
+
 import java.awt.BorderLayout;
 import java.awt.Desktop;
+import java.awt.FlowLayout;
+import java.awt.Font;
 import java.awt.event.ActionEvent;
 import java.io.IOException;
 import java.net.URI;
 import java.net.URISyntaxException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.List;
 
+import javax.swing.JButton;
 import javax.swing.JDialog;
 import javax.swing.JFrame;
+import javax.swing.JLabel;
 import javax.swing.JMenu;
 import javax.swing.JMenuItem;
 import javax.swing.JOptionPane;
+import javax.swing.JPanel;
 import javax.swing.JProgressBar;
+import javax.swing.JScrollPane;
+import javax.swing.JTextArea;
 import javax.swing.SwingWorker;
+import javax.swing.Timer;
 
 /**
  * Help menu for the main window.
@@ -74,6 +86,12 @@ public class HelpMenu extends JMenu {
 
         addSeparator();
 
+        JMenuItem errorReporting = new JMenuItem("Error Reporting...");
+        add(errorReporting);
+        errorReporting.addActionListener((ActionEvent e) -> showErrorLogDialog());
+
+        addSeparator();
+
         JMenuItem about = new JMenuItem("About Shufflingway");
         add(about);
         about.addActionListener((ActionEvent e) -> {
@@ -81,6 +99,52 @@ public class HelpMenu extends JMenu {
             dialog.setLocationRelativeTo(owner);
             dialog.setVisible(true);
         });
+    }
+
+    private void showErrorLogDialog() {
+        Path logPath = AppPaths.appDataDir().resolve("shufflingway.log");
+        String content;
+        try {
+            content = Files.exists(logPath)
+                    ? Files.readString(logPath)
+                    : "(Log file not found at " + logPath + ")";
+        } catch (IOException ex) {
+            content = "(Could not read log: " + ex.getMessage() + ")";
+        }
+
+        JTextArea textArea = new JTextArea(content);
+        textArea.setEditable(false);
+        textArea.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 12));
+        textArea.setLineWrap(false);
+        JScrollPane scroll = new JScrollPane(textArea);
+        scroll.setPreferredSize(new java.awt.Dimension(800, 500));
+        textArea.setCaretPosition(textArea.getDocument().getLength());
+
+        JButton copyBtn = new JButton("Copy All");
+        copyBtn.addActionListener(e -> {
+            java.awt.datatransfer.StringSelection sel =
+                    new java.awt.datatransfer.StringSelection(textArea.getText());
+            java.awt.Toolkit.getDefaultToolkit().getSystemClipboard().setContents(sel, sel);
+            copyBtn.setText("Copied!");
+            Timer reset = new Timer(1500, ev -> copyBtn.setText("Copy All"));
+            reset.setRepeats(false);
+            reset.start();
+        });
+        JButton closeBtn = new JButton("Close");
+
+        JPanel buttons = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 4));
+        buttons.add(new JLabel(logPath.toString()));
+        buttons.add(copyBtn);
+        buttons.add(closeBtn);
+
+        JDialog dlg = new JDialog(owner, "Error Log", false);
+        dlg.setLayout(new BorderLayout());
+        dlg.add(scroll, BorderLayout.CENTER);
+        dlg.add(buttons, BorderLayout.SOUTH);
+        dlg.pack();
+        dlg.setLocationRelativeTo(owner);
+        closeBtn.addActionListener(e -> dlg.dispose());
+        dlg.setVisible(true);
     }
 
     private void showUpdateResult(UpdateChecker.ReleaseInfo info) {
