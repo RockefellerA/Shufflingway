@@ -298,7 +298,13 @@ public class CardBrowser extends JDialog {
         if (text == null || text.isBlank()) {
             sorter.setRowFilter(null);
         } else {
-            String regex = "(?i)" + Pattern.quote(text.trim());
+            String[] parts = text.trim().split("%", -1);
+            StringBuilder sb = new StringBuilder("(?i)(?s)");
+            for (int i = 0; i < parts.length; i++) {
+                if (i > 0) sb.append(".*");
+                sb.append(Pattern.quote(parts[i]));
+            }
+            String regex = sb.toString();
             if (columnDropdownIndex == 0) {
                 sorter.setRowFilter(RowFilter.regexFilter(regex));
             } else {
