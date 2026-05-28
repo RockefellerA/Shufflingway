@@ -82,12 +82,16 @@ public final class CardFilters {
     /**
      * Returns {@code true} if the card's primary name or any of its "is also Card Name X"
      * aliases match {@code cardNameFilter} (case-insensitive), or if the filter is {@code null}.
+     * Pipe-separated values (e.g. {@code "Ovjang|Mnejing"}) are treated as OR.
      */
     public static boolean meetsCardNameFilter(CardData card, String cardNameFilter) {
         if (cardNameFilter == null) return true;
-        if (cardNameFilter.equalsIgnoreCase(card.name())) return true;
-        for (String alias : card.alsoCardNames())
-            if (cardNameFilter.equalsIgnoreCase(alias)) return true;
+        for (String name : cardNameFilter.split("\\|")) {
+            name = name.trim();
+            if (name.equalsIgnoreCase(card.name())) return true;
+            for (String alias : card.alsoCardNames())
+                if (name.equalsIgnoreCase(alias)) return true;
+        }
         return false;
     }
 

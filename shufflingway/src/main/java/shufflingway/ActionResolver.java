@@ -57,7 +57,7 @@ public class ActionResolver {
         "(?<targets>cards?|Forwards?(?:\\s+or\\s+Monsters?)?|Monsters?|Backups?|Characters?|Summons?" +
             "|\\[Job\\s+\\([^)]+\\)\\]" +
             "|\\[Card\\s+Name\\s+\\([^)]+\\)\\]" +
-            "|Card\\s+Name\\s+\\S+(?:\\s+\\([^)]+\\))?" +
+            "|Card\\s+Name\\s+\\S+(?:\\s+\\([^)]+\\))?(?:\\s+or\\s+Card\\s+Name\\s+\\S+(?:\\s+\\([^)]+\\))?)*" +
             "|Job\\s+.+?\\s+(?:and/)?or\\s+Card\\s+Name\\s+\\S+" +
             "|Job\\s+.+?\\s+Forwards?(?:\\s+or\\s+Job\\s+.+?\\s+Forwards?)*" +
             "|Job\\s+.+?(?=\\s+(?:of\\s+|other\\s+than|in\\s+your|from\\s+your)|[,.]))" +
@@ -2380,7 +2380,10 @@ public class ActionResolver {
             inclBackups    = true;
             inclMonsters   = true;
         } else if (tgtLower.startsWith("card name ")) {
-            cardNameFilter = targets.substring("Card Name ".length()).trim();
+            // Support "Card Name X" and "Card Name X or Card Name Y [or …]"
+            String rest = targets.substring("Card Name ".length());
+            String[] nameParts = rest.split("(?i)\\s+or\\s+Card\\s+Name\\s+");
+            cardNameFilter = String.join("|", nameParts).trim();
             jobFilter      = null;
             inclForwards   = true;
             inclBackups    = true;

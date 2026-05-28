@@ -117,8 +117,8 @@ public class ActionAbilityParsingTest {
             String desc = ActionResolver.fullDescription(ab.effectText(), source);
             boolean ok = ActionResolver.parse(ab.effectText(), source) != null;
             sb.append("  [").append(ok ? "OK" : "--").append("] ")
-              .append(ab.effectText()).append(dmgTag(ab.damageThreshold())).append(restrictionTags(ab)).append('\n');
-            sb.append("       ").append(desc != null ? desc : "(none)").append('\n');
+              .append(ab.effectText()).append(dmgTag(ab.damageThreshold())).append('\n');
+            sb.append("       ").append(desc != null ? desc : "(none)").append(restrictionTags(ab)).append('\n');
         }
         return sb.toString();
     }
