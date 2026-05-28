@@ -33,7 +33,6 @@ import javax.swing.ImageIcon;
 import javax.swing.JButton;
 import javax.swing.JComboBox;
 import javax.swing.JComponent;
-import javax.swing.JDialog;
 import javax.swing.JFrame;
 import javax.swing.JLabel;
 import javax.swing.JList;
@@ -222,10 +221,10 @@ public class DeckManager extends JFrame {
         JButton copyBtn   = new JButton("Copy");
         JButton deleteBtn = new JButton("Delete");
 
-        newBtn.addActionListener(e    -> onNewDeck());
-        renameBtn.addActionListener(e -> onRenameDeck());
-        copyBtn.addActionListener(e   -> onCopyDeck());
-        deleteBtn.addActionListener(e -> onDeleteDeck());
+        newBtn.addActionListener(_    -> onNewDeck());
+        renameBtn.addActionListener(_ -> onRenameDeck());
+        copyBtn.addActionListener(_   -> onCopyDeck());
+        deleteBtn.addActionListener(_ -> onDeleteDeck());
 
         JButton importBtn = new JButton("Import");
         JButton exportBtn = new JButton("Export");
