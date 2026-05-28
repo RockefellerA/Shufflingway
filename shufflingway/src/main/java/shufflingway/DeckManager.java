@@ -38,7 +38,6 @@ import javax.swing.ImageIcon;
 import javax.swing.JButton;
 import javax.swing.JComboBox;
 import javax.swing.JComponent;
-import javax.swing.JDialog;
 import javax.swing.JFrame;
 import javax.swing.JLabel;
 import javax.swing.JList;
@@ -67,7 +66,7 @@ import org.json.JSONObject;
 import scraper.DeckDatabase;
 import scraper.DeckDatabase.DeckEntry;
 
-public class DeckManager extends JDialog {
+public class DeckManager extends JFrame {
 
     private static final String[] BROWSER_COLUMNS = {
         "Serial", "Name", "Type", "Element", "Cost", "Power", "Rarity", "Job", "Category 1", "Category 2", "Card Text"
@@ -96,6 +95,10 @@ public class DeckManager extends JDialog {
     private JTable deckTable;
 
     private final JLabel countLabel;
+    private final JLabel forwardLabel;
+    private final JLabel backupLabel;
+    private final JLabel summonLabel;
+    private final JLabel monsterLabel;
     private final JLabel cardImageLabel;
 
     private static final Color LB_BG = new Color(50, 50, 50);
@@ -138,7 +141,7 @@ public class DeckManager extends JDialog {
     private JLabel formatS, formatL3, formatL6, formatT;
 
     public DeckManager(JFrame parent) {
-        super(parent, "Deck Manager", true);
+        super("Deck Manager");
         setSize(1600, 800);
         setLocationRelativeTo(parent);
         setLayout(new BorderLayout(4, 4));
@@ -156,6 +159,21 @@ public class DeckManager extends JDialog {
         cardImageLabel = new JLabel("Select a card to preview", SwingConstants.CENTER);
         cardImageLabel.setPreferredSize(new Dimension(PREVIEW_W, PREVIEW_H));
         cardImageLabel.setBorder(BorderFactory.createEtchedBorder());
+
+        forwardLabel = new JLabel("0 Forward(s)", SwingConstants.RIGHT);
+        backupLabel = new JLabel("0 Backup(s)", SwingConstants.RIGHT);
+        summonLabel = new JLabel("0 Summon(s)", SwingConstants.RIGHT);
+        monsterLabel = new JLabel("0 Monster(s)", SwingConstants.RIGHT);
+
+        forwardLabel.setName("Forward(s)");
+        backupLabel.setName("Backup(s)");
+        summonLabel.setName("Summon(s)");
+        monsterLabel.setName("Monster(s)");
+
+        forwardLabel.setBorder(BorderFactory.createEmptyBorder(4, 0, 4, 8));
+        backupLabel.setBorder(BorderFactory.createEmptyBorder(4, 0, 4, 8));
+        summonLabel.setBorder(BorderFactory.createEmptyBorder(4, 0, 4, 8));
+        monsterLabel.setBorder(BorderFactory.createEmptyBorder(4, 0, 4, 8));
 
         JPanel imagePanel = new JPanel(new BorderLayout());
         imagePanel.setPreferredSize(new Dimension(PREVIEW_W + 10, PREVIEW_H));
@@ -478,11 +496,18 @@ public class DeckManager extends JDialog {
         btnPanel.add(removePanel, BorderLayout.WEST);
         btnPanel.add(formatPanel, BorderLayout.EAST);
 
+        JPanel btnLabelsPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
+        btnLabelsPanel.add(forwardLabel);
+        btnLabelsPanel.add(backupLabel);
+        btnLabelsPanel.add(summonLabel);
+        btnLabelsPanel.add(monsterLabel);
+        btnLabelsPanel.add(countLabel);
+
         JPanel panel = new JPanel(new BorderLayout());
         panel.setBorder(BorderFactory.createTitledBorder("Deck Contents"));
         panel.add(btnPanel,                   BorderLayout.NORTH);
         panel.add(new JScrollPane(deckTable), BorderLayout.CENTER);
-        panel.add(countLabel,                 BorderLayout.SOUTH);
+        panel.add(btnLabelsPanel,             BorderLayout.SOUTH);
         return panel;
     }
 
@@ -599,6 +624,7 @@ public class DeckManager extends JDialog {
 
     private void loadDeckCards(int deckId) {
         deckModel.setRowCount(0);
+        int forward = 0, backup = 0, summon = 0, monster = 0;
         try {
             List<Object[]> rows = db.getDeckCards(deckId);
             rows.sort((a, b) -> {
@@ -611,9 +637,29 @@ public class DeckManager extends JDialog {
             for (Object[] row : rows) {
                 deckModel.addRow(row);
                 int qty = (Integer) row[0];
-                if (lbSerials.contains((String) row[1])) lbTotal += qty;
-                else                                       mainTotal += qty;
+                if (lbSerials.contains((String) row[1])) {
+                    lbTotal += qty;
+                    continue;
+                }
+                else
+                    mainTotal += qty;
+
+                switch((String) row[3]){
+                    case "Forward":
+                        forward += qty;
+                        break;
+                    case "Backup":
+                        backup += qty;
+                        break;
+                    case "Summon":
+                        summon += qty;
+                        break;
+                    case "Monster":
+                        monster += qty;
+                        break;
+                }
             }
+            updateBreakdownLabels(forward, backup, summon, monster);
             updateCountLabel(mainTotal, lbTotal);
         } catch (SQLException e) {
             JOptionPane.showMessageDialog(this, "Error loading deck:\n" + e.getMessage(),
@@ -621,6 +667,13 @@ public class DeckManager extends JDialog {
         }
         refreshAddMaxBtn();
         refreshFormatLegality();
+    }
+
+    private void updateBreakdownLabels(int forward, int backup, int summon, int monster) {
+        forwardLabel.setText(forward + " " + forwardLabel.getName());
+        backupLabel.setText(backup + " " + backupLabel.getName());
+        summonLabel.setText(summon + " " + summonLabel.getName());
+        monsterLabel.setText(monster + " " + monsterLabel.getName());
     }
 
     private void updateCountLabel(int mainTotal, int lbTotal) {
