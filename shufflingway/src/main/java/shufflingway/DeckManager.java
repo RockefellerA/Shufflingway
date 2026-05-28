@@ -152,10 +152,10 @@ public class DeckManager extends JFrame {
         cardImageLabel.setPreferredSize(new Dimension(PREVIEW_W, PREVIEW_H));
         cardImageLabel.setBorder(BorderFactory.createEtchedBorder());
 
-        forwardLabel = new JLabel("0 Forwards", SwingConstants.RIGHT);
-        backupLabel = new JLabel("0 Backups", SwingConstants.RIGHT);
-        summonLabel = new JLabel("0 Summons", SwingConstants.RIGHT);
-        monsterLabel = new JLabel("0 Monsters", SwingConstants.RIGHT);
+        forwardLabel = new JLabel("0 Forward(s)", SwingConstants.RIGHT);
+        backupLabel = new JLabel("0 Backup(s)", SwingConstants.RIGHT);
+        summonLabel = new JLabel("0 Summon(s)", SwingConstants.RIGHT);
+        monsterLabel = new JLabel("0 Monster(s)", SwingConstants.RIGHT);
 
         forwardLabel.setName("Forward(s)");
         backupLabel.setName("Backup(s)");
