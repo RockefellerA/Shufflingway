@@ -888,7 +888,7 @@ public interface GameContext {
      */
     void applyMassFieldPowerBoost(int amount, boolean inclForwards, boolean inclMonsters,
             boolean opponentOnly, boolean selfOnly,
-            String element, int costVal, String costCmp);
+            String element, int costVal, String costCmp, String category);
 
     /**
      * Returns all {@link FieldAbility} instances currently active — that is, belonging to

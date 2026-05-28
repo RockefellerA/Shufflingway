@@ -54,7 +54,7 @@ public class ActionResolver {
         "(?:(?<condition>dull|damaged|attacking|blocking|active)\\s+)?" +
         "(?:(?<element>Multi-Element|Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)\\s+)?" +
         "(?:Category\\s+(?<category>.+?)(?=\\s+(?:cards?|Forwards?|Backups?|Characters?|Monsters?|Summons?))\\s+)?" +
-        "(?<targets>cards?|Forwards?(?:\\s+or\\s+Monsters?)?|Monsters?|Backups?|Characters?|Summons?" +
+        "(?<targets>cards?|Forwards?(?:\\s+or\\s+(?:Monsters?|Backups?))?|Monsters?|Backups?|Characters?|Summons?" +
             "|\\[Job\\s+\\([^)]+\\)\\]" +
             "|\\[Card\\s+Name\\s+\\([^)]+\\)\\]" +
             "|Card\\s+Name\\s+\\S+(?:\\s+\\([^)]+\\))?(?:\\s+or\\s+Card\\s+Name\\s+\\S+(?:\\s+\\([^)]+\\))?)*" +
@@ -777,6 +777,9 @@ public class ActionResolver {
             // Category filter: lookahead keeps the type in the targets group
             "Category\\s+(?<category>.+?)\\s+(?=Forwards?|Backups?|Monsters?|Characters?)" +
         "|" +
+            // Written job OR card name: "Job X or Card Name Y" (no explicit type required)
+            "Job\\s+(?<jobnmor>.+?)\\s+or\\s+Card\\s+Name\\s+(?<cnameor>\\S+(?:\\s+\\([^)]+\\))?)" +
+        "|" +
             // Written job: lookahead keeps the type in the targets group
             "Job\\s+(?<jobnm>.+?)\\s+(?=Forwards?|Backups?|Monsters?|Characters?)" +
         ")?" +
@@ -1173,6 +1176,7 @@ public class ActionResolver {
     private static final Pattern ALL_FIELD_POWER_BOOST_PATTERN = Pattern.compile(
         "(?i)All\\s+(?:the\\s+)?" +
         "(?:(?<element>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)\\s+)?" +
+        "(?:Category\\s+(?<category>\\S+)\\s+)?" +
         "(?<targets>Forwards?(?:\\s+and\\s+Monsters?)?|Backups?|Characters?)" +
         "(?:\\s+of\\s+cost\\s+(?<cost>\\d+)(?:\\s+or\\s+(?<costcmp>less|more))?)?" +
         "(?:\\s+(?<control>(?:your\\s+)?opponent\\s+controls?|you\\s+control))?" +
@@ -1894,6 +1898,8 @@ public class ActionResolver {
             String followupName  = matchedFollowupName(primaryPart, source);
             String secondaryDesc = (secondaryTxt != null && !secondaryTxt.isEmpty())
                     ? fullDescription(secondaryTxt, source) : null;
+            if (secondaryDesc == null && secondaryTxt != null && !secondaryTxt.isEmpty())
+                secondaryDesc = matchedFollowupName(secondaryTxt, source);
             StringBuilder sb = new StringBuilder("ChooseCharacter / ")
                     .append(followupName != null ? followupName : "?");
             if (secondaryDesc != null) sb.append(" + ").append(secondaryDesc);
@@ -4129,6 +4135,7 @@ public class ActionResolver {
         if (!m.find()) return null;
 
         String element  = m.group("element");
+        String category = m.group("category");
         String targets  = m.group("targets");
         String tgtLower = targets.toLowerCase();
         boolean inclForwards = tgtLower.contains("forward") || tgtLower.contains("character");
@@ -4146,16 +4153,17 @@ public class ActionResolver {
         int amount = Integer.parseInt(m.group("amount")) * (isLose ? -1 : 1);
 
         String elemLabel    = element != null ? element + " " : "";
+        String catLabel     = category != null ? "Category " + category + " " : "";
         String costLabel    = costVal >= 0 ? " of cost " + costVal + (costCmp != null ? " or " + costCmp : "") : "";
         String controlLabel = opponentOnly ? " (opponent)" : selfOnly ? " (yours)" : "";
         String change       = isLose ? "-" + Math.abs(amount) : "+" + amount;
-        String logMsg = "All " + elemLabel + targets + costLabel + controlLabel
+        String logMsg = "All " + elemLabel + catLabel + targets + costLabel + controlLabel
                 + " " + change + " power until end of turn";
 
         return ctx -> {
             ctx.logEntry("Effect: " + logMsg);
             ctx.applyMassFieldPowerBoost(amount, inclForwards, inclMonsters,
-                    opponentOnly, selfOnly, element, costVal, costCmp);
+                    opponentOnly, selfOnly, element, costVal, costCmp, category);
         };
     }
 
@@ -4258,8 +4266,13 @@ public class ActionResolver {
 
         String writtenCardName = m.group("cardname");
         String writtenJob      = m.group("jobnm");
+        String writtenJobOr    = m.group("jobnmor");
+        String writtenCnameOr  = m.group("cnameor");
         if (writtenCardName != null) {
             cardNameFilter = writtenCardName.trim();
+        } else if (writtenJobOr != null) {
+            jobFilter      = writtenJobOr.trim();
+            cardNameFilter = writtenCnameOr != null ? writtenCnameOr.trim() : null;
         } else if (writtenJob != null) {
             jobFilter = writtenJob.trim();
         } else {

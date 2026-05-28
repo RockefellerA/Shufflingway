@@ -9383,8 +9383,7 @@ public class MainWindow {
 			@Override
 			public void applyMassFieldPowerBoost(int amount, boolean inclForwards, boolean inclMonsters,
 					boolean opponentOnly, boolean selfOnly,
-					String element, int costVal, String costCmp) {
-				java.util.EnumSet<CardData.Trait> noTraits = java.util.EnumSet.noneOf(CardData.Trait.class);
+					String element, int costVal, String costCmp, String category) {
 				boolean touchP1 = isP1 ? !opponentOnly : !selfOnly;
 				boolean touchP2 = isP1 ? !selfOnly     : !opponentOnly;
 				if (touchP1) {
@@ -9393,6 +9392,7 @@ public class MainWindow {
 							CardData c = p1Forward(i);
 							if (element != null && !c.containsElement(element)) continue;
 							if (!meetsCostConstraint(c.cost(), costVal, costCmp)) continue;
+							if (!CardFilters.meetsCategoryFilter(c, category)) continue;
 							p1ForwardPowerBoost.set(i, p1ForwardPowerBoost.get(i) + amount);
 							logEntry(c.name() + " gains +" + amount + " power until end of turn");
 							refreshP1ForwardSlot(i);
@@ -9403,6 +9403,7 @@ public class MainWindow {
 							CardData c = p1MonsterCards.get(i);
 							if (element != null && !c.containsElement(element)) continue;
 							if (!meetsCostConstraint(c.cost(), costVal, costCmp)) continue;
+							if (!CardFilters.meetsCategoryFilter(c, category)) continue;
 							logEntry(c.name() + " gains +" + amount + " power until end of turn");
 						}
 					}
@@ -9413,6 +9414,7 @@ public class MainWindow {
 							CardData c = p2ForwardCards.get(i);
 							if (element != null && !c.containsElement(element)) continue;
 							if (!meetsCostConstraint(c.cost(), costVal, costCmp)) continue;
+							if (!CardFilters.meetsCategoryFilter(c, category)) continue;
 							p2ForwardPowerBoost.set(i, p2ForwardPowerBoost.get(i) + amount);
 							logEntry("[P2] " + c.name() + " gains +" + amount + " power until end of turn");
 							refreshP2ForwardSlot(i);
@@ -9423,6 +9425,7 @@ public class MainWindow {
 							CardData c = p2MonsterCards.get(i);
 							if (element != null && !c.containsElement(element)) continue;
 							if (!meetsCostConstraint(c.cost(), costVal, costCmp)) continue;
+							if (!CardFilters.meetsCategoryFilter(c, category)) continue;
 							logEntry("[P2] " + c.name() + " gains +" + amount + " power until end of turn");
 						}
 					}
