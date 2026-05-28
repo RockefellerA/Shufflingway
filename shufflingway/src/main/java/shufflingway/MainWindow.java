@@ -10630,8 +10630,12 @@ public class MainWindow {
 		lbl.addMouseListener(new MouseAdapter() {
 			@Override public void mousePressed(MouseEvent e) {
 				if (lbl.getIcon() == null) return;
-				if (SwingUtilities.isLeftMouseButton(e)) handleP1MonsterLeftClick(idx);
-				else showMonsterContextMenu(idx, lbl, e);
+				if (SwingUtilities.isLeftMouseButton(e)
+						&& gameState.getCurrentPhase() == GameState.GamePhase.ATTACK) {
+					handleP1MonsterLeftClick(idx);
+				} else {
+					showMonsterContextMenu(idx, lbl, e);
+				}
 			}
 			@Override public void mouseEntered(MouseEvent e) {
 				if (lbl.getIcon() != null) showZoomAt(p1MonsterUrls.get(idx));
