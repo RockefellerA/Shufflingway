@@ -189,6 +189,12 @@ public class MainWindow {
 	/** Forwards restricted from blocking until the end of their owner's turn (survives one end-phase). */
 	private final Set<Integer> p1ForwardCannotBlockPersistent  = new HashSet<>();
 	private final Set<Integer> p2ForwardCannotBlockPersistent  = new HashSet<>();
+	/** Forwards that cannot be blocked this turn (attacker-side unblockability). */
+	private final Set<Integer>          p1ForwardCannotBeBlocked       = new HashSet<>();
+	private final Set<Integer>          p2ForwardCannotBeBlocked       = new HashSet<>();
+	/** Forwards that cannot be blocked by Forwards whose cost matches the filter {costVal, 1=isMore/0=isLess}. */
+	private final Map<Integer, int[]>   p1ForwardCannotBeBlockedByCost = new HashMap<>();
+	private final Map<Integer, int[]>   p2ForwardCannotBeBlockedByCost = new HashMap<>();
 	private final boolean[]       p1BackupFrozen       = new boolean[5];
 	private final boolean[]       p2BackupFrozen       = new boolean[5];
 	private final List<Boolean>   p1MonsterFrozen      = new ArrayList<>();
@@ -343,6 +349,8 @@ public class MainWindow {
 	private final java.util.IdentityHashMap<CardData, String> stolenForwards = new java.util.IdentityHashMap<>();
 	/** Distinct element types used to pay the most recent card's CP cost; checked by castPaymentMinElements conditions. */
 	private int lastCastPaymentDistinctElements = 0;
+	/** Specific element types used to pay the most recent card's CP cost; checked by castPaymentElement conditions. */
+	private final java.util.Set<String> lastCastPaymentElements = new java.util.HashSet<>();
 	/** True if the most recently cast card was paid entirely by dulling Backups (no hand discards). */
 	private boolean lastCastWasPaidByBackupsOnly = false;
 	/** True while a card is being placed as a direct result of being cast from hand; gates castOnly field abilities. */
@@ -1473,6 +1481,8 @@ public class MainWindow {
                             for (int i = 0; i < p2ForwardPowerReduction.size(); i++) p2ForwardPowerReduction.set(i, 0);
                             p2ForwardTempTraits.forEach(java.util.EnumSet::clear);
                             p2ForwardRemovedTraits.forEach(java.util.EnumSet::clear);
+                            p1ForwardCannotBeBlocked.clear();       p2ForwardCannotBeBlocked.clear();
+                            p1ForwardCannotBeBlockedByCost.clear(); p2ForwardCannotBeBlockedByCost.clear();
                             p1ForwardCannotBlock.clear();           p2ForwardCannotBlock.clear();
                             p1ForwardMustBlock.clear();             p2ForwardMustBlock.clear();
                             p1ForwardCannotAttack.clear();          p2ForwardCannotAttack.clear();
@@ -2135,6 +2145,17 @@ public class MainWindow {
 		set.addAll(updated);
 	}
 
+	private static void shiftBlockMap(Map<Integer, int[]> map, int removedIdx) {
+		Map<Integer, int[]> updated = new HashMap<>();
+		for (Map.Entry<Integer, int[]> e : map.entrySet()) {
+			int i = e.getKey();
+			if      (i < removedIdx) updated.put(i,     e.getValue());
+			else if (i > removedIdx) updated.put(i - 1, e.getValue());
+		}
+		map.clear();
+		map.putAll(updated);
+	}
+
 	private void breakP1Forward(int idx) {
 		if (idx < 0 || idx >= p1ForwardCards.size()) return;
 		startBreakAnim(p1ForwardLabels.get(idx));
@@ -2173,6 +2194,8 @@ public class MainWindow {
 		shiftBlockSet(p1ForwardMustAttack,               idx);
 		shiftBlockSet(p1ForwardCannotAttackPersistent,   idx);
 		shiftBlockSet(p1ForwardCannotBlockPersistent,    idx);
+		shiftBlockSet(p1ForwardCannotBeBlocked,          idx);
+		shiftBlockMap(p1ForwardCannotBeBlockedByCost,    idx);
 
 		if (p1ForwardPanel != null) {
 			p1ForwardPanel.removeAll();
@@ -2247,6 +2270,8 @@ public class MainWindow {
 		shiftBlockSet(p2ForwardMustAttack,               idx);
 		shiftBlockSet(p2ForwardCannotAttackPersistent,   idx);
 		shiftBlockSet(p2ForwardCannotBlockPersistent,    idx);
+		shiftBlockSet(p2ForwardCannotBeBlocked,          idx);
+		shiftBlockMap(p2ForwardCannotBeBlockedByCost,    idx);
 
 		if (p2ForwardPanel != null) {
 			p2ForwardPanel.removeAll();
@@ -2391,6 +2416,8 @@ public class MainWindow {
 		shiftBlockSet(p2ForwardMustAttack,             p2Idx);
 		shiftBlockSet(p2ForwardCannotAttackPersistent, p2Idx);
 		shiftBlockSet(p2ForwardCannotBlockPersistent,  p2Idx);
+		shiftBlockSet(p2ForwardCannotBeBlocked,        p2Idx);
+		shiftBlockMap(p2ForwardCannotBeBlockedByCost,  p2Idx);
 		rebuildP2ForwardPanel();
 
 		// Add to P1 with preserved damage; state forced ACTIVE if requested
@@ -2498,6 +2525,8 @@ public class MainWindow {
 		shiftBlockSet(p1ForwardMustAttack,             p1Idx);
 		shiftBlockSet(p1ForwardCannotAttackPersistent, p1Idx);
 		shiftBlockSet(p1ForwardCannotBlockPersistent,  p1Idx);
+		shiftBlockSet(p1ForwardCannotBeBlocked,        p1Idx);
+		shiftBlockMap(p1ForwardCannotBeBlockedByCost,  p1Idx);
 
 		// Rebuild P1 panel
 		if (p1ForwardPanel != null) {
@@ -2598,6 +2627,8 @@ public class MainWindow {
 		shiftBlockSet(p1ForwardMustAttack,             idx);
 		shiftBlockSet(p1ForwardCannotAttackPersistent, idx);
 		shiftBlockSet(p1ForwardCannotBlockPersistent,  idx);
+		shiftBlockSet(p1ForwardCannotBeBlocked,        idx);
+		shiftBlockMap(p1ForwardCannotBeBlockedByCost,  idx);
 
 		if (p1ForwardPanel != null) {
 			p1ForwardPanel.removeAll();
@@ -2664,6 +2695,8 @@ public class MainWindow {
 		shiftBlockSet(p2ForwardMustAttack,             idx);
 		shiftBlockSet(p2ForwardCannotAttackPersistent, idx);
 		shiftBlockSet(p2ForwardCannotBlockPersistent,  idx);
+		shiftBlockSet(p2ForwardCannotBeBlocked,        idx);
+		shiftBlockMap(p2ForwardCannotBeBlockedByCost,  idx);
 
 		if (p2ForwardPanel != null) {
 			p2ForwardPanel.removeAll();
@@ -2727,6 +2760,8 @@ public class MainWindow {
 		shiftBlockSet(p1ForwardMustAttack,             idx);
 		shiftBlockSet(p1ForwardCannotAttackPersistent, idx);
 		shiftBlockSet(p1ForwardCannotBlockPersistent,  idx);
+		shiftBlockSet(p1ForwardCannotBeBlocked,        idx);
+		shiftBlockMap(p1ForwardCannotBeBlockedByCost,  idx);
 
 		if (p1ForwardPanel != null) {
 			p1ForwardPanel.removeAll();
@@ -2795,6 +2830,8 @@ public class MainWindow {
 		shiftBlockSet(p2ForwardMustAttack,             idx);
 		shiftBlockSet(p2ForwardCannotAttackPersistent, idx);
 		shiftBlockSet(p2ForwardCannotBlockPersistent,  idx);
+		shiftBlockSet(p2ForwardCannotBeBlocked,        idx);
+		shiftBlockMap(p2ForwardCannotBeBlockedByCost,  idx);
 
 		if (p2ForwardPanel != null) {
 			p2ForwardPanel.removeAll();
@@ -3018,6 +3055,8 @@ public class MainWindow {
 		shiftBlockSet(p1ForwardMustAttack,             idx);
 		shiftBlockSet(p1ForwardCannotAttackPersistent, idx);
 		shiftBlockSet(p1ForwardCannotBlockPersistent,  idx);
+		shiftBlockSet(p1ForwardCannotBeBlocked,        idx);
+		shiftBlockMap(p1ForwardCannotBeBlockedByCost,  idx);
 
 		if (p1ForwardPanel != null) {
 			p1ForwardPanel.removeAll();
@@ -3084,6 +3123,8 @@ public class MainWindow {
 		shiftBlockSet(p2ForwardMustAttack,             idx);
 		shiftBlockSet(p2ForwardCannotAttackPersistent, idx);
 		shiftBlockSet(p2ForwardCannotBlockPersistent,  idx);
+		shiftBlockSet(p2ForwardCannotBeBlocked,        idx);
+		shiftBlockMap(p2ForwardCannotBeBlockedByCost,  idx);
 
 		if (p2ForwardPanel != null) {
 			p2ForwardPanel.removeAll();
@@ -3305,7 +3346,11 @@ public class MainWindow {
 	 * or -1 if P2 declines to block.
 	 * Strategy: block with the highest-power active forward that can survive (power >= attacker) or trade evenly.
 	 */
-	private int p2ChooseBlocker(int effectiveAttackerPower) {
+	private int p2ChooseBlocker(int effectiveAttackerPower, int attackerIdx) {
+		// If the P1 attacker cannot be blocked at all, no blocker is possible
+		if (p1ForwardCannotBeBlocked.contains(attackerIdx)) return -1;
+		int[] costFilter = p1ForwardCannotBeBlockedByCost.get(attackerIdx);
+
 		// Honour must-block forwards first: if any eligible must-block forward exists, the AI
 		// must use one of them (preferring one that can survive the attack).
 		if (!p2ForwardMustBlock.isEmpty()) {
@@ -3313,6 +3358,7 @@ public class MainWindow {
 			for (int i = 0; i < p2ForwardStates.size(); i++) {
 				if (!p2ForwardMustBlock.contains(i))   continue;
 				if (p2ForwardCannotBlock.contains(i) || p2ForwardCannotBlockPersistent.contains(i)) continue;
+				if (costFilter != null && blockerCostExcluded(p2ForwardCards.get(i).cost(), costFilter)) continue;
 				if (p2ForwardStates.get(i) != CardState.ACTIVE) continue;
 				int effPow = effectiveP2ForwardPower(i);
 				// Prefer a blocker that can survive; among those, the weakest (to preserve stronger ones)
@@ -3328,6 +3374,7 @@ public class MainWindow {
 		int bestIdx = -1, bestPower = -1;
 		for (int i = 0; i < p2ForwardStates.size(); i++) {
 			if (p2ForwardCannotBlock.contains(i) || p2ForwardCannotBlockPersistent.contains(i)) continue;
+			if (costFilter != null && blockerCostExcluded(p2ForwardCards.get(i).cost(), costFilter)) continue;
 			if (p2ForwardStates.get(i) != CardState.ACTIVE) continue;
 			int effPow = effectiveP2ForwardPower(i);
 			if (effPow >= effectiveAttackerPower && effPow > bestPower) {
@@ -3338,9 +3385,13 @@ public class MainWindow {
 		return bestIdx;
 	}
 
+	private static boolean blockerCostExcluded(int blockerCost, int[] costFilter) {
+		return costFilter[1] == 1 ? blockerCost >= costFilter[0] : blockerCost <= costFilter[0];
+	}
+
 	/** Called after P1 attacks: gives P2 AI a chance to declare a blocker. */
 	private void p2OfferBlock(CardData attacker, int attackerIdx) {
-		int blockerIdx = p2ChooseBlocker(effectiveP1ForwardPower(attackerIdx));
+		int blockerIdx = p2ChooseBlocker(effectiveP1ForwardPower(attackerIdx), attackerIdx);
 		if (blockerIdx >= 0) {
 			CardData blocker = p2ForwardCards.get(blockerIdx);
 			logEntry("[P2] " + blocker.name() + " blocks!");
@@ -5071,6 +5122,8 @@ public class MainWindow {
 		// Record distinct element types used for payment (checked by castPaymentMinElements field abilities)
 		lastCastPaymentDistinctElements = (int) execCpAccum.keySet().stream()
 				.filter(e -> !e.isEmpty()).distinct().count();
+		lastCastPaymentElements.clear();
+		execCpAccum.keySet().stream().filter(e -> !e.isEmpty()).forEach(lastCastPaymentElements::add);
 		lastCastWasPaidByBackupsOnly = discardIndices.isEmpty() && !backupDullIndices.isEmpty();
 		gameState.removeFromHand(cardHandIdx);
 		activeCostReductions.removeIf(m -> m.matches(card));
@@ -8095,6 +8148,24 @@ public class MainWindow {
 			@Override public void setP2ForwardCannotBlock(int idx) {
 				if (idx >= 0 && idx < p2ForwardCards.size()) p2ForwardCannotBlock.add(idx);
 			}
+			@Override public void setP1ForwardCannotBeBlocked(int idx) {
+				if (idx >= 0 && idx < p1ForwardCards.size()) p1ForwardCannotBeBlocked.add(idx);
+			}
+			@Override public void setP2ForwardCannotBeBlocked(int idx) {
+				if (idx >= 0 && idx < p2ForwardCards.size()) p2ForwardCannotBeBlocked.add(idx);
+			}
+			@Override public void setP1ForwardCannotBeBlockedByCost(int idx, int costVal, boolean isMore) {
+				if (idx >= 0 && idx < p1ForwardCards.size())
+					p1ForwardCannotBeBlockedByCost.put(idx, new int[]{costVal, isMore ? 1 : 0});
+			}
+			@Override public void setP2ForwardCannotBeBlockedByCost(int idx, int costVal, boolean isMore) {
+				if (idx >= 0 && idx < p2ForwardCards.size())
+					p2ForwardCannotBeBlockedByCost.put(idx, new int[]{costVal, isMore ? 1 : 0});
+			}
+			@Override public boolean wasElementCpPaid(String element) {
+				return element != null && lastCastPaymentElements.stream()
+						.anyMatch(e -> e.equalsIgnoreCase(element));
+			}
 			@Override public void setP1ForwardMustBlock(int idx) {
 				if (idx >= 0 && idx < p1ForwardCards.size()) p1ForwardMustBlock.add(idx);
 			}
@@ -10777,6 +10848,10 @@ public class MainWindow {
 		if (s != CardState.ACTIVE && s != CardState.BRAVE_ATTACKED) return false;
 		if (p1ForwardCannotBlock.contains(idx)) return false;
 		if (p1ForwardCannotBlockPersistent.contains(idx)) return false;
+		// Check attacker-side unblockability
+		if (p2ForwardCannotBeBlocked.contains(pendingP2AttackerIdx)) return false;
+		int[] costFilter = p2ForwardCannotBeBlockedByCost.get(pendingP2AttackerIdx);
+		if (costFilter != null && blockerCostExcluded(p1ForwardCards.get(idx).cost(), costFilter)) return false;
 		// If any forward must block, restrict choices to those
 		if (!p1ForwardMustBlock.isEmpty() && !p1ForwardMustBlock.contains(idx)) return false;
 		return true;
@@ -11119,7 +11194,7 @@ public class MainWindow {
 
 		logEntry(attacker.name() + " attacks! (Forward — " + attackerPower + ")");
 		combatPriority("Attacker Declared", true, () -> {
-			int blockerIdx = p2ChooseBlocker(attackerPower);
+			int blockerIdx = p2ChooseBlocker(attackerPower, -1);
 			if (blockerIdx >= 0) {
 				CardData blocker = p2ForwardCards.get(blockerIdx);
 				logEntry("[P2] " + blocker.name() + " blocks!");
@@ -11260,7 +11335,7 @@ public class MainWindow {
 			logEntry(attacker.name() + " attacks!");
 			// Priority window after attacker declared (P1 attacks → P1 priority first)
 			combatPriority("Attacker Declared", true, () -> {
-				int blockerIdx = p2ChooseBlocker(effectiveP1ForwardPower(idx));
+				int blockerIdx = p2ChooseBlocker(effectiveP1ForwardPower(idx), idx);
 				if (blockerIdx >= 0) {
 					CardData blocker = p2ForwardCards.get(blockerIdx);
 					logEntry("[P2] " + blocker.name() + " blocks!");
@@ -12533,6 +12608,8 @@ public class MainWindow {
 			p1ForwardTempTraits.forEach(java.util.EnumSet::clear);
 			p1ForwardRemovedTraits.forEach(java.util.EnumSet::clear);
 			for (int i = 0; i < p1ForwardCards.size(); i++) refreshP1ForwardSlot(i);
+			p1ForwardCannotBeBlocked.clear();       p2ForwardCannotBeBlocked.clear();
+			p1ForwardCannotBeBlockedByCost.clear(); p2ForwardCannotBeBlockedByCost.clear();
 			p1ForwardCannotBlock.clear();           p2ForwardCannotBlock.clear();
 			p1ForwardMustBlock.clear();             p2ForwardMustBlock.clear();
 			p1ForwardCannotAttack.clear();          p2ForwardCannotAttack.clear();

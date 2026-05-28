@@ -681,6 +681,21 @@ public interface GameContext {
     /** Prevents P2's forward at {@code idx} from being chosen as a blocker this turn. */
     void setP2ForwardCannotBlock(int idx);
 
+    /** Marks P1's forward at {@code idx} as unable to be blocked this turn. */
+    void setP1ForwardCannotBeBlocked(int idx);
+
+    /** Marks P2's forward at {@code idx} as unable to be blocked this turn. */
+    void setP2ForwardCannotBeBlocked(int idx);
+
+    /** Marks P1's forward at {@code idx} as unable to be blocked by Forwards whose cost matches the filter. */
+    void setP1ForwardCannotBeBlockedByCost(int idx, int costVal, boolean isMore);
+
+    /** Marks P2's forward at {@code idx} as unable to be blocked by Forwards whose cost matches the filter. */
+    void setP2ForwardCannotBeBlockedByCost(int idx, int costVal, boolean isMore);
+
+    /** Returns {@code true} if the specific element CP was included in the payment for the most recently cast card. */
+    boolean wasElementCpPaid(String element);
+
     /** Requires P1's forward at {@code idx} to block this turn if it is eligible to do so. */
     void setP1ForwardMustBlock(int idx);
 

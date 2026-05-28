@@ -282,6 +282,29 @@ public class ActionResolver {
         "(?i)it\\s+cannot\\s+block\\s+this\\s+turn\\.?"
     );
 
+    /**
+     * Matches "It cannot be blocked [by a Forward of cost N or more/less] this turn."
+     * Groups: {@code costval} (optional), {@code costcmp} (optional: "more" or "less")
+     */
+    private static final Pattern FOLLOWUP_CANNOT_BE_BLOCKED = Pattern.compile(
+        "(?i)it\\s+cannot\\s+be\\s+blocked" +
+        "(?:\\s+by\\s+a\\s+Forward\\s+of\\s+cost\\s+(?<costval>\\d+)(?:\\s+or\\s+(?<costcmp>less|more))?)?" +
+        "\\s+this\\s+turn\\.?"
+    );
+
+    /**
+     * Matches "If the cost paid to play [name] included [element] CP, it cannot be blocked
+     * [by a Forward of cost N or more/less] this turn."
+     * Groups: {@code element}, optional {@code costval}/{@code costcmp}
+     */
+    private static final Pattern FOLLOWUP_CANNOT_BE_BLOCKED_IF_ELEMENT_CP = Pattern.compile(
+        "(?i)if\\s+the\\s+cost\\s+paid\\s+to\\s+play\\s+.+?\\s+included\\s+" +
+        "(?<element>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)\\s+CP,?\\s+" +
+        "it\\s+cannot\\s+be\\s+blocked" +
+        "(?:\\s+by\\s+a\\s+Forward\\s+of\\s+cost\\s+(?<costval>\\d+)(?:\\s+or\\s+(?<costcmp>less|more))?)?" +
+        "\\s+this\\s+turn\\.?"
+    );
+
     /** Matches "if possible, it must block this turn" or the gains-until-EOT equivalent. */
     private static final Pattern FOLLOWUP_MUST_BLOCK = Pattern.compile(
         "(?i)(?:" +
@@ -1834,6 +1857,8 @@ public class ActionResolver {
         if (FOLLOWUP_PUT_TOP_OF_DECK.matcher(followupText).find())                    return "PutTopOfDeck";
         if (FOLLOWUP_PUT_UNDER_TOP_OF_DECK.matcher(followupText).find())              return "PutUnderTopOfDeck";
         if (FOLLOWUP_CANNOT_BLOCK.matcher(followupText).find())                       return "CannotBlock";
+        if (FOLLOWUP_CANNOT_BE_BLOCKED.matcher(followupText).find())                  return "CannotBeBlocked";
+        if (FOLLOWUP_CANNOT_BE_BLOCKED_IF_ELEMENT_CP.matcher(followupText).find())   return "CannotBeBlockedIfElementCP";
         if (FOLLOWUP_MUST_BLOCK.matcher(followupText).find())                         return "MustBlock";
         if (FOLLOWUP_CANNOT_ATTACK.matcher(followupText).find())                      return "CannotAttack";
         if (FOLLOWUP_MUST_ATTACK.matcher(followupText).find())                        return "MustAttack";
@@ -3101,6 +3126,67 @@ public class ActionResolver {
                     if (t.zone() != ForwardTarget.CardZone.FORWARD) continue;
                     if (t.isP1()) ctx.setP1ForwardCannotBlock(t.idx());
                     else          ctx.setP2ForwardCannotBlock(t.idx());
+                }
+                if (secondary != null) secondary.accept(ctx);
+            };
+        }
+
+        // --- Cannot be blocked followup ---
+        if (FOLLOWUP_CANNOT_BE_BLOCKED.matcher(primaryFollowup).find()) {
+            Matcher bm = FOLLOWUP_CANNOT_BE_BLOCKED.matcher(primaryFollowup);
+            bm.find();
+            String bCostStr  = bm.group("costval");
+            String bCostCmp  = bm.group("costcmp");
+            final int   bCostVal = bCostStr != null ? Integer.parseInt(bCostStr) : -1;
+            final boolean bIsMore = "more".equalsIgnoreCase(bCostCmp);
+            String bCostLabel = bCostVal >= 0 ? " by cost " + bCostVal + " or " + bCostCmp : "";
+            return ctx -> {
+                ctx.logEntry(choosePrefix + " — Cannot be blocked" + bCostLabel + " this turn");
+                List<ForwardTarget> ts = selectTargets(ctx, maxCount, upTo,
+                        opponentOnly, selfOnly, condition, element, zone, opponentZone,
+                        costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters, jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, fExcludeElem);
+                for (ForwardTarget t : ts) {
+                    if (t.zone() != ForwardTarget.CardZone.FORWARD) continue;
+                    if (bCostVal >= 0) {
+                        if (t.isP1()) ctx.setP1ForwardCannotBeBlockedByCost(t.idx(), bCostVal, bIsMore);
+                        else          ctx.setP2ForwardCannotBeBlockedByCost(t.idx(), bCostVal, bIsMore);
+                    } else {
+                        if (t.isP1()) ctx.setP1ForwardCannotBeBlocked(t.idx());
+                        else          ctx.setP2ForwardCannotBeBlocked(t.idx());
+                    }
+                }
+                if (secondary != null) secondary.accept(ctx);
+            };
+        }
+
+        // --- Cannot be blocked if element CP was paid followup ---
+        if (FOLLOWUP_CANNOT_BE_BLOCKED_IF_ELEMENT_CP.matcher(primaryFollowup).find()) {
+            Matcher bm = FOLLOWUP_CANNOT_BE_BLOCKED_IF_ELEMENT_CP.matcher(primaryFollowup);
+            bm.find();
+            final String elem    = bm.group("element");
+            String eCostStr      = bm.group("costval");
+            String eCostCmp      = bm.group("costcmp");
+            final int   bCostVal = eCostStr != null ? Integer.parseInt(eCostStr) : -1;
+            final boolean bIsMore = "more".equalsIgnoreCase(eCostCmp);
+            String bCostLabel    = bCostVal >= 0 ? " by cost " + bCostVal + " or " + eCostCmp : "";
+            return ctx -> {
+                if (!ctx.wasElementCpPaid(elem)) {
+                    ctx.logEntry(choosePrefix + " — " + elem + " CP not paid, skipping cannot-be-blocked bonus");
+                    return;
+                }
+                ctx.logEntry(choosePrefix + " — Cannot be blocked" + bCostLabel + " this turn (" + elem + " CP paid)");
+                List<ForwardTarget> ts = selectTargets(ctx, maxCount, upTo,
+                        opponentOnly, selfOnly, condition, element, zone, opponentZone,
+                        costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters, jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, fExcludeElem);
+                for (ForwardTarget t : ts) {
+                    if (t.zone() != ForwardTarget.CardZone.FORWARD) continue;
+                    if (bCostVal >= 0) {
+                        if (t.isP1()) ctx.setP1ForwardCannotBeBlockedByCost(t.idx(), bCostVal, bIsMore);
+                        else          ctx.setP2ForwardCannotBeBlockedByCost(t.idx(), bCostVal, bIsMore);
+                    } else {
+                        if (t.isP1()) ctx.setP1ForwardCannotBeBlocked(t.idx());
+                        else          ctx.setP2ForwardCannotBeBlocked(t.idx());
+                    }
                 }
                 if (secondary != null) secondary.accept(ctx);
             };
