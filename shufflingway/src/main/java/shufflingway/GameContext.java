@@ -853,6 +853,12 @@ public interface GameContext {
     void addTempAttackTrigger(CardData card, Consumer<GameContext> effect);
 
     /**
+     * Registers {@code effect} as a temporary "when this card blocks or is blocked" trigger
+     * that fires once this turn (cleared at end of turn).
+     */
+    void addTempBlockTrigger(CardData card, Consumer<GameContext> effect);
+
+    /**
      * Registers {@code effect} to execute at the start of the player's next Main Phase 1
      * (and persist until end of that turn via normal boost expiry).
      */

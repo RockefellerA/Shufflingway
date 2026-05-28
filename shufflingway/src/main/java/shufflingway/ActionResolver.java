@@ -1470,6 +1470,26 @@ public class ActionResolver {
     );
 
     /**
+     * Extended form: "…becomes a Forward with N power and "When [name] attacks, [effect]"."
+     * Groups: {@code power}, {@code attackEffect}.
+     */
+    private static final Pattern BECOME_FORWARD_AND_ATTACK_TRIGGER = Pattern.compile(
+        "(?i)^Until\\s+the\\s+end\\s+of\\s+the\\s+turn,\\s+.+?\\s+also\\s+becomes?\\s+a\\s+Forward\\s+with\\s+(?<power>\\d+)\\s+power" +
+        "\\s+and\\s+\"When\\s+[^\"]+?\\s+attacks?\\s*,\\s+(?<attackEffect>[^\"]+?)\"\\s*[.!]?",
+        Pattern.DOTALL
+    );
+
+    /**
+     * Extended form: "…becomes a Forward with N power and "When [name] blocks or is blocked, [effect]"."
+     * Groups: {@code power}, {@code blockEffect}.
+     */
+    private static final Pattern BECOME_FORWARD_AND_BLOCK_TRIGGER = Pattern.compile(
+        "(?i)^Until\\s+the\\s+end\\s+of\\s+the\\s+turn,\\s+.+?\\s+also\\s+becomes?\\s+a\\s+Forward\\s+with\\s+(?<power>\\d+)\\s+power" +
+        "\\s+and\\s+\"When\\s+[^\"]+?\\s+blocks?(?:\\s+or\\s+is\\s+blocked)?\\s*,\\s+(?<blockEffect>[^\"]+?)\"\\s*[.!]?",
+        Pattern.DOTALL
+    );
+
+    /**
      * Matches "If the CP paid to cast [Name] was only produced by Backups, [also] draw N card(s)."
      * Group {@code count} — number of cards to draw.
      */
@@ -5015,6 +5035,37 @@ public class ActionResolver {
 
     private static Consumer<GameContext> tryParseBecomeForwardUntilEot(String text, CardData source) {
         if (source == null) return null;
+
+        Matcher mAtk = BECOME_FORWARD_AND_ATTACK_TRIGGER.matcher(text);
+        if (mAtk.find()) {
+            int power = Integer.parseInt(mAtk.group("power"));
+            String attackEffectText = mAtk.group("attackEffect").trim();
+            Consumer<GameContext> attackEffect = parse(attackEffectText, source);
+            if (attackEffect != null) {
+                return ctx -> {
+                    ctx.logEntry(source.name() + " becomes a Forward with " + power + " power until end of turn");
+                    ctx.makeMonsterTemporaryForward(source, power);
+                    ctx.logEntry(source.name() + " gains 'When attacks: " + attackEffectText + "'");
+                    ctx.addTempAttackTrigger(source, attackEffect);
+                };
+            }
+        }
+
+        Matcher mBlk = BECOME_FORWARD_AND_BLOCK_TRIGGER.matcher(text);
+        if (mBlk.find()) {
+            int power = Integer.parseInt(mBlk.group("power"));
+            String blockEffectText = mBlk.group("blockEffect").trim();
+            Consumer<GameContext> blockEffect = parse(blockEffectText, source);
+            if (blockEffect != null) {
+                return ctx -> {
+                    ctx.logEntry(source.name() + " becomes a Forward with " + power + " power until end of turn");
+                    ctx.makeMonsterTemporaryForward(source, power);
+                    ctx.logEntry(source.name() + " gains 'When blocks: " + blockEffectText + "'");
+                    ctx.addTempBlockTrigger(source, blockEffect);
+                };
+            }
+        }
+
         Matcher m = BECOME_FORWARD_UNTIL_EOT_PATTERN.matcher(text);
         if (!m.find()) return null;
         int power = Integer.parseInt(m.group("power"));

@@ -38,6 +38,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ExecutionException;
+import java.util.function.Consumer;
 
 import javax.imageio.ImageIO;
 import javax.swing.BorderFactory;
@@ -280,8 +281,10 @@ public class MainWindow {
 	private int                  p1BlockingIdx     = -1;
 
 	// Temporary attack triggers registered by action abilities (cleared at end of turn)
-	private final Map<CardData, List<java.util.function.Consumer<GameContext>>> p1TempAttackTriggers = new java.util.LinkedHashMap<>();
-	private final Map<CardData, List<java.util.function.Consumer<GameContext>>> p2TempAttackTriggers = new java.util.LinkedHashMap<>();
+	private final Map<CardData, List<Consumer<GameContext>>> p1TempAttackTriggers = new LinkedHashMap<>();
+	private final Map<CardData, List<Consumer<GameContext>>> p2TempAttackTriggers = new LinkedHashMap<>();
+	private final Map<CardData, List<Consumer<GameContext>>> p1TempBlockTriggers  = new LinkedHashMap<>();
+	private final Map<CardData, List<Consumer<GameContext>>> p2TempBlockTriggers  = new LinkedHashMap<>();
 
 	// Attack phase sub-step (0=Prep, 1=Declare, 2=Block, 3=Damage; -1=not in attack phase)
 	private int attackSubStep = -1;
@@ -328,13 +331,13 @@ public class MainWindow {
 	private int     p2GlobalDmgReduction    = 0;
 
 	/** End-of-turn effects queued this turn; fired at the beginning of the END phase. */
-	private final List<java.util.function.Consumer<GameContext>> endOfTurnEffects = new ArrayList<>();
+	private final List<Consumer<GameContext>> endOfTurnEffects = new ArrayList<>();
 
 	/** Active "next cast costs N less" modifiers; consumed on first matching cast, or cleared at EOT. */
 	private final List<CostReductionModifier> activeCostReductions = new ArrayList<>();
 
 	/** Effects deferred until the start of P1's next Main Phase 1. */
-	private final List<java.util.function.Consumer<GameContext>> pendingMainPhase1Effects = new ArrayList<>();
+	private final List<Consumer<GameContext>> pendingMainPhase1Effects = new ArrayList<>();
 
 	/** Tracks once-per-turn ability uses this turn; keyed by card instance identity, value is set of effectText strings used. */
 	private final java.util.IdentityHashMap<CardData, java.util.Set<String>> usedOncePerTurnAbilities = new java.util.IdentityHashMap<>();
@@ -1429,7 +1432,7 @@ public class MainWindow {
                             logEntry("Main Phase 1");
                             processWarpCounters();
                             if (!pendingMainPhase1Effects.isEmpty()) {
-                                List<java.util.function.Consumer<GameContext>> pending = new ArrayList<>(pendingMainPhase1Effects);
+                                List<Consumer<GameContext>> pending = new ArrayList<>(pendingMainPhase1Effects);
                                 pendingMainPhase1Effects.clear();
                                 GameContext ctx = buildGameContext(true);
                                 pending.forEach(e -> e.accept(ctx));
@@ -1506,6 +1509,7 @@ public class MainWindow {
                             p1ForwardMustAttack.clear();            p2ForwardMustAttack.clear();
                             p1ForwardCannotAttackPersistent.clear(); p1ForwardCannotBlockPersistent.clear();
                             p1TempAttackTriggers.clear();           p2TempAttackTriggers.clear();
+                            p1TempBlockTriggers.clear();            p2TempBlockTriggers.clear();
                             nextIncomingDmgZeroSet.clear();   nextIncomingDmgReduceMap.clear();   nextAbilityDmgReduceMap.clear();
                             incomingDmgIncreaseMap.clear();   nullifyAbilityDmgSet.clear();
                             nullifyAbilityOnlyDmgSet.clear(); perCardNonLethalDmgSet.clear();
@@ -4498,7 +4502,7 @@ public class MainWindow {
 			List<String> altElems = card.altCpElements();
 			String crystalStr = ac > 0 ? "《C》".repeat(ac) : "";
 			String cpStr = altElems.isEmpty() ? "" : (ac > 0 ? " + " : "") + altElems.stream()
-					.collect(java.util.stream.Collectors.groupingBy(elem -> elem.isEmpty() ? "generic" : elem, java.util.LinkedHashMap::new, java.util.stream.Collectors.counting()))
+					.collect(java.util.stream.Collectors.groupingBy(elem -> elem.isEmpty() ? "generic" : elem, LinkedHashMap::new, java.util.stream.Collectors.counting()))
 					.entrySet().stream().map(en -> (en.getKey().equals("generic") ? en.getValue() + " CP" : en.getValue() + " " + en.getKey() + " CP")).collect(java.util.stream.Collectors.joining(" + "));
 			List<String> cond = card.altConditionCardNames();
 			String condStr = cond.isEmpty() ? "" : " [req: " + String.join("/", cond) + "]";
@@ -4971,7 +4975,7 @@ public class MainWindow {
 	/** Executes the "If you do so" followup effect attached to an alternate cast, if any. */
 	private void executeAltFollowup(String followupText, CardData source) {
 		if (followupText == null || followupText.isBlank()) return;
-		java.util.function.Consumer<GameContext> effect = ActionResolver.parse(followupText, source);
+		Consumer<GameContext> effect = ActionResolver.parse(followupText, source);
 		if (effect != null) {
 			logEntry("[AltCost followup] " + source.name() + " — " + followupText);
 			effect.accept(buildGameContext(true));
@@ -5330,7 +5334,7 @@ public class MainWindow {
 		if (entry.isSummon()) {
 			String effectText = entry.effectText();
 			logEntry("[Summon] Resolving \"" + entry.source().name() + "\": " + effectText);
-			java.util.function.Consumer<GameContext> effect = ActionResolver.parse(effectText, entry.source());
+			Consumer<GameContext> effect = ActionResolver.parse(effectText, entry.source());
 			if (effect != null) {
 				currentResolutionIsSummon   = true;
 				currentBreaktouchSource     = entry.source();
@@ -6168,12 +6172,12 @@ public class MainWindow {
 			if (fa.trigger().contains("attack")) executeAutoAbility(fa, card, isP1);
 		}
 		// Fire any temporary attack triggers registered this turn by action abilities
-		Map<CardData, List<java.util.function.Consumer<GameContext>>> tempTriggers
+		Map<CardData, List<Consumer<GameContext>>> tempTriggers
 				= isP1 ? p1TempAttackTriggers : p2TempAttackTriggers;
-		List<java.util.function.Consumer<GameContext>> effects = tempTriggers.get(card);
+		List<Consumer<GameContext>> effects = tempTriggers.get(card);
 		if (effects != null) {
 			GameContext ctx = buildGameContext(isP1);
-			for (java.util.function.Consumer<GameContext> effect : effects)
+			for (Consumer<GameContext> effect : effects)
 				effect.accept(ctx);
 		}
 	}
@@ -6182,6 +6186,14 @@ public class MainWindow {
 		for (AutoAbility fa : card.autoAbilities()) {
 			if (!fa.triggerCard().equalsIgnoreCase(card.name())) continue;
 			if (fa.trigger().contains("block")) executeAutoAbility(fa, card, isP1);
+		}
+		Map<CardData, List<Consumer<GameContext>>> tempTriggers
+				= isP1 ? p1TempBlockTriggers : p2TempBlockTriggers;
+		List<Consumer<GameContext>> effects = tempTriggers.get(card);
+		if (effects != null) {
+			GameContext ctx = buildGameContext(isP1);
+			for (Consumer<GameContext> effect : effects)
+				effect.accept(ctx);
 		}
 	}
 
@@ -6293,7 +6305,7 @@ public class MainWindow {
 			logEntry("[EX BURST] " + card.name() + " — no parseable effect");
 			return;
 		}
-		java.util.function.Consumer<GameContext> fn = ActionResolver.parse(effect, card);
+		Consumer<GameContext> fn = ActionResolver.parse(effect, card);
 		if (fn == null) {
 			logEntry("[EX BURST] Effect not yet implemented: " + effect);
 			return;
@@ -6495,7 +6507,7 @@ public class MainWindow {
 			return;
 		}
 
-		java.util.function.Consumer<GameContext> effect = ActionResolver.parse(fa.effectText(), source);
+		Consumer<GameContext> effect = ActionResolver.parse(fa.effectText(), source);
 		if (effect == null) {
 			logEntry("[AutoAbility] Unrecognized effect: " + fa.effectText());
 			return;
@@ -6564,7 +6576,7 @@ public class MainWindow {
 				+ " Counter(s)  [remaining: " + gameState.getCounters(source, counterName) + "]");
 
 		// Execute the sub-effect
-		java.util.function.Consumer<GameContext> effect = ActionResolver.parse(subEffect, source);
+		Consumer<GameContext> effect = ActionResolver.parse(subEffect, source);
 		if (effect == null) {
 			logEntry("[AutoAbility] Unrecognized counter-removal sub-effect: " + subEffect);
 			return;
@@ -6589,7 +6601,7 @@ public class MainWindow {
 				try { fixedCost = Integer.parseInt(costToken); }
 				catch (NumberFormatException e) {
 					// Non-numeric, non-X cost token (e.g. 《C》 for crystal) — resolve normally.
-					java.util.function.Consumer<GameContext> effect = ActionResolver.parse(fa.effectText(), source);
+					Consumer<GameContext> effect = ActionResolver.parse(fa.effectText(), source);
 					if (effect != null) { logEntry("[AutoAbility] " + source.name() + " — " + fa.effectText()); effect.accept(buildGameContext(effectIsP1)); }
 					else logEntry("[AutoAbility] Unrecognized effect: " + fa.effectText());
 					return;
@@ -6647,7 +6659,7 @@ public class MainWindow {
 			ctx.gainCrystal(xValue);
 			return;
 		}
-		java.util.function.Consumer<GameContext> effect = ActionResolver.parse(subEffect, source, xValue);
+		Consumer<GameContext> effect = ActionResolver.parse(subEffect, source, xValue);
 		if (effect == null) {
 			logEntry("[AutoAbility] Unrecognized 'when you do so' effect: " + subEffect);
 			return;
@@ -6720,7 +6732,7 @@ public class MainWindow {
 		}
 
 		for (String actionText : chosen) {
-			java.util.function.Consumer<GameContext> effect = ActionResolver.parse(actionText, source);
+			Consumer<GameContext> effect = ActionResolver.parse(actionText, source);
 			if (effect == null) {
 				logEntry("[AutoAbility] " + source.name() + " — unrecognized action: " + actionText);
 			} else {
@@ -8906,7 +8918,7 @@ public class MainWindow {
 				}
 			}
 
-			@Override public void addPendingMainPhase1Effect(java.util.function.Consumer<GameContext> effect) {
+			@Override public void addPendingMainPhase1Effect(Consumer<GameContext> effect) {
 				pendingMainPhase1Effects.add(effect);
 			}
 
@@ -9537,13 +9549,19 @@ public class MainWindow {
 				}
 			}
 
-			@Override public void addEndOfTurnEffect(java.util.function.Consumer<GameContext> effect) {
+			@Override public void addEndOfTurnEffect(Consumer<GameContext> effect) {
 				endOfTurnEffects.add(effect);
 			}
 
-			@Override public void addTempAttackTrigger(CardData card, java.util.function.Consumer<GameContext> effect) {
-				Map<CardData, List<java.util.function.Consumer<GameContext>>> triggers
+			@Override public void addTempAttackTrigger(CardData card, Consumer<GameContext> effect) {
+				Map<CardData, List<Consumer<GameContext>>> triggers
 						= isP1 ? p1TempAttackTriggers : p2TempAttackTriggers;
+				triggers.computeIfAbsent(card, k -> new ArrayList<>()).add(effect);
+			}
+
+			@Override public void addTempBlockTrigger(CardData card, Consumer<GameContext> effect) {
+				Map<CardData, List<Consumer<GameContext>>> triggers
+						= isP1 ? p1TempBlockTriggers : p2TempBlockTriggers;
 				triggers.computeIfAbsent(card, k -> new ArrayList<>()).add(effect);
 			}
 
@@ -9749,7 +9767,7 @@ public class MainWindow {
 	private void fireFieldEndOfTurnAbilitiesForCard(CardData card, GameContext ctx, int dmg) {
 		for (FieldAbility fa : card.fieldAbilities()) {
 			if (fa.damageThreshold() > 0 && dmg < fa.damageThreshold()) continue;
-			java.util.function.Consumer<GameContext> effect =
+			Consumer<GameContext> effect =
 					ActionResolver.tryParseEndOfEachTurnFieldAbility(fa.effectText(), card);
 			if (effect != null) {
 				logEntry("[Field] " + card.name() + " — end-of-turn: " + fa.effectText());
@@ -9761,7 +9779,7 @@ public class MainWindow {
 	/** Fires all queued end-of-turn effects using a context for {@code isP1}, then clears the queue. */
 	private void fireEndOfTurnEffects(boolean isP1) {
 		if (endOfTurnEffects.isEmpty()) return;
-		List<java.util.function.Consumer<GameContext>> pending = new ArrayList<>(endOfTurnEffects);
+		List<Consumer<GameContext>> pending = new ArrayList<>(endOfTurnEffects);
 		endOfTurnEffects.clear();
 		GameContext ctx = buildGameContext(isP1);
 		pending.forEach(e -> e.accept(ctx));
@@ -12654,6 +12672,7 @@ public class MainWindow {
 			p1ForwardMustAttack.clear();            p2ForwardMustAttack.clear();
 			p2ForwardCannotAttackPersistent.clear(); p2ForwardCannotBlockPersistent.clear();
 			p1TempAttackTriggers.clear();           p2TempAttackTriggers.clear();
+			p1TempBlockTriggers.clear();            p2TempBlockTriggers.clear();
 			nextIncomingDmgZeroSet.clear();   nextIncomingDmgReduceMap.clear();   nextAbilityDmgReduceMap.clear();
 			incomingDmgIncreaseMap.clear();   nullifyAbilityDmgSet.clear();
 			nullifyAbilityOnlyDmgSet.clear(); perCardNonLethalDmgSet.clear();
