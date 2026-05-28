@@ -110,6 +110,10 @@ public class DeckManager extends JFrame {
     private static final Color FORMAT_L6_COLOR = new Color(0x2E, 0x7D, 0x32);
     private static final Color FORMAT_T_COLOR  = new Color(0x6A, 0x1B, 0x9A);
 
+    private static final java.util.List<String> SECTION_ORDER =
+            java.util.List.of("Forward", "Backup", "Summon", "Monster", "Limit Break");
+    private static final Color SECTION_HEADER_BG = new Color(0xD8, 0xE4, 0xF0);
+
     private static final Set<String> TITLE_EXCLUDED_CATEGORIES =
             Set.of("Special", "Anniversary", "FFRK", "MQ");
 
@@ -136,6 +140,10 @@ public class DeckManager extends JFrame {
     private JButton addBtn;
     private JButton addMaxBtn;
     private Set<String> lbSerials = new HashSet<>();
+    private final Map<String, Boolean> sectionCollapsed = new LinkedHashMap<>();
+    private final Map<String, List<Object[]>> groupedDeckData = new LinkedHashMap<>();
+    private JButton collapseAllBtn;
+    private JButton expandAllBtn;
 
     // Format legality labels
     private JLabel formatS, formatL3, formatL6, formatT;
@@ -145,6 +153,11 @@ public class DeckManager extends JFrame {
         setSize(1600, 800);
         setLocationRelativeTo(parent);
         setLayout(new BorderLayout(4, 4));
+
+        for (String s : SECTION_ORDER) {
+            sectionCollapsed.put(s, false);
+            groupedDeckData.put(s, new ArrayList<>());
+        }
 
         browserModel = new DefaultTableModel(BROWSER_COLUMNS, 0) {
             @Override public boolean isCellEditable(int r, int c) { return false; }
@@ -406,8 +419,20 @@ public class DeckManager extends JFrame {
     private JPanel buildDeckContentPanel() {
         deckTable = new JTable(deckModel) {
             @Override
+            public void changeSelection(int rowIndex, int columnIndex, boolean toggle, boolean extend) {
+                if (!isHeaderRow(rowIndex))
+                    super.changeSelection(rowIndex, columnIndex, toggle, extend);
+            }
+            @Override
             public Component prepareRenderer(TableCellRenderer renderer, int row, int col) {
                 Component c = super.prepareRenderer(renderer, row, col);
+                if (isHeaderRow(row)) {
+                    c.setBackground(SECTION_HEADER_BG);
+                    c.setForeground(Color.DARK_GRAY);
+                    if (c instanceof JLabel lbl)
+                        lbl.setFont(lbl.getFont().deriveFont(Font.BOLD));
+                    return c;
+                }
                 if (!isRowSelected(row) && renderer == getDefaultRenderer(Object.class)) {
                     String serial = (String) deckModel.getValueAt(row, 1);
                     if (lbSerials.contains(serial) && col == 1) {
@@ -442,22 +467,42 @@ public class DeckManager extends JFrame {
         deckTable.getSelectionModel().addListSelectionListener(e -> {
             if (!e.getValueIsAdjusting()) {
                 int row = deckTable.getSelectedRow();
-                if (row >= 0) loadCardImageAsync((String) deckModel.getValueAt(row, 1));
+                if (row >= 0 && !isHeaderRow(row)) loadCardImageAsync((String) deckModel.getValueAt(row, 1));
             }
         });
 
         JButton removeBtn    = new JButton("Remove 1 from Deck  ✕");
         JButton removeAllBtn = new JButton("Remove All From Deck");
+        collapseAllBtn = new JButton("Collapse All");
+        expandAllBtn = new JButton("Expand All");
+
         removeBtn.setEnabled(false);
         removeAllBtn.setEnabled(false);
 
+        collapseAllBtn.setEnabled(false);
+        expandAllBtn.setEnabled(false);
+
         removeBtn.addActionListener(e -> removeSelectedCard());
         removeAllBtn.addActionListener(e -> removeAllOfSelectedCard());
+        collapseAllBtn.addActionListener(e -> collapseAllSections());
+        expandAllBtn.addActionListener(e -> expandAllSections());
 
-        // Double-click also removes one copy
+        // Click on header row toggles collapse; double-click on card row removes one copy
         deckTable.addMouseListener(new MouseAdapter() {
             @Override public void mouseClicked(MouseEvent e) {
-                if (e.getClickCount() == 2) removeSelectedCard();
+                int row = deckTable.rowAtPoint(e.getPoint());
+                if (row >= 0 && isHeaderRow(row)) {
+                    String label = (String) deckModel.getValueAt(row, 2);
+                    for (String section : SECTION_ORDER) {
+                        if (label.contains(section)) {
+                            sectionCollapsed.put(section, !sectionCollapsed.getOrDefault(section, false));
+                            rebuildDeckTable();
+                            break;
+                        }
+                    }
+                } else if (e.getClickCount() == 2 && row >= 0) {
+                    removeSelectedCard();
+                }
             }
         });
 
@@ -465,7 +510,7 @@ public class DeckManager extends JFrame {
         deckTable.getSelectionModel().addListSelectionListener(e -> {
             if (!e.getValueIsAdjusting()) {
                 int row = deckTable.getSelectedRow();
-                if (row >= 0) {
+                if (row >= 0 && !isHeaderRow(row)) {
                     Integer qty = (Integer) deckModel.getValueAt(row, 0);
                     removeBtn.setEnabled(true);
                     removeAllBtn.setEnabled(qty != null && qty > 1);
@@ -484,6 +529,8 @@ public class DeckManager extends JFrame {
         JPanel removePanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 4));
         removePanel.add(removeBtn);
         removePanel.add(removeAllBtn);
+        removePanel.add(collapseAllBtn);
+        removePanel.add(expandAllBtn);
 
         JPanel formatPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 4));
         formatPanel.add(new JLabel("Formats:"));
@@ -623,40 +670,39 @@ public class DeckManager extends JFrame {
     }
 
     private void loadDeckCards(int deckId) {
-        deckModel.setRowCount(0);
+        for (String s : SECTION_ORDER) groupedDeckData.get(s).clear();
         int forward = 0, backup = 0, summon = 0, monster = 0;
         try {
             List<Object[]> rows = db.getDeckCards(deckId);
             rows.sort((a, b) -> {
                 boolean aLb = lbSerials.contains((String) a[1]);
                 boolean bLb = lbSerials.contains((String) b[1]);
-                if (aLb != bLb) return aLb ? 1 : -1;     // non-LB above LB
-                return SERIAL_ORDER.compare(a[1], b[1]); // then by serial (numeric set)
+                if (aLb != bLb) return aLb ? 1 : -1;
+                return SERIAL_ORDER.compare(a[1], b[1]);
             });
             int mainTotal = 0, lbTotal = 0;
             for (Object[] row : rows) {
-                deckModel.addRow(row);
                 int qty = (Integer) row[0];
-                if (lbSerials.contains((String) row[1])) {
+                String serial = (String) row[1];
+                String type   = (String) row[3];
+                if (lbSerials.contains(serial)) {
+                    groupedDeckData.get("Limit Break").add(row);
                     lbTotal += qty;
-                    continue;
-                }
-                else
+                } else {
                     mainTotal += qty;
-
-                switch((String) row[3]){
-                    case "Forward":
-                        forward += qty;
-                        break;
-                    case "Backup":
-                        backup += qty;
-                        break;
-                    case "Summon":
-                        summon += qty;
-                        break;
-                    case "Monster":
-                        monster += qty;
-                        break;
+                    String section = switch (type) {
+                        case "Backup"  -> "Backup";
+                        case "Summon"  -> "Summon";
+                        case "Monster" -> "Monster";
+                        default        -> "Forward";
+                    };
+                    groupedDeckData.get(section).add(row);
+                    switch (type) {
+                        case "Forward": forward += qty; break;
+                        case "Backup":  backup  += qty; break;
+                        case "Summon":  summon  += qty; break;
+                        case "Monster": monster += qty; break;
+                    }
                 }
             }
             updateBreakdownLabels(forward, backup, summon, monster);
@@ -665,8 +711,25 @@ public class DeckManager extends JFrame {
             JOptionPane.showMessageDialog(this, "Error loading deck:\n" + e.getMessage(),
                     "Database Error", JOptionPane.ERROR_MESSAGE);
         }
+        rebuildDeckTable();
         refreshAddMaxBtn();
         refreshFormatLegality();
+    }
+
+    private void rebuildDeckTable() {
+        deckModel.setRowCount(0);
+        for (String section : SECTION_ORDER) {
+            List<Object[]> rows = groupedDeckData.get(section);
+            if (rows.isEmpty()) continue;
+            int total = rows.stream().mapToInt(r -> (Integer) r[0]).sum();
+            boolean collapsed = sectionCollapsed.getOrDefault(section, false);
+            String arrow = collapsed ? "▶" : "▼";
+            deckModel.addRow(new Object[]{null, "", arrow + " " + section + " (" + total + ")", "", "", "", "", "", "", ""});
+            if (!collapsed) {
+                for (Object[] row : rows) deckModel.addRow(row);
+            }
+        }
+        refreshCollapseExpandButtons();
     }
 
     private void updateBreakdownLabels(int forward, int backup, int summon, int monster) {
@@ -843,10 +906,37 @@ public class DeckManager extends JFrame {
         addMaxBtn.setEnabled(max > 1);
     }
 
+    private void collapseAllSections() {
+        for (String s : SECTION_ORDER) sectionCollapsed.put(s, true);
+        rebuildDeckTable();
+    }
+
+    private void expandAllSections() {
+        for (String s : SECTION_ORDER) sectionCollapsed.put(s, false);
+        rebuildDeckTable();
+    }
+
+    /**
+     * Enables Collapse All if any non-empty section is currently expanded,
+     * and Expand All if any non-empty section is currently collapsed.
+     * Empty sections are ignored — they aren't rendered, so their state is irrelevant.
+     */
+    private void refreshCollapseExpandButtons() {
+        if (collapseAllBtn == null || expandAllBtn == null) return;
+        boolean anyExpanded = false, anyCollapsed = false;
+        for (String s : SECTION_ORDER) {
+            if (groupedDeckData.get(s).isEmpty()) continue;
+            if (sectionCollapsed.getOrDefault(s, false)) anyCollapsed = true;
+            else anyExpanded = true;
+        }
+        collapseAllBtn.setEnabled(anyExpanded);
+        expandAllBtn.setEnabled(anyCollapsed);
+    }
+
     private void removeSelectedCard() {
         if (selectedDeckId < 0) return;
         int viewRow = deckTable.getSelectedRow();
-        if (viewRow < 0) return;
+        if (viewRow < 0 || isHeaderRow(viewRow)) return;
         String serial = (String) deckModel.getValueAt(viewRow, 1);
         int count     = (Integer) deckModel.getValueAt(viewRow, 0);
 
@@ -863,20 +953,20 @@ public class DeckManager extends JFrame {
     /** Re-selects the row with the given serial after a reload, or the nearest row if it was removed. */
     private void restoreSelection(String serial, int fallbackViewRow) {
         for (int i = 0; i < deckModel.getRowCount(); i++) {
-            if (serial.equals(deckModel.getValueAt(i, 1))) {
+            if (!isHeaderRow(i) && serial.equals(deckModel.getValueAt(i, 1))) {
                 deckTable.setRowSelectionInterval(i, i);
                 return;
             }
         }
         // Card was fully removed — select the row that shifted into its position, or the last row
         int target = Math.min(fallbackViewRow, deckModel.getRowCount() - 1);
-        if (target >= 0) deckTable.setRowSelectionInterval(target, target);
+        if (target >= 0 && !isHeaderRow(target)) deckTable.setRowSelectionInterval(target, target);
     }
 
     private void removeAllOfSelectedCard() {
         if (selectedDeckId < 0) return;
         int viewRow = deckTable.getSelectedRow();
-        if (viewRow < 0) return;
+        if (viewRow < 0 || isHeaderRow(viewRow)) return;
         String serial = (String) deckModel.getValueAt(viewRow, 1);
 
         try {
@@ -895,7 +985,7 @@ public class DeckManager extends JFrame {
 
     private int getCardCountInDeck(String serial) {
         for (int i = 0; i < deckModel.getRowCount(); i++) {
-            if (serial.equals(deckModel.getValueAt(i, 1)))
+            if (!isHeaderRow(i) && serial.equals(deckModel.getValueAt(i, 1)))
                 return (Integer) deckModel.getValueAt(i, 0);
         }
         return 0;
@@ -918,6 +1008,7 @@ public class DeckManager extends JFrame {
         Set<String> incoming = splitSerial(serial);
         int total = 0;
         for (int i = 0; i < deckModel.getRowCount(); i++) {
+            if (isHeaderRow(i)) continue;
             String deckSerial = (String) deckModel.getValueAt(i, 1);
             for (String part : splitSerial(deckSerial)) {
                 if (incoming.contains(part)) {
@@ -932,7 +1023,7 @@ public class DeckManager extends JFrame {
     private int getMainDeckTotal() {
         int total = 0;
         for (int i = 0; i < deckModel.getRowCount(); i++) {
-            if (!lbSerials.contains((String) deckModel.getValueAt(i, 1)))
+            if (!isHeaderRow(i) && !lbSerials.contains((String) deckModel.getValueAt(i, 1)))
                 total += (Integer) deckModel.getValueAt(i, 0);
         }
         return total;
@@ -941,7 +1032,7 @@ public class DeckManager extends JFrame {
     private int getLbDeckTotal() {
         int total = 0;
         for (int i = 0; i < deckModel.getRowCount(); i++) {
-            if (lbSerials.contains((String) deckModel.getValueAt(i, 1)))
+            if (!isHeaderRow(i) && lbSerials.contains((String) deckModel.getValueAt(i, 1)))
                 total += (Integer) deckModel.getValueAt(i, 0);
         }
         return total;
@@ -1326,6 +1417,10 @@ public class DeckManager extends JFrame {
             col.setMaxWidth(s[2]);
         }
         table.getColumnModel().getColumn(6).setPreferredWidth(70);  // Rarity (browser) / Job (deck)
+    }
+
+    private boolean isHeaderRow(int row) {
+        return row >= 0 && row < deckModel.getRowCount() && deckModel.getValueAt(row, 0) == null;
     }
 
     /** Sizes all deck table columns independently (column order differs from the browser). */
