@@ -365,6 +365,8 @@ public class MainWindow {
 	private boolean currentResolutionIsSummon = false;
 	/** Set to {@code true} by {@code returnNamedCardToYourHand} when the Summon itself is being returned to hand. */
 	private boolean pendingSummonReturnToHand = false;
+	/** Set to {@code true} before placing a card whose ETF auto-ability should not fire (consumed on first trigger check). */
+	private boolean suppressAutoAbilityForNextCard = false;
 
 	/**
 	 * Forwards currently stolen by P1 from P2, mapped to their restoration condition:
@@ -6188,6 +6190,29 @@ public class MainWindow {
 			);
 
 	/**
+	 * Matches "remove N [type] [without 《Keyword》] [you control / opponent controls]
+	 * from the game. When/If you do so, sub-effect."
+	 * <ul>
+	 *   <li>{@code count}     — number of cards to remove</li>
+	 *   <li>{@code targets}   — card type: Backup, Forward, Monster, or Character</li>
+	 *   <li>{@code excludekw} — optional keyword exclusion (e.g. "Multicard") from "without 《Keyword》"</li>
+	 *   <li>{@code control}   — "you control" or "opponent controls"</li>
+	 *   <li>{@code sub}       — effect to execute after the removal succeeds</li>
+	 * </ul>
+	 */
+	private static final java.util.regex.Pattern FA_REMOVE_FIELD_WHEN_DO_SO =
+			java.util.regex.Pattern.compile(
+				"(?i)^remove\\s+(?<count>\\d+)\\s+" +
+				"(?<targets>Backups?|Forwards?|Monsters?|Characters?)\\s+" +
+				"(?:without\\s+《(?<excludekw>[^》]+)》\\s+)?" +
+				"(?<control>(?:your\\s+)?opponent\\s+controls|you\\s+control)\\s+" +
+				"from\\s+the\\s+game[.,]?\\s+" +
+				"(?:When|If)\\s+you\\s+do\\s+so[,.]?\\s+" +
+				"(?<sub>.+?)$",
+				java.util.regex.Pattern.DOTALL
+			);
+
+	/**
 	 * Matches a card's own passive field ability text:
 	 * "If &lt;cardName&gt; is dealt damage by your opponent's Summons, the damage becomes 0 instead."
 	 * Checked inline in {@link #modifyIncomingDamage} against the receiving card's field abilities.
@@ -6234,6 +6259,13 @@ public class MainWindow {
 	);
 
 	private void triggerAutoAbilitiesForEntersField(CardData card, boolean isP1) {
+		if (suppressAutoAbilityForNextCard) {
+			suppressAutoAbilityForNextCard = false;
+			// Re-evaluate field boosts even when ETF auto-abilities are suppressed
+			refreshAllForwardSlots();
+			for (int i = 0; i < p2ForwardCards.size(); i++) refreshP2ForwardSlot(i);
+			return;
+		}
 		for (AutoAbility fa : card.autoAbilities()) {
 			if (!fa.triggerCard().equalsIgnoreCase(card.name())) continue;
 			if (fa.trigger().contains("enter")) executeAutoAbility(fa, card, isP1);
@@ -6584,6 +6616,13 @@ public class MainWindow {
 			return;
 		}
 
+		// Detect "remove N [type] [without 《Keyword》] you control from the game. When you do so, [effect]"
+		java.util.regex.Matcher rfM = FA_REMOVE_FIELD_WHEN_DO_SO.matcher(fa.effectText());
+		if (rfM.find()) {
+			executeRemoveFieldWhenDoSoAutoAbility(fa, source, isP1, effectIsP1, rfM);
+			return;
+		}
+
 		// Detect "select [up to] N of the M following actions. "..." "..."..."
 		java.util.regex.Matcher selM = FA_SELECT_FOLLOWING_ACTIONS.matcher(fa.effectText());
 		if (selM.find()) {
@@ -6663,6 +6702,60 @@ public class MainWindow {
 		Consumer<GameContext> effect = ActionResolver.parse(subEffect, source);
 		if (effect == null) {
 			logEntry("[AutoAbility] Unrecognized counter-removal sub-effect: " + subEffect);
+			return;
+		}
+		logEntry("[AutoAbility] " + source.name() + " — when you do so: " + subEffect);
+		effect.accept(buildGameContext(effectIsP1));
+	}
+
+	private void executeRemoveFieldWhenDoSoAutoAbility(AutoAbility fa, CardData source,
+			boolean isP1, boolean effectIsP1, java.util.regex.Matcher m) {
+		int     count          = Integer.parseInt(m.group("count"));
+		String  targetsRaw     = m.group("targets").toLowerCase(java.util.Locale.ROOT);
+		String  rawExcludeKw   = m.group("excludekw");
+		boolean withoutMulticard = "Multicard".equalsIgnoreCase(rawExcludeKw != null ? rawExcludeKw.trim() : null);
+		String  control        = m.group("control").toLowerCase(java.util.Locale.ROOT);
+		boolean opponentOnly   = !control.contains("you control");
+		boolean selfOnly       = !opponentOnly;
+		boolean inclForwards   = targetsRaw.contains("forward") || targetsRaw.contains("character");
+		boolean inclBackups    = targetsRaw.contains("backup")  || targetsRaw.contains("character");
+		boolean inclMonsters   = targetsRaw.contains("monster") || targetsRaw.contains("character");
+		String  subEffect      = m.group("sub").trim();
+
+		// youMay / AI decision
+		boolean p1GetsDialog = (fa.youMay() && isP1) || (fa.opponentMay() && !isP1);
+		if (p1GetsDialog) {
+			String prompt = (fa.youMay() ? "You may: " : "Your opponent may: ") + fa.effectText();
+			int choice = JOptionPane.showOptionDialog(frame,
+					source.name() + " — " + prompt, "Auto Ability",
+					JOptionPane.DEFAULT_OPTION, JOptionPane.PLAIN_MESSAGE, null,
+					new Object[]{"OK", "Decline"}, "OK");
+			if (choice != 0) {
+				logEntry("[AutoAbility] " + source.name() + " — optional effect declined");
+				return;
+			}
+		} else if (fa.youMay() || fa.opponentMay()) {
+			logEntry("[AutoAbility] [AI] auto-accepts optional ability");
+		}
+
+		// Select the card(s) to remove from the field
+		GameContext ctx = buildGameContext(effectIsP1);
+		java.util.List<ForwardTarget> targets = ctx.selectCharacters(count, false,
+				opponentOnly, selfOnly, null, null, -1, null, -1, null,
+				inclForwards, inclBackups, inclMonsters, null, null, null, null, false, null, withoutMulticard);
+		if (targets.isEmpty()) {
+			logEntry("[AutoAbility] " + source.name() + " — no valid target for field removal");
+			return;
+		}
+
+		// Rebuild ctx after selectCharacters in case field indices shifted; remove targets
+		GameContext ctx2 = buildGameContext(effectIsP1);
+		targets.forEach(t -> ctx2.removeTargetFromGame(t));
+
+		// Parse and execute the sub-effect ("Its auto-ability will not trigger." is handled inside tryParsePlayFromHand)
+		Consumer<GameContext> effect = ActionResolver.parse(subEffect, source);
+		if (effect == null) {
+			logEntry("[AutoAbility] Unrecognized sub-effect: " + subEffect);
 			return;
 		}
 		logEntry("[AutoAbility] " + source.name() + " — when you do so: " + subEffect);
@@ -8016,7 +8109,7 @@ public class MainWindow {
 					int costVal, String costCmp, int powerVal, String powerCmp,
 					boolean inclForwards, boolean inclBackups, boolean inclMonsters,
 					String jobFilter, String cardNameFilter, String categoryFilter, String excludeName, boolean inclSummons,
-					String excludeElement) {
+					String excludeElement, boolean withoutMulticard) {
 				java.util.List<ForwardTarget> eligible = new ArrayList<>();
 				// "own" = cards belonging to effect controller; "opp" = other player's cards.
 				// isP1 captures the controller's perspective, so the two blocks below must
@@ -8034,6 +8127,7 @@ public class MainWindow {
 							if (!meetsCardNameFilter(card, cardNameFilter)) continue;
 							if (!meetsCategoryFilter(card, categoryFilter)) continue;
 							if (excludeName != null && excludeName.equalsIgnoreCase(card.name())) continue;
+							if (withoutMulticard && card.multicard()) continue;
 							if (isBlockingTargetFilter(condition)
 									? meetsBlockingTargetFilter(true, i, condition)
 									: meetsTargetCondition(p1ForwardStates.get(i), p1ForwardDamage.get(i),
@@ -8050,6 +8144,7 @@ public class MainWindow {
 							if (!meetsCardNameFilter(p1BackupCards[i], cardNameFilter)) continue;
 							if (!meetsCategoryFilter(p1BackupCards[i], categoryFilter)) continue;
 							if (excludeName != null && excludeName.equalsIgnoreCase(p1BackupCards[i].name())) continue;
+							if (withoutMulticard && p1BackupCards[i].multicard()) continue;
 							if (meetsTargetCondition(p1BackupStates[i], 0, false, false, condition))
 								eligible.add(new ForwardTarget(true, i, ForwardTarget.CardZone.BACKUP));
 						}
@@ -8064,6 +8159,7 @@ public class MainWindow {
 							if (!meetsCardNameFilter(card, cardNameFilter)) continue;
 							if (!meetsCategoryFilter(card, categoryFilter)) continue;
 							if (excludeName != null && excludeName.equalsIgnoreCase(card.name())) continue;
+							if (withoutMulticard && card.multicard()) continue;
 							if (meetsTargetCondition(p1MonsterStates.get(i), 0, false, false, condition))
 								eligible.add(new ForwardTarget(true, i, ForwardTarget.CardZone.MONSTER));
 						}
@@ -8079,6 +8175,7 @@ public class MainWindow {
 							if (!meetsCardNameFilter(card, cardNameFilter)) continue;
 							if (!meetsCategoryFilter(card, categoryFilter)) continue;
 							if (excludeName != null && excludeName.equalsIgnoreCase(card.name())) continue;
+							if (withoutMulticard && card.multicard()) continue;
 							if (isBlockingTargetFilter(condition)
 									? meetsBlockingTargetFilter(false, i, condition)
 									: meetsTargetCondition(p2ForwardStates.get(i), p2ForwardDamage.get(i),
@@ -8095,6 +8192,7 @@ public class MainWindow {
 							if (!meetsCardNameFilter(p2BackupCards[i], cardNameFilter)) continue;
 							if (!meetsCategoryFilter(p2BackupCards[i], categoryFilter)) continue;
 							if (excludeName != null && excludeName.equalsIgnoreCase(p2BackupCards[i].name())) continue;
+							if (withoutMulticard && p2BackupCards[i].multicard()) continue;
 							if (meetsTargetCondition(p2BackupStates[i], 0, false, false, condition))
 								eligible.add(new ForwardTarget(false, i, ForwardTarget.CardZone.BACKUP));
 						}
@@ -8109,6 +8207,7 @@ public class MainWindow {
 							if (!meetsCardNameFilter(card, cardNameFilter)) continue;
 							if (!meetsCategoryFilter(card, categoryFilter)) continue;
 							if (excludeName != null && excludeName.equalsIgnoreCase(card.name())) continue;
+							if (withoutMulticard && card.multicard()) continue;
 							if (meetsTargetCondition(p2MonsterStates.get(i), 0, false, false, condition))
 								eligible.add(new ForwardTarget(false, i, ForwardTarget.CardZone.MONSTER));
 						}
@@ -8127,6 +8226,7 @@ public class MainWindow {
 							if (!meetsCardNameFilter(card, cardNameFilter)) continue;
 							if (!meetsCategoryFilter(card, categoryFilter)) continue;
 							if (excludeName != null && excludeName.equalsIgnoreCase(card.name())) continue;
+							if (withoutMulticard && card.multicard()) continue;
 							if (isBlockingTargetFilter(condition)
 									? meetsBlockingTargetFilter(false, i, condition)
 									: meetsTargetCondition(p2ForwardStates.get(i), p2ForwardDamage.get(i),
@@ -8143,6 +8243,7 @@ public class MainWindow {
 							if (!meetsCardNameFilter(p2BackupCards[i], cardNameFilter)) continue;
 							if (!meetsCategoryFilter(p2BackupCards[i], categoryFilter)) continue;
 							if (excludeName != null && excludeName.equalsIgnoreCase(p2BackupCards[i].name())) continue;
+							if (withoutMulticard && p2BackupCards[i].multicard()) continue;
 							if (meetsTargetCondition(p2BackupStates[i], 0, false, false, condition))
 								eligible.add(new ForwardTarget(false, i, ForwardTarget.CardZone.BACKUP));
 						}
@@ -8157,6 +8258,7 @@ public class MainWindow {
 							if (!meetsCardNameFilter(card, cardNameFilter)) continue;
 							if (!meetsCategoryFilter(card, categoryFilter)) continue;
 							if (excludeName != null && excludeName.equalsIgnoreCase(card.name())) continue;
+							if (withoutMulticard && card.multicard()) continue;
 							if (meetsTargetCondition(p2MonsterStates.get(i), 0, false, false, condition))
 								eligible.add(new ForwardTarget(false, i, ForwardTarget.CardZone.MONSTER));
 						}
@@ -8174,6 +8276,7 @@ public class MainWindow {
 							if (!meetsCardNameFilter(card, cardNameFilter)) continue;
 							if (!meetsCategoryFilter(card, categoryFilter)) continue;
 							if (excludeName != null && excludeName.equalsIgnoreCase(card.name())) continue;
+							if (withoutMulticard && card.multicard()) continue;
 							if (isBlockingTargetFilter(condition)
 									? meetsBlockingTargetFilter(true, i, condition)
 									: meetsTargetCondition(p1ForwardStates.get(i), p1ForwardDamage.get(i),
@@ -8191,6 +8294,7 @@ public class MainWindow {
 							if (!meetsCardNameFilter(p1BackupCards[i], cardNameFilter)) continue;
 							if (!meetsCategoryFilter(p1BackupCards[i], categoryFilter)) continue;
 							if (excludeName != null && excludeName.equalsIgnoreCase(p1BackupCards[i].name())) continue;
+							if (withoutMulticard && p1BackupCards[i].multicard()) continue;
 							if (meetsTargetCondition(p1BackupStates[i], 0, false, false, condition))
 								eligible.add(new ForwardTarget(true, i, ForwardTarget.CardZone.BACKUP));
 						}
@@ -8206,6 +8310,7 @@ public class MainWindow {
 							if (!meetsCardNameFilter(card, cardNameFilter)) continue;
 							if (!meetsCategoryFilter(card, categoryFilter)) continue;
 							if (excludeName != null && excludeName.equalsIgnoreCase(card.name())) continue;
+							if (withoutMulticard && card.multicard()) continue;
 							if (meetsTargetCondition(p1MonsterStates.get(i), 0, false, false, condition))
 								eligible.add(new ForwardTarget(true, i, ForwardTarget.CardZone.MONSTER));
 						}
@@ -8398,7 +8503,7 @@ public class MainWindow {
 					int powerVal, String powerCmp,
 					boolean inclForwards, boolean inclBackups, boolean inclMonsters,
 					String jobFilter, String cardNameFilter, String categoryFilter, String excludeName, boolean inclSummons,
-					String excludeElement) {
+					String excludeElement, boolean withoutMulticard) {
 				java.util.List<CardData> bz = opponentZone
 						? gameState.getP2BreakZone() : gameState.getP1BreakZone();
 				java.util.List<ForwardTarget> eligible = new ArrayList<>();
@@ -8415,6 +8520,7 @@ public class MainWindow {
 					if (!meetsCardNameFilter(card, cardNameFilter)) continue;
 					if (!meetsCategoryFilter(card, categoryFilter)) continue;
 					if (excludeName != null && excludeName.equalsIgnoreCase(card.name())) continue;
+					if (withoutMulticard && card.multicard()) continue;
 					ForwardTarget.CardZone cz = card.isBackup()  ? ForwardTarget.CardZone.BACKUP
 					                         : card.isMonster() ? ForwardTarget.CardZone.MONSTER
 					                         :                    ForwardTarget.CardZone.FORWARD;
@@ -8691,7 +8797,8 @@ public class MainWindow {
 			@Override public void playCharacterFromHand(boolean inclForwards, boolean inclBackups,
 					boolean inclMonsters, int costVal, String costCmp, int costVal2,
 					String jobFilter, String cardNameFilter, String categoryFilter,
-					String elementFilter, String excludeName, boolean entersDull, String excludeElement) {
+					String elementFilter, String excludeName, boolean entersDull, String excludeElement,
+					boolean suppressAutoAbility) {
 				java.util.List<CardData> hand = gameState.getP1Hand();
 				java.util.List<Integer> eligible = new ArrayList<>();
 				for (int i = 0; i < hand.size(); i++) {
@@ -8730,7 +8837,9 @@ public class MainWindow {
 				if (listIdx < 0) return;
 				int handIdx = eligible.get(listIdx);
 				CardData card = hand.remove(handIdx);
-				logEntry(card.name() + " played from hand onto field" + (entersDull ? " (dull)" : ""));
+				logEntry(card.name() + " played from hand onto field" + (entersDull ? " (dull)" : "")
+						+ (suppressAutoAbility ? " (no ETF auto-ability)" : ""));
+				if (suppressAutoAbility) suppressAutoAbilityForNextCard = true;
 				if (card.isBackup()) {
 					placeCardInFirstBackupSlot(card);
 				} else if (card.isMonster()) {
