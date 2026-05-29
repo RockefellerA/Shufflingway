@@ -6494,13 +6494,15 @@ public class MainWindow {
 	 */
 	private void triggerAutoAbilitiesForWarpCounterRemoved(CardData target) {
 		List<CardData> all = new ArrayList<>();
+		List<GameState.WarpEntry> warpZone = gameState.getP1WarpZone();
 		all.addAll(p1ForwardCards);
 		for (CardData c : p1BackupCards) if (c != null) all.add(c);
+		for (GameState.WarpEntry we : warpZone) if (we != null) all.add(we.card);
 		all.addAll(p1MonsterCards);
 		for (CardData card : all)
 			for (AutoAbility fa : card.autoAbilities())
 				if (fa.trigger().equals("warp counter removed")
-						&& fa.triggerCard().equalsIgnoreCase(target.name()))
+						&& (fa.triggerCard().equalsIgnoreCase("any player's card") || fa.triggerCard().equalsIgnoreCase(target.name())))
 					executeAutoAbility(fa, card, true);
 	}
 
