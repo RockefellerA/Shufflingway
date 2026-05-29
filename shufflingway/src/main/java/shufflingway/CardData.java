@@ -1362,6 +1362,15 @@ public record CardData(
     );
 
     /**
+     * Matches "[CardName] also becomes a Forward with [X] power." with no leading condition.
+     * Used to detect the damage-threshold variant after "Damage N -- " has been stripped.
+     * Group {@code power} captures the numeric power value.
+     */
+    private static final Pattern BECOME_FORWARD_UNCONDITIONAL_PATTERN = Pattern.compile(
+        "(?i)^.+?\\s+also\\s+becomes?\\s+a\\s+Forward\\s+with\\s+(?<power>\\d+)\\s+power"
+    );
+
+    /**
      * Matches "[CardName] has all the Elements [except X[, Y, ...]]." as a field ability.
      * Group {@code exceptions} captures the comma- or "and"-separated exclusion list, if any.
      */
@@ -1433,7 +1442,8 @@ public record CardData(
             if (IS_ALSO_MONSTER_PATTERN.matcher(seg).find())                continue;
             if (ENTERS_FIELD_DULL_PATTERN.matcher(seg).matches())           continue;
             if (ALIAS_PLAY_RESTRICTION_PATTERN.matcher(seg).matches())      continue;
-            if (BECOME_FORWARD_DURING_TURN_PATTERN.matcher(seg).find())     continue;
+            if (BECOME_FORWARD_DURING_TURN_PATTERN.matcher(seg).find())       continue;
+            if (BECOME_FORWARD_UNCONDITIONAL_PATTERN.matcher(seg).find())     continue;
 
             result.add(new FieldAbility(seg, damageThreshold));
         }
@@ -1783,19 +1793,37 @@ public record CardData(
     }
 
     /**
-     * Carries the parsed "During your turn, [name] also becomes a Forward with [power]"
-     * field ability. {@code power} is the printed power value (e.g. 7000).
+     * Carries the parsed "also becomes a Forward with [power]" ability.
+     * {@code power} is the printed power value (e.g. 7000).
+     * {@code damageThreshold} is the minimum damage zone size required; {@code 0} means the
+     * "During your turn" variant (active only on the controlling player's turn, no damage requirement).
      */
-    public record BecomeForwardAbility(int power) {}
+    public record BecomeForwardAbility(int power, int damageThreshold) {}
 
     /**
-     * Returns the {@link BecomeForwardAbility} for this card, or {@code null} if it has no
-     * "During your turn, … also becomes a Forward with N power" field ability.
+     * Returns the {@link BecomeForwardAbility} for this card, or {@code null} if it has none.
+     * Recognises two forms:
+     * <ul>
+     *   <li>"During your turn, [name] also becomes a Forward with N power" → threshold 0</li>
+     *   <li>"Damage N -- [name] also becomes a Forward with M power" → threshold N</li>
+     * </ul>
      */
     public BecomeForwardAbility becomeForwardAbility() {
         for (String seg : rawFieldSegments()) {
             Matcher m = BECOME_FORWARD_DURING_TURN_PATTERN.matcher(seg);
-            if (m.find()) return new BecomeForwardAbility(Integer.parseInt(m.group("power")));
+            if (m.find()) return new BecomeForwardAbility(Integer.parseInt(m.group("power")), 0);
+
+            int threshold = 0;
+            String check = seg;
+            Matcher dtM = DAMAGE_THRESHOLD_PREFIX.matcher(seg);
+            if (dtM.find()) {
+                threshold = Integer.parseInt(dtM.group(1));
+                check = seg.substring(dtM.end()).trim();
+            }
+            if (threshold > 0) {
+                Matcher m2 = BECOME_FORWARD_UNCONDITIONAL_PATTERN.matcher(check);
+                if (m2.find()) return new BecomeForwardAbility(Integer.parseInt(m2.group("power")), threshold);
+            }
         }
         return null;
     }
