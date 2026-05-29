@@ -1449,6 +1449,24 @@ public class ActionResolver {
     );
 
     /**
+     * Matches "Deal each [condition] Forward[s] [opponent controls] damage equal to half of its power
+     * [(round up to the nearest 1000)]."
+     * <ul>
+     *   <li>Group {@code condition} — optional "damaged", "dull", "attacking", or "blocking"</li>
+     *   <li>Group {@code opponent}  — present when "opponent controls" appears</li>
+     * </ul>
+     */
+    private static final Pattern DEAL_HALF_POWER_DAMAGE_TO_FORWARDS = Pattern.compile(
+        "(?i)Deal\\s+each(?:\\s+the)?\\s+" +
+        "(?:(?<condition>damaged|dull|attacking|blocking)\\s+)?" +
+        "Forwards?\\s+" +
+        "(?<opponent>(?:your\\s+)?opponent\\s+controls\\s+)?" +
+        "damage\\s+equal\\s+to\\s+half\\s+of\\s+its\\s+power" +
+        "(?:\\s*\\(\\s*round\\s+up\\s+to\\s+the\\s+nearest\\s+1000\\s*\\))?" +
+        "[.!]?"
+    );
+
+    /**
      * Matches "During this turn, the cost required to cast your next [filter] is reduced by N
      * [(it cannot become 0)][.]"
      * <ul>
@@ -1581,6 +1599,9 @@ public class ActionResolver {
         if (result != null) return result;
 
         result = tryParseDealDamageToForwards(effectText);
+        if (result != null) return result;
+
+        result = tryParseDealHalfPowerDamageToForwards(effectText);
         if (result != null) return result;
 
         result = tryParseChooseCharacter(effectText, source, xValue);
@@ -1794,9 +1815,10 @@ public class ActionResolver {
 
     /** Returns the name of the first pattern that matches {@code effectText}, or {@code null}. */
     public static String matchedPatternName(String effectText, CardData source) {
-        if (tryParseSelectNumber(effectText, source)          != null) return "SelectNumber";
-        if (tryParseDealDamageToForwards(effectText)          != null) return "DealDamageToForwards";
-        if (tryParseChooseCharacter(effectText, source, 0)    != null) return "ChooseCharacter";
+        if (tryParseSelectNumber(effectText, source)                    != null) return "SelectNumber";
+        if (tryParseDealDamageToForwards(effectText)                    != null) return "DealDamageToForwards";
+        if (tryParseDealHalfPowerDamageToForwards(effectText)           != null) return "DealHalfPowerDamageToForwards";
+        if (tryParseChooseCharacter(effectText, source, 0)              != null) return "ChooseCharacter";
         if (tryParseEndOfEachTurnFieldAbility(effectText, source) != null) return "EndOfEachTurnFieldAbility";
         if (tryParseDelayedEffect(effectText)                 != null) return "DelayedEffect";
         if (tryParseCannotBeChosenStandalone(effectText, source) != null) return "CannotBeChosen";
@@ -1942,8 +1964,9 @@ public class ActionResolver {
         if (CardData.WHILE_CARD_ATTACKING_PATTERN.matcher(effectText).matches())  return "WhileCardAttacking";
         if (CardData.WHILE_CARD_BLOCKING_PATTERN.matcher(effectText).matches())   return "WhileCardBlocking";
         if (CardData.WHILE_CARD_IN_HAND_PATTERN.matcher(effectText).matches())   return "WhileCardInHand";
-        if (tryParseSelectNumber(effectText, source) != null)               return "SelectNumber";
-        if (tryParseDealDamageToForwards(effectText) != null)               return "DealDamageToForwards";
+        if (tryParseSelectNumber(effectText, source)          != null) return "SelectNumber";
+        if (tryParseDealDamageToForwards(effectText)          != null) return "DealDamageToForwards";
+        if (tryParseDealHalfPowerDamageToForwards(effectText) != null) return "DealHalfPowerDamageToForwards";
 
         Matcher chooseM = CHOOSE_CHARACTER_PATTERN.matcher(effectText);
         if (chooseM.find()) {
@@ -2179,6 +2202,55 @@ public class ActionResolver {
                 }
             }
         };
+    }
+
+    private static Consumer<GameContext> tryParseDealHalfPowerDamageToForwards(String text) {
+        Matcher m = DEAL_HALF_POWER_DAMAGE_TO_FORWARDS.matcher(text);
+        if (!m.find()) return null;
+
+        String  condition    = m.group("condition");
+        boolean opponentOnly = m.group("opponent") != null;
+
+        return ctx -> {
+            String  condLabel  = condition   != null ? (condition + " ")  : "";
+            boolean oppIsP2    = opponentOnly && ctx.isP1();
+            boolean oppIsP1    = opponentOnly && !ctx.isP1();
+            String  scopeLabel = opponentOnly ? "opponent's " : "all ";
+            ctx.logEntry("Effect: Deal each " + scopeLabel + condLabel
+                    + "Forward damage equal to half power (round up to nearest 1000)");
+
+            if (!opponentOnly || oppIsP2) {
+                List<Integer> p2Targets = new ArrayList<>();
+                for (int i = 0; i < ctx.p2ForwardCount(); i++) {
+                    if (meetsCondition(ctx.p2ForwardState(i), ctx.p2ForwardCurrentDamage(i),
+                            ctx.isP2ForwardAttacking(i), ctx.isP2ForwardBlocking(i), condition))
+                        p2Targets.add(i);
+                }
+                for (int i = p2Targets.size() - 1; i >= 0; i--) {
+                    int idx = p2Targets.get(i);
+                    if (idx < ctx.p2ForwardCount())
+                        ctx.damageP2Forward(idx, halfPowerDamage(ctx.p2Forward(idx).power()));
+                }
+            }
+
+            if (!opponentOnly || oppIsP1) {
+                List<Integer> p1Targets = new ArrayList<>();
+                for (int i = 0; i < ctx.p1ForwardCount(); i++) {
+                    if (meetsCondition(ctx.p1ForwardState(i), ctx.p1ForwardCurrentDamage(i),
+                            ctx.isP1ForwardAttacking(i), ctx.isP1ForwardBlocking(i), condition))
+                        p1Targets.add(i);
+                }
+                for (int i = p1Targets.size() - 1; i >= 0; i--) {
+                    int idx = p1Targets.get(i);
+                    if (idx < ctx.p1ForwardCount())
+                        ctx.damageP1Forward(idx, halfPowerDamage(ctx.p1Forward(idx).power()));
+                }
+            }
+        };
+    }
+
+    private static int halfPowerDamage(int power) {
+        return (int)(Math.ceil(power / 2.0 / 1000) * 1000);
     }
 
     // -------------------------------------------------------------------------
