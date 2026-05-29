@@ -247,6 +247,21 @@ public class GameState {
         return null;
     }
 
+    public List<CardData> findMatchingNamesInP2MainDeck(String name) {
+        List<CardData> result = new ArrayList<>();
+        for (CardData c : p2MainDeck)
+            if (name.equalsIgnoreCase(c.name())) result.add(c);
+        return result;
+    }
+
+    public boolean removeFromP2MainDeck(CardData card) {
+        java.util.Iterator<CardData> it = p2MainDeck.iterator();
+        while (it.hasNext()) {
+            if (it.next().equals(card)) { it.remove(); return true; }
+        }
+        return false;
+    }
+
     /**
      * Populates decks from lists of CardData (already separated into main / LB).
      * Shuffles the main deck before loading it.

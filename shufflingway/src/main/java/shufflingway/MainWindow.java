@@ -178,6 +178,7 @@ public class MainWindow {
 	private final List<Integer>   p1ForwardDamage       = new ArrayList<>();
 	/** Top card of a Primed stack; {@code null} at each index means not primed. */
 	private final List<CardData>  p1ForwardPrimedTop   = new ArrayList<>();
+	private final List<CardData>  p2ForwardPrimedTop   = new ArrayList<>();
 	/** Per-slot frozen flags — independent of CardState (a card may be Dulled AND frozen). */
 	private final List<Boolean>   p1ForwardFrozen      = new ArrayList<>();
 	private final List<Boolean>   p2ForwardFrozen      = new ArrayList<>();
@@ -1694,6 +1695,7 @@ public class MainWindow {
 		p2ForwardPowerReduction.clear();
 		p2ForwardTempTraits.clear();
 		p2ForwardRemovedTraits.clear();
+		p2ForwardPrimedTop.clear();
 		p2ForwardFrozen.clear();
 		java.util.Arrays.fill(p2BackupFrozen, false);
 
@@ -2193,7 +2195,7 @@ public class MainWindow {
 			logEntry(card.name() + " + " + topCard.name() + " → Break Zone (Primed)");
 			gameState.getP1BreakZone().remove(topCard);
 			gameState.addToP1PermanentRfp(topCard);
-			logEntry(topCard.name() + " → Removed From Game");
+			logEntry(topCard.name() + " → Removed From Play");
 		} else {
 			addToP1BreakZone(card);
 			logEntry(card.name() + " → Break Zone");
@@ -2263,6 +2265,7 @@ public class MainWindow {
 		checkAndRestoreStolenOnLeave(card.name());
 
 		refreshP1BreakLabel();
+		if (topCard != null) refreshP1WarpZoneUI();
 		triggerAutoAbilitiesForLeavesField(card, true);
 		triggerAutoAbilitiesForBreakZone(card, true);
 	}
@@ -2271,10 +2274,21 @@ public class MainWindow {
 	private void breakP2Forward(int idx) {
 		if (idx < 0 || idx >= p2ForwardCards.size()) return;
 		startBreakAnim(p2ForwardLabels.get(idx));
-		CardData card = p2ForwardCards.get(idx);
+		CardData card    = p2ForwardCards.get(idx);
 		boolean hadGrants = !card.fieldPowerGrants().isEmpty();
-		addToP2BreakZone(card);
-		logEntry("[P2] " + card.name() + " → Break Zone");
+		CardData topCard = p2ForwardPrimedTop.get(idx);
+
+		if (topCard != null) {
+			addToP2BreakZone(card);
+			addToP2BreakZone(topCard);
+			logEntry("[P2] " + card.name() + " + " + topCard.name() + " → Break Zone (Primed)");
+			gameState.getP2BreakZone().remove(topCard);
+			gameState.addToP2PermanentRfp(topCard);
+			logEntry("[P2] " + topCard.name() + " → Removed From Play");
+		} else {
+			addToP2BreakZone(card);
+			logEntry("[P2] " + card.name() + " → Break Zone");
+		}
 
 		p2ForwardCards.remove(idx);
 		p2ForwardUrls.remove(idx);
@@ -2285,6 +2299,7 @@ public class MainWindow {
 		p2ForwardPowerReduction.remove(idx);
 		p2ForwardTempTraits.remove(idx);
 		p2ForwardRemovedTraits.remove(idx);
+		p2ForwardPrimedTop.remove(idx);
 		p2ForwardFrozen.remove(idx);
 		p2ForwardLabels.remove(idx);
 		shiftBlockSet(p2ForwardCannotBlock,              idx);
@@ -2324,6 +2339,7 @@ public class MainWindow {
 		refreshP2BreakLabel();
 		triggerAutoAbilitiesForLeavesField(card, false);
 		triggerAutoAbilitiesForBreakZone(card, false);
+		if (topCard != null) triggerAutoAbilitiesForBreakZone(topCard, false);
 	}
 
 	// -------------------------------------------------------------------------
@@ -2431,6 +2447,7 @@ public class MainWindow {
 		p2ForwardPowerReduction.remove(p2Idx);
 		p2ForwardTempTraits.remove(p2Idx);
 		p2ForwardRemovedTraits.remove(p2Idx);
+		p2ForwardPrimedTop.remove(p2Idx);
 		p2ForwardFrozen.remove(p2Idx);
 		p2ForwardLabels.remove(p2Idx);
 		shiftBlockSet(p2ForwardCannotBlock,            p2Idx);
@@ -2624,9 +2641,8 @@ public class MainWindow {
 		CardData topCard = p1ForwardPrimedTop.get(idx);
 		String   pos     = toBottom ? "bottom" : "top";
 		if (topCard != null) {
-			addToP1BreakZone(topCard);
 			gameState.addToP1PermanentRfp(topCard);
-			logEntry(topCard.name() + " → Removed From Game");
+			logEntry(topCard.name() + " → Removed From Play");
 		}
 		if (toBottom) gameState.getP1MainDeck().addLast(card);
 		else          gameState.getP1MainDeck().addFirst(card);
@@ -2690,13 +2706,19 @@ public class MainWindow {
 			for (int i = 0; i < p1ForwardCards.size(); i++) refreshP1ForwardSlot(i);
 		}
 		refreshP1DeckLabel();
+		if (topCard != null) refreshP1WarpZoneUI();
 		triggerAutoAbilitiesForLeavesField(card, true);
 	}
 
 	private void returnP2ForwardToDeck(int idx, boolean toBottom) {
 		if (idx < 0 || idx >= p2ForwardCards.size()) return;
-		CardData card = p2ForwardCards.get(idx);
-		String   pos  = toBottom ? "bottom" : "top";
+		CardData card    = p2ForwardCards.get(idx);
+		CardData topCard = p2ForwardPrimedTop.get(idx);
+		String   pos     = toBottom ? "bottom" : "top";
+		if (topCard != null) {
+			gameState.addToP2PermanentRfp(topCard);
+			logEntry("[P2] " + topCard.name() + " → Removed From Play");
+		}
 		if (toBottom) gameState.getP2MainDeck().addLast(card);
 		else          gameState.getP2MainDeck().addFirst(card);
 		logEntry("[P2] " + card.name() + " → " + pos + " of deck");
@@ -2710,6 +2732,7 @@ public class MainWindow {
 		p2ForwardPowerReduction.remove(idx);
 		p2ForwardTempTraits.remove(idx);
 		p2ForwardRemovedTraits.remove(idx);
+		p2ForwardPrimedTop.remove(idx);
 		p2ForwardFrozen.remove(idx);
 		p2ForwardLabels.remove(idx);
 		shiftBlockSet(p2ForwardCannotBlock,            idx);
@@ -2754,9 +2777,8 @@ public class MainWindow {
 		CardData card    = p1ForwardCards.get(idx);
 		CardData topCard = p1ForwardPrimedTop.get(idx);
 		if (topCard != null) {
-			addToP1BreakZone(topCard);
 			gameState.addToP1PermanentRfp(topCard);
-			logEntry(topCard.name() + " → Removed From Game");
+			logEntry(topCard.name() + " → Removed From Play");
 		}
 		Deque<CardData> deck = gameState.getP1MainDeck();
 		List<CardData> preserved = new ArrayList<>();
@@ -2823,12 +2845,18 @@ public class MainWindow {
 			for (int i = 0; i < p1ForwardCards.size(); i++) refreshP1ForwardSlot(i);
 		}
 		refreshP1DeckLabel();
+		if (topCard != null) refreshP1WarpZoneUI();
 		triggerAutoAbilitiesForLeavesField(card, true);
 	}
 
 	private void returnP2ForwardUnderDeckTop(int idx, int position) {
 		if (idx < 0 || idx >= p2ForwardCards.size()) return;
-		CardData card = p2ForwardCards.get(idx);
+		CardData card    = p2ForwardCards.get(idx);
+		CardData topCard = p2ForwardPrimedTop.get(idx);
+		if (topCard != null) {
+			gameState.addToP2PermanentRfp(topCard);
+			logEntry("[P2] " + topCard.name() + " → Removed From Play");
+		}
 		Deque<CardData> deck = gameState.getP2MainDeck();
 		List<CardData> preserved = new ArrayList<>();
 		for (int i = 0; i < position && !deck.isEmpty(); i++) preserved.add(deck.pollFirst());
@@ -2845,6 +2873,7 @@ public class MainWindow {
 		p2ForwardPowerReduction.remove(idx);
 		p2ForwardTempTraits.remove(idx);
 		p2ForwardRemovedTraits.remove(idx);
+		p2ForwardPrimedTop.remove(idx);
 		p2ForwardFrozen.remove(idx);
 		p2ForwardLabels.remove(idx);
 		shiftBlockSet(p2ForwardCannotBlock,            idx);
@@ -3053,9 +3082,8 @@ public class MainWindow {
 		boolean hadGrants = !card.fieldPowerGrants().isEmpty();
 		CardData topCard = p1ForwardPrimedTop.get(idx);
 		if (topCard != null) {
-			addToP1BreakZone(topCard);
 			gameState.addToP1PermanentRfp(topCard);
-			logEntry(topCard.name() + " → Removed From Game");
+			logEntry(topCard.name() + " → Removed From Play");
 		}
 		gameState.getP1Hand().add(card);
 		logEntry(card.name() + " → returned to hand");
@@ -3119,13 +3147,19 @@ public class MainWindow {
 		}
 		if (hadGrants) for (int i = 0; i < p1MonsterCards.size(); i++) refreshP1MonsterSlot(i);
 		refreshP1HandLabel();
+		if (topCard != null) refreshP1WarpZoneUI();
 		triggerAutoAbilitiesForLeavesField(card, true);
 	}
 
 	private void returnP2ForwardToHand(int idx) {
 		if (idx < 0 || idx >= p2ForwardCards.size()) return;
-		CardData card = p2ForwardCards.get(idx);
+		CardData card    = p2ForwardCards.get(idx);
 		boolean hadGrants = !card.fieldPowerGrants().isEmpty();
+		CardData topCard = p2ForwardPrimedTop.get(idx);
+		if (topCard != null) {
+			gameState.addToP2PermanentRfp(topCard);
+			logEntry("[P2] " + topCard.name() + " → Removed From Play");
+		}
 		gameState.getP2Hand().add(card);
 		logEntry("[P2] " + card.name() + " → returned to hand");
 
@@ -3138,6 +3172,7 @@ public class MainWindow {
 		p2ForwardPowerReduction.remove(idx);
 		p2ForwardTempTraits.remove(idx);
 		p2ForwardRemovedTraits.remove(idx);
+		p2ForwardPrimedTop.remove(idx);
 		p2ForwardFrozen.remove(idx);
 		p2ForwardLabels.remove(idx);
 		shiftBlockSet(p2ForwardCannotBlock,            idx);
@@ -10103,7 +10138,7 @@ public class MainWindow {
 				p2ForwardStates.remove(i); p2ForwardPlayedOnTurn.remove(i);
 				p2ForwardDamage.remove(i); p2ForwardPowerBoost.remove(i);
 				p2ForwardPowerReduction.remove(i); p2ForwardTempTraits.remove(i);
-				p2ForwardRemovedTraits.remove(i); p2ForwardFrozen.remove(i);
+				p2ForwardRemovedTraits.remove(i); p2ForwardPrimedTop.remove(i); p2ForwardFrozen.remove(i);
 				p2ForwardLabels.remove(i);
 				shiftBlockSet(p2ForwardCannotBlock, i); shiftBlockSet(p2ForwardMustBlock, i);
 				shiftBlockSet(p2ForwardCannotAttack, i); shiftBlockSet(p2ForwardMustAttack, i);
@@ -11594,7 +11629,8 @@ public class MainWindow {
 			GameState.GamePhase phase = gameState.getCurrentPhase();
 			boolean isMainPhase = phase == GameState.GamePhase.MAIN_1 || phase == GameState.GamePhase.MAIN_2;
 			JMenuItem primeItem = new JMenuItem("Prime (" + fwd.primingTarget() + ")");
-			primeItem.setEnabled(isMainPhase && !alreadyPrimed && canAffordPrimingCost(fwd));
+			primeItem.setEnabled(isMainPhase && !alreadyPrimed && canAffordPrimingCost(fwd)
+					&& !primingTargetOnField(fwd.primingTarget()));
 			primeItem.addActionListener(ae -> showPrimingPaymentDialog(fwd, idx));
 			menu.add(primeItem);
 		}
@@ -11622,10 +11658,55 @@ public class MainWindow {
 
 	private void showP2ForwardContextMenu(int idx, JLabel slot, MouseEvent e) {
 		JPopupMenu menu = new JPopupMenu();
-		addAbilityMenuItems(menu, p2ForwardCards.get(idx), p2ForwardFrozen.get(idx),
+		CardData fwd         = p2ForwardCards.get(idx);
+		CardData effectiveFwd = p2ForwardPrimedTop.get(idx) != null ? p2ForwardPrimedTop.get(idx) : fwd;
+		addAbilityMenuItems(menu, effectiveFwd, p2ForwardFrozen.get(idx),
 				p2ForwardStates.get(idx), p2ForwardPlayedOnTurn.get(idx),
 				() -> { p2ForwardStates.set(idx, CardState.DULL); refreshP2ForwardSlot(idx); }, false);
+
+		if (fwd.hasPriming()) {
+			boolean alreadyPrimed = p2ForwardPrimedTop.get(idx) != null;
+			JMenuItem primeItem = new JMenuItem("Prime (" + fwd.primingTarget() + ")");
+			primeItem.setEnabled(!alreadyPrimed && !primingTargetOnField(fwd.primingTarget()));
+			primeItem.addActionListener(ae -> applyP2PrimedCard(fwd, idx));
+			menu.add(primeItem);
+		}
+
 		if (menu.getComponentCount() > 0) menu.show(slot, e.getX(), e.getY());
+	}
+
+	/** Searches P2's deck for the priming target and sets it as the top card of the primed forward. */
+	private void applyP2PrimedCard(CardData primingCard, int slotIdx) {
+		String target = primingCard.primingTarget();
+		List<CardData> matches = gameState.findMatchingNamesInP2MainDeck(target);
+		if (matches.isEmpty()) {
+			logEntry("[P2] Priming: \"" + target + "\" not found in deck");
+			return;
+		}
+		CardData chosen = matches.get(0);
+		gameState.removeFromP2MainDeck(chosen);
+		p2ForwardPrimedTop.set(slotIdx, chosen);
+		logEntry("[P2] Primed: \"" + primingCard.name() + "\" topped with \"" + chosen.name() + "\"");
+		refreshP2ForwardSlot(slotIdx);
+	}
+
+	/**
+	 * Returns true if {@code targetName} is already present on either player's field
+	 * (as a base forward or a primed top card), which would violate the uniqueness rule
+	 * if priming were performed.
+	 */
+	private boolean primingTargetOnField(String targetName) {
+		for (int i = 0; i < p1ForwardCards.size(); i++) {
+			if (p1ForwardCards.get(i).name().equalsIgnoreCase(targetName)) return true;
+			CardData top = p1ForwardPrimedTop.get(i);
+			if (top != null && top.name().equalsIgnoreCase(targetName)) return true;
+		}
+		for (int i = 0; i < p2ForwardCards.size(); i++) {
+			if (p2ForwardCards.get(i).name().equalsIgnoreCase(targetName)) return true;
+			CardData top = p2ForwardPrimedTop.get(i);
+			if (top != null && top.name().equalsIgnoreCase(targetName)) return true;
+		}
+		return false;
 	}
 
 	/** Returns true if the player can afford the Priming cost of {@code card} (card is on the field, not in hand). */
@@ -12332,7 +12413,9 @@ public class MainWindow {
 					showP2ForwardContextMenu(idx, lbl, e);
 			}
 			@Override public void mouseEntered(MouseEvent e) {
-				if (lbl.getIcon() != null) showZoomAt(p2ForwardUrls.get(idx));
+				if (lbl.getIcon() == null) return;
+				CardData top = p2ForwardPrimedTop.get(idx);
+				showZoomAt(top != null ? top.imageUrl() : p2ForwardUrls.get(idx));
 			}
 			@Override public void mouseExited(MouseEvent e) { hideZoom(); }
 		});
@@ -12346,6 +12429,7 @@ public class MainWindow {
 		p2ForwardPowerReduction.add(0);
 		p2ForwardTempTraits.add(java.util.EnumSet.noneOf(CardData.Trait.class));
 		p2ForwardRemovedTraits.add(java.util.EnumSet.noneOf(CardData.Trait.class));
+		p2ForwardPrimedTop.add(null);
 		p2ForwardFrozen.add(false);
 		p2ForwardLabels.add(lbl);
 
@@ -12393,13 +12477,14 @@ public class MainWindow {
 	}
 
 	private void refreshP2ForwardSlot(int idx) {
-		String url      = p2ForwardUrls.get(idx);
+		CardData topCard = p2ForwardPrimedTop.get(idx);
+		String url      = topCard != null ? topCard.imageUrl() : p2ForwardUrls.get(idx);
 		CardState state = p2ForwardStates.get(idx);
 		JLabel slot     = p2ForwardLabels.get(idx);
 		if (url == null) return;
 		int damage    = p2ForwardDamage.get(idx);
 		int power     = effectiveP2ForwardPower(idx);
-		int basePower = p2ForwardCards.get(idx).power();
+		int basePower = (topCard != null ? topCard : p2ForwardCards.get(idx)).power();
 		if (slot.getIcon() == null) slot.setIcon(new ImageIcon(CardAnimation.renderPlaceholder(state)));
 		new SwingWorker<ImageIcon, Void>() {
 			@Override protected ImageIcon doInBackground() throws Exception {

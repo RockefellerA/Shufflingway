@@ -2116,31 +2116,35 @@ public class ActionResolver {
             String condLabel   = condition  != null ? (condition + " ")   : "";
             String costLabel   = costVal >= 0 ? " of cost " + costVal + (costCmp != null ? " or " + costCmp : "") : "";
             String exclLabel   = excludeJob != null ? " [not Job " + excludeJob + "]" : "";
-            String scopeLabel  = opponentOnly ? "P2's " : "all ";
+            boolean oppIsP2    = opponentOnly && ctx.isP1();   // ability owner is P1 → opponent is P2
+            boolean oppIsP1    = opponentOnly && !ctx.isP1();  // ability owner is P2 → opponent is P1
+            String scopeLabel  = opponentOnly ? "opponent's " : "all ";
             String unredLabel  = unreduced ? " (cannot be reduced)" : "";
             ctx.logEntry("Effect: Deal " + damage + " damage to "
                     + scopeLabel + condLabel + "Forwards" + costLabel + exclLabel + unredLabel);
 
-            // --- P2 forwards (always included) ---
-            List<Integer> p2Targets = new ArrayList<>();
-            for (int i = 0; i < ctx.p2ForwardCount(); i++) {
-                CardData c = ctx.p2Forward(i);
-                if (!meetsCostFilter(c.cost(), costVal, costCmp)) continue;
-                if (excludeJob != null && excludeJob.equalsIgnoreCase(c.job())) continue;
-                if (meetsCondition(ctx.p2ForwardState(i), ctx.p2ForwardCurrentDamage(i),
-                        ctx.isP2ForwardAttacking(i), ctx.isP2ForwardBlocking(i), condition))
-                    p2Targets.add(i);
-            }
-            for (int i = p2Targets.size() - 1; i >= 0; i--) {
-                int idx = p2Targets.get(i);
-                if (idx < ctx.p2ForwardCount()) {
-                    if (unreduced) ctx.damageP2ForwardUnreduced(idx, damage);
-                    else           ctx.damageP2Forward(idx, damage);
+            // --- P2 forwards (included when not opponent-only, or when opponent IS P2) ---
+            if (!opponentOnly || oppIsP2) {
+                List<Integer> p2Targets = new ArrayList<>();
+                for (int i = 0; i < ctx.p2ForwardCount(); i++) {
+                    CardData c = ctx.p2Forward(i);
+                    if (!meetsCostFilter(c.cost(), costVal, costCmp)) continue;
+                    if (excludeJob != null && excludeJob.equalsIgnoreCase(c.job())) continue;
+                    if (meetsCondition(ctx.p2ForwardState(i), ctx.p2ForwardCurrentDamage(i),
+                            ctx.isP2ForwardAttacking(i), ctx.isP2ForwardBlocking(i), condition))
+                        p2Targets.add(i);
+                }
+                for (int i = p2Targets.size() - 1; i >= 0; i--) {
+                    int idx = p2Targets.get(i);
+                    if (idx < ctx.p2ForwardCount()) {
+                        if (unreduced) ctx.damageP2ForwardUnreduced(idx, damage);
+                        else           ctx.damageP2Forward(idx, damage);
+                    }
                 }
             }
 
-            // --- P1 forwards (only when effect is not opponent-only) ---
-            if (!opponentOnly) {
+            // --- P1 forwards (included when not opponent-only, or when opponent IS P1) ---
+            if (!opponentOnly || oppIsP1) {
                 List<Integer> p1Targets = new ArrayList<>();
                 for (int i = 0; i < ctx.p1ForwardCount(); i++) {
                     CardData c = ctx.p1Forward(i);
