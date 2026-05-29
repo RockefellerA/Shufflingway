@@ -869,7 +869,9 @@ public record CardData(
         "(?i)(?:Damage\\s+(?<threshold>\\d+)\\s+--\\s+)?" +
         "When\\s+(?<card>[^,]+?)\\s+" +
         "(?<trigger>" +
-            "attacks?(?:\\s+or\\s+blocks?)?|blocks?" +
+            "attacks?(?:\\s+or\\s+blocks?)?" +
+            "|blocks?(?:\\s+or\\s+is\\s+blocked)?" +
+            "|is\\s+blocked" +
             // "enters the field or attacks" must precede plain "enters the field"
             "|enters?\\s+the\\s+field\\s+or\\s+attacks?" +
             "|enters?\\s+the\\s+field(?:\\s+due\\s+to\\s+(?:your\\s+cast|Warp))?" +
@@ -883,7 +885,7 @@ public record CardData(
         ")\\s*,\\s+" +
         "(?<youmay>(?:you|your\\s+opponent)\\s+may\\s+)?" +
         "(?<effect>.+?)\\s*" +
-        "(?=\\s*\\[\\[br\\]\\]|\\s*When\\s+[^,]+?\\s+(?:attacks?|blocks?|enters?|leaves?|is\\s+(?:put|removed)|deals?)|\\s*(?:《[^》]+》)+\\s*:|\\s*$)",
+        "(?=\\s*\\[\\[br\\]\\]|\\s*When\\s+[^,]+?\\s+(?:attacks?|blocks?|enters?|leaves?|is\\s+(?:put|removed|blocked)|deals?)|\\s*(?:《[^》]+》)+\\s*:|\\s*$)",
         Pattern.DOTALL
     );
 
@@ -907,7 +909,7 @@ public record CardData(
         "(?i)When\\s+a\\s+Warp\\s+Counter\\s+is\\s+removed\\s+from\\s+(?<target>[^,]+?)\\s*,\\s+" +
         "(?<youmay>(?:you|your\\s+opponent)\\s+may\\s+)?" +
         "(?<effect>.+?)\\s*" +
-        "(?=\\s*\\[\\[br\\]\\]|\\s*When\\s+[^,]+?\\s+(?:attacks?|blocks?|enters?|leaves?|is\\s+(?:put|removed))|\\s*(?:《[^》]+》)+\\s*:|\\s*$)",
+        "(?=\\s*\\[\\[br\\]\\]|\\s*When\\s+[^,]+?\\s+(?:attacks?|blocks?|enters?|leaves?|is\\s+(?:put|removed|blocked))|\\s*(?:《[^》]+》)+\\s*:|\\s*$)",
         Pattern.DOTALL
     );
 
@@ -983,6 +985,8 @@ public record CardData(
             else if (triggerRaw.contains("attack") && cardIsParty)                  trigger = "party attacks";
             else if (triggerRaw.contains("enter") && triggerRaw.contains("attack")) trigger = "enters the field or attacks";
             else if (triggerRaw.contains("attack"))                                 trigger = "attacks";
+            else if (triggerRaw.contains("block") && triggerRaw.contains("is blocked")) trigger = "blocks or is blocked";
+            else if (triggerRaw.equals("is blocked"))                               trigger = "is blocked";
             else if (triggerRaw.contains("block"))                                  trigger = "blocks";
             else if (triggerRaw.contains("break zone"))                             trigger = "put into break zone";
             else if (triggerRaw.contains("summon"))                                 trigger = "cast summon";

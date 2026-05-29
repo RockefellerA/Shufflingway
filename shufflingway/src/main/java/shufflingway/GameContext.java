@@ -94,7 +94,7 @@ public interface GameContext {
             int powerVal, String powerCmp,
             boolean forwards, boolean backups, boolean monsters,
             String jobFilter, String cardNameFilter, String categoryFilter, String excludeName, boolean summons,
-            String excludeElement);
+            String excludeElement, boolean withoutMulticard);
 
     /**
      * Shows a modal dialog letting P1 choose up to {@code maxCount} eligible
@@ -118,7 +118,7 @@ public interface GameContext {
             int powerVal, String powerCmp,
             boolean forwards, boolean backups, boolean monsters,
             String jobFilter, String cardNameFilter, String categoryFilter, String excludeName, boolean summons,
-            String excludeElement);
+            String excludeElement, boolean withoutMulticard);
 
     /**
      * Presents the ability user with Summons currently on the stack and cancels
@@ -177,7 +177,8 @@ public interface GameContext {
     void playCharacterFromHand(boolean inclForwards, boolean inclBackups, boolean inclMonsters,
             int costVal, String costCmp, int costVal2,
             String jobFilter, String cardNameFilter, String categoryFilter,
-            String elementFilter, String excludeName, boolean entersDull, String excludeElement);
+            String elementFilter, String excludeName, boolean entersDull, String excludeElement,
+            boolean suppressAutoAbility);
 
     // ---- Zone-dispatch single-target effects --------------------------------
 
@@ -533,6 +534,13 @@ public interface GameContext {
      * Returns {@code -1} if no matching card is found.
      */
     int fieldForwardPowerByName(String cardName);
+
+    /**
+     * Returns the index of the opponent's forward currently blocking the named card in active
+     * combat.  {@code attackerIsP1} indicates the side of the named attacker.
+     * Returns {@code -1} if there is no current blocker for that card.
+     */
+    int combatBlockerIdxForAttacker(String attackerName, boolean attackerIsP1);
 
     /**
      * Returns the effective power of the Forward that was dulled as a "Dull N active Forward"
