@@ -102,6 +102,7 @@ public class DeckManager extends JFrame {
     private static final Color SECTION_HDR_BG = new Color(55, 75, 105);
     private static final Color SECTION_HDR_FG = Color.WHITE;
 
+    // Special thanks to AndrewDeMaio via GitHub for the initial header design and implementation.
     private static final String SEC_FORWARDS     = "Forwards";
     private static final String SEC_BACKUPS      = "Backups";
     private static final String SEC_SUMMONS      = "Summons";
