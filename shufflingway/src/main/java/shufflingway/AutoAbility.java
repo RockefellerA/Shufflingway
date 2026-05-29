@@ -15,6 +15,7 @@ package shufflingway;
  *
  * <p>The {@code trigger} is normalised to one of:
  * {@code "attacks"}, {@code "blocks"}, {@code "attacks or blocks"},
+ * {@code "is blocked"}, {@code "blocks or is blocked"},
  * {@code "party attacks"}, {@code "enters the field"},
  * {@code "put into break zone"}, {@code "cast summon"}, or {@code "damage zone"}.
  *

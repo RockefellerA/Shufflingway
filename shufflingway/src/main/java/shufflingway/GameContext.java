@@ -536,6 +536,13 @@ public interface GameContext {
     int fieldForwardPowerByName(String cardName);
 
     /**
+     * Returns the index of the opponent's forward currently blocking the named card in active
+     * combat.  {@code attackerIsP1} indicates the side of the named attacker.
+     * Returns {@code -1} if there is no current blocker for that card.
+     */
+    int combatBlockerIdxForAttacker(String attackerName, boolean attackerIsP1);
+
+    /**
      * Returns the effective power of the Forward that was dulled as a "Dull N active Forward"
      * cost payment for the current ability.  Returns {@code 0} if no such payment was made.
      */

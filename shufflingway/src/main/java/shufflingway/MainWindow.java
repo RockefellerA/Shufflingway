@@ -3469,6 +3469,7 @@ public class MainWindow {
 			CardData blocker = p2ForwardCards.get(blockerIdx);
 			logEntry("[P2] " + blocker.name() + " blocks!");
 			triggerAutoAbilitiesForBlock(blocker, false);
+			triggerAutoAbilitiesForIsBlocked(attacker, true);
 			resolveCombat(attacker, true, attackerIdx, blocker, false, blockerIdx);
 		} else {
 			p2TakeDamage();
@@ -6301,7 +6302,9 @@ public class MainWindow {
 	private void triggerAutoAbilitiesForBlock(CardData card, boolean isP1) {
 		for (AutoAbility fa : card.autoAbilities()) {
 			if (!fa.triggerCard().equalsIgnoreCase(card.name())) continue;
-			if (fa.trigger().contains("block")) executeAutoAbility(fa, card, isP1);
+			String t = fa.trigger();
+			if (t.equals("blocks") || t.equals("attacks or blocks") || t.equals("blocks or is blocked"))
+				executeAutoAbility(fa, card, isP1);
 		}
 		Map<CardData, List<Consumer<GameContext>>> tempTriggers
 				= isP1 ? p1TempBlockTriggers : p2TempBlockTriggers;
@@ -6310,6 +6313,15 @@ public class MainWindow {
 			GameContext ctx = buildGameContext(isP1);
 			for (Consumer<GameContext> effect : effects)
 				effect.accept(ctx);
+		}
+	}
+
+	private void triggerAutoAbilitiesForIsBlocked(CardData card, boolean isP1) {
+		for (AutoAbility fa : card.autoAbilities()) {
+			if (!fa.triggerCard().equalsIgnoreCase(card.name())) continue;
+			String t = fa.trigger();
+			if (t.equals("is blocked") || t.equals("blocks or is blocked"))
+				executeAutoAbility(fa, card, isP1);
 		}
 	}
 
@@ -9221,6 +9233,17 @@ public class MainWindow {
 				return -1;
 			}
 
+			@Override public int combatBlockerIdxForAttacker(String attackerName, boolean attackerIsP1) {
+					if (attackerIsP1) {
+						if (p2BlockedByAttacker != null && p2BlockedByAttacker.name().equalsIgnoreCase(attackerName))
+							return p2BlockingIdx;
+					} else {
+						if (p1BlockedByAttacker != null && p1BlockedByAttacker.name().equalsIgnoreCase(attackerName))
+							return p1BlockingIdx;
+					}
+					return -1;
+				}
+
 			@Override public int effectiveTargetPower(ForwardTarget t) {
 				if (t.zone() == ForwardTarget.CardZone.BACKUP) return 0;
 				if (t.zone() == ForwardTarget.CardZone.FORWARD)
@@ -11228,6 +11251,7 @@ public class MainWindow {
 			p1BlockingIdx        = blockerIdx;
 			p1BlockedByAttacker  = attacker;
 			triggerAutoAbilitiesForBlock(blocker, true);
+			triggerAutoAbilitiesForIsBlocked(attacker, false);
 			setAttackSubStep(3);
 			combatPriority("Blocker Declared", false, () -> {
 				if (isMonster) {
@@ -11513,6 +11537,7 @@ public class MainWindow {
 				CardData blocker = p2ForwardCards.get(blockerIdx);
 				logEntry("[P2] " + blocker.name() + " blocks!");
 				triggerAutoAbilitiesForBlock(blocker, false);
+				triggerAutoAbilitiesForIsBlocked(attacker, true);
 				p2BlockingIdx       = blockerIdx;
 				p2BlockedByAttacker = attacker;
 				setAttackSubStep(3);
@@ -11654,6 +11679,7 @@ public class MainWindow {
 					CardData blocker = p2ForwardCards.get(blockerIdx);
 					logEntry("[P2] " + blocker.name() + " blocks!");
 					triggerAutoAbilitiesForBlock(blocker, false);
+					triggerAutoAbilitiesForIsBlocked(attacker, true);
 					p2BlockingIdx       = blockerIdx;
 					p2BlockedByAttacker = attacker;
 					setAttackSubStep(3);

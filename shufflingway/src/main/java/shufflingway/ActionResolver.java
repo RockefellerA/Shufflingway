@@ -1450,6 +1450,18 @@ public class ActionResolver {
     );
 
     /**
+     * Matches "Deal [N] damage to the Forward that blocks [CardName][.]"
+     * Used by "is blocked" auto-abilities and action abilities that target the current combat blocker.
+     * <ul>
+     *   <li>Group {@code amount} — fixed damage value</li>
+     *   <li>Group {@code name}   — name of the card being blocked</li>
+     * </ul>
+     */
+    private static final Pattern DAMAGE_TO_COMBAT_BLOCKER = Pattern.compile(
+        "(?i)Deal\\s+(?<amount>\\d+)\\s+damage\\s+to\\s+the\\s+Forward\\s+that\\s+blocks?\\s+(?<name>.+?)[.!]?$"
+    );
+
+    /**
      * Matches "Deal each [condition] Forward[s] [opponent controls] damage equal to half of its power
      * [(round up to the nearest 1000)]."
      * <ul>
@@ -1626,6 +1638,9 @@ public class ActionResolver {
         if (result != null) return result;
 
         result = tryParseDealHalfSourcePowerDamageToForwards(effectText);
+        if (result != null) return result;
+
+        result = tryParseDamageToCombatBlocker(effectText);
         if (result != null) return result;
 
         result = tryParseChooseCharacter(effectText, source, xValue);
@@ -1843,6 +1858,7 @@ public class ActionResolver {
         if (tryParseDealDamageToForwards(effectText)                    != null) return "DealDamageToForwards";
         if (tryParseDealHalfPowerDamageToForwards(effectText)           != null) return "DealHalfPowerDamageToForwards";
         if (tryParseDealHalfSourcePowerDamageToForwards(effectText)     != null) return "DealHalfSourcePowerDamageToForwards";
+        if (tryParseDamageToCombatBlocker(effectText)                   != null) return "DamageToCombatBlocker";
         if (tryParseChooseCharacter(effectText, source, 0)              != null) return "ChooseCharacter";
         if (tryParseEndOfEachTurnFieldAbility(effectText, source) != null) return "EndOfEachTurnFieldAbility";
         if (tryParseDelayedEffect(effectText)                 != null) return "DelayedEffect";
@@ -1993,6 +2009,7 @@ public class ActionResolver {
         if (tryParseDealDamageToForwards(effectText)                != null) return "DealDamageToForwards";
         if (tryParseDealHalfPowerDamageToForwards(effectText)       != null) return "DealHalfPowerDamageToForwards";
         if (tryParseDealHalfSourcePowerDamageToForwards(effectText) != null) return "DealHalfSourcePowerDamageToForwards";
+        if (tryParseDamageToCombatBlocker(effectText)               != null) return "DamageToCombatBlocker";
 
         Matcher chooseM = CHOOSE_CHARACTER_PATTERN.matcher(effectText);
         if (chooseM.find()) {
@@ -2322,6 +2339,23 @@ public class ActionResolver {
                         ctx.damageP1Forward(idx, damage);
                 }
             }
+        };
+    }
+
+    private static Consumer<GameContext> tryParseDamageToCombatBlocker(String text) {
+        Matcher m = DAMAGE_TO_COMBAT_BLOCKER.matcher(text);
+        if (!m.find()) return null;
+        int    damage = Integer.parseInt(m.group("amount"));
+        String name   = m.group("name").trim();
+        return ctx -> {
+            int blockerIdx = ctx.combatBlockerIdxForAttacker(name, ctx.isP1());
+            if (blockerIdx < 0) {
+                ctx.logEntry("Effect: Deal " + damage + " damage to blocker of " + name + " — no blocker");
+                return;
+            }
+            ctx.logEntry("Effect: Deal " + damage + " damage to Forward blocking " + name);
+            if (ctx.isP1()) ctx.damageP2Forward(blockerIdx, damage);
+            else            ctx.damageP1Forward(blockerIdx, damage);
         };
     }
 
