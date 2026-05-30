@@ -813,6 +813,9 @@ public class ActionResolver {
         "|" +
             // Written job: lookahead keeps the type in the targets group
             "Job\\s+(?<jobnm>.+?)\\s+(?=Forwards?|Backups?|Monsters?|Characters?)" +
+        "|" +
+            // Written job with no explicit type (e.g. "Job Archfiend from your hand") — any character type
+            "Job\\s+(?<jobnmonly>.+?)\\s+(?=of\\s+cost|from\\s+your|other\\s+than)" +
         ")?" +
         // Type is optional when a card-name filter is present
         "(?<targets>Forwards?|Backups?|Monsters?|Characters?(?:\\s+Cards?)?)?" +
@@ -1627,6 +1630,12 @@ public class ActionResolver {
      */
     public static Consumer<GameContext> parse(String effectText, CardData source, int xValue) {
         Consumer<GameContext> result;
+
+        result = tryParseWhenYouDoSoSequence(effectText, source, xValue);
+        if (result != null) return result;
+
+        result = tryParseControlConditionGate(effectText, source, xValue);
+        if (result != null) return result;
 
         result = tryParseSelectNumber(effectText, source);
         if (result != null) return result;
@@ -4166,6 +4175,55 @@ public class ActionResolver {
     }
 
     /** Parses "Draw N card(s)[, then discard M card(s)]" as a standalone effect. */
+    private static final Pattern WHEN_YOU_DO_SO_SEQUENCE = Pattern.compile(
+        "(?is)(?<primary>.+?)\\.\\s+(?:When|If)\\s+you\\s+do\\s+so,?\\s+(?<followup>.+)"
+    );
+
+    /**
+     * Parses "X. When/If you do so, Y." into a sequence: resolve X, then resolve Y only if
+     * X made progress (see {@link GameContext#effectMadeProgress()}). Returns {@code null} if
+     * either half cannot be parsed, so non-sequence text falls through to the regular matchers.
+     */
+    private static Consumer<GameContext> tryParseWhenYouDoSoSequence(String text, CardData source, int xValue) {
+        Matcher m = WHEN_YOU_DO_SO_SEQUENCE.matcher(text);
+        if (!m.find()) return null;
+        Consumer<GameContext> primary  = parse(m.group("primary").trim(),  source, xValue);
+        Consumer<GameContext> followup = parse(m.group("followup").trim(), source, xValue);
+        if (primary == null || followup == null) return null;
+        return ctx -> {
+            ctx.resetEffectProgress();
+            primary.accept(ctx);
+            if (ctx.effectMadeProgress()) followup.accept(ctx);
+        };
+    }
+
+    /** Matches a leading "If you [do not] control &lt;condition&gt;, &lt;effect&gt;" gate. */
+    private static final Pattern CONTROL_CONDITION_GATE = Pattern.compile(
+        "(?is)^if\\s+you\\s+(?<neg>do\\s+not\\s+|don't\\s+)?control\\s+(?<cond>.+?),\\s+(?<effect>.+)$"
+    );
+
+    /**
+     * Parses "If you [do not] control X, Y" — resolves Y only when the control condition is
+     * (un)met at resolution time. Returns {@code null} when the condition or inner effect cannot
+     * be parsed so the text falls through to the regular matchers (preserving prior behaviour).
+     */
+    private static Consumer<GameContext> tryParseControlConditionGate(String text, CardData source, int xValue) {
+        Matcher m = CONTROL_CONDITION_GATE.matcher(text.trim());
+        if (!m.matches()) return null;
+        ControlCondition cc = CardData.parseControlCondition(m.group("cond").trim());
+        if (cc == null) return null;
+        boolean negated = m.group("neg") != null;
+        Consumer<GameContext> inner = parse(m.group("effect").trim(), source, xValue);
+        if (inner == null) return null;
+        return ctx -> {
+            if (ctx.controlConditionMet(cc) != negated) {
+                inner.accept(ctx);
+            } else {
+                ctx.logEntry("Effect: control condition not met — skipped");
+            }
+        };
+    }
+
     private static Consumer<GameContext> tryParseDrawCards(String text) {
         Matcher m = DRAW_CARDS.matcher(text);
         if (!m.find()) return null;
@@ -4594,6 +4652,7 @@ public class ActionResolver {
 
         String writtenCardName = m.group("cardname");
         String writtenJob      = m.group("jobnm");
+        String writtenJobOnly  = m.group("jobnmonly");
         String writtenJobOr    = m.group("jobnmor");
         String writtenCnameOr  = m.group("cnameor");
         if (writtenCardName != null) {
@@ -4603,6 +4662,8 @@ public class ActionResolver {
             cardNameFilter = writtenCnameOr != null ? writtenCnameOr.trim() : null;
         } else if (writtenJob != null) {
             jobFilter = writtenJob.trim();
+        } else if (writtenJobOnly != null) {
+            jobFilter = writtenJobOnly.trim();
         } else {
             String f1 = m.group("f1");
             String f2 = m.group("f2");

@@ -310,6 +310,8 @@ public class MainWindow {
 	// Power of the Forward dulled as "Dull N active Forward" ability cost; set during payment.
 	private int      lastDullForwardCostPower = 0;
 
+	private boolean  effectProgress = true;
+
 	// Separate JWindow for combat priority checkpoints (kept apart from summonStackWindow)
 	private javax.swing.JWindow       combatPriorityWindow;
 	private javax.swing.Timer         combatPriorityTimer;
@@ -3079,6 +3081,87 @@ public class MainWindow {
 		}
 
 		JLabel hint = new JLabel("Click a card to select it", SwingConstants.CENTER);
+		hint.setFont(FontLoader.loadPixelNESFont(9));
+
+		dlg.getContentPane().setLayout(new BorderLayout(0, 6));
+		dlg.getContentPane().add(cardsPanel, BorderLayout.CENTER);
+		dlg.getContentPane().add(hint, BorderLayout.SOUTH);
+		dlg.pack();
+		dlg.setLocationRelativeTo(frame);
+		dlg.setVisible(true);
+
+		return selection[0];
+	}
+
+	/**
+	 * Shows a modal dialog that displays {@code cards} as clickable card images and returns the
+	 * index of the chosen card within {@code cards}, or {@code -1} if the player cancelled
+	 * (only possible when {@code allowCancel} is true). Reporting the position — rather than the
+	 * {@link CardData} — lets callers map back to a hand/zone index even when the list contains
+	 * value-equal duplicates.
+	 */
+	private int showCardImageChooser(List<CardData> cards, String title, boolean allowCancel) {
+		if (cards.isEmpty()) return -1;
+		JDialog dlg = new JDialog(frame, title, true);
+		dlg.setResizable(false);
+		dlg.setDefaultCloseOperation(allowCancel ? JDialog.DISPOSE_ON_CLOSE : JDialog.DO_NOTHING_ON_CLOSE);
+
+		int[] selection = { -1 };
+
+		JPanel cardsPanel = new JPanel(new FlowLayout(FlowLayout.CENTER, 12, 12));
+		for (int idx = 0; idx < cards.size(); idx++) {
+			final int pos = idx;
+			CardData candidate = cards.get(idx);
+			JPanel wrapper = new JPanel(new BorderLayout(0, 4));
+			wrapper.setBackground(cardsPanel.getBackground());
+
+			JLabel lbl = new JLabel("...", SwingConstants.CENTER);
+			lbl.setPreferredSize(new Dimension(CARD_W, CARD_H));
+			lbl.setMinimumSize(new Dimension(CARD_W, CARD_H));
+			lbl.setOpaque(true);
+			lbl.setBackground(Color.DARK_GRAY);
+			lbl.setBorder(BorderFactory.createLineBorder(Color.GRAY, 2));
+			lbl.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+
+			lbl.addMouseListener(new MouseAdapter() {
+				@Override public void mouseEntered(MouseEvent e) {
+					if (lbl.getIcon() != null) showZoomAt(candidate.imageUrl());
+					lbl.setBorder(createCardGlowBorder(Color.YELLOW));
+				}
+				@Override public void mouseExited(MouseEvent e) {
+					hideZoom();
+					lbl.setBorder(BorderFactory.createLineBorder(Color.GRAY, 1));
+				}
+				@Override public void mousePressed(MouseEvent e) {
+					selection[0] = pos;
+					hideZoom();
+					dlg.dispose();
+				}
+			});
+
+			new SwingWorker<ImageIcon, Void>() {
+				@Override protected ImageIcon doInBackground() throws Exception {
+					Image img = ImageCache.load(candidate.imageUrl());
+					return img == null ? null
+							: new ImageIcon(img.getScaledInstance(CARD_W, CARD_H, Image.SCALE_SMOOTH));
+				}
+				@Override protected void done() {
+					try { ImageIcon ic = get(); if (ic != null) { lbl.setIcon(ic); lbl.setText(null); } }
+					catch (InterruptedException | ExecutionException ignored) {}
+				}
+			}.execute();
+
+			JLabel nameLabel = new JLabel(candidate.name() + " (Cost: " + candidate.cost() + ")", SwingConstants.CENTER);
+			nameLabel.setFont(FontLoader.loadPixelNESFont(9));
+			nameLabel.setPreferredSize(new Dimension(CARD_W, 18));
+
+			wrapper.add(lbl, BorderLayout.CENTER);
+			wrapper.add(nameLabel, BorderLayout.SOUTH);
+			cardsPanel.add(wrapper);
+		}
+
+		JLabel hint = new JLabel(allowCancel ? "Click a card to play it, or close to decline"
+				: "Click a card to select it", SwingConstants.CENTER);
 		hint.setFont(FontLoader.loadPixelNESFont(9));
 
 		dlg.getContentPane().setLayout(new BorderLayout(0, 6));
@@ -7940,6 +8023,10 @@ public class MainWindow {
 			@Override public void logEntry(String msg) { MainWindow.this.logEntry(msg); }
 			@Override public boolean isP1() { return isP1; }
 
+			@Override public void resetEffectProgress() { effectProgress = true; }
+			@Override public void markEffectFizzled()   { effectProgress = false; }
+			@Override public boolean effectMadeProgress() { return effectProgress; }
+
 			@Override public int p1ForwardCount()                    { return p1ForwardCards.size(); }
 			@Override public CardData p1Forward(int idx) {
 				CardData top = p1ForwardPrimedTop.get(idx);
@@ -8838,17 +8925,13 @@ public class MainWindow {
 				}
 				if (eligible.isEmpty()) {
 					logEntry("No eligible cards in hand to play.");
+					markEffectFizzled();
 					return;
 				}
-				String[] options = eligible.stream()
-						.map(i -> hand.get(i).name() + " (Cost: " + hand.get(i).cost() + ")")
-						.toArray(String[]::new);
-				String choice = (String) JOptionPane.showInputDialog(frame,
-						"Choose a card to play onto the field:", "Play from Hand",
-						JOptionPane.PLAIN_MESSAGE, null, options, options[0]);
-				if (choice == null) return;
-				int listIdx = java.util.Arrays.asList(options).indexOf(choice);
-				if (listIdx < 0) return;
+				java.util.List<CardData> candidates = new ArrayList<>();
+				for (int i : eligible) candidates.add(hand.get(i));
+				int listIdx = showCardImageChooser(candidates, "Play a card onto the field", true);
+				if (listIdx < 0) { markEffectFizzled(); return; }
 				int handIdx = eligible.get(listIdx);
 				CardData card = hand.remove(handIdx);
 				logEntry(card.name() + " played from hand onto field" + (entersDull ? " (dull)" : "")

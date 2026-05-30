@@ -21,6 +21,23 @@ public interface GameContext {
     /** Returns {@code true} if P1 is the ability user for this context. */
     boolean isP1();
 
+    // ---- Sequential "X. When you do so, Y." progress signalling --------------
+
+    /**
+     * Resets the per-effect progress flag to {@code true} before a primary effect runs.
+     * Used by sequential "X. When you do so, Y." effects to decide whether the follow-up runs.
+     */
+    void resetEffectProgress();
+
+    /**
+     * Marks the current effect as fizzled (it did nothing — e.g. no eligible target was
+     * available or the player declined). Suppresses any "When you do so" follow-up.
+     */
+    void markEffectFizzled();
+
+    /** Returns {@code true} if the most recent effect made progress (was not fizzled). */
+    boolean effectMadeProgress();
+
     // ---- P1 forwards --------------------------------------------------------
 
     /** Number of P1 forwards currently on the field. */

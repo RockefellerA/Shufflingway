@@ -1490,6 +1490,10 @@ public record CardData(
      * ("and only once per turn", "during your turn") are stripped so they do not
      * contaminate the condition match.
      */
+    private static String stripTrailingType(String name) {
+        return name.trim().replaceAll("(?i)\\s+(Forwards?|Backups?|Monsters?|Characters?)$", "").trim();
+    }
+
     static ControlCondition parseControlCondition(String raw) {
         if (raw == null || raw.isBlank()) return null;
         // Strip trailing ", during your turn" and "and only once per turn" clauses
@@ -1501,9 +1505,9 @@ public record CardData(
         Matcher namedM = CONTROL_NAMED_CARDS_PATTERN.matcher(cond);
         if (namedM.find()) {
             List<String> names = new ArrayList<>();
-            if (namedM.group("n1") != null) names.add(namedM.group("n1").trim());
-            if (namedM.group("n2") != null) names.add(namedM.group("n2").trim());
-            if (namedM.group("n3") != null) names.add(namedM.group("n3").trim());
+            if (namedM.group("n1") != null) names.add(stripTrailingType(namedM.group("n1")));
+            if (namedM.group("n2") != null) names.add(stripTrailingType(namedM.group("n2")));
+            if (namedM.group("n3") != null) names.add(stripTrailingType(namedM.group("n3")));
             return new ControlCondition(names, 0, false, null, null, null, null, 0, List.of());
         }
 
