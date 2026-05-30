@@ -2970,7 +2970,15 @@ public class MainWindow {
 			logEntry("Search: no matching card found in deck");
 			return;
 		}
-		CardData chosen = showDeckSearchSelectDialog(matches);
+		CardData chosen;
+		if (!isP1) {
+			List<CardData> copy = new ArrayList<>(matches);
+			Collections.shuffle(copy);
+			chosen = copy.get(0);
+			logEntry("[AI] chose " + chosen.name());
+		} else {
+			chosen = showDeckSearchSelectDialog(matches);
+		}
 		if (chosen != null) {
 			if (isP1) gameState.removeFromP1MainDeck(chosen);
 			else      deck.remove(chosen);
@@ -8535,6 +8543,10 @@ public class MainWindow {
 			@Override public void returnP1ForwardToHand(int idx) { MainWindow.this.returnP1ForwardToHand(idx); }
 			@Override public void returnP2ForwardToHand(int idx) { MainWindow.this.returnP2ForwardToHand(idx); }
 			@Override public boolean askTopOrBottom(String cardName) {
+					if (!isP1) {
+						logEntry("[AI] places " + cardName + " on top of the deck");
+						return true;
+					}
 				Object[] options = { "Top", "Bottom" };
 				int result = JOptionPane.showOptionDialog(frame,
 						"Place " + cardName + " at the top or bottom of the deck?",
@@ -8544,6 +8556,10 @@ public class MainWindow {
 				return result != 1;
 			}
 			@Override public int selectNumber(int min, int max, String prompt) {
+					if (!isP1) {
+						logEntry("[AI] selected " + max + " (" + prompt + ")");
+						return max;
+					}
 				return MainWindow.this.showNumberSelectDialog(prompt, min, max);
 			}
 			@Override public void returnP1ForwardToDeckBottom(int idx)   { returnP1ForwardToDeck(idx, true);  }
@@ -8633,6 +8649,15 @@ public class MainWindow {
 						+ (element != null ? " " + element : "")
 						+ " Character" + (maxCount != 1 ? "s" : "") + costLabel + powerLabel
 						+ " in " + (opponentZone ? "opponent's" : "your") + " Break Zone";
+				if (!isP1) {
+					if (eligible.isEmpty()) return java.util.List.of();
+					java.util.List<ForwardTarget> copy = new ArrayList<>(eligible);
+					java.util.Collections.shuffle(copy);
+					java.util.List<ForwardTarget> picked =
+							java.util.List.copyOf(copy.subList(0, Math.min(maxCount, copy.size())));
+					picked.forEach(t -> logEntry("[AI] chose " + bz.get(t.idx()).name()));
+					return picked;
+				}
 				return showBreakZoneSelectDialog(eligible, bz, maxCount, upTo, title);
 			}
 
@@ -10049,7 +10074,7 @@ public class MainWindow {
 			}
 
 			@Override public String selectJobFromDatabase() {
-				return showJobSelectionDialog();
+				return showJobSelectionDialog(isP1);
 			}
 
 			@Override public void grantJobUntilEndOfTurn(ForwardTarget t, String job) {
@@ -10070,7 +10095,7 @@ public class MainWindow {
 	}
 
 	/** Loads every distinct job name from the database and shows a sorted dropdown dialog. */
-	private String showJobSelectionDialog() {
+	private String showJobSelectionDialog(boolean interactive) {
 		java.io.File dbFile = new java.io.File("shufflingway.db");
 		if (!dbFile.exists()) {
 			logEntry("[Job select] shufflingway.db not found");
@@ -10087,6 +10112,11 @@ public class MainWindow {
 			logEntry("[Job select] DB error: " + e.getMessage());
 		}
 		if (jobs.isEmpty()) return null;
+		if (!interactive) {
+			String picked = jobs.get((int) (Math.random() * jobs.size()));
+			logEntry("[AI] selected Job: " + picked);
+			return picked;
+		}
 		String[] options = jobs.toArray(new String[0]);
 		return (String) javax.swing.JOptionPane.showInputDialog(
 				frame,
