@@ -765,6 +765,23 @@ public class ActionResolver {
     );
 
     /**
+     * Matches both variants of the "opponent puts attacking Forward to Break Zone" effect:
+     * <ul>
+     *   <li>"Opponent puts 1 attacking Forward into the Break Zone."</li>
+     *   <li>"Your opponent puts 1 attacking Forward he/she controls into the Break Zone."</li>
+     * </ul>
+     * The second variant is the precise reprint; both resolve identically — the opponent
+     * chooses one of their own matching Forwards and sends it to the Break Zone.
+     */
+    private static final Pattern OPPONENT_PUTS_FORWARD_TO_BREAK_ZONE_PATTERN = Pattern.compile(
+        "(?i)(?:Your\\s+)?[Oo]pponent\\s+puts?\\s+(?<count>\\d+)\\s+" +
+        "(?:(?<condition>dull|damaged|attacking|blocking|active)\\s+)?" +
+        "(?<targets>Forwards?|Characters?)" +
+        "(?:\\s+(?:he|she|they)(?:\\s*/\\s*(?:he|she|they))?\\s+controls?)?" +
+        "\\s+into\\s+the\\s+Break\\s+Zone[.]?"
+    );
+
+    /**
      * Matches "Your opponent puts the top N card(s) of his/her/their deck into the Break Zone
      * [. Draw M card(s)]".
      * <ul>
@@ -1749,6 +1766,9 @@ public class ActionResolver {
         result = tryParseOpponentSelects(effectText);
         if (result != null) return result;
 
+        result = tryParseOpponentPutsForwardToBreakZone(effectText);
+        if (result != null) return result;
+
         result = tryParseOpponentMill(effectText);
         if (result != null) return result;
 
@@ -1900,6 +1920,7 @@ public class ActionResolver {
         if (tryParseDealPlayerDamageToSelf(effectText)        != null) return "DealPlayerDamageToSelf";
         if (tryParsePlayFromHand(effectText, source, 0)       != null) return "PlayFromHand";
         if (tryParseOpponentSelects(effectText)               != null) return "OpponentSelects";
+        if (tryParseOpponentPutsForwardToBreakZone(effectText) != null) return "OpponentPutsForwardToBreakZone";
         if (tryParseOpponentMill(effectText)                  != null) return "OpponentMill";
         if (tryParseOpponentRevealHand(effectText)            != null) return "OpponentRevealHand";
         if (tryParseRevealTopDeck(effectText, source)         != null) return "RevealTopDeck";
@@ -4825,6 +4846,30 @@ public class ActionResolver {
 
         return ctx -> ctx.logEntry(
                 "[ActionResolver] Opponent selects — followup not yet implemented: " + followup);
+    }
+
+    private static Consumer<GameContext> tryParseOpponentPutsForwardToBreakZone(String text) {
+        Matcher m = OPPONENT_PUTS_FORWARD_TO_BREAK_ZONE_PATTERN.matcher(text);
+        if (!m.find()) return null;
+
+        int     count     = Integer.parseInt(m.group("count"));
+        String  condition = m.group("condition");
+        String  targets   = m.group("targets");
+        String  tgtLower  = targets.toLowerCase();
+        boolean inclForwards = tgtLower.contains("forward") || tgtLower.contains("character");
+        boolean inclMonsters = tgtLower.contains("character");
+
+        String condLabel = condition != null ? " " + condition : "";
+        String logLabel  = "Opponent puts " + count + condLabel + " " + targets
+                         + " they control → Break Zone";
+
+        return ctx -> {
+            ctx.logEntry("Effect: " + logLabel);
+            List<ForwardTarget> ts = ctx.selectCharacters(count, false, true, false,
+                    condition, null, -1, null, -1, null,
+                    inclForwards, false, inclMonsters, null, null, null, null, false, null, false);
+            sortedByIdxDesc(ts, false).forEach(ctx::forceTargetToBreakZone);
+        };
     }
 
     /**
