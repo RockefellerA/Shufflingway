@@ -4678,10 +4678,11 @@ public class MainWindow {
 		JMenuItem playItem = new JMenuItem("Play");
 		GameState.GamePhase phase = gameState.getCurrentPhase();
 		boolean isMainPhase = phase == GameState.GamePhase.MAIN_1 || phase == GameState.GamePhase.MAIN_2;
+		boolean canPlaySpecialAction = isMainPhase && phaseTracker.isMyTurn() && gameState.getStack().isEmpty();
 		boolean isCharacter = card.isForward() || card.isBackup() || card.isMonster();
 		boolean nameConflict = isCharacter && !card.multicard() && hasCharacterNameOnField(card.name());
 		boolean lightDarkConflict = isCharacter && card.isLightOrDark() && hasLightOrDarkOnField(true);
-		playItem.setEnabled(isMainPhase && !nameConflict && !lightDarkConflict && canAffordCard(card, handIdx)
+		playItem.setEnabled(canPlaySpecialAction && !nameConflict && !lightDarkConflict && canAffordCard(card, handIdx)
 				&& (!card.isBackup() || hasAvailableBackupSlot()) && castRestrictionMet(card));
 		playItem.addActionListener(ae -> {
 			hideZoom();
@@ -4692,7 +4693,7 @@ public class MainWindow {
 
 		if (card.hasWarp()) {
 			JMenuItem warpItem = new JMenuItem("Play (Warp " + card.warpValue() + ")");
-			warpItem.setEnabled(isMainPhase && canAffordWarpCost(card, handIdx) && castRestrictionMet(card));
+			warpItem.setEnabled(canPlaySpecialAction && canAffordWarpCost(card, handIdx) && castRestrictionMet(card));
 			warpItem.addActionListener(ae -> {
 				hideZoom();
 				if (handPopup != null) { handPopup.dispose(); handPopup = null; }
@@ -4712,7 +4713,7 @@ public class MainWindow {
 			String condStr = cond.isEmpty() ? "" : " [req: " + String.join("/", cond) + "]";
 			String altLabel = "Play (Alt: " + crystalStr + cpStr + condStr + ")";
 			JMenuItem altItem = new JMenuItem(altLabel);
-			altItem.setEnabled(isMainPhase && !nameConflict && !lightDarkConflict
+			altItem.setEnabled(canPlaySpecialAction && !nameConflict && !lightDarkConflict
 					&& canAffordAltCost(card, handIdx)
 					&& (!card.isBackup() || hasAvailableBackupSlot()) && castRestrictionMet(card));
 			altItem.addActionListener(ae -> {
