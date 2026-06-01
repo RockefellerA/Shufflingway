@@ -4639,12 +4639,32 @@ public class MainWindow {
 				}
 			});
 
-			// Load image async
+			int effectiveCost = effectiveCastCost(card);
+			int delta = card.cost() - effectiveCost;
+
+			// Load image async; bake cost pill into the image when cost differs from base
 			new SwingWorker<ImageIcon, Void>() {
 				@Override protected ImageIcon doInBackground() throws Exception {
 					Image img = ImageCache.load(url);
-					return img == null ? null
-							: new ImageIcon(img.getScaledInstance(CARD_W, CARD_H, Image.SCALE_SMOOTH));
+					if (img == null) return null;
+					BufferedImage bi = CardAnimation.toARGB(img, CARD_W, CARD_H);
+					if (delta != 0) {
+						Graphics2D g2 = bi.createGraphics();
+						g2.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
+						String text = String.valueOf(effectiveCost);
+						g2.setFont(FontLoader.loadPixelNESFont(15));
+						FontMetrics fm = g2.getFontMetrics();
+						int x = 8, y = fm.getAscent() + 7;
+						g2.setColor(Color.BLACK);
+						g2.drawString(text, x + 1, y + 1);
+						g2.drawString(text, x + 2, y + 1);
+						g2.drawString(text, x + 1, y + 2);
+						g2.drawString(text, x + 2, y + 2);
+						g2.setColor(delta > 0 ? new Color(0x44EE44) : new Color(0xFF8844));
+						g2.drawString(text, x, y);
+						g2.dispose();
+					}
+					return new ImageIcon(bi);
 				}
 				@Override protected void done() {
 					try {
@@ -4654,34 +4674,7 @@ public class MainWindow {
 				}
 			}.execute();
 
-			int effectiveCost = effectiveCastCost(card);
-			int delta = card.cost() - effectiveCost;
-			if (delta == 0) {
-				cardsPanel.add(lbl);
-			} else {
-				JPanel wrapper = new JPanel(new BorderLayout()) {
-					@Override protected void paintChildren(Graphics g) {
-						super.paintChildren(g);
-						Graphics2D g2 = (Graphics2D) g.create();
-						g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-						String text = String.valueOf(effectiveCost);
-						Font pillFont = FontLoader.loadPixelNESFont(9);
-						g2.setFont(pillFont);
-						FontMetrics fm = g2.getFontMetrics();
-						int tw = fm.stringWidth(text);
-						int pw = tw + 10, ph = fm.getAscent() + fm.getDescent() + 4;
-						g2.setColor(delta > 0 ? new Color(0x2E7D32) : new Color(0xBF5000));
-						g2.fillRoundRect(4, 4, pw, ph, 8, 8);
-						g2.setColor(Color.WHITE);
-						g2.drawString(text, 4 + 5, 4 + fm.getAscent() + 2);
-						g2.dispose();
-					}
-				};
-				wrapper.setOpaque(false);
-				wrapper.setPreferredSize(new Dimension(CARD_W, CARD_H));
-				wrapper.add(lbl, BorderLayout.CENTER);
-				cardsPanel.add(wrapper);
-			}
+			cardsPanel.add(lbl);
 		}
 
 		handPopup.getContentPane().add(cardsPanel);
