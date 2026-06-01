@@ -1485,6 +1485,7 @@ public class MainWindow {
                                     setAttackSubStep(1);
                                     refreshPhaseTracker();
                                     refreshAttackButton();
+                                    refreshAllForwardSlots();
                                     logEntry("Declare an attacker, or click Skip to end the Attack Phase.");
                                 });
                                 return;
