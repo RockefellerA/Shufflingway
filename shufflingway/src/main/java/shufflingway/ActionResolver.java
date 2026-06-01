@@ -907,6 +907,9 @@ public class ActionResolver {
             // Bracket job: [Job (name)]
             "(?<bracketjob>\\[Job\\s+\\([^)]+\\)\\])\\s+" +
         "|" +
+            // "Card Name X or Job Y" — OR logic; must come before plain Card Name alternative
+            "Card\\s+Name\\s+(?<cnamejobnmor>.+?)\\s+or\\s+Job\\s+(?<jobnmcnameor>.+?)(?=\\s+of\\s+cost|\\s+and\\b)\\s*" +
+        "|" +
             // Written card name without brackets — ends at "of cost" or "and"
             "Card\\s+Name\\s+(?<cardname>.+?)(?=\\s+of\\s+cost|\\s+and\\b)" +
             "\\s+" +
@@ -5652,6 +5655,14 @@ public class ActionResolver {
             jobFilter = jobnmOr.trim();
             String cnameOr = m.group("cnameor");
             if (cnameOr != null) cardNameFilter = cnameOr.trim();
+        }
+
+        // --- "Card Name X or Job Y" — sets both filters; OR logic applied at match time ---
+        String cnameJobnmOr = m.group("cnamejobnmor");
+        if (cnameJobnmOr != null) {
+            cardNameFilter = cnameJobnmOr.trim();
+            String jobNmCnameOr = m.group("jobnmcnameor");
+            if (jobNmCnameOr != null) jobFilter = jobNmCnameOr.trim();
         }
 
         // --- Category filter ---
