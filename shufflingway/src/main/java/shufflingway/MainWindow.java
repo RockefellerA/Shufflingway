@@ -285,6 +285,10 @@ public class MainWindow {
 	private final List<Integer>  p1AttackSelection = new ArrayList<>();
 	private int                  p1BlockingIdx     = -1;
 
+	// In-place field targeting: while active, the normal field-card click handlers
+	// (attack selection, context menus) are suppressed so clicks pick effect targets.
+	private boolean fieldTargetingActive = false;
+
 	// Temporary attack triggers registered by action abilities (cleared at end of turn)
 	private final Map<CardData, List<Consumer<GameContext>>> p1TempAttackTriggers = new LinkedHashMap<>();
 	private final Map<CardData, List<Consumer<GameContext>>> p2TempAttackTriggers = new LinkedHashMap<>();
@@ -7869,21 +7873,10 @@ public class MainWindow {
 			for (int i = 0; i < rth.count() && i < eligible.size(); i++)
 				returnTargetToHand(ctx, eligible.get(i));
 		} else {
-			for (int pick = 0; pick < rth.count(); pick++) {
-				List<ForwardTarget> eligible = eligibleRfthFieldTargets(rth, isP1);
-				if (eligible.isEmpty()) { logEntry("No eligible field card for return-to-hand cost."); break; }
-				String[] options = eligible.stream()
-						.map(t -> fieldCardData(t).name() + " (" + t.zone().name().toLowerCase() + ")")
-						.toArray(String[]::new);
-				String label = "Return to hand (cost)" + (rth.count() > 1 ? " (" + (pick + 1) + "/" + rth.count() + ")" : "");
-				String choice = (String) JOptionPane.showInputDialog(frame,
-						"Choose a card to return to hand:", label,
-						JOptionPane.PLAIN_MESSAGE, null, options, options[0]);
-				if (choice == null) break;
-				int listIdx = java.util.Arrays.asList(options).indexOf(choice);
-				if (listIdx < 0) break;
-				returnTargetToHand(ctx, eligible.get(listIdx));
-			}
+			List<ForwardTarget> eligible = eligibleRfthFieldTargets(rth, isP1);
+			if (eligible.isEmpty()) { logEntry("No eligible field card for return-to-hand cost."); return; }
+			List<ForwardTarget> picks = showForwardSelectDialog(eligible, rth.count(), false, "Return to Hand (cost)");
+			applyTargetsHighestIndexFirst(picks, t -> returnTargetToHand(ctx, t));
 		}
 	}
 
@@ -8102,17 +8095,13 @@ public class MainWindow {
 					eligible.add(i);
 				}
 				if (eligible.isEmpty()) { logEntry("No eligible card for discard cost."); break; }
-				String[] options = eligible.stream()
-						.map(i -> hand.get(i).name() + " (Cost: " + hand.get(i).cost() + ")")
-						.toArray(String[]::new);
+				List<CardData> cards   = eligible.stream().map(hand::get).toList();
+				List<String>   captions = eligible.stream()
+						.map(i -> hand.get(i).name() + " (Cost: " + hand.get(i).cost() + ")").toList();
 				String label = "Discard cost" + (dc.count() > 1 ? " (" + (pick + 1) + "/" + dc.count() + ")" : "");
-				String choice = (String) JOptionPane.showInputDialog(frame,
-						"Choose a card to discard:", label,
-						JOptionPane.PLAIN_MESSAGE, null, options, options[0]);
-				if (choice == null) break;
-				int listIdx = java.util.Arrays.asList(options).indexOf(choice);
-				if (listIdx < 0) break;
-				int handIdx = eligible.get(listIdx);
+				List<Integer> picks = showCardImagePicker(label, "Choose a card to discard:", cards, captions, 1);
+				if (picks.isEmpty()) break;
+				int handIdx = eligible.get(picks.get(0));
 				if (dc.eachDifferentType()) usedTypes.add(discardTypeKey(hand.get(handIdx)));
 				String discarded = hand.get(handIdx).name();
 				playerBreakFromHand(isP1, handIdx);
@@ -8148,16 +8137,11 @@ public class MainWindow {
 				eligible.add(i);
 			}
 			if (eligible.isEmpty()) { logEntry("No eligible active Forward for Dull cost."); continue; }
-			String[] options = eligible.stream()
-					.map(i -> fwds.get(i).name() + " (Power: " + fwds.get(i).power() + ")")
-					.toArray(String[]::new);
-			String choice = (String) JOptionPane.showInputDialog(frame,
-					"Choose an active Forward to Dull:", "Dull Forward Cost",
-					JOptionPane.PLAIN_MESSAGE, null, options, options[0]);
-			if (choice == null) continue;
-			int listIdx = java.util.Arrays.asList(options).indexOf(choice);
-			if (listIdx < 0) continue;
-			int fwdIdx = eligible.get(listIdx);
+			List<ForwardTarget> targets = eligible.stream()
+					.map(i -> new ForwardTarget(isP1, i, ForwardTarget.CardZone.FORWARD)).toList();
+			List<ForwardTarget> picks = showForwardSelectDialog(targets, 1, false, "Dull Forward Cost");
+			if (picks.isEmpty()) continue;
+			int fwdIdx = picks.get(0).idx();
 			lastDullForwardCostPower = fwds.get(fwdIdx).power();
 			states.set(fwdIdx, CardState.DULL);
 			if (isP1) animateDullForward(fwdIdx, null); else animateDullP2Forward(fwdIdx, null);
@@ -8209,34 +8193,21 @@ public class MainWindow {
 				if (isP1) refreshP1DeckLabel(); else refreshP2DeckLabel();
 			}
 			case "HAND" -> {
-				int target = rfg.count();
-				for (int pick = 0; pick < target; pick++) {
-					List<Integer> eligible = eligibleRfgHandIndices(rfg, isP1);
-					if (eligible.isEmpty()) { logEntry("No eligible hand card for remove-from-game cost."); break; }
-					List<CardData> hand = playerHand(isP1);
-					if (eligible.size() == 1 && rfg.cardName() != null) {
-						// Named card — auto-select
-						CardData c = hand.get(eligible.get(0));
-						hand.remove((int) eligible.get(0));
-						if (isP1) gameState.addToP1PermanentRfp(c); else gameState.addToP2PermanentRfp(c);
-						logEntry(c.name() + " → Removed From Game (cost)");
-					} else {
-						String[] options = eligible.stream()
-								.map(i -> hand.get(i).name() + " (Cost: " + hand.get(i).cost() + ")")
-								.toArray(String[]::new);
-						String label = "Remove from game (hand)" + (target > 1 ? " (" + (pick + 1) + "/" + target + ")" : "");
-						String choice = (String) JOptionPane.showInputDialog(frame,
-								"Choose a card to remove from game:", label,
-								JOptionPane.PLAIN_MESSAGE, null, options, options[0]);
-						if (choice == null) break;
-						int listIdx = java.util.Arrays.asList(options).indexOf(choice);
-						if (listIdx < 0) break;
-						int handIdx = eligible.get(listIdx);
+				List<Integer> eligible = eligibleRfgHandIndices(rfg, isP1);
+				if (eligible.isEmpty()) { logEntry("No eligible hand card for remove-from-game cost."); }
+				else {
+					List<CardData> hand     = playerHand(isP1);
+					List<CardData> cards    = eligible.stream().map(hand::get).toList();
+					List<String>   captions = eligible.stream()
+							.map(i -> hand.get(i).name() + " (Cost: " + hand.get(i).cost() + ")").toList();
+					List<Integer> picks = showCardImagePicker("Remove from Game (hand)",
+							"Choose a card to remove from game:", cards, captions, rfg.count());
+					picks.stream().map(eligible::get).sorted(Comparator.reverseOrder()).forEach(handIdx -> {
 						CardData c = hand.get(handIdx);
-						hand.remove(handIdx);
+						hand.remove((int) handIdx);
 						if (isP1) gameState.addToP1PermanentRfp(c); else gameState.addToP2PermanentRfp(c);
 						logEntry(c.name() + " → Removed From Game (cost)");
-					}
+					});
 				}
 				refreshP1HandLabel();
 			}
@@ -8251,27 +8222,18 @@ public class MainWindow {
 						logEntry(c.name() + " → Removed From Game (cost)");
 					}
 				} else {
-					for (int pick = 0; pick < rfg.count(); pick++) {
-						List<Integer> eligible = eligibleRfgBzIndices(rfg, isP1);
-						if (eligible.isEmpty()) { logEntry("No eligible Break Zone card for remove-from-game cost."); break; }
-						if (eligible.size() == 1 && rfg.cardName() != null) {
-							CardData c = bz.remove((int) eligible.get(0));
+					List<Integer> eligible = eligibleRfgBzIndices(rfg, isP1);
+					if (eligible.isEmpty()) { logEntry("No eligible Break Zone card for remove-from-game cost."); }
+					else {
+						List<CardData> cards    = eligible.stream().map(bz::get).toList();
+						List<String>   captions = eligible.stream().map(i -> bz.get(i).name()).toList();
+						List<Integer> picks = showCardImagePicker("Remove from Game (Break Zone)",
+								"Choose a card to remove from game:", cards, captions, rfg.count());
+						picks.stream().map(eligible::get).sorted(Comparator.reverseOrder()).forEach(bzIdx -> {
+							CardData c = bz.remove((int) bzIdx);
 							if (isP1) gameState.addToP1PermanentRfp(c); else gameState.addToP2PermanentRfp(c);
 							logEntry(c.name() + " → Removed From Game (cost)");
-						} else {
-							String[] options = eligible.stream().map(i -> bz.get(i).name()).toArray(String[]::new);
-							String label = "Remove from game (Break Zone)" + (rfg.count() > 1 ? " (" + (pick + 1) + "/" + rfg.count() + ")" : "");
-							String choice = (String) JOptionPane.showInputDialog(frame,
-									"Choose a card to remove from game:", label,
-									JOptionPane.PLAIN_MESSAGE, null, options, options[0]);
-							if (choice == null) break;
-							int listIdx = java.util.Arrays.asList(options).indexOf(choice);
-							if (listIdx < 0) break;
-							int bzIdx = eligible.get(listIdx);
-							CardData c = bz.remove(bzIdx);
-							if (isP1) gameState.addToP1PermanentRfp(c); else gameState.addToP2PermanentRfp(c);
-							logEntry(c.name() + " → Removed From Game (cost)");
-						}
+						});
 					}
 				}
 				refreshP1BreakLabel();
@@ -8285,20 +8247,11 @@ public class MainWindow {
 					for (int i = 0; i < rfg.count() && i < eligible.size(); i++)
 						ctx.removeTargetFromGame(eligible.get(i));
 				} else {
-					for (int pick = 0; pick < rfg.count(); pick++) {
-						List<ForwardTarget> eligible = eligibleRfgFieldTargets(rfg, isP1);
-						if (eligible.isEmpty()) { logEntry("No eligible field card for remove-from-game cost."); break; }
-						String[] options = eligible.stream()
-								.map(t -> fieldCardData(t).name() + " (" + t.zone().name().toLowerCase() + ")")
-								.toArray(String[]::new);
-						String label = "Remove from game (field)" + (rfg.count() > 1 ? " (" + (pick + 1) + "/" + rfg.count() + ")" : "");
-						String choice = (String) JOptionPane.showInputDialog(frame,
-								"Choose a card to remove from game:", label,
-								JOptionPane.PLAIN_MESSAGE, null, options, options[0]);
-						if (choice == null) break;
-						int listIdx = java.util.Arrays.asList(options).indexOf(choice);
-						if (listIdx < 0) break;
-						ctx.removeTargetFromGame(eligible.get(listIdx));
+					List<ForwardTarget> eligible = eligibleRfgFieldTargets(rfg, isP1);
+					if (eligible.isEmpty()) { logEntry("No eligible field card for remove-from-game cost."); }
+					else {
+						List<ForwardTarget> picks = showForwardSelectDialog(eligible, rfg.count(), false, "Remove from Game (field)");
+						applyTargetsHighestIndexFirst(picks, ctx::removeTargetFromGame);
 					}
 				}
 			}
@@ -11042,6 +10995,119 @@ public class MainWindow {
 		return value[0];
 	}
 
+	/** Card thumbnail dimensions used on the selection-dialog buttons. */
+	private static final int SELECT_THUMB_W = 90;
+	private static final int SELECT_THUMB_H = 132;
+
+	/**
+	 * Loads a scaled card thumbnail onto {@code btn} (icon above text) and wires the
+	 * hover-zoom preview, matching the look of the look-at-deck dialogs.
+	 */
+	private void attachCardThumbnail(JButton btn, String imageUrl) {
+		btn.setVerticalTextPosition(SwingConstants.BOTTOM);
+		btn.setHorizontalTextPosition(SwingConstants.CENTER);
+		btn.setIcon(new ImageIcon(new BufferedImage(SELECT_THUMB_W, SELECT_THUMB_H, BufferedImage.TYPE_INT_ARGB)));
+		if (imageUrl == null) return;
+		btn.addMouseListener(new MouseAdapter() {
+			@Override public void mouseEntered(MouseEvent e) { showZoomAt(imageUrl); }
+			@Override public void mouseExited(MouseEvent e)  { hideZoom(); }
+		});
+		new SwingWorker<ImageIcon, Void>() {
+			@Override protected ImageIcon doInBackground() throws Exception {
+				Image img = ImageCache.load(imageUrl);
+				return img == null ? null
+						: new ImageIcon(img.getScaledInstance(SELECT_THUMB_W, SELECT_THUMB_H, Image.SCALE_SMOOTH));
+			}
+			@Override protected void done() {
+				try { ImageIcon ic = get(); if (ic != null) btn.setIcon(ic); }
+				catch (InterruptedException | ExecutionException ignored) {}
+			}
+		}.execute();
+	}
+
+	/**
+	 * Image-based card picker for cost/effect selections.  Displays each card in
+	 * {@code cards} with the matching caption from {@code captions} and a thumbnail,
+	 * requiring the player to choose exactly {@code count} cards.  The header shows
+	 * how many must be selected.  Returns the chosen indices into {@code cards}, or an
+	 * empty list when cancelled.  When the eligible set is no larger than {@code count}
+	 * the whole set is auto-selected without prompting.
+	 */
+	private java.util.List<Integer> showCardImagePicker(String title, String prompt,
+			java.util.List<CardData> cards, java.util.List<String> captions, int count) {
+		if (cards.isEmpty()) return java.util.List.of();
+		if (cards.size() <= count) {
+			java.util.List<Integer> all = new ArrayList<>();
+			for (int i = 0; i < cards.size(); i++) all.add(i);
+			return all;
+		}
+
+		JDialog dlg = new JDialog(frame, title, true);
+		dlg.setResizable(false);
+		dlg.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
+
+		java.util.List<Integer> chosen = new ArrayList<>();
+		java.util.Set<Integer> sel = new java.util.LinkedHashSet<>();
+
+		JButton confirmBtn = new JButton("Confirm");
+		confirmBtn.setFont(FontLoader.loadPixelNESFont(11));
+		confirmBtn.setEnabled(false);
+
+		JPanel cardsPanel = new JPanel(new FlowLayout(FlowLayout.CENTER, 8, 8));
+		for (int i = 0; i < cards.size(); i++) {
+			final int fi = i;
+			JButton btn = new JButton("<html><center>" + captions.get(i) + "</center></html>");
+			btn.setFont(FontLoader.loadPixelNESFont(9));
+			javax.swing.border.Border baseBorder = btn.getBorder();
+			attachCardThumbnail(btn, cards.get(i).imageUrl());
+			btn.addActionListener(ae -> {
+				if (sel.contains(fi)) {
+					sel.remove(fi);
+					btn.setBorder(baseBorder);
+				} else {
+					if (sel.size() >= count) return;
+					sel.add(fi);
+					btn.setBorder(BorderFactory.createLineBorder(Color.YELLOW, 3));
+					if (sel.size() == count) {
+						chosen.addAll(sel);
+						dlg.dispose();
+						return;
+					}
+				}
+				confirmBtn.setEnabled(sel.size() == count);
+			});
+			cardsPanel.add(btn);
+		}
+
+		confirmBtn.addActionListener(ae -> { chosen.addAll(sel); dlg.dispose(); });
+		JPanel south = new JPanel(new FlowLayout(FlowLayout.CENTER, 8, 4));
+		south.add(confirmBtn);
+
+		JLabel hdr = new JLabel(prompt + "  (select " + count + ")", SwingConstants.CENTER);
+		hdr.setFont(FontLoader.loadPixelNESFont(11));
+		hdr.setBorder(BorderFactory.createEmptyBorder(8, 8, 4, 8));
+
+		dlg.getContentPane().setLayout(new BorderLayout(0, 4));
+		dlg.getContentPane().add(hdr,        BorderLayout.NORTH);
+		dlg.getContentPane().add(cardsPanel, BorderLayout.CENTER);
+		dlg.getContentPane().add(south,      BorderLayout.SOUTH);
+		dlg.pack();
+		dlg.setLocationRelativeTo(frame);
+		dlg.setVisible(true);
+		return java.util.List.copyOf(chosen);
+	}
+
+	/**
+	 * Applies {@code action} to each target, highest index first, so that removing or
+	 * returning a card does not shift the indices of targets not yet processed.  Zones
+	 * are independent lists, so a single descending-index sort is safe across zones.
+	 */
+	private void applyTargetsHighestIndexFirst(java.util.List<ForwardTarget> targets, Consumer<ForwardTarget> action) {
+		targets.stream()
+				.sorted(Comparator.comparingInt(ForwardTarget::idx).reversed())
+				.forEach(action);
+	}
+
 	/**
 	 * Shows a modal dialog for P1 to pick targeted forwards from {@code eligible}.
 	 * Auto-selects all when the eligible count does not exceed {@code maxCount} and
@@ -11052,89 +11118,109 @@ public class MainWindow {
 			java.util.List<ForwardTarget> eligible, int maxCount, boolean upTo, String title) {
 		if (eligible.isEmpty()) { logEntry("Choose: no eligible targets"); return java.util.List.of(); }
 		if (!upTo && eligible.size() <= maxCount) return java.util.List.copyOf(eligible);
+		return selectFieldTargetsInPlace(eligible, maxCount, upTo, title);
+	}
 
-		JDialog dlg = new JDialog(frame, title, true);
-		dlg.setResizable(false);
-		dlg.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
+	/** Maps a field {@link ForwardTarget} to its on-screen card label. */
+	private JLabel labelForTarget(ForwardTarget t) {
+		return switch (t.zone()) {
+			case FORWARD -> t.isP1() ? p1ForwardLabels.get(t.idx()) : p2ForwardLabels.get(t.idx());
+			case BACKUP  -> t.isP1() ? p1BackupLabels[t.idx()]      : p2BackupLabels[t.idx()];
+			case MONSTER -> t.isP1() ? p1MonsterLabels.get(t.idx()) : p2MonsterLabels.get(t.idx());
+		};
+	}
 
-		java.util.List<ForwardTarget> chosen = new ArrayList<>();
-		java.util.Set<Integer> sel = new java.util.LinkedHashSet<>();
+	/**
+	 * In-place field-target selection: glows each eligible card on the board and lets the
+	 * player click to toggle it.  Exact-count selections resolve as soon as {@code maxCount}
+	 * cards are chosen; "up to" selections show a small Confirm / Cancel bar.  Card-zoom on
+	 * hover keeps working through the cards' existing listeners.  Blocks (pumping the event
+	 * queue via a secondary loop) until the choice is made, preserving the synchronous
+	 * selection contract the effect resolver relies on.
+	 */
+	private java.util.List<ForwardTarget> selectFieldTargetsInPlace(
+			java.util.List<ForwardTarget> eligible, int maxCount, boolean upTo, String title) {
+		final Color GLOW_ELIGIBLE = new Color(90, 200, 255);
+		final Color GLOW_PICKED   = Color.YELLOW;
 
-		JPanel opponentRow = new JPanel(new FlowLayout(FlowLayout.CENTER, 8, 4));
-		JPanel selfRow     = new JPanel(new FlowLayout(FlowLayout.CENTER, 8, 4));
+		java.util.LinkedHashSet<Integer> sel = new java.util.LinkedHashSet<>();
+		java.util.List<JLabel> labels = new ArrayList<>(eligible.size());
+		java.util.Map<JLabel, javax.swing.border.Border> origBorders = new java.util.HashMap<>();
+		java.util.List<java.awt.event.MouseListener> listeners = new ArrayList<>(eligible.size());
+		java.util.List<ForwardTarget> result = new ArrayList<>();
 
-		JButton confirmBtn = new JButton("Confirm");
-		confirmBtn.setFont(FontLoader.loadPixelNESFont(11));
-		confirmBtn.setEnabled(upTo);
+		java.awt.SecondaryLoop loop =
+				java.awt.Toolkit.getDefaultToolkit().getSystemEventQueue().createSecondaryLoop();
+		boolean[] done = { false };
 
+		JDialog bar = new JDialog(frame, title, false);
+		bar.setFocusableWindowState(false);   // never steal focus, so the board stays clickable
+		bar.setResizable(false);
+
+		Runnable finish = () -> {
+			if (done[0]) return;
+			done[0] = true;
+			for (int i = 0; i < labels.size(); i++) {
+				labels.get(i).setBorder(origBorders.get(labels.get(i)));
+				labels.get(i).removeMouseListener(listeners.get(i));
+			}
+			fieldTargetingActive = false;
+			for (Integer si : sel) result.add(eligible.get(si));
+			bar.dispose();
+			if (loop != null) loop.exit();
+		};
+
+		fieldTargetingActive = true;
 		for (int i = 0; i < eligible.size(); i++) {
-			ForwardTarget target = eligible.get(i);
-			int tIdx = target.idx();
-			CardData card = switch (target.zone()) {
-				case BACKUP  -> target.isP1() ? p1BackupCards[tIdx] : p2BackupCards[tIdx];
-				case MONSTER -> target.isP1() ? p1MonsterCards.get(tIdx) : p2MonsterCards.get(tIdx);
-				default      -> target.isP1()
-						? (p1ForwardPrimedTop.get(tIdx) != null ? p1ForwardPrimedTop.get(tIdx) : p1ForwardCards.get(tIdx))
-						: p2ForwardCards.get(tIdx);
-			};
-			String typeTag = switch (target.zone()) {
-				case BACKUP  -> "BK";
-				case MONSTER -> "MON";
-				default      -> "FWD";
-			};
 			final int fi = i;
-			JButton btn = new JButton("<html><center>"
-					+ (target.isP1() ? "[You " : "[P2 ") + typeTag + "] "
-					+ card.name() + "<br>(" + card.power() + ")</center></html>");
-			btn.setFont(FontLoader.loadPixelNESFont(9));
-			btn.setPreferredSize(new Dimension(130, 56));
-			btn.addActionListener(ae -> {
-				if (sel.contains(fi)) {
-					sel.remove(fi);
-					btn.setBackground(null);
-				} else {
-					if (sel.size() >= maxCount) return;
-					sel.add(fi);
-					btn.setBackground(Color.YELLOW);
-					if (!upTo && sel.size() == maxCount) {
-						for (int si : sel) chosen.add(eligible.get(si));
-						dlg.dispose();
-						return;
+			JLabel lbl = labelForTarget(eligible.get(i));
+			labels.add(lbl);
+			origBorders.put(lbl, lbl.getBorder());
+			lbl.setBorder(createCardGlowBorder(GLOW_ELIGIBLE));
+			java.awt.event.MouseListener ml = new MouseAdapter() {
+				@Override public void mousePressed(MouseEvent e) {
+					if (!SwingUtilities.isLeftMouseButton(e)) return;
+					if (sel.contains(fi)) {
+						sel.remove(fi);
+						lbl.setBorder(createCardGlowBorder(GLOW_ELIGIBLE));
+					} else {
+						if (sel.size() >= maxCount) return;
+						sel.add(fi);
+						lbl.setBorder(createCardGlowBorder(GLOW_PICKED));
+						if (!upTo && sel.size() == maxCount) { finish.run(); return; }
 					}
 				}
-				confirmBtn.setEnabled(upTo || sel.size() == maxCount);
-			});
-			if (!target.isP1()) opponentRow.add(btn);
-			else                selfRow.add(btn);
+			};
+			lbl.addMouseListener(ml);
+			listeners.add(ml);
 		}
 
-		confirmBtn.addActionListener(ae -> {
-			for (int si : sel) chosen.add(eligible.get(si));
-			dlg.dispose();
-		});
-		JPanel south = new JPanel(new FlowLayout(FlowLayout.CENTER, 8, 4));
-		south.add(confirmBtn);
-		if (upTo) {
-			JButton skipBtn = new JButton("Skip");
-			skipBtn.setFont(FontLoader.loadPixelNESFont(11));
-			skipBtn.addActionListener(ae -> dlg.dispose());
-			south.add(skipBtn);
-		}
-
-		JLabel hdr = new JLabel(title, SwingConstants.CENTER);
+		JLabel hdr = new JLabel(title + (upTo ? "  (up to " + maxCount + ")" : "  (select " + maxCount + ")"),
+				SwingConstants.CENTER);
 		hdr.setFont(FontLoader.loadPixelNESFont(11));
-		hdr.setBorder(BorderFactory.createEmptyBorder(8, 8, 4, 8));
+		hdr.setBorder(BorderFactory.createEmptyBorder(8, 12, 6, 12));
 
-		JPanel center = buildTwoRowTargetPanel(opponentRow, selfRow);
+		bar.getContentPane().setLayout(new BorderLayout());
+		bar.getContentPane().add(hdr, BorderLayout.CENTER);
+		if (upTo) {
+			JButton confirmBtn = new JButton("Confirm");
+			confirmBtn.setFont(FontLoader.loadPixelNESFont(11));
+			confirmBtn.addActionListener(ae -> finish.run());
+			JButton cancelBtn = new JButton("Cancel");
+			cancelBtn.setFont(FontLoader.loadPixelNESFont(11));
+			cancelBtn.addActionListener(ae -> { sel.clear(); finish.run(); });
+			JPanel south = new JPanel(new FlowLayout(FlowLayout.CENTER, 8, 6));
+			south.add(confirmBtn);
+			south.add(cancelBtn);
+			bar.getContentPane().add(south, BorderLayout.SOUTH);
+		}
+		bar.pack();
+		// Anchor near the top of the game window so it doesn't cover the field.
+		bar.setLocation(frame.getX() + (frame.getWidth() - bar.getWidth()) / 2, frame.getY() + 60);
+		bar.setVisible(true);
 
-		dlg.getContentPane().setLayout(new BorderLayout(0, 4));
-		dlg.getContentPane().add(hdr,    BorderLayout.NORTH);
-		dlg.getContentPane().add(center, BorderLayout.CENTER);
-		dlg.getContentPane().add(south,  BorderLayout.SOUTH);
-		dlg.pack();
-		dlg.setLocationRelativeTo(frame);
-		dlg.setVisible(true);
-		return java.util.List.copyOf(chosen);
+		if (loop == null || !loop.enter()) finish.run();   // fallback if no secondary loop is available
+		return result;
 	}
 
 	/** Stacks {@code opponentRow} above {@code selfRow} with section labels; omits empty rows. */
@@ -11278,6 +11364,7 @@ public class MainWindow {
 	// -------------------------------------------------------------------------
 
 	private void showBackupContextMenu(int idx, JLabel slot, MouseEvent e) {
+		if (fieldTargetingActive) return;
 		JPopupMenu menu = new JPopupMenu();
 
 		CardData card = p1BackupCards[idx];
@@ -11589,6 +11676,7 @@ public class MainWindow {
 
 	/** Shows a context menu for a P1 monster slot. */
 	private void showMonsterContextMenu(int idx, JLabel slot, MouseEvent e) {
+		if (fieldTargetingActive) return;
 		JPopupMenu menu = new JPopupMenu();
 
 		// Action abilities
@@ -11720,6 +11808,7 @@ public class MainWindow {
 	 * In attack-declaration mode (sub-step 1), toggles the attacker selection.
 	 */
 	private void handleP1ForwardLeftClick(int idx) {
+		if (fieldTargetingActive) return;
 		if (gameState.getCurrentPhase() != GameState.GamePhase.ATTACK) return;
 		if (p1InBlockDeclaration()) {
 			toggleP1BlockerSelection(idx);
@@ -12041,6 +12130,7 @@ public class MainWindow {
 
 	/** Handles a left-click on a P1 monster slot during the attack phase. */
 	private void handleP1MonsterLeftClick(int idx) {
+		if (fieldTargetingActive) return;
 		if (attackSubStep != 1) return;
 		if (!isMonsterSelectableAsForward(idx)) return;
 		if (!p1AttackSelection.isEmpty()) {
@@ -12422,6 +12512,7 @@ public class MainWindow {
 
 	/** Shows a context menu for a P1 forward slot. */
 	private void showForwardContextMenu(int idx, JLabel slot, MouseEvent e) {
+		if (fieldTargetingActive) return;
 		JPopupMenu menu = new JPopupMenu();
 
 		// Action abilities (use effective card — top card when primed)
@@ -12448,6 +12539,7 @@ public class MainWindow {
 	}
 
 	private void showP2BackupContextMenu(int idx, JLabel slot, MouseEvent e) {
+		if (fieldTargetingActive) return;
 		JPopupMenu menu = new JPopupMenu();
 		CardData card = p2BackupCards[idx];
 		if (card != null) {
@@ -12458,6 +12550,7 @@ public class MainWindow {
 	}
 
 	private void showP2MonsterContextMenu(int idx, JLabel slot, MouseEvent e) {
+		if (fieldTargetingActive) return;
 		JPopupMenu menu = new JPopupMenu();
 		addAbilityMenuItems(menu, p2MonsterCards.get(idx), p2MonsterFrozen.get(idx),
 				p2MonsterStates.get(idx), p2MonsterPlayedOnTurn.get(idx),
@@ -12466,6 +12559,7 @@ public class MainWindow {
 	}
 
 	private void showP2ForwardContextMenu(int idx, JLabel slot, MouseEvent e) {
+		if (fieldTargetingActive) return;
 		JPopupMenu menu = new JPopupMenu();
 		CardData fwd         = p2ForwardCards.get(idx);
 		CardData effectiveFwd = p2ForwardPrimedTop.get(idx) != null ? p2ForwardPrimedTop.get(idx) : fwd;
