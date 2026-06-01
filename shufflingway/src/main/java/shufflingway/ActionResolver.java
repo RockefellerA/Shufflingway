@@ -337,6 +337,18 @@ public class ActionResolver {
         "(?i)Return\\s+(?:it|them)\\s+to\\s+your\\s+hands?\\.?"
     );
 
+    /**
+     * Matches "Return all [the] [element] [targets] [control] to their owners' hands."
+     * Named groups: {@code element}, {@code targets}, {@code control}.
+     */
+    private static final Pattern ALL_RETURN_TO_HAND_PATTERN = Pattern.compile(
+        "(?i)Return\\s+all\\s+(?:the\\s+)?" +
+        "(?:(?<element>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)\\s+)?" +
+        "(?<targets>Forwards?(?:\\s+and\\s+Monsters?)?|Backups?|Characters?)?" +
+        "(?:\\s+(?<control>(?:your\\s+)?opponent\\s+controls?|you\\s+control))?" +
+        "\\s+to\\s+(?:(?:its|their)\\s+owner(?:'s|s')?\\s+hands?|your\\s+hand)[.!]?"
+    );
+
     /** Matches "Return [name] to its owner's hand." — named card, not a pronoun. */
     private static final Pattern RETURN_NAMED_TO_OWNERS_HAND = Pattern.compile(
         "(?i)Return\\s+(?!(?:it|them)\\b)(?<named>.+?)\\s+to\\s+its\\s+owner(?:'s|s')?\\s+hand[.!]?"
@@ -1689,6 +1701,9 @@ public class ActionResolver {
         if (result != null) return result;
 
         result = tryParseAllFieldPowerBoost(effectText);
+        if (result != null) return result;
+
+        result = tryParseReturnAllToHand(effectText);
         if (result != null) return result;
 
         result = tryParseStandalonePowerBoostAndAttackTrigger(effectText, source);
@@ -4518,11 +4533,12 @@ public class ActionResolver {
         boolean selfOnly     = control != null && control.toLowerCase().contains("you control");
 
         String actionLabel = switch (action) {
-            case BREAK          -> "Break";
-            case DULL           -> "Dull";
-            case FREEZE         -> "Freeze";
+            case BREAK           -> "Break";
+            case DULL            -> "Dull";
+            case FREEZE          -> "Freeze";
             case DULL_AND_FREEZE -> "Dull & Freeze";
-            case ACTIVATE       -> "Activate";
+            case ACTIVATE        -> "Activate";
+            case RETURN_TO_HAND  -> "Return to hand";
         };
         String tgtLabel     = targets != null ? targets : (job != null ? "Job " + job : category != null ? "Cat " + category : "all");
         String costLabel    = costVal >= 0
@@ -4535,6 +4551,42 @@ public class ActionResolver {
             ctx.logEntry("Effect: " + logMsg);
             ctx.applyMassFieldEffect(action, inclForwards, inclBackups, inclMonsters,
                     opponentOnly, selfOnly, element, costVal, costCmp, excludeCostVal, job, category);
+        };
+    }
+
+    /**
+     * Parses "Return all [the] [element] [targets] [control] to their owners' hands."
+     */
+    private static Consumer<GameContext> tryParseReturnAllToHand(String text) {
+        Matcher m = ALL_RETURN_TO_HAND_PATTERN.matcher(text);
+        if (!m.find()) return null;
+
+        String element  = m.group("element");
+        String targets  = m.group("targets");
+        boolean inclForwards, inclBackups, inclMonsters;
+        if (targets == null) {
+            inclForwards = true; inclBackups = true; inclMonsters = true;
+        } else {
+            String tgtLower = targets.toLowerCase();
+            inclForwards = tgtLower.contains("forward") || tgtLower.contains("character");
+            inclBackups  = tgtLower.contains("backup")  || tgtLower.contains("character");
+            inclMonsters = tgtLower.contains("monster") || tgtLower.contains("character");
+        }
+
+        String control       = m.group("control");
+        boolean opponentOnly = control != null && !control.toLowerCase().contains("you control");
+        boolean selfOnly     = control != null && control.toLowerCase().contains("you control");
+
+        String elemLabel    = element != null ? element + " " : "";
+        String tgtLabel     = targets != null ? targets : "all";
+        String controlLabel = opponentOnly ? " (opponent)" : selfOnly ? " (yours)" : "";
+        String logMsg       = "Return all " + elemLabel + tgtLabel + controlLabel + " to hand";
+
+        return ctx -> {
+            ctx.logEntry("Effect: " + logMsg);
+            ctx.applyMassFieldEffect(GameContext.MassAction.RETURN_TO_HAND,
+                    inclForwards, inclBackups, inclMonsters,
+                    opponentOnly, selfOnly, element, -1, null, -1, null, null);
         };
     }
 

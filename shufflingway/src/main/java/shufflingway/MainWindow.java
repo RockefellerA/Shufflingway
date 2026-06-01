@@ -9779,6 +9779,7 @@ public class MainWindow {
 								case FREEZE         -> freezeP1Forward(i);
 								case DULL_AND_FREEZE -> { dullP1Forward(i); freezeP1Forward(i); }
 								case ACTIVATE       -> { p1ForwardStates.set(i, CardState.ACTIVE); refreshP1ForwardSlot(i); }
+								case RETURN_TO_HAND -> returnP1ForwardToHand(i);
 							}
 						}
 					}
@@ -9804,6 +9805,7 @@ public class MainWindow {
 								case FREEZE         -> { p1BackupFrozen[i] = true;              logEntry(c.name() + " is frozen");          refreshP1BackupSlot(i); }
 								case DULL_AND_FREEZE -> { p1BackupStates[i] = CardState.DULL; p1BackupFrozen[i] = true; logEntry(c.name() + " is dulled & frozen"); refreshP1BackupSlot(i); }
 								case ACTIVATE       -> { p1BackupStates[i] = CardState.ACTIVE; logEntry(c.name() + " is activated");       refreshP1BackupSlot(i); }
+								case RETURN_TO_HAND -> returnP1BackupToHand(i);
 							}
 						}
 					}
@@ -9835,6 +9837,7 @@ public class MainWindow {
 								case FREEZE         -> { p1MonsterFrozen.set(i, true);              logEntry(c.name() + " is frozen");          refreshP1MonsterSlot(i); }
 								case DULL_AND_FREEZE -> { p1MonsterStates.set(i, CardState.DULL); p1MonsterFrozen.set(i, true); logEntry(c.name() + " is dulled & frozen"); refreshP1MonsterSlot(i); }
 								case ACTIVATE       -> { p1MonsterStates.set(i, CardState.ACTIVE); logEntry(c.name() + " is activated");       refreshP1MonsterSlot(i); }
+								case RETURN_TO_HAND -> returnP1MonsterToHand(i);
 							}
 						}
 					}
@@ -9855,6 +9858,7 @@ public class MainWindow {
 								case FREEZE         -> freezeP2Forward(i);
 								case DULL_AND_FREEZE -> { dullP2Forward(i); freezeP2Forward(i); }
 								case ACTIVATE       -> { p2ForwardStates.set(i, CardState.ACTIVE); refreshP2ForwardSlot(i); }
+								case RETURN_TO_HAND -> returnP2ForwardToHand(i);
 							}
 						}
 					}
@@ -9880,6 +9884,7 @@ public class MainWindow {
 								case FREEZE         -> { p2BackupFrozen[i] = true;              logEntry("[P2] " + c.name() + " is frozen");          refreshP2BackupSlot(i); }
 								case DULL_AND_FREEZE -> { p2BackupStates[i] = CardState.DULL; p2BackupFrozen[i] = true; logEntry("[P2] " + c.name() + " is dulled & frozen"); refreshP2BackupSlot(i); }
 								case ACTIVATE       -> { p2BackupStates[i] = CardState.ACTIVE; logEntry("[P2] " + c.name() + " is activated");       refreshP2BackupSlot(i); }
+								case RETURN_TO_HAND -> returnP2BackupToHand(i);
 							}
 						}
 					}
@@ -9909,6 +9914,7 @@ public class MainWindow {
 								case FREEZE         -> { p2MonsterFrozen.set(i, true);              logEntry("[P2] " + c.name() + " is frozen");          refreshP2MonsterSlot(i); }
 								case DULL_AND_FREEZE -> { p2MonsterStates.set(i, CardState.DULL); p2MonsterFrozen.set(i, true); logEntry("[P2] " + c.name() + " is dulled & frozen"); refreshP2MonsterSlot(i); }
 								case ACTIVATE       -> { p2MonsterStates.set(i, CardState.ACTIVE); logEntry("[P2] " + c.name() + " is activated");       refreshP2MonsterSlot(i); }
+								case RETURN_TO_HAND -> returnP2MonsterToHand(i);
 							}
 						}
 					}

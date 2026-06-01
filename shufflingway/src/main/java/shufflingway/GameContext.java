@@ -898,7 +898,7 @@ public interface GameContext {
     // ---- Mass field effects -------------------------------------------------
 
     /** Action verbs for mass field effects. */
-    enum MassAction { BREAK, DULL, FREEZE, DULL_AND_FREEZE, ACTIVATE }
+    enum MassAction { BREAK, DULL, FREEZE, DULL_AND_FREEZE, ACTIVATE, RETURN_TO_HAND }
 
     /**
      * Applies {@code action} to every field card that matches all filters.
