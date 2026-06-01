@@ -6038,6 +6038,7 @@ public class MainWindow {
 		if (ability.isSpecial())       { if (!firstCost) cost.append(", "); cost.append("S"); firstCost = false; }
 		if (ability.hasXCost())        { if (!firstCost) cost.append(", "); cost.append("X"); firstCost = false; }
 		if (ability.crystalCost() > 0) { if (!firstCost) cost.append(", "); cost.append(ability.crystalCost()).append(" Crystal"); firstCost = false; }
+		if (ability.selfMillCost() > 0) { if (!firstCost) cost.append(", "); cost.append("mill ").append(ability.selfMillCost()); firstCost = false; }
 		for (String e : ability.cpCost()) {
 			if (!firstCost) cost.append(", ");
 			cost.append(e.isEmpty() ? "any" : e);
@@ -8074,6 +8075,31 @@ public class MainWindow {
 			logEntry("Dull cost: \"" + fwds.get(fwdIdx).name() + "\" dulled (power " + lastDullForwardCostPower + ")");
 		}
 
+		// Self-mill cost
+		if (ability.selfMillCost() > 0) {
+			int count = ability.selfMillCost();
+			java.util.Deque<CardData> deck = isP1 ? gameState.getP1MainDeck() : gameState.getP2MainDeck();
+			int available = deck.size();
+			boolean milledOut = available < count;
+			if (isP1) {
+				buildGameContext(true).millCards(count);
+			} else {
+				buildGameContext(false).opponentMillCards(count);
+			}
+			if (milledOut) {
+				String msg = isP1 ? "P1 milled out — You Lose!" : "P2 milled out — Opponent Loses!";
+				if (available > 0) {
+					int animMs = ((available - 1) * 5 + CardSlideAnimator.TOTAL_FRAMES) * CardSlideAnimator.FRAME_MS;
+					javax.swing.Timer t = new javax.swing.Timer(animMs, e -> triggerGameOver(msg));
+					t.setRepeats(false);
+					t.start();
+				} else {
+					triggerGameOver(msg);
+				}
+				return;
+			}
+		}
+
 		logEntry("\"" + source.name() + "\" activated ability");
 
 		gameState.pushStack(new StackEntry(source, ability, isP1, xValue));
@@ -8866,13 +8892,25 @@ public class MainWindow {
 
 			@Override public void opponentMillCards(int count) {
 				java.util.Deque<CardData> deck = gameState.getP2MainDeck();
-				java.util.List<CardData>  bz   = gameState.getP2BreakZone();
+				JLayeredPane lp    = frame.getRootPane().getLayeredPane();
+				Point start = SwingUtilities.convertPoint(
+						p2DeckLabel, p2DeckLabel.getWidth() / 2, p2DeckLabel.getHeight() / 2, lp);
+				Point end   = SwingUtilities.convertPoint(
+						p2BreakLabel, p2BreakLabel.getWidth() / 2, p2BreakLabel.getHeight() / 2, lp);
+				BufferedImage img = CardAnimation.toARGB(
+						loadCardbackImage(), CardAnimation.CARD_W, CardAnimation.CARD_H);
+				int milled = 0;
 				for (int i = 0; i < count && !deck.isEmpty(); i++) {
 					CardData card = deck.pop();
-					bz.add(card);
+					addToP2BreakZone(card);
 					logEntry("[P2] Mill: \"" + card.name() + "\" → Break Zone");
+					cardSlideAnimator.startSlide(img, start, end, i * 5);
+					milled++;
 				}
-				refreshP2BreakLabel();
+				if (milled > 0) {
+					refreshP2DeckLabel();
+					refreshP2BreakLabel();
+				}
 			}
 
 			@Override public void millCards(int count) {

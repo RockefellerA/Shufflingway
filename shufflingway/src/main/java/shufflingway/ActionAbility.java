@@ -22,6 +22,7 @@ import java.util.List;
  *       or {@code 《S》} appears in the cost.  Requires discarding a same-name card
  *       from hand in addition to the other costs.</li>
  *   <li>{@link #crystalCost} — number of Crystals the player must spend ({@code 《C》} tokens).</li>
+ *   <li>{@link #selfMillCost} — {@code > 0}: put the top N cards of the deck into the Break Zone as cost.</li>
  *   <li>{@link #hasXCost} — {@code true} when {@code 《X》} appears in the cost.  The player may
  *       pay any amount of CP beyond the fixed requirements; that surplus becomes the value of X
  *       passed to effect resolution.</li>
@@ -43,6 +44,7 @@ public record ActionAbility(
         boolean                 requiresDull,          // 《Dull》 present in cost
         boolean                 isSpecial,             // [[s]]…[[/]] or 《S》 present — requires same-name hand discard
         int                     crystalCost,           // number of Crystals the player must spend (《C》 tokens)
+        int                     selfMillCost,          // > 0: put top N cards of deck into Break Zone as cost
         boolean                 hasXCost,              // 《X》 present — surplus CP beyond fixed costs becomes X
         List<String>            cpCost,                // CP cost elements (element names or "" for generic)
         List<BreakZoneCost>     breakZoneCosts,        // "put X into the Break Zone" costs (may be empty)

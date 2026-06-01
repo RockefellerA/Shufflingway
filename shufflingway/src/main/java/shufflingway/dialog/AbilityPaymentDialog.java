@@ -245,6 +245,7 @@ public class AbilityPaymentDialog {
         if (ability.isSpecial())       { if (!cf) costDesc.append(" + "); costDesc.append("S (discard ").append(source.name()).append(")"); cf = false; }
         if (ability.hasXCost())        { if (!cf) costDesc.append(" + "); costDesc.append("X CP"); cf = false; }
         if (ability.crystalCost() > 0) { if (!cf) costDesc.append(" + "); costDesc.append(ability.crystalCost()).append(" Crystal"); cf = false; }
+        if (ability.selfMillCost() > 0) { if (!cf) costDesc.append(" + "); costDesc.append("mill ").append(ability.selfMillCost()); cf = false; }
         for (Map.Entry<String, Integer> en : costByElem.entrySet()) {
             if (!cf) costDesc.append(" + ");
             costDesc.append(en.getValue()).append(" ").append(en.getKey()).append(" CP"); cf = false;

@@ -645,6 +645,10 @@ public record CardData(
         "(?i)put\\s+(.+?)\\s+into\\s+the\\s+Break\\s+Zone"
     );
 
+    private static final Pattern SELF_MILL_COST_PATTERN = Pattern.compile(
+        "(?i)put\\s+the\\s+top\\s+(\\d+)\\s+cards?\\s+of\\s+your\\s+deck\\s+into\\s+the\\s+Break\\s+Zone"
+    );
+
     /** Detects whether an ability effect targets a Forward blocking a specific named card or job. */
     private static final Pattern HAS_BLOCKING_TARGET_EFFECT_PATTERN = Pattern.compile(
         "(?i)Choose\\s+\\d+\\s+(?:Forward|Character)s?\\s+blocking\\s+"
@@ -725,6 +729,14 @@ public record CardData(
                 }
             }
 
+            int selfMillCost = 0;
+            if (bzRaw != null) {
+                Matcher smm = SELF_MILL_COST_PATTERN.matcher(bzRaw);
+                if (smm.find()) {
+                    selfMillCost = Integer.parseInt(smm.group(1));
+                    bzRaw = null;
+                }
+            }
             List<BreakZoneCost>      breakZoneCosts      = parseBreakZoneCosts(bzRaw);
             List<DiscardCost>        discardCosts        = parseDiscardCosts(discardRaw);
             List<RemoveFromGameCost> removeFromGameCosts = parseRemoveFromGameCosts(removeRaw);
@@ -754,7 +766,7 @@ public record CardData(
             String cpBackupElement = cpBkpM.find()
                     ? (cpBkpM.group("element") != null ? cpBkpM.group("element") : "")
                     : null;
-            result.add(new ActionAbility(abilityName, requiresDull, isSpecial, crystalCost, hasXCost, cpCost, breakZoneCosts, discardCosts, removeFromGameCosts, returnToHandCosts, counterCosts, dullForwardCosts, yourTurnOnly, oncePerTurn, mainPhaseOnly, whileCardAtk, whileCardBlk, whilePartyAtk, whileCardInHand, hasBlockingTarget, effectRaw, damageThreshold, controlCondition, cpBackupElement, sourceInBattle));
+            result.add(new ActionAbility(abilityName, requiresDull, isSpecial, crystalCost, selfMillCost, hasXCost, cpCost, breakZoneCosts, discardCosts, removeFromGameCosts, returnToHandCosts, counterCosts, dullForwardCosts, yourTurnOnly, oncePerTurn, mainPhaseOnly, whileCardAtk, whileCardBlk, whilePartyAtk, whileCardInHand, hasBlockingTarget, effectRaw, damageThreshold, controlCondition, cpBackupElement, sourceInBattle));
         }
         return List.copyOf(result);
     }
