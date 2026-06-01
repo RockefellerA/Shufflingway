@@ -342,10 +342,10 @@ public class StandardPaymentDialog {
         return false;
     }
 
-    private static final String[] ALL_ELEMENTS =
+    static final String[] ALL_ELEMENTS =
             {"Fire", "Ice", "Wind", "Earth", "Lightning", "Water", "Light", "Dark"};
 
-    private static void showElementPicker(java.awt.Component anchor, MouseEvent trigger,
+    static void showElementPicker(java.awt.Component anchor, MouseEvent trigger,
             String backupName, String[] elements, Consumer<String> onPick) {
         JPopupMenu popup = new JPopupMenu();
         JMenuItem header = new JMenuItem(backupName + " — choose element:");

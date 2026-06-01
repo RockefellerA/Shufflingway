@@ -15,7 +15,6 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutionException;
-import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 
 import javax.swing.BorderFactory;
@@ -25,7 +24,9 @@ import javax.swing.JButton;
 import javax.swing.JDialog;
 import javax.swing.JFrame;
 import javax.swing.JLabel;
+import javax.swing.JMenuItem;
 import javax.swing.JPanel;
+import javax.swing.JPopupMenu;
 import javax.swing.JScrollPane;
 import javax.swing.SwingConstants;
 import javax.swing.SwingWorker;
@@ -38,6 +39,12 @@ import static shufflingway.CpPaymentUtils.matchesAnyElement;
 /** CP payment dialog for a Warp alternate cost. */
 public class WarpPaymentDialog {
 
+    /** Callback invoked on payment confirmation. */
+    @FunctionalInterface
+    public interface ConfirmCallback {
+        void accept(List<Integer> discards, List<Integer> backups, Map<Integer, String> elementOverrides);
+    }
+
     private final JFrame         owner;
     private final CardData       card;
     private final int            handIdx;
@@ -45,25 +52,27 @@ public class WarpPaymentDialog {
     private final CardData[]     backupCards;
     private final CardState[]    backupStates;
     private final String[]       backupUrls;
+    private final List<CardData> controlledForwards;
     private final Consumer<String> onZoom;
     private final Runnable         onZoomHide;
-    /** Called on Confirm with (discardIndices, backupSlots). */
-    private final BiConsumer<List<Integer>, List<Integer>> onConfirm;
+    private final ConfirmCallback  onConfirm;
 
     public WarpPaymentDialog(JFrame owner, CardData card, int handIdx,
             List<CardData> hand, CardData[] backupCards, CardState[] backupStates,
-            String[] backupUrls, Consumer<String> onZoom, Runnable onZoomHide,
-            BiConsumer<List<Integer>, List<Integer>> onConfirm) {
-        this.owner        = owner;
-        this.card         = card;
-        this.handIdx      = handIdx;
-        this.hand         = hand;
-        this.backupCards  = backupCards;
-        this.backupStates = backupStates;
-        this.backupUrls   = backupUrls;
-        this.onZoom       = onZoom;
-        this.onZoomHide   = onZoomHide;
-        this.onConfirm    = onConfirm;
+            String[] backupUrls, List<CardData> controlledForwards,
+            Consumer<String> onZoom, Runnable onZoomHide,
+            ConfirmCallback onConfirm) {
+        this.owner              = owner;
+        this.card               = card;
+        this.handIdx            = handIdx;
+        this.hand               = hand;
+        this.backupCards        = backupCards;
+        this.backupStates       = backupStates;
+        this.backupUrls         = backupUrls;
+        this.controlledForwards = controlledForwards;
+        this.onZoom             = onZoom;
+        this.onZoomHide         = onZoomHide;
+        this.onConfirm          = onConfirm;
     }
 
     public void show() {
@@ -83,6 +92,7 @@ public class WarpPaymentDialog {
 
         List<Integer> selectedBackups  = new ArrayList<>();
         List<Integer> selectedDiscards = new ArrayList<>();
+        Map<Integer, String> backupElementOverrides = new LinkedHashMap<>();
 
         List<Integer> eligibleBackupSlots = new ArrayList<>();
         for (int i = 0; i < backupCards.length; i++) {
@@ -106,9 +116,15 @@ public class WarpPaymentDialog {
             Map<String, Integer> cpByElem = new LinkedHashMap<>(bankCpByElem);
             int extraCp = 0;
             for (int slot : selectedBackups) {
-                if (matchesAnyElement(backupCards[slot], elems))
+                if (backupElementOverrides.containsKey(slot)) {
+                    String overElem = backupElementOverrides.get(slot);
+                    if (cpByElem.containsKey(overElem)) cpByElem.merge(overElem, 1, Integer::sum);
+                    else extraCp++;
+                } else if (matchesAnyElement(backupCards[slot], elems)) {
                     cpByElem.merge(contributingElement(backupCards[slot], elems, cpByElem, costByElem), 1, Integer::sum);
-                else extraCp++;
+                } else {
+                    extraCp++;
+                }
             }
             for (int idx : selectedDiscards) {
                 if (matchesAnyElement(hand.get(idx), elems))
@@ -168,11 +184,42 @@ public class WarpPaymentDialog {
                 final String url = backupUrls[slot];
                 lbl.addMouseListener(new MouseAdapter() {
                     @Override public void mousePressed(MouseEvent e) {
+                        if (selectedBackups.remove(Integer.valueOf(slot))) {
+                            backupElementOverrides.remove(slot);
+                            updateAll.run();
+                            return;
+                        }
                         int tot = bankCpByElem.values().stream().mapToInt(Integer::intValue).sum()
                                 + selectedBackups.size() + selectedDiscards.size() * 2;
-                        if (!selectedBackups.remove(Integer.valueOf(slot)) && tot < totalCost)
+                        if (tot >= totalCost) return;
+                        CardData bkp = backupCards[slot];
+                        String anyElemCat = bkp.backupCpAnyElementCategory();
+                        boolean isAnyElem = bkp.backupCpAnyElement()
+                                || (!anyElemCat.isEmpty()
+                                    && (anyElemCat.equalsIgnoreCase(card.category1())
+                                        || anyElemCat.equalsIgnoreCase(card.category2())))
+                                || isGrantedAnyElement(bkp);
+                        boolean isAnyElemOfFwds = bkp.backupCpAnyElementOfForwards()
+                                && !controlledForwards.isEmpty();
+                        if (isAnyElem || isAnyElemOfFwds) {
+                            String[] available;
+                            if (isAnyElemOfFwds && !isAnyElem) {
+                                java.util.LinkedHashSet<String> fwdElems = new java.util.LinkedHashSet<>();
+                                for (CardData fwd : controlledForwards)
+                                    for (String fe : fwd.elements()) fwdElems.add(fe);
+                                available = fwdElems.toArray(String[]::new);
+                            } else {
+                                available = StandardPaymentDialog.ALL_ELEMENTS;
+                            }
+                            StandardPaymentDialog.showElementPicker(lbl, e, bkp.name(), available, picked -> {
+                                backupElementOverrides.put(slot, picked);
+                                selectedBackups.add(slot);
+                                updateAll.run();
+                            });
+                        } else {
                             selectedBackups.add(slot);
-                        updateAll.run();
+                            updateAll.run();
+                        }
                     }
                     @Override public void mouseEntered(MouseEvent e) { if (lbl.getIcon() != null) onZoom.accept(url); }
                     @Override public void mouseExited(MouseEvent e)  { onZoomHide.run(); }
@@ -221,7 +268,8 @@ public class WarpPaymentDialog {
         cancelBtn.addActionListener(e -> dlg.dispose());
         confirmBtn.addActionListener(e -> {
             dlg.dispose();
-            onConfirm.accept(new ArrayList<>(selectedDiscards), new ArrayList<>(selectedBackups));
+            onConfirm.accept(new ArrayList<>(selectedDiscards), new ArrayList<>(selectedBackups),
+                    new LinkedHashMap<>(backupElementOverrides));
         });
 
         JPanel south = new JPanel(new FlowLayout(FlowLayout.CENTER, 12, 6));
@@ -254,6 +302,20 @@ public class WarpPaymentDialog {
         dlg.getContentPane().add(topPanel,  java.awt.BorderLayout.NORTH);
         dlg.getContentPane().add(mainPanel, java.awt.BorderLayout.CENTER);
         dlg.pack(); dlg.setLocationRelativeTo(owner); dlg.setVisible(true);
+    }
+
+    private boolean isGrantedAnyElement(CardData backup) {
+        for (CardData b : backupCards) {
+            if (b != null) {
+                BackupCpGrant grant = b.backupCpGrant();
+                if (grant != null && grant.appliesTo(backup)) return true;
+            }
+        }
+        for (CardData fwd : controlledForwards) {
+            BackupCpGrant grant = fwd.backupCpGrant();
+            if (grant != null && grant.appliesTo(backup)) return true;
+        }
+        return false;
     }
 
     private static JLabel makeCardLabel() {

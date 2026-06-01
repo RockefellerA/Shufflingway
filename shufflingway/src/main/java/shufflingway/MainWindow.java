@@ -4093,7 +4093,8 @@ public class MainWindow {
 		List<CardData> hand = gameState.getP1Hand();
 		if (hand.size() <= 5) return;
 
-		JDialog dlg = new JDialog(frame, "End Phase — Discard to 5", true);
+		JDialog dlg = new JDialog(frame, true);
+		dlg.setUndecorated(true);
 		dlg.setResizable(false);
 		dlg.setDefaultCloseOperation(JDialog.DO_NOTHING_ON_CLOSE);
 
@@ -4104,7 +4105,7 @@ public class MainWindow {
 		statusLabel.setFont(FontLoader.loadPixelNESFont(10));
 
 		List<JLabel> cardLabels = new ArrayList<>();
-		JPanel cardsPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 8));
+		JPanel cardsPanel = new JPanel(new FlowLayout(FlowLayout.CENTER, 8, 8));
 
 		JButton confirmBtn = new JButton("Confirm");
 		confirmBtn.setFont(FontLoader.loadPixelNESFont(11));
@@ -4135,6 +4136,8 @@ public class MainWindow {
 			lbl.setMinimumSize(new Dimension(CARD_W, CARD_H));
 			lbl.setOpaque(true);
 			lbl.setBackground(Color.DARK_GRAY);
+			lbl.setForeground(Color.WHITE);
+			lbl.setFont(FontLoader.loadPixelNESFont(10));
 			lbl.setBorder(BorderFactory.createLineBorder(Color.LIGHT_GRAY, 1));
 			lbl.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
 			cardLabels.add(lbl);
@@ -4152,13 +4155,8 @@ public class MainWindow {
 			new SwingWorker<ImageIcon, Void>() {
 				@Override protected ImageIcon doInBackground() throws Exception {
 					Image img = ImageCache.load(cd.imageUrl());
-					if (img == null) return null;
-					BufferedImage buf = new BufferedImage(CARD_W, CARD_H, BufferedImage.TYPE_INT_ARGB);
-					Graphics2D g2 = buf.createGraphics();
-					g2.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
-					g2.drawImage(img, 0, 0, CARD_W, CARD_H, null);
-					g2.dispose();
-					return new ImageIcon(buf);
+					return img == null ? null
+							: new ImageIcon(img.getScaledInstance(CARD_W, CARD_H, Image.SCALE_SMOOTH));
 				}
 				@Override protected void done() {
 					try { ImageIcon icon = get(); if (icon != null) { lbl.setIcon(icon); lbl.setText(null); } }
@@ -4177,7 +4175,6 @@ public class MainWindow {
 
 		confirmBtn.addActionListener(ae -> {
 			hideZoom();
-			dlg.dispose();
 			List<Integer> toDiscard = new ArrayList<>(selected);
 			toDiscard.sort(Collections.reverseOrder());
 			for (int di : toDiscard) {
@@ -4186,6 +4183,7 @@ public class MainWindow {
 			logEntry("Discarded " + toDiscard.size() + " card(s) — hand reduced to 5");
 			refreshP1HandLabel();
 			refreshP1BreakLabel();
+			dlg.dispose();
 		});
 
 		JScrollPane scrollPane = new JScrollPane(cardsPanel,
@@ -4195,14 +4193,22 @@ public class MainWindow {
 				Math.min(hand.size() * (CARD_W + 16) + 16, 900),
 				CARD_H + 60));
 
-		JPanel south = new JPanel(new BorderLayout());
-		south.add(statusLabel,  BorderLayout.CENTER);
-		south.add(confirmBtn,   BorderLayout.EAST);
-		south.setBorder(BorderFactory.createEmptyBorder(0, 8, 8, 8));
+		JLabel titleLabel = new JLabel("End Phase — Discard to 5", SwingConstants.CENTER);
+		titleLabel.setFont(FontLoader.loadPixelNESFont(14));
 
-		dlg.getContentPane().setLayout(new BorderLayout(0, 4));
-		dlg.getContentPane().add(scrollPane, BorderLayout.CENTER);
-		dlg.getContentPane().add(south,      BorderLayout.SOUTH);
+		JPanel south = new JPanel(new BorderLayout());
+		south.add(statusLabel, BorderLayout.CENTER);
+		south.add(confirmBtn,  BorderLayout.EAST);
+
+		JPanel mainPanel = new JPanel(new BorderLayout(0, 6));
+		mainPanel.setBorder(BorderFactory.createCompoundBorder(
+				BorderFactory.createRaisedBevelBorder(),
+				BorderFactory.createEmptyBorder(8, 8, 8, 8)));
+		mainPanel.add(titleLabel,  BorderLayout.NORTH);
+		mainPanel.add(scrollPane,  BorderLayout.CENTER);
+		mainPanel.add(south,       BorderLayout.SOUTH);
+
+		dlg.getContentPane().add(mainPanel);
 		dlg.pack();
 		dlg.setLocationRelativeTo(frame);
 		dlg.setVisible(true);
@@ -5221,8 +5227,9 @@ public class MainWindow {
 	private void showWarpPaymentDialog(CardData card, int handIdx) {
 		new WarpPaymentDialog(frame, card, handIdx,
 				gameState.getP1Hand(), p1BackupCards, p1BackupStates, p1BackupUrls,
+				p1ForwardCards,
 				this::showZoomAt, this::hideZoom,
-				(discards, backups) -> executeWarpPlay(card, handIdx, discards, backups))
+				(discards, backups, overrides) -> executeWarpPlay(card, handIdx, discards, backups, overrides))
 			.show();
 	}
 
@@ -5232,7 +5239,8 @@ public class MainWindow {
 	 * from hand, and places it in the Removed-From-Play zone with Warp counters.
 	 */
 	private void executeWarpPlay(CardData card, int cardHandIdx,
-			List<Integer> discardIndices, List<Integer> backupDullIndices) {
+			List<Integer> discardIndices, List<Integer> backupDullIndices,
+			java.util.Map<Integer, String> elementOverrides) {
 		List<String> rawCost = card.warpCost();
 		LinkedHashMap<String, Integer> costByElem = new LinkedHashMap<>();
 		for (String e : rawCost) costByElem.merge(e, 1, Integer::sum);
@@ -5241,7 +5249,9 @@ public class MainWindow {
 		for (int bi : backupDullIndices) {
 			p1BackupStates[bi] = CardState.DULL;
 			animateDullBackup(bi, true);
-			String cpElem = matchesAnyElement(p1BackupCards[bi], elems)
+			String cpElem = elementOverrides.containsKey(bi)
+					? elementOverrides.get(bi)
+					: matchesAnyElement(p1BackupCards[bi], elems)
 					? contributingElement(p1BackupCards[bi], elems) : elems[0];
 			gameState.addP1Cp(cpElem, 1);
 		}
@@ -12090,12 +12100,16 @@ public class MainWindow {
 		int turn = gameState.getTurnNumber();
 		for (int i = 0; i < p1ForwardStates.size(); i++) {
 			if (p1ForwardStates.get(i) == CardState.ACTIVE
+					&& !p1ForwardCannotAttack.contains(i)
+					&& !p1ForwardCannotAttackPersistent.contains(i)
+					&& !Boolean.TRUE.equals(p1ForwardFrozen.get(i))
 					&& (effectiveP1HasTrait(i, CardData.Trait.HASTE)
 					    || p1ForwardPlayedOnTurn.get(i) != turn))
 				return true;
 		}
 		for (int i = 0; i < p1MonsterStates.size(); i++) {
 			if (p1MonsterStates.get(i) != CardState.ACTIVE) continue;
+			if (Boolean.TRUE.equals(p1MonsterFrozen.get(i))) continue;
 			if (p1MonsterPlayedOnTurn.get(i) == turn) continue;
 			CardData.BecomeForwardAbility bfa = p1MonsterCards.get(i).becomeForwardAbility();
 			if (bfa == null) continue;
