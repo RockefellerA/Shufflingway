@@ -33,8 +33,10 @@ public record CardData(
         List<AutoAbility>   autoAbilities,
         List<FieldAbility>   fieldAbilities,
         List<IfControlBoost> ifControlBoosts,
-        List<FieldPowerGrant>    fieldPowerGrants,
-        List<FieldCostReduction> fieldCostReductions,
+        List<FieldPowerGrant>       fieldPowerGrants,
+        List<FieldCostReduction>    fieldCostReductions,
+        List<FieldPrimingAnyElement> fieldPrimingAnyElements,
+        boolean warpCostAnyElement,
         String job,
         String category1,
         String category2,
@@ -62,8 +64,9 @@ public record CardData(
         autoAbilities    = List.copyOf(autoAbilities);
         fieldAbilities   = List.copyOf(fieldAbilities);
         ifControlBoosts  = List.copyOf(ifControlBoosts);
-        fieldPowerGrants    = List.copyOf(fieldPowerGrants);
-        fieldCostReductions = List.copyOf(fieldCostReductions);
+        fieldPowerGrants       = List.copyOf(fieldPowerGrants);
+        fieldCostReductions    = List.copyOf(fieldCostReductions);
+        fieldPrimingAnyElements = List.copyOf(fieldPrimingAnyElements);
         job       = job       != null ? job       : "";
         category1 = category1 != null ? category1 : "";
         category2 = category2 != null ? category2 : "";
@@ -243,8 +246,8 @@ public record CardData(
         while (em.find()) {
             int count = Integer.parseInt(em.group(1));
             String elem = em.group(2);
-            String type = em.group(3) != null ? em.group(3) : globalType;
-            for (int i = 0; i < count; i++) result.add(elem + " " + type);
+            String bzType = em.group(3) != null ? em.group(3) : globalType;
+            for (int i = 0; i < count; i++) result.add(elem + " " + bzType);
         }
         return List.copyOf(result);
     }
@@ -1308,7 +1311,7 @@ public record CardData(
         "\\s*\\.?$"
     );
 
-    /** Parses all "The cost required to cast … is reduced by N" segments from {@code textEn}. */
+    /** Parses all cast-cost modifiers: flat reductions and "can be paid with any Element" grants. */
     public static List<FieldCostReduction> parseFieldCostReductions(String textEn, String cardType) {
         if (textEn == null || textEn.isBlank()) return List.of();
         if ("Summon".equalsIgnoreCase(cardType)) return List.of();
@@ -1318,43 +1321,184 @@ public record CardData(
             String seg = SUMMON_MARKUP.matcher(raw.trim()).replaceAll("").trim();
             if (seg.isEmpty()) continue;
 
+            // Flat / scaling reduction
             Matcher m = FIELD_COST_REDUCTION_PATTERN.matcher(seg);
-            if (!m.find()) continue;
+            if (m.find()) {
+                boolean ownerOnly  = m.group("your")      != null;
+                boolean floorAtOne = m.group("flooratone") != null;
+                int     amount     = Integer.parseInt(m.group("amount"));
 
-            boolean ownerOnly  = m.group("your")      != null;
-            boolean floorAtOne = m.group("flooratone") != null;
-            int     amount     = Integer.parseInt(m.group("amount"));
+                String elementFilter  = m.group("element");
+                String jobFilter      = m.group("job");
+                if (jobFilter != null) jobFilter = jobFilter.trim();
+                String cardNameFilter = m.group("bracketedname") != null
+                        ? m.group("bracketedname").trim()
+                        : m.group("cardname");
+                String scalingJob = m.group("scalingjob");
+                if (scalingJob != null) scalingJob = scalingJob.trim();
 
-            String elementFilter  = m.group("element");
-            String jobFilter      = m.group("job");
-            if (jobFilter != null) jobFilter = jobFilter.trim();
-            String cardNameFilter = m.group("bracketedname") != null
-                    ? m.group("bracketedname").trim()
-                    : m.group("cardname");
-            String scalingJob = m.group("scalingjob");
-            if (scalingJob != null) scalingJob = scalingJob.trim();
+                boolean inclForwards, inclBackups, inclMonsters, inclSummons;
+                if (cardNameFilter != null && m.group("type") == null) {
+                    inclForwards = inclBackups = inclMonsters = inclSummons = true;
+                } else if (jobFilter != null) {
+                    inclForwards = inclBackups = inclMonsters = inclSummons = true;
+                } else {
+                    String tl = m.group("type") != null ? m.group("type").toLowerCase() : "";
+                    inclForwards = tl.contains("forward")   || tl.contains("character");
+                    inclBackups  = tl.contains("backup")    || tl.contains("character");
+                    inclMonsters = tl.contains("monster")   || tl.contains("character");
+                    inclSummons  = tl.contains("summon");
+                }
 
-            boolean inclForwards, inclBackups, inclMonsters, inclSummons;
-            if (cardNameFilter != null && m.group("type") == null) {
-                // Bracket notation: match all card types with that name
-                inclForwards = inclBackups = inclMonsters = inclSummons = true;
-            } else if (jobFilter != null) {
-                // Job filter: match all card types
-                inclForwards = inclBackups = inclMonsters = inclSummons = true;
-            } else {
-                String type = m.group("type");
-                String tl   = type != null ? type.toLowerCase() : "";
-                inclForwards = tl.contains("forward")   || tl.contains("character");
-                inclBackups  = tl.contains("backup")    || tl.contains("character");
-                inclMonsters = tl.contains("monster")   || tl.contains("character");
-                inclSummons  = tl.contains("summon");
+                result.add(new FieldCostReduction(amount, floorAtOne, ownerOnly,
+                        inclForwards, inclBackups, inclMonsters, inclSummons,
+                        elementFilter, jobFilter, cardNameFilter, null, scalingJob, false));
+                continue;
             }
 
-            result.add(new FieldCostReduction(amount, floorAtOne, ownerOnly,
-                    inclForwards, inclBackups, inclMonsters, inclSummons,
-                    elementFilter, jobFilter, cardNameFilter, scalingJob));
+            // "can be paid with CP of any Element" (with optional flat reduction prefix)
+            m = FIELD_CAST_ANY_ELEMENT_PATTERN.matcher(seg);
+            if (m.find()) {
+                boolean ownerOnly = m.group("your") != null;
+                String  amtStr    = m.group("amount");
+                int     amount    = amtStr != null ? Integer.parseInt(amtStr) : 0;
+                for (String branch : m.group("rawspec").split("(?i)\\s+or\\s+")) {
+                    FieldCostReduction fcr = parseCastAnyElementBranch(branch.trim(), amount, ownerOnly);
+                    if (fcr != null) result.add(fcr);
+                }
+            }
         }
         return List.copyOf(result);
+    }
+
+    /**
+     * Matches "can be paid with CP of any Element" cast-cost grants, with an optional
+     * flat reduction prefix:
+     * "The cost required to (cast|play) [your] &lt;rawspec&gt; [(onto the field)]
+     *  [(is reduced by N [and])] can be paid with CP of any Element."
+     */
+    private static final Pattern FIELD_CAST_ANY_ELEMENT_PATTERN = Pattern.compile(
+        "(?i)^The\\s+cost\\s+required\\s+to\\s+(?:cast|play)\\s+" +
+        "(?<your>your\\s+)?" +
+        "(?<rawspec>.+?)\\s+" +
+        "(?:onto\\s+the\\s+field\\s+)?" +
+        "(?:is\\s+reduced\\s+by\\s+(?<amount>\\d+)(?:\\s+and)?\\s+)?" +
+        "can\\s+be\\s+paid\\s+with\\s+CP\\s+of\\s+any\\s+Element" +
+        "(?:\\s+\\(it\\s+cannot\\s+become\\s+0\\))?" +
+        "\\s*\\.?$"
+    );
+
+    // Sub-patterns for individual spec branches (split on " or ")
+    private static final Pattern CAST_SPEC_JOB_TYPE = Pattern.compile(
+        "(?i)^Job\\s+(?<job>[A-Za-z][A-Za-z\\s'''\\-]*?)(?:\\s+(?<type>Forwards?|Backups?|Monsters?|Summons?|Characters?))?$"
+    );
+    private static final Pattern CAST_SPEC_CARD_NAME = Pattern.compile(
+        "(?i)^Card\\s+Name\\s+(?<name>\\S+)$"
+    );
+    private static final Pattern CAST_SPEC_BRACKETED = Pattern.compile(
+        "(?i)^\\[Card\\s+Name\\s+\\((?<name>[^)]+)\\)\\]$"
+    );
+    private static final Pattern CAST_SPEC_CATEGORY_TYPE = Pattern.compile(
+        "(?i)^Category\\s+(?<cat>\\S+)\\s+(?<type>Forwards?|Backups?|Monsters?|Summons?|Characters?)$"
+    );
+    private static final Pattern CAST_SPEC_TYPE = Pattern.compile(
+        "(?i)^(?:(?<element>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)\\s+)?(?<type>Forwards?|Backups?|Monsters?|Summons?|Characters?)$"
+    );
+
+    /** Parses one spec branch into a {@link FieldCostReduction} with {@code anyElement=true}. */
+    private static FieldCostReduction parseCastAnyElementBranch(
+            String branch, int amount, boolean ownerOnly) {
+        Matcher m;
+
+        m = CAST_SPEC_JOB_TYPE.matcher(branch);
+        if (m.find()) {
+            String job  = m.group("job").trim();
+            String type = m.group("type");
+            String tl   = type != null ? type.toLowerCase() : "";
+            boolean iF  = type == null || tl.contains("forward")  || tl.contains("character");
+            boolean iB  = type == null || tl.contains("backup")   || tl.contains("character");
+            boolean iM  = type == null || tl.contains("monster")  || tl.contains("character");
+            boolean iS  = type == null || tl.contains("summon");
+            return new FieldCostReduction(amount, false, ownerOnly, iF, iB, iM, iS,
+                    null, job, null, null, null, true);
+        }
+
+        m = CAST_SPEC_BRACKETED.matcher(branch);
+        if (m.find())
+            return new FieldCostReduction(amount, false, ownerOnly, true, true, true, true,
+                    null, null, m.group("name").trim(), null, null, true);
+
+        m = CAST_SPEC_CARD_NAME.matcher(branch);
+        if (m.find())
+            return new FieldCostReduction(amount, false, ownerOnly, true, true, true, true,
+                    null, null, m.group("name"), null, null, true);
+
+        m = CAST_SPEC_CATEGORY_TYPE.matcher(branch);
+        if (m.find()) {
+            String cat  = m.group("cat");
+            String tl   = m.group("type").toLowerCase();
+            boolean iF  = tl.contains("forward")  || tl.contains("character");
+            boolean iB  = tl.contains("backup")   || tl.contains("character");
+            boolean iM  = tl.contains("monster")  || tl.contains("character");
+            boolean iS  = tl.contains("summon");
+            return new FieldCostReduction(amount, false, ownerOnly, iF, iB, iM, iS,
+                    null, null, null, cat, null, true);
+        }
+
+        m = CAST_SPEC_TYPE.matcher(branch);
+        if (m.find()) {
+            String element = m.group("element");
+            String tl      = m.group("type").toLowerCase();
+            boolean iF     = tl.contains("forward")  || tl.contains("character");
+            boolean iB     = tl.contains("backup")   || tl.contains("character");
+            boolean iM     = tl.contains("monster")  || tl.contains("character");
+            boolean iS     = tl.contains("summon");
+            return new FieldCostReduction(amount, false, ownerOnly, iF, iB, iM, iS,
+                    element, null, null, null, null, true);
+        }
+
+        return null;
+    }
+
+    private static final Pattern FIELD_PRIMING_ANY_ELEMENT_PATTERN = Pattern.compile(
+        "(?i)^The\\s+Priming\\s+cost\\s+of\\s+the\\s+" +
+        "(?<type>Forwards?|Backups?|Monsters?|Characters?)\\s+" +
+        "you\\s+control\\s+can\\s+be\\s+paid\\s+with\\s+CP\\s+of\\s+any\\s+Element" +
+        "\\s*\\.?$"
+    );
+
+    private static final Pattern WARP_ANY_ELEMENT_PATTERN = Pattern.compile(
+        "(?i)^Your\\s+Warp\\s+cost\\s+can\\s+be\\s+paid\\s+with\\s+CP\\s+of\\s+any\\s+Element\\s*\\.?$"
+    );
+
+    /** Parses all "The Priming cost of the X you control can be paid with CP of any Element" segments. */
+    public static List<FieldPrimingAnyElement> parseFieldPrimingAnyElements(String textEn, String cardType) {
+        if (textEn == null || textEn.isBlank()) return List.of();
+        if ("Summon".equalsIgnoreCase(cardType)) return List.of();
+
+        List<FieldPrimingAnyElement> result = new ArrayList<>();
+        for (String raw : textEn.split("(?i)\\[\\[br\\]\\]")) {
+            String seg = SUMMON_MARKUP.matcher(raw.trim()).replaceAll("").trim();
+            if (seg.isEmpty()) continue;
+            Matcher m = FIELD_PRIMING_ANY_ELEMENT_PATTERN.matcher(seg);
+            if (!m.find()) continue;
+            String tl    = m.group("type").toLowerCase();
+            boolean inclF = tl.contains("forward")  || tl.contains("character");
+            boolean inclB = tl.contains("backup")   || tl.contains("character");
+            boolean inclM = tl.contains("monster")  || tl.contains("character");
+            result.add(new FieldPrimingAnyElement(inclF, inclB, inclM));
+        }
+        return List.copyOf(result);
+    }
+
+    /** Returns {@code true} if the card text contains "Your Warp cost can be paid with CP of any Element." */
+    public static boolean parseWarpCostAnyElement(String textEn) {
+        if (textEn == null || textEn.isBlank()) return false;
+        for (String raw : textEn.split("(?i)\\[\\[br\\]\\]")) {
+            String seg = SUMMON_MARKUP.matcher(raw.trim()).replaceAll("").trim();
+            if (WARP_ANY_ELEMENT_PATTERN.matcher(seg).find()) return true;
+        }
+        return false;
     }
 
     // -------------------------------------------------------------------------
@@ -1552,8 +1696,11 @@ public record CardData(
             // Extra-element CP production — handled as a static card property
             if (BACKUP_CP_EXTRA_ELEMENTS.matcher(seg).find())               continue;
 
-            // Field cost reduction declarations — handled as static card properties
-            if (FIELD_COST_REDUCTION_PATTERN.matcher(seg).find())           continue;
+            // Field cost reduction / any-element declarations — handled as static card properties
+            if (FIELD_COST_REDUCTION_PATTERN.matcher(seg).find())            continue;
+            if (FIELD_CAST_ANY_ELEMENT_PATTERN.matcher(seg).find())          continue;
+            if (FIELD_PRIMING_ANY_ELEMENT_PATTERN.matcher(seg).find())       continue;
+            if (WARP_ANY_ELEMENT_PATTERN.matcher(seg).find())                continue;
 
             // Name/type alias declarations and enter-dull — handled as static card properties
             if (IS_ALSO_CARD_NAME_PATTERN.matcher(seg).find())              continue;
