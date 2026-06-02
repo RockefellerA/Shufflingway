@@ -150,6 +150,8 @@ public class MainWindow {
 	private javax.swing.Timer fadeTimer;      // drives fade-in / fade-out animation
 	private CardSlideAnimator cardSlideAnimator;
 	private CardBreakAnimator breakAnimator;
+	// Horizontal separator where the P1 and P2 fields meet (anchor for centered effect prompts)
+	private JSeparator fieldDivider;
 	// Opening hand confirmation popup
 	private JWindow openingHandPopup;
 	// Hand hover popover (deck zone mouseover)
@@ -818,6 +820,7 @@ public class MainWindow {
 
 		JSeparator divider = new JSeparator(JSeparator.HORIZONTAL);
 		divider.setForeground(Color.LIGHT_GRAY);
+		fieldDivider = divider;
 
 		JPanel gameBoard = new JPanel(new GridBagLayout());
 		gameBoard.setBackground(UIManager.getColor("Panel.background"));
@@ -1350,6 +1353,38 @@ public class MainWindow {
 				(screen.width  - openingHandPopup.getWidth())  / 2,
 				(screen.height - openingHandPopup.getHeight()) / 2);
 		openingHandPopup.setVisible(true);
+	}
+
+	/**
+	 * Native {@link JOptionPane} effect prompt, but centered where the two fields meet (like the
+	 * opening-hand popup) rather than over the whole window.  Returns the index of the chosen
+	 * option, or {@link JOptionPane#CLOSED_OPTION} if dismissed.
+	 */
+	private int showEffectOptionDialog(String message, String title, Object[] options) {
+		JOptionPane pane = new JOptionPane(message, JOptionPane.PLAIN_MESSAGE,
+				JOptionPane.DEFAULT_OPTION, null, options, options[0]);
+		JDialog dlg = pane.createDialog(frame, title);
+		positionAtFieldDivider(dlg);
+		dlg.setVisible(true);
+		dlg.dispose();
+		Object val = pane.getValue();
+		for (int i = 0; i < options.length; i++) if (options[i].equals(val)) return i;
+		return JOptionPane.CLOSED_OPTION;
+	}
+
+	/** Centers {@code w} on the point where the two fields meet, falling back to screen center. */
+	private void positionAtFieldDivider(java.awt.Window w) {
+		int cx, cy;
+		if (fieldDivider != null && fieldDivider.isShowing()) {
+			java.awt.Point p = fieldDivider.getLocationOnScreen();
+			cx = p.x + fieldDivider.getWidth()  / 2;
+			cy = p.y + fieldDivider.getHeight() / 2;
+		} else {
+			Dimension screen = Toolkit.getDefaultToolkit().getScreenSize();
+			cx = screen.width  / 2;
+			cy = screen.height / 2;
+		}
+		w.setLocation(cx - w.getWidth() / 2, cy - w.getHeight() / 2);
 	}
 
 	private void refreshP1HandLabel() {
@@ -6967,14 +7002,8 @@ public class MainWindow {
 		boolean p1GetsDialog = (fa.youMay() && isP1) || (fa.opponentMay() && !isP1);
 		if (p1GetsDialog) {
 			String prompt = (fa.youMay() ? "You may: " : "Your opponent may: ") + fa.effectText();
-			int choice = JOptionPane.showOptionDialog(frame,
-					source.name() + " — " + prompt,
-					"Auto Ability",
-					JOptionPane.DEFAULT_OPTION,
-					JOptionPane.PLAIN_MESSAGE,
-					null,
-					new Object[]{"OK", "Decline"},
-					"OK");
+			int choice = showEffectOptionDialog(source.name() + " — " + prompt,
+					"Auto Ability", new Object[]{"OK", "Decline"});
 			if (choice != 0) {
 				logEntry("[AutoAbility] " + source.name() + " — optional effect declined");
 				return;
@@ -7007,10 +7036,8 @@ public class MainWindow {
 		boolean p1GetsDialog = (fa.youMay() && isP1) || (fa.opponentMay() && !isP1);
 		if (p1GetsDialog) {
 			String prompt = (fa.youMay() ? "You may: " : "Your opponent may: ") + fa.effectText();
-			int choice = JOptionPane.showOptionDialog(frame,
-					source.name() + " — " + prompt, "Auto Ability",
-					JOptionPane.DEFAULT_OPTION, JOptionPane.PLAIN_MESSAGE, null,
-					new Object[]{"OK", "Decline"}, "OK");
+			int choice = showEffectOptionDialog(source.name() + " — " + prompt,
+					"Auto Ability", new Object[]{"OK", "Decline"});
 			if (choice != 0) {
 				logEntry("[AutoAbility] " + source.name() + " — optional effect declined");
 				return;
@@ -7052,10 +7079,8 @@ public class MainWindow {
 		boolean p1GetsDialog = (fa.youMay() && isP1) || (fa.opponentMay() && !isP1);
 		if (p1GetsDialog) {
 			String prompt = (fa.youMay() ? "You may: " : "Your opponent may: ") + fa.effectText();
-			int choice = JOptionPane.showOptionDialog(frame,
-					source.name() + " — " + prompt, "Auto Ability",
-					JOptionPane.DEFAULT_OPTION, JOptionPane.PLAIN_MESSAGE, null,
-					new Object[]{"OK", "Decline"}, "OK");
+			int choice = showEffectOptionDialog(source.name() + " — " + prompt,
+					"Auto Ability", new Object[]{"OK", "Decline"});
 			if (choice != 0) {
 				logEntry("[AutoAbility] " + source.name() + " — optional effect declined");
 				return;
@@ -7114,10 +7139,8 @@ public class MainWindow {
 		boolean p1GetsDialog = (fa.youMay() && isP1) || (fa.opponentMay() && !isP1);
 		if (p1GetsDialog) {
 			String prompt = (fa.youMay() ? "You may: " : "Your opponent may: ") + fa.effectText();
-			int choice = JOptionPane.showOptionDialog(frame,
-					source.name() + " — " + prompt, "Auto Ability",
-					JOptionPane.DEFAULT_OPTION, JOptionPane.PLAIN_MESSAGE, null,
-					new Object[]{"OK", "Decline"}, "OK");
+			int choice = showEffectOptionDialog(source.name() + " — " + prompt,
+					"Auto Ability", new Object[]{"OK", "Decline"});
 			if (choice != 0) {
 				logEntry("[AutoAbility] " + source.name() + " — optional effect declined");
 				return;
@@ -7181,14 +7204,8 @@ public class MainWindow {
 		boolean p1GetsDialog = (fa.youMay() && isP1) || (fa.opponentMay() && !isP1);
 		if (p1GetsDialog) {
 			String prompt = (fa.youMay() ? "You may: " : "Your opponent may: ") + fa.effectText();
-			int choice = JOptionPane.showOptionDialog(frame,
-					source.name() + " — " + prompt,
-					"Auto Ability",
-					JOptionPane.DEFAULT_OPTION,
-					JOptionPane.PLAIN_MESSAGE,
-					null,
-					new Object[]{"OK", "Decline"},
-					"OK");
+			int choice = showEffectOptionDialog(source.name() + " — " + prompt,
+					"Auto Ability", new Object[]{"OK", "Decline"});
 			if (choice != 0) {
 				logEntry("[AutoAbility] " + source.name() + " — optional effect declined");
 				return;
@@ -7266,9 +7283,8 @@ public class MainWindow {
 		if (p1GetsDialog) {
 			String prompt = "Select " + (upTo ? "up to " : "") + selectCount + " of "
 					+ totalCount + " actions for " + source.name() + "?";
-			int choice = JOptionPane.showOptionDialog(frame, prompt, "Auto Ability",
-					JOptionPane.DEFAULT_OPTION, JOptionPane.PLAIN_MESSAGE, null,
-					new Object[]{"Choose Actions", "Decline"}, "Choose Actions");
+			int choice = showEffectOptionDialog(prompt, "Auto Ability",
+					new Object[]{"Choose Actions", "Decline"});
 			if (choice != 0) {
 				logEntry("[AutoAbility] " + source.name() + " — optional select declined");
 				return;
@@ -8700,10 +8716,14 @@ public class MainWindow {
 				}
 				String costLabel  = costVal  >= 0 ? " of cost "  + costVal  + (costCmp  != null ? " or " + costCmp  : "") : "";
 				String powerLabel = powerVal >= 0 ? " of power " + powerVal + (powerCmp != null ? " or " + powerCmp : "") : "";
+				String targetNoun = inclForwards && !inclBackups && !inclMonsters ? "Forward"
+						: inclBackups && !inclForwards && !inclMonsters ? "Backup"
+						: inclMonsters && !inclForwards && !inclBackups ? "Monster"
+						: "Character";
 				String title = "Choose " + (upTo ? "up to " : "") + maxCount
 						+ (condition != null ? " " + condition : "")
 						+ (element != null ? " " + element : "")
-						+ " Character" + (maxCount != 1 ? "s" : "") + costLabel + powerLabel
+						+ " " + targetNoun + (maxCount != 1 ? "s" : "") + costLabel + powerLabel
 						+ (opponentOnly ? " (opponent)" : selfOnly ? " (yours)" : "");
 				if (!isP1) {
 					// AI (P2 controls the effect): auto-select rather than prompting the human.
@@ -11219,6 +11239,7 @@ public class MainWindow {
 		boolean[] done = { false };
 
 		JDialog bar = new JDialog(frame, title, false);
+		bar.setUndecorated(true);             // no title bar / close box; not user-moveable
 		bar.setFocusableWindowState(false);   // never steal focus, so the board stays clickable
 		bar.setResizable(false);
 
@@ -11273,12 +11294,14 @@ public class MainWindow {
 		pulseTimerRef[0] = pulseTimer;
 		pulseTimer.start();
 
-		JLabel hdr = new JLabel(title + (upTo ? "  (up to " + maxCount + ")" : "  (select " + maxCount + ")"),
-				SwingConstants.CENTER);
+		JLabel hdr = new JLabel(title, SwingConstants.CENTER);
 		hdr.setFont(FontLoader.loadPixelNESFont(11));
 		hdr.setBorder(BorderFactory.createEmptyBorder(8, 12, 6, 12));
 
 		bar.getContentPane().setLayout(new BorderLayout());
+		((javax.swing.JComponent) bar.getContentPane()).setBorder(BorderFactory.createCompoundBorder(
+				BorderFactory.createRaisedBevelBorder(),
+				BorderFactory.createEmptyBorder(4, 6, 4, 6)));
 		bar.getContentPane().add(hdr, BorderLayout.CENTER);
 		if (upTo) {
 			JButton confirmBtn = new JButton("Confirm");
@@ -11293,8 +11316,8 @@ public class MainWindow {
 			bar.getContentPane().add(south, BorderLayout.SOUTH);
 		}
 		bar.pack();
-		// Anchor near the top of the game window so it doesn't cover the field.
-		bar.setLocation(frame.getX() + (frame.getWidth() - bar.getWidth()) / 2, frame.getY() + 60);
+		// Center where the two fields meet, like the opening-hand popup.
+		positionAtFieldDivider(bar);
 		bar.setVisible(true);
 
 		if (loop == null || !loop.enter()) finish.run();   // fallback if no secondary loop is available
