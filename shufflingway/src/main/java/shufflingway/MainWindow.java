@@ -11325,6 +11325,7 @@ public class MainWindow {
 
 		java.util.List<ForwardTarget> chosen = new ArrayList<>();
 		java.util.Set<Integer> sel = new java.util.LinkedHashSet<>();
+		java.util.List<JLabel> cardLabels = new ArrayList<>(eligible.size());
 
 		JPanel opponentRow = new JPanel(new FlowLayout(FlowLayout.CENTER, 8, 4));
 		JPanel selfRow     = new JPanel(new FlowLayout(FlowLayout.CENTER, 8, 4));
@@ -11347,6 +11348,7 @@ public class MainWindow {
 			imgLbl.setOpaque(true);
 			imgLbl.setBackground(Color.DARK_GRAY);
 			imgLbl.setBorder(normalBorder);
+			cardLabels.add(imgLbl);
 
 			new SwingWorker<ImageIcon, Void>() {
 				@Override protected ImageIcon doInBackground() throws Exception {
@@ -11370,14 +11372,14 @@ public class MainWindow {
 						sel.remove(fi);
 						imgLbl.setBorder(normalBorder);
 					} else {
-						if (sel.size() >= maxCount) return;
-						sel.add(fi);
-						imgLbl.setBorder(selectedBorder);
-						if (!upTo && sel.size() == maxCount) {
-							for (int si : sel) chosen.add(eligible.get(si));
-							dlg.dispose();
+						if (maxCount == 1) {
+							for (int si : sel) cardLabels.get(si).setBorder(normalBorder);
+							sel.clear();
+						} else if (sel.size() >= maxCount) {
 							return;
 						}
+						sel.add(fi);
+						imgLbl.setBorder(selectedBorder);
 					}
 					confirmBtn.setEnabled(upTo || sel.size() == maxCount);
 				}
