@@ -4642,26 +4642,40 @@ public class MainWindow {
 			int effectiveCost = effectiveCastCost(card);
 			int delta = card.cost() - effectiveCost;
 
+			GameState.GamePhase handPhase = gameState.getCurrentPhase();
+			boolean handIsMainPhase = handPhase == GameState.GamePhase.MAIN_1 || handPhase == GameState.GamePhase.MAIN_2;
+			boolean handCanPlayAction = handIsMainPhase && phaseTracker.isMyTurn() && gameState.getStack().isEmpty();
+			boolean handIsCharacter = card.isForward() || card.isBackup() || card.isMonster();
+			boolean handNameConflict = handIsCharacter && !card.multicard() && hasCharacterNameOnField(card.name());
+			boolean handLightDarkConflict = handIsCharacter && card.isLightOrDark() && hasLightOrDarkOnField(true);
+			final boolean canPlay = handCanPlayAction && !handNameConflict && !handLightDarkConflict
+					&& canAffordCard(card, idx) && (!card.isBackup() || hasAvailableBackupSlot()) && castRestrictionMet(card);
+
 			// Load image async; bake cost pill into the image when cost differs from base
 			new SwingWorker<ImageIcon, Void>() {
 				@Override protected ImageIcon doInBackground() throws Exception {
 					Image img = ImageCache.load(url);
 					if (img == null) return null;
 					BufferedImage bi = CardAnimation.toARGB(img, CARD_W, CARD_H);
-					if (delta != 0) {
+					if (delta != 0 || canPlay) {
 						Graphics2D g2 = bi.createGraphics();
 						g2.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
-						String text = String.valueOf(effectiveCost);
-						g2.setFont(FontLoader.loadPixelNESFont(15));
-						FontMetrics fm = g2.getFontMetrics();
-						int x = 8, y = fm.getAscent() + 7;
-						g2.setColor(Color.BLACK);
-						g2.drawString(text, x + 1, y + 1);
-						g2.drawString(text, x + 2, y + 1);
-						g2.drawString(text, x + 1, y + 2);
-						g2.drawString(text, x + 2, y + 2);
-						g2.setColor(delta > 0 ? new Color(0x44EE44) : new Color(0xFF8844));
-						g2.drawString(text, x, y);
+						if (delta != 0) {
+							String text = String.valueOf(effectiveCost);
+							g2.setFont(FontLoader.loadPixelNESFont(15));
+							FontMetrics fm = g2.getFontMetrics();
+							int x = 8, y = fm.getAscent() + 7;
+							g2.setColor(Color.BLACK);
+							g2.drawString(text, x + 1, y + 1);
+							g2.drawString(text, x + 2, y + 1);
+							g2.drawString(text, x + 1, y + 2);
+							g2.drawString(text, x + 2, y + 2);
+							g2.setColor(delta > 0 ? new Color(0x44EE44) : new Color(0xFF8844));
+							g2.drawString(text, x, y);
+						}
+						if (canPlay) {
+							CardAnimation.drawGlow(g2, new Color(30, 144, 255), 0, 0, CARD_W, CARD_H);
+						}
 						g2.dispose();
 					}
 					return new ImageIcon(bi);
