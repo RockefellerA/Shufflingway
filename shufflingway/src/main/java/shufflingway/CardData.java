@@ -2360,6 +2360,18 @@ public record CardData(
     private static final Pattern SELF_COND_RECEIVED_EXACTLY_N_DAMAGE = Pattern.compile(
         "(?i)^you\\s+have\\s+received\\s+(?<n>\\d+)\\s+points?\\s+of\\s+damage$"
     );
+    private static final Pattern SELF_COND_CONTROL_N_OR_MORE_ELEMENT_TYPE = Pattern.compile(
+        "(?i)^you\\s+control\\s+(?<n>\\d+)\\s+or\\s+more\\s+(?<element>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)\\s+(?<type>Forwards?|Backups?|Monsters?|Characters?)$"
+    );
+    private static final Pattern SELF_COND_CONTROL_N_OR_MORE_TYPE = Pattern.compile(
+        "(?i)^you\\s+control\\s+(?<n>\\d+)\\s+or\\s+more\\s+(?<type>Forwards?|Backups?|Monsters?|Characters?)$"
+    );
+    private static final Pattern SELF_COND_BOTH_NAMES_IN_BZ = Pattern.compile(
+        "(?i)^you\\s+have\\s+a\\s+Card\\s+Name\\s+(?<name1>.+?)\\s+and\\s+a\\s+Card\\s+Name\\s+(?<name2>.+?)\\s+in\\s+your\\s+Break\\s+Zone$"
+    );
+    private static final Pattern SELF_COND_OPPONENT_CONTROLS_N_MORE_THAN_ME = Pattern.compile(
+        "(?i)^your\\s+opponent\\s+controls\\s+(?<n>\\d+)\\s+or\\s+more\\s+(?<type>Forwards?|Backups?|Monsters?|Characters?)\\s+more\\s+than\\s+you$"
+    );
 
     // Scaling sub-patterns
     private static final Pattern SELF_SCALE_EACH_FWD = Pattern.compile(
@@ -2425,6 +2437,10 @@ public record CardData(
     /** Matches "for each CP required to cast the highest cost Element Forward you control". */
     private static final Pattern SELF_SCALE_HIGHEST_COST_ELEM_FWD = Pattern.compile(
         "(?i)^for\\s+each\\s+CP\\s+required\\s+to\\s+cast\\s+the\\s+highest\\s+cost\\s+(?<element>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)\\s+Forward\\s+you\\s+control$"
+    );
+    /** Matches "for every N Element Type you control". */
+    private static final Pattern SELF_SCALE_PER_N_ELEM_TYPE = Pattern.compile(
+        "(?i)^for\\s+every\\s+(?<n>\\d+)\\s+(?<element>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)\\s+(?<type>Forwards?|Backups?|Monsters?|Characters?)\\s+you\\s+control$"
     );
 
     /**
@@ -2637,6 +2653,42 @@ public record CardData(
                                 cm.group("n").trim(), null);
                     }
                 }
+                if (mod == null) {
+                    cm = SELF_COND_CONTROL_N_OR_MORE_ELEMENT_TYPE.matcher(condRaw.trim());
+                    if (cm.find()) {
+                        String type = cm.group("type").replaceAll("(?i)s$", "");
+                        mod = new SelfCostModifier(amount, minCost, isIncrease,
+                                SelfCostModifier.ScalingType.IF_CONTROL_N_OR_MORE_ELEMENT_TYPE,
+                                cm.group("n").trim(),
+                                cm.group("element").trim() + "|" + type);
+                    }
+                }
+                if (mod == null) {
+                    cm = SELF_COND_CONTROL_N_OR_MORE_TYPE.matcher(condRaw.trim());
+                    if (cm.find()) {
+                        String type = cm.group("type").replaceAll("(?i)s$", "");
+                        mod = new SelfCostModifier(amount, minCost, isIncrease,
+                                SelfCostModifier.ScalingType.IF_CONTROL_N_OR_MORE_TYPE,
+                                cm.group("n").trim(), type);
+                    }
+                }
+                if (mod == null) {
+                    cm = SELF_COND_BOTH_NAMES_IN_BZ.matcher(condRaw.trim());
+                    if (cm.find()) {
+                        mod = new SelfCostModifier(amount, minCost, isIncrease,
+                                SelfCostModifier.ScalingType.IF_BOTH_NAMES_IN_BZ,
+                                cm.group("name1").trim(), cm.group("name2").trim());
+                    }
+                }
+                if (mod == null) {
+                    cm = SELF_COND_OPPONENT_CONTROLS_N_MORE_THAN_ME.matcher(condRaw.trim());
+                    if (cm.find()) {
+                        String type = cm.group("type").replaceAll("(?i)s$", "");
+                        mod = new SelfCostModifier(amount, minCost, isIncrease,
+                                SelfCostModifier.ScalingType.IF_OPPONENT_CONTROLS_N_MORE_THAN_ME,
+                                cm.group("n").trim(), type);
+                    }
+                }
             }
 
             // --- Scaling suffix forms ---
@@ -2784,6 +2836,17 @@ public record CardData(
                         mod = new SelfCostModifier(amount, minCost, isIncrease,
                                 SelfCostModifier.ScalingType.EACH_NAME_OR_NAME_CONTROLLED,
                                 sm.group("name1").trim(), sm.group("name2").trim());
+                    }
+                }
+
+                if (mod == null) {
+                    sm = SELF_SCALE_PER_N_ELEM_TYPE.matcher(sc);
+                    if (sm.find()) {
+                        String type = sm.group("type").replaceAll("(?i)s$", "");
+                        mod = new SelfCostModifier(amount, minCost, isIncrease,
+                                SelfCostModifier.ScalingType.PER_N_ELEMENT_TYPE_CONTROLLED,
+                                sm.group("n").trim(),
+                                sm.group("element").trim() + "|" + type);
                     }
                 }
 

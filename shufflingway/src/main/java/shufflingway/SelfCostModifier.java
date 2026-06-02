@@ -102,6 +102,20 @@ public record SelfCostModifier(
          * Yields 0 if the controller controls no Forwards of that element.
          */
         HIGHEST_COST_ELEMENT_FORWARD,
+        /** Flat delta (×1) if the controller controls ≥ {@code Integer.parseInt(param1)} cards of type {@code param2}; 0 otherwise. */
+        IF_CONTROL_N_OR_MORE_TYPE,
+        /** Flat delta (×1) if the controller controls ≥ {@code Integer.parseInt(param1)} field cards with element+type
+         *  encoded in {@code param2} as "element|type"; 0 otherwise. */
+        IF_CONTROL_N_OR_MORE_ELEMENT_TYPE,
+        /** Flat delta (×1) if both a card named {@code param1} and a card named {@code param2} are in the controller's Break Zone; 0 otherwise. */
+        IF_BOTH_NAMES_IN_BZ,
+        /**
+         * Scales by {@code floor(count / Integer.parseInt(param1))}, where count is field cards the controller
+         * controls filtered by element+type encoded in {@code param2} as "element|type".
+         */
+        PER_N_ELEMENT_TYPE_CONTROLLED,
+        /** Flat delta (×1) if the opponent controls ≥ {@code Integer.parseInt(param1)} cards of type {@code param2} more than the controller; 0 otherwise. */
+        IF_OPPONENT_CONTROLS_N_MORE_THAN_ME,
         /**
          * Scales by field cards the controller controls of type {@code param2}
          * ("Forward", "Backup", "Character") whose printed cost is ≥ {@code Integer.parseInt(param1)}.

@@ -5339,6 +5339,83 @@ public class MainWindow {
 						.max()
 						.orElse(0);
 			}
+		case IF_CONTROL_N_OR_MORE_TYPE -> {
+				int n = Integer.parseInt(mod.param1());
+				String type = mod.param2() == null ? "Forward" : mod.param2();
+				long fwdCount = 0, bkpCount = 0, monCount = 0;
+				if ("Forward".equalsIgnoreCase(type) || "Character".equalsIgnoreCase(type))
+					fwdCount = fwds.size();
+				if ("Backup".equalsIgnoreCase(type) || "Character".equalsIgnoreCase(type))
+					bkpCount = java.util.Arrays.stream(bkps).filter(b -> b != null).count();
+				if ("Monster".equalsIgnoreCase(type)) {
+					List<CardData> mons = isP1 ? p1MonsterCards : p2MonsterCards;
+					monCount = mons.size();
+				}
+				yield (fwdCount + bkpCount + monCount) >= n ? 1 : 0;
+			}
+		case IF_CONTROL_N_OR_MORE_ELEMENT_TYPE -> {
+				int n = Integer.parseInt(mod.param1());
+				String[] parts = mod.param2().split("\\|", 2);
+				String elem = parts[0];
+				String type = parts.length > 1 ? parts[1] : "Forward";
+				long fwdCount = 0, bkpCount = 0, monCount = 0;
+				if ("Forward".equalsIgnoreCase(type) || "Character".equalsIgnoreCase(type))
+					fwdCount = fwds.stream().filter(f -> elem.equalsIgnoreCase(f.element())).count();
+				if ("Backup".equalsIgnoreCase(type) || "Character".equalsIgnoreCase(type))
+					bkpCount = java.util.Arrays.stream(bkps)
+							.filter(b -> b != null && elem.equalsIgnoreCase(b.element())).count();
+				if ("Monster".equalsIgnoreCase(type)) {
+					List<CardData> mons = isP1 ? p1MonsterCards : p2MonsterCards;
+					monCount = mons.stream().filter(mn -> elem.equalsIgnoreCase(mn.element())).count();
+				}
+				yield (fwdCount + bkpCount + monCount) >= n ? 1 : 0;
+			}
+		case IF_BOTH_NAMES_IN_BZ -> {
+				String name1 = mod.param1();
+				String name2 = mod.param2();
+				boolean has1 = bz.stream().anyMatch(c -> c.name().equalsIgnoreCase(name1));
+				boolean has2 = bz.stream().anyMatch(c -> c.name().equalsIgnoreCase(name2));
+				yield (has1 && has2) ? 1 : 0;
+			}
+		case PER_N_ELEMENT_TYPE_CONTROLLED -> {
+				int n = Integer.parseInt(mod.param1());
+				String[] parts = mod.param2().split("\\|", 2);
+				String elem = parts[0];
+				String type = parts.length > 1 ? parts[1] : "Forward";
+				long fwdCount = 0, bkpCount = 0, monCount = 0;
+				if ("Forward".equalsIgnoreCase(type) || "Character".equalsIgnoreCase(type))
+					fwdCount = fwds.stream().filter(f -> elem.equalsIgnoreCase(f.element())).count();
+				if ("Backup".equalsIgnoreCase(type) || "Character".equalsIgnoreCase(type))
+					bkpCount = java.util.Arrays.stream(bkps)
+							.filter(b -> b != null && elem.equalsIgnoreCase(b.element())).count();
+				if ("Monster".equalsIgnoreCase(type)) {
+					List<CardData> mons = isP1 ? p1MonsterCards : p2MonsterCards;
+					monCount = mons.stream().filter(mn -> elem.equalsIgnoreCase(mn.element())).count();
+				}
+				yield (int) ((fwdCount + bkpCount + monCount) / n);
+			}
+		case IF_OPPONENT_CONTROLS_N_MORE_THAN_ME -> {
+				int n = Integer.parseInt(mod.param1());
+				String type = mod.param2() == null ? "Forward" : mod.param2();
+				List<CardData> oppFwds = isP1 ? p2ForwardCards : p1ForwardCards;
+				CardData[]     oppBkps = isP1 ? p2BackupCards  : p1BackupCards;
+				List<CardData> oppMons = isP1 ? p2MonsterCards : p1MonsterCards;
+				long selfCount = 0, oppCount = 0;
+				if ("Forward".equalsIgnoreCase(type) || "Character".equalsIgnoreCase(type)) {
+					selfCount += fwds.size();
+					oppCount  += oppFwds.size();
+				}
+				if ("Backup".equalsIgnoreCase(type) || "Character".equalsIgnoreCase(type)) {
+					selfCount += java.util.Arrays.stream(bkps).filter(b -> b != null).count();
+					oppCount  += java.util.Arrays.stream(oppBkps).filter(b -> b != null).count();
+				}
+				if ("Monster".equalsIgnoreCase(type)) {
+					List<CardData> selfMons = isP1 ? p1MonsterCards : p2MonsterCards;
+					selfCount += selfMons.size();
+					oppCount  += oppMons.size();
+				}
+				yield (oppCount - selfCount) >= n ? 1 : 0;
+			}
 		};
 	}
 
