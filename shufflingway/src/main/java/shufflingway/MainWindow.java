@@ -8125,13 +8125,17 @@ public class MainWindow {
 					eligible.add(i);
 				}
 				if (eligible.isEmpty()) { logEntry("No eligible card for discard cost."); break; }
-				List<CardData> cards   = eligible.stream().map(hand::get).toList();
-				List<String>   captions = eligible.stream()
-						.map(i -> hand.get(i).name() + " (Cost: " + hand.get(i).cost() + ")").toList();
+				String[] options = eligible.stream()
+						.map(i -> hand.get(i).name() + " (Cost: " + hand.get(i).cost() + ")")
+						.toArray(String[]::new);
 				String label = "Discard cost" + (dc.count() > 1 ? " (" + (pick + 1) + "/" + dc.count() + ")" : "");
-				List<Integer> picks = showCardImagePicker(label, "Choose a card to discard:", cards, captions, 1);
-				if (picks.isEmpty()) break;
-				int handIdx = eligible.get(picks.get(0));
+				String choice = (String) JOptionPane.showInputDialog(frame,
+						"Choose a card to discard:", label,
+						JOptionPane.PLAIN_MESSAGE, null, options, options[0]);
+				if (choice == null) break;
+				int listIdx = java.util.Arrays.asList(options).indexOf(choice);
+				if (listIdx < 0) break;
+				int handIdx = eligible.get(listIdx);
 				if (dc.eachDifferentType()) usedTypes.add(discardTypeKey(hand.get(handIdx)));
 				String discarded = hand.get(handIdx).name();
 				playerBreakFromHand(isP1, handIdx);
@@ -8223,21 +8227,34 @@ public class MainWindow {
 				if (isP1) refreshP1DeckLabel(); else refreshP2DeckLabel();
 			}
 			case "HAND" -> {
-				List<Integer> eligible = eligibleRfgHandIndices(rfg, isP1);
-				if (eligible.isEmpty()) { logEntry("No eligible hand card for remove-from-game cost."); }
-				else {
-					List<CardData> hand     = playerHand(isP1);
-					List<CardData> cards    = eligible.stream().map(hand::get).toList();
-					List<String>   captions = eligible.stream()
-							.map(i -> hand.get(i).name() + " (Cost: " + hand.get(i).cost() + ")").toList();
-					List<Integer> picks = showCardImagePicker("Remove from Game (hand)",
-							"Choose a card to remove from game:", cards, captions, rfg.count());
-					picks.stream().map(eligible::get).sorted(Comparator.reverseOrder()).forEach(handIdx -> {
-						CardData c = hand.get(handIdx);
-						hand.remove((int) handIdx);
+				int target = rfg.count();
+				for (int pick = 0; pick < target; pick++) {
+					List<Integer> eligible = eligibleRfgHandIndices(rfg, isP1);
+					if (eligible.isEmpty()) { logEntry("No eligible hand card for remove-from-game cost."); break; }
+					List<CardData> hand = playerHand(isP1);
+					if (eligible.size() == 1 && rfg.cardName() != null) {
+						// Named card — auto-select
+						CardData c = hand.get(eligible.get(0));
+						hand.remove((int) eligible.get(0));
 						if (isP1) gameState.addToP1PermanentRfp(c); else gameState.addToP2PermanentRfp(c);
 						logEntry(c.name() + " → Removed From Game (cost)");
-					});
+					} else {
+						String[] options = eligible.stream()
+								.map(i -> hand.get(i).name() + " (Cost: " + hand.get(i).cost() + ")")
+								.toArray(String[]::new);
+						String label = "Remove from game (hand)" + (target > 1 ? " (" + (pick + 1) + "/" + target + ")" : "");
+						String choice = (String) JOptionPane.showInputDialog(frame,
+								"Choose a card to remove from game:", label,
+								JOptionPane.PLAIN_MESSAGE, null, options, options[0]);
+						if (choice == null) break;
+						int listIdx = java.util.Arrays.asList(options).indexOf(choice);
+						if (listIdx < 0) break;
+						int handIdx = eligible.get(listIdx);
+						CardData c = hand.get(handIdx);
+						hand.remove(handIdx);
+						if (isP1) gameState.addToP1PermanentRfp(c); else gameState.addToP2PermanentRfp(c);
+						logEntry(c.name() + " → Removed From Game (cost)");
+					}
 				}
 				refreshP1HandLabel();
 			}
@@ -8252,18 +8269,27 @@ public class MainWindow {
 						logEntry(c.name() + " → Removed From Game (cost)");
 					}
 				} else {
-					List<Integer> eligible = eligibleRfgBzIndices(rfg, isP1);
-					if (eligible.isEmpty()) { logEntry("No eligible Break Zone card for remove-from-game cost."); }
-					else {
-						List<CardData> cards    = eligible.stream().map(bz::get).toList();
-						List<String>   captions = eligible.stream().map(i -> bz.get(i).name()).toList();
-						List<Integer> picks = showCardImagePicker("Remove from Game (Break Zone)",
-								"Choose a card to remove from game:", cards, captions, rfg.count());
-						picks.stream().map(eligible::get).sorted(Comparator.reverseOrder()).forEach(bzIdx -> {
-							CardData c = bz.remove((int) bzIdx);
+					for (int pick = 0; pick < rfg.count(); pick++) {
+						List<Integer> eligible = eligibleRfgBzIndices(rfg, isP1);
+						if (eligible.isEmpty()) { logEntry("No eligible Break Zone card for remove-from-game cost."); break; }
+						if (eligible.size() == 1 && rfg.cardName() != null) {
+							CardData c = bz.remove((int) eligible.get(0));
 							if (isP1) gameState.addToP1PermanentRfp(c); else gameState.addToP2PermanentRfp(c);
 							logEntry(c.name() + " → Removed From Game (cost)");
-						});
+						} else {
+							String[] options = eligible.stream().map(i -> bz.get(i).name()).toArray(String[]::new);
+							String label = "Remove from game (Break Zone)" + (rfg.count() > 1 ? " (" + (pick + 1) + "/" + rfg.count() + ")" : "");
+							String choice = (String) JOptionPane.showInputDialog(frame,
+									"Choose a card to remove from game:", label,
+									JOptionPane.PLAIN_MESSAGE, null, options, options[0]);
+							if (choice == null) break;
+							int listIdx = java.util.Arrays.asList(options).indexOf(choice);
+							if (listIdx < 0) break;
+							int bzIdx = eligible.get(listIdx);
+							CardData c = bz.remove(bzIdx);
+							if (isP1) gameState.addToP1PermanentRfp(c); else gameState.addToP2PermanentRfp(c);
+							logEntry(c.name() + " → Removed From Game (cost)");
+						}
 					}
 				}
 				refreshP1BreakLabel();
@@ -11027,108 +11053,6 @@ public class MainWindow {
 		dlg.setVisible(true);
 
 		return value[0];
-	}
-
-	/** Card thumbnail dimensions used on the selection-dialog buttons. */
-	private static final int SELECT_THUMB_W = 90;
-	private static final int SELECT_THUMB_H = 132;
-
-	/**
-	 * Loads a scaled card thumbnail onto {@code btn} (icon above text) and wires the
-	 * hover-zoom preview, matching the look of the look-at-deck dialogs.
-	 */
-	private void attachCardThumbnail(JButton btn, String imageUrl) {
-		btn.setVerticalTextPosition(SwingConstants.BOTTOM);
-		btn.setHorizontalTextPosition(SwingConstants.CENTER);
-		btn.setIcon(new ImageIcon(new BufferedImage(SELECT_THUMB_W, SELECT_THUMB_H, BufferedImage.TYPE_INT_ARGB)));
-		if (imageUrl == null) return;
-		btn.addMouseListener(new MouseAdapter() {
-			@Override public void mouseEntered(MouseEvent e) { showZoomAt(imageUrl); }
-			@Override public void mouseExited(MouseEvent e)  { hideZoom(); }
-		});
-		new SwingWorker<ImageIcon, Void>() {
-			@Override protected ImageIcon doInBackground() throws Exception {
-				Image img = ImageCache.load(imageUrl);
-				return img == null ? null
-						: new ImageIcon(img.getScaledInstance(SELECT_THUMB_W, SELECT_THUMB_H, Image.SCALE_SMOOTH));
-			}
-			@Override protected void done() {
-				try { ImageIcon ic = get(); if (ic != null) btn.setIcon(ic); }
-				catch (InterruptedException | ExecutionException ignored) {}
-			}
-		}.execute();
-	}
-
-	/**
-	 * Image-based card picker for cost/effect selections.  Displays each card in
-	 * {@code cards} with the matching caption from {@code captions} and a thumbnail,
-	 * requiring the player to choose exactly {@code count} cards.  The header shows
-	 * how many must be selected.  Returns the chosen indices into {@code cards}, or an
-	 * empty list when cancelled.  When the eligible set is no larger than {@code count}
-	 * the whole set is auto-selected without prompting.
-	 */
-	private java.util.List<Integer> showCardImagePicker(String title, String prompt,
-			java.util.List<CardData> cards, java.util.List<String> captions, int count) {
-		if (cards.isEmpty()) return java.util.List.of();
-		if (cards.size() <= count) {
-			java.util.List<Integer> all = new ArrayList<>();
-			for (int i = 0; i < cards.size(); i++) all.add(i);
-			return all;
-		}
-
-		JDialog dlg = new JDialog(frame, title, true);
-		dlg.setResizable(false);
-		dlg.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
-
-		java.util.List<Integer> chosen = new ArrayList<>();
-		java.util.Set<Integer> sel = new java.util.LinkedHashSet<>();
-
-		JButton confirmBtn = new JButton("Confirm");
-		confirmBtn.setFont(FontLoader.loadPixelNESFont(11));
-		confirmBtn.setEnabled(false);
-
-		JPanel cardsPanel = new JPanel(new FlowLayout(FlowLayout.CENTER, 8, 8));
-		for (int i = 0; i < cards.size(); i++) {
-			final int fi = i;
-			JButton btn = new JButton("<html><center>" + captions.get(i) + "</center></html>");
-			btn.setFont(FontLoader.loadPixelNESFont(9));
-			javax.swing.border.Border baseBorder = btn.getBorder();
-			attachCardThumbnail(btn, cards.get(i).imageUrl());
-			btn.addActionListener(ae -> {
-				if (sel.contains(fi)) {
-					sel.remove(fi);
-					btn.setBorder(baseBorder);
-				} else {
-					if (sel.size() >= count) return;
-					sel.add(fi);
-					btn.setBorder(BorderFactory.createLineBorder(Color.YELLOW, 3));
-					if (sel.size() == count) {
-						chosen.addAll(sel);
-						dlg.dispose();
-						return;
-					}
-				}
-				confirmBtn.setEnabled(sel.size() == count);
-			});
-			cardsPanel.add(btn);
-		}
-
-		confirmBtn.addActionListener(ae -> { chosen.addAll(sel); dlg.dispose(); });
-		JPanel south = new JPanel(new FlowLayout(FlowLayout.CENTER, 8, 4));
-		south.add(confirmBtn);
-
-		JLabel hdr = new JLabel(prompt + "  (select " + count + ")", SwingConstants.CENTER);
-		hdr.setFont(FontLoader.loadPixelNESFont(11));
-		hdr.setBorder(BorderFactory.createEmptyBorder(8, 8, 4, 8));
-
-		dlg.getContentPane().setLayout(new BorderLayout(0, 4));
-		dlg.getContentPane().add(hdr,        BorderLayout.NORTH);
-		dlg.getContentPane().add(cardsPanel, BorderLayout.CENTER);
-		dlg.getContentPane().add(south,      BorderLayout.SOUTH);
-		dlg.pack();
-		dlg.setLocationRelativeTo(frame);
-		dlg.setVisible(true);
-		return java.util.List.copyOf(chosen);
 	}
 
 	/**
