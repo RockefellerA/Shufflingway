@@ -353,6 +353,11 @@ public class MainWindow {
 	private boolean p2DiscardedByEffectThisTurn  = false;
 	private boolean p2CausedOpponentDiscardThisTurn = false;
 	private boolean p2FormedPartyThisTurn        = false;
+	private int     p1ForwardsLeftFieldThisTurn  = 0;
+	private int     p2ForwardsLeftFieldThisTurn  = 0;
+	private final java.util.Set<String> p1ElementForwardsEnteredThisTurn = new java.util.HashSet<>();
+	private final java.util.Set<String> p2ElementForwardsEnteredThisTurn = new java.util.HashSet<>();
+	private boolean p1ForwardEnteredViaWarpThisTurn = false;
 	private boolean p1NonLethalProtection   = false;
 	private boolean p2NonLethalProtection   = false;
 	private boolean p1DmgReductionDisabled  = false;
@@ -1964,6 +1969,7 @@ public class MainWindow {
 			try {
 				if (card.isForward()) {
 					placeCardInForwardZone(card);
+					p1ForwardEnteredViaWarpThisTurn = true;
 				} else if (card.isBackup()) {
 					if (hasAvailableBackupSlot()) placeCardInFirstBackupSlot(card);
 					else {
@@ -2348,6 +2354,8 @@ public class MainWindow {
 		if (hadCostReduces) refreshHandPopupIfVisible();
 		p2TurnOpponentFwdBroken = true;
 		if (card.job() != null && !card.job().isBlank()) p1BrokenJobsThisTurn.add(card.job().toLowerCase());
+		if (gameState.getCurrentPlayer() == GameState.Player.P1) p1ForwardsLeftFieldThisTurn++;
+		else p2ForwardsLeftFieldThisTurn++;
 		// If the broken card was itself stolen from P2, drop its tracking entry
 		stolenForwards.remove(card);
 		// Restore any forwards that were conditioned on this card remaining on the field
@@ -2430,6 +2438,8 @@ public class MainWindow {
 		if (hadCostReduces) refreshHandPopupIfVisible();
 		p1TurnOpponentFwdBroken = true;
 		if (card.job() != null && !card.job().isBlank()) p2BrokenJobsThisTurn.add(card.job().toLowerCase());
+		if (gameState.getCurrentPlayer() == GameState.Player.P1) p1ForwardsLeftFieldThisTurn++;
+		else p2ForwardsLeftFieldThisTurn++;
 		refreshP2BreakLabel();
 		triggerAutoAbilitiesForLeavesField(card, false);
 		triggerAutoAbilitiesForBreakZone(card, false);
@@ -3349,6 +3359,8 @@ public class MainWindow {
 		if (hadGrants) for (int i = 0; i < p1MonsterCards.size(); i++) refreshP1MonsterSlot(i);
 		refreshP1HandLabel();
 		if (topCard != null) refreshP1WarpZoneUI();
+		if (gameState.getCurrentPlayer() == GameState.Player.P1) p1ForwardsLeftFieldThisTurn++;
+		else p2ForwardsLeftFieldThisTurn++;
 		triggerAutoAbilitiesForLeavesField(card, true);
 	}
 
@@ -3411,6 +3423,8 @@ public class MainWindow {
 		}
 		if (hadGrants) for (int i = 0; i < p2MonsterCards.size(); i++) refreshP2MonsterSlot(i);
 		refreshP2HandCountLabel();
+		if (gameState.getCurrentPlayer() == GameState.Player.P1) p1ForwardsLeftFieldThisTurn++;
+		else p2ForwardsLeftFieldThisTurn++;
 		triggerAutoAbilitiesForLeavesField(card, false);
 	}
 
@@ -5222,6 +5236,36 @@ public class MainWindow {
 				}
 				yield oppCount > selfCount ? 1 : 0;
 			}
+		case EACH_DISTINCT_OPPONENT_TYPE_ELEMENT -> {
+				String type = mod.param1() == null ? "Character" : mod.param1();
+				List<CardData> oppFwds = isP1 ? p2ForwardCards : p1ForwardCards;
+				CardData[]     oppBkps = isP1 ? p2BackupCards  : p1BackupCards;
+				java.util.Set<String> elems = new java.util.HashSet<>();
+				if ("Forward".equalsIgnoreCase(type) || "Character".equalsIgnoreCase(type))
+					for (CardData f : oppFwds)
+						for (String e : f.element().split("/")) elems.add(e.trim().toLowerCase());
+				if ("Backup".equalsIgnoreCase(type) || "Character".equalsIgnoreCase(type))
+					for (CardData b : oppBkps)
+						if (b != null) for (String e : b.element().split("/")) elems.add(e.trim().toLowerCase());
+				yield elems.size();
+			}
+		case EACH_CRYSTAL_YOU_HAVE ->
+				isP1 ? gameState.getP1Crystals() : gameState.getP2Crystals();
+		case IF_CONTROL_CATEGORY_TYPE_NOT_ELEMENT -> {
+				String[] catType = mod.param1().split("\\|", 2);
+				String cat      = catType[0];
+				String type     = catType.length > 1 ? catType[1] : "Forward";
+				String excluded = mod.param2();
+				java.util.function.Predicate<CardData> matches = c ->
+						(cat.equalsIgnoreCase(c.category1()) || cat.equalsIgnoreCase(c.category2()))
+						&& !c.containsElement(excluded);
+				boolean found = false;
+				if ("Forward".equalsIgnoreCase(type) || "Character".equalsIgnoreCase(type))
+					found = fwds.stream().anyMatch(matches);
+				if (!found && ("Backup".equalsIgnoreCase(type) || "Character".equalsIgnoreCase(type)))
+					found = java.util.Arrays.stream(bkps).filter(b -> b != null).anyMatch(matches);
+				yield found ? 1 : 0;
+			}
 		case EACH_DISTINCT_BACKUP_ELEMENT -> {
 				java.util.Set<String> distinctElems = new java.util.HashSet<>();
 				for (CardData b : bkps) {
@@ -5243,6 +5287,57 @@ public class MainWindow {
 					monCount = mons.stream().filter(mn -> elem.equalsIgnoreCase(mn.element())).count();
 				}
 				yield (int) (fwdCount + bkpCount + monCount);
+			}
+		case IF_N_OR_MORE_FORWARDS_LEFT_FIELD_THIS_TURN -> {
+				int n = Integer.parseInt(mod.param1());
+				yield (isP1 ? p1ForwardsLeftFieldThisTurn : p2ForwardsLeftFieldThisTurn) >= n ? 1 : 0;
+			}
+		case IF_CONTROL_N_OR_MORE_JOB -> {
+				int n    = Integer.parseInt(mod.param1());
+				String job = mod.param2();
+				long count = fwds.stream().filter(f -> job.equalsIgnoreCase(f.job())).count()
+						+ java.util.Arrays.stream(bkps).filter(b -> b != null && job.equalsIgnoreCase(b.job())).count();
+				yield count >= n ? 1 : 0;
+			}
+		case IF_ELEMENT_FORWARD_ENTERED_FIELD_THIS_TURN -> {
+				String elem = mod.param1();
+				yield (isP1 ? p1ElementForwardsEnteredThisTurn : p2ElementForwardsEnteredThisTurn)
+						.stream().anyMatch(e -> elem.equalsIgnoreCase(e)) ? 1 : 0;
+			}
+		case IF_OPPONENT_CONTROLS_N_OR_MORE_TYPE -> {
+				int n = Integer.parseInt(mod.param1());
+				String type = mod.param2() == null ? "Forward" : mod.param2();
+				List<CardData> oppFwds = isP1 ? p2ForwardCards : p1ForwardCards;
+				CardData[]     oppBkps = isP1 ? p2BackupCards  : p1BackupCards;
+				List<CardData> oppMons = isP1 ? p2MonsterCards : p1MonsterCards;
+				long count = 0;
+				if ("Forward".equalsIgnoreCase(type) || "Character".equalsIgnoreCase(type))
+					count += oppFwds.size();
+				if ("Backup".equalsIgnoreCase(type) || "Character".equalsIgnoreCase(type))
+					count += java.util.Arrays.stream(oppBkps).filter(b -> b != null).count();
+				if ("Monster".equalsIgnoreCase(type))
+					count += oppMons.size();
+				yield count >= n ? 1 : 0;
+			}
+		case IF_FORWARD_ENTERED_VIA_WARP_THIS_TURN ->
+				(isP1 ? p1ForwardEnteredViaWarpThisTurn : false) ? 1 : 0;
+		case IF_N_OR_MORE_JOB_IN_BZ -> {
+				int n    = Integer.parseInt(mod.param1());
+				String job = mod.param2();
+				long count = bz.stream().filter(c -> job.equalsIgnoreCase(c.job())).count();
+				yield count >= n ? 1 : 0;
+			}
+		case IF_RECEIVED_EXACTLY_N_DAMAGE -> {
+				int n = Integer.parseInt(mod.param1());
+				yield dmg.size() == n ? 1 : 0;
+			}
+		case HIGHEST_COST_ELEMENT_FORWARD -> {
+				String elem = mod.param1();
+				yield fwds.stream()
+						.filter(f -> elem.equalsIgnoreCase(f.element()))
+						.mapToInt(CardData::cost)
+						.max()
+						.orElse(0);
 			}
 		};
 	}
@@ -11786,6 +11881,7 @@ public class MainWindow {
 		p1ForwardCards.add(card);
 		p1ForwardStates.add(card.entersFieldDull() ? CardState.DULL : CardState.ACTIVE);
 		p1ForwardPlayedOnTurn.add(gameState.getTurnNumber());
+		if (card.element() != null) p1ElementForwardsEnteredThisTurn.add(card.element().toLowerCase());
 		p1ForwardDamage.add(0);
 		p1ForwardPowerBoost.add(0);
 		p1ForwardPowerReduction.add(0);
@@ -13628,6 +13724,7 @@ public class MainWindow {
 		p2ForwardCards.add(card);
 		p2ForwardStates.add(CardState.ACTIVE);
 		p2ForwardPlayedOnTurn.add(gameState.getTurnNumber());
+		if (card.element() != null) p2ElementForwardsEnteredThisTurn.add(card.element().toLowerCase());
 		p2ForwardDamage.add(0);
 		p2ForwardPowerBoost.add(0);
 		p2ForwardPowerReduction.add(0);
@@ -13753,6 +13850,8 @@ public class MainWindow {
 			p2DiscardedByEffectThisTurn = false;
 			p2CausedOpponentDiscardThisTurn = false;
 			p2FormedPartyThisTurn = false;
+			p2ForwardsLeftFieldThisTurn = 0;
+			p2ElementForwardsEnteredThisTurn.clear();
 			int activated = 0, thawed = 0;
 
 			// Pass 1: activate DULL/BRAVE_ATTACKED cards; frozen cards are skipped
@@ -14119,6 +14218,9 @@ public class MainWindow {
 			p1DiscardedByEffectThisTurn = false;
 			p1CausedOpponentDiscardThisTurn = false;
 			p1FormedPartyThisTurn = false;
+			p1ForwardsLeftFieldThisTurn = 0;
+			p1ElementForwardsEnteredThisTurn.clear();
+			p1ForwardEnteredViaWarpThisTurn = false;
 			for (int i = 0; i < p1MonsterCards.size(); i++) refreshP1MonsterSlot(i);
 			for (int i = 0; i < p2MonsterCards.size(); i++) refreshP2MonsterSlot(i);
 			int activated = 0, thawed = 0;

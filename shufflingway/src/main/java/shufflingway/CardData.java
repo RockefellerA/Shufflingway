@@ -2330,11 +2330,35 @@ public record CardData(
     private static final Pattern SELF_COND_CONTROL_A_CATEGORY_TYPE = Pattern.compile(
         "(?i)^you\\s+control\\s+a\\s+Category\\s+(?<cat>\\S+)\\s+(?<type>Forwards?|Backups?|Monsters?|Characters?)$"
     );
+    private static final Pattern SELF_COND_CONTROL_CATEGORY_TYPE_NOT_ELEMENT = Pattern.compile(
+        "(?i)^you\\s+control\\s+a\\s+Category\\s+(?<cat>\\S+)\\s+(?<type>Forwards?|Backups?|Monsters?|Characters?)\\s+of\\s+an\\s+Element\\s+other\\s+than\\s+(?<elem>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)$"
+    );
     private static final Pattern SELF_COND_OWN_FORWARD_FORMED_PARTY = Pattern.compile(
         "(?i)^a\\s+Forward\\s+you\\s+controlled\\s+formed\\s+a\\s+party\\s+this\\s+turn$"
     );
     private static final Pattern SELF_COND_OPPONENT_HAND_N_OR_LESS = Pattern.compile(
         "(?i)^your\\s+opponent\\s+has\\s+(?<n>\\d+)\\s+cards?\\s+or\\s+less\\s+in\\s+their\\s+hand$"
+    );
+    private static final Pattern SELF_COND_N_OR_MORE_FORWARDS_LEFT_FIELD = Pattern.compile(
+        "(?i)^(?<n>\\d+)\\s+or\\s+more\\s+Forwards\\s+have\\s+left\\s+the\\s+field$"
+    );
+    private static final Pattern SELF_COND_CONTROL_N_OR_MORE_JOB = Pattern.compile(
+        "(?i)^you\\s+control\\s+(?<n>\\d+)\\s+or\\s+more\\s+Job\\s+(?<job>.+?)$"
+    );
+    private static final Pattern SELF_COND_ELEMENT_FORWARD_ENTERED_FIELD = Pattern.compile(
+        "(?i)^an?\\s+(?<element>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)\\s+Forward\\s+has\\s+entered\\s+your\\s+field\\s+this\\s+turn$"
+    );
+    private static final Pattern SELF_COND_OPPONENT_CONTROLS_N_OR_MORE_TYPE = Pattern.compile(
+        "(?i)^your\\s+opponent\\s+controls\\s+(?<n>\\d+)\\s+or\\s+more\\s+(?<type>Forwards?|Backups?|Monsters?|Characters?)$"
+    );
+    private static final Pattern SELF_COND_FORWARD_ENTERED_VIA_WARP = Pattern.compile(
+        "(?i)^a\\s+Forward\\s+has\\s+entered\\s+your\\s+field\\s+due\\s+to\\s+Warp\\s+this\\s+turn$"
+    );
+    private static final Pattern SELF_COND_N_OR_MORE_JOB_IN_BZ = Pattern.compile(
+        "(?i)^you\\s+have\\s+(?<n>\\d+)\\s+or\\s+more\\s+Job\\s+(?<job>.+?)\\s+in\\s+your\\s+Break\\s+Zone$"
+    );
+    private static final Pattern SELF_COND_RECEIVED_EXACTLY_N_DAMAGE = Pattern.compile(
+        "(?i)^you\\s+have\\s+received\\s+(?<n>\\d+)\\s+points?\\s+of\\s+damage$"
     );
 
     // Scaling sub-patterns
@@ -2370,6 +2394,14 @@ public record CardData(
     private static final Pattern SELF_SCALE_EACH_CARD_CAST = Pattern.compile(
         "(?i)^for\\s+each\\s+card\\s+you\\s+have\\s+cast\\s+this\\s+turn$"
     );
+    /** Matches "for each Element among [Type] opponent controls" — counts distinct elements. */
+    private static final Pattern SELF_SCALE_EACH_DISTINCT_OPP_ELEM = Pattern.compile(
+        "(?i)^for\\s+each\\s+Element\\s+among\\s+(?<type>Forwards?|Backups?|Monsters?|Characters?)\\s+(?:your\\s+)?opponent\\s+controls$"
+    );
+    /** Matches "for each 《C》you have" — scales by the controller's Crystal token count. */
+    private static final Pattern SELF_SCALE_EACH_CRYSTAL = Pattern.compile(
+        "(?i)^for\\s+each\\s+《C》\\s*you\\s+have$"
+    );
     /** Matches "for each [Type] of cost N or more you control" — e.g. "for each Character of cost 5 or more you control". */
     private static final Pattern SELF_SCALE_EACH_TYPE_MIN_COST = Pattern.compile(
         "(?i)^for\\s+each\\s+(?<type>Forwards?|Backups?|Monsters?|Characters?)\\s+of\\s+cost\\s+(?<n>\\d+)\\s+or\\s+more\\s+you\\s+control$"
@@ -2389,6 +2421,10 @@ public record CardData(
     /** Matches "for each Job X [or Card Name Y] you control" — no "forward" keyword. */
     private static final Pattern SELF_SCALE_EACH_JOB = Pattern.compile(
         "(?i)^for\\s+each\\s+Job\\s+(?<job>.+?)(?:\\s+or\\s+Card\\s+Name\\s+(?<name>\\S+))?\\s+you\\s+control$"
+    );
+    /** Matches "for each CP required to cast the highest cost Element Forward you control". */
+    private static final Pattern SELF_SCALE_HIGHEST_COST_ELEM_FWD = Pattern.compile(
+        "(?i)^for\\s+each\\s+CP\\s+required\\s+to\\s+cast\\s+the\\s+highest\\s+cost\\s+(?<element>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)\\s+Forward\\s+you\\s+control$"
     );
 
     /**
@@ -2510,6 +2546,16 @@ public record CardData(
                     }
                 }
                 if (mod == null) {
+                    cm = SELF_COND_CONTROL_CATEGORY_TYPE_NOT_ELEMENT.matcher(condRaw.trim());
+                    if (cm.find()) {
+                        String type = cm.group("type").replaceAll("(?i)s$", "");
+                        mod = new SelfCostModifier(amount, minCost, isIncrease,
+                                SelfCostModifier.ScalingType.IF_CONTROL_CATEGORY_TYPE_NOT_ELEMENT,
+                                cm.group("cat").trim() + "|" + type,
+                                cm.group("elem").trim());
+                    }
+                }
+                if (mod == null) {
                     cm = SELF_COND_CONTROL_A_CATEGORY_TYPE.matcher(condRaw.trim());
                     if (cm.find()) {
                         String type = cm.group("type").replaceAll("(?i)s$", "");
@@ -2531,6 +2577,63 @@ public record CardData(
                     if (cm.find()) {
                         mod = new SelfCostModifier(amount, minCost, isIncrease,
                                 SelfCostModifier.ScalingType.IF_OPPONENT_HAND_N_OR_LESS,
+                                cm.group("n").trim(), null);
+                    }
+                }
+                if (mod == null) {
+                    cm = SELF_COND_N_OR_MORE_FORWARDS_LEFT_FIELD.matcher(condRaw.trim());
+                    if (cm.find()) {
+                        mod = new SelfCostModifier(amount, minCost, isIncrease,
+                                SelfCostModifier.ScalingType.IF_N_OR_MORE_FORWARDS_LEFT_FIELD_THIS_TURN,
+                                cm.group("n").trim(), null);
+                    }
+                }
+                if (mod == null) {
+                    cm = SELF_COND_CONTROL_N_OR_MORE_JOB.matcher(condRaw.trim());
+                    if (cm.find()) {
+                        mod = new SelfCostModifier(amount, minCost, isIncrease,
+                                SelfCostModifier.ScalingType.IF_CONTROL_N_OR_MORE_JOB,
+                                cm.group("n").trim(), cm.group("job").trim());
+                    }
+                }
+                if (mod == null) {
+                    cm = SELF_COND_ELEMENT_FORWARD_ENTERED_FIELD.matcher(condRaw.trim());
+                    if (cm.find()) {
+                        mod = new SelfCostModifier(amount, minCost, isIncrease,
+                                SelfCostModifier.ScalingType.IF_ELEMENT_FORWARD_ENTERED_FIELD_THIS_TURN,
+                                cm.group("element").trim(), null);
+                    }
+                }
+                if (mod == null) {
+                    cm = SELF_COND_OPPONENT_CONTROLS_N_OR_MORE_TYPE.matcher(condRaw.trim());
+                    if (cm.find()) {
+                        String type = cm.group("type").replaceAll("(?i)s$", "");
+                        mod = new SelfCostModifier(amount, minCost, isIncrease,
+                                SelfCostModifier.ScalingType.IF_OPPONENT_CONTROLS_N_OR_MORE_TYPE,
+                                cm.group("n").trim(), type);
+                    }
+                }
+                if (mod == null) {
+                    cm = SELF_COND_FORWARD_ENTERED_VIA_WARP.matcher(condRaw.trim());
+                    if (cm.find()) {
+                        mod = new SelfCostModifier(amount, minCost, isIncrease,
+                                SelfCostModifier.ScalingType.IF_FORWARD_ENTERED_VIA_WARP_THIS_TURN,
+                                null, null);
+                    }
+                }
+                if (mod == null) {
+                    cm = SELF_COND_N_OR_MORE_JOB_IN_BZ.matcher(condRaw.trim());
+                    if (cm.find()) {
+                        mod = new SelfCostModifier(amount, minCost, isIncrease,
+                                SelfCostModifier.ScalingType.IF_N_OR_MORE_JOB_IN_BZ,
+                                cm.group("n").trim(), cm.group("job").trim());
+                    }
+                }
+                if (mod == null) {
+                    cm = SELF_COND_RECEIVED_EXACTLY_N_DAMAGE.matcher(condRaw.trim());
+                    if (cm.find()) {
+                        mod = new SelfCostModifier(amount, minCost, isIncrease,
+                                SelfCostModifier.ScalingType.IF_RECEIVED_EXACTLY_N_DAMAGE,
                                 cm.group("n").trim(), null);
                     }
                 }
@@ -2630,6 +2733,24 @@ public record CardData(
                 }
 
                 if (mod == null) {
+                    sm = SELF_SCALE_EACH_DISTINCT_OPP_ELEM.matcher(sc);
+                    if (sm.find()) {
+                        String type = sm.group("type").replaceAll("(?i)s$", "");
+                        mod = new SelfCostModifier(amount, minCost, isIncrease,
+                                SelfCostModifier.ScalingType.EACH_DISTINCT_OPPONENT_TYPE_ELEMENT,
+                                type, null);
+                    }
+                }
+
+                if (mod == null) {
+                    sm = SELF_SCALE_EACH_CRYSTAL.matcher(sc);
+                    if (sm.find()) {
+                        mod = new SelfCostModifier(amount, minCost, isIncrease,
+                                SelfCostModifier.ScalingType.EACH_CRYSTAL_YOU_HAVE, null, null);
+                    }
+                }
+
+                if (mod == null) {
                     sm = SELF_SCALE_EACH_TYPE_MIN_COST.matcher(sc);
                     if (sm.find()) {
                         String type = sm.group("type").replaceAll("(?i)s$", "");
@@ -2663,6 +2784,15 @@ public record CardData(
                         mod = new SelfCostModifier(amount, minCost, isIncrease,
                                 SelfCostModifier.ScalingType.EACH_NAME_OR_NAME_CONTROLLED,
                                 sm.group("name1").trim(), sm.group("name2").trim());
+                    }
+                }
+
+                if (mod == null) {
+                    sm = SELF_SCALE_HIGHEST_COST_ELEM_FWD.matcher(sc);
+                    if (sm.find()) {
+                        mod = new SelfCostModifier(amount, minCost, isIncrease,
+                                SelfCostModifier.ScalingType.HIGHEST_COST_ELEMENT_FORWARD,
+                                sm.group("element").trim(), null);
                     }
                 }
 

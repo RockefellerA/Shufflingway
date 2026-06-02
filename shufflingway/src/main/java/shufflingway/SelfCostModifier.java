@@ -73,15 +73,42 @@ public record SelfCostModifier(
         IF_DRAWN_N_OR_MORE_THIS_TURN,
         /** Flat delta (×1) if the opponent controls more cards of type {@code param1} than the controller; 0 otherwise. */
         IF_OPPONENT_CONTROLS_MORE_TYPE,
+        /**
+         * Flat delta (×1) if the controller controls a card of category {@code param1-part} and
+         * type {@code param2-part} whose element is NOT {@code param2-excluded-part}.
+         * Encoding: {@code param1} = "category|type", {@code param2} = excluded element.
+         */
+        IF_CONTROL_CATEGORY_TYPE_NOT_ELEMENT,
         /** Flat delta (×1) if a Forward the controller controlled formed a party attack this turn; 0 otherwise. */
         IF_OWN_FORWARD_FORMED_PARTY_THIS_TURN,
         /** Flat delta (×1) if the opponent's hand size is ≤ {@code Integer.parseInt(param1)}; 0 otherwise. */
         IF_OPPONENT_HAND_N_OR_LESS,
+        /** Flat delta (×1) if ≥ {@code Integer.parseInt(param1)} Forwards (either side) left the field this turn; 0 otherwise. */
+        IF_N_OR_MORE_FORWARDS_LEFT_FIELD_THIS_TURN,
+        /** Flat delta (×1) if the controller controls ≥ {@code Integer.parseInt(param1)} cards with job {@code param2}; 0 otherwise. */
+        IF_CONTROL_N_OR_MORE_JOB,
+        /** Flat delta (×1) if a Forward with element {@code param1} entered the controller's field this turn; 0 otherwise. */
+        IF_ELEMENT_FORWARD_ENTERED_FIELD_THIS_TURN,
+        /** Flat delta (×1) if the opponent controls ≥ {@code Integer.parseInt(param1)} cards of type {@code param2}; 0 otherwise. */
+        IF_OPPONENT_CONTROLS_N_OR_MORE_TYPE,
+        /** Flat delta (×1) if a Forward entered the controller's field via Warp this turn; 0 otherwise. */
+        IF_FORWARD_ENTERED_VIA_WARP_THIS_TURN,
+        /** Flat delta (×1) if the controller has ≥ {@code Integer.parseInt(param1)} cards with job {@code param2} in their Break Zone; 0 otherwise. */
+        IF_N_OR_MORE_JOB_IN_BZ,
+        /** Flat delta (×1) if the controller has received exactly {@code Integer.parseInt(param1)} points of damage; 0 otherwise. */
+        IF_RECEIVED_EXACTLY_N_DAMAGE,
+        /**
+         * Scales by the highest printed cost among the controller's field Forwards with element {@code param1}.
+         * Yields 0 if the controller controls no Forwards of that element.
+         */
+        HIGHEST_COST_ELEMENT_FORWARD,
         /**
          * Scales by field cards the controller controls of type {@code param2}
          * ("Forward", "Backup", "Character") whose printed cost is ≥ {@code Integer.parseInt(param1)}.
          */
         EACH_TYPE_WITH_MIN_COST,
+        /** Scales by the number of Crystal tokens (《C》) the controller currently has. */
+        EACH_CRYSTAL_YOU_HAVE,
         /** Scales by the number of Forwards the controller controls. */
         EACH_FORWARD,
         /** Scales by the number of Backups the controller controls. */
@@ -122,6 +149,11 @@ public record SelfCostModifier(
          * "Character" counts Forwards + Backups.
          */
         EACH_ELEMENT_TYPE_CONTROLLED,
+        /**
+         * Scales by the number of distinct elements among the opponent's field cards of type {@code param1}
+         * ("Forward", "Backup", "Character"). Multi-element cards contribute each of their elements.
+         */
+        EACH_DISTINCT_OPPONENT_TYPE_ELEMENT,
         /**
          * Scales by the number of distinct single elements among the controller's Backups
          * (multi-element backups, i.e. those with a "/" in their element field, are excluded).
