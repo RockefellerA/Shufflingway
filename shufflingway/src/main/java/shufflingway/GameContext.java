@@ -455,6 +455,9 @@ public interface GameContext {
     /** Returns the number of cards the active player has cast from hand this turn. */
     int selfCardsCastThisTurn();
 
+    /** Returns {@code true} if the active player has cast a Summon this turn. */
+    boolean selfSummonCastThisTurn();
+
     /** Returns the number of Forwards the active player controls. */
     int selfForwardCount();
 

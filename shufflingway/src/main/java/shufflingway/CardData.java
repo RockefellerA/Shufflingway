@@ -35,6 +35,7 @@ public record CardData(
         List<IfControlBoost> ifControlBoosts,
         List<FieldPowerGrant>       fieldPowerGrants,
         List<FieldCostReduction>    fieldCostReductions,
+        List<SelfCostModifier>      selfCostModifiers,
         List<FieldPrimingAnyElement> fieldPrimingAnyElements,
         boolean warpCostAnyElement,
         String job,
@@ -66,6 +67,7 @@ public record CardData(
         ifControlBoosts  = List.copyOf(ifControlBoosts);
         fieldPowerGrants       = List.copyOf(fieldPowerGrants);
         fieldCostReductions    = List.copyOf(fieldCostReductions);
+        selfCostModifiers      = List.copyOf(selfCostModifiers);
         fieldPrimingAnyElements = List.copyOf(fieldPrimingAnyElements);
         job       = job       != null ? job       : "";
         category1 = category1 != null ? category1 : "";
@@ -2266,5 +2268,178 @@ public record CardData(
     /** Returns {@code true} if this card's type is Summon. */
     public boolean isSummon() {
         return "Summon".equalsIgnoreCase(type);
+    }
+
+    // -------------------------------------------------------------------------
+    // SelfCostModifier parsing
+    // -------------------------------------------------------------------------
+
+    /**
+     * Top-level pattern for self-cost modifiers.  Handles both:
+     * <ul>
+     *   <li>"The cost required to play &lt;name&gt; onto the field is (reduced|increased) by N [scaling] [(it cannot become 0)]."</li>
+     *   <li>"The cost required to cast &lt;name&gt; is (reduced|increased) by N [scaling] [(it cannot become 0)]."</li>
+     *   <li>"If &lt;condition&gt;, the cost required to play &lt;name&gt; onto the field is (reduced|increased) by N [(it cannot become 0)]."</li>
+     * </ul>
+     */
+    private static final Pattern SELF_COST_MAIN = Pattern.compile(
+        "(?i)" +
+        "(?:If\\s+(?<cond>[^,]+),\\s+)?" +
+        "The\\s+cost\\s+required\\s+to\\s+" +
+        "(?:play\\s+(?<name1>.+?)\\s+onto\\s+the\\s+field|cast\\s+(?<name2>.+?))" +
+        "\\s+is\\s+(?<dir>reduced|increased)\\s+by\\s+(?<amount>\\d+)" +
+        "(?:\\s+(?<scaling>for\\s+.+?))?" +
+        "(?:[.]?\\s+\\(it\\s+cannot\\s+become\\s+0\\))?" +
+        "\\s*\\.?$"
+    );
+
+    // Condition sub-patterns
+    private static final Pattern SELF_COND_CAST_SUMMON = Pattern.compile(
+        "(?i)^you\\s+have\\s+cast\\s+a\\s+Summon\\s+this\\s+turn$"
+    );
+    private static final Pattern SELF_COND_CONTROL_NAME = Pattern.compile(
+        "(?i)^you\\s+control\\s+Card\\s+Name\\s+(?<name>.+?)\\s*$"
+    );
+
+    // Scaling sub-patterns
+    private static final Pattern SELF_SCALE_EACH_FWD = Pattern.compile(
+        "(?i)^for\\s+each\\s+Forward\\s+you\\s+control$"
+    );
+    private static final Pattern SELF_SCALE_EACH_CAT_FWD = Pattern.compile(
+        "(?i)^for\\s+each\\s+\\[Category\\s+\\((?<cat>[^)]+)\\)\\]\\s+Forward\\s+you\\s+control$"
+    );
+    private static final Pattern SELF_SCALE_EACH_DAMAGE = Pattern.compile(
+        "(?i)^for\\s+each\\s+point\\s+of\\s+damage\\s+you\\s+have\\s+received$"
+    );
+    private static final Pattern SELF_SCALE_EACH_NAME_BZ = Pattern.compile(
+        "(?i)^for\\s+each\\s+Card\\s+Name\\s+(?<name>.+?)\\s+in\\s+your\\s+Break\\s+Zone$"
+    );
+    private static final Pattern SELF_SCALE_PER_N_BZ = Pattern.compile(
+        "(?i)^for\\s+every\\s+(?<n>\\d+)\\s+cards\\s+in\\s+your\\s+Break\\s+Zone$"
+    );
+    private static final Pattern SELF_SCALE_EACH_OPP_HAND = Pattern.compile(
+        "(?i)^for\\s+each\\s+card\\s+in\\s+your\\s+opponent(?:'s|s')\\s+hand$"
+    );
+    /** Matches "for each Job X [or Card Name Y] you control" — no "forward" keyword. */
+    private static final Pattern SELF_SCALE_EACH_JOB = Pattern.compile(
+        "(?i)^for\\s+each\\s+Job\\s+(?<job>.+?)(?:\\s+or\\s+Card\\s+Name\\s+(?<name>\\S+))?\\s+you\\s+control$"
+    );
+
+    /**
+     * Parses self-referential cost modifiers from a card's own text.
+     * These adjust the card's own play/cast cost based on game state at the time of play.
+     */
+    public static List<SelfCostModifier> parseSelfCostModifiers(String textEn) {
+        if (textEn == null || textEn.isBlank()) return List.of();
+
+        List<SelfCostModifier> result = new ArrayList<>();
+        for (String raw : textEn.split("(?i)\\[\\[br\\]\\]")) {
+            String seg = SUMMON_MARKUP.matcher(raw.trim()).replaceAll("").trim();
+            if (seg.isEmpty()) continue;
+
+            Matcher m = SELF_COST_MAIN.matcher(seg);
+            if (!m.find()) continue;
+
+            String condRaw    = m.group("cond");
+            String scalingRaw = m.group("scaling");
+            boolean isIncrease = "increased".equalsIgnoreCase(m.group("dir"));
+            int amount = Integer.parseInt(m.group("amount"));
+            boolean floorAtOne = seg.contains("(it cannot become 0)");
+
+            SelfCostModifier mod = null;
+
+            // --- Condition prefix forms ---
+            if (condRaw != null && scalingRaw == null) {
+                Matcher cm;
+                cm = SELF_COND_CAST_SUMMON.matcher(condRaw.trim());
+                if (cm.find()) {
+                    mod = new SelfCostModifier(amount, floorAtOne, isIncrease,
+                            SelfCostModifier.ScalingType.IF_CAST_SUMMON_THIS_TURN, null, null);
+                }
+                if (mod == null) {
+                    cm = SELF_COND_CONTROL_NAME.matcher(condRaw.trim());
+                    if (cm.find()) {
+                        mod = new SelfCostModifier(amount, floorAtOne, isIncrease,
+                                SelfCostModifier.ScalingType.IF_CONTROL_NAME,
+                                cm.group("name").trim(), null);
+                    }
+                }
+            }
+
+            // --- Scaling suffix forms ---
+            if (mod == null && scalingRaw != null) {
+                String sc = scalingRaw.trim();
+                Matcher sm;
+
+                sm = SELF_SCALE_EACH_FWD.matcher(sc);
+                if (sm.find()) {
+                    mod = new SelfCostModifier(amount, floorAtOne, isIncrease,
+                            SelfCostModifier.ScalingType.EACH_FORWARD, null, null);
+                }
+
+                if (mod == null) {
+                    sm = SELF_SCALE_EACH_CAT_FWD.matcher(sc);
+                    if (sm.find()) {
+                        mod = new SelfCostModifier(amount, floorAtOne, isIncrease,
+                                SelfCostModifier.ScalingType.EACH_FORWARD_WITH_CATEGORY,
+                                sm.group("cat").trim(), null);
+                    }
+                }
+
+                if (mod == null) {
+                    sm = SELF_SCALE_EACH_DAMAGE.matcher(sc);
+                    if (sm.find()) {
+                        mod = new SelfCostModifier(amount, floorAtOne, isIncrease,
+                                SelfCostModifier.ScalingType.EACH_DAMAGE_RECEIVED, null, null);
+                    }
+                }
+
+                if (mod == null) {
+                    sm = SELF_SCALE_EACH_NAME_BZ.matcher(sc);
+                    if (sm.find()) {
+                        mod = new SelfCostModifier(amount, floorAtOne, isIncrease,
+                                SelfCostModifier.ScalingType.EACH_NAME_IN_BZ,
+                                sm.group("name").trim(), null);
+                    }
+                }
+
+                if (mod == null) {
+                    sm = SELF_SCALE_PER_N_BZ.matcher(sc);
+                    if (sm.find()) {
+                        mod = new SelfCostModifier(amount, floorAtOne, isIncrease,
+                                SelfCostModifier.ScalingType.PER_N_BZ_CARDS,
+                                sm.group("n").trim(), null);
+                    }
+                }
+
+                if (mod == null) {
+                    sm = SELF_SCALE_EACH_OPP_HAND.matcher(sc);
+                    if (sm.find()) {
+                        mod = new SelfCostModifier(amount, floorAtOne, isIncrease,
+                                SelfCostModifier.ScalingType.EACH_OPPONENT_HAND_CARD, null, null);
+                    }
+                }
+
+                if (mod == null) {
+                    sm = SELF_SCALE_EACH_JOB.matcher(sc);
+                    if (sm.find()) {
+                        String job  = sm.group("job").trim();
+                        String name = sm.group("name");
+                        if (name != null) {
+                            mod = new SelfCostModifier(amount, floorAtOne, isIncrease,
+                                    SelfCostModifier.ScalingType.EACH_FORWARD_WITH_JOB_OR_NAME,
+                                    job, name.trim());
+                        } else {
+                            mod = new SelfCostModifier(amount, floorAtOne, isIncrease,
+                                    SelfCostModifier.ScalingType.EACH_FORWARD_WITH_JOB,
+                                    job, null);
+                        }
+                    }
+                }
+            }
+
+            if (mod != null) result.add(mod);
+        }
+        return List.copyOf(result);
     }
 }

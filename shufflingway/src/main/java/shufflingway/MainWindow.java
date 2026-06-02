@@ -338,6 +338,9 @@ public class MainWindow {
 	private boolean p1ReceivedDamageThisTurn = false;
 	private boolean p2ReceivedDamageThisTurn = false;
 	private int     p1CardsCastThisTurn      = 0;
+	private boolean p1SummonCastThisTurn     = false;
+	private int     p2CardsCastThisTurn      = 0;
+	private boolean p2SummonCastThisTurn     = false;
 	private boolean p1NonLethalProtection   = false;
 	private boolean p2NonLethalProtection   = false;
 	private boolean p1DmgReductionDisabled  = false;
@@ -1125,6 +1128,7 @@ public class MainWindow {
 							CardData.parseIfControlBoosts(tx, card.type()),
 							CardData.parseFieldPowerGrants(tx, card.type()),
 							CardData.parseFieldCostReductions(tx, card.type()),
+							CardData.parseSelfCostModifiers(tx),
 							CardData.parseFieldPrimingAnyElements(tx, card.type()),
 							CardData.parseWarpCostAnyElement(tx),
 							card.job(), card.category1(), card.category2(), tx);
@@ -1150,6 +1154,7 @@ public class MainWindow {
 							CardData.parseIfControlBoosts(tx, card.type()),
 							CardData.parseFieldPowerGrants(tx, card.type()),
 							CardData.parseFieldCostReductions(tx, card.type()),
+							CardData.parseSelfCostModifiers(tx),
 							CardData.parseFieldPrimingAnyElements(tx, card.type()),
 							CardData.parseWarpCostAnyElement(tx),
 							card.job(), card.category1(), card.category2(), tx);
@@ -2253,7 +2258,7 @@ public class MainWindow {
 		startBreakAnim(p1ForwardLabels.get(idx));
 		CardData card    = p1ForwardCards.get(idx);
 		boolean  hadGrants      = !card.fieldPowerGrants().isEmpty();
-		boolean  hadCostReduces = !card.fieldCostReductions().isEmpty();
+		boolean  hadCostReduces = !card.fieldCostReductions().isEmpty() || p1HandHasSelfCostModifiers();
 		CardData topCard = p1ForwardPrimedTop.get(idx);
 
 		if (topCard != null) {
@@ -2346,7 +2351,7 @@ public class MainWindow {
 		startBreakAnim(p2ForwardLabels.get(idx));
 		CardData card    = p2ForwardCards.get(idx);
 		boolean hadGrants      = !card.fieldPowerGrants().isEmpty();
-		boolean hadCostReduces = !card.fieldCostReductions().isEmpty();
+		boolean hadCostReduces = !card.fieldCostReductions().isEmpty() || p1HandHasSelfCostModifiers();
 		CardData topCard = p2ForwardPrimedTop.get(idx);
 
 		if (topCard != null) {
@@ -2601,7 +2606,7 @@ public class MainWindow {
 		p1ForwardPanel.repaint();
 		refreshP1ForwardSlot(idx);
 		if (!card.fieldPowerGrants().isEmpty()) refreshFieldGrantDependents(true);
-		if (!card.fieldCostReductions().isEmpty()) refreshHandPopupIfVisible();
+		if (!card.fieldCostReductions().isEmpty() || p1HandHasSelfCostModifiers()) refreshHandPopupIfVisible();
 	}
 
 	/**
@@ -2697,7 +2702,7 @@ public class MainWindow {
 		p2ForwardFrozen.add(false);
 		rebuildP2ForwardPanel();
 		if (!card.fieldPowerGrants().isEmpty()) refreshFieldGrantDependents(false);
-		if (!card.fieldCostReductions().isEmpty()) refreshHandPopupIfVisible();
+		if (!card.fieldCostReductions().isEmpty() || p1HandHasSelfCostModifiers()) refreshHandPopupIfVisible();
 
 		logEntry(card.name() + " — control returned to P2");
 	}
@@ -4986,11 +4991,87 @@ public class MainWindow {
 	 * is applied (modifiers stack only when multiple fire independently).
 	 */
 	private int effectiveCastCost(CardData card) {
-		int cost = Math.max(0, card.cost() - totalFieldReduction(card, true));
+		int selfRed = 0;
+		int selfInc = 0;
+		boolean selfFloorAtOne = false;
+		for (SelfCostModifier mod : card.selfCostModifiers()) {
+			int units = computeSelfCostUnits(mod, true);
+			int delta = mod.amountPerUnit() * units;
+			if (mod.isIncrease()) selfInc += delta;
+			else {
+				selfRed += delta;
+				if (mod.floorAtOne()) selfFloorAtOne = true;
+			}
+		}
+		int cost = card.cost() + selfInc - selfRed - totalFieldReduction(card, true);
+		if (selfFloorAtOne) cost = Math.max(1, cost);
+		else cost = Math.max(0, cost);
 		for (CostReductionModifier m : activeCostReductions) {
 			if (m.matches(card)) return m.apply(cost);
 		}
 		return cost;
+	}
+
+	/** Returns {@code true} if any card in P1's hand has self-cost modifiers that vary with game state. */
+	private boolean p1HandHasSelfCostModifiers() {
+		for (CardData c : gameState.getP1Hand())
+			if (!c.selfCostModifiers().isEmpty()) return true;
+		return false;
+	}
+
+	private int computeSelfCostUnits(SelfCostModifier mod, boolean isP1) {
+		List<CardData>   fwds  = isP1 ? p1ForwardCards : p2ForwardCards;
+		CardData[]       bkps  = isP1 ? p1BackupCards  : p2BackupCards;
+		List<CardData>   bz    = isP1 ? gameState.getP1BreakZone() : gameState.getP2BreakZone();
+		List<CardData>   dmg   = isP1 ? gameState.getP1DamageZone() : gameState.getP2DamageZone();
+		boolean summonCastFlag = isP1 ? p1SummonCastThisTurn : p2SummonCastThisTurn;
+
+		return switch (mod.scalingType()) {
+			case IF_CAST_SUMMON_THIS_TURN ->
+				summonCastFlag ? 1 : 0;
+			case IF_CONTROL_NAME -> {
+				String name = mod.param1();
+				yield fwds.stream().anyMatch(f -> f.name().equalsIgnoreCase(name))
+					|| java.util.Arrays.stream(bkps).filter(b -> b != null)
+					         .anyMatch(b -> b.name().equalsIgnoreCase(name))
+					? 1 : 0;
+			}
+			case EACH_FORWARD ->
+				fwds.size();
+			case EACH_FORWARD_WITH_CATEGORY -> {
+				String cat = mod.param1();
+				yield (int) fwds.stream()
+						.filter(f -> cat.equalsIgnoreCase(f.category1()) || cat.equalsIgnoreCase(f.category2()))
+						.count();
+			}
+			case EACH_FORWARD_WITH_JOB -> {
+				String job = mod.param1();
+				yield (int) fwds.stream()
+						.filter(f -> job.equalsIgnoreCase(f.job()))
+						.count();
+			}
+			case EACH_FORWARD_WITH_JOB_OR_NAME -> {
+				String job  = mod.param1();
+				String name = mod.param2();
+				yield (int) fwds.stream()
+						.filter(f -> job.equalsIgnoreCase(f.job()) || name.equalsIgnoreCase(f.name()))
+						.count();
+			}
+			case EACH_DAMAGE_RECEIVED ->
+				dmg.size();
+			case EACH_NAME_IN_BZ -> {
+				String name = mod.param1();
+				yield (int) bz.stream()
+						.filter(c -> c.name().equalsIgnoreCase(name))
+						.count();
+			}
+			case PER_N_BZ_CARDS -> {
+				int n = Integer.parseInt(mod.param1());
+				yield bz.size() / n;
+			}
+			case EACH_OPPONENT_HAND_CARD ->
+				(isP1 ? gameState.getP2Hand() : gameState.getP1Hand()).size();
+		};
 	}
 
 	private int totalFieldReduction(CardData card, boolean isP1) {
@@ -5557,6 +5638,10 @@ public class MainWindow {
 		gameState.removeFromHand(cardHandIdx);
 		activeCostReductions.removeIf(m -> m.matches(card));
 		p1CardsCastThisTurn++;
+		if (card.isSummon()) {
+			p1SummonCastThisTurn = true;
+			refreshHandPopupIfVisible();
+		}
 		logEntry("Played \"" + card.name() + "\"");
 
 		lastCardWasCast = true;
@@ -10402,7 +10487,9 @@ public class MainWindow {
 				return (isP1 ? gameState.getP2DamageZone() : gameState.getP1DamageZone()).size();
 			}
 
-			@Override public int selfCardsCastThisTurn() { return p1CardsCastThisTurn; }
+			@Override public int selfCardsCastThisTurn() { return isP1 ? p1CardsCastThisTurn : p2CardsCastThisTurn; }
+
+			@Override public boolean selfSummonCastThisTurn() { return isP1 ? p1SummonCastThisTurn : p2SummonCastThisTurn; }
 
 			@Override public int selfForwardCount() {
 				return isP1 ? p1ForwardCards.size() : p2ForwardCards.size();
@@ -11529,7 +11616,7 @@ public class MainWindow {
 
 		refreshP1ForwardSlot(idx);
 		if (!card.fieldPowerGrants().isEmpty()) refreshFieldGrantDependents(true);
-		if (!card.fieldCostReductions().isEmpty()) refreshHandPopupIfVisible();
+		if (!card.fieldCostReductions().isEmpty() || p1HandHasSelfCostModifiers()) refreshHandPopupIfVisible();
 		triggerAutoAbilitiesForEntersField(card, true);
 	}
 
@@ -13370,7 +13457,7 @@ public class MainWindow {
 
 		refreshP2ForwardSlot(idx);
 		if (!card.fieldPowerGrants().isEmpty()) refreshFieldGrantDependents(false);
-		if (!card.fieldCostReductions().isEmpty()) refreshHandPopupIfVisible();
+		if (!card.fieldCostReductions().isEmpty() || p1HandHasSelfCostModifiers()) refreshHandPopupIfVisible();
 		triggerAutoAbilitiesForEntersField(card, false);
 	}
 
@@ -13471,6 +13558,8 @@ public class MainWindow {
 
 		private void doActivePhase() {
 			p2ReceivedDamageThisTurn = false;
+			p2CardsCastThisTurn = 0;
+			p2SummonCastThisTurn = false;
 			int activated = 0, thawed = 0;
 
 			// Pass 1: activate DULL/BRAVE_ATTACKED cards; frozen cards are skipped
@@ -13584,9 +13673,12 @@ public class MainWindow {
 				refreshP2LimitButton();
 				logEntry("[P2] Plays LB \"" + card.name() + "\"");
 				lastCardWasCast = true;
+				p2CardsCastThisTurn++;
+				if (card.isSummon()) p2SummonCastThisTurn = true;
 				if (card.isForward())      placeP2CardInForwardZone(card);
 				else if (card.isBackup())  placeP2CardInFirstBackupSlot(card);
 				else if (card.isMonster()) placeP2CardInMonsterZone(card);
+				else if (card.isSummon())  showSummonOnStack(card);
 				lastCardWasCast = false;
 				step(() -> doMainPhase(onDone));
 				return;
@@ -13642,9 +13734,12 @@ public class MainWindow {
 				for (String e : elems) { gameState.clearP2Cp(e); }
 				logEntry("[P2] Plays " + toPlay.name());
 				lastCardWasCast = true;
+				p2CardsCastThisTurn++;
+				if (toPlay.isSummon()) p2SummonCastThisTurn = true;
 				if (toPlay.isForward())      placeP2CardInForwardZone(toPlay);
 				else if (toPlay.isBackup())  placeP2CardInFirstBackupSlot(toPlay);
 				else if (toPlay.isMonster()) placeP2CardInMonsterZone(toPlay);
+				else if (toPlay.isSummon())  showSummonOnStack(toPlay);
 				lastCardWasCast = false;
 			}
 			step(() -> doMainPhase(onDone));
@@ -13823,6 +13918,7 @@ public class MainWindow {
 		private void startP1Turn() {
 			p1ReceivedDamageThisTurn = false;
 			p1CardsCastThisTurn = 0;
+			p1SummonCastThisTurn = false;
 			for (int i = 0; i < p1MonsterCards.size(); i++) refreshP1MonsterSlot(i);
 			for (int i = 0; i < p2MonsterCards.size(); i++) refreshP2MonsterSlot(i);
 			int activated = 0, thawed = 0;

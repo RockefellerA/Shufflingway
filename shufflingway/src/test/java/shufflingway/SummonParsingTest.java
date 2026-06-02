@@ -64,6 +64,7 @@ public class SummonParsingTest {
                         CardData.parseIfControlBoosts(textEn, rs.getString("type_en")),
                         CardData.parseFieldPowerGrants(textEn, rs.getString("type_en")),
                         CardData.parseFieldCostReductions(textEn, rs.getString("type_en")),
+                        CardData.parseSelfCostModifiers(textEn),
                         CardData.parseFieldPrimingAnyElements(textEn, rs.getString("type_en")),
                         CardData.parseWarpCostAnyElement(textEn),
                         rs.getString("job_en"),
