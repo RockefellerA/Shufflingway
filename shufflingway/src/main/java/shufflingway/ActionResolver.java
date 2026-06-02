@@ -1881,6 +1881,8 @@ public class ActionResolver {
         result = tryParseConditionalOpponentHand(effectText, source, xValue);
         if (result != null) return result;
 
+        if (CardData.HAS_ALL_ELEMENTS_PATTERN.matcher(effectText.trim()).matches()) return ctx -> {};
+
         return null;
     }
 
@@ -1972,6 +1974,7 @@ public class ActionResolver {
         if (tryParseShuffleDeck(effectText)                        != null) return "ShuffleDeck";
         if (tryParseConditionalOpponentHand(effectText, source, 0) != null) return "ConditionalOpponentHand";
         if (SELECT_FOLLOWING_ACTIONS_DETECT.matcher(effectText).find())    return "SelectFollowingActions";
+        if (CardData.HAS_ALL_ELEMENTS_PATTERN.matcher(effectText.trim()).matches()) return "HasAllElements";
         return null;
     }
 
@@ -2151,6 +2154,7 @@ public class ActionResolver {
         if (tryParseBackupCpDraw(effectText)                       != null) return "BackupCpDraw";
         if (tryParseConditionalOpponentHand(effectText, source, 0) != null) return "ConditionalOpponentHand";
         if (SELECT_FOLLOWING_ACTIONS_DETECT.matcher(effectText).find())    return "SelectFollowingActions";
+        if (CardData.HAS_ALL_ELEMENTS_PATTERN.matcher(effectText.trim()).matches()) return "HasAllElements";
         return null;
     }
 
