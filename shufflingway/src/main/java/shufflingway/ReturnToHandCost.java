@@ -6,10 +6,10 @@ package shufflingway;
  *
  * <p>Examples and their parsed form:
  * <ul>
- *   <li>{@code return Dorgann to its owner's hand}
- *       → {@code ReturnToHandCost(1, "Dorgann", null, null, null)}</li>
- *   <li>{@code return 1 Category VII Character other than Dorgann to its owner's hand}
- *       → {@code ReturnToHandCost(1, null, "Character", "VII", "Dorgann")}</li>
+ *   <li>{@code return <cardName> to its owner's hand}
+ *       → {@code ReturnToHandCost(1, "<cardName>", null, null, null)}</li>
+ *   <li>{@code return 1 Category <category> Character other than <cardName> to its owner's hand}
+ *       → {@code ReturnToHandCost(1, null, "Character", "<category>", "<cardName>")}</li>
  * </ul>
  *
  * @param count       number of cards to return

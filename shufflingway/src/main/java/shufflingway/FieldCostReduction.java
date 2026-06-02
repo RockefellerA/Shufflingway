@@ -6,10 +6,10 @@ package shufflingway;
  *
  * <p>Examples:
  * <ul>
- *   <li>"The cost required to cast [Card Name (Bahamut)] is reduced by 2 (it cannot become 0)."</li>
+ *   <li>"The cost required to cast [Card Name (<cardName>)] is reduced by 2 (it cannot become 0)."</li>
  *   <li>"The cost required to cast your Water Summons is reduced by 1 (it cannot become 0)."</li>
  *   <li>"The cost required to cast your Summons is reduced by 1 for each Job Summoner forward you control (it cannot become 0)."</li>
- *   <li>"The cost required to cast your Job Kingsglaive is reduced by 1."</li>
+ *   <li>"The cost required to cast your Job <jobName> is reduced by 1."</li>
  *   <li>"The cost required to cast your Summons can be paid with CP of any Element."</li>
  *   <li>"The cost required to play your Job Ninja or Card Name Ninja onto the field is reduced by 1 and can be paid with CP of any Element."</li>
  *   <li>"The cost required to cast your Category IV Forwards can be paid with CP of any Element."</li>

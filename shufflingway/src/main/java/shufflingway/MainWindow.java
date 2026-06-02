@@ -337,10 +337,12 @@ public class MainWindow {
 	private final Set<CardData>          perCardNonLethalDmgSet   = new HashSet<>();
 	private boolean p1ReceivedDamageThisTurn = false;
 	private boolean p2ReceivedDamageThisTurn = false;
-	private int     p1CardsCastThisTurn      = 0;
-	private boolean p1SummonCastThisTurn     = false;
-	private int     p2CardsCastThisTurn      = 0;
-	private boolean p2SummonCastThisTurn     = false;
+	private int     p1CardsCastThisTurn          = 0;
+	private boolean p1SummonCastThisTurn         = false;
+	private boolean p1TurnOpponentFwdBroken      = false;
+	private int     p2CardsCastThisTurn          = 0;
+	private boolean p2SummonCastThisTurn         = false;
+	private boolean p2TurnOpponentFwdBroken      = false;
 	private boolean p1NonLethalProtection   = false;
 	private boolean p2NonLethalProtection   = false;
 	private boolean p1DmgReductionDisabled  = false;
@@ -2334,6 +2336,7 @@ public class MainWindow {
 		}
 		if (hadGrants) for (int i = 0; i < p1MonsterCards.size(); i++) refreshP1MonsterSlot(i);
 		if (hadCostReduces) refreshHandPopupIfVisible();
+		p2TurnOpponentFwdBroken = true;
 		// If the broken card was itself stolen from P2, drop its tracking entry
 		stolenForwards.remove(card);
 		// Restore any forwards that were conditioned on this card remaining on the field
@@ -2414,6 +2417,7 @@ public class MainWindow {
 		}
 		if (hadGrants) for (int i = 0; i < p2MonsterCards.size(); i++) refreshP2MonsterSlot(i);
 		if (hadCostReduces) refreshHandPopupIfVisible();
+		p1TurnOpponentFwdBroken = true;
 		refreshP2BreakLabel();
 		triggerAutoAbilitiesForLeavesField(card, false);
 		triggerAutoAbilitiesForBreakZone(card, false);
@@ -4993,19 +4997,18 @@ public class MainWindow {
 	private int effectiveCastCost(CardData card) {
 		int selfRed = 0;
 		int selfInc = 0;
-		boolean selfFloorAtOne = false;
+		int selfFloor = 0;
 		for (SelfCostModifier mod : card.selfCostModifiers()) {
 			int units = computeSelfCostUnits(mod, true);
 			int delta = mod.amountPerUnit() * units;
 			if (mod.isIncrease()) selfInc += delta;
 			else {
 				selfRed += delta;
-				if (mod.floorAtOne()) selfFloorAtOne = true;
+				selfFloor = Math.max(selfFloor, mod.minCost());
 			}
 		}
 		int cost = card.cost() + selfInc - selfRed - totalFieldReduction(card, true);
-		if (selfFloorAtOne) cost = Math.max(1, cost);
-		else cost = Math.max(0, cost);
+		cost = Math.max(selfFloor, cost);
 		for (CostReductionModifier m : activeCostReductions) {
 			if (m.matches(card)) return m.apply(cost);
 		}
@@ -5071,6 +5074,49 @@ public class MainWindow {
 			}
 			case EACH_OPPONENT_HAND_CARD ->
 				(isP1 ? gameState.getP2Hand() : gameState.getP1Hand()).size();
+		case IF_RECEIVED_N_DAMAGE_OR_MORE -> {
+				int threshold = Integer.parseInt(mod.param1());
+				yield dmg.size() >= threshold ? 1 : 0;
+			}
+		case IF_OPPONENT_FORWARD_BROKEN_THIS_TURN ->
+				(isP1 ? p1TurnOpponentFwdBroken : p2TurnOpponentFwdBroken) ? 1 : 0;
+		case EACH_CATEGORY_TYPE_CONTROLLED -> {
+				String cat  = mod.param1();
+				String type = mod.param2() == null || mod.param2().isBlank() ? "Forward" : mod.param2();
+				long fwdCount = fwds.stream()
+						.filter(f -> cat.equalsIgnoreCase(f.category1()) || cat.equalsIgnoreCase(f.category2()))
+						.count();
+				long bkpCount = 0;
+				if ("Character".equalsIgnoreCase(type)) {
+					bkpCount = java.util.Arrays.stream(bkps)
+							.filter(b -> b != null)
+							.filter(b -> cat.equalsIgnoreCase(b.category1()) || cat.equalsIgnoreCase(b.category2()))
+							.count();
+				}
+				yield (int) (fwdCount + bkpCount);
+			}
+		case EACH_NAME_OR_NAME_CONTROLLED -> {
+				String name1 = mod.param1();
+				String name2 = mod.param2();
+				yield (int) fwds.stream()
+						.filter(f -> f.name().equalsIgnoreCase(name1) || f.name().equalsIgnoreCase(name2))
+						.count();
+			}
+		case PER_N_FILTERED_BZ_CARDS -> {
+				int n = Integer.parseInt(mod.param1());
+				String spec = mod.param2() == null ? "" : mod.param2();
+				String[] parts = spec.split("\\|", 2);
+				String elemFilter = parts.length > 0 ? parts[0].trim() : "";
+				String typeFilter = parts.length > 1 ? parts[1].trim() : "";
+				long filtered = bz.stream().filter(c -> {
+					if (!elemFilter.isEmpty() && !elemFilter.equalsIgnoreCase(c.element())) return false;
+					if (!typeFilter.isEmpty() && !typeFilter.equalsIgnoreCase(c.type()))   return false;
+					return true;
+				}).count();
+				yield (int) (filtered / n);
+			}
+		case EACH_CARD_CAST_THIS_TURN ->
+				isP1 ? p1CardsCastThisTurn : p2CardsCastThisTurn;
 		};
 	}
 
@@ -13560,6 +13606,7 @@ public class MainWindow {
 			p2ReceivedDamageThisTurn = false;
 			p2CardsCastThisTurn = 0;
 			p2SummonCastThisTurn = false;
+			p2TurnOpponentFwdBroken = false;
 			int activated = 0, thawed = 0;
 
 			// Pass 1: activate DULL/BRAVE_ATTACKED cards; frozen cards are skipped
@@ -13919,6 +13966,7 @@ public class MainWindow {
 			p1ReceivedDamageThisTurn = false;
 			p1CardsCastThisTurn = 0;
 			p1SummonCastThisTurn = false;
+			p1TurnOpponentFwdBroken = false;
 			for (int i = 0; i < p1MonsterCards.size(); i++) refreshP1MonsterSlot(i);
 			for (int i = 0; i < p2MonsterCards.size(); i++) refreshP2MonsterSlot(i);
 			int activated = 0, thawed = 0;

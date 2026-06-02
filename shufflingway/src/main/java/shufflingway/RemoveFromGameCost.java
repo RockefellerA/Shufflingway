@@ -5,8 +5,8 @@ package shufflingway;
  *
  * <p>Examples and their parsed form:
  * <ul>
- *   <li>{@code remove Dorgann from the game}
- *       → {@code RemoveFromGameCost("FIELD", 1, "Dorgann", null, null, null)}</li>
+ *   <li>{@code remove <cardName> from the game}
+ *       → {@code RemoveFromGameCost("FIELD", 1, "<cardName>", null, null, null)}</li>
  *   <li>{@code remove 1 card in your hand from the game}
  *       → {@code RemoveFromGameCost("HAND", 1, null, null, null, null)}</li>
  *   <li>{@code remove 3 Summons in the Break Zone from the game}
@@ -15,12 +15,12 @@ package shufflingway;
  *       → {@code RemoveFromGameCost("DECK", 5, null, null, null, null)}</li>
  *   <li>{@code Remove 2 backups from the game}
  *       → {@code RemoveFromGameCost("FIELD", 2, null, null, "Backup", null)}</li>
- *   <li>{@code remove 2 Card Name Odin in the Break Zone from the game}
- *       → {@code RemoveFromGameCost("BREAK_ZONE", 2, "Odin", null, null, null)}</li>
+ *   <li>{@code remove 2 Card Name <cardName> in the Break Zone from the game}
+ *       → {@code RemoveFromGameCost("BREAK_ZONE", 2, "<cardName>", null, null, null)}</li>
  *   <li>{@code remove all the Summons in your Break Zone from the game}
  *       → {@code RemoveFromGameCost("BREAK_ZONE", -1, null, null, "Summon", null)}</li>
- *   <li>{@code remove 1 Forward other than Dorgann from the game}
- *       → {@code RemoveFromGameCost("FIELD", 1, null, null, "Forward", "Dorgann")}</li>
+ *   <li>{@code remove 1 Forward other than <cardName> from the game}
+ *       → {@code RemoveFromGameCost("FIELD", 1, null, null, "Forward", "<cardName>")}</li>
  *   <li>{@code Remove 3 Ice cards in the Break Zone from the game}
  *       → {@code RemoveFromGameCost("BREAK_ZONE", 3, null, "Ice", null, null)}</li>
  * </ul>
