@@ -760,6 +760,7 @@ public record CardData(
             boolean hasBlockingTarget = HAS_BLOCKING_TARGET_EFFECT_PATTERN.matcher(effectRaw).find();
             boolean sourceInBattle    = SOURCE_IN_BATTLE_PATTERN.matcher(effectRaw).find();
             boolean requiresOppDiscardedThisTurn = OPP_DISCARD_THIS_TURN_PATTERN.matcher(effectRaw).find();
+            boolean requiresCastSummonThisTurn   = CAST_SUMMON_THIS_TURN_PATTERN.matcher(effectRaw).find();
             ControlCondition controlCondition = null;
             if (!whileCardInHand) {
                 Matcher ctrlM = CONTROL_IF_PATTERN.matcher(effectRaw);
@@ -769,7 +770,7 @@ public record CardData(
             String cpBackupElement = cpBkpM.find()
                     ? (cpBkpM.group("element") != null ? cpBkpM.group("element") : "")
                     : null;
-            result.add(new ActionAbility(abilityName, requiresDull, isSpecial, crystalCost, selfMillCost, hasXCost, cpCost, breakZoneCosts, discardCosts, removeFromGameCosts, returnToHandCosts, counterCosts, dullForwardCosts, yourTurnOnly, oncePerTurn, mainPhaseOnly, whileCardAtk, whileCardBlk, whilePartyAtk, whileCardInHand, hasBlockingTarget, effectRaw, damageThreshold, controlCondition, cpBackupElement, sourceInBattle, requiresOppDiscardedThisTurn));
+            result.add(new ActionAbility(abilityName, requiresDull, isSpecial, crystalCost, selfMillCost, hasXCost, cpCost, breakZoneCosts, discardCosts, removeFromGameCosts, returnToHandCosts, counterCosts, dullForwardCosts, yourTurnOnly, oncePerTurn, mainPhaseOnly, whileCardAtk, whileCardBlk, whilePartyAtk, whileCardInHand, hasBlockingTarget, effectRaw, damageThreshold, controlCondition, cpBackupElement, sourceInBattle, requiresOppDiscardedThisTurn, requiresCastSummonThisTurn));
         }
         return List.copyOf(result);
     }
@@ -860,6 +861,11 @@ public record CardData(
     /** "You can only use this ability if your opponent has discarded a card from their hand due to your Summons or abilities this turn." */
     static final Pattern OPP_DISCARD_THIS_TURN_PATTERN = Pattern.compile(
         "(?i)You\\s+can\\s+only\\s+use\\s+this\\s+ability\\s+if\\s+your\\s+opponent\\s+has\\s+discarded\\s+a\\s+card\\s+from\\s+their\\s+hand\\s+due\\s+to\\s+your\\s+Summons\\s+or\\s+abilities\\s+this\\s+turn[.!]?"
+    );
+
+    /** "You can only use this ability if you have cast a Summon this turn." */
+    static final Pattern CAST_SUMMON_THIS_TURN_PATTERN = Pattern.compile(
+        "(?i)You\\s+can\\s+only\\s+use\\s+this\\s+ability\\s+if\\s+you\\s+have\\s+cast\\s+a\\s+Summon\\s+this\\s+turn[.!]?"
     );
 
     /** Captures the raw condition text from "You can only use this ability if you control [X]". */

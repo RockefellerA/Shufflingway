@@ -1014,6 +1014,12 @@ public interface GameContext {
     void makeMonsterTemporaryForward(CardData source, int power);
 
     /**
+     * Queues an end-of-turn break for {@code source} on the ability user's field.
+     * Searches Forwards then Monsters; no-op if the card is no longer on the field at end of turn.
+     */
+    void breakSourceAtEndOfTurn(CardData source);
+
+    /**
      * Shows a modal dialog listing every distinct Job name in the card database and returns
      * the one the player selected, or {@code null} if the dialog was cancelled.
      */

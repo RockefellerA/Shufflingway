@@ -6748,7 +6748,8 @@ public class MainWindow {
 		if (ability.whilePartyAttacking())          { if (!firstRestrict) restrict.append(", "); restrict.append("while party atk"); firstRestrict = false; }
 		else if (ability.whileCardAttacking() != null) { if (!firstRestrict) restrict.append(", "); restrict.append("while ").append(ability.whileCardAttacking()).append(" atk"); firstRestrict = false; }
 		if (ability.whileCardBlocking() != null)          { if (!firstRestrict) restrict.append(", "); restrict.append("while ").append(ability.whileCardBlocking()).append(" blk"); firstRestrict = false; }
-		if (ability.requiresOppDiscardedThisTurn())       { if (!firstRestrict) restrict.append(", "); restrict.append("opp discarded"); firstRestrict = false; }
+		if (ability.requiresOppDiscardedThisTurn())       { if (!firstRestrict) restrict.append(", "); restrict.append("opp discarded");    firstRestrict = false; }
+		if (ability.requiresCastSummonThisTurn())         { if (!firstRestrict) restrict.append(", "); restrict.append("cast summon");       firstRestrict = false; }
 		if (restrict.length() > 0) sb.append(restrict).append(" — ");
 
 		String fx = ability.effectText();
@@ -6958,6 +6959,9 @@ public class MainWindow {
 		if (ability.requiresOppDiscardedThisTurn()) {
 			boolean caused = isP1 ? p1CausedOpponentDiscardThisTurn : p2CausedOpponentDiscardThisTurn;
 			if (!caused) return false;
+		}
+		if (ability.requiresCastSummonThisTurn()) {
+			if (!(isP1 ? p1SummonCastThisTurn : p2SummonCastThisTurn)) return false;
 		}
 		if (ability.controlCondition() != null && !controlConditionMet(ability.controlCondition(), isP1)) return false;
 		if (ability.crystalCost() > 0 && playerCrystals(isP1) < ability.crystalCost()) return false;
@@ -11216,6 +11220,21 @@ public class MainWindow {
 					});
 					refreshP2MonsterSlot(idx);
 				}
+			}
+
+			@Override public void breakSourceAtEndOfTurn(CardData source) {
+				addEndOfTurnEffect(ctx -> {
+					java.util.List<CardData> fwds = isP1 ? p1ForwardCards : p2ForwardCards;
+					for (int fi = 0; fi < fwds.size(); fi++) {
+						if (fwds.get(fi) == source) {
+							ctx.breakTarget(new ForwardTarget(isP1, fi, ForwardTarget.CardZone.FORWARD));
+							return;
+						}
+					}
+					java.util.List<CardData> mons = isP1 ? p1MonsterCards : p2MonsterCards;
+					int mi = mons.indexOf(source);
+					if (mi >= 0) ctx.breakTarget(new ForwardTarget(isP1, mi, ForwardTarget.CardZone.MONSTER));
+				});
 			}
 
 			@Override public String selectJobFromDatabase() {

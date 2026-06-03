@@ -460,6 +460,11 @@ public class ActionResolver {
         "(?i)At\\s+the\\s+end\\s+of\\s+this\\s+turn,\\s+(?<rest>.+)"
     );
 
+    /** Matches "At the end of the turn, break [CardName]." — a self-break rider on "becomes a Forward" abilities. */
+    private static final Pattern AT_END_OF_TURN_BREAK_SOURCE = Pattern.compile(
+        "(?i)At\\s+the\\s+end\\s+of\\s+(?:the|this)\\s+turn,\\s+break\\s+.+?[.!]?"
+    );
+
     /**
      * Matches "At the end of each of your turns, &lt;inner&gt;" — a recurring end-of-turn
      * field-ability trigger.
@@ -1365,6 +1370,44 @@ public class ActionResolver {
     );
 
     /**
+     * Matches "Until end of turn, all [the] [element] [Category X] [targets] [you control]
+     * gain +N power [and Keywords]."
+     * Groups: {@code element}, {@code category}, {@code targets}, {@code cost}, {@code costcmp},
+     * {@code control}, {@code amount}, {@code keywords}.
+     */
+    private static final Pattern UNTIL_EOT_ALL_FIELD_POWER_BOOST_PATTERN = Pattern.compile(
+        "(?i)Until\\s+(?:the\\s+)?end\\s+of\\s+(?:the\\s+)?turn,?\\s+" +
+        "all\\s+(?:the\\s+)?" +
+        "(?:(?<element>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)\\s+)?" +
+        "(?:Category\\s+(?<category>\\S+)\\s+)?" +
+        "(?<targets>Forwards?(?:\\s+and\\s+Monsters?)?|Backups?|Characters?)" +
+        "(?:\\s+of\\s+cost\\s+(?<cost>\\d+)(?:\\s+or\\s+(?<costcmp>less|more))?)?" +
+        "(?:\\s+(?<control>(?:your\\s+)?opponent\\s+controls?|you\\s+control))?" +
+        "\\s+gains?\\s+\\+?(?<amount>\\d+)\\s+[Pp]ower" +
+        "(?:\\s+and\\s+(?<keywords>(?:(?:Haste|First\\s+Strike|Brave)(?:,?\\s+(?:and\\s+)?)?)+))?[.!]?"
+    );
+
+    /**
+     * Matches "Until end of turn, all [the] [targets1] [you control] gain +N power
+     * and all [the] [targets2] [opponent controls] lose N power."
+     * Groups: {@code targets1}, {@code control1}, {@code amount1},
+     *         {@code targets2}, {@code control2}, {@code amount2}.
+     */
+    private static final Pattern UNTIL_EOT_DUAL_POWER_SHIFT_PATTERN = Pattern.compile(
+        "(?i)Until\\s+(?:the\\s+)?end\\s+of\\s+(?:the\\s+)?turn,?\\s+" +
+        "all\\s+(?:the\\s+)?" +
+        "(?:(?<element1>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)\\s+)?" +
+        "(?<targets1>Forwards?(?:\\s+and\\s+Monsters?)?|Backups?|Characters?)" +
+        "(?:\\s+(?<control1>(?:your\\s+)?opponent\\s+controls?|you\\s+control))?" +
+        "\\s+gains?\\s+\\+?(?<amount1>\\d+)\\s+[Pp]ower" +
+        "\\s+and\\s+all\\s+(?:the\\s+)?" +
+        "(?:(?<element2>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)\\s+)?" +
+        "(?<targets2>Forwards?(?:\\s+and\\s+Monsters?)?|Backups?|Characters?)" +
+        "(?:\\s+(?<control2>(?:your\\s+)?opponent\\s+controls?|you\\s+control))?" +
+        "\\s+loses?\\s+\\+?(?<amount2>\\d+)\\s+[Pp]ower[.!]?"
+    );
+
+    /**
      * Matches "Draw N card(s)[, then discard M card(s)]".
      * <ul>
      *   <li>Group 1 — number of cards to draw</li>
@@ -1830,6 +1873,12 @@ public class ActionResolver {
         result = tryParseAllFieldKeywordGrant(effectText);
         if (result != null) return result;
 
+        result = tryParseUntilEotDualPowerShift(effectText);
+        if (result != null) return result;
+
+        result = tryParseUntilEotAllFieldPowerBoost(effectText);
+        if (result != null) return result;
+
         result = tryParseReturnAllToHand(effectText);
         if (result != null) return result;
 
@@ -2165,6 +2214,7 @@ public class ActionResolver {
         if (FOLLOWUP_DULL_AND_FREEZE.matcher(followupText).find())                    return "DullAndFreeze";
         if (FOLLOWUP_FREEZE.matcher(followupText).find())                             return "Freeze";
         if (FOLLOWUP_BREAK.matcher(followupText).find())                              return "Break";
+        if (FOLLOWUP_REMOVE_FROM_GAME_AND_NAMED.matcher(followupText).find())          return "RemoveFromGameAndNamed";
         if (FOLLOWUP_REMOVE_FROM_GAME.matcher(followupText).find())                   return "RemoveFromGame";
         if (FOLLOWUP_PLAY_ONTO_FIELD.matcher(followupText).find())                    return "PlayOntoField";
         if (FOLLOWUP_ADD_TO_HAND.matcher(followupText).find())                        return "AddToHand";
@@ -2244,7 +2294,9 @@ public class ActionResolver {
                 return "ChooseCharacter / SelectJobGrant";
             int    dotIdx        = followup.indexOf(". ");
             String primaryPart   = dotIdx >= 0 ? followup.substring(0, dotIdx).trim() : followup;
-            String secondaryTxt  = dotIdx >= 0 ? followup.substring(dotIdx + 2).trim() : null;
+            String secondaryRaw  = dotIdx >= 0 ? followup.substring(dotIdx + 2).trim() : null;
+            String secondaryTxt  = secondaryRaw != null ? stripRestrictionSentences(secondaryRaw) : null;
+            if (secondaryTxt != null && secondaryTxt.isEmpty()) secondaryTxt = null;
             String followupName  = matchedFollowupName(primaryPart, source);
             String secondaryDesc = (secondaryTxt != null && !secondaryTxt.isEmpty())
                     ? fullDescription(secondaryTxt, source) : null;
@@ -2263,6 +2315,8 @@ public class ActionResolver {
         if (tryParseAllFieldEffect(effectText) != null)                     return "AllFieldEffect";
         if (tryParseAllFieldPowerBoost(effectText) != null)                 return "AllFieldPowerBoost";
         if (tryParseAllFieldKeywordGrant(effectText) != null)               return "AllFieldKeywordGrant";
+        if (tryParseUntilEotDualPowerShift(effectText) != null)            return "UntilEotDualPowerShift";
+        if (tryParseUntilEotAllFieldPowerBoost(effectText) != null)        return "UntilEotAllFieldPowerBoost";
         if (tryParseStandalonePowerBoostAndAttackTrigger(effectText, source) != null) return "StandalonePowerBoostAndAttackTrigger";
         if (tryParseStandalonePowerBoostUntil(effectText, source) != null)  return "StandalonePowerBoostUntil";
         if (tryParseStandaloneDoublePowerUntil(effectText, source) != null) return "StandaloneDoublePowerUntil";
@@ -2324,6 +2378,7 @@ public class ActionResolver {
         if (tryParseRemoveTopOfDeckFromGame(effectText)            != null) return "RemoveTopOfDeckFromGame";
         if (tryParseShuffleDeck(effectText)                        != null) return "ShuffleDeck";
         if (tryParseBackupCpDraw(effectText)                       != null) return "BackupCpDraw";
+        if (tryParseBecomeForwardUntilEot(effectText, source)      != null) return "BecomeForwardUntilEot";
         if (tryParseConditionalOpponentHand(effectText, source, 0) != null) return "ConditionalOpponentHand";
         if (SELECT_FOLLOWING_ACTIONS_DETECT.matcher(effectText).find())    return "SelectFollowingActions";
         if (CardData.HAS_ALL_ELEMENTS_PATTERN.matcher(effectText.trim()).matches()) return "HasAllElements";
@@ -2958,10 +3013,15 @@ public class ActionResolver {
             int dotSpaceIdx = followup.indexOf(". ");
             if (dotSpaceIdx >= 0) {
                 primaryFollowup = followup.substring(0, dotSpaceIdx).trim();
-                secondaryText   = followup.substring(dotSpaceIdx + 2).trim();
-                Consumer<GameContext> parsed = secondaryText.isEmpty() ? null : parse(secondaryText, source);
-                secondary = (parsed != null) ? parsed
-                        : ctx -> ctx.logEntry("[ActionResolver] Secondary followup not yet implemented: " + secondaryText);
+                String stripped = stripRestrictionSentences(followup.substring(dotSpaceIdx + 2).trim());
+                secondaryText = stripped.isEmpty() ? null : stripped;
+                if (secondaryText == null) {
+                    secondary = null;
+                } else {
+                    Consumer<GameContext> parsed = parse(secondaryText, source);
+                    secondary = (parsed != null) ? parsed
+                            : ctx -> ctx.logEntry("[ActionResolver] Secondary followup not yet implemented: " + secondaryText);
+                }
             } else {
                 primaryFollowup = followup;
                 secondaryText   = null;
@@ -4197,6 +4257,31 @@ public class ActionResolver {
     }
 
     /** Returns a human-readable list of trait names, e.g. {@code "First Strike and Brave"}, or {@code ""}. */
+    /**
+     * Removes any trailing/embedded restriction-only sentences already captured as boolean flags
+     * (once-per-turn, main-phase-only, your-turn-only, while-attacking, etc.) from {@code text},
+     * then strips leftover leading/trailing punctuation.  Returns an empty string if nothing
+     * remains after stripping.
+     */
+    private static String stripRestrictionSentences(String text) {
+        if (text == null || text.isBlank()) return "";
+        String s = text;
+        s = CardData.ONCE_PER_TURN_PATTERN      .matcher(s).replaceAll("").trim();
+        s = CardData.MAIN_PHASE_ONLY_PATTERN     .matcher(s).replaceAll("").trim();
+        s = CardData.YOUR_TURN_ONLY_PATTERN      .matcher(s).replaceAll("").trim();
+        s = CardData.WHILE_PARTY_ATTACKING_PATTERN.matcher(s).replaceAll("").trim();
+        s = CardData.WHILE_CARD_ATTACKING_PATTERN .matcher(s).replaceAll("").trim();
+        s = CardData.WHILE_CARD_BLOCKING_PATTERN  .matcher(s).replaceAll("").trim();
+        s = CardData.WHILE_CARD_IN_HAND_PATTERN   .matcher(s).replaceAll("").trim();
+        s = CardData.SOURCE_IN_BATTLE_PATTERN     .matcher(s).replaceAll("").trim();
+        s = CardData.OPP_DISCARD_THIS_TURN_PATTERN .matcher(s).replaceAll("").trim();
+        s = CardData.CAST_SUMMON_THIS_TURN_PATTERN .matcher(s).replaceAll("").trim();
+        s = CardData.CONTROL_IF_PATTERN            .matcher(s).replaceAll("").trim();
+        // Strip leftover leading/trailing ", and" / "," / "." artifacts
+        s = s.replaceAll("^[,.;\\s]+|[,.;\\s]+$", "").trim();
+        return s;
+    }
+
     private static String traitNamesOnly(EnumSet<CardData.Trait> traits) {
         List<String> names = new ArrayList<>();
         if (traits.contains(CardData.Trait.HASTE))        names.add("Haste");
@@ -4970,6 +5055,96 @@ public class ActionResolver {
             ctx.logEntry("Effect: " + logMsg);
             ctx.applyMassFieldKeywordGrant(traits, inclForwards, inclMonsters,
                     opponentOnly, selfOnly, element, costVal, costCmp, category);
+        };
+    }
+
+    /**
+     * Parses "Until end of turn, all [the] [element] [Category X] [targets] [you control]
+     * gain +N power [and Keywords]."
+     * Must be tried AFTER {@link #tryParseUntilEotDualPowerShift} to avoid partial matches.
+     */
+    private static Consumer<GameContext> tryParseUntilEotAllFieldPowerBoost(String text) {
+        if (UNTIL_EOT_DUAL_POWER_SHIFT_PATTERN.matcher(text).find()) return null;
+
+        Matcher m = UNTIL_EOT_ALL_FIELD_POWER_BOOST_PATTERN.matcher(text);
+        if (!m.find()) return null;
+
+        String element  = m.group("element");
+        String category = m.group("category");
+        String targets  = m.group("targets");
+        String tgtLower = targets.toLowerCase();
+        boolean inclForwards = tgtLower.contains("forward") || tgtLower.contains("character");
+        boolean inclMonsters = tgtLower.contains("monster") || tgtLower.contains("character");
+
+        String costStr = m.group("cost");
+        String costCmp = m.group("costcmp");
+        int    costVal = costStr != null ? Integer.parseInt(costStr) : -1;
+
+        String control       = m.group("control");
+        boolean opponentOnly = control != null && !control.toLowerCase().contains("you control");
+        boolean selfOnly     = control != null && control.toLowerCase().contains("you control");
+
+        int amount = Integer.parseInt(m.group("amount"));
+
+        String keywordsStr = m.group("keywords");
+        EnumSet<CardData.Trait> traits = keywordsStr != null
+                ? parseTraits(keywordsStr) : EnumSet.noneOf(CardData.Trait.class);
+
+        String elemLabel    = element != null ? element + " " : "";
+        String catLabel     = category != null ? "Category " + category + " " : "";
+        String costLabel    = costVal >= 0 ? " of cost " + costVal + (costCmp != null ? " or " + costCmp : "") : "";
+        String controlLabel = opponentOnly ? " (opponent)" : selfOnly ? " (yours)" : "";
+        String traitStr     = traits.isEmpty() ? "" : " and " + traitNamesOnly(traits);
+        String logMsg = "Until EOT all " + elemLabel + catLabel + targets + costLabel
+                + controlLabel + " +" + amount + " power" + traitStr;
+
+        return ctx -> {
+            ctx.logEntry("Effect: " + logMsg);
+            ctx.applyMassFieldPowerBoost(amount, inclForwards, inclMonsters,
+                    opponentOnly, selfOnly, element, costVal, costCmp, category);
+            if (!traits.isEmpty())
+                ctx.applyMassFieldKeywordGrant(traits, inclForwards, inclMonsters,
+                        opponentOnly, selfOnly, element, costVal, costCmp, category);
+        };
+    }
+
+    /**
+     * Parses "Until end of turn, all [the] [targets] [you control] gain +N power
+     * and all [the] [targets] [opponent controls] lose N power."
+     */
+    private static Consumer<GameContext> tryParseUntilEotDualPowerShift(String text) {
+        Matcher m = UNTIL_EOT_DUAL_POWER_SHIFT_PATTERN.matcher(text);
+        if (!m.find()) return null;
+
+        String targets1  = m.group("targets1");
+        String tgt1Lower = targets1.toLowerCase();
+        boolean inclFwd1 = tgt1Lower.contains("forward") || tgt1Lower.contains("character");
+        boolean inclMon1 = tgt1Lower.contains("monster") || tgt1Lower.contains("character");
+
+        String control1  = m.group("control1");
+        boolean opp1     = control1 != null && !control1.toLowerCase().contains("you control");
+        boolean self1    = control1 != null && control1.toLowerCase().contains("you control");
+        int amount1      = Integer.parseInt(m.group("amount1"));
+
+        String targets2  = m.group("targets2");
+        String tgt2Lower = targets2.toLowerCase();
+        boolean inclFwd2 = tgt2Lower.contains("forward") || tgt2Lower.contains("character");
+        boolean inclMon2 = tgt2Lower.contains("monster") || tgt2Lower.contains("character");
+
+        String control2  = m.group("control2");
+        boolean opp2     = control2 != null && !control2.toLowerCase().contains("you control");
+        boolean self2    = control2 != null && control2.toLowerCase().contains("you control");
+        int amount2      = Integer.parseInt(m.group("amount2"));
+
+        String ctrl1Label = opp1 ? " (opponent)" : self1 ? " (yours)" : "";
+        String ctrl2Label = opp2 ? " (opponent)" : self2 ? " (yours)" : "";
+        String logMsg = "Until EOT all " + targets1 + ctrl1Label + " +" + amount1
+                + " power, all " + targets2 + ctrl2Label + " -" + amount2 + " power";
+
+        return ctx -> {
+            ctx.logEntry("Effect: " + logMsg);
+            ctx.applyMassFieldPowerBoost( amount1, inclFwd1, inclMon1, opp1, self1, null, -1, null, null);
+            ctx.applyMassFieldPowerBoost(-amount2, inclFwd2, inclMon2, opp2, self2, null, -1, null, null);
         };
     }
 
@@ -5822,9 +5997,11 @@ public class ActionResolver {
         Matcher m = BECOME_FORWARD_UNTIL_EOT_PATTERN.matcher(text);
         if (!m.find()) return null;
         int power = Integer.parseInt(m.group("power"));
+        boolean breakAtEot = AT_END_OF_TURN_BREAK_SOURCE.matcher(text).find();
         return ctx -> {
             ctx.logEntry(source.name() + " becomes a Forward with " + power + " power until end of turn");
             ctx.makeMonsterTemporaryForward(source, power);
+            if (breakAtEot) ctx.breakSourceAtEndOfTurn(source);
         };
     }
 
