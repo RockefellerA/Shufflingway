@@ -338,6 +338,7 @@ public class MainWindow {
 	private final Set<CardData>          nullifyAbilityOnlyDmgSet = new HashSet<>();
 	private final Set<CardData>          nextOutgoingDmgZeroSet      = new HashSet<>();
 	private final Map<CardData, Integer> outgoingDmgMultiplierMap    = new IdentityHashMap<>();
+	private final Map<CardData, Integer> outgoingDmgFlatBoostMap     = new IdentityHashMap<>();
 	private final Set<CardData>          nextOutgoingDmgDoublerSet   = new HashSet<>();
 	private final Map<CardData, Integer> perCardIncomingDmgMultiplierMap = new IdentityHashMap<>();
 	private int p1ForwardIncomingDmgMult = 1; // multiplier applied when any P1 Forward receives damage
@@ -1618,7 +1619,8 @@ public class MainWindow {
                             incomingDmgIncreaseMap.clear();   nullifyAbilityDmgSet.clear();
                             nullifyAbilityOnlyDmgSet.clear(); perCardNonLethalDmgSet.clear();
                             nextOutgoingDmgZeroSet.clear();    outgoingDmgMultiplierMap.clear();
-                            nextOutgoingDmgDoublerSet.clear(); perCardIncomingDmgMultiplierMap.clear();
+                            nextOutgoingDmgDoublerSet.clear(); outgoingDmgFlatBoostMap.clear();
+                            perCardIncomingDmgMultiplierMap.clear();
                             p1ForwardIncomingDmgMult = 1;      p2ForwardIncomingDmgMult = 1;
                             p1AbilityOutgoingDmgMult = 1;      p2AbilityOutgoingDmgMult = 1;
                             cannotBeChosenBySummons.clear();  cannotBeChosenByAbilities.clear();
@@ -9025,6 +9027,14 @@ public class MainWindow {
 				logEntry(source.name() + " — outgoing damage ×" + (cur * 2) + " until end of turn");
 			}
 
+			@Override public void boostForwardOutgoingDamageThisTurn(ForwardTarget t, int amount) {
+				List<CardData> fwds = t.isP1() ? p1ForwardCards : p2ForwardCards;
+				if (t.idx() >= fwds.size()) return;
+				CardData card = fwds.get(t.idx());
+				outgoingDmgFlatBoostMap.merge(card, amount, Integer::sum);
+				logEntry(card.name() + " — outgoing combat damage +" + amount + " vs Forwards until end of turn");
+			}
+
 			@Override public void doubleOpponentForwardIncomingDamage() {
 				if (isP1) {
 					p2ForwardIncomingDmgMult *= 2;
@@ -9145,6 +9155,16 @@ public class MainWindow {
 				if (c == null) return;
 				cannotBeBrokenByNonDmgSet.add(c);
 				logEntry((t.isP1() ? "" : "[P2] ") + c.name() + " cannot be broken by opposing non-damage Summons or abilities until end of turn");
+			}
+
+			@Override public void dullSourceForward(CardData source) {
+				List<CardData> fwds = isP1 ? p1ForwardCards : p2ForwardCards;
+				for (int i = 0; i < fwds.size(); i++) {
+					if (fwds.get(i).name().equalsIgnoreCase(source.name())) {
+						dullTarget(new ForwardTarget(isP1, i, ForwardTarget.CardZone.FORWARD));
+						return;
+					}
+				}
 			}
 
 			@Override public void shieldSourceForward(CardData source) {
@@ -11420,7 +11440,8 @@ public class MainWindow {
 		int mult = outgoingDmgMultiplierMap.getOrDefault(card, 1);
 		if (nextOutgoingDmgDoublerSet.remove(card)) mult *= 2;
 		if (target != null) mult *= fieldAbilityCombatOutgoingMult(card, target);
-		return rawAmount * mult;
+		int flat = (target != null) ? outgoingDmgFlatBoostMap.getOrDefault(card, 0) : 0;
+		return rawAmount * mult + flat;
 	}
 
 	private int fieldAbilityCombatOutgoingMult(CardData attacker, CardData target) {
@@ -14651,7 +14672,8 @@ public class MainWindow {
 			incomingDmgIncreaseMap.clear();   nullifyAbilityDmgSet.clear();
 			nullifyAbilityOnlyDmgSet.clear(); perCardNonLethalDmgSet.clear();
 			nextOutgoingDmgZeroSet.clear();    outgoingDmgMultiplierMap.clear();
-			nextOutgoingDmgDoublerSet.clear(); perCardIncomingDmgMultiplierMap.clear();
+			nextOutgoingDmgDoublerSet.clear(); outgoingDmgFlatBoostMap.clear();
+			perCardIncomingDmgMultiplierMap.clear();
 			p1ForwardIncomingDmgMult = 1;      p2ForwardIncomingDmgMult = 1;
 			p1AbilityOutgoingDmgMult = 1;      p2AbilityOutgoingDmgMult = 1;
 			p1NonLethalProtection = false;    p2NonLethalProtection = false;

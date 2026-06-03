@@ -421,6 +421,9 @@ public interface GameContext {
      */
     void shieldCannotBeBrokenByNonDmg(ForwardTarget t);
 
+    /** Finds {@code source} on the field by name and dulls it. No-op if not found. */
+    void dullSourceForward(CardData source);
+
     /** Registers that the named source card (found on own field) cannot be broken this turn. */
     void shieldSourceForward(CardData source);
 
@@ -1018,6 +1021,12 @@ public interface GameContext {
      * Searches Forwards then Monsters; no-op if the card is no longer on the field at end of turn.
      */
     void breakSourceAtEndOfTurn(CardData source);
+
+    /**
+     * Grants the Forward at {@code t} a flat +{@code amount} bonus to outgoing combat damage
+     * against Forwards for the rest of this turn.
+     */
+    void boostForwardOutgoingDamageThisTurn(ForwardTarget t, int amount);
 
     /**
      * Shows a modal dialog listing every distinct Job name in the card database and returns

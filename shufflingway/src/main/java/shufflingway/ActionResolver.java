@@ -503,6 +503,12 @@ public class ActionResolver {
         "(?i)During\\s+this\\s+turn,\\s+the\\s+next\\s+damage\\s+it\\s+deals\\s+to\\s+a\\s+Forward\\s+becomes\\s+0\\s+instead\\.?"
     );
 
+    /** Matches "If it deals damage to a Forward this turn, the damage increases by N instead." */
+    private static final Pattern FOLLOWUP_OUTGOING_DMG_BOOST_THIS_TURN = Pattern.compile(
+        "(?i)If\\s+it\\s+deals\\s+damage\\s+to\\s+a\\s+Forward\\s+this\\s+turn,?\\s+" +
+        "the\\s+damage\\s+increases?\\s+by\\s+(?<amount>\\d+)(?:\\s+instead)?[.!]?"
+    );
+
     /** Matches "During this turn, if it is dealt damage less than its power, the damage becomes 0 instead." */
     private static final Pattern FOLLOWUP_SHIELD_NONLETHAL = Pattern.compile(
         "(?i)During\\s+this\\s+turn,\\s+if\\s+it\\s+is\\s+dealt\\s+damage\\s+less\\s+than\\s+its\\s+power,\\s+the\\s+damage\\s+becomes\\s+0\\s+instead\\.?"
@@ -617,6 +623,16 @@ public class ActionResolver {
     /** Standalone: "[CardName] gains '[...] cannot be broken.' until end of turn." */
     private static final Pattern STANDALONE_SELF_SHIELD_CANNOT_BE_BROKEN = Pattern.compile(
         "(?i)(?<subject>.+?)\\s+gains?\\s+['\"][^'\"]*?cannot\\s+be\\s+broken\\.?['\"]" +
+        "\\s+until\\s+(?:the\\s+)?end\\s+of\\s+(?:the\\s+)?turn\\.?"
+    );
+
+    /**
+     * Compound: "Dull [CardName]. [CardName] gains '[...] cannot be broken.' until end of turn."
+     * Must be tried before the plain {@link #STANDALONE_SELF_SHIELD_CANNOT_BE_BROKEN} matcher so
+     * the dull step is not silently dropped.
+     */
+    private static final Pattern STANDALONE_SELF_DULL_AND_SHIELD_CANNOT_BE_BROKEN = Pattern.compile(
+        "(?i)Dull\\s+(?<subject>.+?)\\.\\s+.+?\\s+gains?\\s+['\"][^'\"]*?cannot\\s+be\\s+broken\\.?['\"]" +
         "\\s+until\\s+(?:the\\s+)?end\\s+of\\s+(?:the\\s+)?turn\\.?"
     );
 
@@ -1943,6 +1959,9 @@ public class ActionResolver {
         result = tryParseStandaloneSelfBoost(effectText, source);
         if (result != null) return result;
 
+        result = tryParseStandaloneSelfDullAndShield(effectText, source);
+        if (result != null) return result;
+
         result = tryParseStandaloneShieldCannotBeBroken(effectText, source);
         if (result != null) return result;
 
@@ -2154,6 +2173,7 @@ public class ActionResolver {
         if (tryParseDoublePlayerAbilityOutgoingThisTurn(effectText) != null)   return "DoublePlayerAbilityOutgoingThisTurn";
         if (tryParseStandaloneSelfBoostForEachCrystal(effectText, source) != null) return "StandaloneSelfBoostForEachCrystal";
         if (tryParseStandaloneSelfBoost(effectText, source)   != null) return "StandaloneSelfBoost";
+        if (tryParseStandaloneSelfDullAndShield(effectText, source) != null) return "StandaloneSelfDullAndShield";
         if (tryParseStandaloneShieldCannotBeBroken(effectText, source) != null) return "StandaloneShieldCannotBeBroken";
         if (tryParseStandaloneCannotBeBlocked(effectText, source) != null) return "StandaloneCannotBeBlocked";
         if (tryParseRevealSelectHandRfp(effectText)            != null) return "RevealSelectHandRfp";
@@ -2270,6 +2290,7 @@ public class ActionResolver {
         if (FOLLOWUP_SHIELD_NEXT_DMG_REDUCTION.matcher(followupText).find())          return "ShieldNextDmgReduction";
         if (FOLLOWUP_DEBUFF_INCOMING_DMG_INCREASE.matcher(followupText).find())       return "DebuffIncomingDmgIncrease";
         if (FOLLOWUP_SHIELD_NEXT_OUTGOING_ZERO.matcher(followupText).find())          return "ShieldNextOutgoingZero";
+        if (FOLLOWUP_OUTGOING_DMG_BOOST_THIS_TURN.matcher(followupText).find())       return "OutgoingDmgBoostThisTurn";
         if (FOLLOWUP_SHIELD_NONLETHAL.matcher(followupText).find())                   return "ShieldNonLethal";
         if (FOLLOWUP_GAINS_SHIELD_ABILITY_ONLY.matcher(followupText).find())          return "GainsShieldAbilityOnly";
         if (FOLLOWUP_PUT_TO_BREAK_ZONE.matcher(followupText).find())                  return "PutToBreakZone";
@@ -2349,6 +2370,7 @@ public class ActionResolver {
         if (tryParseDoublePlayerAbilityOutgoingThisTurn(effectText) != null)   return "DoublePlayerAbilityOutgoingThisTurn";
         if (tryParseStandaloneSelfBoostForEachCrystal(effectText, source) != null) return "StandaloneSelfBoostForEachCrystal";
         if (tryParseStandaloneSelfBoost(effectText, source) != null)        return "StandaloneSelfBoost";
+        if (tryParseStandaloneSelfDullAndShield(effectText, source) != null) return "StandaloneSelfDullAndShield";
         if (tryParseStandaloneShieldCannotBeBroken(effectText, source) != null) return "StandaloneShieldCannotBeBroken";
         if (tryParseStandaloneCannotBeBlocked(effectText, source) != null) return "StandaloneCannotBeBlocked";
         if (tryParseRevealSelectHandRfp(effectText) != null)               return "RevealSelectHandRfp";
@@ -4290,6 +4312,20 @@ public class ActionResolver {
             };
         }
 
+        // --- "If it deals damage to a Forward this turn, the damage increases by N instead." ---
+        Matcher outBoostM = FOLLOWUP_OUTGOING_DMG_BOOST_THIS_TURN.matcher(primaryFollowup);
+        if (outBoostM.find()) {
+            int amount = Integer.parseInt(outBoostM.group("amount"));
+            return ctx -> {
+                ctx.logEntry(choosePrefix + " — Outgoing damage +" + amount + " to Forwards this turn");
+                List<ForwardTarget> ts = selectTargets(ctx, maxCount, upTo,
+                        opponentOnly, selfOnly, condition, element, zone, opponentZone,
+                        costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters, jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, fExcludeElem, withoutMulticard);
+                ts.forEach(t -> ctx.boostForwardOutgoingDamageThisTurn(t, amount));
+                if (secondary != null) secondary.accept(ctx);
+            };
+        }
+
         // Recognised "Choose" header but followup not yet implemented
         Consumer<GameContext> warnEffect = ctx -> ctx.logEntry(
                 "[ActionResolver] Choose effect — followup not yet implemented: " + followup);
@@ -4628,6 +4664,24 @@ public class ActionResolver {
             int boost = perCrystal * n;
             ctx.logEntry(source.name() + " gains +" + boost + " power (" + perCrystal + "×" + n + " 《C》) until end of turn");
             ctx.boostSourceForward(source, boost, EnumSet.noneOf(CardData.Trait.class));
+        };
+    }
+
+    /**
+     * Parses "Dull [CardName]. [CardName] gains '[...] cannot be broken.' until end of turn."
+     * Dulls the source then shields it. Must be tried before {@link #tryParseStandaloneShieldCannotBeBroken}
+     * so the dull step is not silently dropped.
+     */
+    private static Consumer<GameContext> tryParseStandaloneSelfDullAndShield(String text, CardData source) {
+        if (source == null) return null;
+        Matcher m = STANDALONE_SELF_DULL_AND_SHIELD_CANNOT_BE_BROKEN.matcher(text);
+        if (!m.find()) return null;
+        String subject = m.group("subject").trim();
+        if (!subject.equalsIgnoreCase(source.name())) return null;
+        return ctx -> {
+            ctx.logEntry(source.name() + " — Dull self and cannot be broken until end of turn");
+            ctx.dullSourceForward(source);
+            ctx.shieldSourceForward(source);
         };
     }
 
