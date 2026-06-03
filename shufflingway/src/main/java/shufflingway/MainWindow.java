@@ -4742,7 +4742,7 @@ public class MainWindow {
 			boolean handCanPlayAction = handIsMainPhase && phaseTracker.isMyTurn() && gameState.getStack().isEmpty();
 			boolean handIsCharacter = card.isForward() || card.isBackup() || card.isMonster();
 			boolean handNameConflict = handIsCharacter && !card.multicard() && hasCharacterNameOnField(card.name());
-			boolean handLightDarkConflict = handIsCharacter && card.isLightOrDark() && hasLightOrDarkOnField(true);
+			boolean handLightDarkConflict = handIsCharacter && isLightDarkConflict(card);
 			final boolean canPlay = handCanPlayAction && !handNameConflict && !handLightDarkConflict
 					&& canAffordCard(card, idx) && (!card.isBackup() || hasAvailableBackupSlot()) && castRestrictionMet(card);
 
@@ -4839,7 +4839,7 @@ public class MainWindow {
 		boolean canPlaySpecialAction = isMainPhase && phaseTracker.isMyTurn() && gameState.getStack().isEmpty();
 		boolean isCharacter = card.isForward() || card.isBackup() || card.isMonster();
 		boolean nameConflict = isCharacter && !card.multicard() && hasCharacterNameOnField(card.name());
-		boolean lightDarkConflict = isCharacter && card.isLightOrDark() && hasLightOrDarkOnField(true);
+		boolean lightDarkConflict = isCharacter && isLightDarkConflict(card);
 		playItem.setEnabled(canPlaySpecialAction && !nameConflict && !lightDarkConflict && canAffordCard(card, handIdx)
 				&& (!card.isBackup() || hasAvailableBackupSlot()) && castRestrictionMet(card));
 		playItem.addActionListener(ae -> {
@@ -5942,6 +5942,47 @@ public class MainWindow {
 			if (name.equalsIgnoreCase(c.name())) return true;
 		for (CardData c : p2BackupCards)
 			if (c != null && name.equalsIgnoreCase(c.name())) return true;
+		return false;
+	}
+
+	/**
+	 * Returns true if playing {@code card} would violate the Light/Dark field restriction,
+	 * accounting for self-exception and field-grant exceptions.
+	 *
+	 * <p>Same-element conflicts (e.g. Dark vs Dark) are suppressed when either the card
+	 * carries a self-exception or a card already on P1's field grants multi-play for that
+	 * element.  Cross-element conflicts (Dark vs Light) are never suppressed.
+	 */
+	private boolean isLightDarkConflict(CardData card) {
+		if (!card.isLightOrDark()) return false;
+		for (String elem : card.elements()) {
+			if (!"Light".equalsIgnoreCase(elem) && !"Dark".equalsIgnoreCase(elem)) continue;
+			String crossElem = "Dark".equalsIgnoreCase(elem) ? "Light" : "Dark";
+			// Cross-element always conflicts
+			if (hasSpecificElementOnField(crossElem)) return true;
+			// Same-element conflicts unless an exception is active
+			if (hasSpecificElementOnField(elem) && !isLightDarkExceptionActive(elem, card)) return true;
+		}
+		return false;
+	}
+
+	/** Returns true if P1's field contains at least one character with the given element. */
+	private boolean hasSpecificElementOnField(String element) {
+		for (CardData c : p1ForwardCards)
+			for (String e : c.elements()) if (element.equalsIgnoreCase(e)) return true;
+		for (CardData c : p1MonsterCards)
+			for (String e : c.elements()) if (element.equalsIgnoreCase(e)) return true;
+		for (CardData c : p1BackupCards)
+			if (c != null) for (String e : c.elements()) if (element.equalsIgnoreCase(e)) return true;
+		return false;
+	}
+
+	/** Returns true if a same-element multi-play exception is active for {@code element}. */
+	private boolean isLightDarkExceptionActive(String element, CardData cardBeingPlayed) {
+		if (element.equalsIgnoreCase(cardBeingPlayed.selfLightDarkPlayException())) return true;
+		for (CardData c : p1ForwardCards) if (element.equalsIgnoreCase(c.grantsMultiLightDarkPlay())) return true;
+		for (CardData c : p1MonsterCards) if (element.equalsIgnoreCase(c.grantsMultiLightDarkPlay())) return true;
+		for (CardData c : p1BackupCards)  if (c != null && element.equalsIgnoreCase(c.grantsMultiLightDarkPlay())) return true;
 		return false;
 	}
 

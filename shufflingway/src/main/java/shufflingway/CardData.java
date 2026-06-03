@@ -1765,6 +1765,22 @@ public record CardData(
     );
 
     /**
+     * Matches "[CardName] can be played onto the field even if you control other [Light|Dark] Characters."
+     * as a self-exception field ability. Groups: {@code name}, {@code element}.
+     */
+    private static final Pattern SELF_LIGHT_DARK_PLAY_EXCEPTION_PATTERN = Pattern.compile(
+        "(?i)^(?<name>.+?)\\s+can be played onto the field even if you control other (?<element>Light|Dark) Characters\\.?$"
+    );
+
+    /**
+     * Matches "You can play 2 or more [Light|Dark] Characters onto the field."
+     * as a field-wide multi-play grant ability. Group: {@code element}.
+     */
+    private static final Pattern MULTI_LIGHT_DARK_PLAY_PATTERN = Pattern.compile(
+        "(?i)^You can play 2 or more (?<element>Light|Dark) Characters onto the field\\.?$"
+    );
+
+    /**
      * Parses all Field Abilities from {@code textEn} by exclusion:
      * any {@code [[br]]}-delimited segment that is not a trait keyword, an Auto ability,
      * an Action ability, an alternate-cost declaration, or an ability restriction sentence
@@ -2243,6 +2259,32 @@ public record CardData(
                     .map(String::trim)
                     .filter(s -> !s.isEmpty())
                     .collect(java.util.stream.Collectors.toSet());
+        }
+        return null;
+    }
+
+    /**
+     * Returns the element ("Light" or "Dark") for which this card carries a self-exception
+     * ("X can be played onto the field even if you control other [Light|Dark] Characters"),
+     * or {@code null} if no such ability is present.
+     */
+    public String selfLightDarkPlayException() {
+        for (FieldAbility fa : fieldAbilities()) {
+            Matcher m = SELF_LIGHT_DARK_PLAY_EXCEPTION_PATTERN.matcher(fa.effectText());
+            if (m.matches() && m.group("name").equalsIgnoreCase(name())) return m.group("element");
+        }
+        return null;
+    }
+
+    /**
+     * Returns the element ("Light" or "Dark") this card grants as a multi-play exception
+     * ("You can play 2 or more [Light|Dark] Characters onto the field") while on the field,
+     * or {@code null} if no such ability is present.
+     */
+    public String grantsMultiLightDarkPlay() {
+        for (FieldAbility fa : fieldAbilities()) {
+            Matcher m = MULTI_LIGHT_DARK_PLAY_PATTERN.matcher(fa.effectText());
+            if (m.matches()) return m.group("element");
         }
         return null;
     }
