@@ -759,6 +759,7 @@ public record CardData(
             boolean whileCardInHand   = WHILE_CARD_IN_HAND_PATTERN.matcher(effectRaw).find();
             boolean hasBlockingTarget = HAS_BLOCKING_TARGET_EFFECT_PATTERN.matcher(effectRaw).find();
             boolean sourceInBattle    = SOURCE_IN_BATTLE_PATTERN.matcher(effectRaw).find();
+            boolean requiresOppDiscardedThisTurn = OPP_DISCARD_THIS_TURN_PATTERN.matcher(effectRaw).find();
             ControlCondition controlCondition = null;
             if (!whileCardInHand) {
                 Matcher ctrlM = CONTROL_IF_PATTERN.matcher(effectRaw);
@@ -768,7 +769,7 @@ public record CardData(
             String cpBackupElement = cpBkpM.find()
                     ? (cpBkpM.group("element") != null ? cpBkpM.group("element") : "")
                     : null;
-            result.add(new ActionAbility(abilityName, requiresDull, isSpecial, crystalCost, selfMillCost, hasXCost, cpCost, breakZoneCosts, discardCosts, removeFromGameCosts, returnToHandCosts, counterCosts, dullForwardCosts, yourTurnOnly, oncePerTurn, mainPhaseOnly, whileCardAtk, whileCardBlk, whilePartyAtk, whileCardInHand, hasBlockingTarget, effectRaw, damageThreshold, controlCondition, cpBackupElement, sourceInBattle));
+            result.add(new ActionAbility(abilityName, requiresDull, isSpecial, crystalCost, selfMillCost, hasXCost, cpCost, breakZoneCosts, discardCosts, removeFromGameCosts, returnToHandCosts, counterCosts, dullForwardCosts, yourTurnOnly, oncePerTurn, mainPhaseOnly, whileCardAtk, whileCardBlk, whilePartyAtk, whileCardInHand, hasBlockingTarget, effectRaw, damageThreshold, controlCondition, cpBackupElement, sourceInBattle, requiresOppDiscardedThisTurn));
         }
         return List.copyOf(result);
     }
@@ -854,6 +855,11 @@ public record CardData(
 
     static final Pattern SOURCE_IN_BATTLE_PATTERN = Pattern.compile(
         "(?i)You\\s+can\\s+only\\s+use\\s+this\\s+ability\\s+when\\s+.+?\\s+is\\s+in\\s+Battle[.!]?"
+    );
+
+    /** "You can only use this ability if your opponent has discarded a card from their hand due to your Summons or abilities this turn." */
+    static final Pattern OPP_DISCARD_THIS_TURN_PATTERN = Pattern.compile(
+        "(?i)You\\s+can\\s+only\\s+use\\s+this\\s+ability\\s+if\\s+your\\s+opponent\\s+has\\s+discarded\\s+a\\s+card\\s+from\\s+their\\s+hand\\s+due\\s+to\\s+your\\s+Summons\\s+or\\s+abilities\\s+this\\s+turn[.!]?"
     );
 
     /** Captures the raw condition text from "You can only use this ability if you control [X]". */
@@ -1684,6 +1690,8 @@ public record CardData(
         "|This\\s+effect\\s+will\\s+trigger" +
         ")"
     );
+    // Note: OPP_DISCARD_THIS_TURN_PATTERN starts with "You can only use this ability" and is therefore
+    // already matched by FA_RESTRICTION_SENTENCE above — no additional entry needed.
 
     /**
      * Matches "You can only pay with CP produced by [Element] Backups to cast/play [CardName]…"

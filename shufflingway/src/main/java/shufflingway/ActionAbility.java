@@ -65,7 +65,8 @@ public record ActionAbility(
         int                     damageThreshold,       // > 0: only usable when controlling player has ≥ this many damage counters
         ControlCondition        controlCondition,      // null = no "if you control X" restriction; non-null = must be satisfied
         String                  cpBackupElement,       // null = no restriction; "" = any Backup CP; "Wind" etc. = specific element
-        boolean                 sourceInBattle         // true = source card must be in Battle (attacking or blocking) to activate
+        boolean                 sourceInBattle,        // true = source card must be in Battle (attacking or blocking) to activate
+        boolean                 requiresOppDiscardedThisTurn // true = opponent must have discarded from hand via P1's Summons/abilities this turn
 ) {
     public ActionAbility {
         cpCost            = List.copyOf(cpCost);

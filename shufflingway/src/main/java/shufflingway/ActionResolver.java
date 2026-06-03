@@ -81,6 +81,16 @@ public class ActionResolver {
         "(?<followup>.+)"
     );
 
+    /**
+     * Normalises "Element Type or Element Type" → "Element or Element Type" so that
+     * CHOOSE_CHARACTER_PATTERN's element group can capture both elements.
+     * E.g. "Light Character or Dark Character" → "Light or Dark Character".
+     */
+    private static final Pattern ELEM_TYPE_OR_ELEM_TYPE = Pattern.compile(
+        "(?i)(Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)\\s+(Forwards?|Backups?|Monsters?|Characters?)" +
+        "\\s+or\\s+(Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)\\s+\\2"
+    );
+
     /** Matches {@code [Job (name)]} bracket notation; group 1 is the job name. */
     private static final Pattern JOB_BRACKET_PATTERN = Pattern.compile(
         "(?i)\\[Job\\s+\\(([^)]+)\\)\\]"
@@ -2212,7 +2222,8 @@ public class ActionResolver {
         if (tryParseDealHalfSourcePowerDamageToForwards(effectText) != null) return "DealHalfSourcePowerDamageToForwards";
         if (tryParseDamageToCombatBlocker(effectText)               != null) return "DamageToCombatBlocker";
 
-        Matcher chooseM = CHOOSE_CHARACTER_PATTERN.matcher(effectText);
+        String normalizedEffectText = ELEM_TYPE_OR_ELEM_TYPE.matcher(effectText).replaceAll("$1 or $3 $2");
+        Matcher chooseM = CHOOSE_CHARACTER_PATTERN.matcher(normalizedEffectText);
         if (chooseM.find()) {
             String followup      = chooseM.group("followup").trim();
             // Check damage-instead on the full followup before the ". " split eats the condition clause.
@@ -2220,6 +2231,8 @@ public class ActionResolver {
             Matcher insteadM = FOLLOWUP_DAMAGE_INSTEAD.matcher(followup);
             if (insteadM.find() && parseDamageInsteadCondition(insteadM.group("cond").trim()) != null)
                 return "ChooseCharacter / DamageInstead";
+            if (FOLLOWUP_SELECT_JOB_GRANT.matcher(followup).find())
+                return "ChooseCharacter / SelectJobGrant";
             int    dotIdx        = followup.indexOf(". ");
             String primaryPart   = dotIdx >= 0 ? followup.substring(0, dotIdx).trim() : followup;
             String secondaryTxt  = dotIdx >= 0 ? followup.substring(dotIdx + 2).trim() : null;
@@ -2809,6 +2822,7 @@ public class ActionResolver {
      * </ul>
      */
     private static Consumer<GameContext> tryParseChooseCharacter(String text, CardData source, int xValue) {
+        text = ELEM_TYPE_OR_ELEM_TYPE.matcher(text).replaceAll("$1 or $3 $2");
         Matcher m = CHOOSE_CHARACTER_PATTERN.matcher(text);
         if (!m.find()) return null;
 
