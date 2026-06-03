@@ -65,7 +65,7 @@ public class ActionResolver {
             "|Job\\s+.+?(?=\\s+(?:of\\s+|other\\s+than|in\\s+your|from\\s+your)|[,.]))" +
         "(?:\\s+that\\s+(?<postcondition>entered\\s+the\\s+field\\s+this\\s+turn|entered\\s+this\\s+turn))?" +
         "(?:\\s+without\\s+《(?<excludekw>[^》]+)》)?" +
-        "(?:\\s+of\\s+any\\s+Element\\s+except\\s+(?<excludeelem>" +
+        "(?:\\s+of\\s+(?:any|an)\\s+Element\\s+(?:except|other\\s+than)\\s+(?<excludeelem>" +
             "(?:Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)" +
             "(?:\\s+and\\s+(?:Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark))*))?" +
         "(?:\\s+of\\s+cost\\s+(?<cost>\\d+)(?:\\s+or\\s+(?<costcmp>less|more|\\d+))?)?" +
@@ -179,6 +179,7 @@ public class ActionResolver {
             "|Card\\s+Name\\s+(?<bzname>\\S+(?:\\s+\\([^)]+\\))?)\\s+in\\s+your\\s+Break\\s+Zone" +
             "|(?<opphand>card\\s+in\\s+your\\s+opponent'?s?\\s+hand)" +
             "|(?<xpaid>CP\\s+paid\\s+as\\s+X)" +
+            "|(?<crystal>《C》)\\s+you\\s+have" +
         ")" +
         "[.!]?"
     );
@@ -1007,6 +1008,16 @@ public class ActionResolver {
     );
 
     /**
+     * Matches "CardName gains +N power for each 《C》 you have until end of turn."
+     * Groups: {@code subject}, {@code amount}.
+     */
+    private static final Pattern SELF_POWER_BOOST_FOR_EACH_CRYSTAL = Pattern.compile(
+        "(?i)(?<subject>.+?)\\s+gains?\\s+\\+(?<amount>\\d+)\\s+[Pp]ower\\s+" +
+        "for\\s+each\\s+《C》\\s+you\\s+have" +
+        "\\s+until\\s+(?:the\\s+)?end\\s+of\\s+(?:the\\s+)?turn[.!]?"
+    );
+
+    /**
      * Matches "&lt;subject&gt; gains +N power [and traits]." with no duration clause — a permanent
      * passive field-ability self-boost (e.g. "Gilgamesh gains +1000 power.",
      * "Cid Raines gains +1000 power and First Strike.").
@@ -1764,6 +1775,9 @@ public class ActionResolver {
         result = tryParseFieldSelfPowerBoost(effectText, source);
         if (result != null) return result;
 
+        result = tryParseStandaloneSelfBoostForEachCrystal(effectText, source);
+        if (result != null) return result;
+
         result = tryParseStandaloneSelfBoost(effectText, source);
         if (result != null) return result;
 
@@ -1966,6 +1980,7 @@ public class ActionResolver {
         if (tryParseStandaloneDoublePowerMainPhaseNextTurn(effectText, source) != null) return "StandaloneDoublePowerMainPhaseNextTurn";
         if (tryParseStandalonePowerReduceUntil(effectText, source) != null) return "StandalonePowerReduceUntil";
         if (tryParseFieldSelfPowerBoost(effectText, source)    != null) return "FieldSelfPowerBoost";
+        if (tryParseStandaloneSelfBoostForEachCrystal(effectText, source) != null) return "StandaloneSelfBoostForEachCrystal";
         if (tryParseStandaloneSelfBoost(effectText, source)   != null) return "StandaloneSelfBoost";
         if (tryParseStandaloneShieldCannotBeBroken(effectText, source) != null) return "StandaloneShieldCannotBeBroken";
         if (tryParseStandaloneCannotBeBlocked(effectText, source) != null) return "StandaloneCannotBeBlocked";
@@ -2143,6 +2158,7 @@ public class ActionResolver {
         if (tryParseStandaloneDoublesItsPowerUntil(effectText, source) != null) return "StandaloneDoublesItsPowerUntil";
         if (tryParseStandaloneDoublePowerMainPhaseNextTurn(effectText, source) != null) return "StandaloneDoublePowerMainPhaseNextTurn";
         if (tryParseStandalonePowerReduceUntil(effectText, source) != null) return "StandalonePowerReduceUntil";
+        if (tryParseStandaloneSelfBoostForEachCrystal(effectText, source) != null) return "StandaloneSelfBoostForEachCrystal";
         if (tryParseStandaloneSelfBoost(effectText, source) != null)        return "StandaloneSelfBoost";
         if (tryParseStandaloneShieldCannotBeBroken(effectText, source) != null) return "StandaloneShieldCannotBeBroken";
         if (tryParseStandaloneCannotBeBlocked(effectText, source) != null) return "StandaloneCannotBeBlocked";
@@ -2973,6 +2989,7 @@ public class ActionResolver {
             String  srcCategory   = srcCharType != null && forEachM.group("category") != null ? forEachM.group("category").trim() : null;
             String  srcBzName     = forEachM.group("bzname")   != null ? forEachM.group("bzname").trim()   : null;
             boolean srcOppHand    = forEachM.group("opphand")  != null;
+            boolean srcCrystal    = forEachM.group("crystal")  != null;
             // if none of the above → xpaid
             boolean charFwd = srcCharType != null && (srcCharType.equalsIgnoreCase("forward")   || srcCharType.equalsIgnoreCase("forwards")   || srcCharType.equalsIgnoreCase("character") || srcCharType.equalsIgnoreCase("characters"));
             boolean charBkp = srcCharType != null && (srcCharType.equalsIgnoreCase("backup")    || srcCharType.equalsIgnoreCase("backups")    || srcCharType.equalsIgnoreCase("character") || srcCharType.equalsIgnoreCase("characters"));
@@ -2984,6 +3001,7 @@ public class ActionResolver {
             else if (srcCharType   != null) sourceLabel = (srcCategory != null ? "Category " + srcCategory + " " : "") + srcCharType + " you control";
             else if (srcBzName     != null) sourceLabel = "Card Name " + srcBzName + " in BZ";
             else if (srcOppHand)           sourceLabel = "opponent hand";
+            else if (srcCrystal)           sourceLabel = "《C》 you have";
             else                            sourceLabel = "X CP paid";
             String logLabel = perDmg > 0
                     ? baseDmg + " + " + perDmg + "×[" + sourceLabel + "]"
@@ -3001,6 +3019,7 @@ public class ActionResolver {
                 else if (srcCharType   != null) n = ctx.countSelfFieldCards(charFwd, charBkp, charMon, null, null, srcCategory);
                 else if (srcBzName     != null) n = ctx.countSelfBreakZoneCards(srcBzName, null);
                 else if (srcOppHand)           n = ctx.opponentHandSize();
+                else if (srcCrystal)           n = ctx.crystalCount();
                 else                            n = xValue;
                 int damage = perDmg > 0 ? baseDmg + perDmg * n : baseDmg * n;
                 ctx.logEntry(choosePrefix + " — Deal " + damage + " damage (" + logLabel + ", n=" + n + ")");
@@ -4251,6 +4270,21 @@ public class ActionResolver {
         return ctx -> {
             ctx.logEntry(source.name() + logSuffix);
             ctx.boostSourceForward(source, boost, traits);
+        };
+    }
+
+    private static Consumer<GameContext> tryParseStandaloneSelfBoostForEachCrystal(String text, CardData source) {
+        if (source == null) return null;
+        Matcher m = SELF_POWER_BOOST_FOR_EACH_CRYSTAL.matcher(text);
+        if (!m.find()) return null;
+        String subject = m.group("subject").trim();
+        if (!subject.equalsIgnoreCase(source.name())) return null;
+        int perCrystal = Integer.parseInt(m.group("amount"));
+        return ctx -> {
+            int n = ctx.crystalCount();
+            int boost = perCrystal * n;
+            ctx.logEntry(source.name() + " gains +" + boost + " power (" + perCrystal + "×" + n + " 《C》) until end of turn");
+            ctx.boostSourceForward(source, boost, EnumSet.noneOf(CardData.Trait.class));
         };
     }
 

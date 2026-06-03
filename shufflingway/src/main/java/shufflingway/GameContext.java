@@ -238,6 +238,9 @@ public interface GameContext {
     /** Grants the ability user {@code count} Crystals. */
     void gainCrystal(int count);
 
+    /** Returns the number of Crystal tokens (《C》) currently held by the ability user. */
+    int crystalCount();
+
     /** Sets the target back to Active state and refreshes its slot. */
     void activateTarget(ForwardTarget t);
 
