@@ -244,6 +244,18 @@ public interface GameContext {
     /** Returns the number of Crystal tokens (《C》) currently held by the opponent. */
     int opponentCrystalCount();
 
+    /**
+     * Until end of turn, damage dealt by {@code source} to Forwards is doubled.
+     * Stacks multiplicatively: a second call for the same source yields ×4 damage.
+     */
+    void doubleOutgoingDamage(CardData source);
+
+    /**
+     * Until end of turn, damage received by any Forward the opponent controls is doubled.
+     * Stacks multiplicatively with itself.
+     */
+    void doubleOpponentForwardIncomingDamage();
+
     /** Sets the target back to Active state and refreshes its slot. */
     void activateTarget(ForwardTarget t);
 
@@ -1012,4 +1024,22 @@ public interface GameContext {
      * No-op for Backup and Monster targets.
      */
     void grantJobUntilEndOfTurn(ForwardTarget t, String job);
+
+    /**
+     * Doubles the incoming damage taken by the Forward at {@code t} for the rest of this turn.
+     * Stacks multiplicatively if called multiple times on the same target.
+     */
+    void doubleForwardIncomingDamageThisTurn(ForwardTarget t);
+
+    /**
+     * Marks the Forward at {@code t} so that the next damage it deals to a Forward this turn
+     * is doubled.  The effect is consumed on the first damage event.
+     */
+    void doubleForwardNextOutgoingDamage(ForwardTarget t);
+
+    /**
+     * Doubles all outgoing ability damage dealt by the active player for the rest of this turn.
+     * Stacks multiplicatively if called more than once.
+     */
+    void doublePlayerAbilityOutgoingDamage();
 }

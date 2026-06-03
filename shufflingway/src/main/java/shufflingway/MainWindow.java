@@ -33,6 +33,7 @@ import java.util.Comparator;
 import java.util.Deque;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -333,8 +334,15 @@ public class MainWindow {
 	private final Map<CardData, Integer> incomingDmgIncreaseMap   = new HashMap<>();
 	private final Set<CardData>          nullifyAbilityDmgSet     = new HashSet<>();
 	private final Set<CardData>          nullifyAbilityOnlyDmgSet = new HashSet<>();
-	private final Set<CardData>          nextOutgoingDmgZeroSet   = new HashSet<>();
-	private final Set<CardData>          perCardNonLethalDmgSet   = new HashSet<>();
+	private final Set<CardData>          nextOutgoingDmgZeroSet      = new HashSet<>();
+	private final Map<CardData, Integer> outgoingDmgMultiplierMap    = new IdentityHashMap<>();
+	private final Set<CardData>          nextOutgoingDmgDoublerSet   = new HashSet<>();
+	private final Map<CardData, Integer> perCardIncomingDmgMultiplierMap = new IdentityHashMap<>();
+	private int p1ForwardIncomingDmgMult = 1; // multiplier applied when any P1 Forward receives damage
+	private int p2ForwardIncomingDmgMult = 1; // multiplier applied when any P2 Forward receives damage
+	private int p1AbilityOutgoingDmgMult = 1; // player-wide ability outgoing damage multiplier
+	private int p2AbilityOutgoingDmgMult = 1;
+	private final Set<CardData>          perCardNonLethalDmgSet      = new HashSet<>();
 	private boolean p1ReceivedDamageThisTurn = false;
 	private boolean p2ReceivedDamageThisTurn = false;
 	private int     p1CardsCastThisTurn          = 0;
@@ -401,6 +409,8 @@ public class MainWindow {
 	private final Set<CardData> escapedFromBattle         = new HashSet<>();
 	/** The card currently dealing ability damage (null when no ability damage is in flight). */
 	private CardData currentBreaktouchSource    = null;
+	/** The source card of the action ability currently resolving off the stack (null otherwise). */
+	private CardData currentAbilitySource       = null;
 	private boolean  currentBreaktouchSourceIsP1 = false;
 	/** Set to {@code true} while a Summon effect is resolving so {@link #selectCharacters} applies the correct protection set. */
 	private boolean currentResolutionIsSummon = false;
@@ -1605,7 +1615,10 @@ public class MainWindow {
                             nextIncomingDmgZeroSet.clear();   nextIncomingDmgReduceMap.clear();   nextAbilityDmgReduceMap.clear();
                             incomingDmgIncreaseMap.clear();   nullifyAbilityDmgSet.clear();
                             nullifyAbilityOnlyDmgSet.clear(); perCardNonLethalDmgSet.clear();
-                            nextOutgoingDmgZeroSet.clear();
+                            nextOutgoingDmgZeroSet.clear();    outgoingDmgMultiplierMap.clear();
+                            nextOutgoingDmgDoublerSet.clear(); perCardIncomingDmgMultiplierMap.clear();
+                            p1ForwardIncomingDmgMult = 1;      p2ForwardIncomingDmgMult = 1;
+                            p1AbilityOutgoingDmgMult = 1;      p2AbilityOutgoingDmgMult = 1;
                             cannotBeChosenBySummons.clear();  cannotBeChosenByAbilities.clear();
                             cannotBeBrokenSet.clear();        cannotBeBrokenByNonDmgSet.clear();  breaktouchBattleSet.clear();
                             p1NonLethalProtection = false;    p2NonLethalProtection = false;
@@ -3582,9 +3595,9 @@ public class MainWindow {
 				+ " vs " + (blockerIsP1 ? "" : "[P2] ") + blocker.name() + " (" + effBlockerPow + ")");
 
 		// Compute actual damage each side deals after outgoing and incoming modifiers
-		int rawDmgToBlocker  = modifyOutgoingCombatDamage(attackerIsP1, attackerIdx, effAttackerPow);
+		int rawDmgToBlocker  = modifyOutgoingCombatDamage(attackerIsP1, attackerIdx, effAttackerPow, blocker);
 		int dmgToBlocker     = modifyIncomingDamage(blockerIsP1,  blockerIdx,  rawDmgToBlocker,  false, false);
-		int rawDmgToAttacker = modifyOutgoingCombatDamage(blockerIsP1, blockerIdx, effBlockerPow);
+		int rawDmgToAttacker = modifyOutgoingCombatDamage(blockerIsP1, blockerIdx, effBlockerPow, attacker);
 		int dmgToAttacker    = modifyIncomingDamage(attackerIsP1, attackerIdx, rawDmgToAttacker, false, false);
 
 		List<Integer> attackerDmgList = attackerIsP1 ? p1ForwardDamage : p2ForwardDamage;
@@ -6350,7 +6363,12 @@ public class MainWindow {
 				refreshP1BreakLabel();
 			}
 		} else {
-			ActionResolver.resolve(entry.ability(), entry.source(), gameState, ctx, entry.xValue());
+			currentAbilitySource = entry.source();
+			try {
+				ActionResolver.resolve(entry.ability(), entry.source(), gameState, ctx, entry.xValue());
+			} finally {
+				currentAbilitySource = null;
+			}
 			refreshP1HandLabel();
 			refreshP1BreakLabel();
 		}
@@ -7148,6 +7166,19 @@ public class MainWindow {
 	private static final java.util.regex.Pattern FA_NULLIFY_SUMMON_DAMAGE =
 			java.util.regex.Pattern.compile(
 				"(?i)If\\s+(?<card>.+?)\\s+is\\s+dealt\\s+damage\\s+by\\s+your\\s+opponent's\\s+Summons?,\\s+the\\s+damage\\s+becomes\\s+0\\s+instead\\.?"
+			);
+
+	/** "If [name] deals damage to a Forward of cost N or more, double the damage instead." */
+	private static final java.util.regex.Pattern FA_DOUBLE_DAMAGE_VS_COST_THRESHOLD =
+			java.util.regex.Pattern.compile(
+				"(?i)If\\s+(?<name>.+?)\\s+deals?\\s+damage\\s+to\\s+a\\s+Forward\\s+of\\s+cost\\s+(?<cost>\\d+)" +
+				"\\s+or\\s+more,\\s+double\\s+the\\s+damage\\s+instead[.!]?"
+			);
+
+	/** "If [name] deals damage to a Forward due to an ability, double the damage instead." */
+	private static final java.util.regex.Pattern FA_DOUBLE_ABILITY_DAMAGE =
+			java.util.regex.Pattern.compile(
+				"(?i)If\\s+(?<name>.+?)\\s+deals?\\s+damage\\s+to\\s+a\\s+Forward\\s+due\\s+to\\s+an\\s+ability,\\s+double\\s+the\\s+damage\\s+instead[.!]?"
 			);
 
 	/**
@@ -8929,7 +8960,9 @@ public class MainWindow {
 			@Override public int       p1ForwardCurrentDamage(int idx) { return p1ForwardDamage.get(idx); }
 			@Override public CardState p1ForwardState(int idx)          { return p1ForwardStates.get(idx); }
 			@Override public void damageP1Forward(int idx, int amount) {
-				applyDamageToForward(true, idx, amount, true, false);
+				int scaled = abilityScaled(amount);
+				if (idx < p1ForwardCards.size()) scaled = applyOutgoingFieldAbilityMult(scaled, p1ForwardCards.get(idx));
+				applyDamageToForward(true, idx, scaled, true, false);
 			}
 
 			@Override public int p2ForwardCount()                    { return p2ForwardCards.size(); }
@@ -8937,14 +8970,82 @@ public class MainWindow {
 			@Override public int       p2ForwardCurrentDamage(int idx) { return p2ForwardDamage.get(idx); }
 			@Override public CardState p2ForwardState(int idx)          { return p2ForwardStates.get(idx); }
 			@Override public void damageP2Forward(int idx, int amount) {
-				applyDamageToForward(false, idx, amount, true, false);
+				int scaled = abilityScaled(amount);
+				if (idx < p2ForwardCards.size()) scaled = applyOutgoingFieldAbilityMult(scaled, p2ForwardCards.get(idx));
+				applyDamageToForward(false, idx, scaled, true, false);
 			}
 
 			@Override public void damageP1ForwardUnreduced(int idx, int amount) {
-				applyDamageToForward(true, idx, amount, true, true);
+				int scaled = abilityScaled(amount);
+				if (idx < p1ForwardCards.size()) scaled = applyOutgoingFieldAbilityMult(scaled, p1ForwardCards.get(idx));
+				applyDamageToForward(true, idx, scaled, true, true);
 			}
 			@Override public void damageP2ForwardUnreduced(int idx, int amount) {
-				applyDamageToForward(false, idx, amount, true, true);
+				int scaled = abilityScaled(amount);
+				if (idx < p2ForwardCards.size()) scaled = applyOutgoingFieldAbilityMult(scaled, p2ForwardCards.get(idx));
+				applyDamageToForward(false, idx, scaled, true, true);
+			}
+
+			private int abilityScaled(int amount) {
+				if (currentAbilitySource == null) return amount;
+				int mult = outgoingDmgMultiplierMap.getOrDefault(currentAbilitySource, 1);
+				if (nextOutgoingDmgDoublerSet.remove(currentAbilitySource)) mult *= 2;
+				mult *= (isP1 ? p1AbilityOutgoingDmgMult : p2AbilityOutgoingDmgMult);
+				return amount * mult;
+			}
+
+			private int applyOutgoingFieldAbilityMult(int amount, CardData target) {
+				if (currentAbilitySource == null) return amount;
+				for (FieldAbility fa : currentAbilitySource.fieldAbilities()) {
+					java.util.regex.Matcher m = FA_DOUBLE_DAMAGE_VS_COST_THRESHOLD.matcher(fa.effectText());
+					if (m.find() && m.group("name").trim().equalsIgnoreCase(currentAbilitySource.name())
+							&& target.cost() >= Integer.parseInt(m.group("cost")))
+						amount *= 2;
+					java.util.regex.Matcher m2 = FA_DOUBLE_ABILITY_DAMAGE.matcher(fa.effectText());
+					if (m2.find() && m2.group("name").trim().equalsIgnoreCase(currentAbilitySource.name()))
+						amount *= 2;
+				}
+				return amount;
+			}
+
+			@Override public void doubleOutgoingDamage(CardData source) {
+				int cur = outgoingDmgMultiplierMap.getOrDefault(source, 1);
+				outgoingDmgMultiplierMap.put(source, cur * 2);
+				logEntry(source.name() + " — outgoing damage ×" + (cur * 2) + " until end of turn");
+			}
+
+			@Override public void doubleOpponentForwardIncomingDamage() {
+				if (isP1) {
+					p2ForwardIncomingDmgMult *= 2;
+					logEntry("Opponent's Forwards — incoming damage ×" + p2ForwardIncomingDmgMult + " until end of turn");
+				} else {
+					p1ForwardIncomingDmgMult *= 2;
+					logEntry("Opponent's Forwards — incoming damage ×" + p1ForwardIncomingDmgMult + " until end of turn");
+				}
+			}
+			@Override public void doubleForwardIncomingDamageThisTurn(ForwardTarget t) {
+				List<CardData> fwds = t.isP1() ? p1ForwardCards : p2ForwardCards;
+				if (t.idx() >= fwds.size()) return;
+				CardData card = fwds.get(t.idx());
+				int cur = perCardIncomingDmgMultiplierMap.getOrDefault(card, 1);
+				perCardIncomingDmgMultiplierMap.put(card, cur * 2);
+				logEntry(card.name() + " — incoming damage ×" + (cur * 2) + " until end of turn");
+			}
+			@Override public void doubleForwardNextOutgoingDamage(ForwardTarget t) {
+				List<CardData> fwds = t.isP1() ? p1ForwardCards : p2ForwardCards;
+				if (t.idx() >= fwds.size()) return;
+				CardData card = fwds.get(t.idx());
+				nextOutgoingDmgDoublerSet.add(card);
+				logEntry(card.name() + " — next outgoing damage doubled this turn");
+			}
+			@Override public void doublePlayerAbilityOutgoingDamage() {
+				if (isP1) {
+					p1AbilityOutgoingDmgMult *= 2;
+					logEntry("P1 abilities — outgoing damage ×" + p1AbilityOutgoingDmgMult + " until end of turn");
+				} else {
+					p2AbilityOutgoingDmgMult *= 2;
+					logEntry("P2 abilities — outgoing damage ×" + p2AbilityOutgoingDmgMult + " until end of turn");
+				}
 			}
 			@Override public void damageTargetUnreduced(ForwardTarget t, int amount) {
 				if (t.zone() == ForwardTarget.CardZone.BACKUP) return;
@@ -11216,7 +11317,8 @@ public class MainWindow {
 		List<CardData> fwds = isP1 ? p1ForwardCards : p2ForwardCards;
 		if (idx >= fwds.size()) return rawAmount;
 		CardData card = fwds.get(idx);
-		int amount = rawAmount;
+		int amount = rawAmount * (isP1 ? p1ForwardIncomingDmgMult : p2ForwardIncomingDmgMult)
+		                       * perCardIncomingDmgMultiplierMap.getOrDefault(card, 1);
 
 		// Incoming damage increase (debuff) — applied regardless of reduction-disabled flag
 		if (incomingDmgIncreaseMap.containsKey(card))
@@ -11284,11 +11386,26 @@ public class MainWindow {
 	 * Applies outgoing-damage modifiers for a forward that is about to deal combat damage.
 	 * Checks and consumes the one-time "next outgoing damage = 0" shield.
 	 */
-	private int modifyOutgoingCombatDamage(boolean isP1, int idx, int rawAmount) {
+	private int modifyOutgoingCombatDamage(boolean isP1, int idx, int rawAmount, CardData target) {
 		List<CardData> fwds = isP1 ? p1ForwardCards : p2ForwardCards;
 		if (idx >= fwds.size()) return rawAmount;
 		CardData card = fwds.get(idx);
-		return nextOutgoingDmgZeroSet.remove(card) ? 0 : rawAmount;
+		if (nextOutgoingDmgZeroSet.remove(card)) return 0;
+		int mult = outgoingDmgMultiplierMap.getOrDefault(card, 1);
+		if (nextOutgoingDmgDoublerSet.remove(card)) mult *= 2;
+		if (target != null) mult *= fieldAbilityCombatOutgoingMult(card, target);
+		return rawAmount * mult;
+	}
+
+	private int fieldAbilityCombatOutgoingMult(CardData attacker, CardData target) {
+		int mult = 1;
+		for (FieldAbility fa : attacker.fieldAbilities()) {
+			java.util.regex.Matcher m = FA_DOUBLE_DAMAGE_VS_COST_THRESHOLD.matcher(fa.effectText());
+			if (m.find() && m.group("name").trim().equalsIgnoreCase(attacker.name())
+					&& target.cost() >= Integer.parseInt(m.group("cost")))
+				mult *= 2;
+		}
+		return mult;
 	}
 
 	/**
@@ -14507,7 +14624,10 @@ public class MainWindow {
 			nextIncomingDmgZeroSet.clear();   nextIncomingDmgReduceMap.clear();   nextAbilityDmgReduceMap.clear();
 			incomingDmgIncreaseMap.clear();   nullifyAbilityDmgSet.clear();
 			nullifyAbilityOnlyDmgSet.clear(); perCardNonLethalDmgSet.clear();
-			nextOutgoingDmgZeroSet.clear();
+			nextOutgoingDmgZeroSet.clear();    outgoingDmgMultiplierMap.clear();
+			nextOutgoingDmgDoublerSet.clear(); perCardIncomingDmgMultiplierMap.clear();
+			p1ForwardIncomingDmgMult = 1;      p2ForwardIncomingDmgMult = 1;
+			p1AbilityOutgoingDmgMult = 1;      p2AbilityOutgoingDmgMult = 1;
 			p1NonLethalProtection = false;    p2NonLethalProtection = false;
 			p1DmgReductionDisabled = false;   p2DmgReductionDisabled = false;
 			p1GlobalDmgReduction  = 0;        p2GlobalDmgReduction  = 0;

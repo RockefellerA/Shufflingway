@@ -1018,6 +1018,59 @@ public class ActionResolver {
     );
 
     /**
+     * Matches "During this turn, if [CardName] deals damage to a Forward, double the damage instead."
+     * Groups: {@code subject} — the card name.
+     */
+    private static final Pattern DOUBLE_OUTGOING_DAMAGE_THIS_TURN = Pattern.compile(
+        "(?i)During\\s+this\\s+turn,\\s+if\\s+(?<subject>.+?)\\s+deals?\\s+damage\\s+to\\s+a\\s+Forward," +
+        "\\s+double\\s+the\\s+damage\\s+instead[.!]?"
+    );
+
+    /**
+     * Matches "During this turn, if a Forward opponent controls is dealt damage, double the damage instead."
+     */
+    private static final Pattern DOUBLE_OPPONENT_INCOMING_DAMAGE_THIS_TURN = Pattern.compile(
+        "(?i)During\\s+this\\s+turn,\\s+if\\s+a\\s+Forward\\s+(?:your\\s+)?opponent\\s+controls\\s+" +
+        "is\\s+dealt\\s+damage,\\s+double\\s+the\\s+damage\\s+instead[.!]?"
+    );
+
+    /**
+     * Matches "If [subject] deals damage to a Forward this turn, double the damage instead."
+     * (Ninja-style variant — "this turn" appears at the end rather than "During this turn" at the start.)
+     */
+    private static final Pattern DOUBLE_OUTGOING_DAMAGE_THIS_TURN_ALT = Pattern.compile(
+        "(?i)If\\s+(?<subject>.+?)\\s+deals?\\s+damage\\s+to\\s+a\\s+Forward\\s+this\\s+turn,\\s+double\\s+the\\s+damage\\s+instead[.!]?"
+    );
+
+    /**
+     * Matches "Choose 1 Forward. During this turn, if it is dealt damage, double the damage instead."
+     */
+    private static final Pattern CHOOSE_FORWARD_DOUBLE_INCOMING_THIS_TURN = Pattern.compile(
+        "(?i)Choose\\s+1\\s+Forward[.,]?\\s+During\\s+this\\s+turn,\\s+if\\s+it\\s+is\\s+dealt\\s+damage,\\s+double\\s+the\\s+damage\\s+instead[.!]?"
+    );
+
+    /**
+     * Matches "Choose 1 [Job X] Forward. During this turn, the next damage it deals to a Forward
+     * becomes double the damage instead. [You can only use this ability once per turn.]"
+     * <ul>
+     *   <li>Group {@code job} — optional job filter (e.g. {@code "Headhunter"})</li>
+     * </ul>
+     */
+    private static final Pattern CHOOSE_FORWARD_DOUBLE_NEXT_OUTGOING = Pattern.compile(
+        "(?i)Choose\\s+1\\s+(?:Job\\s+(?<job>.+?)\\s+)?Forward[.,]?\\s+" +
+        "During\\s+this\\s+turn,\\s+the\\s+next\\s+damage\\s+it\\s+deals\\s+to\\s+a\\s+Forward\\s+" +
+        "becomes\\s+double\\s+the\\s+damage\\s+instead[.!]?" +
+        "(?:\\s+You\\s+can\\s+only\\s+use\\s+this\\s+ability\\s+once\\s+per\\s+turn\\.?)?"
+    );
+
+    /**
+     * Matches "During this turn, if your ability deals damage to a Forward, double the damage instead."
+     */
+    private static final Pattern DOUBLE_PLAYER_ABILITY_OUTGOING_THIS_TURN = Pattern.compile(
+        "(?i)During\\s+this\\s+turn,\\s+if\\s+your\\s+ability\\s+deals?\\s+damage\\s+to\\s+a\\s+Forward,\\s+double\\s+the\\s+damage\\s+instead[.!]?"
+    );
+
+    /**
      * Matches "&lt;subject&gt; gains +N power [and traits]." with no duration clause — a permanent
      * passive field-ability self-boost (e.g. "Gilgamesh gains +1000 power.",
      * "Cid Raines gains +1000 power and First Strike.").
@@ -1783,6 +1836,24 @@ public class ActionResolver {
         result = tryParseFieldSelfPowerBoost(effectText, source);
         if (result != null) return result;
 
+        result = tryParseDoubleOutgoingDamageThisTurn(effectText, source);
+        if (result != null) return result;
+
+        result = tryParseDoubleOutgoingDamageThisTurnAlt(effectText, source);
+        if (result != null) return result;
+
+        result = tryParseDoubleOpponentIncomingDamageThisTurn(effectText);
+        if (result != null) return result;
+
+        result = tryParseChooseForwardDoubleIncomingThisTurn(effectText);
+        if (result != null) return result;
+
+        result = tryParseChooseForwardDoubleNextOutgoing(effectText);
+        if (result != null) return result;
+
+        result = tryParseDoublePlayerAbilityOutgoingThisTurn(effectText);
+        if (result != null) return result;
+
         result = tryParseStandaloneSelfBoostForEachCrystal(effectText, source);
         if (result != null) return result;
 
@@ -1991,6 +2062,12 @@ public class ActionResolver {
         if (tryParseStandaloneDoublePowerMainPhaseNextTurn(effectText, source) != null) return "StandaloneDoublePowerMainPhaseNextTurn";
         if (tryParseStandalonePowerReduceUntil(effectText, source) != null) return "StandalonePowerReduceUntil";
         if (tryParseFieldSelfPowerBoost(effectText, source)    != null) return "FieldSelfPowerBoost";
+        if (tryParseDoubleOutgoingDamageThisTurn(effectText, source) != null)    return "DoubleOutgoingDamageThisTurn";
+        if (tryParseDoubleOutgoingDamageThisTurnAlt(effectText, source) != null) return "DoubleOutgoingDamageThisTurnAlt";
+        if (tryParseDoubleOpponentIncomingDamageThisTurn(effectText) != null)   return "DoubleOpponentIncomingDamageThisTurn";
+        if (tryParseChooseForwardDoubleIncomingThisTurn(effectText) != null)    return "ChooseForwardDoubleIncomingThisTurn";
+        if (tryParseChooseForwardDoubleNextOutgoing(effectText) != null)        return "ChooseForwardDoubleNextOutgoing";
+        if (tryParseDoublePlayerAbilityOutgoingThisTurn(effectText) != null)   return "DoublePlayerAbilityOutgoingThisTurn";
         if (tryParseStandaloneSelfBoostForEachCrystal(effectText, source) != null) return "StandaloneSelfBoostForEachCrystal";
         if (tryParseStandaloneSelfBoost(effectText, source)   != null) return "StandaloneSelfBoost";
         if (tryParseStandaloneShieldCannotBeBroken(effectText, source) != null) return "StandaloneShieldCannotBeBroken";
@@ -2170,6 +2247,12 @@ public class ActionResolver {
         if (tryParseStandaloneDoublesItsPowerUntil(effectText, source) != null) return "StandaloneDoublesItsPowerUntil";
         if (tryParseStandaloneDoublePowerMainPhaseNextTurn(effectText, source) != null) return "StandaloneDoublePowerMainPhaseNextTurn";
         if (tryParseStandalonePowerReduceUntil(effectText, source) != null) return "StandalonePowerReduceUntil";
+        if (tryParseDoubleOutgoingDamageThisTurn(effectText, source) != null)    return "DoubleOutgoingDamageThisTurn";
+        if (tryParseDoubleOutgoingDamageThisTurnAlt(effectText, source) != null) return "DoubleOutgoingDamageThisTurnAlt";
+        if (tryParseDoubleOpponentIncomingDamageThisTurn(effectText) != null)   return "DoubleOpponentIncomingDamageThisTurn";
+        if (tryParseChooseForwardDoubleIncomingThisTurn(effectText) != null)    return "ChooseForwardDoubleIncomingThisTurn";
+        if (tryParseChooseForwardDoubleNextOutgoing(effectText) != null)        return "ChooseForwardDoubleNextOutgoing";
+        if (tryParseDoublePlayerAbilityOutgoingThisTurn(effectText) != null)   return "DoublePlayerAbilityOutgoingThisTurn";
         if (tryParseStandaloneSelfBoostForEachCrystal(effectText, source) != null) return "StandaloneSelfBoostForEachCrystal";
         if (tryParseStandaloneSelfBoost(effectText, source) != null)        return "StandaloneSelfBoost";
         if (tryParseStandaloneShieldCannotBeBroken(effectText, source) != null) return "StandaloneShieldCannotBeBroken";
@@ -4263,6 +4346,58 @@ public class ActionResolver {
             ctx.logEntry(source.name() + " — Gain +" + boost + " power" + traitDesc + " (field)");
             ctx.boostSourceForward(source, boost, traits);
         };
+    }
+
+    private static Consumer<GameContext> tryParseDoubleOutgoingDamageThisTurn(String text, CardData source) {
+        if (source == null) return null;
+        Matcher m = DOUBLE_OUTGOING_DAMAGE_THIS_TURN.matcher(text);
+        if (!m.find()) return null;
+        if (!m.group("subject").trim().equalsIgnoreCase(source.name())) return null;
+        return ctx -> ctx.doubleOutgoingDamage(source);
+    }
+
+    private static Consumer<GameContext> tryParseDoubleOpponentIncomingDamageThisTurn(String text) {
+        if (!DOUBLE_OPPONENT_INCOMING_DAMAGE_THIS_TURN.matcher(text).find()) return null;
+        return ctx -> ctx.doubleOpponentForwardIncomingDamage();
+    }
+
+    private static Consumer<GameContext> tryParseDoubleOutgoingDamageThisTurnAlt(String text, CardData source) {
+        if (source == null) return null;
+        Matcher m = DOUBLE_OUTGOING_DAMAGE_THIS_TURN_ALT.matcher(text);
+        if (!m.find()) return null;
+        if (!m.group("subject").trim().equalsIgnoreCase(source.name())) return null;
+        return ctx -> ctx.doubleOutgoingDamage(source);
+    }
+
+    private static Consumer<GameContext> tryParseChooseForwardDoubleIncomingThisTurn(String text) {
+        if (!CHOOSE_FORWARD_DOUBLE_INCOMING_THIS_TURN.matcher(text).find()) return null;
+        return ctx -> {
+            ctx.logEntry("Choose 1 Forward — incoming damage doubled this turn");
+            List<ForwardTarget> ts = ctx.selectCharacters(1, false, false, false,
+                    null, null, -1, null, -1, null, true, false, false,
+                    null, null, null, null, false, null, false);
+            if (!ts.isEmpty()) ctx.doubleForwardIncomingDamageThisTurn(ts.get(0));
+        };
+    }
+
+    private static Consumer<GameContext> tryParseChooseForwardDoubleNextOutgoing(String text) {
+        Matcher m = CHOOSE_FORWARD_DOUBLE_NEXT_OUTGOING.matcher(text);
+        if (!m.find()) return null;
+        String rawJob = m.group("job");
+        final String jobFilter = rawJob != null ? rawJob.trim() : null;
+        return ctx -> {
+            String label = jobFilter != null ? "Job " + jobFilter + " " : "";
+            ctx.logEntry("Choose 1 " + label + "Forward — next outgoing damage doubled this turn");
+            List<ForwardTarget> ts = ctx.selectCharacters(1, false, false, false,
+                    null, null, -1, null, -1, null, true, false, false,
+                    jobFilter, null, null, null, false, null, false);
+            if (!ts.isEmpty()) ctx.doubleForwardNextOutgoingDamage(ts.get(0));
+        };
+    }
+
+    private static Consumer<GameContext> tryParseDoublePlayerAbilityOutgoingThisTurn(String text) {
+        if (!DOUBLE_PLAYER_ABILITY_OUTGOING_THIS_TURN.matcher(text).find()) return null;
+        return ctx -> ctx.doublePlayerAbilityOutgoingDamage();
     }
 
     /**
