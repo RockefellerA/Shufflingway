@@ -346,6 +346,14 @@ public class ActionResolver {
         "(?i)Return\\s+it\\s+to\\s+its\\s+owner's\\s+hand\\s+and\\s+draw\\s+(?<draw>\\d+)\\s+cards?[.!]?"
     );
 
+    /**
+     * Matches "Return it and [CardName] to their owners' hand(s)." — chosen target plus a named card.
+     * Group {@code named} — the additional card name to return.
+     */
+    private static final Pattern FOLLOWUP_RETURN_AND_NAMED_TO_OWNERS_HAND = Pattern.compile(
+        "(?i)Return\\s+it\\s+and\\s+(?<named>.+?)\\s+to\\s+their\\s+owners?'s?\\s+hands?[.!]?"
+    );
+
     /** Matches "Return it/them to its/their owner's/owners' hand/hands." */
     private static final Pattern FOLLOWUP_RETURN_TO_OWNERS_HAND = Pattern.compile(
         "(?i)Return\\s+(?:it|them)\\s+to\\s+(?:its|their)\\s+owners?'s?\\s+hands?\\.?"
@@ -2160,6 +2168,7 @@ public class ActionResolver {
         if (FOLLOWUP_REMOVE_FROM_GAME.matcher(followupText).find())                   return "RemoveFromGame";
         if (FOLLOWUP_PLAY_ONTO_FIELD.matcher(followupText).find())                    return "PlayOntoField";
         if (FOLLOWUP_ADD_TO_HAND.matcher(followupText).find())                        return "AddToHand";
+        if (FOLLOWUP_RETURN_AND_NAMED_TO_OWNERS_HAND.matcher(followupText).find())    return "ReturnAndNamedToOwnersHand";
         if (FOLLOWUP_RETURN_TO_OWNERS_HAND.matcher(followupText).find())              return "ReturnToOwnersHand";
         if (FOLLOWUP_RETURN_TO_YOUR_HAND.matcher(followupText).find())                return "ReturnToYourHand";
         if (FOLLOWUP_PUT_TOP_OR_BOTTOM_OF_DECK.matcher(followupText).find())          return "PutTopOrBottomOfDeck";
@@ -3475,6 +3484,25 @@ public class ActionResolver {
                         costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters, jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, fExcludeElem, withoutMulticard);
                 sortedByIdxDesc(ts, true) .forEach(t -> ctx.addTargetToHand(t));
                 sortedByIdxDesc(ts, false).forEach(t -> ctx.addTargetToHand(t));
+                if (secondary != null) secondary.accept(ctx);
+            };
+        }
+
+        // --- Return it and [NamedCard] to their owners' hands ---
+        Matcher retNamedM = FOLLOWUP_RETURN_AND_NAMED_TO_OWNERS_HAND.matcher(primaryFollowup);
+        if (retNamedM.find()) {
+            String alsoNamed = retNamedM.group("named").trim();
+            return ctx -> {
+                ctx.logEntry(choosePrefix + " — Return to owner's hand (+ " + alsoNamed + ")");
+                List<ForwardTarget> ts = selectTargets(ctx, maxCount, upTo,
+                        opponentOnly, selfOnly, condition, element, zone, opponentZone,
+                        costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters, jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, fExcludeElem, withoutMulticard);
+                for (ForwardTarget t : ts) {
+                    if (t.zone() != ForwardTarget.CardZone.FORWARD) continue;
+                    if (t.isP1()) ctx.returnP1ForwardToHand(t.idx());
+                    else          ctx.returnP2ForwardToHand(t.idx());
+                }
+                ctx.returnNamedCardToOwnersHand(alsoNamed);
                 if (secondary != null) secondary.accept(ctx);
             };
         }
