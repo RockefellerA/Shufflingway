@@ -9957,7 +9957,8 @@ public class MainWindow {
 				refreshCrystalDisplays();
 			}
 
-			@Override public int crystalCount() { return playerCrystals(isP1); }
+			@Override public int crystalCount()         { return playerCrystals(isP1);  }
+			@Override public int opponentCrystalCount() { return playerCrystals(!isP1); }
 
 			@Override public void damageFieldForwardByName(String cardName, int amount) {
 				for (int i = 0; i < p1ForwardCards.size(); i++) {

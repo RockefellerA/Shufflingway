@@ -1457,6 +1457,14 @@ public class ActionResolver {
         "(?i)Gain\\s+《C》\\s+for\\s+each\\s+CP\\s+paid\\s+as\\s+X[.!]?"
     );
 
+    /**
+     * Matches "If your opponent has a 《C》, [also] gain 《C》."
+     * Grants 1 Crystal only when the opponent currently holds at least one Crystal.
+     */
+    private static final Pattern GAIN_CRYSTAL_IF_OPPONENT_HAS = Pattern.compile(
+        "(?i)If\\s+your\\s+opponent\\s+has\\s+a\\s+《C》,\\s+(?:also\\s+)?gain\\s+《C》[.!]?"
+    );
+
     private static final Pattern DRAW_CARDS = Pattern.compile(
         "(?i)Draw\\s+(\\d+)\\s+cards?(?:\\s*[,.]?\\s*then\\s+discard\\s+(\\d+)\\s+cards?)?[.!]?"
     );
@@ -1877,6 +1885,9 @@ public class ActionResolver {
         result = tryParseGainCrystal(effectText);
         if (result != null) return result;
 
+        result = tryParseGainCrystalIfOpponentHas(effectText);
+        if (result != null) return result;
+
         result = tryParsePlaceCounters(effectText, source);
         if (result != null) return result;
 
@@ -2013,6 +2024,7 @@ public class ActionResolver {
         if (tryParseExtraTurnThenLose(effectText)               != null) return "ExtraTurnThenLose";
         if (tryParseGainCrystalPerX(effectText, 0)               != null) return "GainCrystalPerX";
         if (tryParseGainCrystal(effectText)                      != null) return "GainCrystal";
+        if (tryParseGainCrystalIfOpponentHas(effectText)         != null) return "GainCrystalIfOpponentHas";
         if (tryParsePlaceCounters(effectText, source)            != null) return "PlaceCounters";
         if (tryParseLookTopDeckOptionallyBreak(effectText)        != null) return "LookTopDeckOptionallyBreak";
         if (tryParseLookTopDeckBottomOrKeep(effectText)           != null) return "LookTopDeckBottomOrKeep";
@@ -2195,6 +2207,7 @@ public class ActionResolver {
         if (tryParseExtraTurnThenLose(effectText) != null)                  return "ExtraTurnThenLose";
         if (tryParseGainCrystalPerX(effectText, 0) != null)                 return "GainCrystalPerX";
         if (tryParseGainCrystal(effectText)        != null)                  return "GainCrystal";
+        if (tryParseGainCrystalIfOpponentHas(effectText) != null)            return "GainCrystalIfOpponentHas";
         if (tryParsePlaceCounters(effectText, source) != null)               return "PlaceCounters";
         if (tryParseLookTopDeckOptionallyBreak(effectText)        != null) return "LookTopDeckOptionallyBreak";
         if (tryParseLookTopDeckBottomOrKeep(effectText)           != null) return "LookTopDeckBottomOrKeep";
@@ -5471,6 +5484,16 @@ public class ActionResolver {
         if (!GAIN_CRYSTAL.matcher(text).find()) return null;
         return ctx -> {
             ctx.logEntry("Effect: Gain 1 Crystal");
+            ctx.gainCrystal(1);
+        };
+    }
+
+    private static Consumer<GameContext> tryParseGainCrystalIfOpponentHas(String text) {
+        if (!GAIN_CRYSTAL_IF_OPPONENT_HAS.matcher(text).find()) return null;
+        return ctx -> {
+            int opp = ctx.opponentCrystalCount();
+            if (opp <= 0) return;
+            ctx.logEntry("Effect: Opponent has " + opp + " 《C》 — gain 1 Crystal");
             ctx.gainCrystal(1);
         };
     }

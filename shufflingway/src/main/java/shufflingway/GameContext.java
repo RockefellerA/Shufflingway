@@ -241,6 +241,9 @@ public interface GameContext {
     /** Returns the number of Crystal tokens (《C》) currently held by the ability user. */
     int crystalCount();
 
+    /** Returns the number of Crystal tokens (《C》) currently held by the opponent. */
+    int opponentCrystalCount();
+
     /** Sets the target back to Active state and refreshes its slot. */
     void activateTarget(ForwardTarget t);
 
