@@ -65,6 +65,7 @@ import javax.swing.JWindow;
 import javax.swing.SwingConstants;
 import javax.swing.SwingUtilities;
 import javax.swing.SwingWorker;
+import javax.swing.Timer;
 import javax.swing.UIManager;
 import javax.swing.border.BevelBorder;
 import javax.swing.border.SoftBevelBorder;
@@ -149,7 +150,7 @@ public class MainWindow {
 	private JPanel        cardPreviewPanel;   // custom-painted card preview
 	private BufferedImage previewImage;       // current card to draw (null = empty)
 	private float         previewAlpha  = 0f; // 0 = transparent, 1 = fully opaque
-	private javax.swing.Timer fadeTimer;      // drives fade-in / fade-out animation
+	private Timer fadeTimer;      // drives fade-in / fade-out animation
 	private CardSlideAnimator cardSlideAnimator;
 	private CardBreakAnimator breakAnimator;
 	// Horizontal separator where the P1 and P2 fields meet (anchor for centered effect prompts)
@@ -160,9 +161,9 @@ public class MainWindow {
 	private JWindow handPopup;
 	// Stack overlay (shown while any entry is on the resolution stack)
 	private JWindow               summonStackWindow;
-	private javax.swing.Timer     stackCountdownTimer;
+	private Timer     stackCountdownTimer;
 	private int                   stackWindowGeneration = 0;
-	private javax.swing.Timer handPopupHideTimer;
+	private Timer handPopupHideTimer;
 	private boolean handCardMenuOpen = false;
 
 
@@ -277,7 +278,7 @@ public class MainWindow {
 
 	// Next-phase button and its glow animation
 	private JButton              nextPhaseButton;
-	private javax.swing.Timer    glowTimer;
+	private Timer    glowTimer;
 	private final float[]        glowAngle = { 0f };
 
 	// Phase tracker strip
@@ -325,8 +326,8 @@ public class MainWindow {
 
 	// Separate JWindow for combat priority checkpoints (kept apart from summonStackWindow)
 	private javax.swing.JWindow       combatPriorityWindow;
-	private javax.swing.Timer         combatPriorityTimer;
-	private javax.swing.Timer         p2AutoPassTimer;
+	private Timer         combatPriorityTimer;
+	private Timer         p2AutoPassTimer;
 
 	// Damage-shield / damage-modifier state (keyed by CardData identity; cleared at end of turn)
 	private final Set<CardData>          nextIncomingDmgZeroSet   = new HashSet<>();
@@ -348,32 +349,32 @@ public class MainWindow {
 	private boolean p2ReceivedDamageThisTurn = false;
 	private int     p1CardsCastThisTurn          = 0;
 	private boolean p1SummonCastThisTurn         = false;
-	private final java.util.Set<String> p1CastJobsThisTurn  = new java.util.HashSet<>();
-	private final java.util.Set<String> p1CastNamesThisTurn = new java.util.HashSet<>();
+	private final Set<String> p1CastJobsThisTurn  = new HashSet<>();
+	private final Set<String> p1CastNamesThisTurn = new HashSet<>();
 	private boolean p1TurnOpponentFwdBroken      = false;
-	private final java.util.Set<String> p1BrokenJobsThisTurn      = new java.util.HashSet<>();
-	private final java.util.Set<String> p1BrokenElementsThisTurn  = new java.util.HashSet<>();
-	private final java.util.Set<String> p1BrokenCategoriesThisTurn = new java.util.HashSet<>();
+	private final Set<String> p1BrokenJobsThisTurn      = new HashSet<>();
+	private final Set<String> p1BrokenElementsThisTurn  = new HashSet<>();
+	private final Set<String> p1BrokenCategoriesThisTurn = new HashSet<>();
 	private int     p1CardsDrawnThisTurn         = 0;
 	private boolean p1DiscardedByEffectThisTurn  = false;
 	private boolean p1CausedOpponentDiscardThisTurn = false;
 	private boolean p1FormedPartyThisTurn        = false;
 	private int     p2CardsCastThisTurn          = 0;
 	private boolean p2SummonCastThisTurn         = false;
-	private final java.util.Set<String> p2CastJobsThisTurn  = new java.util.HashSet<>();
-	private final java.util.Set<String> p2CastNamesThisTurn = new java.util.HashSet<>();
+	private final Set<String> p2CastJobsThisTurn  = new HashSet<>();
+	private final Set<String> p2CastNamesThisTurn = new HashSet<>();
 	private boolean p2TurnOpponentFwdBroken      = false;
-	private final java.util.Set<String> p2BrokenJobsThisTurn      = new java.util.HashSet<>();
-	private final java.util.Set<String> p2BrokenElementsThisTurn  = new java.util.HashSet<>();
-	private final java.util.Set<String> p2BrokenCategoriesThisTurn = new java.util.HashSet<>();
+	private final Set<String> p2BrokenJobsThisTurn      = new HashSet<>();
+	private final Set<String> p2BrokenElementsThisTurn  = new HashSet<>();
+	private final Set<String> p2BrokenCategoriesThisTurn = new HashSet<>();
 	private int     p2CardsDrawnThisTurn         = 0;
 	private boolean p2DiscardedByEffectThisTurn  = false;
 	private boolean p2CausedOpponentDiscardThisTurn = false;
 	private boolean p2FormedPartyThisTurn        = false;
 	private int     p1ForwardsLeftFieldThisTurn  = 0;
 	private int     p2ForwardsLeftFieldThisTurn  = 0;
-	private final java.util.Set<String> p1ElementForwardsEnteredThisTurn = new java.util.HashSet<>();
-	private final java.util.Set<String> p2ElementForwardsEnteredThisTurn = new java.util.HashSet<>();
+	private final Set<String> p1ElementForwardsEnteredThisTurn = new HashSet<>();
+	private final Set<String> p2ElementForwardsEnteredThisTurn = new HashSet<>();
 	private boolean p1ForwardEnteredViaWarpThisTurn = false;
 	private boolean p1TurnOpponentCharReturnedToHand = false;
 	private boolean p2TurnOpponentCharReturnedToHand = false;
@@ -394,7 +395,7 @@ public class MainWindow {
 	private final List<Consumer<GameContext>> pendingMainPhase1Effects = new ArrayList<>();
 
 	/** Tracks once-per-turn ability uses this turn; keyed by card instance identity, value is set of effectText strings used. */
-	private final java.util.IdentityHashMap<CardData, java.util.Set<String>> usedOncePerTurnAbilities = new java.util.IdentityHashMap<>();
+	private final IdentityHashMap<CardData, Set<String>> usedOncePerTurnAbilities = new IdentityHashMap<>();
 
 	/** Forwards that cannot be selected as targets by the opponent's Summons this turn. */
 	private final Set<CardData> cannotBeChosenBySummons   = new HashSet<>();
@@ -424,11 +425,11 @@ public class MainWindow {
 	 * Forwards currently stolen by P1 from P2, mapped to their restoration condition:
 	 * {@code "permanent"}, {@code "endOfTurn"}, or {@code "whileCardOnField:Name"}.
 	 */
-	private final java.util.IdentityHashMap<CardData, String> stolenForwards = new java.util.IdentityHashMap<>();
+	private final IdentityHashMap<CardData, String> stolenForwards = new IdentityHashMap<>();
 	/** Distinct element types used to pay the most recent card's CP cost; checked by castPaymentMinElements conditions. */
 	private int lastCastPaymentDistinctElements = 0;
 	/** Specific element types used to pay the most recent card's CP cost; checked by castPaymentElement conditions. */
-	private final java.util.Set<String> lastCastPaymentElements = new HashSet<>();
+	private final Set<String> lastCastPaymentElements = new HashSet<>();
 	/** True if the most recently cast card was paid entirely by dulling Backups (no hand discards). */
 	private boolean lastCastWasPaidByBackupsOnly = false;
 	/** True while a card is being placed as a direct result of being cast from hand; gates castOnly field abilities. */
@@ -816,7 +817,7 @@ public class MainWindow {
 		nextPhaseButton.addActionListener(e -> onNextPhase());
 
 		// Pulsing glow border — runs continuously, only paints when enabled
-		glowTimer = new javax.swing.Timer(40, e -> {
+		glowTimer = new Timer(40, e -> {
 			if (nextPhaseButton == null || !nextPhaseButton.isEnabled()) return;
 			glowAngle[0] += 0.09f;
 			float t = (float)(0.5 + 0.5 * Math.sin(glowAngle[0]));
@@ -2186,7 +2187,7 @@ public class MainWindow {
 		animateCardToDamage(true, idx);
 
 		int animDelay = CardSlideAnimator.TOTAL_FRAMES * CardSlideAnimator.FRAME_MS;
-		javax.swing.Timer revealTimer = new javax.swing.Timer(animDelay, e -> {
+		Timer revealTimer = new Timer(animDelay, e -> {
 			if (p1DamageSlotPanel != null) {
 				p1DamageSlotPanel.putClientProperty("exBurst", isEx ? Boolean.TRUE : Boolean.FALSE);
 				for (JPanel s : p1DamageSlots) { if (s != null) s.repaint(); }
@@ -2237,7 +2238,7 @@ public class MainWindow {
 		refreshP2DeckLabel();
 
 		int animDelay = CardSlideAnimator.TOTAL_FRAMES * CardSlideAnimator.FRAME_MS;
-		javax.swing.Timer revealTimer = new javax.swing.Timer(animDelay, e -> {
+		Timer revealTimer = new Timer(animDelay, e -> {
 			if (slotIdx >= 0 && slotIdx < p2DamageSlots.length && p2DamageSlots[slotIdx] != null) {
 				JPanel slot = p2DamageSlots[slotIdx];
 				slot.putClientProperty("isExBurst", isEx ? Boolean.TRUE : Boolean.FALSE);
@@ -4088,7 +4089,7 @@ public class MainWindow {
 			} else {
 				// Defer committing until CP payment is confirmed
 				int pendingCastIdx = castingIdx[0];
-				Set<Integer> pendingPayment = new java.util.HashSet<>(paymentSet);
+				Set<Integer> pendingPayment = new HashSet<>(paymentSet);
 				showLbCpPaymentDialog(cast, pendingCastIdx, pendingPayment);
 			}
 		});
@@ -4649,10 +4650,10 @@ public class MainWindow {
 		if (fadeTimer != null) fadeTimer.stop();
 		previewAlpha = 0f;
 		cardPreviewPanel.repaint();
-		fadeTimer = new javax.swing.Timer(16, e -> {
+		fadeTimer = new Timer(16, e -> {
 			previewAlpha = Math.min(1f, previewAlpha + 0.15f);
 			cardPreviewPanel.repaint();
-			if (previewAlpha >= 1f) ((javax.swing.Timer) e.getSource()).stop();
+			if (previewAlpha >= 1f) ((Timer) e.getSource()).stop();
 		});
 		fadeTimer.start();
 	}
@@ -4661,11 +4662,11 @@ public class MainWindow {
 	private void startFadeOut() {
 		if (fadeTimer != null) fadeTimer.stop();
 		if (cardPreviewPanel == null) { previewImage = null; return; }
-		fadeTimer = new javax.swing.Timer(16, e -> {
+		fadeTimer = new Timer(16, e -> {
 			previewAlpha = Math.max(0f, previewAlpha - 0.15f);
 			cardPreviewPanel.repaint();
 			if (previewAlpha <= 0f) {
-				((javax.swing.Timer) e.getSource()).stop();
+				((Timer) e.getSource()).stop();
 				previewImage = null;
 				cardPreviewPanel.repaint();
 			}
@@ -4833,7 +4834,7 @@ public class MainWindow {
 	private void scheduleHandPopupHide() {
 		if (handCardMenuOpen) return;
 		if (handPopupHideTimer != null) handPopupHideTimer.stop();
-		handPopupHideTimer = new javax.swing.Timer(120, e -> {
+		handPopupHideTimer = new Timer(120, e -> {
 			if (handPopup != null) { handPopup.dispose(); handPopup = null; }
 			handPopupHideTimer = null;
 		});
@@ -5118,8 +5119,8 @@ public class MainWindow {
 			case IF_CAST_SUMMON_THIS_TURN ->
 				summonCastFlag ? 1 : 0;
 			case IF_CAST_JOB_OR_NAME_THIS_TURN -> {
-				java.util.Set<String> castJobs  = isP1 ? p1CastJobsThisTurn  : p2CastJobsThisTurn;
-				java.util.Set<String> castNames = isP1 ? p1CastNamesThisTurn : p2CastNamesThisTurn;
+				Set<String> castJobs  = isP1 ? p1CastJobsThisTurn  : p2CastJobsThisTurn;
+				Set<String> castNames = isP1 ? p1CastNamesThisTurn : p2CastNamesThisTurn;
 				yield (castJobs.contains(mod.param1().toLowerCase())
 						|| castNames.contains(mod.param2().toLowerCase())) ? 1 : 0;
 			}
@@ -5291,7 +5292,7 @@ public class MainWindow {
 				String type = mod.param1() == null ? "Character" : mod.param1();
 				List<CardData> oppFwds = isP1 ? p2ForwardCards : p1ForwardCards;
 				CardData[]     oppBkps = isP1 ? p2BackupCards  : p1BackupCards;
-				java.util.Set<String> elems = new java.util.HashSet<>();
+				Set<String> elems = new HashSet<>();
 				if ("Forward".equalsIgnoreCase(type) || "Character".equalsIgnoreCase(type))
 					for (CardData f : oppFwds)
 						for (String e : f.element().split("/")) elems.add(e.trim().toLowerCase());
@@ -5318,7 +5319,7 @@ public class MainWindow {
 				yield found ? 1 : 0;
 			}
 		case EACH_DISTINCT_BACKUP_ELEMENT -> {
-				java.util.Set<String> distinctElems = new java.util.HashSet<>();
+				Set<String> distinctElems = new HashSet<>();
 				for (CardData b : bkps) {
 					if (b != null && b.element() != null && !b.element().contains("/"))
 						distinctElems.add(b.element().toLowerCase());
@@ -5487,8 +5488,8 @@ public class MainWindow {
 		case IF_OWN_ELEMENT_OR_CATEGORY_BROKEN_THIS_TURN -> {
 				String elem = mod.param1();
 				String cat  = mod.param2();
-				java.util.Set<String> elems = isP1 ? p1BrokenElementsThisTurn : p2BrokenElementsThisTurn;
-				java.util.Set<String> cats  = isP1 ? p1BrokenCategoriesThisTurn : p2BrokenCategoriesThisTurn;
+				Set<String> elems = isP1 ? p1BrokenElementsThisTurn : p2BrokenElementsThisTurn;
+				Set<String> cats  = isP1 ? p1BrokenCategoriesThisTurn : p2BrokenCategoriesThisTurn;
 				yield (elem != null && elems.contains(elem.toLowerCase()))
 					|| (cat  != null && cats.contains(cat.toLowerCase())) ? 1 : 0;
 			}
@@ -6283,9 +6284,9 @@ public class MainWindow {
 		}.execute();
 
 		// 10-second countdown timer
-		stackCountdownTimer = new javax.swing.Timer(1000, null);
+		stackCountdownTimer = new Timer(1000, null);
 		stackCountdownTimer.addActionListener(e -> {
-			if (stackWindowGeneration != myGeneration) { ((javax.swing.Timer) e.getSource()).stop(); return; }
+			if (stackWindowGeneration != myGeneration) { ((Timer) e.getSource()).stop(); return; }
 			countdown[0]--;
 			if (countdown[0] <= 0) {
 				stackCountdownTimer.stop();
@@ -6310,12 +6311,12 @@ public class MainWindow {
 			// 20-second response window
 			int[] responseCountdown = { 20 };
 			countdownLabel.setText("Response window: 20s...");
-			javax.swing.Timer responseTimer = new javax.swing.Timer(1000, null);
+			Timer responseTimer = new Timer(1000, null);
 			responseTimer.addActionListener(re -> {
-				if (stackWindowGeneration != myGeneration) { ((javax.swing.Timer) re.getSource()).stop(); return; }
+				if (stackWindowGeneration != myGeneration) { ((Timer) re.getSource()).stop(); return; }
 				responseCountdown[0]--;
 				if (responseCountdown[0] <= 0) {
-					((javax.swing.Timer) re.getSource()).stop();
+					((Timer) re.getSource()).stop();
 					// Only auto-resolve if we're still the top entry (nothing was pushed during response)
 					if (gameState.peekStack() == entry) resolveTopOfStack();
 				} else {
@@ -6465,7 +6466,7 @@ public class MainWindow {
 
 					int   totalFrames = 12;
 					int[] frame       = { 0 };
-					javax.swing.Timer timer = new javax.swing.Timer(16, null);
+					Timer timer = new Timer(16, null);
 					timer.addActionListener(ae -> {
 						if (p1BackupUrls[idx] == null) { timer.stop(); slot.setIcon(null); slot.setText(null); return; }
 						frame[0]++;
@@ -6506,7 +6507,7 @@ public class MainWindow {
 
 					int   totalFrames = 12;
 					int[] frame       = { 0 };
-					javax.swing.Timer timer = new javax.swing.Timer(16, null);
+					Timer timer = new Timer(16, null);
 					timer.addActionListener(ae -> {
 						frame[0]++;
 						double progress = Math.min(1.0, (double) frame[0] / totalFrames);
@@ -6548,7 +6549,7 @@ public class MainWindow {
 
 					int   totalFrames = 12;
 					int[] frame       = { 0 };
-					javax.swing.Timer timer = new javax.swing.Timer(16, null);
+					Timer timer = new Timer(16, null);
 					timer.addActionListener(ae -> {
 						frame[0]++;
 						double progress = Math.min(1.0, (double) frame[0] / totalFrames);
@@ -6590,7 +6591,7 @@ public class MainWindow {
 
 					int   totalFrames = 12;
 					int[] frame       = { 0 };
-					javax.swing.Timer timer = new javax.swing.Timer(16, null);
+					Timer timer = new Timer(16, null);
 					timer.addActionListener(ae -> {
 						frame[0]++;
 						double progress = Math.min(1.0, (double) frame[0] / totalFrames);
@@ -6630,7 +6631,7 @@ public class MainWindow {
 
 					int   totalFrames = 12;
 					int[] frame       = { 0 };
-					javax.swing.Timer timer = new javax.swing.Timer(16, null);
+					Timer timer = new Timer(16, null);
 					timer.addActionListener(ae -> {
 						frame[0]++;
 						double progress = Math.min(1.0, (double) frame[0] / totalFrames);
@@ -6846,7 +6847,7 @@ public class MainWindow {
 					java.awt.image.BufferedImage card = get();
 					if (card == null) { refreshP2BackupSlot(idx); return; }
 					int totalFrames = 12; int[] frame = {0};
-					javax.swing.Timer timer = new javax.swing.Timer(16, null);
+					Timer timer = new Timer(16, null);
 					timer.addActionListener(ae -> {
 						if (p2BackupUrls[idx] == null) { timer.stop(); slot.setIcon(null); slot.setText(null); return; }
 						frame[0]++;
@@ -7219,7 +7220,7 @@ public class MainWindow {
 	private static final java.util.regex.Pattern FA_MAX_X = java.util.regex.Pattern.compile(
 		"(?i)The\\s+maximum\\s+you\\s+can\\s+pay\\s+for\\s+《X》\\s+is\\s+(\\d+)"
 	);
-	private static final java.util.Set<String> ELEMENT_NAMES = java.util.Set.of(
+	private static final Set<String> ELEMENT_NAMES = java.util.Set.of(
 		"fire", "ice", "wind", "earth", "lightning", "water", "light", "dark"
 	);
 
@@ -8821,7 +8822,7 @@ public class MainWindow {
 				String msg = isP1 ? "P1 milled out — You Lose!" : "P2 milled out — Opponent Loses!";
 				if (available > 0) {
 					int animMs = ((available - 1) * 5 + CardSlideAnimator.TOTAL_FRAMES) * CardSlideAnimator.FRAME_MS;
-					javax.swing.Timer t = new javax.swing.Timer(animMs, e -> triggerGameOver(msg));
+					Timer t = new Timer(animMs, e -> triggerGameOver(msg));
 					t.setRepeats(false);
 					t.start();
 				} else {
@@ -9838,8 +9839,8 @@ public class MainWindow {
 				dlg.setLocationRelativeTo(frame);
 				dlg.setVisible(true);
 
-				javax.swing.Timer[] timerRef = { null };
-				timerRef[0] = new javax.swing.Timer(1000, null);
+				Timer[] timerRef = { null };
+				timerRef[0] = new Timer(1000, null);
 				timerRef[0].addActionListener(te -> {
 					countdown[0]--;
 					if (countdown[0] <= 0) { timerRef[0].stop(); hideZoom(); dlg.dispose(); }
@@ -11951,7 +11952,7 @@ public class MainWindow {
 		java.util.List<java.awt.event.MouseListener> listeners = new ArrayList<>(eligible.size());
 		java.util.List<ForwardTarget> result = new ArrayList<>();
 		boolean[] dulls = new boolean[eligible.size()];
-		final javax.swing.Timer[] pulseTimerRef = { null };
+		final Timer[] pulseTimerRef = { null };
 
 		java.awt.SecondaryLoop loop =
 				java.awt.Toolkit.getDefaultToolkit().getSystemEventQueue().createSecondaryLoop();
@@ -12002,7 +12003,7 @@ public class MainWindow {
 		}
 
 		final float[] pulse = { 0f };
-		javax.swing.Timer pulseTimer = new javax.swing.Timer(40, ev -> {
+		Timer pulseTimer = new Timer(40, ev -> {
 			pulse[0] += 0.12f;
 			float t = (float) (0.5 + 0.5 * Math.sin(pulse[0]));
 			for (int i = 0; i < labels.size(); i++) {
@@ -12080,7 +12081,7 @@ public class MainWindow {
 		dlg.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
 
 		java.util.List<ForwardTarget> chosen = new ArrayList<>();
-		java.util.Set<Integer> sel = new java.util.LinkedHashSet<>();
+		Set<Integer> sel = new java.util.LinkedHashSet<>();
 		java.util.List<JLabel> cardLabels = new ArrayList<>(eligible.size());
 
 		JPanel opponentRow = new JPanel(new FlowLayout(FlowLayout.CENTER, 8, 4));
@@ -12840,7 +12841,7 @@ public class MainWindow {
 				loc.y + (frame.getHeight() - win.getHeight()) / 2);
 		win.setVisible(true);
 
-		combatPriorityTimer = new javax.swing.Timer(1000, null);
+		combatPriorityTimer = new Timer(1000, null);
 		combatPriorityTimer.addActionListener(e -> {
 			countdown[0]--;
 			if (countdown[0] <= 0) {
@@ -12859,8 +12860,8 @@ public class MainWindow {
 	private void p2AutoPass(Runnable onDone) {
 		if (p2AutoPassTimer != null) { p2AutoPassTimer.stop(); p2AutoPassTimer = null; }
 		phaseTracker.setHasPriority(false);
-		p2AutoPassTimer = new javax.swing.Timer(1500, e -> {
-			((javax.swing.Timer) e.getSource()).stop();
+		p2AutoPassTimer = new Timer(1500, e -> {
+			((Timer) e.getSource()).stop();
 			p2AutoPassTimer = null;
 			phaseTracker.setHasPriority(true);
 			onDone.run();
@@ -14253,7 +14254,7 @@ public class MainWindow {
 
 		/** Schedules {@code r} to run after {@link #PAUSE_MS} ms on the EDT. */
 		private void step(Runnable r) {
-			javax.swing.Timer t = new javax.swing.Timer(PAUSE_MS, e -> {
+			Timer t = new Timer(PAUSE_MS, e -> {
 				if (!gameState.isP1GameOver()) r.run();
 			});
 			t.setRepeats(false);
