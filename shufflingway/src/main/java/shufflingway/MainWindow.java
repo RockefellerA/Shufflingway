@@ -6832,12 +6832,27 @@ public class MainWindow {
 
 	/**
 	 * Returns {@code true} if the given player has at least one card named {@code name}
-	 * in hand (needed for Special Ability payment).
+	 * (or {@code extraName} when non-null) in hand — needed for Special Ability payment.
+	 * Pass {@code null} for {@code extraName} when no alternate name applies.
 	 */
-	private boolean hasSameNameInHand(String name, boolean isP1) {
-		for (CardData c : playerHand(isP1))
+	private boolean hasSameNameInHand(String name, String extraName, boolean isP1) {
+		for (CardData c : playerHand(isP1)) {
 			if (name.equalsIgnoreCase(c.name())) return true;
+			if (extraName != null && extraName.equalsIgnoreCase(c.name())) return true;
+		}
 		return false;
+	}
+
+	/**
+	 * If {@code card} is currently the primed top of a forward slot, returns the name of
+	 * the primer (base) card beneath it; otherwise returns {@code null}.
+	 */
+	private String getPrimerCardName(CardData card, boolean isP1) {
+		List<CardData> primedTops = isP1 ? p1ForwardPrimedTop : p2ForwardPrimedTop;
+		List<CardData> bases      = isP1 ? p1ForwardCards      : p2ForwardCards;
+		for (int i = 0; i < primedTops.size(); i++)
+			if (card.equals(primedTops.get(i))) return bases.get(i).name();
+		return null;
 	}
 
 	// ---- Per-player data selectors used by the ability payment chain -----------
@@ -6978,7 +6993,7 @@ public class MainWindow {
 			if (state != CardState.ACTIVE) return false;
 			if (playedTurn == gameState.getTurnNumber()) return false;
 		}
-		if (ability.isSpecial() && !hasSameNameInHand(source.name(), isP1)) return false;
+		if (ability.isSpecial() && !hasSameNameInHand(source.name(), getPrimerCardName(source, isP1), isP1)) return false;
 		if (ability.damageThreshold() > 0) {
 			int dmg = isP1 ? gameState.getP1DamageZone().size() : gameState.getP2DamageZone().size();
 			if (dmg < ability.damageThreshold()) return false;
@@ -8741,13 +8756,16 @@ public class MainWindow {
 		// Dull source card
 		if (ability.requiresDull()) applyDull.run();
 
-		// Special: discard first same-name card from hand
+		// Special: discard first same-name card from hand (primer card name also qualifies)
 		if (ability.isSpecial()) {
+			String primerName = getPrimerCardName(source, isP1);
 			List<CardData> hand = playerHand(isP1);
 			for (int i = 0; i < hand.size(); i++) {
-				if (source.name().equalsIgnoreCase(hand.get(i).name())) {
+				CardData hc = hand.get(i);
+				if (source.name().equalsIgnoreCase(hc.name()) ||
+						(primerName != null && primerName.equalsIgnoreCase(hc.name()))) {
 					playerBreakFromHand(isP1, i);
-					logEntry("Special: discarded \"" + source.name() + "\" from hand");
+					logEntry("Special: discarded \"" + hc.name() + "\" from hand");
 					break;
 				}
 			}
