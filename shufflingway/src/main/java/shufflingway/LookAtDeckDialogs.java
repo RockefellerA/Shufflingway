@@ -605,7 +605,7 @@ class LookAtDeckDialogs {
 
                 g2.setColor(Color.LIGHT_GRAY);
                 String stageLbl = stagingList.isEmpty() ? "All cards placed!" : "Drag cards to the Top or Bottom zone";
-                g2.drawString(stageLbl, (panelW - fm.stringWidth(stageLbl)) / 2, TH + GAP * 2 + SEP_H / 2 + 4);
+                g2.drawString(stageLbl, (panelW - fm.stringWidth(stageLbl)) / 2, TH + GAP * 2 + SEP_H / 2);
 
                 g2.setColor(new Color(140, 210, 140));
                 String topLbl = "← Top of Deck (left = topmost)";
