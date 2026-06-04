@@ -2464,6 +2464,7 @@ public class ActionResolver {
         }
 
         if (tryParseOpponentMill(effectText) != null)                       return "OpponentMill";
+        if (tryParseSelfMill(effectText) != null)                           return "SelfMill";
         if (tryParseOpponentRevealHand(effectText) != null)                 return "OpponentRevealHand";
         if (tryParseRevealTopDeck(effectText, source) != null)
             return revealTopDeckDescription(effectText, source) + restrictionDesc(effectText);
