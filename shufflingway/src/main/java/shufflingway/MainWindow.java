@@ -4047,9 +4047,10 @@ public class MainWindow {
 				boolean payment     = paymentSet.contains(i);
 				boolean inPaymentMode = castingIdx[0] >= 0;
 				boolean nameBlocked = !inPaymentMode && !spent
-						&& (lcd.isForward() || lcd.isBackup() || lcd.isMonster())
-						&& ((!lcd.multicard() && hasCharacterNameOnField(lcd.name()) && !isMultiNameExceptionActive(lcd.name()))
-							|| isLightDarkConflict(lcd));
+						&& (   !castRestrictionMet(lcd)
+							|| (   (lcd.isForward() || lcd.isBackup() || lcd.isMonster())
+								&& ((!lcd.multicard() && hasCharacterNameOnField(lcd.name()) && !isMultiNameExceptionActive(lcd.name()))
+									|| isLightDarkConflict(lcd))));
 
 				if (casting) {
 					lbl.setBorder(createCardGlowBorder(new Color(255, 200, 0)));
@@ -4130,9 +4131,10 @@ public class MainWindow {
 					boolean spent = spentLbIndices.contains(idx);
 					if (spent) return;
 					boolean nameBlocked = castingIdx[0] < 0
-							&& (cd.isForward() || cd.isBackup() || cd.isMonster())
-							&& ((!cd.multicard() && hasCharacterNameOnField(cd.name()) && !isMultiNameExceptionActive(cd.name()))
-								|| isLightDarkConflict(cd));
+							&& (   !castRestrictionMet(cd)
+								|| (   (cd.isForward() || cd.isBackup() || cd.isMonster())
+									&& ((!cd.multicard() && hasCharacterNameOnField(cd.name()) && !isMultiNameExceptionActive(cd.name()))
+										|| isLightDarkConflict(cd))));
 					if (nameBlocked) return;
 
 					if (castingIdx[0] < 0) {
@@ -4161,8 +4163,10 @@ public class MainWindow {
 				}
 			});
 
-			// Load full image, greyed if spent
+			// Load full image, greyed if spent; overlay effective cost if reduced/increased
 			final boolean spent = spentLbIndices.contains(i);
+			final int lbEffectiveCost = effectiveCastCost(cd);
+			final int lbCostDelta     = cd.cost() - lbEffectiveCost;
 			new SwingWorker<ImageIcon, Void>() {
 				@Override protected ImageIcon doInBackground() throws Exception {
 					Image img = ImageCache.load(cd.imageUrl());
@@ -4171,6 +4175,20 @@ public class MainWindow {
 					Graphics2D g2 = buf.createGraphics();
 					g2.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
 					g2.drawImage(img, 0, 0, CARD_W, CARD_H, null);
+					if (!spent && lbCostDelta != 0) {
+						g2.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
+						String text = String.valueOf(lbEffectiveCost);
+						g2.setFont(FontLoader.loadPixelNESFont(15));
+						FontMetrics fm = g2.getFontMetrics();
+						int x = 8, y = fm.getAscent() + 7;
+						g2.setColor(Color.BLACK);
+						g2.drawString(text, x + 1, y + 1);
+						g2.drawString(text, x + 2, y + 1);
+						g2.drawString(text, x + 1, y + 2);
+						g2.drawString(text, x + 2, y + 2);
+						g2.setColor(lbCostDelta > 0 ? new Color(0x44EE44) : new Color(0xFF8844));
+						g2.drawString(text, x, y);
+					}
 					g2.dispose();
 					if (spent) {
 						return new ImageIcon(new ColorConvertOp(
@@ -5617,6 +5635,9 @@ public class MainWindow {
 			long rfpSummons = gameState.getP1PermanentRfp().stream().filter(CardData::isSummon).count();
 			if (bzSummons + rfpSummons < cr.minBZAndRfpSummons()) return false;
 		}
+
+		if (cr.mustControlCondition() != null && !controlConditionMet(cr.mustControlCondition(), true))
+			return false;
 
 		return true;
 	}

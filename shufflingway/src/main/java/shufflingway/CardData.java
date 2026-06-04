@@ -403,6 +403,17 @@ public record CardData(
     );
 
     /**
+     * "You must control N or more Job X Forwards and/or Job Y Forwards to cast Z."
+     * Group {@code count} — minimum number of qualifying Forwards.
+     * Group {@code jobs}  — the full "Job X Forwards and/or Job Y Forwards" segment.
+     */
+    private static final Pattern CAST_MUST_CONTROL = Pattern.compile(
+        "(?i)You\\s+must\\s+control\\s+(?<count>\\d+)\\s+or\\s+more\\s+" +
+        "(?<jobs>Job\\s+.+?\\s+Forwards?(?:\\s+and/or\\s+Job\\s+.+?\\s+Forwards?)*)\\s+" +
+        "to\\s+cast\\s+\\S[^.]*?[.!]?"
+    );
+
+    /**
      * "You can only cast X if you have a Forward, Backup, Monster, and a Summon in your Break Zone …"
      * Group {@code types} captures the word list before "in your Break Zone".
      * The negative lookahead {@code (?!a\s+total)} prevents matching Eiko's count variant.
@@ -451,13 +462,34 @@ public record CardData(
         Matcher oppHandM = CAST_MAX_OPPONENT_HAND.matcher(textEn);
         if (oppHandM.find()) maxOpponentHand = Integer.parseInt(oppHandM.group("count"));
 
+        ControlCondition mustControl = null;
+        Matcher mustM = CAST_MUST_CONTROL.matcher(textEn);
+        if (mustM.find()) {
+            int count = Integer.parseInt(mustM.group("count"));
+            String[] segments = mustM.group("jobs").split("(?i)\\s+and/or\\s+");
+            java.util.List<String> jobs = new java.util.ArrayList<>();
+            for (String seg : segments) {
+                String job = seg.trim()
+                        .replaceFirst("(?i)^Job\\s+", "")
+                        .replaceFirst("(?i)\\s+Forwards?$", "")
+                        .trim();
+                if (!job.isEmpty()) jobs.add(job);
+            }
+            String jobFilter = String.join("|", jobs);
+            mustControl = new ControlCondition(
+                    java.util.List.of(), count, false, "Forward", null,
+                    jobFilter.isEmpty() ? null : jobFilter,
+                    null, 0, java.util.List.of());
+        }
+
         if (!yourTurnOnly && !mainPhaseOnly && !opponentTurnOnly && !requiresNoFwds
                 && !requiresAFwd && requiredBZTypes.isEmpty()
-                && minBZAndRfpSummons == 0 && maxOpponentHand < 0) {
+                && minBZAndRfpSummons == 0 && maxOpponentHand < 0 && mustControl == null) {
             return null;
         }
         return new CastRestriction(yourTurnOnly, mainPhaseOnly, opponentTurnOnly,
-                requiresNoFwds, requiresAFwd, requiredBZTypes, minBZAndRfpSummons, maxOpponentHand);
+                requiresNoFwds, requiresAFwd, requiredBZTypes, minBZAndRfpSummons,
+                maxOpponentHand, mustControl);
     }
 
     /**
