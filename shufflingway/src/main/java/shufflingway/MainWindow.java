@@ -9160,7 +9160,8 @@ public class MainWindow {
 				int mult = outgoingDmgMultiplierMap.getOrDefault(currentAbilitySource, 1);
 				if (nextOutgoingDmgDoublerSet.remove(currentAbilitySource)) mult *= 2;
 				mult *= (isP1 ? p1AbilityOutgoingDmgMult : p2AbilityOutgoingDmgMult);
-				return amount * mult;
+				int flat = outgoingDmgFlatBoostMap.getOrDefault(currentAbilitySource, 0);
+				return amount * mult + flat;
 			}
 
 			private int applyOutgoingFieldAbilityMult(int amount, CardData target) {
