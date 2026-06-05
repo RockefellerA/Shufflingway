@@ -10312,6 +10312,16 @@ public class MainWindow {
 				if (isP1) refreshP1DeckLabel(); else refreshP2DeckLabel();
 			}
 
+			@Override public int removeTopCardOfDeckFromGameAndGetCost() {
+				java.util.Deque<CardData> deck = isP1 ? gameState.getP1MainDeck() : gameState.getP2MainDeck();
+				if (deck.isEmpty()) { logEntry("Deck is empty — no card removed"); return 0; }
+				CardData c = deck.pollFirst();
+				if (isP1) gameState.addToP1PermanentRfp(c); else gameState.addToP2PermanentRfp(c);
+				logEntry(c.name() + " → Removed From Game (top of deck, cost=" + c.cost() + ")");
+				if (isP1) refreshP1DeckLabel(); else refreshP2DeckLabel();
+				return c.cost();
+			}
+
 			@Override public void shuffleDeck() {
 				java.util.Deque<CardData> deck = isP1 ? gameState.getP1MainDeck() : gameState.getP2MainDeck();
 				java.util.List<CardData> list = new java.util.ArrayList<>(deck);

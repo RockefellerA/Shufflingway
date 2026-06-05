@@ -296,6 +296,16 @@ public class ActionResolver {
         "(?i)Remove\\s+the\\s+top\\s+(?:(?<count>\\d+)\\s+cards?|card)\\s+of\\s+your\\s+deck\\s+from\\s+(?:the\\s+)?game\\.?"
     );
 
+    /**
+     * Matches the compound followup "Remove the top card of your deck from the game.
+     * Deal it/them N damage for each CP required to play the removed card."
+     * Group {@code base} — damage per CP.
+     */
+    private static final Pattern FOLLOWUP_RFP_TOP_DECK_AND_DAMAGE_PER_CP = Pattern.compile(
+        "(?i)Remove\\s+the\\s+top\\s+card\\s+of\\s+your\\s+deck\\s+from\\s+(?:the\\s+)?game\\.\\s+" +
+        "Deal\\s+(?:it|them)\\s+(?<base>\\d+)\\s+damage\\s+for\\s+each\\s+CP\\s+required\\s+to\\s+play\\s+the\\s+removed\\s+card[.!]?"
+    );
+
     /** Matches "Shuffle your deck." */
     private static final Pattern SHUFFLE_DECK = Pattern.compile(
         "(?i)Shuffle\\s+your\\s+deck\\.?"
@@ -3354,6 +3364,22 @@ public class ActionResolver {
                 ctx.revealTopDeckCard(java.util.List.of(
                         new RevealClause(card -> card.cost() == n, null,
                                 rCtx -> rCtx.breakTarget(target))), false);
+            };
+        }
+
+        // --- "Remove the top card of your deck from the game. Deal it N damage for each CP required to play the removed card." ---
+        Matcher rfpTopDeckPerCpM = FOLLOWUP_RFP_TOP_DECK_AND_DAMAGE_PER_CP.matcher(followup);
+        if (rfpTopDeckPerCpM.find()) {
+            int baseDmg = Integer.parseInt(rfpTopDeckPerCpM.group("base"));
+            return ctx -> {
+                int cpCost = ctx.removeTopCardOfDeckFromGameAndGetCost();
+                int damage = baseDmg * cpCost;
+                ctx.logEntry(choosePrefix + " — Deal " + damage + " damage (RFP top of deck, " + baseDmg + "×CP=" + cpCost + ")");
+                List<ForwardTarget> ts = selectTargets(ctx, maxCount, upTo,
+                        opponentOnly, selfOnly, condition, element, zone, opponentZone,
+                        costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters, jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, fExcludeElem, withoutMulticard);
+                sortedByIdxDesc(ts, true) .forEach(t -> ctx.damageTarget(t, damage));
+                sortedByIdxDesc(ts, false).forEach(t -> ctx.damageTarget(t, damage));
             };
         }
 

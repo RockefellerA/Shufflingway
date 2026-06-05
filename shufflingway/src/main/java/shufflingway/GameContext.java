@@ -277,6 +277,12 @@ public interface GameContext {
     /** Removes the top {@code count} cards of the active player's deck from the game. */
     void removeTopCardsOfDeckFromGame(int count);
 
+    /**
+     * Removes the top card of the active player's deck from the game and returns its CP cost.
+     * Returns 0 if the deck is empty.
+     */
+    int removeTopCardOfDeckFromGameAndGetCost();
+
     /** Shuffles the active player's deck. */
     void shuffleDeck();
 
