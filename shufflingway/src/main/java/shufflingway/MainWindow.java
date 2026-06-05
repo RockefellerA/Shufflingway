@@ -6193,7 +6193,7 @@ public class MainWindow {
 		execCpAccum.keySet().stream().filter(e -> !e.isEmpty()).forEach(lastCastPaymentElements::add);
 		lastCastWasPaidByBackupsOnly = discardIndices.isEmpty() && !backupDullIndices.isEmpty();
 		gameState.removeFromHand(cardHandIdx);
-		activeCostReductions.removeIf(m -> m.matches(card));
+		activeCostReductions.removeIf(m -> m.consumeOnUse() && m.matches(card));
 		p1CardsCastThisTurn++;
 		for (String j : card.jobs()) p1CastJobsThisTurn.add(j.toLowerCase());
 		p1CastNamesThisTurn.add(card.name().toLowerCase());

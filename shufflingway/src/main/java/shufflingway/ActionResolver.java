@@ -1883,6 +1883,20 @@ public class ActionResolver {
         "(?<floorone>\\s*\\(it\\s+cannot\\s+become\\s+0\\))?[.!]?"
     );
 
+    /**
+     * Matches "The cost required to play your [filter] onto the field this turn is reduced by N
+     * [(it cannot become 0)][.]" — applies to all matching plays this turn (not consumed on use).
+     */
+    private static final Pattern PLAY_COST_REDUCTION_THIS_TURN = Pattern.compile(
+        "(?i)The\\s+cost\\s+required\\s+to\\s+play\\s+your\\s+" +
+        "(?:(?<element>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)\\s+)?" +
+        "(?:Category\\s+(?<category>\\S+)\\s+)?" +
+        "(?:Job\\s+(?<job>.+?)\\s+)?" +
+        "(?:Card\\s+Name\\s+(?<cardname>\\S+)|(?<type>Forwards?|Backups?|Monsters?|Characters?))\\s+" +
+        "onto\\s+the\\s+field\\s+this\\s+turn\\s+is\\s+reduced\\s+by\\s+(?<amount>\\d+)" +
+        "(?<floorone>\\s*\\(it\\s+cannot\\s+become\\s+0\\))?[.!]?"
+    );
+
     /** Matches "Take 1 more turn after this one. At the end of that turn, you lose the game." */
     private static final Pattern EXTRA_TURN_THEN_LOSE = Pattern.compile(
         "(?i)Take\\s+1\\s+more\\s+turn\\s+after\\s+this\\s+one[.!]?\\s+" +
@@ -2196,6 +2210,9 @@ public class ActionResolver {
         result = tryParseCostReductionThisTurn(effectText);
         if (result != null) return result;
 
+        result = tryParsePlayCostReductionThisTurn(effectText);
+        if (result != null) return result;
+
         result = tryParseExtraTurnThenLose(effectText);
         if (result != null) return result;
 
@@ -2347,6 +2364,7 @@ public class ActionResolver {
         if (tryParseAttackOnceMore(effectText)                  != null) return "AttackOnceMore";
         if (tryParseRemoveFromBattle(effectText)                != null) return "RemoveFromBattle";
         if (tryParseCostReductionThisTurn(effectText)            != null) return "CostReductionThisTurn";
+        if (tryParsePlayCostReductionThisTurn(effectText)        != null) return "PlayCostReductionThisTurn";
         if (tryParseExtraTurnThenLose(effectText)               != null) return "ExtraTurnThenLose";
         if (tryParseGainCrystalPerX(effectText, 0)               != null) return "GainCrystalPerX";
         if (tryParseGainCrystal(effectText)                      != null) return "GainCrystal";
@@ -6581,7 +6599,7 @@ public class ActionResolver {
                               : typeRaw  != null ? typeRaw : "card";
 
         CostReductionModifier modifier = new CostReductionModifier(
-                amount, floorAtOne,
+                amount, floorAtOne, true,
                 inclForwards, inclBackups, inclMonsters, inclSummons,
                 element, job, cardname, category);
 
@@ -6590,6 +6608,53 @@ public class ActionResolver {
                 + (category != null ? "Category " + category + " " : "")
                 + (job      != null ? "Job " + job + " " : "")
                 + typeDesc + " costs " + amount + " less" + (floorAtOne ? " (min 1)" : "");
+
+        return ctx -> {
+            ctx.logEntry("Effect: " + logDesc);
+            ctx.applyNextCastCostReduction(modifier);
+        };
+    }
+
+    private static Consumer<GameContext> tryParsePlayCostReductionThisTurn(String text) {
+        Matcher m = PLAY_COST_REDUCTION_THIS_TURN.matcher(text);
+        if (!m.find()) return null;
+
+        String elementRaw  = m.group("element");
+        String categoryRaw = m.group("category");
+        String jobRaw      = m.group("job");
+        String cardnameRaw = m.group("cardname");
+        String typeRaw     = m.group("type");
+        int    amount      = Integer.parseInt(m.group("amount"));
+        boolean floorAtOne = m.group("floorone") != null;
+
+        boolean inclForwards, inclBackups, inclMonsters;
+        if (cardnameRaw != null) {
+            inclForwards = inclBackups = inclMonsters = true;
+        } else {
+            String t = typeRaw != null ? typeRaw.toLowerCase(java.util.Locale.ROOT) : "characters";
+            inclForwards = t.matches("forwards?|characters?");
+            inclBackups  = t.matches("backups?|characters?");
+            inclMonsters = t.matches("monsters?|characters?");
+        }
+
+        final String element  = elementRaw  != null ? elementRaw.trim()  : null;
+        final String category = categoryRaw != null ? categoryRaw.trim() : null;
+        final String job      = jobRaw      != null ? jobRaw.trim()      : null;
+        final String cardname = cardnameRaw != null ? cardnameRaw.trim() : null;
+        final String typeDesc = cardname != null ? "Card Name " + cardname
+                              : typeRaw  != null ? typeRaw : "Characters";
+
+        CostReductionModifier modifier = new CostReductionModifier(
+                amount, floorAtOne, false,
+                inclForwards, inclBackups, inclMonsters, false,
+                element, job, cardname, category);
+
+        String logDesc = "This turn, your "
+                + (element  != null ? element + " " : "")
+                + (category != null ? "Category " + category + " " : "")
+                + (job      != null ? "Job " + job + " " : "")
+                + typeDesc + " cost " + amount + " less to play onto the field"
+                + (floorAtOne ? " (min 1)" : "");
 
         return ctx -> {
             ctx.logEntry("Effect: " + logDesc);

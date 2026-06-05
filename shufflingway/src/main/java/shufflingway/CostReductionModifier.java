@@ -1,14 +1,17 @@
 package shufflingway;
 
 /**
- * A "during this turn, your next [filter] costs N less" modifier.
+ * A "this turn, [filter] costs N less" modifier.
  *
- * <p>Created when an ability fires; consumed the first time a matching card is cast,
- * or discarded at end of turn if unused.
+ * <p>Created when an ability fires; removed at end of turn.
+ * When {@link #consumeOnUse} is {@code true} it is also consumed the first time a matching
+ * card is cast ("your next X" semantics); when {@code false} it applies to every matching
+ * play this turn ("this turn" semantics, e.g. Tilika).
  */
 public record CostReductionModifier(
         int     amount,
         boolean floorAtOne,      // true = cost cannot be reduced below 1
+        boolean consumeOnUse,    // true = consumed after first matching cast; false = persists until EOT
         boolean inclForwards,
         boolean inclBackups,
         boolean inclMonsters,
