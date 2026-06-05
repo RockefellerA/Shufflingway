@@ -1328,10 +1328,12 @@ public record CardData(
     private static final Pattern IF_CTRL_EFFECT_QUOTED = Pattern.compile("\"([^\"]+)\"");
 
     // Simple keyword matchers for effect substrings (not positional like the card-text trait patterns)
-    private static final Pattern ICB_EFFECT_HASTE        = Pattern.compile("(?i)\\bHaste\\b");
-    private static final Pattern ICB_EFFECT_BRAVE        = Pattern.compile("(?i)\\bBrave\\b");
-    private static final Pattern ICB_EFFECT_FIRST_STRIKE = Pattern.compile("(?i)\\bFirst\\s+Strike\\b");
-    private static final Pattern ICB_EFFECT_BACK_ATTACK  = Pattern.compile("(?i)\\bBack\\s+Attack\\b");
+    private static final Pattern ICB_EFFECT_HASTE             = Pattern.compile("(?i)\\bHaste\\b");
+    private static final Pattern ICB_EFFECT_BRAVE             = Pattern.compile("(?i)\\bBrave\\b");
+    private static final Pattern ICB_EFFECT_FIRST_STRIKE      = Pattern.compile("(?i)\\bFirst\\s+Strike\\b");
+    private static final Pattern ICB_EFFECT_BACK_ATTACK       = Pattern.compile("(?i)\\bBack\\s+Attack\\b");
+    private static final Pattern ICB_EFFECT_NO_CHOSEN_SUMMONS = Pattern.compile("(?i)cannot\\s+be\\s+chosen\\s+by\\s+(?:your\\s+opponent's\\s+)?Summons?");
+    private static final Pattern ICB_EFFECT_NO_CHOSEN_ABILITS = Pattern.compile("(?i)cannot\\s+be\\s+chosen\\s+by\\s+(?:your\\s+opponent's\\s+)?abilities");
 
     /**
      * Parses all "If you control [X], [target] gains [Z]" conditional field boosts from
@@ -1390,9 +1392,14 @@ public record CardData(
             if (ICB_EFFECT_FIRST_STRIKE.matcher(effectsStr).find()) traits.add(Trait.FIRST_STRIKE);
             if (ICB_EFFECT_BACK_ATTACK.matcher(effectsStr).find())  traits.add(Trait.BACK_ATTACK);
 
-            if (powerBonus == 0 && traits.isEmpty() && specialText.isEmpty()) continue;
+            boolean noChooseSummons  = ICB_EFFECT_NO_CHOSEN_SUMMONS.matcher(effectsStr).find();
+            boolean noChooseAbilits  = ICB_EFFECT_NO_CHOSEN_ABILITS.matcher(effectsStr).find();
 
-            result.add(new IfControlBoost(conditions, exceptName, targetName, powerBonus, traits, specialText));
+            if (powerBonus == 0 && traits.isEmpty() && specialText.isEmpty()
+                    && !noChooseSummons && !noChooseAbilits) continue;
+
+            result.add(new IfControlBoost(conditions, exceptName, targetName, powerBonus, traits, specialText,
+                    noChooseSummons, noChooseAbilits));
         }
         return List.copyOf(result);
     }

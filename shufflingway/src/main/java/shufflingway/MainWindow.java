@@ -400,9 +400,11 @@ public class MainWindow {
 	private final IdentityHashMap<CardData, Set<String>> usedOncePerTurnAbilities = new IdentityHashMap<>();
 
 	/** Forwards that cannot be selected as targets by the opponent's Summons this turn. */
-	private final Set<CardData> cannotBeChosenBySummons   = new HashSet<>();
+	private final Set<CardData> cannotBeChosenBySummons        = new HashSet<>();
 	/** Forwards that cannot be selected as targets by the opponent's abilities this turn. */
-	private final Set<CardData> cannotBeChosenByAbilities = new HashSet<>();
+	private final Set<CardData> cannotBeChosenByAbilities      = new HashSet<>();
+	/** Forwards that cannot be selected as targets by either player's Summons this turn. */
+	private final Set<CardData> cannotBeChosenBySummonsAnyone  = new HashSet<>();
 	/** Characters that cannot be broken this turn. */
 	private final Set<CardData> cannotBeBrokenSet         = new HashSet<>();
 	/** Characters that cannot be broken this turn by opposing non-damage abilities/summons. */
@@ -1624,7 +1626,7 @@ public class MainWindow {
                             perCardIncomingDmgMultiplierMap.clear();
                             p1ForwardIncomingDmgMult = 1;      p2ForwardIncomingDmgMult = 1;
                             p1AbilityOutgoingDmgMult = 1;      p2AbilityOutgoingDmgMult = 1;
-                            cannotBeChosenBySummons.clear();  cannotBeChosenByAbilities.clear();
+                            cannotBeChosenBySummons.clear();  cannotBeChosenByAbilities.clear();  cannotBeChosenBySummonsAnyone.clear();
                             cannotBeBrokenSet.clear();        cannotBeBrokenByNonDmgSet.clear();  breaktouchBattleSet.clear();
                             p1NonLethalProtection = false;    p2NonLethalProtection = false;
                             p1DmgReductionDisabled = false;   p2DmgReductionDisabled = false;
@@ -7089,6 +7091,30 @@ public class MainWindow {
 		return controlConditionMetWithPools(cond, fwds, bkps, mons);
 	}
 
+	/**
+	 * Returns {@code true} if any {@link IfControlBoost} on the given player's field
+	 * targets {@code targetName} and grants it immunity to Summons ({@code forSummon=true})
+	 * or abilities ({@code forSummon=false}) while its conditions are currently met.
+	 */
+	private boolean icbGrantsImmunity(String targetName, boolean isP1, boolean forSummon) {
+		List<CardData> fwds = isP1 ? p1ForwardCards : p2ForwardCards;
+		CardData[]     bkps = isP1 ? p1BackupCards  : p2BackupCards;
+		List<CardData> mons = isP1 ? p1MonsterCards : p2MonsterCards;
+		for (CardData src : fwds)          if (icbSourceGrantsImmunity(src, targetName, isP1, forSummon)) return true;
+		for (CardData bkp : bkps) if (bkp != null && icbSourceGrantsImmunity(bkp, targetName, isP1, forSummon)) return true;
+		for (CardData src : mons)          if (icbSourceGrantsImmunity(src, targetName, isP1, forSummon)) return true;
+		return false;
+	}
+
+	private boolean icbSourceGrantsImmunity(CardData src, String targetName, boolean isP1, boolean forSummon) {
+		for (IfControlBoost icb : src.ifControlBoosts()) {
+			if (!icb.targetCardName().equalsIgnoreCase(targetName)) continue;
+			if (forSummon ? !icb.cannotBeChosenBySummons() : !icb.cannotBeChosenByAbilities()) continue;
+			if (icbConditionsMet(icb, isP1)) return true;
+		}
+		return false;
+	}
+
 	/** Returns {@code true} when all conditions of {@code icb} are satisfied for the given player. */
 	private boolean icbConditionsMet(IfControlBoost icb, boolean isP1) {
 		for (ControlCondition cond : icb.conditions())
@@ -9267,6 +9293,14 @@ public class MainWindow {
 				}
 			}
 
+			@Override public void shieldNamedCardCannotBeChosenByAnySummon(String name) {
+				List<CardData> fwds = isP1 ? p1ForwardCards : p2ForwardCards;
+				for (CardData c : fwds) {
+					if (c.name().equalsIgnoreCase(name)) cannotBeChosenBySummonsAnyone.add(c);
+				}
+				logEntry("Effect: " + name + " cannot be chosen by any Summon this turn");
+			}
+
 			@Override public void shieldJobForwardsCannotBeChosen(String job, String excludeName,
 					boolean bySummons, boolean byAbilities) {
 				List<CardData> fwds = isP1 ? p1ForwardCards : p2ForwardCards;
@@ -9293,6 +9327,43 @@ public class MainWindow {
 					String jobFilter, String cardNameFilter, String categoryFilter, String excludeName, boolean inclSummons,
 					String excludeElement, boolean withoutMulticard) {
 				java.util.List<ForwardTarget> eligible = new ArrayList<>();
+				// Build symmetric "cannot be chosen" sets — checked in all four targeting quadrants.
+				// summonImmuneAnyone: blocked from Summon targeting regardless of which player casts.
+				// abilityImmuneAnyone: blocked from ability targeting regardless of which player uses.
+				// Sources: turn-scoped shields (action abilities), standalone field abilities, and
+				// conditional IfControlBoost grants (e.g. "If you control Yuna, Rikku cannot be chosen").
+				final Set<CardData> summonImmuneAnyone;
+				final Set<CardData> abilityImmuneAnyone;
+				{
+					Set<CardData> sumTmp = new HashSet<>(cannotBeChosenBySummonsAnyone);
+					Set<CardData> ablTmp = new HashSet<>();
+					for (boolean p1side : new boolean[]{true, false}) {
+						List<CardData> fwds = p1side ? p1ForwardCards : p2ForwardCards;
+						CardData[]     bkps = p1side ? p1BackupCards  : p2BackupCards;
+						List<CardData> mons = p1side ? p1MonsterCards : p2MonsterCards;
+						for (CardData c : fwds) {
+							if (ActionResolver.hasCannotBeChosenByAnySummonFieldAbility(c)) sumTmp.add(c);
+							if (icbGrantsImmunity(c.name(), p1side, true))  sumTmp.add(c);
+							if (icbGrantsImmunity(c.name(), p1side, false)) ablTmp.add(c);
+						}
+						for (CardData c : bkps) {
+							if (c == null) continue;
+							if (ActionResolver.hasCannotBeChosenByAnySummonFieldAbility(c)) sumTmp.add(c);
+							if (icbGrantsImmunity(c.name(), p1side, true))  sumTmp.add(c);
+							if (icbGrantsImmunity(c.name(), p1side, false)) ablTmp.add(c);
+						}
+						for (CardData c : mons) {
+							if (ActionResolver.hasCannotBeChosenByAnySummonFieldAbility(c)) sumTmp.add(c);
+							if (icbGrantsImmunity(c.name(), p1side, true))  sumTmp.add(c);
+							if (icbGrantsImmunity(c.name(), p1side, false)) ablTmp.add(c);
+						}
+					}
+					summonImmuneAnyone  = sumTmp;
+					abilityImmuneAnyone = ablTmp;
+				}
+				// Unified set for this resolution: whichever immunity type applies.
+				// Used in all four targeting quadrants with no per-site condition check needed.
+				final Set<CardData> immuneAnyone = currentResolutionIsSummon ? summonImmuneAnyone : abilityImmuneAnyone;
 				// "own" = cards belonging to effect controller; "opp" = other player's cards.
 				// isP1 captures the controller's perspective, so the two blocks below must
 				// flip which physical side they iterate when isP1 is false (P2 controls).
@@ -9301,6 +9372,7 @@ public class MainWindow {
 						if (inclForwards || inclMonsters) for (int i = 0; i < p1ForwardCards.size(); i++) {
 							CardData card = p1Forward(i);
 							if (!inclForwards && !card.alsoCountsAsMonster()) continue;
+							if (immuneAnyone.contains(card)) continue;
 							if (element != null && !card.containsElement(element)) continue;
 							if (!meetsElementExclusion(card, excludeElement)) continue;
 							if (!meetsCostConstraint(card.cost(), costVal, costCmp)) continue;
@@ -9335,6 +9407,7 @@ public class MainWindow {
 						if (inclMonsters || inclForwards) for (int i = 0; i < p1MonsterCards.size(); i++) {
 							if (!inclMonsters && !isP1MonsterTemporarilyForward(i)) continue;
 							CardData card = p1MonsterCards.get(i);
+							if (immuneAnyone.contains(card)) continue;
 							if (element != null && !card.containsElement(element)) continue;
 							if (!meetsElementExclusion(card, excludeElement)) continue;
 							if (!meetsCostConstraint(card.cost(), costVal, costCmp)) continue;
@@ -9353,6 +9426,7 @@ public class MainWindow {
 						if (inclForwards || inclMonsters) for (int i = 0; i < p2ForwardCards.size(); i++) {
 							CardData card = p2ForwardCards.get(i);
 							if (!inclForwards && !card.alsoCountsAsMonster()) continue;
+							if (immuneAnyone.contains(card)) continue;
 							if (element != null && !card.containsElement(element)) continue;
 							if (!meetsElementExclusion(card, excludeElement)) continue;
 							if (!meetsCostConstraint(card.cost(), costVal, costCmp)) continue;
@@ -9373,6 +9447,7 @@ public class MainWindow {
 						if (inclBackups) for (int i = 0; i < p2BackupCards.length; i++) {
 							if (isBlockingTargetFilter(condition)) continue;
 							if (p2BackupCards[i] == null) continue;
+							if (immuneAnyone.contains(p2BackupCards[i])) continue;
 							if (element != null && !p2BackupCards[i].containsElement(element)) continue;
 							if (!meetsCostConstraint(p2BackupCards[i].cost(), costVal, costCmp)) continue;
 							if (!meetsPowerConstraint(p2BackupCards[i].power(), powerVal, powerCmp)) continue;
@@ -9387,6 +9462,7 @@ public class MainWindow {
 						if (inclMonsters || inclForwards) for (int i = 0; i < p2MonsterCards.size(); i++) {
 							if (!inclMonsters && !isP2MonsterTemporarilyForward(i)) continue;
 							CardData card = p2MonsterCards.get(i);
+							if (immuneAnyone.contains(card)) continue;
 							if (element != null && !card.containsElement(element)) continue;
 							if (!meetsElementExclusion(card, excludeElement)) continue;
 							if (!meetsCostConstraint(card.cost(), costVal, costCmp)) continue;
@@ -9408,6 +9484,7 @@ public class MainWindow {
 						if (inclForwards || inclMonsters) for (int i = 0; i < p2ForwardCards.size(); i++) {
 							CardData card = p2ForwardCards.get(i);
 							if (!inclForwards && !card.alsoCountsAsMonster()) continue;
+							if (immuneAnyone.contains(card)) continue;
 							if (element != null && !card.containsElement(element)) continue;
 							if (!meetsElementExclusion(card, excludeElement)) continue;
 							if (!meetsCostConstraint(card.cost(), costVal, costCmp)) continue;
@@ -9428,6 +9505,7 @@ public class MainWindow {
 						if (inclBackups) for (int i = 0; i < p2BackupCards.length; i++) {
 							if (isBlockingTargetFilter(condition)) continue;
 							if (p2BackupCards[i] == null) continue;
+							if (immuneAnyone.contains(p2BackupCards[i])) continue;
 							if (element != null && !p2BackupCards[i].containsElement(element)) continue;
 							if (!meetsCostConstraint(p2BackupCards[i].cost(), costVal, costCmp)) continue;
 							if (!meetsPowerConstraint(p2BackupCards[i].power(), powerVal, powerCmp)) continue;
@@ -9442,6 +9520,7 @@ public class MainWindow {
 						if (inclMonsters || inclForwards) for (int i = 0; i < p2MonsterCards.size(); i++) {
 							if (!inclMonsters && !isP2MonsterTemporarilyForward(i)) continue;
 							CardData card = p2MonsterCards.get(i);
+							if (immuneAnyone.contains(card)) continue;
 							if (element != null && !card.containsElement(element)) continue;
 							if (!meetsElementExclusion(card, excludeElement)) continue;
 							if (!meetsCostConstraint(card.cost(), costVal, costCmp)) continue;
@@ -9462,6 +9541,7 @@ public class MainWindow {
 						if (inclForwards) for (int i = 0; i < p1ForwardCards.size(); i++) {
 							CardData card = p1Forward(i);
 							if (noChoose.contains(card)) continue;
+							if (immuneAnyone.contains(card)) continue;
 							if (element != null && !card.containsElement(element)) continue;
 							if (!meetsElementExclusion(card, excludeElement)) continue;
 							if (!meetsCostConstraint(card.cost(), costVal, costCmp)) continue;
@@ -9483,6 +9563,7 @@ public class MainWindow {
 							if (isBlockingTargetFilter(condition)) continue;
 							if (p1BackupCards[i] == null) continue;
 							if (noChoose.contains(p1BackupCards[i])) continue;
+							if (immuneAnyone.contains(p1BackupCards[i])) continue;
 							if (element != null && !p1BackupCards[i].containsElement(element)) continue;
 							if (!meetsCostConstraint(p1BackupCards[i].cost(), costVal, costCmp)) continue;
 							if (!meetsPowerConstraint(p1BackupCards[i].power(), powerVal, powerCmp)) continue;
@@ -9498,6 +9579,7 @@ public class MainWindow {
 							if (!inclMonsters && !isP1MonsterTemporarilyForward(i)) continue;
 							CardData card = p1MonsterCards.get(i);
 							if (noChoose.contains(card)) continue;
+							if (immuneAnyone.contains(card)) continue;
 							if (element != null && !card.containsElement(element)) continue;
 							if (!meetsElementExclusion(card, excludeElement)) continue;
 							if (!meetsCostConstraint(card.cost(), costVal, costCmp)) continue;

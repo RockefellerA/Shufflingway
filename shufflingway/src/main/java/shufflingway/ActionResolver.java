@@ -718,6 +718,16 @@ public class ActionResolver {
     );
 
     /**
+     * "[CardName] cannot be chosen by Summons [during this turn]." — no "your opponent's" qualifier,
+     * meaning the protection applies to Summons from either player.
+     * Only matches when {@code cardName} equals the {@code source} card's name.
+     */
+    private static final Pattern STANDALONE_NAMED_CANNOT_BE_CHOSEN_ANY_SUMMON = Pattern.compile(
+        "(?i)(?<name>[A-Z][A-Za-z''\\-\\s]+?)\\s+cannot\\s+be\\s+chosen\\s+by\\s+(?!your\\s)Summons?" +
+        "(?:\\s+during\\s+this\\s+turn)?\\s*\\.?"
+    );
+
+    /**
      * "The Job X [other than Y] Forwards/Characters you control cannot be chosen by
      * your opponent's Summons/abilities."
      * Group {@code job} is the job name; {@code excl} is the optional excluded card name.
@@ -6035,7 +6045,7 @@ public class ActionResolver {
             };
         }
 
-        // 4. Named card: "[Name] cannot be chosen" — only when name matches source
+        // 4. Named card: "[Name] cannot be chosen by your opponent's Summons/abilities"
         Matcher nameM = STANDALONE_NAMED_CANNOT_BE_CHOSEN.matcher(text);
         if (nameM.find() && source != null) {
             String nm   = nameM.group("name").trim();
@@ -6048,7 +6058,28 @@ public class ActionResolver {
                 };
         }
 
+        // 5. Named card, no "your opponent's" qualifier: "[Name] cannot be chosen by Summons" — either player
+        Matcher anyM = STANDALONE_NAMED_CANNOT_BE_CHOSEN_ANY_SUMMON.matcher(text);
+        if (anyM.find() && source != null) {
+            String nm = anyM.group("name").trim();
+            if (nm.equalsIgnoreCase(source.name()))
+                return ctx -> ctx.shieldNamedCardCannotBeChosenByAnySummon(nm);
+        }
+
         return null;
+    }
+
+    /**
+     * Returns {@code true} if the card has a field ability of the form
+     * "[CardName] cannot be chosen by Summons." — i.e., a permanent self-targeting
+     * immunity to any Summon while the card is on the field.
+     */
+    static boolean hasCannotBeChosenByAnySummonFieldAbility(CardData card) {
+        for (FieldAbility fa : card.fieldAbilities()) {
+            Matcher m = STANDALONE_NAMED_CANNOT_BE_CHOSEN_ANY_SUMMON.matcher(fa.effectText());
+            if (m.find() && m.group("name").trim().equalsIgnoreCase(card.name())) return true;
+        }
+        return false;
     }
 
     /**

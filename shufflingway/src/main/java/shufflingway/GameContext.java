@@ -408,6 +408,9 @@ public interface GameContext {
      */
     void shieldNamedCardCannotBeChosen(String name, boolean bySummons, boolean byAbilities);
 
+    /** Prevents the named card from being chosen by any Summon (either player's) this turn. */
+    void shieldNamedCardCannotBeChosenByAnySummon(String name);
+
     /**
      * Applies "cannot be chosen" protection to all Forwards matching {@code job} that the active
      * player controls, optionally excluding the card named {@code excludeName}.

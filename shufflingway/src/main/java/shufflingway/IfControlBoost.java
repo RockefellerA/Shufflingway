@@ -20,7 +20,9 @@ public record IfControlBoost(
         String    targetCardName,             // card on the field that receives the bonus
         int       powerBonus,                 // +N power added to the target (0 if no power effect)
         Set<CardData.Trait> grantedTraits,    // traits granted to the target while active
-        String    specialText                 // quoted special ability text (display only; empty if none)
+        String    specialText,                // quoted special ability text (display only; empty if none)
+        boolean   cannotBeChosenBySummons,    // target cannot be chosen by any Summon while active
+        boolean   cannotBeChosenByAbilities   // target cannot be chosen by any ability while active
 ) {
     public IfControlBoost {
         conditions    = List.copyOf(conditions);
