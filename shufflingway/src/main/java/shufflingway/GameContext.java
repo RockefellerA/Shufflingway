@@ -1004,11 +1004,25 @@ public interface GameContext {
      * @param job             optional job filter (bar-separated for OR); {@code null} = any
      * @param category        optional category filter; {@code null} = any
      */
+    default void applyMassFieldEffect(MassAction action,
+            boolean forwards, boolean backups, boolean monsters,
+            boolean opponentOnly, boolean selfOnly,
+            String element, int costVal, String costCmp, int excludeCostVal,
+            String job, String category) {
+        applyMassFieldEffect(action, forwards, backups, monsters,
+                opponentOnly, selfOnly, element, costVal, costCmp, excludeCostVal,
+                job, category, java.util.EnumSet.noneOf(CardData.Trait.class));
+    }
+
+    /**
+     * Same as above but only affects Forwards that have at least one trait in {@code traitFilter}
+     * (backups and monsters are unaffected by the trait filter; ignored when the set is empty).
+     */
     void applyMassFieldEffect(MassAction action,
             boolean forwards, boolean backups, boolean monsters,
             boolean opponentOnly, boolean selfOnly,
             String element, int costVal, String costCmp, int excludeCostVal,
-            String job, String category);
+            String job, String category, java.util.EnumSet<CardData.Trait> traitFilter);
 
     /**
      * Adds {@code amount} power until end of turn to every matching field card.

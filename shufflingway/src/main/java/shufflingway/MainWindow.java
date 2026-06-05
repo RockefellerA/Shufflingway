@@ -11064,12 +11064,27 @@ public class MainWindow {
 				}
 			}
 
+			private boolean forwardHasAnyTrait(boolean p1Side, int idx, java.util.EnumSet<CardData.Trait> traitFilter) {
+				if (traitFilter.isEmpty()) return true;
+				java.util.List<java.util.EnumSet<CardData.Trait>> tempList = p1Side ? p1ForwardTempTraits : p2ForwardTempTraits;
+				java.util.List<java.util.EnumSet<CardData.Trait>> rmList   = p1Side ? p1ForwardRemovedTraits : p2ForwardRemovedTraits;
+				CardData c = p1Side ? p1Forward(idx) : p2ForwardCards.get(idx);
+				java.util.Set<CardData.Trait> base = c.traits();
+				java.util.EnumSet<CardData.Trait> temp = idx < tempList.size() ? tempList.get(idx) : null;
+				java.util.EnumSet<CardData.Trait> rem  = idx < rmList.size()   ? rmList.get(idx)   : null;
+				for (CardData.Trait t : traitFilter) {
+					boolean has = base.contains(t) || (temp != null && temp.contains(t));
+					if (has && (rem == null || !rem.contains(t))) return true;
+				}
+				return false;
+			}
+
 			@Override
 			public void applyMassFieldEffect(GameContext.MassAction action,
 					boolean forwards, boolean backups, boolean monsters,
 					boolean opponentOnly, boolean selfOnly,
 					String element, int costVal, String costCmp, int excludeCostVal,
-					String job, String category) {
+					String job, String category, java.util.EnumSet<CardData.Trait> traitFilter) {
 				boolean touchP1 = isP1 ? !opponentOnly : !selfOnly;
 				boolean touchP2 = isP1 ? !selfOnly     : !opponentOnly;
 				if (touchP1) {
@@ -11082,6 +11097,7 @@ public class MainWindow {
 							if (excludeCostVal >= 0 && c.cost() == excludeCostVal) continue;
 							if (!meetsJobFilter(c, job)) continue;
 							if (!meetsCategoryFilter(c, category)) continue;
+							if (!forwardHasAnyTrait(true, i, traitFilter)) continue;
 							switch (action) {
 								case BREAK          -> breakP1Forward(i);
 								case DULL           -> dullP1Forward(i);
@@ -11161,6 +11177,7 @@ public class MainWindow {
 							if (excludeCostVal >= 0 && c.cost() == excludeCostVal) continue;
 							if (!meetsJobFilter(c, job)) continue;
 							if (!meetsCategoryFilter(c, category)) continue;
+							if (!forwardHasAnyTrait(false, i, traitFilter)) continue;
 							switch (action) {
 								case BREAK          -> breakP2Forward(i);
 								case DULL           -> dullP2Forward(i);

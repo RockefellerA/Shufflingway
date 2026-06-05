@@ -1465,6 +1465,7 @@ public class ActionResolver {
         "(?:Category\\s+(?<category>\\S+)\\s+)?" +
         "(?:Job\\s+(?<job>.+?)(?=\\s+(?:Forwards?|Backups?|Characters?|you\\b|opponent\\b)|\\s*[.!]?$))?" +
         "(?<targets>Forwards?(?:\\s+and\\s+Monsters?)?|Backups?|Characters?)?" +
+        "(?:\\s+with\\s+(?<trait>(?:Haste|First\\s+Strike|Brave)(?:\\s*(?:,\\s*(?:or\\s+)?|\\s+or\\s+)(?:Haste|First\\s+Strike|Brave))*))?" +
         "(?:\\s+of\\s+cost\\s+(?<cost>\\d+)(?:\\s+or\\s+(?<costcmp>less|more))?)?" +
         "(?:\\s+other\\s+than\\s+cost\\s+(?<excludecost>\\d+))?" +
         "(?:\\s+(?<control>(?:your\\s+)?opponent\\s+controls?|you\\s+control))?" +
@@ -5346,6 +5347,9 @@ public class ActionResolver {
         boolean opponentOnly = control != null && !control.toLowerCase().contains("you control");
         boolean selfOnly     = control != null && control.toLowerCase().contains("you control");
 
+        String traitStr     = m.group("trait");
+        EnumSet<CardData.Trait> traitFilter = parseTraits(traitStr);
+
         String actionLabel = switch (action) {
             case BREAK           -> "Break";
             case DULL            -> "Dull";
@@ -5359,12 +5363,13 @@ public class ActionResolver {
                 ? " of cost " + costVal + (costCmp != null ? " or " + costCmp : "") : "";
         String exclLabel    = excludeCostVal >= 0 ? " [not cost " + excludeCostVal + "]" : "";
         String controlLabel = opponentOnly ? " (opponent)" : selfOnly ? " (yours)" : "";
-        String logMsg = actionLabel + " all " + tgtLabel + costLabel + exclLabel + controlLabel;
+        String traitLabel   = traitStr != null ? " with " + traitStr.trim() : "";
+        String logMsg = actionLabel + " all " + tgtLabel + traitLabel + costLabel + exclLabel + controlLabel;
 
         return ctx -> {
             ctx.logEntry("Effect: " + logMsg);
             ctx.applyMassFieldEffect(action, inclForwards, inclBackups, inclMonsters,
-                    opponentOnly, selfOnly, element, costVal, costCmp, excludeCostVal, job, category);
+                    opponentOnly, selfOnly, element, costVal, costCmp, excludeCostVal, job, category, traitFilter);
         };
     }
 
