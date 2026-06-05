@@ -138,10 +138,10 @@ public interface GameContext {
             String excludeElement, boolean withoutMulticard);
 
     /**
-     * Presents the ability user with Summons currently on the stack and cancels
-     * the one they choose, preventing it from resolving.
+     * Presents the ability user with a list of Summons and auto-abilities on the stack
+     * and cancels the one they choose, preventing its effect from resolving.
      */
-    void cancelSummonOnStack();
+    void cancelStackEntry();
 
     /**
      * Forces {@code t} directly into the Break Zone, bypassing any

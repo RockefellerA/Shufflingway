@@ -124,6 +124,11 @@ public class ActionResolver {
         "(?i)Cancel\\s+its\\s+effect\\.?"
     );
 
+    /** Matches Y'shtola-style "Choose 1 Summon or auto-ability. Cancel its effect." */
+    private static final Pattern STANDALONE_CANCEL_STACK_ENTRY_PATTERN = Pattern.compile(
+        "(?i)Choose\\s+1\\s+Summon\\s+or\\s+auto-ability\\.\\s+Cancel\\s+its\\s+effect\\.?"
+    );
+
     /** Matches "deal it/them N damage". */
     /**
      * Matches "Deal it/them [and CardName] N damage".
@@ -2027,6 +2032,9 @@ public class ActionResolver {
         if (result != null) return result;
 
         result = tryParseNegateAllDamage(effectText);
+        if (result != null) return result;
+
+        result = tryParseCancelStackEntry(effectText);
         if (result != null) return result;
 
         result = tryParseAllFieldEffect(effectText);
@@ -4396,7 +4404,7 @@ public class ActionResolver {
         if (FOLLOWUP_CANCEL_EFFECT.matcher(primaryFollowup).find()) {
             return ctx -> {
                 ctx.logEntry(choosePrefix + " — Cancel its effect");
-                ctx.cancelSummonOnStack();
+                ctx.cancelStackEntry();
                 if (secondary != null) secondary.accept(ctx);
             };
         }
@@ -5406,6 +5414,18 @@ public class ActionResolver {
             ctx.applyMassFieldEffect(GameContext.MassAction.RETURN_TO_HAND,
                     inclForwards, inclBackups, inclMonsters,
                     opponentOnly, selfOnly, element, -1, null, -1, null, null);
+        };
+    }
+
+    /**
+     * Parses "Choose 1 Summon or auto-ability. Cancel its effect." (Y'shtola).
+     * The player selects a stack entry; its effect is suppressed when it resolves.
+     */
+    private static Consumer<GameContext> tryParseCancelStackEntry(String text) {
+        if (!STANDALONE_CANCEL_STACK_ENTRY_PATTERN.matcher(text).find()) return null;
+        return ctx -> {
+            ctx.logEntry("Effect: Choose 1 Summon or auto-ability — cancel its effect");
+            ctx.cancelStackEntry();
         };
     }
 

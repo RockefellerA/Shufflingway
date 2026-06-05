@@ -429,6 +429,10 @@ public class MainWindow {
 	private boolean currentResolutionIsSummon = false;
 	/** Set to {@code true} by {@code returnNamedCardToYourHand} when the Summon itself is being returned to hand. */
 	private boolean pendingSummonReturnToHand = false;
+	/** Stack entries whose effect has been cancelled by Y'shtola or similar; checked and consumed at resolution. */
+	private final Set<StackEntry> cancelledStackEntries = Collections.newSetFromMap(new java.util.IdentityHashMap<>());
+	/** True while {@link #resolveTopOfStack} or EX Burst execution is running; suppresses {@link #showStackWindowIfNeeded}. */
+	private boolean isResolvingStack = false;
 	/** Set to {@code true} before placing a card whose ETF auto-ability should not fire (consumed on first trigger check). */
 	private boolean suppressAutoAbilityForNextCard = false;
 
@@ -1575,7 +1579,8 @@ public class MainWindow {
                             if (p2AutoPassTimer      != null) { p2AutoPassTimer.stop();         p2AutoPassTimer      = null; }
 
                             if (attackSubStep == 0) {
-                                // P1 passed priority — opponent auto-passes, then declare attackers
+                                // P1 passed priority — disable Next while opponent has priority
+                                if (nextPhaseButton != null) nextPhaseButton.setEnabled(false);
                                 p2AutoPass(() -> {
                                     setAttackSubStep(1);
                                     refreshPhaseTracker();
@@ -6255,7 +6260,7 @@ public class MainWindow {
 				BorderFactory.createLineBorder(new Color(160, 110, 220), 2),
 				BorderFactory.createEmptyBorder(10, 14, 10, 14)));
 
-		String headerText = entry.isSummon() ? "S U M M O N" : "A C T I O N";
+		String headerText = entry.isSummon() ? "S U M M O N" : entry.isAutoAbility() ? "A U T O" : "A C T I O N";
 		JLabel header = new JLabel(headerText, SwingConstants.CENTER);
 		header.setFont(FontLoader.loadPixelNESFont(13));
 		header.setForeground(new Color(210, 170, 255));
@@ -6375,44 +6380,78 @@ public class MainWindow {
 		StackEntry entry = gameState.popStack();
 		if (entry == null) return;
 
-		GameContext ctx = buildGameContext(entry.isP1());
-		if (entry.isSummon()) {
-			String effectText = entry.effectText();
-			logEntry("[Summon] Resolving \"" + entry.source().name() + "\": " + effectText);
-			Consumer<GameContext> effect = ActionResolver.parse(effectText, entry.source());
-			if (effect != null) {
-				currentResolutionIsSummon   = true;
-				currentSummonSource     = entry.source();
-				currentSummonSourceIsP1 = entry.isP1();
-				pendingSummonReturnToHand   = false;
-				try { effect.accept(ctx); } finally {
-					currentResolutionIsSummon = false;
-					currentSummonSource   = null;
-				}
-			} else logEntry("[ActionResolver] Summon effect not yet implemented: " + effectText);
-			triggerAutoAbilitiesForCastSummon(entry.isP1());
-			if (pendingSummonReturnToHand) {
-				gameState.getP1Hand().add(entry.source());
-				logEntry("\"" + entry.source().name() + "\" → Hand");
-				refreshP1HandLabel();
-				pendingSummonReturnToHand = false;
-			} else {
+		if (cancelledStackEntries.remove(entry)) {
+			String pfx = entry.isP1() ? "" : "[P2] ";
+			logEntry(pfx + "\"" + entry.source().name() + "\" — effect cancelled");
+			if (entry.isSummon()) {
 				addToP1BreakZone(entry.source());
 				logEntry("\"" + entry.source().name() + "\" → Break Zone");
 				refreshP1BreakLabel();
 			}
-		} else {
-			currentAbilitySource = entry.source();
-			try {
-				ActionResolver.resolve(entry.ability(), entry.source(), gameState, ctx, entry.xValue());
-			} finally {
-				currentAbilitySource = null;
+			if (!gameState.getStack().isEmpty()) showStackWindow();
+			return;
+		}
+
+		isResolvingStack = true;
+		try {
+			GameContext ctx = buildGameContext(entry.isP1());
+			if (entry.isSummon()) {
+				String effectText = entry.effectText();
+				logEntry("[Summon] Resolving \"" + entry.source().name() + "\": " + effectText);
+				Consumer<GameContext> effect = ActionResolver.parse(effectText, entry.source());
+				if (effect != null) {
+					currentResolutionIsSummon   = true;
+					currentSummonSource     = entry.source();
+					currentSummonSourceIsP1 = entry.isP1();
+					pendingSummonReturnToHand   = false;
+					try { effect.accept(ctx); } finally {
+						currentResolutionIsSummon = false;
+						currentSummonSource   = null;
+					}
+				} else logEntry("[ActionResolver] Summon effect not yet implemented: " + effectText);
+				triggerAutoAbilitiesForCastSummon(entry.isP1());
+				if (pendingSummonReturnToHand) {
+					gameState.getP1Hand().add(entry.source());
+					logEntry("\"" + entry.source().name() + "\" → Hand");
+					refreshP1HandLabel();
+					pendingSummonReturnToHand = false;
+				} else {
+					addToP1BreakZone(entry.source());
+					logEntry("\"" + entry.source().name() + "\" → Break Zone");
+					refreshP1BreakLabel();
+				}
+			} else if (entry.isAutoAbility()) {
+				AutoAbility ab = entry.autoAbility();
+				logEntry("[AutoAbility] Resolving \"" + entry.source().name() + "\": " + ab.effectText());
+				Consumer<GameContext> effect = ActionResolver.parse(ab.effectText(), entry.source());
+				if (effect != null) {
+					currentAbilitySource = entry.source();
+					try { effect.accept(ctx); } finally { currentAbilitySource = null; }
+				} else {
+					logEntry("[AutoAbility] Unrecognized effect: " + ab.effectText());
+				}
+				refreshP1HandLabel();
+				refreshP1BreakLabel();
+			} else {
+				currentAbilitySource = entry.source();
+				try {
+					ActionResolver.resolve(entry.ability(), entry.source(), gameState, ctx, entry.xValue());
+				} finally {
+					currentAbilitySource = null;
+				}
+				refreshP1HandLabel();
+				refreshP1BreakLabel();
 			}
-			refreshP1HandLabel();
-			refreshP1BreakLabel();
+		} finally {
+			isResolvingStack = false;
 		}
 
 		if (!gameState.getStack().isEmpty()) showStackWindow();
+	}
+
+	/** Calls {@link #showStackWindow()} only when we are not already inside a stack resolution chain. */
+	private void showStackWindowIfNeeded() {
+		if (!isResolvingStack && !gameState.getStack().isEmpty()) showStackWindow();
 	}
 
 	/**
@@ -7341,6 +7380,7 @@ public class MainWindow {
 		// Re-evaluate all conditional field boosts now that the field composition has changed
 		refreshAllForwardSlots();
 		for (int i = 0; i < p2ForwardCards.size(); i++) refreshP2ForwardSlot(i);
+		showStackWindowIfNeeded();
 	}
 
 	private void triggerAutoAbilitiesForDealsDamageToOpponent(CardData attacker, boolean attackerIsP1) {
@@ -7348,6 +7388,7 @@ public class MainWindow {
 			if (!fa.triggerCard().equalsIgnoreCase(attacker.name())) continue;
 			if (fa.trigger().equals("deals damage to opponent")) executeAutoAbility(fa, attacker, attackerIsP1);
 		}
+		showStackWindowIfNeeded();
 	}
 
 	private void triggerAutoAbilitiesForPrimedInto(CardData primingCard, CardData primedCard, boolean primedCardIsP1) {
@@ -7355,6 +7396,7 @@ public class MainWindow {
 			if (!fa.triggerCard().equalsIgnoreCase(primingCard.name())) continue;
 			if (fa.trigger().equals("primed into")) executeAutoAbility(fa, primedCard, primedCardIsP1);
 		}
+		showStackWindowIfNeeded();
 	}
 
 	private void triggerAutoAbilitiesForAttack(CardData card, boolean isP1) {
@@ -7371,6 +7413,7 @@ public class MainWindow {
 			for (Consumer<GameContext> effect : effects)
 				effect.accept(ctx);
 		}
+		showStackWindowIfNeeded();
 	}
 
 	private void triggerAutoAbilitiesForBlock(CardData card, boolean isP1) {
@@ -7388,6 +7431,7 @@ public class MainWindow {
 			for (Consumer<GameContext> effect : effects)
 				effect.accept(ctx);
 		}
+		showStackWindowIfNeeded();
 	}
 
 	private void triggerAutoAbilitiesForIsBlocked(CardData card, boolean isP1) {
@@ -7397,6 +7441,7 @@ public class MainWindow {
 			if (t.equals("is blocked") || t.equals("blocks or is blocked"))
 				executeAutoAbility(fa, card, isP1);
 		}
+		showStackWindowIfNeeded();
 	}
 
 	/** Fires "party attacks" field abilities on every card the controller has on the field. */
@@ -7415,6 +7460,7 @@ public class MainWindow {
 				if (fa.trigger().equals("party attacks"))
 					executeAutoAbility(fa, card, isP1);
 		}
+		showStackWindowIfNeeded();
 	}
 
 	/** Subject pattern for break-zone triggers: "a [Type] [you|opponent] control[s]". */
@@ -7458,6 +7504,7 @@ public class MainWindow {
 			for (CardData c : bkps) if (c != null) fireBreakZoneTriggers(c, ownerIsP1, broken, brokenIsP1);
 			for (CardData c : mons) fireBreakZoneTriggers(c, ownerIsP1, broken, brokenIsP1);
 		}
+		showStackWindowIfNeeded();
 	}
 
 	private void fireBreakZoneTriggers(CardData card, boolean ownerIsP1, CardData broken, boolean brokenIsP1) {
@@ -7482,6 +7529,7 @@ public class MainWindow {
 		// Re-evaluate all conditional field boosts now that the field composition has changed
 		refreshAllForwardSlots();
 		for (int i = 0; i < p2ForwardCards.size(); i++) refreshP2ForwardSlot(i);
+		showStackWindowIfNeeded();
 	}
 
 	/** Fires "cast summon" field abilities for all field cards belonging to the casting player. */
@@ -7604,6 +7652,7 @@ public class MainWindow {
 				if (fa.trigger().equals("warp placed")
 						&& fa.triggerCard().equalsIgnoreCase(warped.name()))
 					executeAutoAbility(fa, card, true);
+		showStackWindowIfNeeded();
 	}
 
 	/**
@@ -7622,6 +7671,7 @@ public class MainWindow {
 				if (fa.trigger().equals("warp counter removed")
 						&& (fa.triggerCard().equalsIgnoreCase("any player's card") || fa.triggerCard().equalsIgnoreCase(target.name())))
 					executeAutoAbility(fa, card, true);
+		showStackWindowIfNeeded();
 	}
 
 	private void triggerAutoAbilitiesForEvent(String triggerType, boolean isP1) {
@@ -7631,6 +7681,7 @@ public class MainWindow {
 		for (CardData c : fwds) fireEventTriggers(c, isP1, triggerType);
 		for (CardData c : bkps) if (c != null) fireEventTriggers(c, isP1, triggerType);
 		for (CardData c : mons) fireEventTriggers(c, isP1, triggerType);
+		showStackWindowIfNeeded();
 	}
 
 	private void fireEventTriggers(CardData card, boolean isP1, String triggerType) {
@@ -7725,14 +7776,13 @@ public class MainWindow {
 			return;
 		}
 
-		Consumer<GameContext> effect = ActionResolver.parse(fa.effectText(), source);
-		if (effect == null) {
+		// Verify the effect is parseable before putting it on the stack.
+		if (ActionResolver.parse(fa.effectText(), source) == null) {
 			logEntry("[AutoAbility] Unrecognized effect: " + fa.effectText());
 			return;
 		}
 
-		// P1 (human) decides when: they control the card and "you may", or
-		// they are the opponent of P2's "your opponent may" ability.
+		// youMay / opponentMay: player decides at trigger time whether to put ability on stack.
 		boolean p1GetsDialog = (fa.youMay() && isP1) || (fa.opponentMay() && !isP1);
 		if (p1GetsDialog) {
 			String prompt = (fa.youMay() ? "You may: " : "Your opponent may: ") + fa.effectText();
@@ -7749,8 +7799,8 @@ public class MainWindow {
 		if (fa.oncePerTurn())
 			usedOncePerTurnAbilities.computeIfAbsent(source, k -> new HashSet<>()).add(fa.effectText());
 
-		logEntry("[AutoAbility] " + source.name() + " — " + fa.effectText());
-		effect.accept(buildGameContext(effectIsP1));
+		logEntry("[AutoAbility] " + source.name() + " — pushed to stack");
+		gameState.pushStack(new StackEntry(source, null, fa, effectIsP1, 0));
 	}
 
 	private void executeCounterRemovalWhenDoSoAutoAbility(AutoAbility fa, CardData source,
@@ -9966,8 +10016,42 @@ public class MainWindow {
 				return showBreakZoneSelectDialog(eligible, bz, maxCount, upTo, title);
 			}
 
-			@Override public void cancelSummonOnStack() {
-				logEntry("[ActionResolver] Cancel Summon on stack — not yet implemented");
+			@Override public void cancelStackEntry() {
+				// Y'shtola can only cancel Summons and auto-abilities, not action abilities.
+				List<StackEntry> targets = gameState.getStack().stream()
+						.filter(e -> e.isSummon() || e.isAutoAbility())
+						.collect(java.util.stream.Collectors.toList());
+				if (targets.isEmpty()) {
+					logEntry("No Summons or auto-abilities on the stack to cancel");
+					return;
+				}
+				StackEntry chosen;
+				if (targets.size() == 1) {
+					chosen = targets.get(0);
+				} else if (isP1) {
+					String[] options = new String[targets.size()];
+					for (int i = 0; i < targets.size(); i++) {
+						StackEntry e = targets.get(i);
+						String type  = e.isSummon() ? "Summon" : "Auto";
+						String owner = e.isP1() ? "P1" : "P2";
+						options[i] = e.source().name() + " (" + type + ", " + owner + ")";
+					}
+					Object sel = JOptionPane.showInputDialog(frame,
+							"Choose 1 Summon or auto-ability to cancel:",
+							"Cancel Effect", JOptionPane.PLAIN_MESSAGE, null, options, options[0]);
+					if (sel == null) return;
+					int idx = java.util.Arrays.asList(options).indexOf(sel.toString());
+					if (idx < 0) return;
+					chosen = targets.get(idx);
+				} else {
+					// AI: target the most recently pushed opponent (P1) entry
+					chosen = targets.stream().filter(e -> e.isP1())
+							.reduce((a, b) -> b).orElse(targets.get(targets.size() - 1));
+					logEntry("[AI] Chose to cancel: " + chosen.source().name());
+				}
+				cancelledStackEntries.add(chosen);
+				String type = chosen.isSummon() ? "Summon" : "auto-ability";
+				logEntry("Effect: " + chosen.source().name() + "'s " + type + " effect will be cancelled");
 			}
 
 			@Override public void forceTargetToBreakZone(ForwardTarget t) {
@@ -13262,9 +13346,9 @@ public class MainWindow {
 	private void continueAttackPhase() {
 		p1AttackSelection.clear();
 		p1MonsterAttackIdx = -1;
-		refreshAllForwardSlots();
 		if (hasAttackableForward()) {
 			setAttackSubStep(1);
+			refreshAllForwardSlots();
 			refreshAttackButton();
 			logEntry("Select next attacker, or click Skip to end the Attack Phase.");
 		} else {
