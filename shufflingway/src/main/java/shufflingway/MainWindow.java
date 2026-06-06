@@ -14077,14 +14077,13 @@ public class MainWindow {
 				p1ForwardStates.get(idx), p1ForwardPlayedOnTurn.get(idx),
 				() -> { p1ForwardStates.set(idx, CardState.DULL); animateDullForward(idx, null); }, true);
 
-		// Prime — visible whenever the forward has the Priming trait
+		// Prime — visible only when not yet primed
 		CardData fwd = p1ForwardCards.get(idx);
-		if (fwd.hasPriming()) {
-			boolean alreadyPrimed = p1ForwardPrimedTop.get(idx) != null;
+		if (fwd.hasPriming() && p1ForwardPrimedTop.get(idx) == null) {
 			GameState.GamePhase phase = gameState.getCurrentPhase();
 			boolean isMainPhase = phase == GameState.GamePhase.MAIN_1 || phase == GameState.GamePhase.MAIN_2;
 			JMenuItem primeItem = new JMenuItem("Prime (" + fwd.primingTarget() + ")");
-			primeItem.setEnabled(isMainPhase && !alreadyPrimed && canAffordPrimingCost(fwd)
+			primeItem.setEnabled(isMainPhase && canAffordPrimingCost(fwd)
 					&& !primingTargetOnField(fwd.primingTarget()));
 			primeItem.addActionListener(ae -> showPrimingPaymentDialog(fwd, idx));
 			menu.add(primeItem);
@@ -14122,10 +14121,9 @@ public class MainWindow {
 				p2ForwardStates.get(idx), p2ForwardPlayedOnTurn.get(idx),
 				() -> { p2ForwardStates.set(idx, CardState.DULL); refreshP2ForwardSlot(idx); }, false);
 
-		if (fwd.hasPriming()) {
-			boolean alreadyPrimed = p2ForwardPrimedTop.get(idx) != null;
+		if (fwd.hasPriming() && p2ForwardPrimedTop.get(idx) == null) {
 			JMenuItem primeItem = new JMenuItem("Prime (" + fwd.primingTarget() + ")");
-			primeItem.setEnabled(!alreadyPrimed && !primingTargetOnField(fwd.primingTarget()));
+			primeItem.setEnabled(!primingTargetOnField(fwd.primingTarget()));
 			primeItem.addActionListener(ae -> applyP2PrimedCard(fwd, idx));
 			menu.add(primeItem);
 		}

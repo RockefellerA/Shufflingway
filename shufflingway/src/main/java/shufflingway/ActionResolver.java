@@ -354,6 +354,11 @@ public class ActionResolver {
         "\\s+this\\s+turn\\.?"
     );
 
+    /** Matches "All Forwards cannot block this turn." — global block-prevention. */
+    private static final Pattern STANDALONE_ALL_FORWARDS_CANNOT_BLOCK = Pattern.compile(
+        "(?i)All\\s+Forwards?\\s+cannot\\s+block\\s+this\\s+turn[.!]?"
+    );
+
     /** Matches "[CardName] cannot be blocked this turn." — self-referential standalone form. */
     private static final Pattern STANDALONE_SELF_CANNOT_BE_BLOCKED = Pattern.compile(
         "(?i)(?<subject>.+?)\\s+cannot\\s+be\\s+blocked" +
@@ -1994,6 +1999,19 @@ public class ActionResolver {
         "(?:his/her|his|her|their)\\s+hand,?\\s*(?<effect2>.+?)\\s+instead[.!]?$"
     );
 
+    /**
+     * Matches "If your opponent controls N or more Forwards, deal it/them X damage[.!]?"
+     * as a choose-character followup or standalone conditional effect.
+     * <ul>
+     *   <li>{@code count}  — minimum number of opponent Forwards required</li>
+     *   <li>{@code amount} — damage to deal when the condition is met</li>
+     * </ul>
+     */
+    private static final Pattern FOLLOWUP_IF_OPPONENT_CONTROLS_FORWARDS_DAMAGE = Pattern.compile(
+        "(?i)^If\\s+your\\s+opponent\\s+controls\\s+(?<count>\\d+)\\s+or\\s+more\\s+Forwards?,\\s+" +
+        "deal\\s+(?:it|them)\\s+(?<amount>\\d+)\\s+damage[.!]?$"
+    );
+
     // -------------------------------------------------------------------------
     // Public API
     // -------------------------------------------------------------------------
@@ -2142,6 +2160,9 @@ public class ActionResolver {
         result = tryParseStandaloneShieldCannotBeBroken(effectText, source);
         if (result != null) return result;
 
+        result = tryParseAllForwardsCannotBlock(effectText);
+        if (result != null) return result;
+
         result = tryParseStandaloneCannotBeBlocked(effectText, source);
         if (result != null) return result;
 
@@ -2172,10 +2193,10 @@ public class ActionResolver {
         result = tryParseOpponentDiscard(effectText);
         if (result != null) return result;
 
-        result = tryParseDrawCards(effectText);
+        result = tryParseDiscardHandThenDraw(effectText);
         if (result != null) return result;
 
-        result = tryParseDiscardHandThenDraw(effectText);
+        result = tryParseDrawCards(effectText);
         if (result != null) return result;
 
         result = tryParseDiscardHand(effectText);
@@ -2364,6 +2385,7 @@ public class ActionResolver {
         if (tryParseStandaloneSelfBoost(effectText, source)   != null) return "StandaloneSelfBoost";
         if (tryParseStandaloneSelfDullAndShield(effectText, source) != null) return "StandaloneSelfDullAndShield";
         if (tryParseStandaloneShieldCannotBeBroken(effectText, source) != null) return "StandaloneShieldCannotBeBroken";
+        if (tryParseAllForwardsCannotBlock(effectText)             != null) return "AllForwardsCannotBlock";
         if (tryParseStandaloneCannotBeBlocked(effectText, source) != null) return "StandaloneCannotBeBlocked";
         if (tryParseRevealSelectHandRfp(effectText)            != null) return "RevealSelectHandRfp";
         if (tryParseOpponentRandomHandRfp(effectText)         != null) return "OpponentRandomHandRfp";
@@ -2373,8 +2395,8 @@ public class ActionResolver {
         if (tryParseOpponentRandomDiscard(effectText)         != null) return "OpponentRandomDiscard";
         if (tryParseEachPlayerDiscard(effectText)              != null) return "EachPlayerDiscard";
         if (tryParseOpponentDiscard(effectText)               != null) return "OpponentDiscard";
-        if (tryParseDrawCards(effectText)                     != null) return "DrawCards";
         if (tryParseDiscardHandThenDraw(effectText)           != null) return "DiscardHandThenDraw";
+        if (tryParseDrawCards(effectText)                     != null) return "DrawCards";
         if (tryParseDiscardHand(effectText)                   != null) return "DiscardHand";
         if (tryParseDiscardThenDraw(effectText)               != null) return "DiscardThenDraw";
         if (tryParseDealPlayerDamageToOpponent(effectText)    != null) return "DealPlayerDamageToOpponent";
@@ -2570,6 +2592,7 @@ public class ActionResolver {
         if (tryParseStandaloneSelfBoost(effectText, source) != null)        return "StandaloneSelfBoost";
         if (tryParseStandaloneSelfDullAndShield(effectText, source) != null) return "StandaloneSelfDullAndShield";
         if (tryParseStandaloneShieldCannotBeBroken(effectText, source) != null) return "StandaloneShieldCannotBeBroken";
+        if (tryParseAllForwardsCannotBlock(effectText)             != null) return "AllForwardsCannotBlock";
         if (tryParseStandaloneCannotBeBlocked(effectText, source) != null) return "StandaloneCannotBeBlocked";
         if (tryParseRevealSelectHandRfp(effectText) != null)               return "RevealSelectHandRfp";
         if (tryParseOpponentRandomHandRfp(effectText) != null)             return "OpponentRandomHandRfp";
@@ -2580,8 +2603,8 @@ public class ActionResolver {
         if (tryParseOpponentRandomDiscard(effectText) != null)              return "OpponentRandomDiscard";
         if (tryParseEachPlayerDiscard(effectText) != null)                  return "EachPlayerDiscard";
         if (tryParseOpponentDiscard(effectText) != null)                    return "OpponentDiscard";
-        if (tryParseDrawCards(effectText) != null)                          return "DrawCards";
         if (tryParseDiscardHandThenDraw(effectText) != null)                return "DiscardHandThenDraw";
+        if (tryParseDrawCards(effectText) != null)                          return "DrawCards";
         if (tryParseDiscardHand(effectText) != null)                        return "DiscardHand";
         if (tryParseDiscardThenDraw(effectText) != null)                    return "DiscardThenDraw";
         if (tryParseDealPlayerDamageToOpponent(effectText) != null)         return "DealPlayerDamageToOpponent";
@@ -3579,6 +3602,25 @@ public class ActionResolver {
                         costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters, jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, fExcludeElem, withoutMulticard);
                 sortedByIdxDesc(ts, true) .forEach(t -> { ctx.dullTarget(t); ctx.damageTarget(t, damage); });
                 sortedByIdxDesc(ts, false).forEach(t -> { ctx.dullTarget(t); ctx.damageTarget(t, damage); });
+                if (secondary != null) secondary.accept(ctx);
+            };
+        }
+
+        // --- "If your opponent controls N or more Forwards, deal it X damage" followup ---
+        Matcher oppFwdCondM = FOLLOWUP_IF_OPPONENT_CONTROLS_FORWARDS_DAMAGE.matcher(primaryFollowup);
+        if (oppFwdCondM.matches()) {
+            int minCount = Integer.parseInt(oppFwdCondM.group("count"));
+            int damage   = Integer.parseInt(oppFwdCondM.group("amount"));
+            return ctx -> {
+                ctx.logEntry(choosePrefix + " — If opponent controls ≥" + minCount + " Forwards, deal " + damage + " damage");
+                List<ForwardTarget> ts = selectTargets(ctx, maxCount, upTo,
+                        opponentOnly, selfOnly, condition, element, zone, opponentZone,
+                        costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters,
+                        jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, fExcludeElem, withoutMulticard);
+                if (ctx.opponentForwardCount() >= minCount) {
+                    sortedByIdxDesc(ts, true) .forEach(t -> ctx.damageTarget(t, damage));
+                    sortedByIdxDesc(ts, false).forEach(t -> ctx.damageTarget(t, damage));
+                }
                 if (secondary != null) secondary.accept(ctx);
             };
         }
@@ -5033,6 +5075,15 @@ public class ActionResolver {
         return ctx -> {
             ctx.logEntry(source.name() + " cannot be broken until end of turn");
             ctx.shieldSourceForward(source);
+        };
+    }
+
+    private static Consumer<GameContext> tryParseAllForwardsCannotBlock(String text) {
+        if (!STANDALONE_ALL_FORWARDS_CANNOT_BLOCK.matcher(text).matches()) return null;
+        return ctx -> {
+            ctx.logEntry("Effect: All Forwards cannot block this turn");
+            for (int i = 0; i < ctx.p1ForwardCount(); i++) ctx.setP1ForwardCannotBlock(i);
+            for (int i = 0; i < ctx.p2ForwardCount(); i++) ctx.setP2ForwardCannotBlock(i);
         };
     }
 
