@@ -2327,6 +2327,13 @@ public class MainWindow {
 		boolean  hadGrants      = !card.fieldPowerGrants().isEmpty();
 		boolean  hadCostReduces = !card.fieldCostReductions().isEmpty() || p1HandHasSelfCostModifiers();
 		CardData topCard = p1ForwardPrimedTop.get(idx);
+		Set<CardData> partySnapshot = Collections.emptySet();
+		if (p1AttackSelection.contains(idx)) {
+			partySnapshot = new HashSet<>();
+			for (int i : p1AttackSelection) {
+				if (i >= 0 && i < p1ForwardCards.size()) partySnapshot.add(p1ForwardCards.get(i));
+			}
+		}
 
 		if (topCard != null) {
 			// Primed: both cards move to break zone, then top card is immediately RFP'd
@@ -2416,7 +2423,7 @@ public class MainWindow {
 		refreshP1BreakLabel();
 		if (topCard != null) refreshP1WarpZoneUI();
 		triggerAutoAbilitiesForLeavesField(card, true);
-		triggerAutoAbilitiesForBreakZone(card, true);
+		triggerAutoAbilitiesForBreakZone(card, true, partySnapshot);
 	}
 
 	/** Removes P2's forward at {@code idx} from the field and sends it to P2's Break Zone. */
@@ -2427,6 +2434,13 @@ public class MainWindow {
 		boolean hadGrants      = !card.fieldPowerGrants().isEmpty();
 		boolean hadCostReduces = !card.fieldCostReductions().isEmpty() || p1HandHasSelfCostModifiers();
 		CardData topCard = p2ForwardPrimedTop.get(idx);
+		Set<CardData> partySnapshot = Collections.emptySet();
+		if (pendingP2PartyIndices != null && pendingP2PartyIndices.contains(idx)) {
+			partySnapshot = new HashSet<>();
+			for (int i : pendingP2PartyIndices) {
+				if (i >= 0 && i < p2ForwardCards.size()) partySnapshot.add(p2ForwardCards.get(i));
+			}
+		}
 
 		if (topCard != null) {
 			addToP2BreakZone(card);
@@ -2497,8 +2511,8 @@ public class MainWindow {
 		else p2ForwardsLeftFieldThisTurn++;
 		refreshP2BreakLabel();
 		triggerAutoAbilitiesForLeavesField(card, false);
-		triggerAutoAbilitiesForBreakZone(card, false);
-		if (topCard != null) triggerAutoAbilitiesForBreakZone(topCard, false);
+		triggerAutoAbilitiesForBreakZone(card, false, partySnapshot);
+		if (topCard != null) triggerAutoAbilitiesForBreakZone(topCard, false, Collections.emptySet());
 	}
 
 	// -------------------------------------------------------------------------
@@ -6979,7 +6993,7 @@ public class MainWindow {
 		}
 		refreshP2BreakLabel();
 		triggerAutoAbilitiesForLeavesField(c, false);
-		triggerAutoAbilitiesForBreakZone(c, false);
+		triggerAutoAbilitiesForBreakZone(c, false, Collections.emptySet());
 	}
 
 	private void breakP2MonsterSlot(int idx) {
@@ -7002,7 +7016,7 @@ public class MainWindow {
 			p2MonsterPanel.repaint();
 		}
 		refreshP2BreakLabel();
-		triggerAutoAbilitiesForBreakZone(c, false);
+		triggerAutoAbilitiesForBreakZone(c, false, Collections.emptySet());
 	}
 
 	/**
@@ -7473,13 +7487,44 @@ public class MainWindow {
 	private static final java.util.regex.Pattern BZ_SUBJECT_TYPE = java.util.regex.Pattern.compile(
 		"(?i)^a\\s+(?<type>Character|Forward|Backup|Monster)\\s+(?<ctrl>you|opponent)\\s+controls?$"
 	);
+	/** "Chocobo forming a party" — fires when the named card itself was in a party when broken. */
+	private static final java.util.regex.Pattern BZ_SUBJECT_SELF_PARTY = java.util.regex.Pattern.compile(
+		"(?i)^(?<name>.+?)\\s+forming\\s+a\\s+party$"
+	);
+	/** "a Forward forming a party with Bobby Corwen" — fires when another party member of the source card is broken. */
+	private static final java.util.regex.Pattern BZ_SUBJECT_PARTY_MEMBER = java.util.regex.Pattern.compile(
+		"(?i)^a\\s+Forward\\s+forming\\s+a\\s+party\\s+with\\s+(?<name>.+?)$"
+	);
 
 	/**
 	 * Returns true when the broken card satisfies the break-zone trigger subject of {@code fa}.
-	 * Handles named cards ("Geomancer") and type+controller phrases ("a Forward you control").
+	 * Handles named cards ("Geomancer"), type+controller phrases ("a Forward you control"),
+	 * and "forming a party" variants.
+	 *
+	 * @param source       the card that owns the auto-ability
+	 * @param partyMembers CardData objects that were in the attacker's party when the break occurred
 	 */
-	private boolean matchesBreakZoneSubject(AutoAbility fa, CardData broken, boolean brokenIsP1, boolean abilityOwnerIsP1) {
+	private boolean matchesBreakZoneSubject(AutoAbility fa, CardData source, CardData broken,
+			boolean brokenIsP1, boolean abilityOwnerIsP1, Set<CardData> partyMembers) {
 		String subject = fa.triggerCard().trim();
+
+		// "Chocobo forming a party" — broken card is the named card and was in a party
+		java.util.regex.Matcher selfPartyM = BZ_SUBJECT_SELF_PARTY.matcher(subject);
+		if (selfPartyM.matches()) {
+			String name = selfPartyM.group("name").trim();
+			return broken.name().equalsIgnoreCase(name) && partyMembers.contains(broken);
+		}
+
+		// "a Forward forming a party with Bobby Corwen" — another forward in source's party was broken
+		java.util.regex.Matcher partyMemberM = BZ_SUBJECT_PARTY_MEMBER.matcher(subject);
+		if (partyMemberM.matches()) {
+			String sourceName = partyMemberM.group("name").trim();
+			return broken.isForward()
+				&& !broken.name().equalsIgnoreCase(sourceName)
+				&& partyMembers.contains(broken)
+				&& partyMembers.contains(source);
+		}
+
 		java.util.regex.Matcher m = BZ_SUBJECT_TYPE.matcher(subject);
 		if (m.matches()) {
 			boolean selfCtrl     = m.group("ctrl").equalsIgnoreCase("you");
@@ -7499,24 +7544,29 @@ public class MainWindow {
 	/**
 	 * Fires "put into break zone" field abilities on all field cards whose subject matches
 	 * the card that just broke.  Must be called after the card is removed from the field.
+	 *
+	 * @param partyMembers the set of CardData objects that were in the attacking party at the time
+	 *                     of the break; empty when the break did not occur during a party attack
 	 */
-	private void triggerAutoAbilitiesForBreakZone(CardData broken, boolean brokenIsP1) {
+	private void triggerAutoAbilitiesForBreakZone(CardData broken, boolean brokenIsP1,
+			Set<CardData> partyMembers) {
 		for (int pass = 0; pass < 2; pass++) {
 			boolean ownerIsP1 = (pass == 0);
 			List<CardData> fwds = new ArrayList<>(ownerIsP1 ? p1ForwardCards : p2ForwardCards);
 			CardData[]     bkps = ownerIsP1 ? p1BackupCards : p2BackupCards;
 			List<CardData> mons = new ArrayList<>(ownerIsP1 ? p1MonsterCards : p2MonsterCards);
-			for (CardData c : fwds) fireBreakZoneTriggers(c, ownerIsP1, broken, brokenIsP1);
-			for (CardData c : bkps) if (c != null) fireBreakZoneTriggers(c, ownerIsP1, broken, brokenIsP1);
-			for (CardData c : mons) fireBreakZoneTriggers(c, ownerIsP1, broken, brokenIsP1);
+			for (CardData c : fwds) fireBreakZoneTriggers(c, ownerIsP1, broken, brokenIsP1, partyMembers);
+			for (CardData c : bkps) if (c != null) fireBreakZoneTriggers(c, ownerIsP1, broken, brokenIsP1, partyMembers);
+			for (CardData c : mons) fireBreakZoneTriggers(c, ownerIsP1, broken, brokenIsP1, partyMembers);
 		}
 		showStackWindowIfNeeded();
 	}
 
-	private void fireBreakZoneTriggers(CardData card, boolean ownerIsP1, CardData broken, boolean brokenIsP1) {
+	private void fireBreakZoneTriggers(CardData card, boolean ownerIsP1, CardData broken,
+			boolean brokenIsP1, Set<CardData> partyMembers) {
 		for (AutoAbility fa : card.autoAbilities()) {
 			if (!fa.trigger().equals("put into break zone")) continue;
-			if (!matchesBreakZoneSubject(fa, broken, brokenIsP1, ownerIsP1)) continue;
+			if (!matchesBreakZoneSubject(fa, card, broken, brokenIsP1, ownerIsP1, partyMembers)) continue;
 			executeAutoAbility(fa, card, ownerIsP1);
 		}
 	}
@@ -8737,7 +8787,7 @@ public class MainWindow {
 		}
 		refreshP1BreakLabel();
 		triggerAutoAbilitiesForLeavesField(c, true);
-		triggerAutoAbilitiesForBreakZone(c, true);
+		triggerAutoAbilitiesForBreakZone(c, true, Collections.emptySet());
 	}
 
 	private void breakP1MonsterSlot(int idx) {
@@ -8761,7 +8811,7 @@ public class MainWindow {
 		}
 		refreshP1BreakLabel();
 		triggerAutoAbilitiesForLeavesField(c, true);
-		triggerAutoAbilitiesForBreakZone(c, true);
+		triggerAutoAbilitiesForBreakZone(c, true, Collections.emptySet());
 	}
 
 	/**
