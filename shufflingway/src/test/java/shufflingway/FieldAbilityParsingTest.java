@@ -119,7 +119,9 @@ public class FieldAbilityParsingTest {
                 CardData.parseFieldCostReductions(textEn, rs.getString("type_en")),
                 CardData.parseSelfCostModifiers(textEn),
                 CardData.parseFieldPrimingAnyElements(textEn, rs.getString("type_en")),
+                CardData.parseFieldPartyAnyElements(textEn, rs.getString("type_en")),
                 CardData.parseWarpCostAnyElement(textEn),
+                CardData.parseCanFormPartyAnyElement(textEn),
                 rs.getString("job_en"),
                 rs.getString("category_1"), rs.getString("category_2"), textEn);
     }

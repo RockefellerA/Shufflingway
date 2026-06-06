@@ -380,6 +380,8 @@ public class MainWindow {
 	private boolean p1DiscardedByEffectThisTurn  = false;
 	private boolean p1CausedOpponentDiscardThisTurn = false;
 	private boolean p1FormedPartyThisTurn        = false;
+	private boolean p1PartyAnyElementThisTurn   = false;
+	private boolean p2PartyAnyElementThisTurn   = false;
 	private int     p2CardsCastThisTurn          = 0;
 	private boolean p2SummonCastThisTurn         = false;
 	private final Set<String> p2CastJobsThisTurn  = new HashSet<>();
@@ -448,6 +450,10 @@ public class MainWindow {
 	private boolean currentResolutionIsSummon = false;
 	/** Set to {@code true} by {@code returnNamedCardToYourHand} when the Summon itself is being returned to hand. */
 	private boolean pendingSummonReturnToHand = false;
+	/** Stack entries whose effect has been cancelled by Y'shtola or similar; checked and consumed at resolution. */
+	private final Set<StackEntry> cancelledStackEntries = Collections.newSetFromMap(new java.util.IdentityHashMap<>());
+	/** True while {@link #resolveTopOfStack} or EX Burst execution is running; suppresses {@link #showStackWindowIfNeeded}. */
+	private boolean isResolvingStack = false;
 	/** Set to {@code true} before placing a card whose ETF auto-ability should not fire (consumed on first trigger check). */
 	private boolean suppressAutoAbilityForNextCard = false;
 
@@ -1210,7 +1216,9 @@ public class MainWindow {
 							CardData.parseFieldCostReductions(tx, card.type()),
 							CardData.parseSelfCostModifiers(tx),
 							CardData.parseFieldPrimingAnyElements(tx, card.type()),
+							CardData.parseFieldPartyAnyElements(tx, card.type()),
 							CardData.parseWarpCostAnyElement(tx),
+							CardData.parseCanFormPartyAnyElement(tx),
 							card.job(), card.category1(), card.category2(), tx);
 					if (card.isLb()) lb.add(cd);
 					else             main.add(cd);
@@ -1236,7 +1244,9 @@ public class MainWindow {
 							CardData.parseFieldCostReductions(tx, card.type()),
 							CardData.parseSelfCostModifiers(tx),
 							CardData.parseFieldPrimingAnyElements(tx, card.type()),
+							CardData.parseFieldPartyAnyElements(tx, card.type()),
 							CardData.parseWarpCostAnyElement(tx),
+							CardData.parseCanFormPartyAnyElement(tx),
 							card.job(), card.category1(), card.category2(), tx);
 					if (card.isLb()) p2Lb.add(cd);
 					else             p2Main.add(cd);
@@ -1605,7 +1615,8 @@ public class MainWindow {
                             if (p2AutoPassTimer      != null) { p2AutoPassTimer.stop();         p2AutoPassTimer      = null; }
 
                             if (attackSubStep == 0) {
-                                // P1 passed priority — opponent auto-passes, then declare attackers
+                                // P1 passed priority — disable Next while opponent has priority
+                                if (nextPhaseButton != null) nextPhaseButton.setEnabled(false);
                                 p2AutoPass(() -> {
                                     setAttackSubStep(1);
                                     refreshPhaseTracker();
@@ -2356,6 +2367,13 @@ public class MainWindow {
 		boolean  hadGrants      = !card.fieldPowerGrants().isEmpty();
 		boolean  hadCostReduces = !card.fieldCostReductions().isEmpty() || p1HandHasSelfCostModifiers();
 		CardData topCard = p1ForwardPrimedTop.get(idx);
+		Set<CardData> partySnapshot = Collections.emptySet();
+		if (p1AttackSelection.contains(idx)) {
+			partySnapshot = new HashSet<>();
+			for (int i : p1AttackSelection) {
+				if (i >= 0 && i < p1ForwardCards.size()) partySnapshot.add(p1ForwardCards.get(i));
+			}
+		}
 
 		if (topCard != null) {
 			// Primed: both cards move to break zone, then top card is immediately RFP'd
@@ -2445,7 +2463,7 @@ public class MainWindow {
 		refreshP1BreakLabel();
 		if (topCard != null) refreshP1WarpZoneUI();
 		triggerAutoAbilitiesForLeavesField(card, true);
-		triggerAutoAbilitiesForBreakZone(card, true);
+		triggerAutoAbilitiesForBreakZone(card, true, partySnapshot);
 	}
 
 	/** Removes P2's forward at {@code idx} from the field and sends it to P2's Break Zone. */
@@ -2456,6 +2474,13 @@ public class MainWindow {
 		boolean hadGrants      = !card.fieldPowerGrants().isEmpty();
 		boolean hadCostReduces = !card.fieldCostReductions().isEmpty() || p1HandHasSelfCostModifiers();
 		CardData topCard = p2ForwardPrimedTop.get(idx);
+		Set<CardData> partySnapshot = Collections.emptySet();
+		if (pendingP2PartyIndices != null && pendingP2PartyIndices.contains(idx)) {
+			partySnapshot = new HashSet<>();
+			for (int i : pendingP2PartyIndices) {
+				if (i >= 0 && i < p2ForwardCards.size()) partySnapshot.add(p2ForwardCards.get(i));
+			}
+		}
 
 		if (topCard != null) {
 			addToP2BreakZone(card);
@@ -2526,8 +2551,8 @@ public class MainWindow {
 		else p2ForwardsLeftFieldThisTurn++;
 		refreshP2BreakLabel();
 		triggerAutoAbilitiesForLeavesField(card, false);
-		triggerAutoAbilitiesForBreakZone(card, false);
-		if (topCard != null) triggerAutoAbilitiesForBreakZone(topCard, false);
+		triggerAutoAbilitiesForBreakZone(card, false, partySnapshot);
+		if (topCard != null) triggerAutoAbilitiesForBreakZone(topCard, false, Collections.emptySet());
 	}
 
 	// -------------------------------------------------------------------------
@@ -6278,7 +6303,7 @@ public class MainWindow {
 		execCpAccum.keySet().stream().filter(e -> !e.isEmpty()).forEach(lastCastPaymentElements::add);
 		lastCastWasPaidByBackupsOnly = discardIndices.isEmpty() && !backupDullIndices.isEmpty();
 		gameState.removeFromHand(cardHandIdx);
-		activeCostReductions.removeIf(m -> m.matches(card));
+		activeCostReductions.removeIf(m -> m.consumeOnUse() && m.matches(card));
 		p1CardsCastThisTurn++;
 		for (String j : card.jobs()) p1CastJobsThisTurn.add(j.toLowerCase());
 		p1CastNamesThisTurn.add(card.name().toLowerCase());
@@ -6345,7 +6370,7 @@ public class MainWindow {
 				BorderFactory.createLineBorder(new Color(160, 110, 220), 2),
 				BorderFactory.createEmptyBorder(10, 14, 10, 14)));
 
-		String headerText = entry.isSummon() ? "S U M M O N" : "A C T I O N";
+		String headerText = entry.isSummon() ? "S U M M O N" : entry.isAutoAbility() ? "A U T O" : "A C T I O N";
 		JLabel header = new JLabel(headerText, SwingConstants.CENTER);
 		header.setFont(FontLoader.loadPixelNESFont(13));
 		header.setForeground(new Color(210, 170, 255));
@@ -6465,44 +6490,78 @@ public class MainWindow {
 		StackEntry entry = gameState.popStack();
 		if (entry == null) return;
 
-		GameContext ctx = buildGameContext(entry.isP1());
-		if (entry.isSummon()) {
-			String effectText = entry.effectText();
-			logEntry("[Summon] Resolving \"" + entry.source().name() + "\": " + effectText);
-			Consumer<GameContext> effect = ActionResolver.parse(effectText, entry.source());
-			if (effect != null) {
-				currentResolutionIsSummon   = true;
-				currentSummonSource     = entry.source();
-				currentSummonSourceIsP1 = entry.isP1();
-				pendingSummonReturnToHand   = false;
-				try { effect.accept(ctx); } finally {
-					currentResolutionIsSummon = false;
-					currentSummonSource   = null;
-				}
-			} else logEntry("[ActionResolver] Summon effect not yet implemented: " + effectText);
-			triggerAutoAbilitiesForCastSummon(entry.isP1());
-			if (pendingSummonReturnToHand) {
-				gameState.getP1Hand().add(entry.source());
-				logEntry("\"" + entry.source().name() + "\" → Hand");
-				refreshP1HandLabel();
-				pendingSummonReturnToHand = false;
-			} else {
+		if (cancelledStackEntries.remove(entry)) {
+			String pfx = entry.isP1() ? "" : "[P2] ";
+			logEntry(pfx + "\"" + entry.source().name() + "\" — effect cancelled");
+			if (entry.isSummon()) {
 				addToP1BreakZone(entry.source());
 				logEntry("\"" + entry.source().name() + "\" → Break Zone");
 				refreshP1BreakLabel();
 			}
-		} else {
-			currentAbilitySource = entry.source();
-			try {
-				ActionResolver.resolve(entry.ability(), entry.source(), gameState, ctx, entry.xValue());
-			} finally {
-				currentAbilitySource = null;
+			if (!gameState.getStack().isEmpty()) showStackWindow();
+			return;
+		}
+
+		isResolvingStack = true;
+		try {
+			GameContext ctx = buildGameContext(entry.isP1());
+			if (entry.isSummon()) {
+				String effectText = entry.effectText();
+				logEntry("[Summon] Resolving \"" + entry.source().name() + "\": " + effectText);
+				Consumer<GameContext> effect = ActionResolver.parse(effectText, entry.source());
+				if (effect != null) {
+					currentResolutionIsSummon   = true;
+					currentSummonSource     = entry.source();
+					currentSummonSourceIsP1 = entry.isP1();
+					pendingSummonReturnToHand   = false;
+					try { effect.accept(ctx); } finally {
+						currentResolutionIsSummon = false;
+						currentSummonSource   = null;
+					}
+				} else logEntry("[ActionResolver] Summon effect not yet implemented: " + effectText);
+				triggerAutoAbilitiesForCastSummon(entry.isP1());
+				if (pendingSummonReturnToHand) {
+					gameState.getP1Hand().add(entry.source());
+					logEntry("\"" + entry.source().name() + "\" → Hand");
+					refreshP1HandLabel();
+					pendingSummonReturnToHand = false;
+				} else {
+					addToP1BreakZone(entry.source());
+					logEntry("\"" + entry.source().name() + "\" → Break Zone");
+					refreshP1BreakLabel();
+				}
+			} else if (entry.isAutoAbility()) {
+				AutoAbility ab = entry.autoAbility();
+				logEntry("[AutoAbility] Resolving \"" + entry.source().name() + "\": " + ab.effectText());
+				Consumer<GameContext> effect = ActionResolver.parse(ab.effectText(), entry.source());
+				if (effect != null) {
+					currentAbilitySource = entry.source();
+					try { effect.accept(ctx); } finally { currentAbilitySource = null; }
+				} else {
+					logEntry("[AutoAbility] Unrecognized effect: " + ab.effectText());
+				}
+				refreshP1HandLabel();
+				refreshP1BreakLabel();
+			} else {
+				currentAbilitySource = entry.source();
+				try {
+					ActionResolver.resolve(entry.ability(), entry.source(), gameState, ctx, entry.xValue());
+				} finally {
+					currentAbilitySource = null;
+				}
+				refreshP1HandLabel();
+				refreshP1BreakLabel();
 			}
-			refreshP1HandLabel();
-			refreshP1BreakLabel();
+		} finally {
+			isResolvingStack = false;
 		}
 
 		if (!gameState.getStack().isEmpty()) showStackWindow();
+	}
+
+	/** Calls {@link #showStackWindow()} only when we are not already inside a stack resolution chain. */
+	private void showStackWindowIfNeeded() {
+		if (!isResolvingStack && !gameState.getStack().isEmpty()) showStackWindow();
 	}
 
 	/**
@@ -7077,7 +7136,7 @@ public class MainWindow {
 		}
 		refreshP2BreakLabel();
 		triggerAutoAbilitiesForLeavesField(c, false);
-		triggerAutoAbilitiesForBreakZone(c, false);
+		triggerAutoAbilitiesForBreakZone(c, false, Collections.emptySet());
 	}
 
 	private void breakP2MonsterSlot(int idx) {
@@ -7102,7 +7161,7 @@ public class MainWindow {
 			p2MonsterPanel.repaint();
 		}
 		refreshP2BreakLabel();
-		triggerAutoAbilitiesForBreakZone(c, false);
+		triggerAutoAbilitiesForBreakZone(c, false, Collections.emptySet());
 	}
 
 	/**
@@ -7494,6 +7553,7 @@ public class MainWindow {
 		// Re-evaluate all conditional field boosts now that the field composition has changed
 		refreshAllForwardSlots();
 		for (int i = 0; i < p2ForwardCards.size(); i++) refreshP2ForwardSlot(i);
+		showStackWindowIfNeeded();
 	}
 
 	private void triggerAutoAbilitiesForDealsDamageToOpponent(CardData attacker, boolean attackerIsP1) {
@@ -7501,6 +7561,7 @@ public class MainWindow {
 			if (!fa.triggerCard().equalsIgnoreCase(attacker.name())) continue;
 			if (fa.trigger().equals("deals damage to opponent")) executeAutoAbility(fa, attacker, attackerIsP1);
 		}
+		showStackWindowIfNeeded();
 	}
 
 	private void triggerAutoAbilitiesForPrimedInto(CardData primingCard, CardData primedCard, boolean primedCardIsP1) {
@@ -7508,6 +7569,7 @@ public class MainWindow {
 			if (!fa.triggerCard().equalsIgnoreCase(primingCard.name())) continue;
 			if (fa.trigger().equals("primed into")) executeAutoAbility(fa, primedCard, primedCardIsP1);
 		}
+		showStackWindowIfNeeded();
 	}
 
 	private void triggerAutoAbilitiesForAttack(CardData card, boolean isP1) {
@@ -7524,6 +7586,7 @@ public class MainWindow {
 			for (Consumer<GameContext> effect : effects)
 				effect.accept(ctx);
 		}
+		showStackWindowIfNeeded();
 	}
 
 	private void triggerAutoAbilitiesForBlock(CardData card, boolean isP1) {
@@ -7541,6 +7604,7 @@ public class MainWindow {
 			for (Consumer<GameContext> effect : effects)
 				effect.accept(ctx);
 		}
+		showStackWindowIfNeeded();
 	}
 
 	private void triggerAutoAbilitiesForIsBlocked(CardData card, boolean isP1) {
@@ -7550,37 +7614,110 @@ public class MainWindow {
 			if (t.equals("is blocked") || t.equals("blocks or is blocked"))
 				executeAutoAbility(fa, card, isP1);
 		}
+		showStackWindowIfNeeded();
 	}
 
-	/** Fires "party attacks" field abilities on every card the controller has on the field. */
-	private void triggerAutoAbilitiesForPartyAttack(boolean isP1) {
-		List<CardData> fwds = isP1 ? p1ForwardCards : p2ForwardCards;
-		for (int i = 0; i < fwds.size(); i++) {
-			CardData card = fwds.get(i);
-			for (AutoAbility fa : card.autoAbilities())
-				if (fa.trigger().equals("party attacks"))
-					executeAutoAbility(fa, card, isP1);
+	/**
+	 * Fires "party attacks" field abilities on every card the controller has on the field,
+	 * filtering by any party-composition requirements encoded in the {@link AutoAbility}.
+	 *
+	 * @param partyMembers the CardData objects that are attacking in the party
+	 */
+	private void triggerAutoAbilitiesForPartyAttack(boolean isP1, List<CardData> partyMembers) {
+		List<CardData> fwds = new ArrayList<>(isP1 ? p1ForwardCards : p2ForwardCards);
+		for (CardData card : fwds) {
+			for (AutoAbility fa : card.autoAbilities()) {
+				if (!fa.trigger().equals("party attacks")) continue;
+				if (!partyAttackMatchesFilter(fa, partyMembers)) continue;
+				executeAutoAbility(fa, card, isP1);
+			}
 		}
 		CardData[] bkps = isP1 ? p1BackupCards : p2BackupCards;
 		for (CardData card : bkps) {
 			if (card == null) continue;
-			for (AutoAbility fa : card.autoAbilities())
-				if (fa.trigger().equals("party attacks"))
-					executeAutoAbility(fa, card, isP1);
+			for (AutoAbility fa : card.autoAbilities()) {
+				if (!fa.trigger().equals("party attacks")) continue;
+				if (!partyAttackMatchesFilter(fa, partyMembers)) continue;
+				executeAutoAbility(fa, card, isP1);
+			}
 		}
+		showStackWindowIfNeeded();
+	}
+
+	/** Returns true when the party composition satisfies all filter fields of a "party attacks" ability. */
+	private boolean partyAttackMatchesFilter(AutoAbility fa, List<CardData> partyMembers) {
+		if (fa.partyCardName() != null) {
+			boolean found = partyMembers.stream()
+					.anyMatch(m -> m.name().equalsIgnoreCase(fa.partyCardName()));
+			if (!found) return false;
+		}
+		if (fa.partyMinCount() > 0) {
+			long qualifying = partyMembers.stream()
+					.filter(m -> partyMemberMatchesCountFilter(m, fa))
+					.count();
+			if (qualifying < fa.partyMinCount()) return false;
+		}
+		return true;
+	}
+
+	/** Returns true when {@code member} satisfies the category/job filter of a party-attack ability. */
+	private boolean partyMemberMatchesCountFilter(CardData member, AutoAbility fa) {
+		if (fa.partyCategory() != null) {
+			boolean hasCategory =
+					(member.category1() != null && member.category1().equalsIgnoreCase(fa.partyCategory())) ||
+					(member.category2() != null && member.category2().equalsIgnoreCase(fa.partyCategory()));
+			if (!hasCategory) return false;
+		}
+		if (fa.partyJob() != null) {
+			boolean hasJob = member.jobs().stream()
+					.anyMatch(j -> j.equalsIgnoreCase(fa.partyJob()));
+			if (!hasJob) return false;
+		}
+		return true;
 	}
 
 	/** Subject pattern for break-zone triggers: "a [Type] [you|opponent] control[s]". */
 	private static final java.util.regex.Pattern BZ_SUBJECT_TYPE = java.util.regex.Pattern.compile(
 		"(?i)^a\\s+(?<type>Character|Forward|Backup|Monster)\\s+(?<ctrl>you|opponent)\\s+controls?$"
 	);
+	/** "Chocobo forming a party" — fires when the named card itself was in a party when broken. */
+	private static final java.util.regex.Pattern BZ_SUBJECT_SELF_PARTY = java.util.regex.Pattern.compile(
+		"(?i)^(?<name>.+?)\\s+forming\\s+a\\s+party$"
+	);
+	/** "a Forward forming a party with Bobby Corwen" — fires when another party member of the source card is broken. */
+	private static final java.util.regex.Pattern BZ_SUBJECT_PARTY_MEMBER = java.util.regex.Pattern.compile(
+		"(?i)^a\\s+Forward\\s+forming\\s+a\\s+party\\s+with\\s+(?<name>.+?)$"
+	);
 
 	/**
 	 * Returns true when the broken card satisfies the break-zone trigger subject of {@code fa}.
-	 * Handles named cards ("Geomancer") and type+controller phrases ("a Forward you control").
+	 * Handles named cards ("Geomancer"), type+controller phrases ("a Forward you control"),
+	 * and "forming a party" variants.
+	 *
+	 * @param source       the card that owns the auto-ability
+	 * @param partyMembers CardData objects that were in the attacker's party when the break occurred
 	 */
-	private boolean matchesBreakZoneSubject(AutoAbility fa, CardData broken, boolean brokenIsP1, boolean abilityOwnerIsP1) {
+	private boolean matchesBreakZoneSubject(AutoAbility fa, CardData source, CardData broken,
+			boolean brokenIsP1, boolean abilityOwnerIsP1, Set<CardData> partyMembers) {
 		String subject = fa.triggerCard().trim();
+
+		// "Chocobo forming a party" — broken card is the named card and was in a party
+		java.util.regex.Matcher selfPartyM = BZ_SUBJECT_SELF_PARTY.matcher(subject);
+		if (selfPartyM.matches()) {
+			String name = selfPartyM.group("name").trim();
+			return broken.name().equalsIgnoreCase(name) && partyMembers.contains(broken);
+		}
+
+		// "a Forward forming a party with Bobby Corwen" — another forward in source's party was broken
+		java.util.regex.Matcher partyMemberM = BZ_SUBJECT_PARTY_MEMBER.matcher(subject);
+		if (partyMemberM.matches()) {
+			String sourceName = partyMemberM.group("name").trim();
+			return broken.isForward()
+				&& !broken.name().equalsIgnoreCase(sourceName)
+				&& partyMembers.contains(broken)
+				&& partyMembers.contains(source);
+		}
+
 		java.util.regex.Matcher m = BZ_SUBJECT_TYPE.matcher(subject);
 		if (m.matches()) {
 			boolean selfCtrl     = m.group("ctrl").equalsIgnoreCase("you");
@@ -7600,23 +7737,29 @@ public class MainWindow {
 	/**
 	 * Fires "put into break zone" field abilities on all field cards whose subject matches
 	 * the card that just broke.  Must be called after the card is removed from the field.
+	 *
+	 * @param partyMembers the set of CardData objects that were in the attacking party at the time
+	 *                     of the break; empty when the break did not occur during a party attack
 	 */
-	private void triggerAutoAbilitiesForBreakZone(CardData broken, boolean brokenIsP1) {
+	private void triggerAutoAbilitiesForBreakZone(CardData broken, boolean brokenIsP1,
+			Set<CardData> partyMembers) {
 		for (int pass = 0; pass < 2; pass++) {
 			boolean ownerIsP1 = (pass == 0);
 			List<CardData> fwds = new ArrayList<>(ownerIsP1 ? p1ForwardCards : p2ForwardCards);
 			CardData[]     bkps = ownerIsP1 ? p1BackupCards : p2BackupCards;
 			List<CardData> mons = new ArrayList<>(ownerIsP1 ? p1MonsterCards : p2MonsterCards);
-			for (CardData c : fwds) fireBreakZoneTriggers(c, ownerIsP1, broken, brokenIsP1);
-			for (CardData c : bkps) if (c != null) fireBreakZoneTriggers(c, ownerIsP1, broken, brokenIsP1);
-			for (CardData c : mons) fireBreakZoneTriggers(c, ownerIsP1, broken, brokenIsP1);
+			for (CardData c : fwds) fireBreakZoneTriggers(c, ownerIsP1, broken, brokenIsP1, partyMembers);
+			for (CardData c : bkps) if (c != null) fireBreakZoneTriggers(c, ownerIsP1, broken, brokenIsP1, partyMembers);
+			for (CardData c : mons) fireBreakZoneTriggers(c, ownerIsP1, broken, brokenIsP1, partyMembers);
 		}
+		showStackWindowIfNeeded();
 	}
 
-	private void fireBreakZoneTriggers(CardData card, boolean ownerIsP1, CardData broken, boolean brokenIsP1) {
+	private void fireBreakZoneTriggers(CardData card, boolean ownerIsP1, CardData broken,
+			boolean brokenIsP1, Set<CardData> partyMembers) {
 		for (AutoAbility fa : card.autoAbilities()) {
 			if (!fa.trigger().equals("put into break zone")) continue;
-			if (!matchesBreakZoneSubject(fa, broken, brokenIsP1, ownerIsP1)) continue;
+			if (!matchesBreakZoneSubject(fa, card, broken, brokenIsP1, ownerIsP1, partyMembers)) continue;
 			executeAutoAbility(fa, card, ownerIsP1);
 		}
 	}
@@ -7635,6 +7778,7 @@ public class MainWindow {
 		// Re-evaluate all conditional field boosts now that the field composition has changed
 		refreshAllForwardSlots();
 		for (int i = 0; i < p2ForwardCards.size(); i++) refreshP2ForwardSlot(i);
+		showStackWindowIfNeeded();
 	}
 
 	/** Fires "cast summon" field abilities for all field cards belonging to the casting player. */
@@ -7757,6 +7901,7 @@ public class MainWindow {
 				if (fa.trigger().equals("warp placed")
 						&& fa.triggerCard().equalsIgnoreCase(warped.name()))
 					executeAutoAbility(fa, card, true);
+		showStackWindowIfNeeded();
 	}
 
 	/**
@@ -7775,6 +7920,7 @@ public class MainWindow {
 				if (fa.trigger().equals("warp counter removed")
 						&& (fa.triggerCard().equalsIgnoreCase("any player's card") || fa.triggerCard().equalsIgnoreCase(target.name())))
 					executeAutoAbility(fa, card, true);
+		showStackWindowIfNeeded();
 	}
 
 	private void triggerAutoAbilitiesForEvent(String triggerType, boolean isP1) {
@@ -7784,6 +7930,7 @@ public class MainWindow {
 		for (CardData c : fwds) fireEventTriggers(c, isP1, triggerType);
 		for (CardData c : bkps) if (c != null) fireEventTriggers(c, isP1, triggerType);
 		for (CardData c : mons) fireEventTriggers(c, isP1, triggerType);
+		showStackWindowIfNeeded();
 	}
 
 	private void fireEventTriggers(CardData card, boolean isP1, String triggerType) {
@@ -7878,14 +8025,13 @@ public class MainWindow {
 			return;
 		}
 
-		Consumer<GameContext> effect = ActionResolver.parse(fa.effectText(), source);
-		if (effect == null) {
+		// Verify the effect is parseable before putting it on the stack.
+		if (ActionResolver.parse(fa.effectText(), source) == null) {
 			logEntry("[AutoAbility] Unrecognized effect: " + fa.effectText());
 			return;
 		}
 
-		// P1 (human) decides when: they control the card and "you may", or
-		// they are the opponent of P2's "your opponent may" ability.
+		// youMay / opponentMay: player decides at trigger time whether to put ability on stack.
 		boolean p1GetsDialog = (fa.youMay() && isP1) || (fa.opponentMay() && !isP1);
 		if (p1GetsDialog) {
 			String prompt = (fa.youMay() ? "You may: " : "Your opponent may: ") + fa.effectText();
@@ -7902,8 +8048,8 @@ public class MainWindow {
 		if (fa.oncePerTurn())
 			usedOncePerTurnAbilities.computeIfAbsent(source, k -> new HashSet<>()).add(fa.effectText());
 
-		logEntry("[AutoAbility] " + source.name() + " — " + fa.effectText());
-		effect.accept(buildGameContext(effectIsP1));
+		logEntry("[AutoAbility] " + source.name() + " — pushed to stack");
+		gameState.pushStack(new StackEntry(source, null, fa, effectIsP1, 0));
 	}
 
 	private void executeCounterRemovalWhenDoSoAutoAbility(AutoAbility fa, CardData source,
@@ -8837,7 +8983,7 @@ public class MainWindow {
 		}
 		refreshP1BreakLabel();
 		triggerAutoAbilitiesForLeavesField(c, true);
-		triggerAutoAbilitiesForBreakZone(c, true);
+		triggerAutoAbilitiesForBreakZone(c, true, Collections.emptySet());
 	}
 
 	private void breakP1MonsterSlot(int idx) {
@@ -8863,7 +9009,7 @@ public class MainWindow {
 		}
 		refreshP1BreakLabel();
 		triggerAutoAbilitiesForLeavesField(c, true);
-		triggerAutoAbilitiesForBreakZone(c, true);
+		triggerAutoAbilitiesForBreakZone(c, true, Collections.emptySet());
 	}
 
 	/**
@@ -9268,7 +9414,8 @@ public class MainWindow {
 				int mult = outgoingDmgMultiplierMap.getOrDefault(currentAbilitySource, 1);
 				if (nextOutgoingDmgDoublerSet.remove(currentAbilitySource)) mult *= 2;
 				mult *= (isP1 ? p1AbilityOutgoingDmgMult : p2AbilityOutgoingDmgMult);
-				return amount * mult;
+				int flat = outgoingDmgFlatBoostMap.getOrDefault(currentAbilitySource, 0);
+				return amount * mult + flat;
 			}
 
 			private int applyOutgoingFieldAbilityMult(int amount, CardData target) {
@@ -9527,16 +9674,19 @@ public class MainWindow {
 			}
 
 			@Override public String selectElement(String prompt) {
-				String[] elems = ActionResolver.ELEMENT_NAMES;
+				return selectOption(prompt, ActionResolver.ELEMENT_NAMES);
+			}
+
+			@Override public String selectOption(String prompt, String[] choices) {
 				if (!isP1) {
-					String picked = elems[(int)(Math.random() * elems.length)];
-					logEntry("[AI] named Element: " + picked);
+					String picked = choices[(int)(Math.random() * choices.length)];
+					logEntry("[AI] chose: " + picked);
 					return picked;
 				}
 				return (String) javax.swing.JOptionPane.showInputDialog(
-						frame, prompt, "Select Element",
+						frame, prompt, "Choose",
 						javax.swing.JOptionPane.PLAIN_MESSAGE,
-						null, elems, elems[0]);
+						null, choices, choices[0]);
 			}
 
 			@Override public void shieldJobForwardsCannotBeChosen(String job, String excludeName,
@@ -10123,8 +10273,42 @@ public class MainWindow {
 				return showBreakZoneSelectDialog(eligible, bz, maxCount, upTo, title);
 			}
 
-			@Override public void cancelSummonOnStack() {
-				logEntry("[ActionResolver] Cancel Summon on stack — not yet implemented");
+			@Override public void cancelStackEntry() {
+				// Y'shtola can only cancel Summons and auto-abilities, not action abilities.
+				List<StackEntry> targets = gameState.getStack().stream()
+						.filter(e -> e.isSummon() || e.isAutoAbility())
+						.collect(java.util.stream.Collectors.toList());
+				if (targets.isEmpty()) {
+					logEntry("No Summons or auto-abilities on the stack to cancel");
+					return;
+				}
+				StackEntry chosen;
+				if (targets.size() == 1) {
+					chosen = targets.get(0);
+				} else if (isP1) {
+					String[] options = new String[targets.size()];
+					for (int i = 0; i < targets.size(); i++) {
+						StackEntry e = targets.get(i);
+						String type  = e.isSummon() ? "Summon" : "Auto";
+						String owner = e.isP1() ? "P1" : "P2";
+						options[i] = e.source().name() + " (" + type + ", " + owner + ")";
+					}
+					Object sel = JOptionPane.showInputDialog(frame,
+							"Choose 1 Summon or auto-ability to cancel:",
+							"Cancel Effect", JOptionPane.PLAIN_MESSAGE, null, options, options[0]);
+					if (sel == null) return;
+					int idx = java.util.Arrays.asList(options).indexOf(sel.toString());
+					if (idx < 0) return;
+					chosen = targets.get(idx);
+				} else {
+					// AI: target the most recently pushed opponent (P1) entry
+					chosen = targets.stream().filter(e -> e.isP1())
+							.reduce((a, b) -> b).orElse(targets.get(targets.size() - 1));
+					logEntry("[AI] Chose to cancel: " + chosen.source().name());
+				}
+				cancelledStackEntries.add(chosen);
+				String type = chosen.isSummon() ? "Summon" : "auto-ability";
+				logEntry("Effect: " + chosen.source().name() + "'s " + type + " effect will be cancelled");
 			}
 
 			@Override public void forceTargetToBreakZone(ForwardTarget t) {
@@ -11256,12 +11440,27 @@ public class MainWindow {
 				}
 			}
 
+			private boolean forwardHasAnyTrait(boolean p1Side, int idx, java.util.EnumSet<CardData.Trait> traitFilter) {
+				if (traitFilter.isEmpty()) return true;
+				java.util.List<java.util.EnumSet<CardData.Trait>> tempList = p1Side ? p1ForwardTempTraits : p2ForwardTempTraits;
+				java.util.List<java.util.EnumSet<CardData.Trait>> rmList   = p1Side ? p1ForwardRemovedTraits : p2ForwardRemovedTraits;
+				CardData c = p1Side ? p1Forward(idx) : p2ForwardCards.get(idx);
+				java.util.Set<CardData.Trait> base = c.traits();
+				java.util.EnumSet<CardData.Trait> temp = idx < tempList.size() ? tempList.get(idx) : null;
+				java.util.EnumSet<CardData.Trait> rem  = idx < rmList.size()   ? rmList.get(idx)   : null;
+				for (CardData.Trait t : traitFilter) {
+					boolean has = base.contains(t) || (temp != null && temp.contains(t));
+					if (has && (rem == null || !rem.contains(t))) return true;
+				}
+				return false;
+			}
+
 			@Override
 			public void applyMassFieldEffect(GameContext.MassAction action,
 					boolean forwards, boolean backups, boolean monsters,
 					boolean opponentOnly, boolean selfOnly,
 					String element, int costVal, String costCmp, int excludeCostVal,
-					String job, String category) {
+					String job, String category, java.util.EnumSet<CardData.Trait> traitFilter) {
 				boolean touchP1 = isP1 ? !opponentOnly : !selfOnly;
 				boolean touchP2 = isP1 ? !selfOnly     : !opponentOnly;
 				if (touchP1) {
@@ -11274,6 +11473,7 @@ public class MainWindow {
 							if (excludeCostVal >= 0 && c.cost() == excludeCostVal) continue;
 							if (!meetsJobFilter(c, job)) continue;
 							if (!meetsCategoryFilter(c, category)) continue;
+							if (!forwardHasAnyTrait(true, i, traitFilter)) continue;
 							switch (action) {
 								case BREAK          -> breakP1Forward(i);
 								case DULL           -> dullP1Forward(i);
@@ -11353,6 +11553,7 @@ public class MainWindow {
 							if (excludeCostVal >= 0 && c.cost() == excludeCostVal) continue;
 							if (!meetsJobFilter(c, job)) continue;
 							if (!meetsCategoryFilter(c, category)) continue;
+							if (!forwardHasAnyTrait(false, i, traitFilter)) continue;
 							switch (action) {
 								case BREAK          -> breakP2Forward(i);
 								case DULL           -> dullP2Forward(i);
@@ -11741,17 +11942,59 @@ public class MainWindow {
 					logEntry("[P2] " + p2ForwardCards.get(idx).name() + " gains the Job [" + job + "] until end of turn");
 				}
 			}
+
+			@Override public String[] selectElementAndJob(String prompt) {
+				if (!isP1) {
+					String elem = ActionResolver.ELEMENT_NAMES[(int)(Math.random() * ActionResolver.ELEMENT_NAMES.length)];
+					java.util.List<String> jobs = loadJobsFromDb();
+					String job  = jobs.isEmpty() ? "Warrior" : jobs.get((int)(Math.random() * jobs.size()));
+					logEntry("[AI] named Element: " + elem + ", Job: " + job);
+					return new String[]{elem, job};
+				}
+				return showElementAndJobDialog(prompt);
+			}
+
+			@Override public void changeSourceCardElementAndJobUntilEOT(CardData source, String element, String job) {
+				for (boolean p1s : new boolean[]{true, false}) {
+					List<CardData> fwds = p1s ? p1ForwardCards : p2ForwardCards;
+					for (int i = 0; i < fwds.size(); i++) {
+						if (fwds.get(i) != source) continue;
+						final String prevElem = elementOverrideMap.get(source);
+						elementOverrideMap.put(source, element);
+						endOfTurnEffects.add(x -> {
+							if (prevElem != null) elementOverrideMap.put(source, prevElem);
+							else                  elementOverrideMap.remove(source);
+						});
+						List<String> tempJobs = p1s ? p1ForwardTempJobs : p2ForwardTempJobs;
+						final int idx = i;
+						final String prevJob = idx < tempJobs.size() ? tempJobs.get(idx) : null;
+						if (idx < tempJobs.size()) tempJobs.set(idx, job);
+						endOfTurnEffects.add(x -> { if (idx < tempJobs.size()) tempJobs.set(idx, prevJob); });
+						logEntry(source.name() + " → becomes " + element + " element, Job [" + job + "] until end of turn");
+						return;
+					}
+				}
+				logEntry("[changeSourceCardElementAndJobUntilEOT] " + source.name() + " not found in forward slots");
+			}
+
+			@Override public void grantForwardsPartyAnyElementThisTurn() {
+				if (isP1) {
+					p1PartyAnyElementThisTurn = true;
+					endOfTurnEffects.add(x -> p1PartyAnyElementThisTurn = false);
+				} else {
+					p2PartyAnyElementThisTurn = true;
+					endOfTurnEffects.add(x -> p2PartyAnyElementThisTurn = false);
+				}
+				logEntry((isP1 ? "P1" : "[P2]") + " Forwards can form a party with Forwards of any Element this turn");
+			}
 		};
 	}
 
-	/** Loads every distinct job name from the database and shows a sorted dropdown dialog. */
-	private String showJobSelectionDialog(boolean interactive) {
-		java.io.File dbFile = new java.io.File("shufflingway.db");
-		if (!dbFile.exists()) {
-			logEntry("[Job select] shufflingway.db not found");
-			return null;
-		}
+	/** Loads every distinct job name from the database, returning a sorted list. */
+	private java.util.List<String> loadJobsFromDb() {
 		java.util.List<String> jobs = new java.util.ArrayList<>();
+		java.io.File dbFile = new java.io.File("shufflingway.db");
+		if (!dbFile.exists()) return jobs;
 		try (java.sql.Connection conn = java.sql.DriverManager.getConnection(
 				"jdbc:sqlite:" + dbFile.getAbsolutePath());
 			 java.sql.Statement stmt = conn.createStatement();
@@ -11761,6 +12004,77 @@ public class MainWindow {
 		} catch (Exception e) {
 			logEntry("[Job select] DB error: " + e.getMessage());
 		}
+		return jobs;
+	}
+
+	/**
+	 * Shows a combined dialog for naming 1 Element and 1 Job.
+	 * The OK button stays disabled until both dropdowns have a real selection.
+	 * Returns {@code {element, job}} or {@code null} if cancelled.
+	 */
+	private String[] showElementAndJobDialog(String prompt) {
+		java.util.List<String> jobs = loadJobsFromDb();
+		if (jobs.isEmpty()) {
+			logEntry("[Element+Job dialog] no jobs found in DB");
+			return null;
+		}
+
+		String[] elemItems = new String[ActionResolver.ELEMENT_NAMES.length + 1];
+		elemItems[0] = "— Element —";
+		System.arraycopy(ActionResolver.ELEMENT_NAMES, 0, elemItems, 1, ActionResolver.ELEMENT_NAMES.length);
+
+		String[] jobItems = new String[jobs.size() + 1];
+		jobItems[0] = "— Job —";
+		for (int i = 0; i < jobs.size(); i++) jobItems[i + 1] = jobs.get(i);
+
+		javax.swing.JComboBox<String> elemCombo = new javax.swing.JComboBox<>(elemItems);
+		javax.swing.JComboBox<String> jobCombo  = new javax.swing.JComboBox<>(jobItems);
+
+		javax.swing.JButton okBtn = new javax.swing.JButton("OK");
+		okBtn.setEnabled(false);
+		Runnable checkReady = () -> okBtn.setEnabled(
+				elemCombo.getSelectedIndex() > 0 && jobCombo.getSelectedIndex() > 0);
+		elemCombo.addItemListener(e -> checkReady.run());
+		jobCombo.addItemListener(e -> checkReady.run());
+
+		javax.swing.JPanel panel = new javax.swing.JPanel(new java.awt.GridBagLayout());
+		java.awt.GridBagConstraints gc = new java.awt.GridBagConstraints();
+		gc.insets = new java.awt.Insets(4, 4, 4, 4);
+		gc.anchor = java.awt.GridBagConstraints.WEST;
+
+		gc.gridx = 0; gc.gridy = 0; panel.add(new javax.swing.JLabel(prompt), gc);
+		gc.gridx = 0; gc.gridy = 1; panel.add(new javax.swing.JLabel("Element:"), gc);
+		gc.gridx = 1; gc.gridy = 1; panel.add(elemCombo, gc);
+		gc.gridx = 0; gc.gridy = 2; panel.add(new javax.swing.JLabel("Job:"), gc);
+		gc.gridx = 1; gc.gridy = 2; panel.add(jobCombo, gc);
+
+		String[] result = {null, null};
+		javax.swing.JDialog dialog = new javax.swing.JDialog(frame, "Name Element and Job", true);
+		okBtn.addActionListener(e -> {
+			result[0] = (String) elemCombo.getSelectedItem();
+			result[1] = (String) jobCombo.getSelectedItem();
+			dialog.dispose();
+		});
+		javax.swing.JButton cancelBtn = new javax.swing.JButton("Cancel");
+		cancelBtn.addActionListener(e -> dialog.dispose());
+
+		javax.swing.JPanel buttons = new javax.swing.JPanel();
+		buttons.add(okBtn);
+		buttons.add(cancelBtn);
+
+		dialog.setLayout(new java.awt.BorderLayout());
+		dialog.add(panel, java.awt.BorderLayout.CENTER);
+		dialog.add(buttons, java.awt.BorderLayout.SOUTH);
+		dialog.pack();
+		dialog.setLocationRelativeTo(frame);
+		dialog.setVisible(true);
+
+		return result[0] != null ? result : null;
+	}
+
+	/** Loads every distinct job name from the database and shows a sorted dropdown dialog. */
+	private String showJobSelectionDialog(boolean interactive) {
+		java.util.List<String> jobs = loadJobsFromDb();
 		if (jobs.isEmpty()) return null;
 		if (!interactive) {
 			String picked = jobs.get((int) (Math.random() * jobs.size()));
@@ -13158,6 +13472,54 @@ public class MainWindow {
 		return true;
 	}
 
+	/**
+	 * Returns {@code true} if the forward at {@code idx} on the given player's side is a
+	 * party-element wildcard — either intrinsically, via an active field ability from a card
+	 * on the same player's field, or via a turn-scoped grant.
+	 */
+	private boolean effectiveCanFormPartyAnyElement(boolean isP1, int idx) {
+		List<CardData> fwds = isP1 ? p1ForwardCards : p2ForwardCards;
+		if (idx < 0 || idx >= fwds.size()) return false;
+		CardData fwd = fwds.get(idx);
+		if (fwd.canFormPartyAnyElement()) return true;
+		if (isP1 ? p1PartyAnyElementThisTurn : p2PartyAnyElementThisTurn) return true;
+		// Check permanent field-ability grants from any card on the same player's field
+		List<CardData> srcFwds = isP1 ? p1ForwardCards : p2ForwardCards;
+		CardData[] srcBkps     = isP1 ? p1BackupCards  : p2BackupCards;
+		List<CardData> srcMons = isP1 ? p1MonsterCards : p2MonsterCards;
+		for (CardData src : srcFwds) for (FieldPartyAnyElement g : src.fieldPartyAnyElements()) if (g.appliesToCard(fwd)) return true;
+		for (CardData src : srcBkps) if (src != null) for (FieldPartyAnyElement g : src.fieldPartyAnyElements()) if (g.appliesToCard(fwd)) return true;
+		for (CardData src : srcMons) for (FieldPartyAnyElement g : src.fieldPartyAnyElements()) if (g.appliesToCard(fwd)) return true;
+		return false;
+	}
+
+	/**
+	 * Returns the set of elements common to all non-wildcard members of {@code party},
+	 * or {@code null} if every member is a wildcard (all-wildcard party, no element constraint).
+	 * An empty set means the non-wildcard members share no element — an invalid party.
+	 *
+	 * @param isP1    which player's field abilities to check for wildcard grants
+	 * @param indices forward-slot indices making up the party (from that player's forward list)
+	 */
+	private java.util.Set<String> partyRequiredElements(boolean isP1, List<Integer> indices) {
+		List<CardData> fwds = isP1 ? p1ForwardCards : p2ForwardCards;
+		java.util.Set<String> required = null;
+		for (int i : indices) {
+			if (effectiveCanFormPartyAnyElement(isP1, i)) continue;
+			CardData m = fwds.get(i);
+			java.util.Set<String> elems = new java.util.HashSet<>(java.util.Arrays.asList(m.elements()));
+			if (required == null) required = elems;
+			else required.retainAll(elems);
+		}
+		return required;
+	}
+
+	/** Returns {@code true} if {@code indices} form a valid party for {@code isP1}'s forwards. */
+	private boolean canFormValidParty(boolean isP1, List<Integer> indices) {
+		java.util.Set<String> req = partyRequiredElements(isP1, indices);
+		return req == null || !req.isEmpty();
+	}
+
 	private void toggleAttackSelection(int idx) {
 		if (!isForwardSelectable(idx)) return;
 		if (p1AttackSelection.contains(idx)) {
@@ -13167,10 +13529,18 @@ public class MainWindow {
 			return;
 		}
 		if (!p1AttackSelection.isEmpty()) {
-			String partyElement = p1ForwardCards.get(p1AttackSelection.get(0)).elements()[0];
-			if (!p1ForwardCards.get(idx).containsElement(partyElement)) {
-				logEntry("Cannot add to party — different element");
-				return;
+			if (!effectiveCanFormPartyAnyElement(true, idx)) {
+				// Compute the common element constraint across non-wildcard existing members
+				java.util.Set<String> required = partyRequiredElements(true, p1AttackSelection);
+				// null  → all existing members are wildcards → any element OK
+				// empty → existing members share no common element (shouldn't occur in valid state)
+				if (required != null && !required.isEmpty()) {
+					CardData newFwd = p1ForwardCards.get(idx);
+					if (java.util.Arrays.stream(newFwd.elements()).noneMatch(required::contains)) {
+						logEntry("Cannot add to party — no shared element with the party");
+						return;
+					}
+				}
 			}
 		}
 		p1AttackSelection.add(idx);
@@ -13541,6 +13911,7 @@ public class MainWindow {
 		for (int i = 0; i < p1BackupCards.length; i++) refreshP1BackupSlot(i);
 		if (hasAttackableForward()) {
 			setAttackSubStep(1);
+			refreshAllForwardSlots();
 			refreshAttackButton();
 			logEntry("Select next attacker, or click Skip to end the Attack Phase.");
 		} else {
@@ -14059,7 +14430,9 @@ public class MainWindow {
 			}
 			logEntry("Party Attack! " + names + " (" + combinedPower + " combined)");
 			p1FormedPartyThisTurn = true;
-			triggerAutoAbilitiesForPartyAttack(true);
+			List<CardData> p1PartyMembers = selection.stream()
+					.map(p1ForwardCards::get).collect(java.util.stream.Collectors.toList());
+			triggerAutoAbilitiesForPartyAttack(true, p1PartyMembers);
 			final int fCombined = combinedPower;
 			combatPriority("Party Attacker Declared", true, () ->
 				p2OfferBlockParty(selection, fCombined, this::continueAttackPhase));
@@ -15414,19 +15787,23 @@ public class MainWindow {
 				// Try pairs
 				for (int a = 0; a < attackable.size(); a++) {
 					for (int b = a + 1; b < attackable.size(); b++) {
+						List<Integer> pair = List.of(attackable.get(a), attackable.get(b));
+						if (!canFormValidParty(false, pair)) continue;
 						if (effectiveP2ForwardPower(attackable.get(a))
 								+ effectiveP2ForwardPower(attackable.get(b)) >= p1Hp)
-							return List.of(attackable.get(a), attackable.get(b));
+							return pair;
 					}
 				}
 				// Try triples
 				for (int a = 0; a < attackable.size(); a++) {
 					for (int b = a + 1; b < attackable.size(); b++) {
 						for (int c = b + 1; c < attackable.size(); c++) {
+							List<Integer> triple = List.of(attackable.get(a), attackable.get(b), attackable.get(c));
+							if (!canFormValidParty(false, triple)) continue;
 							if (effectiveP2ForwardPower(attackable.get(a))
 									+ effectiveP2ForwardPower(attackable.get(b))
 									+ effectiveP2ForwardPower(attackable.get(c)) >= p1Hp)
-								return List.of(attackable.get(a), attackable.get(b), attackable.get(c));
+								return triple;
 						}
 					}
 				}
@@ -15453,7 +15830,9 @@ public class MainWindow {
 			p2FormedPartyThisTurn = true;
 			for (int idx : partyIndices)
 				triggerAutoAbilitiesForAttack(p2ForwardCards.get(idx), false);
-			triggerAutoAbilitiesForPartyAttack(false);
+			List<CardData> p2PartyMembers = partyIndices.stream()
+					.map(p2ForwardCards::get).collect(java.util.stream.Collectors.toList());
+			triggerAutoAbilitiesForPartyAttack(false, p2PartyMembers);
 			final int fCombined = combinedPower;
 			initP1BlockDeclarationVsParty(partyIndices, fCombined, onDone);
 		}
@@ -15608,6 +15987,8 @@ public class MainWindow {
 			p1DiscardedByEffectThisTurn = false;
 			p1CausedOpponentDiscardThisTurn = false;
 			p1FormedPartyThisTurn = false;
+			p1PartyAnyElementThisTurn = false;
+			p2PartyAnyElementThisTurn = false;
 			p1ForwardsLeftFieldThisTurn = 0;
 			p1ElementForwardsEnteredThisTurn.clear();
 			p1ForwardEnteredViaWarpThisTurn = false;

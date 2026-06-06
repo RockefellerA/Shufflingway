@@ -20,6 +20,14 @@ package shufflingway;
  * {@code "put into break zone"}, {@code "cast summon"}, {@code "damage zone"},
  * or {@code "primed into"}.
  *
+ * <p>For {@code trigger == "party attacks"}, optional filters narrow which parties fire the trigger:
+ * <ul>
+ *   <li>{@code partyMinCount} — party must contain at least this many qualifying members (0 = any party).</li>
+ *   <li>{@code partyCategory} — qualifying members must have this category (null = any).</li>
+ *   <li>{@code partyJob} — qualifying members must have this job (null = any).</li>
+ *   <li>{@code partyCardName} — party must include a member with this exact name (null = any).</li>
+ * </ul>
+ *
  * <p>The {@code triggerCard} field holds:
  * <ul>
  *   <li>For ETF / attack / block triggers — the name of the card on the field that owns the trigger.</li>
@@ -50,5 +58,10 @@ public record AutoAbility(
         int     castPaymentMinElements,// > 0: trigger only if the card was cast with ≥ N distinct element types
         boolean castOnly,              // true = "enters the field due to your cast" — only fires when cast from hand
         boolean warpOnly,              // true = "enters the field due to Warp" — only fires when entering via Warp resolution
-        int     damageThreshold        // > 0: only fires when controlling player has ≥ this many damage counters
+        int     damageThreshold,       // > 0: only fires when controlling player has ≥ this many damage counters
+        // Party-attack filter fields (all ignored when trigger != "party attacks")
+        int     partyMinCount,    // ≥ 1: party must have ≥ N qualifying members; 0 = no requirement
+        String  partyCategory,    // non-null: qualifying members must have this category
+        String  partyJob,         // non-null: qualifying members must have this job
+        String  partyCardName     // non-null: party must include a member with this exact name
 ) {}

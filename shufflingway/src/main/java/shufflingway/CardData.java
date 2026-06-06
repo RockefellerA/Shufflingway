@@ -37,7 +37,9 @@ public record CardData(
         List<FieldCostReduction>    fieldCostReductions,
         List<SelfCostModifier>      selfCostModifiers,
         List<FieldPrimingAnyElement> fieldPrimingAnyElements,
+        List<FieldPartyAnyElement>   fieldPartyAnyElements,
         boolean warpCostAnyElement,
+        boolean canFormPartyAnyElement,
         String job,
         String category1,
         String category2,
@@ -69,6 +71,7 @@ public record CardData(
         fieldCostReductions    = List.copyOf(fieldCostReductions);
         selfCostModifiers      = List.copyOf(selfCostModifiers);
         fieldPrimingAnyElements = List.copyOf(fieldPrimingAnyElements);
+        fieldPartyAnyElements   = List.copyOf(fieldPartyAnyElements);
         job       = job       != null ? job       : "";
         category1 = category1 != null ? category1 : "";
         category2 = category2 != null ? category2 : "";
@@ -895,6 +898,27 @@ public record CardData(
         "(?i)You\\s+can\\s+only\\s+use\\s+this\\s+ability\\s+during\\s+your\\s+Main\\s+Phase[.!]?"
     );
 
+    /**
+     * Matches the party-member filter in "N or more [Category X | Job Y] Forwards [you control]".
+     * Used when parsing party-attack auto-ability triggers.
+     */
+    private static final Pattern PARTY_FILTER_PATTERN = Pattern.compile(
+        "(?i)(?<count>\\d+)\\s+or\\s+more\\s+" +
+        "(?:Category\\s+(?<category>\\S+)\\s+|Job\\s+(?<job>.+?)\\s+)?Forwards?(?:\\s+you\\s+control)?"
+    );
+
+    /**
+     * Matches a secondary conditional party-size sentence embedded in an effect:
+     * "If N or more [Category X | Job Y] Forwards form the party, also [effect]."
+     * These are converted into a second party-attack trigger during preprocessing.
+     */
+    private static final Pattern PARTY_ATTACK_FOLLOWUP_PATTERN = Pattern.compile(
+        "(?i)If\\s+(?<count>\\d+)\\s+or\\s+more\\s+" +
+        "(?:Category\\s+(?<category>\\S+)\\s+|Job\\s+(?<job>.+?)\\s+)?Forwards?\\s+form\\s+the\\s+party,?\\s+" +
+        "also\\s+(?<effect>[^.\\[!]+)[.!]?",
+        Pattern.DOTALL
+    );
+
     // Must be tested before WHILE_CARD_ATTACKING_PATTERN to avoid "a party you control" matching as a card name
     static final Pattern WHILE_PARTY_ATTACKING_PATTERN = Pattern.compile(
         "(?i)You\\s+can\\s+only\\s+use\\s+this\\s+ability\\s+while\\s+a\\s+party\\s+you\\s+control\\s+is\\s+attacking[.!]?"
@@ -979,11 +1003,13 @@ public record CardData(
      * The effect capture ends at the next auto-ability header, an action-ability cost sequence
      * ({@code 《token》:}), or end of input.
      */
-    private static final Pattern FIELD_ABILITY_PATTERN = Pattern.compile(
+    private static final Pattern AUTO_ABILITY_PATTERN = Pattern.compile(
         "(?i)(?:Damage\\s+(?<threshold>\\d+)\\s+--\\s+)?" +
         "When\\s+(?<card>[^,]+?)\\s+" +
         "(?<trigger>" +
-            "attacks?(?:\\s+or\\s+blocks?)?" +
+            // "forms a party and attacks" must precede plain "attacks" to be preferred
+            "forms?\\s+a\\s+party\\s+and\\s+attacks?" +
+            "|attacks?(?:\\s+or\\s+blocks?)?" +
             "|blocks?(?:\\s+or\\s+is\\s+blocked)?" +
             "|is\\s+blocked" +
             // "enters the field or attacks" must precede plain "enters the field"
@@ -999,13 +1025,13 @@ public record CardData(
         ")\\s*,\\s+" +
         "(?<youmay>(?:you|your\\s+opponent)\\s+may\\s+)?" +
         "(?<effect>.+?)\\s*" +
-        "(?=\\s*\\[\\[br\\]\\]|\\s*When\\s+[^,]+?\\s+(?:attacks?|blocks?|enters?|leaves?|is\\s+(?:put|removed|blocked)|deals?)|\\s*(?:《[^》]+》)+\\s*:|\\s*$)",
+        "(?=\\s*\\[\\[br\\]\\]|\\s*When\\s+[^,]+?\\s+(?:forms?\\s+a\\s+party\\s+and\\s+attacks?|attacks?|blocks?|enters?|leaves?|is\\s+(?:put|removed|blocked)|deals?)|\\s*(?:《[^》]+》)+\\s*:|\\s*$)",
         Pattern.DOTALL
     );
 
     /**
      * Joins "select N of M following actions" headers with their [[br]]-delimited quoted
-     * action strings so that {@link #FIELD_ABILITY_PATTERN} captures the full effect as one unit.
+     * action strings so that {@link #AUTO_ABILITY_PATTERN} captures the full effect as one unit.
      * Input: {@code ...select 1 of the 2 following actions.[[br]] "A."[[br]] "B."...}
      * Output: {@code ...select 1 of the 2 following actions. "A." "B."...}
      */
@@ -1096,8 +1122,32 @@ public record CardData(
      */
     /**
      * Joins "select N of M following actions" headers with their [[br]]-delimited quoted
-     * action strings into a single line so {@link #FIELD_ABILITY_PATTERN} captures them together.
+     * action strings into a single line so {@link #AUTO_ABILITY_PATTERN} captures them together.
      */
+    /**
+     * Rewrites "If N or more [filter] Forwards form the party, also [effect]." inline sentences
+     * into a full "When N or more [filter] Forwards you control form a party and attack, [effect]."
+     * trigger, preceded by [[br]] so AUTO_ABILITY_PATTERN treats them as a separate auto-ability.
+     */
+    private static String expandPartyAttackFollowups(String text) {
+        Matcher m = PARTY_ATTACK_FOLLOWUP_PATTERN.matcher(text);
+        StringBuffer sb = new StringBuffer();
+        while (m.find()) {
+            String count    = m.group("count");
+            String category = m.group("category");
+            String job      = m.group("job");
+            String effect   = m.group("effect").trim();
+            String filter   = category != null ? "Category " + category + " "
+                            : job      != null ? "Job " + job + " "
+                            : "";
+            String replacement = "[[br]]When " + count + " or more " + filter
+                    + "Forwards you control form a party and attack, " + effect + ".";
+            m.appendReplacement(sb, Matcher.quoteReplacement(replacement));
+        }
+        m.appendTail(sb);
+        return sb.toString();
+    }
+
     private static String joinSelectActions(String text) {
         Matcher m = SELECT_ACTIONS_JOINER.matcher(text);
         StringBuffer sb = new StringBuffer();
@@ -1167,30 +1217,35 @@ public record CardData(
         pm.appendTail(strippedBuf);
         textForSearch = strippedBuf.toString();
 
-        Matcher m = FIELD_ABILITY_PATTERN.matcher(textForSearch);
+        // Convert "If N or more [filter] Forwards form the party, also [effect]." into a second trigger sentence.
+        textForSearch = expandPartyAttackFollowups(textForSearch);
+
+        Matcher m = AUTO_ABILITY_PATTERN.matcher(textForSearch);
         while (m.find()) {
             String card      = m.group("card").trim();
             String triggerRaw = m.group("trigger").trim().toLowerCase(java.util.Locale.ROOT);
             // Normalise trigger to a canonical form
             String trigger;
             boolean cardIsParty = card.toLowerCase(java.util.Locale.ROOT).contains("party");
+            // triggerRaw contains "party" when the trigger phrase itself is "forms a party and attacks"
+            boolean triggerHasParty = triggerRaw.contains("party");
             boolean warpOnly    = triggerRaw.contains("enter") && triggerRaw.contains("warp");
-            if      (triggerRaw.contains("attack") && triggerRaw.contains("block")) trigger = "attacks or blocks";
-            else if (triggerRaw.contains("attack") && cardIsParty)                  trigger = "party attacks";
-            else if (triggerRaw.contains("enter") && triggerRaw.contains("attack")) trigger = "enters the field or attacks";
-            else if (triggerRaw.contains("attack"))                                 trigger = "attacks";
-            else if (triggerRaw.contains("block") && triggerRaw.contains("is blocked")) trigger = "blocks or is blocked";
-            else if (triggerRaw.equals("is blocked"))                               trigger = "is blocked";
-            else if (triggerRaw.contains("block"))                                  trigger = "blocks";
-            else if (triggerRaw.contains("break zone"))                             trigger = "put into break zone";
-            else if (triggerRaw.contains("summon"))                                 trigger = "cast summon";
-            else if (triggerRaw.contains("damage zone"))                            trigger = "damage zone";
-            else if (triggerRaw.contains("leaves"))                                 trigger = "leaves the field";
-            else if (warpOnly)                                                       trigger = "enters the field";
-            else if (triggerRaw.contains("warp"))                                   trigger = "warp placed";
-            else if (triggerRaw.contains("deals damage") && triggerRaw.contains("opponent")) trigger = "deals damage to opponent";
-            else if (triggerRaw.contains("deals damage"))                          trigger = "deals damage to forward";
-            else                                                                     trigger = "enters the field";
+            if      (triggerRaw.contains("attack") && triggerRaw.contains("block"))                        trigger = "attacks or blocks";
+            else if (triggerRaw.contains("attack") && (cardIsParty || triggerHasParty))                    trigger = "party attacks";
+            else if (triggerRaw.contains("enter") && triggerRaw.contains("attack"))                        trigger = "enters the field or attacks";
+            else if (triggerRaw.contains("attack"))                                                         trigger = "attacks";
+            else if (triggerRaw.contains("block") && triggerRaw.contains("is blocked"))                    trigger = "blocks or is blocked";
+            else if (triggerRaw.equals("is blocked"))                                                       trigger = "is blocked";
+            else if (triggerRaw.contains("block"))                                                          trigger = "blocks";
+            else if (triggerRaw.contains("break zone"))                                                     trigger = "put into break zone";
+            else if (triggerRaw.contains("summon"))                                                         trigger = "cast summon";
+            else if (triggerRaw.contains("damage zone"))                                                    trigger = "damage zone";
+            else if (triggerRaw.contains("leaves"))                                                         trigger = "leaves the field";
+            else if (warpOnly)                                                                               trigger = "enters the field";
+            else if (triggerRaw.contains("warp"))                                                           trigger = "warp placed";
+            else if (triggerRaw.contains("deals damage") && triggerRaw.contains("opponent"))                trigger = "deals damage to opponent";
+            else if (triggerRaw.contains("deals damage"))                                                   trigger = "deals damage to forward";
+            else                                                                                             trigger = "enters the field";
 
             // For "warp placed", strip the " in your hand" suffix from the card name
             if (trigger.equals("warp placed")) {
@@ -1209,7 +1264,22 @@ public record CardData(
             String thresholdStr = m.group("threshold");
             int damageThreshold = thresholdStr != null ? Integer.parseInt(thresholdStr) : 0;
 
-            AutoAbility fa = parseAutoAbilityRestrictions(card, trigger, youMay, opponentMay, castOnly, warpOnly, effect, damageThreshold);
+            // Extract party-attack filter fields when applicable
+            int    partyMinCount = 0;
+            String partyCategory = null, partyJob = null, partyCardName = null;
+            if (trigger.equals("party attacks") && triggerHasParty && !cardIsParty) {
+                Matcher pf = PARTY_FILTER_PATTERN.matcher(card);
+                if (pf.find()) {
+                    partyMinCount = Integer.parseInt(pf.group("count"));
+                    partyCategory = pf.group("category");
+                    partyJob      = pf.group("job");
+                } else {
+                    partyCardName = card;   // e.g. "Morrow" in "When Morrow forms a party and attacks"
+                }
+            }
+
+            AutoAbility fa = parseAutoAbilityRestrictions(card, trigger, youMay, opponentMay, castOnly, warpOnly,
+                    effect, damageThreshold, partyMinCount, partyCategory, partyJob, partyCardName);
             if (fa != null) result.add(fa);
         }
 
@@ -1249,11 +1319,22 @@ public record CardData(
     /**
      * Strips trigger-restriction sentences from {@code effect}, records the resulting flags,
      * and returns a complete {@link AutoAbility}.  Returns {@code null} if the effect is empty
-     * after stripping.
+     * after stripping.  Party-attack filter fields default to 0 / null.
      */
     private static AutoAbility parseAutoAbilityRestrictions(
             String card, String trigger, boolean youMay, boolean opponentMay, boolean castOnly, boolean warpOnly,
             String effect, int damageThreshold) {
+        return parseAutoAbilityRestrictions(card, trigger, youMay, opponentMay, castOnly, warpOnly,
+                effect, damageThreshold, 0, null, null, null);
+    }
+
+    /**
+     * Full form — also accepts party-attack filter fields.
+     */
+    private static AutoAbility parseAutoAbilityRestrictions(
+            String card, String trigger, boolean youMay, boolean opponentMay, boolean castOnly, boolean warpOnly,
+            String effect, int damageThreshold,
+            int partyMinCount, String partyCategory, String partyJob, String partyCardName) {
 
         boolean oncePerTurn = false, yourTurnOnly = false;
         String  rfpConditionCard = "";
@@ -1282,15 +1363,16 @@ public record CardData(
 
         if (effect.isEmpty()) return null;
         return new AutoAbility(card, trigger, youMay, opponentMay, effect,
-                oncePerTurn, yourTurnOnly, rfpConditionCard, castPaymentMinElements, castOnly, warpOnly, damageThreshold);
+                oncePerTurn, yourTurnOnly, rfpConditionCard, castPaymentMinElements, castOnly, warpOnly, damageThreshold,
+                partyMinCount, partyCategory, partyJob, partyCardName);
     }
 
     /** Normalises a raw trigger string (lower-cased) to a canonical trigger value. */
     private static String normalizePretrigger(String raw, boolean cardIsParty, boolean warpOnly) {
         if (raw == null || raw.isBlank()) return "enters the field";
         String r = raw.trim();
-        if (r.contains("attack") && r.contains("block"))           return "attacks or blocks";
-        if (r.contains("attack") && cardIsParty)                   return "party attacks";
+        if (r.contains("attack") && r.contains("block"))                   return "attacks or blocks";
+        if (r.contains("attack") && (cardIsParty || r.contains("party"))) return "party attacks";
         if (r.contains("enter") && r.contains("attack"))           return "enters the field or attacks";
         if (r.contains("attack"))                                   return "attacks";
         if (r.contains("block") && r.contains("is blocked"))       return "blocks or is blocked";
@@ -1814,6 +1896,53 @@ public record CardData(
         return false;
     }
 
+    /** Matches "[CardName] can form a party with Forwards of any Element." (self-grant on card text). */
+    private static final Pattern PARTY_ANY_ELEMENT_PATTERN = Pattern.compile(
+        "(?i)\\S.*?\\s+can\\s+form\\s+a\\s+party\\s+with\\s+Forwards?\\s+of\\s+any\\s+Element\\s*\\.?"
+    );
+
+    /**
+     * Matches "The [Job X / Category X / all] Forwards you control can form a party with
+     * [anything] Forwards of any Element." — a field-ability grant to other cards.
+     * Groups: {@code job}, {@code category}, {@code cardname} (all optional).
+     */
+    private static final Pattern FIELD_PARTY_ANY_ELEMENT_PATTERN = Pattern.compile(
+        "(?i)The\\s+" +
+        "(?:Job\\s+(?<job>.+?)\\s+|Category\\s+(?<category>\\S+)\\s+|Card\\s+Name\\s+(?<cardname>\\S+)\\s+)?" +
+        "Forwards?\\s+you\\s+control\\s+can\\s+form\\s+a\\s+party\\s+with\\s+" +
+        "(?:.+?\\s+)?Forwards?\\s+of\\s+any\\s+Element\\s*\\.?"
+    );
+
+    /** Returns {@code true} if the card text contains a "can form a party with Forwards of any Element" clause. */
+    public static boolean parseCanFormPartyAnyElement(String textEn) {
+        if (textEn == null || textEn.isBlank()) return false;
+        for (String raw : textEn.split("(?i)\\[\\[br\\]\\]")) {
+            String seg = SUMMON_MARKUP.matcher(raw.trim()).replaceAll("").trim();
+            if (PARTY_ANY_ELEMENT_PATTERN.matcher(seg).find()) return true;
+        }
+        return false;
+    }
+
+    /**
+     * Parses all "The [filter] Forwards you control can form a party with … Forwards of any Element."
+     * field-ability grants into a list of {@link FieldPartyAnyElement} records.
+     */
+    public static List<FieldPartyAnyElement> parseFieldPartyAnyElements(String textEn, String cardType) {
+        if (textEn == null || textEn.isBlank()) return List.of();
+        if ("Summon".equalsIgnoreCase(cardType)) return List.of();
+        List<FieldPartyAnyElement> result = new ArrayList<>();
+        for (String raw : textEn.split("(?i)\\[\\[br\\]\\]")) {
+            String seg = SUMMON_MARKUP.matcher(raw.trim()).replaceAll("").trim();
+            Matcher m = FIELD_PARTY_ANY_ELEMENT_PATTERN.matcher(seg);
+            if (!m.find()) continue;
+            String job      = m.group("job")      != null ? m.group("job").trim()      : null;
+            String category = m.group("category") != null ? m.group("category").trim() : null;
+            String cardname = m.group("cardname") != null ? m.group("cardname").trim() : null;
+            result.add(new FieldPartyAnyElement(job, category, cardname));
+        }
+        return List.copyOf(result);
+    }
+
     // -------------------------------------------------------------------------
     // Field Ability parsing
     // -------------------------------------------------------------------------
@@ -2046,6 +2175,8 @@ public record CardData(
             if (FIELD_CAST_ANY_ELEMENT_PATTERN.matcher(seg).find())          continue;
             if (FIELD_PRIMING_ANY_ELEMENT_PATTERN.matcher(seg).find())       continue;
             if (WARP_ANY_ELEMENT_PATTERN.matcher(seg).find())                continue;
+            if (PARTY_ANY_ELEMENT_PATTERN.matcher(seg).find())               continue;
+            if (FIELD_PARTY_ANY_ELEMENT_PATTERN.matcher(seg).find())        continue;
 
             // Name/type alias declarations and enter-dull — handled as static card properties
             if (IS_ALSO_CARD_NAME_PATTERN.matcher(seg).find())              continue;

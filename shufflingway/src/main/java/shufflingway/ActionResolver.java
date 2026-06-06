@@ -124,6 +124,11 @@ public class ActionResolver {
         "(?i)Cancel\\s+its\\s+effect\\.?"
     );
 
+    /** Matches Y'shtola-style "Choose 1 Summon or auto-ability. Cancel its effect." */
+    private static final Pattern STANDALONE_CANCEL_STACK_ENTRY_PATTERN = Pattern.compile(
+        "(?i)Choose\\s+1\\s+Summon\\s+or\\s+auto-ability\\.\\s+Cancel\\s+its\\s+effect\\.?"
+    );
+
     /** Matches "deal it/them N damage". */
     /**
      * Matches "Deal it/them [and CardName] N damage".
@@ -525,6 +530,28 @@ public class ActionResolver {
     /** All eight FFTCG element names, in standard order. */
     static final String[] ELEMENT_NAMES = {"Fire", "Ice", "Wind", "Earth", "Lightning", "Water", "Light", "Dark"};
 
+    /**
+     * Matches "The [optional filter] Forwards you control can form a party with [anything]
+     * Forwards of any Element this turn." — turn-scoped party-element-wildcard grant.
+     * Identical to the field-ability form in {@link CardData#FIELD_PARTY_ANY_ELEMENT_PATTERN}
+     * except it requires "this turn" at the end.
+     */
+    private static final Pattern GRANT_PARTY_ANY_ELEMENT_THIS_TURN = Pattern.compile(
+        "(?i)The\\s+" +
+        "(?:Job\\s+(?<job>.+?)\\s+|Category\\s+(?<category>\\S+)\\s+|Card\\s+Name\\s+(?<cardname>\\S+)\\s+)?" +
+        "Forwards?\\s+you\\s+control\\s+can\\s+form\\s+a\\s+party\\s+with\\s+" +
+        "(?:.+?\\s+)?Forwards?\\s+of\\s+any\\s+Element\\s+this\\s+turn\\s*\\.?"
+    );
+
+    /**
+     * Matches "Name 1 Element and 1 Job. &lt;CardName&gt; becomes the named Element and Job
+     * until the end of the turn." — action ability on a card that changes its own element and job.
+     */
+    private static final Pattern NAME_ELEMENT_AND_JOB_SELF_BECOMES = Pattern.compile(
+        "(?i)Name\\s+1\\s+Element\\s+and\\s+1\\s+Job[.!]?\\s+" +
+        "(?<name>.+?)\\s+becomes?\\s+the\\s+named\\s+Element\\s+and\\s+Job\\s+until\\s+the\\s+end\\s+of\\s+the\\s+turn[.!]?"
+    );
+
     // ---- Damage-shield followup patterns (apply to selected "it/them" targets) --------
 
     /** Matches "During this turn, the next damage dealt to it/him becomes 0 instead." */
@@ -552,9 +579,9 @@ public class ActionResolver {
         "(?i)During\\s+this\\s+turn,\\s+the\\s+next\\s+damage\\s+it\\s+deals\\s+to\\s+a\\s+Forward\\s+becomes\\s+0\\s+instead\\.?"
     );
 
-    /** Matches "If it deals damage to a Forward this turn, the damage increases by N instead." */
+    /** Matches "If it deals damage to a Forward [opponent controls] this turn, the damage increases by N instead." */
     private static final Pattern FOLLOWUP_OUTGOING_DMG_BOOST_THIS_TURN = Pattern.compile(
-        "(?i)If\\s+it\\s+deals\\s+damage\\s+to\\s+a\\s+Forward\\s+this\\s+turn,?\\s+" +
+        "(?i)If\\s+it\\s+deals\\s+damage\\s+to\\s+a\\s+Forward(?:\\s+opponent\\s+controls?)?\\s+this\\s+turn,?\\s+" +
         "the\\s+damage\\s+increases?\\s+by\\s+(?<amount>\\d+)(?:\\s+instead)?[.!]?"
     );
 
@@ -1283,6 +1310,17 @@ public class ActionResolver {
     );
 
     /**
+     * "It/they gains [TraitA] or [TraitB] until [the] end of [the] turn." — player picks one trait.
+     * Groups {@code t1} and {@code t2} are the two trait names.  Must be checked before
+     * {@link #FOLLOWUP_KEYWORD_GRANT} since the latter doesn't handle the "or" separator.
+     */
+    private static final Pattern FOLLOWUP_KEYWORD_GRANT_CHOICE = Pattern.compile(
+        "(?i)(?:it|they)\\s+gains?\\s+" +
+        "(?<t1>Haste|First\\s+Strike|Brave)\\s+or\\s+(?<t2>Haste|First\\s+Strike|Brave)" +
+        "\\s+until\\s+(?:the\\s+)?end\\s+of\\s+(?:the\\s+)?turn"
+    );
+
+    /**
      * Matches "it/they gains Haste/First Strike/Brave [and …] until end of turn" with no power amount.
      * <ul>
      *   <li>Group 1 — traits string, e.g. {@code "Haste"} or {@code "Haste and First Strike"}</li>
@@ -1454,6 +1492,7 @@ public class ActionResolver {
         "(?:Category\\s+(?<category>\\S+)\\s+)?" +
         "(?:Job\\s+(?<job>.+?)(?=\\s+(?:Forwards?|Backups?|Characters?|you\\b|opponent\\b)|\\s*[.!]?$))?" +
         "(?<targets>Forwards?(?:\\s+and\\s+Monsters?)?|Backups?|Characters?)?" +
+        "(?:\\s+with\\s+(?<trait>(?:Haste|First\\s+Strike|Brave)(?:\\s*(?:,\\s*(?:or\\s+)?|\\s+or\\s+)(?:Haste|First\\s+Strike|Brave))*))?" +
         "(?:\\s+of\\s+cost\\s+(?<cost>\\d+)(?:\\s+or\\s+(?<costcmp>less|more))?)?" +
         "(?:\\s+other\\s+than\\s+cost\\s+(?<excludecost>\\d+))?" +
         "(?:\\s+(?<control>(?:your\\s+)?opponent\\s+controls?|you\\s+control))?" +
@@ -1866,6 +1905,20 @@ public class ActionResolver {
         "(?<floorone>\\s*\\(it\\s+cannot\\s+become\\s+0\\))?[.!]?"
     );
 
+    /**
+     * Matches "The cost required to play your [filter] onto the field this turn is reduced by N
+     * [(it cannot become 0)][.]" — applies to all matching plays this turn (not consumed on use).
+     */
+    private static final Pattern PLAY_COST_REDUCTION_THIS_TURN = Pattern.compile(
+        "(?i)The\\s+cost\\s+required\\s+to\\s+play\\s+your\\s+" +
+        "(?:(?<element>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)\\s+)?" +
+        "(?:Category\\s+(?<category>\\S+)\\s+)?" +
+        "(?:Job\\s+(?<job>.+?)\\s+)?" +
+        "(?:Card\\s+Name\\s+(?<cardname>\\S+)|(?<type>Forwards?|Backups?|Monsters?|Characters?))\\s+" +
+        "onto\\s+the\\s+field\\s+this\\s+turn\\s+is\\s+reduced\\s+by\\s+(?<amount>\\d+)" +
+        "(?<floorone>\\s*\\(it\\s+cannot\\s+become\\s+0\\))?[.!]?"
+    );
+
     /** Matches "Take 1 more turn after this one. At the end of that turn, you lose the game." */
     private static final Pattern EXTRA_TURN_THEN_LOSE = Pattern.compile(
         "(?i)Take\\s+1\\s+more\\s+turn\\s+after\\s+this\\s+one[.!]?\\s+" +
@@ -2015,6 +2068,9 @@ public class ActionResolver {
         if (result != null) return result;
 
         result = tryParseNegateAllDamage(effectText);
+        if (result != null) return result;
+
+        result = tryParseCancelStackEntry(effectText);
         if (result != null) return result;
 
         result = tryParseAllFieldEffect(effectText);
@@ -2176,6 +2232,9 @@ public class ActionResolver {
         result = tryParseCostReductionThisTurn(effectText);
         if (result != null) return result;
 
+        result = tryParsePlayCostReductionThisTurn(effectText);
+        if (result != null) return result;
+
         result = tryParseExtraTurnThenLose(effectText);
         if (result != null) return result;
 
@@ -2219,6 +2278,12 @@ public class ActionResolver {
         if (result != null) return result;
 
         result = tryParseBecomeForwardUntilEot(effectText, source);
+        if (result != null) return result;
+
+        result = tryParseNameElementAndJobSelfBecomes(effectText, source);
+        if (result != null) return result;
+
+        result = tryParseGrantPartyAnyElementThisTurn(effectText);
         if (result != null) return result;
 
         // Compound-sentence fallback: split on ". " between sentences and compose effects.
@@ -2327,6 +2392,7 @@ public class ActionResolver {
         if (tryParseAttackOnceMore(effectText)                  != null) return "AttackOnceMore";
         if (tryParseRemoveFromBattle(effectText)                != null) return "RemoveFromBattle";
         if (tryParseCostReductionThisTurn(effectText)            != null) return "CostReductionThisTurn";
+        if (tryParsePlayCostReductionThisTurn(effectText)        != null) return "PlayCostReductionThisTurn";
         if (tryParseExtraTurnThenLose(effectText)               != null) return "ExtraTurnThenLose";
         if (tryParseGainCrystalPerX(effectText, 0)               != null) return "GainCrystalPerX";
         if (tryParseGainCrystal(effectText)                      != null) return "GainCrystal";
@@ -2552,8 +2618,10 @@ public class ActionResolver {
         if (tryParseRemoveTopOfDeckFromGame(effectText)            != null) return "RemoveTopOfDeckFromGame";
         if (tryParseShuffleDeck(effectText)                        != null) return "ShuffleDeck";
         if (tryParseBackupCpDraw(effectText)                       != null) return "BackupCpDraw";
-        if (tryParseBecomeForwardUntilEot(effectText, source)      != null) return "BecomeForwardUntilEot";
-        if (tryParseConditionalOpponentHand(effectText, source, 0) != null) return "ConditionalOpponentHand";
+        if (tryParseBecomeForwardUntilEot(effectText, source)         != null) return "BecomeForwardUntilEot";
+        if (tryParseNameElementAndJobSelfBecomes(effectText, source)   != null) return "NameElementAndJobSelfBecomes";
+        if (tryParseGrantPartyAnyElementThisTurn(effectText)           != null) return "GrantPartyAnyElementThisTurn";
+        if (tryParseConditionalOpponentHand(effectText, source, 0)    != null) return "ConditionalOpponentHand";
         if (SELECT_FOLLOWING_ACTIONS_DETECT.matcher(effectText).find())    return "SelectFollowingActions";
         if (CardData.HAS_ALL_ELEMENTS_PATTERN.matcher(effectText.trim()).matches()) return "HasAllElements";
         return null;
@@ -4246,6 +4314,30 @@ public class ActionResolver {
             };
         }
 
+        // --- Trait-choice grant followup: "it gains [T1] or [T2] until end of turn" ---
+        Matcher choiceM = FOLLOWUP_KEYWORD_GRANT_CHOICE.matcher(primaryFollowup);
+        if (choiceM.find()) {
+            String t1Name = choiceM.group("t1").trim();
+            String t2Name = choiceM.group("t2").trim();
+            EnumSet<CardData.Trait> t1Traits = parseTraits(t1Name);
+            EnumSet<CardData.Trait> t2Traits = parseTraits(t2Name);
+            return ctx -> {
+                List<ForwardTarget> ts = selectTargets(ctx, maxCount, upTo,
+                        opponentOnly, selfOnly, condition, element, zone, opponentZone,
+                        costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters,
+                        jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, fExcludeElem, withoutMulticard);
+                if (ts.isEmpty()) return;
+                String chosen = ctx.selectOption("Grant " + t1Name + " or " + t2Name + "?",
+                        new String[]{t1Name, t2Name});
+                EnumSet<CardData.Trait> traits = (chosen != null && chosen.equalsIgnoreCase(t2Name)) ? t2Traits : t1Traits;
+                String logLabel = chosen != null ? chosen : t1Name;
+                ctx.logEntry(choosePrefix + " — grants " + logLabel);
+                sortedByIdxDesc(ts, true) .forEach(t -> ctx.boostTarget(t, 0, traits));
+                sortedByIdxDesc(ts, false).forEach(t -> ctx.boostTarget(t, 0, traits));
+                if (secondary != null) secondary.accept(ctx);
+            };
+        }
+
         // --- Keyword-only grant followup: "it/they gains Haste [and …] until end of turn" ---
         Matcher keywordM = FOLLOWUP_KEYWORD_GRANT.matcher(primaryFollowup);
         if (keywordM.find()) {
@@ -4360,7 +4452,7 @@ public class ActionResolver {
         if (FOLLOWUP_CANCEL_EFFECT.matcher(primaryFollowup).find()) {
             return ctx -> {
                 ctx.logEntry(choosePrefix + " — Cancel its effect");
-                ctx.cancelSummonOnStack();
+                ctx.cancelStackEntry();
                 if (secondary != null) secondary.accept(ctx);
             };
         }
@@ -5311,6 +5403,9 @@ public class ActionResolver {
         boolean opponentOnly = control != null && !control.toLowerCase().contains("you control");
         boolean selfOnly     = control != null && control.toLowerCase().contains("you control");
 
+        String traitStr     = m.group("trait");
+        EnumSet<CardData.Trait> traitFilter = parseTraits(traitStr);
+
         String actionLabel = switch (action) {
             case BREAK           -> "Break";
             case DULL            -> "Dull";
@@ -5324,12 +5419,13 @@ public class ActionResolver {
                 ? " of cost " + costVal + (costCmp != null ? " or " + costCmp : "") : "";
         String exclLabel    = excludeCostVal >= 0 ? " [not cost " + excludeCostVal + "]" : "";
         String controlLabel = opponentOnly ? " (opponent)" : selfOnly ? " (yours)" : "";
-        String logMsg = actionLabel + " all " + tgtLabel + costLabel + exclLabel + controlLabel;
+        String traitLabel   = traitStr != null ? " with " + traitStr.trim() : "";
+        String logMsg = actionLabel + " all " + tgtLabel + traitLabel + costLabel + exclLabel + controlLabel;
 
         return ctx -> {
             ctx.logEntry("Effect: " + logMsg);
             ctx.applyMassFieldEffect(action, inclForwards, inclBackups, inclMonsters,
-                    opponentOnly, selfOnly, element, costVal, costCmp, excludeCostVal, job, category);
+                    opponentOnly, selfOnly, element, costVal, costCmp, excludeCostVal, job, category, traitFilter);
         };
     }
 
@@ -5366,6 +5462,18 @@ public class ActionResolver {
             ctx.applyMassFieldEffect(GameContext.MassAction.RETURN_TO_HAND,
                     inclForwards, inclBackups, inclMonsters,
                     opponentOnly, selfOnly, element, -1, null, -1, null, null);
+        };
+    }
+
+    /**
+     * Parses "Choose 1 Summon or auto-ability. Cancel its effect." (Y'shtola).
+     * The player selects a stack entry; its effect is suppressed when it resolves.
+     */
+    private static Consumer<GameContext> tryParseCancelStackEntry(String text) {
+        if (!STANDALONE_CANCEL_STACK_ENTRY_PATTERN.matcher(text).find()) return null;
+        return ctx -> {
+            ctx.logEntry("Effect: Choose 1 Summon or auto-ability — cancel its effect");
+            ctx.cancelStackEntry();
         };
     }
 
@@ -6188,6 +6296,27 @@ public class ActionResolver {
         };
     }
 
+    private static Consumer<GameContext> tryParseGrantPartyAnyElementThisTurn(String text) {
+        if (!GRANT_PARTY_ANY_ELEMENT_THIS_TURN.matcher(text).find()) return null;
+        return ctx -> {
+            ctx.logEntry("Effect: Forwards you control can form a party with Forwards of any Element this turn");
+            ctx.grantForwardsPartyAnyElementThisTurn();
+        };
+    }
+
+    private static Consumer<GameContext> tryParseNameElementAndJobSelfBecomes(String text, CardData source) {
+        if (source == null) return null;
+        Matcher m = NAME_ELEMENT_AND_JOB_SELF_BECOMES.matcher(text);
+        if (!m.find()) return null;
+        if (!m.group("name").trim().equalsIgnoreCase(source.name())) return null;
+        return ctx -> {
+            ctx.logEntry("Effect: Name 1 Element and 1 Job — " + source.name() + " becomes both until end of turn");
+            String[] choice = ctx.selectElementAndJob("Name 1 Element and 1 Job (" + source.name() + " becomes both):");
+            if (choice == null || choice[0] == null || choice[1] == null) return;
+            ctx.changeSourceCardElementAndJobUntilEOT(source, choice[0], choice[1]);
+        };
+    }
+
     /**
      * Parses standalone "negate all damage" effects:
      * <ul>
@@ -6521,7 +6650,7 @@ public class ActionResolver {
                               : typeRaw  != null ? typeRaw : "card";
 
         CostReductionModifier modifier = new CostReductionModifier(
-                amount, floorAtOne,
+                amount, floorAtOne, true,
                 inclForwards, inclBackups, inclMonsters, inclSummons,
                 element, job, cardname, category);
 
@@ -6530,6 +6659,53 @@ public class ActionResolver {
                 + (category != null ? "Category " + category + " " : "")
                 + (job      != null ? "Job " + job + " " : "")
                 + typeDesc + " costs " + amount + " less" + (floorAtOne ? " (min 1)" : "");
+
+        return ctx -> {
+            ctx.logEntry("Effect: " + logDesc);
+            ctx.applyNextCastCostReduction(modifier);
+        };
+    }
+
+    private static Consumer<GameContext> tryParsePlayCostReductionThisTurn(String text) {
+        Matcher m = PLAY_COST_REDUCTION_THIS_TURN.matcher(text);
+        if (!m.find()) return null;
+
+        String elementRaw  = m.group("element");
+        String categoryRaw = m.group("category");
+        String jobRaw      = m.group("job");
+        String cardnameRaw = m.group("cardname");
+        String typeRaw     = m.group("type");
+        int    amount      = Integer.parseInt(m.group("amount"));
+        boolean floorAtOne = m.group("floorone") != null;
+
+        boolean inclForwards, inclBackups, inclMonsters;
+        if (cardnameRaw != null) {
+            inclForwards = inclBackups = inclMonsters = true;
+        } else {
+            String t = typeRaw != null ? typeRaw.toLowerCase(java.util.Locale.ROOT) : "characters";
+            inclForwards = t.matches("forwards?|characters?");
+            inclBackups  = t.matches("backups?|characters?");
+            inclMonsters = t.matches("monsters?|characters?");
+        }
+
+        final String element  = elementRaw  != null ? elementRaw.trim()  : null;
+        final String category = categoryRaw != null ? categoryRaw.trim() : null;
+        final String job      = jobRaw      != null ? jobRaw.trim()      : null;
+        final String cardname = cardnameRaw != null ? cardnameRaw.trim() : null;
+        final String typeDesc = cardname != null ? "Card Name " + cardname
+                              : typeRaw  != null ? typeRaw : "Characters";
+
+        CostReductionModifier modifier = new CostReductionModifier(
+                amount, floorAtOne, false,
+                inclForwards, inclBackups, inclMonsters, false,
+                element, job, cardname, category);
+
+        String logDesc = "This turn, your "
+                + (element  != null ? element + " " : "")
+                + (category != null ? "Category " + category + " " : "")
+                + (job      != null ? "Job " + job + " " : "")
+                + typeDesc + " cost " + amount + " less to play onto the field"
+                + (floorAtOne ? " (min 1)" : "");
 
         return ctx -> {
             ctx.logEntry("Effect: " + logDesc);

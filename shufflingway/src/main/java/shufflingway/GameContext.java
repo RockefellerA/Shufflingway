@@ -138,10 +138,10 @@ public interface GameContext {
             String excludeElement, boolean withoutMulticard);
 
     /**
-     * Presents the ability user with Summons currently on the stack and cancels
-     * the one they choose, preventing it from resolving.
+     * Presents the ability user with a list of Summons and auto-abilities on the stack
+     * and cancels the one they choose, preventing its effect from resolving.
      */
-    void cancelSummonOnStack();
+    void cancelStackEntry();
 
     /**
      * Forces {@code t} directly into the Break Zone, bypassing any
@@ -437,6 +437,16 @@ public interface GameContext {
      * @return the selected element name, or {@code null} if cancelled
      */
     String selectElement(String prompt);
+
+    /**
+     * Presents the ability user with a choice among {@code choices} and returns the selected value.
+     * The AI picks randomly.
+     *
+     * @param prompt  text shown above the picker
+     * @param choices the options to present
+     * @return the selected option, or {@code null} if cancelled
+     */
+    String selectOption(String prompt, String[] choices);
 
     /**
      * Applies "cannot be chosen" protection to all Forwards matching {@code job} that the active
@@ -994,11 +1004,25 @@ public interface GameContext {
      * @param job             optional job filter (bar-separated for OR); {@code null} = any
      * @param category        optional category filter; {@code null} = any
      */
+    default void applyMassFieldEffect(MassAction action,
+            boolean forwards, boolean backups, boolean monsters,
+            boolean opponentOnly, boolean selfOnly,
+            String element, int costVal, String costCmp, int excludeCostVal,
+            String job, String category) {
+        applyMassFieldEffect(action, forwards, backups, monsters,
+                opponentOnly, selfOnly, element, costVal, costCmp, excludeCostVal,
+                job, category, java.util.EnumSet.noneOf(CardData.Trait.class));
+    }
+
+    /**
+     * Same as above but only affects Forwards that have at least one trait in {@code traitFilter}
+     * (backups and monsters are unaffected by the trait filter; ignored when the set is empty).
+     */
     void applyMassFieldEffect(MassAction action,
             boolean forwards, boolean backups, boolean monsters,
             boolean opponentOnly, boolean selfOnly,
             String element, int costVal, String costCmp, int excludeCostVal,
-            String job, String category);
+            String job, String category, java.util.EnumSet<CardData.Trait> traitFilter);
 
     /**
      * Adds {@code amount} power until end of turn to every matching field card.
@@ -1074,10 +1098,33 @@ public interface GameContext {
     String selectJobFromDatabase();
 
     /**
+     * Shows a combined dialog for the player to name 1 Element and 1 Job simultaneously.
+     * The OK button is disabled until both dropdowns have a valid selection.
+     * The AI picks randomly for non-interactive contexts.
+     *
+     * @param prompt text shown above the pickers
+     * @return {@code {element, job}} array, or {@code null} if cancelled
+     */
+    String[] selectElementAndJob(String prompt);
+
+    /**
      * Grants the Forward at {@code t} the given {@code job} until the end of the turn.
      * No-op for Backup and Monster targets.
      */
     void grantJobUntilEndOfTurn(ForwardTarget t, String job);
+
+    /**
+     * Changes {@code source}'s element to {@code element} and grants it Job {@code job}
+     * until the end of the turn. {@code source} must currently be in a Forward slot.
+     * Both changes are reverted at end of turn.
+     */
+    void changeSourceCardElementAndJobUntilEOT(CardData source, String element, String job);
+
+    /**
+     * Grants all Forwards the controller controls the ability to form a party with Forwards of
+     * any Element until the end of the turn.
+     */
+    void grantForwardsPartyAnyElementThisTurn();
 
     /**
      * Doubles the incoming damage taken by the Forward at {@code t} for the rest of this turn.
