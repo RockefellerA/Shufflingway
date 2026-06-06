@@ -1185,6 +1185,7 @@ public class MainWindow {
 							CardData.parseSelfCostModifiers(tx),
 							CardData.parseFieldPrimingAnyElements(tx, card.type()),
 							CardData.parseWarpCostAnyElement(tx),
+							CardData.parseCanFormPartyAnyElement(tx),
 							card.job(), card.category1(), card.category2(), tx);
 					if (card.isLb()) lb.add(cd);
 					else             main.add(cd);
@@ -1211,6 +1212,7 @@ public class MainWindow {
 							CardData.parseSelfCostModifiers(tx),
 							CardData.parseFieldPrimingAnyElements(tx, card.type()),
 							CardData.parseWarpCostAnyElement(tx),
+							CardData.parseCanFormPartyAnyElement(tx),
 							card.job(), card.category1(), card.category2(), tx);
 					if (card.isLb()) p2Lb.add(cd);
 					else             p2Main.add(cd);
@@ -13152,6 +13154,28 @@ public class MainWindow {
 		return true;
 	}
 
+	/**
+	 * Returns the set of elements common to all non-wildcard members of {@code party},
+	 * or {@code null} if every member has {@link CardData#canFormPartyAnyElement()} (all wildcards).
+	 * An empty set means the non-wildcard members share no element — an invalid party.
+	 */
+	private java.util.Set<String> partyRequiredElements(List<CardData> party) {
+		java.util.Set<String> required = null;
+		for (CardData m : party) {
+			if (m.canFormPartyAnyElement()) continue;
+			java.util.Set<String> elems = new java.util.HashSet<>(java.util.Arrays.asList(m.elements()));
+			if (required == null) required = elems;
+			else required.retainAll(elems);
+		}
+		return required;
+	}
+
+	/** Returns {@code true} if {@code party} is a valid party (non-wildcards share a common element). */
+	private boolean canFormValidParty(List<CardData> party) {
+		java.util.Set<String> req = partyRequiredElements(party);
+		return req == null || !req.isEmpty();
+	}
+
 	private void toggleAttackSelection(int idx) {
 		if (!isForwardSelectable(idx)) return;
 		if (p1AttackSelection.contains(idx)) {
@@ -13161,10 +13185,25 @@ public class MainWindow {
 			return;
 		}
 		if (!p1AttackSelection.isEmpty()) {
-			String partyElement = p1ForwardCards.get(p1AttackSelection.get(0)).elements()[0];
-			if (!p1ForwardCards.get(idx).containsElement(partyElement)) {
-				logEntry("Cannot add to party — different element");
-				return;
+			CardData newFwd = p1ForwardCards.get(idx);
+			if (!newFwd.canFormPartyAnyElement()) {
+				// Compute required elements from non-wildcard existing members
+				List<CardData> existing = p1AttackSelection.stream()
+						.map(p1ForwardCards::get).collect(java.util.stream.Collectors.toList());
+				java.util.Set<String> required = partyRequiredElements(existing);
+				// required == null → all existing are wildcards → any element is OK
+				if (required != null && !required.isEmpty()) {
+					boolean canJoin = java.util.Arrays.stream(newFwd.elements())
+							.anyMatch(required::contains);
+					if (!canJoin) {
+						logEntry("Cannot add to party — no shared element with the party");
+						return;
+					}
+				} else if (required != null && required.isEmpty()) {
+					// Existing non-wildcards have no common element — party already invalid (shouldn't occur)
+					logEntry("Cannot add to party — existing members share no element");
+					return;
+				}
 			}
 		}
 		p1AttackSelection.add(idx);
@@ -15067,19 +15106,23 @@ public class MainWindow {
 				// Try pairs
 				for (int a = 0; a < attackable.size(); a++) {
 					for (int b = a + 1; b < attackable.size(); b++) {
+						List<Integer> pair = List.of(attackable.get(a), attackable.get(b));
+						if (!canFormValidParty(pair.stream().map(p2ForwardCards::get).collect(java.util.stream.Collectors.toList()))) continue;
 						if (effectiveP2ForwardPower(attackable.get(a))
 								+ effectiveP2ForwardPower(attackable.get(b)) >= p1Hp)
-							return List.of(attackable.get(a), attackable.get(b));
+							return pair;
 					}
 				}
 				// Try triples
 				for (int a = 0; a < attackable.size(); a++) {
 					for (int b = a + 1; b < attackable.size(); b++) {
 						for (int c = b + 1; c < attackable.size(); c++) {
+							List<Integer> triple = List.of(attackable.get(a), attackable.get(b), attackable.get(c));
+							if (!canFormValidParty(triple.stream().map(p2ForwardCards::get).collect(java.util.stream.Collectors.toList()))) continue;
 							if (effectiveP2ForwardPower(attackable.get(a))
 									+ effectiveP2ForwardPower(attackable.get(b))
 									+ effectiveP2ForwardPower(attackable.get(c)) >= p1Hp)
-								return List.of(attackable.get(a), attackable.get(b), attackable.get(c));
+								return triple;
 						}
 					}
 				}

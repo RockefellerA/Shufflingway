@@ -38,6 +38,7 @@ public record CardData(
         List<SelfCostModifier>      selfCostModifiers,
         List<FieldPrimingAnyElement> fieldPrimingAnyElements,
         boolean warpCostAnyElement,
+        boolean canFormPartyAnyElement,
         String job,
         String category1,
         String category2,
@@ -1814,6 +1815,21 @@ public record CardData(
         return false;
     }
 
+    /** Matches "[CardName] can form a party with Forwards of any Element." */
+    private static final Pattern PARTY_ANY_ELEMENT_PATTERN = Pattern.compile(
+        "(?i)\\S.*?\\s+can\\s+form\\s+a\\s+party\\s+with\\s+Forwards?\\s+of\\s+any\\s+Element\\s*\\.?"
+    );
+
+    /** Returns {@code true} if the card text contains a "can form a party with Forwards of any Element" clause. */
+    public static boolean parseCanFormPartyAnyElement(String textEn) {
+        if (textEn == null || textEn.isBlank()) return false;
+        for (String raw : textEn.split("(?i)\\[\\[br\\]\\]")) {
+            String seg = SUMMON_MARKUP.matcher(raw.trim()).replaceAll("").trim();
+            if (PARTY_ANY_ELEMENT_PATTERN.matcher(seg).find()) return true;
+        }
+        return false;
+    }
+
     // -------------------------------------------------------------------------
     // Field Ability parsing
     // -------------------------------------------------------------------------
@@ -2046,6 +2062,7 @@ public record CardData(
             if (FIELD_CAST_ANY_ELEMENT_PATTERN.matcher(seg).find())          continue;
             if (FIELD_PRIMING_ANY_ELEMENT_PATTERN.matcher(seg).find())       continue;
             if (WARP_ANY_ELEMENT_PATTERN.matcher(seg).find())                continue;
+            if (PARTY_ANY_ELEMENT_PATTERN.matcher(seg).find())               continue;
 
             // Name/type alias declarations and enter-dull — handled as static card properties
             if (IS_ALSO_CARD_NAME_PATTERN.matcher(seg).find())              continue;
