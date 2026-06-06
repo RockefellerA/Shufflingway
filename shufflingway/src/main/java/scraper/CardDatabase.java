@@ -12,6 +12,7 @@ import java.sql.Statement;
 import java.sql.Types;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.TreeSet;
 
 /**
  * SQLite persistence layer for scraped FFTCG card metadata.
@@ -240,6 +241,24 @@ public class CardDatabase implements AutoCloseable {
     // -------------------------------------------------------------------------
     // Read
     // -------------------------------------------------------------------------
+
+    /**
+     * Returns a sorted, deduplicated list of all individual job names in the database.
+     * Multi-jobs (e.g. "Warrior/Rebel") are split into their components.
+     */
+    public static List<String> loadJobs() throws SQLException {
+        TreeSet<String> jobSet = new TreeSet<>();
+        try (Connection conn = DriverManager.getConnection(AppPaths.dbUrl());
+             Statement stmt = conn.createStatement();
+             ResultSet rs = stmt.executeQuery(
+                     "SELECT DISTINCT job_en FROM cards WHERE job_en IS NOT NULL AND job_en != ''")) {
+            while (rs.next()) {
+                for (String part : rs.getString(1).split("/"))
+                    jobSet.add(part.trim());
+            }
+        }
+        return new ArrayList<>(jobSet);
+    }
 
     public ScrapedCard getCard(String serial) throws SQLException {
         try (PreparedStatement ps = conn.prepareStatement(

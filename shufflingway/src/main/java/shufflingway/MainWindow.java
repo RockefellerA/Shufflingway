@@ -6,7 +6,6 @@ import java.awt.Color;
 import java.awt.Component;
 import java.awt.Cursor;
 import java.awt.Dimension;
-import java.util.stream.Collectors;
 import java.awt.EventQueue;
 import java.awt.FlowLayout;
 import java.awt.Font;
@@ -28,6 +27,7 @@ import java.awt.image.BufferedImage;
 import java.awt.image.ColorConvertOp;
 import java.io.File;
 import java.io.IOException;
+import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
@@ -42,6 +42,7 @@ import java.util.Set;
 import java.util.concurrent.ExecutionException;
 import java.util.function.Consumer;
 import java.util.function.Predicate;
+import java.util.stream.Collectors;
 
 import javax.imageio.ImageIO;
 import javax.swing.BorderFactory;
@@ -11795,21 +11796,15 @@ public class MainWindow {
 		};
 	}
 
-	/** Loads every distinct job name from the database, returning a sorted list. */
-	private java.util.List<String> loadJobsFromDb() {
-		java.util.List<String> jobs = new java.util.ArrayList<>();
-		java.io.File dbFile = new java.io.File("shufflingway.db");
-		if (!dbFile.exists()) return jobs;
-		try (java.sql.Connection conn = java.sql.DriverManager.getConnection(
-				"jdbc:sqlite:" + dbFile.getAbsolutePath());
-			 java.sql.Statement stmt = conn.createStatement();
-			 java.sql.ResultSet rs   = stmt.executeQuery(
-				"SELECT DISTINCT job_en FROM cards WHERE job_en IS NOT NULL AND job_en != '' ORDER BY job_en")) {
-			while (rs.next()) jobs.add(rs.getString(1));
-		} catch (Exception e) {
+	/** Loads every distinct job name from the database, returning a sorted list.
+	 *  Multi-jobs (e.g. "Warrior/Rebel") are split into their individual components. */
+	private List<String> loadJobsFromDb() {
+		try {
+			return scraper.CardDatabase.loadJobs();
+		} catch (SQLException e) {
 			logEntry("[Job select] DB error: " + e.getMessage());
+			return new ArrayList<>();
 		}
-		return jobs;
 	}
 
 	/**
