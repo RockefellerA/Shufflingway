@@ -1545,9 +1545,9 @@ public class MainWindow {
 	 * <ul>
 	 *   <li>ACTIVE  → DRAW   : activate dull cards, draw 1 (turn 1) or 2 cards</li>
 	 *   <li>DRAW    → MAIN_1 : nothing automatic</li>
-	 *   <li>MAIN_1  → ATTACK : nothing automatic</li>
+	 *   <li>MAIN_1  → ATTACK : passes priority to P2 (auto-pass), then enters Attack</li>
 	 *   <li>ATTACK  → MAIN_2 : nothing automatic</li>
-	 *   <li>MAIN_2  → END    : nothing automatic</li>
+	 *   <li>MAIN_2  → END    : passes priority to P2 (auto-pass), then runs end-of-turn</li>
 	 *   <li>END     → ACTIVE : increment turn, immediately activate cards</li>
 	 * </ul>
 	 */
@@ -1606,20 +1606,24 @@ public class MainWindow {
 			case MAIN_1 -> {
                             p1AttackSelection.clear();
                             p1MonsterAttackIdx = -1;
-                            gameState.advancePhase();   // MAIN_1 → ATTACK
-                            logEntry("Attack Phase");
-                            refreshAllForwardSlots();
-                            if (!hasAttackableForward() && !hasBackAttackInHand()) {
-                                logEntry("No attackers available — skipping to Main Phase 2");
-                                onNextPhase();
-                                return;
-                            }
-                            // Sub-step 0: Attack Preparation — P1 has priority first
-                            setAttackSubStep(0);
-                            if (nextPhaseButton != null) nextPhaseButton.setEnabled(true);
-                            refreshPhaseTracker();
-                            refreshAttackButton();
-                            logEntry("Attack Preparation — use abilities or click Next to pass priority.");
+                            logEntry("[Priority] P1 passes — P2 may respond.");
+                            if (nextPhaseButton != null) nextPhaseButton.setEnabled(false);
+                            p2AutoPass(() -> {
+                                gameState.advancePhase();   // MAIN_1 → ATTACK
+                                logEntry("Attack Phase");
+                                refreshAllForwardSlots();
+                                if (!hasAttackableForward() && !hasBackAttackInHand()) {
+                                    logEntry("No attackers available — skipping to Main Phase 2");
+                                    onNextPhase();
+                                    return;
+                                }
+                                // Sub-step 0: Attack Preparation — P1 has priority first
+                                setAttackSubStep(0);
+                                if (nextPhaseButton != null) nextPhaseButton.setEnabled(true);
+                                refreshPhaseTracker();
+                                refreshAttackButton();
+                                logEntry("Attack Preparation — use abilities or click Next to pass priority.");
+                            });
             }
 
 			case ATTACK -> {
@@ -1653,54 +1657,58 @@ public class MainWindow {
 			}
 
 			case MAIN_2 -> {
-                            gameState.advancePhase();   // MAIN_2 → END
-                            refreshPhaseTracker();
-                            logEntry("End Phase");
-                            fireFieldEndOfTurnAbilities(true);
-                            fireEndOfTurnEffects(true);
-                            for (int i = 0; i < p1ForwardDamage.size(); i++) p1ForwardDamage.set(i, 0);
-                            for (int i = 0; i < p1ForwardPowerBoost.size(); i++) p1ForwardPowerBoost.set(i, 0);
-                            for (int i = 0; i < p1ForwardPowerReduction.size(); i++) p1ForwardPowerReduction.set(i, 0);
-                            p1ForwardTempTraits.forEach(java.util.EnumSet::clear);
-                            p1ForwardRemovedTraits.forEach(java.util.EnumSet::clear);
-                            java.util.Collections.fill(p1ForwardTempJobs, null);
-                            for (int i = 0; i < p1ForwardCards.size(); i++) refreshP1ForwardSlot(i);
-                            for (int i = 0; i < p2ForwardDamage.size(); i++) p2ForwardDamage.set(i, 0);
-                            for (int i = 0; i < p2ForwardPowerBoost.size(); i++) p2ForwardPowerBoost.set(i, 0);
-                            for (int i = 0; i < p2ForwardPowerReduction.size(); i++) p2ForwardPowerReduction.set(i, 0);
-                            p2ForwardTempTraits.forEach(java.util.EnumSet::clear);
-                            p2ForwardRemovedTraits.forEach(java.util.EnumSet::clear);
-                            java.util.Collections.fill(p2ForwardTempJobs, null);
-                            p1MonsterPowerBoost.clear(); p2MonsterPowerBoost.clear();
-                            p1MonsterTempTraits.clear(); p2MonsterTempTraits.clear();
-                            for (int i = 0; i < p1MonsterCards.size(); i++) refreshP1MonsterSlot(i);
-                            for (int i = 0; i < p2MonsterCards.size(); i++) refreshP2MonsterSlot(i);
-                            clearBackupForwardState();
-                            p1ForwardCannotBeBlocked.clear();       p2ForwardCannotBeBlocked.clear();
-                            p1ForwardCannotBeBlockedByCost.clear(); p2ForwardCannotBeBlockedByCost.clear();
-                            p1ForwardCannotBlock.clear();           p2ForwardCannotBlock.clear();
-                            p1ForwardMustBlock.clear();             p2ForwardMustBlock.clear();
-                            p1ForwardCannotAttack.clear();          p2ForwardCannotAttack.clear();
-                            p1ForwardMustAttack.clear();            p2ForwardMustAttack.clear();
-                            p1ForwardCannotAttackPersistent.clear(); p1ForwardCannotBlockPersistent.clear();
-                            p1TempAttackTriggers.clear();           p2TempAttackTriggers.clear();
-                            p1TempBlockTriggers.clear();            p2TempBlockTriggers.clear();
-                            nextIncomingDmgZeroSet.clear();   nextIncomingDmgReduceMap.clear();   nextAbilityDmgReduceMap.clear();
-                            incomingDmgIncreaseMap.clear();   nullifyAbilityDmgSet.clear();
-                            nullifyAbilityOnlyDmgSet.clear(); perCardNonLethalDmgSet.clear();
-                            nextOutgoingDmgZeroSet.clear();    outgoingDmgMultiplierMap.clear();
-                            nextOutgoingDmgDoublerSet.clear(); outgoingDmgFlatBoostMap.clear();
-                            perCardIncomingDmgMultiplierMap.clear();
-                            p1ForwardIncomingDmgMult = 1;      p2ForwardIncomingDmgMult = 1;
-                            p1AbilityOutgoingDmgMult = 1;      p2AbilityOutgoingDmgMult = 1;
-                            cannotBeChosenBySummons.clear();  cannotBeChosenByAbilities.clear();  cannotBeChosenBySummonsAnyone.clear();  cannotBeChosenByElement.clear();  nullifyElementDamageMap.clear();
-                            cannotBeBrokenSet.clear();        cannotBeBrokenByNonDmgSet.clear();  breaktouchBattleSet.clear();
-                            p1NonLethalProtection = false;    p2NonLethalProtection = false;
-                            p1DmgReductionDisabled = false;   p2DmgReductionDisabled = false;
-                            p1GlobalDmgReduction  = 0;        p2GlobalDmgReduction  = 0;
-                            for (int i = 0; i < p2ForwardCards.size(); i++) refreshP2ForwardSlot(i);
-                            showEndPhaseDiscardDialog();
-                            onNextPhase();             // END → ACTIVE (auto-advance)
+                            logEntry("[Priority] P1 passes — P2 may respond.");
+                            if (nextPhaseButton != null) nextPhaseButton.setEnabled(false);
+                            p2AutoPass(() -> {
+                                gameState.advancePhase();   // MAIN_2 → END
+                                refreshPhaseTracker();
+                                logEntry("End Phase");
+                                fireFieldEndOfTurnAbilities(true);
+                                fireEndOfTurnEffects(true);
+                                for (int i = 0; i < p1ForwardDamage.size(); i++) p1ForwardDamage.set(i, 0);
+                                for (int i = 0; i < p1ForwardPowerBoost.size(); i++) p1ForwardPowerBoost.set(i, 0);
+                                for (int i = 0; i < p1ForwardPowerReduction.size(); i++) p1ForwardPowerReduction.set(i, 0);
+                                p1ForwardTempTraits.forEach(java.util.EnumSet::clear);
+                                p1ForwardRemovedTraits.forEach(java.util.EnumSet::clear);
+                                java.util.Collections.fill(p1ForwardTempJobs, null);
+                                for (int i = 0; i < p1ForwardCards.size(); i++) refreshP1ForwardSlot(i);
+                                for (int i = 0; i < p2ForwardDamage.size(); i++) p2ForwardDamage.set(i, 0);
+                                for (int i = 0; i < p2ForwardPowerBoost.size(); i++) p2ForwardPowerBoost.set(i, 0);
+                                for (int i = 0; i < p2ForwardPowerReduction.size(); i++) p2ForwardPowerReduction.set(i, 0);
+                                p2ForwardTempTraits.forEach(java.util.EnumSet::clear);
+                                p2ForwardRemovedTraits.forEach(java.util.EnumSet::clear);
+                                java.util.Collections.fill(p2ForwardTempJobs, null);
+                                p1MonsterPowerBoost.clear(); p2MonsterPowerBoost.clear();
+                                p1MonsterTempTraits.clear(); p2MonsterTempTraits.clear();
+                                for (int i = 0; i < p1MonsterCards.size(); i++) refreshP1MonsterSlot(i);
+                                for (int i = 0; i < p2MonsterCards.size(); i++) refreshP2MonsterSlot(i);
+                                clearBackupForwardState();
+                                p1ForwardCannotBeBlocked.clear();       p2ForwardCannotBeBlocked.clear();
+                                p1ForwardCannotBeBlockedByCost.clear(); p2ForwardCannotBeBlockedByCost.clear();
+                                p1ForwardCannotBlock.clear();           p2ForwardCannotBlock.clear();
+                                p1ForwardMustBlock.clear();             p2ForwardMustBlock.clear();
+                                p1ForwardCannotAttack.clear();          p2ForwardCannotAttack.clear();
+                                p1ForwardMustAttack.clear();            p2ForwardMustAttack.clear();
+                                p1ForwardCannotAttackPersistent.clear(); p1ForwardCannotBlockPersistent.clear();
+                                p1TempAttackTriggers.clear();           p2TempAttackTriggers.clear();
+                                p1TempBlockTriggers.clear();            p2TempBlockTriggers.clear();
+                                nextIncomingDmgZeroSet.clear();   nextIncomingDmgReduceMap.clear();   nextAbilityDmgReduceMap.clear();
+                                incomingDmgIncreaseMap.clear();   nullifyAbilityDmgSet.clear();
+                                nullifyAbilityOnlyDmgSet.clear(); perCardNonLethalDmgSet.clear();
+                                nextOutgoingDmgZeroSet.clear();    outgoingDmgMultiplierMap.clear();
+                                nextOutgoingDmgDoublerSet.clear(); outgoingDmgFlatBoostMap.clear();
+                                perCardIncomingDmgMultiplierMap.clear();
+                                p1ForwardIncomingDmgMult = 1;      p2ForwardIncomingDmgMult = 1;
+                                p1AbilityOutgoingDmgMult = 1;      p2AbilityOutgoingDmgMult = 1;
+                                cannotBeChosenBySummons.clear();  cannotBeChosenByAbilities.clear();  cannotBeChosenBySummonsAnyone.clear();  cannotBeChosenByElement.clear();  nullifyElementDamageMap.clear();
+                                cannotBeBrokenSet.clear();        cannotBeBrokenByNonDmgSet.clear();  breaktouchBattleSet.clear();
+                                p1NonLethalProtection = false;    p2NonLethalProtection = false;
+                                p1DmgReductionDisabled = false;   p2DmgReductionDisabled = false;
+                                p1GlobalDmgReduction  = 0;        p2GlobalDmgReduction  = 0;
+                                for (int i = 0; i < p2ForwardCards.size(); i++) refreshP2ForwardSlot(i);
+                                showEndPhaseDiscardDialog();
+                                onNextPhase();             // END → ACTIVE (auto-advance)
+                            });
             }
 
 			case END ->  {
