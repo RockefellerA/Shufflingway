@@ -1568,9 +1568,7 @@ public class MainWindow {
 		if (current == null) return;
 
 		switch (current) {
-
 			case ACTIVE ->  {
-				usedOncePerTurnAbilities.clear();
 				// Advance first so getTurnNumber() still reflects the current turn
 				gameState.advancePhase();   // ACTIVE → DRAW
 				refreshPhaseTracker();
@@ -1729,6 +1727,7 @@ public class MainWindow {
 					nextPhaseButton.setEnabled(false);
 					computerPlayer.runTurn();
 				}
+				usedOncePerTurnAbilities.clear();
 			}
 		}
 	}
@@ -7285,6 +7284,8 @@ public class MainWindow {
 				&& usedOncePerTurnAbilities.getOrDefault(source, java.util.Set.of()).contains(ability.effectText()))
 			return false;
 		if (ability.mainPhaseOnly()) {
+			GameState.Player activePlayer = isP1 ? GameState.Player.P1 : GameState.Player.P2;
+			if (gameState.getCurrentPlayer() != activePlayer) return false;
 			GameState.GamePhase p = gameState.getCurrentPhase();
 			if (p != GameState.GamePhase.MAIN_1 && p != GameState.GamePhase.MAIN_2) return false;
 		}
