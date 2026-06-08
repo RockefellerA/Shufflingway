@@ -549,17 +549,45 @@ public class ActionResolver {
     );
 
     /**
-     * Matches "Name 1 Element and 1 Job. &lt;CardName&gt; becomes the named Element and Job
-     * until the end of the turn." — action ability on a card that changes its own element and job.
+     * Matches "Name 1 Element and 1 Job" / "Name 1 Job and 1 Element" with an optional
+     * "other than X[ or Y]" element exclusion, where the source card becomes the named Element
+     * and Job until end of turn.
      */
     private static final Pattern NAME_ELEMENT_AND_JOB_SELF_BECOMES = Pattern.compile(
-        "(?i)Name\\s+1\\s+Element\\s+and\\s+1\\s+Job[.!]?\\s+" +
-        "(?<name>.+?)\\s+becomes?\\s+the\\s+named\\s+Element\\s+and\\s+Job\\s+until\\s+the\\s+end\\s+of\\s+the\\s+turn[.!]?"
+        "(?i)Name\\s+1\\s+(?:Element\\s+and\\s+1\\s+Job|Job\\s+and\\s+1\\s+Element)" +
+        "(?:\\s+other\\s+than\\s+(?<exclude>[^.]+?))?" +
+        "[.!]?\\s+" +
+        "(?<name>.+?)\\s+becomes?\\s+the\\s+named\\s+(?:Element\\s+and\\s+Job|Job\\s+and\\s+Element)" +
+        "\\s+until\\s+the\\s+end\\s+of\\s+the\\s+turn[.!]?"
     );
 
-    /** Matches the standalone "name 1 Job" ETF effect. */
+    /**
+     * Matches "Name 1 Job and 1 Element[ other than X[ or Y]]. &lt;CardName&gt; gains named Job and
+     * Element. [(This effect does not end at the end of the turn.)]" — a permanent element and job
+     * grant (no EOT revert).
+     */
+    private static final Pattern NAME_JOB_AND_ELEMENT_SELF_GAINS_PERMANENT = Pattern.compile(
+        "(?i)Name\\s+1\\s+(?:Job\\s+and\\s+1\\s+Element|Element\\s+and\\s+1\\s+Job)" +
+        "(?:\\s+other\\s+than\\s+(?<exclude>[^.]+?))?" +
+        "[.!]?\\s+" +
+        "(?<name>.+?)\\s+gains?\\s+(?:the\\s+)?named\\s+(?:Job\\s+and\\s+Element|Element\\s+and\\s+Job)[.!]?\\s*" +
+        "(?:\\(This\\s+effect\\s+does\\s+not\\s+end\\s+at\\s+the\\s+end\\s+of\\s+the\\s+turn\\.?\\))?"
+    );
+
+    /**
+     * Matches "Name 1 Job or 1 Element. Until the end of the turn, all Forwards you control
+     * gain +N power and the named Job or Element."
+     */
+    private static final Pattern NAME_JOB_OR_ELEMENT_ALL_FORWARDS_BOOST = Pattern.compile(
+        "(?i)Name\\s+1\\s+(?:Job\\s+or\\s+1\\s+Element|Element\\s+or\\s+1\\s+Job)[.!]?\\s+" +
+        "Until\\s+(?:the\\s+)?end\\s+of\\s+(?:the\\s+)?turn,?\\s+" +
+        "all\\s+(?:the\\s+)?Forwards?\\s+you\\s+control\\s+gains?\\s+\\+?(?<amount>\\d+)\\s+[Pp]ower\\s+" +
+        "and\\s+(?:the\\s+)?named\\s+(?:Job\\s+or\\s+(?:an?\\s+)?Element|(?:an?\\s+)?Element\\s+or\\s+Job)[.!]?"
+    );
+
+    /** Matches the standalone "Name 1 Job" / "Select a Job" ETF effect. */
     private static final Pattern NAME_JOB_STANDALONE = Pattern.compile(
-        "(?i)^name\\s+1\\s+Job[.!]?$"
+        "(?i)^(?:name\\s+1|select\\s+a)\\s+Job[.!]?$"
     );
 
     // ---- Damage-shield followup patterns (apply to selected "it/them" targets) --------
@@ -2307,6 +2335,12 @@ public class ActionResolver {
         if (result != null) return result;
 
         result = tryParseNameElementAndJobSelfBecomes(effectText, source);
+        if (result != null) return result;
+
+        result = tryParseNameJobAndElementSelfGainsPermanent(effectText, source);
+        if (result != null) return result;
+
+        result = tryParseNameJobOrElementAllForwardsBoost(effectText);
         if (result != null) return result;
 
         result = tryParseNameJob(effectText);
@@ -6363,6 +6397,22 @@ public class ActionResolver {
         };
     }
 
+    private static Consumer<GameContext> tryParseNameJobOrElementAllForwardsBoost(String text) {
+        Matcher m = NAME_JOB_OR_ELEMENT_ALL_FORWARDS_BOOST.matcher(text);
+        if (!m.find()) return null;
+        int amount = Integer.parseInt(m.group("amount"));
+        return ctx -> {
+            ctx.logEntry("Effect: Name 1 Job or Element — all controlled Forwards +" + amount + " power and named until EOT");
+            String[] choice = ctx.selectJobOrElement("Name 1 Job or 1 Element:");
+            if (choice == null || choice[1] == null) return;
+            ctx.applyMassFieldPowerBoost(amount, true, false, false, true, null, -1, null, null);
+            if ("job".equalsIgnoreCase(choice[0]))
+                ctx.grantAllControlledForwardsJobUntilEOT(choice[1]);
+            else
+                ctx.grantAllControlledForwardsElementUntilEOT(choice[1]);
+        };
+    }
+
     private static Consumer<GameContext> tryParseNameJob(String text) {
         if (!NAME_JOB_STANDALONE.matcher(text.trim()).find()) return null;
         return ctx -> {
@@ -6377,12 +6427,36 @@ public class ActionResolver {
         Matcher m = NAME_ELEMENT_AND_JOB_SELF_BECOMES.matcher(text);
         if (!m.find()) return null;
         if (!m.group("name").trim().equalsIgnoreCase(source.name())) return null;
+        java.util.Set<String> excluded = parseExcludeElements(m.group("exclude"));
         return ctx -> {
             ctx.logEntry("Effect: Name 1 Element and 1 Job — " + source.name() + " becomes both until end of turn");
-            String[] choice = ctx.selectElementAndJob("Name 1 Element and 1 Job (" + source.name() + " becomes both):");
+            String[] choice = ctx.selectElementAndJob("Name 1 Element and 1 Job (" + source.name() + " becomes both):", excluded);
             if (choice == null || choice[0] == null || choice[1] == null) return;
             ctx.changeSourceCardElementAndJobUntilEOT(source, choice[0], choice[1]);
         };
+    }
+
+    private static Consumer<GameContext> tryParseNameJobAndElementSelfGainsPermanent(String text, CardData source) {
+        if (source == null) return null;
+        Matcher m = NAME_JOB_AND_ELEMENT_SELF_GAINS_PERMANENT.matcher(text);
+        if (!m.find()) return null;
+        if (!m.group("name").trim().equalsIgnoreCase(source.name())) return null;
+        java.util.Set<String> excluded = parseExcludeElements(m.group("exclude"));
+        return ctx -> {
+            ctx.logEntry("Effect: Name 1 Job and 1 Element — " + source.name() + " gains both permanently");
+            String[] choice = ctx.selectElementAndJob("Name 1 Job and 1 Element (" + source.name() + " gains both):", excluded);
+            if (choice == null || choice[0] == null || choice[1] == null) return;
+            ctx.setCardElement(source.name(), choice[0]);
+            ctx.addCardJobPermanently(source.name(), choice[1]);
+        };
+    }
+
+    private static java.util.Set<String> parseExcludeElements(String excludeStr) {
+        if (excludeStr == null || excludeStr.isBlank()) return java.util.Collections.emptySet();
+        java.util.Set<String> out = new java.util.LinkedHashSet<>();
+        for (String part : excludeStr.split("(?i)\\s+(?:or|and)\\s+|,\\s*"))
+            out.add(part.trim());
+        return out;
     }
 
     /**

@@ -434,6 +434,8 @@ public class MainWindow {
 	private final Map<CardData, String> nullifyElementDamageMap = new HashMap<>();
 	/** Maps a card to a permanent element override (Kam'lanaut ability); persists across turns. */
 	private final Map<CardData, String> elementOverrideMap      = new HashMap<>();
+	/** Maps a card to a permanently-granted extra job (e.g. Bartz ability); persists across turns. */
+	private final Map<CardData, String> permanentExtraJobMap    = new HashMap<>();
 	/** Characters that cannot be broken this turn. */
 	private final Set<CardData> cannotBeBrokenSet         = new HashSet<>();
 	/** Characters that cannot be broken this turn by opposing non-damage abilities/summons. */
@@ -3173,8 +3175,8 @@ public class MainWindow {
 			if (!meetsCostConstraint(c.cost(), costVal, costCmp)) continue;
 			boolean passesNameJob = (jobFilter == null && cardNameFilter == null)
 				|| (jobFilter != null && cardNameFilter != null
-					? meetsJobFilter(c, jobFilter) || meetsCardNameFilter(c, cardNameFilter)
-					: meetsJobFilter(c, jobFilter) && meetsCardNameFilter(c, cardNameFilter));
+					? meetsJobFilterEffective(c, jobFilter) || meetsCardNameFilter(c, cardNameFilter)
+					: meetsJobFilterEffective(c, jobFilter) && meetsCardNameFilter(c, cardNameFilter));
 			if (!passesNameJob) continue;
 			if (!meetsCategoryFilter(c, categoryFilter)) continue;
 			if (!meetsElementFilter(c, elementFilter)) continue;
@@ -7385,7 +7387,7 @@ public class MainWindow {
 					&& cond.orCardNames().stream().anyMatch(n -> n.equalsIgnoreCase(card.name()));
 			if (matchesAltName) { count++; continue; }
 			if (cond.element()  != null && !card.containsElement(cond.element())) continue;
-			if (cond.job()      != null && !meetsJobFilter(card, cond.job()))      continue;
+			if (cond.job()      != null && !meetsJobFilterEffective(card, cond.job()))      continue;
 			if (cond.category() != null && !meetsCategoryFilter(card, cond.category())) continue;
 			if (cond.minPower() > 0     && card.power() < cond.minPower())         continue;
 			count++;
@@ -7426,6 +7428,24 @@ public class MainWindow {
 	private List<String> effectiveElements(CardData c) {
 		String override = elementOverrideMap.get(c);
 		return (override != null) ? List.of(override) : java.util.Arrays.asList(c.elements());
+	}
+
+	private String effectiveExtraJob(CardData card) {
+		return permanentExtraJobMap.get(card);
+	}
+
+	private boolean meetsJobFilterEffective(CardData card, String jobFilter) {
+		return meetsJobFilter(card, jobFilter, effectiveExtraJob(card));
+	}
+
+	private boolean meetsJobFilterEffective(CardData card, String jobFilter,
+			List<CardData> controlledForwards) {
+		if (meetsJobFilter(card, jobFilter, controlledForwards)) return true;
+		String extra = effectiveExtraJob(card);
+		if (extra == null || jobFilter == null) return false;
+		for (String j : jobFilter.split("\\|"))
+			if (extra.equalsIgnoreCase(j.trim())) return true;
+		return false;
 	}
 
 	/**
@@ -9785,7 +9805,7 @@ public class MainWindow {
 			}
 
 			@Override public String selectElement(String prompt) {
-				return selectOption(prompt, ActionResolver.ELEMENT_NAMES);
+				return NameSelectionDialogs.selectElement(frame, prompt, isP1, MainWindow.this::logEntry);
 			}
 
 			@Override public String selectOption(String prompt, String[] choices) {
@@ -9804,7 +9824,7 @@ public class MainWindow {
 					boolean bySummons, boolean byAbilities) {
 				List<CardData> fwds = isP1 ? p1ForwardCards : p2ForwardCards;
 				for (CardData c : fwds) {
-					if (!meetsJobFilter(c, job)) continue;
+					if (!meetsJobFilterEffective(c, job)) continue;
 					if (excludeName != null && c.name().equalsIgnoreCase(excludeName)) continue;
 					if (bySummons)   cannotBeChosenBySummons.add(c);
 					if (byAbilities) cannotBeChosenByAbilities.add(c);
@@ -9894,7 +9914,7 @@ public class MainWindow {
 							if (!meetsElementExclusion(card, excludeElement)) continue;
 							if (!meetsCostConstraint(card.cost(), costVal, costCmp)) continue;
 							if (!meetsPowerConstraint(card.power(), powerVal, powerCmp)) continue;
-							if (!meetsJobFilter(card, jobFilter, p1ForwardCards)) continue;
+							if (!meetsJobFilterEffective(card, jobFilter, p1ForwardCards)) continue;
 							if (!meetsCardNameFilter(card, cardNameFilter)) continue;
 							if (!meetsCategoryFilter(card, categoryFilter)) continue;
 							if (excludeName != null && excludeName.equalsIgnoreCase(card.name())) continue;
@@ -9914,7 +9934,7 @@ public class MainWindow {
 							if (element != null && !p1BackupCards[i].containsElement(element)) continue;
 							if (!meetsCostConstraint(p1BackupCards[i].cost(), costVal, costCmp)) continue;
 							if (!meetsPowerConstraint(p1BackupCards[i].power(), powerVal, powerCmp)) continue;
-							if (!meetsJobFilter(p1BackupCards[i], jobFilter, p1ForwardCards)) continue;
+							if (!meetsJobFilterEffective(p1BackupCards[i], jobFilter, p1ForwardCards)) continue;
 							if (!meetsCardNameFilter(p1BackupCards[i], cardNameFilter)) continue;
 							if (!meetsCategoryFilter(p1BackupCards[i], categoryFilter)) continue;
 							if (excludeName != null && excludeName.equalsIgnoreCase(p1BackupCards[i].name())) continue;
@@ -9930,7 +9950,7 @@ public class MainWindow {
 							if (!meetsElementExclusion(card, excludeElement)) continue;
 							if (!meetsCostConstraint(card.cost(), costVal, costCmp)) continue;
 							if (!meetsPowerConstraint(card.power(), powerVal, powerCmp)) continue;
-							if (!meetsJobFilter(card, jobFilter, p1ForwardCards)) continue;
+							if (!meetsJobFilterEffective(card, jobFilter, p1ForwardCards)) continue;
 							if (!meetsCardNameFilter(card, cardNameFilter)) continue;
 							if (!meetsCategoryFilter(card, categoryFilter)) continue;
 							if (excludeName != null && excludeName.equalsIgnoreCase(card.name())) continue;
@@ -9949,7 +9969,7 @@ public class MainWindow {
 							if (!meetsElementExclusion(card, excludeElement)) continue;
 							if (!meetsCostConstraint(card.cost(), costVal, costCmp)) continue;
 							if (!meetsPowerConstraint(card.power(), powerVal, powerCmp)) continue;
-							if (!meetsJobFilter(card, jobFilter, p2ForwardCards)) continue;
+							if (!meetsJobFilterEffective(card, jobFilter, p2ForwardCards)) continue;
 							if (!meetsCardNameFilter(card, cardNameFilter)) continue;
 							if (!meetsCategoryFilter(card, categoryFilter)) continue;
 							if (excludeName != null && excludeName.equalsIgnoreCase(card.name())) continue;
@@ -9970,7 +9990,7 @@ public class MainWindow {
 							if (element != null && !p2BackupCards[i].containsElement(element)) continue;
 							if (!meetsCostConstraint(p2BackupCards[i].cost(), costVal, costCmp)) continue;
 							if (!meetsPowerConstraint(p2BackupCards[i].power(), powerVal, powerCmp)) continue;
-							if (!meetsJobFilter(p2BackupCards[i], jobFilter, p2ForwardCards)) continue;
+							if (!meetsJobFilterEffective(p2BackupCards[i], jobFilter, p2ForwardCards)) continue;
 							if (!meetsCardNameFilter(p2BackupCards[i], cardNameFilter)) continue;
 							if (!meetsCategoryFilter(p2BackupCards[i], categoryFilter)) continue;
 							if (excludeName != null && excludeName.equalsIgnoreCase(p2BackupCards[i].name())) continue;
@@ -9986,7 +10006,7 @@ public class MainWindow {
 							if (!meetsElementExclusion(card, excludeElement)) continue;
 							if (!meetsCostConstraint(card.cost(), costVal, costCmp)) continue;
 							if (!meetsPowerConstraint(card.power(), powerVal, powerCmp)) continue;
-							if (!meetsJobFilter(card, jobFilter, p2ForwardCards)) continue;
+							if (!meetsJobFilterEffective(card, jobFilter, p2ForwardCards)) continue;
 							if (!meetsCardNameFilter(card, cardNameFilter)) continue;
 							if (!meetsCategoryFilter(card, categoryFilter)) continue;
 							if (excludeName != null && excludeName.equalsIgnoreCase(card.name())) continue;
@@ -10008,7 +10028,7 @@ public class MainWindow {
 							if (!meetsElementExclusion(card, excludeElement)) continue;
 							if (!meetsCostConstraint(card.cost(), costVal, costCmp)) continue;
 							if (!meetsPowerConstraint(card.power(), powerVal, powerCmp)) continue;
-							if (!meetsJobFilter(card, jobFilter, p2ForwardCards)) continue;
+							if (!meetsJobFilterEffective(card, jobFilter, p2ForwardCards)) continue;
 							if (!meetsCardNameFilter(card, cardNameFilter)) continue;
 							if (!meetsCategoryFilter(card, categoryFilter)) continue;
 							if (excludeName != null && excludeName.equalsIgnoreCase(card.name())) continue;
@@ -10029,7 +10049,7 @@ public class MainWindow {
 							if (element != null && !p2BackupCards[i].containsElement(element)) continue;
 							if (!meetsCostConstraint(p2BackupCards[i].cost(), costVal, costCmp)) continue;
 							if (!meetsPowerConstraint(p2BackupCards[i].power(), powerVal, powerCmp)) continue;
-							if (!meetsJobFilter(p2BackupCards[i], jobFilter, p2ForwardCards)) continue;
+							if (!meetsJobFilterEffective(p2BackupCards[i], jobFilter, p2ForwardCards)) continue;
 							if (!meetsCardNameFilter(p2BackupCards[i], cardNameFilter)) continue;
 							if (!meetsCategoryFilter(p2BackupCards[i], categoryFilter)) continue;
 							if (excludeName != null && excludeName.equalsIgnoreCase(p2BackupCards[i].name())) continue;
@@ -10045,7 +10065,7 @@ public class MainWindow {
 							if (!meetsElementExclusion(card, excludeElement)) continue;
 							if (!meetsCostConstraint(card.cost(), costVal, costCmp)) continue;
 							if (!meetsPowerConstraint(card.power(), powerVal, powerCmp)) continue;
-							if (!meetsJobFilter(card, jobFilter, p2ForwardCards)) continue;
+							if (!meetsJobFilterEffective(card, jobFilter, p2ForwardCards)) continue;
 							if (!meetsCardNameFilter(card, cardNameFilter)) continue;
 							if (!meetsCategoryFilter(card, categoryFilter)) continue;
 							if (excludeName != null && excludeName.equalsIgnoreCase(card.name())) continue;
@@ -10066,7 +10086,7 @@ public class MainWindow {
 							if (!meetsElementExclusion(card, excludeElement)) continue;
 							if (!meetsCostConstraint(card.cost(), costVal, costCmp)) continue;
 							if (!meetsPowerConstraint(card.power(), powerVal, powerCmp)) continue;
-							if (!meetsJobFilter(card, jobFilter, p1ForwardCards)) continue;
+							if (!meetsJobFilterEffective(card, jobFilter, p1ForwardCards)) continue;
 							if (!meetsCardNameFilter(card, cardNameFilter)) continue;
 							if (!meetsCategoryFilter(card, categoryFilter)) continue;
 							if (excludeName != null && excludeName.equalsIgnoreCase(card.name())) continue;
@@ -10088,7 +10108,7 @@ public class MainWindow {
 							if (element != null && !p1BackupCards[i].containsElement(element)) continue;
 							if (!meetsCostConstraint(p1BackupCards[i].cost(), costVal, costCmp)) continue;
 							if (!meetsPowerConstraint(p1BackupCards[i].power(), powerVal, powerCmp)) continue;
-							if (!meetsJobFilter(p1BackupCards[i], jobFilter, p1ForwardCards)) continue;
+							if (!meetsJobFilterEffective(p1BackupCards[i], jobFilter, p1ForwardCards)) continue;
 							if (!meetsCardNameFilter(p1BackupCards[i], cardNameFilter)) continue;
 							if (!meetsCategoryFilter(p1BackupCards[i], categoryFilter)) continue;
 							if (excludeName != null && excludeName.equalsIgnoreCase(p1BackupCards[i].name())) continue;
@@ -10105,7 +10125,7 @@ public class MainWindow {
 							if (!meetsElementExclusion(card, excludeElement)) continue;
 							if (!meetsCostConstraint(card.cost(), costVal, costCmp)) continue;
 							if (!meetsPowerConstraint(card.power(), powerVal, powerCmp)) continue;
-							if (!meetsJobFilter(card, jobFilter)) continue;
+							if (!meetsJobFilterEffective(card, jobFilter)) continue;
 							if (!meetsCardNameFilter(card, cardNameFilter)) continue;
 							if (!meetsCategoryFilter(card, categoryFilter)) continue;
 							if (excludeName != null && excludeName.equalsIgnoreCase(card.name())) continue;
@@ -10356,7 +10376,7 @@ public class MainWindow {
 					if (element != null && !card.containsElement(element)) continue;
 					if (!meetsCostConstraint(card.cost(), costVal, costCmp)) continue;
 					if (!meetsPowerConstraint(card.power(), powerVal, powerCmp)) continue;
-					if (!meetsJobFilter(card, jobFilter)) continue;
+					if (!meetsJobFilterEffective(card, jobFilter)) continue;
 					if (!meetsCardNameFilter(card, cardNameFilter)) continue;
 					if (!meetsCategoryFilter(card, categoryFilter)) continue;
 					if (excludeName != null && excludeName.equalsIgnoreCase(card.name())) continue;
@@ -10731,8 +10751,8 @@ public class MainWindow {
 					// Job+name: OR when both are set; AND otherwise
 					boolean passesNameJob = (jobFilter == null && cardNameFilter == null)
 						|| (jobFilter != null && cardNameFilter != null
-							? meetsJobFilter(card, jobFilter) || meetsCardNameFilter(card, cardNameFilter)
-							: meetsJobFilter(card, jobFilter) && meetsCardNameFilter(card, cardNameFilter));
+							? meetsJobFilterEffective(card, jobFilter) || meetsCardNameFilter(card, cardNameFilter)
+							: meetsJobFilterEffective(card, jobFilter) && meetsCardNameFilter(card, cardNameFilter));
 					if (!passesNameJob) continue;
 					if (!meetsCategoryFilter(card, categoryFilter)) continue;
 					if (!meetsElementFilter(card, elementFilter)) continue;
@@ -11582,7 +11602,7 @@ public class MainWindow {
 							if (element != null && !c.containsElement(element)) continue;
 							if (!meetsCostConstraint(c.cost(), costVal, costCmp)) continue;
 							if (excludeCostVal >= 0 && c.cost() == excludeCostVal) continue;
-							if (!meetsJobFilter(c, job)) continue;
+							if (!meetsJobFilterEffective(c, job)) continue;
 							if (!meetsCategoryFilter(c, category)) continue;
 							if (!forwardHasAnyTrait(true, i, traitFilter)) continue;
 							switch (action) {
@@ -11602,7 +11622,7 @@ public class MainWindow {
 							if (element != null && !c.containsElement(element)) continue;
 							if (!meetsCostConstraint(c.cost(), costVal, costCmp)) continue;
 							if (excludeCostVal >= 0 && c.cost() == excludeCostVal) continue;
-							if (!meetsJobFilter(c, job)) continue;
+							if (!meetsJobFilterEffective(c, job)) continue;
 							if (!meetsCategoryFilter(c, category)) continue;
 							switch (action) {
 								case BREAK -> {
@@ -11627,7 +11647,7 @@ public class MainWindow {
 							if (element != null && !c.containsElement(element)) continue;
 							if (!meetsCostConstraint(c.cost(), costVal, costCmp)) continue;
 							if (excludeCostVal >= 0 && c.cost() == excludeCostVal) continue;
-							if (!meetsJobFilter(c, job)) continue;
+							if (!meetsJobFilterEffective(c, job)) continue;
 							if (!meetsCategoryFilter(c, category)) continue;
 							switch (action) {
 								case BREAK -> {
@@ -11662,7 +11682,7 @@ public class MainWindow {
 							if (element != null && !c.containsElement(element)) continue;
 							if (!meetsCostConstraint(c.cost(), costVal, costCmp)) continue;
 							if (excludeCostVal >= 0 && c.cost() == excludeCostVal) continue;
-							if (!meetsJobFilter(c, job)) continue;
+							if (!meetsJobFilterEffective(c, job)) continue;
 							if (!meetsCategoryFilter(c, category)) continue;
 							if (!forwardHasAnyTrait(false, i, traitFilter)) continue;
 							switch (action) {
@@ -11682,7 +11702,7 @@ public class MainWindow {
 							if (element != null && !c.containsElement(element)) continue;
 							if (!meetsCostConstraint(c.cost(), costVal, costCmp)) continue;
 							if (excludeCostVal >= 0 && c.cost() == excludeCostVal) continue;
-							if (!meetsJobFilter(c, job)) continue;
+							if (!meetsJobFilterEffective(c, job)) continue;
 							if (!meetsCategoryFilter(c, category)) continue;
 							switch (action) {
 								case BREAK -> {
@@ -11882,7 +11902,7 @@ public class MainWindow {
 					boolean inclMonsters, String jobFilter, String cardNameFilter, String categoryFilter, String elementFilter) {
 				int count = 0;
 				if (inclForwards) for (CardData c : p1ForwardCards) {
-					if (!meetsJobFilter(c, jobFilter)) continue;
+					if (!meetsJobFilterEffective(c, jobFilter)) continue;
 					if (!meetsCardNameFilter(c, cardNameFilter)) continue;
 					if (!meetsCategoryFilter(c, categoryFilter)) continue;
 					if (elementFilter != null && !c.containsElement(elementFilter)) continue;
@@ -11890,14 +11910,14 @@ public class MainWindow {
 				}
 				if (inclBackups) for (CardData c : p1BackupCards) {
 					if (c == null) continue;
-					if (!meetsJobFilter(c, jobFilter)) continue;
+					if (!meetsJobFilterEffective(c, jobFilter)) continue;
 					if (!meetsCardNameFilter(c, cardNameFilter)) continue;
 					if (!meetsCategoryFilter(c, categoryFilter)) continue;
 					if (elementFilter != null && !c.containsElement(elementFilter)) continue;
 					count++;
 				}
 				if (inclMonsters) for (CardData c : p1MonsterCards) {
-					if (!meetsJobFilter(c, jobFilter)) continue;
+					if (!meetsJobFilterEffective(c, jobFilter)) continue;
 					if (!meetsCardNameFilter(c, cardNameFilter)) continue;
 					if (!meetsCategoryFilter(c, categoryFilter)) continue;
 					if (elementFilter != null && !c.containsElement(elementFilter)) continue;
@@ -11940,7 +11960,7 @@ public class MainWindow {
 					boolean inclMonsters, String jobFilter, String cardNameFilter, String categoryFilter, String elementFilter) {
 				int count = 0;
 				if (inclForwards) for (CardData c : p2ForwardCards) {
-					if (!meetsJobFilter(c, jobFilter)) continue;
+					if (!meetsJobFilterEffective(c, jobFilter)) continue;
 					if (!meetsCardNameFilter(c, cardNameFilter)) continue;
 					if (!meetsCategoryFilter(c, categoryFilter)) continue;
 					if (elementFilter != null && !c.containsElement(elementFilter)) continue;
@@ -11948,14 +11968,14 @@ public class MainWindow {
 				}
 				if (inclBackups) for (CardData c : p2BackupCards) {
 					if (c == null) continue;
-					if (!meetsJobFilter(c, jobFilter)) continue;
+					if (!meetsJobFilterEffective(c, jobFilter)) continue;
 					if (!meetsCardNameFilter(c, cardNameFilter)) continue;
 					if (!meetsCategoryFilter(c, categoryFilter)) continue;
 					if (elementFilter != null && !c.containsElement(elementFilter)) continue;
 					count++;
 				}
 				if (inclMonsters) for (CardData c : p2MonsterCards) {
-					if (!meetsJobFilter(c, jobFilter)) continue;
+					if (!meetsJobFilterEffective(c, jobFilter)) continue;
 					if (!meetsCardNameFilter(c, cardNameFilter)) continue;
 					if (!meetsCategoryFilter(c, categoryFilter)) continue;
 					if (elementFilter != null && !c.containsElement(elementFilter)) continue;
@@ -12058,8 +12078,64 @@ public class MainWindow {
 				}
 			}
 
+			@Override public String[] selectElementAndJob(String prompt, java.util.Set<String> excluded) {
+				return NameSelectionDialogs.selectElementAndJob(frame, prompt, excluded, isP1, MainWindow.this::logEntry);
+			}
+
 			@Override public String[] selectElementAndJob(String prompt) {
-				return NameSelectionDialogs.selectElementAndJob(frame, prompt, isP1, MainWindow.this::logEntry);
+				return selectElementAndJob(prompt, java.util.Collections.emptySet());
+			}
+
+			@Override public void addCardJobPermanently(String cardName, String job) {
+				for (boolean p1s : new boolean[]{true, false}) {
+					List<CardData> fwds = p1s ? p1ForwardCards : p2ForwardCards;
+					for (CardData c : fwds) {
+						if (c.name().equalsIgnoreCase(cardName)) {
+							permanentExtraJobMap.put(c, job);
+							logEntry("[Field] " + cardName + " gains permanent Job [" + job + "]");
+							return;
+						}
+					}
+					CardData[] bkps = p1s ? p1BackupCards : p2BackupCards;
+					for (CardData c : bkps) {
+						if (c != null && c.name().equalsIgnoreCase(cardName)) {
+							permanentExtraJobMap.put(c, job);
+							logEntry("[Field] " + cardName + " gains permanent Job [" + job + "]");
+							return;
+						}
+					}
+				}
+				logEntry("[Field] addCardJobPermanently: " + cardName + " not found");
+			}
+
+			@Override public String[] selectJobOrElement(String prompt) {
+				return NameSelectionDialogs.selectJobOrElement(frame, prompt, isP1, MainWindow.this::logEntry);
+			}
+
+			@Override public void grantAllControlledForwardsJobUntilEOT(String job) {
+				List<CardData> fwds     = isP1 ? p1ForwardCards    : p2ForwardCards;
+				List<String>   tempJobs = isP1 ? p1ForwardTempJobs : p2ForwardTempJobs;
+				String prefix = isP1 ? "" : "[P2] ";
+				for (int i = 0; i < fwds.size(); i++) {
+					if (i < tempJobs.size()) {
+						tempJobs.set(i, job);
+						logEntry(prefix + fwds.get(i).name() + " gains the Job [" + job + "] until end of turn");
+					}
+				}
+			}
+
+			@Override public void grantAllControlledForwardsElementUntilEOT(String element) {
+				List<CardData> fwds   = isP1 ? p1ForwardCards : p2ForwardCards;
+				String prefix = isP1 ? "" : "[P2] ";
+				for (CardData c : fwds) {
+					final String prev = elementOverrideMap.get(c);
+					elementOverrideMap.put(c, element);
+					endOfTurnEffects.add(x -> {
+						if (prev != null) elementOverrideMap.put(c, prev);
+						else              elementOverrideMap.remove(c);
+					});
+					logEntry(prefix + c.name() + " → element becomes " + element + " until EOT");
+				}
 			}
 
 			@Override public void changeSourceCardElementAndJobUntilEOT(CardData source, String element, String job) {

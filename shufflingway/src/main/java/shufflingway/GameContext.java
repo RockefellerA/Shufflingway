@@ -1102,10 +1102,37 @@ public interface GameContext {
      * The OK button is disabled until both dropdowns have a valid selection.
      * The AI picks randomly for non-interactive contexts.
      *
-     * @param prompt text shown above the pickers
+     * @param prompt   text shown above the pickers
+     * @param excluded element names to hide from the element picker
      * @return {@code {element, job}} array, or {@code null} if cancelled
      */
+    String[] selectElementAndJob(String prompt, java.util.Set<String> excluded);
+
+    /** Like {@link #selectElementAndJob(String, java.util.Set)} with no exclusions. */
     String[] selectElementAndJob(String prompt);
+
+    /**
+     * Permanently adds {@code job} as an additional job to the named card on the field.
+     * The extra job persists across turns and is considered in all job-filter checks.
+     */
+    void addCardJobPermanently(String cardName, String job);
+
+    /**
+     * Shows a modal dialog for the ability user to name either one Job or one Element.
+     * Returns {@code {"job", value}} or {@code {"element", value}}, or {@code null} if cancelled.
+     */
+    String[] selectJobOrElement(String prompt);
+
+    /**
+     * Grants all Forwards controlled by the acting player the given {@code job} until end of turn.
+     */
+    void grantAllControlledForwardsJobUntilEOT(String job);
+
+    /**
+     * Grants all Forwards controlled by the acting player the given {@code element} until end of
+     * turn. Temporarily overrides each Forward's element; reverted at end of turn.
+     */
+    void grantAllControlledForwardsElementUntilEOT(String element);
 
     /**
      * Grants the Forward at {@code t} the given {@code job} until the end of the turn.

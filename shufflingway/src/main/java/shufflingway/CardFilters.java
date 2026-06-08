@@ -80,6 +80,18 @@ public final class CardFilters {
     }
 
     /**
+     * Like {@link #meetsJobFilter(CardData, String)}, but also considers {@code extraJob} as an
+     * additional job the card has (e.g., granted permanently at runtime).
+     */
+    public static boolean meetsJobFilter(CardData card, String jobFilter, String extraJob) {
+        if (meetsJobFilter(card, jobFilter)) return true;
+        if (extraJob == null || jobFilter == null) return false;
+        for (String j : jobFilter.split("\\|"))
+            if (extraJob.equalsIgnoreCase(j.trim())) return true;
+        return false;
+    }
+
+    /**
      * Like {@link #meetsJobFilter(CardData, String)}, but also matches when the card has
      * "has the Jobs of the Forwards you control" and any Forward in {@code controlledForwards}
      * carries the required job.
