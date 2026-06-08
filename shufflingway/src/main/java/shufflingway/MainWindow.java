@@ -3433,6 +3433,123 @@ public class MainWindow {
 		return selection[0];
 	}
 
+	private List<Integer> showCardMultiImageChooser(List<CardData> cards, String title, int count,
+			boolean eachDifferentType, boolean showCost) {
+		if (cards.isEmpty() || count <= 0) return null;
+		JDialog dlg = new JDialog(frame, title, true);
+		dlg.setResizable(false);
+		dlg.setDefaultCloseOperation(JDialog.DO_NOTHING_ON_CLOSE);
+
+		List<Integer> selected = new ArrayList<>();
+		List<JLabel> labels = new ArrayList<>();
+		boolean[] confirmed = { false };
+
+		JButton selectBtn = new JButton("Select");
+		selectBtn.setFont(FontLoader.loadPixelNESFont(11));
+		selectBtn.setEnabled(false);
+
+		JLabel hint = new JLabel("", SwingConstants.CENTER);
+		hint.setFont(FontLoader.loadPixelNESFont(9));
+
+		Runnable refresh = () -> {
+			for (int i = 0; i < labels.size(); i++) {
+				boolean sel = selected.contains(i);
+				labels.get(i).setBorder(sel ? createCardGlowBorder(Color.YELLOW)
+						: BorderFactory.createLineBorder(Color.GRAY, 2));
+			}
+			selectBtn.setEnabled(selected.size() == count);
+			hint.setText("Select " + count + " card" + (count > 1 ? "s" : "")
+					+ " (" + selected.size() + "/" + count + ")");
+		};
+
+		JPanel cardsPanel = new JPanel(new FlowLayout(FlowLayout.CENTER, 12, 12));
+		for (int idx = 0; idx < cards.size(); idx++) {
+			final int pos = idx;
+			CardData candidate = cards.get(idx);
+			JPanel wrapper = new JPanel(new BorderLayout(0, 4));
+			wrapper.setBackground(cardsPanel.getBackground());
+
+			JLabel lbl = new JLabel("...", SwingConstants.CENTER);
+			lbl.setPreferredSize(new Dimension(CARD_W, CARD_H));
+			lbl.setMinimumSize(new Dimension(CARD_W, CARD_H));
+			lbl.setOpaque(true);
+			lbl.setBackground(Color.DARK_GRAY);
+			lbl.setBorder(BorderFactory.createLineBorder(Color.GRAY, 2));
+			lbl.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+
+			lbl.addMouseListener(new MouseAdapter() {
+				@Override public void mouseEntered(MouseEvent e) {
+					if (lbl.getIcon() != null) showZoomAt(candidate.imageUrl());
+				}
+				@Override public void mouseExited(MouseEvent e) { hideZoom(); }
+				@Override public void mousePressed(MouseEvent e) {
+					if (!selected.remove(Integer.valueOf(pos)) && selected.size() < count) {
+						if (eachDifferentType) {
+							String key = discardTypeKey(candidate);
+							for (int s : selected)
+								if (discardTypeKey(cards.get(s)).equals(key)) return;
+						}
+						selected.add(pos);
+					}
+					refresh.run();
+				}
+			});
+
+			new SwingWorker<ImageIcon, Void>() {
+				@Override protected ImageIcon doInBackground() throws Exception {
+					Image img = ImageCache.load(candidate.imageUrl());
+					return img == null ? null
+							: new ImageIcon(img.getScaledInstance(CARD_W, CARD_H, Image.SCALE_SMOOTH));
+				}
+				@Override protected void done() {
+					try { ImageIcon ic = get(); if (ic != null) { lbl.setIcon(ic); lbl.setText(null); } }
+					catch (InterruptedException | ExecutionException ignored) {}
+				}
+			}.execute();
+
+			JLabel nameLabel;
+			if (showCost) {
+				nameLabel = new JLabel("<html><div style='width:" + CARD_W + "px;text-align:center'>"
+						+ candidate.name() + "<br>(Cost: " + candidate.cost() + ")" + "</div></html>",
+						SwingConstants.CENTER);
+			} else {
+				nameLabel = new JLabel(candidate.name(), SwingConstants.CENTER);
+				nameLabel.setPreferredSize(new Dimension(CARD_W, 18));
+			}
+			nameLabel.setFont(FontLoader.loadPixelNESFont(9));
+			nameLabel.setPreferredSize(new Dimension(CARD_W, showCost ? 30 : 18));
+
+			wrapper.add(lbl, BorderLayout.CENTER);
+			wrapper.add(nameLabel, BorderLayout.SOUTH);
+			cardsPanel.add(wrapper);
+			labels.add(lbl);
+		}
+
+		selectBtn.addActionListener(ev -> {
+			if (selected.size() != count) return;
+			confirmed[0] = true;
+			hideZoom();
+			dlg.dispose();
+		});
+
+		refresh.run();
+
+		JPanel south = new JPanel(new BorderLayout(0, 4));
+		south.add(hint, BorderLayout.CENTER);
+		JPanel btnRow = new JPanel(new FlowLayout(FlowLayout.CENTER));
+		btnRow.add(selectBtn);
+		south.add(btnRow, BorderLayout.SOUTH);
+
+		dlg.getContentPane().setLayout(new BorderLayout(0, 6));
+		dlg.getContentPane().add(cardsPanel, BorderLayout.CENTER);
+		dlg.getContentPane().add(south, BorderLayout.SOUTH);
+		dlg.pack();
+		dlg.setLocationRelativeTo(frame);
+		dlg.setVisible(true);
+
+		return confirmed[0] ? new ArrayList<>(selected) : null;
+	}
+
 	private void returnP1ForwardToHand(int idx) {
 		if (idx < 0 || idx >= p1ForwardCards.size()) return;
 		CardData card    = p1ForwardCards.get(idx);
@@ -9285,28 +9402,35 @@ public class MainWindow {
 
 		// Discard costs — paid from hand, no CP generated
 		for (DiscardCost dc : ability.discardCosts()) {
-			Set<String> usedTypes = new HashSet<>();
-			if (playerHand(isP1).size() < dc.count()) { logEntry("Not enough cards in hand."); return; }
-			for (int pick = 0; pick < dc.count(); pick++) {
-				List<CardData> hand = playerHand(isP1);
-				List<CardData> eligible = new ArrayList<>();
-                for (CardData c : hand) {
-                    if (dc.cardName() != null && !meetsCardNameFilter(c, dc.cardName())) continue;
-                    if (dc.element() != null && !c.containsElement(dc.element())) continue;
-                    if (dc.cardType() != null && !matchesDiscardType(c, dc.cardType())) continue;
-                    if (dc.category() != null && !meetsCategoryFilter(c, dc.category())) continue;
-                    if (dc.eachDifferentType() && usedTypes.contains(discardTypeKey(c))) continue;
-                    eligible.add(c);
-                }
+			List<CardData> hand = playerHand(isP1);
+			List<Integer> eligibleIdx = new ArrayList<>();
+			for (int i = 0; i < hand.size(); i++) {
+				CardData c = hand.get(i);
+				if (dc.cardName() != null && !meetsCardNameFilter(c, dc.cardName())) continue;
+				if (dc.element() != null && !c.containsElement(dc.element())) continue;
+				if (dc.cardType() != null && !matchesDiscardType(c, dc.cardType())) continue;
+				if (dc.category() != null && !meetsCategoryFilter(c, dc.category())) continue;
+				eligibleIdx.add(i);
+			}
 
-				if (eligible.isEmpty()) { logEntry(isP1 ? "[P1]" : "[P2]" + "No eligible card for discard cost."); return; }
-				int choice = showCardImageChooser(eligible, "Discard Cost", false, false);
+			if (eligibleIdx.size() < dc.count()) {
+				logEntry((isP1 ? "[P1] " : "[P2] ") + "Not enough eligible cards for discard cost.");
+				return;
+			}
 
-				if (choice < 0) return;
-				if (dc.eachDifferentType()) usedTypes.add(discardTypeKey(hand.get(choice)));
+			List<CardData> eligible = new ArrayList<>();
+			for (int i : eligibleIdx) eligible.add(hand.get(i));
 
-				String discarded = hand.get(choice).name();
-				playerBreakFromHand(isP1, choice);
+			List<Integer> picks = showCardMultiImageChooser(eligible, "Discard Cost",
+					dc.count(), dc.eachDifferentType(), false);
+			if (picks == null || picks.size() != dc.count()) return;
+
+			List<Integer> handIdxs = new ArrayList<>();
+			for (int p : picks) handIdxs.add(eligibleIdx.get(p));
+			handIdxs.sort(Collections.reverseOrder());
+			for (int handIdx : handIdxs) {
+				String discarded = hand.get(handIdx).name();
+				playerBreakFromHand(isP1, handIdx);
 				logEntry("Discard cost: \"" + discarded + "\" discarded");
 			}
 		}
