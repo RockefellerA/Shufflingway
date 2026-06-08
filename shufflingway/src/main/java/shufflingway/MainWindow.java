@@ -9286,6 +9286,7 @@ public class MainWindow {
 		// Discard costs — paid from hand, no CP generated
 		for (DiscardCost dc : ability.discardCosts()) {
 			Set<String> usedTypes = new HashSet<>();
+			if (playerHand(isP1).size() < dc.count()) { logEntry("Not enough cards in hand."); return; }
 			for (int pick = 0; pick < dc.count(); pick++) {
 				List<CardData> hand = playerHand(isP1);
 				List<CardData> eligible = new ArrayList<>();
@@ -9298,10 +9299,10 @@ public class MainWindow {
                     eligible.add(c);
                 }
 
-				if (eligible.isEmpty()) { logEntry("No eligible card for discard cost."); break; }
-				int choice = showCardImageChooser(eligible, "Discard Cost", false, false);
+				if (eligible.isEmpty()) { logEntry(isP1 ? "[P1]" : "[P2]" + "No eligible card for discard cost."); return; }
+				int choice = showCardImageChooser(eligible, "Discard Cost", true, false);
 
-				if (choice < 0) break;
+				if (choice < 0) return;
 				if (dc.eachDifferentType()) usedTypes.add(discardTypeKey(hand.get(choice)));
 
 				String discarded = hand.get(choice).name();
