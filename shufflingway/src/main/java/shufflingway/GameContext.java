@@ -1129,6 +1129,13 @@ public interface GameContext {
     void makeMonsterTemporaryForward(CardData source, int power);
 
     /**
+     * Shows the controlling player a picker for EX Burst cards in their own Damage Zone,
+     * then places the chosen card's EX Burst effect on the resolution stack.
+     * No-op when the Damage Zone has no cards with a parseable EX Burst effect.
+     */
+    void triggerExBurstFromDamageZone();
+
+    /**
      * Immediately breaks {@code source} — searches own forwards then monsters by identity
      * and calls {@link #breakTarget} on the first match.  No-op if already off the field.
      */

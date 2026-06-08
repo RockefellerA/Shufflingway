@@ -299,6 +299,16 @@ public class ActionResolver {
     );
 
     /**
+     * Matches "Choose 1 card with EX Burst in your Damage Zone. You may trigger its EX Burst effect."
+     * with an optional trailing parenthetical rules note.
+     */
+    private static final Pattern CHOOSE_EX_BURST_FROM_DAMAGE_ZONE = Pattern.compile(
+        "(?i)choose\\s+1\\s+card\\s+with\\s+EX\\s+Burst\\s+in\\s+your\\s+Damage\\s+Zone[.,]?\\s+" +
+        "You\\s+may\\s+trigger\\s+its\\s+EX\\s+Burst\\s+effect[.!]?" +
+        "(?:\\s*\\([^)]+\\))?"
+    );
+
+    /**
      * Matches "Remove the top [N cards / card] of your deck from the game."
      * Group {@code count} — number of cards (absent means 1).
      */
@@ -2286,6 +2296,9 @@ public class ActionResolver {
         result = tryParseBreakSourceCard(effectText, source);
         if (result != null) return result;
 
+        result = tryParseChooseExBurstFromDamageZone(effectText);
+        if (result != null) return result;
+
         result = tryParseOpponentDrawThenRandomDiscard(effectText);
         if (result != null) return result;
 
@@ -2518,6 +2531,7 @@ public class ActionResolver {
         if (tryParseOpponentHandRfp(effectText)               != null) return "OpponentHandRfp";
         if (tryParseRemoveNamedFromGame(effectText, source)   != null) return "RemoveNamedFromGame";
         if (tryParseBreakSourceCard(effectText, source)        != null) return "BreakSourceCard";
+        if (tryParseChooseExBurstFromDamageZone(effectText)    != null) return "ChooseExBurstFromDamageZone";
         if (tryParseOpponentDrawThenRandomDiscard(effectText)  != null) return "OpponentDrawThenRandomDiscard";
         if (tryParseOpponentRandomDiscard(effectText)         != null) return "OpponentRandomDiscard";
         if (tryParseEachPlayerDiscard(effectText)              != null) return "EachPlayerDiscard";
@@ -2733,6 +2747,7 @@ public class ActionResolver {
         if (tryParseReturnNamedToHand(effectText) != null)                   return "ReturnNamedToHand";
         if (tryParseRemoveNamedFromGame(effectText, source) != null)        return "RemoveNamedFromGame";
         if (tryParseBreakSourceCard(effectText, source)     != null)        return "BreakSourceCard";
+        if (tryParseChooseExBurstFromDamageZone(effectText) != null)        return "ChooseExBurstFromDamageZone";
         if (tryParseOpponentDrawThenRandomDiscard(effectText) != null)      return "OpponentDrawThenRandomDiscard";
         if (tryParseOpponentRandomDiscard(effectText) != null)              return "OpponentRandomDiscard";
         if (tryParseEachPlayerDiscard(effectText) != null)                  return "EachPlayerDiscard";
@@ -5628,6 +5643,15 @@ public class ActionResolver {
         return ctx -> {
             ctx.logEntry("Effect: Break " + source.name());
             ctx.breakSourceCard(source);
+        };
+    }
+
+    /** Parses "Choose 1 card with EX Burst in your Damage Zone. You may trigger its EX Burst effect." */
+    private static Consumer<GameContext> tryParseChooseExBurstFromDamageZone(String text) {
+        if (!CHOOSE_EX_BURST_FROM_DAMAGE_ZONE.matcher(text.trim()).find()) return null;
+        return ctx -> {
+            ctx.logEntry("Effect: Choose EX Burst from Damage Zone — trigger on stack");
+            ctx.triggerExBurstFromDamageZone();
         };
     }
 

@@ -4887,6 +4887,117 @@ public class MainWindow {
 		return result[0];
 	}
 
+	/**
+	 * Shows a picker for P1 to choose 1 EX Burst card from {@code eligible} (cards already
+	 * filtered from the Damage Zone). Returns the chosen card, or {@code null} if Pass is clicked.
+	 */
+	private CardData showPickExBurstFromDamageZoneDialog(List<CardData> eligible) {
+		JDialog dlg = new JDialog(frame, "EX Burst — Choose 1 Card", true);
+		dlg.setResizable(false);
+		dlg.setDefaultCloseOperation(JDialog.DO_NOTHING_ON_CLOSE);
+
+		CardData[] result = {null};
+		int[] selectedIdx = {-1};
+
+		JLabel statusLabel = new JLabel("Select 1 EX Burst card from your Damage Zone.", SwingConstants.CENTER);
+		statusLabel.setFont(FontLoader.loadPixelNESFont(10));
+
+		List<JLabel> cardLabels = new ArrayList<>();
+		JPanel cardsPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 8));
+
+		JButton triggerBtn = new JButton("Trigger");
+		triggerBtn.setFont(FontLoader.loadPixelNESFont(11));
+		triggerBtn.setEnabled(false);
+		JButton passBtn = new JButton("Pass");
+		passBtn.setFont(FontLoader.loadPixelNESFont(11));
+
+		Runnable refresh = () -> {
+			triggerBtn.setEnabled(selectedIdx[0] >= 0);
+			for (int j = 0; j < cardLabels.size(); j++) {
+				boolean sel = selectedIdx[0] == j;
+				cardLabels.get(j).setBorder(BorderFactory.createLineBorder(
+						sel ? Color.YELLOW : Color.LIGHT_GRAY, sel ? 3 : 1));
+			}
+		};
+
+		for (int j = 0; j < eligible.size(); j++) {
+			final int cardIdx = j;
+			CardData cd = eligible.get(j);
+
+			JPanel wrapper = new JPanel(new BorderLayout(0, 4));
+			wrapper.setBackground(cardsPanel.getBackground());
+
+			JLabel lbl = new JLabel("...", SwingConstants.CENTER);
+			lbl.setPreferredSize(new Dimension(CARD_W, CARD_H));
+			lbl.setMinimumSize(new Dimension(CARD_W, CARD_H));
+			lbl.setOpaque(true);
+			lbl.setBackground(Color.DARK_GRAY);
+			lbl.setBorder(createCardGlowBorder(Color.YELLOW));
+			lbl.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+			cardLabels.add(lbl);
+
+			lbl.addMouseListener(new MouseAdapter() {
+				@Override public void mouseEntered(MouseEvent e) { if (lbl.getIcon() != null) showZoomAt(cd.imageUrl()); }
+				@Override public void mouseExited(MouseEvent e)  { hideZoom(); }
+				@Override public void mousePressed(MouseEvent e) {
+					selectedIdx[0] = selectedIdx[0] == cardIdx ? -1 : cardIdx;
+					refresh.run();
+				}
+			});
+
+			new SwingWorker<ImageIcon, Void>() {
+				@Override protected ImageIcon doInBackground() throws Exception {
+					Image img = ImageCache.load(cd.imageUrl());
+					if (img == null) return null;
+					BufferedImage buf = new BufferedImage(CARD_W, CARD_H, BufferedImage.TYPE_INT_ARGB);
+					Graphics2D g2 = buf.createGraphics();
+					g2.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+					g2.drawImage(img, 0, 0, CARD_W, CARD_H, null);
+					g2.dispose();
+					return new ImageIcon(buf);
+				}
+				@Override protected void done() {
+					try { ImageIcon icon = get(); if (icon != null) { lbl.setIcon(icon); lbl.setText(null); } }
+					catch (InterruptedException | ExecutionException ignored) {}
+				}
+			}.execute();
+
+			JLabel nameLabel = new JLabel(cd.name(), SwingConstants.CENTER);
+			nameLabel.setFont(FontLoader.loadPixelNESFont(9));
+			nameLabel.setPreferredSize(new Dimension(CARD_W, 18));
+
+			wrapper.add(lbl,       BorderLayout.CENTER);
+			wrapper.add(nameLabel, BorderLayout.SOUTH);
+			cardsPanel.add(wrapper);
+		}
+
+		triggerBtn.addActionListener(ae -> {
+			hideZoom();
+			if (selectedIdx[0] >= 0) result[0] = eligible.get(selectedIdx[0]);
+			dlg.dispose();
+		});
+		passBtn.addActionListener(ae -> { hideZoom(); dlg.dispose(); });
+
+		JScrollPane scroll = new JScrollPane(cardsPanel);
+		scroll.setPreferredSize(new Dimension(Math.min(eligible.size() * (CARD_W + 16) + 20, 600), CARD_H + 60));
+
+		JPanel btnPanel = new JPanel(new FlowLayout(FlowLayout.CENTER, 10, 4));
+		btnPanel.add(triggerBtn);
+		btnPanel.add(passBtn);
+
+		JPanel main = new JPanel(new BorderLayout(0, 6));
+		main.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
+		main.add(statusLabel, BorderLayout.NORTH);
+		main.add(scroll,      BorderLayout.CENTER);
+		main.add(btnPanel,    BorderLayout.SOUTH);
+
+		dlg.setContentPane(main);
+		dlg.pack();
+		dlg.setLocationRelativeTo(frame);
+		dlg.setVisible(true);
+		return result[0];
+	}
+
 	private void showPlaceToBottomOfDeckDialog(int count) {
 		List<CardData> hand = gameState.getP1Hand();
 		int mustPlace = Math.min(count, hand.size());
@@ -6918,6 +7029,18 @@ public class MainWindow {
 					logEntry("\"" + entry.source().name() + "\" → Break Zone");
 					refreshP1BreakLabel();
 				}
+			} else if (entry.isExBurstEntry()) {
+				String exText = entry.effectText();
+				logEntry("[EX Burst on Stack] Resolving \"" + entry.source().name() + "\": " + exText);
+				Consumer<GameContext> effect = ActionResolver.parse(exText, entry.source());
+				if (effect != null) {
+					currentAbilitySource = entry.source();
+					try { effect.accept(ctx); } finally { currentAbilitySource = null; }
+				} else {
+					logEntry("[EX Burst on Stack] Effect not yet implemented: " + exText);
+				}
+				refreshP1HandLabel();
+				refreshP1BreakLabel();
 			} else if (entry.isAutoAbility()) {
 				AutoAbility ab = entry.autoAbility();
 				logEntry("[AutoAbility] Resolving \"" + entry.source().name() + "\": " + ab.effectText());
@@ -8557,7 +8680,7 @@ public class MainWindow {
 			usedOncePerTurnAbilities.computeIfAbsent(source, k -> new HashSet<>()).add(fa.effectText());
 
 		logEntry("[AutoAbility] " + source.name() + " — pushed to stack");
-		gameState.pushStack(new StackEntry(source, null, fa, effectIsP1, 0));
+		gameState.pushStack(new StackEntry(source, null, fa, effectIsP1, 0, false));
 	}
 
 	private void executeCounterRemovalWhenDoSoAutoAbility(AutoAbility fa, CardData source,
@@ -12530,6 +12653,30 @@ public class MainWindow {
 						if (stillIdx >= 0) refreshP2MonsterSlot(stillIdx);
 					});
 					refreshP2MonsterSlot(idx);
+				}
+			}
+
+			@Override public void triggerExBurstFromDamageZone() {
+				List<CardData> dmg = isP1 ? gameState.getP1DamageZone() : gameState.getP2DamageZone();
+				List<CardData> eligible = new ArrayList<>();
+				for (CardData c : dmg) {
+					if (c.exBurst() && !c.exBurstEffect().isEmpty()) eligible.add(c);
+				}
+				if (eligible.isEmpty()) {
+					logEntry("[EX Burst] No triggerable EX Burst cards in Damage Zone");
+					return;
+				}
+				if (isP1) {
+					CardData chosen = showPickExBurstFromDamageZoneDialog(eligible);
+					if (chosen == null) return;
+					logEntry("[EX Burst] " + chosen.name() + " — placed on stack");
+					gameState.pushStack(new StackEntry(chosen, true, true));
+					showStackWindow();
+				} else {
+					CardData chosen = eligible.get(0);
+					logEntry("[AI EX Burst] " + chosen.name() + " — placed on stack");
+					gameState.pushStack(new StackEntry(chosen, false, true));
+					showStackWindowIfNeeded();
 				}
 			}
 
