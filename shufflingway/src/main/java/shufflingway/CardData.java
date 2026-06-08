@@ -688,7 +688,7 @@ public record CardData(
         "(?=(?:《|(?i:put)\\b|(?i:discard)\\b|(?i:remove)\\b|(?i:return)\\b|(?i:dull)\\b))" + // lookahead: must start with 《, put, discard, remove, return, or dull
         "((?:《[^》]*》\\s*)*)"                                              +  // group 3: zero or more 《cost》 tokens
         "((?i)(?:,\\s*)?put\\s+(?:(?!\\[\\[br\\]\\]).)+?\\s+into\\s+the\\s+Break\\s+Zone\\s*)?"  + // group 4: optional BZ cost phrase
-        "((?i)(?:,\\s*)?discard[^:]+)?"                                     +  // group 5: optional discard cost phrase
+        "((?i)(?:,\\s*)?discard(?:(?!,\\s*(?:remove|return)\\b)[^:])+)?"     +  // group 5: optional discard cost phrase
         "((?i)(?:,\\s*)?remove\\s+[^:]+?\\s+from\\s+(?:the\\s+)?game\\s*)?" + // group 6: optional remove-from-game cost phrase
         "((?i)(?:,\\s*)?return\\s+[^:]+?\\s+to\\s+(?:its|their)\\s+owner(?:'s|s')?\\s+hand\\s*)?" + // group 7: optional return-to-hand cost phrase
         "((?i)(?:,\\s*)?remove\\s+\\d+\\s+[^:]+?\\s+Counters?\\s+from\\s+[^:,]+?\\s*)?" +           // group 8: optional counter-removal cost phrase

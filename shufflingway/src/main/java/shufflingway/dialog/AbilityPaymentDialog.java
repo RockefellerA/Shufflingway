@@ -200,7 +200,7 @@ public class AbilityPaymentDialog {
         discHdr.setFont(FontLoader.loadPixelNESFont(9)); discHdr.setAlignmentX(Component.LEFT_ALIGNMENT);
         JPanel dp = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 6)); dp.setAlignmentX(Component.LEFT_ALIGNMENT);
         for (int i = 0; i < hand.size(); i++) {
-            final int hi = i; CardData hc = hand.get(i); boolean payable = !hc.isLightOrDark();
+            final int hi = i; CardData hc = hand.get(i); boolean payable = !hc.isLightOrDark() && hc != source;
             JLabel lbl = makeCardLabel();
             lbl.setBackground(payable ? Color.DARK_GRAY : new Color(50, 50, 50));
             lbl.setBorder(BorderFactory.createLineBorder(payable ? Color.GRAY : new Color(80, 80, 80), 1));
