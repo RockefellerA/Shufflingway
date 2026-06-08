@@ -41,6 +41,8 @@ import java.util.Set;
 import java.util.concurrent.ExecutionException;
 import java.util.function.Consumer;
 import java.util.function.Predicate;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 import javax.imageio.ImageIO;
@@ -7557,11 +7559,11 @@ public class MainWindow {
 	 * Matches "remove N [Name] Counter(s) from [CardName][.] When/If you do so, sub-effect".
 	 * Used for auto-ability costs that consume a named counter before resolving an effect.
 	 */
-	private static final java.util.regex.Pattern FA_REMOVE_COUNTER_WHEN_DO_SO =
-			java.util.regex.Pattern.compile(
+	private static final Pattern FA_REMOVE_COUNTER_WHEN_DO_SO =
+			Pattern.compile(
 				"(?i)^remove\\s+(?<n>\\d+)\\s+(?<counterName>.+?)\\s+Counters?\\s+from" +
 				"\\s+(?<target>.+?)[.,!]\\s+(?:When|If)\\s+you\\s+do\\s+so[,.]?\\s+(?<sub>.+?)$",
-				java.util.regex.Pattern.DOTALL
+				Pattern.DOTALL
 			);
 
 	/**
@@ -7575,8 +7577,8 @@ public class MainWindow {
 	 *   <li>{@code sub}       — effect to execute after the removal succeeds</li>
 	 * </ul>
 	 */
-	private static final java.util.regex.Pattern FA_REMOVE_FIELD_WHEN_DO_SO =
-			java.util.regex.Pattern.compile(
+	private static final Pattern FA_REMOVE_FIELD_WHEN_DO_SO =
+			Pattern.compile(
 				"(?i)^remove\\s+(?<count>\\d+)\\s+" +
 				"(?<targets>Backups?|Forwards?|Monsters?|Characters?)\\s+" +
 				"(?:without\\s+《(?<excludekw>[^》]+)》\\s+)?" +
@@ -7584,15 +7586,15 @@ public class MainWindow {
 				"from\\s+the\\s+game[.,]?\\s+" +
 				"(?:When|If)\\s+you\\s+do\\s+so[,.]?\\s+" +
 				"(?<sub>.+?)$",
-				java.util.regex.Pattern.DOTALL
+				Pattern.DOTALL
 			);
 
 	/**
 	 * Matches "put N [Job jobname / Card Name name / type] you control into the Break Zone.
 	 * When/If you do so, sub-effect."
 	 */
-	private static final java.util.regex.Pattern FA_PUT_INTO_BZ_WHEN_DO_SO =
-			java.util.regex.Pattern.compile(
+	private static final Pattern FA_PUT_INTO_BZ_WHEN_DO_SO =
+			Pattern.compile(
 				"(?i)^put\\s+(?<count>\\d+)\\s+" +
 				"(?:" +
 					"Job\\s+(?<job>.+?)\\s+you\\s+control" +
@@ -7604,7 +7606,7 @@ public class MainWindow {
 				"\\s+into\\s+the\\s+Break\\s+Zone[.,]?\\s+" +
 				"(?:When|If)\\s+you\\s+do\\s+so[,.]?\\s+" +
 				"(?<sub>.+?)$",
-				java.util.regex.Pattern.DOTALL
+				Pattern.DOTALL
 			);
 
 	/**
@@ -7612,21 +7614,21 @@ public class MainWindow {
 	 * "If &lt;cardName&gt; is dealt damage by your opponent's Summons, the damage becomes 0 instead."
 	 * Checked inline in {@link #modifyIncomingDamage} against the receiving card's field abilities.
 	 */
-	private static final java.util.regex.Pattern FA_NULLIFY_SUMMON_DAMAGE =
-			java.util.regex.Pattern.compile(
+	private static final Pattern FA_NULLIFY_SUMMON_DAMAGE =
+			Pattern.compile(
 				"(?i)If\\s+(?<card>.+?)\\s+is\\s+dealt\\s+damage\\s+by\\s+your\\s+opponent's\\s+Summons?,\\s+the\\s+damage\\s+becomes\\s+0\\s+instead\\.?"
 			);
 
 	/** "If [name] deals damage to a Forward of cost N or more, double the damage instead." */
-	private static final java.util.regex.Pattern FA_DOUBLE_DAMAGE_VS_COST_THRESHOLD =
-			java.util.regex.Pattern.compile(
+	private static final Pattern FA_DOUBLE_DAMAGE_VS_COST_THRESHOLD =
+			Pattern.compile(
 				"(?i)If\\s+(?<name>.+?)\\s+deals?\\s+damage\\s+to\\s+a\\s+Forward\\s+of\\s+cost\\s+(?<cost>\\d+)" +
 				"\\s+or\\s+more,\\s+double\\s+the\\s+damage\\s+instead[.!]?"
 			);
 
 	/** "If [name] deals damage to a Forward due to an ability, double the damage instead." */
-	private static final java.util.regex.Pattern FA_DOUBLE_ABILITY_DAMAGE =
-			java.util.regex.Pattern.compile(
+	private static final Pattern FA_DOUBLE_ABILITY_DAMAGE =
+			Pattern.compile(
 				"(?i)If\\s+(?<name>.+?)\\s+deals?\\s+damage\\s+to\\s+a\\s+Forward\\s+due\\s+to\\s+an\\s+ability,\\s+double\\s+the\\s+damage\\s+instead[.!]?"
 			);
 
@@ -7642,24 +7644,24 @@ public class MainWindow {
 	 *   <li>{@code actions}  — the remainder containing the quoted action strings</li>
 	 * </ul>
 	 */
-	private static final java.util.regex.Pattern FA_SELECT_FOLLOWING_ACTIONS =
-		java.util.regex.Pattern.compile(
+	private static final Pattern FA_SELECT_FOLLOWING_ACTIONS =
+		Pattern.compile(
 			"(?i)^(?:if\\s+(?<condition>[^,]+),\\s+)?select\\s+(?<upTo>up\\s+to\\s+)?" +
 			"(?<select>\\d+)\\s+of\\s+the\\s+(?<total>\\d+)\\s+following\\s+actions?[.!]?\\s*" +
 			"(?<actions>.+)$",
-			java.util.regex.Pattern.DOTALL
+			Pattern.DOTALL
 		);
 
 	/** Extracts individual quoted action strings from the {@code actions} capture group above. */
-	private static final java.util.regex.Pattern FA_QUOTED_ACTION =
-		java.util.regex.Pattern.compile("\"([^\"]+)\"");
+	private static final Pattern FA_QUOTED_ACTION =
+		Pattern.compile("\"([^\"]+)\"");
 
 	/** Matches "pay 《cost》[.] When/If you do so, sub-effect[. The maximum you can pay for 《X》 is N]". */
-	private static final java.util.regex.Pattern FA_PAY_WHEN_DO_SO = java.util.regex.Pattern.compile(
+	private static final Pattern FA_PAY_WHEN_DO_SO = Pattern.compile(
 		"(?i)^pay\\s+《([^》]+)》[.,]?\\s+(?:When|If)\\s+you\\s+do\\s+so[,.]?\\s+(.+?)(?:[.,]?\\s+The\\s+maximum\\s+you\\s+can\\s+pay\\s+for\\s+《X》\\s+is\\s+\\d+\\.?)?$",
-		java.util.regex.Pattern.DOTALL
+		Pattern.DOTALL
 	);
-	private static final java.util.regex.Pattern FA_MAX_X = java.util.regex.Pattern.compile(
+	private static final Pattern FA_MAX_X = Pattern.compile(
 		"(?i)The\\s+maximum\\s+you\\s+can\\s+pay\\s+for\\s+《X》\\s+is\\s+(\\d+)"
 	);
 	private static final Set<String> ELEMENT_NAMES = java.util.Set.of(
@@ -7805,15 +7807,15 @@ public class MainWindow {
 	}
 
 	/** Subject pattern for break-zone triggers: "a [Type] [you|opponent] control[s]". */
-	private static final java.util.regex.Pattern BZ_SUBJECT_TYPE = java.util.regex.Pattern.compile(
+	private static final Pattern BZ_SUBJECT_TYPE = Pattern.compile(
 		"(?i)^a\\s+(?<type>Character|Forward|Backup|Monster)\\s+(?<ctrl>you|opponent)\\s+controls?$"
 	);
 	/** "Chocobo forming a party" — fires when the named card itself was in a party when broken. */
-	private static final java.util.regex.Pattern BZ_SUBJECT_SELF_PARTY = java.util.regex.Pattern.compile(
+	private static final Pattern BZ_SUBJECT_SELF_PARTY = Pattern.compile(
 		"(?i)^(?<name>.+?)\\s+forming\\s+a\\s+party$"
 	);
 	/** "a Forward forming a party with Bobby Corwen" — fires when another party member of the source card is broken. */
-	private static final java.util.regex.Pattern BZ_SUBJECT_PARTY_MEMBER = java.util.regex.Pattern.compile(
+	private static final Pattern BZ_SUBJECT_PARTY_MEMBER = Pattern.compile(
 		"(?i)^a\\s+Forward\\s+forming\\s+a\\s+party\\s+with\\s+(?<name>.+?)$"
 	);
 
@@ -7830,14 +7832,14 @@ public class MainWindow {
 		String subject = fa.triggerCard().trim();
 
 		// "Chocobo forming a party" — broken card is the named card and was in a party
-		java.util.regex.Matcher selfPartyM = BZ_SUBJECT_SELF_PARTY.matcher(subject);
+		Matcher selfPartyM = BZ_SUBJECT_SELF_PARTY.matcher(subject);
 		if (selfPartyM.matches()) {
 			String name = selfPartyM.group("name").trim();
 			return broken.name().equalsIgnoreCase(name) && partyMembers.contains(broken);
 		}
 
 		// "a Forward forming a party with Bobby Corwen" — another forward in source's party was broken
-		java.util.regex.Matcher partyMemberM = BZ_SUBJECT_PARTY_MEMBER.matcher(subject);
+		Matcher partyMemberM = BZ_SUBJECT_PARTY_MEMBER.matcher(subject);
 		if (partyMemberM.matches()) {
 			String sourceName = partyMemberM.group("name").trim();
 			return broken.isForward()
@@ -7846,7 +7848,7 @@ public class MainWindow {
 				&& partyMembers.contains(source);
 		}
 
-		java.util.regex.Matcher m = BZ_SUBJECT_TYPE.matcher(subject);
+		Matcher m = BZ_SUBJECT_TYPE.matcher(subject);
 		if (m.matches()) {
 			boolean selfCtrl     = m.group("ctrl").equalsIgnoreCase("you");
 			boolean brokenByOwner = (brokenIsP1 == abilityOwnerIsP1);
@@ -8119,35 +8121,35 @@ public class MainWindow {
 		boolean effectIsP1 = fa.opponentMay() ? !isP1 : isP1;
 
 		// Detect "remove N [Name] Counter(s) from [CardName]. When you do so, [effect]"
-		java.util.regex.Matcher ctrM = FA_REMOVE_COUNTER_WHEN_DO_SO.matcher(fa.effectText());
+		Matcher ctrM = FA_REMOVE_COUNTER_WHEN_DO_SO.matcher(fa.effectText());
 		if (ctrM.find()) {
 			executeCounterRemovalWhenDoSoAutoAbility(fa, source, isP1, effectIsP1, ctrM);
 			return;
 		}
 
 		// Detect "pay 《X/N》. When you do so, [effect]" — requires a payment dialog before resolving.
-		java.util.regex.Matcher payM = FA_PAY_WHEN_DO_SO.matcher(fa.effectText());
+		Matcher payM = FA_PAY_WHEN_DO_SO.matcher(fa.effectText());
 		if (payM.find()) {
 			executePayWhenDoSoAutoAbility(fa, source, isP1, effectIsP1, payM);
 			return;
 		}
 
 		// Detect "remove N [type] [without 《Keyword》] you control from the game. When you do so, [effect]"
-		java.util.regex.Matcher rfM = FA_REMOVE_FIELD_WHEN_DO_SO.matcher(fa.effectText());
+		Matcher rfM = FA_REMOVE_FIELD_WHEN_DO_SO.matcher(fa.effectText());
 		if (rfM.find()) {
 			executeRemoveFieldWhenDoSoAutoAbility(fa, source, isP1, effectIsP1, rfM);
 			return;
 		}
 
 		// Detect "put N [Job/CardName/type] you control into the Break Zone. When you do so, [effect]"
-		java.util.regex.Matcher bzM = FA_PUT_INTO_BZ_WHEN_DO_SO.matcher(fa.effectText());
+		Matcher bzM = FA_PUT_INTO_BZ_WHEN_DO_SO.matcher(fa.effectText());
 		if (bzM.find()) {
 			executePutIntoBzWhenDoSoAutoAbility(fa, source, isP1, effectIsP1, bzM);
 			return;
 		}
 
 		// Detect "select [up to] N of the M following actions. "..." "..."..."
-		java.util.regex.Matcher selM = FA_SELECT_FOLLOWING_ACTIONS.matcher(fa.effectText());
+		Matcher selM = FA_SELECT_FOLLOWING_ACTIONS.matcher(fa.effectText());
 		if (selM.find()) {
 			executeSelectFollowingActionsAutoAbility(fa, source, isP1, effectIsP1, selM);
 			return;
@@ -8181,7 +8183,7 @@ public class MainWindow {
 	}
 
 	private void executeCounterRemovalWhenDoSoAutoAbility(AutoAbility fa, CardData source,
-			boolean isP1, boolean effectIsP1, java.util.regex.Matcher m) {
+			boolean isP1, boolean effectIsP1, Matcher m) {
 		int    n           = Integer.parseInt(m.group("n"));
 		String counterName = m.group("counterName").trim();
 		String subEffect   = m.group("sub").trim();
@@ -8223,7 +8225,7 @@ public class MainWindow {
 	}
 
 	private void executeRemoveFieldWhenDoSoAutoAbility(AutoAbility fa, CardData source,
-			boolean isP1, boolean effectIsP1, java.util.regex.Matcher m) {
+			boolean isP1, boolean effectIsP1, Matcher m) {
 		int     count          = Integer.parseInt(m.group("count"));
 		String  targetsRaw     = m.group("targets").toLowerCase(java.util.Locale.ROOT);
 		String  rawExcludeKw   = m.group("excludekw");
@@ -8275,7 +8277,7 @@ public class MainWindow {
 	}
 
 	private void executePutIntoBzWhenDoSoAutoAbility(AutoAbility fa, CardData source,
-			boolean isP1, boolean effectIsP1, java.util.regex.Matcher m) {
+			boolean isP1, boolean effectIsP1, Matcher m) {
 		int    count         = Integer.parseInt(m.group("count"));
 		String jobRaw        = m.group("job");
 		String cardNameRaw   = m.group("cardname");
@@ -8335,7 +8337,7 @@ public class MainWindow {
 	}
 
 	private void executePayWhenDoSoAutoAbility(AutoAbility fa, CardData source, boolean isP1,
-			boolean effectIsP1, java.util.regex.Matcher payM) {
+			boolean effectIsP1, Matcher payM) {
 		String costToken = payM.group(1).trim();
 		String subEffect = payM.group(2).trim().replaceAll("[.!,]+$", "");
 
@@ -8358,7 +8360,7 @@ public class MainWindow {
 			}
 		} else { fixedCost = 0; }
 
-		java.util.regex.Matcher maxM = FA_MAX_X.matcher(fa.effectText());
+		Matcher maxM = FA_MAX_X.matcher(fa.effectText());
 		int maxCp = isXCost ? (maxM.find() ? Integer.parseInt(maxM.group(1)) : Integer.MAX_VALUE) : fixedCost;
 
 		// P1 gets a confirm dialog; AI auto-accepts.
@@ -8415,7 +8417,7 @@ public class MainWindow {
 
 	private void executeSelectFollowingActionsAutoAbility(
 			AutoAbility fa, CardData source, boolean isP1, boolean effectIsP1,
-			java.util.regex.Matcher m) {
+			Matcher m) {
 
 		// Optional "if condition" prefix
 		String condition = m.group("condition");
@@ -8429,7 +8431,7 @@ public class MainWindow {
 		int     totalCount  = Integer.parseInt(m.group("total"));
 
 		// Extract the quoted action strings
-		java.util.regex.Matcher qm = FA_QUOTED_ACTION.matcher(m.group("actions"));
+		Matcher qm = FA_QUOTED_ACTION.matcher(m.group("actions"));
 		List<String> actions = new ArrayList<>();
 		while (qm.find()) actions.add(qm.group(1).trim());
 
@@ -9552,11 +9554,11 @@ public class MainWindow {
 			private int applyOutgoingFieldAbilityMult(int amount, CardData target) {
 				if (currentAbilitySource == null) return amount;
 				for (FieldAbility fa : currentAbilitySource.fieldAbilities()) {
-					java.util.regex.Matcher m = FA_DOUBLE_DAMAGE_VS_COST_THRESHOLD.matcher(fa.effectText());
+					Matcher m = FA_DOUBLE_DAMAGE_VS_COST_THRESHOLD.matcher(fa.effectText());
 					if (m.find() && m.group("name").trim().equalsIgnoreCase(currentAbilitySource.name())
 							&& target.cost() >= Integer.parseInt(m.group("cost")))
 						amount *= 2;
-					java.util.regex.Matcher m2 = FA_DOUBLE_ABILITY_DAMAGE.matcher(fa.effectText());
+					Matcher m2 = FA_DOUBLE_ABILITY_DAMAGE.matcher(fa.effectText());
 					if (m2.find() && m2.group("name").trim().equalsIgnoreCase(currentAbilitySource.name()))
 						amount *= 2;
 				}
@@ -12112,6 +12114,21 @@ public class MainWindow {
 				return NameSelectionDialogs.selectJobOrElement(frame, prompt, isP1, MainWindow.this::logEntry);
 			}
 
+			@Override public String[] selectJobOrCategory(String prompt) {
+				return NameSelectionDialogs.selectJobOrCategory(frame, prompt, isP1, MainWindow.this::logEntry);
+			}
+
+			@Override public void revealTopAddUpToMatchingRestBottom(int reveal, int maxAdd, String jobFilter, String categoryFilter) {
+				Deque<CardData> deck = isP1 ? gameState.getP1MainDeck() : gameState.getP2MainDeck();
+				int n = Math.min(reveal, deck.size());
+				if (n == 0) { logEntry("Reveal top: deck is empty."); return; }
+				List<CardData> peeked = new ArrayList<>();
+				for (CardData c : deck) { peeked.add(c); if (peeked.size() >= n) break; }
+				logEntry("Reveal top " + n + " card(s): " +
+						peeked.stream().map(CardData::name).collect(Collectors.joining(", ")));
+				lookDialogs().showRevealAddUpToMatchingRestBottom(peeked, deck, isP1, maxAdd, jobFilter, categoryFilter);
+			}
+
 			@Override public void grantAllControlledForwardsJobUntilEOT(String job) {
 				List<CardData> fwds     = isP1 ? p1ForwardCards    : p2ForwardCards;
 				List<String>   tempJobs = isP1 ? p1ForwardTempJobs : p2ForwardTempJobs;
@@ -12269,7 +12286,7 @@ public class MainWindow {
 			// Passive field ability: nullify Summon-only damage
 			if (currentResolutionIsSummon) {
 				for (FieldAbility fa : card.fieldAbilities()) {
-					java.util.regex.Matcher m = FA_NULLIFY_SUMMON_DAMAGE.matcher(fa.effectText());
+					Matcher m = FA_NULLIFY_SUMMON_DAMAGE.matcher(fa.effectText());
 					if (m.find() && m.group("card").trim().equalsIgnoreCase(card.name())) return 0;
 				}
 			}
@@ -12337,7 +12354,7 @@ public class MainWindow {
 	private int fieldAbilityCombatOutgoingMult(CardData attacker, CardData target) {
 		int mult = 1;
 		for (FieldAbility fa : attacker.fieldAbilities()) {
-			java.util.regex.Matcher m = FA_DOUBLE_DAMAGE_VS_COST_THRESHOLD.matcher(fa.effectText());
+			Matcher m = FA_DOUBLE_DAMAGE_VS_COST_THRESHOLD.matcher(fa.effectText());
 			if (m.find() && m.group("name").trim().equalsIgnoreCase(attacker.name())
 					&& target.cost() >= Integer.parseInt(m.group("cost")))
 				mult *= 2;

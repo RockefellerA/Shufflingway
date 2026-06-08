@@ -263,6 +263,22 @@ public class CardDatabase implements AutoCloseable {
         return new ArrayList<>(jobSet);
     }
 
+    /**
+     * Returns a sorted, deduplicated list of all distinct category values in the database,
+     * drawn from both the {@code category_1} and {@code category_2} columns.
+     */
+    public static List<String> loadCategories() throws SQLException {
+        TreeSet<String> catSet = new TreeSet<>();
+        try (Connection conn = DriverManager.getConnection(AppPaths.dbUrl());
+             Statement stmt = conn.createStatement();
+             ResultSet rs = stmt.executeQuery(
+                     "SELECT DISTINCT category_1 FROM cards WHERE category_1 IS NOT NULL AND category_1 != ''" +
+                     " UNION SELECT DISTINCT category_2 FROM cards WHERE category_2 IS NOT NULL AND category_2 != ''")) {
+            while (rs.next()) catSet.add(rs.getString(1).trim());
+        }
+        return new ArrayList<>(catSet);
+    }
+
     public ScrapedCard getCard(String serial) throws SQLException {
         try (PreparedStatement ps = conn.prepareStatement(
                 "SELECT * FROM cards WHERE serial = ?")) {

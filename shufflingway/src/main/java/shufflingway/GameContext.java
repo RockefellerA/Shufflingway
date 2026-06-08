@@ -1124,6 +1124,20 @@ public interface GameContext {
     String[] selectJobOrElement(String prompt);
 
     /**
+     * Shows a modal dialog for the ability user to name either one Job or one Category.
+     * Returns {@code {"job", value}} or {@code {"category", value}}, or {@code null} if cancelled.
+     */
+    String[] selectJobOrCategory(String prompt);
+
+    /**
+     * Reveals the top {@code reveal} cards of the active player's deck.
+     * The player may add up to {@code maxAdd} Characters matching {@code jobFilter} or
+     * {@code categoryFilter} to their hand; the rest are placed at the bottom of the deck
+     * in any order. Exactly one of {@code jobFilter} / {@code categoryFilter} will be non-null.
+     */
+    void revealTopAddUpToMatchingRestBottom(int reveal, int maxAdd, String jobFilter, String categoryFilter);
+
+    /**
      * Grants all Forwards controlled by the acting player the given {@code job} until end of turn.
      */
     void grantAllControlledForwardsJobUntilEOT(String job);

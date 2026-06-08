@@ -590,6 +590,20 @@ public class ActionResolver {
         "(?i)^(?:name\\s+1|select\\s+a)\\s+Job[.!]?$"
     );
 
+    /**
+     * Matches "Name 1 Job or Category. Reveal the top N cards of your deck.
+     * Add up to M Characters of the named Job or Category among them to your hand
+     * and return the other cards to the bottom of your deck in any order."
+     */
+    private static final Pattern NAME_JOB_OR_CATEGORY_REVEAL_ADD_TO_HAND = Pattern.compile(
+        "(?i)Name\\s+1\\s+(?:Job\\s+or\\s+Category|Category\\s+or\\s+Job)[.!]?\\s+" +
+        "Reveal\\s+the\\s+top\\s+(?<reveal>\\d+)\\s+cards?\\s+of\\s+your\\s+deck[.!]?\\s+" +
+        "Add\\s+up\\s+to\\s+(?<maxAdd>\\d+)\\s+Characters?\\s+of\\s+the\\s+named\\s+" +
+        "(?:Job\\s+or\\s+Category|Category\\s+or\\s+Job)\\s+among\\s+them\\s+to\\s+your\\s+hand\\s+" +
+        "and\\s+return\\s+the\\s+other\\s+cards?\\s+to\\s+the\\s+bottom\\s+of\\s+your\\s+deck\\s+" +
+        "in\\s+any\\s+order[.!]?"
+    );
+
     // ---- Damage-shield followup patterns (apply to selected "it/them" targets) --------
 
     /** Matches "During this turn, the next damage dealt to it/him becomes 0 instead." */
@@ -2341,6 +2355,9 @@ public class ActionResolver {
         if (result != null) return result;
 
         result = tryParseNameJobOrElementAllForwardsBoost(effectText);
+        if (result != null) return result;
+
+        result = tryParseNameJobOrCategoryRevealAddToHand(effectText);
         if (result != null) return result;
 
         result = tryParseNameJob(effectText);
@@ -6410,6 +6427,22 @@ public class ActionResolver {
                 ctx.grantAllControlledForwardsJobUntilEOT(choice[1]);
             else
                 ctx.grantAllControlledForwardsElementUntilEOT(choice[1]);
+        };
+    }
+
+    private static Consumer<GameContext> tryParseNameJobOrCategoryRevealAddToHand(String text) {
+        Matcher m = NAME_JOB_OR_CATEGORY_REVEAL_ADD_TO_HAND.matcher(text);
+        if (!m.find()) return null;
+        int reveal = Integer.parseInt(m.group("reveal"));
+        int maxAdd = Integer.parseInt(m.group("maxAdd"));
+        return ctx -> {
+            ctx.logEntry("Effect: Name 1 Job or Category — reveal top " + reveal + ", add up to " + maxAdd + " matching Characters to hand");
+            String[] choice = ctx.selectJobOrCategory("Name 1 Job or Category:");
+            if (choice == null || choice[1] == null || choice[1].isBlank()) return;
+            ctx.logEntry("Named " + choice[0] + ": " + choice[1]);
+            String jobFilter = "job".equalsIgnoreCase(choice[0]) ? choice[1] : null;
+            String catFilter = "category".equalsIgnoreCase(choice[0]) ? choice[1] : null;
+            ctx.revealTopAddUpToMatchingRestBottom(reveal, maxAdd, jobFilter, catFilter);
         };
     }
 

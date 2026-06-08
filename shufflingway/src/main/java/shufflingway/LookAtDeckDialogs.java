@@ -17,8 +17,10 @@ import java.awt.image.BufferedImage;
 import java.util.ArrayList;
 import java.util.Deque;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ExecutionException;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
@@ -770,6 +772,165 @@ class LookAtDeckDialogs {
                     bottomCards.stream().map(CardData::name)
                             .collect(java.util.stream.Collectors.joining(", ")));
         if (isP1) cb.refreshP1Deck().run(); else cb.refreshP2Deck().run();
+    }
+
+    void showRevealAddUpToMatchingRestBottom(List<CardData> cards, Deque<CardData> deck,
+            boolean isP1, int maxAdd, String jobFilter, String categoryFilter) {
+        int n = cards.size();
+        JDialog dlg = new JDialog(frame, "Reveal — Add to Hand, Rest to Bottom", true);
+        dlg.setResizable(false);
+        dlg.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
+
+        List<CardData> order = new ArrayList<>(cards);
+        Map<CardData, ImageIcon> imgCache = new LinkedHashMap<>();
+        JLabel[] cardLabels = new JLabel[n];
+        Set<CardData> handSet = new LinkedHashSet<>();
+        int[] selectedForSwap = { -1 };
+        boolean[] updating = { false };
+
+        JButton confirmBtn = new JButton("Confirm");
+        confirmBtn.setFont(FontLoader.loadPixelNESFont(11));
+        confirmBtn.setEnabled(true);
+
+        Runnable updateLabels = () -> {
+            for (int j = 0; j < n; j++) {
+                ImageIcon ic = imgCache.get(order.get(j));
+                if (ic != null) { cardLabels[j].setIcon(ic); cardLabels[j].setText(null); }
+            }
+        };
+
+        javax.swing.JToggleButton[] handBtns = new javax.swing.JToggleButton[n];
+
+        Runnable refreshHandButtons = () -> {
+            int count = handSet.size();
+            for (int j = 0; j < n; j++) {
+                CardData c = order.get(j);
+                boolean isChar = c.isForward() || c.isBackup() || c.isMonster();
+                boolean matches = jobFilter != null
+                        ? CardFilters.meetsJobFilter(c, jobFilter)
+                        : CardFilters.meetsCategoryFilter(c, categoryFilter);
+                boolean inHand = handSet.contains(c);
+                handBtns[j].setEnabled(isChar && matches && (inHand || count < maxAdd));
+            }
+        };
+
+        Runnable refreshBorders = () -> {
+            for (int j = 0; j < n; j++) {
+                CardData c = order.get(j);
+                if (handSet.contains(c))
+                    cardLabels[j].setBorder(BorderFactory.createLineBorder(new Color(0, 200, 80), 3));
+                else if (j == selectedForSwap[0])
+                    cardLabels[j].setBorder(BorderFactory.createLineBorder(Color.YELLOW, 3));
+                else
+                    cardLabels[j].setBorder(BorderFactory.createLineBorder(new Color(160, 110, 220), 1));
+            }
+        };
+
+        JPanel cardsPanel = new JPanel(new FlowLayout(FlowLayout.CENTER, 8, 8));
+        for (int i = 0; i < n; i++) {
+            final int idx = i;
+            JLabel lbl = makeCardLabel(null);
+            lbl.addMouseListener(new MouseAdapter() {
+                @Override public void mouseEntered(MouseEvent e) { showZoom(order.get(idx).imageUrl()); }
+                @Override public void mouseExited(MouseEvent e)  { hideZoom(); }
+                @Override public void mousePressed(MouseEvent e) {
+                    CardData c = order.get(idx);
+                    if (handSet.contains(c)) return;
+                    if (selectedForSwap[0] == -1) {
+                        selectedForSwap[0] = idx;
+                    } else if (selectedForSwap[0] == idx) {
+                        selectedForSwap[0] = -1;
+                    } else {
+                        int other = selectedForSwap[0];
+                        if (handSet.contains(order.get(other))) { selectedForSwap[0] = idx; refreshBorders.run(); return; }
+                        CardData tmp = order.get(idx); order.set(idx, order.get(other)); order.set(other, tmp);
+                        updateLabels.run();
+                        updating[0] = true;
+                        for (int j = 0; j < n; j++) handBtns[j].setSelected(handSet.contains(order.get(j)));
+                        updating[0] = false;
+                        refreshHandButtons.run();
+                        selectedForSwap[0] = -1;
+                    }
+                    refreshBorders.run();
+                }
+            });
+            cardLabels[i] = lbl;
+
+            javax.swing.JToggleButton handBtn = new javax.swing.JToggleButton("→ Hand");
+            handBtn.setFont(FontLoader.loadPixelNESFont(9));
+            handBtns[i] = handBtn;
+            handBtn.addItemListener(ie -> {
+                if (updating[0]) return;
+                CardData c = order.get(idx);
+                if (ie.getStateChange() == java.awt.event.ItemEvent.SELECTED) {
+                    handSet.add(c);
+                } else {
+                    handSet.remove(c);
+                }
+                selectedForSwap[0] = -1;
+                refreshHandButtons.run();
+                refreshBorders.run();
+            });
+
+            JPanel wrapper = new JPanel(new BorderLayout(0, 2));
+            wrapper.setOpaque(false);
+            wrapper.add(lbl,     BorderLayout.CENTER);
+            wrapper.add(handBtn, BorderLayout.SOUTH);
+            cardsPanel.add(wrapper);
+        }
+
+        // Initial button enabled state
+        refreshHandButtons.run();
+
+        for (CardData c : cards) {
+            new SwingWorker<ImageIcon, Void>() {
+                @Override protected ImageIcon doInBackground() throws Exception {
+                    Image img = ImageCache.load(c.imageUrl());
+                    return img == null ? null
+                            : new ImageIcon(img.getScaledInstance(CARD_W, CARD_H, Image.SCALE_SMOOTH));
+                }
+                @Override protected void done() {
+                    try { ImageIcon ic = get(); if (ic != null) { imgCache.put(c, ic); updateLabels.run(); } }
+                    catch (InterruptedException | ExecutionException ignored) {}
+                }
+            }.execute();
+        }
+
+        String filterDesc = jobFilter != null ? "Job [" + jobFilter + "]" : "Category [" + categoryFilter + "]";
+        JLabel instructions = new JLabel(
+                "Toggle '→ Hand' on " + filterDesc + " Characters (up to " + maxAdd + "). Swap the rest to order (left = first at bottom).",
+                SwingConstants.CENTER);
+        instructions.setFont(FontLoader.loadPixelNESFont(9));
+        confirmBtn.addActionListener(ae -> { hideZoom(); dlg.dispose(); });
+
+        JPanel south = new JPanel(new BorderLayout(0, 2));
+        south.add(instructions, BorderLayout.NORTH);
+        JPanel btnRow = new JPanel(new FlowLayout(FlowLayout.CENTER, 12, 6));
+        btnRow.add(confirmBtn);
+        south.add(btnRow, BorderLayout.SOUTH);
+
+        dlg.getContentPane().setLayout(new BorderLayout(0, 4));
+        dlg.getContentPane().add(cardsPanel, BorderLayout.CENTER);
+        dlg.getContentPane().add(south,      BorderLayout.SOUTH);
+        dlg.pack();
+        dlg.setLocationRelativeTo(frame);
+        dlg.setVisible(true);
+
+        for (int i = 0; i < n; i++) deck.pollFirst();
+        for (CardData c : handSet) {
+            if (isP1) gameState.getP1Hand().add(c);
+            else      gameState.getP2Hand().add(c);
+            log(c.name() + " → hand");
+        }
+        if (!handSet.isEmpty()) {
+            if (isP1) cb.refreshP1Hand().run();
+            else      cb.refreshP2Hand().run();
+        }
+        for (CardData c : order) {
+            if (!handSet.contains(c)) { deck.addLast(c); log(c.name() + " → bottom of deck"); }
+        }
+        if (isP1) cb.refreshP1Deck().run();
+        else      cb.refreshP2Deck().run();
     }
 
     // ── Shared helpers ──────────────────────────────────────────────────────────

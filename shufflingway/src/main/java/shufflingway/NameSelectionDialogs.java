@@ -112,6 +112,30 @@ class NameSelectionDialogs {
     }
 
     /**
+     * Shows the job-or-category toggle dialog (interactive) or picks randomly for the AI.
+     * Returns {@code {"job", value}} or {@code {"category", value}}.
+     */
+    static String[] selectJobOrCategory(JFrame frame, String prompt, boolean interactive, Consumer<String> log) {
+        if (!interactive) {
+            List<String> jobs = loadJobs(log);
+            List<String> cats = loadCategories(log);
+            if (Math.random() < 0.5 && !cats.isEmpty()) {
+                String cat = cats.get((int) (Math.random() * cats.size()));
+                log.accept("[AI] named Category: " + cat);
+                return new String[]{"category", cat};
+            } else {
+                String job = jobs.isEmpty() ? "Warrior" : jobs.get((int) (Math.random() * jobs.size()));
+                log.accept("[AI] named Job: " + job);
+                return new String[]{"job", job};
+            }
+        }
+        List<String> jobs = loadJobs(log);
+        List<String> cats = loadCategories(log);
+        if (jobs.isEmpty() && cats.isEmpty()) return null;
+        return showJobOrCategoryDialog(frame, prompt, jobs, cats);
+    }
+
+    /**
      * Collects the distinct job names from a set of field cards, splitting multi-job strings
      * (e.g. "Warrior/Rebel") into their components.
      */
@@ -130,6 +154,15 @@ class NameSelectionDialogs {
             return CardDatabase.loadJobs();
         } catch (SQLException e) {
             log.accept("[Job select] DB error: " + e.getMessage());
+            return new ArrayList<>();
+        }
+    }
+
+    private static List<String> loadCategories(Consumer<String> log) {
+        try {
+            return CardDatabase.loadCategories();
+        } catch (SQLException e) {
+            log.accept("[Category select] DB error: " + e.getMessage());
             return new ArrayList<>();
         }
     }
@@ -433,6 +466,139 @@ class NameSelectionDialogs {
         dialog.setSize(520, 440);
         dialog.setLocationRelativeTo(frame);
         SwingUtilities.invokeLater(searchField::requestFocusInWindow);
+        dialog.setVisible(true);
+        return result[0] != null ? result : null;
+    }
+
+    private static String[] showJobOrCategoryDialog(JFrame frame, String prompt,
+                                                    List<String> jobs, List<String> categories) {
+        String[] result = {null, null}; // [0] = "job"/"category", [1] = value
+        JDialog dialog = new JDialog(frame, "Name a Job or Category", true);
+        dialog.setDefaultCloseOperation(JDialog.DO_NOTHING_ON_CLOSE);
+
+        // --- Job panel (left) ---
+        JTextField jobSearch = new JTextField();
+        DefaultListModel<String> jobModel = new DefaultListModel<>();
+        for (String j : jobs) jobModel.addElement(j);
+        JList<String> jobList = new JList<>(jobModel);
+        jobList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+        if (!jobModel.isEmpty()) jobList.setSelectedIndex(0);
+
+        jobSearch.getDocument().addDocumentListener(new DocumentListener() {
+            private void filter() {
+                String text = jobSearch.getText().toLowerCase();
+                jobModel.clear();
+                for (String j : jobs) if (j.toLowerCase().contains(text)) jobModel.addElement(j);
+                if (!jobModel.isEmpty()) jobList.setSelectedIndex(0);
+            }
+            @Override public void insertUpdate(DocumentEvent e)  { filter(); }
+            @Override public void removeUpdate(DocumentEvent e)  { filter(); }
+            @Override public void changedUpdate(DocumentEvent e) { filter(); }
+        });
+
+        JPanel jobSearchRow = new JPanel(new BorderLayout(0, 2));
+        jobSearchRow.setBorder(BorderFactory.createEmptyBorder(0, 0, 4, 0));
+        jobSearchRow.add(new JLabel("Search:"), BorderLayout.NORTH);
+        jobSearchRow.add(jobSearch, BorderLayout.CENTER);
+
+        JPanel jobPanel = new JPanel(new BorderLayout(0, 4));
+        jobPanel.setBorder(BorderFactory.createEmptyBorder(4, 8, 4, 4));
+        jobPanel.add(jobSearchRow, BorderLayout.NORTH);
+        jobPanel.add(new JScrollPane(jobList), BorderLayout.CENTER);
+
+        // --- Category panel (right) ---
+        JTextField catSearch = new JTextField();
+        DefaultListModel<String> catModel = new DefaultListModel<>();
+        for (String c : categories) catModel.addElement(c);
+        JList<String> catList = new JList<>(catModel);
+        catList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+        if (!catModel.isEmpty()) catList.setSelectedIndex(0);
+
+        catSearch.getDocument().addDocumentListener(new DocumentListener() {
+            private void filter() {
+                String text = catSearch.getText().toLowerCase();
+                catModel.clear();
+                for (String c : categories) if (c.toLowerCase().contains(text)) catModel.addElement(c);
+                if (!catModel.isEmpty()) catList.setSelectedIndex(0);
+            }
+            @Override public void insertUpdate(DocumentEvent e)  { filter(); }
+            @Override public void removeUpdate(DocumentEvent e)  { filter(); }
+            @Override public void changedUpdate(DocumentEvent e) { filter(); }
+        });
+
+        JPanel catSearchRow = new JPanel(new BorderLayout(0, 2));
+        catSearchRow.setBorder(BorderFactory.createEmptyBorder(0, 0, 4, 0));
+        catSearchRow.add(new JLabel("Search:"), BorderLayout.NORTH);
+        catSearchRow.add(catSearch, BorderLayout.CENTER);
+
+        JPanel catPanel = new JPanel(new BorderLayout(0, 4));
+        catPanel.setBorder(BorderFactory.createEmptyBorder(4, 4, 4, 8));
+        catPanel.add(catSearchRow, BorderLayout.NORTH);
+        catPanel.add(new JScrollPane(catList), BorderLayout.CENTER);
+
+        // --- Toggle radio buttons ---
+        JRadioButton jobRadio = new JRadioButton("Job",      true);
+        JRadioButton catRadio = new JRadioButton("Category", false);
+        ButtonGroup  group    = new ButtonGroup();
+        group.add(jobRadio);
+        group.add(catRadio);
+
+        setPanelEnabled(catPanel, false);
+
+        jobRadio.addActionListener(e -> { setPanelEnabled(jobPanel, true);  setPanelEnabled(catPanel, false); SwingUtilities.invokeLater(jobSearch::requestFocusInWindow); });
+        catRadio.addActionListener(e -> { setPanelEnabled(jobPanel, false); setPanelEnabled(catPanel, true);  SwingUtilities.invokeLater(catSearch::requestFocusInWindow); });
+
+        // --- OK button ---
+        JButton okButton = new JButton("OK");
+        okButton.addActionListener(e -> {
+            if (jobRadio.isSelected()) {
+                String sel = jobList.getSelectedValue();
+                if (sel != null) { result[0] = "job"; result[1] = sel; dialog.dispose(); }
+            } else {
+                String sel = catList.getSelectedValue();
+                if (sel != null) { result[0] = "category"; result[1] = sel; dialog.dispose(); }
+            }
+        });
+        jobList.addMouseListener(new MouseAdapter() {
+            @Override public void mouseClicked(MouseEvent e) {
+                if (e.getClickCount() == 2 && jobRadio.isSelected() && jobList.getSelectedValue() != null)
+                    okButton.doClick();
+            }
+        });
+        catList.addMouseListener(new MouseAdapter() {
+            @Override public void mouseClicked(MouseEvent e) {
+                if (e.getClickCount() == 2 && catRadio.isSelected() && catList.getSelectedValue() != null)
+                    okButton.doClick();
+            }
+        });
+
+        // --- Layout ---
+        JPanel toggleRow = new JPanel(new BorderLayout());
+        JPanel radios = new JPanel(new FlowLayout(FlowLayout.CENTER, 16, 0));
+        radios.add(jobRadio);
+        radios.add(catRadio);
+        toggleRow.setBorder(BorderFactory.createEmptyBorder(8, 8, 0, 8));
+        if (prompt != null && !prompt.isBlank()) {
+            toggleRow.add(new JLabel(prompt, SwingConstants.CENTER), BorderLayout.NORTH);
+            toggleRow.add(radios, BorderLayout.CENTER);
+        } else {
+            toggleRow.add(radios, BorderLayout.CENTER);
+        }
+
+        JSplitPane splitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, jobPanel, catPanel);
+        splitPane.setResizeWeight(0.5);
+        splitPane.setDividerSize(4);
+
+        JPanel bottom = new JPanel(new FlowLayout(FlowLayout.CENTER));
+        bottom.add(okButton);
+
+        dialog.setLayout(new BorderLayout(0, 4));
+        dialog.add(toggleRow, BorderLayout.NORTH);
+        dialog.add(splitPane, BorderLayout.CENTER);
+        dialog.add(bottom,    BorderLayout.SOUTH);
+        dialog.setSize(520, 440);
+        dialog.setLocationRelativeTo(frame);
+        SwingUtilities.invokeLater(jobSearch::requestFocusInWindow);
         dialog.setVisible(true);
         return result[0] != null ? result : null;
     }
