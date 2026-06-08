@@ -1802,7 +1802,7 @@ public class ActionResolver {
     );
 
     private static final Pattern DRAW_CARDS = Pattern.compile(
-        "(?i)Draw\\s+(\\d+)\\s+cards?(?:\\s*[,.]?\\s*then\\s+discard\\s+(\\d+)\\s+cards?)?[.!]?"
+        "(?i)^Draw\\s+(\\d+)\\s+cards?(?:\\s*[,.]?\\s*then\\s+discard\\s+(\\d+)\\s+cards?)?[.!]?"
     );
 
     /**
@@ -1813,7 +1813,7 @@ public class ActionResolver {
      * </ul>
      */
     private static final Pattern DISCARD_THEN_DRAW = Pattern.compile(
-        "(?i)Discard\\s+(\\d+)\\s+cards?[,.]?\\s+then\\s+draw\\s+(\\d+)\\s+cards?[.!]?"
+        "(?i)^Discard\\s+(\\d+)\\s+cards?[,.]?\\s+then\\s+draw\\s+(\\d+)\\s+cards?[.!]?"
     );
 
     /**
