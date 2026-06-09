@@ -2476,7 +2476,7 @@ public class MainWindow {
 					@Override public void mousePressed(MouseEvent e) {
 						if (lbl.getIcon() == null) return;
 						if (SwingUtilities.isLeftMouseButton(e)
-								&& gameState.getCurrentPhase() == GameState.GamePhase.ATTACK) {
+								&& gameState.getCurrentPhase() == GameState.GamePhase.ATTACK && attackSubStep != 0) {
 							handleP1ForwardLeftClick(fi);
 						} else {
 							showForwardContextMenu(fi, lbl, e);
@@ -2630,7 +2630,7 @@ public class MainWindow {
 				@Override public void mousePressed(MouseEvent e) {
 					if (lbl.getIcon() == null) return;
 					if (SwingUtilities.isLeftMouseButton(e)
-							&& gameState.getCurrentPhase() == GameState.GamePhase.ATTACK) {
+							&& gameState.getCurrentPhase() == GameState.GamePhase.ATTACK && attackSubStep != 0) {
 						handleP1ForwardLeftClick(fi);
 					} else {
 						showForwardContextMenu(fi, lbl, e);
@@ -2758,7 +2758,7 @@ public class MainWindow {
 			@Override public void mousePressed(MouseEvent e) {
 				if (lbl.getIcon() == null) return;
 				if (SwingUtilities.isLeftMouseButton(e)
-						&& gameState.getCurrentPhase() == GameState.GamePhase.ATTACK) {
+						&& gameState.getCurrentPhase() == GameState.GamePhase.ATTACK && attackSubStep != 0) {
 					handleP1ForwardLeftClick(idx);
 				} else {
 					showForwardContextMenu(idx, lbl, e);
@@ -2852,7 +2852,7 @@ public class MainWindow {
 					@Override public void mousePressed(MouseEvent e) {
 						if (lbl.getIcon() == null) return;
 						if (SwingUtilities.isLeftMouseButton(e)
-								&& gameState.getCurrentPhase() == GameState.GamePhase.ATTACK) {
+								&& gameState.getCurrentPhase() == GameState.GamePhase.ATTACK && attackSubStep != 0) {
 							handleP1ForwardLeftClick(fi);
 						} else {
 							showForwardContextMenu(fi, lbl, e);
@@ -2954,7 +2954,7 @@ public class MainWindow {
 					@Override public void mousePressed(MouseEvent e) {
 						if (lbl.getIcon() == null) return;
 						if (SwingUtilities.isLeftMouseButton(e)
-								&& gameState.getCurrentPhase() == GameState.GamePhase.ATTACK) {
+								&& gameState.getCurrentPhase() == GameState.GamePhase.ATTACK && attackSubStep != 0) {
 							handleP1ForwardLeftClick(fi);
 						} else {
 							showForwardContextMenu(fi, lbl, e);
@@ -3093,7 +3093,7 @@ public class MainWindow {
 					@Override public void mousePressed(MouseEvent e) {
 						if (lbl.getIcon() == null) return;
 						if (SwingUtilities.isLeftMouseButton(e)
-								&& gameState.getCurrentPhase() == GameState.GamePhase.ATTACK) {
+								&& gameState.getCurrentPhase() == GameState.GamePhase.ATTACK && attackSubStep != 0) {
 							handleP1ForwardLeftClick(fi);
 						} else {
 							showForwardContextMenu(fi, lbl, e);
@@ -3624,7 +3624,7 @@ public class MainWindow {
 					@Override public void mousePressed(MouseEvent e) {
 						if (lbl.getIcon() == null) return;
 						if (SwingUtilities.isLeftMouseButton(e)
-								&& gameState.getCurrentPhase() == GameState.GamePhase.ATTACK) {
+								&& gameState.getCurrentPhase() == GameState.GamePhase.ATTACK && attackSubStep != 0) {
 							handleP1ForwardLeftClick(fi);
 						} else {
 							showForwardContextMenu(fi, lbl, e);
@@ -5530,7 +5530,8 @@ public class MainWindow {
 		JMenuItem playItem = new JMenuItem("Play");
 		GameState.GamePhase phase = gameState.getCurrentPhase();
 		boolean isMainPhase = phase == GameState.GamePhase.MAIN_1 || phase == GameState.GamePhase.MAIN_2;
-		boolean canPlaySpecialAction = isMainPhase && gameState.getStack().isEmpty()
+		boolean isAttackPrep = phase == GameState.GamePhase.ATTACK && attackSubStep == 0;
+		boolean canPlaySpecialAction = (isMainPhase || (isAttackPrep && card.isSummon())) && gameState.getStack().isEmpty()
 				&& (phaseTracker.isMyTurn() || (p1PriorityInP2MainOnDone != null && card.isSummon()));
 		boolean isCharacter = card.isForward() || card.isBackup() || card.isMonster();
 		boolean nameConflict = isCharacter && !card.multicard() && hasCharacterNameOnField(card.name()) && !isMultiNameExceptionActive(card.name());
@@ -9381,7 +9382,8 @@ public class MainWindow {
 				&& usedOncePerTurnAbilities.getOrDefault(source, Set.of()).contains(ability.effectText()))
 			return false;
 		GameState.GamePhase p = gameState.getCurrentPhase();
-		if (p != GameState.GamePhase.MAIN_1 && p != GameState.GamePhase.MAIN_2) return false;
+		if (p != GameState.GamePhase.MAIN_1 && p != GameState.GamePhase.MAIN_2
+				&& !(p == GameState.GamePhase.ATTACK && attackSubStep == 0)) return false;
 		if (ability.crystalCost() > 0 && playerCrystals(isP1) < ability.crystalCost()) return false;
 		for (BreakZoneCost bz : ability.breakZoneCosts())
 			if (!bzCostSatisfied(bz, isP1)) return false;
@@ -9400,7 +9402,8 @@ public class MainWindow {
 	 */
 	private boolean canActivateBzAbility(ActionAbility ability, CardData source, boolean isP1) {
 		GameState.GamePhase phase = gameState.getCurrentPhase();
-		if (phase != GameState.GamePhase.MAIN_1 && phase != GameState.GamePhase.MAIN_2) return false;
+		if (phase != GameState.GamePhase.MAIN_1 && phase != GameState.GamePhase.MAIN_2
+				&& !(phase == GameState.GamePhase.ATTACK && attackSubStep == 0)) return false;
 		if (ability.yourTurnOnly() || ability.mainPhaseOnly()) {
 			GameState.Player activePlayer = isP1 ? GameState.Player.P1 : GameState.Player.P2;
 			if (gameState.getCurrentPlayer() != activePlayer) return false;
@@ -9786,7 +9789,7 @@ public class MainWindow {
 			boolean hasAttackRestriction = ability.whileCardAttacking() != null
 					|| ability.whileCardBlocking() != null || ability.whilePartyAttacking()
 					|| ability.hasBlockingTargetEffect();
-			boolean phaseOk = hasAttackRestriction ? isAttackPhase : isMainPhase;
+			boolean phaseOk = hasAttackRestriction ? isAttackPhase : (isMainPhase || (isAttackPhase && attackSubStep == 0));
 			JMenuItem item = new JMenuItem(buildAbilityMenuLabel(ability));
 			item.setEnabled(phaseOk && canActivateAbility(ability, isFrozen, state, playedTurn, card, isP1));
 			item.addActionListener(ae ->
@@ -14089,7 +14092,7 @@ public class MainWindow {
 			@Override public void mousePressed(MouseEvent e) {
 				if (lbl.getIcon() == null) return;
 				if (SwingUtilities.isLeftMouseButton(e)
-						&& gameState.getCurrentPhase() == GameState.GamePhase.ATTACK) {
+						&& gameState.getCurrentPhase() == GameState.GamePhase.ATTACK && attackSubStep != 0) {
 					handleP1ForwardLeftClick(idx);
 				} else {
 					showForwardContextMenu(idx, lbl, e);
