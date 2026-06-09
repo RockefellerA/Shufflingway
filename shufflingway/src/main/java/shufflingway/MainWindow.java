@@ -9379,10 +9379,17 @@ public class MainWindow {
 	 */
 	private List<ForwardTarget> autoResolveBzTargets(CardData source, List<BreakZoneCost> bzCosts, boolean isP1) {
 		if (bzCosts.isEmpty()) return List.of();
-		ForwardTarget self = findSourceOnField(source, isP1);
-		if (self == null) return List.of();
 		List<ForwardTarget> result = new ArrayList<>();
-		for (int i = 0; i < bzCosts.size(); i++) result.add(self);
+
+		for (BreakZoneCost bz : bzCosts) {
+			List<ForwardTarget> eligible = eligibleBzFieldCards(bz, isP1);
+			if (eligible.size() <= bz.count()) result.addAll(eligible);
+			else {
+				String what = bz.name().isEmpty() ? bz.cardType() : bz.name();
+				String title = "Put " + bz.count() + " " + what + " into the Break Zone";
+				result.addAll(selectFieldTargetsInPlace(eligible, bz.count(), false, "Select for Breakzone"));
+			}
+		}
 		return result;
 	}
 
