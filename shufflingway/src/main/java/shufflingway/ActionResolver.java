@@ -2162,6 +2162,8 @@ public class ActionResolver {
      * @param xValue the CP amount paid into {@code 《X》}; {@code 0} when the ability has no X cost
      */
     public static Consumer<GameContext> parse(String effectText, CardData source, int xValue) {
+        // Strip leading "EX BURST" / "[[ex]]EX BURST[[/]]" prefix present on summon field ability texts.
+        effectText = effectText.replaceFirst("(?i)^(?:\\[\\[ex\\]\\])?\\s*EX\\s+BURST(?:\\[\\[/\\]\\])?\\s*", "").trim();
         Consumer<GameContext> result;
 
         result = tryParseWhenYouDoSoSequence(effectText, source, xValue);
@@ -2696,6 +2698,7 @@ public class ActionResolver {
      * layer has no matching pattern yet.  Returns {@code null} if no primary pattern matches.
      */
     public static String fullDescription(String effectText, CardData source) {
+        effectText = effectText.replaceFirst("(?i)^(?:\\[\\[ex\\]\\])?\\s*EX\\s+BURST(?:\\[\\[/\\]\\])?\\s*", "").trim();
         if (CardData.YOUR_TURN_ONLY_PATTERN.matcher(effectText).matches())  return "YourTurnOnly";
         if (CardData.ONCE_PER_TURN_PATTERN.matcher(effectText).matches())   return "OncePerTurn";
         if (CardData.YOUR_TURN_ONLY_PATTERN.matcher(effectText).find()
@@ -2754,7 +2757,17 @@ public class ActionResolver {
         if (tryParseNegateAllDamage(effectText) != null)                     return "NegateDamage";
         if (tryParseSelectNumber(effectText, source) != null)               return "SelectNumber";
         if (tryParseAllFieldEffect(effectText) != null)                     return "AllFieldEffect";
-        if (tryParseAllFieldPowerBoost(effectText) != null)                 return "AllFieldPowerBoost";
+        {
+            Matcher bm = ALL_FIELD_POWER_BOOST_PATTERN.matcher(effectText);
+            if (bm.find()) {
+                String trailing = effectText.substring(bm.end()).trim().replaceAll("^[.!,]+\\s*", "").trim();
+                if (!trailing.isEmpty()) {
+                    String secDesc = fullDescription(trailing, source);
+                    return "AllFieldPowerBoost + " + (secDesc != null ? secDesc : "?");
+                }
+                return "AllFieldPowerBoost";
+            }
+        }
         if (tryParseAllFieldKeywordGrant(effectText) != null)               return "AllFieldKeywordGrant";
         if (tryParseUntilEotDualPowerShift(effectText) != null)            return "UntilEotDualPowerShift";
         if (tryParseUntilEotAllFieldPowerBoost(effectText) != null)        return "UntilEotAllFieldPowerBoost";
@@ -6004,10 +6017,14 @@ public class ActionResolver {
         String logMsg = "All " + elemLabel + catLabel + targets + costLabel + controlLabel
                 + " " + change + " power until end of turn";
 
+        String trailingRaw = text.substring(m.end()).trim().replaceAll("^[.!,]+\\s*", "").trim();
+        Consumer<GameContext> secondary = trailingRaw.isEmpty() ? null : parse(trailingRaw, null);
+
         return ctx -> {
             ctx.logEntry("Effect: " + logMsg);
             ctx.applyMassFieldPowerBoost(amount, inclForwards, inclMonsters,
                     opponentOnly, selfOnly, element, costVal, costCmp, category);
+            if (secondary != null) secondary.accept(ctx);
         };
     }
 
