@@ -2170,10 +2170,10 @@ public class MainWindow {
 		return lbl;
 	}
 
-	private void showBreakZoneDialog() { showBreakZoneDialog(gameState.getP1BreakZone(), "P1 Break Zone"); }
-	private void showP2BreakZoneDialog() { showBreakZoneDialog(gameState.getP2BreakZone(), "P2 Break Zone"); }
+	private void showBreakZoneDialog() { showBreakZoneDialog(gameState.getP1BreakZone(), "P1 Break Zone", true); }
+	private void showP2BreakZoneDialog() { showBreakZoneDialog(gameState.getP2BreakZone(), "P2 Break Zone", false); }
 
-	private void showBreakZoneDialog(List<CardData> zone, String title) {
+	private void showBreakZoneDialog(List<CardData> zone, String title, boolean isP1) {
 		if (zone.isEmpty()) return;
 
 		JDialog dlg = new JDialog(frame, title + " (" + zone.size() + " cards)", true);
@@ -2183,6 +2183,9 @@ public class MainWindow {
 		JPanel cardsPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 8));
 
 		for (CardData cd : zone) {
+			final boolean hasBzAbility = isP1 && cd.actionAbilities().stream()
+					.anyMatch(a -> a.breakZoneOnly() != null && canActivateBzAbility(a, cd, true));
+
 			JPanel cardWrapper = new JPanel(new BorderLayout(0, 4));
 			cardWrapper.setBackground(cardsPanel.getBackground());
 
@@ -2192,12 +2195,29 @@ public class MainWindow {
 			lbl.setOpaque(true);
 			lbl.setBackground(Color.DARK_GRAY);
 			lbl.setBorder(BorderFactory.createLineBorder(Color.LIGHT_GRAY, 1));
+			if (hasBzAbility) lbl.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
 
 			lbl.addMouseListener(new MouseAdapter() {
 				@Override public void mouseEntered(MouseEvent e) {
 					if (lbl.getIcon() != null) showZoomAt(cd.imageUrl());
 				}
 				@Override public void mouseExited(MouseEvent e) { hideZoom(); }
+				@Override public void mousePressed(MouseEvent e) {
+					if (!isP1 || !SwingUtilities.isLeftMouseButton(e)) return;
+					boolean anyBzAbility = cd.actionAbilities().stream()
+							.anyMatch(a -> a.breakZoneOnly() != null);
+					if (!anyBzAbility) return;
+					hideZoom();
+					JPopupMenu menu = new JPopupMenu();
+					for (ActionAbility ability : cd.actionAbilities()) {
+						if (ability.breakZoneOnly() == null) continue;
+						JMenuItem item = new JMenuItem(buildAbilityMenuLabel(ability));
+						item.setEnabled(canActivateBzAbility(ability, cd, true));
+						item.addActionListener(ae -> showBzAbilityPaymentDialog(ability, cd, true));
+						menu.add(item);
+					}
+					if (menu.getComponentCount() > 0) menu.show(lbl, e.getX(), e.getY());
+				}
 			});
 
 			new SwingWorker<ImageIcon, Void>() {
@@ -2208,6 +2228,7 @@ public class MainWindow {
 					Graphics2D g2 = buf.createGraphics();
 					g2.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
 					g2.drawImage(img, 0, 0, CARD_W, CARD_H, null);
+					if (hasBzAbility) CardAnimation.drawGlow(g2, new Color(30, 144, 255), 0, 0, CARD_W, CARD_H);
 					g2.dispose();
 					return new ImageIcon(buf);
 				}
@@ -7767,6 +7788,7 @@ public class MainWindow {
 	 */
 	private boolean canActivateAbility(ActionAbility ability, boolean isFrozen, CardState state,
 			int playedTurn, CardData source, boolean isP1) {
+		if (ability.breakZoneOnly() != null) return false; // only activatable from the Break Zone
 		if (ability.yourTurnOnly()) {
 			GameState.Player activePlayer = isP1 ? GameState.Player.P1 : GameState.Player.P2;
 			if (gameState.getCurrentPlayer() != activePlayer) return false;
@@ -9373,6 +9395,85 @@ public class MainWindow {
 	}
 
 	/**
+	 * Returns {@code true} if an action ability whose source is in the Break Zone
+	 * can currently be activated.
+	 */
+	private boolean canActivateBzAbility(ActionAbility ability, CardData source, boolean isP1) {
+		GameState.GamePhase phase = gameState.getCurrentPhase();
+		if (phase != GameState.GamePhase.MAIN_1 && phase != GameState.GamePhase.MAIN_2) return false;
+		if (ability.yourTurnOnly() || ability.mainPhaseOnly()) {
+			GameState.Player activePlayer = isP1 ? GameState.Player.P1 : GameState.Player.P2;
+			if (gameState.getCurrentPlayer() != activePlayer) return false;
+		}
+		if (ability.oncePerTurn()
+				&& usedOncePerTurnAbilities.getOrDefault(source, Set.of()).contains(ability.effectText()))
+			return false;
+		if (ability.crystalCost() > 0 && playerCrystals(isP1) < ability.crystalCost()) return false;
+		for (BreakZoneCost bz : ability.breakZoneCosts())
+			if (!bzCostSatisfied(bz, isP1)) return false;
+		for (RemoveFromGameCost rfg : ability.removeFromGameCosts())
+			if (!rfgCostSatisfied(rfg, isP1)) return false;
+		for (ReturnToHandCost rth : ability.returnToHandCosts())
+			if (!rfthCostSatisfied(rth, isP1)) return false;
+		for (CounterCost cc : ability.counterCosts())
+			if (!counterCostSatisfied(cc, source)) return false;
+		for (DullForwardCost dfc : ability.dullForwardCosts())
+			if (!dullForwardCostSatisfied(dfc, isP1)) return false;
+		return canAffordAbilityCost(ability, isP1);
+	}
+
+	/**
+	 * Resolves "put N [type] into the Break Zone" costs for a break-zone-origin ability
+	 * by selecting the appropriate field cards. Named-card costs are auto-selected; type-
+	 * based costs prompt the player to choose. Returns {@code null} if cancelled or unpayable.
+	 */
+	private List<ForwardTarget> resolveBzCostTargetsForBzAbility(List<BreakZoneCost> bzCosts, boolean isP1) {
+		List<ForwardTarget> all = new ArrayList<>();
+		for (BreakZoneCost bz : bzCosts) {
+			List<ForwardTarget> eligible = eligibleBzFieldCards(bz, isP1);
+			if (eligible.size() < bz.count()) {
+				logEntry("Not enough eligible field cards for Break Zone cost.");
+				return null;
+			}
+			if (!bz.name().isEmpty()) {
+				all.add(eligible.get(0)); // named card: auto-select first match
+			} else if (eligible.size() == bz.count()) {
+				all.addAll(eligible); // only one possible selection
+			} else {
+				String typeLabel = bz.cardType().isEmpty() ? "card" : bz.cardType();
+				List<ForwardTarget> picks = showForwardSelectDialog(eligible, bz.count(), false,
+						"Break Zone Cost: Break " + bz.count() + " " + typeLabel + "(s)");
+				if (picks == null || picks.size() < bz.count()) return null;
+				all.addAll(picks);
+			}
+		}
+		return all;
+	}
+
+	/** Payment dialog for an action ability activated from the Break Zone. */
+	private void showBzAbilityPaymentDialog(ActionAbility ability, CardData source, boolean isP1) {
+		List<String> rawCost = ability.cpCost();
+		List<BreakZoneCost> bzCosts = ability.breakZoneCosts();
+
+		if (rawCost.isEmpty() && !ability.hasXCost()) {
+			List<ForwardTarget> bzTargets = resolveBzCostTargetsForBzAbility(bzCosts, isP1);
+			if (bzTargets == null) return;
+			executeAbilityPayment(ability, source, () -> {}, new ArrayList<>(), new ArrayList<>(), bzTargets, isP1, 0);
+			return;
+		}
+
+		new AbilityPaymentDialog(frame, ability, source,
+				playerHand(isP1), playerBackupCards(isP1), playerBackupStates(isP1), playerBackupUrls(isP1),
+				this::showZoomAt, this::hideZoom,
+				(discards, backups, xValue) -> {
+					List<ForwardTarget> bzTargets = resolveBzCostTargetsForBzAbility(bzCosts, isP1);
+					if (bzTargets == null) return;
+					executeAbilityPayment(ability, source, () -> {}, discards, backups, bzTargets, isP1, xValue);
+				})
+			.show();
+	}
+
+	/**
 	 * Builds the BZ-target list for ability payment by finding the source card's
 	 * current field position.  The BZ cost is always "put itself into the Break Zone",
 	 * so no player selection is needed — one entry is added per cost item.
@@ -9681,6 +9782,7 @@ public class MainWindow {
 
 		for (ActionAbility ability : abilities) {
 			if (ability.whileCardInHand()) continue; // only usable from hand, not from the field
+			if (ability.breakZoneOnly() != null) continue; // only usable from Break Zone
 			boolean hasAttackRestriction = ability.whileCardAttacking() != null
 					|| ability.whileCardBlocking() != null || ability.whilePartyAttacking()
 					|| ability.hasBlockingTargetEffect();
@@ -12008,7 +12110,19 @@ public class MainWindow {
 				for (int i = 0; i < p1MonsterCards.size(); i++) {
 					if (p1MonsterCards.get(i).name().equalsIgnoreCase(cardName)) { returnP1MonsterToHand(i); return; }
 				}
-				logEntry("[Warning] returnNamedCardToYourHand: \"" + cardName + "\" not found on field");
+				// Fallback: search P1's Break Zone (for break-zone-origin abilities)
+				List<CardData> bz = gameState.getP1BreakZone();
+				for (int i = bz.size() - 1; i >= 0; i--) {
+					if (bz.get(i).name().equalsIgnoreCase(cardName)) {
+						CardData c = bz.remove(i);
+						gameState.getP1Hand().add(c);
+						logEntry(cardName + " Break Zone → P1 Hand");
+						refreshP1BreakLabel();
+						refreshP1HandLabel();
+						return;
+					}
+				}
+				logEntry("[Warning] returnNamedCardToYourHand: \"" + cardName + "\" not found on field or Break Zone");
 			}
 
 			@Override public void removeFromBattle(String cardName) {

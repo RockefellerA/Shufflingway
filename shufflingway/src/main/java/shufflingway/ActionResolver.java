@@ -455,6 +455,20 @@ public class ActionResolver {
         "(?i)Return\\s+(?!(?:it|them)\\b)(?<named>.+?)\\s+to\\s+your\\s+hand[.!]?"
     );
 
+    /** Matches "Add [name] to your hand." — named card, not a pronoun. Used for break-zone-origin abilities. */
+    private static final Pattern ADD_NAMED_TO_YOUR_HAND = Pattern.compile(
+        "(?i)\\bAdd\\s+(?!(?:it|them)\\b)(?<named>.+?)\\s+to\\s+your\\s+hand[.!]?"
+    );
+
+    /**
+     * Matches "Play [name] onto [the] field [dull]" without requiring a "from Break Zone" qualifier.
+     * Used for break-zone-origin abilities where the card plays itself from the BZ.
+     * The name is limited to 1–3 words to avoid matching non-source cards.
+     */
+    private static final Pattern PLAY_SOURCE_ONTO_FIELD_PATTERN = Pattern.compile(
+        "(?i)\\bPlay\\s+(?<name>\\S+(?:\\s+\\S+){0,2})\\s+onto\\s+(?:the\\s+)?field(?:\\s+(?<dull>dull))?[.!]?"
+    );
+
     /**
      * Matches "If its power has become N or less/more, return [name] to your/its owner's hand."
      * Groups: {@code threshold} — power value; {@code cmp} — "less" or "more";
@@ -2392,6 +2406,9 @@ public class ActionResolver {
         if (result != null) return result;
 
         result = tryParsePlaySourceFromBreakZone(effectText, source);
+        if (result != null) return result;
+
+        result = tryParsePlaySourceOntoField(effectText, source);
         if (result != null) return result;
 
         result = tryParseActivateNamedCard(effectText);
@@ -5765,6 +5782,15 @@ public class ActionResolver {
                 ctx.returnNamedCardToYourHand(named);
             };
         }
+        // Also handle "Add [name] to your hand" — used by break-zone-origin abilities.
+        m = ADD_NAMED_TO_YOUR_HAND.matcher(text);
+        if (m.find()) {
+            String named = m.group("named").trim();
+            return ctx -> {
+                ctx.logEntry("Effect: Add " + named + " to your hand");
+                ctx.returnNamedCardToYourHand(named);
+            };
+        }
         return null;
     }
 
@@ -7522,6 +7548,24 @@ public class ActionResolver {
         if (source == null) return null;
         Matcher m = PLAY_SOURCE_FROM_BREAK_ZONE.matcher(text.trim());
         if (!m.matches()) return null;
+        String name = m.group("name").trim();
+        if (!name.equalsIgnoreCase(source.name())) return null;
+        boolean dull = m.group("dull") != null;
+        return ctx -> {
+            ctx.logEntry("Effect: Play " + name + " from Break Zone → field" + (dull ? " dull" : ""));
+            ctx.playAllByNameFromOwnBreakZoneDull(name, dull);
+        };
+    }
+
+    /**
+     * Parses "Play [name] onto [the] field [dull]" for break-zone-origin abilities where
+     * the card name matches the source.  Does not require a "from Break Zone" qualifier —
+     * BZ-origin abilities say "Play [itself] onto the field" knowing they start in the BZ.
+     */
+    private static Consumer<GameContext> tryParsePlaySourceOntoField(String text, CardData source) {
+        if (source == null) return null;
+        Matcher m = PLAY_SOURCE_ONTO_FIELD_PATTERN.matcher(text);
+        if (!m.find()) return null;
         String name = m.group("name").trim();
         if (!name.equalsIgnoreCase(source.name())) return null;
         boolean dull = m.group("dull") != null;

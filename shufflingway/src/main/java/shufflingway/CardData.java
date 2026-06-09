@@ -819,8 +819,10 @@ public record CardData(
             boolean requiresCastSummonThisTurn   = CAST_SUMMON_THIS_TURN_PATTERN.matcher(effectRaw).find();
             Matcher elemFwdM = ELEMENT_FORWARD_ENTERED_THIS_TURN_PATTERN.matcher(effectRaw);
             String  requiresElementForwardEnteredThisTurn = elemFwdM.find() ? elemFwdM.group("element").toLowerCase() : null;
+            Matcher bzOnlyM = CARD_IN_BREAK_ZONE_PATTERN.matcher(effectRaw);
+            String  breakZoneOnly = bzOnlyM.find() ? bzOnlyM.group("card").trim() : null;
             ControlCondition controlCondition = null;
-            if (!whileCardInHand) {
+            if (!whileCardInHand && breakZoneOnly == null) {
                 Matcher ctrlM = CONTROL_IF_PATTERN.matcher(effectRaw);
                 if (ctrlM.find()) {
                     controlCondition = parseControlCondition(ctrlM.group("condition"));
@@ -838,7 +840,7 @@ public record CardData(
             String cpBackupElement = cpBkpM.find()
                     ? (cpBkpM.group("element") != null ? cpBkpM.group("element") : "")
                     : null;
-            result.add(new ActionAbility(abilityName, requiresDull, isSpecial, crystalCost, selfMillCost, hasXCost, cpCost, breakZoneCosts, discardCosts, removeFromGameCosts, returnToHandCosts, counterCosts, dullForwardCosts, yourTurnOnly, oncePerTurn, mainPhaseOnly, whileCardAtk, whileCardBlk, whilePartyAtk, whileCardInHand, hasBlockingTarget, effectRaw, damageThreshold, controlCondition, cpBackupElement, sourceInBattle, requiresOppDiscardedThisTurn, requiresCastSummonThisTurn, requiresElementForwardEnteredThisTurn));
+            result.add(new ActionAbility(abilityName, requiresDull, isSpecial, crystalCost, selfMillCost, hasXCost, cpCost, breakZoneCosts, discardCosts, removeFromGameCosts, returnToHandCosts, counterCosts, dullForwardCosts, yourTurnOnly, oncePerTurn, mainPhaseOnly, whileCardAtk, whileCardBlk, whilePartyAtk, whileCardInHand, hasBlockingTarget, effectRaw, damageThreshold, controlCondition, cpBackupElement, sourceInBattle, requiresOppDiscardedThisTurn, requiresCastSummonThisTurn, requiresElementForwardEnteredThisTurn, breakZoneOnly));
         }
         return List.copyOf(result);
     }
@@ -962,6 +964,16 @@ public record CardData(
     /** "You can only use this ability if an/a [Element] Forward has entered your field this turn." */
     static final Pattern ELEMENT_FORWARD_ENTERED_THIS_TURN_PATTERN = Pattern.compile(
         "(?i)You\\s+can\\s+only\\s+use\\s+this\\s+ability\\s+if\\s+an?\\s+(?<element>\\w+)\\s+Forward\\s+has\\s+entered\\s+your\\s+field\\s+this\\s+turn[.!]?"
+    );
+
+    /**
+     * Matches "if [CardName] is in the Break Zone" (1–3 words for the card name).
+     * The card name is captured in the {@code card} group.
+     * Handles patterns like "and if Fran is in the Break Zone" — the lazy 1–3 word
+     * limit prevents the match from swallowing preceding "if X has entered..." clauses.
+     */
+    static final Pattern CARD_IN_BREAK_ZONE_PATTERN = Pattern.compile(
+        "(?i)\\bif\\s+(?<card>\\S+(?:\\s+\\S+){0,2})\\s+is\\s+in\\s+the\\s+Break\\s+Zone[.!]?"
     );
 
     /** Captures the raw condition text from "You can only use this ability if you control [X]". */
