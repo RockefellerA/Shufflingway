@@ -9385,9 +9385,9 @@ public class MainWindow {
 			List<ForwardTarget> eligible = eligibleBzFieldCards(bz, isP1);
 			if (eligible.size() <= bz.count()) result.addAll(eligible);
 			else {
-				String what = bz.name().isEmpty() ? bz.cardType() : bz.name();
-				String title = "Put " + bz.count() + " " + what + " into the Break Zone";
-				result.addAll(selectFieldTargetsInPlace(eligible, bz.count(), false, "Select for Breakzone"));
+				String strAmt = bz.count() > 1 ? " cards" : " card";
+				String text = "Select " + bz.count() + strAmt + " to put into the Break Zone.";
+				result.addAll(selectFieldTargetsInPlace(eligible, bz.count(), false, text));
 			}
 		}
 		return result;
