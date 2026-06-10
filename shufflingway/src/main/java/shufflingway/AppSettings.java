@@ -39,12 +39,24 @@ public final class AppSettings {
         } catch (IOException ignored) {}
     }
 
-    /** Writes current settings to disk, creating parent directories as needed. */
+    /**
+     * Writes current settings to disk, creating parent directories as needed.
+     * Re-reads the file first and overlays our in-memory props on top so manual
+     * edits to keys we don't manage (e.g. the {@code debug=1} gate) survive.
+     */
     public static void save() {
         try {
             new File(DIR).mkdirs();
+            Properties merged = new Properties();
+            File file = new File(PATH);
+            if (file.exists()) {
+                try (FileInputStream fis = new FileInputStream(file)) {
+                    merged.load(fis);
+                } catch (IOException ignored) {}
+            }
+            merged.putAll(props);
             try (FileOutputStream fos = new FileOutputStream(PATH)) {
-                props.store(fos, "Shufflingway Settings");
+                merged.store(fos, "Shufflingway Settings");
             }
         } catch (IOException ignored) {}
     }
