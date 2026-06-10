@@ -1997,6 +1997,29 @@ public class ActionResolver {
     );
 
     /**
+     * Matches: "Deal X damage for each [Element]? [Category Y]? Type you control to all [the] Forwards [opponent controls]"
+     * <ul>
+     *   <li>Group {@code base}      — base damage per matching card</li>
+     *   <li>Group {@code element}   — optional element filter ("Wind", "Fire", etc.)</li>
+     *   <li>Group {@code category}  — optional category filter</li>
+     *   <li>Group {@code chartype}  — Forwards/Backups/Monsters/Characters</li>
+     *   <li>Group {@code condition} — optional "damaged"/"dull"/etc. target filter</li>
+     *   <li>Group {@code opponent}  — present when "opponent controls" appears</li>
+     * </ul>
+     */
+    private static final Pattern DEAL_DAMAGE_TO_FORWARDS_FOR_EACH = Pattern.compile(
+        "(?i)Deal\\s+(?<base>\\d+)\\s+damage\\s+for\\s+each\\s+" +
+        "(?:(?<element>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)\\s+)?" +
+        "(?:Category\\s+(?<category>\\S+)\\s+)?" +
+        "(?<chartype>Forwards?|Characters?|Backups?|Monsters?)\\s+you\\s+control" +
+        "\\s+to\\s+all(?:\\s+the)?\\s+" +
+        "(?:(?<condition>damaged|dull|attacking|blocking|active)\\s+)?" +
+        "Forwards?" +
+        "(?:\\s+(?<opponent>(?:your\\s+)?opponent\\s+controls))?" +
+        "[.!]?"
+    );
+
+    /**
      * Matches "Deal [N] damage to the Forward that blocks [CardName][.]"
      * Used by "is blocked" auto-abilities and action abilities that target the current combat blocker.
      * <ul>
@@ -2233,6 +2256,9 @@ public class ActionResolver {
         if (result != null) return result;
 
         result = tryParseSelectNumber(effectText, source);
+        if (result != null) return result;
+
+        result = tryParseDealDamageToForwardsForEach(effectText);
         if (result != null) return result;
 
         result = tryParseDealDamageToForwards(effectText);
@@ -2586,6 +2612,7 @@ public class ActionResolver {
     /** Returns the name of the first pattern that matches {@code effectText}, or {@code null}. */
     public static String matchedPatternName(String effectText, CardData source) {
         if (tryParseSelectNumber(effectText, source)                    != null) return "SelectNumber";
+        if (tryParseDealDamageToForwardsForEach(effectText)             != null) return "DealDamageToForwardsForEach";
         if (tryParseDealDamageToForwards(effectText)                    != null) return "DealDamageToForwards";
         if (tryParseDealHalfPowerDamageToForwards(effectText)           != null) return "DealHalfPowerDamageToForwards";
         if (tryParseDealPowerMinusNDamageToForwards(effectText)         != null) return "DealPowerMinusNDamageToForwards";
@@ -2775,6 +2802,7 @@ public class ActionResolver {
         if (tryParseWhenYouDoSoSequence(effectText, source, 0)     != null) return "WhenYouDoSo";
         if (tryParseIfCastAtLeast(effectText, source, 0)           != null) return "IfCastAtLeast";
         if (tryParseSelectNumber(effectText, source)          != null) return "SelectNumber";
+        if (tryParseDealDamageToForwardsForEach(effectText)         != null) return "DealDamageToForwardsForEach";
         if (tryParseDealDamageToForwards(effectText)                != null) return "DealDamageToForwards";
         if (tryParseDealHalfPowerDamageToForwards(effectText)       != null) return "DealHalfPowerDamageToForwards";
         if (tryParseDealPowerMinusNDamageToForwards(effectText)     != null) return "DealPowerMinusNDamageToForwards";
@@ -3058,6 +3086,72 @@ public class ActionResolver {
                     CardData c = ctx.p1Forward(i);
                     if (!meetsCostFilter(c.cost(), costVal, costCmp)) continue;
                     if (excludeJob != null && c.hasJob(excludeJob)) continue;
+                    if (meetsCondition(ctx.p1ForwardState(i), ctx.p1ForwardCurrentDamage(i),
+                            ctx.isP1ForwardAttacking(i), ctx.isP1ForwardBlocking(i), condition))
+                        p1Targets.add(i);
+                }
+                for (int i = p1Targets.size() - 1; i >= 0; i--) {
+                    int idx = p1Targets.get(i);
+                    if (idx < ctx.p1ForwardCount()) {
+                        if (unreduced) ctx.damageP1ForwardUnreduced(idx, damage);
+                        else           ctx.damageP1Forward(idx, damage);
+                    }
+                }
+            }
+        };
+    }
+
+    private static Consumer<GameContext> tryParseDealDamageToForwardsForEach(String text) {
+        Matcher m = DEAL_DAMAGE_TO_FORWARDS_FOR_EACH.matcher(text);
+        if (!m.find()) return null;
+
+        int    baseDmg      = Integer.parseInt(m.group("base"));
+        String element      = m.group("element");
+        String category     = m.group("category");
+        String charType     = m.group("chartype");
+        String condition    = m.group("condition");
+        boolean opponentOnly = m.group("opponent") != null;
+        boolean unreduced    = CANNOT_BE_REDUCED_PATTERN.matcher(text).find();
+
+        boolean fwd = charType.matches("(?i)Forwards?|Characters?");
+        boolean bkp = charType.matches("(?i)Backups?|Characters?");
+        boolean mon = charType.matches("(?i)Monsters?|Characters?");
+        String elementFilter = element != null ? element.toLowerCase(java.util.Locale.ROOT) : null;
+
+        return ctx -> {
+            int n = ctx.countSelfFieldCards(fwd, bkp, mon, null, null, category, elementFilter);
+            int damage = baseDmg * n;
+            String multLabel = (element != null ? element + " " : "")
+                    + (category != null ? "Category " + category + " " : "")
+                    + charType + " you control";
+            String condLabel = condition != null ? (condition + " ") : "";
+            String scopeLabel = opponentOnly ? "opponent's " : "all ";
+            String unredLabel = unreduced ? " (cannot be reduced)" : "";
+            ctx.logEntry("Effect: Deal " + damage + " damage (" + baseDmg + " x " + n + " "
+                    + multLabel + ") to " + scopeLabel + condLabel + "Forwards" + unredLabel);
+            if (damage <= 0) return;
+
+            boolean oppIsP2 = opponentOnly && ctx.isP1();
+            boolean oppIsP1 = opponentOnly && !ctx.isP1();
+
+            if (!opponentOnly || oppIsP2) {
+                List<Integer> p2Targets = new ArrayList<>();
+                for (int i = 0; i < ctx.p2ForwardCount(); i++) {
+                    if (meetsCondition(ctx.p2ForwardState(i), ctx.p2ForwardCurrentDamage(i),
+                            ctx.isP2ForwardAttacking(i), ctx.isP2ForwardBlocking(i), condition))
+                        p2Targets.add(i);
+                }
+                for (int i = p2Targets.size() - 1; i >= 0; i--) {
+                    int idx = p2Targets.get(i);
+                    if (idx < ctx.p2ForwardCount()) {
+                        if (unreduced) ctx.damageP2ForwardUnreduced(idx, damage);
+                        else           ctx.damageP2Forward(idx, damage);
+                    }
+                }
+            }
+            if (!opponentOnly || oppIsP1) {
+                List<Integer> p1Targets = new ArrayList<>();
+                for (int i = 0; i < ctx.p1ForwardCount(); i++) {
                     if (meetsCondition(ctx.p1ForwardState(i), ctx.p1ForwardCurrentDamage(i),
                             ctx.isP1ForwardAttacking(i), ctx.isP1ForwardBlocking(i), condition))
                         p1Targets.add(i);
