@@ -117,6 +117,15 @@ public final class AppSettings {
     }
 
     /**
+     * Master switch for the Debug section in the Preferences dialog. The Debug section (and any
+     * individual debug toggles) are hidden unless {@code settings.ini} contains {@code debug=1}.
+     * There is intentionally no setter — users opt in by editing the file by hand.
+     */
+    public static boolean isDebugEnabled() {
+        return "1".equals(props.getProperty("debug", "0"));
+    }
+
+    /**
      * Debug toggle: when {@code true}, the opening-hand mulligan button stays enabled across
      * repeated mulligans (overrides the once-per-game limit). Defaults to {@code false}.
      */

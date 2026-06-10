@@ -132,39 +132,43 @@ public class PreferencesDialog extends JDialog {
 
 		cardBackPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
 		contentPanel.add(cardBackPanel);
-		contentPanel.add(javax.swing.Box.createVerticalStrut(8));
 
 		// ── Debug ────────────────────────────────────────────────────────────
-		JPanel debugPanel = new JPanel();
-		debugPanel.setLayout(new BoxLayout(debugPanel, BoxLayout.Y_AXIS));
-		debugPanel.setBorder(BorderFactory.createTitledBorder(
-				BorderFactory.createEtchedBorder(), "Debug",
-				TitledBorder.LEFT, TitledBorder.TOP));
+		// Hidden unless `debug=1` is set manually in settings.ini.
+		if (AppSettings.isDebugEnabled()) {
+			contentPanel.add(javax.swing.Box.createVerticalStrut(8));
 
-		JCheckBox unlimitedMulliganBox = new JCheckBox("Unlimited Mulligan",
-				AppSettings.isDebugUnlimitedMulligan());
-		unlimitedMulliganBox.setToolTipText(
-				"Keep the Mulligan button enabled across repeated mulligans (overrides once-per-game limit).");
-		unlimitedMulliganBox.addActionListener(e -> {
-			AppSettings.setDebugUnlimitedMulligan(unlimitedMulliganBox.isSelected());
-			AppSettings.save();
-		});
-		unlimitedMulliganBox.setAlignmentX(Component.LEFT_ALIGNMENT);
-		debugPanel.add(unlimitedMulliganBox);
+			JPanel debugPanel = new JPanel();
+			debugPanel.setLayout(new BoxLayout(debugPanel, BoxLayout.Y_AXIS));
+			debugPanel.setBorder(BorderFactory.createTitledBorder(
+					BorderFactory.createEtchedBorder(), "Debug",
+					TitledBorder.LEFT, TitledBorder.TOP));
 
-		JCheckBox alwaysWinCoinFlipBox = new JCheckBox("Always Win Coin Flip",
-				AppSettings.isDebugAlwaysWinCoinFlip());
-		alwaysWinCoinFlipBox.setToolTipText(
-				"P1 always goes first instead of a random 50/50 coin flip.");
-		alwaysWinCoinFlipBox.addActionListener(e -> {
-			AppSettings.setDebugAlwaysWinCoinFlip(alwaysWinCoinFlipBox.isSelected());
-			AppSettings.save();
-		});
-		alwaysWinCoinFlipBox.setAlignmentX(Component.LEFT_ALIGNMENT);
-		debugPanel.add(alwaysWinCoinFlipBox);
+			JCheckBox unlimitedMulliganBox = new JCheckBox("Unlimited Mulligan",
+					AppSettings.isDebugUnlimitedMulligan());
+			unlimitedMulliganBox.setToolTipText(
+					"Keep the Mulligan button enabled across repeated mulligans (overrides once-per-game limit).");
+			unlimitedMulliganBox.addActionListener(e -> {
+				AppSettings.setDebugUnlimitedMulligan(unlimitedMulliganBox.isSelected());
+				AppSettings.save();
+			});
+			unlimitedMulliganBox.setAlignmentX(Component.LEFT_ALIGNMENT);
+			debugPanel.add(unlimitedMulliganBox);
 
-		debugPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
-		contentPanel.add(debugPanel);
+			JCheckBox alwaysWinCoinFlipBox = new JCheckBox("Always Win Coin Flip",
+					AppSettings.isDebugAlwaysWinCoinFlip());
+			alwaysWinCoinFlipBox.setToolTipText(
+					"P1 always goes first instead of a random 50/50 coin flip.");
+			alwaysWinCoinFlipBox.addActionListener(e -> {
+				AppSettings.setDebugAlwaysWinCoinFlip(alwaysWinCoinFlipBox.isSelected());
+				AppSettings.save();
+			});
+			alwaysWinCoinFlipBox.setAlignmentX(Component.LEFT_ALIGNMENT);
+			debugPanel.add(alwaysWinCoinFlipBox);
+
+			debugPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
+			contentPanel.add(debugPanel);
+		}
 
 		// ── Buttons ──────────────────────────────────────────────────────────
 		JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
