@@ -1220,6 +1220,7 @@ public class MainWindow {
 							CardData.parseFieldAbilities(tx, card.type()),
 							CardData.parseIfControlBoosts(tx, card.type()),
 							CardData.parseFieldPowerGrants(tx, card.type()),
+							CardData.parseScalingSelfPowerBoosts(tx, card.type(), card.name()),
 							CardData.parseFieldCostReductions(tx, card.type()),
 							CardData.parseSelfCostModifiers(tx),
 							CardData.parseFieldPrimingAnyElements(tx, card.type()),
@@ -1248,6 +1249,7 @@ public class MainWindow {
 							CardData.parseFieldAbilities(tx, card.type()),
 							CardData.parseIfControlBoosts(tx, card.type()),
 							CardData.parseFieldPowerGrants(tx, card.type()),
+							CardData.parseScalingSelfPowerBoosts(tx, card.type(), card.name()),
 							CardData.parseFieldCostReductions(tx, card.type()),
 							CardData.parseSelfCostModifiers(tx),
 							CardData.parseFieldPrimingAnyElements(tx, card.type()),
@@ -8047,6 +8049,14 @@ public class MainWindow {
 		for (FieldPowerGrant fpg : src.fieldPowerGrants())
 			if (fpg.appliesToCard(target))
 				boost += fpg.powerBonus();
+		if (src == target) {
+			for (ScalingSelfPowerBoost ssb : src.scalingSelfPowerBoosts()) {
+				int count = switch (ssb.source()) {
+					case OPPONENT_FORWARDS -> isP1 ? p2ForwardCards.size() : p1ForwardCards.size();
+				};
+				boost += ssb.perUnit() * count;
+			}
+		}
 		return boost;
 	}
 

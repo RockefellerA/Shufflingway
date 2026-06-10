@@ -116,6 +116,7 @@ public class FieldAbilityParsingTest {
                 CardData.parseFieldAbilities(textEn, rs.getString("type_en")),
                 CardData.parseIfControlBoosts(textEn, rs.getString("type_en")),
                 CardData.parseFieldPowerGrants(textEn, rs.getString("type_en")),
+                CardData.parseScalingSelfPowerBoosts(textEn, rs.getString("type_en"), rs.getString("name_en")),
                 CardData.parseFieldCostReductions(textEn, rs.getString("type_en")),
                 CardData.parseSelfCostModifiers(textEn),
                 CardData.parseFieldPrimingAnyElements(textEn, rs.getString("type_en")),

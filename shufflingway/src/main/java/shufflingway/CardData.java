@@ -34,6 +34,7 @@ public record CardData(
         List<FieldAbility>   fieldAbilities,
         List<IfControlBoost> ifControlBoosts,
         List<FieldPowerGrant>       fieldPowerGrants,
+        List<ScalingSelfPowerBoost> scalingSelfPowerBoosts,
         List<FieldCostReduction>    fieldCostReductions,
         List<SelfCostModifier>      selfCostModifiers,
         List<FieldPrimingAnyElement> fieldPrimingAnyElements,
@@ -68,6 +69,7 @@ public record CardData(
         fieldAbilities   = List.copyOf(fieldAbilities);
         ifControlBoosts  = List.copyOf(ifControlBoosts);
         fieldPowerGrants       = List.copyOf(fieldPowerGrants);
+        scalingSelfPowerBoosts = List.copyOf(scalingSelfPowerBoosts);
         fieldCostReductions    = List.copyOf(fieldCostReductions);
         selfCostModifiers      = List.copyOf(selfCostModifiers);
         fieldPrimingAnyElements = List.copyOf(fieldPrimingAnyElements);
@@ -1608,6 +1610,47 @@ public record CardData(
     }
 
     // -------------------------------------------------------------------------
+    // ScalingSelfPowerBoost parsing
+    // -------------------------------------------------------------------------
+
+    /**
+     * Matches "For each Forward [your] opponent controls, &lt;target&gt; gains +N power."
+     * The captured {@code target} must equal the card's own name for the boost to apply
+     * (see {@link #parseScalingSelfPowerBoosts}).
+     */
+    private static final Pattern SCALING_SELF_OPP_FWD_PATTERN = Pattern.compile(
+        "(?i)^For\\s+each\\s+Forward\\s+(?:your\\s+)?opponent\\s+controls,\\s+" +
+        "(?<target>.+?)\\s+gains?\\s+\\+(?<power>\\d+)\\s+power[.!]?$"
+    );
+
+    /**
+     * Parses passive self-targeting scaling power boosts (e.g. Jecht's
+     * "For each Forward opponent controls, Jecht gains +1000 power.").
+     * Returns an empty list for Summons and whenever the target name does not match
+     * the card's own name.
+     */
+    public static List<ScalingSelfPowerBoost> parseScalingSelfPowerBoosts(
+            String textEn, String cardType, String cardName) {
+        if (textEn == null || textEn.isBlank()) return List.of();
+        if ("Summon".equalsIgnoreCase(cardType)) return List.of();
+        if (cardName == null || cardName.isBlank()) return List.of();
+
+        List<ScalingSelfPowerBoost> result = new ArrayList<>();
+        for (String raw : textEn.split("(?i)\\[\\[br\\]\\]")) {
+            String seg = SUMMON_MARKUP.matcher(raw.trim()).replaceAll("").trim();
+            if (seg.isEmpty()) continue;
+            Matcher m = SCALING_SELF_OPP_FWD_PATTERN.matcher(seg);
+            if (!m.find()) continue;
+            if (!m.group("target").trim().equalsIgnoreCase(cardName)) continue;
+            int perUnit = Integer.parseInt(m.group("power"));
+            if (perUnit <= 0) continue;
+            result.add(new ScalingSelfPowerBoost(
+                    ScalingSelfPowerBoost.Source.OPPONENT_FORWARDS, perUnit));
+        }
+        return List.copyOf(result);
+    }
+
+    // -------------------------------------------------------------------------
     // FieldCostReduction parsing
     // -------------------------------------------------------------------------
 
@@ -2221,6 +2264,9 @@ public record CardData(
 
             // Extra-element CP production — handled as a static card property
             if (BACKUP_CP_EXTRA_ELEMENTS.matcher(seg).find())               continue;
+
+            // Scaling self power boost ("For each Forward opponent controls, X gains +N power")
+            if (SCALING_SELF_OPP_FWD_PATTERN.matcher(seg).find())            continue;
 
             // Field cost reduction / any-element declarations — handled as static card properties
             if (FIELD_COST_REDUCTION_PATTERN.matcher(seg).find())            continue;
