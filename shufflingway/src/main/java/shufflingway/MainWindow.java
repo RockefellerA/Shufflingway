@@ -9669,12 +9669,13 @@ public class MainWindow {
 	private boolean dullForwardCostSatisfied(DullForwardCost dfc, boolean isP1) {
 		List<CardData>  fwds   = isP1 ? p1ForwardCards : p2ForwardCards;
 		List<CardState> states = isP1 ? p1ForwardStates : p2ForwardStates;
+		int eligible = 0;
 		for (int i = 0; i < fwds.size(); i++) {
 			if (states.get(i) != CardState.ACTIVE) continue;
-			if (!dfc.element().isEmpty() && !fwds.get(i).containsElement(dfc.element())) continue;
-			return true;
+			if (dfc.element() != null && !dfc.element().isEmpty() && !fwds.get(i).containsElement(dfc.element())) continue;
+			eligible++;
 		}
-		return false;
+		return eligible >= dfc.count();
 	}
 
 	private List<ForwardTarget> eligibleBzFieldCards(BreakZoneCost bz, boolean isP1) {
@@ -10096,19 +10097,22 @@ public class MainWindow {
 			List<Integer> eligible = new ArrayList<>();
 			for (int i = 0; i < fwds.size(); i++) {
 				if (states.get(i) != CardState.ACTIVE) continue;
-				if (!dfc.element().isEmpty() && !fwds.get(i).containsElement(dfc.element())) continue;
+				if (dfc.element() != null && !dfc.element().isEmpty() && !fwds.get(i).containsElement(dfc.element())) continue;
 				eligible.add(i);
 			}
 			if (eligible.isEmpty()) { logEntry("No eligible active Forward for Dull cost."); continue; }
 			List<ForwardTarget> targets = eligible.stream()
 					.map(i -> new ForwardTarget(isP1, i, ForwardTarget.CardZone.FORWARD)).toList();
-			List<ForwardTarget> picks = showForwardSelectDialog(targets, 1, false, "Dull Forward Cost");
-			if (picks.isEmpty()) continue;
-			int fwdIdx = picks.get(0).idx();
-			lastDullForwardCostPower = fwds.get(fwdIdx).power();
-			states.set(fwdIdx, CardState.DULL);
-			if (isP1) animateDullForward(fwdIdx, null); else animateDullP2Forward(fwdIdx, null);
-			logEntry("Dull cost: \"" + fwds.get(fwdIdx).name() + "\" dulled (power " + lastDullForwardCostPower + ")");
+			List<ForwardTarget> picks = showForwardSelectDialog(targets, dfc.count(), false, "Dull Forward Cost");
+			if (picks.size() < dfc.count()) continue;
+			for (ForwardTarget pick : picks) {
+				int fwdIdx = pick.idx();
+				int pow = fwds.get(fwdIdx).power();
+				lastDullForwardCostPower += pow;
+				states.set(fwdIdx, CardState.DULL);
+				if (isP1) animateDullForward(fwdIdx, null); else animateDullP2Forward(fwdIdx, null);
+				logEntry("Dull cost: \"" + fwds.get(fwdIdx).name() + "\" dulled (power " + pow + ")");
+			}
 		}
 
 		// Self-mill cost
@@ -12020,6 +12024,14 @@ public class MainWindow {
 			}
 
 			@Override public int dullForwardCostPower() { return lastDullForwardCostPower; }
+
+			@Override public java.util.List<String> chooseActions(CardData source,
+					java.util.List<String> actions, int selectCount, boolean upTo) {
+				if (isP1) return showSelectActionsDialog(source, actions, selectCount, upTo);
+				int take = Math.min(selectCount, actions.size());
+				logEntry("[AI] selected first " + take + " of " + actions.size() + " action(s)");
+				return new ArrayList<>(actions.subList(0, take));
+			}
 
 			@Override public int highestP1ForwardPower() {
 				int max = 0;
