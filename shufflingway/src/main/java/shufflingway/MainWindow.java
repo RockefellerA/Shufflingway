@@ -1633,7 +1633,7 @@ public class MainWindow {
                             if (p2AutoPassTimer      != null) { p2AutoPassTimer.stop();         p2AutoPassTimer      = null; }
 
                             if (attackSubStep == 0) {
-                                // P1 passed priority — disable Next while opponent has priority
+                                logEntry("[Priority] P1 passes — P2 may respond.");
                                 if (nextPhaseButton != null) nextPhaseButton.setEnabled(false);
                                 p2AutoPass(() -> {
                                     setAttackSubStep(1);
@@ -5432,7 +5432,8 @@ public class MainWindow {
 
 			GameState.GamePhase handPhase = gameState.getCurrentPhase();
 			boolean handIsMainPhase = handPhase == GameState.GamePhase.MAIN_1 || handPhase == GameState.GamePhase.MAIN_2;
-			boolean handCanPlayAction = handIsMainPhase && gameState.getStack().isEmpty()
+			boolean handIsAttackPrep = handPhase == GameState.GamePhase.ATTACK && attackSubStep == 0;
+			boolean handCanPlayAction = (handIsMainPhase || (handIsAttackPrep && card.isSummon())) && gameState.getStack().isEmpty()
 					&& (phaseTracker.isMyTurn() || (p1PriorityInP2MainOnDone != null && card.isSummon()));
 			boolean handIsCharacter = card.isForward() || card.isBackup() || card.isMonster();
 			boolean handNameConflict = handIsCharacter && !card.multicard() && hasCharacterNameOnField(card.name()) && !isMultiNameExceptionActive(card.name());
