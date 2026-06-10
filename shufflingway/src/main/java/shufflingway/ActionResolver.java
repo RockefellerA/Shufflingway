@@ -1240,19 +1240,26 @@ public class ActionResolver {
             // Bracket job: [Job (name)]
             "(?<bracketjob>\\[Job\\s+\\([^)]+\\)\\])\\s+" +
         "|" +
-            // "Card Name X or Job Y" — OR logic; must come before plain Card Name alternative
-            "Card\\s+Name\\s+(?<cnamejobnmor>.+?)\\s+or\\s+Job\\s+(?<jobnmcnameor>.+?)(?=\\s+of\\s+cost|\\s+and\\b)\\s*" +
+            // "Card Name X [Type] or Job Y" — OR logic; must come before plain Card Name alternative
+            "Card\\s+Name\\s+(?<cnamejobnmor>.+?)" +
+            "(?:\\s+(?:Forwards?|Backups?|Monsters?|Summons?|Characters?|card))?" +
+            "\\s+or\\s+Job\\s+(?<jobnmcnameor>.+?)" +
+            "(?=\\s+of\\s+cost|\\s+(?:Forwards?|Backups?|Monsters?|Summons?|Characters?|card)\\b|\\s+and\\b)\\s*" +
         "|" +
-            // Written card name without brackets — ends at "of cost" or "and"
-            "Card\\s+Name\\s+(?<cardname>.+?)(?=\\s+of\\s+cost|\\s+and\\b)" +
+            // Written card name without brackets — ends at type word, "of cost", or "and"
+            "Card\\s+Name\\s+(?<cardname>.+?)" +
+            "(?=\\s+of\\s+cost|\\s+(?:Forwards?|Backups?|Monsters?|Summons?|Characters?|card)\\b|\\s+and\\b)" +
             "\\s+" +
         "|" +
             // Category filter — lookahead keeps the type word in the targets group
             "Category\\s+(?<category>.+?)\\s+" +
             "(?=Forwards?|Backups?|Monsters?|Summons?|Characters?|card\\b)" +
         "|" +
-            // "Job X or Card Name Y" — OR logic; must come before plain Job alternative
-            "Job\\s+(?<jobnmor>.+?)\\s+or\\s+Card\\s+Name\\s+(?<cnameor>.+?)(?=\\s+of\\s+cost|\\s+and\\b)\\s*" +
+            // "Job X [Type] or Card Name Y" — OR logic; must come before plain Job alternative
+            "Job\\s+(?<jobnmor>.+?)" +
+            "(?:\\s+(?:Forwards?|Backups?|Monsters?|Summons?|Characters?|card))?" +
+            "\\s+or\\s+Card\\s+Name\\s+(?<cnameor>.+?)" +
+            "(?=\\s+of\\s+cost|\\s+(?:Forwards?|Backups?|Monsters?|Summons?|Characters?|card)\\b|\\s+and\\b)\\s*" +
         "|" +
             // Written job — lookahead keeps element, type word, "other than", or "and" ahead
             "Job\\s+(?<jobnm>.+?)(?=\\s+(?:Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)\\b" +

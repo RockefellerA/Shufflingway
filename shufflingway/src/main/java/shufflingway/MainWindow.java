@@ -62,6 +62,7 @@ import javax.swing.JPanel;
 import javax.swing.JPopupMenu;
 import javax.swing.JScrollPane;
 import javax.swing.JSeparator;
+import javax.swing.ScrollPaneConstants;
 import javax.swing.JTextArea;
 import javax.swing.JTextField;
 import javax.swing.JWindow;
@@ -1393,7 +1394,7 @@ public class MainWindow {
 			openingHandPopup = null;
 			if (mulliganAvailable) logEntry("Kept opening hand");
 			gameState.keepHand(handOrder);
-			boolean p1GoesFirst = Math.random() < 0.5;
+			boolean p1GoesFirst = AppSettings.isDebugAlwaysWinCoinFlip() || Math.random() < 0.5;
 			GameState.Player firstPlayer = p1GoesFirst
 					? GameState.Player.P1 : GameState.Player.P2;
 			gameState.startFirstTurn(firstPlayer);
@@ -3305,10 +3306,19 @@ public class MainWindow {
 		dlg.setResizable(false);
 		dlg.setDefaultCloseOperation(JDialog.DO_NOTHING_ON_CLOSE);
 
-		CardData[] selection = {matches.get(0)};
+		CardData[] picked = { matches.get(0) };  // fallback if dialog is dismissed without a click
 
-		JPanel cardsPanel = new JPanel(new FlowLayout(FlowLayout.CENTER, 12, 12));
-		for (CardData candidate : matches) {
+		final int CARDS_PER_ROW = 10;
+		JPanel cardsPanel = new JPanel();
+		cardsPanel.setLayout(new BoxLayout(cardsPanel, BoxLayout.Y_AXIS));
+		JPanel currentRow = null;
+		for (int idx = 0; idx < matches.size(); idx++) {
+			CardData candidate = matches.get(idx);
+			if (idx % CARDS_PER_ROW == 0) {
+				currentRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 12, 12));
+				currentRow.setAlignmentX(Component.LEFT_ALIGNMENT);
+				cardsPanel.add(currentRow);
+			}
 			JPanel wrapper = new JPanel(new BorderLayout(0, 4));
 			wrapper.setBackground(cardsPanel.getBackground());
 
@@ -3327,12 +3337,10 @@ public class MainWindow {
 				}
 				@Override public void mouseExited(MouseEvent e) {
 					hideZoom();
-					lbl.setBorder(selection[0].equals(candidate)
-							? createCardGlowBorder(Color.YELLOW)
-							: BorderFactory.createLineBorder(Color.GRAY, 1));
+					lbl.setBorder(BorderFactory.createLineBorder(Color.GRAY, 1));
 				}
 				@Override public void mousePressed(MouseEvent e) {
-					selection[0] = candidate;
+					picked[0] = candidate;
 					dlg.dispose();
 				}
 			});
@@ -3355,20 +3363,38 @@ public class MainWindow {
 
 			wrapper.add(lbl, BorderLayout.CENTER);
 			wrapper.add(nameLabel, BorderLayout.SOUTH);
-			cardsPanel.add(wrapper);
+			currentRow.add(wrapper);
 		}
 
 		JLabel hint = new JLabel("Click a card to select it", SwingConstants.CENTER);
 		hint.setFont(FontLoader.loadPixelNESFont(9));
 
+		// Wrap in a scroll pane sized to show at most 2 rows; scroll vertically when more.
+		// Row height = FlowLayout vgap (12) above + card (CARD_H) + BorderLayout vgap (4) + name (18) + vgap below (12)
+		int rowHeight = 12 + CARD_H + 4 + 18 + 12;
+		int rowsToShow = Math.min(2, (matches.size() + CARDS_PER_ROW - 1) / CARDS_PER_ROW);
+		// Row width = left margin (12) + N cards × CARD_W + (N-1) × hgap (12) + right margin (12)
+		int colsInWidest = Math.min(matches.size(), CARDS_PER_ROW);
+		int rowWidth = 12 + colsInWidest * CARD_W + (colsInWidest - 1) * 12 + 12;
+
+		JScrollPane scroll = new JScrollPane(cardsPanel,
+				ScrollPaneConstants.VERTICAL_SCROLLBAR_AS_NEEDED,
+				ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
+		scroll.setBorder(null);
+		scroll.getVerticalScrollBar().setUnitIncrement(rowHeight);
+		// Reserve scrollbar width when content exceeds the visible rows so cards don't get clipped.
+		int scrollbarPad = matches.size() > rowsToShow * CARDS_PER_ROW
+				? scroll.getVerticalScrollBar().getPreferredSize().width : 0;
+		scroll.setPreferredSize(new Dimension(rowWidth + scrollbarPad, rowsToShow * rowHeight));
+
 		dlg.getContentPane().setLayout(new BorderLayout(0, 6));
-		dlg.getContentPane().add(cardsPanel, BorderLayout.CENTER);
+		dlg.getContentPane().add(scroll, BorderLayout.CENTER);
 		dlg.getContentPane().add(hint, BorderLayout.SOUTH);
 		dlg.pack();
 		dlg.setLocationRelativeTo(frame);
 		dlg.setVisible(true);
 
-		return selection[0];
+		return picked[0];
 	}
 
 	/**
@@ -16214,8 +16240,8 @@ public class MainWindow {
 		dlg.setResizable(false);
 		dlg.setDefaultCloseOperation(JDialog.DO_NOTHING_ON_CLOSE);
 
-		// Tracks the player's selection; default to first match so closing = auto-pick
-		CardData[] selection = {matches.get(0)};
+		// Holds the picked version; defaults to first match so closing without a click auto-picks.
+		CardData[] picked = { matches.get(0) };
 
 		JPanel cardsPanel = new JPanel(new FlowLayout(FlowLayout.CENTER, 12, 12));
 
@@ -16238,12 +16264,10 @@ public class MainWindow {
 				}
 				@Override public void mouseExited(MouseEvent e) {
 					hideZoom();
-					lbl.setBorder(selection[0].equals(candidate)
-							? createCardGlowBorder(Color.YELLOW)
-							: BorderFactory.createLineBorder(Color.GRAY, 1));
+					lbl.setBorder(BorderFactory.createLineBorder(Color.GRAY, 1));
 				}
 				@Override public void mousePressed(MouseEvent e) {
-					selection[0] = candidate;
+					picked[0] = candidate;
 					dlg.dispose();
 				}
 			});
@@ -16280,9 +16304,9 @@ public class MainWindow {
 		dlg.setVisible(true); // blocks until a card is clicked (dlg.dispose())
 
 		// Execution resumes here after dialog closes
-		gameState.removeFromP1MainDeck(selection[0]);
+		gameState.removeFromP1MainDeck(picked[0]);
 		shuffleP1MainDeck();
-		applyPrimedCard(selection[0], primingCard, slotIdx);
+		applyPrimedCard(picked[0], primingCard, slotIdx);
 		refreshP1HandLabel();
 		refreshP1BreakLabel();
 	}

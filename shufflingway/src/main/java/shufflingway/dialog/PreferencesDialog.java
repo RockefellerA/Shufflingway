@@ -152,6 +152,17 @@ public class PreferencesDialog extends JDialog {
 		unlimitedMulliganBox.setAlignmentX(Component.LEFT_ALIGNMENT);
 		debugPanel.add(unlimitedMulliganBox);
 
+		JCheckBox alwaysWinCoinFlipBox = new JCheckBox("Always Win Coin Flip",
+				AppSettings.isDebugAlwaysWinCoinFlip());
+		alwaysWinCoinFlipBox.setToolTipText(
+				"P1 always goes first instead of a random 50/50 coin flip.");
+		alwaysWinCoinFlipBox.addActionListener(e -> {
+			AppSettings.setDebugAlwaysWinCoinFlip(alwaysWinCoinFlipBox.isSelected());
+			AppSettings.save();
+		});
+		alwaysWinCoinFlipBox.setAlignmentX(Component.LEFT_ALIGNMENT);
+		debugPanel.add(alwaysWinCoinFlipBox);
+
 		debugPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
 		contentPanel.add(debugPanel);
 

@@ -128,4 +128,17 @@ public final class AppSettings {
     public static void setDebugUnlimitedMulligan(boolean enabled) {
         props.setProperty("debug.unlimited.mulligan", Boolean.toString(enabled));
     }
+
+    /**
+     * Debug toggle: when {@code true}, P1 always wins the opening coin flip and goes first.
+     * Defaults to {@code false} (random 50/50 flip).
+     */
+    public static boolean isDebugAlwaysWinCoinFlip() {
+        return Boolean.parseBoolean(props.getProperty("debug.always.win.coin.flip", "false"));
+    }
+
+    /** Sets the always-win-coin-flip debug flag (call {@link #save()} to persist). */
+    public static void setDebugAlwaysWinCoinFlip(boolean enabled) {
+        props.setProperty("debug.always.win.coin.flip", Boolean.toString(enabled));
+    }
 }
