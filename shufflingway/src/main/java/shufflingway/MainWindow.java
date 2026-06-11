@@ -42,8 +42,6 @@ import java.util.concurrent.ExecutionException;
 import java.util.function.Consumer;
 import java.util.function.Predicate;
 import java.util.regex.Matcher;
-import java.util.regex.Pattern;
-import java.util.stream.Collectors;
 
 import javax.imageio.ImageIO;
 import javax.swing.BorderFactory;
@@ -62,10 +60,10 @@ import javax.swing.JPanel;
 import javax.swing.JPopupMenu;
 import javax.swing.JScrollPane;
 import javax.swing.JSeparator;
-import javax.swing.ScrollPaneConstants;
 import javax.swing.JTextArea;
 import javax.swing.JTextField;
 import javax.swing.JWindow;
+import javax.swing.ScrollPaneConstants;
 import javax.swing.SwingConstants;
 import javax.swing.SwingUtilities;
 import javax.swing.SwingWorker;
@@ -82,21 +80,15 @@ import static shufflingway.CardAnimation.CARD_H;
 import static shufflingway.CardAnimation.CARD_W;
 import static shufflingway.CardFilters.cardNamesOverlap;
 import static shufflingway.CardFilters.discardTypeKey;
-import static shufflingway.CardFilters.isBlockingTargetFilter;
-import static shufflingway.CardFilters.isEnteredThisTurnCondition;
 import static shufflingway.CardFilters.matchesAltBzType;
 import static shufflingway.CardFilters.matchesDiscardType;
 import static shufflingway.CardFilters.meetsCardNameFilter;
 import static shufflingway.CardFilters.meetsCategoryFilter;
 import static shufflingway.CardFilters.meetsCostConstraint;
-import static shufflingway.CardFilters.meetsElementExclusion;
 import static shufflingway.CardFilters.meetsElementFilter;
 import static shufflingway.CardFilters.meetsJobFilter;
-import static shufflingway.CardFilters.meetsPowerConstraint;
-import static shufflingway.CardFilters.meetsTargetCondition;
 import static shufflingway.CpPaymentUtils.contributingElement;
 import static shufflingway.CpPaymentUtils.matchesAnyElement;
-import shufflingway.dialog.AbilityPaymentDialog;
 import shufflingway.dialog.AltCostPaymentDialog;
 import shufflingway.dialog.LbPaymentDialog;
 import shufflingway.dialog.StandardPaymentDialog;
@@ -109,7 +101,9 @@ import shufflingway.net.GameConnection;
 
 public class MainWindow {
 
-	private JFrame frame;
+	JFrame frame;
+
+	final AutoAbilityTriggers autoAbilityTriggers = new AutoAbilityTriggers(this);
 
 	// Side info panel dimensions.
 	// The panel is sized to the native card-image width on the first hover;
@@ -127,14 +121,14 @@ public class MainWindow {
 	private int maxSidePanelW = 0;
 
 	// P1 zone labels that change during gameplay
-	private JLabel p1DeckLabel;
-	private JLabel p2DeckLabel;
+	JLabel p1DeckLabel;
+	JLabel p2DeckLabel;
 	private CrystalDisplay p1CrystalDisplay;
 	private CrystalDisplay p2CrystalDisplay;
 	private JButton p1LimitLabel;
 	private JPanel handPanel;
-	private JLabel p1BreakLabel;
-	private JLabel p2BreakLabel;
+	JLabel p1BreakLabel;
+	JLabel p2BreakLabel;
 	private JLabel p2HandCountLabel;
 	private GrayscaleLabel p1RemoveLabel;
 	private GrayscaleLabel p2RemoveLabel;
@@ -155,7 +149,7 @@ public class MainWindow {
 	private BufferedImage previewImage;       // current card to draw (null = empty)
 	private float         previewAlpha  = 0f; // 0 = transparent, 1 = fully opaque
 	private Timer fadeTimer;      // drives fade-in / fade-out animation
-	private CardSlideAnimator cardSlideAnimator;
+	CardSlideAnimator cardSlideAnimator;
 	private CardBreakAnimator breakAnimator;
 	// Horizontal separator where the P1 and P2 fields meet (anchor for centered effect prompts)
 	private JSeparator fieldDivider;
@@ -172,120 +166,120 @@ public class MainWindow {
 
 
 	// --- Game state ---
-	private final GameState gameState   = new GameState();
+	final GameState gameState   = new GameState();
 	private LookAtDeckDialogs lookDialogsInstance;
 	// UI-only state (not owned by GameState)
-	private JLabel[]    p1BackupLabels = new JLabel[5];
-	private String[]    p1BackupUrls   = new String[5];
-	private CardData[]  p1BackupCards  = new CardData[5];
-	private CardState[] p1BackupStates = new CardState[5];
+	JLabel[]    p1BackupLabels = new JLabel[5];
+	String[]    p1BackupUrls   = new String[5];
+	CardData[]  p1BackupCards  = new CardData[5];
+	CardState[] p1BackupStates = new CardState[5];
 
 	private final List<JLabel>    p1ForwardLabels      = new ArrayList<>();
 	private final List<String>    p1ForwardUrls;
-	private final List<CardData>  p1ForwardCards       = new ArrayList<>();
-	private final List<CardState> p1ForwardStates      = new ArrayList<>();
-	private final List<Integer>   p1ForwardPlayedOnTurn = new ArrayList<>();
-	private final List<Integer>   p1ForwardDamage       = new ArrayList<>();
+	final List<CardData>  p1ForwardCards       = new ArrayList<>();
+	final List<CardState> p1ForwardStates      = new ArrayList<>();
+	final List<Integer>   p1ForwardPlayedOnTurn = new ArrayList<>();
+	final List<Integer>   p1ForwardDamage       = new ArrayList<>();
 	/** Top card of a Primed stack; {@code null} at each index means not primed. */
-	private final List<CardData>  p1ForwardPrimedTop   = new ArrayList<>();
+	final List<CardData>  p1ForwardPrimedTop   = new ArrayList<>();
 	private final List<CardData>  p2ForwardPrimedTop   = new ArrayList<>();
 	/** Per-slot frozen flags — independent of CardState (a card may be Dulled AND frozen). */
-	private final List<Boolean>   p1ForwardFrozen      = new ArrayList<>();
-	private final List<Boolean>   p2ForwardFrozen      = new ArrayList<>();
-	private final List<Integer>                           p1ForwardPowerBoost     = new ArrayList<>();
-	private final List<Integer>                           p2ForwardPowerBoost     = new ArrayList<>();
-	private final List<Integer>                           p1ForwardPowerReduction = new ArrayList<>();
-	private final List<Integer>                           p2ForwardPowerReduction = new ArrayList<>();
-	private final List<java.util.EnumSet<CardData.Trait>> p1ForwardTempTraits    = new ArrayList<>();
-	private final List<java.util.EnumSet<CardData.Trait>> p2ForwardTempTraits    = new ArrayList<>();
-	private final List<java.util.EnumSet<CardData.Trait>> p1ForwardRemovedTraits = new ArrayList<>();
-	private final List<java.util.EnumSet<CardData.Trait>> p2ForwardRemovedTraits = new ArrayList<>();
+	final List<Boolean>   p1ForwardFrozen      = new ArrayList<>();
+	final List<Boolean>   p2ForwardFrozen      = new ArrayList<>();
+	final List<Integer>                           p1ForwardPowerBoost     = new ArrayList<>();
+	final List<Integer>                           p2ForwardPowerBoost     = new ArrayList<>();
+	final List<Integer>                           p1ForwardPowerReduction = new ArrayList<>();
+	final List<Integer>                           p2ForwardPowerReduction = new ArrayList<>();
+	final List<java.util.EnumSet<CardData.Trait>> p1ForwardTempTraits    = new ArrayList<>();
+	final List<java.util.EnumSet<CardData.Trait>> p2ForwardTempTraits    = new ArrayList<>();
+	final List<java.util.EnumSet<CardData.Trait>> p1ForwardRemovedTraits = new ArrayList<>();
+	final List<java.util.EnumSet<CardData.Trait>> p2ForwardRemovedTraits = new ArrayList<>();
 	/** Temporary job granted to P1/P2 Forwards until end of turn; {@code null} = no override. */
-	private final List<String> p1ForwardTempJobs = new ArrayList<>();
-	private final List<String> p2ForwardTempJobs = new ArrayList<>();
+	final List<String> p1ForwardTempJobs = new ArrayList<>();
+	final List<String> p2ForwardTempJobs = new ArrayList<>();
 	/** Forwards that may not be chosen as a blocker for the remainder of this turn. */
-	private final Set<Integer> p1ForwardCannotBlock = new HashSet<>();
-	private final Set<Integer> p2ForwardCannotBlock = new HashSet<>();
+	final Set<Integer> p1ForwardCannotBlock = new HashSet<>();
+	final Set<Integer> p2ForwardCannotBlock = new HashSet<>();
 	/** Forwards that must be chosen as a blocker this turn if they are eligible. */
-	private final Set<Integer> p1ForwardMustBlock   = new HashSet<>();
-	private final Set<Integer> p2ForwardMustBlock   = new HashSet<>();
+	final Set<Integer> p1ForwardMustBlock   = new HashSet<>();
+	final Set<Integer> p2ForwardMustBlock   = new HashSet<>();
 	/** Forwards that may not attack for the remainder of this turn. */
-	private final Set<Integer> p1ForwardCannotAttack = new HashSet<>();
-	private final Set<Integer> p2ForwardCannotAttack = new HashSet<>();
+	final Set<Integer> p1ForwardCannotAttack = new HashSet<>();
+	final Set<Integer> p2ForwardCannotAttack = new HashSet<>();
 	/** Forwards that must attack this turn if they are eligible. */
-	private final Set<Integer> p1ForwardMustAttack   = new HashSet<>();
-	private final Set<Integer> p2ForwardMustAttack   = new HashSet<>();
+	final Set<Integer> p1ForwardMustAttack   = new HashSet<>();
+	final Set<Integer> p2ForwardMustAttack   = new HashSet<>();
 	/** Forwards restricted from attacking until the end of their owner's turn (survives one end-phase). */
-	private final Set<Integer> p1ForwardCannotAttackPersistent = new HashSet<>();
-	private final Set<Integer> p2ForwardCannotAttackPersistent = new HashSet<>();
+	final Set<Integer> p1ForwardCannotAttackPersistent = new HashSet<>();
+	final Set<Integer> p2ForwardCannotAttackPersistent = new HashSet<>();
 	/** Forwards restricted from blocking until the end of their owner's turn (survives one end-phase). */
-	private final Set<Integer> p1ForwardCannotBlockPersistent  = new HashSet<>();
-	private final Set<Integer> p2ForwardCannotBlockPersistent  = new HashSet<>();
+	final Set<Integer> p1ForwardCannotBlockPersistent  = new HashSet<>();
+	final Set<Integer> p2ForwardCannotBlockPersistent  = new HashSet<>();
 	/** Forwards that cannot be blocked this turn (attacker-side unblockability). */
-	private final Set<Integer>          p1ForwardCannotBeBlocked       = new HashSet<>();
-	private final Set<Integer>          p2ForwardCannotBeBlocked       = new HashSet<>();
+	final Set<Integer>          p1ForwardCannotBeBlocked       = new HashSet<>();
+	final Set<Integer>          p2ForwardCannotBeBlocked       = new HashSet<>();
 	/** Forwards that cannot be blocked by Forwards whose cost matches the filter {costVal, 1=isMore/0=isLess}. */
-	private final Map<Integer, int[]>   p1ForwardCannotBeBlockedByCost = new HashMap<>();
-	private final Map<Integer, int[]>   p2ForwardCannotBeBlockedByCost = new HashMap<>();
-	private final boolean[]       p1BackupFrozen       = new boolean[5];
-	private final boolean[]       p2BackupFrozen       = new boolean[5];
-	private final List<Boolean>   p1MonsterFrozen      = new ArrayList<>();
+	final Map<Integer, int[]>   p1ForwardCannotBeBlockedByCost = new HashMap<>();
+	final Map<Integer, int[]>   p2ForwardCannotBeBlockedByCost = new HashMap<>();
+	final boolean[]       p1BackupFrozen       = new boolean[5];
+	final boolean[]       p2BackupFrozen       = new boolean[5];
+	final List<Boolean>   p1MonsterFrozen      = new ArrayList<>();
 	private JPanel p1ForwardPanel;
 
 	/** Turn number on which each backup slot was last filled (0 = empty/unknown). */
 	private final int[] p1BackupPlayedOnTurn = new int[5];
 
 	// State for Backups temporarily acting as Forwards (e.g. Tifa 17-012R). Keyed by CardData.
-	private final java.util.Map<CardData, Integer> p1BackupTempForwardPower = new HashMap<>();
+	final java.util.Map<CardData, Integer> p1BackupTempForwardPower = new HashMap<>();
 	private final java.util.Map<CardData, Integer> p2BackupTempForwardPower = new HashMap<>();
-	private final java.util.Map<CardData, Integer> p1BackupForwardBoost     = new HashMap<>();
-	private final java.util.Map<CardData, Integer> p2BackupForwardBoost     = new HashMap<>();
-	private final java.util.Map<CardData, java.util.EnumSet<CardData.Trait>> p1BackupTempTraits = new HashMap<>();
-	private final java.util.Map<CardData, java.util.EnumSet<CardData.Trait>> p2BackupTempTraits = new HashMap<>();
-	private final java.util.Map<CardData, Integer> p1BackupForwardDamage    = new HashMap<>();
+	final java.util.Map<CardData, Integer> p1BackupForwardBoost     = new HashMap<>();
+	final java.util.Map<CardData, Integer> p2BackupForwardBoost     = new HashMap<>();
+	final java.util.Map<CardData, java.util.EnumSet<CardData.Trait>> p1BackupTempTraits = new HashMap<>();
+	final java.util.Map<CardData, java.util.EnumSet<CardData.Trait>> p2BackupTempTraits = new HashMap<>();
+	final java.util.Map<CardData, Integer> p1BackupForwardDamage    = new HashMap<>();
 	private final java.util.Map<CardData, Integer> p2BackupForwardDamage    = new HashMap<>();
-	private int p1BackupAttackIdx = -1;
+	int p1BackupAttackIdx = -1;
 	private int p2BackupAttackIdx = -1;
 
-	private final List<JLabel>   p1MonsterLabels      = new ArrayList<>();
-	private final List<String>   p1MonsterUrls        = new ArrayList<>();
-	private final List<CardData> p1MonsterCards       = new ArrayList<>();
-	private final List<CardState> p1MonsterStates      = new ArrayList<>();
-	private final List<Integer>  p1MonsterPlayedOnTurn = new ArrayList<>();
-	private final List<Integer>  p1MonsterDamage       = new ArrayList<>();
+	final List<JLabel>   p1MonsterLabels      = new ArrayList<>();
+	final List<String>   p1MonsterUrls        = new ArrayList<>();
+	final List<CardData> p1MonsterCards       = new ArrayList<>();
+	final List<CardState> p1MonsterStates      = new ArrayList<>();
+	final List<Integer>  p1MonsterPlayedOnTurn = new ArrayList<>();
+	final List<Integer>  p1MonsterDamage       = new ArrayList<>();
 	private int                  p1MonsterAttackIdx    = -1;
-	private final java.util.Map<CardData, Integer> p1MonsterTempForwardPower = new HashMap<>();
-	private final java.util.Map<CardData, Integer> p1MonsterPowerBoost = new HashMap<>();
-	private final java.util.Map<CardData, java.util.EnumSet<CardData.Trait>> p1MonsterTempTraits = new HashMap<>();
-	private JPanel p1MonsterPanel;
+	final java.util.Map<CardData, Integer> p1MonsterTempForwardPower = new HashMap<>();
+	final java.util.Map<CardData, Integer> p1MonsterPowerBoost = new HashMap<>();
+	final java.util.Map<CardData, java.util.EnumSet<CardData.Trait>> p1MonsterTempTraits = new HashMap<>();
+	JPanel p1MonsterPanel;
 
-	private final List<Boolean>   p2MonsterFrozen       = new ArrayList<>();
-	private final List<JLabel>    p2MonsterLabels        = new ArrayList<>();
-	private final List<String>    p2MonsterUrls          = new ArrayList<>();
-	private final List<CardData>  p2MonsterCards         = new ArrayList<>();
-	private final List<CardState> p2MonsterStates        = new ArrayList<>();
-	private final List<Integer>   p2MonsterPlayedOnTurn  = new ArrayList<>();
+	final List<Boolean>   p2MonsterFrozen       = new ArrayList<>();
+	final List<JLabel>    p2MonsterLabels        = new ArrayList<>();
+	final List<String>    p2MonsterUrls          = new ArrayList<>();
+	final List<CardData>  p2MonsterCards         = new ArrayList<>();
+	final List<CardState> p2MonsterStates        = new ArrayList<>();
+	final List<Integer>   p2MonsterPlayedOnTurn  = new ArrayList<>();
 	private final List<Integer>   p2MonsterDamage        = new ArrayList<>();
-	private final java.util.Map<CardData, Integer> p2MonsterTempForwardPower = new HashMap<>();
-	private final java.util.Map<CardData, Integer> p2MonsterPowerBoost = new HashMap<>();
-	private final java.util.Map<CardData, java.util.EnumSet<CardData.Trait>> p2MonsterTempTraits = new HashMap<>();
-	private JPanel p2MonsterPanel;
+	final java.util.Map<CardData, Integer> p2MonsterTempForwardPower = new HashMap<>();
+	final java.util.Map<CardData, Integer> p2MonsterPowerBoost = new HashMap<>();
+	final java.util.Map<CardData, java.util.EnumSet<CardData.Trait>> p2MonsterTempTraits = new HashMap<>();
+	JPanel p2MonsterPanel;
 
 	private int      p2DamageCount = 0;
 	private JPanel[] p2DamageSlots = new JPanel[7];
 
 	// P2 field state (managed by ComputerPlayer)
-	private final JLabel[]     p2BackupLabels        = new JLabel[5];
-	private final String[]     p2BackupUrls          = new String[5];
-	private final CardData[]   p2BackupCards         = new CardData[5];
-	private final CardState[]  p2BackupStates        = new CardState[5];
+	final JLabel[]     p2BackupLabels        = new JLabel[5];
+	final String[]     p2BackupUrls          = new String[5];
+	final CardData[]   p2BackupCards         = new CardData[5];
+	final CardState[]  p2BackupStates        = new CardState[5];
 	private JPanel             p2ForwardPanel;
 	private final List<JLabel>    p2ForwardLabels       = new ArrayList<>();
 	private final List<String>    p2ForwardUrls         = new ArrayList<>();
-	private final List<CardData>  p2ForwardCards        = new ArrayList<>();
-	private final List<CardState> p2ForwardStates       = new ArrayList<>();
-	private final List<Integer>   p2ForwardPlayedOnTurn = new ArrayList<>();
-	private final List<Integer>   p2ForwardDamage       = new ArrayList<>();
+	final List<CardData>  p2ForwardCards        = new ArrayList<>();
+	final List<CardState> p2ForwardStates       = new ArrayList<>();
+	final List<Integer>   p2ForwardPlayedOnTurn = new ArrayList<>();
+	final List<Integer>   p2ForwardDamage       = new ArrayList<>();
 	private ComputerPlayer        computerPlayer;
 
 	private final Set<Integer> spentLbIndices   = new HashSet<>();
@@ -307,21 +301,21 @@ public class MainWindow {
 	// Attack button and selection state for party attacks
 	private JButton              attackButton;
 	private JButton              skipAttackButton;
-	private final List<Integer>  p1AttackSelection = new ArrayList<>();
-	private int                  p1BlockingIdx     = -1;
+	final List<Integer>  p1AttackSelection = new ArrayList<>();
+	int                  p1BlockingIdx     = -1;
 
 	// In-place field targeting: while active, the normal field-card click handlers
 	// (attack selection, context menus) are suppressed so clicks pick effect targets.
 	private boolean fieldTargetingActive = false;
 
 	// Temporary attack triggers registered by action abilities (cleared at end of turn)
-	private final Map<CardData, List<Consumer<GameContext>>> p1TempAttackTriggers = new LinkedHashMap<>();
-	private final Map<CardData, List<Consumer<GameContext>>> p2TempAttackTriggers = new LinkedHashMap<>();
-	private final Map<CardData, List<Consumer<GameContext>>> p1TempBlockTriggers  = new LinkedHashMap<>();
-	private final Map<CardData, List<Consumer<GameContext>>> p2TempBlockTriggers  = new LinkedHashMap<>();
+	final Map<CardData, List<Consumer<GameContext>>> p1TempAttackTriggers = new LinkedHashMap<>();
+	final Map<CardData, List<Consumer<GameContext>>> p2TempAttackTriggers = new LinkedHashMap<>();
+	final Map<CardData, List<Consumer<GameContext>>> p1TempBlockTriggers  = new LinkedHashMap<>();
+	final Map<CardData, List<Consumer<GameContext>>> p2TempBlockTriggers  = new LinkedHashMap<>();
 
 	// Attack phase sub-step (0=Prep, 1=Declare, 2=Block, 3=Damage; -1=not in attack phase)
-	private int attackSubStep = -1;
+	int attackSubStep = -1;
 
 	// Non-modal P2-attack pending state: set while P1 is interactively declaring a blocker
 	private CardData pendingP2Attacker        = null;
@@ -338,14 +332,14 @@ public class MainWindow {
 
 	// Blocking-target tracking: set between "Blocker Declared" and resolveCombat so that
 	// "Choose 1 Forward blocking [Name/Job]" effects can identify the blocking forward.
-	private CardData p1BlockedByAttacker  = null; // P2 attacker that p1BlockingIdx is blocking
-	private int      p2BlockingIdx        = -1;   // P2 forward blocking a P1 attacker
-	private CardData p2BlockedByAttacker  = null; // P1 attacker that p2BlockingIdx is blocking
+	CardData p1BlockedByAttacker  = null; // P2 attacker that p1BlockingIdx is blocking
+	int      p2BlockingIdx        = -1;   // P2 forward blocking a P1 attacker
+	CardData p2BlockedByAttacker  = null; // P1 attacker that p2BlockingIdx is blocking
 
 	// Power of the Forward dulled as "Dull N active Forward" ability cost; set during payment.
-	private int      lastDullForwardCostPower = 0;
+	int      lastDullForwardCostPower = 0;
 
-	private boolean  effectProgress = true;
+	boolean  effectProgress = true;
 
 	// Separate JWindow for combat priority checkpoints (kept apart from summonStackWindow)
 	private javax.swing.JWindow       combatPriorityWindow;
@@ -355,26 +349,26 @@ public class MainWindow {
 	private Runnable      p1PriorityInP2MainOnDone = null;
 
 	// Damage-shield / damage-modifier state (keyed by CardData identity; cleared at end of turn)
-	private final Set<CardData>          nextIncomingDmgZeroSet   = new HashSet<>();
-	private final Map<CardData, Integer> nextIncomingDmgReduceMap      = new HashMap<>();
-	private final Map<CardData, Integer> nextAbilityDmgReduceMap       = new HashMap<>();
-	private final Map<CardData, Integer> incomingDmgIncreaseMap   = new HashMap<>();
-	private final Set<CardData>          nullifyAbilityDmgSet     = new HashSet<>();
-	private final Set<CardData>          nullifyAbilityOnlyDmgSet = new HashSet<>();
-	private final Set<CardData>          nextOutgoingDmgZeroSet      = new HashSet<>();
-	private final Map<CardData, Integer> outgoingDmgMultiplierMap    = new IdentityHashMap<>();
-	private final Map<CardData, Integer> outgoingDmgFlatBoostMap     = new IdentityHashMap<>();
-	private final Set<CardData>          nextOutgoingDmgDoublerSet   = new HashSet<>();
-	private final Map<CardData, Integer> perCardIncomingDmgMultiplierMap = new IdentityHashMap<>();
-	private int p1ForwardIncomingDmgMult = 1; // multiplier applied when any P1 Forward receives damage
-	private int p2ForwardIncomingDmgMult = 1; // multiplier applied when any P2 Forward receives damage
-	private int p1AbilityOutgoingDmgMult = 1; // player-wide ability outgoing damage multiplier
-	private int p2AbilityOutgoingDmgMult = 1;
-	private final Set<CardData>          perCardNonLethalDmgSet      = new HashSet<>();
-	private boolean p1ReceivedDamageThisTurn = false;
-	private boolean p2ReceivedDamageThisTurn = false;
-	private int     p1CardsCastThisTurn          = 0;
-	private boolean p1SummonCastThisTurn         = false;
+	final Set<CardData>          nextIncomingDmgZeroSet   = new HashSet<>();
+	final Map<CardData, Integer> nextIncomingDmgReduceMap      = new HashMap<>();
+	final Map<CardData, Integer> nextAbilityDmgReduceMap       = new HashMap<>();
+	final Map<CardData, Integer> incomingDmgIncreaseMap   = new HashMap<>();
+	final Set<CardData>          nullifyAbilityDmgSet     = new HashSet<>();
+	final Set<CardData>          nullifyAbilityOnlyDmgSet = new HashSet<>();
+	final Set<CardData>          nextOutgoingDmgZeroSet      = new HashSet<>();
+	final Map<CardData, Integer> outgoingDmgMultiplierMap    = new IdentityHashMap<>();
+	final Map<CardData, Integer> outgoingDmgFlatBoostMap     = new IdentityHashMap<>();
+	final Set<CardData>          nextOutgoingDmgDoublerSet   = new HashSet<>();
+	final Map<CardData, Integer> perCardIncomingDmgMultiplierMap = new IdentityHashMap<>();
+	int p1ForwardIncomingDmgMult = 1; // multiplier applied when any P1 Forward receives damage
+	int p2ForwardIncomingDmgMult = 1; // multiplier applied when any P2 Forward receives damage
+	int p1AbilityOutgoingDmgMult = 1; // player-wide ability outgoing damage multiplier
+	int p2AbilityOutgoingDmgMult = 1;
+	final Set<CardData>          perCardNonLethalDmgSet      = new HashSet<>();
+	boolean p1ReceivedDamageThisTurn = false;
+	boolean p2ReceivedDamageThisTurn = false;
+	int     p1CardsCastThisTurn          = 0;
+	boolean p1SummonCastThisTurn         = false;
 	private final Set<String> p1CastJobsThisTurn  = new HashSet<>();
 	private final Set<String> p1CastNamesThisTurn = new HashSet<>();
 	private boolean p1TurnOpponentFwdBroken      = false;
@@ -382,13 +376,13 @@ public class MainWindow {
 	private final Set<String> p1BrokenElementsThisTurn  = new HashSet<>();
 	private final Set<String> p1BrokenCategoriesThisTurn = new HashSet<>();
 	private int     p1CardsDrawnThisTurn         = 0;
-	private boolean p1DiscardedByEffectThisTurn  = false;
-	private boolean p1CausedOpponentDiscardThisTurn = false;
-	private boolean p1FormedPartyThisTurn        = false;
-	private boolean p1PartyAnyElementThisTurn   = false;
-	private boolean p2PartyAnyElementThisTurn   = false;
-	private int     p2CardsCastThisTurn          = 0;
-	private boolean p2SummonCastThisTurn         = false;
+	boolean p1DiscardedByEffectThisTurn  = false;
+	boolean p1CausedOpponentDiscardThisTurn = false;
+	boolean p1FormedPartyThisTurn        = false;
+	boolean p1PartyAnyElementThisTurn   = false;
+	boolean p2PartyAnyElementThisTurn   = false;
+	int     p2CardsCastThisTurn          = 0;
+	boolean p2SummonCastThisTurn         = false;
 	private final Set<String> p2CastJobsThisTurn  = new HashSet<>();
 	private final Set<String> p2CastNamesThisTurn = new HashSet<>();
 	private boolean p2TurnOpponentFwdBroken      = false;
@@ -396,9 +390,9 @@ public class MainWindow {
 	private final Set<String> p2BrokenElementsThisTurn  = new HashSet<>();
 	private final Set<String> p2BrokenCategoriesThisTurn = new HashSet<>();
 	private int     p2CardsDrawnThisTurn         = 0;
-	private boolean p2DiscardedByEffectThisTurn  = false;
-	private boolean p2CausedOpponentDiscardThisTurn = false;
-	private boolean p2FormedPartyThisTurn        = false;
+	boolean p2DiscardedByEffectThisTurn  = false;
+	boolean p2CausedOpponentDiscardThisTurn = false;
+	boolean p2FormedPartyThisTurn        = false;
 	private int     p1ForwardsLeftFieldThisTurn  = 0;
 	private int     p2ForwardsLeftFieldThisTurn  = 0;
 	private final Set<String> p1ElementForwardsEnteredThisTurn = new HashSet<>();
@@ -406,63 +400,63 @@ public class MainWindow {
 	private boolean p1ForwardEnteredViaWarpThisTurn = false;
 	private boolean p1TurnOpponentCharReturnedToHand = false;
 	private boolean p2TurnOpponentCharReturnedToHand = false;
-	private boolean p1NonLethalProtection   = false;
-	private boolean p2NonLethalProtection   = false;
-	private boolean p1DmgReductionDisabled  = false;
-	private boolean p2DmgReductionDisabled  = false;
-	private int     p1GlobalDmgReduction    = 0;
-	private int     p2GlobalDmgReduction    = 0;
+	boolean p1NonLethalProtection   = false;
+	boolean p2NonLethalProtection   = false;
+	boolean p1DmgReductionDisabled  = false;
+	boolean p2DmgReductionDisabled  = false;
+	int     p1GlobalDmgReduction    = 0;
+	int     p2GlobalDmgReduction    = 0;
 
 	/** End-of-turn effects queued this turn; fired at the beginning of the END phase. */
-	private final List<Consumer<GameContext>> endOfTurnEffects = new ArrayList<>();
+	final List<Consumer<GameContext>> endOfTurnEffects = new ArrayList<>();
 
 	/** Active "next cast costs N less" modifiers; consumed on first matching cast, or cleared at EOT. */
-	private final List<CostReductionModifier> activeCostReductions = new ArrayList<>();
+	final List<CostReductionModifier> activeCostReductions = new ArrayList<>();
 
 	/** Effects deferred until the start of P1's next Main Phase 1. */
-	private final List<Consumer<GameContext>> pendingMainPhase1Effects = new ArrayList<>();
+	final List<Consumer<GameContext>> pendingMainPhase1Effects = new ArrayList<>();
 
 	/** Tracks once-per-turn ability uses this turn; keyed by card instance identity, value is set of effectText strings used. */
-	private final IdentityHashMap<CardData, Set<String>> usedOncePerTurnAbilities = new IdentityHashMap<>();
+	final IdentityHashMap<CardData, Set<String>> usedOncePerTurnAbilities = new IdentityHashMap<>();
 
 	/** Forwards that cannot be selected as targets by the opponent's Summons this turn. */
-	private final Set<CardData> cannotBeChosenBySummons        = new HashSet<>();
+	final Set<CardData> cannotBeChosenBySummons        = new HashSet<>();
 	/** Forwards that cannot be selected as targets by the opponent's abilities this turn. */
-	private final Set<CardData> cannotBeChosenByAbilities      = new HashSet<>();
+	final Set<CardData> cannotBeChosenByAbilities      = new HashSet<>();
 	/** Forwards that cannot be selected as targets by either player's Summons this turn. */
-	private final Set<CardData> cannotBeChosenBySummonsAnyone  = new HashSet<>();
+	final Set<CardData> cannotBeChosenBySummonsAnyone  = new HashSet<>();
 	/** Maps a card to an element: that card cannot be chosen by Summons/abilities of that element this turn. */
-	private final Map<CardData, String> cannotBeChosenByElement = new HashMap<>();
+	final Map<CardData, String> cannotBeChosenByElement = new HashMap<>();
 	/** Maps a card to an element: damage dealt to that card by Summons/abilities of that element becomes 0 this turn. */
-	private final Map<CardData, String> nullifyElementDamageMap = new HashMap<>();
+	final Map<CardData, String> nullifyElementDamageMap = new HashMap<>();
 	/** Maps a card to a permanent element override (Kam'lanaut ability); persists across turns. */
-	private final Map<CardData, String> elementOverrideMap      = new HashMap<>();
+	final Map<CardData, String> elementOverrideMap      = new HashMap<>();
 	/** Maps a card to a permanently-granted extra job (e.g. Bartz ability); persists across turns. */
-	private final Map<CardData, String> permanentExtraJobMap    = new HashMap<>();
+	final Map<CardData, String> permanentExtraJobMap    = new HashMap<>();
 	/** Characters that cannot be broken this turn. */
-	private final Set<CardData> cannotBeBrokenSet         = new HashSet<>();
+	final Set<CardData> cannotBeBrokenSet         = new HashSet<>();
 	/** Characters that cannot be broken this turn by opposing non-damage abilities/summons. */
-	private final Set<CardData> cannotBeBrokenByNonDmgSet = new HashSet<>();
+	final Set<CardData> cannotBeBrokenByNonDmgSet = new HashSet<>();
 	/** Forwards that have Breaktouch (battle damage) until end of turn. */
-	private final Set<CardData> breaktouchBattleSet       = new HashSet<>();
+	final Set<CardData> breaktouchBattleSet       = new HashSet<>();
 	/** Cards that have escaped from the current Battle via an Escape ability — combat is skipped for their pairing. */
-	private final Set<CardData> escapedFromBattle         = new HashSet<>();
+	final Set<CardData> escapedFromBattle         = new HashSet<>();
 	/** The Summon card currently resolving (from the stack or as an EX Burst); null otherwise. */
-	private CardData currentSummonSource    = null;
+	CardData currentSummonSource    = null;
 	/** {@code true} if {@link #currentSummonSource} belongs to P1. */
 	private boolean  currentSummonSourceIsP1 = false;
 	/** The source card of the action ability currently resolving off the stack (null otherwise). */
-	private CardData currentAbilitySource       = null;
+	CardData currentAbilitySource       = null;
 	/** Set to {@code true} while a Summon effect is resolving so {@link #selectCharacters} applies the correct protection set. */
-	private boolean currentResolutionIsSummon = false;
+	boolean currentResolutionIsSummon = false;
 	/** Set to {@code true} by {@code returnNamedCardToYourHand} when the Summon itself is being returned to hand. */
-	private boolean pendingSummonReturnToHand = false;
+	boolean pendingSummonReturnToHand = false;
 	/** Stack entries whose effect has been cancelled by Y'shtola or similar; checked and consumed at resolution. */
-	private final Set<StackEntry> cancelledStackEntries = Collections.newSetFromMap(new java.util.IdentityHashMap<>());
+	final Set<StackEntry> cancelledStackEntries = Collections.newSetFromMap(new java.util.IdentityHashMap<>());
 	/** True while {@link #resolveTopOfStack} or EX Burst execution is running; suppresses {@link #showStackWindowIfNeeded}. */
 	private boolean isResolvingStack = false;
 	/** Set to {@code true} before placing a card whose ETF auto-ability should not fire (consumed on first trigger check). */
-	private boolean suppressAutoAbilityForNextCard = false;
+	boolean suppressAutoAbilityForNextCard = false;
 
 	/**
 	 * Forwards currently stolen by P1 from P2, mapped to their restoration condition:
@@ -470,18 +464,18 @@ public class MainWindow {
 	 */
 	private final IdentityHashMap<CardData, String> stolenForwards = new IdentityHashMap<>();
 	/** Distinct element types used to pay the most recent card's CP cost; checked by castPaymentMinElements conditions. */
-	private int lastCastPaymentDistinctElements = 0;
+	int lastCastPaymentDistinctElements = 0;
 	/** Specific element types used to pay the most recent card's CP cost; checked by castPaymentElement conditions. */
-	private final Set<String> lastCastPaymentElements = new HashSet<>();
+	final Set<String> lastCastPaymentElements = new HashSet<>();
 	/** True if the most recently cast card was paid entirely by dulling Backups (no hand discards). */
-	private boolean lastCastWasPaidByBackupsOnly = false;
+	boolean lastCastWasPaidByBackupsOnly = false;
 	/** True while a card is being placed as a direct result of being cast from hand; gates castOnly field abilities. */
-	private boolean lastCardWasCast = false;
+	boolean lastCardWasCast = false;
 	/** True while a card is entering the field via Warp resolution; gates warpOnly field abilities. */
-	private boolean lastCardWarpedIn = false;
+	boolean lastCardWarpedIn = false;
 
 	/** Set when "Take 1 more turn; lose at the end of that turn" fires. */
-	private boolean p1ExtraTurnThenLose = false;
+	boolean p1ExtraTurnThenLose = false;
 
 	public static void main(String[] args) {
 		AppLogger.init();
@@ -1465,7 +1459,7 @@ public class MainWindow {
 	 * opening-hand popup) rather than over the whole window.  Returns the index of the chosen
 	 * option, or {@link JOptionPane#CLOSED_OPTION} if dismissed.
 	 */
-	private int showEffectOptionDialog(String message, String title, Object[] options) {
+	int showEffectOptionDialog(String message, String title, Object[] options) {
 		JOptionPane pane = new JOptionPane(message, JOptionPane.PLAIN_MESSAGE,
 				JOptionPane.DEFAULT_OPTION, null, options, options[0]);
 		JDialog dlg = pane.createDialog(frame, title);
@@ -1492,7 +1486,7 @@ public class MainWindow {
 		w.setLocation(cx - w.getWidth() / 2, cy - w.getHeight() / 2);
 	}
 
-	private void refreshP1HandLabel() {
+	void refreshP1HandLabel() {
 		refreshHandPanel();
 	}
 
@@ -1512,7 +1506,7 @@ public class MainWindow {
 	}
 
 
-	private void refreshP1DeckLabel() {
+	void refreshP1DeckLabel() {
 		int count = gameState.getP1MainDeck().size();
 		if (count == 0) {
 			p1DeckLabel.setIcon(null);
@@ -1523,7 +1517,7 @@ public class MainWindow {
 		}
 	}
 
-	private void refreshP2DeckLabel() {
+	void refreshP2DeckLabel() {
 		if (p2DeckLabel == null) return;
 		int count = gameState.getP2MainDeck().size();
 		if (count == 0) {
@@ -1535,7 +1529,7 @@ public class MainWindow {
 		}
 	}
 
-	private void refreshP2HandCountLabel() {
+	void refreshP2HandCountLabel() {
 		if (p2HandCountLabel == null) return;
 		p2HandCountLabel.setText("P2 Hand: " + gameState.getP2Hand().size());
 	}
@@ -1753,7 +1747,7 @@ public class MainWindow {
 	}
 
 	/** Appends a timestamped entry to the game log. */
-	private void logEntry(String text) {
+	void logEntry(String text) {
 		if (gameLog == null) return;
 		String time = java.time.LocalTime.now()
 				.format(java.time.format.DateTimeFormatter.ofPattern("HH:mm:ss"));
@@ -2034,7 +2028,7 @@ public class MainWindow {
 	}
 
 	/** Updates the P1 RFP label to show the most recently added removed card (warp or permanent). */
-	private void refreshP1WarpZoneUI() {
+	void refreshP1WarpZoneUI() {
 		List<GameState.WarpEntry> zone = gameState.getP1WarpZone();
 		List<CardData>            perm = gameState.getP1PermanentRfp();
 		if (zone.isEmpty() && perm.isEmpty()) {
@@ -2077,7 +2071,7 @@ public class MainWindow {
 			int after  = before - 1;
 			logEntry("Warp: \"" + entry.card.name() + "\" counter " + before + " → " + after
 					+ (after == 0 ? " (resolving!)" : ""));
-			triggerAutoAbilitiesForWarpCounterRemoved(entry.card);
+			autoAbilityTriggers.triggerAutoAbilitiesForWarpCounterRemoved(entry.card);
 		}
 
 		List<CardData> resolved = gameState.tickP1WarpCounters();
@@ -2188,7 +2182,7 @@ public class MainWindow {
 
 		for (CardData cd : zone) {
 			final boolean hasBzAbility = isP1 && cd.actionAbilities().stream()
-					.anyMatch(a -> a.breakZoneOnly() != null && canActivateBzAbility(a, cd, true));
+					.anyMatch(a -> a.breakZoneOnly() != null && autoAbilityTriggers.canActivateBzAbility(a, cd, true));
 
 			JPanel cardWrapper = new JPanel(new BorderLayout(0, 4));
 			cardWrapper.setBackground(cardsPanel.getBackground());
@@ -2216,8 +2210,8 @@ public class MainWindow {
 					for (ActionAbility ability : cd.actionAbilities()) {
 						if (ability.breakZoneOnly() == null) continue;
 						JMenuItem item = new JMenuItem(buildAbilityMenuLabel(ability));
-						item.setEnabled(canActivateBzAbility(ability, cd, true));
-						item.addActionListener(ae -> showBzAbilityPaymentDialog(ability, cd, true));
+						item.setEnabled(autoAbilityTriggers.canActivateBzAbility(ability, cd, true));
+						item.addActionListener(ae -> autoAbilityTriggers.showBzAbilityPaymentDialog(ability, cd, true));
 						menu.add(item);
 					}
 					if (menu.getComponentCount() > 0) menu.show(lbl, e.getX(), e.getY());
@@ -2276,15 +2270,15 @@ public class MainWindow {
 		dlg.setVisible(true);
 	}
 
-	private void triggerGameOver(String reason) {
+	void triggerGameOver(String reason) {
 		gameState.setP1GameOver(true);
 		logEntry(reason);
 		if (nextPhaseButton != null) nextPhaseButton.setEnabled(false);
 	}
 
-	private void p1TakeDamage() { p1TakeDamage(null); }
+	void p1TakeDamage() { p1TakeDamage(null); }
 
-	private void p1TakeDamage(Runnable onDone) {
+	void p1TakeDamage(Runnable onDone) {
 		if (gameState.isP1GameOver()) { if (onDone != null) onDone.run(); return; }
 		p1ReceivedDamageThisTurn = true;
 		CardData drawn = gameState.drawToDamageZone();
@@ -2297,9 +2291,9 @@ public class MainWindow {
 
 		refreshP1DeckLabel();
 		logEntry("P1 takes 1 damage — " + drawn.name() + (isEx ? " [EX BURST!]" : ""));
-		triggerAutoAbilitiesForDamageZone(true);
-		triggerAutoAbilitiesForEitherPlayerReceivesDamage();
-		triggerAutoAbilitiesForYouReceiveDamage(true);
+		autoAbilityTriggers.triggerAutoAbilitiesForDamageZone(true);
+		autoAbilityTriggers.triggerAutoAbilitiesForEitherPlayerReceivesDamage();
+		autoAbilityTriggers.triggerAutoAbilitiesForYouReceiveDamage(true);
 		animateCardToDamage(true, idx);
 
 		int animDelay = CardSlideAnimator.TOTAL_FRAMES * CardSlideAnimator.FRAME_MS;
@@ -2330,25 +2324,25 @@ public class MainWindow {
 				triggerGameOver("7 Damage Taken - You Lose!");
 				return;
 			}
-			if (isEx) triggerExBurst(drawn, true);
+			if (isEx) autoAbilityTriggers.triggerExBurst(drawn, true);
 			if (onDone != null) onDone.run();
 		});
 		revealTimer.setRepeats(false);
 		revealTimer.start();
 	}
 
-	private void p2TakeDamage() { p2TakeDamage(null); }
+	void p2TakeDamage() { p2TakeDamage(null); }
 
-	private void p2TakeDamage(Runnable onDone) {
+	void p2TakeDamage(Runnable onDone) {
 		p2ReceivedDamageThisTurn = true;
 		CardData drawn = gameState.drawToP2DamageZone();
 		p2DamageCount++;
 		boolean isEx = drawn != null && drawn.exBurst();
 		String cardInfo = drawn != null ? " — " + drawn.name() + (isEx ? " [EX BURST!]" : "") : "";
 		logEntry("P2 takes 1 damage (" + p2DamageCount + "/7)" + cardInfo);
-		triggerAutoAbilitiesForDamageZone(false);
-		triggerAutoAbilitiesForEitherPlayerReceivesDamage();
-		triggerAutoAbilitiesForYouReceiveDamage(false);
+		autoAbilityTriggers.triggerAutoAbilitiesForDamageZone(false);
+		autoAbilityTriggers.triggerAutoAbilitiesForEitherPlayerReceivesDamage();
+		autoAbilityTriggers.triggerAutoAbilitiesForYouReceiveDamage(false);
 
 		int slotIdx = p2DamageCount - 1;
 		if (drawn != null) animateCardToDamage(false, slotIdx);
@@ -2380,7 +2374,7 @@ public class MainWindow {
 				triggerGameOver("Player 2 Defeated - You Win!");
 				return;
 			}
-			if (isEx && drawn != null) triggerExBurst(drawn, false);
+			if (isEx && drawn != null) autoAbilityTriggers.triggerExBurst(drawn, false);
 			if (onDone != null) onDone.run();
 		});
 		revealTimer.setRepeats(false);
@@ -2414,7 +2408,7 @@ public class MainWindow {
 		map.putAll(updated);
 	}
 
-	private void breakP1Forward(int idx) {
+	void breakP1Forward(int idx) {
 		if (idx < 0 || idx >= p1ForwardCards.size()) return;
 		startBreakAnim(p1ForwardLabels.get(idx));
 		CardData card    = p1ForwardCards.get(idx);
@@ -2516,12 +2510,12 @@ public class MainWindow {
 
 		refreshP1BreakLabel();
 		if (topCard != null) refreshP1WarpZoneUI();
-		triggerAutoAbilitiesForLeavesField(card, true);
-		triggerAutoAbilitiesForBreakZone(card, true, partySnapshot);
+		autoAbilityTriggers.triggerAutoAbilitiesForLeavesField(card, true);
+		autoAbilityTriggers.triggerAutoAbilitiesForBreakZone(card, true, partySnapshot);
 	}
 
 	/** Removes P2's forward at {@code idx} from the field and sends it to P2's Break Zone. */
-	private void breakP2Forward(int idx) {
+	void breakP2Forward(int idx) {
 		if (idx < 0 || idx >= p2ForwardCards.size()) return;
 		startBreakAnim(p2ForwardLabels.get(idx));
 		CardData card    = p2ForwardCards.get(idx);
@@ -2604,9 +2598,9 @@ public class MainWindow {
 		if (gameState.getCurrentPlayer() == GameState.Player.P1) p1ForwardsLeftFieldThisTurn++;
 		else p2ForwardsLeftFieldThisTurn++;
 		refreshP2BreakLabel();
-		triggerAutoAbilitiesForLeavesField(card, false);
-		triggerAutoAbilitiesForBreakZone(card, false, partySnapshot);
-		if (topCard != null) triggerAutoAbilitiesForBreakZone(topCard, false, Collections.emptySet());
+		autoAbilityTriggers.triggerAutoAbilitiesForLeavesField(card, false);
+		autoAbilityTriggers.triggerAutoAbilitiesForBreakZone(card, false, partySnapshot);
+		if (topCard != null) autoAbilityTriggers.triggerAutoAbilitiesForBreakZone(topCard, false, Collections.emptySet());
 	}
 
 	// -------------------------------------------------------------------------
@@ -2685,7 +2679,7 @@ public class MainWindow {
 	 * Moves P2's forward at {@code p2Idx} to P1's field without triggering ETF or break-zone
 	 * auto-abilities, and registers the restoration condition in {@link #stolenForwards}.
 	 */
-	private void stealForwardFromP2ToP1(int p2Idx, String condition, boolean activate) {
+	void stealForwardFromP2ToP1(int p2Idx, String condition, boolean activate) {
 		if (p2Idx < 0 || p2Idx >= p2ForwardCards.size()) return;
 		CardData   card       = p2ForwardCards.get(p2Idx);
 		int        savedDmg   = p2ForwardDamage.get(p2Idx);
@@ -2908,7 +2902,7 @@ public class MainWindow {
 		}
 	}
 
-	private void returnP1ForwardToDeck(int idx, boolean toBottom) {
+	void returnP1ForwardToDeck(int idx, boolean toBottom) {
 		if (idx < 0 || idx >= p1ForwardCards.size()) return;
 		CardData card    = p1ForwardCards.get(idx);
 		CardData topCard = p1ForwardPrimedTop.get(idx);
@@ -2980,10 +2974,10 @@ public class MainWindow {
 		}
 		refreshP1DeckLabel();
 		if (topCard != null) refreshP1WarpZoneUI();
-		triggerAutoAbilitiesForLeavesField(card, true);
+		autoAbilityTriggers.triggerAutoAbilitiesForLeavesField(card, true);
 	}
 
-	private void returnP2ForwardToDeck(int idx, boolean toBottom) {
+	void returnP2ForwardToDeck(int idx, boolean toBottom) {
 		if (idx < 0 || idx >= p2ForwardCards.size()) return;
 		CardData card    = p2ForwardCards.get(idx);
 		CardData topCard = p2ForwardPrimedTop.get(idx);
@@ -3042,10 +3036,10 @@ public class MainWindow {
 			for (int i = 0; i < p2ForwardCards.size(); i++) refreshP2ForwardSlot(i);
 		}
 		refreshP2DeckLabel();
-		triggerAutoAbilitiesForLeavesField(card, false);
+		autoAbilityTriggers.triggerAutoAbilitiesForLeavesField(card, false);
 	}
 
-	private void returnP1ForwardUnderDeckTop(int idx, int position) {
+	void returnP1ForwardUnderDeckTop(int idx, int position) {
 		if (idx < 0 || idx >= p1ForwardCards.size()) return;
 		CardData card    = p1ForwardCards.get(idx);
 		CardData topCard = p1ForwardPrimedTop.get(idx);
@@ -3119,10 +3113,10 @@ public class MainWindow {
 		}
 		refreshP1DeckLabel();
 		if (topCard != null) refreshP1WarpZoneUI();
-		triggerAutoAbilitiesForLeavesField(card, true);
+		autoAbilityTriggers.triggerAutoAbilitiesForLeavesField(card, true);
 	}
 
-	private void returnP2ForwardUnderDeckTop(int idx, int position) {
+	void returnP2ForwardUnderDeckTop(int idx, int position) {
 		if (idx < 0 || idx >= p2ForwardCards.size()) return;
 		CardData card    = p2ForwardCards.get(idx);
 		CardData topCard = p2ForwardPrimedTop.get(idx);
@@ -3183,10 +3177,10 @@ public class MainWindow {
 			for (int i = 0; i < p2ForwardCards.size(); i++) refreshP2ForwardSlot(i);
 		}
 		refreshP2DeckLabel();
-		triggerAutoAbilitiesForLeavesField(card, false);
+		autoAbilityTriggers.triggerAutoAbilitiesForLeavesField(card, false);
 	}
 
-	private void searchDeckForCard(boolean isP1,
+	void searchDeckForCard(boolean isP1,
 			boolean inclForwards, boolean inclBackups,
 			boolean inclMonsters, boolean inclSummons,
 			int costVal, String costCmp, String cardNameFilter, String jobFilter,
@@ -3406,11 +3400,11 @@ public class MainWindow {
 	 * {@link CardData} — lets callers map back to a hand/zone index even when the list contains
 	 * value-equal duplicates.
 	 */
-	private int showCardImageChooser(List<CardData> cards, String title, boolean allowCancel) {
+	int showCardImageChooser(List<CardData> cards, String title, boolean allowCancel) {
 		return showCardImageChooser(cards, title, allowCancel, true);
 	}
 
-	private int showCardImageChooser(List<CardData> cards, String title, boolean allowCancel, boolean showCost) {
+	int showCardImageChooser(List<CardData> cards, String title, boolean allowCancel, boolean showCost) {
 		if (cards.isEmpty()) return -1;
 		JDialog dlg = new JDialog(frame, title, true);
 		dlg.setResizable(false);
@@ -3492,7 +3486,7 @@ public class MainWindow {
 		return selection[0];
 	}
 
-	private List<Integer> showCardMultiImageChooser(List<CardData> cards, String title, int count,
+	List<Integer> showCardMultiImageChooser(List<CardData> cards, String title, int count,
 			boolean eachDifferentType, boolean showCost) {
 		if (cards.isEmpty() || count <= 0) return null;
 		JDialog dlg = new JDialog(frame, title, true);
@@ -3609,7 +3603,7 @@ public class MainWindow {
 		return confirmed[0] ? new ArrayList<>(selected) : null;
 	}
 
-	private void returnP1ForwardToHand(int idx) {
+	void returnP1ForwardToHand(int idx) {
 		if (idx < 0 || idx >= p1ForwardCards.size()) return;
 		CardData card    = p1ForwardCards.get(idx);
 		boolean hadGrants = !card.fieldPowerGrants().isEmpty();
@@ -3684,10 +3678,10 @@ public class MainWindow {
 		if (gameState.getCurrentPlayer() == GameState.Player.P1) p1ForwardsLeftFieldThisTurn++;
 		else p2ForwardsLeftFieldThisTurn++;
 		p2TurnOpponentCharReturnedToHand = true;
-		triggerAutoAbilitiesForLeavesField(card, true);
+		autoAbilityTriggers.triggerAutoAbilitiesForLeavesField(card, true);
 	}
 
-	private void returnP2ForwardToHand(int idx) {
+	void returnP2ForwardToHand(int idx) {
 		if (idx < 0 || idx >= p2ForwardCards.size()) return;
 		CardData card    = p2ForwardCards.get(idx);
 		boolean hadGrants = !card.fieldPowerGrants().isEmpty();
@@ -3749,10 +3743,10 @@ public class MainWindow {
 		if (gameState.getCurrentPlayer() == GameState.Player.P1) p1ForwardsLeftFieldThisTurn++;
 		else p2ForwardsLeftFieldThisTurn++;
 		p1TurnOpponentCharReturnedToHand = true;
-		triggerAutoAbilitiesForLeavesField(card, false);
+		autoAbilityTriggers.triggerAutoAbilitiesForLeavesField(card, false);
 	}
 
-	private void returnP1BackupToHand(int idx) {
+	void returnP1BackupToHand(int idx) {
 		if (idx < 0 || idx >= p1BackupCards.length || p1BackupCards[idx] == null) return;
 		CardData c = p1BackupCards[idx];
 		gameState.getP1Hand().add(c);
@@ -3767,10 +3761,10 @@ public class MainWindow {
 		if (p1BackupLabels[idx] != null) { p1BackupLabels[idx].setIcon(null); p1BackupLabels[idx].setText(null); }
 		refreshP1HandLabel();
 		p2TurnOpponentCharReturnedToHand = true;
-		triggerAutoAbilitiesForLeavesField(c, true);
+		autoAbilityTriggers.triggerAutoAbilitiesForLeavesField(c, true);
 	}
 
-	private void returnP2BackupToHand(int idx) {
+	void returnP2BackupToHand(int idx) {
 		if (idx < 0 || idx >= p2BackupCards.length || p2BackupCards[idx] == null) return;
 		CardData c = p2BackupCards[idx];
 		gameState.getP2Hand().add(c);
@@ -3784,10 +3778,10 @@ public class MainWindow {
 		p2BackupFrozen[idx] = false;
 		if (p2BackupLabels[idx] != null) { p2BackupLabels[idx].setIcon(null); p2BackupLabels[idx].setText(null); }
 		p1TurnOpponentCharReturnedToHand = true;
-		triggerAutoAbilitiesForLeavesField(c, false);
+		autoAbilityTriggers.triggerAutoAbilitiesForLeavesField(c, false);
 	}
 
-	private void returnP1MonsterToHand(int idx) {
+	void returnP1MonsterToHand(int idx) {
 		if (idx < 0 || idx >= p1MonsterCards.size()) return;
 		CardData c = p1MonsterCards.get(idx);
 		gameState.getP1Hand().add(c);
@@ -3801,10 +3795,10 @@ public class MainWindow {
 		JLabel lbl = p1MonsterLabels.remove(idx);
 		if (p1MonsterPanel != null) { p1MonsterPanel.remove(lbl); p1MonsterPanel.revalidate(); p1MonsterPanel.repaint(); }
 		refreshP1HandLabel();
-		triggerAutoAbilitiesForLeavesField(c, true);
+		autoAbilityTriggers.triggerAutoAbilitiesForLeavesField(c, true);
 	}
 
-	private void returnP2MonsterToHand(int idx) {
+	void returnP2MonsterToHand(int idx) {
 		if (idx < 0 || idx >= p2MonsterCards.size()) return;
 		CardData c = p2MonsterCards.get(idx);
 		gameState.getP2Hand().add(c);
@@ -3817,10 +3811,10 @@ public class MainWindow {
 		p2MonsterUrls.remove(idx);
 		JLabel lbl = p2MonsterLabels.remove(idx);
 		if (p2MonsterPanel != null) { p2MonsterPanel.remove(lbl); p2MonsterPanel.revalidate(); p2MonsterPanel.repaint(); }
-		triggerAutoAbilitiesForLeavesField(c, false);
+		autoAbilityTriggers.triggerAutoAbilitiesForLeavesField(c, false);
 	}
 
-	private int effectiveP1ForwardPower(int idx) {
+	int effectiveP1ForwardPower(int idx) {
 		CardData top  = p1ForwardPrimedTop.get(idx);
 		CardData card = p1ForwardCards.get(idx);
 		int base = top != null ? top.power() : card.power();
@@ -3828,7 +3822,7 @@ public class MainWindow {
 				+ computeConditionalBoostForTarget(card, true);
 	}
 
-	private int effectiveP2ForwardPower(int idx) {
+	int effectiveP2ForwardPower(int idx) {
 		CardData card = p2ForwardCards.get(idx);
 		return card.power() + p2ForwardPowerBoost.get(idx) - p2ForwardPowerReduction.get(idx)
 				+ computeConditionalBoostForTarget(card, false);
@@ -4034,17 +4028,17 @@ public class MainWindow {
 		ForwardTarget blk = p2ChooseBlocker(effectiveP1ForwardPower(attackerIdx),
 				new ForwardTarget(true, attackerIdx, ForwardTarget.CardZone.FORWARD));
 		if (blk != null) {
-			CardData blocker = fieldCardData(blk);
+			CardData blocker = autoAbilityTriggers.fieldCardData(blk);
 			logEntry("[P2] " + blocker.name() + " blocks!");
-			triggerAutoAbilitiesForBlock(blocker, false);
-			triggerAutoAbilitiesForIsBlocked(attacker, true);
+			autoAbilityTriggers.triggerAutoAbilitiesForBlock(blocker, false);
+			autoAbilityTriggers.triggerAutoAbilitiesForIsBlocked(attacker, true);
 			if (blk.zone() == ForwardTarget.CardZone.FORWARD)
 				resolveCombat(attacker, true, attackerIdx, blocker, false, blk.idx());
 			else
 				resolveActingCombat(true, ForwardTarget.CardZone.FORWARD, attackerIdx, false, blk.zone(), blk.idx());
 		} else {
 			p2TakeDamage();
-			triggerAutoAbilitiesForDealsDamageToOpponent(attacker, true);
+			autoAbilityTriggers.triggerAutoAbilitiesForDealsDamageToOpponent(attacker, true);
 		}
 	}
 
@@ -4069,7 +4063,7 @@ public class MainWindow {
 		if (!anyEligible) {
 			// No eligible blockers — auto-take damage
 			p1TakeDamage(() -> {
-				triggerAutoAbilitiesForDealsDamageToOpponent(attacker, false);
+				autoAbilityTriggers.triggerAutoAbilitiesForDealsDamageToOpponent(attacker, false);
 				onDone.run();
 			});
 			return;
@@ -4116,7 +4110,7 @@ public class MainWindow {
 		if (!anyEligible) {
 			p1TakeDamage();
 			for (int idx : attackerIndices)
-				triggerAutoAbilitiesForDealsDamageToOpponent(p2ForwardCards.get(idx), false);
+				autoAbilityTriggers.triggerAutoAbilitiesForDealsDamageToOpponent(p2ForwardCards.get(idx), false);
 			onDone.run();
 			return;
 		}
@@ -4702,7 +4696,7 @@ public class MainWindow {
 	 * (or fewer if hand is smaller) to discard to the Break Zone.  No CP is generated.
 	 * Called when P2 activates a "Your opponent discards N cards" ability.
 	 */
-	private void showForcedDiscardDialog(int count, boolean forcedByOpponent) {
+	void showForcedDiscardDialog(int count, boolean forcedByOpponent) {
 		List<CardData> hand = gameState.getP1Hand();
 		int mustDiscard = Math.min(count, hand.size());
 		if (mustDiscard == 0) return;
@@ -4827,7 +4821,7 @@ public class MainWindow {
 	 * Returns true if a card was discarded, false if no eligible cards (no dialog shown).
 	 * No "Pass" button — player already committed by accepting the "you may?" prompt.
 	 */
-	private boolean showDiscardByTypeDialog(String cardType) {
+	boolean showDiscardByTypeDialog(String cardType) {
 		List<CardData> hand = gameState.getP1Hand();
 		List<Integer> eligible = new ArrayList<>();
 		for (int i = 0; i < hand.size(); i++) {
@@ -4948,7 +4942,7 @@ public class MainWindow {
 	 * Shows a picker for P1 to choose 1 EX Burst card from {@code eligible} (cards already
 	 * filtered from the Damage Zone). Returns the chosen card, or {@code null} if Pass is clicked.
 	 */
-	private CardData showPickExBurstFromDamageZoneDialog(List<CardData> eligible) {
+	CardData showPickExBurstFromDamageZoneDialog(List<CardData> eligible) {
 		JDialog dlg = new JDialog(frame, "EX Burst — Choose 1 Card", true);
 		dlg.setResizable(false);
 		dlg.setDefaultCloseOperation(JDialog.DO_NOTHING_ON_CLOSE);
@@ -5055,7 +5049,7 @@ public class MainWindow {
 		return result[0];
 	}
 
-	private void showPlaceToBottomOfDeckDialog(int count) {
+	void showPlaceToBottomOfDeckDialog(int count) {
 		List<CardData> hand = gameState.getP1Hand();
 		int mustPlace = Math.min(count, hand.size());
 		if (mustPlace == 0) return;
@@ -5181,7 +5175,7 @@ public class MainWindow {
 	 * If {@code rfpIsP1}, the cards go to P1's permanent RFP zone (P1 removing from own hand);
 	 * otherwise they go to P2's (P1 selecting from P2's revealed hand).
 	 */
-	private void showHandRfpSelectionDialog(List<CardData> targetHand, int count, boolean rfpIsP1) {
+	void showHandRfpSelectionDialog(List<CardData> targetHand, int count, boolean rfpIsP1) {
 		int mustSelect = Math.min(count, targetHand.size());
 		if (mustSelect == 0) return;
 
@@ -5314,7 +5308,7 @@ public class MainWindow {
 	 * displays it in the side-panel preview.  The first time this is called
 	 * the side panel is resized to exactly fit the card plus {@link #SIDE_MARGIN}.
 	 */
-	private void showZoomAt(String url) {
+	void showZoomAt(String url) {
 		if (url == null || cardPreviewPanel == null) return;
 		new SwingWorker<BufferedImage, Void>() {
 			@Override
@@ -5341,7 +5335,7 @@ public class MainWindow {
 	}
 
 	/** Clears the side-panel card preview with a fade-out. */
-	private void hideZoom() {
+	void hideZoom() {
 		startFadeOut();
 	}
 
@@ -5616,11 +5610,11 @@ public class MainWindow {
 		for (ActionAbility ability : card.actionAbilities()) {
 			if (!ability.whileCardInHand()) continue;
 			JMenuItem item = new JMenuItem("Use: " + buildAbilityMenuLabel(ability));
-			item.setEnabled(canActivateHandAbility(ability, card, true));
+			item.setEnabled(autoAbilityTriggers.canActivateHandAbility(ability, card, true));
 			item.addActionListener(ae -> {
 				hideZoom();
 				if (handPopup != null) { handPopup.dispose(); handPopup = null; }
-				showActionAbilityPaymentDialog(ability, card, () -> {}, true);
+				autoAbilityTriggers.showActionAbilityPaymentDialog(ability, card, () -> {}, true);
 			});
 			menu.add(item);
 		}
@@ -5648,7 +5642,7 @@ public class MainWindow {
 	 * Adds {@code card} to P1's Break Zone. LB cards enter then are immediately removed,
 	 * so "when put into the Break Zone" triggers fire but the card does not stay there.
 	 */
-	private void addToP1BreakZone(CardData card) {
+	void addToP1BreakZone(CardData card) {
 		List<CardData> zone = gameState.getP1BreakZone();
 		zone.add(card);
 		if (card.isLb()) zone.remove(card);
@@ -5658,13 +5652,13 @@ public class MainWindow {
 	 * Adds {@code card} to P2's Break Zone. LB cards enter then are immediately removed,
 	 * so "when put into the Break Zone" triggers fire but the card does not stay there.
 	 */
-	private void addToP2BreakZone(CardData card) {
+	void addToP2BreakZone(CardData card) {
 		List<CardData> zone = gameState.getP2BreakZone();
 		zone.add(card);
 		if (card.isLb()) zone.remove(card);
 	}
 
-	private void refreshP1BreakLabel() {
+	void refreshP1BreakLabel() {
 		List<CardData> zone = gameState.getP1BreakZone();
 		if (zone.isEmpty()) {
 			p1BreakLabel.setIcon(null);
@@ -5688,7 +5682,7 @@ public class MainWindow {
 		}.execute();
 	}
 
-	private void refreshP2BreakLabel() {
+	void refreshP2BreakLabel() {
 		List<CardData> zone = gameState.getP2BreakZone();
 		if (zone.isEmpty()) {
 			p2BreakLabel.setIcon(null);
@@ -5720,7 +5714,7 @@ public class MainWindow {
 	 * Triggers a card-slide animation from the deck toward the player's hand
 	 * (off-screen bottom-center for P1, off-screen top-center for P2).
 	 */
-	private void animateCardDraw(boolean isP1, int count) {
+	void animateCardDraw(boolean isP1, int count) {
 		JLabel       deck = isP1 ? p1DeckLabel : p2DeckLabel;
 		JLayeredPane lp   = frame.getRootPane().getLayeredPane();
 
@@ -5738,7 +5732,7 @@ public class MainWindow {
 			cardSlideAnimator.startSlide(img, start, end, i * 5);
 	}
 
-	private void startBreakAnim(JLabel label) {
+	void startBreakAnim(JLabel label) {
 		if (label == null) return;
 		javax.swing.Icon icon = label.getIcon();
 		if (!(icon instanceof ImageIcon ii)) return;
@@ -5794,13 +5788,13 @@ public class MainWindow {
 		return cost;
 	}
 
-	private List<CardData> drawP1Cards(int count) {
+	List<CardData> drawP1Cards(int count) {
 		List<CardData> drawn = gameState.drawToHand(count);
 		p1CardsDrawnThisTurn += drawn.size();
 		return drawn;
 	}
 
-	private List<CardData> drawP2Cards(int count) {
+	List<CardData> drawP2Cards(int count) {
 		List<CardData> drawn = gameState.drawP2ToHand(count);
 		p2CardsDrawnThisTurn += drawn.size();
 		return drawn;
@@ -6657,7 +6651,7 @@ public class MainWindow {
 		gameState.addToP1WarpZone(card, card.warpValue());
 		logEntry("Played \"" + card.name() + "\" via Warp — " + card.warpValue()
 				+ " counter" + (card.warpValue() != 1 ? "s" : "") + " → Removed From Play");
-		triggerAutoAbilitiesForWarpPlaced(card);
+		autoAbilityTriggers.triggerAutoAbilitiesForWarpPlaced(card);
 		refreshP1HandLabel();
 		refreshP1BreakLabel();
 		refreshP1WarpZoneUI();
@@ -6893,7 +6887,7 @@ public class MainWindow {
 	}
 
 	/** Pushes a Summon onto the stack and opens the stack overlay. */
-	private void showSummonOnStack(CardData card) {
+	void showSummonOnStack(CardData card) {
 		gameState.pushStack(new StackEntry(card, null, true));
 		logEntry("[Stack] \"" + card.name() + "\" — Summon on the stack");
 		showStackWindow();
@@ -6909,7 +6903,7 @@ public class MainWindow {
 	 * window during which the player may activate cards.  When the response window
 	 * expires (or no new entry was pushed), the top entry resolves automatically.
 	 */
-	private void showStackWindow() {
+	void showStackWindow() {
 		StackEntry entry = gameState.peekStack();
 		if (entry == null) return;
 
@@ -7092,7 +7086,7 @@ public class MainWindow {
 						currentSummonSource   = null;
 					}
 				} else logEntry("[ActionResolver] Summon effect not yet implemented: " + effectText);
-				triggerAutoAbilitiesForCastSummon(entry.isP1());
+				autoAbilityTriggers.triggerAutoAbilitiesForCastSummon(entry.isP1());
 				if (pendingSummonReturnToHand) {
 					gameState.getP1Hand().add(entry.source());
 					logEntry("\"" + entry.source().name() + "\" → Hand");
@@ -7145,7 +7139,7 @@ public class MainWindow {
 	}
 
 	/** Calls {@link #showStackWindow()} only when we are not already inside a stack resolution chain. */
-	private void showStackWindowIfNeeded() {
+	void showStackWindowIfNeeded() {
 		if (!isResolvingStack && !gameState.getStack().isEmpty()) showStackWindow();
 	}
 
@@ -7205,7 +7199,7 @@ public class MainWindow {
 	}
 
 	/** Places a card into the first empty P1 backup slot and renders it. */
-	private void placeCardInFirstBackupSlot(CardData card) {
+	void placeCardInFirstBackupSlot(CardData card) {
 		if (p1BackupLabels == null) return;
 		for (int i = 0; i < p1BackupLabels.length; i++) {
 			if (p1BackupLabels[i] == null || p1BackupLabels[i].getIcon() != null) continue;
@@ -7214,7 +7208,7 @@ public class MainWindow {
 			p1BackupStates[i]        = CardState.DULL;
 			p1BackupPlayedOnTurn[i]  = gameState.getTurnNumber();
 			refreshP1BackupSlot(i);
-			triggerAutoAbilitiesForEntersField(card, true);
+			autoAbilityTriggers.triggerAutoAbilitiesForEntersField(card, true);
 			sendToBreakZoneByUniquenessRule(card, true);
 			break;
 		}
@@ -7261,7 +7255,7 @@ public class MainWindow {
 	}
 
 
-	private void animateDullForward(int idx, Runnable onComplete) {
+	void animateDullForward(int idx, Runnable onComplete) {
 		String url  = p1ForwardUrls.get(idx);
 		JLabel slot = p1ForwardLabels.get(idx);
 		if (url == null || slot == null) { refreshP1ForwardSlot(idx); if (onComplete != null) onComplete.run(); return; }
@@ -7303,7 +7297,7 @@ public class MainWindow {
 		}.execute();
 	}
 
-	private void animateDullP2Forward(int idx, Runnable onComplete) {
+	void animateDullP2Forward(int idx, Runnable onComplete) {
 		String url  = p2ForwardUrls.get(idx);
 		JLabel slot = p2ForwardLabels.get(idx);
 		if (url == null || slot == null) { refreshP2ForwardSlot(idx); if (onComplete != null) onComplete.run(); return; }
@@ -7506,7 +7500,7 @@ public class MainWindow {
 	}
 
 	/** Reloads and re-renders a single P1 backup slot using its stored URL and state. */
-	private void refreshP1BackupSlot(int idx) {
+	void refreshP1BackupSlot(int idx) {
 		String url  = p1BackupUrls[idx];
 		CardState state = p1BackupStates[idx];
 		JLabel slot  = p1BackupLabels[idx];
@@ -7547,7 +7541,7 @@ public class MainWindow {
 	 * Returns a display label for an action ability menu item, e.g.
 	 * {@code "[Mug] Wind, Dull, S → ...effect..."} (truncated to 60 chars).
 	 */
-	private String buildAbilityMenuLabel(ActionAbility ability) {
+	String buildAbilityMenuLabel(ActionAbility ability) {
 		StringBuilder sb = new StringBuilder();
 		if (ability.isSpecial() && !ability.abilityName().isEmpty())
 			sb.append("[").append(ability.abilityName()).append("] ");
@@ -7624,7 +7618,7 @@ public class MainWindow {
 	 * ability's cost (element and generic CP only; Dull/S requirements are checked
 	 * separately in the context-menu enable logic).
 	 */
-	private boolean canAffordAbilityCost(ActionAbility ability, boolean isP1) {
+	boolean canAffordAbilityCost(ActionAbility ability, boolean isP1) {
 		List<String> cost = ability.cpCost();
 		if (cost.isEmpty()) return true;
 
@@ -7682,7 +7676,7 @@ public class MainWindow {
 	 * If {@code card} is currently the primed top of a forward slot, returns the name of
 	 * the primer (base) card beneath it; otherwise returns {@code null}.
 	 */
-	private String getPrimerCardName(CardData card, boolean isP1) {
+	String getPrimerCardName(CardData card, boolean isP1) {
 		List<CardData> primedTops = isP1 ? p1ForwardPrimedTop : p2ForwardPrimedTop;
 		List<CardData> bases      = isP1 ? p1ForwardCards      : p2ForwardCards;
 		for (int i = 0; i < primedTops.size(); i++)
@@ -7692,22 +7686,22 @@ public class MainWindow {
 
 	// ---- Per-player data selectors used by the ability payment chain -----------
 
-	private List<CardData> playerHand(boolean isP1)       { return isP1 ? gameState.getP1Hand()       : gameState.getP2Hand(); }
-	private CardData[]     playerBackupCards(boolean isP1) { return isP1 ? p1BackupCards               : p2BackupCards; }
-	private CardState[]    playerBackupStates(boolean isP1){ return isP1 ? p1BackupStates              : p2BackupStates; }
+	List<CardData> playerHand(boolean isP1)       { return isP1 ? gameState.getP1Hand()       : gameState.getP2Hand(); }
+	CardData[]     playerBackupCards(boolean isP1) { return isP1 ? p1BackupCards               : p2BackupCards; }
+	CardState[]    playerBackupStates(boolean isP1){ return isP1 ? p1BackupStates              : p2BackupStates; }
 	private boolean[]      playerBackupFrozen(boolean isP1){ return isP1 ? p1BackupFrozen              : p2BackupFrozen; }
-	private String[]       playerBackupUrls(boolean isP1)  { return isP1 ? p1BackupUrls                : p2BackupUrls; }
-	private List<CardData> playerForwardCards(boolean isP1){ return isP1 ? p1ForwardCards              : p2ForwardCards; }
-	private List<CardData> playerMonsterCards(boolean isP1){ return isP1 ? p1MonsterCards              : p2MonsterCards; }
-	private int  playerCrystals(boolean isP1)              { return isP1 ? gameState.getP1Crystals()   : gameState.getP2Crystals(); }
-	private int  playerCpForElem(boolean isP1, String e)   { return isP1 ? gameState.getP1CpForElement(e) : gameState.getP2CpForElement(e); }
+	String[]       playerBackupUrls(boolean isP1)  { return isP1 ? p1BackupUrls                : p2BackupUrls; }
+	List<CardData> playerForwardCards(boolean isP1){ return isP1 ? p1ForwardCards              : p2ForwardCards; }
+	List<CardData> playerMonsterCards(boolean isP1){ return isP1 ? p1MonsterCards              : p2MonsterCards; }
+	int  playerCrystals(boolean isP1)              { return isP1 ? gameState.getP1Crystals()   : gameState.getP2Crystals(); }
+	int  playerCpForElem(boolean isP1, String e)   { return isP1 ? gameState.getP1CpForElement(e) : gameState.getP2CpForElement(e); }
 	private Map<String, Integer> playerCpByElem(boolean isP1) { return isP1 ? gameState.getP1CpByElement() : gameState.getP2CpByElement(); }
-	private void playerAddCp(boolean isP1, String e, int n)    { if (isP1) gameState.addP1Cp(e, n);   else gameState.addP2Cp(e, n); }
-	private void playerSpendCp(boolean isP1, String e, int n)  { if (isP1) gameState.spendP1Cp(e, n); else gameState.spendP2Cp(e, n); }
-	private void playerClearCp(boolean isP1, String e)         { if (isP1) gameState.clearP1Cp(e);    else gameState.clearP2Cp(e); }
-	private void playerSpendCrystals(boolean isP1, int n)      { if (isP1) gameState.spendP1Crystals(n); else gameState.spendP2Crystals(n); }
-	private CardData playerBreakFromHand(boolean isP1, int i)  { return isP1 ? gameState.breakFromHand(i) : gameState.breakP2FromHand(i); }
-	private void playerDullBackupSlot(boolean isP1, int idx) {
+	void playerAddCp(boolean isP1, String e, int n)    { if (isP1) gameState.addP1Cp(e, n);   else gameState.addP2Cp(e, n); }
+	void playerSpendCp(boolean isP1, String e, int n)  { if (isP1) gameState.spendP1Cp(e, n); else gameState.spendP2Cp(e, n); }
+	void playerClearCp(boolean isP1, String e)         { if (isP1) gameState.clearP1Cp(e);    else gameState.clearP2Cp(e); }
+	void playerSpendCrystals(boolean isP1, int n)      { if (isP1) gameState.spendP1Crystals(n); else gameState.spendP2Crystals(n); }
+	CardData playerBreakFromHand(boolean isP1, int i)  { return isP1 ? gameState.breakFromHand(i) : gameState.breakP2FromHand(i); }
+	void playerDullBackupSlot(boolean isP1, int idx) {
 		if (isP1) animateDullBackup(idx, true); else animateDullP2Backup(idx, true);
 	}
 
@@ -7782,7 +7776,7 @@ public class MainWindow {
 		}.execute();
 	}
 
-	private void breakP2BackupSlot(int idx) {
+	void breakP2BackupSlot(int idx) {
 		CardData c = p2BackupCards[idx];
 		if (c == null) return;
 		startBreakAnim(p2BackupLabels[idx]);
@@ -7800,11 +7794,11 @@ public class MainWindow {
 			p2BackupLabels[idx].setText(null);
 		}
 		refreshP2BreakLabel();
-		triggerAutoAbilitiesForLeavesField(c, false);
-		triggerAutoAbilitiesForBreakZone(c, false, Collections.emptySet());
+		autoAbilityTriggers.triggerAutoAbilitiesForLeavesField(c, false);
+		autoAbilityTriggers.triggerAutoAbilitiesForBreakZone(c, false, Collections.emptySet());
 	}
 
-	private void breakP2MonsterSlot(int idx) {
+	void breakP2MonsterSlot(int idx) {
 		if (idx >= p2MonsterCards.size()) return;
 		startBreakAnim(p2MonsterLabels.get(idx));
 		CardData c = p2MonsterCards.get(idx);
@@ -7826,7 +7820,7 @@ public class MainWindow {
 			p2MonsterPanel.repaint();
 		}
 		refreshP2BreakLabel();
-		triggerAutoAbilitiesForBreakZone(c, false, Collections.emptySet());
+		autoAbilityTriggers.triggerAutoAbilitiesForBreakZone(c, false, Collections.emptySet());
 	}
 
 	/**
@@ -7837,7 +7831,7 @@ public class MainWindow {
 	 * @param playedTurn  turn the card entered the field (0 = unknown)
 	 * @param sourceName  card name, needed for special-ability hand check
 	 */
-	private boolean canActivateAbility(ActionAbility ability, boolean isFrozen, CardState state,
+	boolean canActivateAbility(ActionAbility ability, boolean isFrozen, CardState state,
 			int playedTurn, CardData source, boolean isP1) {
 		if (ability.breakZoneOnly() != null) return false; // only activatable from the Break Zone
 		if (ability.yourTurnOnly()) {
@@ -7898,15 +7892,15 @@ public class MainWindow {
 		if (ability.controlCondition() != null && !controlConditionMet(ability.controlCondition(), isP1)) return false;
 		if (ability.crystalCost() > 0 && playerCrystals(isP1) < ability.crystalCost()) return false;
 		for (BreakZoneCost bz : ability.breakZoneCosts())
-			if (!bzCostSatisfied(bz, isP1)) return false;
+			if (!autoAbilityTriggers.bzCostSatisfied(bz, isP1)) return false;
 		for (RemoveFromGameCost rfg : ability.removeFromGameCosts())
-			if (!rfgCostSatisfied(rfg, isP1)) return false;
+			if (!autoAbilityTriggers.rfgCostSatisfied(rfg, isP1)) return false;
 		for (ReturnToHandCost rth : ability.returnToHandCosts())
-			if (!rfthCostSatisfied(rth, isP1)) return false;
+			if (!autoAbilityTriggers.rfthCostSatisfied(rth, isP1)) return false;
 		for (CounterCost cc : ability.counterCosts())
-			if (!counterCostSatisfied(cc, source)) return false;
+			if (!autoAbilityTriggers.counterCostSatisfied(cc, source)) return false;
 		for (DullForwardCost dfc : ability.dullForwardCosts())
-			if (!dullForwardCostSatisfied(dfc, isP1)) return false;
+			if (!autoAbilityTriggers.dullForwardCostSatisfied(dfc, isP1)) return false;
 		return canAffordAbilityCost(ability, isP1);
 	}
 
@@ -7914,7 +7908,7 @@ public class MainWindow {
 	 * Returns {@code true} when the "if you control [X]" restriction on an action ability is met
 	 * by the controlling player's current field state.
 	 */
-	private boolean controlConditionMet(ControlCondition cond, boolean isP1) {
+	boolean controlConditionMet(ControlCondition cond, boolean isP1) {
 		return controlConditionMetWithPools(cond,
 				isP1 ? p1ForwardCards : p2ForwardCards,
 				isP1 ? p1BackupCards  : p2BackupCards,
@@ -7975,7 +7969,7 @@ public class MainWindow {
 	}
 
 	/** Returns the effective element of {@code c}, applying any runtime override (e.g. Kam'lanaut). */
-	private String effectiveElement(CardData c) {
+	String effectiveElement(CardData c) {
 		String override = elementOverrideMap.get(c);
 		if (override != null) return override;
 		String[] elems = c.elements();
@@ -7986,7 +7980,7 @@ public class MainWindow {
 	 * Returns the effective element list of {@code c}, substituting the override element when present.
 	 * Used to compare against the currently-resolving Summon/ability's elements.
 	 */
-	private List<String> effectiveElements(CardData c) {
+	List<String> effectiveElements(CardData c) {
 		String override = elementOverrideMap.get(c);
 		return (override != null) ? List.of(override) : java.util.Arrays.asList(c.elements());
 	}
@@ -7995,11 +7989,11 @@ public class MainWindow {
 		return permanentExtraJobMap.get(card);
 	}
 
-	private boolean meetsJobFilterEffective(CardData card, String jobFilter) {
+	boolean meetsJobFilterEffective(CardData card, String jobFilter) {
 		return meetsJobFilter(card, jobFilter, effectiveExtraJob(card));
 	}
 
-	private boolean meetsJobFilterEffective(CardData card, String jobFilter,
+	boolean meetsJobFilterEffective(CardData card, String jobFilter,
 			List<CardData> controlledForwards) {
 		if (meetsJobFilter(card, jobFilter, controlledForwards)) return true;
 		String extra = effectiveExtraJob(card);
@@ -8014,7 +8008,7 @@ public class MainWindow {
 	 * targets {@code targetName} and grants it immunity to Summons ({@code forSummon=true})
 	 * or abilities ({@code forSummon=false}) while its conditions are currently met.
 	 */
-	private boolean icbGrantsImmunity(String targetName, boolean isP1, boolean forSummon) {
+	boolean icbGrantsImmunity(String targetName, boolean isP1, boolean forSummon) {
 		List<CardData> fwds = isP1 ? p1ForwardCards : p2ForwardCards;
 		CardData[]     bkps = isP1 ? p1BackupCards  : p2BackupCards;
 		List<CardData> mons = isP1 ? p1MonsterCards : p2MonsterCards;
@@ -8100,12 +8094,12 @@ public class MainWindow {
 				out.addAll(fpg.grantedTraits());
 	}
 
-	private int effectiveP1MonsterPower(int idx) {
+	int effectiveP1MonsterPower(int idx) {
 		CardData card = p1MonsterCards.get(idx);
 		return card.power() + computeConditionalBoostForTarget(card, true) + p1MonsterPowerBoost.getOrDefault(card, 0);
 	}
 
-	private int effectiveP2MonsterPower(int idx) {
+	int effectiveP2MonsterPower(int idx) {
 		CardData card = p2MonsterCards.get(idx);
 		return card.power() + computeConditionalBoostForTarget(card, false) + p2MonsterPowerBoost.getOrDefault(card, 0);
 	}
@@ -8118,2130 +8112,6 @@ public class MainWindow {
 		return base + computeConditionalBoostForTarget(card, true) + p1MonsterPowerBoost.getOrDefault(card, 0);
 	}
 
-	// -------------------------------------------------------------------------
-	// Auto Ability triggers
-	// -------------------------------------------------------------------------
-
-	/**
-	 * Matches "remove N [Name] Counter(s) from [CardName][.] When/If you do so, sub-effect".
-	 * Used for auto-ability costs that consume a named counter before resolving an effect.
-	 */
-	private static final Pattern FA_REMOVE_COUNTER_WHEN_DO_SO =
-			Pattern.compile(
-				"(?i)^remove\\s+(?<n>\\d+)\\s+(?<counterName>.+?)\\s+Counters?\\s+from" +
-				"\\s+(?<target>.+?)[.,!]\\s+(?:When|If)\\s+you\\s+do\\s+so[,.]?\\s+(?<sub>.+?)$",
-				Pattern.DOTALL
-			);
-
-	/**
-	 * Matches "remove N [type] [without 《Keyword》] [you control / opponent controls]
-	 * from the game. When/If you do so, sub-effect."
-	 * <ul>
-	 *   <li>{@code count}     — number of cards to remove</li>
-	 *   <li>{@code targets}   — card type: Backup, Forward, Monster, or Character</li>
-	 *   <li>{@code excludekw} — optional keyword exclusion (e.g. "Multicard") from "without 《Keyword》"</li>
-	 *   <li>{@code control}   — "you control" or "opponent controls"</li>
-	 *   <li>{@code sub}       — effect to execute after the removal succeeds</li>
-	 * </ul>
-	 */
-	private static final Pattern FA_REMOVE_FIELD_WHEN_DO_SO =
-			Pattern.compile(
-				"(?i)^remove\\s+(?<count>\\d+)\\s+" +
-				"(?<targets>Backups?|Forwards?|Monsters?|Characters?)\\s+" +
-				"(?:without\\s+《(?<excludekw>[^》]+)》\\s+)?" +
-				"(?<control>(?:your\\s+)?opponent\\s+controls|you\\s+control)\\s+" +
-				"from\\s+the\\s+game[.,]?\\s+" +
-				"(?:When|If)\\s+you\\s+do\\s+so[,.]?\\s+" +
-				"(?<sub>.+?)$",
-				Pattern.DOTALL
-			);
-
-	/**
-	 * Matches "put N [Job jobname / Card Name name / type] you control into the Break Zone.
-	 * When/If you do so, sub-effect."
-	 */
-	private static final Pattern FA_PUT_INTO_BZ_WHEN_DO_SO =
-			Pattern.compile(
-				"(?i)^put\\s+(?<count>\\d+)\\s+" +
-				"(?:" +
-					"Job\\s+(?<job>.+?)\\s+you\\s+control" +
-				"|" +
-					"Card\\s+Name\\s+(?<cardname>\\S+(?:\\s+\\([^)]+\\))?)\\s+you\\s+control" +
-				"|" +
-					"(?<type>Forwards?|Backups?|Monsters?|Characters?)\\s+you\\s+control" +
-				")" +
-				"\\s+into\\s+the\\s+Break\\s+Zone[.,]?\\s+" +
-				"(?:When|If)\\s+you\\s+do\\s+so[,.]?\\s+" +
-				"(?<sub>.+?)$",
-				Pattern.DOTALL
-			);
-
-	/**
-	 * Matches a card's own passive field ability text:
-	 * "If &lt;cardName&gt; is dealt damage by your opponent's Summons, the damage becomes 0 instead."
-	 * Checked inline in {@link #modifyIncomingDamage} against the receiving card's field abilities.
-	 */
-	private static final Pattern FA_NULLIFY_SUMMON_DAMAGE =
-			Pattern.compile(
-				"(?i)If\\s+(?<card>.+?)\\s+is\\s+dealt\\s+damage\\s+by\\s+your\\s+opponent's\\s+Summons?,\\s+the\\s+damage\\s+becomes\\s+0\\s+instead\\.?"
-			);
-
-	/**
-	 * Matches a card's own passive field ability text:
-	 * "If &lt;cardName&gt; is dealt damage by abilities, reduce the damage by N instead."
-	 * Gated by the surrounding {@link FieldAbility#damageThreshold()} when the parser captured
-	 * a "Damage N --" prefix. Applied inline in {@link #modifyIncomingDamage} when the damage
-	 * source is an ability (not a Summon, not combat).
-	 */
-	private static final Pattern FA_REDUCE_ABILITY_DAMAGE =
-			Pattern.compile(
-				"(?i)If\\s+(?<card>.+?)\\s+is\\s+dealt\\s+damage\\s+by\\s+abilities,\\s+reduce\\s+the\\s+damage\\s+by\\s+(?<reduction>\\d+)\\s+instead\\.?"
-			);
-
-	/** "If [name] deals damage to a Forward of cost N or more, double the damage instead." */
-	private static final Pattern FA_DOUBLE_DAMAGE_VS_COST_THRESHOLD =
-			Pattern.compile(
-				"(?i)If\\s+(?<name>.+?)\\s+deals?\\s+damage\\s+to\\s+a\\s+Forward\\s+of\\s+cost\\s+(?<cost>\\d+)" +
-				"\\s+or\\s+more,\\s+double\\s+the\\s+damage\\s+instead[.!]?"
-			);
-
-	/** "If [name] deals damage to a Forward due to an ability, double the damage instead." */
-	private static final Pattern FA_DOUBLE_ABILITY_DAMAGE =
-			Pattern.compile(
-				"(?i)If\\s+(?<name>.+?)\\s+deals?\\s+damage\\s+to\\s+a\\s+Forward\\s+due\\s+to\\s+an\\s+ability,\\s+double\\s+the\\s+damage\\s+instead[.!]?"
-			);
-
-	/**
-	 * Matches "select [up to] N of the M following actions. "action1" "action2" ..."
-	 * with an optional leading "if condition, " clause.
-	 * <ul>
-	 *   <li>{@code condition} — optional "if" clause text (without "if " prefix), e.g.
-	 *       {@code "you control a Job AVALANCHE Operative Forward"}</li>
-	 *   <li>{@code upTo}     — non-null when "up to" is present</li>
-	 *   <li>{@code select}   — how many actions the player chooses</li>
-	 *   <li>{@code total}    — total number of options listed</li>
-	 *   <li>{@code actions}  — the remainder containing the quoted action strings</li>
-	 * </ul>
-	 */
-	private static final Pattern FA_SELECT_FOLLOWING_ACTIONS =
-		Pattern.compile(
-			"(?i)^(?:if\\s+(?<condition>[^,]+),\\s+)?select\\s+(?<upTo>up\\s+to\\s+)?" +
-			"(?<select>\\d+)\\s+of\\s+the\\s+(?<total>\\d+)\\s+following\\s+actions?[.!]?\\s*" +
-			"(?<actions>.+)$",
-			Pattern.DOTALL
-		);
-
-	/** Extracts individual quoted action strings from the {@code actions} capture group above. */
-	private static final Pattern FA_QUOTED_ACTION =
-		Pattern.compile("\"([^\"]+)\"");
-
-	/** Matches "pay 《cost》[.] When/If you do so, sub-effect[. The maximum you can pay for 《X》 is N]". */
-	private static final Pattern FA_PAY_WHEN_DO_SO = Pattern.compile(
-		"(?i)^pay\\s+《([^》]+)》[.,]?\\s+(?:When|If)\\s+you\\s+do\\s+so[,.]?\\s+(.+?)(?:[.,]?\\s+The\\s+maximum\\s+you\\s+can\\s+pay\\s+for\\s+《X》\\s+is\\s+\\d+\\.?)?$",
-		Pattern.DOTALL
-	);
-	private static final Pattern FA_MAX_X = Pattern.compile(
-		"(?i)The\\s+maximum\\s+you\\s+can\\s+pay\\s+for\\s+《X》\\s+is\\s+(\\d+)"
-	);
-	private static final Set<String> ELEMENT_NAMES = Set.of(
-		"fire", "ice", "wind", "earth", "lightning", "water", "light", "dark"
-	);
-
-	private void triggerAutoAbilitiesForEntersField(CardData card, boolean isP1) {
-		if (suppressAutoAbilityForNextCard) {
-			suppressAutoAbilityForNextCard = false;
-			// Re-evaluate field boosts even when ETF auto-abilities are suppressed
-			refreshAllForwardSlots();
-			for (int i = 0; i < p2ForwardCards.size(); i++) refreshP2ForwardSlot(i);
-			return;
-		}
-		for (AutoAbility fa : card.autoAbilities()) {
-			if (!fa.triggerCard().equalsIgnoreCase(card.name())) continue;
-			if (fa.trigger().contains("enter")) executeAutoAbility(fa, card, isP1);
-		}
-		// Watcher dispatch: "When a <Type> enters your field, ..." abilities live on other field cards
-		// on the same side as the entering card.
-		fireEntersYourFieldWatchers(card, isP1);
-		// Re-evaluate all conditional field boosts now that the field composition has changed
-		refreshAllForwardSlots();
-		for (int i = 0; i < p2ForwardCards.size(); i++) refreshP2ForwardSlot(i);
-		showStackWindowIfNeeded();
-	}
-
-	/**
-	 * Fires "{@code <Type>} enters your field" auto-abilities on other field cards owned by the
-	 * same player as {@code enteringCard}. The watcher's {@link AutoAbility#triggerCard()} encodes
-	 * the type subject (e.g. "a Monster", "a Forward", "a Character") which is matched against
-	 * the entering card's type.
-	 */
-	private void fireEntersYourFieldWatchers(CardData enteringCard, boolean enteringIsP1) {
-		List<CardData> fwds = new ArrayList<>(enteringIsP1 ? p1ForwardCards : p2ForwardCards);
-		CardData[]     bkps = enteringIsP1 ? p1BackupCards : p2BackupCards;
-		List<CardData> mons = new ArrayList<>(enteringIsP1 ? p1MonsterCards : p2MonsterCards);
-		for (CardData c : fwds) fireEntersYourFieldWatcher(c, enteringCard, enteringIsP1);
-		for (CardData c : bkps) if (c != null) fireEntersYourFieldWatcher(c, enteringCard, enteringIsP1);
-		for (CardData c : mons) fireEntersYourFieldWatcher(c, enteringCard, enteringIsP1);
-	}
-
-	private void fireEntersYourFieldWatcher(CardData watcher, CardData enteringCard, boolean enteringIsP1) {
-		for (AutoAbility fa : watcher.autoAbilities()) {
-			if (!fa.trigger().equals("enters your field")) continue;
-			if (!matchesEntersFieldSubject(fa.triggerCard(), enteringCard)) continue;
-			executeAutoAbility(fa, watcher, enteringIsP1);
-		}
-	}
-
-	/** Returns {@code true} if {@code enteringCard}'s type matches the watcher's subject phrase. */
-	private boolean matchesEntersFieldSubject(String subject, CardData enteringCard) {
-		String s = subject.trim().toLowerCase(java.util.Locale.ROOT)
-				.replaceAll("^(?:a|an)\\s+", "");
-		return switch (s) {
-			case "monster", "monsters"     -> enteringCard.isMonster();
-			case "forward", "forwards"     -> enteringCard.isForward();
-			case "backup", "backups"       -> enteringCard.isBackup();
-			case "summon", "summons"       -> enteringCard.isSummon();
-			case "character", "characters" -> enteringCard.isForward() || enteringCard.isBackup() || enteringCard.isMonster();
-			default                        -> false;
-		};
-	}
-
-	private void triggerAutoAbilitiesForDealsDamageToOpponent(CardData attacker, boolean attackerIsP1) {
-		for (AutoAbility fa : attacker.autoAbilities()) {
-			if (!fa.triggerCard().equalsIgnoreCase(attacker.name())) continue;
-			if (fa.trigger().equals("deals damage to opponent")) executeAutoAbility(fa, attacker, attackerIsP1);
-		}
-		showStackWindowIfNeeded();
-	}
-
-	private void triggerAutoAbilitiesForPrimedInto(CardData primingCard, CardData primedCard, boolean primedCardIsP1) {
-		for (AutoAbility fa : primedCard.autoAbilities()) {
-			if (!fa.triggerCard().equalsIgnoreCase(primingCard.name())) continue;
-			if (fa.trigger().equals("primed into")) executeAutoAbility(fa, primedCard, primedCardIsP1);
-		}
-		showStackWindowIfNeeded();
-	}
-
-	private void triggerAutoAbilitiesForAttack(CardData card, boolean isP1) {
-		for (AutoAbility fa : card.autoAbilities()) {
-			if (!fa.triggerCard().equalsIgnoreCase(card.name())) continue;
-			if (fa.trigger().contains("attack")) executeAutoAbility(fa, card, isP1);
-		}
-		// Fire any temporary attack triggers registered this turn by action abilities
-		Map<CardData, List<Consumer<GameContext>>> tempTriggers
-				= isP1 ? p1TempAttackTriggers : p2TempAttackTriggers;
-		List<Consumer<GameContext>> effects = tempTriggers.get(card);
-		if (effects != null) {
-			GameContext ctx = buildGameContext(isP1);
-			for (Consumer<GameContext> effect : effects)
-				effect.accept(ctx);
-		}
-		showStackWindowIfNeeded();
-	}
-
-	private void triggerAutoAbilitiesForBlock(CardData card, boolean isP1) {
-		for (AutoAbility fa : card.autoAbilities()) {
-			if (!fa.triggerCard().equalsIgnoreCase(card.name())) continue;
-			String t = fa.trigger();
-			if (t.equals("blocks") || t.equals("attacks or blocks") || t.equals("blocks or is blocked"))
-				executeAutoAbility(fa, card, isP1);
-		}
-		Map<CardData, List<Consumer<GameContext>>> tempTriggers
-				= isP1 ? p1TempBlockTriggers : p2TempBlockTriggers;
-		List<Consumer<GameContext>> effects = tempTriggers.get(card);
-		if (effects != null) {
-			GameContext ctx = buildGameContext(isP1);
-			for (Consumer<GameContext> effect : effects)
-				effect.accept(ctx);
-		}
-		showStackWindowIfNeeded();
-	}
-
-	private void triggerAutoAbilitiesForIsBlocked(CardData card, boolean isP1) {
-		for (AutoAbility fa : card.autoAbilities()) {
-			if (!fa.triggerCard().equalsIgnoreCase(card.name())) continue;
-			String t = fa.trigger();
-			if (t.equals("is blocked") || t.equals("blocks or is blocked"))
-				executeAutoAbility(fa, card, isP1);
-		}
-		showStackWindowIfNeeded();
-	}
-
-	/**
-	 * Fires "party attacks" field abilities on every card the controller has on the field,
-	 * filtering by any party-composition requirements encoded in the {@link AutoAbility}.
-	 *
-	 * @param partyMembers the CardData objects that are attacking in the party
-	 */
-	private void triggerAutoAbilitiesForPartyAttack(boolean isP1, List<CardData> partyMembers) {
-		List<CardData> fwds = new ArrayList<>(isP1 ? p1ForwardCards : p2ForwardCards);
-		for (CardData card : fwds) {
-			for (AutoAbility fa : card.autoAbilities()) {
-				if (!fa.trigger().equals("party attacks")) continue;
-				if (!partyAttackMatchesFilter(fa, partyMembers)) continue;
-				executeAutoAbility(fa, card, isP1);
-			}
-		}
-		CardData[] bkps = isP1 ? p1BackupCards : p2BackupCards;
-		for (CardData card : bkps) {
-			if (card == null) continue;
-			for (AutoAbility fa : card.autoAbilities()) {
-				if (!fa.trigger().equals("party attacks")) continue;
-				if (!partyAttackMatchesFilter(fa, partyMembers)) continue;
-				executeAutoAbility(fa, card, isP1);
-			}
-		}
-		showStackWindowIfNeeded();
-	}
-
-	/** Returns true when the party composition satisfies all filter fields of a "party attacks" ability. */
-	private boolean partyAttackMatchesFilter(AutoAbility fa, List<CardData> partyMembers) {
-		if (fa.partyCardName() != null) {
-			boolean found = partyMembers.stream()
-					.anyMatch(m -> m.name().equalsIgnoreCase(fa.partyCardName()));
-			if (!found) return false;
-		}
-		if (fa.partyMinCount() > 0) {
-			long qualifying = partyMembers.stream()
-					.filter(m -> partyMemberMatchesCountFilter(m, fa))
-					.count();
-			if (qualifying < fa.partyMinCount()) return false;
-		}
-		return true;
-	}
-
-	/** Returns true when {@code member} satisfies the category/job filter of a party-attack ability. */
-	private boolean partyMemberMatchesCountFilter(CardData member, AutoAbility fa) {
-		if (fa.partyCategory() != null) {
-			boolean hasCategory =
-					(member.category1() != null && member.category1().equalsIgnoreCase(fa.partyCategory())) ||
-					(member.category2() != null && member.category2().equalsIgnoreCase(fa.partyCategory()));
-			if (!hasCategory) return false;
-		}
-		if (fa.partyJob() != null) {
-			boolean hasJob = member.jobs().stream()
-					.anyMatch(j -> j.equalsIgnoreCase(fa.partyJob()));
-			if (!hasJob) return false;
-		}
-		return true;
-	}
-
-	/** Subject pattern for break-zone triggers: "a [Type] [you|opponent] control[s]". */
-	private static final Pattern BZ_SUBJECT_TYPE = Pattern.compile(
-		"(?i)^a\\s+(?<type>Character|Forward|Backup|Monster)\\s+(?<ctrl>you|opponent)\\s+controls?$"
-	);
-	/** "Chocobo forming a party" — fires when the named card itself was in a party when broken. */
-	private static final Pattern BZ_SUBJECT_SELF_PARTY = Pattern.compile(
-		"(?i)^(?<name>.+?)\\s+forming\\s+a\\s+party$"
-	);
-	/** "a Forward forming a party with Bobby Corwen" — fires when another party member of the source card is broken. */
-	private static final Pattern BZ_SUBJECT_PARTY_MEMBER = Pattern.compile(
-		"(?i)^a\\s+Forward\\s+forming\\s+a\\s+party\\s+with\\s+(?<name>.+?)$"
-	);
-
-	/**
-	 * Returns true when the broken card satisfies the break-zone trigger subject of {@code fa}.
-	 * Handles named cards ("Geomancer"), type+controller phrases ("a Forward you control"),
-	 * and "forming a party" variants.
-	 *
-	 * @param source       the card that owns the auto-ability
-	 * @param partyMembers CardData objects that were in the attacker's party when the break occurred
-	 */
-	private boolean matchesBreakZoneSubject(AutoAbility fa, CardData source, CardData broken,
-			boolean brokenIsP1, boolean abilityOwnerIsP1, Set<CardData> partyMembers) {
-		String subject = fa.triggerCard().trim();
-
-		// "Chocobo forming a party" — broken card is the named card and was in a party
-		Matcher selfPartyM = BZ_SUBJECT_SELF_PARTY.matcher(subject);
-		if (selfPartyM.matches()) {
-			String name = selfPartyM.group("name").trim();
-			return broken.name().equalsIgnoreCase(name) && partyMembers.contains(broken);
-		}
-
-		// "a Forward forming a party with Bobby Corwen" — another forward in source's party was broken
-		Matcher partyMemberM = BZ_SUBJECT_PARTY_MEMBER.matcher(subject);
-		if (partyMemberM.matches()) {
-			String sourceName = partyMemberM.group("name").trim();
-			return broken.isForward()
-				&& !broken.name().equalsIgnoreCase(sourceName)
-				&& partyMembers.contains(broken)
-				&& partyMembers.contains(source);
-		}
-
-		Matcher m = BZ_SUBJECT_TYPE.matcher(subject);
-		if (m.matches()) {
-			boolean selfCtrl     = m.group("ctrl").equalsIgnoreCase("you");
-			boolean brokenByOwner = (brokenIsP1 == abilityOwnerIsP1);
-			if (selfCtrl != brokenByOwner) return false;
-			return switch (m.group("type").toLowerCase(java.util.Locale.ROOT)) {
-				case "forward"   -> broken.isForward();
-				case "backup"    -> broken.isBackup();
-				case "monster"   -> broken.isMonster();
-				default          -> !broken.isSummon(); // "Character" = any non-Summon field card
-			};
-		}
-		// Fall back to named card match (handles "Geomancer", etc.)
-		return broken.name().equalsIgnoreCase(subject);
-	}
-
-	/**
-	 * Fires "put into break zone" field abilities on all field cards whose subject matches
-	 * the card that just broke.  Must be called after the card is removed from the field.
-	 *
-	 * @param partyMembers the set of CardData objects that were in the attacking party at the time
-	 *                     of the break; empty when the break did not occur during a party attack
-	 */
-	private void triggerAutoAbilitiesForBreakZone(CardData broken, boolean brokenIsP1,
-			Set<CardData> partyMembers) {
-		for (int pass = 0; pass < 2; pass++) {
-			boolean ownerIsP1 = (pass == 0);
-			List<CardData> fwds = new ArrayList<>(ownerIsP1 ? p1ForwardCards : p2ForwardCards);
-			CardData[]     bkps = ownerIsP1 ? p1BackupCards : p2BackupCards;
-			List<CardData> mons = new ArrayList<>(ownerIsP1 ? p1MonsterCards : p2MonsterCards);
-			for (CardData c : fwds) fireBreakZoneTriggers(c, ownerIsP1, broken, brokenIsP1, partyMembers);
-			for (CardData c : bkps) if (c != null) fireBreakZoneTriggers(c, ownerIsP1, broken, brokenIsP1, partyMembers);
-			for (CardData c : mons) fireBreakZoneTriggers(c, ownerIsP1, broken, brokenIsP1, partyMembers);
-		}
-		showStackWindowIfNeeded();
-	}
-
-	private void fireBreakZoneTriggers(CardData card, boolean ownerIsP1, CardData broken,
-			boolean brokenIsP1, Set<CardData> partyMembers) {
-		for (AutoAbility fa : card.autoAbilities()) {
-			if (!fa.trigger().equals("put into break zone")) continue;
-			if (!matchesBreakZoneSubject(fa, card, broken, brokenIsP1, ownerIsP1, partyMembers)) continue;
-			executeAutoAbility(fa, card, ownerIsP1);
-		}
-	}
-
-	/**
-	 * Fires "leaves the field" field abilities that belong to {@code departing} itself.
-	 * Call this after the card has been removed from all field tracking lists.
-	 */
-	private void triggerAutoAbilitiesForLeavesField(CardData departing, boolean isP1) {
-		for (AutoAbility fa : departing.autoAbilities()) {
-			if (!fa.trigger().equals("leaves the field")) continue;
-			if (!fa.triggerCard().equalsIgnoreCase(departing.name())) continue;
-			executeAutoAbility(fa, departing, isP1);
-		}
-		gameState.clearCounters(departing);
-		// Re-evaluate all conditional field boosts now that the field composition has changed
-		refreshAllForwardSlots();
-		for (int i = 0; i < p2ForwardCards.size(); i++) refreshP2ForwardSlot(i);
-		showStackWindowIfNeeded();
-	}
-
-	/** Fires "cast summon" field abilities for all field cards belonging to the casting player. */
-	private void triggerAutoAbilitiesForCastSummon(boolean isP1) {
-		triggerAutoAbilitiesForEvent("cast summon", isP1);
-	}
-
-	/** Fires "damage zone" field abilities for all field cards belonging to the player who took damage. */
-	private void triggerAutoAbilitiesForDamageZone(boolean isP1) {
-		triggerAutoAbilitiesForEvent("damage zone", isP1);
-	}
-
-	/** Fires "either player receives damage" abilities on all field cards from both sides. */
-	private void triggerAutoAbilitiesForEitherPlayerReceivesDamage() {
-		triggerAutoAbilitiesForEvent("either player receives damage", true);
-		triggerAutoAbilitiesForEvent("either player receives damage", false);
-	}
-
-	/** Fires "you receive damage" abilities on all field cards belonging to the player who took damage. */
-	private void triggerAutoAbilitiesForYouReceiveDamage(boolean isP1) {
-		triggerAutoAbilitiesForEvent("you receive damage", isP1);
-	}
-
-	/**
-	 * Resolves the EX Burst effect on {@code card} for the player whose damage zone received it.
-	 * The controlling player may decline; if accepted the effect resolves immediately, bypassing
-	 * the stack so neither player can respond.
-	 * Summon effects run the full card effect; forward/backup/monster effects strip the auto-ability
-	 * trigger prefix and run the bare effect text.
-	 */
-	private void triggerExBurst(CardData card, boolean isP1) {
-		String effect = card.exBurstEffect();
-		if (effect.isEmpty()) {
-			logEntry("[EX BURST] " + card.name() + " — no parseable effect");
-			return;
-		}
-		Consumer<GameContext> fn = ActionResolver.parse(effect, card);
-		if (fn == null) {
-			logEntry("[EX BURST] Effect not yet implemented: " + effect);
-			return;
-		}
-		if (isP1) {
-			JDialog dlg = new JDialog(frame, "EX Burst — " + card.name(), true);
-			dlg.setResizable(false);
-			dlg.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
-
-			JLabel cardLabel = new JLabel("...", SwingConstants.CENTER);
-			cardLabel.setPreferredSize(new Dimension(CARD_W, CARD_H));
-			cardLabel.setMinimumSize(new Dimension(CARD_W, CARD_H));
-			cardLabel.setOpaque(true);
-			cardLabel.setBackground(Color.DARK_GRAY);
-			cardLabel.setBorder(BorderFactory.createLineBorder(new Color(160, 110, 220), 1));
-			cardLabel.addMouseListener(new MouseAdapter() {
-				@Override public void mouseEntered(MouseEvent e) { showZoomAt(card.imageUrl()); }
-				@Override public void mouseExited(MouseEvent e)  { hideZoom(); }
-			});
-			new SwingWorker<ImageIcon, Void>() {
-				@Override protected ImageIcon doInBackground() throws Exception {
-					Image img = ImageCache.load(card.imageUrl());
-					return img == null ? null : new ImageIcon(img.getScaledInstance(CARD_W, CARD_H, Image.SCALE_SMOOTH));
-				}
-				@Override protected void done() {
-					try { ImageIcon ic = get(); if (ic != null) { cardLabel.setIcon(ic); cardLabel.setText(null); } }
-					catch (InterruptedException | ExecutionException ignored) {}
-				}
-			}.execute();
-
-			JLabel nameLabel = new JLabel(card.name(), SwingConstants.CENTER);
-			nameLabel.setFont(FontLoader.loadPixelNESFont(9));
-			nameLabel.setPreferredSize(new Dimension(CARD_W, 18));
-
-			JLabel effectLabel = new JLabel(
-					"<html><div style='text-align:center;width:" + CARD_W + "px'>" + effect + "</div></html>",
-					SwingConstants.CENTER);
-
-			JPanel infoPanel = new JPanel();
-			infoPanel.setLayout(new BoxLayout(infoPanel, BoxLayout.Y_AXIS));
-			nameLabel.setAlignmentX(java.awt.Component.CENTER_ALIGNMENT);
-			effectLabel.setAlignmentX(java.awt.Component.CENTER_ALIGNMENT);
-			infoPanel.add(nameLabel);
-			infoPanel.add(effectLabel);
-
-			JPanel wrapper = new JPanel(new BorderLayout(0, 4));
-			wrapper.setBorder(BorderFactory.createEmptyBorder(8, 8, 0, 8));
-			wrapper.add(cardLabel,  BorderLayout.CENTER);
-			wrapper.add(infoPanel,  BorderLayout.SOUTH);
-
-			boolean[] activated = {false};
-			JButton declineBtn = new JButton("Decline");
-			declineBtn.setFont(FontLoader.loadPixelNESFont(11));
-			declineBtn.addActionListener(ae -> { hideZoom(); dlg.dispose(); });
-			JButton okBtn = new JButton("OK");
-			okBtn.setFont(FontLoader.loadPixelNESFont(11));
-			okBtn.addActionListener(ae -> { activated[0] = true; hideZoom(); dlg.dispose(); });
-
-			JPanel south = new JPanel(new FlowLayout(FlowLayout.CENTER, 12, 6));
-			south.add(declineBtn);
-			south.add(okBtn);
-			south.setBorder(BorderFactory.createEmptyBorder(0, 8, 8, 8));
-
-			dlg.getContentPane().setLayout(new BorderLayout(0, 4));
-			dlg.getContentPane().add(wrapper, BorderLayout.CENTER);
-			dlg.getContentPane().add(south,   BorderLayout.SOUTH);
-			dlg.pack();
-			dlg.setLocationRelativeTo(frame);
-			dlg.setVisible(true);
-
-			if (!activated[0]) {
-				logEntry("[EX BURST] " + card.name() + " — declined");
-				return;
-			}
-		} else {
-			logEntry("[EX BURST] [AI] " + card.name() + " — auto-activates");
-		}
-		logEntry("[EX BURST] " + card.name() + " — " + effect);
-		if (card.isSummon()) { currentResolutionIsSummon = true; currentSummonSource = card; }
-		try { fn.accept(buildGameContext(isP1, true)); } finally { currentResolutionIsSummon = false; currentSummonSource = null; }
-	}
-
-	/**
-	 * Fires "warp placed" field abilities on all P1 field cards whose {@code triggerCard}
-	 * matches the card that was just moved from hand to the Warp zone.
-	 */
-	private void triggerAutoAbilitiesForWarpPlaced(CardData warped) {
-		List<CardData> all = new ArrayList<>();
-		all.addAll(p1ForwardCards);
-		for (CardData c : p1BackupCards) if (c != null) all.add(c);
-		all.addAll(p1MonsterCards);
-		for (CardData card : all)
-			for (AutoAbility fa : card.autoAbilities())
-				if (fa.trigger().equals("warp placed")
-						&& fa.triggerCard().equalsIgnoreCase(warped.name()))
-					executeAutoAbility(fa, card, true);
-		showStackWindowIfNeeded();
-	}
-
-	/**
-	 * Fires "warp counter removed" field abilities on all P1 field cards whose
-	 * {@code triggerCard} matches the card whose counter was just decremented.
-	 */
-	private void triggerAutoAbilitiesForWarpCounterRemoved(CardData target) {
-		List<CardData> all = new ArrayList<>();
-		List<GameState.WarpEntry> warpZone = gameState.getP1WarpZone();
-		all.addAll(p1ForwardCards);
-		for (CardData c : p1BackupCards) if (c != null) all.add(c);
-		for (GameState.WarpEntry we : warpZone) if (we != null) all.add(we.card);
-		all.addAll(p1MonsterCards);
-		for (CardData card : all)
-			for (AutoAbility fa : card.autoAbilities())
-				if (fa.trigger().equals("warp counter removed")
-						&& (fa.triggerCard().equalsIgnoreCase("any player's card") || fa.triggerCard().equalsIgnoreCase(target.name())))
-					executeAutoAbility(fa, card, true);
-		showStackWindowIfNeeded();
-	}
-
-	private void triggerAutoAbilitiesForEvent(String triggerType, boolean isP1) {
-		List<CardData> fwds = new ArrayList<>(isP1 ? p1ForwardCards : p2ForwardCards);
-		CardData[]     bkps = isP1 ? p1BackupCards : p2BackupCards;
-		List<CardData> mons = new ArrayList<>(isP1 ? p1MonsterCards : p2MonsterCards);
-		for (CardData c : fwds) fireEventTriggers(c, isP1, triggerType);
-		for (CardData c : bkps) if (c != null) fireEventTriggers(c, isP1, triggerType);
-		for (CardData c : mons) fireEventTriggers(c, isP1, triggerType);
-		showStackWindowIfNeeded();
-	}
-
-	private void fireEventTriggers(CardData card, boolean isP1, String triggerType) {
-		for (AutoAbility fa : card.autoAbilities())
-			if (fa.trigger().equals(triggerType))
-				executeAutoAbility(fa, card, isP1);
-	}
-
-	/**
-	 * Resolves a triggered auto ability.  When the ability is optional ({@code youMay} or
-	 * {@code opponentMay}), P1 is shown a Decline / OK dialog; the AI always accepts.
-	 *
-	 * <p>For {@code opponentMay} effects the execution context is flipped to the opponent's
-	 * perspective so that "play from hand" and similar effects target the correct player.
-	 */
-	private void executeAutoAbility(AutoAbility fa, CardData source, boolean isP1) {
-		// Damage threshold: skip if the controlling player doesn't have enough damage counters
-		if (fa.damageThreshold() > 0) {
-			int dmg = isP1 ? gameState.getP1DamageZone().size() : gameState.getP2DamageZone().size();
-			if (dmg < fa.damageThreshold()) return;
-		}
-
-		// "only during your turn" — skip when the ability owner is not the active player
-		if (fa.yourTurnOnly() && !isP1) return;
-
-		// cast payment element condition: "if the cost to cast X was paid with CP of N or more different Elements"
-		if (fa.castPaymentMinElements() > 0 && lastCastPaymentDistinctElements < fa.castPaymentMinElements()) {
-			logEntry("[AutoAbility] " + source.name() + " — cast payment condition not met ("
-					+ lastCastPaymentDistinctElements + " distinct element(s), needed "
-					+ fa.castPaymentMinElements() + ")");
-			return;
-		}
-
-		// "due to your cast" — only fires when the card entered the field by being cast from hand
-		if (fa.castOnly() && !lastCardWasCast) return;
-
-		// "due to Warp" — only fires when the card entered the field via Warp resolution
-		if (fa.warpOnly() && !lastCardWarpedIn) return;
-
-		// "only if [card] is removed from the game" — skip if that card is not in the RFP zone
-		if (!fa.rfpConditionCard().isEmpty()) {
-			String cond = fa.rfpConditionCard();
-			boolean inRfp = gameState.getP1WarpZone().stream()
-					.anyMatch(e -> e.card.name().equalsIgnoreCase(cond))
-					|| gameState.getP1PermanentRfp().stream()
-					.anyMatch(c -> c.name().equalsIgnoreCase(cond));
-			if (!inRfp) return;
-		}
-
-		// "only once per turn" — skip if already fired this turn
-		if (fa.oncePerTurn() && usedOncePerTurnAbilities
-				.getOrDefault(source, Set.of()).contains(fa.effectText())) {
-			logEntry("[AutoAbility] " + source.name() + " — already used this turn, skipping");
-			return;
-		}
-
-		// opponentMay effects run from the opponent's context
-		boolean effectIsP1 = fa.opponentMay() ? !isP1 : isP1;
-
-		// Detect "remove N [Name] Counter(s) from [CardName]. When you do so, [effect]"
-		Matcher ctrM = FA_REMOVE_COUNTER_WHEN_DO_SO.matcher(fa.effectText());
-		if (ctrM.find()) {
-			executeCounterRemovalWhenDoSoAutoAbility(fa, source, isP1, effectIsP1, ctrM);
-			return;
-		}
-
-		// Detect "pay 《X/N》. When you do so, [effect]" — requires a payment dialog before resolving.
-		Matcher payM = FA_PAY_WHEN_DO_SO.matcher(fa.effectText());
-		if (payM.find()) {
-			executePayWhenDoSoAutoAbility(fa, source, isP1, effectIsP1, payM);
-			return;
-		}
-
-		// Detect "remove N [type] [without 《Keyword》] you control from the game. When you do so, [effect]"
-		Matcher rfM = FA_REMOVE_FIELD_WHEN_DO_SO.matcher(fa.effectText());
-		if (rfM.find()) {
-			executeRemoveFieldWhenDoSoAutoAbility(fa, source, isP1, effectIsP1, rfM);
-			return;
-		}
-
-		// Detect "put N [Job/CardName/type] you control into the Break Zone. When you do so, [effect]"
-		Matcher bzM = FA_PUT_INTO_BZ_WHEN_DO_SO.matcher(fa.effectText());
-		if (bzM.find()) {
-			executePutIntoBzWhenDoSoAutoAbility(fa, source, isP1, effectIsP1, bzM);
-			return;
-		}
-
-		// Detect "select [up to] N of the M following actions. "..." "..."..."
-		Matcher selM = FA_SELECT_FOLLOWING_ACTIONS.matcher(fa.effectText());
-		if (selM.find()) {
-			executeSelectFollowingActionsAutoAbility(fa, source, isP1, effectIsP1, selM);
-			return;
-		}
-
-		// Verify the effect is parseable before putting it on the stack.
-		if (ActionResolver.parse(fa.effectText(), source) == null) {
-			logEntry("[AutoAbility] Unrecognized effect: " + fa.effectText());
-			return;
-		}
-
-		// youMay / opponentMay: player decides at trigger time whether to put ability on stack.
-		boolean p1GetsDialog = (fa.youMay() && isP1) || (fa.opponentMay() && !isP1);
-		if (p1GetsDialog) {
-			// If the effect requires discarding a card of a specific type, skip offering
-			// when the player has no eligible cards in hand — nothing to choose from.
-			String discardType = ActionResolver.youMayDiscardType(fa.effectText());
-			if (discardType != null) {
-				List<CardData> hand = effectIsP1 ? gameState.getP1Hand() : gameState.getP2Hand();
-				boolean hasEligible = hand.stream().anyMatch(c -> matchesDiscardType(c, discardType));
-				if (!hasEligible) {
-					logEntry("[AutoAbility] " + source.name() + " — no " + discardType + " in hand, offer skipped");
-					return;
-				}
-			}
-			int discardCount = ActionResolver.youMayDiscardCount(fa.effectText());
-			if (discardCount > 0) {
-				List<CardData> hand = effectIsP1 ? gameState.getP1Hand() : gameState.getP2Hand();
-				if (hand.size() < discardCount) {
-					logEntry("[AutoAbility] " + source.name() + " — need " + discardCount + " cards to discard, have " + hand.size() + ", offer skipped");
-					return;
-				}
-			}
-			String prompt = (fa.youMay() ? "You may: " : "Your opponent may: ") + fa.effectText();
-			int choice = showEffectOptionDialog(source.name() + " — " + prompt,
-					"Auto Ability", new Object[]{"OK", "Decline"});
-			if (choice != 0) {
-				logEntry("[AutoAbility] " + source.name() + " — optional effect declined");
-				return;
-			}
-		} else if (fa.youMay() || fa.opponentMay()) {
-			logEntry("[AutoAbility] [AI] auto-accepts optional ability");
-		}
-
-		if (fa.oncePerTurn())
-			usedOncePerTurnAbilities.computeIfAbsent(source, k -> new HashSet<>()).add(fa.effectText());
-
-		logEntry("[AutoAbility] " + source.name() + " — pushed to stack");
-		gameState.pushStack(new StackEntry(source, null, fa, effectIsP1, 0, false));
-	}
-
-	private void executeCounterRemovalWhenDoSoAutoAbility(AutoAbility fa, CardData source,
-			boolean isP1, boolean effectIsP1, Matcher m) {
-		int    n           = Integer.parseInt(m.group("n"));
-		String counterName = m.group("counterName").trim();
-		String subEffect   = m.group("sub").trim();
-
-		// Require enough counters to be present; skip silently if not.
-		if (gameState.getCounters(source, counterName) < n) {
-			logEntry("[AutoAbility] " + source.name() + " — not enough " + counterName
-					+ " Counters (need " + n + ", have " + gameState.getCounters(source, counterName) + ")");
-			return;
-		}
-
-		// youMay / AI decision
-		boolean p1GetsDialog = (fa.youMay() && isP1) || (fa.opponentMay() && !isP1);
-		if (p1GetsDialog) {
-			String prompt = (fa.youMay() ? "You may: " : "Your opponent may: ") + fa.effectText();
-			int choice = showEffectOptionDialog(source.name() + " — " + prompt,
-					"Auto Ability", new Object[]{"OK", "Decline"});
-			if (choice != 0) {
-				logEntry("[AutoAbility] " + source.name() + " — optional effect declined");
-				return;
-			}
-		} else if (fa.youMay() || fa.opponentMay()) {
-			logEntry("[AutoAbility] [AI] auto-accepts optional ability");
-		}
-
-		// Remove the counter(s)
-		int removed = gameState.removeCounters(source, counterName, n);
-		logEntry("[AutoAbility] " + source.name() + " — removed " + removed + " " + counterName
-				+ " Counter(s)  [remaining: " + gameState.getCounters(source, counterName) + "]");
-
-		// Execute the sub-effect
-		Consumer<GameContext> effect = ActionResolver.parse(subEffect, source);
-		if (effect == null) {
-			logEntry("[AutoAbility] Unrecognized counter-removal sub-effect: " + subEffect);
-			return;
-		}
-		logEntry("[AutoAbility] " + source.name() + " — when you do so: " + subEffect);
-		effect.accept(buildGameContext(effectIsP1));
-	}
-
-	private void executeRemoveFieldWhenDoSoAutoAbility(AutoAbility fa, CardData source,
-			boolean isP1, boolean effectIsP1, Matcher m) {
-		int     count          = Integer.parseInt(m.group("count"));
-		String  targetsRaw     = m.group("targets").toLowerCase(java.util.Locale.ROOT);
-		String  rawExcludeKw   = m.group("excludekw");
-		boolean withoutMulticard = "Multicard".equalsIgnoreCase(rawExcludeKw != null ? rawExcludeKw.trim() : null);
-		String  control        = m.group("control").toLowerCase(java.util.Locale.ROOT);
-		boolean opponentOnly   = !control.contains("you control");
-		boolean selfOnly       = !opponentOnly;
-		boolean inclForwards   = targetsRaw.contains("forward") || targetsRaw.contains("character");
-		boolean inclBackups    = targetsRaw.contains("backup")  || targetsRaw.contains("character");
-		boolean inclMonsters   = targetsRaw.contains("monster") || targetsRaw.contains("character");
-		String  subEffect      = m.group("sub").trim();
-
-		// youMay / AI decision
-		boolean p1GetsDialog = (fa.youMay() && isP1) || (fa.opponentMay() && !isP1);
-		if (p1GetsDialog) {
-			String prompt = (fa.youMay() ? "You may: " : "Your opponent may: ") + fa.effectText();
-			int choice = showEffectOptionDialog(source.name() + " — " + prompt,
-					"Auto Ability", new Object[]{"OK", "Decline"});
-			if (choice != 0) {
-				logEntry("[AutoAbility] " + source.name() + " — optional effect declined");
-				return;
-			}
-		} else if (fa.youMay() || fa.opponentMay()) {
-			logEntry("[AutoAbility] [AI] auto-accepts optional ability");
-		}
-
-		// Select the card(s) to remove from the field
-		GameContext ctx = buildGameContext(effectIsP1);
-		java.util.List<ForwardTarget> targets = ctx.selectCharacters(count, false,
-				opponentOnly, selfOnly, null, null, -1, null, -1, null,
-				inclForwards, inclBackups, inclMonsters, null, null, null, null, false, null, withoutMulticard);
-		if (targets.isEmpty()) {
-			logEntry("[AutoAbility] " + source.name() + " — no valid target for field removal");
-			return;
-		}
-
-		// Rebuild ctx after selectCharacters in case field indices shifted; remove targets
-		GameContext ctx2 = buildGameContext(effectIsP1);
-		targets.forEach(t -> ctx2.removeTargetFromGame(t));
-
-		// Parse and execute the sub-effect ("Its auto-ability will not trigger." is handled inside tryParsePlayFromHand)
-		Consumer<GameContext> effect = ActionResolver.parse(subEffect, source);
-		if (effect == null) {
-			logEntry("[AutoAbility] Unrecognized sub-effect: " + subEffect);
-			return;
-		}
-		logEntry("[AutoAbility] " + source.name() + " — when you do so: " + subEffect);
-		effect.accept(buildGameContext(effectIsP1));
-	}
-
-	private void executePutIntoBzWhenDoSoAutoAbility(AutoAbility fa, CardData source,
-			boolean isP1, boolean effectIsP1, Matcher m) {
-		int    count         = Integer.parseInt(m.group("count"));
-		String jobRaw        = m.group("job");
-		String cardNameRaw   = m.group("cardname");
-		String typeRaw       = m.group("type");
-		String subEffect     = m.group("sub").trim();
-
-		String jobFilter      = jobRaw      != null ? jobRaw.trim()      : null;
-		String cardNameFilter = cardNameRaw != null ? cardNameRaw.trim() : null;
-		boolean inclForwards, inclBackups, inclMonsters;
-		if (jobFilter != null || cardNameFilter != null) {
-			inclForwards = inclBackups = inclMonsters = true;
-		} else if (typeRaw != null) {
-			String tl = typeRaw.toLowerCase(java.util.Locale.ROOT);
-			inclForwards = tl.contains("forward") || tl.contains("character");
-			inclBackups  = tl.contains("backup")  || tl.contains("character");
-			inclMonsters = tl.contains("monster") || tl.contains("character");
-		} else {
-			inclForwards = inclBackups = inclMonsters = true;
-		}
-
-		// youMay / AI decision
-		boolean p1GetsDialog = (fa.youMay() && isP1) || (fa.opponentMay() && !isP1);
-		if (p1GetsDialog) {
-			String prompt = (fa.youMay() ? "You may: " : "Your opponent may: ") + fa.effectText();
-			int choice = showEffectOptionDialog(source.name() + " — " + prompt,
-					"Auto Ability", new Object[]{"OK", "Decline"});
-			if (choice != 0) {
-				logEntry("[AutoAbility] " + source.name() + " — optional effect declined");
-				return;
-			}
-		} else if (fa.youMay() || fa.opponentMay()) {
-			logEntry("[AutoAbility] [AI] auto-accepts optional ability");
-		}
-
-		// Select the card(s) to put into the Break Zone
-		GameContext ctx = buildGameContext(effectIsP1);
-		java.util.List<ForwardTarget> targets = ctx.selectCharacters(count, false,
-				false, true, null, null, -1, null, -1, null,
-				inclForwards, inclBackups, inclMonsters, jobFilter, cardNameFilter, null, null, false, null, false);
-		if (targets.isEmpty()) {
-			logEntry("[AutoAbility] " + source.name() + " — no eligible target to put into Break Zone, sub-effect skipped");
-			return;
-		}
-
-		// Rebuild ctx after selectCharacters in case field indices shifted; break the targets
-		GameContext ctx2 = buildGameContext(effectIsP1);
-		targets.forEach(t -> ctx2.forceTargetToBreakZone(t));
-
-		// Parse and execute the sub-effect
-		Consumer<GameContext> effect = ActionResolver.parse(subEffect, source);
-		if (effect == null) {
-			logEntry("[AutoAbility] Unrecognized sub-effect: " + subEffect);
-			return;
-		}
-		logEntry("[AutoAbility] " + source.name() + " — when you do so: " + subEffect);
-		effect.accept(buildGameContext(effectIsP1));
-	}
-
-	private void executePayWhenDoSoAutoAbility(AutoAbility fa, CardData source, boolean isP1,
-			boolean effectIsP1, Matcher payM) {
-		String costToken = payM.group(1).trim();
-		String subEffect = payM.group(2).trim().replaceAll("[.!,]+$", "");
-
-		boolean isXCost = costToken.equalsIgnoreCase("X");
-		boolean isElementCost = !isXCost && ELEMENT_NAMES.stream()
-				.anyMatch(e -> costToken.toLowerCase(java.util.Locale.ROOT).contains(e));
-		int fixedCost;
-		if (!isXCost) {
-			if (isElementCost) {
-				fixedCost = 1;
-			} else {
-				try { fixedCost = Integer.parseInt(costToken); }
-				catch (NumberFormatException e) {
-					// Non-numeric, non-X cost token (e.g. 《C》 for crystal) — resolve normally.
-					Consumer<GameContext> effect = ActionResolver.parse(fa.effectText(), source);
-					if (effect != null) { logEntry("[AutoAbility] " + source.name() + " — " + fa.effectText()); effect.accept(buildGameContext(effectIsP1)); }
-					else logEntry("[AutoAbility] Unrecognized effect: " + fa.effectText());
-					return;
-				}
-			}
-		} else { fixedCost = 0; }
-
-		Matcher maxM = FA_MAX_X.matcher(fa.effectText());
-		int maxCp = isXCost ? (maxM.find() ? Integer.parseInt(maxM.group(1)) : Integer.MAX_VALUE) : fixedCost;
-
-		// For fixed CP costs, check whether the paying player can actually generate enough CP.
-		// effectIsP1 identifies the player who would pay (already accounts for opponentMay).
-		// Skip the ability entirely if they cannot — no active backups and insufficient hand cards.
-		if (!isXCost && fixedCost > 0) {
-			CardData[] bkpCards  = playerBackupCards(effectIsP1);
-			CardState[] bkpStates = playerBackupStates(effectIsP1);
-			int availCp = 0;
-			for (int i = 0; i < bkpCards.length; i++)
-				if (bkpCards[i] != null && bkpStates[i] == CardState.ACTIVE) availCp++;
-			availCp += playerHand(effectIsP1).size() * 2;
-			if (availCp < fixedCost) {
-				logEntry("[AutoAbility] " + source.name() + " — cannot afford " + fixedCost + " CP (" + costToken + "), skipping");
-				return;
-			}
-		}
-
-		// P1 gets a confirm dialog; AI auto-accepts.
-		boolean p1GetsDialog = (fa.youMay() && isP1) || (fa.opponentMay() && !isP1);
-		if (p1GetsDialog) {
-			String prompt = (fa.youMay() ? "You may: " : "Your opponent may: ") + fa.effectText();
-			int choice = showEffectOptionDialog(source.name() + " — " + prompt,
-					"Auto Ability", new Object[]{"OK", "Decline"});
-			if (choice != 0) {
-				logEntry("[AutoAbility] " + source.name() + " — optional effect declined");
-				return;
-			}
-		} else if (fa.youMay() || fa.opponentMay()) {
-			// Decline if the effect targets Forwards but the opponent has none to target.
-			boolean effectNeedsForward = subEffect.toLowerCase(java.util.Locale.ROOT).contains("forward");
-			if (effectNeedsForward && p1ForwardCards.isEmpty()) {
-				logEntry("[AutoAbility] [AI] declines optional ability — no opponent Forwards to target");
-				return;
-			}
-			logEntry("[AutoAbility] [AI] auto-accepts optional ability");
-		}
-
-		if (!isP1) {
-			// AI pays the maximum it can (simplified — no backup state update for AI).
-			int paid = maxCp == Integer.MAX_VALUE ? 1 : maxCp;
-			applyPayWhenDoSoEffect(subEffect, source, paid, effectIsP1);
-			return;
-		}
-
-		String finalSubEffect = subEffect;
-		showAutoAbilityPaymentDialog(source.name(), fixedCost, maxCp, isP1,
-				paid -> applyPayWhenDoSoEffect(finalSubEffect, source, paid, effectIsP1));
-	}
-
-	private void applyPayWhenDoSoEffect(String subEffect, CardData source, int xValue, boolean effectIsP1) {
-		GameContext ctx = buildGameContext(effectIsP1);
-		// "Gain 《C》 for each CP paid as X" must be resolved with the known xValue directly —
-		// the generic parse chain would see xValue=0 for this pattern and give 0 crystals.
-		if (ActionResolver.isGainCrystalPerX(subEffect)) {
-			ctx.logEntry("Effect: Gain " + xValue + " Crystal(s) (for each CP paid as X)");
-			ctx.gainCrystal(xValue);
-			return;
-		}
-		Consumer<GameContext> effect = ActionResolver.parse(subEffect, source, xValue);
-		if (effect == null) {
-			logEntry("[AutoAbility] Unrecognized 'when you do so' effect: " + subEffect);
-			return;
-		}
-		logEntry("[AutoAbility] " + source.name() + " — when you do so: " + subEffect + " (X=" + xValue + ")");
-		effect.accept(ctx);
-	}
-
-	// ─── "Select N of M following actions" auto-ability ─────────────────────────
-
-	private void executeSelectFollowingActionsAutoAbility(
-			AutoAbility fa, CardData source, boolean isP1, boolean effectIsP1,
-			Matcher m) {
-
-		// Optional "if condition" prefix
-		String condition = m.group("condition");
-		if (condition != null && !checkAutoAbilityCondition(condition.trim(), isP1)) {
-			logEntry("[AutoAbility] " + source.name() + " — condition not met: " + condition);
-			return;
-		}
-
-		boolean upTo       = m.group("upTo") != null;
-		int     selectCount = Integer.parseInt(m.group("select"));
-		int     totalCount  = Integer.parseInt(m.group("total"));
-
-		// Extract the quoted action strings
-		Matcher qm = FA_QUOTED_ACTION.matcher(m.group("actions"));
-		List<String> actions = new ArrayList<>();
-		while (qm.find()) actions.add(qm.group(1).trim());
-
-		if (actions.isEmpty()) {
-			logEntry("[AutoAbility] " + source.name() + " — no actions found in select effect");
-			return;
-		}
-
-		// youMay / opponentMay decline dialog (the select dialog itself is the interaction,
-		// but we still honour an explicit "you may" decline option)
-		boolean p1GetsDialog = (fa.youMay() && isP1) || (fa.opponentMay() && !isP1);
-		if (p1GetsDialog) {
-			String prompt = "Select " + (upTo ? "up to " : "") + selectCount + " of "
-					+ totalCount + " actions for " + source.name() + "?";
-			int choice = showEffectOptionDialog(prompt, "Auto Ability",
-					new Object[]{"Choose Actions", "Decline"});
-			if (choice != 0) {
-				logEntry("[AutoAbility] " + source.name() + " — optional select declined");
-				return;
-			}
-		} else if (fa.youMay() || fa.opponentMay()) {
-			logEntry("[AutoAbility] [AI] auto-accepts select ability");
-		}
-
-		if (fa.oncePerTurn())
-			usedOncePerTurnAbilities.computeIfAbsent(source, k -> new HashSet<>())
-					.add(fa.effectText());
-
-		// P1 picks interactively; AI always picks the first N actions
-		List<String> chosen;
-		if (isP1) {
-			chosen = showSelectActionsDialog(source, actions, selectCount, upTo);
-		} else {
-			int take = Math.min(selectCount, actions.size());
-			chosen = new ArrayList<>(actions.subList(0, take));
-			logEntry("[AutoAbility] [AI] selected first " + take + " action(s)");
-		}
-
-		if (chosen == null || chosen.isEmpty()) {
-			logEntry("[AutoAbility] " + source.name() + " — no actions chosen");
-			return;
-		}
-
-		for (String actionText : chosen) {
-			Consumer<GameContext> effect = ActionResolver.parse(actionText, source);
-			if (effect == null) {
-				logEntry("[AutoAbility] " + source.name() + " — unrecognized action: " + actionText);
-			} else {
-				logEntry("[AutoAbility] " + source.name() + " — " + actionText);
-				effect.accept(buildGameContext(effectIsP1));
-			}
-		}
-	}
-
-	/**
-	 * Shows a modal dialog for P1 to choose actions from a "select N of M" list.
-	 * Uses radio buttons when exactly 1 must be chosen, checkboxes otherwise.
-	 * Returns the chosen action texts, or an empty list if the dialog is dismissed.
-	 */
-	private List<String> showSelectActionsDialog(
-			CardData source, List<String> actions, int selectCount, boolean upTo) {
-
-		int  n             = actions.size();
-		boolean singlePick = selectCount == 1 && !upTo;
-		String title = source.name() + " — Select "
-				+ (upTo ? "up to " : "") + selectCount + " action" + (selectCount != 1 || upTo ? "s" : "");
-
-		JDialog dlg = new JDialog(frame, title, true);
-		dlg.setResizable(false);
-		dlg.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
-
-		List<String> result = new ArrayList<>();
-
-		JPanel choicesPanel = new JPanel(new GridLayout(0, 1, 0, 6));
-		choicesPanel.setBorder(BorderFactory.createEmptyBorder(10, 12, 6, 12));
-
-		JButton confirmBtn = new JButton("Confirm");
-		confirmBtn.setFont(FontLoader.loadPixelNESFont(11));
-
-		if (singlePick) {
-			// ── Radio buttons — exactly one action ──
-			javax.swing.ButtonGroup group = new javax.swing.ButtonGroup();
-			javax.swing.JRadioButton[] radios = new javax.swing.JRadioButton[n];
-			for (int i = 0; i < n; i++) {
-				javax.swing.JRadioButton rb = new javax.swing.JRadioButton(
-						"<html><body style='width:340px'>" + actions.get(i) + "</body></html>");
-				rb.setFont(FontLoader.loadPixelNESFont(10));
-				group.add(rb);
-				radios[i] = rb;
-				choicesPanel.add(rb);
-			}
-			radios[0].setSelected(true);
-			confirmBtn.addActionListener(ae -> {
-				for (int i = 0; i < radios.length; i++)
-					if (radios[i].isSelected()) { result.add(actions.get(i)); break; }
-				dlg.dispose();
-			});
-		} else {
-			// ── Checkboxes — up to N, or exactly N ──
-			javax.swing.JCheckBox[] checks = new javax.swing.JCheckBox[n];
-			JLabel countLbl = new JLabel(
-					"Selected: 0 / " + selectCount + (upTo ? " (up to)" : ""),
-					SwingConstants.CENTER);
-			countLbl.setFont(FontLoader.loadPixelNESFont(10));
-
-			for (int i = 0; i < n; i++) {
-				javax.swing.JCheckBox cb = new javax.swing.JCheckBox(
-						"<html><body style='width:340px'>" + actions.get(i) + "</body></html>");
-				cb.setFont(FontLoader.loadPixelNESFont(10));
-				checks[i] = cb;
-				cb.addItemListener(ie -> {
-					int sel = 0;
-					for (javax.swing.JCheckBox c : checks) if (c.isSelected()) sel++;
-					countLbl.setText("Selected: " + sel + " / " + selectCount + (upTo ? " (up to)" : ""));
-					// For exact selection: disable unchecked boxes once limit is reached
-					if (!upTo && sel >= selectCount) {
-						for (javax.swing.JCheckBox c : checks) if (!c.isSelected()) c.setEnabled(false);
-					} else {
-						for (javax.swing.JCheckBox c : checks) c.setEnabled(true);
-					}
-					confirmBtn.setEnabled(upTo || sel == selectCount);
-				});
-				choicesPanel.add(cb);
-			}
-			confirmBtn.setEnabled(upTo); // "up to" can confirm with 0; exact needs N selected
-			confirmBtn.addActionListener(ae -> {
-				for (int i = 0; i < checks.length; i++)
-					if (checks[i].isSelected()) result.add(actions.get(i));
-				dlg.dispose();
-			});
-
-			JPanel countRow = new JPanel(new FlowLayout(FlowLayout.CENTER, 0, 2));
-			countRow.add(countLbl);
-			choicesPanel.add(countRow);
-		}
-
-		JPanel south = new JPanel(new FlowLayout(FlowLayout.CENTER, 12, 6));
-		south.add(confirmBtn);
-
-		dlg.getContentPane().setLayout(new BorderLayout(0, 4));
-		dlg.getContentPane().add(choicesPanel, BorderLayout.CENTER);
-		dlg.getContentPane().add(south,        BorderLayout.SOUTH);
-		dlg.pack();
-		dlg.setLocationRelativeTo(frame);
-		dlg.setVisible(true);
-		return result;
-	}
-
-	/**
-	 * Evaluates a simple auto-ability precondition such as
-	 * "you control a Job AVALANCHE Operative Forward".
-	 * Returns {@code true} when the condition is satisfied, or when the condition
-	 * text is not recognised (fail-open to avoid silently blocking abilities).
-	 */
-	private boolean checkAutoAbilityCondition(String condition, boolean isP1) {
-		String lo = condition.toLowerCase(java.util.Locale.ROOT).trim();
-		if (lo.startsWith("you control a") || lo.startsWith("you control an")) {
-			String spec = lo.replaceFirst("^you\\s+control\\s+an?\\s+", "").trim();
-			return controlsMatchingCard(spec, isP1);
-		}
-		logEntry("[AutoAbility] Unrecognized condition (defaulting to true): " + condition);
-		return true;
-	}
-
-	/**
-	 * Returns {@code true} if the given player has at least one card on the field that matches
-	 * a description such as "forward", "job avalanche operative forward", "ice backup", etc.
-	 */
-	private boolean controlsMatchingCard(String spec, boolean isP1) {
-		// Collect all field cards for this player
-		List<CardData> field = new ArrayList<>();
-		field.addAll(isP1 ? p1ForwardCards : p2ForwardCards);
-		for (CardData c : (isP1 ? p1BackupCards : p2BackupCards)) if (c != null) field.add(c);
-		field.addAll(isP1 ? p1MonsterCards : p2MonsterCards);
-
-		// Determine target type restriction
-		String specLo = spec.toLowerCase(java.util.Locale.ROOT);
-		String requiredType = null;
-		if      (specLo.endsWith("forward"))   requiredType = "Forward";
-		else if (specLo.endsWith("backup"))    requiredType = "Backup";
-		else if (specLo.endsWith("monster"))   requiredType = "Monster";
-		else if (specLo.endsWith("character")) requiredType = null; // any type matches
-
-		// Strip the type suffix to isolate job / element qualifiers
-		String qualifiers = specLo
-				.replaceAll("(?i)\\s+(forward|backup|monster|character)$", "").trim();
-		// Strip leading "job " keyword if present (keep the actual job name)
-		String jobFilter = qualifiers.startsWith("job ")
-				? qualifiers.replaceFirst("^job\\s+", "").trim()
-				: (qualifiers.isEmpty() ? null : qualifiers);
-
-		for (CardData c : field) {
-			if (c == null) continue;
-			if (requiredType != null && !c.type().equalsIgnoreCase(requiredType)
-					&& !(requiredType.equalsIgnoreCase("Monster") && c.alsoCountsAsMonster())) continue;
-			if (jobFilter != null && !c.job().toLowerCase(java.util.Locale.ROOT).contains(jobFilter)) continue;
-			return true;
-		}
-		return false;
-	}
-
-	/**
-	 * Payment dialog for a auto ability that requires CP payment.
-	 * Shows backup cards (1 CP each) and hand cards to discard (2 CP each).
-	 * Calls {@code onConfirm} with total CP paid after dulling backups / discarding cards.
-	 */
-	private void showAutoAbilityPaymentDialog(String cardName, int minCp, int maxCp,
-			boolean isP1, java.util.function.IntConsumer onConfirm) {
-		CardData[]     bkpCards  = playerBackupCards(isP1);
-		CardState[]    bkpStates = playerBackupStates(isP1);
-		String[]       bkpUrls  = playerBackupUrls(isP1);
-		List<CardData> hand      = playerHand(isP1);
-
-		String title = (maxCp == minCp)
-				? cardName + " — Pay " + minCp + " CP"
-				: cardName + " — Pay up to " + (maxCp == Integer.MAX_VALUE ? "any" : maxCp) + " CP";
-		JDialog dlg = new JDialog(frame, title, true);
-		dlg.setResizable(false);
-		dlg.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
-
-		List<Integer> selectedBackups  = new ArrayList<>();
-		List<Integer> selectedDiscards = new ArrayList<>();
-
-		JLabel   cpLabel    = new JLabel();
-		cpLabel.setFont(FontLoader.loadPixelNESFont(11));
-		cpLabel.setHorizontalAlignment(SwingConstants.CENTER);
-
-		JButton confirmBtn = new JButton("Confirm");
-		confirmBtn.setFont(FontLoader.loadPixelNESFont(11));
-
-		List<JLabel>  backupLbls  = new ArrayList<>();
-		List<Integer> backupSlots = new ArrayList<>();
-		List<JLabel>  discardLbls = new ArrayList<>();
-		List<Integer> discardIdxs = new ArrayList<>();
-
-		boolean[] canAddBackup  = {true};
-		boolean[] canAddDiscard = {true};
-
-		Runnable updateAll = () -> {
-			int total  = selectedBackups.size() + selectedDiscards.size() * 2;
-			if (minCp == maxCp) {
-				// Fixed cost: mirrors showActionAbilityPaymentDialog overpayment rules.
-				// Allow up to 1 extra CP if cost is odd (a 2-CP discard can't be split).
-				int maxAllowed = maxCp + (maxCp % 2);
-				canAddBackup[0]  = total < maxCp;
-				canAddDiscard[0] = total < maxCp && total + 2 <= maxAllowed;
-			} else {
-				// Variable X cost: strict cap at maxCp.
-				boolean atMax = maxCp != Integer.MAX_VALUE && total >= maxCp;
-				canAddBackup[0]  = !atMax;
-				canAddDiscard[0] = maxCp == Integer.MAX_VALUE || total + 2 <= maxCp;
-			}
-			confirmBtn.setEnabled(total >= minCp);
-
-			String cap = maxCp == Integer.MAX_VALUE ? "∞" : String.valueOf(maxCp);
-			cpLabel.setText("CP paid: " + total + " / " + cap
-					+ (minCp > 0 ? "  (min " + minCp + ")" : ""));
-
-			for (int i = 0; i < backupLbls.size(); i++) {
-				JLabel  lbl = backupLbls.get(i);
-				boolean sel = selectedBackups.contains(backupSlots.get(i));
-				lbl.setBorder(sel ? createCardGlowBorder(Color.YELLOW) : BorderFactory.createLineBorder(canAddBackup[0] ? Color.GRAY : new Color(80, 80, 80), 1));
-				lbl.setBackground(sel || canAddBackup[0] ? Color.DARK_GRAY : new Color(50, 50, 50));
-				lbl.setCursor(sel || canAddBackup[0]
-						? Cursor.getPredefinedCursor(Cursor.HAND_CURSOR) : Cursor.getDefaultCursor());
-			}
-			for (int i = 0; i < discardLbls.size(); i++) {
-				JLabel  lbl = discardLbls.get(i);
-				boolean sel = selectedDiscards.contains(discardIdxs.get(i));
-				lbl.setBorder(sel ? createCardGlowBorder(Color.YELLOW) : BorderFactory.createLineBorder(canAddDiscard[0] ? Color.GRAY : new Color(80, 80, 80), 1));
-				lbl.setBackground(sel || canAddDiscard[0] ? Color.DARK_GRAY : new Color(50, 50, 50));
-				lbl.setCursor(sel || canAddDiscard[0]
-						? Cursor.getPredefinedCursor(Cursor.HAND_CURSOR) : Cursor.getDefaultCursor());
-			}
-		};
-		updateAll.run();
-
-		JPanel center = new JPanel();
-		center.setLayout(new BoxLayout(center, BoxLayout.Y_AXIS));
-
-		List<Integer> eligibleBackupSlots = new ArrayList<>();
-		for (int i = 0; i < bkpCards.length; i++)
-			if (bkpCards[i] != null && bkpStates[i] == CardState.ACTIVE) eligibleBackupSlots.add(i);
-
-		if (!eligibleBackupSlots.isEmpty()) {
-			JLabel hdr = new JLabel("Backups — dull for 1 CP each:");
-			hdr.setFont(FontLoader.loadPixelNESFont(9)); hdr.setAlignmentX(Component.LEFT_ALIGNMENT);
-			JPanel bp = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 6)); bp.setAlignmentX(Component.LEFT_ALIGNMENT);
-			for (int slot : eligibleBackupSlots) {
-				JLabel lbl = new JLabel("...", SwingConstants.CENTER);
-				lbl.setPreferredSize(new Dimension(CARD_W, CARD_H)); lbl.setMinimumSize(new Dimension(CARD_W, CARD_H));
-				lbl.setOpaque(true); lbl.setBackground(Color.DARK_GRAY); lbl.setForeground(Color.WHITE);
-				lbl.setFont(FontLoader.loadPixelNESFont(10)); lbl.setBorder(BorderFactory.createLineBorder(Color.GRAY, 1));
-				lbl.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-				final String url = bkpUrls[slot];
-				lbl.addMouseListener(new MouseAdapter() {
-					@Override public void mousePressed(MouseEvent ev) {
-						if (!selectedBackups.remove(Integer.valueOf(slot)) && canAddBackup[0]) selectedBackups.add(slot);
-						updateAll.run();
-					}
-					@Override public void mouseEntered(MouseEvent ev) { if (lbl.getIcon() != null) showZoomAt(url); }
-					@Override public void mouseExited(MouseEvent ev)  { hideZoom(); }
-				});
-				new SwingWorker<ImageIcon, Void>() {
-					@Override protected ImageIcon doInBackground() throws Exception {
-						Image img = ImageCache.load(url);
-						return img == null ? null : new ImageIcon(img.getScaledInstance(CARD_W, CARD_H, Image.SCALE_SMOOTH));
-					}
-					@Override protected void done() {
-						try { ImageIcon ic = get(); if (ic != null) { lbl.setIcon(ic); lbl.setText(null); } }
-						catch (InterruptedException | ExecutionException ignored) {}
-					}
-				}.execute();
-				backupLbls.add(lbl); backupSlots.add(slot); bp.add(lbl);
-			}
-			center.add(hdr); center.add(bp);
-		}
-
-		if (!hand.isEmpty()) {
-			JLabel discHdr = new JLabel("Hand — discard for 2 CP each:");
-			discHdr.setFont(FontLoader.loadPixelNESFont(9)); discHdr.setAlignmentX(Component.LEFT_ALIGNMENT);
-			JPanel dp = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 6)); dp.setAlignmentX(Component.LEFT_ALIGNMENT);
-			for (int i = 0; i < hand.size(); i++) {
-				final int hi = i; CardData hc = hand.get(i); boolean payable = !hc.isLightOrDark();
-				JLabel lbl = new JLabel("...", SwingConstants.CENTER);
-				lbl.setPreferredSize(new Dimension(CARD_W, CARD_H)); lbl.setMinimumSize(new Dimension(CARD_W, CARD_H));
-				lbl.setOpaque(true); lbl.setBackground(payable ? Color.DARK_GRAY : new Color(50, 50, 50));
-				lbl.setForeground(Color.WHITE); lbl.setFont(FontLoader.loadPixelNESFont(10));
-				lbl.setBorder(BorderFactory.createLineBorder(payable ? Color.GRAY : new Color(80, 80, 80), 1));
-				lbl.setCursor(payable ? Cursor.getPredefinedCursor(Cursor.HAND_CURSOR) : Cursor.getDefaultCursor());
-				final String imgUrl = hc.imageUrl();
-				if (payable) {
-					lbl.addMouseListener(new MouseAdapter() {
-						@Override public void mousePressed(MouseEvent ev) {
-							if (!selectedDiscards.remove(Integer.valueOf(hi)) && canAddDiscard[0]) selectedDiscards.add(hi);
-							updateAll.run();
-						}
-						@Override public void mouseEntered(MouseEvent ev) { if (lbl.getIcon() != null) showZoomAt(imgUrl); }
-						@Override public void mouseExited(MouseEvent ev)  { hideZoom(); }
-					});
-					discardLbls.add(lbl); discardIdxs.add(hi);
-				} else {
-					lbl.addMouseListener(new MouseAdapter() {
-						@Override public void mouseEntered(MouseEvent ev) { if (lbl.getIcon() != null) showZoomAt(imgUrl); }
-						@Override public void mouseExited(MouseEvent ev)  { hideZoom(); }
-					});
-				}
-				new SwingWorker<ImageIcon, Void>() {
-					@Override protected ImageIcon doInBackground() throws Exception {
-						Image img = ImageCache.load(imgUrl);
-						return img == null ? null : new ImageIcon(img.getScaledInstance(CARD_W, CARD_H, Image.SCALE_SMOOTH));
-					}
-					@Override protected void done() {
-						try { ImageIcon ic = get(); if (ic != null) { lbl.setIcon(ic); lbl.setText(null); } }
-						catch (InterruptedException | ExecutionException ignored) {}
-					}
-				}.execute();
-				dp.add(lbl);
-			}
-			center.add(discHdr); center.add(dp);
-		}
-
-		JButton cancelBtn = new JButton("Cancel");
-		cancelBtn.setFont(FontLoader.loadPixelNESFont(11));
-		cancelBtn.addActionListener(ev -> {
-			logEntry("[AutoAbility] " + cardName + " — payment cancelled");
-			dlg.dispose();
-		});
-		confirmBtn.addActionListener(ev -> {
-			dlg.dispose();
-			for (int slot : selectedBackups) {
-				bkpStates[slot] = CardState.DULL;
-				playerDullBackupSlot(isP1, slot);
-			}
-			List<Integer> sortedDiscards = new ArrayList<>(selectedDiscards);
-			sortedDiscards.sort(Collections.reverseOrder());
-			for (int di : sortedDiscards) playerBreakFromHand(isP1, di);
-			int paid = selectedBackups.size() + selectedDiscards.size() * 2;
-			logEntry("[AutoAbility] " + cardName + " — paid " + paid + " CP");
-			refreshP1HandLabel();
-			refreshP1BreakLabel();
-			onConfirm.accept(paid);
-		});
-
-		JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.CENTER, 12, 6));
-		buttonPanel.add(confirmBtn); buttonPanel.add(cancelBtn);
-
-		JPanel topPanel = new JPanel(new BorderLayout(0, 4));
-		topPanel.setBorder(BorderFactory.createEmptyBorder(8, 8, 4, 8));
-		topPanel.add(cpLabel, BorderLayout.CENTER);
-
-		JPanel mainPanel = new JPanel(new BorderLayout(0, 4));
-		mainPanel.setBorder(BorderFactory.createEmptyBorder(0, 8, 8, 8));
-		mainPanel.add(new JScrollPane(center), BorderLayout.CENTER);
-		mainPanel.add(buttonPanel,             BorderLayout.SOUTH);
-
-		dlg.getContentPane().setLayout(new BorderLayout());
-		dlg.getContentPane().add(topPanel,  BorderLayout.NORTH);
-		dlg.getContentPane().add(mainPanel, BorderLayout.CENTER);
-		dlg.pack(); dlg.setLocationRelativeTo(frame); dlg.setVisible(true);
-	}
-
-	private boolean canActivateHandAbility(ActionAbility ability, CardData source, boolean isP1) {
-		if (ability.yourTurnOnly()) {
-			GameState.Player activePlayer = isP1 ? GameState.Player.P1 : GameState.Player.P2;
-			if (gameState.getCurrentPlayer() != activePlayer) return false;
-		}
-		if (ability.oncePerTurn()
-				&& usedOncePerTurnAbilities.getOrDefault(source, Set.of()).contains(ability.effectText()))
-			return false;
-		GameState.GamePhase p = gameState.getCurrentPhase();
-		if (p != GameState.GamePhase.MAIN_1 && p != GameState.GamePhase.MAIN_2
-				&& !(p == GameState.GamePhase.ATTACK && attackSubStep == 0)) return false;
-		if (ability.crystalCost() > 0 && playerCrystals(isP1) < ability.crystalCost()) return false;
-		for (BreakZoneCost bz : ability.breakZoneCosts())
-			if (!bzCostSatisfied(bz, isP1)) return false;
-		for (RemoveFromGameCost rfg : ability.removeFromGameCosts())
-			if (!rfgCostSatisfied(rfg, isP1)) return false;
-		for (ReturnToHandCost rth : ability.returnToHandCosts())
-			if (!rfthCostSatisfied(rth, isP1)) return false;
-		for (CounterCost cc : ability.counterCosts())
-			if (!counterCostSatisfied(cc, source)) return false;
-		return canAffordAbilityCost(ability, isP1);
-	}
-
-	/**
-	 * Returns {@code true} if an action ability whose source is in the Break Zone
-	 * can currently be activated.
-	 */
-	private boolean canActivateBzAbility(ActionAbility ability, CardData source, boolean isP1) {
-		GameState.GamePhase phase = gameState.getCurrentPhase();
-		if (phase != GameState.GamePhase.MAIN_1 && phase != GameState.GamePhase.MAIN_2
-				&& !(phase == GameState.GamePhase.ATTACK && attackSubStep == 0)) return false;
-		if (ability.yourTurnOnly() || ability.mainPhaseOnly()) {
-			GameState.Player activePlayer = isP1 ? GameState.Player.P1 : GameState.Player.P2;
-			if (gameState.getCurrentPlayer() != activePlayer) return false;
-		}
-		if (ability.oncePerTurn()
-				&& usedOncePerTurnAbilities.getOrDefault(source, Set.of()).contains(ability.effectText()))
-			return false;
-		if (ability.crystalCost() > 0 && playerCrystals(isP1) < ability.crystalCost()) return false;
-		for (BreakZoneCost bz : ability.breakZoneCosts())
-			if (!bzCostSatisfied(bz, isP1)) return false;
-		for (RemoveFromGameCost rfg : ability.removeFromGameCosts())
-			if (!rfgCostSatisfied(rfg, isP1)) return false;
-		for (ReturnToHandCost rth : ability.returnToHandCosts())
-			if (!rfthCostSatisfied(rth, isP1)) return false;
-		for (CounterCost cc : ability.counterCosts())
-			if (!counterCostSatisfied(cc, source)) return false;
-		for (DullForwardCost dfc : ability.dullForwardCosts())
-			if (!dullForwardCostSatisfied(dfc, isP1)) return false;
-		return canAffordAbilityCost(ability, isP1);
-	}
-
-	/**
-	 * Resolves "put N [type] into the Break Zone" costs for a break-zone-origin ability
-	 * by selecting the appropriate field cards. Named-card costs are auto-selected; type-
-	 * based costs prompt the player to choose. Returns {@code null} if cancelled or unpayable.
-	 */
-	private List<ForwardTarget> resolveBzCostTargetsForBzAbility(List<BreakZoneCost> bzCosts, boolean isP1) {
-		List<ForwardTarget> all = new ArrayList<>();
-		for (BreakZoneCost bz : bzCosts) {
-			List<ForwardTarget> eligible = eligibleBzFieldCards(bz, isP1);
-			if (eligible.size() < bz.count()) {
-				logEntry("Not enough eligible field cards for Break Zone cost.");
-				return null;
-			}
-			if (!bz.name().isEmpty()) {
-				all.add(eligible.get(0)); // named card: auto-select first match
-			} else if (eligible.size() == bz.count()) {
-				all.addAll(eligible); // only one possible selection
-			} else {
-				String typeLabel = bz.cardType().isEmpty() ? "card" : bz.cardType();
-				List<ForwardTarget> picks = showForwardSelectDialog(eligible, bz.count(), false,
-						"Break Zone Cost: Break " + bz.count() + " " + typeLabel + "(s)");
-				if (picks == null || picks.size() < bz.count()) return null;
-				all.addAll(picks);
-			}
-		}
-		return all;
-	}
-
-	/** Payment dialog for an action ability activated from the Break Zone. */
-	private void showBzAbilityPaymentDialog(ActionAbility ability, CardData source, boolean isP1) {
-		List<String> rawCost = ability.cpCost();
-		List<BreakZoneCost> bzCosts = ability.breakZoneCosts();
-
-		if (rawCost.isEmpty() && !ability.hasXCost()) {
-			List<ForwardTarget> bzTargets = resolveBzCostTargetsForBzAbility(bzCosts, isP1);
-			if (bzTargets == null) return;
-			executeAbilityPayment(ability, source, () -> {}, new ArrayList<>(), new ArrayList<>(), bzTargets, isP1, 0);
-			return;
-		}
-
-		new AbilityPaymentDialog(frame, ability, source,
-				playerHand(isP1), playerBackupCards(isP1), playerBackupStates(isP1), playerBackupUrls(isP1),
-				this::showZoomAt, this::hideZoom,
-				(discards, backups, xValue) -> {
-					List<ForwardTarget> bzTargets = resolveBzCostTargetsForBzAbility(bzCosts, isP1);
-					if (bzTargets == null) return;
-					executeAbilityPayment(ability, source, () -> {}, discards, backups, bzTargets, isP1, xValue);
-				})
-			.show();
-	}
-
-	/**
-	 * Builds the BZ-target list for ability payment by finding the source card's
-	 * current field position.  The BZ cost is always "put itself into the Break Zone",
-	 * so no player selection is needed — one entry is added per cost item.
-	 */
-	private List<ForwardTarget> autoResolveBzTargets(CardData source, List<BreakZoneCost> bzCosts, boolean isP1) {
-		if (bzCosts.isEmpty()) return List.of();
-		List<ForwardTarget> result = new ArrayList<>();
-
-		for (BreakZoneCost bz : bzCosts) {
-			List<ForwardTarget> eligible = eligibleBzFieldCards(bz, isP1);
-			if (eligible.size() <= bz.count()) result.addAll(eligible);
-			else {
-				String strAmt = bz.count() > 1 ? " cards" : " card";
-				String text = "Select " + bz.count() + strAmt + " to put into the Break Zone.";
-				result.addAll(selectFieldTargetsInPlace(eligible, bz.count(), false, text));
-			}
-		}
-		return result;
-	}
-
-	/** Finds the field position of {@code source} by object identity, or {@code null} if not found. */
-	private ForwardTarget findSourceOnField(CardData source, boolean isP1) {
-		if (isP1) {
-			for (int i = 0; i < p1ForwardCards.size(); i++) {
-				CardData top = p1ForwardPrimedTop.get(i);
-				if (top == source || p1ForwardCards.get(i) == source)
-					return new ForwardTarget(true, i, ForwardTarget.CardZone.FORWARD);
-			}
-			for (int i = 0; i < p1BackupCards.length; i++) {
-				if (p1BackupCards[i] == source)
-					return new ForwardTarget(true, i, ForwardTarget.CardZone.BACKUP);
-			}
-			for (int i = 0; i < p1MonsterCards.size(); i++) {
-				if (p1MonsterCards.get(i) == source)
-					return new ForwardTarget(true, i, ForwardTarget.CardZone.MONSTER);
-			}
-		} else {
-			for (int i = 0; i < p2ForwardCards.size(); i++) {
-				if (p2ForwardCards.get(i) == source)
-					return new ForwardTarget(false, i, ForwardTarget.CardZone.FORWARD);
-			}
-			for (int i = 0; i < p2BackupCards.length; i++) {
-				if (p2BackupCards[i] == source)
-					return new ForwardTarget(false, i, ForwardTarget.CardZone.BACKUP);
-			}
-			for (int i = 0; i < p2MonsterCards.size(); i++) {
-				if (p2MonsterCards.get(i) == source)
-					return new ForwardTarget(false, i, ForwardTarget.CardZone.MONSTER);
-			}
-		}
-		return null;
-	}
-
-	private boolean bzCostSatisfied(BreakZoneCost bz, boolean isP1) {
-		return eligibleBzFieldCards(bz, isP1).size() >= bz.count();
-	}
-
-	/** True when {@code source} (the activating card) has enough counters to pay {@code cc}. */
-	private boolean counterCostSatisfied(CounterCost cc, CardData source) {
-		if (!source.name().equalsIgnoreCase(cc.cardName())) return false;
-		return gameState.getCounters(source, cc.counterName()) >= cc.count();
-	}
-
-	private boolean dullForwardCostSatisfied(DullForwardCost dfc, boolean isP1) {
-		List<CardData>  fwds   = isP1 ? p1ForwardCards : p2ForwardCards;
-		List<CardState> states = isP1 ? p1ForwardStates : p2ForwardStates;
-		for (int i = 0; i < fwds.size(); i++) {
-			if (states.get(i) != CardState.ACTIVE) continue;
-			if (!dfc.element().isEmpty() && !fwds.get(i).containsElement(dfc.element())) continue;
-			return true;
-		}
-		return false;
-	}
-
-	private List<ForwardTarget> eligibleBzFieldCards(BreakZoneCost bz, boolean isP1) {
-		List<ForwardTarget> result = new ArrayList<>();
-		List<CardData> fwds = playerForwardCards(isP1);
-		List<CardData> mons = playerMonsterCards(isP1);
-		CardData[]     bkps = playerBackupCards(isP1);
-		if (!bz.name().isEmpty()) {
-			for (int i = 0; i < fwds.size(); i++)
-				if (meetsCardNameFilter(fwds.get(i), bz.name()))
-					result.add(new ForwardTarget(isP1, i, ForwardTarget.CardZone.FORWARD));
-			for (int i = 0; i < mons.size(); i++)
-				if (meetsCardNameFilter(mons.get(i), bz.name()))
-					result.add(new ForwardTarget(isP1, i, ForwardTarget.CardZone.MONSTER));
-			for (int i = 0; i < bkps.length; i++)
-				if (bkps[i] != null && meetsCardNameFilter(bkps[i], bz.name()))
-					result.add(new ForwardTarget(isP1, i, ForwardTarget.CardZone.BACKUP));
-			return result;
-		}
-		String typeDesc = bz.cardType();
-		String last     = typeDesc.isEmpty() ? "" : typeDesc.substring(typeDesc.lastIndexOf(' ') + 1);
-		String elemFilt = typeDesc.contains(" ") ? typeDesc.substring(0, typeDesc.lastIndexOf(' ')).trim() : null;
-		if (last.equalsIgnoreCase("Forward")) {
-			for (int i = 0; i < fwds.size(); i++) {
-				if (elemFilt != null && !fwds.get(i).containsElement(elemFilt)) continue;
-				result.add(new ForwardTarget(isP1, i, ForwardTarget.CardZone.FORWARD));
-			}
-		} else if (last.equalsIgnoreCase("Backup")) {
-			for (int i = 0; i < bkps.length; i++) {
-				if (bkps[i] == null) continue;
-				if (elemFilt != null && !bkps[i].containsElement(elemFilt)) continue;
-				result.add(new ForwardTarget(isP1, i, ForwardTarget.CardZone.BACKUP));
-			}
-		} else if (last.equalsIgnoreCase("Monster")) {
-			for (int i = 0; i < mons.size(); i++) {
-				if (elemFilt != null && !mons.get(i).containsElement(elemFilt)) continue;
-				result.add(new ForwardTarget(isP1, i, ForwardTarget.CardZone.MONSTER));
-			}
-			for (int i = 0; i < fwds.size(); i++) {
-				if (!fwds.get(i).alsoCountsAsMonster()) continue;
-				if (elemFilt != null && !fwds.get(i).containsElement(elemFilt)) continue;
-				result.add(new ForwardTarget(isP1, i, ForwardTarget.CardZone.FORWARD));
-			}
-		}
-		return result;
-	}
-
-	private boolean rfgCostSatisfied(RemoveFromGameCost rfg, boolean isP1) {
-		if (rfg.count() == -1) return true; // "all" — always payable
-		return switch (rfg.zone()) {
-			case "DECK"       -> (isP1 ? gameState.getP1MainDeck() : gameState.getP2MainDeck()).size() >= rfg.count();
-			case "HAND"       -> eligibleRfgHandIndices(rfg, isP1).size() >= rfg.count();
-			case "BREAK_ZONE" -> eligibleRfgBzIndices(rfg, isP1).size() >= rfg.count();
-			default           -> eligibleRfgFieldTargets(rfg, isP1).size() >= rfg.count();
-		};
-	}
-
-	private List<Integer> eligibleRfgHandIndices(RemoveFromGameCost rfg, boolean isP1) {
-		List<CardData> hand = playerHand(isP1);
-		List<Integer> result = new ArrayList<>();
-		for (int i = 0; i < hand.size(); i++) {
-			CardData c = hand.get(i);
-			if (rfg.cardName() != null && !meetsCardNameFilter(c, rfg.cardName())) continue;
-			if (rfg.element()  != null && !c.containsElement(rfg.element()))       continue;
-			if (rfg.cardType() != null && !matchesDiscardType(c, rfg.cardType()))  continue;
-			result.add(i);
-		}
-		return result;
-	}
-
-	private List<Integer> eligibleRfgBzIndices(RemoveFromGameCost rfg, boolean isP1) {
-		List<CardData> bz = isP1 ? gameState.getP1BreakZone() : gameState.getP2BreakZone();
-		List<Integer> result = new ArrayList<>();
-		for (int i = 0; i < bz.size(); i++) {
-			CardData c = bz.get(i);
-			if (rfg.cardName() != null && !meetsCardNameFilter(c, rfg.cardName())) continue;
-			if (rfg.element()  != null && !c.containsElement(rfg.element()))          continue;
-			if (rfg.cardType() != null && !matchesDiscardType(c, rfg.cardType()))     continue;
-			result.add(i);
-		}
-		return result;
-	}
-
-	private List<ForwardTarget> eligibleRfgFieldTargets(RemoveFromGameCost rfg, boolean isP1) {
-		List<ForwardTarget> result = new ArrayList<>();
-		List<CardData> fwds = playerForwardCards(isP1);
-		List<CardData> mons = playerMonsterCards(isP1);
-		CardData[]     bkps = playerBackupCards(isP1);
-		for (int i = 0; i < fwds.size(); i++) {
-			CardData c = fwds.get(i);
-			if (!matchesRfgFieldFilter(c, rfg)) continue;
-			result.add(new ForwardTarget(isP1, i, ForwardTarget.CardZone.FORWARD));
-		}
-		for (int i = 0; i < bkps.length; i++) {
-			if (bkps[i] == null) continue;
-			if (!matchesRfgFieldFilter(bkps[i], rfg)) continue;
-			result.add(new ForwardTarget(isP1, i, ForwardTarget.CardZone.BACKUP));
-		}
-		for (int i = 0; i < mons.size(); i++) {
-			if (!matchesRfgFieldFilter(mons.get(i), rfg)) continue;
-			result.add(new ForwardTarget(isP1, i, ForwardTarget.CardZone.MONSTER));
-		}
-		return result;
-	}
-
-	private boolean matchesRfgFieldFilter(CardData c, RemoveFromGameCost rfg) {
-		if (rfg.cardName()    != null && !meetsCardNameFilter(c, rfg.cardName()))     return false;
-		if (rfg.element()     != null && !c.containsElement(rfg.element()))           return false;
-		if (rfg.cardType()    != null && !matchesDiscardType(c, rfg.cardType()))      return false;
-		if (rfg.excludeName() != null &&  c.name().equalsIgnoreCase(rfg.excludeName())) return false;
-		return true;
-	}
-
-	private boolean rfthCostSatisfied(ReturnToHandCost rth, boolean isP1) {
-		return eligibleRfthFieldTargets(rth, isP1).size() >= rth.count();
-	}
-
-	private List<ForwardTarget> eligibleRfthFieldTargets(ReturnToHandCost rth, boolean isP1) {
-		List<ForwardTarget> result = new ArrayList<>();
-		List<CardData> fwds = playerForwardCards(isP1);
-		List<CardData> mons = playerMonsterCards(isP1);
-		CardData[]     bkps = playerBackupCards(isP1);
-		for (int i = 0; i < fwds.size(); i++)
-			if (matchesRfthFilter(fwds.get(i), rth)) result.add(new ForwardTarget(isP1, i, ForwardTarget.CardZone.FORWARD));
-		for (int i = 0; i < bkps.length; i++)
-			if (bkps[i] != null && matchesRfthFilter(bkps[i], rth)) result.add(new ForwardTarget(isP1, i, ForwardTarget.CardZone.BACKUP));
-		for (int i = 0; i < mons.size(); i++)
-			if (matchesRfthFilter(mons.get(i), rth)) result.add(new ForwardTarget(isP1, i, ForwardTarget.CardZone.MONSTER));
-		return result;
-	}
-
-	private boolean matchesRfthFilter(CardData c, ReturnToHandCost rth) {
-		if (rth.cardName()    != null && !meetsCardNameFilter(c, rth.cardName()))       return false;
-		if (rth.cardType()    != null && !matchesDiscardType(c, rth.cardType()))        return false;
-		if (rth.category()    != null && !meetsCategoryFilter(c, rth.category()))       return false;
-		if (rth.excludeName() != null &&  c.name().equalsIgnoreCase(rth.excludeName())) return false;
-		return true;
-	}
-
-	private void executeReturnToHandCost(ReturnToHandCost rth, boolean isP1) {
-		GameContext ctx = buildGameContext(isP1);
-		if (rth.cardName() != null) {
-			// Auto-find named card and return it
-			List<ForwardTarget> eligible = eligibleRfthFieldTargets(rth, isP1);
-			for (int i = 0; i < rth.count() && i < eligible.size(); i++)
-				returnTargetToHand(ctx, eligible.get(i));
-		} else {
-			List<ForwardTarget> eligible = eligibleRfthFieldTargets(rth, isP1);
-			if (eligible.isEmpty()) { logEntry("No eligible field card for return-to-hand cost."); return; }
-			List<ForwardTarget> picks = showForwardSelectDialog(eligible, rth.count(), false, "Return to Hand (cost)");
-			applyTargetsHighestIndexFirst(picks, t -> returnTargetToHand(ctx, t));
-		}
-	}
-
-	private void returnTargetToHand(GameContext ctx, ForwardTarget t) {
-		switch (t.zone()) {
-			case FORWARD -> { if (t.isP1()) ctx.returnP1ForwardToHand(t.idx()); else ctx.returnP2ForwardToHand(t.idx()); }
-			case BACKUP  -> { if (t.isP1()) ctx.returnP1BackupToHand(t.idx());  else ctx.returnP2BackupToHand(t.idx()); }
-			case MONSTER -> { if (t.isP1()) ctx.returnP1MonsterToHand(t.idx()); else ctx.returnP2MonsterToHand(t.idx()); }
-		}
-	}
-
-	private CardData fieldCardData(ForwardTarget t) {
-		if (t.isP1()) return switch (t.zone()) {
-			case FORWARD -> p1ForwardCards.get(t.idx());
-			case BACKUP  -> p1BackupCards[t.idx()];
-			case MONSTER -> p1MonsterCards.get(t.idx());
-		};
-		return switch (t.zone()) {
-			case FORWARD -> p2ForwardCards.get(t.idx());
-			case BACKUP  -> p2BackupCards[t.idx()];
-			case MONSTER -> p2MonsterCards.get(t.idx());
-		};
-	}
-
-	private void breakP1BackupSlot(int idx) {
-		CardData c = p1BackupCards[idx];
-		if (c == null) return;
-		startBreakAnim(p1BackupLabels[idx]);
-		logEntry(c.name() + " → Break Zone");
-		addToP1BreakZone(c);
-		p1BackupTempForwardPower.remove(c); p1BackupForwardBoost.remove(c);
-		p1BackupTempTraits.remove(c);       p1BackupForwardDamage.remove(c);
-		if (p1BackupAttackIdx == idx) p1BackupAttackIdx = -1;
-		p1BackupCards[idx]   = null;
-		p1BackupUrls[idx]    = null;
-		p1BackupStates[idx]  = CardState.ACTIVE;
-		p1BackupFrozen[idx]  = false;
-		if (p1BackupLabels[idx] != null) {
-			p1BackupLabels[idx].setIcon(null);
-			p1BackupLabels[idx].setText(null);
-		}
-		refreshP1BreakLabel();
-		triggerAutoAbilitiesForLeavesField(c, true);
-		triggerAutoAbilitiesForBreakZone(c, true, Collections.emptySet());
-	}
-
-	private void breakP1MonsterSlot(int idx) {
-		if (idx >= p1MonsterCards.size()) return;
-		startBreakAnim(p1MonsterLabels.get(idx));
-		CardData c = p1MonsterCards.get(idx);
-		logEntry(c.name() + " → Break Zone");
-		addToP1BreakZone(c);
-		p1MonsterTempForwardPower.remove(c);
-		p1MonsterPowerBoost.remove(c);
-		p1MonsterTempTraits.remove(c);
-		p1MonsterCards.remove(idx);
-		p1MonsterStates.remove(idx);
-		p1MonsterFrozen.remove(idx);
-		p1MonsterPlayedOnTurn.remove(idx);
-		p1MonsterDamage.remove(idx);
-		p1MonsterUrls.remove(idx);
-		JLabel lbl = p1MonsterLabels.remove(idx);
-		if (p1MonsterPanel != null) {
-			p1MonsterPanel.remove(lbl);
-			p1MonsterPanel.revalidate();
-			p1MonsterPanel.repaint();
-		}
-		refreshP1BreakLabel();
-		triggerAutoAbilitiesForLeavesField(c, true);
-		triggerAutoAbilitiesForBreakZone(c, true, Collections.emptySet());
-	}
-
-	/**
-	 * Adds an action-ability section to {@code menu} for all abilities on {@code card}.
-	 * Each item is enabled only when the ability is currently activatable.
-	 *
-	 * @param card        the card whose abilities to list
-	 * @param state       current field state of the card
-	 * @param playedTurn  turn the card entered the field
-	 * @param applyDull   called on confirm if the ability has a Dull cost (dulls the card)
-	 */
-	private void addAbilityMenuItems(JPopupMenu menu, CardData card, boolean isFrozen,
-			CardState state, int playedTurn, Runnable applyDull, boolean isP1) {
-		List<ActionAbility> abilities = card.actionAbilities();
-		if (abilities.isEmpty()) return;
-
-		GameState.GamePhase phase = gameState.getCurrentPhase();
-		boolean isMainPhase  = phase == GameState.GamePhase.MAIN_1 || phase == GameState.GamePhase.MAIN_2;
-		boolean isAttackPhase = phase == GameState.GamePhase.ATTACK;
-
-		for (ActionAbility ability : abilities) {
-			if (ability.whileCardInHand()) continue; // only usable from hand, not from the field
-			if (ability.breakZoneOnly() != null) continue; // only usable from Break Zone
-			boolean hasAttackRestriction = ability.whileCardAttacking() != null
-					|| ability.whileCardBlocking() != null || ability.whilePartyAttacking()
-					|| ability.hasBlockingTargetEffect();
-			boolean phaseOk = hasAttackRestriction ? isAttackPhase : (isMainPhase || (isAttackPhase && attackSubStep == 0));
-			JMenuItem item = new JMenuItem(buildAbilityMenuLabel(ability));
-			item.setEnabled(phaseOk && canActivateAbility(ability, isFrozen, state, playedTurn, card, isP1));
-			item.addActionListener(ae ->
-					showActionAbilityPaymentDialog(ability, card, applyDull, isP1));
-			menu.add(item);
-		}
-	}
-
-	/**
-	 * Payment dialog for an action ability.  Mirrors the Priming payment dialog
-	 * but also handles Dull cost (dulls the source card) and Special cost (discards
-	 * a same-name card from hand).  On successful payment calls
-	 * {@link ActionResolver#resolve}.
-	 */
-	private void showActionAbilityPaymentDialog(ActionAbility ability, CardData source,
-			Runnable applyDull, boolean isP1) {
-		List<String> rawCost = ability.cpCost();
-		List<BreakZoneCost> bzCosts = ability.breakZoneCosts();
-
-		// Zero CP + no X: confirm immediately
-		if (rawCost.isEmpty() && !ability.hasXCost()) {
-			executeAbilityPayment(ability, source, applyDull, new ArrayList<>(), new ArrayList<>(),
-					autoResolveBzTargets(source, bzCosts, isP1), isP1, 0);
-			return;
-		}
-
-		new AbilityPaymentDialog(frame, ability, source,
-				playerHand(isP1), playerBackupCards(isP1), playerBackupStates(isP1), playerBackupUrls(isP1),
-				this::showZoomAt, this::hideZoom,
-				(discards, backups, xValue) -> executeAbilityPayment(ability, source, applyDull,
-						discards, backups, autoResolveBzTargets(source, bzCosts, isP1), isP1, xValue))
-			.show();
-	}
-
-
-	/**
-	 * Executes the full payment for an action ability: dulls selected backups,
-	 * discards hand cards for CP, optionally dulls the source card, optionally
-	 * discards a same-name card (Special), then calls {@link ActionResolver#resolve}.
-	 */
-	private void executeAbilityPayment(ActionAbility ability, CardData source,
-			Runnable applyDull, List<Integer> discardIndices, List<Integer> backupDullIndices,
-			List<ForwardTarget> bzTargets, boolean isP1, int xValue) {
-		List<String> rawCost = ability.cpCost();
-		LinkedHashMap<String, Integer> costByElem = new LinkedHashMap<>();
-		for (String e : rawCost) if (!e.isEmpty()) costByElem.merge(e, 1, Integer::sum);
-		String[] elems = costByElem.keySet().toArray(String[]::new);
-
-		CardData[]  bkpCards  = playerBackupCards(isP1);
-		CardState[] bkpStates = playerBackupStates(isP1);
-		for (int bi : backupDullIndices) {
-			bkpStates[bi] = CardState.DULL;
-			playerDullBackupSlot(isP1, bi);
-			String cpElem = matchesAnyElement(bkpCards[bi], elems)
-					? contributingElement(bkpCards[bi], elems) : (elems.length > 0 ? elems[0] : "");
-			if (!cpElem.isEmpty()) playerAddCp(isP1, cpElem, 1);
-		}
-		discardIndices.sort(Collections.reverseOrder());
-		for (int di : discardIndices) {
-			CardData discarded = playerHand(isP1).get(di);
-			String cpElem = matchesAnyElement(discarded, elems)
-					? contributingElement(discarded, elems) : (elems.length > 0 ? elems[0] : "");
-			if (!cpElem.isEmpty()) playerAddCp(isP1, cpElem, 2);
-			playerBreakFromHand(isP1, di);
-		}
-		for (String e : elems) { playerSpendCp(isP1, e, playerCpForElem(isP1, e)); playerClearCp(isP1, e); }
-
-		// Crystal cost
-		if (ability.crystalCost() > 0) {
-			playerSpendCrystals(isP1, ability.crystalCost());
-			refreshCrystalDisplays();
-		}
-
-		// Mark once-per-turn ability as used for this turn
-		if (ability.oncePerTurn())
-			usedOncePerTurnAbilities.computeIfAbsent(source, k -> new HashSet<>()).add(ability.effectText());
-
-		// Dull source card
-		if (ability.requiresDull()) applyDull.run();
-
-		// Special: discard first same-name card from hand (primer card name also qualifies)
-		if (ability.isSpecial()) {
-			String primerName = getPrimerCardName(source, isP1);
-			List<CardData> hand = playerHand(isP1);
-			for (int i = 0; i < hand.size(); i++) {
-				CardData hc = hand.get(i);
-				if (source.name().equalsIgnoreCase(hc.name()) ||
-						(primerName != null && primerName.equalsIgnoreCase(hc.name()))) {
-					playerBreakFromHand(isP1, i);
-					logEntry("Special: discarded \"" + hc.name() + "\" from hand");
-					break;
-				}
-			}
-		}
-
-		// Break-zone costs: process in reverse index order within each zone to avoid index shifting
-		List<ForwardTarget> sortedBz = new ArrayList<>(bzTargets);
-		sortedBz.sort((a, b) -> a.zone() == b.zone() ? Integer.compare(b.idx(), a.idx()) : 0);
-		for (ForwardTarget t : sortedBz) {
-			if (t.isP1()) {
-				switch (t.zone()) {
-					case FORWARD -> breakP1Forward(t.idx());
-					case BACKUP  -> breakP1BackupSlot(t.idx());
-					case MONSTER -> breakP1MonsterSlot(t.idx());
-				}
-			} else {
-				switch (t.zone()) {
-					case FORWARD -> breakP2Forward(t.idx());
-					case BACKUP  -> breakP2BackupSlot(t.idx());
-					case MONSTER -> breakP2MonsterSlot(t.idx());
-				}
-			}
-		}
-
-		// Discard costs — paid from hand, no CP generated
-		for (DiscardCost dc : ability.discardCosts()) {
-			List<CardData> hand = playerHand(isP1);
-			List<Integer> eligibleIdx = new ArrayList<>();
-			for (int i = 0; i < hand.size(); i++) {
-				CardData c = hand.get(i);
-				if (dc.cardName() != null && !meetsCardNameFilter(c, dc.cardName())) continue;
-				if (dc.element() != null && !c.containsElement(dc.element())) continue;
-				if (dc.cardType() != null && !matchesDiscardType(c, dc.cardType())) continue;
-				if (dc.category() != null && !meetsCategoryFilter(c, dc.category())) continue;
-				eligibleIdx.add(i);
-			}
-
-			if (eligibleIdx.size() < dc.count()) {
-				logEntry((isP1 ? "[P1] " : "[P2] ") + "Not enough eligible cards for discard cost.");
-				return;
-			}
-
-			List<CardData> eligible = new ArrayList<>();
-			for (int i : eligibleIdx) eligible.add(hand.get(i));
-
-			List<Integer> picks = showCardMultiImageChooser(eligible, "Discard Cost",
-					dc.count(), dc.eachDifferentType(), false);
-			if (picks == null || picks.size() != dc.count()) return;
-
-			List<Integer> handIdxs = new ArrayList<>();
-			for (int p : picks) handIdxs.add(eligibleIdx.get(p));
-			handIdxs.sort(Collections.reverseOrder());
-			for (int handIdx : handIdxs) {
-				String discarded = hand.get(handIdx).name();
-				playerBreakFromHand(isP1, handIdx);
-				logEntry("Discard cost: \"" + discarded + "\" discarded");
-			}
-		}
-
-		// Remove-from-game costs
-		for (RemoveFromGameCost rfg : ability.removeFromGameCosts())
-			executeRemoveFromGameCost(rfg, isP1);
-
-		// Return-to-hand costs
-		for (ReturnToHandCost rth : ability.returnToHandCosts())
-			executeReturnToHandCost(rth, isP1);
-
-		// Counter removal costs
-		for (CounterCost cc : ability.counterCosts()) {
-			int removed = gameState.removeCounters(source, cc.counterName(), cc.count());
-			logEntry(source.name() + " — removed " + removed + " " + cc.counterName()
-					+ " Counter(s) (cost)  [remaining: "
-					+ gameState.getCounters(source, cc.counterName()) + "]");
-		}
-
-		// Dull-forward costs: player picks an active forward to dull; its power is stored for effect resolution
-		lastDullForwardCostPower = 0;
-		for (DullForwardCost dfc : ability.dullForwardCosts()) {
-			List<CardData> fwds = isP1 ? p1ForwardCards : p2ForwardCards;
-			List<CardState> states = isP1 ? p1ForwardStates : p2ForwardStates;
-			List<Integer> eligible = new ArrayList<>();
-			for (int i = 0; i < fwds.size(); i++) {
-				if (states.get(i) != CardState.ACTIVE) continue;
-				if (!dfc.element().isEmpty() && !fwds.get(i).containsElement(dfc.element())) continue;
-				eligible.add(i);
-			}
-			if (eligible.isEmpty()) { logEntry("No eligible active Forward for Dull cost."); continue; }
-			List<ForwardTarget> targets = eligible.stream()
-					.map(i -> new ForwardTarget(isP1, i, ForwardTarget.CardZone.FORWARD)).toList();
-			List<ForwardTarget> picks = showForwardSelectDialog(targets, 1, false, "Dull Forward Cost");
-			if (picks.isEmpty()) continue;
-			int fwdIdx = picks.get(0).idx();
-			lastDullForwardCostPower = fwds.get(fwdIdx).power();
-			states.set(fwdIdx, CardState.DULL);
-			if (isP1) animateDullForward(fwdIdx, null); else animateDullP2Forward(fwdIdx, null);
-			logEntry("Dull cost: \"" + fwds.get(fwdIdx).name() + "\" dulled (power " + lastDullForwardCostPower + ")");
-		}
-
-		// Self-mill cost
-		if (ability.selfMillCost() > 0) {
-			int count = ability.selfMillCost();
-			java.util.Deque<CardData> deck = isP1 ? gameState.getP1MainDeck() : gameState.getP2MainDeck();
-			int available = deck.size();
-			boolean milledOut = available < count;
-			if (isP1) {
-				buildGameContext(true).millCards(count);
-			} else {
-				buildGameContext(false).opponentMillCards(count);
-			}
-			if (milledOut) {
-				String msg = isP1 ? "P1 milled out — You Lose!" : "P2 milled out — Opponent Loses!";
-				if (available > 0) {
-					int animMs = ((available - 1) * 5 + CardSlideAnimator.TOTAL_FRAMES) * CardSlideAnimator.FRAME_MS;
-					Timer t = new Timer(animMs, e -> triggerGameOver(msg));
-					t.setRepeats(false);
-					t.start();
-				} else {
-					triggerGameOver(msg);
-				}
-				return;
-			}
-		}
-
-		logEntry("\"" + source.name() + "\" activated ability");
-
-		gameState.pushStack(new StackEntry(source, ability, isP1, xValue));
-		showStackWindow();
-		refreshP1HandLabel();
-		refreshP1BreakLabel();
-	}
-
-	private void executeRemoveFromGameCost(RemoveFromGameCost rfg, boolean isP1) {
-		switch (rfg.zone()) {
-			case "DECK" -> {
-				java.util.Deque<CardData> deck = isP1 ? gameState.getP1MainDeck() : gameState.getP2MainDeck();
-				for (int i = 0; i < rfg.count() && !deck.isEmpty(); i++) {
-					CardData c = deck.pollFirst();
-					if (isP1) gameState.addToP1PermanentRfp(c); else gameState.addToP2PermanentRfp(c);
-					logEntry(c.name() + " → Removed From Game (cost)");
-				}
-				if (isP1) refreshP1DeckLabel(); else refreshP2DeckLabel();
-			}
-			case "HAND" -> {
-				int target = rfg.count();
-				for (int pick = 0; pick < target; pick++) {
-					List<Integer> eligible = eligibleRfgHandIndices(rfg, isP1);
-					if (eligible.isEmpty()) { logEntry("No eligible hand card for remove-from-game cost."); break; }
-					List<CardData> hand = playerHand(isP1);
-					if (eligible.size() == 1 && rfg.cardName() != null) {
-						// Named card — auto-select
-						CardData c = hand.get(eligible.get(0));
-						hand.remove((int) eligible.get(0));
-						if (isP1) gameState.addToP1PermanentRfp(c); else gameState.addToP2PermanentRfp(c);
-						logEntry(c.name() + " → Removed From Game (cost)");
-					} else {
-						String[] options = eligible.stream()
-								.map(i -> hand.get(i).name() + " (Cost: " + hand.get(i).cost() + ")")
-								.toArray(String[]::new);
-						String label = "Remove from game (hand)" + (target > 1 ? " (" + (pick + 1) + "/" + target + ")" : "");
-						String choice = (String) JOptionPane.showInputDialog(frame,
-								"Choose a card to remove from game:", label,
-								JOptionPane.PLAIN_MESSAGE, null, options, options[0]);
-						if (choice == null) break;
-						int listIdx = java.util.Arrays.asList(options).indexOf(choice);
-						if (listIdx < 0) break;
-						int handIdx = eligible.get(listIdx);
-						CardData c = hand.get(handIdx);
-						hand.remove(handIdx);
-						if (isP1) gameState.addToP1PermanentRfp(c); else gameState.addToP2PermanentRfp(c);
-						logEntry(c.name() + " → Removed From Game (cost)");
-					}
-				}
-				refreshP1HandLabel();
-			}
-			case "BREAK_ZONE" -> {
-				List<CardData> bz = isP1 ? gameState.getP1BreakZone() : gameState.getP2BreakZone();
-				if (rfg.count() == -1) {
-					// Remove all matching cards
-					List<Integer> eligible = eligibleRfgBzIndices(rfg, isP1);
-					for (int i = eligible.size() - 1; i >= 0; i--) {
-						CardData c = bz.remove((int) eligible.get(i));
-						if (isP1) gameState.addToP1PermanentRfp(c); else gameState.addToP2PermanentRfp(c);
-						logEntry(c.name() + " → Removed From Game (cost)");
-					}
-				} else {
-					for (int pick = 0; pick < rfg.count(); pick++) {
-						List<Integer> eligible = eligibleRfgBzIndices(rfg, isP1);
-						if (eligible.isEmpty()) { logEntry("No eligible Break Zone card for remove-from-game cost."); break; }
-						if (eligible.size() == 1 && rfg.cardName() != null) {
-							CardData c = bz.remove((int) eligible.get(0));
-							if (isP1) gameState.addToP1PermanentRfp(c); else gameState.addToP2PermanentRfp(c);
-							logEntry(c.name() + " → Removed From Game (cost)");
-						} else {
-							String[] options = eligible.stream().map(i -> bz.get(i).name()).toArray(String[]::new);
-							String label = "Remove from game (Break Zone)" + (rfg.count() > 1 ? " (" + (pick + 1) + "/" + rfg.count() + ")" : "");
-							String choice = (String) JOptionPane.showInputDialog(frame,
-									"Choose a card to remove from game:", label,
-									JOptionPane.PLAIN_MESSAGE, null, options, options[0]);
-							if (choice == null) break;
-							int listIdx = java.util.Arrays.asList(options).indexOf(choice);
-							if (listIdx < 0) break;
-							int bzIdx = eligible.get(listIdx);
-							CardData c = bz.remove(bzIdx);
-							if (isP1) gameState.addToP1PermanentRfp(c); else gameState.addToP2PermanentRfp(c);
-							logEntry(c.name() + " → Removed From Game (cost)");
-						}
-					}
-				}
-				refreshP1BreakLabel();
-			}
-			default -> {
-				// FIELD
-				GameContext ctx = buildGameContext(isP1);
-				if (rfg.cardName() != null) {
-					// Auto-find named card(s) and remove
-					List<ForwardTarget> eligible = eligibleRfgFieldTargets(rfg, isP1);
-					for (int i = 0; i < rfg.count() && i < eligible.size(); i++)
-						ctx.removeTargetFromGame(eligible.get(i));
-				} else {
-					List<ForwardTarget> eligible = eligibleRfgFieldTargets(rfg, isP1);
-					if (eligible.isEmpty()) { logEntry("No eligible field card for remove-from-game cost."); }
-					else {
-						List<ForwardTarget> picks = showForwardSelectDialog(eligible, rfg.count(), false, "Remove from Game (field)");
-						applyTargetsHighestIndexFirst(picks, ctx::removeTargetFromGame);
-					}
-				}
-			}
-		}
-	}
 
 	/**
 	 * Builds the {@link GameContext} used by {@link ActionResolver} to apply field effects.
@@ -10250,3021 +8120,12 @@ public class MainWindow {
 	 *
 	 * @param isP1 {@code true} when P1 is the ability user (affects discard/draw direction)
 	 */
-	private GameContext buildGameContext(boolean isP1) {
+	GameContext buildGameContext(boolean isP1) {
 		return buildGameContext(isP1, false);
 	}
 
-	private GameContext buildGameContext(boolean isP1, boolean exBurst) {
-		return new GameContext() {
-			@Override public void logEntry(String msg) { MainWindow.this.logEntry(msg); }
-			@Override public boolean isP1() { return isP1; }
-
-			@Override public void resetEffectProgress() { effectProgress = true; }
-			@Override public void markEffectFizzled()   { effectProgress = false; }
-			@Override public boolean effectMadeProgress() { return effectProgress; }
-
-			@Override public int p1ForwardCount()                    { return p1ForwardCards.size(); }
-			@Override public CardData p1Forward(int idx) {
-				CardData top = p1ForwardPrimedTop.get(idx);
-				return top != null ? top : p1ForwardCards.get(idx);
-			}
-			@Override public int       p1ForwardCurrentDamage(int idx) { return p1ForwardDamage.get(idx); }
-			@Override public CardState p1ForwardState(int idx)          { return p1ForwardStates.get(idx); }
-			@Override public void damageP1Forward(int idx, int amount) {
-				int scaled = abilityScaled(amount);
-				if (idx < p1ForwardCards.size()) scaled = applyOutgoingFieldAbilityMult(scaled, p1ForwardCards.get(idx));
-				applyDamageToForward(true, idx, scaled, true, false);
-			}
-
-			@Override public int p2ForwardCount()                    { return p2ForwardCards.size(); }
-			@Override public CardData p2Forward(int idx)             { return p2ForwardCards.get(idx); }
-			@Override public int       p2ForwardCurrentDamage(int idx) { return p2ForwardDamage.get(idx); }
-			@Override public CardState p2ForwardState(int idx)          { return p2ForwardStates.get(idx); }
-			@Override public void damageP2Forward(int idx, int amount) {
-				int scaled = abilityScaled(amount);
-				if (idx < p2ForwardCards.size()) scaled = applyOutgoingFieldAbilityMult(scaled, p2ForwardCards.get(idx));
-				applyDamageToForward(false, idx, scaled, true, false);
-			}
-
-			@Override public void damageP1ForwardUnreduced(int idx, int amount) {
-				int scaled = abilityScaled(amount);
-				if (idx < p1ForwardCards.size()) scaled = applyOutgoingFieldAbilityMult(scaled, p1ForwardCards.get(idx));
-				applyDamageToForward(true, idx, scaled, true, true);
-			}
-			@Override public void damageP2ForwardUnreduced(int idx, int amount) {
-				int scaled = abilityScaled(amount);
-				if (idx < p2ForwardCards.size()) scaled = applyOutgoingFieldAbilityMult(scaled, p2ForwardCards.get(idx));
-				applyDamageToForward(false, idx, scaled, true, true);
-			}
-
-			private int abilityScaled(int amount) {
-				if (currentAbilitySource == null) return amount;
-				int mult = outgoingDmgMultiplierMap.getOrDefault(currentAbilitySource, 1);
-				if (nextOutgoingDmgDoublerSet.remove(currentAbilitySource)) mult *= 2;
-				mult *= (isP1 ? p1AbilityOutgoingDmgMult : p2AbilityOutgoingDmgMult);
-				int flat = outgoingDmgFlatBoostMap.getOrDefault(currentAbilitySource, 0);
-				return amount * mult + flat;
-			}
-
-			private int applyOutgoingFieldAbilityMult(int amount, CardData target) {
-				if (currentAbilitySource == null) return amount;
-				for (FieldAbility fa : currentAbilitySource.fieldAbilities()) {
-					Matcher m = FA_DOUBLE_DAMAGE_VS_COST_THRESHOLD.matcher(fa.effectText());
-					if (m.find() && m.group("name").trim().equalsIgnoreCase(currentAbilitySource.name())
-							&& target.cost() >= Integer.parseInt(m.group("cost")))
-						amount *= 2;
-					Matcher m2 = FA_DOUBLE_ABILITY_DAMAGE.matcher(fa.effectText());
-					if (m2.find() && m2.group("name").trim().equalsIgnoreCase(currentAbilitySource.name()))
-						amount *= 2;
-				}
-				return amount;
-			}
-
-			@Override public void doubleOutgoingDamage(CardData source) {
-				int cur = outgoingDmgMultiplierMap.getOrDefault(source, 1);
-				outgoingDmgMultiplierMap.put(source, cur * 2);
-				logEntry(source.name() + " — outgoing damage ×" + (cur * 2) + " until end of turn");
-			}
-
-			@Override public void boostForwardOutgoingDamageThisTurn(ForwardTarget t, int amount) {
-				CardData card = fieldCardData(t);
-				if (card == null) return;
-				outgoingDmgFlatBoostMap.merge(card, amount, Integer::sum);
-				logEntry(card.name() + " — outgoing combat damage +" + amount + " vs Forwards until end of turn");
-			}
-
-			@Override public void doubleOpponentForwardIncomingDamage() {
-				if (isP1) {
-					p2ForwardIncomingDmgMult *= 2;
-					logEntry("Opponent's Forwards — incoming damage ×" + p2ForwardIncomingDmgMult + " until end of turn");
-				} else {
-					p1ForwardIncomingDmgMult *= 2;
-					logEntry("Opponent's Forwards — incoming damage ×" + p1ForwardIncomingDmgMult + " until end of turn");
-				}
-			}
-			@Override public void doubleForwardIncomingDamageThisTurn(ForwardTarget t) {
-				CardData card = fieldCardData(t);
-				if (card == null) return;
-				int cur = perCardIncomingDmgMultiplierMap.getOrDefault(card, 1);
-				perCardIncomingDmgMultiplierMap.put(card, cur * 2);
-				logEntry(card.name() + " — incoming damage ×" + (cur * 2) + " until end of turn");
-			}
-			@Override public void doubleForwardNextOutgoingDamage(ForwardTarget t) {
-				CardData card = fieldCardData(t);
-				if (card == null) return;
-				nextOutgoingDmgDoublerSet.add(card);
-				logEntry(card.name() + " — next outgoing damage doubled this turn");
-			}
-			@Override public void doublePlayerAbilityOutgoingDamage() {
-				if (isP1) {
-					p1AbilityOutgoingDmgMult *= 2;
-					logEntry("P1 abilities — outgoing damage ×" + p1AbilityOutgoingDmgMult + " until end of turn");
-				} else {
-					p2AbilityOutgoingDmgMult *= 2;
-					logEntry("P2 abilities — outgoing damage ×" + p2AbilityOutgoingDmgMult + " until end of turn");
-				}
-			}
-			@Override public void damageTargetUnreduced(ForwardTarget t, int amount) {
-				if (t.zone() == ForwardTarget.CardZone.BACKUP) { applyDamageToBackup(t.isP1(), t.idx(), amount); return; }
-				if (t.zone() == ForwardTarget.CardZone.MONSTER) { applyDamageToMonster(t.isP1(), t.idx(), amount); return; }
-				if (t.isP1()) damageP1ForwardUnreduced(t.idx(), amount);
-				else          damageP2ForwardUnreduced(t.idx(), amount);
-			}
-
-			@Override public void shieldNextIncomingDamage(ForwardTarget t) {
-				CardData c = fieldCardData(t); if (c != null) nextIncomingDmgZeroSet.add(c);
-			}
-			@Override public void shieldNextIncomingDamageReduction(ForwardTarget t, int reduction) {
-				CardData c = fieldCardData(t); if (c != null) nextIncomingDmgReduceMap.merge(c, reduction, Integer::sum);
-			}
-			@Override public void shieldNextAbilityIncomingDamageReduction(ForwardTarget t, int reduction) {
-				CardData c = fieldCardData(t); if (c != null) nextAbilityDmgReduceMap.merge(c, reduction, Integer::sum);
-			}
-			@Override public void debuffIncomingDamageIncrease(ForwardTarget t, int amount) {
-				CardData c = fieldCardData(t); if (c != null) incomingDmgIncreaseMap.merge(c, amount, Integer::sum);
-			}
-			@Override public void shieldAbilityDamage(ForwardTarget t) {
-				CardData c = fieldCardData(t); if (c != null) nullifyAbilityDmgSet.add(c);
-			}
-			@Override public void shieldAbilityOnlyDamage(ForwardTarget t) {
-				CardData c = fieldCardData(t); if (c != null) nullifyAbilityOnlyDmgSet.add(c);
-			}
-			@Override public void shieldNonLethal(ForwardTarget t) {
-				CardData c = fieldCardData(t); if (c != null) perCardNonLethalDmgSet.add(c);
-			}
-			@Override public void disableOpponentDamageReduction() {
-				if (isP1) p2DmgReductionDisabled = true; else p1DmgReductionDisabled = true;
-			}
-			@Override public void shieldNextOutgoingDamage(ForwardTarget t) {
-				CardData c = fieldCardData(t); if (c != null) nextOutgoingDmgZeroSet.add(c);
-			}
-			@Override public void shieldActivePlayerNonLethal() {
-				if (isP1) p1NonLethalProtection = true; else p2NonLethalProtection = true;
-			}
-			@Override public void shieldActivePlayerDamageReduction(int reduction) {
-				if (isP1) p1GlobalDmgReduction += reduction; else p2GlobalDmgReduction += reduction;
-			}
-
-			@Override public void negateAllDamage(ForwardTarget t) {
-				if (t.zone() != ForwardTarget.CardZone.FORWARD) return;
-				if (t.isP1()) {
-					int idx = t.idx();
-					if (idx < 0 || idx >= p1ForwardCards.size() || p1ForwardDamage.get(idx) == 0) return;
-					logEntry(p1Forward(idx).name() + " — all damage negated");
-					p1ForwardDamage.set(idx, 0);
-					refreshP1ForwardSlot(idx);
-				} else {
-					int idx = t.idx();
-					if (idx < 0 || idx >= p2ForwardCards.size() || p2ForwardDamage.get(idx) == 0) return;
-					logEntry("[P2] " + p2ForwardCards.get(idx).name() + " — all damage negated");
-					p2ForwardDamage.set(idx, 0);
-					refreshP2ForwardSlot(idx);
-				}
-			}
-
-			@Override public void negateAllDamageOwnForwards() {
-				List<CardData> fwds = isP1 ? p1ForwardCards : p2ForwardCards;
-				List<Integer>  dmg  = isP1 ? p1ForwardDamage : p2ForwardDamage;
-				for (int i = 0; i < fwds.size(); i++) {
-					if (dmg.get(i) == 0) continue;
-					logEntry((isP1 ? "" : "[P2] ") + fwds.get(i).name() + " — all damage negated");
-					dmg.set(i, 0);
-					if (isP1) refreshP1ForwardSlot(i); else refreshP2ForwardSlot(i);
-				}
-			}
-
-			@Override public void shieldCannotBeChosen(ForwardTarget t, boolean bySummons, boolean byAbilities) {
-				CardData c = fieldCardData(t);
-				if (c == null) return;
-				if (bySummons)   cannotBeChosenBySummons.add(c);
-				if (byAbilities) cannotBeChosenByAbilities.add(c);
-			}
-
-			@Override public void shieldCannotBeBroken(ForwardTarget t) {
-				CardData c = fieldCardData(t);
-				if (c == null) return;
-				cannotBeBrokenSet.add(c);
-				logEntry((t.isP1() ? "" : "[P2] ") + c.name() + " cannot be broken until end of turn");
-			}
-
-			@Override public void shieldCannotBeBrokenByNonDmg(ForwardTarget t) {
-				CardData c = fieldCardData(t);
-				if (c == null) return;
-				cannotBeBrokenByNonDmgSet.add(c);
-				logEntry((t.isP1() ? "" : "[P2] ") + c.name() + " cannot be broken by opposing non-damage Summons or abilities until end of turn");
-			}
-
-			@Override public void dullSourceForward(CardData source) {
-				List<CardData> fwds = isP1 ? p1ForwardCards : p2ForwardCards;
-				for (int i = 0; i < fwds.size(); i++) {
-					if (fwds.get(i).name().equalsIgnoreCase(source.name())) {
-						dullTarget(new ForwardTarget(isP1, i, ForwardTarget.CardZone.FORWARD));
-						return;
-					}
-				}
-			}
-
-			@Override public void shieldSourceForward(CardData source) {
-				List<CardData> fwds = isP1 ? p1ForwardCards : p2ForwardCards;
-				for (CardData c : fwds) {
-					if (c.name().equalsIgnoreCase(source.name())) {
-						cannotBeBrokenSet.add(c);
-						logEntry((isP1 ? "" : "[P2] ") + c.name() + " cannot be broken until end of turn");
-						return;
-					}
-				}
-			}
-
-			@Override public void shieldAllOwnForwards() {
-				List<CardData> fwds = isP1 ? p1ForwardCards : p2ForwardCards;
-				for (CardData c : fwds) {
-					cannotBeBrokenSet.add(c);
-					logEntry((isP1 ? "" : "[P2] ") + c.name() + " cannot be broken until end of turn");
-				}
-			}
-
-			@Override public void shieldBreaktouchBattle(ForwardTarget t) {
-				CardData c = fieldCardData(t);
-				if (c == null) return;
-				breaktouchBattleSet.add(c);
-				logEntry((t.isP1() ? "" : "[P2] ") + c.name() + " — Breaktouch (battle damage) until end of turn");
-			}
-
-			@Override public void shieldAllOwnForwardsCannotBeChosen(boolean bySummons, boolean byAbilities) {
-				List<CardData> fwds = isP1 ? p1ForwardCards : p2ForwardCards;
-				for (CardData c : fwds) {
-					if (bySummons)   cannotBeChosenBySummons.add(c);
-					if (byAbilities) cannotBeChosenByAbilities.add(c);
-				}
-				logEntry("Effect: all own Forwards cannot be chosen by opponent's" +
-						(bySummons && byAbilities ? " Summons or abilities" : bySummons ? " Summons" : " abilities"));
-			}
-
-			@Override public void shieldNamedCardCannotBeChosen(String name, boolean bySummons, boolean byAbilities) {
-				List<CardData> fwds = isP1 ? p1ForwardCards : p2ForwardCards;
-				for (CardData c : fwds) {
-					if (!c.name().equalsIgnoreCase(name)) continue;
-					if (bySummons)   cannotBeChosenBySummons.add(c);
-					if (byAbilities) cannotBeChosenByAbilities.add(c);
-				}
-			}
-
-			@Override public void shieldNamedCardCannotBeChosenByAnySummon(String name) {
-				List<CardData> fwds = isP1 ? p1ForwardCards : p2ForwardCards;
-				for (CardData c : fwds) {
-					if (c.name().equalsIgnoreCase(name)) cannotBeChosenBySummonsAnyone.add(c);
-				}
-				logEntry("Effect: " + name + " cannot be chosen by any Summon this turn");
-			}
-
-			@Override public void shieldNamedCardCannotBeChosenByElement(String cardName, String element) {
-				List<CardData> fwds = isP1 ? p1ForwardCards : p2ForwardCards;
-				for (CardData c : fwds) {
-					if (c.name().equalsIgnoreCase(cardName)) {
-						cannotBeChosenByElement.put(c, element);
-						return;
-					}
-				}
-				logEntry("shieldByElement: " + cardName + " not found on field");
-			}
-
-			@Override public void nullifyNamedCardDamageByElement(String cardName, String element) {
-				List<CardData> fwds = isP1 ? p1ForwardCards : p2ForwardCards;
-				for (CardData c : fwds) {
-					if (c.name().equalsIgnoreCase(cardName)) {
-						nullifyElementDamageMap.put(c, element);
-						return;
-					}
-				}
-				logEntry("nullifyDamageByElement: " + cardName + " not found on field");
-			}
-
-			@Override public void setCardElement(String cardName, String element) {
-				for (boolean p1s : new boolean[]{true, false}) {
-					List<CardData> fwds = p1s ? p1ForwardCards : p2ForwardCards;
-					for (CardData c : fwds) {
-						if (c.name().equalsIgnoreCase(cardName)) {
-							elementOverrideMap.put(c, element);
-							logEntry("[Field] " + cardName + " → element becomes " + element);
-							return;
-						}
-					}
-					CardData[] bkps = p1s ? p1BackupCards : p2BackupCards;
-					for (CardData c : bkps) {
-						if (c != null && c.name().equalsIgnoreCase(cardName)) {
-							elementOverrideMap.put(c, element);
-							logEntry("[Field] " + cardName + " → element becomes " + element);
-							return;
-						}
-					}
-				}
-				logEntry("[Field] setCardElement: " + cardName + " not found");
-			}
-
-			@Override public String selectElement(String prompt) {
-				return NameSelectionDialogs.selectElement(frame, prompt, isP1, MainWindow.this::logEntry);
-			}
-
-			@Override public String selectElement(String prompt, Set<String> excluded) {
-				return NameSelectionDialogs.selectElement(frame, prompt, excluded, isP1, MainWindow.this::logEntry);
-			}
-
-			@Override public String selectOption(String prompt, String[] choices) {
-				if (!isP1) {
-					String picked = choices[(int)(Math.random() * choices.length)];
-					logEntry("[AI] chose: " + picked);
-					return picked;
-				}
-				return (String) javax.swing.JOptionPane.showInputDialog(
-						frame, prompt, "Choose",
-						javax.swing.JOptionPane.PLAIN_MESSAGE,
-						null, choices, choices[0]);
-			}
-
-			@Override public void shieldJobForwardsCannotBeChosen(String job, String excludeName,
-					boolean bySummons, boolean byAbilities) {
-				List<CardData> fwds = isP1 ? p1ForwardCards : p2ForwardCards;
-				for (CardData c : fwds) {
-					if (!meetsJobFilterEffective(c, job)) continue;
-					if (excludeName != null && c.name().equalsIgnoreCase(excludeName)) continue;
-					if (bySummons)   cannotBeChosenBySummons.add(c);
-					if (byAbilities) cannotBeChosenByAbilities.add(c);
-				}
-			}
-
-			@Override public void gainControlOfForward(ForwardTarget t, String condition, boolean activate) {
-				// Only supported for P1 stealing from P2 in the current implementation
-				if (!isP1 || t.isP1() || t.zone() != ForwardTarget.CardZone.FORWARD) return;
-				stealForwardFromP2ToP1(t.idx(), condition, activate);
-			}
-
-			@Override
-			public java.util.List<ForwardTarget> selectCharacters(
-					int maxCount, boolean upTo, boolean opponentOnly,
-					boolean selfOnly, String condition, String element,
-					int costVal, String costCmp, int powerVal, String powerCmp,
-					boolean inclForwards, boolean inclBackups, boolean inclMonsters,
-					String jobFilter, String cardNameFilter, String categoryFilter, String excludeName, boolean inclSummons,
-					String excludeElement, boolean withoutMulticard) {
-				java.util.List<ForwardTarget> eligible = new ArrayList<>();
-				// Build symmetric "cannot be chosen" sets — checked in all four targeting quadrants.
-				// summonImmuneAnyone: blocked from Summon targeting regardless of which player casts.
-				// abilityImmuneAnyone: blocked from ability targeting regardless of which player uses.
-				// Sources: turn-scoped shields (action abilities), standalone field abilities,
-				// conditional IfControlBoost grants, and element-based immunity.
-				CardData resCard = currentResolutionIsSummon ? currentSummonSource : currentAbilitySource;
-				List<String> resElems = (resCard != null) ? effectiveElements(resCard) : List.of();
-				final Set<CardData> summonImmuneAnyone;
-				final Set<CardData> abilityImmuneAnyone;
-				{
-					Set<CardData> sumTmp = new HashSet<>(cannotBeChosenBySummonsAnyone);
-					Set<CardData> ablTmp = new HashSet<>();
-					// Rubicante-style: "cannot be chosen by [element] Summons/abilities this turn"
-					for (java.util.Map.Entry<CardData, String> e : cannotBeChosenByElement.entrySet()) {
-						if (resElems.contains(e.getValue())) { sumTmp.add(e.getKey()); ablTmp.add(e.getKey()); }
-					}
-					for (boolean p1side : new boolean[]{true, false}) {
-						List<CardData> fwds = p1side ? p1ForwardCards : p2ForwardCards;
-						CardData[]     bkps = p1side ? p1BackupCards  : p2BackupCards;
-						List<CardData> mons = p1side ? p1MonsterCards : p2MonsterCards;
-						for (CardData c : fwds) {
-							if (ActionResolver.hasCannotBeChosenByAnySummonFieldAbility(c)) sumTmp.add(c);
-							if (ActionResolver.hasCannotBeChosenByOwnElementFieldAbility(c)) {
-								String ce = effectiveElement(c);
-								if (ce != null && resElems.contains(ce)) { sumTmp.add(c); ablTmp.add(c); }
-							}
-							if (icbGrantsImmunity(c.name(), p1side, true))  sumTmp.add(c);
-							if (icbGrantsImmunity(c.name(), p1side, false)) ablTmp.add(c);
-						}
-						for (CardData c : bkps) {
-							if (c == null) continue;
-							if (ActionResolver.hasCannotBeChosenByAnySummonFieldAbility(c)) sumTmp.add(c);
-							if (ActionResolver.hasCannotBeChosenByOwnElementFieldAbility(c)) {
-								String ce = effectiveElement(c);
-								if (ce != null && resElems.contains(ce)) { sumTmp.add(c); ablTmp.add(c); }
-							}
-							if (icbGrantsImmunity(c.name(), p1side, true))  sumTmp.add(c);
-							if (icbGrantsImmunity(c.name(), p1side, false)) ablTmp.add(c);
-						}
-						for (CardData c : mons) {
-							if (ActionResolver.hasCannotBeChosenByAnySummonFieldAbility(c)) sumTmp.add(c);
-							if (ActionResolver.hasCannotBeChosenByOwnElementFieldAbility(c)) {
-								String ce = effectiveElement(c);
-								if (ce != null && resElems.contains(ce)) { sumTmp.add(c); ablTmp.add(c); }
-							}
-							if (icbGrantsImmunity(c.name(), p1side, true))  sumTmp.add(c);
-							if (icbGrantsImmunity(c.name(), p1side, false)) ablTmp.add(c);
-						}
-					}
-					summonImmuneAnyone  = sumTmp;
-					abilityImmuneAnyone = ablTmp;
-				}
-				// Unified set for this resolution: whichever immunity type applies.
-				// Used in all four targeting quadrants with no per-site condition check needed.
-				final Set<CardData> immuneAnyone = currentResolutionIsSummon ? summonImmuneAnyone : abilityImmuneAnyone;
-				// "own" = cards belonging to effect controller; "opp" = other player's cards.
-				// isP1 captures the controller's perspective, so the two blocks below must
-				// flip which physical side they iterate when isP1 is false (P2 controls).
-				if (!opponentOnly) {
-					if (isP1) {
-						if (inclForwards || inclMonsters) for (int i = 0; i < p1ForwardCards.size(); i++) {
-							CardData card = p1Forward(i);
-							if (!inclForwards && !card.alsoCountsAsMonster()) continue;
-							if (immuneAnyone.contains(card)) continue;
-							if (element != null && !card.containsElement(element)) continue;
-							if (!meetsElementExclusion(card, excludeElement)) continue;
-							if (!meetsCostConstraint(card.cost(), costVal, costCmp)) continue;
-							if (!meetsPowerConstraint(card.power(), powerVal, powerCmp)) continue;
-							if (!meetsJobFilterEffective(card, jobFilter, p1ForwardCards)) continue;
-							if (!meetsCardNameFilter(card, cardNameFilter)) continue;
-							if (!meetsCategoryFilter(card, categoryFilter)) continue;
-							if (excludeName != null && excludeName.equalsIgnoreCase(card.name())) continue;
-							if (withoutMulticard && card.multicard()) continue;
-							if (isBlockingTargetFilter(condition)
-									? meetsBlockingTargetFilter(true, i, condition)
-									: isEnteredThisTurnCondition(condition)
-									? p1ForwardPlayedOnTurn.get(i) == gameState.getTurnNumber()
-									: meetsTargetCondition(p1ForwardStates.get(i), p1ForwardDamage.get(i),
-											p1AttackSelection.contains(i), false, condition))
-								eligible.add(new ForwardTarget(true, i, ForwardTarget.CardZone.FORWARD));
-						}
-						if (inclBackups || inclForwards) for (int i = 0; i < p1BackupCards.length; i++) {
-							if (isBlockingTargetFilter(condition)) continue;
-							if (p1BackupCards[i] == null) continue;
-							if (!inclBackups && !isP1BackupTemporarilyForward(i)) continue;
-							if (element != null && !p1BackupCards[i].containsElement(element)) continue;
-							if (!meetsCostConstraint(p1BackupCards[i].cost(), costVal, costCmp)) continue;
-							if (!meetsPowerConstraint(p1BackupCards[i].power(), powerVal, powerCmp)) continue;
-							if (!meetsJobFilterEffective(p1BackupCards[i], jobFilter, p1ForwardCards)) continue;
-							if (!meetsCardNameFilter(p1BackupCards[i], cardNameFilter)) continue;
-							if (!meetsCategoryFilter(p1BackupCards[i], categoryFilter)) continue;
-							if (excludeName != null && excludeName.equalsIgnoreCase(p1BackupCards[i].name())) continue;
-							if (withoutMulticard && p1BackupCards[i].multicard()) continue;
-							if (meetsTargetCondition(p1BackupStates[i], 0, false, false, condition))
-								eligible.add(new ForwardTarget(true, i, ForwardTarget.CardZone.BACKUP));
-						}
-						if (inclMonsters || inclForwards) for (int i = 0; i < p1MonsterCards.size(); i++) {
-							if (!inclMonsters && !isP1MonsterTemporarilyForward(i)) continue;
-							CardData card = p1MonsterCards.get(i);
-							if (immuneAnyone.contains(card)) continue;
-							if (element != null && !card.containsElement(element)) continue;
-							if (!meetsElementExclusion(card, excludeElement)) continue;
-							if (!meetsCostConstraint(card.cost(), costVal, costCmp)) continue;
-							if (!meetsPowerConstraint(card.power(), powerVal, powerCmp)) continue;
-							if (!meetsJobFilterEffective(card, jobFilter, p1ForwardCards)) continue;
-							if (!meetsCardNameFilter(card, cardNameFilter)) continue;
-							if (!meetsCategoryFilter(card, categoryFilter)) continue;
-							if (excludeName != null && excludeName.equalsIgnoreCase(card.name())) continue;
-							if (withoutMulticard && card.multicard()) continue;
-							if (isEnteredThisTurnCondition(condition)
-									? p1MonsterPlayedOnTurn.get(i) == gameState.getTurnNumber()
-									: meetsTargetCondition(p1MonsterStates.get(i), 0, false, false, condition))
-								eligible.add(new ForwardTarget(true, i, ForwardTarget.CardZone.MONSTER));
-						}
-					} else {
-						if (inclForwards || inclMonsters) for (int i = 0; i < p2ForwardCards.size(); i++) {
-							CardData card = p2ForwardCards.get(i);
-							if (!inclForwards && !card.alsoCountsAsMonster()) continue;
-							if (immuneAnyone.contains(card)) continue;
-							if (element != null && !card.containsElement(element)) continue;
-							if (!meetsElementExclusion(card, excludeElement)) continue;
-							if (!meetsCostConstraint(card.cost(), costVal, costCmp)) continue;
-							if (!meetsPowerConstraint(card.power(), powerVal, powerCmp)) continue;
-							if (!meetsJobFilterEffective(card, jobFilter, p2ForwardCards)) continue;
-							if (!meetsCardNameFilter(card, cardNameFilter)) continue;
-							if (!meetsCategoryFilter(card, categoryFilter)) continue;
-							if (excludeName != null && excludeName.equalsIgnoreCase(card.name())) continue;
-							if (withoutMulticard && card.multicard()) continue;
-							if (isBlockingTargetFilter(condition)
-									? meetsBlockingTargetFilter(false, i, condition)
-									: isEnteredThisTurnCondition(condition)
-									? p2ForwardPlayedOnTurn.get(i) == gameState.getTurnNumber()
-									: meetsTargetCondition(p2ForwardStates.get(i), p2ForwardDamage.get(i),
-											false, false, condition))
-								eligible.add(new ForwardTarget(false, i, ForwardTarget.CardZone.FORWARD));
-						}
-						if (inclBackups || inclForwards) for (int i = 0; i < p2BackupCards.length; i++) {
-							if (isBlockingTargetFilter(condition)) continue;
-							if (p2BackupCards[i] == null) continue;
-							if (!inclBackups && !isP2BackupTemporarilyForward(i)) continue;
-							if (immuneAnyone.contains(p2BackupCards[i])) continue;
-							if (element != null && !p2BackupCards[i].containsElement(element)) continue;
-							if (!meetsCostConstraint(p2BackupCards[i].cost(), costVal, costCmp)) continue;
-							if (!meetsPowerConstraint(p2BackupCards[i].power(), powerVal, powerCmp)) continue;
-							if (!meetsJobFilterEffective(p2BackupCards[i], jobFilter, p2ForwardCards)) continue;
-							if (!meetsCardNameFilter(p2BackupCards[i], cardNameFilter)) continue;
-							if (!meetsCategoryFilter(p2BackupCards[i], categoryFilter)) continue;
-							if (excludeName != null && excludeName.equalsIgnoreCase(p2BackupCards[i].name())) continue;
-							if (withoutMulticard && p2BackupCards[i].multicard()) continue;
-							if (meetsTargetCondition(p2BackupStates[i], 0, false, false, condition))
-								eligible.add(new ForwardTarget(false, i, ForwardTarget.CardZone.BACKUP));
-						}
-						if (inclMonsters || inclForwards) for (int i = 0; i < p2MonsterCards.size(); i++) {
-							if (!inclMonsters && !isP2MonsterTemporarilyForward(i)) continue;
-							CardData card = p2MonsterCards.get(i);
-							if (immuneAnyone.contains(card)) continue;
-							if (element != null && !card.containsElement(element)) continue;
-							if (!meetsElementExclusion(card, excludeElement)) continue;
-							if (!meetsCostConstraint(card.cost(), costVal, costCmp)) continue;
-							if (!meetsPowerConstraint(card.power(), powerVal, powerCmp)) continue;
-							if (!meetsJobFilterEffective(card, jobFilter, p2ForwardCards)) continue;
-							if (!meetsCardNameFilter(card, cardNameFilter)) continue;
-							if (!meetsCategoryFilter(card, categoryFilter)) continue;
-							if (excludeName != null && excludeName.equalsIgnoreCase(card.name())) continue;
-							if (withoutMulticard && card.multicard()) continue;
-							if (isEnteredThisTurnCondition(condition)
-									? p2MonsterPlayedOnTurn.get(i) == gameState.getTurnNumber()
-									: meetsTargetCondition(p2MonsterStates.get(i), 0, false, false, condition))
-								eligible.add(new ForwardTarget(false, i, ForwardTarget.CardZone.MONSTER));
-						}
-					}
-				}
-				if (!selfOnly) {
-					if (isP1) {
-						if (inclForwards || inclMonsters) for (int i = 0; i < p2ForwardCards.size(); i++) {
-							CardData card = p2ForwardCards.get(i);
-							if (!inclForwards && !card.alsoCountsAsMonster()) continue;
-							if (immuneAnyone.contains(card)) continue;
-							if (element != null && !card.containsElement(element)) continue;
-							if (!meetsElementExclusion(card, excludeElement)) continue;
-							if (!meetsCostConstraint(card.cost(), costVal, costCmp)) continue;
-							if (!meetsPowerConstraint(card.power(), powerVal, powerCmp)) continue;
-							if (!meetsJobFilterEffective(card, jobFilter, p2ForwardCards)) continue;
-							if (!meetsCardNameFilter(card, cardNameFilter)) continue;
-							if (!meetsCategoryFilter(card, categoryFilter)) continue;
-							if (excludeName != null && excludeName.equalsIgnoreCase(card.name())) continue;
-							if (withoutMulticard && card.multicard()) continue;
-							if (isBlockingTargetFilter(condition)
-									? meetsBlockingTargetFilter(false, i, condition)
-									: isEnteredThisTurnCondition(condition)
-									? p2ForwardPlayedOnTurn.get(i) == gameState.getTurnNumber()
-									: meetsTargetCondition(p2ForwardStates.get(i), p2ForwardDamage.get(i),
-											false, false, condition))
-								eligible.add(new ForwardTarget(false, i, ForwardTarget.CardZone.FORWARD));
-						}
-						if (inclBackups || inclForwards) for (int i = 0; i < p2BackupCards.length; i++) {
-							if (isBlockingTargetFilter(condition)) continue;
-							if (p2BackupCards[i] == null) continue;
-							if (!inclBackups && !isP2BackupTemporarilyForward(i)) continue;
-							if (immuneAnyone.contains(p2BackupCards[i])) continue;
-							if (element != null && !p2BackupCards[i].containsElement(element)) continue;
-							if (!meetsCostConstraint(p2BackupCards[i].cost(), costVal, costCmp)) continue;
-							if (!meetsPowerConstraint(p2BackupCards[i].power(), powerVal, powerCmp)) continue;
-							if (!meetsJobFilterEffective(p2BackupCards[i], jobFilter, p2ForwardCards)) continue;
-							if (!meetsCardNameFilter(p2BackupCards[i], cardNameFilter)) continue;
-							if (!meetsCategoryFilter(p2BackupCards[i], categoryFilter)) continue;
-							if (excludeName != null && excludeName.equalsIgnoreCase(p2BackupCards[i].name())) continue;
-							if (withoutMulticard && p2BackupCards[i].multicard()) continue;
-							if (meetsTargetCondition(p2BackupStates[i], 0, false, false, condition))
-								eligible.add(new ForwardTarget(false, i, ForwardTarget.CardZone.BACKUP));
-						}
-						if (inclMonsters || inclForwards) for (int i = 0; i < p2MonsterCards.size(); i++) {
-							if (!inclMonsters && !isP2MonsterTemporarilyForward(i)) continue;
-							CardData card = p2MonsterCards.get(i);
-							if (immuneAnyone.contains(card)) continue;
-							if (element != null && !card.containsElement(element)) continue;
-							if (!meetsElementExclusion(card, excludeElement)) continue;
-							if (!meetsCostConstraint(card.cost(), costVal, costCmp)) continue;
-							if (!meetsPowerConstraint(card.power(), powerVal, powerCmp)) continue;
-							if (!meetsJobFilterEffective(card, jobFilter, p2ForwardCards)) continue;
-							if (!meetsCardNameFilter(card, cardNameFilter)) continue;
-							if (!meetsCategoryFilter(card, categoryFilter)) continue;
-							if (excludeName != null && excludeName.equalsIgnoreCase(card.name())) continue;
-							if (withoutMulticard && card.multicard()) continue;
-							if (isEnteredThisTurnCondition(condition)
-									? p2MonsterPlayedOnTurn.get(i) == gameState.getTurnNumber()
-									: meetsTargetCondition(p2MonsterStates.get(i), 0, false, false, condition))
-								eligible.add(new ForwardTarget(false, i, ForwardTarget.CardZone.MONSTER));
-						}
-					} else {
-						// P2 is targeting P1's cards — check "cannot be chosen" protection
-						Set<CardData> noChoose = currentResolutionIsSummon ? cannotBeChosenBySummons : cannotBeChosenByAbilities;
-						if (inclForwards) for (int i = 0; i < p1ForwardCards.size(); i++) {
-							CardData card = p1Forward(i);
-							if (noChoose.contains(card)) continue;
-							if (immuneAnyone.contains(card)) continue;
-							if (element != null && !card.containsElement(element)) continue;
-							if (!meetsElementExclusion(card, excludeElement)) continue;
-							if (!meetsCostConstraint(card.cost(), costVal, costCmp)) continue;
-							if (!meetsPowerConstraint(card.power(), powerVal, powerCmp)) continue;
-							if (!meetsJobFilterEffective(card, jobFilter, p1ForwardCards)) continue;
-							if (!meetsCardNameFilter(card, cardNameFilter)) continue;
-							if (!meetsCategoryFilter(card, categoryFilter)) continue;
-							if (excludeName != null && excludeName.equalsIgnoreCase(card.name())) continue;
-							if (withoutMulticard && card.multicard()) continue;
-							if (isBlockingTargetFilter(condition)
-									? meetsBlockingTargetFilter(true, i, condition)
-									: isEnteredThisTurnCondition(condition)
-									? p1ForwardPlayedOnTurn.get(i) == gameState.getTurnNumber()
-									: meetsTargetCondition(p1ForwardStates.get(i), p1ForwardDamage.get(i),
-											p1AttackSelection.contains(i), false, condition))
-								eligible.add(new ForwardTarget(true, i, ForwardTarget.CardZone.FORWARD));
-						}
-						if (inclBackups || inclForwards) for (int i = 0; i < p1BackupCards.length; i++) {
-							if (isBlockingTargetFilter(condition)) continue;
-							if (p1BackupCards[i] == null) continue;
-							if (!inclBackups && !isP1BackupTemporarilyForward(i)) continue;
-							if (noChoose.contains(p1BackupCards[i])) continue;
-							if (immuneAnyone.contains(p1BackupCards[i])) continue;
-							if (element != null && !p1BackupCards[i].containsElement(element)) continue;
-							if (!meetsCostConstraint(p1BackupCards[i].cost(), costVal, costCmp)) continue;
-							if (!meetsPowerConstraint(p1BackupCards[i].power(), powerVal, powerCmp)) continue;
-							if (!meetsJobFilterEffective(p1BackupCards[i], jobFilter, p1ForwardCards)) continue;
-							if (!meetsCardNameFilter(p1BackupCards[i], cardNameFilter)) continue;
-							if (!meetsCategoryFilter(p1BackupCards[i], categoryFilter)) continue;
-							if (excludeName != null && excludeName.equalsIgnoreCase(p1BackupCards[i].name())) continue;
-							if (withoutMulticard && p1BackupCards[i].multicard()) continue;
-							if (meetsTargetCondition(p1BackupStates[i], 0, false, false, condition))
-								eligible.add(new ForwardTarget(true, i, ForwardTarget.CardZone.BACKUP));
-						}
-						if (inclMonsters || inclForwards) for (int i = 0; i < p1MonsterCards.size(); i++) {
-							if (!inclMonsters && !isP1MonsterTemporarilyForward(i)) continue;
-							CardData card = p1MonsterCards.get(i);
-							if (noChoose.contains(card)) continue;
-							if (immuneAnyone.contains(card)) continue;
-							if (element != null && !card.containsElement(element)) continue;
-							if (!meetsElementExclusion(card, excludeElement)) continue;
-							if (!meetsCostConstraint(card.cost(), costVal, costCmp)) continue;
-							if (!meetsPowerConstraint(card.power(), powerVal, powerCmp)) continue;
-							if (!meetsJobFilterEffective(card, jobFilter)) continue;
-							if (!meetsCardNameFilter(card, cardNameFilter)) continue;
-							if (!meetsCategoryFilter(card, categoryFilter)) continue;
-							if (excludeName != null && excludeName.equalsIgnoreCase(card.name())) continue;
-							if (withoutMulticard && card.multicard()) continue;
-							if (isEnteredThisTurnCondition(condition)
-									? p1MonsterPlayedOnTurn.get(i) == gameState.getTurnNumber()
-									: meetsTargetCondition(p1MonsterStates.get(i), 0, false, false, condition))
-								eligible.add(new ForwardTarget(true, i, ForwardTarget.CardZone.MONSTER));
-						}
-					}
-				}
-				String costLabel  = costVal  >= 0 ? " of cost "  + costVal  + (costCmp  != null ? " or " + costCmp  : "") : "";
-				String powerLabel = powerVal >= 0 ? " of power " + powerVal + (powerCmp != null ? " or " + powerCmp : "") : "";
-				String targetNoun = inclForwards && !inclBackups && !inclMonsters ? "Forward"
-						: inclBackups && !inclForwards && !inclMonsters ? "Backup"
-						: inclMonsters && !inclForwards && !inclBackups ? "Monster"
-						: "Character";
-				String title = "Choose " + (upTo ? "up to " : "") + maxCount
-						+ (condition != null ? " " + condition : "")
-						+ (element != null ? " " + element : "")
-						+ " " + targetNoun + (maxCount != 1 ? "s" : "") + costLabel + powerLabel
-						+ (opponentOnly ? " (opponent)" : selfOnly ? " (yours)" : "");
-				if (!isP1) {
-					// AI (P2 controls the effect): auto-select rather than prompting the human.
-					if (eligible.isEmpty()) return java.util.List.of();
-					// For unqualified targeting, prefer opponent (P1) targets over own cards.
-					java.util.List<ForwardTarget> pool = eligible;
-					if (!opponentOnly && !selfOnly) {
-						java.util.List<ForwardTarget> oppTargets = eligible.stream()
-								.filter(ForwardTarget::isP1).toList();
-						if (!oppTargets.isEmpty()) pool = oppTargets;
-					}
-					java.util.List<ForwardTarget> copy = new ArrayList<>(pool);
-					java.util.Collections.shuffle(copy);
-					java.util.List<ForwardTarget> picked = java.util.List.copyOf(copy.subList(0, Math.min(maxCount, copy.size())));
-					picked.forEach(t -> {
-						CardData c = switch (t.zone()) {
-							case BACKUP  -> t.isP1() ? p1BackupCards[t.idx()] : p2BackupCards[t.idx()];
-							case MONSTER -> t.isP1() ? p1MonsterCards.get(t.idx()) : p2MonsterCards.get(t.idx());
-							default      -> t.isP1() ? p1Forward(t.idx()) : p2ForwardCards.get(t.idx());
-						};
-						logEntry("[AI] chose " + c.name());
-					});
-					return picked;
-				}
-				return showForwardSelectDialog(eligible, maxCount, upTo, title);
-			}
-
-			@Override public void dullP1Forward(int idx) {
-				if (idx >= p1ForwardStates.size()) return;
-				p1ForwardStates.set(idx, CardState.DULL);
-				logEntry(p1Forward(idx).name() + " is dulled");
-				animateDullForward(idx, null);
-			}
-
-			@Override public void dullP2Forward(int idx) {
-				if (idx >= p2ForwardStates.size()) return;
-				p2ForwardStates.set(idx, CardState.DULL);
-				logEntry("[P2] " + p2ForwardCards.get(idx).name() + " is dulled");
-				animateDullP2Forward(idx, null);
-			}
-
-			@Override public void freezeP1Forward(int idx) {
-				if (idx >= p1ForwardStates.size()) return;
-				p1ForwardFrozen.set(idx, true);
-				logEntry(p1Forward(idx).name() + " is frozen");
-				refreshP1ForwardSlot(idx);
-			}
-
-			@Override public void freezeP2Forward(int idx) {
-				if (idx >= p2ForwardStates.size()) return;
-				p2ForwardFrozen.set(idx, true);
-				logEntry("[P2] " + p2ForwardCards.get(idx).name() + " is frozen");
-				refreshP2ForwardSlot(idx);
-			}
-
-			@Override public void setP1ForwardCannotBlock(int idx) {
-				if (idx >= 0 && idx < p1ForwardCards.size()) p1ForwardCannotBlock.add(idx);
-			}
-			@Override public void setP2ForwardCannotBlock(int idx) {
-				if (idx >= 0 && idx < p2ForwardCards.size()) p2ForwardCannotBlock.add(idx);
-			}
-			@Override public void setP1ForwardCannotBeBlocked(int idx) {
-				if (idx >= 0 && idx < p1ForwardCards.size()) p1ForwardCannotBeBlocked.add(idx);
-			}
-			@Override public void setP2ForwardCannotBeBlocked(int idx) {
-				if (idx >= 0 && idx < p2ForwardCards.size()) p2ForwardCannotBeBlocked.add(idx);
-			}
-			@Override public void setP1ForwardCannotBeBlockedByCost(int idx, int costVal, boolean isMore) {
-				if (idx >= 0 && idx < p1ForwardCards.size())
-					p1ForwardCannotBeBlockedByCost.put(idx, new int[]{costVal, isMore ? 1 : 0});
-			}
-			@Override public void setP2ForwardCannotBeBlockedByCost(int idx, int costVal, boolean isMore) {
-				if (idx >= 0 && idx < p2ForwardCards.size())
-					p2ForwardCannotBeBlockedByCost.put(idx, new int[]{costVal, isMore ? 1 : 0});
-			}
-			@Override public boolean wasElementCpPaid(String element) {
-				return element != null && lastCastPaymentElements.stream()
-						.anyMatch(e -> e.equalsIgnoreCase(element));
-			}
-			@Override public void setP1ForwardMustBlock(int idx) {
-				if (idx >= 0 && idx < p1ForwardCards.size()) p1ForwardMustBlock.add(idx);
-			}
-			@Override public void setP2ForwardMustBlock(int idx) {
-				if (idx >= 0 && idx < p2ForwardCards.size()) p2ForwardMustBlock.add(idx);
-			}
-			@Override public void setP1ForwardCannotAttack(int idx) {
-				if (idx >= 0 && idx < p1ForwardCards.size()) p1ForwardCannotAttack.add(idx);
-			}
-			@Override public void setP2ForwardCannotAttack(int idx) {
-				if (idx >= 0 && idx < p2ForwardCards.size()) p2ForwardCannotAttack.add(idx);
-			}
-			@Override public void setP1ForwardMustAttack(int idx) {
-				if (idx >= 0 && idx < p1ForwardCards.size()) p1ForwardMustAttack.add(idx);
-			}
-			@Override public void setP2ForwardMustAttack(int idx) {
-				if (idx >= 0 && idx < p2ForwardCards.size()) p2ForwardMustAttack.add(idx);
-			}
-			@Override public void setP1ForwardCannotAttackOrBlockPersistent(int idx) {
-				if (idx >= 0 && idx < p1ForwardCards.size()) {
-					p1ForwardCannotAttackPersistent.add(idx);
-					p1ForwardCannotBlockPersistent.add(idx);
-				}
-			}
-			@Override public void setP2ForwardCannotAttackOrBlockPersistent(int idx) {
-				if (idx >= 0 && idx < p2ForwardCards.size()) {
-					p2ForwardCannotAttackPersistent.add(idx);
-					p2ForwardCannotBlockPersistent.add(idx);
-				}
-			}
-			@Override public void returnP1ForwardToHand(int idx) { MainWindow.this.returnP1ForwardToHand(idx); }
-			@Override public void returnP2ForwardToHand(int idx) { MainWindow.this.returnP2ForwardToHand(idx); }
-			@Override public boolean askTopOrBottom(String cardName) {
-					if (!isP1) {
-						logEntry("[AI] places " + cardName + " on top of the deck");
-						return true;
-					}
-				Object[] options = { "Top", "Bottom" };
-				int result = JOptionPane.showOptionDialog(frame,
-						"Place " + cardName + " at the top or bottom of the deck?",
-						"Choose Deck Position",
-						JOptionPane.YES_NO_OPTION, JOptionPane.QUESTION_MESSAGE,
-						null, options, options[0]);
-				return result != 1;
-			}
-			@Override public int selectNumber(int min, int max, String prompt) {
-					if (!isP1) {
-						logEntry("[AI] selected " + max + " (" + prompt + ")");
-						return max;
-					}
-				return MainWindow.this.showNumberSelectDialog(prompt, min, max);
-			}
-			@Override public void returnP1ForwardToDeckBottom(int idx)   { returnP1ForwardToDeck(idx, true);  }
-			@Override public void returnP2ForwardToDeckBottom(int idx)   { returnP2ForwardToDeck(idx, true);  }
-			@Override public void returnP1ForwardToDeckTop(int idx)      { returnP1ForwardToDeck(idx, false); }
-			@Override public void returnP2ForwardToDeckTop(int idx)      { returnP2ForwardToDeck(idx, false); }
-			@Override public void returnP1ForwardUnderDeckTop(int idx, int position) { MainWindow.this.returnP1ForwardUnderDeckTop(idx, position); }
-			@Override public void returnP2ForwardUnderDeckTop(int idx, int position) { MainWindow.this.returnP2ForwardUnderDeckTop(idx, position); }
-			@Override public void searchDeckForCard(boolean inclForwards, boolean inclBackups,
-					boolean inclMonsters, boolean inclSummons,
-					int costVal, String costCmp, String cardNameFilter, String jobFilter,
-					String categoryFilter, String elementFilter, String excludeName, String excludeElem,
-					String destination, int count, boolean entersDull) {
-				MainWindow.this.searchDeckForCard(isP1, inclForwards, inclBackups, inclMonsters, inclSummons,
-						costVal, costCmp, cardNameFilter, jobFilter, categoryFilter, elementFilter, excludeName, excludeElem, destination, count, entersDull);
-			}
-
-			@Override public void playAllByNameFromOwnBreakZoneDull(String cardName, boolean dull) {
-				java.util.List<CardData> bz = isP1 ? gameState.getP1BreakZone() : gameState.getP2BreakZone();
-				java.util.List<CardData> toPlay = new java.util.ArrayList<>();
-				for (int i = bz.size() - 1; i >= 0; i--)
-					if (meetsCardNameFilter(bz.get(i), cardName)) toPlay.add(bz.remove(i));
-				for (CardData card : toPlay) {
-					logEntry(card.name() + " played from Break Zone → field" + (dull ? " dull" : ""));
-					if (isP1) {
-						if (card.isBackup())       placeCardInFirstBackupSlot(card);
-						else if (card.isMonster()) placeCardInMonsterZone(card);
-						else {
-							placeCardInForwardZone(card);
-							if (dull) {
-								int idx = p1ForwardCards.size() - 1;
-								p1ForwardStates.set(idx, CardState.DULL);
-								refreshP1ForwardSlot(idx);
-							}
-						}
-					} else {
-						if (card.isBackup())       placeP2CardInFirstBackupSlot(card);
-						else if (card.isMonster()) placeP2CardInMonsterZone(card);
-						else                       placeP2CardInForwardZone(card);
-					}
-				}
-				if (isP1) refreshP1BreakLabel(); else refreshP2BreakLabel();
-			}
-
-			@Override public void returnP1BackupToHand(int idx) { MainWindow.this.returnP1BackupToHand(idx); }
-			@Override public void returnP2BackupToHand(int idx) { MainWindow.this.returnP2BackupToHand(idx); }
-			@Override public void returnP1MonsterToHand(int idx) { MainWindow.this.returnP1MonsterToHand(idx); }
-			@Override public void returnP2MonsterToHand(int idx) { MainWindow.this.returnP2MonsterToHand(idx); }
-
-			@Override public boolean isP1ForwardAttacking(int idx) { return p1AttackSelection.contains(idx); }
-			@Override public boolean isP2ForwardAttacking(int idx) { return false; }
-			@Override public boolean isP1ForwardBlocking(int idx)  { return false; }
-			@Override public boolean isP2ForwardBlocking(int idx)  { return false; }
-
-			@Override public void breakP1Forward(int idx) { MainWindow.this.breakP1Forward(idx); }
-			@Override public void breakP2Forward(int idx) { MainWindow.this.breakP2Forward(idx); }
-
-			@Override public void removeP1ForwardFromGame(int idx) {
-				if (idx >= p1ForwardCards.size()) return;
-				logEntry(p1Forward(idx).name() + " → Removed From Game");
-				List<CardData> bz = gameState.getP1BreakZone();
-				int before = bz.size();
-				MainWindow.this.breakP1Forward(idx);
-				while (bz.size() > before)
-					gameState.addToP1PermanentRfp(bz.remove(bz.size() - 1));
-				refreshP1BreakLabel();
-				refreshP1WarpZoneUI();
-			}
-
-			@Override public void removeP2ForwardFromGame(int idx) {
-				if (idx >= p2ForwardCards.size()) return;
-				logEntry("[P2] " + p2ForwardCards.get(idx).name() + " → Removed From Game");
-				List<CardData> bz = gameState.getP2BreakZone();
-				int before = bz.size();
-				MainWindow.this.breakP2Forward(idx);
-				while (bz.size() > before)
-					gameState.addToP2PermanentRfp(bz.remove(bz.size() - 1));
-				refreshP2BreakLabel();
-			}
-
-			@Override
-			public java.util.List<ForwardTarget> selectCharactersFromBreakZone(
-					int maxCount, boolean upTo, boolean opponentZone,
-					String condition, String element, int costVal, String costCmp,
-					int powerVal, String powerCmp,
-					boolean inclForwards, boolean inclBackups, boolean inclMonsters,
-					String jobFilter, String cardNameFilter, String categoryFilter, String excludeName, boolean inclSummons,
-					String excludeElement, boolean withoutMulticard) {
-				java.util.List<CardData> bz = opponentZone
-						? gameState.getP2BreakZone() : gameState.getP1BreakZone();
-				java.util.List<ForwardTarget> eligible = new ArrayList<>();
-				for (int i = 0; i < bz.size(); i++) {
-					CardData card = bz.get(i);
-					if (card.isForward()  && !inclForwards) continue;
-					if (card.isBackup()   && !inclBackups)  continue;
-					if (card.isMonster()  && !inclMonsters) continue;
-					if (card.isSummon()   && !inclSummons)  continue;
-					if (element != null && !card.containsElement(element)) continue;
-					if (!meetsCostConstraint(card.cost(), costVal, costCmp)) continue;
-					if (!meetsPowerConstraint(card.power(), powerVal, powerCmp)) continue;
-					if (!meetsJobFilterEffective(card, jobFilter)) continue;
-					if (!meetsCardNameFilter(card, cardNameFilter)) continue;
-					if (!meetsCategoryFilter(card, categoryFilter)) continue;
-					if (excludeName != null && excludeName.equalsIgnoreCase(card.name())) continue;
-					if (withoutMulticard && card.multicard()) continue;
-					ForwardTarget.CardZone cz = card.isBackup()  ? ForwardTarget.CardZone.BACKUP
-					                         : card.isMonster() ? ForwardTarget.CardZone.MONSTER
-					                         :                    ForwardTarget.CardZone.FORWARD;
-					eligible.add(new ForwardTarget(!opponentZone, i, cz));
-				}
-				String costLabel  = costVal  >= 0 ? " of cost "  + costVal  + (costCmp  != null ? " or " + costCmp  : "") : "";
-				String powerLabel = powerVal >= 0 ? " of power " + powerVal + (powerCmp != null ? " or " + powerCmp : "") : "";
-				String title = "Choose " + (upTo ? "up to " : "") + maxCount
-						+ (element != null ? " " + element : "")
-						+ " Character" + (maxCount != 1 ? "s" : "") + costLabel + powerLabel
-						+ " in " + (opponentZone ? "opponent's" : "your") + " Break Zone";
-				if (!isP1) {
-					if (eligible.isEmpty()) return java.util.List.of();
-					java.util.List<ForwardTarget> copy = new ArrayList<>(eligible);
-					java.util.Collections.shuffle(copy);
-					java.util.List<ForwardTarget> picked =
-							java.util.List.copyOf(copy.subList(0, Math.min(maxCount, copy.size())));
-					picked.forEach(t -> logEntry("[AI] chose " + bz.get(t.idx()).name()));
-					return picked;
-				}
-				return showBreakZoneSelectDialog(eligible, bz, maxCount, upTo, title);
-			}
-
-			@Override public void cancelStackEntry() {
-				// Y'shtola can only cancel Summons and auto-abilities, not action abilities.
-				List<StackEntry> targets = gameState.getStack().stream()
-						.filter(e -> e.isSummon() || e.isAutoAbility())
-						.collect(java.util.stream.Collectors.toList());
-				if (targets.isEmpty()) {
-					logEntry("No Summons or auto-abilities on the stack to cancel");
-					return;
-				}
-				StackEntry chosen;
-				if (targets.size() == 1) {
-					chosen = targets.get(0);
-				} else if (isP1) {
-					String[] options = new String[targets.size()];
-					for (int i = 0; i < targets.size(); i++) {
-						StackEntry e = targets.get(i);
-						String type  = e.isSummon() ? "Summon" : "Auto";
-						String owner = e.isP1() ? "P1" : "P2";
-						options[i] = e.source().name() + " (" + type + ", " + owner + ")";
-					}
-					Object sel = JOptionPane.showInputDialog(frame,
-							"Choose 1 Summon or auto-ability to cancel:",
-							"Cancel Effect", JOptionPane.PLAIN_MESSAGE, null, options, options[0]);
-					if (sel == null) return;
-					int idx = java.util.Arrays.asList(options).indexOf(sel.toString());
-					if (idx < 0) return;
-					chosen = targets.get(idx);
-				} else {
-					// AI: target the most recently pushed opponent (P1) entry
-					chosen = targets.stream().filter(e -> e.isP1())
-							.reduce((a, b) -> b).orElse(targets.get(targets.size() - 1));
-					logEntry("[AI] Chose to cancel: " + chosen.source().name());
-				}
-				cancelledStackEntries.add(chosen);
-				String type = chosen.isSummon() ? "Summon" : "auto-ability";
-				logEntry("Effect: " + chosen.source().name() + "'s " + type + " effect will be cancelled");
-			}
-
-			@Override public void forceTargetToBreakZone(ForwardTarget t) {
-				switch (t.zone()) {
-					case FORWARD -> { if (t.isP1()) breakP1Forward(t.idx()); else breakP2Forward(t.idx()); }
-					case BACKUP  -> { if (t.isP1()) breakP1BackupSlot(t.idx()); else breakP2BackupSlot(t.idx()); }
-					case MONSTER -> { if (t.isP1()) breakP1MonsterSlot(t.idx()); else breakP2MonsterSlot(t.idx()); }
-				}
-			}
-
-			@Override public void opponentMillCards(int count) {
-				java.util.Deque<CardData> deck = gameState.getP2MainDeck();
-				JLayeredPane lp    = frame.getRootPane().getLayeredPane();
-				Point start = SwingUtilities.convertPoint(
-						p2DeckLabel, p2DeckLabel.getWidth() / 2, p2DeckLabel.getHeight() / 2, lp);
-				Point end   = SwingUtilities.convertPoint(
-						p2BreakLabel, p2BreakLabel.getWidth() / 2, p2BreakLabel.getHeight() / 2, lp);
-				BufferedImage img = CardAnimation.toARGB(
-						loadCardbackImage(), CardAnimation.CARD_W, CardAnimation.CARD_H);
-				int milled = 0;
-				for (int i = 0; i < count && !deck.isEmpty(); i++) {
-					CardData card = deck.pop();
-					addToP2BreakZone(card);
-					logEntry("[P2] Mill: \"" + card.name() + "\" → Break Zone");
-					cardSlideAnimator.startSlide(img, start, end, i * 5);
-					milled++;
-				}
-				if (milled > 0) {
-					refreshP2DeckLabel();
-					refreshP2BreakLabel();
-				}
-			}
-
-			@Override public void millCards(int count) {
-				java.util.Deque<CardData> deck = gameState.getP1MainDeck();
-				JLayeredPane lp    = frame.getRootPane().getLayeredPane();
-				Point start = SwingUtilities.convertPoint(
-						p1DeckLabel, p1DeckLabel.getWidth() / 2, p1DeckLabel.getHeight() / 2, lp);
-				Point end   = SwingUtilities.convertPoint(
-						p1BreakLabel, p1BreakLabel.getWidth() / 2, p1BreakLabel.getHeight() / 2, lp);
-				BufferedImage img = CardAnimation.toARGB(
-						loadCardbackImage(), CardAnimation.CARD_W, CardAnimation.CARD_H);
-				int milled = 0;
-				for (int i = 0; i < count && !deck.isEmpty(); i++) {
-					CardData card = deck.pop();
-					addToP1BreakZone(card);
-					logEntry("[P1] Mill: \"" + card.name() + "\" → Break Zone");
-					cardSlideAnimator.startSlide(img, start, end, i * 5);
-					milled++;
-				}
-				if (milled > 0) {
-					refreshP1DeckLabel();
-					refreshP1BreakLabel();
-				}
-			}
-
-			@Override public void revealOpponentHand() {
-				java.util.List<CardData> hand = gameState.getP2Hand();
-				if (hand.isEmpty()) {
-					logEntry("Opponent's hand is empty.");
-					return;
-				}
-				StringBuilder sb = new StringBuilder("Opponent's hand revealed: ");
-				for (int i = 0; i < hand.size(); i++) {
-					if (i > 0) sb.append(", ");
-					sb.append(hand.get(i).name());
-				}
-				logEntry(sb.toString());
-
-				JDialog dlg = new JDialog(frame, "Opponent's Hand (" + hand.size() + " cards)", false);
-				dlg.setResizable(false);
-				dlg.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
-
-				JPanel cardsPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 8));
-				for (CardData cd : hand) {
-					JLabel lbl = new JLabel("...", SwingConstants.CENTER);
-					lbl.setPreferredSize(new Dimension(CARD_W, CARD_H));
-					lbl.setMinimumSize(new Dimension(CARD_W, CARD_H));
-					lbl.setOpaque(true);
-					lbl.setBackground(Color.DARK_GRAY);
-					lbl.setBorder(BorderFactory.createLineBorder(new Color(160, 110, 220), 1));
-					lbl.addMouseListener(new MouseAdapter() {
-						@Override public void mouseEntered(MouseEvent e) { showZoomAt(cd.imageUrl()); }
-						@Override public void mouseExited(MouseEvent e)  { hideZoom(); }
-					});
-					new SwingWorker<ImageIcon, Void>() {
-						@Override protected ImageIcon doInBackground() throws Exception {
-							Image img = ImageCache.load(cd.imageUrl());
-							return img == null ? null
-									: new ImageIcon(img.getScaledInstance(CARD_W, CARD_H, Image.SCALE_SMOOTH));
-						}
-						@Override protected void done() {
-							try {
-								ImageIcon icon = get();
-								if (icon != null) { lbl.setIcon(icon); lbl.setText(null); }
-							} catch (InterruptedException | ExecutionException ignored) {}
-						}
-					}.execute();
-
-					JPanel wrapper = new JPanel(new BorderLayout(0, 4));
-					wrapper.setBackground(cardsPanel.getBackground());
-					JLabel nameLabel = new JLabel(cd.name(), SwingConstants.CENTER);
-					nameLabel.setFont(FontLoader.loadPixelNESFont(9));
-					nameLabel.setPreferredSize(new Dimension(CARD_W, 18));
-					wrapper.add(lbl,       BorderLayout.CENTER);
-					wrapper.add(nameLabel, BorderLayout.SOUTH);
-					cardsPanel.add(wrapper);
-				}
-
-				JScrollPane scrollPane = new JScrollPane(cardsPanel,
-						JScrollPane.VERTICAL_SCROLLBAR_NEVER,
-						JScrollPane.HORIZONTAL_SCROLLBAR_AS_NEEDED);
-				scrollPane.setPreferredSize(new Dimension(
-						Math.min(hand.size() * (CARD_W + 16) + 16, 900), CARD_H + 60));
-
-				int[] countdown = { 10 };
-				JLabel countdownLabel = new JLabel("Closing in 10...", SwingConstants.CENTER);
-				countdownLabel.setFont(FontLoader.loadPixelNESFont(10));
-
-				JButton okBtn = new JButton("OK");
-				okBtn.setFont(FontLoader.loadPixelNESFont(11));
-				okBtn.addActionListener(ae -> { hideZoom(); dlg.dispose(); });
-
-				JPanel south = new JPanel(new FlowLayout(FlowLayout.CENTER, 12, 6));
-				south.add(countdownLabel);
-				south.add(okBtn);
-				south.setBorder(BorderFactory.createEmptyBorder(0, 8, 8, 8));
-
-				dlg.getContentPane().setLayout(new BorderLayout(0, 4));
-				dlg.getContentPane().add(scrollPane, BorderLayout.CENTER);
-				dlg.getContentPane().add(south,      BorderLayout.SOUTH);
-				dlg.pack();
-				dlg.setLocationRelativeTo(frame);
-				dlg.setVisible(true);
-
-				Timer[] timerRef = { null };
-				timerRef[0] = new Timer(1000, null);
-				timerRef[0].addActionListener(te -> {
-					countdown[0]--;
-					if (countdown[0] <= 0) { timerRef[0].stop(); hideZoom(); dlg.dispose(); }
-					else countdownLabel.setText("Closing in " + countdown[0] + "...");
-				});
-				timerRef[0].start();
-			}
-
-			@Override public void revealTopDeckCard(java.util.List<RevealClause> clauses, boolean opponentDeck) {
-				if (!isP1) {
-					logEntry("[P2] Reveal top deck card — not yet implemented for P2");
-					return;
-				}
-				java.util.Deque<CardData> deck = opponentDeck
-						? gameState.getP2MainDeck()
-						: gameState.getP1MainDeck();
-				String deckLabel = opponentDeck ? "opponent's deck" : "your deck";
-				if (deck.isEmpty()) {
-					logEntry("Reveal: " + deckLabel + " is empty.");
-					return;
-				}
-				CardData card = deck.pollFirst();
-				logEntry("Revealed from " + deckLabel + ": " + card.name() + " (" + card.type() + ")");
-
-				// When the only applicable clause is "castSummonFree" and the card is a Summon,
-				// show Decline/OK buttons so the player can choose whether to cast it.
-				boolean castFreeApplicable = card.isSummon() &&
-						clauses.stream().anyMatch(c -> "castSummonFree".equals(c.cardOp()));
-				boolean[] activated = {false};
-
-				JDialog dlg = new JDialog(frame, "Reveal", true);
-				dlg.setResizable(false);
-				dlg.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
-
-				JLabel cardLabel = new JLabel("...", SwingConstants.CENTER);
-				cardLabel.setPreferredSize(new Dimension(CARD_W, CARD_H));
-				cardLabel.setMinimumSize(new Dimension(CARD_W, CARD_H));
-				cardLabel.setOpaque(true);
-				cardLabel.setBackground(Color.DARK_GRAY);
-				cardLabel.setBorder(BorderFactory.createLineBorder(new Color(160, 110, 220), 1));
-				cardLabel.addMouseListener(new MouseAdapter() {
-					@Override public void mouseEntered(MouseEvent e) { showZoomAt(card.imageUrl()); }
-					@Override public void mouseExited(MouseEvent e)  { hideZoom(); }
-				});
-				new SwingWorker<ImageIcon, Void>() {
-					@Override protected ImageIcon doInBackground() throws Exception {
-						Image img = ImageCache.load(card.imageUrl());
-						return img == null ? null
-								: new ImageIcon(img.getScaledInstance(CARD_W, CARD_H, Image.SCALE_SMOOTH));
-					}
-					@Override protected void done() {
-						try {
-							ImageIcon icon = get();
-							if (icon != null) { cardLabel.setIcon(icon); cardLabel.setText(null); }
-						} catch (InterruptedException | ExecutionException ignored) {}
-					}
-				}.execute();
-
-				JPanel wrapper = new JPanel(new BorderLayout(0, 4));
-				wrapper.setBorder(BorderFactory.createEmptyBorder(8, 8, 0, 8));
-				JLabel nameLabel = new JLabel(card.name(), SwingConstants.CENTER);
-				nameLabel.setFont(FontLoader.loadPixelNESFont(9));
-				nameLabel.setPreferredSize(new Dimension(CARD_W, 18));
-				wrapper.add(cardLabel,  BorderLayout.CENTER);
-				wrapper.add(nameLabel,  BorderLayout.SOUTH);
-
-				JPanel south = new JPanel(new FlowLayout(FlowLayout.CENTER, 12, 6));
-				south.setBorder(BorderFactory.createEmptyBorder(0, 8, 8, 8));
-				if (castFreeApplicable) {
-					JButton declineBtn = new JButton("Decline");
-					declineBtn.setFont(FontLoader.loadPixelNESFont(11));
-					declineBtn.addActionListener(ae -> { hideZoom(); dlg.dispose(); });
-					JButton okBtn = new JButton("OK");
-					okBtn.setFont(FontLoader.loadPixelNESFont(11));
-					okBtn.addActionListener(ae -> { activated[0] = true; hideZoom(); dlg.dispose(); });
-					south.add(declineBtn);
-					south.add(okBtn);
-				} else {
-					JButton okBtn = new JButton("OK");
-					okBtn.setFont(FontLoader.loadPixelNESFont(11));
-					okBtn.addActionListener(ae -> { hideZoom(); dlg.dispose(); });
-					south.add(okBtn);
-				}
-
-				dlg.getContentPane().setLayout(new BorderLayout(0, 4));
-				dlg.getContentPane().add(wrapper, BorderLayout.CENTER);
-				dlg.getContentPane().add(south,   BorderLayout.SOUTH);
-				dlg.pack();
-				dlg.setLocationRelativeTo(frame);
-				dlg.setVisible(true); // modal — blocks until dismissed
-
-				// Find the first matching clause and execute its action
-				for (RevealClause clause : clauses) {
-					if (!clause.condition().test(card)) continue;
-					logEntry("Condition matched for " + card.name());
-					if (clause.cardOp() != null) {
-						switch (clause.cardOp()) {
-							case "playOntoField" -> {
-								logEntry(card.name() + " played from reveal onto field");
-								if (card.isBackup())       placeCardInFirstBackupSlot(card);
-								else if (card.isMonster()) placeCardInMonsterZone(card);
-								else                       placeCardInForwardZone(card);
-							}
-							case "playOntoFieldDull" -> {
-								logEntry(card.name() + " played from reveal onto field (dull)");
-								if (card.isBackup()) {
-									placeCardInFirstBackupSlot(card);
-								} else if (card.isMonster()) {
-									placeCardInMonsterZone(card);
-									int idx = p1MonsterCards.size() - 1;
-									p1MonsterStates.set(idx, CardState.DULL);
-									refreshP1MonsterSlot(idx);
-								} else {
-									placeCardInForwardZone(card);
-									dullP1Forward(p1ForwardCards.size() - 1);
-								}
-							}
-							case "addToHand" -> {
-								gameState.getP1Hand().add(card);
-								animateCardDraw(true, 1);
-								logEntry(card.name() + " added to hand from reveal");
-								refreshP1HandLabel();
-							}
-							case "putToBreakZone" -> {
-								addToP1BreakZone(card);
-								logEntry(card.name() + " put into Break Zone from reveal");
-								refreshP1BreakLabel();
-							}
-							case "castSummonFree" -> {
-								if (!activated[0]) {
-									logEntry(card.name() + " — free cast declined, returned to top of deck");
-									deck.addFirst(card);
-									if (opponentDeck) refreshP2DeckLabel(); else refreshP1DeckLabel();
-									return;
-								}
-								logEntry(card.name() + " — cast for free from reveal");
-								showSummonOnStack(card);
-							}
-						}
-					} else {
-						// Standalone effect — return card to top of appropriate deck first
-						// so any subsequent draw includes it
-						deck.addFirst(card);
-						if (opponentDeck) refreshP2DeckLabel(); else refreshP1DeckLabel();
-						clause.effect().accept(this);
-					}
-					if (opponentDeck) refreshP2DeckLabel(); else refreshP1DeckLabel();
-					return;
-				}
-				// No clause matched — put card back on top
-				logEntry("No condition matched — returning " + card.name() + " to top of " + deckLabel);
-				deck.addFirst(card);
-				if (opponentDeck) refreshP2DeckLabel(); else refreshP1DeckLabel();
-			}
-
-			@Override public void playCharacterFromHand(boolean inclForwards, boolean inclBackups,
-					boolean inclMonsters, int costVal, String costCmp, int costVal2,
-					String jobFilter, String cardNameFilter, String categoryFilter,
-					String elementFilter, String excludeName, boolean entersDull, String excludeElement,
-					boolean suppressAutoAbility) {
-				java.util.List<CardData> hand = gameState.getP1Hand();
-				java.util.List<Integer> eligible = new ArrayList<>();
-				for (int i = 0; i < hand.size(); i++) {
-					CardData card = hand.get(i);
-					if (card.isForward()  && !inclForwards) continue;
-					if (card.isBackup()   && !inclBackups)  continue;
-					if (card.isMonster()  && !inclMonsters) continue;
-					if (card.isSummon()) continue;
-					boolean costOk = meetsCostConstraint(card.cost(), costVal, costCmp)
-					               || (costVal2 >= 0 && card.cost() == costVal2);
-					if (!costOk) continue;
-					// Job+name: OR when both are set; AND otherwise
-					boolean passesNameJob = (jobFilter == null && cardNameFilter == null)
-						|| (jobFilter != null && cardNameFilter != null
-							? meetsJobFilterEffective(card, jobFilter) || meetsCardNameFilter(card, cardNameFilter)
-							: meetsJobFilterEffective(card, jobFilter) && meetsCardNameFilter(card, cardNameFilter));
-					if (!passesNameJob) continue;
-					if (!meetsCategoryFilter(card, categoryFilter)) continue;
-					if (!meetsElementFilter(card, elementFilter)) continue;
-					if (!meetsElementExclusion(card, excludeElement)) continue;
-					if (excludeName != null && excludeName.equalsIgnoreCase(card.name())) continue;
-					eligible.add(i);
-				}
-				if (eligible.isEmpty()) {
-					logEntry("No eligible cards in hand to play.");
-					markEffectFizzled();
-					return;
-				}
-				java.util.List<CardData> candidates = new ArrayList<>();
-				for (int i : eligible) candidates.add(hand.get(i));
-				int listIdx = showCardImageChooser(candidates, "Play a card onto the field", true, false);
-				if (listIdx < 0) { markEffectFizzled(); return; }
-				int handIdx = eligible.get(listIdx);
-				CardData card = hand.remove(handIdx);
-				logEntry(card.name() + " played from hand onto field" + (entersDull ? " (dull)" : "")
-						+ (suppressAutoAbility ? " (no ETF auto-ability)" : ""));
-				if (suppressAutoAbility) suppressAutoAbilityForNextCard = true;
-				if (card.isBackup()) {
-					placeCardInFirstBackupSlot(card);
-				} else if (card.isMonster()) {
-					placeCardInMonsterZone(card);
-				} else {
-					placeCardInForwardZone(card);
-					if (entersDull) {
-						int newIdx = p1ForwardCards.size() - 1;
-						p1ForwardStates.set(newIdx, CardState.DULL);
-						refreshP1ForwardSlot(newIdx);
-					}
-				}
-				refreshP1HandLabel();
-			}
-
-			@Override public void damageTarget(ForwardTarget t, int amount) {
-				if (t.zone() == ForwardTarget.CardZone.BACKUP) { applyDamageToBackup(t.isP1(), t.idx(), amount); return; }
-				if (t.zone() == ForwardTarget.CardZone.MONSTER) { applyDamageToMonster(t.isP1(), t.idx(), amount); return; }
-				if (t.isP1()) damageP1Forward(t.idx(), amount);
-				else          damageP2Forward(t.idx(), amount);
-			}
-
-			@Override public void gainCrystal(int count) {
-				if (isP1) gameState.addP1Crystals(count);
-				else      gameState.addP2Crystals(count);
-				refreshCrystalDisplays();
-			}
-
-			@Override public int crystalCount()         { return playerCrystals(isP1);  }
-			@Override public int opponentCrystalCount() { return playerCrystals(!isP1); }
-
-			@Override public void damageFieldForwardByName(String cardName, int amount) {
-				for (int i = 0; i < p1ForwardCards.size(); i++) {
-					if (p1ForwardCards.get(i).name().equalsIgnoreCase(cardName)) {
-						damageP1Forward(i, amount);
-						return;
-					}
-				}
-				for (int i = 0; i < p2ForwardCards.size(); i++) {
-					if (p2ForwardCards.get(i).name().equalsIgnoreCase(cardName)) {
-						damageP2Forward(i, amount);
-						return;
-					}
-				}
-				logEntry("[ActionResolver] damageFieldForwardByName: \"" + cardName + "\" not found on field");
-			}
-
-			@Override public void eachPlayerSelectForwardAndDamage(int amount) {
-				ForwardTarget p1Pick = null;
-				if (!p1ForwardCards.isEmpty()) {
-					List<ForwardTarget> p1Eligible = new ArrayList<>();
-					for (int i = 0; i < p1ForwardCards.size(); i++)
-						p1Eligible.add(new ForwardTarget(true, i, ForwardTarget.CardZone.FORWARD));
-					// Bypass the single-eligible auto-pick in showForwardSelectDialog — the card text
-					// explicitly says "each player selects", so the choice must be explicit even when
-					// only one Forward is eligible (e.g. Brute Bomber alone on the field).
-					List<ForwardTarget> picks = selectFieldTargetsInPlace(p1Eligible, 1, false,
-							"Each player selects 1 Forward — choose yours");
-					if (!picks.isEmpty()) p1Pick = picks.get(0);
-				} else {
-					logEntry("P1 has no Forwards — skipping selection");
-				}
-
-				ForwardTarget p2Pick = null;
-				if (!p2ForwardCards.isEmpty()) {
-					p2Pick = aiPickForwardToSurvive(amount);
-					if (p2Pick != null)
-						logEntry("[AI] selected " + p2ForwardCards.get(p2Pick.idx()).name());
-				} else {
-					logEntry("[P2] has no Forwards — skipping selection");
-				}
-
-				if (p1Pick != null) damageP1Forward(p1Pick.idx(), amount);
-				if (p2Pick != null) damageP2Forward(p2Pick.idx(), amount);
-			}
-
-			@Override public void activateTarget(ForwardTarget t) {
-				switch (t.zone()) {
-					case FORWARD -> {
-						int i = t.idx();
-						if (t.isP1()) { if (i < p1ForwardCards.size()) { p1ForwardStates.set(i, CardState.ACTIVE); logEntry(p1Forward(i).name() + " is activated"); refreshP1ForwardSlot(i); } }
-						else          { if (i < p2ForwardCards.size()) { p2ForwardStates.set(i, CardState.ACTIVE); logEntry("[P2] " + p2ForwardCards.get(i).name() + " is activated"); refreshP2ForwardSlot(i); } }
-					}
-					case BACKUP -> {
-						int i = t.idx();
-						if (t.isP1()) { if (i < p1BackupCards.length && p1BackupCards[i] != null) { p1BackupStates[i] = CardState.ACTIVE; logEntry(p1BackupCards[i].name() + " is activated"); refreshP1BackupSlot(i); } }
-						else          { if (i < p2BackupCards.length && p2BackupCards[i] != null) { p2BackupStates[i] = CardState.ACTIVE; logEntry("[P2] " + p2BackupCards[i].name() + " is activated"); refreshP2BackupSlot(i); } }
-					}
-					case MONSTER -> {
-						int i = t.idx();
-						if (t.isP1()) { if (i < p1MonsterCards.size()) { p1MonsterStates.set(i, CardState.ACTIVE); logEntry(p1MonsterCards.get(i).name() + " is activated"); refreshP1MonsterSlot(i); } }
-						else          { if (i < p2MonsterCards.size()) { p2MonsterStates.set(i, CardState.ACTIVE); logEntry("[P2] " + p2MonsterCards.get(i).name() + " is activated"); refreshP2MonsterSlot(i); } }
-					}
-				}
-			}
-
-			@Override public void dullTarget(ForwardTarget t) {
-				switch (t.zone()) {
-					case FORWARD -> { if (t.isP1()) dullP1Forward(t.idx()); else dullP2Forward(t.idx()); }
-					case BACKUP  -> {
-						int i = t.idx();
-						if (t.isP1()) { if (i < p1BackupCards.length && p1BackupCards[i] != null) { p1BackupStates[i] = CardState.DULL; logEntry(p1BackupCards[i].name() + " is dulled"); refreshP1BackupSlot(i); } }
-						else          { if (i < p2BackupCards.length && p2BackupCards[i] != null) { p2BackupStates[i] = CardState.DULL; logEntry("[P2] " + p2BackupCards[i].name() + " is dulled"); refreshP2BackupSlot(i); } }
-					}
-					case MONSTER -> {
-						int i = t.idx();
-						if (t.isP1()) { if (i < p1MonsterCards.size()) { p1MonsterStates.set(i, CardState.DULL); logEntry(p1MonsterCards.get(i).name() + " is dulled"); refreshP1MonsterSlot(i); } }
-						else          { if (i < p2MonsterCards.size()) { p2MonsterStates.set(i, CardState.DULL); logEntry("[P2] " + p2MonsterCards.get(i).name() + " is dulled"); refreshP2MonsterSlot(i); } }
-					}
-				}
-			}
-
-			@Override public void toggleTargetDullActivate(ForwardTarget t) {
-				CardState state = switch (t.zone()) {
-					case FORWARD -> t.isP1()
-							? (t.idx() < p1ForwardStates.size() ? p1ForwardStates.get(t.idx()) : null)
-							: (t.idx() < p2ForwardStates.size() ? p2ForwardStates.get(t.idx()) : null);
-					case BACKUP  -> t.isP1()
-							? (t.idx() < p1BackupCards.length && p1BackupCards[t.idx()] != null ? p1BackupStates[t.idx()] : null)
-							: (t.idx() < p2BackupCards.length && p2BackupCards[t.idx()] != null ? p2BackupStates[t.idx()] : null);
-					case MONSTER -> t.isP1()
-							? (t.idx() < p1MonsterStates.size() ? p1MonsterStates.get(t.idx()) : null)
-							: (t.idx() < p2MonsterStates.size() ? p2MonsterStates.get(t.idx()) : null);
-				};
-				if (state == null) return;
-				if (state == CardState.DULL) activateTarget(t);
-				else                         dullTarget(t);
-			}
-
-			@Override public void freezeTarget(ForwardTarget t) {
-				switch (t.zone()) {
-					case FORWARD -> { if (t.isP1()) freezeP1Forward(t.idx()); else freezeP2Forward(t.idx()); }
-					case BACKUP  -> {
-						int i = t.idx();
-						if (t.isP1()) { if (i < p1BackupCards.length && p1BackupCards[i] != null) { p1BackupFrozen[i] = true; logEntry(p1BackupCards[i].name() + " is frozen"); refreshP1BackupSlot(i); } }
-						else          { if (i < p2BackupCards.length && p2BackupCards[i] != null) { p2BackupFrozen[i] = true; logEntry("[P2] " + p2BackupCards[i].name() + " is frozen"); refreshP2BackupSlot(i); } }
-					}
-					case MONSTER -> {
-						int i = t.idx();
-						if (t.isP1()) { if (i < p1MonsterCards.size()) { p1MonsterFrozen.set(i, true); logEntry(p1MonsterCards.get(i).name() + " is frozen"); refreshP1MonsterSlot(i); } }
-						else          { if (i < p2MonsterCards.size()) { p2MonsterFrozen.set(i, true); logEntry("[P2] " + p2MonsterCards.get(i).name() + " is frozen"); refreshP2MonsterSlot(i); } }
-					}
-				}
-			}
-
-			@Override public void dullOrFreezeTarget(ForwardTarget t) {
-				CardState state = switch (t.zone()) {
-					case FORWARD -> t.isP1()
-							? (t.idx() < p1ForwardStates.size() ? p1ForwardStates.get(t.idx()) : null)
-							: (t.idx() < p2ForwardStates.size() ? p2ForwardStates.get(t.idx()) : null);
-					case BACKUP  -> t.isP1()
-							? (t.idx() < p1BackupCards.length && p1BackupCards[t.idx()] != null ? p1BackupStates[t.idx()] : null)
-							: (t.idx() < p2BackupCards.length && p2BackupCards[t.idx()] != null ? p2BackupStates[t.idx()] : null);
-					case MONSTER -> t.isP1()
-							? (t.idx() < p1MonsterStates.size() ? p1MonsterStates.get(t.idx()) : null)
-							: (t.idx() < p2MonsterStates.size() ? p2MonsterStates.get(t.idx()) : null);
-				};
-				if (state == null) return;
-				CardData card = fieldCardData(t);
-				String name = card != null ? card.name() : "Forward";
-				boolean chooseDull;
-				if (!isP1) {
-					// AI picks the option that actually changes state
-					chooseDull = (state != CardState.DULL);
-					logEntry("[AI] chooses to " + (chooseDull ? "Dull" : "Freeze") + " " + name);
-				} else {
-					Object[] options = { "Dull", "Freeze" };
-					int result = JOptionPane.showOptionDialog(frame,
-							"Dull or Freeze " + name + "?",
-							"Dull or Freeze",
-							JOptionPane.YES_NO_OPTION, JOptionPane.QUESTION_MESSAGE,
-							null, options, options[0]);
-					chooseDull = (result != 1);
-				}
-				if (chooseDull) dullTarget(t);
-				else            freezeTarget(t);
-			}
-
-			@Override public void dullAndFreezeTarget(ForwardTarget t) { dullTarget(t); freezeTarget(t); }
-
-			@Override public void breakTarget(ForwardTarget t) {
-				CardData breakCard = fieldCardData(t);
-				if (breakCard != null && cannotBeBrokenSet.contains(breakCard)) {
-					logEntry((t.isP1() ? "" : "[P2] ") + breakCard.name() + " cannot be broken (protected until end of turn)");
-					return;
-				}
-				if (breakCard != null && cannotBeBrokenByNonDmgSet.contains(breakCard)) {
-					logEntry((t.isP1() ? "" : "[P2] ") + breakCard.name() + " cannot be broken by this effect (protected from non-damage breaks until end of turn)");
-					return;
-				}
-				switch (t.zone()) {
-					case FORWARD -> { if (t.isP1()) breakP1Forward(t.idx()); else breakP2Forward(t.idx()); }
-					case BACKUP  -> {
-						int i = t.idx();
-						CardData[] cards = t.isP1() ? p1BackupCards : p2BackupCards;
-						CardState[] states = t.isP1() ? p1BackupStates : p2BackupStates;
-						if (i >= cards.length || cards[i] == null) return;
-						CardData c = cards[i];
-						String prefix = t.isP1() ? "" : "[P2] ";
-						logEntry(prefix + c.name() + " is broken");
-						(t.isP1() ? gameState.getP1BreakZone() : gameState.getP2BreakZone()).add(c);
-						cards[i] = null; states[i] = CardState.ACTIVE;
-						if (t.isP1()) {
-							p1BackupUrls[i] = null;
-							if (p1BackupLabels[i] != null) { p1BackupLabels[i].setIcon(null); p1BackupLabels[i].setText(null); }
-							refreshP1BreakLabel();
-						} else {
-							p2BackupUrls[i] = null;
-							if (p2BackupLabels[i] != null) { p2BackupLabels[i].setIcon(null); p2BackupLabels[i].setText(null); }
-							refreshP2BreakLabel();
-						}
-					}
-					case MONSTER -> {
-						int i = t.idx();
-						java.util.List<CardData> cards = t.isP1() ? p1MonsterCards : p2MonsterCards;
-						if (i >= cards.size()) return;
-						CardData c = cards.get(i);
-						String prefix = t.isP1() ? "" : "[P2] ";
-						logEntry(prefix + c.name() + " is broken");
-						(t.isP1() ? gameState.getP1BreakZone() : gameState.getP2BreakZone()).add(c);
-						cards.remove(i);
-						(t.isP1() ? p1MonsterStates : p2MonsterStates).remove(i);
-						(t.isP1() ? p1MonsterFrozen : p2MonsterFrozen).remove(i);
-						(t.isP1() ? p1MonsterPlayedOnTurn : p2MonsterPlayedOnTurn).remove(i);
-						(t.isP1() ? p1MonsterUrls : p2MonsterUrls).remove(i);
-						JLabel lbl = (t.isP1() ? p1MonsterLabels : p2MonsterLabels).remove(i);
-						JPanel panel = t.isP1() ? p1MonsterPanel : p2MonsterPanel;
-						panel.remove(lbl); panel.revalidate(); panel.repaint();
-						if (t.isP1()) refreshP1BreakLabel(); else refreshP2BreakLabel();
-					}
-				}
-			}
-
-			@Override public void removeTargetFromGame(ForwardTarget t) {
-				switch (t.zone()) {
-					case FORWARD -> { if (t.isP1()) removeP1ForwardFromGame(t.idx()); else removeP2ForwardFromGame(t.idx()); }
-					case BACKUP  -> {
-						int i = t.idx();
-						CardData[] cards = t.isP1() ? p1BackupCards : p2BackupCards;
-						CardState[] states = t.isP1() ? p1BackupStates : p2BackupStates;
-						if (i >= cards.length || cards[i] == null) return;
-						logEntry((t.isP1() ? "" : "[P2] ") + cards[i].name() + " → Removed From Game");
-						if (t.isP1()) gameState.addToP1PermanentRfp(cards[i]); else gameState.addToP2PermanentRfp(cards[i]);
-						cards[i] = null; states[i] = CardState.ACTIVE;
-						if (t.isP1()) refreshP1BackupSlot(i); else refreshP2BackupSlot(i);
-					}
-					case MONSTER -> {
-						int i = t.idx();
-						java.util.List<CardData> cards = t.isP1() ? p1MonsterCards : p2MonsterCards;
-						if (i >= cards.size()) return;
-						CardData c = cards.get(i);
-						logEntry((t.isP1() ? "" : "[P2] ") + c.name() + " → Removed From Game");
-						if (t.isP1()) gameState.addToP1PermanentRfp(c); else gameState.addToP2PermanentRfp(c);
-						cards.remove(i);
-						(t.isP1() ? p1MonsterStates : p2MonsterStates).remove(i);
-						(t.isP1() ? p1MonsterFrozen : p2MonsterFrozen).remove(i);
-						(t.isP1() ? p1MonsterPlayedOnTurn : p2MonsterPlayedOnTurn).remove(i);
-						(t.isP1() ? p1MonsterUrls : p2MonsterUrls).remove(i);
-						JLabel lbl = (t.isP1() ? p1MonsterLabels : p2MonsterLabels).remove(i);
-						JPanel panel = t.isP1() ? p1MonsterPanel : p2MonsterPanel;
-						panel.remove(lbl); panel.revalidate(); panel.repaint();
-					}
-				}
-			}
-
-			@Override public void removeTopCardsOfDeckFromGame(int count) {
-				java.util.Deque<CardData> deck = isP1 ? gameState.getP1MainDeck() : gameState.getP2MainDeck();
-				for (int i = 0; i < count && !deck.isEmpty(); i++) {
-					CardData c = deck.pollFirst();
-					if (isP1) gameState.addToP1PermanentRfp(c); else gameState.addToP2PermanentRfp(c);
-					logEntry(c.name() + " → Removed From Game (top of deck)");
-				}
-				if (isP1) refreshP1DeckLabel(); else refreshP2DeckLabel();
-			}
-
-			@Override public int removeTopCardOfDeckFromGameAndGetCost() {
-				java.util.Deque<CardData> deck = isP1 ? gameState.getP1MainDeck() : gameState.getP2MainDeck();
-				if (deck.isEmpty()) { logEntry("Deck is empty — no card removed"); return 0; }
-				CardData c = deck.pollFirst();
-				if (isP1) gameState.addToP1PermanentRfp(c); else gameState.addToP2PermanentRfp(c);
-				logEntry(c.name() + " → Removed From Game (top of deck, cost=" + c.cost() + ")");
-				if (isP1) refreshP1DeckLabel(); else refreshP2DeckLabel();
-				return c.cost();
-			}
-
-			@Override public void shuffleDeck() {
-				java.util.Deque<CardData> deck = isP1 ? gameState.getP1MainDeck() : gameState.getP2MainDeck();
-				java.util.List<CardData> list = new java.util.ArrayList<>(deck);
-				java.util.Collections.shuffle(list);
-				deck.clear();
-				deck.addAll(list);
-				if (isP1) refreshP1DeckLabel(); else refreshP2DeckLabel();
-				logEntry("Shuffled deck");
-			}
-
-			@Override public void playTargetOntoField(ForwardTarget t) {
-				java.util.List<CardData> bz = t.isP1() ? gameState.getP1BreakZone() : gameState.getP2BreakZone();
-				if (t.idx() >= bz.size()) return;
-				CardData card = bz.remove(t.idx());
-				String src = t.isP1() ? "Break Zone" : "opponent's Break Zone";
-				logEntry(card.name() + " played from " + src + " onto field");
-				if (t.isP1()) {
-					if (card.isBackup())       placeCardInFirstBackupSlot(card);
-					else if (card.isMonster()) placeCardInMonsterZone(card);
-					else                       placeCardInForwardZone(card);
-				} else {
-					if (card.isBackup())       placeP2CardInFirstBackupSlot(card);
-					else if (card.isMonster()) placeP2CardInMonsterZone(card);
-					else                       placeP2CardInForwardZone(card);
-				}
-				if (t.isP1()) refreshP1BreakLabel(); else refreshP2BreakLabel();
-			}
-
-			@Override public void addTargetToHand(ForwardTarget t) {
-				java.util.List<CardData> bz = t.isP1() ? gameState.getP1BreakZone() : gameState.getP2BreakZone();
-				if (t.idx() >= bz.size()) return;
-				CardData card = bz.remove(t.idx());
-				gameState.getP1Hand().add(card);
-				logEntry(card.name() + (t.isP1() ? " returned from Break Zone to hand" : " taken from opponent's Break Zone to hand"));
-				if (t.isP1()) refreshP1BreakLabel(); else refreshP2BreakLabel();
-				refreshP1HandLabel();
-			}
-
-			@Override public void boostTarget(ForwardTarget t, int amount,
-					java.util.EnumSet<CardData.Trait> traits) {
-				boolean isP1    = t.isP1();
-				boolean monster = t.zone() == ForwardTarget.CardZone.MONSTER;
-				int     idx     = t.idx();
-
-				// Backups are only valid Forward-targets while they are acting as a Forward.
-				if (t.zone() == ForwardTarget.CardZone.BACKUP) {
-					boolean asFwd = isP1 ? isP1BackupTemporarilyForward(idx) : isP2BackupTemporarilyForward(idx);
-					CardData[] bcards = isP1 ? p1BackupCards : p2BackupCards;
-					if (!asFwd || idx < 0 || idx >= bcards.length || bcards[idx] == null) return;
-					CardData bcard = bcards[idx];
-					(isP1 ? p1BackupForwardBoost : p2BackupForwardBoost).merge(bcard, amount, Integer::sum);
-					java.util.EnumSet<CardData.Trait> bGranted = java.util.EnumSet.noneOf(CardData.Trait.class);
-					if (!traits.isEmpty()) {
-						(isP1 ? p1BackupTempTraits : p2BackupTempTraits)
-								.computeIfAbsent(bcard, k -> java.util.EnumSet.noneOf(CardData.Trait.class))
-								.addAll(traits);
-						bGranted.addAll(traits);
-					}
-					StringBuilder bsb = new StringBuilder();
-					if (!bGranted.isEmpty())
-						bsb.append(bGranted.stream().map(Enum::name)
-								.map(s -> s.substring(0, 1).toUpperCase() + s.substring(1).toLowerCase())
-								.collect(Collectors.joining(" and ")));
-					if (amount != 0) {
-						if (bsb.length() > 0) bsb.append(" and ");
-						bsb.append("+").append(amount).append(" power");
-					}
-					logEntry((isP1 ? "" : "[P2] ") + bcard.name() + " gains " + bsb + " until end of turn");
-					if (isP1) refreshP1BackupSlot(idx); else refreshP2BackupSlot(idx);
-					return;
-				}
-
-				List<CardData> cards = monster ? (isP1 ? p1MonsterCards : p2MonsterCards)
-				                               : (isP1 ? p1ForwardCards : p2ForwardCards);
-				if (idx < 0 || idx >= cards.size()) return;
-				CardData card = cards.get(idx);
-
-				// A Monster only keeps granted traits while it is actually acting as a Forward.
-				java.util.EnumSet<CardData.Trait> grantedTraits = java.util.EnumSet.noneOf(CardData.Trait.class);
-				if (monster) {
-					(isP1 ? p1MonsterPowerBoost : p2MonsterPowerBoost).merge(card, amount, Integer::sum);
-					boolean asForward = isP1 ? isP1MonsterTemporarilyForward(idx)
-					                         : isP2MonsterTemporarilyForward(idx);
-					if (asForward && !traits.isEmpty()) {
-						(isP1 ? p1MonsterTempTraits : p2MonsterTempTraits)
-								.computeIfAbsent(card, k -> java.util.EnumSet.noneOf(CardData.Trait.class))
-								.addAll(traits);
-						grantedTraits.addAll(traits);
-					}
-				} else {
-					List<Integer> boost = isP1 ? p1ForwardPowerBoost : p2ForwardPowerBoost;
-					boost.set(idx, boost.get(idx) + amount);
-					(isP1 ? p1ForwardTempTraits : p2ForwardTempTraits).get(idx).addAll(traits);
-					grantedTraits.addAll(traits);
-				}
-
-				StringBuilder sb = new StringBuilder();
-				if (!grantedTraits.isEmpty()) {
-					sb.append(grantedTraits.stream().map(Enum::name)
-							.map(s -> s.substring(0, 1).toUpperCase() + s.substring(1).toLowerCase())
-							.collect(Collectors.joining(" and ")));
-				}
-				if (amount != 0) {
-					if (sb.length() > 0) sb.append(" and ");
-					sb.append("+").append(amount).append(" power");
-				}
-
-				logEntry((isP1 ? "" : "[P2] ") + card.name() + " gains " + sb + " until end of turn");
-				if (monster) { if (isP1) refreshP1MonsterSlot(idx); else refreshP2MonsterSlot(idx); }
-				else         { if (isP1) refreshP1ForwardSlot(idx); else refreshP2ForwardSlot(idx); }
-			}
-
-			@Override public void setSourceForwardCannotBeBlocked(CardData source) {
-				for (int i = 0; i < p1ForwardCards.size(); i++) {
-					if (p1ForwardCards.get(i).name().equals(source.name())) {
-						setP1ForwardCannotBeBlocked(i);
-						return;
-					}
-				}
-			}
-
-			@Override public void boostSourceForward(CardData source, int amount,
-					java.util.EnumSet<CardData.Trait> traits) {
-				for (int i = 0; i < p1ForwardCards.size(); i++) {
-					if (p1ForwardCards.get(i).name().equals(source.name())) {
-						p1ForwardPowerBoost.set(i, p1ForwardPowerBoost.get(i) + amount);
-						p1ForwardTempTraits.get(i).addAll(traits);
-						logEntry(source.name() + " gains +" + amount + " power until end of turn");
-						refreshP1ForwardSlot(i);
-						return;
-					}
-				}
-			}
-
-			@Override public void doubleSourceForwardPower(CardData source,
-					java.util.EnumSet<CardData.Trait> traits) {
-				for (int i = 0; i < p1ForwardCards.size(); i++) {
-					if (p1ForwardCards.get(i).name().equals(source.name())) {
-						int current = effectiveP1ForwardPower(i);
-						p1ForwardPowerBoost.set(i, p1ForwardPowerBoost.get(i) + current);
-						p1ForwardTempTraits.get(i).addAll(traits);
-						logEntry(source.name() + " — power doubled to " + (current * 2) + " until end of turn");
-						refreshP1ForwardSlot(i);
-						return;
-					}
-				}
-			}
-
-			@Override public void addPendingMainPhase1Effect(Consumer<GameContext> effect) {
-				pendingMainPhase1Effects.add(effect);
-			}
-
-			@Override public void setTargetPower(ForwardTarget t, int power) {
-				if (t.zone() != ForwardTarget.CardZone.FORWARD) return;
-				int idx = t.idx();
-				if (t.isP1()) {
-					if (idx >= p1ForwardCards.size()) return;
-					int base = p1ForwardCards.get(idx).power();
-					p1ForwardPowerReduction.set(idx, 0);
-					p1ForwardPowerBoost.set(idx, power - base);
-					logEntry(p1Forward(idx).name() + " power becomes " + power + " until end of turn");
-					refreshP1ForwardSlot(idx);
-				} else {
-					if (idx >= p2ForwardCards.size()) return;
-					int base = p2ForwardCards.get(idx).power();
-					p2ForwardPowerReduction.set(idx, 0);
-					p2ForwardPowerBoost.set(idx, power - base);
-					logEntry("[P2] " + p2ForwardCards.get(idx).name() + " power becomes " + power + " until end of turn");
-					refreshP2ForwardSlot(idx);
-				}
-			}
-
-			@Override public void placeCounters(CardData card, String counterName, int count) {
-				gameState.placeCounters(card, counterName, count);
-				Map<String, Integer> all = gameState.getCountersMap(card);
-				logEntry(card.name() + " — placed " + count + " " + counterName
-						+ " Counter(s)  [now: " + all + "]");
-			}
-
-			@Override public int getCounters(CardData card, String counterName) {
-				return gameState.getCounters(card, counterName);
-			}
-
-			@Override public void lookAtTopDeck(LookConfig config) {
-				lookDialogs().show(config, isP1);
-			}
-
-			@Override public void reduceTarget(ForwardTarget t, int amount,
-					java.util.EnumSet<CardData.Trait> traits) {
-				if (t.zone() == ForwardTarget.CardZone.BACKUP) return;
-				if (t.isP1()) {
-					int idx = t.idx();
-					if (idx >= p1ForwardCards.size()) return;
-					p1ForwardPowerReduction.set(idx, p1ForwardPowerReduction.get(idx) + amount);
-					p1ForwardRemovedTraits.get(idx).addAll(traits);
-					int effPow = effectiveP1ForwardPower(idx);
-					logEntry(p1Forward(idx).name() + " loses " + (amount > 0 ? amount + " power" : "")
-							+ (!traits.isEmpty() ? (amount > 0 ? " and " : "") + traits : "") + " until end of turn");
-					if (effPow <= 0) {
-						logEntry(p1Forward(idx).name() + " reduced to 0 power → Break Zone");
-						breakP1Forward(idx);
-					} else {
-						refreshP1ForwardSlot(idx);
-					}
-				} else {
-					int idx = t.idx();
-					if (idx >= p2ForwardCards.size()) return;
-					p2ForwardPowerReduction.set(idx, p2ForwardPowerReduction.get(idx) + amount);
-					p2ForwardRemovedTraits.get(idx).addAll(traits);
-					int effPow = effectiveP2ForwardPower(idx);
-					logEntry("[P2] " + p2ForwardCards.get(idx).name() + " loses "
-							+ (amount > 0 ? amount + " power" : "")
-							+ (!traits.isEmpty() ? (amount > 0 ? " and " : "") + traits : "") + " until end of turn");
-					if (effPow <= 0) {
-						logEntry("[P2] " + p2ForwardCards.get(idx).name() + " reduced to 0 power → Break Zone");
-						breakP2Forward(idx);
-					} else {
-						refreshP2ForwardSlot(idx);
-					}
-				}
-			}
-
-			@Override public void reduceSourceForward(CardData source, int amount,
-					java.util.EnumSet<CardData.Trait> traits) {
-				for (int i = 0; i < p1ForwardCards.size(); i++) {
-					if (p1ForwardCards.get(i).name().equals(source.name())) {
-						reduceTarget(new ForwardTarget(true, i, ForwardTarget.CardZone.FORWARD), amount, traits);
-						return;
-					}
-				}
-			}
-
-			@Override public int dullForwardCostPower() { return lastDullForwardCostPower; }
-
-			@Override public int highestP1ForwardPower() {
-				int max = 0;
-				for (int i = 0; i < p1ForwardCards.size(); i++)
-					max = Math.max(max, effectiveP1ForwardPower(i));
-				return max;
-			}
-
-			@Override public int fieldForwardPowerByName(String cardName) {
-				for (int i = 0; i < p1ForwardCards.size(); i++)
-					if (p1ForwardCards.get(i).name().equalsIgnoreCase(cardName))
-						return effectiveP1ForwardPower(i);
-				for (int i = 0; i < p2ForwardCards.size(); i++)
-					if (p2ForwardCards.get(i).name().equalsIgnoreCase(cardName))
-						return effectiveP2ForwardPower(i);
-				for (int i = 0; i < p1MonsterCards.size(); i++)
-					if (p1MonsterCards.get(i).name().equalsIgnoreCase(cardName))
-						return effectiveP1MonsterPower(i);
-				for (int i = 0; i < p2MonsterCards.size(); i++)
-					if (p2MonsterCards.get(i).name().equalsIgnoreCase(cardName))
-						return effectiveP2MonsterPower(i);
-				logEntry("[ActionResolver] fieldForwardPowerByName: \"" + cardName + "\" not found on field");
-				return -1;
-			}
-
-			@Override public int combatBlockerIdxForAttacker(String attackerName, boolean attackerIsP1) {
-					if (attackerIsP1) {
-						if (p2BlockedByAttacker != null && p2BlockedByAttacker.name().equalsIgnoreCase(attackerName))
-							return p2BlockingIdx;
-					} else {
-						if (p1BlockedByAttacker != null && p1BlockedByAttacker.name().equalsIgnoreCase(attackerName))
-							return p1BlockingIdx;
-					}
-					return -1;
-				}
-
-			@Override public int effectiveTargetPower(ForwardTarget t) {
-				if (t.zone() == ForwardTarget.CardZone.BACKUP) return 0;
-				if (t.zone() == ForwardTarget.CardZone.FORWARD)
-					return t.isP1()
-							? (t.idx() < p1ForwardCards.size() ? effectiveP1ForwardPower(t.idx()) : 0)
-							: (t.idx() < p2ForwardCards.size() ? effectiveP2ForwardPower(t.idx()) : 0);
-				return t.isP1()
-						? (t.idx() < p1MonsterCards.size() ? effectiveP1MonsterPower(t.idx()) : 0)
-						: (t.idx() < p2MonsterCards.size() ? effectiveP2MonsterPower(t.idx()) : 0);
-			}
-
-			@Override public void forceOpponentDiscard(int count) {
-				if (isP1) {
-					List<CardData> hand = gameState.getP2Hand();
-					int actual = Math.min(count, hand.size());
-					for (int i = 0; i < actual; i++) {
-						int idx = pickWorstHandCard0(hand);
-						CardData d = gameState.breakP2FromHand(idx);
-						if (d != null) {
-							logEntry("[P2] Discards " + d.name() + " (forced)");
-							p2DiscardedByEffectThisTurn = true;
-							p1CausedOpponentDiscardThisTurn = true;
-						}
-					}
-					refreshP2HandCountLabel();
-					refreshP2BreakLabel();
-				} else {
-					showForcedDiscardDialog(count, true);
-					p2CausedOpponentDiscardThisTurn = true;
-				}
-			}
-
-			@Override public void forceOpponentRandomDiscard(int count) {
-				if (isP1) {
-					List<CardData> hand = gameState.getP2Hand();
-					int actual = Math.min(count, hand.size());
-					for (int i = 0; i < actual; i++) {
-						int idx = (int) (Math.random() * gameState.getP2Hand().size());
-						CardData d = gameState.breakP2FromHand(idx);
-						if (d != null) {
-							logEntry("[P2] Randomly discards " + d.name());
-							p2DiscardedByEffectThisTurn = true;
-							p1CausedOpponentDiscardThisTurn = true;
-						}
-					}
-					refreshP2HandCountLabel();
-					refreshP2BreakLabel();
-				} else {
-					List<CardData> hand = gameState.getP1Hand();
-					int actual = Math.min(count, hand.size());
-					for (int i = 0; i < actual; i++) {
-						int idx = (int) (Math.random() * gameState.getP1Hand().size());
-						CardData d = gameState.breakFromHand(idx);
-						if (d != null) {
-							logEntry("[P1] Randomly discards " + d.name());
-							p1DiscardedByEffectThisTurn = true;
-							p2CausedOpponentDiscardThisTurn = true;
-						}
-					}
-					refreshP1HandLabel();
-					refreshP1BreakLabel();
-				}
-			}
-
-			@Override public void drawCardsForOpponent(int count) {
-				if (isP1) {
-					drawP2Cards(count);
-					animateCardDraw(false, count);
-					refreshP2DeckLabel();
-					refreshP2HandCountLabel();
-				} else {
-					drawP1Cards(count);
-					animateCardDraw(true, count);
-					refreshP1HandLabel();
-					refreshP1DeckLabel();
-				}
-			}
-
-			@Override public void forceOpponentRandomHandRfp(int count) {
-				if (isP1) {
-					List<CardData> hand = gameState.getP2Hand();
-					int actual = Math.min(count, hand.size());
-					for (int i = 0; i < actual; i++) {
-						if (hand.isEmpty()) break;
-						int idx = (int) (Math.random() * hand.size());
-						CardData d = hand.remove(idx);
-						gameState.addToP2PermanentRfp(d);
-						logEntry("[P2] Randomly removed from game: " + d.name());
-					}
-					refreshP2HandCountLabel();
-				} else {
-					List<CardData> hand = gameState.getP1Hand();
-					int actual = Math.min(count, hand.size());
-					for (int i = 0; i < actual; i++) {
-						if (hand.isEmpty()) break;
-						int idx = (int) (Math.random() * hand.size());
-						CardData d = gameState.removeFromHand(idx);
-						if (d != null) { gameState.addToP1PermanentRfp(d); logEntry("[P1] Randomly removed from game: " + d.name()); }
-					}
-					refreshP1HandLabel();
-					refreshP1WarpZoneUI();
-				}
-			}
-
-			@Override public void selectFromOpponentHandAndRfp(int count) {
-				if (isP1) {
-					showHandRfpSelectionDialog(gameState.getP2Hand(), count, false);
-				} else {
-					// AI picks highest-cost cards from P1's hand
-					int actual = Math.min(count, gameState.getP1Hand().size());
-					for (int i = 0; i < actual; i++) {
-						List<CardData> hand = gameState.getP1Hand();
-						if (hand.isEmpty()) break;
-						int best = 0;
-						for (int j = 1; j < hand.size(); j++)
-							if (hand.get(j).cost() > hand.get(best).cost()) best = j;
-						CardData d = gameState.removeFromHand(best);
-						if (d != null) { gameState.addToP1PermanentRfp(d); logEntry("[P2 AI selects from P1 hand] " + d.name() + " removed from game"); }
-					}
-					refreshP1HandLabel();
-					refreshP1WarpZoneUI();
-				}
-			}
-
-			@Override public void forceOpponentHandRfp(int count) {
-				if (isP1) {
-					List<CardData> hand = gameState.getP2Hand();
-					int actual = Math.min(count, hand.size());
-					for (int i = 0; i < actual; i++) {
-						if (hand.isEmpty()) break;
-						int idx = pickWorstHandCard0(hand);
-						CardData d = hand.remove(idx);
-						gameState.addToP2PermanentRfp(d);
-						logEntry("[P2] Removes from game: " + d.name());
-					}
-					refreshP2HandCountLabel();
-				} else {
-					showHandRfpSelectionDialog(gameState.getP1Hand(), count, true);
-				}
-			}
-
-			@Override public void removeNamedCardFromGame(String cardName) {
-				// P1 forwards
-				for (int i = 0; i < p1ForwardCards.size(); i++) {
-					if (p1ForwardCards.get(i).name().equalsIgnoreCase(cardName)) { removeP1ForwardFromGame(i); return; }
-				}
-				// P1 backups
-				for (int i = 0; i < p1BackupCards.length; i++) {
-					if (p1BackupCards[i] != null && p1BackupCards[i].name().equalsIgnoreCase(cardName)) {
-						logEntry(cardName + " → Removed From Game");
-						gameState.addToP1PermanentRfp(p1BackupCards[i]);
-						p1BackupCards[i] = null; p1BackupStates[i] = CardState.ACTIVE;
-						refreshP1BackupSlot(i); refreshP1WarpZoneUI(); return;
-					}
-				}
-				// P1 monsters
-				for (int i = 0; i < p1MonsterCards.size(); i++) {
-					if (p1MonsterCards.get(i).name().equalsIgnoreCase(cardName)) {
-						removeTargetFromGame(new ForwardTarget(true, i, ForwardTarget.CardZone.MONSTER)); return;
-					}
-				}
-				// P2 forwards
-				for (int i = 0; i < p2ForwardCards.size(); i++) {
-					if (p2ForwardCards.get(i).name().equalsIgnoreCase(cardName)) { removeP2ForwardFromGame(i); return; }
-				}
-				// P2 backups
-				for (int i = 0; i < p2BackupCards.length; i++) {
-					if (p2BackupCards[i] != null && p2BackupCards[i].name().equalsIgnoreCase(cardName)) {
-						logEntry("[P2] " + cardName + " → Removed From Game");
-						gameState.addToP2PermanentRfp(p2BackupCards[i]);
-						p2BackupCards[i] = null; p2BackupStates[i] = CardState.ACTIVE;
-						refreshP2BackupSlot(i); return;
-					}
-				}
-				// P2 monsters
-				for (int i = 0; i < p2MonsterCards.size(); i++) {
-					if (p2MonsterCards.get(i).name().equalsIgnoreCase(cardName)) {
-						removeTargetFromGame(new ForwardTarget(false, i, ForwardTarget.CardZone.MONSTER)); return;
-					}
-				}
-				logEntry("[Warning] removeNamedCardFromGame: \"" + cardName + "\" not found on field");
-			}
-
-			@Override public void returnNamedCardToOwnersHand(String cardName) {
-				for (int i = 0; i < p1ForwardCards.size(); i++) {
-					if (p1ForwardCards.get(i).name().equalsIgnoreCase(cardName)) { returnP1ForwardToHand(i); return; }
-				}
-				for (int i = 0; i < p1BackupCards.length; i++) {
-					if (p1BackupCards[i] != null && p1BackupCards[i].name().equalsIgnoreCase(cardName)) { returnP1BackupToHand(i); return; }
-				}
-				for (int i = 0; i < p1MonsterCards.size(); i++) {
-					if (p1MonsterCards.get(i).name().equalsIgnoreCase(cardName)) { returnP1MonsterToHand(i); return; }
-				}
-				for (int i = 0; i < p2ForwardCards.size(); i++) {
-					if (p2ForwardCards.get(i).name().equalsIgnoreCase(cardName)) { returnP2ForwardToHand(i); return; }
-				}
-				for (int i = 0; i < p2BackupCards.length; i++) {
-					if (p2BackupCards[i] != null && p2BackupCards[i].name().equalsIgnoreCase(cardName)) { returnP2BackupToHand(i); return; }
-				}
-				for (int i = 0; i < p2MonsterCards.size(); i++) {
-					if (p2MonsterCards.get(i).name().equalsIgnoreCase(cardName)) { returnP2MonsterToHand(i); return; }
-				}
-				logEntry("[Warning] returnNamedCardToOwnersHand: \"" + cardName + "\" not found on field");
-			}
-
-			@Override public void grantAttackOnceMore(String cardName) {
-				for (int i = 0; i < p1ForwardCards.size(); i++) {
-					if (p1ForwardCards.get(i).name().equalsIgnoreCase(cardName)) {
-						p1ForwardCannotAttack.remove(i);
-						refreshP1ForwardSlot(i);
-						return;
-					}
-				}
-				for (int i = 0; i < p1MonsterCards.size(); i++) {
-					if (p1MonsterCards.get(i).name().equalsIgnoreCase(cardName)) {
-						return;
-					}
-				}
-				logEntry("[Warning] grantAttackOnceMore: \"" + cardName + "\" not found on P1's field");
-			}
-
-			@Override public void returnNamedCardToYourHand(String cardName) {
-				if (currentResolutionIsSummon && currentSummonSource != null
-						&& currentSummonSource.name().equalsIgnoreCase(cardName)) {
-					pendingSummonReturnToHand = true;
-					return;
-				}
-				for (int i = 0; i < p1ForwardCards.size(); i++) {
-					if (p1ForwardCards.get(i).name().equalsIgnoreCase(cardName)) { returnP1ForwardToHand(i); return; }
-				}
-				for (int i = 0; i < p1BackupCards.length; i++) {
-					if (p1BackupCards[i] != null && p1BackupCards[i].name().equalsIgnoreCase(cardName)) { returnP1BackupToHand(i); return; }
-				}
-				for (int i = 0; i < p1MonsterCards.size(); i++) {
-					if (p1MonsterCards.get(i).name().equalsIgnoreCase(cardName)) { returnP1MonsterToHand(i); return; }
-				}
-				// Fallback: search P1's Break Zone (for break-zone-origin abilities)
-				List<CardData> bz = gameState.getP1BreakZone();
-				for (int i = bz.size() - 1; i >= 0; i--) {
-					if (bz.get(i).name().equalsIgnoreCase(cardName)) {
-						CardData c = bz.remove(i);
-						gameState.getP1Hand().add(c);
-						logEntry(cardName + " Break Zone → P1 Hand");
-						refreshP1BreakLabel();
-						refreshP1HandLabel();
-						return;
-					}
-				}
-				logEntry("[Warning] returnNamedCardToYourHand: \"" + cardName + "\" not found on field or Break Zone");
-			}
-
-			@Override public void removeFromBattle(String cardName) {
-				for (int i = 0; i < p1ForwardCards.size(); i++) {
-					if (p1ForwardCards.get(i).name().equalsIgnoreCase(cardName)) {
-						escapedFromBattle.add(p1ForwardCards.get(i));
-						return;
-					}
-				}
-				for (int i = 0; i < p2ForwardCards.size(); i++) {
-					if (p2ForwardCards.get(i).name().equalsIgnoreCase(cardName)) {
-						escapedFromBattle.add(p2ForwardCards.get(i));
-						return;
-					}
-				}
-				logEntry("[Warning] removeFromBattle: \"" + cardName + "\" not found on field");
-			}
-
-			@Override public void takeExtraTurnThenLose() {
-				logEntry("Effect: Take 1 more turn — you will lose at the end of that turn");
-				p1ExtraTurnThenLose = true;
-			}
-
-			@Override public void drawCards(int count) {
-				if (isP1) {
-					drawP1Cards(count);
-					animateCardDraw(true, count);
-					refreshP1HandLabel();
-					refreshP1DeckLabel();
-				} else {
-					drawP2Cards(count);
-					animateCardDraw(false, count);
-					refreshP2DeckLabel();
-					refreshP2HandCountLabel();
-				}
-			}
-
-			@Override public void selfDiscard(int count) {
-				if (isP1) {
-					showForcedDiscardDialog(count, false);
-				} else {
-					List<CardData> hand = gameState.getP2Hand();
-					int actual = Math.min(count, hand.size());
-					for (int i = 0; i < actual; i++) {
-						int idx = pickWorstHandCard0(hand);
-						CardData d = gameState.breakP2FromHand(idx);
-						if (d != null) { logEntry("[P2] Discards " + d.name()); p2DiscardedByEffectThisTurn = true; }
-					}
-					refreshP2HandCountLabel();
-					refreshP2BreakLabel();
-				}
-			}
-
-			@Override public void selfDiscardByType(String cardType) {
-				if (isP1) {
-					boolean discarded = showDiscardByTypeDialog(cardType);
-					if (!discarded) markEffectFizzled();
-				} else {
-					markEffectFizzled();
-				}
-			}
-
-			@Override public void mayPayToReplayAbility(String element, java.util.function.Consumer<GameContext> replayAction) {
-				if (!isP1) { logEntry("[P2 AI] Passes on ability replay (pay 《" + element + "》)"); return; }
-				String label = "Pay 《" + element + "》 to use this ability again?";
-				String src   = currentAbilitySource != null ? currentAbilitySource.name() : "Ability";
-				int choice = showEffectOptionDialog(src + " — " + label, "Replay Ability", new Object[]{"Pay", "Pass"});
-				if (choice != 0) { logEntry("Replay: declined to pay 《" + element + "》"); return; }
-				showAutoAbilityPaymentDialog(src + " (replay)", 1, 1, isP1, paid -> {
-					if (paid >= 1) { logEntry("Replay: paid 《" + element + "》 — using ability again"); replayAction.accept(this); }
-				});
-			}
-
-			@Override public void mayDullActiveCardToReplayAbility(String cardName, java.util.function.Consumer<GameContext> replayAction) {
-				// Find an active card of that name on the ability user's side
-				int fwdIdx = -1;
-				for (int i = 0; i < p1ForwardCards.size(); i++) {
-					if (p1ForwardCards.get(i).name().equalsIgnoreCase(cardName)
-							&& p1ForwardStates.get(i) == CardState.ACTIVE) { fwdIdx = i; break; }
-				}
-				int bkpIdx = -1;
-				if (fwdIdx < 0) {
-					for (int i = 0; i < p1BackupCards.length; i++) {
-						if (p1BackupCards[i] != null && p1BackupCards[i].name().equalsIgnoreCase(cardName)
-								&& p1BackupStates[i] == CardState.ACTIVE) { bkpIdx = i; break; }
-					}
-				}
-				if (fwdIdx < 0 && bkpIdx < 0) {
-					logEntry("Replay: no active " + cardName + " on field — offer skipped");
-					return;
-				}
-				if (!isP1) { logEntry("[P2 AI] Passes on ability replay (dull " + cardName + ")"); return; }
-				String src = currentAbilitySource != null ? currentAbilitySource.name() : "Ability";
-				int choice = showEffectOptionDialog(
-						src + " — Dull active " + cardName + " to use this ability again?",
-						"Replay Ability", new Object[]{"Dull", "Pass"});
-				if (choice != 0) { logEntry("Replay: declined to dull " + cardName); return; }
-				if (fwdIdx >= 0) {
-					dullP1Forward(fwdIdx);
-				} else {
-					p1BackupStates[bkpIdx] = CardState.DULL;
-					refreshP1BackupSlot(bkpIdx);
-				}
-				logEntry("Replay: dulled " + cardName + " — using ability again");
-				replayAction.accept(this);
-			}
-
-			@Override public void mayDiscardCardNameToReplayAbility(String cardName, java.util.function.Consumer<GameContext> replayAction) {
-				List<CardData> hand = isP1 ? gameState.getP1Hand() : gameState.getP2Hand();
-				int handIdx = -1;
-				for (int i = 0; i < hand.size(); i++) {
-					if (hand.get(i).name().equalsIgnoreCase(cardName)) { handIdx = i; break; }
-				}
-				if (handIdx < 0) { logEntry("Replay: no " + cardName + " in hand — offer skipped"); return; }
-				if (!isP1) { logEntry("[P2 AI] Passes on ability replay (discard " + cardName + ")"); return; }
-				String src = currentAbilitySource != null ? currentAbilitySource.name() : "Ability";
-				int choice = showEffectOptionDialog(
-						src + " — Discard " + cardName + " from hand to use this ability again?",
-						"Replay Ability", new Object[]{"Discard", "Pass"});
-				if (choice != 0) { logEntry("Replay: declined to discard " + cardName); return; }
-				CardData d = gameState.breakFromHand(handIdx);
-				if (d != null) { logEntry("Replay: discarded " + d.name()); p1DiscardedByEffectThisTurn = true; }
-				refreshP1HandLabel();
-				refreshP1BreakLabel();
-				logEntry("Replay: using ability again");
-				replayAction.accept(this);
-			}
-
-			@Override public void mayDiscardCardNameFromHand(String cardName, java.util.function.Consumer<GameContext> ifDiscarded) {
-				List<CardData> hand = isP1 ? gameState.getP1Hand() : gameState.getP2Hand();
-				int handIdx = -1;
-				for (int i = 0; i < hand.size(); i++) {
-					if (hand.get(i).name().equalsIgnoreCase(cardName)) { handIdx = i; break; }
-				}
-				if (handIdx < 0) { logEntry("[Effect] No " + cardName + " in hand — optional discard skipped"); return; }
-				if (!isP1) { logEntry("[P2 AI] Passes on optional discard of " + cardName); return; }
-				String src = currentAbilitySource != null ? currentAbilitySource.name() : "Ability";
-				int choice = showEffectOptionDialog(
-						src + " — Discard " + cardName + " from hand?",
-						"You May Discard", new Object[]{"Discard", "Pass"});
-				if (choice != 0) { logEntry("[Effect] Declined to discard " + cardName); return; }
-				final int idx = handIdx;
-				CardData d = gameState.breakFromHand(idx);
-				if (d != null) { logEntry("[Effect] Discarded " + d.name()); p1DiscardedByEffectThisTurn = true; }
-				refreshP1HandLabel();
-				refreshP1BreakLabel();
-				ifDiscarded.accept(this);
-			}
-
-			@Override public void placeFromHandToBottomOfDeck(int count) {
-				if (isP1) {
-					showPlaceToBottomOfDeckDialog(count);
-				} else {
-					List<CardData> hand = gameState.getP2Hand();
-					int actual = Math.min(count, hand.size());
-					for (int i = 0; i < actual; i++) {
-						int idx = pickWorstHandCard0(hand);
-						CardData d = hand.remove(idx);
-						gameState.getP2MainDeck().addLast(d);
-						logEntry("[P2] Places " + d.name() + " at bottom of deck");
-					}
-					refreshP2HandCountLabel();
-					refreshP2DeckLabel();
-				}
-			}
-
-			@Override public void selfDiscardEntireHand() {
-				if (isP1) {
-					List<CardData> hand = gameState.getP1Hand();
-					for (int i = hand.size() - 1; i >= 0; i--) {
-						CardData d = gameState.breakFromHand(i);
-						if (d != null) { logEntry("Discards " + d.name()); p1DiscardedByEffectThisTurn = true; }
-					}
-					refreshP1HandLabel();
-					refreshP1BreakLabel();
-				} else {
-					List<CardData> hand = gameState.getP2Hand();
-					for (int i = hand.size() - 1; i >= 0; i--) {
-						CardData d = gameState.breakP2FromHand(i);
-						if (d != null) { logEntry("[P2] Discards " + d.name()); p2DiscardedByEffectThisTurn = true; }
-					}
-					refreshP2HandCountLabel();
-					refreshP2BreakLabel();
-				}
-			}
-
-			@Override public void dealDamageToOpponent(int amount) {
-				for (int i = 0; i < amount; i++) {
-					if (isP1) p2TakeDamage(); else p1TakeDamage();
-				}
-			}
-
-			@Override public void dealDamageToSelf(int amount) {
-				for (int i = 0; i < amount; i++) {
-					if (isP1) p1TakeDamage(); else p2TakeDamage();
-				}
-			}
-
-			private boolean forwardHasAnyTrait(boolean p1Side, int idx, java.util.EnumSet<CardData.Trait> traitFilter) {
-				if (traitFilter.isEmpty()) return true;
-				java.util.List<java.util.EnumSet<CardData.Trait>> tempList = p1Side ? p1ForwardTempTraits : p2ForwardTempTraits;
-				java.util.List<java.util.EnumSet<CardData.Trait>> rmList   = p1Side ? p1ForwardRemovedTraits : p2ForwardRemovedTraits;
-				CardData c = p1Side ? p1Forward(idx) : p2ForwardCards.get(idx);
-				Set<CardData.Trait> base = c.traits();
-				java.util.EnumSet<CardData.Trait> temp = idx < tempList.size() ? tempList.get(idx) : null;
-				java.util.EnumSet<CardData.Trait> rem  = idx < rmList.size()   ? rmList.get(idx)   : null;
-				for (CardData.Trait t : traitFilter) {
-					boolean has = base.contains(t) || (temp != null && temp.contains(t));
-					if (has && (rem == null || !rem.contains(t))) return true;
-				}
-				return false;
-			}
-
-			@Override
-			public void applyMassFieldEffect(GameContext.MassAction action,
-					boolean forwards, boolean backups, boolean monsters,
-					boolean opponentOnly, boolean selfOnly,
-					String element, int costVal, String costCmp, int excludeCostVal,
-					String job, String category, java.util.EnumSet<CardData.Trait> traitFilter) {
-				boolean touchP1 = isP1 ? !opponentOnly : !selfOnly;
-				boolean touchP2 = isP1 ? !selfOnly     : !opponentOnly;
-				if (touchP1) {
-					if (forwards || monsters) {
-						for (int i = p1ForwardCards.size() - 1; i >= 0; i--) {
-							CardData c = p1Forward(i);
-							if (!forwards && !c.alsoCountsAsMonster()) continue;
-							if (element != null && !c.containsElement(element)) continue;
-							if (!meetsCostConstraint(c.cost(), costVal, costCmp)) continue;
-							if (excludeCostVal >= 0 && c.cost() == excludeCostVal) continue;
-							if (!meetsJobFilterEffective(c, job)) continue;
-							if (!meetsCategoryFilter(c, category)) continue;
-							if (!forwardHasAnyTrait(true, i, traitFilter)) continue;
-							switch (action) {
-								case BREAK          -> breakP1Forward(i);
-								case DULL           -> dullP1Forward(i);
-								case FREEZE         -> freezeP1Forward(i);
-								case DULL_AND_FREEZE -> { dullP1Forward(i); freezeP1Forward(i); }
-								case ACTIVATE       -> { p1ForwardStates.set(i, CardState.ACTIVE); refreshP1ForwardSlot(i); }
-								case RETURN_TO_HAND -> returnP1ForwardToHand(i);
-							}
-						}
-					}
-					if (backups) {
-						for (int i = 0; i < p1BackupCards.length; i++) {
-							if (p1BackupCards[i] == null) continue;
-							CardData c = p1BackupCards[i];
-							if (element != null && !c.containsElement(element)) continue;
-							if (!meetsCostConstraint(c.cost(), costVal, costCmp)) continue;
-							if (excludeCostVal >= 0 && c.cost() == excludeCostVal) continue;
-							if (!meetsJobFilterEffective(c, job)) continue;
-							if (!meetsCategoryFilter(c, category)) continue;
-							switch (action) {
-								case BREAK -> {
-									logEntry(c.name() + " is broken");
-									addToP1BreakZone(c);
-									p1BackupCards[i] = null;
-									p1BackupStates[i] = CardState.ACTIVE;
-									refreshP1BackupSlot(i);
-									refreshP1BreakLabel();
-								}
-								case DULL           -> { p1BackupStates[i] = CardState.DULL;   logEntry(c.name() + " is dulled");          refreshP1BackupSlot(i); }
-								case FREEZE         -> { p1BackupFrozen[i] = true;              logEntry(c.name() + " is frozen");          refreshP1BackupSlot(i); }
-								case DULL_AND_FREEZE -> { p1BackupStates[i] = CardState.DULL; p1BackupFrozen[i] = true; logEntry(c.name() + " is dulled & frozen"); refreshP1BackupSlot(i); }
-								case ACTIVATE       -> { p1BackupStates[i] = CardState.ACTIVE; logEntry(c.name() + " is activated");       refreshP1BackupSlot(i); }
-								case RETURN_TO_HAND -> returnP1BackupToHand(i);
-							}
-						}
-					}
-					if (monsters) {
-						for (int i = p1MonsterCards.size() - 1; i >= 0; i--) {
-							CardData c = p1MonsterCards.get(i);
-							if (element != null && !c.containsElement(element)) continue;
-							if (!meetsCostConstraint(c.cost(), costVal, costCmp)) continue;
-							if (excludeCostVal >= 0 && c.cost() == excludeCostVal) continue;
-							if (!meetsJobFilterEffective(c, job)) continue;
-							if (!meetsCategoryFilter(c, category)) continue;
-							switch (action) {
-								case BREAK -> {
-									logEntry(c.name() + " is broken");
-									addToP1BreakZone(c);
-									p1MonsterTempForwardPower.remove(c);
-									p1MonsterCards.remove(i);
-									p1MonsterStates.remove(i);
-									p1MonsterFrozen.remove(i);
-									p1MonsterPlayedOnTurn.remove(i);
-									p1MonsterUrls.remove(i);
-									JLabel lbl = p1MonsterLabels.remove(i);
-									p1MonsterPanel.remove(lbl);
-									p1MonsterPanel.revalidate();
-									p1MonsterPanel.repaint();
-									refreshP1BreakLabel();
-								}
-								case DULL           -> { p1MonsterStates.set(i, CardState.DULL);   logEntry(c.name() + " is dulled");          refreshP1MonsterSlot(i); }
-								case FREEZE         -> { p1MonsterFrozen.set(i, true);              logEntry(c.name() + " is frozen");          refreshP1MonsterSlot(i); }
-								case DULL_AND_FREEZE -> { p1MonsterStates.set(i, CardState.DULL); p1MonsterFrozen.set(i, true); logEntry(c.name() + " is dulled & frozen"); refreshP1MonsterSlot(i); }
-								case ACTIVATE       -> { p1MonsterStates.set(i, CardState.ACTIVE); logEntry(c.name() + " is activated");       refreshP1MonsterSlot(i); }
-								case RETURN_TO_HAND -> returnP1MonsterToHand(i);
-							}
-						}
-					}
-				}
-				if (touchP2) {
-					if (forwards || monsters) {
-						for (int i = p2ForwardCards.size() - 1; i >= 0; i--) {
-							CardData c = p2ForwardCards.get(i);
-							if (!forwards && !c.alsoCountsAsMonster()) continue;
-							if (element != null && !c.containsElement(element)) continue;
-							if (!meetsCostConstraint(c.cost(), costVal, costCmp)) continue;
-							if (excludeCostVal >= 0 && c.cost() == excludeCostVal) continue;
-							if (!meetsJobFilterEffective(c, job)) continue;
-							if (!meetsCategoryFilter(c, category)) continue;
-							if (!forwardHasAnyTrait(false, i, traitFilter)) continue;
-							switch (action) {
-								case BREAK          -> breakP2Forward(i);
-								case DULL           -> dullP2Forward(i);
-								case FREEZE         -> freezeP2Forward(i);
-								case DULL_AND_FREEZE -> { dullP2Forward(i); freezeP2Forward(i); }
-								case ACTIVATE       -> { p2ForwardStates.set(i, CardState.ACTIVE); refreshP2ForwardSlot(i); }
-								case RETURN_TO_HAND -> returnP2ForwardToHand(i);
-							}
-						}
-					}
-					if (backups) {
-						for (int i = 0; i < p2BackupCards.length; i++) {
-							if (p2BackupCards[i] == null) continue;
-							CardData c = p2BackupCards[i];
-							if (element != null && !c.containsElement(element)) continue;
-							if (!meetsCostConstraint(c.cost(), costVal, costCmp)) continue;
-							if (excludeCostVal >= 0 && c.cost() == excludeCostVal) continue;
-							if (!meetsJobFilterEffective(c, job)) continue;
-							if (!meetsCategoryFilter(c, category)) continue;
-							switch (action) {
-								case BREAK -> {
-									logEntry("[P2] " + c.name() + " is broken");
-									addToP2BreakZone(c);
-									p2BackupCards[i] = null;
-									p2BackupStates[i] = CardState.ACTIVE;
-									refreshP2BackupSlot(i);
-									refreshP2BreakLabel();
-								}
-								case DULL           -> { p2BackupStates[i] = CardState.DULL;   logEntry("[P2] " + c.name() + " is dulled");          refreshP2BackupSlot(i); }
-								case FREEZE         -> { p2BackupFrozen[i] = true;              logEntry("[P2] " + c.name() + " is frozen");          refreshP2BackupSlot(i); }
-								case DULL_AND_FREEZE -> { p2BackupStates[i] = CardState.DULL; p2BackupFrozen[i] = true; logEntry("[P2] " + c.name() + " is dulled & frozen"); refreshP2BackupSlot(i); }
-								case ACTIVATE       -> { p2BackupStates[i] = CardState.ACTIVE; logEntry("[P2] " + c.name() + " is activated");       refreshP2BackupSlot(i); }
-								case RETURN_TO_HAND -> returnP2BackupToHand(i);
-							}
-						}
-					}
-					if (monsters) {
-						for (int i = p2MonsterCards.size() - 1; i >= 0; i--) {
-							CardData c = p2MonsterCards.get(i);
-							if (element != null && !c.containsElement(element)) continue;
-							if (!meetsCostConstraint(c.cost(), costVal, costCmp)) continue;
-							if (excludeCostVal >= 0 && c.cost() == excludeCostVal) continue;
-							switch (action) {
-								case BREAK -> {
-									logEntry("[P2] " + c.name() + " is broken");
-									addToP2BreakZone(c);
-									p2MonsterTempForwardPower.remove(c);
-									p2MonsterCards.remove(i);
-									p2MonsterStates.remove(i);
-									p2MonsterFrozen.remove(i);
-									p2MonsterPlayedOnTurn.remove(i);
-									p2MonsterUrls.remove(i);
-									JLabel lbl = p2MonsterLabels.remove(i);
-									p2MonsterPanel.remove(lbl);
-									p2MonsterPanel.revalidate();
-									p2MonsterPanel.repaint();
-									refreshP2BreakLabel();
-								}
-								case DULL           -> { p2MonsterStates.set(i, CardState.DULL);   logEntry("[P2] " + c.name() + " is dulled");          refreshP2MonsterSlot(i); }
-								case FREEZE         -> { p2MonsterFrozen.set(i, true);              logEntry("[P2] " + c.name() + " is frozen");          refreshP2MonsterSlot(i); }
-								case DULL_AND_FREEZE -> { p2MonsterStates.set(i, CardState.DULL); p2MonsterFrozen.set(i, true); logEntry("[P2] " + c.name() + " is dulled & frozen"); refreshP2MonsterSlot(i); }
-								case ACTIVATE       -> { p2MonsterStates.set(i, CardState.ACTIVE); logEntry("[P2] " + c.name() + " is activated");       refreshP2MonsterSlot(i); }
-								case RETURN_TO_HAND -> returnP2MonsterToHand(i);
-							}
-						}
-					}
-				}
-			}
-
-			@Override
-			public void applyMassFieldPowerBoost(int amount, boolean inclForwards, boolean inclMonsters,
-					boolean opponentOnly, boolean selfOnly,
-					String element, int costVal, String costCmp, String category) {
-				boolean touchP1 = isP1 ? !opponentOnly : !selfOnly;
-				boolean touchP2 = isP1 ? !selfOnly     : !opponentOnly;
-				if (touchP1) {
-					if (inclForwards) {
-						for (int i = 0; i < p1ForwardCards.size(); i++) {
-							CardData c = p1Forward(i);
-							if (element != null && !c.containsElement(element)) continue;
-							if (!meetsCostConstraint(c.cost(), costVal, costCmp)) continue;
-							if (!CardFilters.meetsCategoryFilter(c, category)) continue;
-							p1ForwardPowerBoost.set(i, p1ForwardPowerBoost.get(i) + amount);
-							logEntry(c.name() + " gains +" + amount + " power until end of turn");
-							refreshP1ForwardSlot(i);
-						}
-					}
-					if (inclMonsters) {
-						for (int i = 0; i < p1MonsterCards.size(); i++) {
-							CardData c = p1MonsterCards.get(i);
-							if (element != null && !c.containsElement(element)) continue;
-							if (!meetsCostConstraint(c.cost(), costVal, costCmp)) continue;
-							if (!CardFilters.meetsCategoryFilter(c, category)) continue;
-							logEntry(c.name() + " gains +" + amount + " power until end of turn");
-						}
-					}
-				}
-				if (touchP2) {
-					if (inclForwards) {
-						for (int i = 0; i < p2ForwardCards.size(); i++) {
-							CardData c = p2ForwardCards.get(i);
-							if (element != null && !c.containsElement(element)) continue;
-							if (!meetsCostConstraint(c.cost(), costVal, costCmp)) continue;
-							if (!CardFilters.meetsCategoryFilter(c, category)) continue;
-							p2ForwardPowerBoost.set(i, p2ForwardPowerBoost.get(i) + amount);
-							logEntry("[P2] " + c.name() + " gains +" + amount + " power until end of turn");
-							refreshP2ForwardSlot(i);
-						}
-					}
-					if (inclMonsters) {
-						for (int i = 0; i < p2MonsterCards.size(); i++) {
-							CardData c = p2MonsterCards.get(i);
-							if (element != null && !c.containsElement(element)) continue;
-							if (!meetsCostConstraint(c.cost(), costVal, costCmp)) continue;
-							if (!CardFilters.meetsCategoryFilter(c, category)) continue;
-							logEntry("[P2] " + c.name() + " gains +" + amount + " power until end of turn");
-						}
-					}
-				}
-			}
-
-			@Override public void applyMassFieldJobCardNamePowerBoost(int amount, boolean inclForwards, boolean inclMonsters,
-					boolean opponentOnly, boolean selfOnly, String jobFilter, String cardNameFilter) {
-				boolean touchP1 = isP1 ? !opponentOnly : !selfOnly;
-				boolean touchP2 = isP1 ? !selfOnly     : !opponentOnly;
-				if (touchP1) {
-					if (inclForwards) {
-						for (int i = 0; i < p1ForwardCards.size(); i++) {
-							CardData c = p1Forward(i);
-							if (!CardFilters.meetsJobFilter(c, jobFilter) && !CardFilters.meetsCardNameFilter(c, cardNameFilter)) continue;
-							p1ForwardPowerBoost.set(i, p1ForwardPowerBoost.get(i) + amount);
-							logEntry(c.name() + " gains +" + amount + " power until end of turn");
-							refreshP1ForwardSlot(i);
-						}
-					}
-					if (inclMonsters) {
-						for (int i = 0; i < p1MonsterCards.size(); i++) {
-							CardData c = p1MonsterCards.get(i);
-							if (!CardFilters.meetsJobFilter(c, jobFilter) && !CardFilters.meetsCardNameFilter(c, cardNameFilter)) continue;
-							logEntry(c.name() + " gains +" + amount + " power until end of turn");
-						}
-					}
-				}
-				if (touchP2) {
-					if (inclForwards) {
-						for (int i = 0; i < p2ForwardCards.size(); i++) {
-							CardData c = p2ForwardCards.get(i);
-							if (!CardFilters.meetsJobFilter(c, jobFilter) && !CardFilters.meetsCardNameFilter(c, cardNameFilter)) continue;
-							p2ForwardPowerBoost.set(i, p2ForwardPowerBoost.get(i) + amount);
-							logEntry("[P2] " + c.name() + " gains +" + amount + " power until end of turn");
-							refreshP2ForwardSlot(i);
-						}
-					}
-					if (inclMonsters) {
-						for (int i = 0; i < p2MonsterCards.size(); i++) {
-							CardData c = p2MonsterCards.get(i);
-							if (!CardFilters.meetsJobFilter(c, jobFilter) && !CardFilters.meetsCardNameFilter(c, cardNameFilter)) continue;
-							logEntry("[P2] " + c.name() + " gains +" + amount + " power until end of turn");
-						}
-					}
-				}
-			}
-
-			@Override public void applyMassFieldKeywordGrant(java.util.EnumSet<CardData.Trait> traits,
-					boolean inclForwards, boolean inclMonsters,
-					boolean opponentOnly, boolean selfOnly,
-					String element, int costVal, String costCmp, String category) {
-				boolean touchP1 = isP1 ? !opponentOnly : !selfOnly;
-				boolean touchP2 = isP1 ? !selfOnly     : !opponentOnly;
-				if (touchP1 && inclForwards) {
-					for (int i = 0; i < p1ForwardCards.size(); i++) {
-						CardData c = p1Forward(i);
-						if (element != null && !c.containsElement(element)) continue;
-						if (!meetsCostConstraint(c.cost(), costVal, costCmp)) continue;
-						if (!CardFilters.meetsCategoryFilter(c, category)) continue;
-						p1ForwardTempTraits.get(i).addAll(traits);
-						logEntry(c.name() + " gains " + traits + " until end of turn");
-						refreshP1ForwardSlot(i);
-					}
-				}
-				if (touchP2 && inclForwards) {
-					for (int i = 0; i < p2ForwardCards.size(); i++) {
-						CardData c = p2ForwardCards.get(i);
-						if (element != null && !c.containsElement(element)) continue;
-						if (!meetsCostConstraint(c.cost(), costVal, costCmp)) continue;
-						if (!CardFilters.meetsCategoryFilter(c, category)) continue;
-						p2ForwardTempTraits.get(i).addAll(traits);
-						logEntry("[P2] " + c.name() + " gains " + traits + " until end of turn");
-						refreshP2ForwardSlot(i);
-					}
-				}
-			}
-
-			@Override public void addEndOfTurnEffect(Consumer<GameContext> effect) {
-				endOfTurnEffects.add(effect);
-			}
-
-			@Override public void addTempAttackTrigger(CardData card, Consumer<GameContext> effect) {
-				Map<CardData, List<Consumer<GameContext>>> triggers
-						= isP1 ? p1TempAttackTriggers : p2TempAttackTriggers;
-				triggers.computeIfAbsent(card, k -> new ArrayList<>()).add(effect);
-			}
-
-			@Override public void addTempBlockTrigger(CardData card, Consumer<GameContext> effect) {
-				Map<CardData, List<Consumer<GameContext>>> triggers
-						= isP1 ? p1TempBlockTriggers : p2TempBlockTriggers;
-				triggers.computeIfAbsent(card, k -> new ArrayList<>()).add(effect);
-			}
-
-			@Override public boolean abilityUserControlsCard(String cardName) {
-				List<CardData> fwds = isP1 ? p1ForwardCards : p2ForwardCards;
-				List<CardData> mons = isP1 ? p1MonsterCards : p2MonsterCards;
-				CardData[]     bkps = isP1 ? p1BackupCards  : p2BackupCards;
-				for (CardData c : fwds) if (c != null && c.name().equalsIgnoreCase(cardName)) return true;
-				for (CardData c : mons) if (c != null && c.name().equalsIgnoreCase(cardName)) return true;
-				for (CardData c : bkps) if (c != null && c.name().equalsIgnoreCase(cardName)) return true;
-				return false;
-			}
-
-			@Override public void applyNextCastCostReduction(CostReductionModifier modifier) {
-				activeCostReductions.add(modifier);
-				endOfTurnEffects.add(ctx -> activeCostReductions.remove(modifier));
-			}
-
-			@Override public java.util.List<FieldAbility> getActiveFieldAbilities() {
-				java.util.List<FieldAbility> active = new ArrayList<>();
-				for (CardData c : p1ForwardCards) active.addAll(c.fieldAbilities());
-				for (CardData c : p1MonsterCards)  active.addAll(c.fieldAbilities());
-				for (CardData c : p1BackupCards)   if (c != null) active.addAll(c.fieldAbilities());
-				for (CardData c : p2ForwardCards)  active.addAll(c.fieldAbilities());
-				for (CardData c : p2MonsterCards)  active.addAll(c.fieldAbilities());
-				for (CardData c : p2BackupCards)   if (c != null) active.addAll(c.fieldAbilities());
-				return active;
-			}
-
-			@Override public int p1DamageCount() { return gameState.getP1DamageZone().size(); }
-
-			@Override public int opponentHandSize() {
-				return (isP1 ? gameState.getP2Hand() : gameState.getP1Hand()).size();
-			}
-
-			@Override public int yourHandSize() {
-				return (isP1 ? gameState.getP1Hand() : gameState.getP2Hand()).size();
-			}
-
-			@Override public int countP1FieldCards(boolean inclForwards, boolean inclBackups,
-					boolean inclMonsters, String jobFilter, String cardNameFilter) {
-				return countP1FieldCards(inclForwards, inclBackups, inclMonsters, jobFilter, cardNameFilter, null);
-			}
-
-			@Override public int countP1FieldCards(boolean inclForwards, boolean inclBackups,
-					boolean inclMonsters, String jobFilter, String cardNameFilter, String categoryFilter) {
-				return countP1FieldCards(inclForwards, inclBackups, inclMonsters, jobFilter, cardNameFilter, categoryFilter, null);
-			}
-
-			@Override public int countP1FieldCards(boolean inclForwards, boolean inclBackups,
-					boolean inclMonsters, String jobFilter, String cardNameFilter, String categoryFilter, String elementFilter) {
-				int count = 0;
-				if (inclForwards) for (CardData c : p1ForwardCards) {
-					if (!meetsJobFilterEffective(c, jobFilter)) continue;
-					if (!meetsCardNameFilter(c, cardNameFilter)) continue;
-					if (!meetsCategoryFilter(c, categoryFilter)) continue;
-					if (elementFilter != null && !c.containsElement(elementFilter)) continue;
-					count++;
-				}
-				if (inclBackups) for (CardData c : p1BackupCards) {
-					if (c == null) continue;
-					if (!meetsJobFilterEffective(c, jobFilter)) continue;
-					if (!meetsCardNameFilter(c, cardNameFilter)) continue;
-					if (!meetsCategoryFilter(c, categoryFilter)) continue;
-					if (elementFilter != null && !c.containsElement(elementFilter)) continue;
-					count++;
-				}
-				if (inclMonsters) for (CardData c : p1MonsterCards) {
-					if (!meetsJobFilterEffective(c, jobFilter)) continue;
-					if (!meetsCardNameFilter(c, cardNameFilter)) continue;
-					if (!meetsCategoryFilter(c, categoryFilter)) continue;
-					if (elementFilter != null && !c.containsElement(elementFilter)) continue;
-					count++;
-				}
-				return count;
-			}
-
-			@Override public int countP1BreakZoneCards(String cardNameFilter, String jobFilter) {
-				int count = 0;
-				for (CardData c : gameState.getP1BreakZone()) {
-					if (!meetsCardNameFilter(c, cardNameFilter)) continue;
-					if (!meetsJobFilter(c, jobFilter)) continue;
-					count++;
-				}
-				return count;
-			}
-
-			@Override public int countP2BreakZoneCards(String cardNameFilter, String jobFilter) {
-				int count = 0;
-				for (CardData c : gameState.getP2BreakZone()) {
-					if (!meetsCardNameFilter(c, cardNameFilter)) continue;
-					if (!meetsJobFilter(c, jobFilter)) continue;
-					count++;
-				}
-				return count;
-			}
-
-			@Override public int countP2FieldCards(boolean inclForwards, boolean inclBackups,
-					boolean inclMonsters, String jobFilter, String cardNameFilter) {
-				return countP2FieldCards(inclForwards, inclBackups, inclMonsters, jobFilter, cardNameFilter, null);
-			}
-
-			@Override public int countP2FieldCards(boolean inclForwards, boolean inclBackups,
-					boolean inclMonsters, String jobFilter, String cardNameFilter, String categoryFilter) {
-				return countP2FieldCards(inclForwards, inclBackups, inclMonsters, jobFilter, cardNameFilter, categoryFilter, null);
-			}
-
-			@Override public int countP2FieldCards(boolean inclForwards, boolean inclBackups,
-					boolean inclMonsters, String jobFilter, String cardNameFilter, String categoryFilter, String elementFilter) {
-				int count = 0;
-				if (inclForwards) for (CardData c : p2ForwardCards) {
-					if (!meetsJobFilterEffective(c, jobFilter)) continue;
-					if (!meetsCardNameFilter(c, cardNameFilter)) continue;
-					if (!meetsCategoryFilter(c, categoryFilter)) continue;
-					if (elementFilter != null && !c.containsElement(elementFilter)) continue;
-					count++;
-				}
-				if (inclBackups) for (CardData c : p2BackupCards) {
-					if (c == null) continue;
-					if (!meetsJobFilterEffective(c, jobFilter)) continue;
-					if (!meetsCardNameFilter(c, cardNameFilter)) continue;
-					if (!meetsCategoryFilter(c, categoryFilter)) continue;
-					if (elementFilter != null && !c.containsElement(elementFilter)) continue;
-					count++;
-				}
-				if (inclMonsters) for (CardData c : p2MonsterCards) {
-					if (!meetsJobFilterEffective(c, jobFilter)) continue;
-					if (!meetsCardNameFilter(c, cardNameFilter)) continue;
-					if (!meetsCategoryFilter(c, categoryFilter)) continue;
-					if (elementFilter != null && !c.containsElement(elementFilter)) continue;
-					count++;
-				}
-				return count;
-			}
-
-			@Override public boolean controlConditionMet(ControlCondition cond) {
-				return MainWindow.this.controlConditionMet(cond, isP1);
-			}
-
-			@Override public boolean selfReceivedDamageThisTurn() {
-				return isP1 ? p1ReceivedDamageThisTurn : p2ReceivedDamageThisTurn;
-			}
-
-			@Override public boolean ownForwardFormedPartyThisTurn() {
-				return isP1 ? p1FormedPartyThisTurn : p2FormedPartyThisTurn;
-			}
-
-			@Override public int ownFieldCount(String cardType) {
-				String t = cardType.toLowerCase().replaceAll("s$", "");
-				List<CardData> fwds = isP1 ? p1ForwardCards : p2ForwardCards;
-				CardData[]     bkps = isP1 ? p1BackupCards  : p2BackupCards;
-				List<CardData> mons = isP1 ? p1MonsterCards : p2MonsterCards;
-				int count = 0;
-				if (t.equals("forward")   || t.equals("character")) count += fwds.size();
-				if (t.equals("monster")   || t.equals("character")) count += mons.size();
-				if (t.equals("backup")    || t.equals("character")) { for (CardData c : bkps) if (c != null) count++; }
-				return count;
-			}
-
-			@Override public boolean selfHasSummonInBreakZone() {
-				List<CardData> bz = isP1 ? gameState.getP1BreakZone() : gameState.getP2BreakZone();
-				return bz.stream().anyMatch(CardData::isSummon);
-			}
-
-			@Override public int opponentDamageCount() {
-				return (isP1 ? gameState.getP2DamageZone() : gameState.getP1DamageZone()).size();
-			}
-
-			@Override public int selfCardsCastThisTurn() { return isP1 ? p1CardsCastThisTurn : p2CardsCastThisTurn; }
-
-			@Override public boolean selfSummonCastThisTurn() { return isP1 ? p1SummonCastThisTurn : p2SummonCastThisTurn; }
-
-			@Override public int selfForwardCount() {
-				return isP1 ? p1ForwardCards.size() : p2ForwardCards.size();
-			}
-
-			@Override public int opponentForwardCount() {
-				return isP1 ? p2ForwardCards.size() : p1ForwardCards.size();
-			}
-
-			@Override public boolean isExBurst() { return exBurst; }
-			@Override public boolean castWasPaidByBackupsOnly() { return lastCastWasPaidByBackupsOnly; }
-
-			@Override public void makeMonsterTemporaryForward(CardData source, int power) {
-				if (isP1) {
-					int idx = p1MonsterCards.indexOf(source);
-					if (idx < 0) { makeP1BackupTemporaryForward(source, power); return; }
-					p1MonsterTempForwardPower.put(source, power);
-					endOfTurnEffects.add(ctx -> {
-						p1MonsterTempForwardPower.remove(source);
-						int stillIdx = p1MonsterCards.indexOf(source);
-						if (stillIdx >= 0) refreshP1MonsterSlot(stillIdx);
-					});
-					refreshP1MonsterSlot(idx);
-				} else {
-					int idx = p2MonsterCards.indexOf(source);
-					if (idx < 0) { makeP2BackupTemporaryForward(source, power); return; }
-					p2MonsterTempForwardPower.put(source, power);
-					endOfTurnEffects.add(ctx -> {
-						p2MonsterTempForwardPower.remove(source);
-						int stillIdx = p2MonsterCards.indexOf(source);
-						if (stillIdx >= 0) refreshP2MonsterSlot(stillIdx);
-					});
-					refreshP2MonsterSlot(idx);
-				}
-			}
-
-			@Override public void triggerExBurstFromDamageZone() {
-				List<CardData> dmg = isP1 ? gameState.getP1DamageZone() : gameState.getP2DamageZone();
-				List<CardData> eligible = new ArrayList<>();
-				for (CardData c : dmg) {
-					if (c.exBurst() && !c.exBurstEffect().isEmpty()) eligible.add(c);
-				}
-				if (eligible.isEmpty()) {
-					logEntry("[EX Burst] No triggerable EX Burst cards in Damage Zone");
-					return;
-				}
-				if (isP1) {
-					CardData chosen = showPickExBurstFromDamageZoneDialog(eligible);
-					if (chosen == null) return;
-					logEntry("[EX Burst] " + chosen.name() + " — placed on stack");
-					gameState.pushStack(new StackEntry(chosen, true, true));
-					showStackWindow();
-				} else {
-					CardData chosen = eligible.get(0);
-					logEntry("[AI EX Burst] " + chosen.name() + " — placed on stack");
-					gameState.pushStack(new StackEntry(chosen, false, true));
-					showStackWindowIfNeeded();
-				}
-			}
-
-			@Override public void breakSourceCard(CardData source) {
-				List<CardData> fwds = isP1 ? p1ForwardCards : p2ForwardCards;
-				for (int fi = 0; fi < fwds.size(); fi++) {
-					if (fwds.get(fi) == source) {
-						breakTarget(new ForwardTarget(isP1, fi, ForwardTarget.CardZone.FORWARD));
-						return;
-					}
-				}
-				List<CardData> mons = isP1 ? p1MonsterCards : p2MonsterCards;
-				int mi = mons.indexOf(source);
-				if (mi >= 0) breakTarget(new ForwardTarget(isP1, mi, ForwardTarget.CardZone.MONSTER));
-			}
-
-			@Override public void breakSourceAtEndOfTurn(CardData source) {
-				addEndOfTurnEffect(ctx -> {
-					java.util.List<CardData> fwds = isP1 ? p1ForwardCards : p2ForwardCards;
-					for (int fi = 0; fi < fwds.size(); fi++) {
-						if (fwds.get(fi) == source) {
-							ctx.breakTarget(new ForwardTarget(isP1, fi, ForwardTarget.CardZone.FORWARD));
-							return;
-						}
-					}
-					java.util.List<CardData> mons = isP1 ? p1MonsterCards : p2MonsterCards;
-					int mi = mons.indexOf(source);
-					if (mi >= 0) ctx.breakTarget(new ForwardTarget(isP1, mi, ForwardTarget.CardZone.MONSTER));
-				});
-			}
-
-			@Override public String selectJobFromDatabase() {
-				List<String> candidates = NameSelectionDialogs.collectFieldJobs(
-						isP1 ? p1ForwardCards : p2ForwardCards,
-						isP1 ? p1BackupCards  : p2BackupCards,
-						isP1 ? p1MonsterCards : p2MonsterCards);
-				return NameSelectionDialogs.selectJob(frame, candidates, isP1, MainWindow.this::logEntry);
-			}
-
-			@Override public void grantJobUntilEndOfTurn(ForwardTarget t, String job) {
-				if (t.zone() != ForwardTarget.CardZone.FORWARD) return;
-				if (t.isP1()) {
-					int idx = t.idx();
-					if (idx < 0 || idx >= p1ForwardCards.size()) return;
-					p1ForwardTempJobs.set(idx, job);
-					logEntry(p1Forward(idx).name() + " gains the Job [" + job + "] until end of turn");
-				} else {
-					int idx = t.idx();
-					if (idx < 0 || idx >= p2ForwardCards.size()) return;
-					p2ForwardTempJobs.set(idx, job);
-					logEntry("[P2] " + p2ForwardCards.get(idx).name() + " gains the Job [" + job + "] until end of turn");
-				}
-			}
-
-			@Override public String[] selectElementAndJob(String prompt, Set<String> excluded) {
-				return NameSelectionDialogs.selectElementAndJob(frame, prompt, excluded, isP1, MainWindow.this::logEntry);
-			}
-
-			@Override public String[] selectElementAndJob(String prompt) {
-				return selectElementAndJob(prompt, java.util.Collections.emptySet());
-			}
-
-			@Override public void addCardJobPermanently(String cardName, String job) {
-				for (boolean p1s : new boolean[]{true, false}) {
-					List<CardData> fwds = p1s ? p1ForwardCards : p2ForwardCards;
-					for (CardData c : fwds) {
-						if (c.name().equalsIgnoreCase(cardName)) {
-							permanentExtraJobMap.put(c, job);
-							logEntry("[Field] " + cardName + " gains permanent Job [" + job + "]");
-							return;
-						}
-					}
-					CardData[] bkps = p1s ? p1BackupCards : p2BackupCards;
-					for (CardData c : bkps) {
-						if (c != null && c.name().equalsIgnoreCase(cardName)) {
-							permanentExtraJobMap.put(c, job);
-							logEntry("[Field] " + cardName + " gains permanent Job [" + job + "]");
-							return;
-						}
-					}
-				}
-				logEntry("[Field] addCardJobPermanently: " + cardName + " not found");
-			}
-
-			@Override public String[] selectJobOrElement(String prompt) {
-				return NameSelectionDialogs.selectJobOrElement(frame, prompt, isP1, MainWindow.this::logEntry);
-			}
-
-			@Override public String[] selectJobOrCategory(String prompt) {
-				return NameSelectionDialogs.selectJobOrCategory(frame, prompt, isP1, MainWindow.this::logEntry);
-			}
-
-			@Override public void revealTopAddUpToMatchingRestBottom(int reveal, int maxAdd, String jobFilter, String categoryFilter) {
-				Deque<CardData> deck = isP1 ? gameState.getP1MainDeck() : gameState.getP2MainDeck();
-				int n = Math.min(reveal, deck.size());
-				if (n == 0) { logEntry("Reveal top: deck is empty."); return; }
-				List<CardData> peeked = new ArrayList<>();
-				for (CardData c : deck) { peeked.add(c); if (peeked.size() >= n) break; }
-				logEntry("Reveal top " + n + " card(s): " +
-						peeked.stream().map(CardData::name).collect(Collectors.joining(", ")));
-				lookDialogs().showRevealAddUpToMatchingRestBottom(peeked, deck, isP1, maxAdd, jobFilter, categoryFilter);
-			}
-
-			@Override public void grantAllControlledForwardsJobUntilEOT(String job) {
-				List<CardData> fwds     = isP1 ? p1ForwardCards    : p2ForwardCards;
-				List<String>   tempJobs = isP1 ? p1ForwardTempJobs : p2ForwardTempJobs;
-				String prefix = isP1 ? "" : "[P2] ";
-				for (int i = 0; i < fwds.size(); i++) {
-					if (i < tempJobs.size()) {
-						tempJobs.set(i, job);
-						logEntry(prefix + fwds.get(i).name() + " gains the Job [" + job + "] until end of turn");
-					}
-				}
-			}
-
-			@Override public void grantAllControlledForwardsElementUntilEOT(String element) {
-				List<CardData> fwds   = isP1 ? p1ForwardCards : p2ForwardCards;
-				String prefix = isP1 ? "" : "[P2] ";
-				for (CardData c : fwds) {
-					final String prev = elementOverrideMap.get(c);
-					elementOverrideMap.put(c, element);
-					endOfTurnEffects.add(x -> {
-						if (prev != null) elementOverrideMap.put(c, prev);
-						else              elementOverrideMap.remove(c);
-					});
-					logEntry(prefix + c.name() + " → element becomes " + element + " until EOT");
-				}
-			}
-
-			@Override public void changeSourceCardElementAndJobUntilEOT(CardData source, String element, String job) {
-				for (boolean p1s : new boolean[]{true, false}) {
-					List<CardData> fwds = p1s ? p1ForwardCards : p2ForwardCards;
-					for (int i = 0; i < fwds.size(); i++) {
-						if (fwds.get(i) != source) continue;
-						final String prevElem = elementOverrideMap.get(source);
-						elementOverrideMap.put(source, element);
-						endOfTurnEffects.add(x -> {
-							if (prevElem != null) elementOverrideMap.put(source, prevElem);
-							else                  elementOverrideMap.remove(source);
-						});
-						List<String> tempJobs = p1s ? p1ForwardTempJobs : p2ForwardTempJobs;
-						final int idx = i;
-						final String prevJob = idx < tempJobs.size() ? tempJobs.get(idx) : null;
-						if (idx < tempJobs.size()) tempJobs.set(idx, job);
-						endOfTurnEffects.add(x -> { if (idx < tempJobs.size()) tempJobs.set(idx, prevJob); });
-						logEntry(source.name() + " → becomes " + element + " element, Job [" + job + "] until end of turn");
-						return;
-					}
-				}
-				logEntry("[changeSourceCardElementAndJobUntilEOT] " + source.name() + " not found in forward slots");
-			}
-
-			@Override public void changeSourceCardElementUntilEOT(CardData source, String element) {
-				for (boolean p1s : new boolean[]{true, false}) {
-					List<CardData> fwds = p1s ? p1ForwardCards : p2ForwardCards;
-					for (int i = 0; i < fwds.size(); i++) {
-						if (fwds.get(i) != source) continue;
-						final String prevElem = elementOverrideMap.get(source);
-						elementOverrideMap.put(source, element);
-						endOfTurnEffects.add(x -> {
-							if (prevElem != null) elementOverrideMap.put(source, prevElem);
-							else                  elementOverrideMap.remove(source);
-						});
-						logEntry(source.name() + " → becomes " + element + " element until end of turn");
-						return;
-					}
-				}
-				logEntry("[changeSourceCardElementUntilEOT] " + source.name() + " not found in forward slots");
-			}
-
-			@Override public void grantForwardsPartyAnyElementThisTurn() {
-				if (isP1) {
-					p1PartyAnyElementThisTurn = true;
-					endOfTurnEffects.add(x -> p1PartyAnyElementThisTurn = false);
-				} else {
-					p2PartyAnyElementThisTurn = true;
-					endOfTurnEffects.add(x -> p2PartyAnyElementThisTurn = false);
-				}
-				logEntry((isP1 ? "P1" : "[P2]") + " Forwards can form a party with Forwards of any Element this turn");
-			}
-		};
+	GameContext buildGameContext(boolean isP1, boolean exBurst) {
+		return new GameContextImpl(this, isP1, exBurst);
 	}
 
 	/**
@@ -13362,7 +8223,7 @@ public class MainWindow {
 			// Passive field ability: nullify Summon-only damage
 			if (currentResolutionIsSummon) {
 				for (FieldAbility fa : card.fieldAbilities()) {
-					Matcher m = FA_NULLIFY_SUMMON_DAMAGE.matcher(fa.effectText());
+					Matcher m = AutoAbilityTriggers.FA_NULLIFY_SUMMON_DAMAGE.matcher(fa.effectText());
 					if (m.find() && m.group("card").trim().equalsIgnoreCase(card.name())) return 0;
 				}
 			}
@@ -13372,7 +8233,7 @@ public class MainWindow {
 				int dmgInZone = isP1 ? gameState.getP1DamageZone().size() : gameState.getP2DamageZone().size();
 				for (FieldAbility fa : card.fieldAbilities()) {
 					if (fa.damageThreshold() > 0 && dmgInZone < fa.damageThreshold()) continue;
-					Matcher m = FA_REDUCE_ABILITY_DAMAGE.matcher(fa.effectText());
+					Matcher m = AutoAbilityTriggers.FA_REDUCE_ABILITY_DAMAGE.matcher(fa.effectText());
 					if (m.find() && m.group("card").trim().equalsIgnoreCase(card.name())) {
 						int reduction = Integer.parseInt(m.group("reduction"));
 						int before = amount;
@@ -13445,7 +8306,7 @@ public class MainWindow {
 	private int fieldAbilityCombatOutgoingMult(CardData attacker, CardData target) {
 		int mult = 1;
 		for (FieldAbility fa : attacker.fieldAbilities()) {
-			Matcher m = FA_DOUBLE_DAMAGE_VS_COST_THRESHOLD.matcher(fa.effectText());
+			Matcher m = AutoAbilityTriggers.FA_DOUBLE_DAMAGE_VS_COST_THRESHOLD.matcher(fa.effectText());
 			if (m.find() && m.group("name").trim().equalsIgnoreCase(attacker.name())
 					&& target.cost() >= Integer.parseInt(m.group("cost")))
 				mult *= 2;
@@ -13457,7 +8318,7 @@ public class MainWindow {
 	 * Applies incoming-damage modifiers, writes the result to the damage accumulator,
 	 * and breaks the forward if accumulated damage reaches its effective power.
 	 */
-	private void applyDamageToMonster(boolean isP1, int idx, int amount) {
+	void applyDamageToMonster(boolean isP1, int idx, int amount) {
 		List<CardData> mons    = isP1 ? p1MonsterCards  : p2MonsterCards;
 		List<Integer>  dmgList = isP1 ? p1MonsterDamage : p2MonsterDamage;
 		if (idx >= mons.size() || amount <= 0) return;
@@ -13469,13 +8330,13 @@ public class MainWindow {
 		logEntry((isP1 ? "" : "[P2] ") + mons.get(idx).name() + " takes " + amount + " damage"
 				+ (effPow > 0 ? " (" + (effPow - accum) + " remaining)" : ""));
 		if (effPow > 0 && accum >= effPow) {
-			if (isP1) breakP1MonsterSlot(idx); else breakP2MonsterSlot(idx);
+			if (isP1) autoAbilityTriggers.breakP1MonsterSlot(idx); else breakP2MonsterSlot(idx);
 		} else {
 			if (isP1) refreshP1MonsterSlot(idx); else refreshP2MonsterSlot(idx);
 		}
 	}
 
-	private void applyDamageToForward(boolean isP1, int idx, int rawAmount, boolean fromAbility, boolean unreduced) {
+	void applyDamageToForward(boolean isP1, int idx, int rawAmount, boolean fromAbility, boolean unreduced) {
 		List<CardData>  fwds   = isP1 ? p1ForwardCards   : p2ForwardCards;
 		List<Integer>   dmgList = isP1 ? p1ForwardDamage  : p2ForwardDamage;
 		if (idx >= fwds.size()) return;
@@ -13561,7 +8422,7 @@ public class MainWindow {
 	 * Returns true when a forward at {@code (cardIsP1, cardIdx)} is the current blocker
 	 * whose attacker satisfies the blocking-target filter encoded in {@code condition}.
 	 */
-	private boolean meetsBlockingTargetFilter(boolean cardIsP1, int cardIdx, String condition) {
+	boolean meetsBlockingTargetFilter(boolean cardIsP1, int cardIdx, String condition) {
 		String lower = condition.toLowerCase();
 		if (lower.startsWith("blocking:")) {
 			String targetName = condition.substring("blocking:".length()).trim();
@@ -13580,7 +8441,7 @@ public class MainWindow {
 		return false;
 	}
 
-	private static javax.swing.border.Border createCardGlowBorder(Color color) {
+	static javax.swing.border.Border createCardGlowBorder(Color color) {
 		return CardAnimation.createCardGlowBorder(color);
 	}
 
@@ -13629,7 +8490,7 @@ public class MainWindow {
 				checkAndRestoreStolenOnLeave(c.name());
 				refreshP1BreakLabel();
 				rebuildP1ForwardPanel();
-				triggerAutoAbilitiesForLeavesField(c, true);
+				autoAbilityTriggers.triggerAutoAbilitiesForLeavesField(c, true);
 			}
 			// P1 backups
 			for (int i = 0; i < p1BackupCards.length; i++) {
@@ -13640,7 +8501,7 @@ public class MainWindow {
 				addToP1BreakZone(c);
 				p1BackupCards[i] = null; p1BackupStates[i] = CardState.ACTIVE;
 				refreshP1BackupSlot(i); refreshP1BreakLabel();
-				triggerAutoAbilitiesForLeavesField(c, true);
+				autoAbilityTriggers.triggerAutoAbilitiesForLeavesField(c, true);
 			}
 			// P1 monsters
 			for (int i = p1MonsterCards.size() - 1; i >= 0; i--) {
@@ -13657,7 +8518,7 @@ public class MainWindow {
 				JLabel lbl = p1MonsterLabels.remove(i);
 				p1MonsterPanel.remove(lbl); p1MonsterPanel.revalidate(); p1MonsterPanel.repaint();
 				refreshP1BreakLabel();
-				triggerAutoAbilitiesForLeavesField(c, true);
+				autoAbilityTriggers.triggerAutoAbilitiesForLeavesField(c, true);
 			}
 		} else {
 			// P2 forwards
@@ -13679,7 +8540,7 @@ public class MainWindow {
 				shiftBlockSet(p2ForwardCannotAttackPersistent, i); shiftBlockSet(p2ForwardCannotBlockPersistent, i);
 				refreshP2BreakLabel();
 				rebuildP2ForwardPanel();
-				triggerAutoAbilitiesForLeavesField(c, false);
+				autoAbilityTriggers.triggerAutoAbilitiesForLeavesField(c, false);
 			}
 			// P2 backups
 			for (int i = 0; i < p2BackupCards.length; i++) {
@@ -13690,7 +8551,7 @@ public class MainWindow {
 				addToP2BreakZone(c);
 				p2BackupCards[i] = null; p2BackupStates[i] = CardState.ACTIVE;
 				refreshP2BackupSlot(i); refreshP2BreakLabel();
-				triggerAutoAbilitiesForLeavesField(c, false);
+				autoAbilityTriggers.triggerAutoAbilitiesForLeavesField(c, false);
 			}
 			// P2 monsters
 			for (int i = p2MonsterCards.size() - 1; i >= 0; i--) {
@@ -13707,7 +8568,7 @@ public class MainWindow {
 				JLabel lbl = p2MonsterLabels.remove(i);
 				if (p2MonsterPanel != null) { p2MonsterPanel.remove(lbl); p2MonsterPanel.revalidate(); p2MonsterPanel.repaint(); }
 				refreshP2BreakLabel();
-				triggerAutoAbilitiesForLeavesField(c, false);
+				autoAbilityTriggers.triggerAutoAbilitiesForLeavesField(c, false);
 			}
 		}
 		return conflict;
@@ -13853,7 +8714,7 @@ public class MainWindow {
 		return result;
 	}
 
-	private int showNumberSelectDialog(String prompt, int min, int max) {
+	int showNumberSelectDialog(String prompt, int min, int max) {
 		int[] value = { min };
 
 		JDialog dlg = new JDialog(frame, "Select a Number", true);
@@ -13923,7 +8784,7 @@ public class MainWindow {
 	 * returning a card does not shift the indices of targets not yet processed.  Zones
 	 * are independent lists, so a single descending-index sort is safe across zones.
 	 */
-	private void applyTargetsHighestIndexFirst(java.util.List<ForwardTarget> targets, Consumer<ForwardTarget> action) {
+	void applyTargetsHighestIndexFirst(java.util.List<ForwardTarget> targets, Consumer<ForwardTarget> action) {
 		targets.stream()
 				.sorted(Comparator.comparingInt(ForwardTarget::idx).reversed())
 				.forEach(action);
@@ -13935,7 +8796,7 @@ public class MainWindow {
 	 * {@code upTo} is false.  Returns immediately with an empty list when there are
 	 * no eligible targets.
 	 */
-	private java.util.List<ForwardTarget> showForwardSelectDialog(
+	java.util.List<ForwardTarget> showForwardSelectDialog(
 			java.util.List<ForwardTarget> eligible, int maxCount, boolean upTo, String title) {
 		if (eligible.isEmpty()) { logEntry("Choose: no eligible targets"); return java.util.List.of(); }
 		if (!upTo && eligible.size() <= maxCount) return java.util.List.copyOf(eligible);
@@ -14008,7 +8869,7 @@ public class MainWindow {
 	 * queue via a secondary loop) until the choice is made, preserving the synchronous
 	 * selection contract the effect resolver relies on.
 	 */
-	private java.util.List<ForwardTarget> selectFieldTargetsInPlace(
+	java.util.List<ForwardTarget> selectFieldTargetsInPlace(
 			java.util.List<ForwardTarget> eligible, int maxCount, boolean upTo, String title) {
 		final Color GLOW_ELIGIBLE = new Color(90, 200, 255);
 		final Color GLOW_PICKED   = Color.YELLOW;
@@ -14141,7 +9002,7 @@ public class MainWindow {
 	 * rather than the field.  {@code eligible} entries carry the correct
 	 * {@code isP1} flag and an index into {@code zone}.
 	 */
-	private java.util.List<ForwardTarget> showBreakZoneSelectDialog(
+	java.util.List<ForwardTarget> showBreakZoneSelectDialog(
 			java.util.List<ForwardTarget> eligible, java.util.List<CardData> zone,
 			int maxCount, boolean upTo, String title) {
 		if (eligible.isEmpty()) { logEntry("Choose: no eligible targets in break zone"); return java.util.List.of(); }
@@ -14263,7 +9124,7 @@ public class MainWindow {
 
 		CardData card = p1BackupCards[idx];
 		if (card != null) {
-			addAbilityMenuItems(menu, card, p1BackupFrozen[idx], p1BackupStates[idx], p1BackupPlayedOnTurn[idx],
+			autoAbilityTriggers.addAbilityMenuItems(menu, card, p1BackupFrozen[idx], p1BackupStates[idx], p1BackupPlayedOnTurn[idx],
 					() -> { p1BackupStates[idx] = CardState.DULL; animateDullBackup(idx, true); }, true);
 		}
 
@@ -14346,7 +9207,7 @@ public class MainWindow {
 	}
 
 	/** Adds a Forward card to P1's forward zone and wires up the debug context menu. */
-	private void placeCardInForwardZone(CardData card) {
+	void placeCardInForwardZone(CardData card) {
 		if (p1ForwardPanel == null) return;
 		int idx = p1ForwardLabels.size();
 
@@ -14397,12 +9258,12 @@ public class MainWindow {
 		refreshP1ForwardSlot(idx);
 		if (!card.fieldPowerGrants().isEmpty()) refreshFieldGrantDependents(true);
 		if (!card.fieldCostReductions().isEmpty() || p1HandHasSelfCostModifiers()) refreshHandPopupIfVisible();
-		triggerAutoAbilitiesForEntersField(card, true);
+		autoAbilityTriggers.triggerAutoAbilitiesForEntersField(card, true);
 		sendToBreakZoneByUniquenessRule(card, true);
 	}
 
 	/** Adds a Monster card to P1's monster zone (right side of forward zone, newest leftmost). */
-	private void placeCardInMonsterZone(CardData card) {
+	void placeCardInMonsterZone(CardData card) {
 		if (p1MonsterPanel == null) return;
 		int idx = p1MonsterLabels.size();
 
@@ -14445,12 +9306,12 @@ public class MainWindow {
 		refreshP1MonsterSlot(idx);
 		// Monster entering the field may satisfy a condition for a forward's boost
 		refreshAllForwardSlots();
-		triggerAutoAbilitiesForEntersField(card, true);
+		autoAbilityTriggers.triggerAutoAbilitiesForEntersField(card, true);
 		sendToBreakZoneByUniquenessRule(card, true);
 	}
 
 	/** Reloads and re-renders a single P1 monster slot using its stored URL and state. */
-	private void refreshP1MonsterSlot(int idx) {
+	void refreshP1MonsterSlot(int idx) {
 		String url   = p1MonsterUrls.get(idx);
 		CardState state = p1MonsterStates.get(idx);
 		JLabel slot  = p1MonsterLabels.get(idx);
@@ -14493,7 +9354,7 @@ public class MainWindow {
 	}
 
 	/** Adds a Monster card to P2's monster zone (right side of forward zone). */
-	private void placeP2CardInMonsterZone(CardData card) {
+	void placeP2CardInMonsterZone(CardData card) {
 		if (p2MonsterPanel == null) return;
 		int idx = p2MonsterLabels.size();
 
@@ -14527,11 +9388,11 @@ public class MainWindow {
 		p2MonsterPanel.repaint();
 
 		refreshP2MonsterSlot(idx);
-		triggerAutoAbilitiesForEntersField(card, false);
+		autoAbilityTriggers.triggerAutoAbilitiesForEntersField(card, false);
 	}
 
 	/** Reloads and re-renders a single P2 monster slot using its stored URL and state. */
-	private void refreshP2MonsterSlot(int idx) {
+	void refreshP2MonsterSlot(int idx) {
 		String url = p2MonsterUrls.get(idx);
 		CardState state = p2MonsterStates.get(idx);
 		JLabel slot = p2MonsterLabels.get(idx);
@@ -14577,7 +9438,7 @@ public class MainWindow {
 		JPopupMenu menu = new JPopupMenu();
 
 		// Action abilities
-		addAbilityMenuItems(menu, p1MonsterCards.get(idx), p1MonsterFrozen.get(idx),
+		autoAbilityTriggers.addAbilityMenuItems(menu, p1MonsterCards.get(idx), p1MonsterFrozen.get(idx),
 				p1MonsterStates.get(idx), p1MonsterPlayedOnTurn.get(idx),
 				() -> { p1MonsterStates.set(idx, CardState.DULL); refreshP1MonsterSlot(idx); }, true);
 
@@ -14598,7 +9459,7 @@ public class MainWindow {
 	}
 
 	/** Reloads and re-renders a single P1 forward slot using its stored URL and state. */
-	private void refreshP1ForwardSlot(int idx) {
+	void refreshP1ForwardSlot(int idx) {
 		CardData topCard = p1ForwardPrimedTop.get(idx);
 		boolean  primed  = topCard != null;
 		// Primed: display and stats come from the top card
@@ -14642,7 +9503,7 @@ public class MainWindow {
 		}.execute();
 	}
 
-	private void refreshAllForwardSlots() {
+	void refreshAllForwardSlots() {
 		for (int i = 0; i < p1ForwardLabels.size(); i++) refreshP1ForwardSlot(i);
 		for (int i = 0; i < p1MonsterLabels.size(); i++) refreshP1MonsterSlot(i);
 	}
@@ -14882,10 +9743,10 @@ public class MainWindow {
 				p1BlockingIdx        = fBlkIdx;
 				p1BlockedByAttacker  = attacker;
 			} else {
-				blocker = fieldCardData(new ForwardTarget(true, fBlkIdx, fBlkZone));
+				blocker = autoAbilityTriggers.fieldCardData(new ForwardTarget(true, fBlkIdx, fBlkZone));
 			}
-			triggerAutoAbilitiesForBlock(blocker, true);
-			triggerAutoAbilitiesForIsBlocked(attacker, false);
+			autoAbilityTriggers.triggerAutoAbilitiesForBlock(blocker, true);
+			autoAbilityTriggers.triggerAutoAbilitiesForIsBlocked(attacker, false);
 			setAttackSubStep(3);
 			combatPriority("Blocker Declared", false, () -> {
 				if (atkZone == ForwardTarget.CardZone.FORWARD && fBlkZone == ForwardTarget.CardZone.FORWARD)
@@ -14901,7 +9762,7 @@ public class MainWindow {
 			});
 		} else {
 			p1TakeDamage(() -> {
-				triggerAutoAbilitiesForDealsDamageToOpponent(attacker, false);
+				autoAbilityTriggers.triggerAutoAbilitiesForDealsDamageToOpponent(attacker, false);
 				setAttackSubStep(-1);
 				onDone.run();
 			});
@@ -14924,9 +9785,9 @@ public class MainWindow {
 			CardData top    = p1ForwardPrimedTop.get(blockerIdx);
 			CardData blocker = (top != null) ? top : p1ForwardCards.get(blockerIdx);
 			p1BlockingIdx = blockerIdx;
-			triggerAutoAbilitiesForBlock(blocker, true);
+			autoAbilityTriggers.triggerAutoAbilitiesForBlock(blocker, true);
 			for (int idx : attackerIndices)
-				triggerAutoAbilitiesForIsBlocked(p2ForwardCards.get(idx), false);
+				autoAbilityTriggers.triggerAutoAbilitiesForIsBlocked(p2ForwardCards.get(idx), false);
 			setAttackSubStep(3);
 			combatPriority("Blocker Declared", false, () -> {
 				resolveP1BlockVsP2Party(blockerIdx, blocker, attackerIndices, combinedPower);
@@ -14939,7 +9800,7 @@ public class MainWindow {
 		} else {
 			p1TakeDamage();
 			for (int idx : attackerIndices)
-				triggerAutoAbilitiesForDealsDamageToOpponent(p2ForwardCards.get(idx), false);
+				autoAbilityTriggers.triggerAutoAbilitiesForDealsDamageToOpponent(p2ForwardCards.get(idx), false);
 			setAttackSubStep(-1);
 			onDone.run();
 		}
@@ -15144,7 +10005,7 @@ public class MainWindow {
 
 	/** Returns true when the P1 monster at {@code idx} can attack as a Forward this turn. */
 	/** Returns true when the P1 monster at {@code idx} currently has the Forward type. */
-	private boolean isP1MonsterTemporarilyForward(int idx) {
+	boolean isP1MonsterTemporarilyForward(int idx) {
 		if (idx < 0 || idx >= p1MonsterCards.size()) return false;
 		CardData card = p1MonsterCards.get(idx);
 		if (p1MonsterTempForwardPower.containsKey(card)) return true;
@@ -15156,7 +10017,7 @@ public class MainWindow {
 	}
 
 	/** Returns true when the P2 monster at {@code idx} currently has the Forward type. */
-	private boolean isP2MonsterTemporarilyForward(int idx) {
+	boolean isP2MonsterTemporarilyForward(int idx) {
 		if (idx < 0 || idx >= p2MonsterCards.size()) return false;
 		CardData card = p2MonsterCards.get(idx);
 		if (p2MonsterTempForwardPower.containsKey(card)) return true;
@@ -15226,7 +10087,7 @@ public class MainWindow {
 			p1MonsterStates.set(monIdx, CardState.DULL);
 			animateDullMonster(monIdx);
 		}
-		triggerAutoAbilitiesForAttack(attacker, true);
+		autoAbilityTriggers.triggerAutoAbilitiesForAttack(attacker, true);
 
 		setAttackSubStep(2);
 		refreshAttackButton();
@@ -15236,10 +10097,10 @@ public class MainWindow {
 			ForwardTarget blk = p2ChooseBlocker(attackerPower,
 					new ForwardTarget(true, monIdx, ForwardTarget.CardZone.MONSTER));
 			if (blk != null) {
-				CardData blocker = fieldCardData(blk);
+				CardData blocker = autoAbilityTriggers.fieldCardData(blk);
 				logEntry("[P2] " + blocker.name() + " blocks!");
-				triggerAutoAbilitiesForBlock(blocker, false);
-				triggerAutoAbilitiesForIsBlocked(attacker, true);
+				autoAbilityTriggers.triggerAutoAbilitiesForBlock(blocker, false);
+				autoAbilityTriggers.triggerAutoAbilitiesForIsBlocked(attacker, true);
 				if (blk.zone() == ForwardTarget.CardZone.FORWARD) { p2BlockingIdx = blk.idx(); p2BlockedByAttacker = attacker; }
 				setAttackSubStep(3);
 				combatPriority("Blocker Declared", true, () -> {
@@ -15251,7 +10112,7 @@ public class MainWindow {
 			} else {
 				setAttackSubStep(3);
 				p2TakeDamage(() -> {
-					triggerAutoAbilitiesForDealsDamageToOpponent(attacker, true);
+					autoAbilityTriggers.triggerAutoAbilitiesForDealsDamageToOpponent(attacker, true);
 					continueAttackPhase();
 				});
 			}
@@ -15302,8 +10163,8 @@ public class MainWindow {
 	private void breakFieldCard(boolean isP1, ForwardTarget.CardZone zone, int idx) {
 		switch (zone) {
 			case FORWARD -> { if (isP1) breakP1Forward(idx);     else breakP2Forward(idx); }
-			case MONSTER -> { if (isP1) breakP1MonsterSlot(idx); else breakP2MonsterSlot(idx); }
-			case BACKUP  -> { if (isP1) breakP1BackupSlot(idx);  else breakP2BackupSlot(idx); }
+			case MONSTER -> { if (isP1) autoAbilityTriggers.breakP1MonsterSlot(idx); else breakP2MonsterSlot(idx); }
+			case BACKUP  -> { if (isP1) autoAbilityTriggers.breakP1BackupSlot(idx);  else breakP2BackupSlot(idx); }
 		}
 	}
 
@@ -15322,8 +10183,8 @@ public class MainWindow {
 	 */
 	private void resolveActingCombat(boolean atkP1, ForwardTarget.CardZone atkZone, int atkIdx,
 			boolean blkP1, ForwardTarget.CardZone blkZone, int blkIdx) {
-		CardData attacker = fieldCardData(new ForwardTarget(atkP1, atkIdx, atkZone));
-		CardData blocker  = fieldCardData(new ForwardTarget(blkP1, blkIdx, blkZone));
+		CardData attacker = autoAbilityTriggers.fieldCardData(new ForwardTarget(atkP1, atkIdx, atkZone));
+		CardData blocker  = autoAbilityTriggers.fieldCardData(new ForwardTarget(blkP1, blkIdx, blkZone));
 		int atkPow = fieldForwardPower(atkP1, atkZone, atkIdx);
 		int blkPow = fieldForwardPower(blkP1, blkZone, blkIdx);
 		logEntry((atkP1 ? "" : "[P2] ") + attacker.name() + " (" + atkPow + ") vs "
@@ -15372,7 +10233,7 @@ public class MainWindow {
 		return -1;
 	}
 
-	private void makeP1BackupTemporaryForward(CardData source, int power) {
+	void makeP1BackupTemporaryForward(CardData source, int power) {
 		int idx = indexOfBackup(p1BackupCards, source);
 		if (idx < 0) return;
 		p1BackupTempForwardPower.put(source, power);
@@ -15387,7 +10248,7 @@ public class MainWindow {
 		refreshP1BackupSlot(idx);
 	}
 
-	private void makeP2BackupTemporaryForward(CardData source, int power) {
+	void makeP2BackupTemporaryForward(CardData source, int power) {
 		int idx = indexOfBackup(p2BackupCards, source);
 		if (idx < 0) return;
 		p2BackupTempForwardPower.put(source, power);
@@ -15419,7 +10280,7 @@ public class MainWindow {
 		return base + p2BackupForwardBoost.getOrDefault(c, 0);
 	}
 
-	private boolean isP1BackupTemporarilyForward(int idx) {
+	boolean isP1BackupTemporarilyForward(int idx) {
 		if (idx < 0 || idx >= p1BackupCards.length) return false;
 		CardData c = p1BackupCards[idx];
 		if (c == null) return false;
@@ -15430,7 +10291,7 @@ public class MainWindow {
 		return gameState.getCurrentPlayer() == GameState.Player.P1;
 	}
 
-	private boolean isP2BackupTemporarilyForward(int idx) {
+	boolean isP2BackupTemporarilyForward(int idx) {
 		if (idx < 0 || idx >= p2BackupCards.length) return false;
 		CardData c = p2BackupCards[idx];
 		if (c == null) return false;
@@ -15508,7 +10369,7 @@ public class MainWindow {
 			p1BackupStates[bIdx] = CardState.DULL;
 			animateDullBackup(bIdx, true);
 		}
-		triggerAutoAbilitiesForAttack(attacker, true);
+		autoAbilityTriggers.triggerAutoAbilitiesForAttack(attacker, true);
 
 		setAttackSubStep(2);
 		refreshAttackButton();
@@ -15518,10 +10379,10 @@ public class MainWindow {
 			ForwardTarget blk = p2ChooseBlocker(attackerPower,
 					new ForwardTarget(true, bIdx, ForwardTarget.CardZone.BACKUP));
 			if (blk != null) {
-				CardData blocker = fieldCardData(blk);
+				CardData blocker = autoAbilityTriggers.fieldCardData(blk);
 				logEntry("[P2] " + blocker.name() + " blocks!");
-				triggerAutoAbilitiesForBlock(blocker, false);
-				triggerAutoAbilitiesForIsBlocked(attacker, true);
+				autoAbilityTriggers.triggerAutoAbilitiesForBlock(blocker, false);
+				autoAbilityTriggers.triggerAutoAbilitiesForIsBlocked(attacker, true);
 				if (blk.zone() == ForwardTarget.CardZone.FORWARD) { p2BlockingIdx = blk.idx(); p2BlockedByAttacker = attacker; }
 				setAttackSubStep(3);
 				combatPriority("Blocker Declared", true, () -> {
@@ -15533,7 +10394,7 @@ public class MainWindow {
 			} else {
 				setAttackSubStep(3);
 				p2TakeDamage(() -> {
-					triggerAutoAbilitiesForDealsDamageToOpponent(attacker, true);
+					autoAbilityTriggers.triggerAutoAbilitiesForDealsDamageToOpponent(attacker, true);
 					continueAttackPhase();
 				});
 			}
@@ -15541,7 +10402,7 @@ public class MainWindow {
 	}
 
 	/** Applies ability/combat damage to a backup that is currently acting as a Forward. */
-	private void applyDamageToBackup(boolean isP1, int idx, int amount) {
+	void applyDamageToBackup(boolean isP1, int idx, int amount) {
 		CardData[] backs = isP1 ? p1BackupCards : p2BackupCards;
 		if (idx < 0 || idx >= backs.length || backs[idx] == null || amount <= 0) return;
 		boolean asFwd = isP1 ? isP1BackupTemporarilyForward(idx) : isP2BackupTemporarilyForward(idx);
@@ -15554,7 +10415,7 @@ public class MainWindow {
 		logEntry((isP1 ? "" : "[P2] ") + c.name() + " takes " + amount + " damage"
 				+ (effPow > 0 ? " (" + (effPow - accum) + " remaining)" : ""));
 		if (effPow > 0 && accum >= effPow) {
-			if (isP1) breakP1BackupSlot(idx); else breakP2BackupSlot(idx);
+			if (isP1) autoAbilityTriggers.breakP1BackupSlot(idx); else breakP2BackupSlot(idx);
 		} else {
 			if (isP1) refreshP1BackupSlot(idx); else refreshP2BackupSlot(idx);
 		}
@@ -15607,7 +10468,7 @@ public class MainWindow {
 			}
 		}
 		for (int idx : selection)
-			triggerAutoAbilitiesForAttack(p1ForwardCards.get(idx), true);
+			autoAbilityTriggers.triggerAutoAbilitiesForAttack(p1ForwardCards.get(idx), true);
 
 		setAttackSubStep(2); // moving to block-declaration sub-step
 		refreshAttackButton();
@@ -15621,10 +10482,10 @@ public class MainWindow {
 				ForwardTarget blk = p2ChooseBlocker(effectiveP1ForwardPower(idx),
 						new ForwardTarget(true, idx, ForwardTarget.CardZone.FORWARD));
 				if (blk != null) {
-					CardData blocker = fieldCardData(blk);
+					CardData blocker = autoAbilityTriggers.fieldCardData(blk);
 					logEntry("[P2] " + blocker.name() + " blocks!");
-					triggerAutoAbilitiesForBlock(blocker, false);
-					triggerAutoAbilitiesForIsBlocked(attacker, true);
+					autoAbilityTriggers.triggerAutoAbilitiesForBlock(blocker, false);
+					autoAbilityTriggers.triggerAutoAbilitiesForIsBlocked(attacker, true);
 					if (blk.zone() == ForwardTarget.CardZone.FORWARD) { p2BlockingIdx = blk.idx(); p2BlockedByAttacker = attacker; }
 					setAttackSubStep(3);
 					// Priority window after blocker declared (P1 still attacker → P1 first)
@@ -15640,7 +10501,7 @@ public class MainWindow {
 				} else {
 					setAttackSubStep(3);
 					p2TakeDamage(() -> {
-						triggerAutoAbilitiesForDealsDamageToOpponent(attacker, true);
+						autoAbilityTriggers.triggerAutoAbilitiesForDealsDamageToOpponent(attacker, true);
 						continueAttackPhase();
 					});
 				}
@@ -15657,7 +10518,7 @@ public class MainWindow {
 			p1FormedPartyThisTurn = true;
 			List<CardData> p1PartyMembers = selection.stream()
 					.map(p1ForwardCards::get).collect(java.util.stream.Collectors.toList());
-			triggerAutoAbilitiesForPartyAttack(true, p1PartyMembers);
+			autoAbilityTriggers.triggerAutoAbilitiesForPartyAttack(true, p1PartyMembers);
 			final int fCombined = combinedPower;
 			combatPriority("Party Attacker Declared", true, () ->
 				p2OfferBlockParty(selection, fCombined, this::continueAttackPhase));
@@ -15805,7 +10666,7 @@ public class MainWindow {
 	 * whose effective power (minus current damage) exceeds {@code amount} so it survives;
 	 * if none, falls back to the lowest-cost Forward (least valuable loss).
 	 */
-	private ForwardTarget aiPickForwardToSurvive(int amount) {
+	ForwardTarget aiPickForwardToSurvive(int amount) {
 		if (p2ForwardCards.isEmpty()) return null;
 		int bestSurvivorIdx = -1;
 		int bestSurvivorMargin = -1;
@@ -15826,7 +10687,7 @@ public class MainWindow {
 	}
 
 	/** Returns the index of the least-valuable card in {@code hand} (lowest cost; backups before forwards). */
-	private static int pickWorstHandCard0(List<CardData> hand) {
+	static int pickWorstHandCard0(List<CardData> hand) {
 		int worstIdx = 0, worstScore = Integer.MAX_VALUE;
 		for (int i = 0; i < hand.size(); i++) {
 			CardData c = hand.get(i);
@@ -15869,7 +10730,7 @@ public class MainWindow {
 		// Action abilities (use effective card — top card when primed)
 		CardData effectiveFwd = p1ForwardPrimedTop.get(idx) != null
 				? p1ForwardPrimedTop.get(idx) : p1ForwardCards.get(idx);
-		addAbilityMenuItems(menu, effectiveFwd, p1ForwardFrozen.get(idx),
+		autoAbilityTriggers.addAbilityMenuItems(menu, effectiveFwd, p1ForwardFrozen.get(idx),
 				p1ForwardStates.get(idx), p1ForwardPlayedOnTurn.get(idx),
 				() -> { p1ForwardStates.set(idx, CardState.DULL); animateDullForward(idx, null); }, true);
 
@@ -15893,7 +10754,7 @@ public class MainWindow {
 		JPopupMenu menu = new JPopupMenu();
 		CardData card = p2BackupCards[idx];
 		if (card != null) {
-			addAbilityMenuItems(menu, card, p2BackupFrozen[idx], p2BackupStates[idx], 0,
+			autoAbilityTriggers.addAbilityMenuItems(menu, card, p2BackupFrozen[idx], p2BackupStates[idx], 0,
 					() -> { p2BackupStates[idx] = CardState.DULL; animateDullP2Backup(idx, true); }, false);
 		}
 		if (menu.getComponentCount() > 0) menu.show(slot, e.getX(), e.getY());
@@ -15902,7 +10763,7 @@ public class MainWindow {
 	private void showP2MonsterContextMenu(int idx, JLabel slot, MouseEvent e) {
 		if (fieldTargetingActive) return;
 		JPopupMenu menu = new JPopupMenu();
-		addAbilityMenuItems(menu, p2MonsterCards.get(idx), p2MonsterFrozen.get(idx),
+		autoAbilityTriggers.addAbilityMenuItems(menu, p2MonsterCards.get(idx), p2MonsterFrozen.get(idx),
 				p2MonsterStates.get(idx), p2MonsterPlayedOnTurn.get(idx),
 				() -> { p2MonsterStates.set(idx, CardState.DULL); refreshP2MonsterSlot(idx); }, false);
 		if (menu.getComponentCount() > 0) menu.show(slot, e.getX(), e.getY());
@@ -15913,7 +10774,7 @@ public class MainWindow {
 		JPopupMenu menu = new JPopupMenu();
 		CardData fwd         = p2ForwardCards.get(idx);
 		CardData effectiveFwd = p2ForwardPrimedTop.get(idx) != null ? p2ForwardPrimedTop.get(idx) : fwd;
-		addAbilityMenuItems(menu, effectiveFwd, p2ForwardFrozen.get(idx),
+		autoAbilityTriggers.addAbilityMenuItems(menu, effectiveFwd, p2ForwardFrozen.get(idx),
 				p2ForwardStates.get(idx), p2ForwardPlayedOnTurn.get(idx),
 				() -> { p2ForwardStates.set(idx, CardState.DULL); refreshP2ForwardSlot(idx); }, false);
 
@@ -15940,7 +10801,7 @@ public class MainWindow {
 		p2ForwardPrimedTop.set(slotIdx, chosen);
 		logEntry("[P2] Primed: \"" + primingCard.name() + "\" topped with \"" + chosen.name() + "\"");
 		refreshP2ForwardSlot(slotIdx);
-		triggerAutoAbilitiesForPrimedInto(primingCard, chosen, false);
+		autoAbilityTriggers.triggerAutoAbilitiesForPrimedInto(primingCard, chosen, false);
 	}
 
 	/**
@@ -16289,7 +11150,7 @@ public class MainWindow {
 		p1ForwardPrimedTop.set(slotIdx, chosen);
 		logEntry("Primed: \"" + primingCard.name() + "\" topped with \"" + chosen.name() + "\"");
 		refreshP1ForwardSlot(slotIdx);
-		triggerAutoAbilitiesForPrimedInto(primingCard, chosen, true);
+		autoAbilityTriggers.triggerAutoAbilitiesForPrimedInto(primingCard, chosen, true);
 	}
 
 	/**
@@ -16549,7 +11410,7 @@ public class MainWindow {
 		return panel;
 	}
 
-	private Image loadCardbackImage() {
+	Image loadCardbackImage() {
 		String customPath = AppSettings.getCustomCardbackPath();
 		if (!customPath.isEmpty()) {
 			File f = new File(customPath);
@@ -16568,7 +11429,7 @@ public class MainWindow {
 		return new ImageIcon(getClass().getResource("/resources/cardback/default.jpg")).getImage();
 	}
 
-	private LookAtDeckDialogs lookDialogs() {
+	LookAtDeckDialogs lookDialogs() {
 		if (lookDialogsInstance == null)
 			lookDialogsInstance = new LookAtDeckDialogs(frame, gameState,
 				new LookAtDeckDialogs.Callbacks(
@@ -16633,7 +11494,7 @@ public class MainWindow {
 	}
 
 	/** Reads current crystal counts from game state and repaints both badges. */
-	private void refreshCrystalDisplays() {
+	void refreshCrystalDisplays() {
 		if (p1CrystalDisplay != null) p1CrystalDisplay.setCount(gameState.getP1Crystals());
 		if (p2CrystalDisplay != null) p2CrystalDisplay.setCount(gameState.getP2Crystals());
 	}
@@ -16649,7 +11510,7 @@ public class MainWindow {
 		return false;
 	}
 
-	private void placeP2CardInForwardZone(CardData card) {
+	void placeP2CardInForwardZone(CardData card) {
 		if (p2ForwardPanel == null) return;
 		int idx = p2ForwardLabels.size();
 
@@ -16694,22 +11555,22 @@ public class MainWindow {
 		refreshP2ForwardSlot(idx);
 		if (!card.fieldPowerGrants().isEmpty()) refreshFieldGrantDependents(false);
 		if (!card.fieldCostReductions().isEmpty() || p1HandHasSelfCostModifiers()) refreshHandPopupIfVisible();
-		triggerAutoAbilitiesForEntersField(card, false);
+		autoAbilityTriggers.triggerAutoAbilitiesForEntersField(card, false);
 	}
 
-	private void placeP2CardInFirstBackupSlot(CardData card) {
+	void placeP2CardInFirstBackupSlot(CardData card) {
 		for (int i = 0; i < p2BackupCards.length; i++) {
 			if (p2BackupCards[i] != null) continue;
 			p2BackupUrls[i]   = card.imageUrl();
 			p2BackupCards[i]  = card;
 			p2BackupStates[i] = CardState.DULL;
 			refreshP2BackupSlot(i);
-			triggerAutoAbilitiesForEntersField(card, false);
+			autoAbilityTriggers.triggerAutoAbilitiesForEntersField(card, false);
 			return;
 		}
 	}
 
-	private void refreshP2BackupSlot(int idx) {
+	void refreshP2BackupSlot(int idx) {
 		String url    = p2BackupUrls[idx];
 		JLabel slot   = p2BackupLabels[idx];
 		CardState state = p2BackupStates[idx];
@@ -16740,7 +11601,7 @@ public class MainWindow {
 		}.execute();
 	}
 
-	private void refreshP2ForwardSlot(int idx) {
+	void refreshP2ForwardSlot(int idx) {
 		CardData topCard = p2ForwardPrimedTop.get(idx);
 		String url      = topCard != null ? topCard.imageUrl() : p2ForwardUrls.get(idx);
 		CardState state = p2ForwardStates.get(idx);
@@ -17081,10 +11942,10 @@ public class MainWindow {
 			logEntry("[P2] Party Attack! " + names + " (" + combinedPower + " combined)");
 			p2FormedPartyThisTurn = true;
 			for (int idx : partyIndices)
-				triggerAutoAbilitiesForAttack(p2ForwardCards.get(idx), false);
+				autoAbilityTriggers.triggerAutoAbilitiesForAttack(p2ForwardCards.get(idx), false);
 			List<CardData> p2PartyMembers = partyIndices.stream()
 					.map(p2ForwardCards::get).collect(java.util.stream.Collectors.toList());
-			triggerAutoAbilitiesForPartyAttack(false, p2PartyMembers);
+			autoAbilityTriggers.triggerAutoAbilitiesForPartyAttack(false, p2PartyMembers);
 			final int fCombined = combinedPower;
 			initP1BlockDeclarationVsParty(partyIndices, fCombined, onDone);
 		}
@@ -17115,7 +11976,7 @@ public class MainWindow {
 					p2ForwardStates.set(i, CardState.DULL);
 					animateDullP2Forward(i, null);
 				}
-				triggerAutoAbilitiesForAttack(attacker, false);
+				autoAbilityTriggers.triggerAutoAbilitiesForAttack(attacker, false);
 				final int fi = i;
 				initP1BlockDeclaration(attacker, fi, () -> {
 					if (!gameState.isP1GameOver()) step(() -> doAttackPhase(onDone));
@@ -17133,7 +11994,7 @@ public class MainWindow {
 					p2MonsterStates.set(i, CardState.DULL);
 					animateDullP2Monster(i);
 				}
-				triggerAutoAbilitiesForAttack(attacker, false);
+				autoAbilityTriggers.triggerAutoAbilitiesForAttack(attacker, false);
 				logEntry("[P2] " + attacker.name() + " attacks! (Forward — " + power + ")");
 				pendingP2AttackerIsMonster = true;
 				pendingP2AttackerPower     = power;
@@ -17154,7 +12015,7 @@ public class MainWindow {
 					p2BackupStates[i] = CardState.DULL;
 					animateDullP2Backup(i, true);
 				}
-				triggerAutoAbilitiesForAttack(attacker, false);
+				autoAbilityTriggers.triggerAutoAbilitiesForAttack(attacker, false);
 				logEntry("[P2] " + attacker.name() + " attacks! (Forward — " + power + ")");
 				pendingP2AttackerIsBackup = true;
 				pendingP2AttackerPower    = power;
@@ -17322,7 +12183,7 @@ public class MainWindow {
 					|| p2ForwardPlayedOnTurn.get(idx) != gameState.getTurnNumber());
 		}
 
-		private int pickWorstHandCard(List<CardData> hand) { return MainWindow.pickWorstHandCard0(hand); }
+		int pickWorstHandCard(List<CardData> hand) { return MainWindow.pickWorstHandCard0(hand); }
 
 		/**
 		 * Finds the best card P2 can play from hand, along with the minimum
