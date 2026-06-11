@@ -3249,6 +3249,7 @@ public class MainWindow {
 					playerHand(isP1).add(card);
 					logEntry((isP1 ? "" : "[P2] ") + card.name() + " → hand (search)");
 					if (isP1) refreshP1HandLabel(); else refreshP2HandCountLabel();
+					animateCardDraw(isP1, 1);
 				}
 				case "field" -> {
 					logEntry((isP1 ? "" : "[P2] ") + card.name() + " → field (search)" + (entersDull ? " dull" : ""));
@@ -4657,7 +4658,7 @@ public class MainWindow {
 			List<Integer> toDiscard = new ArrayList<>(selected);
 			toDiscard.sort(Collections.reverseOrder());
 			for (int di : toDiscard) {
-				gameState.breakFromHand(di);
+				playerBreakFromHand(true,di);
 			}
 			logEntry("Discarded " + toDiscard.size() + " card(s) — hand reduced to 5");
 			refreshP1HandLabel();
@@ -4790,7 +4791,7 @@ public class MainWindow {
 			List<Integer> toDiscard = new ArrayList<>(selected);
 			toDiscard.sort(Collections.reverseOrder());
 			for (int di : toDiscard) {
-				CardData d = gameState.breakFromHand(di);
+				CardData d = playerBreakFromHand(true,di);
 				if (d != null) logEntry("Discards " + d.name() + (forcedByOpponent ? " (forced by opponent)" : ""));
 			}
 			if (!toDiscard.isEmpty()) p1DiscardedByEffectThisTurn = true;
@@ -4913,7 +4914,7 @@ public class MainWindow {
 			dlg.dispose();
 			int idx = selectedIdx[0];
 			if (idx >= 0) {
-				CardData d = gameState.breakFromHand(idx);
+				CardData d = playerBreakFromHand(true,idx);
 				if (d != null) { logEntry("Discards " + d.name()); p1DiscardedByEffectThisTurn = true; }
 				refreshP1HandLabel();
 				refreshP1BreakLabel();
@@ -5732,6 +5733,36 @@ public class MainWindow {
 				loadCardbackImage(), CardAnimation.CARD_W, CardAnimation.CARD_H);
 		for (int i = 0; i < count; i++)
 			cardSlideAnimator.startSlide(img, start, end, i * 5);
+	}
+
+	/**
+	 * Triggers a card-slide animation from the player's hand area (off-screen
+	 * bottom-center for P1, off-screen top-center for P2) toward the Break Zone.
+	 * Visually mirrors {@link #animateCardDraw} but ends at the Break Zone label
+	 * and uses the card's face image (discards are face-up).
+	 */
+	void animateCardDiscard(boolean isP1, CardData card) {
+		if (card == null) return;
+		JLabel       brk = isP1 ? p1BreakLabel : p2BreakLabel;
+		if (brk == null) return;
+		JLayeredPane lp  = frame.getRootPane().getLayeredPane();
+
+		int   cx    = lp.getWidth() / 2;
+		Point start = isP1
+				? new Point(cx, lp.getHeight() + CardAnimation.CARD_H)
+				: new Point(cx, -CardAnimation.CARD_H);
+		Point end   = SwingUtilities.convertPoint(
+				brk, brk.getWidth() / 2, brk.getHeight() / 2, lp);
+
+		BufferedImage img;
+		try {
+			Image face = ImageCache.load(card.imageUrl());
+			if (face == null) return;
+			img = CardAnimation.toARGB(face, CardAnimation.CARD_W, CardAnimation.CARD_H);
+		} catch (java.io.IOException ignored) {
+			return;
+		}
+		cardSlideAnimator.startSlide(img, start, end, 0);
 	}
 
 	void startBreakAnim(JLabel label) {
@@ -6641,7 +6672,7 @@ public class MainWindow {
 			String cpElem = matchesAnyElement(discarded, elems)
 					? contributingElement(discarded, elems) : elems[0];
 			gameState.addP1Cp(cpElem, 2);
-			gameState.breakFromHand(di);
+			playerBreakFromHand(true,di);
 			if (di < cardHandIdx) cardHandIdx--;
 		}
 		for (String e : elems) {
@@ -6843,7 +6874,7 @@ public class MainWindow {
 		discardIndices.sort(Collections.reverseOrder());
 		for (int di : discardIndices) {
 			gameState.addP1Cp(cpAssignments.get(di), 2);
-			gameState.breakFromHand(di);
+			playerBreakFromHand(true,di);
 			if (di < cardHandIdx) cardHandIdx--;
 		}
 		for (String e : elems) {
@@ -7182,7 +7213,7 @@ public class MainWindow {
 			CardData discarded = gameState.getP1Hand().get(di);
 			String cpElem = isLD ? discarded.elements()[0] : contributingElement(discarded, elems);
 			gameState.addP1Cp(cpElem, 2);
-			gameState.breakFromHand(di);
+			playerBreakFromHand(true,di);
 		}
 		for (String e : elems) {
 			gameState.spendP1Cp(e, gameState.getP1CpForElement(e));
@@ -7702,7 +7733,11 @@ public class MainWindow {
 	void playerSpendCp(boolean isP1, String e, int n)  { if (isP1) gameState.spendP1Cp(e, n); else gameState.spendP2Cp(e, n); }
 	void playerClearCp(boolean isP1, String e)         { if (isP1) gameState.clearP1Cp(e);    else gameState.clearP2Cp(e); }
 	void playerSpendCrystals(boolean isP1, int n)      { if (isP1) gameState.spendP1Crystals(n); else gameState.spendP2Crystals(n); }
-	CardData playerBreakFromHand(boolean isP1, int i)  { return isP1 ? gameState.breakFromHand(i) : gameState.breakP2FromHand(i); }
+	CardData playerBreakFromHand(boolean isP1, int i)  {
+		CardData d = isP1 ? gameState.breakFromHand(i) : gameState.breakP2FromHand(i);
+		if (d != null) animateCardDiscard(isP1, d);
+		return d;
+	}
 	void playerDullBackupSlot(boolean isP1, int idx) {
 		if (isP1) animateDullBackup(idx, true); else animateDullP2Backup(idx, true);
 	}
@@ -11183,7 +11218,7 @@ public class MainWindow {
 			String cpElem = matchesAnyElement(discarded, elems)
 					? contributingElement(discarded, elems) : (elems.length > 0 ? elems[0] : "");
 			if (!cpElem.isEmpty()) gameState.addP1Cp(cpElem, 2);
-			gameState.breakFromHand(di);
+			playerBreakFromHand(true,di);
 		}
 		for (String e : elems) { gameState.spendP1Cp(e, gameState.getP1CpForElement(e)); gameState.clearP1Cp(e); }
 
@@ -11899,7 +11934,7 @@ public class MainWindow {
 
 			// Discard for CP, attributing each card's CP to the most-needed element
 			for (int di : discards) {
-				CardData d = gameState.breakP2FromHand(di);
+				CardData d = playerBreakFromHand(false,di);
 				if (d != null) {
 					int assignEi = p2BestDiscardElement(d, playElems, accCp);
 					accCp[assignEi] += 2;

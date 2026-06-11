@@ -1924,7 +1924,7 @@ final class GameContextImpl implements GameContext {
 					int actual = Math.min(count, hand.size());
 					for (int i = 0; i < actual; i++) {
 						int idx = MainWindow.pickWorstHandCard0(hand);
-						CardData d = mw.gameState.breakP2FromHand(idx);
+						CardData d = mw.playerBreakFromHand(false,idx);
 						if (d != null) {
 							logEntry("[P2] Discards " + d.name() + " (forced)");
 							mw.p2DiscardedByEffectThisTurn = true;
@@ -1945,7 +1945,7 @@ final class GameContextImpl implements GameContext {
 					int actual = Math.min(count, hand.size());
 					for (int i = 0; i < actual; i++) {
 						int idx = (int) (Math.random() * mw.gameState.getP2Hand().size());
-						CardData d = mw.gameState.breakP2FromHand(idx);
+						CardData d = mw.playerBreakFromHand(false,idx);
 						if (d != null) {
 							logEntry("[P2] Randomly discards " + d.name());
 							mw.p2DiscardedByEffectThisTurn = true;
@@ -1959,7 +1959,7 @@ final class GameContextImpl implements GameContext {
 					int actual = Math.min(count, hand.size());
 					for (int i = 0; i < actual; i++) {
 						int idx = (int) (Math.random() * mw.gameState.getP1Hand().size());
-						CardData d = mw.gameState.breakFromHand(idx);
+						CardData d = mw.playerBreakFromHand(true,idx);
 						if (d != null) {
 							logEntry("[P1] Randomly discards " + d.name());
 							mw.p1DiscardedByEffectThisTurn = true;
@@ -2201,7 +2201,7 @@ final class GameContextImpl implements GameContext {
 					int actual = Math.min(count, hand.size());
 					for (int i = 0; i < actual; i++) {
 						int idx = MainWindow.pickWorstHandCard0(hand);
-						CardData d = mw.gameState.breakP2FromHand(idx);
+						CardData d = mw.playerBreakFromHand(false,idx);
 						if (d != null) { logEntry("[P2] Discards " + d.name()); mw.p2DiscardedByEffectThisTurn = true; }
 					}
 					mw.refreshP2HandCountLabel();
@@ -2276,7 +2276,7 @@ final class GameContextImpl implements GameContext {
 						src + " — Discard " + cardName + " from hand to use this ability again?",
 						"Replay Ability", new Object[]{"Discard", "Pass"});
 				if (choice != 0) { logEntry("Replay: declined to discard " + cardName); return; }
-				CardData d = mw.gameState.breakFromHand(handIdx);
+				CardData d = mw.playerBreakFromHand(true,handIdx);
 				if (d != null) { logEntry("Replay: discarded " + d.name()); mw.p1DiscardedByEffectThisTurn = true; }
 				mw.refreshP1HandLabel();
 				mw.refreshP1BreakLabel();
@@ -2298,7 +2298,7 @@ final class GameContextImpl implements GameContext {
 						"You May Discard", new Object[]{"Discard", "Pass"});
 				if (choice != 0) { logEntry("[Effect] Declined to discard " + cardName); return; }
 				final int idx = handIdx;
-				CardData d = mw.gameState.breakFromHand(idx);
+				CardData d = mw.playerBreakFromHand(true,idx);
 				if (d != null) { logEntry("[Effect] Discarded " + d.name()); mw.p1DiscardedByEffectThisTurn = true; }
 				mw.refreshP1HandLabel();
 				mw.refreshP1BreakLabel();
@@ -2326,7 +2326,7 @@ final class GameContextImpl implements GameContext {
 				if (isP1) {
 					List<CardData> hand = mw.gameState.getP1Hand();
 					for (int i = hand.size() - 1; i >= 0; i--) {
-						CardData d = mw.gameState.breakFromHand(i);
+						CardData d = mw.playerBreakFromHand(true,i);
 						if (d != null) { logEntry("Discards " + d.name()); mw.p1DiscardedByEffectThisTurn = true; }
 					}
 					mw.refreshP1HandLabel();
@@ -2334,7 +2334,7 @@ final class GameContextImpl implements GameContext {
 				} else {
 					List<CardData> hand = mw.gameState.getP2Hand();
 					for (int i = hand.size() - 1; i >= 0; i--) {
-						CardData d = mw.gameState.breakP2FromHand(i);
+						CardData d = mw.playerBreakFromHand(false,i);
 						if (d != null) { logEntry("[P2] Discards " + d.name()); mw.p2DiscardedByEffectThisTurn = true; }
 					}
 					mw.refreshP2HandCountLabel();
