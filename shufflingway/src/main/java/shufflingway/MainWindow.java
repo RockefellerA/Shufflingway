@@ -7521,7 +7521,7 @@ public class MainWindow {
 				if (raw == null) return new ImageIcon(CardAnimation.renderPlaceholder(state));
 				BufferedImage canvas = CardAnimation.renderBackupCard(
 						CardAnimation.toARGB(raw, CARD_W, CARD_H), state, canAttack, selected, p1BackupFrozen[idx]);
-				if (damage > 0) CardAnimation.renderDamageOverlay(canvas, damage);
+				if (damage > 0) CardAnimation.renderDamageOverlay(canvas, damage, state);
 				if (actingForward && fwdPower > 0)
 					CardAnimation.renderPowerOverlayRight(canvas, fwdPower, new Color(80, 220, 80), state);
 				return new ImageIcon(canvas);
@@ -9409,7 +9409,7 @@ public class MainWindow {
 				BufferedImage canvas = CardAnimation.renderBackupCard(
 						CardAnimation.toARGB(raw, CARD_W, CARD_H), state, canAttack, selected, p1MonsterFrozen.get(idx));
 				if (damage > 0)
-					CardAnimation.renderDamageOverlay(canvas, damage);
+					CardAnimation.renderDamageOverlay(canvas, damage, state);
 				if (actingForward)
 					CardAnimation.renderPowerOverlayRight(canvas, fwdPow, new Color(80, 220, 80), state);
 				else if (power > basePower)
@@ -9488,7 +9488,7 @@ public class MainWindow {
 				BufferedImage canvas = CardAnimation.toARGB(raw, CARD_W, CARD_H);
 				canvas = CardAnimation.renderBackupCard(canvas, state, false, false, p2MonsterFrozen.get(idx));
 				if (damage > 0)
-					CardAnimation.renderDamageOverlay(canvas, damage);
+					CardAnimation.renderDamageOverlay(canvas, damage, state);
 				if (actingForward)
 					CardAnimation.renderPowerOverlayRight(canvas, fwdPow, new Color(80, 220, 80), state);
 				else if (power > basePower)
@@ -9557,7 +9557,7 @@ public class MainWindow {
 				if (raw == null) return new ImageIcon(CardAnimation.renderPlaceholder(state));
 				BufferedImage canvas = CardAnimation.renderBackupCard(CardAnimation.toARGB(raw, CARD_W, CARD_H), state, canAttack, selected, Boolean.TRUE.equals(p1ForwardFrozen.get(idx)));
 				if (damage > 0) {
-					CardAnimation.renderDamageOverlay(canvas, damage);
+					CardAnimation.renderDamageOverlay(canvas, damage, state);
 				}
 				if (power > basePower) {
 					CardAnimation.renderPowerOverlayRight(canvas, power, new Color(80, 220, 80), state);
@@ -11659,7 +11659,7 @@ public class MainWindow {
 				if (raw == null) return new ImageIcon(CardAnimation.renderPlaceholder(state));
 				BufferedImage canvas = CardAnimation.renderBackupCard(
 						CardAnimation.toARGB(raw, CARD_W, CARD_H), state, false, false, p2BackupFrozen[idx]);
-				if (damage > 0) CardAnimation.renderDamageOverlay(canvas, damage);
+				if (damage > 0) CardAnimation.renderDamageOverlay(canvas, damage, state);
 				if (actingForward && fwdPower > 0)
 					CardAnimation.renderPowerOverlayRight(canvas, fwdPower, new Color(80, 220, 80), state);
 				return new ImageIcon(canvas);
@@ -11689,7 +11689,7 @@ public class MainWindow {
 				if (raw == null) return new ImageIcon(CardAnimation.renderPlaceholder(state));
 				BufferedImage canvas = CardAnimation.renderBackupCard(CardAnimation.toARGB(raw, CARD_W, CARD_H), state, false, false, p2ForwardFrozen.get(idx));
 				if (damage > 0) {
-					CardAnimation.renderDamageOverlay(canvas, damage);
+					CardAnimation.renderDamageOverlay(canvas, damage, state);
 				}
 				if (power > basePower) {
 					CardAnimation.renderPowerOverlayRight(canvas, power, new Color(80, 220, 80), state);
