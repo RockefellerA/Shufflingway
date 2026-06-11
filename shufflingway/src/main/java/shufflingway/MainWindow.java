@@ -8064,11 +8064,44 @@ public class MainWindow {
 			for (ScalingSelfPowerBoost ssb : src.scalingSelfPowerBoosts()) {
 				int count = switch (ssb.source()) {
 					case OPPONENT_FORWARDS -> isP1 ? p2ForwardCards.size() : p1ForwardCards.size();
+					case OTHER_CHARACTERS_YOU_CONTROL -> {
+						List<CardData> fwds = isP1 ? p1ForwardCards : p2ForwardCards;
+						CardData[]     bkps = isP1 ? p1BackupCards  : p2BackupCards;
+						List<CardData> mons = isP1 ? p1MonsterCards : p2MonsterCards;
+						int n = 0;
+						for (CardData c : fwds) if (!c.name().equalsIgnoreCase(src.name())) n++;
+						for (CardData c : bkps) if (c != null && !c.name().equalsIgnoreCase(src.name())) n++;
+						for (CardData c : mons) if (!c.name().equalsIgnoreCase(src.name())) n++;
+						yield n;
+					}
+					case OTHER_FORWARDS_YOU_CONTROL -> {
+						List<CardData> fwds = isP1 ? p1ForwardCards : p2ForwardCards;
+						int n = 0;
+						for (CardData c : fwds) {
+							if (c.name().equalsIgnoreCase(src.name())) continue;
+							if (!matchesScalingFilter(c, ssb.jobFilter(), ssb.categoryFilter(), ssb.cardNameFilter())) continue;
+							n++;
+						}
+						yield n;
+					}
 				};
 				boost += ssb.perUnit() * count;
 			}
 		}
 		return boost;
+	}
+
+	/**
+	 * OR-disjunction filter check for {@link ScalingSelfPowerBoost#OTHER_FORWARDS_YOU_CONTROL}.
+	 * Returns {@code true} if all three filters are {@code null} (no restriction) OR if the
+	 * card matches at least one of the non-null filters.
+	 */
+	private boolean matchesScalingFilter(CardData c, String jobFilter, String categoryFilter, String cardNameFilter) {
+		if (jobFilter == null && categoryFilter == null && cardNameFilter == null) return true;
+		if (jobFilter      != null && CardFilters.meetsJobFilter(c, jobFilter))           return true;
+		if (categoryFilter != null && CardFilters.meetsCategoryFilter(c, categoryFilter)) return true;
+		if (cardNameFilter != null && CardFilters.meetsCardNameFilter(c, cardNameFilter)) return true;
+		return false;
 	}
 
 	/**

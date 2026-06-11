@@ -1664,6 +1664,96 @@ public record CardData(
     );
 
     /**
+     * Matches "For each Character other than &lt;exclude&gt; you control, &lt;target&gt; gains +N power."
+     * Both {@code exclude} and {@code target} must equal the card's own name for the boost to apply.
+     */
+    private static final Pattern SCALING_SELF_OTHER_CHARS_PATTERN = Pattern.compile(
+        "(?i)^For\\s+each\\s+Character\\s+other\\s+than\\s+(?<exclude>.+?)\\s+you\\s+control,\\s+" +
+        "(?<target>.+?)\\s+gains?\\s+\\+(?<power>\\d+)\\s+power[.!]?$"
+    );
+
+    /**
+     * Matches "For each [filter ]Forward(s) [other than X] you control[ other than X], &lt;target&gt; gains +N power."
+     * The {@code filter} group is optional and may contain a bracketed term ({@code [Category (VIII)]}),
+     * a written job phrase ({@code Job Class Zero Cadet}), or a written category phrase
+     * ({@code Category FFT}). One of {@code excA} (before "you control") or {@code excB}
+     * (after "you control") captures the exclude name; both equal the source's own name.
+     */
+    private static final Pattern SCALING_SELF_OTHER_FWDS_PATTERN = Pattern.compile(
+        "(?i)^For\\s+each\\s+" +
+        "(?:(?<filter>.+?)\\s+)?Forwards?" +
+        "(?:\\s+other\\s+than\\s+(?<excA>.+?))?" +
+        "\\s+you\\s+control" +
+        "(?:\\s*,?\\s*other\\s+than\\s+(?<excB>.+?))?" +
+        ",\\s+(?<target>.+?)\\s+gains?\\s+\\+(?<power>\\d+)\\s+power[.!]?$"
+    );
+
+    /**
+     * Matches "For each [bracket-filter] [and [bracket-filter]]* other than &lt;exclude&gt; you control,
+     * &lt;target&gt; gains +N power." — the "no Forward word" variant where the filter is one
+     * or more bracketed terms joined by "and" (interpreted as OR semantics).
+     */
+    private static final Pattern SCALING_SELF_OTHER_FWDS_BRACKET_PATTERN = Pattern.compile(
+        "(?i)^For\\s+each\\s+" +
+        "(?<filter>(?:\\[[^\\]]+\\]\\s*(?:and\\s+)?)+)" +
+        "other\\s+than\\s+(?<exclude>.+?)\\s+you\\s+control,\\s+" +
+        "(?<target>.+?)\\s+gains?\\s+\\+(?<power>\\d+)\\s+power[.!]?$"
+    );
+
+    private static final Pattern SCALING_FILTER_CARD_NAME_BRACKET = Pattern.compile("(?i)\\[Card\\s+Name\\s+\\(([^)]+)\\)\\]");
+    private static final Pattern SCALING_FILTER_JOB_BRACKET       = Pattern.compile("(?i)\\[Job\\s+\\(([^)]+)\\)\\]");
+    private static final Pattern SCALING_FILTER_CATEGORY_BRACKET  = Pattern.compile("(?i)\\[Category\\s+\\(([^)]+)\\)\\]");
+    private static final Pattern SCALING_FILTER_WRITTEN_JOB       = Pattern.compile("(?i)^Job\\s+(.+)$");
+    private static final Pattern SCALING_FILTER_WRITTEN_CATEGORY  = Pattern.compile("(?i)^Category\\s+(\\S+)$");
+
+    /** Tuple of pipe-separated filter terms extracted from a scaling-boost filter capture. */
+    private record ScalingFilter(String jobs, String categories, String names) {}
+
+    /**
+     * Extracts pipe-separated job, category, and card-name filter terms from the raw filter capture.
+     * Handles bracketed forms ({@code [Job (X)]}, {@code [Card Name (X)]}, {@code [Category (X)]})
+     * and written forms ({@code Job X}, {@code Category X}). A null/empty input yields a
+     * {@link ScalingFilter} with all-null fields.
+     */
+    private static ScalingFilter parseScalingFilter(String raw) {
+        if (raw == null || raw.isBlank()) return new ScalingFilter(null, null, null);
+        StringBuilder jobs = new StringBuilder();
+        StringBuilder cats = new StringBuilder();
+        StringBuilder names = new StringBuilder();
+        String text = raw.trim();
+
+        Matcher nm = SCALING_FILTER_CARD_NAME_BRACKET.matcher(text);
+        while (nm.find()) appendScalingTerm(names, nm.group(1));
+        text = nm.replaceAll("");
+
+        Matcher jm = SCALING_FILTER_JOB_BRACKET.matcher(text);
+        while (jm.find()) appendScalingTerm(jobs, jm.group(1));
+        text = jm.replaceAll("");
+
+        Matcher cm = SCALING_FILTER_CATEGORY_BRACKET.matcher(text);
+        while (cm.find()) appendScalingTerm(cats, cm.group(1));
+        text = cm.replaceAll("");
+
+        text = text.replaceAll("(?i)\\band\\b", " ").trim().replaceAll("\\s+", " ");
+        if (!text.isEmpty()) {
+            Matcher wj = SCALING_FILTER_WRITTEN_JOB.matcher(text);
+            Matcher wc = SCALING_FILTER_WRITTEN_CATEGORY.matcher(text);
+            if (wj.matches())      appendScalingTerm(jobs, wj.group(1));
+            else if (wc.matches()) appendScalingTerm(cats, wc.group(1));
+        }
+        return new ScalingFilter(
+                jobs.length()  > 0 ? jobs.toString()  : null,
+                cats.length()  > 0 ? cats.toString()  : null,
+                names.length() > 0 ? names.toString() : null);
+    }
+
+    private static void appendScalingTerm(StringBuilder sb, String value) {
+        if (value == null || value.isBlank()) return;
+        if (sb.length() > 0) sb.append('|');
+        sb.append(value.trim());
+    }
+
+    /**
      * Parses passive self-targeting scaling power boosts (e.g. Jecht's
      * "For each Forward opponent controls, Jecht gains +1000 power.").
      * Returns an empty list for Summons and whenever the target name does not match
@@ -1680,12 +1770,52 @@ public record CardData(
             String seg = SUMMON_MARKUP.matcher(raw.trim()).replaceAll("").trim();
             if (seg.isEmpty()) continue;
             Matcher m = SCALING_SELF_OPP_FWD_PATTERN.matcher(seg);
-            if (!m.find()) continue;
-            if (!m.group("target").trim().equalsIgnoreCase(cardName)) continue;
-            int perUnit = Integer.parseInt(m.group("power"));
-            if (perUnit <= 0) continue;
-            result.add(new ScalingSelfPowerBoost(
-                    ScalingSelfPowerBoost.Source.OPPONENT_FORWARDS, perUnit));
+            if (m.find()) {
+                if (!m.group("target").trim().equalsIgnoreCase(cardName)) continue;
+                int perUnit = Integer.parseInt(m.group("power"));
+                if (perUnit <= 0) continue;
+                result.add(new ScalingSelfPowerBoost(
+                        ScalingSelfPowerBoost.Source.OPPONENT_FORWARDS, perUnit));
+                continue;
+            }
+            Matcher om = SCALING_SELF_OTHER_CHARS_PATTERN.matcher(seg);
+            if (om.find()) {
+                if (!om.group("exclude").trim().equalsIgnoreCase(cardName)) continue;
+                if (!om.group("target").trim().equalsIgnoreCase(cardName))  continue;
+                int perUnit = Integer.parseInt(om.group("power"));
+                if (perUnit <= 0) continue;
+                result.add(new ScalingSelfPowerBoost(
+                        ScalingSelfPowerBoost.Source.OTHER_CHARACTERS_YOU_CONTROL, perUnit));
+                continue;
+            }
+            // "For each [filter ]Forward(s) [other than X] you control[ other than X], <target> gains +N power."
+            Matcher fm = SCALING_SELF_OTHER_FWDS_PATTERN.matcher(seg);
+            if (fm.find()) {
+                String excA = fm.group("excA");
+                String excB = fm.group("excB");
+                String exclude = excA != null ? excA : excB;
+                if (exclude == null || !exclude.trim().equalsIgnoreCase(cardName)) continue;
+                if (!fm.group("target").trim().equalsIgnoreCase(cardName))         continue;
+                int perUnit = Integer.parseInt(fm.group("power"));
+                if (perUnit <= 0) continue;
+                ScalingFilter sf = parseScalingFilter(fm.group("filter"));
+                result.add(new ScalingSelfPowerBoost(
+                        ScalingSelfPowerBoost.Source.OTHER_FORWARDS_YOU_CONTROL, perUnit,
+                        sf.jobs(), sf.categories(), sf.names()));
+                continue;
+            }
+            // Bracket-only variant: "For each [Card Name (X)] and [Job (Y)] other than X you control, …"
+            Matcher bm = SCALING_SELF_OTHER_FWDS_BRACKET_PATTERN.matcher(seg);
+            if (bm.find()) {
+                if (!bm.group("exclude").trim().equalsIgnoreCase(cardName)) continue;
+                if (!bm.group("target").trim().equalsIgnoreCase(cardName))  continue;
+                int perUnit = Integer.parseInt(bm.group("power"));
+                if (perUnit <= 0) continue;
+                ScalingFilter sf = parseScalingFilter(bm.group("filter"));
+                result.add(new ScalingSelfPowerBoost(
+                        ScalingSelfPowerBoost.Source.OTHER_FORWARDS_YOU_CONTROL, perUnit,
+                        sf.jobs(), sf.categories(), sf.names()));
+            }
         }
         return List.copyOf(result);
     }
