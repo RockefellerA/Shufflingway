@@ -120,12 +120,12 @@ public class CardAnimation {
 		Graphics2D g = canvas.createGraphics();
 		g.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
 		String text = String.valueOf(value);
-		Font font = FontLoader.loadPixelNESFont(13);
+		Font font = FontLoader.loadPixelNESFont(14);
 		g.setFont(font);
 		FontMetrics fm = g.getFontMetrics();
 		int tw = fm.stringWidth(text);
 		int tx = alignRight ? rightEdge - tw - 8 : 4;
-		int ty = canvas.getHeight() - 5;
+		int ty = canvas.getHeight() - 8;
 		g.setColor(new Color(0, 0, 0, 180));
 		g.fillRoundRect(tx - 4, ty - fm.getAscent() - 1, tw + 8, fm.getAscent() + fm.getDescent() + 2, 5, 5);
 		g.setColor(textColor);

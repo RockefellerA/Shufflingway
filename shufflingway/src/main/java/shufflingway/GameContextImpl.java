@@ -2994,7 +2994,8 @@ final class GameContextImpl implements GameContext {
 				return NameSelectionDialogs.selectJobOrCategory(mw.frame, prompt, isP1, mw::logEntry);
 			}
 
-			@Override public void revealTopAddUpToMatchingRestBottom(int reveal, int maxAdd, String jobFilter, String categoryFilter) {
+			@Override public void revealTopAddUpToMatchingRestBottom(int reveal, int maxAdd,
+					String jobFilter, String categoryFilter, String cardNameFilter) {
 				Deque<CardData> deck = isP1 ? mw.gameState.getP1MainDeck() : mw.gameState.getP2MainDeck();
 				int n = Math.min(reveal, deck.size());
 				if (n == 0) { logEntry("Reveal top: deck is empty."); return; }
@@ -3002,7 +3003,7 @@ final class GameContextImpl implements GameContext {
 				for (CardData c : deck) { peeked.add(c); if (peeked.size() >= n) break; }
 				logEntry("Reveal top " + n + " card(s): " +
 						peeked.stream().map(CardData::name).collect(Collectors.joining(", ")));
-				mw.lookDialogs().showRevealAddUpToMatchingRestBottom(peeked, deck, isP1, maxAdd, jobFilter, categoryFilter);
+				mw.lookDialogs().showRevealAddUpToMatchingRestBottom(peeked, deck, isP1, maxAdd, jobFilter, categoryFilter, cardNameFilter);
 			}
 
 			@Override public void grantAllControlledForwardsJobUntilEOT(String job) {

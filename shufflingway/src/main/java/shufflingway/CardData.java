@@ -1078,6 +1078,22 @@ public record CardData(
     );
 
     /**
+     * Rewrites "When X, a Y[, a Z]* or a W [trigger]" into "When X or a Y[ or a Z]* or a W [trigger]"
+     * so {@link #AUTO_ABILITY_PATTERN} can capture the full disjunctive subject as a single
+     * {@code (?<card>[^,]+?)} group. The matched compound subject is later split at the dispatcher
+     * (see {@code AutoAbilityTriggers#matchesEntersFieldSubject}).
+     * Group {@code head} is the first subject (typically the source card's own name);
+     * group {@code rest} is the comma-separated list of additional "a/an X" subjects ending in
+     * "or a/an Y". A lookahead requires a trigger verb to follow so unrelated comma-bearing
+     * "When …" sentences are not rewritten.
+     */
+    private static final Pattern MULTI_SUBJECT_TRIGGER = Pattern.compile(
+        "(?i)(?<prefix>When\\s+)(?<head>[^,]+?)" +
+        "(?<rest>(?:,\\s+an?\\s+[^,]+?)+\\s+or\\s+an?\\s+[^,]+?)" +
+        "\\s+(?=enters?|attacks?|blocks?|leaves?|is\\s+(?:put|blocked|removed)|deals?|forms?|casts?|receives?|primes?)"
+    );
+
+    /**
      * Joins "select N of M following actions" headers with their [[br]]-delimited quoted
      * action strings so that {@link #AUTO_ABILITY_PATTERN} captures the full effect as one unit.
      * Input: {@code ...select 1 of the 2 following actions.[[br]] "A."[[br]] "B."...}
@@ -1196,6 +1212,26 @@ public record CardData(
         return sb.toString();
     }
 
+    /**
+     * Rewrites "When X, a Y[, a Z]* or a W [trigger]" into "When X or a Y[ or a Z]* or a W [trigger]"
+     * so {@link #AUTO_ABILITY_PATTERN}'s comma-delimited card group can capture the whole
+     * disjunctive subject in one match. The compound subject is split downstream when the
+     * trigger fires.
+     */
+    private static String expandMultiSubjectTriggers(String text) {
+        Matcher m = MULTI_SUBJECT_TRIGGER.matcher(text);
+        StringBuffer sb = new StringBuffer();
+        while (m.find()) {
+            String prefix = m.group("prefix");
+            String head   = m.group("head");
+            // Strip the leading comma from `rest`, then replace any remaining inner commas with " or ".
+            String rest   = m.group("rest").replaceFirst("^,\\s+", "").replaceAll(",\\s+", " or ");
+            m.appendReplacement(sb, Matcher.quoteReplacement(prefix + head + " or " + rest + " "));
+        }
+        m.appendTail(sb);
+        return sb.toString();
+    }
+
     private static String joinSelectActions(String text) {
         Matcher m = SELECT_ACTIONS_JOINER.matcher(text);
         StringBuffer sb = new StringBuffer();
@@ -1269,6 +1305,10 @@ public record CardData(
 
         // Convert "If N or more [filter] Forwards form the party, also [effect]." into a second trigger sentence.
         textForSearch = expandPartyAttackFollowups(textForSearch);
+
+        // Rewrite "When X, a Y or a Z [trigger]" into "When X or a Y or a Z [trigger]" so that
+        // AUTO_ABILITY_PATTERN's (?<card>[^,]+?) group captures the full disjunction as one subject.
+        textForSearch = expandMultiSubjectTriggers(textForSearch);
 
         Matcher m = AUTO_ABILITY_PATTERN.matcher(textForSearch);
         while (m.find()) {

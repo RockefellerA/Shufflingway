@@ -229,18 +229,47 @@ final class AutoAbilityTriggers {
 		}
 	}
 
-	/** Returns {@code true} if {@code enteringCard}'s type matches the watcher's subject phrase. */
+	/**
+	 * Returns {@code true} if {@code enteringCard} matches the watcher's subject phrase.
+	 * Compound disjunctive subjects ("X or a Y or a Card Name Z") produced by
+	 * {@code CardData#expandMultiSubjectTriggers} are split on " or " and any matching
+	 * sub-subject succeeds. A sub-subject may be:
+	 * <ul>
+	 *   <li>a bare card name ({@code "Yshe"}) — matched by {@link CardData#name()};</li>
+	 *   <li>a type phrase ({@code "a Forward"}, {@code "a Character"}) — matched by card type;</li>
+	 *   <li>a job phrase ({@code "a Job Warrior"}) — matched by {@link CardData#hasJob};</li>
+	 *   <li>a card-name phrase ({@code "a Card Name Warrior"}) — matched by name/aliases.</li>
+	 * </ul>
+	 */
 	private boolean matchesEntersFieldSubject(String subject, CardData enteringCard) {
-		String s = subject.trim().toLowerCase(java.util.Locale.ROOT)
-				.replaceAll("^(?:a|an)\\s+", "");
-		return switch (s) {
-			case "monster", "monsters"     -> enteringCard.isMonster();
-			case "forward", "forwards"     -> enteringCard.isForward();
-			case "backup", "backups"       -> enteringCard.isBackup();
-			case "summon", "summons"       -> enteringCard.isSummon();
-			case "character", "characters" -> enteringCard.isForward() || enteringCard.isBackup() || enteringCard.isMonster();
-			default                        -> false;
-		};
+		if (subject == null || subject.isBlank()) return false;
+		for (String part : subject.split("(?i)\\s+or\\s+")) {
+			if (matchesSingleSubject(part.trim(), enteringCard)) return true;
+		}
+		return false;
+	}
+
+	private boolean matchesSingleSubject(String subject, CardData enteringCard) {
+		if (subject.isEmpty()) return false;
+		// "a Job X" / "an Job X" — match by job
+		java.util.regex.Matcher jobM = java.util.regex.Pattern.compile(
+				"(?i)^an?\\s+Job\\s+(?<job>.+)$").matcher(subject);
+		if (jobM.matches()) return enteringCard.hasJob(jobM.group("job").trim());
+		// "a Card Name X" — match by card name or alias
+		java.util.regex.Matcher nameM = java.util.regex.Pattern.compile(
+				"(?i)^an?\\s+Card\\s+Name\\s+(?<name>.+)$").matcher(subject);
+		if (nameM.matches()) return CardFilters.meetsCardNameFilter(enteringCard, nameM.group("name").trim());
+		// "a [Type]" — match by card type
+		String s = subject.toLowerCase(java.util.Locale.ROOT).replaceAll("^(?:a|an)\\s+", "");
+		switch (s) {
+			case "monster", "monsters"     -> { return enteringCard.isMonster(); }
+			case "forward", "forwards"     -> { return enteringCard.isForward(); }
+			case "backup", "backups"       -> { return enteringCard.isBackup(); }
+			case "summon", "summons"       -> { return enteringCard.isSummon(); }
+			case "character", "characters" -> { return enteringCard.isForward() || enteringCard.isBackup() || enteringCard.isMonster(); }
+		}
+		// Bare card name (e.g. "Yshe") — exact name or alias match
+		return CardFilters.meetsCardNameFilter(enteringCard, subject);
 	}
 
 	void triggerAutoAbilitiesForDealsDamageToOpponent(CardData attacker, boolean attackerIsP1) {

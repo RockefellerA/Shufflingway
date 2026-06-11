@@ -703,6 +703,22 @@ public class ActionResolver {
         "and\\s+return\\s+the\\s+other\\s+cards?\\s+to\\s+the\\s+bottom\\s+of\\s+(?:your|the)\\s+deck(?:\\s+in\\s+any\\s+order)?[.!]?\\s*$"
     );
 
+    /**
+     * Matches "reveal the top N cards of your deck. Add 1 Job X [or Card Name Y] [or Job Z ...]
+     * among them to your hand and return the other cards to the bottom of your deck in any order."
+     * Groups: {@code n} (card count); {@code first}/{@code second} each {@code "Job …"} or
+     * {@code "Card Name …"} filter terms. The captured terms are split into a job filter and a
+     * card-name filter at parse time.
+     */
+    private static final Pattern REVEAL_TOP_N_JOB_OR_NAME_TO_HAND = Pattern.compile(
+        "(?i)^\\s*(?:you\\s+may\\s+)?reveal\\s+the\\s+top\\s+(?<n>\\d+)\\s+cards?\\s+of\\s+your\\s+deck[.!]?\\s+" +
+        "Add\\s+1\\s+" +
+        "(?<first>(?:Job|Card\\s+Name)\\s+\\S+)" +
+        "(?:\\s+or\\s+(?<second>(?:Job|Card\\s+Name)\\s+\\S+))?" +
+        "(?:\\s+(?:Forward|Backup|Character|Monster|card))?\\s+among\\s+them\\s+to\\s+your\\s+hand\\s+" +
+        "and\\s+return\\s+the\\s+other\\s+cards?\\s+to\\s+the\\s+bottom\\s+of\\s+(?:your|the)\\s+deck(?:\\s+in\\s+any\\s+order)?[.!]?\\s*$"
+    );
+
     // ---- Damage-shield followup patterns (apply to selected "it/them" targets) --------
 
     /** Matches "During this turn, the next damage dealt to it/him becomes 0 instead." */
@@ -2447,6 +2463,9 @@ public class ActionResolver {
         result = tryParseRevealTopNCategoryToHand(effectText);
         if (result != null) return result;
 
+        result = tryParseRevealTopNJobOrNameToHand(effectText);
+        if (result != null) return result;
+
         result = tryParseReturnNamedToHand(effectText);
         if (result != null) return result;
 
@@ -2967,6 +2986,7 @@ public class ActionResolver {
         if (tryParseOpponentRandomHandRfp(effectText) != null)             return "OpponentRandomHandRfp";
         if (tryParseOpponentHandRfp(effectText) != null)                   return "OpponentHandRfp";
         if (tryParseRevealTopNCategoryToHand(effectText) != null)            return "RevealTopNCategoryToHand";
+        if (tryParseRevealTopNJobOrNameToHand(effectText) != null)           return "RevealTopNJobOrNameToHand";
         if (tryParseReturnNamedToHand(effectText) != null)                   return "ReturnNamedToHand";
         if (tryParseRemoveNamedFromGame(effectText, source) != null)        return "RemoveNamedFromGame";
         if (tryParseBreakSourceCard(effectText, source)     != null)        return "BreakSourceCard";
@@ -7251,7 +7271,7 @@ public class ActionResolver {
             ctx.logEntry("Named " + choice[0] + ": " + choice[1]);
             String jobFilter = "job".equalsIgnoreCase(choice[0]) ? choice[1] : null;
             String catFilter = "category".equalsIgnoreCase(choice[0]) ? choice[1] : null;
-            ctx.revealTopAddUpToMatchingRestBottom(reveal, maxAdd, jobFilter, catFilter);
+            ctx.revealTopAddUpToMatchingRestBottom(reveal, maxAdd, jobFilter, catFilter, null);
         };
     }
 
@@ -7262,8 +7282,50 @@ public class ActionResolver {
         String cat = m.group("cat");
         return ctx -> {
             ctx.logEntry("Effect: Reveal top " + n + " — add 1 Category " + cat + " to hand, rest to bottom");
-            ctx.revealTopAddUpToMatchingRestBottom(n, 1, null, cat);
+            ctx.revealTopAddUpToMatchingRestBottom(n, 1, null, cat, null);
         };
+    }
+
+    /**
+     * Parses "reveal the top N cards … Add 1 Job X [or Card Name Y] … bottom of your deck."
+     * Splits the captured filter terms into a job filter and a card-name filter (each
+     * bar-separated when multiple terms of the same kind appear) and forwards them to
+     * {@link GameContext#revealTopAddUpToMatchingRestBottom}.
+     */
+    private static Consumer<GameContext> tryParseRevealTopNJobOrNameToHand(String text) {
+        Matcher m = REVEAL_TOP_N_JOB_OR_NAME_TO_HAND.matcher(text);
+        if (!m.find()) return null;
+        int n = Integer.parseInt(m.group("n"));
+        StringBuilder jobs  = new StringBuilder();
+        StringBuilder names = new StringBuilder();
+        appendFilterTerm(jobs, names, m.group("first"));
+        appendFilterTerm(jobs, names, m.group("second"));
+        String jobFilter      = jobs.length()  > 0 ? jobs.toString()  : null;
+        String cardNameFilter = names.length() > 0 ? names.toString() : null;
+        if (jobFilter == null && cardNameFilter == null) return null;
+        return ctx -> {
+            ctx.logEntry("Effect: Reveal top " + n + " — add 1 ("
+                    + (jobFilter      != null ? "Job " + jobFilter           : "")
+                    + (jobFilter != null && cardNameFilter != null ? " | " : "")
+                    + (cardNameFilter != null ? "Card Name " + cardNameFilter : "")
+                    + ") to hand, rest to bottom");
+            ctx.revealTopAddUpToMatchingRestBottom(n, 1, jobFilter, null, cardNameFilter);
+        };
+    }
+
+    /** Appends {@code term} ("Job X" or "Card Name X") to the appropriate pipe-separated list. */
+    private static void appendFilterTerm(StringBuilder jobs, StringBuilder names, String term) {
+        if (term == null || term.isBlank()) return;
+        String trimmed = term.trim();
+        Matcher jm = Pattern.compile("(?i)^Job\\s+(?<val>.+)$").matcher(trimmed);
+        Matcher nm = Pattern.compile("(?i)^Card\\s+Name\\s+(?<val>.+)$").matcher(trimmed);
+        if (jm.matches()) {
+            if (jobs.length() > 0)  jobs.append('|');
+            jobs.append(jm.group("val").trim());
+        } else if (nm.matches()) {
+            if (names.length() > 0) names.append('|');
+            names.append(nm.group("val").trim());
+        }
     }
 
     private static Consumer<GameContext> tryParseNameJob(String text) {

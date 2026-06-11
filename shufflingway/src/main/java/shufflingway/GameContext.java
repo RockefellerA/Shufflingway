@@ -1238,11 +1238,13 @@ public interface GameContext {
 
     /**
      * Reveals the top {@code reveal} cards of the active player's deck.
-     * The player may add up to {@code maxAdd} Characters matching {@code jobFilter} or
-     * {@code categoryFilter} to their hand; the rest are placed at the bottom of the deck
-     * in any order. Exactly one of {@code jobFilter} / {@code categoryFilter} will be non-null.
+     * The player may add up to {@code maxAdd} Characters matching {@code jobFilter},
+     * {@code categoryFilter}, or {@code cardNameFilter} (treated as a disjunction across
+     * the non-null filters) to their hand; the rest are placed at the bottom of the deck
+     * in any order. At least one filter is expected to be non-null.
      */
-    void revealTopAddUpToMatchingRestBottom(int reveal, int maxAdd, String jobFilter, String categoryFilter);
+    void revealTopAddUpToMatchingRestBottom(int reveal, int maxAdd,
+            String jobFilter, String categoryFilter, String cardNameFilter);
 
     /**
      * Grants all Forwards controlled by the acting player the given {@code job} until end of turn.
