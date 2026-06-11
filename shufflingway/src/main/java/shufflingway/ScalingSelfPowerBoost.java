@@ -36,6 +36,10 @@ public record ScalingSelfPowerBoost(
          * the inclusive {@link #elementFilter}, the {@link #excludeElement} exclusion, and
          * {@link #requireActive}. When all filters are null/false, every other Forward counts.
          */
-        OTHER_FORWARDS_YOU_CONTROL
+        OTHER_FORWARDS_YOU_CONTROL,
+        /** Number of Backups the controller controls (other than the source by name), honoring all filter fields. */
+        OTHER_BACKUPS_YOU_CONTROL,
+        /** Number of Monsters the controller controls (other than the source by name), honoring all filter fields. */
+        OTHER_MONSTERS_YOU_CONTROL
     }
 }

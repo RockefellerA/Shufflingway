@@ -8089,6 +8089,24 @@ public class MainWindow {
 						}
 						yield n;
 					}
+					case OTHER_BACKUPS_YOU_CONTROL -> {
+						CardData[]  bkps  = isP1 ? p1BackupCards  : p2BackupCards;
+						CardState[] bkpSt = isP1 ? p1BackupStates : p2BackupStates;
+						int n = 0;
+						for (int i = 0; i < bkps.length; i++) {
+							if (bkps[i] != null && scalingCharacterCounts(bkps[i], bkpSt[i], src, ssb)) n++;
+						}
+						yield n;
+					}
+					case OTHER_MONSTERS_YOU_CONTROL -> {
+						List<CardData>  mons  = isP1 ? p1MonsterCards  : p2MonsterCards;
+						List<CardState> monSt = isP1 ? p1MonsterStates : p2MonsterStates;
+						int n = 0;
+						for (int i = 0; i < mons.size(); i++) {
+							if (scalingCharacterCounts(mons.get(i), monSt.get(i), src, ssb)) n++;
+						}
+						yield n;
+					}
 				};
 				boost += ssb.perUnit() * count;
 			}

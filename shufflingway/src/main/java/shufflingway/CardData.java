@@ -1682,7 +1682,7 @@ public record CardData(
     private static final Pattern SCALING_FILTER_CARD_NAME_BRACKET = Pattern.compile("(?i)\\[Card\\s+Name\\s+\\(([^)]+)\\)\\]");
     private static final Pattern SCALING_FILTER_JOB_BRACKET       = Pattern.compile("(?i)\\[Job\\s+\\(([^)]+)\\)\\]");
     private static final Pattern SCALING_FILTER_CATEGORY_BRACKET  = Pattern.compile("(?i)\\[Category\\s+\\(([^)]+)\\)\\]");
-    private static final Pattern SCALING_FILTER_TYPE_WORD         = Pattern.compile("(?i)^(?<rest>.*?)\\s*(?<type>Forwards?|Characters?)$");
+    private static final Pattern SCALING_FILTER_TYPE_WORD         = Pattern.compile("(?i)^(?<rest>.*?)\\s*(?<type>Forwards?|Characters?|Backups?|Monsters?)$");
     private static final Pattern SCALING_FILTER_ELEMENT_PREFIX    = Pattern.compile("(?i)^(?<elem>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)\\b\\s*(?<rest>.*)$");
     private static final Pattern SCALING_FILTER_ACTIVE_PREFIX     = Pattern.compile("(?i)^active\\s+(?<rest>.+)$");
     private static final Pattern SCALING_FILTER_WRITTEN_JOB_TERM  = Pattern.compile("(?i)^Job\\s+(?<val>.+)$");
@@ -1721,8 +1721,11 @@ public record CardData(
 
         Matcher tm = SCALING_FILTER_TYPE_WORD.matcher(text);
         if (tm.matches()) {
-            if (tm.group("type").toLowerCase(java.util.Locale.ROOT).startsWith("character"))
-                source = ScalingSelfPowerBoost.Source.OTHER_CHARACTERS_YOU_CONTROL;
+            String t = tm.group("type").toLowerCase(java.util.Locale.ROOT);
+            if      (t.startsWith("character")) source = ScalingSelfPowerBoost.Source.OTHER_CHARACTERS_YOU_CONTROL;
+            else if (t.startsWith("backup"))    source = ScalingSelfPowerBoost.Source.OTHER_BACKUPS_YOU_CONTROL;
+            else if (t.startsWith("monster"))   source = ScalingSelfPowerBoost.Source.OTHER_MONSTERS_YOU_CONTROL;
+            // forward(s) keeps the default OTHER_FORWARDS_YOU_CONTROL
             text = tm.group("rest").trim();
         }
 
