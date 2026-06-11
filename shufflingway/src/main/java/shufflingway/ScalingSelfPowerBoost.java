@@ -11,22 +11,30 @@ public record ScalingSelfPowerBoost(
         int    perUnit,
         String jobFilter,      // pipe-separated; null if unused
         String categoryFilter, // null if unused
-        String cardNameFilter  // pipe-separated; null if unused
+        String cardNameFilter, // pipe-separated; null if unused
+        String elementFilter,  // include-only element (e.g., "Earth"); null if unused
+        String excludeElement, // exclude this element (e.g., "Fire"); null if unused
+        boolean requireActive  // count only active (non-dull) characters
 ) {
-    /** Convenience constructor for sources that do not filter (jobFilter/categoryFilter/cardNameFilter == null). */
+    /** Convenience constructor for sources that do not filter at all. */
     public ScalingSelfPowerBoost(Source source, int perUnit) {
-        this(source, perUnit, null, null, null);
+        this(source, perUnit, null, null, null, null, null, false);
     }
 
     public enum Source {
         /** Number of Forwards the opponent currently controls. */
         OPPONENT_FORWARDS,
-        /** Number of Characters the controller controls whose name differs from the source card's name. */
+        /**
+         * Number of Characters the controller controls whose name differs from the source card's name.
+         * Honors {@link #requireActive}, {@link #elementFilter}, {@link #excludeElement}, and the
+         * job/category/cardName filters (as an OR disjunction across the non-null filters).
+         */
         OTHER_CHARACTERS_YOU_CONTROL,
         /**
          * Number of Forwards the controller controls (other than the source by name) that satisfy
-         * the disjunction of {@link #jobFilter}, {@link #categoryFilter}, and {@link #cardNameFilter}.
-         * A null filter is treated as "no restriction"; when all three are null, every other Forward counts.
+         * the disjunction of {@link #jobFilter}, {@link #categoryFilter}, and {@link #cardNameFilter},
+         * the inclusive {@link #elementFilter}, the {@link #excludeElement} exclusion, and
+         * {@link #requireActive}. When all filters are null/false, every other Forward counts.
          */
         OTHER_FORWARDS_YOU_CONTROL
     }

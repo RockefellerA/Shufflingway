@@ -8065,22 +8065,27 @@ public class MainWindow {
 				int count = switch (ssb.source()) {
 					case OPPONENT_FORWARDS -> isP1 ? p2ForwardCards.size() : p1ForwardCards.size();
 					case OTHER_CHARACTERS_YOU_CONTROL -> {
-						List<CardData> fwds = isP1 ? p1ForwardCards : p2ForwardCards;
-						CardData[]     bkps = isP1 ? p1BackupCards  : p2BackupCards;
-						List<CardData> mons = isP1 ? p1MonsterCards : p2MonsterCards;
+						List<CardData>  fwds   = isP1 ? p1ForwardCards  : p2ForwardCards;
+						List<CardState> fwdSt  = isP1 ? p1ForwardStates : p2ForwardStates;
+						CardData[]      bkps   = isP1 ? p1BackupCards   : p2BackupCards;
+						CardState[]     bkpSt  = isP1 ? p1BackupStates  : p2BackupStates;
+						List<CardData>  mons   = isP1 ? p1MonsterCards  : p2MonsterCards;
+						List<CardState> monSt  = isP1 ? p1MonsterStates : p2MonsterStates;
 						int n = 0;
-						for (CardData c : fwds) if (!c.name().equalsIgnoreCase(src.name())) n++;
-						for (CardData c : bkps) if (c != null && !c.name().equalsIgnoreCase(src.name())) n++;
-						for (CardData c : mons) if (!c.name().equalsIgnoreCase(src.name())) n++;
+						for (int i = 0; i < fwds.size(); i++)
+							if (scalingCharacterCounts(fwds.get(i), fwdSt.get(i), src, ssb)) n++;
+						for (int i = 0; i < bkps.length; i++)
+							if (bkps[i] != null && scalingCharacterCounts(bkps[i], bkpSt[i], src, ssb)) n++;
+						for (int i = 0; i < mons.size(); i++)
+							if (scalingCharacterCounts(mons.get(i), monSt.get(i), src, ssb)) n++;
 						yield n;
 					}
 					case OTHER_FORWARDS_YOU_CONTROL -> {
-						List<CardData> fwds = isP1 ? p1ForwardCards : p2ForwardCards;
+						List<CardData>  fwds  = isP1 ? p1ForwardCards  : p2ForwardCards;
+						List<CardState> fwdSt = isP1 ? p1ForwardStates : p2ForwardStates;
 						int n = 0;
-						for (CardData c : fwds) {
-							if (c.name().equalsIgnoreCase(src.name())) continue;
-							if (!matchesScalingFilter(c, ssb.jobFilter(), ssb.categoryFilter(), ssb.cardNameFilter())) continue;
-							n++;
+						for (int i = 0; i < fwds.size(); i++) {
+							if (scalingCharacterCounts(fwds.get(i), fwdSt.get(i), src, ssb)) n++;
 						}
 						yield n;
 					}
@@ -8092,7 +8097,21 @@ public class MainWindow {
 	}
 
 	/**
-	 * OR-disjunction filter check for {@link ScalingSelfPowerBoost#OTHER_FORWARDS_YOU_CONTROL}.
+	 * Eligibility check for one slot when counting "other ... you control" toward a
+	 * {@link ScalingSelfPowerBoost}. Honors source-name exclusion (by name), active-state
+	 * requirement, element include/exclude, and the job/category/cardName OR-disjunction.
+	 */
+	private boolean scalingCharacterCounts(CardData c, CardState state, CardData src, ScalingSelfPowerBoost ssb) {
+		if (c == null) return false;
+		if (c.name().equalsIgnoreCase(src.name())) return false;
+		if (ssb.requireActive() && state != CardState.ACTIVE) return false;
+		if (ssb.elementFilter() != null && !c.containsElement(ssb.elementFilter())) return false;
+		if (ssb.excludeElement() != null && c.containsElement(ssb.excludeElement())) return false;
+		return matchesScalingFilter(c, ssb.jobFilter(), ssb.categoryFilter(), ssb.cardNameFilter());
+	}
+
+	/**
+	 * OR-disjunction filter check used by {@link #scalingCharacterCounts}.
 	 * Returns {@code true} if all three filters are {@code null} (no restriction) OR if the
 	 * card matches at least one of the non-null filters.
 	 */
