@@ -244,6 +244,14 @@ public class ActionResolver {
         "(?i)Dulls?\\s+(?:it|them)\\s+or\\s+activates?\\s+(?:it|them)[.!]?"
     );
 
+    /**
+     * Matches "Dull it or freeze it." / "Dull them or freeze them." — dull if active,
+     * freeze if already dulled. (Order-of-words variants like "dull or freeze it" are not used in card text.)
+     */
+    private static final Pattern FOLLOWUP_DULL_OR_FREEZE = Pattern.compile(
+        "(?i)Dulls?\\s+(?:it|them)\\s+or\\s+freezes?\\s+(?:it|them)[.!]?"
+    );
+
     /** Matches "dull it/them" or "dulls it/them" (third-person form used in opponent-selects effects). */
     private static final Pattern FOLLOWUP_DULL = Pattern.compile(
         "(?i)dulls?\\s+(?:it|them)"
@@ -2787,9 +2795,11 @@ public class ActionResolver {
         if (FOLLOWUP_CANNOT_BE_CHOSEN_SUMMONS.matcher(followupText).find())           return "CannotBeChosenSummons";
         if (FOLLOWUP_CANNOT_BE_CHOSEN_ABILITIES.matcher(followupText).find())         return "CannotBeChosenAbilities";
         if (FOLLOWUP_DULL_OR_ACTIVATE.matcher(followupText).find())                   return "DullOrActivate";
+        if (FOLLOWUP_DULL_OR_FREEZE.matcher(followupText).find())                     return "DullOrFreeze";
         if (FOLLOWUP_ACTIVATE.matcher(followupText).find())                           return "Activate";
         if (FOLLOWUP_DULL.matcher(followupText).find()
-                && !FOLLOWUP_DULL_AND_FREEZE.matcher(followupText).find())            return "Dull";
+                && !FOLLOWUP_DULL_AND_FREEZE.matcher(followupText).find()
+                && !FOLLOWUP_DULL_OR_FREEZE.matcher(followupText).find())             return "Dull";
         if (FOLLOWUP_DULL_AND_FREEZE.matcher(followupText).find())                    return "DullAndFreeze";
         if (FOLLOWUP_FREEZE.matcher(followupText).find())                             return "Freeze";
         if (FOLLOWUP_BREAK.matcher(followupText).find())                              return "Break";
@@ -4398,9 +4408,23 @@ public class ActionResolver {
             };
         }
 
+        // --- Dull-or-Freeze followup (must precede FOLLOWUP_DULL since it contains "Dull it") ---
+        if (FOLLOWUP_DULL_OR_FREEZE.matcher(primaryFollowup).find()) {
+            return ctx -> {
+                ctx.logEntry(choosePrefix + " — Dull or Freeze");
+                List<ForwardTarget> ts = selectTargets(ctx, maxCount, upTo,
+                        opponentOnly, selfOnly, condition, element, zone, opponentZone,
+                        costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters, jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, fExcludeElem, withoutMulticard);
+                sortedByIdxDesc(ts, true) .forEach(t -> ctx.dullOrFreezeTarget(t));
+                sortedByIdxDesc(ts, false).forEach(t -> ctx.dullOrFreezeTarget(t));
+                if (secondary != null) secondary.accept(ctx);
+            };
+        }
+
         // --- Dull followup ---
         if (FOLLOWUP_DULL.matcher(primaryFollowup).find()
-                && !FOLLOWUP_DULL_AND_FREEZE.matcher(primaryFollowup).find()) {
+                && !FOLLOWUP_DULL_AND_FREEZE.matcher(primaryFollowup).find()
+                && !FOLLOWUP_DULL_OR_FREEZE.matcher(primaryFollowup).find()) {
             return ctx -> {
                 ctx.logEntry(choosePrefix + " — Dull");
                 List<ForwardTarget> ts = selectTargets(ctx, maxCount, upTo,

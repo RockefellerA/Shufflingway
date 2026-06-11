@@ -280,6 +280,14 @@ public interface GameContext {
     /** Freezes the target (skips activation next Active Phase) and refreshes its slot. */
     void freezeTarget(ForwardTarget t);
 
+    /**
+     * Prompts the active player to choose between dulling or freezing the target.
+     * (The choices are independent — picking Freeze on an active target stacks with
+     * any later Dull effect, enabling combined dull+freeze outcomes.)
+     * The AI picks whichever option actually changes the target's state.
+     */
+    void dullOrFreezeTarget(ForwardTarget t);
+
     /** Dulls and freezes the target. */
     void dullAndFreezeTarget(ForwardTarget t);
 
