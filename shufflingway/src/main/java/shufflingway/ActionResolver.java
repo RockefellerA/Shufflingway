@@ -382,6 +382,18 @@ public class ActionResolver {
     );
 
     /**
+     * Matches a conditional secondary clause that depends on the card just added to hand:
+     * "If (it|the added card) (is|has) [cond], [inner effect]".
+     * Group {@code cond} is fed to {@link #parseRevealCondition}; group {@code inner}
+     * is parsed as a standalone effect via {@link #parse}.
+     */
+    private static final Pattern FOLLOWUP_ADD_TO_HAND_CONDITIONAL_SECONDARY = Pattern.compile(
+        "(?i)^If\\s+(?:it|the\\s+added\\s+card)\\s+(?:is|has)\\s+(?<cond>[^,]+?)" +
+        ",\\s*(?<inner>.+?)[.!]?$",
+        Pattern.DOTALL
+    );
+
+    /**
      * Matches "it cannot block this turn" or
      * "It gains 'This Forward cannot block.' until the end of the turn."
      */
@@ -2887,8 +2899,23 @@ public class ActionResolver {
             String secondaryTxt  = secondaryRaw != null ? stripRestrictionSentences(secondaryRaw) : null;
             if (secondaryTxt != null && secondaryTxt.isEmpty()) secondaryTxt = null;
             String followupName  = matchedFollowupName(primaryPart, source);
-            String secondaryDesc = (secondaryTxt != null && !secondaryTxt.isEmpty())
-                    ? fullDescription(secondaryTxt, source) : null;
+            String secondaryDesc = null;
+            // For AddToHand primaries, prefer the conditional-on-added-card form
+            // ("If (it|the added card) (is|has) X, Y") over the generic flat description,
+            // because the inner effect would otherwise be reported as if it ran unconditionally.
+            if ("AddToHand".equals(followupName) && secondaryTxt != null && !secondaryTxt.isEmpty()) {
+                Matcher condM = FOLLOWUP_ADD_TO_HAND_CONDITIONAL_SECONDARY.matcher(secondaryTxt);
+                if (condM.matches()
+                        && parseRevealCondition(condM.group("cond").trim()) != null) {
+                    String innerTxt  = condM.group("inner").trim();
+                    String innerDesc = fullDescription(innerTxt, source);
+                    if (innerDesc == null) innerDesc = matchedPatternName(innerTxt, source);
+                    if (innerDesc == null) innerDesc = matchedFollowupName(innerTxt, source);
+                    secondaryDesc = "IfAddedCard(" + (innerDesc != null ? innerDesc : "?") + ")";
+                }
+            }
+            if (secondaryDesc == null && secondaryTxt != null && !secondaryTxt.isEmpty())
+                secondaryDesc = fullDescription(secondaryTxt, source);
             if (secondaryDesc == null && secondaryTxt != null && !secondaryTxt.isEmpty())
                 secondaryDesc = matchedFollowupName(secondaryTxt, source);
             StringBuilder sb = new StringBuilder("ChooseCharacter / ")
@@ -4467,14 +4494,59 @@ public class ActionResolver {
 
         // --- Add to hand followup ---
         if (FOLLOWUP_ADD_TO_HAND.matcher(primaryFollowup).find()) {
+            // Detect a conditional secondary that depends on the added card, e.g.
+            // "If it is a Card Name Tifa, …" or "If the added card is not a Category II card, …".
+            // When matched, the inner effect runs only if the chosen card satisfies the condition,
+            // and the generic secondary parse is suppressed.
+            final Predicate<CardData> addedCardCond;
+            final Consumer<GameContext> conditionalInner;
+            final String conditionalInnerText;
+            if (secondaryText != null) {
+                Matcher condM = FOLLOWUP_ADD_TO_HAND_CONDITIONAL_SECONDARY.matcher(secondaryText);
+                if (condM.matches()) {
+                    Predicate<CardData> cond = parseRevealCondition(condM.group("cond").trim());
+                    String innerTxt = condM.group("inner").trim();
+                    Consumer<GameContext> inner = cond != null ? parse(innerTxt, source) : null;
+                    addedCardCond       = (cond != null && inner != null) ? cond  : null;
+                    conditionalInner    = (cond != null && inner != null) ? inner : null;
+                    conditionalInnerText = (cond != null && inner != null) ? innerTxt : null;
+                } else {
+                    addedCardCond        = null;
+                    conditionalInner     = null;
+                    conditionalInnerText = null;
+                }
+            } else {
+                addedCardCond        = null;
+                conditionalInner     = null;
+                conditionalInnerText = null;
+            }
+
             return ctx -> {
                 ctx.logEntry(choosePrefix + " — Add to Hand");
                 List<ForwardTarget> ts = selectTargets(ctx, maxCount, upTo,
                         opponentOnly, selfOnly, condition, element, zone, opponentZone,
                         costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters, jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, fExcludeElem, withoutMulticard);
+                // Peek at chosen cards before they leave the Break Zone so the conditional
+                // secondary can inspect them.
+                List<CardData> chosenCards = new ArrayList<>();
+                if (addedCardCond != null) {
+                    for (ForwardTarget t : ts) {
+                        CardData c = t.isP1() ? ctx.p1BreakZoneCard(t.idx()) : ctx.p2BreakZoneCard(t.idx());
+                        if (c != null) chosenCards.add(c);
+                    }
+                }
                 sortedByIdxDesc(ts, true) .forEach(t -> ctx.addTargetToHand(t));
                 sortedByIdxDesc(ts, false).forEach(t -> ctx.addTargetToHand(t));
-                if (secondary != null) secondary.accept(ctx);
+
+                if (addedCardCond != null && conditionalInner != null) {
+                    boolean anyMatched = chosenCards.stream().anyMatch(addedCardCond);
+                    if (anyMatched) {
+                        ctx.logEntry("Condition met (added card) — " + conditionalInnerText);
+                        conditionalInner.accept(ctx);
+                    }
+                } else if (secondary != null) {
+                    secondary.accept(ctx);
+                }
             };
         }
 

@@ -1666,6 +1666,16 @@ final class GameContextImpl implements GameContext {
 				mw.refreshP1HandLabel();
 			}
 
+			@Override public CardData p1BreakZoneCard(int idx) {
+				java.util.List<CardData> bz = mw.gameState.getP1BreakZone();
+				return (idx >= 0 && idx < bz.size()) ? bz.get(idx) : null;
+			}
+
+			@Override public CardData p2BreakZoneCard(int idx) {
+				java.util.List<CardData> bz = mw.gameState.getP2BreakZone();
+				return (idx >= 0 && idx < bz.size()) ? bz.get(idx) : null;
+			}
+
 			@Override public void boostTarget(ForwardTarget t, int amount,
 					java.util.EnumSet<CardData.Trait> traits) {
 				boolean isP1    = t.isP1();

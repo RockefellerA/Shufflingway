@@ -654,6 +654,12 @@ public interface GameContext {
                 : countP2BreakZoneCards(cardNameFilter, jobFilter);
     }
 
+    /** The {@link CardData} at index {@code idx} in P1's Break Zone, or {@code null} if out of range. */
+    CardData p1BreakZoneCard(int idx);
+
+    /** The {@link CardData} at index {@code idx} in P2's Break Zone, or {@code null} if out of range. */
+    CardData p2BreakZoneCard(int idx);
+
     // ---- Computed-damage queries -----------------------------------------------
 
     /** Returns the highest effective power among all P1 Forwards on the field; {@code 0} if none. */
