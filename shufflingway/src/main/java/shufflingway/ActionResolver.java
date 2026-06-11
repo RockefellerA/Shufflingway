@@ -3131,7 +3131,7 @@ public class ActionResolver {
                 if (effect == null) {
                     ctx.logEntry("Select actions — unrecognized: " + actionText);
                 } else {
-                    ctx.logEntry("Select actions — " + actionText);
+                    ctx.logEntry((ctx.isP1() ? "Selected: " : "AI selected ") + actionText);
                     effect.accept(ctx);
                 }
             }

@@ -1866,7 +1866,6 @@ final class GameContextImpl implements GameContext {
 					java.util.List<String> actions, int selectCount, boolean upTo) {
 				if (isP1) return mw.autoAbilityTriggers.showSelectActionsDialog(source, actions, selectCount, upTo);
 				int take = Math.min(selectCount, actions.size());
-				logEntry("[AI] selected first " + take + " of " + actions.size() + " action(s)");
 				return new ArrayList<>(actions.subList(0, take));
 			}
 

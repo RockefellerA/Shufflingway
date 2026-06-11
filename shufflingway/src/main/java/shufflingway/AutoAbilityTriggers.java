@@ -169,10 +169,6 @@ final class AutoAbilityTriggers {
 			Pattern.DOTALL
 		);
 
-	/** Extracts individual quoted action strings from the {@code actions} capture group above. */
-	private static final Pattern FA_QUOTED_ACTION =
-		Pattern.compile("\"([^\"]+)\"");
-
 	/** Matches "pay 《cost》[.] When/If you do so, sub-effect[. The maximum you can pay for 《X》 is N]". */
 	private static final Pattern FA_PAY_WHEN_DO_SO = Pattern.compile(
 		"(?i)^pay\\s+《([^》]+)》[.,]?\\s+(?:When|If)\\s+you\\s+do\\s+so[,.]?\\s+(.+?)(?:[.,]?\\s+The\\s+maximum\\s+you\\s+can\\s+pay\\s+for\\s+《X》\\s+is\\s+\\d+\\.?)?$",
@@ -1033,16 +1029,6 @@ final class AutoAbilityTriggers {
 		int     selectCount = Integer.parseInt(m.group("select"));
 		int     totalCount  = Integer.parseInt(m.group("total"));
 
-		// Extract the quoted action strings
-		Matcher qm = FA_QUOTED_ACTION.matcher(m.group("actions"));
-		List<String> actions = new ArrayList<>();
-		while (qm.find()) actions.add(qm.group(1).trim());
-
-		if (actions.isEmpty()) {
-			mw.logEntry("[AutoAbility] " + source.name() + " — no actions found in select effect");
-			return;
-		}
-
 		// youMay / opponentMay decline dialog (the select dialog itself is the interaction,
 		// but we still honour an explicit "you may" decline option)
 		boolean p1GetsDialog = (fa.youMay() && isP1) || (fa.opponentMay() && !isP1);
@@ -1063,30 +1049,12 @@ final class AutoAbilityTriggers {
 			mw.usedOncePerTurnAbilities.computeIfAbsent(source, k -> new HashSet<>())
 					.add(fa.effectText());
 
-		// P1 picks interactively; AI always picks the first N actions
-		List<String> chosen;
-		if (isP1) {
-			chosen = showSelectActionsDialog(source, actions, selectCount, upTo);
-		} else {
-			int take = Math.min(selectCount, actions.size());
-			chosen = new ArrayList<>(actions.subList(0, take));
-			mw.logEntry("[AutoAbility] [AI] selected first " + take + " action(s)");
-		}
-
-		if (chosen == null || chosen.isEmpty()) {
-			mw.logEntry("[AutoAbility] " + source.name() + " — no actions chosen");
+		Consumer<GameContext> effect = ActionResolver.parse(fa.effectText(), source);
+		if (effect == null) {
+			mw.logEntry("[AutoAbility] " + source.name() + " — no actions found in select effect");
 			return;
 		}
-
-		for (String actionText : chosen) {
-			Consumer<GameContext> effect = ActionResolver.parse(actionText, source);
-			if (effect == null) {
-				mw.logEntry("[AutoAbility] " + source.name() + " — unrecognized action: " + actionText);
-			} else {
-				mw.logEntry("[AutoAbility] " + source.name() + " — " + actionText);
-				effect.accept(mw.buildGameContext(effectIsP1));
-			}
-		}
+		effect.accept(mw.buildGameContext(effectIsP1));
 	}
 
 	/**
