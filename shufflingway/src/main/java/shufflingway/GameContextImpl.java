@@ -1562,6 +1562,8 @@ final class GameContextImpl implements GameContext {
 						String prefix = t.isP1() ? "" : "[P2] ";
 						logEntry(prefix + c.name() + " is broken");
 						(t.isP1() ? mw.gameState.getP1BreakZone() : mw.gameState.getP2BreakZone()).add(c);
+						JLabel backupLbl = t.isP1() ? mw.p1BackupLabels[i] : mw.p2BackupLabels[i];
+						if (backupLbl != null) mw.startBreakAnim(backupLbl);
 						cards[i] = null; states[i] = CardState.ACTIVE;
 						if (t.isP1()) {
 							mw.p1BackupUrls[i] = null;
@@ -1587,6 +1589,7 @@ final class GameContextImpl implements GameContext {
 						(t.isP1() ? mw.p1MonsterPlayedOnTurn : mw.p2MonsterPlayedOnTurn).remove(i);
 						(t.isP1() ? mw.p1MonsterUrls : mw.p2MonsterUrls).remove(i);
 						JLabel lbl = (t.isP1() ? mw.p1MonsterLabels : mw.p2MonsterLabels).remove(i);
+						mw.startBreakAnim(lbl);
 						JPanel panel = t.isP1() ? mw.p1MonsterPanel : mw.p2MonsterPanel;
 						panel.remove(lbl); panel.revalidate(); panel.repaint();
 						if (t.isP1()) mw.refreshP1BreakLabel(); else mw.refreshP2BreakLabel();
