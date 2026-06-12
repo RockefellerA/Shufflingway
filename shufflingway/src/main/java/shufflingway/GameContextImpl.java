@@ -900,8 +900,22 @@ final class GameContextImpl implements GameContext {
 			@Override public boolean isP1ForwardBlocking(int idx)  { return false; }
 			@Override public boolean isP2ForwardBlocking(int idx)  { return false; }
 
-			@Override public void breakP1Forward(int idx) { mw.breakP1Forward(idx); }
-			@Override public void breakP2Forward(int idx) { mw.breakP2Forward(idx); }
+			@Override public void breakP1Forward(int idx) {
+				if (idx >= 0 && idx < mw.p1ForwardCards.size()
+						&& mw.cannotBeBrokenSet.contains(mw.p1ForwardCards.get(idx))) {
+					logEntry(mw.p1ForwardCards.get(idx).name() + " cannot be broken");
+					return;
+				}
+				mw.breakP1Forward(idx);
+			}
+			@Override public void breakP2Forward(int idx) {
+				if (idx >= 0 && idx < mw.p2ForwardCards.size()
+						&& mw.cannotBeBrokenSet.contains(mw.p2ForwardCards.get(idx))) {
+					logEntry("[P2] " + mw.p2ForwardCards.get(idx).name() + " cannot be broken");
+					return;
+				}
+				mw.breakP2Forward(idx);
+			}
 
 			@Override public void removeP1ForwardFromGame(int idx) {
 				if (idx >= mw.p1ForwardCards.size()) return;

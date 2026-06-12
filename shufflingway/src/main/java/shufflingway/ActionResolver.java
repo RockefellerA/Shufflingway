@@ -72,7 +72,7 @@ public class ActionResolver {
         "(?:\\s+of\\s+cost\\s+(?<cost>\\d+)(?:\\s+or\\s+(?<costcmp>less|more|\\d+))?)?" +
         "(?:\\s+of\\s+(?:power\\s+)?(?<power>\\d+)(?:\\s+power)?(?:\\s+or\\s+(?<powercmp>less|more))?)?" +
         "(?:\\s+(?<control>(?:your\\s+)?opponent\\s+controls|you\\s+control))?" +
-        "(?:\\s+other\\s+than\\s+(?:Card\\s+Name\\s+)?(?<excludename>\\S+(?:\\s+\\([^)]+\\))?))?"+
+        "(?:\\s+other\\s+than\\s+(?:Card\\s+Name\\s+)?(?<excludename>\\S(?:.*?\\S)?))?"+
         "(?:\\s+(?<zone>(?:in|from)\\s+(?:your(?:\\s+opponent(?:'s)?)?|the)\\s+Break\\s+Zone))?" +
         // "blocking [CardName]" or "blocking a [Job] [JobName]" — targets the blocker of the named card
         "(?:\\s+blocking\\s+" +
@@ -868,6 +868,11 @@ public class ActionResolver {
     private static final Pattern STANDALONE_SELF_SHIELD_CANNOT_BE_BROKEN = Pattern.compile(
         "(?i)(?<subject>.+?)\\s+gains?\\s+['\"][^'\"]*?cannot\\s+be\\s+broken\\.?['\"]" +
         "\\s+until\\s+(?:the\\s+)?end\\s+of\\s+(?:the\\s+)?turn\\.?"
+    );
+
+    /** Standalone: "[CardName] cannot be broken this turn." — bare form without 'gains' quoting. */
+    private static final Pattern STANDALONE_SELF_SHIELD_CANNOT_BE_BROKEN_SIMPLE = Pattern.compile(
+        "(?i)(?<subject>.+?)\\s+cannot\\s+be\\s+broken\\s+this\\s+turn\\.?"
     );
 
     /**
@@ -5777,7 +5782,10 @@ public class ActionResolver {
         }
         if (source == null) return null;
         Matcher m = STANDALONE_SELF_SHIELD_CANNOT_BE_BROKEN.matcher(text);
-        if (!m.find()) return null;
+        if (!m.find()) {
+            m = STANDALONE_SELF_SHIELD_CANNOT_BE_BROKEN_SIMPLE.matcher(text);
+            if (!m.find()) return null;
+        }
         String subject = m.group("subject").trim();
         if (!subject.equalsIgnoreCase(source.name())) return null;
         return ctx -> {
