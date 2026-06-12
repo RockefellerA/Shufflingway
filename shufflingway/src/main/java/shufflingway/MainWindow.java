@@ -154,6 +154,12 @@ public class MainWindow {
 	private Timer fadeTimer;      // drives fade-in / fade-out animation
 	CardSlideAnimator cardSlideAnimator;
 	private CardBreakAnimator breakAnimator;
+	// In-flight discard animations: each pending slide hides one top-of-break-zone card from the
+	// break label until its slide lands. The counter is incremented when a discard animation
+	// starts and decremented when the corresponding swing Timer fires. refreshP*BreakLabel skips
+	// the trailing N cards while N > 0.
+	private int p1BreakAnimHide = 0;
+	private int p2BreakAnimHide = 0;
 	// Horizontal separator where the P1 and P2 fields meet (anchor for centered effect prompts)
 	private JSeparator fieldDivider;
 	// Opening hand confirmation popup
@@ -5663,13 +5669,14 @@ public class MainWindow {
 
 	void refreshP1BreakLabel() {
 		List<CardData> zone = gameState.getP1BreakZone();
-		if (zone.isEmpty()) {
+		int topIdx = zone.size() - 1 - p1BreakAnimHide;
+		if (topIdx < 0) {
 			p1BreakLabel.setIcon(null);
 			p1BreakLabel.setFont(FontLoader.loadPixelNESFont(18));
 			p1BreakLabel.setText("BREAK");
 			return;
 		}
-		String url = zone.get(zone.size() - 1).imageUrl();
+		String url = zone.get(topIdx).imageUrl();
 		new SwingWorker<ImageIcon, Void>() {
 			@Override protected ImageIcon doInBackground() throws Exception {
 				Image img = ImageCache.load(url);
@@ -5687,13 +5694,14 @@ public class MainWindow {
 
 	void refreshP2BreakLabel() {
 		List<CardData> zone = gameState.getP2BreakZone();
-		if (zone.isEmpty()) {
+		int topIdx = zone.size() - 1 - p2BreakAnimHide;
+		if (topIdx < 0) {
 			p2BreakLabel.setIcon(null);
 			p2BreakLabel.setFont(FontLoader.loadPixelNESFont(18));
 			p2BreakLabel.setText("BREAK");
 			return;
 		}
-		String url = zone.get(zone.size() - 1).imageUrl();
+		String url = zone.get(topIdx).imageUrl();
 		new SwingWorker<ImageIcon, Void>() {
 			@Override protected ImageIcon doInBackground() throws Exception {
 				Image img = ImageCache.load(url);
@@ -5762,7 +5770,18 @@ public class MainWindow {
 		} catch (java.io.IOException ignored) {
 			return;
 		}
+		// Hide this card from the break label until the slide lands.
+		if (isP1) p1BreakAnimHide++; else p2BreakAnimHide++;
+		if (isP1) refreshP1BreakLabel(); else refreshP2BreakLabel();
 		cardSlideAnimator.startSlide(img, start, end, 0);
+		int delayMs = CardSlideAnimator.TOTAL_FRAMES * CardSlideAnimator.FRAME_MS;
+		Timer reveal = new Timer(delayMs, e -> {
+			if (isP1) p1BreakAnimHide = Math.max(0, p1BreakAnimHide - 1);
+			else      p2BreakAnimHide = Math.max(0, p2BreakAnimHide - 1);
+			if (isP1) refreshP1BreakLabel(); else refreshP2BreakLabel();
+		});
+		reveal.setRepeats(false);
+		reveal.start();
 	}
 
 	void startBreakAnim(JLabel label) {
