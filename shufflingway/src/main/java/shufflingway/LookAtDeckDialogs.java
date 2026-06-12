@@ -108,9 +108,10 @@ class LookAtDeckDialogs {
             case BREAK_OR_KEEP      -> showBreakOrKeep(peeked.get(0), deck, isP1);
             case BOTTOM_OR_KEEP     -> showBottomOrKeep(peeked.get(0), deck, isP1);
             case RETURN_TOP_ORDERED -> showReturnTopOrdered(peeked, deck, isP1);
-            case ADD_TO_HAND_REST_BOTTOM -> showAddToHandRestBottom(peeked, deck, isP1);
-            case ADD_TO_HAND_REST_BREAK  -> showAddToHandRestBreak(peeked, deck, isP1);
-            case TOP_OR_BOTTOM_ORDERED   -> showTopOrBottom(peeked, deck, isP1);
+            case ADD_TO_HAND_REST_BOTTOM         -> showAddToHandRestBottom(peeked, deck, isP1);
+            case ADD_TO_HAND_ONE_TO_BREAK_REST_BOTTOM -> showAddToHandOneToBreakRestBottom(peeked, deck, isP1);
+            case ADD_TO_HAND_REST_BREAK          -> showAddToHandRestBreak(peeked, deck, isP1);
+            case TOP_OR_BOTTOM_ORDERED           -> showTopOrBottom(peeked, deck, isP1);
         }
     }
 
@@ -432,6 +433,196 @@ class LookAtDeckDialogs {
         log(handCard.name() + " → hand");
         for (CardData c : order) {
             if (c != handCard) { deck.addLast(c); log(c.name() + " → bottom of deck"); }
+        }
+        if (isP1) cb.refreshP1Deck().run(); else cb.refreshP2Deck().run();
+    }
+
+    private void showAddToHandOneToBreakRestBottom(List<CardData> cards, Deque<CardData> deck, boolean isP1) {
+        int n = cards.size();
+        // dest slot 0 = Hand, slot 1 = Break Zone, slots 2..n-1 = Deck Bottom (left = placed first = deeper)
+        String[] destLabels = new String[n];
+        destLabels[0] = "Hand";
+        if (n > 1) destLabels[1] = "Break Zone";
+        for (int i = 2; i < n; i++) destLabels[i] = "Deck Bottom";
+
+        CardData[] destCards = new CardData[n];
+        boolean[]  placed    = new boolean[n];
+        int[]      selTop    = { -1 };
+
+        JButton okBtn = new JButton("OK");
+        okBtn.setFont(FontLoader.loadPixelNESFont(11));
+        okBtn.setEnabled(false);
+
+        Map<CardData, ImageIcon> imgCache = new LinkedHashMap<>();
+        JLabel[] topLabels = new JLabel[n];
+        JLabel[] botLabels = new JLabel[n];
+
+        Runnable checkOk = () -> {
+            for (CardData d : destCards) if (d == null) { okBtn.setEnabled(false); return; }
+            okBtn.setEnabled(true);
+        };
+
+        Runnable refreshTopBorders = () -> {
+            for (int j = 0; j < n; j++) {
+                if (placed[j])
+                    topLabels[j].setBorder(BorderFactory.createLineBorder(Color.GRAY, 1));
+                else if (j == selTop[0])
+                    topLabels[j].setBorder(BorderFactory.createLineBorder(Color.YELLOW, 3));
+                else
+                    topLabels[j].setBorder(BorderFactory.createLineBorder(new Color(160, 110, 220), 1));
+        }};
+
+        // build top row (source cards)
+        JPanel topRow = new JPanel(new FlowLayout(FlowLayout.CENTER, 8, 8));
+        for (int i = 0; i < n; i++) {
+            final int idx = i;
+            JLabel lbl = makeCardLabel(null);
+            lbl.addMouseListener(new MouseAdapter() {
+                @Override public void mouseEntered(MouseEvent e) { if (!placed[idx]) showZoom(cards.get(idx).imageUrl()); }
+                @Override public void mouseExited(MouseEvent e)  { hideZoom(); }
+                @Override public void mousePressed(MouseEvent e) {
+                    if (placed[idx]) return;
+                    selTop[0] = (selTop[0] == idx) ? -1 : idx;
+                    refreshTopBorders.run();
+                }
+            });
+            topLabels[i] = lbl;
+            topRow.add(lbl);
+        }
+
+        // build bottom row (destination slots)
+        JPanel botRow = new JPanel(new FlowLayout(FlowLayout.CENTER, 8, 8));
+        for (int i = 0; i < n; i++) {
+            final int slotIdx = i;
+            Color labelColor = slotIdx == 0 ? new Color(0, 200, 80)
+                             : slotIdx == 1 ? new Color(220, 80, 80)
+                             : new Color(100, 180, 255);
+
+            JLabel slotCard = makeCardLabel(null);
+            slotCard.setText("?");
+            slotCard.setBackground(new Color(40, 40, 40));
+            slotCard.setBorder(BorderFactory.createLineBorder(labelColor.darker(), 1));
+            slotCard.addMouseListener(new MouseAdapter() {
+                @Override public void mouseEntered(MouseEvent e) { if (destCards[slotIdx] != null) showZoom(destCards[slotIdx].imageUrl()); }
+                @Override public void mouseExited(MouseEvent e)  { hideZoom(); }
+                @Override public void mousePressed(MouseEvent e) {
+                    if (selTop[0] != -1) {
+                        // place selected card into this slot
+                        if (destCards[slotIdx] != null) {
+                            // return the evicted card to top row
+                            int evictIdx = cards.indexOf(destCards[slotIdx]);
+                            if (evictIdx >= 0) placed[evictIdx] = false;
+                        }
+                        int topIdx = selTop[0];
+                        destCards[slotIdx] = cards.get(topIdx);
+                        placed[topIdx] = true;
+                        selTop[0] = -1;
+                        ImageIcon ic = imgCache.get(cards.get(topIdx));
+                        slotCard.setIcon(ic);
+                        slotCard.setText(ic != null ? null : cards.get(topIdx).name());
+                        slotCard.setBorder(BorderFactory.createLineBorder(labelColor, 3));
+                        refreshTopBorders.run();
+                        checkOk.run();
+                    } else if (destCards[slotIdx] != null) {
+                        // unassign: return card to top row
+                        int evictIdx = cards.indexOf(destCards[slotIdx]);
+                        if (evictIdx >= 0) placed[evictIdx] = false;
+                        destCards[slotIdx] = null;
+                        slotCard.setIcon(null);
+                        slotCard.setText("?");
+                        slotCard.setBorder(BorderFactory.createLineBorder(labelColor.darker(), 1));
+                        refreshTopBorders.run();
+                        checkOk.run();
+                    }
+                }
+            });
+            botLabels[i] = slotCard;
+
+            JLabel destNameLbl = new JLabel(destLabels[i], SwingConstants.CENTER);
+            destNameLbl.setFont(FontLoader.loadPixelNESFont(9));
+            destNameLbl.setForeground(labelColor);
+
+            JPanel wrapper = new JPanel(new BorderLayout(0, 2));
+            wrapper.setOpaque(false);
+            wrapper.add(slotCard,    BorderLayout.CENTER);
+            wrapper.add(destNameLbl, BorderLayout.SOUTH);
+            botRow.add(wrapper);
+        }
+
+        // async image loading
+        for (CardData c : cards) {
+            new SwingWorker<ImageIcon, Void>() {
+                @Override protected ImageIcon doInBackground() throws Exception {
+                    Image img = ImageCache.load(c.imageUrl());
+                    return img == null ? null
+                            : new ImageIcon(img.getScaledInstance(CARD_W, CARD_H, Image.SCALE_SMOOTH));
+                }
+                @Override protected void done() {
+                    try {
+                        ImageIcon ic = get();
+                        if (ic == null) return;
+                        imgCache.put(c, ic);
+                        int j = cards.indexOf(c);
+                        topLabels[j].setIcon(ic);
+                        topLabels[j].setText(null);
+                        for (int s = 0; s < n; s++) {
+                            if (destCards[s] == c) { botLabels[s].setIcon(ic); botLabels[s].setText(null); }
+                        }
+                    } catch (InterruptedException | ExecutionException ignored) {}
+                }
+            }.execute();
+        }
+
+        JDialog dlg = new JDialog(frame, "Look — Assign Cards to Destinations", true);
+        dlg.setResizable(false);
+        dlg.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
+
+        JLabel instructions = new JLabel(
+                "Select a card (top row), then click a destination. Click a destination card to return it.",
+                SwingConstants.CENTER);
+        instructions.setFont(FontLoader.loadPixelNESFont(9));
+        okBtn.addActionListener(ae -> { hideZoom(); dlg.dispose(); });
+
+        JPanel centerPanel = new JPanel(new BorderLayout(0, 8));
+        centerPanel.setBorder(BorderFactory.createEmptyBorder(4, 4, 4, 4));
+        centerPanel.add(topRow, BorderLayout.NORTH);
+        centerPanel.add(botRow, BorderLayout.SOUTH);
+
+        JPanel south = new JPanel(new BorderLayout(0, 2));
+        south.add(instructions, BorderLayout.NORTH);
+        JPanel btnRow = new JPanel(new FlowLayout(FlowLayout.CENTER, 12, 6));
+        btnRow.add(okBtn);
+        south.add(btnRow, BorderLayout.SOUTH);
+
+        dlg.getContentPane().setLayout(new BorderLayout(0, 4));
+        dlg.getContentPane().add(centerPanel, BorderLayout.CENTER);
+        dlg.getContentPane().add(south,       BorderLayout.SOUTH);
+        dlg.pack();
+        dlg.setLocationRelativeTo(frame);
+        dlg.setVisible(true);
+
+        // apply results — fill any unassigned slots with remaining unplaced cards (safety fallback)
+        List<CardData> unplaced = new ArrayList<>();
+        for (int i = 0; i < n; i++) if (!placed[i]) unplaced.add(cards.get(i));
+        int ui = 0;
+        for (int s = 0; s < n; s++) if (destCards[s] == null && ui < unplaced.size()) destCards[s] = unplaced.get(ui++);
+
+        for (int i = 0; i < n; i++) deck.pollFirst();
+
+        CardData handCard  = destCards[0];
+        CardData breakCard = n > 1 ? destCards[1] : null;
+        if (handCard != null) {
+            if (isP1) { gameState.getP1Hand().add(handCard); cb.refreshP1Hand().run(); }
+            else      { gameState.getP2Hand().add(handCard); cb.refreshP2Hand().run(); }
+            log(handCard.name() + " → hand");
+        }
+        if (breakCard != null) {
+            if (isP1) { gameState.getP1BreakZone().add(breakCard); cb.refreshP1Break().run(); }
+            else      { gameState.getP2BreakZone().add(breakCard); cb.refreshP2Break().run(); }
+            log(breakCard.name() + " → Break Zone");
+        }
+        for (int i = 2; i < n; i++) {
+            if (destCards[i] != null) { deck.addLast(destCards[i]); log(destCards[i].name() + " → bottom of deck"); }
         }
         if (isP1) cb.refreshP1Deck().run(); else cb.refreshP2Deck().run();
     }

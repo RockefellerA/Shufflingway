@@ -38,6 +38,12 @@ public record LookConfig(int count, LookConfig.LookAction action, String element
         ADD_TO_HAND_REST_BREAK,
 
         /**
+         * View N cards; the player picks 1 to add to their hand, picks 1 to put into
+         * the Break Zone, then orders the remaining cards to the bottom of the deck.
+         */
+        ADD_TO_HAND_ONE_TO_BREAK_REST_BOTTOM,
+
+        /**
          * View N cards; the player drags each card to either a "Top of Deck" zone
          * (left of the deck icon) or a "Bottom of Deck" zone (right of the deck icon)
          * and orders each zone independently.  A 20-second countdown auto-resolves

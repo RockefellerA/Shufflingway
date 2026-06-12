@@ -1913,6 +1913,21 @@ public class ActionResolver {
     );
 
     /**
+     * Matches "Look at the top N cards of your deck. Add 1 card among them to your hand,
+     * put 1 card into the Break Zone and return the other cards to the bottom of your deck
+     * in any order."
+     * <ul>
+     *   <li>Group {@code count} — number of cards to look at</li>
+     * </ul>
+     */
+    private static final Pattern LOOK_TOP_DECK_ADD_TO_HAND_ONE_TO_BREAK_REST_BOTTOM = Pattern.compile(
+        "(?i)Look\\s+at\\s+the\\s+top\\s+(?<count>\\d+)\\s+cards?\\s+of\\s+your\\s+deck[.!]?\\s*" +
+        "Add\\s+1\\s+card\\s+among\\s+them\\s+to\\s+your\\s+hand[,.]?\\s*" +
+        "put\\s+1\\s+card\\s+into\\s+the\\s+Break\\s+Zone\\s+and\\s+" +
+        "return\\s+the\\s+other\\s+cards?\\s+to\\s+the\\s+bottom\\s+of\\s+your\\s+deck\\s+in\\s+any\\s+order[.!]?"
+    );
+
+    /**
      * Matches "Look at / Reveal the top N cards of your deck. Add 1 [Element] card among them
      * to your hand and put the rest of the cards into the Break Zone."
      * <ul>
@@ -2625,6 +2640,9 @@ public class ActionResolver {
         result = tryParseLookTopDeckAddToHandRestBottom(effectText);
         if (result != null) return result;
 
+        result = tryParseLookTopDeckAddToHandOneToBreakRestBottom(effectText);
+        if (result != null) return result;
+
         result = tryParseLookTopDeckAddToHandRestBreak(effectText);
         if (result != null) return result;
 
@@ -2799,14 +2817,15 @@ public class ActionResolver {
         if (tryParsePlaceCounters(effectText, source)            != null) return "PlaceCounters";
         if (tryParseLookTopDeckOptionallyBreak(effectText)        != null) return "LookTopDeckOptionallyBreak";
         if (tryParseLookTopDeckBottomOrKeep(effectText)           != null) return "LookTopDeckBottomOrKeep";
-        if (tryParseLookTopDeckAddToHandRestBottom(effectText)    != null) return "LookTopDeckAddToHandRestBottom";
-        if (tryParseLookTopDeckAddToHandRestBreak(effectText)     != null) return "LookTopDeckAddToHandRestBreak";
-        if (tryParseLookTopDeckTopOrBottom(effectText)            != null) return "LookTopDeckTopOrBottom";
-        if (tryParseLookTopDeckReturnTopOrdered(effectText)       != null) return "LookTopDeckReturnTopOrdered";
-        if (tryParseLookTopDeckPeek(effectText)                   != null) return "LookTopDeckPeek";
-        if (tryParseRemoveTopOfDeckFromGame(effectText)            != null) return "RemoveTopOfDeckFromGame";
-        if (tryParseShuffleDeck(effectText)                        != null) return "ShuffleDeck";
-        if (tryParseIfOwnForwardFormedParty(effectText, source, 0) != null) return "IfOwnForwardFormedParty";
+        if (tryParseLookTopDeckAddToHandRestBottom(effectText)          != null) return "LookTopDeckAddToHandRestBottom";
+        if (tryParseLookTopDeckAddToHandOneToBreakRestBottom(effectText) != null) return "LookTopDeckAddToHandOneToBreakRestBottom";
+        if (tryParseLookTopDeckAddToHandRestBreak(effectText)           != null) return "LookTopDeckAddToHandRestBreak";
+        if (tryParseLookTopDeckTopOrBottom(effectText)                  != null) return "LookTopDeckTopOrBottom";
+        if (tryParseLookTopDeckReturnTopOrdered(effectText)             != null) return "LookTopDeckReturnTopOrdered";
+        if (tryParseLookTopDeckPeek(effectText)                         != null) return "LookTopDeckPeek";
+        if (tryParseRemoveTopOfDeckFromGame(effectText)                  != null) return "RemoveTopOfDeckFromGame";
+        if (tryParseShuffleDeck(effectText)                              != null) return "ShuffleDeck";
+        if (tryParseIfOwnForwardFormedParty(effectText, source, 0)       != null) return "IfOwnForwardFormedParty";
         if (tryParseIfControlAtMost(effectText, source, 0)         != null) return "IfControlAtMost";
         if (tryParseIfCastAtLeast(effectText, source, 0)           != null) return "IfCastAtLeast";
         if (tryParseConditionalOpponentHand(effectText, source, 0) != null) return "ConditionalOpponentHand";
@@ -3065,14 +3084,15 @@ public class ActionResolver {
         if (tryParsePlaceCounters(effectText, source) != null)               return "PlaceCounters";
         if (tryParseLookTopDeckOptionallyBreak(effectText)        != null) return "LookTopDeckOptionallyBreak";
         if (tryParseLookTopDeckBottomOrKeep(effectText)           != null) return "LookTopDeckBottomOrKeep";
-        if (tryParseLookTopDeckAddToHandRestBottom(effectText)    != null) return "LookTopDeckAddToHandRestBottom";
-        if (tryParseLookTopDeckAddToHandRestBreak(effectText)     != null) return "LookTopDeckAddToHandRestBreak";
-        if (tryParseLookTopDeckTopOrBottom(effectText)            != null) return "LookTopDeckTopOrBottom";
-        if (tryParseLookTopDeckReturnTopOrdered(effectText)       != null) return "LookTopDeckReturnTopOrdered";
-        if (tryParseLookTopDeckPeek(effectText)                   != null) return "LookTopDeckPeek";
-        if (tryParseRemoveTopOfDeckFromGame(effectText)            != null) return "RemoveTopOfDeckFromGame";
-        if (tryParseShuffleDeck(effectText)                        != null) return "ShuffleDeck";
-        if (tryParseBackupCpDraw(effectText)                       != null) return "BackupCpDraw";
+        if (tryParseLookTopDeckAddToHandRestBottom(effectText)          != null) return "LookTopDeckAddToHandRestBottom";
+        if (tryParseLookTopDeckAddToHandOneToBreakRestBottom(effectText) != null) return "LookTopDeckAddToHandOneToBreakRestBottom";
+        if (tryParseLookTopDeckAddToHandRestBreak(effectText)           != null) return "LookTopDeckAddToHandRestBreak";
+        if (tryParseLookTopDeckTopOrBottom(effectText)                  != null) return "LookTopDeckTopOrBottom";
+        if (tryParseLookTopDeckReturnTopOrdered(effectText)             != null) return "LookTopDeckReturnTopOrdered";
+        if (tryParseLookTopDeckPeek(effectText)                         != null) return "LookTopDeckPeek";
+        if (tryParseRemoveTopOfDeckFromGame(effectText)                  != null) return "RemoveTopOfDeckFromGame";
+        if (tryParseShuffleDeck(effectText)                              != null) return "ShuffleDeck";
+        if (tryParseBackupCpDraw(effectText)                             != null) return "BackupCpDraw";
         if (tryParseBecomeForwardUntilEot(effectText, source)         != null) return "BecomeForwardUntilEot";
         if (tryParseNameElementOnlySelfBecomes(effectText, source)      != null) return "NameElementOnlySelfBecomes";
         if (tryParseNameElementAndJobSelfBecomes(effectText, source)   != null) return "NameElementAndJobSelfBecomes";
@@ -7676,6 +7696,16 @@ public class ActionResolver {
         return ctx -> {
             ctx.logEntry("Effect: Look at top " + count + " card(s) — add 1 to hand, return rest to bottom");
             ctx.lookAtTopDeck(new LookConfig(count, LookConfig.LookAction.ADD_TO_HAND_REST_BOTTOM));
+        };
+    }
+
+    private static Consumer<GameContext> tryParseLookTopDeckAddToHandOneToBreakRestBottom(String text) {
+        java.util.regex.Matcher m = LOOK_TOP_DECK_ADD_TO_HAND_ONE_TO_BREAK_REST_BOTTOM.matcher(text);
+        if (!m.find()) return null;
+        int count = Integer.parseInt(m.group("count"));
+        return ctx -> {
+            ctx.logEntry("Effect: Look at top " + count + " card(s) — add 1 to hand, 1 to Break Zone, return rest to bottom");
+            ctx.lookAtTopDeck(new LookConfig(count, LookConfig.LookAction.ADD_TO_HAND_ONE_TO_BREAK_REST_BOTTOM));
         };
     }
 
