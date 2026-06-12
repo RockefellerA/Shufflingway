@@ -1893,6 +1893,17 @@ public record CardData(
         "\\s*\\.?$"
     );
 
+    /** Matches "If you control N or more [Category X] Y, the cost required to cast/play Name is reduced by N." */
+    private static final Pattern FIELD_CONDITIONAL_COST_REDUCTION_PATTERN = Pattern.compile(
+        "(?i)^If\\s+you\\s+control\\s+\\d+\\s+or\\s+more\\s+" +
+        "(?:Category\\s+(?<cat>\\S+)\\s+)?" +
+        "(?:Forwards?|Backups?|Monsters?|Summons?|Characters?),\\s+" +
+        "the\\s+cost\\s+required\\s+to\\s+(?:cast|play)\\s+" +
+        "(?:Card\\s+Name\\s+)?(?<cardname>[A-Za-z][A-Za-z\\s'''\\-]*?)\\s+" +
+        "is\\s+reduced\\s+by\\s+(?<amount>\\d+)" +
+        "\\s*\\.?$"
+    );
+
     /** Matches {@code Card Name <name>} where name may contain spaces (used after ` or ` splitting). */
     private static final Pattern PLAY_SPEC_CARD_NAME = Pattern.compile(
         "(?i)^Card\\s+Name\\s+(?<name>.+)$"
@@ -2032,6 +2043,16 @@ public record CardData(
                             branch.trim(), amount, floorAtOne, ownerOnly, scalingJob);
                     if (fcr != null) result.add(fcr);
                 }
+                continue;
+            }
+
+            // Conditional reduction ("If you control N or more X, the cost … is reduced by N")
+            Matcher cm = FIELD_CONDITIONAL_COST_REDUCTION_PATTERN.matcher(seg);
+            if (cm.find()) {
+                int    amount   = Integer.parseInt(cm.group("amount"));
+                String cardName = cm.group("cardname").trim();
+                result.add(new FieldCostReduction(amount, false, false, true, true, true, true,
+                        null, null, cardName, null, null, false));
                 continue;
             }
 
@@ -2379,7 +2400,7 @@ public record CardData(
      * Matches "You can play 2 or more [Light|Dark] Characters onto the field."
      * as a field-wide multi-play grant ability. Group: {@code element}.
      */
-    private static final Pattern MULTI_LIGHT_DARK_PLAY_PATTERN = Pattern.compile(
+    static final Pattern MULTI_LIGHT_DARK_PLAY_PATTERN = Pattern.compile(
         "(?i)^You can play 2 or more (?<element>Light|Dark) Characters onto the field\\.?$"
     );
 
@@ -2387,7 +2408,7 @@ public record CardData(
      * Matches "You can play 2 or more Card Name X onto the field."
      * as a field-wide name-specific multi-play grant. Group: {@code cardname}.
      */
-    private static final Pattern MULTI_NAME_PLAY_PATTERN = Pattern.compile(
+    static final Pattern MULTI_NAME_PLAY_PATTERN = Pattern.compile(
         "(?i)^You can play 2 or more Card Name (?<cardname>.+?) onto the field\\.?$"
     );
 
@@ -2459,6 +2480,7 @@ public record CardData(
             // Field cost reduction / any-element declarations — handled as static card properties
             if (FIELD_COST_REDUCTION_PATTERN.matcher(seg).find())            continue;
             if (FIELD_PLAY_COST_REDUCTION_PATTERN.matcher(seg).find())       continue;
+            if (FIELD_CONDITIONAL_COST_REDUCTION_PATTERN.matcher(seg).find()) continue;
             if (FIELD_CAST_ANY_ELEMENT_PATTERN.matcher(seg).find())          continue;
             if (FIELD_PRIMING_ANY_ELEMENT_PATTERN.matcher(seg).find())       continue;
             if (WARP_ANY_ELEMENT_PATTERN.matcher(seg).find())                continue;

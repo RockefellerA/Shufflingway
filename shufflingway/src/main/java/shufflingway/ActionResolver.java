@@ -2688,6 +2688,9 @@ public class ActionResolver {
 
         if (CardData.HAS_ALL_ELEMENTS_PATTERN.matcher(effectText.trim()).matches()) return ctx -> {};
 
+        result = tryParseMultiPlayGrant(effectText);
+        if (result != null) return result;
+
         return null;
     }
 
@@ -2809,6 +2812,7 @@ public class ActionResolver {
         if (tryParseConditionalOpponentHand(effectText, source, 0) != null) return "ConditionalOpponentHand";
         if (SELECT_FOLLOWING_ACTIONS_DETECT.matcher(effectText).find())    return "SelectFollowingActions";
         if (CardData.HAS_ALL_ELEMENTS_PATTERN.matcher(effectText.trim()).matches()) return "HasAllElements";
+        if (tryParseMultiPlayGrant(effectText) != null)                     return "MultiPlayGrant";
         return null;
     }
 
@@ -3077,6 +3081,7 @@ public class ActionResolver {
         if (tryParseConditionalOpponentHand(effectText, source, 0)    != null) return "ConditionalOpponentHand";
         if (SELECT_FOLLOWING_ACTIONS_DETECT.matcher(effectText).find())    return "SelectFollowingActions";
         if (CardData.HAS_ALL_ELEMENTS_PATTERN.matcher(effectText.trim()).matches()) return "HasAllElements";
+        if (tryParseMultiPlayGrant(effectText) != null)                     return "MultiPlayGrant";
         return null;
     }
 
@@ -6309,6 +6314,13 @@ public class ActionResolver {
             ctx.logEntry("Effect: Opponent draws " + count);
             ctx.drawCardsForOpponent(count);
         };
+    }
+
+    /** No-op recogniser for multi-play grant field abilities handled as static card properties. */
+    private static Consumer<GameContext> tryParseMultiPlayGrant(String text) {
+        if (CardData.MULTI_LIGHT_DARK_PLAY_PATTERN.matcher(text).matches()) return ctx -> {};
+        if (CardData.MULTI_NAME_PLAY_PATTERN.matcher(text).matches())       return ctx -> {};
+        return null;
     }
 
     // -------------------------------------------------------------------------
