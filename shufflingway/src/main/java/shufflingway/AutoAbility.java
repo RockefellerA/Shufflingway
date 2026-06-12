@@ -45,6 +45,8 @@ package shufflingway;
  *   <li>{@code warpOnly} — fires only when the card entered the field via Warp resolution.</li>
  *   <li>{@code oncePerTurn} — fires at most once per turn (tracked in {@code usedOncePerTurnAbilities}).</li>
  *   <li>{@code yourTurnOnly} — fires only during the ability owner's turn.</li>
+ *   <li>{@code rfpConditionCard} — fires only if the named card is in the RFP zone.</li>
+ *   <li>{@code bzConditionCard} — fires only if the named card is in the owner's Break Zone.</li>
  * </ul>
  */
 public record AutoAbility(
@@ -56,6 +58,7 @@ public record AutoAbility(
         boolean oncePerTurn,           // "This effect will trigger only once per turn"
         boolean yourTurnOnly,          // "This effect will trigger only during your turn"
         String  rfpConditionCard,      // non-empty: trigger only if this card is in the RFP zone
+        String  bzConditionCard,       // non-empty: trigger only if this card is in the owner's Break Zone
         int     castPaymentMinElements,// > 0: trigger only if the card was cast with ≥ N distinct element types
         boolean castOnly,              // true = "enters the field due to your cast" — only fires when cast from hand
         boolean warpOnly,              // true = "enters the field due to Warp" — only fires when entering via Warp resolution

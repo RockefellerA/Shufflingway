@@ -196,6 +196,8 @@ final class AutoAbilityTriggers {
 		// Watcher dispatch: "When a <Type> enters your field, ..." abilities live on other field cards
 		// on the same side as the entering card.
 		fireEntersYourFieldWatchers(card, isP1);
+		// Also fire watcher abilities on break-zone cards (only those gated by bzConditionCard).
+		fireEntersYourFieldBreakZoneWatchers(card, isP1);
 		// Re-evaluate all conditional field boosts now that the field composition has changed
 		mw.refreshAllForwardSlots();
 		for (int i = 0; i < mw.p2ForwardCards.size(); i++) mw.refreshP2ForwardSlot(i);
@@ -222,6 +224,23 @@ final class AutoAbilityTriggers {
 			if (!fa.trigger().equals("enters your field")) continue;
 			if (!matchesEntersFieldSubject(fa.triggerCard(), enteringCard)) continue;
 			executeAutoAbility(fa, watcher, enteringIsP1);
+		}
+	}
+
+	/**
+	 * Fires "enters your field" watcher abilities that live on break-zone cards.
+	 * Only abilities with {@link AutoAbility#bzConditionCard()} set are considered — plain
+	 * field-watcher abilities on break-zone cards must not fire from there.
+	 */
+	private void fireEntersYourFieldBreakZoneWatchers(CardData enteringCard, boolean enteringIsP1) {
+		List<CardData> bz = new ArrayList<>(enteringIsP1 ? mw.gameState.getP1BreakZone() : mw.gameState.getP2BreakZone());
+		for (CardData c : bz) {
+			for (AutoAbility fa : c.autoAbilities()) {
+				if (!fa.trigger().equals("enters your field")) continue;
+				if (fa.bzConditionCard().isEmpty()) continue;
+				if (!matchesEntersFieldSubject(fa.triggerCard(), enteringCard)) continue;
+				executeAutoAbility(fa, c, enteringIsP1);
+			}
 		}
 	}
 
@@ -701,6 +720,13 @@ final class AutoAbilityTriggers {
 					|| mw.gameState.getP1PermanentRfp().stream()
 					.anyMatch(c -> c.name().equalsIgnoreCase(cond));
 			if (!inRfp) return;
+		}
+
+		// "only if [card] is in the Break Zone" — skip if that card is not in the owner's Break Zone
+		if (!fa.bzConditionCard().isEmpty()) {
+			String cond = fa.bzConditionCard();
+			List<CardData> bz = isP1 ? mw.gameState.getP1BreakZone() : mw.gameState.getP2BreakZone();
+			if (bz.stream().noneMatch(c -> CardFilters.meetsCardNameFilter(c, cond))) return;
 		}
 
 		// "only once per turn" — skip if already fired this turn

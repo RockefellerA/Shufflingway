@@ -1175,6 +1175,11 @@ public record CardData(
         "(?i)[.!,]?\\s*This\\s+effect\\s+will\\s+trigger\\s+only\\s+if\\s+(?<rfpCard>[^.!]+?)\\s+is\\s+removed\\s+from\\s+the\\s+game[.!]?\\s*$"
     );
 
+    /** Matches "This effect will trigger only if [card] is in the Break Zone." */
+    private static final Pattern FA_BZ_CONDITION = Pattern.compile(
+        "(?i)[.!,]?\\s*This\\s+effect\\s+will\\s+trigger\\s+only\\s+if\\s+(?<bzCard>[^.!]+?)\\s+is\\s+in\\s+the\\s+Break\\s+Zone[.!]?\\s*$"
+    );
+
     /**
      * Matches a prefix condition requiring the card's cast cost to have been paid with CP from
      * N or more different element types:
@@ -1437,6 +1442,7 @@ public record CardData(
 
         boolean oncePerTurn = false, yourTurnOnly = false;
         String  rfpConditionCard = "";
+        String  bzConditionCard  = "";
         int     castPaymentMinElements = 0;
 
         // Suffix restrictions (strip from end)
@@ -1453,6 +1459,12 @@ public record CardData(
             effect = effect.substring(0, rfp.start()).trim().replaceAll("[.!,]+$", "").trim();
         }
 
+        Matcher bzCond = FA_BZ_CONDITION.matcher(effect);
+        if (bzCond.find()) {
+            bzConditionCard = bzCond.group("bzCard").trim();
+            effect = effect.substring(0, bzCond.start()).trim().replaceAll("[.!,]+$", "").trim();
+        }
+
         // Prefix condition: "if the cost to cast X was paid with CP of N or more different Elements, "
         Matcher pay = FA_CAST_PAYMENT_ELEMENTS.matcher(effect);
         if (pay.find()) {
@@ -1462,7 +1474,7 @@ public record CardData(
 
         if (effect.isEmpty()) return null;
         return new AutoAbility(card, trigger, youMay, opponentMay, effect,
-                oncePerTurn, yourTurnOnly, rfpConditionCard, castPaymentMinElements, castOnly, warpOnly, damageThreshold,
+                oncePerTurn, yourTurnOnly, rfpConditionCard, bzConditionCard, castPaymentMinElements, castOnly, warpOnly, damageThreshold,
                 partyMinCount, partyCategory, partyJob, partyCardName);
     }
 
