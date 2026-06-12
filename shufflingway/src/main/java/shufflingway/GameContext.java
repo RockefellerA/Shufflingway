@@ -982,6 +982,12 @@ public interface GameContext {
             String destination, int count, boolean entersDull);
 
     /**
+     * Searches the deck for up to 1 card with {@code jobFilter} job and up to 1 card of {@code typeName} type
+     * that don't share any element, adding the selected cards to the active player's hand.
+     */
+    void searchDeckJobAndTypeDontShareElements(String jobFilter, String typeName);
+
+    /**
      * Moves all cards matching {@code cardName} from the active player's Break Zone onto the
      * field, entering dull if {@code dull} is true.
      */

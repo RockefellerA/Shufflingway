@@ -1275,6 +1275,16 @@ public class ActionResolver {
      *   <li>Group {@code destination}— full destination phrase</li>
      * </ul>
      */
+    /**
+     * Matches "Search for up to 1 Job [job] and up to 1 [Type] that don't share Elements, and add them to your hand."
+     * Used by cards like Rydia that fetch one card from each of two overlapping pools with an element-disjointness constraint.
+     */
+    private static final Pattern DUAL_SEARCH_JOB_AND_TYPE_DONT_SHARE_ELEMENTS = Pattern.compile(
+        "(?i)search\\s+for\\s+up\\s+to\\s+1\\s+Job\\s+(?<job>.+?)(?=\\s+and\\s+up\\s+to\\b)" +
+        "\\s+and\\s+up\\s+to\\s+1\\s+(?<type>Summon|Forward|Backup|Monster|Character)" +
+        "\\s+that\\s+don.t\\s+share\\s+[Ee]lements,?\\s+and\\s+add\\s+them\\s+to\\s+your\\s+hand[.!]?"
+    );
+
     private static final Pattern SEARCH_DECK_PATTERN = Pattern.compile(
         "(?i)Search\\s+for\\s+(?:up\\s+to\\s+)?(?<count>\\d+)\\s+" +
         // Element(s) that precede the job/name filter (e.g. "Fire Job Knight")
@@ -2592,6 +2602,9 @@ public class ActionResolver {
         result = tryParseStandaloneDamageShields(effectText, source);
         if (result != null) return result;
 
+        result = tryParseDualSearchJobAndTypeDontShareElements(effectText);
+        if (result != null) return result;
+
         result = tryParseSearchDeck(effectText, source, xValue);
         if (result != null) return result;
 
@@ -2802,6 +2815,7 @@ public class ActionResolver {
         if (tryParseOpponentRevealHand(effectText)            != null) return "OpponentRevealHand";
         if (tryParseRevealTopDeck(effectText, source)         != null) return "RevealTopDeck";
         if (tryParseStandaloneDamageShields(effectText, source) != null) return "StandaloneDamageShields";
+        if (tryParseDualSearchJobAndTypeDontShareElements(effectText) != null) return "DualSearchDontShareElements";
         if (tryParseSearchDeck(effectText, source, 0)           != null) return "SearchDeck";
         if (tryParsePlayAllByNameFromBreakZone(effectText)      != null) return "PlayAllByNameFromBreakZone";
         if (tryParsePlaySourceFromBreakZone(effectText, source) != null) return "PlaySourceFromBreakZone";
@@ -3073,6 +3087,7 @@ public class ActionResolver {
         if (tryParseRevealTopDeck(effectText, source) != null)
             return revealTopDeckDescription(effectText, source) + restrictionDesc(effectText);
         if (tryParseStandaloneDamageShields(effectText, source) != null)    return "StandaloneDamageShields";
+        if (tryParseDualSearchJobAndTypeDontShareElements(effectText) != null) return "DualSearchDontShareElements";
         if (tryParseSearchDeck(effectText, source, 0) != null)              return "SearchDeck";
         if (tryParsePlayAllByNameFromBreakZone(effectText) != null)         return "PlayAllByNameFromBreakZone";
         if (tryParsePlaySourceFromBreakZone(effectText, source) != null)    return "PlaySourceFromBreakZone";
@@ -7985,6 +8000,17 @@ public class ActionResolver {
         return ctx -> {
             ctx.logEntry("Effect: " + cardName + " escapes from the Battle");
             ctx.removeFromBattle(cardName);
+        };
+    }
+
+    private static Consumer<GameContext> tryParseDualSearchJobAndTypeDontShareElements(String text) {
+        Matcher m = DUAL_SEARCH_JOB_AND_TYPE_DONT_SHARE_ELEMENTS.matcher(text);
+        if (!m.find()) return null;
+        String job  = m.group("job").trim();
+        String type = m.group("type").trim();
+        return ctx -> {
+            ctx.logEntry("Effect: Dual search — Job " + job + " and " + type + " (don't share elements) → hand");
+            ctx.searchDeckJobAndTypeDontShareElements(job, type);
         };
     }
 

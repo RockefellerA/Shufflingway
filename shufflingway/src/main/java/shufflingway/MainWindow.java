@@ -48,6 +48,7 @@ import java.util.stream.Collectors;
 
 import javax.imageio.ImageIO;
 import javax.swing.BorderFactory;
+import javax.swing.Box;
 import javax.swing.BoxLayout;
 import javax.swing.ImageIcon;
 import javax.swing.JButton;
@@ -3403,6 +3404,212 @@ public class MainWindow {
 		dlg.setVisible(true);
 
 		return picked[0];
+	}
+
+	void searchDeckJobAndTypeDontShareElements(boolean isP1, String jobFilter, String typeName) {
+		Deque<CardData> deck = isP1 ? gameState.getP1MainDeck() : gameState.getP2MainDeck();
+		List<CardData> pool1 = new ArrayList<>();  // Job [jobFilter]
+		List<CardData> pool2 = new ArrayList<>();  // [typeName] type cards
+		for (CardData c : deck) {
+			if (meetsJobFilterEffective(c, jobFilter)) pool1.add(c);
+			boolean typeMatch = switch (typeName.toLowerCase(java.util.Locale.ROOT)) {
+				case "summon", "summons"       -> c.isSummon();
+				case "forward", "forwards"     -> c.isForward();
+				case "backup", "backups"       -> c.isBackup();
+				case "monster", "monsters"     -> c.isMonster();
+				case "character", "characters" -> c.isForward() || c.isBackup() || c.isMonster();
+				default -> false;
+			};
+			if (typeMatch) pool2.add(c);
+		}
+		shuffleDeck(isP1);
+		if (pool1.isEmpty() && pool2.isEmpty()) {
+			logEntry("Search: no eligible cards found");
+			return;
+		}
+		CardData[] picks = { null, null };
+		if (!isP1) {
+			// AI: try to find a non-sharing pair, otherwise take one card
+			if (!pool1.isEmpty() && !pool2.isEmpty()) {
+				outer:
+				for (CardData c1 : pool1) {
+					for (CardData c2 : pool2) {
+						if (!dualSearchSharesElement(c1, c2)) { picks[0] = c1; picks[1] = c2; break outer; }
+					}
+				}
+				if (picks[0] == null) picks[0] = pool1.get(0);
+			} else if (!pool1.isEmpty()) {
+				picks[0] = pool1.get(0);
+			} else {
+				picks[1] = pool2.get(0);
+			}
+		} else {
+			picks = showDualSearchDontShareElementsDialog(pool1, pool2, "Job " + jobFilter, typeName);
+		}
+		if (picks == null) return;
+		for (CardData pick : picks) {
+			if (pick == null) continue;
+			if (isP1) gameState.removeFromP1MainDeck(pick);
+			else      deck.remove(pick);
+			playerHand(isP1).add(pick);
+			logEntry((isP1 ? "" : "[P2] ") + pick.name() + " → hand (search)");
+			if (isP1) refreshP1HandLabel(); else refreshP2HandCountLabel();
+			animateCardDraw(isP1, 1);
+		}
+	}
+
+	private static boolean dualSearchSharesElement(CardData a, CardData b) {
+		for (String elem : java.util.List.of("fire", "ice", "wind", "earth", "lightning", "water", "light", "dark"))
+			if (a.containsElement(elem) && b.containsElement(elem)) return true;
+		return false;
+	}
+
+	private CardData[] showDualSearchDontShareElementsDialog(
+			List<CardData> pool1, List<CardData> pool2, String label1, String label2) {
+		CardData[] sel = { null, null };
+
+		JDialog dlg = new JDialog(frame, "Search — " + label1 + " / " + label2, true);
+		dlg.setDefaultCloseOperation(JDialog.DO_NOTHING_ON_CLOSE);
+		dlg.setResizable(false);
+
+		JLabel hintLabel = new JLabel(" ", SwingConstants.CENTER);
+		hintLabel.setFont(FontLoader.loadPixelNESFont(9));
+
+		JButton okBtn = new JButton("OK");
+		okBtn.addActionListener(e -> dlg.dispose());
+
+		List<JLabel> labels1 = new ArrayList<>(pool1.size());
+		List<JLabel> labels2 = new ArrayList<>(pool2.size());
+
+		Runnable refresh = () -> {
+			boolean ok;
+			if (sel[0] == null || sel[1] == null) {
+				ok = true;
+				hintLabel.setText("Select up to 1 " + label1 + " and up to 1 " + label2 + ".");
+			} else {
+				boolean shares = dualSearchSharesElement(sel[0], sel[1]);
+				ok = !shares;
+				hintLabel.setText(shares ? "These cards share an element — choose cards with different elements."
+						: "Click OK to confirm.");
+			}
+			okBtn.setEnabled(ok);
+			for (int i = 0; i < labels1.size(); i++)
+				labels1.get(i).setBorder(pool1.get(i) == sel[0]
+						? createCardGlowBorder(Color.GREEN)
+						: BorderFactory.createLineBorder(Color.GRAY, 2));
+			for (int i = 0; i < labels2.size(); i++)
+				labels2.get(i).setBorder(pool2.get(i) == sel[1]
+						? createCardGlowBorder(Color.GREEN)
+						: BorderFactory.createLineBorder(Color.GRAY, 2));
+		};
+
+		JPanel content = new JPanel();
+		content.setLayout(new BoxLayout(content, BoxLayout.Y_AXIS));
+		if (!pool1.isEmpty()) {
+			JLabel hdr = new JLabel(label1, SwingConstants.LEFT);
+			hdr.setFont(FontLoader.loadPixelNESFont(11));
+			hdr.setAlignmentX(Component.LEFT_ALIGNMENT);
+			content.add(hdr);
+			content.add(buildDualSearchPoolPanel(pool1, labels1, 0, sel, refresh));
+		}
+		if (!pool1.isEmpty() && !pool2.isEmpty()) content.add(Box.createVerticalStrut(10));
+		if (!pool2.isEmpty()) {
+			JLabel hdr = new JLabel(label2, SwingConstants.LEFT);
+			hdr.setFont(FontLoader.loadPixelNESFont(11));
+			hdr.setAlignmentX(Component.LEFT_ALIGNMENT);
+			content.add(hdr);
+			content.add(buildDualSearchPoolPanel(pool2, labels2, 1, sel, refresh));
+		}
+
+		int colsInWidest = Math.min(Math.max(pool1.size(), pool2.size()), 10);
+		int rowWidth     = 12 + colsInWidest * CARD_W + (colsInWidest - 1) * 12 + 12;
+		int rowHeight    = 12 + CARD_H + 4 + 18 + 12;
+		int sections     = (pool1.isEmpty() ? 0 : 1) + (pool2.isEmpty() ? 0 : 1);
+		JScrollPane scroll = new JScrollPane(content,
+				ScrollPaneConstants.VERTICAL_SCROLLBAR_AS_NEEDED,
+				ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
+		scroll.setBorder(null);
+		scroll.setPreferredSize(new Dimension(rowWidth, sections * rowHeight + (sections > 1 ? 30 : 0)));
+
+		JPanel bottom = new JPanel(new BorderLayout(4, 4));
+		bottom.setBorder(BorderFactory.createEmptyBorder(4, 8, 8, 8));
+		bottom.add(hintLabel, BorderLayout.NORTH);
+		bottom.add(okBtn, BorderLayout.SOUTH);
+
+		refresh.run();
+		dlg.getContentPane().setLayout(new BorderLayout(0, 4));
+		dlg.getContentPane().add(scroll, BorderLayout.CENTER);
+		dlg.getContentPane().add(bottom, BorderLayout.SOUTH);
+		dlg.pack();
+		dlg.setLocationRelativeTo(frame);
+		dlg.setVisible(true);
+		return sel;
+	}
+
+	private JPanel buildDualSearchPoolPanel(List<CardData> pool, List<JLabel> labels,
+			int slot, CardData[] sel, Runnable refresh) {
+		final int CARDS_PER_ROW = 10;
+		JPanel cardsPanel = new JPanel();
+		cardsPanel.setLayout(new BoxLayout(cardsPanel, BoxLayout.Y_AXIS));
+		cardsPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
+		JPanel currentRow = null;
+		for (int idx = 0; idx < pool.size(); idx++) {
+			CardData candidate = pool.get(idx);
+			if (idx % CARDS_PER_ROW == 0) {
+				currentRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 12, 12));
+				currentRow.setAlignmentX(Component.LEFT_ALIGNMENT);
+				cardsPanel.add(currentRow);
+			}
+			JPanel wrapper = new JPanel(new BorderLayout(0, 4));
+			wrapper.setBackground(cardsPanel.getBackground());
+
+			JLabel lbl = new JLabel("...", SwingConstants.CENTER);
+			lbl.setPreferredSize(new Dimension(CARD_W, CARD_H));
+			lbl.setMinimumSize(new Dimension(CARD_W, CARD_H));
+			lbl.setOpaque(true);
+			lbl.setBackground(Color.DARK_GRAY);
+			lbl.setBorder(BorderFactory.createLineBorder(Color.GRAY, 2));
+			lbl.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+			labels.add(lbl);
+
+			lbl.addMouseListener(new MouseAdapter() {
+				@Override public void mouseEntered(MouseEvent e) {
+					if (lbl.getIcon() != null) showZoomAt(candidate.imageUrl());
+					if (candidate != sel[slot]) lbl.setBorder(createCardGlowBorder(Color.YELLOW));
+				}
+				@Override public void mouseExited(MouseEvent e) {
+					hideZoom();
+					lbl.setBorder(candidate == sel[slot]
+							? createCardGlowBorder(Color.GREEN)
+							: BorderFactory.createLineBorder(Color.GRAY, 2));
+				}
+				@Override public void mousePressed(MouseEvent e) {
+					if (!SwingUtilities.isLeftMouseButton(e)) return;
+					sel[slot] = (sel[slot] == candidate) ? null : candidate;
+					refresh.run();
+				}
+			});
+
+			new SwingWorker<ImageIcon, Void>() {
+				@Override protected ImageIcon doInBackground() throws Exception {
+					Image img = ImageCache.load(candidate.imageUrl());
+					return img == null ? null
+							: new ImageIcon(img.getScaledInstance(CARD_W, CARD_H, Image.SCALE_SMOOTH));
+				}
+				@Override protected void done() {
+					try { ImageIcon ic = get(); if (ic != null) { lbl.setIcon(ic); lbl.setText(null); } }
+					catch (InterruptedException | ExecutionException ignored) {}
+				}
+			}.execute();
+
+			JLabel nameLabel = new JLabel(candidate.name(), SwingConstants.CENTER);
+			nameLabel.setFont(FontLoader.loadPixelNESFont(9));
+			nameLabel.setPreferredSize(new Dimension(CARD_W, 18));
+			wrapper.add(lbl, BorderLayout.CENTER);
+			wrapper.add(nameLabel, BorderLayout.SOUTH);
+			currentRow.add(wrapper);
+		}
+		return cardsPanel;
 	}
 
 	/**

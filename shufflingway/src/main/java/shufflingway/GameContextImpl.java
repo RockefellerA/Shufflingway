@@ -862,6 +862,9 @@ final class GameContextImpl implements GameContext {
 				mw.searchDeckForCard(isP1, inclForwards, inclBackups, inclMonsters, inclSummons,
 						costVal, costCmp, cardNameFilter, jobFilter, categoryFilter, elementFilter, excludeName, excludeElem, destination, count, entersDull);
 			}
+			@Override public void searchDeckJobAndTypeDontShareElements(String jobFilter, String typeName) {
+				mw.searchDeckJobAndTypeDontShareElements(isP1, jobFilter, typeName);
+			}
 
 			@Override public void playAllByNameFromOwnBreakZoneDull(String cardName, boolean dull) {
 				java.util.List<CardData> bz = isP1 ? mw.gameState.getP1BreakZone() : mw.gameState.getP2BreakZone();
