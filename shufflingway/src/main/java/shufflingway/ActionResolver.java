@@ -1949,6 +1949,19 @@ public class ActionResolver {
     );
 
     /**
+     * Captures the components of "[if cond,] select [up to] N of the M following actions. "a" "b" ..."
+     * so the action-ability parse chain can resolve it as a modal choice.
+     */
+    static final Pattern SELECT_FOLLOWING_ACTIONS = Pattern.compile(
+        "(?i)^(?:if\\s+[^,]+,\\s+)?select\\s+(?<upTo>up\\s+to\\s+)?(?<select>\\d+)\\s+of\\s+the\\s+"
+        + "(?<total>\\d+)\\s+following\\s+actions?[.!]?\\s*(?<actions>.+)$",
+        Pattern.DOTALL
+    );
+
+    /** Extracts the individual quoted action strings from the {@code actions} capture group. */
+    static final Pattern SELECT_FOLLOWING_QUOTED_ACTION = Pattern.compile("\"([^\"]+)\"");
+
+    /**
      * Matches "Place N [Name] Counter(s) on [CardName][.]".
      * <ul>
      *   <li>Group {@code count} — number of counters to place</li>
@@ -2310,6 +2323,9 @@ public class ActionResolver {
         // Strip leading "EX BURST" / "[[ex]]EX BURST[[/]]" prefix present on summon field ability texts.
         effectText = effectText.replaceFirst("(?i)^(?:\\[\\[ex\\]\\])?\\s*EX\\s+BURST(?:\\[\\[/\\]\\])?\\s*", "").trim();
         Consumer<GameContext> result;
+
+        result = tryParseSelectFollowingActions(effectText, source);
+        if (result != null) return result;
 
         result = tryParseWhenYouDoSoSequence(effectText, source, xValue);
         if (result != null) return result;
@@ -3134,6 +3150,42 @@ public class ActionResolver {
      * reverse-index order so that breaks (which shift the list) do not corrupt
      * subsequent indices.
      */
+    /**
+     * Parses "[if cond,] Select N of the M following actions. "a" "b" ...".
+     * Returns an effect that asks the player to choose {@code select} of the quoted
+     * sub-actions (via {@link GameContext#chooseActions}), then re-parses and applies
+     * each chosen sub-action. Returns {@code null} if the text is not this shape.
+     */
+    private static Consumer<GameContext> tryParseSelectFollowingActions(String text, CardData source) {
+        Matcher m = SELECT_FOLLOWING_ACTIONS.matcher(text);
+        if (!m.find()) return null;
+
+        boolean upTo        = m.group("upTo") != null;
+        int     selectCount = Integer.parseInt(m.group("select"));
+
+        Matcher qm = SELECT_FOLLOWING_QUOTED_ACTION.matcher(m.group("actions"));
+        List<String> actions = new ArrayList<>();
+        while (qm.find()) actions.add(qm.group(1).trim());
+        if (actions.isEmpty()) return null;
+
+        return ctx -> {
+            List<String> chosen = ctx.chooseActions(source, actions, selectCount, upTo);
+            if (chosen == null || chosen.isEmpty()) {
+                ctx.logEntry("Select actions — none chosen");
+                return;
+            }
+            for (String actionText : chosen) {
+                Consumer<GameContext> effect = parse(actionText, source);
+                if (effect == null) {
+                    ctx.logEntry("Select actions — unrecognized: " + actionText);
+                } else {
+                    ctx.logEntry((ctx.isP1() ? "Selected: " : "AI selected ") + actionText);
+                    effect.accept(ctx);
+                }
+            }
+        };
+    }
+
     private static Consumer<GameContext> tryParseDealDamageToForwards(String text) {
         Matcher m = DEAL_DAMAGE_TO_FORWARDS.matcher(text);
         if (!m.find()) {

@@ -169,10 +169,6 @@ final class AutoAbilityTriggers {
 			Pattern.DOTALL
 		);
 
-	/** Extracts individual quoted action strings from the {@code actions} capture group above. */
-	private static final Pattern FA_QUOTED_ACTION =
-		Pattern.compile("\"([^\"]+)\"");
-
 	/** Matches "pay 《cost》[.] When/If you do so, sub-effect[. The maximum you can pay for 《X》 is N]". */
 	private static final Pattern FA_PAY_WHEN_DO_SO = Pattern.compile(
 		"(?i)^pay\\s+《([^》]+)》[.,]?\\s+(?:When|If)\\s+you\\s+do\\s+so[,.]?\\s+(.+?)(?:[.,]?\\s+The\\s+maximum\\s+you\\s+can\\s+pay\\s+for\\s+《X》\\s+is\\s+\\d+\\.?)?$",
@@ -1062,16 +1058,6 @@ final class AutoAbilityTriggers {
 		int     selectCount = Integer.parseInt(m.group("select"));
 		int     totalCount  = Integer.parseInt(m.group("total"));
 
-		// Extract the quoted action strings
-		Matcher qm = FA_QUOTED_ACTION.matcher(m.group("actions"));
-		List<String> actions = new ArrayList<>();
-		while (qm.find()) actions.add(qm.group(1).trim());
-
-		if (actions.isEmpty()) {
-			mw.logEntry("[AutoAbility] " + source.name() + " — no actions found in select effect");
-			return;
-		}
-
 		// youMay / opponentMay decline dialog (the select dialog itself is the interaction,
 		// but we still honour an explicit "you may" decline option)
 		boolean p1GetsDialog = (fa.youMay() && isP1) || (fa.opponentMay() && !isP1);
@@ -1092,30 +1078,12 @@ final class AutoAbilityTriggers {
 			mw.usedOncePerTurnAbilities.computeIfAbsent(source, k -> new HashSet<>())
 					.add(fa.effectText());
 
-		// P1 picks interactively; AI always picks the first N actions
-		List<String> chosen;
-		if (isP1) {
-			chosen = showSelectActionsDialog(source, actions, selectCount, upTo);
-		} else {
-			int take = Math.min(selectCount, actions.size());
-			chosen = new ArrayList<>(actions.subList(0, take));
-			mw.logEntry("[AutoAbility] [AI] selected first " + take + " action(s)");
-		}
-
-		if (chosen == null || chosen.isEmpty()) {
-			mw.logEntry("[AutoAbility] " + source.name() + " — no actions chosen");
+		Consumer<GameContext> effect = ActionResolver.parse(fa.effectText(), source);
+		if (effect == null) {
+			mw.logEntry("[AutoAbility] " + source.name() + " — no actions found in select effect");
 			return;
 		}
-
-		for (String actionText : chosen) {
-			Consumer<GameContext> effect = ActionResolver.parse(actionText, source);
-			if (effect == null) {
-				mw.logEntry("[AutoAbility] " + source.name() + " — unrecognized action: " + actionText);
-			} else {
-				mw.logEntry("[AutoAbility] " + source.name() + " — " + actionText);
-				effect.accept(mw.buildGameContext(effectIsP1));
-			}
-		}
+		effect.accept(mw.buildGameContext(effectIsP1));
 	}
 
 	/**
@@ -1123,7 +1091,7 @@ final class AutoAbilityTriggers {
 	 * Uses radio buttons when exactly 1 must be chosen, checkboxes otherwise.
 	 * Returns the chosen action texts, or an empty list if the dialog is dismissed.
 	 */
-	private List<String> showSelectActionsDialog(
+	List<String> showSelectActionsDialog(
 			CardData source, List<String> actions, int selectCount, boolean upTo) {
 
 		int  n             = actions.size();
@@ -1636,12 +1604,13 @@ final class AutoAbilityTriggers {
 	boolean dullForwardCostSatisfied(DullForwardCost dfc, boolean isP1) {
 		List<CardData>  fwds   = isP1 ? mw.p1ForwardCards : mw.p2ForwardCards;
 		List<CardState> states = isP1 ? mw.p1ForwardStates : mw.p2ForwardStates;
+		int eligible = 0;
 		for (int i = 0; i < fwds.size(); i++) {
 			if (states.get(i) != CardState.ACTIVE) continue;
-			if (!dfc.element().isEmpty() && !fwds.get(i).containsElement(dfc.element())) continue;
-			return true;
+			if (dfc.element() != null && !dfc.element().isEmpty() && !fwds.get(i).containsElement(dfc.element())) continue;
+			eligible++;
 		}
-		return false;
+		return eligible >= dfc.count();
 	}
 
 	private List<ForwardTarget> eligibleBzFieldCards(BreakZoneCost bz, boolean isP1) {
@@ -2063,19 +2032,22 @@ final class AutoAbilityTriggers {
 			List<Integer> eligible = new ArrayList<>();
 			for (int i = 0; i < fwds.size(); i++) {
 				if (states.get(i) != CardState.ACTIVE) continue;
-				if (!dfc.element().isEmpty() && !fwds.get(i).containsElement(dfc.element())) continue;
+				if (dfc.element() != null && !dfc.element().isEmpty() && !fwds.get(i).containsElement(dfc.element())) continue;
 				eligible.add(i);
 			}
 			if (eligible.isEmpty()) { mw.logEntry("No eligible active Forward for Dull cost."); continue; }
 			List<ForwardTarget> targets = eligible.stream()
 					.map(i -> new ForwardTarget(isP1, i, ForwardTarget.CardZone.FORWARD)).toList();
-			List<ForwardTarget> picks = mw.showForwardSelectDialog(targets, 1, false, "Dull Forward Cost");
-			if (picks.isEmpty()) continue;
-			int fwdIdx = picks.get(0).idx();
-			mw.lastDullForwardCostPower = fwds.get(fwdIdx).power();
-			states.set(fwdIdx, CardState.DULL);
-			if (isP1) mw.animateDullForward(fwdIdx, null); else mw.animateDullP2Forward(fwdIdx, null);
-			mw.logEntry("Dull cost: \"" + fwds.get(fwdIdx).name() + "\" dulled (power " + mw.lastDullForwardCostPower + ")");
+			List<ForwardTarget> picks = mw.showForwardSelectDialog(targets, dfc.count(), false, "Dull Forward Cost");
+			if (picks.size() < dfc.count()) continue;
+			for (ForwardTarget pick : picks) {
+				int fwdIdx = pick.idx();
+				int pow = fwds.get(fwdIdx).power();
+				mw.lastDullForwardCostPower += pow;
+				states.set(fwdIdx, CardState.DULL);
+				if (isP1) mw.animateDullForward(fwdIdx, null); else mw.animateDullP2Forward(fwdIdx, null);
+				mw.logEntry("Dull cost: \"" + fwds.get(fwdIdx).name() + "\" dulled (power " + pow + ")");
+			}
 		}
 
 		// Self-mill cost

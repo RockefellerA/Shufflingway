@@ -1874,6 +1874,13 @@ final class GameContextImpl implements GameContext {
 			@Override public int dullForwardCostPower() { return mw.lastDullForwardCostPower; }
 			@Override public int lastDiscardedForwardPower() { return mw.lastDiscardedForwardPower; }
 
+			@Override public java.util.List<String> chooseActions(CardData source,
+					java.util.List<String> actions, int selectCount, boolean upTo) {
+				if (isP1) return mw.autoAbilityTriggers.showSelectActionsDialog(source, actions, selectCount, upTo);
+				int take = Math.min(selectCount, actions.size());
+				return new ArrayList<>(actions.subList(0, take));
+			}
+
 			@Override public int highestP1ForwardPower() {
 				int max = 0;
 				for (int i = 0; i < mw.p1ForwardCards.size(); i++)

@@ -750,6 +750,10 @@ public record CardData(
      */
     public static List<ActionAbility> parseActionAbilities(String textEn) {
         if (textEn == null || textEn.isBlank()) return List.of();
+        // Collapse "select N of M following actions" headers with their [[br]]-delimited quoted
+        // sub-actions onto one line so the effect group captures them (the same join used by
+        // parseAutoAbilities / parseFieldAbilities); otherwise the effect truncates at [[br]].
+        textEn = joinSelectActions(textEn);
         List<ActionAbility> result = new ArrayList<>();
         Matcher m = ACTION_ABILITY_PATTERN.matcher(textEn);
         while (m.find()) {

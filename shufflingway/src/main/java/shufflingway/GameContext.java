@@ -686,6 +686,18 @@ public interface GameContext {
     int dullForwardCostPower();
 
     /**
+     * Presents the player with a "Select N of M following actions" modal choice and returns
+     * the chosen action texts (each later re-parsed and applied by the caller).
+     * The human player picks interactively; the AI picks the first {@code selectCount}.
+     *
+     * @param actions     the candidate action texts (the quoted sub-actions)
+     * @param selectCount how many to choose
+     * @param upTo        when {@code true}, the player may choose fewer than {@code selectCount}
+     */
+    java.util.List<String> chooseActions(CardData source, java.util.List<String> actions,
+            int selectCount, boolean upTo);
+  
+  /**
      * Returns the printed power of the Forward most recently discarded as part of resolving the
      * current ability (e.g. Kolka's "you may discard 1 Forward. When you do so … the discarded
      * Forward's power"). Returns {@code 0} when no Forward has been discarded yet in the chain.
