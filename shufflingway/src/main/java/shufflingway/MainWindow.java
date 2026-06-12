@@ -28,9 +28,11 @@ import java.awt.image.ColorConvertOp;
 import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.Deque;
+import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.IdentityHashMap;
@@ -42,6 +44,7 @@ import java.util.concurrent.ExecutionException;
 import java.util.function.Consumer;
 import java.util.function.Predicate;
 import java.util.regex.Matcher;
+import java.util.stream.Collectors;
 
 import javax.imageio.ImageIO;
 import javax.swing.BorderFactory;
@@ -151,6 +154,12 @@ public class MainWindow {
 	private Timer fadeTimer;      // drives fade-in / fade-out animation
 	CardSlideAnimator cardSlideAnimator;
 	private CardBreakAnimator breakAnimator;
+	// In-flight discard animations: each pending slide hides one top-of-break-zone card from the
+	// break label until its slide lands. The counter is incremented when a discard animation
+	// starts and decremented when the corresponding swing Timer fires. refreshP*BreakLabel skips
+	// the trailing N cards while N > 0.
+	private int p1BreakAnimHide = 0;
+	private int p2BreakAnimHide = 0;
 	// Horizontal separator where the P1 and P2 fields meet (anchor for centered effect prompts)
 	private JSeparator fieldDivider;
 	// Opening hand confirmation popup
@@ -163,7 +172,6 @@ public class MainWindow {
 	private int                   stackWindowGeneration = 0;
 	private Timer handPopupHideTimer;
 	private boolean handCardMenuOpen = false;
-
 
 	// --- Game state ---
 	final GameState gameState   = new GameState();
@@ -190,10 +198,10 @@ public class MainWindow {
 	final List<Integer>                           p2ForwardPowerBoost     = new ArrayList<>();
 	final List<Integer>                           p1ForwardPowerReduction = new ArrayList<>();
 	final List<Integer>                           p2ForwardPowerReduction = new ArrayList<>();
-	final List<java.util.EnumSet<CardData.Trait>> p1ForwardTempTraits    = new ArrayList<>();
-	final List<java.util.EnumSet<CardData.Trait>> p2ForwardTempTraits    = new ArrayList<>();
-	final List<java.util.EnumSet<CardData.Trait>> p1ForwardRemovedTraits = new ArrayList<>();
-	final List<java.util.EnumSet<CardData.Trait>> p2ForwardRemovedTraits = new ArrayList<>();
+	final List<EnumSet<CardData.Trait>> p1ForwardTempTraits    = new ArrayList<>();
+	final List<EnumSet<CardData.Trait>> p2ForwardTempTraits    = new ArrayList<>();
+	final List<EnumSet<CardData.Trait>> p1ForwardRemovedTraits = new ArrayList<>();
+	final List<EnumSet<CardData.Trait>> p2ForwardRemovedTraits = new ArrayList<>();
 	/** Temporary job granted to P1/P2 Forwards until end of turn; {@code null} = no override. */
 	final List<String> p1ForwardTempJobs = new ArrayList<>();
 	final List<String> p2ForwardTempJobs = new ArrayList<>();
@@ -230,14 +238,14 @@ public class MainWindow {
 	private final int[] p1BackupPlayedOnTurn = new int[5];
 
 	// State for Backups temporarily acting as Forwards (e.g. Tifa 17-012R). Keyed by CardData.
-	final java.util.Map<CardData, Integer> p1BackupTempForwardPower = new HashMap<>();
-	private final java.util.Map<CardData, Integer> p2BackupTempForwardPower = new HashMap<>();
-	final java.util.Map<CardData, Integer> p1BackupForwardBoost     = new HashMap<>();
-	final java.util.Map<CardData, Integer> p2BackupForwardBoost     = new HashMap<>();
-	final java.util.Map<CardData, java.util.EnumSet<CardData.Trait>> p1BackupTempTraits = new HashMap<>();
-	final java.util.Map<CardData, java.util.EnumSet<CardData.Trait>> p2BackupTempTraits = new HashMap<>();
-	final java.util.Map<CardData, Integer> p1BackupForwardDamage    = new HashMap<>();
-	private final java.util.Map<CardData, Integer> p2BackupForwardDamage    = new HashMap<>();
+	final Map<CardData, Integer> p1BackupTempForwardPower = new HashMap<>();
+	private final Map<CardData, Integer> p2BackupTempForwardPower = new HashMap<>();
+	final Map<CardData, Integer> p1BackupForwardBoost     = new HashMap<>();
+	final Map<CardData, Integer> p2BackupForwardBoost     = new HashMap<>();
+	final Map<CardData, EnumSet<CardData.Trait>> p1BackupTempTraits = new HashMap<>();
+	final Map<CardData, EnumSet<CardData.Trait>> p2BackupTempTraits = new HashMap<>();
+	final Map<CardData, Integer> p1BackupForwardDamage    = new HashMap<>();
+	private final Map<CardData, Integer> p2BackupForwardDamage    = new HashMap<>();
 	int p1BackupAttackIdx = -1;
 	private int p2BackupAttackIdx = -1;
 
@@ -248,9 +256,9 @@ public class MainWindow {
 	final List<Integer>  p1MonsterPlayedOnTurn = new ArrayList<>();
 	final List<Integer>  p1MonsterDamage       = new ArrayList<>();
 	private int                  p1MonsterAttackIdx    = -1;
-	final java.util.Map<CardData, Integer> p1MonsterTempForwardPower = new HashMap<>();
-	final java.util.Map<CardData, Integer> p1MonsterPowerBoost = new HashMap<>();
-	final java.util.Map<CardData, java.util.EnumSet<CardData.Trait>> p1MonsterTempTraits = new HashMap<>();
+	final Map<CardData, Integer> p1MonsterTempForwardPower = new HashMap<>();
+	final Map<CardData, Integer> p1MonsterPowerBoost = new HashMap<>();
+	final Map<CardData, EnumSet<CardData.Trait>> p1MonsterTempTraits = new HashMap<>();
 	JPanel p1MonsterPanel;
 
 	final List<Boolean>   p2MonsterFrozen       = new ArrayList<>();
@@ -260,9 +268,9 @@ public class MainWindow {
 	final List<CardState> p2MonsterStates        = new ArrayList<>();
 	final List<Integer>   p2MonsterPlayedOnTurn  = new ArrayList<>();
 	private final List<Integer>   p2MonsterDamage        = new ArrayList<>();
-	final java.util.Map<CardData, Integer> p2MonsterTempForwardPower = new HashMap<>();
-	final java.util.Map<CardData, Integer> p2MonsterPowerBoost = new HashMap<>();
-	final java.util.Map<CardData, java.util.EnumSet<CardData.Trait>> p2MonsterTempTraits = new HashMap<>();
+	final Map<CardData, Integer> p2MonsterTempForwardPower = new HashMap<>();
+	final Map<CardData, Integer> p2MonsterPowerBoost = new HashMap<>();
+	final Map<CardData, EnumSet<CardData.Trait>> p2MonsterTempTraits = new HashMap<>();
 	JPanel p2MonsterPanel;
 
 	private int      p2DamageCount = 0;
@@ -378,6 +386,9 @@ public class MainWindow {
 	private int     p1CardsDrawnThisTurn         = 0;
 	boolean p1DiscardedByEffectThisTurn  = false;
 	boolean p1CausedOpponentDiscardThisTurn = false;
+	// Power of the Forward most recently discarded as part of resolving an ability
+	// (e.g. Kolka's "you may discard 1 Forward. … the discarded Forward's power").
+	int     lastDiscardedForwardPower    = 0;
 	boolean p1FormedPartyThisTurn        = false;
 	boolean p1PartyAnyElementThisTurn   = false;
 	boolean p2PartyAnyElementThisTurn   = false;
@@ -452,7 +463,7 @@ public class MainWindow {
 	/** Set to {@code true} by {@code returnNamedCardToYourHand} when the Summon itself is being returned to hand. */
 	boolean pendingSummonReturnToHand = false;
 	/** Stack entries whose effect has been cancelled by Y'shtola or similar; checked and consumed at resolution. */
-	final Set<StackEntry> cancelledStackEntries = Collections.newSetFromMap(new java.util.IdentityHashMap<>());
+	final Set<StackEntry> cancelledStackEntries = Collections.newSetFromMap(new IdentityHashMap<>());
 	/** True while {@link #resolveTopOfStack} or EX Burst execution is running; suppresses {@link #showStackWindowIfNeeded}. */
 	private boolean isResolvingStack = false;
 	/** Set to {@code true} before placing a card whose ETF auto-ability should not fire (consumed on first trigger check). */
@@ -1667,16 +1678,16 @@ public class MainWindow {
                                 for (int i = 0; i < p1ForwardDamage.size(); i++) p1ForwardDamage.set(i, 0);
                                 for (int i = 0; i < p1ForwardPowerBoost.size(); i++) p1ForwardPowerBoost.set(i, 0);
                                 for (int i = 0; i < p1ForwardPowerReduction.size(); i++) p1ForwardPowerReduction.set(i, 0);
-                                p1ForwardTempTraits.forEach(java.util.EnumSet::clear);
-                                p1ForwardRemovedTraits.forEach(java.util.EnumSet::clear);
-                                java.util.Collections.fill(p1ForwardTempJobs, null);
+                                p1ForwardTempTraits.forEach(EnumSet::clear);
+                                p1ForwardRemovedTraits.forEach(EnumSet::clear);
+                                Collections.fill(p1ForwardTempJobs, null);
                                 for (int i = 0; i < p1ForwardCards.size(); i++) refreshP1ForwardSlot(i);
                                 for (int i = 0; i < p2ForwardDamage.size(); i++) p2ForwardDamage.set(i, 0);
                                 for (int i = 0; i < p2ForwardPowerBoost.size(); i++) p2ForwardPowerBoost.set(i, 0);
                                 for (int i = 0; i < p2ForwardPowerReduction.size(); i++) p2ForwardPowerReduction.set(i, 0);
-                                p2ForwardTempTraits.forEach(java.util.EnumSet::clear);
-                                p2ForwardRemovedTraits.forEach(java.util.EnumSet::clear);
-                                java.util.Collections.fill(p2ForwardTempJobs, null);
+                                p2ForwardTempTraits.forEach(EnumSet::clear);
+                                p2ForwardRemovedTraits.forEach(EnumSet::clear);
+                                Collections.fill(p2ForwardTempJobs, null);
                                 p1MonsterPowerBoost.clear(); p2MonsterPowerBoost.clear();
                                 p1MonsterTempTraits.clear(); p2MonsterTempTraits.clear();
                                 for (int i = 0; i < p1MonsterCards.size(); i++) refreshP1MonsterSlot(i);
@@ -1789,8 +1800,8 @@ public class MainWindow {
 		p1ForwardFrozen.clear();
 		p1MonsterFrozen.clear();
 		p1AttackSelection.clear();
-		java.util.Arrays.fill(p1BackupPlayedOnTurn, 0);
-		java.util.Arrays.fill(p1BackupFrozen, false);
+		Arrays.fill(p1BackupPlayedOnTurn, 0);
+		Arrays.fill(p1BackupFrozen, false);
 		lastCastPaymentDistinctElements = 0;
 
 		// Monster zone
@@ -1892,7 +1903,7 @@ public class MainWindow {
 		p2ForwardTempJobs.clear();
 		p2ForwardPrimedTop.clear();
 		p2ForwardFrozen.clear();
-		java.util.Arrays.fill(p2BackupFrozen, false);
+		Arrays.fill(p2BackupFrozen, false);
 
 		// Reset P2 damage zone display
 		p2DamageCount = 0;
@@ -2777,8 +2788,8 @@ public class MainWindow {
 		p1ForwardDamage.add(damage);
 		p1ForwardPowerBoost.add(0);
 		p1ForwardPowerReduction.add(0);
-		p1ForwardTempTraits.add(java.util.EnumSet.noneOf(CardData.Trait.class));
-		p1ForwardRemovedTraits.add(java.util.EnumSet.noneOf(CardData.Trait.class));
+		p1ForwardTempTraits.add(EnumSet.noneOf(CardData.Trait.class));
+		p1ForwardRemovedTraits.add(EnumSet.noneOf(CardData.Trait.class));
 		p1ForwardTempJobs.add(null);
 		p1ForwardPrimedTop.add(null);
 		p1ForwardFrozen.add(false);
@@ -2879,8 +2890,8 @@ public class MainWindow {
 		p2ForwardDamage.add(dmg);
 		p2ForwardPowerBoost.add(0);
 		p2ForwardPowerReduction.add(0);
-		p2ForwardTempTraits.add(java.util.EnumSet.noneOf(CardData.Trait.class));
-		p2ForwardRemovedTraits.add(java.util.EnumSet.noneOf(CardData.Trait.class));
+		p2ForwardTempTraits.add(EnumSet.noneOf(CardData.Trait.class));
+		p2ForwardRemovedTraits.add(EnumSet.noneOf(CardData.Trait.class));
 		p2ForwardTempJobs.add(null);
 		p2ForwardFrozen.add(false);
 		rebuildP2ForwardPanel();
@@ -2893,8 +2904,8 @@ public class MainWindow {
 	/** Checks if any stolen forward had {@code leavingCardName} as its on-field condition and restores them. */
 	private void checkAndRestoreStolenOnLeave(String leavingCardName) {
 		String condKey = "whileCardOnField:" + leavingCardName;
-		java.util.List<CardData> toRestore = new java.util.ArrayList<>();
-		for (java.util.Map.Entry<CardData, String> e : stolenForwards.entrySet())
+		List<CardData> toRestore = new ArrayList<>();
+		for (Map.Entry<CardData, String> e : stolenForwards.entrySet())
 			if (e.getValue().equalsIgnoreCase(condKey)) toRestore.add(e.getKey());
 		for (CardData c : toRestore) {
 			stolenForwards.remove(c);
@@ -3247,6 +3258,7 @@ public class MainWindow {
 					playerHand(isP1).add(card);
 					logEntry((isP1 ? "" : "[P2] ") + card.name() + " → hand (search)");
 					if (isP1) refreshP1HandLabel(); else refreshP2HandCountLabel();
+					animateCardDraw(isP1, 1);
 				}
 				case "field" -> {
 					logEntry((isP1 ? "" : "[P2] ") + card.name() + " → field (search)" + (entersDull ? " dull" : ""));
@@ -3854,7 +3866,7 @@ public class MainWindow {
 		if (idx < 0 || idx >= mons.size()) return false;
 		CardData card = mons.get(idx);
 		if (card.hasTrait(trait)) return true;
-		java.util.EnumSet<CardData.Trait> granted = (isP1 ? p1MonsterTempTraits : p2MonsterTempTraits).get(card);
+		EnumSet<CardData.Trait> granted = (isP1 ? p1MonsterTempTraits : p2MonsterTempTraits).get(card);
 		return granted != null && granted.contains(trait);
 	}
 
@@ -4655,7 +4667,7 @@ public class MainWindow {
 			List<Integer> toDiscard = new ArrayList<>(selected);
 			toDiscard.sort(Collections.reverseOrder());
 			for (int di : toDiscard) {
-				gameState.breakFromHand(di);
+				playerBreakFromHand(true,di);
 			}
 			logEntry("Discarded " + toDiscard.size() + " card(s) — hand reduced to 5");
 			refreshP1HandLabel();
@@ -4788,7 +4800,7 @@ public class MainWindow {
 			List<Integer> toDiscard = new ArrayList<>(selected);
 			toDiscard.sort(Collections.reverseOrder());
 			for (int di : toDiscard) {
-				CardData d = gameState.breakFromHand(di);
+				CardData d = playerBreakFromHand(true,di);
 				if (d != null) logEntry("Discards " + d.name() + (forcedByOpponent ? " (forced by opponent)" : ""));
 			}
 			if (!toDiscard.isEmpty()) p1DiscardedByEffectThisTurn = true;
@@ -4911,8 +4923,12 @@ public class MainWindow {
 			dlg.dispose();
 			int idx = selectedIdx[0];
 			if (idx >= 0) {
-				CardData d = gameState.breakFromHand(idx);
-				if (d != null) { logEntry("Discards " + d.name()); p1DiscardedByEffectThisTurn = true; }
+				CardData d = playerBreakFromHand(true,idx);
+				if (d != null) {
+					logEntry("Discards " + d.name());
+					p1DiscardedByEffectThisTurn = true;
+					if (d.isForward()) lastDiscardedForwardPower = d.power();
+				}
 				refreshP1HandLabel();
 				refreshP1BreakLabel();
 				result[0] = true;
@@ -5590,8 +5606,8 @@ public class MainWindow {
 			List<String> altElems = card.altCpElements();
 			String crystalStr = ac > 0 ? "《C》".repeat(ac) : "";
 			String cpStr = altElems.isEmpty() ? "" : (ac > 0 ? " + " : "") + altElems.stream()
-					.collect(java.util.stream.Collectors.groupingBy(elem -> elem.isEmpty() ? "generic" : elem, LinkedHashMap::new, java.util.stream.Collectors.counting()))
-					.entrySet().stream().map(en -> (en.getKey().equals("generic") ? en.getValue() + " CP" : en.getValue() + " " + en.getKey() + " CP")).collect(java.util.stream.Collectors.joining(" + "));
+					.collect(Collectors.groupingBy(elem -> elem.isEmpty() ? "generic" : elem, LinkedHashMap::new, Collectors.counting()))
+					.entrySet().stream().map(en -> (en.getKey().equals("generic") ? en.getValue() + " CP" : en.getValue() + " " + en.getKey() + " CP")).collect(Collectors.joining(" + "));
 			List<String> cond = card.altConditionCardNames();
 			String condStr = cond.isEmpty() ? "" : " [req: " + String.join("/", cond) + "]";
 			String altLabel = "Play (Alt: " + crystalStr + cpStr + condStr + ")";
@@ -5660,13 +5676,14 @@ public class MainWindow {
 
 	void refreshP1BreakLabel() {
 		List<CardData> zone = gameState.getP1BreakZone();
-		if (zone.isEmpty()) {
+		int topIdx = zone.size() - 1 - p1BreakAnimHide;
+		if (topIdx < 0) {
 			p1BreakLabel.setIcon(null);
 			p1BreakLabel.setFont(FontLoader.loadPixelNESFont(18));
 			p1BreakLabel.setText("BREAK");
 			return;
 		}
-		String url = zone.get(zone.size() - 1).imageUrl();
+		String url = zone.get(topIdx).imageUrl();
 		new SwingWorker<ImageIcon, Void>() {
 			@Override protected ImageIcon doInBackground() throws Exception {
 				Image img = ImageCache.load(url);
@@ -5684,13 +5701,14 @@ public class MainWindow {
 
 	void refreshP2BreakLabel() {
 		List<CardData> zone = gameState.getP2BreakZone();
-		if (zone.isEmpty()) {
+		int topIdx = zone.size() - 1 - p2BreakAnimHide;
+		if (topIdx < 0) {
 			p2BreakLabel.setIcon(null);
 			p2BreakLabel.setFont(FontLoader.loadPixelNESFont(18));
 			p2BreakLabel.setText("BREAK");
 			return;
 		}
-		String url = zone.get(zone.size() - 1).imageUrl();
+		String url = zone.get(topIdx).imageUrl();
 		new SwingWorker<ImageIcon, Void>() {
 			@Override protected ImageIcon doInBackground() throws Exception {
 				Image img = ImageCache.load(url);
@@ -5730,6 +5748,47 @@ public class MainWindow {
 				loadCardbackImage(), CardAnimation.CARD_W, CardAnimation.CARD_H);
 		for (int i = 0; i < count; i++)
 			cardSlideAnimator.startSlide(img, start, end, i * 5);
+	}
+
+	/**
+	 * Triggers a card-slide animation from the player's hand area (off-screen
+	 * bottom-center for P1, off-screen top-center for P2) toward the Break Zone.
+	 * Visually mirrors {@link #animateCardDraw} but ends at the Break Zone label
+	 * and uses the card's face image (discards are face-up).
+	 */
+	void animateCardDiscard(boolean isP1, CardData card) {
+		if (card == null) return;
+		JLabel       brk = isP1 ? p1BreakLabel : p2BreakLabel;
+		if (brk == null) return;
+		JLayeredPane lp  = frame.getRootPane().getLayeredPane();
+
+		int   cx    = lp.getWidth() / 2;
+		Point start = isP1
+				? new Point(cx, lp.getHeight() + CardAnimation.CARD_H)
+				: new Point(cx, -CardAnimation.CARD_H);
+		Point end   = SwingUtilities.convertPoint(
+				brk, brk.getWidth() / 2, brk.getHeight() / 2, lp);
+
+		BufferedImage img;
+		try {
+			Image face = ImageCache.load(card.imageUrl());
+			if (face == null) return;
+			img = CardAnimation.toARGB(face, CardAnimation.CARD_W, CardAnimation.CARD_H);
+		} catch (java.io.IOException ignored) {
+			return;
+		}
+		// Hide this card from the break label until the slide lands.
+		if (isP1) p1BreakAnimHide++; else p2BreakAnimHide++;
+		if (isP1) refreshP1BreakLabel(); else refreshP2BreakLabel();
+		cardSlideAnimator.startSlide(img, start, end, 0);
+		int delayMs = CardSlideAnimator.TOTAL_FRAMES * CardSlideAnimator.FRAME_MS;
+		Timer reveal = new Timer(delayMs, e -> {
+			if (isP1) p1BreakAnimHide = Math.max(0, p1BreakAnimHide - 1);
+			else      p2BreakAnimHide = Math.max(0, p2BreakAnimHide - 1);
+			if (isP1) refreshP1BreakLabel(); else refreshP2BreakLabel();
+		});
+		reveal.setRepeats(false);
+		reveal.start();
 	}
 
 	void startBreakAnim(JLabel label) {
@@ -5826,14 +5885,14 @@ public class MainWindow {
 			case IF_CONTROL_NAME -> {
 				String name = mod.param1();
 				yield fwds.stream().anyMatch(f -> f.name().equalsIgnoreCase(name))
-					|| java.util.Arrays.stream(bkps).filter(b -> b != null)
+					|| Arrays.stream(bkps).filter(b -> b != null)
 					         .anyMatch(b -> b.name().equalsIgnoreCase(name))
 					? 1 : 0;
 			}
 			case EACH_FORWARD ->
 				fwds.size();
 			case EACH_BACKUP ->
-				(int) java.util.Arrays.stream(bkps).filter(b -> b != null).count();
+				(int) Arrays.stream(bkps).filter(b -> b != null).count();
 			case EACH_FORWARD_WITH_CATEGORY -> {
 				String cat = mod.param1();
 				yield (int) fwds.stream()
@@ -5843,13 +5902,13 @@ public class MainWindow {
 			case EACH_FORWARD_WITH_JOB -> {
 				String job = mod.param1();
 				yield (int) (fwds.stream().filter(f -> f.hasJob(job)).count()
-						+ java.util.Arrays.stream(bkps).filter(b -> b != null && b.hasJob(job)).count());
+						+ Arrays.stream(bkps).filter(b -> b != null && b.hasJob(job)).count());
 			}
 			case EACH_FORWARD_WITH_JOB_OR_NAME -> {
 				String job  = mod.param1();
 				String name = mod.param2();
 				yield (int) (fwds.stream().filter(f -> f.hasJob(job) || name.equalsIgnoreCase(f.name())).count()
-						+ java.util.Arrays.stream(bkps).filter(b -> b != null
+						+ Arrays.stream(bkps).filter(b -> b != null
 								&& (b.hasJob(job) || name.equalsIgnoreCase(b.name()))).count());
 			}
 			case EACH_DAMAGE_RECEIVED ->
@@ -5883,7 +5942,7 @@ public class MainWindow {
 							.filter(f -> cat.equalsIgnoreCase(f.category1()) || cat.equalsIgnoreCase(f.category2()))
 							.count();
 				if ("Backup".equalsIgnoreCase(type) || "Character".equalsIgnoreCase(type))
-					bkpCount = java.util.Arrays.stream(bkps)
+					bkpCount = Arrays.stream(bkps)
 							.filter(b -> b != null && (cat.equalsIgnoreCase(b.category1()) || cat.equalsIgnoreCase(b.category2())))
 							.count();
 				yield (fwdCount + bkpCount) >= n ? 1 : 0;
@@ -5896,7 +5955,7 @@ public class MainWindow {
 						.count();
 				long bkpCount = 0;
 				if ("Character".equalsIgnoreCase(type)) {
-					bkpCount = java.util.Arrays.stream(bkps)
+					bkpCount = Arrays.stream(bkps)
 							.filter(b -> b != null)
 							.filter(b -> cat.equalsIgnoreCase(b.category1()) || cat.equalsIgnoreCase(b.category2()))
 							.count();
@@ -5934,7 +5993,7 @@ public class MainWindow {
 				if ("Forward".equalsIgnoreCase(type) || "Character".equalsIgnoreCase(type))
 					fwdCount = fwds.size();
 				if ("Backup".equalsIgnoreCase(type) || "Character".equalsIgnoreCase(type))
-					bkpCount = java.util.Arrays.stream(bkps).filter(b -> b != null).count();
+					bkpCount = Arrays.stream(bkps).filter(b -> b != null).count();
 				if ("Monster".equalsIgnoreCase(type)) {
 					List<CardData> mons = isP1 ? p1MonsterCards : p2MonsterCards;
 					monCount = mons.size();
@@ -5962,7 +6021,7 @@ public class MainWindow {
 				if ("Forward".equalsIgnoreCase(type) || "Character".equalsIgnoreCase(type))
 					fwdCount = fwds.stream().filter(f -> f.cost() >= minCostVal).count();
 				if ("Backup".equalsIgnoreCase(type) || "Character".equalsIgnoreCase(type))
-					bkpCount = java.util.Arrays.stream(bkps)
+					bkpCount = Arrays.stream(bkps)
 							.filter(b -> b != null && b.cost() >= minCostVal).count();
 				yield (int) (fwdCount + bkpCount);
 			}
@@ -5977,8 +6036,8 @@ public class MainWindow {
 					oppCount  += oppFwds.size();
 				}
 				if ("Backup".equalsIgnoreCase(type) || "Character".equalsIgnoreCase(type)) {
-					selfCount += java.util.Arrays.stream(bkps).filter(b -> b != null).count();
-					oppCount  += java.util.Arrays.stream(oppBkps).filter(b -> b != null).count();
+					selfCount += Arrays.stream(bkps).filter(b -> b != null).count();
+					oppCount  += Arrays.stream(oppBkps).filter(b -> b != null).count();
 				}
 				if ("Monster".equalsIgnoreCase(type)) {
 					List<CardData> selfMons = isP1 ? p1MonsterCards : p2MonsterCards;
@@ -6014,7 +6073,7 @@ public class MainWindow {
 				if ("Forward".equalsIgnoreCase(type) || "Character".equalsIgnoreCase(type))
 					found = fwds.stream().anyMatch(matches);
 				if (!found && ("Backup".equalsIgnoreCase(type) || "Character".equalsIgnoreCase(type)))
-					found = java.util.Arrays.stream(bkps).filter(b -> b != null).anyMatch(matches);
+					found = Arrays.stream(bkps).filter(b -> b != null).anyMatch(matches);
 				yield found ? 1 : 0;
 			}
 		case EACH_DISTINCT_BACKUP_ELEMENT -> {
@@ -6032,7 +6091,7 @@ public class MainWindow {
 				if ("Forward".equalsIgnoreCase(type) || "Character".equalsIgnoreCase(type))
 					fwdCount = fwds.stream().filter(f -> elem.equalsIgnoreCase(f.element())).count();
 				if ("Backup".equalsIgnoreCase(type) || "Character".equalsIgnoreCase(type))
-					bkpCount = java.util.Arrays.stream(bkps).filter(b -> b != null && elem.equalsIgnoreCase(b.element())).count();
+					bkpCount = Arrays.stream(bkps).filter(b -> b != null && elem.equalsIgnoreCase(b.element())).count();
 				if ("Monster".equalsIgnoreCase(type)) {
 					List<CardData> mons = isP1 ? p1MonsterCards : p2MonsterCards;
 					monCount = mons.stream().filter(mn -> elem.equalsIgnoreCase(mn.element())).count();
@@ -6047,7 +6106,7 @@ public class MainWindow {
 				int n    = Integer.parseInt(mod.param1());
 				String job = mod.param2();
 				long count = fwds.stream().filter(f -> f.hasJob(job)).count()
-						+ java.util.Arrays.stream(bkps).filter(b -> b != null && b.hasJob(job)).count();
+						+ Arrays.stream(bkps).filter(b -> b != null && b.hasJob(job)).count();
 				yield count >= n ? 1 : 0;
 			}
 		case IF_ELEMENT_FORWARD_ENTERED_FIELD_THIS_TURN -> {
@@ -6065,7 +6124,7 @@ public class MainWindow {
 				if ("Forward".equalsIgnoreCase(type) || "Character".equalsIgnoreCase(type))
 					count += oppFwds.size();
 				if ("Backup".equalsIgnoreCase(type) || "Character".equalsIgnoreCase(type))
-					count += java.util.Arrays.stream(oppBkps).filter(b -> b != null).count();
+					count += Arrays.stream(oppBkps).filter(b -> b != null).count();
 				if ("Monster".equalsIgnoreCase(type))
 					count += oppMons.size();
 				yield count >= n ? 1 : 0;
@@ -6097,7 +6156,7 @@ public class MainWindow {
 				if ("Forward".equalsIgnoreCase(type) || "Character".equalsIgnoreCase(type))
 					fwdCount = fwds.size();
 				if ("Backup".equalsIgnoreCase(type) || "Character".equalsIgnoreCase(type))
-					bkpCount = java.util.Arrays.stream(bkps).filter(b -> b != null).count();
+					bkpCount = Arrays.stream(bkps).filter(b -> b != null).count();
 				if ("Monster".equalsIgnoreCase(type)) {
 					List<CardData> mons = isP1 ? p1MonsterCards : p2MonsterCards;
 					monCount = mons.size();
@@ -6113,7 +6172,7 @@ public class MainWindow {
 				if ("Forward".equalsIgnoreCase(type) || "Character".equalsIgnoreCase(type))
 					fwdCount = fwds.stream().filter(f -> elem.equalsIgnoreCase(f.element())).count();
 				if ("Backup".equalsIgnoreCase(type) || "Character".equalsIgnoreCase(type))
-					bkpCount = java.util.Arrays.stream(bkps)
+					bkpCount = Arrays.stream(bkps)
 							.filter(b -> b != null && elem.equalsIgnoreCase(b.element())).count();
 				if ("Monster".equalsIgnoreCase(type)) {
 					List<CardData> mons = isP1 ? p1MonsterCards : p2MonsterCards;
@@ -6137,7 +6196,7 @@ public class MainWindow {
 				if ("Forward".equalsIgnoreCase(type) || "Character".equalsIgnoreCase(type))
 					fwdCount = fwds.stream().filter(f -> elem.equalsIgnoreCase(f.element())).count();
 				if ("Backup".equalsIgnoreCase(type) || "Character".equalsIgnoreCase(type))
-					bkpCount = java.util.Arrays.stream(bkps)
+					bkpCount = Arrays.stream(bkps)
 							.filter(b -> b != null && elem.equalsIgnoreCase(b.element())).count();
 				if ("Monster".equalsIgnoreCase(type)) {
 					List<CardData> mons = isP1 ? p1MonsterCards : p2MonsterCards;
@@ -6151,7 +6210,7 @@ public class MainWindow {
 				String job  = mod.param1();
 				String name = mod.param2();
 				boolean found = fwds.stream().anyMatch(f -> f.hasJob(job) || name.equalsIgnoreCase(f.name()))
-						|| java.util.Arrays.stream(bkps).filter(b -> b != null)
+						|| Arrays.stream(bkps).filter(b -> b != null)
 								.anyMatch(b -> b.hasJob(job) || name.equalsIgnoreCase(b.name()));
 				yield found ? 1 : 0;
 			}
@@ -6168,7 +6227,7 @@ public class MainWindow {
 				String name = parts.length > 1 ? parts[1] : "";
 				long count = fwds.stream()
 								.filter(f -> f.hasJob(job) || name.equalsIgnoreCase(f.name())).count()
-						+ java.util.Arrays.stream(bkps).filter(b -> b != null
+						+ Arrays.stream(bkps).filter(b -> b != null
 								&& (b.hasJob(job) || name.equalsIgnoreCase(b.name()))).count();
 				yield count >= n ? 1 : 0;
 			}
@@ -6204,8 +6263,8 @@ public class MainWindow {
 					oppCount  += oppFwds.size();
 				}
 				if ("Backup".equalsIgnoreCase(type) || "Character".equalsIgnoreCase(type)) {
-					selfCount += java.util.Arrays.stream(bkps).filter(b -> b != null).count();
-					oppCount  += java.util.Arrays.stream(oppBkps).filter(b -> b != null).count();
+					selfCount += Arrays.stream(bkps).filter(b -> b != null).count();
+					oppCount  += Arrays.stream(oppBkps).filter(b -> b != null).count();
 				}
 				if ("Monster".equalsIgnoreCase(type)) {
 					List<CardData> selfMons = isP1 ? p1MonsterCards : p2MonsterCards;
@@ -6229,7 +6288,7 @@ public class MainWindow {
 						|| (("Backup".equalsIgnoreCase(type) || "Character".equalsIgnoreCase(type))
 							&& elem.equalsIgnoreCase(b.element()));
 				yield (int) (fwds.stream().filter(fwdPred).count()
-						+ java.util.Arrays.stream(bkps).filter(b -> b != null).filter(bkpPred).count()
+						+ Arrays.stream(bkps).filter(b -> b != null).filter(bkpPred).count()
 						+ mons.stream().filter(mn -> mn.hasJob(job)
 								|| ("Monster".equalsIgnoreCase(type) && elem.equalsIgnoreCase(mn.element()))).count());
 			}
@@ -6541,7 +6600,7 @@ public class MainWindow {
 					new Object[]{"Confirm", "Cancel"}, "Confirm");
 			if (choice != 0) return;
 			if (altC > 0) { playerSpendCrystals(true, altC); refreshCrystalDisplays(); }
-			executePlay(card, handIdx, java.util.Collections.emptyList(), java.util.Collections.emptyList(), Map.of());
+			executePlay(card, handIdx, Collections.emptyList(), Collections.emptyList(), Map.of());
 			executeAltFollowup(followupText, card);
 			return;
 		}
@@ -6618,7 +6677,7 @@ public class MainWindow {
 	 */
 	private void executeWarpPlay(CardData card, int cardHandIdx,
 			List<Integer> discardIndices, List<Integer> backupDullIndices,
-			java.util.Map<Integer, String> elementOverrides) {
+			Map<Integer, String> elementOverrides) {
 		List<String> rawCost = card.warpCost();
 		LinkedHashMap<String, Integer> costByElem = new LinkedHashMap<>();
 		for (String e : rawCost) costByElem.merge(e, 1, Integer::sum);
@@ -6639,7 +6698,7 @@ public class MainWindow {
 			String cpElem = matchesAnyElement(discarded, elems)
 					? contributingElement(discarded, elems) : elems[0];
 			gameState.addP1Cp(cpElem, 2);
-			gameState.breakFromHand(di);
+			playerBreakFromHand(true,di);
 			if (di < cardHandIdx) cardHandIdx--;
 		}
 		for (String e : elems) {
@@ -6807,7 +6866,7 @@ public class MainWindow {
 		// Backups: sort by fewest element matches first for optimal assignment.
 		List<Integer> sortedBackups = new ArrayList<>(backupDullIndices);
 		if (!isLD) sortedBackups.sort(Comparator.comparingInt(s ->
-				(int) java.util.Arrays.stream(elems)
+				(int) Arrays.stream(elems)
 						.filter(e -> p1BackupCards[s].containsElement(e)).count()));
 		for (int bi : sortedBackups) {
 			p1BackupStates[bi] = CardState.DULL;
@@ -6828,7 +6887,7 @@ public class MainWindow {
 		// then remove from hand in reverse-index order to avoid index shifting.
 		List<Integer> assignOrder = new ArrayList<>(discardIndices);
 		if (!isLD) assignOrder.sort(Comparator.comparingInt(i ->
-				(int) java.util.Arrays.stream(elems)
+				(int) Arrays.stream(elems)
 						.filter(e -> gameState.getP1Hand().get(i).containsElement(e)).count()));
 		Map<Integer, String> cpAssignments = new LinkedHashMap<>();
 		for (int i : assignOrder) {
@@ -6841,7 +6900,7 @@ public class MainWindow {
 		discardIndices.sort(Collections.reverseOrder());
 		for (int di : discardIndices) {
 			gameState.addP1Cp(cpAssignments.get(di), 2);
-			gameState.breakFromHand(di);
+			playerBreakFromHand(true,di);
 			if (di < cardHandIdx) cardHandIdx--;
 		}
 		for (String e : elems) {
@@ -7136,6 +7195,7 @@ public class MainWindow {
 		}
 
 		if (!gameState.getStack().isEmpty()) showStackWindow();
+		else lastDiscardedForwardPower = 0;
 	}
 
 	/** Calls {@link #showStackWindow()} only when we are not already inside a stack resolution chain. */
@@ -7180,7 +7240,7 @@ public class MainWindow {
 			CardData discarded = gameState.getP1Hand().get(di);
 			String cpElem = isLD ? discarded.elements()[0] : contributingElement(discarded, elems);
 			gameState.addP1Cp(cpElem, 2);
-			gameState.breakFromHand(di);
+			playerBreakFromHand(true,di);
 		}
 		for (String e : elems) {
 			gameState.spendP1Cp(e, gameState.getP1CpForElement(e));
@@ -7519,7 +7579,7 @@ public class MainWindow {
 				if (raw == null) return new ImageIcon(CardAnimation.renderPlaceholder(state));
 				BufferedImage canvas = CardAnimation.renderBackupCard(
 						CardAnimation.toARGB(raw, CARD_W, CARD_H), state, canAttack, selected, p1BackupFrozen[idx]);
-				if (damage > 0) CardAnimation.renderDamageOverlay(canvas, damage);
+				if (damage > 0) CardAnimation.renderDamageOverlay(canvas, damage, state);
 				if (actingForward && fwdPower > 0)
 					CardAnimation.renderPowerOverlayRight(canvas, fwdPower, new Color(80, 220, 80), state);
 				return new ImageIcon(canvas);
@@ -7700,7 +7760,11 @@ public class MainWindow {
 	void playerSpendCp(boolean isP1, String e, int n)  { if (isP1) gameState.spendP1Cp(e, n); else gameState.spendP2Cp(e, n); }
 	void playerClearCp(boolean isP1, String e)         { if (isP1) gameState.clearP1Cp(e);    else gameState.clearP2Cp(e); }
 	void playerSpendCrystals(boolean isP1, int n)      { if (isP1) gameState.spendP1Crystals(n); else gameState.spendP2Crystals(n); }
-	CardData playerBreakFromHand(boolean isP1, int i)  { return isP1 ? gameState.breakFromHand(i) : gameState.breakP2FromHand(i); }
+	CardData playerBreakFromHand(boolean isP1, int i)  {
+		CardData d = isP1 ? gameState.breakFromHand(i) : gameState.breakP2FromHand(i);
+		if (d != null) animateCardDiscard(isP1, d);
+		return d;
+	}
 	void playerDullBackupSlot(boolean isP1, int idx) {
 		if (isP1) animateDullBackup(idx, true); else animateDullP2Backup(idx, true);
 	}
@@ -7959,7 +8023,7 @@ public class MainWindow {
 		if (exceptName.isEmpty()) return controlConditionMet(cond, isP1);
 		List<CardData> fwds = new ArrayList<>(isP1 ? p1ForwardCards : p2ForwardCards);
 		CardData[] srcBkps  = isP1 ? p1BackupCards : p2BackupCards;
-		CardData[] bkps     = java.util.Arrays.copyOf(srcBkps, srcBkps.length);
+		CardData[] bkps     = Arrays.copyOf(srcBkps, srcBkps.length);
 		List<CardData> mons = new ArrayList<>(isP1 ? p1MonsterCards : p2MonsterCards);
 		fwds.removeIf(c -> c.name().equalsIgnoreCase(exceptName));
 		mons.removeIf(c -> c.name().equalsIgnoreCase(exceptName));
@@ -7982,7 +8046,7 @@ public class MainWindow {
 	 */
 	List<String> effectiveElements(CardData c) {
 		String override = elementOverrideMap.get(c);
-		return (override != null) ? List.of(override) : java.util.Arrays.asList(c.elements());
+		return (override != null) ? List.of(override) : Arrays.asList(c.elements());
 	}
 
 	private String effectiveExtraJob(CardData card) {
@@ -8062,6 +8126,49 @@ public class MainWindow {
 			for (ScalingSelfPowerBoost ssb : src.scalingSelfPowerBoosts()) {
 				int count = switch (ssb.source()) {
 					case OPPONENT_FORWARDS -> isP1 ? p2ForwardCards.size() : p1ForwardCards.size();
+					case OTHER_CHARACTERS_YOU_CONTROL -> {
+						List<CardData>  fwds   = isP1 ? p1ForwardCards  : p2ForwardCards;
+						List<CardState> fwdSt  = isP1 ? p1ForwardStates : p2ForwardStates;
+						CardData[]      bkps   = isP1 ? p1BackupCards   : p2BackupCards;
+						CardState[]     bkpSt  = isP1 ? p1BackupStates  : p2BackupStates;
+						List<CardData>  mons   = isP1 ? p1MonsterCards  : p2MonsterCards;
+						List<CardState> monSt  = isP1 ? p1MonsterStates : p2MonsterStates;
+						int n = 0;
+						for (int i = 0; i < fwds.size(); i++)
+							if (scalingCharacterCounts(fwds.get(i), fwdSt.get(i), src, ssb)) n++;
+						for (int i = 0; i < bkps.length; i++)
+							if (bkps[i] != null && scalingCharacterCounts(bkps[i], bkpSt[i], src, ssb)) n++;
+						for (int i = 0; i < mons.size(); i++)
+							if (scalingCharacterCounts(mons.get(i), monSt.get(i), src, ssb)) n++;
+						yield n;
+					}
+					case OTHER_FORWARDS_YOU_CONTROL -> {
+						List<CardData>  fwds  = isP1 ? p1ForwardCards  : p2ForwardCards;
+						List<CardState> fwdSt = isP1 ? p1ForwardStates : p2ForwardStates;
+						int n = 0;
+						for (int i = 0; i < fwds.size(); i++) {
+							if (scalingCharacterCounts(fwds.get(i), fwdSt.get(i), src, ssb)) n++;
+						}
+						yield n;
+					}
+					case OTHER_BACKUPS_YOU_CONTROL -> {
+						CardData[]  bkps  = isP1 ? p1BackupCards  : p2BackupCards;
+						CardState[] bkpSt = isP1 ? p1BackupStates : p2BackupStates;
+						int n = 0;
+						for (int i = 0; i < bkps.length; i++) {
+							if (bkps[i] != null && scalingCharacterCounts(bkps[i], bkpSt[i], src, ssb)) n++;
+						}
+						yield n;
+					}
+					case OTHER_MONSTERS_YOU_CONTROL -> {
+						List<CardData>  mons  = isP1 ? p1MonsterCards  : p2MonsterCards;
+						List<CardState> monSt = isP1 ? p1MonsterStates : p2MonsterStates;
+						int n = 0;
+						for (int i = 0; i < mons.size(); i++) {
+							if (scalingCharacterCounts(mons.get(i), monSt.get(i), src, ssb)) n++;
+						}
+						yield n;
+					}
 				};
 				boost += ssb.perUnit() * count;
 			}
@@ -8070,11 +8177,38 @@ public class MainWindow {
 	}
 
 	/**
+	 * Eligibility check for one slot when counting "other ... you control" toward a
+	 * {@link ScalingSelfPowerBoost}. Honors source-name exclusion (by name), active-state
+	 * requirement, element include/exclude, and the job/category/cardName OR-disjunction.
+	 */
+	private boolean scalingCharacterCounts(CardData c, CardState state, CardData src, ScalingSelfPowerBoost ssb) {
+		if (c == null) return false;
+		if (c.name().equalsIgnoreCase(src.name())) return false;
+		if (ssb.requireActive() && state != CardState.ACTIVE) return false;
+		if (ssb.elementFilter() != null && !c.containsElement(ssb.elementFilter())) return false;
+		if (ssb.excludeElement() != null && c.containsElement(ssb.excludeElement())) return false;
+		return matchesScalingFilter(c, ssb.jobFilter(), ssb.categoryFilter(), ssb.cardNameFilter());
+	}
+
+	/**
+	 * OR-disjunction filter check used by {@link #scalingCharacterCounts}.
+	 * Returns {@code true} if all three filters are {@code null} (no restriction) OR if the
+	 * card matches at least one of the non-null filters.
+	 */
+	private boolean matchesScalingFilter(CardData c, String jobFilter, String categoryFilter, String cardNameFilter) {
+		if (jobFilter == null && categoryFilter == null && cardNameFilter == null) return true;
+		if (jobFilter      != null && CardFilters.meetsJobFilter(c, jobFilter))           return true;
+		if (categoryFilter != null && CardFilters.meetsCategoryFilter(c, categoryFilter)) return true;
+		if (cardNameFilter != null && CardFilters.meetsCardNameFilter(c, cardNameFilter)) return true;
+		return false;
+	}
+
+	/**
 	 * Collects all traits conditionally granted to {@code target} on the given player's side
 	 * by any active {@link IfControlBoost} or {@link FieldPowerGrant} on the field.
 	 */
-	private java.util.EnumSet<CardData.Trait> computeConditionalTraitsForTarget(CardData target, boolean isP1) {
-		java.util.EnumSet<CardData.Trait> out = java.util.EnumSet.noneOf(CardData.Trait.class);
+	private EnumSet<CardData.Trait> computeConditionalTraitsForTarget(CardData target, boolean isP1) {
+		EnumSet<CardData.Trait> out = EnumSet.noneOf(CardData.Trait.class);
 		List<CardData> fwds = isP1 ? p1ForwardCards : p2ForwardCards;
 		CardData[]     bkps = isP1 ? p1BackupCards  : p2BackupCards;
 		List<CardData> mons = isP1 ? p1MonsterCards : p2MonsterCards;
@@ -8085,7 +8219,7 @@ public class MainWindow {
 	}
 
 	private void collectFieldTraits(CardData src, CardData target, boolean isP1,
-			java.util.EnumSet<CardData.Trait> out) {
+			EnumSet<CardData.Trait> out) {
 		for (IfControlBoost icb : src.ifControlBoosts())
 			if (icb.targetCardName().equalsIgnoreCase(target.name()) && icbConditionsMet(icb, isP1))
 				out.addAll(icb.grantedTraits());
@@ -8784,7 +8918,7 @@ public class MainWindow {
 	 * returning a card does not shift the indices of targets not yet processed.  Zones
 	 * are independent lists, so a single descending-index sort is safe across zones.
 	 */
-	void applyTargetsHighestIndexFirst(java.util.List<ForwardTarget> targets, Consumer<ForwardTarget> action) {
+	void applyTargetsHighestIndexFirst(List<ForwardTarget> targets, Consumer<ForwardTarget> action) {
 		targets.stream()
 				.sorted(Comparator.comparingInt(ForwardTarget::idx).reversed())
 				.forEach(action);
@@ -8796,10 +8930,10 @@ public class MainWindow {
 	 * {@code upTo} is false.  Returns immediately with an empty list when there are
 	 * no eligible targets.
 	 */
-	java.util.List<ForwardTarget> showForwardSelectDialog(
-			java.util.List<ForwardTarget> eligible, int maxCount, boolean upTo, String title) {
-		if (eligible.isEmpty()) { logEntry("Choose: no eligible targets"); return java.util.List.of(); }
-		if (!upTo && eligible.size() <= maxCount) return java.util.List.copyOf(eligible);
+	List<ForwardTarget> showForwardSelectDialog(
+			List<ForwardTarget> eligible, int maxCount, boolean upTo, String title) {
+		if (eligible.isEmpty()) { logEntry("Choose: no eligible targets"); return List.of(); }
+		if (!upTo && eligible.size() <= maxCount) return List.copyOf(eligible);
 		return selectFieldTargetsInPlace(eligible, maxCount, upTo, title);
 	}
 
@@ -8869,16 +9003,16 @@ public class MainWindow {
 	 * queue via a secondary loop) until the choice is made, preserving the synchronous
 	 * selection contract the effect resolver relies on.
 	 */
-	java.util.List<ForwardTarget> selectFieldTargetsInPlace(
-			java.util.List<ForwardTarget> eligible, int maxCount, boolean upTo, String title) {
+	List<ForwardTarget> selectFieldTargetsInPlace(
+			List<ForwardTarget> eligible, int maxCount, boolean upTo, String title) {
 		final Color GLOW_ELIGIBLE = new Color(90, 200, 255);
 		final Color GLOW_PICKED   = Color.YELLOW;
 
 		java.util.LinkedHashSet<Integer> sel = new java.util.LinkedHashSet<>();
-		java.util.List<JLabel> labels = new ArrayList<>(eligible.size());
-		java.util.Map<JLabel, javax.swing.border.Border> origBorders = new java.util.HashMap<>();
-		java.util.List<java.awt.event.MouseListener> listeners = new ArrayList<>(eligible.size());
-		java.util.List<ForwardTarget> result = new ArrayList<>();
+		List<JLabel> labels = new ArrayList<>(eligible.size());
+		Map<JLabel, javax.swing.border.Border> origBorders = new HashMap<>();
+		List<java.awt.event.MouseListener> listeners = new ArrayList<>(eligible.size());
+		List<ForwardTarget> result = new ArrayList<>();
 		boolean[] dulls = new boolean[eligible.size()];
 		final Timer[] pulseTimerRef = { null };
 
@@ -9002,19 +9136,19 @@ public class MainWindow {
 	 * rather than the field.  {@code eligible} entries carry the correct
 	 * {@code isP1} flag and an index into {@code zone}.
 	 */
-	java.util.List<ForwardTarget> showBreakZoneSelectDialog(
-			java.util.List<ForwardTarget> eligible, java.util.List<CardData> zone,
+	List<ForwardTarget> showBreakZoneSelectDialog(
+			List<ForwardTarget> eligible, List<CardData> zone,
 			int maxCount, boolean upTo, String title) {
-		if (eligible.isEmpty()) { logEntry("Choose: no eligible targets in break zone"); return java.util.List.of(); }
-		if (!upTo && eligible.size() <= maxCount) return java.util.List.copyOf(eligible);
+		if (eligible.isEmpty()) { logEntry("Choose: no eligible targets in break zone"); return List.of(); }
+		if (!upTo && eligible.size() <= maxCount) return List.copyOf(eligible);
 
 		JDialog dlg = new JDialog(frame, title, true);
 		dlg.setResizable(false);
 		dlg.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
 
-		java.util.List<ForwardTarget> chosen = new ArrayList<>();
+		List<ForwardTarget> chosen = new ArrayList<>();
 		Set<Integer> sel = new java.util.LinkedHashSet<>();
-		java.util.List<JLabel> cardLabels = new ArrayList<>(eligible.size());
+		List<JLabel> cardLabels = new ArrayList<>(eligible.size());
 
 		JPanel opponentRow = new JPanel(new FlowLayout(FlowLayout.CENTER, 8, 4));
 		JPanel selfRow     = new JPanel(new FlowLayout(FlowLayout.CENTER, 8, 4));
@@ -9113,7 +9247,7 @@ public class MainWindow {
 		dlg.pack();
 		dlg.setLocationRelativeTo(frame);
 		dlg.setVisible(true);
-		return java.util.List.copyOf(chosen);
+		return List.copyOf(chosen);
 	}
 
 	// -------------------------------------------------------------------------
@@ -9244,8 +9378,8 @@ public class MainWindow {
 		p1ForwardDamage.add(0);
 		p1ForwardPowerBoost.add(0);
 		p1ForwardPowerReduction.add(0);
-		p1ForwardTempTraits.add(java.util.EnumSet.noneOf(CardData.Trait.class));
-		p1ForwardRemovedTraits.add(java.util.EnumSet.noneOf(CardData.Trait.class));
+		p1ForwardTempTraits.add(EnumSet.noneOf(CardData.Trait.class));
+		p1ForwardRemovedTraits.add(EnumSet.noneOf(CardData.Trait.class));
 		p1ForwardTempJobs.add(null);
 		p1ForwardPrimedTop.add(null);
 		p1ForwardFrozen.add(false);
@@ -9337,7 +9471,7 @@ public class MainWindow {
 				BufferedImage canvas = CardAnimation.renderBackupCard(
 						CardAnimation.toARGB(raw, CARD_W, CARD_H), state, canAttack, selected, p1MonsterFrozen.get(idx));
 				if (damage > 0)
-					CardAnimation.renderDamageOverlay(canvas, damage);
+					CardAnimation.renderDamageOverlay(canvas, damage, state);
 				if (actingForward)
 					CardAnimation.renderPowerOverlayRight(canvas, fwdPow, new Color(80, 220, 80), state);
 				else if (power > basePower)
@@ -9416,7 +9550,7 @@ public class MainWindow {
 				BufferedImage canvas = CardAnimation.toARGB(raw, CARD_W, CARD_H);
 				canvas = CardAnimation.renderBackupCard(canvas, state, false, false, p2MonsterFrozen.get(idx));
 				if (damage > 0)
-					CardAnimation.renderDamageOverlay(canvas, damage);
+					CardAnimation.renderDamageOverlay(canvas, damage, state);
 				if (actingForward)
 					CardAnimation.renderPowerOverlayRight(canvas, fwdPow, new Color(80, 220, 80), state);
 				else if (power > basePower)
@@ -9485,7 +9619,7 @@ public class MainWindow {
 				if (raw == null) return new ImageIcon(CardAnimation.renderPlaceholder(state));
 				BufferedImage canvas = CardAnimation.renderBackupCard(CardAnimation.toARGB(raw, CARD_W, CARD_H), state, canAttack, selected, Boolean.TRUE.equals(p1ForwardFrozen.get(idx)));
 				if (damage > 0) {
-					CardAnimation.renderDamageOverlay(canvas, damage);
+					CardAnimation.renderDamageOverlay(canvas, damage, state);
 				}
 				if (power > basePower) {
 					CardAnimation.renderPowerOverlayRight(canvas, power, new Color(80, 220, 80), state);
@@ -9575,7 +9709,7 @@ public class MainWindow {
 		for (int i : indices) {
 			if (effectiveCanFormPartyAnyElement(isP1, i)) continue;
 			CardData m = fwds.get(i);
-			Set<String> elems = new java.util.HashSet<>(java.util.Arrays.asList(m.elements()));
+			Set<String> elems = new java.util.HashSet<>(Arrays.asList(m.elements()));
 			if (required == null) required = elems;
 			else required.retainAll(elems);
 		}
@@ -9604,7 +9738,7 @@ public class MainWindow {
 				// empty → existing members share no common element (shouldn't occur in valid state)
 				if (required != null && !required.isEmpty()) {
 					CardData newFwd = p1ForwardCards.get(idx);
-					if (java.util.Arrays.stream(newFwd.elements()).noneMatch(required::contains)) {
+					if (Arrays.stream(newFwd.elements()).noneMatch(required::contains)) {
 						logEntry("Cannot add to party — no shared element with the party");
 						return;
 					}
@@ -10308,7 +10442,7 @@ public class MainWindow {
 		if (idx < 0 || idx >= backs.length || backs[idx] == null) return false;
 		CardData c = backs[idx];
 		if (c.hasTrait(trait)) return true;
-		java.util.EnumSet<CardData.Trait> granted = (isP1 ? p1BackupTempTraits : p2BackupTempTraits).get(c);
+		EnumSet<CardData.Trait> granted = (isP1 ? p1BackupTempTraits : p2BackupTempTraits).get(c);
 		return granted != null && granted.contains(trait);
 	}
 
@@ -10408,7 +10542,7 @@ public class MainWindow {
 		boolean asFwd = isP1 ? isP1BackupTemporarilyForward(idx) : isP2BackupTemporarilyForward(idx);
 		if (!asFwd) return;
 		CardData c = backs[idx];
-		java.util.Map<CardData, Integer> dmgMap = isP1 ? p1BackupForwardDamage : p2BackupForwardDamage;
+		Map<CardData, Integer> dmgMap = isP1 ? p1BackupForwardDamage : p2BackupForwardDamage;
 		int accum = dmgMap.getOrDefault(c, 0) + amount;
 		dmgMap.put(c, accum);
 		int effPow = isP1 ? p1BackupForwardPower(idx) : p2BackupForwardPower(idx);
@@ -10517,7 +10651,7 @@ public class MainWindow {
 			logEntry("Party Attack! " + names + " (" + combinedPower + " combined)");
 			p1FormedPartyThisTurn = true;
 			List<CardData> p1PartyMembers = selection.stream()
-					.map(p1ForwardCards::get).collect(java.util.stream.Collectors.toList());
+					.map(p1ForwardCards::get).collect(Collectors.toList());
 			autoAbilityTriggers.triggerAutoAbilitiesForPartyAttack(true, p1PartyMembers);
 			final int fCombined = combinedPower;
 			combatPriority("Party Attacker Declared", true, () ->
@@ -11111,7 +11245,7 @@ public class MainWindow {
 			String cpElem = matchesAnyElement(discarded, elems)
 					? contributingElement(discarded, elems) : (elems.length > 0 ? elems[0] : "");
 			if (!cpElem.isEmpty()) gameState.addP1Cp(cpElem, 2);
-			gameState.breakFromHand(di);
+			playerBreakFromHand(true,di);
 		}
 		for (String e : elems) { gameState.spendP1Cp(e, gameState.getP1CpForElement(e)); gameState.clearP1Cp(e); }
 
@@ -11541,8 +11675,8 @@ public class MainWindow {
 		p2ForwardDamage.add(0);
 		p2ForwardPowerBoost.add(0);
 		p2ForwardPowerReduction.add(0);
-		p2ForwardTempTraits.add(java.util.EnumSet.noneOf(CardData.Trait.class));
-		p2ForwardRemovedTraits.add(java.util.EnumSet.noneOf(CardData.Trait.class));
+		p2ForwardTempTraits.add(EnumSet.noneOf(CardData.Trait.class));
+		p2ForwardRemovedTraits.add(EnumSet.noneOf(CardData.Trait.class));
 		p2ForwardTempJobs.add(null);
 		p2ForwardPrimedTop.add(null);
 		p2ForwardFrozen.add(false);
@@ -11587,7 +11721,7 @@ public class MainWindow {
 				if (raw == null) return new ImageIcon(CardAnimation.renderPlaceholder(state));
 				BufferedImage canvas = CardAnimation.renderBackupCard(
 						CardAnimation.toARGB(raw, CARD_W, CARD_H), state, false, false, p2BackupFrozen[idx]);
-				if (damage > 0) CardAnimation.renderDamageOverlay(canvas, damage);
+				if (damage > 0) CardAnimation.renderDamageOverlay(canvas, damage, state);
 				if (actingForward && fwdPower > 0)
 					CardAnimation.renderPowerOverlayRight(canvas, fwdPower, new Color(80, 220, 80), state);
 				return new ImageIcon(canvas);
@@ -11617,7 +11751,7 @@ public class MainWindow {
 				if (raw == null) return new ImageIcon(CardAnimation.renderPlaceholder(state));
 				BufferedImage canvas = CardAnimation.renderBackupCard(CardAnimation.toARGB(raw, CARD_W, CARD_H), state, false, false, p2ForwardFrozen.get(idx));
 				if (damage > 0) {
-					CardAnimation.renderDamageOverlay(canvas, damage);
+					CardAnimation.renderDamageOverlay(canvas, damage, state);
 				}
 				if (power > basePower) {
 					CardAnimation.renderPowerOverlayRight(canvas, power, new Color(80, 220, 80), state);
@@ -11827,7 +11961,7 @@ public class MainWindow {
 
 			// Discard for CP, attributing each card's CP to the most-needed element
 			for (int di : discards) {
-				CardData d = gameState.breakP2FromHand(di);
+				CardData d = playerBreakFromHand(false,di);
 				if (d != null) {
 					int assignEi = p2BestDiscardElement(d, playElems, accCp);
 					accCp[assignEi] += 2;
@@ -11944,12 +12078,11 @@ public class MainWindow {
 			for (int idx : partyIndices)
 				autoAbilityTriggers.triggerAutoAbilitiesForAttack(p2ForwardCards.get(idx), false);
 			List<CardData> p2PartyMembers = partyIndices.stream()
-					.map(p2ForwardCards::get).collect(java.util.stream.Collectors.toList());
+					.map(p2ForwardCards::get).collect(Collectors.toList());
 			autoAbilityTriggers.triggerAutoAbilitiesForPartyAttack(false, p2PartyMembers);
 			final int fCombined = combinedPower;
 			initP1BlockDeclarationVsParty(partyIndices, fCombined, onDone);
 		}
-
 
 		private void doAttackPhase(Runnable onDone) {
 			if (gameState.isP1GameOver()) return;
@@ -12043,14 +12176,14 @@ public class MainWindow {
 			for (int i = 0; i < p2ForwardDamage.size(); i++) p2ForwardDamage.set(i, 0);
 			for (int i = 0; i < p2ForwardPowerBoost.size(); i++) p2ForwardPowerBoost.set(i, 0);
 			for (int i = 0; i < p2ForwardPowerReduction.size(); i++) p2ForwardPowerReduction.set(i, 0);
-			p2ForwardTempTraits.forEach(java.util.EnumSet::clear);
-			p2ForwardRemovedTraits.forEach(java.util.EnumSet::clear);
+			p2ForwardTempTraits.forEach(EnumSet::clear);
+			p2ForwardRemovedTraits.forEach(EnumSet::clear);
 			for (int i = 0; i < p2ForwardCards.size(); i++) refreshP2ForwardSlot(i);
 			for (int i = 0; i < p1ForwardDamage.size(); i++) p1ForwardDamage.set(i, 0);
 			for (int i = 0; i < p1ForwardPowerBoost.size(); i++) p1ForwardPowerBoost.set(i, 0);
 			for (int i = 0; i < p1ForwardPowerReduction.size(); i++) p1ForwardPowerReduction.set(i, 0);
-			p1ForwardTempTraits.forEach(java.util.EnumSet::clear);
-			p1ForwardRemovedTraits.forEach(java.util.EnumSet::clear);
+			p1ForwardTempTraits.forEach(EnumSet::clear);
+			p1ForwardRemovedTraits.forEach(EnumSet::clear);
 			for (int i = 0; i < p1ForwardCards.size(); i++) refreshP1ForwardSlot(i);
 			p1MonsterPowerBoost.clear(); p2MonsterPowerBoost.clear();
 			p1MonsterTempTraits.clear(); p2MonsterTempTraits.clear();

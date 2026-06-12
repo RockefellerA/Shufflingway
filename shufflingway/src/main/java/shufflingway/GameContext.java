@@ -654,6 +654,12 @@ public interface GameContext {
                 : countP2BreakZoneCards(cardNameFilter, jobFilter);
     }
 
+    /** The {@link CardData} at index {@code idx} in P1's Break Zone, or {@code null} if out of range. */
+    CardData p1BreakZoneCard(int idx);
+
+    /** The {@link CardData} at index {@code idx} in P2's Break Zone, or {@code null} if out of range. */
+    CardData p2BreakZoneCard(int idx);
+
     // ---- Computed-damage queries -----------------------------------------------
 
     /** Returns the highest effective power among all P1 Forwards on the field; {@code 0} if none. */
@@ -690,6 +696,13 @@ public interface GameContext {
      */
     java.util.List<String> chooseActions(CardData source, java.util.List<String> actions,
             int selectCount, boolean upTo);
+  
+  /**
+     * Returns the printed power of the Forward most recently discarded as part of resolving the
+     * current ability (e.g. Kolka's "you may discard 1 Forward. When you do so … the discarded
+     * Forward's power"). Returns {@code 0} when no Forward has been discarded yet in the chain.
+     */
+    int lastDiscardedForwardPower();
 
     /**
      * Returns the effective power of the target Forward or Monster.
@@ -1244,11 +1257,13 @@ public interface GameContext {
 
     /**
      * Reveals the top {@code reveal} cards of the active player's deck.
-     * The player may add up to {@code maxAdd} Characters matching {@code jobFilter} or
-     * {@code categoryFilter} to their hand; the rest are placed at the bottom of the deck
-     * in any order. Exactly one of {@code jobFilter} / {@code categoryFilter} will be non-null.
+     * The player may add up to {@code maxAdd} Characters matching {@code jobFilter},
+     * {@code categoryFilter}, or {@code cardNameFilter} (treated as a disjunction across
+     * the non-null filters) to their hand; the rest are placed at the bottom of the deck
+     * in any order. At least one filter is expected to be non-null.
      */
-    void revealTopAddUpToMatchingRestBottom(int reveal, int maxAdd, String jobFilter, String categoryFilter);
+    void revealTopAddUpToMatchingRestBottom(int reveal, int maxAdd,
+            String jobFilter, String categoryFilter, String cardNameFilter);
 
     /**
      * Grants all Forwards controlled by the acting player the given {@code job} until end of turn.

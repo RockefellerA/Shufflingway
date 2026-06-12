@@ -106,26 +106,34 @@ public class CardAnimation {
 		};
 	}
 
-	/** Draws {@code value} in a dark pill in the bottom-right of {@code canvas} using {@code textColor}. */
+	/** Draws {@code value} in a dark pill at the bottom-right edge of the card (rotated with the card when dull). */
 	static void renderPowerOverlayRight(BufferedImage canvas, int value, Color textColor, CardState state) {
-		int rightEdge = (state == CardState.DULL) ? canvas.getWidth() : CARD_W;
-		renderPill(canvas, value, textColor, true, rightEdge);
+		renderPill(canvas, value, textColor, true, state);
 	}
 
-	private static void renderPill(BufferedImage canvas, int value, Color textColor, boolean alignRight) {
-		renderPill(canvas, value, textColor, alignRight, canvas.getWidth());
-	}
-
-	private static void renderPill(BufferedImage canvas, int value, Color textColor, boolean alignRight, int rightEdge) {
+	/**
+	 * Renders a pill at the card's bottom-left ({@code !alignRight}) or bottom-right ({@code alignRight}) corner,
+	 * in the card's natural (unrotated) coordinate frame. When {@code state == DULL} the pill is drawn through
+	 * a CW 90° transform so it stays anchored to the card's bottom edge — which lives on the LEFT side of the
+	 * dull canvas — and the text reads correctly once the viewer rotates their view to read the dull card.
+	 */
+	private static void renderPill(BufferedImage canvas, int value, Color textColor, boolean alignRight, CardState state) {
 		Graphics2D g = canvas.createGraphics();
 		g.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
+		if (state == CardState.DULL) {
+			// CW 90° about (0,0) followed by translate so that drawing in (0..CARD_W, 0..CARD_H) lands on
+			// the rotated card's natural face: original (0,0) → canvas (CARD_H, CARD_H - CARD_W);
+			// original (CARD_W, CARD_H) → canvas (0, CARD_H).
+			g.translate(CARD_H, CARD_H - CARD_W);
+			g.rotate(Math.PI / 2);
+		}
 		String text = String.valueOf(value);
-		Font font = FontLoader.loadPixelNESFont(13);
+		Font font = FontLoader.loadPixelNESFont(14);
 		g.setFont(font);
 		FontMetrics fm = g.getFontMetrics();
 		int tw = fm.stringWidth(text);
-		int tx = alignRight ? rightEdge - tw - 8 : 4;
-		int ty = canvas.getHeight() - 5;
+		int tx = alignRight ? CARD_W - tw - 8 : 4;
+		int ty = CARD_H - 8;
 		g.setColor(new Color(0, 0, 0, 180));
 		g.fillRoundRect(tx - 4, ty - fm.getAscent() - 1, tw + 8, fm.getAscent() + fm.getDescent() + 2, 5, 5);
 		g.setColor(textColor);
@@ -133,9 +141,9 @@ public class CardAnimation {
 		g.dispose();
 	}
 
-	/** Draws accumulated damage in a red pill at the bottom-left. */
-	static void renderDamageOverlay(BufferedImage canvas, int damage) {
-		renderPill(canvas, damage, new Color(255, 50, 50), false);
+	/** Draws accumulated damage in a red pill at the card's bottom-left (rotated with the card when dull). */
+	static void renderDamageOverlay(BufferedImage canvas, int damage, CardState state) {
+		renderPill(canvas, damage, new Color(255, 50, 50), false, state);
 	}
 
 	/** Returns a {@code CARD_H × CARD_H} placeholder canvas with a card outline and "Loading…" text. */

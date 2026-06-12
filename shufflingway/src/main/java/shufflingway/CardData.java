@@ -1082,6 +1082,22 @@ public record CardData(
     );
 
     /**
+     * Rewrites "When X, a Y[, a Z]* or a W [trigger]" into "When X or a Y[ or a Z]* or a W [trigger]"
+     * so {@link #AUTO_ABILITY_PATTERN} can capture the full disjunctive subject as a single
+     * {@code (?<card>[^,]+?)} group. The matched compound subject is later split at the dispatcher
+     * (see {@code AutoAbilityTriggers#matchesEntersFieldSubject}).
+     * Group {@code head} is the first subject (typically the source card's own name);
+     * group {@code rest} is the comma-separated list of additional "a/an X" subjects ending in
+     * "or a/an Y". A lookahead requires a trigger verb to follow so unrelated comma-bearing
+     * "When …" sentences are not rewritten.
+     */
+    private static final Pattern MULTI_SUBJECT_TRIGGER = Pattern.compile(
+        "(?i)(?<prefix>When\\s+)(?<head>[^,]+?)" +
+        "(?<rest>(?:,\\s+an?\\s+[^,]+?)+\\s+or\\s+an?\\s+[^,]+?)" +
+        "\\s+(?=enters?|attacks?|blocks?|leaves?|is\\s+(?:put|blocked|removed)|deals?|forms?|casts?|receives?|primes?)"
+    );
+
+    /**
      * Joins "select N of M following actions" headers with their [[br]]-delimited quoted
      * action strings so that {@link #AUTO_ABILITY_PATTERN} captures the full effect as one unit.
      * Input: {@code ...select 1 of the 2 following actions.[[br]] "A."[[br]] "B."...}
@@ -1200,6 +1216,26 @@ public record CardData(
         return sb.toString();
     }
 
+    /**
+     * Rewrites "When X, a Y[, a Z]* or a W [trigger]" into "When X or a Y[ or a Z]* or a W [trigger]"
+     * so {@link #AUTO_ABILITY_PATTERN}'s comma-delimited card group can capture the whole
+     * disjunctive subject in one match. The compound subject is split downstream when the
+     * trigger fires.
+     */
+    private static String expandMultiSubjectTriggers(String text) {
+        Matcher m = MULTI_SUBJECT_TRIGGER.matcher(text);
+        StringBuffer sb = new StringBuffer();
+        while (m.find()) {
+            String prefix = m.group("prefix");
+            String head   = m.group("head");
+            // Strip the leading comma from `rest`, then replace any remaining inner commas with " or ".
+            String rest   = m.group("rest").replaceFirst("^,\\s+", "").replaceAll(",\\s+", " or ");
+            m.appendReplacement(sb, Matcher.quoteReplacement(prefix + head + " or " + rest + " "));
+        }
+        m.appendTail(sb);
+        return sb.toString();
+    }
+
     private static String joinSelectActions(String text) {
         Matcher m = SELECT_ACTIONS_JOINER.matcher(text);
         StringBuffer sb = new StringBuffer();
@@ -1273,6 +1309,10 @@ public record CardData(
 
         // Convert "If N or more [filter] Forwards form the party, also [effect]." into a second trigger sentence.
         textForSearch = expandPartyAttackFollowups(textForSearch);
+
+        // Rewrite "When X, a Y or a Z [trigger]" into "When X or a Y or a Z [trigger]" so that
+        // AUTO_ABILITY_PATTERN's (?<card>[^,]+?) group captures the full disjunction as one subject.
+        textForSearch = expandMultiSubjectTriggers(textForSearch);
 
         Matcher m = AUTO_ABILITY_PATTERN.matcher(textForSearch);
         while (m.find()) {
@@ -1628,6 +1668,128 @@ public record CardData(
     );
 
     /**
+     * Unified "For each &lt;filter&gt; [other than X] you control[ other than X], &lt;target&gt; gains +N power."
+     * pattern. {@code filter} captures everything between "For each" and the first "other than" or
+     * "you control" — including type words (Forward/Character), element prefixes ("Earth"), an
+     * "active" prefix, bracketed terms, and written Job/Card Name/Category terms.
+     * {@code excA} (before "you control") or {@code excB} (after "you control") captures either the
+     * source's own name OR an element name (e.g., "other than Fire"); the parser disambiguates downstream.
+     */
+    private static final Pattern SCALING_SELF_FOR_EACH_PATTERN = Pattern.compile(
+        "(?i)^For\\s+each\\s+(?<filter>.+?)" +
+        "(?:\\s+other\\s+than\\s+(?<excA>[^,]+?))?" +
+        "\\s+you\\s+control" +
+        "(?:\\s*,?\\s*other\\s+than\\s+(?<excB>[^,]+?))?" +
+        ",\\s+(?<target>.+?)\\s+gains?\\s+\\+(?<power>\\d+)\\s+power[.!]?$"
+    );
+
+    private static final Pattern SCALING_FILTER_CARD_NAME_BRACKET = Pattern.compile("(?i)\\[Card\\s+Name\\s+\\(([^)]+)\\)\\]");
+    private static final Pattern SCALING_FILTER_JOB_BRACKET       = Pattern.compile("(?i)\\[Job\\s+\\(([^)]+)\\)\\]");
+    private static final Pattern SCALING_FILTER_CATEGORY_BRACKET  = Pattern.compile("(?i)\\[Category\\s+\\(([^)]+)\\)\\]");
+    private static final Pattern SCALING_FILTER_TYPE_WORD         = Pattern.compile("(?i)^(?<rest>.*?)\\s*(?<type>Forwards?|Characters?|Backups?|Monsters?)$");
+    private static final Pattern SCALING_FILTER_ELEMENT_PREFIX    = Pattern.compile("(?i)^(?<elem>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)\\b\\s*(?<rest>.*)$");
+    private static final Pattern SCALING_FILTER_ACTIVE_PREFIX     = Pattern.compile("(?i)^active\\s+(?<rest>.+)$");
+    private static final Pattern SCALING_FILTER_WRITTEN_JOB_TERM  = Pattern.compile("(?i)^Job\\s+(?<val>.+)$");
+    private static final Pattern SCALING_FILTER_WRITTEN_NAME_TERM = Pattern.compile("(?i)^Card\\s+Name\\s+(?<val>.+)$");
+    private static final Pattern SCALING_FILTER_WRITTEN_CAT_TERM  = Pattern.compile("(?i)^Category\\s+(?<val>\\S+)$");
+    private static final java.util.Set<String> SCALING_ELEMENT_NAMES = java.util.Set.of(
+            "fire", "ice", "wind", "earth", "lightning", "water", "light", "dark");
+
+    /**
+     * Parsed filter components: which Source enum to use, the filter terms, and prefix modifiers.
+     * Defaults: source = OTHER_FORWARDS_YOU_CONTROL, all filters null, requireActive = false.
+     */
+    private record ScalingFilterParse(
+            ScalingSelfPowerBoost.Source source,
+            String jobFilter,
+            String categoryFilter,
+            String cardNameFilter,
+            String elementFilter,
+            boolean requireActive) {}
+
+    /**
+     * Decomposes the raw filter capture from {@link #SCALING_SELF_FOR_EACH_PATTERN} into the
+     * appropriate Source enum and individual filter fields. Handles the "active" prefix,
+     * element prefix, type word ("Forward"/"Character" — picks the Source), bracket forms
+     * ({@code [Job (X)]}, {@code [Card Name (X)]}, {@code [Category (X)]}), and written forms
+     * split on "and" ({@code Job X}, {@code Card Name Y}, {@code Category Z}).
+     */
+    private static ScalingFilterParse parseScalingForEachFilter(String raw) {
+        ScalingSelfPowerBoost.Source source = ScalingSelfPowerBoost.Source.OTHER_FORWARDS_YOU_CONTROL;
+        if (raw == null) raw = "";
+        String text = raw.trim();
+        boolean active = false;
+
+        Matcher am = SCALING_FILTER_ACTIVE_PREFIX.matcher(text);
+        if (am.matches()) { active = true; text = am.group("rest").trim(); }
+
+        Matcher tm = SCALING_FILTER_TYPE_WORD.matcher(text);
+        if (tm.matches()) {
+            String t = tm.group("type").toLowerCase(java.util.Locale.ROOT);
+            if      (t.startsWith("character")) source = ScalingSelfPowerBoost.Source.OTHER_CHARACTERS_YOU_CONTROL;
+            else if (t.startsWith("backup"))    source = ScalingSelfPowerBoost.Source.OTHER_BACKUPS_YOU_CONTROL;
+            else if (t.startsWith("monster"))   source = ScalingSelfPowerBoost.Source.OTHER_MONSTERS_YOU_CONTROL;
+            // forward(s) keeps the default OTHER_FORWARDS_YOU_CONTROL
+            text = tm.group("rest").trim();
+        }
+
+        StringBuilder jobs = new StringBuilder();
+        StringBuilder cats = new StringBuilder();
+        StringBuilder names = new StringBuilder();
+        StringBuilder elements = new StringBuilder();
+
+        Matcher nm = SCALING_FILTER_CARD_NAME_BRACKET.matcher(text);
+        while (nm.find()) appendScalingTerm(names, nm.group(1));
+        text = nm.replaceAll("");
+
+        Matcher jm = SCALING_FILTER_JOB_BRACKET.matcher(text);
+        while (jm.find()) appendScalingTerm(jobs, jm.group(1));
+        text = jm.replaceAll("");
+
+        Matcher cm = SCALING_FILTER_CATEGORY_BRACKET.matcher(text);
+        while (cm.find()) appendScalingTerm(cats, cm.group(1));
+        text = cm.replaceAll("");
+
+        text = text.trim().replaceAll("\\s+", " ");
+
+        Matcher em = SCALING_FILTER_ELEMENT_PREFIX.matcher(text);
+        if (em.matches()) { appendScalingTerm(elements, em.group("elem")); text = em.group("rest").trim(); }
+
+        if (!text.isEmpty()) {
+            for (String term : text.split("(?i)\\s+and\\s+")) {
+                String t = term.trim();
+                if (t.isEmpty()) continue;
+                Matcher wj = SCALING_FILTER_WRITTEN_JOB_TERM.matcher(t);
+                Matcher wn = SCALING_FILTER_WRITTEN_NAME_TERM.matcher(t);
+                Matcher wc = SCALING_FILTER_WRITTEN_CAT_TERM.matcher(t);
+                if      (wj.matches()) appendScalingTerm(jobs,  wj.group("val"));
+                else if (wn.matches()) appendScalingTerm(names, wn.group("val"));
+                else if (wc.matches()) appendScalingTerm(cats,  wc.group("val"));
+            }
+        }
+        return new ScalingFilterParse(source,
+                jobs.length()     > 0 ? jobs.toString()     : null,
+                cats.length()     > 0 ? cats.toString()     : null,
+                names.length()    > 0 ? names.toString()    : null,
+                elements.length() > 0 ? elements.toString() : null,
+                active);
+    }
+
+    /** Returns the captured exclude name (preferring excA over excB), or {@code null}. */
+    private static String coalesceScalingExclude(Matcher m) {
+        String a = m.group("excA");
+        if (a != null && !a.isBlank()) return a.trim();
+        String b = m.group("excB");
+        return (b != null && !b.isBlank()) ? b.trim() : null;
+    }
+
+    private static void appendScalingTerm(StringBuilder sb, String value) {
+        if (value == null || value.isBlank()) return;
+        if (sb.length() > 0) sb.append('|');
+        sb.append(value.trim());
+    }
+
+    /**
      * Parses passive self-targeting scaling power boosts (e.g. Jecht's
      * "For each Forward opponent controls, Jecht gains +1000 power.").
      * Returns an empty list for Summons and whenever the target name does not match
@@ -1644,12 +1806,34 @@ public record CardData(
             String seg = SUMMON_MARKUP.matcher(raw.trim()).replaceAll("").trim();
             if (seg.isEmpty()) continue;
             Matcher m = SCALING_SELF_OPP_FWD_PATTERN.matcher(seg);
-            if (!m.find()) continue;
-            if (!m.group("target").trim().equalsIgnoreCase(cardName)) continue;
-            int perUnit = Integer.parseInt(m.group("power"));
+            if (m.find()) {
+                if (!m.group("target").trim().equalsIgnoreCase(cardName)) continue;
+                int perUnit = Integer.parseInt(m.group("power"));
+                if (perUnit <= 0) continue;
+                result.add(new ScalingSelfPowerBoost(
+                        ScalingSelfPowerBoost.Source.OPPONENT_FORWARDS, perUnit));
+                continue;
+            }
+            Matcher fe = SCALING_SELF_FOR_EACH_PATTERN.matcher(seg);
+            if (!fe.find()) continue;
+            if (!fe.group("target").trim().equalsIgnoreCase(cardName)) continue;
+            int perUnit = Integer.parseInt(fe.group("power"));
             if (perUnit <= 0) continue;
+
+            String exclude = coalesceScalingExclude(fe);
+            String excludeElement = null;
+            if (exclude != null) {
+                if (SCALING_ELEMENT_NAMES.contains(exclude.toLowerCase(java.util.Locale.ROOT))) {
+                    excludeElement = exclude;
+                } else if (!exclude.equalsIgnoreCase(cardName)) {
+                    continue; // "other than X" with X not a self-name and not an element — not ours
+                }
+            }
+            ScalingFilterParse sf = parseScalingForEachFilter(fe.group("filter"));
             result.add(new ScalingSelfPowerBoost(
-                    ScalingSelfPowerBoost.Source.OPPONENT_FORWARDS, perUnit));
+                    sf.source(), perUnit,
+                    sf.jobFilter(), sf.categoryFilter(), sf.cardNameFilter(),
+                    sf.elementFilter(), excludeElement, sf.requireActive()));
         }
         return List.copyOf(result);
     }

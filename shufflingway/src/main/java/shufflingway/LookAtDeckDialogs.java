@@ -775,7 +775,7 @@ class LookAtDeckDialogs {
     }
 
     void showRevealAddUpToMatchingRestBottom(List<CardData> cards, Deque<CardData> deck,
-            boolean isP1, int maxAdd, String jobFilter, String categoryFilter) {
+            boolean isP1, int maxAdd, String jobFilter, String categoryFilter, String cardNameFilter) {
         int n = cards.size();
         JDialog dlg = new JDialog(frame, "Reveal — Add to Hand, Rest to Bottom", true);
         dlg.setResizable(false);
@@ -806,9 +806,10 @@ class LookAtDeckDialogs {
             for (int j = 0; j < n; j++) {
                 CardData c = order.get(j);
                 boolean isChar = c.isForward() || c.isBackup() || c.isMonster();
-                boolean matches = jobFilter != null
-                        ? CardFilters.meetsJobFilter(c, jobFilter)
-                        : CardFilters.meetsCategoryFilter(c, categoryFilter);
+                boolean matches = (jobFilter      != null && CardFilters.meetsJobFilter(c, jobFilter))
+                               || (categoryFilter != null && CardFilters.meetsCategoryFilter(c, categoryFilter))
+                               || (cardNameFilter != null && CardFilters.meetsCardNameFilter(c, cardNameFilter));
+                if (jobFilter == null && categoryFilter == null && cardNameFilter == null) matches = true;
                 boolean inHand = handSet.contains(c);
                 handBtns[j].setEnabled(isChar && matches && (inHand || count < maxAdd));
             }

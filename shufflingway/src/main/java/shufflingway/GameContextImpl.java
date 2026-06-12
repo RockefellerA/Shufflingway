@@ -38,6 +38,7 @@ import static shufflingway.CardAnimation.CARD_H;
 import static shufflingway.CardAnimation.CARD_W;
 import static shufflingway.CardFilters.isBlockingTargetFilter;
 import static shufflingway.CardFilters.isEnteredThisTurnCondition;
+import static shufflingway.CardFilters.matchesDiscardType;
 import static shufflingway.CardFilters.meetsCardNameFilter;
 import static shufflingway.CardFilters.meetsCategoryFilter;
 import static shufflingway.CardFilters.meetsCostConstraint;
@@ -1666,6 +1667,16 @@ final class GameContextImpl implements GameContext {
 				mw.refreshP1HandLabel();
 			}
 
+			@Override public CardData p1BreakZoneCard(int idx) {
+				java.util.List<CardData> bz = mw.gameState.getP1BreakZone();
+				return (idx >= 0 && idx < bz.size()) ? bz.get(idx) : null;
+			}
+
+			@Override public CardData p2BreakZoneCard(int idx) {
+				java.util.List<CardData> bz = mw.gameState.getP2BreakZone();
+				return (idx >= 0 && idx < bz.size()) ? bz.get(idx) : null;
+			}
+
 			@Override public void boostTarget(ForwardTarget t, int amount,
 					java.util.EnumSet<CardData.Trait> traits) {
 				boolean isP1    = t.isP1();
@@ -1861,6 +1872,7 @@ final class GameContextImpl implements GameContext {
 			}
 
 			@Override public int dullForwardCostPower() { return mw.lastDullForwardCostPower; }
+			@Override public int lastDiscardedForwardPower() { return mw.lastDiscardedForwardPower; }
 
 			@Override public java.util.List<String> chooseActions(CardData source,
 					java.util.List<String> actions, int selectCount, boolean upTo) {
@@ -1921,7 +1933,7 @@ final class GameContextImpl implements GameContext {
 					int actual = Math.min(count, hand.size());
 					for (int i = 0; i < actual; i++) {
 						int idx = MainWindow.pickWorstHandCard0(hand);
-						CardData d = mw.gameState.breakP2FromHand(idx);
+						CardData d = mw.playerBreakFromHand(false,idx);
 						if (d != null) {
 							logEntry("[P2] Discards " + d.name() + " (forced)");
 							mw.p2DiscardedByEffectThisTurn = true;
@@ -1942,7 +1954,7 @@ final class GameContextImpl implements GameContext {
 					int actual = Math.min(count, hand.size());
 					for (int i = 0; i < actual; i++) {
 						int idx = (int) (Math.random() * mw.gameState.getP2Hand().size());
-						CardData d = mw.gameState.breakP2FromHand(idx);
+						CardData d = mw.playerBreakFromHand(false,idx);
 						if (d != null) {
 							logEntry("[P2] Randomly discards " + d.name());
 							mw.p2DiscardedByEffectThisTurn = true;
@@ -1956,7 +1968,7 @@ final class GameContextImpl implements GameContext {
 					int actual = Math.min(count, hand.size());
 					for (int i = 0; i < actual; i++) {
 						int idx = (int) (Math.random() * mw.gameState.getP1Hand().size());
-						CardData d = mw.gameState.breakFromHand(idx);
+						CardData d = mw.playerBreakFromHand(true,idx);
 						if (d != null) {
 							logEntry("[P1] Randomly discards " + d.name());
 							mw.p1DiscardedByEffectThisTurn = true;
@@ -2198,7 +2210,7 @@ final class GameContextImpl implements GameContext {
 					int actual = Math.min(count, hand.size());
 					for (int i = 0; i < actual; i++) {
 						int idx = MainWindow.pickWorstHandCard0(hand);
-						CardData d = mw.gameState.breakP2FromHand(idx);
+						CardData d = mw.playerBreakFromHand(false,idx);
 						if (d != null) { logEntry("[P2] Discards " + d.name()); mw.p2DiscardedByEffectThisTurn = true; }
 					}
 					mw.refreshP2HandCountLabel();
@@ -2211,7 +2223,23 @@ final class GameContextImpl implements GameContext {
 					boolean discarded = mw.showDiscardByTypeDialog(cardType);
 					if (!discarded) markEffectFizzled();
 				} else {
-					markEffectFizzled();
+					List<CardData> hand = mw.gameState.getP2Hand();
+					List<Integer> eligible = new ArrayList<>();
+					for (int i = 0; i < hand.size(); i++) {
+						if (matchesDiscardType(hand.get(i), cardType)) eligible.add(i);
+					}
+					if (eligible.isEmpty()) { markEffectFizzled(); return; }
+					List<CardData> eligibleCards = eligible.stream().map(hand::get).collect(Collectors.toList());
+					int relIdx = MainWindow.pickWorstHandCard0(eligibleCards);
+					int idx = eligible.get(relIdx);
+					CardData d = mw.playerBreakFromHand(false, idx);
+					if (d != null) {
+						logEntry("[P2] Discards " + d.name());
+						mw.p2DiscardedByEffectThisTurn = true;
+						if (d.isForward()) mw.lastDiscardedForwardPower = d.power();
+					}
+					mw.refreshP2HandCountLabel();
+					mw.refreshP2BreakLabel();
 				}
 			}
 
@@ -2273,7 +2301,7 @@ final class GameContextImpl implements GameContext {
 						src + " — Discard " + cardName + " from hand to use this ability again?",
 						"Replay Ability", new Object[]{"Discard", "Pass"});
 				if (choice != 0) { logEntry("Replay: declined to discard " + cardName); return; }
-				CardData d = mw.gameState.breakFromHand(handIdx);
+				CardData d = mw.playerBreakFromHand(true,handIdx);
 				if (d != null) { logEntry("Replay: discarded " + d.name()); mw.p1DiscardedByEffectThisTurn = true; }
 				mw.refreshP1HandLabel();
 				mw.refreshP1BreakLabel();
@@ -2295,7 +2323,7 @@ final class GameContextImpl implements GameContext {
 						"You May Discard", new Object[]{"Discard", "Pass"});
 				if (choice != 0) { logEntry("[Effect] Declined to discard " + cardName); return; }
 				final int idx = handIdx;
-				CardData d = mw.gameState.breakFromHand(idx);
+				CardData d = mw.playerBreakFromHand(true,idx);
 				if (d != null) { logEntry("[Effect] Discarded " + d.name()); mw.p1DiscardedByEffectThisTurn = true; }
 				mw.refreshP1HandLabel();
 				mw.refreshP1BreakLabel();
@@ -2323,7 +2351,7 @@ final class GameContextImpl implements GameContext {
 				if (isP1) {
 					List<CardData> hand = mw.gameState.getP1Hand();
 					for (int i = hand.size() - 1; i >= 0; i--) {
-						CardData d = mw.gameState.breakFromHand(i);
+						CardData d = mw.playerBreakFromHand(true,i);
 						if (d != null) { logEntry("Discards " + d.name()); mw.p1DiscardedByEffectThisTurn = true; }
 					}
 					mw.refreshP1HandLabel();
@@ -2331,7 +2359,7 @@ final class GameContextImpl implements GameContext {
 				} else {
 					List<CardData> hand = mw.gameState.getP2Hand();
 					for (int i = hand.size() - 1; i >= 0; i--) {
-						CardData d = mw.gameState.breakP2FromHand(i);
+						CardData d = mw.playerBreakFromHand(false,i);
 						if (d != null) { logEntry("[P2] Discards " + d.name()); mw.p2DiscardedByEffectThisTurn = true; }
 					}
 					mw.refreshP2HandCountLabel();
@@ -2991,7 +3019,8 @@ final class GameContextImpl implements GameContext {
 				return NameSelectionDialogs.selectJobOrCategory(mw.frame, prompt, isP1, mw::logEntry);
 			}
 
-			@Override public void revealTopAddUpToMatchingRestBottom(int reveal, int maxAdd, String jobFilter, String categoryFilter) {
+			@Override public void revealTopAddUpToMatchingRestBottom(int reveal, int maxAdd,
+					String jobFilter, String categoryFilter, String cardNameFilter) {
 				Deque<CardData> deck = isP1 ? mw.gameState.getP1MainDeck() : mw.gameState.getP2MainDeck();
 				int n = Math.min(reveal, deck.size());
 				if (n == 0) { logEntry("Reveal top: deck is empty."); return; }
@@ -2999,7 +3028,7 @@ final class GameContextImpl implements GameContext {
 				for (CardData c : deck) { peeked.add(c); if (peeked.size() >= n) break; }
 				logEntry("Reveal top " + n + " card(s): " +
 						peeked.stream().map(CardData::name).collect(Collectors.joining(", ")));
-				mw.lookDialogs().showRevealAddUpToMatchingRestBottom(peeked, deck, isP1, maxAdd, jobFilter, categoryFilter);
+				mw.lookDialogs().showRevealAddUpToMatchingRestBottom(peeked, deck, isP1, maxAdd, jobFilter, categoryFilter, cardNameFilter);
 			}
 
 			@Override public void grantAllControlledForwardsJobUntilEOT(String job) {
