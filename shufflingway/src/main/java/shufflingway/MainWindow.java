@@ -386,6 +386,9 @@ public class MainWindow {
 	private int     p1CardsDrawnThisTurn         = 0;
 	boolean p1DiscardedByEffectThisTurn  = false;
 	boolean p1CausedOpponentDiscardThisTurn = false;
+	// Power of the Forward most recently discarded as part of resolving an ability
+	// (e.g. Kolka's "you may discard 1 Forward. … the discarded Forward's power").
+	int     lastDiscardedForwardPower    = 0;
 	boolean p1FormedPartyThisTurn        = false;
 	boolean p1PartyAnyElementThisTurn   = false;
 	boolean p2PartyAnyElementThisTurn   = false;
@@ -4921,7 +4924,11 @@ public class MainWindow {
 			int idx = selectedIdx[0];
 			if (idx >= 0) {
 				CardData d = playerBreakFromHand(true,idx);
-				if (d != null) { logEntry("Discards " + d.name()); p1DiscardedByEffectThisTurn = true; }
+				if (d != null) {
+					logEntry("Discards " + d.name());
+					p1DiscardedByEffectThisTurn = true;
+					if (d.isForward()) lastDiscardedForwardPower = d.power();
+				}
 				refreshP1HandLabel();
 				refreshP1BreakLabel();
 				result[0] = true;
@@ -7188,6 +7195,7 @@ public class MainWindow {
 		}
 
 		if (!gameState.getStack().isEmpty()) showStackWindow();
+		else lastDiscardedForwardPower = 0;
 	}
 
 	/** Calls {@link #showStackWindow()} only when we are not already inside a stack resolution chain. */

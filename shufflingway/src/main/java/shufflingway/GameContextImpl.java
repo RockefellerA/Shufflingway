@@ -38,6 +38,7 @@ import static shufflingway.CardAnimation.CARD_H;
 import static shufflingway.CardAnimation.CARD_W;
 import static shufflingway.CardFilters.isBlockingTargetFilter;
 import static shufflingway.CardFilters.isEnteredThisTurnCondition;
+import static shufflingway.CardFilters.matchesDiscardType;
 import static shufflingway.CardFilters.meetsCardNameFilter;
 import static shufflingway.CardFilters.meetsCategoryFilter;
 import static shufflingway.CardFilters.meetsCostConstraint;
@@ -1871,6 +1872,7 @@ final class GameContextImpl implements GameContext {
 			}
 
 			@Override public int dullForwardCostPower() { return mw.lastDullForwardCostPower; }
+			@Override public int lastDiscardedForwardPower() { return mw.lastDiscardedForwardPower; }
 
 			@Override public int highestP1ForwardPower() {
 				int max = 0;
@@ -2214,7 +2216,23 @@ final class GameContextImpl implements GameContext {
 					boolean discarded = mw.showDiscardByTypeDialog(cardType);
 					if (!discarded) markEffectFizzled();
 				} else {
-					markEffectFizzled();
+					List<CardData> hand = mw.gameState.getP2Hand();
+					List<Integer> eligible = new ArrayList<>();
+					for (int i = 0; i < hand.size(); i++) {
+						if (matchesDiscardType(hand.get(i), cardType)) eligible.add(i);
+					}
+					if (eligible.isEmpty()) { markEffectFizzled(); return; }
+					List<CardData> eligibleCards = eligible.stream().map(hand::get).collect(Collectors.toList());
+					int relIdx = MainWindow.pickWorstHandCard0(eligibleCards);
+					int idx = eligible.get(relIdx);
+					CardData d = mw.playerBreakFromHand(false, idx);
+					if (d != null) {
+						logEntry("[P2] Discards " + d.name());
+						mw.p2DiscardedByEffectThisTurn = true;
+						if (d.isForward()) mw.lastDiscardedForwardPower = d.power();
+					}
+					mw.refreshP2HandCountLabel();
+					mw.refreshP2BreakLabel();
 				}
 			}
 

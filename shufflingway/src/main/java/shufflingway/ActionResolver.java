@@ -186,6 +186,7 @@ public class ActionResolver {
             "|half\\s+of\\s+(?<halfcard>.+?)'s\\s+power(?:\\s*\\(\\s*round\\s+(?<halfrounding>up|down)[^)]*\\))?" +
             "|(?<itspower>(?:its|their)\\s+power)(?:\\s+minus\\s+(?<minus>\\d+))?" +
             "|(?<dullforward>the\\s+power\\s+of\\s+the\\s+dull(?:ed)?\\s+Forward)" +
+            "|(?<discardedfwd>the\\s+discarded\\s+Forward(?:'s\\s+power)?)" +
             "|(?<card>.+?)'s\\s+power" +
         ")"
     );
@@ -4232,6 +4233,17 @@ public class ActionResolver {
                 return ctx -> {
                     int damage = Math.max(0, ctx.dullForwardCostPower());
                     ctx.logEntry(choosePrefix + " — Deal " + damage + " damage (dull Forward cost power)");
+                    List<ForwardTarget> ts = selectTargets(ctx, maxCount, upTo,
+                            opponentOnly, selfOnly, condition, element, zone, opponentZone,
+                            costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters, jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, fExcludeElem, withoutMulticard);
+                    sortedByIdxDesc(ts, true) .forEach(t -> ctx.damageTarget(t, damage));
+                    sortedByIdxDesc(ts, false).forEach(t -> ctx.damageTarget(t, damage));
+                    if (secondary != null) secondary.accept(ctx);
+                };
+            } else if (exprM.group("discardedfwd") != null) {
+                return ctx -> {
+                    int damage = Math.max(0, ctx.lastDiscardedForwardPower());
+                    ctx.logEntry(choosePrefix + " — Deal " + damage + " damage (discarded Forward's power)");
                     List<ForwardTarget> ts = selectTargets(ctx, maxCount, upTo,
                             opponentOnly, selfOnly, condition, element, zone, opponentZone,
                             costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters, jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, fExcludeElem, withoutMulticard);
