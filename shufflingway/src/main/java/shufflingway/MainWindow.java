@@ -5750,6 +5750,17 @@ public class MainWindow {
 			cardSlideAnimator.startSlide(img, start, end, i * 5);
 	}
 
+	void animateMillOneCard(boolean isP1) {
+		JLabel       deck = isP1 ? p1DeckLabel : p2DeckLabel;
+		JLabel       brk  = isP1 ? p1BreakLabel : p2BreakLabel;
+		JLayeredPane lp   = frame.getRootPane().getLayeredPane();
+		Point start = SwingUtilities.convertPoint(deck, deck.getWidth() / 2, deck.getHeight() / 2, lp);
+		Point end   = SwingUtilities.convertPoint(brk,  brk.getWidth()  / 2, brk.getHeight()  / 2, lp);
+		BufferedImage img = CardAnimation.toARGB(
+				loadCardbackImage(), CardAnimation.CARD_W, CardAnimation.CARD_H);
+		cardSlideAnimator.startSlide(img, start, end, 0);
+	}
+
 	/**
 	 * Triggers a card-slide animation from the player's hand area (off-screen
 	 * bottom-center for P1, off-screen top-center for P2) toward the Break Zone.
@@ -11572,7 +11583,9 @@ public class MainWindow {
 					this::refreshP1DeckLabel, this::refreshP2DeckLabel,
 					this::refreshP1HandLabel, this::refreshP2HandCountLabel,
 					this::refreshP1BreakLabel, this::refreshP2BreakLabel,
-					this::loadCardbackImage));
+					this::loadCardbackImage,
+					isP1 -> animateCardDraw(isP1, 1),
+					this::animateMillOneCard));
 		return lookDialogsInstance;
 	}
 

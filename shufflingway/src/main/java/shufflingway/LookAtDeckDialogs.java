@@ -60,18 +60,22 @@ class LookAtDeckDialogs {
      * @param refreshP1Break refresh P1's break-zone label
      * @param refreshP2Break refresh P2's break-zone label
      * @param cardbackImage supplier for the current cardback image
+     * @param animateDraw   triggers a deck→hand slide animation for the given player (isP1)
+     * @param animateMill   triggers a deck→break-zone slide animation for the given player (isP1)
      */
     record Callbacks(
-            Consumer<String> log,
-            Consumer<String> showZoom,
-            Runnable         hideZoom,
-            Runnable         refreshP1Deck,
-            Runnable         refreshP2Deck,
-            Runnable         refreshP1Hand,
-            Runnable         refreshP2Hand,
-            Runnable         refreshP1Break,
-            Runnable         refreshP2Break,
-            Supplier<Image>  cardbackImage
+            Consumer<String>  log,
+            Consumer<String>  showZoom,
+            Runnable          hideZoom,
+            Runnable          refreshP1Deck,
+            Runnable          refreshP2Deck,
+            Runnable          refreshP1Hand,
+            Runnable          refreshP2Hand,
+            Runnable          refreshP1Break,
+            Runnable          refreshP2Break,
+            Supplier<Image>   cardbackImage,
+            Consumer<Boolean> animateDraw,
+            Consumer<Boolean> animateMill
     ) {}
 
     private final JFrame     frame;
@@ -624,6 +628,8 @@ class LookAtDeckDialogs {
         for (int i = 2; i < n; i++) {
             if (destCards[i] != null) { deck.addLast(destCards[i]); log(destCards[i].name() + " → bottom of deck"); }
         }
+        if (handCard  != null) cb.animateDraw().accept(isP1);
+        if (breakCard != null) cb.animateMill().accept(isP1);
         if (isP1) cb.refreshP1Deck().run(); else cb.refreshP2Deck().run();
     }
 
