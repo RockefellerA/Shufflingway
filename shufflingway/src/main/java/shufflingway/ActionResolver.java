@@ -1131,6 +1131,11 @@ public class ActionResolver {
         "(?i)Your\\s+opponent\\s+draws?\\s+(\\d+)\\s+cards?[,.]?\\s+then\\s+randomly\\s+discards?\\s+(\\d+)\\s+cards?[.!]?"
     );
 
+    /** Matches "Your opponent draws N card(s)." — simple opponent draw with no followup. */
+    private static final Pattern OPPONENT_DRAW = Pattern.compile(
+        "(?i)Your\\s+opponent\\s+draws?\\s+(\\d+)\\s+cards?[.!]?$"
+    );
+
     /**
      * Matches "Your opponent selects N [condition] [element] [type] they control [sep] followup".
      * <ul>
@@ -2503,6 +2508,9 @@ public class ActionResolver {
         result = tryParseOpponentDrawThenRandomDiscard(effectText);
         if (result != null) return result;
 
+        result = tryParseOpponentDraw(effectText);
+        if (result != null) return result;
+
         result = tryParseOpponentRandomDiscard(effectText);
         if (result != null) return result;
 
@@ -2750,6 +2758,7 @@ public class ActionResolver {
         if (tryParseBreakSourceCard(effectText, source)        != null) return "BreakSourceCard";
         if (tryParseChooseExBurstFromDamageZone(effectText)    != null) return "ChooseExBurstFromDamageZone";
         if (tryParseOpponentDrawThenRandomDiscard(effectText)  != null) return "OpponentDrawThenRandomDiscard";
+        if (tryParseOpponentDraw(effectText)                   != null) return "OpponentDraw";
         if (tryParseOpponentRandomDiscard(effectText)         != null) return "OpponentRandomDiscard";
         if (tryParseEachPlayerSelectForwardDamage(effectText)  != null) return "EachPlayerSelectForwardDamage";
         if (tryParseEachPlayerDiscard(effectText)              != null) return "EachPlayerDiscard";
@@ -6288,6 +6297,17 @@ public class ActionResolver {
             ctx.logEntry("Effect: Opponent draws " + drawCount + ", then randomly discards " + discardCount);
             ctx.drawCardsForOpponent(drawCount);
             ctx.forceOpponentRandomDiscard(discardCount);
+        };
+    }
+
+    /** Parses "Your opponent draws N card(s)." as a standalone effect. */
+    private static Consumer<GameContext> tryParseOpponentDraw(String text) {
+        Matcher m = OPPONENT_DRAW.matcher(text);
+        if (!m.find()) return null;
+        int count = Integer.parseInt(m.group(1));
+        return ctx -> {
+            ctx.logEntry("Effect: Opponent draws " + count);
+            ctx.drawCardsForOpponent(count);
         };
     }
 
