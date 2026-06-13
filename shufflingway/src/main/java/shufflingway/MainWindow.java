@@ -7176,6 +7176,7 @@ public class MainWindow {
 		execCpAccum.keySet().stream().filter(e -> !e.isEmpty()).forEach(lastCastPaymentElements::add);
 		lastCastWasPaidByBackupsOnly = discardIndices.isEmpty() && !backupDullIndices.isEmpty();
 		gameState.removeFromHand(cardHandIdx);
+		refreshP1HandLabel();
 		activeCostReductions.removeIf(m -> m.consumeOnUse() && m.matches(card));
 		p1CardsCastThisTurn++;
 		for (String j : card.jobs()) p1CastJobsThisTurn.add(j.toLowerCase());
@@ -7198,7 +7199,6 @@ public class MainWindow {
 		}
 		lastCardWasCast = false;
 
-		refreshP1HandLabel();
 		refreshP1BreakLabel();
 	}
 
