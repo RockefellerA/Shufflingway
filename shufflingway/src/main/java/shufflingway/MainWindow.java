@@ -6252,14 +6252,13 @@ public class MainWindow {
 		case IF_CONTROL_NONE_OF_TYPE -> {
 				String type = mod.param1() == null ? "Forward" : mod.param1();
 				long fwdCount = 0, bkpCount = 0, monCount = 0;
+				List<CardData> mons = isP1 ? p1MonsterCards : p2MonsterCards;
 				if ("Forward".equalsIgnoreCase(type) || "Character".equalsIgnoreCase(type))
 					fwdCount = fwds.size();
 				if ("Backup".equalsIgnoreCase(type) || "Character".equalsIgnoreCase(type))
 					bkpCount = Arrays.stream(bkps).filter(b -> b != null).count();
-				if ("Monster".equalsIgnoreCase(type)) {
-					List<CardData> mons = isP1 ? p1MonsterCards : p2MonsterCards;
+				if ("Monster".equalsIgnoreCase(type) || "Character".equalsIgnoreCase(type))
 					monCount = mons.size();
-				}
 				yield (fwdCount + bkpCount + monCount) == 0 ? 1 : 0;
 			}
 		case IF_OPPONENT_DISCARDED_THIS_TURN ->

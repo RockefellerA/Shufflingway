@@ -2493,6 +2493,8 @@ public record CardData(
             if (FIELD_COST_REDUCTION_PATTERN.matcher(seg).find())            continue;
             if (FIELD_PLAY_COST_REDUCTION_PATTERN.matcher(seg).find())       continue;
             if (FIELD_CONDITIONAL_COST_REDUCTION_PATTERN.matcher(seg).find()) continue;
+            // Self-cost modifier ("If <cond>, the cost required to cast/play <cardName>…") — handled via parseSelfCostModifiers
+            if (isSelfCostModifierText(seg))                                  continue;
             if (FIELD_CAST_ANY_ELEMENT_PATTERN.matcher(seg).find())          continue;
             if (FIELD_PRIMING_ANY_ELEMENT_PATTERN.matcher(seg).find())       continue;
             if (WARP_ANY_ELEMENT_PATTERN.matcher(seg).find())                continue;
@@ -3226,6 +3228,11 @@ public record CardData(
     private static final Pattern SELF_SCALE_EACH_CARD_DRAWN = Pattern.compile(
         "(?i)^for\\s+each\\s+card\\s+you\\s+have\\s+drawn\\s+this\\s+turn$"
     );
+
+    /** Returns true if {@code seg} is a self-cost modifier sentence handled via {@link #parseSelfCostModifiers}. */
+    public static boolean isSelfCostModifierText(String seg) {
+        return SELF_COST_MAIN.matcher(seg).find();
+    }
 
     /**
      * Parses self-referential cost modifiers from a card's own text.
