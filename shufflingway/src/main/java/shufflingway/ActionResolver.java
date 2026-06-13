@@ -274,6 +274,28 @@ public class ActionResolver {
         "(?i)dull\\s+(?:it|them)\\s+and\\s+deal\\s+(?:it|them)\\s+(?<amount>\\d+)\\s+damage"
     );
 
+    /**
+     * Matches split-target effects of the form:
+     * "[action A] the first [type] [suffix] [sep] [action B] the other"
+     * where action B is drawn from a known vocabulary.
+     * <ul>
+     *   <li>{@code firstpfx}    — verb phrase before "the first [type]"
+     *                             (e.g. "Dull", "Remove", "Deal 8000 damage to")</li>
+     *   <li>{@code firstsfx}    — optional non-comma text after "the first [type]"
+     *                             (e.g. " from the game", " to its owner's hand")</li>
+     *   <li>{@code othereffect} — effect for the second chosen target
+     *                             (one of: dull and freeze, activate, break, dull, freeze,
+     *                              remove from the game, return to its owner's hand)</li>
+     * </ul>
+     */
+    private static final Pattern FOLLOWUP_FIRST_AND_OTHER = Pattern.compile(
+        "(?i)(?<firstpfx>.+?)\\s+the\\s+first\\s+(?:Forward|Backup|Character|Monster|one)" +
+        "(?<firstsfx>[^,]*?)[,.]?\\s+(?:and\\s+)?" +
+        "(?<othereffect>dull\\s+and\\s+freeze|activate|break|dull|freeze" +
+        "|remove\\s+from\\s+the\\s+game|return\\s+to\\s+its\\s+owner'?s\\s+hand)" +
+        "\\s+the\\s+other\\.?$"
+    );
+
     /** Matches "Break it" or "Break them". */
     private static final Pattern FOLLOWUP_BREAK = Pattern.compile(
         "(?i)Break\\s+(?:it|them)"
@@ -2863,6 +2885,7 @@ public class ActionResolver {
         }
         if (FOLLOWUP_DAMAGE_FOR_EACH.matcher(followupText).find())                    return "DamageForEach";
         if (FOLLOWUP_DULL_AND_DAMAGE.matcher(followupText).find())                   return "DullAndDamage";
+        if (FOLLOWUP_FIRST_AND_OTHER.matcher(followupText).find())                    return "FirstAndOther";
         if (FOLLOWUP_DAMAGE.matcher(followupText).find())                             return "Damage";
         if (FOLLOWUP_DAMAGE_EXPR.matcher(followupText).find())                        return "DamageExpr";
         if (FOLLOWUP_ACTIVATE_AND_GAIN_CONTROL_EOT.matcher(followupText).find())        return "ActivateAndGainControlEOT";
@@ -4245,6 +4268,54 @@ public class ActionResolver {
                 if (ctx.opponentForwardCount() >= minCount) {
                     sortedByIdxDesc(ts, true) .forEach(t -> ctx.damageTarget(t, damage));
                     sortedByIdxDesc(ts, false).forEach(t -> ctx.damageTarget(t, damage));
+                }
+                if (secondary != null) secondary.accept(ctx);
+            };
+        }
+
+        // --- Split effect: [action A] the first [type] … and [action B] the other ---
+        Matcher foM = FOLLOWUP_FIRST_AND_OTHER.matcher(primaryFollowup);
+        if (foM.find()) {
+            final String firstpfx    = foM.group("firstpfx").trim();
+            final String firstsfx    = foM.group("firstsfx").trim().toLowerCase();
+            final String othereffect = foM.group("othereffect").trim().toLowerCase();
+            Matcher dmgAmt = Pattern.compile("(?i)deal\\s+(?<n>\\d+)\\s+damage").matcher(firstpfx);
+            final int firstDamage = dmgAmt.find() ? Integer.parseInt(dmgAmt.group("n")) : 0;
+            return ctx -> {
+                ctx.logEntry(choosePrefix + " — " + firstpfx + " first; " + othereffect + " other");
+                List<ForwardTarget> ts = selectTargets(ctx, maxCount, upTo,
+                        opponentOnly, selfOnly, condition, element, zone, opponentZone,
+                        costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters,
+                        jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, fExcludeElem, withoutMulticard);
+                if (!ts.isEmpty()) {
+                    ForwardTarget first = ts.get(0);
+                    if      (firstsfx.contains("from the game"))  ctx.removeTargetFromGame(first);
+                    else if (firstsfx.contains("to its owner")) {
+                        if (first.zone() == ForwardTarget.CardZone.FORWARD) {
+                            if (first.isP1()) ctx.returnP1ForwardToHand(first.idx());
+                            else              ctx.returnP2ForwardToHand(first.idx());
+                        }
+                    }
+                    else if (firstDamage > 0)                          ctx.damageTarget(first, firstDamage);
+                    else if (firstpfx.equalsIgnoreCase("dull"))        ctx.dullTarget(first);
+                    else if (firstpfx.equalsIgnoreCase("break"))       ctx.breakTarget(first);
+                    else if (firstpfx.equalsIgnoreCase("freeze"))      ctx.freezeTarget(first);
+                    else if (firstpfx.equalsIgnoreCase("activate"))    ctx.activateTarget(first);
+                }
+                if (ts.size() > 1) {
+                    ForwardTarget other = ts.get(1);
+                    if      (othereffect.contains("freeze") && othereffect.contains("dull")) ctx.dullAndFreezeTarget(other);
+                    else if (othereffect.equals("activate"))                                  ctx.activateTarget(other);
+                    else if (othereffect.equals("break"))                                     ctx.breakTarget(other);
+                    else if (othereffect.equals("dull"))                                      ctx.dullTarget(other);
+                    else if (othereffect.equals("freeze"))                                    ctx.freezeTarget(other);
+                    else if (othereffect.contains("from the game"))                           ctx.removeTargetFromGame(other);
+                    else if (othereffect.contains("to its owner")) {
+                        if (other.zone() == ForwardTarget.CardZone.FORWARD) {
+                            if (other.isP1()) ctx.returnP1ForwardToHand(other.idx());
+                            else              ctx.returnP2ForwardToHand(other.idx());
+                        }
+                    }
                 }
                 if (secondary != null) secondary.accept(ctx);
             };
