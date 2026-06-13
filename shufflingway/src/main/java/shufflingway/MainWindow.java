@@ -9452,7 +9452,7 @@ public class MainWindow {
 			MouseAdapter cardListener = new MouseAdapter() {
 				@Override public void mouseEntered(MouseEvent e) { showZoomAt(card.imageUrl()); }
 				@Override public void mouseExited(MouseEvent e)  { hideZoom(); }
-				@Override public void mouseClicked(MouseEvent e) {
+				@Override public void mousePressed(MouseEvent e) {
 					if (sel.contains(fi)) {
 						sel.remove(fi);
 						imgLbl.setBorder(normalBorder);
