@@ -1802,8 +1802,8 @@ public record CardData(
     }
 
     /**
-     * Parses passive self-targeting scaling power boosts (e.g. Jecht's
-     * "For each Forward opponent controls, Jecht gains +1000 power.").
+     * Parses passive self-targeting scaling power boosts
+     * "For each Forward opponent controls, &lt;cardName&gt; gains +1000 power.").
      * Returns an empty list for Summons and whenever the target name does not match
      * the card's own name.
      */

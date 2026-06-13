@@ -238,7 +238,7 @@ public class MainWindow {
 	/** Turn number on which each backup slot was last filled (0 = empty/unknown). */
 	private final int[] p1BackupPlayedOnTurn = new int[5];
 
-	// State for Backups temporarily acting as Forwards (e.g. Tifa 17-012R). Keyed by CardData.
+	// State for Backups temporarily acting as Forwards (e.g. 17-012R). Keyed by CardData.
 	final Map<CardData, Integer> p1BackupTempForwardPower = new HashMap<>();
 	private final Map<CardData, Integer> p2BackupTempForwardPower = new HashMap<>();
 	final Map<CardData, Integer> p1BackupForwardBoost     = new HashMap<>();
@@ -7830,6 +7830,7 @@ public class MainWindow {
 		CardData card = p1BackupCards[idx];
 		boolean actingForward = isP1BackupTemporarilyForward(idx);
 		boolean canAttack = attackSubStep == 1 && isBackupSelectableAsForward(idx);
+		boolean canBlock  = isBackupBlockSelectable(idx);
 		boolean selected  = p1BackupAttackIdx == idx || p1BlockerBackupIdx == idx;
 		int fwdPower = actingForward ? p1BackupForwardPower(idx) : 0;
 		int damage   = card != null ? p1BackupForwardDamage.getOrDefault(card, 0) : 0;
@@ -7839,7 +7840,7 @@ public class MainWindow {
 				Image raw = ImageCache.load(url);
 				if (raw == null) return new ImageIcon(CardAnimation.renderPlaceholder(state));
 				BufferedImage canvas = CardAnimation.renderBackupCard(
-						CardAnimation.toARGB(raw, CARD_W, CARD_H), state, canAttack, selected, p1BackupFrozen[idx]);
+						CardAnimation.toARGB(raw, CARD_W, CARD_H), state, canAttack || canBlock, selected, p1BackupFrozen[idx]);
 				if (damage > 0) CardAnimation.renderDamageOverlay(canvas, damage, state);
 				if (actingForward && fwdPower > 0)
 					CardAnimation.renderPowerOverlayRight(canvas, fwdPower, new Color(80, 220, 80), state);
@@ -9717,6 +9718,7 @@ public class MainWindow {
 		CardData.BecomeForwardAbility bfa = card.becomeForwardAbility();
 		Integer tempFwdPower = p1MonsterTempForwardPower.get(card);
 		boolean canAttack = attackSubStep == 1 && isMonsterSelectableAsForward(idx);
+		boolean canBlock  = isMonsterBlockSelectable(idx);
 		boolean selected  = p1MonsterAttackIdx == idx || p1BlockerMonsterIdx == idx;
 		int damage        = p1MonsterDamage.get(idx);
 		boolean bfaActive = bfa != null && (bfa.damageThreshold() > 0
@@ -9730,7 +9732,7 @@ public class MainWindow {
 				Image raw = ImageCache.load(url);
 				if (raw == null) return new ImageIcon(CardAnimation.renderPlaceholder(state));
 				BufferedImage canvas = CardAnimation.renderBackupCard(
-						CardAnimation.toARGB(raw, CARD_W, CARD_H), state, canAttack, selected, p1MonsterFrozen.get(idx));
+						CardAnimation.toARGB(raw, CARD_W, CARD_H), state, canAttack || canBlock, selected, p1MonsterFrozen.get(idx));
 				if (damage > 0)
 					CardAnimation.renderDamageOverlay(canvas, damage, state);
 				if (actingForward)
@@ -9869,6 +9871,7 @@ public class MainWindow {
 				&& !p1ForwardCannotAttack.contains(idx)
 				&& !p1ForwardCannotAttackPersistent.contains(idx)
 				&& (hasHaste || p1ForwardPlayedOnTurn.get(idx) != gameState.getTurnNumber());
+		boolean canBlock  = isForwardBlockSelectable(idx);
 		int damage    = p1ForwardDamage.get(idx);
 		int power     = effectiveP1ForwardPower(idx);
 		int basePower = (topCard != null ? topCard : p1ForwardCards.get(idx)).power();
@@ -9878,7 +9881,7 @@ public class MainWindow {
 			@Override protected ImageIcon doInBackground() throws Exception {
 				Image raw = ImageCache.load(url);
 				if (raw == null) return new ImageIcon(CardAnimation.renderPlaceholder(state));
-				BufferedImage canvas = CardAnimation.renderBackupCard(CardAnimation.toARGB(raw, CARD_W, CARD_H), state, canAttack, selected, Boolean.TRUE.equals(p1ForwardFrozen.get(idx)));
+				BufferedImage canvas = CardAnimation.renderBackupCard(CardAnimation.toARGB(raw, CARD_W, CARD_H), state, canAttack || canBlock, selected, Boolean.TRUE.equals(p1ForwardFrozen.get(idx)));
 				if (damage > 0) {
 					CardAnimation.renderDamageOverlay(canvas, damage, state);
 				}
@@ -10621,7 +10624,7 @@ public class MainWindow {
 				|| p2MonsterPlayedOnTurn.get(idx) != gameState.getTurnNumber();
 	}
 
-	// ── Backups acting as Forwards (e.g. Tifa 17-012R) ────────────────────────
+	// ── Backups acting as Forwards (e.g. 17-012R) ────────────────────────
 
 	private static int indexOfBackup(CardData[] backups, CardData card) {
 		for (int i = 0; i < backups.length; i++) if (backups[i] == card) return i;

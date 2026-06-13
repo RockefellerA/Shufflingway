@@ -5881,8 +5881,8 @@ public class ActionResolver {
      * Three cost variants:
      * <ul>
      *   <li>{@code payCost}     — element name from "pay 《Earth》"</li>
-     *   <li>{@code dullName}    — card name from "dull active Yuna"</li>
-     *   <li>{@code discardName} — card name from "discard 1 Card Name Golbez"</li>
+     *   <li>{@code dullName}    — card name from "dull active &lt;cardName&gt;"</li>
+     *   <li>{@code discardName} — card name from "discard 1 Card Name &lt;cardName&gt;"</li>
      * </ul>
      */
     private static final Pattern MAY_COST_REPLAY_ABILITY = Pattern.compile(
