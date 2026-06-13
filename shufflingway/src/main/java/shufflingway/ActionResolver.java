@@ -207,15 +207,16 @@ public class ActionResolver {
     /**
      * Matches "Deal it/them [base] damage [and [per] more damage] for each [source]".
      * <ul>
-     *   <li>{@code base}     — base damage per unit (or fixed base when {@code per} is set)</li>
-     *   <li>{@code per}      — additional damage per each unit (the "and N more" form)</li>
-     *   <li>{@code selfdmg}  — source is P1's damage-zone count</li>
-     *   <li>{@code jobbname} — bracket job: "[Job (name)] you control"</li>
-     *   <li>{@code jobwname} — written job: "Job Name you control"</li>
-     *   <li>{@code chartype} — type filter: "Forwards/Characters/etc. you control"</li>
-     *   <li>{@code bzname}   — card name in P1's Break Zone</li>
-     *   <li>{@code opphand}  — source is the opponent's hand size</li>
-     *   <li>{@code xpaid}    — source is the X CP value paid for this ability</li>
+     *   <li>{@code base}       — base damage per unit (or fixed base when {@code per} is set)</li>
+     *   <li>{@code per}        — additional damage per each unit (the "and N more" form)</li>
+     *   <li>{@code selfdmg}    — source is P1's damage-zone count</li>
+     *   <li>{@code jobbname}   — bracket job: "[Job (name)] you control"</li>
+     *   <li>{@code jobwname}   — written job: "Job Name you control"</li>
+     *   <li>{@code chartype}   — type filter: "Forwards/Characters/etc. you control"</li>
+     *   <li>{@code costfilter} — optional exact cost: "of cost N" appended to chartype</li>
+     *   <li>{@code bzname}     — card name in P1's Break Zone</li>
+     *   <li>{@code opphand}    — source is the opponent's hand size</li>
+     *   <li>{@code xpaid}      — source is the X CP value paid for this ability</li>
      * </ul>
      */
     private static final Pattern FOLLOWUP_DAMAGE_FOR_EACH = Pattern.compile(
@@ -226,7 +227,7 @@ public class ActionResolver {
             "(?<selfdmg>point\\s+of\\s+damage\\s+you\\s+have\\s+received)" +
             "|\\[Job\\s+\\((?<jobbname>[^)]+)\\)\\]\\s+you\\s+control" +
             "|Job\\s+(?<jobwname>.+?)(?:\\s+(?<jobwtype>Forwards?|Backups?|Monsters?))?\\s+you\\s+control" +
-            "|(?:Category\\s+(?<category>\\S+)\\s+)?(?:(?<element>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)\\s+)?(?<chartype>Forwards?|Characters?|Backups?|Monsters?)\\s+you\\s+control" +
+            "|(?:Category\\s+(?<category>\\S+)\\s+)?(?:(?<element>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)\\s+)?(?<chartype>Forwards?|Characters?|Backups?|Monsters?)(?:\\s+of\\s+cost\\s+(?<costfilter>\\d+))?\\s+you\\s+control" +
             "|Card\\s+Name\\s+(?<bzname>\\S+(?:\\s+\\([^)]+\\))?)\\s+in\\s+your\\s+Break\\s+Zone" +
             "|(?<opphand>card\\s+in\\s+your\\s+opponent'?s?\\s+hand)" +
             "|(?<xpaid>CP\\s+paid\\s+as\\s+X)" +
@@ -3693,7 +3694,7 @@ public class ActionResolver {
             };
         }
 
-        // Deal N damage [and/minus M [more] damage] for each [Category X] [Element] Type you control
+        // Deal N damage [and/minus M [more] damage] for each [Category X] [Element] Type [of cost N] you control
         java.util.regex.Matcher forEachM = FOLLOWUP_DAMAGE_FOR_EACH.matcher(t);
         if (forEachM.find() && forEachM.group("chartype") != null) {
             int    baseDmg  = Integer.parseInt(forEachM.group("base"));
@@ -3703,11 +3704,12 @@ public class ActionResolver {
             String charType = forEachM.group("chartype");
             String category = forEachM.group("category") != null ? forEachM.group("category").trim() : null;
             String element  = forEachM.group("element") != null ? forEachM.group("element").toLowerCase(java.util.Locale.ROOT) : null;
+            int    costFilter = forEachM.group("costfilter") != null ? Integer.parseInt(forEachM.group("costfilter")) : -1;
             boolean fwd = charType.matches("(?i)Forwards?|Characters?");
             boolean bkp = charType.matches("(?i)Backups?|Characters?");
             boolean mon = charType.matches("(?i)Monsters?|Characters?");
             return (ctx, ts) -> {
-                int n = ctx.countSelfFieldCards(fwd, bkp, mon, null, null, category, element);
+                int n = ctx.countSelfFieldCards(fwd, bkp, mon, null, null, category, element, costFilter);
                 int damage = perDmg > 0
                         ? (subtract ? Math.max(0, baseDmg - perDmg * n) : baseDmg + perDmg * n)
                         : baseDmg * n;
@@ -4163,6 +4165,7 @@ public class ActionResolver {
             String  srcCharType   = forEachM.group("chartype");
             String  srcCategory   = srcCharType != null && forEachM.group("category") != null ? forEachM.group("category").trim() : null;
             String  srcElement    = srcCharType != null && forEachM.group("element")  != null ? forEachM.group("element").toLowerCase(java.util.Locale.ROOT) : null;
+            int     srcCostFilter = srcCharType != null && forEachM.group("costfilter") != null ? Integer.parseInt(forEachM.group("costfilter")) : -1;
             String  srcBzName     = forEachM.group("bzname")   != null ? forEachM.group("bzname").trim()   : null;
             boolean srcOppHand    = forEachM.group("opphand")  != null;
             boolean srcCrystal    = forEachM.group("crystal")  != null;
@@ -4174,7 +4177,7 @@ public class ActionResolver {
             if      (srcSelfDmg)           sourceLabel = "P1 damage";
             else if (srcJobBracket != null) sourceLabel = "[Job (" + srcJobBracket + ")] you control";
             else if (srcJobWritten != null) sourceLabel = "Job " + srcJobWritten + (srcJobWType != null ? " " + srcJobWType : "") + " you control";
-            else if (srcCharType   != null) sourceLabel = (srcCategory != null ? "Category " + srcCategory + " " : "") + (srcElement != null ? srcElement + " " : "") + srcCharType + " you control";
+            else if (srcCharType   != null) sourceLabel = (srcCategory != null ? "Category " + srcCategory + " " : "") + (srcElement != null ? srcElement + " " : "") + srcCharType + (srcCostFilter != -1 ? " of cost " + srcCostFilter : "") + " you control";
             else if (srcBzName     != null) sourceLabel = "Card Name " + srcBzName + " in BZ";
             else if (srcOppHand)           sourceLabel = "opponent hand";
             else if (srcCrystal)           sourceLabel = "《C》 you have";
@@ -4193,7 +4196,7 @@ public class ActionResolver {
                     boolean jwMon = srcJobWType == null || srcJobWType.matches("(?i)Monsters?");
                     n = ctx.countSelfFieldCards(jwFwd, jwBkp, jwMon, srcJobWritten, null);
                 }
-                else if (srcCharType   != null) n = ctx.countSelfFieldCards(charFwd, charBkp, charMon, null, null, srcCategory, srcElement);
+                else if (srcCharType   != null) n = ctx.countSelfFieldCards(charFwd, charBkp, charMon, null, null, srcCategory, srcElement, srcCostFilter);
                 else if (srcBzName     != null) n = ctx.countSelfBreakZoneCards(srcBzName, null);
                 else if (srcOppHand)           n = ctx.opponentHandSize();
                 else if (srcCrystal)           n = ctx.crystalCount();

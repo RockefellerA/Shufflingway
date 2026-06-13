@@ -2770,12 +2770,18 @@ final class GameContextImpl implements GameContext {
 
 			@Override public int countP1FieldCards(boolean inclForwards, boolean inclBackups,
 					boolean inclMonsters, String jobFilter, String cardNameFilter, String categoryFilter, String elementFilter) {
+				return countP1FieldCards(inclForwards, inclBackups, inclMonsters, jobFilter, cardNameFilter, categoryFilter, elementFilter, -1);
+			}
+
+			@Override public int countP1FieldCards(boolean inclForwards, boolean inclBackups,
+					boolean inclMonsters, String jobFilter, String cardNameFilter, String categoryFilter, String elementFilter, int costFilter) {
 				int count = 0;
 				if (inclForwards) for (CardData c : mw.p1ForwardCards) {
 					if (!mw.meetsJobFilterEffective(c, jobFilter)) continue;
 					if (!meetsCardNameFilter(c, cardNameFilter)) continue;
 					if (!meetsCategoryFilter(c, categoryFilter)) continue;
 					if (elementFilter != null && !c.containsElement(elementFilter)) continue;
+					if (costFilter != -1 && c.cost() != costFilter) continue;
 					count++;
 				}
 				if (inclBackups) for (CardData c : mw.p1BackupCards) {
@@ -2784,6 +2790,7 @@ final class GameContextImpl implements GameContext {
 					if (!meetsCardNameFilter(c, cardNameFilter)) continue;
 					if (!meetsCategoryFilter(c, categoryFilter)) continue;
 					if (elementFilter != null && !c.containsElement(elementFilter)) continue;
+					if (costFilter != -1 && c.cost() != costFilter) continue;
 					count++;
 				}
 				if (inclMonsters) for (CardData c : mw.p1MonsterCards) {
@@ -2791,6 +2798,7 @@ final class GameContextImpl implements GameContext {
 					if (!meetsCardNameFilter(c, cardNameFilter)) continue;
 					if (!meetsCategoryFilter(c, categoryFilter)) continue;
 					if (elementFilter != null && !c.containsElement(elementFilter)) continue;
+					if (costFilter != -1 && c.cost() != costFilter) continue;
 					count++;
 				}
 				return count;
@@ -2828,12 +2836,18 @@ final class GameContextImpl implements GameContext {
 
 			@Override public int countP2FieldCards(boolean inclForwards, boolean inclBackups,
 					boolean inclMonsters, String jobFilter, String cardNameFilter, String categoryFilter, String elementFilter) {
+				return countP2FieldCards(inclForwards, inclBackups, inclMonsters, jobFilter, cardNameFilter, categoryFilter, elementFilter, -1);
+			}
+
+			@Override public int countP2FieldCards(boolean inclForwards, boolean inclBackups,
+					boolean inclMonsters, String jobFilter, String cardNameFilter, String categoryFilter, String elementFilter, int costFilter) {
 				int count = 0;
 				if (inclForwards) for (CardData c : mw.p2ForwardCards) {
 					if (!mw.meetsJobFilterEffective(c, jobFilter)) continue;
 					if (!meetsCardNameFilter(c, cardNameFilter)) continue;
 					if (!meetsCategoryFilter(c, categoryFilter)) continue;
 					if (elementFilter != null && !c.containsElement(elementFilter)) continue;
+					if (costFilter != -1 && c.cost() != costFilter) continue;
 					count++;
 				}
 				if (inclBackups) for (CardData c : mw.p2BackupCards) {
@@ -2842,6 +2856,7 @@ final class GameContextImpl implements GameContext {
 					if (!meetsCardNameFilter(c, cardNameFilter)) continue;
 					if (!meetsCategoryFilter(c, categoryFilter)) continue;
 					if (elementFilter != null && !c.containsElement(elementFilter)) continue;
+					if (costFilter != -1 && c.cost() != costFilter) continue;
 					count++;
 				}
 				if (inclMonsters) for (CardData c : mw.p2MonsterCards) {
@@ -2849,6 +2864,7 @@ final class GameContextImpl implements GameContext {
 					if (!meetsCardNameFilter(c, cardNameFilter)) continue;
 					if (!meetsCategoryFilter(c, categoryFilter)) continue;
 					if (elementFilter != null && !c.containsElement(elementFilter)) continue;
+					if (costFilter != -1 && c.cost() != costFilter) continue;
 					count++;
 				}
 				return count;
@@ -3048,7 +3064,33 @@ final class GameContextImpl implements GameContext {
 				for (CardData c : deck) { peeked.add(c); if (peeked.size() >= n) break; }
 				logEntry("Reveal top " + n + " card(s): " +
 						peeked.stream().map(CardData::name).collect(Collectors.joining(", ")));
-				mw.lookDialogs().showRevealAddUpToMatchingRestBottom(peeked, deck, isP1, maxAdd, jobFilter, categoryFilter, cardNameFilter);
+				if (!isP1 && mw.isP2Cpu()) {
+					// CPU P2: auto-select — no dialog. Pick up to maxAdd eligible cards
+					// (highest cost first, matching any of the filters), rest go to bottom.
+					List<CardData> eligible = peeked.stream()
+							.filter(c -> {
+								boolean matches = (jobFilter      != null && CardFilters.meetsJobFilter(c, jobFilter))
+								               || (categoryFilter != null && CardFilters.meetsCategoryFilter(c, categoryFilter))
+								               || (cardNameFilter != null && CardFilters.meetsCardNameFilter(c, cardNameFilter));
+								return jobFilter == null && categoryFilter == null && cardNameFilter == null ? true : matches;
+							})
+							.sorted(java.util.Comparator.comparingInt(CardData::cost).reversed())
+							.collect(Collectors.toList());
+					List<CardData> chosen = eligible.subList(0, Math.min(maxAdd, eligible.size()));
+					Set<CardData> chosenSet = new java.util.LinkedHashSet<>(chosen);
+					for (int i = 0; i < n; i++) deck.pollFirst();
+					for (CardData c : chosenSet) {
+						mw.gameState.getP2Hand().add(c);
+						logEntry("[AI] " + c.name() + " → [P2] hand");
+					}
+					if (!chosenSet.isEmpty()) mw.refreshP2HandCountLabel();
+					for (CardData c : peeked) {
+						if (!chosenSet.contains(c)) { deck.addLast(c); logEntry("[AI] " + c.name() + " → [P2] bottom of deck"); }
+					}
+					mw.refreshP2DeckLabel();
+				} else {
+					mw.lookDialogs().showRevealAddUpToMatchingRestBottom(peeked, deck, isP1, maxAdd, jobFilter, categoryFilter, cardNameFilter);
+				}
 			}
 
 			@Override public void grantAllControlledForwardsJobUntilEOT(String job) {

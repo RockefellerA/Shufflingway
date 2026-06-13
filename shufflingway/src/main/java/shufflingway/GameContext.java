@@ -638,6 +638,24 @@ public interface GameContext {
     }
 
     /**
+     * Counts the ability user's own field cards with an optional exact-cost filter.
+     *
+     * @param costFilter exact card cost to match; {@code -1} = any cost
+     */
+    default int countSelfFieldCards(boolean inclForwards, boolean inclBackups, boolean inclMonsters,
+            String jobFilter, String cardNameFilter, String categoryFilter, String elementFilter, int costFilter) {
+        return isP1()
+                ? countP1FieldCards(inclForwards, inclBackups, inclMonsters, jobFilter, cardNameFilter, categoryFilter, elementFilter, costFilter)
+                : countP2FieldCards(inclForwards, inclBackups, inclMonsters, jobFilter, cardNameFilter, categoryFilter, elementFilter, costFilter);
+    }
+
+    int countP1FieldCards(boolean inclForwards, boolean inclBackups, boolean inclMonsters,
+            String jobFilter, String cardNameFilter, String categoryFilter, String elementFilter, int costFilter);
+
+    int countP2FieldCards(boolean inclForwards, boolean inclBackups, boolean inclMonsters,
+            String jobFilter, String cardNameFilter, String categoryFilter, String elementFilter, int costFilter);
+
+    /**
      * Counts cards in P1's Break Zone matching all supplied filters.
      *
      * @param cardNameFilter exact card name; {@code null} = any

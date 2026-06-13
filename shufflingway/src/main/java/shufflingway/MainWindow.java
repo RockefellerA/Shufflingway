@@ -7159,7 +7159,7 @@ public class MainWindow {
 	}
 
 	/** True when P2 is the built-in computer player (no active multiplayer connection). */
-	private boolean isP2Cpu() {
+	boolean isP2Cpu() {
 		return multiplayerMenu == null || multiplayerMenu.getActiveConnection() == null;
 	}
 
