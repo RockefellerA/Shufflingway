@@ -7,9 +7,14 @@ import java.awt.Component;
 import java.awt.Cursor;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
+import java.awt.Graphics2D;
 import java.awt.Image;
+import java.awt.RenderingHints;
+import java.awt.color.ColorSpace;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
+import java.awt.image.BufferedImage;
+import java.awt.image.ColorConvertOp;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -190,7 +195,7 @@ public class AbilityPaymentDialog {
                     @Override public void mouseEntered(MouseEvent ev) { if (lbl.getIcon() != null) onZoom.accept(url); }
                     @Override public void mouseExited(MouseEvent ev)  { onZoomHide.run(); }
                 });
-                loadCardImage(lbl, url);
+                loadCardImage(lbl, url, false);
                 backupLbls.add(lbl); backupSlots.add(slot); bp.add(lbl);
             }
             center.add(hdr); center.add(bp);
@@ -222,7 +227,7 @@ public class AbilityPaymentDialog {
                     @Override public void mouseExited(MouseEvent ev)  { onZoomHide.run(); }
                 });
             }
-            loadCardImage(lbl, imgUrl);
+            loadCardImage(lbl, imgUrl, !payable);
             dp.add(lbl);
         }
         center.add(discHdr); center.add(dp);
@@ -321,11 +326,19 @@ public class AbilityPaymentDialog {
         return lbl;
     }
 
-    private static void loadCardImage(JLabel lbl, String url) {
+    private static void loadCardImage(JLabel lbl, String url, boolean greyscale) {
         new SwingWorker<ImageIcon, Void>() {
             @Override protected ImageIcon doInBackground() throws Exception {
                 Image img = ImageCache.load(url);
-                return img == null ? null : new ImageIcon(img.getScaledInstance(CARD_W, CARD_H, Image.SCALE_SMOOTH));
+                if (img == null) return null;
+                if (!greyscale) return new ImageIcon(img.getScaledInstance(CARD_W, CARD_H, Image.SCALE_SMOOTH));
+                BufferedImage buf = new BufferedImage(CARD_W, CARD_H, BufferedImage.TYPE_INT_ARGB);
+                Graphics2D g2 = buf.createGraphics();
+                g2.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+                g2.drawImage(img, 0, 0, CARD_W, CARD_H, null);
+                g2.dispose();
+                return new ImageIcon(new ColorConvertOp(
+                        ColorSpace.getInstance(ColorSpace.CS_GRAY), null).filter(buf, null));
             }
             @Override protected void done() {
                 try { ImageIcon ic = get(); if (ic != null) { lbl.setIcon(ic); lbl.setText(null); } }
