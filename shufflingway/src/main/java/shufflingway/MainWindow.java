@@ -1171,10 +1171,54 @@ public class MainWindow {
 	// -------------------------------------------------------------------------
 
 	private void startGame(int deckId, int p2DeckId) {
+		// --- Tear down any in-progress game before resetting state ---
+		// Stop timers first so they cannot fire callbacks after state is cleared.
+		stackWindowGeneration++;
+		if (stackCountdownTimer  != null) { stackCountdownTimer.stop();    stackCountdownTimer  = null; }
+		if (combatPriorityTimer  != null) { combatPriorityTimer.stop();    combatPriorityTimer  = null; }
+		if (p2AutoPassTimer      != null) { p2AutoPassTimer.stop();         p2AutoPassTimer      = null; }
+		// Dispose any floating windows.
+		if (summonStackWindow    != null) { summonStackWindow.dispose();    summonStackWindow    = null; }
+		if (combatPriorityWindow != null) { combatPriorityWindow.dispose(); combatPriorityWindow = null; }
+		if (openingHandPopup     != null) { openingHandPopup.dispose();     openingHandPopup     = null; }
+		// Reset stack-resolution flags so new abilities can reach the stack window.
+		isResolvingStack         = false;
+		currentResolutionIsSummon = false;
+		pendingSummonReturnToHand = false;
+		currentSummonSource      = null;
+		currentAbilitySource     = null;
+		suppressAutoAbilityForNextCard = false;
+		// Per-game callback/priority state.
+		p1PriorityInP2MainOnDone = null;
+		// Per-game / per-turn collections that are not covered by gameState.reset() or clearUIZones().
+		cancelledStackEntries.clear();
+		usedOncePerTurnAbilities.clear();
+		elementOverrideMap.clear();
+		permanentExtraJobMap.clear();
+		stolenForwards.clear();
+		cannotBeChosenBySummons.clear();
+		cannotBeChosenByAbilities.clear();
+		cannotBeChosenBySummonsAnyone.clear();
+		cannotBeChosenByElement.clear();
+		p1TempAttackTriggers.clear();
+		p2TempAttackTriggers.clear();
+		p1TempBlockTriggers.clear();
+		p2TempBlockTriggers.clear();
+		p1ForwardCannotBlock.clear();
+		p2ForwardCannotBlock.clear();
+		// Per-turn tracking flags.
+		p1ReceivedDamageThisTurn = false;
+		p2ReceivedDamageThisTurn = false;
+		p1PartyAnyElementThisTurn = false;
+		p2PartyAnyElementThisTurn = false;
+		lastCardWasCast   = false;
+		lastCardWarpedIn  = false;
+
 		gameState.reset();
 		endOfTurnEffects.clear();
 		pendingMainPhase1Effects.clear();
 		activeCostReductions.clear();
+		if (computerPlayer != null) computerPlayer.cancel();
 		computerPlayer = new ComputerPlayer();
 		clearUIZones();
 		if (nextPhaseButton != null) nextPhaseButton.setEnabled(false);
@@ -11999,10 +12043,15 @@ public class MainWindow {
 
 	private class ComputerPlayer {
 		private static final int PAUSE_MS = 500;
+		private boolean cancelled = false;
+
+		/** Permanently stops this ComputerPlayer; all pending and future steps become no-ops. */
+		void cancel() { cancelled = true; }
 
 		/** Schedules {@code r} to run after {@link #PAUSE_MS} ms on the EDT, but waits for the stack to be empty first. */
 		private void step(Runnable r) {
 			Timer t = new Timer(PAUSE_MS, e -> {
+				if (cancelled) return;
 				if (gameState.isP1GameOver()) return;
 				if (!gameState.getStack().isEmpty()) { step(r); return; }
 				r.run();
