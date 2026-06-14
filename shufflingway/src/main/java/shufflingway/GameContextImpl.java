@@ -1029,6 +1029,55 @@ final class GameContextImpl implements GameContext {
 				logEntry("Effect: " + chosen.source().name() + "'s " + type + " effect will be cancelled");
 			}
 
+			@Override public void cancelAutoAbilityAndDamageSourceIfForward(int damage) {
+				List<StackEntry> targets = mw.gameState.getStack().stream()
+						.filter(StackEntry::isAutoAbility)
+						.collect(java.util.stream.Collectors.toList());
+				if (targets.isEmpty()) {
+					logEntry("No auto-abilities on the stack to cancel");
+					return;
+				}
+				StackEntry chosen;
+				if (targets.size() == 1) {
+					chosen = targets.get(0);
+				} else if (isP1) {
+					String[] options = new String[targets.size()];
+					for (int i = 0; i < targets.size(); i++) {
+						StackEntry e = targets.get(i);
+						options[i] = e.source().name() + " (Auto, " + (e.isP1() ? "P1" : "P2") + ")";
+					}
+					Object sel = JOptionPane.showInputDialog(mw.frame,
+							"Choose 1 auto-ability to cancel:",
+							"Cancel Effect", JOptionPane.PLAIN_MESSAGE, null, options, options[0]);
+					if (sel == null) return;
+					int idx = java.util.Arrays.asList(options).indexOf(sel.toString());
+					if (idx < 0) return;
+					chosen = targets.get(idx);
+				} else {
+					// AI: prefer the most recently pushed P1 entry
+					chosen = targets.stream().filter(e -> e.isP1())
+							.reduce((a, b) -> b).orElse(targets.get(targets.size() - 1));
+					logEntry("[AI] Chose to cancel: " + chosen.source().name());
+				}
+				mw.cancelledStackEntries.add(chosen);
+				logEntry("Effect: " + chosen.source().name() + "'s auto-ability effect will be cancelled");
+
+				if (!chosen.source().isForward()) {
+					logEntry(chosen.source().name() + " is not a Forward — no damage");
+					return;
+				}
+				CardData src = chosen.source();
+				List<CardData> fwds = chosen.isP1() ? mw.p1ForwardCards : mw.p2ForwardCards;
+				int fwdIdx = fwds.indexOf(src);
+				if (fwdIdx < 0) {
+					logEntry(src.name() + " is no longer on the field — no damage");
+					return;
+				}
+				logEntry(src.name() + " is a Forward — dealing " + damage + " damage");
+				if (chosen.isP1()) damageP1Forward(fwdIdx, damage);
+				else               damageP2Forward(fwdIdx, damage);
+			}
+
 			@Override public void forceTargetToBreakZone(ForwardTarget t) {
 				switch (t.zone()) {
 					case FORWARD -> { if (t.isP1()) breakP1Forward(t.idx()); else breakP2Forward(t.idx()); }
@@ -3067,7 +3116,7 @@ final class GameContextImpl implements GameContext {
 			}
 
 			@Override public void revealTopAddUpToMatchingRestBottom(int reveal, int maxAdd,
-					String jobFilter, String categoryFilter, String cardNameFilter) {
+					String jobFilter, String categoryFilter, String cardNameFilter, String typeFilter) {
 				Deque<CardData> deck = isP1 ? mw.gameState.getP1MainDeck() : mw.gameState.getP2MainDeck();
 				int n = Math.min(reveal, deck.size());
 				if (n == 0) { logEntry("Reveal top: deck is empty."); return; }
@@ -3080,10 +3129,14 @@ final class GameContextImpl implements GameContext {
 					// (highest cost first, matching any of the filters), rest go to bottom.
 					List<CardData> eligible = peeked.stream()
 							.filter(c -> {
+								boolean noFilters = jobFilter == null && categoryFilter == null
+										&& cardNameFilter == null && typeFilter == null;
+								if (noFilters) return true;
 								boolean matches = (jobFilter      != null && CardFilters.meetsJobFilter(c, jobFilter))
 								               || (categoryFilter != null && CardFilters.meetsCategoryFilter(c, categoryFilter))
-								               || (cardNameFilter != null && CardFilters.meetsCardNameFilter(c, cardNameFilter));
-								return jobFilter == null && categoryFilter == null && cardNameFilter == null ? true : matches;
+								               || (cardNameFilter != null && CardFilters.meetsCardNameFilter(c, cardNameFilter))
+								               || (typeFilter     != null && meetsRevealTypeFilter(c, typeFilter));
+								return matches;
 							})
 							.sorted(java.util.Comparator.comparingInt(CardData::cost).reversed())
 							.collect(Collectors.toList());
@@ -3100,8 +3153,18 @@ final class GameContextImpl implements GameContext {
 					}
 					mw.refreshP2DeckLabel();
 				} else {
-					mw.lookDialogs().showRevealAddUpToMatchingRestBottom(peeked, deck, isP1, maxAdd, jobFilter, categoryFilter, cardNameFilter);
+					mw.lookDialogs().showRevealAddUpToMatchingRestBottom(peeked, deck, isP1, maxAdd, jobFilter, categoryFilter, cardNameFilter, typeFilter);
 				}
+			}
+
+			private boolean meetsRevealTypeFilter(CardData c, String type) {
+				return switch (type.toLowerCase()) {
+					case "monster"   -> c.isMonster();
+					case "forward"   -> c.isForward();
+					case "backup"    -> c.isBackup();
+					case "character" -> c.isForward() || c.isBackup() || c.isMonster();
+					default          -> false;
+				};
 			}
 
 			@Override public void grantAllControlledForwardsJobUntilEOT(String job) {

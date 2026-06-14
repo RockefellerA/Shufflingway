@@ -972,7 +972,7 @@ class LookAtDeckDialogs {
     }
 
     void showRevealAddUpToMatchingRestBottom(List<CardData> cards, Deque<CardData> deck,
-            boolean isP1, int maxAdd, String jobFilter, String categoryFilter, String cardNameFilter) {
+            boolean isP1, int maxAdd, String jobFilter, String categoryFilter, String cardNameFilter, String typeFilter) {
         int n = cards.size();
         JDialog dlg = new JDialog(frame, "Reveal — Add to Hand, Rest to Bottom", true);
         dlg.setResizable(false);
@@ -1003,10 +1003,13 @@ class LookAtDeckDialogs {
             for (int j = 0; j < n; j++) {
                 CardData c = order.get(j);
                 boolean isChar = c.isForward() || c.isBackup() || c.isMonster();
-                boolean matches = (jobFilter      != null && CardFilters.meetsJobFilter(c, jobFilter))
-                               || (categoryFilter != null && CardFilters.meetsCategoryFilter(c, categoryFilter))
-                               || (cardNameFilter != null && CardFilters.meetsCardNameFilter(c, cardNameFilter));
-                if (jobFilter == null && categoryFilter == null && cardNameFilter == null) matches = true;
+                boolean noFilters = jobFilter == null && categoryFilter == null
+                        && cardNameFilter == null && typeFilter == null;
+                boolean matches = noFilters
+                        || (jobFilter      != null && CardFilters.meetsJobFilter(c, jobFilter))
+                        || (categoryFilter != null && CardFilters.meetsCategoryFilter(c, categoryFilter))
+                        || (cardNameFilter != null && CardFilters.meetsCardNameFilter(c, cardNameFilter))
+                        || (typeFilter     != null && meetsRevealTypeFilter(c, typeFilter));
                 boolean inHand = handSet.contains(c);
                 handBtns[j].setEnabled(isChar && matches && (inHand || count < maxAdd));
             }
@@ -1094,9 +1097,12 @@ class LookAtDeckDialogs {
             }.execute();
         }
 
-        String filterDesc = jobFilter != null ? "Job [" + jobFilter + "]" : "Category [" + categoryFilter + "]";
+        String filterDesc = typeFilter     != null ? typeFilter + "s"
+                : jobFilter      != null ? "Job [" + jobFilter + "] Characters"
+                : categoryFilter != null ? "Category [" + categoryFilter + "] Characters"
+                : "Characters";
         JLabel instructions = new JLabel(
-                "Toggle '→ Hand' on " + filterDesc + " Characters (up to " + maxAdd + "). Swap the rest to order (left = first at bottom).",
+                "Toggle '→ Hand' on " + filterDesc + " (up to " + maxAdd + "). Swap the rest to order (left = first at bottom).",
                 SwingConstants.CENTER);
         instructions.setFont(FontLoader.loadPixelNESFont(9));
         confirmBtn.addActionListener(ae -> { hideZoom(); dlg.dispose(); });
@@ -1155,5 +1161,15 @@ class LookAtDeckDialogs {
             }.execute();
         }
         return lbl;
+    }
+
+    private static boolean meetsRevealTypeFilter(CardData c, String type) {
+        return switch (type.toLowerCase()) {
+            case "monster"   -> c.isMonster();
+            case "forward"   -> c.isForward();
+            case "backup"    -> c.isBackup();
+            case "character" -> c.isForward() || c.isBackup() || c.isMonster();
+            default          -> false;
+        };
     }
 }

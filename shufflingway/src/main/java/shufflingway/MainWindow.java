@@ -9721,9 +9721,10 @@ public class MainWindow {
 		boolean canBlock  = isMonsterBlockSelectable(idx);
 		boolean selected  = p1MonsterAttackIdx == idx || p1BlockerMonsterIdx == idx;
 		int damage        = p1MonsterDamage.get(idx);
-		boolean bfaActive = bfa != null && (bfa.damageThreshold() > 0
-				? gameState.getP1DamageZone().size() >= bfa.damageThreshold()
-				: gameState.getCurrentPlayer() == GameState.Player.P1);
+		boolean bfaActive = bfa != null && (
+				bfa.minControlledMonsters() > 0 ? p1MonsterCards.size() >= bfa.minControlledMonsters() :
+				bfa.damageThreshold()       > 0 ? gameState.getP1DamageZone().size() >= bfa.damageThreshold() :
+				gameState.getCurrentPlayer() == GameState.Player.P1);
 		boolean actingForward = bfaActive || tempFwdPower != null;
 		int fwdPow = p1MonsterForwardPower(idx);
 		if (slot.getIcon() == null) slot.setIcon(new ImageIcon(CardAnimation.renderPlaceholder(state)));
@@ -9800,9 +9801,10 @@ public class MainWindow {
 		CardData.BecomeForwardAbility bfa = card.becomeForwardAbility();
 		Integer tempFwdPower = p2MonsterTempForwardPower.get(card);
 		int damage        = p2MonsterDamage.get(idx);
-		boolean bfaActive = bfa != null && (bfa.damageThreshold() > 0
-				? gameState.getP2DamageZone().size() >= bfa.damageThreshold()
-				: gameState.getCurrentPlayer() == GameState.Player.P2);
+		boolean bfaActive = bfa != null && (
+				bfa.minControlledMonsters() > 0 ? p2MonsterCards.size() >= bfa.minControlledMonsters() :
+				bfa.damageThreshold()       > 0 ? gameState.getP2DamageZone().size() >= bfa.damageThreshold() :
+				gameState.getCurrentPlayer() == GameState.Player.P2);
 		boolean actingForward = bfaActive || tempFwdPower != null;
 		int fwdPow = p2MonsterForwardPower(idx);
 		if (slot.getIcon() == null) slot.setIcon(new ImageIcon(CardAnimation.renderPlaceholder(state)));
@@ -10409,8 +10411,8 @@ public class MainWindow {
 		if (p1MonsterTempForwardPower.containsKey(card)) return true;
 		CardData.BecomeForwardAbility bfa = card.becomeForwardAbility();
 		if (bfa == null) return false;
-		if (bfa.damageThreshold() > 0)
-			return gameState.getP1DamageZone().size() >= bfa.damageThreshold();
+		if (bfa.minControlledMonsters() > 0) return p1MonsterCards.size() >= bfa.minControlledMonsters();
+		if (bfa.damageThreshold()       > 0) return gameState.getP1DamageZone().size() >= bfa.damageThreshold();
 		return gameState.getCurrentPlayer() == GameState.Player.P1;
 	}
 
@@ -10421,8 +10423,8 @@ public class MainWindow {
 		if (p2MonsterTempForwardPower.containsKey(card)) return true;
 		CardData.BecomeForwardAbility bfa = card.becomeForwardAbility();
 		if (bfa == null) return false;
-		if (bfa.damageThreshold() > 0)
-			return gameState.getP2DamageZone().size() >= bfa.damageThreshold();
+		if (bfa.minControlledMonsters() > 0) return p2MonsterCards.size() >= bfa.minControlledMonsters();
+		if (bfa.damageThreshold()       > 0) return gameState.getP2DamageZone().size() >= bfa.damageThreshold();
 		return gameState.getCurrentPlayer() == GameState.Player.P2;
 	}
 

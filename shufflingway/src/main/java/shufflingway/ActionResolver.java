@@ -130,6 +130,17 @@ public class ActionResolver {
         "(?i)Choose\\s+1\\s+Summon\\s+or\\s+auto-ability\\.\\s+Cancel\\s+its\\s+effect\\.?"
     );
 
+    /**
+     * Matches "Choose 1 auto-ability. Cancel its effect. If the cancelled auto-ability triggered
+     * from a Forward, deal that Forward N damage."
+     * Group {@code amount} — damage to deal if the source was a Forward.
+     */
+    private static final Pattern CANCEL_AUTO_ABILITY_DAMAGE_IF_FORWARD = Pattern.compile(
+        "(?i)^Choose\\s+1\\s+auto-ability\\.\\s+Cancel\\s+its\\s+effect\\.\\s+" +
+        "If\\s+the\\s+cancelled\\s+auto-ability\\s+triggered\\s+from\\s+a\\s+Forward,\\s+" +
+        "deal\\s+that\\s+Forward\\s+(?<amount>\\d+)\\s+damage\\.?$"
+    );
+
     /** Matches "deal it/them N damage". */
     /**
      * Matches "Deal it/them [and CardName] N damage".
@@ -734,6 +745,17 @@ public class ActionResolver {
      * {@code "Card Name …"} filter terms. The captured terms are split into a job filter and a
      * card-name filter at parse time.
      */
+    /**
+     * Matches "Reveal the top N cards of your deck. Add M [Type] among them to your hand
+     * and return the other cards to the bottom of your deck in any order."
+     * Groups: {@code n} (reveal count), {@code max} (max to add), {@code type} (card type).
+     */
+    private static final Pattern REVEAL_TOP_N_TYPE_TO_HAND = Pattern.compile(
+        "(?i)^\\s*(?:you\\s+may\\s+)?reveal\\s+the\\s+top\\s+(?<n>\\d+)\\s+cards?\\s+of\\s+your\\s+deck[.!]?\\s+" +
+        "Add\\s+(?<max>\\d+)\\s+(?<type>Forwards?|Backups?|Monsters?|Characters?)\\s+among\\s+them\\s+to\\s+your\\s+hand\\s+" +
+        "and\\s+return\\s+the\\s+other\\s+cards?\\s+to\\s+the\\s+bottom\\s+of\\s+(?:your|the)\\s+deck(?:\\s+in\\s+any\\s+order)?[.!]?\\s*$"
+    );
+
     private static final Pattern REVEAL_TOP_N_JOB_OR_NAME_TO_HAND = Pattern.compile(
         "(?i)^\\s*(?:you\\s+may\\s+)?reveal\\s+the\\s+top\\s+(?<n>\\d+)\\s+cards?\\s+of\\s+your\\s+deck[.!]?\\s+" +
         "Add\\s+1\\s+" +
@@ -2474,6 +2496,9 @@ public class ActionResolver {
         result = tryParseNegateAllDamage(effectText);
         if (result != null) return result;
 
+        result = tryParseCancelAutoAbilityAndDamageIfForward(effectText);
+        if (result != null) return result;
+
         result = tryParseCancelStackEntry(effectText);
         if (result != null) return result;
 
@@ -2565,6 +2590,9 @@ public class ActionResolver {
         if (result != null) return result;
 
         result = tryParseOpponentHandRfp(effectText);
+        if (result != null) return result;
+
+        result = tryParseRevealTopNTypeToHand(effectText);
         if (result != null) return result;
 
         result = tryParseRevealTopNCategoryToHand(effectText);
@@ -3113,8 +3141,9 @@ public class ActionResolver {
         if (tryParseRevealSelectHandRfp(effectText) != null)               return "RevealSelectHandRfp";
         if (tryParseOpponentRandomHandRfp(effectText) != null)             return "OpponentRandomHandRfp";
         if (tryParseOpponentHandRfp(effectText) != null)                   return "OpponentHandRfp";
-        if (tryParseRevealTopNCategoryToHand(effectText) != null)            return "RevealTopNCategoryToHand";
-        if (tryParseRevealTopNJobOrNameToHand(effectText) != null)           return "RevealTopNJobOrNameToHand";
+        if (tryParseRevealTopNTypeToHand(effectText)       != null)           return "RevealTopNTypeToHand";
+        if (tryParseRevealTopNCategoryToHand(effectText)   != null)          return "RevealTopNCategoryToHand";
+        if (tryParseRevealTopNJobOrNameToHand(effectText)  != null)          return "RevealTopNJobOrNameToHand";
         if (tryParseReturnNamedToHand(effectText) != null)                   return "ReturnNamedToHand";
         if (tryParseRemoveNamedFromGame(effectText, source) != null)        return "RemoveNamedFromGame";
         if (tryParseBreakSourceCard(effectText, source)     != null)        return "BreakSourceCard";
@@ -6682,6 +6711,20 @@ public class ActionResolver {
     }
 
     /**
+     * Parses "Choose 1 auto-ability. Cancel its effect. If the cancelled auto-ability triggered
+     * from a Forward, deal that Forward N damage."
+     */
+    private static Consumer<GameContext> tryParseCancelAutoAbilityAndDamageIfForward(String text) {
+        Matcher m = CANCEL_AUTO_ABILITY_DAMAGE_IF_FORWARD.matcher(text);
+        if (!m.find()) return null;
+        int damage = Integer.parseInt(m.group("amount"));
+        return ctx -> {
+            ctx.logEntry("Effect: Choose 1 auto-ability — cancel it; if triggered from a Forward, deal " + damage + " damage");
+            ctx.cancelAutoAbilityAndDamageSourceIfForward(damage);
+        };
+    }
+
+    /**
      * Parses "Choose 1 Summon or auto-ability. Cancel its effect." (Y'shtola).
      * The player selects a stack entry; its effect is suppressed when it resolves.
      */
@@ -7584,7 +7627,7 @@ public class ActionResolver {
             ctx.logEntry("Named " + choice[0] + ": " + choice[1]);
             String jobFilter = "job".equalsIgnoreCase(choice[0]) ? choice[1] : null;
             String catFilter = "category".equalsIgnoreCase(choice[0]) ? choice[1] : null;
-            ctx.revealTopAddUpToMatchingRestBottom(reveal, maxAdd, jobFilter, catFilter, null);
+            ctx.revealTopAddUpToMatchingRestBottom(reveal, maxAdd, jobFilter, catFilter, null, null);
         };
     }
 
@@ -7595,7 +7638,7 @@ public class ActionResolver {
         String cat = m.group("cat");
         return ctx -> {
             ctx.logEntry("Effect: Reveal top " + n + " — add 1 Category " + cat + " to hand, rest to bottom");
-            ctx.revealTopAddUpToMatchingRestBottom(n, 1, null, cat, null);
+            ctx.revealTopAddUpToMatchingRestBottom(n, 1, null, cat, null, null);
         };
     }
 
@@ -7622,7 +7665,21 @@ public class ActionResolver {
                     + (jobFilter != null && cardNameFilter != null ? " | " : "")
                     + (cardNameFilter != null ? "Card Name " + cardNameFilter : "")
                     + ") to hand, rest to bottom");
-            ctx.revealTopAddUpToMatchingRestBottom(n, 1, jobFilter, null, cardNameFilter);
+            ctx.revealTopAddUpToMatchingRestBottom(n, 1, jobFilter, null, cardNameFilter, null);
+        };
+    }
+
+    private static Consumer<GameContext> tryParseRevealTopNTypeToHand(String text) {
+        Matcher m = REVEAL_TOP_N_TYPE_TO_HAND.matcher(text);
+        if (!m.find()) return null;
+        int n = Integer.parseInt(m.group("n"));
+        int max = Integer.parseInt(m.group("max"));
+        String rawType = m.group("type");
+        // Normalise plural → singular (e.g. "Monsters" → "Monster")
+        String typeFilter = rawType.replaceAll("(?i)s$", "");
+        return ctx -> {
+            ctx.logEntry("Effect: Reveal top " + n + " — add up to " + max + " " + typeFilter + " to hand, rest to bottom");
+            ctx.revealTopAddUpToMatchingRestBottom(n, max, null, null, null, typeFilter);
         };
     }
 

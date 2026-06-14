@@ -144,6 +144,12 @@ public interface GameContext {
     void cancelStackEntry();
 
     /**
+     * Cancels one auto-ability on the stack (chosen by the active player), then if the source
+     * card is a Forward currently on the field, deals {@code damage} to it.
+     */
+    void cancelAutoAbilityAndDamageSourceIfForward(int damage);
+
+    /**
      * Forces {@code t} directly into the Break Zone, bypassing any
      * "cannot be broken" protection that {@link #breakTarget} would respect.
      */
@@ -1292,12 +1298,14 @@ public interface GameContext {
     /**
      * Reveals the top {@code reveal} cards of the active player's deck.
      * The player may add up to {@code maxAdd} Characters matching {@code jobFilter},
-     * {@code categoryFilter}, or {@code cardNameFilter} (treated as a disjunction across
-     * the non-null filters) to their hand; the rest are placed at the bottom of the deck
-     * in any order. At least one filter is expected to be non-null.
+     * {@code categoryFilter}, {@code cardNameFilter}, or {@code typeFilter} (treated as a
+     * disjunction across the non-null filters) to their hand; the rest go to the bottom of
+     * the deck in any order.  Pass {@code null} for unused filters.
+     * {@code typeFilter} may be {@code "Monster"}, {@code "Forward"}, {@code "Backup"},
+     * or {@code "Character"} (matches any character type).
      */
     void revealTopAddUpToMatchingRestBottom(int reveal, int maxAdd,
-            String jobFilter, String categoryFilter, String cardNameFilter);
+            String jobFilter, String categoryFilter, String cardNameFilter, String typeFilter);
 
     /**
      * Grants all Forwards controlled by the acting player the given {@code job} until end of turn.

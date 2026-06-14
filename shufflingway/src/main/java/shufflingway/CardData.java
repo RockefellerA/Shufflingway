@@ -2384,6 +2384,14 @@ public record CardData(
     );
 
     /**
+     * Matches "If you control N or more Monsters, [CardName] also becomes a Forward with P power."
+     * Groups: {@code n} — minimum monster count; {@code power} — Forward power value.
+     */
+    private static final Pattern BECOME_FORWARD_IF_CONTROL_N_MONSTERS_PATTERN = Pattern.compile(
+        "(?i)^If\\s+you\\s+control\\s+(?<n>\\d+)\\s+or\\s+more\\s+Monsters?,\\s+.+?\\s+also\\s+becomes?\\s+a\\s+Forward\\s+with\\s+(?<power>\\d+)\\s+power"
+    );
+
+    /**
      * Matches "[CardName] also becomes a Forward with [X] power." with no leading condition.
      * Used to detect the damage-threshold variant after "Damage N -- " has been stripped.
      * Group {@code power} captures the numeric power value.
@@ -2506,6 +2514,7 @@ public record CardData(
             if (IS_ALSO_MONSTER_PATTERN.matcher(seg).find())                continue;
             if (ENTERS_FIELD_DULL_PATTERN.matcher(seg).matches())           continue;
             if (ALIAS_PLAY_RESTRICTION_PATTERN.matcher(seg).matches())      continue;
+            if (BECOME_FORWARD_IF_CONTROL_N_MONSTERS_PATTERN.matcher(seg).find()) continue;
             if (BECOME_FORWARD_DURING_TURN_PATTERN.matcher(seg).find())       continue;
             if (BECOME_FORWARD_UNCONDITIONAL_PATTERN.matcher(seg).find())     continue;
 
@@ -2910,20 +2919,31 @@ public record CardData(
      * {@code damageThreshold} is the minimum damage zone size required; {@code 0} means the
      * "During your turn" variant (active only on the controlling player's turn, no damage requirement).
      */
-    public record BecomeForwardAbility(int power, int damageThreshold) {}
+    /**
+     * @param power                  Forward power value
+     * @param damageThreshold        0 = "During your turn"; >0 = active when owner's damage ≥ threshold
+     * @param minControlledMonsters  >0 = active only while owner controls at least this many Monsters
+     */
+    public record BecomeForwardAbility(int power, int damageThreshold, int minControlledMonsters) {}
 
     /**
      * Returns the {@link BecomeForwardAbility} for this card, or {@code null} if it has none.
-     * Recognises two forms:
+     * Recognises three forms:
      * <ul>
-     *   <li>"During your turn, [name] also becomes a Forward with N power" → threshold 0</li>
-     *   <li>"Damage N -- [name] also becomes a Forward with M power" → threshold N</li>
+     *   <li>"If you control N or more Monsters, [name] also becomes a Forward with P power"
+     *       → {@code minControlledMonsters=N}</li>
+     *   <li>"During your turn, [name] also becomes a Forward with N power" → {@code damageThreshold=0}</li>
+     *   <li>"Damage N -- [name] also becomes a Forward with M power" → {@code damageThreshold=N}</li>
      * </ul>
      */
     public BecomeForwardAbility becomeForwardAbility() {
         for (String seg : rawFieldSegments()) {
+            Matcher mc = BECOME_FORWARD_IF_CONTROL_N_MONSTERS_PATTERN.matcher(seg);
+            if (mc.find()) return new BecomeForwardAbility(
+                    Integer.parseInt(mc.group("power")), 0, Integer.parseInt(mc.group("n")));
+
             Matcher m = BECOME_FORWARD_DURING_TURN_PATTERN.matcher(seg);
-            if (m.find()) return new BecomeForwardAbility(Integer.parseInt(m.group("power")), 0);
+            if (m.find()) return new BecomeForwardAbility(Integer.parseInt(m.group("power")), 0, 0);
 
             int threshold = 0;
             String check = seg;
@@ -2934,7 +2954,7 @@ public record CardData(
             }
             if (threshold > 0) {
                 Matcher m2 = BECOME_FORWARD_UNCONDITIONAL_PATTERN.matcher(check);
-                if (m2.find()) return new BecomeForwardAbility(Integer.parseInt(m2.group("power")), threshold);
+                if (m2.find()) return new BecomeForwardAbility(Integer.parseInt(m2.group("power")), threshold, 0);
             }
         }
         return null;
