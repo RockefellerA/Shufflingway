@@ -522,6 +522,11 @@ final class AutoAbilityTriggers {
 		triggerAutoAbilitiesForEvent("damage zone", isP1);
 	}
 
+	/** Fires "beginning of attack phase" auto-abilities on all field cards belonging to the active player. */
+	void triggerAutoAbilitiesForBeginningOfAttackPhase(boolean isP1) {
+		triggerAutoAbilitiesForEvent("beginning of attack phase", isP1);
+	}
+
 	/** Fires "either player receives damage" abilities on all field cards from both sides. */
 	void triggerAutoAbilitiesForEitherPlayerReceivesDamage() {
 		triggerAutoAbilitiesForEvent("either player receives damage", true);

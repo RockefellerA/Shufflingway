@@ -387,9 +387,9 @@ public class MainWindow {
 	private int     p1CardsDrawnThisTurn         = 0;
 	boolean p1DiscardedByEffectThisTurn  = false;
 	boolean p1CausedOpponentDiscardThisTurn = false;
-	// Power of the Forward most recently discarded as part of resolving an ability
-	// (e.g. Kolka's "you may discard 1 Forward. … the discarded Forward's power").
+	// Power and name of the card most recently discarded as part of resolving an ability.
 	int     lastDiscardedForwardPower    = 0;
+	String  lastDiscardedCardName        = null;
 	boolean p1FormedPartyThisTurn        = false;
 	boolean p1PartyAnyElementThisTurn   = false;
 	boolean p2PartyAnyElementThisTurn   = false;
@@ -1666,6 +1666,7 @@ public class MainWindow {
                             p2AutoPass(() -> {
                                 gameState.advancePhase();   // MAIN_1 → ATTACK
                                 logEntry("Attack Phase");
+                                autoAbilityTriggers.triggerAutoAbilitiesForBeginningOfAttackPhase(true);
                                 refreshAllForwardSlots();
                                 if (!hasAttackableForward() && !hasBackAttackInHand()) {
                                     logEntry("No attackers available — skipping to Main Phase 2");
@@ -5178,6 +5179,7 @@ public class MainWindow {
 				if (d != null) {
 					logEntry("Discards " + d.name());
 					p1DiscardedByEffectThisTurn = true;
+					lastDiscardedCardName = d.name();
 					if (d.isForward()) lastDiscardedForwardPower = d.power();
 				}
 				refreshP1HandLabel();
@@ -7456,7 +7458,7 @@ public class MainWindow {
 		}
 
 		if (!gameState.getStack().isEmpty()) showStackWindow();
-		else lastDiscardedForwardPower = 0;
+		else { lastDiscardedForwardPower = 0; lastDiscardedCardName = null; }
 	}
 
 	/** Calls {@link #showStackWindow()} only when we are not already inside a stack resolution chain. */
@@ -12173,6 +12175,7 @@ public class MainWindow {
 					step(() -> doMainPhase(this::doEndPhase));
 				} else {
 					logEntry("[P2] Attack Phase");
+					autoAbilityTriggers.triggerAutoAbilitiesForBeginningOfAttackPhase(false);
 					refreshAllP2ForwardSlots();
 					step(() -> doAttackPhase(() -> {
 						gameState.advancePhase(); // ATTACK → MAIN_2

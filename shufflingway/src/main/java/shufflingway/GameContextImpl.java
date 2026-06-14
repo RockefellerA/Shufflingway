@@ -1942,6 +1942,19 @@ final class GameContextImpl implements GameContext {
 
 			@Override public int dullForwardCostPower() { return mw.lastDullForwardCostPower; }
 			@Override public int lastDiscardedForwardPower() { return mw.lastDiscardedForwardPower; }
+			@Override public String lastDiscardedCardName() { return mw.lastDiscardedCardName; }
+
+			@Override public void retriggerAutoAbility(CardData source, String triggerType) {
+				for (AutoAbility fa : source.autoAbilities()) {
+					if (fa.trigger().equals(triggerType)) {
+						mw.logEntry("[AutoAbility] " + source.name() + " — retriggered (" + triggerType + ")");
+						mw.gameState.pushStack(new StackEntry(source, null, fa, isP1, 0, false));
+						mw.showStackWindowIfNeeded();
+						return;
+					}
+				}
+				mw.logEntry("[AutoAbility] " + source.name() + " — no ability with trigger '" + triggerType + "' to retrigger");
+			}
 
 			@Override public java.util.List<String> chooseActions(CardData source,
 					java.util.List<String> actions, int selectCount, boolean upTo) {
@@ -2280,7 +2293,7 @@ final class GameContextImpl implements GameContext {
 					for (int i = 0; i < actual; i++) {
 						int idx = MainWindow.pickWorstHandCard0(hand);
 						CardData d = mw.playerBreakFromHand(false,idx);
-						if (d != null) { logEntry("[P2] Discards " + d.name()); mw.p2DiscardedByEffectThisTurn = true; }
+						if (d != null) { logEntry("[P2] Discards " + d.name()); mw.p2DiscardedByEffectThisTurn = true; mw.lastDiscardedCardName = d.name(); }
 					}
 					mw.refreshP2HandCountLabel();
 					mw.refreshP2BreakLabel();

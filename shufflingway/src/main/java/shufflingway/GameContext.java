@@ -739,6 +739,19 @@ public interface GameContext {
     int lastDiscardedForwardPower();
 
     /**
+     * Returns the name of the card most recently discarded by a self-discard effect in the
+     * current ability chain, or {@code null} when no card has been discarded yet.
+     */
+    String lastDiscardedCardName();
+
+    /**
+     * Pushes a new stack entry for the auto-ability on {@code source} whose trigger matches
+     * {@code triggerType} (e.g. {@code "beginning of attack phase"}). Used to retrigger an
+     * ability after a conditional self-discard.
+     */
+    void retriggerAutoAbility(CardData source, String triggerType);
+
+    /**
      * Returns the effective power of the target Forward or Monster.
      * Returns {@code 0} for Backups or out-of-range indices.
      */

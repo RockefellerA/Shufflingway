@@ -2105,6 +2105,12 @@ public class ActionResolver {
         Pattern.DOTALL
     );
 
+    private static final Pattern DRAW_DISCARD_RETRIGGER_IF_CARD_NAME = Pattern.compile(
+        "(?i)^Draw\\s+(?<draw>\\d+)\\s+cards?\\s+then\\s+discard\\s+(?<discard>\\d+)\\s+cards?[.!]?\\s+" +
+        "If\\s+you\\s+discard\\s+a\\s+Card\\s+Name\\s+(?<name>.+?)\\s+by\\s+this\\s+effect,\\s+" +
+        "trigger\\s+this\\s+auto-ability\\s+again[.!]?\\s*$"
+    );
+
     private static final Pattern DRAW_CARDS = Pattern.compile(
         "(?i)^Draw\\s+(\\d+)\\s+cards?(?:\\s*[,.]?\\s*then\\s+discard\\s+(\\d+)\\s+cards?)?[.!]?"
     );
@@ -2640,6 +2646,9 @@ public class ActionResolver {
         result = tryParsePayCpWhenDoSo(effectText, source);
         if (result != null) return result;
 
+        result = tryParseDrawDiscardRetriggerIfCardName(effectText, source);
+        if (result != null) return result;
+
         result = tryParseDrawCards(effectText);
         if (result != null) return result;
 
@@ -2883,6 +2892,7 @@ public class ActionResolver {
         if (tryParseDiscardHandThenDraw(effectText)           != null) return "DiscardHandThenDraw";
         if (tryParseDrawThenPlaceHandToBottom(effectText)     != null) return "DrawThenPlaceHandToBottom";
         if (tryParsePayCpWhenDoSo(effectText, source)         != null) return "PayCpWhenDoSo";
+        if (tryParseDrawDiscardRetriggerIfCardName(effectText, source) != null) return "DrawDiscardRetriggerIfCardName";
         if (tryParseDrawCards(effectText)                     != null) return "DrawCards";
         if (tryParseYouMayDiscardType(effectText)             != null) return "YouMayDiscardType";
         if (tryParseDiscardHand(effectText)                   != null) return "DiscardHand";
@@ -3154,6 +3164,7 @@ public class ActionResolver {
         if (tryParseEachPlayerDiscard(effectText) != null)                  return "EachPlayerDiscard";
         if (tryParseOpponentDiscard(effectText) != null)                    return "OpponentDiscard";
         if (tryParseDiscardHandThenDraw(effectText) != null)                return "DiscardHandThenDraw";
+        if (tryParseDrawDiscardRetriggerIfCardName(effectText, source) != null) return "DrawDiscardRetriggerIfCardName";
         if (tryParseDrawCards(effectText) != null)                          return "DrawCards";
         if (tryParseYouMayDiscardType(effectText) != null)                  return "YouMayDiscardType";
         if (tryParseDiscardHand(effectText) != null)                        return "DiscardHand";
@@ -6224,6 +6235,23 @@ public class ActionResolver {
         return ctx -> {
             ctx.logEntry("Effect: Pay " + costDesc + " CP, then: " + followupText);
             followup.accept(ctx);
+        };
+    }
+
+    private static Consumer<GameContext> tryParseDrawDiscardRetriggerIfCardName(String text, CardData source) {
+        Matcher m = DRAW_DISCARD_RETRIGGER_IF_CARD_NAME.matcher(text);
+        if (!m.find()) return null;
+        int drawCount    = Integer.parseInt(m.group("draw"));
+        int discardCount = Integer.parseInt(m.group("discard"));
+        String cardName  = m.group("name").trim();
+        return ctx -> {
+            ctx.logEntry("Effect: Draw " + drawCount + ", then discard " + discardCount);
+            ctx.drawCards(drawCount);
+            ctx.selfDiscard(discardCount);
+            if (cardName.equalsIgnoreCase(ctx.lastDiscardedCardName())) {
+                ctx.logEntry("Effect: Discarded Card Name " + cardName + " — triggering auto-ability again");
+                ctx.retriggerAutoAbility(source, "beginning of attack phase");
+            }
         };
     }
 

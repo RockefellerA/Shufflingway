@@ -1110,6 +1110,18 @@ public record CardData(
     );
 
     /**
+     * Matches "At the beginning of the Attack Phase during each of your turns, [effect]".
+     * Named group {@code effect} captures the effect text.
+     */
+    private static final Pattern AT_BEGINNING_OF_ATTACK_PHASE_PATTERN = Pattern.compile(
+        "(?i)At\\s+the\\s+beginning\\s+of\\s+the\\s+Attack\\s+Phase\\s+during\\s+each\\s+of\\s+your\\s+turns,\\s+" +
+        "(?<effect>.+?)\\s*" +
+        "(?=\\s*\\[\\[br\\]\\]|\\s*At\\s+the\\s+beginning|\\s*When\\s+[^,]+?\\s+" +
+        "(?:attacks?|blocks?|enters?|leaves?|is\\s+(?:put|removed))|\\s*$)",
+        Pattern.DOTALL
+    );
+
+    /**
      * Separate pattern for "When a Warp Counter is removed from [CardName], [effect]".
      * Uses {@code target} for the card whose counter is decremented.
      */
@@ -1415,6 +1427,15 @@ public record CardData(
             String summonTrigger = elemCap.toLowerCase(java.util.Locale.ROOT) + " summon deals damage to forward";
             AutoAbility fa2 = parseAutoAbilityRestrictions(card, summonTrigger, false, false, false, false, effect, 0);
             if (fa2 != null) result.add(fa2);
+        }
+
+        // Fourth pass: "At the beginning of the Attack Phase during each of your turns, [effect]"
+        Matcher bam = AT_BEGINNING_OF_ATTACK_PHASE_PATTERN.matcher(textForSearch);
+        while (bam.find()) {
+            String effect = SUMMON_MARKUP.matcher(bam.group("effect").trim()).replaceAll("").trim();
+            if (effect.isEmpty()) continue;
+            AutoAbility fa = parseAutoAbilityRestrictions("", "beginning of attack phase", false, false, false, false, effect, 0);
+            if (fa != null) result.add(fa);
         }
 
         return List.copyOf(result);
@@ -2479,8 +2500,9 @@ public record CardData(
             if (ALT_COST_SUMMON.matcher(seg).find())    continue;
             if (ALT_COST_NONSUMMON.matcher(seg).find()) continue;
 
-            // Auto abilities: "When [card/event] [trigger], [effect]"
+            // Auto abilities: "When [card/event] [trigger], [effect]" and "At the beginning of [Phase]…"
             if (FA_AUTO_PREFIX.matcher(seg).find()) continue;
+            if (AT_BEGINNING_OF_ATTACK_PHASE_PATTERN.matcher(seg).find()) continue;
 
             // Trait keyword segments (Haste, Brave, Warp N, Priming "…", etc.)
             if (FA_TRAIT_KEYWORD.matcher(seg).find()) continue;
