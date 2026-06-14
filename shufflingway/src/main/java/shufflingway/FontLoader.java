@@ -24,7 +24,8 @@ public class FontLoader {
     }
 
     public static Font loadPixelNESFont(float size) {
-        if (baseFont != null) return baseFont.deriveFont(size);
-        return new Font("Arial", Font.PLAIN, (int) size);
+        float scaled = UiScale.scale(size);
+        if (baseFont != null) return baseFont.deriveFont(scaled);
+        return new Font("Arial", Font.PLAIN, (int) scaled);
     }
 }

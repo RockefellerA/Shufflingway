@@ -491,6 +491,7 @@ public class MainWindow {
 
 	public static void main(String[] args) {
 		AppLogger.init();
+		UiScale.init();
 		Thread.setDefaultUncaughtExceptionHandler((thread, throwable) ->
 				AppLogger.log("Uncaught exception in thread: " + thread.getName(), throwable));
 		Runtime.getRuntime().addShutdownHook(new Thread(ImageCache::shutdown));
@@ -516,7 +517,7 @@ public class MainWindow {
 	private void initialize() {
 		frame = new JFrame("Shufflingway");
 		frame.getContentPane().setBackground(Color.LIGHT_GRAY);
-		frame.setBounds(0, 0, 1920, 1080);
+		frame.setBounds(0, 0, UiScale.scale(1920), UiScale.scale(1080));
 		frame.setLocationRelativeTo(null);
 		frame.setResizable(false);
 		frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);

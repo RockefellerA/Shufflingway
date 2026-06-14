@@ -13,8 +13,8 @@ import java.awt.image.RescaleOp;
 /** Static utilities for rendering and transforming card images. */
 public class CardAnimation {
 
-	public static final int CARD_W = 140;
-	public static final int CARD_H = 205;
+	public static final int CARD_W = UiScale.scale(140);
+	public static final int CARD_H = UiScale.scale(205);
 
 	private CardAnimation() {}
 
