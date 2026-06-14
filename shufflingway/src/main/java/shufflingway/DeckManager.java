@@ -133,8 +133,8 @@ public class DeckManager extends JFrame {
         return sa.compareTo(sb);
     };
 
-    private static final int PREVIEW_W = 429;
-    private static final int PREVIEW_H = 600;
+    private static final int PREVIEW_W = UiScale.scale(429);
+    private static final int PREVIEW_H = UiScale.scale(600);
 
     private DeckDatabase db;
     private int selectedDeckId = -1;
@@ -155,7 +155,7 @@ public class DeckManager extends JFrame {
 
     public DeckManager(JFrame parent) {
         super("Deck Manager");
-        setSize(1600, 800);
+        setSize(UiScale.scale(1600), UiScale.scale(800));
         setLocationRelativeTo(parent);
         java.net.URL iconUrl = getClass().getResource("/resources/shufflingway.png");
         if (iconUrl != null) setIconImage(new javax.swing.ImageIcon(iconUrl).getImage());
@@ -277,7 +277,13 @@ public class DeckManager extends JFrame {
         title.setBorder(BorderFactory.createEmptyBorder(6, 0, 4, 0));
 
         JPanel panel = new JPanel(new BorderLayout());
-        panel.setPreferredSize(new Dimension(200, 0));
+        // Panel width must accommodate the widest button row so labels like
+        // "Rename" and "Import" don't clip when the UI is scaled down.
+        int mgmtRowW = Math.max(newBtn.getPreferredSize().width, renameBtn.getPreferredSize().width)
+                     + Math.max(copyBtn.getPreferredSize().width, deleteBtn.getPreferredSize().width);
+        int ioRowW   = importBtn.getPreferredSize().width + exportBtn.getPreferredSize().width;
+        int needed   = Math.max(mgmtRowW, ioRowW) + 16; // grid hgap + southPanel border
+        panel.setPreferredSize(new Dimension(Math.max(UiScale.scale(200), needed), 0));
         panel.setBorder(BorderFactory.createEtchedBorder());
         panel.add(title,                        BorderLayout.NORTH);
         panel.add(new JScrollPane(deckList),    BorderLayout.CENTER);

@@ -561,7 +561,7 @@ public class MainWindow {
 		// --- P2 Zones (top of screen) ---
 		p2RemoveLabel = new GrayscaleLabel("");
 
-		int CORNER_BAR_H = 28;
+		int CORNER_BAR_H = UiScale.scale(28);
 		int LIMIT_W      = (CARD_W * 3) / 4;   // 105 px
 		int REMOVE_W     = CARD_W - LIMIT_W;    //  35 px
 
@@ -1098,28 +1098,32 @@ public class MainWindow {
 		sidePanel.add(logWithChat,  BorderLayout.CENTER);
 		sidePanel.add(handPanel,    BorderLayout.SOUTH);
 
-		// Draggable divider between game board and side panel
+		// Draggable divider between game board and side panel.
+		// When the UI is scaled (smaller screen), resizing is disabled because
+		// growing the preview pushes the game log and hand zone off-screen.
 		resizeHandle = new JPanel();
 		resizeHandle.setPreferredSize(new Dimension(RESIZE_HANDLE_W, 0));
 		resizeHandle.setBackground(Color.LIGHT_GRAY);
-		MouseAdapter sideResizer = new MouseAdapter() {
-			private int pressScreenX;
-			private int pressW;
-			@Override public void mousePressed(MouseEvent e) {
-				pressScreenX = e.getXOnScreen();
-				pressW = sidePanel.getWidth();
-			}
-			@Override public void mouseDragged(MouseEvent e) {
-				if (nativeImgW == 0) return;
-				int dx = e.getXOnScreen() - pressScreenX;
-				boolean right = "right".equals(AppSettings.getSidePanelSide());
-				int newW = right ? pressW - dx : pressW + dx;
-				newW = Math.max(minSidePanelW, Math.min(maxSidePanelW, newW));
-				setSidePanelWidth(newW);
-			}
-		};
-		resizeHandle.addMouseListener(sideResizer);
-		resizeHandle.addMouseMotionListener(sideResizer);
+		if (UiScale.factor >= 1.0) {
+			MouseAdapter sideResizer = new MouseAdapter() {
+				private int pressScreenX;
+				private int pressW;
+				@Override public void mousePressed(MouseEvent e) {
+					pressScreenX = e.getXOnScreen();
+					pressW = sidePanel.getWidth();
+				}
+				@Override public void mouseDragged(MouseEvent e) {
+					if (nativeImgW == 0) return;
+					int dx = e.getXOnScreen() - pressScreenX;
+					boolean right = "right".equals(AppSettings.getSidePanelSide());
+					int newW = right ? pressW - dx : pressW + dx;
+					newW = Math.max(minSidePanelW, Math.min(maxSidePanelW, newW));
+					setSidePanelWidth(newW);
+				}
+			};
+			resizeHandle.addMouseListener(sideResizer);
+			resizeHandle.addMouseMotionListener(sideResizer);
+		}
 
 		// --- Main game area (wraps both player zones + board so the side panel
 		//     spans the full frame height rather than just the centre strip) ---
@@ -1152,7 +1156,8 @@ public class MainWindow {
 		boolean right = "right".equals(side);
 		sidePanel.setBorder(null);
 		resizeHandle.setCursor(Cursor.getPredefinedCursor(
-				right ? Cursor.W_RESIZE_CURSOR : Cursor.E_RESIZE_CURSOR));
+				UiScale.factor < 1.0 ? Cursor.DEFAULT_CURSOR
+				                     : (right ? Cursor.W_RESIZE_CURSOR : Cursor.E_RESIZE_CURSOR)));
 		sideWrapper = new JPanel(new BorderLayout());
 		sideWrapper.setPreferredSize(new Dimension(sidePanelW + RESIZE_HANDLE_W, 0));
 		if (right) {

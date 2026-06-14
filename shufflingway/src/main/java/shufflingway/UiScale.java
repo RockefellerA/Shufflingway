@@ -21,29 +21,35 @@ public final class UiScale {
     private static final int DESIGN_W = 1920;
     private static final int DESIGN_H = 1080;
 
-    /** Multiplier applied to design-pixel constants. 1.0 means no scaling. */
-    public static double factor = 1.0;
+    /**
+     * Multiplier applied to design-pixel constants. 1.0 means no scaling.
+     *
+     * <p>Computed in the static initializer so it is correct on the very first
+     * read, regardless of which class loads first. Calling {@link #init()}
+     * remains supported as an explicit no-op marker for documentation.</p>
+     */
+    public static double factor = compute();
 
     private UiScale() {}
 
-    public static void init() {
+    /** No-op kept for clarity at the call site; static init does the real work. */
+    public static void init() {}
+
+    private static double compute() {
         String override = System.getProperty("shufflingway.uiscale");
         if (override != null) {
             try {
-                factor = clamp(Double.parseDouble(override));
-                return;
+                return clamp(Double.parseDouble(override));
             } catch (NumberFormatException ignored) {}
         }
-        if (!isMac()) return;
+        if (!isMac()) return 1.0;
 
         Rectangle usable = GraphicsEnvironment.getLocalGraphicsEnvironment()
                 .getMaximumWindowBounds();
         double wRatio = usable.width  / (double) DESIGN_W;
         double hRatio = usable.height / (double) DESIGN_H;
         double fit = Math.min(wRatio, hRatio);
-        if (fit < 1.0) {
-            factor = clamp(fit * 0.98);
-        }
+        return (fit < 1.0) ? clamp(fit * 0.98) : 1.0;
     }
 
     public static int scale(int px) {
