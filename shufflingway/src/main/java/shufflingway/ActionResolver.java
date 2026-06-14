@@ -2020,6 +2020,21 @@ public class ActionResolver {
     static final Pattern SELECT_FOLLOWING_QUOTED_ACTION = Pattern.compile("\"([^\"]+)\"");
 
     /**
+     * Matches an inline conditional upgrade sentence that may appear before the quoted actions:
+     * "If you control N or more [Element] [Type], select [up to] M of the K following actions instead."
+     * Groups: {@code condCount}, {@code condElement} (optional), {@code condType},
+     *         {@code condUpTo} (optional), {@code condSelect}.
+     */
+    private static final Pattern SELECT_FOLLOWING_ACTIONS_CONDITIONAL_UPGRADE = Pattern.compile(
+        "(?i)^If\\s+you\\s+control\\s+(?<condCount>\\d+)\\s+or\\s+more\\s+" +
+        "(?:(?<condElement>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)\\s+)?" +
+        "(?<condType>Forwards?|Backups?|Monsters?|Characters?|Summons?),\\s+" +
+        "select\\s+(?<condUpTo>up\\s+to\\s+)?(?<condSelect>\\d+)\\s+of\\s+the\\s+\\d+\\s+" +
+        "following\\s+actions?\\s+instead[.!]?\\s*",
+        Pattern.DOTALL
+    );
+
+    /**
      * Matches "Place N [Name] Counter(s) on [CardName][.]".
      * <ul>
      *   <li>Group {@code count} — number of counters to place</li>
@@ -2346,6 +2361,23 @@ public class ActionResolver {
      */
     private static final Pattern FOLLOWUP_IF_OPPONENT_CONTROLS_FORWARDS_DAMAGE = Pattern.compile(
         "(?i)^If\\s+your\\s+opponent\\s+controls\\s+(?<count>\\d+)\\s+or\\s+more\\s+Forwards?,\\s+" +
+        "deal\\s+(?:it|them)\\s+(?<amount>\\d+)\\s+damage[.!]?$"
+    );
+
+    /**
+     * Matches "If you control N or more [Element] [Type], deal it/them X damage[.!]?"
+     * as a choose-character followup.
+     * <ul>
+     *   <li>{@code count}   — minimum number of own field cards required</li>
+     *   <li>{@code element} — optional element filter (e.g. "Fire"); absent = any</li>
+     *   <li>{@code type}    — card type: Forward(s), Backup(s), Monster(s), Character(s), Summon(s)</li>
+     *   <li>{@code amount}  — damage to deal when the condition is met</li>
+     * </ul>
+     */
+    private static final Pattern FOLLOWUP_IF_SELF_CONTROLS_N_ELEMENT_TYPE_DAMAGE = Pattern.compile(
+        "(?i)^If\\s+you\\s+control\\s+(?<count>\\d+)\\s+or\\s+more\\s+" +
+        "(?:(?<element>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)\\s+)?" +
+        "(?<type>Forwards?|Backups?|Monsters?|Characters?|Summons?),?\\s+" +
         "deal\\s+(?:it|them)\\s+(?<amount>\\d+)\\s+damage[.!]?$"
     );
 
@@ -2957,6 +2989,8 @@ public class ActionResolver {
         if (FOLLOWUP_GAINS_SHIELD_ABILITY_ONLY.matcher(followupText).find())          return "GainsShieldAbilityOnly";
         if (FOLLOWUP_PUT_TO_BREAK_ZONE.matcher(followupText).find())                  return "PutToBreakZone";
         if (FOLLOWUP_SELECT_NUMBER_REVEAL_BREAK.matcher(followupText).find())         return "SelectNumberRevealBreak";
+        if (FOLLOWUP_IF_OPPONENT_CONTROLS_FORWARDS_DAMAGE.matcher(followupText).matches()) return "IfOppControlsForwardsDamage";
+        if (FOLLOWUP_IF_SELF_CONTROLS_N_ELEMENT_TYPE_DAMAGE.matcher(followupText).matches()) return "IfSelfControlsNElementTypeDamage";
         return null;
     }
 
@@ -3240,16 +3274,52 @@ public class ActionResolver {
         Matcher m = SELECT_FOLLOWING_ACTIONS.matcher(text);
         if (!m.find()) return null;
 
-        boolean upTo        = m.group("upTo") != null;
-        int     selectCount = Integer.parseInt(m.group("select"));
+        final boolean baseUpTo      = m.group("upTo") != null;
+        final int     baseSelect    = Integer.parseInt(m.group("select"));
+        String actionsRaw = m.group("actions");
 
-        Matcher qm = SELECT_FOLLOWING_QUOTED_ACTION.matcher(m.group("actions"));
+        // Detect inline conditional upgrade:
+        // "If you control N or more [E] [T], select [up to] M of the K following actions instead."
+        final boolean hasCondUpgrade;
+        final int     condMinCount;
+        final String  condElem;
+        final boolean condInclFwd, condInclBkp, condInclMon;
+        final boolean condUpTo;
+        final int     condSelect;
+
+        Matcher upgradeM = SELECT_FOLLOWING_ACTIONS_CONDITIONAL_UPGRADE.matcher(actionsRaw);
+        if (upgradeM.find()) {
+            hasCondUpgrade = true;
+            condMinCount   = Integer.parseInt(upgradeM.group("condCount"));
+            condElem       = upgradeM.group("condElement");
+            String ct      = upgradeM.group("condType").toLowerCase();
+            condInclFwd    = ct.startsWith("forward") || ct.startsWith("character");
+            condInclBkp    = ct.startsWith("backup")  || ct.startsWith("character");
+            condInclMon    = ct.startsWith("monster")  || ct.startsWith("character");
+            condUpTo       = upgradeM.group("condUpTo") != null;
+            condSelect     = Integer.parseInt(upgradeM.group("condSelect"));
+            actionsRaw     = actionsRaw.substring(upgradeM.end());
+        } else {
+            hasCondUpgrade = false;
+            condMinCount   = 0; condElem = null;
+            condInclFwd    = false; condInclBkp = false; condInclMon = false;
+            condUpTo       = false; condSelect   = 0;
+        }
+
+        Matcher qm = SELECT_FOLLOWING_QUOTED_ACTION.matcher(actionsRaw);
         List<String> actions = new ArrayList<>();
         while (qm.find()) actions.add(qm.group(1).trim());
         if (actions.isEmpty()) return null;
 
         return ctx -> {
-            List<String> chosen = ctx.chooseActions(source, actions, selectCount, upTo);
+            int     effSelect = baseSelect;
+            boolean effUpTo   = baseUpTo;
+            if (hasCondUpgrade
+                    && ctx.selfFieldCount(condElem, condInclFwd, condInclBkp, condInclMon) >= condMinCount) {
+                effSelect = condSelect;
+                effUpTo   = condUpTo;
+            }
+            List<String> chosen = ctx.chooseActions(source, actions, effSelect, effUpTo);
             if (chosen == null || chosen.isEmpty()) {
                 ctx.logEntry("Select actions — none chosen");
                 return;
@@ -4266,6 +4336,34 @@ public class ActionResolver {
                         costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters,
                         jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, fExcludeElem, withoutMulticard);
                 if (ctx.opponentForwardCount() >= minCount) {
+                    sortedByIdxDesc(ts, true) .forEach(t -> ctx.damageTarget(t, damage));
+                    sortedByIdxDesc(ts, false).forEach(t -> ctx.damageTarget(t, damage));
+                }
+                if (secondary != null) secondary.accept(ctx);
+            };
+        }
+
+        // --- "If you control N or more [Element] [Type], deal it X damage" followup ---
+        Matcher selfFieldCondM = FOLLOWUP_IF_SELF_CONTROLS_N_ELEMENT_TYPE_DAMAGE.matcher(primaryFollowup);
+        if (selfFieldCondM.matches()) {
+            int    minCount    = Integer.parseInt(selfFieldCondM.group("count"));
+            int    damage      = Integer.parseInt(selfFieldCondM.group("amount"));
+            String condElement  = selfFieldCondM.group("element");  // null if absent
+            String condTypeRaw  = selfFieldCondM.group("type");
+            String condType     = condTypeRaw.toLowerCase();
+            boolean cFwd = condType.startsWith("forward") || condType.startsWith("character");
+            boolean cBkp = condType.startsWith("backup")  || condType.startsWith("character");
+            boolean cMon = condType.startsWith("monster")  || condType.startsWith("character");
+            return ctx -> {
+                String label = "If you control ≥" + minCount + " "
+                        + (condElement != null ? condElement + " " : "")
+                        + condTypeRaw + ", deal " + damage + " damage";
+                ctx.logEntry(choosePrefix + " — " + label);
+                List<ForwardTarget> ts = selectTargets(ctx, maxCount, upTo,
+                        opponentOnly, selfOnly, condition, element, zone, opponentZone,
+                        costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters,
+                        jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, fExcludeElem, withoutMulticard);
+                if (ctx.selfFieldCount(condElement, cFwd, cBkp, cMon) >= minCount) {
                     sortedByIdxDesc(ts, true) .forEach(t -> ctx.damageTarget(t, damage));
                     sortedByIdxDesc(ts, false).forEach(t -> ctx.damageTarget(t, damage));
                 }

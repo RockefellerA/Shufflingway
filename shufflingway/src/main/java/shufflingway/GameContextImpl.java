@@ -2915,6 +2915,17 @@ final class GameContextImpl implements GameContext {
 				return isP1 ? mw.p2ForwardCards.size() : mw.p1ForwardCards.size();
 			}
 
+			@Override public int selfFieldCount(String element, boolean inclForwards, boolean inclBackups, boolean inclMonsters) {
+				List<CardData> fwds = isP1 ? mw.p1ForwardCards : mw.p2ForwardCards;
+				CardData[]     bkps = isP1 ? mw.p1BackupCards  : mw.p2BackupCards;
+				List<CardData> mons = isP1 ? mw.p1MonsterCards : mw.p2MonsterCards;
+				int count = 0;
+				if (inclForwards) for (CardData c : fwds) if (element == null || c.containsElement(element)) count++;
+				if (inclBackups)  for (CardData c : bkps) if (c != null && (element == null || c.containsElement(element))) count++;
+				if (inclMonsters) for (CardData c : mons) if (element == null || c.containsElement(element)) count++;
+				return count;
+			}
+
 			@Override public boolean isExBurst() { return exBurst; }
 			@Override public boolean castWasPaidByBackupsOnly() { return mw.lastCastWasPaidByBackupsOnly; }
 

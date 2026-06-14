@@ -566,6 +566,16 @@ public interface GameContext {
     /** Returns the number of Forwards the opponent controls. */
     int opponentForwardCount();
 
+    /**
+     * Returns the count of field cards the active player controls, filtered by type and element.
+     *
+     * @param element      optional element filter (e.g. "Fire"); {@code null} = any
+     * @param inclForwards  count Forwards
+     * @param inclBackups   count Backups
+     * @param inclMonsters  count Monsters
+     */
+    int selfFieldCount(String element, boolean inclForwards, boolean inclBackups, boolean inclMonsters);
+
     /** Returns {@code true} if this ability is resolving as the result of an EX Burst. */
     boolean isExBurst();
 
