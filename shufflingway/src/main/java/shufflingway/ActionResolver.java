@@ -1177,6 +1177,11 @@ public class ActionResolver {
         "(?:\\s+from\\s+(?:his/her|his|her|their)\\s+hand)?[.!]?"
     );
 
+    /** Matches "Each player draws N card(s)." Group {@code count} = N. */
+    private static final Pattern EACH_PLAYER_DRAW = Pattern.compile(
+        "(?i)each\\s+player\\s+draws?\\s+(?<count>\\d+)\\s+cards?[.!]?"
+    );
+
     /**
      * Matches the compound form "Each player discards N cards. If you control [Card Name (X)] /
      * Card Name X, your opponent discards M more cards [from his/her/their hand]".
@@ -2728,6 +2733,9 @@ public class ActionResolver {
         result = tryParseEachPlayerDiscard(effectText);
         if (result != null) return result;
 
+        result = tryParseEachPlayerDraw(effectText);
+        if (result != null) return result;
+
         result = tryParseOpponentDiscard(effectText);
         if (result != null) return result;
 
@@ -2993,6 +3001,7 @@ public class ActionResolver {
         if (tryParseBothPlayersSelectForwardToBreakZone(effectText) != null) return "BothPlayersSelectForwardToBreakZone";
         if (tryParseEachPlayerSelectUpToNToBreakZone(effectText)   != null) return "EachPlayerSelectUpToNToBreakZone";
         if (tryParseEachPlayerDiscard(effectText)              != null) return "EachPlayerDiscard";
+        if (tryParseEachPlayerDraw(effectText)                 != null) return "EachPlayerDraw";
         if (tryParseOpponentDiscard(effectText)               != null) return "OpponentDiscard";
         if (tryParseDiscardHandThenDraw(effectText)           != null) return "DiscardHandThenDraw";
         if (tryParseDrawThenPlaceHandToBottom(effectText)     != null) return "DrawThenPlaceHandToBottom";
@@ -3285,6 +3294,7 @@ public class ActionResolver {
         if (tryParseBothPlayersSelectForwardToBreakZone(effectText) != null) return "BothPlayersSelectForwardToBreakZone";
         if (tryParseEachPlayerSelectUpToNToBreakZone(effectText) != null)   return "EachPlayerSelectUpToNToBreakZone";
         if (tryParseEachPlayerDiscard(effectText) != null)                  return "EachPlayerDiscard";
+        if (tryParseEachPlayerDraw(effectText) != null)                     return "EachPlayerDraw";
         if (tryParseOpponentDiscard(effectText) != null)                    return "OpponentDiscard";
         if (tryParseDiscardHandThenDraw(effectText) != null)                return "DiscardHandThenDraw";
         if (tryParseDrawDiscardRetriggerIfCardName(effectText, source) != null) return "DrawDiscardRetriggerIfCardName";
@@ -6643,6 +6653,18 @@ public class ActionResolver {
             ctx.logEntry("Effect: Each player discards " + count + " card(s)");
             ctx.selfDiscard(count);
             ctx.forceOpponentDiscard(count);
+        };
+    }
+
+    /** Parses "Each player draws N card(s)." — both players draw. */
+    private static Consumer<GameContext> tryParseEachPlayerDraw(String text) {
+        Matcher m = EACH_PLAYER_DRAW.matcher(text);
+        if (!m.find()) return null;
+        int count = Integer.parseInt(m.group("count"));
+        return ctx -> {
+            ctx.logEntry("Effect: Each player draws " + count + " card(s)");
+            ctx.drawCards(count);
+            ctx.drawCardsForOpponent(count);
         };
     }
 
