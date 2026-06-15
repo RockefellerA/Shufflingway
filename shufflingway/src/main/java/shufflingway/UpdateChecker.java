@@ -9,6 +9,7 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Locale;
 import java.util.Scanner;
 
 public final class UpdateChecker {
@@ -18,8 +19,19 @@ public final class UpdateChecker {
 
     private UpdateChecker() {}
 
+    /** Installer kind picked from a release's assets, matched to the current OS. */
+    public enum InstallerKind {
+        MSI(".msi"),  // Windows
+        DMG(".dmg"),  // macOS
+        DEB(".deb");  // Linux (Debian/Ubuntu)
+
+        final String extension;
+        InstallerKind(String extension) { this.extension = extension; }
+    }
+
     public record ReleaseInfo(String currentVersion, String latestVersion,
-                              String msiUrl, boolean updateAvailable) {}
+                              String installerUrl, InstallerKind installerKind,
+                              boolean updateAvailable) {}
 
     @FunctionalInterface
     public interface ProgressCallback {
@@ -29,6 +41,15 @@ public final class UpdateChecker {
     public static String currentVersion() {
         String v = UpdateChecker.class.getPackage().getImplementationVersion();
         return v != null ? v : "dev";
+    }
+
+    /** Returns the installer kind appropriate for the current platform, or {@code null} if none. */
+    static InstallerKind installerKindForCurrentPlatform() {
+        String os = System.getProperty("os.name", "").toLowerCase(Locale.ROOT);
+        if (os.contains("win"))                                  return InstallerKind.MSI;
+        if (os.contains("mac") || os.contains("darwin"))         return InstallerKind.DMG;
+        if (os.contains("nix") || os.contains("nux") || os.contains("aix")) return InstallerKind.DEB;
+        return null;
     }
 
     /** Blocking — must be called from a background thread. */
@@ -51,32 +72,36 @@ public final class UpdateChecker {
         String tag = release.getString("tag_name");
         String latest = tag.startsWith("v") ? tag.substring(1) : tag;
 
-        String msiUrl = null;
-        JSONArray assets = release.getJSONArray("assets");
-        for (int i = 0; i < assets.length(); i++) {
-            JSONObject asset = assets.getJSONObject(i);
-            if (asset.getString("name").endsWith(".msi")) {
-                msiUrl = asset.getString("browser_download_url");
-                break;
+        InstallerKind kind = installerKindForCurrentPlatform();
+        String installerUrl = null;
+        if (kind != null) {
+            JSONArray assets = release.getJSONArray("assets");
+            for (int i = 0; i < assets.length(); i++) {
+                JSONObject asset = assets.getJSONObject(i);
+                if (asset.getString("name").toLowerCase(Locale.ROOT).endsWith(kind.extension)) {
+                    installerUrl = asset.getString("browser_download_url");
+                    break;
+                }
             }
         }
 
         boolean newer = !"dev".equals(current) && isNewer(latest, current);
-        return new ReleaseInfo(current, latest, msiUrl, newer);
+        return new ReleaseInfo(current, latest, installerUrl, kind, newer);
     }
 
     /**
-     * Downloads the MSI to a temp file, launches the Windows installer, then exits the app.
-     * Blocking — must be called from a background thread.
+     * Downloads the installer for {@code kind} to a temp file, launches the platform-appropriate
+     * installer or DMG mount, then exits the app. Blocking — must be called from a background thread.
      */
-    public static void downloadAndInstall(String msiUrl, ProgressCallback progress) throws IOException {
-        HttpURLConnection conn = (HttpURLConnection) new URL(msiUrl).openConnection();
+    public static void downloadAndInstall(String installerUrl, InstallerKind kind,
+                                          ProgressCallback progress) throws IOException {
+        HttpURLConnection conn = (HttpURLConnection) new URL(installerUrl).openConnection();
         conn.setRequestProperty("User-Agent", "Shufflingway-App");
         conn.setConnectTimeout(10000);
         conn.setReadTimeout(60000);
 
         int total = conn.getContentLength();
-        Path dest = Files.createTempFile("shufflingway-update-", ".msi");
+        Path dest = Files.createTempFile("shufflingway-update-", kind.extension);
 
         try (InputStream in = conn.getInputStream();
              var out = Files.newOutputStream(dest)) {
@@ -90,7 +115,18 @@ public final class UpdateChecker {
             }
         }
 
-        new ProcessBuilder("msiexec", "/i", dest.toAbsolutePath().toString()).start();
+        String path = dest.toAbsolutePath().toString();
+        ProcessBuilder pb = switch (kind) {
+            // Windows: launch the MSI installer.
+            case MSI -> new ProcessBuilder("msiexec", "/i", path);
+            // macOS: `open` mounts the DMG; user drags the new .app to /Applications.
+            //   The running app must quit so the user can replace the bundle.
+            case DMG -> new ProcessBuilder("open", path);
+            // Linux: hand the .deb to the user's default GUI installer (e.g. gnome-software).
+            //   Avoids requiring sudo from this process.
+            case DEB -> new ProcessBuilder("xdg-open", path);
+        };
+        pb.start();
         System.exit(0);
     }
 

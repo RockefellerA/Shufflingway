@@ -163,15 +163,15 @@ public class HelpMenu extends JMenu {
                 JOptionPane.YES_NO_OPTION, JOptionPane.INFORMATION_MESSAGE);
         if (choice != JOptionPane.YES_OPTION) return;
 
-        if (info.msiUrl() == null) {
+        if (info.installerUrl() == null || info.installerKind() == null) {
             openInBrowser("https://github.com/RockefellerA/shufflingway/releases/latest");
             return;
         }
 
-        downloadUpdate(info.msiUrl());
+        downloadUpdate(info.installerUrl(), info.installerKind());
     }
 
-    private void downloadUpdate(String msiUrl) {
+    private void downloadUpdate(String installerUrl, UpdateChecker.InstallerKind kind) {
         JDialog progress = new JDialog(owner, "Downloading Update...", true);
         JProgressBar bar = new JProgressBar(0, 100);
         bar.setIndeterminate(true);
@@ -185,7 +185,7 @@ public class HelpMenu extends JMenu {
         SwingWorker<Void, Integer> worker = new SwingWorker<>() {
             @Override
             protected Void doInBackground() throws Exception {
-                UpdateChecker.downloadAndInstall(msiUrl, pct -> publish(pct));
+                UpdateChecker.downloadAndInstall(installerUrl, kind, pct -> publish(pct));
                 return null;
             }
 
