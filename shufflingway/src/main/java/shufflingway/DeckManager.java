@@ -8,6 +8,7 @@ import java.awt.FlowLayout;
 import java.awt.Font;
 import java.awt.GridLayout;
 import java.awt.Image;
+import java.awt.Insets;
 import java.awt.Toolkit;
 import java.awt.datatransfer.StringSelection;
 import java.awt.event.KeyEvent;
@@ -15,6 +16,10 @@ import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -202,6 +207,9 @@ public class DeckManager extends JFrame {
         });
     }
 
+    /** A named preconstructed deck definition loaded from the starter decks resource file. */
+    private record StarterDeck(String name, LinkedHashMap<String, Integer> cards) {}
+
     // -------------------------------------------------------------------------
     // Left panel: saved deck list
     // -------------------------------------------------------------------------
@@ -250,7 +258,15 @@ public class DeckManager extends JFrame {
 
         JLabel title = new JLabel("My Decks", SwingConstants.CENTER);
         title.setFont(title.getFont().deriveFont(Font.BOLD, 13f));
-        title.setBorder(BorderFactory.createEmptyBorder(6, 0, 4, 0));
+
+        JButton starterBtn = buildStarterDeckButton();
+        starterBtn.addActionListener(e -> onBrowseStarterDecks());
+        starterBtn.setToolTipText("Browse Preconstructed Decks");
+
+        JPanel headerPanel = new JPanel(new BorderLayout(4, 0));
+        headerPanel.setBorder(BorderFactory.createEmptyBorder(4, 4, 2, 4));
+        headerPanel.add(title,      BorderLayout.CENTER);
+        headerPanel.add(starterBtn, BorderLayout.EAST);
 
         JPanel panel = new JPanel(new BorderLayout());
         // Panel width must accommodate the widest button row so labels like
@@ -261,7 +277,7 @@ public class DeckManager extends JFrame {
         int needed   = Math.max(mgmtRowW, ioRowW) + 16; // grid hgap + southPanel border
         panel.setPreferredSize(new Dimension(Math.max(UiScale.scale(200), needed), 0));
         panel.setBorder(BorderFactory.createEtchedBorder());
-        panel.add(title,                        BorderLayout.NORTH);
+        panel.add(headerPanel,                  BorderLayout.NORTH);
         panel.add(new JScrollPane(deckList),    BorderLayout.CENTER);
         panel.add(southPanel,                   BorderLayout.SOUTH);
         return panel;
@@ -1128,55 +1144,185 @@ public class DeckManager extends JFrame {
         }
 
         try {
-            List<String> missing = new ArrayList<>();
-            Map<String, String> resolved = new LinkedHashMap<>();
-            for (String serial : cardMap.keySet()) {
-                String canonical = db.resolveSerial(serial);
-                if (canonical == null) missing.add(serial);
-                else resolved.put(serial, canonical);
-            }
-
-            int importMainTotal = 0;
-            int importLbTotal = 0;
-            for (Map.Entry<String, Integer> e : cardMap.entrySet()) {
-                String canonical = resolved.get(e.getKey());
-                if (canonical == null) continue;
-                int qty = Math.min(e.getValue(), MAX_COPIES);
-                if (lbSerials.contains(canonical)) importLbTotal += qty;
-                else importMainTotal += qty;
-            }
-            List<String> sizeErrors = new ArrayList<>();
-            if (importMainTotal > MAX_DECK_SIZE)
-                sizeErrors.add("main deck has " + importMainTotal + " cards (limit: " + MAX_DECK_SIZE + ")");
-            if (importLbTotal > MAX_LB_DECK_SIZE)
-                sizeErrors.add("LB deck has " + importLbTotal + " cards (limit: " + MAX_LB_DECK_SIZE + ")");
-            if (!sizeErrors.isEmpty()) {
-                JOptionPane.showMessageDialog(this,
-                        "Cannot import: " + String.join(", and ", sizeErrors) + ".",
-                        "Import Error", JOptionPane.ERROR_MESSAGE);
-                return;
-            }
-
-            int newId = db.createDeck(deckName);
-            for (Map.Entry<String, Integer> e : cardMap.entrySet()) {
-                String canonical = resolved.get(e.getKey());
-                if (canonical != null) {
-                    int qty = e.getValue();
-                    if (qty > 0) db.setCardCount(newId, canonical, Math.min(qty, MAX_COPIES));
-                }
-            }
-
-            loadDeckList();
-            selectDeckById(newId);
-
-            if (!missing.isEmpty()) {
-                JOptionPane.showMessageDialog(this,
-                        "Card serials not found: " + String.join(", ", missing),
-                        "Import Warning", JOptionPane.WARNING_MESSAGE);
-            }
+            int newId = importDeckFromSerials(deckName, cardMap);
+            if (newId >= 0) { loadDeckList(); selectDeckById(newId); }
         } catch (SQLException ex) {
             JOptionPane.showMessageDialog(this, "Error importing deck:\n" + ex.getMessage(),
                     "Import Error", JOptionPane.ERROR_MESSAGE);
+        }
+    }
+
+    /**
+     * Resolves a serial-to-quantity map against the database, enforces deck size limits,
+     * creates the deck, and adds the cards.  Returns the new deck ID, or {@code -1} if
+     * the import was aborted due to a size violation.  Shows warning dialogs for missing
+     * serials and size errors; throws {@link SQLException} for database failures.
+     */
+    private int importDeckFromSerials(String deckName, Map<String, Integer> cardMap) throws SQLException {
+        List<String> missing = new ArrayList<>();
+        Map<String, String> resolved = new LinkedHashMap<>();
+        for (String serial : cardMap.keySet()) {
+            String canonical = db.resolveSerial(serial);
+            if (canonical == null) missing.add(serial);
+            else resolved.put(serial, canonical);
+        }
+
+        int importMainTotal = 0;
+        int importLbTotal   = 0;
+        for (Map.Entry<String, Integer> e : cardMap.entrySet()) {
+            String canonical = resolved.get(e.getKey());
+            if (canonical == null) continue;
+            int qty = Math.min(e.getValue(), MAX_COPIES);
+            if (lbSerials.contains(canonical)) importLbTotal += qty;
+            else importMainTotal += qty;
+        }
+        List<String> sizeErrors = new ArrayList<>();
+        if (importMainTotal > MAX_DECK_SIZE)
+            sizeErrors.add("main deck has " + importMainTotal + " cards (limit: " + MAX_DECK_SIZE + ")");
+        if (importLbTotal > MAX_LB_DECK_SIZE)
+            sizeErrors.add("LB deck has " + importLbTotal + " cards (limit: " + MAX_LB_DECK_SIZE + ")");
+        if (!sizeErrors.isEmpty()) {
+            JOptionPane.showMessageDialog(this,
+                    "Cannot import \"" + deckName + "\": " + String.join(", and ", sizeErrors) + ".",
+                    "Import Error", JOptionPane.ERROR_MESSAGE);
+            return -1;
+        }
+
+        int newId = db.createDeck(deckName);
+        for (Map.Entry<String, Integer> e : cardMap.entrySet()) {
+            String canonical = resolved.get(e.getKey());
+            if (canonical != null) {
+                int qty = e.getValue();
+                if (qty > 0) db.setCardCount(newId, canonical, Math.min(qty, MAX_COPIES));
+            }
+        }
+
+        if (!missing.isEmpty()) {
+            JOptionPane.showMessageDialog(this,
+                    "Card serials not found in \"" + deckName + "\": " + String.join(", ", missing),
+                    "Import Warning", JOptionPane.WARNING_MESSAGE);
+        }
+        return newId;
+    }
+
+    // -------------------------------------------------------------------------
+    // Preconstructed / starter deck browser
+    // -------------------------------------------------------------------------
+
+    /** Creates the compact pocket-icon button for the deck list header. */
+    private JButton buildStarterDeckButton() {
+        int iconSize = UiScale.scale(16);
+        JButton btn = new JButton();
+        try (InputStream is = getClass().getResourceAsStream("/resources/pocket.png")) {
+            if (is != null) {
+                Image img = new javax.swing.ImageIcon(is.readAllBytes()).getImage()
+                        .getScaledInstance(iconSize, iconSize, Image.SCALE_SMOOTH);
+                btn.setIcon(new javax.swing.ImageIcon(img));
+            } else {
+                btn.setText("📦");
+                btn.setFont(btn.getFont().deriveFont((float) iconSize));
+            }
+        } catch (IOException ignored) {
+            btn.setText("📦");
+            btn.setFont(btn.getFont().deriveFont((float) iconSize));
+        }
+        btn.setMargin(new Insets(1, 4, 1, 4));
+        btn.setFocusPainted(false);
+        return btn;
+    }
+
+    /**
+     * Reads {@code /resources/starter_decks.txt} and returns all defined decks.
+     * Format: {@code [Deck Name]} header lines followed by {@code N serial} card lines.
+     * Blank lines and lines starting with {@code #} are ignored.
+     */
+    private List<StarterDeck> loadStarterDecks() {
+        List<StarterDeck> result = new ArrayList<>();
+        try (InputStream is = getClass().getResourceAsStream("/resources/starter_decks.txt")) {
+            if (is == null) return result;
+            try (BufferedReader br = new BufferedReader(new InputStreamReader(is))) {
+                String deckName = null;
+                LinkedHashMap<String, Integer> cards = null;
+                String line;
+                while ((line = br.readLine()) != null) {
+                    String trimmed = line.trim();
+                    if (trimmed.isEmpty() || trimmed.startsWith("#")) continue;
+                    if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
+                        if (deckName != null && cards != null && !cards.isEmpty())
+                            result.add(new StarterDeck(deckName, cards));
+                        String rawName = trimmed.substring(1, trimmed.length() - 1).trim();
+                        if (rawName.startsWith("*")) { deckName = null; cards = null; }
+                        else                         { deckName = rawName; cards = new LinkedHashMap<>(); }
+                    } else if (deckName != null && cards != null) {
+                        String[] parts = trimmed.split("\\s+", 2);
+                        if (parts.length == 2) {
+                            try {
+                                int qty    = Integer.parseInt(parts[0]);
+                                String ser = parts[1].trim();
+                                cards.merge(ser, qty, Integer::sum);
+                            } catch (NumberFormatException ignored) {}
+                        }
+                    }
+                }
+                if (deckName != null && cards != null && !cards.isEmpty())
+                    result.add(new StarterDeck(deckName, cards));
+            }
+        } catch (IOException ignored) {}
+        return result;
+    }
+
+    /** Opens the preconstructed deck browser dialog. */
+    private void onBrowseStarterDecks() {
+        List<StarterDeck> decks = loadStarterDecks();
+        if (decks.isEmpty()) {
+            JOptionPane.showMessageDialog(this,
+                    "No preconstructed decks are defined yet.\n" +
+                    "Add deck definitions to resources/starter_decks.txt.",
+                    "No Preconstructed Decks", JOptionPane.INFORMATION_MESSAGE);
+            return;
+        }
+
+        String[] names = decks.stream().map(StarterDeck::name).toArray(String[]::new);
+        JList<String> deckNameList = new JList<>(names);
+        deckNameList.setSelectionMode(ListSelectionModel.MULTIPLE_INTERVAL_SELECTION);
+        deckNameList.setVisibleRowCount(Math.min(names.length, 12));
+        JScrollPane scroll = new JScrollPane(deckNameList);
+        scroll.setPreferredSize(new Dimension(UiScale.scale(320), UiScale.scale(220)));
+
+        int pick = JOptionPane.showConfirmDialog(this, scroll,
+                "Select Preconstructed Decks to Import",
+                JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
+        if (pick != JOptionPane.OK_OPTION) return;
+
+        List<String> selected = deckNameList.getSelectedValuesList();
+        if (selected.isEmpty()) return;
+
+        StringBuilder msg = new StringBuilder("Import the following deck(s)?");
+        for (String n : selected) msg.append("\n  • ").append(n);
+        int confirm = JOptionPane.showConfirmDialog(this, msg.toString(),
+                "Confirm Import", JOptionPane.YES_NO_OPTION, JOptionPane.QUESTION_MESSAGE);
+        if (confirm != JOptionPane.YES_OPTION) return;
+
+        int lastId = -1;
+        int importedCount = 0;
+        for (StarterDeck deck : decks) {
+            if (!selected.contains(deck.name())) continue;
+            try {
+                int newId = importDeckFromSerials(deck.name(), deck.cards());
+                if (newId >= 0) { lastId = newId; importedCount++; }
+            } catch (SQLException ex) {
+                JOptionPane.showMessageDialog(this,
+                        "Error importing \"" + deck.name() + "\":\n" + ex.getMessage(),
+                        "Import Error", JOptionPane.ERROR_MESSAGE);
+            }
+        }
+
+        if (importedCount > 0) {
+            try { loadDeckList(); } catch (SQLException ex) {
+                JOptionPane.showMessageDialog(this, "Error refreshing deck list:\n" + ex.getMessage(),
+                        "Database Error", JOptionPane.ERROR_MESSAGE);
+            }
+            if (lastId >= 0) selectDeckById(lastId);
         }
     }
 
