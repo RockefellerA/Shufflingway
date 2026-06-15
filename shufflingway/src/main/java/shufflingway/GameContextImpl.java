@@ -2478,6 +2478,14 @@ final class GameContextImpl implements GameContext {
 				ifDiscarded.accept(this);
 			}
 
+			@Override public void playerMayDoEffect(String prompt, java.util.function.Consumer<GameContext> effect) {
+				if (!isP1) { logEntry("[P2 AI] Auto-accepts: " + prompt); effect.accept(this); return; }
+				String src = mw.currentAbilitySource != null ? mw.currentAbilitySource.name() : "Ability";
+				int choice = mw.showEffectOptionDialog(src + " — " + prompt, "You May", new Object[]{"OK", "Decline"});
+				if (choice != 0) { logEntry("[Effect] Declined: " + prompt); return; }
+				effect.accept(this);
+			}
+
 			@Override public void placeFromHandToBottomOfDeck(int count) {
 				if (isP1) {
 					mw.showPlaceToBottomOfDeckDialog(count);

@@ -919,6 +919,12 @@ public interface GameContext {
     void mayDiscardCardNameFromHand(String cardName, java.util.function.Consumer<GameContext> ifDiscarded);
 
     /**
+     * Offers the ability user the option to carry out {@code effect}.
+     * P1 is shown a dialog; P2 AI auto-accepts.
+     */
+    void playerMayDoEffect(String prompt, java.util.function.Consumer<GameContext> effect);
+
+    /**
      * Discards all cards from the ability user's hand to their Break Zone.  No CP is generated.
      * No selection dialog is shown — the entire hand is automatically discarded.
      */

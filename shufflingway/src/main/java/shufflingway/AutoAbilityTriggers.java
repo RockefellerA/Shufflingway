@@ -266,7 +266,10 @@ final class AutoAbilityTriggers {
 		withBatch(() -> {
 			for (AutoAbility fa : card.autoAbilities()) {
 				if (!fa.triggerCard().equalsIgnoreCase(card.name())) continue;
-				if (fa.trigger().contains("enter")) executeAutoAbility(fa, card, isP1);
+				if (!fa.trigger().contains("enter")) continue;
+				// "enters your field other than from your hand" — skip when played normally from hand
+				if (fa.trigger().equals("enters your field not from hand") && mw.lastCardWasCast) continue;
+				executeAutoAbility(fa, card, isP1);
 			}
 			// Watcher dispatch: "When a <Type> enters your field, ..." abilities live on other field cards
 			// on the same side as the entering card.

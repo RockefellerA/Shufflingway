@@ -3063,6 +3063,9 @@ public class ActionResolver {
      * used inside {@link #tryParseChooseCharacter}.
      */
     public static String matchedFollowupName(String followupText, CardData source) {
+        // Strip leading "You may " so optional-followup effects are identified correctly
+        if (followupText.toLowerCase(java.util.Locale.ROOT).startsWith("you may "))
+            followupText = followupText.substring("You may ".length()).trim();
         if (FOLLOWUP_TARGET_CONTROLLER_DISCARDS.matcher(followupText).matches()) return "TargetControllerDiscards";
         if (source != null) {
             Matcher mutM = FOLLOWUP_MUTUAL_POWER_DAMAGE.matcher(followupText);
@@ -4322,6 +4325,11 @@ public class ActionResolver {
             }
         }
 
+        // Detect "You may [followup]" — followup is optional; player may decline the action after choosing the target
+        final boolean followupIsOptional = primaryFollowup.toLowerCase(java.util.Locale.ROOT).startsWith("you may ");
+        final String strippedPrimaryFollowup = followupIsOptional
+                ? primaryFollowup.substring("You may ".length()).trim() : primaryFollowup;
+
         // Shared log prefix helper (captured once, reused in all lambdas)
         String costLabel     = CardFilters.formatCostFilterLabel(costVal, costCmp);
         String powerLabel    = powerVal >= 0
@@ -4654,7 +4662,7 @@ public class ActionResolver {
         }
 
         // --- Damage followup (fixed amount) ---
-        Matcher dmgM = FOLLOWUP_DAMAGE.matcher(primaryFollowup);
+        Matcher dmgM = FOLLOWUP_DAMAGE.matcher(strippedPrimaryFollowup);
         if (dmgM.find()) {
             int damage = Integer.parseInt(dmgM.group("amount"));
             String alsoCard = dmgM.group("also") != null ? dmgM.group("also").trim() : null;
@@ -4666,15 +4674,19 @@ public class ActionResolver {
                 List<ForwardTarget> ts = selectTargets(ctx, maxCount, upTo,
                         opponentOnly, selfOnly, condition, element, zone, opponentZone,
                         costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters, jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, fExcludeElem, withoutMulticard);
-                if (unreduced) {
-                    sortedByIdxDesc(ts, true) .forEach(t -> ctx.damageTargetUnreduced(t, damage));
-                    sortedByIdxDesc(ts, false).forEach(t -> ctx.damageTargetUnreduced(t, damage));
-                } else {
-                    sortedByIdxDesc(ts, true) .forEach(t -> ctx.damageTarget(t, damage));
-                    sortedByIdxDesc(ts, false).forEach(t -> ctx.damageTarget(t, damage));
-                }
-                if (alsoCard != null) ctx.damageFieldForwardByName(alsoCard, damage);
-                if (secondary != null) secondary.accept(ctx);
+                Consumer<GameContext> doDamage = ctx2 -> {
+                    if (unreduced) {
+                        sortedByIdxDesc(ts, true) .forEach(t -> ctx2.damageTargetUnreduced(t, damage));
+                        sortedByIdxDesc(ts, false).forEach(t -> ctx2.damageTargetUnreduced(t, damage));
+                    } else {
+                        sortedByIdxDesc(ts, true) .forEach(t -> ctx2.damageTarget(t, damage));
+                        sortedByIdxDesc(ts, false).forEach(t -> ctx2.damageTarget(t, damage));
+                    }
+                    if (alsoCard != null) ctx2.damageFieldForwardByName(alsoCard, damage);
+                    if (secondary != null) secondary.accept(ctx2);
+                };
+                if (followupIsOptional && !ts.isEmpty()) ctx.playerMayDoEffect("Deal it " + damage + " damage?", doDamage);
+                else if (!followupIsOptional) doDamage.accept(ctx);
             };
         }
 
@@ -5139,18 +5151,22 @@ public class ActionResolver {
         }
 
         // --- Return to owner's hand followup ---
-        if (FOLLOWUP_RETURN_TO_OWNERS_HAND.matcher(primaryFollowup).find()) {
+        if (FOLLOWUP_RETURN_TO_OWNERS_HAND.matcher(strippedPrimaryFollowup).find()) {
             return ctx -> {
                 ctx.logEntry(choosePrefix + " — Return to owner's hand");
                 List<ForwardTarget> ts = selectTargets(ctx, maxCount, upTo,
                         opponentOnly, selfOnly, condition, element, zone, opponentZone,
                         costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters, jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, fExcludeElem, withoutMulticard);
-                for (ForwardTarget t : ts) {
-                    if (t.zone() != ForwardTarget.CardZone.FORWARD) continue;
-                    if (t.isP1()) ctx.returnP1ForwardToHand(t.idx());
-                    else          ctx.returnP2ForwardToHand(t.idx());
-                }
-                if (secondary != null) secondary.accept(ctx);
+                Consumer<GameContext> doReturn = ctx2 -> {
+                    for (ForwardTarget t : ts) {
+                        if (t.zone() != ForwardTarget.CardZone.FORWARD) continue;
+                        if (t.isP1()) ctx2.returnP1ForwardToHand(t.idx());
+                        else          ctx2.returnP2ForwardToHand(t.idx());
+                    }
+                    if (secondary != null) secondary.accept(ctx2);
+                };
+                if (followupIsOptional && !ts.isEmpty()) ctx.playerMayDoEffect("Return it to its owner's hand?", doReturn);
+                else if (!followupIsOptional) doReturn.accept(ctx);
             };
         }
 
