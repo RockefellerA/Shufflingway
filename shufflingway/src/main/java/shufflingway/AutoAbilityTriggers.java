@@ -1160,8 +1160,8 @@ final class AutoAbilityTriggers {
 		}
 
 		if (!isP1) {
-			// AI pays the maximum it can (simplified — no backup state update for AI).
-			int paid = maxCp == Integer.MAX_VALUE ? 1 : maxCp;
+			int target = isXCost ? 1 : fixedCost;
+			int paid   = aiPayCp(effectIsP1, target);
 			applyPayWhenDoSoEffect(subEffect, source, paid, effectIsP1);
 			return;
 		}
@@ -1187,6 +1187,34 @@ final class AutoAbilityTriggers {
 		}
 		mw.logEntry("[AutoAbility] " + source.name() + " — when you do so: " + subEffect + " (X=" + xValue + ")");
 		effect.accept(ctx);
+	}
+
+	/**
+	 * Has the AI pay up to {@code target} CP by dulling active backups then discarding hand cards.
+	 * Returns the amount actually paid.
+	 */
+	private int aiPayCp(boolean payerIsP1, int target) {
+		if (target <= 0) return 0;
+		CardData[]  bkpCards  = mw.playerBackupCards(payerIsP1);
+		CardState[] bkpStates = mw.playerBackupStates(payerIsP1);
+		int paid = 0;
+		for (int i = 0; i < bkpCards.length && paid < target; i++) {
+			if (bkpCards[i] != null && bkpStates[i] == CardState.ACTIVE) {
+				bkpStates[i] = CardState.DULL;
+				mw.playerDullBackupSlot(payerIsP1, i);
+				paid++;
+				mw.logEntry("[AI] Pay CP: dull " + bkpCards[i].name() + " (" + paid + "/" + target + ")");
+			}
+		}
+		List<Integer> discardIdx = new ArrayList<>();
+		List<CardData> hand = mw.playerHand(payerIsP1);
+		for (int i = hand.size() - 1; i >= 0 && paid < target; i--) {
+			mw.logEntry("[AI] Pay CP: discard " + hand.get(i).name() + " from hand (" + Math.min(paid + 2, target) + "/" + target + ")");
+			discardIdx.add(i);
+			paid += 2;
+		}
+		for (int di : discardIdx) mw.playerBreakFromHand(payerIsP1, di);
+		return Math.min(paid, target);
 	}
 
 	// ─── "Select N of M following actions" auto-ability ─────────────────────────

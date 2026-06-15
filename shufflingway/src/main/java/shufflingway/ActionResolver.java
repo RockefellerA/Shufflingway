@@ -451,6 +451,15 @@ public class ActionResolver {
         "(?i)Play\\s+(?:it|them)\\s+onto\\s+(?:the\\s+)?field"
     );
 
+    /**
+     * Matches "If its cost is equal to or less than the number of Job [job] you control, play it onto the field."
+     * Group {@code job} captures the job name (without "Job " prefix).
+     */
+    private static final Pattern FOLLOWUP_PLAY_IF_COST_LE_JOB_COUNT = Pattern.compile(
+        "(?i)If\\s+its\\s+cost\\s+is\\s+equal\\s+to\\s+or\\s+less\\s+than\\s+the\\s+number\\s+of\\s+" +
+        "Job\\s+(?<job>.+?)\\s+you\\s+control[,.]\\s+play\\s+it\\s+onto\\s+(?:the\\s+)?field[.!]?"
+    );
+
     /** Matches "Add it to your hand" or "Add them to your hand". */
     private static final Pattern FOLLOWUP_ADD_TO_HAND = Pattern.compile(
         "(?i)Add\\s+(?:it|them)\\s+to\\s+your\\s+hand"
@@ -3080,6 +3089,7 @@ public class ActionResolver {
         if (FOLLOWUP_BREAK.matcher(followupText).find())                              return "Break";
         if (FOLLOWUP_REMOVE_FROM_GAME_AND_NAMED.matcher(followupText).find())          return "RemoveFromGameAndNamed";
         if (FOLLOWUP_REMOVE_FROM_GAME.matcher(followupText).find())                   return "RemoveFromGame";
+        if (FOLLOWUP_PLAY_IF_COST_LE_JOB_COUNT.matcher(followupText).matches())       return "PlayIfCostLeJobCount";
         if (FOLLOWUP_PLAY_ONTO_FIELD.matcher(followupText).find())                    return "PlayOntoField";
         if (FOLLOWUP_ADD_TO_HAND.matcher(followupText).find())                        return "AddToHand";
         if (FOLLOWUP_RETURN_AND_NAMED_TO_OWNERS_HAND.matcher(followupText).find())    return "ReturnAndNamedToOwnersHand";
@@ -5006,6 +5016,29 @@ public class ActionResolver {
         }
 
         // --- Play onto field followup ---
+        // --- "If its cost is equal to or less than the number of Job X you control, play it onto the field." ---
+        // Must be checked before the generic PlayOntoField handler so the condition is enforced.
+        Matcher costLeJobM = FOLLOWUP_PLAY_IF_COST_LE_JOB_COUNT.matcher(primaryFollowup);
+        if (costLeJobM.matches()) {
+            String condJob = costLeJobM.group("job").trim();
+            return ctx -> {
+                ctx.logEntry(choosePrefix + " — Play onto Field if cost ≤ count of Job " + condJob + " you control");
+                List<ForwardTarget> ts = selectTargets(ctx, maxCount, upTo,
+                        opponentOnly, selfOnly, condition, element, zone, opponentZone,
+                        costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters,
+                        jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, fExcludeElem, withoutMulticard);
+                int jobCount = ctx.countSelfFieldCards(true, true, true, condJob, null);
+                for (ForwardTarget t : sortedByIdxDesc(ts, true) .collect(java.util.stream.Collectors.toList())) {
+                    CardData card = t.isP1() ? ctx.p1BreakZoneCard(t.idx()) : ctx.p2BreakZoneCard(t.idx());
+                    if (card != null && card.cost() <= jobCount) ctx.playTargetOntoField(t);
+                }
+                for (ForwardTarget t : sortedByIdxDesc(ts, false).collect(java.util.stream.Collectors.toList())) {
+                    CardData card = t.isP1() ? ctx.p1BreakZoneCard(t.idx()) : ctx.p2BreakZoneCard(t.idx());
+                    if (card != null && card.cost() <= jobCount) ctx.playTargetOntoField(t);
+                }
+            };
+        }
+
         if (FOLLOWUP_PLAY_ONTO_FIELD.matcher(primaryFollowup).find()) {
             return ctx -> {
                 ctx.logEntry(choosePrefix + " — Play onto Field");
