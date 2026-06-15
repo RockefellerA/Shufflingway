@@ -100,6 +100,18 @@ public class ActionResolver {
     );
 
     /**
+     * Matches "Choose N [type1] and N [type2] [control?]. [followup]"
+     * — two cards of different types from the same pool.
+     * Optional control qualifier ("opponent controls" / "you control"); if absent, any side is valid.
+     */
+    private static final Pattern CHOOSE_TWO_MIXED_TYPES_PATTERN = Pattern.compile(
+        "(?i)Choose\\s+(?<count1>\\d+)\\s+(?<type1>Forwards?|Backups?|Characters?|Monsters?)\\s+" +
+        "and\\s+(?<count2>\\d+)\\s+(?<type2>Forwards?|Backups?|Characters?|Monsters?)" +
+        "(?:\\s+(?<control>(?:your\\s+)?opponent\\s+controls?|you\\s+controls?))?[.]?\\s+" +
+        "(?<followup>.+)"
+    );
+
+    /**
      * Normalises "Element Type or Element Type" → "Element or Element Type" so that
      * CHOOSE_CHARACTER_PATTERN's element group can capture both elements.
      * E.g. "Light Character or Dark Character" → "Light or Dark Character".
@@ -1090,9 +1102,12 @@ public class ActionResolver {
         "(?i)During\\s+this\\s+turn,\\s+if\\s+(?<card>.+?)\\s+is\\s+dealt\\s+damage\\s+by\\s+your\\s+opponent's\\s+Summons?\\s+or\\s+abilities,\\s+the\\s+damage\\s+becomes\\s+0\\s+instead\\.?"
     );
 
-    /** "During this turn, the next damage dealt to [name] becomes 0 instead." — named card, not pronoun. */
+    /**
+     * "During this turn, the next damage dealt to [name] becomes 0 instead."
+     * "The next damage dealt to Card Name [name] becomes 0 this turn."
+     */
     private static final Pattern STANDALONE_SHIELD_NEXT_DMG_ZERO_NAMED = Pattern.compile(
-        "(?i)During\\s+this\\s+turn,\\s+the\\s+next\\s+damage\\s+dealt\\s+to\\s+(?!(?:it|him|them)\\b)(?<name>[A-Za-z][^.]+?)\\s+becomes\\s+0\\s+instead[.!]?"
+        "(?i)(?:During\\s+this\\s+turn,\\s+)?the\\s+next\\s+damage\\s+dealt\\s+to\\s+(?!(?:it|him|them)\\b)(?:Card\\s+Name\\s+)?(?<name>[A-Za-z][^.]+?)\\s+becomes\\s+0\\s+(?:instead|this\\s+turn)[.!]?"
     );
 
     /** "During this turn, the next damage dealt to [name] is reduced by N instead." — named card, not pronoun. */
@@ -2539,6 +2554,9 @@ public class ActionResolver {
         result = tryParseChooseOneEach(effectText, source);
         if (result != null) return result;
 
+        result = tryParseChooseTwoMixedTypes(effectText, source);
+        if (result != null) return result;
+
         result = tryParseChooseCharacter(effectText, source, xValue);
         if (result != null) return result;
 
@@ -3144,6 +3162,11 @@ public class ActionResolver {
         if (oneEachM.find()) {
             String followupName = matchedFollowupName(oneEachM.group("followup").trim(), source);
             return "ChooseOneEach / " + (followupName != null ? followupName : "?");
+        }
+        Matcher mixedM = CHOOSE_TWO_MIXED_TYPES_PATTERN.matcher(normalizedEffectText);
+        if (mixedM.find()) {
+            String followupName = matchedFollowupName(mixedM.group("followup").trim(), source);
+            return "ChooseTwoMixedTypes / " + (followupName != null ? followupName : "?");
         }
         Matcher chooseM = CHOOSE_CHARACTER_PATTERN.matcher(normalizedEffectText);
         if (chooseM.find()) {
@@ -4048,6 +4071,45 @@ public class ActionResolver {
         }
 
         return null;
+    }
+
+    private static Consumer<GameContext> tryParseChooseTwoMixedTypes(String text, CardData source) {
+        Matcher m = CHOOSE_TWO_MIXED_TYPES_PATTERN.matcher(text);
+        if (!m.find()) return null;
+
+        int count1 = Integer.parseInt(m.group("count1"));
+        String tgt1 = m.group("type1").toLowerCase();
+        boolean fwd1 = tgt1.contains("forward") || tgt1.contains("character");
+        boolean bak1 = tgt1.contains("backup")  || tgt1.contains("character");
+        boolean mon1 = tgt1.contains("monster") || tgt1.contains("character");
+
+        int count2 = Integer.parseInt(m.group("count2"));
+        String tgt2 = m.group("type2").toLowerCase();
+        boolean fwd2 = tgt2.contains("forward") || tgt2.contains("character");
+        boolean bak2 = tgt2.contains("backup")  || tgt2.contains("character");
+        boolean mon2 = tgt2.contains("monster") || tgt2.contains("character");
+
+        String control = m.group("control");
+        boolean opponentOnly = control != null && !control.toLowerCase().contains("you control");
+        boolean selfOnly     = control != null &&  control.toLowerCase().contains("you control");
+
+        String followup = m.group("followup").trim();
+        java.util.function.BiConsumer<GameContext, List<ForwardTarget>> action = parseTargetAction(followup, 0);
+        if (action == null) return null;
+
+        String label = "Choose " + count1 + " " + m.group("type1") + " and " + count2 + " " + m.group("type2");
+        return ctx -> {
+            ctx.logEntry(label);
+            List<ForwardTarget> ts1 = selectTargets(ctx, count1, false, opponentOnly, selfOnly,
+                    null, null, null, false, -1, null, -1, null,
+                    fwd1, bak1, mon1, null, null, null, null, false, null, false);
+            List<ForwardTarget> ts2 = selectTargets(ctx, count2, false, opponentOnly, selfOnly,
+                    null, null, null, false, -1, null, -1, null,
+                    fwd2, bak2, mon2, null, null, null, null, false, null, false);
+            List<ForwardTarget> all = new ArrayList<>(ts1);
+            all.addAll(ts2);
+            action.accept(ctx, all);
+        };
     }
 
     private static Consumer<GameContext> tryParseChooseCharacter(String text, CardData source, int xValue) {
