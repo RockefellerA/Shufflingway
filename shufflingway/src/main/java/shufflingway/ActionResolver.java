@@ -39,8 +39,10 @@ public class ActionResolver {
      *   <li>Group {@code targets}   — card type(s): "Forward(s)", "Forward(s) or Monster(s)",
      *                                 "Backup(s)", or "Character(s)"</li>
      *   <li>Group {@code cost}      — optional CP cost value, e.g. "3" in "of cost 3 or less"</li>
-     *   <li>Group {@code costcmp}   — optional: "less", "more", or a second digit value for
-     *                                 "cost N or M" two-value filters (absent = exact match)</li>
+     *   <li>Group {@code costlist}  — optional comma-separated digits between the first cost and
+     *                                 the final " or " term in "cost A, B, C or D" multi-value lists</li>
+     *   <li>Group {@code costcmp}   — optional: "less", "more", or a digit value for
+     *                                 "cost N or M" / "cost A, B, … or M" filters (absent = exact match)</li>
      *   <li>Group {@code control}   — optional: "opponent controls", "your opponent controls",
      *                                 or "you control"</li>
      *   <li>Group {@code excludekw}   — optional keyword to exclude, from "without 《Keyword》" (e.g. "Multicard")</li>
@@ -69,7 +71,9 @@ public class ActionResolver {
         "(?:\\s+of\\s+(?:any|an)\\s+Element\\s+(?:except|other\\s+than)\\s+(?<excludeelem>" +
             "(?:Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)" +
             "(?:\\s+and\\s+(?:Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark))*))?" +
-        "(?:\\s+of\\s+cost\\s+(?<cost>\\d+)(?:\\s+or\\s+(?<costcmp>less|more|\\d+))?)?" +
+        "(?:\\s+of\\s+cost\\s+(?<cost>\\d+)" +
+            "(?:,\\s*(?<costlist>\\d+(?:\\s*,\\s*\\d+)*))?" +
+            "(?:\\s+or\\s+(?<costcmp>less|more|\\d+))?)?" +
         "(?:\\s+of\\s+(?:power\\s+)?(?<power>\\d+)(?:\\s+power)?(?:\\s+or\\s+(?<powercmp>less|more))?)?" +
         "(?:\\s+(?<control>(?:your\\s+)?opponent\\s+controls|you\\s+control))?" +
         "(?:\\s+other\\s+than\\s+(?:Card\\s+Name\\s+)?(?<excludename>\\S(?:.*?\\S)?))?"+
@@ -376,6 +380,19 @@ public class ActionResolver {
         "(?i)choose\\s+1\\s+card\\s+with\\s+EX\\s+Burst\\s+in\\s+your\\s+Damage\\s+Zone[.,]?\\s+" +
         "You\\s+may\\s+trigger\\s+its\\s+EX\\s+Burst\\s+effect[.!]?" +
         "(?:\\s*\\([^)]+\\))?"
+    );
+
+    /**
+     * Matches the Leviathan/Larsa/Strago Damage-Zone-swap pattern:
+     * "Choose 1 card in your Damage Zone. Add it to your hand [and draw 1 card]. [Then,]
+     *  Put 1 card from your hand into the Damage Zone (its EX Burst effect will not trigger)."
+     * Group {@code draw} — present when the variant draws 1 card between the two halves.
+     */
+    private static final Pattern DAMAGE_ZONE_SWAP_PATTERN = Pattern.compile(
+        "(?i)^choose\\s+1\\s+card\\s+in\\s+your\\s+Damage\\s+Zone\\.\\s+" +
+        "Add\\s+it\\s+to\\s+your\\s+hand(?<draw>\\s+and\\s+draw\\s+1\\s+card)?\\.\\s+" +
+        "(?:Then,?\\s+)?Put\\s+1\\s+card\\s+from\\s+your\\s+hand\\s+into\\s+the\\s+Damage\\s+Zone" +
+        "\\s*\\([^)]*\\)\\.?\\s*$"
     );
 
     /**
@@ -2619,6 +2636,9 @@ public class ActionResolver {
         result = tryParseChooseExBurstFromDamageZone(effectText);
         if (result != null) return result;
 
+        result = tryParseDamageZoneSwap(effectText);
+        if (result != null) return result;
+
         result = tryParseOpponentDrawThenRandomDiscard(effectText);
         if (result != null) return result;
 
@@ -2883,6 +2903,10 @@ public class ActionResolver {
         if (tryParseRemoveNamedFromGame(effectText, source)   != null) return "RemoveNamedFromGame";
         if (tryParseBreakSourceCard(effectText, source)        != null) return "BreakSourceCard";
         if (tryParseChooseExBurstFromDamageZone(effectText)    != null) return "ChooseExBurstFromDamageZone";
+        if (tryParseDamageZoneSwap(effectText)                 != null) {
+            Matcher m = DAMAGE_ZONE_SWAP_PATTERN.matcher(effectText.trim());
+            return m.matches() && m.group("draw") != null ? "DamageZoneSwap + DrawCards" : "DamageZoneSwap";
+        }
         if (tryParseOpponentDrawThenRandomDiscard(effectText)  != null) return "OpponentDrawThenRandomDiscard";
         if (tryParseOpponentDraw(effectText)                   != null) return "OpponentDraw";
         if (tryParseOpponentRandomDiscard(effectText)         != null) return "OpponentRandomDiscard";
@@ -3158,6 +3182,10 @@ public class ActionResolver {
         if (tryParseRemoveNamedFromGame(effectText, source) != null)        return "RemoveNamedFromGame";
         if (tryParseBreakSourceCard(effectText, source)     != null)        return "BreakSourceCard";
         if (tryParseChooseExBurstFromDamageZone(effectText) != null)        return "ChooseExBurstFromDamageZone";
+        if (tryParseDamageZoneSwap(effectText)              != null) {
+            Matcher m = DAMAGE_ZONE_SWAP_PATTERN.matcher(effectText.trim());
+            return m.matches() && m.group("draw") != null ? "DamageZoneSwap + DrawCards" : "DamageZoneSwap";
+        }
         if (tryParseOpponentDrawThenRandomDiscard(effectText) != null)      return "OpponentDrawThenRandomDiscard";
         if (tryParseOpponentRandomDiscard(effectText) != null)              return "OpponentRandomDiscard";
         if (tryParseEachPlayerSelectForwardDamage(effectText) != null)      return "EachPlayerSelectForwardDamage";
@@ -4061,11 +4089,20 @@ public class ActionResolver {
         String  rawExcludeElem = m.group("excludeelem");
         final String fExcludeElem = rawExcludeElem != null ? rawExcludeElem.trim() : null;
         String  costStr      = m.group("cost");
+        String  costListStr  = m.group("costlist");
         String  rawCostCmp   = m.group("costcmp");
         int     costVal      = costStr != null ? Integer.parseInt(costStr) : -1;
-        // Convert "cost N or M" (digit costcmp) to the "or_M" sentinel understood by meetsCostConstraint
-        String  costCmp      = (rawCostCmp != null && rawCostCmp.matches("\\d+"))
-                ? "or_" + rawCostCmp : rawCostCmp;
+        // Convert digit-valued costcmp into the "or_…" sentinel understood by meetsCostConstraint.
+        // Supports single ("cost N or M") and list ("cost A, B, … or Z") forms.
+        String  costCmp;
+        if (rawCostCmp != null && rawCostCmp.matches("\\d+")) {
+            String tail = costListStr != null
+                    ? costListStr.replaceAll("\\s+", "") + "," + rawCostCmp
+                    : rawCostCmp;
+            costCmp = "or_" + tail;
+        } else {
+            costCmp = rawCostCmp;
+        }
         String  powerStr     = m.group("power");
         String  powerCmp     = m.group("powercmp");
         int     powerVal     = powerStr != null ? Integer.parseInt(powerStr) : -1;
@@ -4127,9 +4164,7 @@ public class ActionResolver {
         }
 
         // Shared log prefix helper (captured once, reused in all lambdas)
-        String costCmpDisplay = costCmp != null && costCmp.startsWith("or_")
-                ? " or " + costCmp.substring(3) : (costCmp != null ? " or " + costCmp : "");
-        String costLabel     = costVal >= 0 ? " of cost " + costVal + costCmpDisplay : "";
+        String costLabel     = CardFilters.formatCostFilterLabel(costVal, costCmp);
         String powerLabel    = powerVal >= 0
                 ? " of power " + powerVal + (powerCmp != null ? " or " + powerCmp : "") : "";
         String controlLabel  = opponentOnly ? " (opponent)" : selfOnly ? " (yours)" : "";
@@ -6544,6 +6579,21 @@ public class ActionResolver {
         return ctx -> {
             ctx.logEntry("Effect: Choose EX Burst from Damage Zone — trigger on stack");
             ctx.triggerExBurstFromDamageZone();
+        };
+    }
+
+    /**
+     * Parses the Leviathan/Larsa/Strago Damage-Zone-swap pattern. Pulls one card from the ability
+     * user's Damage Zone to their hand, optionally draws 1 (Leviathan), then returns one card
+     * from hand to the Damage Zone with its EX Burst suppressed.
+     */
+    private static Consumer<GameContext> tryParseDamageZoneSwap(String text) {
+        Matcher m = DAMAGE_ZONE_SWAP_PATTERN.matcher(text.trim());
+        if (!m.matches()) return null;
+        boolean drawBetween = m.group("draw") != null;
+        return ctx -> {
+            ctx.logEntry("Effect: Damage Zone swap" + (drawBetween ? " (+ draw 1)" : ""));
+            ctx.swapDamageZoneCardWithHandCard(drawBetween);
         };
     }
 

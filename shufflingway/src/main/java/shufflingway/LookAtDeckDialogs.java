@@ -582,7 +582,7 @@ class LookAtDeckDialogs {
         dlg.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
 
         JLabel instructions = new JLabel(
-                "Select a card (top row), then click a destination. Click a destination card to return it.",
+                "Select a card in the top row, then click a destination. Click it again to return it.",
                 SwingConstants.CENTER);
         instructions.setFont(FontLoader.loadPixelNESFont(9));
         okBtn.addActionListener(ae -> { hideZoom(); dlg.dispose(); });

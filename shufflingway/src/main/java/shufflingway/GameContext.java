@@ -1253,6 +1253,19 @@ public interface GameContext {
     void triggerExBurstFromDamageZone();
 
     /**
+     * Swaps one card from the ability user's Damage Zone with one card from their hand.
+     * <ol>
+     *   <li>The ability user picks one card in their Damage Zone and moves it to their hand.</li>
+     *   <li>If {@code drawCardBetween} is {@code true}, the ability user draws 1 card.</li>
+     *   <li>The ability user picks one card from their hand and puts it into the Damage Zone.
+     *       The replacement card's EX Burst is suppressed; other "card put into Damage Zone"
+     *       auto-ability triggers still fire normally.</li>
+     * </ol>
+     * No-op when the Damage Zone is empty. Net Damage Zone size is unchanged.
+     */
+    void swapDamageZoneCardWithHandCard(boolean drawCardBetween);
+
+    /**
      * Immediately breaks {@code source} — searches own forwards then monsters by identity
      * and calls {@link #breakTarget} on the first match.  No-op if already off the field.
      */

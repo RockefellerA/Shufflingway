@@ -38,6 +38,7 @@ import static shufflingway.CardAnimation.CARD_H;
 import static shufflingway.CardAnimation.CARD_W;
 import static shufflingway.CardFilters.isBlockingTargetFilter;
 import static shufflingway.CardFilters.isEnteredThisTurnCondition;
+import static shufflingway.CardFilters.formatCostFilterLabel;
 import static shufflingway.CardFilters.matchesDiscardType;
 import static shufflingway.CardFilters.meetsCardNameFilter;
 import static shufflingway.CardFilters.meetsCategoryFilter;
@@ -707,7 +708,7 @@ final class GameContextImpl implements GameContext {
 						}
 					}
 				}
-				String costLabel  = costVal  >= 0 ? " of cost "  + costVal  + (costCmp  != null ? " or " + costCmp  : "") : "";
+				String costLabel  = formatCostFilterLabel(costVal, costCmp);
 				String powerLabel = powerVal >= 0 ? " of power " + powerVal + (powerCmp != null ? " or " + powerCmp : "") : "";
 				String targetNoun = inclForwards && !inclBackups && !inclMonsters ? "Forward"
 						: inclBackups && !inclForwards && !inclMonsters ? "Backup"
@@ -973,7 +974,7 @@ final class GameContextImpl implements GameContext {
 					                         :                    ForwardTarget.CardZone.FORWARD;
 					eligible.add(new ForwardTarget(!opponentZone, i, cz));
 				}
-				String costLabel  = costVal  >= 0 ? " of cost "  + costVal  + (costCmp  != null ? " or " + costCmp  : "") : "";
+				String costLabel  = formatCostFilterLabel(costVal, costCmp);
 				String powerLabel = powerVal >= 0 ? " of power " + powerVal + (powerCmp != null ? " or " + powerCmp : "") : "";
 				String title = "Choose " + (upTo ? "up to " : "") + maxCount
 						+ (element != null ? " " + element : "")
@@ -3013,6 +3014,59 @@ final class GameContextImpl implements GameContext {
 					});
 					mw.refreshP2MonsterSlot(idx);
 				}
+			}
+
+			@Override public void swapDamageZoneCardWithHandCard(boolean drawCardBetween) {
+				List<CardData> dz   = isP1 ? mw.gameState.getP1DamageZone() : mw.gameState.getP2DamageZone();
+				List<CardData> hand = isP1 ? mw.gameState.getP1Hand()       : mw.gameState.getP2Hand();
+				if (dz.isEmpty()) { logEntry("Damage Zone swap — no cards in Damage Zone"); return; }
+
+				int dzIdx;
+				if (isP1) {
+					dzIdx = mw.showPickOneCardDialog(
+							"Choose a card from your Damage Zone",
+							"Pick 1 card to add to your hand.",
+							dz, "Add to Hand", false);
+				} else {
+					int worst = 0, worstScore = Integer.MAX_VALUE;
+					for (int i = 0; i < dz.size(); i++) {
+						CardData c = dz.get(i);
+						int score = c.cost() + (c.exBurst() ? -100 : 0);
+						if (score < worstScore) { worstScore = score; worst = i; }
+					}
+					dzIdx = worst;
+				}
+				if (dzIdx < 0) { logEntry("Damage Zone swap — cancelled"); return; }
+
+				CardData taken = dz.remove(dzIdx);
+				hand.add(taken);
+				logEntry((isP1 ? "" : "[P2] ") + "Adds " + taken.name() + " from Damage Zone to hand");
+				mw.refreshDamageZoneSlots(isP1);
+				if (isP1) mw.refreshP1HandLabel(); else mw.refreshP2HandCountLabel();
+
+				if (drawCardBetween) drawCards(1);
+
+				if (hand.isEmpty()) { logEntry("Damage Zone swap — hand empty, no card to return"); return; }
+
+				int handIdx;
+				if (isP1) {
+					handIdx = mw.showPickOneCardDialog(
+							"Choose a card from your hand",
+							"Pick 1 card to put into your Damage Zone (its EX Burst will not trigger).",
+							hand, "Put into Damage Zone", false);
+					if (handIdx < 0) { logEntry("Damage Zone swap — cancelled at return step"); return; }
+				} else {
+					handIdx = MainWindow.pickWorstHandCard0(hand);
+				}
+
+				CardData returned = hand.remove(handIdx);
+				dz.add(returned);
+				logEntry((isP1 ? "" : "[P2] ") + "Puts " + returned.name()
+						+ " from hand into Damage Zone (EX Burst suppressed)");
+				mw.refreshDamageZoneSlots(isP1);
+				if (isP1) mw.refreshP1HandLabel(); else mw.refreshP2HandCountLabel();
+
+				mw.autoAbilityTriggers.triggerAutoAbilitiesForDamageZone(isP1);
 			}
 
 			@Override public void triggerExBurstFromDamageZone() {

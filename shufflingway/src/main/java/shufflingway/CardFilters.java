@@ -43,16 +43,38 @@ public final class CardFilters {
     public static boolean meetsCostConstraint(int cardCost, int costVal, String costCmp) {
         if (costVal < 0) return true;
         if (costCmp == null) return cardCost == costVal;
-        // "or_N" encodes a two-value exact filter: cost == costVal OR cost == N
+        // "or_N[,M,…]" encodes a multi-value exact filter: cost == costVal OR cost == any listed value
         if (costCmp.startsWith("or_")) {
-            int val2 = Integer.parseInt(costCmp.substring(3));
-            return cardCost == costVal || cardCost == val2;
+            if (cardCost == costVal) return true;
+            for (String v : costCmp.substring(3).split(",")) {
+                if (v.isEmpty()) continue;
+                if (cardCost == Integer.parseInt(v.trim())) return true;
+            }
+            return false;
         }
         return switch (costCmp.toLowerCase()) {
             case "less" -> cardCost <= costVal;
             case "more" -> cardCost >= costVal;
             default     -> cardCost == costVal;
         };
+    }
+
+    /**
+     * Renders {@code costVal}/{@code costCmp} as a human-readable filter suffix, e.g.
+     * " of cost 3", " of cost 3 or less", " of cost 2 or 7", " of cost 2, 3, 5 or 7".
+     * Returns {@code ""} when {@code costVal < 0}.
+     */
+    public static String formatCostFilterLabel(int costVal, String costCmp) {
+        if (costVal < 0) return "";
+        if (costCmp == null) return " of cost " + costVal;
+        if (costCmp.startsWith("or_")) {
+            String[] parts = costCmp.substring(3).split(",");
+            StringBuilder sb = new StringBuilder(" of cost ").append(costVal);
+            for (int i = 0; i < parts.length - 1; i++) sb.append(", ").append(parts[i].trim());
+            sb.append(" or ").append(parts[parts.length - 1].trim());
+            return sb.toString();
+        }
+        return " of cost " + costVal + " or " + costCmp;
     }
 
     public static boolean meetsPowerConstraint(int cardPower, int powerVal, String powerCmp) {

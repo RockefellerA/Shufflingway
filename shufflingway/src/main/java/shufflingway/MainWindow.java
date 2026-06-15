@@ -5324,6 +5324,153 @@ public class MainWindow {
 		return result[0];
 	}
 
+	/**
+	 * Shows the player a single-select dialog over {@code cards} and returns the chosen
+	 * index, or {@code -1} if the user cancels (when {@code cancelable} is true) or the
+	 * list is empty. The user must pick exactly one card to confirm.
+	 */
+	int showPickOneCardDialog(String title, String prompt, List<CardData> cards,
+	                          String confirmLabel, boolean cancelable) {
+		if (cards.isEmpty()) return -1;
+		JDialog dlg = new JDialog(frame, title, true);
+		dlg.setResizable(false);
+		dlg.setDefaultCloseOperation(JDialog.DO_NOTHING_ON_CLOSE);
+
+		int[] selectedIdx = {-1};
+		int[] result      = {-1};
+
+		JLabel statusLabel = new JLabel(prompt, SwingConstants.CENTER);
+		statusLabel.setFont(FontLoader.loadPixelNESFont(10));
+
+		List<JLabel> cardLabels = new ArrayList<>();
+		JPanel cardsPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 8));
+
+		JButton confirmBtn = new JButton(confirmLabel);
+		confirmBtn.setFont(FontLoader.loadPixelNESFont(11));
+		confirmBtn.setEnabled(false);
+
+		Runnable refresh = () -> {
+			confirmBtn.setEnabled(selectedIdx[0] >= 0);
+			for (int j = 0; j < cardLabels.size(); j++) {
+				boolean sel = selectedIdx[0] == j;
+				cardLabels.get(j).setBorder(BorderFactory.createLineBorder(
+						sel ? Color.YELLOW : Color.LIGHT_GRAY, sel ? 3 : 1));
+			}
+		};
+
+		for (int j = 0; j < cards.size(); j++) {
+			final int cardIdx = j;
+			CardData cd = cards.get(j);
+
+			JPanel wrapper = new JPanel(new BorderLayout(0, 4));
+			wrapper.setBackground(cardsPanel.getBackground());
+
+			JLabel lbl = new JLabel("...", SwingConstants.CENTER);
+			lbl.setPreferredSize(new Dimension(CARD_W, CARD_H));
+			lbl.setMinimumSize(new Dimension(CARD_W, CARD_H));
+			lbl.setOpaque(true);
+			lbl.setBackground(Color.DARK_GRAY);
+			lbl.setBorder(BorderFactory.createLineBorder(Color.LIGHT_GRAY, 1));
+			lbl.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+			cardLabels.add(lbl);
+
+			lbl.addMouseListener(new MouseAdapter() {
+				@Override public void mouseEntered(MouseEvent e) { if (lbl.getIcon() != null) showZoomAt(cd.imageUrl()); }
+				@Override public void mouseExited(MouseEvent e)  { hideZoom(); }
+				@Override public void mousePressed(MouseEvent e) {
+					selectedIdx[0] = selectedIdx[0] == cardIdx ? -1 : cardIdx;
+					refresh.run();
+				}
+			});
+
+			new SwingWorker<ImageIcon, Void>() {
+				@Override protected ImageIcon doInBackground() throws Exception {
+					Image img = ImageCache.load(cd.imageUrl());
+					if (img == null) return null;
+					BufferedImage buf = new BufferedImage(CARD_W, CARD_H, BufferedImage.TYPE_INT_ARGB);
+					Graphics2D g2 = buf.createGraphics();
+					g2.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+					g2.drawImage(img, 0, 0, CARD_W, CARD_H, null);
+					g2.dispose();
+					return new ImageIcon(buf);
+				}
+				@Override protected void done() {
+					try { ImageIcon icon = get(); if (icon != null) { lbl.setIcon(icon); lbl.setText(null); } }
+					catch (InterruptedException | ExecutionException ignored) {}
+				}
+			}.execute();
+
+			JLabel nameLabel = new JLabel(cd.name() + (cd.exBurst() ? " EX" : ""), SwingConstants.CENTER);
+			nameLabel.setFont(FontLoader.loadPixelNESFont(9));
+			nameLabel.setPreferredSize(new Dimension(CARD_W, 18));
+
+			wrapper.add(lbl,       BorderLayout.CENTER);
+			wrapper.add(nameLabel, BorderLayout.SOUTH);
+			cardsPanel.add(wrapper);
+		}
+
+		confirmBtn.addActionListener(ae -> {
+			hideZoom();
+			result[0] = selectedIdx[0];
+			dlg.dispose();
+		});
+
+		JScrollPane scroll = new JScrollPane(cardsPanel,
+				JScrollPane.VERTICAL_SCROLLBAR_NEVER,
+				JScrollPane.HORIZONTAL_SCROLLBAR_AS_NEEDED);
+		scroll.setPreferredSize(new Dimension(Math.min(cards.size() * (CARD_W + 16) + 20, 900), CARD_H + 60));
+
+		JPanel btnPanel = new JPanel(new FlowLayout(FlowLayout.CENTER, 10, 4));
+		btnPanel.add(confirmBtn);
+		if (cancelable) {
+			JButton cancelBtn = new JButton("Cancel");
+			cancelBtn.setFont(FontLoader.loadPixelNESFont(11));
+			cancelBtn.addActionListener(ae -> { hideZoom(); dlg.dispose(); });
+			btnPanel.add(cancelBtn);
+		}
+
+		JPanel main = new JPanel(new BorderLayout(0, 6));
+		main.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
+		main.add(statusLabel, BorderLayout.NORTH);
+		main.add(scroll,      BorderLayout.CENTER);
+		main.add(btnPanel,    BorderLayout.SOUTH);
+
+		dlg.setContentPane(main);
+		dlg.pack();
+		dlg.setLocationRelativeTo(frame);
+		dlg.setVisible(true);
+		return result[0];
+	}
+
+	/** Repaints damage-zone slot visuals from {@code gameState} after non-draw mutations. */
+	void refreshDamageZoneSlots(boolean isP1) {
+		List<CardData> dz   = isP1 ? gameState.getP1DamageZone() : gameState.getP2DamageZone();
+		JPanel[]      slots = isP1 ? p1DamageSlots               : p2DamageSlots;
+		for (int i = 0; i < slots.length; i++) {
+			JPanel slot = slots[i];
+			if (slot == null) continue;
+			if (i < dz.size()) {
+				CardData cd = dz.get(i);
+				slot.putClientProperty("isExBurst", cd.exBurst() ? Boolean.TRUE : Boolean.FALSE);
+				final JPanel fSlot = slot;
+				final String url   = cd.imageUrl();
+				new SwingWorker<Image, Void>() {
+					@Override protected Image doInBackground() throws Exception { return ImageCache.load(url); }
+					@Override protected void done() {
+						try {
+							Image img = get();
+							if (img != null) { fSlot.putClientProperty("cardImg", img); fSlot.repaint(); }
+						} catch (InterruptedException | ExecutionException ignored) {}
+					}
+				}.execute();
+			} else {
+				slot.putClientProperty("cardImg",  null);
+				slot.putClientProperty("isExBurst", null);
+				slot.repaint();
+			}
+		}
+	}
+
 	void showPlaceToBottomOfDeckDialog(int count) {
 		List<CardData> hand = gameState.getP1Hand();
 		int mustPlace = Math.min(count, hand.size());
