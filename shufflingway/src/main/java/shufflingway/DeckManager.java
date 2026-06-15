@@ -39,10 +39,8 @@ import javax.swing.JComponent;
 import javax.swing.JFrame;
 import javax.swing.JLabel;
 import javax.swing.JList;
-import javax.swing.JMenuItem;
 import javax.swing.JOptionPane;
 import javax.swing.JPanel;
-import javax.swing.JPopupMenu;
 import javax.swing.JScrollPane;
 import javax.swing.JSplitPane;
 import javax.swing.JTable;
@@ -59,10 +57,6 @@ import javax.swing.table.DefaultTableModel;
 import javax.swing.table.TableCellRenderer;
 import javax.swing.table.TableRowSorter;
 
-import org.json.JSONArray;
-import org.json.JSONException;
-import org.json.JSONObject;
-
 import scraper.DeckDatabase;
 import scraper.DeckDatabase.DeckEntry;
 
@@ -78,7 +72,7 @@ public class DeckManager extends JFrame {
     private static final int MAX_LB_DECK_SIZE = 8;
     private static final int MAX_COPIES       = 3;
 
-    private static final Pattern FFDECKS_CARD_LINE =
+    private static final Pattern DECK_CARD_LINE =
             Pattern.compile("^(\\d+)\\s+.+\\(([^)]+)\\)\\s*$");
 
     // Deck list (left panel)
@@ -234,28 +228,10 @@ public class DeckManager extends JFrame {
         copyBtn.addActionListener(e   -> onCopyDeck());
         deleteBtn.addActionListener(e -> onDeleteDeck());
 
-        JButton importBtn = new JButton("Import ▾");
-        JButton exportBtn = new JButton("Export ▾");
-        importBtn.addActionListener(e -> {
-            JPopupMenu menu = new JPopupMenu();
-            JMenuItem shuffItem = new JMenuItem("Shufflingway");
-            JMenuItem ffItem    = new JMenuItem("FFDecks");
-            shuffItem.addActionListener(ev -> onImportDeck());
-            ffItem.addActionListener(ev -> onImportFFDecks());
-            menu.add(shuffItem);
-            menu.add(ffItem);
-            menu.show(importBtn, 0, importBtn.getHeight());
-        });
-        exportBtn.addActionListener(e -> {
-            JPopupMenu menu = new JPopupMenu();
-            JMenuItem shuffItem = new JMenuItem("Shufflingway");
-            JMenuItem ffItem    = new JMenuItem("FFDecks");
-            shuffItem.addActionListener(ev -> onExportDeck());
-            ffItem.addActionListener(ev -> onExportFFDecks());
-            menu.add(shuffItem);
-            menu.add(ffItem);
-            menu.show(exportBtn, 0, exportBtn.getHeight());
-        });
+        JButton importBtn = new JButton("Import");
+        JButton exportBtn = new JButton("Export");
+        importBtn.addActionListener(e -> onImportDeck());
+        exportBtn.addActionListener(e -> onExportDeck());
 
         JPanel mgmtPanel = new JPanel(new GridLayout(2, 2, 4, 4));
         mgmtPanel.add(newBtn);
@@ -1115,80 +1091,14 @@ public class DeckManager extends JFrame {
     // Import / Export
     // -------------------------------------------------------------------------
 
-    private void onExportDeck() {
-        DeckEntry entry = deckList.getSelectedValue();
-        if (entry == null) { JOptionPane.showMessageDialog(this, "Select a deck to export."); return; }
-
-        try {
-            JSONArray cards = new JSONArray();
-            for (Object[] row : db.getDeckCards(entry.id())) {
-                cards.put(new JSONObject()
-                        .put("serial", row[1])
-                        .put("qty",    row[0]));
-            }
-            String json = new JSONObject()
-                    .put("name",  entry.name())
-                    .put("cards", cards)
-                    .toString(2);
-
-            Toolkit.getDefaultToolkit().getSystemClipboard()
-                    .setContents(new StringSelection(json), null);
-
-            JOptionPane.showMessageDialog(this,
-                    "Deck JSON copied to clipboard.",
-                    "Export Successful", JOptionPane.INFORMATION_MESSAGE);
-        } catch (SQLException | JSONException e) {
-            JOptionPane.showMessageDialog(this, "Error exporting deck:\n" + e.getMessage(),
-                    "Export Error", JOptionPane.ERROR_MESSAGE);
-        }
-    }
-
     private void onImportDeck() {
-        JTextArea textArea = new JTextArea(16, 50);
-        textArea.setLineWrap(true);
-        textArea.setWrapStyleWord(true);
-        textArea.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 12));
-        JScrollPane scroll = new JScrollPane(textArea);
-
-        int result = JOptionPane.showConfirmDialog(this, scroll,
-                "Paste Deck JSON", JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
-        if (result != JOptionPane.OK_OPTION) return;
-
-        String text = textArea.getText().trim();
-        if (text.isBlank()) return;
-
-        try {
-            JSONObject json  = new JSONObject(text);
-            String deckName  = json.getString("name");
-            JSONArray cards  = json.getJSONArray("cards");
-
-            int newId = db.createDeck(deckName);
-            for (int i = 0; i < cards.length(); i++) {
-                JSONObject card = cards.getJSONObject(i);
-                String serial   = card.getString("serial");
-                int qty         = card.getInt("qty");
-                if (qty > 0) db.setCardCount(newId, serial, Math.min(qty, MAX_COPIES));
-            }
-
-            loadDeckList();
-            selectDeckById(newId);
-        } catch (JSONException e) {
-            JOptionPane.showMessageDialog(this, "Invalid JSON format:\n" + e.getMessage(),
-                    "Import Error", JOptionPane.ERROR_MESSAGE);
-        } catch (SQLException e) {
-            JOptionPane.showMessageDialog(this, "Error importing deck:\n" + e.getMessage(),
-                    "Import Error", JOptionPane.ERROR_MESSAGE);
-        }
-    }
-
-    private void onImportFFDecks() {
         JTextArea textArea = new JTextArea(16, 50);
         textArea.setLineWrap(true);
         textArea.setWrapStyleWord(true);
         textArea.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 12));
 
         int result = JOptionPane.showConfirmDialog(this, new JScrollPane(textArea),
-                "Paste FFDecks Text", JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
+                "Paste Deck Text", JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
         if (result != JOptionPane.OK_OPTION) return;
 
         String text = textArea.getText().trim();
@@ -1203,7 +1113,7 @@ public class DeckManager extends JFrame {
                 deckName = trimmed.substring("Deck Name:".length()).trim();
                 continue;
             }
-            Matcher m = FFDECKS_CARD_LINE.matcher(trimmed);
+            Matcher m = DECK_CARD_LINE.matcher(trimmed);
             if (m.matches()) {
                 int qty    = Integer.parseInt(m.group(1));
                 String serial = m.group(2);
@@ -1212,7 +1122,7 @@ public class DeckManager extends JFrame {
         }
 
         if (cardMap.isEmpty()) {
-            JOptionPane.showMessageDialog(this, "No cards found in FFDecks format.",
+            JOptionPane.showMessageDialog(this, "No valid cards found in deck text.",
                     "Import Error", JOptionPane.ERROR_MESSAGE);
             return;
         }
@@ -1249,7 +1159,7 @@ public class DeckManager extends JFrame {
         }
     }
 
-    private void onExportFFDecks() {
+    private void onExportDeck() {
         DeckEntry entry = deckList.getSelectedValue();
         if (entry == null) { JOptionPane.showMessageDialog(this, "Select a deck to export."); return; }
 
@@ -1281,7 +1191,7 @@ public class DeckManager extends JFrame {
 
             Toolkit.getDefaultToolkit().getSystemClipboard()
                     .setContents(new StringSelection(sb.toString()), null);
-            JOptionPane.showMessageDialog(this, "FFDecks text copied to clipboard.",
+            JOptionPane.showMessageDialog(this, "Deck text copied to clipboard.",
                     "Export Successful", JOptionPane.INFORMATION_MESSAGE);
         } catch (SQLException e) {
             JOptionPane.showMessageDialog(this, "Error exporting deck:\n" + e.getMessage(),
@@ -1309,8 +1219,12 @@ public class DeckManager extends JFrame {
             int count = 0;
             for (Object[] row : e.getValue()) count += (int) row[0];
             sb.append(e.getKey()).append("(").append(count).append("):\n");
-            for (Object[] row : e.getValue())
-                sb.append(row[0]).append(" ").append(row[2]).append(" (").append(row[1]).append(")\n");
+            for (Object[] row : e.getValue()) {
+                String serial = (String) row[1];
+                int slash = serial.indexOf('/');
+                if (slash >= 0) serial = serial.substring(0, slash).trim();
+                sb.append(row[0]).append(" ").append(row[2]).append(" (").append(serial).append(")\n");
+            }
         }
     }
 
