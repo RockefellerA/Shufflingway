@@ -408,6 +408,8 @@ public class MainWindow {
 	private int     p2ForwardsLeftFieldThisTurn  = 0;
 	private final Set<String> p1ElementForwardsEnteredThisTurn = new HashSet<>();
 	private final Set<String> p2ElementForwardsEnteredThisTurn = new HashSet<>();
+	private final Set<String> p1CardsTookDamageThisTurn = new HashSet<>();
+	private final Set<String> p2CardsTookDamageThisTurn = new HashSet<>();
 	private boolean p1ForwardEnteredViaWarpThisTurn = false;
 	private boolean p1TurnOpponentCharReturnedToHand = false;
 	private boolean p2TurnOpponentCharReturnedToHand = false;
@@ -7522,6 +7524,7 @@ public class MainWindow {
 		if (ability.requiresCastSummonThisTurn())         { if (!firstRestrict) restrict.append(", "); restrict.append("cast summon");       firstRestrict = false; }
 		if (ability.requiresOpponentEmptyHand())          { if (!firstRestrict) restrict.append(", "); restrict.append("opp empty hand");    firstRestrict = false; }
 		if (ability.requiresElementForwardEnteredThisTurn() != null) { if (!firstRestrict) restrict.append(", "); restrict.append(ability.requiresElementForwardEnteredThisTurn()).append(" fwd entered"); firstRestrict = false; }
+		if (ability.requiresNamedCardTookDamageThisTurn() != null)  { if (!firstRestrict) restrict.append(", "); restrict.append(ability.requiresNamedCardTookDamageThisTurn()).append(" took dmg");  firstRestrict = false; }
 		if (restrict.length() > 0) sb.append(restrict).append(" — ");
 
 		String fx = ability.effectText();
@@ -7808,6 +7811,10 @@ public class MainWindow {
 		if (ability.requiresOpponentEmptyHand()) {
 			List<CardData> oppHand = isP1 ? gameState.getP2Hand() : gameState.getP1Hand();
 			if (!oppHand.isEmpty()) return false;
+		}
+		if (ability.requiresNamedCardTookDamageThisTurn() != null) {
+			Set<String> damaged = isP1 ? p1CardsTookDamageThisTurn : p2CardsTookDamageThisTurn;
+			if (!damaged.contains(ability.requiresNamedCardTookDamageThisTurn())) return false;
 		}
 		if (ability.requiresElementForwardEnteredThisTurn() != null) {
 			Set<String> entered = isP1 ? p1ElementForwardsEnteredThisTurn : p2ElementForwardsEnteredThisTurn;
@@ -8358,6 +8365,7 @@ public class MainWindow {
 		}
 		int accum  = dmgList.get(idx) + amount;
 		dmgList.set(idx, accum);
+		(isP1 ? p1CardsTookDamageThisTurn : p2CardsTookDamageThisTurn).add(fwds.get(idx).name());
 		int effPow = isP1 ? effectiveP1ForwardPower(idx) : effectiveP2ForwardPower(idx);
 		logEntry((isP1 ? "" : "[P2] ") + fwds.get(idx).name() + " takes " + amount + " damage"
 				+ (effPow > 0 ? " (" + (effPow - accum) + " remaining)" : ""));
@@ -11406,6 +11414,7 @@ public class MainWindow {
 			p2FormedPartyThisTurn = false;
 			p2ForwardsLeftFieldThisTurn = 0;
 			p2ElementForwardsEnteredThisTurn.clear();
+			p2CardsTookDamageThisTurn.clear();
 			p2TurnOpponentCharReturnedToHand = false;
 			int activated = 0, thawed = 0;
 
@@ -11835,6 +11844,7 @@ public class MainWindow {
 			p2PartyAnyElementThisTurn = false;
 			p1ForwardsLeftFieldThisTurn = 0;
 			p1ElementForwardsEnteredThisTurn.clear();
+			p1CardsTookDamageThisTurn.clear();
 			p1ForwardEnteredViaWarpThisTurn = false;
 			p1TurnOpponentCharReturnedToHand = false;
 			for (int i = 0; i < p1MonsterCards.size(); i++) refreshP1MonsterSlot(i);
