@@ -687,8 +687,8 @@ public record CardData(
     private static final Pattern ACTION_ABILITY_PATTERN = Pattern.compile(
         "(?i)(?:Damage\\s+(\\d+)\\s+--\\s+)?"                               +  // group 1: optional Damage N -- threshold
         "(?:(?i)\\[\\[s\\]\\]\\s*([^\\[]+?)\\s*\\[\\[/\\]\\]\\s*)?"        +  // group 2: optional [[s]]Name[[/]]
-        "(?=(?:《|\\[--\\]|(?i:put)\\b|(?i:discard)\\b|(?i:remove)\\b|(?i:return)\\b|(?i:dull)\\b))" + // lookahead: must start with 《, [--], put, discard, remove, return, or dull
-        "((?:(?:《[^》]*》|\\[--\\])\\s*)*)"                               +  // group 3: zero or more 《cost》 or [--] tokens
+        "(?=(?:《|(?i:put)\\b|(?i:discard)\\b|(?i:remove)\\b|(?i:return)\\b|(?i:dull)\\b))" + // lookahead: must start with 《, put, discard, remove, return, or dull
+        "((?:《[^》]*》\\s*)*)"                                            +  // group 3: zero or more 《cost》 tokens
         "((?i)(?:,\\s*)?put\\s+(?:(?!\\[\\[br\\]\\]).)+?\\s+into\\s+the\\s+Break\\s+Zone\\s*)?"  + // group 4: optional BZ cost phrase
         "((?i)(?:,\\s*)?discard(?:(?!,\\s*(?:remove|return)\\b)[^:])+)?"     +  // group 5: optional discard cost phrase
         "((?i)(?:,\\s*)?remove\\s+[^:]+?\\s+from\\s+(?:the\\s+)?game\\s*)?" + // group 6: optional remove-from-game cost phrase
@@ -782,7 +782,6 @@ public record CardData(
             List<String> cpCost  = new ArrayList<>();
 
             if (costPart != null) {
-                if (costPart.contains("[--]")) requiresDull = true;
                 Matcher cpM = CP_TOKEN.matcher(costPart);
                 while (cpM.find()) {
                     String sym = cpM.group(1).trim();

@@ -1090,6 +1090,11 @@ public class ActionResolver {
         "(?i)During\\s+this\\s+turn,\\s+if\\s+(?<card>.+?)\\s+is\\s+dealt\\s+damage\\s+by\\s+your\\s+opponent's\\s+Summons?\\s+or\\s+abilities,\\s+the\\s+damage\\s+becomes\\s+0\\s+instead\\.?"
     );
 
+    /** "During this turn, the next damage dealt to [name] becomes 0 instead." — named card, not pronoun. */
+    private static final Pattern STANDALONE_SHIELD_NEXT_DMG_ZERO_NAMED = Pattern.compile(
+        "(?i)During\\s+this\\s+turn,\\s+the\\s+next\\s+damage\\s+dealt\\s+to\\s+(?!(?:it|him|them)\\b)(?<name>[A-Za-z][^.]+?)\\s+becomes\\s+0\\s+instead[.!]?"
+    );
+
     /** "During this turn, the next damage dealt to [name] is reduced by N instead." — named card, not pronoun. */
     private static final Pattern STANDALONE_SHIELD_NEXT_DMG_REDUCTION_NAMED = Pattern.compile(
         "(?i)During\\s+this\\s+turn,\\s+the\\s+next\\s+damage\\s+dealt\\s+to\\s+(?!(?:it|them)\\b)(?<name>[A-Za-z][^.]+?)\\s+is\\s+reduced\\s+by\\s+(?<reduction>\\d+)\\s+instead[.!]?"
@@ -8041,6 +8046,33 @@ public class ActionResolver {
         // prevents the "not yet implemented" log when it appears as a secondary followup.
         if (CANNOT_BE_REDUCED_PATTERN.matcher(text).find()) {
             return ctx -> {};
+        }
+
+        // "During this turn, the next damage dealt to [name] becomes 0 instead."
+        Matcher namedZeroM = STANDALONE_SHIELD_NEXT_DMG_ZERO_NAMED.matcher(text);
+        if (namedZeroM.find()) {
+            String cardName = namedZeroM.group("name").trim();
+            return ctx -> {
+                ctx.logEntry("Effect: " + cardName + " — next damage becomes 0");
+                boolean actorIsP1 = ctx.isP1();
+                int ownCount = actorIsP1 ? ctx.p1ForwardCount() : ctx.p2ForwardCount();
+                int oppCount = actorIsP1 ? ctx.p2ForwardCount() : ctx.p1ForwardCount();
+                for (int i = 0; i < ownCount; i++) {
+                    CardData c = actorIsP1 ? ctx.p1Forward(i) : ctx.p2Forward(i);
+                    if (c.name().equalsIgnoreCase(cardName)) {
+                        ctx.shieldNextIncomingDamage(new ForwardTarget(actorIsP1, i, ForwardTarget.CardZone.FORWARD));
+                        return;
+                    }
+                }
+                for (int i = 0; i < oppCount; i++) {
+                    CardData c = actorIsP1 ? ctx.p2Forward(i) : ctx.p1Forward(i);
+                    if (c.name().equalsIgnoreCase(cardName)) {
+                        ctx.shieldNextIncomingDamage(new ForwardTarget(!actorIsP1, i, ForwardTarget.CardZone.FORWARD));
+                        return;
+                    }
+                }
+                ctx.logEntry("[Warning] " + cardName + " not found on field for next-damage-zero shield");
+            };
         }
 
         // "During this turn, the next damage dealt to [name] is reduced by N instead."
