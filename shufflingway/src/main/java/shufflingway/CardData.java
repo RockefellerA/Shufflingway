@@ -419,6 +419,15 @@ public record CardData(
     );
 
     /**
+     * "You must control a Category X Forward to play [name] from your hand onto the field."
+     * Group {@code cat} — the category token (e.g. "XIV").
+     */
+    private static final Pattern CAST_MUST_CONTROL_CATEGORY_FWD = Pattern.compile(
+        "(?i)You\\s+must\\s+control\\s+a\\s+Category\\s+(?<cat>\\S+)\\s+Forward\\s+" +
+        "to\\s+play\\s+\\S[^.]*?\\s+from\\s+your\\s+hand\\s+onto\\s+the\\s+field[.!]?"
+    );
+
+    /**
      * "You can only cast X if you have a Forward, Backup, Monster, and a Summon in your Break Zone …"
      * Group {@code types} captures the word list before "in your Break Zone".
      * The negative lookahead {@code (?!a\s+total)} prevents matching Eiko's count variant.
@@ -485,6 +494,14 @@ public record CardData(
                     java.util.List.of(), count, false, "Forward", null,
                     jobFilter.isEmpty() ? null : jobFilter,
                     null, 0, java.util.List.of());
+        }
+        if (mustControl == null) {
+            Matcher catM = CAST_MUST_CONTROL_CATEGORY_FWD.matcher(textEn);
+            if (catM.find()) {
+                mustControl = new ControlCondition(
+                        java.util.List.of(), 1, false, "Forward", null, null,
+                        catM.group("cat").trim(), 0, java.util.List.of());
+            }
         }
 
         if (!yourTurnOnly && !mainPhaseOnly && !opponentTurnOnly && !requiresNoFwds
