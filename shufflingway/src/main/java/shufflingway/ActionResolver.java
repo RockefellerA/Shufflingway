@@ -2539,6 +2539,9 @@ public class ActionResolver {
         result = tryParseAllFieldEffect(effectText);
         if (result != null) return result;
 
+        result = tryParseFieldPowerGrantPassive(effectText);
+        if (result != null) return result;
+
         result = tryParseAllFieldPowerBoost(effectText);
         if (result != null) return result;
 
@@ -2888,6 +2891,11 @@ public class ActionResolver {
         if (tryParseNegateAllDamage(effectText)                != null) return "NegateDamage";
         if (tryParseSelectNumber(effectText, source)          != null) return "SelectNumber";
         if (tryParseAllFieldEffect(effectText)                != null) return "AllFieldEffect";
+        if (tryParseFieldPowerGrantPassive(effectText)        != null) {
+            String trimmed = effectText.trim();
+            return FIELD_OPPONENT_DEBUFF_PASSIVE.matcher(trimmed).matches()
+                    ? "FieldOpponentPowerDebuff" : "FieldPowerGrant";
+        }
         if (tryParseStandalonePowerBoostAndAttackTrigger(effectText, source) != null) return "StandalonePowerBoostAndAttackTrigger";
         if (tryParseStandaloneGainsTraitsAndCannotBeBlocked(effectText, source) != null) return "StandaloneGainsTraitsAndCannotBeBlocked";
         if (tryParseStandalonePowerBoostUntil(effectText, source) != null) return "StandalonePowerBoostUntil";
@@ -3150,6 +3158,11 @@ public class ActionResolver {
         if (tryParseNegateAllDamage(effectText) != null)                     return "NegateDamage";
         if (tryParseSelectNumber(effectText, source) != null)               return "SelectNumber";
         if (tryParseAllFieldEffect(effectText) != null)                     return "AllFieldEffect";
+        if (tryParseFieldPowerGrantPassive(effectText) != null) {
+            String trimmed = effectText.trim();
+            return FIELD_OPPONENT_DEBUFF_PASSIVE.matcher(trimmed).matches()
+                    ? "FieldOpponentPowerDebuff" : "FieldPowerGrant";
+        }
         {
             Matcher bm = ALL_FIELD_POWER_BOOST_PATTERN.matcher(effectText);
             if (bm.find()) {
@@ -6839,6 +6852,34 @@ public class ActionResolver {
             ctx.logEntry("Effect: Choose 1 Summon or auto-ability — cancel its effect");
             ctx.cancelStackEntry();
         };
+    }
+
+    /** "The [targets] you control gain +N power." — companion to CardData's bare-grant pattern. */
+    private static final Pattern FIELD_GRANT_BARE_PASSIVE = Pattern.compile(
+        "(?i)^The\\s+(?:Forwards?(?:\\s+and\\s+Monsters?)?|Backups?|Monsters?|Characters?)\\s+" +
+        "you\\s+control\\s+gains?\\s+\\+\\d+\\s+power[.!]?$"
+    );
+
+    /** "The [targets] opponent controls lose N power." — companion to CardData's opponent-debuff pattern. */
+    private static final Pattern FIELD_OPPONENT_DEBUFF_PASSIVE = Pattern.compile(
+        "(?i)^The\\s+(?:Forwards?(?:\\s+and\\s+Monsters?)?|Backups?|Monsters?|Characters?)\\s+" +
+        "(?:your\\s+)?opponent\\s+controls?\\s+loses?\\s+\\d+\\s+power[.!]?$"
+    );
+
+    /**
+     * Recognises the bare passive field grants
+     * "The [targets] you control gain +N power." and
+     * "The [targets] opponent controls lose N power."
+     * Field abilities are applied passively by the engine via {@link CardData#fieldPowerGrants()};
+     * this parser exists solely so that {@link #parse} returns a non-null no-op for these forms.
+     */
+    private static Consumer<GameContext> tryParseFieldPowerGrantPassive(String text) {
+        String trimmed = text.trim();
+        if (FIELD_GRANT_BARE_PASSIVE.matcher(trimmed).matches()
+                || FIELD_OPPONENT_DEBUFF_PASSIVE.matcher(trimmed).matches()) {
+            return ctx -> { /* passive field grant — applied via fieldPowerGrants() */ };
+        }
+        return null;
     }
 
     /**

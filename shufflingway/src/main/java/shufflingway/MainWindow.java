@@ -8528,7 +8528,24 @@ public class MainWindow {
 		for (CardData src : fwds) boost += fieldBoostContribution(src, target, isP1);
 		for (CardData bkp : bkps) if (bkp != null) boost += fieldBoostContribution(bkp, target, isP1);
 		for (CardData src : mons) boost += fieldBoostContribution(src, target, isP1);
+
+		// Opposing-side debuffs ("The Forwards opponent controls lose N power") apply
+		// to this target when the source sits across the field.
+		List<CardData> oppFwds = isP1 ? p2ForwardCards : p1ForwardCards;
+		CardData[]     oppBkps = isP1 ? p2BackupCards  : p1BackupCards;
+		List<CardData> oppMons = isP1 ? p2MonsterCards : p1MonsterCards;
+		for (CardData src : oppFwds) boost += opposingFieldDebuffContribution(src, target);
+		for (CardData bkp : oppBkps) if (bkp != null) boost += opposingFieldDebuffContribution(bkp, target);
+		for (CardData src : oppMons) boost += opposingFieldDebuffContribution(src, target);
 		return boost;
+	}
+
+	/** Sum of {@link FieldPowerGrant#powerBonus} from {@code src} for grants that target the opposing side. */
+	private int opposingFieldDebuffContribution(CardData src, CardData target) {
+		int sum = 0;
+		for (FieldPowerGrant fpg : src.fieldPowerGrants())
+			if (fpg.affectsOpponent() && fpg.appliesToCard(target)) sum += fpg.powerBonus();
+		return sum;
 	}
 
 	private int fieldBoostContribution(CardData src, CardData target, boolean isP1) {
@@ -8537,7 +8554,7 @@ public class MainWindow {
 			if (icb.targetCardName().equalsIgnoreCase(target.name()) && icbConditionsMet(icb, isP1))
 				boost += icb.powerBonus();
 		for (FieldPowerGrant fpg : src.fieldPowerGrants())
-			if (fpg.appliesToCard(target))
+			if (!fpg.affectsOpponent() && fpg.appliesToCard(target))
 				boost += fpg.powerBonus();
 		if (src == target) {
 			for (ScalingSelfPowerBoost ssb : src.scalingSelfPowerBoosts()) {
@@ -8641,7 +8658,7 @@ public class MainWindow {
 			if (icb.targetCardName().equalsIgnoreCase(target.name()) && icbConditionsMet(icb, isP1))
 				out.addAll(icb.grantedTraits());
 		for (FieldPowerGrant fpg : src.fieldPowerGrants())
-			if (fpg.appliesToCard(target))
+			if (!fpg.affectsOpponent() && fpg.appliesToCard(target))
 				out.addAll(fpg.grantedTraits());
 	}
 

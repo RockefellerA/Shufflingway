@@ -1637,6 +1637,25 @@ public record CardData(
         "(?<traitstext>.+?)?[.!]?$"
     );
 
+    /**
+     * Matches the bare same-side grant "The Forwards?|Backups?|Monsters?|Characters? you control
+     * gain +N power" (no Job/Category prefix). Companion to {@link #FIELD_GRANT_PATTERN}.
+     */
+    private static final Pattern FIELD_GRANT_BARE_PATTERN = Pattern.compile(
+        "(?i)^The\\s+(?<targets>Forwards?(?:\\s+and\\s+Monsters?)?|Backups?|Monsters?|Characters?)\\s+" +
+        "you\\s+control\\s+gains?\\s+\\+(?<power>\\d+)\\s+power[.!]?$"
+    );
+
+    /**
+     * Matches the opposing-side debuff "The Forwards?|Backups?|Monsters?|Characters? opponent
+     * controls lose N power." Stored as a {@link FieldPowerGrant} with {@code affectsOpponent=true}
+     * and negative {@code powerBonus}.
+     */
+    private static final Pattern FIELD_OPPONENT_DEBUFF_PATTERN = Pattern.compile(
+        "(?i)^The\\s+(?<targets>Forwards?(?:\\s+and\\s+Monsters?)?|Backups?|Monsters?|Characters?)\\s+" +
+        "(?:your\\s+)?opponent\\s+controls?\\s+loses?\\s+(?<power>\\d+)\\s+power[.!]?$"
+    );
+
     public static List<FieldPowerGrant> parseFieldPowerGrants(String textEn, String cardType) {
         if (textEn == null || textEn.isBlank()) return List.of();
         if ("Summon".equalsIgnoreCase(cardType)) return List.of();
@@ -1646,6 +1665,24 @@ public record CardData(
             String seg = SUMMON_MARKUP.matcher(raw.trim()).replaceAll("").trim();
             if (seg.isEmpty()) continue;
 
+            Matcher bareM = FIELD_GRANT_BARE_PATTERN.matcher(seg);
+            if (bareM.matches()) {
+                int[] incl = parseFieldGrantTargetFlags(bareM.group("targets"));
+                result.add(new FieldPowerGrant(null, null, incl[0] != 0, incl[1] != 0, incl[2] != 0,
+                        null, Integer.parseInt(bareM.group("power")),
+                        EnumSet.noneOf(Trait.class), false));
+                continue;
+            }
+
+            Matcher debuffM = FIELD_OPPONENT_DEBUFF_PATTERN.matcher(seg);
+            if (debuffM.matches()) {
+                int[] incl = parseFieldGrantTargetFlags(debuffM.group("targets"));
+                result.add(new FieldPowerGrant(null, null, incl[0] != 0, incl[1] != 0, incl[2] != 0,
+                        null, -Integer.parseInt(debuffM.group("power")),
+                        EnumSet.noneOf(Trait.class), true));
+                continue;
+            }
+
             Matcher m = FIELD_GRANT_PATTERN.matcher(seg);
             if (!m.find()) continue;
 
@@ -1654,15 +1691,10 @@ public record CardData(
             if (job != null) job = job.trim();
 
             String targets = m.group("targets");
-            boolean inclForwards, inclBackups, inclMonsters;
-            if (targets == null) {
-                inclForwards = true; inclBackups = true; inclMonsters = true;
-            } else {
-                String tl = targets.toLowerCase();
-                inclForwards = tl.contains("forward") || tl.contains("character");
-                inclBackups  = tl.contains("backup")  || tl.contains("character");
-                inclMonsters = tl.contains("monster")  || tl.contains("character");
-            }
+            int[] inclFlags = parseFieldGrantTargetFlags(targets);
+            boolean inclForwards = inclFlags[0] != 0;
+            boolean inclBackups  = inclFlags[1] != 0;
+            boolean inclMonsters = inclFlags[2] != 0;
 
             String except = m.group("except");
             if (except != null) except = except.trim();
@@ -1684,6 +1716,21 @@ public record CardData(
                     except, power, traits));
         }
         return List.copyOf(result);
+    }
+
+    /**
+     * Resolves a {@code targets} capture from a Field-grant regex into
+     * {@code {forwards, backups, monsters}} flags (0/1). {@code null} or {@code "Characters"}
+     * means all three; {@code Forwards and Monsters} sets both flags accordingly.
+     */
+    private static int[] parseFieldGrantTargetFlags(String targets) {
+        if (targets == null) return new int[] { 1, 1, 1 };
+        String tl = targets.toLowerCase();
+        return new int[] {
+            (tl.contains("forward") || tl.contains("character")) ? 1 : 0,
+            (tl.contains("backup")  || tl.contains("character")) ? 1 : 0,
+            (tl.contains("monster") || tl.contains("character")) ? 1 : 0,
+        };
     }
 
     // -------------------------------------------------------------------------
