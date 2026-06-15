@@ -21,19 +21,29 @@ public record FieldPowerGrant(
         String  exceptCardName,  // excluded target name ("other than X"); "" = none
         int     powerBonus,
         Set<CardData.Trait> grantedTraits,
-        boolean affectsOpponent
+        boolean affectsOpponent,
+        int     costFilter       // -1 = any cost; N = card must have exactly cost N
 ) {
     public FieldPowerGrant {
         grantedTraits = Set.copyOf(grantedTraits);
         if (exceptCardName == null) exceptCardName = "";
     }
 
-    /** Convenience constructor for the common same-side ("you control") grant form. */
+    /** Convenience constructor for the common same-side ("you control") grant form (no cost filter). */
     public FieldPowerGrant(String jobFilter, String categoryFilter,
             boolean inclForwards, boolean inclBackups, boolean inclMonsters,
             String exceptCardName, int powerBonus, Set<CardData.Trait> grantedTraits) {
         this(jobFilter, categoryFilter, inclForwards, inclBackups, inclMonsters,
-                exceptCardName, powerBonus, grantedTraits, false);
+                exceptCardName, powerBonus, grantedTraits, false, -1);
+    }
+
+    /** Convenience constructor for the opponent-debuff form (no cost filter). */
+    public FieldPowerGrant(String jobFilter, String categoryFilter,
+            boolean inclForwards, boolean inclBackups, boolean inclMonsters,
+            String exceptCardName, int powerBonus, Set<CardData.Trait> grantedTraits,
+            boolean affectsOpponent) {
+        this(jobFilter, categoryFilter, inclForwards, inclBackups, inclMonsters,
+                exceptCardName, powerBonus, grantedTraits, affectsOpponent, -1);
     }
 
     /**
@@ -48,6 +58,7 @@ public record FieldPowerGrant(
                       || (inclBackups  && card.isBackup())
                       || (inclMonsters && (card.isMonster() || card.alsoCountsAsMonster()));
         if (!typeOk) return false;
+        if (costFilter >= 0 && card.cost() != costFilter) return false;
         return CardFilters.meetsJobFilter(card, jobFilter)
             && CardFilters.meetsCategoryFilter(card, categoryFilter);
     }

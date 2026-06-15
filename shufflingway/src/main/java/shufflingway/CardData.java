@@ -1666,6 +1666,18 @@ public record CardData(
     );
 
     /**
+     * Matches a cost-filtered same-side grant with optional power and/or traits:
+     * "The [type] of cost N you control gain[s] [+P power [and]] [Trait...]"
+     * Groups: {@code targets}, {@code cost}, {@code power} (optional), {@code traitstext} (optional).
+     */
+    private static final Pattern FIELD_GRANT_COST_FILTER_PATTERN = Pattern.compile(
+        "(?i)^The\\s+(?<targets>Forwards?(?:\\s+and\\s+Monsters?)?|Backups?|Monsters?|Characters?)\\s+" +
+        "of\\s+cost\\s+(?<cost>\\d+)\\s+you\\s+control\\s+gains?\\s+" +
+        "(?:\\+(?<power>\\d+)\\s+power(?:\\s+and\\s+)?)?" +
+        "(?<traitstext>.+?)?[.!]?$"
+    );
+
+    /**
      * Matches the opposing-side debuff "The Forwards?|Backups?|Monsters?|Characters? opponent
      * controls lose N power." Stored as a {@link FieldPowerGrant} with {@code affectsOpponent=true}
      * and negative {@code powerBonus}.
@@ -1699,6 +1711,26 @@ public record CardData(
                 result.add(new FieldPowerGrant(null, null, incl[0] != 0, incl[1] != 0, incl[2] != 0,
                         null, -Integer.parseInt(debuffM.group("power")),
                         EnumSet.noneOf(Trait.class), true));
+                continue;
+            }
+
+            Matcher costM = FIELD_GRANT_COST_FILTER_PATTERN.matcher(seg);
+            if (costM.matches()) {
+                int[] incl = parseFieldGrantTargetFlags(costM.group("targets"));
+                int cost = Integer.parseInt(costM.group("cost"));
+                String powerStr2 = costM.group("power");
+                int power2 = powerStr2 != null ? Integer.parseInt(powerStr2) : 0;
+                String traitsText2 = costM.group("traitstext");
+                EnumSet<Trait> traits2 = EnumSet.noneOf(Trait.class);
+                if (traitsText2 != null) {
+                    if (ICB_EFFECT_HASTE.matcher(traitsText2).find())        traits2.add(Trait.HASTE);
+                    if (ICB_EFFECT_BRAVE.matcher(traitsText2).find())        traits2.add(Trait.BRAVE);
+                    if (ICB_EFFECT_FIRST_STRIKE.matcher(traitsText2).find()) traits2.add(Trait.FIRST_STRIKE);
+                    if (ICB_EFFECT_BACK_ATTACK.matcher(traitsText2).find())  traits2.add(Trait.BACK_ATTACK);
+                }
+                if (power2 != 0 || !traits2.isEmpty())
+                    result.add(new FieldPowerGrant(null, null, incl[0] != 0, incl[1] != 0, incl[2] != 0,
+                            null, power2, traits2, false, cost));
                 continue;
             }
 
@@ -2584,6 +2616,8 @@ public record CardData(
 
             // Scaling self power boost ("For each Forward opponent controls, X gains +N power")
             if (SCALING_SELF_OPP_FWD_PATTERN.matcher(seg).find())            continue;
+            // Scaling self power boost ("For each [filter] you control, X gains +N power")
+            if (SCALING_SELF_FOR_EACH_PATTERN.matcher(seg).find())            continue;
 
             // Field cost reduction / any-element declarations — handled as static card properties
             if (FIELD_COST_REDUCTION_PATTERN.matcher(seg).find())            continue;
