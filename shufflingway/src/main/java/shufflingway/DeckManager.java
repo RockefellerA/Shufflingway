@@ -1136,6 +1136,27 @@ public class DeckManager extends JFrame {
                 else resolved.put(serial, canonical);
             }
 
+            int importMainTotal = 0;
+            int importLbTotal = 0;
+            for (Map.Entry<String, Integer> e : cardMap.entrySet()) {
+                String canonical = resolved.get(e.getKey());
+                if (canonical == null) continue;
+                int qty = Math.min(e.getValue(), MAX_COPIES);
+                if (lbSerials.contains(canonical)) importLbTotal += qty;
+                else importMainTotal += qty;
+            }
+            List<String> sizeErrors = new ArrayList<>();
+            if (importMainTotal > MAX_DECK_SIZE)
+                sizeErrors.add("main deck has " + importMainTotal + " cards (limit: " + MAX_DECK_SIZE + ")");
+            if (importLbTotal > MAX_LB_DECK_SIZE)
+                sizeErrors.add("LB deck has " + importLbTotal + " cards (limit: " + MAX_LB_DECK_SIZE + ")");
+            if (!sizeErrors.isEmpty()) {
+                JOptionPane.showMessageDialog(this,
+                        "Cannot import: " + String.join(", and ", sizeErrors) + ".",
+                        "Import Error", JOptionPane.ERROR_MESSAGE);
+                return;
+            }
+
             int newId = db.createDeck(deckName);
             for (Map.Entry<String, Integer> e : cardMap.entrySet()) {
                 String canonical = resolved.get(e.getKey());
