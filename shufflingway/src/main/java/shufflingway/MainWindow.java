@@ -11258,6 +11258,17 @@ public class MainWindow {
 		return new ForwardTarget(false, chosen, ForwardTarget.CardZone.FORWARD);
 	}
 
+	ForwardTarget aiPickForwardForBreak() {
+		if (p2ForwardCards.isEmpty()) return null;
+		int worstIdx = 0;
+		int worstCost = Integer.MAX_VALUE;
+		for (int i = 0; i < p2ForwardCards.size(); i++) {
+			int cost = p2ForwardCards.get(i).cost();
+			if (cost < worstCost) { worstCost = cost; worstIdx = i; }
+		}
+		return new ForwardTarget(false, worstIdx, ForwardTarget.CardZone.FORWARD);
+	}
+
 	/** Returns the index of the least-valuable card in {@code hand} (lowest cost; backups before forwards). */
 	static int pickWorstHandCard0(List<CardData> hand) {
 		int worstIdx = 0, worstScore = Integer.MAX_VALUE;

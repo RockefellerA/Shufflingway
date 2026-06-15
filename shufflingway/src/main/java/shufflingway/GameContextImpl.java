@@ -1493,6 +1493,32 @@ final class GameContextImpl implements GameContext {
 				if (p2Pick != null) damageP2Forward(p2Pick.idx(), amount);
 			}
 
+			@Override public void eachPlayerSelectForwardAndBreak() {
+				ForwardTarget p1Pick = null;
+				if (!mw.p1ForwardCards.isEmpty()) {
+					List<ForwardTarget> p1Eligible = new ArrayList<>();
+					for (int i = 0; i < mw.p1ForwardCards.size(); i++)
+						p1Eligible.add(new ForwardTarget(true, i, ForwardTarget.CardZone.FORWARD));
+					List<ForwardTarget> picks = mw.selectFieldTargetsInPlace(p1Eligible, 1, false,
+							"Both players select 1 Forward — choose yours to put in Break Zone");
+					if (!picks.isEmpty()) p1Pick = picks.get(0);
+				} else {
+					logEntry("P1 has no Forwards — skipping selection");
+				}
+
+				ForwardTarget p2Pick = null;
+				if (!mw.p2ForwardCards.isEmpty()) {
+					p2Pick = mw.aiPickForwardForBreak();
+					if (p2Pick != null)
+						logEntry("[AI] selected " + mw.p2ForwardCards.get(p2Pick.idx()).name());
+				} else {
+					logEntry("[P2] has no Forwards — skipping selection");
+				}
+
+				if (p1Pick != null) forceTargetToBreakZone(p1Pick);
+				if (p2Pick != null) forceTargetToBreakZone(p2Pick);
+			}
+
 			@Override public void activateTarget(ForwardTarget t) {
 				switch (t.zone()) {
 					case FORWARD -> {

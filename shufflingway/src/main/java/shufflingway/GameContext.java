@@ -259,6 +259,13 @@ public interface GameContext {
      */
     void eachPlayerSelectForwardAndDamage(int amount);
 
+    /**
+     * Both players each select 1 Forward they control and put it into the Break Zone.
+     * P1 picks via dialog; P2 (AI) picks automatically (lowest-cost Forward).
+     * Skips a side that has no Forwards.
+     */
+    void eachPlayerSelectForwardAndBreak();
+
     /** Grants the ability user {@code count} Crystals. */
     void gainCrystal(int count);
 

@@ -57,7 +57,7 @@ public class ActionResolver {
         "(?:(?<condition>dull|damaged|attacking|blocking|active)\\s+)?" +
         "(?:(?<element>(?:Multi-Element|Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)(?:\\s+or\\s+(?:Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark))*)\\s+)?" +
         "(?:Category\\s+(?<category>.+?)(?=\\s+(?:cards?|Forwards?|Backups?|Characters?|Monsters?|Summons?))\\s+)?" +
-        "(?<targets>cards?|Forwards?(?:\\s+or\\s+(?:Monsters?|Backups?))?|Monsters?|Backups?|Characters?|Summons?" +
+        "(?<targets>cards?|Forwards?(?:\\s+(?:and/or|or)\\s+(?:Monsters?|Backups?))?|Monsters?|Backups?|Characters?|Summons?" +
             "|\\[Job\\s+\\([^)]+\\)\\]" +
             "|\\[Card\\s+Name\\s+\\([^)]+\\)\\]" +
             "|Card\\s+Name\\s+.+?\\s+Forwards?(?:\\s+or\\s+Job\\s+.+?\\s+Forwards?)*" +
@@ -1169,6 +1169,15 @@ public class ActionResolver {
     private static final Pattern EACH_PLAYER_SELECT_FORWARD_DAMAGE = Pattern.compile(
         "(?i)each\\s+player\\s+selects?\\s+1\\s+Forward\\s+they\\s+control[.!]?\\s+" +
         "Deal\\s+them\\s+(?<amount>\\d+)\\s+damage[.!]?"
+    );
+
+    /**
+     * Matches "Both players select 1 Forward they control and put it into the Break Zone."
+     * Used for Famfrit-style EX Burst effects where each side simultaneously sends one Forward to the Break Zone.
+     */
+    private static final Pattern BOTH_PLAYERS_SELECT_FORWARD_TO_BREAK_ZONE = Pattern.compile(
+        "(?i)(?:Both|Each)\\s+players?\\s+selects?\\s+1\\s+Forward\\s+they\\s+control" +
+        "\\s+and\\s+puts?\\s+it\\s+into\\s+the\\s+Break\\s+Zone[.!]?"
     );
 
     /** Matches "Discard your hand. Then, draw N card(s)." Group 1 = draw count. */
@@ -2665,6 +2674,9 @@ public class ActionResolver {
         result = tryParseEachPlayerSelectForwardDamage(effectText);
         if (result != null) return result;
 
+        result = tryParseBothPlayersSelectForwardToBreakZone(effectText);
+        if (result != null) return result;
+
         result = tryParseEachPlayerDiscard(effectText);
         if (result != null) return result;
 
@@ -2930,6 +2942,7 @@ public class ActionResolver {
         if (tryParseOpponentDraw(effectText)                   != null) return "OpponentDraw";
         if (tryParseOpponentRandomDiscard(effectText)         != null) return "OpponentRandomDiscard";
         if (tryParseEachPlayerSelectForwardDamage(effectText)  != null) return "EachPlayerSelectForwardDamage";
+        if (tryParseBothPlayersSelectForwardToBreakZone(effectText) != null) return "BothPlayersSelectForwardToBreakZone";
         if (tryParseEachPlayerDiscard(effectText)              != null) return "EachPlayerDiscard";
         if (tryParseOpponentDiscard(effectText)               != null) return "OpponentDiscard";
         if (tryParseDiscardHandThenDraw(effectText)           != null) return "DiscardHandThenDraw";
@@ -3214,6 +3227,7 @@ public class ActionResolver {
         if (tryParseOpponentDrawThenRandomDiscard(effectText) != null)      return "OpponentDrawThenRandomDiscard";
         if (tryParseOpponentRandomDiscard(effectText) != null)              return "OpponentRandomDiscard";
         if (tryParseEachPlayerSelectForwardDamage(effectText) != null)      return "EachPlayerSelectForwardDamage";
+        if (tryParseBothPlayersSelectForwardToBreakZone(effectText) != null) return "BothPlayersSelectForwardToBreakZone";
         if (tryParseEachPlayerDiscard(effectText) != null)                  return "EachPlayerDiscard";
         if (tryParseOpponentDiscard(effectText) != null)                    return "OpponentDiscard";
         if (tryParseDiscardHandThenDraw(effectText) != null)                return "DiscardHandThenDraw";
@@ -6519,6 +6533,16 @@ public class ActionResolver {
         return ctx -> {
             ctx.logEntry("Effect: Each player selects 1 Forward they control. Deal them " + amount + " damage");
             ctx.eachPlayerSelectForwardAndDamage(amount);
+        };
+    }
+
+    /** Parses "Both players select 1 Forward they control and put it into the Break Zone." */
+    private static Consumer<GameContext> tryParseBothPlayersSelectForwardToBreakZone(String text) {
+        Matcher m = BOTH_PLAYERS_SELECT_FORWARD_TO_BREAK_ZONE.matcher(text);
+        if (!m.find()) return null;
+        return ctx -> {
+            ctx.logEntry("Effect: Both players select 1 Forward they control and put it into the Break Zone");
+            ctx.eachPlayerSelectForwardAndBreak();
         };
     }
 
