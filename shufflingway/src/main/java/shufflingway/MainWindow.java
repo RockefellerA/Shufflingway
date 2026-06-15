@@ -48,7 +48,6 @@ import java.util.stream.Collectors;
 
 import javax.imageio.ImageIO;
 import javax.swing.BorderFactory;
-import javax.swing.Box;
 import javax.swing.BoxLayout;
 import javax.swing.ImageIcon;
 import javax.swing.JButton;
@@ -83,7 +82,6 @@ import scraper.DeckDatabase.DeckCardDetail;
 import static shufflingway.CardAnimation.CARD_H;
 import static shufflingway.CardAnimation.CARD_W;
 import static shufflingway.CardFilters.cardNamesOverlap;
-import static shufflingway.CardFilters.discardTypeKey;
 import static shufflingway.CardFilters.matchesAltBzType;
 import static shufflingway.CardFilters.matchesDiscardType;
 import static shufflingway.CardFilters.meetsCardNameFilter;
