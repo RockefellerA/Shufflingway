@@ -41,7 +41,7 @@ public class ActionResolver {
      *   <li>Group {@code cost}      — optional CP cost value, e.g. "3" in "of cost 3 or less"</li>
      *   <li>Group {@code costlist}  — optional comma-separated digits between the first cost and
      *                                 the final " or " term in "cost A, B, C or D" multi-value lists</li>
-     *   <li>Group {@code costcmp}   — optional: "less", "more", or a digit value for
+     *   <li>Group {@code costcmp}   — optional: "less", "more", "higher" (alias for "more"), or a digit value for
      *                                 "cost N or M" / "cost A, B, … or M" filters (absent = exact match)</li>
      *   <li>Group {@code control}   — optional: "opponent controls", "your opponent controls",
      *                                 or "you control"</li>
@@ -73,7 +73,7 @@ public class ActionResolver {
             "(?:\\s+and\\s+(?:Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark))*))?" +
         "(?:\\s+of\\s+cost\\s+(?<cost>\\d+)" +
             "(?:,\\s*(?<costlist>\\d+(?:\\s*,\\s*\\d+)*))?" +
-            "(?:\\s+or\\s+(?<costcmp>less|more|\\d+))?)?" +
+            "(?:\\s+or\\s+(?<costcmp>less|more|higher|\\d+))?)?" +
         "(?:\\s+of\\s+(?:power\\s+)?(?<power>\\d+)(?:\\s+power)?(?:\\s+or\\s+(?<powercmp>less|more))?)?" +
         "(?:\\s+(?<control>(?:your\\s+)?opponent\\s+controls|you\\s+control))?" +
         "(?:\\s+other\\s+than\\s+(?:Card\\s+Name\\s+)?(?<excludename>\\S(?:.*?\\S)?))?"+
