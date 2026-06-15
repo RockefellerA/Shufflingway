@@ -70,7 +70,8 @@ public record ActionAbility(
         boolean                 requiresCastSummonThisTurn,   // true = controller must have cast a Summon this turn
         String                  requiresElementForwardEnteredThisTurn, // null = no restriction; else = element (lower-case) that must have entered your field this turn
         String                  requiresCardNameEnteredThisTurn,      // null = no restriction; else = card name that must have entered your field this turn
-        String                  breakZoneOnly                 // null = usable from field; non-null = card name that must be in the Break Zone (can only activate from BZ)
+        String                  breakZoneOnly,                // null = usable from field; non-null = card name that must be in the Break Zone (can only activate from BZ)
+        boolean                 requiresOpponentEmptyHand     // true = can only use when opponent has no cards in hand
 ) {
     public ActionAbility {
         cpCost            = List.copyOf(cpCost);

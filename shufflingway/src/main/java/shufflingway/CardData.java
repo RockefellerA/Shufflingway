@@ -832,6 +832,7 @@ public record CardData(
             boolean sourceInBattle    = SOURCE_IN_BATTLE_PATTERN.matcher(effectRaw).find();
             boolean requiresOppDiscardedThisTurn = OPP_DISCARD_THIS_TURN_PATTERN.matcher(effectRaw).find();
             boolean requiresCastSummonThisTurn   = CAST_SUMMON_THIS_TURN_PATTERN.matcher(effectRaw).find();
+            boolean requiresOpponentEmptyHand    = OPP_NO_CARDS_IN_HAND_RESTRICTION.matcher(effectRaw).find();
             Matcher elemFwdM = ELEMENT_FORWARD_ENTERED_THIS_TURN_PATTERN.matcher(effectRaw);
             String  requiresElementForwardEnteredThisTurn = elemFwdM.find() ? elemFwdM.group("element").toLowerCase() : null;
             Matcher cardNameFwdM = CARD_NAME_ENTERED_THIS_TURN_PATTERN.matcher(effectRaw);
@@ -857,7 +858,7 @@ public record CardData(
             String cpBackupElement = cpBkpM.find()
                     ? (cpBkpM.group("element") != null ? cpBkpM.group("element") : "")
                     : null;
-            result.add(new ActionAbility(abilityName, requiresDull, isSpecial, crystalCost, selfMillCost, hasXCost, cpCost, breakZoneCosts, discardCosts, removeFromGameCosts, returnToHandCosts, counterCosts, dullForwardCosts, yourTurnOnly, oncePerTurn, mainPhaseOnly, whileCardAtk, whileCardBlk, whilePartyAtk, whileCardInHand, hasBlockingTarget, effectRaw, damageThreshold, controlCondition, cpBackupElement, sourceInBattle, requiresOppDiscardedThisTurn, requiresCastSummonThisTurn, requiresElementForwardEnteredThisTurn, requiresCardNameEnteredThisTurn, breakZoneOnly));
+            result.add(new ActionAbility(abilityName, requiresDull, isSpecial, crystalCost, selfMillCost, hasXCost, cpCost, breakZoneCosts, discardCosts, removeFromGameCosts, returnToHandCosts, counterCosts, dullForwardCosts, yourTurnOnly, oncePerTurn, mainPhaseOnly, whileCardAtk, whileCardBlk, whilePartyAtk, whileCardInHand, hasBlockingTarget, effectRaw, damageThreshold, controlCondition, cpBackupElement, sourceInBattle, requiresOppDiscardedThisTurn, requiresCastSummonThisTurn, requiresElementForwardEnteredThisTurn, requiresCardNameEnteredThisTurn, breakZoneOnly, requiresOpponentEmptyHand));
         }
         return List.copyOf(result);
     }
@@ -916,7 +917,12 @@ public record CardData(
     );
 
     static final Pattern YOUR_TURN_ONLY_PATTERN = Pattern.compile(
-        "(?i)You\\s+can(?:\\s+only)?\\s+use\\s+this\\s+ability(?:\\s+only)?\\s+during\\s+your\\s+turn[.!]?"
+        "(?i)(?:You\\s+can(?:\\s+only)?\\s+use\\s+this\\s+ability(?:\\s+only)?\\s+|,\\s*)during\\s+your\\s+turn[.!]?"
+    );
+
+    /** "You can only use this ability if your opponent has no cards in their hand" — standalone or as part of a compound restriction. */
+    static final Pattern OPP_NO_CARDS_IN_HAND_RESTRICTION = Pattern.compile(
+        "(?i)You\\s+can\\s+only\\s+use\\s+this\\s+ability\\s+if\\s+your\\s+opponent\\s+has\\s+no\\s+cards?\\s+in\\s+(?:his/her|his|her|their)\\s+hand[,.]?"
     );
 
     static final Pattern ONCE_PER_TURN_PATTERN = Pattern.compile(

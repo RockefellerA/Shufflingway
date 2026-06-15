@@ -1138,7 +1138,7 @@ public class ActionResolver {
 
     /** Matches "[name] can attack once more this turn." */
     private static final Pattern ATTACK_ONCE_MORE = Pattern.compile(
-        "(?i)(?<name>[A-Za-z][^.]+?)\\s+can\\s+attack\\s+once\\s+more\\s+this\\s+turn[.!]?"
+        "(?i)^(?<name>[A-Za-z][^.]+?)\\s+can\\s+attack\\s+once\\s+more\\s+this\\s+turn[.!]?"
     );
 
     /** Splits "and Card Name" within an activate target list. */
@@ -5870,9 +5870,10 @@ public class ActionResolver {
     private static String stripRestrictionSentences(String text) {
         if (text == null || text.isBlank()) return "";
         String s = text;
-        s = CardData.ONCE_PER_TURN_PATTERN      .matcher(s).replaceAll("").trim();
-        s = CardData.MAIN_PHASE_ONLY_PATTERN     .matcher(s).replaceAll("").trim();
-        s = CardData.YOUR_TURN_ONLY_PATTERN      .matcher(s).replaceAll("").trim();
+        s = CardData.ONCE_PER_TURN_PATTERN               .matcher(s).replaceAll("").trim();
+        s = CardData.MAIN_PHASE_ONLY_PATTERN              .matcher(s).replaceAll("").trim();
+        s = CardData.YOUR_TURN_ONLY_PATTERN               .matcher(s).replaceAll("").trim();
+        s = CardData.OPP_NO_CARDS_IN_HAND_RESTRICTION     .matcher(s).replaceAll("").trim();
         s = CardData.WHILE_PARTY_ATTACKING_PATTERN.matcher(s).replaceAll("").trim();
         s = CardData.WHILE_CARD_ATTACKING_PATTERN .matcher(s).replaceAll("").trim();
         s = CardData.WHILE_CARD_BLOCKING_PATTERN  .matcher(s).replaceAll("").trim();

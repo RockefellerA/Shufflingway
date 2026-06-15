@@ -7520,6 +7520,7 @@ public class MainWindow {
 		if (ability.whileCardBlocking() != null)          { if (!firstRestrict) restrict.append(", "); restrict.append("while ").append(ability.whileCardBlocking()).append(" blk"); firstRestrict = false; }
 		if (ability.requiresOppDiscardedThisTurn())       { if (!firstRestrict) restrict.append(", "); restrict.append("opp discarded");    firstRestrict = false; }
 		if (ability.requiresCastSummonThisTurn())         { if (!firstRestrict) restrict.append(", "); restrict.append("cast summon");       firstRestrict = false; }
+		if (ability.requiresOpponentEmptyHand())          { if (!firstRestrict) restrict.append(", "); restrict.append("opp empty hand");    firstRestrict = false; }
 		if (ability.requiresElementForwardEnteredThisTurn() != null) { if (!firstRestrict) restrict.append(", "); restrict.append(ability.requiresElementForwardEnteredThisTurn()).append(" fwd entered"); firstRestrict = false; }
 		if (restrict.length() > 0) sb.append(restrict).append(" — ");
 
@@ -7803,6 +7804,10 @@ public class MainWindow {
 		}
 		if (ability.requiresCastSummonThisTurn()) {
 			if (!(isP1 ? p1SummonCastThisTurn : p2SummonCastThisTurn)) return false;
+		}
+		if (ability.requiresOpponentEmptyHand()) {
+			List<CardData> oppHand = isP1 ? gameState.getP2Hand() : gameState.getP1Hand();
+			if (!oppHand.isEmpty()) return false;
 		}
 		if (ability.requiresElementForwardEnteredThisTurn() != null) {
 			Set<String> entered = isP1 ? p1ElementForwardsEnteredThisTurn : p2ElementForwardsEnteredThisTurn;
