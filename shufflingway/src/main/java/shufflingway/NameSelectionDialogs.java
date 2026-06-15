@@ -191,6 +191,7 @@ class NameSelectionDialogs {
     private static String showElementDialog(JFrame frame, String prompt, Set<String> excluded) {
         String[] result = {null};
         JDialog dialog = new JDialog(frame, "Name an Element", true);
+        dialog.setResizable(false);
         dialog.setDefaultCloseOperation(JDialog.DO_NOTHING_ON_CLOSE);
 
         DefaultListModel<String> listModel = new DefaultListModel<>();
@@ -225,7 +226,7 @@ class NameSelectionDialogs {
         dialog.add(top, BorderLayout.NORTH);
         dialog.add(new JScrollPane(elemList), BorderLayout.CENTER);
         dialog.add(bottom, BorderLayout.SOUTH);
-        dialog.setSize(220, 280);
+        dialog.setSize(220, 290);
         dialog.setLocationRelativeTo(frame);
         dialog.setVisible(true);
         return result[0];

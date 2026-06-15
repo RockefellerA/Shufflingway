@@ -677,10 +677,18 @@ public class ActionResolver {
      * "At the beginning of your Main Phase 1, select 1 Element. &lt;CardName&gt; becomes that Element."
      * Group {@code name} is the card whose element changes.
      */
-    static final Pattern AT_BEGINNING_OF_MAIN_PHASE_1_ELEMENT_CHANGE_PATTERN = Pattern.compile(
-        "(?i)At\\s+the\\s+beginning\\s+of\\s+your\\s+Main\\s+Phase\\s+1,\\s+select\\s+1\\s+Element\\.\\s+" +
+    static final Pattern ELEMENT_CHANGE_PATTERN = Pattern.compile(
+        "(?i)select\\s+1\\s+Element\\.\\s+" +
         "(?<name>[A-Z][A-Za-z''\\-\\s]+?)\\s+becomes\\s+that\\s+Element" +
         "(?:\\s*\\(this\\s+effect\\s+does\\s+not\\s+end\\s+at\\s+the\\s+end\\s+of\\s+the\\s+turn\\))?\\s*\\.?"
+    );
+
+    static final Pattern AT_BEGINNING_OF_MAIN_PHASE_1_PATTERN = Pattern.compile(
+      "(?i)At\\s+the\\s+(?:beginning|start)\\s+of\\s+(?:your\\s+)?(?:opponent's\\s+)?Main\\s+Phase\\s+1[^,]*,"
+    );
+
+    static final Pattern AT_BEGINNING_OF_MAIN_PHASE_2_PATTERN = Pattern.compile(
+            "(?i)At\\s+the\\s+(?:beginning|start)\\s+of\\s+(?:your\\s+)?(?:opponent's\\s+)?Main\\s+Phase\\s+2[^,]*,"
     );
 
     /** All eight FFTCG element names, in standard order. */
@@ -2518,6 +2526,9 @@ public class ActionResolver {
         result = tryParseWhenYouDoSoSequence(effectText, source, xValue);
         if (result != null) return result;
 
+        result = tryParseElementChangePattern(effectText, source);
+        if (result != null) return result;
+
         result = tryParseIfOwnForwardFormedParty(effectText, source, xValue);
         if (result != null) return result;
 
@@ -2561,9 +2572,6 @@ public class ActionResolver {
         if (result != null) return result;
 
         result = tryParseEndOfEachTurnFieldAbility(effectText, source);
-        if (result != null) return result;
-
-        result = tryParseBeginningOfMainPhase1FieldAbility(effectText, source);
         if (result != null) return result;
 
         result = tryParseDelayedEffect(effectText);
@@ -7844,14 +7852,31 @@ public class ActionResolver {
     }
 
     /**
-     * Parses "At the beginning of your Main Phase 1, select 1 Element. [CardName] becomes that
-     * Element." — a recurring field-ability trigger.  Returns a consumer that prompts the player
-     * to select an element and applies a permanent override via {@link GameContext#setCardElement};
-     * {@code fireFieldMainPhase1Abilities} is responsible for invoking it each Main Phase 1 start.
+     * Parses "At the beginning|start of your Main Phase 1,"
+     * Remove that wording then send the actual effect down to parse again.
      */
     static Consumer<GameContext> tryParseBeginningOfMainPhase1FieldAbility(String text, CardData source) {
-        Matcher m = AT_BEGINNING_OF_MAIN_PHASE_1_ELEMENT_CHANGE_PATTERN.matcher(text);
+        Matcher m = AT_BEGINNING_OF_MAIN_PHASE_1_PATTERN.matcher(text);
         if (!m.find()) return null;
+        text = text.substring(0, m.start()) + text.substring(m.end());
+        return parse(text, source);
+    }
+
+    static Consumer<GameContext> tryParseBeginningOfMainPhase2FieldAbility(String text, CardData source) {
+        Matcher m = AT_BEGINNING_OF_MAIN_PHASE_2_PATTERN.matcher(text);
+        if (!m.find()) return null;
+        text = text.substring(0, m.start()) + text.substring(m.end());
+        return parse(text, source);
+    }
+
+    /**
+     * Parses "select 1 element. <name> becomes that Element"
+     * Remove that wording then send the actual effect down to parse again.
+     */
+    static Consumer<GameContext> tryParseElementChangePattern(String text, CardData source) {
+        Matcher m = ELEMENT_CHANGE_PATTERN.matcher(text);
+        if (!m.find()) return null;
+
         String cardName = m.group("name").trim();
         if (source == null || !cardName.equalsIgnoreCase(source.name())) return null;
         return ctx -> {

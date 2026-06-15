@@ -1661,7 +1661,7 @@ public class MainWindow {
                                 GameContext ctx = buildGameContext(true);
                                 pending.forEach(e -> e.accept(ctx));
                             }
-                            fireFieldMainPhase1Abilities(true);
+                            fireFieldMainPhase1Abilities(gameState.getCurrentPlayer() == GameState.Player.P1);
             }
 
 			case MAIN_1 -> {
@@ -1677,7 +1677,8 @@ public class MainWindow {
                                 if (!hasAttackableForward() && !hasBackAttackInHand()) {
                                     logEntry("No attackers available — skipping to Main Phase 2");
                                     onNextPhase();
-                                    return;
+									fireFieldMainPhase2Abilities(gameState.getCurrentPlayer() == GameState.Player.P1);
+									return;
                                 }
                                 // Sub-step 0: Attack Preparation — P1 has priority first
                                 setAttackSubStep(0);
@@ -1716,6 +1717,7 @@ public class MainWindow {
                             refreshPhaseTracker();
                             refreshAllForwardSlots();
                             logEntry("Main Phase 2");
+							fireFieldMainPhase2Abilities(gameState.getCurrentPlayer() == GameState.Player.P1);
 			}
 
 			case MAIN_2 -> {
@@ -8183,6 +8185,27 @@ public class MainWindow {
 		}
 	}
 
+	private void fireFieldMainPhase2Abilities(boolean isP1) {
+		List<CardData> fwds = isP1 ? p1ForwardCards : p2ForwardCards;
+		CardData[]     bkps = isP1 ? p1BackupCards  : p2BackupCards;
+		List<CardData> mons = isP1 ? p1MonsterCards : p2MonsterCards;
+		GameContext ctx = buildGameContext(isP1);
+		for (CardData card : fwds) fireFieldMainPhase2AbilitiesForCard(card, ctx);
+		for (CardData card : bkps) if (card != null) fireFieldMainPhase2AbilitiesForCard(card, ctx);
+		for (CardData card : mons) fireFieldMainPhase2AbilitiesForCard(card, ctx);
+	}
+
+	private void fireFieldMainPhase2AbilitiesForCard(CardData card, GameContext ctx) {
+		for (FieldAbility fa : card.fieldAbilities()) {
+			Consumer<GameContext> effect =
+					ActionResolver.tryParseBeginningOfMainPhase2FieldAbility(fa.effectText(), card);
+			if (effect != null) {
+				logEntry("[Field] " + card.name() + " — Main Phase 2 start: " + fa.effectText());
+				effect.accept(ctx);
+			}
+		}
+	}
+
 	/** Fires all queued end-of-turn effects using a context for {@code isP1}, then clears the queue. */
 	private void fireEndOfTurnEffects(boolean isP1) {
 		if (endOfTurnEffects.isEmpty()) return;
@@ -11891,6 +11914,7 @@ public class MainWindow {
 			refreshPhaseTracker();
 			logEntry("Main Phase 1");
 			processWarpCounters();
+			fireFieldMainPhase1Abilities(gameState.getCurrentPlayer() == GameState.Player.P1);
 			nextPhaseButton.setEnabled(true);
 		}
 
