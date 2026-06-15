@@ -1519,6 +1519,39 @@ final class GameContextImpl implements GameContext {
 				if (p2Pick != null) forceTargetToBreakZone(p2Pick);
 			}
 
+			@Override public void eachPlayerSelectUpToNAndBreak(int count, boolean inclForwards, boolean inclMonsters) {
+				// Build P1 eligible list
+				List<ForwardTarget> p1Eligible = new ArrayList<>();
+				if (inclForwards)
+					for (int i = 0; i < mw.p1ForwardCards.size(); i++)
+						p1Eligible.add(new ForwardTarget(true, i, ForwardTarget.CardZone.FORWARD));
+				if (inclMonsters)
+					for (int i = 0; i < mw.p1MonsterCards.size(); i++)
+						p1Eligible.add(new ForwardTarget(true, i, ForwardTarget.CardZone.MONSTER));
+
+				List<ForwardTarget> p1Picks;
+				if (p1Eligible.isEmpty()) {
+					logEntry("P1 has no eligible targets — skipping selection");
+					p1Picks = List.of();
+				} else {
+					p1Picks = mw.selectFieldTargetsInPlace(p1Eligible, count, true,
+							"Select up to " + count + " Forwards/Monsters to put in Break Zone");
+				}
+
+				// P2 AI: pick lowest-cost targets up to count
+				List<ForwardTarget> p2Picks = mw.aiPickForwardsOrMonstersForBreak(count, inclForwards, inclMonsters);
+				for (ForwardTarget t : p2Picks)
+					logEntry("[AI] selected " + (t.zone() == ForwardTarget.CardZone.FORWARD
+							? mw.p2ForwardCards.get(t.idx()).name()
+							: mw.p2MonsterCards.get(t.idx()).name()));
+
+				// Break in descending index order to avoid shifting
+				p1Picks.stream().sorted(java.util.Comparator.comparingInt(ForwardTarget::idx).reversed())
+						.forEach(this::forceTargetToBreakZone);
+				p2Picks.stream().sorted(java.util.Comparator.comparingInt(ForwardTarget::idx).reversed())
+						.forEach(this::forceTargetToBreakZone);
+			}
+
 			@Override public void activateTarget(ForwardTarget t) {
 				switch (t.zone()) {
 					case FORWARD -> {

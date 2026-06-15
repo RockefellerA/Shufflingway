@@ -11258,6 +11258,22 @@ public class MainWindow {
 		return new ForwardTarget(false, chosen, ForwardTarget.CardZone.FORWARD);
 	}
 
+	List<ForwardTarget> aiPickForwardsOrMonstersForBreak(int maxCount, boolean inclForwards, boolean inclMonsters) {
+		List<ForwardTarget> eligible = new ArrayList<>();
+		if (inclForwards)
+			for (int i = 0; i < p2ForwardCards.size(); i++)
+				eligible.add(new ForwardTarget(false, i, ForwardTarget.CardZone.FORWARD));
+		if (inclMonsters)
+			for (int i = 0; i < p2MonsterCards.size(); i++)
+				eligible.add(new ForwardTarget(false, i, ForwardTarget.CardZone.MONSTER));
+		eligible.sort(java.util.Comparator.comparingInt(t -> {
+			CardData c = t.zone() == ForwardTarget.CardZone.FORWARD
+					? p2ForwardCards.get(t.idx()) : p2MonsterCards.get(t.idx());
+			return c.cost();
+		}));
+		return eligible.subList(0, Math.min(maxCount, eligible.size()));
+	}
+
 	ForwardTarget aiPickForwardForBreak() {
 		if (p2ForwardCards.isEmpty()) return null;
 		int worstIdx = 0;

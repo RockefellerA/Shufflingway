@@ -1180,6 +1180,19 @@ public class ActionResolver {
         "\\s+and\\s+puts?\\s+it\\s+into\\s+the\\s+Break\\s+Zone[.!]?"
     );
 
+    /**
+     * Matches "Each player selects up to N Forwards or Monsters he/she/they controls/control
+     * (select as many as possible). Put them into the Break Zone."
+     * Groups: {@code count} — max per player; {@code targets} — card type(s).
+     */
+    private static final Pattern EACH_PLAYER_SELECT_UP_TO_N_TO_BREAK_ZONE = Pattern.compile(
+        "(?i)Each\\s+player\\s+selects?\\s+up\\s+to\\s+(?<count>\\d+)\\s+" +
+        "(?<targets>Forwards?(?:\\s+(?:and/or|or)\\s+(?:Monsters?|Backups?))?|Monsters?|Characters?)\\s+" +
+        "(?:he/she|they)\\s+controls?\\s*" +
+        "(?:\\(select\\s+as\\s+many\\s+as\\s+possible\\)[.!]?\\s*)?" +
+        "Put\\s+them\\s+into\\s+the\\s+Break\\s+Zone[.!]?"
+    );
+
     /** Matches "Discard your hand. Then, draw N card(s)." Group 1 = draw count. */
     private static final Pattern DISCARD_HAND_THEN_DRAW = Pattern.compile(
         "(?i)Discard\\s+your\\s+hand[.,]?\\s+[Tt]hen[,]?\\s+draw\\s+(\\d+)\\s+cards?[.!]?\\s*$"
@@ -2677,6 +2690,9 @@ public class ActionResolver {
         result = tryParseBothPlayersSelectForwardToBreakZone(effectText);
         if (result != null) return result;
 
+        result = tryParseEachPlayerSelectUpToNToBreakZone(effectText);
+        if (result != null) return result;
+
         result = tryParseEachPlayerDiscard(effectText);
         if (result != null) return result;
 
@@ -2943,6 +2959,7 @@ public class ActionResolver {
         if (tryParseOpponentRandomDiscard(effectText)         != null) return "OpponentRandomDiscard";
         if (tryParseEachPlayerSelectForwardDamage(effectText)  != null) return "EachPlayerSelectForwardDamage";
         if (tryParseBothPlayersSelectForwardToBreakZone(effectText) != null) return "BothPlayersSelectForwardToBreakZone";
+        if (tryParseEachPlayerSelectUpToNToBreakZone(effectText)   != null) return "EachPlayerSelectUpToNToBreakZone";
         if (tryParseEachPlayerDiscard(effectText)              != null) return "EachPlayerDiscard";
         if (tryParseOpponentDiscard(effectText)               != null) return "OpponentDiscard";
         if (tryParseDiscardHandThenDraw(effectText)           != null) return "DiscardHandThenDraw";
@@ -3228,6 +3245,7 @@ public class ActionResolver {
         if (tryParseOpponentRandomDiscard(effectText) != null)              return "OpponentRandomDiscard";
         if (tryParseEachPlayerSelectForwardDamage(effectText) != null)      return "EachPlayerSelectForwardDamage";
         if (tryParseBothPlayersSelectForwardToBreakZone(effectText) != null) return "BothPlayersSelectForwardToBreakZone";
+        if (tryParseEachPlayerSelectUpToNToBreakZone(effectText) != null)   return "EachPlayerSelectUpToNToBreakZone";
         if (tryParseEachPlayerDiscard(effectText) != null)                  return "EachPlayerDiscard";
         if (tryParseOpponentDiscard(effectText) != null)                    return "OpponentDiscard";
         if (tryParseDiscardHandThenDraw(effectText) != null)                return "DiscardHandThenDraw";
@@ -6543,6 +6561,20 @@ public class ActionResolver {
         return ctx -> {
             ctx.logEntry("Effect: Both players select 1 Forward they control and put it into the Break Zone");
             ctx.eachPlayerSelectForwardAndBreak();
+        };
+    }
+
+    /** Parses "Each player selects up to N Forwards or Monsters they control (select as many as possible). Put them into the Break Zone." */
+    private static Consumer<GameContext> tryParseEachPlayerSelectUpToNToBreakZone(String text) {
+        Matcher m = EACH_PLAYER_SELECT_UP_TO_N_TO_BREAK_ZONE.matcher(text);
+        if (!m.find()) return null;
+        int    count    = Integer.parseInt(m.group("count"));
+        String tgtLower = m.group("targets").toLowerCase();
+        boolean inclForwards = tgtLower.contains("forward") || tgtLower.contains("character");
+        boolean inclMonsters = tgtLower.contains("monster") || tgtLower.contains("character");
+        return ctx -> {
+            ctx.logEntry("Effect: Each player selects up to " + count + " Forwards/Monsters and puts them in Break Zone");
+            ctx.eachPlayerSelectUpToNAndBreak(count, inclForwards, inclMonsters);
         };
     }
 

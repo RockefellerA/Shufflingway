@@ -266,6 +266,13 @@ public interface GameContext {
      */
     void eachPlayerSelectForwardAndBreak();
 
+    /**
+     * Each player selects up to {@code count} Forwards and/or Monsters they control
+     * and puts them into the Break Zone.
+     * P1 picks via dialog; P2 (AI) picks lowest-cost eligible targets.
+     */
+    void eachPlayerSelectUpToNAndBreak(int count, boolean inclForwards, boolean inclMonsters);
+
     /** Grants the ability user {@code count} Crystals. */
     void gainCrystal(int count);
 
