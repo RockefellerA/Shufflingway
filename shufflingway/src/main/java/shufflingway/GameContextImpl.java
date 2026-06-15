@@ -36,9 +36,9 @@ import javax.swing.Timer;
 
 import static shufflingway.CardAnimation.CARD_H;
 import static shufflingway.CardAnimation.CARD_W;
+import static shufflingway.CardFilters.formatCostFilterLabel;
 import static shufflingway.CardFilters.isBlockingTargetFilter;
 import static shufflingway.CardFilters.isEnteredThisTurnCondition;
-import static shufflingway.CardFilters.formatCostFilterLabel;
 import static shufflingway.CardFilters.matchesDiscardType;
 import static shufflingway.CardFilters.meetsCardNameFilter;
 import static shufflingway.CardFilters.meetsCategoryFilter;
@@ -59,6 +59,7 @@ final class GameContextImpl implements GameContext {
 	private final MainWindow mw;
 	private final boolean isP1;
 	private final boolean exBurst;
+	private List<ForwardTarget> lastChosenTargets = List.of();
 
 	GameContextImpl(MainWindow mw, boolean isP1, boolean exBurst) {
 		this.mw = mw;
@@ -68,6 +69,11 @@ final class GameContextImpl implements GameContext {
 
 			@Override public void logEntry(String msg) { mw.logEntry(msg); }
 			@Override public boolean isP1() { return isP1; }
+
+			@Override public void recordChosenTargets(List<ForwardTarget> targets) {
+				lastChosenTargets = targets == null ? List.of() : List.copyOf(targets);
+			}
+			@Override public List<ForwardTarget> lastChosenTargets() { return lastChosenTargets; }
 
 			@Override public void resetEffectProgress() { mw.effectProgress = true; }
 			@Override public void markEffectFizzled()   { mw.effectProgress = false; }
@@ -409,14 +415,14 @@ final class GameContextImpl implements GameContext {
 			}
 
 			@Override
-			public java.util.List<ForwardTarget> selectCharacters(
+			public List<ForwardTarget> selectCharacters(
 					int maxCount, boolean upTo, boolean opponentOnly,
 					boolean selfOnly, String condition, String element,
 					int costVal, String costCmp, int powerVal, String powerCmp,
 					boolean inclForwards, boolean inclBackups, boolean inclMonsters,
 					String jobFilter, String cardNameFilter, String categoryFilter, String excludeName, boolean inclSummons,
 					String excludeElement, boolean withoutMulticard) {
-				java.util.List<ForwardTarget> eligible = new ArrayList<>();
+				List<ForwardTarget> eligible = new ArrayList<>();
 				// Build symmetric "cannot be chosen" sets — checked in all four targeting quadrants.
 				// summonImmuneAnyone: blocked from Summon targeting regardless of which player casts.
 				// abilityImmuneAnyone: blocked from ability targeting regardless of which player uses.
@@ -721,17 +727,17 @@ final class GameContextImpl implements GameContext {
 						+ (opponentOnly ? " (opponent)" : selfOnly ? " (yours)" : "");
 				if (!isP1) {
 					// AI (P2 controls the effect): auto-select rather than prompting the human.
-					if (eligible.isEmpty()) return java.util.List.of();
+					if (eligible.isEmpty()) return List.of();
 					// For unqualified targeting, prefer opponent (P1) targets over own cards.
-					java.util.List<ForwardTarget> pool = eligible;
+					List<ForwardTarget> pool = eligible;
 					if (!opponentOnly && !selfOnly) {
-						java.util.List<ForwardTarget> oppTargets = eligible.stream()
+						List<ForwardTarget> oppTargets = eligible.stream()
 								.filter(ForwardTarget::isP1).toList();
 						if (!oppTargets.isEmpty()) pool = oppTargets;
 					}
-					java.util.List<ForwardTarget> copy = new ArrayList<>(pool);
+					List<ForwardTarget> copy = new ArrayList<>(pool);
 					java.util.Collections.shuffle(copy);
-					java.util.List<ForwardTarget> picked = java.util.List.copyOf(copy.subList(0, Math.min(maxCount, copy.size())));
+					List<ForwardTarget> picked = List.copyOf(copy.subList(0, Math.min(maxCount, copy.size())));
 					picked.forEach(t -> {
 						CardData c = switch (t.zone()) {
 							case BACKUP  -> t.isP1() ? mw.p1BackupCards[t.idx()] : mw.p2BackupCards[t.idx()];
@@ -868,8 +874,8 @@ final class GameContextImpl implements GameContext {
 			}
 
 			@Override public void playAllByNameFromOwnBreakZoneDull(String cardName, boolean dull) {
-				java.util.List<CardData> bz = isP1 ? mw.gameState.getP1BreakZone() : mw.gameState.getP2BreakZone();
-				java.util.List<CardData> toPlay = new java.util.ArrayList<>();
+				List<CardData> bz = isP1 ? mw.gameState.getP1BreakZone() : mw.gameState.getP2BreakZone();
+				List<CardData> toPlay = new java.util.ArrayList<>();
 				for (int i = bz.size() - 1; i >= 0; i--)
 					if (meetsCardNameFilter(bz.get(i), cardName)) toPlay.add(bz.remove(i));
 				for (CardData card : toPlay) {
@@ -945,16 +951,16 @@ final class GameContextImpl implements GameContext {
 			}
 
 			@Override
-			public java.util.List<ForwardTarget> selectCharactersFromBreakZone(
+			public List<ForwardTarget> selectCharactersFromBreakZone(
 					int maxCount, boolean upTo, boolean opponentZone,
 					String condition, String element, int costVal, String costCmp,
 					int powerVal, String powerCmp,
 					boolean inclForwards, boolean inclBackups, boolean inclMonsters,
 					String jobFilter, String cardNameFilter, String categoryFilter, String excludeName, boolean inclSummons,
 					String excludeElement, boolean withoutMulticard) {
-				java.util.List<CardData> bz = opponentZone
+				List<CardData> bz = opponentZone
 						? mw.gameState.getP2BreakZone() : mw.gameState.getP1BreakZone();
-				java.util.List<ForwardTarget> eligible = new ArrayList<>();
+				List<ForwardTarget> eligible = new ArrayList<>();
 				for (int i = 0; i < bz.size(); i++) {
 					CardData card = bz.get(i);
 					if (card.isForward()  && !inclForwards) continue;
@@ -981,11 +987,11 @@ final class GameContextImpl implements GameContext {
 						+ " Character" + (maxCount != 1 ? "s" : "") + costLabel + powerLabel
 						+ " in " + (opponentZone ? "opponent's" : "your") + " Break Zone";
 				if (!isP1) {
-					if (eligible.isEmpty()) return java.util.List.of();
-					java.util.List<ForwardTarget> copy = new ArrayList<>(eligible);
+					if (eligible.isEmpty()) return List.of();
+					List<ForwardTarget> copy = new ArrayList<>(eligible);
 					java.util.Collections.shuffle(copy);
-					java.util.List<ForwardTarget> picked =
-							java.util.List.copyOf(copy.subList(0, Math.min(maxCount, copy.size())));
+					List<ForwardTarget> picked =
+							List.copyOf(copy.subList(0, Math.min(maxCount, copy.size())));
 					picked.forEach(t -> logEntry("[AI] chose " + bz.get(t.idx()).name()));
 					return picked;
 				}
@@ -1134,7 +1140,7 @@ final class GameContextImpl implements GameContext {
 			}
 
 			@Override public void revealOpponentHand() {
-				java.util.List<CardData> hand = mw.gameState.getP2Hand();
+				List<CardData> hand = mw.gameState.getP2Hand();
 				if (hand.isEmpty()) {
 					logEntry("Opponent's hand is empty.");
 					return;
@@ -1222,7 +1228,7 @@ final class GameContextImpl implements GameContext {
 				timerRef[0].start();
 			}
 
-			@Override public void revealTopDeckCard(java.util.List<RevealClause> clauses, boolean opponentDeck) {
+			@Override public void revealTopDeckCard(List<RevealClause> clauses, boolean opponentDeck) {
 				if (!isP1) {
 					logEntry("[P2] Reveal top deck card — not yet implemented for P2");
 					return;
@@ -1374,8 +1380,8 @@ final class GameContextImpl implements GameContext {
 					String jobFilter, String cardNameFilter, String categoryFilter,
 					String elementFilter, String excludeName, boolean entersDull, String excludeElement,
 					boolean suppressAutoAbility) {
-				java.util.List<CardData> hand = mw.gameState.getP1Hand();
-				java.util.List<Integer> eligible = new ArrayList<>();
+				List<CardData> hand = mw.gameState.getP1Hand();
+				List<Integer> eligible = new ArrayList<>();
 				for (int i = 0; i < hand.size(); i++) {
 					CardData card = hand.get(i);
 					if (card.isForward()  && !inclForwards) continue;
@@ -1402,7 +1408,7 @@ final class GameContextImpl implements GameContext {
 					markEffectFizzled();
 					return;
 				}
-				java.util.List<CardData> candidates = new ArrayList<>();
+				List<CardData> candidates = new ArrayList<>();
 				for (int i : eligible) candidates.add(hand.get(i));
 				int listIdx = mw.showCardImageChooser(candidates, "Play a card onto the field", true, false);
 				if (listIdx < 0) { markEffectFizzled(); return; }
@@ -1627,7 +1633,7 @@ final class GameContextImpl implements GameContext {
 					}
 					case MONSTER -> {
 						int i = t.idx();
-						java.util.List<CardData> cards = t.isP1() ? mw.p1MonsterCards : mw.p2MonsterCards;
+						List<CardData> cards = t.isP1() ? mw.p1MonsterCards : mw.p2MonsterCards;
 						if (i >= cards.size()) return;
 						CardData c = cards.get(i);
 						String prefix = t.isP1() ? "" : "[P2] ";
@@ -1662,7 +1668,7 @@ final class GameContextImpl implements GameContext {
 					}
 					case MONSTER -> {
 						int i = t.idx();
-						java.util.List<CardData> cards = t.isP1() ? mw.p1MonsterCards : mw.p2MonsterCards;
+						List<CardData> cards = t.isP1() ? mw.p1MonsterCards : mw.p2MonsterCards;
 						if (i >= cards.size()) return;
 						CardData c = cards.get(i);
 						logEntry((t.isP1() ? "" : "[P2] ") + c.name() + " → Removed From Game");
@@ -1701,7 +1707,7 @@ final class GameContextImpl implements GameContext {
 
 			@Override public void shuffleDeck() {
 				java.util.Deque<CardData> deck = isP1 ? mw.gameState.getP1MainDeck() : mw.gameState.getP2MainDeck();
-				java.util.List<CardData> list = new java.util.ArrayList<>(deck);
+				List<CardData> list = new java.util.ArrayList<>(deck);
 				java.util.Collections.shuffle(list);
 				deck.clear();
 				deck.addAll(list);
@@ -1710,7 +1716,7 @@ final class GameContextImpl implements GameContext {
 			}
 
 			@Override public void playTargetOntoField(ForwardTarget t) {
-				java.util.List<CardData> bz = t.isP1() ? mw.gameState.getP1BreakZone() : mw.gameState.getP2BreakZone();
+				List<CardData> bz = t.isP1() ? mw.gameState.getP1BreakZone() : mw.gameState.getP2BreakZone();
 				if (t.idx() >= bz.size()) return;
 				CardData card = bz.remove(t.idx());
 				String src = t.isP1() ? "Break Zone" : "opponent's Break Zone";
@@ -1728,7 +1734,7 @@ final class GameContextImpl implements GameContext {
 			}
 
 			@Override public void addTargetToHand(ForwardTarget t) {
-				java.util.List<CardData> bz = t.isP1() ? mw.gameState.getP1BreakZone() : mw.gameState.getP2BreakZone();
+				List<CardData> bz = t.isP1() ? mw.gameState.getP1BreakZone() : mw.gameState.getP2BreakZone();
 				if (t.idx() >= bz.size()) return;
 				CardData card = bz.remove(t.idx());
 				mw.gameState.getP1Hand().add(card);
@@ -1738,12 +1744,12 @@ final class GameContextImpl implements GameContext {
 			}
 
 			@Override public CardData p1BreakZoneCard(int idx) {
-				java.util.List<CardData> bz = mw.gameState.getP1BreakZone();
+				List<CardData> bz = mw.gameState.getP1BreakZone();
 				return (idx >= 0 && idx < bz.size()) ? bz.get(idx) : null;
 			}
 
 			@Override public CardData p2BreakZoneCard(int idx) {
-				java.util.List<CardData> bz = mw.gameState.getP2BreakZone();
+				List<CardData> bz = mw.gameState.getP2BreakZone();
 				return (idx >= 0 && idx < bz.size()) ? bz.get(idx) : null;
 			}
 
@@ -1957,8 +1963,8 @@ final class GameContextImpl implements GameContext {
 				mw.logEntry("[AutoAbility] " + source.name() + " — no ability with trigger '" + triggerType + "' to retrigger");
 			}
 
-			@Override public java.util.List<String> chooseActions(CardData source,
-					java.util.List<String> actions, int selectCount, boolean upTo) {
+			@Override public List<String> chooseActions(CardData source,
+					List<String> actions, int selectCount, boolean upTo) {
 				if (isP1) return mw.autoAbilityTriggers.showSelectActionsDialog(source, actions, selectCount, upTo);
 				int take = Math.min(selectCount, actions.size());
 				return new ArrayList<>(actions.subList(0, take));
@@ -2464,8 +2470,8 @@ final class GameContextImpl implements GameContext {
 
 			private boolean forwardHasAnyTrait(boolean p1Side, int idx, java.util.EnumSet<CardData.Trait> traitFilter) {
 				if (traitFilter.isEmpty()) return true;
-				java.util.List<java.util.EnumSet<CardData.Trait>> tempList = p1Side ? mw.p1ForwardTempTraits : mw.p2ForwardTempTraits;
-				java.util.List<java.util.EnumSet<CardData.Trait>> rmList   = p1Side ? mw.p1ForwardRemovedTraits : mw.p2ForwardRemovedTraits;
+				List<java.util.EnumSet<CardData.Trait>> tempList = p1Side ? mw.p1ForwardTempTraits : mw.p2ForwardTempTraits;
+				List<java.util.EnumSet<CardData.Trait>> rmList   = p1Side ? mw.p1ForwardRemovedTraits : mw.p2ForwardRemovedTraits;
 				CardData c = p1Side ? p1Forward(idx) : mw.p2ForwardCards.get(idx);
 				Set<CardData.Trait> base = c.traits();
 				java.util.EnumSet<CardData.Trait> temp = idx < tempList.size() ? tempList.get(idx) : null;
@@ -2800,8 +2806,8 @@ final class GameContextImpl implements GameContext {
 				mw.endOfTurnEffects.add(ctx -> mw.activeCostReductions.remove(modifier));
 			}
 
-			@Override public java.util.List<FieldAbility> getActiveFieldAbilities() {
-				java.util.List<FieldAbility> active = new ArrayList<>();
+			@Override public List<FieldAbility> getActiveFieldAbilities() {
+				List<FieldAbility> active = new ArrayList<>();
 				for (CardData c : mw.p1ForwardCards) active.addAll(c.fieldAbilities());
 				for (CardData c : mw.p1MonsterCards)  active.addAll(c.fieldAbilities());
 				for (CardData c : mw.p1BackupCards)   if (c != null) active.addAll(c.fieldAbilities());
@@ -3108,14 +3114,14 @@ final class GameContextImpl implements GameContext {
 
 			@Override public void breakSourceAtEndOfTurn(CardData source) {
 				addEndOfTurnEffect(ctx -> {
-					java.util.List<CardData> fwds = isP1 ? mw.p1ForwardCards : mw.p2ForwardCards;
+					List<CardData> fwds = isP1 ? mw.p1ForwardCards : mw.p2ForwardCards;
 					for (int fi = 0; fi < fwds.size(); fi++) {
 						if (fwds.get(fi) == source) {
 							ctx.breakTarget(new ForwardTarget(isP1, fi, ForwardTarget.CardZone.FORWARD));
 							return;
 						}
 					}
-					java.util.List<CardData> mons = isP1 ? mw.p1MonsterCards : mw.p2MonsterCards;
+					List<CardData> mons = isP1 ? mw.p1MonsterCards : mw.p2MonsterCards;
 					int mi = mons.indexOf(source);
 					if (mi >= 0) ctx.breakTarget(new ForwardTarget(isP1, mi, ForwardTarget.CardZone.MONSTER));
 				});

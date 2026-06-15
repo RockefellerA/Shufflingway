@@ -21,6 +21,16 @@ public interface GameContext {
     /** Returns {@code true} if P1 is the ability user for this context. */
     boolean isP1();
 
+    /**
+     * Records {@code targets} as the most-recently chosen target set for this ability's resolution.
+     * Used so a follow-up clause (e.g. "That Forward's controller …") can refer back to the
+     * controllers of the targets picked by the primary.
+     */
+    void recordChosenTargets(java.util.List<ForwardTarget> targets);
+
+    /** Returns the targets recorded by the most recent {@link #recordChosenTargets} call, or an empty list. */
+    java.util.List<ForwardTarget> lastChosenTargets();
+
     // ---- Sequential "X. When you do so, Y." progress signalling --------------
 
     /**

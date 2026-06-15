@@ -158,6 +158,17 @@ public class ActionResolver {
     );
 
     /**
+     * Matches the "That Forward's controller discards N card(s) from (their|his/her) hand" secondary
+     * clause that follows a Choose+followup primary (Physalis, Sephiroth, Hades, …). The discarder
+     * is resolved at runtime from {@link GameContext#lastChosenTargets()}.
+     * Group {@code count} — number of cards to discard.
+     */
+    private static final Pattern FOLLOWUP_TARGET_CONTROLLER_DISCARDS = Pattern.compile(
+        "(?i)^That\\s+Forward(?:'s|s)?\\s+controller\\s+discards?\\s+(?<count>\\d+)\\s+cards?\\s+" +
+        "from\\s+(?:their|his/her|his|her)\\s+hand\\.?$"
+    );
+
+    /**
      * Matches "You may discard 1 Card Name X from your hand. If you do so, deal it N damage."
      * Groups: {@code cardname}, {@code amount}.
      */
@@ -2973,6 +2984,7 @@ public class ActionResolver {
      * used inside {@link #tryParseChooseCharacter}.
      */
     public static String matchedFollowupName(String followupText, CardData source) {
+        if (FOLLOWUP_TARGET_CONTROLLER_DISCARDS.matcher(followupText).matches()) return "TargetControllerDiscards";
         if (source != null) {
             Matcher mutM = FOLLOWUP_MUTUAL_POWER_DAMAGE.matcher(followupText);
             if (mutM.find() && mutM.group("srcname").trim().equalsIgnoreCase(source.name())) return "MutualPowerDamage";
@@ -4151,9 +4163,24 @@ public class ActionResolver {
                             secondary = ctx -> ctx.mayDiscardCardNameToReplayAbility(name, replayEffect);
                         }
                     } else {
-                        Consumer<GameContext> parsed = parse(secondaryText, source);
-                        secondary = (parsed != null) ? parsed
-                                : ctx -> ctx.logEntry("[ActionResolver] Secondary followup not yet implemented: " + secondaryText);
+                        // Special case: "That Forward's controller discards N card(s) from their hand."
+                        // The discarder depends on the chosen target's controller, which is read back
+                        // from GameContext.lastChosenTargets() (populated by selectTargets).
+                        Matcher ctrlDiscM = FOLLOWUP_TARGET_CONTROLLER_DISCARDS.matcher(secondaryText);
+                        if (ctrlDiscM.matches()) {
+                            final int discardCount = Integer.parseInt(ctrlDiscM.group("count"));
+                            secondary = ctx -> {
+                                List<ForwardTarget> chosen = ctx.lastChosenTargets();
+                                for (ForwardTarget t : chosen) {
+                                    if (t.isP1() == ctx.isP1()) ctx.selfDiscard(discardCount);
+                                    else                        ctx.forceOpponentDiscard(discardCount);
+                                }
+                            };
+                        } else {
+                            Consumer<GameContext> parsed = parse(secondaryText, source);
+                            secondary = (parsed != null) ? parsed
+                                    : ctx -> ctx.logEntry("[ActionResolver] Secondary followup not yet implemented: " + secondaryText);
+                        }
                     }
                 }
             } else {
@@ -8526,10 +8553,12 @@ public class ActionResolver {
             boolean inclForwards, boolean inclBackups, boolean inclMonsters,
             String jobFilter, String cardNameFilter, String categoryFilter, String excludeName, boolean inclSummons,
             String excludeElement, boolean withoutMulticard) {
-        return zone != null
+        List<ForwardTarget> result = zone != null
                 ? ctx.selectCharactersFromBreakZone(maxCount, upTo, opponentZone, condition, element,
                         costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters, jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, excludeElement, withoutMulticard)
                 : ctx.selectCharacters(maxCount, upTo, opponentOnly, selfOnly, condition, element,
                         costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters, jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, excludeElement, withoutMulticard);
+        ctx.recordChosenTargets(result);
+        return result;
     }
 }
