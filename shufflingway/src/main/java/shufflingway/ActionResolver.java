@@ -3528,6 +3528,10 @@ public class ActionResolver {
         boolean opponentOnly = m.group("opponent") != null;
         boolean unreduced    = CANNOT_BE_REDUCED_PATTERN.matcher(text).find();
 
+        // Chain any text after the damage clause (e.g. "Philia deals you 1 point of damage.")
+        String remainingText = text.substring(m.end()).trim();
+        Consumer<GameContext> afterDamage = remainingText.isEmpty() ? null : parse(remainingText, null);
+
         return ctx -> {
             String condLabel   = condition  != null ? (condition + " ")   : "";
             String costLabel   = costVal >= 0 ? " of cost " + costVal + (costCmp != null ? " or " + costCmp : "") : "";
@@ -3578,6 +3582,7 @@ public class ActionResolver {
                     }
                 }
             }
+            if (afterDamage != null) afterDamage.accept(ctx);
         };
     }
 

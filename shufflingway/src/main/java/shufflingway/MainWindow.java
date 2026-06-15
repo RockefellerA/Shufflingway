@@ -8246,6 +8246,17 @@ public class MainWindow {
 				}
 			}
 
+			// Passive field ability: nullify ability-source damage entirely (not Summons) — e.g. Philia
+			if (!currentResolutionIsSummon) {
+				for (FieldAbility fa : card.fieldAbilities()) {
+					Matcher m = AutoAbilityTriggers.FA_NULLIFY_ABILITY_DAMAGE.matcher(fa.effectText());
+					if (m.find() && m.group("card").trim().equalsIgnoreCase(card.name())) {
+						logEntry(card.name() + " — ability damage nullified by field ability (→ 0)");
+						return 0;
+					}
+				}
+			}
+
 			// Passive field ability: reduce ability-source damage by N (gated on damage threshold)
 			if (!currentResolutionIsSummon) {
 				int dmgInZone = isP1 ? gameState.getP1DamageZone().size() : gameState.getP2DamageZone().size();
