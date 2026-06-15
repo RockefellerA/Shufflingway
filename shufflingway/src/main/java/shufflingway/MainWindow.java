@@ -6759,7 +6759,11 @@ public class MainWindow {
 			playerBreakFromHand(true,di);
 			if (di < cardHandIdx) cardHandIdx--;
 		}
-		for (String e : elems) {
+		// Clear all CP generated during payment — includes off-element CP from L/D card discards
+		// (e.g. discarding Fire Ifrits to pay for a Light card generates Fire CP that must be cleared)
+		Set<String> cpToClear = new java.util.LinkedHashSet<>(Arrays.asList(elems));
+		cpToClear.addAll(execCpAccum.keySet());
+		for (String e : cpToClear) {
 			gameState.spendP1Cp(e, gameState.getP1CpForElement(e));
 			gameState.clearP1Cp(e);
 		}
@@ -7085,20 +7089,25 @@ public class MainWindow {
 			List<Integer> backupDullIndices) {
 		String[] elems = card.elements();
 		boolean  isLD  = card.isLightOrDark();
+		Map<String, Integer> lbCpAccum = new LinkedHashMap<>();
 		for (int bi : backupDullIndices) {
 			p1BackupStates[bi] = CardState.DULL;
 			animateDullBackup(bi, true);
 			String cpElem = isLD ? p1BackupCards[bi].elements()[0] : contributingElement(p1BackupCards[bi], elems);
 			gameState.addP1Cp(cpElem, 1);
+			lbCpAccum.merge(cpElem, 1, Integer::sum);
 		}
 		discardIndices.sort(Collections.reverseOrder());
 		for (int di : discardIndices) {
 			CardData discarded = gameState.getP1Hand().get(di);
 			String cpElem = isLD ? discarded.elements()[0] : contributingElement(discarded, elems);
 			gameState.addP1Cp(cpElem, 2);
+			lbCpAccum.merge(cpElem, 2, Integer::sum);
 			playerBreakFromHand(true,di);
 		}
-		for (String e : elems) {
+		Set<String> lbCpToClear = new java.util.LinkedHashSet<>(Arrays.asList(elems));
+		lbCpToClear.addAll(lbCpAccum.keySet());
+		for (String e : lbCpToClear) {
 			gameState.spendP1Cp(e, gameState.getP1CpForElement(e));
 			gameState.clearP1Cp(e);
 		}
