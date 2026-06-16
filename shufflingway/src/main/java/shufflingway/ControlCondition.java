@@ -18,7 +18,7 @@ import java.util.List;
  * </ul>
  */
 public record ControlCondition(
-        List<String> requiredCardNames, // named mode: all must be on controlling player's field
+        List<String> requiredCardNames, // named mode: must be present on controlling player's field
         int          minCount,          // count mode: minimum matching cards (1 = "a/an")
         boolean      exactCount,        // true = exactly minCount ("only N"), not "N or more"
         String       cardType,          // null | "Forward" | "Monster" | "Backup" | "Character"
@@ -26,11 +26,20 @@ public record ControlCondition(
         String       job,               // null or job name (e.g. "Scion of the Seventh Dawn")
         String       category,          // null or category name (e.g. "DFF")
         int          minPower,          // 0 = no power filter; > 0 = card power must be ≥ this
-        List<String> orCardNames        // per-card OR alternative: also matches if name is in this list
+        List<String> orCardNames,       // per-card OR alternative: also matches if name is in this list
+        boolean      anyOf              // named mode: true = ANY required name suffices; false = ALL required
 ) {
     public ControlCondition {
         requiredCardNames = List.copyOf(requiredCardNames);
         orCardNames       = List.copyOf(orCardNames);
+    }
+
+    /** Convenience constructor preserving the prior 9-arg signature; defaults {@code anyOf} to {@code false} (AND semantics). */
+    public ControlCondition(List<String> requiredCardNames, int minCount, boolean exactCount,
+            String cardType, String element, String job, String category, int minPower,
+            List<String> orCardNames) {
+        this(requiredCardNames, minCount, exactCount, cardType, element, job, category, minPower,
+                orCardNames, false);
     }
 
     /** Returns {@code true} when this condition checks for specific named cards rather than a count. */

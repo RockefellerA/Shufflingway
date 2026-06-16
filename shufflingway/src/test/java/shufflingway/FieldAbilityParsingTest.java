@@ -60,7 +60,7 @@ public class FieldAbilityParsingTest {
 
                 int parsed = 0;
                 for (FieldAbility fa : abilities)
-                    if (ActionResolver.parse(fa.effectText(), source) != null) parsed++;
+                    if (isFieldAbilityRecognized(fa, source, typeEn)) parsed++;
 
                 String example = formatCardExample(source.name(), abilities, source);
                 if (parsed == abilities.size()) {
@@ -93,6 +93,20 @@ public class FieldAbilityParsingTest {
     // -------------------------------------------------------------------------
     // Helpers
     // -------------------------------------------------------------------------
+
+    /**
+     * Continuous static effects ("The Forwards you control gain +N power", "If you control X,
+     * Y gains Z") aren't handled by {@link ActionResolver} — they route through
+     * {@link CardData#parseFieldPowerGrants} and {@link CardData#parseIfControlBoosts} during
+     * card construction. So a field-ability is "recognized" if any of those three parsers
+     * accept its text.
+     */
+    private static boolean isFieldAbilityRecognized(FieldAbility fa, CardData source, String typeEn) {
+        if (ActionResolver.parse(fa.effectText(), source) != null) return true;
+        if (!CardData.parseFieldPowerGrants(fa.effectText(), typeEn).isEmpty()) return true;
+        if (!CardData.parseIfControlBoosts(fa.effectText(), typeEn).isEmpty()) return true;
+        return false;
+    }
 
     private static CardData buildSource(ResultSet rs, String textEn) throws Exception {
         return new CardData(
@@ -130,14 +144,25 @@ public class FieldAbilityParsingTest {
     private static String formatCardExample(String name, List<FieldAbility> abilities, CardData source) {
         StringBuilder sb = new StringBuilder();
         sb.append("  Card: ").append(name).append('\n');
+        String typeEn = source.type();
         for (FieldAbility fa : abilities) {
-            boolean ok   = ActionResolver.parse(fa.effectText(), source) != null;
-            String  desc = ActionResolver.fullDescription(fa.effectText(), source);
+            boolean ok   = isFieldAbilityRecognized(fa, source, typeEn);
+            String  desc = describeFieldAbility(fa, source, typeEn);
             sb.append("  [").append(ok ? "OK" : "--").append("] ")
               .append(fa.effectText()).append(dmgTag(fa.damageThreshold())).append('\n');
             sb.append("       ").append(desc != null ? desc : "(none)").append('\n');
         }
         return sb.toString();
+    }
+
+    private static String describeFieldAbility(FieldAbility fa, CardData source, String typeEn) {
+        String desc = ActionResolver.fullDescription(fa.effectText(), source);
+        if (desc != null) return desc;
+        List<FieldPowerGrant> grants = CardData.parseFieldPowerGrants(fa.effectText(), typeEn);
+        if (!grants.isEmpty()) return "FieldPowerGrant " + grants;
+        List<IfControlBoost> boosts = CardData.parseIfControlBoosts(fa.effectText(), typeEn);
+        if (!boosts.isEmpty()) return "IfControlBoost " + boosts;
+        return null;
     }
 
     private static String dmgTag(int threshold) {

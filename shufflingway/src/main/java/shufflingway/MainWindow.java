@@ -7958,9 +7958,11 @@ public class MainWindow {
 				boolean found = fwds.stream().anyMatch(c -> c.name().equalsIgnoreCase(name))
 						|| mons.stream().anyMatch(c -> c.name().equalsIgnoreCase(name));
 				if (!found) for (CardData bkp : bkps) if (bkp != null && bkp.name().equalsIgnoreCase(name)) { found = true; break; }
-				if (!found) return false;
+				if (cond.anyOf()) {
+					if (found) return true;
+				} else if (!found) return false;
 			}
-			return true;
+			return !cond.anyOf();
 		}
 
 		// Count mode: collect field cards that match the type filter
@@ -8055,11 +8057,25 @@ public class MainWindow {
 	}
 
 	private boolean icbSourceGrantsImmunity(CardData src, String targetName, boolean isP1, boolean forSummon) {
+		List<CardData> fwds = isP1 ? p1ForwardCards : p2ForwardCards;
+		CardData[]     bkps = isP1 ? p1BackupCards  : p2BackupCards;
+		List<CardData> mons = isP1 ? p1MonsterCards : p2MonsterCards;
 		for (IfControlBoost icb : src.ifControlBoosts()) {
-			if (!icb.targetCardName().equalsIgnoreCase(targetName)) continue;
 			if (forSummon ? !icb.cannotBeChosenBySummons() : !icb.cannotBeChosenByAbilities()) continue;
+			if (!icbTargetsName(icb, targetName, fwds, bkps, mons)) continue;
 			if (icbConditionsMet(icb, isP1)) return true;
 		}
+		return false;
+	}
+
+	private static boolean icbTargetsName(IfControlBoost icb, String targetName,
+			List<CardData> fwds, CardData[] bkps, List<CardData> mons) {
+		if (icb.targetFilter() == null) {
+			return icb.targetCardName().equalsIgnoreCase(targetName);
+		}
+		for (CardData c : fwds) if (targetName.equalsIgnoreCase(c.name()) && icb.appliesToCard(c)) return true;
+		for (CardData c : mons) if (targetName.equalsIgnoreCase(c.name()) && icb.appliesToCard(c)) return true;
+		for (CardData c : bkps) if (c != null && targetName.equalsIgnoreCase(c.name()) && icb.appliesToCard(c)) return true;
 		return false;
 	}
 
@@ -8106,7 +8122,7 @@ public class MainWindow {
 	private int fieldBoostContribution(CardData src, CardData target, boolean isP1) {
 		int boost = 0;
 		for (IfControlBoost icb : src.ifControlBoosts())
-			if (icb.targetCardName().equalsIgnoreCase(target.name()) && icbConditionsMet(icb, isP1))
+			if (icb.appliesToCard(target) && icbConditionsMet(icb, isP1))
 				boost += icb.powerBonus();
 		for (FieldPowerGrant fpg : src.fieldPowerGrants())
 			if (!fpg.affectsOpponent() && fpg.appliesToCard(target))
@@ -8210,7 +8226,7 @@ public class MainWindow {
 	private void collectFieldTraits(CardData src, CardData target, boolean isP1,
 			EnumSet<CardData.Trait> out) {
 		for (IfControlBoost icb : src.ifControlBoosts())
-			if (icb.targetCardName().equalsIgnoreCase(target.name()) && icbConditionsMet(icb, isP1))
+			if (icb.appliesToCard(target) && icbConditionsMet(icb, isP1))
 				out.addAll(icb.grantedTraits());
 		for (FieldPowerGrant fpg : src.fieldPowerGrants())
 			if (!fpg.affectsOpponent() && fpg.appliesToCard(target))

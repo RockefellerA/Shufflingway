@@ -1086,11 +1086,17 @@ public record CardData(
     );
 
     /**
-     * Named-card mode: "Card Name X [and [a] Card Name Y [and [a] Card Name Z]]"
+     * Named-card mode: "Card Name X [<conj> [a] Card Name Y [<conj> [a] Card Name Z]]"
+     * where {@code conj} is {@code and} (AND semantics) or {@code or} (OR semantics).
      * The optional "a" article is allowed before each name (including subsequent ones).
+     * Mixing conjunctions ("Card Name X and Card Name Y or Card Name Z") is parsed but
+     * treated as homogeneous — the {@code conj1} group's value wins.
      */
     private static final Pattern CONTROL_NAMED_CARDS_PATTERN = Pattern.compile(
-        "(?i)(?:a\\s+)?Card\\s+Name\\s+(?<n1>.+?)(?:\\s+and\\s+(?:a\\s+)?Card\\s+Name\\s+(?<n2>.+?))?(?:\\s+and\\s+(?:a\\s+)?Card\\s+Name\\s+(?<n3>.+?))?\\s*$"
+        "(?i)(?:a\\s+)?Card\\s+Name\\s+(?<n1>.+?)" +
+        "(?:\\s+(?<conj1>and|or)\\s+(?:a\\s+)?Card\\s+Name\\s+(?<n2>.+?))?" +
+        "(?:\\s+(?:and|or)\\s+(?:a\\s+)?Card\\s+Name\\s+(?<n3>.+?))?" +
+        "\\s*$"
     );
 
     /**
@@ -1620,6 +1626,22 @@ public record CardData(
     /** Extracts quoted special ability text from an effects substring. */
     private static final Pattern IF_CTRL_EFFECT_QUOTED = Pattern.compile("\"([^\"]+)\"");
 
+    /**
+     * Target-side filter matcher for {@link IfControlBoost}: parses a target phrase like
+     * "the Category IV Forwards you control" or "the Forwards other than Ashe you control"
+     * into a {@link FieldPowerGrant}-shaped filter (zero power; the power/traits come from
+     * the outer effects clause).  Returns {@code null} when the phrase looks like a literal
+     * card name rather than a filter.
+     */
+    private static final Pattern ICB_TARGET_FILTER_PATTERN = Pattern.compile(
+        "(?i)^the\\s+" +
+        "(?:Job\\s+(?<job>[A-Za-z][A-Za-z\\s''\\-]*?)(?=\\s+Forwards?|\\s+Backups?|\\s+Monsters?|\\s+Characters?|\\s+other\\s+than|\\s+you)|" +
+        "Category\\s+(?<category>\\S+))?\\s*" +
+        "(?<targets>Forwards?(?:\\s+and\\s+Monsters?)?|Backups?|Monsters?|Characters?)\\s*" +
+        "(?:other\\s+than\\s+(?<except>[A-Z][A-Za-z''\\-]+(?:\\s+[A-Za-z''\\-]+)*)\\s+)?" +
+        "you\\s+control\\s*$"
+    );
+
     // Simple keyword matchers for effect substrings (not positional like the card-text trait patterns)
     private static final Pattern ICB_EFFECT_HASTE             = Pattern.compile("(?i)\\bHaste\\b");
     private static final Pattern ICB_EFFECT_BRAVE             = Pattern.compile("(?i)\\bBrave\\b");
@@ -1691,10 +1713,33 @@ public record CardData(
             if (powerBonus == 0 && traits.isEmpty() && specialText.isEmpty()
                     && !noChooseSummons && !noChooseAbilits) continue;
 
-            result.add(new IfControlBoost(conditions, exceptName, targetName, powerBonus, traits, specialText,
-                    noChooseSummons, noChooseAbilits));
+            FieldPowerGrant targetFilter = parseIcbTargetFilter(targetName);
+            result.add(new IfControlBoost(conditions, exceptName, targetName, targetFilter,
+                    powerBonus, traits, specialText, noChooseSummons, noChooseAbilits));
         }
         return List.copyOf(result);
+    }
+
+    /**
+     * Parses an {@link IfControlBoost} target phrase like "the Category IV Forwards you control"
+     * into a filter-shaped {@link FieldPowerGrant} (zero power; power/traits come from the outer
+     * effects clause).  Returns {@code null} when the phrase is a literal card name.
+     */
+    private static FieldPowerGrant parseIcbTargetFilter(String targetPhrase) {
+        if (targetPhrase == null) return null;
+        Matcher m = ICB_TARGET_FILTER_PATTERN.matcher(targetPhrase.trim());
+        if (!m.matches()) return null;
+        String job      = m.group("job");
+        String category = m.group("category");
+        String except   = m.group("except");
+        int[] incl = parseFieldGrantTargetFlags(m.group("targets"));
+        return new FieldPowerGrant(
+                job != null ? job.trim() : null,
+                category,
+                incl[0] != 0, incl[1] != 0, incl[2] != 0,
+                except != null ? except.trim() : null,
+                0,
+                EnumSet.noneOf(Trait.class));
     }
 
     // -------------------------------------------------------------------------
@@ -1717,11 +1762,13 @@ public record CardData(
     );
 
     /**
-     * Matches the bare same-side grant "The Forwards?|Backups?|Monsters?|Characters? you control
-     * gain +N power" (no Job/Category prefix). Companion to {@link #FIELD_GRANT_PATTERN}.
+     * Matches the bare same-side grant "The Forwards?|Backups?|Monsters?|Characters?
+     * [other than Z] you control gain +N power" (no Job/Category prefix).
+     * Companion to {@link #FIELD_GRANT_PATTERN}.
      */
     private static final Pattern FIELD_GRANT_BARE_PATTERN = Pattern.compile(
         "(?i)^The\\s+(?<targets>Forwards?(?:\\s+and\\s+Monsters?)?|Backups?|Monsters?|Characters?)\\s+" +
+        "(?:other\\s+than\\s+(?<except>[A-Z][A-Za-z''\\-]+(?:\\s+[A-Za-z''\\-]+)*)\\s+)?" +
         "you\\s+control\\s+gains?\\s+\\+(?<power>\\d+)\\s+power[.!]?$"
     );
 
@@ -1759,8 +1806,10 @@ public record CardData(
             Matcher bareM = FIELD_GRANT_BARE_PATTERN.matcher(seg);
             if (bareM.matches()) {
                 int[] incl = parseFieldGrantTargetFlags(bareM.group("targets"));
+                String bareExcept = bareM.group("except");
                 result.add(new FieldPowerGrant(null, null, incl[0] != 0, incl[1] != 0, incl[2] != 0,
-                        null, Integer.parseInt(bareM.group("power")),
+                        bareExcept != null ? bareExcept.trim() : null,
+                        Integer.parseInt(bareM.group("power")),
                         EnumSet.noneOf(Trait.class), false));
                 continue;
             }
@@ -2765,7 +2814,8 @@ public record CardData(
             if (namedM.group("n1") != null) names.add(stripTrailingType(namedM.group("n1")));
             if (namedM.group("n2") != null) names.add(stripTrailingType(namedM.group("n2")));
             if (namedM.group("n3") != null) names.add(stripTrailingType(namedM.group("n3")));
-            return new ControlCondition(names, 0, false, null, null, null, null, 0, List.of());
+            boolean anyOf = "or".equalsIgnoreCase(namedM.group("conj1"));
+            return new ControlCondition(names, 0, false, null, null, null, null, 0, List.of(), anyOf);
         }
 
         // Count mode: "[N or more | only N | a] [element] [Category X] [Job name] [type] [of power P or more] [or Card Name X]"
