@@ -116,6 +116,7 @@ class LookAtDeckDialogs {
             case ADD_TO_HAND_ONE_TO_BREAK_REST_BOTTOM -> showAddToHandOneToBreakRestBottom(peeked, deck, isP1);
             case ADD_TO_HAND_REST_BREAK          -> showAddToHandRestBreak(peeked, deck, isP1);
             case TOP_OR_BOTTOM_ORDERED           -> showTopOrBottom(peeked, deck, isP1);
+            case PICK_ONE_TOP_REST_BOTTOM        -> showPickOneTopRestBottom(peeked, deck, isP1);
         }
     }
 
@@ -1135,6 +1136,107 @@ class LookAtDeckDialogs {
         }
         if (isP1) cb.refreshP1Deck().run();
         else      cb.refreshP2Deck().run();
+    }
+
+    /**
+     * "Look at N cards. Put 1 on top of your deck and the other(s) to the bottom."
+     *
+     * <p>Player picks exactly one card to remain on top.  All other peeked cards go to the
+     * bottom of the deck in the order they were peeked.  For the canonical N=2 form there is
+     * one binary choice; for N=1 the only card stays on top with no UI prompt.
+     */
+    private void showPickOneTopRestBottom(List<CardData> cards, Deque<CardData> deck, boolean isP1) {
+        int n = cards.size();
+
+        // Pop the peeked cards off the deck up front; we'll push them back in the chosen order.
+        for (int i = 0; i < n; i++) deck.pollFirst();
+
+        // Trivial case: only one card peeked — it just stays on top.
+        if (n == 1) {
+            deck.addFirst(cards.get(0));
+            log(cards.get(0).name() + " → top of deck");
+            if (isP1) cb.refreshP1Deck().run(); else cb.refreshP2Deck().run();
+            return;
+        }
+
+        JDialog dlg = new JDialog(frame, "Look — Pick 1 for Top of Deck", true);
+        dlg.setResizable(false);
+        dlg.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
+
+        JButton confirmBtn = new JButton("Confirm");
+        confirmBtn.setFont(FontLoader.loadPixelNESFont(11));
+        confirmBtn.setEnabled(false);
+
+        int[] topIdx = { -1 };
+        javax.swing.JToggleButton[] topBtns = new javax.swing.JToggleButton[n];
+        JLabel[] cardLabels = new JLabel[n];
+
+        JPanel cardsPanel = new JPanel(new FlowLayout(FlowLayout.CENTER, 8, 8));
+        for (int i = 0; i < n; i++) {
+            final int idx = i;
+            JLabel lbl = makeCardLabel(cards.get(i).imageUrl());
+            lbl.addMouseListener(new MouseAdapter() {
+                @Override public void mouseEntered(MouseEvent e) { showZoom(cards.get(idx).imageUrl()); }
+                @Override public void mouseExited(MouseEvent e)  { hideZoom(); }
+            });
+            cardLabels[i] = lbl;
+
+            javax.swing.JToggleButton btn = new javax.swing.JToggleButton("→ Top");
+            btn.setFont(FontLoader.loadPixelNESFont(9));
+            topBtns[i] = btn;
+            btn.addItemListener(ie -> {
+                if (ie.getStateChange() == java.awt.event.ItemEvent.SELECTED) {
+                    for (int j = 0; j < n; j++) if (j != idx && topBtns[j].isSelected()) topBtns[j].setSelected(false);
+                    topIdx[0] = idx;
+                    confirmBtn.setEnabled(true);
+                } else if (topIdx[0] == idx) {
+                    topIdx[0] = -1;
+                    confirmBtn.setEnabled(false);
+                }
+                for (int j = 0; j < n; j++) {
+                    cardLabels[j].setBorder(BorderFactory.createLineBorder(
+                            j == topIdx[0] ? new Color(0, 200, 80) : new Color(160, 110, 220),
+                            j == topIdx[0] ? 3 : 1));
+                }
+            });
+
+            JPanel wrapper = new JPanel(new BorderLayout(0, 2));
+            wrapper.setOpaque(false);
+            wrapper.add(lbl, BorderLayout.CENTER);
+            wrapper.add(btn, BorderLayout.SOUTH);
+            cardsPanel.add(wrapper);
+        }
+
+        JLabel instructions = new JLabel(
+                "Pick exactly 1 card to put on top of your deck. The rest go to the bottom.",
+                SwingConstants.CENTER);
+        instructions.setFont(FontLoader.loadPixelNESFont(9));
+
+        confirmBtn.addActionListener(ae -> { hideZoom(); dlg.dispose(); });
+
+        JPanel south = new JPanel(new BorderLayout(0, 2));
+        south.add(instructions, BorderLayout.NORTH);
+        JPanel btnRow = new JPanel(new FlowLayout(FlowLayout.CENTER, 12, 6));
+        btnRow.add(confirmBtn);
+        south.add(btnRow, BorderLayout.SOUTH);
+
+        dlg.getContentPane().setLayout(new BorderLayout(0, 4));
+        dlg.getContentPane().add(cardsPanel, BorderLayout.CENTER);
+        dlg.getContentPane().add(south,      BorderLayout.SOUTH);
+        dlg.pack();
+        dlg.setLocationRelativeTo(frame);
+        dlg.setVisible(true);
+
+        int chosen = topIdx[0] >= 0 ? topIdx[0] : 0;
+        CardData topCard = cards.get(chosen);
+        deck.addFirst(topCard);
+        log(topCard.name() + " → top of deck");
+        for (int i = 0; i < n; i++) {
+            if (i == chosen) continue;
+            deck.addLast(cards.get(i));
+            log(cards.get(i).name() + " → bottom of deck");
+        }
+        if (isP1) cb.refreshP1Deck().run(); else cb.refreshP2Deck().run();
     }
 
     // ── Shared helpers ──────────────────────────────────────────────────────────

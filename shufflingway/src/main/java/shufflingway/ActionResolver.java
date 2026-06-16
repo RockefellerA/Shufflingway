@@ -2122,6 +2122,20 @@ public class ActionResolver {
     );
 
     /**
+     * Matches "Look at the top N cards of your deck. Put 1 card among them on top of your
+     * deck and the other(s) to the bottom of your deck."
+     * Strict 1-to-top, rest-to-bottom split.
+     * <ul>
+     *   <li>Group {@code count} — number of cards to look at</li>
+     * </ul>
+     */
+    private static final Pattern LOOK_TOP_DECK_PICK_ONE_TOP_REST_BOTTOM = Pattern.compile(
+        "(?i)Look\\s+at\\s+the\\s+top\\s+(?<count>\\d+)\\s+cards?\\s+of\\s+your\\s+deck[.!]?\\s*" +
+        "Put\\s+1\\s+card\\s+among\\s+them\\s+on\\s+top\\s+of\\s+your\\s+deck\\s+and\\s+" +
+        "the\\s+others?\\s+to\\s+the\\s+bottom\\s+of\\s+your\\s+deck[.!]?"
+    );
+
+    /**
      * Catch-all: matches any bare "Look at the top [N cards / card] of your deck" with no
      * further action clause — treated as a pure peek (card stays on top, player just sees it).
      * <ul>
@@ -2897,6 +2911,9 @@ public class ActionResolver {
         result = tryParseLookTopDeckReturnTopOrdered(effectText);
         if (result != null) return result;
 
+        result = tryParseLookTopDeckPickOneTopRestBottom(effectText);
+        if (result != null) return result;
+
         result = tryParseLookTopDeckPeek(effectText);
         if (result != null) return result;
 
@@ -3089,6 +3106,7 @@ public class ActionResolver {
         if (tryParseLookTopDeckAddToHandRestBreak(effectText)           != null) return "LookTopDeckAddToHandRestBreak";
         if (tryParseLookTopDeckTopOrBottom(effectText)                  != null) return "LookTopDeckTopOrBottom";
         if (tryParseLookTopDeckReturnTopOrdered(effectText)             != null) return "LookTopDeckReturnTopOrdered";
+        if (tryParseLookTopDeckPickOneTopRestBottom(effectText)         != null) return "LookTopDeckPickOneTopRestBottom";
         if (tryParseLookTopDeckPeek(effectText)                         != null) return "LookTopDeckPeek";
         if (tryParseRemoveTopOfDeckFromGame(effectText)                  != null) return "RemoveTopOfDeckFromGame";
         if (tryParseShuffleDeck(effectText)                              != null) return "ShuffleDeck";
@@ -3386,6 +3404,7 @@ public class ActionResolver {
         if (tryParseLookTopDeckAddToHandRestBreak(effectText)           != null) return "LookTopDeckAddToHandRestBreak";
         if (tryParseLookTopDeckTopOrBottom(effectText)                  != null) return "LookTopDeckTopOrBottom";
         if (tryParseLookTopDeckReturnTopOrdered(effectText)             != null) return "LookTopDeckReturnTopOrdered";
+        if (tryParseLookTopDeckPickOneTopRestBottom(effectText)         != null) return "LookTopDeckPickOneTopRestBottom";
         if (tryParseLookTopDeckPeek(effectText)                         != null) return "LookTopDeckPeek";
         if (tryParseRemoveTopOfDeckFromGame(effectText)                  != null) return "RemoveTopOfDeckFromGame";
         if (tryParseShuffleDeck(effectText)                              != null) return "ShuffleDeck";
@@ -8428,6 +8447,16 @@ public class ActionResolver {
         return ctx -> {
             ctx.logEntry("Effect: Look at top " + count + " card(s) — return to top or bottom in any order");
             ctx.lookAtTopDeck(new LookConfig(count, LookConfig.LookAction.TOP_OR_BOTTOM_ORDERED));
+        };
+    }
+
+    private static Consumer<GameContext> tryParseLookTopDeckPickOneTopRestBottom(String text) {
+        java.util.regex.Matcher m = LOOK_TOP_DECK_PICK_ONE_TOP_REST_BOTTOM.matcher(text);
+        if (!m.find()) return null;
+        int count = Integer.parseInt(m.group("count"));
+        return ctx -> {
+            ctx.logEntry("Effect: Look at top " + count + " card(s) — pick 1 on top, rest to bottom");
+            ctx.lookAtTopDeck(new LookConfig(count, LookConfig.LookAction.PICK_ONE_TOP_REST_BOTTOM));
         };
     }
 

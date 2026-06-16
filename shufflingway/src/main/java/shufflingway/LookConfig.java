@@ -50,5 +50,13 @@ public record LookConfig(int count, LookConfig.LookAction action, String element
          * any unassigned cards to the top when it expires.
          */
         TOP_OR_BOTTOM_ORDERED,
+
+        /**
+         * View N cards; the player picks exactly 1 to put on top of the deck.  All
+         * remaining cards go to the bottom of the deck (order preserved from the peek).
+         * For the canonical N=2 form this is just "pick which one stays on top; the
+         * other goes to the bottom."
+         */
+        PICK_ONE_TOP_REST_BOTTOM,
     }
 }
