@@ -683,13 +683,31 @@ public class ActionResolver {
     );
 
     /**
-     * "At the beginning of your Main Phase 1, select 1 Element. &lt;CardName&gt; becomes that Element."
-     * Group {@code name} is the card whose element changes.
+     * "At the beginning|start of your Main Phase 1[ each turn etc.], &lt;effect&gt;"
+     * Group {@code inner} captures the effect text after the trigger comma.  Modeled on
+     * {@link #AT_END_OF_EACH_TURN_FA_PATTERN} — the inner effect is dispatched through
+     * the full {@link #parse} chain so any supported effect can follow the trigger.
      */
-    static final Pattern AT_BEGINNING_OF_MAIN_PHASE_1_ELEMENT_CHANGE_PATTERN = Pattern.compile(
-        "(?i)At\\s+the\\s+beginning\\s+of\\s+your\\s+Main\\s+Phase\\s+1,\\s+select\\s+1\\s+Element\\.\\s+" +
+    static final Pattern AT_BEGINNING_OF_MAIN_PHASE_1_FA_PATTERN = Pattern.compile(
+        "(?i)At\\s+the\\s+(?:beginning|start)\\s+of\\s+your\\s+Main\\s+Phase\\s+1\\b[^,]*,\\s+(?<inner>.+)"
+    );
+
+    /** Same as {@link #AT_BEGINNING_OF_MAIN_PHASE_1_FA_PATTERN} but for Main Phase 2. */
+    static final Pattern AT_BEGINNING_OF_MAIN_PHASE_2_FA_PATTERN = Pattern.compile(
+        "(?i)At\\s+the\\s+(?:beginning|start)\\s+of\\s+your\\s+Main\\s+Phase\\s+2\\b[^,]*,\\s+(?<inner>.+)"
+    );
+
+    /**
+     * "Select 1 Element. &lt;CardName&gt; becomes that Element[ (this effect does not end at the
+     * end of the turn)]." Group {@code name} is the card whose element changes; the
+     * trailing parenthetical, when present, marks this as a permanent override.  Used by
+     * {@link #tryParseElementChange}, which also checks {@code source.name()} matches
+     * {@code name} so this parser cannot fire on an unrelated card.
+     */
+    static final Pattern ELEMENT_CHANGE_PATTERN = Pattern.compile(
+        "(?i)^\\s*select\\s+1\\s+Element\\.\\s+" +
         "(?<name>[A-Z][A-Za-z''\\-\\s]+?)\\s+becomes\\s+that\\s+Element" +
-        "(?:\\s*\\(this\\s+effect\\s+does\\s+not\\s+end\\s+at\\s+the\\s+end\\s+of\\s+the\\s+turn\\))?\\s*\\.?"
+        "(?:\\s*\\(this\\s+effect\\s+does\\s+not\\s+end\\s+at\\s+the\\s+end\\s+of\\s+the\\s+turn\\))?\\s*\\.?\\s*$"
     );
 
     /** All eight FFTCG element names, in standard order. */
@@ -2591,6 +2609,12 @@ public class ActionResolver {
         result = tryParseBeginningOfMainPhase1FieldAbility(effectText, source);
         if (result != null) return result;
 
+        result = tryParseBeginningOfMainPhase2FieldAbility(effectText, source);
+        if (result != null) return result;
+
+        result = tryParseElementChange(effectText, source);
+        if (result != null) return result;
+
         result = tryParseDelayedEffect(effectText);
         if (result != null) return result;
 
@@ -2966,8 +2990,14 @@ public class ActionResolver {
         if (tryParseDealPowerMinusNDamageToForwards(effectText)         != null) return "DealPowerMinusNDamageToForwards";
         if (tryParseDealHalfSourcePowerDamageToForwards(effectText)     != null) return "DealHalfSourcePowerDamageToForwards";
         if (tryParseDamageToCombatBlocker(effectText)                   != null) return "DamageToCombatBlocker";
+        // Trigger parsers checked before ChooseCharacter so coverage diagnostics report the
+        // trigger name rather than the inner effect (ChooseCharacter uses find() and would
+        // otherwise match the inner "choose 1 Forward..." through the trigger prefix).
+        if (tryParseBeginningOfMainPhase1FieldAbility(effectText, source) != null) return "BeginningOfMainPhase1FieldAbility";
+        if (tryParseBeginningOfMainPhase2FieldAbility(effectText, source) != null) return "BeginningOfMainPhase2FieldAbility";
         if (tryParseChooseCharacter(effectText, source, 0)              != null) return "ChooseCharacter";
         if (tryParseEndOfEachTurnFieldAbility(effectText, source) != null) return "EndOfEachTurnFieldAbility";
+        if (tryParseElementChange(effectText, source) != null) return "ElementChange";
         if (tryParseDelayedEffect(effectText)                 != null) return "DelayedEffect";
         if (tryParseCannotBeChosenStandalone(effectText, source) != null) return "CannotBeChosen";
         if (tryParseNegateAllDamage(effectText)                != null) return "NegateDamage";
@@ -7950,13 +7980,35 @@ public class ActionResolver {
     }
 
     /**
-     * Parses "At the beginning of your Main Phase 1, select 1 Element. [CardName] becomes that
-     * Element." — a recurring field-ability trigger.  Returns a consumer that prompts the player
-     * to select an element and applies a permanent override via {@link GameContext#setCardElement};
+     * Parses "At the beginning|start of your Main Phase 1, &lt;effect&gt;" — a recurring
+     * field-ability trigger.  Strips the trigger prefix and dispatches the inner effect
+     * through the full {@link #parse} chain so any supported effect can follow.
      * {@code fireFieldMainPhase1Abilities} is responsible for invoking it each Main Phase 1 start.
      */
     static Consumer<GameContext> tryParseBeginningOfMainPhase1FieldAbility(String text, CardData source) {
-        Matcher m = AT_BEGINNING_OF_MAIN_PHASE_1_ELEMENT_CHANGE_PATTERN.matcher(text);
+        Matcher m = AT_BEGINNING_OF_MAIN_PHASE_1_FA_PATTERN.matcher(text);
+        if (!m.find()) return null;
+        return parse(m.group("inner").trim(), source);
+    }
+
+    /**
+     * Parses "At the beginning|start of your Main Phase 2, &lt;effect&gt;" — same as
+     * {@link #tryParseBeginningOfMainPhase1FieldAbility} but for Main Phase 2.
+     */
+    static Consumer<GameContext> tryParseBeginningOfMainPhase2FieldAbility(String text, CardData source) {
+        Matcher m = AT_BEGINNING_OF_MAIN_PHASE_2_FA_PATTERN.matcher(text);
+        if (!m.find()) return null;
+        return parse(m.group("inner").trim(), source);
+    }
+
+    /**
+     * Parses "select 1 Element. &lt;CardName&gt; becomes that Element[.]" — the named card's
+     * element is permanently overridden via {@link GameContext#setCardElement}.  Returns
+     * {@code null} unless {@code source} is non-null and its name equals the captured name,
+     * preventing accidental matches when this parser appears in the general {@link #parse} chain.
+     */
+    static Consumer<GameContext> tryParseElementChange(String text, CardData source) {
+        Matcher m = ELEMENT_CHANGE_PATTERN.matcher(text);
         if (!m.find()) return null;
         String cardName = m.group("name").trim();
         if (source == null || !cardName.equalsIgnoreCase(source.name())) return null;
