@@ -411,6 +411,7 @@ public class MainWindow {
 	private final Set<String> p1CardsTookDamageThisTurn = new HashSet<>();
 	private final Set<String> p2CardsTookDamageThisTurn = new HashSet<>();
 	private boolean p1ForwardEnteredViaWarpThisTurn = false;
+	private boolean p2ForwardEnteredViaWarpThisTurn = false;
 	private boolean p1TurnOpponentCharReturnedToHand = false;
 	private boolean p2TurnOpponentCharReturnedToHand = false;
 	boolean p1NonLethalProtection   = false;
@@ -1656,7 +1657,7 @@ public class MainWindow {
                             gameState.advancePhase();   // DRAW → MAIN_1
                             refreshPhaseTracker();
                             logEntry("Main Phase 1");
-                            processWarpCounters();
+                            processWarpCounters(true);
                             if (!pendingMainPhase1Effects.isEmpty()) {
                                 List<Consumer<GameContext>> pending = new ArrayList<>(pendingMainPhase1Effects);
                                 pendingMainPhase1Effects.clear();
@@ -2090,16 +2091,27 @@ public class MainWindow {
 			p1RemoveButton.setEnabled(!gameState.getP1WarpZone().isEmpty()
 					|| !gameState.getP1PermanentRfp().isEmpty());
 		if (p2RemoveButton != null)
-			p2RemoveButton.setEnabled(p2RemoveLabel != null && p2RemoveLabel.getUrl() != null);
+			p2RemoveButton.setEnabled(!gameState.getP2WarpZone().isEmpty()
+					|| !gameState.getP2PermanentRfp().isEmpty()
+					|| (p2RemoveLabel != null && p2RemoveLabel.getUrl() != null));
 	}
 
 	/** Updates the P1 RFP label to show the most recently added removed card (warp or permanent). */
-	void refreshP1WarpZoneUI() {
-		List<GameState.WarpEntry> zone = gameState.getP1WarpZone();
-		List<CardData>            perm = gameState.getP1PermanentRfp();
+	void refreshP1WarpZoneUI() { refreshWarpZoneUI(true); }
+
+	/** Updates the P2 RFP label to show the most recently added removed card (warp or permanent). */
+	void refreshP2WarpZoneUI() { refreshWarpZoneUI(false); }
+
+	private void refreshWarpZoneUI(boolean isP1) {
+		List<GameState.WarpEntry> zone = isP1
+				? gameState.getP1WarpZone() : gameState.getP2WarpZone();
+		List<CardData>            perm = isP1
+				? gameState.getP1PermanentRfp() : gameState.getP2PermanentRfp();
+		GrayscaleLabel            label = isP1 ? p1RemoveLabel : p2RemoveLabel;
+		if (label == null) return;
 		if (zone.isEmpty() && perm.isEmpty()) {
-			p1RemoveLabel.setIcon(null);
-			p1RemoveLabel.setUrl(null);
+			label.setIcon(null);
+			label.setUrl(null);
 			refreshRemoveButtons();
 			return;
 		}
@@ -2107,7 +2119,7 @@ public class MainWindow {
 		String url = !perm.isEmpty()
 				? perm.get(perm.size() - 1).imageUrl()
 				: zone.get(zone.size() - 1).card.imageUrl();
-		p1RemoveLabel.setUrl(url);
+		label.setUrl(url);
 		new SwingWorker<ImageIcon, Void>() {
 			@Override protected ImageIcon doInBackground() throws Exception {
 				Image img = ImageCache.load(url);
@@ -2115,7 +2127,7 @@ public class MainWindow {
 						: new ImageIcon(img.getScaledInstance(CARD_W, CARD_H, Image.SCALE_SMOOTH));
 			}
 			@Override protected void done() {
-				try { ImageIcon ic = get(); if (ic != null) { p1RemoveLabel.setIcon(ic); } }
+				try { ImageIcon ic = get(); if (ic != null) { label.setIcon(ic); } }
 				catch (InterruptedException | ExecutionException ignored) {}
 			}
 		}.execute();
@@ -2123,51 +2135,75 @@ public class MainWindow {
 	}
 
 	/**
-	 * Decrements Warp counters on every card in P1's warp zone at the start of Main Phase 1.
-	 * Cards whose counter hits 0 are pushed onto the Stack as auto-abilities and resolved
-	 * to the field.
+	 * Decrements Warp counters on every card in the active player's warp zone at the start
+	 * of their Main Phase 1.  Cards whose counter hits 0 are pushed onto the Stack as
+	 * auto-abilities and resolved to the field.
 	 */
-	private void processWarpCounters() {
-		List<GameState.WarpEntry> zone = gameState.getP1WarpZone();
+	private void processWarpCounters(boolean isP1) {
+		List<GameState.WarpEntry> zone = isP1
+				? gameState.getP1WarpZone() : gameState.getP2WarpZone();
 		if (zone.isEmpty()) return;
 
-		// Log the decrement and fire counter-removed triggers before we tick
+		String tag = isP1 ? "Warp: " : "[P2] Warp: ";
 		for (GameState.WarpEntry entry : zone) {
 			int before = entry.counters;
 			int after  = before - 1;
-			logEntry("Warp: \"" + entry.card.name() + "\" counter " + before + " → " + after
+			logEntry(tag + "\"" + entry.card.name() + "\" counter " + before + " → " + after
 					+ (after == 0 ? " (resolving!)" : ""));
-			autoAbilityTriggers.triggerAutoAbilitiesForWarpCounterRemoved(entry.card);
+			autoAbilityTriggers.triggerAutoAbilitiesForWarpCounterRemoved(entry.card, isP1);
 		}
 
-		List<CardData> resolved = gameState.tickP1WarpCounters();
+		List<CardData> resolved = isP1
+				? gameState.tickP1WarpCounters() : gameState.tickP2WarpCounters();
 		for (CardData card : resolved) {
-			logEntry("Warp: \"" + card.name() + "\" enters play (auto-ability)");
+			logEntry(tag + "\"" + card.name() + "\" enters play (auto-ability)");
 			lastCardWarpedIn = true;
 			try {
 				if (card.isForward()) {
-					placeCardInForwardZone(card);
-					p1ForwardEnteredViaWarpThisTurn = true;
+					if (isP1) {
+						placeCardInForwardZone(card);
+						p1ForwardEnteredViaWarpThisTurn = true;
+					} else {
+						placeP2CardInForwardZone(card);
+						p2ForwardEnteredViaWarpThisTurn = true;
+					}
 				} else if (card.isBackup()) {
-					if (hasAvailableBackupSlot()) placeCardInFirstBackupSlot(card);
-					else {
-						addToP1BreakZone(card);
-						logEntry("  No backup slot — \"" + card.name() + "\" → Break Zone");
+					if (isP1) {
+						if (hasAvailableBackupSlot()) placeCardInFirstBackupSlot(card);
+						else {
+							addToP1BreakZone(card);
+							logEntry("  No backup slot — \"" + card.name() + "\" → Break Zone");
+						}
+					} else {
+						if (hasAvailableP2BackupSlot()) placeP2CardInFirstBackupSlot(card);
+						else {
+							addToP2BreakZone(card);
+							logEntry("  No backup slot — \"" + card.name() + "\" → Break Zone");
+						}
 					}
 				} else if (card.isMonster()) {
-					placeCardInMonsterZone(card);
+					if (isP1) placeCardInMonsterZone(card);
+					else      placeP2CardInMonsterZone(card);
 				}
 			} finally {
 				lastCardWarpedIn = false;
 			}
 		}
-		if (!resolved.isEmpty()) refreshP1BreakLabel();
-		refreshP1WarpZoneUI();
+		if (!resolved.isEmpty()) {
+			if (isP1) refreshP1BreakLabel(); else refreshP2BreakLabel();
+		}
+		if (isP1) refreshP1WarpZoneUI(); else refreshP2WarpZoneUI();
 	}
 
 	private void showRemovedFromPlayDialog(GrayscaleLabel removeLabel, String player) {
-		List<GameState.WarpEntry> warpZone = gameState.getP1WarpZone();
-		List<CardData>            permZone = gameState.getP1PermanentRfp();
+		showRemovedFromPlayDialog(removeLabel, player, "P1".equals(player));
+	}
+
+	private void showRemovedFromPlayDialog(GrayscaleLabel removeLabel, String player, boolean isP1) {
+		List<GameState.WarpEntry> warpZone = isP1
+				? gameState.getP1WarpZone() : gameState.getP2WarpZone();
+		List<CardData>            permZone = isP1
+				? gameState.getP1PermanentRfp() : gameState.getP2PermanentRfp();
 		if (warpZone.isEmpty() && permZone.isEmpty()) return;
 
 		int total = warpZone.size() + permZone.size();
@@ -5987,7 +6023,7 @@ public class MainWindow {
 				yield count >= n ? 1 : 0;
 			}
 		case IF_FORWARD_ENTERED_VIA_WARP_THIS_TURN ->
-				(isP1 ? p1ForwardEnteredViaWarpThisTurn : false) ? 1 : 0;
+				(isP1 ? p1ForwardEnteredViaWarpThisTurn : p2ForwardEnteredViaWarpThisTurn) ? 1 : 0;
 		case IF_N_OR_MORE_JOB_IN_BZ -> {
 				int n    = Integer.parseInt(mod.param1());
 				String job = mod.param2();
@@ -6567,10 +6603,57 @@ public class MainWindow {
 		gameState.addToP1WarpZone(card, card.warpValue());
 		logEntry("Played \"" + card.name() + "\" via Warp — " + card.warpValue()
 				+ " counter" + (card.warpValue() != 1 ? "s" : "") + " → Removed From Play");
-		autoAbilityTriggers.triggerAutoAbilitiesForWarpPlaced(card);
+		autoAbilityTriggers.triggerAutoAbilitiesForWarpPlaced(card, true);
 		refreshP1HandLabel();
 		refreshP1BreakLabel();
 		refreshP1WarpZoneUI();
+	}
+
+	/**
+	 * P2 equivalent of {@link #executeWarpPlay}: pays the Warp alternate cost (dulls P2
+	 * backups, breaks P2 hand cards), removes the card from P2's hand, and places it in
+	 * P2's Removed-From-Play zone with Warp counters.  Caller is responsible for choosing
+	 * which backups/hand cards satisfy the cost.
+	 */
+	void executeP2WarpPlay(CardData card, int cardHandIdx,
+			List<Integer> discardIndices, List<Integer> backupDullIndices,
+			Map<Integer, String> elementOverrides) {
+		List<String> rawCost = card.warpCost();
+		LinkedHashMap<String, Integer> costByElem = new LinkedHashMap<>();
+		for (String e : rawCost) costByElem.merge(e, 1, Integer::sum);
+		String[] elems = costByElem.keySet().toArray(String[]::new);
+
+		for (int bi : backupDullIndices) {
+			p2BackupStates[bi] = CardState.DULL;
+			refreshP2BackupSlot(bi);
+			String cpElem = elementOverrides.containsKey(bi)
+					? elementOverrides.get(bi)
+					: matchesAnyElement(p2BackupCards[bi], elems)
+					? contributingElement(p2BackupCards[bi], elems) : elems[0];
+			gameState.addP2Cp(cpElem, 1);
+		}
+		discardIndices.sort(Collections.reverseOrder());
+		for (int di : discardIndices) {
+			CardData discarded = gameState.getP2Hand().get(di);
+			String cpElem = matchesAnyElement(discarded, elems)
+					? contributingElement(discarded, elems) : elems[0];
+			gameState.addP2Cp(cpElem, 2);
+			playerBreakFromHand(false, di);
+			if (di < cardHandIdx) cardHandIdx--;
+		}
+		for (String e : elems) {
+			gameState.spendP2Cp(e, gameState.getP2CpForElement(e));
+			gameState.clearP2Cp(e);
+		}
+		gameState.removeP2FromHand(cardHandIdx);
+
+		gameState.addToP2WarpZone(card, card.warpValue());
+		logEntry("[P2] Played \"" + card.name() + "\" via Warp — " + card.warpValue()
+				+ " counter" + (card.warpValue() != 1 ? "s" : "") + " → Removed From Play");
+		autoAbilityTriggers.triggerAutoAbilitiesForWarpPlaced(card, false);
+		refreshP2HandCountLabel();
+		refreshP2BreakLabel();
+		refreshP2WarpZoneUI();
 	}
 
 	/** Returns true if at least one P1 backup slot is currently empty. */
@@ -6661,6 +6744,13 @@ public class MainWindow {
 		if (p1BackupLabels == null) return false;
 		for (JLabel slot : p1BackupLabels) {
 			if (slot != null && slot.getIcon() == null) return true;
+		}
+		return false;
+	}
+
+	private boolean hasAvailableP2BackupSlot() {
+		for (CardData slot : p2BackupCards) {
+			if (slot == null) return true;
 		}
 		return false;
 	}
@@ -11463,6 +11553,7 @@ public class MainWindow {
 			p2ForwardsLeftFieldThisTurn = 0;
 			p2ElementForwardsEnteredThisTurn.clear();
 			p2CardsTookDamageThisTurn.clear();
+			p2ForwardEnteredViaWarpThisTurn = false;
 			p2TurnOpponentCharReturnedToHand = false;
 			int activated = 0, thawed = 0;
 
@@ -11956,7 +12047,7 @@ public class MainWindow {
 			gameState.advancePhase(); // DRAW → MAIN_1
 			refreshPhaseTracker();
 			logEntry("Main Phase 1");
-			processWarpCounters();
+			processWarpCounters(false);
 			nextPhaseButton.setEnabled(true);
 		}
 

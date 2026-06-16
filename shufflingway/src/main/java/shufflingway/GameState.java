@@ -79,6 +79,7 @@ public class GameState {
     private final List<CardData>           p1BreakZone       = new ArrayList<>();
     private final List<CardData>           p1DamageZone      = new ArrayList<>();
     private final List<WarpEntry>          p1WarpZone        = new ArrayList<>();
+    private final List<WarpEntry>          p2WarpZone        = new ArrayList<>();
     private final List<CardData>           p1PermanentRfp    = new ArrayList<>();
     private final List<CardData>           p2PermanentRfp    = new ArrayList<>();
     private final Map<String, Integer>     p1CpByElement     = new HashMap<>();
@@ -130,6 +131,7 @@ public class GameState {
         p1BreakZone.clear();
         p1DamageZone.clear();
         p1WarpZone.clear();
+        p2WarpZone.clear();
         p1PermanentRfp.clear();
         p2PermanentRfp.clear();
         p1CpByElement.clear();
@@ -169,8 +171,30 @@ public class GameState {
      * Removes and returns any cards whose counter reached zero.
      */
     public List<CardData> tickP1WarpCounters() {
+        return tickWarpCounters(p1WarpZone);
+    }
+
+    /** Moves a card into P2's Removed-From-Play zone with {@code counters} Warp counters. */
+    public void addToP2WarpZone(CardData card, int counters) {
+        p2WarpZone.add(new WarpEntry(card, counters));
+    }
+
+    /** Returns an unmodifiable view of P2's Warp zone. */
+    public List<WarpEntry> getP2WarpZone() {
+        return Collections.unmodifiableList(p2WarpZone);
+    }
+
+    /**
+     * Decrements the Warp counter of every card in P2's Warp zone by 1.
+     * Removes and returns any cards whose counter reached zero.
+     */
+    public List<CardData> tickP2WarpCounters() {
+        return tickWarpCounters(p2WarpZone);
+    }
+
+    private static List<CardData> tickWarpCounters(List<WarpEntry> zone) {
         List<CardData> resolved = new ArrayList<>();
-        java.util.Iterator<WarpEntry> it = p1WarpZone.iterator();
+        java.util.Iterator<WarpEntry> it = zone.iterator();
         while (it.hasNext()) {
             WarpEntry entry = it.next();
             entry.counters--;

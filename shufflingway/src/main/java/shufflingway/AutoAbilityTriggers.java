@@ -740,41 +740,43 @@ final class AutoAbilityTriggers {
 	}
 
 	/**
-	 * Fires "warp placed" field abilities on all P1 field cards whose {@code triggerCard}
-	 * matches the card that was just moved from hand to the Warp zone.
+	 * Fires "warp placed" field abilities on the warping player's field cards whose
+	 * {@code triggerCard} matches the card that was just moved from hand to the Warp zone.
 	 */
-	void triggerAutoAbilitiesForWarpPlaced(CardData warped) {
+	void triggerAutoAbilitiesForWarpPlaced(CardData warped, boolean isP1) {
 		withBatch(() -> {
 			List<CardData> all = new ArrayList<>();
-			all.addAll(mw.p1ForwardCards);
-			for (CardData c : mw.p1BackupCards) if (c != null) all.add(c);
-			all.addAll(mw.p1MonsterCards);
+			all.addAll(isP1 ? mw.p1ForwardCards : mw.p2ForwardCards);
+			for (CardData c : (isP1 ? mw.p1BackupCards : mw.p2BackupCards)) if (c != null) all.add(c);
+			all.addAll(isP1 ? mw.p1MonsterCards : mw.p2MonsterCards);
 			for (CardData card : all)
 				for (AutoAbility fa : card.autoAbilities())
 					if (fa.trigger().equals("warp placed")
 							&& fa.triggerCard().equalsIgnoreCase(warped.name()))
-						executeAutoAbility(fa, card, true);
+						executeAutoAbility(fa, card, isP1);
 		});
 		mw.showStackWindowIfNeeded();
 	}
 
 	/**
-	 * Fires "warp counter removed" field abilities on all P1 field cards whose
-	 * {@code triggerCard} matches the card whose counter was just decremented.
+	 * Fires "warp counter removed" field abilities on the warping player's field cards (and
+	 * their own warp-zone residents) whose {@code triggerCard} matches the card whose counter
+	 * was just decremented.
 	 */
-	void triggerAutoAbilitiesForWarpCounterRemoved(CardData target) {
+	void triggerAutoAbilitiesForWarpCounterRemoved(CardData target, boolean isP1) {
 		withBatch(() -> {
 			List<CardData> all = new ArrayList<>();
-			List<GameState.WarpEntry> warpZone = mw.gameState.getP1WarpZone();
-			all.addAll(mw.p1ForwardCards);
-			for (CardData c : mw.p1BackupCards) if (c != null) all.add(c);
+			List<GameState.WarpEntry> warpZone = isP1
+					? mw.gameState.getP1WarpZone() : mw.gameState.getP2WarpZone();
+			all.addAll(isP1 ? mw.p1ForwardCards : mw.p2ForwardCards);
+			for (CardData c : (isP1 ? mw.p1BackupCards : mw.p2BackupCards)) if (c != null) all.add(c);
 			for (GameState.WarpEntry we : warpZone) if (we != null) all.add(we.card);
-			all.addAll(mw.p1MonsterCards);
+			all.addAll(isP1 ? mw.p1MonsterCards : mw.p2MonsterCards);
 			for (CardData card : all)
 				for (AutoAbility fa : card.autoAbilities())
 					if (fa.trigger().equals("warp counter removed")
 							&& (fa.triggerCard().equalsIgnoreCase("any player's card") || fa.triggerCard().equalsIgnoreCase(target.name())))
-						executeAutoAbility(fa, card, true);
+						executeAutoAbility(fa, card, isP1);
 		});
 		mw.showStackWindowIfNeeded();
 	}
@@ -846,10 +848,12 @@ final class AutoAbilityTriggers {
 		// "only if [card] is removed from the game" — skip if that card is not in the RFP zone
 		if (!fa.rfpConditionCard().isEmpty()) {
 			String cond = fa.rfpConditionCard();
-			boolean inRfp = mw.gameState.getP1WarpZone().stream()
-					.anyMatch(e -> e.card.name().equalsIgnoreCase(cond))
-					|| mw.gameState.getP1PermanentRfp().stream()
-					.anyMatch(c -> c.name().equalsIgnoreCase(cond));
+			List<GameState.WarpEntry> warpZone = isP1
+					? mw.gameState.getP1WarpZone() : mw.gameState.getP2WarpZone();
+			List<CardData> permRfp = isP1
+					? mw.gameState.getP1PermanentRfp() : mw.gameState.getP2PermanentRfp();
+			boolean inRfp = warpZone.stream().anyMatch(e -> e.card.name().equalsIgnoreCase(cond))
+					|| permRfp.stream().anyMatch(c -> c.name().equalsIgnoreCase(cond));
 			if (!inRfp) return;
 		}
 
