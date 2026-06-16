@@ -192,6 +192,13 @@ public interface GameContext {
     void revealTopDeckCard(List<RevealClause> clauses, boolean opponentDeck);
 
     /**
+     * Each player reveals the top card of their deck. Each player whose revealed card satisfies
+     * {@code eligibleCondition} may play it onto the field; otherwise it is returned to the top
+     * of their deck. P1 gets a Decline/OK dialog; P2 auto-accepts.
+     */
+    void revealEachPlayerTopDeckMayPlay(java.util.function.Predicate<CardData> eligibleCondition);
+
+    /**
      * Lets P1 choose one eligible card from their hand and places it onto the field
      * without paying costs.
      *

@@ -1375,6 +1375,145 @@ final class GameContextImpl implements GameContext {
 				if (opponentDeck) mw.refreshP2DeckLabel(); else mw.refreshP1DeckLabel();
 			}
 
+			@Override public void revealEachPlayerTopDeckMayPlay(java.util.function.Predicate<CardData> eligibleCondition) {
+				// --- P1 reveal ---
+				Deque<CardData> p1Deck = mw.gameState.getP1MainDeck();
+				if (p1Deck.isEmpty()) {
+					logEntry("Reveal: P1's deck is empty.");
+				} else {
+					CardData p1Card = p1Deck.pollFirst();
+					mw.refreshP1DeckLabel();
+					logEntry("P1 revealed: " + p1Card.name() + " (" + p1Card.type() + ")");
+					boolean p1Eligible = eligibleCondition.test(p1Card);
+					boolean[] p1Play = {false};
+					JDialog p1Dlg = new JDialog(mw.frame, "P1 Reveal", true);
+					p1Dlg.setResizable(false);
+					p1Dlg.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
+					JLabel p1CardLabel = new JLabel("...", SwingConstants.CENTER);
+					p1CardLabel.setPreferredSize(new Dimension(CARD_W, CARD_H));
+					p1CardLabel.setOpaque(true);
+					p1CardLabel.setBackground(Color.DARK_GRAY);
+					p1CardLabel.setBorder(BorderFactory.createLineBorder(new Color(160, 110, 220), 1));
+					p1CardLabel.addMouseListener(new MouseAdapter() {
+						@Override public void mouseEntered(MouseEvent e) { mw.showZoomAt(p1Card.imageUrl()); }
+						@Override public void mouseExited(MouseEvent e)  { mw.hideZoom(); }
+					});
+					new SwingWorker<ImageIcon, Void>() {
+						@Override protected ImageIcon doInBackground() throws Exception {
+							Image img = ImageCache.load(p1Card.imageUrl());
+							return img == null ? null : new ImageIcon(img.getScaledInstance(CARD_W, CARD_H, Image.SCALE_SMOOTH));
+						}
+						@Override protected void done() {
+							try { ImageIcon icon = get(); if (icon != null) { p1CardLabel.setIcon(icon); p1CardLabel.setText(null); } }
+							catch (InterruptedException | ExecutionException ignored) {}
+						}
+					}.execute();
+					JPanel p1Wrapper = new JPanel(new BorderLayout(0, 4));
+					p1Wrapper.setBorder(BorderFactory.createEmptyBorder(8, 8, 0, 8));
+					JLabel p1NameLabel = new JLabel(p1Card.name(), SwingConstants.CENTER);
+					p1NameLabel.setFont(FontLoader.loadPixelNESFont(9));
+					p1NameLabel.setPreferredSize(new Dimension(CARD_W, 18));
+					p1Wrapper.add(p1CardLabel, BorderLayout.CENTER);
+					p1Wrapper.add(p1NameLabel, BorderLayout.SOUTH);
+					JPanel p1South = new JPanel(new FlowLayout(FlowLayout.CENTER, 12, 6));
+					p1South.setBorder(BorderFactory.createEmptyBorder(0, 8, 8, 8));
+					if (p1Eligible) {
+						JButton declineBtn = new JButton("Decline");
+						declineBtn.setFont(FontLoader.loadPixelNESFont(11));
+						declineBtn.addActionListener(ae -> { mw.hideZoom(); p1Dlg.dispose(); });
+						JButton okBtn = new JButton("Play onto field");
+						okBtn.setFont(FontLoader.loadPixelNESFont(11));
+						okBtn.addActionListener(ae -> { p1Play[0] = true; mw.hideZoom(); p1Dlg.dispose(); });
+						p1South.add(declineBtn);
+						p1South.add(okBtn);
+					} else {
+						JButton okBtn = new JButton("OK");
+						okBtn.setFont(FontLoader.loadPixelNESFont(11));
+						okBtn.addActionListener(ae -> { mw.hideZoom(); p1Dlg.dispose(); });
+						p1South.add(okBtn);
+					}
+					p1Dlg.getContentPane().setLayout(new BorderLayout(0, 4));
+					p1Dlg.getContentPane().add(p1Wrapper, BorderLayout.CENTER);
+					p1Dlg.getContentPane().add(p1South,   BorderLayout.SOUTH);
+					p1Dlg.pack();
+					p1Dlg.setLocationRelativeTo(mw.frame);
+					p1Dlg.setVisible(true);
+					if (p1Eligible && p1Play[0]) {
+						logEntry("P1 plays " + p1Card.name() + " onto field from reveal");
+						if (p1Card.isBackup())       mw.placeCardInFirstBackupSlot(p1Card);
+						else if (p1Card.isMonster()) mw.placeCardInMonsterZone(p1Card);
+						else                         mw.placeCardInForwardZone(p1Card);
+					} else {
+						logEntry("P1 returns " + p1Card.name() + " to top of deck");
+						p1Deck.addFirst(p1Card);
+					}
+					mw.refreshP1DeckLabel();
+				}
+
+				// --- P2 reveal ---
+				Deque<CardData> p2Deck = mw.gameState.getP2MainDeck();
+				if (p2Deck.isEmpty()) {
+					logEntry("Reveal: P2's deck is empty.");
+				} else {
+					CardData p2Card = p2Deck.pollFirst();
+					mw.refreshP2DeckLabel();
+					boolean p2Eligible = eligibleCondition.test(p2Card);
+					logEntry("P2 revealed: " + p2Card.name() + " (" + p2Card.type() + ")"
+							+ (p2Eligible ? " — plays onto field" : " — returned to deck"));
+					JDialog p2Dlg = new JDialog(mw.frame, "P2 Reveal", true);
+					p2Dlg.setResizable(false);
+					p2Dlg.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
+					JLabel p2CardLabel = new JLabel("...", SwingConstants.CENTER);
+					p2CardLabel.setPreferredSize(new Dimension(CARD_W, CARD_H));
+					p2CardLabel.setOpaque(true);
+					p2CardLabel.setBackground(Color.DARK_GRAY);
+					p2CardLabel.setBorder(BorderFactory.createLineBorder(new Color(160, 110, 220), 1));
+					p2CardLabel.addMouseListener(new MouseAdapter() {
+						@Override public void mouseEntered(MouseEvent e) { mw.showZoomAt(p2Card.imageUrl()); }
+						@Override public void mouseExited(MouseEvent e)  { mw.hideZoom(); }
+					});
+					new SwingWorker<ImageIcon, Void>() {
+						@Override protected ImageIcon doInBackground() throws Exception {
+							Image img = ImageCache.load(p2Card.imageUrl());
+							return img == null ? null : new ImageIcon(img.getScaledInstance(CARD_W, CARD_H, Image.SCALE_SMOOTH));
+						}
+						@Override protected void done() {
+							try { ImageIcon icon = get(); if (icon != null) { p2CardLabel.setIcon(icon); p2CardLabel.setText(null); } }
+							catch (InterruptedException | ExecutionException ignored) {}
+						}
+					}.execute();
+					JPanel p2Wrapper = new JPanel(new BorderLayout(0, 4));
+					p2Wrapper.setBorder(BorderFactory.createEmptyBorder(8, 8, 0, 8));
+					JLabel p2NameLabel = new JLabel(p2Card.name() + (p2Eligible ? " → field" : " → deck"), SwingConstants.CENTER);
+					p2NameLabel.setFont(FontLoader.loadPixelNESFont(9));
+					p2NameLabel.setPreferredSize(new Dimension(CARD_W, 18));
+					p2Wrapper.add(p2CardLabel, BorderLayout.CENTER);
+					p2Wrapper.add(p2NameLabel, BorderLayout.SOUTH);
+					JPanel p2South = new JPanel(new FlowLayout(FlowLayout.CENTER, 12, 6));
+					p2South.setBorder(BorderFactory.createEmptyBorder(0, 8, 8, 8));
+					JButton p2OkBtn = new JButton("OK");
+					p2OkBtn.setFont(FontLoader.loadPixelNESFont(11));
+					p2OkBtn.addActionListener(ae -> { mw.hideZoom(); p2Dlg.dispose(); });
+					p2South.add(p2OkBtn);
+					p2Dlg.getContentPane().setLayout(new BorderLayout(0, 4));
+					p2Dlg.getContentPane().add(p2Wrapper, BorderLayout.CENTER);
+					p2Dlg.getContentPane().add(p2South,   BorderLayout.SOUTH);
+					p2Dlg.pack();
+					p2Dlg.setLocationRelativeTo(mw.frame);
+					p2Dlg.setVisible(true);
+					if (p2Eligible && mw.isP2Cpu()) {
+						if (p2Card.isBackup())       mw.placeP2CardInFirstBackupSlot(p2Card);
+						else if (p2Card.isMonster()) mw.placeP2CardInMonsterZone(p2Card);
+						else                         mw.placeP2CardInForwardZone(p2Card);
+					} else {
+						if (p2Eligible && !mw.isP2Cpu())
+							logEntry("[P2] Each player reveal — multiplayer P2 choice not yet implemented; returning to deck");
+						p2Deck.addFirst(p2Card);
+					}
+					mw.refreshP2DeckLabel();
+				}
+			}
+
 			@Override public void playCharacterFromHand(boolean inclForwards, boolean inclBackups,
 					boolean inclMonsters, int costVal, String costCmp, int costVal2,
 					String jobFilter, String cardNameFilter, String categoryFilter,

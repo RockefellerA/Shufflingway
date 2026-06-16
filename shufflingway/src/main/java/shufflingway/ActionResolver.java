@@ -1227,6 +1227,17 @@ public class ActionResolver {
         "Put\\s+them\\s+into\\s+the\\s+Break\\s+Zone[.!]?"
     );
 
+    /**
+     * Matches "Each player reveals the top card of his/her deck. Each player who revealed a
+     * [type] may play it onto the field." Group {@code type} = card type condition.
+     */
+    private static final Pattern EACH_PLAYER_REVEAL_CHARACTER_MAY_PLAY = Pattern.compile(
+        "(?i)^\\s*Each\\s+player\\s+reveals?\\s+the\\s+top\\s+card\\s+of\\s+" +
+        "(?:his/her|his|her|their)\\s+deck[.!]?\\s+" +
+        "Each\\s+player\\s+who\\s+revealed\\s+(?:a\\s+)?(?<type>Forward|Backup|Character|Monster)\\s+" +
+        "may\\s+play\\s+it\\s+onto\\s+the\\s+field[.!]?\\s*$"
+    );
+
     /** Matches "Discard your hand. Then, draw N card(s)." Group 1 = draw count. */
     private static final Pattern DISCARD_HAND_THEN_DRAW = Pattern.compile(
         "(?i)Discard\\s+your\\s+hand[.,]?\\s+[Tt]hen[,]?\\s+draw\\s+(\\d+)\\s+cards?[.!]?\\s*$"
@@ -2790,6 +2801,9 @@ public class ActionResolver {
         result = tryParseOpponentRevealHand(effectText);
         if (result != null) return result;
 
+        result = tryParseEachPlayerRevealCharacterMayPlay(effectText);
+        if (result != null) return result;
+
         result = tryParseRevealTopDeck(effectText, source);
         if (result != null) return result;
 
@@ -3020,6 +3034,7 @@ public class ActionResolver {
         if (tryParseOpponentMill(effectText)                  != null) return "OpponentMill";
         if (tryParseSelfMill(effectText)                      != null) return "SelfMill";
         if (tryParseOpponentRevealHand(effectText)            != null) return "OpponentRevealHand";
+        if (tryParseEachPlayerRevealCharacterMayPlay(effectText) != null) return "EachPlayerRevealMayPlay";
         if (tryParseRevealTopDeck(effectText, source)         != null) return "RevealTopDeck";
         if (tryParseStandaloneDamageShields(effectText, source) != null) return "StandaloneDamageShields";
         if (tryParseDualSearchJobAndTypeDontShareElements(effectText) != null) return "DualSearchDontShareElements";
@@ -3320,6 +3335,7 @@ public class ActionResolver {
         if (tryParseOpponentMill(effectText) != null)                       return "OpponentMill";
         if (tryParseSelfMill(effectText) != null)                           return "SelfMill";
         if (tryParseOpponentRevealHand(effectText) != null)                 return "OpponentRevealHand";
+        if (tryParseEachPlayerRevealCharacterMayPlay(effectText) != null) return "EachPlayerRevealMayPlay";
         if (tryParseRevealTopDeck(effectText, source) != null)
             return revealTopDeckDescription(effectText, source) + restrictionDesc(effectText);
         if (tryParseStandaloneDamageShields(effectText, source) != null)    return "StandaloneDamageShields";
@@ -7652,6 +7668,17 @@ public class ActionResolver {
         return ctx -> {
             ctx.logEntry("Effect: Reveal top card of " + whose + " deck (" + clauses.size() + " clause(s))");
             ctx.revealTopDeckCard(clauses, opponentDeck);
+        };
+    }
+
+    private static Consumer<GameContext> tryParseEachPlayerRevealCharacterMayPlay(String text) {
+        Matcher m = EACH_PLAYER_REVEAL_CHARACTER_MAY_PLAY.matcher(text);
+        if (!m.find()) return null;
+        String typeStr = m.group("type").trim();
+        java.util.function.Predicate<CardData> eligible = card -> meetsTypeCheck(card, typeStr);
+        return ctx -> {
+            ctx.logEntry("Effect: Each player reveals top card, may play if " + typeStr);
+            ctx.revealEachPlayerTopDeckMayPlay(eligible);
         };
     }
 
