@@ -12,6 +12,7 @@ import java.awt.image.BufferedImage;
 import java.util.ArrayList;
 import java.util.Deque;
 import java.util.HashSet;
+import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -3031,6 +3032,28 @@ final class GameContextImpl implements GameContext {
 			@Override public void applyNextCastCostReduction(CostReductionModifier modifier) {
 				mw.activeCostReductions.add(modifier);
 				mw.endOfTurnEffects.add(ctx -> mw.activeCostReductions.remove(modifier));
+			}
+
+			@Override public void chooseSummonInBzMakeCastable(String element, int costReduction) {
+				List<CardData> bz = isP1 ? mw.gameState.getP1BreakZone() : mw.gameState.getP2BreakZone();
+				List<CardData> candidates = new ArrayList<>();
+				for (CardData c : bz)
+					if (c.isSummon() && c.containsElement(element)) candidates.add(c);
+				if (candidates.isEmpty()) {
+					logEntry("[ChooseSummonInBz] No " + element + " Summon in "
+							+ (isP1 ? "your" : "P2's") + " Break Zone — effect fizzles");
+					return;
+				}
+				CardData picked = isP1
+						? mw.chooseSummonFromBzDialog(candidates, element)
+						: candidates.get(0);
+				if (picked == null) return;
+				IdentityHashMap<CardData, Integer> playable = isP1 ? mw.bzPlayableP1 : mw.bzPlayableP2;
+				playable.put(picked, costReduction);
+				logEntry((isP1 ? "" : "[P2] ") + picked.name()
+						+ " in Break Zone is castable this turn (cost -" + costReduction + ")");
+				if (isP1) mw.refreshP1BreakLabel(); else mw.refreshP2BreakLabel();
+				mw.endOfTurnEffects.add(ctx -> playable.remove(picked));
 			}
 
 			@Override public List<FieldAbility> getActiveFieldAbilities() {

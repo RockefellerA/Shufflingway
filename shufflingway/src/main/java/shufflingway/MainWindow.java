@@ -427,6 +427,16 @@ public class MainWindow {
 	/** Active "next cast costs N less" modifiers; consumed on first matching cast, or cleared at EOT. */
 	final List<CostReductionModifier> activeCostReductions = new ArrayList<>();
 
+	/**
+	 * Cards in P1's Break Zone that have been made castable this turn by an effect like
+	 * "Choose 1 [Element] Summon in your Break Zone."  Value is the cost reduction in CP
+	 * applied to that one cast.  Identity-keyed so duplicate-named copies don't alias.
+	 * Cleared at end of turn.
+	 */
+	final IdentityHashMap<CardData, Integer> bzPlayableP1 = new IdentityHashMap<>();
+	/** P2 equivalent of {@link #bzPlayableP1}. */
+	final IdentityHashMap<CardData, Integer> bzPlayableP2 = new IdentityHashMap<>();
+
 	/** Effects deferred until the start of P1's next Main Phase 1. */
 	final List<Consumer<GameContext>> pendingMainPhase1Effects = new ArrayList<>();
 
@@ -1227,6 +1237,8 @@ public class MainWindow {
 		endOfTurnEffects.clear();
 		pendingMainPhase1Effects.clear();
 		activeCostReductions.clear();
+		bzPlayableP1.clear();
+		bzPlayableP2.clear();
 		if (computerPlayer != null) computerPlayer.cancel();
 		computerPlayer = new ComputerPlayer();
 		clearUIZones();
@@ -2285,6 +2297,10 @@ public class MainWindow {
 		for (CardData cd : zone) {
 			final boolean hasBzAbility = isP1 && cd.actionAbilities().stream()
 					.anyMatch(a -> a.breakZoneOnly() != null && autoAbilityTriggers.canActivateBzAbility(a, cd, true));
+			final boolean hasBzPlay    = isP1 && bzPlayableP1.containsKey(cd);
+			final int     bzPlayCost   = hasBzPlay
+					? Math.max(0, cd.cost() - bzPlayableP1.get(cd)) : -1;
+			final boolean interactive  = hasBzAbility || hasBzPlay;
 
 			JPanel cardWrapper = new JPanel(new BorderLayout(0, 4));
 			cardWrapper.setBackground(cardsPanel.getBackground());
@@ -2295,7 +2311,7 @@ public class MainWindow {
 			lbl.setOpaque(true);
 			lbl.setBackground(Color.DARK_GRAY);
 			lbl.setBorder(BorderFactory.createLineBorder(Color.LIGHT_GRAY, 1));
-			if (hasBzAbility) lbl.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+			if (interactive) lbl.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
 
 			lbl.addMouseListener(new MouseAdapter() {
 				@Override public void mouseEntered(MouseEvent e) {
@@ -2306,9 +2322,17 @@ public class MainWindow {
 					if (!isP1 || !SwingUtilities.isLeftMouseButton(e)) return;
 					boolean anyBzAbility = cd.actionAbilities().stream()
 							.anyMatch(a -> a.breakZoneOnly() != null);
-					if (!anyBzAbility) return;
+					if (!anyBzAbility && !hasBzPlay) return;
 					hideZoom();
 					JPopupMenu menu = new JPopupMenu();
+					if (hasBzPlay) {
+						JMenuItem playItem = new JMenuItem("Play  (" + bzPlayCost + " CP)");
+						playItem.addActionListener(ae -> {
+							dlg.dispose();
+							showBzPlayPaymentDialog(cd, bzPlayCost);
+						});
+						menu.add(playItem);
+					}
 					for (ActionAbility ability : cd.actionAbilities()) {
 						if (ability.breakZoneOnly() == null) continue;
 						JMenuItem item = new JMenuItem(buildAbilityMenuLabel(ability));
@@ -2327,8 +2351,25 @@ public class MainWindow {
 					BufferedImage buf = new BufferedImage(CARD_W, CARD_H, BufferedImage.TYPE_INT_ARGB);
 					Graphics2D g2 = buf.createGraphics();
 					g2.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+					g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING,  RenderingHints.VALUE_ANTIALIAS_ON);
 					g2.drawImage(img, 0, 0, CARD_W, CARD_H, null);
 					if (hasBzAbility) CardAnimation.drawGlow(g2, new Color(30, 144, 255), 0, 0, CARD_W, CARD_H);
+					if (hasBzPlay) {
+						CardAnimation.drawGlow(g2, new Color(0, 220, 80), 0, 0, CARD_W, CARD_H);
+						int badgeW = 26, badgeH = 22;
+						int bx = 4, by = 4;
+						g2.setColor(new Color(0, 0, 0, 200));
+						g2.fillRoundRect(bx, by, badgeW, badgeH, 6, 6);
+						g2.setColor(new Color(0, 220, 80));
+						g2.drawRoundRect(bx, by, badgeW, badgeH, 6, 6);
+						g2.setColor(Color.WHITE);
+						g2.setFont(FontLoader.loadPixelNESFont(11));
+						String costStr = String.valueOf(bzPlayCost);
+						FontMetrics fm = g2.getFontMetrics();
+						int tx = bx + (badgeW - fm.stringWidth(costStr)) / 2;
+						int ty = by + (badgeH - fm.getHeight()) / 2 + fm.getAscent();
+						g2.drawString(costStr, tx, ty);
+					}
 					g2.dispose();
 					return new ImageIcon(buf);
 				}
@@ -2370,6 +2411,101 @@ public class MainWindow {
 		dlg.pack();
 		dlg.setLocationRelativeTo(frame);
 		dlg.setVisible(true);
+	}
+
+	/**
+	 * Modal "pick 1 card" dialog used by effects like "Choose 1 [Element] Summon in your
+	 * Break Zone."  Shows {@code candidates} as clickable thumbnails; returns the picked card,
+	 * or the first candidate if the player closes the dialog without picking.  Always returns
+	 * non-null when {@code candidates} is non-empty.
+	 */
+	CardData chooseSummonFromBzDialog(List<CardData> candidates, String element) {
+		if (candidates.isEmpty()) return null;
+		if (candidates.size() == 1) return candidates.get(0);
+
+		JDialog dlg = new JDialog(frame, "Choose 1 " + element + " Summon from Break Zone", true);
+		dlg.setResizable(false);
+		dlg.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
+
+		CardData[] picked = { null };
+		JButton confirmBtn = new JButton("Confirm");
+		confirmBtn.setFont(FontLoader.loadPixelNESFont(11));
+		confirmBtn.setEnabled(false);
+
+		JPanel cardsPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 8));
+		JLabel[] cardLabels = new JLabel[candidates.size()];
+
+		for (int i = 0; i < candidates.size(); i++) {
+			final int idx = i;
+			final CardData cd = candidates.get(i);
+			JLabel lbl = new JLabel("...", SwingConstants.CENTER);
+			lbl.setPreferredSize(new Dimension(CARD_W, CARD_H));
+			lbl.setMinimumSize(new Dimension(CARD_W, CARD_H));
+			lbl.setOpaque(true);
+			lbl.setBackground(Color.DARK_GRAY);
+			lbl.setBorder(BorderFactory.createLineBorder(Color.LIGHT_GRAY, 1));
+			lbl.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+			cardLabels[i] = lbl;
+
+			lbl.addMouseListener(new MouseAdapter() {
+				@Override public void mouseEntered(MouseEvent e) { showZoomAt(cd.imageUrl()); }
+				@Override public void mouseExited(MouseEvent e)  { hideZoom(); }
+				@Override public void mousePressed(MouseEvent e) {
+					if (!SwingUtilities.isLeftMouseButton(e)) return;
+					picked[0] = cd;
+					for (int j = 0; j < cardLabels.length; j++) {
+						cardLabels[j].setBorder(BorderFactory.createLineBorder(
+								j == idx ? new Color(0, 200, 80) : Color.LIGHT_GRAY,
+								j == idx ? 3 : 1));
+					}
+					confirmBtn.setEnabled(true);
+				}
+			});
+
+			new SwingWorker<ImageIcon, Void>() {
+				@Override protected ImageIcon doInBackground() throws Exception {
+					Image img = ImageCache.load(cd.imageUrl());
+					return img == null ? null
+							: new ImageIcon(img.getScaledInstance(CARD_W, CARD_H, Image.SCALE_SMOOTH));
+				}
+				@Override protected void done() {
+					try { ImageIcon ic = get(); if (ic != null) { lbl.setIcon(ic); lbl.setText(null); } }
+					catch (InterruptedException | ExecutionException ignored) {}
+				}
+			}.execute();
+
+			JLabel nameLabel = new JLabel(cd.name(), SwingConstants.CENTER);
+			nameLabel.setFont(FontLoader.loadPixelNESFont(9));
+			nameLabel.setPreferredSize(new Dimension(CARD_W, 18));
+
+			JPanel wrapper = new JPanel(new BorderLayout(0, 4));
+			wrapper.setBackground(cardsPanel.getBackground());
+			wrapper.add(lbl,       BorderLayout.CENTER);
+			wrapper.add(nameLabel, BorderLayout.SOUTH);
+			cardsPanel.add(wrapper);
+		}
+
+		JScrollPane scrollPane = new JScrollPane(cardsPanel,
+				JScrollPane.VERTICAL_SCROLLBAR_NEVER,
+				JScrollPane.HORIZONTAL_SCROLLBAR_AS_NEEDED);
+		scrollPane.setPreferredSize(new Dimension(
+				Math.min(candidates.size() * (CARD_W + 16) + 16, 900),
+				CARD_H + 60));
+
+		confirmBtn.addActionListener(ae -> { hideZoom(); dlg.dispose(); });
+
+		JPanel south = new JPanel(new FlowLayout(FlowLayout.CENTER, 12, 6));
+		south.add(confirmBtn);
+		south.setBorder(BorderFactory.createEmptyBorder(0, 8, 8, 8));
+
+		dlg.getContentPane().setLayout(new BorderLayout(0, 4));
+		dlg.getContentPane().add(scrollPane, BorderLayout.CENTER);
+		dlg.getContentPane().add(south,      BorderLayout.SOUTH);
+		dlg.pack();
+		dlg.setLocationRelativeTo(frame);
+		dlg.setVisible(true);
+
+		return picked[0] != null ? picked[0] : candidates.get(0);
 	}
 
 	void triggerGameOver(String reason) {
@@ -6763,6 +6899,22 @@ public class MainWindow {
 	 *   - Backups may not cause total CP to exceed the cost (no overpay via backups).
 	 *   - Discards may overpay by 1 per element (total <= cost + elems.length - 1 after adding).
 	 */
+	/**
+	 * Opens the standard payment dialog for a card being cast from P1's Break Zone (via
+	 * "Choose 1 Summon in your Break Zone, you can cast it this turn" effects).  Reuses
+	 * {@link StandardPaymentDialog} with {@code handIdx = -1} so no hand card is excluded
+	 * from the discard list, and routes the confirm callback to {@link #executePlayFromBzP1}.
+	 */
+	private void showBzPlayPaymentDialog(CardData card, int reducedCost) {
+		new StandardPaymentDialog(frame, card, -1, reducedCost,
+				gameState.getP1Hand(), p1BackupCards, p1BackupStates, p1BackupUrls,
+				this::showZoomAt, this::hideZoom,
+				new ArrayList<>(p1ForwardCards),
+				(discards, backups, overrides) -> executePlayFromBzP1(card, discards, backups, overrides),
+				isAnyElementCast(card))
+			.show();
+	}
+
 	private void showPaymentDialog(CardData card, int handIdx) {
 		new StandardPaymentDialog(frame, card, handIdx, effectiveCastCost(card),
 				gameState.getP1Hand(), p1BackupCards, p1BackupStates, p1BackupUrls,
@@ -6889,6 +7041,178 @@ public class MainWindow {
 		lastCardWasCast = false;
 
 		refreshP1BreakLabel();
+	}
+
+	/**
+	 * Cast variant for cards being played from the Break Zone (not hand) under a
+	 * "Choose 1 [Element] Summon in your Break Zone, you can cast it this turn" effect.
+	 * Mirrors {@link #executePlay} but pulls the source from the Break Zone, has no
+	 * source-hand-index to skip past in discard accounting, and consumes the BZ-playable
+	 * registration so the card can't be replayed for free.
+	 */
+	private void executePlayFromBzP1(CardData card,
+			List<Integer> discardIndices, List<Integer> backupDullIndices,
+			Map<Integer, String> backupElementOverrides) {
+		String[] elems = card.elements();
+		boolean  isLD  = card.isLightOrDark();
+		Map<String, Integer> execCostByElem = new LinkedHashMap<>();
+		if (!isLD) for (String e : elems) execCostByElem.put(e, 1);
+		Map<String, Integer> execCpAccum = new LinkedHashMap<>();
+
+		List<Integer> sortedBackups = new ArrayList<>(backupDullIndices);
+		if (!isLD) sortedBackups.sort(Comparator.comparingInt(s ->
+				(int) Arrays.stream(elems)
+						.filter(e -> p1BackupCards[s].containsElement(e)).count()));
+		for (int bi : sortedBackups) {
+			p1BackupStates[bi] = CardState.DULL;
+			animateDullBackup(bi, true);
+			String cpElem;
+			if (backupElementOverrides.containsKey(bi)) {
+				cpElem = backupElementOverrides.get(bi);
+			} else if (isLD) {
+				cpElem = p1BackupCards[bi].elements()[0];
+			} else {
+				cpElem = contributingElement(p1BackupCards[bi], elems, execCpAccum, execCostByElem);
+			}
+			gameState.addP1Cp(cpElem, 1);
+			execCpAccum.merge(cpElem, 1, Integer::sum);
+		}
+
+		List<Integer> assignOrder = new ArrayList<>(discardIndices);
+		if (!isLD) assignOrder.sort(Comparator.comparingInt(i ->
+				(int) Arrays.stream(elems)
+						.filter(e -> gameState.getP1Hand().get(i).containsElement(e)).count()));
+		Map<Integer, String> cpAssignments = new LinkedHashMap<>();
+		for (int i : assignOrder) {
+			CardData d = gameState.getP1Hand().get(i);
+			String cpElem = isLD ? d.elements()[0]
+					: contributingElement(d, elems, execCpAccum, execCostByElem);
+			cpAssignments.put(i, cpElem);
+			execCpAccum.merge(cpElem, 2, Integer::sum);
+		}
+		discardIndices.sort(Collections.reverseOrder());
+		for (int di : discardIndices) {
+			gameState.addP1Cp(cpAssignments.get(di), 2);
+			playerBreakFromHand(true, di);
+		}
+		Set<String> cpToClear = new java.util.LinkedHashSet<>(Arrays.asList(elems));
+		cpToClear.addAll(execCpAccum.keySet());
+		for (String e : cpToClear) {
+			gameState.spendP1Cp(e, gameState.getP1CpForElement(e));
+			gameState.clearP1Cp(e);
+		}
+		lastCastPaymentDistinctElements = (int) execCpAccum.keySet().stream()
+				.filter(e -> !e.isEmpty()).distinct().count();
+		lastCastPaymentElements.clear();
+		execCpAccum.keySet().stream().filter(e -> !e.isEmpty()).forEach(lastCastPaymentElements::add);
+		lastCastWasPaidByBackupsOnly = discardIndices.isEmpty() && !backupDullIndices.isEmpty();
+
+		// Remove source from Break Zone (by identity — multiple same-named copies may exist)
+		List<CardData> bz = gameState.getP1BreakZone();
+		for (int i = 0; i < bz.size(); i++) {
+			if (bz.get(i) == card) { bz.remove(i); break; }
+		}
+		bzPlayableP1.remove(card);
+		refreshP1BreakLabel();
+
+		activeCostReductions.removeIf(m -> m.consumeOnUse() && m.matches(card));
+		p1CardsCastThisTurn++;
+		for (String j : card.jobs()) p1CastJobsThisTurn.add(j.toLowerCase());
+		p1CastNamesThisTurn.add(card.name().toLowerCase());
+		if (card.isSummon()) {
+			p1SummonCastThisTurn = true;
+			refreshHandPopupIfVisible();
+		}
+		logEntry("Played \"" + card.name() + "\" from Break Zone");
+
+		lastCardWasCast = true;
+		if (card.isBackup())       placeCardInFirstBackupSlot(card);
+		else if (card.isForward()) placeCardInForwardZone(card);
+		else if (card.isMonster()) placeCardInMonsterZone(card);
+		else if (card.isSummon())  showSummonOnStack(card);
+		lastCardWasCast = false;
+	}
+
+	/**
+	 * Dulls every backup in {@code dullBackupIndices} and credits 1 CP per backup, using the
+	 * pre-computed element assignment from {@code backupElementAssignments}.  Then discards
+	 * each hand card in {@code discardIndices} (high-index-first to preserve indices) and
+	 * credits 2 CP each via {@code discardElementAssignments}.  Shared by P2's hand-cast and
+	 * BZ-cast paths so backup-dulling behaves identically.
+	 */
+	private void payP2CostViaBackupsAndDiscards(List<Integer> dullBackupIndices,
+			Map<Integer, String> backupElementAssignments,
+			List<Integer> discardIndices,
+			Map<Integer, String> discardElementAssignments) {
+		for (int bi : dullBackupIndices) {
+			p2BackupStates[bi] = CardState.DULL;
+			animateDullP2Backup(bi, true);
+			String cpElem = backupElementAssignments.get(bi);
+			gameState.addP2Cp(cpElem, 1);
+			logEntry("[P2] Dulls " + p2BackupCards[bi].name() + " for CP");
+		}
+		List<Integer> sorted = new ArrayList<>(discardIndices);
+		sorted.sort(Collections.reverseOrder());
+		for (int di : sorted) {
+			CardData d = gameState.getP2Hand().get(di);
+			String cpElem = discardElementAssignments.get(di);
+			playerBreakFromHand(false, di);
+			gameState.addP2Cp(cpElem, 2);
+			logEntry("[P2] Discards " + d.name() + " for CP");
+		}
+		refreshP2BreakLabel();
+		refreshP2HandCountLabel();
+	}
+
+	/**
+	 * P2 equivalent of {@link #executePlayFromBzP1}: pays a reduced cost from P2's dulled
+	 * backups and hand discards, removes the source from P2's Break Zone, and places the
+	 * card into the appropriate zone.  Caller is responsible for choosing the discard and
+	 * backup-dull plans such that the resulting P2 CP covers {@code reducedCost} with
+	 * per-element minimums satisfied.
+	 */
+	void executePlayFromBzP2(CardData card, int reducedCost,
+			List<Integer> discardIndices, Map<Integer, String> discardElementAssignments,
+			List<Integer> dullBackupIndices, Map<Integer, String> backupElementAssignments) {
+		String[] elems = card.elements();
+
+		payP2CostViaBackupsAndDiscards(
+				dullBackupIndices, backupElementAssignments,
+				discardIndices,    discardElementAssignments);
+
+		// Pay reducedCost: per-element minimum first if multi-element, then drain CP.
+		int remaining = reducedCost;
+		if (elems.length > 1) {
+			for (String e : elems) { gameState.spendP2Cp(e, 1); remaining--; }
+		}
+		for (String e : elems) {
+			if (remaining <= 0) break;
+			int avail = gameState.getP2CpForElement(e);
+			int toSpend = Math.min(remaining, avail);
+			if (toSpend > 0) { gameState.spendP2Cp(e, toSpend); remaining -= toSpend; }
+		}
+		for (String e : elems) gameState.clearP2Cp(e);
+
+		// Remove source from P2 Break Zone by identity (handles duplicate-named copies).
+		List<CardData> bz = gameState.getP2BreakZone();
+		for (int i = 0; i < bz.size(); i++) {
+			if (bz.get(i) == card) { bz.remove(i); break; }
+		}
+		bzPlayableP2.remove(card);
+		refreshP2BreakLabel();
+
+		p2CardsCastThisTurn++;
+		for (String j : card.jobs()) p2CastJobsThisTurn.add(j.toLowerCase());
+		p2CastNamesThisTurn.add(card.name().toLowerCase());
+		if (card.isSummon()) p2SummonCastThisTurn = true;
+		logEntry("[P2] Played \"" + card.name() + "\" from Break Zone");
+
+		lastCardWasCast = true;
+		if (card.isBackup())       placeP2CardInFirstBackupSlot(card);
+		else if (card.isForward()) placeP2CardInForwardZone(card);
+		else if (card.isMonster()) placeP2CardInMonsterZone(card);
+		else if (card.isSummon())  showSummonOnStack(card);
+		lastCardWasCast = false;
 	}
 
 	/** True when P2 is the built-in computer player (no active multiplayer connection). */
@@ -11701,71 +12025,59 @@ public class MainWindow {
 				return;
 			}
 
-			int[] plan = findPlayPlan();
+			// Try casting a Break-Zone-playable Summon (registered by a "Choose 1 [Element] Summon
+			// in your Break Zone" effect) before normal hand plays — the discount makes it
+			// strictly better value than discarding-for-CP from a fresh hand cast.
+			if (tryP2BzPlay()) { step(() -> doMainPhase(onDone)); return; }
+
+			P2Plan plan = findPlayPlan();
 			if (plan == null) {
 				// P2 has no more plays — pass priority to P1
 				p2AutoPass(() -> offerP1MainPhasePriority(onDone));
 				return;
 			}
+			executeP2HandPlay(plan);
+			step(() -> doMainPhase(onDone));
+		}
 
-			int cardIdx = plan[0];
-			List<Integer> discards = new ArrayList<>();
-			for (int i = 1; i < plan.length; i++) discards.add(plan[i]);
-			discards.sort(Collections.reverseOrder());
+		/** Executes a planned P2 hand-cast: dulls backups, discards for CP, pays cost, plays the card. */
+		private void executeP2HandPlay(P2Plan plan) {
+			payP2CostViaBackupsAndDiscards(
+					plan.dullBackups(),    plan.backupElements(),
+					plan.discardIndices(), plan.discardElements());
 
-			// Peek at the card being played (pre-discard index is still valid here)
-			String[] playElems = gameState.getP2Hand().get(cardIdx).elements();
-			int[] accCp = new int[playElems.length];
-			for (int ei = 0; ei < playElems.length; ei++)
-				accCp[ei] = gameState.getP2CpForElement(playElems[ei]);
-
-			// Discard for CP, attributing each card's CP to the most-needed element
-			for (int di : discards) {
-				CardData d = playerBreakFromHand(false,di);
-				if (d != null) {
-					int assignEi = p2BestDiscardElement(d, playElems, accCp);
-					accCp[assignEi] += 2;
-					gameState.addP2Cp(playElems[assignEi], 2);
-					logEntry("[P2] Discards " + d.name() + " for CP");
-				}
-			}
-			refreshP2BreakLabel();
-
-			// Adjust card index for removed cards
-			int adjustedIdx = cardIdx;
-			for (int di : discards) {
-				if (di < cardIdx) adjustedIdx--;
-			}
+			// Adjust source-card hand index for cards removed during discard
+			int adjustedIdx = plan.cardIdx();
+			for (int di : plan.discardIndices()) if (di < plan.cardIdx()) adjustedIdx--;
 
 			CardData toPlay = gameState.removeP2FromHand(adjustedIdx);
 			refreshP2HandCountLabel();
-			if (toPlay != null) {
-				// Spend 1 CP from each required element, then cover remainder
-				String[] elems = toPlay.elements();
-				int remaining = toPlay.cost();
-				if (elems.length > 1) {
-					for (String e : elems) { gameState.spendP2Cp(e, 1); remaining--; }
-				}
-				for (String e : elems) {
-					if (remaining <= 0) break;
-					int avail = gameState.getP2CpForElement(e);
-					int toSpend = Math.min(remaining, avail);
-					if (toSpend > 0) { gameState.spendP2Cp(e, toSpend); remaining -= toSpend; }
-				}
-				for (String e : elems) { gameState.clearP2Cp(e); }
-				logEntry("[P2] Plays " + toPlay.name());
-				lastCardWasCast = true;
-				p2CardsCastThisTurn++;
-				for (String j : toPlay.jobs()) p2CastJobsThisTurn.add(j.toLowerCase());
-				p2CastNamesThisTurn.add(toPlay.name().toLowerCase());
-				if (toPlay.isSummon()) p2SummonCastThisTurn = true;
-				if (toPlay.isForward())      placeP2CardInForwardZone(toPlay);
-				else if (toPlay.isBackup())  placeP2CardInFirstBackupSlot(toPlay);
-				else if (toPlay.isMonster()) placeP2CardInMonsterZone(toPlay);
-				else if (toPlay.isSummon())  showSummonOnStack(toPlay);
-				lastCardWasCast = false;
+			if (toPlay == null) return;
+
+			String[] elems = toPlay.elements();
+			int remaining = toPlay.cost();
+			if (elems.length > 1) {
+				for (String e : elems) { gameState.spendP2Cp(e, 1); remaining--; }
 			}
-			step(() -> doMainPhase(onDone));
+			for (String e : elems) {
+				if (remaining <= 0) break;
+				int avail = gameState.getP2CpForElement(e);
+				int toSpend = Math.min(remaining, avail);
+				if (toSpend > 0) { gameState.spendP2Cp(e, toSpend); remaining -= toSpend; }
+			}
+			for (String e : elems) gameState.clearP2Cp(e);
+
+			logEntry("[P2] Plays " + toPlay.name());
+			lastCardWasCast = true;
+			p2CardsCastThisTurn++;
+			for (String j : toPlay.jobs()) p2CastJobsThisTurn.add(j.toLowerCase());
+			p2CastNamesThisTurn.add(toPlay.name().toLowerCase());
+			if (toPlay.isSummon()) p2SummonCastThisTurn = true;
+			if (toPlay.isForward())      placeP2CardInForwardZone(toPlay);
+			else if (toPlay.isBackup())  placeP2CardInFirstBackupSlot(toPlay);
+			else if (toPlay.isMonster()) placeP2CardInMonsterZone(toPlay);
+			else if (toPlay.isSummon())  showSummonOnStack(toPlay);
+			lastCardWasCast = false;
 		}
 
 		// ── Attack Phase ─────────────────────────────────────────────────────
@@ -12116,12 +12428,24 @@ public class MainWindow {
 			return null;
 		}
 
-		private int[] findPlayPlan() {
+		/**
+		 * P2's chosen play for one cast: which card (hand idx for a hand-cast; -1 with
+		 * {@code bzCard} set for a Break-Zone cast), what reduced cost to pay, and the
+		 * chosen backup-dull / hand-discard contributions toward that cost.
+		 */
+		private record P2Plan(
+				int cardIdx,                                  // -1 = BZ-cast; otherwise index into P2 hand
+				int reducedCost,                              // effective cost after discounts
+				List<Integer>          dullBackups,           // P2 backup indices to dull (1 CP each)
+				Map<Integer, String>   backupElements,        // backup idx → element of CP contributed
+				List<Integer>          discardIndices,        // P2 hand indices to discard (2 CP each)
+				Map<Integer, String>   discardElements        // hand idx → element of CP contributed
+		) {}
+
+		private P2Plan findPlayPlan() {
 			List<CardData> hand = gameState.getP2Hand();
 			if (hand.isEmpty()) return null;
 
-			// Candidates: forwards (highest cost first), then backups (highest cost first)
-			// Skip non-Multicard characters whose name is already on P2's field or backups.
 			List<Integer> candidates = new ArrayList<>();
 			boolean p2HasLD = hasLightOrDarkOnField(false);
 			for (int i = 0; i < hand.size(); i++) {
@@ -12144,43 +12468,110 @@ public class MainWindow {
 			candidates.addAll(backupCands);
 
 			for (int cardIdx : candidates) {
-				CardData card   = hand.get(cardIdx);
-				String[] elems  = card.elements();
-
-				// Current CP per element this card requires
-				int[] simCp = new int[elems.length];
-				for (int ei = 0; ei < elems.length; ei++)
-					simCp[ei] = gameState.getP2CpForElement(elems[ei]);
-
-				if (p2CanAfford(card.cost(), elems, simCp)) return new int[]{ cardIdx };
-
-				// Cheapest non-Light/Dark cards that match at least one required element
-				List<Integer> discardable = new ArrayList<>();
-				for (int i = 0; i < hand.size(); i++) {
-					if (i == cardIdx) continue;
-					CardData c = hand.get(i);
-					if (c.isLightOrDark()) continue;
-					for (String e : elems) {
-						if (c.containsElement(e)) { discardable.add(i); break; }
-					}
-				}
-				discardable.sort((a, b) -> hand.get(a).cost() - hand.get(b).cost());
-
-				// Greedily assign each discard to the most-needed element
-				List<Integer> chosen = new ArrayList<>();
-				for (int di : discardable) {
-					int assignEi = p2BestDiscardElement(hand.get(di), elems, simCp);
-					simCp[assignEi] += 2;
-					chosen.add(di);
-					if (p2CanAfford(card.cost(), elems, simCp)) {
-						int[] result = new int[1 + chosen.size()];
-						result[0] = cardIdx;
-						for (int k = 0; k < chosen.size(); k++) result[k + 1] = chosen.get(k);
-						return result;
-					}
+				CardData card = hand.get(cardIdx);
+				List<Integer>        backups       = new ArrayList<>();
+				Map<Integer, String> backupElems   = new LinkedHashMap<>();
+				List<Integer>        discards      = new ArrayList<>();
+				Map<Integer, String> discardElems  = new LinkedHashMap<>();
+				if (p2PlanPayment(card, card.cost(), cardIdx, backups, backupElems, discards, discardElems)) {
+					return new P2Plan(cardIdx, card.cost(), backups, backupElems, discards, discardElems);
 				}
 			}
 			return null;
+		}
+
+		/**
+		 * If P2 has any Break-Zone-playable Summon (registered by an effect like
+		 * "Choose 1 [Element] Summon in your Break Zone") that they can afford at the reduced
+		 * cost via backup-dulling and/or hand discards, picks the most expensive one (best
+		 * discount value) and executes the cast.  Returns {@code true} if a cast was performed.
+		 */
+		private boolean tryP2BzPlay() {
+			if (bzPlayableP2.isEmpty()) return false;
+
+			List<Map.Entry<CardData, Integer>> entries = new ArrayList<>(bzPlayableP2.entrySet());
+			entries.sort((a, b) -> b.getKey().cost() - a.getKey().cost());
+
+			for (Map.Entry<CardData, Integer> entry : entries) {
+				CardData card = entry.getKey();
+				int reducedCost = Math.max(0, card.cost() - entry.getValue());
+
+				List<Integer>        backups      = new ArrayList<>();
+				Map<Integer, String> backupElems  = new LinkedHashMap<>();
+				List<Integer>        discards     = new ArrayList<>();
+				Map<Integer, String> discardElems = new LinkedHashMap<>();
+				if (!p2PlanPayment(card, reducedCost, -1, backups, backupElems, discards, discardElems))
+					continue;
+
+				executePlayFromBzP2(card, reducedCost, discards, discardElems, backups, backupElems);
+				return true;
+			}
+			return false;
+		}
+
+		/**
+		 * Greedy payment planner for P2: starting from P2's current CP, tries dulling eligible
+		 * backups (preferring less-versatile ones first) and then discarding hand cards
+		 * (cheapest matching-element first) until the simulated CP covers {@code reducedCost}.
+		 * Returns {@code true} when affordable; the chosen plan is written into the four
+		 * out-parameters.  Backups whose elements don't match any required element are skipped
+		 * since their CP would be wasted.  {@code excludeHandIdx == -1} means no exclusion
+		 * (used by BZ-cast where the source isn't in hand).
+		 */
+		private boolean p2PlanPayment(CardData card, int reducedCost, int excludeHandIdx,
+				List<Integer> outBackups, Map<Integer, String> outBackupElems,
+				List<Integer> outDiscards, Map<Integer, String> outDiscardElems) {
+			String[] elems = card.elements();
+			int[] simCp = new int[elems.length];
+			for (int ei = 0; ei < elems.length; ei++)
+				simCp[ei] = gameState.getP2CpForElement(elems[ei]);
+
+			if (p2CanAfford(reducedCost, elems, simCp)) return true;
+
+			// Phase 1: dull eligible backups.  Eligible = present, ACTIVE, not frozen, and
+			// matching at least one required element (else the CP is wasted).
+			List<Integer> eligibleBackups = new ArrayList<>();
+			for (int bi = 0; bi < p2BackupCards.length; bi++) {
+				CardData bk = p2BackupCards[bi];
+				if (bk == null) continue;
+				if (p2BackupStates[bi] != CardState.ACTIVE) continue;
+				if (p2BackupFrozen[bi]) continue;
+				boolean matches = false;
+				for (String e : elems) if (bk.containsElement(e)) { matches = true; break; }
+				if (matches) eligibleBackups.add(bi);
+			}
+			// Prefer less-versatile (fewer matching elements) backups first.
+			eligibleBackups.sort(java.util.Comparator.comparingInt(bi ->
+					(int) java.util.Arrays.stream(elems)
+							.filter(e -> p2BackupCards[bi].containsElement(e)).count()));
+			for (int bi : eligibleBackups) {
+				if (p2CanAfford(reducedCost, elems, simCp)) break;
+				CardData bk = p2BackupCards[bi];
+				int ei = p2BestDiscardElement(bk, elems, simCp);
+				simCp[ei] += 1;
+				outBackups.add(bi);
+				outBackupElems.put(bi, elems[ei]);
+			}
+			if (p2CanAfford(reducedCost, elems, simCp)) return true;
+
+			// Phase 2: discard cheapest matching-element non-Light/Dark hand cards.
+			List<CardData> hand = gameState.getP2Hand();
+			List<Integer> discardable = new ArrayList<>();
+			for (int i = 0; i < hand.size(); i++) {
+				if (i == excludeHandIdx) continue;
+				CardData c = hand.get(i);
+				if (c.isLightOrDark()) continue;
+				for (String e : elems) if (c.containsElement(e)) { discardable.add(i); break; }
+			}
+			discardable.sort((a, b) -> hand.get(a).cost() - hand.get(b).cost());
+			for (int di : discardable) {
+				int ei = p2BestDiscardElement(hand.get(di), elems, simCp);
+				simCp[ei] += 2;
+				outDiscards.add(di);
+				outDiscardElems.put(di, elems[ei]);
+				if (p2CanAfford(reducedCost, elems, simCp)) return true;
+			}
+			return false;
 		}
 
 		/** Returns true when {@code cpByElemIdx} satisfies the cost and per-element minimums. */

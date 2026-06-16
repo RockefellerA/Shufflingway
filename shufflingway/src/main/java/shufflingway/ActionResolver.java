@@ -2431,6 +2431,21 @@ public class ActionResolver {
         "(?<floorone>\\s*\\(it\\s+cannot\\s+become\\s+0\\))?[.!]?"
     );
 
+    /**
+     * Matches "Choose 1 [Element] Summon in your Break Zone. You can cast it at any time you
+     * could normally cast it this turn. The cost required to cast it is reduced by N."
+     * Used by abilities that "borrow" a Summon from the Break Zone for one extra cast.
+     * <ul>
+     *   <li>Group {@code element} — required element of the chosen Summon</li>
+     *   <li>Group {@code amount}  — cost reduction applied to that Summon's next cast</li>
+     * </ul>
+     */
+    private static final Pattern CHOOSE_SUMMON_IN_BZ_CASTABLE = Pattern.compile(
+        "(?i)Choose\\s+1\\s+(?<element>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)\\s+Summon\\s+in\\s+your\\s+Break\\s+Zone[.!]?\\s+" +
+        "You\\s+can\\s+cast\\s+it\\s+at\\s+any\\s+time\\s+you\\s+could\\s+normally\\s+cast\\s+it\\s+this\\s+turn[.!]?\\s+" +
+        "The\\s+cost\\s+required\\s+to\\s+cast\\s+it\\s+is\\s+reduced\\s+by\\s+(?<amount>\\d+)[.!]?"
+    );
+
     /** Matches "Take 1 more turn after this one. At the end of that turn, you lose the game." */
     private static final Pattern EXTRA_TURN_THEN_LOSE = Pattern.compile(
         "(?i)Take\\s+1\\s+more\\s+turn\\s+after\\s+this\\s+one[.!]?\\s+" +
@@ -2872,6 +2887,9 @@ public class ActionResolver {
         result = tryParseRemoveFromBattle(effectText);
         if (result != null) return result;
 
+        result = tryParseChooseSummonInBzCastable(effectText);
+        if (result != null) return result;
+
         result = tryParseCostReductionThisTurn(effectText);
         if (result != null) return result;
 
@@ -3091,6 +3109,7 @@ public class ActionResolver {
         if (tryParseActivateNamedCard(effectText)               != null) return "ActivateNamedCard";
         if (tryParseAttackOnceMore(effectText)                  != null) return "AttackOnceMore";
         if (tryParseRemoveFromBattle(effectText)                != null) return "RemoveFromBattle";
+        if (tryParseChooseSummonInBzCastable(effectText)         != null) return "ChooseSummonInBzCastable";
         if (tryParseCostReductionThisTurn(effectText)            != null) return "CostReductionThisTurn";
         if (tryParsePlayCostReductionThisTurn(effectText)        != null) return "PlayCostReductionThisTurn";
         if (CardData.isSelfCostModifierText(effectText))                  return "SelfCostModifier";
@@ -3221,6 +3240,7 @@ public class ActionResolver {
      */
     public static String fullDescription(String effectText, CardData source) {
         effectText = effectText.replaceFirst("(?i)^(?:\\[\\[ex\\]\\])?\\s*EX\\s+BURST(?:\\[\\[/\\]\\])?\\s*", "").trim();
+        if (tryParseChooseSummonInBzCastable(effectText)        != null)    return "ChooseSummonInBzCastable";
         if (CardData.isSelfCostModifierText(effectText))                    return "SelfCostModifier";
         if (CardData.YOUR_TURN_ONLY_PATTERN.matcher(effectText).matches())  return "YourTurnOnly";
         if (CardData.ONCE_PER_TURN_PATTERN.matcher(effectText).matches())   return "OncePerTurn";
@@ -8553,6 +8573,23 @@ public class ActionResolver {
         return ctx -> {
             ctx.logEntry("Effect: Gain " + xValue + " Crystal(s) (for each CP paid as X)");
             ctx.gainCrystal(xValue);
+        };
+    }
+
+    /**
+     * Parses "Choose 1 [Element] Summon in your Break Zone. You can cast it at any time
+     * you could normally cast it this turn. The cost required to cast it is reduced by N."
+     * At resolution: shows a chooser, moves the picked Summon BZ→hand, and registers a
+     * cardname-targeted CostReductionModifier so the existing hand-cast path discounts it.
+     */
+    private static Consumer<GameContext> tryParseChooseSummonInBzCastable(String text) {
+        Matcher m = CHOOSE_SUMMON_IN_BZ_CASTABLE.matcher(text);
+        if (!m.find()) return null;
+        final String element = m.group("element").trim();
+        final int    amount  = Integer.parseInt(m.group("amount"));
+        return ctx -> {
+            ctx.logEntry("Effect: Choose 1 " + element + " Summon in BZ — castable this turn (cost -" + amount + ")");
+            ctx.chooseSummonInBzMakeCastable(element, amount);
         };
     }
 

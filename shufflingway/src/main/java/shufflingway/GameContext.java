@@ -1269,6 +1269,15 @@ public interface GameContext {
     void applyNextCastCostReduction(CostReductionModifier modifier);
 
     /**
+     * Resolves a "Choose 1 [Element] Summon in your Break Zone. You can cast it at any time
+     * you could normally cast it this turn. The cost required to cast it is reduced by N."
+     * effect: prompts the ability user to pick a matching Summon from their own Break Zone,
+     * moves it to their hand, and registers a cardname-targeted {@link CostReductionModifier}
+     * so the existing hand-cast path applies the discount.  No-op if no Summon matches.
+     */
+    void chooseSummonInBzMakeCastable(String element, int costReduction);
+
+    /**
      * Returns {@code true} if the most recent card cast by the ability user
      * was paid entirely by dulling Backups (no hand-card discards were used).
      * Used for "If the CP paid to cast X was only produced by Backups" conditionals.
