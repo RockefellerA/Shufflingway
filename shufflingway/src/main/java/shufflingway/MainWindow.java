@@ -7766,6 +7766,11 @@ public class MainWindow {
 	boolean canActivateAbility(ActionAbility ability, boolean isFrozen, CardState state,
 			int playedTurn, CardData source, boolean isP1) {
 		if (ability.breakZoneOnly() != null) return false; // only activatable from the Break Zone
+		if (ability.ownBreakZoneNameRequired() != null) {
+			List<CardData> bz = isP1 ? gameState.getP1BreakZone() : gameState.getP2BreakZone();
+			if (bz.stream().noneMatch(c -> c.name().equalsIgnoreCase(ability.ownBreakZoneNameRequired())))
+				return false;
+		}
 		if (ability.yourTurnOnly()) {
 			GameState.Player activePlayer = isP1 ? GameState.Player.P1 : GameState.Player.P2;
 			if (gameState.getCurrentPlayer() != activePlayer) return false;

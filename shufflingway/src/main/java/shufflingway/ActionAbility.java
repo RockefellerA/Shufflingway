@@ -72,7 +72,8 @@ public record ActionAbility(
         String                  requiresCardNameEnteredThisTurn,      // null = no restriction; else = card name that must have entered your field this turn
         String                  breakZoneOnly,                // null = usable from field; non-null = card name that must be in the Break Zone (can only activate from BZ)
         boolean                 requiresOpponentEmptyHand,    // true = can only use when opponent has no cards in hand
-        String                  requiresNamedCardTookDamageThisTurn // null = no restriction; non-null = card name that must have received damage this turn
+        String                  requiresNamedCardTookDamageThisTurn, // null = no restriction; non-null = card name that must have received damage this turn
+        String                  ownBreakZoneNameRequired      // null = no restriction; non-null = named card must be in the controller's own BZ (ability used from the field)
 ) {
     public ActionAbility {
         cpCost            = List.copyOf(cpCost);

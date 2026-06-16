@@ -772,6 +772,24 @@ public record CardData(
         // parseAutoAbilities / parseFieldAbilities); otherwise the effect truncates at [[br]].
         textEn = joinSelectActions(textEn);
         List<ActionAbility> result = new ArrayList<>();
+
+        // Extract "If you have Card Name X in your Break Zone, Y gains 'ab1' [and 'ab2']" patterns
+        // before normal matching so the quoted abilities don't get parsed without their BZ condition.
+        Matcher bzGainsM = IF_OWN_BZ_GAINS_PATTERN.matcher(textEn);
+        StringBuffer sbBz = new StringBuffer();
+        while (bzGainsM.find()) {
+            String bzCard = bzGainsM.group("bzcard").trim();
+            Matcher qM = IF_CTRL_EFFECT_QUOTED.matcher(bzGainsM.group("quotedAbilities"));
+            while (qM.find()) {
+                for (ActionAbility inner : parseActionAbilities(qM.group(1))) {
+                    result.add(withOwnBzNameRequired(inner, bzCard));
+                }
+            }
+            bzGainsM.appendReplacement(sbBz, "");
+        }
+        bzGainsM.appendTail(sbBz);
+        textEn = sbBz.toString();
+
         Matcher m = ACTION_ABILITY_PATTERN.matcher(textEn);
         while (m.find()) {
             String thresholdStr  = m.group(1);
@@ -879,9 +897,22 @@ public record CardData(
             String cpBackupElement = cpBkpM.find()
                     ? (cpBkpM.group("element") != null ? cpBkpM.group("element") : "")
                     : null;
-            result.add(new ActionAbility(abilityName, requiresDull, isSpecial, crystalCost, selfMillCost, hasXCost, cpCost, breakZoneCosts, discardCosts, removeFromGameCosts, returnToHandCosts, counterCosts, dullForwardCosts, yourTurnOnly, oncePerTurn, mainPhaseOnly, whileCardAtk, whileCardBlk, whilePartyAtk, whileCardInHand, hasBlockingTarget, effectRaw, damageThreshold, controlCondition, cpBackupElement, sourceInBattle, requiresOppDiscardedThisTurn, requiresCastSummonThisTurn, requiresElementForwardEnteredThisTurn, requiresCardNameEnteredThisTurn, breakZoneOnly, requiresOpponentEmptyHand, requiresNamedCardTookDamageThisTurn));
+            result.add(new ActionAbility(abilityName, requiresDull, isSpecial, crystalCost, selfMillCost, hasXCost, cpCost, breakZoneCosts, discardCosts, removeFromGameCosts, returnToHandCosts, counterCosts, dullForwardCosts, yourTurnOnly, oncePerTurn, mainPhaseOnly, whileCardAtk, whileCardBlk, whilePartyAtk, whileCardInHand, hasBlockingTarget, effectRaw, damageThreshold, controlCondition, cpBackupElement, sourceInBattle, requiresOppDiscardedThisTurn, requiresCastSummonThisTurn, requiresElementForwardEnteredThisTurn, requiresCardNameEnteredThisTurn, breakZoneOnly, requiresOpponentEmptyHand, requiresNamedCardTookDamageThisTurn, null));
         }
         return List.copyOf(result);
+    }
+
+    private static ActionAbility withOwnBzNameRequired(ActionAbility a, String bzCard) {
+        return new ActionAbility(a.abilityName(), a.requiresDull(), a.isSpecial(), a.crystalCost(),
+                a.selfMillCost(), a.hasXCost(), a.cpCost(), a.breakZoneCosts(), a.discardCosts(),
+                a.removeFromGameCosts(), a.returnToHandCosts(), a.counterCosts(), a.dullForwardCosts(),
+                a.yourTurnOnly(), a.oncePerTurn(), a.mainPhaseOnly(), a.whileCardAttacking(),
+                a.whileCardBlocking(), a.whilePartyAttacking(), a.whileCardInHand(),
+                a.hasBlockingTargetEffect(), a.effectText(), a.damageThreshold(), a.controlCondition(),
+                a.cpBackupElement(), a.sourceInBattle(), a.requiresOppDiscardedThisTurn(),
+                a.requiresCastSummonThisTurn(), a.requiresElementForwardEnteredThisTurn(),
+                a.requiresCardNameEnteredThisTurn(), a.breakZoneOnly(), a.requiresOpponentEmptyHand(),
+                a.requiresNamedCardTookDamageThisTurn(), bzCard);
     }
 
     /** Parses a "discard N [filter]" cost phrase into a {@link DiscardCost} list (0 or 1 item). */
@@ -1033,6 +1064,15 @@ public record CardData(
      */
     static final Pattern CARD_IN_BREAK_ZONE_PATTERN = Pattern.compile(
         "(?i)\\bif\\s+(?<card>\\S+(?:\\s+\\S+){0,2})\\s+is\\s+in\\s+the\\s+Break\\s+Zone[.!]?"
+    );
+
+    /**
+     * Outer structure: "If you have [a] Card Name X in your Break Zone, Y gains 'ab1' [and 'ab2']"
+     * The {@code bzcard} group captures the card name; {@code quotedAbilities} captures all quoted ability strings.
+     */
+    private static final Pattern IF_OWN_BZ_GAINS_PATTERN = Pattern.compile(
+        "(?i)If\\s+you\\s+have\\s+(?:a\\s+)?Card\\s+Name\\s+(?<bzcard>.+?)\\s+in\\s+your\\s+Break\\s+Zone,\\s+" +
+        "[A-Za-z][A-Za-z\\s''’\\-]*?\\s+gains?\\s+(?<quotedAbilities>\"[^\"]+\"(?:\\s+and\\s+\"[^\"]+\")*)\\.?"
     );
 
     /** Captures the raw condition text from "You can only use this ability if you control [X]". */

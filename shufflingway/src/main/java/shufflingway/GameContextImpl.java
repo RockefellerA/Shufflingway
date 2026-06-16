@@ -1380,7 +1380,7 @@ final class GameContextImpl implements GameContext {
 					String jobFilter, String cardNameFilter, String categoryFilter,
 					String elementFilter, String excludeName, boolean entersDull, String excludeElement,
 					boolean suppressAutoAbility) {
-				List<CardData> hand = mw.gameState.getP1Hand();
+				List<CardData> hand = isP1 ? mw.gameState.getP1Hand() : mw.gameState.getP2Hand();
 				List<Integer> eligible = new ArrayList<>();
 				for (int i = 0; i < hand.size(); i++) {
 					CardData card = hand.get(i);
@@ -1408,28 +1408,49 @@ final class GameContextImpl implements GameContext {
 					markEffectFizzled();
 					return;
 				}
-				List<CardData> candidates = new ArrayList<>();
-				for (int i : eligible) candidates.add(hand.get(i));
-				int listIdx = mw.showCardImageChooser(candidates, "Play a card onto the field", true, false);
-				if (listIdx < 0) { markEffectFizzled(); return; }
-				int handIdx = eligible.get(listIdx);
-				CardData card = hand.remove(handIdx);
-				logEntry(card.name() + " played from hand onto field" + (entersDull ? " (dull)" : "")
-						+ (suppressAutoAbility ? " (no ETF auto-ability)" : ""));
-				if (suppressAutoAbility) mw.suppressAutoAbilityForNextCard = true;
-				if (card.isBackup()) {
-					mw.placeCardInFirstBackupSlot(card);
-				} else if (card.isMonster()) {
-					mw.placeCardInMonsterZone(card);
+				int handIdx;
+				if (isP1) {
+					List<CardData> candidates = new ArrayList<>();
+					for (int i : eligible) candidates.add(hand.get(i));
+					int listIdx = mw.showCardImageChooser(candidates, "Play a card onto the field", true, false);
+					if (listIdx < 0) { markEffectFizzled(); return; }
+					handIdx = eligible.get(listIdx);
 				} else {
-					mw.placeCardInForwardZone(card);
-					if (entersDull) {
-						int newIdx = mw.p1ForwardCards.size() - 1;
-						mw.p1ForwardStates.set(newIdx, CardState.DULL);
-						mw.refreshP1ForwardSlot(newIdx);
-					}
+					handIdx = eligible.get(0); // AI: play first eligible card
 				}
-				mw.refreshP1HandLabel();
+				CardData card = hand.remove(handIdx);
+				logEntry((isP1 ? "" : "[P2] ") + card.name() + " played from hand onto field"
+						+ (entersDull ? " (dull)" : "") + (suppressAutoAbility ? " (no ETF auto-ability)" : ""));
+				if (suppressAutoAbility) mw.suppressAutoAbilityForNextCard = true;
+				if (isP1) {
+					if (card.isBackup()) {
+						mw.placeCardInFirstBackupSlot(card);
+					} else if (card.isMonster()) {
+						mw.placeCardInMonsterZone(card);
+					} else {
+						mw.placeCardInForwardZone(card);
+						if (entersDull) {
+							int newIdx = mw.p1ForwardCards.size() - 1;
+							mw.p1ForwardStates.set(newIdx, CardState.DULL);
+							mw.refreshP1ForwardSlot(newIdx);
+						}
+					}
+					mw.refreshP1HandLabel();
+				} else {
+					if (card.isBackup()) {
+						mw.placeP2CardInFirstBackupSlot(card);
+					} else if (card.isMonster()) {
+						mw.placeP2CardInMonsterZone(card);
+					} else {
+						mw.placeP2CardInForwardZone(card);
+						if (entersDull) {
+							int newIdx = mw.p2ForwardCards.size() - 1;
+							mw.p2ForwardStates.set(newIdx, CardState.DULL);
+							mw.refreshP2ForwardSlot(newIdx);
+						}
+					}
+					mw.refreshP2HandCountLabel();
+				}
 			}
 
 			@Override public void damageTarget(ForwardTarget t, int amount) {
