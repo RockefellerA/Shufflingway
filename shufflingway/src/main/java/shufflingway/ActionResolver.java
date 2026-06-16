@@ -683,18 +683,18 @@ public class ActionResolver {
     );
 
     /**
-     * "At the beginning|start of your Main Phase 1[ each turn etc.], &lt;effect&gt;"
+     * "At the beginning of your Main Phase 1[ each turn etc.], &lt;effect&gt;"
      * Group {@code inner} captures the effect text after the trigger comma.  Modeled on
      * {@link #AT_END_OF_EACH_TURN_FA_PATTERN} — the inner effect is dispatched through
      * the full {@link #parse} chain so any supported effect can follow the trigger.
      */
     static final Pattern AT_BEGINNING_OF_MAIN_PHASE_1_FA_PATTERN = Pattern.compile(
-        "(?i)At\\s+the\\s+(?:beginning|start)\\s+of\\s+your\\s+Main\\s+Phase\\s+1\\b[^,]*,\\s+(?<inner>.+)"
+        "(?i)At\\s+the\\s+beginning\\s+of\\s+your\\s+Main\\s+Phase\\s+1\\b[^,]*,\\s+(?<inner>.+)"
     );
 
     /** Same as {@link #AT_BEGINNING_OF_MAIN_PHASE_1_FA_PATTERN} but for Main Phase 2. */
     static final Pattern AT_BEGINNING_OF_MAIN_PHASE_2_FA_PATTERN = Pattern.compile(
-        "(?i)At\\s+the\\s+(?:beginning|start)\\s+of\\s+your\\s+Main\\s+Phase\\s+2\\b[^,]*,\\s+(?<inner>.+)"
+        "(?i)At\\s+the\\s+beginning\\s+of\\s+your\\s+Main\\s+Phase\\s+2\\b[^,]*,\\s+(?<inner>.+)"
     );
 
     /**
@@ -7980,7 +7980,7 @@ public class ActionResolver {
     }
 
     /**
-     * Parses "At the beginning|start of your Main Phase 1, &lt;effect&gt;" — a recurring
+     * Parses "At the beginning of your Main Phase 1, &lt;effect&gt;" — a recurring
      * field-ability trigger.  Strips the trigger prefix and dispatches the inner effect
      * through the full {@link #parse} chain so any supported effect can follow.
      * {@code fireFieldMainPhase1Abilities} is responsible for invoking it each Main Phase 1 start.
@@ -7992,7 +7992,7 @@ public class ActionResolver {
     }
 
     /**
-     * Parses "At the beginning|start of your Main Phase 2, &lt;effect&gt;" — same as
+     * Parses "At the beginning of your Main Phase 2, &lt;effect&gt;" — same as
      * {@link #tryParseBeginningOfMainPhase1FieldAbility} but for Main Phase 2.
      */
     static Consumer<GameContext> tryParseBeginningOfMainPhase2FieldAbility(String text, CardData source) {
