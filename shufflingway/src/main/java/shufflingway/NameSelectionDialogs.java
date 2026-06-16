@@ -1,14 +1,40 @@
 package shufflingway;
 
-import scraper.CardDatabase;
-import java.awt.*;
-import java.awt.event.*;
+import java.awt.BorderLayout;
+import java.awt.Component;
+import java.awt.FlowLayout;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
 import java.sql.SQLException;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
+import java.util.Set;
+import java.util.TreeSet;
 import java.util.function.Consumer;
-import javax.swing.*;
-import javax.swing.event.*;
+
+import javax.swing.BorderFactory;
+import javax.swing.ButtonGroup;
+import javax.swing.DefaultListModel;
+import javax.swing.JButton;
+import javax.swing.JComboBox;
+import javax.swing.JComponent;
+import javax.swing.JDialog;
+import javax.swing.JFrame;
+import javax.swing.JLabel;
+import javax.swing.JList;
+import javax.swing.JPanel;
+import javax.swing.JRadioButton;
+import javax.swing.JScrollPane;
+import javax.swing.JSplitPane;
+import javax.swing.JTextField;
+import javax.swing.ListSelectionModel;
+import javax.swing.SwingConstants;
+import javax.swing.SwingUtilities;
+import javax.swing.event.DocumentEvent;
+import javax.swing.event.DocumentListener;
+
+import scraper.CardDatabase;
 
 /**
  * Static factory methods for the "Name an Element", "Name a Job", and "Name an Element and Job" dialogs.
@@ -191,6 +217,7 @@ class NameSelectionDialogs {
     private static String showElementDialog(JFrame frame, String prompt, Set<String> excluded) {
         String[] result = {null};
         JDialog dialog = new JDialog(frame, "Name an Element", true);
+        dialog.setResizable(false);
         dialog.setDefaultCloseOperation(JDialog.DO_NOTHING_ON_CLOSE);
 
         DefaultListModel<String> listModel = new DefaultListModel<>();
@@ -225,7 +252,7 @@ class NameSelectionDialogs {
         dialog.add(top, BorderLayout.NORTH);
         dialog.add(new JScrollPane(elemList), BorderLayout.CENTER);
         dialog.add(bottom, BorderLayout.SOUTH);
-        dialog.setSize(220, 280);
+        dialog.setSize(220, 290);
         dialog.setLocationRelativeTo(frame);
         dialog.setVisible(true);
         return result[0];
