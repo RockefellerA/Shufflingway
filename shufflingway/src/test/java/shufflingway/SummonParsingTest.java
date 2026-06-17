@@ -71,6 +71,7 @@ public class SummonParsingTest {
                         CardData.parseWarpCostAnyElement(textEn),
                         CardData.parseCanFormPartyAnyElement(textEn),
                         CardData.parseFieldCannotBeBlockedByCost(textEn, rs.getString("name_en")),
+                        CardData.parseCannotBeBlockedByHigherPower(textEn, rs.getString("name_en")),
                         rs.getString("job_en"),
                         rs.getString("category_1"),
                         rs.getString("category_2"),

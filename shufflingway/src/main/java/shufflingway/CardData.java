@@ -41,7 +41,8 @@ public record CardData(
         List<FieldPartyAnyElement>   fieldPartyAnyElements,
         boolean warpCostAnyElement,
         boolean canFormPartyAnyElement,
-        int[]   fieldCannotBeBlockedByCost, // null = no restriction; {costVal, 1} = "or more", {costVal, 0} = "or less"
+        int[]   fieldCannotBeBlockedByCost,       // null = no restriction; {costVal, 1} = "or more", {costVal, 0} = "or less"
+        boolean cannotBeBlockedByHigherPower,     // cannot be blocked by a Forward with greater power
         String job,
         String category1,
         String category2,
@@ -2533,6 +2534,35 @@ public record CardData(
             return new int[]{costVal, orMore ? 1 : 0};
         }
         return null;
+    }
+
+    /**
+     * Matches "[CardName] cannot be blocked by a Forward with a power greater than [his/hers/CardName's]."
+     * Groups: {@code cardname}, {@code ref} (the possessive reference).
+     */
+    private static final Pattern FIELD_CANNOT_BE_BLOCKED_BY_HIGHER_POWER = Pattern.compile(
+        "(?i)^(?<cardname>.+?)\\s+cannot\\s+be\\s+blocked\\s+by\\s+a\\s+Forward\\s+with\\s+a\\s+power" +
+        "\\s+greater\\s+than\\s+(?<ref>his|hers|\\S.*?'s)\\.?\\s*$"
+    );
+
+    /**
+     * Returns {@code true} if the card has an intrinsic "cannot be blocked by a Forward with a power
+     * greater than [its own]" field ability.
+     */
+    public static boolean parseCannotBeBlockedByHigherPower(String textEn, String cardName) {
+        if (textEn == null || textEn.isBlank()) return false;
+        for (String raw : textEn.split("(?i)\\[\\[br\\]\\]")) {
+            String seg = SUMMON_MARKUP.matcher(raw.trim()).replaceAll("").trim();
+            if (seg.isEmpty()) continue;
+            Matcher m = FIELD_CANNOT_BE_BLOCKED_BY_HIGHER_POWER.matcher(seg);
+            if (!m.find()) continue;
+            if (!m.group("cardname").trim().equalsIgnoreCase(cardName)) continue;
+            String ref = m.group("ref").trim();
+            // Accept generic pronouns or an explicit self-reference ("CardName's")
+            if (ref.equalsIgnoreCase("his") || ref.equalsIgnoreCase("hers")
+                    || ref.equalsIgnoreCase(cardName + "'s")) return true;
+        }
+        return false;
     }
 
     /** Returns {@code true} if the card text contains a "can form a party with Forwards of any Element" clause. */
