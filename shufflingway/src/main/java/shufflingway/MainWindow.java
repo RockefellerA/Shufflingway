@@ -9565,6 +9565,7 @@ public class MainWindow {
 
 		refreshP2MonsterSlot(idx);
 		autoAbilityTriggers.triggerAutoAbilitiesForEntersField(card, false);
+		sendToBreakZoneByUniquenessRule(card, false);
 	}
 
 	/** Reloads and re-renders a single P2 monster slot using its stored URL and state. */
@@ -11763,6 +11764,7 @@ public class MainWindow {
 		if (!card.fieldPowerGrants().isEmpty()) refreshFieldGrantDependents(false);
 		if (!card.fieldCostReductions().isEmpty() || p1HandHasSelfCostModifiers()) refreshHandPopupIfVisible();
 		autoAbilityTriggers.triggerAutoAbilitiesForEntersField(card, false);
+		sendToBreakZoneByUniquenessRule(card, false);
 	}
 
 	void placeP2CardInFirstBackupSlot(CardData card) {
@@ -11773,6 +11775,7 @@ public class MainWindow {
 			p2BackupStates[i] = CardState.DULL;
 			refreshP2BackupSlot(i);
 			autoAbilityTriggers.triggerAutoAbilitiesForEntersField(card, false);
+			sendToBreakZoneByUniquenessRule(card, false);
 			return;
 		}
 	}

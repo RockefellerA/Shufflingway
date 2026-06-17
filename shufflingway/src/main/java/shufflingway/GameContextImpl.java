@@ -1502,7 +1502,10 @@ final class GameContextImpl implements GameContext {
 					p2Dlg.pack();
 					p2Dlg.setLocationRelativeTo(mw.frame);
 					p2Dlg.setVisible(true);
-					if (p2Eligible && mw.isP2Cpu()) {
+					boolean p2WouldViolateUniqueness = p2Eligible && !p2Card.multicard()
+							&& (mw.p2ForwardCards.stream().anyMatch(c -> p2Card.name().equalsIgnoreCase(c.name()))
+							   || java.util.Arrays.stream(mw.p2BackupCards).anyMatch(c -> c != null && p2Card.name().equalsIgnoreCase(c.name())));
+					if (p2Eligible && mw.isP2Cpu() && !p2WouldViolateUniqueness) {
 						if (p2Card.isBackup())       mw.placeP2CardInFirstBackupSlot(p2Card);
 						else if (p2Card.isMonster()) mw.placeP2CardInMonsterZone(p2Card);
 						else                         mw.placeP2CardInForwardZone(p2Card);

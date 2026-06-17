@@ -618,6 +618,17 @@ public class ActionResolver {
     );
 
     /**
+     * Matches "If its power is equal to or less/more than [SourceName]'s power, put it on top of
+     * its owner's deck." — Wakka-style conditional bounce whose threshold is the source card's power.
+     * Groups: {@code sourcename} — name of the card providing the power threshold;
+     *         {@code cmp} — "less" or "more".
+     */
+    private static final Pattern FOLLOWUP_IF_POWER_CMP_SOURCE_PUT_ON_DECK_TOP = Pattern.compile(
+        "(?i)If\\s+its?\\s+power\\s+is\\s+equal\\s+to\\s+or\\s+(?<cmp>less|more)\\s+than\\s+" +
+        "(?<sourcename>.+?)'s\\s+power[,.]?\\s+put\\s+it\\s+on\\s+top\\s+of\\s+its\\s+owner's\\s+deck[.!]?"
+    );
+
+    /**
      * Matches "Put it under the top [N] card(s) of its owner's/your deck."
      * Group {@code numword} — present only when a number word precedes "cards" (currently only "four").
      */
@@ -5311,6 +5322,46 @@ public class ActionResolver {
                     if (t.zone() != ForwardTarget.CardZone.FORWARD) continue;
                     if (t.isP1()) ctx.returnP1ForwardToDeckBottom(t.idx());
                     else          ctx.returnP2ForwardToDeckBottom(t.idx());
+                }
+                if (secondary != null) secondary.accept(ctx);
+            };
+        }
+
+        // --- Conditional power-vs-source "put on top of deck" followup (e.g. Wakka) ---
+        Matcher ifPowerCmpSourceM = FOLLOWUP_IF_POWER_CMP_SOURCE_PUT_ON_DECK_TOP.matcher(primaryFollowup);
+        if (ifPowerCmpSourceM.find()) {
+            boolean wantLessOrEqual = "less".equalsIgnoreCase(ifPowerCmpSourceM.group("cmp"));
+            return ctx -> {
+                ctx.logEntry(choosePrefix + " — Conditional power check vs source, put on top of owner's deck");
+                List<ForwardTarget> ts = selectTargets(ctx, maxCount, upTo,
+                        opponentOnly, selfOnly, condition, element, zone, opponentZone,
+                        costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters, jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, fExcludeElem, withoutMulticard);
+                // Find source card's current effective power on the field
+                int sourcePower = source.power();
+                outer:
+                for (int pi = 0; pi <= 1; pi++) {
+                    boolean p1 = pi == 0;
+                    int cnt = p1 ? ctx.p1ForwardCount() : ctx.p2ForwardCount();
+                    for (int i = 0; i < cnt; i++) {
+                        if ((p1 ? ctx.p1Forward(i) : ctx.p2Forward(i)) == source) {
+                            sourcePower = ctx.effectiveTargetPower(
+                                    new ForwardTarget(p1, i, ForwardTarget.CardZone.FORWARD));
+                            break outer;
+                        }
+                    }
+                }
+                final int sp = sourcePower;
+                for (ForwardTarget t : ts) {
+                    if (t.zone() != ForwardTarget.CardZone.FORWARD) continue;
+                    int targetPower = ctx.effectiveTargetPower(t);
+                    boolean condMet = wantLessOrEqual ? targetPower <= sp : targetPower >= sp;
+                    if (condMet) {
+                        ctx.logEntry("  power " + targetPower + (wantLessOrEqual ? " ≤ " : " ≥ ") + sp + " — bounced to deck top");
+                        if (t.isP1()) ctx.returnP1ForwardToDeckTop(t.idx());
+                        else          ctx.returnP2ForwardToDeckTop(t.idx());
+                    } else {
+                        ctx.logEntry("  power " + targetPower + (wantLessOrEqual ? " > " : " < ") + sp + " — condition not met, no effect");
+                    }
                 }
                 if (secondary != null) secondary.accept(ctx);
             };
