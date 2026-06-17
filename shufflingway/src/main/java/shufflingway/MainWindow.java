@@ -8805,8 +8805,8 @@ public class MainWindow {
 		if (fromAbility && nextAbilityDmgReduceMap.containsKey(card))
 			amount = Math.max(0, amount - nextAbilityDmgReduceMap.remove(card));
 
-		// Passive field ability: general incoming damage modifier
-		// ("by a Forward / by Summon or ability / other than battle damage / any source")
+		// Passive field ability: self-targeted incoming damage modifier
+		// ("by a Forward / by Summon or ability / other than battle damage / less than power / any source")
 		for (FieldAbility fa : card.fieldAbilities()) {
 			Matcher fam = AutoAbilityTriggers.FA_DAMAGE_MODIFIER.matcher(fa.effectText());
 			if (!fam.find() || !fam.group("card").trim().equalsIgnoreCase(card.name())) continue;
@@ -8816,7 +8816,10 @@ public class MainWindow {
 				applies = true;
 			} else {
 				String srcN = src.trim().toLowerCase();
-				if (srcN.startsWith("by a forward")) {
+				if (srcN.startsWith("less than") && srcN.endsWith("power")) {
+					int power = isP1 ? effectiveP1ForwardPower(idx) : effectiveP2ForwardPower(idx);
+					applies = amount < power;
+				} else if (srcN.startsWith("by a forward")) {
 					applies = !fromAbility;
 				} else if (srcN.contains("summon") && !srcN.contains("abilit")) {
 					applies = fromAbility && currentResolutionIsSummon;
@@ -8840,6 +8843,9 @@ public class MainWindow {
 			}
 		}
 
+		// Passive field ability on other friendly cards: field-wide incoming damage modifier
+		amount = applyFieldWideDamageModifiers(amount, card, isP1, idx, fromAbility);
+
 		// Global per-player damage reduction
 		int globalRed = isP1 ? p1GlobalDmgReduction : p2GlobalDmgReduction;
 		if (globalRed > 0) amount = Math.max(0, amount - globalRed);
@@ -8857,6 +8863,67 @@ public class MainWindow {
 			if (amount < power) return 0;
 		}
 
+		return amount;
+	}
+
+	/**
+	 * Scans all friendly Forwards and Backups for {@link AutoAbilityTriggers#FA_FIELD_DAMAGE_MODIFIER}
+	 * abilities and applies any that target the damaged Forward.
+	 * Returns the (possibly modified) damage amount.
+	 */
+	private int applyFieldWideDamageModifiers(int amount, CardData damaged, boolean isP1, int idx, boolean fromAbility) {
+		int effectivePower = isP1 ? effectiveP1ForwardPower(idx) : effectiveP2ForwardPower(idx);
+		boolean attackerIsBackup = !fromAbility && (isP1 ? pendingP2AttackerIsBackup : p1BackupAttackIdx >= 0);
+
+		List<CardData> sources = new ArrayList<>(isP1 ? p1ForwardCards : p2ForwardCards);
+		for (CardData bkp : isP1 ? p1BackupCards : p2BackupCards)
+			if (bkp != null) sources.add(bkp);
+
+		for (CardData protector : sources) {
+			for (FieldAbility fa : protector.fieldAbilities()) {
+				Matcher m = AutoAbilityTriggers.FA_FIELD_DAMAGE_MODIFIER.matcher(fa.effectText());
+				if (!m.find()) continue;
+
+				// Target filter
+				String category = m.group("category");
+				String job      = m.group("job");
+				String costStr  = m.group("cost");
+				String costcmp  = m.group("costcmp");
+				String except   = m.group("except1") != null ? m.group("except1").trim()
+				                                             : (m.group("except2") != null ? m.group("except2").trim() : null);
+
+				if (category != null && !CardFilters.meetsCategoryFilter(damaged, category)) continue;
+				if (job      != null && !CardFilters.meetsJobFilter(damaged, job))            continue;
+				if (costStr  != null) {
+					int costVal = Integer.parseInt(costStr);
+					boolean orMore = "more".equalsIgnoreCase(costcmp);
+					if (orMore ? damaged.cost() < costVal : damaged.cost() > costVal) continue;
+				}
+				if (except != null && except.equalsIgnoreCase(damaged.name())) continue;
+
+				// Source clause
+				String src = m.group("sourceclause");
+				if (src != null && !src.isBlank()) {
+					String srcN = src.trim().toLowerCase();
+					if (srcN.contains("less than its power") && amount >= effectivePower) continue;
+					if (srcN.contains("by a backup") && !attackerIsBackup) continue;
+				}
+
+				// Apply effect
+				String reduceStr = m.group("reduceby");
+				String setstoStr = m.group("setsto");
+				if (reduceStr != null) {
+					int before = amount;
+					amount = Math.max(0, amount - Integer.parseInt(reduceStr));
+					logEntry(damaged.name() + " — damage reduced by " + reduceStr
+							+ " (" + before + " → " + amount + ") [" + protector.name() + "]");
+				} else if (setstoStr != null) {
+					int fixed = Integer.parseInt(setstoStr);
+					logEntry(damaged.name() + " — damage set to " + fixed + " instead [" + protector.name() + "]");
+					amount = fixed;
+				}
+			}
+		}
 		return amount;
 	}
 
@@ -10910,12 +10977,35 @@ public class MainWindow {
 		return damageMap;
 	}
 
+	/**
+	 * Returns {@code true} if any party member other than {@code damagedIdx} has a
+	 * "forming a party with [self]" field ability, nullifying that Forward's combat damage.
+	 */
+	private boolean partyProtectionApplies(Set<Integer> partySet, int damagedIdx, boolean isP1) {
+		List<CardData> fwds = isP1 ? p1ForwardCards : p2ForwardCards;
+		for (int protectorIdx : partySet) {
+			if (protectorIdx == damagedIdx || protectorIdx >= fwds.size()) continue;
+			CardData protector = fwds.get(protectorIdx);
+			for (FieldAbility fa : protector.fieldAbilities()) {
+				Matcher m = AutoAbilityTriggers.FA_PARTY_DAMAGE_PROTECTION.matcher(fa.effectText());
+				if (m.find() && m.group("source").trim().equalsIgnoreCase(protector.name()))
+					return true;
+			}
+		}
+		return false;
+	}
+
 	/** Applies a party-block damage map: logs, updates p1ForwardDamage, and breaks lethal targets. */
 	private void applyPartyBlockerDamage(Map<Integer, Integer> damageMap) {
 		if (damageMap.isEmpty()) return;
+		Set<Integer> partySet = damageMap.keySet();
 		for (Map.Entry<Integer, Integer> entry : damageMap.entrySet()) {
 			int idx = entry.getKey(), dmg = entry.getValue();
 			if (idx >= p1ForwardCards.size()) continue;
+			if (partySet.size() >= 2 && partyProtectionApplies(partySet, idx, true)) {
+				logEntry(p1ForwardCards.get(idx).name() + " — party damage nullified");
+				continue;
+			}
 			p1ForwardDamage.set(idx, p1ForwardDamage.get(idx) + dmg);
 			logEntry("[P2] Deals " + dmg + " damage to " + p1ForwardCards.get(idx).name());
 		}
@@ -10963,9 +11053,14 @@ public class MainWindow {
 	/** Applies a damage map onto P2 party attackers; breaks those that reach lethal. */
 	private void applyP2PartyAttackerDamage(Map<Integer, Integer> damageMap) {
 		if (damageMap.isEmpty()) return;
+		Set<Integer> partySet = damageMap.keySet();
 		for (Map.Entry<Integer, Integer> entry : damageMap.entrySet()) {
 			int idx = entry.getKey(), dmg = entry.getValue();
 			if (idx >= p2ForwardCards.size()) continue;
+			if (partySet.size() >= 2 && partyProtectionApplies(partySet, idx, false)) {
+				logEntry(p2ForwardCards.get(idx).name() + " — party damage nullified");
+				continue;
+			}
 			p2ForwardDamage.set(idx, p2ForwardDamage.get(idx) + dmg);
 			logEntry("Deals " + dmg + " damage to " + p2ForwardCards.get(idx).name());
 		}

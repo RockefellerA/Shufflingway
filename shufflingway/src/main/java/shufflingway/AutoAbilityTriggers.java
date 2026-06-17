@@ -230,10 +230,42 @@ final class AutoAbilityTriggers {
 			"|\\s+other\\s+than\\s+battle\\s+damage" +
 			"|\\s+by\\s+(?:your\\s+opponent's\\s+)?(?:a\\s+)?Summons?(?:\\s+or\\s+(?:an?\\s+)?abilit(?:y|ies))?" +
 			"|\\s+by\\s+(?:a\\s+Summon\\s+or\\s+)?an?\\s+abilit(?:y|ies)" +
+			"|\\s+less\\s+than\\s+(?:his|her|its)\\s+power" +
 		")?" +
 		"\\s*,\\s+" +
 		"(?:reduce\\s+the\\s+damage\\s+by\\s+(?<reduceby>\\d+)|the\\s+damage\\s+becomes\\s+(?<setsto>\\d+))" +
 		"\\s+instead\\.?$"
+	);
+
+	/**
+	 * Field-wide incoming-damage modifier: "If a [Category X | Job Y] Forward [of cost N or less/more]
+	 * [other than Z] you control [other than Z] is dealt damage [less than its power | by a Backup],
+	 * [reduce the damage by N | the damage becomes N] instead."
+	 * Groups: {@code category}, {@code job}, {@code cost}, {@code costcmp},
+	 * {@code except1} (before "you control"), {@code except2} (after "you control"),
+	 * {@code sourceclause}, {@code reduceby}, {@code setsto}.
+	 */
+	static final Pattern FA_FIELD_DAMAGE_MODIFIER = Pattern.compile(
+		"(?i)^If\\s+a\\s+" +
+		"(?:Category\\s+(?<category>\\S+)\\s+|Job\\s+(?<job>.+?)\\s+(?=Forward))?" +
+		"Forward(?:\\s+of\\s+cost\\s+(?<cost>\\d+)\\s+or\\s+(?<costcmp>less|more))?" +
+		"(?:\\s+other\\s+than\\s+(?<except1>.+?))?" +
+		"\\s+you\\s+control" +
+		"(?:\\s+other\\s+than\\s+(?<except2>.+?))?" +
+		"\\s+is\\s+dealt\\s+damage" +
+		"(?<sourceclause>\\s+less\\s+than\\s+its\\s+power|\\s+by\\s+a\\s+Backup)?" +
+		"\\s*,\\s+" +
+		"(?:reduce\\s+the\\s+damage\\s+by\\s+(?<reduceby>\\d+)|the\\s+damage\\s+becomes\\s+(?<setsto>\\d+))" +
+		"\\s+instead\\.?$"
+	);
+
+	/**
+	 * Party-forming damage protection: "If a Forward forming a party with [CardName] is dealt damage,
+	 * the damage becomes 0 instead."
+	 * Group: {@code source} — the card name whose party membership triggers the protection.
+	 */
+	static final Pattern FA_PARTY_DAMAGE_PROTECTION = Pattern.compile(
+		"(?i)^If\\s+a\\s+Forward\\s+forming\\s+a\\s+party\\s+with\\s+(?<source>.+?)\\s+is\\s+dealt\\s+damage,\\s+the\\s+damage\\s+becomes\\s+0\\s+instead\\.?$"
 	);
 
 	/** "If [name] deals damage to a Forward of cost N or more, double the damage instead." */

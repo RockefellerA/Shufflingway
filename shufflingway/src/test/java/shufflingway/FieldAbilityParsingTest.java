@@ -110,6 +110,8 @@ public class FieldAbilityParsingTest {
         if (CardData.MULTI_LIGHT_DARK_PLAY_PATTERN.matcher(fa.effectText()).matches()) return true;
         if (CardData.MULTI_NAME_PLAY_PATTERN.matcher(fa.effectText()).matches()) return true;
         if (AutoAbilityTriggers.FA_DAMAGE_MODIFIER.matcher(fa.effectText()).find()) return true;
+        if (AutoAbilityTriggers.FA_FIELD_DAMAGE_MODIFIER.matcher(fa.effectText()).find()) return true;
+        if (AutoAbilityTriggers.FA_PARTY_DAMAGE_PROTECTION.matcher(fa.effectText()).find()) return true;
         if (AutoAbilityTriggers.FA_NULLIFY_SUMMON_DAMAGE.matcher(fa.effectText()).find()) return true;
         if (AutoAbilityTriggers.FA_NULLIFY_ABILITY_DAMAGE.matcher(fa.effectText()).find()) return true;
         return AutoAbilityTriggers.FA_REDUCE_ABILITY_DAMAGE.matcher(fa.effectText()).find();
@@ -186,6 +188,29 @@ public class FieldAbilityParsingTest {
             return "DmgModifier[" + (src != null ? src.trim() : "any") + ": "
                     + (reduceBy != null ? "reduce " + reduceBy : "becomes " + setsTo) + "]";
         }
+        m = AutoAbilityTriggers.FA_FIELD_DAMAGE_MODIFIER.matcher(fa.effectText());
+        if (m.find()) {
+            String src      = m.group("sourceclause");
+            String reduceBy = m.group("reduceby");
+            String setsTo   = m.group("setsto");
+            String cat      = m.group("category");
+            String job      = m.group("job");
+            String cost     = m.group("cost");
+            String costcmp  = m.group("costcmp");
+            String except   = m.group("except1") != null ? m.group("except1") : m.group("except2");
+            StringBuilder tag = new StringBuilder("FieldDmgModifier[");
+            if (cat  != null) tag.append("Cat.").append(cat).append(' ');
+            if (job  != null) tag.append("Job.").append(job).append(' ');
+            if (cost != null) tag.append("cost").append(cost).append(costcmp != null ? costcmp : "?").append(' ');
+            tag.append("Fwds");
+            if (except != null) tag.append(" excl.").append(except.trim());
+            tag.append(": ").append(src != null ? src.trim() : "any");
+            tag.append(" → ").append(reduceBy != null ? "reduce " + reduceBy : "becomes " + setsTo);
+            tag.append(']');
+            return tag.toString();
+        }
+        m = AutoAbilityTriggers.FA_PARTY_DAMAGE_PROTECTION.matcher(fa.effectText());
+        if (m.find()) return "PartyDmgProtection[" + m.group("source") + "]";
         m = AutoAbilityTriggers.FA_NULLIFY_SUMMON_DAMAGE.matcher(fa.effectText());
         if (m.find()) return "NullifySummonDmg";
         m = AutoAbilityTriggers.FA_NULLIFY_ABILITY_DAMAGE.matcher(fa.effectText());
