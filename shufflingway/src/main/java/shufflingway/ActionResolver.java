@@ -837,8 +837,8 @@ public class ActionResolver {
     private static final Pattern REVEAL_TOP_N_JOB_OR_NAME_TO_HAND = Pattern.compile(
         "(?i)^\\s*(?:you\\s+may\\s+)?reveal\\s+the\\s+top\\s+(?<n>\\d+)\\s+cards?\\s+of\\s+your\\s+deck[.!]?\\s+" +
         "Add\\s+1\\s+" +
-        "(?<first>(?:Job|Card\\s+Name)\\s+\\S+)" +
-        "(?:\\s+or\\s+(?<second>(?:Job|Card\\s+Name)\\s+\\S+))?" +
+        "(?<first>(?:Job|Card\\s+Name)\\s+.+?)" +
+        "(?:\\s+or\\s+(?<second>(?:Job|Card\\s+Name)\\s+.+?))?" +
         "(?:\\s+(?:Forward|Backup|Character|Monster|card))?\\s+among\\s+them\\s+to\\s+your\\s+hand\\s+" +
         "and\\s+return\\s+the\\s+other\\s+cards?\\s+to\\s+the\\s+bottom\\s+of\\s+(?:your|the)\\s+deck(?:\\s+in\\s+any\\s+order)?[.!]?\\s*$"
     );
@@ -6085,6 +6085,8 @@ public class ActionResolver {
         s = CardData.NAMED_CARD_TOOK_DAMAGE_THIS_TURN_RESTRICTION.matcher(s).replaceAll("").trim();
         s = CardData.ELEMENT_FORWARD_ENTERED_THIS_TURN_PATTERN.matcher(s).replaceAll("").trim();
         s = CardData.CONTROL_IF_PATTERN            .matcher(s).replaceAll("").trim();
+        s = CardData.CONTROL_IF_NOT_ANY_PATTERN        .matcher(s).replaceAll("").trim();
+        s = CardData.OWN_BZ_NAME_REQUIRED_RESTRICTION  .matcher(s).replaceAll("").trim();
         // Strip leftover leading/trailing ", and" / "," / "." artifacts
         s = s.replaceAll("^[,.;\\s]+|[,.;\\s]+$", "").trim();
         return s;
@@ -8149,7 +8151,8 @@ public class ActionResolver {
     }
 
     private static Consumer<GameContext> tryParseRevealTopNCategoryToHand(String text) {
-        Matcher m = REVEAL_TOP_N_CATEGORY_TO_HAND.matcher(text);
+        String s = stripRestrictionSentences(text);
+        Matcher m = REVEAL_TOP_N_CATEGORY_TO_HAND.matcher(s.isEmpty() ? text : s);
         if (!m.find()) return null;
         int n = Integer.parseInt(m.group("n"));
         String cat = m.group("cat");
@@ -8166,7 +8169,8 @@ public class ActionResolver {
      * {@link GameContext#revealTopAddUpToMatchingRestBottom}.
      */
     private static Consumer<GameContext> tryParseRevealTopNJobOrNameToHand(String text) {
-        Matcher m = REVEAL_TOP_N_JOB_OR_NAME_TO_HAND.matcher(text);
+        String s = stripRestrictionSentences(text);
+        Matcher m = REVEAL_TOP_N_JOB_OR_NAME_TO_HAND.matcher(s.isEmpty() ? text : s);
         if (!m.find()) return null;
         int n = Integer.parseInt(m.group("n"));
         StringBuilder jobs  = new StringBuilder();
@@ -8187,7 +8191,8 @@ public class ActionResolver {
     }
 
     private static Consumer<GameContext> tryParseRevealTopNTypeToHand(String text) {
-        Matcher m = REVEAL_TOP_N_TYPE_TO_HAND.matcher(text);
+        String s = stripRestrictionSentences(text);
+        Matcher m = REVEAL_TOP_N_TYPE_TO_HAND.matcher(s.isEmpty() ? text : s);
         if (!m.find()) return null;
         int n = Integer.parseInt(m.group("n"));
         int max = Integer.parseInt(m.group("max"));

@@ -876,10 +876,15 @@ public record CardData(
             String  requiresElementForwardEnteredThisTurn = elemFwdM.find() ? elemFwdM.group("element").toLowerCase() : null;
             Matcher cardNameFwdM = CARD_NAME_ENTERED_THIS_TURN_PATTERN.matcher(effectRaw);
             String  requiresCardNameEnteredThisTurn = cardNameFwdM.find() ? cardNameFwdM.group("cardname").trim() : null;
-            Matcher bzOnlyM = CARD_IN_BREAK_ZONE_PATTERN.matcher(effectRaw);
-            String  breakZoneOnly = bzOnlyM.find() ? bzOnlyM.group("card").trim() : null;
+            Matcher ownBzM  = OWN_BZ_NAME_REQUIRED_RESTRICTION.matcher(effectRaw);
+            String  ownBzCard = ownBzM.find() ? ownBzM.group("card").trim() : null;
+            String  breakZoneOnly = null;
+            if (ownBzCard == null) {
+                Matcher bzOnlyM = CARD_IN_BREAK_ZONE_PATTERN.matcher(effectRaw);
+                breakZoneOnly = bzOnlyM.find() ? bzOnlyM.group("card").trim() : null;
+            }
             ControlCondition controlCondition = null;
-            if (!whileCardInHand && breakZoneOnly == null) {
+            if (!whileCardInHand && breakZoneOnly == null && ownBzCard == null) {
                 Matcher ctrlM = CONTROL_IF_PATTERN.matcher(effectRaw);
                 if (ctrlM.find()) {
                     controlCondition = parseControlCondition(ctrlM.group("condition"));
@@ -897,7 +902,7 @@ public record CardData(
             String cpBackupElement = cpBkpM.find()
                     ? (cpBkpM.group("element") != null ? cpBkpM.group("element") : "")
                     : null;
-            result.add(new ActionAbility(abilityName, requiresDull, isSpecial, crystalCost, selfMillCost, hasXCost, cpCost, breakZoneCosts, discardCosts, removeFromGameCosts, returnToHandCosts, counterCosts, dullForwardCosts, yourTurnOnly, oncePerTurn, mainPhaseOnly, whileCardAtk, whileCardBlk, whilePartyAtk, whileCardInHand, hasBlockingTarget, effectRaw, damageThreshold, controlCondition, cpBackupElement, sourceInBattle, requiresOppDiscardedThisTurn, requiresCastSummonThisTurn, requiresElementForwardEnteredThisTurn, requiresCardNameEnteredThisTurn, breakZoneOnly, requiresOpponentEmptyHand, requiresNamedCardTookDamageThisTurn, null));
+            result.add(new ActionAbility(abilityName, requiresDull, isSpecial, crystalCost, selfMillCost, hasXCost, cpCost, breakZoneCosts, discardCosts, removeFromGameCosts, returnToHandCosts, counterCosts, dullForwardCosts, yourTurnOnly, oncePerTurn, mainPhaseOnly, whileCardAtk, whileCardBlk, whilePartyAtk, whileCardInHand, hasBlockingTarget, effectRaw, damageThreshold, controlCondition, cpBackupElement, sourceInBattle, requiresOppDiscardedThisTurn, requiresCastSummonThisTurn, requiresElementForwardEnteredThisTurn, requiresCardNameEnteredThisTurn, breakZoneOnly, requiresOpponentEmptyHand, requiresNamedCardTookDamageThisTurn, ownBzCard));
         }
         return List.copyOf(result);
     }
@@ -1064,6 +1069,16 @@ public record CardData(
      */
     static final Pattern CARD_IN_BREAK_ZONE_PATTERN = Pattern.compile(
         "(?i)\\bif\\s+(?<card>\\S+(?:\\s+\\S+){0,2})\\s+is\\s+in\\s+the\\s+Break\\s+Zone[.!]?"
+    );
+
+    /**
+     * Matches the standalone restriction sentence "You can only use this ability if [CardName]
+     * is in the Break Zone." — used for field abilities that require a named card to be in the
+     * controller's Break Zone.  Distinct from {@link #CARD_IN_BREAK_ZONE_PATTERN}, which is
+     * used for BZ-only abilities (the source card itself activates from the Break Zone).
+     */
+    static final Pattern OWN_BZ_NAME_REQUIRED_RESTRICTION = Pattern.compile(
+        "(?i)You\\s+can\\s+only\\s+use\\s+this\\s+ability\\s+if\\s+(?<card>\\S+(?:\\s+\\S+){0,2})\\s+is\\s+in\\s+the\\s+Break\\s+Zone[.!]?\\s*$"
     );
 
     /**
