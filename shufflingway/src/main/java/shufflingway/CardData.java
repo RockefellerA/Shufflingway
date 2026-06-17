@@ -1633,6 +1633,30 @@ public record CardData(
     );
 
     /**
+     * "The [Job X | Category Y] Forwards [other than Z] you control cannot be blocked by
+     * a/Forwards of cost N or more/less."
+     * Groups: {@code job} or {@code category}, {@code except} (optional), {@code costval}, {@code costcmp}.
+     */
+    private static final Pattern FIELD_GRANT_CNB_BY_COST_DIRECT = Pattern.compile(
+        "(?i)^The\\s+(?:Job\\s+(?<job>.+?)|Category\\s+(?<category>.+?))\\s+Forwards?\\s+" +
+        "(?:other\\s+than\\s+(?<except>.+?)\\s+)?you\\s+control\\s+" +
+        "cannot\\s+be\\s+blocked\\s+by\\s+(?:a\\s+)?Forwards?\\s+of\\s+cost\\s+" +
+        "(?<costval>\\d+)(?:\\s+or\\s+(?<costcmp>less|more))?\\s*\\.?\\s*$"
+    );
+
+    /**
+     * "The [Job X | Category Y] Forwards [other than Z] you control gain
+     * "This Forward cannot be blocked by a/Forwards of cost N or more/less.""
+     * Groups: same as {@link #FIELD_GRANT_CNB_BY_COST_DIRECT}.
+     */
+    private static final Pattern FIELD_GRANT_CNB_BY_COST_QUOTED = Pattern.compile(
+        "(?i)^The\\s+(?:Job\\s+(?<job>.+?)|Category\\s+(?<category>.+?))\\s+Forwards?\\s+" +
+        "(?:other\\s+than\\s+(?<except>.+?)\\s+)?you\\s+control\\s+gain\\s+" +
+        "[\"\\u201C]This\\s+Forward\\s+cannot\\s+be\\s+blocked\\s+by\\s+(?:a\\s+)?Forwards?\\s+of\\s+cost\\s+" +
+        "(?<costval>\\d+)(?:\\s+or\\s+(?<costcmp>less|more))?[.][\"\\u201D]\\s*\\.?\\s*$"
+    );
+
+    /**
      * "If you control <raw>, <target> cannot be blocked[ by a/Forwards of cost N or more/less][.]"
      * The cost clause is optional; when absent the target is fully unblockable while active.
      * Groups: {@code raw}, {@code target}, {@code costval} (optional), {@code costcmp} (optional).
@@ -1766,6 +1790,33 @@ public record CardData(
                     powerBonus, traits, specialText, noChooseSummons, noChooseAbilits,
                     isCannotBeBlocked, icbCostFilter));
         }
+
+        // Parse "The [Job X / Category Y] Forwards [other than Z] you control [gain "This Forward"]
+        // cannot be blocked by a/Forwards of cost N or more/less." — always-active grants with no
+        // "If you control..." condition, stored as ICBs with an empty conditions list.
+        for (String raw : textEn.split("(?i)\\[\\[br\\]\\]")) {
+            String seg = SUMMON_MARKUP.matcher(raw.trim()).replaceAll("").trim();
+            if (seg.isEmpty()) continue;
+            Matcher dm = FIELD_GRANT_CNB_BY_COST_DIRECT.matcher(seg);
+            Matcher qm = FIELD_GRANT_CNB_BY_COST_QUOTED.matcher(seg);
+            Matcher fm = dm.find() ? dm : (qm.find() ? qm : null);
+            if (fm == null) continue;
+            String job      = fm.group("job");
+            String category = fm.group("category");
+            String except   = fm.group("except");
+            int costVal     = Integer.parseInt(fm.group("costval"));
+            boolean orMore  = !"less".equalsIgnoreCase(fm.group("costcmp"));
+            FieldPowerGrant grantFilter = new FieldPowerGrant(
+                    job      != null ? job.trim()      : null,
+                    category != null ? category.trim() : null,
+                    true, false, false,
+                    except   != null ? except.trim()   : null,
+                    0, java.util.Set.of());
+            result.add(new IfControlBoost(List.of(), "", "", grantFilter, 0,
+                    java.util.EnumSet.noneOf(Trait.class), "", false, false, false,
+                    new int[]{costVal, orMore ? 1 : 0}));
+        }
+
         return List.copyOf(result);
     }
 
