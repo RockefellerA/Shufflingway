@@ -9712,6 +9712,7 @@ public class MainWindow {
 		if (p1ForwardCannotBlockPersistent.contains(idx)) return false;
 		// Check attacker-side unblockability
 		if (p2ForwardCannotBeBlocked.contains(pendingP2AttackerIdx)) return false;
+		if (attackerConditionallyUnblockable()) return false;
 		int[] costFilter = p2ForwardCannotBeBlockedByCost.get(pendingP2AttackerIdx);
 		if (costFilter != null && blockerCostExcluded(p1ForwardCards.get(idx).cost(), costFilter)) return false;
 		// If any forward must block, restrict choices to those
@@ -9824,7 +9825,29 @@ public class MainWindow {
 	/** Only Forward attackers track cannot-be-blocked; acting-as-Forwards don't. */
 	private boolean attackerUnblockable() {
 		if (pendingP2AttackerIsMonster || pendingP2AttackerIsBackup) return false;
-		return p2ForwardCannotBeBlocked.contains(pendingP2AttackerIdx);
+		return p2ForwardCannotBeBlocked.contains(pendingP2AttackerIdx)
+				|| attackerConditionallyUnblockable();
+	}
+
+	/** Returns true if any IfControlBoost on P2's field grants cannot-be-blocked to the attacker
+	 *  and all of that boost's conditions are currently met. */
+	private boolean attackerConditionallyUnblockable() {
+		if (pendingP2AttackerIsMonster || pendingP2AttackerIsBackup) return false;
+		CardData attacker = p2ForwardCards.get(pendingP2AttackerIdx);
+		for (CardData src : p2ForwardCards)
+			for (IfControlBoost icb : src.ifControlBoosts())
+				if (icb.cannotBeBlocked() && icb.appliesToCard(attacker) && icbConditionsMet(icb, false))
+					return true;
+		for (CardData bkp : p2BackupCards)
+			if (bkp != null)
+				for (IfControlBoost icb : bkp.ifControlBoosts())
+					if (icb.cannotBeBlocked() && icb.appliesToCard(attacker) && icbConditionsMet(icb, false))
+						return true;
+		for (CardData mon : p2MonsterCards)
+			for (IfControlBoost icb : mon.ifControlBoosts())
+				if (icb.cannotBeBlocked() && icb.appliesToCard(attacker) && icbConditionsMet(icb, false))
+					return true;
+		return false;
 	}
 
 	private int[] attackerBlockCostFilter() {

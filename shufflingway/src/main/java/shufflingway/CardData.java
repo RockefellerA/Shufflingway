@@ -1630,6 +1630,11 @@ public record CardData(
         "(?i)^If\\s+you\\s+control\\s+(?<raw>[^,]+),\\s+(?<target>.+?)\\s+gains?\\s+(?<effects>.+?)\\.?\\s*$"
     );
 
+    /** "If you control <raw>, <target> cannot be blocked[.]" */
+    private static final Pattern IF_CTRL_CANNOT_BE_BLOCKED = Pattern.compile(
+        "(?i)^If\\s+you\\s+control\\s+(?<raw>[^,]+),\\s+(?<target>.+?)\\s+cannot\\s+be\\s+blocked\\.?\\s*$"
+    );
+
     /** Splits a single condition part on " other than ": group(1) = condition, group(2) = excluded name. */
     private static final Pattern IF_CTRL_BOOST_EXCEPT = Pattern.compile(
         "(?i)^(.+?)\\s+other\\s+than\\s+(\\S.*)$"
@@ -1683,12 +1688,24 @@ public record CardData(
             String seg = SUMMON_MARKUP.matcher(raw.trim()).replaceAll("").trim();
             if (seg.isEmpty()) continue;
 
-            Matcher m = IF_CTRL_BOOST_OUTER.matcher(seg);
-            if (!m.find()) continue;
+            Matcher m    = IF_CTRL_BOOST_OUTER.matcher(seg);
+            Matcher cnbM = IF_CTRL_CANNOT_BE_BLOCKED.matcher(seg);
 
-            String rawCond    = m.group("raw").trim();
-            String targetName = m.group("target").trim();
-            String effectsStr = m.group("effects").trim();
+            String rawCond, targetName, effectsStr;
+            boolean isCannotBeBlocked;
+            if (m.find()) {
+                rawCond           = m.group("raw").trim();
+                targetName        = m.group("target").trim();
+                effectsStr        = m.group("effects").trim();
+                isCannotBeBlocked = false;
+            } else if (cnbM.find()) {
+                rawCond           = cnbM.group("raw").trim();
+                targetName        = cnbM.group("target").trim();
+                effectsStr        = "";
+                isCannotBeBlocked = true;
+            } else {
+                continue;
+            }
 
             // Split on " and a " to support AND conditions ("a Job Father and a Job Mother")
             String[] condParts = rawCond.split("(?i)\\s+and\\s+(?=a\\s+)");
@@ -1726,11 +1743,11 @@ public record CardData(
             boolean noChooseAbilits  = ICB_EFFECT_NO_CHOSEN_ABILITS.matcher(effectsStr).find();
 
             if (powerBonus == 0 && traits.isEmpty() && specialText.isEmpty()
-                    && !noChooseSummons && !noChooseAbilits) continue;
+                    && !noChooseSummons && !noChooseAbilits && !isCannotBeBlocked) continue;
 
             FieldPowerGrant targetFilter = parseIcbTargetFilter(targetName);
             result.add(new IfControlBoost(conditions, exceptName, targetName, targetFilter,
-                    powerBonus, traits, specialText, noChooseSummons, noChooseAbilits));
+                    powerBonus, traits, specialText, noChooseSummons, noChooseAbilits, isCannotBeBlocked));
         }
         return List.copyOf(result);
     }
