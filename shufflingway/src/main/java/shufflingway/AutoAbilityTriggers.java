@@ -216,6 +216,26 @@ final class AutoAbilityTriggers {
 				"(?i)If\\s+(?<card>.+?)\\s+is\\s+dealt\\s+damage\\s+by\\s+an?\\s+abilit(?:y|ies),\\s+the\\s+damage\\s+becomes\\s+0\\s+instead\\.?"
 			);
 
+	/**
+	 * General incoming-damage modifier field ability.
+	 * Covers "reduce the damage by N" and "the damage becomes N" variants, with optional source clauses:
+	 * "by a Forward", "by [your opponent's] Summons [or abilities]", "by a Summon or an ability",
+	 * "by [an] abilit[y|ies]", "other than battle damage", or no clause (any source).
+	 * Groups: {@code card}, {@code sourceclause} (optional), {@code reduceby} (optional), {@code setsto} (optional).
+	 */
+	static final Pattern FA_DAMAGE_MODIFIER = Pattern.compile(
+		"(?i)^If\\s+(?<card>.+?)\\s+is\\s+dealt\\s+damage" +
+		"(?<sourceclause>" +
+			"\\s+by\\s+a\\s+Forward" +
+			"|\\s+other\\s+than\\s+battle\\s+damage" +
+			"|\\s+by\\s+(?:your\\s+opponent's\\s+)?(?:a\\s+)?Summons?(?:\\s+or\\s+(?:an?\\s+)?abilit(?:y|ies))?" +
+			"|\\s+by\\s+(?:a\\s+Summon\\s+or\\s+)?an?\\s+abilit(?:y|ies)" +
+		")?" +
+		"\\s*,\\s+" +
+		"(?:reduce\\s+the\\s+damage\\s+by\\s+(?<reduceby>\\d+)|the\\s+damage\\s+becomes\\s+(?<setsto>\\d+))" +
+		"\\s+instead\\.?$"
+	);
+
 	/** "If [name] deals damage to a Forward of cost N or more, double the damage instead." */
 	static final Pattern FA_DOUBLE_DAMAGE_VS_COST_THRESHOLD =
 			Pattern.compile(

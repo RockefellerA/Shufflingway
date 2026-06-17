@@ -8805,6 +8805,41 @@ public class MainWindow {
 		if (fromAbility && nextAbilityDmgReduceMap.containsKey(card))
 			amount = Math.max(0, amount - nextAbilityDmgReduceMap.remove(card));
 
+		// Passive field ability: general incoming damage modifier
+		// ("by a Forward / by Summon or ability / other than battle damage / any source")
+		for (FieldAbility fa : card.fieldAbilities()) {
+			Matcher fam = AutoAbilityTriggers.FA_DAMAGE_MODIFIER.matcher(fa.effectText());
+			if (!fam.find() || !fam.group("card").trim().equalsIgnoreCase(card.name())) continue;
+			String src = fam.group("sourceclause");
+			boolean applies;
+			if (src == null || src.isBlank()) {
+				applies = true;
+			} else {
+				String srcN = src.trim().toLowerCase();
+				if (srcN.startsWith("by a forward")) {
+					applies = !fromAbility;
+				} else if (srcN.contains("summon") && !srcN.contains("abilit")) {
+					applies = fromAbility && currentResolutionIsSummon;
+				} else if (!srcN.contains("summon") && !srcN.startsWith("other")) {
+					applies = fromAbility && !currentResolutionIsSummon;
+				} else {
+					applies = fromAbility;
+				}
+			}
+			if (!applies) continue;
+			String reduceStr = fam.group("reduceby");
+			String setstoStr = fam.group("setsto");
+			if (reduceStr != null) {
+				int before = amount;
+				amount = Math.max(0, amount - Integer.parseInt(reduceStr));
+				logEntry(card.name() + " — damage reduced by " + reduceStr + " (" + before + " → " + amount + ")");
+			} else if (setstoStr != null) {
+				int fixed = Integer.parseInt(setstoStr);
+				logEntry(card.name() + " — damage set to " + fixed + " instead");
+				amount = fixed;
+			}
+		}
+
 		// Global per-player damage reduction
 		int globalRed = isP1 ? p1GlobalDmgReduction : p2GlobalDmgReduction;
 		if (globalRed > 0) amount = Math.max(0, amount - globalRed);

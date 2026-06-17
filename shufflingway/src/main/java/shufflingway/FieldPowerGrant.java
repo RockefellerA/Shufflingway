@@ -46,6 +46,29 @@ public record FieldPowerGrant(
                 exceptCardName, powerBonus, grantedTraits, affectsOpponent, -1);
     }
 
+    @Override
+    public String toString() {
+        StringBuilder sb = new StringBuilder();
+        if (affectsOpponent) sb.append("opp:");
+        if (jobFilter      != null) sb.append(jobFilter).append(' ');
+        if (categoryFilter != null) sb.append(categoryFilter).append(' ');
+        if (costFilter >= 0) sb.append("cost").append(costFilter).append(' ');
+        if      ( inclForwards && !inclBackups && !inclMonsters) sb.append("Fwds");
+        else if (!inclForwards &&  inclBackups && !inclMonsters) sb.append("Bkps");
+        else if (!inclForwards && !inclBackups &&  inclMonsters) sb.append("Mons");
+        else if ( inclForwards &&  inclBackups &&  inclMonsters) sb.append("cards");
+        else {
+            if (inclForwards) sb.append("Fwd/");
+            if (inclBackups)  sb.append("Bkp/");
+            if (inclMonsters) sb.append("Mon/");
+            if (!sb.isEmpty() && sb.charAt(sb.length() - 1) == '/') sb.deleteCharAt(sb.length() - 1);
+        }
+        if (!exceptCardName.isEmpty()) sb.append(" excl.").append(exceptCardName);
+        if (powerBonus != 0) sb.append(" +").append(powerBonus);
+        if (!grantedTraits.isEmpty()) sb.append(' ').append(grantedTraits);
+        return sb.toString();
+    }
+
     /**
      * Returns {@code true} if this grant applies to {@code card}.
      * Does not check which side of the field the card is on — callers must ensure

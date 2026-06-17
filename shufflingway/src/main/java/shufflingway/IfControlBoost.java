@@ -65,6 +65,32 @@ public record IfControlBoost(
                 specialText, cannotBeChosenBySummons, cannotBeChosenByAbilities, false, null);
     }
 
+    @Override
+    public String toString() {
+        StringBuilder sb = new StringBuilder("ICB[");
+        if (!conditions.isEmpty()) {
+            for (int i = 0; i < conditions.size(); i++) {
+                if (i > 0) sb.append(" & ");
+                sb.append(conditions.get(i));
+            }
+            if (!exceptCardName.isEmpty()) sb.append(" excl.").append(exceptCardName);
+            sb.append(" → ");
+        }
+        if (targetFilter != null) sb.append(targetFilter);
+        else sb.append(targetCardName != null ? targetCardName : "?");
+        if (powerBonus != 0) sb.append(" +").append(powerBonus);
+        if (!grantedTraits.isEmpty()) sb.append(' ').append(grantedTraits);
+        if (!specialText.isEmpty()) sb.append(" \"").append(specialText).append('"');
+        if (cannotBeChosenBySummons)   sb.append(" NCS");
+        if (cannotBeChosenByAbilities) sb.append(" NCA");
+        if (cannotBeBlocked)           sb.append(" unblockable");
+        if (cannotBeBlockedByCost != null)
+            sb.append(" not-blocked-cost").append(cannotBeBlockedByCost[0])
+              .append(cannotBeBlockedByCost[1] == 1 ? "+" : "-");
+        sb.append(']');
+        return sb.toString();
+    }
+
     /** Returns {@code true} when {@code card} is a valid target of this boost. */
     public boolean appliesToCard(CardData card) {
         if (targetFilter != null) return targetFilter.appliesToCard(card);

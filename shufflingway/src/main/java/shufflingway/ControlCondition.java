@@ -44,4 +44,19 @@ public record ControlCondition(
 
     /** Returns {@code true} when this condition checks for specific named cards rather than a count. */
     public boolean isNamedMode() { return !requiredCardNames.isEmpty(); }
+
+    @Override
+    public String toString() {
+        if (isNamedMode()) return String.join(anyOf ? " | " : " & ", requiredCardNames);
+        StringBuilder sb = new StringBuilder();
+        if (exactCount) sb.append('=');
+        sb.append(minCount).append('+');
+        if (element  != null) sb.append(' ').append(element);
+        if (job      != null) sb.append(' ').append(job);
+        if (category != null) sb.append(' ').append(category);
+        if (minPower  > 0   ) sb.append(" pow>=").append(minPower);
+        if (cardType != null) sb.append(' ').append(cardType);
+        if (!orCardNames.isEmpty()) sb.append('/').append(String.join("|", orCardNames));
+        return sb.toString();
+    }
 }

@@ -108,7 +108,11 @@ public class FieldAbilityParsingTest {
         if (!CardData.parseIfControlBoosts(fa.effectText(), typeEn).isEmpty()) return true;
         if (CardData.SELF_LIGHT_DARK_PLAY_EXCEPTION_PATTERN.matcher(fa.effectText()).matches()) return true;
         if (CardData.MULTI_LIGHT_DARK_PLAY_PATTERN.matcher(fa.effectText()).matches()) return true;
-        return CardData.MULTI_NAME_PLAY_PATTERN.matcher(fa.effectText()).matches();
+        if (CardData.MULTI_NAME_PLAY_PATTERN.matcher(fa.effectText()).matches()) return true;
+        if (AutoAbilityTriggers.FA_DAMAGE_MODIFIER.matcher(fa.effectText()).find()) return true;
+        if (AutoAbilityTriggers.FA_NULLIFY_SUMMON_DAMAGE.matcher(fa.effectText()).find()) return true;
+        if (AutoAbilityTriggers.FA_NULLIFY_ABILITY_DAMAGE.matcher(fa.effectText()).find()) return true;
+        return AutoAbilityTriggers.FA_REDUCE_ABILITY_DAMAGE.matcher(fa.effectText()).find();
     }
 
     private static CardData buildSource(ResultSet rs, String textEn) throws Exception {
@@ -174,6 +178,20 @@ public class FieldAbilityParsingTest {
         if (m.matches()) return "MultiLightDarkPlay[" + m.group("element") + "]";
         m = CardData.MULTI_NAME_PLAY_PATTERN.matcher(fa.effectText());
         if (m.matches()) return "MultiNamePlay[" + m.group("cardname") + "]";
+        m = AutoAbilityTriggers.FA_DAMAGE_MODIFIER.matcher(fa.effectText());
+        if (m.find()) {
+            String src     = m.group("sourceclause");
+            String reduceBy = m.group("reduceby");
+            String setsTo   = m.group("setsto");
+            return "DmgModifier[" + (src != null ? src.trim() : "any") + ": "
+                    + (reduceBy != null ? "reduce " + reduceBy : "becomes " + setsTo) + "]";
+        }
+        m = AutoAbilityTriggers.FA_NULLIFY_SUMMON_DAMAGE.matcher(fa.effectText());
+        if (m.find()) return "NullifySummonDmg";
+        m = AutoAbilityTriggers.FA_NULLIFY_ABILITY_DAMAGE.matcher(fa.effectText());
+        if (m.find()) return "NullifyAbilityDmg";
+        m = AutoAbilityTriggers.FA_REDUCE_ABILITY_DAMAGE.matcher(fa.effectText());
+        if (m.find()) return "ReduceAbilityDmg[" + m.group("reduction") + "]";
         return null;
     }
 
