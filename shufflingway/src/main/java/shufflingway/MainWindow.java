@@ -12525,12 +12525,14 @@ public class MainWindow {
 			int[] simCp = new int[elems.length];
 			for (int ei = 0; ei < elems.length; ei++)
 				simCp[ei] = gameState.getP2CpForElement(elems[ei]);
+			int anyCp = 0;
 
-			if (p2CanAfford(reducedCost, elems, simCp)) return true;
+			if (p2CanAfford(reducedCost, elems, simCp, anyCp)) return true;
 
-			// Phase 1: dull eligible backups.  Eligible = present, ACTIVE, not frozen, and
-			// matching at least one required element (else the CP is wasted).
-			List<Integer> eligibleBackups = new ArrayList<>();
+			// Phase 1a: dull backups whose element matches at least one required element.
+			// Prefer less-versatile (fewer matching elements) backups first.
+			List<Integer> matchingBackups = new ArrayList<>();
+			List<Integer> offColorBackups = new ArrayList<>();
 			for (int bi = 0; bi < p2BackupCards.length; bi++) {
 				CardData bk = p2BackupCards[bi];
 				if (bk == null) continue;
@@ -12538,21 +12540,31 @@ public class MainWindow {
 				if (p2BackupFrozen[bi]) continue;
 				boolean matches = false;
 				for (String e : elems) if (bk.containsElement(e)) { matches = true; break; }
-				if (matches) eligibleBackups.add(bi);
+				if (matches) matchingBackups.add(bi);
+				else offColorBackups.add(bi);
 			}
-			// Prefer less-versatile (fewer matching elements) backups first.
-			eligibleBackups.sort(java.util.Comparator.comparingInt(bi ->
+			matchingBackups.sort(java.util.Comparator.comparingInt(bi ->
 					(int) java.util.Arrays.stream(elems)
 							.filter(e -> p2BackupCards[bi].containsElement(e)).count()));
-			for (int bi : eligibleBackups) {
-				if (p2CanAfford(reducedCost, elems, simCp)) break;
+			for (int bi : matchingBackups) {
+				if (p2CanAfford(reducedCost, elems, simCp, anyCp)) break;
 				CardData bk = p2BackupCards[bi];
 				int ei = p2BestDiscardElement(bk, elems, simCp);
 				simCp[ei] += 1;
 				outBackups.add(bi);
 				outBackupElems.put(bi, elems[ei]);
 			}
-			if (p2CanAfford(reducedCost, elems, simCp)) return true;
+			if (p2CanAfford(reducedCost, elems, simCp, anyCp)) return true;
+
+			// Phase 1b: dull off-color backups — their CP counts toward total but not per-element
+			// minimums.  Assign to elems[0] so payP2CostViaBackupsAndDiscards deposits correctly.
+			for (int bi : offColorBackups) {
+				if (p2CanAfford(reducedCost, elems, simCp, anyCp)) break;
+				anyCp += 1;
+				outBackups.add(bi);
+				outBackupElems.put(bi, elems[0]);
+			}
+			if (p2CanAfford(reducedCost, elems, simCp, anyCp)) return true;
 
 			// Phase 2: discard cheapest matching-element non-Light/Dark hand cards.
 			List<CardData> hand = gameState.getP2Hand();
@@ -12569,14 +12581,19 @@ public class MainWindow {
 				simCp[ei] += 2;
 				outDiscards.add(di);
 				outDiscardElems.put(di, elems[ei]);
-				if (p2CanAfford(reducedCost, elems, simCp)) return true;
+				if (p2CanAfford(reducedCost, elems, simCp, anyCp)) return true;
 			}
 			return false;
 		}
 
 		/** Returns true when {@code cpByElemIdx} satisfies the cost and per-element minimums. */
 		private static boolean p2CanAfford(int cost, String[] elems, int[] cpByElemIdx) {
-			int total = 0;
+			return p2CanAfford(cost, elems, cpByElemIdx, 0);
+		}
+
+		/** As {@link #p2CanAfford(int, String[], int[])} but with additional off-color CP. */
+		private static boolean p2CanAfford(int cost, String[] elems, int[] cpByElemIdx, int anyCp) {
+			int total = anyCp;
 			for (int ei = 0; ei < elems.length; ei++) {
 				if (elems.length > 1 && cpByElemIdx[ei] < 1) return false;
 				total += cpByElemIdx[ei];
