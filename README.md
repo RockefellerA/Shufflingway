@@ -2,7 +2,8 @@
   <img width="142" height="18" alt="image" src="https://github.com/user-attachments/assets/deae1d46-12c9-4e5a-9e97-fa2002b94a8f" />
 </a>
 
-# Shufflingway
+
+# <img width="64" height="62" alt="shufflingway icon" src="https://github.com/user-attachments/assets/16c919c4-2701-4751-b325-303133e9ff52" /> Shufflingway
 
 Lightweight FFTCG client and fan project.
 
@@ -20,11 +21,11 @@ The ultimate goal for this application will be to play against someone else with
 
 Current card coverage (estimate):
 
-* Action/Special Abilities: (85.7%)
+* Action/Special Abilities: (86.0%)
 
-* Auto Abilities: (86.0%)
+* Auto Abilities: (86.3%)
 
-* Field Abilities: (>28.4%)
+* Field Abilities: (44.9%)
 
 # Installation Guide
 
