@@ -41,6 +41,7 @@ public record CardData(
         List<FieldPartyAnyElement>   fieldPartyAnyElements,
         boolean warpCostAnyElement,
         boolean canFormPartyAnyElement,
+        int[]   fieldCannotBeBlockedByCost, // null = no restriction; {costVal, 1} = "or more", {costVal, 0} = "or less"
         String job,
         String category1,
         String category2,
@@ -1630,9 +1631,15 @@ public record CardData(
         "(?i)^If\\s+you\\s+control\\s+(?<raw>[^,]+),\\s+(?<target>.+?)\\s+gains?\\s+(?<effects>.+?)\\.?\\s*$"
     );
 
-    /** "If you control <raw>, <target> cannot be blocked[.]" */
+    /**
+     * "If you control <raw>, <target> cannot be blocked[ by a/Forwards of cost N or more/less][.]"
+     * The cost clause is optional; when absent the target is fully unblockable while active.
+     * Groups: {@code raw}, {@code target}, {@code costval} (optional), {@code costcmp} (optional).
+     */
     private static final Pattern IF_CTRL_CANNOT_BE_BLOCKED = Pattern.compile(
-        "(?i)^If\\s+you\\s+control\\s+(?<raw>[^,]+),\\s+(?<target>.+?)\\s+cannot\\s+be\\s+blocked\\.?\\s*$"
+        "(?i)^If\\s+you\\s+control\\s+(?<raw>[^,]+),\\s+(?<target>.+?)\\s+cannot\\s+be\\s+blocked" +
+        "(?:\\s+by\\s+(?:a\\s+)?Forwards?\\s+of\\s+cost\\s+(?<costval>\\d+)(?:\\s+or\\s+(?<costcmp>less|more))?)?" +
+        "\\.?\\s*$"
     );
 
     /** Splits a single condition part on " other than ": group(1) = condition, group(2) = excluded name. */
@@ -1693,6 +1700,7 @@ public record CardData(
 
             String rawCond, targetName, effectsStr;
             boolean isCannotBeBlocked;
+            int[]   icbCostFilter = null;
             if (m.find()) {
                 rawCond           = m.group("raw").trim();
                 targetName        = m.group("target").trim();
@@ -1702,7 +1710,13 @@ public record CardData(
                 rawCond           = cnbM.group("raw").trim();
                 targetName        = cnbM.group("target").trim();
                 effectsStr        = "";
-                isCannotBeBlocked = true;
+                String costValStr = cnbM.group("costval");
+                if (costValStr != null) {
+                    int costVal  = Integer.parseInt(costValStr);
+                    boolean orMore = !"less".equalsIgnoreCase(cnbM.group("costcmp"));
+                    icbCostFilter = new int[]{costVal, orMore ? 1 : 0};
+                }
+                isCannotBeBlocked = icbCostFilter == null; // full unblockable when no cost clause
             } else {
                 continue;
             }
@@ -1743,11 +1757,13 @@ public record CardData(
             boolean noChooseAbilits  = ICB_EFFECT_NO_CHOSEN_ABILITS.matcher(effectsStr).find();
 
             if (powerBonus == 0 && traits.isEmpty() && specialText.isEmpty()
-                    && !noChooseSummons && !noChooseAbilits && !isCannotBeBlocked) continue;
+                    && !noChooseSummons && !noChooseAbilits && !isCannotBeBlocked
+                    && icbCostFilter == null) continue;
 
             FieldPowerGrant targetFilter = parseIcbTargetFilter(targetName);
             result.add(new IfControlBoost(conditions, exceptName, targetName, targetFilter,
-                    powerBonus, traits, specialText, noChooseSummons, noChooseAbilits, isCannotBeBlocked));
+                    powerBonus, traits, specialText, noChooseSummons, noChooseAbilits,
+                    isCannotBeBlocked, icbCostFilter));
         }
         return List.copyOf(result);
     }
@@ -2489,6 +2505,35 @@ public record CardData(
         "Forwards?\\s+you\\s+control\\s+can\\s+form\\s+a\\s+party\\s+with\\s+" +
         "(?:.+?\\s+)?Forwards?\\s+of\\s+any\\s+Element\\s*\\.?"
     );
+
+    /**
+     * Matches "[CardName] cannot be blocked by a/Forwards of cost N or more/less."
+     * Groups: {@code cardname}, {@code costval}, {@code costcmp} (optional: "less" or "more"; default "more").
+     */
+    private static final Pattern FIELD_CANNOT_BE_BLOCKED_BY_COST = Pattern.compile(
+        "(?i)^(?<cardname>.+?)\\s+cannot\\s+be\\s+blocked\\s+by\\s+(?:a\\s+)?Forwards?\\s+of\\s+cost\\s+" +
+        "(?<costval>\\d+)(?:\\s+or\\s+(?<costcmp>less|more))?\\s*\\.?\\s*$"
+    );
+
+    /**
+     * Parses an intrinsic "cannot be blocked by a Forward of cost N or more/less" field ability.
+     * Returns {@code null} if no such ability is present.
+     * The returned array is {@code {costVal, 1}} for "or more" and {@code {costVal, 0}} for "or less".
+     */
+    public static int[] parseFieldCannotBeBlockedByCost(String textEn, String cardName) {
+        if (textEn == null || textEn.isBlank()) return null;
+        for (String raw : textEn.split("(?i)\\[\\[br\\]\\]")) {
+            String seg = SUMMON_MARKUP.matcher(raw.trim()).replaceAll("").trim();
+            if (seg.isEmpty()) continue;
+            Matcher m = FIELD_CANNOT_BE_BLOCKED_BY_COST.matcher(seg);
+            if (!m.find()) continue;
+            if (!m.group("cardname").trim().equalsIgnoreCase(cardName)) continue;
+            int costVal  = Integer.parseInt(m.group("costval"));
+            boolean orMore = !"less".equalsIgnoreCase(m.group("costcmp")); // default "or more"
+            return new int[]{costVal, orMore ? 1 : 0};
+        }
+        return null;
+    }
 
     /** Returns {@code true} if the card text contains a "can form a party with Forwards of any Element" clause. */
     public static boolean parseCanFormPartyAnyElement(String textEn) {

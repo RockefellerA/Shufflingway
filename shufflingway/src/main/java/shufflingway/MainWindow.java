@@ -1298,6 +1298,7 @@ public class MainWindow {
 							CardData.parseFieldPartyAnyElements(tx, card.type()),
 							CardData.parseWarpCostAnyElement(tx),
 							CardData.parseCanFormPartyAnyElement(tx),
+							CardData.parseFieldCannotBeBlockedByCost(tx, card.name()),
 							card.job(), card.category1(), card.category2(), tx);
 					if (card.isLb()) lb.add(cd);
 					else             main.add(cd);
@@ -1327,6 +1328,7 @@ public class MainWindow {
 							CardData.parseFieldPartyAnyElements(tx, card.type()),
 							CardData.parseWarpCostAnyElement(tx),
 							CardData.parseCanFormPartyAnyElement(tx),
+							CardData.parseFieldCannotBeBlockedByCost(tx, card.name()),
 							card.job(), card.category1(), card.category2(), tx);
 					if (card.isLb()) p2Lb.add(cd);
 					else             p2Main.add(cd);
@@ -4065,30 +4067,57 @@ public class MainWindow {
 		return isP2BackupTemporarilyForward(idx);
 	}
 
+	/** Checks all cost-filter sources (dynamic, intrinsic, conditional ICB) for a P1 Forward attacker. */
+	private boolean p1AttackerCostFiltersExclude(int attackerIdx, int blockerCost) {
+		int[] dyn = p1ForwardCannotBeBlockedByCost.get(attackerIdx);
+		if (dyn != null && blockerCostExcluded(blockerCost, dyn)) return true;
+		int[] intr = p1ForwardCards.get(attackerIdx).fieldCannotBeBlockedByCost();
+		if (intr != null && blockerCostExcluded(blockerCost, intr)) return true;
+		CardData attCard = p1ForwardCards.get(attackerIdx);
+		for (CardData src : p1ForwardCards)
+			for (IfControlBoost icb : src.ifControlBoosts())
+				if (icb.cannotBeBlockedByCost() != null && icb.appliesToCard(attCard)
+						&& icbConditionsMet(icb, true)
+						&& blockerCostExcluded(blockerCost, icb.cannotBeBlockedByCost()))
+					return true;
+		for (CardData bkp : p1BackupCards)
+			if (bkp != null)
+				for (IfControlBoost icb : bkp.ifControlBoosts())
+					if (icb.cannotBeBlockedByCost() != null && icb.appliesToCard(attCard)
+							&& icbConditionsMet(icb, true)
+							&& blockerCostExcluded(blockerCost, icb.cannotBeBlockedByCost()))
+						return true;
+		for (CardData mon : p1MonsterCards)
+			for (IfControlBoost icb : mon.ifControlBoosts())
+				if (icb.cannotBeBlockedByCost() != null && icb.appliesToCard(attCard)
+						&& icbConditionsMet(icb, true)
+						&& blockerCostExcluded(blockerCost, icb.cannotBeBlockedByCost()))
+					return true;
+		return false;
+	}
+
 	private ForwardTarget p2ChooseBlocker(int effectiveAttackerPower, ForwardTarget attacker) {
 		// Attacker-side unblockability is only tracked for Forwards.
-		int[] costFilter = null;
-		if (attacker != null && attacker.isP1() && attacker.zone() == ForwardTarget.CardZone.FORWARD) {
-			if (p1ForwardCannotBeBlocked.contains(attacker.idx())) return null;
-			costFilter = p1ForwardCannotBeBlockedByCost.get(attacker.idx());
-		}
+		boolean p1AttackerIsForward = attacker != null && attacker.isP1()
+				&& attacker.zone() == ForwardTarget.CardZone.FORWARD;
+		if (p1AttackerIsForward && p1ForwardCannotBeBlocked.contains(attacker.idx())) return null;
 
 		// Candidate P2 blockers: Forwards plus Monsters/Backups acting as Forwards.
 		List<ForwardTarget> cands = new ArrayList<>();
 		for (int i = 0; i < p2ForwardStates.size(); i++) {
 			if (p2ForwardCannotBlock.contains(i) || p2ForwardCannotBlockPersistent.contains(i)) continue;
 			if (p2ForwardStates.get(i) != CardState.ACTIVE) continue;
-			if (costFilter != null && blockerCostExcluded(p2ForwardCards.get(i).cost(), costFilter)) continue;
+			if (p1AttackerIsForward && p1AttackerCostFiltersExclude(attacker.idx(), p2ForwardCards.get(i).cost())) continue;
 			cands.add(new ForwardTarget(false, i, ForwardTarget.CardZone.FORWARD));
 		}
 		for (int i = 0; i < p2MonsterCards.size(); i++) {
 			if (!p2MonsterCanBlockAsForward(i)) continue;
-			if (costFilter != null && blockerCostExcluded(p2MonsterCards.get(i).cost(), costFilter)) continue;
+			if (p1AttackerIsForward && p1AttackerCostFiltersExclude(attacker.idx(), p2MonsterCards.get(i).cost())) continue;
 			cands.add(new ForwardTarget(false, i, ForwardTarget.CardZone.MONSTER));
 		}
 		for (int i = 0; i < p2BackupCards.length; i++) {
 			if (!p2BackupCanBlockAsForward(i)) continue;
-			if (costFilter != null && blockerCostExcluded(p2BackupCards[i].cost(), costFilter)) continue;
+			if (p1AttackerIsForward && p1AttackerCostFiltersExclude(attacker.idx(), p2BackupCards[i].cost())) continue;
 			cands.add(new ForwardTarget(false, i, ForwardTarget.CardZone.BACKUP));
 		}
 
@@ -9713,8 +9742,7 @@ public class MainWindow {
 		// Check attacker-side unblockability
 		if (p2ForwardCannotBeBlocked.contains(pendingP2AttackerIdx)) return false;
 		if (attackerConditionallyUnblockable()) return false;
-		int[] costFilter = p2ForwardCannotBeBlockedByCost.get(pendingP2AttackerIdx);
-		if (costFilter != null && blockerCostExcluded(p1ForwardCards.get(idx).cost(), costFilter)) return false;
+		if (attackerBlockCostFiltersExclude(p1ForwardCards.get(idx).cost())) return false;
 		// If any forward must block, restrict choices to those
 		if (!p1ForwardMustBlock.isEmpty() && !p1ForwardMustBlock.contains(idx)) return false;
 		return true;
@@ -9850,9 +9878,38 @@ public class MainWindow {
 		return false;
 	}
 
-	private int[] attackerBlockCostFilter() {
-		if (pendingP2AttackerIsMonster || pendingP2AttackerIsBackup) return null;
-		return p2ForwardCannotBeBlockedByCost.get(pendingP2AttackerIdx);
+	/**
+	 * Returns true if the current P2 attacker's cost restrictions prevent a blocker of the
+	 * given cost from blocking — checks dynamic (turn-scoped), intrinsic (field ability), and
+	 * conditional (IfControlBoost) filters.
+	 */
+	private boolean attackerBlockCostFiltersExclude(int blockerCost) {
+		if (pendingP2AttackerIsMonster || pendingP2AttackerIsBackup) return false;
+		int[] dyn = p2ForwardCannotBeBlockedByCost.get(pendingP2AttackerIdx);
+		if (dyn != null && blockerCostExcluded(blockerCost, dyn)) return true;
+		int[] intr = p2ForwardCards.get(pendingP2AttackerIdx).fieldCannotBeBlockedByCost();
+		if (intr != null && blockerCostExcluded(blockerCost, intr)) return true;
+		CardData attacker = p2ForwardCards.get(pendingP2AttackerIdx);
+		for (CardData src : p2ForwardCards)
+			for (IfControlBoost icb : src.ifControlBoosts())
+				if (icb.cannotBeBlockedByCost() != null && icb.appliesToCard(attacker)
+						&& icbConditionsMet(icb, false)
+						&& blockerCostExcluded(blockerCost, icb.cannotBeBlockedByCost()))
+					return true;
+		for (CardData bkp : p2BackupCards)
+			if (bkp != null)
+				for (IfControlBoost icb : bkp.ifControlBoosts())
+					if (icb.cannotBeBlockedByCost() != null && icb.appliesToCard(attacker)
+							&& icbConditionsMet(icb, false)
+							&& blockerCostExcluded(blockerCost, icb.cannotBeBlockedByCost()))
+						return true;
+		for (CardData mon : p2MonsterCards)
+			for (IfControlBoost icb : mon.ifControlBoosts())
+				if (icb.cannotBeBlockedByCost() != null && icb.appliesToCard(attacker)
+						&& icbConditionsMet(icb, false)
+						&& blockerCostExcluded(blockerCost, icb.cannotBeBlockedByCost()))
+					return true;
+		return false;
 	}
 
 	/** True when a P1 monster acting as a Forward may be declared as a blocker. */
@@ -9865,8 +9922,7 @@ public class MainWindow {
 		if (!isP1MonsterTemporarilyForward(idx)) return false;
 		if (!p1ForwardMustBlock.isEmpty()) return false;   // a Forward is forced to block
 		if (attackerUnblockable()) return false;
-		int[] cf = attackerBlockCostFilter();
-		return cf == null || !blockerCostExcluded(p1MonsterCards.get(idx).cost(), cf);
+		return !attackerBlockCostFiltersExclude(p1MonsterCards.get(idx).cost());
 	}
 
 	/** True when a P1 backup acting as a Forward may be declared as a blocker. */
@@ -9879,8 +9935,7 @@ public class MainWindow {
 		if (!isP1BackupTemporarilyForward(idx)) return false;
 		if (!p1ForwardMustBlock.isEmpty()) return false;
 		if (attackerUnblockable()) return false;
-		int[] cf = attackerBlockCostFilter();
-		return cf == null || !blockerCostExcluded(p1BackupCards[idx].cost(), cf);
+		return !attackerBlockCostFiltersExclude(p1BackupCards[idx].cost());
 	}
 
 	private void toggleP1MonsterBlocker(int idx) {
