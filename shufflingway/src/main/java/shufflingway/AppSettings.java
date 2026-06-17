@@ -128,6 +128,16 @@ public final class AppSettings {
         props.setProperty("cardback.custom.path", path);
     }
 
+    /** Returns the counter tint color as a hex string (e.g. {@code "#36b06a"}). Defaults to green. */
+    public static String getCounterColor() {
+        return props.getProperty("counter.color", "#36b06a");
+    }
+
+    /** Sets the counter tint color (call {@link #save()} to persist). */
+    public static void setCounterColor(String hex) {
+        props.setProperty("counter.color", hex);
+    }
+
     /**
      * Master switch for the Debug section in the Preferences dialog. The Debug section (and any
      * individual debug toggles) are hidden unless {@code settings.ini} contains {@code debug=1}.

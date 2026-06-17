@@ -3,9 +3,15 @@ package shufflingway.dialog;
 import shufflingway.*;
 
 import java.awt.BorderLayout;
+import java.awt.Color;
 import java.awt.Component;
+import java.awt.Dimension;
 import java.awt.FlowLayout;
 import java.awt.Frame;
+import java.awt.GradientPaint;
+import java.awt.Graphics;
+import java.awt.Graphics2D;
+import java.awt.RenderingHints;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -15,6 +21,8 @@ import javax.swing.BorderFactory;
 import javax.swing.BoxLayout;
 import javax.swing.JButton;
 import javax.swing.JCheckBox;
+import javax.swing.JColorChooser;
+import javax.swing.colorchooser.AbstractColorChooserPanel;
 import javax.swing.JComboBox;
 import javax.swing.JComponent;
 import javax.swing.JDialog;
@@ -133,6 +141,100 @@ public class PreferencesDialog extends JDialog {
 		cardBackPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
 		contentPanel.add(cardBackPanel);
 
+		// ── Counter ──────────────────────────────────────────────────────────
+		contentPanel.add(javax.swing.Box.createVerticalStrut(8));
+
+		JPanel counterSection = new JPanel();
+		counterSection.setLayout(new BoxLayout(counterSection, BoxLayout.Y_AXIS));
+		counterSection.setBorder(BorderFactory.createTitledBorder(
+				BorderFactory.createEtchedBorder(), "Counter",
+				TitledBorder.LEFT, TitledBorder.TOP));
+
+		// Preview: card-coloured background with the Counter orb on top
+		int prevW = 80, prevH = 70;
+		Counter counterPreview = new Counter(AppSettings.getCounterColor());
+		int cw = 56, ch = 48;
+
+		JPanel previewBackground = new JPanel(null) {
+			@Override
+			protected void paintComponent(Graphics g) {
+				Graphics2D g2 = (Graphics2D) g;
+				g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+				g2.setPaint(new GradientPaint(0, 0, new Color(0x6b4a2f),
+						getWidth(), getHeight(), new Color(0x3a2817)));
+				g2.fillRoundRect(0, 0, getWidth(), getHeight(), 10, 10);
+			}
+		};
+		previewBackground.setPreferredSize(new Dimension(prevW, prevH));
+		previewBackground.setMinimumSize(new Dimension(prevW, prevH));
+		previewBackground.setMaximumSize(new Dimension(prevW, prevH));
+
+		counterPreview.setBounds((prevW - cw) / 2, (prevH - ch) / 2, cw, ch);
+		previewBackground.add(counterPreview);
+
+		JButton colorButton = new JButton("Counter Color…");
+		colorButton.addActionListener(e -> {
+			Color initial = hexToColor(AppSettings.getCounterColor());
+			String savedHex = AppSettings.getCounterColor();
+			JColorChooser chooser = new JColorChooser(initial);
+
+			// Keep only the Swatches panel; remove everything else
+			for (AbstractColorChooserPanel panel : chooser.getChooserPanels()) {
+				if (!panel.getDisplayName().equalsIgnoreCase("Swatches"))
+					chooser.removeChooserPanel(panel);
+			}
+
+			// Replace the default preview with the counter orb on a card background
+			int dpW = 80, dpH = 70, dcw = 56, dch = 48;
+			Counter dialogPreview = new Counter(AppSettings.getCounterColor());
+			JPanel dialogPreviewBg = new JPanel(null) {
+				@Override protected void paintComponent(Graphics g) {
+					Graphics2D g2 = (Graphics2D) g;
+					g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+					g2.setPaint(new GradientPaint(0, 0, new Color(0x6b4a2f),
+							getWidth(), getHeight(), new Color(0x3a2817)));
+					g2.fillRoundRect(0, 0, getWidth(), getHeight(), 10, 10);
+				}
+			};
+			dialogPreviewBg.setPreferredSize(new Dimension(dpW, dpH));
+			dialogPreviewBg.setMinimumSize(new Dimension(dpW, dpH));
+			dialogPreviewBg.setMaximumSize(new Dimension(dpW, dpH));
+			dialogPreview.setBounds((dpW - dcw) / 2, (dpH - dch) / 2, dcw, dch);
+			dialogPreviewBg.add(dialogPreview);
+			chooser.setPreviewPanel(dialogPreviewBg);
+
+			chooser.getSelectionModel().addChangeListener(ce -> {
+				Color c = chooser.getColor();
+				if (c != null) {
+					String hex = colorToHex(c);
+					counterPreview.setTint(hex);
+					dialogPreview.setTint(hex);
+				}
+			});
+			JDialog colorDialog = JColorChooser.createDialog(
+					this, "Choose Counter Color", true, chooser,
+					ok -> {
+						Color chosen = chooser.getColor();
+						if (chosen != null) {
+							String hex = colorToHex(chosen);
+							AppSettings.setCounterColor(hex);
+							AppSettings.save();
+							counterPreview.setTint(hex);
+						}
+					},
+					cancel -> counterPreview.setTint(savedHex));
+			colorDialog.setVisible(true);
+		});
+
+		JPanel counterRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 4));
+		counterRow.add(colorButton);
+		counterRow.add(previewBackground);
+		counterRow.setAlignmentX(Component.LEFT_ALIGNMENT);
+		counterSection.add(counterRow);
+
+		counterSection.setAlignmentX(Component.LEFT_ALIGNMENT);
+		contentPanel.add(counterSection);
+
 		// ── Debug ────────────────────────────────────────────────────────────
 		// Hidden unless `debug=1` is set manually in settings.ini.
 		if (AppSettings.isDebugEnabled()) {
@@ -188,5 +290,26 @@ public class PreferencesDialog extends JDialog {
 
 		pack();
 		setLocationRelativeTo(owner);
+	}
+
+	private static Color hexToColor(String hex) {
+		if (hex == null) return new Color(0x36b06a);
+		String s = hex.trim();
+		if (s.startsWith("#")) s = s.substring(1);
+		if (s.length() == 3) {
+			StringBuilder b = new StringBuilder();
+			for (char c : s.toCharArray()) b.append(c).append(c);
+			s = b.toString();
+		}
+		if (s.length() != 6) return new Color(0x36b06a);
+		try {
+			return new Color(Integer.parseInt(s, 16));
+		} catch (NumberFormatException e) {
+			return new Color(0x36b06a);
+		}
+	}
+
+	private static String colorToHex(Color c) {
+		return String.format("#%02x%02x%02x", c.getRed(), c.getGreen(), c.getBlue());
 	}
 }
