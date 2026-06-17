@@ -183,16 +183,25 @@ public class AbilityPaymentDialog {
                 lbl.setBackground(sel || canAddDiscard[0] ? Color.DARK_GRAY : new Color(50, 50, 50));
                 lbl.setCursor(sel || canAddDiscard[0] ? Cursor.getPredefinedCursor(Cursor.HAND_CURSOR) : Cursor.getDefaultCursor());
             }
-            // Update same-named card borders: amber when available for S slot, grey when committed.
+            // Update same-named card borders: grey = in S slot, yellow = selected for CP, amber = available.
             for (int i = 0; i < sameNamedLbls.size(); i++) {
                 JLabel lbl = sameNamedLbls.get(i);
-                boolean inSlot = sCostIdx[0] == sameNamedIdxs.get(i);
-                lbl.setBorder(inSlot
-                        ? BorderFactory.createLineBorder(new Color(80, 80, 80), 1)
-                        : BorderFactory.createLineBorder(S_COST_AMBER, 2));
-                lbl.setBackground(inSlot ? new Color(50, 50, 50) : Color.DARK_GRAY);
-                lbl.setCursor(inSlot ? Cursor.getDefaultCursor()
-                        : Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+                int     hi2    = sameNamedIdxs.get(i);
+                boolean inSlot = sCostIdx[0] == hi2;
+                boolean selCp  = selectedDiscards.contains(hi2);
+                if (inSlot) {
+                    lbl.setBorder(BorderFactory.createLineBorder(new Color(80, 80, 80), 1));
+                    lbl.setBackground(new Color(50, 50, 50));
+                    lbl.setCursor(Cursor.getDefaultCursor());
+                } else if (selCp) {
+                    lbl.setBorder(CardAnimation.createCardGlowBorder(Color.YELLOW));
+                    lbl.setBackground(Color.DARK_GRAY);
+                    lbl.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+                } else {
+                    lbl.setBorder(BorderFactory.createLineBorder(S_COST_AMBER, 2));
+                    lbl.setBackground(Color.DARK_GRAY);
+                    lbl.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+                }
             }
             // Update S slot label border.
             if (sCostSlotLbl[0] != null) {
@@ -292,19 +301,26 @@ public class AbilityPaymentDialog {
             if (sameNamed) {
                 lbl.addMouseListener(new MouseAdapter() {
                     @Override public void mousePressed(MouseEvent ev) {
-                        if (sCostIdx[0] == hi) return; // already the committed card
-                        // If a different card was committed, return it first.
-                        if (sCostIdx[0] != -1) {
-                            int prevLiIdx = sameNamedIdxs.indexOf(sCostIdx[0]);
-                            if (prevLiIdx >= 0)
-                                loadCardImage(sameNamedLbls.get(prevLiIdx),
-                                        hand.get(sCostIdx[0]).imageUrl(), false);
+                        if (sCostIdx[0] == hi) return; // greyed out in S slot, not interactive
+
+                        if (selectedDiscards.contains(hi)) {
+                            // Already selected for CP — deselect it first. A second click can
+                            // then place it in the S slot (if the slot is empty).
+                            selectedDiscards.remove(Integer.valueOf(hi));
+                            updateAll.run();
+                            return;
                         }
-                        // Commit this card to the S slot.
-                        sCostIdx[0] = hi;
-                        loadCardImage(lbl, imgUrl, true); // grey out in hand row
-                        if (sCostSlotLbl[0] != null)
-                            loadCardImage(sCostSlotLbl[0], imgUrl, false); // colour in slot
+
+                        if (sCostIdx[0] == -1) {
+                            // S slot is empty — commit this card to it.
+                            sCostIdx[0] = hi;
+                            loadCardImage(lbl, imgUrl, true); // grey out in hand row
+                            if (sCostSlotLbl[0] != null)
+                                loadCardImage(sCostSlotLbl[0], imgUrl, false); // colour in slot
+                        } else {
+                            // S slot is already filled — select this card for CP if allowed.
+                            if (canAddDiscard[0]) selectedDiscards.add(hi);
+                        }
                         updateAll.run();
                     }
                     @Override public void mouseEntered(MouseEvent ev) { if (lbl.getIcon() != null) onZoom.accept(imgUrl); }
