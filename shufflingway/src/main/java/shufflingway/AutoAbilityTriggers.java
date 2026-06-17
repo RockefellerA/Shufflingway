@@ -2100,8 +2100,9 @@ final class AutoAbilityTriggers {
 					|| ability.whileCardBlocking() != null || ability.whilePartyAttacking()
 					|| ability.hasBlockingTargetEffect();
 			boolean phaseOk = hasAttackRestriction ? isAttackPhase : (isMainPhase || (isAttackPhase && mw.attackSubStep == 0));
-			JMenuItem item = new JMenuItem(mw.buildAbilityMenuLabel(ability));
-			item.setEnabled(phaseOk && mw.canActivateAbility(ability, isFrozen, state, playedTurn, card, isP1));
+			boolean abilityEnabled = phaseOk && mw.canActivateAbility(ability, isFrozen, state, playedTurn, card, isP1);
+			JMenuItem item = new JMenuItem(abilityEnabled ? mw.buildAbilityMenuLabelHtml(ability) : mw.buildAbilityMenuLabel(ability));
+			item.setEnabled(abilityEnabled);
 			item.addActionListener(ae ->
 					showActionAbilityPaymentDialog(ability, card, applyDull, isP1));
 			menu.add(item);

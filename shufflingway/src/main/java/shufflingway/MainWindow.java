@@ -2339,8 +2339,9 @@ public class MainWindow {
 					}
 					for (ActionAbility ability : cd.actionAbilities()) {
 						if (ability.breakZoneOnly() == null) continue;
-						JMenuItem item = new JMenuItem(buildAbilityMenuLabel(ability));
-						item.setEnabled(autoAbilityTriggers.canActivateBzAbility(ability, cd, true));
+						boolean abilityEnabled = autoAbilityTriggers.canActivateBzAbility(ability, cd, true);
+						JMenuItem item = new JMenuItem(abilityEnabled ? buildAbilityMenuLabelHtml(ability) : buildAbilityMenuLabel(ability));
+						item.setEnabled(abilityEnabled);
 						item.addActionListener(ae -> autoAbilityTriggers.showBzAbilityPaymentDialog(ability, cd, true));
 						menu.add(item);
 					}
@@ -5686,8 +5687,12 @@ public class MainWindow {
 
 		for (ActionAbility ability : card.actionAbilities()) {
 			if (!ability.whileCardInHand()) continue;
-			JMenuItem item = new JMenuItem("Use: " + buildAbilityMenuLabel(ability));
-			item.setEnabled(autoAbilityTriggers.canActivateHandAbility(ability, card, true));
+			boolean abilityEnabled = autoAbilityTriggers.canActivateHandAbility(ability, card, true);
+			String abilityHtml = buildAbilityMenuLabelHtml(ability);
+			JMenuItem item = new JMenuItem(abilityEnabled
+					? "<html>Use: " + abilityHtml.substring("<html>".length())
+					: "Use: " + buildAbilityMenuLabel(ability));
+			item.setEnabled(abilityEnabled);
 			item.addActionListener(ae -> {
 				hideZoom();
 				if (handPopup != null) { handPopup.dispose(); handPopup = null; }
@@ -7996,6 +8001,18 @@ public class MainWindow {
 		String fx = ability.effectText();
 		sb.append(fx.length() > 55 ? fx.substring(0, 52) + "..." : fx);
 		return sb.toString();
+	}
+
+	/** HTML version of {@link #buildAbilityMenuLabel}: wraps the [AbilityName] in orange. */
+	String buildAbilityMenuLabelHtml(ActionAbility ability) {
+		String plain = buildAbilityMenuLabel(ability);
+		if (ability.isSpecial() && !ability.abilityName().isEmpty()) {
+			String prefix = "[" + ability.abilityName() + "] ";
+			if (plain.startsWith(prefix))
+				return "<html><font color='#ED930D'>[" + ability.abilityName() + "]</font> "
+						+ plain.substring(prefix.length());
+		}
+		return "<html>" + plain;
 	}
 
 	/**

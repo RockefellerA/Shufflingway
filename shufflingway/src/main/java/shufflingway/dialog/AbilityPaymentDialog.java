@@ -42,6 +42,9 @@ import static shufflingway.CpPaymentUtils.matchesAnyElement;
 /** CP payment dialog for an action ability activation. */
 public class AbilityPaymentDialog {
 
+    // Amber used for the S-cost slot border, matching the special-ability label color.
+    private static final Color S_COST_AMBER = new Color(0xED, 0x93, 0x0D);
+
     @FunctionalInterface
     public interface Callback {
         void onConfirm(List<Integer> discards, List<Integer> backups, int xValue);
@@ -104,10 +107,15 @@ public class AbilityPaymentDialog {
         JButton confirmBtn = new JButton("Confirm");
         confirmBtn.setFont(FontLoader.loadPixelNESFont(11));
 
-        List<JLabel>  backupLbls  = new ArrayList<>();
-        List<Integer> backupSlots = new ArrayList<>();
-        List<JLabel>  discardLbls = new ArrayList<>();
-        List<Integer> discardIdxs = new ArrayList<>();
+        List<JLabel>  backupLbls    = new ArrayList<>();
+        List<Integer> backupSlots   = new ArrayList<>();
+        List<JLabel>  discardLbls   = new ArrayList<>();
+        List<Integer> discardIdxs   = new ArrayList<>();
+        // Tracks which hand card (by index) is committed to the S cost slot; -1 = empty.
+        int[]         sCostIdx      = {-1};
+        List<JLabel>  sameNamedLbls = new ArrayList<>();
+        List<Integer> sameNamedIdxs = new ArrayList<>();
+        JLabel[]      sCostSlotLbl  = {null};
         boolean[] canAddDiscard = {false};
         boolean[] canAddBackup  = {false};
         int[]     xValueHolder  = {0};
@@ -131,16 +139,17 @@ public class AbilityPaymentDialog {
             boolean satisfied = cpByElem.entrySet().stream()
                     .allMatch(en -> en.getValue() >= costByElem.getOrDefault(en.getKey(), 0));
 
+            boolean sSlotOk = !ability.isSpecial() || sCostIdx[0] != -1;
             if (ability.hasXCost()) {
                 xValueHolder[0]  = Math.max(0, total - totalCost);
                 canAddBackup[0]  = true;
                 canAddDiscard[0] = true;
-                confirmBtn.setEnabled(satisfied);
+                confirmBtn.setEnabled(satisfied && sSlotOk);
             } else {
                 int maxAllowed   = totalCost + elems.length + (totalCost % 2);
                 canAddBackup[0]  = total < totalCost;
                 canAddDiscard[0] = (total + 2 <= maxAllowed) && (total < totalCost || unsatisfied > 0);
-                confirmBtn.setEnabled(total >= totalCost && satisfied);
+                confirmBtn.setEnabled(total >= totalCost && satisfied && sSlotOk);
             }
 
             StringBuilder sb = new StringBuilder("CP: " + total + " / " + totalCost + "  (");
@@ -174,6 +183,27 @@ public class AbilityPaymentDialog {
                 lbl.setBackground(sel || canAddDiscard[0] ? Color.DARK_GRAY : new Color(50, 50, 50));
                 lbl.setCursor(sel || canAddDiscard[0] ? Cursor.getPredefinedCursor(Cursor.HAND_CURSOR) : Cursor.getDefaultCursor());
             }
+            // Update same-named card borders: amber when available for S slot, grey when committed.
+            for (int i = 0; i < sameNamedLbls.size(); i++) {
+                JLabel lbl = sameNamedLbls.get(i);
+                boolean inSlot = sCostIdx[0] == sameNamedIdxs.get(i);
+                lbl.setBorder(inSlot
+                        ? BorderFactory.createLineBorder(new Color(80, 80, 80), 1)
+                        : BorderFactory.createLineBorder(S_COST_AMBER, 2));
+                lbl.setBackground(inSlot ? new Color(50, 50, 50) : Color.DARK_GRAY);
+                lbl.setCursor(inSlot ? Cursor.getDefaultCursor()
+                        : Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+            }
+            // Update S slot label border.
+            if (sCostSlotLbl[0] != null) {
+                boolean filled = sCostIdx[0] != -1;
+                sCostSlotLbl[0].setBorder(filled
+                        ? CardAnimation.createCardGlowBorder(S_COST_AMBER)
+                        : BorderFactory.createLineBorder(new Color(80, 80, 80), 1));
+                sCostSlotLbl[0].setCursor(filled
+                        ? Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
+                        : Cursor.getDefaultCursor());
+            }
         };
         updateAll.run();
 
@@ -201,17 +231,87 @@ public class AbilityPaymentDialog {
             center.add(hdr); center.add(bp);
         }
 
+        // S cost slot — only shown for special abilities. The player clicks a same-named card
+        // from the hand row to commit it here; clicking the slot returns it.
+        if (ability.isSpecial()) {
+            JLabel sHdr = new JLabel("S Cost — click a " + source.name() + " below to commit:");
+            sHdr.setFont(FontLoader.loadPixelNESFont(9));
+            sHdr.setAlignmentX(Component.LEFT_ALIGNMENT);
+
+            JLabel slotLbl = makeCardLabel();
+            slotLbl.setText("?");
+            slotLbl.setBackground(new Color(20, 20, 20));
+            slotLbl.setBorder(BorderFactory.createLineBorder(new Color(80, 80, 80), 1));
+            slotLbl.setCursor(Cursor.getDefaultCursor());
+            slotLbl.addMouseListener(new MouseAdapter() {
+                @Override public void mousePressed(MouseEvent ev) {
+                    if (sCostIdx[0] == -1) return;
+                    // Return the committed card: restore its hand label to colour.
+                    int prevIdx   = sCostIdx[0];
+                    int prevLiIdx = sameNamedIdxs.indexOf(prevIdx);
+                    if (prevLiIdx >= 0)
+                        loadCardImage(sameNamedLbls.get(prevLiIdx), hand.get(prevIdx).imageUrl(), false);
+                    sCostIdx[0] = -1;
+                    slotLbl.setIcon(null);
+                    slotLbl.setText("?");
+                    updateAll.run();
+                }
+                @Override public void mouseEntered(MouseEvent ev) {
+                    if (sCostIdx[0] != -1 && slotLbl.getIcon() != null)
+                        onZoom.accept(hand.get(sCostIdx[0]).imageUrl());
+                }
+                @Override public void mouseExited(MouseEvent ev) { onZoomHide.run(); }
+            });
+            sCostSlotLbl[0] = slotLbl;
+
+            JPanel sp = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 6));
+            sp.setAlignmentX(Component.LEFT_ALIGNMENT);
+            sp.add(slotLbl);
+            center.add(sHdr);
+            center.add(sp);
+        }
+
         JLabel discHdr = new JLabel("Hand — discard for 2 CP each:");
         discHdr.setFont(FontLoader.loadPixelNESFont(9)); discHdr.setAlignmentX(Component.LEFT_ALIGNMENT);
         JPanel dp = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 6)); dp.setAlignmentX(Component.LEFT_ALIGNMENT);
         for (int i = 0; i < hand.size(); i++) {
-            final int hi = i; CardData hc = hand.get(i); boolean payable = !hc.isLightOrDark() && hc != source;
+            final int hi = i;
+            CardData hc = hand.get(i);
+            // Same-named cards (for a special ability) go to the S slot, not to CP payment.
+            boolean sameNamed = ability.isSpecial() && source.name().equalsIgnoreCase(hc.name());
+            boolean payable   = !sameNamed && !hc.isLightOrDark() && hc != source;
             JLabel lbl = makeCardLabel();
-            lbl.setBackground(payable ? Color.DARK_GRAY : new Color(50, 50, 50));
-            lbl.setBorder(BorderFactory.createLineBorder(payable ? Color.GRAY : new Color(80, 80, 80), 1));
-            lbl.setCursor(payable ? Cursor.getPredefinedCursor(Cursor.HAND_CURSOR) : Cursor.getDefaultCursor());
+            lbl.setBackground(payable || sameNamed ? Color.DARK_GRAY : new Color(50, 50, 50));
+            lbl.setBorder(sameNamed
+                    ? BorderFactory.createLineBorder(S_COST_AMBER, 2)
+                    : BorderFactory.createLineBorder(payable ? Color.GRAY : new Color(80, 80, 80), 1));
+            lbl.setCursor(payable || sameNamed
+                    ? Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
+                    : Cursor.getDefaultCursor());
             final String imgUrl = hc.imageUrl();
-            if (payable) {
+            if (sameNamed) {
+                lbl.addMouseListener(new MouseAdapter() {
+                    @Override public void mousePressed(MouseEvent ev) {
+                        if (sCostIdx[0] == hi) return; // already the committed card
+                        // If a different card was committed, return it first.
+                        if (sCostIdx[0] != -1) {
+                            int prevLiIdx = sameNamedIdxs.indexOf(sCostIdx[0]);
+                            if (prevLiIdx >= 0)
+                                loadCardImage(sameNamedLbls.get(prevLiIdx),
+                                        hand.get(sCostIdx[0]).imageUrl(), false);
+                        }
+                        // Commit this card to the S slot.
+                        sCostIdx[0] = hi;
+                        loadCardImage(lbl, imgUrl, true); // grey out in hand row
+                        if (sCostSlotLbl[0] != null)
+                            loadCardImage(sCostSlotLbl[0], imgUrl, false); // colour in slot
+                        updateAll.run();
+                    }
+                    @Override public void mouseEntered(MouseEvent ev) { if (lbl.getIcon() != null) onZoom.accept(imgUrl); }
+                    @Override public void mouseExited(MouseEvent ev)  { onZoomHide.run(); }
+                });
+                sameNamedLbls.add(lbl); sameNamedIdxs.add(hi);
+            } else if (payable) {
                 lbl.addMouseListener(new MouseAdapter() {
                     @Override public void mousePressed(MouseEvent ev) {
                         if (!selectedDiscards.remove(Integer.valueOf(hi)) && canAddDiscard[0]) selectedDiscards.add(hi);
@@ -227,7 +327,8 @@ public class AbilityPaymentDialog {
                     @Override public void mouseExited(MouseEvent ev)  { onZoomHide.run(); }
                 });
             }
-            loadCardImage(lbl, imgUrl, !payable);
+            // Same-named cards load in colour initially (not greyscale) so they look selectable.
+            loadCardImage(lbl, imgUrl, !payable && !sameNamed);
             dp.add(lbl);
         }
         center.add(discHdr); center.add(dp);
