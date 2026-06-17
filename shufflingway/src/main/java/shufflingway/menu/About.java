@@ -35,6 +35,7 @@ public class About extends JDialog {
 	public About() {
 		setTitle("About Shufflingway");
 		setAlwaysOnTop(true);
+		setResizable(false);
 		getRootPane().registerKeyboardAction(
 				e -> dispose(),
 				KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0),

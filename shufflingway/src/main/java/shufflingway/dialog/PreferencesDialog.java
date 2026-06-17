@@ -223,6 +223,7 @@ public class PreferencesDialog extends JDialog {
 						}
 					},
 					cancel -> counterPreview.setTint(savedHex));
+			colorDialog.setResizable(false);
 			colorDialog.setVisible(true);
 		});
 
