@@ -2798,7 +2798,7 @@ public record CardData(
      * Matches "[CardName] can be played onto the field even if you control other [Light|Dark] Characters."
      * as a self-exception field ability. Groups: {@code name}, {@code element}.
      */
-    private static final Pattern SELF_LIGHT_DARK_PLAY_EXCEPTION_PATTERN = Pattern.compile(
+    static final Pattern SELF_LIGHT_DARK_PLAY_EXCEPTION_PATTERN = Pattern.compile(
         "(?i)^(?<name>.+?)\\s+can be played onto the field even if you control other (?<element>Light|Dark) Characters\\.?$"
     );
 

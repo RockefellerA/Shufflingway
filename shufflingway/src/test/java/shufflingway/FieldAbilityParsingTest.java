@@ -7,6 +7,7 @@ import java.sql.ResultSet;
 import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.regex.Matcher;
 
 import org.junit.jupiter.api.Test;
 
@@ -105,7 +106,9 @@ public class FieldAbilityParsingTest {
         if (ActionResolver.parse(fa.effectText(), source) != null) return true;
         if (!CardData.parseFieldPowerGrants(fa.effectText(), typeEn).isEmpty()) return true;
         if (!CardData.parseIfControlBoosts(fa.effectText(), typeEn).isEmpty()) return true;
-        return false;
+        if (CardData.SELF_LIGHT_DARK_PLAY_EXCEPTION_PATTERN.matcher(fa.effectText()).matches()) return true;
+        if (CardData.MULTI_LIGHT_DARK_PLAY_PATTERN.matcher(fa.effectText()).matches()) return true;
+        return CardData.MULTI_NAME_PLAY_PATTERN.matcher(fa.effectText()).matches();
     }
 
     private static CardData buildSource(ResultSet rs, String textEn) throws Exception {
@@ -164,6 +167,13 @@ public class FieldAbilityParsingTest {
         if (!grants.isEmpty()) return "FieldPowerGrant " + grants;
         List<IfControlBoost> boosts = CardData.parseIfControlBoosts(fa.effectText(), typeEn);
         if (!boosts.isEmpty()) return "IfControlBoost " + boosts;
+        Matcher m;
+        m = CardData.SELF_LIGHT_DARK_PLAY_EXCEPTION_PATTERN.matcher(fa.effectText());
+        if (m.matches()) return "SelfPlayException[" + m.group("element") + "]";
+        m = CardData.MULTI_LIGHT_DARK_PLAY_PATTERN.matcher(fa.effectText());
+        if (m.matches()) return "MultiLightDarkPlay[" + m.group("element") + "]";
+        m = CardData.MULTI_NAME_PLAY_PATTERN.matcher(fa.effectText());
+        if (m.matches()) return "MultiNamePlay[" + m.group("cardname") + "]";
         return null;
     }
 
