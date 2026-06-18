@@ -84,4 +84,18 @@ public record ActionAbility(
         counterCosts        = List.copyOf(counterCosts);
         dullForwardCosts    = List.copyOf(dullForwardCosts);
     }
+
+    /** Creates an action ability whose sole cost is "Put {@code bzCardName} into the Break Zone." */
+    public static ActionAbility makeBzCostTempAbility(String bzCardName, String effectText) {
+        return new ActionAbility(
+            "", false, false, 0, 0, false,
+            List.of(),
+            List.of(new BreakZoneCost(bzCardName, 1, "")),
+            List.of(), List.of(), List.of(), List.of(), List.of(),
+            true, false, false,
+            null, null, false, false, false,
+            effectText,
+            0, null, null, false, false, false, null, null, null, false, null, null
+        );
+    }
 }

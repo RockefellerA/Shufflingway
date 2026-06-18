@@ -2129,7 +2129,9 @@ final class AutoAbilityTriggers {
 	void addAbilityMenuItems(JPopupMenu menu, CardData card, boolean isFrozen,
 			CardState state, int playedTurn, Runnable applyDull, boolean isP1) {
 		List<ActionAbility> abilities = card.actionAbilities();
-		if (abilities.isEmpty()) return;
+		List<ActionAbility> tempAbilities = (isP1 ? mw.p1TempGrantedAbilities : mw.p2TempGrantedAbilities)
+				.getOrDefault(card, List.of());
+		if (abilities.isEmpty() && tempAbilities.isEmpty()) return;
 
 		GameState.GamePhase phase = mw.gameState.getCurrentPhase();
 		boolean isMainPhase  = phase == GameState.GamePhase.MAIN_1 || phase == GameState.GamePhase.MAIN_2;
@@ -2147,6 +2149,15 @@ final class AutoAbilityTriggers {
 			item.setEnabled(abilityEnabled);
 			item.addActionListener(ae ->
 					showActionAbilityPaymentDialog(ability, card, applyDull, isP1));
+			menu.add(item);
+		}
+
+		for (ActionAbility ability : tempAbilities) {
+			boolean abilityEnabled = isMainPhase && mw.canActivateAbility(ability, isFrozen, state, playedTurn, card, isP1);
+			JMenuItem item = new JMenuItem(abilityEnabled ? mw.buildAbilityMenuLabelHtml(ability) : mw.buildAbilityMenuLabel(ability));
+			item.setEnabled(abilityEnabled);
+			item.addActionListener(ae ->
+					showActionAbilityPaymentDialog(ability, card, () -> {}, isP1));
 			menu.add(item);
 		}
 	}

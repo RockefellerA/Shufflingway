@@ -240,6 +240,8 @@ public class MainWindow {
 	// State for Backups temporarily acting as Forwards (e.g. 17-012R). Keyed by CardData.
 	final Map<CardData, Integer> p1BackupTempForwardPower = new HashMap<>();
 	private final Map<CardData, Integer> p2BackupTempForwardPower = new HashMap<>();
+	final Map<CardData, List<ActionAbility>> p1TempGrantedAbilities = new HashMap<>();
+	final Map<CardData, List<ActionAbility>> p2TempGrantedAbilities = new HashMap<>();
 	final Map<CardData, Integer> p1BackupForwardBoost     = new HashMap<>();
 	final Map<CardData, Integer> p2BackupForwardBoost     = new HashMap<>();
 	final Map<CardData, EnumSet<CardData.Trait>> p1BackupTempTraits = new HashMap<>();
@@ -10874,6 +10876,7 @@ public class MainWindow {
 		p1BackupForwardBoost.clear();     p2BackupForwardBoost.clear();
 		p1BackupTempTraits.clear();       p2BackupTempTraits.clear();
 		p1BackupForwardDamage.clear();    p2BackupForwardDamage.clear();
+		p1TempGrantedAbilities.clear();   p2TempGrantedAbilities.clear();
 		p1BackupAttackIdx = -1; p2BackupAttackIdx = -1;
 		for (int i = 0; i < p1BackupCards.length; i++) refreshP1BackupSlot(i);
 		for (int i = 0; i < p2BackupCards.length; i++) refreshP2BackupSlot(i);

@@ -1301,6 +1301,12 @@ public interface GameContext {
     void makeMonsterTemporaryForward(CardData source, int power);
 
     /**
+     * Grants {@code source} a temporary action ability whose sole cost is
+     * "Put {@code bzCardName} into the Break Zone" until end of turn.
+     */
+    void grantTempBzActionAbility(CardData source, String bzCardName, String effectText);
+
+    /**
      * Shows the controlling player a picker for EX Burst cards in their own Damage Zone,
      * then places the chosen card's EX Burst effect on the resolution stack.
      * No-op when the Damage Zone has no cards with a parseable EX Burst effect.

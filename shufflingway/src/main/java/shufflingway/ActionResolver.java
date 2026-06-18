@@ -2518,6 +2518,16 @@ public class ActionResolver {
     );
 
     /**
+     * Extended form: "…becomes a Forward with N power and "Put [name] into the Break Zone: [effect]"."
+     * Groups: {@code power}, {@code bzName}, {@code bzEffect}.
+     */
+    private static final Pattern BECOME_FORWARD_AND_BZ_ACTION = Pattern.compile(
+        "(?i)^Until\\s+the\\s+end\\s+of\\s+the\\s+turn,\\s+.+?\\s+also\\s+becomes?\\s+a\\s+Forward\\s+with\\s+(?<power>\\d+)\\s+power" +
+        "\\s+and\\s+\"Put\\s+(?<bzName>.+?)\\s+into\\s+the\\s+Break\\s+Zone:\\s+(?<bzEffect>[^\"]+?)\"\\s*[.!]?",
+        Pattern.DOTALL
+    );
+
+    /**
      * Extended form: "…becomes a Forward with N power and "When [name] attacks, [effect]"."
      * Groups: {@code power}, {@code attackEffect}.
      */
@@ -2660,6 +2670,9 @@ public class ActionResolver {
         if (result != null) return result;
 
         result = tryParseSelectNumber(effectText, source);
+        if (result != null) return result;
+
+        result = tryParseBecomeForwardUntilEot(effectText, source);
         if (result != null) return result;
 
         result = tryParseDealDamageToForwardsForEach(effectText);
@@ -3014,9 +3027,6 @@ public class ActionResolver {
         if (result != null) return result;
 
         result = tryParseBackupCpDraw(effectText);
-        if (result != null) return result;
-
-        result = tryParseBecomeForwardUntilEot(effectText, source);
         if (result != null) return result;
 
         result = tryParseNameElementOnlySelfBecomes(effectText, source);
@@ -8734,6 +8744,20 @@ public class ActionResolver {
                     ctx.makeMonsterTemporaryForward(source, power);
                     ctx.logEntry(source.name() + " gains 'When blocks: " + blockEffectText + "'");
                     ctx.addTempBlockTrigger(source, blockEffect);
+                };
+            }
+        }
+
+        Matcher mBz = BECOME_FORWARD_AND_BZ_ACTION.matcher(text);
+        if (mBz.find()) {
+            int power = Integer.parseInt(mBz.group("power"));
+            String bzName = mBz.group("bzName").trim();
+            String bzEffectText = mBz.group("bzEffect").trim();
+            if (parse(bzEffectText, source) != null) {
+                return ctx -> {
+                    ctx.logEntry(source.name() + " becomes a Forward with " + power + " power until end of turn");
+                    ctx.makeMonsterTemporaryForward(source, power);
+                    ctx.grantTempBzActionAbility(source, bzName, bzEffectText);
                 };
             }
         }

@@ -3352,6 +3352,17 @@ final class GameContextImpl implements GameContext {
 				}
 			}
 
+			@Override public void grantTempBzActionAbility(CardData source, String bzCardName, String effectText) {
+				ActionAbility ability = ActionAbility.makeBzCostTempAbility(bzCardName, effectText);
+				Map<CardData, List<ActionAbility>> map = isP1 ? mw.p1TempGrantedAbilities : mw.p2TempGrantedAbilities;
+				map.computeIfAbsent(source, k -> new ArrayList<>()).add(ability);
+				mw.endOfTurnEffects.add(ctx -> {
+					List<ActionAbility> list = map.get(source);
+					if (list != null) { list.remove(ability); if (list.isEmpty()) map.remove(source); }
+				});
+				logEntry(source.name() + " gains: Put " + bzCardName + " into the Break Zone: " + effectText);
+			}
+
 			@Override public void swapDamageZoneCardWithHandCard(boolean drawCardBetween) {
 				List<CardData> dz   = isP1 ? mw.gameState.getP1DamageZone() : mw.gameState.getP2DamageZone();
 				List<CardData> hand = isP1 ? mw.gameState.getP1Hand()       : mw.gameState.getP2Hand();
