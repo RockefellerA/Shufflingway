@@ -377,6 +377,12 @@ public record CardData(
         return new BackupCpGrant(m.group("job"), m.group("category"), m.group("element"));
     }
 
+    /** Returns {@code true} if {@code text} describes any "produce CP" backup ability (self or grant). */
+    static boolean isBackupCpAbility(String text) {
+        return BACKUP_CP_ANY_ELEM_ALWAYS.matcher(text).find()
+            || BACKUP_CP_EXTRA_ELEMENTS.matcher(text).find();
+    }
+
     /** "You can only cast X during your turn." */
     private static final Pattern CAST_YOUR_TURN_ONLY = Pattern.compile(
         "(?i)You\\s+can\\s+only\\s+cast\\s+\\S[^.]+?\\s+during\\s+your\\s+turn[.!]?"

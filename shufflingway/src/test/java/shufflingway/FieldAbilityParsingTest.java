@@ -114,7 +114,8 @@ public class FieldAbilityParsingTest {
         if (AutoAbilityTriggers.FA_PARTY_DAMAGE_PROTECTION.matcher(fa.effectText()).find()) return true;
         if (AutoAbilityTriggers.FA_NULLIFY_SUMMON_DAMAGE.matcher(fa.effectText()).find()) return true;
         if (AutoAbilityTriggers.FA_NULLIFY_ABILITY_DAMAGE.matcher(fa.effectText()).find()) return true;
-        return AutoAbilityTriggers.FA_REDUCE_ABILITY_DAMAGE.matcher(fa.effectText()).find();
+        if (AutoAbilityTriggers.FA_REDUCE_ABILITY_DAMAGE.matcher(fa.effectText()).find()) return true;
+        return CardData.isBackupCpAbility(fa.effectText());
     }
 
     private static CardData buildSource(ResultSet rs, String textEn) throws Exception {
@@ -220,6 +221,7 @@ public class FieldAbilityParsingTest {
         if (m.find()) return "NullifyAbilityDmg";
         m = AutoAbilityTriggers.FA_REDUCE_ABILITY_DAMAGE.matcher(fa.effectText());
         if (m.find()) return "ReduceAbilityDmg[" + m.group("reduction") + "]";
+        if (CardData.isBackupCpAbility(fa.effectText())) return "BackupCpAbility";
         return null;
     }
 
