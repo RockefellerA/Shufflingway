@@ -1996,6 +1996,24 @@ final class GameContextImpl implements GameContext {
 				return c.cost();
 			}
 
+			@Override public int revealTopNAndAddAllToHandGetTotalCP(int n) {
+				java.util.Deque<CardData> deck = isP1 ? mw.gameState.getP1MainDeck() : mw.gameState.getP2MainDeck();
+				List<CardData> hand = isP1 ? mw.gameState.getP1Hand() : mw.gameState.getP2Hand();
+				int take = Math.min(n, deck.size());
+				if (take == 0) { logEntry("Deck is empty — no cards revealed"); return 0; }
+				List<CardData> revealed = new ArrayList<>();
+				for (int i = 0; i < take; i++) revealed.add(deck.pollFirst());
+				int totalCp = revealed.stream().mapToInt(CardData::cost).sum();
+				String prefix = isP1 ? "" : "[P2] ";
+				logEntry(prefix + "Reveal top " + take + " card(s): " +
+						revealed.stream().map(CardData::name).collect(Collectors.joining(", ")) +
+						" (total CP=" + totalCp + ")");
+				hand.addAll(revealed);
+				if (isP1) { mw.refreshP1DeckLabel(); mw.refreshP1HandLabel(); }
+				else       { mw.refreshP2DeckLabel(); mw.refreshP2HandCountLabel(); }
+				return totalCp;
+			}
+
 			@Override public void shuffleDeck() {
 				java.util.Deque<CardData> deck = isP1 ? mw.gameState.getP1MainDeck() : mw.gameState.getP2MainDeck();
 				List<CardData> list = new java.util.ArrayList<>(deck);

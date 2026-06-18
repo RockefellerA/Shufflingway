@@ -349,6 +349,12 @@ public interface GameContext {
      */
     int removeTopCardOfDeckFromGameAndGetCost();
 
+    /**
+     * Reveals the top {@code n} cards of the active player's deck, adds them all to hand,
+     * and returns the total CP cost of the revealed cards. Returns 0 if the deck is empty.
+     */
+    int revealTopNAndAddAllToHandGetTotalCP(int n);
+
     /** Shuffles the active player's deck. */
     void shuffleDeck();
 

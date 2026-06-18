@@ -438,12 +438,24 @@ public class ActionResolver {
 
     /**
      * Matches the compound followup "Remove the top card of your deck from the game.
-     * Deal it/them N damage for each CP required to play the removed card."
+     * Deal it/them N damage for each CP required to play/cast the removed card."
      * Group {@code base} — damage per CP.
      */
     private static final Pattern FOLLOWUP_RFP_TOP_DECK_AND_DAMAGE_PER_CP = Pattern.compile(
         "(?i)Remove\\s+the\\s+top\\s+card\\s+of\\s+your\\s+deck\\s+from\\s+(?:the\\s+)?game\\.\\s+" +
-        "Deal\\s+(?:it|them)\\s+(?<base>\\d+)\\s+damage\\s+for\\s+each\\s+CP\\s+required\\s+to\\s+play\\s+the\\s+removed\\s+card[.!]?"
+        "Deal\\s+(?:it|them)\\s+(?<base>\\d+)\\s+damage\\s+for\\s+each\\s+CP\\s+required\\s+to\\s+(?:play|cast)\\s+the\\s+removed\\s+card[.!]?"
+    );
+
+    /**
+     * Matches the compound followup "Reveal the top N cards of your deck.
+     * Deal it/them M damage for each CP required to play/cast the revealed cards.
+     * Add all the revealed cards to your hand."
+     * Groups: {@code n} — card count, {@code base} — damage per CP.
+     */
+    private static final Pattern FOLLOWUP_REVEAL_TOP_N_DAMAGE_PER_CP_ADD_ALL_TO_HAND = Pattern.compile(
+        "(?i)Reveal\\s+the\\s+top\\s+(?<n>\\d+)\\s+cards?\\s+of\\s+your\\s+deck\\.\\s+" +
+        "Deal\\s+(?:it|them)\\s+(?<base>\\d+)\\s+damage\\s+for\\s+each\\s+CP\\s+required\\s+to\\s+(?:play|cast)\\s+the\\s+revealed\\s+cards?\\.\\s+" +
+        "Add\\s+all\\s+(?:the\\s+)?revealed\\s+cards?\\s+to\\s+your\\s+hand[.!]?"
     );
 
     /** Matches "Shuffle your deck." */
@@ -3316,6 +3328,7 @@ public class ActionResolver {
         if (FOLLOWUP_SELECT_NUMBER_REVEAL_BREAK.matcher(followupText).find())         return "SelectNumberRevealBreak";
         if (FOLLOWUP_IF_OPPONENT_CONTROLS_FORWARDS_DAMAGE.matcher(followupText).matches()) return "IfOppControlsForwardsDamage";
         if (FOLLOWUP_IF_SELF_CONTROLS_N_ELEMENT_TYPE_DAMAGE.matcher(followupText).matches()) return "IfSelfControlsNElementTypeDamage";
+        if (FOLLOWUP_REVEAL_TOP_N_DAMAGE_PER_CP_ADD_ALL_TO_HAND.matcher(followupText).find()) return "RevealTopNDamagePerCpAddAllToHand";
         return null;
     }
 
@@ -3371,6 +3384,10 @@ public class ActionResolver {
                 return "ChooseCharacter / SelectJobGrant";
             if (FOLLOWUP_MAY_DISCARD_NAMED_DEAL_DAMAGE.matcher(followup).matches())
                 return "ChooseCharacter / MayDiscardNamedDealDamage";
+            if (FOLLOWUP_RFP_TOP_DECK_AND_DAMAGE_PER_CP.matcher(followup).find())
+                return "ChooseCharacter / RfpTopDeckDamagePerCp";
+            if (FOLLOWUP_REVEAL_TOP_N_DAMAGE_PER_CP_ADD_ALL_TO_HAND.matcher(followup).find())
+                return "ChooseCharacter / RevealTopNDamagePerCpAddAllToHand";
             int    dotIdx        = followup.indexOf(". ");
             String primaryPart   = dotIdx >= 0 ? followup.substring(0, dotIdx).trim() : followup;
             String secondaryRaw  = dotIdx >= 0 ? followup.substring(dotIdx + 2).trim() : null;
@@ -4660,6 +4677,23 @@ public class ActionResolver {
                 int cpCost = ctx.removeTopCardOfDeckFromGameAndGetCost();
                 int damage = baseDmg * cpCost;
                 ctx.logEntry(choosePrefix + " — Deal " + damage + " damage (RFP top of deck, " + baseDmg + "×CP=" + cpCost + ")");
+                List<ForwardTarget> ts = selectTargets(ctx, maxCount, upTo,
+                        opponentOnly, selfOnly, condition, element, zone, opponentZone,
+                        costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters, jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, fExcludeElem, withoutMulticard);
+                sortedByIdxDesc(ts, true) .forEach(t -> ctx.damageTarget(t, damage));
+                sortedByIdxDesc(ts, false).forEach(t -> ctx.damageTarget(t, damage));
+            };
+        }
+
+        // --- "Reveal the top N cards of your deck. Deal it M damage for each CP required to play the revealed cards. Add all the revealed cards to your hand." ---
+        Matcher revealDmgPerCpM = FOLLOWUP_REVEAL_TOP_N_DAMAGE_PER_CP_ADD_ALL_TO_HAND.matcher(followup);
+        if (revealDmgPerCpM.find()) {
+            int revealCount = Integer.parseInt(revealDmgPerCpM.group("n"));
+            int baseDmg     = Integer.parseInt(revealDmgPerCpM.group("base"));
+            return ctx -> {
+                int totalCp = ctx.revealTopNAndAddAllToHandGetTotalCP(revealCount);
+                int damage  = baseDmg * totalCp;
+                ctx.logEntry(choosePrefix + " — Deal " + damage + " damage (reveal top " + revealCount + ", " + baseDmg + "×totalCP=" + totalCp + ")");
                 List<ForwardTarget> ts = selectTargets(ctx, maxCount, upTo,
                         opponentOnly, selfOnly, condition, element, zone, opponentZone,
                         costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters, jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, fExcludeElem, withoutMulticard);
