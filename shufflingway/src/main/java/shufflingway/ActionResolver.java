@@ -1233,6 +1233,15 @@ public class ActionResolver {
      *   <li>Group 1 — number of cards to discard</li>
      * </ul>
      */
+    /**
+     * Matches "name 1 card type. Then, your opponent discard 1 card.
+     * If the discarded card is the named card type, you draw 1 card."
+     */
+    private static final Pattern NAME_CARD_TYPE_OPP_DISCARD_DRAW_IF_MATCH = Pattern.compile(
+        "(?i)name\\s+1\\s+card\\s+type[.!]?\\s+Then,?\\s+your\\s+opponent\\s+discards?\\s+1\\s+card[.!]?\\s+" +
+        "If\\s+the\\s+discarded\\s+card\\s+is\\s+the\\s+named\\s+card\\s+type,\\s+you\\s+draw\\s+1\\s+card[.!]?"
+    );
+
     private static final Pattern OPPONENT_DISCARD = Pattern.compile(
         "(?i)Your\\s+opponent\\s+discards?\\s+(\\d+)\\s+cards?" +
         "(?:\\s+from\\s+(?:his/her|his|her|their)\\s+hand)?[.!]?"
@@ -2894,6 +2903,9 @@ public class ActionResolver {
         result = tryParseEachPlayerDraw(effectText);
         if (result != null) return result;
 
+        result = tryParseNameCardTypeOpponentDiscardDrawIfMatch(effectText);
+        if (result != null) return result;
+
         result = tryParseOpponentDiscard(effectText);
         if (result != null) return result;
 
@@ -3179,6 +3191,7 @@ public class ActionResolver {
         if (tryParseEachPlayerDiscard(effectText)              != null) return "EachPlayerDiscard";
         if (tryParseEachPlayerSalvageFromBreakZone(effectText) != null) return "EachPlayerSalvageFromBreakZone";
         if (tryParseEachPlayerDraw(effectText)                 != null) return "EachPlayerDraw";
+        if (tryParseNameCardTypeOpponentDiscardDrawIfMatch(effectText) != null) return "NameCardTypeOpponentDiscardDrawIfMatch";
         if (tryParseOpponentDiscard(effectText)               != null) return "OpponentDiscard";
         if (tryParseDiscardHandThenDraw(effectText)           != null) return "DiscardHandThenDraw";
         if (tryParseDrawThenPlaceHandToBottom(effectText)     != null) return "DrawThenPlaceHandToBottom";
@@ -3488,6 +3501,7 @@ public class ActionResolver {
         if (tryParseEachPlayerDiscard(effectText) != null)                  return "EachPlayerDiscard";
         if (tryParseEachPlayerSalvageFromBreakZone(effectText) != null)     return "EachPlayerSalvageFromBreakZone";
         if (tryParseEachPlayerDraw(effectText) != null)                     return "EachPlayerDraw";
+        if (tryParseNameCardTypeOpponentDiscardDrawIfMatch(effectText) != null) return "NameCardTypeOpponentDiscardDrawIfMatch";
         if (tryParseOpponentDiscard(effectText) != null)                    return "OpponentDiscard";
         if (tryParseDiscardHandThenDraw(effectText) != null)                return "DiscardHandThenDraw";
         if (tryParseDrawDiscardRetriggerIfCardName(effectText, source) != null) return "DrawDiscardRetriggerIfCardName";
@@ -6882,6 +6896,14 @@ public class ActionResolver {
     }
 
     /** Parses "Your opponent discards N card(s) [from his/her/their hand]" as a standalone effect. */
+    private static Consumer<GameContext> tryParseNameCardTypeOpponentDiscardDrawIfMatch(String text) {
+        if (!NAME_CARD_TYPE_OPP_DISCARD_DRAW_IF_MATCH.matcher(text).find()) return null;
+        return ctx -> {
+            ctx.logEntry("Effect: Name 1 card type, opponent discards 1, draw 1 if type matches");
+            ctx.nameCardTypeOpponentDiscardDrawIfMatch();
+        };
+    }
+
     private static Consumer<GameContext> tryParseOpponentDiscard(String text) {
         Matcher m = OPPONENT_DISCARD.matcher(text);
         if (!m.find()) return null;

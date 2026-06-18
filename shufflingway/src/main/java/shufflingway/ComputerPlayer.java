@@ -1036,4 +1036,49 @@ class ComputerPlayer {
 		}
 		return false;
 	}
+
+	/**
+	 * From {@code hand}, picks the index of the worst card whose type does NOT match
+	 * {@code avoidType} ("Forward"/"Backup"/"Monster"/"Summon").  Falls back to
+	 * {@link MainWindow#pickWorstHandCard0} when every card in hand is of the avoided type.
+	 * "Worst" uses the same low-cost-first heuristic as {@code pickWorstHandCard0}.
+	 */
+	static int pickWorstAvoidingType(List<CardData> hand, String avoidType) {
+		int bestIdx = -1, bestScore = Integer.MAX_VALUE;
+		for (int i = 0; i < hand.size(); i++) {
+			CardData c = hand.get(i);
+			if (cardMatchesType(c, avoidType)) continue;
+			int score = c.cost() + (c.isForward() ? 10 : 0);
+			if (score < bestScore) { bestScore = score; bestIdx = i; }
+		}
+		return bestIdx >= 0 ? bestIdx : MainWindow.pickWorstHandCard0(hand);
+	}
+
+	/**
+	 * Returns the card type ("Forward"/"Backup"/"Monster"/"Summon") that appears most
+	 * often in {@code hand}.  Used by the CPU to name a type when Setzer enters the field.
+	 * Ties are broken by the order Forward → Backup → Monster → Summon.
+	 * Returns {@code "Forward"} when {@code hand} is empty.
+	 */
+	static String pickMostCommonCardType(List<CardData> hand) {
+		if (hand.isEmpty()) return "Forward";
+		String[] types = {"Forward", "Backup", "Monster", "Summon"};
+		String best = types[0];
+		long bestCount = 0;
+		for (String t : types) {
+			long count = hand.stream().filter(c -> cardMatchesType(c, t)).count();
+			if (count > bestCount) { bestCount = count; best = t; }
+		}
+		return best;
+	}
+
+	static boolean cardMatchesType(CardData c, String type) {
+		return switch (type) {
+			case "Forward" -> c.isForward();
+			case "Backup"  -> c.isBackup();
+			case "Monster" -> c.isMonster();
+			case "Summon"  -> c.isSummon();
+			default        -> false;
+		};
+	}
 }

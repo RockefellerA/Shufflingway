@@ -809,6 +809,15 @@ public interface GameContext {
     void forceOpponentDiscard(int count);
 
     /**
+     * Prompts the active player to name 1 of the 4 card types (Forward/Backup/Monster/Summon),
+     * then forces the opponent to discard 1 card.  If the discarded card's type matches the
+     * named type, the active player draws 1 card.
+     * CPU: when naming, picks the type most common in the opponent's hand.
+     * CPU: when discarding, prefers a card whose type does NOT match the named type.
+     */
+    void nameCardTypeOpponentDiscardDrawIfMatch();
+
+    /**
      * Forces the ability-user's opponent to discard {@code count} randomly chosen cards
      * from hand to their Break Zone.  No CP is generated.  Neither player chooses —
      * cards are selected at random.

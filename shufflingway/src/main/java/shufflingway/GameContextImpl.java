@@ -3599,6 +3599,64 @@ final class GameContextImpl implements GameContext {
 				};
 			}
 
+			@Override public void nameCardTypeOpponentDiscardDrawIfMatch() {
+				final String[] TYPES = {"Forward", "Backup", "Monster", "Summon"};
+				// Step 1: Name 1 card type
+				String namedType;
+				if (isP1) {
+					Object sel = javax.swing.JOptionPane.showInputDialog(mw.frame,
+							"Name 1 card type:", "Name a Card Type",
+							javax.swing.JOptionPane.QUESTION_MESSAGE, null, TYPES, TYPES[0]);
+					if (sel == null) { logEntry("Ability cancelled"); return; }
+					namedType = (String) sel;
+				} else {
+					namedType = ComputerPlayer.pickMostCommonCardType(mw.gameState.getP1Hand());
+				}
+				logEntry((isP1 ? "" : "[P2] ") + "Names card type: " + namedType);
+
+				// Step 2: Opponent discards 1 card
+				CardData discarded = null;
+				if (isP1) {
+					// P2 CPU discards, avoiding the named type if possible
+					List<CardData> hand = mw.gameState.getP2Hand();
+					if (hand.isEmpty()) { logEntry("[P2] hand is empty — no card to discard"); return; }
+					int idx = ComputerPlayer.pickWorstAvoidingType(hand, namedType);
+					discarded = mw.playerBreakFromHand(false, idx);
+					if (discarded != null) {
+						logEntry("[P2] Discards " + discarded.name() + " (forced)");
+						mw.p2DiscardedByEffectThisTurn = true;
+						mw.p1CausedOpponentDiscardThisTurn = true;
+					}
+					mw.refreshP2HandCountLabel();
+					mw.refreshP2BreakLabel();
+				} else {
+					// P1 must choose a card to discard
+					List<CardData> hand = mw.gameState.getP1Hand();
+					if (hand.isEmpty()) { logEntry("P1 hand is empty — no card to discard"); return; }
+					int idx = mw.showPickOneCardDialog("Discard 1 card",
+							"Choose 1 card to discard.", hand, "Discard", false);
+					if (idx < 0) { logEntry("Discard cancelled"); return; }
+					discarded = mw.playerBreakFromHand(true, idx);
+					if (discarded != null) {
+						logEntry("[P1] Discards " + discarded.name() + " (forced)");
+						mw.p1DiscardedByEffectThisTurn = true;
+						mw.p2CausedOpponentDiscardThisTurn = true;
+					}
+					mw.refreshP1HandLabel();
+					mw.refreshP1BreakLabel();
+				}
+
+				// Step 3: Draw 1 if type matches
+				if (discarded != null) {
+					if (ComputerPlayer.cardMatchesType(discarded, namedType)) {
+						logEntry((isP1 ? "" : "[P2] ") + discarded.name() + " is " + namedType + " — draw 1 card");
+						drawCards(1);
+					} else {
+						logEntry(discarded.name() + " is not " + namedType + " — no draw");
+					}
+				}
+			}
+
 			@Override public void grantAllControlledForwardsJobUntilEOT(String job) {
 				List<CardData> fwds     = isP1 ? mw.p1ForwardCards    : mw.p2ForwardCards;
 				List<String>   tempJobs = isP1 ? mw.p1ForwardTempJobs : mw.p2ForwardTempJobs;
