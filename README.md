@@ -23,9 +23,9 @@ Current card coverage (estimate):
 
 * Action/Special Abilities: (86.0%)
 
-* Auto Abilities: (86.3%)
+* Auto Abilities: (87.1%)
 
-* Field Abilities: (44.9%)
+* Field Abilities: (46.5%)
 
 # Installation Guide
 
