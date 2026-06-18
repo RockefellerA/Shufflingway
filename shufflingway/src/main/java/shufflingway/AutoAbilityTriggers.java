@@ -2181,11 +2181,13 @@ final class AutoAbilityTriggers {
 	/**
 	 * Executes a P2 (CPU) action ability with pre-computed payment lists.
 	 * Skips all UI dialogs; discard-cost and dull-forward-cost extras are auto-resolved.
+	 * {@code xValue} is the chosen X for X-cost abilities (active backups remaining after base
+	 * payment, min 1); pass 0 for abilities that have no X in their cost.
 	 */
 	void executeP2AbilityActivation(ActionAbility ability, CardData source,
-			Runnable applyDull, List<Integer> backupDullIndices, List<Integer> discardIndices) {
+			Runnable applyDull, List<Integer> backupDullIndices, List<Integer> discardIndices, int xValue) {
 		List<ForwardTarget> bzTargets = autoResolveBzTargets(source, ability.breakZoneCosts(), false);
-		executeAbilityPayment(ability, source, applyDull, discardIndices, backupDullIndices, bzTargets, false, 0);
+		executeAbilityPayment(ability, source, applyDull, discardIndices, backupDullIndices, bzTargets, false, xValue);
 	}
 
 	/**
