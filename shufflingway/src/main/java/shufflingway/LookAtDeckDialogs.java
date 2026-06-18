@@ -973,7 +973,7 @@ class LookAtDeckDialogs {
     }
 
     void showRevealAddUpToMatchingRestBottom(List<CardData> cards, Deque<CardData> deck,
-            boolean isP1, int maxAdd, String jobFilter, String categoryFilter, String cardNameFilter, String typeFilter) {
+            boolean isP1, int maxAdd, String jobFilter, String categoryFilter, String cardNameFilter, String typeFilter, int maxCost) {
         int n = cards.size();
         JDialog dlg = new JDialog(frame, "Reveal — Add to Hand, Rest to Bottom", true);
         dlg.setResizable(false);
@@ -1011,8 +1011,9 @@ class LookAtDeckDialogs {
                         || (categoryFilter != null && CardFilters.meetsCategoryFilter(c, categoryFilter))
                         || (cardNameFilter != null && CardFilters.meetsCardNameFilter(c, cardNameFilter))
                         || (typeFilter     != null && meetsRevealTypeFilter(c, typeFilter));
+                boolean costOk = maxCost < 0 || c.cost() <= maxCost;
                 boolean inHand = handSet.contains(c);
-                handBtns[j].setEnabled(isChar && matches && (inHand || count < maxAdd));
+                handBtns[j].setEnabled(isChar && matches && costOk && (inHand || count < maxAdd));
             }
         };
 
@@ -1102,6 +1103,7 @@ class LookAtDeckDialogs {
                 : jobFilter      != null ? "Job [" + jobFilter + "] Characters"
                 : categoryFilter != null ? "Category [" + categoryFilter + "] Characters"
                 : "Characters";
+        if (maxCost >= 0) filterDesc += " of cost " + maxCost + " or less";
         JLabel instructions = new JLabel(
                 "Toggle '→ Hand' on " + filterDesc + " (up to " + maxAdd + "). Swap the rest to order (left = first at bottom).",
                 SwingConstants.CENTER);

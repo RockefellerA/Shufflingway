@@ -3442,7 +3442,7 @@ final class GameContextImpl implements GameContext {
 			}
 
 			@Override public void revealTopAddUpToMatchingRestBottom(int reveal, int maxAdd,
-					String jobFilter, String categoryFilter, String cardNameFilter, String typeFilter) {
+					String jobFilter, String categoryFilter, String cardNameFilter, String typeFilter, int maxCost) {
 				Deque<CardData> deck = isP1 ? mw.gameState.getP1MainDeck() : mw.gameState.getP2MainDeck();
 				int n = Math.min(reveal, deck.size());
 				if (n == 0) { logEntry("Reveal top: deck is empty."); return; }
@@ -3455,14 +3455,14 @@ final class GameContextImpl implements GameContext {
 					// (highest cost first, matching any of the filters), rest go to bottom.
 					List<CardData> eligible = peeked.stream()
 							.filter(c -> {
+								if (maxCost >= 0 && c.cost() > maxCost) return false;
 								boolean noFilters = jobFilter == null && categoryFilter == null
 										&& cardNameFilter == null && typeFilter == null;
 								if (noFilters) return true;
-								boolean matches = (jobFilter      != null && CardFilters.meetsJobFilter(c, jobFilter))
-								               || (categoryFilter != null && CardFilters.meetsCategoryFilter(c, categoryFilter))
-								               || (cardNameFilter != null && CardFilters.meetsCardNameFilter(c, cardNameFilter))
-								               || (typeFilter     != null && meetsRevealTypeFilter(c, typeFilter));
-								return matches;
+								return (jobFilter      != null && CardFilters.meetsJobFilter(c, jobFilter))
+								    || (categoryFilter != null && CardFilters.meetsCategoryFilter(c, categoryFilter))
+								    || (cardNameFilter != null && CardFilters.meetsCardNameFilter(c, cardNameFilter))
+								    || (typeFilter     != null && meetsRevealTypeFilter(c, typeFilter));
 							})
 							.sorted(java.util.Comparator.comparingInt(CardData::cost).reversed())
 							.collect(Collectors.toList());
@@ -3479,7 +3479,7 @@ final class GameContextImpl implements GameContext {
 					}
 					mw.refreshP2DeckLabel();
 				} else {
-					mw.lookDialogs().showRevealAddUpToMatchingRestBottom(peeked, deck, isP1, maxAdd, jobFilter, categoryFilter, cardNameFilter, typeFilter);
+					mw.lookDialogs().showRevealAddUpToMatchingRestBottom(peeked, deck, isP1, maxAdd, jobFilter, categoryFilter, cardNameFilter, typeFilter, maxCost);
 				}
 			}
 

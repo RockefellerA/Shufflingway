@@ -1375,9 +1375,16 @@ public interface GameContext {
      * the deck in any order.  Pass {@code null} for unused filters.
      * {@code typeFilter} may be {@code "Monster"}, {@code "Forward"}, {@code "Backup"},
      * or {@code "Character"} (matches any character type).
+     * {@code maxCost} restricts eligible cards to those with cost ≤ that value; {@code -1} = no restriction.
      */
     void revealTopAddUpToMatchingRestBottom(int reveal, int maxAdd,
-            String jobFilter, String categoryFilter, String cardNameFilter, String typeFilter);
+            String jobFilter, String categoryFilter, String cardNameFilter, String typeFilter, int maxCost);
+
+    /** Convenience overload with no cost restriction (delegates to the 7-parameter form). */
+    default void revealTopAddUpToMatchingRestBottom(int reveal, int maxAdd,
+            String jobFilter, String categoryFilter, String cardNameFilter, String typeFilter) {
+        revealTopAddUpToMatchingRestBottom(reveal, maxAdd, jobFilter, categoryFilter, cardNameFilter, typeFilter, -1);
+    }
 
     /**
      * Grants all Forwards controlled by the acting player the given {@code job} until end of turn.

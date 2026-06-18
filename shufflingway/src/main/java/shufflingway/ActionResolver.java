@@ -834,6 +834,17 @@ public class ActionResolver {
         "and\\s+return\\s+the\\s+other\\s+cards?\\s+to\\s+the\\s+bottom\\s+of\\s+(?:your|the)\\s+deck(?:\\s+in\\s+any\\s+order)?[.!]?\\s*$"
     );
 
+    /**
+     * Matches "Reveal the top N cards of your deck. Add M [Type] of cost C or less among them
+     * to your hand and return the other cards to the bottom of your deck in any order."
+     * Groups: {@code n} (reveal count), {@code max} (max to add), {@code type} (card type), {@code cost} (max cost).
+     */
+    private static final Pattern REVEAL_TOP_N_TYPE_COST_TO_HAND = Pattern.compile(
+        "(?i)^\\s*(?:you\\s+may\\s+)?reveal\\s+the\\s+top\\s+(?<n>\\d+)\\s+cards?\\s+of\\s+your\\s+deck[.!]?\\s+" +
+        "Add\\s+(?<max>\\d+)\\s+(?<type>Forwards?|Backups?|Monsters?|Characters?)\\s+of\\s+cost\\s+(?<cost>\\d+)\\s+or\\s+less\\s+among\\s+them\\s+to\\s+your\\s+hand\\s+" +
+        "and\\s+return\\s+the\\s+other\\s+cards?\\s+to\\s+the\\s+bottom\\s+of\\s+(?:your|the)\\s+deck(?:\\s+in\\s+any\\s+order)?[.!]?\\s*$"
+    );
+
     private static final Pattern REVEAL_TOP_N_JOB_OR_NAME_TO_HAND = Pattern.compile(
         "(?i)^\\s*(?:you\\s+may\\s+)?reveal\\s+the\\s+top\\s+(?<n>\\d+)\\s+cards?\\s+of\\s+your\\s+deck[.!]?\\s+" +
         "Add\\s+1\\s+" +
@@ -1209,6 +1220,16 @@ public class ActionResolver {
     /** Matches "Each player draws N card(s)." Group {@code count} = N. */
     private static final Pattern EACH_PLAYER_DRAW = Pattern.compile(
         "(?i)each\\s+player\\s+draws?\\s+(?<count>\\d+)\\s+cards?[.!]?"
+    );
+
+    /**
+     * Matches "Each player who doesn't control N or more Forwards discards M card(s) [from their hand]."
+     * Groups: {@code min} — forward threshold; {@code count} — cards to discard.
+     */
+    private static final Pattern EACH_PLAYER_WHO_DOESNT_CONTROL_FORWARDS_DISCARD = Pattern.compile(
+        "(?i)each\\s+player\\s+who\\s+doesn’t\\s+control\\s+(?<min>\\d+)\\s+or\\s+more\\s+Forwards?" +
+        "\\s+discards?\\s+(?<count>\\d+)\\s+cards?" +
+        "(?:\\s+from\\s+(?:his/her|his|her|their)\\s+hand)?[.!]?"
     );
 
     /**
@@ -2763,6 +2784,9 @@ public class ActionResolver {
         result = tryParseOpponentHandRfp(effectText);
         if (result != null) return result;
 
+        result = tryParseRevealTopNTypeCostToHand(effectText);
+        if (result != null) return result;
+
         result = tryParseRevealTopNTypeToHand(effectText);
         if (result != null) return result;
 
@@ -3374,6 +3398,7 @@ public class ActionResolver {
         if (tryParseRevealSelectHandRfp(effectText) != null)               return "RevealSelectHandRfp";
         if (tryParseOpponentRandomHandRfp(effectText) != null)             return "OpponentRandomHandRfp";
         if (tryParseOpponentHandRfp(effectText) != null)                   return "OpponentHandRfp";
+        if (tryParseRevealTopNTypeCostToHand(effectText)   != null)           return "RevealTopNTypeCostToHand";
         if (tryParseRevealTopNTypeToHand(effectText)       != null)           return "RevealTopNTypeToHand";
         if (tryParseRevealTopNCategoryToHand(effectText)   != null)          return "RevealTopNCategoryToHand";
         if (tryParseRevealTopNJobOrNameToHand(effectText)  != null)          return "RevealTopNJobOrNameToHand";
@@ -6784,6 +6809,23 @@ public class ActionResolver {
         String stripped = stripRestrictionSentences(text);
         if (stripped.isEmpty()) return null;
 
+        // Conditional per-player form: "each player who doesn't control N or more Forwards discards M card(s)"
+        Matcher condFwdM = EACH_PLAYER_WHO_DOESNT_CONTROL_FORWARDS_DISCARD.matcher(stripped);
+        if (condFwdM.matches()) {
+            int min   = Integer.parseInt(condFwdM.group("min"));
+            int count = Integer.parseInt(condFwdM.group("count"));
+            return ctx -> {
+                if (ctx.selfForwardCount() < min) {
+                    ctx.logEntry("Effect: Self discards " + count + " (controls fewer than " + min + " Forwards)");
+                    ctx.selfDiscard(count);
+                }
+                if (ctx.opponentForwardCount() < min) {
+                    ctx.logEntry("Effect: Opponent discards " + count + " (controls fewer than " + min + " Forwards)");
+                    ctx.forceOpponentDiscard(count);
+                }
+            };
+        }
+
         // Compound form: "each player discards N. If you control [Card Name (X)], opponent discards M more."
         Matcher compM = EACH_PLAYER_DISCARD_WITH_CONDITIONAL.matcher(stripped);
         if (compM.matches()) {
@@ -8202,6 +8244,21 @@ public class ActionResolver {
         return ctx -> {
             ctx.logEntry("Effect: Reveal top " + n + " — add up to " + max + " " + typeFilter + " to hand, rest to bottom");
             ctx.revealTopAddUpToMatchingRestBottom(n, max, null, null, null, typeFilter);
+        };
+    }
+
+    private static Consumer<GameContext> tryParseRevealTopNTypeCostToHand(String text) {
+        String s = stripRestrictionSentences(text);
+        Matcher m = REVEAL_TOP_N_TYPE_COST_TO_HAND.matcher(s.isEmpty() ? text : s);
+        if (!m.find()) return null;
+        int n = Integer.parseInt(m.group("n"));
+        int max = Integer.parseInt(m.group("max"));
+        String typeFilter = m.group("type").replaceAll("(?i)s$", "");
+        int maxCost = Integer.parseInt(m.group("cost"));
+        return ctx -> {
+            ctx.logEntry("Effect: Reveal top " + n + " — add up to " + max + " " + typeFilter
+                    + " of cost " + maxCost + " or less to hand, rest to bottom");
+            ctx.revealTopAddUpToMatchingRestBottom(n, max, null, null, null, typeFilter, maxCost);
         };
     }
 
