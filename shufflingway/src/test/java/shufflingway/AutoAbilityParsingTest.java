@@ -119,6 +119,9 @@ public class AutoAbilityParsingTest {
                 CardData.parseCanFormPartyAnyElement(textEn),
                 CardData.parseFieldCannotBeBlockedByCost(textEn, rs.getString("name_en")),
                 CardData.parseCannotBeBlockedByHigherPower(textEn, rs.getString("name_en")),
+                CardData.parseCannotBlockAtAll(textEn, rs.getString("name_en")),
+                CardData.parseCannotBlockHigherPower(textEn, rs.getString("name_en")),
+                CardData.parseCannotBlockParty(textEn, rs.getString("name_en")),
                 rs.getString("job_en"),
                 rs.getString("category_1"), rs.getString("category_2"), textEn);
     }

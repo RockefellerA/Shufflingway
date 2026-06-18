@@ -1300,6 +1300,9 @@ public class MainWindow {
 							CardData.parseCanFormPartyAnyElement(tx),
 							CardData.parseFieldCannotBeBlockedByCost(tx, card.name()),
 							CardData.parseCannotBeBlockedByHigherPower(tx, card.name()),
+							CardData.parseCannotBlockAtAll(tx, card.name()),
+							CardData.parseCannotBlockHigherPower(tx, card.name()),
+							CardData.parseCannotBlockParty(tx, card.name()),
 							card.job(), card.category1(), card.category2(), tx);
 					if (card.isLb()) lb.add(cd);
 					else             main.add(cd);
@@ -1331,6 +1334,9 @@ public class MainWindow {
 							CardData.parseCanFormPartyAnyElement(tx),
 							CardData.parseFieldCannotBeBlockedByCost(tx, card.name()),
 							CardData.parseCannotBeBlockedByHigherPower(tx, card.name()),
+							CardData.parseCannotBlockAtAll(tx, card.name()),
+							CardData.parseCannotBlockHigherPower(tx, card.name()),
+							CardData.parseCannotBlockParty(tx, card.name()),
 							card.job(), card.category1(), card.category2(), tx);
 					if (card.isLb()) p2Lb.add(cd);
 					else             p2Main.add(cd);
@@ -9872,6 +9878,10 @@ public class MainWindow {
 		if (s != CardState.ACTIVE && s != CardState.BRAVE_ATTACKED) return false;
 		if (p1ForwardCannotBlock.contains(idx)) return false;
 		if (p1ForwardCannotBlockPersistent.contains(idx)) return false;
+		CardData blocker = p1ForwardCards.get(idx);
+		if (blocker.cannotBlockAtAll()) return false;
+		if (blocker.cannotBlockParty() && pendingP2PartyIndices != null) return false;
+		if (blocker.cannotBlockHigherPower() && attackerPowerExceedsBlocker(ForwardTarget.CardZone.FORWARD, idx)) return false;
 		// Check attacker-side unblockability
 		if (p2ForwardCannotBeBlocked.contains(pendingP2AttackerIdx)) return false;
 		if (attackerConditionallyUnblockable()) return false;
@@ -10025,6 +10035,18 @@ public class MainWindow {
 		return blockerPower > attackerPower;
 	}
 
+	/** True when ANY attacker (single or every party member) has strictly greater power than the blocker. */
+	private boolean attackerPowerExceedsBlocker(ForwardTarget.CardZone blockerZone, int blockerIdx) {
+		int blockerPower = fieldForwardPower(true, blockerZone, blockerIdx);
+		if (pendingP2PartyIndices != null) {
+			for (int pi : pendingP2PartyIndices)
+				if (effectiveP2ForwardPower(pi) > blockerPower) return true;
+			return false;
+		}
+		if (pendingP2AttackerIsMonster || pendingP2AttackerIsBackup) return false;
+		return fieldForwardPower(false, ForwardTarget.CardZone.FORWARD, pendingP2AttackerIdx) > blockerPower;
+	}
+
 	/**
 	 * Returns true if the current P2 attacker's cost restrictions prevent a blocker of the
 	 * given cost from blocking — checks dynamic (turn-scoped), intrinsic (field ability), and
@@ -10069,7 +10091,11 @@ public class MainWindow {
 		if (!isP1MonsterTemporarilyForward(idx)) return false;
 		if (!p1ForwardMustBlock.isEmpty()) return false;   // a Forward is forced to block
 		if (attackerUnblockable()) return false;
-		if (attackerBlockCostFiltersExclude(p1MonsterCards.get(idx).cost())) return false;
+		CardData monsterBlocker = p1MonsterCards.get(idx);
+		if (monsterBlocker.cannotBlockAtAll()) return false;
+		if (monsterBlocker.cannotBlockParty() && pendingP2PartyIndices != null) return false;
+		if (monsterBlocker.cannotBlockHigherPower() && attackerPowerExceedsBlocker(ForwardTarget.CardZone.MONSTER, idx)) return false;
+		if (attackerBlockCostFiltersExclude(monsterBlocker.cost())) return false;
 		if (attackerCannotBeBlockedByHigherPower() && blockerPowerExceedsAttacker(ForwardTarget.CardZone.MONSTER, idx)) return false;
 		return true;
 	}
@@ -10084,7 +10110,11 @@ public class MainWindow {
 		if (!isP1BackupTemporarilyForward(idx)) return false;
 		if (!p1ForwardMustBlock.isEmpty()) return false;
 		if (attackerUnblockable()) return false;
-		if (attackerBlockCostFiltersExclude(p1BackupCards[idx].cost())) return false;
+		CardData backupBlocker = p1BackupCards[idx];
+		if (backupBlocker.cannotBlockAtAll()) return false;
+		if (backupBlocker.cannotBlockParty() && pendingP2PartyIndices != null) return false;
+		if (backupBlocker.cannotBlockHigherPower() && attackerPowerExceedsBlocker(ForwardTarget.CardZone.BACKUP, idx)) return false;
+		if (attackerBlockCostFiltersExclude(backupBlocker.cost())) return false;
 		if (attackerCannotBeBlockedByHigherPower() && blockerPowerExceedsAttacker(ForwardTarget.CardZone.BACKUP, idx)) return false;
 		return true;
 	}
