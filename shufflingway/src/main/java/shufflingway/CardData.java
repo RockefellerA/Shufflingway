@@ -46,6 +46,7 @@ public record CardData(
         boolean cannotBlockAtAll,                 // "cardName cannot block."
         boolean cannotBlockHigherPower,           // "cardName cannot block a Forward with a power greater than its."
         boolean cannotBlockParty,                 // "cardName cannot block Forwards forming a party."
+        boolean cannotAttackOrBlock,              // "cardName cannot attack or block."
         String job,
         String category1,
         String category2,
@@ -2643,6 +2644,23 @@ public record CardData(
     private static final Pattern FIELD_CANNOT_BLOCK = Pattern.compile(
         "(?i)^(?<cardname>.+?)\\s+cannot\\s+block[.!]?\\s*$"
     );
+
+    /** "[CardName] cannot attack or block." — absolute restriction on both attack and block. */
+    static final Pattern FIELD_CANNOT_ATTACK_OR_BLOCK = Pattern.compile(
+        "(?i)^(?<cardname>.+?)\\s+cannot\\s+attack\\s+or\\s+block[.!]?\\s*$"
+    );
+
+    public static boolean parseCannotAttackOrBlock(String textEn, String cardName) {
+        if (textEn == null || textEn.isBlank()) return false;
+        for (String raw : textEn.split("(?i)\\[\\[br\\]\\]")) {
+            String seg = SUMMON_MARKUP.matcher(raw.trim()).replaceAll("").trim();
+            if (seg.isEmpty()) continue;
+            Matcher m = FIELD_CANNOT_ATTACK_OR_BLOCK.matcher(seg);
+            if (!m.matches()) continue;
+            if (m.group("cardname").trim().equalsIgnoreCase(cardName)) return true;
+        }
+        return false;
+    }
 
     public static boolean parseCannotBlockAtAll(String textEn, String cardName) {
         if (textEn == null || textEn.isBlank()) return false;

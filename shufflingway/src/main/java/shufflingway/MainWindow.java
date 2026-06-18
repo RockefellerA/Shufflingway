@@ -1313,6 +1313,7 @@ public class MainWindow {
 							CardData.parseCannotBlockAtAll(tx, card.name()),
 							CardData.parseCannotBlockHigherPower(tx, card.name()),
 							CardData.parseCannotBlockParty(tx, card.name()),
+							CardData.parseCannotAttackOrBlock(tx, card.name()),
 							card.job(), card.category1(), card.category2(), tx);
 					if (card.isLb()) lb.add(cd);
 					else             main.add(cd);
@@ -1347,6 +1348,7 @@ public class MainWindow {
 							CardData.parseCannotBlockAtAll(tx, card.name()),
 							CardData.parseCannotBlockHigherPower(tx, card.name()),
 							CardData.parseCannotBlockParty(tx, card.name()),
+							CardData.parseCannotAttackOrBlock(tx, card.name()),
 							card.job(), card.category1(), card.category2(), tx);
 					if (card.isLb()) p2Lb.add(cd);
 					else             p2Main.add(cd);
@@ -9818,11 +9820,14 @@ public class MainWindow {
 		JLabel    slot   = p1ForwardLabels.get(idx);
 		if (url == null) return;
 		boolean hasHaste  = effectiveP1HasTrait(idx, CardData.Trait.HASTE);
+		CardData fwdCard  = p1ForwardCards.get(idx);
 		boolean canAttack = gameState.getCurrentPhase() == GameState.GamePhase.ATTACK
 				&& attackSubStep == 1
 				&& state == CardState.ACTIVE
 				&& !p1ForwardCannotAttack.contains(idx)
 				&& !p1ForwardCannotAttackPersistent.contains(idx)
+				&& !fwdCard.cannotAttackOrBlock()
+				&& !isFieldAbilityCannotAttackOrBlock(fwdCard, true)
 				&& (hasHaste || p1ForwardPlayedOnTurn.get(idx) != gameState.getTurnNumber());
 		boolean canBlock  = isForwardBlockSelectable(idx);
 		int damage    = p1ForwardDamage.get(idx);
@@ -9866,6 +9871,9 @@ public class MainWindow {
 		if (p1ForwardStates.get(idx) != CardState.ACTIVE) return false;
 		if (p1ForwardCannotAttack.contains(idx)) return false;
 		if (p1ForwardCannotAttackPersistent.contains(idx)) return false;
+		CardData fwd = p1ForwardCards.get(idx);
+		if (fwd.cannotAttackOrBlock()) return false;
+		if (isFieldAbilityCannotAttackOrBlock(fwd, true)) return false;
 		return effectiveP1HasTrait(idx, CardData.Trait.HASTE)
 				|| p1ForwardPlayedOnTurn.get(idx) != gameState.getTurnNumber();
 	}
@@ -9883,7 +9891,8 @@ public class MainWindow {
 		if (p1ForwardCannotBlock.contains(idx)) return false;
 		if (p1ForwardCannotBlockPersistent.contains(idx)) return false;
 		CardData blocker = p1ForwardCards.get(idx);
-		if (blocker.cannotBlockAtAll()) return false;
+		if (blocker.cannotBlockAtAll() || blocker.cannotAttackOrBlock()) return false;
+		if (isFieldAbilityCannotAttackOrBlock(blocker, true)) return false;
 		if (blocker.cannotBlockParty() && pendingP2PartyIndices != null) return false;
 		if (blocker.cannotBlockHigherPower() && attackerPowerExceedsBlocker(ForwardTarget.CardZone.FORWARD, idx)) return false;
 		// Check attacker-side unblockability
@@ -9894,6 +9903,29 @@ public class MainWindow {
 		// If any forward must block, restrict choices to those
 		if (!p1ForwardMustBlock.isEmpty() && !p1ForwardMustBlock.contains(idx)) return false;
 		return true;
+	}
+
+	/**
+	 * Returns {@code true} if any field ability on {@code card} currently prevents it from
+	 * attacking or blocking (conditional forms — unconditional form is handled by
+	 * {@link CardData#cannotAttackOrBlock()}).
+	 */
+	boolean isFieldAbilityCannotAttackOrBlock(CardData card, boolean isP1) {
+		for (FieldAbility fa : card.fieldAbilities()) {
+			java.util.regex.Matcher m2 = ActionResolver.IF_DONT_CONTROL_CARD_NAME_FWD_CANNOT_ATTACK_OR_BLOCK.matcher(fa.effectText());
+			if (m2.find() && m2.group("subject").trim().equalsIgnoreCase(card.name())) {
+				String required = m2.group("required").trim();
+				List<CardData> fwds = isP1 ? p1ForwardCards : p2ForwardCards;
+				if (fwds.stream().noneMatch(f -> f.name().equalsIgnoreCase(required))) return true;
+			}
+			java.util.regex.Matcher m3 = ActionResolver.IF_COUNTER_LIMIT_CANNOT_ATTACK_OR_BLOCK.matcher(fa.effectText());
+			if (m3.find() && m3.group("subject").trim().equalsIgnoreCase(card.name())) {
+				int    limit       = Integer.parseInt(m3.group("count"));
+				String counterName = m3.group("countername").trim();
+				if (gameState.getCounters(card, counterName) <= limit) return true;
+			}
+		}
+		return false;
 	}
 
 	/**
@@ -10096,7 +10128,8 @@ public class MainWindow {
 		if (!p1ForwardMustBlock.isEmpty()) return false;   // a Forward is forced to block
 		if (attackerUnblockable()) return false;
 		CardData monsterBlocker = p1MonsterCards.get(idx);
-		if (monsterBlocker.cannotBlockAtAll()) return false;
+		if (monsterBlocker.cannotBlockAtAll() || monsterBlocker.cannotAttackOrBlock()) return false;
+		if (isFieldAbilityCannotAttackOrBlock(monsterBlocker, true)) return false;
 		if (monsterBlocker.cannotBlockParty() && pendingP2PartyIndices != null) return false;
 		if (monsterBlocker.cannotBlockHigherPower() && attackerPowerExceedsBlocker(ForwardTarget.CardZone.MONSTER, idx)) return false;
 		if (attackerBlockCostFiltersExclude(monsterBlocker.cost())) return false;
@@ -10115,7 +10148,8 @@ public class MainWindow {
 		if (!p1ForwardMustBlock.isEmpty()) return false;
 		if (attackerUnblockable()) return false;
 		CardData backupBlocker = p1BackupCards[idx];
-		if (backupBlocker.cannotBlockAtAll()) return false;
+		if (backupBlocker.cannotBlockAtAll() || backupBlocker.cannotAttackOrBlock()) return false;
+		if (isFieldAbilityCannotAttackOrBlock(backupBlocker, true)) return false;
 		if (backupBlocker.cannotBlockParty() && pendingP2PartyIndices != null) return false;
 		if (backupBlocker.cannotBlockHigherPower() && attackerPowerExceedsBlocker(ForwardTarget.CardZone.BACKUP, idx)) return false;
 		if (attackerBlockCostFiltersExclude(backupBlocker.cost())) return false;
@@ -11211,10 +11245,13 @@ public class MainWindow {
 	private boolean hasAttackableForward() {
 		int turn = gameState.getTurnNumber();
 		for (int i = 0; i < p1ForwardStates.size(); i++) {
+			CardData fwd = p1ForwardCards.get(i);
 			if (p1ForwardStates.get(i) == CardState.ACTIVE
 					&& !p1ForwardCannotAttack.contains(i)
 					&& !p1ForwardCannotAttackPersistent.contains(i)
 					&& !Boolean.TRUE.equals(p1ForwardFrozen.get(i))
+					&& !fwd.cannotAttackOrBlock()
+					&& !isFieldAbilityCannotAttackOrBlock(fwd, true)
 					&& (effectiveP1HasTrait(i, CardData.Trait.HASTE)
 					    || p1ForwardPlayedOnTurn.get(i) != turn))
 				return true;

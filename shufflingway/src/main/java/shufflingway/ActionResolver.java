@@ -683,6 +683,33 @@ public class ActionResolver {
     );
 
     /**
+     * Standalone "[CardName] cannot attack or block." — permanent self-restriction.
+     * {@code cardname} captures the subject name.
+     */
+    static final Pattern STANDALONE_CANNOT_ATTACK_OR_BLOCK = Pattern.compile(
+        "(?i)^(?<cardname>.+?)\\s+cannot\\s+attack\\s+or\\s+block[.!]?\\s*$"
+    );
+
+    /**
+     * "If you don't control a Card Name [X] Forward, [CardName] cannot attack or block."
+     * {@code required} — the card name that must be controlled; {@code subject} — the card restricted.
+     */
+    static final Pattern IF_DONT_CONTROL_CARD_NAME_FWD_CANNOT_ATTACK_OR_BLOCK = Pattern.compile(
+        "(?i)If\\s+you\\s+don(?:'t|not)\\s+control\\s+(?:a\\s+)?Card\\s+Name\\s+(?<required>\\S+(?:\\s+\\S+)*)\\s+Forward,?\\s+" +
+        "(?<subject>\\S+(?:\\s+\\S+)*)\\s+cannot\\s+attack\\s+or\\s+block[.!]?\\s*$"
+    );
+
+    /**
+     * "If [N] or less [CounterName] Counter(s) are placed on [CardName], [CardName] cannot attack or block."
+     * {@code count} — the counter threshold; {@code countername} — counter type; {@code target} — the card checked;
+     * {@code subject} — the card restricted.
+     */
+    static final Pattern IF_COUNTER_LIMIT_CANNOT_ATTACK_OR_BLOCK = Pattern.compile(
+        "(?i)If\\s+(?<count>\\d+)\\s+or\\s+less\\s+(?<countername>\\S+)\\s+Counters?\\s+are\\s+placed\\s+on\\s+" +
+        "(?<target>\\S+(?:\\s+\\S+)*),?\\s+(?<subject>\\S+(?:\\s+\\S+)*)\\s+cannot\\s+attack\\s+or\\s+block[.!]?\\s*$"
+    );
+
+    /**
      * Matches "At the end of this turn, if you control &lt;cardName&gt;, deal it N damage."
      * Used as a Choose followup that queues conditional damage to fire at the end phase.
      * <ul>
@@ -2741,6 +2768,9 @@ public class ActionResolver {
         result = tryParseCannotBeChosenStandalone(effectText, source);
         if (result != null) return result;
 
+        result = tryParseStandaloneCannotAttackOrBlock(effectText, source);
+        if (result != null) return result;
+
         result = tryParseNegateAllDamage(effectText);
         if (result != null) return result;
 
@@ -3142,6 +3172,7 @@ public class ActionResolver {
         if (tryParseElementChange(effectText, source) != null) return "ElementChange";
         if (tryParseDelayedEffect(effectText)                 != null) return "DelayedEffect";
         if (tryParseCannotBeChosenStandalone(effectText, source) != null) return "CannotBeChosen";
+        if (tryParseStandaloneCannotAttackOrBlock(effectText, source) != null) return "CannotAttackOrBlock";
         if (tryParseNegateAllDamage(effectText)                != null) return "NegateDamage";
         if (tryParseSelectNumber(effectText, source)          != null) return "SelectNumber";
         if (tryParseAllFieldEffect(effectText)                != null) return "AllFieldEffect";
@@ -3433,8 +3464,9 @@ public class ActionResolver {
             return sb.toString();
         }
 
-        if (tryParseCannotBeChosenStandalone(effectText, source) != null)      return "CannotBeChosen";
-        if (tryParseNegateAllDamage(effectText) != null)                     return "NegateDamage";
+        if (tryParseCannotBeChosenStandalone(effectText, source) != null)       return "CannotBeChosen";
+        if (tryParseStandaloneCannotAttackOrBlock(effectText, source) != null) return "CannotAttackOrBlock";
+        if (tryParseNegateAllDamage(effectText) != null)                       return "NegateDamage";
         if (tryParseSelectNumber(effectText, source) != null)               return "SelectNumber";
         if (tryParseAllFieldEffect(effectText) != null)                     return "AllFieldEffect";
         if (tryParseFieldPowerGrantPassive(effectText) != null) {
@@ -8223,6 +8255,45 @@ public class ActionResolver {
                 };
         }
 
+        return null;
+    }
+
+    /**
+     * Parses permanent and conditional "cannot attack or block" field ability texts:
+     * <ol>
+     *   <li>"[CardName] cannot attack or block." — unconditional; enforced via
+     *       {@link CardData#cannotAttackOrBlock()}.</li>
+     *   <li>"If you don't control a Card Name [X] Forward, [CardName] cannot attack or block."</li>
+     *   <li>"If [N] or less [Name] Counter(s) are placed on [CardName], [CardName] cannot attack or block."</li>
+     * </ol>
+     * The consumer only logs; enforcement for cases 2–3 is handled in the game loop.
+     */
+    private static Consumer<GameContext> tryParseStandaloneCannotAttackOrBlock(String text, CardData source) {
+        if (source == null) return null;
+        // 1. Simple: "[CardName] cannot attack or block."
+        Matcher m1 = STANDALONE_CANNOT_ATTACK_OR_BLOCK.matcher(text);
+        if (m1.find()) {
+            String nm = m1.group("cardname").trim();
+            if (nm.equalsIgnoreCase(source.name()))
+                return ctx -> ctx.logEntry(nm + " — cannot attack or block (permanent field restriction)");
+        }
+        // 2. Conditional: "If you don't control Card Name X Forward, [subject] cannot attack or block."
+        Matcher m2 = IF_DONT_CONTROL_CARD_NAME_FWD_CANNOT_ATTACK_OR_BLOCK.matcher(text);
+        if (m2.find()) {
+            String subject  = m2.group("subject").trim();
+            String required = m2.group("required").trim();
+            if (subject.equalsIgnoreCase(source.name()))
+                return ctx -> ctx.logEntry(subject + " — cannot attack or block unless you control Card Name " + required + " Forward");
+        }
+        // 3. Counter-conditional: "If N or less [Name] Counters are placed on [target], [subject] cannot attack or block."
+        Matcher m3 = IF_COUNTER_LIMIT_CANNOT_ATTACK_OR_BLOCK.matcher(text);
+        if (m3.find()) {
+            String subject     = m3.group("subject").trim();
+            String counterName = m3.group("countername").trim();
+            int    limit       = Integer.parseInt(m3.group("count"));
+            if (subject.equalsIgnoreCase(source.name()))
+                return ctx -> ctx.logEntry(subject + " — cannot attack or block if " + counterName + " Counters ≤ " + limit);
+        }
         return null;
     }
 

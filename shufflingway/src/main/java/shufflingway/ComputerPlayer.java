@@ -581,6 +581,9 @@ class ComputerPlayer {
 	private boolean p2ForwardCanAttack(int idx) {
 		if (mw.p2ForwardCannotAttack.contains(idx)) return false;
 		if (mw.p2ForwardCannotAttackPersistent.contains(idx)) return false;
+		CardData fwd = mw.p2ForwardCards.get(idx);
+		if (fwd.cannotAttackOrBlock()) return false;
+		if (mw.isFieldAbilityCannotAttackOrBlock(fwd, false)) return false;
 		return mw.p2ForwardStates.get(idx) == CardState.ACTIVE
 			&& (mw.effectiveP2HasTrait(idx, CardData.Trait.HASTE)
 				|| mw.p2ForwardPlayedOnTurn.get(idx) != mw.gameState.getTurnNumber());
