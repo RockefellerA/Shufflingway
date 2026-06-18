@@ -1323,6 +1323,9 @@ public interface GameContext {
      */
     void breakSourceCard(CardData source);
 
+    /** Breaks the Forward currently blocking the source card's controller's attacker. */
+    void breakBlockingForward();
+
     /**
      * Queues an end-of-turn break for {@code source} on the ability user's field.
      * Searches Forwards then Monsters; no-op if the card is no longer on the field at end of turn.

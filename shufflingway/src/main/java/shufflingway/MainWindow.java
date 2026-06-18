@@ -2039,7 +2039,8 @@ public class MainWindow {
 		dlg.setResizable(false);
 		dlg.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
 
-		JPanel cardsPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 8));
+		JPanel cardsPanel = new JPanel(new GridLayout(0, 4, 8, 8));
+		cardsPanel.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
 
 		for (int i = 0; i < lbDeck.size(); i++) {
 			final int idx   = i;
@@ -2086,12 +2087,6 @@ public class MainWindow {
 			cardsPanel.add(wrapper);
 		}
 
-		JScrollPane scrollPane = new JScrollPane(cardsPanel,
-				JScrollPane.VERTICAL_SCROLLBAR_NEVER,
-				JScrollPane.HORIZONTAL_SCROLLBAR_AS_NEEDED);
-		scrollPane.setPreferredSize(new Dimension(
-				Math.min(lbDeck.size() * (CARD_W + 16) + 16, 900), CARD_H + 60));
-
 		JButton closeBtn = new JButton("Close");
 		closeBtn.setFont(FontLoader.loadPixelNESFont(11));
 		closeBtn.addActionListener(ae -> { hideZoom(); dlg.dispose(); });
@@ -2101,7 +2096,7 @@ public class MainWindow {
 		south.setBorder(BorderFactory.createEmptyBorder(0, 8, 8, 8));
 
 		dlg.getContentPane().setLayout(new BorderLayout(0, 4));
-		dlg.getContentPane().add(scrollPane, BorderLayout.CENTER);
+		dlg.getContentPane().add(cardsPanel, BorderLayout.CENTER);
 		dlg.getContentPane().add(south,      BorderLayout.SOUTH);
 		dlg.pack();
 		dlg.setLocationRelativeTo(frame);
@@ -4174,11 +4169,14 @@ public class MainWindow {
 			CardData blocker = autoAbilityTriggers.fieldCardData(blk);
 			logEntry("[P2] " + blocker.name() + " blocks!");
 			autoAbilityTriggers.triggerAutoAbilitiesForBlock(blocker, false);
+			if (blk.zone() == ForwardTarget.CardZone.FORWARD) { p2BlockingIdx = blk.idx(); p2BlockedByAttacker = attacker; }
 			autoAbilityTriggers.triggerAutoAbilitiesForIsBlocked(attacker, true);
 			if (blk.zone() == ForwardTarget.CardZone.FORWARD)
 				resolveCombat(attacker, true, attackerIdx, blocker, false, blk.idx());
 			else
 				resolveActingCombat(true, ForwardTarget.CardZone.FORWARD, attackerIdx, false, blk.zone(), blk.idx());
+			p2BlockingIdx       = -1;
+			p2BlockedByAttacker = null;
 		} else {
 			p2TakeDamage();
 			autoAbilityTriggers.triggerAutoAbilitiesForDealsDamageToOpponent(attacker, true);
@@ -4500,7 +4498,8 @@ public class MainWindow {
 
 		// One label per LB card
 		List<JLabel> cardLabels = new ArrayList<>();
-		JPanel cardsPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 8));
+		JPanel cardsPanel = new JPanel(new GridLayout(0, 4, 8, 8));
+		cardsPanel.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
 
 		Runnable refreshLabels = () -> {
 			for (int i = 0; i < cardLabels.size(); i++) {
@@ -4680,13 +4679,6 @@ public class MainWindow {
 
 		refreshLabels.run();
 
-		JScrollPane scrollPane = new JScrollPane(cardsPanel,
-				JScrollPane.VERTICAL_SCROLLBAR_NEVER,
-				JScrollPane.HORIZONTAL_SCROLLBAR_AS_NEEDED);
-		scrollPane.setPreferredSize(new Dimension(
-				Math.min(lbDeck.size() * (CARD_W + 16) + 16, 900),
-				CARD_H + 60));
-
 		JPanel statusBar = new JPanel(new FlowLayout(FlowLayout.CENTER, 12, 4));
 		statusBar.add(statusLabel);
 		statusBar.add(confirmCastBtn);
@@ -4702,7 +4694,7 @@ public class MainWindow {
 		south.setBorder(BorderFactory.createEmptyBorder(0, 8, 8, 8));
 
 		dlg.getContentPane().setLayout(new BorderLayout(0, 4));
-		dlg.getContentPane().add(scrollPane, BorderLayout.CENTER);
+		dlg.getContentPane().add(cardsPanel, BorderLayout.CENTER);
 		dlg.getContentPane().add(south,      BorderLayout.SOUTH);
 		dlg.pack();
 		dlg.setLocationRelativeTo(frame);
@@ -10538,8 +10530,8 @@ public class MainWindow {
 				CardData blocker = autoAbilityTriggers.fieldCardData(blk);
 				logEntry("[P2] " + blocker.name() + " blocks!");
 				autoAbilityTriggers.triggerAutoAbilitiesForBlock(blocker, false);
-				autoAbilityTriggers.triggerAutoAbilitiesForIsBlocked(attacker, true);
 				if (blk.zone() == ForwardTarget.CardZone.FORWARD) { p2BlockingIdx = blk.idx(); p2BlockedByAttacker = attacker; }
+				autoAbilityTriggers.triggerAutoAbilitiesForIsBlocked(attacker, true);
 				setAttackSubStep(3);
 				combatPriority("Blocker Declared", true, () -> {
 					resolveActingCombat(true, ForwardTarget.CardZone.MONSTER, monIdx, false, blk.zone(), blk.idx());
@@ -10820,8 +10812,8 @@ public class MainWindow {
 				CardData blocker = autoAbilityTriggers.fieldCardData(blk);
 				logEntry("[P2] " + blocker.name() + " blocks!");
 				autoAbilityTriggers.triggerAutoAbilitiesForBlock(blocker, false);
-				autoAbilityTriggers.triggerAutoAbilitiesForIsBlocked(attacker, true);
 				if (blk.zone() == ForwardTarget.CardZone.FORWARD) { p2BlockingIdx = blk.idx(); p2BlockedByAttacker = attacker; }
+				autoAbilityTriggers.triggerAutoAbilitiesForIsBlocked(attacker, true);
 				setAttackSubStep(3);
 				combatPriority("Blocker Declared", true, () -> {
 					resolveActingCombat(true, ForwardTarget.CardZone.BACKUP, bIdx, false, blk.zone(), blk.idx());
@@ -10923,8 +10915,8 @@ public class MainWindow {
 					CardData blocker = autoAbilityTriggers.fieldCardData(blk);
 					logEntry("[P2] " + blocker.name() + " blocks!");
 					autoAbilityTriggers.triggerAutoAbilitiesForBlock(blocker, false);
-					autoAbilityTriggers.triggerAutoAbilitiesForIsBlocked(attacker, true);
 					if (blk.zone() == ForwardTarget.CardZone.FORWARD) { p2BlockingIdx = blk.idx(); p2BlockedByAttacker = attacker; }
+					autoAbilityTriggers.triggerAutoAbilitiesForIsBlocked(attacker, true);
 					setAttackSubStep(3);
 					// Priority window after blocker declared (P1 still attacker → P1 first)
 					combatPriority("Blocker Declared", true, () -> {

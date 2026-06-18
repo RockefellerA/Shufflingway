@@ -151,9 +151,9 @@ public class PreferencesDialog extends JDialog {
 				TitledBorder.LEFT, TitledBorder.TOP));
 
 		// Preview: card-coloured background with the Counter orb on top
-		int prevW = 80, prevH = 70;
+		int prevW = 52, prevH = 44;
 		Counter counterPreview = new Counter(AppSettings.getCounterColor());
-		int cw = 56, ch = 48;
+		int cw = 36, ch = 30;
 
 		JPanel previewBackground = new JPanel(null) {
 			@Override
