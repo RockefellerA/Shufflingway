@@ -403,12 +403,30 @@ final class AutoAbilityTriggers {
 
 	private boolean matchesSingleSubject(String subject, CardData enteringCard) {
 		if (subject.isEmpty()) return false;
-		// "a Job X" / "an Job X" — match by job
-		java.util.regex.Matcher jobM = java.util.regex.Pattern.compile(
+		// "a Job X Forward/Backup/Monster/Character" — job + type (must precede plain "a Job X")
+		Matcher jobTypeM = java.util.regex.Pattern.compile(
+				"(?i)^an?\\s+Job\\s+(?<job>.+?)\\s+(?<type>Forwards?|Backups?|Monsters?|Characters?)$").matcher(subject);
+		if (jobTypeM.matches())
+			return enteringCard.hasJob(jobTypeM.group("job").trim())
+				&& meetsSubjectTypeFilter(enteringCard, jobTypeM.group("type"));
+		// "a Category X Forward/Backup/Monster/Character" — category + type
+		Matcher catTypeM = java.util.regex.Pattern.compile(
+				"(?i)^an?\\s+Category\\s+(?<cat>.+?)\\s+(?<type>Forwards?|Backups?|Monsters?|Characters?)$").matcher(subject);
+		if (catTypeM.matches())
+			return CardFilters.meetsCategoryFilter(enteringCard, catTypeM.group("cat").trim())
+				&& meetsSubjectTypeFilter(enteringCard, catTypeM.group("type"));
+		// "a [Element] Forward/Backup/Monster/Character" — element + type (includes Multi-Element)
+		Matcher elemTypeM = java.util.regex.Pattern.compile(
+				"(?i)^an?\\s+(?<elem>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark|Multi-Element)\\s+(?<type>Forwards?|Backups?|Monsters?|Characters?)$").matcher(subject);
+		if (elemTypeM.matches())
+			return enteringCard.containsElement(elemTypeM.group("elem"))
+				&& meetsSubjectTypeFilter(enteringCard, elemTypeM.group("type"));
+		// "a Job X" / "an Job X" — match by job (any type)
+		Matcher jobM = java.util.regex.Pattern.compile(
 				"(?i)^an?\\s+Job\\s+(?<job>.+)$").matcher(subject);
 		if (jobM.matches()) return enteringCard.hasJob(jobM.group("job").trim());
 		// "a Card Name X" — match by card name or alias
-		java.util.regex.Matcher nameM = java.util.regex.Pattern.compile(
+		Matcher nameM = java.util.regex.Pattern.compile(
 				"(?i)^an?\\s+Card\\s+Name\\s+(?<name>.+)$").matcher(subject);
 		if (nameM.matches()) return CardFilters.meetsCardNameFilter(enteringCard, nameM.group("name").trim());
 		// "a [Type]" — match by card type
@@ -422,6 +440,16 @@ final class AutoAbilityTriggers {
 		}
 		// Bare card name (e.g. "Yshe") — exact name or alias match
 		return CardFilters.meetsCardNameFilter(enteringCard, subject);
+	}
+
+	private boolean meetsSubjectTypeFilter(CardData c, String type) {
+		return switch (type.toLowerCase(java.util.Locale.ROOT).replaceAll("s$", "")) {
+			case "forward"   -> c.isForward();
+			case "backup"    -> c.isBackup();
+			case "monster"   -> c.isMonster();
+			case "character" -> c.isForward() || c.isBackup() || c.isMonster();
+			default          -> false;
+		};
 	}
 
 	void triggerAutoAbilitiesForDealsDamageToOpponent(CardData attacker, boolean attackerIsP1) {

@@ -1223,6 +1223,16 @@ public class ActionResolver {
     );
 
     /**
+     * Matches "Each player selects N card(s) from their Break Zone and adds it/them to their hand."
+     * Group {@code count} = N.
+     */
+    private static final Pattern EACH_PLAYER_SALVAGE_FROM_BREAK_ZONE = Pattern.compile(
+        "(?i)each\\s+player\\s+selects?\\s+(?<count>\\d+)\\s+cards?\\s+from\\s+" +
+        "(?:their|his/her|his|her)\\s+Break\\s+Zone\\s+and\\s+adds?\\s+(?:it|them)\\s+to\\s+" +
+        "(?:their|his/her|his|her)\\s+hand[.!]?"
+    );
+
+    /**
      * Matches "Each player who doesn't control N or more Forwards discards M card(s) [from their hand]."
      * Groups: {@code min} — forward threshold; {@code count} — cards to discard.
      */
@@ -2832,6 +2842,9 @@ public class ActionResolver {
         result = tryParseEachPlayerDiscard(effectText);
         if (result != null) return result;
 
+        result = tryParseEachPlayerSalvageFromBreakZone(effectText);
+        if (result != null) return result;
+
         result = tryParseEachPlayerDraw(effectText);
         if (result != null) return result;
 
@@ -3010,7 +3023,8 @@ public class ActionResolver {
         if (sentences.length > 1) {
             List<Consumer<GameContext>> consumers = new ArrayList<>();
             for (String s : sentences) {
-                Consumer<GameContext> c = parse(s.trim(), source, xValue);
+                String trimmed = s.trim().replaceAll("(?i)^Then\\s+", "");
+                Consumer<GameContext> c = parse(trimmed, source, xValue);
                 if (c != null) consumers.add(c);
             }
             if (!consumers.isEmpty()) return ctx -> consumers.forEach(c -> c.accept(ctx));
@@ -3115,6 +3129,7 @@ public class ActionResolver {
         if (tryParseBothPlayersSelectForwardToBreakZone(effectText) != null) return "BothPlayersSelectForwardToBreakZone";
         if (tryParseEachPlayerSelectUpToNToBreakZone(effectText)   != null) return "EachPlayerSelectUpToNToBreakZone";
         if (tryParseEachPlayerDiscard(effectText)              != null) return "EachPlayerDiscard";
+        if (tryParseEachPlayerSalvageFromBreakZone(effectText) != null) return "EachPlayerSalvageFromBreakZone";
         if (tryParseEachPlayerDraw(effectText)                 != null) return "EachPlayerDraw";
         if (tryParseOpponentDiscard(effectText)               != null) return "OpponentDiscard";
         if (tryParseDiscardHandThenDraw(effectText)           != null) return "DiscardHandThenDraw";
@@ -3416,6 +3431,7 @@ public class ActionResolver {
         if (tryParseBothPlayersSelectForwardToBreakZone(effectText) != null) return "BothPlayersSelectForwardToBreakZone";
         if (tryParseEachPlayerSelectUpToNToBreakZone(effectText) != null)   return "EachPlayerSelectUpToNToBreakZone";
         if (tryParseEachPlayerDiscard(effectText) != null)                  return "EachPlayerDiscard";
+        if (tryParseEachPlayerSalvageFromBreakZone(effectText) != null)     return "EachPlayerSalvageFromBreakZone";
         if (tryParseEachPlayerDraw(effectText) != null)                     return "EachPlayerDraw";
         if (tryParseOpponentDiscard(effectText) != null)                    return "OpponentDiscard";
         if (tryParseDiscardHandThenDraw(effectText) != null)                return "DiscardHandThenDraw";
@@ -6866,6 +6882,17 @@ public class ActionResolver {
             ctx.logEntry("Effect: Each player draws " + count + " card(s)");
             ctx.drawCards(count);
             ctx.drawCardsForOpponent(count);
+        };
+    }
+
+    /** Parses "Each player selects N card(s) from their Break Zone and adds it/them to their hand." */
+    private static Consumer<GameContext> tryParseEachPlayerSalvageFromBreakZone(String text) {
+        Matcher m = EACH_PLAYER_SALVAGE_FROM_BREAK_ZONE.matcher(text);
+        if (!m.find()) return null;
+        int count = Integer.parseInt(m.group("count"));
+        return ctx -> {
+            ctx.logEntry("Effect: Each player salvages " + count + " card(s) from their Break Zone to hand");
+            ctx.eachPlayerSalvageFromBreakZone(count);
         };
     }
 

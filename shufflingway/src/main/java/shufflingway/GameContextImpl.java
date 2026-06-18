@@ -1683,6 +1683,62 @@ final class GameContextImpl implements GameContext {
 				if (p2Pick != null) forceTargetToBreakZone(p2Pick);
 			}
 
+			@Override public void eachPlayerSalvageFromBreakZone(int count) {
+				List<CardData> p1Bz = mw.gameState.getP1BreakZone();
+				List<CardData> p2Bz = mw.gameState.getP2BreakZone();
+
+				// P1 picks via dialog
+				List<ForwardTarget> p1Picks = List.of();
+				if (!p1Bz.isEmpty()) {
+					List<ForwardTarget> eligible = new ArrayList<>();
+					for (int i = 0; i < p1Bz.size(); i++) {
+						CardData c = p1Bz.get(i);
+						ForwardTarget.CardZone cz = c.isBackup() ? ForwardTarget.CardZone.BACKUP
+								: c.isMonster() ? ForwardTarget.CardZone.MONSTER
+								: ForwardTarget.CardZone.FORWARD;
+						eligible.add(new ForwardTarget(true, i, cz));
+					}
+					p1Picks = mw.showBreakZoneSelectDialog(eligible, p1Bz, count, false,
+							"Each player salvages " + count + " card(s) — choose from your Break Zone");
+				} else {
+					logEntry("P1 Break Zone is empty — skipping salvage");
+				}
+
+				// P2 (AI) auto-picks highest-cost cards
+				List<ForwardTarget> p2Picks = new ArrayList<>();
+				if (!p2Bz.isEmpty()) {
+					List<Integer> idxs = new ArrayList<>();
+					for (int i = 0; i < p2Bz.size(); i++) idxs.add(i);
+					idxs.sort((a, b) -> Integer.compare(p2Bz.get(b).cost(), p2Bz.get(a).cost()));
+					for (int i = 0; i < Math.min(count, idxs.size()); i++) {
+						int idx = idxs.get(i);
+						p2Picks.add(new ForwardTarget(false, idx, ForwardTarget.CardZone.FORWARD));
+						logEntry("[AI] salvaged " + p2Bz.get(idx).name() + " from P2 Break Zone");
+					}
+				} else {
+					logEntry("[P2] Break Zone is empty — skipping salvage");
+				}
+
+				// Apply picks in reverse-index order to preserve indices during removal
+				List<ForwardTarget> p1Sorted = new ArrayList<>(p1Picks);
+				p1Sorted.sort(java.util.Comparator.comparingInt(ForwardTarget::idx).reversed());
+				for (ForwardTarget t : p1Sorted) {
+					CardData card = p1Bz.remove(t.idx());
+					mw.gameState.getP1Hand().add(card);
+					logEntry(card.name() + " → P1 hand from Break Zone");
+				}
+				List<ForwardTarget> p2Sorted = new ArrayList<>(p2Picks);
+				p2Sorted.sort(java.util.Comparator.comparingInt(ForwardTarget::idx).reversed());
+				for (ForwardTarget t : p2Sorted) {
+					CardData card = p2Bz.remove(t.idx());
+					mw.gameState.getP2Hand().add(card);
+					logEntry("[AI] " + card.name() + " → P2 hand from Break Zone");
+				}
+
+				if (!p1Picks.isEmpty()) { mw.refreshP1BreakLabel(); mw.refreshP1HandLabel(); }
+				if (!p2Picks.isEmpty()) { mw.refreshP2BreakLabel(); mw.refreshP2HandCountLabel(); }
+			}
+
 			@Override public void eachPlayerSelectUpToNAndBreak(int count, boolean inclForwards, boolean inclMonsters) {
 				// Build P1 eligible list
 				List<ForwardTarget> p1Eligible = new ArrayList<>();

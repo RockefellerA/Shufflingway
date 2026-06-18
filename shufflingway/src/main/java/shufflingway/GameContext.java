@@ -280,6 +280,12 @@ public interface GameContext {
      */
     void eachPlayerSelectUpToNAndBreak(int count, boolean inclForwards, boolean inclMonsters);
 
+    /**
+     * Each player selects {@code count} card(s) from their own Break Zone and adds them to their hand.
+     * P1 picks via dialog; P2 (AI) picks automatically (highest-cost first).
+     */
+    void eachPlayerSalvageFromBreakZone(int count);
+
     /** Grants the ability user {@code count} Crystals. */
     void gainCrystal(int count);
 
