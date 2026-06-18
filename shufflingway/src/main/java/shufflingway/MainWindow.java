@@ -8362,8 +8362,9 @@ public class MainWindow {
 			boolean matchesAltName = !cond.orCardNames().isEmpty()
 					&& cond.orCardNames().stream().anyMatch(n -> n.equalsIgnoreCase(card.name()));
 			if (matchesAltName) { count++; continue; }
-			if (cond.element()  != null && !card.containsElement(cond.element())) continue;
-			if (cond.job()      != null && !meetsJobFilterEffective(card, cond.job()))      continue;
+			if (cond.element()        != null && !card.containsElement(cond.element()))        continue;
+			if (cond.excludeElement() != null &&  card.containsElement(cond.excludeElement())) continue;
+			if (cond.job()            != null && !meetsJobFilterEffective(card, cond.job()))   continue;
 			if (cond.category() != null && !meetsCategoryFilter(card, cond.category())) continue;
 			if (cond.minPower() > 0     && card.power() < cond.minPower())         continue;
 			count++;

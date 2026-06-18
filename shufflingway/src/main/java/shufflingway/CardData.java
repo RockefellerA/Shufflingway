@@ -1136,6 +1136,7 @@ public record CardData(
         "(?:Category\\s+(?<category>\\S+)\\s+)?" +
         "(?:Job\\s+(?<job>.+?)(?=\\s+(?:Forwards?|Monsters?|Backups?|Characters?)(?:\\s|$)|\\s+or\\s+Card\\s+Name\\b|\\s*$))?" +
         "(?<type>Forwards?|Monsters?|Backups?|Characters?)?" +
+        "(?:\\s+of\\s+an?\\s+Element\\s+other\\s+than\\s+(?<excludeelem>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark))?" +
         "(?:\\s+of\\s+power\\s+(?<power>\\d+)\\s+or\\s+more)?" +
         "(?:\\s+or\\s+Card\\s+Name\\s+(?<altname>.+?))?" +
         "\\s*$"
@@ -2993,17 +2994,18 @@ public record CardData(
             exactCount = false;
         }
 
-        String element  = countM.group("element");
-        String category = countM.group("category");
-        String job      = countM.group("job") != null ? countM.group("job").trim() : null;
-        String rawType  = countM.group("type");
-        String cardType = rawType != null ? rawType.replaceAll("(?i)s$", "").trim() : null; // normalise "Forwards" → "Forward"
+        String element        = countM.group("element");
+        String category       = countM.group("category");
+        String job            = countM.group("job") != null ? countM.group("job").trim() : null;
+        String rawType        = countM.group("type");
+        String cardType       = rawType != null ? rawType.replaceAll("(?i)s$", "").trim() : null; // normalise "Forwards" → "Forward"
         if (cardType != null) cardType = Character.toUpperCase(cardType.charAt(0)) + cardType.substring(1).toLowerCase();
-        int minPower    = countM.group("power") != null ? Integer.parseInt(countM.group("power")) : 0;
-        String altRaw   = countM.group("altname");
+        int minPower          = countM.group("power") != null ? Integer.parseInt(countM.group("power")) : 0;
+        String altRaw         = countM.group("altname");
         List<String> orCardNames = altRaw != null ? List.of(altRaw.trim()) : List.of();
+        String excludeElement = countM.group("excludeelem");
 
-        return new ControlCondition(List.of(), minCount, exactCount, cardType, element, job, category, minPower, orCardNames);
+        return new ControlCondition(List.of(), minCount, exactCount, cardType, element, job, category, minPower, orCardNames, false, excludeElement);
     }
 
     /** Parses a "remove … from the game" cost phrase into a list of {@link RemoveFromGameCost} items. */

@@ -22,16 +22,25 @@ public record ControlCondition(
         int          minCount,          // count mode: minimum matching cards (1 = "a/an")
         boolean      exactCount,        // true = exactly minCount ("only N"), not "N or more"
         String       cardType,          // null | "Forward" | "Monster" | "Backup" | "Character"
-        String       element,           // null or element name (e.g. "Fire")
+        String       element,           // null or element name the card must have (e.g. "Fire")
         String       job,               // null or job name (e.g. "Scion of the Seventh Dawn")
         String       category,          // null or category name (e.g. "DFF")
         int          minPower,          // 0 = no power filter; > 0 = card power must be ≥ this
         List<String> orCardNames,       // per-card OR alternative: also matches if name is in this list
-        boolean      anyOf              // named mode: true = ANY required name suffices; false = ALL required
+        boolean      anyOf,             // named mode: true = ANY required name suffices; false = ALL required
+        String       excludeElement     // null or element name the card must NOT have (e.g. "Ice")
 ) {
     public ControlCondition {
         requiredCardNames = List.copyOf(requiredCardNames);
         orCardNames       = List.copyOf(orCardNames);
+    }
+
+    /** Convenience constructor without {@code excludeElement}; defaults it to {@code null}. */
+    public ControlCondition(List<String> requiredCardNames, int minCount, boolean exactCount,
+            String cardType, String element, String job, String category, int minPower,
+            List<String> orCardNames, boolean anyOf) {
+        this(requiredCardNames, minCount, exactCount, cardType, element, job, category, minPower,
+                orCardNames, anyOf, null);
     }
 
     /** Convenience constructor preserving the prior 9-arg signature; defaults {@code anyOf} to {@code false} (AND semantics). */
@@ -39,7 +48,7 @@ public record ControlCondition(
             String cardType, String element, String job, String category, int minPower,
             List<String> orCardNames) {
         this(requiredCardNames, minCount, exactCount, cardType, element, job, category, minPower,
-                orCardNames, false);
+                orCardNames, false, null);
     }
 
     /** Returns {@code true} when this condition checks for specific named cards rather than a count. */
@@ -51,11 +60,12 @@ public record ControlCondition(
         StringBuilder sb = new StringBuilder();
         if (exactCount) sb.append('=');
         sb.append(minCount).append('+');
-        if (element  != null) sb.append(' ').append(element);
-        if (job      != null) sb.append(' ').append(job);
-        if (category != null) sb.append(' ').append(category);
-        if (minPower  > 0   ) sb.append(" pow>=").append(minPower);
-        if (cardType != null) sb.append(' ').append(cardType);
+        if (element        != null) sb.append(' ').append(element);
+        if (job            != null) sb.append(' ').append(job);
+        if (category       != null) sb.append(' ').append(category);
+        if (minPower        > 0   ) sb.append(" pow>=").append(minPower);
+        if (cardType       != null) sb.append(' ').append(cardType);
+        if (excludeElement != null) sb.append(" !").append(excludeElement);
         if (!orCardNames.isEmpty()) sb.append('/').append(String.join("|", orCardNames));
         return sb.toString();
     }
