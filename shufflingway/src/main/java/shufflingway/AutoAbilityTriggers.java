@@ -2179,6 +2179,16 @@ final class AutoAbilityTriggers {
 
 
 	/**
+	 * Executes a P2 (CPU) action ability with pre-computed payment lists.
+	 * Skips all UI dialogs; discard-cost and dull-forward-cost extras are auto-resolved.
+	 */
+	void executeP2AbilityActivation(ActionAbility ability, CardData source,
+			Runnable applyDull, List<Integer> backupDullIndices, List<Integer> discardIndices) {
+		List<ForwardTarget> bzTargets = autoResolveBzTargets(source, ability.breakZoneCosts(), false);
+		executeAbilityPayment(ability, source, applyDull, discardIndices, backupDullIndices, bzTargets, false, 0);
+	}
+
+	/**
 	 * Executes the full payment for an action ability: dulls selected backups,
 	 * discards hand cards for CP, optionally dulls the source card, optionally
 	 * discards a same-name card (Special), then calls {@link ActionResolver#resolve}.
@@ -2278,9 +2288,15 @@ final class AutoAbilityTriggers {
 			List<CardData> eligible = new ArrayList<>();
 			for (int i : eligibleIdx) eligible.add(hand.get(i));
 
-			List<Integer> picks = mw.showCardMultiImageChooser(eligible, "Discard Cost",
-					dc.count(), dc.eachDifferentType(), false);
-			if (picks == null || picks.size() != dc.count()) return;
+			List<Integer> picks;
+			if (isP1) {
+				picks = mw.showCardMultiImageChooser(eligible, "Discard Cost",
+						dc.count(), dc.eachDifferentType(), false);
+				if (picks == null || picks.size() != dc.count()) return;
+			} else {
+				picks = new ArrayList<>();
+				for (int p = 0; p < dc.count(); p++) picks.add(p);
+			}
 
 			List<Integer> handIdxs = new ArrayList<>();
 			for (int p : picks) handIdxs.add(eligibleIdx.get(p));
@@ -2322,8 +2338,14 @@ final class AutoAbilityTriggers {
 			if (eligible.isEmpty()) { mw.logEntry("No eligible active Forward for Dull cost."); continue; }
 			List<ForwardTarget> targets = eligible.stream()
 					.map(i -> new ForwardTarget(isP1, i, ForwardTarget.CardZone.FORWARD)).toList();
-			List<ForwardTarget> picks = mw.showForwardSelectDialog(targets, dfc.count(), false, "Dull Forward Cost");
-			if (picks.size() < dfc.count()) continue;
+			List<ForwardTarget> picks;
+			if (isP1) {
+				picks = mw.showForwardSelectDialog(targets, dfc.count(), false, "Dull Forward Cost");
+				if (picks.size() < dfc.count()) continue;
+			} else {
+				picks = new ArrayList<>(targets.subList(0, Math.min(dfc.count(), targets.size())));
+				if (picks.size() < dfc.count()) continue;
+			}
 			for (ForwardTarget pick : picks) {
 				int fwdIdx = pick.idx();
 				int pow = fwds.get(fwdIdx).power();

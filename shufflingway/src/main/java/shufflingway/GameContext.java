@@ -855,6 +855,9 @@ public interface GameContext {
      */
     void grantAttackOnceMore(String cardName);
 
+    /** Limits the opponent's attack declarations to {@code max} this turn. */
+    void limitOpponentAttackDeclarationsThisTurn(int max);
+
     /**
      * Removes the named card from the current Battle — marks it as having escaped so that
      * {@code resolveCombat} skips damage resolution for that pairing.

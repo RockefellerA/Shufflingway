@@ -1200,6 +1200,11 @@ public class ActionResolver {
         "(?i)^(?<name>[A-Za-z][^.]+?)\\s+can\\s+attack\\s+once\\s+more\\s+this\\s+turn[.!]?"
     );
 
+    /** Matches "During this turn, your opponent may only declare attack once." */
+    private static final Pattern OPPONENT_ATTACK_ONCE_THIS_TURN = Pattern.compile(
+        "(?i)During\\s+this\\s+turn,?\\s+your\\s+opponent\\s+may\\s+only\\s+declare\\s+attack\\s+once\\.?"
+    );
+
     /** Splits "and Card Name" within an activate target list. */
     private static final Pattern ACTIVATE_AND_CARD_NAME_SPLIT = Pattern.compile(
         "(?i)\\s+and\\s+Card\\s+Name\\s+"
@@ -2946,6 +2951,9 @@ public class ActionResolver {
         if (result != null) return result;
 
         result = tryParseAttackOnceMore(effectText);
+        if (result != null) return result;
+
+        result = tryParseOpponentAttackOnceThisTurn(effectText);
         if (result != null) return result;
 
         result = tryParseRemoveFromBattle(effectText);
@@ -8916,6 +8924,12 @@ public class ActionResolver {
             ctx.logEntry("Effect: " + name + " can attack once more this turn");
             ctx.grantAttackOnceMore(name);
         };
+    }
+
+    /** Parses "During this turn, your opponent may only declare attack once." */
+    private static Consumer<GameContext> tryParseOpponentAttackOnceThisTurn(String text) {
+        if (!OPPONENT_ATTACK_ONCE_THIS_TURN.matcher(text).find()) return null;
+        return ctx -> ctx.limitOpponentAttackDeclarationsThisTurn(1);
     }
 
     /**

@@ -2517,6 +2517,15 @@ final class GameContextImpl implements GameContext {
 				logEntry("[Warning] grantAttackOnceMore: \"" + cardName + "\" not found on P1's field");
 			}
 
+			@Override public void limitOpponentAttackDeclarationsThisTurn(int max) {
+				if (isP1) {
+					mw.opponentAttackDeclarationLimit = max;
+				} else {
+					mw.p1AttackDeclarationLimit = max;
+				}
+				logEntry("Effect: Opponent may only declare attack " + max + " time(s) this turn");
+			}
+
 			@Override public void returnNamedCardToYourHand(String cardName) {
 				if (mw.currentResolutionIsSummon && mw.currentSummonSource != null
 						&& mw.currentSummonSource.name().equalsIgnoreCase(cardName)) {

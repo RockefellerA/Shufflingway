@@ -420,6 +420,14 @@ public class MainWindow {
 	boolean p2DmgReductionDisabled  = false;
 	int     p1GlobalDmgReduction    = 0;
 	int     p2GlobalDmgReduction    = 0;
+	/** Max attack declarations P2 may make this turn; {@code Integer.MAX_VALUE} = unlimited. */
+	int opponentAttackDeclarationLimit  = Integer.MAX_VALUE;
+	/** Number of attack declarations made by P2 in the current turn (cleared at end of each turn). */
+	int p2AttackDeclarationsThisTurn    = 0;
+	/** Max attack declarations P1 may make this turn; {@code Integer.MAX_VALUE} = unlimited. */
+	int p1AttackDeclarationLimit        = Integer.MAX_VALUE;
+	/** Number of attack declarations made by P1 in the current turn (cleared at end of each turn). */
+	int p1AttackDeclarationsThisTurn    = 0;
 
 	/** End-of-turn effects queued this turn; fired at the beginning of the END phase. */
 	final List<Consumer<GameContext>> endOfTurnEffects = new ArrayList<>();
@@ -1793,6 +1801,8 @@ public class MainWindow {
                                 p1NonLethalProtection = false;    p2NonLethalProtection = false;
                                 p1DmgReductionDisabled = false;   p2DmgReductionDisabled = false;
                                 p1GlobalDmgReduction  = 0;        p2GlobalDmgReduction  = 0;
+                                opponentAttackDeclarationLimit = Integer.MAX_VALUE; p2AttackDeclarationsThisTurn = 0;
+                                p1AttackDeclarationLimit = Integer.MAX_VALUE;       p1AttackDeclarationsThisTurn = 0;
                                 for (int i = 0; i < p2ForwardCards.size(); i++) refreshP2ForwardSlot(i);
                                 showEndPhaseDiscardDialog();
                                 onNextPhase();             // END → ACTIVE (auto-advance)
@@ -10423,6 +10433,11 @@ public class MainWindow {
 		p1BackupAttackIdx = -1;
 		refreshAllForwardSlots();
 		for (int i = 0; i < p1BackupCards.length; i++) refreshP1BackupSlot(i);
+		if (p1AttackDeclarationsThisTurn >= p1AttackDeclarationLimit) {
+			logEntry("Attack declaration limit reached — ending attack phase.");
+			onNextPhase();
+			return;
+		}
 		if (hasAttackableForward()) {
 			setAttackSubStep(1);
 			refreshAllForwardSlots();
@@ -10507,6 +10522,7 @@ public class MainWindow {
 	 * Forward would.
 	 */
 	private void executeP1MonsterAttack(int monIdx) {
+		p1AttackDeclarationsThisTurn++;
 		CardData attacker = p1MonsterCards.get(monIdx);
 		int attackerPower = p1MonsterForwardPower(monIdx);
 
@@ -10788,6 +10804,7 @@ public class MainWindow {
 	}
 
 	private void executeP1BackupAttack(int bIdx) {
+		p1AttackDeclarationsThisTurn++;
 		CardData attacker = p1BackupCards[bIdx];
 		if (attacker == null) return;
 		int attackerPower = p1BackupForwardPower(bIdx);
@@ -10886,6 +10903,7 @@ public class MainWindow {
 
 	private void executeP1Attack(List<Integer> selection) {
 		if (selection.isEmpty()) return;
+		p1AttackDeclarationsThisTurn++;
 
 		// Dull / BRAVE_ATTACKED attackers and trigger their attack auto-abilities
 		for (int idx : selection) {
@@ -12312,14 +12330,17 @@ public class MainWindow {
 			// strictly better value than discarding-for-CP from a fresh hand cast.
 			if (tryP2BzPlay()) { step(() -> doMainPhase(onDone)); return; }
 
-			P2Plan plan = findPlayPlan();
-			if (plan == null) {
-				// P2 has no more plays — pass priority to P1
-				p2AutoPass(() -> offerP1MainPhasePriority(onDone));
-				return;
-			}
-			executeP2HandPlay(plan);
-			step(() -> doMainPhase(onDone));
+			// Try action abilities before committing to a hand play or passing.
+			tryP2ActionAbilities(() -> {
+				P2Plan plan = findPlayPlan();
+				if (plan == null) {
+					// P2 has no more plays — pass priority to P1
+					p2AutoPass(() -> offerP1MainPhasePriority(onDone));
+					return;
+				}
+				executeP2HandPlay(plan);
+				step(() -> doMainPhase(onDone));
+			});
 		}
 
 		/** Executes a planned P2 hand-cast: dulls backups, discards for CP, pays cost, plays the card. */
@@ -12440,12 +12461,18 @@ public class MainWindow {
 
 		private void doAttackPhase(Runnable onDone) {
 			if (gameState.isP1GameOver()) return;
+			if (p2AttackDeclarationsThisTurn >= opponentAttackDeclarationLimit) {
+				logEntry("[P2] Attack declaration limit reached — ending attack phase.");
+				onDone.run();
+				return;
+			}
 			pendingP2AttackerIsMonster = false;
 			pendingP2AttackerIsBackup  = false;
 			pendingP2AttackerPower     = 0;
 
 			List<Integer> party = p2ChoosePartyAttack();
 			if (party != null) {
+				p2AttackDeclarationsThisTurn++;
 				executeP2PartyAttack(party, () -> {
 					if (!gameState.isP1GameOver()) step(() -> doAttackPhase(onDone));
 				});
@@ -12454,6 +12481,7 @@ public class MainWindow {
 
 			for (int i = 0; i < p2ForwardStates.size(); i++) {
 				if (!p2ForwardCanAttack(i)) continue;
+				p2AttackDeclarationsThisTurn++;
 				CardData attacker = p2ForwardCards.get(i);
 				logEntry("[P2] " + attacker.name() + " attacks!");
 				if (effectiveP2HasTrait(i, CardData.Trait.BRAVE)) {
@@ -12472,6 +12500,7 @@ public class MainWindow {
 			}
 			for (int i = 0; i < p2MonsterStates.size(); i++) {
 				if (!p2MonsterCanAttackAsForward(i)) continue;
+				p2AttackDeclarationsThisTurn++;
 				CardData attacker = p2MonsterCards.get(i);
 				int power = p2MonsterForwardPower(i);
 				if (effectiveMonsterHasTrait(false, i, CardData.Trait.BRAVE)) {
@@ -12493,6 +12522,7 @@ public class MainWindow {
 			}
 			for (int i = 0; i < p2BackupCards.length; i++) {
 				if (!p2BackupCanAttackAsForward(i)) continue;
+				p2AttackDeclarationsThisTurn++;
 				CardData attacker = p2BackupCards[i];
 				int power = p2BackupForwardPower(i);
 				if (effectiveBackupHasTrait(false, i, CardData.Trait.BRAVE)) {
@@ -12565,6 +12595,8 @@ public class MainWindow {
 			p1NonLethalProtection = false;    p2NonLethalProtection = false;
 			p1DmgReductionDisabled = false;   p2DmgReductionDisabled = false;
 			p1GlobalDmgReduction  = 0;        p2GlobalDmgReduction  = 0;
+			opponentAttackDeclarationLimit = Integer.MAX_VALUE; p2AttackDeclarationsThisTurn = 0;
+			p1AttackDeclarationLimit = Integer.MAX_VALUE;       p1AttackDeclarationsThisTurn = 0;
 			gameState.advancePhase(); // MAIN_2 → END
 			refreshPhaseTracker();
 			logEntry("[P2] End Phase");
@@ -12897,6 +12929,154 @@ public class MainWindow {
 				if (priority > maxPriority) { maxPriority = priority; bestEi = ei; }
 			}
 			return bestEi >= 0 ? bestEi : 0;
+		}
+
+		// ── Action Ability AI ─────────────────────────────────────────────────
+
+		/**
+		 * Tries to activate any available P2 action ability this main phase.
+		 * Calls {@code onDone} when no more usable abilities are found.
+		 */
+		private void tryP2ActionAbilities(Runnable onDone) {
+			if (gameState.isP1GameOver()) return;
+			GameState.GamePhase phase = gameState.getCurrentPhase();
+			if (phase != GameState.GamePhase.MAIN_1 && phase != GameState.GamePhase.MAIN_2) {
+				onDone.run();
+				return;
+			}
+			for (int i = 0; i < p2ForwardCards.size(); i++) {
+				CardData card = p2ForwardCards.get(i);
+				if (card == null) continue;
+				CardData eff = p2ForwardPrimedTop.get(i) != null ? p2ForwardPrimedTop.get(i) : card;
+				final int fi = i;
+				if (tryP2UseAbility(eff, p2ForwardFrozen.get(i), p2ForwardStates.get(i),
+						p2ForwardPlayedOnTurn.get(i),
+						() -> { p2ForwardStates.set(fi, CardState.DULL); refreshP2ForwardSlot(fi); },
+						onDone)) return;
+			}
+			for (int i = 0; i < p2BackupCards.length; i++) {
+				CardData card = p2BackupCards[i];
+				if (card == null) continue;
+				final int bi = i;
+				if (tryP2UseAbility(card, p2BackupFrozen[i], p2BackupStates[i], 0,
+						() -> { p2BackupStates[bi] = CardState.DULL; animateDullP2Backup(bi, true); },
+						onDone)) return;
+			}
+			for (int i = 0; i < p2MonsterCards.size(); i++) {
+				CardData card = p2MonsterCards.get(i);
+				if (card == null) continue;
+				final int mi = i;
+				if (tryP2UseAbility(card, p2MonsterFrozen.get(i), p2MonsterStates.get(i),
+						p2MonsterPlayedOnTurn.get(i),
+						() -> { p2MonsterStates.set(mi, CardState.DULL); refreshP2MonsterSlot(mi); },
+						onDone)) return;
+			}
+			onDone.run();
+		}
+
+		/**
+		 * Checks each field action ability on {@code card}.  If one is usable, affordable,
+		 * and its effect is implemented, pays cost and schedules doMainPhase continuation.
+		 * Returns {@code true} if an ability was dispatched.
+		 */
+		private boolean tryP2UseAbility(CardData card, boolean isFrozen, CardState state,
+				int playedTurn, Runnable applyDull, Runnable onDone) {
+			for (ActionAbility ability : card.actionAbilities()) {
+				if (ability.whileCardInHand()) continue;
+				if (ability.breakZoneOnly() != null) continue;
+				if (ability.whileCardAttacking() != null || ability.whileCardBlocking() != null
+						|| ability.whilePartyAttacking() || ability.hasBlockingTargetEffect()) continue;
+				if (ability.hasXCost()) continue;
+				if (ability.cpCost().contains("")) continue; // generic CP deferred
+				if (!canActivateAbility(ability, isFrozen, state, playedTurn, card, false)) continue;
+				if (ActionResolver.parse(ability.effectText(), card) == null) continue;
+
+				String[] elems = p2AbilityElements(ability);
+				int totalCost = ability.cpCost().size();
+				List<Integer>        backupDullIndices = new ArrayList<>();
+				Map<Integer, String> backupElems       = new LinkedHashMap<>();
+				List<Integer>        discardIndices    = new ArrayList<>();
+				Map<Integer, String> discardElems      = new LinkedHashMap<>();
+				if (!p2PlanAbilityPayment(elems, totalCost, backupDullIndices, backupElems, discardIndices, discardElems))
+					continue;
+
+				logEntry("[P2] Activates ability: " + card.name() + " — " + ability.effectText());
+				autoAbilityTriggers.executeP2AbilityActivation(ability, card, applyDull, backupDullIndices, discardIndices);
+				step(() -> doMainPhase(onDone));
+				return true;
+			}
+			return false;
+		}
+
+		/** Returns unique non-empty CP cost elements, in encounter order. */
+		private static String[] p2AbilityElements(ActionAbility ability) {
+			java.util.LinkedHashSet<String> seen = new java.util.LinkedHashSet<>();
+			for (String e : ability.cpCost()) if (!e.isEmpty()) seen.add(e);
+			return seen.toArray(String[]::new);
+		}
+
+		/**
+		 * Greedy CP planner for action ability payment — same logic as {@link #p2PlanPayment}
+		 * but driven by the ability's element list and total cost instead of a card.
+		 */
+		private boolean p2PlanAbilityPayment(String[] elems, int totalCost,
+				List<Integer> outBackups, Map<Integer, String> outBackupElems,
+				List<Integer> outDiscards, Map<Integer, String> outDiscardElems) {
+			if (totalCost == 0) return true;
+			int[] simCp = new int[elems.length];
+			for (int ei = 0; ei < elems.length; ei++)
+				simCp[ei] = gameState.getP2CpForElement(elems[ei]);
+			int anyCp = 0;
+
+			if (p2CanAfford(totalCost, elems, simCp, anyCp)) return true;
+
+			List<Integer> matchingBackups = new ArrayList<>();
+			List<Integer> offColorBackups = new ArrayList<>();
+			for (int bi = 0; bi < p2BackupCards.length; bi++) {
+				CardData bk = p2BackupCards[bi];
+				if (bk == null || p2BackupStates[bi] != CardState.ACTIVE || p2BackupFrozen[bi]) continue;
+				boolean matches = false;
+				for (String e : elems) if (bk.containsElement(e)) { matches = true; break; }
+				if (matches) matchingBackups.add(bi);
+				else         offColorBackups.add(bi);
+			}
+			matchingBackups.sort(java.util.Comparator.comparingInt(bi ->
+					(int) java.util.Arrays.stream(elems)
+							.filter(e -> p2BackupCards[bi].containsElement(e)).count()));
+			for (int bi : matchingBackups) {
+				if (p2CanAfford(totalCost, elems, simCp, anyCp)) break;
+				int ei = elems.length > 0 ? p2BestDiscardElement(p2BackupCards[bi], elems, simCp) : 0;
+				simCp[ei] += 1;
+				outBackups.add(bi);
+				outBackupElems.put(bi, elems[ei]);
+			}
+			if (p2CanAfford(totalCost, elems, simCp, anyCp)) return true;
+
+			for (int bi : offColorBackups) {
+				if (p2CanAfford(totalCost, elems, simCp, anyCp)) break;
+				anyCp += 1;
+				outBackups.add(bi);
+				outBackupElems.put(bi, elems.length > 0 ? elems[0] : "");
+			}
+			if (p2CanAfford(totalCost, elems, simCp, anyCp)) return true;
+
+			List<CardData> hand = gameState.getP2Hand();
+			List<Integer> discardable = new ArrayList<>();
+			for (int i = 0; i < hand.size(); i++) {
+				CardData c = hand.get(i);
+				if (c.isLightOrDark()) continue;
+				if (elems.length == 0) { discardable.add(i); continue; }
+				for (String e : elems) if (c.containsElement(e)) { discardable.add(i); break; }
+			}
+			discardable.sort((a, b) -> hand.get(a).cost() - hand.get(b).cost());
+			for (int di : discardable) {
+				int ei = elems.length > 0 ? p2BestDiscardElement(hand.get(di), elems, simCp) : 0;
+				simCp[ei] += 2;
+				outDiscards.add(di);
+				outDiscardElems.put(di, elems.length > 0 ? elems[ei] : "");
+				if (p2CanAfford(totalCost, elems, simCp, anyCp)) return true;
+			}
+			return false;
 		}
 	}
 
