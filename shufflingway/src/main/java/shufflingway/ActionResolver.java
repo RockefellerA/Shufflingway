@@ -395,6 +395,11 @@ public class ActionResolver {
         "(?i)^break\\s+(?<name>.+?)[.!]?$"
     );
 
+    /** Matches "put [CardName] into the Break Zone[.!]?" where CardName is the source card. */
+    private static final Pattern PUT_SOURCE_INTO_BREAK_ZONE = Pattern.compile(
+        "(?i)^put\\s+(?<name>.+?)\\s+into\\s+the\\s+Break\\s+Zone[.!]?$"
+    );
+
     /**
      * Matches "Choose 1 card with EX Burst in your Damage Zone. You may trigger its EX Burst effect."
      * with an optional trailing parenthetical rules note.
@@ -2815,6 +2820,9 @@ public class ActionResolver {
         result = tryParseBreakSourceCard(effectText, source);
         if (result != null) return result;
 
+        result = tryParsePutSourceIntoBreakZone(effectText, source);
+        if (result != null) return result;
+
         result = tryParseChooseExBurstFromDamageZone(effectText);
         if (result != null) return result;
 
@@ -3117,6 +3125,7 @@ public class ActionResolver {
         if (tryParseOpponentHandRfp(effectText)               != null) return "OpponentHandRfp";
         if (tryParseRemoveNamedFromGame(effectText, source)   != null) return "RemoveNamedFromGame";
         if (tryParseBreakSourceCard(effectText, source)        != null) return "BreakSourceCard";
+        if (tryParsePutSourceIntoBreakZone(effectText, source) != null) return "PutSourceIntoBreakZone";
         if (tryParseChooseExBurstFromDamageZone(effectText)    != null) return "ChooseExBurstFromDamageZone";
         if (tryParseDamageZoneSwap(effectText)                 != null) {
             Matcher m = DAMAGE_ZONE_SWAP_PATTERN.matcher(effectText.trim());
@@ -3419,8 +3428,9 @@ public class ActionResolver {
         if (tryParseRevealTopNJobOrNameToHand(effectText)  != null)          return "RevealTopNJobOrNameToHand";
         if (tryParseReturnNamedToHand(effectText) != null)                   return "ReturnNamedToHand";
         if (tryParseRemoveNamedFromGame(effectText, source) != null)        return "RemoveNamedFromGame";
-        if (tryParseBreakSourceCard(effectText, source)     != null)        return "BreakSourceCard";
-        if (tryParseChooseExBurstFromDamageZone(effectText) != null)        return "ChooseExBurstFromDamageZone";
+        if (tryParseBreakSourceCard(effectText, source)        != null)     return "BreakSourceCard";
+        if (tryParsePutSourceIntoBreakZone(effectText, source) != null)     return "PutSourceIntoBreakZone";
+        if (tryParseChooseExBurstFromDamageZone(effectText)    != null)     return "ChooseExBurstFromDamageZone";
         if (tryParseDamageZoneSwap(effectText)              != null) {
             Matcher m = DAMAGE_ZONE_SWAP_PATTERN.matcher(effectText.trim());
             return m.matches() && m.group("draw") != null ? "DamageZoneSwap + DrawCards" : "DamageZoneSwap";
@@ -7014,6 +7024,16 @@ public class ActionResolver {
     /** Parses "Break [CardName]." when CardName is the source card — breaks the source forward/monster. */
     private static Consumer<GameContext> tryParseBreakSourceCard(String text, CardData source) {
         Matcher m = BREAK_SOURCE_CARD.matcher(text.trim());
+        if (!m.matches()) return null;
+        if (!m.group("name").trim().equalsIgnoreCase(source.name())) return null;
+        return ctx -> {
+            ctx.logEntry("Effect: Break " + source.name());
+            ctx.breakSourceCard(source);
+        };
+    }
+
+    private static Consumer<GameContext> tryParsePutSourceIntoBreakZone(String text, CardData source) {
+        Matcher m = PUT_SOURCE_INTO_BREAK_ZONE.matcher(text.trim());
         if (!m.matches()) return null;
         if (!m.group("name").trim().equalsIgnoreCase(source.name())) return null;
         return ctx -> {

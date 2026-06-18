@@ -478,6 +478,20 @@ final class AutoAbilityTriggers {
 				if (!fa.triggerCard().equalsIgnoreCase(card.name())) continue;
 				if (fa.trigger().contains("attack")) executeAutoAbility(fa, card, isP1);
 			}
+			// "When 1 or more Forwards you control attack" — fires on any controller field card
+			List<CardData> fwds = new ArrayList<>(isP1 ? mw.p1ForwardCards : mw.p2ForwardCards);
+			for (CardData c : fwds)
+				for (AutoAbility fa : c.autoAbilities())
+					if (fa.trigger().equals("attack")) executeAutoAbility(fa, c, isP1);
+			List<CardData> monsters = new ArrayList<>(isP1 ? mw.p1MonsterCards : mw.p2MonsterCards);
+			for (CardData c : monsters)
+				for (AutoAbility fa : c.autoAbilities())
+					if (fa.trigger().equals("attack")) executeAutoAbility(fa, c, isP1);
+			CardData[] bkps = isP1 ? mw.p1BackupCards : mw.p2BackupCards;
+			for (CardData c : bkps)
+				if (c != null)
+					for (AutoAbility fa : c.autoAbilities())
+						if (fa.trigger().equals("attack")) executeAutoAbility(fa, c, isP1);
 		});
 		// Fire any temporary attack triggers registered this turn by action abilities
 		Map<CardData, List<Consumer<GameContext>>> tempTriggers
