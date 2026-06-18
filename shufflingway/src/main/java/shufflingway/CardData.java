@@ -1455,8 +1455,8 @@ public record CardData(
                     && card.toLowerCase(java.util.Locale.ROOT).matches("\\d+\\s+or\\s+more\\s+forwards?\\s+you\\s+control"))
                                                                                                              trigger = "attack";
             else if (triggerRaw.contains("attack"))                                                         trigger = "attacks";
-            else if (triggerRaw.contains("block") && triggerRaw.contains("is blocked"))                    trigger = "blocks or is blocked";
             else if (triggerRaw.equals("is blocked"))                                                       trigger = "is blocked";
+            else if (triggerRaw.contains("block") && triggerRaw.contains("is blocked"))                    trigger = "blocks or is blocked";
             else if (triggerRaw.contains("block"))                                                          trigger = "blocks";
             else if (triggerRaw.contains("break zone"))                                                     trigger = "put into break zone";
             else if (triggerRaw.contains("summon"))                                                         trigger = "cast summon";
