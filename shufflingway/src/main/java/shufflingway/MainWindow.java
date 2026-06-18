@@ -8282,7 +8282,7 @@ public class MainWindow {
 		}
 		if (ability.requiresDull()) {
 			if (state != CardState.ACTIVE) return false;
-			if (playedTurn == gameState.getTurnNumber()) return false;
+			if (playedTurn > 0 && gameState.getTurnNumber() - playedTurn < 2) return false;
 		}
 		if (ability.isSpecial() && !hasSameNameInHand(source.name(), getPrimerCardName(source, isP1), isP1)) return false;
 		if (ability.damageThreshold() > 0) {
