@@ -869,6 +869,7 @@ class ComputerPlayer {
 				if (ability.breakZoneOnly() == null) continue;
 				if (!mw.autoAbilityTriggers.canActivateBzAbility(ability, card, false)) continue;
 				if (ActionResolver.parse(ability.effectText(), card) == null) continue;
+				if (abilityHarmsChosenTarget(ability) && !p1HasAnyForward()) continue;
 
 				List<Integer>        backupDullIndices = new ArrayList<>();
 				Map<Integer, String> backupElems       = new LinkedHashMap<>();
@@ -900,6 +901,7 @@ class ComputerPlayer {
 					|| ability.whilePartyAttacking() || ability.hasBlockingTargetEffect()) continue;
 			if (!mw.canActivateAbility(ability, isFrozen, state, playedTurn, card, false)) continue;
 			if (ActionResolver.parse(ability.effectText(), card) == null) continue;
+			if (abilityHarmsChosenTarget(ability) && !p1HasAnyForward()) continue;
 
 			List<Integer>        backupDullIndices = new ArrayList<>();
 			Map<Integer, String> backupElems       = new LinkedHashMap<>();
@@ -928,6 +930,28 @@ class ComputerPlayer {
 			return true;
 		}
 		return false;
+	}
+
+	/** True if P1 has at least one Forward (or temp-forward Monster) on the field. */
+	private boolean p1HasAnyForward() {
+		for (int i = 0; i < mw.p1ForwardCards.size(); i++)
+			if (mw.p1ForwardCards.get(i) != null) return true;
+		for (int i = 0; i < mw.p1MonsterCards.size(); i++)
+			if (mw.p1MonsterCards.get(i) != null && mw.isP1MonsterTemporarilyForward(i)) return true;
+		return false;
+	}
+
+	/**
+	 * Returns true if the ability harms a chosen character target (deals damage, breaks, etc.)
+	 * without restricting that target to own units ("you control").
+	 * Used to skip activation when no opponent forwards are present — legally the AI could
+	 * target its own forwards, but doing so is never beneficial.
+	 */
+	private static boolean abilityHarmsChosenTarget(ActionAbility ability) {
+		String t = ability.effectText().toLowerCase();
+		if (t.contains("you control") || t.contains("forward you")) return false;
+		// Damage to a chosen forward / character (single-target or quantity-qualified)
+		return t.contains("deal") && (t.contains("forward") || t.contains("character") || t.contains(" it "));
 	}
 
 	/** Returns unique non-empty CP cost elements, in encounter order. */
