@@ -953,6 +953,7 @@ final class GameContextImpl implements GameContext {
 
 			@Override public void removeP1ForwardFromGame(int idx) {
 				if (idx >= mw.p1ForwardCards.size()) return;
+				mw.lastRemovedFromGameCardCost = p1Forward(idx).cost();
 				logEntry(p1Forward(idx).name() + " → Removed From Game");
 				List<CardData> bz = mw.gameState.getP1BreakZone();
 				int before = bz.size();
@@ -965,6 +966,7 @@ final class GameContextImpl implements GameContext {
 
 			@Override public void removeP2ForwardFromGame(int idx) {
 				if (idx >= mw.p2ForwardCards.size()) return;
+				mw.lastRemovedFromGameCardCost = mw.p2ForwardCards.get(idx).cost();
 				logEntry("[P2] " + mw.p2ForwardCards.get(idx).name() + " → Removed From Game");
 				List<CardData> bz = mw.gameState.getP2BreakZone();
 				int before = bz.size();
@@ -2270,6 +2272,7 @@ final class GameContextImpl implements GameContext {
 			@Override public int dullForwardCostPower() { return mw.lastDullForwardCostPower; }
 			@Override public int lastDiscardedForwardPower() { return mw.lastDiscardedForwardPower; }
 			@Override public String lastDiscardedCardName() { return mw.lastDiscardedCardName; }
+			@Override public int lastRemovedFromGameCardCost() { return mw.lastRemovedFromGameCardCost; }
 
 			@Override public void retriggerAutoAbility(CardData source, String triggerType) {
 				for (AutoAbility fa : source.autoAbilities()) {

@@ -795,6 +795,33 @@ public interface GameContext {
     String lastDiscardedCardName();
 
     /**
+     * Returns the CP cost of the Forward most recently removed from the game by a
+     * "remove it from the game" effect in the current ability chain.
+     * Returns {@code 0} if no Forward has been removed yet.
+     */
+    int lastRemovedFromGameCardCost();
+
+    /**
+     * Dulls all Forwards the opponent controls whose effective power is less than or equal to
+     * {@code source}'s current effective power on the field.
+     */
+    default void dullOpponentForwardsByPowerAtMost(CardData source) {
+        int sourcePower = fieldForwardPowerByName(source.name());
+        if (sourcePower <= 0) sourcePower = source.power();
+        final int sp = sourcePower;
+        logEntry(source.name() + " — Dull all opponent Forwards with power ≤ " + sp);
+        boolean p1 = isP1();
+        int count = p1 ? p2ForwardCount() : p1ForwardCount();
+        for (int i = count - 1; i >= 0; i--) {
+            ForwardTarget t = new ForwardTarget(!p1, i, ForwardTarget.CardZone.FORWARD);
+            int power = effectiveTargetPower(t);
+            if (power > 0 && power <= sp) {
+                if (p1) dullP2Forward(i); else dullP1Forward(i);
+            }
+        }
+    }
+
+    /**
      * Pushes a new stack entry for the auto-ability on {@code source} whose trigger matches
      * {@code triggerType} (e.g. {@code "beginning of attack phase"}). Used to retrigger an
      * ability after a conditional self-discard.

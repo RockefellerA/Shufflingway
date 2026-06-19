@@ -1765,6 +1765,52 @@ public class ActionResolver {
     );
 
     /**
+     * Matches "Choose 1 Forward opponent controls with a cost inferior or equal to the number of
+     * [Element] [Backups/Forwards] you control. [followup]"
+     * Groups: {@code element} — element name; {@code cardtype} — "Backups" or "Forwards";
+     *         {@code followup} — effect sentence(s) to apply to the chosen targets.
+     */
+    private static final Pattern CHOOSE_OPP_FWD_DYN_COST_BREAK = Pattern.compile(
+        "(?i)Choose\\s+1\\s+Forward\\s+(?:your\\s+)?opponent\\s+controls\\s+with\\s+a\\s+cost\\s+" +
+        "(?:inferior\\s+or\\s+equal\\s+to|equal\\s+or\\s+inferior\\s+to|equal\\s+to\\s+or\\s+(?:less\\s+than|inferior))\\s+" +
+        "the\\s+number\\s+of\\s+(?<element>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)\\s+" +
+        "(?<cardtype>Backups?|Forwards?)\\s+you\\s+control[.,]?\\s+(?<followup>.+)"
+    );
+
+    /**
+     * Matches "Choose 1 Forward [control?] with a power inferior to [CardName]'s [power]. [followup]"
+     * Groups: {@code control} — optional "opponent controls" / "you control";
+     *         {@code sourcename} — name of the card whose power sets the ceiling;
+     *         {@code followup} — effect sentence(s) to apply to the chosen targets.
+     */
+    private static final Pattern CHOOSE_FWD_POWER_INFERIOR_TO_SOURCE = Pattern.compile(
+        "(?i)Choose\\s+1\\s+Forward\\s+" +
+        "(?:(?<control>(?:your\\s+)?opponent\\s+controls?|you\\s+control)\\s+)?" +
+        "with\\s+a\\s+power\\s+inferior\\s+to\\s+(?<sourcename>.+?)'s(?:\\s+power)?[.,]?\\s+(?<followup>.+)"
+    );
+
+    /**
+     * Matches "Dull all [the] Forwards with a power [equal or inferior / inferior or equal /
+     * equal to or less than] to [CardName]'s [your] opponent controls."
+     * Groups: {@code sourcename} — name of the card whose power is the ceiling.
+     */
+    private static final Pattern DULL_ALL_OPP_FWDS_POWER_LE_SOURCE = Pattern.compile(
+        "(?i)Dull\\s+all\\s+(?:the\\s+)?Forwards?\\s+with\\s+a\\s+power\\s+" +
+        "(?:equal\\s+or\\s+inferior\\s+to|inferior\\s+or\\s+equal\\s+to|equal\\s+to\\s+or\\s+less\\s+than)\\s+" +
+        "(?<sourcename>.+?)'s\\s+(?:(?:your\\s+)?opponent\\s+controls?)[.!]?"
+    );
+
+    /**
+     * Matches "Choose 1 Forward in your Break Zone with a cost inferior to that of the removed
+     * Forward. Play it onto the field." — the follow-up half of a Hojo-style remove-then-play chain.
+     */
+    private static final Pattern CHOOSE_FWD_BZ_COST_INFERIOR_TO_REMOVED_PLAY = Pattern.compile(
+        "(?i)Choose\\s+1\\s+Forward\\s+in\\s+your\\s+Break\\s+Zone\\s+with\\s+a\\s+cost\\s+" +
+        "inferior\\s+to\\s+that\\s+of\\s+the\\s+removed\\s+Forward[.,]?\\s+" +
+        "Play\\s+it\\s+onto\\s+(?:the\\s+)?field[.!]?"
+    );
+
+    /**
      * Matches "Choose 1 Forward. During this turn, if it is dealt damage, double the damage instead."
      */
     private static final Pattern CHOOSE_FORWARD_DOUBLE_INCOMING_THIS_TURN = Pattern.compile(
@@ -2850,6 +2896,15 @@ public class ActionResolver {
         result = tryParseChooseForwardSharedPowerLoss(effectText, source);
         if (result != null) return result;
 
+        result = tryParseChooseOppFwdDynCostBreak(effectText);
+        if (result != null) return result;
+
+        result = tryParseChooseFwdPowerInferiorToSource(effectText, source);
+        if (result != null) return result;
+
+        result = tryParseChooseFwdBzCostInferiorToRemovedPlay(effectText);
+        if (result != null) return result;
+
         result = tryParseChooseCharacter(effectText, source, xValue);
         if (result != null) return result;
 
@@ -2884,6 +2939,9 @@ public class ActionResolver {
         if (result != null) return result;
 
         result = tryParseCancelStackEntry(effectText);
+        if (result != null) return result;
+
+        result = tryParseDullAllOppFwdsPowerLeSource(effectText, source);
         if (result != null) return result;
 
         result = tryParseAllFieldEffect(effectText);
@@ -3281,6 +3339,9 @@ public class ActionResolver {
         // otherwise match the inner "choose 1 Forward..." through the trigger prefix).
         if (tryParseBeginningOfMainPhase1FieldAbility(effectText, source) != null) return "BeginningOfMainPhase1FieldAbility";
         if (tryParseBeginningOfMainPhase2FieldAbility(effectText, source) != null) return "BeginningOfMainPhase2FieldAbility";
+        if (tryParseChooseOppFwdDynCostBreak(effectText)                   != null) return "ChooseOppFwdDynCostBreak";
+        if (tryParseChooseFwdPowerInferiorToSource(effectText, source)     != null) return "ChooseFwdPowerInferiorToSource";
+        if (tryParseChooseFwdBzCostInferiorToRemovedPlay(effectText)       != null) return "ChooseFwdBzCostInferiorToRemovedPlay";
         if (tryParseChooseCharacter(effectText, source, 0)              != null) return "ChooseCharacter";
         if (tryParseEndOfEachTurnFieldAbility(effectText, source) != null) return "EndOfEachTurnFieldAbility";
         if (tryParseElementChange(effectText, source) != null) return "ElementChange";
@@ -3290,6 +3351,7 @@ public class ActionResolver {
         if (tryParseStandaloneCannotAttackOrBlock(effectText, source) != null) return "CannotAttackOrBlock";
         if (tryParseNegateAllDamage(effectText)                != null) return "NegateDamage";
         if (tryParseSelectNumber(effectText, source)          != null) return "SelectNumber";
+        if (tryParseDullAllOppFwdsPowerLeSource(effectText, source)        != null) return "DullAllOppFwdsPowerLeSource";
         if (tryParseAllFieldEffect(effectText)                != null) return "AllFieldEffect";
         if (tryParseFieldPowerGrantPassive(effectText)        != null) {
             String trimmed = effectText.trim();
@@ -3599,6 +3661,10 @@ public class ActionResolver {
         if (tryParseStandaloneCannotAttackOrBlock(effectText, source) != null) return "CannotAttackOrBlock";
         if (tryParseNegateAllDamage(effectText) != null)                       return "NegateDamage";
         if (tryParseSelectNumber(effectText, source) != null)               return "SelectNumber";
+        if (tryParseChooseOppFwdDynCostBreak(effectText)               != null) return "ChooseOppFwdDynCostBreak";
+        if (tryParseChooseFwdPowerInferiorToSource(effectText, source) != null) return "ChooseFwdPowerInferiorToSource";
+        if (tryParseChooseFwdBzCostInferiorToRemovedPlay(effectText)   != null) return "ChooseFwdBzCostInferiorToRemovedPlay";
+        if (tryParseDullAllOppFwdsPowerLeSource(effectText, source)    != null) return "DullAllOppFwdsPowerLeSource";
         if (tryParseAllFieldEffect(effectText) != null)                     return "AllFieldEffect";
         if (tryParseFieldPowerGrantPassive(effectText) != null) {
             String trimmed = effectText.trim();
@@ -6753,6 +6819,94 @@ public class ActionResolver {
     private static Consumer<GameContext> tryParseDoubleOpponentIncomingDamageThisTurn(String text) {
         if (!DOUBLE_OPPONENT_INCOMING_DAMAGE_THIS_TURN.matcher(text).find()) return null;
         return ctx -> ctx.doubleOpponentForwardIncomingDamage();
+    }
+
+    /**
+     * Edea: "Choose 1 Forward opponent controls with a cost inferior or equal to the number
+     * of [Element] [Backups/Forwards] you control. Break it."
+     */
+    private static Consumer<GameContext> tryParseChooseOppFwdDynCostBreak(String text) {
+        Matcher m = CHOOSE_OPP_FWD_DYN_COST_BREAK.matcher(text);
+        if (!m.find()) return null;
+        String element  = m.group("element");
+        String cardtype = m.group("cardtype").toLowerCase();
+        boolean inclFwd = cardtype.startsWith("forward");
+        boolean inclBkp = !inclFwd;
+        String followupText = m.group("followup").trim();
+        if (!followupText.toLowerCase().contains("break it")) return null;
+        return ctx -> {
+            int ceiling = ctx.selfFieldCount(element, inclFwd, inclBkp, false);
+            ctx.logEntry("Choose 1 Forward opponent controls with cost ≤ " + ceiling
+                    + " (# " + element + " " + cardtype + " you control)");
+            List<ForwardTarget> ts = ctx.selectCharacters(1, false, true, false,
+                    null, null, ceiling, "less", -1, null,
+                    true, false, false, null, null, null, null, false, null, false);
+            ts.forEach(ctx::breakTarget);
+        };
+    }
+
+    /**
+     * Shuyin: "Choose 1 Forward [control?] with a power inferior to [source]'s. [followup]"
+     * The power ceiling is computed at runtime as sourcePower − 1000 (strictly inferior,
+     * and FFTCG powers step in multiples of 1000).
+     */
+    private static Consumer<GameContext> tryParseChooseFwdPowerInferiorToSource(String text, CardData source) {
+        if (source == null) return null;
+        Matcher m = CHOOSE_FWD_POWER_INFERIOR_TO_SOURCE.matcher(text);
+        if (!m.find()) return null;
+        if (!m.group("sourcename").trim().equalsIgnoreCase(source.name())) return null;
+        String control   = m.group("control");
+        boolean oppOnly  = control != null && !control.equalsIgnoreCase("you control");
+        boolean selfOnly = "you control".equalsIgnoreCase(control);
+        String followupText = m.group("followup").trim();
+        // Detect gain-control-EOT as the followup (handles "this Forward" phrasing)
+        boolean gainControlEot = followupText.toLowerCase().contains("gain control")
+                && followupText.toLowerCase().contains("end of");
+        Consumer<GameContext> parsedFollowup = gainControlEot ? null : parse(followupText, source);
+        if (!gainControlEot && parsedFollowup == null) return null;
+        return ctx -> {
+            int sp = ctx.fieldForwardPowerByName(source.name());
+            if (sp <= 0) sp = source.power();
+            int powerCeiling = sp - 1000;
+            ctx.logEntry("Choose 1 Forward with power < " + sp);
+            if (powerCeiling <= 0) { ctx.logEntry("No eligible targets — source power too low."); return; }
+            List<ForwardTarget> ts = ctx.selectCharacters(1, false, oppOnly, selfOnly,
+                    null, null, -1, null, powerCeiling, "less",
+                    true, false, false, null, null, null, null, false, null, false);
+            if (gainControlEot) ts.forEach(t -> ctx.gainControlOfForward(t, "endOfTurn", true));
+            else { ctx.recordChosenTargets(ts); parsedFollowup.accept(ctx); }
+        };
+    }
+
+    /**
+     * Alphinaud: "Dull all the Forwards with a power equal or inferior to [source]'s
+     * opponent controls."
+     */
+    private static Consumer<GameContext> tryParseDullAllOppFwdsPowerLeSource(String text, CardData source) {
+        if (source == null) return null;
+        Matcher m = DULL_ALL_OPP_FWDS_POWER_LE_SOURCE.matcher(text);
+        if (!m.find()) return null;
+        if (!m.group("sourcename").trim().equalsIgnoreCase(source.name())) return null;
+        return ctx -> ctx.dullOpponentForwardsByPowerAtMost(source);
+    }
+
+    /**
+     * Hojo followup: "Choose 1 Forward in your Break Zone with a cost inferior to that of the
+     * removed Forward. Play it onto the field."
+     * Reads {@link GameContext#lastRemovedFromGameCardCost()} to determine the cost ceiling.
+     */
+    private static Consumer<GameContext> tryParseChooseFwdBzCostInferiorToRemovedPlay(String text) {
+        if (!CHOOSE_FWD_BZ_COST_INFERIOR_TO_REMOVED_PLAY.matcher(text).find()) return null;
+        return ctx -> {
+            int removedCost = ctx.lastRemovedFromGameCardCost();
+            if (removedCost <= 0) { ctx.logEntry("No removed Forward cost tracked — cannot play from BZ"); return; }
+            int costCeiling = removedCost - 1; // "inferior to N" = cost ≤ N-1
+            ctx.logEntry("Choose 1 Forward from own Break Zone with cost < " + removedCost);
+            List<ForwardTarget> ts = ctx.selectCharactersFromBreakZone(1, false, false,
+                    null, null, costCeiling, "less", -1, null,
+                    true, false, false, null, null, null, null, false, null, false);
+            ts.forEach(ctx::playTargetOntoField);
+        };
     }
 
     private static Consumer<GameContext> tryParseAllForwardIncomingDmgIncreaseThisTurn(String text) {
