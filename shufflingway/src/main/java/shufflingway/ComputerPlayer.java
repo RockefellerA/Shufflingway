@@ -689,24 +689,73 @@ class ComputerPlayer {
 	private boolean tryP2BzPlay() {
 		if (mw.bzPlayableP2.isEmpty()) return false;
 
-		List<Map.Entry<CardData, Integer>> entries = new ArrayList<>(mw.bzPlayableP2.entrySet());
+		// Borrowed casts from any source zone (Break Zone or removed-from-game), most expensive first.
+		List<Map.Entry<CardData, PlayableEntry>> entries = new ArrayList<>(mw.bzPlayableP2.entrySet());
 		entries.sort((a, b) -> b.getKey().cost() - a.getKey().cost());
 
-		for (Map.Entry<CardData, Integer> entry : entries) {
+		for (Map.Entry<CardData, PlayableEntry> entry : entries) {
 			CardData card = entry.getKey();
-			int reducedCost = Math.max(0, card.cost() - entry.getValue());
+			PlayableEntry pe = entry.getValue();
+			int reducedCost = pe.effectiveCost(card);
+
+			// Respect uniqueness / Light-Dark / backup-slot legality so borrowed casts can't create field collisions.
+			boolean isChar = card.isForward() || card.isBackup() || card.isMonster();
+			if (isChar && !card.multicard() && mw.p2HasCharacterNameOnField(card.name())) continue;
+			if (isChar && mw.isP2LightDarkConflict(card)) continue;
+			if (card.isBackup() && !mw.p2HasAvailableBackupSlot()) continue;
+			if (card.isSummon() && mw.summonCastingProhibited()) continue;
 
 			List<Integer>        backups      = new ArrayList<>();
 			Map<Integer, String> backupElems  = new LinkedHashMap<>();
 			List<Integer>        discards     = new ArrayList<>();
 			Map<Integer, String> discardElems = new LinkedHashMap<>();
-			if (!p2PlanPayment(card, reducedCost, -1, backups, backupElems, discards, discardElems))
-				continue;
 
-			mw.executePlayFromBzP2(card, reducedCost, discards, discardElems, backups, backupElems);
+			if (!pe.freeCast() && reducedCost > 0) {
+				boolean affordable = pe.anyElement()
+						? p2PlanPaymentAnyElement(card, reducedCost, backups, backupElems, discards, discardElems)
+						: p2PlanPayment(card, reducedCost, -1, backups, backupElems, discards, discardElems);
+				if (!affordable) continue;
+			}
+
+			mw.executePlayFromBzP2(card, pe, reducedCost, discards, discardElems, backups, backupElems);
 			return true;
 		}
 		return false;
+	}
+
+	/**
+	 * Payment planner for an any-element borrowed cast: any CP (active backup or hand discard)
+	 * counts toward {@code cost} with no per-element minimums.  Records the chosen backups/discards
+	 * (each tagged with its own element so payment deposits real CP); {@link MainWindow#executePlayFromBzP2}
+	 * then drains CP across all elements.  Returns {@code true} when the cost can be covered.
+	 */
+	private boolean p2PlanPaymentAnyElement(CardData card, int cost,
+			List<Integer> outBackups, Map<Integer, String> outBackupElems,
+			List<Integer> outDiscards, Map<Integer, String> outDiscardElems) {
+		int total = 0;
+		for (String e : ActionResolver.ELEMENT_NAMES) total += mw.gameState.getP2CpForElement(e);
+		if (total >= cost) return true;
+
+		for (int bi = 0; bi < mw.p2BackupCards.length && total < cost; bi++) {
+			CardData bk = mw.p2BackupCards[bi];
+			if (bk == null || mw.p2BackupStates[bi] != CardState.ACTIVE || mw.p2BackupFrozen[bi]) continue;
+			outBackups.add(bi);
+			outBackupElems.put(bi, bk.elements()[0]);
+			total += 1;
+		}
+		if (total >= cost) return true;
+
+		List<CardData> hand = mw.gameState.getP2Hand();
+		List<Integer> discardable = new ArrayList<>();
+		for (int i = 0; i < hand.size(); i++) if (!hand.get(i).isLightOrDark()) discardable.add(i);
+		discardable.sort((a, b) -> hand.get(a).cost() - hand.get(b).cost());
+		for (int di : discardable) {
+			if (total >= cost) break;
+			outDiscards.add(di);
+			outDiscardElems.put(di, hand.get(di).elements()[0]);
+			total += 2;
+		}
+		return total >= cost;
 	}
 
 	/**

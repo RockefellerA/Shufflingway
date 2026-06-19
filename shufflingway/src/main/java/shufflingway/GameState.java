@@ -213,6 +213,20 @@ public class GameState {
     /** Permanently removes a card from the game (not Warp — no counter, never returns). */
     public void addToP1PermanentRfp(CardData card) { p1PermanentRfp.add(card); }
 
+    /** Removes the first identity-matching {@code card} from P1's removed-from-game zone. */
+    public boolean removeFromP1PermanentRfp(CardData card) {
+        for (int i = 0; i < p1PermanentRfp.size(); i++)
+            if (p1PermanentRfp.get(i) == card) { p1PermanentRfp.remove(i); return true; }
+        return false;
+    }
+
+    /** Removes the first identity-matching {@code card} from P2's removed-from-game zone. */
+    public boolean removeFromP2PermanentRfp(CardData card) {
+        for (int i = 0; i < p2PermanentRfp.size(); i++)
+            if (p2PermanentRfp.get(i) == card) { p2PermanentRfp.remove(i); return true; }
+        return false;
+    }
+
     /** Returns an unmodifiable view of P1's permanently removed cards. */
     public List<CardData> getP1PermanentRfp() {
         return Collections.unmodifiableList(p1PermanentRfp);

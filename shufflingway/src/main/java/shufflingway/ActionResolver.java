@@ -2623,6 +2623,49 @@ public class ActionResolver {
         "The\\s+cost\\s+required\\s+to\\s+cast\\s+it\\s+is\\s+reduced\\s+by\\s+(?<amount>\\d+)[.!]?"
     );
 
+    /**
+     * "Your opponent removes the top card of their deck from the game [face down]. You can [look at
+     * it and/or] cast it as though you owned it at any time you could normally cast it. The cost for
+     * casting it [is reduced by N and] can be paid using CP of any Element." (Lani 12-018H, Zidane 16-048H)
+     */
+    private static final Pattern OPP_RFP_TOPDECK_CASTABLE = Pattern.compile(
+        "(?is)your\\s+opponent\\s+removes\\s+the\\s+top\\s+card\\s+of\\s+their\\s+deck\\s+from\\s+the\\s+game(?:\\s+face\\s+down)?[.!]?\\s+" +
+        "You\\s+can\\s+(?:look\\s+at\\s+it\\s+and/or\\s+)?cast\\s+it\\s+as\\s+though\\s+you\\s+owned\\s+it\\s+at\\s+any\\s+time\\s+you\\s+could\\s+normally\\s+cast\\s+it[.!]?" +
+        "(?<cost>.*)$"
+    );
+
+    /**
+     * "Choose 1 [Forward|Backup|Monster|Character] in your opponent's Break Zone. Remove it from the
+     * game. [During this game,] you can cast it as though you owned it at any time you could normally
+     * cast it." (Bel Dat 20-056H — Forward; Zidane 24-044H — Character)
+     */
+    private static final Pattern CHOOSE_FROM_OPP_BZ_CASTABLE = Pattern.compile(
+        "(?is)Choose\\s+1\\s+(?<type>Forwards?|Backups?|Monsters?|Characters?)\\s+in\\s+your\\s+opponent'?s\\s+Break\\s+Zone[.!]?\\s+" +
+        "Remove\\s+it\\s+from\\s+the\\s+game[.!]?\\s+" +
+        "(?:During\\s+this\\s+game,?\\s+)?[Yy]ou\\s+can\\s+cast\\s+it\\s+as\\s+though\\s+you\\s+owned\\s+it\\s+at\\s+any\\s+time\\s+you\\s+could\\s+normally\\s+cast\\s+it[.!]?"
+    );
+
+    /**
+     * "Choose N Summon(s) from [your and/or your opponent's|either player's|your] Break Zone. Remove
+     * them from the game. During this game, you can cast them as though you owned them ..." (Shantotto 23-067R)
+     */
+    private static final Pattern CHOOSE_SUMMONS_FROM_BZ_GAME = Pattern.compile(
+        "(?is)[Cc]hoose\\s+(?<count>\\d+)\\s+Summons?\\s+from\\s+(?<scope>your\\s+and/or\\s+your\\s+opponent'?s|either\\s+player'?s|your\\s+opponent'?s|your)\\s+Break\\s+Zone[.!]?\\s+" +
+        "Remove\\s+(?:it|them)\\s+from\\s+the\\s+game[.!]?\\s+" +
+        "During\\s+this\\s+game,?\\s+you\\s+can\\s+cast\\s+(?:it|them)\\s+as\\s+though\\s+you\\s+owned\\s+(?:it|them).*"
+    );
+
+    /**
+     * "Choose N Summon(s) from [either player's|your and/or your opponent's|your] Break Zone. You can
+     * cast it as though you owned it this turn. [If you cast it, remove that Summon from the game after
+     * use instead of putting it in the Break Zone.]" (Krile 12-061L)
+     */
+    private static final Pattern CHOOSE_SUMMONS_FROM_BZ_TURN = Pattern.compile(
+        "(?is)[Cc]hoose\\s+(?<count>\\d+)\\s+Summons?\\s+from\\s+(?<scope>your\\s+and/or\\s+your\\s+opponent'?s|either\\s+player'?s|your\\s+opponent'?s|your)\\s+Break\\s+Zone[.!]?\\s+" +
+        "You\\s+can\\s+cast\\s+(?:it|them)\\s+as\\s+though\\s+you\\s+owned\\s+(?:it|them)\\s+this\\s+turn[.!]?" +
+        "(?<rfg>.*)$"
+    );
+
     /** Matches "Take 1 more turn after this one. At the end of that turn, you lose the game." */
     private static final Pattern EXTRA_TURN_THEN_LOSE = Pattern.compile(
         "(?i)Take\\s+1\\s+more\\s+turn\\s+after\\s+this\\s+one[.!]?\\s+" +
@@ -2770,6 +2813,17 @@ public class ActionResolver {
         // Strip leading "EX BURST" / "[[ex]]EX BURST[[/]]" prefix present on summon field ability texts.
         effectText = effectText.replaceFirst("(?i)^(?:\\[\\[ex\\]\\])?\\s*EX\\s+BURST(?:\\[\\[/\\]\\])?\\s*", "").trim();
         Consumer<GameContext> result;
+
+        // "Cast it as though you owned it" family — matched early because the highly specific
+        // borrowed-cast phrasing would otherwise be intercepted by generic Choose/Remove matchers.
+        result = tryParseOppRfpTopDeckCastable(effectText);
+        if (result != null) return result;
+
+        result = tryParseChooseFromOppBzCastable(effectText);
+        if (result != null) return result;
+
+        result = tryParseChooseSummonsFromBzCastable(effectText);
+        if (result != null) return result;
 
         result = tryParseSelectFollowingActions(effectText, source);
         if (result != null) return result;
@@ -3245,6 +3299,9 @@ public class ActionResolver {
 
     /** Returns the name of the first pattern that matches {@code effectText}, or {@code null}. */
     public static String matchedPatternName(String effectText, CardData source) {
+        if (tryParseOppRfpTopDeckCastable(effectText)                   != null) return "OppRfpTopDeckCastable";
+        if (tryParseChooseFromOppBzCastable(effectText)                 != null) return "ChooseFromOppBzCastable";
+        if (tryParseChooseSummonsFromBzCastable(effectText)             != null) return "ChooseSummonsFromBzCastable";
         if (tryParseSelectNumber(effectText, source)                    != null) return "SelectNumber";
         if (tryParseForEachJobAndNameDealDamageToForwards(effectText)   != null) return "ForEachJobAndNameDealDamageToForwards";
         if (tryParseSelfGainsWhenAttacksEOT(effectText, source)        != null) return "SelfGainsWhenAttacksEOT";
@@ -3478,6 +3535,9 @@ public class ActionResolver {
     public static String fullDescription(String effectText, CardData source) {
         effectText = effectText.replaceFirst("(?i)^(?:\\[\\[ex\\]\\])?\\s*EX\\s+BURST(?:\\[\\[/\\]\\])?\\s*", "").trim();
         if (tryParseChooseSummonInBzCastable(effectText)        != null)    return "ChooseSummonInBzCastable";
+        if (tryParseOppRfpTopDeckCastable(effectText)          != null)    return "OppRfpTopDeckCastable";
+        if (tryParseChooseFromOppBzCastable(effectText)        != null)    return "ChooseFromOppBzCastable";
+        if (tryParseChooseSummonsFromBzCastable(effectText)    != null)    return "ChooseSummonsFromBzCastable";
         if (CardData.isSelfCostModifierText(effectText))                    return "SelfCostModifier";
         if (CardData.YOUR_TURN_ONLY_PATTERN.matcher(effectText).matches())  return "YourTurnOnly";
         if (CardData.ONCE_PER_TURN_PATTERN.matcher(effectText).matches())   return "OncePerTurn";
@@ -9188,6 +9248,59 @@ public class ActionResolver {
             ctx.logEntry("Effect: Choose 1 " + element + " Summon in BZ — castable this turn (cost -" + amount + ")");
             ctx.chooseSummonInBzMakeCastable(element, amount);
         };
+    }
+
+    private static Consumer<GameContext> tryParseOppRfpTopDeckCastable(String text) {
+        Matcher m = OPP_RFP_TOPDECK_CASTABLE.matcher(text);
+        if (!m.find()) return null;
+        String costClause = m.group("cost") != null ? m.group("cost") : "";
+        Matcher r = Pattern.compile("(?i)reduced\\s+by\\s+(\\d+)").matcher(costClause);
+        final int reduction = r.find() ? Integer.parseInt(r.group(1)) : 0;
+        final boolean anyElement = costClause.toLowerCase(java.util.Locale.ROOT).contains("any element");
+        return ctx -> {
+            ctx.logEntry("Effect: Opponent removes top deck card from game — you may cast it as your own"
+                    + (reduction > 0 ? " (cost -" + reduction + ")" : "")
+                    + (anyElement ? " [any Element]" : ""));
+            ctx.opponentRfpTopDeckMakeCastable(reduction, anyElement);
+        };
+    }
+
+    private static Consumer<GameContext> tryParseChooseFromOppBzCastable(String text) {
+        Matcher m = CHOOSE_FROM_OPP_BZ_CASTABLE.matcher(text);
+        if (!m.find()) return null;
+        String t = m.group("type").toLowerCase(java.util.Locale.ROOT);
+        final boolean inclForwards = t.startsWith("forward") || t.startsWith("character");
+        final boolean inclBackups  = t.startsWith("backup")  || t.startsWith("character");
+        final boolean inclMonsters = t.startsWith("monster") || t.startsWith("character");
+        return ctx -> {
+            ctx.logEntry("Effect: Choose 1 " + t + " in opponent's BZ, remove from game — castable as your own");
+            ctx.chooseFromOpponentBzMakeCastable(inclForwards, inclBackups, inclMonsters);
+        };
+    }
+
+    private static Consumer<GameContext> tryParseChooseSummonsFromBzCastable(String text) {
+        Matcher mg = CHOOSE_SUMMONS_FROM_BZ_GAME.matcher(text);
+        if (mg.find()) {
+            final int count = Integer.parseInt(mg.group("count"));
+            final boolean eitherBz = !mg.group("scope").toLowerCase(java.util.Locale.ROOT).equals("your");
+            return ctx -> {
+                ctx.logEntry("Effect: Choose " + count + " Summon(s) from BZ, remove from game — castable as your own this game");
+                ctx.chooseSummonsFromBzMakeCastable(count, eitherBz, false, false, false);
+            };
+        }
+        Matcher mt = CHOOSE_SUMMONS_FROM_BZ_TURN.matcher(text);
+        if (mt.find()) {
+            final int count = Integer.parseInt(mt.group("count"));
+            final boolean eitherBz = !mt.group("scope").toLowerCase(java.util.Locale.ROOT).equals("your");
+            String rfgClause = mt.group("rfg") != null ? mt.group("rfg").toLowerCase(java.util.Locale.ROOT) : "";
+            final boolean rfgAfterUse = rfgClause.contains("after use");
+            return ctx -> {
+                ctx.logEntry("Effect: Choose " + count + " Summon(s) from BZ — castable as your own this turn"
+                        + (rfgAfterUse ? " (removed from game after use)" : ""));
+                ctx.chooseSummonsFromBzMakeCastable(count, eitherBz, true, rfgAfterUse, false);
+            };
+        }
+        return null;
     }
 
     private static Consumer<GameContext> tryParseCostReductionThisTurn(String text) {

@@ -438,14 +438,22 @@ public class MainWindow {
 	final List<CostReductionModifier> activeCostReductions = new ArrayList<>();
 
 	/**
-	 * Cards in P1's Break Zone that have been made castable this turn by an effect like
-	 * "Choose 1 [Element] Summon in your Break Zone."  Value is the cost reduction in CP
-	 * applied to that one cast.  Identity-keyed so duplicate-named copies don't alias.
-	 * Cleared at end of turn.
+	 * Cards P1 is permitted to cast from outside their hand (Break Zone or RFP zone) under a
+	 * "cast it as though you owned it" effect.  The {@link PlayableEntry} value carries the
+	 * source zone, cost reduction, any-element/free-cast flags, post-cast disposition, and
+	 * duration.  Identity-keyed so duplicate-named copies don't alias.  "This turn" entries are
+	 * cleared at end of turn; "during this game" / "at any time" entries persist.
 	 */
-	final IdentityHashMap<CardData, Integer> bzPlayableP1 = new IdentityHashMap<>();
+	final IdentityHashMap<CardData, PlayableEntry> bzPlayableP1 = new IdentityHashMap<>();
 	/** P2 equivalent of {@link #bzPlayableP1}. */
-	final IdentityHashMap<CardData, Integer> bzPlayableP2 = new IdentityHashMap<>();
+	final IdentityHashMap<CardData, PlayableEntry> bzPlayableP2 = new IdentityHashMap<>();
+
+	/**
+	 * Borrowed Summons that, once they resolve, must be removed from the game instead of going to
+	 * the Break Zone ("remove that Summon from the game after use" — Krile 12-061L, Nanaa Mihgo 22-048H).
+	 * Identity-keyed; consumed when the Summon's resolution would otherwise send it to the Break Zone.
+	 */
+	final Set<CardData> rfgAfterUseSummons = java.util.Collections.newSetFromMap(new IdentityHashMap<>());
 
 	/** Effects deferred until the start of P1's next Main Phase 1. */
 	final List<Consumer<GameContext>> pendingMainPhase1Effects = new ArrayList<>();
@@ -1249,6 +1257,7 @@ public class MainWindow {
 		activeCostReductions.clear();
 		bzPlayableP1.clear();
 		bzPlayableP2.clear();
+		rfgAfterUseSummons.clear();
 		if (computerPlayer != null) computerPlayer.cancel();
 		computerPlayer = new ComputerPlayer(this);
 		clearUIZones();
@@ -1594,14 +1603,183 @@ public class MainWindow {
 		handPanel.removeAll();
 		int n = gameState.getP1Hand().size();
 		String text = n == 0 ? "HAND" : "HAND -" + n + "-";
+		int panelW = handPanel.getWidth() > 0 ? handPanel.getWidth() : sidePanelW;
+		int handH  = handPanel.getHeight() > 0 ? handPanel.getHeight() : (int)(CARD_H * 0.6);
+
+		int borrowable = bzPlayableP1.size();
+		boolean showBtn = borrowable > 0;
+		// Reserve the right side for the button; keep the HAND label centered in the remaining space.
+		int btnW   = showBtn ? Math.min(170, Math.max(120, (int)(panelW * 0.42))) : 0;
+		int labelW = showBtn ? panelW - btnW - 16 : panelW;
+
 		JLabel lbl = new JLabel(text, SwingConstants.CENTER);
 		lbl.setFont(FontLoader.loadPixelNESFont(14));
 		lbl.setForeground(Color.LIGHT_GRAY);
-		int handH = handPanel.getHeight() > 0 ? handPanel.getHeight() : (int)(CARD_H * 0.6);
-		lbl.setBounds(0, 0, handPanel.getWidth() > 0 ? handPanel.getWidth() : sidePanelW, handH);
+		lbl.setBounds(0, 0, labelW, handH);
 		handPanel.add(lbl);
+
+		if (showBtn) {
+			final Color goldText = new Color(212, 175, 55);
+			final Color goldEdge = new Color(150, 120, 50);
+			final Color baseBg   = new Color(34, 30, 22);
+			final Color hoverBg  = new Color(58, 50, 32);
+
+			JButton btn = new JButton("PLAYABLE  " + borrowable);
+			btn.setToolTipText("Cards you can play from outside your hand");
+			btn.setFont(FontLoader.loadPixelNESFont(9));
+			btn.setForeground(goldText);
+			btn.setBackground(baseBg);
+			btn.setOpaque(true);
+			btn.setFocusPainted(false);
+			btn.setFocusable(false);
+			btn.setBorder(BorderFactory.createCompoundBorder(
+					BorderFactory.createLineBorder(goldEdge, 1),
+					BorderFactory.createEmptyBorder(3, 10, 3, 10)));
+			btn.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+			btn.addMouseListener(new MouseAdapter() {
+				@Override public void mouseEntered(MouseEvent e) {
+					btn.setBackground(hoverBg);
+					btn.setBorder(BorderFactory.createCompoundBorder(
+							BorderFactory.createLineBorder(goldText, 1),
+							BorderFactory.createEmptyBorder(3, 10, 3, 10)));
+				}
+				@Override public void mouseExited(MouseEvent e) {
+					btn.setBackground(baseBg);
+					btn.setBorder(BorderFactory.createCompoundBorder(
+							BorderFactory.createLineBorder(goldEdge, 1),
+							BorderFactory.createEmptyBorder(3, 10, 3, 10)));
+				}
+			});
+			int btnH = Math.min(26, handH - 12);
+			btn.setBounds(panelW - btnW - 8, (handH - btnH) / 2, btnW, btnH);
+			btn.addActionListener(e -> showPlayableCardsDialog());
+			handPanel.add(btn);
+		}
 		handPanel.revalidate();
 		handPanel.repaint();
+	}
+
+	/** Rebuilds the hand zone so the "Playable Cards" button reflects the current borrowed-cast registry. */
+	void refreshPlayableCardsButton() { refreshHandPanel(); }
+
+	/**
+	 * Shows every card P1 may currently cast from outside their hand (the {@link #bzPlayableP1}
+	 * registry — Break-Zone and removed-from-game borrowed casts).  Clicking one opens the standard
+	 * payment dialog at the entry's effective (reduced/free) cost, with any-element payment when granted.
+	 */
+	private void showPlayableCardsDialog() {
+		List<Map.Entry<CardData, PlayableEntry>> entries = new ArrayList<>(bzPlayableP1.entrySet());
+		if (entries.isEmpty()) return;
+
+		JDialog dlg = new JDialog(frame, "Playable Cards (" + entries.size() + ")", true);
+		dlg.setResizable(false);
+		dlg.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
+
+		JPanel cardsPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 8));
+		for (Map.Entry<CardData, PlayableEntry> en : entries) {
+			final CardData cd = en.getKey();
+			final PlayableEntry pe = en.getValue();
+			final int cost = pe.effectiveCost(cd);
+
+			// Apply the same play legality the hand-cast path enforces (uniqueness, Light/Dark, backup slot).
+			boolean isCharacter   = cd.isForward() || cd.isBackup() || cd.isMonster();
+			boolean nameConflict  = isCharacter && !cd.multicard() && hasCharacterNameOnField(cd.name()) && !isMultiNameExceptionActive(cd.name());
+			boolean ldConflict    = isCharacter && isLightDarkConflict(cd);
+			boolean noSlot        = cd.isBackup() && !hasAvailableBackupSlot();
+			boolean summonBlocked = cd.isSummon() && summonCastingProhibited();
+			final boolean legal   = !nameConflict && !ldConflict && !noSlot && !summonBlocked;
+			final String reason   = nameConflict ? "Name conflict" : ldConflict ? "Light/Dark"
+					: noSlot ? "No slot" : summonBlocked ? "Summons blocked" : null;
+
+			JLabel lbl = new JLabel("...", SwingConstants.CENTER);
+			lbl.setPreferredSize(new Dimension(CARD_W, CARD_H));
+			lbl.setMinimumSize(new Dimension(CARD_W, CARD_H));
+			lbl.setOpaque(true);
+			lbl.setBackground(Color.DARK_GRAY);
+			lbl.setBorder(BorderFactory.createLineBorder(legal ? Color.LIGHT_GRAY : new Color(180, 60, 60), legal ? 1 : 2));
+			lbl.setCursor(Cursor.getPredefinedCursor(legal ? Cursor.HAND_CURSOR : Cursor.DEFAULT_CURSOR));
+			lbl.addMouseListener(new MouseAdapter() {
+				@Override public void mouseEntered(MouseEvent e) { if (lbl.getIcon() != null) showZoomAt(cd.imageUrl()); }
+				@Override public void mouseExited(MouseEvent e)  { hideZoom(); }
+				@Override public void mousePressed(MouseEvent e) {
+					if (!SwingUtilities.isLeftMouseButton(e)) return;
+					if (!legal) {
+						JOptionPane.showMessageDialog(dlg,
+								"Cannot play \"" + cd.name() + "\" right now: " + reason + ".",
+								"Cannot Play", JOptionPane.WARNING_MESSAGE);
+						return;
+					}
+					hideZoom();
+					dlg.dispose();
+					showBzPlayPaymentDialog(cd, cost);
+				}
+			});
+			final int delta = cd.cost() - cost;
+			new SwingWorker<ImageIcon, Void>() {
+				@Override protected ImageIcon doInBackground() throws Exception {
+					Image img = ImageCache.load(cd.imageUrl());
+					if (img == null) return null;
+					BufferedImage bi = CardAnimation.toARGB(img, CARD_W, CARD_H);
+					// Bake the effective (reduced) cost into the top-left, matching the hand popup.
+					if (delta != 0) {
+						Graphics2D g2 = bi.createGraphics();
+						g2.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
+						String text = String.valueOf(cost);
+						g2.setFont(FontLoader.loadPixelNESFont(15));
+						FontMetrics fm = g2.getFontMetrics();
+						int x = 8, y = fm.getAscent() + 7;
+						g2.setColor(Color.BLACK);
+						g2.drawString(text, x + 1, y + 1);
+						g2.drawString(text, x + 2, y + 1);
+						g2.drawString(text, x + 1, y + 2);
+						g2.drawString(text, x + 2, y + 2);
+						g2.setColor(delta > 0 ? new Color(0x44EE44) : new Color(0xFF8844));
+						g2.drawString(text, x, y);
+						g2.dispose();
+					}
+					return new ImageIcon(bi);
+				}
+				@Override protected void done() {
+					try { ImageIcon ic = get(); if (ic != null) { lbl.setIcon(ic); lbl.setText(null); } }
+					catch (InterruptedException | ExecutionException ignored) {}
+				}
+			}.execute();
+
+			String tag = !legal ? reason : pe.freeCast() ? "Free" : pe.anyElement() ? "Any Element" : null;
+			JLabel info = new JLabel(cd.name() + (tag != null ? "  [" + tag + "]" : ""), SwingConstants.CENTER);
+			info.setFont(FontLoader.loadPixelNESFont(9));
+			info.setForeground(legal ? Color.WHITE : new Color(230, 120, 120));
+			info.setPreferredSize(new Dimension(CARD_W, 18));
+
+			JPanel wrapper = new JPanel(new BorderLayout(0, 4));
+			wrapper.setBackground(cardsPanel.getBackground());
+			wrapper.add(lbl,  BorderLayout.CENTER);
+			wrapper.add(info, BorderLayout.SOUTH);
+			cardsPanel.add(wrapper);
+		}
+
+		JScrollPane scrollPane = new JScrollPane(cardsPanel,
+				JScrollPane.VERTICAL_SCROLLBAR_NEVER, JScrollPane.HORIZONTAL_SCROLLBAR_AS_NEEDED);
+		scrollPane.setPreferredSize(new Dimension(
+				Math.min(entries.size() * (CARD_W + 16) + 16, 900), CARD_H + 60));
+		dlg.getContentPane().add(scrollPane, BorderLayout.CENTER);
+		dlg.pack();
+		dlg.setLocationRelativeTo(frame);
+		dlg.setVisible(true);
+	}
+
+	/**
+	 * Registers {@code card} as castable by P1 from outside hand under {@code entry}.  The card must
+	 * already have been moved into its source zone (Break Zone or removed-from-game).  "This turn"
+	 * entries are auto-removed at end of turn; "during this game" / "at any time" entries persist.
+	 */
+	void registerBorrowedPlayable(boolean casterIsP1, CardData card, PlayableEntry entry) {
+		IdentityHashMap<CardData, PlayableEntry> reg = casterIsP1 ? bzPlayableP1 : bzPlayableP2;
+		reg.put(card, entry);
+		if (entry.expiresThisTurn()) endOfTurnEffects.add(ctx -> reg.remove(card));
+		refreshP1WarpZoneUI();
+		refreshP2WarpZoneUI();
+		refreshPlayableCardsButton();
 	}
 
 
@@ -2316,9 +2494,11 @@ public class MainWindow {
 		for (CardData cd : zone) {
 			final boolean hasBzAbility = isP1 && cd.actionAbilities().stream()
 					.anyMatch(a -> a.breakZoneOnly() != null && autoAbilityTriggers.canActivateBzAbility(a, cd, true));
-			final boolean hasBzPlay    = isP1 && bzPlayableP1.containsKey(cd) && (!cd.isSummon() || !summonCastingProhibited());
+			final boolean hasBzPlay    = isP1 && bzPlayableP1.containsKey(cd)
+					&& bzPlayableP1.get(cd).source() == PlayableEntry.SourceZone.BREAK_ZONE
+					&& (!cd.isSummon() || !summonCastingProhibited());
 			final int     bzPlayCost   = hasBzPlay
-					? Math.max(0, cd.cost() - bzPlayableP1.get(cd)) : -1;
+					? bzPlayableP1.get(cd).effectiveCost(cd) : -1;
 			final boolean interactive  = hasBzAbility || hasBzPlay;
 
 			JPanel cardWrapper = new JPanel(new BorderLayout(0, 4));
@@ -2440,10 +2620,15 @@ public class MainWindow {
 	 * non-null when {@code candidates} is non-empty.
 	 */
 	CardData chooseSummonFromBzDialog(List<CardData> candidates, String element) {
+		return chooseCardFromBzDialog(candidates, "Choose 1 " + element + " Summon from Break Zone");
+	}
+
+	/** Prompts P1 to pick one card from {@code candidates} (e.g. a Break Zone subset); returns the choice. */
+	CardData chooseCardFromBzDialog(List<CardData> candidates, String title) {
 		if (candidates.isEmpty()) return null;
 		if (candidates.size() == 1) return candidates.get(0);
 
-		JDialog dlg = new JDialog(frame, "Choose 1 " + element + " Summon from Break Zone", true);
+		JDialog dlg = new JDialog(frame, title, true);
 		dlg.setResizable(false);
 		dlg.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
 
@@ -6428,7 +6613,7 @@ public class MainWindow {
 	 * Returns {@code true} if any card currently on the field has a
 	 * "Players cannot cast Summons." field ability — prohibiting Summon casting for both players.
 	 */
-	private boolean summonCastingProhibited() {
+	boolean summonCastingProhibited() {
 		for (CardData c : p1ForwardCards) if (c != null && ActionResolver.hasPlayerCannotCastSummonsFieldAbility(c)) return true;
 		for (CardData c : p1BackupCards)  if (c != null && ActionResolver.hasPlayerCannotCastSummonsFieldAbility(c)) return true;
 		for (CardData c : p2ForwardCards) if (c != null && ActionResolver.hasPlayerCannotCastSummonsFieldAbility(c)) return true;
@@ -6937,6 +7122,38 @@ public class MainWindow {
 		return false;
 	}
 
+	/** P2 counterpart of {@link #isLightDarkConflict(CardData)} — checks P2's field. */
+	boolean isP2LightDarkConflict(CardData card) {
+		if (!card.isLightOrDark()) return false;
+		for (String elem : card.elements()) {
+			if (!"Light".equalsIgnoreCase(elem) && !"Dark".equalsIgnoreCase(elem)) continue;
+			String crossElem = "Dark".equalsIgnoreCase(elem) ? "Light" : "Dark";
+			if (hasSpecificElementOnP2Field(crossElem)) return true;
+			if (hasSpecificElementOnP2Field(elem) && !isP2LightDarkExceptionActive(elem, card)) return true;
+		}
+		return false;
+	}
+
+	/** Returns true if P2's field contains at least one character with the given element. */
+	private boolean hasSpecificElementOnP2Field(String element) {
+		for (CardData c : p2ForwardCards)
+			for (String e : c.elements()) if (element.equalsIgnoreCase(e)) return true;
+		for (CardData c : p2MonsterCards)
+			for (String e : c.elements()) if (element.equalsIgnoreCase(e)) return true;
+		for (CardData c : p2BackupCards)
+			if (c != null) for (String e : c.elements()) if (element.equalsIgnoreCase(e)) return true;
+		return false;
+	}
+
+	/** Returns true if a same-element multi-play exception is active on P2's field for {@code element}. */
+	private boolean isP2LightDarkExceptionActive(String element, CardData cardBeingPlayed) {
+		if (element.equalsIgnoreCase(cardBeingPlayed.selfLightDarkPlayException())) return true;
+		for (CardData c : p2ForwardCards) if (element.equalsIgnoreCase(c.grantsMultiLightDarkPlay())) return true;
+		for (CardData c : p2MonsterCards) if (element.equalsIgnoreCase(c.grantsMultiLightDarkPlay())) return true;
+		for (CardData c : p2BackupCards)  if (c != null && element.equalsIgnoreCase(c.grantsMultiLightDarkPlay())) return true;
+		return false;
+	}
+
 	/** Returns true if any Light or Dark character is on the given player's field. */
 	boolean hasLightOrDarkOnField(boolean isP1) {
 		if (isP1) {
@@ -6980,12 +7197,14 @@ public class MainWindow {
 	 * from the discard list, and routes the confirm callback to {@link #executePlayFromBzP1}.
 	 */
 	private void showBzPlayPaymentDialog(CardData card, int reducedCost) {
+		PlayableEntry entry = bzPlayableP1.get(card);
+		boolean anyElement = isAnyElementCast(card) || (entry != null && entry.anyElement());
 		new StandardPaymentDialog(frame, card, -1, reducedCost,
 				gameState.getP1Hand(), p1BackupCards, p1BackupStates, p1BackupUrls,
 				this::showZoomAt, this::hideZoom,
 				new ArrayList<>(p1ForwardCards),
 				(discards, backups, overrides) -> executePlayFromBzP1(card, discards, backups, overrides),
-				isAnyElementCast(card))
+				anyElement)
 			.show();
 	}
 
@@ -7181,13 +7400,14 @@ public class MainWindow {
 		execCpAccum.keySet().stream().filter(e -> !e.isEmpty()).forEach(lastCastPaymentElements::add);
 		lastCastWasPaidByBackupsOnly = discardIndices.isEmpty() && !backupDullIndices.isEmpty();
 
-		// Remove source from Break Zone (by identity — multiple same-named copies may exist)
-		List<CardData> bz = gameState.getP1BreakZone();
-		for (int i = 0; i < bz.size(); i++) {
-			if (bz.get(i) == card) { bz.remove(i); break; }
-		}
+		// Remove the borrowed card from its source zone (by identity — duplicate-named copies may exist).
+		PlayableEntry borrowEntry = bzPlayableP1.get(card);
+		String sourceLabel = removeBorrowedSourceCard(card, borrowEntry);
 		bzPlayableP1.remove(card);
 		refreshP1BreakLabel();
+		refreshP1WarpZoneUI();
+		refreshP2WarpZoneUI();
+		refreshPlayableCardsButton();
 
 		activeCostReductions.removeIf(m -> m.consumeOnUse() && m.matches(card));
 		p1CardsCastThisTurn++;
@@ -7197,14 +7417,42 @@ public class MainWindow {
 			p1SummonCastThisTurn = true;
 			refreshHandPopupIfVisible();
 		}
-		logEntry("Played \"" + card.name() + "\" from Break Zone");
+		logEntry("Played \"" + card.name() + "\" from " + sourceLabel);
 
-		lastCardWasCast = true;
+		// Summons cast under a "remove from the game after use" clause go to the owner's RFP zone
+		// instead of the Break Zone once they resolve (Krile 12-061L, Nanaa Mihgo 22-048H).
+		if (card.isSummon() && borrowEntry != null && borrowEntry.rfgAfterUse())
+			rfgAfterUseSummons.add(card);
+
+		// Borrowed casts are NOT cast from hand: leave lastCardWasCast false so "due to your cast"
+		// (castOnly) abilities are skipped and "enters other than from your hand" abilities fire.
+		lastCardWasCast = false;
 		if (card.isBackup())       placeCardInFirstBackupSlot(card);
 		else if (card.isForward()) placeCardInForwardZone(card);
 		else if (card.isMonster()) placeCardInMonsterZone(card);
 		else if (card.isSummon())  showSummonOnStack(card);
 		lastCardWasCast = false;
+	}
+
+	/**
+	 * Removes a borrowed {@code card} from whichever zone it currently sits in, per {@code entry}'s
+	 * source.  RFP-sourced cards may live in either player's removed-from-game zone; Break-Zone-sourced
+	 * cards may live in either player's Break Zone (Krile/Shantotto draw from "either" Break Zone).
+	 * Returns a human-readable source label for logging.
+	 */
+	private String removeBorrowedSourceCard(CardData card, PlayableEntry entry) {
+		if (entry != null && entry.source() == PlayableEntry.SourceZone.RFP) {
+			if (gameState.removeFromP1PermanentRfp(card) || gameState.removeFromP2PermanentRfp(card))
+				return "Removed From Game";
+		}
+		List<CardData> p1bz = gameState.getP1BreakZone();
+		for (int i = 0; i < p1bz.size(); i++) if (p1bz.get(i) == card) { p1bz.remove(i); return "Break Zone"; }
+		List<CardData> p2bz = gameState.getP2BreakZone();
+		for (int i = 0; i < p2bz.size(); i++) if (p2bz.get(i) == card) { p2bz.remove(i); return "Break Zone"; }
+		// Fallback: also sweep RFP zones if the entry was missing/mislabeled.
+		if (gameState.removeFromP1PermanentRfp(card) || gameState.removeFromP2PermanentRfp(card))
+			return "Removed From Game";
+		return "outside hand";
 	}
 
 	/**
@@ -7245,43 +7493,65 @@ public class MainWindow {
 	 * backup-dull plans such that the resulting P2 CP covers {@code reducedCost} with
 	 * per-element minimums satisfied.
 	 */
-	void executePlayFromBzP2(CardData card, int reducedCost,
+	void executePlayFromBzP2(CardData card, PlayableEntry entry, int reducedCost,
 			List<Integer> discardIndices, Map<Integer, String> discardElementAssignments,
 			List<Integer> dullBackupIndices, Map<Integer, String> backupElementAssignments) {
 		String[] elems = card.elements();
+		boolean freeCast   = entry != null && entry.freeCast();
+		boolean anyElement = entry != null && entry.anyElement();
 
 		payP2CostViaBackupsAndDiscards(
 				dullBackupIndices, backupElementAssignments,
 				discardIndices,    discardElementAssignments);
 
-		// Pay reducedCost: per-element minimum first if multi-element, then drain CP.
-		int remaining = reducedCost;
-		if (elems.length > 1) {
-			for (String e : elems) { gameState.spendP2Cp(e, 1); remaining--; }
+		if (freeCast) {
+			// "without paying the cost" — clear any CP generated for payment and spend nothing.
+			for (String e : ActionResolver.ELEMENT_NAMES) gameState.clearP2Cp(e);
+		} else if (anyElement) {
+			// Cost may be paid using CP of any Element — drain across all elements, no per-element minimum.
+			int remaining = reducedCost;
+			for (String e : ActionResolver.ELEMENT_NAMES) {
+				if (remaining <= 0) break;
+				int toSpend = Math.min(remaining, gameState.getP2CpForElement(e));
+				if (toSpend > 0) { gameState.spendP2Cp(e, toSpend); remaining -= toSpend; }
+			}
+			for (String e : ActionResolver.ELEMENT_NAMES) gameState.clearP2Cp(e);
+		} else {
+			// Pay reducedCost: per-element minimum first if multi-element, then drain CP.
+			int remaining = reducedCost;
+			if (elems.length > 1) {
+				for (String e : elems) { gameState.spendP2Cp(e, 1); remaining--; }
+			}
+			for (String e : elems) {
+				if (remaining <= 0) break;
+				int avail = gameState.getP2CpForElement(e);
+				int toSpend = Math.min(remaining, avail);
+				if (toSpend > 0) { gameState.spendP2Cp(e, toSpend); remaining -= toSpend; }
+			}
+			for (String e : elems) gameState.clearP2Cp(e);
 		}
-		for (String e : elems) {
-			if (remaining <= 0) break;
-			int avail = gameState.getP2CpForElement(e);
-			int toSpend = Math.min(remaining, avail);
-			if (toSpend > 0) { gameState.spendP2Cp(e, toSpend); remaining -= toSpend; }
-		}
-		for (String e : elems) gameState.clearP2Cp(e);
 
-		// Remove source from P2 Break Zone by identity (handles duplicate-named copies).
-		List<CardData> bz = gameState.getP2BreakZone();
-		for (int i = 0; i < bz.size(); i++) {
-			if (bz.get(i) == card) { bz.remove(i); break; }
-		}
+		// Remove the borrowed card from its source zone (Break Zone or removed-from-game, either player).
+		PlayableEntry borrowEntry = bzPlayableP2.get(card);
+		String sourceLabel = removeBorrowedSourceCard(card, borrowEntry);
 		bzPlayableP2.remove(card);
 		refreshP2BreakLabel();
+		refreshP1WarpZoneUI();
+		refreshP2WarpZoneUI();
+		refreshPlayableCardsButton();
+
+		if (card.isSummon() && borrowEntry != null && borrowEntry.rfgAfterUse())
+			rfgAfterUseSummons.add(card);
 
 		p2CardsCastThisTurn++;
 		for (String j : card.jobs()) p2CastJobsThisTurn.add(j.toLowerCase());
 		p2CastNamesThisTurn.add(card.name().toLowerCase());
 		if (card.isSummon()) p2SummonCastThisTurn = true;
-		logEntry("[P2] Played \"" + card.name() + "\" from Break Zone");
+		logEntry("[P2] Played \"" + card.name() + "\" from " + sourceLabel);
 
-		lastCardWasCast = true;
+		// Borrowed casts are NOT cast from hand: leave lastCardWasCast false so "due to your cast"
+		// (castOnly) abilities are skipped and "enters other than from your hand" abilities fire.
+		lastCardWasCast = false;
 		if (card.isBackup())       placeP2CardInFirstBackupSlot(card);
 		else if (card.isForward()) placeP2CardInForwardZone(card);
 		else if (card.isMonster()) placeP2CardInMonsterZone(card);
@@ -7500,6 +7770,11 @@ public class MainWindow {
 					logEntry("\"" + entry.source().name() + "\" → Hand");
 					refreshP1HandLabel();
 					pendingSummonReturnToHand = false;
+				} else if (rfgAfterUseSummons.remove(entry.source())) {
+					// Borrowed Summon cast under "remove from the game after use" — never reaches the Break Zone.
+					gameState.addToP1PermanentRfp(entry.source());
+					logEntry("\"" + entry.source().name() + "\" → Removed From Game (after use)");
+					refreshP1WarpZoneUI();
 				} else {
 					addToP1BreakZone(entry.source());
 					logEntry("\"" + entry.source().name() + "\" → Break Zone");
