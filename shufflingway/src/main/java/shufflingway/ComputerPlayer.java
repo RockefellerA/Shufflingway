@@ -670,6 +670,15 @@ class ComputerPlayer {
 
 		for (int cardIdx : candidates) {
 			CardData card = hand.get(cardIdx);
+			// Skip cards with a "reveal summons" ETF ability when no summons are available in hand.
+			if (AutoAbilityTriggers.hasRevealSummonsConditionalEtf(card)) {
+				boolean hasSummon = false;
+				for (int j = 0; j < hand.size(); j++) {
+					if (j == cardIdx) continue;
+					if (hand.get(j).isSummon()) { hasSummon = true; break; }
+				}
+				if (!hasSummon) continue;
+			}
 			List<Integer>        backups       = new ArrayList<>();
 			Map<Integer, String> backupElems   = new LinkedHashMap<>();
 			List<Integer>        discards      = new ArrayList<>();

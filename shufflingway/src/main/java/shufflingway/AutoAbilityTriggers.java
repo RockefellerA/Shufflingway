@@ -301,6 +301,18 @@ final class AutoAbilityTriggers {
 			Pattern.DOTALL
 		);
 
+	/**
+	 * Matches "reveal any number of Summons from your hand.
+	 * When you reveal no Summons, [effect0].
+	 * When you reveal N or more Summons, [effectN]."
+	 */
+	private static final Pattern FA_REVEAL_SUMMONS_CONDITIONAL = Pattern.compile(
+		"(?i)^reveal\\s+any\\s+number\\s+of\\s+Summons?\\s+from\\s+your\\s+hand[.,]?\\s+" +
+		"When\\s+you\\s+reveal\\s+no\\s+Summons?,?\\s+(?<effect0>.+?)[.]\\s+" +
+		"When\\s+you\\s+reveal\\s+(?<n>\\d+)\\s+or\\s+more\\s+Summons?,?\\s+(?<effectN>.+?)$",
+		Pattern.DOTALL
+	);
+
 	/** Matches "pay 《cost》[.] When/If you do so, sub-effect[. The maximum you can pay for 《X》 is N]". */
 	private static final Pattern FA_PAY_WHEN_DO_SO = Pattern.compile(
 		"(?i)^pay\\s+《([^》]+)》[.,]?\\s+(?:When|If)\\s+you\\s+do\\s+so[,.]?\\s+(.+?)(?:[.,]?\\s+The\\s+maximum\\s+you\\s+can\\s+pay\\s+for\\s+《X》\\s+is\\s+\\d+\\.?)?$",
@@ -312,6 +324,15 @@ final class AutoAbilityTriggers {
 	private static final Set<String> ELEMENT_NAMES = Set.of(
 		"fire", "ice", "wind", "earth", "lightning", "water", "light", "dark"
 	);
+
+	/** Returns true if {@code card} has an ETF auto-ability with the reveal-summons-conditional pattern. */
+	static boolean hasRevealSummonsConditionalEtf(CardData card) {
+		for (AutoAbility fa : card.autoAbilities()) {
+			if (!fa.trigger().contains("enter")) continue;
+			if (FA_REVEAL_SUMMONS_CONDITIONAL.matcher(fa.effectText()).find()) return true;
+		}
+		return false;
+	}
 
 	void triggerAutoAbilitiesForEntersField(CardData card, boolean isP1) {
 		if (mw.suppressAutoAbilityForNextCard) {
@@ -1003,6 +1024,13 @@ final class AutoAbilityTriggers {
 			return;
 		}
 
+		// Detect "reveal any number of Summons from your hand. When you reveal no Summons, [effect0]. When you reveal N or more Summons, [effectN]."
+		Matcher rvlM = FA_REVEAL_SUMMONS_CONDITIONAL.matcher(fa.effectText());
+		if (rvlM.find()) {
+			executeRevealSummonsConditionalAutoAbility(fa, source, isP1, effectIsP1, rvlM);
+			return;
+		}
+
 		// Verify the effect is parseable before putting it on the stack.
 		if (ActionResolver.parse(fa.effectText(), source) == null) {
 			mw.logEntry("[AutoAbility] Unrecognized effect: " + fa.effectText());
@@ -1201,6 +1229,68 @@ final class AutoAbilityTriggers {
 		}
 		mw.logEntry("[AutoAbility] " + source.name() + " — when you do so: " + subEffect);
 		effect.accept(mw.buildGameContext(effectIsP1));
+	}
+
+	private void executeRevealSummonsConditionalAutoAbility(AutoAbility fa, CardData source,
+			boolean isP1, boolean effectIsP1, Matcher m) {
+		String effect0 = m.group("effect0").trim();
+		int    minN    = Integer.parseInt(m.group("n"));
+		String effectN = m.group("effectN").trim();
+
+		List<CardData> hand = effectIsP1 ? mw.gameState.getP1Hand() : mw.gameState.getP2Hand();
+		List<CardData> summonsInHand = new ArrayList<>();
+		for (CardData c : hand) if (c.isSummon()) summonsInHand.add(c);
+
+		boolean p1GetsDialog = (fa.youMay() && isP1) || (fa.opponentMay() && !isP1);
+		List<CardData> revealed;
+
+		if (p1GetsDialog) {
+			if (summonsInHand.isEmpty()) {
+				mw.logEntry("[AutoAbility] " + source.name() + " — no Summons in hand, reveals 0");
+				revealed = Collections.emptyList();
+			} else {
+				String prompt = (fa.youMay() ? "You may: " : "Your opponent may: ") + fa.effectText();
+				int choice = mw.showEffectOptionDialog(source.name() + " — " + prompt,
+						"Auto Ability", new Object[]{"Reveal...", "Decline"});
+				if (choice != 0) {
+					mw.logEntry("[AutoAbility] " + source.name() + " — optional effect declined");
+					return;
+				}
+				revealed = mw.showRevealSummonsFromHandDialog(summonsInHand, source.name(), minN);
+			}
+		} else {
+			// CPU logic: decline if 0 summons; reveal 1 if only 1 available; reveal exactly minN if 2+
+			if (summonsInHand.isEmpty()) {
+				mw.logEntry("[AutoAbility] [AI] " + source.name() + " — no Summons in hand, declines");
+				return;
+			} else if (summonsInHand.size() < minN) {
+				revealed = new ArrayList<>(summonsInHand.subList(0, 1));
+				mw.logEntry("[AutoAbility] [AI] " + source.name() + " — reveals 1 Summon: " + summonsInHand.get(0).name());
+			} else {
+				revealed = new ArrayList<>(summonsInHand.subList(0, minN));
+				StringBuilder sb = new StringBuilder();
+				for (int i = 0; i < revealed.size(); i++) {
+					if (i > 0) sb.append(", ");
+					sb.append(revealed.get(i).name());
+				}
+				mw.logEntry("[AutoAbility] [AI] " + source.name() + " — reveals " + minN + " Summon(s): " + sb);
+			}
+		}
+
+		int count = revealed.size();
+		if (count == 0) {
+			mw.logEntry("[AutoAbility] " + source.name() + " — revealed 0 Summons → " + effect0);
+			Consumer<GameContext> fn = ActionResolver.parse(effect0, source);
+			if (fn != null) fn.accept(mw.buildGameContext(effectIsP1));
+			else mw.logEntry("[AutoAbility] Unrecognized zero-reveal effect: " + effect0);
+		} else if (count >= minN) {
+			mw.logEntry("[AutoAbility] " + source.name() + " — revealed " + count + " Summon(s) → " + effectN);
+			Consumer<GameContext> fn = ActionResolver.parse(effectN, source);
+			if (fn != null) fn.accept(mw.buildGameContext(effectIsP1));
+			else mw.logEntry("[AutoAbility] Unrecognized min-reveal effect: " + effectN);
+		} else {
+			mw.logEntry("[AutoAbility] " + source.name() + " — revealed " + count + " Summon(s), no additional effect");
+		}
 	}
 
 	private void executePayWhenDoSoAutoAbility(AutoAbility fa, CardData source, boolean isP1,
