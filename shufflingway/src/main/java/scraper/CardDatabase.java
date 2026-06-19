@@ -134,6 +134,7 @@ public class CardDatabase implements AutoCloseable {
             ps.setInt   (12, card.multicard ? 1 : 0);
             String textEn = card.textEn == null ? null
                     : card.textEn.replaceAll("(?si)\\[\\[i\\]\\](.*?)\\[\\[/\\]\\]", "$1")
+                                 .replaceAll("(?si)\\[\\[b\\]\\](.*?)\\[\\[/\\]\\]", "$1")
                                  .replace("<br />", "[[br]]")
                                  .replaceAll("(?i)</?p>", "")
                                  .replace("&amp;", "&")
