@@ -207,6 +207,14 @@ public class ActionResolver {
     );
 
     /**
+     * Matches "Deal it/them N damage and M point(s) of damage to that Forward's controller."
+     * Groups: {@code amount} — damage to the chosen Forward; {@code controllerdmg} — card damage dealt to its controller.
+     */
+    private static final Pattern FOLLOWUP_DAMAGE_AND_CONTROLLER_DAMAGE = Pattern.compile(
+        "(?i)deal\\s+(?:it|them)\\s+(?<amount>\\d+)\\s+damage\\s+and\\s+(?<controllerdmg>\\d+)\\s+points?\\s+of\\s+damage\\s+to\\s+that\\s+(?:Forward|Character|Monster|Backup)'?s?\\s+controller\\.?"
+    );
+
+    /**
      * Matches the "That Forward's controller discards N card(s) from (their|his/her) hand" secondary
      * clause that follows a Choose+followup primary (Physalis, Sephiroth, Hades, …). The discarder
      * is resolved at runtime from {@link GameContext#lastChosenTargets()}.
@@ -2474,6 +2482,25 @@ public class ActionResolver {
     );
 
     /**
+     * Matches "For each Job [job] and[/or] Card [Nn]ame [name] you control, deal N damage to all Forwards [opponent controls]."
+     * Groups: {@code job}, {@code cardname}, {@code amount}, {@code opponent}.
+     */
+    private static final Pattern FOR_EACH_JOB_AND_NAME_DEAL_DAMAGE_TO_FORWARDS = Pattern.compile(
+        "(?i)^For\\s+each\\s+Job\\s+(?<job>.+?)\\s+and(?:/or)?\\s+Card\\s+[Nn]ame\\s+(?<cardname>.+?)\\s+you\\s+control,?\\s+" +
+        "deal\\s+(?<amount>\\d+)\\s+damage\\s+to\\s+all(?:\\s+the)?\\s+Forwards?" +
+        "(?:\\s+(?<opponent>(?:your\\s+)?opponent\\s+controls))?[.!]?$"
+    );
+
+    /**
+     * Matches "Until the end of the turn, [CardName] gains 'When [CardName] attacks, [innerEffect]'"
+     * — grants the source card a temporary attack trigger for this turn.
+     * Group {@code inner} — the effect text inside the quoted auto-ability.
+     */
+    private static final Pattern SELF_GAINS_WHEN_ATTACKS_EOT = Pattern.compile(
+        "(?i)^Until\\s+the\\s+end\\s+of\\s+(?:the\\s+)?turn,?\\s+.+?\\s+gains?\\s+\"When\\s+.+?\\s+attacks?,\\s+(?<inner>.+?)\"[.!]?$"
+    );
+
+    /**
      * Matches "Deal [N] damage to the Forward that blocks [CardName][.]"
      * Used by "is blocked" auto-abilities and action abilities that target the current combat blocker.
      * <ul>
@@ -2758,6 +2785,12 @@ public class ActionResolver {
         if (result != null) return result;
 
         result = tryParseBecomeForwardUntilEot(effectText, source);
+        if (result != null) return result;
+
+        result = tryParseForEachJobAndNameDealDamageToForwards(effectText);
+        if (result != null) return result;
+
+        result = tryParseSelfGainsWhenAttacksEOT(effectText, source);
         if (result != null) return result;
 
         result = tryParseDealDamageToForwardsForEach(effectText);
@@ -3202,6 +3235,8 @@ public class ActionResolver {
     /** Returns the name of the first pattern that matches {@code effectText}, or {@code null}. */
     public static String matchedPatternName(String effectText, CardData source) {
         if (tryParseSelectNumber(effectText, source)                    != null) return "SelectNumber";
+        if (tryParseForEachJobAndNameDealDamageToForwards(effectText)   != null) return "ForEachJobAndNameDealDamageToForwards";
+        if (tryParseSelfGainsWhenAttacksEOT(effectText, source)        != null) return "SelfGainsWhenAttacksEOT";
         if (tryParseDealDamageToForwardsForEach(effectText)             != null) return "DealDamageToForwardsForEach";
         if (tryParseDealDamageToForwards(effectText)                    != null) return "DealDamageToForwards";
         if (tryParseDealHalfPowerDamageToForwards(effectText)           != null) return "DealHalfPowerDamageToForwards";
@@ -3344,6 +3379,7 @@ public class ActionResolver {
         if (FOLLOWUP_DAMAGE_FOR_EACH.matcher(followupText).find())                    return "DamageForEach";
         if (FOLLOWUP_DULL_AND_DAMAGE.matcher(followupText).find())                   return "DullAndDamage";
         if (FOLLOWUP_FIRST_AND_OTHER.matcher(followupText).find())                    return "FirstAndOther";
+        if (FOLLOWUP_DAMAGE_AND_CONTROLLER_DAMAGE.matcher(followupText).find())       return "DamageAndControllerDamage";
         if (FOLLOWUP_DAMAGE.matcher(followupText).find())                             return "Damage";
         if (FOLLOWUP_DAMAGE_EXPR.matcher(followupText).find())                        return "DamageExpr";
         if (FOLLOWUP_ACTIVATE_AND_GAIN_CONTROL_EOT.matcher(followupText).find())        return "ActivateAndGainControlEOT";
@@ -3443,6 +3479,8 @@ public class ActionResolver {
         if (tryParseWhenYouDoSoSequence(effectText, source, 0)     != null) return "WhenYouDoSo";
         if (tryParseIfCastAtLeast(effectText, source, 0)           != null) return "IfCastAtLeast";
         if (tryParseSelectNumber(effectText, source)          != null) return "SelectNumber";
+        if (tryParseForEachJobAndNameDealDamageToForwards(effectText)   != null) return "ForEachJobAndNameDealDamageToForwards";
+        if (tryParseSelfGainsWhenAttacksEOT(effectText, source)        != null) return "SelfGainsWhenAttacksEOT";
         if (tryParseDealDamageToForwardsForEach(effectText)         != null) return "DealDamageToForwardsForEach";
         if (tryParseDealDamageToForwards(effectText)                != null) return "DealDamageToForwards";
         if (tryParseDealHalfPowerDamageToForwards(effectText)       != null) return "DealHalfPowerDamageToForwards";
@@ -3807,9 +3845,9 @@ public class ActionResolver {
 
     private static Consumer<GameContext> tryParseDealDamageToForwards(String text) {
         Matcher m = DEAL_DAMAGE_TO_FORWARDS.matcher(text);
-        if (!m.find()) {
+        if (!m.find() || m.start() != 0) {
             m = DEAL_DAMAGE_TO_FORWARDS_ALT.matcher(text);
-            if (!m.find()) return null;
+            if (!m.find() || m.start() != 0) return null;
         }
 
         int    damage        = Integer.parseInt(m.group("amount"));
@@ -3942,6 +3980,47 @@ public class ActionResolver {
                     }
                 }
             }
+        };
+    }
+
+    private static Consumer<GameContext> tryParseForEachJobAndNameDealDamageToForwards(String text) {
+        Matcher m = FOR_EACH_JOB_AND_NAME_DEAL_DAMAGE_TO_FORWARDS.matcher(text);
+        if (!m.matches()) return null;
+        String job           = m.group("job").trim();
+        String cardName      = m.group("cardname").trim();
+        int    baseDmg       = Integer.parseInt(m.group("amount"));
+        boolean opponentOnly = m.group("opponent") != null;
+        return ctx -> {
+            int count = ctx.countSelfFieldCards(true, true, true, job, null)
+                      + ctx.countSelfFieldCards(true, true, true, null, cardName);
+            int damage = baseDmg * count;
+            boolean oppIsP2 = opponentOnly && ctx.isP1();
+            boolean oppIsP1 = opponentOnly && !ctx.isP1();
+            String scopeLabel = opponentOnly ? "opponent's " : "all ";
+            ctx.logEntry("Effect: For each Job " + job + " and Card name " + cardName
+                    + " (" + count + "), deal " + damage + " damage to " + scopeLabel + "Forwards");
+            if (damage <= 0) return;
+            if (!opponentOnly || oppIsP2) {
+                for (int i = ctx.p2ForwardCount() - 1; i >= 0; i--)
+                    if (i < ctx.p2ForwardCount()) ctx.damageP2Forward(i, damage);
+            }
+            if (!opponentOnly || oppIsP1) {
+                for (int i = ctx.p1ForwardCount() - 1; i >= 0; i--)
+                    if (i < ctx.p1ForwardCount()) ctx.damageP1Forward(i, damage);
+            }
+        };
+    }
+
+    private static Consumer<GameContext> tryParseSelfGainsWhenAttacksEOT(String text, CardData source) {
+        if (source == null) return null;
+        Matcher m = SELF_GAINS_WHEN_ATTACKS_EOT.matcher(text);
+        if (!m.matches()) return null;
+        String innerText = m.group("inner").trim();
+        Consumer<GameContext> innerEffect = tryParseDealDamageToForwards(innerText);
+        if (innerEffect == null) return null;
+        return ctx -> {
+            ctx.logEntry("Effect: " + source.name() + " gains 'When attacks, [effect]' until EOT");
+            ctx.addTempAttackTrigger(source, innerEffect);
         };
     }
 
@@ -5039,6 +5118,26 @@ public class ActionResolver {
                             else              ctx.returnP2ForwardToHand(other.idx());
                         }
                     }
+                }
+                if (secondary != null) secondary.accept(ctx);
+            };
+        }
+
+        // --- Damage + controller damage followup ("Deal it N damage and M point(s) of damage to that Forward's controller") ---
+        Matcher ctrlDmgM = FOLLOWUP_DAMAGE_AND_CONTROLLER_DAMAGE.matcher(strippedPrimaryFollowup);
+        if (ctrlDmgM.find()) {
+            int damage        = Integer.parseInt(ctrlDmgM.group("amount"));
+            int controllerDmg = Integer.parseInt(ctrlDmgM.group("controllerdmg"));
+            return ctx -> {
+                ctx.logEntry(choosePrefix + " — Deal " + damage + " damage + " + controllerDmg + " to controller");
+                List<ForwardTarget> ts = selectTargets(ctx, maxCount, upTo,
+                        opponentOnly, selfOnly, condition, element, zone, opponentZone,
+                        costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters, jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, fExcludeElem, withoutMulticard);
+                sortedByIdxDesc(ts, true) .forEach(t -> ctx.damageTarget(t, damage));
+                sortedByIdxDesc(ts, false).forEach(t -> ctx.damageTarget(t, damage));
+                for (ForwardTarget t : ts) {
+                    if (t.isP1()) ctx.dealDamageToSelf(controllerDmg);
+                    else          ctx.dealDamageToOpponent(controllerDmg);
                 }
                 if (secondary != null) secondary.accept(ctx);
             };
