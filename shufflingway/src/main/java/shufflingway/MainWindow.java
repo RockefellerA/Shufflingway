@@ -8025,6 +8025,7 @@ public class MainWindow {
 		if (ability.requiresOpponentEmptyHand())          { if (!firstRestrict) restrict.append(", "); restrict.append("opp empty hand");    firstRestrict = false; }
 		if (ability.requiresElementForwardEnteredThisTurn() != null) { if (!firstRestrict) restrict.append(", "); restrict.append(ability.requiresElementForwardEnteredThisTurn()).append(" fwd entered"); firstRestrict = false; }
 		if (ability.requiresNamedCardTookDamageThisTurn() != null)  { if (!firstRestrict) restrict.append(", "); restrict.append(ability.requiresNamedCardTookDamageThisTurn()).append(" took dmg");  firstRestrict = false; }
+		if (ability.requiresSelfReceivedDamageThisTurn())           { if (!firstRestrict) restrict.append(", "); restrict.append("self rcvd dmg"); firstRestrict = false; }
 		if (restrict.length() > 0) sb.append(restrict).append(" — ");
 
 		String fx = ability.effectText();
@@ -8336,6 +8337,9 @@ public class MainWindow {
 		if (ability.requiresNamedCardTookDamageThisTurn() != null) {
 			Set<String> damaged = isP1 ? p1CardsTookDamageThisTurn : p2CardsTookDamageThisTurn;
 			if (!damaged.contains(ability.requiresNamedCardTookDamageThisTurn())) return false;
+		}
+		if (ability.requiresSelfReceivedDamageThisTurn()) {
+			if (!(isP1 ? p1ReceivedDamageThisTurn : p2ReceivedDamageThisTurn)) return false;
 		}
 		if (ability.requiresElementForwardEnteredThisTurn() != null) {
 			Set<String> entered = isP1 ? p1ElementForwardsEnteredThisTurn : p2ElementForwardsEnteredThisTurn;

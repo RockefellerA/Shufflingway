@@ -885,6 +885,7 @@ public record CardData(
             if (damageThreshold == 0 && dmgThreshM.find()) damageThreshold = Integer.parseInt(dmgThreshM.group("count"));
             Matcher namedCardDmgM = NAMED_CARD_TOOK_DAMAGE_THIS_TURN_RESTRICTION.matcher(effectRaw);
             String requiresNamedCardTookDamageThisTurn = namedCardDmgM.find() ? namedCardDmgM.group("card").trim() : null;
+            boolean requiresSelfReceivedDamageThisTurn = SELF_RECEIVED_DAMAGE_THIS_TURN_RESTRICTION.matcher(effectRaw).find();
             Matcher elemFwdM = ELEMENT_FORWARD_ENTERED_THIS_TURN_PATTERN.matcher(effectRaw);
             String  requiresElementForwardEnteredThisTurn = elemFwdM.find() ? elemFwdM.group("element").toLowerCase() : null;
             Matcher cardNameFwdM = CARD_NAME_ENTERED_THIS_TURN_PATTERN.matcher(effectRaw);
@@ -915,7 +916,7 @@ public record CardData(
             String cpBackupElement = cpBkpM.find()
                     ? (cpBkpM.group("element") != null ? cpBkpM.group("element") : "")
                     : null;
-            result.add(new ActionAbility(abilityName, requiresDull, isSpecial, crystalCost, selfMillCost, hasXCost, cpCost, breakZoneCosts, discardCosts, removeFromGameCosts, returnToHandCosts, counterCosts, dullForwardCosts, yourTurnOnly, opponentTurnOnly, oncePerTurn, mainPhaseOnly, whileCardAtk, whileCardBlk, whilePartyAtk, whileCardInHand, hasBlockingTarget, effectRaw, damageThreshold, controlCondition, cpBackupElement, sourceInBattle, requiresOppDiscardedThisTurn, requiresCastSummonThisTurn, requiresElementForwardEnteredThisTurn, requiresCardNameEnteredThisTurn, breakZoneOnly, requiresOpponentEmptyHand, requiresNamedCardTookDamageThisTurn, ownBzCard));
+            result.add(new ActionAbility(abilityName, requiresDull, isSpecial, crystalCost, selfMillCost, hasXCost, cpCost, breakZoneCosts, discardCosts, removeFromGameCosts, returnToHandCosts, counterCosts, dullForwardCosts, yourTurnOnly, opponentTurnOnly, oncePerTurn, mainPhaseOnly, whileCardAtk, whileCardBlk, whilePartyAtk, whileCardInHand, hasBlockingTarget, effectRaw, damageThreshold, controlCondition, cpBackupElement, sourceInBattle, requiresOppDiscardedThisTurn, requiresCastSummonThisTurn, requiresElementForwardEnteredThisTurn, requiresCardNameEnteredThisTurn, breakZoneOnly, requiresOpponentEmptyHand, requiresNamedCardTookDamageThisTurn, requiresSelfReceivedDamageThisTurn, ownBzCard));
         }
         return List.copyOf(result);
     }
@@ -930,7 +931,7 @@ public record CardData(
                 a.cpBackupElement(), a.sourceInBattle(), a.requiresOppDiscardedThisTurn(),
                 a.requiresCastSummonThisTurn(), a.requiresElementForwardEnteredThisTurn(),
                 a.requiresCardNameEnteredThisTurn(), a.breakZoneOnly(), a.requiresOpponentEmptyHand(),
-                a.requiresNamedCardTookDamageThisTurn(), bzCard);
+                a.requiresNamedCardTookDamageThisTurn(), a.requiresSelfReceivedDamageThisTurn(), bzCard);
     }
 
     /** Parses a "discard N [filter]" cost phrase into a {@link DiscardCost} list (0 or 1 item). */
@@ -1067,6 +1068,11 @@ public record CardData(
     /** "You can only use this ability if [CardName] has received damage this turn." */
     static final Pattern NAMED_CARD_TOOK_DAMAGE_THIS_TURN_RESTRICTION = Pattern.compile(
         "(?i)You\\s+can\\s+only\\s+use\\s+this\\s+ability\\s+if\\s+(?<card>.+?)\\s+has\\s+received\\s+damage\\s+this\\s+turn[.!]?"
+    );
+
+    /** "You can only use this ability if you have received a point of damage this turn." */
+    static final Pattern SELF_RECEIVED_DAMAGE_THIS_TURN_RESTRICTION = Pattern.compile(
+        "(?i)You\\s+can\\s+only\\s+use\\s+this\\s+ability\\s+if\\s+you\\s+have\\s+received\\s+a\\s+point\\s+of\\s+damage\\s+this\\s+turn[.!]?"
     );
 
     /** "You can only use this ability if an/a [Element] Forward has entered your field this turn." */

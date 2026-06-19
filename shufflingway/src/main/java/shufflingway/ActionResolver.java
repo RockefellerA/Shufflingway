@@ -6523,6 +6523,7 @@ public class ActionResolver {
         s = CardData.CAST_SUMMON_THIS_TURN_PATTERN .matcher(s).replaceAll("").trim();
         s = CardData.OWN_DAMAGE_THRESHOLD_RESTRICTION.matcher(s).replaceAll("").trim();
         s = CardData.NAMED_CARD_TOOK_DAMAGE_THIS_TURN_RESTRICTION.matcher(s).replaceAll("").trim();
+        s = CardData.SELF_RECEIVED_DAMAGE_THIS_TURN_RESTRICTION   .matcher(s).replaceAll("").trim();
         s = CardData.ELEMENT_FORWARD_ENTERED_THIS_TURN_PATTERN.matcher(s).replaceAll("").trim();
         s = CardData.CONTROL_IF_PATTERN            .matcher(s).replaceAll("").trim();
         s = CardData.CONTROL_IF_NOT_ANY_PATTERN        .matcher(s).replaceAll("").trim();
