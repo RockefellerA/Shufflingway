@@ -2316,7 +2316,7 @@ public class MainWindow {
 		for (CardData cd : zone) {
 			final boolean hasBzAbility = isP1 && cd.actionAbilities().stream()
 					.anyMatch(a -> a.breakZoneOnly() != null && autoAbilityTriggers.canActivateBzAbility(a, cd, true));
-			final boolean hasBzPlay    = isP1 && bzPlayableP1.containsKey(cd);
+			final boolean hasBzPlay    = isP1 && bzPlayableP1.containsKey(cd) && (!cd.isSummon() || !summonCastingProhibited());
 			final int     bzPlayCost   = hasBzPlay
 					? Math.max(0, cd.cost() - bzPlayableP1.get(cd)) : -1;
 			final boolean interactive  = hasBzAbility || hasBzPlay;
@@ -5557,7 +5557,8 @@ public class MainWindow {
 			boolean handNameConflict = handIsCharacter && !card.multicard() && hasCharacterNameOnField(card.name()) && !isMultiNameExceptionActive(card.name());
 			boolean handLightDarkConflict = handIsCharacter && isLightDarkConflict(card);
 			final boolean canPlay = handCanPlayAction && !handNameConflict && !handLightDarkConflict
-					&& canAffordCard(card, idx) && (!card.isBackup() || hasAvailableBackupSlot()) && castRestrictionMet(card);
+					&& canAffordCard(card, idx) && (!card.isBackup() || hasAvailableBackupSlot()) && castRestrictionMet(card)
+					&& (!card.isSummon() || !summonCastingProhibited());
 
 			// Load image async; bake cost pill into the image when cost differs from base
 			new SwingWorker<ImageIcon, Void>() {
@@ -5656,7 +5657,8 @@ public class MainWindow {
 		boolean nameConflict = isCharacter && !card.multicard() && hasCharacterNameOnField(card.name()) && !isMultiNameExceptionActive(card.name());
 		boolean lightDarkConflict = isCharacter && isLightDarkConflict(card);
 		playItem.setEnabled(canPlaySpecialAction && !nameConflict && !lightDarkConflict && canAffordCard(card, handIdx)
-				&& (!card.isBackup() || hasAvailableBackupSlot()) && castRestrictionMet(card));
+				&& (!card.isBackup() || hasAvailableBackupSlot()) && castRestrictionMet(card)
+				&& (!card.isSummon() || !summonCastingProhibited()));
 		playItem.addActionListener(ae -> {
 			hideZoom();
 			if (handPopup != null) { handPopup.dispose(); handPopup = null; }
@@ -5666,7 +5668,8 @@ public class MainWindow {
 
 		if (card.hasWarp()) {
 			JMenuItem warpItem = new JMenuItem("Play (Warp " + card.warpValue() + ")");
-			warpItem.setEnabled(canPlaySpecialAction && canAffordWarpCost(card, handIdx) && castRestrictionMet(card));
+			warpItem.setEnabled(canPlaySpecialAction && canAffordWarpCost(card, handIdx) && castRestrictionMet(card)
+					&& (!card.isSummon() || !summonCastingProhibited()));
 			warpItem.addActionListener(ae -> {
 				hideZoom();
 				if (handPopup != null) { handPopup.dispose(); handPopup = null; }
@@ -6421,6 +6424,18 @@ public class MainWindow {
 	 * {@code excludeHandIdx} is the index of the card being played (not available
 	 * for discard).
 	 */
+	/**
+	 * Returns {@code true} if any card currently on the field has a
+	 * "Players cannot cast Summons." field ability — prohibiting Summon casting for both players.
+	 */
+	private boolean summonCastingProhibited() {
+		for (CardData c : p1ForwardCards) if (c != null && ActionResolver.hasPlayerCannotCastSummonsFieldAbility(c)) return true;
+		for (CardData c : p1BackupCards)  if (c != null && ActionResolver.hasPlayerCannotCastSummonsFieldAbility(c)) return true;
+		for (CardData c : p2ForwardCards) if (c != null && ActionResolver.hasPlayerCannotCastSummonsFieldAbility(c)) return true;
+		for (CardData c : p2BackupCards)  if (c != null && ActionResolver.hasPlayerCannotCastSummonsFieldAbility(c)) return true;
+		return false;
+	}
+
 	/**
 	 * Returns {@code true} if the card's "You can only cast X …" restriction (if any) is
 	 * satisfied by the current game state from P1's perspective.

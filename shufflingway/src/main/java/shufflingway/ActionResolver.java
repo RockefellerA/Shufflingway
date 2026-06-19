@@ -1209,6 +1209,14 @@ public class ActionResolver {
         "(?<scope>Summons?(?:\\s+or\\s+abilities)?|abilities)\\s*\\.?"
     );
 
+    /**
+     * "Players cannot cast Summons." — global static restriction while this card is on the field.
+     * Both players are prevented from casting Summons from hand or break zone.
+     */
+    private static final Pattern PLAYERS_CANNOT_CAST_SUMMONS = Pattern.compile(
+        "(?i)^Players?\\s+cannot\\s+cast\\s+Summons?\\.?$"
+    );
+
     // ---- Standalone damage-shield patterns (apply globally or to a named card) --------
 
     /** "Negate all [the] damage dealt to all the Forwards/Characters you control." */
@@ -2844,6 +2852,9 @@ public class ActionResolver {
         result = tryParseDelayedEffect(effectText);
         if (result != null) return result;
 
+        result = tryParsePlayerCannotCastSummons(effectText);
+        if (result != null) return result;
+
         result = tryParseCannotBeChosenStandalone(effectText, source);
         if (result != null) return result;
 
@@ -3252,6 +3263,7 @@ public class ActionResolver {
         if (tryParseEndOfEachTurnFieldAbility(effectText, source) != null) return "EndOfEachTurnFieldAbility";
         if (tryParseElementChange(effectText, source) != null) return "ElementChange";
         if (tryParseDelayedEffect(effectText)                 != null) return "DelayedEffect";
+        if (tryParsePlayerCannotCastSummons(effectText)                != null) return "PlayerCannotCastSummons";
         if (tryParseCannotBeChosenStandalone(effectText, source) != null) return "CannotBeChosen";
         if (tryParseStandaloneCannotAttackOrBlock(effectText, source) != null) return "CannotAttackOrBlock";
         if (tryParseNegateAllDamage(effectText)                != null) return "NegateDamage";
@@ -3557,6 +3569,7 @@ public class ActionResolver {
             return sb.toString();
         }
 
+        if (tryParsePlayerCannotCastSummons(effectText)                != null) return "PlayerCannotCastSummons";
         if (tryParseCannotBeChosenStandalone(effectText, source) != null)       return "CannotBeChosen";
         if (tryParseStandaloneCannotAttackOrBlock(effectText, source) != null) return "CannotAttackOrBlock";
         if (tryParseNegateAllDamage(effectText) != null)                       return "NegateDamage";
@@ -8522,6 +8535,26 @@ public class ActionResolver {
                 return ctx -> ctx.logEntry(subject + " — cannot attack or block if " + counterName + " Counters ≤ " + limit);
         }
         return null;
+    }
+
+    /**
+     * Recognizes "Players cannot cast Summons." as a known passive field ability.
+     * Returns a no-op consumer (the restriction is enforced statically by {@link MainWindow}).
+     */
+    private static Consumer<GameContext> tryParsePlayerCannotCastSummons(String text) {
+        if (!PLAYERS_CANNOT_CAST_SUMMONS.matcher(text.trim()).matches()) return null;
+        return ctx -> ctx.logEntry("Static: Players cannot cast Summons");
+    }
+
+    /**
+     * Returns {@code true} if the given card has a "Players cannot cast Summons." field ability,
+     * meaning all Summon casting (hand or break zone) is prohibited while it is on the field.
+     */
+    public static boolean hasPlayerCannotCastSummonsFieldAbility(CardData card) {
+        for (FieldAbility fa : card.fieldAbilities()) {
+            if (PLAYERS_CANNOT_CAST_SUMMONS.matcher(fa.effectText().trim()).matches()) return true;
+        }
+        return false;
     }
 
     /**
