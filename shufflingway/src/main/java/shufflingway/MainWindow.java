@@ -363,6 +363,7 @@ public class MainWindow {
 	final Map<CardData, Integer> nextIncomingDmgReduceMap      = new HashMap<>();
 	final Map<CardData, Integer> nextAbilityDmgReduceMap       = new HashMap<>();
 	final Map<CardData, Integer> incomingDmgIncreaseMap   = new HashMap<>();
+	int globalForwardIncomingDmgIncrease = 0; // flat increase applied to ALL Forwards' incoming damage this turn
 	final Set<CardData>          nullifyAbilityDmgSet     = new HashSet<>();
 	final Set<CardData>          nullifyAbilityOnlyDmgSet = new HashSet<>();
 	final Set<CardData>          nextOutgoingDmgZeroSet      = new HashSet<>();
@@ -1793,7 +1794,7 @@ public class MainWindow {
                                 p1TempAttackTriggers.clear();           p2TempAttackTriggers.clear();
                                 p1TempBlockTriggers.clear();            p2TempBlockTriggers.clear();
                                 nextIncomingDmgZeroSet.clear();   nextIncomingDmgReduceMap.clear();   nextAbilityDmgReduceMap.clear();
-                                incomingDmgIncreaseMap.clear();   nullifyAbilityDmgSet.clear();
+                                incomingDmgIncreaseMap.clear();   globalForwardIncomingDmgIncrease = 0;   nullifyAbilityDmgSet.clear();
                                 nullifyAbilityOnlyDmgSet.clear(); perCardNonLethalDmgSet.clear();
                                 nextOutgoingDmgZeroSet.clear();    outgoingDmgMultiplierMap.clear();
                                 nextOutgoingDmgDoublerSet.clear(); outgoingDmgFlatBoostMap.clear();
@@ -8784,6 +8785,8 @@ public class MainWindow {
 		// Incoming damage increase (debuff) — applied regardless of reduction-disabled flag
 		if (incomingDmgIncreaseMap.containsKey(card))
 			amount += incomingDmgIncreaseMap.get(card);
+		if (globalForwardIncomingDmgIncrease > 0)
+			amount += globalForwardIncomingDmgIncrease;
 
 		// Source-based nullification (these block damage by type of source, not by reducing amount)
 		if (fromAbility) {

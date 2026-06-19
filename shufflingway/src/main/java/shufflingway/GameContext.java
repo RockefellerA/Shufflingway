@@ -307,6 +307,13 @@ public interface GameContext {
      */
     void doubleOpponentForwardIncomingDamage();
 
+    /**
+     * Until end of turn, any Forward that receives damage takes {@code amount} additional damage.
+     * Applies globally to all Forwards on the field regardless of controller.
+     * Stacks additively with itself.
+     */
+    void increaseAllForwardIncomingDamage(int amount);
+
     /** Sets the target back to Active state and refreshes its slot. */
     void activateTarget(ForwardTarget t);
 
@@ -829,6 +836,12 @@ public interface GameContext {
      * places them in the permanent RFP zone.  Neither player chooses — selected at random.
      */
     void forceOpponentRandomHandRfp(int count);
+
+    /**
+     * Randomly takes {@code count} cards from the ability-user's opponent's hand and
+     * places them at the bottom of their deck.  Neither player chooses — selected at random.
+     */
+    void forceOpponentRandomHandToBottomOfDeck(int count);
 
     /**
      * Reveals the ability-user's opponent's hand, then lets the ability user select

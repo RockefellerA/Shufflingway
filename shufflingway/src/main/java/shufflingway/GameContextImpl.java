@@ -159,6 +159,10 @@ final class GameContextImpl implements GameContext {
 					logEntry("Opponent's Forwards — incoming damage ×" + mw.p1ForwardIncomingDmgMult + " until end of turn");
 				}
 			}
+			@Override public void increaseAllForwardIncomingDamage(int amount) {
+				mw.globalForwardIncomingDmgIncrease += amount;
+				logEntry("All Forwards — incoming damage +" + amount + " until end of turn (total +" + mw.globalForwardIncomingDmgIncrease + ")");
+			}
 			@Override public void doubleForwardIncomingDamageThisTurn(ForwardTarget t) {
 				CardData card = mw.autoAbilityTriggers.fieldCardData(t);
 				if (card == null) return;
@@ -2422,6 +2426,36 @@ final class GameContextImpl implements GameContext {
 					}
 					mw.refreshP1HandLabel();
 					mw.refreshP1WarpZoneUI();
+				}
+			}
+
+			@Override public void forceOpponentRandomHandToBottomOfDeck(int count) {
+				if (isP1) {
+					List<CardData> hand = mw.gameState.getP2Hand();
+					int actual = Math.min(count, hand.size());
+					for (int i = 0; i < actual; i++) {
+						if (hand.isEmpty()) break;
+						int idx = (int) (Math.random() * hand.size());
+						CardData d = hand.remove(idx);
+						mw.gameState.getP2MainDeck().addLast(d);
+						logEntry("[P2] Randomly placed " + d.name() + " at bottom of deck");
+					}
+					mw.refreshP2HandCountLabel();
+					mw.refreshP2DeckLabel();
+				} else {
+					List<CardData> hand = mw.gameState.getP1Hand();
+					int actual = Math.min(count, hand.size());
+					for (int i = 0; i < actual; i++) {
+						if (hand.isEmpty()) break;
+						int idx = (int) (Math.random() * hand.size());
+						CardData d = mw.gameState.removeFromHand(idx);
+						if (d != null) {
+							mw.gameState.getP1MainDeck().addLast(d);
+							logEntry("[P1] Randomly placed " + d.name() + " at bottom of deck");
+						}
+					}
+					mw.refreshP1HandLabel();
+					mw.refreshP1DeckLabel();
 				}
 			}
 

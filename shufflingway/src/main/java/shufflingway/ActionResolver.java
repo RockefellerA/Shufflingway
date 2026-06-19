@@ -407,6 +407,15 @@ public class ActionResolver {
     );
 
     /**
+     * Matches "Your opponent randomly places N card(s) from their hand at the bottom of their deck."
+     * Group 1 — count.
+     */
+    private static final Pattern OPPONENT_RANDOM_HAND_TO_BOTTOM_DECK = Pattern.compile(
+        "(?i)Your\\s+opponent\\s+randomly\\s+places?\\s+(\\d+)\\s+cards?\\s+from\\s+" +
+        "(?:his/her|his|her|their)\\s+hand\\s+at\\s+the\\s+bottom\\s+of\\s+(?:his/her|his|her|their)\\s+deck[.!]?"
+    );
+
+    /**
      * Matches the style "reveal and select from hand to remove from game":
      * "Your opponent reveals their hand. Select N card(s) in their hand.
      *  Your opponent removes it/them from the game."
@@ -1741,6 +1750,13 @@ public class ActionResolver {
     );
 
     /**
+     * Matches "If a Forward receives damage this turn, the damage increases by N instead."
+     */
+    private static final Pattern ALL_FORWARD_INCOMING_DMG_INCREASE_THIS_TURN = Pattern.compile(
+        "(?i)If\\s+a\\s+Forward\\s+receives\\s+damage\\s+this\\s+turn,\\s+the\\s+damage\\s+increases?\\s+by\\s+(?<amount>\\d+)(?:\\s+instead)?[.!]?"
+    );
+
+    /**
      * Matches "If [subject] deals damage to a Forward this turn, double the damage instead."
      * (Ninja-style variant — "this turn" appears at the end rather than "During this turn" at the start.)
      */
@@ -2927,6 +2943,9 @@ public class ActionResolver {
         result = tryParseDoubleOpponentIncomingDamageThisTurn(effectText);
         if (result != null) return result;
 
+        result = tryParseAllForwardIncomingDmgIncreaseThisTurn(effectText);
+        if (result != null) return result;
+
         result = tryParseChooseForwardDoubleIncomingThisTurn(effectText);
         if (result != null) return result;
 
@@ -2958,6 +2977,9 @@ public class ActionResolver {
         if (result != null) return result;
 
         result = tryParseOpponentRandomHandRfp(effectText);
+        if (result != null) return result;
+
+        result = tryParseOpponentRandomHandToBottomDeck(effectText);
         if (result != null) return result;
 
         result = tryParseOpponentHandRfp(effectText);
@@ -3285,6 +3307,7 @@ public class ActionResolver {
         if (tryParseDoubleOutgoingDamageThisTurn(effectText, source) != null)    return "DoubleOutgoingDamageThisTurn";
         if (tryParseDoubleOutgoingDamageThisTurnAlt(effectText, source) != null) return "DoubleOutgoingDamageThisTurnAlt";
         if (tryParseDoubleOpponentIncomingDamageThisTurn(effectText) != null)   return "DoubleOpponentIncomingDamageThisTurn";
+        if (tryParseAllForwardIncomingDmgIncreaseThisTurn(effectText) != null)  return "AllForwardIncomingDmgIncreaseThisTurn";
         if (tryParseChooseForwardDoubleIncomingThisTurn(effectText) != null)    return "ChooseForwardDoubleIncomingThisTurn";
         if (tryParseChooseForwardDoubleNextOutgoing(effectText) != null)        return "ChooseForwardDoubleNextOutgoing";
         if (tryParseDoublePlayerAbilityOutgoingThisTurn(effectText) != null)   return "DoublePlayerAbilityOutgoingThisTurn";
@@ -3295,7 +3318,8 @@ public class ActionResolver {
         if (tryParseAllForwardsCannotBlock(effectText)             != null) return "AllForwardsCannotBlock";
         if (tryParseStandaloneCannotBeBlocked(effectText, source) != null) return "StandaloneCannotBeBlocked";
         if (tryParseRevealSelectHandRfp(effectText)            != null) return "RevealSelectHandRfp";
-        if (tryParseOpponentRandomHandRfp(effectText)         != null) return "OpponentRandomHandRfp";
+        if (tryParseOpponentRandomHandRfp(effectText)            != null) return "OpponentRandomHandRfp";
+        if (tryParseOpponentRandomHandToBottomDeck(effectText)   != null) return "OpponentRandomHandToBottomDeck";
         if (tryParseOpponentHandRfp(effectText)               != null) return "OpponentHandRfp";
         if (tryParseRemoveNamedFromGame(effectText, source)   != null) return "RemoveNamedFromGame";
         if (tryParseBreakSourceCard(effectText, source)        != null) return "BreakSourceCard";
@@ -3502,6 +3526,7 @@ public class ActionResolver {
         if (MAY_COST_REPLAY_ABILITY.matcher(effectText).find())               return "MayReplayAbility";
 
         String normalizedEffectText = ELEM_TYPE_OR_ELEM_TYPE.matcher(effectText).replaceAll("$1 or $3 $2");
+        String escapedEffectText = escapePeriodInName(normalizedEffectText, source);
         Matcher oneEachM = CHOOSE_ONE_EACH_PATTERN.matcher(normalizedEffectText);
         if (oneEachM.find()) {
             String followupName = matchedFollowupName(oneEachM.group("followup").trim(), source);
@@ -3521,9 +3546,9 @@ public class ActionResolver {
             String followupName = matchedFollowupName(mixedM.group("followup").trim(), source);
             return "ChooseTwoMixedTypes / " + (followupName != null ? followupName : "?");
         }
-        Matcher chooseM = CHOOSE_CHARACTER_PATTERN.matcher(normalizedEffectText);
+        Matcher chooseM = CHOOSE_CHARACTER_PATTERN.matcher(escapedEffectText);
         if (chooseM.find()) {
-            String followup      = chooseM.group("followup").trim();
+            String followup      = restorePeriodInName(chooseM.group("followup").trim(), source);
             // Check damage-instead on the full followup before the ". " split eats the condition clause.
             // This mirrors what tryParseChooseAndFollowup does.
             Matcher insteadM = FOLLOWUP_DAMAGE_INSTEAD.matcher(followup);
@@ -3605,6 +3630,7 @@ public class ActionResolver {
         if (tryParseDoubleOutgoingDamageThisTurn(effectText, source) != null)    return "DoubleOutgoingDamageThisTurn";
         if (tryParseDoubleOutgoingDamageThisTurnAlt(effectText, source) != null) return "DoubleOutgoingDamageThisTurnAlt";
         if (tryParseDoubleOpponentIncomingDamageThisTurn(effectText) != null)   return "DoubleOpponentIncomingDamageThisTurn";
+        if (tryParseAllForwardIncomingDmgIncreaseThisTurn(effectText) != null)  return "AllForwardIncomingDmgIncreaseThisTurn";
         if (tryParseChooseForwardDoubleIncomingThisTurn(effectText) != null)    return "ChooseForwardDoubleIncomingThisTurn";
         if (tryParseChooseForwardDoubleNextOutgoing(effectText) != null)        return "ChooseForwardDoubleNextOutgoing";
         if (tryParseDoublePlayerAbilityOutgoingThisTurn(effectText) != null)   return "DoublePlayerAbilityOutgoingThisTurn";
@@ -3615,7 +3641,8 @@ public class ActionResolver {
         if (tryParseAllForwardsCannotBlock(effectText)             != null) return "AllForwardsCannotBlock";
         if (tryParseStandaloneCannotBeBlocked(effectText, source) != null) return "StandaloneCannotBeBlocked";
         if (tryParseRevealSelectHandRfp(effectText) != null)               return "RevealSelectHandRfp";
-        if (tryParseOpponentRandomHandRfp(effectText) != null)             return "OpponentRandomHandRfp";
+        if (tryParseOpponentRandomHandRfp(effectText) != null)              return "OpponentRandomHandRfp";
+        if (tryParseOpponentRandomHandToBottomDeck(effectText) != null)     return "OpponentRandomHandToBottomDeck";
         if (tryParseOpponentHandRfp(effectText) != null)                   return "OpponentHandRfp";
         if (tryParseRevealTopNTypeCostToHand(effectText)   != null)           return "RevealTopNTypeCostToHand";
         if (tryParseRevealTopNTypeToHand(effectText)       != null)           return "RevealTopNTypeToHand";
@@ -4595,6 +4622,7 @@ public class ActionResolver {
 
     private static Consumer<GameContext> tryParseChooseCharacter(String text, CardData source, int xValue) {
         text = ELEM_TYPE_OR_ELEM_TYPE.matcher(text).replaceAll("$1 or $3 $2");
+        text = escapePeriodInName(text, source);
         Matcher m = CHOOSE_CHARACTER_PATTERN.matcher(text);
         if (!m.find()) return null;
 
@@ -4688,7 +4716,7 @@ public class ActionResolver {
         }
         boolean inclSummons  = tgtLower.contains("summon");
         String  categoryFilter = m.group("category");
-        String  excludeName      = m.group("excludename");
+        String  excludeName      = restorePeriodInName(m.group("excludename") != null ? m.group("excludename").trim() : null, source);
         String  rawExcludeKw     = m.group("excludekw");
         boolean withoutMulticard = "Multicard".equalsIgnoreCase(rawExcludeKw != null ? rawExcludeKw.trim() : null);
         String  rawExcludeElem = m.group("excludeelem");
@@ -4717,7 +4745,7 @@ public class ActionResolver {
         String  zone         = m.group("zone");
         boolean opponentZone = zone != null && zone.toLowerCase().contains("opponent");
 
-        String  followup     = m.group("followup").trim();
+        String  followup     = restorePeriodInName(m.group("followup").trim(), source);
         boolean unreduced    = CANNOT_BE_REDUCED_PATTERN.matcher(followup).find();
 
         // If the followup contains ". " (sentence boundary), split into a primary effect
@@ -6456,6 +6484,23 @@ public class ActionResolver {
 
     /** Returns a human-readable list of trait names, e.g. {@code "First Strike and Brave"}, or {@code ""}. */
     /**
+     * Replaces literal periods in {@code source}'s name with the middle-dot character (·) so that
+     * lazy regex quantifiers inside CHOOSE_CHARACTER_PATTERN do not mistake a mid-name period-space
+     * sequence (e.g. "Dr. Mog") for the sentence delimiter ". ".  Restore with
+     * {@link #restorePeriodInName}.
+     */
+    private static String escapePeriodInName(String text, CardData source) {
+        if (source == null || !source.name().contains(".")) return text;
+        return text.replace(source.name(), source.name().replace('.', '·'));
+    }
+
+    /** Inverse of {@link #escapePeriodInName}: restores middle-dots back to periods. */
+    private static String restorePeriodInName(String text, CardData source) {
+        if (source == null || !source.name().contains(".")) return text;
+        return text.replace(source.name().replace('.', '·'), source.name());
+    }
+
+    /**
      * Removes any trailing/embedded restriction-only sentences already captured as boolean flags
      * (once-per-turn, main-phase-only, your-turn-only, while-attacking, etc.) from {@code text},
      * then strips leftover leading/trailing punctuation.  Returns an empty string if nothing
@@ -6707,6 +6752,13 @@ public class ActionResolver {
     private static Consumer<GameContext> tryParseDoubleOpponentIncomingDamageThisTurn(String text) {
         if (!DOUBLE_OPPONENT_INCOMING_DAMAGE_THIS_TURN.matcher(text).find()) return null;
         return ctx -> ctx.doubleOpponentForwardIncomingDamage();
+    }
+
+    private static Consumer<GameContext> tryParseAllForwardIncomingDmgIncreaseThisTurn(String text) {
+        Matcher m = ALL_FORWARD_INCOMING_DMG_INCREASE_THIS_TURN.matcher(text);
+        if (!m.find()) return null;
+        int amount = Integer.parseInt(m.group("amount"));
+        return ctx -> ctx.increaseAllForwardIncomingDamage(amount);
     }
 
     private static Consumer<GameContext> tryParseDoubleOutgoingDamageThisTurnAlt(String text, CardData source) {
@@ -7301,6 +7353,17 @@ public class ActionResolver {
         return ctx -> {
             ctx.logEntry("Effect: Opponent randomly removes " + count + " hand card(s) from the game");
             ctx.forceOpponentRandomHandRfp(count);
+        };
+    }
+
+    /** Parses "Your opponent randomly places N card(s) from their hand at the bottom of their deck." */
+    private static Consumer<GameContext> tryParseOpponentRandomHandToBottomDeck(String text) {
+        Matcher m = OPPONENT_RANDOM_HAND_TO_BOTTOM_DECK.matcher(text);
+        if (!m.find()) return null;
+        int count = Integer.parseInt(m.group(1));
+        return ctx -> {
+            ctx.logEntry("Effect: Opponent randomly places " + count + " hand card(s) at bottom of their deck");
+            ctx.forceOpponentRandomHandToBottomOfDeck(count);
         };
     }
 

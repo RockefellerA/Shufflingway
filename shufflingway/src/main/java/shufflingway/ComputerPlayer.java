@@ -467,7 +467,7 @@ class ComputerPlayer {
 		mw.p1TempAttackTriggers.clear();           mw.p2TempAttackTriggers.clear();
 		mw.p1TempBlockTriggers.clear();            mw.p2TempBlockTriggers.clear();
 		mw.nextIncomingDmgZeroSet.clear();   mw.nextIncomingDmgReduceMap.clear();   mw.nextAbilityDmgReduceMap.clear();
-		mw.incomingDmgIncreaseMap.clear();   mw.nullifyAbilityDmgSet.clear();
+		mw.incomingDmgIncreaseMap.clear();   mw.globalForwardIncomingDmgIncrease = 0;   mw.nullifyAbilityDmgSet.clear();
 		mw.nullifyAbilityOnlyDmgSet.clear(); mw.perCardNonLethalDmgSet.clear();
 		mw.cannotBeChosenByElement.clear();  mw.nullifyElementDamageMap.clear();
 		mw.nextOutgoingDmgZeroSet.clear();    mw.outgoingDmgMultiplierMap.clear();
