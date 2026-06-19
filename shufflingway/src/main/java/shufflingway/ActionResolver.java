@@ -576,9 +576,26 @@ public class ActionResolver {
         "\\s+this\\s+turn\\.?"
     );
 
+    /**
+     * Matches "It can only be blocked by a Forward of cost equal or inferior to its own this turn."
+     */
+    private static final Pattern FOLLOWUP_ONLY_BLOCKED_BY_COST_LE_OWN = Pattern.compile(
+        "(?i)it\\s+can\\s+only\\s+be\\s+blocked\\s+by\\s+a\\s+Forward\\s+of\\s+cost\\s+" +
+        "(?:equal\\s+or\\s+inferior\\s+to|inferior\\s+or\\s+equal\\s+to|equal\\s+to\\s+or\\s+less\\s+than)\\s+" +
+        "its\\s+own\\s+this\\s+turn[.!]?"
+    );
+
     /** Matches "All Forwards cannot block this turn." — global block-prevention. */
     private static final Pattern STANDALONE_ALL_FORWARDS_CANNOT_BLOCK = Pattern.compile(
         "(?i)All\\s+Forwards?\\s+cannot\\s+block\\s+this\\s+turn[.!]?"
+    );
+
+    /**
+     * Matches "All the Forwards opponent controls cannot block Forwards with a power inferior to their own this turn."
+     */
+    private static final Pattern OPP_FWDS_CANNOT_BLOCK_INFERIOR_POWER_THIS_TURN = Pattern.compile(
+        "(?i)All\\s+(?:the\\s+)?Forwards?\\s+(?:(?:your\\s+)?opponent\\s+controls?)\\s+" +
+        "cannot\\s+block\\s+Forwards?\\s+with\\s+a\\s+power\\s+inferior\\s+to\\s+their\\s+own\\s+this\\s+turn[.!]?"
     );
 
     /** Matches "[CardName] cannot be blocked this turn." — self-referential standalone form. */
@@ -3028,6 +3045,9 @@ public class ActionResolver {
         result = tryParseAllForwardsCannotBlock(effectText);
         if (result != null) return result;
 
+        result = tryParseOppFwdsCannotBlockInferiorPower(effectText);
+        if (result != null) return result;
+
         result = tryParseStandaloneCannotBeBlocked(effectText, source);
         if (result != null) return result;
 
@@ -3378,6 +3398,7 @@ public class ActionResolver {
         if (tryParseStandaloneSelfDullAndShield(effectText, source) != null) return "StandaloneSelfDullAndShield";
         if (tryParseStandaloneShieldCannotBeBroken(effectText, source) != null) return "StandaloneShieldCannotBeBroken";
         if (tryParseAllForwardsCannotBlock(effectText)             != null) return "AllForwardsCannotBlock";
+        if (tryParseOppFwdsCannotBlockInferiorPower(effectText)    != null) return "OppFwdsCannotBlockInferiorPower";
         if (tryParseStandaloneCannotBeBlocked(effectText, source) != null) return "StandaloneCannotBeBlocked";
         if (tryParseRevealSelectHandRfp(effectText)            != null) return "RevealSelectHandRfp";
         if (tryParseOpponentRandomHandRfp(effectText)            != null) return "OpponentRandomHandRfp";
@@ -3705,6 +3726,7 @@ public class ActionResolver {
         if (tryParseStandaloneSelfDullAndShield(effectText, source) != null) return "StandaloneSelfDullAndShield";
         if (tryParseStandaloneShieldCannotBeBroken(effectText, source) != null) return "StandaloneShieldCannotBeBroken";
         if (tryParseAllForwardsCannotBlock(effectText)             != null) return "AllForwardsCannotBlock";
+        if (tryParseOppFwdsCannotBlockInferiorPower(effectText)    != null) return "OppFwdsCannotBlockInferiorPower";
         if (tryParseStandaloneCannotBeBlocked(effectText, source) != null) return "StandaloneCannotBeBlocked";
         if (tryParseRevealSelectHandRfp(effectText) != null)               return "RevealSelectHandRfp";
         if (tryParseOpponentRandomHandRfp(effectText) != null)              return "OpponentRandomHandRfp";
@@ -5933,6 +5955,23 @@ public class ActionResolver {
             };
         }
 
+        // --- Only blocked by Forward of cost ≤ own cost followup ---
+        if (FOLLOWUP_ONLY_BLOCKED_BY_COST_LE_OWN.matcher(primaryFollowup).find()) {
+            return ctx -> {
+                ctx.logEntry(choosePrefix + " — Can only be blocked by a Forward of cost ≤ its own this turn");
+                List<ForwardTarget> ts = selectTargets(ctx, maxCount, upTo,
+                        opponentOnly, selfOnly, condition, element, zone, opponentZone,
+                        costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters, jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, fExcludeElem, withoutMulticard);
+                for (ForwardTarget t : ts) {
+                    if (t.zone() != ForwardTarget.CardZone.FORWARD) continue;
+                    int ownCost = (t.isP1() ? ctx.p1Forward(t.idx()) : ctx.p2Forward(t.idx())).cost();
+                    if (t.isP1()) ctx.setP1ForwardCannotBeBlockedByCost(t.idx(), ownCost + 1, true);
+                    else          ctx.setP2ForwardCannotBeBlockedByCost(t.idx(), ownCost + 1, true);
+                }
+                if (secondary != null) secondary.accept(ctx);
+            };
+        }
+
         // --- Cannot be blocked if element CP was paid followup ---
         if (FOLLOWUP_CANNOT_BE_BLOCKED_IF_ELEMENT_CP.matcher(primaryFollowup).find()) {
             Matcher bm = FOLLOWUP_CANNOT_BE_BLOCKED_IF_ELEMENT_CP.matcher(primaryFollowup);
@@ -7045,6 +7084,11 @@ public class ActionResolver {
             for (int i = 0; i < ctx.p1ForwardCount(); i++) ctx.setP1ForwardCannotBlock(i);
             for (int i = 0; i < ctx.p2ForwardCount(); i++) ctx.setP2ForwardCannotBlock(i);
         };
+    }
+
+    private static Consumer<GameContext> tryParseOppFwdsCannotBlockInferiorPower(String text) {
+        if (!OPP_FWDS_CANNOT_BLOCK_INFERIOR_POWER_THIS_TURN.matcher(text).matches()) return null;
+        return ctx -> ctx.setOppForwardsCannotBlockInferiorPowerThisTurn();
     }
 
     private static Consumer<GameContext> tryParseStandaloneCannotBeBlocked(String text, CardData source) {

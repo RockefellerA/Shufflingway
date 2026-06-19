@@ -804,6 +804,11 @@ final class GameContextImpl implements GameContext {
 				if (idx >= 0 && idx < mw.p2ForwardCards.size())
 					mw.p2ForwardCannotBeBlockedByCost.put(idx, new int[]{costVal, isMore ? 1 : 0});
 			}
+			@Override public void setOppForwardsCannotBlockInferiorPowerThisTurn() {
+				if (isP1()) mw.p2ForwardCannotBlockInferiorPower = true;
+				else        mw.p1ForwardCannotBlockInferiorPower = true;
+				logEntry("Effect: Opponent Forwards cannot block Forwards with power inferior to their own this turn");
+			}
 			@Override public boolean wasElementCpPaid(String element) {
 				return element != null && mw.lastCastPaymentElements.stream()
 						.anyMatch(e -> e.equalsIgnoreCase(element));

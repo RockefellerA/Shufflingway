@@ -378,6 +378,8 @@ public class MainWindow {
 	final Set<CardData>          perCardNonLethalDmgSet      = new HashSet<>();
 	boolean p1ReceivedDamageThisTurn = false;
 	boolean p2ReceivedDamageThisTurn = false;
+	boolean p1ForwardCannotBlockInferiorPower = false; // set by P2 action: P1 Forwards cannot block targets with power < their own
+	boolean p2ForwardCannotBlockInferiorPower = false; // set by P1 action: P2 Forwards cannot block targets with power < their own
 	int     p1CardsCastThisTurn          = 0;
 	boolean p1SummonCastThisTurn         = false;
 	final Set<String> p1CastJobsThisTurn  = new HashSet<>();
@@ -1807,6 +1809,7 @@ public class MainWindow {
                                 cannotBeBrokenSet.clear();        cannotBeBrokenByNonDmgSet.clear();  breaktouchBattleSet.clear();
                                 p1NonLethalProtection = false;    p2NonLethalProtection = false;
                                 p1DmgReductionDisabled = false;   p2DmgReductionDisabled = false;
+                                p1ForwardCannotBlockInferiorPower = false; p2ForwardCannotBlockInferiorPower = false;
                                 p1GlobalDmgReduction  = 0;        p2GlobalDmgReduction  = 0;
                                 opponentAttackDeclarationLimit = Integer.MAX_VALUE; p2AttackDeclarationsThisTurn = 0;
                                 p1AttackDeclarationLimit = Integer.MAX_VALUE;       p1AttackDeclarationsThisTurn = 0;
@@ -4138,18 +4141,24 @@ public class MainWindow {
 			if (p2ForwardStates.get(i) != CardState.ACTIVE) continue;
 			if (p1AttackerIdx >= 0 && p1AttackerCostFiltersExclude(p1AttackerIdx, p2ForwardCards.get(i).cost())) continue;
 			if (p1AttackerHigherPower && fieldForwardPower(false, ForwardTarget.CardZone.FORWARD, i) > p1AttackerPower) continue;
+			if (p2ForwardCannotBlockInferiorPower && p1AttackerIdx >= 0 &&
+				fieldForwardPower(false, ForwardTarget.CardZone.FORWARD, i) > fieldForwardPower(true, ForwardTarget.CardZone.FORWARD, p1AttackerIdx)) continue;
 			cands.add(new ForwardTarget(false, i, ForwardTarget.CardZone.FORWARD));
 		}
 		for (int i = 0; i < p2MonsterCards.size(); i++) {
 			if (!p2MonsterCanBlockAsForward(i)) continue;
 			if (p1AttackerIdx >= 0 && p1AttackerCostFiltersExclude(p1AttackerIdx, p2MonsterCards.get(i).cost())) continue;
 			if (p1AttackerHigherPower && fieldForwardPower(false, ForwardTarget.CardZone.MONSTER, i) > p1AttackerPower) continue;
+			if (p2ForwardCannotBlockInferiorPower && p1AttackerIdx >= 0 &&
+				fieldForwardPower(false, ForwardTarget.CardZone.MONSTER, i) > fieldForwardPower(true, ForwardTarget.CardZone.FORWARD, p1AttackerIdx)) continue;
 			cands.add(new ForwardTarget(false, i, ForwardTarget.CardZone.MONSTER));
 		}
 		for (int i = 0; i < p2BackupCards.length; i++) {
 			if (!p2BackupCanBlockAsForward(i)) continue;
 			if (p1AttackerIdx >= 0 && p1AttackerCostFiltersExclude(p1AttackerIdx, p2BackupCards[i].cost())) continue;
 			if (p1AttackerHigherPower && fieldForwardPower(false, ForwardTarget.CardZone.BACKUP, i) > p1AttackerPower) continue;
+			if (p2ForwardCannotBlockInferiorPower && p1AttackerIdx >= 0 &&
+				fieldForwardPower(false, ForwardTarget.CardZone.BACKUP, i) > fieldForwardPower(true, ForwardTarget.CardZone.FORWARD, p1AttackerIdx)) continue;
 			cands.add(new ForwardTarget(false, i, ForwardTarget.CardZone.BACKUP));
 		}
 
@@ -9929,6 +9938,7 @@ public class MainWindow {
 		if (isFieldAbilityCannotAttackOrBlock(blocker, true)) return false;
 		if (blocker.cannotBlockParty() && pendingP2PartyIndices != null) return false;
 		if (blocker.cannotBlockHigherPower() && attackerPowerExceedsBlocker(ForwardTarget.CardZone.FORWARD, idx)) return false;
+		if (p1ForwardCannotBlockInferiorPower && blockerPowerExceedsAttacker(ForwardTarget.CardZone.FORWARD, idx)) return false;
 		// Check attacker-side unblockability
 		if (p2ForwardCannotBeBlocked.contains(pendingP2AttackerIdx)) return false;
 		if (attackerConditionallyUnblockable()) return false;
@@ -10166,6 +10176,7 @@ public class MainWindow {
 		if (isFieldAbilityCannotAttackOrBlock(monsterBlocker, true)) return false;
 		if (monsterBlocker.cannotBlockParty() && pendingP2PartyIndices != null) return false;
 		if (monsterBlocker.cannotBlockHigherPower() && attackerPowerExceedsBlocker(ForwardTarget.CardZone.MONSTER, idx)) return false;
+		if (p1ForwardCannotBlockInferiorPower && blockerPowerExceedsAttacker(ForwardTarget.CardZone.MONSTER, idx)) return false;
 		if (attackerBlockCostFiltersExclude(monsterBlocker.cost())) return false;
 		if (attackerCannotBeBlockedByHigherPower() && blockerPowerExceedsAttacker(ForwardTarget.CardZone.MONSTER, idx)) return false;
 		return true;
@@ -10186,6 +10197,7 @@ public class MainWindow {
 		if (isFieldAbilityCannotAttackOrBlock(backupBlocker, true)) return false;
 		if (backupBlocker.cannotBlockParty() && pendingP2PartyIndices != null) return false;
 		if (backupBlocker.cannotBlockHigherPower() && attackerPowerExceedsBlocker(ForwardTarget.CardZone.BACKUP, idx)) return false;
+		if (p1ForwardCannotBlockInferiorPower && blockerPowerExceedsAttacker(ForwardTarget.CardZone.BACKUP, idx)) return false;
 		if (attackerBlockCostFiltersExclude(backupBlocker.cost())) return false;
 		if (attackerCannotBeBlockedByHigherPower() && blockerPowerExceedsAttacker(ForwardTarget.CardZone.BACKUP, idx)) return false;
 		return true;

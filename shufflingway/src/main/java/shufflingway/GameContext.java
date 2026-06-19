@@ -1052,6 +1052,9 @@ public interface GameContext {
     /** Marks P2's forward at {@code idx} as unable to be blocked by Forwards whose cost matches the filter. */
     void setP2ForwardCannotBeBlockedByCost(int idx, int costVal, boolean isMore);
 
+    /** Marks all opponent Forwards as unable to block Forwards with power inferior to their own this turn. */
+    void setOppForwardsCannotBlockInferiorPowerThisTurn();
+
     /** Returns {@code true} if the specific element CP was included in the payment for the most recently cast card. */
     boolean wasElementCpPaid(String element);
 

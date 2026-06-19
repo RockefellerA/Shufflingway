@@ -477,6 +477,7 @@ class ComputerPlayer {
 		mw.p1AbilityOutgoingDmgMult = 1;      mw.p2AbilityOutgoingDmgMult = 1;
 		mw.p1NonLethalProtection = false;    mw.p2NonLethalProtection = false;
 		mw.p1DmgReductionDisabled = false;   mw.p2DmgReductionDisabled = false;
+		mw.p1ForwardCannotBlockInferiorPower = false; mw.p2ForwardCannotBlockInferiorPower = false;
 		mw.p1GlobalDmgReduction  = 0;        mw.p2GlobalDmgReduction  = 0;
 		mw.opponentAttackDeclarationLimit = Integer.MAX_VALUE; mw.p2AttackDeclarationsThisTurn = 0;
 		mw.p1AttackDeclarationLimit = Integer.MAX_VALUE;       mw.p1AttackDeclarationsThisTurn = 0;
