@@ -112,6 +112,18 @@ public class ActionResolver {
     );
 
     /**
+     * Matches "Choose 1 Forward. [CardName] deals you N point(s) of damage.
+     * If the cost of the Forward is equal to or less than the damage you have received, break it."
+     * Groups: {@code name} — the card dealing the damage; {@code amount} — damage dealt.
+     */
+    private static final Pattern CHOOSE_FORWARD_DEAL_SELF_DAMAGE_BREAK_IF_COST_LE_DAMAGE = Pattern.compile(
+        "(?i)^Choose\\s+1\\s+Forward\\." +
+        "\\s+(?<name>.+?)\\s+deals?\\s+you\\s+(?<amount>\\d+)\\s+points?\\s+of\\s+damage\\." +
+        "\\s+If\\s+the\\s+cost\\s+of\\s+the\\s+Forward\\s+is\\s+equal\\s+to\\s+or\\s+less\\s+than\\s+" +
+        "the\\s+damage\\s+you\\s+have\\s+received,?\\s+break\\s+it\\.?"
+    );
+
+    /**
      * Matches "Choose 1 Forward other than [CardName]. Until the end of the turn,
      * [CardName] and the chosen Forward lose power of any value less than [CardName]'s power.
      * (Units must be 1000.)"
@@ -2761,6 +2773,9 @@ public class ActionResolver {
         result = tryParseChooseTwoMixedTypes(effectText, source);
         if (result != null) return result;
 
+        result = tryParseChooseForwardDealSelfDamageBreakIfCostLeDamage(effectText);
+        if (result != null) return result;
+
         result = tryParseChooseForwardSharedPowerLoss(effectText, source);
         if (result != null) return result;
 
@@ -3428,6 +3443,8 @@ public class ActionResolver {
             String followupName = matchedFollowupName(oneEachM.group("followup").trim(), source);
             return "ChooseOneEach / " + (followupName != null ? followupName : "?");
         }
+        if (tryParseChooseForwardDealSelfDamageBreakIfCostLeDamage(normalizedEffectText) != null)
+            return "ChooseForwardDealSelfDamageBreakIfCostLeDamage";
         if (tryParseChooseForwardSharedPowerLoss(normalizedEffectText, source) != null)
             return "ChooseForwardSharedPowerLoss";
         Matcher mixedM = CHOOSE_TWO_MIXED_TYPES_PATTERN.matcher(normalizedEffectText);
@@ -9329,6 +9346,39 @@ public class ActionResolver {
                 .max(java.util.Map.Entry.comparingByValue())
                 .map(java.util.Map.Entry::getKey)
                 .orElse(0);
+    }
+
+    /**
+     * Parses "Choose 1 Forward. [CardName] deals you N point(s) of damage.
+     * If the cost of the Forward is equal to or less than the damage you have received, break it."
+     *
+     * <p>Chooses any Forward, deals N self-damage, then breaks the chosen Forward if its cost
+     * is ≤ the ability user's damage count (measured after the damage is dealt).
+     */
+    private static Consumer<GameContext> tryParseChooseForwardDealSelfDamageBreakIfCostLeDamage(String text) {
+        Matcher m = CHOOSE_FORWARD_DEAL_SELF_DAMAGE_BREAK_IF_COST_LE_DAMAGE.matcher(text.trim());
+        if (!m.find()) return null;
+        final String dealerName = m.group("name").trim();
+        final int damageAmount  = Integer.parseInt(m.group("amount"));
+        return ctx -> {
+            ctx.logEntry("Effect: Choose 1 Forward — " + dealerName + " deals you " + damageAmount + " damage, then break it if cost ≤ damage");
+            List<ForwardTarget> ts = selectTargets(ctx, 1, false,
+                    false, false, null, null, null, false,
+                    -1, null, -1, null,
+                    true, false, false,
+                    null, null, null, null, false, null, false);
+            if (ts.isEmpty()) return;
+            ForwardTarget target = ts.get(0);
+            ctx.dealDamageToSelf(damageAmount);
+            CardData chosen = target.isP1() ? ctx.p1Forward(target.idx()) : ctx.p2Forward(target.idx());
+            int chosenCost = chosen != null ? chosen.cost() : -1;
+            int dmgCount   = ctx.p1DamageCount();
+            ctx.logEntry(dealerName + " damage dealt — own damage zone: " + dmgCount
+                    + ", chosen Forward cost: " + chosenCost);
+            if (chosenCost >= 0 && chosenCost <= dmgCount) {
+                ctx.breakTarget(target);
+            }
+        };
     }
 
     /**
