@@ -7998,6 +7998,7 @@ public class MainWindow {
 		boolean firstRestrict = true;
 		if (ability.damageThreshold() > 0)         { restrict.append("Dmg≥").append(ability.damageThreshold()); firstRestrict = false; }
 		if (ability.yourTurnOnly())                 { if (!firstRestrict) restrict.append(", "); restrict.append("your turn");     firstRestrict = false; }
+		if (ability.opponentTurnOnly())             { if (!firstRestrict) restrict.append(", "); restrict.append("opp turn");      firstRestrict = false; }
 		if (ability.oncePerTurn())                  { if (!firstRestrict) restrict.append(", "); restrict.append("1/turn");        firstRestrict = false; }
 		if (ability.mainPhaseOnly())                { if (!firstRestrict) restrict.append(", "); restrict.append("main phase");    firstRestrict = false; }
 		if (ability.whilePartyAttacking())          { if (!firstRestrict) restrict.append(", "); restrict.append("while party atk"); firstRestrict = false; }
@@ -8260,6 +8261,10 @@ public class MainWindow {
 		if (ability.yourTurnOnly()) {
 			GameState.Player activePlayer = isP1 ? GameState.Player.P1 : GameState.Player.P2;
 			if (gameState.getCurrentPlayer() != activePlayer) return false;
+		}
+		if (ability.opponentTurnOnly()) {
+			GameState.Player activePlayer = isP1 ? GameState.Player.P1 : GameState.Player.P2;
+			if (gameState.getCurrentPlayer() == activePlayer) return false;
 		}
 		if (ability.oncePerTurn()
 				&& usedOncePerTurnAbilities.getOrDefault(source, Set.of()).contains(ability.effectText()))
@@ -9256,6 +9261,10 @@ public class MainWindow {
 	 */
 	int showNumberSelectDialog(String prompt, int min, int max) {
 		return cardPickerDialog.selectNumber(prompt, min, max);
+	}
+
+	int showPowerAmountDialog(int maxAmount, String prompt) {
+		return cardPickerDialog.selectPowerAmount(maxAmount, prompt);
 	}
 
 	/**

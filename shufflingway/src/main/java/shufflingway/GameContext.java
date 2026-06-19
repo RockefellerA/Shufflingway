@@ -1041,6 +1041,13 @@ public interface GameContext {
      */
     int selectNumber(int min, int max, String prompt);
 
+    /**
+     * Shows a power-amount picker: values 0, 1000, 2000 … {@code maxAmount} in steps of 1000.
+     * Displays a 5-digit value label with ▲ / ▼ buttons and an OK button; defaults to
+     * {@code maxAmount}.  Returns the chosen amount.
+     */
+    int selectPowerAmount(int maxAmount, String prompt);
+
     /** Removes P1's forward at {@code idx} from the field and adds it to P1's hand. */
     void returnP1ForwardToHand(int idx);
 

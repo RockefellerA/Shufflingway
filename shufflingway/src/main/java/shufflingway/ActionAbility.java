@@ -54,6 +54,7 @@ public record ActionAbility(
         List<CounterCost>        counterCosts,         // "remove N [Name] Counter(s) from [CardName]" costs
         List<DullForwardCost>    dullForwardCosts,     // "Dull N [active] [elem] Forward(s)" costs (may be empty)
         boolean                 yourTurnOnly,          // "can only use this ability during your turn" restriction
+        boolean                 opponentTurnOnly,      // "can only use this ability during your opponent's turn" restriction
         boolean                 oncePerTurn,           // "can only use this ability once per turn" restriction
         boolean                 mainPhaseOnly,         // "can only use this ability during your Main Phase" restriction
         String                  whileCardAttacking,    // non-null = named card must be in P1's attack selection
@@ -92,7 +93,7 @@ public record ActionAbility(
             List.of(),
             List.of(new BreakZoneCost(bzCardName, 1, "")),
             List.of(), List.of(), List.of(), List.of(), List.of(),
-            true, false, false,
+            true, false, false, false,
             null, null, false, false, false,
             effectText,
             0, null, null, false, false, false, null, null, null, false, null, null

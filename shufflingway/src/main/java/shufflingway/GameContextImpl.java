@@ -856,6 +856,13 @@ final class GameContextImpl implements GameContext {
 					}
 				return mw.showNumberSelectDialog(prompt, min, max);
 			}
+			@Override public int selectPowerAmount(int maxAmount, String prompt) {
+				if (!isP1) {
+					logEntry("[AI] selected " + maxAmount + " (" + prompt + ")");
+					return maxAmount;
+				}
+				return mw.showPowerAmountDialog(maxAmount, prompt);
+			}
 			@Override public void returnP1ForwardToDeckBottom(int idx)   { mw.returnP1ForwardToDeck(idx, true);  }
 			@Override public void returnP2ForwardToDeckBottom(int idx)   { mw.returnP2ForwardToDeck(idx, true);  }
 			@Override public void returnP1ForwardToDeckTop(int idx)      { mw.returnP1ForwardToDeck(idx, false); }

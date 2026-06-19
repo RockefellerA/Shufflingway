@@ -112,6 +112,20 @@ public class ActionResolver {
     );
 
     /**
+     * Matches "Choose 1 Forward other than [CardName]. Until the end of the turn,
+     * [CardName] and the chosen Forward lose power of any value less than [CardName]'s power.
+     * (Units must be 1000.)"
+     * Groups: {@code card} — the named card (must match in all three positions).
+     */
+    private static final Pattern CHOOSE_FORWARD_SHARED_POWER_LOSS_PATTERN = Pattern.compile(
+        "(?i)^Choose\\s+1\\s+Forward\\s+other\\s+than\\s+(?<card>[^.]+?)\\." +
+        "\\s+Until\\s+the\\s+end\\s+of\\s+(?:the\\s+)?turn,?\\s+" +
+        "(?<card2>[^.]+?)\\s+and\\s+the\\s+chosen\\s+Forward\\s+lose\\s+power\\s+of\\s+any\\s+value\\s+" +
+        "less\\s+than\\s+(?<card3>[^.']+?)'s?\\s+power\\.?" +
+        "(?:\\s*\\(Units?\\s+must\\s+be\\s+1000\\.?\\))?"
+    );
+
+    /**
      * Normalises "Element Type or Element Type" → "Element or Element Type" so that
      * CHOOSE_CHARACTER_PATTERN's element group can capture both elements.
      * E.g. "Light Character or Dark Character" → "Light or Dark Character".
@@ -2747,6 +2761,9 @@ public class ActionResolver {
         result = tryParseChooseTwoMixedTypes(effectText, source);
         if (result != null) return result;
 
+        result = tryParseChooseForwardSharedPowerLoss(effectText, source);
+        if (result != null) return result;
+
         result = tryParseChooseCharacter(effectText, source, xValue);
         if (result != null) return result;
 
@@ -3411,6 +3428,8 @@ public class ActionResolver {
             String followupName = matchedFollowupName(oneEachM.group("followup").trim(), source);
             return "ChooseOneEach / " + (followupName != null ? followupName : "?");
         }
+        if (tryParseChooseForwardSharedPowerLoss(normalizedEffectText, source) != null)
+            return "ChooseForwardSharedPowerLoss";
         Matcher mixedM = CHOOSE_TWO_MIXED_TYPES_PATTERN.matcher(normalizedEffectText);
         if (mixedM.find()) {
             String followupName = matchedFollowupName(mixedM.group("followup").trim(), source);
@@ -6232,6 +6251,7 @@ public class ActionResolver {
         s = CardData.ONCE_PER_TURN_PATTERN               .matcher(s).replaceAll("").trim();
         s = CardData.MAIN_PHASE_ONLY_PATTERN              .matcher(s).replaceAll("").trim();
         s = CardData.YOUR_TURN_ONLY_PATTERN               .matcher(s).replaceAll("").trim();
+        s = CardData.OPP_TURN_ONLY_PATTERN                .matcher(s).replaceAll("").trim();
         s = CardData.OPP_NO_CARDS_IN_HAND_RESTRICTION     .matcher(s).replaceAll("").trim();
         s = CardData.WHILE_PARTY_ATTACKING_PATTERN.matcher(s).replaceAll("").trim();
         s = CardData.WHILE_CARD_ATTACKING_PATTERN .matcher(s).replaceAll("").trim();
@@ -9309,6 +9329,42 @@ public class ActionResolver {
                 .max(java.util.Map.Entry.comparingByValue())
                 .map(java.util.Map.Entry::getKey)
                 .orElse(0);
+    }
+
+    /**
+     * Parses "Choose 1 Forward other than [CardName]. Until the end of the turn, [CardName]
+     * and the chosen Forward lose power of any value less than [CardName]'s power. (Units must be 1000.)"
+     *
+     * <p>Shows a Forward picker (excluding the named card), then a power-amount picker
+     * (0 … named card's current power − 1000, in 1000 steps, defaulting to the max).
+     * Both the named card and the chosen Forward lose the selected amount until EOT.
+     */
+    private static Consumer<GameContext> tryParseChooseForwardSharedPowerLoss(String text, CardData source) {
+        Matcher m = CHOOSE_FORWARD_SHARED_POWER_LOSS_PATTERN.matcher(text.trim());
+        if (!m.find()) return null;
+        String card1 = m.group("card").trim();
+        String card2 = m.group("card2").trim();
+        String card3 = m.group("card3").trim();
+        if (!card1.equalsIgnoreCase(card2) || !card1.equalsIgnoreCase(card3)) return null;
+        final String cardName = card1;
+        final EnumSet<CardData.Trait> noTraits = EnumSet.noneOf(CardData.Trait.class);
+        return ctx -> {
+            ctx.logEntry("Effect: Choose 1 Forward other than " + cardName + ", then choose shared power loss");
+            List<ForwardTarget> ts = selectTargets(ctx, 1, false,
+                    false, false, null, null, null, false,
+                    -1, null, -1, null,
+                    true, false, false,
+                    null, null, null, cardName, false, null, false);
+            if (ts.isEmpty()) return;
+            int sourcePower = ctx.fieldForwardPowerByName(cardName);
+            int maxLoss = sourcePower > 0 ? ((sourcePower - 1) / 1000) * 1000 : 0;
+            int amount = ctx.selectPowerAmount(maxLoss,
+                    "Power loss (0–" + maxLoss + ") for " + cardName + " and chosen Forward:");
+            if (amount <= 0) return;
+            ctx.reduceTarget(ts.get(0), amount, noTraits);
+            if (source != null && source.name().equalsIgnoreCase(cardName))
+                ctx.reduceSourceForward(source, amount, noTraits);
+        };
     }
 
     private static List<ForwardTarget> selectTargets(GameContext ctx,

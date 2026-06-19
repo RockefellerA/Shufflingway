@@ -967,6 +967,84 @@ public class CardPickerDialog {
         return value[0];
     }
 
+    /**
+     * Shows a power-amount picker with ▲ / ▼ buttons, a 5-digit display, and an OK button.
+     * Values step in increments of 1000 from 0 up to {@code maxAmount}, defaulting to the max.
+     * Returns the chosen value.
+     */
+    public int selectPowerAmount(int maxAmount, String prompt) {
+        int safeMax = Math.max(0, (maxAmount / 1000) * 1000);
+        int[] value = { safeMax };
+
+        JDialog dlg = new JDialog(owner, "Choose Power", true);
+        dlg.setResizable(false);
+        dlg.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
+
+        JLabel promptLabel = new JLabel(prompt, SwingConstants.CENTER);
+        promptLabel.setFont(FontLoader.loadPixelNESFont(11));
+        promptLabel.setBorder(BorderFactory.createEmptyBorder(10, 12, 4, 12));
+
+        JLabel valueLabel = new JLabel(String.format("%05d", value[0]), SwingConstants.CENTER);
+        valueLabel.setFont(FontLoader.loadPixelNESFont(20));
+        valueLabel.setPreferredSize(new Dimension(90, 48));
+        valueLabel.setOpaque(true);
+        valueLabel.setBackground(Color.WHITE);
+        valueLabel.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createLineBorder(Color.DARK_GRAY, 2),
+                BorderFactory.createEmptyBorder(2, 8, 2, 8)));
+
+        JButton upBtn = new JButton("▲");
+        upBtn.setFont(FontLoader.loadPixelNESFont(14));
+        upBtn.setFocusPainted(false);
+        upBtn.addActionListener(ae -> {
+            if (value[0] < safeMax) {
+                value[0] += 1000;
+                valueLabel.setText(String.format("%05d", value[0]));
+            }
+        });
+
+        JButton downBtn = new JButton("▼");
+        downBtn.setFont(FontLoader.loadPixelNESFont(14));
+        downBtn.setFocusPainted(false);
+        downBtn.addActionListener(ae -> {
+            if (value[0] > 0) {
+                value[0] -= 1000;
+                valueLabel.setText(String.format("%05d", value[0]));
+            }
+        });
+
+        JButton okBtn = new JButton("OK");
+        okBtn.setFont(FontLoader.loadPixelNESFont(11));
+        okBtn.setFocusPainted(false);
+        okBtn.addActionListener(ae -> dlg.dispose());
+
+        JPanel pickerCol = new JPanel();
+        pickerCol.setLayout(new BoxLayout(pickerCol, BoxLayout.Y_AXIS));
+        pickerCol.setBorder(BorderFactory.createEmptyBorder(4, 20, 4, 20));
+        upBtn.setAlignmentX(Component.CENTER_ALIGNMENT);
+        valueLabel.setAlignmentX(Component.CENTER_ALIGNMENT);
+        downBtn.setAlignmentX(Component.CENTER_ALIGNMENT);
+        pickerCol.add(upBtn);
+        pickerCol.add(Box.createVerticalStrut(6));
+        pickerCol.add(valueLabel);
+        pickerCol.add(Box.createVerticalStrut(6));
+        pickerCol.add(downBtn);
+
+        JPanel south = new JPanel(new FlowLayout(FlowLayout.CENTER, 0, 8));
+        south.add(okBtn);
+
+        dlg.getContentPane().setLayout(new BorderLayout(0, 2));
+        dlg.getContentPane().add(promptLabel, BorderLayout.NORTH);
+        dlg.getContentPane().add(pickerCol,   BorderLayout.CENTER);
+        dlg.getContentPane().add(south,       BorderLayout.SOUTH);
+
+        dlg.pack();
+        dlg.setLocationRelativeTo(owner);
+        dlg.setVisible(true);
+
+        return value[0];
+    }
+
     // -------------------------------------------------------------------------
     // Break-zone picker
     // -------------------------------------------------------------------------

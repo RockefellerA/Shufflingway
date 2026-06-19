@@ -864,6 +864,7 @@ public record CardData(
             List<CounterCost>        counterCosts        = parseCounterCosts(counterRaw);
             List<DullForwardCost>    dullForwardCosts    = parseDullForwardCosts(dullCostRaw);
             boolean yourTurnOnly      = YOUR_TURN_ONLY_PATTERN.matcher(effectRaw).find();
+            boolean opponentTurnOnly  = OPP_TURN_ONLY_PATTERN.matcher(effectRaw).find();
             boolean oncePerTurn       = ONCE_PER_TURN_PATTERN.matcher(effectRaw).find();
             boolean mainPhaseOnly     = MAIN_PHASE_ONLY_PATTERN.matcher(effectRaw).find();
             boolean whilePartyAtk     = WHILE_PARTY_ATTACKING_PATTERN.matcher(effectRaw).find();
@@ -914,7 +915,7 @@ public record CardData(
             String cpBackupElement = cpBkpM.find()
                     ? (cpBkpM.group("element") != null ? cpBkpM.group("element") : "")
                     : null;
-            result.add(new ActionAbility(abilityName, requiresDull, isSpecial, crystalCost, selfMillCost, hasXCost, cpCost, breakZoneCosts, discardCosts, removeFromGameCosts, returnToHandCosts, counterCosts, dullForwardCosts, yourTurnOnly, oncePerTurn, mainPhaseOnly, whileCardAtk, whileCardBlk, whilePartyAtk, whileCardInHand, hasBlockingTarget, effectRaw, damageThreshold, controlCondition, cpBackupElement, sourceInBattle, requiresOppDiscardedThisTurn, requiresCastSummonThisTurn, requiresElementForwardEnteredThisTurn, requiresCardNameEnteredThisTurn, breakZoneOnly, requiresOpponentEmptyHand, requiresNamedCardTookDamageThisTurn, ownBzCard));
+            result.add(new ActionAbility(abilityName, requiresDull, isSpecial, crystalCost, selfMillCost, hasXCost, cpCost, breakZoneCosts, discardCosts, removeFromGameCosts, returnToHandCosts, counterCosts, dullForwardCosts, yourTurnOnly, opponentTurnOnly, oncePerTurn, mainPhaseOnly, whileCardAtk, whileCardBlk, whilePartyAtk, whileCardInHand, hasBlockingTarget, effectRaw, damageThreshold, controlCondition, cpBackupElement, sourceInBattle, requiresOppDiscardedThisTurn, requiresCastSummonThisTurn, requiresElementForwardEnteredThisTurn, requiresCardNameEnteredThisTurn, breakZoneOnly, requiresOpponentEmptyHand, requiresNamedCardTookDamageThisTurn, ownBzCard));
         }
         return List.copyOf(result);
     }
@@ -923,7 +924,7 @@ public record CardData(
         return new ActionAbility(a.abilityName(), a.requiresDull(), a.isSpecial(), a.crystalCost(),
                 a.selfMillCost(), a.hasXCost(), a.cpCost(), a.breakZoneCosts(), a.discardCosts(),
                 a.removeFromGameCosts(), a.returnToHandCosts(), a.counterCosts(), a.dullForwardCosts(),
-                a.yourTurnOnly(), a.oncePerTurn(), a.mainPhaseOnly(), a.whileCardAttacking(),
+                a.yourTurnOnly(), a.opponentTurnOnly(), a.oncePerTurn(), a.mainPhaseOnly(), a.whileCardAttacking(),
                 a.whileCardBlocking(), a.whilePartyAttacking(), a.whileCardInHand(),
                 a.hasBlockingTargetEffect(), a.effectText(), a.damageThreshold(), a.controlCondition(),
                 a.cpBackupElement(), a.sourceInBattle(), a.requiresOppDiscardedThisTurn(),
@@ -987,6 +988,11 @@ public record CardData(
 
     static final Pattern YOUR_TURN_ONLY_PATTERN = Pattern.compile(
         "(?i)(?:You\\s+can(?:\\s+only)?\\s+use\\s+this\\s+ability(?:\\s+only)?\\s+|,\\s*)during\\s+your\\s+turn[.!]?"
+    );
+
+    /** "You can only use this ability during your opponent's turn" restriction. */
+    static final Pattern OPP_TURN_ONLY_PATTERN = Pattern.compile(
+        "(?i)You\\s+can\\s+only\\s+use\\s+this\\s+ability\\s+during\\s+your\\s+opponent'?s?\\s+turn[.!]?"
     );
 
     /** "You can only use this ability if your opponent has no cards in their hand" — standalone or as part of a compound restriction. */
