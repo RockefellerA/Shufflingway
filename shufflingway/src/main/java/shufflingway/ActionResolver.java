@@ -695,6 +695,30 @@ public class ActionResolver {
         "return\\s+(?<name>.+?)\\s+to\\s+(?:(?<toowner>its\\s+owner(?:'s|s')?)\\s+|your\\s+)hand[.!]?"
     );
 
+    /**
+     * Matches "Put [CardName] at the bottom of its owner's deck." — self-referential standalone,
+     * used when a card sends itself to the bottom of the deck as part of an ability chain.
+     * Group: {@code name} — the card name (must equal source.name()).
+     */
+    private static final Pattern PUT_SOURCE_TO_BOTTOM_OF_DECK = Pattern.compile(
+        "(?i)Put\\s+(?<name>.+?)\\s+at\\s+the\\s+bottom\\s+of\\s+its\\s+owner's\\s+deck[.!]?"
+    );
+
+    /**
+     * Matches "Shuffle your deck. Then, reveal the top N cards of your deck.
+     * Play 1 Card Name [name] among them onto the field and return the other cards to the
+     * bottom of your deck in any order." — used as the 'when you do so' followup on self-bounce
+     * abilities that search for a named card.
+     * Groups: {@code n} (reveal count), {@code cardname} (card name to play).
+     */
+    private static final Pattern SHUFFLE_THEN_REVEAL_PLAY_NAMED_REST_BOTTOM = Pattern.compile(
+        "(?i)shuffle\\s+your\\s+deck[.]?\\s+Then,?\\s+" +
+        "reveal\\s+the\\s+top\\s+(?<n>\\d+)\\s+cards?\\s+of\\s+your\\s+deck[.]?\\s+" +
+        "Play\\s+1\\s+Card\\s+Name\\s+(?<cardname>.+?)\\s+among\\s+them\\s+onto\\s+(?:the\\s+)?field\\s+" +
+        "and\\s+return\\s+the\\s+other\\s+cards?\\s+to\\s+the\\s+bottom\\s+of\\s+(?:your|the)\\s+deck" +
+        "(?:\\s+in\\s+any\\s+order)?[.!]?"
+    );
+
     /** Matches "Put it at the top or bottom of its owner's deck." — player chooses placement. Also handles "Your opponent puts it…" */
     private static final Pattern FOLLOWUP_PUT_TOP_OR_BOTTOM_OF_DECK = Pattern.compile(
         "(?i)(?:Your\\s+opponent\\s+puts?\\s+it|Put\\s+it)\\s+at\\s+the\\s+top\\s+or\\s+bottom\\s+of\\s+its\\s+owner's\\s+deck\\.?"
@@ -3087,6 +3111,9 @@ public class ActionResolver {
         result = tryParsePutSourceIntoBreakZone(effectText, source);
         if (result != null) return result;
 
+        result = tryParsePutSourceToBottomOfDeck(effectText, source);
+        if (result != null) return result;
+
         result = tryParseBreakBlockingForward(effectText);
         if (result != null) return result;
 
@@ -3267,6 +3294,9 @@ public class ActionResolver {
         result = tryParseRemoveTopOfDeckFromGame(effectText);
         if (result != null) return result;
 
+        result = tryParseShuffleThenRevealPlayNamedRestBottom(effectText, source);
+        if (result != null) return result;
+
         result = tryParseShuffleDeck(effectText);
         if (result != null) return result;
 
@@ -3407,6 +3437,7 @@ public class ActionResolver {
         if (tryParseRemoveNamedFromGame(effectText, source)   != null) return "RemoveNamedFromGame";
         if (tryParseBreakSourceCard(effectText, source)        != null) return "BreakSourceCard";
         if (tryParsePutSourceIntoBreakZone(effectText, source) != null) return "PutSourceIntoBreakZone";
+        if (tryParsePutSourceToBottomOfDeck(effectText, source) != null) return "PutSourceToBottomOfDeck";
         if (tryParseBreakBlockingForward(effectText)           != null) return "BreakBlockingForward";
         if (tryParseChooseExBurstFromDamageZone(effectText)    != null) return "ChooseExBurstFromDamageZone";
         if (tryParseDamageZoneSwap(effectText)                 != null) {
@@ -3740,6 +3771,7 @@ public class ActionResolver {
         if (tryParseRemoveNamedFromGame(effectText, source) != null)        return "RemoveNamedFromGame";
         if (tryParseBreakSourceCard(effectText, source)        != null)     return "BreakSourceCard";
         if (tryParsePutSourceIntoBreakZone(effectText, source) != null)     return "PutSourceIntoBreakZone";
+        if (tryParsePutSourceToBottomOfDeck(effectText, source) != null)   return "PutSourceToBottomOfDeck";
         if (tryParseBreakBlockingForward(effectText)           != null)     return "BreakBlockingForward";
         if (tryParseChooseExBurstFromDamageZone(effectText)    != null)     return "ChooseExBurstFromDamageZone";
         if (tryParseDamageZoneSwap(effectText)              != null) {
@@ -3801,6 +3833,7 @@ public class ActionResolver {
         if (tryParseLookTopDeckPickOneTopRestBottom(effectText)         != null) return "LookTopDeckPickOneTopRestBottom";
         if (tryParseLookTopDeckPeek(effectText)                         != null) return "LookTopDeckPeek";
         if (tryParseRemoveTopOfDeckFromGame(effectText)                  != null) return "RemoveTopOfDeckFromGame";
+        if (tryParseShuffleThenRevealPlayNamedRestBottom(effectText, source) != null) return "ShuffleThenRevealPlayNamedRestBottom";
         if (tryParseShuffleDeck(effectText)                              != null) return "ShuffleDeck";
         if (tryParseBackupCpDraw(effectText)                             != null) return "BackupCpDraw";
         if (tryParseBecomeForwardUntilEot(effectText, source)         != null) return "BecomeForwardUntilEot";
@@ -7661,6 +7694,29 @@ public class ActionResolver {
         return ctx -> {
             ctx.logEntry("Effect: Break " + source.name());
             ctx.breakSourceCard(source);
+        };
+    }
+
+    private static Consumer<GameContext> tryParsePutSourceToBottomOfDeck(String text, CardData source) {
+        if (source == null) return null;
+        Matcher m = PUT_SOURCE_TO_BOTTOM_OF_DECK.matcher(text.trim());
+        if (!m.matches()) return null;
+        if (!m.group("name").trim().equalsIgnoreCase(source.name())) return null;
+        return ctx -> {
+            ctx.logEntry("Effect: " + source.name() + " → bottom of its owner's deck");
+            ctx.putSourceToBottomOfDeck(source);
+        };
+    }
+
+    private static Consumer<GameContext> tryParseShuffleThenRevealPlayNamedRestBottom(String text, CardData source) {
+        Matcher m = SHUFFLE_THEN_REVEAL_PLAY_NAMED_REST_BOTTOM.matcher(text.trim());
+        if (!m.matches()) return null;
+        int n           = Integer.parseInt(m.group("n"));
+        String cardName = m.group("cardname").trim();
+        if (source != null && !cardName.equalsIgnoreCase(source.name())) return null;
+        return ctx -> {
+            ctx.shuffleDeck();
+            ctx.revealTopNPlayNamedOntoFieldRestBottom(n, cardName);
         };
     }
 

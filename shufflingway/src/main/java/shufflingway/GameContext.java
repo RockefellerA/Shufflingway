@@ -1055,6 +1055,20 @@ public interface GameContext {
     /** Marks all opponent Forwards as unable to block Forwards with power inferior to their own this turn. */
     void setOppForwardsCannotBlockInferiorPowerThisTurn();
 
+    /**
+     * Finds the source card on its owner's forward zone and returns it to the bottom of
+     * its owner's deck.  Calls {@link #markEffectFizzled()} if the card is not found.
+     */
+    void putSourceToBottomOfDeck(CardData source);
+
+    /**
+     * Reveals the top {@code reveal} cards of the active player's deck.
+     * The player plays exactly 1 Card Name {@code cardName} among them onto the field
+     * (or the AI auto-selects the first matching card); the remaining cards go to the
+     * bottom of the deck in any order.
+     */
+    void revealTopNPlayNamedOntoFieldRestBottom(int reveal, String cardName);
+
     /** Returns {@code true} if the specific element CP was included in the payment for the most recently cast card. */
     boolean wasElementCpPaid(String element);
 

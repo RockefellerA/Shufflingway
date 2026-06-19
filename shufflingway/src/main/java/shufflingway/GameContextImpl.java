@@ -3648,6 +3648,55 @@ final class GameContextImpl implements GameContext {
 				};
 			}
 
+			@Override public void putSourceToBottomOfDeck(CardData source) {
+				List<CardData> fwds = isP1 ? mw.p1ForwardCards : mw.p2ForwardCards;
+				for (int i = fwds.size() - 1; i >= 0; i--) {
+					if (fwds.get(i) == source) {
+						logEntry("Effect: " + source.name() + " → bottom of its owner's deck");
+						if (isP1) mw.returnP1ForwardToDeck(i, true);
+						else      mw.returnP2ForwardToDeck(i, true);
+						return;
+					}
+				}
+				markEffectFizzled();
+				logEntry("Effect: " + source.name() + " not found on field — fizzle");
+			}
+
+			@Override public void revealTopNPlayNamedOntoFieldRestBottom(int reveal, String cardName) {
+				Deque<CardData> deck = isP1 ? mw.gameState.getP1MainDeck() : mw.gameState.getP2MainDeck();
+				int n = Math.min(reveal, deck.size());
+				if (n == 0) { logEntry("Reveal top: deck is empty."); return; }
+				List<CardData> peeked = new ArrayList<>();
+				for (CardData c : deck) { peeked.add(c); if (peeked.size() >= n) break; }
+				logEntry("Reveal top " + n + " card(s): " +
+						peeked.stream().map(CardData::name).collect(Collectors.joining(", ")));
+				if (!isP1 && mw.isP2Cpu()) {
+					CardData chosen = peeked.stream()
+							.filter(c -> c.name().equalsIgnoreCase(cardName))
+							.findFirst().orElse(null);
+					for (int i = 0; i < n; i++) deck.pollFirst();
+					for (CardData c : peeked) {
+						if (c == chosen) continue;
+						deck.addLast(c);
+						logEntry("[AI] " + c.name() + " → [P2] bottom of deck");
+					}
+					mw.refreshP2DeckLabel();
+					if (chosen != null) {
+						logEntry("[AI] " + chosen.name() + " played onto field");
+						mw.placeCardInForwardZone(chosen);
+					} else {
+						logEntry("[AI] No Card Name " + cardName + " found — all cards to bottom");
+					}
+				} else {
+					Consumer<CardData> playOntoField = c -> {
+					if (c.isBackup())       mw.placeCardInFirstBackupSlot(c);
+					else if (c.isMonster()) mw.placeCardInMonsterZone(c);
+					else                    mw.placeCardInForwardZone(c);
+				};
+				mw.lookDialogs().showRevealPlayNamedOntoFieldRestBottom(peeked, deck, isP1, cardName, playOntoField);
+				}
+			}
+
 			@Override public void nameCardTypeOpponentDiscardDrawIfMatch() {
 				final String[] TYPES = {"Forward", "Backup", "Monster", "Summon"};
 				// Step 1: Name 1 card type
