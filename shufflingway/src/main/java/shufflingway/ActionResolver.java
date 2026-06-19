@@ -112,6 +112,17 @@ public class ActionResolver {
     );
 
     /**
+     * Matches "Choose up to N [type1], up to N [type2], and up to N [type3]. [followup]"
+     * — up to one card of each of three different types.
+     */
+    private static final Pattern CHOOSE_THREE_MIXED_TYPES_PATTERN = Pattern.compile(
+        "(?i)Choose\\s+up\\s+to\\s+(?<count1>\\d+)\\s+(?<type1>Forwards?|Backups?|Characters?|Monsters?),\\s+" +
+        "up\\s+to\\s+(?<count2>\\d+)\\s+(?<type2>Forwards?|Backups?|Characters?|Monsters?),\\s+and\\s+" +
+        "up\\s+to\\s+(?<count3>\\d+)\\s+(?<type3>Forwards?|Backups?|Characters?|Monsters?)[.]?\\s+" +
+        "(?<followup>.+)"
+    );
+
+    /**
      * Matches "Choose 1 Forward. [CardName] deals you N point(s) of damage.
      * If the cost of the Forward is equal to or less than the damage you have received, break it."
      * Groups: {@code name} — the card dealing the damage; {@code amount} — damage dealt.
@@ -2770,6 +2781,9 @@ public class ActionResolver {
         result = tryParseChooseOneEach(effectText, source);
         if (result != null) return result;
 
+        result = tryParseChooseThreeMixedTypes(effectText, source);
+        if (result != null) return result;
+
         result = tryParseChooseTwoMixedTypes(effectText, source);
         if (result != null) return result;
 
@@ -3447,6 +3461,11 @@ public class ActionResolver {
             return "ChooseForwardDealSelfDamageBreakIfCostLeDamage";
         if (tryParseChooseForwardSharedPowerLoss(normalizedEffectText, source) != null)
             return "ChooseForwardSharedPowerLoss";
+        Matcher threeMixedM = CHOOSE_THREE_MIXED_TYPES_PATTERN.matcher(normalizedEffectText);
+        if (threeMixedM.find()) {
+            String followupName = matchedFollowupName(threeMixedM.group("followup").trim(), source);
+            return "ChooseThreeMixedTypes / " + (followupName != null ? followupName : "?");
+        }
         Matcher mixedM = CHOOSE_TWO_MIXED_TYPES_PATTERN.matcher(normalizedEffectText);
         if (mixedM.find()) {
             String followupName = matchedFollowupName(mixedM.group("followup").trim(), source);
@@ -4410,6 +4429,74 @@ public class ActionResolver {
                     fwd2, bak2, mon2, null, null, null, null, false, null, false);
             List<ForwardTarget> all = new ArrayList<>(ts1);
             all.addAll(ts2);
+            action.accept(ctx, all);
+        };
+    }
+
+    private static Consumer<GameContext> tryParseChooseThreeMixedTypes(String text, CardData source) {
+        Matcher m = CHOOSE_THREE_MIXED_TYPES_PATTERN.matcher(text);
+        if (!m.find()) return null;
+
+        int count1 = Integer.parseInt(m.group("count1"));
+        String tgt1 = m.group("type1").toLowerCase();
+        boolean fwd1 = tgt1.contains("forward") || tgt1.contains("character");
+        boolean bak1 = tgt1.contains("backup")  || tgt1.contains("character");
+        boolean mon1 = tgt1.contains("monster") || tgt1.contains("character");
+
+        int count2 = Integer.parseInt(m.group("count2"));
+        String tgt2 = m.group("type2").toLowerCase();
+        boolean fwd2 = tgt2.contains("forward") || tgt2.contains("character");
+        boolean bak2 = tgt2.contains("backup")  || tgt2.contains("character");
+        boolean mon2 = tgt2.contains("monster") || tgt2.contains("character");
+
+        int count3 = Integer.parseInt(m.group("count3"));
+        String tgt3 = m.group("type3").toLowerCase();
+        boolean fwd3 = tgt3.contains("forward") || tgt3.contains("character");
+        boolean bak3 = tgt3.contains("backup")  || tgt3.contains("character");
+        boolean mon3 = tgt3.contains("monster") || tgt3.contains("character");
+
+        String followup = m.group("followup").trim();
+        String label = "Choose up to " + count1 + " " + m.group("type1")
+                + ", up to " + count2 + " " + m.group("type2")
+                + ", and up to " + count3 + " " + m.group("type3");
+
+        if (FOLLOWUP_REMOVE_FROM_GAME.matcher(followup).find()) {
+            return ctx -> {
+                ctx.logEntry(label + " — Remove From Game");
+                List<ForwardTarget> ts1 = selectTargets(ctx, count1, true, false, false,
+                        null, null, null, false, -1, null, -1, null,
+                        fwd1, bak1, mon1, null, null, null, null, false, null, false);
+                List<ForwardTarget> ts2 = selectTargets(ctx, count2, true, false, false,
+                        null, null, null, false, -1, null, -1, null,
+                        fwd2, bak2, mon2, null, null, null, null, false, null, false);
+                List<ForwardTarget> ts3 = selectTargets(ctx, count3, true, false, false,
+                        null, null, null, false, -1, null, -1, null,
+                        fwd3, bak3, mon3, null, null, null, null, false, null, false);
+                List<ForwardTarget> all = new ArrayList<>(ts1);
+                all.addAll(ts2);
+                all.addAll(ts3);
+                sortedByIdxDesc(all, true) .forEach(t -> ctx.removeTargetFromGame(t));
+                sortedByIdxDesc(all, false).forEach(t -> ctx.removeTargetFromGame(t));
+            };
+        }
+
+        java.util.function.BiConsumer<GameContext, List<ForwardTarget>> action = parseTargetAction(followup, 0);
+        if (action == null) return null;
+
+        return ctx -> {
+            ctx.logEntry(label);
+            List<ForwardTarget> ts1 = selectTargets(ctx, count1, true, false, false,
+                    null, null, null, false, -1, null, -1, null,
+                    fwd1, bak1, mon1, null, null, null, null, false, null, false);
+            List<ForwardTarget> ts2 = selectTargets(ctx, count2, true, false, false,
+                    null, null, null, false, -1, null, -1, null,
+                    fwd2, bak2, mon2, null, null, null, null, false, null, false);
+            List<ForwardTarget> ts3 = selectTargets(ctx, count3, true, false, false,
+                    null, null, null, false, -1, null, -1, null,
+                    fwd3, bak3, mon3, null, null, null, null, false, null, false);
+            List<ForwardTarget> all = new ArrayList<>(ts1);
+            all.addAll(ts2);
+            all.addAll(ts3);
             action.accept(ctx, all);
         };
     }
