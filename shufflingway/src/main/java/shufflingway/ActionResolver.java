@@ -2053,9 +2053,9 @@ public class ActionResolver {
 
     /**
      * Matches "Until end of turn, all [the] [element] [Category X] [targets] [you control]
-     * gain +N power [and Keywords]."
+     * gain/lose +N power [and Keywords]."
      * Groups: {@code element}, {@code category}, {@code targets}, {@code cost}, {@code costcmp},
-     * {@code control}, {@code amount}, {@code keywords}.
+     * {@code control}, {@code verb}, {@code amount}, {@code keywords}.
      */
     private static final Pattern UNTIL_EOT_ALL_FIELD_POWER_BOOST_PATTERN = Pattern.compile(
         "(?i)Until\\s+(?:the\\s+)?end\\s+of\\s+(?:the\\s+)?turn,?\\s+" +
@@ -2065,7 +2065,7 @@ public class ActionResolver {
         "(?<targets>Forwards?(?:\\s+and\\s+Monsters?)?|Backups?|Characters?)" +
         "(?:\\s+of\\s+cost\\s+(?<cost>\\d+)(?:\\s+or\\s+(?<costcmp>less|more))?)?" +
         "(?:\\s+(?<control>(?:your\\s+)?opponent\\s+controls?|you\\s+control))?" +
-        "\\s+gains?\\s+\\+?(?<amount>\\d+)\\s+[Pp]ower" +
+        "\\s+(?<verb>gains?|loses?)\\s+\\+?(?<amount>\\d+)\\s+[Pp]ower" +
         "(?:\\s+and\\s+(?<keywords>(?:(?:Haste|First\\s+Strike|Brave)(?:,?\\s+(?:and\\s+)?)?)+))?[.!]?"
     );
 
@@ -7577,7 +7577,10 @@ public class ActionResolver {
         boolean opponentOnly = control != null && !control.toLowerCase().contains("you control");
         boolean selfOnly     = control != null && control.toLowerCase().contains("you control");
 
+        String verb = m.group("verb");
+        boolean isLoss = verb != null && verb.toLowerCase().startsWith("lose");
         int amount = Integer.parseInt(m.group("amount"));
+        int signedAmount = isLoss ? -amount : amount;
 
         String keywordsStr = m.group("keywords");
         EnumSet<CardData.Trait> traits = keywordsStr != null
@@ -7588,12 +7591,13 @@ public class ActionResolver {
         String costLabel    = costVal >= 0 ? " of cost " + costVal + (costCmp != null ? " or " + costCmp : "") : "";
         String controlLabel = opponentOnly ? " (opponent)" : selfOnly ? " (yours)" : "";
         String traitStr     = traits.isEmpty() ? "" : " and " + traitNamesOnly(traits);
+        String sign         = isLoss ? "-" : "+";
         String logMsg = "Until EOT all " + elemLabel + catLabel + targets + costLabel
-                + controlLabel + " +" + amount + " power" + traitStr;
+                + controlLabel + " " + sign + amount + " power" + traitStr;
 
         return ctx -> {
             ctx.logEntry("Effect: " + logMsg);
-            ctx.applyMassFieldPowerBoost(amount, inclForwards, inclMonsters,
+            ctx.applyMassFieldPowerBoost(signedAmount, inclForwards, inclMonsters,
                     opponentOnly, selfOnly, element, costVal, costCmp, category);
             if (!traits.isEmpty())
                 ctx.applyMassFieldKeywordGrant(traits, inclForwards, inclMonsters,
