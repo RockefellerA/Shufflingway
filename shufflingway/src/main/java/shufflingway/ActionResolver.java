@@ -1590,7 +1590,7 @@ public class ActionResolver {
             "(?:\\s+or\\s+(?:Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark))*)\\s+)?" +
         "(?<targets>Forwards?|Backups?|Monsters?|Summons?|Characters?|card)?\\s*" +
         "(?:\\s+other\\s+than\\s+Card\\s+Name\\s+(?<excludename>.+?)(?=\\s+of\\s+cost|\\s+and\\b))?" +
-        "(?:of\\s+cost\\s+(?<cost>\\d+)(?:\\s+or\\s+(?<costcmp>less|more))?\\s*)?" +
+        "(?:of\\s+cost\\s+(?<cost>\\d+)(?:\\s+or\\s+(?<costcmp>less|more|\\d+))?\\s*)?" +
         "(?:\\s+other\\s+than\\s+(?<excludeelem>(?:Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)" +
             "(?:\\s+or\\s+(?:Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark))*))?\\s*" +
         "and\\s+" +
@@ -9196,7 +9196,10 @@ public class ActionResolver {
         // --- Cost filter ---
         String costStr = m.group("cost");
         int    costVal = costStr == null ? -1 : Integer.parseInt(costStr);
-        String costCmp = m.group("costcmp");
+        String costCmpRaw = m.group("costcmp");
+        // "of cost 5 or 6" — numeric second value → encode as "or_6" for meetsCostConstraint
+        String costCmp = (costCmpRaw != null && costCmpRaw.matches("\\d+"))
+                ? "or_" + costCmpRaw : costCmpRaw;
 
         // --- Count ---
         String countStr = m.group("count");
@@ -9219,7 +9222,7 @@ public class ActionResolver {
         if (excludeName     != null) filterDesc.append(" [not ").append(excludeName).append("]");
         if (excludeElem     != null) filterDesc.append(" [not ").append(excludeElem).append("]");
         String typeDesc  = (targets != null && !anyType) ? " " + targets : "";
-        String costLabel = costVal >= 0 ? " of cost " + costVal + (costCmp != null ? " or " + costCmp : "") : "";
+        String costLabel = CardFilters.formatCostFilterLabel(costVal, costCmp);
 
         // Secondary effect: text following this search clause (e.g. ". Gain 《C》.")
         String afterSearch = text.substring(m.end()).trim().replaceAll("^[.!,]+\\s*", "").trim();
