@@ -2555,6 +2555,22 @@ public class ActionResolver {
         "[.!]?"
     );
 
+    /** Matches "Deal N damage to [all] Forwards of all Elements except [Element]." */
+    private static final Pattern DEAL_DAMAGE_TO_FORWARDS_EXCEPT_ELEMENT = Pattern.compile(
+        "(?i)Deal\\s+(?<amount>\\d+)\\s+damage\\s+to\\s+(?:all(?:\\s+the)?\\s+)?Forwards?\\s+" +
+        "of\\s+all\\s+Elements?\\s+except\\s+(?<excludeelem>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)[.!]?"
+    );
+
+    /** Matches "No Forward of cost N or less/more can attack this turn." */
+    private static final Pattern NO_FORWARD_COST_CANNOT_ATTACK = Pattern.compile(
+        "(?i)No\\s+Forward(?:\\s+of\\s+cost\\s+(?<cost>\\d+)(?:\\s+or\\s+(?<costcmp>less|more))?)?\\s+can\\s+attack\\s+this\\s+turn[.!]?"
+    );
+
+    /** Matches "During this turn, the Forwards you control cannot be chosen by EX Bursts." */
+    private static final Pattern OWN_FORWARDS_CANNOT_BE_CHOSEN_BY_EX_BURST = Pattern.compile(
+        "(?i)During\\s+this\\s+turn,?\\s+the\\s+Forwards?\\s+you\\s+control\\s+cannot\\s+be\\s+chosen\\s+by\\s+EX\\s+Bursts?[.!]?"
+    );
+
     /**
      * Alternate word order: "Deal all [the] [condition] Forwards [of cost N] [other than Job Y] [opponent controls] X damage."
      * Same named groups as {@link #DEAL_DAMAGE_TO_FORWARDS} so {@link #tryParseDealDamageToForwards} can share extraction logic.
@@ -2907,7 +2923,16 @@ public class ActionResolver {
         result = tryParseDealDamageToForwardsForEach(effectText);
         if (result != null) return result;
 
+        result = tryParseDealDamageToForwardsExceptElement(effectText);
+        if (result != null) return result;
+
         result = tryParseDealDamageToForwards(effectText);
+        if (result != null) return result;
+
+        result = tryParseNoForwardCostCannotAttack(effectText);
+        if (result != null) return result;
+
+        result = tryParseOwnForwardsCannotBeChosenByExBurst(effectText);
         if (result != null) return result;
 
         result = tryParseDealHalfPowerDamageToForwards(effectText);
@@ -3379,7 +3404,10 @@ public class ActionResolver {
         if (tryParseForEachJobAndNameDealDamageToForwards(effectText)   != null) return "ForEachJobAndNameDealDamageToForwards";
         if (tryParseSelfGainsWhenAttacksEOT(effectText, source)        != null) return "SelfGainsWhenAttacksEOT";
         if (tryParseDealDamageToForwardsForEach(effectText)             != null) return "DealDamageToForwardsForEach";
+        if (tryParseDealDamageToForwardsExceptElement(effectText)       != null) return "DealDamageToForwardsExceptElement";
         if (tryParseDealDamageToForwards(effectText)                    != null) return "DealDamageToForwards";
+        if (tryParseNoForwardCostCannotAttack(effectText)               != null) return "NoForwardCostCannotAttack";
+        if (tryParseOwnForwardsCannotBeChosenByExBurst(effectText)      != null) return "OwnForwardsCannotBeChosenByExBurst";
         if (tryParseDealHalfPowerDamageToForwards(effectText)           != null) return "DealHalfPowerDamageToForwards";
         if (tryParseDealPowerMinusNDamageToForwards(effectText)         != null) return "DealPowerMinusNDamageToForwards";
         if (tryParseDealHalfSourcePowerDamageToForwards(effectText)     != null) return "DealHalfSourcePowerDamageToForwards";
@@ -3632,7 +3660,10 @@ public class ActionResolver {
         if (tryParseForEachJobAndNameDealDamageToForwards(effectText)   != null) return "ForEachJobAndNameDealDamageToForwards";
         if (tryParseSelfGainsWhenAttacksEOT(effectText, source)        != null) return "SelfGainsWhenAttacksEOT";
         if (tryParseDealDamageToForwardsForEach(effectText)         != null) return "DealDamageToForwardsForEach";
+        if (tryParseDealDamageToForwardsExceptElement(effectText)   != null) return "DealDamageToForwardsExceptElement";
         if (tryParseDealDamageToForwards(effectText)                != null) return "DealDamageToForwards";
+        if (tryParseNoForwardCostCannotAttack(effectText)           != null) return "NoForwardCostCannotAttack";
+        if (tryParseOwnForwardsCannotBeChosenByExBurst(effectText)  != null) return "OwnForwardsCannotBeChosenByExBurst";
         if (tryParseDealHalfPowerDamageToForwards(effectText)       != null) return "DealHalfPowerDamageToForwards";
         if (tryParseDealPowerMinusNDamageToForwards(effectText)     != null) return "DealPowerMinusNDamageToForwards";
         if (tryParseDealHalfSourcePowerDamageToForwards(effectText) != null) return "DealHalfSourcePowerDamageToForwards";
@@ -4076,6 +4107,47 @@ public class ActionResolver {
             }
             if (afterDamage != null) afterDamage.accept(ctx);
         };
+    }
+
+    private static Consumer<GameContext> tryParseDealDamageToForwardsExceptElement(String text) {
+        Matcher m = DEAL_DAMAGE_TO_FORWARDS_EXCEPT_ELEMENT.matcher(text);
+        if (!m.find() || m.start() != 0) return null;
+        int    damage      = Integer.parseInt(m.group("amount"));
+        String excludeElem = m.group("excludeelem").trim();
+        return ctx -> {
+            ctx.logEntry("Effect: Deal " + damage + " damage to all Forwards of all Elements except " + excludeElem);
+            for (int i = ctx.p2ForwardCount() - 1; i >= 0; i--) {
+                if (ctx.p2Forward(i).containsElement(excludeElem)) continue;
+                ctx.damageP2Forward(i, damage);
+            }
+            for (int i = ctx.p1ForwardCount() - 1; i >= 0; i--) {
+                if (ctx.p1Forward(i).containsElement(excludeElem)) continue;
+                ctx.damageP1Forward(i, damage);
+            }
+        };
+    }
+
+    private static Consumer<GameContext> tryParseNoForwardCostCannotAttack(String text) {
+        Matcher m = NO_FORWARD_COST_CANNOT_ATTACK.matcher(text.trim());
+        if (!m.matches()) return null;
+        String costStr = m.group("cost");
+        int    costVal = costStr != null ? Integer.parseInt(costStr) : -1;
+        String costCmp = m.group("costcmp");
+        return ctx -> {
+            String label = costVal >= 0
+                    ? "cost " + costVal + (costCmp != null ? " or " + costCmp : "")
+                    : "any cost";
+            ctx.logEntry("Effect: No Forward of " + label + " can attack this turn");
+            for (int i = 0; i < ctx.p1ForwardCount(); i++)
+                if (meetsCostFilter(ctx.p1Forward(i).cost(), costVal, costCmp)) ctx.setP1ForwardCannotAttack(i);
+            for (int i = 0; i < ctx.p2ForwardCount(); i++)
+                if (meetsCostFilter(ctx.p2Forward(i).cost(), costVal, costCmp)) ctx.setP2ForwardCannotAttack(i);
+        };
+    }
+
+    private static Consumer<GameContext> tryParseOwnForwardsCannotBeChosenByExBurst(String text) {
+        if (!OWN_FORWARDS_CANNOT_BE_CHOSEN_BY_EX_BURST.matcher(text.trim()).matches()) return null;
+        return ctx -> ctx.shieldAllOwnForwardsCannotBeChosen(true, false);
     }
 
     private static Consumer<GameContext> tryParseDealDamageToForwardsForEach(String text) {
