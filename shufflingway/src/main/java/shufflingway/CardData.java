@@ -3671,6 +3671,7 @@ public record CardData(
      *   <li>"The cost required to play &lt;name&gt; onto the field is (reduced|increased) by N [scaling] [(it cannot become 0)]."</li>
      *   <li>"The cost required to cast &lt;name&gt; is (reduced|increased) by N [scaling] [(it cannot become 0)]."</li>
      *   <li>"If &lt;condition&gt;, the cost required to play &lt;name&gt; onto the field is (reduced|increased) by N [(it cannot become 0)]."</li>
+     *   <li>"If &lt;condition&gt;, the cost for playing &lt;name&gt; onto the field is (reduced|increased) by N."</li>
      * </ul>
      */
     private static final Pattern SELF_COST_MAIN = Pattern.compile(
@@ -3679,8 +3680,12 @@ public record CardData(
           "(?:(?:During\\s+this\\s+turn,\\s+)?If\\s+(?<cond>[^,]+),\\s+)" +
           "|(?<yourturn>During\\s+your\\s+turn,\\s+)" +
         ")?" +
-        "The\\s+cost\\s+required\\s+to\\s+" +
-        "(?:play\\s+(?<name1>.+?)\\s+onto\\s+the\\s+field|cast\\s+(?<name2>.+?))" +
+        "The\\s+cost\\s+" +
+        "(?:" +
+            "required\\s+to\\s+" +
+            "(?:play\\s+(?<name1>.+?)\\s+onto\\s+the\\s+field|cast\\s+(?<name2>.+?))" +
+            "|for\\s+playing\\s+(?<name3>.+?)\\s+onto\\s+the\\s+field" +
+        ")" +
         "\\s+is\\s+(?<dir>reduced|increased)\\s+by\\s+(?<amount>\\d+)" +
         "(?:\\s+(?<scaling>for\\s+.+?))?" +
         "(?:[.]?\\s+\\(it\\s+cannot\\s+become\\s+(?:0|1\\s+or\\s+less)\\))?" +
