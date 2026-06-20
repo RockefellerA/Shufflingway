@@ -302,6 +302,20 @@ final class AutoAbilityTriggers {
 		);
 
 	/**
+	 * Matches "select the following actions from top to bottom up to the same number of Elements
+	 * other than [excludeelem] as the cost you paid to cast [cardname]. "a." "b." ..."
+	 * Groups: {@code excludeelem}, {@code cardname}, {@code actions}.
+	 */
+	private static final Pattern FA_SELECT_FOLLOWING_ACTIONS_DYNAMIC_ELEMENTS = Pattern.compile(
+		"(?i)^select\\s+the\\s+following\\s+actions?\\s+from\\s+top\\s+to\\s+bottom\\s+" +
+		"up\\s+to\\s+the\\s+same\\s+number\\s+of\\s+Elements?\\s+other\\s+than\\s+" +
+		"(?<excludeelem>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)\\s+" +
+		"as\\s+the\\s+cost\\s+you\\s+paid\\s+to\\s+cast\\s+(?<cardname>.+?)[.!]?\\s*" +
+		"(?<actions>.+)$",
+		Pattern.DOTALL
+	);
+
+	/**
 	 * Matches "reveal any number of Summons from your hand.
 	 * When you reveal no Summons, [effect0].
 	 * When you reveal N or more Summons, [effectN]."
@@ -1031,6 +1045,13 @@ final class AutoAbilityTriggers {
 			return;
 		}
 
+		// Detect "select the following actions from top to bottom up to the same number of Elements other than X as the cost you paid to cast [CardName]."
+		Matcher dynM = FA_SELECT_FOLLOWING_ACTIONS_DYNAMIC_ELEMENTS.matcher(fa.effectText());
+		if (dynM.find()) {
+			executeSelectFollowingActionsDynamicElements(fa, source, isP1, effectIsP1, dynM);
+			return;
+		}
+
 		// Verify the effect is parseable before putting it on the stack.
 		if (ActionResolver.parse(fa.effectText(), source) == null) {
 			mw.logEntry("[AutoAbility] Unrecognized effect: " + fa.effectText());
@@ -1457,6 +1478,75 @@ final class AutoAbilityTriggers {
 			return;
 		}
 		effect.accept(mw.buildGameContext(effectIsP1));
+	}
+
+	private void executeSelectFollowingActionsDynamicElements(
+			AutoAbility fa, CardData source, boolean isP1, boolean effectIsP1, Matcher m) {
+		String excludeElem = m.group("excludeelem");
+		String actionsRaw  = m.group("actions");
+
+		List<String> actions = new ArrayList<>();
+		Matcher qm = ActionResolver.SELECT_FOLLOWING_QUOTED_ACTION.matcher(actionsRaw);
+		while (qm.find()) actions.add(qm.group(1).trim());
+		if (actions.isEmpty()) {
+			mw.logEntry("[AutoAbility] " + source.name() + " — no actions found in dynamic select");
+			return;
+		}
+
+		int maxCount = (int) mw.lastCastActualPaymentElements.stream()
+				.filter(e -> !e.equalsIgnoreCase(excludeElem))
+				.count();
+		maxCount = Math.min(maxCount, actions.size());
+		mw.logEntry("[AutoAbility] " + source.name() + " — " + maxCount
+				+ " non-" + excludeElem + " element(s) used, up to " + maxCount + " action(s) available");
+
+		if (maxCount == 0) return;
+
+		int chosenCount;
+		if (isP1) {
+			chosenCount = showChooseActionCountDialog(source, actions, maxCount, excludeElem);
+		} else {
+			chosenCount = maxCount;
+			mw.logEntry("[AutoAbility] [AI] " + source.name() + " takes " + chosenCount + " action(s) from top");
+		}
+
+		if (fa.oncePerTurn())
+			mw.usedOncePerTurnAbilities.computeIfAbsent(source, k -> new HashSet<>())
+					.add(fa.effectText());
+
+		GameContext ctx = mw.buildGameContext(effectIsP1);
+		for (int i = 0; i < chosenCount; i++) {
+			String actionText = actions.get(i);
+			Consumer<GameContext> effect = ActionResolver.parse(actionText, source);
+			if (effect == null) {
+				ctx.logEntry(source.name() + " action " + (i + 1) + " — unrecognized: " + actionText);
+			} else {
+				ctx.logEntry((isP1 ? "Selected: " : "[AI] Selected: ") + actionText);
+				effect.accept(ctx);
+			}
+		}
+	}
+
+	private int showChooseActionCountDialog(
+			CardData source, List<String> actions, int maxCount, String excludeElem) {
+		StringBuilder msg = new StringBuilder("<html><body style='width:340px'>");
+		msg.append("Non-").append(excludeElem).append(" elements paid: <b>").append(maxCount)
+		   .append("</b>. Select how many actions to take from the top, in order:<br><br>");
+		for (int i = 0; i < actions.size(); i++) {
+			if (i < maxCount)
+				msg.append("&nbsp;").append(i + 1).append(". ").append(actions.get(i)).append("<br>");
+			else
+				msg.append("<font color='gray'>&nbsp;").append(i + 1).append(". ")
+				   .append(actions.get(i)).append("</font><br>");
+		}
+		msg.append("</body></html>");
+
+		Object[] options = new Object[maxCount + 1];
+		for (int i = 0; i <= maxCount; i++) options[i] = "Take " + i;
+
+		int choice = mw.showEffectOptionDialog(msg.toString(),
+				source.name() + " — Select Actions (Top to Bottom)", options);
+		return (choice >= 0 && choice <= maxCount) ? choice : 0;
 	}
 
 	/**

@@ -182,6 +182,10 @@ class ComputerPlayer {
 			mw.gameState.spendP2Cp(element, Math.min(card.cost(), mw.gameState.getP2CpForElement(element)));
 			mw.refreshP2LimitButton();
 			mw.logEntry("[P2] Plays LB \"" + card.name() + "\"");
+			mw.lastCastPaymentElements.clear();
+			mw.lastCastActualPaymentElements.clear();
+			mw.lastCastPaymentElements.add(element);
+			mw.lastCastActualPaymentElements.add(element);
 			mw.lastCardWasCast = true;
 			mw.p2CardsCastThisTurn++;
 			for (String j : card.jobs()) mw.p2CastJobsThisTurn.add(j.toLowerCase());
@@ -240,6 +244,10 @@ class ComputerPlayer {
 			if (toSpend > 0) { mw.gameState.spendP2Cp(e, toSpend); remaining -= toSpend; }
 		}
 		for (String e : elems) mw.gameState.clearP2Cp(e);
+
+		mw.lastCastPaymentElements.clear();
+		mw.lastCastActualPaymentElements.clear();
+		for (String e : elems) if (!e.isEmpty()) { mw.lastCastPaymentElements.add(e); mw.lastCastActualPaymentElements.add(e); }
 
 		mw.logEntry("[P2] Plays " + toPlay.name());
 		mw.lastCardWasCast = true;

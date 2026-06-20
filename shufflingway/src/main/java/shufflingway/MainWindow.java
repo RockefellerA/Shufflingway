@@ -509,6 +509,8 @@ public class MainWindow {
 	int lastCastPaymentDistinctElements = 0;
 	/** Specific element types used to pay the most recent card's CP cost; checked by castPaymentElement conditions. */
 	final Set<String> lastCastPaymentElements = new HashSet<>();
+	/** Actual source-card element types used during payment (not mapped to the played card's element). */
+	final Set<String> lastCastActualPaymentElements = new HashSet<>();
 	/** True if the most recently cast card was paid entirely by dulling Backups (no hand discards). */
 	boolean lastCastWasPaidByBackupsOnly = false;
 	/** True while a card is being placed as a direct result of being cast from hand; gates castOnly field abilities. */
@@ -7162,6 +7164,7 @@ public class MainWindow {
 		Map<String, Integer> execCostByElem = new LinkedHashMap<>();
 		if (!isLD) for (String e : elems) execCostByElem.put(e, 1);
 		Map<String, Integer> execCpAccum = new LinkedHashMap<>();
+		lastCastActualPaymentElements.clear();
 
 		// Backups: sort by fewest element matches first for optimal assignment.
 		List<Integer> sortedBackups = new ArrayList<>(backupDullIndices);
@@ -7181,6 +7184,9 @@ public class MainWindow {
 			}
 			gameState.addP1Cp(cpElem, 1);
 			execCpAccum.merge(cpElem, 1, Integer::sum);
+			String actualElem = backupElementOverrides.containsKey(bi)
+					? backupElementOverrides.get(bi) : p1BackupCards[bi].elements()[0];
+			if (!actualElem.isEmpty()) lastCastActualPaymentElements.add(actualElem);
 		}
 
 		// Discards: pre-compute optimal element assignments (fewer matches first),
@@ -7196,6 +7202,8 @@ public class MainWindow {
 					: contributingElement(d, elems, execCpAccum, execCostByElem);
 			cpAssignments.put(i, cpElem);
 			execCpAccum.merge(cpElem, 2, Integer::sum);
+			String actualElem = d.elements()[0];
+			if (!actualElem.isEmpty()) lastCastActualPaymentElements.add(actualElem);
 		}
 		discardIndices.sort(Collections.reverseOrder());
 		for (int di : discardIndices) {
@@ -7259,6 +7267,7 @@ public class MainWindow {
 		Map<String, Integer> execCostByElem = new LinkedHashMap<>();
 		if (!isLD) for (String e : elems) execCostByElem.put(e, 1);
 		Map<String, Integer> execCpAccum = new LinkedHashMap<>();
+		lastCastActualPaymentElements.clear();
 
 		List<Integer> sortedBackups = new ArrayList<>(backupDullIndices);
 		if (!isLD) sortedBackups.sort(Comparator.comparingInt(s ->
@@ -7277,6 +7286,9 @@ public class MainWindow {
 			}
 			gameState.addP1Cp(cpElem, 1);
 			execCpAccum.merge(cpElem, 1, Integer::sum);
+			String actualElem = backupElementOverrides.containsKey(bi)
+					? backupElementOverrides.get(bi) : p1BackupCards[bi].elements()[0];
+			if (!actualElem.isEmpty()) lastCastActualPaymentElements.add(actualElem);
 		}
 
 		List<Integer> assignOrder = new ArrayList<>(discardIndices);
@@ -7290,6 +7302,8 @@ public class MainWindow {
 					: contributingElement(d, elems, execCpAccum, execCostByElem);
 			cpAssignments.put(i, cpElem);
 			execCpAccum.merge(cpElem, 2, Integer::sum);
+			String actualElem = d.elements()[0];
+			if (!actualElem.isEmpty()) lastCastActualPaymentElements.add(actualElem);
 		}
 		discardIndices.sort(Collections.reverseOrder());
 		for (int di : discardIndices) {

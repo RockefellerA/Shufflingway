@@ -2413,7 +2413,10 @@ public class ActionResolver {
      * Used only for pattern-name reporting.
      */
     static final Pattern SELECT_FOLLOWING_ACTIONS_DETECT = Pattern.compile(
-        "(?i)^(?:if\\s+[^,]+,\\s+)?select\\s+(?:up\\s+to\\s+)?\\d+\\s+of\\s+the\\s+\\d+\\s+following\\s+actions?"
+        "(?i)^(?:" +
+        "(?:if\\s+[^,]+,\\s+)?select\\s+(?:up\\s+to\\s+)?\\d+\\s+of\\s+the\\s+\\d+\\s+following\\s+actions?" +
+        "|select\\s+the\\s+following\\s+actions?\\s+from\\s+top\\s+to\\s+bottom\\b" +
+        ")"
     );
 
     /**

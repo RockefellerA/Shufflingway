@@ -140,7 +140,7 @@ public record CardData(
     );
 
     /** Matches a segment that contains only trait keywords (Haste, Brave, Back Attack, etc.). */
-    private static final Pattern TRAIT_ONLY_SEGMENT = Pattern.compile(
+    static final Pattern TRAIT_ONLY_SEGMENT = Pattern.compile(
         "(?i)^(?:(?:Haste|Brave|First\\s+Strike|Back\\s+Attack|Warp\\s+\\d+|Priming)" +
         "(?:\\s*[,/]\\s*)?)+\\.?$"
     );
@@ -1229,8 +1229,12 @@ public record CardData(
      * Output: {@code ...select 1 of the 2 following actions. "A." "B."...}
      */
     private static final Pattern SELECT_ACTIONS_JOINER = Pattern.compile(
-        "(?i)((?:[^.!?]*,\\s+)?select\\s+(?:up\\s+to\\s+)?\\d+\\s+of\\s+the\\s+\\d+\\s+following\\s+actions?[.!]?)" +
-        "((?:\\s*\\[\\[br\\]\\]\\s*\"[^\"]+\")+)",
+        "(?i)((?:[^.!?]*,\\s+)?select\\s+" +
+        "(?:" +
+          "(?:up\\s+to\\s+)?\\d+\\s+of\\s+the\\s+\\d+\\s+following\\s+actions?" +  // "select N of the M following actions"
+          "|the\\s+following\\s+actions?[^.!?]*" +                                   // "select the following actions..."
+        ")" +
+        "[.!]?)((?:\\s*\\[\\[br\\]\\]\\s*\"[^\"]+\")+)",
         Pattern.DOTALL
     );
 
@@ -3002,6 +3006,9 @@ public record CardData(
             // Auto abilities: "When [card/event] [trigger], [effect]" and "At the beginning of [Phase]…"
             if (FA_AUTO_PREFIX.matcher(seg).find()) continue;
             if (AT_BEGINNING_OF_ATTACK_PHASE_PATTERN.matcher(seg).find()) continue;
+
+            // Quoted sub-action lines from "select the following actions" auto-abilities
+            if (seg.startsWith("\"")) continue;
 
             // Trait keyword segments (Haste, Brave, Warp N, Priming "…", etc.)
             if (FA_TRAIT_KEYWORD.matcher(seg).find()) continue;
