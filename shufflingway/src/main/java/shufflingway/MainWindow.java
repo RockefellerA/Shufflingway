@@ -8919,7 +8919,9 @@ public class MainWindow {
 	/** Returns {@code true} when all conditions of {@code icb} are satisfied for the given player. */
 	private boolean icbConditionsMet(IfControlBoost icb, boolean isP1) {
 		for (ControlCondition cond : icb.conditions()) {
-			if (cond.dullCardName() != null) {
+			if (cond.requiresCrystal()) {
+				if (playerCrystals(isP1) < 1) return false;
+			} else if (cond.dullCardName() != null) {
 				if (!isNamedCardDull(cond.dullCardName(), isP1)) return false;
 			} else {
 				if (!controlConditionMetExcluding(cond, icb.exceptCardName(), isP1)) return false;

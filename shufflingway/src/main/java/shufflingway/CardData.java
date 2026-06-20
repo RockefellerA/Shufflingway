@@ -727,9 +727,10 @@ public record CardData(
         "(?<dullcost>(?i)(?:,\\s*)?Dull\\s+(?<dullcount>\\d+)\\s*(?<dullcond>active|dull|damaged)?\\s*" + // group 9 (named): optional Dull N [cond] Forward(s) cost — simple or Card Name form
         "(?:Card\\s+Name\\s+.+?\\s+Forwards?" +                                              // named-card branch: "Dull N [cond] Card Name X Forward [and N [cond] Card Name Y Forward]"
         "(?:\\s+and\\s+\\d+\\s*(?:active|dull|damaged)?\\s*Card\\s+Name\\s+.+?\\s+Forwards?)*" +
+        "|Job\\s+(?<dulljob>[A-Za-z][A-Za-z\\s''\\-]*?)(?:\\s+Forwards?)?" +               // job branch: "Dull N [cond] Job X [Forwards]"
         "|(?<dullelem>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)?\\s*Forwards?)\\s*)?" + // standard branch: "Dull N [cond] [elem] Forward(s)"
         ":\\s*"                                                              +  // colon separator
-        "((?:[^\\[]|\\[(?!\\[))*)"                                              // group 13: effect text (up to next [[markup]])
+        "(?<effecttext>(?:[^\\[]|\\[(?!\\[))*)"                                // effect text (up to next [[markup]])
     );
 
     // Captures the content between "put " and " into the Break Zone"
@@ -815,7 +816,7 @@ public record CardData(
             String returnRaw     = m.group(7);
             String counterRaw    = m.group(8);
             String dullCostRaw   = m.group("dullcost");
-            String effectRaw     = m.group(13).trim();
+            String effectRaw     = m.group("effecttext").trim();
             if (effectRaw.isEmpty()) continue;
             // Skip if there are no CP tokens or any non-CP cost phrase (spurious match)
             if ((costPart == null || costPart.isBlank()) && bzRaw == null && discardRaw == null
@@ -1664,6 +1665,14 @@ public record CardData(
     );
 
     /**
+     * "If you have a 《C》, [target] gains [effects]."
+     * Groups: {@code target}, {@code effects}.
+     */
+    private static final Pattern IF_HAVE_CRYSTAL_BOOST = Pattern.compile(
+        "(?i)^If\\s+you\\s+have\\s+a\\s*《C》,\\s+(?<target>.+?)\\s+gains?\\s+(?<effects>.+?)\\.?\\s*$"
+    );
+
+    /**
      * "If [CardName] is dull, [target] gains [effects]."
      * Groups: {@code condcard} (the card that must be dull), {@code target}, {@code effects}.
      */
@@ -1790,6 +1799,27 @@ public record CardData(
         for (String raw : textEn.split("(?i)\\[\\[br\\]\\]")) {
             String seg = SUMMON_MARKUP.matcher(raw.trim()).replaceAll("").trim();
             if (seg.isEmpty()) continue;
+
+            // "If you have a 《C》, [target] gains [effects]."
+            Matcher crystalM = IF_HAVE_CRYSTAL_BOOST.matcher(seg);
+            if (crystalM.find()) {
+                String targetName = crystalM.group("target").trim();
+                String effectsStr = crystalM.group("effects").trim();
+                ControlCondition crystalCond = ControlCondition.forCrystal();
+                Matcher pwrM = IF_CTRL_EFFECT_POWER.matcher(effectsStr);
+                int powerBonus = pwrM.find() ? Integer.parseInt(pwrM.group(1)) : 0;
+                java.util.EnumSet<Trait> traits = java.util.EnumSet.noneOf(Trait.class);
+                if (ICB_EFFECT_HASTE.matcher(effectsStr).find())        traits.add(Trait.HASTE);
+                if (ICB_EFFECT_BRAVE.matcher(effectsStr).find())        traits.add(Trait.BRAVE);
+                if (ICB_EFFECT_FIRST_STRIKE.matcher(effectsStr).find()) traits.add(Trait.FIRST_STRIKE);
+                if (ICB_EFFECT_BACK_ATTACK.matcher(effectsStr).find())  traits.add(Trait.BACK_ATTACK);
+                if (powerBonus != 0 || !traits.isEmpty()) {
+                    FieldPowerGrant targetFilter = parseIcbTargetFilter(targetName);
+                    result.add(new IfControlBoost(List.of(crystalCond), "", targetName, targetFilter,
+                            powerBonus, traits, "", false, false, false, null));
+                }
+                continue;
+            }
 
             // "If [CardName] is dull, [target] gains [effects]."
             Matcher dullM = IF_CARD_IS_DULL_BOOST.matcher(seg);
@@ -1995,6 +2025,14 @@ public record CardData(
     );
 
     /**
+     * Matches "The Card Name X you control gain +N power."
+     * Groups: {@code cardname}, {@code power}.
+     */
+    private static final Pattern FIELD_GRANT_CARD_NAME_PATTERN = Pattern.compile(
+        "(?i)^The\\s+Card\\s+Name\\s+(?<cardname>.+?)\\s+you\\s+control\\s+gains?\\s+\\+(?<power>\\d+)\\s+power[.!]?$"
+    );
+
+    /**
      * Matches a cost-filtered same-side grant with optional power and/or traits:
      * "The [type] of cost N you control gain[s] [+P power [and]] [Trait...]"
      * Groups: {@code targets}, {@code cost}, {@code power} (optional), {@code traitstext} (optional).
@@ -2037,6 +2075,15 @@ public record CardData(
                         Integer.parseInt(bareM.group("power")),
                         EnumSet.noneOf(Trait.class), false, -1, null,
                         bareElem != null ? bareElem.trim() : null));
+                continue;
+            }
+
+            Matcher cnM = FIELD_GRANT_CARD_NAME_PATTERN.matcher(seg);
+            if (cnM.matches()) {
+                result.add(new FieldPowerGrant(null, null, true, true, true, null,
+                        Integer.parseInt(cnM.group("power")),
+                        EnumSet.noneOf(Trait.class), false, -1, null, null,
+                        cnM.group("cardname").trim()));
                 continue;
             }
 

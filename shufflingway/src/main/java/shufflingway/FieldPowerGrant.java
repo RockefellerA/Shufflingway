@@ -3,9 +3,9 @@ package shufflingway;
 import java.util.Set;
 
 /**
- * A passive always-on grant: "The [Element / Job X / Category Y] [type] [other than Z] you control
- * gain +N power [and Trait]." or its opponent-side counterpart "The [filter] [type] opponent
- * controls lose N power."
+ * A passive always-on grant: "The [Element / Job X / Category Y / Card Name Z] [type] [other than W]
+ * you control gain +N power [and Trait]." or its opponent-side counterpart "The [filter] [type]
+ * opponent controls lose N power."
  *
  * <p>Active while the owning card is on the field. When {@link #affectsOpponent} is {@code false}
  * the grant scopes to the same player's side (the default); when {@code true} the grant scopes
@@ -24,29 +24,39 @@ public record FieldPowerGrant(
         boolean affectsOpponent,
         int     costFilter,      // -1 = any cost; N = filter applies at value N (exact, or less/more per costCmp)
         String  costCmp,         // null = exact match; "less" = cost ≤ N; "more" = cost ≥ N
-        String  elementFilter    // null = any element; e.g. "Ice", "Fire|Water"
+        String  elementFilter,   // null = any element; e.g. "Ice", "Fire|Water"
+        String  inclCardName     // null = any name; non-null = only cards whose name matches this
 ) {
     public FieldPowerGrant {
         grantedTraits = Set.copyOf(grantedTraits);
         if (exceptCardName == null) exceptCardName = "";
     }
 
-    /** Convenience constructor without {@code elementFilter}; defaults it to {@code null} (any element). */
+    /** Convenience constructor without {@code inclCardName}; defaults it to {@code null} (any name). */
+    public FieldPowerGrant(String jobFilter, String categoryFilter,
+            boolean inclForwards, boolean inclBackups, boolean inclMonsters,
+            String exceptCardName, int powerBonus, Set<CardData.Trait> grantedTraits,
+            boolean affectsOpponent, int costFilter, String costCmp, String elementFilter) {
+        this(jobFilter, categoryFilter, inclForwards, inclBackups, inclMonsters,
+                exceptCardName, powerBonus, grantedTraits, affectsOpponent, costFilter, costCmp, elementFilter, null);
+    }
+
+    /** Convenience constructor without {@code elementFilter} or {@code inclCardName}. */
     public FieldPowerGrant(String jobFilter, String categoryFilter,
             boolean inclForwards, boolean inclBackups, boolean inclMonsters,
             String exceptCardName, int powerBonus, Set<CardData.Trait> grantedTraits,
             boolean affectsOpponent, int costFilter, String costCmp) {
         this(jobFilter, categoryFilter, inclForwards, inclBackups, inclMonsters,
-                exceptCardName, powerBonus, grantedTraits, affectsOpponent, costFilter, costCmp, null);
+                exceptCardName, powerBonus, grantedTraits, affectsOpponent, costFilter, costCmp, null, null);
     }
 
-    /** Convenience constructor without {@code costCmp} or {@code elementFilter}. */
+    /** Convenience constructor without {@code costCmp}, {@code elementFilter}, or {@code inclCardName}. */
     public FieldPowerGrant(String jobFilter, String categoryFilter,
             boolean inclForwards, boolean inclBackups, boolean inclMonsters,
             String exceptCardName, int powerBonus, Set<CardData.Trait> grantedTraits,
             boolean affectsOpponent, int costFilter) {
         this(jobFilter, categoryFilter, inclForwards, inclBackups, inclMonsters,
-                exceptCardName, powerBonus, grantedTraits, affectsOpponent, costFilter, null, null);
+                exceptCardName, powerBonus, grantedTraits, affectsOpponent, costFilter, null, null, null);
     }
 
     /** Convenience constructor for the common same-side ("you control") grant form (no cost filter). */
@@ -54,7 +64,7 @@ public record FieldPowerGrant(
             boolean inclForwards, boolean inclBackups, boolean inclMonsters,
             String exceptCardName, int powerBonus, Set<CardData.Trait> grantedTraits) {
         this(jobFilter, categoryFilter, inclForwards, inclBackups, inclMonsters,
-                exceptCardName, powerBonus, grantedTraits, false, -1, null, null);
+                exceptCardName, powerBonus, grantedTraits, false, -1, null, null, null);
     }
 
     /** Convenience constructor for the opponent-debuff form (no cost filter). */
@@ -63,7 +73,7 @@ public record FieldPowerGrant(
             String exceptCardName, int powerBonus, Set<CardData.Trait> grantedTraits,
             boolean affectsOpponent) {
         this(jobFilter, categoryFilter, inclForwards, inclBackups, inclMonsters,
-                exceptCardName, powerBonus, grantedTraits, affectsOpponent, -1, null, null);
+                exceptCardName, powerBonus, grantedTraits, affectsOpponent, -1, null, null, null);
     }
 
     @Override
@@ -73,6 +83,7 @@ public record FieldPowerGrant(
         if (elementFilter  != null) sb.append(elementFilter).append(' ');
         if (jobFilter      != null) sb.append(jobFilter).append(' ');
         if (categoryFilter != null) sb.append(categoryFilter).append(' ');
+        if (inclCardName   != null) sb.append("CardName:").append(inclCardName).append(' ');
         if (costFilter >= 0) {
             sb.append("cost").append(costFilter);
             if      ("less".equalsIgnoreCase(costCmp)) sb.append('-');
@@ -115,6 +126,7 @@ public record FieldPowerGrant(
         }
         return CardFilters.meetsElementFilter(card, elementFilter)
             && CardFilters.meetsJobFilter(card, jobFilter)
-            && CardFilters.meetsCategoryFilter(card, categoryFilter);
+            && CardFilters.meetsCategoryFilter(card, categoryFilter)
+            && CardFilters.meetsCardNameFilter(card, inclCardName);
     }
 }

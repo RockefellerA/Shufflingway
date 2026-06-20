@@ -15,6 +15,10 @@ import java.util.List;
  *       the count must be exactly {@link #minCount}, not "or more".  {@link #orCardNames} lists
  *       card-name alternatives that each individual card may satisfy instead of the job/element
  *       filters (e.g. "Job Samurai or Card Name Samurai").</li>
+ *   <li><b>Crystal mode</b>: {@link #requiresCrystal} is {@code true} — condition is met when
+ *       the controlling player has at least 1 Crystal.</li>
+ *   <li><b>Dull mode</b>: {@link #dullCardName} is non-null — condition is met when the named
+ *       card is currently DULL on the controlling player's field.</li>
  * </ul>
  */
 public record ControlCondition(
@@ -29,27 +33,36 @@ public record ControlCondition(
         List<String> orCardNames,       // per-card OR alternative: also matches if name is in this list
         boolean      anyOf,             // named mode: true = ANY required name suffices; false = ALL required
         String       excludeElement,    // null or element name the card must NOT have (e.g. "Ice")
-        String       dullCardName       // non-null: the named card must currently be DULL on the field
+        String       dullCardName,      // non-null: the named card must currently be DULL on the field
+        boolean      requiresCrystal    // true: condition requires the player to have ≥1 Crystal
 ) {
     public ControlCondition {
         requiredCardNames = List.copyOf(requiredCardNames);
         orCardNames       = List.copyOf(orCardNames);
     }
 
-    /** Convenience constructor without {@code dullCardName}; defaults it to {@code null}. */
+    /** Convenience constructor without {@code requiresCrystal}; defaults it to {@code false}. */
+    public ControlCondition(List<String> requiredCardNames, int minCount, boolean exactCount,
+            String cardType, String element, String job, String category, int minPower,
+            List<String> orCardNames, boolean anyOf, String excludeElement, String dullCardName) {
+        this(requiredCardNames, minCount, exactCount, cardType, element, job, category, minPower,
+                orCardNames, anyOf, excludeElement, dullCardName, false);
+    }
+
+    /** Convenience constructor without {@code dullCardName} or {@code requiresCrystal}. */
     public ControlCondition(List<String> requiredCardNames, int minCount, boolean exactCount,
             String cardType, String element, String job, String category, int minPower,
             List<String> orCardNames, boolean anyOf, String excludeElement) {
         this(requiredCardNames, minCount, exactCount, cardType, element, job, category, minPower,
-                orCardNames, anyOf, excludeElement, null);
+                orCardNames, anyOf, excludeElement, null, false);
     }
 
-    /** Convenience constructor without {@code excludeElement}; defaults it to {@code null}. */
+    /** Convenience constructor without {@code excludeElement}, {@code dullCardName}, or {@code requiresCrystal}. */
     public ControlCondition(List<String> requiredCardNames, int minCount, boolean exactCount,
             String cardType, String element, String job, String category, int minPower,
             List<String> orCardNames, boolean anyOf) {
         this(requiredCardNames, minCount, exactCount, cardType, element, job, category, minPower,
-                orCardNames, anyOf, null);
+                orCardNames, anyOf, null, null, false);
     }
 
     /** Convenience constructor preserving the prior 9-arg signature; defaults {@code anyOf} to {@code false} (AND semantics). */
@@ -57,7 +70,13 @@ public record ControlCondition(
             String cardType, String element, String job, String category, int minPower,
             List<String> orCardNames) {
         this(requiredCardNames, minCount, exactCount, cardType, element, job, category, minPower,
-                orCardNames, false, null);
+                orCardNames, false, null, null, false);
+    }
+
+    /** Factory method for a crystal condition. */
+    public static ControlCondition forCrystal() {
+        return new ControlCondition(List.of(), 0, false, null, null, null, null, 0,
+                List.of(), false, null, null, true);
     }
 
     /** Returns {@code true} when this condition checks for specific named cards rather than a count. */
@@ -65,6 +84,7 @@ public record ControlCondition(
 
     @Override
     public String toString() {
+        if (requiresCrystal) return "hasCrystal";
         if (isNamedMode()) return String.join(anyOf ? " | " : " & ", requiredCardNames);
         StringBuilder sb = new StringBuilder();
         if (exactCount) sb.append('=');
