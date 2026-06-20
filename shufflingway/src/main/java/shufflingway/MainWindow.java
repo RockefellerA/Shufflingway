@@ -220,6 +220,9 @@ public class MainWindow {
 	/** Forwards restricted from attacking until the end of their owner's turn (survives one end-phase). */
 	final Set<Integer> p1ForwardCannotAttackPersistent = new HashSet<>();
 	final Set<Integer> p2ForwardCannotAttackPersistent = new HashSet<>();
+	/** Forwards eligible to attack a second time this turn (have attacked once and have "can attack twice"). */
+	final Set<Integer> p1ForwardCanDoSecondAttack = new HashSet<>();
+	final Set<Integer> p2ForwardCanDoSecondAttack = new HashSet<>();
 	/** Forwards restricted from blocking until the end of their owner's turn (survives one end-phase). */
 	final Set<Integer> p1ForwardCannotBlockPersistent  = new HashSet<>();
 	final Set<Integer> p2ForwardCannotBlockPersistent  = new HashSet<>();
@@ -1319,6 +1322,7 @@ public class MainWindow {
 							CardData.parseCannotBlockHigherPower(tx, card.name()),
 							CardData.parseCannotBlockParty(tx, card.name()),
 							CardData.parseCannotAttackOrBlock(tx, card.name()),
+							CardData.parseCanAttackTwice(tx, card.name()),
 							card.job(), card.category1(), card.category2(), tx);
 					if (card.isLb()) lb.add(cd);
 					else             main.add(cd);
@@ -1354,6 +1358,7 @@ public class MainWindow {
 							CardData.parseCannotBlockHigherPower(tx, card.name()),
 							CardData.parseCannotBlockParty(tx, card.name()),
 							CardData.parseCannotAttackOrBlock(tx, card.name()),
+							CardData.parseCanAttackTwice(tx, card.name()),
 							card.job(), card.category1(), card.category2(), tx);
 					if (card.isLb()) p2Lb.add(cd);
 					else             p2Main.add(cd);
@@ -1795,6 +1800,7 @@ public class MainWindow {
                                 p1ForwardCannotAttack.clear();          p2ForwardCannotAttack.clear();
                                 p1ForwardMustAttack.clear();            p2ForwardMustAttack.clear();
                                 p1ForwardCannotAttackPersistent.clear(); p1ForwardCannotBlockPersistent.clear();
+                                p1ForwardCanDoSecondAttack.clear();     p2ForwardCanDoSecondAttack.clear();
                                 p1TempAttackTriggers.clear();           p2TempAttackTriggers.clear();
                                 p1TempBlockTriggers.clear();            p2TempBlockTriggers.clear();
                                 nextIncomingDmgZeroSet.clear();   nextIncomingDmgReduceMap.clear();   nextAbilityDmgReduceMap.clear();
@@ -9981,9 +9987,10 @@ public class MainWindow {
 		if (url == null) return;
 		boolean hasHaste  = effectiveP1HasTrait(idx, CardData.Trait.HASTE);
 		CardData fwdCard  = p1ForwardCards.get(idx);
+		boolean secondAttackReady = state == CardState.DULL && p1ForwardCanDoSecondAttack.contains(idx);
 		boolean canAttack = gameState.getCurrentPhase() == GameState.GamePhase.ATTACK
 				&& attackSubStep == 1
-				&& state == CardState.ACTIVE
+				&& (state == CardState.ACTIVE || secondAttackReady)
 				&& !p1ForwardCannotAttack.contains(idx)
 				&& !p1ForwardCannotAttackPersistent.contains(idx)
 				&& !fwdCard.cannotAttackOrBlock()
@@ -10028,7 +10035,9 @@ public class MainWindow {
 		if (gameState.getCurrentPhase() != GameState.GamePhase.ATTACK) return false;
 		if (attackSubStep != 1) return false;
 		if (idx < 0 || idx >= p1ForwardStates.size()) return false;
-		if (p1ForwardStates.get(idx) != CardState.ACTIVE) return false;
+		CardState state = p1ForwardStates.get(idx);
+		boolean secondAttackEligible = state == CardState.DULL && p1ForwardCanDoSecondAttack.contains(idx);
+		if (state != CardState.ACTIVE && !secondAttackEligible) return false;
 		if (p1ForwardCannotAttack.contains(idx)) return false;
 		if (p1ForwardCannotAttackPersistent.contains(idx)) return false;
 		CardData fwd = p1ForwardCards.get(idx);
@@ -11113,6 +11122,11 @@ public class MainWindow {
 			} else {
 				p1ForwardStates.set(idx, CardState.DULL);
 				animateDullForward(idx, null);
+			}
+			// Track second-attack eligibility for "can attack twice" forwards
+			if (p1ForwardCards.get(idx).canAttackTwice()) {
+				if (!p1ForwardCanDoSecondAttack.remove(idx))
+					p1ForwardCanDoSecondAttack.add(idx);
 			}
 		}
 		for (int idx : selection)

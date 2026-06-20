@@ -47,6 +47,7 @@ public record CardData(
         boolean cannotBlockHigherPower,           // "cardName cannot block a Forward with a power greater than its."
         boolean cannotBlockParty,                 // "cardName cannot block Forwards forming a party."
         boolean cannotAttackOrBlock,              // "cardName cannot attack or block."
+        boolean canAttackTwice,                   // "cardName can attack twice in the same turn."
         String job,
         String category1,
         String category2,
@@ -2685,6 +2686,22 @@ public record CardData(
         "(?i)^(?<cardname>.+?)\\s+cannot\\s+attack\\s+or\\s+block[.!]?\\s*$"
     );
 
+    static final Pattern FIELD_CAN_ATTACK_TWICE = Pattern.compile(
+        "(?i)^(?<cardname>.+?)\\s+can\\s+attack\\s+twice\\s+in\\s+the\\s+same\\s+turn[.!]?\\s*$"
+    );
+
+    public static boolean parseCanAttackTwice(String textEn, String cardName) {
+        if (textEn == null || textEn.isBlank()) return false;
+        for (String raw : textEn.split("(?i)\\[\\[br\\]\\]")) {
+            String seg = SUMMON_MARKUP.matcher(raw.trim()).replaceAll("").trim();
+            if (seg.isEmpty()) continue;
+            Matcher m = FIELD_CAN_ATTACK_TWICE.matcher(seg);
+            if (!m.matches()) continue;
+            if (m.group("cardname").trim().equalsIgnoreCase(cardName)) return true;
+        }
+        return false;
+    }
+
     public static boolean parseCannotAttackOrBlock(String textEn, String cardName) {
         if (textEn == null || textEn.isBlank()) return false;
         for (String raw : textEn.split("(?i)\\[\\[br\\]\\]")) {
@@ -3023,6 +3040,7 @@ public record CardData(
             if (BECOME_FORWARD_IF_CONTROL_N_MONSTERS_PATTERN.matcher(seg).find()) continue;
             if (BECOME_FORWARD_DURING_TURN_PATTERN.matcher(seg).find())       continue;
             if (BECOME_FORWARD_UNCONDITIONAL_PATTERN.matcher(seg).find())     continue;
+            if (FIELD_CAN_ATTACK_TWICE.matcher(seg).matches())               continue;
 
             result.add(new FieldAbility(seg, damageThreshold));
         }

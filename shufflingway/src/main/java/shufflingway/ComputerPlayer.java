@@ -374,6 +374,10 @@ class ComputerPlayer {
 				mw.p2ForwardStates.set(i, CardState.DULL);
 				mw.animateDullP2Forward(i, null);
 			}
+			if (attacker.canAttackTwice()) {
+				if (!mw.p2ForwardCanDoSecondAttack.remove(i))
+					mw.p2ForwardCanDoSecondAttack.add(i);
+			}
 			mw.autoAbilityTriggers.triggerAutoAbilitiesForAttack(attacker, false);
 			final int fi = i;
 			mw.initP1BlockDeclaration(attacker, fi, () -> {
@@ -464,6 +468,7 @@ class ComputerPlayer {
 		mw.p1ForwardCannotAttack.clear();          mw.p2ForwardCannotAttack.clear();
 		mw.p1ForwardMustAttack.clear();            mw.p2ForwardMustAttack.clear();
 		mw.p2ForwardCannotAttackPersistent.clear(); mw.p2ForwardCannotBlockPersistent.clear();
+		mw.p1ForwardCanDoSecondAttack.clear();     mw.p2ForwardCanDoSecondAttack.clear();
 		mw.p1TempAttackTriggers.clear();           mw.p2TempAttackTriggers.clear();
 		mw.p1TempBlockTriggers.clear();            mw.p2TempBlockTriggers.clear();
 		mw.nextIncomingDmgZeroSet.clear();   mw.nextIncomingDmgReduceMap.clear();   mw.nextAbilityDmgReduceMap.clear();
@@ -585,9 +590,12 @@ class ComputerPlayer {
 		CardData fwd = mw.p2ForwardCards.get(idx);
 		if (fwd.cannotAttackOrBlock()) return false;
 		if (mw.isFieldAbilityCannotAttackOrBlock(fwd, false)) return false;
-		return mw.p2ForwardStates.get(idx) == CardState.ACTIVE
-			&& (mw.effectiveP2HasTrait(idx, CardData.Trait.HASTE)
-				|| mw.p2ForwardPlayedOnTurn.get(idx) != mw.gameState.getTurnNumber());
+		CardState state = mw.p2ForwardStates.get(idx);
+		boolean activeOk = state == CardState.ACTIVE;
+		boolean secondOk = state == CardState.DULL && mw.p2ForwardCanDoSecondAttack.contains(idx);
+		if (!activeOk && !secondOk) return false;
+		return mw.effectiveP2HasTrait(idx, CardData.Trait.HASTE)
+			|| mw.p2ForwardPlayedOnTurn.get(idx) != mw.gameState.getTurnNumber();
 	}
 
 	int pickWorstHandCard(List<CardData> hand) { return MainWindow.pickWorstHandCard0(hand); }
