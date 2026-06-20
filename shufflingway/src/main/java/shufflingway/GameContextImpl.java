@@ -3195,12 +3195,84 @@ final class GameContextImpl implements GameContext {
 						? mw.chooseSummonFromBzDialog(candidates, element)
 						: candidates.get(0);
 				if (picked == null) return;
-				IdentityHashMap<CardData, Integer> playable = isP1 ? mw.bzPlayableP1 : mw.bzPlayableP2;
-				playable.put(picked, costReduction);
+				mw.registerBorrowedPlayable(isP1, picked, PlayableEntry.bzThisTurn(costReduction));
 				logEntry((isP1 ? "" : "[P2] ") + picked.name()
 						+ " in Break Zone is castable this turn (cost -" + costReduction + ")");
 				if (isP1) mw.refreshP1BreakLabel(); else mw.refreshP2BreakLabel();
-				mw.endOfTurnEffects.add(ctx -> playable.remove(picked));
+			}
+
+			@Override public void opponentRfpTopDeckMakeCastable(int costReduction, boolean anyElement) {
+				java.util.Deque<CardData> oppDeck = isP1 ? mw.gameState.getP2MainDeck() : mw.gameState.getP1MainDeck();
+				if (oppDeck.isEmpty()) { logEntry("Opponent's deck is empty — nothing removed"); return; }
+				CardData top = oppDeck.pollFirst();
+				if (isP1) mw.gameState.addToP2PermanentRfp(top); else mw.gameState.addToP1PermanentRfp(top);
+				if (isP1) mw.refreshP2DeckLabel(); else mw.refreshP1DeckLabel();
+				PlayableEntry entry = new PlayableEntry(PlayableEntry.SourceZone.RFP,
+						costReduction, anyElement, false, false, false);
+				mw.registerBorrowedPlayable(isP1, top, entry);
+				logEntry((isP1 ? "" : "[P2] ") + "Opponent's top deck card (" + top.name()
+						+ ") removed from game — castable as your own"
+						+ (costReduction > 0 ? " (cost -" + costReduction + ")" : "")
+						+ (anyElement ? " [any Element]" : ""));
+			}
+
+			@Override public void chooseFromOpponentBzMakeCastable(boolean inclForwards,
+					boolean inclBackups, boolean inclMonsters) {
+				List<CardData> oppBz = isP1 ? mw.gameState.getP2BreakZone() : mw.gameState.getP1BreakZone();
+				List<CardData> candidates = new ArrayList<>();
+				for (CardData c : oppBz) {
+					if (c.isForward() && inclForwards) candidates.add(c);
+					else if (c.isBackup() && inclBackups) candidates.add(c);
+					else if (c.isMonster() && inclMonsters) candidates.add(c);
+				}
+				if (candidates.isEmpty()) {
+					logEntry("No eligible card in opponent's Break Zone — effect fizzles");
+					return;
+				}
+				CardData picked = isP1
+						? mw.chooseCardFromBzDialog(candidates, "Choose 1 card in opponent's Break Zone")
+						: candidates.get(0);
+				if (picked == null) return;
+				List<CardData> ownerBz = isP1 ? mw.gameState.getP2BreakZone() : mw.gameState.getP1BreakZone();
+				ownerBz.remove(picked);
+				if (isP1) mw.gameState.addToP2PermanentRfp(picked); else mw.gameState.addToP1PermanentRfp(picked);
+				if (isP1) mw.refreshP2BreakLabel(); else mw.refreshP1BreakLabel();
+				PlayableEntry entry = new PlayableEntry(PlayableEntry.SourceZone.RFP, 0, false, false, false, false);
+				mw.registerBorrowedPlayable(isP1, picked, entry);
+				logEntry((isP1 ? "" : "[P2] ") + picked.name()
+						+ " removed from opponent's Break Zone — castable as your own during this game");
+			}
+
+			@Override public void chooseSummonsFromBzMakeCastable(int count, boolean eitherBz,
+					boolean expiresThisTurn, boolean rfgAfterUse, boolean freeCast) {
+				for (int picks = 0; picks < count; picks++) {
+					List<CardData> candidates = new ArrayList<>();
+					List<CardData> ownBz = isP1 ? mw.gameState.getP1BreakZone() : mw.gameState.getP2BreakZone();
+					List<CardData> oppBz = isP1 ? mw.gameState.getP2BreakZone() : mw.gameState.getP1BreakZone();
+					for (CardData c : ownBz) if (c.isSummon() && !mw.bzPlayableP1.containsKey(c) && !mw.bzPlayableP2.containsKey(c)) candidates.add(c);
+					if (eitherBz) for (CardData c : oppBz) if (c.isSummon() && !mw.bzPlayableP1.containsKey(c) && !mw.bzPlayableP2.containsKey(c)) candidates.add(c);
+					if (candidates.isEmpty()) {
+						if (picks == 0) logEntry("No eligible Summon in Break Zone — effect fizzles");
+						return;
+					}
+					CardData picked = isP1
+							? mw.chooseCardFromBzDialog(candidates, "Choose a Summon from the Break Zone")
+							: candidates.get(0);
+					if (picked == null) return;
+					// Determine the card's true owner by which Break Zone it sits in.
+					boolean inOwnBz = ownBz.remove(picked);
+					if (!inOwnBz) oppBz.remove(picked);
+					boolean cardOwnerIsP1 = inOwnBz ? isP1 : !isP1;
+					if (cardOwnerIsP1) mw.gameState.addToP1PermanentRfp(picked); else mw.gameState.addToP2PermanentRfp(picked);
+					mw.refreshP1BreakLabel(); mw.refreshP2BreakLabel();
+					PlayableEntry entry = new PlayableEntry(PlayableEntry.SourceZone.RFP, 0, false,
+							freeCast, rfgAfterUse, expiresThisTurn);
+					mw.registerBorrowedPlayable(isP1, picked, entry);
+					logEntry((isP1 ? "" : "[P2] ") + picked.name()
+							+ " removed from game — castable as your own"
+							+ (expiresThisTurn ? " this turn" : " during this game")
+							+ (freeCast ? " without paying its cost" : ""));
+				}
 			}
 
 			@Override public List<FieldAbility> getActiveFieldAbilities() {

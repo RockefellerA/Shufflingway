@@ -1366,6 +1366,42 @@ public interface GameContext {
     void chooseSummonInBzMakeCastable(String element, int costReduction);
 
     /**
+     * "Your opponent removes the top card of their deck from the game [face down]. You can [look at
+     * it and/or] cast it as though you owned it at any time you could normally cast it. The cost for
+     * casting it [is reduced by N and] can be paid using CP of any Element."
+     * (Lani 12-018H, Zidane 16-048H)
+     *
+     * <p>Moves the top card of the opponent's deck into the opponent's removed-from-game zone and
+     * registers it as castable by the ability user for the rest of the game, with the given cost
+     * reduction and any-element permission.  No-op if the opponent's deck is empty.
+     */
+    void opponentRfpTopDeckMakeCastable(int costReduction, boolean anyElement);
+
+    /**
+     * "Choose 1 [Forward|Character] in your opponent's Break Zone. Remove it from the game.
+     * [During this game,] you can cast it as though you owned it at any time you could normally
+     * cast it." (Bel Dat 20-056H — Forward; Zidane 24-044H — Character)
+     *
+     * <p>Prompts the ability user to pick a matching card from the opponent's Break Zone, moves it
+     * to the opponent's removed-from-game zone, and registers it as castable by the ability user for
+     * the rest of the game.  No-op if no matching card is present.
+     */
+    void chooseFromOpponentBzMakeCastable(boolean inclForwards, boolean inclBackups,
+            boolean inclMonsters);
+
+    /**
+     * "Choose N Summon(s) from your [and/or your opponent's] Break Zone. Remove them from the game.
+     * [During this game,|this turn,] you can cast them as though you owned them ... [If you cast it,
+     * remove that Summon from the game after use instead of putting it in the Break Zone.]"
+     * (Shantotto 23-067R — 2, either BZ, this game; Krile 12-061L — 1, either BZ, this turn, RFG after use)
+     *
+     * <p>Prompts the ability user to pick {@code count} Summons from the eligible Break Zone(s),
+     * moves them to their owners' removed-from-game zones, and registers each as castable.
+     */
+    void chooseSummonsFromBzMakeCastable(int count, boolean eitherBz, boolean expiresThisTurn,
+            boolean rfgAfterUse, boolean freeCast);
+
+    /**
      * Returns {@code true} if the most recent card cast by the ability user
      * was paid entirely by dulling Backups (no hand-card discards were used).
      * Used for "If the CP paid to cast X was only produced by Backups" conditionals.
