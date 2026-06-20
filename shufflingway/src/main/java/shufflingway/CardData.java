@@ -819,7 +819,7 @@ public record CardData(
             String returnRaw     = m.group(7);
             String counterRaw    = m.group(8);
             String dullCostRaw   = m.group("dullcost");
-            String effectRaw     = m.group("effecttext").trim();
+            String effectRaw     = DAMAGE_THRESHOLD_REMINDER_PAREN.matcher(m.group("effecttext").trim()).replaceAll("").trim();
             if (effectRaw.isEmpty()) continue;
             // Skip if there are no CP tokens or any non-CP cost phrase (spurious match)
             if ((costPart == null || costPart.isBlank()) && bzRaw == null && discardRaw == null
@@ -1068,6 +1068,16 @@ public record CardData(
     /** "You can only use this ability if you have received N points of damage or more." */
     static final Pattern OWN_DAMAGE_THRESHOLD_RESTRICTION = Pattern.compile(
         "(?i)You\\s+can\\s+only\\s+use\\s+this\\s+ability\\s+if\\s+you\\s+have\\s+received\\s+(?<count>\\d+)\\s+points?\\s+of\\s+damage\\s+or\\s+more[.!]?"
+    );
+
+    /**
+     * Redundant inline reminder "(If you have received N points of damage or more, this [Card type]
+     * has this ability.)" — present when the ability already carries a "Damage N --" prefix.
+     * Stripped from effect text before parsing so it doesn't appear as an unrecognised sub-effect.
+     */
+    private static final Pattern DAMAGE_THRESHOLD_REMINDER_PAREN = Pattern.compile(
+        "(?i)\\s*\\(If\\s+you\\s+have\\s+received\\s+\\d+\\s+points?\\s+of\\s+damage\\s+or\\s+more,\\s+" +
+        "this\\s+(?:Forward|Backup|Monster|Character|card)\\s+has\\s+this\\s+ability\\.?\\)"
     );
 
     /** "You can only use this ability if [CardName] has received damage this turn." */
