@@ -2967,6 +2967,24 @@ public record CardData(
         "(?i)^.+?\\s+enters\\s+the\\s+field\\s+dull[.!]?\\s*$"
     );
 
+    /** Matches "The opponent's Forwards enter the field dull." */
+    static final Pattern OPPONENT_FORWARDS_ENTER_DULL_PATTERN = Pattern.compile(
+        "(?i)^(?:the\\s+)?(?:your\\s+)?opponent'?s?\\s+Forwards?\\s+enters?\\s+the\\s+field\\s+dull[.!]?\\s*$"
+    );
+
+    /** Returns {@code true} if {@code seg} is an "opponent's Forwards enter the field dull" ability. */
+    public static boolean parseOpponentForwardsEnterDull(String seg) {
+        if (seg == null || seg.isBlank()) return false;
+        return OPPONENT_FORWARDS_ENTER_DULL_PATTERN.matcher(seg.trim()).matches();
+    }
+
+    /** Returns {@code true} if this card has an "opponent's Forwards enter the field dull" field ability. */
+    public boolean opponentForwardsEnterFieldDull() {
+        for (String seg : rawFieldSegments())
+            if (parseOpponentForwardsEnterDull(seg)) return true;
+        return false;
+    }
+
     /**
      * Matches "During your turn, [CardName] also becomes a Forward with [X] power."
      * Group {@code power} captures the numeric power value.

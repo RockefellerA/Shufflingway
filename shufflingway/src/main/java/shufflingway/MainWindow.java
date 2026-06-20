@@ -8928,6 +8928,17 @@ public class MainWindow {
 		return true;
 	}
 
+	/** Returns {@code true} if any card on the opponent's field forces {@code isP1}'s Forwards to enter dull. */
+	private boolean opponentForcesForwardDull(boolean isP1) {
+		List<CardData> oppFwds = isP1 ? p2ForwardCards : p1ForwardCards;
+		CardData[]     oppBkps = isP1 ? p2BackupCards  : p1BackupCards;
+		List<CardData> oppMons = isP1 ? p2MonsterCards : p1MonsterCards;
+		for (CardData c : oppFwds) if (c.opponentForwardsEnterFieldDull()) return true;
+		for (CardData c : oppBkps) if (c != null && c.opponentForwardsEnterFieldDull()) return true;
+		for (CardData c : oppMons) if (c.opponentForwardsEnterFieldDull()) return true;
+		return false;
+	}
+
 	private boolean isNamedCardDull(String name, boolean isP1) {
 		List<CardData> fwds = isP1 ? p1ForwardCards : p2ForwardCards;
 		List<CardState> states = isP1 ? p1ForwardStates : p2ForwardStates;
@@ -9308,6 +9319,8 @@ public class MainWindow {
 		for (FieldAbility fa : card.fieldAbilities()) {
 			Matcher fam = AutoAbilityTriggers.FA_DAMAGE_MODIFIER.matcher(fa.effectText());
 			if (!fam.find() || !fam.group("card").trim().equalsIgnoreCase(card.name())) continue;
+			String threshStr = fam.group("threshold");
+			if (threshStr != null && amount < Integer.parseInt(threshStr)) continue;
 			String src = fam.group("sourceclause");
 			boolean applies;
 			if (src == null || src.isBlank()) {
@@ -10063,7 +10076,7 @@ public class MainWindow {
 
 		p1ForwardUrls.add(card.imageUrl());
 		p1ForwardCards.add(card);
-		p1ForwardStates.add(card.entersFieldDull() ? CardState.DULL : CardState.ACTIVE);
+		p1ForwardStates.add((card.entersFieldDull() || opponentForcesForwardDull(true)) ? CardState.DULL : CardState.ACTIVE);
 		p1ForwardPlayedOnTurn.add(gameState.getTurnNumber());
 		if (card.element() != null) p1ElementForwardsEnteredThisTurn.add(card.element().toLowerCase());
 		p1ForwardDamage.add(0);
@@ -12568,7 +12581,7 @@ public class MainWindow {
 
 		p2ForwardUrls.add(card.imageUrl());
 		p2ForwardCards.add(card);
-		p2ForwardStates.add(CardState.ACTIVE);
+		p2ForwardStates.add((card.entersFieldDull() || opponentForcesForwardDull(false)) ? CardState.DULL : CardState.ACTIVE);
 		p2ForwardPlayedOnTurn.add(gameState.getTurnNumber());
 		if (card.element() != null) p2ElementForwardsEnteredThisTurn.add(card.element().toLowerCase());
 		p2ForwardDamage.add(0);

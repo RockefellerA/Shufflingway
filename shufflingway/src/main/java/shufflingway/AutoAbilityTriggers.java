@@ -221,12 +221,13 @@ final class AutoAbilityTriggers {
 	 * Covers "reduce the damage by N", "the damage becomes N", and "the damage increases by N" variants,
 	 * with optional source clauses: "by a Forward", "by [your opponent's] Summons [or abilities]",
 	 * "by a Summon or an ability", "by [an] abilit[y|ies]", "other than battle damage", or no clause (any source).
-	 * Also accepts "receives damage" as a synonym for "is dealt damage".
-	 * Groups: {@code card}, {@code sourceclause} (optional), {@code reduceby} (optional),
-	 * {@code setsto} (optional), {@code increaseby} (optional).
+	 * Also accepts "receives damage" as a synonym for "is dealt damage", and an optional threshold:
+	 * "is dealt N damage or more" (captured in {@code threshold}) to apply the modifier only when damage ≥ N.
+	 * Groups: {@code card}, {@code threshold} (optional), {@code sourceclause} (optional),
+	 * {@code reduceby} (optional), {@code setsto} (optional), {@code increaseby} (optional).
 	 */
 	static final Pattern FA_DAMAGE_MODIFIER = Pattern.compile(
-		"(?i)^If\\s+(?<card>.+?)\\s+(?:is\\s+dealt|receives)\\s+damage" +
+		"(?i)^If\\s+(?<card>.+?)\\s+(?:is\\s+dealt|receives)\\s+(?:(?<threshold>\\d+)\\s+damage\\s+or\\s+more|damage)" +
 		"(?<sourceclause>" +
 			"\\s+by\\s+a\\s+Forward" +
 			"|\\s+other\\s+than\\s+battle\\s+damage" +
