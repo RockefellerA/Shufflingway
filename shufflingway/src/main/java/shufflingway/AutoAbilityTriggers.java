@@ -218,13 +218,15 @@ final class AutoAbilityTriggers {
 
 	/**
 	 * General incoming-damage modifier field ability.
-	 * Covers "reduce the damage by N" and "the damage becomes N" variants, with optional source clauses:
-	 * "by a Forward", "by [your opponent's] Summons [or abilities]", "by a Summon or an ability",
-	 * "by [an] abilit[y|ies]", "other than battle damage", or no clause (any source).
-	 * Groups: {@code card}, {@code sourceclause} (optional), {@code reduceby} (optional), {@code setsto} (optional).
+	 * Covers "reduce the damage by N", "the damage becomes N", and "the damage increases by N" variants,
+	 * with optional source clauses: "by a Forward", "by [your opponent's] Summons [or abilities]",
+	 * "by a Summon or an ability", "by [an] abilit[y|ies]", "other than battle damage", or no clause (any source).
+	 * Also accepts "receives damage" as a synonym for "is dealt damage".
+	 * Groups: {@code card}, {@code sourceclause} (optional), {@code reduceby} (optional),
+	 * {@code setsto} (optional), {@code increaseby} (optional).
 	 */
 	static final Pattern FA_DAMAGE_MODIFIER = Pattern.compile(
-		"(?i)^If\\s+(?<card>.+?)\\s+is\\s+dealt\\s+damage" +
+		"(?i)^If\\s+(?<card>.+?)\\s+(?:is\\s+dealt|receives)\\s+damage" +
 		"(?<sourceclause>" +
 			"\\s+by\\s+a\\s+Forward" +
 			"|\\s+other\\s+than\\s+battle\\s+damage" +
@@ -233,7 +235,7 @@ final class AutoAbilityTriggers {
 			"|\\s+less\\s+than\\s+(?:his|her|its)\\s+power" +
 		")?" +
 		"\\s*,\\s+" +
-		"(?:reduce\\s+the\\s+damage\\s+by\\s+(?<reduceby>\\d+)|the\\s+damage\\s+becomes\\s+(?<setsto>\\d+))" +
+		"(?:reduce\\s+the\\s+damage\\s+by\\s+(?<reduceby>\\d+)|the\\s+damage\\s+becomes\\s+(?<setsto>\\d+)|the\\s+damage\\s+increases\\s+by\\s+(?<increaseby>\\d+))" +
 		"\\s+instead\\.?$"
 	);
 

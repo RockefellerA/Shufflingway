@@ -9328,8 +9328,9 @@ public class MainWindow {
 				}
 			}
 			if (!applies) continue;
-			String reduceStr = fam.group("reduceby");
-			String setstoStr = fam.group("setsto");
+			String reduceStr   = fam.group("reduceby");
+			String setstoStr   = fam.group("setsto");
+			String increaseStr = fam.group("increaseby");
 			if (reduceStr != null) {
 				int before = amount;
 				amount = Math.max(0, amount - Integer.parseInt(reduceStr));
@@ -9338,6 +9339,10 @@ public class MainWindow {
 				int fixed = Integer.parseInt(setstoStr);
 				logEntry(card.name() + " — damage set to " + fixed + " instead");
 				amount = fixed;
+			} else if (increaseStr != null) {
+				int before = amount;
+				amount = amount + Integer.parseInt(increaseStr);
+				logEntry(card.name() + " — damage increased by " + increaseStr + " (" + before + " → " + amount + ")");
 			}
 		}
 

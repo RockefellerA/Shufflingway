@@ -117,6 +117,13 @@ public class FieldAbilityParsingTest {
         if (AutoAbilityTriggers.FA_REDUCE_ABILITY_DAMAGE.matcher(fa.effectText()).find()) return true;
         if (!CardData.parseSelfTraitGrant(fa.effectText(), source.name()).isEmpty()) return true;
         if (CardData.TRAIT_ONLY_SEGMENT.matcher(fa.effectText()).matches()) return true;
+        if (CardData.parseFieldCannotBeBlockedByCost(fa.effectText(), source.name()) != null) return true;
+        if (CardData.parseCannotBeBlockedByHigherPower(fa.effectText(), source.name())) return true;
+        if (CardData.parseCannotBlockAtAll(fa.effectText(), source.name())) return true;
+        if (CardData.parseCannotBlockHigherPower(fa.effectText(), source.name())) return true;
+        if (CardData.parseCannotBlockParty(fa.effectText(), source.name())) return true;
+        if (CardData.parseCannotAttackOrBlock(fa.effectText(), source.name())) return true;
+        if (CardData.parseCanAttackTwice(fa.effectText(), source.name())) return true;
         return CardData.isBackupCpAbility(fa.effectText());
     }
 
