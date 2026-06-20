@@ -2621,7 +2621,8 @@ public class ActionResolver {
         "(?i)Deal\\s+(?<base>\\d+)\\s+damage\\s+for\\s+each\\s+" +
         "(?:(?<element>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)\\s+)?" +
         "(?:Category\\s+(?<category>\\S+)\\s+)?" +
-        "(?<chartype>Forwards?|Characters?|Backups?|Monsters?)\\s+you\\s+control" +
+        "(?<chartype>Forwards?|Characters?|Backups?|Monsters?)\\s+" +
+        "(?:(?<oppcount>(?:your\\s+)?opponent\\s+controls)|you\\s+control)" +
         "\\s+to\\s+all(?:\\s+the)?\\s+" +
         "(?:(?<condition>damaged|dull|attacking|blocking|active)\\s+)?" +
         "Forwards?" +
@@ -4245,11 +4246,12 @@ public class ActionResolver {
         Matcher m = DEAL_DAMAGE_TO_FORWARDS_FOR_EACH.matcher(text);
         if (!m.find()) return null;
 
-        int    baseDmg      = Integer.parseInt(m.group("base"));
-        String element      = m.group("element");
-        String category     = m.group("category");
-        String charType     = m.group("chartype");
-        String condition    = m.group("condition");
+        int    baseDmg       = Integer.parseInt(m.group("base"));
+        String element       = m.group("element");
+        String category      = m.group("category");
+        String charType      = m.group("chartype");
+        String condition     = m.group("condition");
+        boolean countOpp     = m.group("oppcount") != null;
         boolean opponentOnly = m.group("opponent") != null;
         boolean unreduced    = CANNOT_BE_REDUCED_PATTERN.matcher(text).find();
 
@@ -4259,11 +4261,14 @@ public class ActionResolver {
         String elementFilter = element != null ? element.toLowerCase(java.util.Locale.ROOT) : null;
 
         return ctx -> {
-            int n = ctx.countSelfFieldCards(fwd, bkp, mon, null, null, category, elementFilter);
+            int n = countOpp
+                    ? ctx.countOppFieldCards(fwd, bkp, mon, null, null, category, elementFilter)
+                    : ctx.countSelfFieldCards(fwd, bkp, mon, null, null, category, elementFilter);
             int damage = baseDmg * n;
+            String controller = countOpp ? "opponent controls" : "you control";
             String multLabel = (element != null ? element + " " : "")
                     + (category != null ? "Category " + category + " " : "")
-                    + charType + " you control";
+                    + charType + " " + controller;
             String condLabel = condition != null ? (condition + " ") : "";
             String scopeLabel = opponentOnly ? "opponent's " : "all ";
             String unredLabel = unreduced ? " (cannot be reduced)" : "";

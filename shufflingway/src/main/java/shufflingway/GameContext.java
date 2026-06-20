@@ -681,6 +681,14 @@ public interface GameContext {
     int countP2FieldCards(boolean inclForwards, boolean inclBackups, boolean inclMonsters,
             String jobFilter, String cardNameFilter, String categoryFilter, String elementFilter);
 
+    /** Counts the opponent's field cards — routes to P2 or P1 based on {@link #isP1()}. */
+    default int countOppFieldCards(boolean inclForwards, boolean inclBackups, boolean inclMonsters,
+            String jobFilter, String cardNameFilter, String categoryFilter, String elementFilter) {
+        return isP1()
+                ? countP2FieldCards(inclForwards, inclBackups, inclMonsters, jobFilter, cardNameFilter, categoryFilter, elementFilter)
+                : countP1FieldCards(inclForwards, inclBackups, inclMonsters, jobFilter, cardNameFilter, categoryFilter, elementFilter);
+    }
+
     /** Counts the ability user's own field cards — routes to P1 or P2 based on {@link #isP1()}. */
     default int countSelfFieldCards(boolean inclForwards, boolean inclBackups, boolean inclMonsters,
             String jobFilter, String cardNameFilter) {
