@@ -12,7 +12,6 @@ import java.awt.image.BufferedImage;
 import java.util.ArrayList;
 import java.util.Deque;
 import java.util.HashSet;
-import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -808,6 +807,15 @@ final class GameContextImpl implements GameContext {
 				if (isP1()) mw.p2ForwardCannotBlockInferiorPower = true;
 				else        mw.p1ForwardCannotBlockInferiorPower = true;
 				logEntry("Effect: Opponent Forwards cannot block Forwards with power inferior to their own this turn");
+			}
+			@Override public void oppForwardsLoseAllAbilitiesUntilEndOfTurn() {
+				List<CardData> oppFwds = isP1() ? mw.p2ForwardCards : mw.p1ForwardCards;
+				for (CardData fwd : oppFwds) {
+					if (mw.lostAbilitiesCards.add(fwd)) {
+						mw.endOfTurnEffects.add(ctx -> mw.lostAbilitiesCards.remove(fwd));
+					}
+				}
+				logEntry("Effect: All opponent Forwards lose all abilities until end of turn");
 			}
 			@Override public boolean wasElementCpPaid(String element) {
 				return element != null && mw.lastCastPaymentElements.stream()

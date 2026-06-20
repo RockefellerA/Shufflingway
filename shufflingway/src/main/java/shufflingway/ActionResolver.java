@@ -601,6 +601,14 @@ public class ActionResolver {
     );
 
     /**
+     * Matches "All the Forwards opponent controls lose all abilities until the end of the turn."
+     */
+    private static final Pattern OPP_FWDS_LOSE_ALL_ABILITIES_EOT = Pattern.compile(
+        "(?i)All\\s+(?:the\\s+)?Forwards?\\s+(?:(?:your\\s+)?opponent\\s+controls?)\\s+" +
+        "lose\\s+all\\s+abilities\\s+until\\s+(?:the\\s+)?end\\s+of\\s+(?:the\\s+)?turn[.!]?"
+    );
+
+    /**
      * Matches "All the Forwards opponent controls cannot block Forwards with a power inferior to their own this turn."
      */
     private static final Pattern OPP_FWDS_CANNOT_BLOCK_INFERIOR_POWER_THIS_TURN = Pattern.compile(
@@ -3164,6 +3172,9 @@ public class ActionResolver {
         result = tryParseOppFwdsCannotBlockInferiorPower(effectText);
         if (result != null) return result;
 
+        result = tryParseOppFwdsLoseAllAbilitiesEot(effectText);
+        if (result != null) return result;
+
         result = tryParseStandaloneCannotBeBlocked(effectText, source);
         if (result != null) return result;
 
@@ -3530,6 +3541,7 @@ public class ActionResolver {
         if (tryParseStandaloneShieldCannotBeBroken(effectText, source) != null) return "StandaloneShieldCannotBeBroken";
         if (tryParseAllForwardsCannotBlock(effectText)             != null) return "AllForwardsCannotBlock";
         if (tryParseOppFwdsCannotBlockInferiorPower(effectText)    != null) return "OppFwdsCannotBlockInferiorPower";
+        if (tryParseOppFwdsLoseAllAbilitiesEot(effectText)         != null) return "OppFwdsLoseAllAbilitiesEot";
         if (tryParseStandaloneCannotBeBlocked(effectText, source) != null) return "StandaloneCannotBeBlocked";
         if (tryParseRevealSelectHandRfp(effectText)            != null) return "RevealSelectHandRfp";
         if (tryParseOpponentRandomHandRfp(effectText)            != null) return "OpponentRandomHandRfp";
@@ -3866,6 +3878,7 @@ public class ActionResolver {
         if (tryParseStandaloneShieldCannotBeBroken(effectText, source) != null) return "StandaloneShieldCannotBeBroken";
         if (tryParseAllForwardsCannotBlock(effectText)             != null) return "AllForwardsCannotBlock";
         if (tryParseOppFwdsCannotBlockInferiorPower(effectText)    != null) return "OppFwdsCannotBlockInferiorPower";
+        if (tryParseOppFwdsLoseAllAbilitiesEot(effectText)         != null) return "OppFwdsLoseAllAbilitiesEot";
         if (tryParseStandaloneCannotBeBlocked(effectText, source) != null) return "StandaloneCannotBeBlocked";
         if (tryParseRevealSelectHandRfp(effectText) != null)               return "RevealSelectHandRfp";
         if (tryParseOpponentRandomHandRfp(effectText) != null)              return "OpponentRandomHandRfp";
@@ -7290,6 +7303,11 @@ public class ActionResolver {
     private static Consumer<GameContext> tryParseOppFwdsCannotBlockInferiorPower(String text) {
         if (!OPP_FWDS_CANNOT_BLOCK_INFERIOR_POWER_THIS_TURN.matcher(text).matches()) return null;
         return ctx -> ctx.setOppForwardsCannotBlockInferiorPowerThisTurn();
+    }
+
+    private static Consumer<GameContext> tryParseOppFwdsLoseAllAbilitiesEot(String text) {
+        if (!OPP_FWDS_LOSE_ALL_ABILITIES_EOT.matcher(text).matches()) return null;
+        return ctx -> ctx.oppForwardsLoseAllAbilitiesUntilEndOfTurn();
     }
 
     private static Consumer<GameContext> tryParseStandaloneCannotBeBlocked(String text, CardData source) {

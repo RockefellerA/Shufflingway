@@ -442,6 +442,9 @@ public class MainWindow {
 	/** End-of-turn effects queued this turn; fired at the beginning of the END phase. */
 	final List<Consumer<GameContext>> endOfTurnEffects = new ArrayList<>();
 
+	/** Cards whose printed abilities are suppressed until end of turn ("lose all abilities"). */
+	final Set<CardData> lostAbilitiesCards = Collections.newSetFromMap(new IdentityHashMap<>());
+
 	/** Active "next cast costs N less" modifiers; consumed on first matching cast, or cleared at EOT. */
 	final List<CostReductionModifier> activeCostReductions = new ArrayList<>();
 
@@ -1265,6 +1268,7 @@ public class MainWindow {
 		endOfTurnEffects.clear();
 		pendingMainPhase1Effects.clear();
 		activeCostReductions.clear();
+		lostAbilitiesCards.clear();
 		bzPlayableP1.clear();
 		bzPlayableP2.clear();
 		rfgAfterUseSummons.clear();
@@ -4144,17 +4148,17 @@ public class MainWindow {
 	boolean effectiveP1HasTrait(int idx, CardData.Trait trait) {
 		if (p1ForwardRemovedTraits.get(idx).contains(trait)) return false;
 		CardData card = p1ForwardCards.get(idx);
-		return card.hasTrait(trait)
-				|| p1ForwardTempTraits.get(idx).contains(trait)
-				|| computeConditionalTraitsForTarget(card, true).contains(trait);
+		if (!lostAbilitiesCards.contains(card) && card.hasTrait(trait)) return true;
+		if (p1ForwardTempTraits.get(idx).contains(trait)) return true;
+		return computeConditionalTraitsForTarget(card, true).contains(trait);
 	}
 
 	boolean effectiveP2HasTrait(int idx, CardData.Trait trait) {
 		if (p2ForwardRemovedTraits.get(idx).contains(trait)) return false;
 		CardData card = p2ForwardCards.get(idx);
-		return card.hasTrait(trait)
-				|| p2ForwardTempTraits.get(idx).contains(trait)
-				|| computeConditionalTraitsForTarget(card, false).contains(trait);
+		if (!lostAbilitiesCards.contains(card) && card.hasTrait(trait)) return true;
+		if (p2ForwardTempTraits.get(idx).contains(trait)) return true;
+		return computeConditionalTraitsForTarget(card, false).contains(trait);
 	}
 
 	private boolean effectiveHasTrait(boolean isP1, int idx, CardData.Trait trait) {
@@ -8987,6 +8991,7 @@ public class MainWindow {
 	}
 
 	private int fieldBoostContribution(CardData src, CardData target, boolean isP1) {
+		if (lostAbilitiesCards.contains(src)) return 0;
 		int boost = 0;
 		for (IfControlBoost icb : src.ifControlBoosts())
 			if (icb.appliesToCard(target) && icbConditionsMet(icb, isP1))
@@ -9092,6 +9097,7 @@ public class MainWindow {
 
 	private void collectFieldTraits(CardData src, CardData target, boolean isP1,
 			EnumSet<CardData.Trait> out) {
+		if (lostAbilitiesCards.contains(src)) return;
 		for (IfControlBoost icb : src.ifControlBoosts())
 			if (icb.appliesToCard(target) && icbConditionsMet(icb, isP1))
 				out.addAll(icb.grantedTraits());

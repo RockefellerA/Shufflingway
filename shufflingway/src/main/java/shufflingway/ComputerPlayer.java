@@ -972,6 +972,7 @@ class ComputerPlayer {
 	 */
 	private boolean tryP2UseAbility(CardData card, boolean isFrozen, CardState state,
 			int playedTurn, Runnable applyDull, Runnable onDone) {
+		if (mw.lostAbilitiesCards.contains(card)) return false;
 		for (ActionAbility ability : card.actionAbilities()) {
 			if (ability.whileCardInHand()) continue;
 			if (ability.breakZoneOnly() != null) continue;

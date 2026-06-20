@@ -1055,6 +1055,9 @@ public interface GameContext {
     /** Marks all opponent Forwards as unable to block Forwards with power inferior to their own this turn. */
     void setOppForwardsCannotBlockInferiorPowerThisTurn();
 
+    /** Causes all opponent Forwards to lose all abilities until end of turn. */
+    void oppForwardsLoseAllAbilitiesUntilEndOfTurn();
+
     /**
      * Finds the source card on its owner's forward zone and returns it to the bottom of
      * its owner's deck.  Calls {@link #markEffectFizzled()} if the card is not found.

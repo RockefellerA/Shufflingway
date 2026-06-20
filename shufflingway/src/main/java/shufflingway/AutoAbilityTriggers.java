@@ -949,6 +949,7 @@ final class AutoAbilityTriggers {
 	 * {@link #executeAutoAbilityImpl}.
 	 */
 	private void executeAutoAbility(AutoAbility fa, CardData source, boolean isP1) {
+		if (mw.lostAbilitiesCards.contains(source)) return;
 		if (pendingBatch != null) {
 			pendingBatch.add(new StackOrderingDialog.Item(fa, source, isP1));
 			return;
@@ -2334,6 +2335,7 @@ final class AutoAbilityTriggers {
 	 */
 	void addAbilityMenuItems(JPopupMenu menu, CardData card, boolean isFrozen,
 			CardState state, int playedTurn, Runnable applyDull, boolean isP1) {
+		if (mw.lostAbilitiesCards.contains(card)) return;
 		List<ActionAbility> abilities = card.actionAbilities();
 		List<ActionAbility> tempAbilities = (isP1 ? mw.p1TempGrantedAbilities : mw.p2TempGrantedAbilities)
 				.getOrDefault(card, List.of());
