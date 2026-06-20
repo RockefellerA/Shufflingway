@@ -743,6 +743,9 @@ final class AutoAbilityTriggers {
 		mw.refreshAllForwardSlots();
 		for (int i = 0; i < mw.p2ForwardCards.size(); i++) mw.refreshP2ForwardSlot(i);
 		mw.showStackWindowIfNeeded();
+		// If a Forward just left, check the other player's field cards for
+		// "if your opponent doesn't control Forwards" field abilities
+		if (departing.isForward()) mw.fireOppNoForwardsFieldAbilities(!isP1);
 	}
 
 	/** Fires "cast summon" field abilities for all field cards belonging to the casting player. */

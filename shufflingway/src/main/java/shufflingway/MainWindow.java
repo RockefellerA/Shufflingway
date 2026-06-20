@@ -9155,6 +9155,43 @@ public class MainWindow {
 		for (CardData card : mons) fireFieldEndOfTurnAbilitiesForCard(card, ctx, dmg);
 	}
 
+	/**
+	 * Fires "if your opponent doesn't control Forwards" field abilities for a single card.
+	 * Call this when {@code card} enters the field (to handle an already-empty opponent side)
+	 * or from {@link #fireOppNoForwardsFieldAbilities} when scanning all of a player's field cards.
+	 */
+	private void fireOppNoForwardsFieldAbilitiesForCard(CardData card, boolean isP1) {
+		List<CardData> oppFwds = isP1 ? p2ForwardCards : p1ForwardCards;
+		if (!oppFwds.isEmpty()) return;
+		GameContext ctx = buildGameContext(isP1);
+		for (FieldAbility fa : card.fieldAbilities()) {
+			Consumer<GameContext> effect =
+					ActionResolver.tryParseIfOppNoForwardsPutToBreakZone(fa.effectText(), card);
+			if (effect != null) {
+				logEntry("[Field] " + card.name() + ": " + fa.effectText());
+				effect.accept(ctx);
+				return;
+			}
+		}
+	}
+
+	/**
+	 * Scans all field cards of player {@code isP1} and fires any
+	 * "if your opponent doesn't control Forwards" field abilities.
+	 * Called when a Forward belonging to {@code !isP1} leaves the field.
+	 */
+	void fireOppNoForwardsFieldAbilities(boolean isP1) {
+		List<CardData> oppFwds = isP1 ? p2ForwardCards : p1ForwardCards;
+		if (!oppFwds.isEmpty()) return;
+		// Snapshot lists before firing — an effect (e.g. breaking Gogo) may modify them
+		List<CardData> fwds = new ArrayList<>(isP1 ? p1ForwardCards : p2ForwardCards);
+		CardData[]     bkps = isP1 ? p1BackupCards : p2BackupCards;
+		List<CardData> mons = new ArrayList<>(isP1 ? p1MonsterCards : p2MonsterCards);
+		for (CardData card : fwds) if (card != null) fireOppNoForwardsFieldAbilitiesForCard(card, isP1);
+		for (CardData card : bkps) if (card != null) fireOppNoForwardsFieldAbilitiesForCard(card, isP1);
+		for (CardData card : mons) if (card != null) fireOppNoForwardsFieldAbilitiesForCard(card, isP1);
+	}
+
 	private void fireFieldEndOfTurnAbilitiesForCard(CardData card, GameContext ctx, int dmg) {
 		for (FieldAbility fa : card.fieldAbilities()) {
 			if (fa.damageThreshold() > 0 && dmg < fa.damageThreshold()) continue;
@@ -10098,6 +10135,7 @@ public class MainWindow {
 		if (!card.fieldCostReductions().isEmpty() || p1HandHasSelfCostModifiers()) refreshHandPopupIfVisible();
 		autoAbilityTriggers.triggerAutoAbilitiesForEntersField(card, true);
 		sendToBreakZoneByUniquenessRule(card, true);
+		fireOppNoForwardsFieldAbilitiesForCard(card, true);
 	}
 
 	/** Adds a Monster card to P1's monster zone (right side of forward zone, newest leftmost). */
@@ -12603,6 +12641,7 @@ public class MainWindow {
 		if (!card.fieldCostReductions().isEmpty() || p1HandHasSelfCostModifiers()) refreshHandPopupIfVisible();
 		autoAbilityTriggers.triggerAutoAbilitiesForEntersField(card, false);
 		sendToBreakZoneByUniquenessRule(card, false);
+		fireOppNoForwardsFieldAbilitiesForCard(card, false);
 	}
 
 	void placeP2CardInFirstBackupSlot(CardData card) {

@@ -455,6 +455,15 @@ public class ActionResolver {
         "(?i)^put\\s+(?<name>.+?)\\s+into\\s+the\\s+Break\\s+Zone[.!]?$"
     );
 
+    /**
+     * Matches "If your opponent doesn't control Forwards, put [CardName] into the Break Zone."
+     * Group {@code name} — the card name that goes to the Break Zone (must equal source name).
+     */
+    private static final Pattern IF_OPP_NO_FORWARDS_PUT_TO_BREAK_ZONE = Pattern.compile(
+        "(?i)^If\\s+your\\s+opponent\\s+(?:doesn'?t|does\\s+not)\\s+control\\s+Forwards?," +
+        "\\s+put\\s+(?<name>.+?)\\s+into\\s+the\\s+Break\\s+Zone[.!]?$"
+    );
+
     /** Matches "break the blocking Forward[.!]?" — fires during "is blocked" triggers. */
     private static final Pattern BREAK_BLOCKING_FORWARD = Pattern.compile(
         "(?i)^break\\s+the\\s+blocking\\s+Forward[.!]?$"
@@ -3194,6 +3203,9 @@ public class ActionResolver {
         result = tryParsePutSourceIntoBreakZone(effectText, source);
         if (result != null) return result;
 
+        result = tryParseIfOppNoForwardsPutToBreakZone(effectText, source);
+        if (result != null) return result;
+
         result = tryParsePutSourceToBottomOfDeck(effectText, source);
         if (result != null) return result;
 
@@ -3526,6 +3538,7 @@ public class ActionResolver {
         if (tryParseRemoveNamedFromGame(effectText, source)   != null) return "RemoveNamedFromGame";
         if (tryParseBreakSourceCard(effectText, source)        != null) return "BreakSourceCard";
         if (tryParsePutSourceIntoBreakZone(effectText, source) != null) return "PutSourceIntoBreakZone";
+        if (tryParseIfOppNoForwardsPutToBreakZone(effectText, source) != null) return "IfOppNoForwardsPutToBreakZone";
         if (tryParsePutSourceToBottomOfDeck(effectText, source) != null) return "PutSourceToBottomOfDeck";
         if (tryParseBreakBlockingForward(effectText)           != null) return "BreakBlockingForward";
         if (tryParseChooseExBurstFromDamageZone(effectText)    != null) return "ChooseExBurstFromDamageZone";
@@ -3866,6 +3879,7 @@ public class ActionResolver {
         if (tryParseRemoveNamedFromGame(effectText, source) != null)        return "RemoveNamedFromGame";
         if (tryParseBreakSourceCard(effectText, source)        != null)     return "BreakSourceCard";
         if (tryParsePutSourceIntoBreakZone(effectText, source) != null)     return "PutSourceIntoBreakZone";
+        if (tryParseIfOppNoForwardsPutToBreakZone(effectText, source) != null) return "IfOppNoForwardsPutToBreakZone";
         if (tryParsePutSourceToBottomOfDeck(effectText, source) != null)   return "PutSourceToBottomOfDeck";
         if (tryParseBreakBlockingForward(effectText)           != null)     return "BreakBlockingForward";
         if (tryParseChooseExBurstFromDamageZone(effectText)    != null)     return "ChooseExBurstFromDamageZone";
@@ -7847,6 +7861,18 @@ public class ActionResolver {
         if (!m.group("name").trim().equalsIgnoreCase(source.name())) return null;
         return ctx -> {
             ctx.logEntry("Effect: Break " + source.name());
+            ctx.breakSourceCard(source);
+        };
+    }
+
+    static Consumer<GameContext> tryParseIfOppNoForwardsPutToBreakZone(String text, CardData source) {
+        if (source == null) return null;
+        Matcher m = IF_OPP_NO_FORWARDS_PUT_TO_BREAK_ZONE.matcher(text.trim());
+        if (!m.matches()) return null;
+        if (!m.group("name").trim().equalsIgnoreCase(source.name())) return null;
+        return ctx -> {
+            if (ctx.opponentForwardCount() > 0) return;
+            ctx.logEntry("Effect: opponent controls no Forwards — Break " + source.name());
             ctx.breakSourceCard(source);
         };
     }
