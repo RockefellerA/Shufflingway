@@ -86,6 +86,7 @@ public class ActionAbilityParsingTest {
                         CardData.parseCannotBlockHigherPower(textEn, rs.getString("name_en")),
                         CardData.parseCannotBlockParty(textEn, rs.getString("name_en")),
                         CardData.parseCannotAttackOrBlock(textEn, rs.getString("name_en")),
+                        CardData.parseCanAttackTwice(textEn, rs.getString("name_en")),
                         rs.getString("job_en"),
                         rs.getString("category_1"), rs.getString("category_2"), textEn);
 
