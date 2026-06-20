@@ -2095,7 +2095,11 @@ final class AutoAbilityTriggers {
 	private boolean dfcCardMatches(DullForwardCost dfc, CardData card) {
 		if (dfc.cardName() != null && !card.name().equalsIgnoreCase(dfc.cardName())) return false;
 		if (dfc.element()  != null && !dfc.element().isEmpty() && !card.containsElement(dfc.element())) return false;
-		if (dfc.job()      != null && !card.hasJob(dfc.job())) return false;
+		if (dfc.job() != null) {
+			boolean jobMatch    = card.hasJob(dfc.job());
+			boolean orNameMatch = dfc.orCardName() != null && card.name().equalsIgnoreCase(dfc.orCardName());
+			if (!jobMatch && !orNameMatch) return false;
+		}
 		if (dfc.category() != null) {
 			String cat = dfc.category();
 			if (!cat.equalsIgnoreCase(card.category1()) && !cat.equalsIgnoreCase(card.category2())) return false;

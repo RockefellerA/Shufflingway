@@ -1285,6 +1285,15 @@ public class ActionResolver {
         "(?i)^Players?\\s+cannot\\s+cast\\s+Summons?\\.?$"
     );
 
+    /**
+     * "[CardName] cannot become dull by your opponent's Summons or abilities."
+     * Permanent self-protection while this card is on the field.
+     */
+    private static final Pattern STANDALONE_NAMED_CANNOT_BECOME_DULL_OPP = Pattern.compile(
+        "(?i)(?<name>[A-Z][A-Za-z''\\-\\s]+?)\\s+cannot\\s+become\\s+dull\\s+by\\s+your\\s+opponent's\\s+" +
+        "(?:Summons?(?:\\s+or\\s+abilities)?|abilities)\\s*\\.?"
+    );
+
     // ---- Standalone damage-shield patterns (apply globally or to a named card) --------
 
     /** "Negate all [the] damage dealt to all the Forwards/Characters you control." */
@@ -3071,6 +3080,9 @@ public class ActionResolver {
         result = tryParseCannotBeChosenStandalone(effectText, source);
         if (result != null) return result;
 
+        result = tryParseCannotBecomeDullOpp(effectText, source);
+        if (result != null) return result;
+
         result = tryParseStandaloneCannotAttackOrBlock(effectText, source);
         if (result != null) return result;
 
@@ -3511,6 +3523,7 @@ public class ActionResolver {
         if (tryParseDelayedEffect(effectText)                 != null) return "DelayedEffect";
         if (tryParsePlayerCannotCastSummons(effectText)                != null) return "PlayerCannotCastSummons";
         if (tryParseCannotBeChosenStandalone(effectText, source) != null) return "CannotBeChosen";
+        if (tryParseCannotBecomeDullOpp(effectText, source) != null)     return "CannotBecomeDullOpp";
         if (tryParseStandaloneCannotAttackOrBlock(effectText, source) != null) return "CannotAttackOrBlock";
         if (tryParseNegateAllDamage(effectText)                != null) return "NegateDamage";
         if (tryParseSelectNumber(effectText, source)          != null) return "SelectNumber";
@@ -3831,6 +3844,7 @@ public class ActionResolver {
 
         if (tryParsePlayerCannotCastSummons(effectText)                != null) return "PlayerCannotCastSummons";
         if (tryParseCannotBeChosenStandalone(effectText, source) != null)       return "CannotBeChosen";
+        if (tryParseCannotBecomeDullOpp(effectText, source) != null)            return "CannotBecomeDullOpp";
         if (tryParseStandaloneCannotAttackOrBlock(effectText, source) != null) return "CannotAttackOrBlock";
         if (tryParseNegateAllDamage(effectText) != null)                       return "NegateDamage";
         if (tryParseSelectNumber(effectText, source) != null)               return "SelectNumber";
@@ -9018,6 +9032,31 @@ public class ActionResolver {
         }
 
         return null;
+    }
+
+    /**
+     * Parses "[CardName] cannot become dull by your opponent's Summons or abilities."
+     * Enforcement is handled in {@link GameContextImpl#dullP1Forward} / {@code dullP2Forward}
+     * via {@link #hasCannotBeDulledByOppFieldAbility}.
+     */
+    private static Consumer<GameContext> tryParseCannotBecomeDullOpp(String text, CardData source) {
+        Matcher m = STANDALONE_NAMED_CANNOT_BECOME_DULL_OPP.matcher(text);
+        if (!m.find() || source == null) return null;
+        String nm = m.group("name").trim();
+        if (!nm.equalsIgnoreCase(source.name())) return null;
+        return ctx -> ctx.logEntry("Field ability: " + nm + " cannot become dull by opponent's Summons or abilities");
+    }
+
+    /**
+     * Returns {@code true} if the card has a permanent field ability of the form
+     * "[CardName] cannot become dull by your opponent's Summons or abilities."
+     */
+    static boolean hasCannotBeDulledByOppFieldAbility(CardData card) {
+        for (FieldAbility fa : card.fieldAbilities()) {
+            Matcher m = STANDALONE_NAMED_CANNOT_BECOME_DULL_OPP.matcher(fa.effectText());
+            if (m.find() && m.group("name").trim().equalsIgnoreCase(card.name())) return true;
+        }
+        return false;
     }
 
     /**

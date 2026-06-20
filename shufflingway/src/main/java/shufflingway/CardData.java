@@ -728,7 +728,7 @@ public record CardData(
         "(?:Card\\s+Name\\s+.+?\\s+Forwards?" +                                              // named-card branch: "Dull N [cond] Card Name X Forward [and N [cond] Card Name Y Forward]"
         "(?:\\s+and\\s+\\d+\\s*(?:active|dull|damaged)?\\s*Card\\s+Name\\s+.+?\\s+Forwards?)*" +
         "|Category\\s+(?<dullcat>[A-Za-z0-9][A-Za-z0-9\\s''\\-]*?)(?:\\s+(?:Forwards?|Backups?|Monsters?|Characters?))?" + // category branch
-        "|Job\\s+(?<dulljob>[A-Za-z][A-Za-z''\\s\\-]*?)(?:\\s+(?:Forwards?|Backups?|Monsters?|Characters?))?" + // job branch: "Dull N [cond] Job X [Forwards/Characters]"
+        "|Job\\s+(?<dulljob>[A-Za-z][A-Za-z''\\s\\-]*?)(?:\\s+(?:Forwards?|Backups?|Monsters?|Characters?))?(?:\\s+and/or\\s+Card\\s+Name\\s+[^:]+?)?" + // job branch: "Dull N [cond] Job X [Forwards/Characters] [and/or Card Name Y]"
         "|(?<dullelem>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)?\\s*(?:Forwards?|Characters?))\\s*)?" + // standard branch: "Dull N [cond] [elem] Forward(s)/Characters"
         ":\\s*"                                                              +  // colon separator
         "(?<effecttext>(?:[^\\[]|\\[(?!\\[))*)"                                // effect text (up to next [[markup]])
@@ -744,7 +744,7 @@ public record CardData(
         "(?i)Dull\\s+(?<count>\\d+)\\s*(?<cond>active|dull|damaged)?\\s*" +
         "(?:Card\\s+Name\\s+(?<cardname>.+?)\\s+Forwards?" +
         "|Category\\s+(?<category>[A-Za-z0-9][A-Za-z0-9\\s''\\-]*?)(?:\\s+(?:Forwards?|Backups?|Monsters?|(?<catchar>Characters?)))?" +
-        "|Job\\s+(?<job>[A-Za-z][A-Za-z''\\s\\-]*?)(?:\\s+(?:Forwards?|Backups?|Monsters?|(?<jobchar>Characters?)))?" +
+        "|Job\\s+(?<job>[A-Za-z][A-Za-z''\\s\\-]*?)(?:\\s+(?:Forwards?|Backups?|Monsters?|(?<jobchar>Characters?)))?(?:\\s+and/or\\s+Card\\s+Name\\s+(?<joborcardname>.+))?" +
         "|(?<elem>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)?\\s*(?:Forwards?|(?<stdchar>Characters?)))"
     );
 
@@ -3228,22 +3228,24 @@ public record CardData(
         List<DullForwardCost> costs = new ArrayList<>();
         Matcher m = DULL_COST_ITEM_PATTERN.matcher(raw);
         while (m.find()) {
-            int    count    = Integer.parseInt(m.group("count"));
-            String cond     = m.group("cond");
-            String cardName = m.group("cardname");
-            String elem     = m.group("elem");
-            String job      = m.group("job");
-            String category = m.group("category");
-            boolean isChar  = m.group("catchar") != null
-                           || m.group("jobchar") != null
-                           || m.group("stdchar") != null;
+            int    count       = Integer.parseInt(m.group("count"));
+            String cond        = m.group("cond");
+            String cardName    = m.group("cardname");
+            String elem        = m.group("elem");
+            String job         = m.group("job");
+            String category    = m.group("category");
+            String jobOrName   = m.group("joborcardname");
+            boolean isChar     = m.group("catchar") != null
+                              || m.group("jobchar") != null
+                              || m.group("stdchar") != null;
             costs.add(new DullForwardCost(count,
-                    cond     != null ? cond.toLowerCase()  : null,
-                    elem     != null ? elem.trim()         : null,
-                    cardName != null ? cardName.trim()     : null,
-                    job      != null ? job.trim()          : null,
-                    category != null ? category.trim()     : null,
-                    isChar           ? "Character"         : null));
+                    cond      != null ? cond.toLowerCase()          : null,
+                    elem      != null ? elem.trim()                 : null,
+                    cardName  != null ? cardName.trim()             : null,
+                    job       != null ? job.trim()                  : null,
+                    category  != null ? category.trim()             : null,
+                    isChar            ? "Character"                 : null,
+                    jobOrName != null ? stripTrailingType(jobOrName) : null));
         }
         return costs.isEmpty() ? List.of() : List.copyOf(costs);
     }

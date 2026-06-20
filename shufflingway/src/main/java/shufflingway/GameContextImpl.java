@@ -757,15 +757,25 @@ final class GameContextImpl implements GameContext {
 
 			@Override public void dullP1Forward(int idx) {
 				if (idx >= mw.p1ForwardStates.size()) return;
+				CardData c = p1Forward(idx);
+				if (!isP1 && ActionResolver.hasCannotBeDulledByOppFieldAbility(c)) {
+					logEntry(c.name() + " cannot become dull by opponent's effects");
+					return;
+				}
 				mw.p1ForwardStates.set(idx, CardState.DULL);
-				logEntry(p1Forward(idx).name() + " is dulled");
+				logEntry(c.name() + " is dulled");
 				mw.animateDullForward(idx, null);
 			}
 
 			@Override public void dullP2Forward(int idx) {
 				if (idx >= mw.p2ForwardStates.size()) return;
+				CardData c = mw.p2ForwardCards.get(idx);
+				if (isP1 && ActionResolver.hasCannotBeDulledByOppFieldAbility(c)) {
+					logEntry("[P2] " + c.name() + " cannot become dull by opponent's effects");
+					return;
+				}
 				mw.p2ForwardStates.set(idx, CardState.DULL);
-				logEntry("[P2] " + mw.p2ForwardCards.get(idx).name() + " is dulled");
+				logEntry("[P2] " + c.name() + " is dulled");
 				mw.animateDullP2Forward(idx, null);
 			}
 
