@@ -267,6 +267,7 @@ public class ActionResolver {
         "(?:" +
             "(?<highest>the\\s+highest(?:\\s+power)?\\s+Forward(?:\\s+you\\s+control)?(?:'s\\s+power)?)" +
             "|half\\s+of\\s+(?<halfcard>.+?)'s\\s+power(?:\\s*\\(\\s*round\\s+(?<halfrounding>up|down)[^)]*\\))?" +
+            "|(?<halfitspower>half\\s+of\\s+(?:its|their)\\s+power)(?:\\s*\\(\\s*round\\s+(?<halfitsrounding>up|down)[^)]*\\))?" +
             "|(?<itspower>(?:its|their)\\s+power)(?:\\s+minus\\s+(?<minus>\\d+))?" +
             "|(?<dullforward>the\\s+power\\s+of\\s+the\\s+dull(?:ed)?\\s+Forward)" +
             "|(?<discardedfwd>the\\s+discarded\\s+Forward(?:'s\\s+power)?)" +
@@ -5519,6 +5520,24 @@ public class ActionResolver {
                             costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters, jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, fExcludeElem, withoutMulticard);
                     sortedByIdxDesc(ts, true) .forEach(t -> ctx.damageTarget(t, damage));
                     sortedByIdxDesc(ts, false).forEach(t -> ctx.damageTarget(t, damage));
+                    if (secondary != null) secondary.accept(ctx);
+                };
+            } else if (exprM.group("halfitspower") != null) {
+                boolean roundUp = "up".equalsIgnoreCase(exprM.group("halfitsrounding"));
+                String dir = roundUp ? "up" : "down";
+                return ctx -> {
+                    ctx.logEntry(choosePrefix + " — Deal damage equal to half of its power (round " + dir + ")");
+                    List<ForwardTarget> ts = selectTargets(ctx, maxCount, upTo,
+                            opponentOnly, selfOnly, condition, element, zone, opponentZone,
+                            costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters, jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, fExcludeElem, withoutMulticard);
+                    sortedByIdxDesc(ts, true) .forEach(t -> {
+                        int raw = Math.max(0, ctx.effectiveTargetPower(t));
+                        ctx.damageTarget(t, roundUp ? halfPowerDamage(raw) : (raw / 2 / 1000) * 1000);
+                    });
+                    sortedByIdxDesc(ts, false).forEach(t -> {
+                        int raw = Math.max(0, ctx.effectiveTargetPower(t));
+                        ctx.damageTarget(t, roundUp ? halfPowerDamage(raw) : (raw / 2 / 1000) * 1000);
+                    });
                     if (secondary != null) secondary.accept(ctx);
                 };
             } else if (exprM.group("itspower") != null) {
