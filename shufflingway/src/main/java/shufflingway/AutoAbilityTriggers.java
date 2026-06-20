@@ -2071,15 +2071,35 @@ final class AutoAbilityTriggers {
 	}
 
 	boolean dullForwardCostSatisfied(DullForwardCost dfc, boolean isP1) {
-		List<CardData>  fwds   = isP1 ? mw.p1ForwardCards : mw.p2ForwardCards;
-		List<CardState> states = isP1 ? mw.p1ForwardStates : mw.p2ForwardStates;
+		boolean anyChar = "Character".equalsIgnoreCase(dfc.cardType());
+		List<CardData>  fwds    = isP1 ? mw.p1ForwardCards  : mw.p2ForwardCards;
+		List<CardState> fwdSt   = isP1 ? mw.p1ForwardStates : mw.p2ForwardStates;
+		List<CardData>  mons    = isP1 ? mw.p1MonsterCards  : mw.p2MonsterCards;
+		CardData[]      bkps    = isP1 ? mw.p1BackupCards   : mw.p2BackupCards;
 		int eligible = 0;
 		for (int i = 0; i < fwds.size(); i++) {
-			if (states.get(i) != CardState.ACTIVE) continue;
-			if (dfc.element() != null && !dfc.element().isEmpty() && !fwds.get(i).containsElement(dfc.element())) continue;
+			if (fwdSt.get(i) != CardState.ACTIVE) continue;
+			if (!dfcCardMatches(dfc, fwds.get(i))) continue;
 			eligible++;
 		}
+		if (anyChar) {
+			for (CardData bkp : bkps)
+				if (bkp != null && dfcCardMatches(dfc, bkp)) eligible++;
+			for (CardData mon : mons)
+				if (dfcCardMatches(dfc, mon)) eligible++;
+		}
 		return eligible >= dfc.count();
+	}
+
+	private boolean dfcCardMatches(DullForwardCost dfc, CardData card) {
+		if (dfc.cardName() != null && !card.name().equalsIgnoreCase(dfc.cardName())) return false;
+		if (dfc.element()  != null && !dfc.element().isEmpty() && !card.containsElement(dfc.element())) return false;
+		if (dfc.job()      != null && !card.hasJob(dfc.job())) return false;
+		if (dfc.category() != null) {
+			String cat = dfc.category();
+			if (!cat.equalsIgnoreCase(card.category1()) && !cat.equalsIgnoreCase(card.category2())) return false;
+		}
+		return true;
 	}
 
 	private List<ForwardTarget> eligibleBzFieldCards(BreakZoneCost bz, boolean isP1) {
