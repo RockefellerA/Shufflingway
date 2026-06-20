@@ -1981,12 +1981,15 @@ public record CardData(
     );
 
     /**
-     * Matches the bare same-side grant "The Forwards?|Backups?|Monsters?|Characters?
+     * Matches the bare same-side grant "The [Element] Forwards?|Backups?|Monsters?|Characters?
      * [other than Z] you control gain +N power" (no Job/Category prefix).
+     * The optional {@code element} group captures an element name prefix (e.g. "Ice").
      * Companion to {@link #FIELD_GRANT_PATTERN}.
      */
     private static final Pattern FIELD_GRANT_BARE_PATTERN = Pattern.compile(
-        "(?i)^The\\s+(?<targets>Forwards?(?:\\s+and\\s+Monsters?)?|Backups?|Monsters?|Characters?)\\s+" +
+        "(?i)^The\\s+" +
+        "(?<element>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)?\\s*" +
+        "(?<targets>Forwards?(?:\\s+and\\s+Monsters?)?|Backups?|Monsters?|Characters?)\\s+" +
         "(?:other\\s+than\\s+(?<except>[A-Z][A-Za-z''\\-]+(?:\\s+[A-Za-z''\\-]+)*)\\s+)?" +
         "you\\s+control\\s+gains?\\s+\\+(?<power>\\d+)\\s+power[.!]?$"
     );
@@ -2028,10 +2031,12 @@ public record CardData(
             if (bareM.matches()) {
                 int[] incl = parseFieldGrantTargetFlags(bareM.group("targets"));
                 String bareExcept = bareM.group("except");
+                String bareElem   = bareM.group("element");
                 result.add(new FieldPowerGrant(null, null, incl[0] != 0, incl[1] != 0, incl[2] != 0,
                         bareExcept != null ? bareExcept.trim() : null,
                         Integer.parseInt(bareM.group("power")),
-                        EnumSet.noneOf(Trait.class), false));
+                        EnumSet.noneOf(Trait.class), false, -1, null,
+                        bareElem != null ? bareElem.trim() : null));
                 continue;
             }
 

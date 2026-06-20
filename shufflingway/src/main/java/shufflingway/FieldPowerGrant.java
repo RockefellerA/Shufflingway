@@ -3,7 +3,7 @@ package shufflingway;
 import java.util.Set;
 
 /**
- * A passive always-on grant: "The [Job X / Category Y] [type] [other than Z] you control
+ * A passive always-on grant: "The [Element / Job X / Category Y] [type] [other than Z] you control
  * gain +N power [and Trait]." or its opponent-side counterpart "The [filter] [type] opponent
  * controls lose N power."
  *
@@ -23,20 +23,30 @@ public record FieldPowerGrant(
         Set<CardData.Trait> grantedTraits,
         boolean affectsOpponent,
         int     costFilter,      // -1 = any cost; N = filter applies at value N (exact, or less/more per costCmp)
-        String  costCmp          // null = exact match; "less" = cost ≤ N; "more" = cost ≥ N
+        String  costCmp,         // null = exact match; "less" = cost ≤ N; "more" = cost ≥ N
+        String  elementFilter    // null = any element; e.g. "Ice", "Fire|Water"
 ) {
     public FieldPowerGrant {
         grantedTraits = Set.copyOf(grantedTraits);
         if (exceptCardName == null) exceptCardName = "";
     }
 
-    /** Convenience constructor without {@code costCmp}; defaults it to {@code null} (exact match). */
+    /** Convenience constructor without {@code elementFilter}; defaults it to {@code null} (any element). */
+    public FieldPowerGrant(String jobFilter, String categoryFilter,
+            boolean inclForwards, boolean inclBackups, boolean inclMonsters,
+            String exceptCardName, int powerBonus, Set<CardData.Trait> grantedTraits,
+            boolean affectsOpponent, int costFilter, String costCmp) {
+        this(jobFilter, categoryFilter, inclForwards, inclBackups, inclMonsters,
+                exceptCardName, powerBonus, grantedTraits, affectsOpponent, costFilter, costCmp, null);
+    }
+
+    /** Convenience constructor without {@code costCmp} or {@code elementFilter}. */
     public FieldPowerGrant(String jobFilter, String categoryFilter,
             boolean inclForwards, boolean inclBackups, boolean inclMonsters,
             String exceptCardName, int powerBonus, Set<CardData.Trait> grantedTraits,
             boolean affectsOpponent, int costFilter) {
         this(jobFilter, categoryFilter, inclForwards, inclBackups, inclMonsters,
-                exceptCardName, powerBonus, grantedTraits, affectsOpponent, costFilter, null);
+                exceptCardName, powerBonus, grantedTraits, affectsOpponent, costFilter, null, null);
     }
 
     /** Convenience constructor for the common same-side ("you control") grant form (no cost filter). */
@@ -44,7 +54,7 @@ public record FieldPowerGrant(
             boolean inclForwards, boolean inclBackups, boolean inclMonsters,
             String exceptCardName, int powerBonus, Set<CardData.Trait> grantedTraits) {
         this(jobFilter, categoryFilter, inclForwards, inclBackups, inclMonsters,
-                exceptCardName, powerBonus, grantedTraits, false, -1, null);
+                exceptCardName, powerBonus, grantedTraits, false, -1, null, null);
     }
 
     /** Convenience constructor for the opponent-debuff form (no cost filter). */
@@ -53,13 +63,14 @@ public record FieldPowerGrant(
             String exceptCardName, int powerBonus, Set<CardData.Trait> grantedTraits,
             boolean affectsOpponent) {
         this(jobFilter, categoryFilter, inclForwards, inclBackups, inclMonsters,
-                exceptCardName, powerBonus, grantedTraits, affectsOpponent, -1, null);
+                exceptCardName, powerBonus, grantedTraits, affectsOpponent, -1, null, null);
     }
 
     @Override
     public String toString() {
         StringBuilder sb = new StringBuilder();
         if (affectsOpponent) sb.append("opp:");
+        if (elementFilter  != null) sb.append(elementFilter).append(' ');
         if (jobFilter      != null) sb.append(jobFilter).append(' ');
         if (categoryFilter != null) sb.append(categoryFilter).append(' ');
         if (costFilter >= 0) {
@@ -102,7 +113,8 @@ public record FieldPowerGrant(
             else if ("less".equalsIgnoreCase(costCmp))   { if (c >  costFilter) return false; }
             else                                         { if (c <  costFilter) return false; }
         }
-        return CardFilters.meetsJobFilter(card, jobFilter)
+        return CardFilters.meetsElementFilter(card, elementFilter)
+            && CardFilters.meetsJobFilter(card, jobFilter)
             && CardFilters.meetsCategoryFilter(card, categoryFilter);
     }
 }
