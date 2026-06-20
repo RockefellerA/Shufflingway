@@ -8773,6 +8773,14 @@ public class MainWindow {
 		for (FieldPowerGrant fpg : src.fieldPowerGrants())
 			if (!fpg.affectsOpponent() && fpg.appliesToCard(target))
 				out.addAll(fpg.grantedTraits());
+		// Damage-gated self-targeted trait grants (e.g., "Damage 1 -- Desch gains First Strike.")
+		if (src == target) {
+			int dmg = isP1 ? gameState.getP1DamageZone().size() : gameState.getP2DamageZone().size();
+			for (FieldAbility fa : src.fieldAbilities()) {
+				if (fa.damageThreshold() > 0 && dmg < fa.damageThreshold()) continue;
+				out.addAll(CardData.parseSelfTraitGrant(fa.effectText(), src.name()));
+			}
+		}
 	}
 
 	int effectiveP1MonsterPower(int idx) {

@@ -1728,6 +1728,29 @@ public record CardData(
     private static final Pattern ICB_EFFECT_NO_CHOSEN_SUMMONS = Pattern.compile("(?i)cannot\\s+be\\s+chosen\\s+by\\s+(?:your\\s+opponent's\\s+)?Summons?");
     private static final Pattern ICB_EFFECT_NO_CHOSEN_ABILITS = Pattern.compile("(?i)cannot\\s+be\\s+chosen\\s+by\\s+(?:your\\s+opponent's\\s+)?abilities");
 
+    /** Matches a self-targeted trait grant: "[CardName] gains [Trait(s)]." — no "until end of turn". */
+    private static final Pattern SELF_TRAIT_GRANT = Pattern.compile(
+        "(?i)^(?<name>.+?)\\s+gains?\\s+" +
+        "(?<traits>(?:(?:Haste|First\\s+Strike|Brave|Back\\s+Attack)(?:\\s*(?:,|and)\\s*)?)+)[.!]?$"
+    );
+
+    /**
+     * If {@code effectText} is a self-targeted trait grant for {@code cardName}
+     * (e.g., "Desch gains First Strike."), returns the granted traits; otherwise empty.
+     */
+    static EnumSet<Trait> parseSelfTraitGrant(String effectText, String cardName) {
+        Matcher m = SELF_TRAIT_GRANT.matcher(effectText.trim());
+        if (!m.matches()) return EnumSet.noneOf(Trait.class);
+        if (!m.group("name").trim().equalsIgnoreCase(cardName)) return EnumSet.noneOf(Trait.class);
+        String traitsText = m.group("traits");
+        EnumSet<Trait> result = EnumSet.noneOf(Trait.class);
+        if (ICB_EFFECT_HASTE.matcher(traitsText).find())        result.add(Trait.HASTE);
+        if (ICB_EFFECT_BRAVE.matcher(traitsText).find())        result.add(Trait.BRAVE);
+        if (ICB_EFFECT_FIRST_STRIKE.matcher(traitsText).find()) result.add(Trait.FIRST_STRIKE);
+        if (ICB_EFFECT_BACK_ATTACK.matcher(traitsText).find())  result.add(Trait.BACK_ATTACK);
+        return result;
+    }
+
     /**
      * Parses all "If you control [X], [target] gains [Z]" conditional field boosts from
      * {@code textEn}.  Returns an empty list for Summons (field abilities don't apply to them)
