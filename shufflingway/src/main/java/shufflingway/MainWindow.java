@@ -8918,9 +8918,26 @@ public class MainWindow {
 
 	/** Returns {@code true} when all conditions of {@code icb} are satisfied for the given player. */
 	private boolean icbConditionsMet(IfControlBoost icb, boolean isP1) {
-		for (ControlCondition cond : icb.conditions())
-			if (!controlConditionMetExcluding(cond, icb.exceptCardName(), isP1)) return false;
+		for (ControlCondition cond : icb.conditions()) {
+			if (cond.dullCardName() != null) {
+				if (!isNamedCardDull(cond.dullCardName(), isP1)) return false;
+			} else {
+				if (!controlConditionMetExcluding(cond, icb.exceptCardName(), isP1)) return false;
+			}
+		}
 		return true;
+	}
+
+	private boolean isNamedCardDull(String name, boolean isP1) {
+		List<CardData> fwds = isP1 ? p1ForwardCards : p2ForwardCards;
+		List<CardState> states = isP1 ? p1ForwardStates : p2ForwardStates;
+		for (int i = 0; i < fwds.size(); i++)
+			if (fwds.get(i).name().equalsIgnoreCase(name) && states.get(i) == CardState.DULL) return true;
+		List<CardData> mons = isP1 ? p1MonsterCards : p2MonsterCards;
+		List<CardState> monStates = isP1 ? p1MonsterStates : p2MonsterStates;
+		for (int i = 0; i < mons.size(); i++)
+			if (mons.get(i).name().equalsIgnoreCase(name) && monStates.get(i) == CardState.DULL) return true;
+		return false;
 	}
 
 	/**

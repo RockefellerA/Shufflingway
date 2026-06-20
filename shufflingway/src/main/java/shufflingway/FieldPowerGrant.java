@@ -22,11 +22,21 @@ public record FieldPowerGrant(
         int     powerBonus,
         Set<CardData.Trait> grantedTraits,
         boolean affectsOpponent,
-        int     costFilter       // -1 = any cost; N = card must have exactly cost N
+        int     costFilter,      // -1 = any cost; N = filter applies at value N (exact, or less/more per costCmp)
+        String  costCmp          // null = exact match; "less" = cost ≤ N; "more" = cost ≥ N
 ) {
     public FieldPowerGrant {
         grantedTraits = Set.copyOf(grantedTraits);
         if (exceptCardName == null) exceptCardName = "";
+    }
+
+    /** Convenience constructor without {@code costCmp}; defaults it to {@code null} (exact match). */
+    public FieldPowerGrant(String jobFilter, String categoryFilter,
+            boolean inclForwards, boolean inclBackups, boolean inclMonsters,
+            String exceptCardName, int powerBonus, Set<CardData.Trait> grantedTraits,
+            boolean affectsOpponent, int costFilter) {
+        this(jobFilter, categoryFilter, inclForwards, inclBackups, inclMonsters,
+                exceptCardName, powerBonus, grantedTraits, affectsOpponent, costFilter, null);
     }
 
     /** Convenience constructor for the common same-side ("you control") grant form (no cost filter). */
@@ -34,7 +44,7 @@ public record FieldPowerGrant(
             boolean inclForwards, boolean inclBackups, boolean inclMonsters,
             String exceptCardName, int powerBonus, Set<CardData.Trait> grantedTraits) {
         this(jobFilter, categoryFilter, inclForwards, inclBackups, inclMonsters,
-                exceptCardName, powerBonus, grantedTraits, false, -1);
+                exceptCardName, powerBonus, grantedTraits, false, -1, null);
     }
 
     /** Convenience constructor for the opponent-debuff form (no cost filter). */
@@ -43,7 +53,7 @@ public record FieldPowerGrant(
             String exceptCardName, int powerBonus, Set<CardData.Trait> grantedTraits,
             boolean affectsOpponent) {
         this(jobFilter, categoryFilter, inclForwards, inclBackups, inclMonsters,
-                exceptCardName, powerBonus, grantedTraits, affectsOpponent, -1);
+                exceptCardName, powerBonus, grantedTraits, affectsOpponent, -1, null);
     }
 
     @Override
@@ -52,7 +62,12 @@ public record FieldPowerGrant(
         if (affectsOpponent) sb.append("opp:");
         if (jobFilter      != null) sb.append(jobFilter).append(' ');
         if (categoryFilter != null) sb.append(categoryFilter).append(' ');
-        if (costFilter >= 0) sb.append("cost").append(costFilter).append(' ');
+        if (costFilter >= 0) {
+            sb.append("cost").append(costFilter);
+            if      ("less".equalsIgnoreCase(costCmp)) sb.append('-');
+            else if ("more".equalsIgnoreCase(costCmp)) sb.append('+');
+            sb.append(' ');
+        }
         if      ( inclForwards && !inclBackups && !inclMonsters) sb.append("Fwds");
         else if (!inclForwards &&  inclBackups && !inclMonsters) sb.append("Bkps");
         else if (!inclForwards && !inclBackups &&  inclMonsters) sb.append("Mons");
@@ -81,7 +96,12 @@ public record FieldPowerGrant(
                       || (inclBackups  && card.isBackup())
                       || (inclMonsters && (card.isMonster() || card.alsoCountsAsMonster()));
         if (!typeOk) return false;
-        if (costFilter >= 0 && card.cost() != costFilter) return false;
+        if (costFilter >= 0) {
+            int c = card.cost();
+            if      (costCmp == null)                    { if (c != costFilter) return false; }
+            else if ("less".equalsIgnoreCase(costCmp))   { if (c >  costFilter) return false; }
+            else                                         { if (c <  costFilter) return false; }
+        }
         return CardFilters.meetsJobFilter(card, jobFilter)
             && CardFilters.meetsCategoryFilter(card, categoryFilter);
     }

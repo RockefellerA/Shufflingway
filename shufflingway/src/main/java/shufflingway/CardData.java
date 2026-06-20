@@ -1664,6 +1664,23 @@ public record CardData(
     );
 
     /**
+     * "If [CardName] is dull, [target] gains [effects]."
+     * Groups: {@code condcard} (the card that must be dull), {@code target}, {@code effects}.
+     */
+    private static final Pattern IF_CARD_IS_DULL_BOOST = Pattern.compile(
+        "(?i)^If\\s+(?<condcard>[A-Z][A-Za-z''\\-]+(?:\\s+[A-Za-z''\\-]+)*)\\s+is\\s+dull,\\s+" +
+        "(?<target>.+?)\\s+gains?\\s+(?<effects>.+?)\\.?\\s*$"
+    );
+
+    /**
+     * "If you control [raw], [target] loses [power] power."
+     * Groups: {@code raw} (condition text), {@code target}, {@code power} (bare number, stored negative).
+     */
+    private static final Pattern IF_CTRL_LOSE_OUTER = Pattern.compile(
+        "(?i)^If\\s+you\\s+control\\s+(?<raw>[^,]+),\\s+(?<target>.+?)\\s+loses?\\s+(?<power>\\d+)\\s+power\\.?\\s*$"
+    );
+
+    /**
      * "The [Job X | Category Y] Forwards [other than Z] you control cannot be blocked by
      * a/Forwards of cost N or more/less."
      * Groups: {@code job} or {@code category}, {@code except} (optional), {@code costval}, {@code costcmp}.
@@ -1773,6 +1790,54 @@ public record CardData(
         for (String raw : textEn.split("(?i)\\[\\[br\\]\\]")) {
             String seg = SUMMON_MARKUP.matcher(raw.trim()).replaceAll("").trim();
             if (seg.isEmpty()) continue;
+
+            // "If [CardName] is dull, [target] gains [effects]."
+            Matcher dullM = IF_CARD_IS_DULL_BOOST.matcher(seg);
+            if (dullM.find()) {
+                String condCard  = dullM.group("condcard").trim();
+                String targetName = dullM.group("target").trim();
+                String effectsStr = dullM.group("effects").trim();
+                ControlCondition dullCond = new ControlCondition(
+                        List.of(), 0, false, null, null, null, null, 0, List.of(), false, null, condCard);
+                Matcher pwrM = IF_CTRL_EFFECT_POWER.matcher(effectsStr);
+                int powerBonus = pwrM.find() ? Integer.parseInt(pwrM.group(1)) : 0;
+                java.util.EnumSet<Trait> traits = java.util.EnumSet.noneOf(Trait.class);
+                if (ICB_EFFECT_HASTE.matcher(effectsStr).find())        traits.add(Trait.HASTE);
+                if (ICB_EFFECT_BRAVE.matcher(effectsStr).find())        traits.add(Trait.BRAVE);
+                if (ICB_EFFECT_FIRST_STRIKE.matcher(effectsStr).find()) traits.add(Trait.FIRST_STRIKE);
+                if (ICB_EFFECT_BACK_ATTACK.matcher(effectsStr).find())  traits.add(Trait.BACK_ATTACK);
+                if (powerBonus != 0 || !traits.isEmpty()) {
+                    FieldPowerGrant targetFilter = parseIcbTargetFilter(targetName);
+                    result.add(new IfControlBoost(List.of(dullCond), "", targetName, targetFilter,
+                            powerBonus, traits, "", false, false, false, null));
+                }
+                continue;
+            }
+
+            // "If you control [raw], [target] loses [N] power."
+            Matcher loseM = IF_CTRL_LOSE_OUTER.matcher(seg);
+            if (loseM.find()) {
+                String rawCond0  = loseM.group("raw").trim();
+                String targetName = loseM.group("target").trim();
+                int powerBonus   = -Integer.parseInt(loseM.group("power"));
+                String[] condParts0 = rawCond0.split("(?i)\\s+and\\s+(?=a\\s+)");
+                List<ControlCondition> conditions0 = new ArrayList<>();
+                String exceptName0 = "";
+                for (String part : condParts0) {
+                    Matcher exceptM = IF_CTRL_BOOST_EXCEPT.matcher(part.trim());
+                    String condText;
+                    if (exceptM.matches()) { condText = exceptM.group(1).trim(); exceptName0 = exceptM.group(2).trim(); }
+                    else                   { condText = part.trim(); }
+                    ControlCondition cond = parseControlCondition(condText);
+                    if (cond != null) conditions0.add(cond);
+                }
+                if (!conditions0.isEmpty()) {
+                    FieldPowerGrant targetFilter = parseIcbTargetFilter(targetName);
+                    result.add(new IfControlBoost(conditions0, exceptName0, targetName, targetFilter,
+                            powerBonus, java.util.EnumSet.noneOf(Trait.class), "", false, false, false, null));
+                }
+                continue;
+            }
 
             Matcher m    = IF_CTRL_BOOST_OUTER.matcher(seg);
             Matcher cnbM = IF_CTRL_CANNOT_BE_BLOCKED.matcher(seg);
@@ -1933,7 +1998,9 @@ public record CardData(
      */
     private static final Pattern FIELD_GRANT_COST_FILTER_PATTERN = Pattern.compile(
         "(?i)^The\\s+(?<targets>Forwards?(?:\\s+and\\s+Monsters?)?|Backups?|Monsters?|Characters?)\\s+" +
-        "of\\s+cost\\s+(?<cost>\\d+)\\s+you\\s+control\\s+gains?\\s+" +
+        "of\\s+cost\\s+(?<cost>\\d+)(?:\\s+or\\s+(?<costcmp>less|more))?\\s+" +
+        "(?:other\\s+than\\s+(?<except>[A-Z][A-Za-z''\\-]+(?:\\s+[A-Za-z''\\-]+)*)\\s+)?" +
+        "you\\s+control\\s+gains?\\s+" +
         "(?:\\+(?<power>\\d+)\\s+power(?:\\s+and\\s+)?)?" +
         "(?<traitstext>.+?)?[.!]?$"
     );
@@ -1981,6 +2048,8 @@ public record CardData(
             if (costM.matches()) {
                 int[] incl = parseFieldGrantTargetFlags(costM.group("targets"));
                 int cost = Integer.parseInt(costM.group("cost"));
+                String costCmp2 = costM.group("costcmp");
+                String except2  = costM.group("except");
                 String powerStr2 = costM.group("power");
                 int power2 = powerStr2 != null ? Integer.parseInt(powerStr2) : 0;
                 String traitsText2 = costM.group("traitstext");
@@ -1993,7 +2062,7 @@ public record CardData(
                 }
                 if (power2 != 0 || !traits2.isEmpty())
                     result.add(new FieldPowerGrant(null, null, incl[0] != 0, incl[1] != 0, incl[2] != 0,
-                            null, power2, traits2, false, cost));
+                            except2 != null ? except2.trim() : null, power2, traits2, false, cost, costCmp2));
                 continue;
             }
 

@@ -28,11 +28,20 @@ public record ControlCondition(
         int          minPower,          // 0 = no power filter; > 0 = card power must be ≥ this
         List<String> orCardNames,       // per-card OR alternative: also matches if name is in this list
         boolean      anyOf,             // named mode: true = ANY required name suffices; false = ALL required
-        String       excludeElement     // null or element name the card must NOT have (e.g. "Ice")
+        String       excludeElement,    // null or element name the card must NOT have (e.g. "Ice")
+        String       dullCardName       // non-null: the named card must currently be DULL on the field
 ) {
     public ControlCondition {
         requiredCardNames = List.copyOf(requiredCardNames);
         orCardNames       = List.copyOf(orCardNames);
+    }
+
+    /** Convenience constructor without {@code dullCardName}; defaults it to {@code null}. */
+    public ControlCondition(List<String> requiredCardNames, int minCount, boolean exactCount,
+            String cardType, String element, String job, String category, int minPower,
+            List<String> orCardNames, boolean anyOf, String excludeElement) {
+        this(requiredCardNames, minCount, exactCount, cardType, element, job, category, minPower,
+                orCardNames, anyOf, excludeElement, null);
     }
 
     /** Convenience constructor without {@code excludeElement}; defaults it to {@code null}. */
@@ -67,6 +76,7 @@ public record ControlCondition(
         if (cardType       != null) sb.append(' ').append(cardType);
         if (excludeElement != null) sb.append(" !").append(excludeElement);
         if (!orCardNames.isEmpty()) sb.append('/').append(String.join("|", orCardNames));
+        if (dullCardName  != null) sb.append(" dull:").append(dullCardName);
         return sb.toString();
     }
 }
