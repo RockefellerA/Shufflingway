@@ -6865,6 +6865,7 @@ public class ActionResolver {
         String s = text;
         s = CardData.ONCE_PER_TURN_PATTERN               .matcher(s).replaceAll("").trim();
         s = CardData.MAIN_PHASE_ONLY_PATTERN              .matcher(s).replaceAll("").trim();
+        s = CardData.YOUR_TURN_AND_CONTROL_IF_PATTERN    .matcher(s).replaceAll("").trim();
         s = CardData.YOUR_TURN_ONLY_PATTERN               .matcher(s).replaceAll("").trim();
         s = CardData.OPP_TURN_ONLY_PATTERN                .matcher(s).replaceAll("").trim();
         s = CardData.OPP_NO_CARDS_IN_HAND_RESTRICTION     .matcher(s).replaceAll("").trim();

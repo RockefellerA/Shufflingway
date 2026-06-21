@@ -904,16 +904,21 @@ public record CardData(
             }
             ControlCondition controlCondition = null;
             if (!whileCardInHand && breakZoneOnly == null && ownBzCard == null) {
-                Matcher ctrlM = CONTROL_IF_PATTERN.matcher(effectRaw);
-                if (ctrlM.find()) {
-                    controlCondition = parseControlCondition(ctrlM.group("condition"));
+                Matcher compM = YOUR_TURN_AND_CONTROL_IF_PATTERN.matcher(effectRaw);
+                if (compM.find()) {
+                    controlCondition = parseControlCondition(compM.group("condition"));
                 } else {
-                    Matcher notM = CONTROL_IF_NOT_ANY_PATTERN.matcher(effectRaw);
-                    if (notM.find()) {
-                        String rawType = notM.group("type");
-                        String cardType = rawType.replaceAll("(?i)s$", "").trim();
-                        cardType = Character.toUpperCase(cardType.charAt(0)) + cardType.substring(1).toLowerCase();
-                        controlCondition = new ControlCondition(List.of(), 0, true, cardType, null, null, null, 0, List.of());
+                    Matcher ctrlM = CONTROL_IF_PATTERN.matcher(effectRaw);
+                    if (ctrlM.find()) {
+                        controlCondition = parseControlCondition(ctrlM.group("condition"));
+                    } else {
+                        Matcher notM = CONTROL_IF_NOT_ANY_PATTERN.matcher(effectRaw);
+                        if (notM.find()) {
+                            String rawType = notM.group("type");
+                            String cardType = rawType.replaceAll("(?i)s$", "").trim();
+                            cardType = Character.toUpperCase(cardType.charAt(0)) + cardType.substring(1).toLowerCase();
+                            controlCondition = new ControlCondition(List.of(), 0, true, cardType, null, null, null, 0, List.of());
+                        }
                     }
                 }
             }
@@ -1127,6 +1132,11 @@ public record CardData(
     private static final Pattern IF_OWN_BZ_GAINS_PATTERN = Pattern.compile(
         "(?i)If\\s+you\\s+have\\s+(?:a\\s+)?Card\\s+Name\\s+(?<bzcard>.+?)\\s+in\\s+your\\s+Break\\s+Zone,\\s+" +
         "[A-Za-z][A-Za-z\\s''’\\-]*?\\s+gains?\\s+(?<quotedAbilities>\"[^\"]+\"(?:\\s+and\\s+\"[^\"]+\")*)\\.?"
+    );
+
+    /** Captures the condition from "You can only use this ability during your turn and if you control [X]". */
+    static final Pattern YOUR_TURN_AND_CONTROL_IF_PATTERN = Pattern.compile(
+        "(?i)You\\s+can\\s+only\\s+use\\s+this\\s+ability\\s+during\\s+your\\s+turn\\s+and\\s+if\\s+you\\s+control\\s+(?<condition>.+?)\\s*[.!]?\\s*$"
     );
 
     /** Captures the raw condition text from "You can only use this ability if you control [X]". */
