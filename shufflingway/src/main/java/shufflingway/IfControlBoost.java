@@ -31,7 +31,8 @@ public record IfControlBoost(
         boolean   cannotBeChosenByAbilities,  // target cannot be chosen by any ability while active
         boolean   cannotBeBlocked,            // target cannot be blocked (unconditionally) while active
         int[]     cannotBeBlockedByCost,      // null = no restriction; {costVal, 1} = "or more", {costVal, 0} = "or less"
-        int       minRemovedFromGame          // 0 = unused; >0 = condition requires this many cards total in both RFP zones
+        int       minRemovedFromGame,         // 0 = unused; >0 = condition requires this many cards total in both RFP zones
+        int       minDamageReceived           // 0 = unused; >0 = condition requires the controlling player to have taken this many damage points
 ) {
     public IfControlBoost {
         conditions    = List.copyOf(conditions);
@@ -40,7 +41,18 @@ public record IfControlBoost(
         if (specialText    == null) specialText    = "";
     }
 
-    /** Compatibility constructor preserving the prior 11-arg signature; defaults minRemovedFromGame to 0. */
+    /** Compatibility constructor preserving the prior 12-arg signature; defaults minDamageReceived to 0. */
+    public IfControlBoost(List<ControlCondition> conditions, String exceptCardName,
+            String targetCardName, FieldPowerGrant targetFilter, int powerBonus,
+            Set<CardData.Trait> grantedTraits, String specialText,
+            boolean cannotBeChosenBySummons, boolean cannotBeChosenByAbilities, boolean cannotBeBlocked,
+            int[] cannotBeBlockedByCost, int minRemovedFromGame) {
+        this(conditions, exceptCardName, targetCardName, targetFilter, powerBonus, grantedTraits,
+                specialText, cannotBeChosenBySummons, cannotBeChosenByAbilities, cannotBeBlocked,
+                cannotBeBlockedByCost, minRemovedFromGame, 0);
+    }
+
+    /** Compatibility constructor preserving the prior 11-arg signature; defaults minRemovedFromGame/minDamageReceived to 0. */
     public IfControlBoost(List<ControlCondition> conditions, String exceptCardName,
             String targetCardName, FieldPowerGrant targetFilter, int powerBonus,
             Set<CardData.Trait> grantedTraits, String specialText,
@@ -48,7 +60,7 @@ public record IfControlBoost(
             int[] cannotBeBlockedByCost) {
         this(conditions, exceptCardName, targetCardName, targetFilter, powerBonus, grantedTraits,
                 specialText, cannotBeChosenBySummons, cannotBeChosenByAbilities, cannotBeBlocked,
-                cannotBeBlockedByCost, 0);
+                cannotBeBlockedByCost, 0, 0);
     }
 
     /** Compatibility constructor preserving the prior 10-arg signature; defaults cannotBeBlockedByCost to null. */
@@ -57,7 +69,7 @@ public record IfControlBoost(
             Set<CardData.Trait> grantedTraits, String specialText,
             boolean cannotBeChosenBySummons, boolean cannotBeChosenByAbilities, boolean cannotBeBlocked) {
         this(conditions, exceptCardName, targetCardName, targetFilter, powerBonus, grantedTraits,
-                specialText, cannotBeChosenBySummons, cannotBeChosenByAbilities, cannotBeBlocked, null, 0);
+                specialText, cannotBeChosenBySummons, cannotBeChosenByAbilities, cannotBeBlocked, null, 0, 0);
     }
 
     /** Compatibility constructor preserving the prior 9-arg signature; defaults cannotBeBlocked/Cost to false/null. */
@@ -66,7 +78,7 @@ public record IfControlBoost(
             Set<CardData.Trait> grantedTraits, String specialText,
             boolean cannotBeChosenBySummons, boolean cannotBeChosenByAbilities) {
         this(conditions, exceptCardName, targetCardName, targetFilter, powerBonus, grantedTraits,
-                specialText, cannotBeChosenBySummons, cannotBeChosenByAbilities, false, null, 0);
+                specialText, cannotBeChosenBySummons, cannotBeChosenByAbilities, false, null, 0, 0);
     }
 
     /** Compatibility constructor preserving the prior 8-arg signature; uses name-target mode. */
@@ -74,13 +86,15 @@ public record IfControlBoost(
             String targetCardName, int powerBonus, Set<CardData.Trait> grantedTraits,
             String specialText, boolean cannotBeChosenBySummons, boolean cannotBeChosenByAbilities) {
         this(conditions, exceptCardName, targetCardName, null, powerBonus, grantedTraits,
-                specialText, cannotBeChosenBySummons, cannotBeChosenByAbilities, false, null, 0);
+                specialText, cannotBeChosenBySummons, cannotBeChosenByAbilities, false, null, 0, 0);
     }
 
     @Override
     public String toString() {
         StringBuilder sb = new StringBuilder("ICB[");
-        if (minRemovedFromGame > 0) {
+        if (minDamageReceived > 0) {
+            sb.append("dmg>=").append(minDamageReceived).append(" → ");
+        } else if (minRemovedFromGame > 0) {
             sb.append("rfp>=").append(minRemovedFromGame).append(" → ");
         } else if (!conditions.isEmpty()) {
             for (int i = 0; i < conditions.size(); i++) {

@@ -8935,6 +8935,10 @@ public class MainWindow {
 			int totalRfp = gameState.getP1PermanentRfp().size() + gameState.getP2PermanentRfp().size();
 			if (totalRfp < icb.minRemovedFromGame()) return false;
 		}
+		if (icb.minDamageReceived() > 0) {
+			List<CardData> dmgZone = isP1 ? gameState.getP1DamageZone() : gameState.getP2DamageZone();
+			if (dmgZone.size() < icb.minDamageReceived()) return false;
+		}
 		return true;
 	}
 
@@ -9050,6 +9054,8 @@ public class MainWindow {
 						}
 						yield n;
 					}
+					case DAMAGE_RECEIVED ->
+						(isP1 ? gameState.getP1DamageZone() : gameState.getP2DamageZone()).size();
 				};
 				boost += ssb.perUnit() * count;
 			}

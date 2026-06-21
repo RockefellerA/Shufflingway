@@ -1687,6 +1687,15 @@ public record CardData(
     );
 
     /**
+     * "If you have received N points of damage or more, [target] gains [effects]."
+     * Groups: {@code count}, {@code target}, {@code effects}.
+     */
+    private static final Pattern IF_DAMAGE_RECEIVED_BOOST = Pattern.compile(
+        "(?i)^If\\s+you\\s+have\\s+received\\s+(?<count>\\d+)\\s+points?\\s+of\\s+damage\\s+or\\s+more,\\s+" +
+        "(?<target>.+?)\\s+gains?\\s+(?<effects>.+?)\\.?\\s*$"
+    );
+
+    /**
      * "If you have a 《C》, [target] gains [effects]."
      * Groups: {@code target}, {@code effects}.
      */
@@ -1733,6 +1742,14 @@ public record CardData(
         "(?:other\\s+than\\s+(?<except>.+?)\\s+)?you\\s+control\\s+gain\\s+" +
         "[\"\\u201C]This\\s+Forward\\s+cannot\\s+be\\s+blocked\\s+by\\s+(?:a\\s+)?Forwards?\\s+of\\s+cost\\s+" +
         "(?<costval>\\d+)(?:\\s+or\\s+(?<costcmp>less|more))?[.][\"\\u201D]\\s*\\.?\\s*$"
+    );
+
+    /**
+     * "[CardName] cannot be blocked." — unconditional permanent unblockability with no condition.
+     * Group {@code name} captures the card name.
+     */
+    private static final Pattern UNCONDITIONAL_CNB_PATTERN = Pattern.compile(
+        "(?i)^(?<name>[A-Z][A-Za-z''\\-\\s]+?)\\s+cannot\\s+be\\s+blocked\\.?\\s*$"
     );
 
     /**
@@ -1902,7 +1919,23 @@ public record CardData(
                 if (powerBonus != 0) {
                     FieldPowerGrant targetFilter = parseIcbTargetFilter(targetName);
                     result.add(new IfControlBoost(List.of(), "", targetName, targetFilter,
-                            powerBonus, java.util.EnumSet.noneOf(Trait.class), "", false, false, false, null, minRfp));
+                            powerBonus, java.util.EnumSet.noneOf(Trait.class), "", false, false, false, null, minRfp, 0));
+                }
+                continue;
+            }
+
+            // "If you have received N points of damage or more, [target] gains [effects]."
+            Matcher dmgM = IF_DAMAGE_RECEIVED_BOOST.matcher(seg);
+            if (dmgM.find()) {
+                int minDmg        = Integer.parseInt(dmgM.group("count"));
+                String targetName = dmgM.group("target").trim();
+                String effectsStr = dmgM.group("effects").trim();
+                Matcher pwrM = IF_CTRL_EFFECT_POWER.matcher(effectsStr);
+                int powerBonus = pwrM.find() ? Integer.parseInt(pwrM.group(1)) : 0;
+                if (powerBonus != 0) {
+                    FieldPowerGrant targetFilter = parseIcbTargetFilter(targetName);
+                    result.add(new IfControlBoost(List.of(), "", targetName, targetFilter,
+                            powerBonus, java.util.EnumSet.noneOf(Trait.class), "", false, false, false, null, 0, minDmg));
                 }
                 continue;
             }
@@ -2002,6 +2035,17 @@ public record CardData(
             result.add(new IfControlBoost(List.of(), "", "", grantFilter, 0,
                     java.util.EnumSet.noneOf(Trait.class), "", false, false, false,
                     new int[]{costVal, orMore ? 1 : 0}));
+        }
+
+        // Parse "[CardName] cannot be blocked." — unconditional, no "If you control" condition.
+        for (String raw : textEn.split("(?i)\\[\\[br\\]\\]")) {
+            String seg = SUMMON_MARKUP.matcher(raw.trim()).replaceAll("").trim();
+            if (seg.isEmpty()) continue;
+            Matcher m = UNCONDITIONAL_CNB_PATTERN.matcher(seg);
+            if (!m.matches()) continue;
+            String name = m.group("name").trim();
+            result.add(new IfControlBoost(List.of(), "", name, null, 0,
+                    java.util.EnumSet.noneOf(Trait.class), "", false, false, true, null, 0, 0));
         }
 
         return List.copyOf(result);
@@ -2220,6 +2264,12 @@ public record CardData(
         "(?<target>.+?)\\s+gains?\\s+\\+(?<power>\\d+)\\s+power[.!]?$"
     );
 
+    /** "For each point of damage you have received, [target] gains +N power." */
+    private static final Pattern SCALING_SELF_DMG_PATTERN = Pattern.compile(
+        "(?i)^For\\s+each\\s+point\\s+of\\s+damage\\s+you\\s+have\\s+received,\\s+" +
+        "(?<target>.+?)\\s+gains?\\s+\\+(?<power>\\d+)\\s+power[.!]?$"
+    );
+
     /**
      * Unified "For each &lt;filter&gt; [other than X] you control[ other than X], &lt;target&gt; gains +N power."
      * pattern. {@code filter} captures everything between "For each" and the first "other than" or
@@ -2365,6 +2415,15 @@ public record CardData(
                 if (perUnit <= 0) continue;
                 result.add(new ScalingSelfPowerBoost(
                         ScalingSelfPowerBoost.Source.OPPONENT_FORWARDS, perUnit));
+                continue;
+            }
+            Matcher dm = SCALING_SELF_DMG_PATTERN.matcher(seg);
+            if (dm.find()) {
+                if (!dm.group("target").trim().equalsIgnoreCase(cardName)) continue;
+                int perUnit = Integer.parseInt(dm.group("power"));
+                if (perUnit <= 0) continue;
+                result.add(new ScalingSelfPowerBoost(
+                        ScalingSelfPowerBoost.Source.DAMAGE_RECEIVED, perUnit));
                 continue;
             }
             Matcher fe = SCALING_SELF_FOR_EACH_PATTERN.matcher(seg);
@@ -3203,6 +3262,11 @@ public record CardData(
             if (SCALING_SELF_OPP_FWD_PATTERN.matcher(seg).find())            continue;
             // Scaling self power boost ("For each [filter] you control, X gains +N power")
             if (SCALING_SELF_FOR_EACH_PATTERN.matcher(seg).find())            continue;
+            // Scaling self power boost ("For each point of damage you have received, X gains +N power")
+            if (SCALING_SELF_DMG_PATTERN.matcher(seg).find())                 continue;
+
+            // Cast/play restrictions — handled as static properties via castRestriction()
+            if (CAST_REQUIRES_NO_FORWARDS.matcher(seg).find())                continue;
 
             // Field cost reduction / any-element declarations — handled as static card properties
             if (FIELD_COST_REDUCTION_PATTERN.matcher(seg).find())            continue;

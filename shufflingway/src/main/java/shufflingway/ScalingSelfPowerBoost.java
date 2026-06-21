@@ -40,6 +40,8 @@ public record ScalingSelfPowerBoost(
         /** Number of Backups the controller controls (other than the source by name), honoring all filter fields. */
         OTHER_BACKUPS_YOU_CONTROL,
         /** Number of Monsters the controller controls (other than the source by name), honoring all filter fields. */
-        OTHER_MONSTERS_YOU_CONTROL
+        OTHER_MONSTERS_YOU_CONTROL,
+        /** Number of damage points the controller has received (size of their damage zone). */
+        DAMAGE_RECEIVED
     }
 }
