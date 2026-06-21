@@ -809,6 +809,9 @@ public interface GameContext {
      */
     int lastRemovedFromGameCardCost();
 
+    /** Returns the total number of cards permanently removed from the game (both players' RFP zones combined). */
+    int countRemovedFromGame();
+
     /**
      * Dulls all Forwards the opponent controls whose effective power is less than or equal to
      * {@code source}'s current effective power on the field.

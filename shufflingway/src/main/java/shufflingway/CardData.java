@@ -1678,6 +1678,15 @@ public record CardData(
     );
 
     /**
+     * "If there are N or more cards removed from the game, [target] gains [effects]."
+     * Groups: {@code count}, {@code target}, {@code effects}.
+     */
+    private static final Pattern IF_RFP_COUNT_BOOST = Pattern.compile(
+        "(?i)^If\\s+there\\s+are\\s+(?<count>\\d+)\\s+or\\s+more\\s+cards?\\s+removed\\s+from\\s+the\\s+game,\\s+" +
+        "(?<target>.+?)\\s+gains?\\s+(?<effects>.+?)\\.?\\s*$"
+    );
+
+    /**
      * "If you have a 《C》, [target] gains [effects]."
      * Groups: {@code target}, {@code effects}.
      */
@@ -1878,6 +1887,22 @@ public record CardData(
                     FieldPowerGrant targetFilter = parseIcbTargetFilter(targetName);
                     result.add(new IfControlBoost(conditions0, exceptName0, targetName, targetFilter,
                             powerBonus, java.util.EnumSet.noneOf(Trait.class), "", false, false, false, null));
+                }
+                continue;
+            }
+
+            // "If there are N or more cards removed from the game, [target] gains [effects]."
+            Matcher rfpM = IF_RFP_COUNT_BOOST.matcher(seg);
+            if (rfpM.find()) {
+                int minRfp        = Integer.parseInt(rfpM.group("count"));
+                String targetName = rfpM.group("target").trim();
+                String effectsStr = rfpM.group("effects").trim();
+                Matcher pwrM = IF_CTRL_EFFECT_POWER.matcher(effectsStr);
+                int powerBonus = pwrM.find() ? Integer.parseInt(pwrM.group(1)) : 0;
+                if (powerBonus != 0) {
+                    FieldPowerGrant targetFilter = parseIcbTargetFilter(targetName);
+                    result.add(new IfControlBoost(List.of(), "", targetName, targetFilter,
+                            powerBonus, java.util.EnumSet.noneOf(Trait.class), "", false, false, false, null, minRfp));
                 }
                 continue;
             }

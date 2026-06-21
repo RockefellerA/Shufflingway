@@ -2296,6 +2296,9 @@ final class GameContextImpl implements GameContext {
 			@Override public int lastDiscardedForwardPower() { return mw.lastDiscardedForwardPower; }
 			@Override public String lastDiscardedCardName() { return mw.lastDiscardedCardName; }
 			@Override public int lastRemovedFromGameCardCost() { return mw.lastRemovedFromGameCardCost; }
+			@Override public int countRemovedFromGame() {
+				return mw.gameState.getP1PermanentRfp().size() + mw.gameState.getP2PermanentRfp().size();
+			}
 
 			@Override public void retriggerAutoAbility(CardData source, String triggerType) {
 				for (AutoAbility fa : source.autoAbilities()) {

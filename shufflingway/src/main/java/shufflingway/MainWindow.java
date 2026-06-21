@@ -8931,6 +8931,10 @@ public class MainWindow {
 				if (!controlConditionMetExcluding(cond, icb.exceptCardName(), isP1)) return false;
 			}
 		}
+		if (icb.minRemovedFromGame() > 0) {
+			int totalRfp = gameState.getP1PermanentRfp().size() + gameState.getP2PermanentRfp().size();
+			if (totalRfp < icb.minRemovedFromGame()) return false;
+		}
 		return true;
 	}
 

@@ -856,6 +856,15 @@ public class ActionResolver {
     );
 
     /**
+     * "If there are N or more cards removed from the game, &lt;effect&gt;"
+     * Group {@code count} is the threshold; {@code inner} is the conditional effect text.
+     */
+    private static final Pattern IF_RFP_COUNT_INNER = Pattern.compile(
+        "(?i)^If\\s+there\\s+are\\s+(?<count>\\d+)\\s+or\\s+more\\s+cards?\\s+removed\\s+from\\s+the\\s+game,\\s+(?<inner>.+)",
+        Pattern.DOTALL
+    );
+
+    /**
      * "At the beginning of your Main Phase 1[ each turn etc.], &lt;effect&gt;"
      * Group {@code inner} captures the effect text after the trigger comma.  Modeled on
      * {@link #AT_END_OF_EACH_TURN_FA_PATTERN} — the inner effect is dispatched through
@@ -3311,6 +3320,9 @@ public class ActionResolver {
         result = tryParsePlayFromHand(effectText, source, xValue);
         if (result != null) return result;
 
+        result = tryParseIfRfpCount(effectText, source);
+        if (result != null) return result;
+
         result = tryParseOpponentSelects(effectText);
         if (result != null) return result;
 
@@ -3519,6 +3531,7 @@ public class ActionResolver {
         if (tryParseChooseFwdBzCostInferiorToRemovedPlay(effectText)       != null) return "ChooseFwdBzCostInferiorToRemovedPlay";
         if (tryParseChooseCharacter(effectText, source, 0)              != null) return "ChooseCharacter";
         if (tryParseEndOfEachTurnFieldAbility(effectText, source) != null) return "EndOfEachTurnFieldAbility";
+        if (tryParseIfRfpCount(effectText, source)               != null) return "IfRfpCount";
         if (tryParseElementChange(effectText, source) != null) return "ElementChange";
         if (tryParseDelayedEffect(effectText)                 != null) return "DelayedEffect";
         if (tryParsePlayerCannotCastSummons(effectText)                != null) return "PlayerCannotCastSummons";
@@ -3852,6 +3865,8 @@ public class ActionResolver {
         if (tryParseChooseFwdPowerInferiorToSource(effectText, source) != null) return "ChooseFwdPowerInferiorToSource";
         if (tryParseChooseFwdBzCostInferiorToRemovedPlay(effectText)   != null) return "ChooseFwdBzCostInferiorToRemovedPlay";
         if (tryParseDullAllOppFwdsPowerLeSource(effectText, source)    != null) return "DullAllOppFwdsPowerLeSource";
+        if (tryParseEndOfEachTurnFieldAbility(effectText, source)      != null) return "EndOfEachTurnFieldAbility";
+        if (tryParseIfRfpCount(effectText, source)                     != null) return "IfRfpCount";
         if (tryParseAllFieldEffect(effectText) != null)                     return "AllFieldEffect";
         if (tryParseFieldPowerGrantPassive(effectText) != null) {
             String trimmed = effectText.trim();
@@ -8022,6 +8037,24 @@ public class ActionResolver {
         Consumer<GameContext> innerEffect = parse(inner, source);
         if (innerEffect == null) return null;
         return innerEffect;
+    }
+
+    /**
+     * Parses "If there are N or more cards removed from the game, &lt;effect&gt;".
+     * The inner effect only fires when the combined permanent-RFP count of both players meets the threshold.
+     */
+    private static Consumer<GameContext> tryParseIfRfpCount(String text, CardData source) {
+        Matcher m = IF_RFP_COUNT_INNER.matcher(text.trim());
+        if (!m.find()) return null;
+        int minRfp = Integer.parseInt(m.group("count"));
+        String innerText = m.group("inner").trim();
+        Consumer<GameContext> innerEffect = parse(innerText, source);
+        if (innerEffect == null) return null;
+        return ctx -> {
+            int totalRfp = ctx.countRemovedFromGame();
+            if (totalRfp >= minRfp) innerEffect.accept(ctx);
+            else ctx.logEntry("Condition not met: need " + minRfp + "+ cards RFP, have " + totalRfp);
+        };
     }
 
     /**
