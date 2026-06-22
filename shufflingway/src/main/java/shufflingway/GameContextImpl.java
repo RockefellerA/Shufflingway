@@ -1835,6 +1835,45 @@ final class GameContextImpl implements GameContext {
 				if (!p2Picks.isEmpty()) { mw.refreshP2BreakLabel(); mw.refreshP2HandCountLabel(); }
 			}
 
+			@Override public void salvageCharacterFromOwnBreakZone(int count, boolean fwds, boolean bkps, boolean mons) {
+				List<CardData> bz = isP1 ? mw.gameState.getP1BreakZone() : mw.gameState.getP2BreakZone();
+				List<ForwardTarget> eligible = new ArrayList<>();
+				for (int i = 0; i < bz.size(); i++) {
+					CardData c = bz.get(i);
+					if (c.isForward() && !fwds) continue;
+					if (c.isBackup()  && !bkps) continue;
+					if (c.isMonster() && !mons) continue;
+					ForwardTarget.CardZone cz = c.isBackup()  ? ForwardTarget.CardZone.BACKUP
+					                          : c.isMonster() ? ForwardTarget.CardZone.MONSTER
+					                          :                 ForwardTarget.CardZone.FORWARD;
+					eligible.add(new ForwardTarget(isP1, i, cz));
+				}
+				if (eligible.isEmpty()) {
+					logEntry((isP1 ? "P1" : "P2") + " Break Zone has no eligible character(s) — salvage skipped");
+					return;
+				}
+				List<ForwardTarget> picks;
+				if (isP1) {
+					picks = mw.showBreakZoneSelectDialog(eligible, bz, count, false,
+							"Choose " + count + " Character(s) from your Break Zone to add to hand");
+				} else {
+					List<ForwardTarget> copy = new ArrayList<>(eligible);
+					copy.sort((a, b) -> Integer.compare(bz.get(b.idx()).cost(), bz.get(a.idx()).cost()));
+					picks = copy.subList(0, Math.min(count, copy.size()));
+					picks.forEach(t -> logEntry("[AI] salvaged " + bz.get(t.idx()).name() + " from Break Zone"));
+				}
+				List<ForwardTarget> sorted = new ArrayList<>(picks);
+				sorted.sort(java.util.Comparator.comparingInt(ForwardTarget::idx).reversed());
+				List<CardData> hand = isP1 ? mw.gameState.getP1Hand() : mw.gameState.getP2Hand();
+				for (ForwardTarget t : sorted) {
+					CardData card = bz.remove(t.idx());
+					hand.add(card);
+					logEntry(card.name() + " → " + (isP1 ? "P1" : "P2") + " hand from Break Zone");
+				}
+				if (isP1) { mw.refreshP1BreakLabel(); mw.refreshP1HandLabel(); }
+				else       { mw.refreshP2BreakLabel(); mw.refreshP2HandCountLabel(); }
+			}
+
 			@Override public void eachPlayerSelectUpToNAndBreak(int count, boolean inclForwards, boolean inclMonsters) {
 				// Build P1 eligible list
 				List<ForwardTarget> p1Eligible = new ArrayList<>();

@@ -1435,6 +1435,15 @@ public class ActionResolver {
     );
 
     /**
+     * Matches "select N [Forward|Backup|Monster|Character] in/from your Break Zone and add it to your hand."
+     * Group {@code count} = N; {@code type} = card type word.
+     */
+    private static final Pattern SELECT_CHARACTER_FROM_BZ_TO_HAND = Pattern.compile(
+        "(?i)^select\\s+(?<count>\\d+)\\s+(?<type>Forward|Backup|Monster|Character)s?" +
+        "\\s+(?:in|from)\\s+your\\s+Break\\s+Zone\\s+and\\s+add\\s+it\\s+to\\s+your\\s+hand[.!]?$"
+    );
+
+    /**
      * Matches "Each player who doesn't control N or more Forwards discards M card(s) [from their hand]."
      * Groups: {@code min} — forward threshold; {@code count} — cards to discard.
      */
@@ -1549,13 +1558,14 @@ public class ActionResolver {
      * </ul>
      */
     private static final Pattern OPPONENT_SELECTS_PATTERN = Pattern.compile(
-        "(?i)Your\\s+opponent\\s+selects?\\s+(?<count>\\d+)\\s+" +
+        "(?i)^Your\\s+opponent\\s+selects?\\s+(?<count>\\d+)\\s+" +
         "(?:(?<condition>dull|damaged|attacking|blocking|active)\\s+)?" +
         "(?:(?<element>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)\\s+)?" +
         "(?<targets>Forwards?|Backups?|Characters?)" +
-        "\\s+(?:they|he|she)\\s+controls?" +
+        "\\s+(?:they|he/she|he|she)\\s+controls?" +
         "(?:[.]\\s*|\\s+and\\s+)" +
-        "(?<followup>.+)"
+        "(?<followup>.+)",
+        Pattern.DOTALL
     );
 
     /**
@@ -3313,6 +3323,9 @@ public class ActionResolver {
         result = tryParseEachPlayerSalvageFromBreakZone(effectText);
         if (result != null) return result;
 
+        result = tryParseSelectCharacterFromBzToHand(effectText);
+        if (result != null) return result;
+
         result = tryParseEachPlayerDraw(effectText);
         if (result != null) return result;
 
@@ -3638,6 +3651,7 @@ public class ActionResolver {
         if (tryParseEachPlayerSelectUpToNToBreakZone(effectText)   != null) return "EachPlayerSelectUpToNToBreakZone";
         if (tryParseEachPlayerDiscard(effectText)              != null) return "EachPlayerDiscard";
         if (tryParseEachPlayerSalvageFromBreakZone(effectText) != null) return "EachPlayerSalvageFromBreakZone";
+        if (tryParseSelectCharacterFromBzToHand(effectText)    != null) return "SelectCharacterFromBzToHand";
         if (tryParseEachPlayerDraw(effectText)                 != null) return "EachPlayerDraw";
         if (tryParseNameCardTypeOpponentDiscardDrawIfMatch(effectText) != null) return "NameCardTypeOpponentDiscardDrawIfMatch";
         if (tryParseOpponentDiscard(effectText)               != null) return "OpponentDiscard";
@@ -7814,6 +7828,21 @@ public class ActionResolver {
         };
     }
 
+    /** Parses "select N [type] in/from your Break Zone and add it to your hand." */
+    private static Consumer<GameContext> tryParseSelectCharacterFromBzToHand(String text) {
+        Matcher m = SELECT_CHARACTER_FROM_BZ_TO_HAND.matcher(text);
+        if (!m.find()) return null;
+        int count = Integer.parseInt(m.group("count"));
+        String tl = m.group("type").toLowerCase(java.util.Locale.ROOT);
+        boolean fwds = tl.contains("forward")   || tl.contains("character");
+        boolean bkps = tl.contains("backup")    || tl.contains("character");
+        boolean mons = tl.contains("monster")   || tl.contains("character");
+        return ctx -> {
+            ctx.logEntry("Effect: Select " + count + " " + m.group("type") + "(s) from own Break Zone → hand");
+            ctx.salvageCharacterFromOwnBreakZone(count, fwds, bkps, mons);
+        };
+    }
+
     /** Parses "Each player selects 1 Forward they control. Deal them N damage." */
     private static Consumer<GameContext> tryParseEachPlayerSelectForwardDamage(String text) {
         Matcher m = EACH_PLAYER_SELECT_FORWARD_DAMAGE.matcher(text);
@@ -8788,6 +8817,25 @@ public class ActionResolver {
             };
         }
 
+        if (FOLLOWUP_RETURN_TO_OWNERS_HAND.matcher(followup).find()) {
+            return ctx -> {
+                ctx.logEntry(prefix + " — Return to owner's hand");
+                List<ForwardTarget> ts = ctx.selectCharacters(count, false, true, false,
+                        condition, element, -1, null, -1, null,
+                        inclForwards, inclBackups, inclMonsters, null, null, null, null, false, null, false);
+                sortedByIdxDesc(ts, false).forEach(t -> {
+                    switch (t.zone()) {
+                        case FORWARD -> { if (t.isP1()) ctx.returnP1ForwardToHand(t.idx());
+                                          else          ctx.returnP2ForwardToHand(t.idx()); }
+                        case BACKUP  -> { if (t.isP1()) ctx.returnP1BackupToHand(t.idx());
+                                          else          ctx.returnP2BackupToHand(t.idx()); }
+                        case MONSTER -> { if (t.isP1()) ctx.returnP1MonsterToHand(t.idx());
+                                          else          ctx.returnP2MonsterToHand(t.idx()); }
+                    }
+                });
+            };
+        }
+
         return ctx -> ctx.logEntry(
                 "[ActionResolver] Opponent selects — followup not yet implemented: " + followup);
     }
@@ -9029,6 +9077,9 @@ public class ActionResolver {
     private static String normalizeRevealOp(String raw) {
         if (raw == null) return null;
         String lo = raw.trim().toLowerCase(java.util.Locale.ROOT);
+        // Compound actions that involve selecting another card first are handled by parse(),
+        // not treated as simple "place revealed card" ops.
+        if (lo.contains("select") || lo.contains("choose") || lo.startsWith("your opponent")) return null;
         if (lo.contains("field") && lo.contains("dull")) return "playOntoFieldDull";
         if (lo.contains("field"))  return "playOntoField";
         if (lo.contains("hand"))   return "addToHand";

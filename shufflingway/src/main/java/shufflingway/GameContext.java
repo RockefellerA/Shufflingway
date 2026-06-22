@@ -296,6 +296,16 @@ public interface GameContext {
      */
     void eachPlayerSalvageFromBreakZone(int count);
 
+    /**
+     * The ability user selects {@code count} Character(s) from their own Break Zone and adds them to their hand.
+     * P1 picks via dialog; P2 (AI) picks automatically (highest-cost first).
+     *
+     * @param fwds include Forwards as eligible targets
+     * @param bkps include Backups as eligible targets
+     * @param mons include Monsters as eligible targets
+     */
+    void salvageCharacterFromOwnBreakZone(int count, boolean fwds, boolean bkps, boolean mons);
+
     /** Grants the ability user {@code count} Crystals. */
     void gainCrystal(int count);
 
