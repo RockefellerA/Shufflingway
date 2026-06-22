@@ -8471,6 +8471,7 @@ public class MainWindow {
 		StringBuilder restrict = new StringBuilder();
 		boolean firstRestrict = true;
 		if (ability.damageThreshold() > 0)         { restrict.append("Dmg≥").append(ability.damageThreshold()); firstRestrict = false; }
+		if (ability.minCounterRequired() > 0 && ability.minCounterType() != null) { if (!firstRestrict) restrict.append(", "); restrict.append("≥").append(ability.minCounterRequired()).append(" ").append(ability.minCounterType()).append(" Ctr"); firstRestrict = false; }
 		if (ability.yourTurnOnly())                 { if (!firstRestrict) restrict.append(", "); restrict.append("your turn");     firstRestrict = false; }
 		if (ability.opponentTurnOnly())             { if (!firstRestrict) restrict.append(", "); restrict.append("opp turn");      firstRestrict = false; }
 		if (ability.oncePerTurn())                  { if (!firstRestrict) restrict.append(", "); restrict.append("1/turn");        firstRestrict = false; }
@@ -8781,6 +8782,9 @@ public class MainWindow {
 		if (ability.damageThreshold() > 0) {
 			int dmg = isP1 ? gameState.getP1DamageZone().size() : gameState.getP2DamageZone().size();
 			if (dmg < ability.damageThreshold()) return false;
+		}
+		if (ability.minCounterRequired() > 0 && ability.minCounterType() != null) {
+			if (gameState.getCounters(source, ability.minCounterType()) < ability.minCounterRequired()) return false;
 		}
 		if (ability.requiresOppDiscardedThisTurn()) {
 			boolean caused = isP1 ? p1CausedOpponentDiscardThisTurn : p2CausedOpponentDiscardThisTurn;
@@ -9095,6 +9099,12 @@ public class MainWindow {
 					}
 					case DAMAGE_RECEIVED ->
 						(isP1 ? gameState.getP1DamageZone() : gameState.getP2DamageZone()).size();
+					case CARD_NAME_IN_BREAK_ZONE -> {
+						List<CardData> bz = isP1 ? gameState.getP1BreakZone() : gameState.getP2BreakZone();
+						String nameFilter = ssb.cardNameFilter();
+						yield nameFilter == null ? 0 : (int) bz.stream()
+								.filter(c -> nameFilter.equalsIgnoreCase(c.name())).count();
+					}
 				};
 				boost += ssb.perUnit() * count;
 			}
