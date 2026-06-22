@@ -49,6 +49,7 @@ import java.util.stream.Collectors;
 import javax.imageio.ImageIO;
 import javax.swing.BorderFactory;
 import javax.swing.BoxLayout;
+import javax.swing.Icon;
 import javax.swing.ImageIcon;
 import javax.swing.JButton;
 import javax.swing.JComboBox;
@@ -1462,7 +1463,7 @@ public class MainWindow {
 						handOrder.set(idx, handOrder.get(other));
 						handOrder.set(other, tmpCard);
 
-						javax.swing.Icon tmpIcon = cardLabels[idx].getIcon();
+						Icon tmpIcon = cardLabels[idx].getIcon();
 						String tmpText = cardLabels[idx].getText();
 						cardLabels[idx].setIcon(cardLabels[other].getIcon());
 						cardLabels[idx].setText(cardLabels[other].getText());
@@ -6211,7 +6212,7 @@ public class MainWindow {
 
 	void startBreakAnim(JLabel label) {
 		if (label == null) return;
-		javax.swing.Icon icon = label.getIcon();
+		Icon icon = label.getIcon();
 		if (!(icon instanceof ImageIcon ii)) return;
 		JLayeredPane lp = frame.getRootPane().getLayeredPane();
 		if (pendingCostBreakDestLabel != null) {
@@ -6228,6 +6229,18 @@ public class MainWindow {
 		java.awt.image.BufferedImage img = CardAnimation.toARGB(
 				ii.getImage(), ii.getIconWidth(), ii.getIconHeight());
 		breakAnimator.startBreak(img, center);
+	}
+
+	private void animateUniquenessSlide(JLabel cardLabel, boolean isP1) {
+		if (cardLabel == null) return;
+		Icon icon = cardLabel.getIcon();
+		if (!(icon instanceof ImageIcon ii)) return;
+		JLayeredPane lp   = frame.getRootPane().getLayeredPane();
+		JLabel       dest = isP1 ? p1BreakLabel : p2BreakLabel;
+		Point start = SwingUtilities.convertPoint(cardLabel, cardLabel.getWidth() / 2, cardLabel.getHeight() / 2, lp);
+		Point end   = SwingUtilities.convertPoint(dest, dest.getWidth() / 2, dest.getHeight() / 2, lp);
+		java.awt.image.BufferedImage img = CardAnimation.toARGB(ii.getImage(), ii.getIconWidth(), ii.getIconHeight());
+		cardSlideAnimator.startSlide(img, start, end, 0);
 	}
 
 	private void animateCardToDamage(boolean isP1, int slotIdx) {
@@ -9706,6 +9719,7 @@ public class MainWindow {
 				if (!cardNamesOverlap(incoming, c)) continue;
 				conflict = true;
 				logEntry("[Uniqueness] " + c.name() + " — sent to Break Zone");
+				animateUniquenessSlide(p1ForwardLabels.get(i), true);
 				CardData top = p1ForwardPrimedTop.get(i);
 				if (top != null) {
 					addToP1BreakZone(c);
@@ -9736,6 +9750,7 @@ public class MainWindow {
 				if (c == null || c == incoming || !cardNamesOverlap(incoming, c)) continue;
 				conflict = true;
 				logEntry("[Uniqueness] " + c.name() + " — sent to Break Zone");
+				animateUniquenessSlide(p1BackupLabels[i], true);
 				addToP1BreakZone(c);
 				p1BackupCards[i] = null; p1BackupStates[i] = CardState.ACTIVE;
 				refreshP1BackupSlot(i); refreshP1BreakLabel();
@@ -9754,6 +9769,7 @@ public class MainWindow {
 				p1MonsterDamage.remove(i);
 				p1MonsterUrls.remove(i);
 				JLabel lbl = p1MonsterLabels.remove(i);
+				animateUniquenessSlide(lbl, true);
 				p1MonsterPanel.remove(lbl); p1MonsterPanel.revalidate(); p1MonsterPanel.repaint();
 				refreshP1BreakLabel();
 				autoAbilityTriggers.triggerAutoAbilitiesForLeavesField(c, true);
@@ -9766,6 +9782,7 @@ public class MainWindow {
 				if (!cardNamesOverlap(incoming, c)) continue;
 				conflict = true;
 				logEntry("[Uniqueness] [P2] " + c.name() + " — sent to Break Zone");
+				animateUniquenessSlide(p2ForwardLabels.get(i), false);
 				addToP2BreakZone(c);
 				p2ForwardCards.remove(i); p2ForwardUrls.remove(i);
 				p2ForwardStates.remove(i); p2ForwardPlayedOnTurn.remove(i);
@@ -9786,6 +9803,7 @@ public class MainWindow {
 				if (c == null || c == incoming || !cardNamesOverlap(incoming, c)) continue;
 				conflict = true;
 				logEntry("[Uniqueness] [P2] " + c.name() + " — sent to Break Zone");
+				animateUniquenessSlide(p2BackupLabels[i], false);
 				addToP2BreakZone(c);
 				p2BackupCards[i] = null; p2BackupStates[i] = CardState.ACTIVE;
 				refreshP2BackupSlot(i); refreshP2BreakLabel();
@@ -9804,6 +9822,7 @@ public class MainWindow {
 				p2MonsterDamage.remove(i);
 				p2MonsterUrls.remove(i);
 				JLabel lbl = p2MonsterLabels.remove(i);
+				animateUniquenessSlide(lbl, false);
 				if (p2MonsterPanel != null) { p2MonsterPanel.remove(lbl); p2MonsterPanel.revalidate(); p2MonsterPanel.repaint(); }
 				refreshP2BreakLabel();
 				autoAbilityTriggers.triggerAutoAbilitiesForLeavesField(c, false);
