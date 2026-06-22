@@ -10506,6 +10506,7 @@ public class MainWindow {
 		CardData fwd = p1ForwardCards.get(idx);
 		if (fwd.cannotAttackOrBlock()) return false;
 		if (isFieldAbilityCannotAttackOrBlock(fwd, true)) return false;
+		if (isFieldAbilityCannotAttack(fwd, true)) return false;
 		return effectiveP1HasTrait(idx, CardData.Trait.HASTE)
 				|| p1ForwardPlayedOnTurn.get(idx) != gameState.getTurnNumber();
 	}
@@ -10556,6 +10557,21 @@ public class MainWindow {
 				int    limit       = Integer.parseInt(m3.group("count"));
 				String counterName = m3.group("countername").trim();
 				if (gameState.getCounters(card, counterName) <= limit) return true;
+			}
+		}
+		return false;
+	}
+
+	/**
+	 * Returns {@code true} if any field ability on {@code card} currently prevents it from
+	 * attacking (attack-only restriction — does not affect blocking).
+	 */
+	boolean isFieldAbilityCannotAttack(CardData card, boolean isP1) {
+		for (FieldAbility fa : card.fieldAbilities()) {
+			java.util.regex.Matcher m = ActionResolver.IF_OPP_NO_FORWARDS_CANNOT_ATTACK.matcher(fa.effectText());
+			if (m.find() && m.group("subject").trim().equalsIgnoreCase(card.name())) {
+				List<CardData> oppFwds = isP1 ? p2ForwardCards : p1ForwardCards;
+				if (oppFwds.isEmpty()) return true;
 			}
 		}
 		return false;
@@ -11892,6 +11908,7 @@ public class MainWindow {
 					&& !Boolean.TRUE.equals(p1ForwardFrozen.get(i))
 					&& !fwd.cannotAttackOrBlock()
 					&& !isFieldAbilityCannotAttackOrBlock(fwd, true)
+					&& !isFieldAbilityCannotAttack(fwd, true)
 					&& (effectiveP1HasTrait(i, CardData.Trait.HASTE)
 					    || p1ForwardPlayedOnTurn.get(i) != turn))
 				return true;

@@ -823,6 +823,15 @@ public class ActionResolver {
     );
 
     /**
+     * "If your opponent doesn't control any Forwards, [CardName] cannot attack."
+     * {@code subject} — the card that cannot attack.
+     */
+    static final Pattern IF_OPP_NO_FORWARDS_CANNOT_ATTACK = Pattern.compile(
+        "(?i)^If\\s+your\\s+opponent\\s+(?:doesn'?t|does\\s+not)\\s+control\\s+any\\s+Forwards?," +
+        "\\s+(?<subject>.+?)\\s+cannot\\s+attack[.!]?\\s*$"
+    );
+
+    /**
      * Matches "At the end of this turn, if you control &lt;cardName&gt;, deal it N damage."
      * Used as a Choose followup that queues conditional damage to fire at the end phase.
      * <ul>
@@ -9316,6 +9325,13 @@ public class ActionResolver {
             int    limit       = Integer.parseInt(m3.group("count"));
             if (subject.equalsIgnoreCase(source.name()))
                 return ctx -> ctx.logEntry(subject + " — cannot attack or block if " + counterName + " Counters ≤ " + limit);
+        }
+        // 4. Opponent-no-forwards: "If your opponent doesn't control any Forwards, [CardName] cannot attack."
+        Matcher m4 = IF_OPP_NO_FORWARDS_CANNOT_ATTACK.matcher(text);
+        if (m4.find()) {
+            String subject = m4.group("subject").trim();
+            if (subject.equalsIgnoreCase(source.name()))
+                return ctx -> ctx.logEntry(subject + " — cannot attack if opponent controls no Forwards");
         }
         return null;
     }
