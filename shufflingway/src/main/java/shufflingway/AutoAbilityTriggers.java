@@ -2473,6 +2473,13 @@ final class AutoAbilityTriggers {
 			}
 		}
 
+		// Monster Counter-based abilities: read the counter count on the source card NOW, before the
+		// BZ cost payment clears it, so the count can be passed as xValue to effect resolution.
+		if (ability.counterScaleName() != null) {
+			xValue = mw.gameState.getCounters(source, ability.counterScaleName());
+			mw.logEntry(ability.counterScaleName() + " Counters on " + source.name() + ": " + xValue);
+		}
+
 		// Break-zone costs: process in reverse index order within each zone to avoid index shifting
 		List<ForwardTarget> sortedBz = new ArrayList<>(bzTargets);
 		sortedBz.sort((a, b) -> a.zone() == b.zone() ? Integer.compare(b.idx(), a.idx()) : 0);

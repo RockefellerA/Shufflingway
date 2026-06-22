@@ -2495,6 +2495,26 @@ public class ActionResolver {
         "(?i)Place\\s+(?<count>\\d+)\\s+(?<name>.+?)\\s+Counters?\\s+on\\s+(?<target>.+?)[.!]?"
     );
 
+    /**
+     * Matches "Choose up to the same number of Characters as the [Name] Counters placed on [card]. Activate them."
+     * At resolution time {@code xValue} holds the counter count captured before the card was put into the Break Zone.
+     * Group {@code counterName} — counter type (e.g. "Monster"); group {@code card} — source card name.
+     */
+    private static final Pattern CHOOSE_COUNTER_SCALE_CHARS_ACTIVATE = Pattern.compile(
+        "(?i)Choose\\s+up\\s+to\\s+the\\s+same\\s+number\\s+of\\s+Characters?\\s+as\\s+the\\s+(?<counterName>.+?)\\s+Counters?\\s+placed\\s+on\\s+(?<card>.+?)[,.]\\s*Activate\\s+them[.!]?"
+    );
+
+    /**
+     * Matches "Look at the same number of cards from the top of your deck as the [Name] Counters placed on [card].
+     * Add 1 card among them to your hand. Then, shuffle the other cards and return them to the bottom of your deck."
+     * At resolution time {@code xValue} holds the counter count captured before the card was put into the Break Zone.
+     * Group {@code counterName} — counter type (e.g. "Monster"); group {@code card} — source card name.
+     */
+    private static final Pattern LOOK_COUNTER_SCALE_ADD_TO_HAND_REST_BOTTOM = Pattern.compile(
+        "(?i)Look\\s+at\\s+the\\s+same\\s+number\\s+of\\s+cards?\\s+from\\s+the\\s+top\\s+of\\s+your\\s+deck\\s+as\\s+the\\s+(?<counterName>.+?)\\s+Counters?\\s+placed\\s+on\\s+(?<card>.+?)[,.]" +
+        ".+?Add\\s+1\\s+card.+?to\\s+your\\s+hand.+?(?:shuffle|return).+?bottom.+?deck[.!]?"
+    );
+
     /** Matches "Gain 《C》[《C》...]." — captures one or more consecutive Crystal symbols. */
     private static final Pattern GAIN_CRYSTAL = Pattern.compile(
         "(?i)Gain\\s+(?<crystals>(?:《C》)+)[.!]?"
@@ -3065,6 +3085,9 @@ public class ActionResolver {
         result = tryParseChooseFwdBzCostInferiorToRemovedPlay(effectText);
         if (result != null) return result;
 
+        result = tryParseChooseCounterScaleCharsActivate(effectText, xValue);
+        if (result != null) return result;
+
         result = tryParseChooseCharacter(effectText, source, xValue);
         if (result != null) return result;
 
@@ -3401,6 +3424,9 @@ public class ActionResolver {
         result = tryParseLookTopDeckBottomOrKeep(effectText);
         if (result != null) return result;
 
+        result = tryParseCounterScaleLookAddToHand(effectText, xValue);
+        if (result != null) return result;
+
         result = tryParseLookTopDeckAddToHandRestBottom(effectText);
         if (result != null) return result;
 
@@ -3529,6 +3555,7 @@ public class ActionResolver {
         if (tryParseChooseOppFwdDynCostBreak(effectText)                   != null) return "ChooseOppFwdDynCostBreak";
         if (tryParseChooseFwdPowerInferiorToSource(effectText, source)     != null) return "ChooseFwdPowerInferiorToSource";
         if (tryParseChooseFwdBzCostInferiorToRemovedPlay(effectText)       != null) return "ChooseFwdBzCostInferiorToRemovedPlay";
+        if (tryParseChooseCounterScaleCharsActivate(effectText, 1)    != null) return "ChooseCounterScaleCharsActivate";
         if (tryParseChooseCharacter(effectText, source, 0)              != null) return "ChooseCharacter";
         if (tryParseEndOfEachTurnFieldAbility(effectText, source) != null) return "EndOfEachTurnFieldAbility";
         if (tryParseIfRfpCount(effectText, source)               != null) return "IfRfpCount";
@@ -3634,6 +3661,7 @@ public class ActionResolver {
         if (tryParsePlaceCounters(effectText, source)            != null) return "PlaceCounters";
         if (tryParseLookTopDeckOptionallyBreak(effectText)        != null) return "LookTopDeckOptionallyBreak";
         if (tryParseLookTopDeckBottomOrKeep(effectText)           != null) return "LookTopDeckBottomOrKeep";
+        if (tryParseCounterScaleLookAddToHand(effectText, 1)               != null) return "CounterScaleLookAddToHand";
         if (tryParseLookTopDeckAddToHandRestBottom(effectText)          != null) return "LookTopDeckAddToHandRestBottom";
         if (tryParseLookTopDeckAddToHandOneToBreakRestBottom(effectText) != null) return "LookTopDeckAddToHandOneToBreakRestBottom";
         if (tryParseLookTopDeckAddToHandRestBreak(effectText)           != null) return "LookTopDeckAddToHandRestBreak";
@@ -3978,6 +4006,8 @@ public class ActionResolver {
         if (tryParsePlaceCounters(effectText, source) != null)               return "PlaceCounters";
         if (tryParseLookTopDeckOptionallyBreak(effectText)        != null) return "LookTopDeckOptionallyBreak";
         if (tryParseLookTopDeckBottomOrKeep(effectText)           != null) return "LookTopDeckBottomOrKeep";
+        if (tryParseChooseCounterScaleCharsActivate(effectText, 1)         != null) return "ChooseCounterScaleCharsActivate";
+        if (tryParseCounterScaleLookAddToHand(effectText, 1)               != null) return "CounterScaleLookAddToHand";
         if (tryParseLookTopDeckAddToHandRestBottom(effectText)          != null) return "LookTopDeckAddToHandRestBottom";
         if (tryParseLookTopDeckAddToHandOneToBreakRestBottom(effectText) != null) return "LookTopDeckAddToHandOneToBreakRestBottom";
         if (tryParseLookTopDeckAddToHandRestBreak(effectText)           != null) return "LookTopDeckAddToHandRestBreak";
@@ -9563,6 +9593,41 @@ public class ActionResolver {
             if (opp <= 0) return;
             ctx.logEntry("Effect: Opponent has " + opp + " 《C》 — gain 1 Crystal");
             ctx.gainCrystal(1);
+        };
+    }
+
+    private static Consumer<GameContext> tryParseChooseCounterScaleCharsActivate(String text, int xValue) {
+        Matcher m = CHOOSE_COUNTER_SCALE_CHARS_ACTIVATE.matcher(text);
+        if (!m.find()) return null;
+        final int    count       = xValue;
+        final String counterName = m.group("counterName").trim();
+        return ctx -> {
+            if (count <= 0) {
+                ctx.logEntry("Effect: " + counterName + " Counter choose/activate — 0 counters, nothing to do");
+                return;
+            }
+            ctx.logEntry("Effect: Choose up to " + count + " Characters (" + counterName + " Counters) — Activate");
+            List<ForwardTarget> ts = selectTargets(ctx, count, true,
+                    false, true, null, null, null, false,
+                    -1, null, -1, null,
+                    true, true, true, null, null, null, null, false, null, false);
+            sortedByIdxDesc(ts, true) .forEach(t -> ctx.activateTarget(t));
+            sortedByIdxDesc(ts, false).forEach(t -> ctx.activateTarget(t));
+        };
+    }
+
+    private static Consumer<GameContext> tryParseCounterScaleLookAddToHand(String text, int xValue) {
+        Matcher m = LOOK_COUNTER_SCALE_ADD_TO_HAND_REST_BOTTOM.matcher(text);
+        if (!m.find()) return null;
+        final int    count       = xValue;
+        final String counterName = m.group("counterName").trim();
+        return ctx -> {
+            if (count <= 0) {
+                ctx.logEntry("Effect: " + counterName + " Counter look — 0 counters, nothing to do");
+                return;
+            }
+            ctx.logEntry("Effect: Look at top " + count + " card(s) (" + counterName + " Counters) — add 1 to hand, shuffle rest to bottom");
+            ctx.lookAtTopDeck(new LookConfig(count, LookConfig.LookAction.ADD_TO_HAND_REST_BOTTOM));
         };
     }
 

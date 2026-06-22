@@ -926,7 +926,9 @@ public record CardData(
             String cpBackupElement = cpBkpM.find()
                     ? (cpBkpM.group("element") != null ? cpBkpM.group("element") : "")
                     : null;
-            result.add(new ActionAbility(abilityName, requiresDull, isSpecial, crystalCost, selfMillCost, hasXCost, cpCost, breakZoneCosts, discardCosts, removeFromGameCosts, returnToHandCosts, counterCosts, dullForwardCosts, yourTurnOnly, opponentTurnOnly, oncePerTurn, mainPhaseOnly, whileCardAtk, whileCardBlk, whilePartyAtk, whileCardInHand, hasBlockingTarget, effectRaw, damageThreshold, controlCondition, cpBackupElement, sourceInBattle, requiresOppDiscardedThisTurn, requiresCastSummonThisTurn, requiresElementForwardEnteredThisTurn, requiresCardNameEnteredThisTurn, breakZoneOnly, requiresOpponentEmptyHand, requiresNamedCardTookDamageThisTurn, requiresSelfReceivedDamageThisTurn, ownBzCard));
+            Matcher csrM = COUNTER_SCALE_REF_PATTERN.matcher(effectRaw);
+            String counterScaleName = csrM.find() ? csrM.group("counterName").trim() : null;
+            result.add(new ActionAbility(abilityName, requiresDull, isSpecial, crystalCost, selfMillCost, hasXCost, cpCost, breakZoneCosts, discardCosts, removeFromGameCosts, returnToHandCosts, counterCosts, dullForwardCosts, yourTurnOnly, opponentTurnOnly, oncePerTurn, mainPhaseOnly, whileCardAtk, whileCardBlk, whilePartyAtk, whileCardInHand, hasBlockingTarget, effectRaw, damageThreshold, controlCondition, cpBackupElement, sourceInBattle, requiresOppDiscardedThisTurn, requiresCastSummonThisTurn, requiresElementForwardEnteredThisTurn, requiresCardNameEnteredThisTurn, breakZoneOnly, requiresOpponentEmptyHand, requiresNamedCardTookDamageThisTurn, requiresSelfReceivedDamageThisTurn, ownBzCard, counterScaleName));
         }
         return List.copyOf(result);
     }
@@ -941,7 +943,8 @@ public record CardData(
                 a.cpBackupElement(), a.sourceInBattle(), a.requiresOppDiscardedThisTurn(),
                 a.requiresCastSummonThisTurn(), a.requiresElementForwardEnteredThisTurn(),
                 a.requiresCardNameEnteredThisTurn(), a.breakZoneOnly(), a.requiresOpponentEmptyHand(),
-                a.requiresNamedCardTookDamageThisTurn(), a.requiresSelfReceivedDamageThisTurn(), bzCard);
+                a.requiresNamedCardTookDamageThisTurn(), a.requiresSelfReceivedDamageThisTurn(), bzCard,
+                a.counterScaleName());
     }
 
     /** Parses a "discard N [filter]" cost phrase into a {@link DiscardCost} list (0 or 1 item). */
@@ -1132,6 +1135,11 @@ public record CardData(
     private static final Pattern IF_OWN_BZ_GAINS_PATTERN = Pattern.compile(
         "(?i)If\\s+you\\s+have\\s+(?:a\\s+)?Card\\s+Name\\s+(?<bzcard>.+?)\\s+in\\s+your\\s+Break\\s+Zone,\\s+" +
         "[A-Za-z][A-Za-z\\s''’\\-]*?\\s+gains?\\s+(?<quotedAbilities>\"[^\"]+\"(?:\\s+and\\s+\"[^\"]+\")*)\\.?"
+    );
+
+    /** Captures the counter type name from "the same number of X as the [Name] Counters placed on [card]". */
+    static final Pattern COUNTER_SCALE_REF_PATTERN = Pattern.compile(
+        "(?i)the\\s+same\\s+number\\s+of.+?as\\s+the\\s+(?<counterName>.+?)\\s+Counters?\\s+placed\\s+on\\s+.+?(?:[,.]|\\s*$)"
     );
 
     /** Captures the condition from "You can only use this ability during your turn and if you control [X]". */
