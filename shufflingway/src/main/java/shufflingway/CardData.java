@@ -287,6 +287,15 @@ public record CardData(
         return CAST_BACKUP_CP_ONLY.matcher(textEn).find();
     }
 
+    /**
+     * Returns the single element whose CP must be used when casting this card
+     * ("You can only pay with Water CP to cast [Name]."), or {@code null} if unrestricted.
+     */
+    public String castElementOnly() {
+        Matcher m = CAST_ELEMENT_ONLY.matcher(textEn);
+        return m.find() ? m.group("element") : null;
+    }
+
     // "While paying the cost to cast a Category X card, if Rikku is on the field, Rikku can produce CP of any Element."
     // Captures the category identifier only (e.g. "XI"), not the "Category" prefix.
     private static final Pattern BACKUP_CP_ANY_ELEM_CATEGORY = Pattern.compile(
@@ -3113,6 +3122,7 @@ public record CardData(
         "You\\s+can(?:\\s+only)?\\s+use\\s+this\\s+ability" +
         "|You\\s+can\\s+only\\s+pay\\s+this\\s+cost" +
         "|You\\s+can\\s+only\\s+pay\\s+with\\s+CP\\s+produced\\s+by\\s+(?:(?:Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)\\s+)?Backups" +
+        "|You\\s+can\\s+only\\s+pay\\s+with\\s+(?:Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)\\s+CP\\s+to\\s+cast\\b" +
         "|This\\s+effect\\s+will\\s+trigger" +
         ")"
     );
@@ -3128,6 +3138,14 @@ public record CardData(
         "(?i)You\\s+can\\s+only\\s+pay\\s+with\\s+CP\\s+produced\\s+by\\s+" +
         "(?:(?<element>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)\\s+)?" +
         "Backups\\s+to\\s+(?:cast|play)\\b"
+    );
+
+    /**
+     * Matches "You can only pay with [Element] CP to cast [CardName]."
+     * Unlike {@link #CP_BACKUP_ONLY_CAST}, this restricts the element of CP (not the source type).
+     */
+    private static final Pattern CAST_ELEMENT_ONLY = Pattern.compile(
+        "(?i)You\\s+can\\s+only\\s+pay\\s+with\\s+(?<element>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)\\s+CP\\s+to\\s+cast\\b"
     );
 
     /**

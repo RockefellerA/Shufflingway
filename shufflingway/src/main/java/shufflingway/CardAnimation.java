@@ -166,8 +166,10 @@ public class CardAnimation {
 		FontMetrics fm = g.getFontMetrics();
 		int tx = x + (orbW - fm.stringWidth(text)) / 2;
 		int ty = y + (orbH + fm.getAscent()) / 2 - fm.getDescent();
-		g.setColor(new Color(0, 0, 0, 200));
-		g.drawString(text, tx + 1, ty + 1);
+		g.setColor(new Color(0, 0, 0, 230));
+		for (int dx = 1; dx <= 2; dx++)
+			for (int dy = 1; dy <= 2; dy++)
+				g.drawString(text, tx + dx, ty + dy);
 		g.setColor(Color.WHITE);
 		g.drawString(text, tx, ty);
 		g.dispose();

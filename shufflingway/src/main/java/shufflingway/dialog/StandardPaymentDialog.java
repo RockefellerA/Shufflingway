@@ -99,10 +99,13 @@ public class StandardPaymentDialog {
         dlg.setResizable(false);
         dlg.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
 
-        String   elem  = card.element();
-        String[] elems = card.elements();
-        boolean  isLD  = card.isLightOrDark() || anyElementCast;
         boolean backupCpOnly = card.castBackupCpOnly();
+
+        // "You can only pay with [Element] CP to cast [Name]" — overrides element and disables wildcards.
+        final String castElemOnly = card.castElementOnly();
+        final String   elem  = castElemOnly != null ? castElemOnly : card.element();
+        final String[] elems = castElemOnly != null ? new String[]{ castElemOnly } : card.elements();
+        final boolean  isLD  = castElemOnly == null && (card.isLightOrDark() || anyElementCast);
 
         Map<String, Integer> bankCpByElem = new LinkedHashMap<>();
         if (isLD) bankCpByElem.put(elem, 0);
@@ -114,8 +117,12 @@ public class StandardPaymentDialog {
 
         List<Integer> eligibleBackupSlots = new ArrayList<>();
         for (int i = 0; i < backupCards.length; i++) {
-            if (backupCards[i] != null && backupStates[i] == CardState.ACTIVE)
-                eligibleBackupSlots.add(i);
+            if (backupCards[i] != null && backupStates[i] == CardState.ACTIVE) {
+                if (castElemOnly == null
+                        || backupCards[i].containsElement(castElemOnly)
+                        || backupCards[i].backupCpAnyElement())
+                    eligibleBackupSlots.add(i);
+            }
         }
 
         Map<String, Integer> costByElem = new LinkedHashMap<>();
@@ -236,25 +243,32 @@ public class StandardPaymentDialog {
                         java.util.List<String> extraElems = bkp.backupCpExtraElements();
                         boolean hasExtraElems = !extraElems.isEmpty();
                         if (isAnyElem || isAnyElemOfFwds || hasExtraElems) {
-                            String[] available;
-                            if (isAnyElemOfFwds && !isAnyElem) {
-                                java.util.LinkedHashSet<String> fwdElems = new java.util.LinkedHashSet<>();
-                                for (CardData fwd : controlledForwards)
-                                    for (String fe : fwd.elements()) fwdElems.add(fe);
-                                available = fwdElems.toArray(String[]::new);
-                            } else if (hasExtraElems && !isAnyElem && !isAnyElemOfFwds) {
-                                java.util.LinkedHashSet<String> opts = new java.util.LinkedHashSet<>(
-                                        java.util.Arrays.asList(bkp.elements()));
-                                opts.addAll(extraElems);
-                                available = opts.toArray(String[]::new);
-                            } else {
-                                available = ALL_ELEMENTS;
-                            }
-                            showElementPicker(lbl, e, bkp.name(), available, picked -> {
-                                backupElementOverrides.put(slot, picked);
+                            if (castElemOnly != null) {
+                                // Element-locked cast: any-element backup auto-produces the required element.
+                                backupElementOverrides.put(slot, castElemOnly);
                                 selectedBackups.add(slot);
                                 updateAll.run();
-                            });
+                            } else {
+                                String[] available;
+                                if (isAnyElemOfFwds && !isAnyElem) {
+                                    java.util.LinkedHashSet<String> fwdElems = new java.util.LinkedHashSet<>();
+                                    for (CardData fwd : controlledForwards)
+                                        for (String fe : fwd.elements()) fwdElems.add(fe);
+                                    available = fwdElems.toArray(String[]::new);
+                                } else if (hasExtraElems && !isAnyElem && !isAnyElemOfFwds) {
+                                    java.util.LinkedHashSet<String> opts = new java.util.LinkedHashSet<>(
+                                            java.util.Arrays.asList(bkp.elements()));
+                                    opts.addAll(extraElems);
+                                    available = opts.toArray(String[]::new);
+                                } else {
+                                    available = ALL_ELEMENTS;
+                                }
+                                showElementPicker(lbl, e, bkp.name(), available, picked -> {
+                                    backupElementOverrides.put(slot, picked);
+                                    selectedBackups.add(slot);
+                                    updateAll.run();
+                                });
+                            }
                         } else {
                             selectedBackups.add(slot);
                             updateAll.run();
@@ -276,7 +290,8 @@ public class StandardPaymentDialog {
             for (int i = 0; i < hand.size(); i++) {
                 if (i == handIdx) continue;
                 final int hi = i; CardData hc = hand.get(i);
-                boolean payable = !hc.isLightOrDark();
+                boolean payable = !hc.isLightOrDark()
+                        && (castElemOnly == null || hc.containsElement(castElemOnly));
                 JLabel lbl = makeCardLabel();
                 lbl.setBackground(payable ? Color.DARK_GRAY : new Color(50, 50, 50));
                 lbl.setBorder(BorderFactory.createLineBorder(payable ? Color.GRAY : new Color(80, 80, 80), 1));
