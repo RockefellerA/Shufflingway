@@ -189,6 +189,17 @@ final class AutoAbilityTriggers {
 			);
 
 	/**
+	 * Matches "put [CardName] into the Break Zone. If/When you do so, [sub-effect]"
+	 * where [CardName] is the source card itself (self-break with conditional follow-up).
+	 * Distinct from {@link #FA_PUT_INTO_BZ_WHEN_DO_SO} which requires a numeric count and "you control".
+	 */
+	private static final Pattern FA_PUT_SELF_INTO_BZ_IF_DO_SO = Pattern.compile(
+			"(?i)^put\\s+(?<cardname>.+?)\\s+into\\s+the\\s+Break\\s+Zone[.,]?\\s+" +
+			"(?:When|If)\\s+you\\s+do\\s+so[,.]?\\s+(?<sub>.+?)$",
+			Pattern.DOTALL
+	);
+
+	/**
 	 * Matches a card's own passive field ability text:
 	 * "If &lt;cardName&gt; is dealt damage by your opponent's Summons, the damage becomes 0 instead."
 	 * Checked inline in {@link #modifyIncomingDamage} against the receiving card's field abilities.
@@ -372,6 +383,9 @@ final class AutoAbilityTriggers {
 			fireEntersYourFieldWatchers(card, isP1);
 			// Also fire watcher abilities on break-zone cards (only those gated by bzConditionCard).
 			fireEntersYourFieldBreakZoneWatchers(card, isP1);
+			// Watcher dispatch: "When a <Type> of your opponent enters the field, ..." lives on the
+			// opponent's cards and uses trigger "enters opponent's field".
+			fireEntersOpponentFieldWatchers(card, isP1);
 		});
 		// Re-evaluate all conditional field boosts now that the field composition has changed
 		mw.refreshAllForwardSlots();
@@ -416,6 +430,29 @@ final class AutoAbilityTriggers {
 				if (!matchesEntersFieldSubject(fa.triggerCard(), enteringCard)) continue;
 				executeAutoAbility(fa, c, enteringIsP1);
 			}
+		}
+	}
+
+	/**
+	 * Fires "enters opponent's field" watcher abilities that live on the opponent's field cards.
+	 * Triggered when {@code enteringCard} (owned by {@code enteringIsP1}) enters the field;
+	 * watchers on the opposite side use trigger {@code "enters opponent's field"}.
+	 */
+	private void fireEntersOpponentFieldWatchers(CardData enteringCard, boolean enteringIsP1) {
+		boolean watcherIsP1 = !enteringIsP1;
+		List<CardData> fwds = new ArrayList<>(watcherIsP1 ? mw.p1ForwardCards : mw.p2ForwardCards);
+		CardData[]     bkps = watcherIsP1 ? mw.p1BackupCards : mw.p2BackupCards;
+		List<CardData> mons = new ArrayList<>(watcherIsP1 ? mw.p1MonsterCards : mw.p2MonsterCards);
+		for (CardData c : fwds) fireEntersOpponentFieldWatcher(c, enteringCard, watcherIsP1);
+		for (CardData c : bkps) if (c != null) fireEntersOpponentFieldWatcher(c, enteringCard, watcherIsP1);
+		for (CardData c : mons) fireEntersOpponentFieldWatcher(c, enteringCard, watcherIsP1);
+	}
+
+	private void fireEntersOpponentFieldWatcher(CardData watcher, CardData enteringCard, boolean watcherIsP1) {
+		for (AutoAbility fa : watcher.autoAbilities()) {
+			if (!fa.trigger().equals("enters opponent's field")) continue;
+			if (!matchesEntersFieldSubject(fa.triggerCard(), enteringCard)) continue;
+			executeAutoAbility(fa, watcher, watcherIsP1);
 		}
 	}
 
@@ -1044,6 +1081,13 @@ final class AutoAbilityTriggers {
 			return;
 		}
 
+		// Detect "put [CardName] into the Break Zone. If/When you do so, [effect]" (self-break)
+		Matcher sbzM = FA_PUT_SELF_INTO_BZ_IF_DO_SO.matcher(fa.effectText());
+		if (sbzM.find()) {
+			executePutSelfIntoBzIfDoSoAutoAbility(fa, source, isP1, effectIsP1, sbzM);
+			return;
+		}
+
 		// Detect "select [up to] N of the M following actions. "..." "..."..."
 		Matcher selM = FA_SELECT_FOLLOWING_ACTIONS.matcher(fa.effectText());
 		if (selM.find()) {
@@ -1262,6 +1306,50 @@ final class AutoAbilityTriggers {
 			return;
 		}
 		mw.logEntry("[AutoAbility] " + source.name() + " — when you do so: " + subEffect);
+		effect.accept(mw.buildGameContext(effectIsP1));
+	}
+
+	private void executePutSelfIntoBzIfDoSoAutoAbility(AutoAbility fa, CardData source,
+			boolean isP1, boolean effectIsP1, Matcher m) {
+		String cardName  = m.group("cardname").trim();
+		String subEffect = m.group("sub").trim();
+
+		if (!CardFilters.meetsCardNameFilter(source, cardName)) {
+			mw.logEntry("[AutoAbility] " + source.name() + " — self-break: '" + cardName + "' does not match source, skipping");
+			return;
+		}
+
+		// "If you do so" = controller may decline
+		if (isP1) {
+			int choice = mw.showEffectOptionDialog(source.name() + " — " + fa.effectText(),
+					"Auto Ability", new Object[]{"Put into Break Zone", "Decline"});
+			if (choice != 0) {
+				mw.logEntry("[AutoAbility] " + source.name() + " — self-break declined");
+				return;
+			}
+		} else {
+			mw.logEntry("[AutoAbility] [AI] auto-accepts self-break for " + source.name());
+		}
+
+		// Find the source Monster on the field and break it directly (no selection dialog needed)
+		List<CardData> mons = isP1 ? mw.p1MonsterCards : mw.p2MonsterCards;
+		int idx = -1;
+		for (int i = 0; i < mons.size(); i++) {
+			if (CardFilters.meetsCardNameFilter(mons.get(i), source.name())) { idx = i; break; }
+		}
+		if (idx < 0) {
+			mw.logEntry("[AutoAbility] " + source.name() + " — no longer on field, sub-effect skipped");
+			return;
+		}
+		mw.buildGameContext(isP1).forceTargetToBreakZone(
+				new ForwardTarget(isP1, idx, ForwardTarget.CardZone.MONSTER));
+
+		Consumer<GameContext> effect = ActionResolver.parse(subEffect, source);
+		if (effect == null) {
+			mw.logEntry("[AutoAbility] Unrecognized sub-effect: " + subEffect);
+			return;
+		}
+		mw.logEntry("[AutoAbility] " + source.name() + " — if you do so: " + subEffect);
 		effect.accept(mw.buildGameContext(effectIsP1));
 	}
 

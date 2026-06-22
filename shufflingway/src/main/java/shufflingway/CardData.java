@@ -1544,6 +1544,12 @@ public record CardData(
             if (trigger.equals("warp placed")) {
                 card = card.replaceAll("(?i)\\s+in\\s+your\\s+hand$", "").trim();
             }
+            // "a X of your opponent enters the field" → reclassify so dispatch can watch the opponent's side
+            if (trigger.equals("enters the field")
+                    && card.toLowerCase(java.util.Locale.ROOT).contains("of your opponent")) {
+                trigger = "enters opponent's field";
+                card = card.replaceAll("(?i)\\s+of\\s+your\\s+opponent\\s*$", "").trim();
+            }
 
             String  youMayRaw   = m.group("youmay");
             boolean opponentMay = youMayRaw != null
