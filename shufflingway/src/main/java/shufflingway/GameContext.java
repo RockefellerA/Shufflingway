@@ -226,6 +226,16 @@ public interface GameContext {
             String elementFilter, String excludeName, boolean entersDull, String excludeElement,
             boolean suppressAutoAbility);
 
+    /**
+     * Prompts the ability user to choose 1 Summon from their hand and casts it immediately
+     * without paying its cost.
+     *
+     * @param maxCost            cost ceiling for eligible Summons; {@code -1} = no restriction
+     * @param returnToHandAfterUse when {@code true}, the Summon returns to the caster's hand
+     *                           after resolving instead of going to the Break Zone
+     */
+    void castSummonFromHandFree(int maxCost, boolean returnToHandAfterUse);
+
     // ---- Zone-dispatch single-target effects --------------------------------
 
     /**

@@ -1644,6 +1644,53 @@ final class GameContextImpl implements GameContext {
 				}
 			}
 
+			@Override public void castSummonFromHandFree(int maxCost, boolean returnToHandAfterUse) {
+				List<CardData> hand = isP1 ? mw.gameState.getP1Hand() : mw.gameState.getP2Hand();
+				List<Integer> eligible = new ArrayList<>();
+				for (int i = 0; i < hand.size(); i++) {
+					CardData c = hand.get(i);
+					if (!c.isSummon()) continue;
+					if (maxCost >= 0 && c.cost() > maxCost) continue;
+					eligible.add(i);
+				}
+				if (eligible.isEmpty()) {
+					logEntry("No eligible Summon in hand — effect fizzles");
+					markEffectFizzled();
+					return;
+				}
+				int handIdx;
+				if (isP1) {
+					List<CardData> candidates = new ArrayList<>();
+					for (int i : eligible) candidates.add(hand.get(i));
+					String title = "Cast 1 Summon from hand for free"
+							+ (maxCost >= 0 ? " (cost " + maxCost + " or less)" : "");
+					int listIdx = mw.showCardImageChooser(candidates, title, true);
+					if (listIdx < 0) { markEffectFizzled(); return; }
+					handIdx = eligible.get(listIdx);
+				} else {
+					handIdx = eligible.get(0);
+				}
+				CardData card = hand.remove(handIdx);
+				if (isP1) mw.refreshP1HandLabel(); else mw.refreshP2HandCountLabel();
+				if (returnToHandAfterUse) mw.returnToHandAfterUseSummons.add(card);
+				if (isP1) {
+					mw.p1CardsCastThisTurn++;
+					mw.p1SummonCastThisTurn = true;
+					for (String j : card.jobs()) mw.p1CastJobsThisTurn.add(j.toLowerCase());
+					mw.p1CastNamesThisTurn.add(card.name().toLowerCase());
+				} else {
+					mw.p2CardsCastThisTurn++;
+					mw.p2SummonCastThisTurn = true;
+					for (String j : card.jobs()) mw.p2CastJobsThisTurn.add(j.toLowerCase());
+					mw.p2CastNamesThisTurn.add(card.name().toLowerCase());
+				}
+				mw.lastCardWasCast = true;
+				logEntry((isP1 ? "" : "[P2] ") + "Cast \"" + card.name() + "\" from hand for free"
+						+ (returnToHandAfterUse ? " (return to hand after use)" : ""));
+				mw.showSummonOnStack(card);
+				mw.lastCardWasCast = false;
+			}
+
 			@Override public void damageTarget(ForwardTarget t, int amount) {
 				if (t.zone() == ForwardTarget.CardZone.BACKUP) { mw.applyDamageToBackup(t.isP1(), t.idx(), amount); return; }
 				if (t.zone() == ForwardTarget.CardZone.MONSTER) { mw.applyDamageToMonster(t.isP1(), t.idx(), amount); return; }

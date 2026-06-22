@@ -1608,6 +1608,21 @@ public class ActionResolver {
      *   <li>{@code dull}      — present when the card enters the field dulled</li>
      * </ul>
      */
+
+    /**
+     * "Cast 1 Summon [of cost N or less] from your hand without paying [its|the] cost[.
+     * Then, return that Summon to your hand after use instead of putting it in the Break Zone.]"
+     * Groups: {@code cost} — numeric cost cap or "X"; {@code returnToHand} — present for the
+     * "return to hand after use" variant.
+     */
+    private static final Pattern CAST_SUMMON_FROM_HAND_FREE = Pattern.compile(
+        "(?i)Cast\\s+1\\s+Summon" +
+        "(?:\\s+of\\s+cost\\s+(?<cost>\\d+|X)\\s+or\\s+less)?" +
+        "\\s+from\\s+your\\s+hand\\s+without\\s+paying\\s+(?:its|the)\\s+cost[.!]?" +
+        "(?<returnToHand>\\s*Then,?\\s+return\\s+that\\s+Summon\\s+to\\s+your\\s+hand\\s+after\\s+use" +
+        "\\s+instead\\s+of\\s+putting\\s+it\\s+in\\s+the\\s+Break\\s+Zone[.!]?)?"
+    );
+
     private static final Pattern PLAY_FROM_HAND_PATTERN = Pattern.compile(
         "(?i)Play\\s+1\\s+" +
         // Element(s) before any filter (e.g. "Ice" in "Play 1 Ice Forward")
@@ -3340,6 +3355,9 @@ public class ActionResolver {
         result = tryParseDealPlayerDamageToSelf(effectText);
         if (result != null) return result;
 
+        result = tryParseCastSummonFromHandFree(effectText, xValue);
+        if (result != null) return result;
+
         result = tryParsePlayFromHand(effectText, source, xValue);
         if (result != null) return result;
 
@@ -3634,6 +3652,7 @@ public class ActionResolver {
         if (tryParseDiscardThenDraw(effectText)               != null) return "DiscardThenDraw";
         if (tryParseDealPlayerDamageToOpponent(effectText)    != null) return "DealPlayerDamageToOpponent";
         if (tryParseDealPlayerDamageToSelf(effectText)        != null) return "DealPlayerDamageToSelf";
+        if (tryParseCastSummonFromHandFree(effectText, 0)     != null) return "CastSummonFromHandFree";
         if (tryParsePlayFromHand(effectText, source, 0)       != null) return "PlayFromHand";
         if (tryParseOpponentSelects(effectText)               != null) return "OpponentSelects";
         if (tryParseOpponentPutsForwardToBreakZone(effectText) != null) return "OpponentPutsForwardToBreakZone";
@@ -3978,6 +3997,7 @@ public class ActionResolver {
         if (tryParseDiscardThenDraw(effectText) != null)                    return "DiscardThenDraw";
         if (tryParseDealPlayerDamageToOpponent(effectText) != null)         return "DealPlayerDamageToOpponent";
         if (tryParseDealPlayerDamageToSelf(effectText) != null)             return "DealPlayerDamageToSelf";
+        if (tryParseCastSummonFromHandFree(effectText, 0) != null)          return "CastSummonFromHandFree";
         if (tryParsePlayFromHand(effectText, source, 0) != null)            return "PlayFromHand";
 
         Matcher opSelM = OPPONENT_SELECTS_PATTERN.matcher(effectText);
@@ -8563,6 +8583,27 @@ public class ActionResolver {
             } else {
                 ctx.logEntry("[ActionResolver] SelectNumber: inner effect not parseable: " + resolved);
             }
+        };
+    }
+
+    private static Consumer<GameContext> tryParseCastSummonFromHandFree(String text, int xValue) {
+        Matcher m = CAST_SUMMON_FROM_HAND_FREE.matcher(text.trim());
+        if (!m.find()) return null;
+        String costStr = m.group("cost");
+        boolean returnToHand = m.group("returnToHand") != null;
+        final int maxCost;
+        if (costStr == null) {
+            maxCost = -1;
+        } else if (costStr.equalsIgnoreCase("X")) {
+            maxCost = xValue;
+        } else {
+            maxCost = Integer.parseInt(costStr);
+        }
+        return ctx -> {
+            String costDesc = maxCost < 0 ? "any cost" : "cost " + maxCost + " or less";
+            ctx.logEntry("Effect: Cast 1 Summon (" + costDesc + ") from hand for free"
+                    + (returnToHand ? " (return to hand after use)" : ""));
+            ctx.castSummonFromHandFree(maxCost, returnToHand);
         };
     }
 

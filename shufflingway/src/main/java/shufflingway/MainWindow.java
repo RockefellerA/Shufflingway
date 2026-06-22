@@ -465,6 +465,11 @@ public class MainWindow {
 	 * Identity-keyed; consumed when the Summon's resolution would otherwise send it to the Break Zone.
 	 */
 	final Set<CardData> rfgAfterUseSummons = java.util.Collections.newSetFromMap(new IdentityHashMap<>());
+	/**
+	 * Summons free-cast from hand under a "return to hand after use" clause.
+	 * After resolving, the Summon returns to its caster's hand instead of the Break Zone.
+	 */
+	final Set<CardData> returnToHandAfterUseSummons = java.util.Collections.newSetFromMap(new IdentityHashMap<>());
 
 	/** Effects deferred until the start of P1's next Main Phase 1. */
 	final List<Consumer<GameContext>> pendingMainPhase1Effects = new ArrayList<>();
@@ -1272,6 +1277,7 @@ public class MainWindow {
 		bzPlayableP1.clear();
 		bzPlayableP2.clear();
 		rfgAfterUseSummons.clear();
+		returnToHandAfterUseSummons.clear();
 		if (computerPlayer != null) computerPlayer.cancel();
 		computerPlayer = new ComputerPlayer(this);
 		clearUIZones();
@@ -7915,6 +7921,15 @@ public class MainWindow {
 					logEntry("\"" + entry.source().name() + "\" → Hand");
 					refreshP1HandLabel();
 					pendingSummonReturnToHand = false;
+				} else if (returnToHandAfterUseSummons.remove(entry.source())) {
+					if (entry.isP1()) {
+						gameState.getP1Hand().add(entry.source());
+						refreshP1HandLabel();
+					} else {
+						gameState.getP2Hand().add(entry.source());
+						refreshP2HandCountLabel();
+					}
+					logEntry("\"" + entry.source().name() + "\" → Hand (after use)");
 				} else if (rfgAfterUseSummons.remove(entry.source())) {
 					// Borrowed Summon cast under "remove from the game after use" — never reaches the Break Zone.
 					gameState.addToP1PermanentRfp(entry.source());
