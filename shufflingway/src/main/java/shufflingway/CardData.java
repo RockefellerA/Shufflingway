@@ -1731,11 +1731,12 @@ public record CardData(
     );
 
     /**
-     * "If you control [raw], [target] loses [power] power."
-     * Groups: {@code raw} (condition text), {@code target}, {@code power} (bare number, stored negative).
+     * "If you control [raw], [target] loses [power] power[ instead]."
+     * Groups: {@code raw} (condition text), {@code target}, {@code power} (bare number, stored negative),
+     * {@code instead} (present when the word "instead" follows "power" — effect replaces a base field grant).
      */
     private static final Pattern IF_CTRL_LOSE_OUTER = Pattern.compile(
-        "(?i)^If\\s+you\\s+control\\s+(?<raw>[^,]+),\\s+(?<target>.+?)\\s+loses?\\s+(?<power>\\d+)\\s+power\\.?\\s*$"
+        "(?i)^If\\s+you\\s+control\\s+(?<raw>[^,]+),\\s+(?<target>.+?)\\s+loses?\\s+(?<power>\\d+)\\s+power(?:\\s+(?<instead>instead))?\\.?\\s*$"
     );
 
     /**
@@ -1901,12 +1902,13 @@ public record CardData(
                 continue;
             }
 
-            // "If you control [raw], [target] loses [N] power."
+            // "If you control [raw], [target] loses [N] power[ instead]."
             Matcher loseM = IF_CTRL_LOSE_OUTER.matcher(seg);
             if (loseM.find()) {
                 String rawCond0  = loseM.group("raw").trim();
                 String targetName = loseM.group("target").trim();
                 int powerBonus   = -Integer.parseInt(loseM.group("power"));
+                boolean isInstead = loseM.group("instead") != null;
                 String[] condParts0 = rawCond0.split("(?i)\\s+and\\s+(?=a\\s+)");
                 List<ControlCondition> conditions0 = new ArrayList<>();
                 String exceptName0 = "";
@@ -1921,7 +1923,7 @@ public record CardData(
                 if (!conditions0.isEmpty()) {
                     FieldPowerGrant targetFilter = parseIcbTargetFilter(targetName);
                     result.add(new IfControlBoost(conditions0, exceptName0, targetName, targetFilter,
-                            powerBonus, java.util.EnumSet.noneOf(Trait.class), "", false, false, false, null));
+                            powerBonus, java.util.EnumSet.noneOf(Trait.class), "", false, false, false, null, 0, 0, isInstead));
                 }
                 continue;
             }
@@ -1937,7 +1939,7 @@ public record CardData(
                 if (powerBonus != 0) {
                     FieldPowerGrant targetFilter = parseIcbTargetFilter(targetName);
                     result.add(new IfControlBoost(List.of(), "", targetName, targetFilter,
-                            powerBonus, java.util.EnumSet.noneOf(Trait.class), "", false, false, false, null, minRfp, 0));
+                            powerBonus, java.util.EnumSet.noneOf(Trait.class), "", false, false, false, null, minRfp, 0, false));
                 }
                 continue;
             }
@@ -1953,7 +1955,7 @@ public record CardData(
                 if (powerBonus != 0) {
                     FieldPowerGrant targetFilter = parseIcbTargetFilter(targetName);
                     result.add(new IfControlBoost(List.of(), "", targetName, targetFilter,
-                            powerBonus, java.util.EnumSet.noneOf(Trait.class), "", false, false, false, null, 0, minDmg));
+                            powerBonus, java.util.EnumSet.noneOf(Trait.class), "", false, false, false, null, 0, minDmg, false));
                 }
                 continue;
             }
@@ -2063,7 +2065,7 @@ public record CardData(
             if (!m.matches()) continue;
             String name = m.group("name").trim();
             result.add(new IfControlBoost(List.of(), "", name, null, 0,
-                    java.util.EnumSet.noneOf(Trait.class), "", false, false, true, null, 0, 0));
+                    java.util.EnumSet.noneOf(Trait.class), "", false, false, true, null, 0, 0, false));
         }
 
         return List.copyOf(result);
