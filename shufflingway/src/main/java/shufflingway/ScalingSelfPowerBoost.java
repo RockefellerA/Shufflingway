@@ -42,6 +42,11 @@ public record ScalingSelfPowerBoost(
         /** Number of Monsters the controller controls (other than the source by name), honoring all filter fields. */
         OTHER_MONSTERS_YOU_CONTROL,
         /** Number of damage points the controller has received (size of their damage zone). */
-        DAMAGE_RECEIVED
+        DAMAGE_RECEIVED,
+        /**
+         * Number of cards whose name matches {@link #cardNameFilter} in the controller's Break Zone.
+         * The {@link #cardNameFilter} field holds the card name to count.
+         */
+        CARD_NAME_IN_BREAK_ZONE
     }
 }

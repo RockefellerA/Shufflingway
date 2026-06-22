@@ -2288,6 +2288,12 @@ public record CardData(
         "(?<target>.+?)\\s+gains?\\s+\\+(?<power>\\d+)\\s+power[.!]?$"
     );
 
+    /** "For each Card Name X in your Break Zone, [target] gains +N power." */
+    private static final Pattern SCALING_SELF_BZ_CARD_NAME_PATTERN = Pattern.compile(
+        "(?i)^For\\s+each\\s+Card\\s+Name\\s+(?<name>.+?)\\s+in\\s+your\\s+Break\\s+Zone,\\s+" +
+        "(?<target>.+?)\\s+gains?\\s+\\+(?<power>\\d+)\\s+power[.!]?$"
+    );
+
     /**
      * Unified "For each &lt;filter&gt; [other than X] you control[ other than X], &lt;target&gt; gains +N power."
      * pattern. {@code filter} captures everything between "For each" and the first "other than" or
@@ -2442,6 +2448,16 @@ public record CardData(
                 if (perUnit <= 0) continue;
                 result.add(new ScalingSelfPowerBoost(
                         ScalingSelfPowerBoost.Source.DAMAGE_RECEIVED, perUnit));
+                continue;
+            }
+            Matcher bz = SCALING_SELF_BZ_CARD_NAME_PATTERN.matcher(seg);
+            if (bz.find()) {
+                if (!bz.group("target").trim().equalsIgnoreCase(cardName)) continue;
+                int perUnit = Integer.parseInt(bz.group("power"));
+                if (perUnit <= 0) continue;
+                result.add(new ScalingSelfPowerBoost(
+                        ScalingSelfPowerBoost.Source.CARD_NAME_IN_BREAK_ZONE, perUnit,
+                        null, null, bz.group("name").trim(), null, null, false));
                 continue;
             }
             Matcher fe = SCALING_SELF_FOR_EACH_PATTERN.matcher(seg);
@@ -3282,6 +3298,8 @@ public record CardData(
             if (SCALING_SELF_FOR_EACH_PATTERN.matcher(seg).find())            continue;
             // Scaling self power boost ("For each point of damage you have received, X gains +N power")
             if (SCALING_SELF_DMG_PATTERN.matcher(seg).find())                 continue;
+            // Scaling self power boost ("For each Card Name X in your Break Zone, X gains +N power")
+            if (SCALING_SELF_BZ_CARD_NAME_PATTERN.matcher(seg).find())        continue;
 
             // Cast/play restrictions — handled as static properties via castRestriction()
             if (CAST_REQUIRES_NO_FORWARDS.matcher(seg).find())                continue;
