@@ -1999,6 +1999,31 @@ public class ActionResolver {
     );
 
     /**
+     * Matches "Until the end of the turn, it gains +N power for each [Name] Counter placed on [card]."
+     * Groups: {@code perunit} = per-counter power boost; {@code counterName} = counter type name.
+     * Uses {@code xValue} captured before any BZ-cost payment cleared the counters.
+     * Must be checked before {@link #FOLLOWUP_POWER_BOOST_UNTIL}, which would match only the +N.
+     */
+    private static final Pattern FOLLOWUP_POWER_BOOST_UNTIL_FOR_EACH_COUNTER = Pattern.compile(
+        "(?i)Until\\s+(?:the\\s+)?end\\s+of\\s+(?:the\\s+)?turn\\s*,\\s+" +
+        "(?:it|they)\\s+gains?\\s+\\+(?<perunit>\\d+)\\s+[Pp]ower\\s+" +
+        "for\\s+each\\s+(?<counterName>.+?)\\s+Counters?\\s+placed\\s+on\\s+.+?[.!]?$",
+        Pattern.DOTALL
+    );
+
+    /**
+     * Matches "Deal it N damage for each [Name] Counter(s) placed on [card]."
+     * Groups: {@code perunit} = damage per counter; {@code counterName} = counter type name.
+     * Uses {@code xValue} captured before any BZ-cost payment cleared the counters.
+     * Must be checked before {@link #FOLLOWUP_DAMAGE_FOR_EACH}, which would match only the flat N damage.
+     */
+    private static final Pattern FOLLOWUP_DAMAGE_FOR_EACH_COUNTER = Pattern.compile(
+        "(?i)Deal\\s+it\\s+(?<perunit>\\d+)\\s+damage\\s+" +
+        "for\\s+each\\s+(?<counterName>.+?)\\s+Counters?\\s+placed\\s+on\\s+.+?[.!]?$",
+        Pattern.DOTALL
+    );
+
+    /**
      * Matches "Until the end of the turn, it gains +N power for each point of damage you have received."
      * Group {@code perunit} = per-damage power amount.
      * Must be checked before {@link #FOLLOWUP_POWER_BOOST_UNTIL}, which would match the +N and drop the rest.
@@ -2517,7 +2542,7 @@ public class ActionResolver {
      * </ul>
      */
     private static final Pattern PLACE_COUNTERS = Pattern.compile(
-        "(?i)Place\\s+(?<count>\\d+)\\s+(?<name>.+?)\\s+Counters?\\s+on\\s+(?<target>.+?)[.!]?"
+        "(?i)Place\\s+(?<count>\\d+)\\s+(?<name>.+?)\\s+Counters?\\s+on\\s+(?<target>[^.!,]+)\\s*[.!]?"
     );
 
     /**
@@ -3728,6 +3753,7 @@ public class ActionResolver {
             Matcher mutM = FOLLOWUP_MUTUAL_POWER_DAMAGE.matcher(followupText);
             if (mutM.find() && mutM.group("srcname").trim().equalsIgnoreCase(source.name())) return "MutualPowerDamage";
         }
+        if (FOLLOWUP_DAMAGE_FOR_EACH_COUNTER.matcher(followupText).find())             return "DamageForEachCounter";
         if (FOLLOWUP_DAMAGE_FOR_EACH.matcher(followupText).find())                    return "DamageForEach";
         if (FOLLOWUP_DULL_AND_DAMAGE.matcher(followupText).find())                   return "DullAndDamage";
         if (FOLLOWUP_FIRST_AND_OTHER.matcher(followupText).find())                    return "FirstAndOther";
@@ -3780,6 +3806,7 @@ public class ActionResolver {
         if (FOLLOWUP_POWER_BECOMES.matcher(followupText).find())                      return "PowerBecomes";
         if (FOLLOWUP_POWER_BOOST.matcher(followupText).find())                        return "PowerBoost";
         if (FOLLOWUP_POWER_BOOST_UNTIL_FOR_EACH.matcher(followupText).find())              return "PowerBoostUntilForEach";
+        if (FOLLOWUP_POWER_BOOST_UNTIL_FOR_EACH_COUNTER.matcher(followupText).find())      return "PowerBoostUntilForEachCounter";
         if (FOLLOWUP_POWER_BOOST_UNTIL_FOR_EACH_SELF_DMG.matcher(followupText).find())    return "PowerBoostUntilForEachSelfDmg";
         if (FOLLOWUP_POWER_BOOST_UNTIL.matcher(followupText).find())                      return "PowerBoostUntil";
         if (FOLLOWUP_KEYWORD_GRANT.matcher(followupText).find())                      return "KeywordGrant";
@@ -5374,6 +5401,25 @@ public class ActionResolver {
             };
         }
 
+        // --- "Deal it N damage for each [Name] Counter placed on [card]." (counter-scaled xValue) ---
+        // Must be checked before FOLLOWUP_DAMAGE_FOR_EACH, which would match on the flat N and drop the for-each.
+        Matcher dmgForEachCounterM = FOLLOWUP_DAMAGE_FOR_EACH_COUNTER.matcher(primaryFollowup);
+        if (dmgForEachCounterM.find()) {
+            int perUnit = Integer.parseInt(dmgForEachCounterM.group("perunit"));
+            String counterName = dmgForEachCounterM.group("counterName").trim();
+            return ctx -> {
+                int damage = perUnit * xValue;
+                ctx.logEntry(choosePrefix + " — " + perUnit + " damage ×" + xValue + " " + counterName + " Counter(s) = " + damage + " damage");
+                List<ForwardTarget> ts = selectTargets(ctx, maxCount, upTo,
+                        opponentOnly, selfOnly, condition, element, zone, opponentZone,
+                        costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters,
+                        jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, fExcludeElem, withoutMulticard);
+                sortedByIdxDesc(ts, true) .forEach(t -> ctx.damageTarget(t, damage));
+                sortedByIdxDesc(ts, false).forEach(t -> ctx.damageTarget(t, damage));
+                if (secondary != null) secondary.accept(ctx);
+            };
+        }
+
         // --- "Deal it N damage for each [source]" followup ---
         Matcher forEachM = FOLLOWUP_DAMAGE_FOR_EACH.matcher(primaryFollowup);
         if (forEachM.find()) {
@@ -6447,6 +6493,26 @@ public class ActionResolver {
                 List<ForwardTarget> ts = selectTargets(ctx, maxCount, upTo,
                         opponentOnly, selfOnly, condition, element, zone, opponentZone,
                         costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters, jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, fExcludeElem, withoutMulticard);
+                EnumSet<CardData.Trait> noTraits = EnumSet.noneOf(CardData.Trait.class);
+                sortedByIdxDesc(ts, true) .forEach(t -> ctx.boostTarget(t, boost, noTraits));
+                sortedByIdxDesc(ts, false).forEach(t -> ctx.boostTarget(t, boost, noTraits));
+                if (secondary != null) secondary.accept(ctx);
+            };
+        }
+
+        // --- "Until…, it gains +N power for each [Name] Counter placed on [card]." (counter-scaled xValue) ---
+        // Must be checked before FOLLOWUP_POWER_BOOST_UNTIL, which would match only the +N and drop the for-each.
+        Matcher boostForEachCounterM = FOLLOWUP_POWER_BOOST_UNTIL_FOR_EACH_COUNTER.matcher(primaryFollowup);
+        if (boostForEachCounterM.find()) {
+            int perUnit = Integer.parseInt(boostForEachCounterM.group("perunit"));
+            String counterName = boostForEachCounterM.group("counterName").trim();
+            return ctx -> {
+                int boost = perUnit * xValue;
+                ctx.logEntry(choosePrefix + " — +" + perUnit + " power ×" + xValue + " " + counterName + " Counter(s) = +" + boost + " until EOT");
+                List<ForwardTarget> ts = selectTargets(ctx, maxCount, upTo,
+                        opponentOnly, selfOnly, condition, element, zone, opponentZone,
+                        costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters,
+                        jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, fExcludeElem, withoutMulticard);
                 EnumSet<CardData.Trait> noTraits = EnumSet.noneOf(CardData.Trait.class);
                 sortedByIdxDesc(ts, true) .forEach(t -> ctx.boostTarget(t, boost, noTraits));
                 sortedByIdxDesc(ts, false).forEach(t -> ctx.boostTarget(t, boost, noTraits));

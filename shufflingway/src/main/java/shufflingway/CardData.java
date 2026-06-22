@@ -927,7 +927,9 @@ public record CardData(
                     ? (cpBkpM.group("element") != null ? cpBkpM.group("element") : "")
                     : null;
             Matcher csrM = COUNTER_SCALE_REF_PATTERN.matcher(effectRaw);
-            String counterScaleName = csrM.find() ? csrM.group("counterName").trim() : null;
+            Matcher cfeM = FOR_EACH_COUNTER_PLACED_ON_PATTERN.matcher(effectRaw);
+            String counterScaleName = csrM.find() ? csrM.group("counterName").trim()
+                                    : cfeM.find() ? cfeM.group("counterName").trim() : null;
             Matcher cminM = COUNTER_MINIMUM_RESTRICTION.matcher(effectRaw);
             int    minCounterRequired = 0;
             String minCounterType     = null;
@@ -1152,6 +1154,11 @@ public record CardData(
     /** Captures the counter type name from "the same number of X as the [Name] Counters placed on [card]". */
     static final Pattern COUNTER_SCALE_REF_PATTERN = Pattern.compile(
         "(?i)the\\s+same\\s+number\\s+of.+?as\\s+the\\s+(?<counterName>.+?)\\s+Counters?\\s+placed\\s+on\\s+.+?(?:[,.]|\\s*$)"
+    );
+
+    /** Captures the counter type name from "for each [Name] Counter(s) placed on [card]". */
+    static final Pattern FOR_EACH_COUNTER_PLACED_ON_PATTERN = Pattern.compile(
+        "(?i)for\\s+each\\s+(?<counterName>.+?)\\s+Counters?\\s+placed\\s+on\\s+.+?(?:[,.]|\\s*$)"
     );
 
     /** Captures the condition from "You can only use this ability during your turn and if you control [X]". */

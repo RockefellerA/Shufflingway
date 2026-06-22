@@ -146,6 +146,33 @@ public class CardAnimation {
 		renderPill(canvas, damage, new Color(255, 50, 50), false, state);
 	}
 
+	/** Blits a counter orb onto the card's top-left corner with the total counter count overlaid. */
+	static void renderCounterOverlay(BufferedImage canvas, int totalCount, CardState state, String hexColor) {
+		int orbW = Math.max(16, CARD_W / 5);
+		int orbH = (int) Math.round(orbW * 56.0 / 64.0);
+		BufferedImage orb = Counter.render(orbW, orbH, hexColor);
+		Graphics2D g = canvas.createGraphics();
+		g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+		g.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
+		if (state == CardState.DULL) {
+			g.translate(CARD_H, CARD_H - CARD_W);
+			g.rotate(Math.PI / 2);
+		}
+		int x = (CARD_W - orbW) / 2, y = (CARD_H - orbH) / 2;
+		g.drawImage(orb, x, y, null);
+		String text = String.valueOf(totalCount);
+		Font font = FontLoader.loadPixelNESFont(10);
+		g.setFont(font);
+		FontMetrics fm = g.getFontMetrics();
+		int tx = x + (orbW - fm.stringWidth(text)) / 2;
+		int ty = y + (orbH + fm.getAscent()) / 2 - fm.getDescent();
+		g.setColor(new Color(0, 0, 0, 200));
+		g.drawString(text, tx + 1, ty + 1);
+		g.setColor(Color.WHITE);
+		g.drawString(text, tx, ty);
+		g.dispose();
+	}
+
 	/** Returns a {@code CARD_H × CARD_H} placeholder canvas with a card outline and "Loading…" text. */
 	static BufferedImage renderPlaceholder(CardState state) {
 		BufferedImage canvas = new BufferedImage(CARD_H, CARD_H, BufferedImage.TYPE_INT_ARGB);

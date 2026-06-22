@@ -8372,13 +8372,21 @@ public class MainWindow {
 		}.execute();
 	}
 
+	private static String buildCounterTooltip(Map<String, Integer> countersMap) {
+		if (countersMap.isEmpty()) return null;
+		StringBuilder sb = new StringBuilder("<html>");
+		countersMap.forEach((name, count) -> sb.append(name).append(" ×").append(count).append("<br>"));
+		sb.append("</html>");
+		return sb.toString();
+	}
+
 	/** Reloads and re-renders a single P1 backup slot using its stored URL and state. */
 	void refreshP1BackupSlot(int idx) {
 		String url  = p1BackupUrls[idx];
 		CardState state = p1BackupStates[idx];
 		JLabel slot  = p1BackupLabels[idx];
 		if (slot == null) return;
-		if (url == null) { slot.setIcon(null); slot.setText(null); return; }
+		if (url == null) { slot.setIcon(null); slot.setText(null); slot.setToolTipText(null); return; }
 		CardData card = p1BackupCards[idx];
 		boolean actingForward = isP1BackupTemporarilyForward(idx);
 		boolean canAttack = attackSubStep == 1 && isBackupSelectableAsForward(idx);
@@ -8386,6 +8394,8 @@ public class MainWindow {
 		boolean selected  = p1BackupAttackIdx == idx || p1BlockerBackupIdx == idx;
 		int fwdPower = actingForward ? p1BackupForwardPower(idx) : 0;
 		int damage   = card != null ? p1BackupForwardDamage.getOrDefault(card, 0) : 0;
+		Map<String, Integer> countersMap = card != null ? gameState.getCountersMap(card) : Map.of();
+		int totalCounters = countersMap.values().stream().mapToInt(c -> c == null ? 0 : c.intValue()).sum();
 		if (slot.getIcon() == null) slot.setIcon(new ImageIcon(CardAnimation.renderPlaceholder(state)));
 		new SwingWorker<ImageIcon, Void>() {
 			@Override protected ImageIcon doInBackground() throws Exception {
@@ -8396,12 +8406,15 @@ public class MainWindow {
 				if (damage > 0) CardAnimation.renderDamageOverlay(canvas, damage, state);
 				if (actingForward && fwdPower > 0)
 					CardAnimation.renderPowerOverlayRight(canvas, fwdPower, new Color(80, 220, 80), state);
+				if (!countersMap.isEmpty())
+					CardAnimation.renderCounterOverlay(canvas, totalCounters, state, AppSettings.getCounterColor());
 				return new ImageIcon(canvas);
 			}
 			@Override protected void done() {
 				try {
 					ImageIcon icon = get();
 					if (icon != null && p1BackupUrls[idx] != null) { slot.setIcon(icon); slot.setText(null); }
+					slot.setToolTipText(buildCounterTooltip(countersMap));
 				} catch (InterruptedException | ExecutionException ignored) {}
 			}
 		}.execute();
@@ -10280,6 +10293,8 @@ public class MainWindow {
 				gameState.getCurrentPlayer() == GameState.Player.P1);
 		boolean actingForward = bfaActive || tempFwdPower != null;
 		int fwdPow = p1MonsterForwardPower(idx);
+		Map<String, Integer> countersMap = gameState.getCountersMap(card);
+		int totalCounters = countersMap.values().stream().mapToInt(c -> c == null ? 0 : c.intValue()).sum();
 		if (slot.getIcon() == null) slot.setIcon(new ImageIcon(CardAnimation.renderPlaceholder(state)));
 		new SwingWorker<ImageIcon, Void>() {
 			@Override protected ImageIcon doInBackground() throws Exception {
@@ -10293,12 +10308,15 @@ public class MainWindow {
 					CardAnimation.renderPowerOverlayRight(canvas, fwdPow, new Color(80, 220, 80), state);
 				else if (power > basePower)
 					CardAnimation.renderPowerOverlayRight(canvas, power, new Color(80, 220, 80), state);
+				if (!countersMap.isEmpty())
+					CardAnimation.renderCounterOverlay(canvas, totalCounters, state, AppSettings.getCounterColor());
 				return new ImageIcon(canvas);
 			}
 			@Override protected void done() {
 				try {
 					ImageIcon icon = get();
 					if (icon != null) { slot.setIcon(icon); slot.setText(null); }
+					slot.setToolTipText(buildCounterTooltip(countersMap));
 				} catch (InterruptedException | ExecutionException ignored) {}
 			}
 		}.execute();
@@ -10361,6 +10379,8 @@ public class MainWindow {
 				gameState.getCurrentPlayer() == GameState.Player.P2);
 		boolean actingForward = bfaActive || tempFwdPower != null;
 		int fwdPow = p2MonsterForwardPower(idx);
+		Map<String, Integer> countersMap = gameState.getCountersMap(card);
+		int totalCounters = countersMap.values().stream().mapToInt(c -> c == null ? 0 : c.intValue()).sum();
 		if (slot.getIcon() == null) slot.setIcon(new ImageIcon(CardAnimation.renderPlaceholder(state)));
 		new SwingWorker<ImageIcon, Void>() {
 			@Override protected ImageIcon doInBackground() throws Exception {
@@ -10374,12 +10394,15 @@ public class MainWindow {
 					CardAnimation.renderPowerOverlayRight(canvas, fwdPow, new Color(80, 220, 80), state);
 				else if (power > basePower)
 					CardAnimation.renderPowerOverlayRight(canvas, power, new Color(80, 220, 80), state);
+				if (!countersMap.isEmpty())
+					CardAnimation.renderCounterOverlay(canvas, totalCounters, state, AppSettings.getCounterColor());
 				return new ImageIcon(canvas);
 			}
 			@Override protected void done() {
 				try {
 					ImageIcon icon = get();
 					if (icon != null) { slot.setIcon(icon); slot.setText(null); }
+					slot.setToolTipText(buildCounterTooltip(countersMap));
 				} catch (InterruptedException | ExecutionException ignored) {}
 			}
 		}.execute();
@@ -10436,6 +10459,8 @@ public class MainWindow {
 		int power     = effectiveP1ForwardPower(idx);
 		int basePower = (topCard != null ? topCard : p1ForwardCards.get(idx)).power();
 		boolean selected = p1AttackSelection.contains(idx) || p1BlockerSelection == idx;
+		Map<String, Integer> countersMap = gameState.getCountersMap(fwdCard);
+		int totalCounters = countersMap.values().stream().mapToInt(c -> c == null ? 0 : c.intValue()).sum();
 		if (slot.getIcon() == null) slot.setIcon(new ImageIcon(CardAnimation.renderPlaceholder(state)));
 		new SwingWorker<ImageIcon, Void>() {
 			@Override protected ImageIcon doInBackground() throws Exception {
@@ -10450,12 +10475,15 @@ public class MainWindow {
 				} else if (power < basePower) {
 					CardAnimation.renderPowerOverlayRight(canvas, power, new Color(230, 200, 60), state);
 				}
+				if (!countersMap.isEmpty())
+					CardAnimation.renderCounterOverlay(canvas, totalCounters, state, AppSettings.getCounterColor());
 				return new ImageIcon(canvas);
 			}
 			@Override protected void done() {
 				try {
 					ImageIcon icon = get();
 					if (icon != null) { slot.setIcon(icon); slot.setText(null); }
+					slot.setToolTipText(buildCounterTooltip(countersMap));
 				} catch (InterruptedException | ExecutionException ignored) {}
 			}
 		}.execute();
@@ -12735,11 +12763,13 @@ public class MainWindow {
 		JLabel slot   = p2BackupLabels[idx];
 		CardState state = p2BackupStates[idx];
 		if (slot == null) return;
-		if (url == null) { slot.setIcon(null); slot.setText(null); return; }
+		if (url == null) { slot.setIcon(null); slot.setText(null); slot.setToolTipText(null); return; }
 		CardData card = p2BackupCards[idx];
 		boolean actingForward = isP2BackupTemporarilyForward(idx);
 		int fwdPower = actingForward ? p2BackupForwardPower(idx) : 0;
 		int damage   = card != null ? p2BackupForwardDamage.getOrDefault(card, 0) : 0;
+		Map<String, Integer> countersMap = card != null ? gameState.getCountersMap(card) : Map.of();
+		int totalCounters = countersMap.values().stream().mapToInt(c -> c == null ? 0 : c.intValue()).sum();
 		if (slot.getIcon() == null) slot.setIcon(new ImageIcon(CardAnimation.renderPlaceholder(state)));
 		new SwingWorker<ImageIcon, Void>() {
 			@Override protected ImageIcon doInBackground() throws Exception {
@@ -12750,12 +12780,15 @@ public class MainWindow {
 				if (damage > 0) CardAnimation.renderDamageOverlay(canvas, damage, state);
 				if (actingForward && fwdPower > 0)
 					CardAnimation.renderPowerOverlayRight(canvas, fwdPower, new Color(80, 220, 80), state);
+				if (!countersMap.isEmpty())
+					CardAnimation.renderCounterOverlay(canvas, totalCounters, state, AppSettings.getCounterColor());
 				return new ImageIcon(canvas);
 			}
 			@Override protected void done() {
 				try {
 					ImageIcon icon = get();
 					if (icon != null && p2BackupUrls[idx] != null) { slot.setIcon(icon); slot.setText(null); }
+					slot.setToolTipText(buildCounterTooltip(countersMap));
 				} catch (InterruptedException | ExecutionException ignored) {}
 			}
 		}.execute();
@@ -12769,7 +12802,10 @@ public class MainWindow {
 		if (url == null) return;
 		int damage    = p2ForwardDamage.get(idx);
 		int power     = effectiveP2ForwardPower(idx);
-		int basePower = (topCard != null ? topCard : p2ForwardCards.get(idx)).power();
+		CardData fwdCard = p2ForwardCards.get(idx);
+		int basePower = (topCard != null ? topCard : fwdCard).power();
+		Map<String, Integer> countersMap = gameState.getCountersMap(fwdCard);
+		int totalCounters = countersMap.values().stream().mapToInt(c -> c == null ? 0 : c.intValue()).sum();
 		if (slot.getIcon() == null) slot.setIcon(new ImageIcon(CardAnimation.renderPlaceholder(state)));
 		new SwingWorker<ImageIcon, Void>() {
 			@Override protected ImageIcon doInBackground() throws Exception {
@@ -12784,12 +12820,15 @@ public class MainWindow {
 				} else if (power < basePower) {
 					CardAnimation.renderPowerOverlayRight(canvas, power, new Color(230, 200, 60), state);
 				}
+				if (!countersMap.isEmpty())
+					CardAnimation.renderCounterOverlay(canvas, totalCounters, state, AppSettings.getCounterColor());
 				return new ImageIcon(canvas);
 			}
 			@Override protected void done() {
 				try {
 					ImageIcon icon = get();
 					if (icon != null) { slot.setIcon(icon); slot.setText(null); }
+					slot.setToolTipText(buildCounterTooltip(countersMap));
 				} catch (InterruptedException | ExecutionException ignored) {}
 			}
 		}.execute();
