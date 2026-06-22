@@ -441,6 +441,12 @@ final class AutoAbilityTriggers {
 
 	private boolean matchesSingleSubject(String subject, CardData enteringCard) {
 		if (subject.isEmpty()) return false;
+		// "a [X] other than [Name]" — match base subject but exclude the named card
+		Matcher otherThanM = java.util.regex.Pattern.compile(
+				"(?i)^(.+?)\\s+other\\s+than\\s+(.+)$").matcher(subject);
+		if (otherThanM.matches())
+			return matchesSingleSubject(otherThanM.group(1).trim(), enteringCard)
+				&& !CardFilters.meetsCardNameFilter(enteringCard, otherThanM.group(2).trim());
 		// "a Job X Forward/Backup/Monster/Character" — job + type (must precede plain "a Job X")
 		Matcher jobTypeM = java.util.regex.Pattern.compile(
 				"(?i)^an?\\s+Job\\s+(?<job>.+?)\\s+(?<type>Forwards?|Backups?|Monsters?|Characters?)$").matcher(subject);

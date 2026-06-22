@@ -65,9 +65,9 @@ public final class AppSettings {
     // Settings
     // -------------------------------------------------------------------------
 
-    /** Returns the saved P1 board color selection, or {@code "Default"} if unset. */
+    /** Returns the saved P1 board color selection, or {@code "Light"} if unset. */
     public static String getP1BoardColor() {
-        return props.getProperty("p1.board.color", "Default");
+        return props.getProperty("p1.board.color", "Light");
     }
 
     /** Saves the P1 board color selection (call {@link #save()} to persist). */
@@ -75,9 +75,9 @@ public final class AppSettings {
         props.setProperty("p1.board.color", color);
     }
 
-    /** Returns the saved P2 board color selection, or {@code "Default"} if unset. */
+    /** Returns the saved P2 board color selection, or {@code "Dark"} if unset. */
     public static String getP2BoardColor() {
-        return props.getProperty("p2.board.color", "Default");
+        return props.getProperty("p2.board.color", "Dark");
     }
 
     /** Saves the P2 board color selection (call {@link #save()} to persist). */
