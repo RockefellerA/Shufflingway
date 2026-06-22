@@ -10546,13 +10546,13 @@ public class MainWindow {
 	 */
 	boolean isFieldAbilityCannotAttackOrBlock(CardData card, boolean isP1) {
 		for (FieldAbility fa : card.fieldAbilities()) {
-			java.util.regex.Matcher m2 = ActionResolver.IF_DONT_CONTROL_CARD_NAME_FWD_CANNOT_ATTACK_OR_BLOCK.matcher(fa.effectText());
+			Matcher m2 = ActionResolver.IF_DONT_CONTROL_CARD_NAME_FWD_CANNOT_ATTACK_OR_BLOCK.matcher(fa.effectText());
 			if (m2.find() && m2.group("subject").trim().equalsIgnoreCase(card.name())) {
 				String required = m2.group("required").trim();
 				List<CardData> fwds = isP1 ? p1ForwardCards : p2ForwardCards;
 				if (fwds.stream().noneMatch(f -> f.name().equalsIgnoreCase(required))) return true;
 			}
-			java.util.regex.Matcher m3 = ActionResolver.IF_COUNTER_LIMIT_CANNOT_ATTACK_OR_BLOCK.matcher(fa.effectText());
+			Matcher m3 = ActionResolver.IF_COUNTER_LIMIT_CANNOT_ATTACK_OR_BLOCK.matcher(fa.effectText());
 			if (m3.find() && m3.group("subject").trim().equalsIgnoreCase(card.name())) {
 				int    limit       = Integer.parseInt(m3.group("count"));
 				String counterName = m3.group("countername").trim();
@@ -10568,8 +10568,13 @@ public class MainWindow {
 	 */
 	boolean isFieldAbilityCannotAttack(CardData card, boolean isP1) {
 		for (FieldAbility fa : card.fieldAbilities()) {
-			java.util.regex.Matcher m = ActionResolver.IF_OPP_NO_FORWARDS_CANNOT_ATTACK.matcher(fa.effectText());
-			if (m.find() && m.group("subject").trim().equalsIgnoreCase(card.name())) {
+			// Unconditional: "[CardName] cannot attack."
+			Matcher mStandalone = ActionResolver.STANDALONE_CANNOT_ATTACK.matcher(fa.effectText());
+			if (mStandalone.find() && mStandalone.group("cardname").trim().equalsIgnoreCase(card.name()))
+				return true;
+			// Conditional: "If your opponent doesn't control any Forwards, [CardName] cannot attack."
+			Matcher mOppNoFwds = ActionResolver.IF_OPP_NO_FORWARDS_CANNOT_ATTACK.matcher(fa.effectText());
+			if (mOppNoFwds.find() && mOppNoFwds.group("subject").trim().equalsIgnoreCase(card.name())) {
 				List<CardData> oppFwds = isP1 ? p2ForwardCards : p1ForwardCards;
 				if (oppFwds.isEmpty()) return true;
 			}

@@ -804,6 +804,14 @@ public class ActionResolver {
     );
 
     /**
+     * Standalone "[CardName] cannot attack." — permanent attack-only restriction.
+     * {@code cardname} captures the subject name.
+     */
+    static final Pattern STANDALONE_CANNOT_ATTACK = Pattern.compile(
+        "(?i)^(?<cardname>.+?)\\s+cannot\\s+attack[.!]?\\s*$"
+    );
+
+    /**
      * "If you don't control a Card Name [X] Forward, [CardName] cannot attack or block."
      * {@code required} — the card name that must be controlled; {@code subject} — the card restricted.
      */
@@ -9295,10 +9303,11 @@ public class ActionResolver {
      * <ol>
      *   <li>"[CardName] cannot attack or block." — unconditional; enforced via
      *       {@link CardData#cannotAttackOrBlock()}.</li>
+     *   <li>"[CardName] cannot attack." — unconditional attack-only; enforced via field-ability check.</li>
      *   <li>"If you don't control a Card Name [X] Forward, [CardName] cannot attack or block."</li>
      *   <li>"If [N] or less [Name] Counter(s) are placed on [CardName], [CardName] cannot attack or block."</li>
      * </ol>
-     * The consumer only logs; enforcement for cases 2–3 is handled in the game loop.
+     * The consumer only logs; enforcement for cases 2–5 is handled in the game loop.
      */
     private static Consumer<GameContext> tryParseStandaloneCannotAttackOrBlock(String text, CardData source) {
         if (source == null) return null;
@@ -9308,6 +9317,13 @@ public class ActionResolver {
             String nm = m1.group("cardname").trim();
             if (nm.equalsIgnoreCase(source.name()))
                 return ctx -> ctx.logEntry(nm + " — cannot attack or block (permanent field restriction)");
+        }
+        // 1b. Attack-only: "[CardName] cannot attack."
+        Matcher m1b = STANDALONE_CANNOT_ATTACK.matcher(text);
+        if (m1b.find()) {
+            String nm = m1b.group("cardname").trim();
+            if (nm.equalsIgnoreCase(source.name()))
+                return ctx -> ctx.logEntry(nm + " — cannot attack (permanent field restriction)");
         }
         // 2. Conditional: "If you don't control Card Name X Forward, [subject] cannot attack or block."
         Matcher m2 = IF_DONT_CONTROL_CARD_NAME_FWD_CANNOT_ATTACK_OR_BLOCK.matcher(text);
