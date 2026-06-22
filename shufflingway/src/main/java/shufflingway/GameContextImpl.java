@@ -1135,6 +1135,7 @@ final class GameContextImpl implements GameContext {
 			}
 
 			@Override public void forceTargetToBreakZone(ForwardTarget t) {
+				mw.pendingCostBreakDestLabel = t.isP1() ? mw.p1BreakLabel : mw.p2BreakLabel;
 				switch (t.zone()) {
 					case FORWARD -> { if (t.isP1()) breakP1Forward(t.idx()); else breakP2Forward(t.idx()); }
 					case BACKUP  -> { if (t.isP1()) mw.autoAbilityTriggers.breakP1BackupSlot(t.idx()); else mw.breakP2BackupSlot(t.idx()); }
@@ -2307,6 +2308,7 @@ final class GameContextImpl implements GameContext {
 							+ (!traits.isEmpty() ? (amount > 0 ? " and " : "") + traits : "") + " until end of turn");
 					if (effPow <= 0) {
 						logEntry(p1Forward(idx).name() + " reduced to 0 power → Break Zone");
+						mw.pendingCostBreakDestLabel = mw.p1BreakLabel;
 						breakP1Forward(idx);
 					} else {
 						mw.refreshP1ForwardSlot(idx);
@@ -2322,6 +2324,7 @@ final class GameContextImpl implements GameContext {
 							+ (!traits.isEmpty() ? (amount > 0 ? " and " : "") + traits : "") + " until end of turn");
 					if (effPow <= 0) {
 						logEntry("[P2] " + mw.p2ForwardCards.get(idx).name() + " reduced to 0 power → Break Zone");
+						mw.pendingCostBreakDestLabel = mw.p2BreakLabel;
 						breakP2Forward(idx);
 					} else {
 						mw.refreshP2ForwardSlot(idx);

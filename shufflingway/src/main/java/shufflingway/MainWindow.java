@@ -154,6 +154,8 @@ public class MainWindow {
 	private Timer fadeTimer;      // drives fade-in / fade-out animation
 	CardSlideAnimator cardSlideAnimator;
 	private CardBreakAnimator breakAnimator;
+	/** Non-null when the next startBreakAnim call should slide to the break zone instead of slashing. */
+	JLabel pendingCostBreakDestLabel;
 	// In-flight discard animations: each pending slide hides one top-of-break-zone card from the
 	// break label until its slide lands. The counter is incremented when a discard animation
 	// starts and decremented when the corresponding swing Timer fires. refreshP*BreakLabel skips
@@ -6211,7 +6213,16 @@ public class MainWindow {
 		if (label == null) return;
 		javax.swing.Icon icon = label.getIcon();
 		if (!(icon instanceof ImageIcon ii)) return;
-		JLayeredPane  lp     = frame.getRootPane().getLayeredPane();
+		JLayeredPane lp = frame.getRootPane().getLayeredPane();
+		if (pendingCostBreakDestLabel != null) {
+			JLabel dest = pendingCostBreakDestLabel;
+			pendingCostBreakDestLabel = null;
+			Point start = SwingUtilities.convertPoint(label, label.getWidth() / 2, label.getHeight() / 2, lp);
+			Point end   = SwingUtilities.convertPoint(dest,  dest.getWidth()  / 2, dest.getHeight()  / 2, lp);
+			java.awt.image.BufferedImage img = CardAnimation.toARGB(ii.getImage(), ii.getIconWidth(), ii.getIconHeight());
+			cardSlideAnimator.startSlide(img, start, end, 0);
+			return;
+		}
 		Point         center = SwingUtilities.convertPoint(
 				label, label.getWidth() / 2, label.getHeight() / 2, lp);
 		java.awt.image.BufferedImage img = CardAnimation.toARGB(
