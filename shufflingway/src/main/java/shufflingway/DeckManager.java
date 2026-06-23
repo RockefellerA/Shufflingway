@@ -140,6 +140,7 @@ public class DeckManager extends JFrame {
     private JButton addBtn;
     private JButton addMaxBtn;
     private Set<String> lbSerials = new HashSet<>();
+    private Map<String, String> prCardMap = null;
 
     // Per-section card lists — persist across collapse/expand so counts are always correct
     private final List<Object[]> deckForwards = new ArrayList<>();
@@ -1104,6 +1105,30 @@ public class DeckManager extends JFrame {
     }
 
     // -------------------------------------------------------------------------
+    // PR card map (promo reprints not in the API)
+    // -------------------------------------------------------------------------
+
+    private Map<String, String> getPrCardMap() {
+        if (prCardMap != null) return prCardMap;
+        prCardMap = new HashMap<>();
+        try (InputStream is = getClass().getResourceAsStream("/resources/pr_cards.txt")) {
+            if (is == null) return prCardMap;
+            try (BufferedReader br = new BufferedReader(new InputStreamReader(is))) {
+                String line;
+                while ((line = br.readLine()) != null) {
+                    int slash = line.indexOf('/');
+                    if (slash > 0) {
+                        String pr  = line.substring(0, slash).trim();
+                        String ser = line.substring(slash + 1).trim();
+                        if (!pr.isEmpty() && !ser.isEmpty()) prCardMap.put(pr, ser);
+                    }
+                }
+            }
+        } catch (IOException ignored) {}
+        return prCardMap;
+    }
+
+    // -------------------------------------------------------------------------
     // Import / Export
     // -------------------------------------------------------------------------
 
@@ -1163,6 +1188,11 @@ public class DeckManager extends JFrame {
         Map<String, String> resolved = new LinkedHashMap<>();
         for (String serial : cardMap.keySet()) {
             String canonical = db.resolveSerial(serial);
+            if (canonical == null) {
+                String prKey = serial.endsWith("P") ? serial.substring(0, serial.length() - 1) : serial;
+                String mapped = getPrCardMap().get(prKey);
+                if (mapped != null) canonical = db.resolveSerial(mapped);
+            }
             if (canonical == null) missing.add(serial);
             else resolved.put(serial, canonical);
         }
