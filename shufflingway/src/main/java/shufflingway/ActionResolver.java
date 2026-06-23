@@ -464,6 +464,16 @@ public class ActionResolver {
         "\\s+put\\s+(?<name>.+?)\\s+into\\s+the\\s+Break\\s+Zone[.!]?$"
     );
 
+    /**
+     * "If you have received N points of damage, put [CardName] into the Break Zone."
+     * Fires when the controlling player's damage zone reaches the threshold.
+     * Group {@code points} — the damage count threshold; {@code name} — the card name (must equal source).
+     */
+    static final Pattern IF_SELF_DAMAGE_POINTS_PUT_TO_BREAK_ZONE = Pattern.compile(
+        "(?i)^If\\s+you\\s+have\\s+received\\s+(?<points>\\d+)\\s+points?\\s+of\\s+damage," +
+        "\\s+put\\s+(?<name>.+?)\\s+into\\s+the\\s+Break\\s+Zone[.!]?\\s*$"
+    );
+
     /** Matches "break the blocking Forward[.!]?" — fires during "is blocked" triggers. */
     private static final Pattern BREAK_BLOCKING_FORWARD = Pattern.compile(
         "(?i)^break\\s+the\\s+blocking\\s+Forward[.!]?$"
@@ -870,6 +880,18 @@ public class ActionResolver {
      */
     static final Pattern AT_END_OF_EACH_TURN_FA_PATTERN = Pattern.compile(
         "(?i)At\\s+the\\s+end\\s+of\\s+each\\s+of\\s+your\\s+turns?\\s*,\\s+(?<inner>.+)"
+    );
+
+    /**
+     * "At the end of each player's turn, if [CardName] has received N damage or more, draw M card(s)."
+     * Fires at the end of every player's turn (both P1 and P2).
+     * Groups: {@code cardname} — the card name (must equal source); {@code damage} — minimum accumulated
+     * combat damage; {@code draw} — number of cards to draw.
+     */
+    static final Pattern AT_END_OF_EACH_PLAYERS_TURN_IF_SELF_FWD_DAMAGE_DRAW = Pattern.compile(
+        "(?i)^At\\s+the\\s+end\\s+of\\s+each\\s+player'?s\\s+turn,\\s+" +
+        "if\\s+(?<cardname>.+?)\\s+has\\s+received\\s+(?<damage>\\d+)\\s+damage\\s+or\\s+more,\\s+" +
+        "draw\\s+(?<draw>\\d+)\\s+cards?[.!]?\\s*$"
     );
 
     /**
@@ -3161,6 +3183,9 @@ public class ActionResolver {
         result = tryParseEndOfEachTurnFieldAbility(effectText, source);
         if (result != null) return result;
 
+        result = tryParseEndOfEachPlayersTurnIfSelfFwdDamage(effectText, source);
+        if (result != null) return result;
+
         result = tryParseBeginningOfMainPhase1FieldAbility(effectText, source);
         if (result != null) return result;
 
@@ -3327,6 +3352,9 @@ public class ActionResolver {
         if (result != null) return result;
 
         result = tryParseIfOppNoForwardsPutToBreakZone(effectText, source);
+        if (result != null) return result;
+
+        result = tryParseIfSelfDamagePointsPutToBreakZone(effectText, source);
         if (result != null) return result;
 
         result = tryParsePutSourceToBottomOfDeck(effectText, source);
@@ -3630,7 +3658,8 @@ public class ActionResolver {
         if (tryParseChooseFwdBzCostInferiorToRemovedPlay(effectText)       != null) return "ChooseFwdBzCostInferiorToRemovedPlay";
         if (tryParseChooseCounterScaleCharsActivate(effectText, 1)    != null) return "ChooseCounterScaleCharsActivate";
         if (tryParseChooseCharacter(effectText, source, 0)              != null) return "ChooseCharacter";
-        if (tryParseEndOfEachTurnFieldAbility(effectText, source) != null) return "EndOfEachTurnFieldAbility";
+        if (tryParseEndOfEachTurnFieldAbility(effectText, source)             != null) return "EndOfEachTurnFieldAbility";
+        if (tryParseEndOfEachPlayersTurnIfSelfFwdDamage(effectText, source)  != null) return "EndOfEachPlayersTurnIfSelfFwdDamage";
         if (tryParseIfRfpCount(effectText, source)               != null) return "IfRfpCount";
         if (tryParseElementChange(effectText, source) != null) return "ElementChange";
         if (tryParseDelayedEffect(effectText)                 != null) return "DelayedEffect";
@@ -3677,7 +3706,8 @@ public class ActionResolver {
         if (tryParseRemoveNamedFromGame(effectText, source)   != null) return "RemoveNamedFromGame";
         if (tryParseBreakSourceCard(effectText, source)        != null) return "BreakSourceCard";
         if (tryParsePutSourceIntoBreakZone(effectText, source) != null) return "PutSourceIntoBreakZone";
-        if (tryParseIfOppNoForwardsPutToBreakZone(effectText, source) != null) return "IfOppNoForwardsPutToBreakZone";
+        if (tryParseIfOppNoForwardsPutToBreakZone(effectText, source)          != null) return "IfOppNoForwardsPutToBreakZone";
+        if (tryParseIfSelfDamagePointsPutToBreakZone(effectText, source)      != null) return "IfSelfDamagePointsPutToBreakZone";
         if (tryParsePutSourceToBottomOfDeck(effectText, source) != null) return "PutSourceToBottomOfDeck";
         if (tryParseBreakBlockingForward(effectText)           != null) return "BreakBlockingForward";
         if (tryParseChooseExBurstFromDamageZone(effectText)    != null) return "ChooseExBurstFromDamageZone";
@@ -3970,7 +4000,8 @@ public class ActionResolver {
         if (tryParseChooseFwdPowerInferiorToSource(effectText, source) != null) return "ChooseFwdPowerInferiorToSource";
         if (tryParseChooseFwdBzCostInferiorToRemovedPlay(effectText)   != null) return "ChooseFwdBzCostInferiorToRemovedPlay";
         if (tryParseDullAllOppFwdsPowerLeSource(effectText, source)    != null) return "DullAllOppFwdsPowerLeSource";
-        if (tryParseEndOfEachTurnFieldAbility(effectText, source)      != null) return "EndOfEachTurnFieldAbility";
+        if (tryParseEndOfEachTurnFieldAbility(effectText, source)             != null) return "EndOfEachTurnFieldAbility";
+        if (tryParseEndOfEachPlayersTurnIfSelfFwdDamage(effectText, source)  != null) return "EndOfEachPlayersTurnIfSelfFwdDamage";
         if (tryParseIfRfpCount(effectText, source)                     != null) return "IfRfpCount";
         if (tryParseAllFieldEffect(effectText) != null)                     return "AllFieldEffect";
         if (tryParseFieldPowerGrantPassive(effectText) != null) {
@@ -4027,7 +4058,8 @@ public class ActionResolver {
         if (tryParseRemoveNamedFromGame(effectText, source) != null)        return "RemoveNamedFromGame";
         if (tryParseBreakSourceCard(effectText, source)        != null)     return "BreakSourceCard";
         if (tryParsePutSourceIntoBreakZone(effectText, source) != null)     return "PutSourceIntoBreakZone";
-        if (tryParseIfOppNoForwardsPutToBreakZone(effectText, source) != null) return "IfOppNoForwardsPutToBreakZone";
+        if (tryParseIfOppNoForwardsPutToBreakZone(effectText, source)     != null) return "IfOppNoForwardsPutToBreakZone";
+        if (tryParseIfSelfDamagePointsPutToBreakZone(effectText, source) != null) return "IfSelfDamagePointsPutToBreakZone";
         if (tryParsePutSourceToBottomOfDeck(effectText, source) != null)   return "PutSourceToBottomOfDeck";
         if (tryParseBreakBlockingForward(effectText)           != null)     return "BreakBlockingForward";
         if (tryParseChooseExBurstFromDamageZone(effectText)    != null)     return "ChooseExBurstFromDamageZone";
@@ -8200,6 +8232,53 @@ public class ActionResolver {
         Consumer<GameContext> innerEffect = parse(inner, source);
         if (innerEffect == null) return null;
         return innerEffect;
+    }
+
+    /**
+     * Parses "At the end of each player's turn, if [CardName] has received N damage or more, draw M card(s)."
+     * Fires at the end of every player's turn (both P1's and P2's end phase).
+     * The source card must be on the field; the check is against accumulated combat damage on that forward.
+     */
+    static Consumer<GameContext> tryParseEndOfEachPlayersTurnIfSelfFwdDamage(String text, CardData source) {
+        if (source == null) return null;
+        Matcher m = AT_END_OF_EACH_PLAYERS_TURN_IF_SELF_FWD_DAMAGE_DRAW.matcher(text.trim());
+        if (!m.matches()) return null;
+        String targetName = m.group("cardname").trim();
+        if (!targetName.equalsIgnoreCase(source.name())) return null;
+        int minDamage = Integer.parseInt(m.group("damage"));
+        int drawCount = Integer.parseInt(m.group("draw"));
+        return ctx -> {
+            int fwdCount = ctx.isP1() ? ctx.p1ForwardCount() : ctx.p2ForwardCount();
+            for (int i = 0; i < fwdCount; i++) {
+                CardData fwd = ctx.isP1() ? ctx.p1Forward(i) : ctx.p2Forward(i);
+                if (fwd.name().equalsIgnoreCase(targetName)) {
+                    int dmg = ctx.isP1() ? ctx.p1ForwardCurrentDamage(i) : ctx.p2ForwardCurrentDamage(i);
+                    if (dmg >= minDamage) {
+                        ctx.logEntry("Field: " + source.name() + " — draw " + drawCount + " (" + dmg + " damage)");
+                        ctx.drawCards(drawCount);
+                    }
+                    return;
+                }
+            }
+        };
+    }
+
+    /**
+     * Parses "If you have received N points of damage, put [CardName] into the Break Zone."
+     * The returned consumer checks {@link GameContext#selfDamageCount()} at fire time against the threshold;
+     * callers should invoke it whenever the controlling player's damage zone grows.
+     */
+    static Consumer<GameContext> tryParseIfSelfDamagePointsPutToBreakZone(String text, CardData source) {
+        if (source == null) return null;
+        Matcher m = IF_SELF_DAMAGE_POINTS_PUT_TO_BREAK_ZONE.matcher(text.trim());
+        if (!m.matches()) return null;
+        if (!m.group("name").trim().equalsIgnoreCase(source.name())) return null;
+        int threshold = Integer.parseInt(m.group("points"));
+        return ctx -> {
+            if (ctx.selfDamageCount() < threshold) return;
+            ctx.logEntry("Effect: " + source.name() + " — Break Zone (received " + threshold + " damage)");
+            ctx.breakSourceCard(source);
+        };
     }
 
     /**

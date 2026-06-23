@@ -1967,6 +1967,7 @@ public class MainWindow {
                                 refreshPhaseTracker();
                                 logEntry("End Phase");
                                 fireFieldEndOfTurnAbilities(true);
+                                fireFieldEndOfEachPlayersTurnAbilities();
                                 fireEndOfTurnEffects(true);
                                 for (int i = 0; i < p1ForwardDamage.size(); i++) p1ForwardDamage.set(i, 0);
                                 for (int i = 0; i < p1ForwardPowerBoost.size(); i++) p1ForwardPowerBoost.set(i, 0);
@@ -2764,6 +2765,7 @@ public class MainWindow {
 		autoAbilityTriggers.triggerAutoAbilitiesForDamageZone(true);
 		autoAbilityTriggers.triggerAutoAbilitiesForEitherPlayerReceivesDamage();
 		autoAbilityTriggers.triggerAutoAbilitiesForYouReceiveDamage(true);
+		fireFieldSelfDamagePointsAbilities(true);
 		animateCardToDamage(true, idx);
 
 		int animDelay = CardSlideAnimator.TOTAL_FRAMES * CardSlideAnimator.FRAME_MS;
@@ -2813,6 +2815,7 @@ public class MainWindow {
 		autoAbilityTriggers.triggerAutoAbilitiesForDamageZone(false);
 		autoAbilityTriggers.triggerAutoAbilitiesForEitherPlayerReceivesDamage();
 		autoAbilityTriggers.triggerAutoAbilitiesForYouReceiveDamage(false);
+		fireFieldSelfDamagePointsAbilities(false);
 
 		int slotIdx = p2DamageCount - 1;
 		if (drawn != null) animateCardToDamage(false, slotIdx);
@@ -9280,6 +9283,56 @@ public class MainWindow {
 			if (effect != null) {
 				logEntry("[Field] " + card.name() + " — end-of-turn: " + fa.effectText());
 				effect.accept(ctx);
+			}
+		}
+	}
+
+	/** Fires "At the end of each player's turn" field abilities for all cards on both sides of the field. */
+	void fireFieldEndOfEachPlayersTurnAbilities() {
+		for (boolean isP1 : new boolean[]{true, false}) {
+			List<CardData> fwds = isP1 ? p1ForwardCards : p2ForwardCards;
+			CardData[]     bkps = isP1 ? p1BackupCards  : p2BackupCards;
+			List<CardData> mons = isP1 ? p1MonsterCards : p2MonsterCards;
+			GameContext ctx = buildGameContext(isP1);
+			for (CardData card : new ArrayList<>(fwds)) fireFieldEndOfEachPlayersTurnAbilitiesForCard(card, ctx);
+			for (CardData card : bkps) if (card != null) fireFieldEndOfEachPlayersTurnAbilitiesForCard(card, ctx);
+			for (CardData card : new ArrayList<>(mons)) fireFieldEndOfEachPlayersTurnAbilitiesForCard(card, ctx);
+		}
+	}
+
+	private void fireFieldEndOfEachPlayersTurnAbilitiesForCard(CardData card, GameContext ctx) {
+		for (FieldAbility fa : card.fieldAbilities()) {
+			Consumer<GameContext> effect =
+					ActionResolver.tryParseEndOfEachPlayersTurnIfSelfFwdDamage(fa.effectText(), card);
+			if (effect != null) {
+				logEntry("[Field] " + card.name() + " — end-of-each-player's-turn: " + fa.effectText());
+				effect.accept(ctx);
+			}
+		}
+	}
+
+	/**
+	 * Fires "If you have received N points of damage" field abilities for one player's field cards.
+	 * Call whenever the player's damage zone grows.
+	 */
+	void fireFieldSelfDamagePointsAbilities(boolean isP1) {
+		List<CardData> fwds = isP1 ? p1ForwardCards : p2ForwardCards;
+		CardData[]     bkps = isP1 ? p1BackupCards  : p2BackupCards;
+		List<CardData> mons = isP1 ? p1MonsterCards : p2MonsterCards;
+		GameContext ctx = buildGameContext(isP1);
+		for (CardData card : new ArrayList<>(fwds)) fireFieldSelfDamagePointsAbilitiesForCard(card, ctx);
+		for (CardData card : bkps) if (card != null) fireFieldSelfDamagePointsAbilitiesForCard(card, ctx);
+		for (CardData card : new ArrayList<>(mons)) fireFieldSelfDamagePointsAbilitiesForCard(card, ctx);
+	}
+
+	private void fireFieldSelfDamagePointsAbilitiesForCard(CardData card, GameContext ctx) {
+		for (FieldAbility fa : card.fieldAbilities()) {
+			Consumer<GameContext> effect =
+					ActionResolver.tryParseIfSelfDamagePointsPutToBreakZone(fa.effectText(), card);
+			if (effect != null) {
+				logEntry("[Field] " + card.name() + ": " + fa.effectText());
+				effect.accept(ctx);
+				return;
 			}
 		}
 	}

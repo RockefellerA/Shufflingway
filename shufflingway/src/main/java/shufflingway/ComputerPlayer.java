@@ -451,6 +451,7 @@ class ComputerPlayer {
 		}
 		mw.refreshP2BreakLabel();
 		mw.refreshP2HandCountLabel();
+		mw.fireFieldEndOfEachPlayersTurnAbilities();
 		mw.fireEndOfTurnEffects(false);
 		for (int i = 0; i < mw.p2ForwardDamage.size(); i++) mw.p2ForwardDamage.set(i, 0);
 		for (int i = 0; i < mw.p2ForwardPowerBoost.size(); i++) mw.p2ForwardPowerBoost.set(i, 0);
@@ -663,16 +664,29 @@ class ComputerPlayer {
 		List<CardData> hand = mw.gameState.getP2Hand();
 		if (hand.isEmpty()) return null;
 
-		List<Integer> candidates = new ArrayList<>();
 		boolean p2HasLD = mw.hasLightOrDarkOnField(false);
+
+		// Forwards and Monsters — highest cost first
+		List<Integer> fieldCands = new ArrayList<>();
 		for (int i = 0; i < hand.size(); i++) {
 			CardData c = hand.get(i);
-			if (!c.isForward()) continue;
+			if (!c.isForward() && !c.isMonster()) continue;
 			if (!c.multicard() && mw.p2HasCharacterNameOnField(c.name())) continue;
 			if (c.isLightOrDark() && p2HasLD) continue;
-			candidates.add(i);
+			fieldCands.add(i);
 		}
-		candidates.sort((a, b) -> hand.get(b).cost() - hand.get(a).cost());
+		fieldCands.sort((a, b) -> hand.get(b).cost() - hand.get(a).cost());
+
+		// Summons — highest cost first; skip when cast-prohibited by a field ability
+		List<Integer> summonCands = new ArrayList<>();
+		if (!mw.summonCastingProhibited()) {
+			for (int i = 0; i < hand.size(); i++) {
+				if (hand.get(i).isSummon()) summonCands.add(i);
+			}
+			summonCands.sort((a, b) -> hand.get(b).cost() - hand.get(a).cost());
+		}
+
+		// Backups — highest cost first
 		List<Integer> backupCands = new ArrayList<>();
 		for (int i = 0; i < hand.size(); i++) {
 			CardData c = hand.get(i);
@@ -682,6 +696,9 @@ class ComputerPlayer {
 			backupCands.add(i);
 		}
 		backupCands.sort((a, b) -> hand.get(b).cost() - hand.get(a).cost());
+
+		List<Integer> candidates = new ArrayList<>(fieldCands);
+		candidates.addAll(summonCands);
 		candidates.addAll(backupCands);
 
 		for (int cardIdx : candidates) {

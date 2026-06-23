@@ -658,6 +658,12 @@ public interface GameContext {
     /** Returns the number of cards in P1's damage zone. */
     int p1DamageCount();
 
+    /** Returns the number of cards in P2's damage zone. */
+    int p2DamageCount();
+
+    /** Returns the number of cards in the ability user's own damage zone. */
+    default int selfDamageCount() { return isP1() ? p1DamageCount() : p2DamageCount(); }
+
     /** Returns the number of cards in the opponent's hand. */
     int opponentHandSize();
 

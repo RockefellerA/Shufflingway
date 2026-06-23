@@ -3397,6 +3397,7 @@ final class GameContextImpl implements GameContext {
 			}
 
 			@Override public int p1DamageCount() { return mw.gameState.getP1DamageZone().size(); }
+			@Override public int p2DamageCount() { return mw.gameState.getP2DamageZone().size(); }
 
 			@Override public int opponentHandSize() {
 				return (isP1 ? mw.gameState.getP2Hand() : mw.gameState.getP1Hand()).size();
