@@ -19,7 +19,8 @@ public record CostReductionModifier(
         String  elementFilter,   // null = any element
         String  jobFilter,       // null = any job
         String  cardNameFilter,  // null = any name
-        String  categoryFilter   // null = any category
+        String  categoryFilter,  // null = any category
+        boolean jobOrName        // when true: jobFilter and cardNameFilter use OR instead of AND
 ) {
     /** Returns {@code true} if this modifier can apply to {@code card}. */
     public boolean matches(CardData card) {
@@ -28,8 +29,14 @@ public record CostReductionModifier(
         if (card.isMonster() && !inclMonsters) return false;
         if (card.isSummon()  && !inclSummons)  return false;
         if (elementFilter  != null && !card.containsElement(elementFilter))          return false;
-        if (jobFilter      != null && !card.hasJob(jobFilter))                        return false;
-        if (cardNameFilter != null && !card.name().equalsIgnoreCase(cardNameFilter))  return false;
+        if (jobOrName) {
+            boolean jobOk  = jobFilter      == null || card.hasJob(jobFilter);
+            boolean nameOk = cardNameFilter == null || card.name().equalsIgnoreCase(cardNameFilter);
+            if (!jobOk && !nameOk) return false;
+        } else {
+            if (jobFilter      != null && !card.hasJob(jobFilter))                        return false;
+            if (cardNameFilter != null && !card.name().equalsIgnoreCase(cardNameFilter))  return false;
+        }
         if (categoryFilter != null
                 && !categoryFilter.equalsIgnoreCase(card.category1())
                 && !categoryFilter.equalsIgnoreCase(card.category2()))               return false;

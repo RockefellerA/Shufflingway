@@ -1778,7 +1778,7 @@ public class ActionResolver {
             // "Card Name X [Type] or Job Y" — OR logic; must come before plain Card Name alternative
             "Card\\s+Name\\s+(?<cnamejobnmor>.+?)" +
             "(?:\\s+(?:Forwards?|Backups?|Monsters?|Summons?|Characters?|card))?" +
-            "\\s+or\\s+Job\\s+(?<jobnmcnameor>.+?)" +
+            "\\s+(?:and/)?or\\s+Job\\s+(?<jobnmcnameor>.+?)" +
             "(?=\\s+of\\s+cost|\\s+(?:Forwards?|Backups?|Monsters?|Summons?|Characters?|card)\\b|\\s+and\\b)\\s*" +
         "|" +
             // Written card name without brackets — ends at type word, "of cost", or "and"
@@ -1793,7 +1793,7 @@ public class ActionResolver {
             // "Job X [Type] or Card Name Y" — OR logic; must come before plain Job alternative
             "Job\\s+(?<jobnmor>.+?)" +
             "(?:\\s+(?:Forwards?|Backups?|Monsters?|Summons?|Characters?|card))?" +
-            "\\s+or\\s+Card\\s+Name\\s+(?<cnameor>.+?)" +
+            "\\s+(?:and/)?or\\s+Card\\s+Name\\s+(?<cnameor>.+?)" +
             "(?=\\s+of\\s+cost|\\s+(?:Forwards?|Backups?|Monsters?|Summons?|Characters?|card)\\b|\\s+and\\b)\\s*" +
         "|" +
             // Written job — lookahead keeps element, type word, "of cost", "other than", or "and" ahead
@@ -2868,8 +2868,12 @@ public class ActionResolver {
         "(?i)During\\s+this\\s+turn,\\s+the\\s+cost\\s+required\\s+to\\s+cast\\s+your\\s+next\\s+" +
         "(?:(?<element>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)\\s+)?" +
         "(?:Category\\s+(?<category>\\S+)\\s+)?" +
-        "(?:Job\\s+(?<job>.+?)\\s+)?" +
-        "(?:Card\\s+Name\\s+(?<cardname>\\S+)|(?<type>Forwards?|Backups?|Monsters?|Summons?|card))\\s+" +
+        "(?:" +
+            // Combined "Job X or Card Name Y" — captured with OR semantics in the modifier
+            "Job\\s+(?<joborg>.+?)\\s+(?:and/)?or\\s+Card\\s+Name\\s+(?<cnameborg>\\S+)" +
+            // Existing: optional job then card-name or type
+            "|(?:Job\\s+(?<job>.+?)\\s+)?(?:Card\\s+Name\\s+(?<cardname>\\S+)|(?<type>Forwards?|Backups?|Monsters?|Summons?|card))" +
+        ")\\s+" +
         "is\\s+reduced\\s+by\\s+(?<amount>\\d+)" +
         "(?<floorone>\\s*\\(it\\s+cannot\\s+become\\s+0\\))?[.!]?"
     );
@@ -10227,8 +10231,12 @@ public class ActionResolver {
 
         String elementRaw  = m.group("element");
         String categoryRaw = m.group("category");
-        String jobRaw      = m.group("job");
-        String cardnameRaw = m.group("cardname");
+        // Combined "Job X or Card Name Y" case
+        String jobOrRaw    = m.group("joborg");
+        String cnameOrRaw  = m.group("cnameborg");
+        boolean jobOrName  = jobOrRaw != null;
+        String jobRaw      = jobOrName ? jobOrRaw    : m.group("job");
+        String cardnameRaw = jobOrName ? cnameOrRaw  : m.group("cardname");
         String typeRaw     = m.group("type");
         int    amount      = Integer.parseInt(m.group("amount"));
         boolean floorAtOne = m.group("floorone") != null;
@@ -10248,13 +10256,14 @@ public class ActionResolver {
         final String category = categoryRaw != null ? categoryRaw.trim() : null;
         final String job      = jobRaw      != null ? jobRaw.trim()      : null;
         final String cardname = cardnameRaw != null ? cardnameRaw.trim() : null;
-        final String typeDesc = cardname != null ? "Card Name " + cardname
-                              : typeRaw  != null ? typeRaw : "card";
+        final String typeDesc = jobOrName   ? "or Card Name " + cardname
+                              : cardname    != null ? "Card Name " + cardname
+                              : typeRaw     != null ? typeRaw : "card";
 
         CostReductionModifier modifier = new CostReductionModifier(
                 amount, floorAtOne, true,
                 inclForwards, inclBackups, inclMonsters, inclSummons,
-                element, job, cardname, category);
+                element, job, cardname, category, jobOrName);
 
         String logDesc = "During this turn, next "
                 + (element  != null ? element + " " : "")
@@ -10300,7 +10309,7 @@ public class ActionResolver {
         CostReductionModifier modifier = new CostReductionModifier(
                 amount, floorAtOne, false,
                 inclForwards, inclBackups, inclMonsters, false,
-                element, job, cardname, category);
+                element, job, cardname, category, false);
 
         String logDesc = "This turn, your "
                 + (element  != null ? element + " " : "")

@@ -3693,21 +3693,28 @@ public class MainWindow {
 			return;
 		}
 		List<CardData> chosen = new ArrayList<>();
-		for (int i = 0; i < count && !matches.isEmpty(); i++) {
-			CardData pick;
-			if (!isP1) {
+		if (!isP1) {
+			for (int i = 0; i < count && !matches.isEmpty(); i++) {
 				List<CardData> copy = new ArrayList<>(matches);
 				Collections.shuffle(copy);
-				pick = copy.get(0);
+				CardData pick = copy.get(0);
 				logEntry("[AI] chose " + pick.name());
-			} else {
-				pick = cardPickerDialog.pickFromDeckSearch(matches);
+				matches.remove(pick);
+				deck.remove(pick);
+				chosen.add(pick);
 			}
-			if (pick == null) break;
-			matches.remove(pick);
-			if (isP1) gameState.removeFromP1MainDeck(pick);
-			else      deck.remove(pick);
-			chosen.add(pick);
+		} else if (count > 1) {
+			List<CardData> picks = cardPickerDialog.pickMultiFromDeckSearch(matches, count);
+			for (CardData pick : picks) {
+				gameState.removeFromP1MainDeck(pick);
+				chosen.add(pick);
+			}
+		} else {
+			CardData pick = cardPickerDialog.pickFromDeckSearch(matches);
+			if (pick != null) {
+				gameState.removeFromP1MainDeck(pick);
+				chosen.add(pick);
+			}
 		}
 		shuffleDeck(isP1);
 		if (chosen.isEmpty()) {

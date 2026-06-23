@@ -691,9 +691,12 @@ final class AutoAbilityTriggers {
 		return true;
 	}
 
-	/** Subject pattern for break-zone triggers: "a [Type] [you|opponent] control[s]". */
-	private static final Pattern BZ_SUBJECT_TYPE = Pattern.compile(
-		"(?i)^a\\s+(?<type>Character|Forward|Backup|Monster)\\s+(?<ctrl>you|opponent)\\s+controls?$"
+	/**
+	 * Trailing "you control" / "opponent controls" suffix on a break-zone trigger subject.
+	 * Used to extract the controller check, leaving the filter clause(s) for separate matching.
+	 */
+	private static final Pattern BZ_SUBJECT_CTRL = Pattern.compile(
+		"(?i)\\s+(?<ctrl>you|opponent)\\s+controls?$"
 	);
 	/** "Chocobo forming a party" — fires when the named card itself was in a party when broken. */
 	private static final Pattern BZ_SUBJECT_SELF_PARTY = Pattern.compile(
@@ -733,18 +736,20 @@ final class AutoAbilityTriggers {
 				&& partyMembers.contains(source);
 		}
 
-		Matcher m = BZ_SUBJECT_TYPE.matcher(subject);
-		if (m.matches()) {
-			boolean selfCtrl     = m.group("ctrl").equalsIgnoreCase("you");
+		// "a [filter] [you|opponent] control[s]" — filter may be a type, Job, Card Name,
+		// or an OR combination thereof (e.g. "a Job Warrior or a Card Name Warrior you control")
+		Matcher ctrlM = BZ_SUBJECT_CTRL.matcher(subject);
+		if (ctrlM.find()) {
+			boolean selfCtrl      = ctrlM.group("ctrl").equalsIgnoreCase("you");
 			boolean brokenByOwner = (brokenIsP1 == abilityOwnerIsP1);
 			if (selfCtrl != brokenByOwner) return false;
-			return switch (m.group("type").toLowerCase(java.util.Locale.ROOT)) {
-				case "forward"   -> broken.isForward();
-				case "backup"    -> broken.isBackup();
-				case "monster"   -> broken.isMonster();
-				default          -> !broken.isSummon(); // "Character" = any non-Summon field card
-			};
+			String filters = subject.substring(0, ctrlM.start());
+			for (String part : filters.split("(?i)\\s+or\\s+")) {
+				if (matchesSingleSubject(part.trim(), broken)) return true;
+			}
+			return false;
 		}
+
 		// Fall back to named card match (handles "Geomancer", etc.)
 		return broken.name().equalsIgnoreCase(subject);
 	}
