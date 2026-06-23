@@ -141,6 +141,7 @@ public class CardDatabase implements AutoCloseable {
                                  .replace("orCard", "or Card")
                                  .replace("ofYang", "of Yang")
                                  .replace("IXForward", "IX Forward")
+                                 .replace("Zackand", "Zack and")
                                  .replace("’", "'")
                                  .replace("1Card", "1 Card") //"Search for 1Card Name..."
                                  .replace("2card", "2 card") // "FFTA2card"
