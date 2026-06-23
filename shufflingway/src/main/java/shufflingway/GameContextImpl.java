@@ -2417,7 +2417,7 @@ final class GameContextImpl implements GameContext {
 					mw.p1ForwardPowerReduction.set(idx, mw.p1ForwardPowerReduction.get(idx) + amount);
 					mw.p1ForwardRemovedTraits.get(idx).addAll(traits);
 					int effPow = mw.effectiveP1ForwardPower(idx);
-					logEntry(p1Forward(idx).name() + " loses " + (amount > 0 ? amount + " power" : "")
+					logEntry(p1Forward(idx).name() + " loses " + amount + " power"
 							+ (!traits.isEmpty() ? (amount > 0 ? " and " : "") + traits : "") + " until end of turn");
 					if (effPow <= 0) {
 						logEntry(p1Forward(idx).name() + " reduced to 0 power → Break Zone");

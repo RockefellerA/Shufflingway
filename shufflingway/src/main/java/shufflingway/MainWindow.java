@@ -57,6 +57,7 @@ import javax.swing.JDialog;
 import javax.swing.JFrame;
 import javax.swing.JLabel;
 import javax.swing.JLayeredPane;
+import javax.swing.JMenu;
 import javax.swing.JMenuBar;
 import javax.swing.JMenuItem;
 import javax.swing.JOptionPane;
@@ -607,6 +608,19 @@ public class MainWindow {
 				});
 		menuBar.add(multiplayerMenu);
 		menuBar.add(new HelpMenu(frame));
+
+		if (AppSettings.isDebugEnabled()) {
+			JMenu debugMenu = new JMenu("Debug");
+			JMenuItem spawnFieldItem = new JMenuItem("Spawn Card on CPU Field…");
+			spawnFieldItem.setToolTipText("Place any card directly onto the CPU's field to watch its AI behavior.");
+			spawnFieldItem.addActionListener(e -> debugSpawnOnCpuField());
+			debugMenu.add(spawnFieldItem);
+			JMenuItem spawnHandItem = new JMenuItem("Add Card to CPU Hand…");
+			spawnHandItem.setToolTipText("Add any card directly to the CPU's hand so it can cast it on its turn.");
+			spawnHandItem.addActionListener(e -> debugAddToCpuHand());
+			debugMenu.add(spawnHandItem);
+			menuBar.add(debugMenu);
+		}
 
 		Dimension cardSize = new Dimension(CARD_W, CARD_H);
 
@@ -1323,31 +1337,7 @@ public class MainWindow {
 				List<CardData> main = new ArrayList<>();
 				List<CardData> lb   = new ArrayList<>();
 				for (DeckCardDetail card : p1Cards) {
-					String tx = card.textEn();
-					CardData cd = new CardData(card.imageUrl(), card.name(), card.element(),
-							card.cost(), card.power(), card.type(), card.isLb(), card.lbCost(), card.exBurst(),
-							card.multicard(), CardData.parseTraits(tx),
-							CardData.parseWarpValue(tx), CardData.parseWarpCost(tx),
-							CardData.parsePrimingTarget(tx), CardData.parsePrimingCost(tx),
-							CardData.parseActionAbilities(tx), CardData.parseAutoAbilities(tx),
-							CardData.parseFieldAbilities(tx, card.type()),
-							CardData.parseIfControlBoosts(tx, card.type()),
-							CardData.parseFieldPowerGrants(tx, card.type()),
-							CardData.parseScalingSelfPowerBoosts(tx, card.type(), card.name()),
-							CardData.parseFieldCostReductions(tx, card.type()),
-							CardData.parseSelfCostModifiers(tx),
-							CardData.parseFieldPrimingAnyElements(tx, card.type()),
-							CardData.parseFieldPartyAnyElements(tx, card.type()),
-							CardData.parseWarpCostAnyElement(tx),
-							CardData.parseCanFormPartyAnyElement(tx),
-							CardData.parseFieldCannotBeBlockedByCost(tx, card.name()),
-							CardData.parseCannotBeBlockedByHigherPower(tx, card.name()),
-							CardData.parseCannotBlockAtAll(tx, card.name()),
-							CardData.parseCannotBlockHigherPower(tx, card.name()),
-							CardData.parseCannotBlockParty(tx, card.name()),
-							CardData.parseCannotAttackOrBlock(tx, card.name()),
-							CardData.parseCanAttackTwice(tx, card.name()),
-							card.job(), card.category1(), card.category2(), tx);
+					CardData cd = buildCardData(card);
 					if (card.isLb()) lb.add(cd);
 					else             main.add(cd);
 				}
@@ -1359,31 +1349,7 @@ public class MainWindow {
 				List<CardData> p2Main = new ArrayList<>();
 				List<CardData> p2Lb   = new ArrayList<>();
 				for (DeckCardDetail card : p2Cards) {
-					String tx = card.textEn();
-					CardData cd = new CardData(card.imageUrl(), card.name(), card.element(),
-							card.cost(), card.power(), card.type(), card.isLb(), card.lbCost(), card.exBurst(),
-							card.multicard(), CardData.parseTraits(tx),
-							CardData.parseWarpValue(tx), CardData.parseWarpCost(tx),
-							CardData.parsePrimingTarget(tx), CardData.parsePrimingCost(tx),
-							CardData.parseActionAbilities(tx), CardData.parseAutoAbilities(tx),
-							CardData.parseFieldAbilities(tx, card.type()),
-							CardData.parseIfControlBoosts(tx, card.type()),
-							CardData.parseFieldPowerGrants(tx, card.type()),
-							CardData.parseScalingSelfPowerBoosts(tx, card.type(), card.name()),
-							CardData.parseFieldCostReductions(tx, card.type()),
-							CardData.parseSelfCostModifiers(tx),
-							CardData.parseFieldPrimingAnyElements(tx, card.type()),
-							CardData.parseFieldPartyAnyElements(tx, card.type()),
-							CardData.parseWarpCostAnyElement(tx),
-							CardData.parseCanFormPartyAnyElement(tx),
-							CardData.parseFieldCannotBeBlockedByCost(tx, card.name()),
-							CardData.parseCannotBeBlockedByHigherPower(tx, card.name()),
-							CardData.parseCannotBlockAtAll(tx, card.name()),
-							CardData.parseCannotBlockHigherPower(tx, card.name()),
-							CardData.parseCannotBlockParty(tx, card.name()),
-							CardData.parseCannotAttackOrBlock(tx, card.name()),
-							CardData.parseCanAttackTwice(tx, card.name()),
-							card.job(), card.category1(), card.category2(), tx);
+					CardData cd = buildCardData(card);
 					if (card.isLb()) p2Lb.add(cd);
 					else             p2Main.add(cd);
 				}
@@ -1395,6 +1361,111 @@ public class MainWindow {
 				logEntry("P2 deck: " + p2DeckName);
 			}
 		}.execute();
+	}
+
+	/**
+	 * Builds a fully-parsed {@link CardData} from a {@link DeckCardDetail} row. Shared by the
+	 * P1/P2 deck-loading loops and the debug card-spawn tooling so the parse wiring stays in one place.
+	 */
+	static CardData buildCardData(DeckCardDetail card) {
+		String tx = card.textEn();
+		return new CardData(card.imageUrl(), card.name(), card.element(),
+				card.cost(), card.power(), card.type(), card.isLb(), card.lbCost(), card.exBurst(),
+				card.multicard(), CardData.parseTraits(tx),
+				CardData.parseWarpValue(tx), CardData.parseWarpCost(tx),
+				CardData.parsePrimingTarget(tx), CardData.parsePrimingCost(tx),
+				CardData.parseActionAbilities(tx), CardData.parseAutoAbilities(tx),
+				CardData.parseFieldAbilities(tx, card.type()),
+				CardData.parseIfControlBoosts(tx, card.type()),
+				CardData.parseFieldPowerGrants(tx, card.type()),
+				CardData.parseScalingSelfPowerBoosts(tx, card.type(), card.name()),
+				CardData.parseFieldCostReductions(tx, card.type()),
+				CardData.parseSelfCostModifiers(tx),
+				CardData.parseFieldPrimingAnyElements(tx, card.type()),
+				CardData.parseFieldPartyAnyElements(tx, card.type()),
+				CardData.parseWarpCostAnyElement(tx),
+				CardData.parseCanFormPartyAnyElement(tx),
+				CardData.parseFieldCannotBeBlockedByCost(tx, card.name()),
+				CardData.parseCannotBeBlockedByHigherPower(tx, card.name()),
+				CardData.parseCannotBlockAtAll(tx, card.name()),
+				CardData.parseCannotBlockHigherPower(tx, card.name()),
+				CardData.parseCannotBlockParty(tx, card.name()),
+				CardData.parseCannotAttackOrBlock(tx, card.name()),
+				CardData.parseCanAttackTwice(tx, card.name()),
+				card.job(), card.category1(), card.category2(), tx);
+	}
+
+	/** Loads and builds a {@link CardData} for {@code serial} from the card DB, or {@code null} if unknown. */
+	private CardData buildCardDataFromSerial(String serial) {
+		try (DeckDatabase db = new DeckDatabase()) {
+			DeckCardDetail detail = db.getCardDetailBySerial(serial);
+			return detail == null ? null : buildCardData(detail);
+		} catch (java.sql.SQLException e) {
+			JOptionPane.showMessageDialog(frame, "Error loading card " + serial + ":\n" + e.getMessage(),
+					"Debug Spawn", JOptionPane.ERROR_MESSAGE);
+			return null;
+		}
+	}
+
+	// -------------------------------------------------------------------------
+	// Debug: spawn cards onto the CPU (P2) to reproduce CPU behavior on demand
+	// -------------------------------------------------------------------------
+
+	/** True once a game has started (the deck has been dealt). Guards debug spawns that need a live board. */
+	private boolean gameInProgress() {
+		return gameState != null && gameState.getCurrentPhase() != null;
+	}
+
+	/**
+	 * Debug: pick any card from the database and place it directly onto the CPU's field, routed by
+	 * card type (Forward / Backup / Monster). Summons can't sit on the field, so they're added to
+	 * P2's hand instead. The card then plays out under the normal {@link ComputerPlayer} AI.
+	 */
+	private void debugSpawnOnCpuField() {
+		if (!gameInProgress()) {
+			JOptionPane.showMessageDialog(frame, "Start a game first.", "Debug Spawn", JOptionPane.WARNING_MESSAGE);
+			return;
+		}
+		String serial = CardPickerDialog.pick(frame, "Spawn Card on CPU Field");
+		if (serial == null) return;
+		CardData card = buildCardDataFromSerial(serial);
+		if (card == null) {
+			JOptionPane.showMessageDialog(frame, "Card not found: " + serial, "Debug Spawn", JOptionPane.ERROR_MESSAGE);
+			return;
+		}
+		if (card.isForward())      placeP2CardInForwardZone(card);
+		else if (card.isMonster()) placeP2CardInMonsterZone(card);
+		else if (card.isBackup()) {
+			if (!p2HasAvailableBackupSlot()) {
+				JOptionPane.showMessageDialog(frame, "CPU has no free Backup slot.", "Debug Spawn", JOptionPane.WARNING_MESSAGE);
+				return;
+			}
+			placeP2CardInFirstBackupSlot(card);
+		} else { // Summon — can't be placed on the field
+			gameState.getP2Hand().add(card);
+			refreshP2HandCountLabel();
+			logEntry("[Debug] " + card.name() + " is a Summon — added to CPU hand instead of field.");
+			return;
+		}
+		logEntry("[Debug] Spawned " + card.name() + " (" + serial + ") onto CPU field.");
+	}
+
+	/** Debug: pick any card from the database and add it directly to the CPU's hand. */
+	private void debugAddToCpuHand() {
+		if (!gameInProgress()) {
+			JOptionPane.showMessageDialog(frame, "Start a game first.", "Debug Spawn", JOptionPane.WARNING_MESSAGE);
+			return;
+		}
+		String serial = CardPickerDialog.pick(frame, "Add Card to CPU Hand");
+		if (serial == null) return;
+		CardData card = buildCardDataFromSerial(serial);
+		if (card == null) {
+			JOptionPane.showMessageDialog(frame, "Card not found: " + serial, "Debug Spawn", JOptionPane.ERROR_MESSAGE);
+			return;
+		}
+		gameState.getP2Hand().add(card);
+		refreshP2HandCountLabel();
+		logEntry("[Debug] Added " + card.name() + " (" + serial + ") to CPU hand.");
 	}
 
 	// -------------------------------------------------------------------------
@@ -8522,13 +8593,35 @@ public class MainWindow {
 	}
 
 	/**
-	 * Returns {@code true} if the player can afford the CP portion of an action
-	 * ability's cost (element and generic CP only; Dull/S requirements are checked
-	 * separately in the context-menu enable logic).
+	 * Returns {@code true} if the player can afford an action ability's cost: the CP portion
+	 * (element and generic CP) <em>and</em> any "discard X" hand-card cost. Dull/S requirements are
+	 * checked separately in the context-menu enable logic.
 	 */
 	boolean canAffordAbilityCost(ActionAbility ability, boolean isP1) {
+		List<CardData> hand = playerHand(isP1);
+
+		int reservedHandCards = 0;
+		for (DiscardCost dc : ability.discardCosts()) {
+			List<CardData> eligible = new ArrayList<>();
+			for (CardData c : hand) {
+				if (dc.cardName() != null && !CardFilters.meetsCardNameFilter(c, dc.cardName())) continue;
+				if (dc.element()  != null && !c.containsElement(dc.element()))                   continue;
+				if (dc.cardType() != null && !CardFilters.matchesDiscardType(c, dc.cardType()))  continue;
+				if (dc.category() != null && !CardFilters.meetsCategoryFilter(c, dc.category()))  continue;
+				eligible.add(c);
+			}
+			// "each of a different card type" needs that many distinct types among the eligible cards.
+			int satisfiable = eligible.size();
+			if (dc.eachDifferentType()) {
+				java.util.Set<String> types = new java.util.HashSet<>();
+				for (CardData c : eligible) types.add(discardTypeKey(c));
+				satisfiable = types.size();
+			}
+			if (satisfiable < dc.count()) return false;
+			reservedHandCards += dc.count();
+		}
+
 		List<String> cost = ability.cpCost();
-		if (cost.isEmpty()) return true;
 
 		boolean hasGeneric = cost.contains("");
 		LinkedHashMap<String, Integer> needed = new LinkedHashMap<>();
@@ -8544,10 +8637,12 @@ public class MainWindow {
 			available += b;
 			if (b > 0) hasSrc[ei] = true;
 		}
+
 		if (hasGeneric) {
 			available += playerCpByElem(isP1).values().stream().mapToInt(Integer::intValue).sum();
 			for (int ei = 0; ei < elems.length; ei++) available -= playerCpForElem(isP1, elems[ei]);
 		}
+
 		CardData[]  bkpCards  = playerBackupCards(isP1);
 		CardState[] bkpStates = playerBackupStates(isP1);
 		for (int i = 0; i < bkpCards.length; i++) {
@@ -8558,13 +8653,28 @@ public class MainWindow {
 			}
 			if (!matched && hasGeneric) available++;
 		}
-		for (CardData h : playerHand(isP1)) {
+
+		// Each non-Light/Dark hand card yields 2 CP if discarded, but cards reserved for the discard
+		// cost above are already spoken for, so exclude that many from the discard-for-CP pool.
+		int handCpCards = 0;
+		for (CardData h : hand) {
 			if (h.isLightOrDark()) continue;
-			available += 2;
+			handCpCards++;
 			for (int ei = 0; ei < elems.length; ei++) if (h.containsElement(elems[ei])) hasSrc[ei] = true;
 		}
-		for (boolean s : hasSrc) if (!s) return false;
+		available += 2 * Math.max(0, handCpCards - reservedHandCards);
+
+        for (boolean s : hasSrc) if (!s) return false;
 		return available >= total;
+	}
+
+	/** Single-letter card-type key (F/B/M/S) used to count distinct types for "each different type" discard costs. */
+	private static String discardTypeKey(CardData c) {
+		if (c.isForward()) return "F";
+		if (c.isBackup())  return "B";
+		if (c.isMonster()) return "M";
+		if (c.isSummon())  return "S";
+		return "?";
 	}
 
 	/**
