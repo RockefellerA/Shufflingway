@@ -252,6 +252,18 @@ final class AutoAbilityTriggers {
 	);
 
 	/**
+	 * Outgoing damage boost: "If a Forward is dealt damage by your [Element] Summon,
+	 * the damage increases by N instead."
+	 * Checked on the CASTER's side field cards (not the target's side).
+	 * Groups: {@code element}, {@code amount}.
+	 */
+	static final Pattern FA_ELEMENT_SUMMON_DAMAGE_BOOST = Pattern.compile(
+		"(?i)If\\s+a\\s+Forward\\s+is\\s+dealt\\s+damage\\s+by\\s+your\\s+" +
+		"(?<element>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)\\s+Summon,\\s+" +
+		"the\\s+damage\\s+increases\\s+by\\s+(?<amount>\\d+)\\s+instead\\.?"
+	);
+
+	/**
 	 * Field-wide incoming-damage modifier: "If a [Category X | Job Y] Forward [of cost N or less/more]
 	 * [other than Z] you control [other than Z] is dealt damage [less than its power | by a Backup],
 	 * [reduce the damage by N | the damage becomes N] instead."

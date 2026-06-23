@@ -1689,6 +1689,72 @@ final class GameContextImpl implements GameContext {
 				mw.lastCardWasCast = false;
 			}
 
+			@Override public void searchAndCastSummonFreeFromDeck(int maxCost, String elementFilter) {
+				java.util.Deque<CardData> deck = isP1 ? mw.gameState.getP1MainDeck() : mw.gameState.getP2MainDeck();
+				java.util.List<CardData> matches = new java.util.ArrayList<>();
+				for (CardData c : deck) {
+					if (!c.isSummon()) continue;
+					if (maxCost >= 0 && c.cost() > maxCost) continue;
+					if (elementFilter != null && !c.containsElement(elementFilter)) continue;
+					matches.add(c);
+				}
+				if (matches.isEmpty()) {
+					mw.shuffleDeck(isP1);
+					logEntry("Search: no matching " + (elementFilter != null ? elementFilter + " " : "") + "Summon found — effect fizzles");
+					markEffectFizzled();
+					return;
+				}
+				CardData picked;
+				if (isP1) {
+					picked = mw.cardPickerDialog.pickFromDeckSearch(matches);
+				} else {
+					java.util.List<CardData> copy = new java.util.ArrayList<>(matches);
+					java.util.Collections.shuffle(copy);
+					picked = copy.get(0);
+					logEntry("[AI] chose " + picked.name());
+				}
+				if (picked == null) {
+					mw.shuffleDeck(isP1);
+					logEntry("Search: no card selected");
+					return;
+				}
+				if (isP1) mw.gameState.removeFromP1MainDeck(picked);
+				else      deck.remove(picked);
+				mw.shuffleDeck(isP1);
+
+				boolean castIt;
+				if (isP1) {
+					int choice = mw.showEffectOptionDialog(
+							"Cast \"" + picked.name() + "\" without paying its cost?",
+							"Search — Cast Summon?", new Object[]{"Cast", "Put into Break Zone"});
+					castIt = (choice == 0);
+				} else {
+					castIt = true;
+				}
+
+				if (castIt) {
+					if (isP1) {
+						mw.p1CardsCastThisTurn++;
+						mw.p1SummonCastThisTurn = true;
+						for (String j : picked.jobs()) mw.p1CastJobsThisTurn.add(j.toLowerCase());
+						mw.p1CastNamesThisTurn.add(picked.name().toLowerCase());
+					} else {
+						mw.p2CardsCastThisTurn++;
+						mw.p2SummonCastThisTurn = true;
+						for (String j : picked.jobs()) mw.p2CastJobsThisTurn.add(j.toLowerCase());
+						mw.p2CastNamesThisTurn.add(picked.name().toLowerCase());
+					}
+					mw.lastCardWasCast = true;
+					logEntry((isP1 ? "" : "[P2] ") + "Cast \"" + picked.name() + "\" from deck search for free");
+					mw.showSummonOnStack(picked);
+					mw.lastCardWasCast = false;
+				} else {
+					if (isP1) { mw.addToP1BreakZone(picked); mw.refreshP1BreakLabel(); }
+					else       { mw.addToP2BreakZone(picked); mw.refreshP2BreakLabel(); }
+					logEntry((isP1 ? "" : "[P2] ") + "\"" + picked.name() + "\" put into the Break Zone (chose not to cast)");
+				}
+			}
+
 			@Override public void damageTarget(ForwardTarget t, int amount) {
 				if (t.zone() == ForwardTarget.CardZone.BACKUP) { mw.applyDamageToBackup(t.isP1(), t.idx(), amount); return; }
 				if (t.zone() == ForwardTarget.CardZone.MONSTER) { mw.applyDamageToMonster(t.isP1(), t.idx(), amount); return; }

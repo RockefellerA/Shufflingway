@@ -236,6 +236,16 @@ public interface GameContext {
      */
     void castSummonFromHandFree(int maxCost, boolean returnToHandAfterUse);
 
+    /**
+     * Searches the deck for a Summon matching the element and cost filters, then offers
+     * the player a choice to cast it for free.  If the player declines to cast, the Summon
+     * is put into the Break Zone.  The deck is shuffled after the search regardless.
+     *
+     * @param maxCost       cost ceiling; {@code -1} = no restriction
+     * @param elementFilter element the Summon must have (e.g. {@code "Fire"}); {@code null} = any
+     */
+    void searchAndCastSummonFreeFromDeck(int maxCost, String elementFilter);
+
     // ---- Zone-dispatch single-target effects --------------------------------
 
     /**

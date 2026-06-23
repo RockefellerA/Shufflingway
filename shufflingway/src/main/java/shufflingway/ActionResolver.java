@@ -1672,6 +1672,18 @@ public class ActionResolver {
         "\\s+instead\\s+of\\s+putting\\s+it\\s+in\\s+the\\s+Break\\s+Zone[.!]?)?"
     );
 
+    /**
+     * "Search for 1 [Element] Summon [of cost N or less] and cast it without paying [its|the] cost.
+     * If you do not cast it, put the Summon into the Break Zone."
+     * Groups: {@code element} — element name; {@code cost} — optional numeric cost cap.
+     */
+    private static final Pattern SEARCH_AND_CAST_SUMMON_FREE_PATTERN = Pattern.compile(
+        "(?i)search\\s+for\\s+1\\s+(?<element>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)\\s+Summon" +
+        "(?:\\s+of\\s+cost\\s+(?<cost>\\d+)\\s+or\\s+less)?" +
+        "\\s+and\\s+cast\\s+it\\s+without\\s+paying\\s+(?:its|the)\\s+cost[.!]?" +
+        "(?:\\s+If\\s+you\\s+do\\s+not\\s+cast\\s+it,\\s+put\\s+the\\s+Summon\\s+into\\s+the\\s+Break\\s+Zone[.!]?)?"
+    );
+
     private static final Pattern PLAY_FROM_HAND_PATTERN = Pattern.compile(
         "(?i)Play\\s+1\\s+" +
         // Element(s) before any filter (e.g. "Ice" in "Play 1 Ice Forward")
@@ -3441,6 +3453,9 @@ public class ActionResolver {
         result = tryParseCastSummonFromHandFree(effectText, xValue);
         if (result != null) return result;
 
+        result = tryParseSearchAndCastSummonFree(effectText);
+        if (result != null) return result;
+
         result = tryParsePlayFromHand(effectText, source, xValue);
         if (result != null) return result;
 
@@ -3739,6 +3754,7 @@ public class ActionResolver {
         if (tryParseDealPlayerDamageToOpponent(effectText)    != null) return "DealPlayerDamageToOpponent";
         if (tryParseDealPlayerDamageToSelf(effectText)        != null) return "DealPlayerDamageToSelf";
         if (tryParseCastSummonFromHandFree(effectText, 0)     != null) return "CastSummonFromHandFree";
+        if (tryParseSearchAndCastSummonFree(effectText)       != null) return "SearchAndCastSummonFree";
         if (tryParsePlayFromHand(effectText, source, 0)       != null) return "PlayFromHand";
         if (tryParseOpponentSelects(effectText)               != null) return "OpponentSelects";
         if (tryParseOpponentPutsForwardToBreakZone(effectText) != null) return "OpponentPutsForwardToBreakZone";
@@ -4088,6 +4104,7 @@ public class ActionResolver {
         if (tryParseDealPlayerDamageToOpponent(effectText) != null)         return "DealPlayerDamageToOpponent";
         if (tryParseDealPlayerDamageToSelf(effectText) != null)             return "DealPlayerDamageToSelf";
         if (tryParseCastSummonFromHandFree(effectText, 0) != null)          return "CastSummonFromHandFree";
+        if (tryParseSearchAndCastSummonFree(effectText) != null)            return "SearchAndCastSummonFree";
         if (tryParsePlayFromHand(effectText, source, 0) != null)            return "PlayFromHand";
 
         Matcher opSelM = OPPONENT_SELECTS_PATTERN.matcher(effectText);
@@ -8795,6 +8812,19 @@ public class ActionResolver {
             ctx.logEntry("Effect: Cast 1 Summon (" + costDesc + ") from hand for free"
                     + (returnToHand ? " (return to hand after use)" : ""));
             ctx.castSummonFromHandFree(maxCost, returnToHand);
+        };
+    }
+
+    private static Consumer<GameContext> tryParseSearchAndCastSummonFree(String text) {
+        Matcher m = SEARCH_AND_CAST_SUMMON_FREE_PATTERN.matcher(text.trim());
+        if (!m.find()) return null;
+        String element = m.group("element");
+        String costStr = m.group("cost");
+        int maxCost = costStr != null ? Integer.parseInt(costStr) : -1;
+        return ctx -> {
+            ctx.logEntry("Effect: Search deck for " + element + " Summon"
+                    + (maxCost >= 0 ? " (cost " + maxCost + " or less)" : "") + ", cast for free or Break Zone");
+            ctx.searchAndCastSummonFreeFromDeck(maxCost, element);
         };
     }
 

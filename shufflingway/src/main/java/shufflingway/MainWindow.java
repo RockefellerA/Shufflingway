@@ -105,7 +105,7 @@ import shufflingway.net.GameConnection;
 public class MainWindow {
 
 	JFrame frame;
-	private shufflingway.dialog.CardPickerDialog cardPickerDialog;
+	shufflingway.dialog.CardPickerDialog cardPickerDialog;
 
 	final AutoAbilityTriggers autoAbilityTriggers = new AutoAbilityTriggers(this);
 
@@ -3761,7 +3761,7 @@ public class MainWindow {
 		}
 	}
 
-	private void shuffleDeck(boolean isP1) {
+	void shuffleDeck(boolean isP1) {
 		Deque<CardData> deck = isP1 ? gameState.getP1MainDeck() : gameState.getP2MainDeck();
 		List<CardData> list = new ArrayList<>(deck);
 		Collections.shuffle(list);
@@ -9428,6 +9428,9 @@ public class MainWindow {
 		if (globalForwardIncomingDmgIncrease > 0)
 			amount += globalForwardIncomingDmgIncrease;
 
+		// Outgoing damage boost from caster's side field cards (e.g. Caetuna — Fire Summon +1000)
+		if (fromAbility) amount = applyCasterSideElementSummonDamageBoosts(amount, isP1);
+
 		// Source-based nullification (these block damage by type of source, not by reducing amount)
 		if (fromAbility) {
 			// Nullify all ability/summon damage
@@ -9622,6 +9625,34 @@ public class MainWindow {
 					logEntry(damaged.name() + " — damage set to " + fixed + " instead [" + protector.name() + "]");
 					amount = fixed;
 				}
+			}
+		}
+		return amount;
+	}
+
+	/**
+	 * Scans the CASTER's side field cards for {@link AutoAbilityTriggers#FA_ELEMENT_SUMMON_DAMAGE_BOOST}
+	 * abilities (e.g. Caetuna: "Fire Summon damage +1000") and applies any that match the current
+	 * resolving Summon's element.  {@code targetIsP1} is the owner of the Forward being damaged.
+	 */
+	private int applyCasterSideElementSummonDamageBoosts(int amount, boolean targetIsP1) {
+		if (!currentResolutionIsSummon || currentSummonSource == null) return amount;
+		boolean casterIsP1 = currentSummonSourceIsP1;
+		if (casterIsP1 == targetIsP1) return amount;  // Only boosts damage to the opposing side
+		List<CardData> casterField = new ArrayList<>(casterIsP1 ? p1ForwardCards : p2ForwardCards);
+		for (CardData bkp : casterIsP1 ? p1BackupCards : p2BackupCards)
+			if (bkp != null) casterField.add(bkp);
+		for (CardData booster : casterField) {
+			for (FieldAbility fa : booster.fieldAbilities()) {
+				java.util.regex.Matcher m = AutoAbilityTriggers.FA_ELEMENT_SUMMON_DAMAGE_BOOST.matcher(fa.effectText());
+				if (!m.find()) continue;
+				String elem = m.group("element");
+				if (!currentSummonSource.containsElement(elem)) continue;
+				int boost = Integer.parseInt(m.group("amount"));
+				int before = amount;
+				amount += boost;
+				logEntry(booster.name() + " — " + elem + " Summon damage increased by " + boost
+						+ " (" + before + " → " + amount + ")");
 			}
 		}
 		return amount;
