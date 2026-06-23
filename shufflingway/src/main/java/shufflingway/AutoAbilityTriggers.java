@@ -2366,11 +2366,13 @@ final class AutoAbilityTriggers {
 			case FORWARD -> mw.p1ForwardCards.get(t.idx());
 			case BACKUP  -> mw.p1BackupCards[t.idx()];
 			case MONSTER -> mw.p1MonsterCards.get(t.idx());
+			default      -> null;
 		};
 		return switch (t.zone()) {
 			case FORWARD -> mw.p2ForwardCards.get(t.idx());
 			case BACKUP  -> mw.p2BackupCards[t.idx()];
 			case MONSTER -> mw.p2MonsterCards.get(t.idx());
+			default      -> null;
 		};
 	}
 

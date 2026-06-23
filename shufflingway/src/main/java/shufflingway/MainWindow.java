@@ -9954,6 +9954,7 @@ public class MainWindow {
 			case FORWARD -> t.isP1() ? p1ForwardLabels.get(t.idx()) : p2ForwardLabels.get(t.idx());
 			case BACKUP  -> t.isP1() ? p1BackupLabels[t.idx()]      : p2BackupLabels[t.idx()];
 			case MONSTER -> t.isP1() ? p1MonsterLabels.get(t.idx()) : p2MonsterLabels.get(t.idx());
+			default      -> null;
 		};
 	}
 
@@ -9963,6 +9964,7 @@ public class MainWindow {
 			case FORWARD -> t.isP1() ? p1ForwardStates.get(t.idx()) : p2ForwardStates.get(t.idx());
 			case BACKUP  -> t.isP1() ? p1BackupStates[t.idx()]      : p2BackupStates[t.idx()];
 			case MONSTER -> t.isP1() ? p1MonsterStates.get(t.idx()) : p2MonsterStates.get(t.idx());
+			default      -> null;
 		};
 	}
 
@@ -11322,6 +11324,7 @@ public class MainWindow {
 			case FORWARD -> isP1 ? effectiveP1ForwardPower(idx) : effectiveP2ForwardPower(idx);
 			case MONSTER -> isP1 ? p1MonsterForwardPower(idx)   : p2MonsterForwardPower(idx);
 			case BACKUP  -> isP1 ? p1BackupForwardPower(idx)    : p2BackupForwardPower(idx);
+			default      -> 0;
 		};
 	}
 
@@ -11333,6 +11336,7 @@ public class MainWindow {
 				CardData c = (isP1 ? p1BackupCards : p2BackupCards)[idx];
 				yield (isP1 ? p1BackupForwardDamage : p2BackupForwardDamage).getOrDefault(c, 0);
 			}
+			default -> 0;
 		};
 	}
 
@@ -11369,6 +11373,7 @@ public class MainWindow {
 			case FORWARD -> isP1 ? effectiveP1HasTrait(idx, trait) : effectiveP2HasTrait(idx, trait);
 			case MONSTER -> effectiveMonsterHasTrait(isP1, idx, trait);
 			case BACKUP  -> effectiveBackupHasTrait(isP1, idx, trait);
+			default      -> false;
 		};
 	}
 
