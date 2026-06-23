@@ -1004,6 +1004,12 @@ class ComputerPlayer {
 					&& playedTurn == mw.gameState.getTurnNumber()
 					&& ActionResolver.isBecomeForwardUntilEotEffect(ability.effectText(), card))
 				continue;
+			// Don't spend hand cards on a "discard → self power boost until EOT" ability unless
+			// a P1 Forward already outclasses the source, making the boost potentially life-saving.
+			if (!ability.discardCosts().isEmpty()
+					&& ActionResolver.isTempSelfPowerBoostEffect(ability.effectText(), card)
+					&& !p1ThreatensCard(card))
+				continue;
 
 			List<Integer>        backupDullIndices = new ArrayList<>();
 			Map<Integer, String> backupElems       = new LinkedHashMap<>();
@@ -1032,6 +1038,34 @@ class ComputerPlayer {
 			return true;
 		}
 		return false;
+	}
+
+	/**
+	 * Returns true if any P1 Forward (or temp-forward Monster) has effective power strictly
+	 * greater than {@code card}'s current effective power — i.e. {@code card} would lose a
+	 * combat with at least one P1 attacker without help.  Used to decide whether a
+	 * discard-to-power-boost ability is worth activating.
+	 */
+	private boolean p1ThreatensCard(CardData card) {
+		int sourcePower = p2EffectivePowerOf(card);
+		for (int i = 0; i < mw.p1ForwardCards.size(); i++) {
+			if (mw.p1ForwardCards.get(i) == null) continue;
+			if (mw.effectiveP1ForwardPower(i) > sourcePower) return true;
+		}
+		for (int i = 0; i < mw.p1MonsterCards.size(); i++) {
+			if (mw.p1MonsterCards.get(i) == null || !mw.isP1MonsterTemporarilyForward(i)) continue;
+			if (mw.effectiveP1MonsterPower(i) > sourcePower) return true;
+		}
+		return false;
+	}
+
+	/** Effective power of a P2 field card (Forward or Monster); falls back to base power. */
+	private int p2EffectivePowerOf(CardData card) {
+		for (int i = 0; i < mw.p2ForwardCards.size(); i++)
+			if (mw.p2ForwardCards.get(i) == card) return mw.effectiveP2ForwardPower(i);
+		for (int i = 0; i < mw.p2MonsterCards.size(); i++)
+			if (mw.p2MonsterCards.get(i) == card) return mw.effectiveP2MonsterPower(i);
+		return card.power();
 	}
 
 	/** True if P1 has at least one Forward (or temp-forward Monster) on the field. */

@@ -8836,6 +8836,8 @@ public class MainWindow {
 			if (!autoAbilityTriggers.counterCostSatisfied(cc, source)) return false;
 		for (DullForwardCost dfc : ability.dullForwardCosts())
 			if (!autoAbilityTriggers.dullForwardCostSatisfied(dfc, isP1)) return false;
+		for (DiscardCost dc : ability.discardCosts())
+			if (!autoAbilityTriggers.discardCostSatisfied(dc, isP1)) return false;
 		return canAffordAbilityCost(ability, isP1);
 	}
 

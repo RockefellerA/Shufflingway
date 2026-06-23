@@ -10124,6 +10124,20 @@ public class ActionResolver {
         return tryParseBecomeForwardUntilEot(text, source) != null;
     }
 
+    /**
+     * Returns {@code true} when {@code text} is a standalone "source gains +N power until end of
+     * turn" self-boost (named subject, not a pronoun like "it"/"they").  Used by the CPU to avoid
+     * wasting hand cards on a power boost that provides no combat benefit.
+     */
+    static boolean isTempSelfPowerBoostEffect(String text, CardData source) {
+        if (source == null) return false;
+        Matcher m = SELF_POWER_BOOST.matcher(text);
+        if (!m.find()) return false;
+        String subject = m.group("selfsubject").trim();
+        if (subject.equalsIgnoreCase("it") || subject.equalsIgnoreCase("they")) return false;
+        return subject.equalsIgnoreCase(source.name());
+    }
+
     /** Returns true when {@code text} is a "gain 《C》 for each CP paid as X" effect. */
     static boolean isGainCrystalPerX(String text) {
         return GAIN_CRYSTAL_PER_X.matcher(text).find();

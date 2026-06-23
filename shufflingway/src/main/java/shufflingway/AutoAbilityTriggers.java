@@ -2198,6 +2198,19 @@ final class AutoAbilityTriggers {
 		return eligible >= dfc.count();
 	}
 
+	boolean discardCostSatisfied(DiscardCost dc, boolean isP1) {
+		List<CardData> hand = mw.playerHand(isP1);
+		int eligible = 0;
+		for (CardData c : hand) {
+			if (dc.cardName() != null && !meetsCardNameFilter(c, dc.cardName())) continue;
+			if (dc.element()  != null && !c.containsElement(dc.element()))       continue;
+			if (dc.cardType() != null && !matchesDiscardType(c, dc.cardType()))  continue;
+			if (dc.category() != null && !meetsCategoryFilter(c, dc.category())) continue;
+			if (++eligible >= dc.count()) return true;
+		}
+		return false;
+	}
+
 	private boolean dfcCardMatches(DullForwardCost dfc, CardData card) {
 		if (dfc.cardName() != null && !card.name().equalsIgnoreCase(dfc.cardName())) return false;
 		if (dfc.element()  != null && !dfc.element().isEmpty() && !card.containsElement(dfc.element())) return false;
