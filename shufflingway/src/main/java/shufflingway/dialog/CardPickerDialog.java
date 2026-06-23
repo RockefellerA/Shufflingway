@@ -1069,7 +1069,7 @@ public class CardPickerDialog {
 
         JButton confirmBtn = new JButton("Confirm");
         confirmBtn.setFont(FontLoader.loadPixelNESFont(11));
-        confirmBtn.setEnabled(upTo);
+        confirmBtn.setEnabled(false);
 
         javax.swing.border.Border normalBorder   = BorderFactory.createLineBorder(new Color(100, 100, 100), 2);
         javax.swing.border.Border selectedBorder = BorderFactory.createLineBorder(Color.YELLOW, 3);
@@ -1118,7 +1118,7 @@ public class CardPickerDialog {
                         sel.add(fi);
                         imgLbl.setBorder(selectedBorder);
                     }
-                    confirmBtn.setEnabled(upTo || sel.size() == maxCount);
+                    confirmBtn.setEnabled(upTo ? !sel.isEmpty() : sel.size() == maxCount);
                 }
             };
             imgLbl.addMouseListener(cardListener);
