@@ -125,6 +125,8 @@ public class FieldAbilityParsingTest {
         if (CardData.parseCannotBlockParty(fa.effectText(), source.name())) return true;
         if (CardData.parseCannotAttackOrBlock(fa.effectText(), source.name())) return true;
         if (CardData.parseCanAttackTwice(fa.effectText(), source.name())) return true;
+        if (CardData.isHasJobsOfForwardsAbility(fa.effectText())) return true;
+        if (CardData.parseIfSelfJobCountTraitGrantThreshold(fa.effectText(), source.name()) >= 0) return true;
         return CardData.isBackupCpAbility(fa.effectText());
     }
 

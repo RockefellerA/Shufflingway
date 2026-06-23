@@ -3168,6 +3168,12 @@ public record CardData(
         "(?i)^.+?\\s+has\\s+the\\s+Jobs\\s+of\\s+the\\s+Forwards\\s+you\\s+control\\.?$"
     );
 
+    /** Matches "If [name] has N Jobs? or more, [name] gains [traits]." */
+    static final Pattern IF_SELF_JOB_COUNT_TRAIT_GRANT = Pattern.compile(
+        "(?i)^If\\s+(?<n1>.+?)\\s+has\\s+(?<n>\\d+)\\s+Jobs?\\s+or\\s+more,\\s+(?<n2>.+?)\\s+gains?\\s+" +
+        "(?<traits>(?:(?:Haste|First\\s+Strike|Brave|Back\\s+Attack)(?:\\s*(?:,|and)\\s*)?)+)[.!]?\\s*$"
+    );
+
     /**
      * Matches "[CardName] is also Card Name X [and Card Name Y ...] in all situations."
      * Group {@code names} captures the raw "Card Name A [and Card Name B]" list.
@@ -3683,6 +3689,39 @@ public record CardData(
         for (FieldAbility fa : fieldAbilities())
             if (HAS_JOBS_OF_FORWARDS_PATTERN.matcher(fa.effectText()).matches()) return true;
         return false;
+    }
+
+    /** Returns {@code true} when {@code text} is a "[name] has the Jobs of the Forwards you control." ability. */
+    public static boolean isHasJobsOfForwardsAbility(String text) {
+        return HAS_JOBS_OF_FORWARDS_PATTERN.matcher(text.trim()).matches();
+    }
+
+    /**
+     * Returns the job-count threshold for a "If [cardName] has N Jobs or more, gains [traits]" ability,
+     * or -1 if the text does not match or the card name doesn't match.
+     */
+    public static int parseIfSelfJobCountTraitGrantThreshold(String text, String cardName) {
+        Matcher m = IF_SELF_JOB_COUNT_TRAIT_GRANT.matcher(text.trim());
+        if (!m.matches()) return -1;
+        if (!m.group("n1").trim().equalsIgnoreCase(cardName)) return -1;
+        if (!m.group("n2").trim().equalsIgnoreCase(cardName)) return -1;
+        return Integer.parseInt(m.group("n"));
+    }
+
+    /**
+     * Returns the traits granted by a "If [cardName] has N Jobs or more, gains [traits]" ability.
+     * Assumes the text already matches {@link #IF_SELF_JOB_COUNT_TRAIT_GRANT}.
+     */
+    public static EnumSet<Trait> parseIfSelfJobCountTraitGrantTraits(String text) {
+        Matcher m = IF_SELF_JOB_COUNT_TRAIT_GRANT.matcher(text.trim());
+        if (!m.matches()) return EnumSet.noneOf(Trait.class);
+        String traitsText = m.group("traits");
+        EnumSet<Trait> result = EnumSet.noneOf(Trait.class);
+        if (ICB_EFFECT_HASTE.matcher(traitsText).find())        result.add(Trait.HASTE);
+        if (ICB_EFFECT_BRAVE.matcher(traitsText).find())        result.add(Trait.BRAVE);
+        if (ICB_EFFECT_FIRST_STRIKE.matcher(traitsText).find()) result.add(Trait.FIRST_STRIKE);
+        if (ICB_EFFECT_BACK_ATTACK.matcher(traitsText).find())  result.add(Trait.BACK_ATTACK);
+        return result;
     }
 
     /**
