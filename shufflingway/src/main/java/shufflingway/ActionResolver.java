@@ -10089,6 +10089,11 @@ public class ActionResolver {
         };
     }
 
+    /** Returns {@code true} when {@code text} is an "until EOT, becomes a Forward" action-ability effect. */
+    static boolean isBecomeForwardUntilEotEffect(String text, CardData source) {
+        return tryParseBecomeForwardUntilEot(text, source) != null;
+    }
+
     /** Returns true when {@code text} is a "gain 《C》 for each CP paid as X" effect. */
     static boolean isGainCrystalPerX(String text) {
         return GAIN_CRYSTAL_PER_X.matcher(text).find();

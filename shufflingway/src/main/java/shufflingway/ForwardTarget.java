@@ -10,5 +10,5 @@ package shufflingway;
 public record ForwardTarget(boolean isP1, int idx, CardZone zone) {
 
     /** The type of field zone a targeted card occupies. */
-    public enum CardZone { FORWARD, BACKUP, MONSTER }
+    public enum CardZone { FORWARD, BACKUP, MONSTER, BREAK_ZONE }
 }

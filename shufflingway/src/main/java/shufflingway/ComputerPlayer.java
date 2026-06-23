@@ -998,6 +998,12 @@ class ComputerPlayer {
 			if (!mw.canActivateAbility(ability, isFrozen, state, playedTurn, card, false)) continue;
 			if (ActionResolver.parse(ability.effectText(), card) == null) continue;
 			if (abilityHarmsChosenTarget(ability) && !p1HasAnyForward()) continue;
+			// Don't waste a once-per-turn become-Forward ability on a Monster played this turn:
+			// the resulting Forward can't attack yet, so hold it for blocking on P1's turn instead.
+			if (card.isMonster() && ability.oncePerTurn()
+					&& playedTurn == mw.gameState.getTurnNumber()
+					&& ActionResolver.isBecomeForwardUntilEotEffect(ability.effectText(), card))
+				continue;
 
 			List<Integer>        backupDullIndices = new ArrayList<>();
 			Map<Integer, String> backupElems       = new LinkedHashMap<>();

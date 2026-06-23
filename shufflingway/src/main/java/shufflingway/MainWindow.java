@@ -10388,11 +10388,16 @@ public class MainWindow {
 		lbl.setBorder(BorderFactory.createEmptyBorder());
 		lbl.addMouseListener(new MouseAdapter() {
 			@Override public void mousePressed(MouseEvent e) {
-				if (lbl.getIcon() != null && SwingUtilities.isRightMouseButton(e))
-					showP2MonsterContextMenu(idx, lbl, e);
+				if (lbl.getIcon() != null && SwingUtilities.isRightMouseButton(e)) {
+					int currentIdx = p2MonsterLabels.indexOf(lbl);
+					if (currentIdx >= 0) showP2MonsterContextMenu(currentIdx, lbl, e);
+				}
 			}
 			@Override public void mouseEntered(MouseEvent e) {
-				if (lbl.getIcon() != null) showZoomAt(p2MonsterUrls.get(idx));
+				if (lbl.getIcon() != null) {
+					int currentIdx = p2MonsterLabels.indexOf(lbl);
+					if (currentIdx >= 0) showZoomAt(p2MonsterUrls.get(currentIdx));
+				}
 			}
 			@Override public void mouseExited(MouseEvent e) { hideZoom(); }
 		});

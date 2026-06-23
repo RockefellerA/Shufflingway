@@ -1024,10 +1024,7 @@ final class GameContextImpl implements GameContext {
 					if (!meetsCategoryFilter(card, categoryFilter)) continue;
 					if (excludeName != null && excludeName.equalsIgnoreCase(card.name())) continue;
 					if (withoutMulticard && card.multicard()) continue;
-					ForwardTarget.CardZone cz = card.isBackup()  ? ForwardTarget.CardZone.BACKUP
-					                         : card.isMonster() ? ForwardTarget.CardZone.MONSTER
-					                         :                    ForwardTarget.CardZone.FORWARD;
-					eligible.add(new ForwardTarget(!opponentZone, i, cz));
+					eligible.add(new ForwardTarget(!opponentZone, i, ForwardTarget.CardZone.BREAK_ZONE));
 				}
 				String costLabel  = formatCostFilterLabel(costVal, costCmp);
 				String powerLabel = powerVal >= 0 ? " of power " + powerVal + (powerCmp != null ? " or " + powerCmp : "") : "";
@@ -1954,6 +1951,7 @@ final class GameContextImpl implements GameContext {
 					case MONSTER -> t.isP1()
 							? (t.idx() < mw.p1MonsterStates.size() ? mw.p1MonsterStates.get(t.idx()) : null)
 							: (t.idx() < mw.p2MonsterStates.size() ? mw.p2MonsterStates.get(t.idx()) : null);
+					default -> null;
 				};
 				if (state == null) return;
 				if (state == CardState.DULL) activateTarget(t);
@@ -1987,6 +1985,7 @@ final class GameContextImpl implements GameContext {
 					case MONSTER -> t.isP1()
 							? (t.idx() < mw.p1MonsterStates.size() ? mw.p1MonsterStates.get(t.idx()) : null)
 							: (t.idx() < mw.p2MonsterStates.size() ? mw.p2MonsterStates.get(t.idx()) : null);
+					default -> null;
 				};
 				if (state == null) return;
 				CardData card = mw.autoAbilityTriggers.fieldCardData(t);
@@ -2095,6 +2094,15 @@ final class GameContextImpl implements GameContext {
 						JLabel lbl = (t.isP1() ? mw.p1MonsterLabels : mw.p2MonsterLabels).remove(i);
 						JPanel panel = t.isP1() ? mw.p1MonsterPanel : mw.p2MonsterPanel;
 						panel.remove(lbl); panel.revalidate(); panel.repaint();
+					}
+					case BREAK_ZONE -> {
+						int i = t.idx();
+						List<CardData> bz = t.isP1() ? mw.gameState.getP1BreakZone() : mw.gameState.getP2BreakZone();
+						if (i >= bz.size()) return;
+						CardData c = bz.remove(i);
+						logEntry((t.isP1() ? "" : "[P2] ") + c.name() + " → Removed From Game (from Break Zone)");
+						if (t.isP1()) { mw.gameState.addToP1PermanentRfp(c); mw.refreshP1BreakLabel(); mw.refreshP1WarpZoneUI(); }
+						else          { mw.gameState.addToP2PermanentRfp(c); mw.refreshP2BreakLabel(); mw.refreshP2WarpZoneUI(); }
 					}
 				}
 			}
