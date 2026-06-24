@@ -9189,6 +9189,10 @@ public class MainWindow {
 			List<CardData> dmgZone = isP1 ? gameState.getP1DamageZone() : gameState.getP2DamageZone();
 			if (dmgZone.size() < icb.minDamageReceived()) return false;
 		}
+		if (icb.maxOpponentHandSize() > 0) {
+			int oppHandSize = (isP1 ? gameState.getP2Hand() : gameState.getP1Hand()).size();
+			if (oppHandSize > icb.maxOpponentHandSize()) return false;
+		}
 		return true;
 	}
 

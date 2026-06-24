@@ -1752,6 +1752,15 @@ public record CardData(
     );
 
     /**
+     * "If your opponent has N cards or less in his/her hand, [target] gains [effects]."
+     * Groups: {@code count}, {@code target}, {@code effects}.
+     */
+    private static final Pattern IF_OPP_HAND_BOOST = Pattern.compile(
+        "(?i)^If\\s+your\\s+opponent\\s+has\\s+(?<count>\\d+)\\s+cards?\\s+or\\s+less\\s+in\\s+" +
+        "(?:his/her|their)\\s+hand,\\s+(?<target>.+?)\\s+gains?\\s+(?<effects>.+?)\\.?\\s*$"
+    );
+
+    /**
      * "If you have a 《C》, [target] gains [effects]."
      * Groups: {@code target}, {@code effects}.
      */
@@ -1994,6 +2003,22 @@ public record CardData(
                     FieldPowerGrant targetFilter = parseIcbTargetFilter(targetName);
                     result.add(new IfControlBoost(List.of(), "", targetName, targetFilter,
                             powerBonus, java.util.EnumSet.noneOf(Trait.class), "", false, false, false, null, 0, minDmg, false));
+                }
+                continue;
+            }
+
+            // "If your opponent has N cards or less in his/her hand, [target] gains [effects]."
+            Matcher oppHandM = IF_OPP_HAND_BOOST.matcher(seg);
+            if (oppHandM.find()) {
+                int maxHand       = Integer.parseInt(oppHandM.group("count"));
+                String targetName = oppHandM.group("target").trim();
+                String effectsStr = oppHandM.group("effects").trim();
+                Matcher pwrM = IF_CTRL_EFFECT_POWER.matcher(effectsStr);
+                int powerBonus = pwrM.find() ? Integer.parseInt(pwrM.group(1)) : 0;
+                if (powerBonus != 0) {
+                    FieldPowerGrant targetFilter = parseIcbTargetFilter(targetName);
+                    result.add(new IfControlBoost(List.of(), "", targetName, targetFilter,
+                            powerBonus, java.util.EnumSet.noneOf(Trait.class), "", false, false, false, null, 0, 0, false, maxHand));
                 }
                 continue;
             }

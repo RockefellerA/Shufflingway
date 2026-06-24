@@ -33,13 +33,25 @@ public record IfControlBoost(
         int[]     cannotBeBlockedByCost,      // null = no restriction; {costVal, 1} = "or more", {costVal, 0} = "or less"
         int       minRemovedFromGame,         // 0 = unused; >0 = condition requires this many cards total in both RFP zones
         int       minDamageReceived,          // 0 = unused; >0 = condition requires the controlling player to have taken this many damage points
-        boolean   instead                     // true = this effect replaces (rather than stacks with) the base field effect
+        boolean   instead,                    // true = this effect replaces (rather than stacks with) the base field effect
+        int       maxOpponentHandSize         // 0 = unused; >0 = condition requires opponent hand size to be ≤ this value
 ) {
     public IfControlBoost {
         conditions    = List.copyOf(conditions);
         grantedTraits = Set.copyOf(grantedTraits);
         if (exceptCardName == null) exceptCardName = "";
         if (specialText    == null) specialText    = "";
+    }
+
+    /** Compatibility constructor preserving the prior 14-arg signature; defaults maxOpponentHandSize to 0. */
+    public IfControlBoost(List<ControlCondition> conditions, String exceptCardName,
+            String targetCardName, FieldPowerGrant targetFilter, int powerBonus,
+            Set<CardData.Trait> grantedTraits, String specialText,
+            boolean cannotBeChosenBySummons, boolean cannotBeChosenByAbilities, boolean cannotBeBlocked,
+            int[] cannotBeBlockedByCost, int minRemovedFromGame, int minDamageReceived, boolean instead) {
+        this(conditions, exceptCardName, targetCardName, targetFilter, powerBonus, grantedTraits,
+                specialText, cannotBeChosenBySummons, cannotBeChosenByAbilities, cannotBeBlocked,
+                cannotBeBlockedByCost, minRemovedFromGame, minDamageReceived, instead, 0);
     }
 
     /** Compatibility constructor preserving the prior 12-arg signature; defaults minDamageReceived/instead to 0/false. */
@@ -50,7 +62,7 @@ public record IfControlBoost(
             int[] cannotBeBlockedByCost, int minRemovedFromGame) {
         this(conditions, exceptCardName, targetCardName, targetFilter, powerBonus, grantedTraits,
                 specialText, cannotBeChosenBySummons, cannotBeChosenByAbilities, cannotBeBlocked,
-                cannotBeBlockedByCost, minRemovedFromGame, 0, false);
+                cannotBeBlockedByCost, minRemovedFromGame, 0, false, 0);
     }
 
     /** Compatibility constructor preserving the prior 11-arg signature; defaults minRemovedFromGame/minDamageReceived/instead to 0/0/false. */
@@ -61,7 +73,7 @@ public record IfControlBoost(
             int[] cannotBeBlockedByCost) {
         this(conditions, exceptCardName, targetCardName, targetFilter, powerBonus, grantedTraits,
                 specialText, cannotBeChosenBySummons, cannotBeChosenByAbilities, cannotBeBlocked,
-                cannotBeBlockedByCost, 0, 0, false);
+                cannotBeBlockedByCost, 0, 0, false, 0);
     }
 
     /** Compatibility constructor preserving the prior 10-arg signature; defaults cannotBeBlockedByCost/instead to null/false. */
@@ -70,7 +82,7 @@ public record IfControlBoost(
             Set<CardData.Trait> grantedTraits, String specialText,
             boolean cannotBeChosenBySummons, boolean cannotBeChosenByAbilities, boolean cannotBeBlocked) {
         this(conditions, exceptCardName, targetCardName, targetFilter, powerBonus, grantedTraits,
-                specialText, cannotBeChosenBySummons, cannotBeChosenByAbilities, cannotBeBlocked, null, 0, 0, false);
+                specialText, cannotBeChosenBySummons, cannotBeChosenByAbilities, cannotBeBlocked, null, 0, 0, false, 0);
     }
 
     /** Compatibility constructor preserving the prior 9-arg signature; defaults cannotBeBlocked/Cost/instead to false/null/false. */
@@ -79,7 +91,7 @@ public record IfControlBoost(
             Set<CardData.Trait> grantedTraits, String specialText,
             boolean cannotBeChosenBySummons, boolean cannotBeChosenByAbilities) {
         this(conditions, exceptCardName, targetCardName, targetFilter, powerBonus, grantedTraits,
-                specialText, cannotBeChosenBySummons, cannotBeChosenByAbilities, false, null, 0, 0, false);
+                specialText, cannotBeChosenBySummons, cannotBeChosenByAbilities, false, null, 0, 0, false, 0);
     }
 
     /** Compatibility constructor preserving the prior 8-arg signature; uses name-target mode, defaults instead to false. */
@@ -87,7 +99,7 @@ public record IfControlBoost(
             String targetCardName, int powerBonus, Set<CardData.Trait> grantedTraits,
             String specialText, boolean cannotBeChosenBySummons, boolean cannotBeChosenByAbilities) {
         this(conditions, exceptCardName, targetCardName, null, powerBonus, grantedTraits,
-                specialText, cannotBeChosenBySummons, cannotBeChosenByAbilities, false, null, 0, 0, false);
+                specialText, cannotBeChosenBySummons, cannotBeChosenByAbilities, false, null, 0, 0, false, 0);
     }
 
     @Override
@@ -117,6 +129,7 @@ public record IfControlBoost(
             sb.append(" not-blocked-cost").append(cannotBeBlockedByCost[0])
               .append(cannotBeBlockedByCost[1] == 1 ? "+" : "-");
         if (instead)                   sb.append(" instead");
+        if (maxOpponentHandSize > 0)   sb.append(" oppHand<=").append(maxOpponentHandSize);
         sb.append(']');
         return sb.toString();
     }
