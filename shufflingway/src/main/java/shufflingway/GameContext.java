@@ -926,6 +926,14 @@ public interface GameContext {
     void selectFromOpponentHandAndRfp(int count);
 
     /**
+     * Reveals the opponent's hand, lets the ability user optionally select 1 card to remove from
+     * the game permanently; if a card is removed, the opponent then draws 1 card.
+     * (Zidane-style: "You may select 1 card. If you do so, remove it from the game and your
+     * opponent draws 1 card.")
+     */
+    void revealHandOptPickRfpOpponentDraws();
+
+    /**
      * Forces the ability-user's opponent to remove {@code count} cards from their own
      * hand from the game permanently.  The opponent (not the ability user) chooses which.
      * When P1 is the ability user, the P2 AI picks automatically.

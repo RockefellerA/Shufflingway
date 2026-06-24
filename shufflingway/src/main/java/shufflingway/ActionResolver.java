@@ -429,6 +429,18 @@ public class ActionResolver {
     );
 
     /**
+     * Matches "Your opponent reveals their hand. You may select 1 card from their hand.
+     * If you do so, remove it from the game and your opponent draws 1 card."
+     * (Zidane-style: optional select, you remove it, opponent draws.)
+     */
+    private static final Pattern REVEAL_HAND_OPT_PICK_RFP_OPP_DRAW = Pattern.compile(
+        "(?i)Your\\s+opponent\\s+reveals?\\s+(?:his/her|his|her|their)\\s+hand[.!]\\s+" +
+        "You\\s+may\\s+select\\s+1\\s+card\\s+from\\s+(?:his/her|his|her|their)\\s+hand[.!]\\s+" +
+        "If\\s+you\\s+do\\s+so,\\s+remove\\s+it\\s+from\\s+(?:the\\s+)?game\\s+" +
+        "and\\s+your\\s+opponent\\s+draws\\s+1\\s+card[.!]?"
+    );
+
+    /**
      * Matches "Your opponent removes N card(s) in his/her/their hand from the game."
      * (opponent chooses which cards — not random).  Group 1 — count.
      */
@@ -3112,6 +3124,11 @@ public class ActionResolver {
         result = tryParseSelectFollowingActions(effectText, source);
         if (result != null) return result;
 
+        // Must precede tryParseWhenYouDoSoSequence: Zidane-style text contains "If you do so"
+        // which that parser would split, causing it to match first via OPPONENT_DRAW on the tail.
+        result = tryParseRevealHandOptPickRfpOppDraw(effectText);
+        if (result != null) return result;
+
         result = tryParseWhenYouDoSoSequence(effectText, source, xValue);
         if (result != null) return result;
 
@@ -3718,6 +3735,7 @@ public class ActionResolver {
         if (tryParseOppFwdsCannotBlockInferiorPower(effectText)    != null) return "OppFwdsCannotBlockInferiorPower";
         if (tryParseOppFwdsLoseAllAbilitiesEot(effectText)         != null) return "OppFwdsLoseAllAbilitiesEot";
         if (tryParseStandaloneCannotBeBlocked(effectText, source) != null) return "StandaloneCannotBeBlocked";
+        if (tryParseRevealHandOptPickRfpOppDraw(effectText)    != null) return "RevealHandOptPickRfpOppDraw";
         if (tryParseRevealSelectHandRfp(effectText)            != null) return "RevealSelectHandRfp";
         if (tryParseOpponentRandomHandRfp(effectText)            != null) return "OpponentRandomHandRfp";
         if (tryParseOpponentRandomHandToBottomDeck(effectText)   != null) return "OpponentRandomHandToBottomDeck";
@@ -4066,6 +4084,7 @@ public class ActionResolver {
         if (tryParseOppFwdsCannotBlockInferiorPower(effectText)    != null) return "OppFwdsCannotBlockInferiorPower";
         if (tryParseOppFwdsLoseAllAbilitiesEot(effectText)         != null) return "OppFwdsLoseAllAbilitiesEot";
         if (tryParseStandaloneCannotBeBlocked(effectText, source) != null) return "StandaloneCannotBeBlocked";
+        if (tryParseRevealHandOptPickRfpOppDraw(effectText) != null)        return "RevealHandOptPickRfpOppDraw";
         if (tryParseRevealSelectHandRfp(effectText) != null)               return "RevealSelectHandRfp";
         if (tryParseOpponentRandomHandRfp(effectText) != null)              return "OpponentRandomHandRfp";
         if (tryParseOpponentRandomHandToBottomDeck(effectText) != null)     return "OpponentRandomHandToBottomDeck";
@@ -8047,6 +8066,15 @@ public class ActionResolver {
         return ctx -> {
             ctx.logEntry("Effect: Opponent reveals hand — select " + count + " to remove from game");
             ctx.selectFromOpponentHandAndRfp(count);
+        };
+    }
+
+    /** Parses "Opponent reveals hand. You may select 1 → remove from game, opponent draws 1." */
+    private static Consumer<GameContext> tryParseRevealHandOptPickRfpOppDraw(String text) {
+        if (!REVEAL_HAND_OPT_PICK_RFP_OPP_DRAW.matcher(text).find()) return null;
+        return ctx -> {
+            ctx.logEntry("Effect: Opponent reveals hand — optionally select 1 to RFP, opponent draws 1");
+            ctx.revealHandOptPickRfpOpponentDraws();
         };
     }
 

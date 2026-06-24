@@ -5618,6 +5618,121 @@ public class MainWindow {
 	}
 
 	/**
+	 * Shows P2's revealed hand and lets P1 optionally select 1 card to remove from the game.
+	 * Returns the selected card, or {@code null} if P1 clicked Skip.
+	 */
+	CardData showRevealHandOptPickDialog(List<CardData> hand) {
+		JDialog dlg = new JDialog(frame, "Opponent's Hand — select 1 to remove from game (optional)", true);
+		dlg.setResizable(false);
+		dlg.setDefaultCloseOperation(JDialog.DO_NOTHING_ON_CLOSE);
+
+		int[] selectedIdx = { -1 };
+		CardData[] result = { null };
+
+		List<JLabel> cardLabels = new ArrayList<>();
+		JPanel cardsPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 8));
+
+		JLabel statusLabel = new JLabel("Click a card to select it, then Remove From Game — or Skip.", SwingConstants.CENTER);
+		statusLabel.setFont(FontLoader.loadPixelNESFont(10));
+
+		JButton confirmBtn = new JButton("Remove From Game");
+		confirmBtn.setFont(FontLoader.loadPixelNESFont(11));
+		confirmBtn.setEnabled(false);
+
+		JButton skipBtn = new JButton("Skip");
+		skipBtn.setFont(FontLoader.loadPixelNESFont(11));
+
+		Runnable refresh = () -> {
+			confirmBtn.setEnabled(selectedIdx[0] >= 0);
+			for (int i = 0; i < cardLabels.size(); i++) {
+				cardLabels.get(i).setBorder(BorderFactory.createLineBorder(
+						i == selectedIdx[0] ? new Color(0xff8800) : Color.LIGHT_GRAY,
+						i == selectedIdx[0] ? 3 : 1));
+			}
+		};
+
+		for (int i = 0; i < hand.size(); i++) {
+			final int idx = i;
+			CardData cd = hand.get(i);
+
+			JPanel wrapper = new JPanel(new BorderLayout(0, 4));
+			wrapper.setBackground(cardsPanel.getBackground());
+
+			JLabel lbl = new JLabel("...", SwingConstants.CENTER);
+			lbl.setPreferredSize(new Dimension(CARD_W, CARD_H));
+			lbl.setMinimumSize(new Dimension(CARD_W, CARD_H));
+			lbl.setOpaque(true);
+			lbl.setBackground(Color.DARK_GRAY);
+			lbl.setBorder(BorderFactory.createLineBorder(Color.LIGHT_GRAY, 1));
+			lbl.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+			cardLabels.add(lbl);
+
+			lbl.addMouseListener(new MouseAdapter() {
+				@Override public void mouseEntered(MouseEvent e) { if (lbl.getIcon() != null) showZoomAt(cd.imageUrl()); }
+				@Override public void mouseExited(MouseEvent e)  { hideZoom(); }
+				@Override public void mousePressed(MouseEvent e) {
+					selectedIdx[0] = (selectedIdx[0] == idx) ? -1 : idx;
+					refresh.run();
+				}
+			});
+
+			new SwingWorker<ImageIcon, Void>() {
+				@Override protected ImageIcon doInBackground() throws Exception {
+					Image img = ImageCache.load(cd.imageUrl());
+					if (img == null) return null;
+					BufferedImage buf = new BufferedImage(CARD_W, CARD_H, BufferedImage.TYPE_INT_ARGB);
+					Graphics2D g2 = buf.createGraphics();
+					g2.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+					g2.drawImage(img, 0, 0, CARD_W, CARD_H, null);
+					g2.dispose();
+					return new ImageIcon(buf);
+				}
+				@Override protected void done() {
+					try { ImageIcon icon = get(); if (icon != null) { lbl.setIcon(icon); lbl.setText(null); } }
+					catch (InterruptedException | ExecutionException ignored) {}
+				}
+			}.execute();
+
+			JLabel nameLabel = new JLabel(cd.name(), SwingConstants.CENTER);
+			nameLabel.setFont(FontLoader.loadPixelNESFont(9));
+			nameLabel.setPreferredSize(new Dimension(CARD_W, 18));
+			wrapper.add(lbl,       BorderLayout.CENTER);
+			wrapper.add(nameLabel, BorderLayout.SOUTH);
+			cardsPanel.add(wrapper);
+		}
+
+		confirmBtn.addActionListener(ae -> {
+			hideZoom();
+			if (selectedIdx[0] >= 0 && selectedIdx[0] < hand.size())
+				result[0] = hand.get(selectedIdx[0]);
+			dlg.dispose();
+		});
+		skipBtn.addActionListener(ae -> { hideZoom(); dlg.dispose(); });
+
+		JScrollPane scrollPane = new JScrollPane(cardsPanel,
+				JScrollPane.VERTICAL_SCROLLBAR_NEVER,
+				JScrollPane.HORIZONTAL_SCROLLBAR_AS_NEEDED);
+		scrollPane.setPreferredSize(new Dimension(
+				Math.min(hand.size() * (CARD_W + 16) + 16, 900),
+				CARD_H + 60));
+
+		JPanel btnRow = new JPanel(new FlowLayout(FlowLayout.CENTER, 8, 4));
+		btnRow.add(confirmBtn);
+		btnRow.add(skipBtn);
+
+		JPanel south = new JPanel(new BorderLayout(4, 4));
+		south.add(statusLabel, BorderLayout.NORTH);
+		south.add(btnRow,      BorderLayout.SOUTH);
+
+		dlg.getContentPane().add(scrollPane, BorderLayout.CENTER);
+		dlg.getContentPane().add(south,      BorderLayout.SOUTH);
+		dlg.pack();
+		dlg.setLocationRelativeTo(frame);
+		dlg.setVisible(true);
+		return result[0];
+	}
+
+	/**
 	 * Shows a dialog letting P1 choose which Summons from {@code summons} to reveal.
 	 * Any count (including 0) is valid. Returns the selected cards.
 	 * Hint text communicates the thresholds: 0 → source breaks; minForBonus+ → bonus effect.

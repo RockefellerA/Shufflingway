@@ -1246,7 +1246,8 @@ final class GameContextImpl implements GameContext {
 						Math.min(hand.size() * (CARD_W + 16) + 16, 900), CARD_H + 60));
 
 				int[] countdown = { 10 };
-				JLabel countdownLabel = new JLabel("Closing in 10...", SwingConstants.CENTER);
+				boolean vsCpu = mw.isP2Cpu();
+				JLabel countdownLabel = new JLabel(vsCpu ? "" : "Closing in 10...", SwingConstants.CENTER);
 				countdownLabel.setFont(FontLoader.loadPixelNESFont(10));
 
 				JButton okBtn = new JButton("OK");
@@ -1254,7 +1255,7 @@ final class GameContextImpl implements GameContext {
 				okBtn.addActionListener(ae -> { mw.hideZoom(); dlg.dispose(); });
 
 				JPanel south = new JPanel(new FlowLayout(FlowLayout.CENTER, 12, 6));
-				south.add(countdownLabel);
+				if (!vsCpu) south.add(countdownLabel);
 				south.add(okBtn);
 				south.setBorder(BorderFactory.createEmptyBorder(0, 8, 8, 8));
 
@@ -1265,14 +1266,16 @@ final class GameContextImpl implements GameContext {
 				dlg.setLocationRelativeTo(mw.frame);
 				dlg.setVisible(true);
 
-				Timer[] timerRef = { null };
-				timerRef[0] = new Timer(1000, null);
-				timerRef[0].addActionListener(te -> {
-					countdown[0]--;
-					if (countdown[0] <= 0) { timerRef[0].stop(); mw.hideZoom(); dlg.dispose(); }
-					else countdownLabel.setText("Closing in " + countdown[0] + "...");
-				});
-				timerRef[0].start();
+				if (!vsCpu) {
+					Timer[] timerRef = { null };
+					timerRef[0] = new Timer(1000, null);
+					timerRef[0].addActionListener(te -> {
+						countdown[0]--;
+						if (countdown[0] <= 0) { timerRef[0].stop(); mw.hideZoom(); dlg.dispose(); }
+						else countdownLabel.setText("Closing in " + countdown[0] + "...");
+					});
+					timerRef[0].start();
+				}
 			}
 
 			@Override public void revealTopDeckCard(List<RevealClause> clauses, boolean opponentDeck) {
@@ -2668,6 +2671,35 @@ final class GameContextImpl implements GameContext {
 					}
 					mw.refreshP1HandLabel();
 					mw.refreshP1WarpZoneUI();
+				}
+			}
+
+			@Override public void revealHandOptPickRfpOpponentDraws() {
+				if (isP1) {
+					List<CardData> hand = mw.gameState.getP2Hand();
+					if (hand.isEmpty()) { logEntry("Opponent's hand is empty."); return; }
+					CardData picked = mw.showRevealHandOptPickDialog(hand);
+					if (picked != null) {
+						hand.remove(picked);
+						mw.gameState.addToP2PermanentRfp(picked);
+						logEntry("[P2] " + picked.name() + " removed from game by P1");
+						mw.refreshP2HandCountLabel();
+						drawCardsForOpponent(1);
+					}
+				} else {
+					List<CardData> hand = mw.gameState.getP1Hand();
+					if (hand.isEmpty()) { logEntry("P1 hand is empty."); return; }
+					int best = 0;
+					for (int j = 1; j < hand.size(); j++)
+						if (hand.get(j).cost() > hand.get(best).cost()) best = j;
+					CardData d = mw.gameState.removeFromHand(best);
+					if (d != null) {
+						mw.gameState.addToP1PermanentRfp(d);
+						logEntry("[P2 AI] " + d.name() + " selected from P1 hand — removed from game");
+						mw.refreshP1HandLabel();
+						mw.refreshP1WarpZoneUI();
+						drawCardsForOpponent(1);
+					}
 				}
 			}
 
