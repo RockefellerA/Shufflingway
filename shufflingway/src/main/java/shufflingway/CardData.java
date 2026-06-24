@@ -1245,6 +1245,9 @@ public record CardData(
             "|attacks?(?:\\s+or\\s+blocks?)?" +
             "|blocks?(?:\\s+or\\s+is\\s+blocked)?" +
             "|is\\s+blocked" +
+            // "enters the field or is put from the field into the Break Zone" must precede both
+            // plain "enters the field" and plain "is put into the Break Zone"
+            "|enters?\\s+the\\s+field\\s+or\\s+is\\s+put\\s+(?:from\\s+the\\s+field\\s+)?into\\s+the\\s+Break\\s+Zone" +
             // "enters the field or attacks" must precede plain "enters the field"
             "|enters?\\s+the\\s+field\\s+or\\s+attacks?" +
             "|enters?\\s+the\\s+field(?:\\s+due\\s+to\\s+(?:your\\s+cast|Warp))?" +
@@ -1532,6 +1535,7 @@ public record CardData(
             boolean warpOnly    = triggerRaw.contains("enter") && triggerRaw.contains("warp");
             if      (triggerRaw.contains("attack") && triggerRaw.contains("block"))                        trigger = "attacks or blocks";
             else if (triggerRaw.contains("attack") && (cardIsParty || triggerHasParty))                    trigger = "party attacks";
+            else if (triggerRaw.contains("enter") && triggerRaw.contains("break zone"))                   trigger = "enters the field or put into break zone";
             else if (triggerRaw.contains("enter") && triggerRaw.contains("attack"))                        trigger = "enters the field or attacks";
             else if (triggerRaw.contains("enter") && triggerRaw.contains("other than from your hand"))     trigger = "enters your field not from hand";
             else if (triggerRaw.contains("enter") && triggerRaw.contains("your field"))                            trigger = "enters your field";

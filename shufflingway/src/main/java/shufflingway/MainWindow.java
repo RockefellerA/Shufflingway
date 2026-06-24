@@ -6910,6 +6910,20 @@ public class MainWindow {
 	}
 
 	/**
+	 * Returns {@code true} if the given player has a field card that protects their Break Zone
+	 * Summons from being removed from the game by the opponent's Summons or abilities.
+	 */
+	boolean bzSummonsProtectedFromOppRfg(boolean isP1) {
+		for (CardData c : (isP1 ? p1ForwardCards : p2ForwardCards))
+			if (ActionResolver.hasBzSummonRfgProtection(c)) return true;
+		CardData[] bkps = isP1 ? p1BackupCards : p2BackupCards;
+		for (CardData c : bkps) if (c != null && ActionResolver.hasBzSummonRfgProtection(c)) return true;
+		for (CardData c : (isP1 ? p1MonsterCards : p2MonsterCards))
+			if (ActionResolver.hasBzSummonRfgProtection(c)) return true;
+		return false;
+	}
+
+	/**
 	 * Returns {@code true} if the card's "You can only cast X …" restriction (if any) is
 	 * satisfied by the current game state from P1's perspective.
 	 */

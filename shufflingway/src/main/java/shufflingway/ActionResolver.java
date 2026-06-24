@@ -1346,6 +1346,15 @@ public class ActionResolver {
     );
 
     /**
+     * "All Summons in your Break Zone cannot be removed from the game by your opponent's
+     * Summons or abilities." — protects the owner's BZ Summons from the opponent's RFG effects.
+     */
+    static final Pattern FA_BZ_SUMMONS_PROTECTED_FROM_OPP_RFG = Pattern.compile(
+        "(?i)All\\s+Summons?\\s+in\\s+your\\s+Break\\s+Zone\\s+cannot\\s+be\\s+removed\\s+from\\s+the\\s+game\\s+" +
+        "by\\s+your\\s+opponent.?s\\s+(?:Summons?\\s+or\\s+)?abilities[.!]?"
+    );
+
+    /**
      * "[CardName] cannot become dull by your opponent's Summons or abilities."
      * Permanent self-protection while this card is on the field.
      */
@@ -2905,6 +2914,22 @@ public class ActionResolver {
     );
 
     /**
+     * Matches "Choose 1 Summon in your Break Zone. Add it to your hand. During this turn,
+     * the cost required to cast your next Summon is reduced by N [(it cannot become 0)]."
+     * <ul>
+     *   <li>Group {@code amount}   — cost reduction</li>
+     *   <li>Group {@code floorone} — present when "(it cannot become 0)" clause appears</li>
+     * </ul>
+     */
+    private static final Pattern CHOOSE_SUMMON_FROM_BZ_TO_HAND_WITH_COST_REDUCTION = Pattern.compile(
+        "(?i)Choose\\s+1\\s+Summon\\s+in\\s+your\\s+Break\\s+Zone[.!]?\\s+" +
+        "Add\\s+it\\s+to\\s+your\\s+hand[.!]?\\s+" +
+        "During\\s+this\\s+turn,?\\s+the\\s+cost\\s+required\\s+to\\s+cast\\s+your\\s+next\\s+Summon\\s+" +
+        "is\\s+reduced\\s+by\\s+(?<amount>\\d+)" +
+        "(?<floorone>\\s*\\(it\\s+cannot\\s+become\\s+0\\))?[.!]?\\s*$"
+    );
+
+    /**
      * Matches "Choose 1 [Element] Summon in your Break Zone. You can cast it at any time you
      * could normally cast it this turn. The cost required to cast it is reduced by N."
      * Used by abilities that "borrow" a Summon from the Break Zone for one extra cast.
@@ -3534,6 +3559,9 @@ public class ActionResolver {
         result = tryParseRemoveFromBattle(effectText);
         if (result != null) return result;
 
+        result = tryParseChooseSummonFromBzToHandWithCostReduction(effectText);
+        if (result != null) return result;
+
         result = tryParseChooseSummonInBzCastable(effectText);
         if (result != null) return result;
 
@@ -3793,6 +3821,7 @@ public class ActionResolver {
         if (tryParseActivateNamedCard(effectText)               != null) return "ActivateNamedCard";
         if (tryParseAttackOnceMore(effectText)                  != null) return "AttackOnceMore";
         if (tryParseRemoveFromBattle(effectText)                != null) return "RemoveFromBattle";
+        if (tryParseChooseSummonFromBzToHandWithCostReduction(effectText) != null) return "ChooseSummonFromBzToHandWithCostReduction";
         if (tryParseChooseSummonInBzCastable(effectText)         != null) return "ChooseSummonInBzCastable";
         if (tryParseCostReductionThisTurn(effectText)            != null) return "CostReductionThisTurn";
         if (tryParsePlayCostReductionThisTurn(effectText)        != null) return "PlayCostReductionThisTurn";
@@ -9513,6 +9542,13 @@ public class ActionResolver {
         return false;
     }
 
+    /** Returns {@code true} if the card has the "BZ Summons cannot be removed by opponent" field ability. */
+    public static boolean hasBzSummonRfgProtection(CardData card) {
+        for (FieldAbility fa : card.fieldAbilities())
+            if (FA_BZ_SUMMONS_PROTECTED_FROM_OPP_RFG.matcher(fa.effectText()).find()) return true;
+        return false;
+    }
+
     /**
      * Returns {@code true} if the card has a field ability of the form
      * "[CardName] cannot be chosen by Summons." — i.e., a permanent self-targeting
@@ -10180,6 +10216,28 @@ public class ActionResolver {
         return ctx -> {
             ctx.logEntry("Effect: Gain " + xValue + " Crystal(s) (for each CP paid as X)");
             ctx.gainCrystal(xValue);
+        };
+    }
+
+    /**
+     * Parses "Choose 1 Summon in your Break Zone. Add it to your hand. During this turn,
+     * the cost required to cast your next Summon is reduced by N [(it cannot become 0)]."
+     */
+    private static Consumer<GameContext> tryParseChooseSummonFromBzToHandWithCostReduction(String text) {
+        Matcher m = CHOOSE_SUMMON_FROM_BZ_TO_HAND_WITH_COST_REDUCTION.matcher(text);
+        if (!m.find()) return null;
+        int amount = Integer.parseInt(m.group("amount"));
+        boolean floorAtOne = m.group("floorone") != null;
+        CostReductionModifier modifier = new CostReductionModifier(
+                amount, floorAtOne, true,
+                false, false, false, true,
+                null, null, null, null, false);
+        String logDesc = "Choose 1 Summon from own Break Zone → hand; next Summon costs "
+                + amount + " less" + (floorAtOne ? " (min 1)" : "");
+        return ctx -> {
+            ctx.logEntry("Effect: " + logDesc);
+            ctx.chooseSummonFromOwnBzToHand();
+            ctx.applyNextCastCostReduction(modifier);
         };
     }
 

@@ -1415,6 +1415,12 @@ public interface GameContext {
     void applyNextCastCostReduction(CostReductionModifier modifier);
 
     /**
+     * Prompts the ability user to choose 1 Summon from their own Break Zone and adds it to their hand.
+     * No-op if the Break Zone contains no Summons.
+     */
+    void chooseSummonFromOwnBzToHand();
+
+    /**
      * Resolves a "Choose 1 [Element] Summon in your Break Zone. You can cast it at any time
      * you could normally cast it this turn. The cost required to cast it is reduced by N."
      * effect: prompts the ability user to pick a matching Summon from their own Break Zone,

@@ -17,7 +17,8 @@ package shufflingway;
  * {@code "attacks"}, {@code "blocks"}, {@code "attacks or blocks"},
  * {@code "is blocked"}, {@code "blocks or is blocked"},
  * {@code "party attacks"}, {@code "enters the field"},
- * {@code "put into break zone"}, {@code "cast summon"}, {@code "damage zone"},
+ * {@code "put into break zone"}, {@code "enters the field or put into break zone"},
+ * {@code "cast summon"}, {@code "damage zone"},
  * {@code "either player receives damage"}, {@code "you receive damage"},
  * or {@code "primed into"}.
  *

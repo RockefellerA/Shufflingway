@@ -180,4 +180,5 @@ public class AutoAbilityParsingTest {
     private static double pct(int n, int total) {
         return total == 0 ? 0.0 : n * 100.0 / total;
     }
+
 }

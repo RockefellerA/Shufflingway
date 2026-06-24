@@ -3398,6 +3398,26 @@ final class GameContextImpl implements GameContext {
 				mw.endOfTurnEffects.add(ctx -> mw.activeCostReductions.remove(modifier));
 			}
 
+			@Override public void chooseSummonFromOwnBzToHand() {
+				List<CardData> bz = isP1 ? mw.gameState.getP1BreakZone() : mw.gameState.getP2BreakZone();
+				List<CardData> candidates = new ArrayList<>();
+				for (CardData c : bz) if (c.isSummon()) candidates.add(c);
+				if (candidates.isEmpty()) {
+					logEntry((isP1 ? "P1" : "P2") + " Break Zone has no Summon — effect fizzles");
+					return;
+				}
+				CardData picked = isP1
+						? mw.chooseCardFromBzDialog(candidates, "Choose 1 Summon from your Break Zone")
+						: candidates.get(0);
+				if (picked == null) return;
+				bz.remove(picked);
+				List<CardData> hand = isP1 ? mw.gameState.getP1Hand() : mw.gameState.getP2Hand();
+				hand.add(picked);
+				logEntry(picked.name() + " → " + (isP1 ? "P1" : "P2") + " hand from Break Zone");
+				if (isP1) { mw.refreshP1BreakLabel(); mw.refreshP1HandLabel(); }
+				else       { mw.refreshP2BreakLabel(); mw.refreshP2HandCountLabel(); }
+			}
+
 			@Override public void chooseSummonInBzMakeCastable(String element, int costReduction) {
 				List<CardData> bz = isP1 ? mw.gameState.getP1BreakZone() : mw.gameState.getP2BreakZone();
 				List<CardData> candidates = new ArrayList<>();
@@ -3467,7 +3487,8 @@ final class GameContextImpl implements GameContext {
 					List<CardData> ownBz = isP1 ? mw.gameState.getP1BreakZone() : mw.gameState.getP2BreakZone();
 					List<CardData> oppBz = isP1 ? mw.gameState.getP2BreakZone() : mw.gameState.getP1BreakZone();
 					for (CardData c : ownBz) if (c.isSummon() && !mw.bzPlayableP1.containsKey(c) && !mw.bzPlayableP2.containsKey(c)) candidates.add(c);
-					if (eitherBz) for (CardData c : oppBz) if (c.isSummon() && !mw.bzPlayableP1.containsKey(c) && !mw.bzPlayableP2.containsKey(c)) candidates.add(c);
+					if (eitherBz && !mw.bzSummonsProtectedFromOppRfg(!isP1))
+						for (CardData c : oppBz) if (c.isSummon() && !mw.bzPlayableP1.containsKey(c) && !mw.bzPlayableP2.containsKey(c)) candidates.add(c);
 					if (candidates.isEmpty()) {
 						if (picks == 0) logEntry("No eligible Summon in Break Zone — effect fizzles");
 						return;

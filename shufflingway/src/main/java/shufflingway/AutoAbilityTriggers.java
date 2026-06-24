@@ -773,6 +773,13 @@ final class AutoAbilityTriggers {
 				for (CardData c : bkps) if (c != null) fireBreakZoneTriggers(c, ownerIsP1, broken, brokenIsP1, partyMembers);
 				for (CardData c : mons) fireBreakZoneTriggers(c, ownerIsP1, broken, brokenIsP1, partyMembers);
 			}
+			// Fire self-break triggers on the broken card itself
+			// (handles "When [card] enters the field or is put from the field into the Break Zone")
+			for (AutoAbility fa : broken.autoAbilities()) {
+				if (!fa.trigger().equals("enters the field or put into break zone")) continue;
+				if (!fa.triggerCard().equalsIgnoreCase(broken.name())) continue;
+				executeAutoAbility(fa, broken, brokenIsP1);
+			}
 		});
 		mw.showStackWindowIfNeeded();
 	}
