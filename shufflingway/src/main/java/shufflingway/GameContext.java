@@ -141,7 +141,7 @@ public interface GameContext {
      * @param excludeName     optional card name to exclude; {@code null} = none excluded
      */
     List<ForwardTarget> selectCharactersFromBreakZone(int maxCount, boolean upTo,
-            boolean opponentZone, String condition, String element, int costVal, String costCmp,
+            boolean opponentZone, boolean bothZones, String condition, String element, int costVal, String costCmp,
             int powerVal, String powerCmp,
             boolean forwards, boolean backups, boolean monsters,
             String jobFilter, String cardNameFilter, String categoryFilter, String excludeName, boolean summons,
@@ -948,6 +948,12 @@ public interface GameContext {
     void removeNamedCardFromGame(String cardName);
 
     /**
+     * Searches P1 and P2 permanent RFP zones for a card matching {@code cardName} and places
+     * the first match onto its owner's forward zone (triggering entering-field abilities).
+     */
+    void playNamedFromRfpOntoField(String cardName);
+
+    /**
      * Searches the field for a card matching {@code cardName} and returns it to its owner's hand.
      * P1-zone cards go to P1's hand; P2-zone cards go to P2's hand.
      */
@@ -1298,6 +1304,19 @@ public interface GameContext {
      * before turn-cleanup clearing.
      */
     void addEndOfTurnEffect(Consumer<GameContext> effect);
+
+    /**
+     * Schedules {@code effect} to fire at the end of the opponent's next turn.
+     * If the current context is P1, the effect fires at the end of P2's turn; if P2, at P1's.
+     */
+    void addEndOfOpponentTurnEffect(Consumer<GameContext> effect);
+
+    /**
+     * Presents the active player with a yes/no "you may" prompt.
+     * For P1 (human), shows a dialog and returns true if they accept.
+     * For P2 (CPU), always returns false (declines).
+     */
+    boolean promptYouMay(String prompt);
 
     /**
      * Registers {@code effect} as a temporary "when this card attacks" trigger that fires

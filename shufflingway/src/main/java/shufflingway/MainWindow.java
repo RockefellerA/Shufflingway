@@ -445,6 +445,11 @@ public class MainWindow {
 	/** End-of-turn effects queued this turn; fired at the beginning of the END phase. */
 	final List<Consumer<GameContext>> endOfTurnEffects = new ArrayList<>();
 
+	/** Effects to fire at the end of P1's turn (scheduled by P2 or by "end of opponent's turn" effects). */
+	final List<Consumer<GameContext>> scheduledForP1EndTurn = new ArrayList<>();
+	/** Effects to fire at the end of P2's turn (scheduled by P1 or by "end of opponent's turn" effects). */
+	final List<Consumer<GameContext>> scheduledForP2EndTurn = new ArrayList<>();
+
 	/** Cards whose printed abilities are suppressed until end of turn ("lose all abilities"). */
 	final Set<CardData> lostAbilitiesCards = Collections.newSetFromMap(new IdentityHashMap<>());
 
@@ -1276,6 +1281,8 @@ public class MainWindow {
 
 		gameState.reset();
 		endOfTurnEffects.clear();
+		scheduledForP1EndTurn.clear();
+		scheduledForP2EndTurn.clear();
 		pendingMainPhase1Effects.clear();
 		activeCostReductions.clear();
 		lostAbilitiesCards.clear();
@@ -9549,11 +9556,19 @@ public class MainWindow {
 
 	/** Fires all queued end-of-turn effects using a context for {@code isP1}, then clears the queue. */
 	void fireEndOfTurnEffects(boolean isP1) {
-		if (endOfTurnEffects.isEmpty()) return;
-		List<Consumer<GameContext>> pending = new ArrayList<>(endOfTurnEffects);
-		endOfTurnEffects.clear();
+		List<Consumer<GameContext>> scheduled = isP1 ? scheduledForP1EndTurn : scheduledForP2EndTurn;
+		if (endOfTurnEffects.isEmpty() && scheduled.isEmpty()) return;
 		GameContext ctx = buildGameContext(isP1);
-		pending.forEach(e -> e.accept(ctx));
+		if (!endOfTurnEffects.isEmpty()) {
+			List<Consumer<GameContext>> pending = new ArrayList<>(endOfTurnEffects);
+			endOfTurnEffects.clear();
+			pending.forEach(e -> e.accept(ctx));
+		}
+		if (!scheduled.isEmpty()) {
+			List<Consumer<GameContext>> pending = new ArrayList<>(scheduled);
+			scheduled.clear();
+			pending.forEach(e -> e.accept(ctx));
+		}
 	}
 
 	// -------------------------------------------------------------------------

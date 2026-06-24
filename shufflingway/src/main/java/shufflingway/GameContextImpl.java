@@ -1001,12 +1001,80 @@ final class GameContextImpl implements GameContext {
 
 			@Override
 			public List<ForwardTarget> selectCharactersFromBreakZone(
-					int maxCount, boolean upTo, boolean opponentZone,
+					int maxCount, boolean upTo, boolean opponentZone, boolean bothZones,
 					String condition, String element, int costVal, String costCmp,
 					int powerVal, String powerCmp,
 					boolean inclForwards, boolean inclBackups, boolean inclMonsters,
 					String jobFilter, String cardNameFilter, String categoryFilter, String excludeName, boolean inclSummons,
 					String excludeElement, boolean withoutMulticard) {
+				if (bothZones) {
+					// Combine eligible cards from both break zones.
+					List<CardData> p1bz = mw.gameState.getP1BreakZone();
+					List<CardData> p2bz = mw.gameState.getP2BreakZone();
+					List<ForwardTarget> eligible = new ArrayList<>();
+					// combined flat list for display; index = offset into combined list
+					List<CardData> combined = new ArrayList<>();
+					for (int i = 0; i < p1bz.size(); i++) {
+						CardData card = p1bz.get(i);
+						if (card.isForward()  && !inclForwards) continue;
+						if (card.isBackup()   && !inclBackups)  continue;
+						if (card.isMonster()  && !inclMonsters) continue;
+						if (card.isSummon()   && !inclSummons)  continue;
+						if (element != null && !card.containsElement(element)) continue;
+						if (!meetsCostConstraint(card.cost(), costVal, costCmp)) continue;
+						if (!meetsPowerConstraint(card.power(), powerVal, powerCmp)) continue;
+						if (!mw.meetsJobFilterEffective(card, jobFilter)) continue;
+						if (!meetsCardNameFilter(card, cardNameFilter)) continue;
+						if (!meetsCategoryFilter(card, categoryFilter)) continue;
+						if (excludeName != null && excludeName.equalsIgnoreCase(card.name())) continue;
+						if (withoutMulticard && card.multicard()) continue;
+						eligible.add(new ForwardTarget(true, i, ForwardTarget.CardZone.BREAK_ZONE));
+						combined.add(card);
+					}
+					for (int i = 0; i < p2bz.size(); i++) {
+						CardData card = p2bz.get(i);
+						if (card.isForward()  && !inclForwards) continue;
+						if (card.isBackup()   && !inclBackups)  continue;
+						if (card.isMonster()  && !inclMonsters) continue;
+						if (card.isSummon()   && !inclSummons)  continue;
+						if (element != null && !card.containsElement(element)) continue;
+						if (!meetsCostConstraint(card.cost(), costVal, costCmp)) continue;
+						if (!meetsPowerConstraint(card.power(), powerVal, powerCmp)) continue;
+						if (!mw.meetsJobFilterEffective(card, jobFilter)) continue;
+						if (!meetsCardNameFilter(card, cardNameFilter)) continue;
+						if (!meetsCategoryFilter(card, categoryFilter)) continue;
+						if (excludeName != null && excludeName.equalsIgnoreCase(card.name())) continue;
+						if (withoutMulticard && card.multicard()) continue;
+						eligible.add(new ForwardTarget(false, i, ForwardTarget.CardZone.BREAK_ZONE));
+						combined.add(card);
+					}
+					String costLabel  = formatCostFilterLabel(costVal, costCmp);
+					String powerLabel = powerVal >= 0 ? " of power " + powerVal + (powerCmp != null ? " or " + powerCmp : "") : "";
+					String title = "Choose " + (upTo ? "up to " : "") + maxCount
+							+ (element != null ? " " + element : "")
+							+ " Character" + (maxCount != 1 ? "s" : "") + costLabel + powerLabel
+							+ " from either player's Break Zone";
+					if (!isP1) {
+						if (eligible.isEmpty()) return List.of();
+						List<ForwardTarget> copy = new ArrayList<>(eligible);
+						java.util.Collections.shuffle(copy);
+						List<ForwardTarget> picked =
+								List.copyOf(copy.subList(0, Math.min(maxCount, copy.size())));
+						picked.forEach(t -> logEntry("[AI] chose " + combined.get(eligible.indexOf(t)).name()));
+						return picked;
+					}
+					// For the dialog, we need eligible targets that index into combined[]
+					// Re-index eligible so idx refers to combined list position
+					List<ForwardTarget> reindexed = new ArrayList<>();
+					for (int ci = 0; ci < eligible.size(); ci++) {
+						reindexed.add(new ForwardTarget(eligible.get(ci).isP1(), ci, ForwardTarget.CardZone.BREAK_ZONE));
+					}
+					List<ForwardTarget> chosen = mw.showBreakZoneSelectDialog(reindexed, combined, maxCount, upTo, title);
+					// Map chosen reindexed targets back to original targets so callers use real BZ indices
+					List<ForwardTarget> result = new ArrayList<>();
+					for (ForwardTarget t : chosen) result.add(eligible.get(t.idx()));
+					return result;
+				}
 				List<CardData> bz = opponentZone
 						? mw.gameState.getP2BreakZone() : mw.gameState.getP1BreakZone();
 				List<ForwardTarget> eligible = new ArrayList<>();
@@ -2763,6 +2831,28 @@ final class GameContextImpl implements GameContext {
 				logEntry("[Warning] removeNamedCardFromGame: \"" + cardName + "\" not found on field");
 			}
 
+			@Override public void playNamedFromRfpOntoField(String cardName) {
+				List<CardData> p1rfp = mw.gameState.getP1PermanentRfp();
+				for (int i = 0; i < p1rfp.size(); i++) {
+					if (p1rfp.get(i).name().equalsIgnoreCase(cardName)) {
+						CardData card = p1rfp.remove(i);
+						logEntry(card.name() + " returns from RFP → P1 field");
+						mw.placeCardInForwardZone(card);
+						return;
+					}
+				}
+				List<CardData> p2rfp = mw.gameState.getP2PermanentRfp();
+				for (int i = 0; i < p2rfp.size(); i++) {
+					if (p2rfp.get(i).name().equalsIgnoreCase(cardName)) {
+						CardData card = p2rfp.remove(i);
+						logEntry(card.name() + " returns from RFP → P2 field");
+						mw.placeP2CardInForwardZone(card);
+						return;
+					}
+				}
+				logEntry("[Warning] playNamedFromRfpOntoField: \"" + cardName + "\" not found in RFP");
+			}
+
 			@Override public void returnNamedCardToOwnersHand(String cardName) {
 				for (int i = 0; i < mw.p1ForwardCards.size(); i++) {
 					if (mw.p1ForwardCards.get(i).name().equalsIgnoreCase(cardName)) { returnP1ForwardToHand(i); return; }
@@ -3369,6 +3459,18 @@ final class GameContextImpl implements GameContext {
 
 			@Override public void addEndOfTurnEffect(Consumer<GameContext> effect) {
 				mw.endOfTurnEffects.add(effect);
+			}
+
+			@Override public void addEndOfOpponentTurnEffect(Consumer<GameContext> effect) {
+				// Schedule to fire when the OTHER player ends their turn.
+				if (isP1) mw.scheduledForP2EndTurn.add(effect);
+				else      mw.scheduledForP1EndTurn.add(effect);
+			}
+
+			@Override public boolean promptYouMay(String prompt) {
+				if (!isP1) return false;
+				int result = JOptionPane.showConfirmDialog(mw.frame, prompt, "You May", JOptionPane.YES_NO_OPTION);
+				return result == JOptionPane.YES_OPTION;
 			}
 
 			@Override public void addTempAttackTrigger(CardData card, Consumer<GameContext> effect) {

@@ -77,7 +77,7 @@ public class ActionResolver {
         "(?:\\s+of\\s+(?:power\\s+)?(?<power>\\d+)(?:\\s+power)?(?:\\s+or\\s+(?<powercmp>less|more))?)?" +
         "(?:\\s+(?<control>(?:your\\s+)?opponent\\s+controls|you\\s+control))?" +
         "(?:\\s+other\\s+than\\s+(?:Card\\s+Name\\s+)?(?<excludename>\\S(?:.*?\\S)?))?"+
-        "(?:\\s+(?<zone>(?:in|from)\\s+(?:your(?:\\s+opponent(?:'s)?)?|the)\\s+Break\\s+Zone))?" +
+        "(?:\\s+(?<zone>(?:in|from)\\s+(?:your(?:\\s+opponent(?:'s)?)?|the|either\\s+player'?s|any\\s+player'?s)\\s+Break\\s+Zone))?" +
         // "blocking [CardName]" or "blocking a [Job] [JobName]" — targets the blocker of the named card
         "(?:\\s+blocking\\s+" +
             "(?:(?:a\\s+(?:Job\\s+)?(?<blockingjob>[^.,]+?)(?=\\s*[.,]))" +
@@ -455,6 +455,16 @@ public class ActionResolver {
      */
     private static final Pattern REMOVE_NAMED_FROM_GAME = Pattern.compile(
         "(?i)Remove\\s+(?!(?:it|them)\\b)(?<named>.+?)\\s+from\\s+(?:the\\s+)?game[.!]?"
+    );
+
+    /** Matches "You may remove [CardName] from the game." — optional self-RFP. */
+    private static final Pattern YOU_MAY_REMOVE_NAMED_FROM_GAME = Pattern.compile(
+        "(?i)^you\\s+may\\s+remove\\s+(?<name>.+?)\\s+from\\s+(?:the\\s+)?game[.!]?\\s*$"
+    );
+
+    /** Matches "At the end of your opponent's turn, play [CardName] onto the field." */
+    private static final Pattern AT_END_OF_OPP_TURN_PLAY_NAMED_ONTO_FIELD = Pattern.compile(
+        "(?i)^at\\s+the\\s+end\\s+of\\s+your\\s+opponent'?s\\s+turn,?\\s+play\\s+(?<name>.+?)\\s+onto\\s+the\\s+field[.!]?\\s*$"
     );
 
     /** Matches "Break [CardName]." — used when the source card breaks itself. */
@@ -2038,7 +2048,7 @@ public class ActionResolver {
     private static final Pattern FOLLOWUP_POWER_BOOST = Pattern.compile(
         "(?i)(?:it|they)\\s+gains?\\s+\\+(\\d+)\\s+[Pp]ower" +
         "((?:\\s*,?\\s*(?:and\\s+)?(?:Haste|First\\s+Strike|Brave))*)" +
-        "\\s+until\\s+(?:the\\s+)?end\\s+of\\s+(?:the\\s+)?turn"
+        "\\s+until\\s+(?:the\\s+)?end\\s+of\\s+(?:(?:the|your)\\s+)?turn"
     );
 
     /**
@@ -2106,7 +2116,7 @@ public class ActionResolver {
     );
 
     private static final Pattern FOLLOWUP_POWER_BOOST_UNTIL = Pattern.compile(
-        "(?i)Until\\s+(?:the\\s+)?end\\s+of\\s+(?:the\\s+)?turn\\s*,\\s+" +
+        "(?i)Until\\s+(?:the\\s+)?end\\s+of\\s+(?:(?:the|your)\\s+)?turn\\s*,\\s+" +
         "(?:it|they)\\s+gains?\\s+\\+(\\d+)\\s+[Pp]ower" +
         "((?:\\s*,?\\s*(?:and\\s+)?(?:Haste|First\\s+Strike|Brave))*)"
     );
@@ -3400,6 +3410,12 @@ public class ActionResolver {
         result = tryParseReturnNamedToHand(effectText);
         if (result != null) return result;
 
+        result = tryParseYouMayRemoveNamedFromGame(effectText, source);
+        if (result != null) return result;
+
+        result = tryParseEndOfOppTurnPlayNamedOntoField(effectText);
+        if (result != null) return result;
+
         result = tryParseRemoveNamedFromGame(effectText, source);
         if (result != null) return result;
 
@@ -3768,6 +3784,8 @@ public class ActionResolver {
         if (tryParseOpponentRandomHandRfp(effectText)            != null) return "OpponentRandomHandRfp";
         if (tryParseOpponentRandomHandToBottomDeck(effectText)   != null) return "OpponentRandomHandToBottomDeck";
         if (tryParseOpponentHandRfp(effectText)               != null) return "OpponentHandRfp";
+        if (tryParseYouMayRemoveNamedFromGame(effectText, source) != null) return "YouMayRemoveNamedFromGame";
+        if (tryParseEndOfOppTurnPlayNamedOntoField(effectText) != null) return "EndOfOppTurnPlayNamedOntoField";
         if (tryParseRemoveNamedFromGame(effectText, source)   != null) return "RemoveNamedFromGame";
         if (tryParseBreakSourceCard(effectText, source)        != null) return "BreakSourceCard";
         if (tryParsePutSourceIntoBreakZone(effectText, source) != null) return "PutSourceIntoBreakZone";
@@ -4123,6 +4141,8 @@ public class ActionResolver {
         if (tryParseRevealTopNCategoryToHand(effectText)   != null)          return "RevealTopNCategoryToHand";
         if (tryParseRevealTopNJobOrNameToHand(effectText)  != null)          return "RevealTopNJobOrNameToHand";
         if (tryParseReturnNamedToHand(effectText) != null)                   return "ReturnNamedToHand";
+        if (tryParseYouMayRemoveNamedFromGame(effectText, source) != null)   return "YouMayRemoveNamedFromGame";
+        if (tryParseEndOfOppTurnPlayNamedOntoField(effectText) != null)     return "EndOfOppTurnPlayNamedOntoField";
         if (tryParseRemoveNamedFromGame(effectText, source) != null)        return "RemoveNamedFromGame";
         if (tryParseBreakSourceCard(effectText, source)        != null)     return "BreakSourceCard";
         if (tryParsePutSourceIntoBreakZone(effectText, source) != null)     return "PutSourceIntoBreakZone";
@@ -5271,7 +5291,9 @@ public class ActionResolver {
         boolean opponentOnly = control != null && !control.equalsIgnoreCase("you control");
         boolean selfOnly     = "you control".equalsIgnoreCase(control);
         String  zone         = m.group("zone");
-        boolean opponentZone = zone != null && zone.toLowerCase().contains("opponent");
+        boolean bothZones    = zone != null && (zone.toLowerCase(java.util.Locale.ROOT).contains("either player")
+                                             || zone.toLowerCase(java.util.Locale.ROOT).contains("any player"));
+        boolean opponentZone = zone != null && !bothZones && zone.toLowerCase(java.util.Locale.ROOT).contains("opponent");
 
         String  followup     = restorePeriodInName(m.group("followup").trim(), source);
         boolean unreduced    = CANNOT_BE_REDUCED_PATTERN.matcher(followup).find();
@@ -5352,7 +5374,7 @@ public class ActionResolver {
         String categoryLabel = categoryFilter != null ? " Category " + categoryFilter : "";
         String excludeLabel  = excludeName != null ? " (excl. " + excludeName + ")" : "";
         String zoneLabel     = zone != null
-                ? " in " + (opponentZone ? "opponent's" : "your") + " Break Zone" : "";
+                ? " in " + (bothZones ? "either player's" : opponentZone ? "opponent's" : "your") + " Break Zone" : "";
         String choosePrefix = "Choose " + (upTo ? "up to " : "") + maxCount
                 + (condition != null ? " " + condition : "")
                 + (element   != null ? " " + element   : "")
@@ -7439,7 +7461,7 @@ public class ActionResolver {
             if (removedCost <= 0) { ctx.logEntry("No removed Forward cost tracked — cannot play from BZ"); return; }
             int costCeiling = removedCost - 1; // "inferior to N" = cost ≤ N-1
             ctx.logEntry("Choose 1 Forward from own Break Zone with cost < " + removedCost);
-            List<ForwardTarget> ts = ctx.selectCharactersFromBreakZone(1, false, false,
+            List<ForwardTarget> ts = ctx.selectCharactersFromBreakZone(1, false, false, false,
                     null, null, costCeiling, "less", -1, null,
                     true, false, false, null, null, null, null, false, null, false);
             ts.forEach(ctx::playTargetOntoField);
@@ -8160,6 +8182,38 @@ public class ActionResolver {
             ctx.logEntry("Effect: Remove " + named + " from the game");
             ctx.removeNamedCardFromGame(named);
         };
+    }
+
+    /**
+     * Parses "You may remove [CardName] from the game." — shows a yes/no prompt; if accepted,
+     * calls {@link GameContext#removeNamedCardFromGame}; if declined, calls
+     * {@link GameContext#markEffectFizzled()} so any "If you do so" followup is suppressed.
+     */
+    private static Consumer<GameContext> tryParseYouMayRemoveNamedFromGame(String text, CardData source) {
+        if (source == null) return null;
+        Matcher m = YOU_MAY_REMOVE_NAMED_FROM_GAME.matcher(text.trim());
+        if (!m.matches()) return null;
+        String name = m.group("name").trim();
+        if (!name.equalsIgnoreCase(source.name())) return null;
+        return ctx -> {
+            if (!ctx.promptYouMay("Remove " + name + " from the game?")) {
+                ctx.markEffectFizzled();
+                return;
+            }
+            ctx.logEntry("Effect: Remove " + name + " from the game");
+            ctx.removeNamedCardFromGame(name);
+        };
+    }
+
+    /**
+     * Parses "At the end of your opponent's turn, play [CardName] onto the field." — schedules
+     * {@link GameContext#playNamedFromRfpOntoField} to fire at the end of the opponent's next turn.
+     */
+    private static Consumer<GameContext> tryParseEndOfOppTurnPlayNamedOntoField(String text) {
+        Matcher m = AT_END_OF_OPP_TURN_PLAY_NAMED_ONTO_FIELD.matcher(text.trim());
+        if (!m.matches()) return null;
+        String name = m.group("name").trim();
+        return ctx -> ctx.addEndOfOpponentTurnEffect(ctx2 -> ctx2.playNamedFromRfpOntoField(name));
     }
 
     /** Parses "Break [CardName]." when CardName is the source card — breaks the source forward/monster. */
@@ -10774,8 +10828,20 @@ public class ActionResolver {
             boolean inclForwards, boolean inclBackups, boolean inclMonsters,
             String jobFilter, String cardNameFilter, String categoryFilter, String excludeName, boolean inclSummons,
             String excludeElement, boolean withoutMulticard) {
+        return selectTargets(ctx, maxCount, upTo, opponentOnly, selfOnly, condition, element, zone, opponentZone, false,
+                costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters,
+                jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, excludeElement, withoutMulticard);
+    }
+
+    private static List<ForwardTarget> selectTargets(GameContext ctx,
+            int maxCount, boolean upTo, boolean opponentOnly, boolean selfOnly,
+            String condition, String element, String zone, boolean opponentZone, boolean bothZones,
+            int costVal, String costCmp, int powerVal, String powerCmp,
+            boolean inclForwards, boolean inclBackups, boolean inclMonsters,
+            String jobFilter, String cardNameFilter, String categoryFilter, String excludeName, boolean inclSummons,
+            String excludeElement, boolean withoutMulticard) {
         List<ForwardTarget> result = zone != null
-                ? ctx.selectCharactersFromBreakZone(maxCount, upTo, opponentZone, condition, element,
+                ? ctx.selectCharactersFromBreakZone(maxCount, upTo, opponentZone, bothZones, condition, element,
                         costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters, jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, excludeElement, withoutMulticard)
                 : ctx.selectCharacters(maxCount, upTo, opponentOnly, selfOnly, condition, element,
                         costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters, jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, excludeElement, withoutMulticard);
