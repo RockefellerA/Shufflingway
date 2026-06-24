@@ -2684,6 +2684,7 @@ final class GameContextImpl implements GameContext {
 						mw.gameState.addToP2PermanentRfp(picked);
 						logEntry("[P2] " + picked.name() + " removed from game by P1");
 						mw.refreshP2HandCountLabel();
+						mw.refreshP2WarpZoneUI();
 						drawCardsForOpponent(1);
 					}
 				} else {
