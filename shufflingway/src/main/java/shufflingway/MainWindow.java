@@ -6241,7 +6241,14 @@ public class MainWindow {
 			@Override protected void done() {
 				try {
 					ImageIcon icon = get();
-					if (icon != null) { p1BreakLabel.setIcon(icon); p1BreakLabel.setText(null); }
+					if (icon == null) return;
+					// Discard stale result if the zone no longer has this card on top
+					List<CardData> current = gameState.getP1BreakZone();
+					int curTop = current.size() - 1 - p1BreakAnimHide;
+					if (curTop >= 0 && url.equals(current.get(curTop).imageUrl())) {
+						p1BreakLabel.setIcon(icon);
+						p1BreakLabel.setText(null);
+					}
 				} catch (InterruptedException | ExecutionException ignored) {}
 			}
 		}.execute();
@@ -6266,7 +6273,14 @@ public class MainWindow {
 			@Override protected void done() {
 				try {
 					ImageIcon icon = get();
-					if (icon != null) { p2BreakLabel.setIcon(icon); p2BreakLabel.setText(null); }
+					if (icon == null) return;
+					// Discard stale result if the zone no longer has this card on top
+					List<CardData> current = gameState.getP2BreakZone();
+					int curTop = current.size() - 1 - p2BreakAnimHide;
+					if (curTop >= 0 && url.equals(current.get(curTop).imageUrl())) {
+						p2BreakLabel.setIcon(icon);
+						p2BreakLabel.setText(null);
+					}
 				} catch (InterruptedException | ExecutionException ignored) {}
 			}
 		}.execute();
