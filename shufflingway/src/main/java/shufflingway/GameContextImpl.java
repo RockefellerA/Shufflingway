@@ -750,9 +750,18 @@ final class GameContextImpl implements GameContext {
 						};
 						logEntry("[AI] chose " + c.name());
 					});
+					if (mw.currentResolutionIsSummon)
+						for (ForwardTarget t : picked)
+							if (t.zone() == ForwardTarget.CardZone.FORWARD && t.isP1() != isP1)
+								mw.autoAbilityTriggers.triggerAutoAbilitiesForChosenByOpponentSummon(t.isP1());
 					return picked;
 				}
-				return mw.showForwardSelectDialog(eligible, maxCount, upTo, title);
+				List<ForwardTarget> chosen = mw.showForwardSelectDialog(eligible, maxCount, upTo, title);
+				if (mw.currentResolutionIsSummon)
+					for (ForwardTarget t : chosen)
+						if (t.zone() == ForwardTarget.CardZone.FORWARD && t.isP1() != isP1)
+							mw.autoAbilityTriggers.triggerAutoAbilitiesForChosenByOpponentSummon(t.isP1());
+				return chosen;
 			}
 
 			@Override public void dullP1Forward(int idx) {

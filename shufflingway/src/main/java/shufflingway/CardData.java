@@ -1238,7 +1238,7 @@ public record CardData(
      */
     private static final Pattern AUTO_ABILITY_PATTERN = Pattern.compile(
         "(?i)(?:Damage\\s+(?<threshold>\\d+)\\s+--\\s+)?" +
-        "When\\s+(?<card>[^,]+?)\\s+" +
+        "(?:When|Whenever)\\s+(?<card>[^,]+?)\\s+" +
         "(?<trigger>" +
             // "forms a party and attacks" must precede plain "attacks" to be preferred
             "forms?\\s+a\\s+party\\s+and\\s+attacks?" +
@@ -1262,6 +1262,7 @@ public record CardData(
             "|deals?\\s+damage\\s+to\\s+your\\s+opponent" +
             "|deals?\\s+damage\\s+to\\s+a\\s+Forward" +
             "|receives?\\s+a\\s+point\\s+of\\s+damage" +
+            "|is\\s+chosen\\s+by\\s+your\\s+opponent's\\s+Summons?" +
         ")\\s*,\\s+" +
         "(?<youmay>(?:you|your\\s+opponent)\\s+may\\s+)?" +
         "(?<effect>.+?)\\s*" +
@@ -1547,6 +1548,7 @@ public record CardData(
             else if (triggerRaw.contains("block") && triggerRaw.contains("is blocked"))                    trigger = "blocks or is blocked";
             else if (triggerRaw.contains("block"))                                                          trigger = "blocks";
             else if (triggerRaw.contains("break zone"))                                                     trigger = "put into break zone";
+            else if (triggerRaw.contains("chosen"))                                                         trigger = "chosen by opponent's summon";
             else if (triggerRaw.contains("summon"))                                                         trigger = "cast summon";
             else if (triggerRaw.contains("damage zone"))                                                    trigger = "damage zone";
             else if (triggerRaw.contains("leaves"))                                                         trigger = "leaves the field";
