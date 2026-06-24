@@ -9535,6 +9535,11 @@ public class ActionResolver {
      * Returns {@code true} if the given card has a "Players cannot cast Summons." field ability,
      * meaning all Summon casting (hand or break zone) is prohibited while it is on the field.
      */
+    /** Returns {@code true} if the effect text matches a "cancel 1 auto-ability" summon effect. */
+    public static boolean cancelsAutoAbility(String effectText) {
+        return CANCEL_AUTO_ABILITY_DAMAGE_IF_FORWARD.matcher(effectText.trim()).find();
+    }
+
     public static boolean hasPlayerCannotCastSummonsFieldAbility(CardData card) {
         for (FieldAbility fa : card.fieldAbilities()) {
             if (PLAYERS_CANNOT_CAST_SUMMONS.matcher(fa.effectText().trim()).matches()) return true;

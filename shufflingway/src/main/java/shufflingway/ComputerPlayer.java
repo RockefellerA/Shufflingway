@@ -680,8 +680,13 @@ class ComputerPlayer {
 		// Summons — highest cost first; skip when cast-prohibited by a field ability
 		List<Integer> summonCands = new ArrayList<>();
 		if (!mw.summonCastingProhibited()) {
+			boolean p1HasAutoAbilityOnStack = mw.gameState.getStack().stream()
+					.anyMatch(e -> e.isAutoAbility() && e.isP1());
 			for (int i = 0; i < hand.size(); i++) {
-				if (hand.get(i).isSummon()) summonCands.add(i);
+				CardData c = hand.get(i);
+				if (!c.isSummon()) continue;
+				if (ActionResolver.cancelsAutoAbility(c.summonEffect()) && !p1HasAutoAbilityOnStack) continue;
+				summonCands.add(i);
 			}
 			summonCands.sort((a, b) -> hand.get(b).cost() - hand.get(a).cost());
 		}

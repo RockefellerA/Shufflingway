@@ -515,7 +515,9 @@ public class MainWindow {
 	/** Stack entries whose effect has been cancelled by Y'shtola or similar; checked and consumed at resolution. */
 	final Set<StackEntry> cancelledStackEntries = Collections.newSetFromMap(new IdentityHashMap<>());
 	/** True while {@link #resolveTopOfStack} or EX Burst execution is running; suppresses {@link #showStackWindowIfNeeded}. */
-	private boolean isResolvingStack = false;
+	private boolean isResolvingStack      = false;
+	/** True while P1 has clicked "Respond" in the stack window and not yet cast or passed. */
+	private boolean p1IsRespondingToStack = false;
 	/** Set to {@code true} before placing a card whose ETF auto-ability should not fire (consumed on first trigger check). */
 	boolean suppressAutoAbilityForNextCard = false;
 
@@ -6003,8 +6005,9 @@ public class MainWindow {
 			GameState.GamePhase handPhase = gameState.getCurrentPhase();
 			boolean handIsMainPhase = handPhase == GameState.GamePhase.MAIN_1 || handPhase == GameState.GamePhase.MAIN_2;
 			boolean handIsAttackPrep = handPhase == GameState.GamePhase.ATTACK && attackSubStep == 0;
-			boolean handCanPlayAction = (handIsMainPhase || (handIsAttackPrep && card.isSummon())) && gameState.getStack().isEmpty()
-					&& (phaseTracker.isMyTurn() || (p1PriorityInP2MainOnDone != null && card.isSummon()));
+			boolean handCanPlayAction = ((handIsMainPhase || (handIsAttackPrep && card.isSummon())) && gameState.getStack().isEmpty()
+					&& (phaseTracker.isMyTurn() || (p1PriorityInP2MainOnDone != null && card.isSummon())))
+					|| (p1IsRespondingToStack && card.isSummon());
 			boolean handIsCharacter = card.isForward() || card.isBackup() || card.isMonster();
 			boolean handNameConflict = handIsCharacter && !card.multicard() && hasCharacterNameOnField(card.name()) && !isMultiNameExceptionActive(card.name());
 			boolean handLightDarkConflict = handIsCharacter && isLightDarkConflict(card);
@@ -6103,8 +6106,9 @@ public class MainWindow {
 		GameState.GamePhase phase = gameState.getCurrentPhase();
 		boolean isMainPhase = phase == GameState.GamePhase.MAIN_1 || phase == GameState.GamePhase.MAIN_2;
 		boolean isAttackPrep = phase == GameState.GamePhase.ATTACK && attackSubStep == 0;
-		boolean canPlaySpecialAction = (isMainPhase || (isAttackPrep && card.isSummon())) && gameState.getStack().isEmpty()
-				&& (phaseTracker.isMyTurn() || (p1PriorityInP2MainOnDone != null && card.isSummon()));
+		boolean canPlaySpecialAction = ((isMainPhase || (isAttackPrep && card.isSummon())) && gameState.getStack().isEmpty()
+				&& (phaseTracker.isMyTurn() || (p1PriorityInP2MainOnDone != null && card.isSummon())))
+				|| (p1IsRespondingToStack && card.isSummon());
 		boolean isCharacter = card.isForward() || card.isBackup() || card.isMonster();
 		boolean nameConflict = isCharacter && !card.multicard() && hasCharacterNameOnField(card.name()) && !isMultiNameExceptionActive(card.name());
 		boolean lightDarkConflict = isCharacter && isLightDarkConflict(card);
@@ -7908,6 +7912,12 @@ public class MainWindow {
 			return;
 		}
 
+		// Already cancelled (e.g. by Amaterasu) — no response window needed
+		if (cancelledStackEntries.contains(entry)) {
+			resolveTopOfStack();
+			return;
+		}
+
 		// P2 acted → P1 (human) has priority → show interactive Respond/OK window
 		final int myGeneration = ++stackWindowGeneration;
 
@@ -8012,6 +8022,8 @@ public class MainWindow {
 			if (stackWindowGeneration != myGeneration) return;
 			if (stackCountdownTimer != null) stackCountdownTimer.stop();
 			respondBtn.setEnabled(false);
+			p1IsRespondingToStack = true;
+			refreshHandPopupIfVisible();
 
 			// No time limit on the response window when P2 is a CPU
 			if (isP2Cpu()) {
@@ -8028,6 +8040,7 @@ public class MainWindow {
 				responseCountdown[0]--;
 				if (responseCountdown[0] <= 0) {
 					((Timer) re.getSource()).stop();
+					p1IsRespondingToStack = false;
 					// Only auto-resolve if we're still the top entry (nothing was pushed during response)
 					if (gameState.peekStack() == entry) resolveTopOfStack();
 				} else {
@@ -8045,6 +8058,7 @@ public class MainWindow {
 	private void resolveTopOfStack() {
 		if (stackCountdownTimer != null) { stackCountdownTimer.stop(); stackCountdownTimer = null; }
 		if (summonStackWindow   != null) { summonStackWindow.dispose(); summonStackWindow = null; }
+		p1IsRespondingToStack = false;
 
 		StackEntry entry = gameState.popStack();
 		if (entry == null) return;
