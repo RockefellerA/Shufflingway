@@ -5288,7 +5288,8 @@ public class ActionResolver {
             inclBackups    = isGenericCard || tgtLower.contains("backup")  || tgtLower.contains("character");
             inclMonsters   = isGenericCard || tgtLower.contains("monster") || tgtLower.contains("character");
         }
-        boolean inclSummons  = tgtLower.contains("summon");
+        boolean inclSummons  = tgtLower.contains("summon")
+                           || tgtLower.equals("card") || tgtLower.equals("cards");
         String  categoryFilter = m.group("category");
         String  excludeName      = restorePeriodInName(m.group("excludename") != null ? m.group("excludename").trim() : null, source);
         String  rawExcludeKw     = m.group("excludekw");

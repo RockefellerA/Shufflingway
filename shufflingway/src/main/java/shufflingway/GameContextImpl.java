@@ -1054,9 +1054,10 @@ final class GameContextImpl implements GameContext {
 					}
 					String costLabel  = formatCostFilterLabel(costVal, costCmp);
 					String powerLabel = powerVal >= 0 ? " of power " + powerVal + (powerCmp != null ? " or " + powerCmp : "") : "";
+					String typeLabel  = breakZoneTypeLabel(inclForwards, inclBackups, inclMonsters, inclSummons, maxCount);
 					String title = "Choose " + (upTo ? "up to " : "") + maxCount
 							+ (element != null ? " " + element : "")
-							+ " Character" + (maxCount != 1 ? "s" : "") + costLabel + powerLabel
+							+ typeLabel + costLabel + powerLabel
 							+ " from either player's Break Zone";
 					if (!isP1) {
 						if (eligible.isEmpty()) return List.of();
@@ -1100,9 +1101,10 @@ final class GameContextImpl implements GameContext {
 				}
 				String costLabel  = formatCostFilterLabel(costVal, costCmp);
 				String powerLabel = powerVal >= 0 ? " of power " + powerVal + (powerCmp != null ? " or " + powerCmp : "") : "";
+				String typeLabel  = breakZoneTypeLabel(inclForwards, inclBackups, inclMonsters, inclSummons, maxCount);
 				String title = "Choose " + (upTo ? "up to " : "") + maxCount
 						+ (element != null ? " " + element : "")
-						+ " Character" + (maxCount != 1 ? "s" : "") + costLabel + powerLabel
+						+ typeLabel + costLabel + powerLabel
 						+ " in " + (opponentZone ? "opponent's" : "your") + " Break Zone";
 				if (!isP1) {
 					if (eligible.isEmpty()) return List.of();
@@ -4247,4 +4249,16 @@ final class GameContextImpl implements GameContext {
 				}
 				logEntry((isP1 ? "P1" : "[P2]") + " Forwards can form a party with Forwards of any Element this turn");
 			}
+
+	/** Returns a display label like " Card(s)", " Forward(s)", " Character(s)", etc. for BZ-selection dialog titles. */
+	static String breakZoneTypeLabel(boolean inclForwards, boolean inclBackups,
+			boolean inclMonsters, boolean inclSummons, int count) {
+		String s = count != 1 ? "s" : "";
+		if (inclForwards && inclBackups && inclMonsters && inclSummons) return " Card" + s;
+		if (inclSummons && !inclForwards && !inclBackups && !inclMonsters) return " Summon" + s;
+		if (inclForwards && !inclBackups && !inclMonsters && !inclSummons) return " Forward" + s;
+		if (inclBackups  && !inclForwards && !inclMonsters && !inclSummons) return " Backup" + s;
+		if (inclMonsters && !inclForwards && !inclBackups  && !inclSummons) return " Monster" + s;
+		return " Character" + s;
+	}
 }
