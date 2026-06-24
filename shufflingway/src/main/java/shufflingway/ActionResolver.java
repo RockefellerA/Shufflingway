@@ -288,6 +288,11 @@ public class ActionResolver {
         "(?i)(?<srcname>.+?)\\s+and\\s+the\\s+chosen\\s+Forward\\s+deal\\s+damage\\s+equal\\s+to\\s+their\\s+respective\\s+power\\s+to\\s+the\\s+other[.!]?"
     );
 
+    /** Matches "Each Forward deals damage equal to its power to the other." (used in choose-one-each contexts). */
+    private static final Pattern FOLLOWUP_EACH_FORWARD_MUTUAL_POWER_DAMAGE = Pattern.compile(
+        "(?i)Each\\s+Forward\\s+deals\\s+damage\\s+equal\\s+to\\s+its\\s+power\\s+to\\s+the\\s+other[.!]?"
+    );
+
     /**
      * Matches "Deal it/them [base] damage [and [per] more damage] for each [source]".
      * <ul>
@@ -5055,6 +5060,27 @@ public class ActionResolver {
                     if (t.isP1()) ctx.returnP1ForwardToHand(t.idx());
                     else          ctx.returnP2ForwardToHand(t.idx());
                 }
+            };
+        }
+
+        if (FOLLOWUP_EACH_FORWARD_MUTUAL_POWER_DAMAGE.matcher(followup).find()) {
+            return ctx -> {
+                ctx.logEntry(logPrefix + " — Each deals damage equal to its power to the other");
+                List<ForwardTarget> selfTs = selectTargets(ctx, count1, false,
+                        false, true, null, null, null, false, -1, null, -1, null,
+                        fwd1, bak1, mon1, null, null, null, null, false, null, false);
+                List<ForwardTarget> oppTs = selectTargets(ctx, count2, false,
+                        true, false, null, null, null, false, -1, null, -1, null,
+                        fwd2, bak2, mon2, null, null, null, null, false, null, false);
+                if (selfTs.isEmpty() || oppTs.isEmpty()) return;
+                ForwardTarget selfT = selfTs.get(0);
+                ForwardTarget oppT  = oppTs.get(0);
+                // Snapshot both powers before either damage is applied
+                int selfPower = Math.max(0, ctx.effectiveTargetPower(selfT));
+                int oppPower  = Math.max(0, ctx.effectiveTargetPower(oppT));
+                ctx.logEntry("Mutual damage: self Forward (" + selfPower + ") ↔ opp Forward (" + oppPower + ")");
+                ctx.damageTarget(selfT, oppPower);
+                ctx.damageTarget(oppT,  selfPower);
             };
         }
 
