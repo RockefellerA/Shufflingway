@@ -155,8 +155,11 @@ public class MainWindow {
 	private Timer fadeTimer;      // drives fade-in / fade-out animation
 	CardSlideAnimator cardSlideAnimator;
 	private CardBreakAnimator breakAnimator;
+	private CardRfpAnimator   rfpAnimator;
 	/** Non-null when the next startBreakAnim call should slide to the break zone instead of slashing. */
 	JLabel pendingCostBreakDestLabel;
+	/** When true, the next startBreakAnim call is suppressed (e.g. RFP goes through breakP*Forward but needs no animation). */
+	boolean suppressNextBreakAnim;
 	// In-flight discard animations: each pending slide hides one top-of-break-zone card from the
 	// break label until its slide lands. The counter is incremented when a discard animation
 	// starts and decremented when the corresponding swing Timer fires. refreshP*BreakLabel skips
@@ -1196,6 +1199,7 @@ public class MainWindow {
 		applySidePanelSide(AppSettings.getSidePanelSide());
 		cardSlideAnimator = CardSlideAnimator.install(frame);
 		breakAnimator     = CardBreakAnimator.install(frame);
+		rfpAnimator       = CardRfpAnimator.install(frame);
 	}
 
 	// -------------------------------------------------------------------------
@@ -6346,7 +6350,21 @@ public class MainWindow {
 		reveal.start();
 	}
 
+	void startRfpAnim(int forwardIdx, boolean isP1) {
+		List<JLabel> labels = isP1 ? p1ForwardLabels : p2ForwardLabels;
+		if (forwardIdx < 0 || forwardIdx >= labels.size()) return;
+		JLabel label = labels.get(forwardIdx);
+		if (label == null) return;
+		Icon icon = label.getIcon();
+		if (!(icon instanceof ImageIcon ii)) return;
+		JLayeredPane lp = frame.getRootPane().getLayeredPane();
+		Point center = SwingUtilities.convertPoint(label, label.getWidth() / 2, label.getHeight() / 2, lp);
+		java.awt.image.BufferedImage img = CardAnimation.toARGB(ii.getImage(), ii.getIconWidth(), ii.getIconHeight());
+		rfpAnimator.startRfp(img, center);
+	}
+
 	void startBreakAnim(JLabel label) {
+		if (suppressNextBreakAnim) { suppressNextBreakAnim = false; return; }
 		if (label == null) return;
 		Icon icon = label.getIcon();
 		if (!(icon instanceof ImageIcon ii)) return;
@@ -9401,9 +9419,9 @@ public class MainWindow {
 	 * Called at the start of the END phase, before temporary-boost cleanup.
 	 */
 	private void fireFieldEndOfTurnAbilities(boolean isP1) {
-		List<CardData> fwds = isP1 ? p1ForwardCards : p2ForwardCards;
+		List<CardData> fwds = new ArrayList<>(isP1 ? p1ForwardCards : p2ForwardCards);
 		CardData[]     bkps = isP1 ? p1BackupCards  : p2BackupCards;
-		List<CardData> mons = isP1 ? p1MonsterCards : p2MonsterCards;
+		List<CardData> mons = new ArrayList<>(isP1 ? p1MonsterCards : p2MonsterCards);
 		GameContext ctx = buildGameContext(isP1);
 		int dmg = isP1 ? gameState.getP1DamageZone().size() : gameState.getP2DamageZone().size();
 		for (CardData card : fwds) fireFieldEndOfTurnAbilitiesForCard(card, ctx, dmg);

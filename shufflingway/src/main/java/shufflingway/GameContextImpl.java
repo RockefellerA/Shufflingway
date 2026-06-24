@@ -978,8 +978,10 @@ final class GameContextImpl implements GameContext {
 				if (idx >= mw.p1ForwardCards.size()) return;
 				mw.lastRemovedFromGameCardCost = p1Forward(idx).cost();
 				logEntry(p1Forward(idx).name() + " → Removed From Game");
+				mw.startRfpAnim(idx, true);
 				List<CardData> bz = mw.gameState.getP1BreakZone();
 				int before = bz.size();
+				mw.suppressNextBreakAnim = true;
 				mw.breakP1Forward(idx);
 				while (bz.size() > before)
 					mw.gameState.addToP1PermanentRfp(bz.remove(bz.size() - 1));
@@ -991,8 +993,10 @@ final class GameContextImpl implements GameContext {
 				if (idx >= mw.p2ForwardCards.size()) return;
 				mw.lastRemovedFromGameCardCost = mw.p2ForwardCards.get(idx).cost();
 				logEntry("[P2] " + mw.p2ForwardCards.get(idx).name() + " → Removed From Game");
+				mw.startRfpAnim(idx, false);
 				List<CardData> bz = mw.gameState.getP2BreakZone();
 				int before = bz.size();
+				mw.suppressNextBreakAnim = true;
 				mw.breakP2Forward(idx);
 				while (bz.size() > before)
 					mw.gameState.addToP2PermanentRfp(bz.remove(bz.size() - 1));
@@ -2832,19 +2836,17 @@ final class GameContextImpl implements GameContext {
 			}
 
 			@Override public void playNamedFromRfpOntoField(String cardName) {
-				List<CardData> p1rfp = mw.gameState.getP1PermanentRfp();
-				for (int i = 0; i < p1rfp.size(); i++) {
-					if (p1rfp.get(i).name().equalsIgnoreCase(cardName)) {
-						CardData card = p1rfp.remove(i);
+				for (CardData card : mw.gameState.getP1PermanentRfp()) {
+					if (card.name().equalsIgnoreCase(cardName)) {
+						mw.gameState.removeFromP1PermanentRfp(card);
 						logEntry(card.name() + " returns from RFP → P1 field");
 						mw.placeCardInForwardZone(card);
 						return;
 					}
 				}
-				List<CardData> p2rfp = mw.gameState.getP2PermanentRfp();
-				for (int i = 0; i < p2rfp.size(); i++) {
-					if (p2rfp.get(i).name().equalsIgnoreCase(cardName)) {
-						CardData card = p2rfp.remove(i);
+				for (CardData card : mw.gameState.getP2PermanentRfp()) {
+					if (card.name().equalsIgnoreCase(cardName)) {
+						mw.gameState.removeFromP2PermanentRfp(card);
 						logEntry(card.name() + " returns from RFP → P2 field");
 						mw.placeP2CardInForwardZone(card);
 						return;
