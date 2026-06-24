@@ -25,6 +25,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ExecutionException;
+import java.util.stream.Collectors;
 import java.util.function.Consumer;
 
 import javax.swing.BorderFactory;
@@ -160,6 +161,145 @@ public class CardPickerDialog {
         dlg.setVisible(true);
 
         return picked[0];
+    }
+
+    /**
+     * Multi-select deck-search picker for "up to N" searches (N > 1).
+     * Returns the list of chosen cards in selection order, or an empty list if the player
+     * clicks Skip.  Confirm is disabled until at least one card is selected.
+     */
+    public List<CardData> pickMultiFromDeckSearch(List<CardData> matches, int maxCount) {
+        JDialog dlg = new JDialog(owner,
+                "Search — choose up to " + maxCount + " cards (" + matches.size() + " found)", true);
+        dlg.setResizable(false);
+        dlg.setDefaultCloseOperation(JDialog.DO_NOTHING_ON_CLOSE);
+
+        List<Integer> selected   = new ArrayList<>();
+        List<JLabel>  cardLabels = new ArrayList<>(matches.size());
+        boolean[]     confirmed  = { false };
+
+        JButton confirmBtn = new JButton("Confirm");
+        confirmBtn.setFont(FontLoader.loadPixelNESFont(11));
+        confirmBtn.setEnabled(false);
+
+        JButton skipBtn = new JButton("Skip");
+        skipBtn.setFont(FontLoader.loadPixelNESFont(11));
+
+        JLabel hint = new JLabel("", SwingConstants.CENTER);
+        hint.setFont(FontLoader.loadPixelNESFont(9));
+
+        Runnable refresh = () -> {
+            int n = selected.size();
+            hint.setText("Select up to " + maxCount + " card" + (maxCount > 1 ? "s" : "")
+                    + " (" + n + "/" + maxCount + ")");
+            confirmBtn.setEnabled(n >= 1);
+            for (int i = 0; i < cardLabels.size(); i++) {
+                cardLabels.get(i).setBorder(selected.contains(i)
+                        ? CardAnimation.createCardGlowBorder(Color.GREEN)
+                        : BorderFactory.createLineBorder(Color.GRAY, 2));
+            }
+        };
+
+        final int CARDS_PER_ROW = 10;
+        JPanel cardsPanel = new JPanel();
+        cardsPanel.setLayout(new BoxLayout(cardsPanel, BoxLayout.Y_AXIS));
+        JPanel currentRow = null;
+        for (int idx = 0; idx < matches.size(); idx++) {
+            CardData candidate = matches.get(idx);
+            final int cardIdx = idx;
+            if (idx % CARDS_PER_ROW == 0) {
+                currentRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 12, 12));
+                currentRow.setAlignmentX(Component.LEFT_ALIGNMENT);
+                cardsPanel.add(currentRow);
+            }
+            JPanel wrapper = new JPanel(new BorderLayout(0, 4));
+            wrapper.setBackground(cardsPanel.getBackground());
+
+            JLabel lbl = new JLabel("...", SwingConstants.CENTER);
+            lbl.setPreferredSize(new Dimension(CARD_W, CARD_H));
+            lbl.setMinimumSize(new Dimension(CARD_W, CARD_H));
+            lbl.setOpaque(true);
+            lbl.setBackground(Color.DARK_GRAY);
+            lbl.setBorder(BorderFactory.createLineBorder(Color.GRAY, 2));
+            lbl.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+            cardLabels.add(lbl);
+
+            lbl.addMouseListener(new MouseAdapter() {
+                @Override public void mouseEntered(MouseEvent e) {
+                    if (lbl.getIcon() != null) onZoom.accept(candidate.imageUrl());
+                    if (!selected.contains(cardIdx))
+                        lbl.setBorder(CardAnimation.createCardGlowBorder(Color.YELLOW));
+                }
+                @Override public void mouseExited(MouseEvent e) {
+                    onZoomHide.run();
+                    lbl.setBorder(selected.contains(cardIdx)
+                            ? CardAnimation.createCardGlowBorder(Color.GREEN)
+                            : BorderFactory.createLineBorder(Color.GRAY, 2));
+                }
+                @Override public void mousePressed(MouseEvent e) {
+                    if (selected.contains(cardIdx)) {
+                        selected.remove(Integer.valueOf(cardIdx));
+                    } else if (selected.size() < maxCount) {
+                        selected.add(cardIdx);
+                    }
+                    refresh.run();
+                }
+            });
+
+            new SwingWorker<ImageIcon, Void>() {
+                @Override protected ImageIcon doInBackground() throws Exception {
+                    Image img = ImageCache.load(candidate.imageUrl());
+                    return img == null ? null
+                            : new ImageIcon(img.getScaledInstance(CARD_W, CARD_H, Image.SCALE_SMOOTH));
+                }
+                @Override protected void done() {
+                    try { ImageIcon ic = get(); if (ic != null) { lbl.setIcon(ic); lbl.setText(null); } }
+                    catch (InterruptedException | ExecutionException ignored) {}
+                }
+            }.execute();
+
+            JLabel nameLabel = new JLabel(candidate.name(), SwingConstants.CENTER);
+            nameLabel.setFont(FontLoader.loadPixelNESFont(9));
+            nameLabel.setPreferredSize(new Dimension(CARD_W, 18));
+            wrapper.add(lbl,       BorderLayout.CENTER);
+            wrapper.add(nameLabel, BorderLayout.SOUTH);
+            currentRow.add(wrapper);
+        }
+
+        confirmBtn.addActionListener(ev -> { confirmed[0] = true; onZoomHide.run(); dlg.dispose(); });
+        skipBtn.addActionListener(ev    -> {                       onZoomHide.run(); dlg.dispose(); });
+
+        int rowHeight    = 12 + CARD_H + 4 + 18 + 12;
+        int rowsToShow   = Math.min(2, (matches.size() + CARDS_PER_ROW - 1) / CARDS_PER_ROW);
+        int colsInWidest = Math.min(matches.size(), CARDS_PER_ROW);
+        int rowWidth     = 12 + colsInWidest * CARD_W + (colsInWidest - 1) * 12 + 12;
+
+        JScrollPane scroll = new JScrollPane(cardsPanel,
+                ScrollPaneConstants.VERTICAL_SCROLLBAR_AS_NEEDED,
+                ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
+        scroll.setBorder(null);
+        scroll.getVerticalScrollBar().setUnitIncrement(rowHeight);
+        int scrollbarPad = matches.size() > rowsToShow * CARDS_PER_ROW
+                ? scroll.getVerticalScrollBar().getPreferredSize().width : 0;
+        scroll.setPreferredSize(new Dimension(rowWidth + scrollbarPad, rowsToShow * rowHeight));
+
+        JPanel btnRow = new JPanel(new FlowLayout(FlowLayout.CENTER, 8, 4));
+        btnRow.add(confirmBtn);
+        btnRow.add(skipBtn);
+
+        JPanel south = new JPanel(new BorderLayout(0, 4));
+        south.add(hint,   BorderLayout.CENTER);
+        south.add(btnRow, BorderLayout.SOUTH);
+
+        refresh.run();
+        dlg.getContentPane().setLayout(new BorderLayout(0, 6));
+        dlg.getContentPane().add(scroll, BorderLayout.CENTER);
+        dlg.getContentPane().add(south,  BorderLayout.SOUTH);
+        dlg.pack();
+        dlg.setLocationRelativeTo(owner);
+        dlg.setVisible(true);
+
+        return confirmed[0] ? selected.stream().map(matches::get).collect(Collectors.toList()) : List.of();
     }
 
     /**
@@ -1069,7 +1209,7 @@ public class CardPickerDialog {
 
         JButton confirmBtn = new JButton("Confirm");
         confirmBtn.setFont(FontLoader.loadPixelNESFont(11));
-        confirmBtn.setEnabled(upTo);
+        confirmBtn.setEnabled(false);
 
         javax.swing.border.Border normalBorder   = BorderFactory.createLineBorder(new Color(100, 100, 100), 2);
         javax.swing.border.Border selectedBorder = BorderFactory.createLineBorder(Color.YELLOW, 3);
@@ -1118,7 +1258,7 @@ public class CardPickerDialog {
                         sel.add(fi);
                         imgLbl.setBorder(selectedBorder);
                     }
-                    confirmBtn.setEnabled(upTo || sel.size() == maxCount);
+                    confirmBtn.setEnabled(upTo ? !sel.isEmpty() : sel.size() == maxCount);
                 }
             };
             imgLbl.addMouseListener(cardListener);

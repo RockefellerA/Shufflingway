@@ -3764,21 +3764,28 @@ public class MainWindow {
 			return;
 		}
 		List<CardData> chosen = new ArrayList<>();
-		for (int i = 0; i < count && !matches.isEmpty(); i++) {
-			CardData pick;
-			if (!isP1) {
+		if (!isP1) {
+			for (int i = 0; i < count && !matches.isEmpty(); i++) {
 				List<CardData> copy = new ArrayList<>(matches);
 				Collections.shuffle(copy);
-				pick = copy.get(0);
+				CardData pick = copy.get(0);
 				logEntry("[AI] chose " + pick.name());
-			} else {
-				pick = cardPickerDialog.pickFromDeckSearch(matches);
+				matches.remove(pick);
+				deck.remove(pick);
+				chosen.add(pick);
 			}
-			if (pick == null) break;
-			matches.remove(pick);
-			if (isP1) gameState.removeFromP1MainDeck(pick);
-			else      deck.remove(pick);
-			chosen.add(pick);
+		} else if (count > 1) {
+			List<CardData> picks = cardPickerDialog.pickMultiFromDeckSearch(matches, count);
+			for (CardData pick : picks) {
+				gameState.removeFromP1MainDeck(pick);
+				chosen.add(pick);
+			}
+		} else {
+			CardData pick = cardPickerDialog.pickFromDeckSearch(matches);
+			if (pick != null) {
+				gameState.removeFromP1MainDeck(pick);
+				chosen.add(pick);
+			}
 		}
 		shuffleDeck(isP1);
 		if (chosen.isEmpty()) {
@@ -8593,35 +8600,13 @@ public class MainWindow {
 	}
 
 	/**
-	 * Returns {@code true} if the player can afford an action ability's cost: the CP portion
-	 * (element and generic CP) <em>and</em> any "discard X" hand-card cost. Dull/S requirements are
-	 * checked separately in the context-menu enable logic.
+	 * Returns {@code true} if the player can afford the CP portion of an action
+	 * ability's cost (element and generic CP only; Dull/S requirements are checked
+	 * separately in the context-menu enable logic).
 	 */
 	boolean canAffordAbilityCost(ActionAbility ability, boolean isP1) {
-		List<CardData> hand = playerHand(isP1);
-
-		int reservedHandCards = 0;
-		for (DiscardCost dc : ability.discardCosts()) {
-			List<CardData> eligible = new ArrayList<>();
-			for (CardData c : hand) {
-				if (dc.cardName() != null && !CardFilters.meetsCardNameFilter(c, dc.cardName())) continue;
-				if (dc.element()  != null && !c.containsElement(dc.element()))                   continue;
-				if (dc.cardType() != null && !CardFilters.matchesDiscardType(c, dc.cardType()))  continue;
-				if (dc.category() != null && !CardFilters.meetsCategoryFilter(c, dc.category()))  continue;
-				eligible.add(c);
-			}
-			// "each of a different card type" needs that many distinct types among the eligible cards.
-			int satisfiable = eligible.size();
-			if (dc.eachDifferentType()) {
-				java.util.Set<String> types = new java.util.HashSet<>();
-				for (CardData c : eligible) types.add(discardTypeKey(c));
-				satisfiable = types.size();
-			}
-			if (satisfiable < dc.count()) return false;
-			reservedHandCards += dc.count();
-		}
-
 		List<String> cost = ability.cpCost();
+		if (cost.isEmpty()) return true;
 
 		boolean hasGeneric = cost.contains("");
 		LinkedHashMap<String, Integer> needed = new LinkedHashMap<>();
@@ -8637,12 +8622,10 @@ public class MainWindow {
 			available += b;
 			if (b > 0) hasSrc[ei] = true;
 		}
-
 		if (hasGeneric) {
 			available += playerCpByElem(isP1).values().stream().mapToInt(Integer::intValue).sum();
 			for (int ei = 0; ei < elems.length; ei++) available -= playerCpForElem(isP1, elems[ei]);
 		}
-
 		CardData[]  bkpCards  = playerBackupCards(isP1);
 		CardState[] bkpStates = playerBackupStates(isP1);
 		for (int i = 0; i < bkpCards.length; i++) {
@@ -8653,28 +8636,13 @@ public class MainWindow {
 			}
 			if (!matched && hasGeneric) available++;
 		}
-
-		// Each non-Light/Dark hand card yields 2 CP if discarded, but cards reserved for the discard
-		// cost above are already spoken for, so exclude that many from the discard-for-CP pool.
-		int handCpCards = 0;
-		for (CardData h : hand) {
+		for (CardData h : playerHand(isP1)) {
 			if (h.isLightOrDark()) continue;
-			handCpCards++;
+			available += 2;
 			for (int ei = 0; ei < elems.length; ei++) if (h.containsElement(elems[ei])) hasSrc[ei] = true;
 		}
-		available += 2 * Math.max(0, handCpCards - reservedHandCards);
-
-        for (boolean s : hasSrc) if (!s) return false;
+		for (boolean s : hasSrc) if (!s) return false;
 		return available >= total;
-	}
-
-	/** Single-letter card-type key (F/B/M/S) used to count distinct types for "each different type" discard costs. */
-	private static String discardTypeKey(CardData c) {
-		if (c.isForward()) return "F";
-		if (c.isBackup())  return "B";
-		if (c.isMonster()) return "M";
-		if (c.isSummon())  return "S";
-		return "?";
 	}
 
 	/**
@@ -8946,6 +8914,8 @@ public class MainWindow {
 			if (!autoAbilityTriggers.counterCostSatisfied(cc, source)) return false;
 		for (DullForwardCost dfc : ability.dullForwardCosts())
 			if (!autoAbilityTriggers.dullForwardCostSatisfied(dfc, isP1)) return false;
+		for (DiscardCost dc : ability.discardCosts())
+			if (!autoAbilityTriggers.discardCostSatisfied(dc, isP1)) return false;
 		return canAffordAbilityCost(ability, isP1);
 	}
 

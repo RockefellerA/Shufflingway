@@ -1534,7 +1534,7 @@ public record CardData(
             else if (triggerRaw.contains("attack") && (cardIsParty || triggerHasParty))                    trigger = "party attacks";
             else if (triggerRaw.contains("enter") && triggerRaw.contains("attack"))                        trigger = "enters the field or attacks";
             else if (triggerRaw.contains("enter") && triggerRaw.contains("other than from your hand"))     trigger = "enters your field not from hand";
-            else if (triggerRaw.contains("enter") && triggerRaw.contains("your")  && triggerRaw.contains("field")) trigger = "enters your field";
+            else if (triggerRaw.contains("enter") && triggerRaw.contains("your field"))                            trigger = "enters your field";
             else if (triggerRaw.contains("attack")
                     && card.toLowerCase(java.util.Locale.ROOT).matches("\\d+\\s+or\\s+more\\s+forwards?\\s+you\\s+control"))
                                                                                                              trigger = "attack";
