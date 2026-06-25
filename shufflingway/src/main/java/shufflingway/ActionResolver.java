@@ -647,6 +647,11 @@ public class ActionResolver {
         "(?i)All\\s+Forwards?\\s+cannot\\s+block\\s+this\\s+turn[.!]?"
     );
 
+    /** Matches "All Forwards of cost N or less/more cannot block this turn." */
+    private static final Pattern STANDALONE_FORWARDS_OF_COST_CANNOT_BLOCK = Pattern.compile(
+        "(?i)All\\s+Forwards?\\s+of\\s+cost\\s+(?<costval>\\d+)\\s+or\\s+(?<cmp>less|more)\\s+cannot\\s+block\\s+this\\s+turn[.!]?"
+    );
+
     /**
      * Matches "All the Forwards opponent controls lose all abilities until the end of the turn."
      */
@@ -3502,6 +3507,9 @@ public class ActionResolver {
         result = tryParseAllForwardsCannotBlock(effectText);
         if (result != null) return result;
 
+        result = tryParseForwardsOfCostCannotBlock(effectText);
+        if (result != null) return result;
+
         result = tryParseOppFwdsCannotBlockInferiorPower(effectText);
         if (result != null) return result;
 
@@ -3916,6 +3924,7 @@ public class ActionResolver {
         if (tryParseStandaloneSelfDullAndShield(effectText, source) != null) return "StandaloneSelfDullAndShield";
         if (tryParseStandaloneShieldCannotBeBroken(effectText, source) != null) return "StandaloneShieldCannotBeBroken";
         if (tryParseAllForwardsCannotBlock(effectText)             != null) return "AllForwardsCannotBlock";
+        if (tryParseForwardsOfCostCannotBlock(effectText)          != null) return "ForwardsOfCostCannotBlock";
         if (tryParseOppFwdsCannotBlockInferiorPower(effectText)    != null) return "OppFwdsCannotBlockInferiorPower";
         if (tryParseOppFwdsLoseAllAbilitiesEot(effectText)         != null) return "OppFwdsLoseAllAbilitiesEot";
         if (tryParseStandaloneCannotBeBlocked(effectText, source) != null) return "StandaloneCannotBeBlocked";
@@ -4275,6 +4284,7 @@ public class ActionResolver {
         if (tryParseStandaloneSelfDullAndShield(effectText, source) != null) return "StandaloneSelfDullAndShield";
         if (tryParseStandaloneShieldCannotBeBroken(effectText, source) != null) return "StandaloneShieldCannotBeBroken";
         if (tryParseAllForwardsCannotBlock(effectText)             != null) return "AllForwardsCannotBlock";
+        if (tryParseForwardsOfCostCannotBlock(effectText)          != null) return "ForwardsOfCostCannotBlock";
         if (tryParseOppFwdsCannotBlockInferiorPower(effectText)    != null) return "OppFwdsCannotBlockInferiorPower";
         if (tryParseOppFwdsLoseAllAbilitiesEot(effectText)         != null) return "OppFwdsLoseAllAbilitiesEot";
         if (tryParseStandaloneCannotBeBlocked(effectText, source) != null) return "StandaloneCannotBeBlocked";
@@ -7883,6 +7893,22 @@ public class ActionResolver {
             ctx.logEntry("Effect: All Forwards cannot block this turn");
             for (int i = 0; i < ctx.p1ForwardCount(); i++) ctx.setP1ForwardCannotBlock(i);
             for (int i = 0; i < ctx.p2ForwardCount(); i++) ctx.setP2ForwardCannotBlock(i);
+        };
+    }
+
+    private static Consumer<GameContext> tryParseForwardsOfCostCannotBlock(String text) {
+        Matcher m = STANDALONE_FORWARDS_OF_COST_CANNOT_BLOCK.matcher(text);
+        if (!m.matches()) return null;
+        int costVal = Integer.parseInt(m.group("costval"));
+        boolean orLess = m.group("cmp").equalsIgnoreCase("less");
+        return ctx -> {
+            ctx.logEntry("Effect: All Forwards of cost " + costVal + " or " + (orLess ? "less" : "more") + " cannot block this turn");
+            for (int i = 0; i < ctx.p1ForwardCount(); i++)
+                if (orLess ? ctx.p1Forward(i).cost() <= costVal : ctx.p1Forward(i).cost() >= costVal)
+                    ctx.setP1ForwardCannotBlock(i);
+            for (int i = 0; i < ctx.p2ForwardCount(); i++)
+                if (orLess ? ctx.p2Forward(i).cost() <= costVal : ctx.p2Forward(i).cost() >= costVal)
+                    ctx.setP2ForwardCannotBlock(i);
         };
     }
 
