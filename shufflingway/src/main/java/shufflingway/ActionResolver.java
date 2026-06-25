@@ -8809,17 +8809,20 @@ public class ActionResolver {
         "(?:your\\s+)?opponent\\s+controls?\\s+loses?\\s+\\d+\\s+power[.!]?$"
     );
 
+    /** "If there are N or more cards in your Break Zone, ..." — BZ-conditional passive grant. */
+    private static final Pattern FIELD_GRANT_BZ_COND_PASSIVE = Pattern.compile(
+        "(?i)^If\\s+there\\s+are\\s+\\d+\\s+or\\s+more\\s+cards?\\s+in\\s+your\\s+Break\\s+Zone,"
+    );
+
     /**
-     * Recognises the bare passive field grants
-     * "The [targets] you control gain +N power." and
-     * "The [targets] opponent controls lose N power."
-     * Field abilities are applied passively by the engine via {@link CardData#fieldPowerGrants()};
-     * this parser exists solely so that {@link #parse} returns a non-null no-op for these forms.
+     * Recognises passive field grants applied by the engine via {@link CardData#fieldPowerGrants()};
+     * returns a no-op lambda so that {@link #parse} does not report these as unrecognised.
      */
     private static Consumer<GameContext> tryParseFieldPowerGrantPassive(String text) {
         String trimmed = text.trim();
         if (FIELD_GRANT_BARE_PASSIVE.matcher(trimmed).matches()
-                || FIELD_OPPONENT_DEBUFF_PASSIVE.matcher(trimmed).matches()) {
+                || FIELD_OPPONENT_DEBUFF_PASSIVE.matcher(trimmed).matches()
+                || FIELD_GRANT_BZ_COND_PASSIVE.matcher(trimmed).find()) {
             return ctx -> { /* passive field grant — applied via fieldPowerGrants() */ };
         }
         return null;

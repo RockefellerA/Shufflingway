@@ -2300,6 +2300,21 @@ public record CardData(
         "(?:your\\s+)?opponent\\s+controls?\\s+loses?\\s+(?<power>\\d+)\\s+power[.!]?$"
     );
 
+    /**
+     * Matches "If there are N or more cards in your Break Zone, the Card Name X [type] and the
+     * Job Y [type] you control gain[s] +P power [and traits]."
+     * Groups: {@code bzcount}, {@code cardname}, {@code type1}, {@code job}, {@code type2},
+     * {@code power} (optional), {@code traitstext} (optional).
+     */
+    private static final Pattern FIELD_GRANT_BZ_COND_CN_AND_JOB_PATTERN = Pattern.compile(
+        "(?i)^If\\s+there\\s+are\\s+(?<bzcount>\\d+)\\s+or\\s+more\\s+cards?\\s+in\\s+your\\s+Break\\s+Zone,?\\s+" +
+        "the\\s+Card\\s+Name\\s+(?<cardname>[A-Za-z][A-Za-z\\s''\\-]*)\\s+(?<type1>Forwards?|Characters?|Backups?|Monsters?)\\s+" +
+        "and\\s+the\\s+Job\\s+(?<job>[A-Za-z][A-Za-z\\s''\\-]*)\\s+(?<type2>Forwards?|Characters?|Backups?|Monsters?)\\s+" +
+        "you\\s+control\\s+gains?\\s+" +
+        "(?:\\+(?<power>\\d+)\\s+power(?:\\s+and\\s+)?)?" +
+        "(?<traitstext>.+?)?[.!]?$"
+    );
+
     public static List<FieldPowerGrant> parseFieldPowerGrants(String textEn, String cardType) {
         if (textEn == null || textEn.isBlank()) return List.of();
         if ("Summon".equalsIgnoreCase(cardType)) return List.of();
@@ -2308,6 +2323,32 @@ public record CardData(
         for (String raw : textEn.split("(?i)\\[\\[br\\]\\]")) {
             String seg = SUMMON_MARKUP.matcher(raw.trim()).replaceAll("").trim();
             if (seg.isEmpty()) continue;
+
+            Matcher bzCnJobM = FIELD_GRANT_BZ_COND_CN_AND_JOB_PATTERN.matcher(seg);
+            if (bzCnJobM.matches()) {
+                int minBzSize = Integer.parseInt(bzCnJobM.group("bzcount"));
+                String cardName = bzCnJobM.group("cardname").trim();
+                String job      = bzCnJobM.group("job").trim();
+                String type1    = bzCnJobM.group("type1");
+                String type2    = bzCnJobM.group("type2");
+                int[]  incl1   = parseFieldGrantTargetFlags(type1);
+                int[]  incl2   = parseFieldGrantTargetFlags(type2);
+                String powerStr = bzCnJobM.group("power");
+                int power = powerStr != null ? Integer.parseInt(powerStr) : 0;
+                String traitsText = bzCnJobM.group("traitstext");
+                EnumSet<Trait> traits = EnumSet.noneOf(Trait.class);
+                if (traitsText != null) {
+                    if (ICB_EFFECT_HASTE.matcher(traitsText).find())        traits.add(Trait.HASTE);
+                    if (ICB_EFFECT_BRAVE.matcher(traitsText).find())        traits.add(Trait.BRAVE);
+                    if (ICB_EFFECT_FIRST_STRIKE.matcher(traitsText).find()) traits.add(Trait.FIRST_STRIKE);
+                    if (ICB_EFFECT_BACK_ATTACK.matcher(traitsText).find())  traits.add(Trait.BACK_ATTACK);
+                }
+                result.add(new FieldPowerGrant(null, null, incl1[0] != 0, incl1[1] != 0, incl1[2] != 0,
+                        null, power, traits, false, -1, null, null, cardName, minBzSize));
+                result.add(new FieldPowerGrant(job, null, incl2[0] != 0, incl2[1] != 0, incl2[2] != 0,
+                        null, power, traits, false, -1, null, null, null, minBzSize));
+                continue;
+            }
 
             Matcher bareM = FIELD_GRANT_BARE_PATTERN.matcher(seg);
             if (bareM.matches()) {
@@ -3459,6 +3500,8 @@ public record CardData(
             if (SCALING_SELF_DMG_PATTERN.matcher(seg).find())                 continue;
             // Scaling self power boost ("For each Card Name X in your Break Zone, X gains +N power")
             if (SCALING_SELF_BZ_CARD_NAME_PATTERN.matcher(seg).find())        continue;
+            // BZ-conditional passive grant — handled by parseFieldPowerGrants
+            if (FIELD_GRANT_BZ_COND_CN_AND_JOB_PATTERN.matcher(seg).find())   continue;
 
             // Cast/play restrictions — handled as static properties via castRestriction()
             if (CAST_REQUIRES_NO_FORWARDS.matcher(seg).find())                continue;

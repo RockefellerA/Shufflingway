@@ -9334,17 +9334,25 @@ public class MainWindow {
 		List<CardData> oppFwds = isP1 ? p2ForwardCards : p1ForwardCards;
 		CardData[]     oppBkps = isP1 ? p2BackupCards  : p1BackupCards;
 		List<CardData> oppMons = isP1 ? p2MonsterCards : p1MonsterCards;
-		for (CardData src : oppFwds) boost += opposingFieldDebuffContribution(src, target);
-		for (CardData bkp : oppBkps) if (bkp != null) boost += opposingFieldDebuffContribution(bkp, target);
-		for (CardData src : oppMons) boost += opposingFieldDebuffContribution(src, target);
+		for (CardData src : oppFwds) boost += opposingFieldDebuffContribution(src, target, !isP1);
+		for (CardData bkp : oppBkps) if (bkp != null) boost += opposingFieldDebuffContribution(bkp, target, !isP1);
+		for (CardData src : oppMons) boost += opposingFieldDebuffContribution(src, target, !isP1);
 		return boost;
 	}
 
+	/** Returns {@code true} if {@code fpg}'s Break Zone size condition is met for the given player. */
+	private boolean fpgBzConditionMet(FieldPowerGrant fpg, boolean isP1) {
+		if (fpg.minBzSize() <= 0) return true;
+		List<CardData> bz = isP1 ? gameState.getP1BreakZone() : gameState.getP2BreakZone();
+		return bz.size() >= fpg.minBzSize();
+	}
+
 	/** Sum of {@link FieldPowerGrant#powerBonus} from {@code src} for grants that target the opposing side. */
-	private int opposingFieldDebuffContribution(CardData src, CardData target) {
+	private int opposingFieldDebuffContribution(CardData src, CardData target, boolean isP1) {
 		int sum = 0;
 		for (FieldPowerGrant fpg : src.fieldPowerGrants())
-			if (fpg.affectsOpponent() && fpg.appliesToCard(target)) sum += fpg.powerBonus();
+			if (fpg.affectsOpponent() && fpg.appliesToCard(target) && fpgBzConditionMet(fpg, isP1))
+				sum += fpg.powerBonus();
 		return sum;
 	}
 
@@ -9355,7 +9363,7 @@ public class MainWindow {
 			if (icb.appliesToCard(target) && icbConditionsMet(icb, isP1))
 				boost += icb.powerBonus();
 		for (FieldPowerGrant fpg : src.fieldPowerGrants())
-			if (!fpg.affectsOpponent() && fpg.appliesToCard(target))
+			if (!fpg.affectsOpponent() && fpg.appliesToCard(target) && fpgBzConditionMet(fpg, isP1))
 				boost += fpg.powerBonus();
 		if (src == target) {
 			for (ScalingSelfPowerBoost ssb : src.scalingSelfPowerBoosts()) {
@@ -9468,7 +9476,7 @@ public class MainWindow {
 			if (icb.appliesToCard(target) && icbConditionsMet(icb, isP1))
 				out.addAll(icb.grantedTraits());
 		for (FieldPowerGrant fpg : src.fieldPowerGrants())
-			if (!fpg.affectsOpponent() && fpg.appliesToCard(target))
+			if (!fpg.affectsOpponent() && fpg.appliesToCard(target) && fpgBzConditionMet(fpg, isP1))
 				out.addAll(fpg.grantedTraits());
 		// Self-targeted trait grants, optionally gated on damage threshold or job count.
 		if (src == target) {
