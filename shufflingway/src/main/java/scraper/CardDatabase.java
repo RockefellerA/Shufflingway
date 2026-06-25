@@ -145,7 +145,8 @@ public class CardDatabase implements AutoCloseable {
                                  .replace("’", "'")
                                  .replace("1Card", "1 Card") //"Search for 1Card Name..."
                                  .replace("2card", "2 card") // "FFTA2card"
-                                .replace("1Job", "1 Job"); // "Search for 1Job..."
+                                .replace("1Job", "1 Job") // "Search for 1Job..."
+                                .replace("\"\"", "\""); // Alexander has doubled quotes around choice text
             ps.setString(13, textEn);
             ps.setString(14, card.thumbName);
             ps.setString(15, card.imageUrl);
