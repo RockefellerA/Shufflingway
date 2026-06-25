@@ -1552,6 +1552,12 @@ public interface GameContext {
     void breakBlockingForward();
 
     /**
+     * Breaks the opponent's Forward that is blocking the named attacker.
+     * No-op if no Forward is currently blocking that attacker.
+     */
+    void breakForwardBlockingAttacker(String attackerName);
+
+    /**
      * Queues an end-of-turn break for {@code source} on the ability user's field.
      * Searches Forwards then Monsters; no-op if the card is no longer on the field at end of turn.
      */

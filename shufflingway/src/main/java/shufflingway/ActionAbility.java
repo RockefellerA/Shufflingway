@@ -76,6 +76,7 @@ public record ActionAbility(
         String                  requiresNamedCardTookDamageThisTurn, // null = no restriction; non-null = card name that must have received damage this turn
         boolean                 requiresSelfReceivedDamageThisTurn,  // true = controller must have received ≥1 point of game damage this turn
         boolean                 requiresForwardPutToBZThisTurn,      // true = a Forward the controller controlled must have been put from the field into the BZ this turn
+        String                  blockerForAttacker,           // null = no restriction; non-null = that named attacker must currently have a blocker declared against it (substep 3 only)
         String                  ownBreakZoneNameRequired,     // null = no restriction; non-null = named card must be in the controller's own BZ (ability used from the field)
         String                  counterScaleName,             // null = normal; non-null = counter type name (e.g. "Monster") whose count on the source card becomes xValue at activation, captured before BZ cost is paid
         int                     minCounterRequired,           // 0 = no restriction; >0 = min counter count needed to activate
@@ -101,7 +102,7 @@ public record ActionAbility(
             true, false, false, false,
             null, null, false, false, false,
             effectText,
-            0, null, null, false, false, false, null, null, null, false, null, false, false, null, null, 0, null
+            0, null, null, false, false, false, null, null, null, false, null, false, false, null, null, null, 0, null
         );
     }
 }

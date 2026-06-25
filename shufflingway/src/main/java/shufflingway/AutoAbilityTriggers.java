@@ -2497,7 +2497,7 @@ final class AutoAbilityTriggers {
 			if (ability.breakZoneOnly() != null) continue; // only usable from Break Zone
 			boolean hasAttackRestriction = ability.whileCardAttacking() != null
 					|| ability.whileCardBlocking() != null || ability.whilePartyAttacking()
-					|| ability.hasBlockingTargetEffect();
+					|| ability.hasBlockingTargetEffect() || ability.blockerForAttacker() != null;
 			boolean phaseOk = hasAttackRestriction ? isAttackPhase : (isMainPhase || (isAttackPhase && mw.attackSubStep == 0));
 			boolean abilityEnabled = phaseOk && mw.canActivateAbility(ability, isFrozen, state, playedTurn, card, isP1);
 			JMenuItem item = new JMenuItem(abilityEnabled ? mw.buildAbilityMenuLabelHtml(ability) : mw.buildAbilityMenuLabel(ability));

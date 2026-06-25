@@ -7472,6 +7472,7 @@ public class MainWindow {
 		if (ability.requiresNamedCardTookDamageThisTurn() != null)  { if (!firstRestrict) restrict.append(", "); restrict.append(ability.requiresNamedCardTookDamageThisTurn()).append(" took dmg");  firstRestrict = false; }
 		if (ability.requiresSelfReceivedDamageThisTurn())           { if (!firstRestrict) restrict.append(", "); restrict.append("self rcvd dmg"); firstRestrict = false; }
 		if (ability.requiresForwardPutToBZThisTurn())               { if (!firstRestrict) restrict.append(", "); restrict.append("own fwd to BZ"); firstRestrict = false; }
+		if (ability.blockerForAttacker() != null)                   { if (!firstRestrict) restrict.append(", "); restrict.append("blks ").append(ability.blockerForAttacker()); firstRestrict = false; }
 		if (restrict.length() > 0) sb.append(restrict).append(" — ");
 
 		String fx = ability.effectText();
@@ -7759,6 +7760,18 @@ public class MainWindow {
 			boolean anyBlocking = (p1BlockingIdx >= 0 && p1BlockingIdx < p1ForwardCards.size())
 					|| (p2BlockingIdx >= 0 && p2BlockingIdx < p2ForwardCards.size());
 			if (!anyBlocking) return false;
+		}
+		if (ability.blockerForAttacker() != null) {
+			if (gameState.getCurrentPhase() != GameState.GamePhase.ATTACK) return false;
+			if (attackSubStep != 3) return false;
+			String name = ability.blockerForAttacker();
+			if (isP1) {
+				if (p2BlockingIdx < 0 || p2BlockedByAttacker == null
+						|| !p2BlockedByAttacker.name().equalsIgnoreCase(name)) return false;
+			} else {
+				if (p1BlockingIdx < 0 || p1BlockedByAttacker == null
+						|| !p1BlockedByAttacker.name().equalsIgnoreCase(name)) return false;
+			}
 		}
 		if (ability.requiresDull()) {
 			if (state != CardState.ACTIVE) return false;

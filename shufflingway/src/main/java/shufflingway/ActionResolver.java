@@ -511,6 +511,11 @@ public class ActionResolver {
         "(?i)^break\\s+the\\s+blocking\\s+Forward[.!]?$"
     );
 
+    /** Matches "Break the Forward that blocks [Name][.!]?" — group {@code name}. */
+    private static final Pattern BREAK_FORWARD_THAT_BLOCKS_CARD = Pattern.compile(
+        "(?i)^Break\\s+the\\s+Forward\\s+that\\s+blocks?\\s+(?<name>[^.!]+?)[.!]?$"
+    );
+
     /**
      * Matches "Choose 1 card with EX Burst in your Damage Zone. You may trigger its EX Burst effect."
      * with an optional trailing parenthetical rules note.
@@ -3563,6 +3568,9 @@ public class ActionResolver {
         result = tryParseBreakBlockingForward(effectText);
         if (result != null) return result;
 
+        result = tryParseBreakForwardThatBlocksCard(effectText);
+        if (result != null) return result;
+
         result = tryParseChooseExBurstFromDamageZone(effectText);
         if (result != null) return result;
 
@@ -3926,6 +3934,7 @@ public class ActionResolver {
         if (tryParseIfSelfDamagePointsPutToBreakZone(effectText, source)      != null) return "IfSelfDamagePointsPutToBreakZone";
         if (tryParsePutSourceToBottomOfDeck(effectText, source) != null) return "PutSourceToBottomOfDeck";
         if (tryParseBreakBlockingForward(effectText)           != null) return "BreakBlockingForward";
+        if (tryParseBreakForwardThatBlocksCard(effectText)     != null) return "BreakForwardThatBlocksCard";
         if (tryParseChooseExBurstFromDamageZone(effectText)    != null) return "ChooseExBurstFromDamageZone";
         if (tryParseDamageZoneSwap(effectText)                 != null) {
             Matcher m = DAMAGE_ZONE_SWAP_PATTERN.matcher(effectText.trim());
@@ -4289,6 +4298,7 @@ public class ActionResolver {
         if (tryParseIfSelfDamagePointsPutToBreakZone(effectText, source) != null) return "IfSelfDamagePointsPutToBreakZone";
         if (tryParsePutSourceToBottomOfDeck(effectText, source) != null)   return "PutSourceToBottomOfDeck";
         if (tryParseBreakBlockingForward(effectText)           != null)     return "BreakBlockingForward";
+        if (tryParseBreakForwardThatBlocksCard(effectText)     != null)     return "BreakForwardThatBlocksCard";
         if (tryParseChooseExBurstFromDamageZone(effectText)    != null)     return "ChooseExBurstFromDamageZone";
         if (tryParseDamageZoneSwap(effectText)              != null) {
             Matcher m = DAMAGE_ZONE_SWAP_PATTERN.matcher(effectText.trim());
@@ -8547,6 +8557,16 @@ public class ActionResolver {
         return ctx -> {
             ctx.logEntry("Effect: Break the blocking Forward");
             ctx.breakBlockingForward();
+        };
+    }
+
+    private static Consumer<GameContext> tryParseBreakForwardThatBlocksCard(String text) {
+        Matcher m = BREAK_FORWARD_THAT_BLOCKS_CARD.matcher(text.trim());
+        if (!m.matches()) return null;
+        String attackerName = m.group("name").trim();
+        return ctx -> {
+            ctx.logEntry("Effect: Break the Forward that blocks " + attackerName);
+            ctx.breakForwardBlockingAttacker(attackerName);
         };
     }
 

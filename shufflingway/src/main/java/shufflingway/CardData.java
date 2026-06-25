@@ -901,6 +901,8 @@ public record CardData(
             String requiresNamedCardTookDamageThisTurn = namedCardDmgM.find() ? namedCardDmgM.group("card").trim() : null;
             boolean requiresSelfReceivedDamageThisTurn = SELF_RECEIVED_DAMAGE_THIS_TURN_RESTRICTION.matcher(effectRaw).find();
             boolean requiresForwardPutToBZThisTurn = FORWARD_PUT_TO_BZ_THIS_TURN_RESTRICTION.matcher(effectRaw).find();
+            Matcher blockerForAttackerM = BREAK_FORWARD_THAT_BLOCKS_NAMED_CARD.matcher(effectRaw);
+            String  blockerForAttacker  = blockerForAttackerM.find() ? blockerForAttackerM.group("name").trim() : null;
             Matcher elemFwdM = ELEMENT_FORWARD_ENTERED_THIS_TURN_PATTERN.matcher(effectRaw);
             String  requiresElementForwardEnteredThisTurn = elemFwdM.find() ? elemFwdM.group("element").toLowerCase() : null;
             Matcher cardNameFwdM = CARD_NAME_ENTERED_THIS_TURN_PATTERN.matcher(effectRaw);
@@ -947,7 +949,7 @@ public record CardData(
                 minCounterRequired = Integer.parseInt(cminM.group("count"));
                 minCounterType     = cminM.group("type").trim();
             }
-            result.add(new ActionAbility(abilityName, requiresDull, isSpecial, crystalCost, selfMillCost, hasXCost, cpCost, breakZoneCosts, discardCosts, removeFromGameCosts, returnToHandCosts, counterCosts, dullForwardCosts, yourTurnOnly, opponentTurnOnly, oncePerTurn, mainPhaseOnly, whileCardAtk, whileCardBlk, whilePartyAtk, whileCardInHand, hasBlockingTarget, effectRaw, damageThreshold, controlCondition, cpBackupElement, sourceInBattle, requiresOppDiscardedThisTurn, requiresCastSummonThisTurn, requiresElementForwardEnteredThisTurn, requiresCardNameEnteredThisTurn, breakZoneOnly, requiresOpponentEmptyHand, requiresNamedCardTookDamageThisTurn, requiresSelfReceivedDamageThisTurn, requiresForwardPutToBZThisTurn, ownBzCard, counterScaleName, minCounterRequired, minCounterType));
+            result.add(new ActionAbility(abilityName, requiresDull, isSpecial, crystalCost, selfMillCost, hasXCost, cpCost, breakZoneCosts, discardCosts, removeFromGameCosts, returnToHandCosts, counterCosts, dullForwardCosts, yourTurnOnly, opponentTurnOnly, oncePerTurn, mainPhaseOnly, whileCardAtk, whileCardBlk, whilePartyAtk, whileCardInHand, hasBlockingTarget, effectRaw, damageThreshold, controlCondition, cpBackupElement, sourceInBattle, requiresOppDiscardedThisTurn, requiresCastSummonThisTurn, requiresElementForwardEnteredThisTurn, requiresCardNameEnteredThisTurn, breakZoneOnly, requiresOpponentEmptyHand, requiresNamedCardTookDamageThisTurn, requiresSelfReceivedDamageThisTurn, requiresForwardPutToBZThisTurn, blockerForAttacker, ownBzCard, counterScaleName, minCounterRequired, minCounterType));
         }
         return List.copyOf(result);
     }
@@ -963,7 +965,7 @@ public record CardData(
                 a.requiresCastSummonThisTurn(), a.requiresElementForwardEnteredThisTurn(),
                 a.requiresCardNameEnteredThisTurn(), a.breakZoneOnly(), a.requiresOpponentEmptyHand(),
                 a.requiresNamedCardTookDamageThisTurn(), a.requiresSelfReceivedDamageThisTurn(),
-                a.requiresForwardPutToBZThisTurn(), bzCard,
+                a.requiresForwardPutToBZThisTurn(), a.blockerForAttacker(), bzCard,
                 a.counterScaleName(), a.minCounterRequired(), a.minCounterType());
     }
 
@@ -1116,6 +1118,11 @@ public record CardData(
     /** "You can only use this ability if you have received a point of damage this turn." */
     static final Pattern SELF_RECEIVED_DAMAGE_THIS_TURN_RESTRICTION = Pattern.compile(
         "(?i)You\\s+can\\s+only\\s+use\\s+this\\s+ability\\s+if\\s+you\\s+have\\s+received\\s+a\\s+point\\s+of\\s+damage\\s+this\\s+turn[.!]?"
+    );
+
+    /** Matches "Break the Forward that blocks [Name]" — extracts group {@code name}. */
+    static final Pattern BREAK_FORWARD_THAT_BLOCKS_NAMED_CARD = Pattern.compile(
+        "(?i)Break\\s+the\\s+Forward\\s+that\\s+blocks?\\s+(?<name>[^.!]+)[.!]?"
     );
 
     /** "You can only use this ability if a Forward you controlled has been put from the field into the Break Zone this turn." */

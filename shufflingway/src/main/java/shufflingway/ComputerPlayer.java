@@ -1001,7 +1001,8 @@ class ComputerPlayer {
 			if (ability.whileCardInHand()) continue;
 			if (ability.breakZoneOnly() != null) continue;
 			if (ability.whileCardAttacking() != null || ability.whileCardBlocking() != null
-					|| ability.whilePartyAttacking() || ability.hasBlockingTargetEffect()) continue;
+					|| ability.whilePartyAttacking() || ability.hasBlockingTargetEffect()
+					|| ability.blockerForAttacker() != null) continue;
 			if (!mw.canActivateAbility(ability, isFrozen, state, playedTurn, card, false)) continue;
 			if (ActionResolver.parse(ability.effectText(), card) == null) continue;
 			if (abilityHarmsChosenTarget(ability) && !p1HasAnyForward()) continue;

@@ -970,6 +970,20 @@ final class GameContextImpl implements GameContext {
 				}
 			}
 
+			@Override public void breakForwardBlockingAttacker(String attackerName) {
+				if (isP1) {
+					if (mw.p2BlockingIdx >= 0 && mw.p2BlockingIdx < mw.p2ForwardCards.size()
+							&& mw.p2BlockedByAttacker != null
+							&& mw.p2BlockedByAttacker.name().equalsIgnoreCase(attackerName))
+						breakP2Forward(mw.p2BlockingIdx);
+				} else {
+					if (mw.p1BlockingIdx >= 0 && mw.p1BlockingIdx < mw.p1ForwardCards.size()
+							&& mw.p1BlockedByAttacker != null
+							&& mw.p1BlockedByAttacker.name().equalsIgnoreCase(attackerName))
+						breakP1Forward(mw.p1BlockingIdx);
+				}
+			}
+
 			@Override public void breakP1Forward(int idx) {
 				if (idx >= 0 && idx < mw.p1ForwardCards.size()
 						&& mw.cannotBeBrokenSet.contains(mw.p1ForwardCards.get(idx))) {
@@ -3879,7 +3893,7 @@ final class GameContextImpl implements GameContext {
 					false, false, true, false,
 					null, null, false, false, false,
 					original.effectText(),
-					0, null, null, false, false, false, null, null, null, false, null, false, null, null, 0, null
+					0, null, null, false, false, false, null, null, null, false, null, false, false, null, null, null, 0, null
 				);
 				Map<CardData, List<ActionAbility>> map = isP1 ? mw.p1TempGrantedAbilities : mw.p2TempGrantedAbilities;
 				map.computeIfAbsent(source, k -> new ArrayList<>()).add(copy);
