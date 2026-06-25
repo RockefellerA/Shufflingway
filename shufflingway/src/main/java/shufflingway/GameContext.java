@@ -992,6 +992,18 @@ public interface GameContext {
      */
     void takeExtraTurnThenLose();
 
+    /** Returns true if any Forward or Backup named {@code name} is anywhere on either player's field. */
+    boolean isNamedCardOnField(String name);
+
+    /** Causes the ability user's opponent to lose the game. */
+    void causeOpponentToLose();
+
+    /**
+     * Schedules {@code effect} to fire at the end of the ability user's next turn
+     * (the turn after the current one, not the current turn's end phase).
+     */
+    void scheduleAtEndOfControllerNextTurn(Consumer<GameContext> effect);
+
     /**
      * Draws {@code count} cards from the top of the ability user's deck into their hand.
      */

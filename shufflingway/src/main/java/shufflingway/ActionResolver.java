@@ -653,6 +653,14 @@ public class ActionResolver {
     );
 
     /**
+     * Matches "At the end of your next turn, if [Name] is on the field, your opponent loses the game."
+     */
+    private static final Pattern END_OF_NEXT_TURN_IF_CARD_ON_FIELD_OPP_LOSES = Pattern.compile(
+        "(?i)At\\s+the\\s+end\\s+of\\s+your\\s+next\\s+turn,?\\s+if\\s+(?<name>.+?)\\s+is\\s+on\\s+the\\s+field,?\\s+" +
+        "your\\s+opponent\\s+loses\\s+the\\s+game[.!]?"
+    );
+
+    /**
      * Matches "All the Forwards opponent controls lose all abilities until the end of the turn."
      */
     private static final Pattern OPP_FWDS_LOSE_ALL_ABILITIES_EOT = Pattern.compile(
@@ -3510,6 +3518,9 @@ public class ActionResolver {
         result = tryParseForwardsOfCostCannotBlock(effectText);
         if (result != null) return result;
 
+        result = tryParseEndOfNextTurnIfCardOnFieldOppLoses(effectText);
+        if (result != null) return result;
+
         result = tryParseOppFwdsCannotBlockInferiorPower(effectText);
         if (result != null) return result;
 
@@ -3923,9 +3934,10 @@ public class ActionResolver {
         if (tryParseStandaloneSelfBoost(effectText, source)   != null) return "StandaloneSelfBoost";
         if (tryParseStandaloneSelfDullAndShield(effectText, source) != null) return "StandaloneSelfDullAndShield";
         if (tryParseStandaloneShieldCannotBeBroken(effectText, source) != null) return "StandaloneShieldCannotBeBroken";
-        if (tryParseAllForwardsCannotBlock(effectText)             != null) return "AllForwardsCannotBlock";
-        if (tryParseForwardsOfCostCannotBlock(effectText)          != null) return "ForwardsOfCostCannotBlock";
-        if (tryParseOppFwdsCannotBlockInferiorPower(effectText)    != null) return "OppFwdsCannotBlockInferiorPower";
+        if (tryParseAllForwardsCannotBlock(effectText)                    != null) return "AllForwardsCannotBlock";
+        if (tryParseForwardsOfCostCannotBlock(effectText)                 != null) return "ForwardsOfCostCannotBlock";
+        if (tryParseEndOfNextTurnIfCardOnFieldOppLoses(effectText)        != null) return "EndOfNextTurnIfCardOnFieldOppLoses";
+        if (tryParseOppFwdsCannotBlockInferiorPower(effectText)           != null) return "OppFwdsCannotBlockInferiorPower";
         if (tryParseOppFwdsLoseAllAbilitiesEot(effectText)         != null) return "OppFwdsLoseAllAbilitiesEot";
         if (tryParseStandaloneCannotBeBlocked(effectText, source) != null) return "StandaloneCannotBeBlocked";
         if (tryParseRevealHandOptPickRfpOppDraw(effectText)    != null) return "RevealHandOptPickRfpOppDraw";
@@ -4283,9 +4295,10 @@ public class ActionResolver {
         if (tryParseStandaloneSelfBoost(effectText, source) != null)        return "StandaloneSelfBoost";
         if (tryParseStandaloneSelfDullAndShield(effectText, source) != null) return "StandaloneSelfDullAndShield";
         if (tryParseStandaloneShieldCannotBeBroken(effectText, source) != null) return "StandaloneShieldCannotBeBroken";
-        if (tryParseAllForwardsCannotBlock(effectText)             != null) return "AllForwardsCannotBlock";
-        if (tryParseForwardsOfCostCannotBlock(effectText)          != null) return "ForwardsOfCostCannotBlock";
-        if (tryParseOppFwdsCannotBlockInferiorPower(effectText)    != null) return "OppFwdsCannotBlockInferiorPower";
+        if (tryParseAllForwardsCannotBlock(effectText)                    != null) return "AllForwardsCannotBlock";
+        if (tryParseForwardsOfCostCannotBlock(effectText)                 != null) return "ForwardsOfCostCannotBlock";
+        if (tryParseEndOfNextTurnIfCardOnFieldOppLoses(effectText)        != null) return "EndOfNextTurnIfCardOnFieldOppLoses";
+        if (tryParseOppFwdsCannotBlockInferiorPower(effectText)           != null) return "OppFwdsCannotBlockInferiorPower";
         if (tryParseOppFwdsLoseAllAbilitiesEot(effectText)         != null) return "OppFwdsLoseAllAbilitiesEot";
         if (tryParseStandaloneCannotBeBlocked(effectText, source) != null) return "StandaloneCannotBeBlocked";
         if (tryParseRevealHandOptPickRfpOppDraw(effectText) != null)        return "RevealHandOptPickRfpOppDraw";
@@ -7909,6 +7922,23 @@ public class ActionResolver {
             for (int i = 0; i < ctx.p2ForwardCount(); i++)
                 if (orLess ? ctx.p2Forward(i).cost() <= costVal : ctx.p2Forward(i).cost() >= costVal)
                     ctx.setP2ForwardCannotBlock(i);
+        };
+    }
+
+    private static Consumer<GameContext> tryParseEndOfNextTurnIfCardOnFieldOppLoses(String text) {
+        Matcher m = END_OF_NEXT_TURN_IF_CARD_ON_FIELD_OPP_LOSES.matcher(text);
+        if (!m.matches()) return null;
+        String cardName = m.group("name").trim();
+        return ctx -> {
+            ctx.logEntry("Effect: Scheduled — at end of next turn, if " + cardName + " is on field, opponent loses");
+            ctx.scheduleAtEndOfControllerNextTurn(innerCtx -> {
+                if (innerCtx.isNamedCardOnField(cardName)) {
+                    innerCtx.logEntry(cardName + " is on the field — opponent loses the game");
+                    innerCtx.causeOpponentToLose();
+                } else {
+                    innerCtx.logEntry(cardName + " is NOT on the field — Sin condition not met");
+                }
+            });
         };
     }
 

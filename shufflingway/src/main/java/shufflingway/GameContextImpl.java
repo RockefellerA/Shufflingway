@@ -2994,6 +2994,26 @@ final class GameContextImpl implements GameContext {
 				mw.p1ExtraTurnThenLose = true;
 			}
 
+			@Override public boolean isNamedCardOnField(String name) {
+				for (CardData c : mw.p1ForwardCards) if (c.name().equalsIgnoreCase(name)) return true;
+				for (CardData c : mw.p2ForwardCards) if (c.name().equalsIgnoreCase(name)) return true;
+				for (CardData c : mw.p1BackupCards) if (c != null && c.name().equalsIgnoreCase(name)) return true;
+				for (CardData c : mw.p2BackupCards) if (c != null && c.name().equalsIgnoreCase(name)) return true;
+				return false;
+			}
+
+			@Override public void causeOpponentToLose() {
+				mw.triggerGameOver(isP1 ? "Opponent Loses — You Win!" : "Opponent Loses — You Lose!");
+			}
+
+			@Override public void scheduleAtEndOfControllerNextTurn(Consumer<GameContext> effect) {
+				// Adds a wrapper to endOfTurnEffects. When the current END phase fires that wrapper,
+				// it inserts the real effect into scheduledForP1/P2EndTurn AFTER that list was already
+				// cleared, so the real effect survives until the controller's next END phase.
+				mw.endOfTurnEffects.add(outerCtx ->
+					(isP1 ? mw.scheduledForP1EndTurn : mw.scheduledForP2EndTurn).add(effect));
+			}
+
 			@Override public void drawCards(int count) {
 				if (isP1) {
 					mw.drawP1Cards(count);
