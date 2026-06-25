@@ -9427,6 +9427,8 @@ public class MainWindow {
 						yield nameFilter == null ? 0 : (int) bz.stream()
 								.filter(c -> nameFilter.equalsIgnoreCase(c.name())).count();
 					}
+					case CARDS_IN_HAND ->
+						(isP1 ? gameState.getP1Hand() : gameState.getP2Hand()).size();
 				};
 				boost += ssb.perUnit() * count;
 			}

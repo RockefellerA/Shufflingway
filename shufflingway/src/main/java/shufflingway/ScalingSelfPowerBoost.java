@@ -47,6 +47,8 @@ public record ScalingSelfPowerBoost(
          * Number of cards whose name matches {@link #cardNameFilter} in the controller's Break Zone.
          * The {@link #cardNameFilter} field holds the card name to count.
          */
-        CARD_NAME_IN_BREAK_ZONE
+        CARD_NAME_IN_BREAK_ZONE,
+        /** Number of cards currently in the controller's hand. */
+        CARDS_IN_HAND
     }
 }

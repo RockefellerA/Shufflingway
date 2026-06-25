@@ -2498,6 +2498,12 @@ public record CardData(
         "(?<target>.+?)\\s+gains?\\s+\\+(?<power>\\d+)\\s+power[.!]?$"
     );
 
+    /** "For each card in your hand, [target] gains +N power." */
+    private static final Pattern SCALING_SELF_HAND_PATTERN = Pattern.compile(
+        "(?i)^For\\s+each\\s+card\\s+in\\s+your\\s+hand,\\s+" +
+        "(?<target>.+?)\\s+gains?\\s+\\+(?<power>\\d+)\\s+power[.!]?$"
+    );
+
     /** "For each Card Name X in your Break Zone, [target] gains +N power." */
     private static final Pattern SCALING_SELF_BZ_CARD_NAME_PATTERN = Pattern.compile(
         "(?i)^For\\s+each\\s+Card\\s+Name\\s+(?<name>.+?)\\s+in\\s+your\\s+Break\\s+Zone,\\s+" +
@@ -2668,6 +2674,14 @@ public record CardData(
                 result.add(new ScalingSelfPowerBoost(
                         ScalingSelfPowerBoost.Source.CARD_NAME_IN_BREAK_ZONE, perUnit,
                         null, null, bz.group("name").trim(), null, null, false));
+                continue;
+            }
+            Matcher hm = SCALING_SELF_HAND_PATTERN.matcher(seg);
+            if (hm.find()) {
+                if (!hm.group("target").trim().equalsIgnoreCase(cardName)) continue;
+                int perUnit = Integer.parseInt(hm.group("power"));
+                if (perUnit <= 0) continue;
+                result.add(new ScalingSelfPowerBoost(ScalingSelfPowerBoost.Source.CARDS_IN_HAND, perUnit));
                 continue;
             }
             Matcher fe = SCALING_SELF_FOR_EACH_PATTERN.matcher(seg);
@@ -3525,6 +3539,8 @@ public record CardData(
             if (SCALING_SELF_DMG_PATTERN.matcher(seg).find())                 continue;
             // Scaling self power boost ("For each Card Name X in your Break Zone, X gains +N power")
             if (SCALING_SELF_BZ_CARD_NAME_PATTERN.matcher(seg).find())        continue;
+            // Scaling self power boost ("For each card in your hand, X gains +N power")
+            if (SCALING_SELF_HAND_PATTERN.matcher(seg).find())                 continue;
             // BZ-conditional passive grant — handled by parseFieldPowerGrants
             if (FIELD_GRANT_BZ_COND_CN_AND_JOB_PATTERN.matcher(seg).find())   continue;
             if (FIELD_GRANT_BZ_JOB_SELF_PATTERN.matcher(seg).matches())        continue;
