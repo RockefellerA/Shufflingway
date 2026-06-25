@@ -1804,6 +1804,17 @@ public class ActionResolver {
         "\\s+that\\s+don.t\\s+share\\s+[Ee]lements,?\\s+and\\s+add\\s+them\\s+to\\s+your\\s+hand[.!]?"
     );
 
+    /**
+     * Matches "Search for 2 [Element] Characters, 2 Category [X] Characters, or 1 of each,
+     * each with a different cost, and add them to your hand."
+     * Groups: {@code element}, {@code category}.
+     */
+    private static final Pattern SEARCH_ELEMENT_OR_CATEGORY_CHARS_DIFF_COST = Pattern.compile(
+        "(?i)Search\\s+for\\s+2\\s+(?<element>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)\\s+Characters?,\\s+" +
+        "2\\s+Category\\s+(?<category>\\S+)\\s+Characters?,\\s+or\\s+1\\s+of\\s+each,\\s+" +
+        "each\\s+with\\s+a\\s+different\\s+cost,?\\s+and\\s+add\\s+them\\s+to\\s+your\\s+hand[.!]?"
+    );
+
     private static final Pattern SEARCH_DECK_PATTERN = Pattern.compile(
         "(?i)Search\\s+for\\s+(?:up\\s+to\\s+)?(?<count>\\d+)\\s+" +
         // Element(s) that precede the job/name filter (e.g. "Fire Job Knight")
@@ -3666,6 +3677,9 @@ public class ActionResolver {
         result = tryParseDualSearchJobAndTypeDontShareElements(effectText);
         if (result != null) return result;
 
+        result = tryParseSearchElementOrCategoryCharsDiffCost(effectText);
+        if (result != null) return result;
+
         result = tryParseSearchDeck(effectText, source, xValue);
         if (result != null) return result;
 
@@ -3951,8 +3965,9 @@ public class ActionResolver {
         if (tryParseEachPlayerRevealCharacterMayPlay(effectText) != null) return "EachPlayerRevealMayPlay";
         if (tryParseRevealTopDeck(effectText, source)         != null) return "RevealTopDeck";
         if (tryParseStandaloneDamageShields(effectText, source) != null) return "StandaloneDamageShields";
-        if (tryParseDualSearchJobAndTypeDontShareElements(effectText) != null) return "DualSearchDontShareElements";
-        if (tryParseSearchDeck(effectText, source, 0)           != null) return "SearchDeck";
+        if (tryParseDualSearchJobAndTypeDontShareElements(effectText)      != null) return "DualSearchDontShareElements";
+        if (tryParseSearchElementOrCategoryCharsDiffCost(effectText)       != null) return "SearchElementOrCategoryCharsDiffCost";
+        if (tryParseSearchDeck(effectText, source, 0)                      != null) return "SearchDeck";
         if (tryParsePlayAllByNameFromBreakZone(effectText)      != null) return "PlayAllByNameFromBreakZone";
         if (tryParsePlaySourceFromBreakZone(effectText, source) != null) return "PlaySourceFromBreakZone";
         if (tryParseActivateNamedCard(effectText)               != null) return "ActivateNamedCard";
@@ -10989,6 +11004,18 @@ public class ActionResolver {
         return ctx -> {
             ctx.logEntry("Effect: Dual search — Job " + job + " and " + type + " (don't share elements) → hand");
             ctx.searchDeckJobAndTypeDontShareElements(job, type);
+        };
+    }
+
+    private static Consumer<GameContext> tryParseSearchElementOrCategoryCharsDiffCost(String text) {
+        Matcher m = SEARCH_ELEMENT_OR_CATEGORY_CHARS_DIFF_COST.matcher(text);
+        if (!m.find()) return null;
+        String element  = m.group("element").trim();
+        String category = m.group("category").trim();
+        return ctx -> {
+            ctx.logEntry("Effect: Search — 2 " + element + " Characters, 2 Category " + category
+                    + " Characters, or 1 of each, each with a different cost → hand");
+            ctx.searchDeckElementOrCategoryCharsDifferentCost(element, category);
         };
     }
 

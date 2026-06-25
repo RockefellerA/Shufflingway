@@ -155,8 +155,8 @@ public final class CardFilters {
     public static boolean meetsCategoryFilter(CardData card, String categoryFilter) {
         if (categoryFilter == null) return true;
         String cf = categoryFilter.trim().toLowerCase();
-        return card.category1().toLowerCase().contains(cf)
-            || card.category2().toLowerCase().contains(cf);
+        return card.category1().toLowerCase().equals(cf)
+            || card.category2().toLowerCase().equals(cf);
     }
 
     /** Returns {@code true} if the card contains at least one element from the bar-separated {@code elementFilter}, or if the filter is {@code null}. */

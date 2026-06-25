@@ -917,6 +917,9 @@ final class GameContextImpl implements GameContext {
 			@Override public void searchDeckJobAndTypeDontShareElements(String jobFilter, String typeName) {
 				mw.searchDeckJobAndTypeDontShareElements(isP1, jobFilter, typeName);
 			}
+			@Override public void searchDeckElementOrCategoryCharsDifferentCost(String element, String category) {
+				mw.searchDeckElementOrCategoryCharsDifferentCost(isP1, element, category);
+			}
 
 			@Override public void playAllByNameFromOwnBreakZoneDull(String cardName, boolean dull) {
 				List<CardData> bz = isP1 ? mw.gameState.getP1BreakZone() : mw.gameState.getP2BreakZone();

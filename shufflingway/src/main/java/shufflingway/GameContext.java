@@ -1229,6 +1229,13 @@ public interface GameContext {
     void searchDeckJobAndTypeDontShareElements(String jobFilter, String typeName);
 
     /**
+     * Searches the deck and adds 2 cards to the active player's hand — the player chooses one of:
+     * 2 {@code element} Characters, 2 Category {@code category} Characters, or 1 of each.
+     * The two chosen cards must have different costs.
+     */
+    void searchDeckElementOrCategoryCharsDifferentCost(String element, String category);
+
+    /**
      * Moves all cards matching {@code cardName} from the active player's Break Zone onto the
      * field, entering dull if {@code dull} is true.
      */

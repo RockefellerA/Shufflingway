@@ -3762,6 +3762,47 @@ public class MainWindow {
 		}
 	}
 
+	void searchDeckElementOrCategoryCharsDifferentCost(boolean isP1, String element, String category) {
+		Deque<CardData> deck = isP1 ? gameState.getP1MainDeck() : gameState.getP2MainDeck();
+		// Combined pool: element Characters ∪ category Characters (insertion-ordered, no duplicates)
+		java.util.LinkedHashSet<CardData> poolSet = new java.util.LinkedHashSet<>();
+		for (CardData c : deck) {
+			if (!c.isForward() && !c.isBackup() && !c.isMonster()) continue;
+			if (c.containsElement(element) || meetsCategoryFilter(c, category)) poolSet.add(c);
+		}
+		List<CardData> pool = new ArrayList<>(poolSet);
+		shuffleDeck(isP1);
+
+		if (pool.isEmpty()) {
+			logEntry("Search: no eligible cards found");
+			return;
+		}
+
+		List<CardData> chosen = new ArrayList<>();
+		if (!isP1) {
+			// AI: prefer a different-cost pair, otherwise take the single best card
+			CardData first = null, second = null;
+			outer:
+			for (CardData a : pool)
+				for (CardData b : pool)
+					if (a != b && a.cost() != b.cost()) { first = a; second = b; break outer; }
+			if (first != null) { chosen.add(first); chosen.add(second); }
+			else                chosen.add(pool.get(0));
+		} else {
+			List<CardData> picks = cardPickerDialog.pickTwoFromDeckSearchDifferentCost(pool);
+			chosen.addAll(picks);
+		}
+
+		for (CardData card : chosen) {
+			if (isP1) gameState.removeFromP1MainDeck(card);
+			else      deck.remove(card);
+			playerHand(isP1).add(card);
+			logEntry((isP1 ? "" : "[P2] ") + card.name() + " → hand (search)");
+			if (isP1) refreshP1HandLabel(); else refreshP2HandCountLabel();
+			animateCardDraw(isP1, 1);
+		}
+	}
+
 	int showCardImageChooser(List<CardData> cards, String title, boolean allowCancel) {
 		return cardPickerDialog.pickCardImage(cards, title, allowCancel);
 	}
