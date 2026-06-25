@@ -2662,6 +2662,23 @@ public class ActionResolver {
     );
 
     /**
+     * Matches "Choose as many &lt;Type&gt; [opponent controls] as [the] &lt;CountSource&gt; you control. &lt;Followup&gt;"
+     * where the count is derived at resolution time from the acting player's field.
+     * Group {@code targetType} — card type to choose (Forward/Character/etc.).
+     * Group {@code targetSide} — "opponent controls" if targeting the opponent's cards; null = self.
+     * Group {@code countSrc} — job-bracket, "Category X Type", or "Job X" count source.
+     * Group {@code followup} — effect to apply (Dull/Activate).
+     */
+    private static final Pattern CHOOSE_AS_MANY_AS_FIELD_COUNT = Pattern.compile(
+        "(?i)^Choose\\s+as\\s+many\\s+(?<targetType>Forwards?|Characters?|Backups?|Monsters?)(?:\\s+Cards?)?\\s+" +
+        "(?:(?<targetSide>(?:your\\s+)?opponent\\s+controls|you\\s+control)\\s+)?" +
+        "as\\s+(?:the\\s+)?" +
+        "(?<countSrc>\\[Job\\s*\\([^)]+\\)\\]|Category\\s+\\S+(?:\\s+(?:Forwards?|Characters?|Backups?|Monsters?))?|Job\\s+.+?(?=\\s+you\\s+control))" +
+        "\\s+you\\s+control[,.]?\\s+" +
+        "(?<followup>.+)$"
+    );
+
+    /**
      * Matches "Choose up to the same number of Characters as the [Name] Counters placed on [card]. Activate them."
      * At resolution time {@code xValue} holds the counter count captured before the card was put into the Break Zone.
      * Group {@code counterName} — counter type (e.g. "Monster"); group {@code card} — source card name.
@@ -3279,6 +3296,9 @@ public class ActionResolver {
         result = tryParseChooseFwdBzCostInferiorToRemovedPlay(effectText);
         if (result != null) return result;
 
+        result = tryParseChooseAsManyAsFieldCount(effectText, source);
+        if (result != null) return result;
+
         result = tryParseChooseCounterScaleCharsActivate(effectText, xValue);
         if (result != null) return result;
 
@@ -3776,6 +3796,7 @@ public class ActionResolver {
         if (tryParseChooseOppFwdDynCostBreak(effectText)                   != null) return "ChooseOppFwdDynCostBreak";
         if (tryParseChooseFwdPowerInferiorToSource(effectText, source)     != null) return "ChooseFwdPowerInferiorToSource";
         if (tryParseChooseFwdBzCostInferiorToRemovedPlay(effectText)       != null) return "ChooseFwdBzCostInferiorToRemovedPlay";
+        if (tryParseChooseAsManyAsFieldCount(effectText, source)         != null) return "ChooseAsManyAsFieldCount";
         if (tryParseChooseCounterScaleCharsActivate(effectText, 1)    != null) return "ChooseCounterScaleCharsActivate";
         if (tryParseChooseCharacter(effectText, source, 0)              != null) return "ChooseCharacter";
         if (tryParseEndOfEachTurnFieldAbility(effectText, source)             != null) return "EndOfEachTurnFieldAbility";
@@ -4248,6 +4269,7 @@ public class ActionResolver {
         if (tryParsePlaceCounters(effectText, source) != null)               return "PlaceCounters";
         if (tryParseLookTopDeckOptionallyBreak(effectText)        != null) return "LookTopDeckOptionallyBreak";
         if (tryParseLookTopDeckBottomOrKeep(effectText)           != null) return "LookTopDeckBottomOrKeep";
+        if (tryParseChooseAsManyAsFieldCount(effectText, source)           != null) return "ChooseAsManyAsFieldCount";
         if (tryParseChooseCounterScaleCharsActivate(effectText, 1)         != null) return "ChooseCounterScaleCharsActivate";
         if (tryParseCounterScaleLookAddToHand(effectText, 1)               != null) return "CounterScaleLookAddToHand";
         if (tryParseLookTopDeckAddToHandRestBottom(effectText)          != null) return "LookTopDeckAddToHandRestBottom";
@@ -7243,6 +7265,10 @@ public class ActionResolver {
         if (text == null || text.isBlank()) return "";
         String s = text;
         s = CardData.ONCE_PER_TURN_PATTERN               .matcher(s).replaceAll("").trim();
+        // Strip the combined "during your Main Phase and if X is in the Break Zone" form before
+        // MAIN_PHASE_ONLY_PATTERN so the whole sentence is removed as a unit rather than leaving
+        // "and if X is in the Break Zone." as an unparsed secondary fragment.
+        s = CardData.OWN_BZ_NAME_REQUIRED_RESTRICTION  .matcher(s).replaceAll("").trim();
         s = CardData.MAIN_PHASE_ONLY_PATTERN              .matcher(s).replaceAll("").trim();
         s = CardData.YOUR_TURN_AND_CONTROL_IF_PATTERN    .matcher(s).replaceAll("").trim();
         s = CardData.YOUR_TURN_ONLY_PATTERN               .matcher(s).replaceAll("").trim();
@@ -7261,7 +7287,6 @@ public class ActionResolver {
         s = CardData.ELEMENT_FORWARD_ENTERED_THIS_TURN_PATTERN.matcher(s).replaceAll("").trim();
         s = CardData.CONTROL_IF_PATTERN            .matcher(s).replaceAll("").trim();
         s = CardData.CONTROL_IF_NOT_ANY_PATTERN        .matcher(s).replaceAll("").trim();
-        s = CardData.OWN_BZ_NAME_REQUIRED_RESTRICTION  .matcher(s).replaceAll("").trim();
         // Strip leftover leading/trailing ", and" / "," / "." artifacts
         s = s.replaceAll("^[,.;\\s]+|[,.;\\s]+$", "").trim();
         return s;
@@ -10173,6 +10198,87 @@ public class ActionResolver {
             if (opp <= 0) return;
             ctx.logEntry("Effect: Opponent has " + opp + " 《C》 — gain 1 Crystal");
             ctx.gainCrystal(1);
+        };
+    }
+
+    /**
+     * Parses "Choose as many [Type] [opponent controls] as [the] [CountSource] you control. [Dull/Activate] them."
+     * The count is computed at resolution time from the acting player's field cards matching the count source.
+     */
+    private static Consumer<GameContext> tryParseChooseAsManyAsFieldCount(String text, CardData source) {
+        Matcher m = CHOOSE_AS_MANY_AS_FIELD_COUNT.matcher(text.trim());
+        if (!m.matches()) return null;
+
+        String targetTypeRaw = m.group("targetType").trim();
+        String targetSide    = m.group("targetSide");
+        String countSrc      = m.group("countSrc").trim();
+        String followupText  = m.group("followup").trim();
+
+        String tgtLow = targetTypeRaw.toLowerCase();
+        boolean inclForwards = tgtLow.startsWith("forward") || tgtLow.startsWith("character");
+        boolean inclBackups  = tgtLow.startsWith("backup")  || tgtLow.startsWith("character");
+        boolean inclMonsters = tgtLow.startsWith("monster") || tgtLow.startsWith("character");
+
+        boolean opponentOnly = targetSide != null && targetSide.toLowerCase().contains("opponent");
+        boolean selfOnly     = !opponentOnly;
+
+        String  countJobFilter = null;
+        String  countCatFilter = null;
+        boolean countFwds = true, countBkps = true, countMons = true;
+
+        Matcher jbm = JOB_BRACKET_PATTERN.matcher(countSrc);
+        if (jbm.find()) {
+            countJobFilter = jbm.group(1).trim();
+        } else if (countSrc.toLowerCase().startsWith("category ")) {
+            String rest = countSrc.substring("category ".length()).trim();
+            int sp = rest.indexOf(' ');
+            if (sp >= 0) {
+                countCatFilter = rest.substring(0, sp);
+                String csType = rest.substring(sp + 1).trim().toLowerCase();
+                countFwds = csType.startsWith("forward") || csType.startsWith("character");
+                countBkps = csType.startsWith("backup")  || csType.startsWith("character");
+                countMons = csType.startsWith("monster") || csType.startsWith("character");
+            } else {
+                countCatFilter = rest;
+            }
+        } else if (countSrc.toLowerCase().startsWith("job ")) {
+            String rest = countSrc.substring("job ".length()).trim();
+            countJobFilter = rest.replaceAll("(?i)\\s+(Forwards?|Backups?|Monsters?|Characters?)\\s*$", "").trim();
+        } else {
+            return null;
+        }
+
+        boolean doActivate = FOLLOWUP_ACTIVATE.matcher(followupText).find();
+        boolean doDull     = FOLLOWUP_DULL.matcher(followupText).find();
+        if (!doActivate && !doDull) return null;
+
+        final String  fJob = countJobFilter, fCat = countCatFilter;
+        final boolean fCFwds = countFwds, fCBkps = countBkps, fCMons = countMons;
+        final boolean fOppOnly = opponentOnly, fSelfOnly = selfOnly;
+        final boolean fFwds = inclForwards, fBkps = inclBackups, fMons = inclMonsters;
+        final String  logPfx = "Choose as many " + targetTypeRaw
+                + (targetSide != null ? " " + targetSide : " you control")
+                + " as " + countSrc + " you control";
+
+        return ctx -> {
+            int count = ctx.countSelfFieldCards(fCFwds, fCBkps, fCMons, fJob, null, fCat);
+            if (count <= 0) {
+                ctx.logEntry(logPfx + " — count=0, nothing to choose");
+                ctx.markEffectFizzled();
+                return;
+            }
+            ctx.logEntry(logPfx + " (count=" + count + ") — " + (doActivate ? "Activate" : "Dull"));
+            List<ForwardTarget> ts = selectTargets(ctx, count, true,
+                    fOppOnly, fSelfOnly, null, null, null, false,
+                    -1, null, -1, null,
+                    fFwds, fBkps, fMons, null, null, null, null, false, null, false);
+            if (doActivate) {
+                sortedByIdxDesc(ts, true) .forEach(ctx::activateTarget);
+                sortedByIdxDesc(ts, false).forEach(ctx::activateTarget);
+            } else {
+                sortedByIdxDesc(ts, true) .forEach(ctx::dullTarget);
+                sortedByIdxDesc(ts, false).forEach(ctx::dullTarget);
+            }
         };
     }
 

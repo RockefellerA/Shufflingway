@@ -1137,13 +1137,14 @@ public record CardData(
     );
 
     /**
-     * Matches the standalone restriction sentence "You can only use this ability if [CardName]
-     * is in the Break Zone." — used for field abilities that require a named card to be in the
-     * controller's Break Zone.  Distinct from {@link #CARD_IN_BREAK_ZONE_PATTERN}, which is
-     * used for BZ-only abilities (the source card itself activates from the Break Zone).
+     * Matches restriction sentences of the form "You can only use this ability [during your Main Phase and] if
+     * [CardName] is in the Break Zone." — used for field abilities that require a named card to be in the
+     * controller's Break Zone.  The "during your Main Phase and" prefix is optional (combined restriction).
+     * Distinct from {@link #CARD_IN_BREAK_ZONE_PATTERN}, which is used for BZ-only abilities.
      */
     static final Pattern OWN_BZ_NAME_REQUIRED_RESTRICTION = Pattern.compile(
-        "(?i)You\\s+can\\s+only\\s+use\\s+this\\s+ability\\s+if\\s+(?<card>\\S+(?:\\s+\\S+){0,2})\\s+is\\s+in\\s+the\\s+Break\\s+Zone[.!]?\\s*$"
+        "(?i)You\\s+can\\s+only\\s+use\\s+this\\s+ability\\s+(?:during\\s+your\\s+Main\\s+Phase\\s+and\\s+)?if\\s+" +
+        "(?<card>\\S+(?:\\s+\\S+){0,2})\\s+is\\s+in\\s+the\\s+Break\\s+Zone[.!]?\\s*$"
     );
 
     /**
