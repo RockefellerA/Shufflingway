@@ -35,8 +35,8 @@ import javax.swing.JPanel;
 import javax.swing.SwingConstants;
 import javax.swing.SwingWorker;
 
-import static shufflingway.CardAnimation.CARD_H;
-import static shufflingway.CardAnimation.CARD_W;
+import static shufflingway.graphics.CardAnimation.CARD_H;
+import static shufflingway.graphics.CardAnimation.CARD_W;
 
 /**
  * Modal dialogs that implement the "Look at the top N cards of your deck" family of effects.

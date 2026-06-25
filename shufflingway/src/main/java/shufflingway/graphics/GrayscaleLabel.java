@@ -1,4 +1,4 @@
-package shufflingway;
+package shufflingway.graphics;
 
 import java.awt.Image;
 import java.awt.color.ColorSpace;
@@ -8,13 +8,13 @@ import java.awt.image.ColorConvertOp;
 import javax.swing.ImageIcon;
 import javax.swing.JLabel;
 
-class GrayscaleLabel extends JLabel {
+public class GrayscaleLabel extends JLabel {
 	private String url;
 
-	GrayscaleLabel(String text) { super(text); }
+	public GrayscaleLabel(String text) { super(text); }
 
-	void setUrl(String u) { this.url = u; }
-	String getUrl()       { return url; }
+	public void setUrl(String u) { this.url = u; }
+	public String getUrl()       { return url; }
 
 	@Override
 	public void setIcon(javax.swing.Icon icon) {

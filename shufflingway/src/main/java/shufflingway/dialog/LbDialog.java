@@ -13,7 +13,8 @@ import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ExecutionException;
 import javax.swing.*;
-import static shufflingway.CardAnimation.*;
+import shufflingway.graphics.CardAnimation;
+import static shufflingway.graphics.CardAnimation.*;
 
 public class LbDialog {
 

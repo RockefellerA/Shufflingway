@@ -1,4 +1,7 @@
-package shufflingway;
+package shufflingway.graphics;
+
+import shufflingway.ElementColor;
+import shufflingway.FontLoader;
 
 import java.awt.BasicStroke;
 import java.awt.Color;
@@ -15,8 +18,8 @@ import java.awt.event.MouseEvent;
  * (point-top, flat left/right sides) in crystal-blue and draws ": N"
  * centred inside it, where N is the current Crystal count.
  */
-class CrystalDisplay extends javax.swing.JComponent {
-	static final int CRYSTAL_H = 36;  // component height
+public class CrystalDisplay extends javax.swing.JComponent {
+	public static final int CRYSTAL_H = 36;  // component height
 
 	private int     count;
 	/** Once true (count has been > 0 this game), the display stays visible. */
@@ -24,7 +27,7 @@ class CrystalDisplay extends javax.swing.JComponent {
 	/** Index into ElementColor.values(); starts at ICE to match the original blue. */
 	private int     colorIndex     = ElementColor.ICE.ordinal();
 
-	CrystalDisplay(int initial) {
+	public CrystalDisplay(int initial) {
 		this.count = initial;
 		setPreferredSize(new Dimension(CardAnimation.CARD_W, CRYSTAL_H));
 		setMinimumSize(new Dimension(CardAnimation.CARD_W, CRYSTAL_H));
@@ -40,14 +43,14 @@ class CrystalDisplay extends javax.swing.JComponent {
 	}
 
 	/** Updates count, latches persistence when count first exceeds zero, then repaints. */
-	void setCount(int n) {
+	public void setCount(int n) {
 		this.count = n;
 		if (n > 0) hasBeenNonZero = true;
 		repaint();
 	}
 
 	/** Fully resets for a new game: count and persistence flag. */
-	void hardReset() {
+	public void hardReset() {
 		count          = 0;
 		hasBeenNonZero = false;
 		repaint();

@@ -1,4 +1,4 @@
-package shufflingway;
+package shufflingway.graphics;
 
 import java.awt.BasicStroke;
 import java.awt.Color;

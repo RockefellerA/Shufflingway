@@ -1,4 +1,4 @@
-package shufflingway;
+package shufflingway.graphics;
 
 import java.awt.Color;
 import java.awt.GradientPaint;
@@ -7,15 +7,15 @@ import java.awt.Graphics2D;
 import javax.swing.JPanel;
 import javax.swing.UIManager;
 
-class GradientPanel extends JPanel {
+public class GradientPanel extends JPanel {
 	private Color          gradientColor;
 	private final boolean  colorAtTop;
 
-	GradientPanel(boolean colorAtTop) {
+	public GradientPanel(boolean colorAtTop) {
 		this.colorAtTop = colorAtTop;
 	}
 
-	void setGradientColor(Color c) {
+	public void setGradientColor(Color c) {
 		this.gradientColor = c;
 		repaint();
 	}

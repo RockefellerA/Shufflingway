@@ -34,8 +34,9 @@ import javax.swing.SwingUtilities;
 import javax.swing.SwingWorker;
 import javax.swing.Timer;
 
-import static shufflingway.CardAnimation.CARD_H;
-import static shufflingway.CardAnimation.CARD_W;
+import shufflingway.graphics.CardAnimation;
+import static shufflingway.graphics.CardAnimation.CARD_H;
+import static shufflingway.graphics.CardAnimation.CARD_W;
 import static shufflingway.CardFilters.formatCostFilterLabel;
 import static shufflingway.CardFilters.isBlockingTargetFilter;
 import static shufflingway.CardFilters.isEnteredThisTurnCondition;

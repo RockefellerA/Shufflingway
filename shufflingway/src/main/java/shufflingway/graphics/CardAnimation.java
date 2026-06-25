@@ -1,4 +1,8 @@
-package shufflingway;
+package shufflingway.graphics;
+
+import shufflingway.CardState;
+import shufflingway.FontLoader;
+import shufflingway.UiScale;
 
 import java.awt.BasicStroke;
 import java.awt.Color;
@@ -18,7 +22,7 @@ public class CardAnimation {
 
 	private CardAnimation() {}
 
-	static BufferedImage renderBackupCardAtAngle(BufferedImage card, double angle) {
+	public static BufferedImage renderBackupCardAtAngle(BufferedImage card, double angle) {
 		BufferedImage canvas = new BufferedImage(CARD_H, CARD_H, BufferedImage.TYPE_INT_ARGB);
 		Graphics2D g = canvas.createGraphics();
 		g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
@@ -39,19 +43,19 @@ public class CardAnimation {
 	 *   <li>Dull — card rotated 90° CW ({@code CARD_H × CARD_W}), pinned left + bottom</li>
 	 * </ul>
 	 */
-	static BufferedImage renderBackupCard(BufferedImage card, CardState state) {
+	public static BufferedImage renderBackupCard(BufferedImage card, CardState state) {
 		return renderBackupCard(card, state, false);
 	}
 
-	static BufferedImage renderBackupCard(BufferedImage card, CardState state, boolean highlight) {
+	public static BufferedImage renderBackupCard(BufferedImage card, CardState state, boolean highlight) {
 		return renderBackupCard(card, state, highlight, false);
 	}
 
-	static BufferedImage renderBackupCard(BufferedImage card, CardState state, boolean highlight, boolean selected) {
+	public static BufferedImage renderBackupCard(BufferedImage card, CardState state, boolean highlight, boolean selected) {
 		return renderBackupCard(card, state, highlight, selected, false);
 	}
 
-	static BufferedImage renderBackupCard(BufferedImage card, CardState state, boolean highlight, boolean selected, boolean frozen) {
+	public static BufferedImage renderBackupCard(BufferedImage card, CardState state, boolean highlight, boolean selected, boolean frozen) {
 		BufferedImage canvas = new BufferedImage(CARD_H, CARD_H, BufferedImage.TYPE_INT_ARGB);
 		Graphics2D g = canvas.createGraphics();
 		if (frozen) card = applyBlueTint(card);
@@ -107,7 +111,7 @@ public class CardAnimation {
 	}
 
 	/** Draws {@code value} in a dark pill at the bottom-right edge of the card (rotated with the card when dull). */
-	static void renderPowerOverlayRight(BufferedImage canvas, int value, Color textColor, CardState state) {
+	public static void renderPowerOverlayRight(BufferedImage canvas, int value, Color textColor, CardState state) {
 		renderPill(canvas, value, textColor, true, state);
 	}
 
@@ -142,12 +146,12 @@ public class CardAnimation {
 	}
 
 	/** Draws accumulated damage in a red pill at the card's bottom-left (rotated with the card when dull). */
-	static void renderDamageOverlay(BufferedImage canvas, int damage, CardState state) {
+	public static void renderDamageOverlay(BufferedImage canvas, int damage, CardState state) {
 		renderPill(canvas, damage, new Color(255, 50, 50), false, state);
 	}
 
 	/** Blits a counter orb onto the card's top-left corner with the total counter count overlaid. */
-	static void renderCounterOverlay(BufferedImage canvas, int totalCount, CardState state, String hexColor) {
+	public static void renderCounterOverlay(BufferedImage canvas, int totalCount, CardState state, String hexColor) {
 		int orbW = Math.max(16, CARD_W / 5);
 		int orbH = (int) Math.round(orbW * 56.0 / 64.0);
 		BufferedImage orb = Counter.render(orbW, orbH, hexColor);
@@ -176,7 +180,7 @@ public class CardAnimation {
 	}
 
 	/** Returns a {@code CARD_H × CARD_H} placeholder canvas with a card outline and "Loading…" text. */
-	static BufferedImage renderPlaceholder(CardState state) {
+	public static BufferedImage renderPlaceholder(CardState state) {
 		BufferedImage canvas = new BufferedImage(CARD_H, CARD_H, BufferedImage.TYPE_INT_ARGB);
 		Graphics2D g = canvas.createGraphics();
 		g.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
@@ -209,7 +213,7 @@ public class CardAnimation {
 	}
 
 	/** Converts any {@link Image} to a scaled {@link BufferedImage} (ARGB). */
-	static BufferedImage toARGB(Image src, int w, int h) {
+	public static BufferedImage toARGB(Image src, int w, int h) {
 		BufferedImage buf = new BufferedImage(w, h, BufferedImage.TYPE_INT_ARGB);
 		Graphics2D g = buf.createGraphics();
 		g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);

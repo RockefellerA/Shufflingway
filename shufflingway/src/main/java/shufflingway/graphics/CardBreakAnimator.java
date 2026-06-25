@@ -1,4 +1,4 @@
-package shufflingway;
+package shufflingway.graphics;
 
 import javax.swing.*;
 import java.awt.*;
@@ -13,11 +13,11 @@ import java.util.List;
  * card-break animations: a diagonal slash sweeps across the card, then
  * the two halves drift apart and fade.
  */
-class CardBreakAnimator extends JComponent {
+public class CardBreakAnimator extends JComponent {
 
-	static final int TOTAL_FRAMES = 18;
-	static final int SLASH_FRAMES = 5;
-	static final int FRAME_MS     = 16;
+	public static final int TOTAL_FRAMES = 18;
+	public static final int SLASH_FRAMES = 5;
+	public static final int FRAME_MS     = 16;
 
 	// Cut line, as fraction of image height: y at x=0 and y at x=width
 	private static final double CUT_Y0_FRAC = 0.38;
@@ -45,7 +45,7 @@ class CardBreakAnimator extends JComponent {
 	private final List<Break> breaks = new ArrayList<>();
 	private final Timer       timer;
 
-	CardBreakAnimator() {
+	public CardBreakAnimator() {
 		setOpaque(false);
 		setFocusable(false);
 		timer = new Timer(FRAME_MS, e -> tick());
@@ -53,7 +53,7 @@ class CardBreakAnimator extends JComponent {
 	}
 
 	/** Installs the animator on {@code frame}'s layered pane at DRAG_LAYER. */
-	static CardBreakAnimator install(JFrame frame) {
+	public static CardBreakAnimator install(JFrame frame) {
 		CardBreakAnimator a  = new CardBreakAnimator();
 		JLayeredPane      lp = frame.getRootPane().getLayeredPane();
 		a.setBounds(0, 0, lp.getWidth(), lp.getHeight());
@@ -70,7 +70,7 @@ class CardBreakAnimator extends JComponent {
 	 * Queues a break animation. {@code center} must be in layered-pane coordinates
 	 * and represent the center of the card image.
 	 */
-	void startBreak(BufferedImage img, Point center) {
+	public void startBreak(BufferedImage img, Point center) {
 		breaks.add(new Break(img, center));
 		if (!timer.isRunning()) timer.start();
 	}

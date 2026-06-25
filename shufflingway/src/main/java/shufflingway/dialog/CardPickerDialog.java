@@ -1,10 +1,10 @@
 package shufflingway.dialog;
 
-import shufflingway.CardAnimation;
 import shufflingway.CardData;
 import shufflingway.FontLoader;
 import shufflingway.ForwardTarget;
 import shufflingway.ImageCache;
+import shufflingway.graphics.CardAnimation;
 
 import java.awt.BorderLayout;
 import java.awt.Color;
@@ -43,8 +43,8 @@ import javax.swing.SwingConstants;
 import javax.swing.SwingUtilities;
 import javax.swing.SwingWorker;
 
-import static shufflingway.CardAnimation.CARD_H;
-import static shufflingway.CardAnimation.CARD_W;
+import static shufflingway.graphics.CardAnimation.CARD_H;
+import static shufflingway.graphics.CardAnimation.CARD_W;
 import static shufflingway.CardFilters.discardTypeKey;
 
 /**

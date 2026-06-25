@@ -12,7 +12,8 @@ import java.util.Set;
 import java.util.concurrent.ExecutionException;
 import java.util.function.Consumer;
 import javax.swing.*;
-import static shufflingway.CardAnimation.*;
+import shufflingway.graphics.CardAnimation;
+import static shufflingway.graphics.CardAnimation.*;
 
 /**
  * Modal hand-selection dialogs that let P1 pick some subset of their hand cards.

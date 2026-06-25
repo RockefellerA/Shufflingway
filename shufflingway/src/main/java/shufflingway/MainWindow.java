@@ -79,8 +79,15 @@ import javax.swing.event.PopupMenuListener;
 
 import scraper.DeckDatabase;
 import scraper.DeckDatabase.DeckCardDetail;
-import static shufflingway.CardAnimation.CARD_H;
-import static shufflingway.CardAnimation.CARD_W;
+import shufflingway.graphics.CardAnimation;
+import shufflingway.graphics.CardBreakAnimator;
+import shufflingway.graphics.CardRfpAnimator;
+import shufflingway.graphics.CardSlideAnimator;
+import shufflingway.graphics.CrystalDisplay;
+import shufflingway.graphics.GradientPanel;
+import shufflingway.graphics.GrayscaleLabel;
+import static shufflingway.graphics.CardAnimation.CARD_H;
+import static shufflingway.graphics.CardAnimation.CARD_W;
 import static shufflingway.CardFilters.cardNamesOverlap;
 import static shufflingway.CardFilters.matchesAltBzType;
 import static shufflingway.CardFilters.matchesDiscardType;

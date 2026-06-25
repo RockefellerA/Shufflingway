@@ -8,7 +8,7 @@ import java.util.List;
 import java.util.concurrent.ExecutionException;
 import java.util.function.Consumer;
 import javax.swing.*;
-import static shufflingway.CardAnimation.*;
+import static shufflingway.graphics.CardAnimation.*;
 
 public class RemovedFromPlayDialog {
 

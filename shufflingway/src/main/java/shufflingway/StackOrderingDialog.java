@@ -26,6 +26,8 @@ import javax.swing.SwingConstants;
 import javax.swing.SwingWorker;
 import javax.swing.TransferHandler;
 
+import shufflingway.graphics.CardAnimation;
+
 /**
  * Modal dialog that asks the player to order simultaneous auto-ability triggers
  * before they are pushed onto the stack.

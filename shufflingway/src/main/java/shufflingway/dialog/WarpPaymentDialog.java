@@ -28,9 +28,9 @@ import javax.swing.SwingConstants;
 import javax.swing.SwingWorker;
 
 import shufflingway.BackupCpGrant;
-import shufflingway.CardAnimation;
-import static shufflingway.CardAnimation.CARD_H;
-import static shufflingway.CardAnimation.CARD_W;
+import shufflingway.graphics.CardAnimation;
+import static shufflingway.graphics.CardAnimation.CARD_H;
+import static shufflingway.graphics.CardAnimation.CARD_W;
 import shufflingway.CardData;
 import shufflingway.CardState;
 import static shufflingway.CpPaymentUtils.contributingElement;

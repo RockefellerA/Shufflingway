@@ -1,4 +1,4 @@
-package shufflingway;
+package shufflingway.graphics;
 
 import javax.swing.*;
 import java.awt.*;
@@ -16,10 +16,10 @@ import java.util.List;
  *   3. Eight 4-pointed sparkles (alternating white / gold / purple) drift
  *      outward and fade.
  */
-class CardRfpAnimator extends JComponent {
+public class CardRfpAnimator extends JComponent {
 
-    static final int FRAME_MS      = 16;
-    static final int TOTAL_FRAMES  = 30;   // 480 ms total
+    public static final int FRAME_MS      = 16;
+    public static final int TOTAL_FRAMES  = 30;   // 480 ms total
 
     private static final int COLLAPSE_FRAMES = 12;  // frames 1–12: card scales to 0
     private static final int FLASH_START     =  8;  // flash overlaps end of collapse
@@ -46,14 +46,14 @@ class CardRfpAnimator extends JComponent {
     private final List<Rfp> rfps  = new ArrayList<>();
     private final Timer     timer;
 
-    CardRfpAnimator() {
+    public CardRfpAnimator() {
         setOpaque(false);
         setFocusable(false);
         timer = new Timer(FRAME_MS, e -> tick());
         timer.setCoalesce(true);
     }
 
-    static CardRfpAnimator install(JFrame frame) {
+    public static CardRfpAnimator install(JFrame frame) {
         CardRfpAnimator a  = new CardRfpAnimator();
         JLayeredPane    lp = frame.getRootPane().getLayeredPane();
         a.setBounds(0, 0, lp.getWidth(), lp.getHeight());
@@ -66,7 +66,7 @@ class CardRfpAnimator extends JComponent {
         return a;
     }
 
-    void startRfp(BufferedImage img, Point center) {
+    public void startRfp(BufferedImage img, Point center) {
         rfps.add(new Rfp(img, center));
         if (!timer.isRunning()) timer.start();
     }

@@ -1,4 +1,4 @@
-package shufflingway;
+package shufflingway.graphics;
 
 import javax.swing.*;
 import java.awt.*;
@@ -12,10 +12,10 @@ import java.util.List;
  * Transparent overlay installed on the frame's DRAG_LAYER that renders
  * in-flight card-slide animations without intercepting mouse events.
  */
-class CardSlideAnimator extends JComponent {
+public class CardSlideAnimator extends JComponent {
 
-	static final int TOTAL_FRAMES = 20;   // 320 ms at 16 ms/frame
-	static final int FRAME_MS     = 16;
+	public static final int TOTAL_FRAMES = 20;   // 320 ms at 16 ms/frame
+	public static final int FRAME_MS     = 16;
 
 	private static class Slide {
 		final BufferedImage img;
@@ -33,7 +33,7 @@ class CardSlideAnimator extends JComponent {
 	private final List<Slide> slides = new ArrayList<>();
 	private final Timer       timer;
 
-	CardSlideAnimator() {
+	public CardSlideAnimator() {
 		setOpaque(false);
 		setFocusable(false);
 		timer = new Timer(FRAME_MS, e -> tick());
@@ -41,7 +41,7 @@ class CardSlideAnimator extends JComponent {
 	}
 
 	/** Installs the animator on {@code frame}'s layered pane at DRAG_LAYER. */
-	static CardSlideAnimator install(JFrame frame) {
+	public static CardSlideAnimator install(JFrame frame) {
 		CardSlideAnimator a  = new CardSlideAnimator();
 		JLayeredPane      lp = frame.getRootPane().getLayeredPane();
 		a.setBounds(0, 0, lp.getWidth(), lp.getHeight());
@@ -59,7 +59,7 @@ class CardSlideAnimator extends JComponent {
 	 * layered-pane coordinate space and represent the center of the card.
 	 * {@code delayFrames} ticks elapse before the card begins moving.
 	 */
-	void startSlide(BufferedImage img, Point start, Point end, int delayFrames) {
+	public void startSlide(BufferedImage img, Point start, Point end, int delayFrames) {
 		slides.add(new Slide(img, start, end, delayFrames));
 		if (!timer.isRunning()) timer.start();
 	}

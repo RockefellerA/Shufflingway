@@ -1,6 +1,7 @@
 package shufflingway.dialog;
 
 import shufflingway.*;
+import shufflingway.graphics.Counter;
 
 import java.awt.BorderLayout;
 import java.awt.Color;
