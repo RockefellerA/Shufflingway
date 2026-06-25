@@ -194,7 +194,7 @@ class ComputerPlayer {
 			if (card.isForward())      mw.placeP2CardInForwardZone(card);
 			else if (card.isBackup())  mw.placeP2CardInFirstBackupSlot(card);
 			else if (card.isMonster()) mw.placeP2CardInMonsterZone(card);
-			else if (card.isSummon())  mw.showSummonOnStack(card);
+			else if (card.isSummon())  mw.showSummonOnStack(card, false);
 			mw.lastCardWasCast = false;
 			step(() -> doMainPhase(onDone));
 			return;
@@ -258,7 +258,7 @@ class ComputerPlayer {
 		if (toPlay.isForward())      mw.placeP2CardInForwardZone(toPlay);
 		else if (toPlay.isBackup())  mw.placeP2CardInFirstBackupSlot(toPlay);
 		else if (toPlay.isMonster()) mw.placeP2CardInMonsterZone(toPlay);
-		else if (toPlay.isSummon())  mw.showSummonOnStack(toPlay);
+		else if (toPlay.isSummon())  mw.showSummonOnStack(toPlay, false);
 		mw.lastCardWasCast = false;
 	}
 

@@ -1489,7 +1489,7 @@ final class GameContextImpl implements GameContext {
 									return;
 								}
 								logEntry(card.name() + " — cast for free from reveal");
-								mw.showSummonOnStack(card);
+								mw.showSummonOnStack(card, isP1);
 							}
 						}
 					} else {
@@ -1771,7 +1771,7 @@ final class GameContextImpl implements GameContext {
 				mw.lastCardWasCast = true;
 				logEntry((isP1 ? "" : "[P2] ") + "Cast \"" + card.name() + "\" from hand for free"
 						+ (returnToHandAfterUse ? " (return to hand after use)" : ""));
-				mw.showSummonOnStack(card);
+				mw.showSummonOnStack(card, isP1);
 				mw.lastCardWasCast = false;
 			}
 
@@ -1832,7 +1832,7 @@ final class GameContextImpl implements GameContext {
 					}
 					mw.lastCardWasCast = true;
 					logEntry((isP1 ? "" : "[P2] ") + "Cast \"" + picked.name() + "\" from deck search for free");
-					mw.showSummonOnStack(picked);
+					mw.showSummonOnStack(picked, isP1);
 					mw.lastCardWasCast = false;
 				} else {
 					if (isP1) { mw.addToP1BreakZone(picked); mw.refreshP1BreakLabel(); }

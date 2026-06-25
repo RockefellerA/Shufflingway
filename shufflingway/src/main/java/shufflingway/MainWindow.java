@@ -7751,7 +7751,7 @@ public class MainWindow {
 		} else if (card.isMonster()) {
 			placeCardInMonsterZone(card);
 		} else if (card.isSummon()) {
-			showSummonOnStack(card);
+			showSummonOnStack(card, true);
 		}
 		lastCardWasCast = false;
 
@@ -7858,7 +7858,7 @@ public class MainWindow {
 		if (card.isBackup())       placeCardInFirstBackupSlot(card);
 		else if (card.isForward()) placeCardInForwardZone(card);
 		else if (card.isMonster()) placeCardInMonsterZone(card);
-		else if (card.isSummon())  showSummonOnStack(card);
+		else if (card.isSummon())  showSummonOnStack(card, true);
 		lastCardWasCast = false;
 	}
 
@@ -7983,7 +7983,7 @@ public class MainWindow {
 		if (card.isBackup())       placeP2CardInFirstBackupSlot(card);
 		else if (card.isForward()) placeP2CardInForwardZone(card);
 		else if (card.isMonster()) placeP2CardInMonsterZone(card);
-		else if (card.isSummon())  showSummonOnStack(card);
+		else if (card.isSummon())  showSummonOnStack(card, false);
 		lastCardWasCast = false;
 	}
 
@@ -7993,8 +7993,8 @@ public class MainWindow {
 	}
 
 	/** Pushes a Summon onto the stack and opens the stack overlay. */
-	void showSummonOnStack(CardData card) {
-		gameState.pushStack(new StackEntry(card, null, true));
+	void showSummonOnStack(CardData card, boolean isP1) {
+		gameState.pushStack(new StackEntry(card, null, isP1));
 		logEntry("[Stack] \"" + card.name() + "\" — Summon on the stack");
 		showStackWindow();
 	}
@@ -8177,9 +8177,14 @@ public class MainWindow {
 			String pfx = entry.isP1() ? "" : "[P2] ";
 			logEntry(pfx + "\"" + entry.source().name() + "\" — effect cancelled");
 			if (entry.isSummon()) {
-				addToP1BreakZone(entry.source());
+				if (entry.isP1()) {
+					addToP1BreakZone(entry.source());
+					refreshP1BreakLabel();
+				} else {
+					addToP2BreakZone(entry.source());
+					refreshP2BreakLabel();
+				}
 				logEntry("\"" + entry.source().name() + "\" → Break Zone");
-				refreshP1BreakLabel();
 			}
 			if (!gameState.getStack().isEmpty()) showStackWindow();
 			return;
@@ -8204,9 +8209,14 @@ public class MainWindow {
 				} else logEntry("[ActionResolver] Summon effect not yet implemented: " + effectText);
 				autoAbilityTriggers.triggerAutoAbilitiesForCastSummon(entry.isP1());
 				if (pendingSummonReturnToHand) {
-					gameState.getP1Hand().add(entry.source());
+					if (entry.isP1()) {
+						gameState.getP1Hand().add(entry.source());
+						refreshP1HandLabel();
+					} else {
+						gameState.getP2Hand().add(entry.source());
+						refreshP2HandCountLabel();
+					}
 					logEntry("\"" + entry.source().name() + "\" → Hand");
-					refreshP1HandLabel();
 					pendingSummonReturnToHand = false;
 				} else if (returnToHandAfterUseSummons.remove(entry.source())) {
 					if (entry.isP1()) {
@@ -8219,13 +8229,23 @@ public class MainWindow {
 					logEntry("\"" + entry.source().name() + "\" → Hand (after use)");
 				} else if (rfgAfterUseSummons.remove(entry.source())) {
 					// Borrowed Summon cast under "remove from the game after use" — never reaches the Break Zone.
-					gameState.addToP1PermanentRfp(entry.source());
+					if (entry.isP1()) {
+						gameState.addToP1PermanentRfp(entry.source());
+						refreshP1WarpZoneUI();
+					} else {
+						gameState.addToP2PermanentRfp(entry.source());
+						refreshP2WarpZoneUI();
+					}
 					logEntry("\"" + entry.source().name() + "\" → Removed From Game (after use)");
-					refreshP1WarpZoneUI();
 				} else {
-					addToP1BreakZone(entry.source());
+					if (entry.isP1()) {
+						addToP1BreakZone(entry.source());
+						refreshP1BreakLabel();
+					} else {
+						addToP2BreakZone(entry.source());
+						refreshP2BreakLabel();
+					}
 					logEntry("\"" + entry.source().name() + "\" → Break Zone");
-					refreshP1BreakLabel();
 				}
 			} else if (entry.isExBurstEntry()) {
 				String exText = entry.effectText();
