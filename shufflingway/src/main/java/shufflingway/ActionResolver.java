@@ -454,6 +454,11 @@ public class ActionResolver {
         "(?:his/her|his|her|their)\\s+hand\\s+from\\s+(?:the\\s+)?game[.!]?"
     );
 
+    /** Matches "Remove all the cards in your opponent's Break Zone from the game." */
+    private static final Pattern REMOVE_ALL_OPP_BZ_FROM_GAME = Pattern.compile(
+        "(?i)^remove\\s+all\\s+the\\s+cards\\s+in\\s+your\\s+opponent'?s\\s+Break\\s+Zone\\s+from\\s+(?:the\\s+)?game[.!]?\\s*$"
+    );
+
     /**
      * Matches "Remove [CardName] from the game." as a standalone sentence.
      * Group {@code named} — the card name.  Does NOT match "Remove it/them …" (pronouns).
@@ -3448,6 +3453,9 @@ public class ActionResolver {
         result = tryParseEndOfOppTurnPlayNamedOntoField(effectText);
         if (result != null) return result;
 
+        result = tryParseRemoveAllOppBzFromGame(effectText);
+        if (result != null) return result;
+
         result = tryParseRemoveNamedFromGame(effectText, source);
         if (result != null) return result;
 
@@ -3818,6 +3826,7 @@ public class ActionResolver {
         if (tryParseOpponentHandRfp(effectText)               != null) return "OpponentHandRfp";
         if (tryParseYouMayRemoveNamedFromGame(effectText, source) != null) return "YouMayRemoveNamedFromGame";
         if (tryParseEndOfOppTurnPlayNamedOntoField(effectText) != null) return "EndOfOppTurnPlayNamedOntoField";
+        if (tryParseRemoveAllOppBzFromGame(effectText)         != null) return "RemoveAllOppBzFromGame";
         if (tryParseRemoveNamedFromGame(effectText, source)   != null) return "RemoveNamedFromGame";
         if (tryParseBreakSourceCard(effectText, source)        != null) return "BreakSourceCard";
         if (tryParsePutSourceIntoBreakZone(effectText, source) != null) return "PutSourceIntoBreakZone";
@@ -4176,6 +4185,7 @@ public class ActionResolver {
         if (tryParseReturnNamedToHand(effectText) != null)                   return "ReturnNamedToHand";
         if (tryParseYouMayRemoveNamedFromGame(effectText, source) != null)   return "YouMayRemoveNamedFromGame";
         if (tryParseEndOfOppTurnPlayNamedOntoField(effectText) != null)     return "EndOfOppTurnPlayNamedOntoField";
+        if (tryParseRemoveAllOppBzFromGame(effectText)       != null)      return "RemoveAllOppBzFromGame";
         if (tryParseRemoveNamedFromGame(effectText, source) != null)        return "RemoveNamedFromGame";
         if (tryParseBreakSourceCard(effectText, source)        != null)     return "BreakSourceCard";
         if (tryParsePutSourceIntoBreakZone(effectText, source) != null)     return "PutSourceIntoBreakZone";
@@ -8306,6 +8316,15 @@ public class ActionResolver {
             };
         }
         return null;
+    }
+
+    /** Parses "Remove all the cards in your opponent's Break Zone from the game." */
+    private static Consumer<GameContext> tryParseRemoveAllOppBzFromGame(String text) {
+        if (!REMOVE_ALL_OPP_BZ_FROM_GAME.matcher(text.trim()).matches()) return null;
+        return ctx -> {
+            ctx.logEntry("Effect: Remove all cards in opponent's Break Zone from the game");
+            ctx.removeAllOpponentBzFromGame();
+        };
     }
 
     /** Parses "Remove [CardName] from the game." — removes a named card from the field. */

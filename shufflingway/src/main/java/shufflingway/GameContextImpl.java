@@ -2846,6 +2846,18 @@ final class GameContextImpl implements GameContext {
 				logEntry("[Warning] removeNamedCardFromGame: \"" + cardName + "\" not found on field");
 			}
 
+			@Override public void removeAllOpponentBzFromGame() {
+				List<CardData> bz = isP1 ? mw.gameState.getP2BreakZone() : mw.gameState.getP1BreakZone();
+				while (!bz.isEmpty()) {
+					CardData card = bz.remove(bz.size() - 1);
+					logEntry((isP1 ? "[P2] " : "") + card.name() + " (opponent BZ) → Removed From Game");
+					if (isP1) mw.gameState.addToP2PermanentRfp(card);
+					else      mw.gameState.addToP1PermanentRfp(card);
+				}
+				if (isP1) { mw.refreshP2BreakLabel(); mw.refreshP2WarpZoneUI(); }
+				else      { mw.refreshP1BreakLabel(); mw.refreshP1WarpZoneUI(); }
+			}
+
 			@Override public void playNamedFromRfpOntoField(String cardName) {
 				for (CardData card : mw.gameState.getP1PermanentRfp()) {
 					if (card.name().equalsIgnoreCase(cardName)) {

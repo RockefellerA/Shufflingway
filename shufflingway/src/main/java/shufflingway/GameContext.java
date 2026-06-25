@@ -948,6 +948,11 @@ public interface GameContext {
     void removeNamedCardFromGame(String cardName);
 
     /**
+     * Removes all cards currently in the opponent's Break Zone from the game permanently.
+     */
+    void removeAllOpponentBzFromGame();
+
+    /**
      * Searches P1 and P2 permanent RFP zones for a card matching {@code cardName} and places
      * the first match onto its owner's forward zone (triggering entering-field abilities).
      */
