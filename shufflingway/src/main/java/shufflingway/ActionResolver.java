@@ -3070,6 +3070,16 @@ public class ActionResolver {
         "(?<rfg>.*)$"
     );
 
+    /**
+     * "Choose 1 Forward with N power or less and up to 1 Forward in your opponent's Break Zone.
+     * Remove them from the game."
+     */
+    private static final Pattern CHOOSE_FWD_POWER_LE_AND_OPT_OPP_BZ_FWD_RFP = Pattern.compile(
+        "(?i)Choose\\s+1\\s+Forward\\s+with\\s+(?<power>\\d+)\\s+power\\s+or\\s+less" +
+        "\\s+and\\s+up\\s+to\\s+1\\s+Forward\\s+in\\s+your\\s+opponent(?:'s)?\\s+Break\\s+Zone[.!]?\\s+" +
+        "Remove\\s+them\\s+from\\s+(?:the\\s+)?game[.!]?"
+    );
+
     /** Matches "Take 1 more turn after this one. At the end of that turn, you lose the game." */
     private static final Pattern EXTRA_TURN_THEN_LOSE = Pattern.compile(
         "(?i)Take\\s+1\\s+more\\s+turn\\s+after\\s+this\\s+one[.!]?\\s+" +
@@ -3295,6 +3305,9 @@ public class ActionResolver {
         if (result != null) return result;
 
         result = tryParseChooseOneEach(effectText, source);
+        if (result != null) return result;
+
+        result = tryParseChooseFwdPowerLeAndOptOppBzFwdRfp(effectText);
         if (result != null) return result;
 
         result = tryParseChooseThreeMixedTypes(effectText, source);
@@ -4110,6 +4123,8 @@ public class ActionResolver {
             return "ChooseForwardDealSelfDamageBreakIfCostLeDamage";
         if (tryParseChooseForwardSharedPowerLoss(normalizedEffectText, source) != null)
             return "ChooseForwardSharedPowerLoss";
+        if (tryParseChooseFwdPowerLeAndOptOppBzFwdRfp(normalizedEffectText) != null)
+            return "ChooseFwdPowerLeAndOptOppBzFwdRfp";
         Matcher threeMixedM = CHOOSE_THREE_MIXED_TYPES_PATTERN.matcher(normalizedEffectText);
         if (threeMixedM.find()) {
             String followupName = matchedFollowupName(threeMixedM.group("followup").trim(), source);
@@ -5233,6 +5248,37 @@ public class ActionResolver {
             List<ForwardTarget> all = new ArrayList<>(ts1);
             all.addAll(ts2);
             action.accept(ctx, all);
+        };
+    }
+
+    /**
+     * Parses "Choose 1 Forward with N power or less and up to 1 Forward in your opponent's
+     * Break Zone. Remove them from the game."
+     * <p>
+     * Selects one field Forward (either player) with power ≤ N, plus optionally one Forward
+     * from the opponent's Break Zone, then removes both from the game.
+     */
+    private static Consumer<GameContext> tryParseChooseFwdPowerLeAndOptOppBzFwdRfp(String text) {
+        Matcher m = CHOOSE_FWD_POWER_LE_AND_OPT_OPP_BZ_FWD_RFP.matcher(text);
+        if (!m.find()) return null;
+
+        final int powerCeil = Integer.parseInt(m.group("power"));
+
+        return ctx -> {
+            ctx.logEntry("Choose 1 Forward with power ≤ " + powerCeil
+                    + " and up to 1 Forward from opponent's Break Zone — Remove from game");
+            List<ForwardTarget> fieldTs = selectTargets(ctx, 1, false, false, false,
+                    null, null, null, false,
+                    -1, null, powerCeil, "less",
+                    true, false, false, null, null, null, null, false, null, false);
+            List<ForwardTarget> bzTs = selectTargets(ctx, 1, true, false, false,
+                    null, null, "in your opponent's Break Zone", true,
+                    -1, null, -1, null,
+                    true, false, false, null, null, null, null, false, null, false);
+            List<ForwardTarget> all = new ArrayList<>(fieldTs);
+            all.addAll(bzTs);
+            sortedByIdxDesc(all, true) .forEach(t -> ctx.removeTargetFromGame(t));
+            sortedByIdxDesc(all, false).forEach(t -> ctx.removeTargetFromGame(t));
         };
     }
 
