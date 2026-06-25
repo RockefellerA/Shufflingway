@@ -2286,6 +2286,30 @@ public class ActionResolver {
     );
 
     /**
+     * Matches either word order of the "loses N power for each [Element] [Type] you control" followup
+     * (the reduce counterpart of {@link #FOLLOWUP_POWER_BOOST_UNTIL_FOR_EACH}):
+     * <ul>
+     *   <li>"Until end of turn, it loses N power for each [Element] Type you control."</li>
+     *   <li>"It loses N power for each [Element] Type you control until end of turn."</li>
+     * </ul>
+     * Groups: 1 = per-unit amount (until-prefix order), 4 = per-unit amount (suffix order);
+     * {@code element}/{@code chartype} (until-prefix) or {@code element2}/{@code chartype2} (suffix).
+     */
+    private static final Pattern FOLLOWUP_POWER_REDUCE_UNTIL_FOR_EACH = Pattern.compile(
+        "(?i)(?:" +
+            "Until\\s+(?:the\\s+)?end\\s+of\\s+(?:the\\s+)?turn\\s*,\\s+" +
+            "(?:it|they)\\s+loses?\\s+(\\d+)\\s+[Pp]ower\\s+for\\s+each\\s+" +
+            "(?:(?<element>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)\\s+)?" +
+            "(?<chartype>Forwards?|Backups?|Monsters?|Characters?)\\s+you\\s+control" +
+        "|" +
+            "(?:it|they)\\s+loses?\\s+(\\d+)\\s+[Pp]ower\\s+for\\s+each\\s+" +
+            "(?:(?<element2>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)\\s+)?" +
+            "(?<chartype2>Forwards?|Backups?|Monsters?|Characters?)\\s+you\\s+control" +
+            "\\s+until\\s+(?:the\\s+)?end\\s+of\\s+(?:the\\s+)?turn" +
+        ")[.!]?"
+    );
+
+    /**
      * Matches standalone "Until the end of the turn, &lt;subject&gt; loses [N power] [and traits]".
      * <ul>
      *   <li>Group {@code subject} — card name or pronoun before "loses"</li>
@@ -3953,6 +3977,7 @@ public class ActionResolver {
         if (FOLLOWUP_KEYWORD_GRANT_UNTIL.matcher(followupText).find())               return "KeywordGrant";
         if (FOLLOWUP_POWER_REDUCE.matcher(followupText).find())                       return "PowerReduce";
         if (FOLLOWUP_POWER_REDUCE_UNTIL_FOR_EACH_HAND.matcher(followupText).find())  return "PowerReduceUntilForEachHand";
+        if (FOLLOWUP_POWER_REDUCE_UNTIL_FOR_EACH.matcher(followupText).find())       return "PowerReduceUntilForEach";
         if (FOLLOWUP_POWER_REDUCE_UNTIL.matcher(followupText).find())                 return "PowerReduceUntil";
         if (OPPONENT_DISCARD.matcher(followupText).find())                            return "OpponentDiscard";
         if (source != null) {
@@ -4926,6 +4951,24 @@ public class ActionResolver {
             return (ctx, ts) -> {
                 sortedByIdxDesc(ts, true) .forEach(ft -> ctx.reduceTarget(ft, reduction, traits));
                 sortedByIdxDesc(ts, false).forEach(ft -> ctx.reduceTarget(ft, reduction, traits));
+            };
+        }
+        // Power reduce for each [element] [type] you control (must precede plain reduce-until)
+        java.util.regex.Matcher reduceForEachM = FOLLOWUP_POWER_REDUCE_UNTIL_FOR_EACH.matcher(t);
+        if (reduceForEachM.find()) {
+            boolean untilPrefix = reduceForEachM.group(1) != null;
+            int    perUnit = Integer.parseInt(untilPrefix ? reduceForEachM.group(1) : reduceForEachM.group(4));
+            String srcElem = untilPrefix ? reduceForEachM.group("element") : reduceForEachM.group("element2");
+            String srcType = (untilPrefix ? reduceForEachM.group("chartype") : reduceForEachM.group("chartype2")).toLowerCase();
+            boolean cntFwd = srcType.startsWith("forward") || srcType.startsWith("character");
+            boolean cntBkp = srcType.startsWith("backup")  || srcType.startsWith("character");
+            boolean cntMon = srcType.startsWith("monster")  || srcType.startsWith("character");
+            return (ctx, ts) -> {
+                int n = ctx.countSelfFieldCards(cntFwd, cntBkp, cntMon, null, null, null, srcElem);
+                int reduction = perUnit * n;
+                EnumSet<CardData.Trait> noTraits = EnumSet.noneOf(CardData.Trait.class);
+                sortedByIdxDesc(ts, true) .forEach(ft -> ctx.reduceTarget(ft, reduction, noTraits));
+                sortedByIdxDesc(ts, false).forEach(ft -> ctx.reduceTarget(ft, reduction, noTraits));
             };
         }
         java.util.regex.Matcher reduceUntilM = FOLLOWUP_POWER_REDUCE_UNTIL.matcher(t);
@@ -6847,6 +6890,32 @@ public class ActionResolver {
                 int n = ctx.yourHandSize();
                 int reduction = perCard * n;
                 ctx.logEntry(choosePrefix + " -" + perCard + "×[your hand] until EOT (n=" + n + ", reduction=" + reduction + ")");
+                List<ForwardTarget> ts = selectTargets(ctx, maxCount, upTo,
+                        opponentOnly, selfOnly, condition, element, zone, opponentZone,
+                        costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters, jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, fExcludeElem, withoutMulticard);
+                EnumSet<CardData.Trait> noTraits = EnumSet.noneOf(CardData.Trait.class);
+                sortedByIdxDesc(ts, true) .forEach(t -> ctx.reduceTarget(t, reduction, noTraits));
+                sortedByIdxDesc(ts, false).forEach(t -> ctx.reduceTarget(t, reduction, noTraits));
+                if (secondary != null) secondary.accept(ctx);
+            };
+        }
+
+        // --- Power reduce for each [element] [type] you control (must precede plain UNTIL reduce) ---
+        Matcher reduceForEachM = FOLLOWUP_POWER_REDUCE_UNTIL_FOR_EACH.matcher(primaryFollowup);
+        if (reduceForEachM.find()) {
+            boolean untilPrefix = reduceForEachM.group(1) != null;
+            int    perUnit    = Integer.parseInt(untilPrefix ? reduceForEachM.group(1) : reduceForEachM.group(4));
+            String srcElem    = untilPrefix ? reduceForEachM.group("element") : reduceForEachM.group("element2");
+            String srcType    = (untilPrefix ? reduceForEachM.group("chartype") : reduceForEachM.group("chartype2")).toLowerCase();
+            boolean cntFwd    = srcType.startsWith("forward") || srcType.startsWith("character");
+            boolean cntBkp    = srcType.startsWith("backup")  || srcType.startsWith("character");
+            boolean cntMon    = srcType.startsWith("monster")  || srcType.startsWith("character");
+            String typeLabel  = untilPrefix ? reduceForEachM.group("chartype") : reduceForEachM.group("chartype2");
+            String logSuffix  = " -" + perUnit + "×[" + (srcElem != null ? srcElem + " " : "") + typeLabel + " you control] until EOT";
+            return ctx -> {
+                int n         = ctx.countSelfFieldCards(cntFwd, cntBkp, cntMon, null, null, null, srcElem);
+                int reduction = perUnit * n;
+                ctx.logEntry(choosePrefix + logSuffix + " (n=" + n + ", reduction=" + reduction + ")");
                 List<ForwardTarget> ts = selectTargets(ctx, maxCount, upTo,
                         opponentOnly, selfOnly, condition, element, zone, opponentZone,
                         costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters, jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, fExcludeElem, withoutMulticard);

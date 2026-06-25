@@ -225,6 +225,31 @@ public class DeckDatabase implements AutoCloseable {
     }
 
     /**
+     * Returns the {@link DeckCardDetail} for a single card by serial (independent of any deck),
+     * or {@code null} if the serial is not in the {@code cards} table. Used by the debug
+     * "spawn card to CPU" tooling to build a {@link shufflingway.CardData} from any card.
+     */
+    public DeckCardDetail getCardDetailBySerial(String serial) throws SQLException {
+        String sql = """
+            SELECT image_url, name_en, element, cost, power, type_en, limit_break, lb_cost, ex_burst, text_en, multicard, job_en, category_1, category_2
+            FROM cards
+            WHERE serial = ?
+            """;
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, serial);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (!rs.next()) return null;
+                return new DeckCardDetail(
+                        rs.getString("image_url"), rs.getString("name_en"), rs.getString("element"),
+                        rs.getInt("cost"), rs.getInt("power"), rs.getString("type_en"),
+                        rs.getInt("limit_break") == 1, rs.getInt("lb_cost"), rs.getInt("ex_burst") == 1,
+                        rs.getString("text_en"), rs.getInt("multicard") == 1,
+                        rs.getString("job_en"), rs.getString("category_1"), rs.getString("category_2"));
+            }
+        }
+    }
+
+    /**
      * Returns all cards in the deck joined with card metadata.
      * Each row: [count, serial, name_en, type_en, element, cost, power, job_en, category_1, category_2]
      */
