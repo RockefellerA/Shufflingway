@@ -73,6 +73,7 @@ public record ActionAbility(
         String                  requiresCardNameEnteredThisTurn,      // null = no restriction; else = card name that must have entered your field this turn
         String                  breakZoneOnly,                // null = usable from field; non-null = card name that must be in the Break Zone (can only activate from BZ)
         boolean                 requiresOpponentEmptyHand,    // true = can only use when opponent has no cards in hand
+        boolean                 requiresSelfEmptyHand,        // true = can only use when controller has no cards in hand
         String                  requiresNamedCardTookDamageThisTurn, // null = no restriction; non-null = card name that must have received damage this turn
         boolean                 requiresSelfReceivedDamageThisTurn,  // true = controller must have received ≥1 point of game damage this turn
         boolean                 requiresForwardPutToBZThisTurn,      // true = a Forward the controller controlled must have been put from the field into the BZ this turn
@@ -102,7 +103,7 @@ public record ActionAbility(
             true, false, false, false,
             null, null, false, false, false,
             effectText,
-            0, null, null, false, false, false, null, null, null, false, null, false, false, null, null, null, 0, null
+            0, null, null, false, false, false, null, null, null, false, false, null, false, false, null, null, null, 0, null
         );
     }
 }

@@ -3893,7 +3893,7 @@ final class GameContextImpl implements GameContext {
 					false, false, true, false,
 					null, null, false, false, false,
 					original.effectText(),
-					0, null, null, false, false, false, null, null, null, false, null, false, false, null, null, null, 0, null
+					0, null, null, false, false, false, null, null, null, false, false, null, false, false, null, null, null, 0, null
 				);
 				Map<CardData, List<ActionAbility>> map = isP1 ? mw.p1TempGrantedAbilities : mw.p2TempGrantedAbilities;
 				map.computeIfAbsent(source, k -> new ArrayList<>()).add(copy);
