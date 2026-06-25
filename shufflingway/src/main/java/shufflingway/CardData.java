@@ -4270,6 +4270,9 @@ public record CardData(
     private static final Pattern SELF_COND_OWN_ELEMENT_OR_CATEGORY_BROKEN = Pattern.compile(
         "(?i)^a\\s+(?<element>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)\\s+Characters?\\s+or\\s+Category\\s+(?<cat>\\S+)\\s+Characters?\\s+you\\s+controlled\\s+has\\s+been\\s+put\\s+from\\s+the\\s+field\\s+into\\s+the\\s+Break\\s+Zone\\s+this\\s+turn$"
     );
+    private static final Pattern SELF_COND_CONTROL_A_ELEMENT_TYPE = Pattern.compile(
+        "(?i)^you\\s+control\\s+a\\s+(?<element>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)\\s+(?<type>Forwards?|Backups?|Monsters?|Characters?)$"
+    );
 
     // Scaling sub-patterns
     private static final Pattern SELF_SCALE_EACH_FWD = Pattern.compile(
@@ -4637,6 +4640,16 @@ public record CardData(
                         mod = new SelfCostModifier(amount, minCost, isIncrease,
                                 SelfCostModifier.ScalingType.IF_CONTROL_N_OR_MORE_ELEMENT_TYPE,
                                 cm.group("n").trim(),
+                                cm.group("element").trim() + "|" + type);
+                    }
+                }
+                if (mod == null) {
+                    cm = SELF_COND_CONTROL_A_ELEMENT_TYPE.matcher(condRaw.trim());
+                    if (cm.find()) {
+                        String type = cm.group("type").replaceAll("(?i)s$", "");
+                        mod = new SelfCostModifier(amount, minCost, isIncrease,
+                                SelfCostModifier.ScalingType.IF_CONTROL_N_OR_MORE_ELEMENT_TYPE,
+                                "1",
                                 cm.group("element").trim() + "|" + type);
                     }
                 }

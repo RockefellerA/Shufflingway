@@ -2825,6 +2825,17 @@ public class ActionResolver {
         "of\\s+all\\s+Elements?\\s+except\\s+(?<excludeelem>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)[.!]?"
     );
 
+    /**
+     * Matches "Remove from the game all the Forwards on the field other than [elem1] and [elem2].
+     * Then, remove from the top of your deck twice the number of cards removed by the previous effect."
+     * Groups: {@code elem1}, {@code elem2}.
+     */
+    private static final Pattern RFP_ALL_FWD_EXCEPT_ELEMENTS_THEN_TWICE_DECK = Pattern.compile(
+        "(?i)Remove\\s+from\\s+(?:the\\s+)?game\\s+all\\s+(?:the\\s+)?Forwards?\\s+on\\s+(?:the\\s+)?field\\s+" +
+        "other\\s+than\\s+(?<elem1>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)\\s+and\\s+(?<elem2>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)[.!]?\\s*" +
+        "Then,?\\s+remove\\s+from\\s+the\\s+top\\s+of\\s+your\\s+deck\\s+twice\\s+the\\s+number\\s+of\\s+cards\\s+removed\\s+by\\s+(?:the\\s+)?previous\\s+effect[.!]?"
+    );
+
     /** Matches "No Forward of cost N or less/more can attack this turn." */
     private static final Pattern NO_FORWARD_COST_CANNOT_ATTACK = Pattern.compile(
         "(?i)No\\s+Forward(?:\\s+of\\s+cost\\s+(?<cost>\\d+)(?:\\s+or\\s+(?<costcmp>less|more))?)?\\s+can\\s+attack\\s+this\\s+turn[.!]?"
@@ -3281,6 +3292,9 @@ public class ActionResolver {
         if (result != null) return result;
 
         result = tryParseDealDamageToForwardsExceptElement(effectText);
+        if (result != null) return result;
+
+        result = tryParseRfpAllFwdExceptElementsThenTwiceDeck(effectText);
         if (result != null) return result;
 
         result = tryParseDealDamageToForwards(effectText);
@@ -4102,8 +4116,9 @@ public class ActionResolver {
         if (tryParseForEachJobAndNameDealDamageToForwards(effectText)   != null) return "ForEachJobAndNameDealDamageToForwards";
         if (tryParseSelfGainsWhenAttacksEOT(effectText, source)        != null) return "SelfGainsWhenAttacksEOT";
         if (tryParseDealDamageToForwardsForEach(effectText)         != null) return "DealDamageToForwardsForEach";
-        if (tryParseDealDamageToForwardsExceptElement(effectText)   != null) return "DealDamageToForwardsExceptElement";
-        if (tryParseDealDamageToForwards(effectText)                != null) return "DealDamageToForwards";
+        if (tryParseDealDamageToForwardsExceptElement(effectText)          != null) return "DealDamageToForwardsExceptElement";
+        if (tryParseRfpAllFwdExceptElementsThenTwiceDeck(effectText)       != null) return "RfpAllFwdExceptElementsThenTwiceDeck";
+        if (tryParseDealDamageToForwards(effectText)                       != null) return "DealDamageToForwards";
         if (tryParseNoForwardCostCannotAttack(effectText)           != null) return "NoForwardCostCannotAttack";
         if (tryParseOwnForwardsCannotBeChosenByExBurst(effectText)  != null) return "OwnForwardsCannotBeChosenByExBurst";
         if (tryParseDealHalfPowerDamageToForwards(effectText)       != null) return "DealHalfPowerDamageToForwards";
@@ -4586,6 +4601,34 @@ public class ActionResolver {
             for (int i = ctx.p1ForwardCount() - 1; i >= 0; i--) {
                 if (ctx.p1Forward(i).containsElement(excludeElem)) continue;
                 ctx.damageP1Forward(i, damage);
+            }
+        };
+    }
+
+    private static Consumer<GameContext> tryParseRfpAllFwdExceptElementsThenTwiceDeck(String text) {
+        Matcher m = RFP_ALL_FWD_EXCEPT_ELEMENTS_THEN_TWICE_DECK.matcher(text);
+        if (!m.find()) return null;
+        String elem1 = m.group("elem1");
+        String elem2 = m.group("elem2");
+        return ctx -> {
+            ctx.logEntry("Effect: Remove from game all Forwards other than " + elem1 + " and " + elem2);
+            List<ForwardTarget> toRemove = new ArrayList<>();
+            for (int i = 0; i < ctx.p1ForwardCount(); i++) {
+                CardData fwd = ctx.p1Forward(i);
+                if (!fwd.containsElement(elem1) && !fwd.containsElement(elem2))
+                    toRemove.add(new ForwardTarget(true, i, ForwardTarget.CardZone.FORWARD));
+            }
+            for (int i = 0; i < ctx.p2ForwardCount(); i++) {
+                CardData fwd = ctx.p2Forward(i);
+                if (!fwd.containsElement(elem1) && !fwd.containsElement(elem2))
+                    toRemove.add(new ForwardTarget(false, i, ForwardTarget.CardZone.FORWARD));
+            }
+            sortedByIdxDesc(toRemove, true) .forEach(ctx::removeTargetFromGame);
+            sortedByIdxDesc(toRemove, false).forEach(ctx::removeTargetFromGame);
+            int deckRfp = toRemove.size() * 2;
+            if (deckRfp > 0) {
+                ctx.logEntry("Effect: Remove top " + deckRfp + " card(s) of deck from game (2 × " + toRemove.size() + " removed)");
+                ctx.removeTopCardsOfDeckFromGame(deckRfp);
             }
         };
     }
