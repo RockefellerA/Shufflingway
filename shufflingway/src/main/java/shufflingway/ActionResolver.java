@@ -3178,6 +3178,9 @@ public class ActionResolver {
         result = tryParseIfControlAtMost(effectText, source, xValue);
         if (result != null) return result;
 
+        result = tryParseIfAllHaveElement(effectText, source, xValue);
+        if (result != null) return result;
+
         result = tryParseControlConditionGate(effectText, source, xValue);
         if (result != null) return result;
 
@@ -7711,6 +7714,16 @@ public class ActionResolver {
         "(?is)^if\\s+you\\s+control\\s+(?<max>\\d+)\\s+or\\s+(?:less|fewer)\\s+(?<type>Forwards?|Backups?|Monsters?|Characters?),\\s+(?<effect>.+)$"
     );
 
+    /**
+     * Matches "If all the [Type] you control have [Element] Element, [effect]."
+     * Groups: {@code type}, {@code element}, {@code effect}.
+     */
+    private static final Pattern IF_ALL_HAVE_ELEMENT_GATE = Pattern.compile(
+        "(?is)^if\\s+all\\s+the\\s+(?<type>Forwards?|Backups?|Characters?|Monsters?)\\s+" +
+        "you\\s+control\\s+have\\s+(?<element>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)(?:\\s+Element)?,\\s+" +
+        "(?<effect>.+)$"
+    );
+
     /** Matches a leading "If you [do not] control &lt;condition&gt;, &lt;effect&gt;" gate. */
     private static final Pattern CONTROL_CONDITION_GATE = Pattern.compile(
         "(?is)^if\\s+you\\s+(?<neg>do\\s+not\\s+|don't\\s+)?control\\s+(?<cond>.+?),\\s+(?<effect>.+)$"
@@ -7731,6 +7744,32 @@ public class ActionResolver {
                 inner.accept(ctx);
             } else {
                 ctx.logEntry("Effect: no party formed this turn — skipped");
+            }
+        };
+    }
+
+    /**
+     * Parses "If all the [Type] you control have [Element] Element, [effect]." —
+     * resolves the inner effect only when every controlled card of that type has the element.
+     */
+    private static Consumer<GameContext> tryParseIfAllHaveElement(String text, CardData source, int xValue) {
+        Matcher m = IF_ALL_HAVE_ELEMENT_GATE.matcher(text.trim());
+        if (!m.matches()) return null;
+        String typeRaw  = m.group("type").trim();
+        String element  = m.group("element").trim();
+        String normType = typeRaw.replaceAll("(?i)s$", "");
+        normType = Character.toUpperCase(normType.charAt(0)) + normType.substring(1).toLowerCase();
+        Consumer<GameContext> inner = parse(m.group("effect").trim(), source, xValue);
+        if (inner == null) return null;
+        ControlCondition cc = ControlCondition.forAllHave(normType, element, null);
+        String logType = typeRaw;
+        String logElem = element;
+        return ctx -> {
+            if (ctx.controlConditionMet(cc)) {
+                ctx.logEntry("Effect: all " + logType + " have " + logElem + " Element — condition met");
+                inner.accept(ctx);
+            } else {
+                ctx.logEntry("Effect: not all " + logType + " have " + logElem + " Element — skipped");
             }
         };
     }

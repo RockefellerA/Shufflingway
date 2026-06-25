@@ -1730,6 +1730,26 @@ public record CardData(
     // "If you control X, Y gains Z" conditional field-boost parsing
     // -------------------------------------------------------------------------
 
+    /**
+     * "If all the [Type] you control have [property], [target] gain/gains [effects]."
+     * Groups: {@code type} (Forward/Backup/Character/Monster), {@code property} (element or job text),
+     * {@code target} ("they" = same type, or a card name), {@code effects} (+N power).
+     */
+    private static final Pattern IF_ALL_HAVE_BOOST = Pattern.compile(
+        "(?i)^If\\s+all\\s+the\\s+(?<type>Forwards?|Backups?|Characters?|Monsters?)\\s+you\\s+control\\s+have\\s+" +
+        "(?<property>.+?),\\s+(?<target>.+?)\\s+gains?\\s+(?<effects>.+?)\\.?\\s*$"
+    );
+
+    /** Matches element-property form: "X Element" or just "X" (one of the 8 elements). */
+    private static final Pattern ALL_HAVE_ELEMENT_PROPERTY = Pattern.compile(
+        "(?i)^(Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)(?:\\s+Element)?$"
+    );
+
+    /** Extracts a single job name from a "[Job (X)]" or "Job X" token in an all-have property. */
+    private static final Pattern ALL_HAVE_JOB_TOKEN = Pattern.compile(
+        "(?i)(?:\\[Job\\s*\\(([^)]+)\\)\\]|(?:^|\\bor\\s+)Job\\s+([A-Za-z][A-Za-z\\s''\\-]+?)(?=\\s+or\\b|\\s*$))"
+    );
+
     /** Outer structure: "If you control <raw>, <target> gains <effects>[.]" */
     private static final Pattern IF_CTRL_BOOST_OUTER = Pattern.compile(
         "(?i)^If\\s+you\\s+control\\s+(?<raw>[^,]+),\\s+(?<target>.+?)\\s+gains?\\s+(?<effects>.+?)\\.?\\s*$"
@@ -1915,7 +1935,7 @@ public record CardData(
                 ControlCondition crystalCond = ControlCondition.forCrystal();
                 Matcher pwrM = IF_CTRL_EFFECT_POWER.matcher(effectsStr);
                 int powerBonus = pwrM.find() ? Integer.parseInt(pwrM.group(1)) : 0;
-                java.util.EnumSet<Trait> traits = java.util.EnumSet.noneOf(Trait.class);
+                EnumSet<Trait> traits = EnumSet.noneOf(Trait.class);
                 if (ICB_EFFECT_HASTE.matcher(effectsStr).find())        traits.add(Trait.HASTE);
                 if (ICB_EFFECT_BRAVE.matcher(effectsStr).find())        traits.add(Trait.BRAVE);
                 if (ICB_EFFECT_FIRST_STRIKE.matcher(effectsStr).find()) traits.add(Trait.FIRST_STRIKE);
@@ -1938,7 +1958,7 @@ public record CardData(
                         List.of(), 0, false, null, null, null, null, 0, List.of(), false, null, condCard);
                 Matcher pwrM = IF_CTRL_EFFECT_POWER.matcher(effectsStr);
                 int powerBonus = pwrM.find() ? Integer.parseInt(pwrM.group(1)) : 0;
-                java.util.EnumSet<Trait> traits = java.util.EnumSet.noneOf(Trait.class);
+                EnumSet<Trait> traits = EnumSet.noneOf(Trait.class);
                 if (ICB_EFFECT_HASTE.matcher(effectsStr).find())        traits.add(Trait.HASTE);
                 if (ICB_EFFECT_BRAVE.matcher(effectsStr).find())        traits.add(Trait.BRAVE);
                 if (ICB_EFFECT_FIRST_STRIKE.matcher(effectsStr).find()) traits.add(Trait.FIRST_STRIKE);
@@ -1972,7 +1992,7 @@ public record CardData(
                 if (!conditions0.isEmpty()) {
                     FieldPowerGrant targetFilter = parseIcbTargetFilter(targetName);
                     result.add(new IfControlBoost(conditions0, exceptName0, targetName, targetFilter,
-                            powerBonus, java.util.EnumSet.noneOf(Trait.class), "", false, false, false, null, 0, 0, isInstead));
+                            powerBonus, EnumSet.noneOf(Trait.class), "", false, false, false, null, 0, 0, isInstead));
                 }
                 continue;
             }
@@ -1988,7 +2008,7 @@ public record CardData(
                 if (powerBonus != 0) {
                     FieldPowerGrant targetFilter = parseIcbTargetFilter(targetName);
                     result.add(new IfControlBoost(List.of(), "", targetName, targetFilter,
-                            powerBonus, java.util.EnumSet.noneOf(Trait.class), "", false, false, false, null, minRfp, 0, false));
+                            powerBonus, EnumSet.noneOf(Trait.class), "", false, false, false, null, minRfp, 0, false));
                 }
                 continue;
             }
@@ -2001,10 +2021,15 @@ public record CardData(
                 String effectsStr = dmgM.group("effects").trim();
                 Matcher pwrM = IF_CTRL_EFFECT_POWER.matcher(effectsStr);
                 int powerBonus = pwrM.find() ? Integer.parseInt(pwrM.group(1)) : 0;
-                if (powerBonus != 0) {
+                EnumSet<Trait> dmgTraits = EnumSet.noneOf(Trait.class);
+                if (ICB_EFFECT_HASTE.matcher(effectsStr).find())        dmgTraits.add(Trait.HASTE);
+                if (ICB_EFFECT_BRAVE.matcher(effectsStr).find())        dmgTraits.add(Trait.BRAVE);
+                if (ICB_EFFECT_FIRST_STRIKE.matcher(effectsStr).find()) dmgTraits.add(Trait.FIRST_STRIKE);
+                if (ICB_EFFECT_BACK_ATTACK.matcher(effectsStr).find())  dmgTraits.add(Trait.BACK_ATTACK);
+                if (powerBonus != 0 || !dmgTraits.isEmpty()) {
                     FieldPowerGrant targetFilter = parseIcbTargetFilter(targetName);
                     result.add(new IfControlBoost(List.of(), "", targetName, targetFilter,
-                            powerBonus, java.util.EnumSet.noneOf(Trait.class), "", false, false, false, null, 0, minDmg, false));
+                            powerBonus, dmgTraits, "", false, false, false, null, 0, minDmg, false));
                 }
                 continue;
             }
@@ -2020,7 +2045,58 @@ public record CardData(
                 if (powerBonus != 0) {
                     FieldPowerGrant targetFilter = parseIcbTargetFilter(targetName);
                     result.add(new IfControlBoost(List.of(), "", targetName, targetFilter,
-                            powerBonus, java.util.EnumSet.noneOf(Trait.class), "", false, false, false, null, 0, 0, false, maxHand));
+                            powerBonus, EnumSet.noneOf(Trait.class), "", false, false, false, null, 0, 0, false, maxHand));
+                }
+                continue;
+            }
+
+            // "If all the [Type] you control have [property], [target] gains [effects]."
+            Matcher allHaveM = IF_ALL_HAVE_BOOST.matcher(seg);
+            if (allHaveM.find()) {
+                String typeStr    = allHaveM.group("type").trim();
+                String property   = allHaveM.group("property").trim();
+                String targetStr  = allHaveM.group("target").trim();
+                String effectsStr = allHaveM.group("effects").trim();
+
+                String rawType = typeStr.replaceAll("(?i)s$", "");
+                String ahCardType = Character.toUpperCase(rawType.charAt(0)) + rawType.substring(1).toLowerCase();
+
+                String element   = null;
+                String jobFilter = null;
+                Matcher elemPM = ALL_HAVE_ELEMENT_PROPERTY.matcher(property);
+                if (elemPM.find()) {
+                    element = elemPM.group(1);
+                } else {
+                    List<String> jobs = new ArrayList<>();
+                    Matcher jobTokM = ALL_HAVE_JOB_TOKEN.matcher(property);
+                    while (jobTokM.find()) {
+                        String j = jobTokM.group(1) != null ? jobTokM.group(1) : jobTokM.group(2);
+                        if (j != null) jobs.add(j.trim());
+                    }
+                    if (!jobs.isEmpty()) jobFilter = String.join("|", jobs);
+                }
+
+                if (element != null || jobFilter != null) {
+                    ControlCondition cond = ControlCondition.forAllHave(ahCardType, element, jobFilter);
+                    Matcher pwrM = IF_CTRL_EFFECT_POWER.matcher(effectsStr);
+                    int powerBonus = pwrM.find() ? Integer.parseInt(pwrM.group(1)) : 0;
+                    if (powerBonus != 0) {
+                        FieldPowerGrant targetFilter;
+                        String targetName;
+                        if ("they".equalsIgnoreCase(targetStr)) {
+                            boolean isFwd = ahCardType.equalsIgnoreCase("Forward") || ahCardType.equalsIgnoreCase("Character");
+                            boolean isBkp = ahCardType.equalsIgnoreCase("Backup")  || ahCardType.equalsIgnoreCase("Character");
+                            boolean isMon = ahCardType.equalsIgnoreCase("Monster") || ahCardType.equalsIgnoreCase("Character");
+                            targetFilter = new FieldPowerGrant(null, null, isFwd, isBkp, isMon,
+                                    null, powerBonus, EnumSet.noneOf(Trait.class));
+                            targetName = "";
+                        } else {
+                            targetFilter = parseIcbTargetFilter(targetStr);
+                            targetName = targetStr;
+                        }
+                        result.add(new IfControlBoost(List.of(cond), "", targetName, targetFilter,
+                                powerBonus, EnumSet.noneOf(Trait.class), "", false, false, false, null));
+                    }
                 }
                 continue;
             }
@@ -2077,7 +2153,7 @@ public record CardData(
             Matcher quotedM = IF_CTRL_EFFECT_QUOTED.matcher(effectsStr);
             String specialText = quotedM.find() ? quotedM.group(1).trim() : "";
 
-            java.util.EnumSet<Trait> traits = java.util.EnumSet.noneOf(Trait.class);
+            EnumSet<Trait> traits = EnumSet.noneOf(Trait.class);
             if (ICB_EFFECT_HASTE.matcher(effectsStr).find())        traits.add(Trait.HASTE);
             if (ICB_EFFECT_BRAVE.matcher(effectsStr).find())        traits.add(Trait.BRAVE);
             if (ICB_EFFECT_FIRST_STRIKE.matcher(effectsStr).find()) traits.add(Trait.FIRST_STRIKE);
@@ -2118,7 +2194,7 @@ public record CardData(
                     except   != null ? except.trim()   : null,
                     0, java.util.Set.of());
             result.add(new IfControlBoost(List.of(), "", "", grantFilter, 0,
-                    java.util.EnumSet.noneOf(Trait.class), "", false, false, false,
+                    EnumSet.noneOf(Trait.class), "", false, false, false,
                     new int[]{costVal, orMore ? 1 : 0}));
         }
 
@@ -2130,7 +2206,7 @@ public record CardData(
             if (!m.matches()) continue;
             String name = m.group("name").trim();
             result.add(new IfControlBoost(List.of(), "", name, null, 0,
-                    java.util.EnumSet.noneOf(Trait.class), "", false, false, true, null, 0, 0, false));
+                    EnumSet.noneOf(Trait.class), "", false, false, true, null, 0, 0, false));
         }
 
         return List.copyOf(result);

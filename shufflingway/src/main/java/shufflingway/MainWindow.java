@@ -9055,6 +9055,22 @@ public class MainWindow {
 			return !cond.anyOf();
 		}
 
+		// All-have mode: EVERY controlled card of the specified type must satisfy the property filter
+		if (cond.allHave()) {
+			String ahType = cond.cardType() != null ? cond.cardType().toLowerCase() : null;
+			List<CardData> ahPool = new ArrayList<>();
+			if (ahType == null || ahType.equals("forward") || ahType.equals("character")) ahPool.addAll(fwds);
+			if (ahType == null || ahType.equals("monster")  || ahType.equals("character")) ahPool.addAll(mons);
+			if (ahType == null || ahType.equals("backup")   || ahType.equals("character"))
+				for (CardData bkp : bkps) if (bkp != null) ahPool.add(bkp);
+			if (ahPool.isEmpty()) return false;
+			for (CardData card : ahPool) {
+				if (cond.element() != null && !card.containsElement(cond.element())) return false;
+				if (cond.job()     != null && !meetsJobFilterEffective(card, cond.job())) return false;
+			}
+			return true;
+		}
+
 		// Count mode: collect field cards that match the type filter
 		String type = cond.cardType() != null ? cond.cardType().toLowerCase() : null;
 		List<CardData> pool = new ArrayList<>();
