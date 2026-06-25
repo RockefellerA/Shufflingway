@@ -4872,7 +4872,7 @@ public class MainWindow {
 		confirmCastBtn.addActionListener(ae -> {
 			CardData cast = lbDeck.get(castingIdx[0]);
 			dlg.dispose();
-			if (cast.cost() == 0) {
+			if (effectiveCastCost(cast) <= 0) {
 				// No CP dialog — commit immediately
 				spentLbIndices.add(castingIdx[0]);
 				spentLbIndices.addAll(paymentSet);
@@ -7613,6 +7613,10 @@ public class MainWindow {
 	 * from the discard list, and routes the confirm callback to {@link #executePlayFromBzP1}.
 	 */
 	private void showBzPlayPaymentDialog(CardData card, int reducedCost) {
+		if (reducedCost <= 0) {
+			executePlayFromBzP1(card, List.of(), List.of(), Map.of());
+			return;
+		}
 		PlayableEntry entry = bzPlayableP1.get(card);
 		boolean anyElement = isAnyElementCast(card) || (entry != null && entry.anyElement());
 		new StandardPaymentDialog(frame, card, -1, reducedCost,
@@ -7625,7 +7629,12 @@ public class MainWindow {
 	}
 
 	private void showPaymentDialog(CardData card, int handIdx) {
-		new StandardPaymentDialog(frame, card, handIdx, effectiveCastCost(card),
+		int cost = effectiveCastCost(card);
+		if (cost <= 0) {
+			executePlay(card, handIdx, List.of(), List.of(), Map.of());
+			return;
+		}
+		new StandardPaymentDialog(frame, card, handIdx, cost,
 				gameState.getP1Hand(), p1BackupCards, p1BackupStates, p1BackupUrls,
 				this::showZoomAt, this::hideZoom,
 				new ArrayList<>(p1ForwardCards),
