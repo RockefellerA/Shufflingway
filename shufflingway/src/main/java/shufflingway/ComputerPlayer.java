@@ -62,6 +62,7 @@ class ComputerPlayer {
 		mw.p2CausedOpponentDiscardThisTurn = false;
 		mw.p2FormedPartyThisTurn = false;
 		mw.p2ForwardsLeftFieldThisTurn = 0;
+		mw.p2ForwardPutToBZThisTurn = false;
 		mw.p2ElementForwardsEnteredThisTurn.clear();
 		mw.p2CardsTookDamageThisTurn.clear();
 		mw.p2ForwardEnteredViaWarpThisTurn = false;
@@ -525,6 +526,7 @@ class ComputerPlayer {
 		mw.p1PartyAnyElementThisTurn = false;
 		mw.p2PartyAnyElementThisTurn = false;
 		mw.p1ForwardsLeftFieldThisTurn = 0;
+		mw.p1ForwardPutToBZThisTurn = false;
 		mw.p1ElementForwardsEnteredThisTurn.clear();
 		mw.p1CardsTookDamageThisTurn.clear();
 		mw.p1ForwardEnteredViaWarpThisTurn = false;

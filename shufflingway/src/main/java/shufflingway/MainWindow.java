@@ -398,6 +398,8 @@ public class MainWindow {
 	final Set<CardData>          perCardNonLethalDmgSet      = new HashSet<>();
 	boolean p1ReceivedDamageThisTurn = false;
 	boolean p2ReceivedDamageThisTurn = false;
+	boolean p1ForwardPutToBZThisTurn = false;
+	boolean p2ForwardPutToBZThisTurn = false;
 	boolean p1ForwardCannotBlockInferiorPower = false; // set by P2 action: P1 Forwards cannot block targets with power < their own
 	boolean p2ForwardCannotBlockInferiorPower = false; // set by P1 action: P2 Forwards cannot block targets with power < their own
 	int     p1CardsCastThisTurn          = 0;
@@ -1302,6 +1304,8 @@ public class MainWindow {
 		// Per-turn tracking flags.
 		p1ReceivedDamageThisTurn = false;
 		p2ReceivedDamageThisTurn = false;
+		p1ForwardPutToBZThisTurn = false;
+		p2ForwardPutToBZThisTurn = false;
 		p1PartyAnyElementThisTurn = false;
 		p2PartyAnyElementThisTurn = false;
 		lastCardWasCast   = false;
@@ -2812,6 +2816,7 @@ public class MainWindow {
 		if (card.category2() != null && !card.category2().isBlank()) p1BrokenCategoriesThisTurn.add(card.category2().toLowerCase());
 		if (gameState.getCurrentPlayer() == GameState.Player.P1) p1ForwardsLeftFieldThisTurn++;
 		else p2ForwardsLeftFieldThisTurn++;
+		p1ForwardPutToBZThisTurn = true;
 		// If the broken card was itself stolen from P2, drop its tracking entry
 		stolenForwards.remove(card);
 		// Restore any forwards that were conditioned on this card remaining on the field
@@ -2906,6 +2911,7 @@ public class MainWindow {
 		if (card.category2() != null && !card.category2().isBlank()) p2BrokenCategoriesThisTurn.add(card.category2().toLowerCase());
 		if (gameState.getCurrentPlayer() == GameState.Player.P1) p1ForwardsLeftFieldThisTurn++;
 		else p2ForwardsLeftFieldThisTurn++;
+		p2ForwardPutToBZThisTurn = true;
 		refreshP2BreakLabel();
 		autoAbilityTriggers.triggerAutoAbilitiesForLeavesField(card, false);
 		autoAbilityTriggers.triggerAutoAbilitiesForBreakZone(card, false, partySnapshot);
@@ -7465,7 +7471,7 @@ public class MainWindow {
 		if (ability.requiresElementForwardEnteredThisTurn() != null) { if (!firstRestrict) restrict.append(", "); restrict.append(ability.requiresElementForwardEnteredThisTurn()).append(" fwd entered"); firstRestrict = false; }
 		if (ability.requiresNamedCardTookDamageThisTurn() != null)  { if (!firstRestrict) restrict.append(", "); restrict.append(ability.requiresNamedCardTookDamageThisTurn()).append(" took dmg");  firstRestrict = false; }
 		if (ability.requiresSelfReceivedDamageThisTurn())           { if (!firstRestrict) restrict.append(", "); restrict.append("self rcvd dmg"); firstRestrict = false; }
-		if (ability.requiresSelfReceivedDamageThisTurn())           { if (!firstRestrict) restrict.append(", "); restrict.append("self rcvd dmg"); firstRestrict = false; }
+		if (ability.requiresForwardPutToBZThisTurn())               { if (!firstRestrict) restrict.append(", "); restrict.append("own fwd to BZ"); firstRestrict = false; }
 		if (restrict.length() > 0) sb.append(restrict).append(" — ");
 
 		String fx = ability.effectText();
@@ -7783,6 +7789,9 @@ public class MainWindow {
 		}
 		if (ability.requiresSelfReceivedDamageThisTurn()) {
 			if (!(isP1 ? p1ReceivedDamageThisTurn : p2ReceivedDamageThisTurn)) return false;
+		}
+		if (ability.requiresForwardPutToBZThisTurn()) {
+			if (!(isP1 ? p1ForwardPutToBZThisTurn : p2ForwardPutToBZThisTurn)) return false;
 		}
 		if (ability.requiresElementForwardEnteredThisTurn() != null) {
 			Set<String> entered = isP1 ? p1ElementForwardsEnteredThisTurn : p2ElementForwardsEnteredThisTurn;

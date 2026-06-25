@@ -900,6 +900,7 @@ public record CardData(
             Matcher namedCardDmgM = NAMED_CARD_TOOK_DAMAGE_THIS_TURN_RESTRICTION.matcher(effectRaw);
             String requiresNamedCardTookDamageThisTurn = namedCardDmgM.find() ? namedCardDmgM.group("card").trim() : null;
             boolean requiresSelfReceivedDamageThisTurn = SELF_RECEIVED_DAMAGE_THIS_TURN_RESTRICTION.matcher(effectRaw).find();
+            boolean requiresForwardPutToBZThisTurn = FORWARD_PUT_TO_BZ_THIS_TURN_RESTRICTION.matcher(effectRaw).find();
             Matcher elemFwdM = ELEMENT_FORWARD_ENTERED_THIS_TURN_PATTERN.matcher(effectRaw);
             String  requiresElementForwardEnteredThisTurn = elemFwdM.find() ? elemFwdM.group("element").toLowerCase() : null;
             Matcher cardNameFwdM = CARD_NAME_ENTERED_THIS_TURN_PATTERN.matcher(effectRaw);
@@ -946,7 +947,7 @@ public record CardData(
                 minCounterRequired = Integer.parseInt(cminM.group("count"));
                 minCounterType     = cminM.group("type").trim();
             }
-            result.add(new ActionAbility(abilityName, requiresDull, isSpecial, crystalCost, selfMillCost, hasXCost, cpCost, breakZoneCosts, discardCosts, removeFromGameCosts, returnToHandCosts, counterCosts, dullForwardCosts, yourTurnOnly, opponentTurnOnly, oncePerTurn, mainPhaseOnly, whileCardAtk, whileCardBlk, whilePartyAtk, whileCardInHand, hasBlockingTarget, effectRaw, damageThreshold, controlCondition, cpBackupElement, sourceInBattle, requiresOppDiscardedThisTurn, requiresCastSummonThisTurn, requiresElementForwardEnteredThisTurn, requiresCardNameEnteredThisTurn, breakZoneOnly, requiresOpponentEmptyHand, requiresNamedCardTookDamageThisTurn, requiresSelfReceivedDamageThisTurn, ownBzCard, counterScaleName, minCounterRequired, minCounterType));
+            result.add(new ActionAbility(abilityName, requiresDull, isSpecial, crystalCost, selfMillCost, hasXCost, cpCost, breakZoneCosts, discardCosts, removeFromGameCosts, returnToHandCosts, counterCosts, dullForwardCosts, yourTurnOnly, opponentTurnOnly, oncePerTurn, mainPhaseOnly, whileCardAtk, whileCardBlk, whilePartyAtk, whileCardInHand, hasBlockingTarget, effectRaw, damageThreshold, controlCondition, cpBackupElement, sourceInBattle, requiresOppDiscardedThisTurn, requiresCastSummonThisTurn, requiresElementForwardEnteredThisTurn, requiresCardNameEnteredThisTurn, breakZoneOnly, requiresOpponentEmptyHand, requiresNamedCardTookDamageThisTurn, requiresSelfReceivedDamageThisTurn, requiresForwardPutToBZThisTurn, ownBzCard, counterScaleName, minCounterRequired, minCounterType));
         }
         return List.copyOf(result);
     }
@@ -961,7 +962,8 @@ public record CardData(
                 a.cpBackupElement(), a.sourceInBattle(), a.requiresOppDiscardedThisTurn(),
                 a.requiresCastSummonThisTurn(), a.requiresElementForwardEnteredThisTurn(),
                 a.requiresCardNameEnteredThisTurn(), a.breakZoneOnly(), a.requiresOpponentEmptyHand(),
-                a.requiresNamedCardTookDamageThisTurn(), a.requiresSelfReceivedDamageThisTurn(), bzCard,
+                a.requiresNamedCardTookDamageThisTurn(), a.requiresSelfReceivedDamageThisTurn(),
+                a.requiresForwardPutToBZThisTurn(), bzCard,
                 a.counterScaleName(), a.minCounterRequired(), a.minCounterType());
     }
 
@@ -1114,6 +1116,11 @@ public record CardData(
     /** "You can only use this ability if you have received a point of damage this turn." */
     static final Pattern SELF_RECEIVED_DAMAGE_THIS_TURN_RESTRICTION = Pattern.compile(
         "(?i)You\\s+can\\s+only\\s+use\\s+this\\s+ability\\s+if\\s+you\\s+have\\s+received\\s+a\\s+point\\s+of\\s+damage\\s+this\\s+turn[.!]?"
+    );
+
+    /** "You can only use this ability if a Forward you controlled has been put from the field into the Break Zone this turn." */
+    static final Pattern FORWARD_PUT_TO_BZ_THIS_TURN_RESTRICTION = Pattern.compile(
+        "(?i)You\\s+can\\s+only\\s+use\\s+this\\s+ability\\s+if\\s+a\\s+Forward\\s+you\\s+controlled\\s+has\\s+been\\s+put\\s+from\\s+the\\s+field\\s+into\\s+the\\s+Break\\s+Zone\\s+this\\s+turn[.!]?"
     );
 
     /** "You can only use this ability if an/a [Element] Forward has entered your field this turn." */
