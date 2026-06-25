@@ -20,11 +20,9 @@ import java.awt.Insets;
 import java.awt.Point;
 import java.awt.RenderingHints;
 import java.awt.Toolkit;
-import java.awt.color.ColorSpace;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.awt.image.BufferedImage;
-import java.awt.image.ColorConvertOp;
 import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
@@ -94,7 +92,12 @@ import static shufflingway.CardFilters.meetsJobFilter;
 import static shufflingway.CpPaymentUtils.contributingElement;
 import static shufflingway.CpPaymentUtils.matchesAnyElement;
 import shufflingway.dialog.AltCostPaymentDialog;
+import shufflingway.dialog.BreakZoneDialog;
+import shufflingway.dialog.DamageZoneDialog;
+import shufflingway.dialog.HandPickDialog;
+import shufflingway.dialog.LbDialog;
 import shufflingway.dialog.LbPaymentDialog;
+import shufflingway.dialog.RemovedFromPlayDialog;
 import shufflingway.dialog.StandardPaymentDialog;
 import shufflingway.dialog.WarpPaymentDialog;
 import shufflingway.menu.FileMenu;
@@ -2521,309 +2524,51 @@ public class MainWindow {
 	}
 
 	private void showRemovedFromPlayDialog(GrayscaleLabel removeLabel, String player, boolean isP1) {
-		List<GameState.WarpEntry> warpZone = isP1
-				? gameState.getP1WarpZone() : gameState.getP2WarpZone();
-		List<CardData>            permZone = isP1
-				? gameState.getP1PermanentRfp() : gameState.getP2PermanentRfp();
-		if (warpZone.isEmpty() && permZone.isEmpty()) return;
-
-		int total = warpZone.size() + permZone.size();
-		JDialog dlg = new JDialog(frame, player + " — Removed From Play (" + total
-				+ " card" + (total != 1 ? "s" : "") + ")", true);
-		dlg.setResizable(false);
-		dlg.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
-
-		JPanel cardsPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 8));
-
-		// Warp zone cards (show remaining counter)
-		for (GameState.WarpEntry entry : warpZone) {
-			JPanel wrapper = new JPanel(new BorderLayout(0, 4));
-			wrapper.setBackground(cardsPanel.getBackground());
-			JLabel lbl = makeRfpCardLabel(entry.card.imageUrl());
-			JLabel info = new JLabel(entry.card.name() + "  [" + entry.counters + "]", SwingConstants.CENTER);
-			info.setFont(FontLoader.loadPixelNESFont(9));
-			info.setPreferredSize(new Dimension(CARD_W, 18));
-			wrapper.add(lbl, BorderLayout.CENTER);
-			wrapper.add(info, BorderLayout.SOUTH);
-			cardsPanel.add(wrapper);
-		}
-
-		// Permanent RFP cards (Primed top cards, etc.)
-		for (CardData card : permZone) {
-			JPanel wrapper = new JPanel(new BorderLayout(0, 4));
-			wrapper.setBackground(cardsPanel.getBackground());
-			JLabel lbl = makeRfpCardLabel(card.imageUrl());
-			JLabel info = new JLabel(card.name() + "  [RFG]", SwingConstants.CENTER);
-			info.setFont(FontLoader.loadPixelNESFont(9));
-			info.setPreferredSize(new Dimension(CARD_W, 18));
-			wrapper.add(lbl, BorderLayout.CENTER);
-			wrapper.add(info, BorderLayout.SOUTH);
-			cardsPanel.add(wrapper);
-		}
-
-		dlg.getContentPane().add(new JScrollPane(cardsPanel));
-		dlg.pack();
-		dlg.setLocationRelativeTo(frame);
-		dlg.setVisible(true);
-	}
-
-	private JLabel makeRfpCardLabel(String imageUrl) {
-		JLabel lbl = new JLabel("...", SwingConstants.CENTER);
-		lbl.setPreferredSize(new Dimension(CARD_W, CARD_H));
-		lbl.setMinimumSize(new Dimension(CARD_W, CARD_H));
-		lbl.setOpaque(true);
-		lbl.setBackground(Color.DARK_GRAY);
-		lbl.setBorder(BorderFactory.createLineBorder(Color.LIGHT_GRAY, 1));
-		lbl.addMouseListener(new MouseAdapter() {
-			@Override public void mouseEntered(MouseEvent e) { if (lbl.getIcon() != null) showZoomAt(imageUrl); }
-			@Override public void mouseExited(MouseEvent e)  { hideZoom(); }
-		});
-		new SwingWorker<ImageIcon, Void>() {
-			@Override protected ImageIcon doInBackground() throws Exception {
-				Image img = ImageCache.load(imageUrl);
-				return img == null ? null : new ImageIcon(img.getScaledInstance(CARD_W, CARD_H, Image.SCALE_SMOOTH));
-			}
-			@Override protected void done() {
-				try { ImageIcon ic = get(); if (ic != null) { lbl.setIcon(ic); lbl.setText(null); } }
-				catch (InterruptedException | ExecutionException ignored) {}
-			}
-		}.execute();
-		return lbl;
+		List<GameState.WarpEntry> warpZone = isP1 ? gameState.getP1WarpZone() : gameState.getP2WarpZone();
+		List<CardData>            permZone = isP1 ? gameState.getP1PermanentRfp() : gameState.getP2PermanentRfp();
+		RemovedFromPlayDialog.show(frame, warpZone, permZone, player, this::showZoomAt, this::hideZoom);
 	}
 
 	private void showBreakZoneDialog() { showBreakZoneDialog(gameState.getP1BreakZone(), "P1 Break Zone", true); }
 	private void showP2BreakZoneDialog() { showBreakZoneDialog(gameState.getP2BreakZone(), "P2 Break Zone", false); }
 
 	private void showBreakZoneDialog(List<CardData> zone, String title, boolean isP1) {
-		if (zone.isEmpty()) return;
-
-		JDialog dlg = new JDialog(frame, title + " (" + zone.size() + " cards)", true);
-		dlg.setResizable(false);
-		dlg.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
-
-		JPanel cardsPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 8));
-
-		for (CardData cd : zone) {
-			final boolean hasBzAbility = isP1 && cd.actionAbilities().stream()
-					.anyMatch(a -> a.breakZoneOnly() != null && autoAbilityTriggers.canActivateBzAbility(a, cd, true));
-			final boolean hasBzPlay    = isP1 && bzPlayableP1.containsKey(cd)
-					&& bzPlayableP1.get(cd).source() == PlayableEntry.SourceZone.BREAK_ZONE
-					&& (!cd.isSummon() || !summonCastingProhibited());
-			final int     bzPlayCost   = hasBzPlay
-					? bzPlayableP1.get(cd).effectiveCost(cd) : -1;
-			final boolean interactive  = hasBzAbility || hasBzPlay;
-
-			JPanel cardWrapper = new JPanel(new BorderLayout(0, 4));
-			cardWrapper.setBackground(cardsPanel.getBackground());
-
-			JLabel lbl = new JLabel("...", SwingConstants.CENTER);
-			lbl.setPreferredSize(new Dimension(CARD_W, CARD_H));
-			lbl.setMinimumSize(new Dimension(CARD_W, CARD_H));
-			lbl.setOpaque(true);
-			lbl.setBackground(Color.DARK_GRAY);
-			lbl.setBorder(BorderFactory.createLineBorder(Color.LIGHT_GRAY, 1));
-			if (interactive) lbl.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-
-			lbl.addMouseListener(new MouseAdapter() {
-				@Override public void mouseEntered(MouseEvent e) {
-					if (lbl.getIcon() != null) showZoomAt(cd.imageUrl());
-				}
-				@Override public void mouseExited(MouseEvent e) { hideZoom(); }
-				@Override public void mousePressed(MouseEvent e) {
-					if (!isP1 || !SwingUtilities.isLeftMouseButton(e)) return;
-					boolean anyBzAbility = cd.actionAbilities().stream()
-							.anyMatch(a -> a.breakZoneOnly() != null);
-					if (!anyBzAbility && !hasBzPlay) return;
-					hideZoom();
-					JPopupMenu menu = new JPopupMenu();
-					if (hasBzPlay) {
-						JMenuItem playItem = new JMenuItem("Play  (" + bzPlayCost + " CP)");
-						playItem.addActionListener(ae -> {
-							dlg.dispose();
-							showBzPlayPaymentDialog(cd, bzPlayCost);
-						});
-						menu.add(playItem);
-					}
-					for (ActionAbility ability : cd.actionAbilities()) {
-						if (ability.breakZoneOnly() == null) continue;
-						boolean abilityEnabled = autoAbilityTriggers.canActivateBzAbility(ability, cd, true);
-						JMenuItem item = new JMenuItem(abilityEnabled ? buildAbilityMenuLabelHtml(ability) : buildAbilityMenuLabel(ability));
-						item.setEnabled(abilityEnabled);
-						item.addActionListener(ae -> autoAbilityTriggers.showBzAbilityPaymentDialog(ability, cd, true));
-						menu.add(item);
-					}
-					if (menu.getComponentCount() > 0) menu.show(lbl, e.getX(), e.getY());
-				}
-			});
-
-			new SwingWorker<ImageIcon, Void>() {
-				@Override protected ImageIcon doInBackground() throws Exception {
-					Image img = ImageCache.load(cd.imageUrl());
-					if (img == null) return null;
-					BufferedImage buf = new BufferedImage(CARD_W, CARD_H, BufferedImage.TYPE_INT_ARGB);
-					Graphics2D g2 = buf.createGraphics();
-					g2.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
-					g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING,  RenderingHints.VALUE_ANTIALIAS_ON);
-					g2.drawImage(img, 0, 0, CARD_W, CARD_H, null);
-					if (hasBzAbility) CardAnimation.drawGlow(g2, new Color(30, 144, 255), 0, 0, CARD_W, CARD_H);
-					if (hasBzPlay) {
-						CardAnimation.drawGlow(g2, new Color(0, 220, 80), 0, 0, CARD_W, CARD_H);
-						int badgeW = 26, badgeH = 22;
-						int bx = 4, by = 4;
-						g2.setColor(new Color(0, 0, 0, 200));
-						g2.fillRoundRect(bx, by, badgeW, badgeH, 6, 6);
-						g2.setColor(new Color(0, 220, 80));
-						g2.drawRoundRect(bx, by, badgeW, badgeH, 6, 6);
-						g2.setColor(Color.WHITE);
-						g2.setFont(FontLoader.loadPixelNESFont(11));
-						String costStr = String.valueOf(bzPlayCost);
-						FontMetrics fm = g2.getFontMetrics();
-						int tx = bx + (badgeW - fm.stringWidth(costStr)) / 2;
-						int ty = by + (badgeH - fm.getHeight()) / 2 + fm.getAscent();
-						g2.drawString(costStr, tx, ty);
-					}
-					g2.dispose();
-					return new ImageIcon(buf);
-				}
-				@Override protected void done() {
-					try {
-						ImageIcon icon = get();
-						if (icon != null) { lbl.setIcon(icon); lbl.setText(null); }
-					} catch (InterruptedException | ExecutionException ignored) {}
-				}
-			}.execute();
-
-			JLabel nameLabel = new JLabel(cd.name(), SwingConstants.CENTER);
-			nameLabel.setFont(FontLoader.loadPixelNESFont(9));
-			nameLabel.setPreferredSize(new Dimension(CARD_W, 18));
-
-			cardWrapper.add(lbl,       BorderLayout.CENTER);
-			cardWrapper.add(nameLabel, BorderLayout.SOUTH);
-			cardsPanel.add(cardWrapper);
-		}
-
-		JScrollPane scrollPane = new JScrollPane(cardsPanel,
-				JScrollPane.VERTICAL_SCROLLBAR_NEVER,
-				JScrollPane.HORIZONTAL_SCROLLBAR_AS_NEEDED);
-		scrollPane.setPreferredSize(new Dimension(
-				Math.min(zone.size() * (CARD_W + 16) + 16, 900),
-				CARD_H + 60));
-
-		JButton closeBtn = new JButton("Close");
-		closeBtn.setFont(FontLoader.loadPixelNESFont(11));
-		closeBtn.addActionListener(ae -> { hideZoom(); dlg.dispose(); });
-
-		JPanel south = new JPanel(new FlowLayout(FlowLayout.CENTER, 12, 6));
-		south.add(closeBtn);
-		south.setBorder(BorderFactory.createEmptyBorder(0, 8, 8, 8));
-
-		dlg.getContentPane().setLayout(new BorderLayout(0, 4));
-		dlg.getContentPane().add(scrollPane, BorderLayout.CENTER);
-		dlg.getContentPane().add(south,      BorderLayout.SOUTH);
-		dlg.pack();
-		dlg.setLocationRelativeTo(frame);
-		dlg.setVisible(true);
+		BreakZoneDialog.show(frame, zone, title, isP1, new BreakZoneDialog.Callbacks() {
+			public boolean hasBzAbility(CardData card) {
+				return isP1 && card.actionAbilities().stream()
+						.anyMatch(a -> a.breakZoneOnly() != null && autoAbilityTriggers.canActivateBzAbility(a, card, true));
+			}
+			public boolean hasBzPlay(CardData card) {
+				return isP1 && bzPlayableP1.containsKey(card)
+						&& bzPlayableP1.get(card).source() == PlayableEntry.SourceZone.BREAK_ZONE
+						&& (!card.isSummon() || !summonCastingProhibited());
+			}
+			public int bzPlayCost(CardData card) {
+				return hasBzPlay(card) ? bzPlayableP1.get(card).effectiveCost(card) : -1;
+			}
+			public boolean isAbilityEnabled(ActionAbility ability, CardData card) {
+				return autoAbilityTriggers.canActivateBzAbility(ability, card, true);
+			}
+			public String abilityMenuHtml(ActionAbility ability) { return buildAbilityMenuLabelHtml(ability); }
+			public String abilityMenuText(ActionAbility ability) { return buildAbilityMenuLabel(ability); }
+			public void onBzPlay(CardData card, int cost)        { showBzPlayPaymentDialog(card, cost); }
+			public void onBzAbility(ActionAbility ability, CardData card) {
+				autoAbilityTriggers.showBzAbilityPaymentDialog(ability, card, true);
+			}
+			public void onZoom(String url) { showZoomAt(url); }
+			public void onZoomHide()       { hideZoom(); }
+		});
 	}
 
-	/**
-	 * Modal "pick 1 card" dialog used by effects like "Choose 1 [Element] Summon in your
-	 * Break Zone."  Shows {@code candidates} as clickable thumbnails; returns the picked card,
-	 * or the first candidate if the player closes the dialog without picking.  Always returns
-	 * non-null when {@code candidates} is non-empty.
-	 */
 	CardData chooseSummonFromBzDialog(List<CardData> candidates, String element) {
-		return chooseCardFromBzDialog(candidates, "Choose 1 " + element + " Summon from Break Zone");
+		return BreakZoneDialog.choose(frame, candidates,
+				"Choose 1 " + element + " Summon from Break Zone", this::showZoomAt, this::hideZoom);
 	}
 
-	/** Prompts P1 to pick one card from {@code candidates} (e.g. a Break Zone subset); returns the choice. */
 	CardData chooseCardFromBzDialog(List<CardData> candidates, String title) {
-		if (candidates.isEmpty()) return null;
-		if (candidates.size() == 1) return candidates.get(0);
-
-		JDialog dlg = new JDialog(frame, title, true);
-		dlg.setResizable(false);
-		dlg.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
-
-		CardData[] picked = { null };
-		JButton confirmBtn = new JButton("Confirm");
-		confirmBtn.setFont(FontLoader.loadPixelNESFont(11));
-		confirmBtn.setEnabled(false);
-
-		JPanel cardsPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 8));
-		JLabel[] cardLabels = new JLabel[candidates.size()];
-
-		for (int i = 0; i < candidates.size(); i++) {
-			final int idx = i;
-			final CardData cd = candidates.get(i);
-			JLabel lbl = new JLabel("...", SwingConstants.CENTER);
-			lbl.setPreferredSize(new Dimension(CARD_W, CARD_H));
-			lbl.setMinimumSize(new Dimension(CARD_W, CARD_H));
-			lbl.setOpaque(true);
-			lbl.setBackground(Color.DARK_GRAY);
-			lbl.setBorder(BorderFactory.createLineBorder(Color.LIGHT_GRAY, 1));
-			lbl.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-			cardLabels[i] = lbl;
-
-			lbl.addMouseListener(new MouseAdapter() {
-				@Override public void mouseEntered(MouseEvent e) { showZoomAt(cd.imageUrl()); }
-				@Override public void mouseExited(MouseEvent e)  { hideZoom(); }
-				@Override public void mousePressed(MouseEvent e) {
-					if (!SwingUtilities.isLeftMouseButton(e)) return;
-					picked[0] = cd;
-					for (int j = 0; j < cardLabels.length; j++) {
-						cardLabels[j].setBorder(BorderFactory.createLineBorder(
-								j == idx ? new Color(0, 200, 80) : Color.LIGHT_GRAY,
-								j == idx ? 3 : 1));
-					}
-					confirmBtn.setEnabled(true);
-				}
-			});
-
-			new SwingWorker<ImageIcon, Void>() {
-				@Override protected ImageIcon doInBackground() throws Exception {
-					Image img = ImageCache.load(cd.imageUrl());
-					return img == null ? null
-							: new ImageIcon(img.getScaledInstance(CARD_W, CARD_H, Image.SCALE_SMOOTH));
-				}
-				@Override protected void done() {
-					try { ImageIcon ic = get(); if (ic != null) { lbl.setIcon(ic); lbl.setText(null); } }
-					catch (InterruptedException | ExecutionException ignored) {}
-				}
-			}.execute();
-
-			JLabel nameLabel = new JLabel(cd.name(), SwingConstants.CENTER);
-			nameLabel.setFont(FontLoader.loadPixelNESFont(9));
-			nameLabel.setPreferredSize(new Dimension(CARD_W, 18));
-
-			JPanel wrapper = new JPanel(new BorderLayout(0, 4));
-			wrapper.setBackground(cardsPanel.getBackground());
-			wrapper.add(lbl,       BorderLayout.CENTER);
-			wrapper.add(nameLabel, BorderLayout.SOUTH);
-			cardsPanel.add(wrapper);
-		}
-
-		JScrollPane scrollPane = new JScrollPane(cardsPanel,
-				JScrollPane.VERTICAL_SCROLLBAR_NEVER,
-				JScrollPane.HORIZONTAL_SCROLLBAR_AS_NEEDED);
-		scrollPane.setPreferredSize(new Dimension(
-				Math.min(candidates.size() * (CARD_W + 16) + 16, 900),
-				CARD_H + 60));
-
-		confirmBtn.addActionListener(ae -> { hideZoom(); dlg.dispose(); });
-
-		JPanel south = new JPanel(new FlowLayout(FlowLayout.CENTER, 12, 6));
-		south.add(confirmBtn);
-		south.setBorder(BorderFactory.createEmptyBorder(0, 8, 8, 8));
-
-		dlg.getContentPane().setLayout(new BorderLayout(0, 4));
-		dlg.getContentPane().add(scrollPane, BorderLayout.CENTER);
-		dlg.getContentPane().add(south,      BorderLayout.SOUTH);
-		dlg.pack();
-		dlg.setLocationRelativeTo(frame);
-		dlg.setVisible(true);
-
-		return picked[0] != null ? picked[0] : candidates.get(0);
+		return BreakZoneDialog.choose(frame, candidates, title, this::showZoomAt, this::hideZoom);
 	}
+
 
 	void triggerGameOver(String reason) {
 		gameState.setP1GameOver(true);
@@ -4607,549 +4352,49 @@ public class MainWindow {
 
 
 	private void showP2DamageZoneDialog() {
-		List<CardData> zone = gameState.getP2DamageZone();
-		if (zone.isEmpty()) return;
-
-		JDialog dlg = new JDialog(frame, "P2 Damage Zone (" + zone.size() + " cards)", true);
-		dlg.setResizable(false);
-		dlg.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
-
-		JPanel cardsPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 8));
-
-		for (CardData cd : zone) {
-			JPanel cardWrapper = new JPanel(new BorderLayout(0, 4));
-			cardWrapper.setBackground(cardsPanel.getBackground());
-
-			JLabel lbl = new JLabel("...", SwingConstants.CENTER);
-			lbl.setPreferredSize(new Dimension(CARD_W, CARD_H));
-			lbl.setMinimumSize(new Dimension(CARD_W, CARD_H));
-			lbl.setOpaque(true);
-			lbl.setBackground(Color.DARK_GRAY);
-			lbl.setBorder(cd.exBurst()
-					? createCardGlowBorder(Color.YELLOW)
-					: BorderFactory.createLineBorder(Color.LIGHT_GRAY, 1));
-
-			lbl.addMouseListener(new MouseAdapter() {
-				@Override public void mouseEntered(MouseEvent e) {
-					if (lbl.getIcon() != null) showZoomAt(cd.imageUrl());
-				}
-				@Override public void mouseExited(MouseEvent e) { hideZoom(); }
-			});
-
-			new SwingWorker<ImageIcon, Void>() {
-				@Override protected ImageIcon doInBackground() throws Exception {
-					Image img = ImageCache.load(cd.imageUrl());
-					if (img == null) return null;
-					BufferedImage buf = new BufferedImage(CARD_W, CARD_H, BufferedImage.TYPE_INT_ARGB);
-					Graphics2D g2 = buf.createGraphics();
-					g2.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
-					g2.drawImage(img, 0, 0, CARD_W, CARD_H, null);
-					g2.dispose();
-					return new ImageIcon(buf);
-				}
-				@Override protected void done() {
-					try {
-						ImageIcon icon = get();
-						if (icon != null) { lbl.setIcon(icon); lbl.setText(null); }
-					} catch (InterruptedException | ExecutionException ignored) {}
-				}
-			}.execute();
-
-			String labelText = cd.name() + (cd.exBurst() ? " EX" : "");
-			JLabel nameLabel = cd.exBurst() ? new JLabel(labelText, SwingConstants.CENTER) {
-				@Override protected void paintComponent(Graphics g) {
-					Graphics2D g2 = (Graphics2D) g.create();
-					g2.setFont(getFont());
-					FontMetrics fm = g2.getFontMetrics();
-					int x = (getWidth() - fm.stringWidth(labelText)) / 2;
-					int y = fm.getAscent() + (getHeight() - fm.getHeight()) / 2;
-					g2.setColor(new Color(0, 0, 0, 180));
-					g2.drawString(labelText, x + 1, y + 1);
-					g2.setColor(Color.YELLOW);
-					g2.drawString(labelText, x, y);
-					g2.dispose();
-				}
-			} : new JLabel(labelText, SwingConstants.CENTER);
-			nameLabel.setFont(FontLoader.loadPixelNESFont(9));
-			if (!cd.exBurst()) nameLabel.setForeground(null);
-			nameLabel.setPreferredSize(new Dimension(CARD_W, 18));
-
-			cardWrapper.add(lbl,       BorderLayout.CENTER);
-			cardWrapper.add(nameLabel, BorderLayout.SOUTH);
-			cardsPanel.add(cardWrapper);
-		}
-
-		JScrollPane scrollPane = new JScrollPane(cardsPanel,
-				JScrollPane.VERTICAL_SCROLLBAR_NEVER,
-				JScrollPane.HORIZONTAL_SCROLLBAR_AS_NEEDED);
-		scrollPane.setPreferredSize(new Dimension(
-				Math.min(zone.size() * (CARD_W + 16) + 16, 900),
-				CARD_H + 60));
-
-		JButton closeBtn = new JButton("Close");
-		closeBtn.setFont(FontLoader.loadPixelNESFont(11));
-		closeBtn.addActionListener(ae -> { hideZoom(); dlg.dispose(); });
-
-		JPanel south = new JPanel(new FlowLayout(FlowLayout.CENTER, 12, 6));
-		south.add(closeBtn);
-		south.setBorder(BorderFactory.createEmptyBorder(0, 8, 8, 8));
-
-		dlg.getContentPane().setLayout(new BorderLayout(0, 4));
-		dlg.getContentPane().add(scrollPane, BorderLayout.CENTER);
-		dlg.getContentPane().add(south,      BorderLayout.SOUTH);
-		dlg.pack();
-		dlg.setLocationRelativeTo(frame);
-		dlg.setVisible(true);
+		DamageZoneDialog.show(frame, gameState.getP2DamageZone(), "P2 Damage Zone", this::showZoomAt, this::hideZoom);
 	}
 
 	private void showDamageZoneDialog() {
-		List<CardData> zone = gameState.getP1DamageZone();
-		if (zone.isEmpty()) return;
-
-		JDialog dlg = new JDialog(frame, "Damage Zone (" + zone.size() + " cards)", true);
-		dlg.setResizable(false);
-		dlg.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
-
-		JPanel cardsPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 8));
-
-		for (CardData cd : zone) {
-			JPanel cardWrapper = new JPanel(new BorderLayout(0, 4));
-			cardWrapper.setBackground(cardsPanel.getBackground());
-
-			JLabel lbl = new JLabel("...", SwingConstants.CENTER);
-			lbl.setPreferredSize(new Dimension(CARD_W, CARD_H));
-			lbl.setMinimumSize(new Dimension(CARD_W, CARD_H));
-			lbl.setOpaque(true);
-			lbl.setBackground(Color.DARK_GRAY);
-			lbl.setBorder(cd.exBurst()
-					? createCardGlowBorder(Color.YELLOW)
-					: BorderFactory.createLineBorder(Color.LIGHT_GRAY, 1));
-
-			lbl.addMouseListener(new MouseAdapter() {
-				@Override public void mouseEntered(MouseEvent e) {
-					if (lbl.getIcon() != null) showZoomAt(cd.imageUrl());
-				}
-				@Override public void mouseExited(MouseEvent e) { hideZoom(); }
-			});
-
-			new SwingWorker<ImageIcon, Void>() {
-				@Override protected ImageIcon doInBackground() throws Exception {
-					Image img = ImageCache.load(cd.imageUrl());
-					if (img == null) return null;
-					BufferedImage buf = new BufferedImage(CARD_W, CARD_H, BufferedImage.TYPE_INT_ARGB);
-					Graphics2D g2 = buf.createGraphics();
-					g2.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
-					g2.drawImage(img, 0, 0, CARD_W, CARD_H, null);
-					g2.dispose();
-					return new ImageIcon(buf);
-				}
-				@Override protected void done() {
-					try {
-						ImageIcon icon = get();
-						if (icon != null) { lbl.setIcon(icon); lbl.setText(null); }
-					} catch (InterruptedException | ExecutionException ignored) {}
-				}
-			}.execute();
-
-			String labelText = cd.name() + (cd.exBurst() ? " EX" : "");
-			JLabel nameLabel = cd.exBurst() ? new JLabel(labelText, SwingConstants.CENTER) {
-				@Override protected void paintComponent(Graphics g) {
-					Graphics2D g2 = (Graphics2D) g.create();
-					g2.setFont(getFont());
-					FontMetrics fm = g2.getFontMetrics();
-					int x = (getWidth() - fm.stringWidth(labelText)) / 2;
-					int y = fm.getAscent() + (getHeight() - fm.getHeight()) / 2;
-					g2.setColor(new Color(0, 0, 0, 180));
-					g2.drawString(labelText, x + 1, y + 1);
-					g2.setColor(Color.YELLOW);
-					g2.drawString(labelText, x, y);
-					g2.dispose();
-				}
-			} : new JLabel(labelText, SwingConstants.CENTER);
-			nameLabel.setFont(FontLoader.loadPixelNESFont(9));
-			if (!cd.exBurst()) nameLabel.setForeground(null);
-			nameLabel.setPreferredSize(new Dimension(CARD_W, 18));
-
-			cardWrapper.add(lbl,       BorderLayout.CENTER);
-			cardWrapper.add(nameLabel, BorderLayout.SOUTH);
-			cardsPanel.add(cardWrapper);
-		}
-
-		JScrollPane scrollPane = new JScrollPane(cardsPanel,
-				JScrollPane.VERTICAL_SCROLLBAR_NEVER,
-				JScrollPane.HORIZONTAL_SCROLLBAR_AS_NEEDED);
-		scrollPane.setPreferredSize(new Dimension(
-				Math.min(zone.size() * (CARD_W + 16) + 16, 900),
-				CARD_H + 60));
-
-		JButton closeBtn = new JButton("Close");
-		closeBtn.setFont(FontLoader.loadPixelNESFont(11));
-		closeBtn.addActionListener(ae -> { hideZoom(); dlg.dispose(); });
-
-		JPanel south = new JPanel(new FlowLayout(FlowLayout.CENTER, 12, 6));
-		south.add(closeBtn);
-		south.setBorder(BorderFactory.createEmptyBorder(0, 8, 8, 8));
-
-		dlg.getContentPane().setLayout(new BorderLayout(0, 4));
-		dlg.getContentPane().add(scrollPane, BorderLayout.CENTER);
-		dlg.getContentPane().add(south,      BorderLayout.SOUTH);
-		dlg.pack();
-		dlg.setLocationRelativeTo(frame);
-		dlg.setVisible(true);
+		DamageZoneDialog.show(frame, gameState.getP1DamageZone(), "Damage Zone", this::showZoomAt, this::hideZoom);
 	}
 
 	private void showLbDialog() {
-		List<CardData> lbDeck = gameState.getP1LbDeck();
-		if (lbDeck.isEmpty()) return;
-
-		JDialog dlg = new JDialog(frame, "Limit Break", true);
-		dlg.setResizable(false);
-		dlg.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
-
-		// Track which cards are being cast / selected for payment in this dialog session
-		int[] castingIdx       = { -1 };   // index of card being cast
-		int[] paymentChosen    = { 0 };    // how many payment cards selected so far
-		Set<Integer> paymentSet = new HashSet<>();
-
-		JLabel statusLabel = new JLabel(" ", SwingConstants.CENTER);
-		statusLabel.setFont(FontLoader.loadPixelNESFont(10));
-
-		JButton confirmCastBtn = new JButton("Confirm Cast");
-		confirmCastBtn.setFont(FontLoader.loadPixelNESFont(11));
-		confirmCastBtn.setVisible(false);
-
-		JButton cancelCastBtn = new JButton("Cancel");
-		cancelCastBtn.setFont(FontLoader.loadPixelNESFont(11));
-		cancelCastBtn.setVisible(false);
-
-		// One label per LB card
-		List<JLabel> cardLabels = new ArrayList<>();
-		JPanel cardsPanel = new JPanel(new GridLayout(0, 4, 8, 8));
-		cardsPanel.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
-
-		Runnable refreshLabels = () -> {
-			for (int i = 0; i < cardLabels.size(); i++) {
-				JLabel lbl = cardLabels.get(i);
-				CardData lcd = lbDeck.get(i);
-				boolean spent       = spentLbIndices.contains(i);
-				boolean casting     = (castingIdx[0] == i);
-				boolean payment     = paymentSet.contains(i);
-				boolean inPaymentMode = castingIdx[0] >= 0;
-				boolean nameBlocked = !inPaymentMode && !spent
-						&& (   !castRestrictionMet(lcd)
-							|| (   (lcd.isForward() || lcd.isBackup() || lcd.isMonster())
-								&& ((!lcd.multicard() && hasCharacterNameOnField(lcd.name()) && !isMultiNameExceptionActive(lcd.name()))
-									|| isLightDarkConflict(lcd))));
-
-				if (casting) {
-					lbl.setBorder(createCardGlowBorder(new Color(255, 200, 0)));
-				} else if (payment) {
-					lbl.setBorder(createCardGlowBorder(Color.CYAN));
-				} else if (spent) {
-					lbl.setBorder(BorderFactory.createLineBorder(new Color(60, 60, 60), 1));
-				} else if (nameBlocked) {
-					lbl.setBorder(createCardGlowBorder(Color.RED));
+		LbDialog.show(frame, gameState.getP1LbDeck(), new LbDialog.Callbacks() {
+			public boolean isSpent(int idx) { return spentLbIndices.contains(idx); }
+			public boolean isNameBlocked(CardData card) {
+				return !castRestrictionMet(card)
+						|| ((card.isForward() || card.isBackup() || card.isMonster())
+							&& ((!card.multicard() && hasCharacterNameOnField(card.name()) && !isMultiNameExceptionActive(card.name()))
+								|| isLightDarkConflict(card)));
+			}
+			public int effectiveCastCost(CardData card) { return MainWindow.this.effectiveCastCost(card); }
+			public void onConfirm(CardData cast, int castIdx, Set<Integer> paymentSet) {
+				if (MainWindow.this.effectiveCastCost(cast) <= 0) {
+					spentLbIndices.add(castIdx);
+					spentLbIndices.addAll(paymentSet);
+					logEntry("Cast LB \"" + cast.name() + "\"");
+					executeLbPlay(cast, Collections.emptyList(), Collections.emptyList());
 				} else {
-					lbl.setBorder(BorderFactory.createLineBorder(
-							inPaymentMode ? Color.GRAY : Color.LIGHT_GRAY, 1));
+					showLbCpPaymentDialog(cast, castIdx, new HashSet<>(paymentSet));
 				}
-				boolean canInteract = !spent && !nameBlocked && !casting
-						&& (castingIdx[0] < 0 || !paymentSet.contains(i) || payment);
-				lbl.setCursor(canInteract
-						? Cursor.getPredefinedCursor(Cursor.HAND_CURSOR) : Cursor.getDefaultCursor());
 			}
-			if (castingIdx[0] >= 0) {
-				int needed = lbDeck.get(castingIdx[0]).lbCost() - paymentSet.size();
-				statusLabel.setText(needed > 0
-						? "Choose " + needed + " more LB card(s) as payment"
-						: "Ready — click Confirm Cast");
-				confirmCastBtn.setEnabled(needed <= 0);
-			} else {
-				statusLabel.setText(" ");
-			}
-		};
-
-		confirmCastBtn.addActionListener(ae -> {
-			CardData cast = lbDeck.get(castingIdx[0]);
-			dlg.dispose();
-			if (effectiveCastCost(cast) <= 0) {
-				// No CP dialog — commit immediately
-				spentLbIndices.add(castingIdx[0]);
-				spentLbIndices.addAll(paymentSet);
-				logEntry("Cast LB \"" + cast.name() + "\"");
-				executeLbPlay(cast, Collections.emptyList(), Collections.emptyList());
-			} else {
-				// Defer committing until CP payment is confirmed
-				int pendingCastIdx = castingIdx[0];
-				Set<Integer> pendingPayment = new HashSet<>(paymentSet);
-				showLbCpPaymentDialog(cast, pendingCastIdx, pendingPayment);
-			}
+			public void onZoom(String url) { showZoomAt(url); }
+			public void onZoomHide()       { hideZoom(); }
 		});
-
-		cancelCastBtn.addActionListener(ae -> {
-			hideZoom();
-			castingIdx[0] = -1;
-			paymentSet.clear();
-			paymentChosen[0] = 0;
-			confirmCastBtn.setVisible(false);
-			cancelCastBtn.setVisible(false);
-			refreshLabels.run();
-		});
-
-		for (int i = 0; i < lbDeck.size(); i++) {
-			final int idx = i;
-			CardData  cd  = lbDeck.get(i);
-
-			JPanel cardWrapper = new JPanel(new BorderLayout(0, 4));
-			cardWrapper.setBackground(cardsPanel.getBackground());
-
-			JLabel lbl = new JLabel("...", SwingConstants.CENTER);
-			lbl.setPreferredSize(new Dimension(CARD_W, CARD_H));
-			lbl.setMinimumSize(new Dimension(CARD_W, CARD_H));
-			lbl.setOpaque(true);
-			lbl.setBackground(Color.DARK_GRAY);
-			lbl.setBorder(BorderFactory.createLineBorder(Color.LIGHT_GRAY, 1));
-			cardLabels.add(lbl);
-
-			lbl.addMouseListener(new MouseAdapter() {
-				@Override public void mouseEntered(MouseEvent e) {
-					if (lbl.getIcon() != null) showZoomAt(cd.imageUrl());
-				}
-				@Override public void mouseExited(MouseEvent e) { hideZoom(); }
-				@Override public void mousePressed(MouseEvent e) {
-					boolean spent = spentLbIndices.contains(idx);
-					if (spent) return;
-					boolean nameBlocked = castingIdx[0] < 0
-							&& (   !castRestrictionMet(cd)
-								|| (   (cd.isForward() || cd.isBackup() || cd.isMonster())
-									&& ((!cd.multicard() && hasCharacterNameOnField(cd.name()) && !isMultiNameExceptionActive(cd.name()))
-										|| isLightDarkConflict(cd))));
-					if (nameBlocked) return;
-
-					if (castingIdx[0] < 0) {
-						// Start casting this card
-						castingIdx[0] = idx;
-						paymentSet.clear();
-						paymentChosen[0] = 0;
-						confirmCastBtn.setVisible(true);
-						cancelCastBtn.setVisible(true);
-						confirmCastBtn.setEnabled(cd.lbCost() == 0);
-					} else if (castingIdx[0] == idx) {
-						// Click on casting card — cancel
-						castingIdx[0] = -1;
-						paymentSet.clear();
-						confirmCastBtn.setVisible(false);
-						cancelCastBtn.setVisible(false);
-					} else {
-						// Toggle payment selection
-						if (paymentSet.contains(idx)) {
-							paymentSet.remove(idx);
-						} else if (paymentSet.size() < lbDeck.get(castingIdx[0]).lbCost()) {
-							paymentSet.add(idx);
-						}
-					}
-					refreshLabels.run();
-				}
-			});
-
-			// Load full image, greyed if spent; overlay effective cost if reduced/increased
-			final boolean spent = spentLbIndices.contains(i);
-			final int lbEffectiveCost = effectiveCastCost(cd);
-			final int lbCostDelta     = cd.cost() - lbEffectiveCost;
-			new SwingWorker<ImageIcon, Void>() {
-				@Override protected ImageIcon doInBackground() throws Exception {
-					Image img = ImageCache.load(cd.imageUrl());
-					if (img == null) return null;
-					BufferedImage buf = new BufferedImage(CARD_W, CARD_H, BufferedImage.TYPE_INT_ARGB);
-					Graphics2D g2 = buf.createGraphics();
-					g2.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
-					g2.drawImage(img, 0, 0, CARD_W, CARD_H, null);
-					if (!spent && lbCostDelta != 0) {
-						g2.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
-						String text = String.valueOf(lbEffectiveCost);
-						g2.setFont(FontLoader.loadPixelNESFont(15));
-						FontMetrics fm = g2.getFontMetrics();
-						int x = 8, y = fm.getAscent() + 7;
-						g2.setColor(Color.BLACK);
-						g2.drawString(text, x + 1, y + 1);
-						g2.drawString(text, x + 2, y + 1);
-						g2.drawString(text, x + 1, y + 2);
-						g2.drawString(text, x + 2, y + 2);
-						g2.setColor(lbCostDelta > 0 ? new Color(0x44EE44) : new Color(0xFF8844));
-						g2.drawString(text, x, y);
-					}
-					g2.dispose();
-					if (spent) {
-						return new ImageIcon(new ColorConvertOp(
-								ColorSpace.getInstance(ColorSpace.CS_GRAY), null).filter(buf, null));
-					}
-					return new ImageIcon(buf);
-				}
-				@Override protected void done() {
-					try {
-						ImageIcon icon = get();
-						if (icon != null) { lbl.setIcon(icon); lbl.setText(null); }
-					} catch (InterruptedException | ExecutionException ignored) {}
-				}
-			}.execute();
-
-			JLabel nameLabel = new JLabel(cd.name() + " - LB " + cd.lbCost() + "",
-					SwingConstants.CENTER);
-			nameLabel.setFont(FontLoader.loadPixelNESFont(9));
-			nameLabel.setPreferredSize(new Dimension(CARD_W, 18));
-
-			cardWrapper.add(lbl,       BorderLayout.CENTER);
-			cardWrapper.add(nameLabel, BorderLayout.SOUTH);
-			cardsPanel.add(cardWrapper);
-		}
-
-		refreshLabels.run();
-
-		JPanel statusBar = new JPanel(new FlowLayout(FlowLayout.CENTER, 12, 4));
-		statusBar.add(statusLabel);
-		statusBar.add(confirmCastBtn);
-		statusBar.add(cancelCastBtn);
-
-		JButton closeBtn = new JButton("Close");
-		closeBtn.setFont(FontLoader.loadPixelNESFont(11));
-		closeBtn.addActionListener(ae -> { hideZoom(); dlg.dispose(); });
-
-		JPanel south = new JPanel(new BorderLayout());
-		south.add(statusBar,  BorderLayout.CENTER);
-		south.add(closeBtn,   BorderLayout.EAST);
-		south.setBorder(BorderFactory.createEmptyBorder(0, 8, 8, 8));
-
-		dlg.getContentPane().setLayout(new BorderLayout(0, 4));
-		dlg.getContentPane().add(cardsPanel, BorderLayout.CENTER);
-		dlg.getContentPane().add(south,      BorderLayout.SOUTH);
-		dlg.pack();
-		dlg.setLocationRelativeTo(frame);
-		dlg.setVisible(true);
 	}
 
 	private void showEndPhaseDiscardDialog() {
 		List<CardData> hand = gameState.getP1Hand();
 		if (hand.size() <= 5) return;
-
-		JDialog dlg = new JDialog(frame, true);
-		dlg.setUndecorated(true);
-		dlg.setResizable(false);
-		dlg.setDefaultCloseOperation(JDialog.DO_NOTHING_ON_CLOSE);
-
-		Set<Integer> selected = new HashSet<>();
 		int mustDiscard = hand.size() - 5;
-
-		JLabel statusLabel = new JLabel("Select " + mustDiscard + " card(s) to discard.", SwingConstants.CENTER);
-		statusLabel.setFont(FontLoader.loadPixelNESFont(10));
-
-		List<JLabel> cardLabels = new ArrayList<>();
-		JPanel cardsPanel = new JPanel(new FlowLayout(FlowLayout.CENTER, 8, 8));
-
-		JButton confirmBtn = new JButton("Confirm");
-		confirmBtn.setFont(FontLoader.loadPixelNESFont(11));
-		confirmBtn.setEnabled(false);
-
-		Runnable refresh = () -> {
-			int remaining = mustDiscard - selected.size();
-			statusLabel.setText(remaining > 0
-					? "Select " + remaining + " more card(s) to discard."
-					: "Ready — click Confirm to discard.");
-			confirmBtn.setEnabled(selected.size() == mustDiscard);
-			for (int i = 0; i < cardLabels.size(); i++) {
-				cardLabels.get(i).setBorder(selected.contains(i)
-						? createCardGlowBorder(Color.RED)
-						: BorderFactory.createLineBorder(Color.LIGHT_GRAY, 1));
-			}
-		};
-
-		for (int i = 0; i < hand.size(); i++) {
-			final int idx = i;
-			CardData cd = hand.get(i);
-
-			JPanel wrapper = new JPanel(new BorderLayout(0, 4));
-			wrapper.setBackground(cardsPanel.getBackground());
-
-			JLabel lbl = new JLabel("...", SwingConstants.CENTER);
-			lbl.setPreferredSize(new Dimension(CARD_W, CARD_H));
-			lbl.setMinimumSize(new Dimension(CARD_W, CARD_H));
-			lbl.setOpaque(true);
-			lbl.setBackground(Color.DARK_GRAY);
-			lbl.setForeground(Color.WHITE);
-			lbl.setFont(FontLoader.loadPixelNESFont(10));
-			lbl.setBorder(BorderFactory.createLineBorder(Color.LIGHT_GRAY, 1));
-			lbl.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-			cardLabels.add(lbl);
-
-			lbl.addMouseListener(new MouseAdapter() {
-				@Override public void mouseEntered(MouseEvent e) { if (lbl.getIcon() != null) showZoomAt(cd.imageUrl()); }
-				@Override public void mouseExited(MouseEvent e)  { hideZoom(); }
-				@Override public void mousePressed(MouseEvent e) {
-					if (selected.contains(idx)) selected.remove(idx);
-					else if (selected.size() < mustDiscard)  selected.add(idx);
-					refresh.run();
-				}
-			});
-
-			new SwingWorker<ImageIcon, Void>() {
-				@Override protected ImageIcon doInBackground() throws Exception {
-					Image img = ImageCache.load(cd.imageUrl());
-					return img == null ? null
-							: new ImageIcon(img.getScaledInstance(CARD_W, CARD_H, Image.SCALE_SMOOTH));
-				}
-				@Override protected void done() {
-					try { ImageIcon icon = get(); if (icon != null) { lbl.setIcon(icon); lbl.setText(null); } }
-					catch (InterruptedException | ExecutionException ignored) {}
-				}
-			}.execute();
-
-			JLabel nameLabel = new JLabel(cd.name(), SwingConstants.CENTER);
-			nameLabel.setFont(FontLoader.loadPixelNESFont(9));
-			nameLabel.setPreferredSize(new Dimension(CARD_W, 18));
-
-			wrapper.add(lbl,       BorderLayout.CENTER);
-			wrapper.add(nameLabel, BorderLayout.SOUTH);
-			cardsPanel.add(wrapper);
-		}
-
-		confirmBtn.addActionListener(ae -> {
-			hideZoom();
-			List<Integer> toDiscard = new ArrayList<>(selected);
-			toDiscard.sort(Collections.reverseOrder());
-			for (int di : toDiscard) {
-				playerBreakFromHand(true,di);
-			}
-			logEntry("Discarded " + toDiscard.size() + " card(s) — hand reduced to 5");
+		HandPickDialog.showEndPhaseDiscard(frame, hand, mustDiscard, this::showZoomAt, this::hideZoom, selected -> {
+			selected.sort(Collections.reverseOrder());
+			for (int di : selected) playerBreakFromHand(true, di);
+			logEntry("Discarded " + selected.size() + " card(s) — hand reduced to 5");
 			refreshP1HandLabel();
 			refreshP1BreakLabel();
-			dlg.dispose();
 		});
-
-		JScrollPane scrollPane = new JScrollPane(cardsPanel,
-				JScrollPane.VERTICAL_SCROLLBAR_NEVER,
-				JScrollPane.HORIZONTAL_SCROLLBAR_AS_NEEDED);
-		scrollPane.setPreferredSize(new Dimension(
-				Math.min(hand.size() * (CARD_W + 16) + 16, 900),
-				CARD_H + 60));
-
-		JLabel titleLabel = new JLabel("End Phase — Discard to 5", SwingConstants.CENTER);
-		titleLabel.setFont(FontLoader.loadPixelNESFont(14));
-
-		JPanel south = new JPanel(new BorderLayout());
-		south.add(statusLabel, BorderLayout.CENTER);
-		south.add(confirmBtn,  BorderLayout.EAST);
-
-		JPanel mainPanel = new JPanel(new BorderLayout(0, 6));
-		mainPanel.setBorder(BorderFactory.createCompoundBorder(
-				BorderFactory.createRaisedBevelBorder(),
-				BorderFactory.createEmptyBorder(8, 8, 8, 8)));
-		mainPanel.add(titleLabel,  BorderLayout.NORTH);
-		mainPanel.add(scrollPane,  BorderLayout.CENTER);
-		mainPanel.add(south,       BorderLayout.SOUTH);
-
-		dlg.getContentPane().add(mainPanel);
-		dlg.pack();
-		dlg.setLocationRelativeTo(frame);
-		dlg.setVisible(true);
 	}
 
 	/**
@@ -5161,120 +4406,16 @@ public class MainWindow {
 		List<CardData> hand = gameState.getP1Hand();
 		int mustDiscard = Math.min(count, hand.size());
 		if (mustDiscard == 0) return;
-
-		JDialog dlg = new JDialog(frame, "Discard " + mustDiscard + " Card(s)", true);
-		dlg.setResizable(false);
-		dlg.setDefaultCloseOperation(JDialog.DO_NOTHING_ON_CLOSE);
-
-		Set<Integer> selected = new HashSet<>();
-
-		JLabel statusLabel = new JLabel("Select " + mustDiscard + " card(s) to discard.", SwingConstants.CENTER);
-		statusLabel.setFont(FontLoader.loadPixelNESFont(10));
-
-		List<JLabel> cardLabels = new ArrayList<>();
-		JPanel cardsPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 8));
-
-		JButton confirmBtn = new JButton("Discard");
-		confirmBtn.setFont(FontLoader.loadPixelNESFont(11));
-		confirmBtn.setEnabled(false);
-
-		Runnable refresh = () -> {
-			int remaining = mustDiscard - selected.size();
-			statusLabel.setText(remaining > 0
-					? "Select " + remaining + " more card(s) to discard."
-					: "Ready — click Discard to confirm.");
-			confirmBtn.setEnabled(selected.size() == mustDiscard);
-			for (int i = 0; i < cardLabels.size(); i++) {
-				cardLabels.get(i).setBorder(BorderFactory.createLineBorder(
-						selected.contains(i) ? Color.RED : Color.LIGHT_GRAY,
-						selected.contains(i) ? 3 : 1));
-			}
-		};
-
-		for (int i = 0; i < hand.size(); i++) {
-			final int idx = i;
-			CardData cd = hand.get(i);
-
-			JPanel wrapper = new JPanel(new BorderLayout(0, 4));
-			wrapper.setBackground(cardsPanel.getBackground());
-
-			JLabel lbl = new JLabel("...", SwingConstants.CENTER);
-			lbl.setPreferredSize(new Dimension(CARD_W, CARD_H));
-			lbl.setMinimumSize(new Dimension(CARD_W, CARD_H));
-			lbl.setOpaque(true);
-			lbl.setBackground(Color.DARK_GRAY);
-			lbl.setBorder(BorderFactory.createLineBorder(Color.LIGHT_GRAY, 1));
-			lbl.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-			cardLabels.add(lbl);
-
-			lbl.addMouseListener(new MouseAdapter() {
-				@Override public void mouseEntered(MouseEvent e) { if (lbl.getIcon() != null) showZoomAt(cd.imageUrl()); }
-				@Override public void mouseExited(MouseEvent e)  { hideZoom(); }
-				@Override public void mousePressed(MouseEvent e) {
-					if (selected.contains(idx)) selected.remove(idx);
-					else if (selected.size() < mustDiscard) selected.add(idx);
-					refresh.run();
-				}
-			});
-
-			new SwingWorker<ImageIcon, Void>() {
-				@Override protected ImageIcon doInBackground() throws Exception {
-					Image img = ImageCache.load(cd.imageUrl());
-					if (img == null) return null;
-					BufferedImage buf = new BufferedImage(CARD_W, CARD_H, BufferedImage.TYPE_INT_ARGB);
-					Graphics2D g2 = buf.createGraphics();
-					g2.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
-					g2.drawImage(img, 0, 0, CARD_W, CARD_H, null);
-					g2.dispose();
-					return new ImageIcon(buf);
-				}
-				@Override protected void done() {
-					try { ImageIcon icon = get(); if (icon != null) { lbl.setIcon(icon); lbl.setText(null); } }
-					catch (InterruptedException | ExecutionException ignored) {}
-				}
-			}.execute();
-
-			JLabel nameLabel = new JLabel(cd.name(), SwingConstants.CENTER);
-			nameLabel.setFont(FontLoader.loadPixelNESFont(9));
-			nameLabel.setPreferredSize(new Dimension(CARD_W, 18));
-
-			wrapper.add(lbl,       BorderLayout.CENTER);
-			wrapper.add(nameLabel, BorderLayout.SOUTH);
-			cardsPanel.add(wrapper);
-		}
-
-		confirmBtn.addActionListener(ae -> {
-			hideZoom();
-			dlg.dispose();
-			List<Integer> toDiscard = new ArrayList<>(selected);
-			toDiscard.sort(Collections.reverseOrder());
-			for (int di : toDiscard) {
-				CardData d = playerBreakFromHand(true,di);
+		HandPickDialog.showForcedDiscard(frame, hand, mustDiscard, this::showZoomAt, this::hideZoom, selected -> {
+			selected.sort(Collections.reverseOrder());
+			for (int di : selected) {
+				CardData d = playerBreakFromHand(true, di);
 				if (d != null) logEntry("Discards " + d.name() + (forcedByOpponent ? " (forced by opponent)" : ""));
 			}
-			if (!toDiscard.isEmpty()) p1DiscardedByEffectThisTurn = true;
+			if (!selected.isEmpty()) p1DiscardedByEffectThisTurn = true;
 			refreshP1HandLabel();
 			refreshP1BreakLabel();
 		});
-
-		JScrollPane scrollPane = new JScrollPane(cardsPanel,
-				JScrollPane.VERTICAL_SCROLLBAR_NEVER,
-				JScrollPane.HORIZONTAL_SCROLLBAR_AS_NEEDED);
-		scrollPane.setPreferredSize(new Dimension(
-				Math.min(hand.size() * (CARD_W + 16) + 16, 900),
-				CARD_H + 60));
-
-		JPanel south = new JPanel(new BorderLayout());
-		south.add(statusLabel, BorderLayout.CENTER);
-		south.add(confirmBtn,  BorderLayout.EAST);
-		south.setBorder(BorderFactory.createEmptyBorder(0, 8, 8, 8));
-
-		dlg.getContentPane().setLayout(new BorderLayout(0, 4));
-		dlg.getContentPane().add(scrollPane, BorderLayout.CENTER);
-		dlg.getContentPane().add(south,      BorderLayout.SOUTH);
-		dlg.pack();
-		dlg.setLocationRelativeTo(frame);
-		dlg.setVisible(true);
 	}
 
 	/**
@@ -5289,119 +4430,18 @@ public class MainWindow {
 			if (matchesDiscardType(hand.get(i), cardType)) eligible.add(i);
 		}
 		if (eligible.isEmpty()) return false;
-
-		JDialog dlg = new JDialog(frame, "Discard 1 " + cardType, true);
-		dlg.setResizable(false);
-		dlg.setDefaultCloseOperation(JDialog.DO_NOTHING_ON_CLOSE);
-
-		boolean[] result = {false};
-		int[] selectedIdx = {-1};
-
-		JLabel statusLabel = new JLabel("Select 1 " + cardType + " to discard.", SwingConstants.CENTER);
-		statusLabel.setFont(FontLoader.loadPixelNESFont(10));
-
-		List<JLabel> cardLabels = new ArrayList<>();
-		JPanel cardsPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 8));
-
-		JButton confirmBtn = new JButton("Discard");
-		confirmBtn.setFont(FontLoader.loadPixelNESFont(11));
-		confirmBtn.setEnabled(false);
-
-		Runnable refresh = () -> {
-			confirmBtn.setEnabled(selectedIdx[0] >= 0);
-			for (int j = 0; j < cardLabels.size(); j++) {
-				boolean sel = eligible.get(j).equals(selectedIdx[0]);
-				cardLabels.get(j).setBorder(BorderFactory.createLineBorder(
-						sel ? Color.RED : Color.LIGHT_GRAY, sel ? 3 : 1));
-			}
-		};
-
-		for (int j = 0; j < eligible.size(); j++) {
-			final int handIdx = eligible.get(j);
-			CardData cd = hand.get(handIdx);
-
-			JPanel wrapper = new JPanel(new BorderLayout(0, 4));
-			wrapper.setBackground(cardsPanel.getBackground());
-
-			JLabel lbl = new JLabel("...", SwingConstants.CENTER);
-			lbl.setPreferredSize(new Dimension(CARD_W, CARD_H));
-			lbl.setMinimumSize(new Dimension(CARD_W, CARD_H));
-			lbl.setOpaque(true);
-			lbl.setBackground(Color.DARK_GRAY);
-			lbl.setBorder(BorderFactory.createLineBorder(Color.LIGHT_GRAY, 1));
-			lbl.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-			cardLabels.add(lbl);
-
-			lbl.addMouseListener(new MouseAdapter() {
-				@Override public void mouseEntered(MouseEvent e) { if (lbl.getIcon() != null) showZoomAt(cd.imageUrl()); }
-				@Override public void mouseExited(MouseEvent e)  { hideZoom(); }
-				@Override public void mousePressed(MouseEvent e) {
-					selectedIdx[0] = selectedIdx[0] == handIdx ? -1 : handIdx;
-					refresh.run();
-				}
-			});
-
-			new SwingWorker<ImageIcon, Void>() {
-				@Override protected ImageIcon doInBackground() throws Exception {
-					Image img = ImageCache.load(cd.imageUrl());
-					if (img == null) return null;
-					BufferedImage buf = new BufferedImage(CARD_W, CARD_H, BufferedImage.TYPE_INT_ARGB);
-					Graphics2D g2 = buf.createGraphics();
-					g2.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
-					g2.drawImage(img, 0, 0, CARD_W, CARD_H, null);
-					g2.dispose();
-					return new ImageIcon(buf);
-				}
-				@Override protected void done() {
-					try { ImageIcon icon = get(); if (icon != null) { lbl.setIcon(icon); lbl.setText(null); } }
-					catch (InterruptedException | ExecutionException ignored) {}
-				}
-			}.execute();
-
-			JLabel nameLabel = new JLabel(cd.name(), SwingConstants.CENTER);
-			nameLabel.setFont(FontLoader.loadPixelNESFont(9));
-			nameLabel.setPreferredSize(new Dimension(CARD_W, 18));
-
-			wrapper.add(lbl,       BorderLayout.CENTER);
-			wrapper.add(nameLabel, BorderLayout.SOUTH);
-			cardsPanel.add(wrapper);
-		}
-
-		confirmBtn.addActionListener(ae -> {
-			hideZoom();
-			dlg.dispose();
-			int idx = selectedIdx[0];
-			if (idx >= 0) {
-				CardData d = playerBreakFromHand(true,idx);
-				if (d != null) {
-					logEntry("Discards " + d.name());
-					p1DiscardedByEffectThisTurn = true;
-					lastDiscardedCardName = d.name();
-					if (d.isForward()) lastDiscardedForwardPower = d.power();
-				}
-				refreshP1HandLabel();
-				refreshP1BreakLabel();
-				result[0] = true;
-			}
-		});
-
-		JScrollPane scroll = new JScrollPane(cardsPanel);
-		scroll.setPreferredSize(new Dimension(Math.min(eligible.size() * (CARD_W + 16) + 20, 600), CARD_H + 60));
-
-		JPanel btnPanel = new JPanel(new FlowLayout(FlowLayout.CENTER, 10, 4));
-		btnPanel.add(confirmBtn);
-
-		JPanel main = new JPanel(new BorderLayout(0, 6));
-		main.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
-		main.add(statusLabel, BorderLayout.NORTH);
-		main.add(scroll,      BorderLayout.CENTER);
-		main.add(btnPanel,    BorderLayout.SOUTH);
-
-		dlg.setContentPane(main);
-		dlg.pack();
-		dlg.setLocationRelativeTo(frame);
-		dlg.setVisible(true);
-		return result[0];
+		return HandPickDialog.showDiscardByType(frame, hand, eligible, cardType,
+				this::showZoomAt, this::hideZoom, idx -> {
+					CardData d = playerBreakFromHand(true, idx);
+					if (d != null) {
+						logEntry("Discards " + d.name());
+						p1DiscardedByEffectThisTurn = true;
+						lastDiscardedCardName = d.name();
+						if (d.isForward()) lastDiscardedForwardPower = d.power();
+					}
+					refreshP1HandLabel();
+					refreshP1BreakLabel();
+				});
 	}
 
 	/**
@@ -5455,94 +4495,9 @@ public class MainWindow {
 		List<CardData> hand = gameState.getP1Hand();
 		int mustPlace = Math.min(count, hand.size());
 		if (mustPlace == 0) return;
-
-		JDialog dlg = new JDialog(frame, "Place " + mustPlace + " Card(s) at Bottom of Deck", true);
-		dlg.setResizable(false);
-		dlg.setDefaultCloseOperation(JDialog.DO_NOTHING_ON_CLOSE);
-
-		Set<Integer> selected = new HashSet<>();
-
-		JLabel statusLabel = new JLabel("Select " + mustPlace + " card(s) to place at the bottom of your deck.", SwingConstants.CENTER);
-		statusLabel.setFont(FontLoader.loadPixelNESFont(10));
-
-		List<JLabel> cardLabels = new ArrayList<>();
-		JPanel cardsPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 8));
-
-		JButton confirmBtn = new JButton("Place");
-		confirmBtn.setFont(FontLoader.loadPixelNESFont(11));
-		confirmBtn.setEnabled(false);
-
-		Runnable refresh = () -> {
-			int remaining = mustPlace - selected.size();
-			statusLabel.setText(remaining > 0
-					? "Select " + remaining + " more card(s)."
-					: "Ready — click Place to confirm.");
-			confirmBtn.setEnabled(selected.size() == mustPlace);
-			for (int i = 0; i < cardLabels.size(); i++) {
-				cardLabels.get(i).setBorder(BorderFactory.createLineBorder(
-						selected.contains(i) ? Color.BLUE : Color.LIGHT_GRAY,
-						selected.contains(i) ? 3 : 1));
-			}
-		};
-
-		for (int i = 0; i < hand.size(); i++) {
-			final int idx = i;
-			CardData cd = hand.get(i);
-
-			JPanel wrapper = new JPanel(new BorderLayout(0, 4));
-			wrapper.setBackground(cardsPanel.getBackground());
-
-			JLabel lbl = new JLabel("...", SwingConstants.CENTER);
-			lbl.setPreferredSize(new Dimension(CARD_W, CARD_H));
-			lbl.setMinimumSize(new Dimension(CARD_W, CARD_H));
-			lbl.setOpaque(true);
-			lbl.setBackground(Color.DARK_GRAY);
-			lbl.setBorder(BorderFactory.createLineBorder(Color.LIGHT_GRAY, 1));
-			lbl.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-			cardLabels.add(lbl);
-
-			lbl.addMouseListener(new MouseAdapter() {
-				@Override public void mouseEntered(MouseEvent e) { if (lbl.getIcon() != null) showZoomAt(cd.imageUrl()); }
-				@Override public void mouseExited(MouseEvent e)  { hideZoom(); }
-				@Override public void mousePressed(MouseEvent e) {
-					if (selected.contains(idx)) selected.remove(idx);
-					else if (selected.size() < mustPlace) selected.add(idx);
-					refresh.run();
-				}
-			});
-
-			new SwingWorker<ImageIcon, Void>() {
-				@Override protected ImageIcon doInBackground() throws Exception {
-					Image img = ImageCache.load(cd.imageUrl());
-					if (img == null) return null;
-					BufferedImage buf = new BufferedImage(CARD_W, CARD_H, BufferedImage.TYPE_INT_ARGB);
-					Graphics2D g2 = buf.createGraphics();
-					g2.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
-					g2.drawImage(img, 0, 0, CARD_W, CARD_H, null);
-					g2.dispose();
-					return new ImageIcon(buf);
-				}
-				@Override protected void done() {
-					try { ImageIcon icon = get(); if (icon != null) { lbl.setIcon(icon); lbl.setText(null); } }
-					catch (InterruptedException | ExecutionException ignored) {}
-				}
-			}.execute();
-
-			JLabel nameLabel = new JLabel(cd.name(), SwingConstants.CENTER);
-			nameLabel.setFont(FontLoader.loadPixelNESFont(9));
-			nameLabel.setPreferredSize(new Dimension(CARD_W, 18));
-
-			wrapper.add(lbl,       BorderLayout.CENTER);
-			wrapper.add(nameLabel, BorderLayout.SOUTH);
-			cardsPanel.add(wrapper);
-		}
-
-		confirmBtn.addActionListener(ae -> {
-			hideZoom();
-			dlg.dispose();
-			List<Integer> toPlace = new ArrayList<>(selected);
-			toPlace.sort(Collections.reverseOrder());
-			for (int pi : toPlace) {
+		HandPickDialog.showPlaceToBottom(frame, hand, mustPlace, this::showZoomAt, this::hideZoom, selected -> {
+			selected.sort(Collections.reverseOrder());
+			for (int pi : selected) {
 				CardData d = gameState.getP1Hand().remove(pi);
 				gameState.getP1MainDeck().addLast(d);
 				logEntry("Places " + d.name() + " at bottom of deck");
@@ -5550,25 +4505,6 @@ public class MainWindow {
 			refreshP1HandLabel();
 			refreshP1DeckLabel();
 		});
-
-		JScrollPane scrollPane = new JScrollPane(cardsPanel,
-				JScrollPane.VERTICAL_SCROLLBAR_NEVER,
-				JScrollPane.HORIZONTAL_SCROLLBAR_AS_NEEDED);
-		scrollPane.setPreferredSize(new Dimension(
-				Math.min(hand.size() * (CARD_W + 16) + 16, 900),
-				CARD_H + 60));
-
-		JPanel south = new JPanel(new BorderLayout());
-		south.add(statusLabel, BorderLayout.CENTER);
-		south.add(confirmBtn,  BorderLayout.EAST);
-		south.setBorder(BorderFactory.createEmptyBorder(0, 8, 8, 8));
-
-		dlg.getContentPane().setLayout(new BorderLayout(0, 4));
-		dlg.getContentPane().add(scrollPane, BorderLayout.CENTER);
-		dlg.getContentPane().add(south,      BorderLayout.SOUTH);
-		dlg.pack();
-		dlg.setLocationRelativeTo(frame);
-		dlg.setVisible(true);
 	}
 
 	/**
@@ -5580,94 +4516,9 @@ public class MainWindow {
 	void showHandRfpSelectionDialog(List<CardData> targetHand, int count, boolean rfpIsP1) {
 		int mustSelect = Math.min(count, targetHand.size());
 		if (mustSelect == 0) return;
-
-		JDialog dlg = new JDialog(frame, "Remove " + mustSelect + " Card(s) From Game", true);
-		dlg.setResizable(false);
-		dlg.setDefaultCloseOperation(JDialog.DO_NOTHING_ON_CLOSE);
-
-		Set<Integer> selected = new HashSet<>();
-
-		JLabel statusLabel = new JLabel("Select " + mustSelect + " card(s) to remove from the game.", SwingConstants.CENTER);
-		statusLabel.setFont(FontLoader.loadPixelNESFont(10));
-
-		List<JLabel> cardLabels = new ArrayList<>();
-		JPanel cardsPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 8));
-
-		JButton confirmBtn = new JButton("Remove From Game");
-		confirmBtn.setFont(FontLoader.loadPixelNESFont(11));
-		confirmBtn.setEnabled(false);
-
-		Runnable refresh = () -> {
-			int remaining = mustSelect - selected.size();
-			statusLabel.setText(remaining > 0
-					? "Select " + remaining + " more card(s) to remove."
-					: "Ready — click Remove From Game to confirm.");
-			confirmBtn.setEnabled(selected.size() == mustSelect);
-			for (int i = 0; i < cardLabels.size(); i++) {
-				cardLabels.get(i).setBorder(BorderFactory.createLineBorder(
-						selected.contains(i) ? new Color(0xff8800) : Color.LIGHT_GRAY,
-						selected.contains(i) ? 3 : 1));
-			}
-		};
-
-		for (int i = 0; i < targetHand.size(); i++) {
-			final int idx = i;
-			CardData cd = targetHand.get(i);
-
-			JPanel wrapper = new JPanel(new BorderLayout(0, 4));
-			wrapper.setBackground(cardsPanel.getBackground());
-
-			JLabel lbl = new JLabel("...", SwingConstants.CENTER);
-			lbl.setPreferredSize(new Dimension(CARD_W, CARD_H));
-			lbl.setMinimumSize(new Dimension(CARD_W, CARD_H));
-			lbl.setOpaque(true);
-			lbl.setBackground(Color.DARK_GRAY);
-			lbl.setBorder(BorderFactory.createLineBorder(Color.LIGHT_GRAY, 1));
-			lbl.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-			cardLabels.add(lbl);
-
-			lbl.addMouseListener(new MouseAdapter() {
-				@Override public void mouseEntered(MouseEvent e) { if (lbl.getIcon() != null) showZoomAt(cd.imageUrl()); }
-				@Override public void mouseExited(MouseEvent e)  { hideZoom(); }
-				@Override public void mousePressed(MouseEvent e) {
-					if (selected.contains(idx)) selected.remove(idx);
-					else if (selected.size() < mustSelect) selected.add(idx);
-					refresh.run();
-				}
-			});
-
-			new SwingWorker<ImageIcon, Void>() {
-				@Override protected ImageIcon doInBackground() throws Exception {
-					Image img = ImageCache.load(cd.imageUrl());
-					if (img == null) return null;
-					BufferedImage buf = new BufferedImage(CARD_W, CARD_H, BufferedImage.TYPE_INT_ARGB);
-					Graphics2D g2 = buf.createGraphics();
-					g2.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
-					g2.drawImage(img, 0, 0, CARD_W, CARD_H, null);
-					g2.dispose();
-					return new ImageIcon(buf);
-				}
-				@Override protected void done() {
-					try { ImageIcon icon = get(); if (icon != null) { lbl.setIcon(icon); lbl.setText(null); } }
-					catch (InterruptedException | ExecutionException ignored) {}
-				}
-			}.execute();
-
-			JLabel nameLabel = new JLabel(cd.name(), SwingConstants.CENTER);
-			nameLabel.setFont(FontLoader.loadPixelNESFont(9));
-			nameLabel.setPreferredSize(new Dimension(CARD_W, 18));
-
-			wrapper.add(lbl,       BorderLayout.CENTER);
-			wrapper.add(nameLabel, BorderLayout.SOUTH);
-			cardsPanel.add(wrapper);
-		}
-
-		confirmBtn.addActionListener(ae -> {
-			hideZoom();
-			dlg.dispose();
-			List<Integer> toRemove = new ArrayList<>(selected);
-			toRemove.sort(Collections.reverseOrder());
-			for (int ri : toRemove) {
+		HandPickDialog.showHandRfp(frame, targetHand, mustSelect, this::showZoomAt, this::hideZoom, selected -> {
+			selected.sort(Collections.reverseOrder());
+			for (int ri : selected) {
 				if (ri < targetHand.size()) {
 					CardData d = targetHand.remove(ri);
 					if (rfpIsP1) {
@@ -5682,23 +4533,6 @@ public class MainWindow {
 			if (rfpIsP1) { refreshP1HandLabel(); refreshP1WarpZoneUI(); }
 			else          { refreshP2HandCountLabel(); }
 		});
-
-		JScrollPane scrollPane = new JScrollPane(cardsPanel,
-				JScrollPane.VERTICAL_SCROLLBAR_NEVER,
-				JScrollPane.HORIZONTAL_SCROLLBAR_AS_NEEDED);
-		scrollPane.setPreferredSize(new Dimension(
-				Math.min(targetHand.size() * (CARD_W + 16) + 16, 900),
-				CARD_H + 60));
-
-		JPanel south = new JPanel(new BorderLayout(4, 4));
-		south.add(statusLabel, BorderLayout.NORTH);
-		south.add(confirmBtn,  BorderLayout.SOUTH);
-
-		dlg.getContentPane().add(scrollPane, BorderLayout.CENTER);
-		dlg.getContentPane().add(south,      BorderLayout.SOUTH);
-		dlg.pack();
-		dlg.setLocationRelativeTo(frame);
-		dlg.setVisible(true);
 	}
 
 	/**
@@ -5706,114 +4540,7 @@ public class MainWindow {
 	 * Returns the selected card, or {@code null} if P1 clicked Skip.
 	 */
 	CardData showRevealHandOptPickDialog(List<CardData> hand) {
-		JDialog dlg = new JDialog(frame, "Opponent's Hand — select 1 to remove from game (optional)", true);
-		dlg.setResizable(false);
-		dlg.setDefaultCloseOperation(JDialog.DO_NOTHING_ON_CLOSE);
-
-		int[] selectedIdx = { -1 };
-		CardData[] result = { null };
-
-		List<JLabel> cardLabels = new ArrayList<>();
-		JPanel cardsPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 8));
-
-		JLabel statusLabel = new JLabel("Click a card to select it, then Remove From Game — or Skip.", SwingConstants.CENTER);
-		statusLabel.setFont(FontLoader.loadPixelNESFont(10));
-
-		JButton confirmBtn = new JButton("Remove From Game");
-		confirmBtn.setFont(FontLoader.loadPixelNESFont(11));
-		confirmBtn.setEnabled(false);
-
-		JButton skipBtn = new JButton("Skip");
-		skipBtn.setFont(FontLoader.loadPixelNESFont(11));
-
-		Runnable refresh = () -> {
-			confirmBtn.setEnabled(selectedIdx[0] >= 0);
-			for (int i = 0; i < cardLabels.size(); i++) {
-				cardLabels.get(i).setBorder(BorderFactory.createLineBorder(
-						i == selectedIdx[0] ? new Color(0xff8800) : Color.LIGHT_GRAY,
-						i == selectedIdx[0] ? 3 : 1));
-			}
-		};
-
-		for (int i = 0; i < hand.size(); i++) {
-			final int idx = i;
-			CardData cd = hand.get(i);
-
-			JPanel wrapper = new JPanel(new BorderLayout(0, 4));
-			wrapper.setBackground(cardsPanel.getBackground());
-
-			JLabel lbl = new JLabel("...", SwingConstants.CENTER);
-			lbl.setPreferredSize(new Dimension(CARD_W, CARD_H));
-			lbl.setMinimumSize(new Dimension(CARD_W, CARD_H));
-			lbl.setOpaque(true);
-			lbl.setBackground(Color.DARK_GRAY);
-			lbl.setBorder(BorderFactory.createLineBorder(Color.LIGHT_GRAY, 1));
-			lbl.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-			cardLabels.add(lbl);
-
-			lbl.addMouseListener(new MouseAdapter() {
-				@Override public void mouseEntered(MouseEvent e) { if (lbl.getIcon() != null) showZoomAt(cd.imageUrl()); }
-				@Override public void mouseExited(MouseEvent e)  { hideZoom(); }
-				@Override public void mousePressed(MouseEvent e) {
-					selectedIdx[0] = (selectedIdx[0] == idx) ? -1 : idx;
-					refresh.run();
-				}
-			});
-
-			new SwingWorker<ImageIcon, Void>() {
-				@Override protected ImageIcon doInBackground() throws Exception {
-					Image img = ImageCache.load(cd.imageUrl());
-					if (img == null) return null;
-					BufferedImage buf = new BufferedImage(CARD_W, CARD_H, BufferedImage.TYPE_INT_ARGB);
-					Graphics2D g2 = buf.createGraphics();
-					g2.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
-					g2.drawImage(img, 0, 0, CARD_W, CARD_H, null);
-					g2.dispose();
-					return new ImageIcon(buf);
-				}
-				@Override protected void done() {
-					try { ImageIcon icon = get(); if (icon != null) { lbl.setIcon(icon); lbl.setText(null); } }
-					catch (InterruptedException | ExecutionException ignored) {}
-				}
-			}.execute();
-
-			JLabel nameLabel = new JLabel(cd.name(), SwingConstants.CENTER);
-			nameLabel.setFont(FontLoader.loadPixelNESFont(9));
-			nameLabel.setPreferredSize(new Dimension(CARD_W, 18));
-			wrapper.add(lbl,       BorderLayout.CENTER);
-			wrapper.add(nameLabel, BorderLayout.SOUTH);
-			cardsPanel.add(wrapper);
-		}
-
-		confirmBtn.addActionListener(ae -> {
-			hideZoom();
-			if (selectedIdx[0] >= 0 && selectedIdx[0] < hand.size())
-				result[0] = hand.get(selectedIdx[0]);
-			dlg.dispose();
-		});
-		skipBtn.addActionListener(ae -> { hideZoom(); dlg.dispose(); });
-
-		JScrollPane scrollPane = new JScrollPane(cardsPanel,
-				JScrollPane.VERTICAL_SCROLLBAR_NEVER,
-				JScrollPane.HORIZONTAL_SCROLLBAR_AS_NEEDED);
-		scrollPane.setPreferredSize(new Dimension(
-				Math.min(hand.size() * (CARD_W + 16) + 16, 900),
-				CARD_H + 60));
-
-		JPanel btnRow = new JPanel(new FlowLayout(FlowLayout.CENTER, 8, 4));
-		btnRow.add(confirmBtn);
-		btnRow.add(skipBtn);
-
-		JPanel south = new JPanel(new BorderLayout(4, 4));
-		south.add(statusLabel, BorderLayout.NORTH);
-		south.add(btnRow,      BorderLayout.SOUTH);
-
-		dlg.getContentPane().add(scrollPane, BorderLayout.CENTER);
-		dlg.getContentPane().add(south,      BorderLayout.SOUTH);
-		dlg.pack();
-		dlg.setLocationRelativeTo(frame);
-		dlg.setVisible(true);
-		return result[0];
+		return cardPickerDialog.pickOptional(hand);
 	}
 
 	/**
@@ -5822,107 +4549,7 @@ public class MainWindow {
 	 * Hint text communicates the thresholds: 0 → source breaks; minForBonus+ → bonus effect.
 	 */
 	List<CardData> showRevealSummonsFromHandDialog(List<CardData> summons, String sourceName, int minForBonus) {
-		if (summons.isEmpty()) return Collections.emptyList();
-
-		Set<Integer> selected = new HashSet<>();
-		List<CardData> result = new ArrayList<>();
-
-		JDialog dlg = new JDialog(frame, sourceName + " — Reveal Summons", true);
-		dlg.setResizable(false);
-		dlg.setDefaultCloseOperation(JDialog.DO_NOTHING_ON_CLOSE);
-
-		String hint = "Reveal 0 → " + sourceName + " breaks. Reveal " + minForBonus + "+ → bonus effect.";
-		JLabel statusLabel = new JLabel(hint, SwingConstants.CENTER);
-		statusLabel.setFont(FontLoader.loadPixelNESFont(9));
-
-		List<JLabel> cardLabels = new ArrayList<>();
-		JPanel cardsPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 8));
-
-		JButton confirmBtn = new JButton("Reveal 0");
-		confirmBtn.setFont(FontLoader.loadPixelNESFont(11));
-
-		Runnable refresh = () -> {
-			int n = selected.size();
-			confirmBtn.setText(n == 0 ? "Reveal 0 (Levnato breaks)" : "Reveal " + n);
-			for (int i = 0; i < cardLabels.size(); i++) {
-				cardLabels.get(i).setBorder(BorderFactory.createLineBorder(
-						selected.contains(i) ? Color.CYAN : Color.LIGHT_GRAY,
-						selected.contains(i) ? 3 : 1));
-			}
-		};
-
-		for (int i = 0; i < summons.size(); i++) {
-			final int idx = i;
-			CardData cd = summons.get(i);
-
-			JPanel wrapper = new JPanel(new BorderLayout(0, 4));
-			wrapper.setBackground(cardsPanel.getBackground());
-
-			JLabel lbl = new JLabel("...", SwingConstants.CENTER);
-			lbl.setPreferredSize(new Dimension(CARD_W, CARD_H));
-			lbl.setMinimumSize(new Dimension(CARD_W, CARD_H));
-			lbl.setOpaque(true);
-			lbl.setBackground(Color.DARK_GRAY);
-			lbl.setBorder(BorderFactory.createLineBorder(Color.LIGHT_GRAY, 1));
-			lbl.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-			cardLabels.add(lbl);
-
-			lbl.addMouseListener(new MouseAdapter() {
-				@Override public void mouseEntered(MouseEvent e) { if (lbl.getIcon() != null) showZoomAt(cd.imageUrl()); }
-				@Override public void mouseExited(MouseEvent e)  { hideZoom(); }
-				@Override public void mousePressed(MouseEvent e) {
-					if (selected.contains(idx)) selected.remove(idx);
-					else selected.add(idx);
-					refresh.run();
-				}
-			});
-
-			new SwingWorker<ImageIcon, Void>() {
-				@Override protected ImageIcon doInBackground() throws Exception {
-					Image img = ImageCache.load(cd.imageUrl());
-					if (img == null) return null;
-					BufferedImage buf = new BufferedImage(CARD_W, CARD_H, BufferedImage.TYPE_INT_ARGB);
-					Graphics2D g2 = buf.createGraphics();
-					g2.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
-					g2.drawImage(img, 0, 0, CARD_W, CARD_H, null);
-					g2.dispose();
-					return new ImageIcon(buf);
-				}
-				@Override protected void done() {
-					try { ImageIcon icon = get(); if (icon != null) { lbl.setIcon(icon); lbl.setText(null); } }
-					catch (InterruptedException | ExecutionException ignored) {}
-				}
-			}.execute();
-
-			JLabel nameLabel = new JLabel(cd.name(), SwingConstants.CENTER);
-			nameLabel.setFont(FontLoader.loadPixelNESFont(9));
-			nameLabel.setPreferredSize(new Dimension(CARD_W, 18));
-
-			wrapper.add(lbl,       BorderLayout.CENTER);
-			wrapper.add(nameLabel, BorderLayout.SOUTH);
-			cardsPanel.add(wrapper);
-		}
-
-		confirmBtn.addActionListener(ae -> {
-			hideZoom();
-			for (int i : selected) result.add(summons.get(i));
-			dlg.dispose();
-		});
-
-		JScrollPane scrollPane = new JScrollPane(cardsPanel,
-				JScrollPane.VERTICAL_SCROLLBAR_NEVER, JScrollPane.HORIZONTAL_SCROLLBAR_AS_NEEDED);
-
-		JPanel south = new JPanel(new BorderLayout(0, 4));
-		south.setBorder(BorderFactory.createEmptyBorder(4, 8, 8, 8));
-		south.add(statusLabel, BorderLayout.NORTH);
-		south.add(confirmBtn,  BorderLayout.SOUTH);
-
-		dlg.getContentPane().add(scrollPane, BorderLayout.CENTER);
-		dlg.getContentPane().add(south,      BorderLayout.SOUTH);
-		dlg.pack();
-		dlg.setLocationRelativeTo(frame);
-		dlg.setVisible(true);
-		return result;
+		return cardPickerDialog.pickRevealSummons(summons, sourceName, minForBonus);
 	}
 
 	// -------------------------------------------------------------------------

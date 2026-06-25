@@ -83,7 +83,7 @@ public class CardAnimation {
 	 * {@code (cx, cy, cw, ch)}.  Layers fade inward with a quadratic falloff,
 	 * matching the PhaseTracker halo style.
 	 */
-	static void drawGlow(Graphics2D g, Color color, int cx, int cy, int cw, int ch) {
+	public static void drawGlow(Graphics2D g, Color color, int cx, int cy, int cw, int ch) {
 		g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
 		int layers = 10;
 		for (int layer = layers; layer >= 0; layer--) {

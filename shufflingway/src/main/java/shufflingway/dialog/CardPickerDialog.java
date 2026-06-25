@@ -1304,6 +1304,190 @@ public class CardPickerDialog {
         return List.copyOf(chosen);
     }
 
+    // -------------------------------------------------------------------------
+    // Hand-reveal pickers
+    // -------------------------------------------------------------------------
+
+    /** Shows {@code hand} and lets P1 optionally pick 1 card to remove from the game.
+     *  Returns the chosen card, or {@code null} if the player clicks Skip. */
+    public CardData pickOptional(List<CardData> hand) {
+        JDialog dlg = new JDialog(owner, "Opponent's Hand — select 1 to remove from game (optional)", true);
+        dlg.setResizable(false);
+        dlg.setDefaultCloseOperation(JDialog.DO_NOTHING_ON_CLOSE);
+
+        int[] selectedIdx = { -1 };
+        CardData[] result = { null };
+
+        java.util.List<JLabel> cardLabels = new ArrayList<>();
+        JPanel cardsPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 8));
+
+        JLabel statusLabel = new JLabel("Click a card to select it, then Remove From Game — or Skip.", SwingConstants.CENTER);
+        statusLabel.setFont(FontLoader.loadPixelNESFont(10));
+
+        JButton confirmBtn = new JButton("Remove From Game");
+        confirmBtn.setFont(FontLoader.loadPixelNESFont(11));
+        confirmBtn.setEnabled(false);
+
+        JButton skipBtn = new JButton("Skip");
+        skipBtn.setFont(FontLoader.loadPixelNESFont(11));
+
+        Runnable refresh = () -> {
+            confirmBtn.setEnabled(selectedIdx[0] >= 0);
+            for (int i = 0; i < cardLabels.size(); i++) {
+                cardLabels.get(i).setBorder(BorderFactory.createLineBorder(
+                        i == selectedIdx[0] ? new Color(0xff8800) : Color.LIGHT_GRAY,
+                        i == selectedIdx[0] ? 3 : 1));
+            }
+        };
+
+        for (int i = 0; i < hand.size(); i++) {
+            final int idx = i;
+            CardData cd = hand.get(i);
+
+            JPanel wrapper = new JPanel(new BorderLayout(0, 4));
+            wrapper.setBackground(cardsPanel.getBackground());
+
+            JLabel lbl = HandPickDialog.makeCardLabel();
+            lbl.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+            cardLabels.add(lbl);
+
+            lbl.addMouseListener(new MouseAdapter() {
+                @Override public void mouseEntered(MouseEvent e) { if (lbl.getIcon() != null) onZoom.accept(cd.imageUrl()); }
+                @Override public void mouseExited(MouseEvent e)  { onZoomHide.run(); }
+                @Override public void mousePressed(MouseEvent e) {
+                    selectedIdx[0] = (selectedIdx[0] == idx) ? -1 : idx;
+                    refresh.run();
+                }
+            });
+
+            HandPickDialog.loadCardImage(lbl, cd.imageUrl());
+
+            JLabel nameLabel = new JLabel(cd.name(), SwingConstants.CENTER);
+            nameLabel.setFont(FontLoader.loadPixelNESFont(9));
+            nameLabel.setPreferredSize(new Dimension(CARD_W, 18));
+            wrapper.add(lbl,       BorderLayout.CENTER);
+            wrapper.add(nameLabel, BorderLayout.SOUTH);
+            cardsPanel.add(wrapper);
+        }
+
+        confirmBtn.addActionListener(ae -> {
+            onZoomHide.run();
+            if (selectedIdx[0] >= 0 && selectedIdx[0] < hand.size())
+                result[0] = hand.get(selectedIdx[0]);
+            dlg.dispose();
+        });
+        skipBtn.addActionListener(ae -> { onZoomHide.run(); dlg.dispose(); });
+
+        JScrollPane scrollPane = new JScrollPane(cardsPanel,
+                JScrollPane.VERTICAL_SCROLLBAR_NEVER,
+                JScrollPane.HORIZONTAL_SCROLLBAR_AS_NEEDED);
+        scrollPane.setPreferredSize(new Dimension(
+                Math.min(hand.size() * (CARD_W + 16) + 16, 900),
+                CARD_H + 60));
+
+        JPanel btnRow = new JPanel(new FlowLayout(FlowLayout.CENTER, 8, 4));
+        btnRow.add(confirmBtn);
+        btnRow.add(skipBtn);
+
+        JPanel south = new JPanel(new BorderLayout(4, 4));
+        south.add(statusLabel, BorderLayout.NORTH);
+        south.add(btnRow,      BorderLayout.SOUTH);
+
+        dlg.getContentPane().add(scrollPane, BorderLayout.CENTER);
+        dlg.getContentPane().add(south,      BorderLayout.SOUTH);
+        dlg.pack();
+        dlg.setLocationRelativeTo(owner);
+        dlg.setVisible(true);
+        return result[0];
+    }
+
+    /** Shows {@code summons} from hand and lets P1 choose which ones to reveal (any number ≥ 0).
+     *  Returns the selected cards. */
+    public java.util.List<CardData> pickRevealSummons(java.util.List<CardData> summons,
+                                                       String sourceName, int minForBonus) {
+        if (summons.isEmpty()) return java.util.Collections.emptyList();
+
+        Set<Integer> selected = new LinkedHashSet<>();
+        java.util.List<CardData> result = new ArrayList<>();
+
+        JDialog dlg = new JDialog(owner, sourceName + " — Reveal Summons", true);
+        dlg.setResizable(false);
+        dlg.setDefaultCloseOperation(JDialog.DO_NOTHING_ON_CLOSE);
+
+        String hint = "Reveal 0 → " + sourceName + " breaks. Reveal " + minForBonus + "+ → bonus effect.";
+        JLabel statusLabel = new JLabel(hint, SwingConstants.CENTER);
+        statusLabel.setFont(FontLoader.loadPixelNESFont(9));
+
+        java.util.List<JLabel> cardLabels = new ArrayList<>();
+        JPanel cardsPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 8));
+
+        JButton confirmBtn = new JButton("Reveal 0");
+        confirmBtn.setFont(FontLoader.loadPixelNESFont(11));
+
+        Runnable refresh = () -> {
+            int n = selected.size();
+            confirmBtn.setText(n == 0 ? "Reveal 0 (" + sourceName + " breaks)" : "Reveal " + n);
+            for (int i = 0; i < cardLabels.size(); i++) {
+                cardLabels.get(i).setBorder(BorderFactory.createLineBorder(
+                        selected.contains(i) ? Color.CYAN : Color.LIGHT_GRAY,
+                        selected.contains(i) ? 3 : 1));
+            }
+        };
+
+        for (int i = 0; i < summons.size(); i++) {
+            final int idx = i;
+            CardData cd = summons.get(i);
+
+            JPanel wrapper = new JPanel(new BorderLayout(0, 4));
+            wrapper.setBackground(cardsPanel.getBackground());
+
+            JLabel lbl = HandPickDialog.makeCardLabel();
+            lbl.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+            cardLabels.add(lbl);
+
+            lbl.addMouseListener(new MouseAdapter() {
+                @Override public void mouseEntered(MouseEvent e) { if (lbl.getIcon() != null) onZoom.accept(cd.imageUrl()); }
+                @Override public void mouseExited(MouseEvent e)  { onZoomHide.run(); }
+                @Override public void mousePressed(MouseEvent e) {
+                    if (selected.contains(idx)) selected.remove(idx);
+                    else selected.add(idx);
+                    refresh.run();
+                }
+            });
+
+            HandPickDialog.loadCardImage(lbl, cd.imageUrl());
+
+            JLabel nameLabel = new JLabel(cd.name(), SwingConstants.CENTER);
+            nameLabel.setFont(FontLoader.loadPixelNESFont(9));
+            nameLabel.setPreferredSize(new Dimension(CARD_W, 18));
+
+            wrapper.add(lbl,       BorderLayout.CENTER);
+            wrapper.add(nameLabel, BorderLayout.SOUTH);
+            cardsPanel.add(wrapper);
+        }
+
+        confirmBtn.addActionListener(ae -> {
+            onZoomHide.run();
+            for (int i : selected) result.add(summons.get(i));
+            dlg.dispose();
+        });
+
+        JScrollPane scrollPane = new JScrollPane(cardsPanel,
+                JScrollPane.VERTICAL_SCROLLBAR_NEVER, JScrollPane.HORIZONTAL_SCROLLBAR_AS_NEEDED);
+
+        JPanel south = new JPanel(new BorderLayout(0, 4));
+        south.setBorder(BorderFactory.createEmptyBorder(4, 8, 8, 8));
+        south.add(statusLabel, BorderLayout.NORTH);
+        south.add(confirmBtn,  BorderLayout.SOUTH);
+
+        dlg.getContentPane().add(scrollPane, BorderLayout.CENTER);
+        dlg.getContentPane().add(south,      BorderLayout.SOUTH);
+        dlg.pack();
+        dlg.setLocationRelativeTo(owner);
+        dlg.setVisible(true);
+        return result;
+    }
+
     private static JPanel buildTwoRowTargetPanel(JPanel opponentRow, JPanel selfRow) {
         JPanel center = new JPanel();
         center.setLayout(new BoxLayout(center, BoxLayout.Y_AXIS));
