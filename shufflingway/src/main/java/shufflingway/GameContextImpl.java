@@ -3868,6 +3868,24 @@ final class GameContextImpl implements GameContext {
 				logEntry(source.name() + " gains: Put " + bzCardName + " into the Break Zone: " + effectText);
 			}
 
+			@Override public void grantCopiedSpecialAbilityFreeOnce(CardData source, ActionAbility original) {
+				ActionAbility copy = new ActionAbility(
+					original.abilityName(), false, false, 0, 0, false,
+					List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(),
+					false, false, true, false,
+					null, null, false, false, false,
+					original.effectText(),
+					0, null, null, false, false, false, null, null, null, false, null, false, null, null, 0, null
+				);
+				Map<CardData, List<ActionAbility>> map = isP1 ? mw.p1TempGrantedAbilities : mw.p2TempGrantedAbilities;
+				map.computeIfAbsent(source, k -> new ArrayList<>()).add(copy);
+				mw.endOfTurnEffects.add(ctx -> {
+					List<ActionAbility> list = map.get(source);
+					if (list != null) { list.remove(copy); if (list.isEmpty()) map.remove(source); }
+				});
+				logEntry(source.name() + " gains " + original.abilityName() + " (free, once): " + original.effectText());
+			}
+
 			@Override public void swapDamageZoneCardWithHandCard(boolean drawCardBetween) {
 				List<CardData> dz   = isP1 ? mw.gameState.getP1DamageZone() : mw.gameState.getP2DamageZone();
 				List<CardData> hand = isP1 ? mw.gameState.getP1Hand()       : mw.gameState.getP2Hand();

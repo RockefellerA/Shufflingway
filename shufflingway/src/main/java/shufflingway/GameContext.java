@@ -1510,6 +1510,12 @@ public interface GameContext {
     void grantTempBzActionAbility(CardData source, String bzCardName, String effectText);
 
     /**
+     * Grants {@code source} a free, once-per-turn copy of {@code original} (a special ability)
+     * until end of turn. All costs are removed; the ability retains its name and effect text.
+     */
+    void grantCopiedSpecialAbilityFreeOnce(CardData source, ActionAbility original);
+
+    /**
      * Shows the controlling player a picker for EX Burst cards in their own Damage Zone,
      * then places the chosen card's EX Burst effect on the resolution stack.
      * No-op when the Damage Zone has no cards with a parseable EX Burst effect.

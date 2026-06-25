@@ -2662,6 +2662,28 @@ public class ActionResolver {
     );
 
     /**
+     * Matches "Choose 1 Forward opponent controls. [Name] gains its Special Ability until the end of the turn.
+     * You can use this ability without paying any cost but only once."
+     * Group {@code sourceName} — card name that gains the ability (used for logging).
+     */
+    private static final Pattern CHOOSE_OPP_FWD_GAINS_SPECIAL_ABILITY_FREE_ONCE = Pattern.compile(
+        "(?i)^Choose\\s+1\\s+Forward\\s+(?:your\\s+)?opponent\\s+controls[,.]?\\s+" +
+        "(?<sourceName>.+?)\\s+gains\\s+its\\s+Special\\s+Abilit(?:y|ies)\\s+until\\s+the\\s+end\\s+of\\s+the\\s+turn[.!]?\\s+" +
+        "You\\s+can\\s+use\\s+this\\s+ability\\s+without\\s+paying\\s+any\\s+cost\\s+but\\s+only\\s+once[.!]?\\s*$"
+    );
+
+    /**
+     * Matches "Choose 1 Forward opponent controls which has been dealt damage this turn.
+     * If that Forward has a special ability or an action ability, break it."
+     */
+    private static final Pattern CHOOSE_OPP_DAMAGED_FWD_IF_HAS_ABILITY_BREAK = Pattern.compile(
+        "(?i)^Choose\\s+1\\s+Forward\\s+(?:your\\s+)?opponent\\s+controls\\s+" +
+        "which\\s+has\\s+been\\s+dealt\\s+damage\\s+this\\s+turn[,.]?\\s+" +
+        "If\\s+that\\s+Forward\\s+has\\s+(?:a\\s+special\\s+ability|an?\\s+action\\s+ability)" +
+        "(?:\\s+or\\s+(?:a\\s+special\\s+ability|an?\\s+action\\s+ability))*,?\\s+break\\s+it[.!]?\\s*$"
+    );
+
+    /**
      * Matches "Choose as many &lt;Type&gt; [opponent controls] as [the] &lt;CountSource&gt; you control. &lt;Followup&gt;"
      * where the count is derived at resolution time from the acting player's field.
      * Group {@code targetType} — card type to choose (Forward/Character/etc.).
@@ -3296,6 +3318,12 @@ public class ActionResolver {
         result = tryParseChooseFwdBzCostInferiorToRemovedPlay(effectText);
         if (result != null) return result;
 
+        result = tryParseChooseOppFwdGainsSpecialAbilityFreeOnce(effectText, source);
+        if (result != null) return result;
+
+        result = tryParseChooseOppDamagedFwdIfHasAbilityBreak(effectText);
+        if (result != null) return result;
+
         result = tryParseChooseAsManyAsFieldCount(effectText, source);
         if (result != null) return result;
 
@@ -3796,6 +3824,8 @@ public class ActionResolver {
         if (tryParseChooseOppFwdDynCostBreak(effectText)                   != null) return "ChooseOppFwdDynCostBreak";
         if (tryParseChooseFwdPowerInferiorToSource(effectText, source)     != null) return "ChooseFwdPowerInferiorToSource";
         if (tryParseChooseFwdBzCostInferiorToRemovedPlay(effectText)       != null) return "ChooseFwdBzCostInferiorToRemovedPlay";
+        if (tryParseChooseOppFwdGainsSpecialAbilityFreeOnce(effectText, source) != null) return "ChooseOppFwdGainsSpecialAbilityFreeOnce";
+        if (tryParseChooseOppDamagedFwdIfHasAbilityBreak(effectText)     != null) return "ChooseOppDamagedFwdIfHasAbilityBreak";
         if (tryParseChooseAsManyAsFieldCount(effectText, source)         != null) return "ChooseAsManyAsFieldCount";
         if (tryParseChooseCounterScaleCharsActivate(effectText, 1)    != null) return "ChooseCounterScaleCharsActivate";
         if (tryParseChooseCharacter(effectText, source, 0)              != null) return "ChooseCharacter";
@@ -4269,6 +4299,8 @@ public class ActionResolver {
         if (tryParsePlaceCounters(effectText, source) != null)               return "PlaceCounters";
         if (tryParseLookTopDeckOptionallyBreak(effectText)        != null) return "LookTopDeckOptionallyBreak";
         if (tryParseLookTopDeckBottomOrKeep(effectText)           != null) return "LookTopDeckBottomOrKeep";
+        if (tryParseChooseOppFwdGainsSpecialAbilityFreeOnce(effectText, source) != null) return "ChooseOppFwdGainsSpecialAbilityFreeOnce";
+        if (tryParseChooseOppDamagedFwdIfHasAbilityBreak(effectText)       != null) return "ChooseOppDamagedFwdIfHasAbilityBreak";
         if (tryParseChooseAsManyAsFieldCount(effectText, source)           != null) return "ChooseAsManyAsFieldCount";
         if (tryParseChooseCounterScaleCharsActivate(effectText, 1)         != null) return "ChooseCounterScaleCharsActivate";
         if (tryParseCounterScaleLookAddToHand(effectText, 1)               != null) return "CounterScaleLookAddToHand";
@@ -10198,6 +10230,61 @@ public class ActionResolver {
             if (opp <= 0) return;
             ctx.logEntry("Effect: Opponent has " + opp + " 《C》 — gain 1 Crystal");
             ctx.gainCrystal(1);
+        };
+    }
+
+    /**
+     * Parses "Choose 1 Forward opponent controls. [Name] gains its Special Ability until the end of the turn.
+     * You can use this ability without paying any cost but only once."
+     * Copies every isSpecial() ability from the chosen Forward to {@code source} as a free, once-per-turn
+     * temp ability (all costs removed) that expires at end of turn.
+     */
+    private static Consumer<GameContext> tryParseChooseOppFwdGainsSpecialAbilityFreeOnce(
+            String text, CardData source) {
+        Matcher m = CHOOSE_OPP_FWD_GAINS_SPECIAL_ABILITY_FREE_ONCE.matcher(text.trim());
+        if (!m.matches()) return null;
+        String logName = m.group("sourceName");
+        return ctx -> {
+            ctx.logEntry(logName + " — Choose 1 Forward opponent controls to copy its Special Ability");
+            List<ForwardTarget> ts = selectTargets(ctx, 1, false, true, false,
+                    null, null, null, false, -1, null, -1, null,
+                    true, false, false, null, null, null, null, false, null, false);
+            if (ts.isEmpty()) return;
+            ForwardTarget t = ts.get(0);
+            CardData chosen = t.isP1() ? ctx.p1Forward(t.idx()) : ctx.p2Forward(t.idx());
+            if (chosen == null) return;
+            List<ActionAbility> specials = chosen.actionAbilities().stream()
+                    .filter(ActionAbility::isSpecial)
+                    .collect(java.util.stream.Collectors.toList());
+            if (specials.isEmpty()) {
+                ctx.logEntry(chosen.name() + " has no Special Ability to copy");
+                return;
+            }
+            for (ActionAbility original : specials)
+                ctx.grantCopiedSpecialAbilityFreeOnce(source, original);
+        };
+    }
+
+    /**
+     * Parses "Choose 1 Forward opponent controls which has been dealt damage this turn.
+     * If that Forward has a special ability or an action ability, break it."
+     */
+    private static Consumer<GameContext> tryParseChooseOppDamagedFwdIfHasAbilityBreak(String text) {
+        if (!CHOOSE_OPP_DAMAGED_FWD_IF_HAS_ABILITY_BREAK.matcher(text.trim()).matches()) return null;
+        return ctx -> {
+            ctx.logEntry("Choose 1 damaged opponent Forward — break if has special/action ability");
+            List<ForwardTarget> ts = selectTargets(ctx, 1, false, true, false,
+                    "damaged", null, null, false, -1, null, -1, null,
+                    true, false, false, null, null, null, null, false, null, false);
+            if (ts.isEmpty()) return;
+            ForwardTarget t = ts.get(0);
+            CardData chosen = t.isP1() ? ctx.p1Forward(t.idx()) : ctx.p2Forward(t.idx());
+            if (chosen == null) return;
+            if (chosen.actionAbilities().isEmpty()) {
+                ctx.logEntry(chosen.name() + " has no special/action ability — not broken");
+            } else {
+                ctx.breakTarget(t);
+            }
         };
     }
 
