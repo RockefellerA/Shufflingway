@@ -8809,9 +8809,9 @@ public class ActionResolver {
         "(?:your\\s+)?opponent\\s+controls?\\s+loses?\\s+\\d+\\s+power[.!]?$"
     );
 
-    /** "If there are N or more cards in your Break Zone, ..." — BZ-conditional passive grant. */
+    /** "If there are N or more cards in your Break Zone, ..." or "If you have N or more Job X ... in your Break Zone, ..." */
     private static final Pattern FIELD_GRANT_BZ_COND_PASSIVE = Pattern.compile(
-        "(?i)^If\\s+there\\s+are\\s+\\d+\\s+or\\s+more\\s+cards?\\s+in\\s+your\\s+Break\\s+Zone,"
+        "(?i)^If\\s+(?:there\\s+are|you\\s+have)\\s+\\d+\\s+or\\s+more\\s+.+?\\s+in\\s+your\\s+Break\\s+Zone,"
     );
 
     /**

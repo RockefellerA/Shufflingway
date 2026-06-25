@@ -9340,11 +9340,18 @@ public class MainWindow {
 		return boost;
 	}
 
-	/** Returns {@code true} if {@code fpg}'s Break Zone size condition is met for the given player. */
+	/** Returns {@code true} if all BZ conditions on {@code fpg} are met for the given player. */
 	private boolean fpgBzConditionMet(FieldPowerGrant fpg, boolean isP1) {
-		if (fpg.minBzSize() <= 0) return true;
 		List<CardData> bz = isP1 ? gameState.getP1BreakZone() : gameState.getP2BreakZone();
-		return bz.size() >= fpg.minBzSize();
+		if (fpg.minBzSize() > 0 && bz.size() < fpg.minBzSize()) return false;
+		if (fpg.minBzFilterCount() > 0) {
+			long cnt = bz.stream()
+				.filter(c -> !fpg.bzFilterFwds() || c.isForward())
+				.filter(c -> fpg.bzFilterJob() == null || CardFilters.meetsJobFilter(c, fpg.bzFilterJob()))
+				.count();
+			if (cnt < fpg.minBzFilterCount()) return false;
+		}
+		return true;
 	}
 
 	/** Sum of {@link FieldPowerGrant#powerBonus} from {@code src} for grants that target the opposing side. */

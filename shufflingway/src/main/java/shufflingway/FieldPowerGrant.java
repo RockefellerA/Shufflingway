@@ -25,15 +25,18 @@ public record FieldPowerGrant(
         int     costFilter,      // -1 = any cost; N = filter applies at value N (exact, or less/more per costCmp)
         String  costCmp,         // null = exact match; "less" = cost ≤ N; "more" = cost ≥ N
         String  elementFilter,   // null = any element; e.g. "Ice", "Fire|Water"
-        String  inclCardName,    // null = any name; non-null = only cards whose name matches this
-        int     minBzSize        // 0 = no restriction; >0 = grant applies only when own BZ has ≥ this many cards
+        String  inclCardName,      // null = any name; non-null = only cards whose name matches this
+        int     minBzSize,         // 0 = no restriction; >0 = grant applies only when own BZ has ≥ this many total cards
+        int     minBzFilterCount,  // 0 = no restriction; >0 = requires this many filtered BZ cards (see bzFilterJob/bzFilterFwds)
+        String  bzFilterJob,       // job filter for BZ cards counted by minBzFilterCount; null = any job
+        boolean bzFilterFwds       // true = only count Forwards when evaluating minBzFilterCount
 ) {
     public FieldPowerGrant {
         grantedTraits = Set.copyOf(grantedTraits);
         if (exceptCardName == null) exceptCardName = "";
     }
 
-    /** Convenience constructor without {@code minBzSize}; defaults it to {@code 0} (no restriction). */
+    /** Convenience constructor without BZ conditions; defaults {@code minBzSize/minBzFilterCount} to 0. */
     public FieldPowerGrant(String jobFilter, String categoryFilter,
             boolean inclForwards, boolean inclBackups, boolean inclMonsters,
             String exceptCardName, int powerBonus, Set<CardData.Trait> grantedTraits,
@@ -41,16 +44,17 @@ public record FieldPowerGrant(
             String inclCardName) {
         this(jobFilter, categoryFilter, inclForwards, inclBackups, inclMonsters,
                 exceptCardName, powerBonus, grantedTraits, affectsOpponent, costFilter, costCmp, elementFilter,
-                inclCardName, 0);
+                inclCardName, 0, 0, null, false);
     }
 
-    /** Convenience constructor without {@code inclCardName} or {@code minBzSize}; defaults both. */
+    /** Convenience constructor without {@code inclCardName} or any BZ conditions. */
     public FieldPowerGrant(String jobFilter, String categoryFilter,
             boolean inclForwards, boolean inclBackups, boolean inclMonsters,
             String exceptCardName, int powerBonus, Set<CardData.Trait> grantedTraits,
             boolean affectsOpponent, int costFilter, String costCmp, String elementFilter) {
         this(jobFilter, categoryFilter, inclForwards, inclBackups, inclMonsters,
-                exceptCardName, powerBonus, grantedTraits, affectsOpponent, costFilter, costCmp, elementFilter, null, 0);
+                exceptCardName, powerBonus, grantedTraits, affectsOpponent, costFilter, costCmp, elementFilter,
+                null, 0, 0, null, false);
     }
 
     /** Convenience constructor without {@code elementFilter} or {@code inclCardName}. */
@@ -116,6 +120,12 @@ public record FieldPowerGrant(
         if (powerBonus != 0) sb.append(" +").append(powerBonus);
         if (!grantedTraits.isEmpty()) sb.append(' ').append(grantedTraits);
         if (minBzSize > 0) sb.append(" ifBZ>=").append(minBzSize);
+        if (minBzFilterCount > 0) {
+            sb.append(" ifBZ(");
+            if (bzFilterJob != null) sb.append("Job:").append(bzFilterJob).append(' ');
+            if (bzFilterFwds) sb.append("Fwd");
+            sb.append(">=").append(minBzFilterCount).append(')');
+        }
         return sb.toString();
     }
 

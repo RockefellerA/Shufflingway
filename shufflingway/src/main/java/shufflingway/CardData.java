@@ -2306,6 +2306,17 @@ public record CardData(
      * Groups: {@code bzcount}, {@code cardname}, {@code type1}, {@code job}, {@code type2},
      * {@code power} (optional), {@code traitstext} (optional).
      */
+    /**
+     * Matches "If you have N or more Job X Forwards in your Break Zone, [CardName] gains +P power."
+     * Groups: {@code bzcount}, {@code job}, {@code type}, {@code selfname}, {@code power}.
+     */
+    private static final Pattern FIELD_GRANT_BZ_JOB_SELF_PATTERN = Pattern.compile(
+        "(?i)^If\\s+you\\s+have\\s+(?<bzcount>\\d+)\\s+or\\s+more\\s+" +
+        "Job\\s+(?<job>[A-Za-z][A-Za-z\\s''\\-]*)\\s+(?<type>Forwards?|Backups?|Monsters?)\\s+" +
+        "in\\s+your\\s+Break\\s+Zone,?\\s+" +
+        "(?<selfname>[A-Za-z][A-Za-z\\s''\\-]*)\\s+gains?\\s+\\+(?<power>\\d+)\\s+power[.!]?\\s*$"
+    );
+
     private static final Pattern FIELD_GRANT_BZ_COND_CN_AND_JOB_PATTERN = Pattern.compile(
         "(?i)^If\\s+there\\s+are\\s+(?<bzcount>\\d+)\\s+or\\s+more\\s+cards?\\s+in\\s+your\\s+Break\\s+Zone,?\\s+" +
         "the\\s+Card\\s+Name\\s+(?<cardname>[A-Za-z][A-Za-z\\s''\\-]*)\\s+(?<type1>Forwards?|Characters?|Backups?|Monsters?)\\s+" +
@@ -2344,9 +2355,23 @@ public record CardData(
                     if (ICB_EFFECT_BACK_ATTACK.matcher(traitsText).find())  traits.add(Trait.BACK_ATTACK);
                 }
                 result.add(new FieldPowerGrant(null, null, incl1[0] != 0, incl1[1] != 0, incl1[2] != 0,
-                        null, power, traits, false, -1, null, null, cardName, minBzSize));
+                        null, power, traits, false, -1, null, null, cardName, minBzSize, 0, null, false));
                 result.add(new FieldPowerGrant(job, null, incl2[0] != 0, incl2[1] != 0, incl2[2] != 0,
-                        null, power, traits, false, -1, null, null, null, minBzSize));
+                        null, power, traits, false, -1, null, null, null, minBzSize, 0, null, false));
+                continue;
+            }
+
+            Matcher bzJobSelfM = FIELD_GRANT_BZ_JOB_SELF_PATTERN.matcher(seg);
+            if (bzJobSelfM.matches()) {
+                int minBzFC   = Integer.parseInt(bzJobSelfM.group("bzcount"));
+                String bzJob  = bzJobSelfM.group("job").trim();
+                String type   = bzJobSelfM.group("type");
+                boolean bzFwd = type != null && type.toLowerCase().startsWith("forward");
+                String selfName = bzJobSelfM.group("selfname").trim();
+                int power = Integer.parseInt(bzJobSelfM.group("power"));
+                result.add(new FieldPowerGrant(null, null, true, false, false,
+                        null, power, EnumSet.noneOf(Trait.class), false, -1, null, null,
+                        selfName, 0, minBzFC, bzJob, bzFwd));
                 continue;
             }
 
@@ -3502,6 +3527,7 @@ public record CardData(
             if (SCALING_SELF_BZ_CARD_NAME_PATTERN.matcher(seg).find())        continue;
             // BZ-conditional passive grant — handled by parseFieldPowerGrants
             if (FIELD_GRANT_BZ_COND_CN_AND_JOB_PATTERN.matcher(seg).find())   continue;
+            if (FIELD_GRANT_BZ_JOB_SELF_PATTERN.matcher(seg).matches())        continue;
 
             // Cast/play restrictions — handled as static properties via castRestriction()
             if (CAST_REQUIRES_NO_FORWARDS.matcher(seg).find())                continue;
