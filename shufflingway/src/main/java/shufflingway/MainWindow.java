@@ -8065,7 +8065,8 @@ public class MainWindow {
 			if (icb.appliesToCard(target) && icbConditionsMet(icb, isP1))
 				boost += icb.powerBonus();
 		for (FieldPowerGrant fpg : src.fieldPowerGrants())
-			if (!fpg.affectsOpponent() && fpg.appliesToCard(target) && fpgBzConditionMet(fpg, isP1))
+			if (!fpg.affectsOpponent() && fpg.appliesToCard(target) && fpgBzConditionMet(fpg, isP1)
+					&& (!fpg.yourTurnOnly() || isP1 == (gameState.getCurrentPlayer() == GameState.Player.P1)))
 				boost += fpg.powerBonus();
 		if (src == target) {
 			for (ScalingSelfPowerBoost ssb : src.scalingSelfPowerBoosts()) {
@@ -8180,7 +8181,8 @@ public class MainWindow {
 			if (icb.appliesToCard(target) && icbConditionsMet(icb, isP1))
 				out.addAll(icb.grantedTraits());
 		for (FieldPowerGrant fpg : src.fieldPowerGrants())
-			if (!fpg.affectsOpponent() && fpg.appliesToCard(target) && fpgBzConditionMet(fpg, isP1))
+			if (!fpg.affectsOpponent() && fpg.appliesToCard(target) && fpgBzConditionMet(fpg, isP1)
+					&& (!fpg.yourTurnOnly() || isP1 == (gameState.getCurrentPlayer() == GameState.Player.P1)))
 				out.addAll(fpg.grantedTraits());
 		// Self-targeted trait grants, optionally gated on damage threshold or job count.
 		if (src == target) {

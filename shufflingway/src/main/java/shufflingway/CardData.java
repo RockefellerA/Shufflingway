@@ -2277,6 +2277,17 @@ public record CardData(
     );
 
     /**
+     * Matches "The Card Name X you control gains Trait [and Trait] during your turn."
+     * Groups: {@code cardname}, {@code traitstext}.
+     */
+    private static final Pattern FIELD_GRANT_CARD_NAME_TRAIT_YOUR_TURN = Pattern.compile(
+        "(?i)^The\\s+Card\\s+Name\\s+(?<cardname>.+?)\\s+you\\s+control\\s+gains?\\s+" +
+        "(?<traitstext>Haste|Brave|First\\s+Strike|Back\\s+Attack" +
+        "(?:\\s+and\\s+(?:Haste|Brave|First\\s+Strike|Back\\s+Attack))*)" +
+        "\\s+during\\s+your\\s+turn[.!]?$"
+    );
+
+    /**
      * Matches a cost-filtered same-side grant with optional power and/or traits:
      * "The [type] of cost N you control gain[s] [+P power [and]] [Trait...]"
      * Groups: {@code targets}, {@code cost}, {@code power} (optional), {@code traitstext} (optional).
@@ -2355,9 +2366,9 @@ public record CardData(
                     if (ICB_EFFECT_BACK_ATTACK.matcher(traitsText).find())  traits.add(Trait.BACK_ATTACK);
                 }
                 result.add(new FieldPowerGrant(null, null, incl1[0] != 0, incl1[1] != 0, incl1[2] != 0,
-                        null, power, traits, false, -1, null, null, cardName, minBzSize, 0, null, false));
+                        null, power, traits, false, -1, null, null, cardName, minBzSize, 0, null, false, false));
                 result.add(new FieldPowerGrant(job, null, incl2[0] != 0, incl2[1] != 0, incl2[2] != 0,
-                        null, power, traits, false, -1, null, null, null, minBzSize, 0, null, false));
+                        null, power, traits, false, -1, null, null, null, minBzSize, 0, null, false, false));
                 continue;
             }
 
@@ -2371,7 +2382,7 @@ public record CardData(
                 int power = Integer.parseInt(bzJobSelfM.group("power"));
                 result.add(new FieldPowerGrant(null, null, true, false, false,
                         null, power, EnumSet.noneOf(Trait.class), false, -1, null, null,
-                        selfName, 0, minBzFC, bzJob, bzFwd));
+                        selfName, 0, minBzFC, bzJob, bzFwd, false));
                 continue;
             }
 
@@ -2394,6 +2405,20 @@ public record CardData(
                         Integer.parseInt(cnM.group("power")),
                         EnumSet.noneOf(Trait.class), false, -1, null, null,
                         cnM.group("cardname").trim()));
+                continue;
+            }
+
+            Matcher cnTraitYourTurnM = FIELD_GRANT_CARD_NAME_TRAIT_YOUR_TURN.matcher(seg);
+            if (cnTraitYourTurnM.matches()) {
+                String traitsText = cnTraitYourTurnM.group("traitstext");
+                EnumSet<Trait> traits = EnumSet.noneOf(Trait.class);
+                if (ICB_EFFECT_HASTE.matcher(traitsText).find())        traits.add(Trait.HASTE);
+                if (ICB_EFFECT_BRAVE.matcher(traitsText).find())        traits.add(Trait.BRAVE);
+                if (ICB_EFFECT_FIRST_STRIKE.matcher(traitsText).find()) traits.add(Trait.FIRST_STRIKE);
+                if (ICB_EFFECT_BACK_ATTACK.matcher(traitsText).find())  traits.add(Trait.BACK_ATTACK);
+                result.add(new FieldPowerGrant(null, null, true, true, true, null, 0, traits,
+                        false, -1, null, null, cnTraitYourTurnM.group("cardname").trim(),
+                        0, 0, null, false, true));
                 continue;
             }
 
@@ -3547,6 +3572,8 @@ public record CardData(
 
             // Cast/play restrictions — handled as static properties via castRestriction()
             if (CAST_REQUIRES_NO_FORWARDS.matcher(seg).find())                continue;
+            if (CAST_MUST_CONTROL.matcher(seg).find())                        continue;
+            if (CAST_MUST_CONTROL_CATEGORY_FWD.matcher(seg).find())          continue;
 
             // Field cost reduction / any-element declarations — handled as static card properties
             if (FIELD_COST_REDUCTION_PATTERN.matcher(seg).find())            continue;
@@ -3569,6 +3596,7 @@ public record CardData(
             if (BECOME_FORWARD_DURING_TURN_PATTERN.matcher(seg).find())       continue;
             if (BECOME_FORWARD_UNCONDITIONAL_PATTERN.matcher(seg).find())     continue;
             if (FIELD_CAN_ATTACK_TWICE.matcher(seg).matches())               continue;
+            if (FIELD_GRANT_CARD_NAME_TRAIT_YOUR_TURN.matcher(seg).matches()) continue;
 
             result.add(new FieldAbility(seg, damageThreshold));
         }

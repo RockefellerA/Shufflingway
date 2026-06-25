@@ -29,7 +29,8 @@ public record FieldPowerGrant(
         int     minBzSize,         // 0 = no restriction; >0 = grant applies only when own BZ has ≥ this many total cards
         int     minBzFilterCount,  // 0 = no restriction; >0 = requires this many filtered BZ cards (see bzFilterJob/bzFilterFwds)
         String  bzFilterJob,       // job filter for BZ cards counted by minBzFilterCount; null = any job
-        boolean bzFilterFwds       // true = only count Forwards when evaluating minBzFilterCount
+        boolean bzFilterFwds,      // true = only count Forwards when evaluating minBzFilterCount
+        boolean yourTurnOnly       // true = trait/power grant applies only during the controller's turn
 ) {
     public FieldPowerGrant {
         grantedTraits = Set.copyOf(grantedTraits);
@@ -44,7 +45,7 @@ public record FieldPowerGrant(
             String inclCardName) {
         this(jobFilter, categoryFilter, inclForwards, inclBackups, inclMonsters,
                 exceptCardName, powerBonus, grantedTraits, affectsOpponent, costFilter, costCmp, elementFilter,
-                inclCardName, 0, 0, null, false);
+                inclCardName, 0, 0, null, false, false);
     }
 
     /** Convenience constructor without {@code inclCardName} or any BZ conditions. */
@@ -54,7 +55,7 @@ public record FieldPowerGrant(
             boolean affectsOpponent, int costFilter, String costCmp, String elementFilter) {
         this(jobFilter, categoryFilter, inclForwards, inclBackups, inclMonsters,
                 exceptCardName, powerBonus, grantedTraits, affectsOpponent, costFilter, costCmp, elementFilter,
-                null, 0, 0, null, false);
+                null, 0, 0, null, false, false);
     }
 
     /** Convenience constructor without {@code elementFilter} or {@code inclCardName}. */
@@ -126,6 +127,7 @@ public record FieldPowerGrant(
             if (bzFilterFwds) sb.append("Fwd");
             sb.append(">=").append(minBzFilterCount).append(')');
         }
+        if (yourTurnOnly) sb.append(" yourTurnOnly");
         return sb.toString();
     }
 
