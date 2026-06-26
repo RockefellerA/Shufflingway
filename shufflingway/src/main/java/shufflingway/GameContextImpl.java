@@ -4254,6 +4254,55 @@ final class GameContextImpl implements GameContext {
 				}
 			}
 
+			@Override public void revealTopNAddTypeToHandOrPlayJobTypeOntoFieldRestBottom(
+					int reveal, int handMax, String handType, int fieldMax, String fieldJob, String fieldType) {
+				Deque<CardData> deck = isP1 ? mw.gameState.getP1MainDeck() : mw.gameState.getP2MainDeck();
+				int n = Math.min(reveal, deck.size());
+				if (n == 0) { logEntry("Reveal top: deck is empty."); return; }
+				List<CardData> peeked = new ArrayList<>();
+				for (CardData c : deck) { peeked.add(c); if (peeked.size() >= n) break; }
+				logEntry("Reveal top " + n + " card(s): " +
+						peeked.stream().map(CardData::name).collect(Collectors.joining(", ")));
+				Consumer<CardData> playOntoField = c -> {
+					if (c.isBackup())       mw.placeCardInFirstBackupSlot(c);
+					else if (c.isMonster()) mw.placeCardInMonsterZone(c);
+					else                    mw.placeCardInForwardZone(c);
+				};
+				if (!isP1 && mw.isP2Cpu()) {
+					// CPU: prefer playing onto field (more tempo), fall back to adding to hand
+					List<CardData> fieldEligible = peeked.stream()
+							.filter(c -> meetsRevealTypeFilter(c, fieldType)
+									&& (fieldJob == null || CardFilters.meetsJobFilter(c, fieldJob)))
+							.sorted(java.util.Comparator.comparingInt(CardData::cost).reversed())
+							.collect(Collectors.toList());
+					CardData chosen = fieldEligible.isEmpty() ? null : fieldEligible.get(0);
+					String chosenDest = chosen != null ? "field" : null;
+					if (chosen == null) {
+						List<CardData> handEligible = peeked.stream()
+								.filter(c -> meetsRevealTypeFilter(c, handType))
+								.sorted(java.util.Comparator.comparingInt(CardData::cost).reversed())
+								.collect(Collectors.toList());
+						if (!handEligible.isEmpty()) { chosen = handEligible.get(0); chosenDest = "hand"; }
+					}
+					for (int i = 0; i < n; i++) deck.pollFirst();
+					for (CardData c : peeked) {
+						if (c == chosen) continue;
+						deck.addLast(c); logEntry("[AI] " + c.name() + " → [P2] bottom of deck");
+					}
+					mw.refreshP2DeckLabel();
+					if (chosen != null && "field".equals(chosenDest)) {
+						logEntry("[AI] " + chosen.name() + " played onto field"); playOntoField.accept(chosen);
+					} else if (chosen != null) {
+						mw.gameState.getP2Hand().add(chosen);
+						mw.refreshP2HandCountLabel();
+						logEntry("[AI] " + chosen.name() + " → [P2] hand");
+					}
+				} else {
+					mw.lookDialogs().showRevealAddTypeToHandOrPlayJobTypeOntoFieldRestBottom(
+							peeked, deck, isP1, handMax, handType, fieldMax, fieldJob, fieldType, playOntoField);
+				}
+			}
+
 			@Override public void revealTopNPlayNamedOntoFieldRestBottom(int reveal, String cardName) {
 				Deque<CardData> deck = isP1 ? mw.gameState.getP1MainDeck() : mw.gameState.getP2MainDeck();
 				int n = Math.min(reveal, deck.size());

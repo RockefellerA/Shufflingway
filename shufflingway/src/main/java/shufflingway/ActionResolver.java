@@ -1148,6 +1148,29 @@ public class ActionResolver {
         "and\\s+return\\s+the\\s+other\\s+cards?\\s+to\\s+the\\s+bottom\\s+of\\s+(?:your|the)\\s+deck(?:\\s+in\\s+any\\s+order)?[.!]?\\s*$"
     );
 
+    /**
+     * Matches "Reveal the top N cards of your deck. Add M [Type] among them to your hand or
+     * play M [Job] [Type] among them onto the field, and return the other cards to the bottom
+     * of your deck in any order."
+     * <ul>
+     *   <li>{@code n}        — number of cards to reveal</li>
+     *   <li>{@code handmax}  — max cards for the add-to-hand branch</li>
+     *   <li>{@code handtype} — type filter for the hand branch (Forward/Backup/Monster/Character)</li>
+     *   <li>{@code fieldmax} — max cards for the play-onto-field branch</li>
+     *   <li>{@code fieldjob} — optional job filter for the field branch (e.g. "Moogle")</li>
+     *   <li>{@code fieldtype}— type filter for the field branch</li>
+     * </ul>
+     */
+    private static final Pattern REVEAL_ADD_TYPE_TO_HAND_OR_PLAY_JOB_TYPE_ONTO_FIELD_REST_BOTTOM = Pattern.compile(
+        "(?i)^\\s*reveal\\s+the\\s+top\\s+(?<n>\\d+)\\s+cards?\\s+of\\s+your\\s+deck[.!]?\\s+" +
+        "Add\\s+(?<handmax>\\d+)\\s+(?<handtype>Forward|Backup|Monster|Character)s?\\s+among\\s+them\\s+to\\s+your\\s+hand\\s+" +
+        "or\\s+play\\s+(?<fieldmax>\\d+)\\s+" +
+        "(?:Job\\s+(?<fieldjob>.+?)(?=\\s+(?:Forward|Backup|Monster|Character)s?\\s+among)\\s+)?" +
+        "(?<fieldtype>Forward|Backup|Monster|Character)s?\\s+among\\s+them\\s+onto\\s+(?:the\\s+)?field,?\\s+" +
+        "and\\s+return\\s+the\\s+other\\s+cards?\\s+to\\s+the\\s+bottom\\s+of\\s+(?:your|the)\\s+deck" +
+        "(?:\\s+in\\s+any\\s+order)?[.!]?\\s*$"
+    );
+
     // ---- Damage-shield followup patterns (apply to selected "it/them" targets) --------
 
     /** Matches "During this turn, the next damage dealt to it/him becomes 0 instead." */
@@ -3594,6 +3617,9 @@ public class ActionResolver {
         result = tryParseRevealTopNElementToHand(effectText);
         if (result != null) return result;
 
+        result = tryParseRevealAddTypeToHandOrPlayJobTypeOntoFieldRestBottom(effectText);
+        if (result != null) return result;
+
         result = tryParseReturnNamedToHand(effectText);
         if (result != null) return result;
 
@@ -4355,6 +4381,7 @@ public class ActionResolver {
         if (tryParseRevealTopNCategoryToHand(effectText)   != null)          return "RevealTopNCategoryToHand";
         if (tryParseRevealTopNJobOrNameToHand(effectText)  != null)          return "RevealTopNJobOrNameToHand";
         if (tryParseRevealTopNElementToHand(effectText)    != null)           return "RevealTopNElementToHand";
+        if (tryParseRevealAddTypeToHandOrPlayJobTypeOntoFieldRestBottom(effectText) != null) return "RevealAddTypeToHandOrPlayJobTypeOntoFieldRestBottom";
         if (tryParseReturnNamedToHand(effectText) != null)                   return "ReturnNamedToHand";
         if (tryParseYouMayRemoveNamedFromGame(effectText, source) != null)   return "YouMayRemoveNamedFromGame";
         if (tryParseEndOfOppTurnPlayNamedOntoField(effectText) != null)     return "EndOfOppTurnPlayNamedOntoField";
@@ -10293,6 +10320,29 @@ public class ActionResolver {
                     + " card(s) to hand, rest to bottom");
             ctx.revealTopAddUpToMatchingRestBottom(n, max, null, null, null, null, -1, normElement);
         };
+    }
+
+    private static Consumer<GameContext> tryParseRevealAddTypeToHandOrPlayJobTypeOntoFieldRestBottom(String text) {
+        Matcher m = REVEAL_ADD_TYPE_TO_HAND_OR_PLAY_JOB_TYPE_ONTO_FIELD_REST_BOTTOM.matcher(text.trim());
+        if (!m.matches()) return null;
+        int n        = Integer.parseInt(m.group("n"));
+        int handMax  = Integer.parseInt(m.group("handmax"));
+        String handType  = cap(m.group("handtype"));
+        int fieldMax = Integer.parseInt(m.group("fieldmax"));
+        String fieldJob  = m.group("fieldjob") != null ? m.group("fieldjob").trim() : null;
+        String fieldType = cap(m.group("fieldtype"));
+        String logDesc = "Reveal top " + n + " — add up to " + handMax + " " + handType
+                + " to hand OR play up to " + fieldMax
+                + (fieldJob != null ? " Job " + fieldJob + " " : " ") + fieldType + " onto field; rest to bottom";
+        return ctx -> {
+            ctx.logEntry("Effect: " + logDesc);
+            ctx.revealTopNAddTypeToHandOrPlayJobTypeOntoFieldRestBottom(n, handMax, handType, fieldMax, fieldJob, fieldType);
+        };
+    }
+
+    private static String cap(String s) {
+        if (s == null || s.isEmpty()) return s;
+        return Character.toUpperCase(s.charAt(0)) + s.substring(1).toLowerCase();
     }
 
     /** Appends {@code term} ("Job X" or "Card Name X") to the appropriate pipe-separated list. */

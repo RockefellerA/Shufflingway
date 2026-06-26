@@ -1306,6 +1306,205 @@ class LookAtDeckDialogs {
         }
     }
 
+    /**
+     * "Reveal N cards. Add up to {@code handMax} matching {@code handTypeFilter} to hand,
+     * OR play up to {@code fieldMax} matching {@code fieldJobFilter}+{@code fieldTypeFilter}
+     * onto the field. Only one branch fires; the rest go to the bottom of the deck."
+     *
+     * <p>Each revealed card shows two toggle buttons. Selecting any button disables every
+     * other button across all cards — only one card can be sent to one destination.
+     */
+    void showRevealAddTypeToHandOrPlayJobTypeOntoFieldRestBottom(List<CardData> cards, Deque<CardData> deck,
+            boolean isP1, int handMax, String handTypeFilter, int fieldMax,
+            String fieldJobFilter, String fieldTypeFilter, Consumer<CardData> playOntoField) {
+        int n = cards.size();
+        String title = "Reveal — Add " + handTypeFilter + " to Hand  OR  Play "
+                + (fieldJobFilter != null ? "Job " + fieldJobFilter + " " : "") + fieldTypeFilter + " onto Field";
+        JDialog dlg = new JDialog(frame, title, true);
+        dlg.setResizable(false);
+        dlg.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
+
+        List<CardData> order            = new ArrayList<>(cards);
+        Map<CardData, ImageIcon> imgCache = new LinkedHashMap<>();
+        JLabel[]  cardLabels            = new JLabel[n];
+        CardData[] chosenCard           = { null };
+        String[]   chosenDest           = { null };   // "hand" | "field" | null
+        int[]      selectedForSwap      = { -1 };
+        boolean[]  updating             = { false };
+
+        JButton confirmBtn = new JButton("Confirm");
+        confirmBtn.setFont(FontLoader.loadPixelNESFont(11));
+
+        Runnable updateLabels = () -> {
+            for (int j = 0; j < n; j++) {
+                ImageIcon ic = imgCache.get(order.get(j));
+                if (ic != null) { cardLabels[j].setIcon(ic); cardLabels[j].setText(null); }
+            }
+        };
+
+        javax.swing.JToggleButton[] handBtns  = new javax.swing.JToggleButton[n];
+        javax.swing.JToggleButton[] fieldBtns = new javax.swing.JToggleButton[n];
+
+        Runnable refreshButtons = () -> {
+            boolean anyChosen = chosenCard[0] != null;
+            for (int j = 0; j < n; j++) {
+                CardData c       = order.get(j);
+                boolean isChosen = c == chosenCard[0];
+                boolean handEligible  = meetsRevealTypeFilter(c, handTypeFilter);
+                boolean fieldEligible = meetsRevealTypeFilter(c, fieldTypeFilter)
+                        && (fieldJobFilter == null || CardFilters.meetsJobFilter(c, fieldJobFilter));
+                handBtns[j].setEnabled(handEligible   && (!anyChosen || (isChosen && "hand".equals(chosenDest[0]))));
+                fieldBtns[j].setEnabled(fieldEligible && (!anyChosen || (isChosen && "field".equals(chosenDest[0]))));
+            }
+        };
+
+        Runnable refreshBorders = () -> {
+            for (int j = 0; j < n; j++) {
+                CardData c = order.get(j);
+                if (c == chosenCard[0])
+                    cardLabels[j].setBorder(BorderFactory.createLineBorder(new Color(0, 200, 80), 3));
+                else if (j == selectedForSwap[0])
+                    cardLabels[j].setBorder(BorderFactory.createLineBorder(Color.YELLOW, 3));
+                else
+                    cardLabels[j].setBorder(BorderFactory.createLineBorder(new Color(160, 110, 220), 1));
+            }
+        };
+
+        JPanel cardsPanel = new JPanel(new FlowLayout(FlowLayout.CENTER, 8, 8));
+        for (int i = 0; i < n; i++) {
+            final int idx = i;
+            JLabel lbl = makeCardLabel(null);
+            lbl.addMouseListener(new MouseAdapter() {
+                @Override public void mouseEntered(MouseEvent e) { showZoom(order.get(idx).imageUrl()); }
+                @Override public void mouseExited(MouseEvent e)  { hideZoom(); }
+                @Override public void mousePressed(MouseEvent e) {
+                    CardData c = order.get(idx);
+                    if (c == chosenCard[0]) return;     // chosen card is locked
+                    if (selectedForSwap[0] == -1) {
+                        selectedForSwap[0] = idx;
+                    } else if (selectedForSwap[0] == idx) {
+                        selectedForSwap[0] = -1;
+                    } else {
+                        int other = selectedForSwap[0];
+                        if (order.get(other) == chosenCard[0]) { selectedForSwap[0] = idx; refreshBorders.run(); return; }
+                        CardData tmp = order.get(idx); order.set(idx, order.get(other)); order.set(other, tmp);
+                        updateLabels.run();
+                        updating[0] = true;
+                        for (int j = 0; j < n; j++) {
+                            handBtns[j].setSelected(order.get(j) == chosenCard[0] && "hand".equals(chosenDest[0]));
+                            fieldBtns[j].setSelected(order.get(j) == chosenCard[0] && "field".equals(chosenDest[0]));
+                        }
+                        updating[0] = false;
+                        refreshButtons.run();
+                        selectedForSwap[0] = -1;
+                    }
+                    refreshBorders.run();
+                }
+            });
+            cardLabels[i] = lbl;
+
+            javax.swing.JToggleButton handBtn  = new javax.swing.JToggleButton("→ Hand");
+            javax.swing.JToggleButton fieldBtn = new javax.swing.JToggleButton("→ Field");
+            handBtn.setFont(FontLoader.loadPixelNESFont(9));
+            fieldBtn.setFont(FontLoader.loadPixelNESFont(9));
+            handBtns[i]  = handBtn;
+            fieldBtns[i] = fieldBtn;
+
+            handBtn.addItemListener(ie -> {
+                if (updating[0]) return;
+                CardData c = order.get(idx);
+                if (ie.getStateChange() == java.awt.event.ItemEvent.SELECTED) {
+                    chosenCard[0] = c; chosenDest[0] = "hand";
+                    updating[0] = true; fieldBtns[idx].setSelected(false); updating[0] = false;
+                } else {
+                    if (c == chosenCard[0] && "hand".equals(chosenDest[0])) { chosenCard[0] = null; chosenDest[0] = null; }
+                }
+                selectedForSwap[0] = -1;
+                refreshButtons.run(); refreshBorders.run();
+            });
+
+            fieldBtn.addItemListener(ie -> {
+                if (updating[0]) return;
+                CardData c = order.get(idx);
+                if (ie.getStateChange() == java.awt.event.ItemEvent.SELECTED) {
+                    chosenCard[0] = c; chosenDest[0] = "field";
+                    updating[0] = true; handBtns[idx].setSelected(false); updating[0] = false;
+                } else {
+                    if (c == chosenCard[0] && "field".equals(chosenDest[0])) { chosenCard[0] = null; chosenDest[0] = null; }
+                }
+                selectedForSwap[0] = -1;
+                refreshButtons.run(); refreshBorders.run();
+            });
+
+            JPanel btnRow = new JPanel(new java.awt.GridLayout(1, 2, 2, 0));
+            btnRow.setOpaque(false);
+            btnRow.add(handBtn);
+            btnRow.add(fieldBtn);
+
+            JPanel wrapper = new JPanel(new BorderLayout(0, 2));
+            wrapper.setOpaque(false);
+            wrapper.add(lbl,    BorderLayout.CENTER);
+            wrapper.add(btnRow, BorderLayout.SOUTH);
+            cardsPanel.add(wrapper);
+        }
+
+        refreshButtons.run();
+
+        for (CardData c : cards) {
+            new SwingWorker<ImageIcon, Void>() {
+                @Override protected ImageIcon doInBackground() throws Exception {
+                    Image img = ImageCache.load(c.imageUrl());
+                    return img == null ? null
+                            : new ImageIcon(img.getScaledInstance(CARD_W, CARD_H, Image.SCALE_SMOOTH));
+                }
+                @Override protected void done() {
+                    try { ImageIcon ic = get(); if (ic != null) { imgCache.put(c, ic); updateLabels.run(); } }
+                    catch (InterruptedException | ExecutionException ignored) {}
+                }
+            }.execute();
+        }
+
+        JLabel instructions = new JLabel(
+                "Select 1 card: '→ Hand' (" + handTypeFilter + ") or '→ Field' ("
+                + (fieldJobFilter != null ? "Job " + fieldJobFilter + " " : "") + fieldTypeFilter
+                + "). Swap others to set bottom-of-deck order (left = first).",
+                SwingConstants.CENTER);
+        instructions.setFont(FontLoader.loadPixelNESFont(9));
+        confirmBtn.addActionListener(ae -> { hideZoom(); dlg.dispose(); });
+
+        JPanel south = new JPanel(new BorderLayout(0, 2));
+        south.add(instructions, BorderLayout.NORTH);
+        JPanel btnRowPanel = new JPanel(new FlowLayout(FlowLayout.CENTER, 12, 6));
+        btnRowPanel.add(confirmBtn);
+        south.add(btnRowPanel, BorderLayout.SOUTH);
+
+        dlg.getContentPane().setLayout(new BorderLayout(0, 4));
+        dlg.getContentPane().add(cardsPanel, BorderLayout.CENTER);
+        dlg.getContentPane().add(south,      BorderLayout.SOUTH);
+        dlg.pack();
+        dlg.setLocationRelativeTo(frame);
+        dlg.setVisible(true);
+
+        // Commit choices after dialog closes
+        for (int i = 0; i < n; i++) deck.pollFirst();
+        for (CardData c : order) {
+            if (c == chosenCard[0]) continue;
+            deck.addLast(c);
+            log(c.name() + " → bottom of deck");
+        }
+        if (isP1) cb.refreshP1Deck().run(); else cb.refreshP2Deck().run();
+
+        if (chosenCard[0] != null && "field".equals(chosenDest[0])) {
+            log(chosenCard[0].name() + " played onto field");
+            playOntoField.accept(chosenCard[0]);
+        } else if (chosenCard[0] != null) {
+            if (isP1) gameState.getP1Hand().add(chosenCard[0]);
+            else      gameState.getP2Hand().add(chosenCard[0]);
+            log(chosenCard[0].name() + " → hand");
+            if (isP1) cb.refreshP1Hand().run(); else cb.refreshP2Hand().run();
+        }
+    }
+
     void showRevealPlayNamedOntoFieldRestBottom(List<CardData> cards, Deque<CardData> deck,
             boolean isP1, String cardName, Consumer<CardData> playOntoField) {
         int n = cards.size();

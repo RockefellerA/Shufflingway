@@ -1168,6 +1168,16 @@ public interface GameContext {
      */
     void revealTopNPlayUpToTypeOntoFieldRestBottom(int reveal, int maxPlay, String typeFilter);
 
+    /**
+     * Reveals the top {@code reveal} cards. The player may either add up to {@code handMax}
+     * cards matching {@code handType} to their hand, OR play up to {@code fieldMax} cards
+     * matching {@code fieldJob} (optional) and {@code fieldType} onto the field for free.
+     * Only one branch fires; the remaining cards go to the bottom of the deck in any order.
+     */
+    void revealTopNAddTypeToHandOrPlayJobTypeOntoFieldRestBottom(
+            int reveal, int handMax, String handType,
+            int fieldMax, String fieldJob, String fieldType);
+
     /** Returns {@code true} if the specific element CP was included in the payment for the most recently cast card. */
     boolean wasElementCpPaid(String element);
 
