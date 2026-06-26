@@ -3307,6 +3307,9 @@ public class ActionResolver {
         result = tryParseControlConditionGate(effectText, source, xValue);
         if (result != null) return result;
 
+        result = tryParseOpponentControlsCardGate(effectText, source, xValue);
+        if (result != null) return result;
+
         result = tryParseIfCastAtLeast(effectText, source, xValue);
         if (result != null) return result;
 
@@ -8061,6 +8064,14 @@ public class ActionResolver {
         "(?is)^if\\s+you\\s+(?<neg>do\\s+not\\s+|don't\\s+)?control\\s+(?<cond>.+?),\\s+(?<effect>.+)$"
     );
 
+    /** Matches "If your opponent controls a(n) [cond] [type], [effect]" — e.g. "a damaged Forward". */
+    private static final Pattern OPP_CONTROL_CARD_GATE = Pattern.compile(
+        "(?is)^if\\s+your\\s+opponent\\s+controls\\s+a(?:n)?\\s+" +
+        "(?<cond>damaged|dull|active|attacking|blocking)\\s+" +
+        "(?<type>Forwards?|Monsters?|Backups?|Characters?),\\s+" +
+        "(?<effect>.+)$"
+    );
+
     /** Matches "If you have cast N or more cards this turn, &lt;effect&gt;". */
     private static final Pattern IF_CAST_AT_LEAST = Pattern.compile(
         "(?is)^if\\s+you\\s+have\\s+cast\\s+(?<min>\\d+)\\s+or\\s+more\\s+cards?\\s+this\\s+turn,\\s+(?<effect>.+)$"
@@ -8124,6 +8135,24 @@ public class ActionResolver {
                 inner.accept(ctx);
             } else {
                 ctx.logEntry("Effect: control condition not met — skipped");
+            }
+        };
+    }
+
+    private static Consumer<GameContext> tryParseOpponentControlsCardGate(String text, CardData source, int xValue) {
+        Matcher m = OPP_CONTROL_CARD_GATE.matcher(text.trim());
+        if (!m.matches()) return null;
+        String cond    = m.group("cond").toLowerCase();
+        String typeRaw = m.group("type");
+        String normType = Character.toUpperCase(typeRaw.charAt(0))
+                + typeRaw.substring(1).toLowerCase().replaceAll("s$", "");
+        Consumer<GameContext> inner = parse(m.group("effect").trim(), source, xValue);
+        if (inner == null) return null;
+        return ctx -> {
+            if (ctx.opponentControlsCard(normType, cond)) {
+                inner.accept(ctx);
+            } else {
+                ctx.logEntry("Effect: opponent has no " + cond + " " + normType + " — skipped");
             }
         };
     }

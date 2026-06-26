@@ -622,6 +622,13 @@ public interface GameContext {
     /** Returns {@code true} if the "if you control" condition is met by the active player's field. */
     boolean controlConditionMet(ControlCondition cond);
 
+    /**
+     * Returns {@code true} if the opponent controls at least one card of {@code cardType}
+     * ("Forward", "Monster", "Backup", or "Character") satisfying {@code cardCondition}
+     * ("damaged", "dull", "active", "attacking", "blocking", or {@code null} for any state).
+     */
+    boolean opponentControlsCard(String cardType, String cardCondition);
+
     /** Returns {@code true} if the active player received at least one point of game damage this turn. */
     boolean selfReceivedDamageThisTurn();
 

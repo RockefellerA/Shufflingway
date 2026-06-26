@@ -3848,6 +3848,36 @@ final class GameContextImpl implements GameContext {
 				return mw.controlConditionMet(cond, isP1);
 			}
 
+			@Override public boolean opponentControlsCard(String cardType, String cardCondition) {
+				boolean oppIsP1 = !isP1;
+				String norm = cardType == null ? null : cardType.toLowerCase().replaceAll("s$", "");
+				if (norm == null || norm.equals("forward") || norm.equals("character")) {
+					List<CardData>  fwds   = oppIsP1 ? mw.p1ForwardCards  : mw.p2ForwardCards;
+					List<Integer>   dmg    = oppIsP1 ? mw.p1ForwardDamage  : mw.p2ForwardDamage;
+					List<CardState> states = oppIsP1 ? mw.p1ForwardStates  : mw.p2ForwardStates;
+					for (int i = 0; i < fwds.size(); i++) {
+						int d = i < dmg.size()    ? dmg.get(i)    : 0;
+						CardState s = i < states.size() ? states.get(i) : CardState.ACTIVE;
+						if (CardFilters.meetsTargetCondition(s, d, false, false, cardCondition)) return true;
+					}
+				}
+				if (norm == null || norm.equals("monster") || norm.equals("character")) {
+					List<CardData>  mons   = oppIsP1 ? mw.p1MonsterCards  : mw.p2MonsterCards;
+					List<CardState> states = oppIsP1 ? mw.p1MonsterStates : mw.p2MonsterStates;
+					for (int i = 0; i < mons.size(); i++) {
+						CardState s = i < states.size() ? states.get(i) : CardState.ACTIVE;
+						if (CardFilters.meetsTargetCondition(s, 0, false, false, cardCondition)) return true;
+					}
+				}
+				if (norm == null || norm.equals("backup") || norm.equals("character")) {
+					CardData[] bkps = oppIsP1 ? mw.p1BackupCards : mw.p2BackupCards;
+					for (CardData c : bkps) {
+						if (c != null && CardFilters.meetsTargetCondition(CardState.ACTIVE, 0, false, false, cardCondition)) return true;
+					}
+				}
+				return false;
+			}
+
 			@Override public boolean selfReceivedDamageThisTurn() {
 				return isP1 ? mw.p1ReceivedDamageThisTurn : mw.p2ReceivedDamageThisTurn;
 			}
