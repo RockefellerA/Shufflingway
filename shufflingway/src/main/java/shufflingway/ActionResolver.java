@@ -401,6 +401,16 @@ public class ActionResolver {
     );
 
     /**
+     * Matches the secondary "Then, play the removed Forward onto the field [dull]."
+     * Used after a RemoveFromGame primary to play the just-removed card back onto the field.
+     * Group {@code dull} — present if the card enters dull.
+     */
+    private static final Pattern SECONDARY_PLAY_REMOVED_ONTO_FIELD = Pattern.compile(
+        "(?i)^(?:Then,?\\s+)?play\\s+the\\s+removed\\s+(?:Forward|Character)" +
+        "\\s+onto\\s+(?:the\\s+)?field(?:\\s+(?<dull>dull))?[.!]?\\s*$"
+    );
+
+    /**
      * Matches "Remove it/them and [CardName] from the game" — chosen target(s) plus a named card.
      * Group {@code named} — the additional card name to remove.
      */
@@ -475,6 +485,15 @@ public class ActionResolver {
     /** Matches "You may remove [CardName] from the game." — optional self-RFP. */
     private static final Pattern YOU_MAY_REMOVE_NAMED_FROM_GAME = Pattern.compile(
         "(?i)^you\\s+may\\s+remove\\s+(?<name>.+?)\\s+from\\s+(?:the\\s+)?game[.!]?\\s*$"
+    );
+
+    /**
+     * Matches "You may reveal 1 [Element] card from your hand."
+     * Group {@code element} — the required element name.
+     */
+    private static final Pattern YOU_MAY_REVEAL_ELEMENT_FROM_HAND = Pattern.compile(
+        "(?i)^You\\s+may\\s+reveal\\s+1\\s+(?<element>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)" +
+        "\\s+card\\s+from\\s+your\\s+hand[.!]?\\s*$"
     );
 
     /** Matches "At the end of your opponent's turn, play [CardName] onto the field." */
@@ -3717,6 +3736,9 @@ public class ActionResolver {
         result = tryParseYouMayDiscardType(effectText);
         if (result != null) return result;
 
+        result = tryParseMayRevealElementFromHand(effectText);
+        if (result != null) return result;
+
         result = tryParseDiscardHand(effectText);
         if (result != null) return result;
 
@@ -4049,6 +4071,7 @@ public class ActionResolver {
         if (tryParseDrawDiscardRetriggerIfCardName(effectText, source) != null) return "DrawDiscardRetriggerIfCardName";
         if (tryParseDrawCards(effectText)                     != null) return "DrawCards";
         if (tryParseYouMayDiscardType(effectText)             != null) return "YouMayDiscardType";
+        if (tryParseMayRevealElementFromHand(effectText)      != null) return "MayRevealElementFromHand";
         if (tryParseDiscardHand(effectText)                   != null) return "DiscardHand";
         if (tryParseDiscardNCards(effectText)                 != null) return "DiscardNCards";
         if (tryParseDiscardThenDraw(effectText)               != null) return "DiscardThenDraw";
@@ -4152,6 +4175,7 @@ public class ActionResolver {
         if (FOLLOWUP_LOSE_ALL_ABILITIES_EOT.matcher(followupText).find())              return "LoseAllAbilitiesEot";
         if (FOLLOWUP_REMOVE_FROM_GAME_AND_NAMED.matcher(followupText).find())          return "RemoveFromGameAndNamed";
         if (FOLLOWUP_REMOVE_FROM_GAME.matcher(followupText).find())                   return "RemoveFromGame";
+        if (SECONDARY_PLAY_REMOVED_ONTO_FIELD.matcher(followupText).find())           return "PlayRemovedOntoField";
         if (FOLLOWUP_PLAY_IF_COST_LE_JOB_COUNT.matcher(followupText).matches())       return "PlayIfCostLeJobCount";
         if (FOLLOWUP_PLAY_ONTO_FIELD.matcher(followupText).find())                    return "PlayOntoField";
         if (FOLLOWUP_ADD_TO_HAND.matcher(followupText).find())                        return "AddToHand";
@@ -4415,6 +4439,7 @@ public class ActionResolver {
         if (tryParseDrawDiscardRetriggerIfCardName(effectText, source) != null) return "DrawDiscardRetriggerIfCardName";
         if (tryParseDrawCards(effectText) != null)                          return "DrawCards";
         if (tryParseYouMayDiscardType(effectText) != null)                  return "YouMayDiscardType";
+        if (tryParseMayRevealElementFromHand(effectText) != null)           return "MayRevealElementFromHand";
         if (tryParseDiscardHand(effectText) != null)                        return "DiscardHand";
         if (tryParseDiscardNCards(effectText) != null)                      return "DiscardNCards";
         if (tryParseDiscardThenDraw(effectText) != null)                    return "DiscardThenDraw";
@@ -5703,9 +5728,15 @@ public class ActionResolver {
                                 sortedByIdxDesc(chosen, false).forEach(ctx::breakTarget);
                             };
                         } else {
-                            Consumer<GameContext> parsed = parse(secondaryText, source);
-                            secondary = (parsed != null) ? parsed
-                                    : ctx -> ctx.logEntry("[ActionResolver] Secondary followup not yet implemented: " + secondaryText);
+                            Matcher rfpM = SECONDARY_PLAY_REMOVED_ONTO_FIELD.matcher(secondaryText);
+                            if (rfpM.find()) {
+                                boolean dullIt = rfpM.group("dull") != null;
+                                secondary = ctx -> ctx.playLastRemovedFromRfpOntoField(dullIt);
+                            } else {
+                                Consumer<GameContext> parsed = parse(secondaryText, source);
+                                secondary = (parsed != null) ? parsed
+                                        : ctx -> ctx.logEntry("[ActionResolver] Secondary followup not yet implemented: " + secondaryText);
+                            }
                         }
                     }
                 }
@@ -8362,6 +8393,17 @@ public class ActionResolver {
         return ctx -> {
             ctx.logEntry("Effect: Discard 1 " + type);
             ctx.selfDiscardByType(type);
+        };
+    }
+
+    /** Parses "You may reveal 1 [Element] card from your hand." */
+    private static Consumer<GameContext> tryParseMayRevealElementFromHand(String text) {
+        Matcher m = YOU_MAY_REVEAL_ELEMENT_FROM_HAND.matcher(text.trim());
+        if (!m.matches()) return null;
+        String element = m.group("element");
+        return ctx -> {
+            ctx.logEntry("Effect: May reveal 1 " + element + " card from hand");
+            ctx.mayRevealCardByElementFromHand(element);
         };
     }
 

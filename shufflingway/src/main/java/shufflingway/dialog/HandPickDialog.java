@@ -259,6 +259,105 @@ public class HandPickDialog {
     }
 
     // -------------------------------------------------------------------------
+    // Reveal 1 card of a given element from hand (card stays in hand)
+    // -------------------------------------------------------------------------
+
+    /**
+     * Shows a dialog for P1 to optionally reveal 1 card of {@code element} from hand.
+     * The card is not moved — it stays in the player's hand after being revealed.
+     * Returns {@code true} if the player revealed a card, {@code false} if they passed.
+     */
+    public static boolean showRevealByElement(JFrame owner, List<CardData> hand, List<Integer> eligible,
+                                              String element,
+                                              Consumer<String> onZoom, Runnable onZoomHide) {
+        JDialog dlg = new JDialog(owner, "Reveal 1 " + element + " Card", true);
+        dlg.setResizable(false);
+        dlg.setDefaultCloseOperation(JDialog.DO_NOTHING_ON_CLOSE);
+
+        boolean[] result = { false };
+        int[] selectedIdx = { -1 };
+
+        JLabel statusLabel = new JLabel("Select 1 " + element + " card to reveal — or Pass.", SwingConstants.CENTER);
+        statusLabel.setFont(FontLoader.loadPixelNESFont(10));
+
+        List<JLabel> cardLabels = new ArrayList<>();
+        JPanel cardsPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 8));
+
+        JButton confirmBtn = new JButton("Reveal");
+        confirmBtn.setFont(FontLoader.loadPixelNESFont(11));
+        confirmBtn.setEnabled(false);
+
+        JButton passBtn = new JButton("Pass");
+        passBtn.setFont(FontLoader.loadPixelNESFont(11));
+
+        Runnable refresh = () -> {
+            confirmBtn.setEnabled(selectedIdx[0] >= 0);
+            for (int j = 0; j < cardLabels.size(); j++) {
+                boolean sel = eligible.get(j).equals(selectedIdx[0]);
+                cardLabels.get(j).setBorder(BorderFactory.createLineBorder(
+                        sel ? Color.CYAN : Color.LIGHT_GRAY, sel ? 3 : 1));
+            }
+        };
+
+        for (int j = 0; j < eligible.size(); j++) {
+            final int handIdx = eligible.get(j);
+            CardData cd = hand.get(handIdx);
+
+            JPanel wrapper = new JPanel(new BorderLayout(0, 4));
+            wrapper.setBackground(cardsPanel.getBackground());
+
+            JLabel lbl = makeCardLabel();
+            lbl.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+            cardLabels.add(lbl);
+
+            lbl.addMouseListener(new MouseAdapter() {
+                @Override public void mouseEntered(MouseEvent e) { if (lbl.getIcon() != null) onZoom.accept(cd.imageUrl()); }
+                @Override public void mouseExited(MouseEvent e)  { onZoomHide.run(); }
+                @Override public void mousePressed(MouseEvent e) {
+                    selectedIdx[0] = selectedIdx[0] == handIdx ? -1 : handIdx;
+                    refresh.run();
+                }
+            });
+
+            loadCardImage(lbl, cd.imageUrl());
+
+            JLabel nameLabel = new JLabel(cd.name(), SwingConstants.CENTER);
+            nameLabel.setFont(FontLoader.loadPixelNESFont(9));
+            nameLabel.setPreferredSize(new Dimension(CARD_W, 18));
+
+            wrapper.add(lbl,       BorderLayout.CENTER);
+            wrapper.add(nameLabel, BorderLayout.SOUTH);
+            cardsPanel.add(wrapper);
+        }
+
+        confirmBtn.addActionListener(ae -> {
+            onZoomHide.run();
+            if (selectedIdx[0] >= 0) result[0] = true;
+            dlg.dispose();
+        });
+        passBtn.addActionListener(ae -> { onZoomHide.run(); dlg.dispose(); });
+
+        JScrollPane scroll = new JScrollPane(cardsPanel);
+        scroll.setPreferredSize(new Dimension(Math.min(eligible.size() * (CARD_W + 16) + 20, 600), CARD_H + 60));
+
+        JPanel btnPanel = new JPanel(new FlowLayout(FlowLayout.CENTER, 10, 4));
+        btnPanel.add(confirmBtn);
+        btnPanel.add(passBtn);
+
+        JPanel main = new JPanel(new BorderLayout(0, 6));
+        main.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
+        main.add(statusLabel, BorderLayout.NORTH);
+        main.add(scroll,      BorderLayout.CENTER);
+        main.add(btnPanel,    BorderLayout.SOUTH);
+
+        dlg.setContentPane(main);
+        dlg.pack();
+        dlg.setLocationRelativeTo(owner);
+        dlg.setVisible(true);
+        return result[0];
+    }
+
+    // -------------------------------------------------------------------------
     // Place N cards at bottom of deck
     // -------------------------------------------------------------------------
 

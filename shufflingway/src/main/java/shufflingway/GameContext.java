@@ -966,6 +966,12 @@ public interface GameContext {
     void playNamedFromRfpOntoField(String cardName);
 
     /**
+     * Plays the most recently removed card from the active player's permanent RFP zone back onto
+     * the field. If {@code dull} is true, the card enters dull.
+     */
+    void playLastRemovedFromRfpOntoField(boolean dull);
+
+    /**
      * Searches the field for a card matching {@code cardName} and returns it to its owner's hand.
      * P1-zone cards go to P1's hand; P2-zone cards go to P2's hand.
      */
@@ -1044,6 +1050,13 @@ public interface GameContext {
      * When P2 is the ability user the AI always passes (never voluntarily discards).
      */
     void selfDiscardByType(String cardType);
+
+    /**
+     * Lets the ability user optionally reveal 1 card of {@code element} from their hand
+     * (card stays in hand). Sets effectMadeProgress only when a card is actually revealed.
+     * P2 AI auto-reveals if an eligible card is available.
+     */
+    void mayRevealCardByElementFromHand(String element);
 
     // ---- Special-ability replay offers ------------------------------------------
 

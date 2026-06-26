@@ -2928,6 +2928,34 @@ final class GameContextImpl implements GameContext {
 				logEntry("[Warning] playNamedFromRfpOntoField: \"" + cardName + "\" not found in RFP");
 			}
 
+			@Override public void playLastRemovedFromRfpOntoField(boolean dull) {
+				List<CardData> rfp = isP1 ? mw.gameState.getP1PermanentRfp() : mw.gameState.getP2PermanentRfp();
+				if (rfp.isEmpty()) {
+					logEntry("[Warning] playLastRemovedFromRfpOntoField: RFP zone is empty");
+					return;
+				}
+				CardData card = rfp.get(rfp.size() - 1);
+				if (isP1) {
+					mw.gameState.removeFromP1PermanentRfp(card);
+					logEntry(card.name() + " returns from RFP → P1 field" + (dull ? " (dull)" : ""));
+					mw.placeCardInForwardZone(card);
+					if (dull) {
+						int newIdx = mw.p1ForwardCards.size() - 1;
+						mw.p1ForwardStates.set(newIdx, CardState.DULL);
+						mw.refreshP1ForwardSlot(newIdx);
+					}
+				} else {
+					mw.gameState.removeFromP2PermanentRfp(card);
+					logEntry(card.name() + " returns from RFP → P2 field" + (dull ? " (dull)" : ""));
+					mw.placeP2CardInForwardZone(card);
+					if (dull) {
+						int newIdx = mw.p2ForwardCards.size() - 1;
+						mw.p2ForwardStates.set(newIdx, CardState.DULL);
+						mw.refreshP2ForwardSlot(newIdx);
+					}
+				}
+			}
+
 			@Override public void returnNamedCardToOwnersHand(String cardName) {
 				for (int i = 0; i < mw.p1ForwardCards.size(); i++) {
 					if (mw.p1ForwardCards.get(i).name().equalsIgnoreCase(cardName)) { returnP1ForwardToHand(i); return; }
@@ -3098,6 +3126,21 @@ final class GameContextImpl implements GameContext {
 					}
 					mw.refreshP2HandCountLabel();
 					mw.refreshP2BreakLabel();
+				}
+			}
+
+			@Override public void mayRevealCardByElementFromHand(String element) {
+				List<CardData> hand = isP1 ? mw.gameState.getP1Hand() : mw.gameState.getP2Hand();
+				List<Integer> eligible = new ArrayList<>();
+				for (int i = 0; i < hand.size(); i++) {
+					if (hand.get(i).containsElement(element)) eligible.add(i);
+				}
+				if (eligible.isEmpty()) { markEffectFizzled(); return; }
+				if (isP1) {
+					boolean revealed = mw.showRevealByElementFromHandDialog(element);
+					if (!revealed) markEffectFizzled();
+				} else {
+					logEntry("[P2] Reveals " + hand.get(eligible.get(0)).name() + " (a " + element + " card from hand)");
 				}
 			}
 

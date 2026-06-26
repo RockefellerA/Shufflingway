@@ -4497,6 +4497,23 @@ public class MainWindow {
 	}
 
 	/**
+	 * Lets P1 optionally reveal 1 card of {@code element} from hand (card stays in hand).
+	 * Returns {@code true} if the player revealed one, {@code false} if they passed or had no eligible cards.
+	 */
+	boolean showRevealByElementFromHandDialog(String element) {
+		List<CardData> hand = gameState.getP1Hand();
+		List<Integer> eligible = new ArrayList<>();
+		for (int i = 0; i < hand.size(); i++) {
+			if (hand.get(i).containsElement(element)) eligible.add(i);
+		}
+		if (eligible.isEmpty()) return false;
+		boolean revealed = HandPickDialog.showRevealByElement(frame, hand, eligible, element,
+				this::showZoomAt, this::hideZoom);
+		if (revealed) logEntry("Reveals a " + element + " card from hand");
+		return revealed;
+	}
+
+	/**
 	 * Shows a picker for P1 to choose 1 EX Burst card from {@code eligible} (cards already
 	 * filtered from the Damage Zone). Returns the chosen card, or {@code null} if Pass is clicked.
 	 */
