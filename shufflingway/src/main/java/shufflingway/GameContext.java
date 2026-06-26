@@ -402,6 +402,12 @@ public interface GameContext {
      */
     void playTargetOntoField(ForwardTarget t);
 
+    /**
+     * Like {@link #playTargetOntoField} but the card enters the field in a dulled state.
+     * Only meaningful for Forwards; Backups and Monsters enter normally.
+     */
+    void playTargetOntoFieldDull(ForwardTarget t);
+
     /** Moves the target (chosen from a Break Zone) to P1's hand. */
     void addTargetToHand(ForwardTarget t);
 

@@ -100,6 +100,33 @@ public class ActionResolver {
     );
 
     /**
+     * Matches "Choose [up to] N [desc1] and [up to] N [desc2]. [effects]"
+     * where the effects text uses "the former" and "the latter" as pronouns for the two target groups.
+     */
+    private static final Pattern CHOOSE_FORMER_LATTER_PATTERN = Pattern.compile(
+        "(?i)^Choose\\s+(?<upTo1>up\\s+to\\s+)?(?<count1>\\d+)\\s+(?<desc1>.+?)" +
+        "\\s+and\\s+(?<upTo2>up\\s+to\\s+)?(?<count2>\\d+)\\s+(?<desc2>.+?)[.]\\s*" +
+        "(?<effects>.+)$",
+        Pattern.DOTALL
+    );
+
+    /**
+     * Parses a single target description in a CHOOSE_FORMER_LATTER clause:
+     * "[condition] [element] CardType [of cost N [or less|more]] [control] [zone]"
+     */
+    private static final Pattern TARGET_DESC_PATTERN = Pattern.compile(
+        "(?i)^" +
+        "(?:(?<condition>dull|damaged|attacking|blocking|active)\\s+)?" +
+        "(?:(?<element>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)\\s+)?" +
+        "(?<cardtype>Forwards?|Backups?|Characters?|Monsters?)" +
+        "(?:\\s+of\\s+cost\\s+(?<cost>\\d+)(?:\\s+or\\s+(?<costcmp>less|more))?)?" +
+        "(?:\\s+(?<control>(?:your\\s+)?opponent\\s+controls?|you\\s+control))?" +
+        "(?:\\s+other\\s+than\\s+(?<excludename>.+?))?" +
+        "(?:\\s+(?<zone>(?:in|from)\\s+(?:your(?:\\s+opponent(?:'s)?)?|the)\\s+Break\\s+Zone))?" +
+        "$"
+    );
+
+    /**
      * Matches "Choose N [type1] and N [type2] [control?]. [followup]"
      * — two cards of different types from the same pool.
      * Optional control qualifier ("opponent controls" / "you control"); if absent, any side is valid.
@@ -341,6 +368,11 @@ public class ActionResolver {
      */
     private static final Pattern FOLLOWUP_DULL_OR_FREEZE = Pattern.compile(
         "(?i)Dulls?\\s+(?:it|them)\\s+or\\s+freezes?\\s+(?:it|them)[.!]?"
+    );
+
+    /** Matches "Dull or Freeze it/them" — compact imperative form used in former/latter effects. */
+    private static final Pattern FOLLOWUP_DULL_OR_FREEZE_COMPACT = Pattern.compile(
+        "(?i)Dull\\s+or\\s+Freeze\\s+(?:it|them)[.!]?"
     );
 
     /** Matches "dull it/them" or "dulls it/them" (third-person form used in opponent-selects effects). */
@@ -606,6 +638,11 @@ public class ActionResolver {
     /** Matches "Play it onto the field" or "Play them onto the field". */
     private static final Pattern FOLLOWUP_PLAY_ONTO_FIELD = Pattern.compile(
         "(?i)Play\\s+(?:it|them)\\s+onto\\s+(?:the\\s+)?field"
+    );
+
+    /** Matches "Play it onto the field dull" or "Play them onto the field dull". */
+    private static final Pattern FOLLOWUP_PLAY_ONTO_FIELD_DULL = Pattern.compile(
+        "(?i)Play\\s+(?:it|them)\\s+onto\\s+(?:the\\s+)?field\\s+dull[.!]?"
     );
 
     /**
@@ -3430,6 +3467,9 @@ public class ActionResolver {
         result = tryParseChooseOneEach(effectText, source);
         if (result != null) return result;
 
+        result = tryParseChooseFormerLatter(effectText, source);
+        if (result != null) return result;
+
         result = tryParseChooseFwdPowerLeAndOptOppBzFwdRfp(effectText);
         if (result != null) return result;
 
@@ -5403,6 +5443,175 @@ public class ActionResolver {
         }
 
         return null;
+    }
+
+    // -------------------------------------------------------------------------
+    // Former/Latter dual-selection parser
+    // -------------------------------------------------------------------------
+
+    private record TargetDesc(
+            boolean fwd, boolean bkp, boolean mon,
+            boolean opponentOnly, boolean selfOnly,
+            String condition, String element,
+            int costVal, String costCmp,
+            String excludeName,
+            boolean fromBreakZone, boolean opponentBz) {}
+
+    private static TargetDesc parseTargetDesc(String desc) {
+        Matcher m = TARGET_DESC_PATTERN.matcher(desc.trim());
+        if (!m.matches()) return null;
+
+        String ct = m.group("cardtype").toLowerCase(java.util.Locale.ROOT);
+        boolean fwd = ct.startsWith("forward") || ct.startsWith("character");
+        boolean bkp = ct.startsWith("backup")  || ct.startsWith("character");
+        boolean mon = ct.startsWith("monster") || ct.startsWith("character");
+
+        String control      = m.group("control");
+        boolean opponentOnly = control != null && control.toLowerCase(java.util.Locale.ROOT).contains("opponent");
+        boolean selfOnly     = control != null && control.toLowerCase(java.util.Locale.ROOT).contains("you control");
+
+        int    costVal = m.group("cost") != null ? Integer.parseInt(m.group("cost")) : -1;
+        String costCmp = m.group("costcmp");
+
+        String  zone       = m.group("zone");
+        boolean fromBz     = zone != null;
+        boolean opponentBz = fromBz && zone.toLowerCase(java.util.Locale.ROOT).contains("opponent");
+
+        return new TargetDesc(fwd, bkp, mon, opponentOnly, selfOnly,
+                m.group("condition"), m.group("element"),
+                costVal, costCmp, m.group("excludename"),
+                fromBz, opponentBz);
+    }
+
+    private static java.util.function.BiConsumer<GameContext, List<ForwardTarget>>
+            parseFormerLatterGroupAction(String text) {
+        String t = text.trim();
+
+        // "Play it onto the field dull" must precede plain "Play it onto the field"
+        if (FOLLOWUP_PLAY_ONTO_FIELD_DULL.matcher(t).find())
+            return (ctx, ts) -> {
+                sortedByIdxDesc(ts, true) .forEach(ctx::playTargetOntoFieldDull);
+                sortedByIdxDesc(ts, false).forEach(ctx::playTargetOntoFieldDull);
+            };
+
+        if (FOLLOWUP_PLAY_ONTO_FIELD.matcher(t).find())
+            return (ctx, ts) -> {
+                sortedByIdxDesc(ts, true) .forEach(ctx::playTargetOntoField);
+                sortedByIdxDesc(ts, false).forEach(ctx::playTargetOntoField);
+            };
+
+        // "Dull or Freeze it" — compact form must precede plain FOLLOWUP_DULL
+        if (FOLLOWUP_DULL_OR_FREEZE_COMPACT.matcher(t).find())
+            return (ctx, ts) -> {
+                sortedByIdxDesc(ts, true) .forEach(ctx::dullOrFreezeTarget);
+                sortedByIdxDesc(ts, false).forEach(ctx::dullOrFreezeTarget);
+            };
+
+        if (FOLLOWUP_DULL.matcher(t).find())
+            return (ctx, ts) -> {
+                sortedByIdxDesc(ts, true) .forEach(ctx::dullTarget);
+                sortedByIdxDesc(ts, false).forEach(ctx::dullTarget);
+            };
+
+        Matcher dmgM = FOLLOWUP_DAMAGE.matcher(t);
+        if (dmgM.find()) {
+            int damage = Integer.parseInt(dmgM.group("amount"));
+            return (ctx, ts) -> {
+                sortedByIdxDesc(ts, true) .forEach(ft -> ctx.damageTarget(ft, damage));
+                sortedByIdxDesc(ts, false).forEach(ft -> ctx.damageTarget(ft, damage));
+            };
+        }
+
+        return parseTargetAction(t, 0);
+    }
+
+    private static String getTargetCardName(GameContext ctx, ForwardTarget t) {
+        if (t.zone() == ForwardTarget.CardZone.FORWARD)
+            return (t.isP1() ? ctx.p1Forward(t.idx()) : ctx.p2Forward(t.idx())).name();
+        return null;
+    }
+
+    private static Consumer<GameContext> tryParseChooseFormerLatter(String text, CardData source) {
+        Matcher m = CHOOSE_FORMER_LATTER_PATTERN.matcher(text);
+        if (!m.find()) return null;
+
+        String effects      = m.group("effects").trim();
+        String effectsLower = effects.toLowerCase(java.util.Locale.ROOT);
+        if (!effectsLower.contains("the former") || !effectsLower.contains("the latter")) return null;
+
+        // Split effects at " and " immediately before "the latter"
+        int latterIdx = effectsLower.indexOf("the latter");
+        int andIdx    = effects.lastIndexOf(" and ", latterIdx);
+        if (andIdx < 0) return null;
+
+        String formerRaw = effects.substring(0, andIdx).trim();
+        String latterRaw = effects.substring(andIdx + 5).trim(); // " and ".length() == 5
+
+        // Substitute pronouns and strip any trailing period
+        String formerEff = formerRaw.replaceAll("(?i)\\bthe\\s+former\\b", "it").replaceAll("\\.$", "").trim();
+        String latterEff = latterRaw.replaceAll("(?i)\\bthe\\s+latter\\b", "it").replaceAll("\\.$", "").trim();
+
+        java.util.function.BiConsumer<GameContext, List<ForwardTarget>> formerAction =
+                parseFormerLatterGroupAction(formerEff);
+        java.util.function.BiConsumer<GameContext, List<ForwardTarget>> latterAction =
+                parseFormerLatterGroupAction(latterEff);
+        if (formerAction == null || latterAction == null) return null;
+
+        boolean upTo1  = m.group("upTo1") != null;
+        int     count1 = Integer.parseInt(m.group("count1"));
+        String  desc1  = m.group("desc1").trim();
+
+        boolean upTo2    = m.group("upTo2") != null;
+        int     count2   = Integer.parseInt(m.group("count2"));
+        String  desc2Raw = m.group("desc2").trim();
+
+        // "other Forward" → exclude the first chosen card's name from the second selection
+        boolean excludeFirstChosen = false;
+        String  desc2 = desc2Raw;
+        if (desc2Raw.toLowerCase(java.util.Locale.ROOT).startsWith("other ")) {
+            excludeFirstChosen = true;
+            desc2 = desc2Raw.substring(6).trim();
+        }
+
+        TargetDesc td1 = parseTargetDesc(desc1);
+        TargetDesc td2 = parseTargetDesc(desc2);
+        if (td1 == null || td2 == null) return null;
+
+        boolean fExcludeFirst = excludeFirstChosen;
+        String  fDesc2Static  = td2.excludeName();
+        java.util.function.BiConsumer<GameContext, List<ForwardTarget>> fFormerAction = formerAction;
+        java.util.function.BiConsumer<GameContext, List<ForwardTarget>> fLatterAction = latterAction;
+
+        String label = "Choose " + (upTo1 ? "up to " : "") + count1 + " " + desc1
+                     + " and " + (upTo2 ? "up to " : "") + count2 + " " + desc2Raw;
+
+        return ctx -> {
+            ctx.logEntry(label);
+            String zone1 = td1.fromBreakZone()
+                    ? "in " + (td1.opponentBz() ? "your opponent's" : "your") + " Break Zone" : null;
+            List<ForwardTarget> ts1 = selectTargets(ctx, count1, upTo1,
+                    td1.opponentOnly(), td1.selfOnly(),
+                    td1.condition(), td1.element(), zone1, td1.opponentBz(),
+                    td1.costVal(), td1.costCmp(), -1, null,
+                    td1.fwd(), td1.bkp(), td1.mon(),
+                    null, null, null, td1.excludeName(), false, null, false);
+
+            String excludeForTs2 = fExcludeFirst && !ts1.isEmpty()
+                    ? getTargetCardName(ctx, ts1.get(0))
+                    : fDesc2Static;
+
+            String zone2 = td2.fromBreakZone()
+                    ? "in " + (td2.opponentBz() ? "your opponent's" : "your") + " Break Zone" : null;
+            List<ForwardTarget> ts2 = selectTargets(ctx, count2, upTo2,
+                    td2.opponentOnly(), td2.selfOnly(),
+                    td2.condition(), td2.element(), zone2, td2.opponentBz(),
+                    td2.costVal(), td2.costCmp(), -1, null,
+                    td2.fwd(), td2.bkp(), td2.mon(),
+                    null, null, null, excludeForTs2, false, null, false);
+
+            fFormerAction.accept(ctx, ts1);
+            fLatterAction.accept(ctx, ts2);
+        };
     }
 
     private static Consumer<GameContext> tryParseChooseTwoMixedTypes(String text, CardData source) {

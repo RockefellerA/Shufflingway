@@ -2375,6 +2375,26 @@ final class GameContextImpl implements GameContext {
 				if (t.isP1()) mw.refreshP1BreakLabel(); else mw.refreshP2BreakLabel();
 			}
 
+			@Override public void playTargetOntoFieldDull(ForwardTarget t) {
+				List<CardData> bz = t.isP1() ? mw.gameState.getP1BreakZone() : mw.gameState.getP2BreakZone();
+				if (t.idx() >= bz.size()) return;
+				CardData card = bz.remove(t.idx());
+				String src = t.isP1() ? "Break Zone" : "opponent's Break Zone";
+				logEntry(card.name() + " played from " + src + " onto field (dull)");
+				if (t.isP1()) {
+					mw.placeCardInForwardZone(card);
+					int newIdx = mw.p1ForwardCards.size() - 1;
+					mw.p1ForwardStates.set(newIdx, CardState.DULL);
+					mw.refreshP1ForwardSlot(newIdx);
+				} else {
+					mw.placeP2CardInForwardZone(card);
+					int newIdx = mw.p2ForwardCards.size() - 1;
+					mw.p2ForwardStates.set(newIdx, CardState.DULL);
+					mw.refreshP2ForwardSlot(newIdx);
+				}
+				if (t.isP1()) mw.refreshP1BreakLabel(); else mw.refreshP2BreakLabel();
+			}
+
 			@Override public void addTargetToHand(ForwardTarget t) {
 				List<CardData> bz = t.isP1() ? mw.gameState.getP1BreakZone() : mw.gameState.getP2BreakZone();
 				if (t.idx() >= bz.size()) return;
