@@ -546,6 +546,20 @@ final class AutoAbilityTriggers {
 		};
 	}
 
+	private static final java.util.regex.Pattern OTHER_FORWARD_SUBJECT_WITH_NAME =
+			java.util.regex.Pattern.compile(
+				"(?i)^a\\s+Forward\\s+other\\s+than\\s+(?<name>.+?)\\s+you\\s+control$");
+
+	/**
+	 * Returns true when {@code attacker} matches "a Forward other than [excluded] you control".
+	 */
+	private boolean matchesOtherForwardSubject(String triggerCard, CardData attacker) {
+		java.util.regex.Matcher m = OTHER_FORWARD_SUBJECT_WITH_NAME.matcher(triggerCard);
+		if (!m.matches()) return false;
+		String excludedName = m.group("name").trim();
+		return attacker.isForward() && !CardFilters.meetsCardNameFilter(attacker, excludedName);
+	}
+
 	void triggerAutoAbilitiesForDealsDamageToOpponent(CardData attacker, boolean attackerIsP1) {
 		withBatch(() -> {
 			for (AutoAbility fa : attacker.autoAbilities()) {
@@ -586,6 +600,24 @@ final class AutoAbilityTriggers {
 				if (c != null)
 					for (AutoAbility fa : c.autoAbilities())
 						if (fa.trigger().equals("attack")) executeAutoAbility(fa, c, isP1);
+			// "When a Forward other than [watcherCard] you control attacks" — watcher on same-side field cards
+			if (card.isForward()) {
+				List<CardData> watchFwds = new ArrayList<>(isP1 ? mw.p1ForwardCards : mw.p2ForwardCards);
+				for (CardData watcherCard : watchFwds) {
+					if (mw.lostAbilitiesCards.contains(watcherCard)) continue;
+					for (AutoAbility fa : watcherCard.autoAbilities()) {
+						if (!fa.trigger().equals("other forward attacks")) continue;
+						if (!matchesOtherForwardSubject(fa.triggerCard(), card)) continue;
+						Consumer<GameContext> effect = ActionResolver.parse(fa.effectText(), card);
+						if (effect == null) {
+							mw.logEntry("[AutoAbility] Unrecognized 'other forward attacks' effect: " + fa.effectText());
+							continue;
+						}
+						mw.logEntry("[AutoAbility] " + watcherCard.name() + " — " + card.name() + " attacks, effect: " + fa.effectText());
+						effect.accept(mw.buildGameContext(isP1));
+					}
+				}
+			}
 		});
 		// Fire any temporary attack triggers registered this turn by action abilities
 		Map<CardData, List<Consumer<GameContext>>> tempTriggers

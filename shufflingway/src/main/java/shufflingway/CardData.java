@@ -1399,6 +1399,11 @@ public record CardData(
         Pattern.DOTALL
     );
 
+    /** "a Forward other than [name] you control" — subject of a watcher attack trigger. */
+    static final Pattern OTHER_FORWARD_SUBJECT = Pattern.compile(
+        "(?i)^a\\s+Forward\\s+other\\s+than\\s+.+?\\s+you\\s+control$"
+    );
+
     /** Matches the restriction sentence appended to a auto-ability effect, capturing flags. */
     private static final Pattern FA_TRIGGER_RESTRICTION = Pattern.compile(
         "(?i)[.!,]?\\s*This\\s+effect\\s+will\\s+trigger\\s+only\\s+" +
@@ -1570,6 +1575,8 @@ public record CardData(
             else if (triggerRaw.contains("enter") && triggerRaw.contains("attack"))                        trigger = "enters the field or attacks";
             else if (triggerRaw.contains("enter") && triggerRaw.contains("other than from your hand"))     trigger = "enters your field not from hand";
             else if (triggerRaw.contains("enter") && triggerRaw.contains("your field"))                            trigger = "enters your field";
+            else if (triggerRaw.contains("attack")
+                    && OTHER_FORWARD_SUBJECT.matcher(card).matches())                                        trigger = "other forward attacks";
             else if (triggerRaw.contains("attack")
                     && card.toLowerCase(java.util.Locale.ROOT).matches("\\d+\\s+or\\s+more\\s+forwards?\\s+you\\s+control"))
                                                                                                              trigger = "attack";

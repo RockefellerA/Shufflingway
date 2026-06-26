@@ -3583,6 +3583,9 @@ public class ActionResolver {
         result = tryParseStandaloneSelfBoostForEachCrystal(effectText, source);
         if (result != null) return result;
 
+        result = tryParseStandaloneItPowerBoostUntil(effectText, source);
+        if (result != null) return result;
+
         result = tryParseStandaloneSelfBoost(effectText, source);
         if (result != null) return result;
 
@@ -7940,6 +7943,27 @@ public class ActionResolver {
     private static Consumer<GameContext> tryParseDoublePlayerAbilityOutgoingThisTurn(String text) {
         if (!DOUBLE_PLAYER_ABILITY_OUTGOING_THIS_TURN.matcher(text).find()) return null;
         return ctx -> ctx.doublePlayerAbilityOutgoingDamage();
+    }
+
+    /**
+     * Parses "it [gains +N power] [traits] until end of turn" as a standalone boost applied to
+     * {@code source}. Used when "it" refers to the source card — e.g. in watcher attack abilities
+     * where the source is the attacking Forward, not the card that owns the ability.
+     */
+    private static Consumer<GameContext> tryParseStandaloneItPowerBoostUntil(String text, CardData source) {
+        if (source == null) return null;
+        Matcher m = SELF_POWER_BOOST.matcher(text);
+        if (!m.find()) return null;
+        String subject = m.group("selfsubject").trim();
+        if (!subject.equalsIgnoreCase("it") && !subject.equalsIgnoreCase("they")) return null;
+        int boost = m.group("selfamount") != null ? Integer.parseInt(m.group("selfamount")) : 0;
+        EnumSet<CardData.Trait> traits = parseTraits(m.group("selftraits"));
+        if (boost == 0 && traits.isEmpty()) return null;
+        String logSuffix = boostLogSuffix(boost, traits);
+        return ctx -> {
+            ctx.logEntry(source.name() + logSuffix);
+            ctx.boostSourceForward(source, boost, traits);
+        };
     }
 
     /**

@@ -16,11 +16,16 @@ package shufflingway;
  * <p>The {@code trigger} is normalised to one of:
  * {@code "attacks"}, {@code "blocks"}, {@code "attacks or blocks"},
  * {@code "is blocked"}, {@code "blocks or is blocked"},
- * {@code "party attacks"}, {@code "enters the field"},
+ * {@code "other forward attacks"}, {@code "party attacks"}, {@code "enters the field"},
  * {@code "put into break zone"}, {@code "enters the field or put into break zone"},
  * {@code "cast summon"}, {@code "damage zone"},
  * {@code "either player receives damage"}, {@code "you receive damage"},
  * or {@code "primed into"}.
+ *
+ * <p>For {@code trigger == "other forward attacks"}, {@link #triggerCard()} holds the full
+ * subject phrase (e.g. {@code "a Forward other than Tifa you control"}). The ability fires
+ * on any same-side Forward attack that satisfies that phrase; the effect is resolved with the
+ * attacking Forward as the source so that "it" refers to the attacker.
  *
  * <p>For {@code trigger == "party attacks"}, optional filters narrow which parties fire the trigger:
  * <ul>
