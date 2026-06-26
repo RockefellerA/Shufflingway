@@ -1143,7 +1143,8 @@ public class ActionResolver {
      */
     private static final Pattern REVEAL_TOP_N_ELEMENT_TO_HAND = Pattern.compile(
         "(?i)^\\s*(?:you\\s+may\\s+)?reveal\\s+the\\s+top\\s+(?<n>\\d+)\\s+cards?\\s+of\\s+your\\s+deck[.!]?\\s+" +
-        "Add\\s+(?<max>\\d+)\\s+(?<element>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)\\s+cards?\\s+" +
+        "Add\\s+(?<max>\\d+)\\s+(?<element>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)\\s+" +
+        "(?:(?<type>Forwards?|Backups?|Monsters?|Characters?)|cards?)\\s+" +
         "among\\s+them\\s+to\\s+your\\s+hand\\s+" +
         "and\\s+return\\s+the\\s+other\\s+cards?\\s+to\\s+the\\s+bottom\\s+of\\s+(?:your|the)\\s+deck(?:\\s+in\\s+any\\s+order)?[.!]?\\s*$"
     );
@@ -10313,12 +10314,13 @@ public class ActionResolver {
         if (!m.find()) return null;
         int n = Integer.parseInt(m.group("n"));
         int max = Integer.parseInt(m.group("max"));
-        String element = m.group("element");
-        String normElement = Character.toUpperCase(element.charAt(0)) + element.substring(1).toLowerCase();
+        String normElement = cap(m.group("element"));
+        String typeRaw = m.group("type");
+        String typeFilter = typeRaw != null ? cap(typeRaw.replaceAll("(?i)s$", "")) : null;
         return ctx -> {
             ctx.logEntry("Effect: Reveal top " + n + " — add up to " + max + " " + normElement
-                    + " card(s) to hand, rest to bottom");
-            ctx.revealTopAddUpToMatchingRestBottom(n, max, null, null, null, null, -1, normElement);
+                    + (typeFilter != null ? " " + typeFilter : " card") + "(s) to hand, rest to bottom");
+            ctx.revealTopAddUpToMatchingRestBottom(n, max, null, null, null, typeFilter, -1, normElement);
         };
     }
 
@@ -11435,11 +11437,13 @@ public class ActionResolver {
         Matcher m = PLAY_SOURCE_ONTO_FIELD_PATTERN.matcher(text);
         if (!m.find()) return null;
         String name = m.group("name").trim();
-        if (!name.equalsIgnoreCase(source.name())) return null;
+        // "it" is a self-referential pronoun (e.g. "play it onto the field" in pay-cost abilities)
+        String resolvedName = name.equalsIgnoreCase("it") ? source.name() : name;
+        if (!resolvedName.equalsIgnoreCase(source.name())) return null;
         boolean dull = m.group("dull") != null;
         return ctx -> {
-            ctx.logEntry("Effect: Play " + name + " from Break Zone → field" + (dull ? " dull" : ""));
-            ctx.playAllByNameFromOwnBreakZoneDull(name, dull);
+            ctx.logEntry("Effect: Play " + resolvedName + " from Break Zone → field" + (dull ? " dull" : ""));
+            ctx.playAllByNameFromOwnBreakZoneDull(resolvedName, dull);
         };
     }
 
