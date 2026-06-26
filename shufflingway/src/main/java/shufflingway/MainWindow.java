@@ -379,7 +379,8 @@ public class MainWindow {
 	private Runnable      p1PriorityInP2MainOnDone = null;
 
 	// Damage-shield / damage-modifier state (keyed by CardData identity; cleared at end of turn)
-	final Set<CardData>          nextIncomingDmgZeroSet   = new HashSet<>();
+	final Set<CardData>          nextIncomingDmgZeroSet        = new HashSet<>();
+	final Map<CardData, CardData> nextIncomingDmgRedirectMap   = new HashMap<>();
 	final Map<CardData, Integer> nextIncomingDmgReduceMap      = new HashMap<>();
 	final Map<CardData, Integer> nextAbilityDmgReduceMap       = new HashMap<>();
 	final Map<CardData, Integer> incomingDmgIncreaseMap   = new HashMap<>();
@@ -2093,7 +2094,7 @@ public class MainWindow {
                                 p1ForwardCanDoSecondAttack.clear();     p2ForwardCanDoSecondAttack.clear();
                                 p1TempAttackTriggers.clear();           p2TempAttackTriggers.clear();
                                 p1TempBlockTriggers.clear();            p2TempBlockTriggers.clear();
-                                nextIncomingDmgZeroSet.clear();   nextIncomingDmgReduceMap.clear();   nextAbilityDmgReduceMap.clear();
+                                nextIncomingDmgZeroSet.clear();   nextIncomingDmgRedirectMap.clear();   nextIncomingDmgReduceMap.clear();   nextAbilityDmgReduceMap.clear();
                                 incomingDmgIncreaseMap.clear();   globalForwardIncomingDmgIncrease = 0;   nullifyAbilityDmgSet.clear();
                                 nullifyAbilityOnlyDmgSet.clear(); perCardNonLethalDmgSet.clear();
                                 nextOutgoingDmgZeroSet.clear();    outgoingDmgMultiplierMap.clear();
@@ -8771,6 +8772,22 @@ public class MainWindow {
 		List<CardData>  fwds   = isP1 ? p1ForwardCards   : p2ForwardCards;
 		List<Integer>   dmgList = isP1 ? p1ForwardDamage  : p2ForwardDamage;
 		if (idx >= fwds.size()) return;
+		// One-time damage redirect: "the next damage dealt to A is received by B instead"
+		CardData redirectTarget = nextIncomingDmgRedirectMap.remove(fwds.get(idx));
+		if (redirectTarget != null) {
+			int p1RedirIdx = p1ForwardCards.indexOf(redirectTarget);
+			int p2RedirIdx = p2ForwardCards.indexOf(redirectTarget);
+			if (p1RedirIdx >= 0) {
+				logEntry(fwds.get(idx).name() + " — damage redirected to " + redirectTarget.name());
+				applyDamageToForward(true, p1RedirIdx, rawAmount, fromAbility, unreduced);
+				return;
+			} else if (p2RedirIdx >= 0) {
+				logEntry(fwds.get(idx).name() + " — damage redirected to " + redirectTarget.name());
+				applyDamageToForward(false, p2RedirIdx, rawAmount, fromAbility, unreduced);
+				return;
+			}
+			// redirect target no longer on field — fall through to normal damage
+		}
 		int amount = modifyIncomingDamage(isP1, idx, rawAmount, fromAbility, unreduced);
 		if (amount <= 0) {
 			logEntry((isP1 ? "" : "[P2] ") + fwds.get(idx).name() + " — damage blocked");

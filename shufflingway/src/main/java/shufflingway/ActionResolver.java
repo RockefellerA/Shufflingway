@@ -111,6 +111,15 @@ public class ActionResolver {
     );
 
     /**
+     * Matches "During this turn, the next damage dealt to the former is received by the latter instead."
+     * — one-shot damage redirect from former to latter.
+     */
+    private static final Pattern FORMER_LATTER_DAMAGE_REDIRECT = Pattern.compile(
+        "(?i)During\\s+this\\s+turn[,.]?\\s+the\\s+next\\s+damage\\s+dealt\\s+to\\s+the\\s+former\\s+" +
+        "is\\s+received\\s+by\\s+the\\s+latter\\s+instead[.!]?"
+    );
+
+    /**
      * Matches "If you have cast a Card Name [X] other than [X] this turn, also [effect]."
      * Fires when the ability owner has cast another copy of the named card earlier this turn.
      * Group {@code name} = the card name; group {@code effect} = the bonus effect text.
@@ -5656,6 +5665,35 @@ public class ActionResolver {
                     int formerPower = ctx.effectiveTargetPower(ts1.get(0));
                     ts2.forEach(t -> ctx.damageTarget(t, formerPower));
                 }
+            };
+        }
+
+        // Special case: "During this turn, the next damage dealt to the former is received by the latter instead."
+        if (FORMER_LATTER_DAMAGE_REDIRECT.matcher(effects).matches()) {
+            return ctx -> {
+                ctx.logEntry(label);
+                String zone1 = td1.fromBreakZone()
+                        ? "in " + (td1.opponentBz() ? "your opponent's" : "your") + " Break Zone" : null;
+                List<ForwardTarget> ts1 = selectTargets(ctx, count1, upTo1,
+                        td1.opponentOnly(), td1.selfOnly(),
+                        td1.condition(), td1.element(), zone1, td1.opponentBz(),
+                        td1.costVal(), td1.costCmp(), -1, null,
+                        td1.fwd(), td1.bkp(), td1.mon(),
+                        null, null, null, td1.excludeName(), false, null, false);
+
+                String excludeForTs2r = fExcludeFirst && !ts1.isEmpty()
+                        ? getTargetCardName(ctx, ts1.get(0)) : fDesc2Static;
+                String zone2 = td2.fromBreakZone()
+                        ? "in " + (td2.opponentBz() ? "your opponent's" : "your") + " Break Zone" : null;
+                List<ForwardTarget> ts2 = selectTargets(ctx, count2, upTo2,
+                        td2.opponentOnly(), td2.selfOnly(),
+                        td2.condition(), td2.element(), zone2, td2.opponentBz(),
+                        td2.costVal(), td2.costCmp(), -1, null,
+                        td2.fwd(), td2.bkp(), td2.mon(),
+                        null, null, null, excludeForTs2r, false, null, false);
+
+                if (!ts1.isEmpty() && !ts2.isEmpty())
+                    ctx.redirectNextIncomingDamage(ts1.get(0), ts2.get(0));
             };
         }
 

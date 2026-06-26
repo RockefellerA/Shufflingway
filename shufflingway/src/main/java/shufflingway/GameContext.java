@@ -466,6 +466,9 @@ public interface GameContext {
     /** Next damage received by target becomes 0 (consumed on first hit). */
     void shieldNextIncomingDamage(ForwardTarget t);
 
+    /** The next damage dealt to {@code from} is received by {@code to} instead (consumed on first hit). */
+    void redirectNextIncomingDamage(ForwardTarget from, ForwardTarget to);
+
     /** Next damage received by target is reduced by {@code reduction} (consumed on first hit). */
     void shieldNextIncomingDamageReduction(ForwardTarget t, int reduction);
 

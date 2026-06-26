@@ -195,6 +195,11 @@ final class GameContextImpl implements GameContext {
 			@Override public void shieldNextIncomingDamage(ForwardTarget t) {
 				CardData c = mw.autoAbilityTriggers.fieldCardData(t); if (c != null) mw.nextIncomingDmgZeroSet.add(c);
 			}
+			@Override public void redirectNextIncomingDamage(ForwardTarget from, ForwardTarget to) {
+				CardData cFrom = mw.autoAbilityTriggers.fieldCardData(from);
+				CardData cTo   = mw.autoAbilityTriggers.fieldCardData(to);
+				if (cFrom != null && cTo != null) mw.nextIncomingDmgRedirectMap.put(cFrom, cTo);
+			}
 			@Override public void shieldNextIncomingDamageReduction(ForwardTarget t, int reduction) {
 				CardData c = mw.autoAbilityTriggers.fieldCardData(t); if (c != null) mw.nextIncomingDmgReduceMap.merge(c, reduction, Integer::sum);
 			}
