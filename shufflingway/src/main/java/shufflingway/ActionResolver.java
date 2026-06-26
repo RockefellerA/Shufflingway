@@ -1604,7 +1604,7 @@ public class ActionResolver {
      * Groups: {@code min} — forward threshold; {@code count} — cards to discard.
      */
     private static final Pattern EACH_PLAYER_WHO_DOESNT_CONTROL_FORWARDS_DISCARD = Pattern.compile(
-        "(?i)each\\s+player\\s+who\\s+doesn’t\\s+control\\s+(?<min>\\d+)\\s+or\\s+more\\s+Forwards?" +
+        "(?i)each\\s+player\\s+who\\s+doesn't\\s+control\\s+(?<min>\\d+)\\s+or\\s+more\\s+Forwards?" +
         "\\s+discards?\\s+(?<count>\\d+)\\s+cards?" +
         "(?:\\s+from\\s+(?:his/her|his|her|their)\\s+hand)?[.!]?"
     );
@@ -2332,9 +2332,9 @@ public class ActionResolver {
      * </ul>
      */
     private static final Pattern STANDALONE_DOUBLE_POWER_MAIN_PHASE_NEXT_TURN = Pattern.compile(
-        "(?i)At\\s+the\\s+beginning\\s+of\\s+your\\s+next\\s+turn['’]s\\s+Main\\s+Phase\\s+1" +
+        "(?i)At\\s+the\\s+beginning\\s+of\\s+your\\s+next\\s+turn's\\s+Main\\s+Phase\\s+1" +
         "\\s+and\\s+until\\s+the\\s+end\\s+of\\s+the\\s+same\\s+turn\\s*,\\s+" +
-        "(?<subject>.+?)['’]s\\s+power\\s+will\\s+double[.!]?"
+        "(?<subject>.+?)'s\\s+power\\s+will\\s+double[.!]?"
     );
 
     /**

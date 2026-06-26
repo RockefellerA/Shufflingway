@@ -1182,7 +1182,7 @@ public record CardData(
      */
     private static final Pattern IF_OWN_BZ_GAINS_PATTERN = Pattern.compile(
         "(?i)If\\s+you\\s+have\\s+(?:a\\s+)?Card\\s+Name\\s+(?<bzcard>.+?)\\s+in\\s+your\\s+Break\\s+Zone,\\s+" +
-        "[A-Za-z][A-Za-z\\s''’\\-]*?\\s+gains?\\s+(?<quotedAbilities>\"[^\"]+\"(?:\\s+and\\s+\"[^\"]+\")*)\\.?"
+        "[A-Za-z][A-Za-z\\s'\\-]*?\\s+gains?\\s+(?<quotedAbilities>\"[^\"]+\"(?:\\s+and\\s+\"[^\"]+\")*)\\.?"
     );
 
     /** Restriction: "You can only use this ability if N or more [Type] Counters are placed on [CardName]." */
@@ -2791,9 +2791,9 @@ public record CardData(
             "(?<type>(?:Forwards?|Backups?|Monsters?|Summons?|Characters?)(?:\\s+or\\s+(?:Forwards?|Backups?|Monsters?|Summons?|Characters?))?)" +
         "|" +
             // Job JobName (lazy so it stops before " is reduced")
-            "Job\\s+(?<job>[A-Za-z][A-Za-z\\s''’\\-]*?)" +
+            "Job\\s+(?<job>[A-Za-z][A-Za-z\\s'\\-]*?)" +
         ")\\s+is\\s+reduced\\s+by\\s+(?<amount>\\d+)" +
-        "(?:\\s+for\\s+each\\s+Job\\s+(?<scalingjob>[A-Za-z][A-Za-z\\s''’\\-]*?)\\s+forward\\s+you\\s+control)?" +
+        "(?:\\s+for\\s+each\\s+Job\\s+(?<scalingjob>[A-Za-z][A-Za-z\\s'\\-]*?)\\s+forward\\s+you\\s+control)?" +
         "(?:\\s+(?<flooratone>\\(it\\s+cannot\\s+become\\s+0\\)))?" +
         "\\s*\\.?$"
     );
