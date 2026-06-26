@@ -1136,6 +1136,9 @@ public interface GameContext {
     /** Causes all opponent Forwards to lose all abilities until end of turn. */
     void oppForwardsLoseAllAbilitiesUntilEndOfTurn();
 
+    /** Causes the chosen target Forward to lose all abilities until end of turn. */
+    void targetLoseAllAbilitiesUntilEndOfTurn(ForwardTarget t);
+
     /**
      * Finds the source card on its owner's forward zone and returns it to the bottom of
      * its owner's deck.  Calls {@link #markEffectFizzled()} if the card is not found.

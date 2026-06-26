@@ -390,6 +390,11 @@ public class ActionResolver {
         "(?i)Break\\s+(?:it|them)"
     );
 
+    /** Matches "It loses all abilities until the end of the turn." */
+    private static final Pattern FOLLOWUP_LOSE_ALL_ABILITIES_EOT = Pattern.compile(
+        "(?i)It\\s+loses\\s+all\\s+abilities\\s+until\\s+(?:the\\s+)?end\\s+of\\s+(?:the\\s+)?turn[.!]?"
+    );
+
     /** Matches "Remove it/them from the game". */
     private static final Pattern FOLLOWUP_REMOVE_FROM_GAME = Pattern.compile(
         "(?i)Remove\\s+(?:it|them)\\s+from\\s+(?:the\\s+)?game"
@@ -4079,6 +4084,7 @@ public class ActionResolver {
         if (FOLLOWUP_DULL_AND_FREEZE.matcher(followupText).find())                    return "DullAndFreeze";
         if (FOLLOWUP_FREEZE.matcher(followupText).find())                             return "Freeze";
         if (FOLLOWUP_BREAK.matcher(followupText).find())                              return "Break";
+        if (FOLLOWUP_LOSE_ALL_ABILITIES_EOT.matcher(followupText).find())              return "LoseAllAbilitiesEot";
         if (FOLLOWUP_REMOVE_FROM_GAME_AND_NAMED.matcher(followupText).find())          return "RemoveFromGameAndNamed";
         if (FOLLOWUP_REMOVE_FROM_GAME.matcher(followupText).find())                   return "RemoveFromGame";
         if (FOLLOWUP_PLAY_IF_COST_LE_JOB_COUNT.matcher(followupText).matches())       return "PlayIfCostLeJobCount";
@@ -5621,6 +5627,13 @@ public class ActionResolver {
                                     else                        ctx.forceOpponentDiscard(discardCount);
                                 }
                             };
+                        } else if (FOLLOWUP_BREAK.matcher(secondaryText).find()) {
+                            // "Break it." as a secondary applies to the same targets chosen for the primary.
+                            secondary = ctx -> {
+                                List<ForwardTarget> chosen = ctx.lastChosenTargets();
+                                sortedByIdxDesc(chosen, true) .forEach(ctx::breakTarget);
+                                sortedByIdxDesc(chosen, false).forEach(ctx::breakTarget);
+                            };
                         } else {
                             Consumer<GameContext> parsed = parse(secondaryText, source);
                             secondary = (parsed != null) ? parsed
@@ -6388,6 +6401,19 @@ public class ActionResolver {
                         costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters, jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, fExcludeElem, withoutMulticard);
                 sortedByIdxDesc(ts, true) .forEach(t -> ctx.breakTarget(t));
                 sortedByIdxDesc(ts, false).forEach(t -> ctx.breakTarget(t));
+                if (secondary != null) secondary.accept(ctx);
+            };
+        }
+
+        // --- Lose all abilities until end of turn followup ---
+        if (FOLLOWUP_LOSE_ALL_ABILITIES_EOT.matcher(primaryFollowup).find()) {
+            return ctx -> {
+                ctx.logEntry(choosePrefix + " — Lose all abilities until end of turn");
+                List<ForwardTarget> ts = selectTargets(ctx, maxCount, upTo,
+                        opponentOnly, selfOnly, condition, element, zone, opponentZone,
+                        costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters, jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, fExcludeElem, withoutMulticard);
+                sortedByIdxDesc(ts, true) .forEach(ctx::targetLoseAllAbilitiesUntilEndOfTurn);
+                sortedByIdxDesc(ts, false).forEach(ctx::targetLoseAllAbilitiesUntilEndOfTurn);
                 if (secondary != null) secondary.accept(ctx);
             };
         }

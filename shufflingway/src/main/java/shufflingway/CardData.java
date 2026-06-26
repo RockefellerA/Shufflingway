@@ -63,7 +63,9 @@ public record CardData(
         FIRST_STRIKE,
         BACK_ATTACK,
         WARP,
-        PRIMING
+        PRIMING,
+        CANNOT_BE_BROKEN,
+        CANNOT_BE_BROKEN_BY_NON_DMG
     }
 
     /** Defensive copy — collection fields are always immutable after construction. */
@@ -622,6 +624,13 @@ public record CardData(
 
     private static final Pattern WARP_PATTERN = Pattern.compile(
         "(?i)Warp\\s+(\\d+)\\s*--\\s*((?:《[^》]*》\\s*)*)"
+    );
+
+    // Permanent printed "cannot be broken" field ability (e.g. Cid (WOFF), Ardyn).
+    // Matched against card text with quoted grant forms stripped, to avoid matching
+    // temporary "gains 'This Forward cannot be broken'" text.
+    private static final Pattern CANNOT_BE_BROKEN_TRAIT_PATTERN = Pattern.compile(
+        "(?i)cannot\\s+be\\s+broken(?!\\s+(?:this\\s+turn|until|by))\\s*[.!]?"
     );
 
     private static final Pattern PRIMING_PATTERN = Pattern.compile(
@@ -3876,6 +3885,13 @@ public record CardData(
         if (BACK_ATTACK_PATTERN.matcher(textEn).find())  found.add(Trait.BACK_ATTACK);
         if (WARP_PATTERN.matcher(textEn).find())         found.add(Trait.WARP);
         if (PRIMING_PATTERN.matcher(textEn).find())      found.add(Trait.PRIMING);
+        // Strip quoted "gains '...'" grant text before checking permanent "cannot be broken"
+        // so that temporary grant descriptions in action abilities are not matched.
+        String strippedForCbb = textEn
+                .replaceAll("(?i)gains\\s*'[^']*'", "")
+                .replaceAll("(?i)gains\\s*\"[^\"]*\"", "");
+        if (CANNOT_BE_BROKEN_TRAIT_PATTERN.matcher(strippedForCbb).find())
+            found.add(Trait.CANNOT_BE_BROKEN);
         return found;
     }
 

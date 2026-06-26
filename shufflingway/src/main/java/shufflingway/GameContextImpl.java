@@ -262,16 +262,24 @@ final class GameContextImpl implements GameContext {
 			}
 
 			@Override public void shieldCannotBeBroken(ForwardTarget t) {
+				if (t.zone() != ForwardTarget.CardZone.FORWARD) return;
 				CardData c = mw.autoAbilityTriggers.fieldCardData(t);
 				if (c == null) return;
-				mw.cannotBeBrokenSet.add(c);
+				java.util.EnumSet<CardData.Trait> tempTraits = t.isP1()
+						? mw.p1ForwardTempTraits.get(t.idx())
+						: mw.p2ForwardTempTraits.get(t.idx());
+				tempTraits.add(CardData.Trait.CANNOT_BE_BROKEN);
 				logEntry((t.isP1() ? "" : "[P2] ") + c.name() + " cannot be broken until end of turn");
 			}
 
 			@Override public void shieldCannotBeBrokenByNonDmg(ForwardTarget t) {
+				if (t.zone() != ForwardTarget.CardZone.FORWARD) return;
 				CardData c = mw.autoAbilityTriggers.fieldCardData(t);
 				if (c == null) return;
-				mw.cannotBeBrokenByNonDmgSet.add(c);
+				java.util.EnumSet<CardData.Trait> tempTraits = t.isP1()
+						? mw.p1ForwardTempTraits.get(t.idx())
+						: mw.p2ForwardTempTraits.get(t.idx());
+				tempTraits.add(CardData.Trait.CANNOT_BE_BROKEN_BY_NON_DMG);
 				logEntry((t.isP1() ? "" : "[P2] ") + c.name() + " cannot be broken by opposing non-damage Summons or abilities until end of turn");
 			}
 
@@ -287,10 +295,12 @@ final class GameContextImpl implements GameContext {
 
 			@Override public void shieldSourceForward(CardData source) {
 				List<CardData> fwds = isP1 ? mw.p1ForwardCards : mw.p2ForwardCards;
-				for (CardData c : fwds) {
-					if (c.name().equalsIgnoreCase(source.name())) {
-						mw.cannotBeBrokenSet.add(c);
-						logEntry((isP1 ? "" : "[P2] ") + c.name() + " cannot be broken until end of turn");
+				List<java.util.EnumSet<CardData.Trait>> tempList =
+						isP1 ? mw.p1ForwardTempTraits : mw.p2ForwardTempTraits;
+				for (int i = 0; i < fwds.size(); i++) {
+					if (fwds.get(i).name().equalsIgnoreCase(source.name())) {
+						tempList.get(i).add(CardData.Trait.CANNOT_BE_BROKEN);
+						logEntry((isP1 ? "" : "[P2] ") + fwds.get(i).name() + " cannot be broken until end of turn");
 						return;
 					}
 				}
@@ -298,9 +308,11 @@ final class GameContextImpl implements GameContext {
 
 			@Override public void shieldAllOwnForwards() {
 				List<CardData> fwds = isP1 ? mw.p1ForwardCards : mw.p2ForwardCards;
-				for (CardData c : fwds) {
-					mw.cannotBeBrokenSet.add(c);
-					logEntry((isP1 ? "" : "[P2] ") + c.name() + " cannot be broken until end of turn");
+				List<java.util.EnumSet<CardData.Trait>> tempList =
+						isP1 ? mw.p1ForwardTempTraits : mw.p2ForwardTempTraits;
+				for (int i = 0; i < fwds.size(); i++) {
+					tempList.get(i).add(CardData.Trait.CANNOT_BE_BROKEN);
+					logEntry((isP1 ? "" : "[P2] ") + fwds.get(i).name() + " cannot be broken until end of turn");
 				}
 			}
 
@@ -837,6 +849,15 @@ final class GameContextImpl implements GameContext {
 				}
 				logEntry("Effect: All opponent Forwards lose all abilities until end of turn");
 			}
+			@Override public void targetLoseAllAbilitiesUntilEndOfTurn(ForwardTarget t) {
+				List<CardData> fwds = t.isP1() ? mw.p1ForwardCards : mw.p2ForwardCards;
+				if (t.idx() < 0 || t.idx() >= fwds.size()) return;
+				CardData card = fwds.get(t.idx());
+				if (mw.lostAbilitiesCards.add(card)) {
+					mw.endOfTurnEffects.add(ctx -> mw.lostAbilitiesCards.remove(card));
+				}
+				logEntry("Effect: " + card.name() + " loses all abilities until end of turn");
+			}
 			@Override public boolean wasElementCpPaid(String element) {
 				return element != null && mw.lastCastPaymentElements.stream()
 						.anyMatch(e -> e.equalsIgnoreCase(element));
@@ -986,7 +1007,7 @@ final class GameContextImpl implements GameContext {
 
 			@Override public void breakP1Forward(int idx) {
 				if (idx >= 0 && idx < mw.p1ForwardCards.size()
-						&& mw.cannotBeBrokenSet.contains(mw.p1ForwardCards.get(idx))) {
+						&& mw.effectiveP1HasTrait(idx, CardData.Trait.CANNOT_BE_BROKEN)) {
 					logEntry(mw.p1ForwardCards.get(idx).name() + " cannot be broken");
 					return;
 				}
@@ -994,7 +1015,7 @@ final class GameContextImpl implements GameContext {
 			}
 			@Override public void breakP2Forward(int idx) {
 				if (idx >= 0 && idx < mw.p2ForwardCards.size()
-						&& mw.cannotBeBrokenSet.contains(mw.p2ForwardCards.get(idx))) {
+						&& mw.effectiveP2HasTrait(idx, CardData.Trait.CANNOT_BE_BROKEN)) {
 					logEntry("[P2] " + mw.p2ForwardCards.get(idx).name() + " cannot be broken");
 					return;
 				}
@@ -2182,13 +2203,24 @@ final class GameContextImpl implements GameContext {
 
 			@Override public void breakTarget(ForwardTarget t) {
 				CardData breakCard = mw.autoAbilityTriggers.fieldCardData(t);
-				if (breakCard != null && mw.cannotBeBrokenSet.contains(breakCard)) {
-					logEntry((t.isP1() ? "" : "[P2] ") + breakCard.name() + " cannot be broken (protected until end of turn)");
-					return;
-				}
-				if (breakCard != null && mw.cannotBeBrokenByNonDmgSet.contains(breakCard)) {
-					logEntry((t.isP1() ? "" : "[P2] ") + breakCard.name() + " cannot be broken by this effect (protected from non-damage breaks until end of turn)");
-					return;
+				if (breakCard != null && !mw.lostAbilitiesCards.contains(breakCard)) {
+					if (breakCard.hasTrait(CardData.Trait.CANNOT_BE_BROKEN)) {
+						logEntry((t.isP1() ? "" : "[P2] ") + breakCard.name() + " cannot be broken (protected until end of turn)");
+						return;
+					}
+					if (t.zone() == ForwardTarget.CardZone.FORWARD && t.idx() >= 0) {
+						java.util.EnumSet<CardData.Trait> tmp = t.isP1()
+								? mw.p1ForwardTempTraits.get(t.idx())
+								: mw.p2ForwardTempTraits.get(t.idx());
+						if (tmp.contains(CardData.Trait.CANNOT_BE_BROKEN)) {
+							logEntry((t.isP1() ? "" : "[P2] ") + breakCard.name() + " cannot be broken (protected until end of turn)");
+							return;
+						}
+						if (tmp.contains(CardData.Trait.CANNOT_BE_BROKEN_BY_NON_DMG)) {
+							logEntry((t.isP1() ? "" : "[P2] ") + breakCard.name() + " cannot be broken by this effect (protected from non-damage breaks until end of turn)");
+							return;
+						}
+					}
 				}
 				switch (t.zone()) {
 					case FORWARD -> { if (t.isP1()) breakP1Forward(t.idx()); else breakP2Forward(t.idx()); }

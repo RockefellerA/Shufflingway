@@ -488,12 +488,12 @@ public class MainWindow {
 	 * the Break Zone ("remove that Summon from the game after use" — Krile 12-061L, Nanaa Mihgo 22-048H).
 	 * Identity-keyed; consumed when the Summon's resolution would otherwise send it to the Break Zone.
 	 */
-	final Set<CardData> rfgAfterUseSummons = java.util.Collections.newSetFromMap(new IdentityHashMap<>());
+	final Set<CardData> rfgAfterUseSummons = Collections.newSetFromMap(new IdentityHashMap<>());
 	/**
 	 * Summons free-cast from hand under a "return to hand after use" clause.
 	 * After resolving, the Summon returns to its caster's hand instead of the Break Zone.
 	 */
-	final Set<CardData> returnToHandAfterUseSummons = java.util.Collections.newSetFromMap(new IdentityHashMap<>());
+	final Set<CardData> returnToHandAfterUseSummons = Collections.newSetFromMap(new IdentityHashMap<>());
 
 	/** Effects deferred until the start of P1's next Main Phase 1. */
 	final List<Consumer<GameContext>> pendingMainPhase1Effects = new ArrayList<>();
@@ -515,10 +515,6 @@ public class MainWindow {
 	final Map<CardData, String> elementOverrideMap      = new HashMap<>();
 	/** Maps a card to a permanently-granted extra job (e.g. Bartz ability); persists across turns. */
 	final Map<CardData, String> permanentExtraJobMap    = new HashMap<>();
-	/** Characters that cannot be broken this turn. */
-	final Set<CardData> cannotBeBrokenSet         = new HashSet<>();
-	/** Characters that cannot be broken this turn by opposing non-damage abilities/summons. */
-	final Set<CardData> cannotBeBrokenByNonDmgSet = new HashSet<>();
 	/** Forwards that have Breaktouch (battle damage) until end of turn. */
 	final Set<CardData> breaktouchBattleSet       = new HashSet<>();
 	/** Cards that have escaped from the current Battle via an Escape ability — combat is skipped for their pairing. */
@@ -2104,7 +2100,7 @@ public class MainWindow {
                                 p1ForwardIncomingDmgMult = 1;      p2ForwardIncomingDmgMult = 1;
                                 p1AbilityOutgoingDmgMult = 1;      p2AbilityOutgoingDmgMult = 1;
                                 cannotBeChosenBySummons.clear();  cannotBeChosenByAbilities.clear();  cannotBeChosenBySummonsAnyone.clear();  cannotBeChosenByElement.clear();  nullifyElementDamageMap.clear();
-                                cannotBeBrokenSet.clear();        cannotBeBrokenByNonDmgSet.clear();  breaktouchBattleSet.clear();
+                                breaktouchBattleSet.clear();
                                 p1NonLethalProtection = false;    p2NonLethalProtection = false;
                                 p1DmgReductionDisabled = false;   p2DmgReductionDisabled = false;
                                 p1ForwardCannotBlockInferiorPower = false; p2ForwardCannotBlockInferiorPower = false;
@@ -4050,7 +4046,8 @@ public class MainWindow {
 	boolean effectiveP1HasTrait(int idx, CardData.Trait trait) {
 		if (p1ForwardRemovedTraits.get(idx).contains(trait)) return false;
 		CardData card = p1ForwardCards.get(idx);
-		if (!lostAbilitiesCards.contains(card) && card.hasTrait(trait)) return true;
+		if (lostAbilitiesCards.contains(card)) return false;
+		if (card.hasTrait(trait)) return true;
 		if (p1ForwardTempTraits.get(idx).contains(trait)) return true;
 		return computeConditionalTraitsForTarget(card, true).contains(trait);
 	}
@@ -4058,7 +4055,8 @@ public class MainWindow {
 	boolean effectiveP2HasTrait(int idx, CardData.Trait trait) {
 		if (p2ForwardRemovedTraits.get(idx).contains(trait)) return false;
 		CardData card = p2ForwardCards.get(idx);
-		if (!lostAbilitiesCards.contains(card) && card.hasTrait(trait)) return true;
+		if (lostAbilitiesCards.contains(card)) return false;
+		if (card.hasTrait(trait)) return true;
 		if (p2ForwardTempTraits.get(idx).contains(trait)) return true;
 		return computeConditionalTraitsForTarget(card, false).contains(trait);
 	}
@@ -8764,7 +8762,8 @@ public class MainWindow {
 				+ (effPow > 0 ? " (" + (effPow - accum) + " remaining)" : ""));
 		if (effPow > 0 && accum >= effPow) {
 			CardData fwd = fwds.get(idx);
-			if (cannotBeBrokenSet.contains(fwd)) {
+			if (isP1 ? effectiveP1HasTrait(idx, CardData.Trait.CANNOT_BE_BROKEN)
+			         : effectiveP2HasTrait(idx, CardData.Trait.CANNOT_BE_BROKEN)) {
 				logEntry((isP1 ? "" : "[P2] ") + fwd.name() + " survives lethal damage (cannot be broken — damage clears at end of turn)");
 				if (isP1) refreshP1ForwardSlot(idx); else refreshP2ForwardSlot(idx);
 				if (currentSummonSource != null)
