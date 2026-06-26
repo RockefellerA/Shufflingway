@@ -53,6 +53,7 @@ class ComputerPlayer {
 		mw.p2SummonCastThisTurn = false;
 		mw.p2CastJobsThisTurn.clear();
 		mw.p2CastNamesThisTurn.clear();
+		mw.p2CastCountByNameThisTurn.clear();
 		mw.p2TurnOpponentFwdBroken = false;
 		mw.p2BrokenJobsThisTurn.clear();
 		mw.p2BrokenElementsThisTurn.clear();
@@ -191,6 +192,7 @@ class ComputerPlayer {
 			mw.p2CardsCastThisTurn++;
 			for (String j : card.jobs()) mw.p2CastJobsThisTurn.add(j.toLowerCase());
 			mw.p2CastNamesThisTurn.add(card.name().toLowerCase());
+			mw.p2CastCountByNameThisTurn.merge(card.name().toLowerCase(), 1, Integer::sum);
 			if (card.isSummon()) mw.p2SummonCastThisTurn = true;
 			if (card.isForward())      mw.placeP2CardInForwardZone(card);
 			else if (card.isBackup())  mw.placeP2CardInFirstBackupSlot(card);
@@ -255,6 +257,7 @@ class ComputerPlayer {
 		mw.p2CardsCastThisTurn++;
 		for (String j : toPlay.jobs()) mw.p2CastJobsThisTurn.add(j.toLowerCase());
 		mw.p2CastNamesThisTurn.add(toPlay.name().toLowerCase());
+		mw.p2CastCountByNameThisTurn.merge(toPlay.name().toLowerCase(), 1, Integer::sum);
 		if (toPlay.isSummon()) mw.p2SummonCastThisTurn = true;
 		if (toPlay.isForward())      mw.placeP2CardInForwardZone(toPlay);
 		else if (toPlay.isBackup())  mw.placeP2CardInFirstBackupSlot(toPlay);
@@ -515,6 +518,7 @@ class ComputerPlayer {
 		mw.p1SummonCastThisTurn = false;
 		mw.p1CastJobsThisTurn.clear();
 		mw.p1CastNamesThisTurn.clear();
+		mw.p1CastCountByNameThisTurn.clear();
 		mw.p1TurnOpponentFwdBroken = false;
 		mw.p1BrokenJobsThisTurn.clear();
 		mw.p1BrokenElementsThisTurn.clear();

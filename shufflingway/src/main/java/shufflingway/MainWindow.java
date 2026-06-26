@@ -404,8 +404,9 @@ public class MainWindow {
 	boolean p2ForwardCannotBlockInferiorPower = false; // set by P1 action: P2 Forwards cannot block targets with power < their own
 	int     p1CardsCastThisTurn          = 0;
 	boolean p1SummonCastThisTurn         = false;
-	final Set<String> p1CastJobsThisTurn  = new HashSet<>();
-	final Set<String> p1CastNamesThisTurn = new HashSet<>();
+	final Set<String>           p1CastJobsThisTurn        = new HashSet<>();
+	final Set<String>           p1CastNamesThisTurn       = new HashSet<>();
+	final Map<String, Integer>  p1CastCountByNameThisTurn = new HashMap<>();
 	boolean p1TurnOpponentFwdBroken      = false;
 	final Set<String> p1BrokenJobsThisTurn      = new HashSet<>();
 	final Set<String> p1BrokenElementsThisTurn  = new HashSet<>();
@@ -423,8 +424,9 @@ public class MainWindow {
 	boolean p2PartyAnyElementThisTurn   = false;
 	int     p2CardsCastThisTurn          = 0;
 	boolean p2SummonCastThisTurn         = false;
-	final Set<String> p2CastJobsThisTurn  = new HashSet<>();
-	final Set<String> p2CastNamesThisTurn = new HashSet<>();
+	final Set<String>           p2CastJobsThisTurn        = new HashSet<>();
+	final Set<String>           p2CastNamesThisTurn       = new HashSet<>();
+	final Map<String, Integer>  p2CastCountByNameThisTurn = new HashMap<>();
 	boolean p2TurnOpponentFwdBroken      = false;
 	final Set<String> p2BrokenJobsThisTurn      = new HashSet<>();
 	final Set<String> p2BrokenElementsThisTurn  = new HashSet<>();
@@ -6442,6 +6444,7 @@ public class MainWindow {
 		p1CardsCastThisTurn++;
 		for (String j : card.jobs()) p1CastJobsThisTurn.add(j.toLowerCase());
 		p1CastNamesThisTurn.add(card.name().toLowerCase());
+		p1CastCountByNameThisTurn.merge(card.name().toLowerCase(), 1, Integer::sum);
 		if (card.isSummon()) {
 			p1SummonCastThisTurn = true;
 			refreshHandPopupIfVisible();
@@ -6546,6 +6549,7 @@ public class MainWindow {
 		p1CardsCastThisTurn++;
 		for (String j : card.jobs()) p1CastJobsThisTurn.add(j.toLowerCase());
 		p1CastNamesThisTurn.add(card.name().toLowerCase());
+		p1CastCountByNameThisTurn.merge(card.name().toLowerCase(), 1, Integer::sum);
 		if (card.isSummon()) {
 			p1SummonCastThisTurn = true;
 			refreshHandPopupIfVisible();
@@ -6679,6 +6683,7 @@ public class MainWindow {
 		p2CardsCastThisTurn++;
 		for (String j : card.jobs()) p2CastJobsThisTurn.add(j.toLowerCase());
 		p2CastNamesThisTurn.add(card.name().toLowerCase());
+		p2CastCountByNameThisTurn.merge(card.name().toLowerCase(), 1, Integer::sum);
 		if (card.isSummon()) p2SummonCastThisTurn = true;
 		logEntry("[P2] Played \"" + card.name() + "\" from " + sourceLabel);
 

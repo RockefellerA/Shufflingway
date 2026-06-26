@@ -1801,11 +1801,13 @@ final class GameContextImpl implements GameContext {
 					mw.p1SummonCastThisTurn = true;
 					for (String j : card.jobs()) mw.p1CastJobsThisTurn.add(j.toLowerCase());
 					mw.p1CastNamesThisTurn.add(card.name().toLowerCase());
+					mw.p1CastCountByNameThisTurn.merge(card.name().toLowerCase(), 1, Integer::sum);
 				} else {
 					mw.p2CardsCastThisTurn++;
 					mw.p2SummonCastThisTurn = true;
 					for (String j : card.jobs()) mw.p2CastJobsThisTurn.add(j.toLowerCase());
 					mw.p2CastNamesThisTurn.add(card.name().toLowerCase());
+					mw.p2CastCountByNameThisTurn.merge(card.name().toLowerCase(), 1, Integer::sum);
 				}
 				mw.lastCardWasCast = true;
 				logEntry((isP1 ? "" : "[P2] ") + "Cast \"" + card.name() + "\" from hand for free"
@@ -1863,11 +1865,13 @@ final class GameContextImpl implements GameContext {
 						mw.p1SummonCastThisTurn = true;
 						for (String j : picked.jobs()) mw.p1CastJobsThisTurn.add(j.toLowerCase());
 						mw.p1CastNamesThisTurn.add(picked.name().toLowerCase());
+						mw.p1CastCountByNameThisTurn.merge(picked.name().toLowerCase(), 1, Integer::sum);
 					} else {
 						mw.p2CardsCastThisTurn++;
 						mw.p2SummonCastThisTurn = true;
 						for (String j : picked.jobs()) mw.p2CastJobsThisTurn.add(j.toLowerCase());
 						mw.p2CastNamesThisTurn.add(picked.name().toLowerCase());
+						mw.p2CastCountByNameThisTurn.merge(picked.name().toLowerCase(), 1, Integer::sum);
 					}
 					mw.lastCardWasCast = true;
 					logEntry((isP1 ? "" : "[P2] ") + "Cast \"" + picked.name() + "\" from deck search for free");
@@ -3971,6 +3975,11 @@ final class GameContextImpl implements GameContext {
 			}
 
 			@Override public int selfCardsCastThisTurn() { return isP1 ? mw.p1CardsCastThisTurn : mw.p2CardsCastThisTurn; }
+
+			@Override public int countCardsNamedCastThisTurn(String name) {
+				Map<String, Integer> counts = isP1 ? mw.p1CastCountByNameThisTurn : mw.p2CastCountByNameThisTurn;
+				return counts.getOrDefault(name.toLowerCase(java.util.Locale.ROOT), 0);
+			}
 
 			@Override public boolean selfSummonCastThisTurn() { return isP1 ? mw.p1SummonCastThisTurn : mw.p2SummonCastThisTurn; }
 

@@ -656,6 +656,12 @@ public interface GameContext {
     /** Returns the number of cards the active player has cast from hand this turn. */
     int selfCardsCastThisTurn();
 
+    /**
+     * Returns how many times the active player has cast a card with the given name this turn.
+     * Used for "If you have cast a Card Name X other than X this turn" conditions.
+     */
+    int countCardsNamedCastThisTurn(String name);
+
     /** Returns {@code true} if the active player has cast a Summon this turn. */
     boolean selfSummonCastThisTurn();
 

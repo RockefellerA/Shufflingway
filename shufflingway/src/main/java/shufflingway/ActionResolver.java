@@ -100,6 +100,27 @@ public class ActionResolver {
     );
 
     /**
+     * Matches "The former gains +N power until end of turn. Then, the former deals damage equal
+     * to its power to the latter." — boost the former, then deal the (post-boost) power as damage to the latter.
+     * Group {@code boost} = numeric power amount.
+     */
+    private static final Pattern FORMER_BOOST_THEN_POWER_DAMAGE_TO_LATTER = Pattern.compile(
+        "(?i)The\\s+former\\s+gains?\\s+\\+(?<boost>\\d+)\\s+power\\s+until\\s+(?:the\\s+)?end\\s+of\\s+" +
+        "(?:(?:the|your)\\s+)?turn[.]\\s+Then[,]?\\s+the\\s+former\\s+deals?\\s+damage\\s+equal\\s+to\\s+" +
+        "its\\s+power\\s+to\\s+the\\s+latter[.!]?"
+    );
+
+    /**
+     * Matches "If you have cast a Card Name [X] other than [X] this turn, also [effect]."
+     * Fires when the ability owner has cast another copy of the named card earlier this turn.
+     * Group {@code name} = the card name; group {@code effect} = the bonus effect text.
+     */
+    private static final Pattern CAST_CARD_NAME_OTHER_BONUS = Pattern.compile(
+        "(?i)[.]?\\s*If\\s+you\\s+have\\s+cast\\s+(?:a\\s+)?Card\\s+Name\\s+(?<name>.+?)" +
+        "\\s+other\\s+than\\s+.+?\\s+this\\s+turn[,.]?\\s+also\\s+(?<effect>.+)"
+    );
+
+    /**
      * Matches "Choose [up to] N [desc1] and [up to] N [desc2]. [effects]"
      * where the effects text uses "the former" and "the latter" as pronouns for the two target groups.
      */
@@ -5513,16 +5534,54 @@ public class ActionResolver {
                 sortedByIdxDesc(ts, false).forEach(ctx::dullTarget);
             };
 
+        // Power boost variants (UNTIL must precede plain BOOST since text may omit the trailing "until")
+        Matcher boostUntilM = FOLLOWUP_POWER_BOOST_UNTIL.matcher(t);
+        if (boostUntilM.find()) {
+            int boost = Integer.parseInt(boostUntilM.group(1));
+            EnumSet<CardData.Trait> traits = parseTraits(boostUntilM.group(2));
+            return (ctx, ts) -> {
+                sortedByIdxDesc(ts, true) .forEach(ft -> ctx.boostTarget(ft, boost, traits));
+                sortedByIdxDesc(ts, false).forEach(ft -> ctx.boostTarget(ft, boost, traits));
+            };
+        }
+
+        Matcher boostM = FOLLOWUP_POWER_BOOST.matcher(t);
+        if (boostM.find()) {
+            int boost = Integer.parseInt(boostM.group(1));
+            EnumSet<CardData.Trait> traits = parseTraits(boostM.group(2));
+            return (ctx, ts) -> {
+                sortedByIdxDesc(ts, true) .forEach(ft -> ctx.boostTarget(ft, boost, traits));
+                sortedByIdxDesc(ts, false).forEach(ft -> ctx.boostTarget(ft, boost, traits));
+            };
+        }
+
+        // "Deal it N damage" — check for a "If you have cast Card Name X other than X this turn" bonus
         Matcher dmgM = FOLLOWUP_DAMAGE.matcher(t);
         if (dmgM.find()) {
             int damage = Integer.parseInt(dmgM.group("amount"));
+            Consumer<GameContext> bonus = parseCardNameCastOtherBonusEffect(t.substring(dmgM.end()));
             return (ctx, ts) -> {
                 sortedByIdxDesc(ts, true) .forEach(ft -> ctx.damageTarget(ft, damage));
                 sortedByIdxDesc(ts, false).forEach(ft -> ctx.damageTarget(ft, damage));
+                if (bonus != null) bonus.accept(ctx);
             };
         }
 
         return parseTargetAction(t, 0);
+    }
+
+    private static Consumer<GameContext> parseCardNameCastOtherBonusEffect(String suffix) {
+        if (suffix == null || suffix.isBlank()) return null;
+        Matcher m = CAST_CARD_NAME_OTHER_BONUS.matcher(suffix.trim());
+        if (!m.find()) return null;
+        String cardName  = m.group("name").trim();
+        String bonusText = m.group("effect").trim().replaceAll("\\.$", "");
+        Consumer<GameContext> bonusEffect = parse(bonusText, null);
+        if (bonusEffect == null) return null;
+        return ctx -> {
+            if (ctx.countCardsNamedCastThisTurn(cardName) > 1)
+                bonusEffect.accept(ctx);
+        };
     }
 
     private static String getTargetCardName(GameContext ctx, ForwardTarget t) {
@@ -5539,7 +5598,68 @@ public class ActionResolver {
         String effectsLower = effects.toLowerCase(java.util.Locale.ROOT);
         if (!effectsLower.contains("the former") || !effectsLower.contains("the latter")) return null;
 
-        // Split effects at " and " immediately before "the latter"
+        // Parse target descriptors (shared for all effect paths below)
+        boolean upTo1  = m.group("upTo1") != null;
+        int     count1 = Integer.parseInt(m.group("count1"));
+        String  desc1  = m.group("desc1").trim();
+
+        boolean upTo2    = m.group("upTo2") != null;
+        int     count2   = Integer.parseInt(m.group("count2"));
+        String  desc2Raw = m.group("desc2").trim();
+
+        boolean excludeFirstChosen = false;
+        String  desc2 = desc2Raw;
+        if (desc2Raw.toLowerCase(java.util.Locale.ROOT).startsWith("other ")) {
+            excludeFirstChosen = true;
+            desc2 = desc2Raw.substring(6).trim();
+        }
+
+        TargetDesc td1 = parseTargetDesc(desc1);
+        TargetDesc td2 = parseTargetDesc(desc2);
+        if (td1 == null || td2 == null) return null;
+
+        boolean fExcludeFirst = excludeFirstChosen;
+        String  fDesc2Static  = td2.excludeName();
+        String label = "Choose " + (upTo1 ? "up to " : "") + count1 + " " + desc1
+                     + " and " + (upTo2 ? "up to " : "") + count2 + " " + desc2Raw;
+
+        // Special case: "The former gains +N power until end of turn. Then, the former deals
+        // damage equal to its power to the latter." — boost, then deal boosted power as damage.
+        Matcher btpM = FORMER_BOOST_THEN_POWER_DAMAGE_TO_LATTER.matcher(effects);
+        if (btpM.find()) {
+            int boost = Integer.parseInt(btpM.group("boost"));
+            EnumSet<CardData.Trait> noTraits = EnumSet.noneOf(CardData.Trait.class);
+            return ctx -> {
+                ctx.logEntry(label);
+                String zone1 = td1.fromBreakZone()
+                        ? "in " + (td1.opponentBz() ? "your opponent's" : "your") + " Break Zone" : null;
+                List<ForwardTarget> ts1 = selectTargets(ctx, count1, upTo1,
+                        td1.opponentOnly(), td1.selfOnly(),
+                        td1.condition(), td1.element(), zone1, td1.opponentBz(),
+                        td1.costVal(), td1.costCmp(), -1, null,
+                        td1.fwd(), td1.bkp(), td1.mon(),
+                        null, null, null, td1.excludeName(), false, null, false);
+
+                String excludeForTs2a = fExcludeFirst && !ts1.isEmpty()
+                        ? getTargetCardName(ctx, ts1.get(0)) : fDesc2Static;
+                String zone2 = td2.fromBreakZone()
+                        ? "in " + (td2.opponentBz() ? "your opponent's" : "your") + " Break Zone" : null;
+                List<ForwardTarget> ts2 = selectTargets(ctx, count2, upTo2,
+                        td2.opponentOnly(), td2.selfOnly(),
+                        td2.condition(), td2.element(), zone2, td2.opponentBz(),
+                        td2.costVal(), td2.costCmp(), -1, null,
+                        td2.fwd(), td2.bkp(), td2.mon(),
+                        null, null, null, excludeForTs2a, false, null, false);
+
+                ts1.forEach(t -> ctx.boostTarget(t, boost, noTraits));
+                if (!ts1.isEmpty() && !ts2.isEmpty()) {
+                    int formerPower = ctx.effectiveTargetPower(ts1.get(0));
+                    ts2.forEach(t -> ctx.damageTarget(t, formerPower));
+                }
+            };
+        }
+
+        // Generic split: " and " before the first "the latter"
         int latterIdx = effectsLower.indexOf("the latter");
         int andIdx    = effects.lastIndexOf(" and ", latterIdx);
         if (andIdx < 0) return null;
@@ -5557,33 +5677,8 @@ public class ActionResolver {
                 parseFormerLatterGroupAction(latterEff);
         if (formerAction == null || latterAction == null) return null;
 
-        boolean upTo1  = m.group("upTo1") != null;
-        int     count1 = Integer.parseInt(m.group("count1"));
-        String  desc1  = m.group("desc1").trim();
-
-        boolean upTo2    = m.group("upTo2") != null;
-        int     count2   = Integer.parseInt(m.group("count2"));
-        String  desc2Raw = m.group("desc2").trim();
-
-        // "other Forward" → exclude the first chosen card's name from the second selection
-        boolean excludeFirstChosen = false;
-        String  desc2 = desc2Raw;
-        if (desc2Raw.toLowerCase(java.util.Locale.ROOT).startsWith("other ")) {
-            excludeFirstChosen = true;
-            desc2 = desc2Raw.substring(6).trim();
-        }
-
-        TargetDesc td1 = parseTargetDesc(desc1);
-        TargetDesc td2 = parseTargetDesc(desc2);
-        if (td1 == null || td2 == null) return null;
-
-        boolean fExcludeFirst = excludeFirstChosen;
-        String  fDesc2Static  = td2.excludeName();
         java.util.function.BiConsumer<GameContext, List<ForwardTarget>> fFormerAction = formerAction;
         java.util.function.BiConsumer<GameContext, List<ForwardTarget>> fLatterAction = latterAction;
-
-        String label = "Choose " + (upTo1 ? "up to " : "") + count1 + " " + desc1
-                     + " and " + (upTo2 ? "up to " : "") + count2 + " " + desc2Raw;
 
         return ctx -> {
             ctx.logEntry(label);
