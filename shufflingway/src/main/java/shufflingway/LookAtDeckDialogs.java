@@ -32,6 +32,7 @@ import javax.swing.JDialog;
 import javax.swing.JFrame;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
+import javax.swing.JToggleButton;
 import javax.swing.SwingConstants;
 import javax.swing.SwingWorker;
 
@@ -349,7 +350,7 @@ class LookAtDeckDialogs {
             }
         };
 
-        javax.swing.JToggleButton[] handBtns = new javax.swing.JToggleButton[n];
+        JToggleButton[] handBtns = new JToggleButton[n];
         JPanel cardsPanel = new JPanel(new FlowLayout(FlowLayout.CENTER, 8, 8));
         for (int i = 0; i < n; i++) {
             final int idx = i;
@@ -375,7 +376,7 @@ class LookAtDeckDialogs {
             });
             cardLabels[i] = lbl;
 
-            javax.swing.JToggleButton handBtn = new javax.swing.JToggleButton("→ Hand");
+            JToggleButton handBtn = new JToggleButton("→ Hand");
             handBtn.setFont(FontLoader.loadPixelNESFont(9));
             handBtns[i] = handBtn;
             handBtn.addItemListener(ie -> {
@@ -646,7 +647,7 @@ class LookAtDeckDialogs {
         confirmBtn.setFont(FontLoader.loadPixelNESFont(11));
         confirmBtn.setEnabled(false);
 
-        javax.swing.JToggleButton[] handBtns = new javax.swing.JToggleButton[n];
+        JToggleButton[] handBtns = new JToggleButton[n];
         JPanel cardsPanel = new JPanel(new FlowLayout(FlowLayout.CENTER, 8, 8));
         for (int i = 0; i < n; i++) {
             final int idx = i;
@@ -658,7 +659,7 @@ class LookAtDeckDialogs {
             });
             cardLabels[i] = lbl;
 
-            javax.swing.JToggleButton handBtn = new javax.swing.JToggleButton("→ Hand");
+            JToggleButton handBtn = new JToggleButton("→ Hand");
             handBtn.setFont(FontLoader.loadPixelNESFont(9));
             handBtns[i] = handBtn;
             handBtn.addItemListener(ie -> {
@@ -998,7 +999,7 @@ class LookAtDeckDialogs {
             }
         };
 
-        javax.swing.JToggleButton[] handBtns = new javax.swing.JToggleButton[n];
+        JToggleButton[] handBtns = new JToggleButton[n];
 
         Runnable refreshHandButtons = () -> {
             int count = handSet.size();
@@ -1061,7 +1062,7 @@ class LookAtDeckDialogs {
             });
             cardLabels[i] = lbl;
 
-            javax.swing.JToggleButton handBtn = new javax.swing.JToggleButton("→ Hand");
+            JToggleButton handBtn = new JToggleButton("→ Hand");
             handBtn.setFont(FontLoader.loadPixelNESFont(9));
             handBtns[i] = handBtn;
             handBtn.addItemListener(ie -> {
@@ -1180,7 +1181,7 @@ class LookAtDeckDialogs {
             }
         };
 
-        javax.swing.JToggleButton[] fieldBtns = new javax.swing.JToggleButton[n];
+        JToggleButton[] fieldBtns = new JToggleButton[n];
 
         Runnable refreshFieldButtons = () -> {
             int count = fieldSet.size();
@@ -1234,7 +1235,7 @@ class LookAtDeckDialogs {
             });
             cardLabels[i] = lbl;
 
-            javax.swing.JToggleButton fieldBtn = new javax.swing.JToggleButton("→ Field");
+            JToggleButton fieldBtn = new JToggleButton("→ Field");
             fieldBtn.setFont(FontLoader.loadPixelNESFont(9));
             fieldBtns[i] = fieldBtn;
             fieldBtn.addItemListener(ie -> {
@@ -1342,8 +1343,8 @@ class LookAtDeckDialogs {
             }
         };
 
-        javax.swing.JToggleButton[] handBtns  = new javax.swing.JToggleButton[n];
-        javax.swing.JToggleButton[] fieldBtns = new javax.swing.JToggleButton[n];
+        JToggleButton[] handBtns  = new JToggleButton[n];
+        JToggleButton[] fieldBtns = new JToggleButton[n];
 
         Runnable refreshButtons = () -> {
             boolean anyChosen = chosenCard[0] != null;
@@ -1403,8 +1404,8 @@ class LookAtDeckDialogs {
             });
             cardLabels[i] = lbl;
 
-            javax.swing.JToggleButton handBtn  = new javax.swing.JToggleButton("→ Hand");
-            javax.swing.JToggleButton fieldBtn = new javax.swing.JToggleButton("→ Field");
+            JToggleButton handBtn  = new JToggleButton("→ Hand");
+            JToggleButton fieldBtn = new JToggleButton("→ Field");
             handBtn.setFont(FontLoader.loadPixelNESFont(9));
             fieldBtn.setFont(FontLoader.loadPixelNESFont(9));
             handBtns[i]  = handBtn;
@@ -1529,7 +1530,7 @@ class LookAtDeckDialogs {
             }
         };
 
-        javax.swing.JToggleButton[] fieldBtns = new javax.swing.JToggleButton[n];
+        JToggleButton[] fieldBtns = new JToggleButton[n];
 
         Runnable refreshFieldButtons = () -> {
             for (int j = 0; j < n; j++) {
@@ -1582,7 +1583,7 @@ class LookAtDeckDialogs {
             });
             cardLabels[i] = lbl;
 
-            javax.swing.JToggleButton fieldBtn = new javax.swing.JToggleButton("→ Field");
+            JToggleButton fieldBtn = new JToggleButton("→ Field");
             fieldBtn.setFont(FontLoader.loadPixelNESFont(9));
             fieldBtns[i] = fieldBtn;
             fieldBtn.addItemListener(ie -> {
@@ -1687,7 +1688,7 @@ class LookAtDeckDialogs {
         confirmBtn.setEnabled(false);
 
         int[] topIdx = { -1 };
-        javax.swing.JToggleButton[] topBtns = new javax.swing.JToggleButton[n];
+        JToggleButton[] topBtns = new JToggleButton[n];
         JLabel[] cardLabels = new JLabel[n];
 
         JPanel cardsPanel = new JPanel(new FlowLayout(FlowLayout.CENTER, 8, 8));
@@ -1700,7 +1701,7 @@ class LookAtDeckDialogs {
             });
             cardLabels[i] = lbl;
 
-            javax.swing.JToggleButton btn = new javax.swing.JToggleButton("→ Top");
+            JToggleButton btn = new JToggleButton("→ Top");
             btn.setFont(FontLoader.loadPixelNESFont(9));
             topBtns[i] = btn;
             btn.addItemListener(ie -> {
