@@ -1160,6 +1160,14 @@ public interface GameContext {
      */
     void revealTopNPlayNamedOntoFieldRestBottom(int reveal, String cardName);
 
+    /**
+     * Reveals the top {@code reveal} cards of the active player's deck.
+     * The player plays up to {@code maxPlay} cards matching {@code typeFilter}
+     * ("Forward", "Backup", "Monster", or "Character") onto the field for free;
+     * all remaining cards go to the bottom of the deck in any order.
+     */
+    void revealTopNPlayUpToTypeOntoFieldRestBottom(int reveal, int maxPlay, String typeFilter);
+
     /** Returns {@code true} if the specific element CP was included in the payment for the most recently cast card. */
     boolean wasElementCpPaid(String element);
 
@@ -1640,12 +1648,19 @@ public interface GameContext {
      * {@code maxCost} restricts eligible cards to those with cost ≤ that value; {@code -1} = no restriction.
      */
     void revealTopAddUpToMatchingRestBottom(int reveal, int maxAdd,
-            String jobFilter, String categoryFilter, String cardNameFilter, String typeFilter, int maxCost);
+            String jobFilter, String categoryFilter, String cardNameFilter, String typeFilter, int maxCost,
+            String elementFilter);
 
-    /** Convenience overload with no cost restriction (delegates to the 7-parameter form). */
+    /** Convenience overload without element filter (passes {@code null}). */
+    default void revealTopAddUpToMatchingRestBottom(int reveal, int maxAdd,
+            String jobFilter, String categoryFilter, String cardNameFilter, String typeFilter, int maxCost) {
+        revealTopAddUpToMatchingRestBottom(reveal, maxAdd, jobFilter, categoryFilter, cardNameFilter, typeFilter, maxCost, null);
+    }
+
+    /** Convenience overload with no cost or element restriction. */
     default void revealTopAddUpToMatchingRestBottom(int reveal, int maxAdd,
             String jobFilter, String categoryFilter, String cardNameFilter, String typeFilter) {
-        revealTopAddUpToMatchingRestBottom(reveal, maxAdd, jobFilter, categoryFilter, cardNameFilter, typeFilter, -1);
+        revealTopAddUpToMatchingRestBottom(reveal, maxAdd, jobFilter, categoryFilter, cardNameFilter, typeFilter, -1, null);
     }
 
     /**

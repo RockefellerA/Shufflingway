@@ -802,6 +802,23 @@ public class ActionResolver {
         "(?:\\s+in\\s+any\\s+order)?[.!]?"
     );
 
+    /**
+     * Matches "Reveal the top N cards of your deck. Play up to M [Type] among them onto the field
+     * and return the other cards to the bottom of your deck in any order."
+     * <ul>
+     *   <li>{@code n}    — number of cards to reveal</li>
+     *   <li>{@code max}  — maximum cards to play onto the field ("up to M")</li>
+     *   <li>{@code type} — card type filter: Forward, Backup, Monster, or Character</li>
+     * </ul>
+     */
+    private static final Pattern REVEAL_PLAY_TYPE_ONTO_FIELD_REST_BOTTOM = Pattern.compile(
+        "(?i)reveal\\s+the\\s+top\\s+(?<n>\\d+)\\s+cards?\\s+of\\s+your\\s+deck[.!]?\\s+" +
+        "Play\\s+up\\s+to\\s+(?<max>\\d+)\\s+(?<type>Forward|Backup|Monster|Character)s?\\s+" +
+        "among\\s+them\\s+onto\\s+(?:the\\s+)?field\\s+" +
+        "and\\s+return\\s+the\\s+other\\s+cards?\\s+to\\s+the\\s+bottom\\s+of\\s+(?:your|the)\\s+deck" +
+        "(?:\\s+in\\s+any\\s+order)?[.!]?$"
+    );
+
     /** Matches "Put it at the top or bottom of its owner's deck." — player chooses placement. Also handles "Your opponent puts it…" */
     private static final Pattern FOLLOWUP_PUT_TOP_OR_BOTTOM_OF_DECK = Pattern.compile(
         "(?i)(?:Your\\s+opponent\\s+puts?\\s+it|Put\\s+it)\\s+at\\s+the\\s+top\\s+or\\s+bottom\\s+of\\s+its\\s+owner's\\s+deck\\.?"
@@ -1116,6 +1133,18 @@ public class ActionResolver {
         "(?<first>(?:Job|Card\\s+Name)\\s+.+?)" +
         "(?:\\s+or\\s+(?<second>(?:Job|Card\\s+Name)\\s+.+?))?" +
         "(?:\\s+(?:Forward|Backup|Character|Monster|card))?\\s+among\\s+them\\s+to\\s+your\\s+hand\\s+" +
+        "and\\s+return\\s+the\\s+other\\s+cards?\\s+to\\s+the\\s+bottom\\s+of\\s+(?:your|the)\\s+deck(?:\\s+in\\s+any\\s+order)?[.!]?\\s*$"
+    );
+
+    /**
+     * Matches "Reveal the top N cards of your deck. Add M [Element] card[s] among them to your
+     * hand and return the other cards to the bottom of your deck in any order."
+     * Groups: {@code n} (reveal count), {@code max} (max to add), {@code element} (element name).
+     */
+    private static final Pattern REVEAL_TOP_N_ELEMENT_TO_HAND = Pattern.compile(
+        "(?i)^\\s*(?:you\\s+may\\s+)?reveal\\s+the\\s+top\\s+(?<n>\\d+)\\s+cards?\\s+of\\s+your\\s+deck[.!]?\\s+" +
+        "Add\\s+(?<max>\\d+)\\s+(?<element>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)\\s+cards?\\s+" +
+        "among\\s+them\\s+to\\s+your\\s+hand\\s+" +
         "and\\s+return\\s+the\\s+other\\s+cards?\\s+to\\s+the\\s+bottom\\s+of\\s+(?:your|the)\\s+deck(?:\\s+in\\s+any\\s+order)?[.!]?\\s*$"
     );
 
@@ -3562,6 +3591,9 @@ public class ActionResolver {
         result = tryParseRevealTopNJobOrNameToHand(effectText);
         if (result != null) return result;
 
+        result = tryParseRevealTopNElementToHand(effectText);
+        if (result != null) return result;
+
         result = tryParseReturnNamedToHand(effectText);
         if (result != null) return result;
 
@@ -3797,6 +3829,9 @@ public class ActionResolver {
         if (result != null) return result;
 
         result = tryParseShuffleThenRevealPlayNamedRestBottom(effectText, source);
+        if (result != null) return result;
+
+        result = tryParseRevealPlayTypeOntoFieldRestBottom(effectText);
         if (result != null) return result;
 
         result = tryParseShuffleDeck(effectText);
@@ -4319,6 +4354,7 @@ public class ActionResolver {
         if (tryParseRevealTopNTypeToHand(effectText)       != null)           return "RevealTopNTypeToHand";
         if (tryParseRevealTopNCategoryToHand(effectText)   != null)          return "RevealTopNCategoryToHand";
         if (tryParseRevealTopNJobOrNameToHand(effectText)  != null)          return "RevealTopNJobOrNameToHand";
+        if (tryParseRevealTopNElementToHand(effectText)    != null)           return "RevealTopNElementToHand";
         if (tryParseReturnNamedToHand(effectText) != null)                   return "ReturnNamedToHand";
         if (tryParseYouMayRemoveNamedFromGame(effectText, source) != null)   return "YouMayRemoveNamedFromGame";
         if (tryParseEndOfOppTurnPlayNamedOntoField(effectText) != null)     return "EndOfOppTurnPlayNamedOntoField";
@@ -4400,6 +4436,7 @@ public class ActionResolver {
         if (tryParseLookTopDeckPeek(effectText)                         != null) return "LookTopDeckPeek";
         if (tryParseRemoveTopOfDeckFromGame(effectText)                  != null) return "RemoveTopOfDeckFromGame";
         if (tryParseShuffleThenRevealPlayNamedRestBottom(effectText, source) != null) return "ShuffleThenRevealPlayNamedRestBottom";
+        if (tryParseRevealPlayTypeOntoFieldRestBottom(effectText)           != null) return "RevealPlayTypeOntoFieldRestBottom";
         if (tryParseShuffleDeck(effectText)                              != null) return "ShuffleDeck";
         if (tryParseBackupCpDraw(effectText)                             != null) return "BackupCpDraw";
         if (tryParseBecomeForwardUntilEot(effectText, source)         != null) return "BecomeForwardUntilEot";
@@ -8726,6 +8763,17 @@ public class ActionResolver {
         };
     }
 
+    private static Consumer<GameContext> tryParseRevealPlayTypeOntoFieldRestBottom(String text) {
+        Matcher m = REVEAL_PLAY_TYPE_ONTO_FIELD_REST_BOTTOM.matcher(text.trim());
+        if (!m.matches()) return null;
+        int n      = Integer.parseInt(m.group("n"));
+        int max    = Integer.parseInt(m.group("max"));
+        String typeRaw  = m.group("type");
+        String normType = Character.toUpperCase(typeRaw.charAt(0))
+                + typeRaw.substring(1).toLowerCase();
+        return ctx -> ctx.revealTopNPlayUpToTypeOntoFieldRestBottom(n, max, normType);
+    }
+
     /** Parses "Choose 1 card with EX Burst in your Damage Zone. You may trigger its EX Burst effect." */
     private static Consumer<GameContext> tryParseChooseExBurstFromDamageZone(String text) {
         if (!CHOOSE_EX_BURST_FROM_DAMAGE_ZONE.matcher(text.trim()).find()) return null;
@@ -10229,6 +10277,21 @@ public class ActionResolver {
             ctx.logEntry("Effect: Reveal top " + n + " — add up to " + max + " " + typeFilter
                     + " of cost " + maxCost + " or less to hand, rest to bottom");
             ctx.revealTopAddUpToMatchingRestBottom(n, max, null, null, null, typeFilter, maxCost);
+        };
+    }
+
+    private static Consumer<GameContext> tryParseRevealTopNElementToHand(String text) {
+        String s = stripRestrictionSentences(text);
+        Matcher m = REVEAL_TOP_N_ELEMENT_TO_HAND.matcher(s.isEmpty() ? text : s);
+        if (!m.find()) return null;
+        int n = Integer.parseInt(m.group("n"));
+        int max = Integer.parseInt(m.group("max"));
+        String element = m.group("element");
+        String normElement = Character.toUpperCase(element.charAt(0)) + element.substring(1).toLowerCase();
+        return ctx -> {
+            ctx.logEntry("Effect: Reveal top " + n + " — add up to " + max + " " + normElement
+                    + " card(s) to hand, rest to bottom");
+            ctx.revealTopAddUpToMatchingRestBottom(n, max, null, null, null, null, -1, normElement);
         };
     }
 

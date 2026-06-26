@@ -4153,7 +4153,8 @@ final class GameContextImpl implements GameContext {
 			}
 
 			@Override public void revealTopAddUpToMatchingRestBottom(int reveal, int maxAdd,
-					String jobFilter, String categoryFilter, String cardNameFilter, String typeFilter, int maxCost) {
+					String jobFilter, String categoryFilter, String cardNameFilter, String typeFilter, int maxCost,
+					String elementFilter) {
 				Deque<CardData> deck = isP1 ? mw.gameState.getP1MainDeck() : mw.gameState.getP2MainDeck();
 				int n = Math.min(reveal, deck.size());
 				if (n == 0) { logEntry("Reveal top: deck is empty."); return; }
@@ -4167,6 +4168,7 @@ final class GameContextImpl implements GameContext {
 					List<CardData> eligible = peeked.stream()
 							.filter(c -> {
 								if (maxCost >= 0 && c.cost() > maxCost) return false;
+								if (elementFilter != null && !CardFilters.meetsElementFilter(c, elementFilter)) return false;
 								boolean noFilters = jobFilter == null && categoryFilter == null
 										&& cardNameFilter == null && typeFilter == null;
 								if (noFilters) return true;
@@ -4190,7 +4192,7 @@ final class GameContextImpl implements GameContext {
 					}
 					mw.refreshP2DeckLabel();
 				} else {
-					mw.lookDialogs().showRevealAddUpToMatchingRestBottom(peeked, deck, isP1, maxAdd, jobFilter, categoryFilter, cardNameFilter, typeFilter, maxCost);
+					mw.lookDialogs().showRevealAddUpToMatchingRestBottom(peeked, deck, isP1, maxAdd, jobFilter, categoryFilter, cardNameFilter, typeFilter, maxCost, elementFilter);
 				}
 			}
 
@@ -4216,6 +4218,40 @@ final class GameContextImpl implements GameContext {
 				}
 				markEffectFizzled();
 				logEntry("Effect: " + source.name() + " not found on field — fizzle");
+			}
+
+			@Override public void revealTopNPlayUpToTypeOntoFieldRestBottom(int reveal, int maxPlay, String typeFilter) {
+				Deque<CardData> deck = isP1 ? mw.gameState.getP1MainDeck() : mw.gameState.getP2MainDeck();
+				int n = Math.min(reveal, deck.size());
+				if (n == 0) { logEntry("Reveal top: deck is empty."); return; }
+				List<CardData> peeked = new ArrayList<>();
+				for (CardData c : deck) { peeked.add(c); if (peeked.size() >= n) break; }
+				logEntry("Reveal top " + n + " card(s): " +
+						peeked.stream().map(CardData::name).collect(Collectors.joining(", ")));
+				Consumer<CardData> playOntoField = c -> {
+					if (c.isBackup())       mw.placeCardInFirstBackupSlot(c);
+					else if (c.isMonster()) mw.placeCardInMonsterZone(c);
+					else                    mw.placeCardInForwardZone(c);
+				};
+				if (!isP1 && mw.isP2Cpu()) {
+					List<CardData> eligible = peeked.stream()
+							.filter(c -> meetsRevealTypeFilter(c, typeFilter))
+							.sorted(java.util.Comparator.comparingInt(CardData::cost).reversed())
+							.collect(Collectors.toList());
+					List<CardData> chosen = eligible.subList(0, Math.min(maxPlay, eligible.size()));
+					Set<CardData> chosenSet = new java.util.LinkedHashSet<>(chosen);
+					for (int i = 0; i < n; i++) deck.pollFirst();
+					for (CardData c : peeked) {
+						if (!chosenSet.contains(c)) { deck.addLast(c); logEntry("[AI] " + c.name() + " → [P2] bottom of deck"); }
+					}
+					mw.refreshP2DeckLabel();
+					for (CardData c : chosenSet) {
+						logEntry("[AI] " + c.name() + " played onto field");
+						playOntoField.accept(c);
+					}
+				} else {
+					mw.lookDialogs().showRevealPlayTypeOntoFieldRestBottom(peeked, deck, isP1, maxPlay, typeFilter, playOntoField);
+				}
 			}
 
 			@Override public void revealTopNPlayNamedOntoFieldRestBottom(int reveal, String cardName) {
