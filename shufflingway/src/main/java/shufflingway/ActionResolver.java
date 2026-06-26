@@ -120,6 +120,51 @@ public class ActionResolver {
     );
 
     /**
+     * Matches "Until the end of the turn, the former loses [traits]. Then, the latter gains all
+     * the abilities lost by the previous effect until the end of the turn."
+     * Group {@code traits} = the comma/and-separated trait list (Haste, First Strike, Brave, etc.).
+     */
+    private static final Pattern FORMER_LOSES_TRAITS_LATTER_GAINS = Pattern.compile(
+        "(?i)Until\\s+the\\s+end\\s+of\\s+the\\s+turn[,.]?\\s+the\\s+former\\s+loses\\s+" +
+        "(?<traits>[^.]+?)[.]\\s+Then[,.]?\\s+the\\s+latter\\s+gains\\s+all\\s+the\\s+abilities\\s+" +
+        "lost\\s+by\\s+the\\s+previous\\s+effect\\s+until\\s+the\\s+end\\s+of\\s+the\\s+turn[.!]?"
+    );
+
+    /**
+     * Matches escalating BZ-count conditionals for former/latter: always dull former; if ≥N1
+     * Card Name X in BZ dull latter; if ≥N2 freeze both; if ≥N3 opponent discards.
+     */
+    private static final Pattern FORMER_DULL_LATTER_BZ_NAME_ESCALATE = Pattern.compile(
+        "(?i)Dull\\s+the\\s+former[.]\\s+If\\s+you\\s+have\\s+(?<n1>\\d+)\\s+or\\s+more\\s+Card\\s+Name\\s+" +
+        "(?<cardname>.+?)\\s+in\\s+your\\s+Break\\s+Zone[,.]?\\s+also\\s+dull\\s+the\\s+latter[.]\\s+" +
+        "If\\s+you\\s+have\\s+(?<n2>\\d+)\\s+or\\s+more[,.]?\\s+also\\s+Freeze\\s+them[.]\\s+" +
+        "If\\s+you\\s+have\\s+(?<n3>\\d+)\\s+or\\s+more[,.]?\\s+also\\s+your\\s+opponent\\s+discards\\s+" +
+        "(?<discardN>\\d+)\\s+cards?\\s+from\\s+their\\s+hand[.!]?"
+    );
+
+    /**
+     * Matches "Until the end of the turn, the former gains +N power and 'This Forward cannot
+     * become dull by your opponent's Summons or abilities.' If you have received N damage or more,
+     * also deal the latter damage equal to the highest power Forward you control."
+     */
+    private static final Pattern FORMER_BOOST_DULL_IMMUNITY_COND_DAMAGE_LATTER = Pattern.compile(
+        "(?i)Until\\s+the\\s+end\\s+of\\s+the\\s+turn[,.]?\\s+the\\s+former\\s+gains\\s+" +
+        "\\+(?<boost>\\d+)\\s+power\\s+and\\s+\\W?This\\s+Forward\\s+cannot\\s+become\\s+dull\\s+" +
+        "by\\s+your\\s+opponent.s\\s+Summons?\\s+or\\s+abilities\\W?\\s+" +
+        "If\\s+you\\s+have\\s+received\\s+(?<dmgthresh>\\d+)\\s+(?:points?\\s+of\\s+)?damage\\s+or\\s+more[,.]?\\s+" +
+        "also\\s+deal\\s+the\\s+latter\\s+damage\\s+equal\\s+to\\s+the\\s+highest\\s+power\\s+" +
+        "Forward\\s+you\\s+control[.!]?"
+    );
+
+    /**
+     * Matches "The former deals damage equal to its power to the latter."
+     * — former deals its current power as damage to the latter (no boost).
+     */
+    private static final Pattern FORMER_DEALS_POWER_DAMAGE_TO_LATTER = Pattern.compile(
+        "(?i)The\\s+former\\s+deals?\\s+damage\\s+equal\\s+to\\s+its\\s+power\\s+to\\s+the\\s+latter[.!]?"
+    );
+
+    /**
      * Matches "If you have cast a Card Name [X] other than [X] this turn, also [effect]."
      * Fires when the ability owner has cast another copy of the named card earlier this turn.
      * Group {@code name} = the card name; group {@code effect} = the bonus effect text.
@@ -2485,6 +2530,11 @@ public class ActionResolver {
             "(?<chartype2>Forwards?|Backups?|Monsters?|Characters?)\\s+you\\s+control" +
             "\\s+until\\s+(?:the\\s+)?end\\s+of\\s+(?:the\\s+)?turn" +
         ")[.!]?"
+    );
+
+    /** Matches "it/they loses N power" with no timing qualifier — implied EOT in former/latter context. */
+    private static final Pattern FOLLOWUP_POWER_REDUCE_BARE = Pattern.compile(
+        "(?i)(?:it|they)\\s+loses?\\s+(\\d+)\\s+[Pp]ower[.!]?"
     );
 
     /**
@@ -5262,6 +5312,12 @@ public class ActionResolver {
                 sortedByIdxDesc(ts, false).forEach(ctx::breakTarget);
             };
 
+        if (FOLLOWUP_ACTIVATE.matcher(t).find())
+            return (ctx, ts) -> {
+                sortedByIdxDesc(ts, true) .forEach(ctx::activateTarget);
+                sortedByIdxDesc(ts, false).forEach(ctx::activateTarget);
+            };
+
         // Return + draw must precede plain return (draw extends the return text)
         java.util.regex.Matcher retDrawM = FOLLOWUP_RETURN_AND_DRAW.matcher(t);
         if (retDrawM.find()) {
@@ -5320,6 +5376,16 @@ public class ActionResolver {
             return (ctx, ts) -> {
                 sortedByIdxDesc(ts, true) .forEach(ft -> ctx.reduceTarget(ft, reduction, traits));
                 sortedByIdxDesc(ts, false).forEach(ft -> ctx.reduceTarget(ft, reduction, traits));
+            };
+        }
+        // Bare power reduce with no timing qualifier — used in former/latter splits (implied EOT)
+        java.util.regex.Matcher reduceBareM = FOLLOWUP_POWER_REDUCE_BARE.matcher(t);
+        if (reduceBareM.find()) {
+            int reduction = Integer.parseInt(reduceBareM.group(1));
+            EnumSet<CardData.Trait> noTraits = EnumSet.noneOf(CardData.Trait.class);
+            return (ctx, ts) -> {
+                sortedByIdxDesc(ts, true) .forEach(ft -> ctx.reduceTarget(ft, reduction, noTraits));
+                sortedByIdxDesc(ts, false).forEach(ft -> ctx.reduceTarget(ft, reduction, noTraits));
             };
         }
 
@@ -5694,6 +5760,155 @@ public class ActionResolver {
 
                 if (!ts1.isEmpty() && !ts2.isEmpty())
                     ctx.redirectNextIncomingDamage(ts1.get(0), ts2.get(0));
+            };
+        }
+
+        // Special case: "Until the end of the turn, the former loses [traits]. Then, the latter
+        // gains all the abilities lost by the previous effect until the end of the turn."
+        Matcher fltgM = FORMER_LOSES_TRAITS_LATTER_GAINS.matcher(effects);
+        if (fltgM.matches()) {
+            EnumSet<CardData.Trait> traitsToLose = parseTraits(fltgM.group("traits"));
+            if (!traitsToLose.isEmpty()) {
+                return ctx -> {
+                    ctx.logEntry(label);
+                    String zone1 = td1.fromBreakZone()
+                            ? "in " + (td1.opponentBz() ? "your opponent's" : "your") + " Break Zone" : null;
+                    List<ForwardTarget> ts1 = selectTargets(ctx, count1, upTo1,
+                            td1.opponentOnly(), td1.selfOnly(),
+                            td1.condition(), td1.element(), zone1, td1.opponentBz(),
+                            td1.costVal(), td1.costCmp(), -1, null,
+                            td1.fwd(), td1.bkp(), td1.mon(),
+                            null, null, null, td1.excludeName(), false, null, false);
+
+                    String excl2flt = fExcludeFirst && !ts1.isEmpty()
+                            ? getTargetCardName(ctx, ts1.get(0)) : fDesc2Static;
+                    String zone2 = td2.fromBreakZone()
+                            ? "in " + (td2.opponentBz() ? "your opponent's" : "your") + " Break Zone" : null;
+                    List<ForwardTarget> ts2 = selectTargets(ctx, count2, upTo2,
+                            td2.opponentOnly(), td2.selfOnly(),
+                            td2.condition(), td2.element(), zone2, td2.opponentBz(),
+                            td2.costVal(), td2.costCmp(), -1, null,
+                            td2.fwd(), td2.bkp(), td2.mon(),
+                            null, null, null, excl2flt, false, null, false);
+
+                    if (!ts1.isEmpty()) {
+                        ForwardTarget former = ts1.get(0);
+                        EnumSet<CardData.Trait> actuallyLost = EnumSet.noneOf(CardData.Trait.class);
+                        for (CardData.Trait tr : traitsToLose)
+                            if (ctx.effectiveTargetHasTrait(former, tr)) actuallyLost.add(tr);
+                        ctx.removeTraitsUntilEotFromTarget(former, traitsToLose);
+                        if (!ts2.isEmpty() && !actuallyLost.isEmpty())
+                            ctx.boostTarget(ts2.get(0), 0, actuallyLost);
+                    }
+                };
+            }
+        }
+
+        // Special case: escalating BZ-count conditionals (dull former; ≥N1 dull latter; ≥N2 freeze; ≥N3 discard).
+        Matcher bzEscM = FORMER_DULL_LATTER_BZ_NAME_ESCALATE.matcher(effects);
+        if (bzEscM.matches()) {
+            int n1 = Integer.parseInt(bzEscM.group("n1"));
+            String bzCardName = bzEscM.group("cardname").trim();
+            int n2 = Integer.parseInt(bzEscM.group("n2"));
+            int n3 = Integer.parseInt(bzEscM.group("n3"));
+            int discardN = Integer.parseInt(bzEscM.group("discardN"));
+            return ctx -> {
+                ctx.logEntry(label);
+                String zone1 = td1.fromBreakZone()
+                        ? "in " + (td1.opponentBz() ? "your opponent's" : "your") + " Break Zone" : null;
+                List<ForwardTarget> ts1 = selectTargets(ctx, count1, upTo1,
+                        td1.opponentOnly(), td1.selfOnly(),
+                        td1.condition(), td1.element(), zone1, td1.opponentBz(),
+                        td1.costVal(), td1.costCmp(), -1, null,
+                        td1.fwd(), td1.bkp(), td1.mon(),
+                        null, null, null, td1.excludeName(), false, null, false);
+
+                String excl2bz = fExcludeFirst && !ts1.isEmpty()
+                        ? getTargetCardName(ctx, ts1.get(0)) : fDesc2Static;
+                String zone2 = td2.fromBreakZone()
+                        ? "in " + (td2.opponentBz() ? "your opponent's" : "your") + " Break Zone" : null;
+                List<ForwardTarget> ts2 = selectTargets(ctx, count2, upTo2,
+                        td2.opponentOnly(), td2.selfOnly(),
+                        td2.condition(), td2.element(), zone2, td2.opponentBz(),
+                        td2.costVal(), td2.costCmp(), -1, null,
+                        td2.fwd(), td2.bkp(), td2.mon(),
+                        null, null, null, excl2bz, false, null, false);
+
+                ts1.forEach(ctx::dullTarget);
+                int bzCount = ctx.countSelfBreakZoneCards(bzCardName, null);
+                if (bzCount >= n1) ts2.forEach(ctx::dullTarget);
+                if (bzCount >= n2) {
+                    ts1.forEach(ctx::freezeTarget);
+                    ts2.forEach(ctx::freezeTarget);
+                }
+                if (bzCount >= n3) ctx.forceOpponentDiscard(discardN);
+            };
+        }
+
+        // Special case: "+N power and cannot-dull-by-opp; conditional damage to latter = highest own Forward power."
+        Matcher bdicM = FORMER_BOOST_DULL_IMMUNITY_COND_DAMAGE_LATTER.matcher(effects);
+        if (bdicM.matches()) {
+            int boost = Integer.parseInt(bdicM.group("boost"));
+            int dmgThresh = Integer.parseInt(bdicM.group("dmgthresh"));
+            EnumSet<CardData.Trait> dullImmunity = EnumSet.of(CardData.Trait.CANNOT_BE_DULLED_BY_OPP);
+            return ctx -> {
+                ctx.logEntry(label);
+                String zone1 = td1.fromBreakZone()
+                        ? "in " + (td1.opponentBz() ? "your opponent's" : "your") + " Break Zone" : null;
+                List<ForwardTarget> ts1 = selectTargets(ctx, count1, upTo1,
+                        td1.opponentOnly(), td1.selfOnly(),
+                        td1.condition(), td1.element(), zone1, td1.opponentBz(),
+                        td1.costVal(), td1.costCmp(), -1, null,
+                        td1.fwd(), td1.bkp(), td1.mon(),
+                        null, null, null, td1.excludeName(), false, null, false);
+
+                String excl2di = fExcludeFirst && !ts1.isEmpty()
+                        ? getTargetCardName(ctx, ts1.get(0)) : fDesc2Static;
+                String zone2 = td2.fromBreakZone()
+                        ? "in " + (td2.opponentBz() ? "your opponent's" : "your") + " Break Zone" : null;
+                List<ForwardTarget> ts2 = selectTargets(ctx, count2, upTo2,
+                        td2.opponentOnly(), td2.selfOnly(),
+                        td2.condition(), td2.element(), zone2, td2.opponentBz(),
+                        td2.costVal(), td2.costCmp(), -1, null,
+                        td2.fwd(), td2.bkp(), td2.mon(),
+                        null, null, null, excl2di, false, null, false);
+
+                ts1.forEach(t -> ctx.boostTarget(t, boost, dullImmunity));
+                if (ctx.selfDamageCount() >= dmgThresh && !ts2.isEmpty()) {
+                    int highestPower = ctx.selfHighestForwardPower();
+                    ctx.damageTarget(ts2.get(0), highestPower);
+                }
+            };
+        }
+
+        // Special case: "The former deals damage equal to its power to the latter."
+        if (FORMER_DEALS_POWER_DAMAGE_TO_LATTER.matcher(effects).matches()) {
+            return ctx -> {
+                ctx.logEntry(label);
+                String zone1 = td1.fromBreakZone()
+                        ? "in " + (td1.opponentBz() ? "your opponent's" : "your") + " Break Zone" : null;
+                List<ForwardTarget> ts1 = selectTargets(ctx, count1, upTo1,
+                        td1.opponentOnly(), td1.selfOnly(),
+                        td1.condition(), td1.element(), zone1, td1.opponentBz(),
+                        td1.costVal(), td1.costCmp(), -1, null,
+                        td1.fwd(), td1.bkp(), td1.mon(),
+                        null, null, null, td1.excludeName(), false, null, false);
+
+                String excl2fp = fExcludeFirst && !ts1.isEmpty()
+                        ? getTargetCardName(ctx, ts1.get(0)) : fDesc2Static;
+                String zone2 = td2.fromBreakZone()
+                        ? "in " + (td2.opponentBz() ? "your opponent's" : "your") + " Break Zone" : null;
+                List<ForwardTarget> ts2 = selectTargets(ctx, count2, upTo2,
+                        td2.opponentOnly(), td2.selfOnly(),
+                        td2.condition(), td2.element(), zone2, td2.opponentBz(),
+                        td2.costVal(), td2.costCmp(), -1, null,
+                        td2.fwd(), td2.bkp(), td2.mon(),
+                        null, null, null, excl2fp, false, null, false);
+
+                if (!ts1.isEmpty() && !ts2.isEmpty()) {
+                    int formerPower = ctx.effectiveTargetPower(ts1.get(0));
+                    ctx.damageTarget(ts2.get(0), formerPower);
+                }
             };
         }
 

@@ -785,7 +785,8 @@ final class GameContextImpl implements GameContext {
 			@Override public void dullP1Forward(int idx) {
 				if (idx >= mw.p1ForwardStates.size()) return;
 				CardData c = p1Forward(idx);
-				if (!isP1 && ActionResolver.hasCannotBeDulledByOppFieldAbility(c)) {
+				if (!isP1 && (ActionResolver.hasCannotBeDulledByOppFieldAbility(c)
+						|| mw.effectiveP1HasTrait(idx, CardData.Trait.CANNOT_BE_DULLED_BY_OPP))) {
 					logEntry(c.name() + " cannot become dull by opponent's effects");
 					return;
 				}
@@ -797,7 +798,8 @@ final class GameContextImpl implements GameContext {
 			@Override public void dullP2Forward(int idx) {
 				if (idx >= mw.p2ForwardStates.size()) return;
 				CardData c = mw.p2ForwardCards.get(idx);
-				if (isP1 && ActionResolver.hasCannotBeDulledByOppFieldAbility(c)) {
+				if (isP1 && (ActionResolver.hasCannotBeDulledByOppFieldAbility(c)
+						|| mw.effectiveP2HasTrait(idx, CardData.Trait.CANNOT_BE_DULLED_BY_OPP))) {
 					logEntry("[P2] " + c.name() + " cannot become dull by opponent's effects");
 					return;
 				}
@@ -2498,6 +2500,28 @@ final class GameContextImpl implements GameContext {
 				else         { if (isP1) mw.refreshP1ForwardSlot(idx); else mw.refreshP2ForwardSlot(idx); }
 			}
 
+			@Override public void removeTraitsUntilEotFromTarget(ForwardTarget t,
+					java.util.EnumSet<CardData.Trait> traits) {
+				if (t.zone() != ForwardTarget.CardZone.FORWARD) return;
+				List<java.util.EnumSet<CardData.Trait>> removedList =
+						t.isP1() ? mw.p1ForwardRemovedTraits : mw.p2ForwardRemovedTraits;
+				if (t.idx() >= removedList.size()) return;
+				removedList.get(t.idx()).addAll(traits);
+				CardData c = mw.autoAbilityTriggers.fieldCardData(t);
+				if (c != null) logEntry((t.isP1() ? "" : "[P2] ") + c.name() + " loses "
+						+ traits.stream().map(tr -> tr.name().toLowerCase().replace('_', ' '))
+						        .collect(Collectors.joining(", "))
+						+ " until end of turn");
+				if (t.isP1()) mw.refreshP1ForwardSlot(t.idx());
+				else           mw.refreshP2ForwardSlot(t.idx());
+			}
+
+			@Override public boolean effectiveTargetHasTrait(ForwardTarget t, CardData.Trait trait) {
+				if (t.zone() != ForwardTarget.CardZone.FORWARD) return false;
+				return t.isP1() ? mw.effectiveP1HasTrait(t.idx(), trait)
+				                : mw.effectiveP2HasTrait(t.idx(), trait);
+			}
+
 			@Override public void setSourceForwardCannotBeBlocked(CardData source) {
 				for (int i = 0; i < mw.p1ForwardCards.size(); i++) {
 					if (mw.p1ForwardCards.get(i).name().equals(source.name())) {
@@ -2651,6 +2675,13 @@ final class GameContextImpl implements GameContext {
 				int max = 0;
 				for (int i = 0; i < mw.p1ForwardCards.size(); i++)
 					max = Math.max(max, mw.effectiveP1ForwardPower(i));
+				return max;
+			}
+
+			@Override public int highestP2ForwardPower() {
+				int max = 0;
+				for (int i = 0; i < mw.p2ForwardCards.size(); i++)
+					max = Math.max(max, mw.effectiveP2ForwardPower(i));
 				return max;
 			}
 

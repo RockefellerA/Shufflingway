@@ -65,7 +65,8 @@ public record CardData(
         WARP,
         PRIMING,
         CANNOT_BE_BROKEN,
-        CANNOT_BE_BROKEN_BY_NON_DMG
+        CANNOT_BE_BROKEN_BY_NON_DMG,
+        CANNOT_BE_DULLED_BY_OPP
     }
 
     /** Defensive copy — collection fields are always immutable after construction. */

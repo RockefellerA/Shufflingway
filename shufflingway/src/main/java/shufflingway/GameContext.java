@@ -418,6 +418,18 @@ public interface GameContext {
     void boostTarget(ForwardTarget t, int amount, EnumSet<CardData.Trait> traits);
 
     /**
+     * Removes the specified {@code traits} from the target Forward until end of turn.
+     * Traits the Forward does not currently have are silently ignored.
+     */
+    void removeTraitsUntilEotFromTarget(ForwardTarget t, EnumSet<CardData.Trait> traits);
+
+    /**
+     * Returns {@code true} if the target Forward currently has the given trait
+     * (accounting for temporary grants and removals).
+     */
+    boolean effectiveTargetHasTrait(ForwardTarget t, CardData.Trait trait);
+
+    /**
      * Finds {@code source} on P1's forward zone and adds {@code amount} power and
      * optionally grants {@code traits} to it until the end of the turn.
      * No-op if the source card is not found on the field.
@@ -814,6 +826,12 @@ public interface GameContext {
 
     /** Returns the highest effective power among all P1 Forwards on the field; {@code 0} if none. */
     int highestP1ForwardPower();
+
+    /** Returns the highest effective power among all P2 Forwards on the field; {@code 0} if none. */
+    int highestP2ForwardPower();
+
+    /** Returns the highest effective power among all own (ability-user's) Forwards; {@code 0} if none. */
+    default int selfHighestForwardPower() { return isP1() ? highestP1ForwardPower() : highestP2ForwardPower(); }
 
     /**
      * Returns the effective power of the first field Forward or Monster whose name matches
