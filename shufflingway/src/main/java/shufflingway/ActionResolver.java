@@ -111,12 +111,30 @@ public class ActionResolver {
     );
 
     /**
-     * Matches "During this turn, the next damage dealt to the former is received by the latter instead."
-     * — one-shot damage redirect from former to latter.
+     * Matches "During this turn, the next damage dealt to the former is received by / dealt to the latter instead."
+     * — one-shot damage redirect from former to latter, with an optional trailing bonus clause.
+     * Group {@code suffix} = optional bonus text (e.g. BACKUP_CP_DRAW).
      */
     private static final Pattern FORMER_LATTER_DAMAGE_REDIRECT = Pattern.compile(
         "(?i)During\\s+this\\s+turn[,.]?\\s+the\\s+next\\s+damage\\s+dealt\\s+to\\s+the\\s+former\\s+" +
-        "is\\s+received\\s+by\\s+the\\s+latter\\s+instead[.!]?"
+        "is\\s+(?:received\\s+by|dealt\\s+to)\\s+the\\s+latter\\s+instead[.!]?" +
+        "(?<suffix>(?:\\s+.+)?)$",
+        Pattern.DOTALL
+    );
+
+    /**
+     * Matches "Until the end of the turn, the former gains +N power [and Traits]. Deal the latter N damage."
+     * optionally followed by a bonus clause (e.g. BACKUP_CP_DRAW).
+     * Groups: {@code boost} = power amount; {@code traits} = optional trait string;
+     * {@code damage} = damage amount; {@code suffix} = optional trailing bonus text.
+     */
+    private static final Pattern FORMER_BOOST_TRAITS_LATTER_DIRECT_DAMAGE = Pattern.compile(
+        "(?i)Until\\s+the\\s+end\\s+of\\s+the\\s+turn[,.]?\\s+the\\s+former\\s+gains?\\s+" +
+        "\\+(?<boost>\\d+)\\s+[Pp]ower" +
+        "(?<traits>(?:\\s*(?:and|,)\\s*(?:Haste|First\\s+Strike|Brave))*)\\s*[.]\\s+" +
+        "Deal\\s+the\\s+latter\\s+(?<damage>\\d+)\\s+damage[.!]?" +
+        "(?<suffix>(?:\\s+.+)?)$",
+        Pattern.DOTALL
     );
 
     /**
@@ -162,6 +180,34 @@ public class ActionResolver {
      */
     private static final Pattern FORMER_DEALS_POWER_DAMAGE_TO_LATTER = Pattern.compile(
         "(?i)The\\s+former\\s+deals?\\s+damage\\s+equal\\s+to\\s+its\\s+power\\s+to\\s+the\\s+latter[.!]?"
+    );
+
+    /**
+     * Matches "Break the former. If [card] enters the field due to Warp, also break the latter."
+     * — always break the former; break the latter only when the source entered via Warp.
+     */
+    private static final Pattern FORMER_BREAK_COND_WARP_LATTER_BREAK = Pattern.compile(
+        "(?i)Break\\s+the\\s+former[.!]?\\s+If\\s+.+?\\s+enters\\s+the\\s+field\\s+due\\s+to\\s+Warp[,.]?\\s+" +
+        "also\\s+break\\s+the\\s+latter[.!]?"
+    );
+
+    /**
+     * Matches "Deal the former N damage. If you control M or more Backups, also deal the latter N damage."
+     * Groups: {@code dmg1} = former damage; {@code n} = backup threshold; {@code dmg2} = latter damage.
+     */
+    private static final Pattern FORMER_DAMAGE_COND_BACKUP_COUNT_LATTER_DAMAGE = Pattern.compile(
+        "(?i)Deal\\s+the\\s+former\\s+(?<dmg1>\\d+)\\s+damage[.!]?\\s+" +
+        "If\\s+you\\s+control\\s+(?<n>\\d+)\\s+or\\s+more\\s+Backups?[,.]?\\s+" +
+        "also\\s+deal\\s+the\\s+latter\\s+(?<dmg2>\\d+)\\s+damage[.!]?"
+    );
+
+    /**
+     * Matches desc2 text "Backup with a cost equal to or less than that Forward in your Break Zone"
+     * — a relative cost constraint that depends on the first chosen target at execution time.
+     */
+    private static final Pattern DESC_BZ_BACKUP_COST_RELATIVE = Pattern.compile(
+        "(?i)Backup\\s+with\\s+a\\s+cost\\s+equal\\s+to\\s+or\\s+less\\s+than\\s+" +
+        "(?:that\\s+Forward|the\\s+former)\\s+in\\s+(?:your|the)\\s+Break\\s+Zone"
     );
 
     /**
@@ -460,9 +506,12 @@ public class ActionResolver {
         "(?i)freeze\\s+(?:it|them)"
     );
 
-    /** Matches "dull it/them and freeze it/them". */
+    /**
+     * Matches "dull it/them and freeze it/them" or compact "dull and freeze it/them"
+     * (former/latter effects use a shared pronoun at the end).
+     */
     private static final Pattern FOLLOWUP_DULL_AND_FREEZE = Pattern.compile(
-        "(?i)dull\\s+(?:it|them)\\s+and\\s+freeze\\s+(?:it|them)"
+        "(?i)(?:dull\\s+(?:it|them)\\s+and\\s+freeze|dull\\s+and\\s+freeze)\\s+(?:it|them)"
     );
 
     /** Matches "Dull it/them and deal it/them N damage". Group {@code amount} is the damage value. */
@@ -5691,6 +5740,54 @@ public class ActionResolver {
 
         TargetDesc td1 = parseTargetDesc(desc1);
         TargetDesc td2 = parseTargetDesc(desc2);
+
+        // Special case: desc2 has a dynamic cost constraint on a BZ Backup that TARGET_DESC_PATTERN
+        // cannot represent (e.g. "Backup with a cost equal to or less than that Forward in your BZ").
+        // Parse effects normally and supply the cost filter at execution time.
+        if (td2 == null && td1 != null && DESC_BZ_BACKUP_COST_RELATIVE.matcher(desc2).matches()) {
+            String kLabel = "Choose " + (upTo1 ? "up to " : "") + count1 + " " + desc1
+                          + " and " + (upTo2 ? "up to " : "") + count2 + " " + desc2Raw;
+            int kLatterIdx = effectsLower.indexOf("the latter");
+            int kAndIdx    = effects.lastIndexOf(" and ", kLatterIdx);
+            if (kAndIdx >= 0) {
+                String kFmrEff = effects.substring(0, kAndIdx).trim()
+                        .replaceAll("(?i)\\bthe\\s+former\\b", "it").replaceAll("\\.$", "").trim();
+                String kLtrEff = effects.substring(kAndIdx + 5).trim()
+                        .replaceAll("(?i)\\bthe\\s+latter\\b", "it").replaceAll("\\.$", "").trim();
+                java.util.function.BiConsumer<GameContext, List<ForwardTarget>> kFmrAct =
+                        parseFormerLatterGroupAction(kFmrEff);
+                java.util.function.BiConsumer<GameContext, List<ForwardTarget>> kLtrAct =
+                        parseFormerLatterGroupAction(kLtrEff);
+                if (kFmrAct != null && kLtrAct != null) {
+                    final TargetDesc kTd1 = td1;
+                    final java.util.function.BiConsumer<GameContext, List<ForwardTarget>>
+                            fkFmr = kFmrAct, fkLtr = kLtrAct;
+                    return ctx -> {
+                        ctx.logEntry(kLabel);
+                        List<ForwardTarget> ts1 = selectTargets(ctx, count1, upTo1,
+                                kTd1.opponentOnly(), kTd1.selfOnly(),
+                                kTd1.condition(), kTd1.element(), null, false,
+                                kTd1.costVal(), kTd1.costCmp(), -1, null,
+                                kTd1.fwd(), kTd1.bkp(), kTd1.mon(),
+                                null, null, null, kTd1.excludeName(), false, null, false);
+                        if (ts1.isEmpty()) return;
+                        ForwardTarget fwdTgt = ts1.get(0);
+                        CardData fwdCard = fwdTgt.isP1()
+                                ? ctx.p1Forward(fwdTgt.idx()) : ctx.p2Forward(fwdTgt.idx());
+                        int formerCost = fwdCard.cost();
+                        List<ForwardTarget> ts2 = selectTargets(ctx, count2, upTo2,
+                                false, true, null, null, "in your Break Zone", false,
+                                formerCost, "less", -1, null,
+                                false, true, false,
+                                null, null, null, null, false, null, false);
+                        fkFmr.accept(ctx, ts1);
+                        fkLtr.accept(ctx, ts2);
+                    };
+                }
+            }
+            return null;
+        }
+
         if (td1 == null || td2 == null) return null;
 
         boolean fExcludeFirst = excludeFirstChosen;
@@ -5734,8 +5831,11 @@ public class ActionResolver {
             };
         }
 
-        // Special case: "During this turn, the next damage dealt to the former is received by the latter instead."
-        if (FORMER_LATTER_DAMAGE_REDIRECT.matcher(effects).matches()) {
+        // Special case: "During this turn, the next damage dealt to the former is [received by|dealt to] the latter instead."
+        Matcher redirectM = FORMER_LATTER_DAMAGE_REDIRECT.matcher(effects);
+        if (redirectM.find()) {
+            String redirectSuffix = redirectM.group("suffix").trim();
+            Consumer<GameContext> redirectBonus = redirectSuffix.isEmpty() ? null : parse(redirectSuffix, source);
             return ctx -> {
                 ctx.logEntry(label);
                 String zone1 = td1.fromBreakZone()
@@ -5760,6 +5860,43 @@ public class ActionResolver {
 
                 if (!ts1.isEmpty() && !ts2.isEmpty())
                     ctx.redirectNextIncomingDamage(ts1.get(0), ts2.get(0));
+                if (redirectBonus != null) redirectBonus.accept(ctx);
+            };
+        }
+
+        // Special case: "Until the end of the turn, the former gains +N power [and Traits]. Deal the latter N damage."
+        Matcher fbtldM = FORMER_BOOST_TRAITS_LATTER_DIRECT_DAMAGE.matcher(effects);
+        if (fbtldM.matches()) {
+            int boost = Integer.parseInt(fbtldM.group("boost"));
+            EnumSet<CardData.Trait> boostTraits = parseTraits(fbtldM.group("traits"));
+            int damage = Integer.parseInt(fbtldM.group("damage"));
+            String fbtldSuffix = fbtldM.group("suffix").trim();
+            Consumer<GameContext> fbtldBonus = fbtldSuffix.isEmpty() ? null : parse(fbtldSuffix, source);
+            return ctx -> {
+                ctx.logEntry(label);
+                String zone1 = td1.fromBreakZone()
+                        ? "in " + (td1.opponentBz() ? "your opponent's" : "your") + " Break Zone" : null;
+                List<ForwardTarget> ts1 = selectTargets(ctx, count1, upTo1,
+                        td1.opponentOnly(), td1.selfOnly(),
+                        td1.condition(), td1.element(), zone1, td1.opponentBz(),
+                        td1.costVal(), td1.costCmp(), -1, null,
+                        td1.fwd(), td1.bkp(), td1.mon(),
+                        null, null, null, td1.excludeName(), false, null, false);
+
+                String excl2fbtld = fExcludeFirst && !ts1.isEmpty()
+                        ? getTargetCardName(ctx, ts1.get(0)) : fDesc2Static;
+                String zone2 = td2.fromBreakZone()
+                        ? "in " + (td2.opponentBz() ? "your opponent's" : "your") + " Break Zone" : null;
+                List<ForwardTarget> ts2 = selectTargets(ctx, count2, upTo2,
+                        td2.opponentOnly(), td2.selfOnly(),
+                        td2.condition(), td2.element(), zone2, td2.opponentBz(),
+                        td2.costVal(), td2.costCmp(), -1, null,
+                        td2.fwd(), td2.bkp(), td2.mon(),
+                        null, null, null, excl2fbtld, false, null, false);
+
+                ts1.forEach(t -> ctx.boostTarget(t, boost, boostTraits));
+                ts2.forEach(t -> ctx.damageTarget(t, damage));
+                if (fbtldBonus != null) fbtldBonus.accept(ctx);
             };
         }
 
@@ -5881,6 +6018,73 @@ public class ActionResolver {
             };
         }
 
+        // Special case: "Break the former. If [card] enters the field due to Warp, also break the latter."
+        if (FORMER_BREAK_COND_WARP_LATTER_BREAK.matcher(effects).matches()) {
+            return ctx -> {
+                ctx.logEntry(label);
+                String zone1 = td1.fromBreakZone()
+                        ? "in " + (td1.opponentBz() ? "your opponent's" : "your") + " Break Zone" : null;
+                List<ForwardTarget> ts1 = selectTargets(ctx, count1, upTo1,
+                        td1.opponentOnly(), td1.selfOnly(),
+                        td1.condition(), td1.element(), zone1, td1.opponentBz(),
+                        td1.costVal(), td1.costCmp(), -1, null,
+                        td1.fwd(), td1.bkp(), td1.mon(),
+                        null, null, null, td1.excludeName(), false, null, false);
+
+                String excl2bw = fExcludeFirst && !ts1.isEmpty()
+                        ? getTargetCardName(ctx, ts1.get(0)) : fDesc2Static;
+                String zone2 = td2.fromBreakZone()
+                        ? "in " + (td2.opponentBz() ? "your opponent's" : "your") + " Break Zone" : null;
+                List<ForwardTarget> ts2 = selectTargets(ctx, count2, upTo2,
+                        td2.opponentOnly(), td2.selfOnly(),
+                        td2.condition(), td2.element(), zone2, td2.opponentBz(),
+                        td2.costVal(), td2.costCmp(), -1, null,
+                        td2.fwd(), td2.bkp(), td2.mon(),
+                        null, null, null, excl2bw, false, null, false);
+
+                sortedByIdxDesc(ts1, true) .forEach(ctx::breakTarget);
+                sortedByIdxDesc(ts1, false).forEach(ctx::breakTarget);
+                if (ctx.sourceEnteredViaWarp()) {
+                    sortedByIdxDesc(ts2, true) .forEach(ctx::breakTarget);
+                    sortedByIdxDesc(ts2, false).forEach(ctx::breakTarget);
+                }
+            };
+        }
+
+        // Special case: "Deal the former N damage. If you control M or more Backups, also deal the latter N damage."
+        Matcher bkpDmgM = FORMER_DAMAGE_COND_BACKUP_COUNT_LATTER_DAMAGE.matcher(effects);
+        if (bkpDmgM.matches()) {
+            int dmg1 = Integer.parseInt(bkpDmgM.group("dmg1"));
+            int bkpThresh = Integer.parseInt(bkpDmgM.group("n"));
+            int dmg2 = Integer.parseInt(bkpDmgM.group("dmg2"));
+            return ctx -> {
+                ctx.logEntry(label);
+                String zone1 = td1.fromBreakZone()
+                        ? "in " + (td1.opponentBz() ? "your opponent's" : "your") + " Break Zone" : null;
+                List<ForwardTarget> ts1 = selectTargets(ctx, count1, upTo1,
+                        td1.opponentOnly(), td1.selfOnly(),
+                        td1.condition(), td1.element(), zone1, td1.opponentBz(),
+                        td1.costVal(), td1.costCmp(), -1, null,
+                        td1.fwd(), td1.bkp(), td1.mon(),
+                        null, null, null, td1.excludeName(), false, null, false);
+
+                String excl2bd = fExcludeFirst && !ts1.isEmpty()
+                        ? getTargetCardName(ctx, ts1.get(0)) : fDesc2Static;
+                String zone2 = td2.fromBreakZone()
+                        ? "in " + (td2.opponentBz() ? "your opponent's" : "your") + " Break Zone" : null;
+                List<ForwardTarget> ts2 = selectTargets(ctx, count2, upTo2,
+                        td2.opponentOnly(), td2.selfOnly(),
+                        td2.condition(), td2.element(), zone2, td2.opponentBz(),
+                        td2.costVal(), td2.costCmp(), -1, null,
+                        td2.fwd(), td2.bkp(), td2.mon(),
+                        null, null, null, excl2bd, false, null, false);
+
+                ts1.forEach(t -> ctx.damageTarget(t, dmg1));
+                if (ctx.countSelfFieldCards(false, true, false, null, null) >= bkpThresh)
+                    ts2.forEach(t -> ctx.damageTarget(t, dmg2));
+            };
+        }
+
         // Special case: "The former deals damage equal to its power to the latter."
         if (FORMER_DEALS_POWER_DAMAGE_TO_LATTER.matcher(effects).matches()) {
             return ctx -> {
@@ -5912,13 +6116,32 @@ public class ActionResolver {
             };
         }
 
-        // Generic split: " and " before the first "the latter"
+        // Generic split: prefer comma-after-former when it precedes the " and " split point,
+        // since some cards use ", Action the latter" instead of "and Action the latter".
+        // (e.g. "Break the former, dull and Freeze the latter.")
         int latterIdx = effectsLower.indexOf("the latter");
         int andIdx    = effects.lastIndexOf(" and ", latterIdx);
-        if (andIdx < 0) return null;
+        int formerIdx = effectsLower.indexOf("the former");
 
-        String formerRaw = effects.substring(0, andIdx).trim();
-        String latterRaw = effects.substring(andIdx + 5).trim(); // " and ".length() == 5
+        int splitIdx = andIdx, splitLen = 5;
+        if (formerIdx >= 0) {
+            // Look for ", " after the end of the "the former" phrase
+            int commaAfterFormer = effects.indexOf(", ", formerIdx + 10);
+            if (commaAfterFormer >= 0 && commaAfterFormer < latterIdx
+                    && (andIdx < 0 || commaAfterFormer < andIdx)) {
+                // Guard: don't use comma split if the latter portion starts with "and "
+                // (that's an Oxford comma before the real "and", not a true split point)
+                String afterComma = effects.substring(commaAfterFormer + 2).trim().toLowerCase(java.util.Locale.ROOT);
+                if (!afterComma.startsWith("and ")) {
+                    splitIdx = commaAfterFormer;
+                    splitLen = 2;
+                }
+            }
+        }
+        if (splitIdx < 0) return null;
+
+        String formerRaw = effects.substring(0, splitIdx).trim();
+        String latterRaw = effects.substring(splitIdx + splitLen).trim();
 
         // Substitute pronouns and strip any trailing period
         String formerEff = formerRaw.replaceAll("(?i)\\bthe\\s+former\\b", "it").replaceAll("\\.$", "").trim();

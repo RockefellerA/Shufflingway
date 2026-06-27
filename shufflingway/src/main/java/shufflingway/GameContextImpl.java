@@ -4040,6 +4040,7 @@ final class GameContextImpl implements GameContext {
 
 			@Override public boolean isExBurst() { return exBurst; }
 			@Override public boolean castWasPaidByBackupsOnly() { return mw.lastCastWasPaidByBackupsOnly; }
+			@Override public boolean sourceEnteredViaWarp() { return mw.lastCardWarpedIn; }
 
 			@Override public void makeMonsterTemporaryForward(CardData source, int power) {
 				if (isP1) {

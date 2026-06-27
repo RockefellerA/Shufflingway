@@ -1590,6 +1590,13 @@ public interface GameContext {
     boolean castWasPaidByBackupsOnly();
 
     /**
+     * Returns {@code true} if the source card of this auto-ability entered the field
+     * via its Warp ability (played from the Break Zone), not from hand.
+     * Used for "If [card] enters the field due to Warp" conditionals.
+     */
+    boolean sourceEnteredViaWarp();
+
+    /**
      * Marks {@code source} (a Monster on the ability user's field) as temporarily a Forward
      * with the given {@code power} until the end of the turn.  No-op if the source is not a
      * Monster currently on the field.
