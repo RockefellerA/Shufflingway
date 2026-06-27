@@ -366,6 +366,11 @@ final class AutoAbilityTriggers {
 		"fire", "ice", "wind", "earth", "lightning", "water", "light", "dark"
 	);
 
+	/** Strips the "When [name] attacks, " prefix from ICB specialText to extract the effect. */
+	private static final Pattern ICB_WHEN_ATTACKS = Pattern.compile(
+		"(?i)^When\\s+.+?\\s+attacks?,\\s*(?<effect>.+)$", Pattern.DOTALL
+	);
+
 	/** Returns true if {@code card} has an ETF auto-ability with the reveal-summons-conditional pattern. */
 	static boolean hasRevealSummonsConditionalEtf(CardData card) {
 		for (AutoAbility fa : card.autoAbilities()) {
@@ -616,6 +621,29 @@ final class AutoAbilityTriggers {
 						mw.logEntry("[AutoAbility] " + watcherCard.name() + " — " + card.name() + " attacks, effect: " + fa.effectText());
 						effect.accept(mw.buildGameContext(isP1));
 					}
+				}
+			}
+			// ICB specialText — "When [name] attacks, [effect]" granted by conditional field boosts
+			List<CardData> icbOwners = new ArrayList<>();
+			for (CardData c : isP1 ? mw.p1ForwardCards : mw.p2ForwardCards) icbOwners.add(c);
+			for (CardData c : isP1 ? mw.p1BackupCards  : mw.p2BackupCards)  if (c != null) icbOwners.add(c);
+			for (CardData c : isP1 ? mw.p1MonsterCards : mw.p2MonsterCards) icbOwners.add(c);
+			for (CardData owner : icbOwners) {
+				if (mw.lostAbilitiesCards.contains(owner)) continue;
+				for (IfControlBoost icb : owner.ifControlBoosts()) {
+					if (icb.specialText().isEmpty()) continue;
+					if (!icb.appliesToCard(card)) continue;
+					if (!mw.icbConditionsMet(icb, isP1)) continue;
+					Matcher stM = ICB_WHEN_ATTACKS.matcher(icb.specialText().trim());
+					if (!stM.find()) continue;
+					String effectText = stM.group("effect").trim();
+					Consumer<GameContext> effect = ActionResolver.parse(effectText, card);
+					if (effect == null) {
+						mw.logEntry("[AutoAbility] Unrecognized ICB specialText attack effect: " + effectText);
+						continue;
+					}
+					mw.logEntry("[AutoAbility] " + card.name() + " attacks — " + effectText);
+					effect.accept(mw.buildGameContext(isP1));
 				}
 			}
 		});
@@ -2710,7 +2738,7 @@ final class AutoAbilityTriggers {
 			handIdxs.sort(Collections.reverseOrder());
 			for (int handIdx : handIdxs) {
 				String discarded = hand.get(handIdx).name();
-				mw.playerBreakFromHand(isP1, handIdx);
+				mw.lastDiscardedCostCard = mw.playerBreakFromHand(isP1, handIdx);
 				mw.logEntry("Discard cost: \"" + discarded + "\" discarded");
 			}
 		}

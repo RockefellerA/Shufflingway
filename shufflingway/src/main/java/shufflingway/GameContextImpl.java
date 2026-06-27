@@ -2597,6 +2597,65 @@ final class GameContextImpl implements GameContext {
 				mw.lookDialogs().show(config, isP1);
 			}
 
+			@Override public void lookAtTopDeckCastSummonFreeRestBottom(int count, int maxCost) {
+				Deque<CardData> deck = isP1 ? mw.gameState.getP1MainDeck() : mw.gameState.getP2MainDeck();
+				int n = Math.min(count, deck.size());
+				if (n == 0) { logEntry("Look at top: deck is empty."); return; }
+				List<CardData> peeked = new ArrayList<>();
+				for (CardData c : deck) { peeked.add(c); if (peeked.size() >= n) break; }
+				logEntry("Look at top " + n + " card(s): " +
+						peeked.stream().map(CardData::name).collect(Collectors.joining(", ")));
+
+				List<CardData> eligible = peeked.stream()
+						.filter(c -> c.isSummon() && (maxCost < 0 || c.cost() <= maxCost))
+						.collect(Collectors.toList());
+
+				CardData picked = null;
+				if (eligible.isEmpty()) {
+					logEntry("No eligible Summon (cost " + maxCost + " or less) among top " + n + " card(s)");
+				} else if (isP1) {
+					String title = "Cast 1 Summon (cost " + maxCost + " or less) from top " + n + " for free";
+					int listIdx = mw.showCardImageChooser(eligible, title, false);
+					if (listIdx >= 0) picked = eligible.get(listIdx);
+				} else {
+					picked = eligible.stream()
+							.max(java.util.Comparator.comparingInt(CardData::cost))
+							.orElse(null);
+					if (picked != null) logEntry("[AI] chose " + picked.name());
+				}
+
+				for (int i = 0; i < n; i++) deck.pollFirst();
+
+				if (picked != null) {
+					if (isP1) {
+						mw.p1CardsCastThisTurn++;
+						mw.p1SummonCastThisTurn = true;
+						for (String j : picked.jobs()) mw.p1CastJobsThisTurn.add(j.toLowerCase());
+						mw.p1CastNamesThisTurn.add(picked.name().toLowerCase());
+						mw.p1CastCountByNameThisTurn.merge(picked.name().toLowerCase(), 1, Integer::sum);
+					} else {
+						mw.p2CardsCastThisTurn++;
+						mw.p2SummonCastThisTurn = true;
+						for (String j : picked.jobs()) mw.p2CastJobsThisTurn.add(j.toLowerCase());
+						mw.p2CastNamesThisTurn.add(picked.name().toLowerCase());
+						mw.p2CastCountByNameThisTurn.merge(picked.name().toLowerCase(), 1, Integer::sum);
+					}
+					mw.lastCardWasCast = true;
+					logEntry((isP1 ? "" : "[P2] ") + "Cast \"" + picked.name() + "\" from top of deck for free");
+					mw.showSummonOnStack(picked, isP1);
+					mw.lastCardWasCast = false;
+				}
+
+				List<CardData> rest = new ArrayList<>(peeked);
+				if (picked != null) rest.remove(picked);
+				java.util.Collections.shuffle(rest);
+				for (CardData c : rest) {
+					deck.addLast(c);
+					logEntry(c.name() + " → bottom of deck");
+				}
+				if (isP1) mw.refreshP1DeckLabel(); else mw.refreshP2DeckLabel();
+			}
+
 			@Override public void reduceTarget(ForwardTarget t, int amount,
 					java.util.EnumSet<CardData.Trait> traits) {
 				if (t.zone() == ForwardTarget.CardZone.BACKUP) return;
@@ -2647,6 +2706,9 @@ final class GameContextImpl implements GameContext {
 			@Override public int dullForwardCostPower() { return mw.lastDullForwardCostPower; }
 			@Override public int lastDiscardedForwardPower() { return mw.lastDiscardedForwardPower; }
 			@Override public String lastDiscardedCardName() { return mw.lastDiscardedCardName; }
+			@Override public String lastDiscardedCostCardElement() {
+				return mw.lastDiscardedCostCard == null ? null : mw.lastDiscardedCostCard.elements()[0];
+			}
 			@Override public int lastRemovedFromGameCardCost() { return mw.lastRemovedFromGameCardCost; }
 			@Override public int countRemovedFromGame() {
 				return mw.gameState.getP1PermanentRfp().size() + mw.gameState.getP2PermanentRfp().size();

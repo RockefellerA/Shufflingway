@@ -416,8 +416,10 @@ public class MainWindow {
 	boolean p1DiscardedByEffectThisTurn  = false;
 	boolean p1CausedOpponentDiscardThisTurn = false;
 	// Power and name of the card most recently discarded as part of resolving an ability.
-	int     lastDiscardedForwardPower    = 0;
-	String  lastDiscardedCardName        = null;
+	int      lastDiscardedForwardPower    = 0;
+	String   lastDiscardedCardName        = null;
+	// Card most recently discarded as a cost payment (for element-conditional branch effects).
+	CardData lastDiscardedCostCard        = null;
 	// Cost of the Forward most recently removed from the game by a "remove it from the game" effect.
 	int     lastRemovedFromGameCardCost  = 0;
 	boolean p1FormedPartyThisTurn        = false;
@@ -6997,7 +6999,7 @@ public class MainWindow {
 		}
 
 		if (!gameState.getStack().isEmpty()) showStackWindow();
-		else { lastDiscardedForwardPower = 0; lastDiscardedCardName = null; }
+		else { lastDiscardedForwardPower = 0; lastDiscardedCardName = null; lastDiscardedCostCard = null; }
 	}
 
 	/** Calls {@link #showStackWindow()} only when we are not already inside a stack resolution chain. */
@@ -8010,7 +8012,7 @@ public class MainWindow {
 	}
 
 	/** Returns {@code true} when all conditions of {@code icb} are satisfied for the given player. */
-	private boolean icbConditionsMet(IfControlBoost icb, boolean isP1) {
+	boolean icbConditionsMet(IfControlBoost icb, boolean isP1) {
 		for (ControlCondition cond : icb.conditions()) {
 			if (cond.requiresCrystal()) {
 				if (playerCrystals(isP1) < 1) return false;

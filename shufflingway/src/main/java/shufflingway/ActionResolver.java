@@ -2194,6 +2194,16 @@ public class ActionResolver {
     );
 
     /**
+     * Matches "[subject] gains +N power until the end of the turn and activate [activateName]."
+     * Groups: {@code subject}, {@code amount}, {@code activateName}.
+     */
+    private static final Pattern SELF_POWER_BOOST_AND_ACTIVATE = Pattern.compile(
+        "(?i)(?<subject>.+?)\\s+gains?\\s+\\+(?<amount>\\d+)\\s+[Pp]ower\\s+" +
+        "until\\s+(?:the\\s+)?end\\s+of\\s+(?:the\\s+)?turn\\s+and\\s+activate\\s+" +
+        "(?<activateName>.+?)[.!]?\\s*$"
+    );
+
+    /**
      * Matches "During this turn, if [CardName] deals damage to a Forward, double the damage instead."
      * Groups: {@code subject} — the card name.
      */
@@ -2882,6 +2892,21 @@ public class ActionResolver {
     );
 
     /**
+     * Matches "Look at the top X cards of your deck. Reveal 1 Summon of cost X or less among
+     * them and cast it without paying the cost. Then, shuffle the other cards and return them
+     * to the bottom of your deck."
+     * Groups: {@code count} — card count (numeric or {@code X});
+     *         {@code cost}  — cost cap (numeric or {@code X}).
+     */
+    private static final Pattern LOOK_TOP_DECK_CAST_SUMMON_FREE_REST_BOTTOM = Pattern.compile(
+        "(?i)Look\\s+at\\s+the\\s+top\\s+(?<count>\\d+|X)\\s+cards?\\s+of\\s+your\\s+deck[.!]?\\s+" +
+        "Reveal\\s+1\\s+Summon\\s+of\\s+cost\\s+(?<cost>\\d+|X)\\s+or\\s+less\\s+among\\s+them\\s+" +
+        "and\\s+cast\\s+it\\s+without\\s+paying\\s+(?:its|the)\\s+cost[.!]?\\s+" +
+        "(?:Then,?\\s+)?shuffle\\s+the\\s+other\\s+cards?\\s+and\\s+return\\s+them\\s+" +
+        "to\\s+the\\s+bottom\\s+of\\s+(?:your|the)\\s+deck[.!]?"
+    );
+
+    /**
      * Detects "select [up to] N of the M following actions" — handled by MainWindow's
      * {@code executeSelectFollowingActionsAutoAbility}, not by ActionResolver's parse chain.
      * Used only for pattern-name reporting.
@@ -3551,6 +3576,9 @@ public class ActionResolver {
         result = tryParseOpponentControlsCardGate(effectText, source, xValue);
         if (result != null) return result;
 
+        result = tryParseDiscardConditionalElement(effectText, source, xValue);
+        if (result != null) return result;
+
         result = tryParseIfCastAtLeast(effectText, source, xValue);
         if (result != null) return result;
 
@@ -3756,6 +3784,9 @@ public class ActionResolver {
         if (result != null) return result;
 
         result = tryParseStandaloneItPowerBoostUntil(effectText, source);
+        if (result != null) return result;
+
+        result = tryParseSelfPowerBoostAndActivate(effectText, source);
         if (result != null) return result;
 
         result = tryParseStandaloneSelfBoost(effectText, source);
@@ -4046,6 +4077,9 @@ public class ActionResolver {
         result = tryParseLookTopDeckPickOneTopRestBottom(effectText);
         if (result != null) return result;
 
+        result = tryParseLookTopDeckCastSummonFreeRestBottom(effectText, xValue);
+        if (result != null) return result;
+
         result = tryParseLookTopDeckPeek(effectText);
         if (result != null) return result;
 
@@ -4289,17 +4323,19 @@ public class ActionResolver {
         if (tryParseLookTopDeckAddToHandRestBreak(effectText)           != null) return "LookTopDeckAddToHandRestBreak";
         if (tryParseLookTopDeckTopOrBottom(effectText)                  != null) return "LookTopDeckTopOrBottom";
         if (tryParseLookTopDeckReturnTopOrdered(effectText)             != null) return "LookTopDeckReturnTopOrdered";
-        if (tryParseLookTopDeckPickOneTopRestBottom(effectText)         != null) return "LookTopDeckPickOneTopRestBottom";
-        if (tryParseLookTopDeckPeek(effectText)                         != null) return "LookTopDeckPeek";
-        if (tryParseRemoveTopOfDeckFromGame(effectText)                  != null) return "RemoveTopOfDeckFromGame";
-        if (tryParseShuffleDeck(effectText)                              != null) return "ShuffleDeck";
+        if (tryParseLookTopDeckPickOneTopRestBottom(effectText)              != null) return "LookTopDeckPickOneTopRestBottom";
+        if (tryParseLookTopDeckCastSummonFreeRestBottom(effectText, 0)       != null) return "LookTopDeckCastSummonFreeRestBottom";
+        if (tryParseLookTopDeckPeek(effectText)                              != null) return "LookTopDeckPeek";
+        if (tryParseRemoveTopOfDeckFromGame(effectText)                      != null) return "RemoveTopOfDeckFromGame";
+        if (tryParseShuffleDeck(effectText)                                  != null) return "ShuffleDeck";
         if (tryParseIfOwnForwardFormedParty(effectText, source, 0)       != null) return "IfOwnForwardFormedParty";
-        if (tryParseIfControlAtMost(effectText, source, 0)         != null) return "IfControlAtMost";
-        if (tryParseIfCastAtLeast(effectText, source, 0)           != null) return "IfCastAtLeast";
-        if (tryParseConditionalOpponentHand(effectText, source, 0) != null) return "ConditionalOpponentHand";
-        if (SELECT_FOLLOWING_ACTIONS_DETECT.matcher(effectText).find())    return "SelectFollowingActions";
+        if (tryParseIfControlAtMost(effectText, source, 0)             != null) return "IfControlAtMost";
+        if (tryParseIfCastAtLeast(effectText, source, 0)               != null) return "IfCastAtLeast";
+        if (tryParseDiscardConditionalElement(effectText, source, 0)   != null) return "DiscardConditionalElement";
+        if (tryParseConditionalOpponentHand(effectText, source, 0)     != null) return "ConditionalOpponentHand";
+        if (SELECT_FOLLOWING_ACTIONS_DETECT.matcher(effectText).find())        return "SelectFollowingActions";
         if (CardData.HAS_ALL_ELEMENTS_PATTERN.matcher(effectText.trim()).matches()) return "HasAllElements";
-        if (tryParseMultiPlayGrant(effectText) != null)                     return "MultiPlayGrant";
+        if (tryParseMultiPlayGrant(effectText) != null)                         return "MultiPlayGrant";
         return null;
     }
 
@@ -4425,8 +4461,9 @@ public class ActionResolver {
         if (CardData.WHILE_CARD_ATTACKING_PATTERN.matcher(effectText).matches())  return "WhileCardAttacking";
         if (CardData.WHILE_CARD_BLOCKING_PATTERN.matcher(effectText).matches())   return "WhileCardBlocking";
         if (CardData.WHILE_CARD_IN_HAND_PATTERN.matcher(effectText).matches())   return "WhileCardInHand";
-        if (tryParseWhenYouDoSoSequence(effectText, source, 0)     != null) return "WhenYouDoSo";
-        if (tryParseIfCastAtLeast(effectText, source, 0)           != null) return "IfCastAtLeast";
+        if (tryParseWhenYouDoSoSequence(effectText, source, 0)          != null) return "WhenYouDoSo";
+        if (tryParseIfCastAtLeast(effectText, source, 0)                != null) return "IfCastAtLeast";
+        if (tryParseDiscardConditionalElement(effectText, source, 0)    != null) return "DiscardConditionalElement";
         if (tryParseSelectNumber(effectText, source)          != null) return "SelectNumber";
         if (tryParseForEachJobAndNameDealDamageToForwards(effectText)   != null) return "ForEachJobAndNameDealDamageToForwards";
         if (tryParseSelfGainsWhenAttacksEOT(effectText, source)        != null) return "SelfGainsWhenAttacksEOT";
@@ -4660,9 +4697,10 @@ public class ActionResolver {
         if (tryParseLookTopDeckAddToHandRestBreak(effectText)           != null) return "LookTopDeckAddToHandRestBreak";
         if (tryParseLookTopDeckTopOrBottom(effectText)                  != null) return "LookTopDeckTopOrBottom";
         if (tryParseLookTopDeckReturnTopOrdered(effectText)             != null) return "LookTopDeckReturnTopOrdered";
-        if (tryParseLookTopDeckPickOneTopRestBottom(effectText)         != null) return "LookTopDeckPickOneTopRestBottom";
-        if (tryParseLookTopDeckPeek(effectText)                         != null) return "LookTopDeckPeek";
-        if (tryParseRemoveTopOfDeckFromGame(effectText)                  != null) return "RemoveTopOfDeckFromGame";
+        if (tryParseLookTopDeckPickOneTopRestBottom(effectText)              != null) return "LookTopDeckPickOneTopRestBottom";
+        if (tryParseLookTopDeckCastSummonFreeRestBottom(effectText, 0)       != null) return "LookTopDeckCastSummonFreeRestBottom";
+        if (tryParseLookTopDeckPeek(effectText)                              != null) return "LookTopDeckPeek";
+        if (tryParseRemoveTopOfDeckFromGame(effectText)                      != null) return "RemoveTopOfDeckFromGame";
         if (tryParseShuffleThenRevealPlayNamedRestBottom(effectText, source) != null) return "ShuffleThenRevealPlayNamedRestBottom";
         if (tryParseRevealPlayTypeOntoFieldRestBottom(effectText)           != null) return "RevealPlayTypeOntoFieldRestBottom";
         if (tryParseShuffleDeck(effectText)                              != null) return "ShuffleDeck";
@@ -8785,6 +8823,26 @@ public class ActionResolver {
         };
     }
 
+    /** Parses "[subject] gains +N power until the end of the turn and activate [name]." */
+    private static Consumer<GameContext> tryParseSelfPowerBoostAndActivate(String text, CardData source) {
+        if (source == null) return null;
+        Matcher m = SELF_POWER_BOOST_AND_ACTIVATE.matcher(text.trim());
+        if (!m.find()) return null;
+        String subject = m.group("subject").trim();
+        if (!subject.equalsIgnoreCase(source.name())) return null;
+        int boost = Integer.parseInt(m.group("amount"));
+        String activateName = m.group("activateName").trim();
+        return ctx -> {
+            ctx.logEntry(source.name() + " gains +" + boost + " power until end of turn");
+            ctx.boostSourceForward(source, boost, EnumSet.noneOf(CardData.Trait.class));
+            ctx.logEntry("Effect: Activate " + activateName);
+            List<ForwardTarget> ts = ctx.selectCharacters(
+                    1, false, false, true, null, null, -1, null, -1, null,
+                    true, true, true, null, activateName, null, null, false, null, false);
+            ts.forEach(ctx::activateTarget);
+        };
+    }
+
     /**
      * Parses "Dull [CardName]. [CardName] gains '[...] cannot be broken.' until end of turn."
      * Dulls the source then shields it. Must be tried before {@link #tryParseStandaloneShieldCannotBeBroken}
@@ -8985,6 +9043,49 @@ public class ActionResolver {
     private static final Pattern IF_CAST_AT_LEAST = Pattern.compile(
         "(?is)^if\\s+you\\s+have\\s+cast\\s+(?<min>\\d+)\\s+or\\s+more\\s+cards?\\s+this\\s+turn,\\s+(?<effect>.+)$"
     );
+
+    /**
+     * Matches the two-branch element conditional on a cost discard:
+     * "If the discarded card is of Elem1 Element, [eff1]. If the discarded card is of Elem2 Element, [eff2]."
+     * Groups: {@code elem1}, {@code eff1}, {@code elem2}, {@code eff2}.
+     */
+    private static final Pattern DISCARD_CONDITIONAL_ELEMENT = Pattern.compile(
+        "(?i)If\\s+the\\s+discarded\\s+card\\s+is\\s+of\\s+(?<elem1>\\w+)\\s+Element\\s*,\\s*" +
+        "(?<eff1>.+?)\\s+" +
+        "If\\s+the\\s+discarded\\s+card\\s+is\\s+of\\s+(?<elem2>\\w+)\\s+Element\\s*,\\s*" +
+        "(?<eff2>.+)$",
+        Pattern.DOTALL
+    );
+
+    private static Consumer<GameContext> tryParseDiscardConditionalElement(String text, CardData source, int xValue) {
+        Matcher m = DISCARD_CONDITIONAL_ELEMENT.matcher(text.trim());
+        if (!m.find()) return null;
+        String elem1 = m.group("elem1").trim();
+        String eff1  = m.group("eff1").trim();
+        String elem2 = m.group("elem2").trim();
+        String eff2  = m.group("eff2").trim();
+        Consumer<GameContext> effect1 = parse(eff1, source, xValue);
+        Consumer<GameContext> effect2 = parse(eff2, source, xValue);
+        if (effect1 == null && effect2 == null) return null;
+        final Consumer<GameContext> e1 = effect1;
+        final Consumer<GameContext> e2 = effect2;
+        return ctx -> {
+            String discardedElem = ctx.lastDiscardedCostCardElement();
+            if (discardedElem == null) {
+                ctx.logEntry("Discard conditional: no cost card recorded");
+                return;
+            }
+            if (discardedElem.equalsIgnoreCase(elem1)) {
+                if (e1 != null) e1.accept(ctx);
+                else ctx.logEntry("Discard conditional: " + elem1 + " branch not implemented");
+            } else if (discardedElem.equalsIgnoreCase(elem2)) {
+                if (e2 != null) e2.accept(ctx);
+                else ctx.logEntry("Discard conditional: " + elem2 + " branch not implemented");
+            } else {
+                ctx.logEntry("Discard conditional: element " + discardedElem + " matches neither branch");
+            }
+        };
+    }
 
     private static Consumer<GameContext> tryParseIfOwnForwardFormedParty(String text, CardData source, int xValue) {
         Matcher m = IF_OWN_FORWARD_FORMED_PARTY.matcher(text.trim());
@@ -11742,6 +11843,19 @@ public class ActionResolver {
         return ctx -> {
             ctx.logEntry("Effect: Look at top " + count + " card(s) of deck");
             ctx.lookAtTopDeck(new LookConfig(count, LookConfig.LookAction.PEEK));
+        };
+    }
+
+    private static Consumer<GameContext> tryParseLookTopDeckCastSummonFreeRestBottom(String text, int xValue) {
+        java.util.regex.Matcher m = LOOK_TOP_DECK_CAST_SUMMON_FREE_REST_BOTTOM.matcher(text.trim());
+        if (!m.find()) return null;
+        String countStr = m.group("count");
+        String costStr  = m.group("cost");
+        final int count   = countStr.equalsIgnoreCase("X") ? xValue : Integer.parseInt(countStr);
+        final int maxCost = costStr.equalsIgnoreCase("X")  ? xValue : Integer.parseInt(costStr);
+        return ctx -> {
+            ctx.logEntry("Effect: Look at top " + count + " card(s) — reveal/cast 1 Summon (cost " + maxCost + " or less) for free, shuffle rest to bottom");
+            ctx.lookAtTopDeckCastSummonFreeRestBottom(count, maxCost);
         };
     }
 

@@ -461,6 +461,16 @@ public interface GameContext {
     void lookAtTopDeck(LookConfig config);
 
     /**
+     * Looks at the top {@code count} cards of the player's deck, lets the player reveal and
+     * cast 1 Summon of cost ≤ {@code maxCost} for free, then shuffles the remaining cards to
+     * the bottom of the deck.
+     *
+     * @param count   how many cards from the top to look at
+     * @param maxCost cost ceiling for eligible Summons; {@code -1} = no restriction
+     */
+    void lookAtTopDeckCastSummonFreeRestBottom(int count, int maxCost);
+
+    /**
      * Reduces the target's power by {@code amount} and temporarily removes {@code traits}
      * until the end of the turn.  If effective power drops to 0 or below the card is sent
      * to the break zone (not treated as "broken" mechanically — distinction TBD).
@@ -883,6 +893,12 @@ public interface GameContext {
      * current ability chain, or {@code null} when no card has been discarded yet.
      */
     String lastDiscardedCardName();
+
+    /**
+     * Returns the primary element of the card most recently discarded as a cost payment,
+     * or {@code null} if no card has been discarded as a cost yet in the current ability chain.
+     */
+    String lastDiscardedCostCardElement();
 
     /**
      * Returns the CP cost of the Forward most recently removed from the game by a
