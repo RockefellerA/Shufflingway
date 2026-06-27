@@ -2365,6 +2365,18 @@ public record CardData(
         "(?<selfname>[A-Za-z][A-Za-z\\s''\\-]*)\\s+gains?\\s+\\+(?<power>\\d+)\\s+power[.!]?\\s*$"
     );
 
+    /**
+     * Matches "If there are N or more different Elements among Forwards/Characters you control,
+     * the Forwards/Characters you control gain +P power."
+     * Groups: {@code min}, {@code ctype} (condition type), {@code gttype} (grant target type), {@code power}.
+     */
+    private static final Pattern IF_DIFF_ELEMENTS_FIELD_GRANT = Pattern.compile(
+        "(?i)^If\\s+there\\s+are\\s+(?<min>\\d+)\\s+or\\s+more\\s+different\\s+Elements?\\s+among\\s+" +
+        "(?<ctype>Forwards?|Backups?|Characters?|Monsters?)\\s+you\\s+control[,.]?\\s+" +
+        "the\\s+(?<gttype>Forwards?(?:\\s+and\\s+Monsters?)?|Backups?|Characters?|Monsters?)\\s+" +
+        "you\\s+control\\s+gains?\\s+\\+(?<power>\\d+)\\s+power[.!]?$"
+    );
+
     private static final Pattern FIELD_GRANT_BZ_COND_CN_AND_JOB_PATTERN = Pattern.compile(
         "(?i)^If\\s+there\\s+are\\s+(?<bzcount>\\d+)\\s+or\\s+more\\s+cards?\\s+in\\s+your\\s+Break\\s+Zone,?\\s+" +
         "the\\s+Card\\s+Name\\s+(?<cardname>[A-Za-z][A-Za-z\\s''\\-]*)\\s+(?<type1>Forwards?|Characters?|Backups?|Monsters?)\\s+" +
@@ -2382,6 +2394,17 @@ public record CardData(
         for (String raw : textEn.split("(?i)\\[\\[br\\]\\]")) {
             String seg = SUMMON_MARKUP.matcher(raw.trim()).replaceAll("").trim();
             if (seg.isEmpty()) continue;
+
+            Matcher diffElemM = IF_DIFF_ELEMENTS_FIELD_GRANT.matcher(seg);
+            if (diffElemM.matches()) {
+                int min = Integer.parseInt(diffElemM.group("min"));
+                int[] incl = parseFieldGrantTargetFlags(diffElemM.group("gttype"));
+                result.add(new FieldPowerGrant(null, null, incl[0] != 0, incl[1] != 0, incl[2] != 0,
+                        null, Integer.parseInt(diffElemM.group("power")),
+                        EnumSet.noneOf(Trait.class), false, -1, null, null, null,
+                        0, 0, null, false, false, min));
+                continue;
+            }
 
             Matcher bzCnJobM = FIELD_GRANT_BZ_COND_CN_AND_JOB_PATTERN.matcher(seg);
             if (bzCnJobM.matches()) {
@@ -3603,9 +3626,10 @@ public record CardData(
             if (SCALING_SELF_BZ_CARD_NAME_PATTERN.matcher(seg).find())        continue;
             // Scaling self power boost ("For each card in your hand, X gains +N power")
             if (SCALING_SELF_HAND_PATTERN.matcher(seg).find())                 continue;
-            // BZ-conditional passive grant — handled by parseFieldPowerGrants
+            // BZ-conditional / distinct-element-conditional passive grant — handled by parseFieldPowerGrants
             if (FIELD_GRANT_BZ_COND_CN_AND_JOB_PATTERN.matcher(seg).find())   continue;
             if (FIELD_GRANT_BZ_JOB_SELF_PATTERN.matcher(seg).matches())        continue;
+            if (IF_DIFF_ELEMENTS_FIELD_GRANT.matcher(seg).matches())           continue;
 
             // Cast/play restrictions — handled as static properties via castRestriction()
             if (CAST_REQUIRES_NO_FORWARDS.matcher(seg).find())                continue;

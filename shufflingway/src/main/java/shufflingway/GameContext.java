@@ -696,6 +696,12 @@ public interface GameContext {
      */
     int selfFieldCount(String element, boolean inclForwards, boolean inclBackups, boolean inclMonsters);
 
+    /**
+     * Returns the count of distinct elements among the active player's field cards of the given types.
+     * Multi-element cards (e.g. Fire/Ice) contribute each of their elements independently.
+     */
+    int selfDistinctElementCount(boolean inclForwards, boolean inclBackups, boolean inclMonsters);
+
     /** Returns {@code true} if this ability is resolving as the result of an EX Burst. */
     boolean isExBurst();
 

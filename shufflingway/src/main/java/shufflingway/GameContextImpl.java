@@ -4038,6 +4038,17 @@ final class GameContextImpl implements GameContext {
 				return count;
 			}
 
+			@Override public int selfDistinctElementCount(boolean inclForwards, boolean inclBackups, boolean inclMonsters) {
+				List<CardData> fwds = isP1 ? mw.p1ForwardCards : mw.p2ForwardCards;
+				CardData[]     bkps = isP1 ? mw.p1BackupCards  : mw.p2BackupCards;
+				List<CardData> mons = isP1 ? mw.p1MonsterCards : mw.p2MonsterCards;
+				java.util.Set<String> elems = new java.util.HashSet<>();
+				if (inclForwards) for (CardData c : fwds) for (String e : c.element().split("/")) elems.add(e);
+				if (inclBackups)  for (CardData c : bkps) { if (c != null) for (String e : c.element().split("/")) elems.add(e); }
+				if (inclMonsters) for (CardData c : mons) for (String e : c.element().split("/")) elems.add(e);
+				return elems.size();
+			}
+
 			@Override public boolean isExBurst() { return exBurst; }
 			@Override public boolean castWasPaidByBackupsOnly() { return mw.lastCastWasPaidByBackupsOnly; }
 			@Override public boolean sourceEnteredViaWarp() { return mw.lastCardWarpedIn; }

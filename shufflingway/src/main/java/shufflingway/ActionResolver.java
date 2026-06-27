@@ -3542,6 +3542,9 @@ public class ActionResolver {
         result = tryParseIfAllHaveElement(effectText, source, xValue);
         if (result != null) return result;
 
+        result = tryParseIfNDiffElements(effectText, source, xValue);
+        if (result != null) return result;
+
         result = tryParseControlConditionGate(effectText, source, xValue);
         if (result != null) return result;
 
@@ -8972,6 +8975,12 @@ public class ActionResolver {
         "(?<effect>.+)$"
     );
 
+    /** Matches "if there are N or more different Elements among [type] you control, [effect]." */
+    private static final Pattern IF_N_DIFF_ELEMENTS_AMONG = Pattern.compile(
+        "(?is)^if\\s+there\\s+are\\s+(?<min>\\d+)\\s+or\\s+more\\s+different\\s+Elements?\\s+among\\s+" +
+        "(?<type>Forwards?|Backups?|Characters?|Monsters?)\\s+you\\s+control[,.]?\\s+(?<effect>.+)$"
+    );
+
     /** Matches "If you have cast N or more cards this turn, &lt;effect&gt;". */
     private static final Pattern IF_CAST_AT_LEAST = Pattern.compile(
         "(?is)^if\\s+you\\s+have\\s+cast\\s+(?<min>\\d+)\\s+or\\s+more\\s+cards?\\s+this\\s+turn,\\s+(?<effect>.+)$"
@@ -9013,6 +9022,29 @@ public class ActionResolver {
                 inner.accept(ctx);
             } else {
                 ctx.logEntry("Effect: not all " + logType + " have " + logElem + " Element — skipped");
+            }
+        };
+    }
+
+    /** Parses "if there are N or more different Elements among [type] you control, [effect]." */
+    private static Consumer<GameContext> tryParseIfNDiffElements(String text, CardData source, int xValue) {
+        Matcher m = IF_N_DIFF_ELEMENTS_AMONG.matcher(text.trim());
+        if (!m.matches()) return null;
+        int    min     = Integer.parseInt(m.group("min"));
+        String typeRaw = m.group("type").trim();
+        String typeLow = typeRaw.toLowerCase(java.util.Locale.ROOT);
+        boolean inclFwd = typeLow.startsWith("forward") || typeLow.startsWith("character");
+        boolean inclBkp = typeLow.startsWith("backup")  || typeLow.startsWith("character");
+        boolean inclMon = typeLow.startsWith("monster")  || typeLow.startsWith("character");
+        Consumer<GameContext> inner = parse(m.group("effect").trim(), source, xValue);
+        if (inner == null) return null;
+        return ctx -> {
+            int distinct = ctx.selfDistinctElementCount(inclFwd, inclBkp, inclMon);
+            if (distinct >= min) {
+                ctx.logEntry("Effect: " + distinct + " distinct element(s) among " + typeRaw + "s — condition met");
+                inner.accept(ctx);
+            } else {
+                ctx.logEntry("Effect: only " + distinct + " distinct element(s) among " + typeRaw + "s (need " + min + ") — skipped");
             }
         };
     }
@@ -9971,6 +10003,12 @@ public class ActionResolver {
         "(?i)^If\\s+(?:there\\s+are|you\\s+have)\\s+\\d+\\s+or\\s+more\\s+.+?\\s+in\\s+your\\s+Break\\s+Zone,"
     );
 
+    /** "If there are N or more different Elements among [type] you control, [grant]." */
+    private static final Pattern FIELD_GRANT_DIFF_ELEM_COND_PASSIVE = Pattern.compile(
+        "(?i)^If\\s+there\\s+are\\s+\\d+\\s+or\\s+more\\s+different\\s+Elements?\\s+among\\s+" +
+        "(?:Forwards?|Backups?|Characters?|Monsters?)\\s+you\\s+control[,.]"
+    );
+
     /**
      * Recognises passive field grants applied by the engine via {@link CardData#fieldPowerGrants()};
      * returns a no-op lambda so that {@link #parse} does not report these as unrecognised.
@@ -9979,7 +10017,8 @@ public class ActionResolver {
         String trimmed = text.trim();
         if (FIELD_GRANT_BARE_PASSIVE.matcher(trimmed).matches()
                 || FIELD_OPPONENT_DEBUFF_PASSIVE.matcher(trimmed).matches()
-                || FIELD_GRANT_BZ_COND_PASSIVE.matcher(trimmed).find()) {
+                || FIELD_GRANT_BZ_COND_PASSIVE.matcher(trimmed).find()
+                || FIELD_GRANT_DIFF_ELEM_COND_PASSIVE.matcher(trimmed).find()) {
             return ctx -> { /* passive field grant — applied via fieldPowerGrants() */ };
         }
         return null;

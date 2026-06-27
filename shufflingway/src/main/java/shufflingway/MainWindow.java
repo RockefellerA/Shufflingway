@@ -8083,7 +8083,7 @@ public class MainWindow {
 		return boost;
 	}
 
-	/** Returns {@code true} if all BZ conditions on {@code fpg} are met for the given player. */
+	/** Returns {@code true} if all conditions on {@code fpg} are met for the given player. */
 	private boolean fpgBzConditionMet(FieldPowerGrant fpg, boolean isP1) {
 		List<CardData> bz = isP1 ? gameState.getP1BreakZone() : gameState.getP2BreakZone();
 		if (fpg.minBzSize() > 0 && bz.size() < fpg.minBzSize()) return false;
@@ -8093,6 +8093,16 @@ public class MainWindow {
 				.filter(c -> fpg.bzFilterJob() == null || CardFilters.meetsJobFilter(c, fpg.bzFilterJob()))
 				.count();
 			if (cnt < fpg.minBzFilterCount()) return false;
+		}
+		if (fpg.minDistinctElements() > 0) {
+			List<CardData> fwds = isP1 ? p1ForwardCards : p2ForwardCards;
+			CardData[]     bkps = isP1 ? p1BackupCards  : p2BackupCards;
+			List<CardData> mons = isP1 ? p1MonsterCards : p2MonsterCards;
+			java.util.Set<String> elems = new java.util.HashSet<>();
+			if (fpg.inclForwards()) for (CardData c : fwds) for (String e : c.element().split("/")) elems.add(e);
+			if (fpg.inclBackups())  for (CardData c : bkps) { if (c != null) for (String e : c.element().split("/")) elems.add(e); }
+			if (fpg.inclMonsters()) for (CardData c : mons) for (String e : c.element().split("/")) elems.add(e);
+			if (elems.size() < fpg.minDistinctElements()) return false;
 		}
 		return true;
 	}
