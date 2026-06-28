@@ -334,7 +334,8 @@ class ComputerPlayer {
 		mw.logEntry("[P2] Party Attack! " + names + " (" + combinedPower + " combined)");
 		mw.p2FormedPartyThisTurn = true;
 		for (int idx : partyIndices)
-			mw.autoAbilityTriggers.triggerAutoAbilitiesForAttack(mw.p2ForwardCards.get(idx), false);
+			mw.autoAbilityTriggers.triggerAutoAbilitiesForAttack(
+					mw.p2ForwardPrimedTop.get(idx) != null ? mw.p2ForwardPrimedTop.get(idx) : mw.p2ForwardCards.get(idx), false);
 		List<CardData> p2PartyMembers = partyIndices.stream()
 				.map(mw.p2ForwardCards::get).collect(Collectors.toList());
 		mw.autoAbilityTriggers.triggerAutoAbilitiesForPartyAttack(false, p2PartyMembers);
@@ -377,7 +378,7 @@ class ComputerPlayer {
 		for (int i = 0; i < mw.p2ForwardStates.size(); i++) {
 			if (!p2ForwardCanAttack(i)) continue;
 			mw.p2AttackDeclarationsThisTurn++;
-			CardData attacker = mw.p2ForwardCards.get(i);
+			CardData attacker = mw.p2ForwardPrimedTop.get(i) != null ? mw.p2ForwardPrimedTop.get(i) : mw.p2ForwardCards.get(i);
 			mw.logEntry("[P2] " + attacker.name() + " attacks!");
 			if (mw.effectiveP2HasTrait(i, CardData.Trait.BRAVE)) {
 				mw.p2ForwardStates.set(i, CardState.BRAVE_ATTACKED);

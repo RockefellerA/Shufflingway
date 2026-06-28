@@ -10821,14 +10821,15 @@ public class MainWindow {
 			}
 		}
 		for (int idx : selection)
-			autoAbilityTriggers.triggerAutoAbilitiesForAttack(p1ForwardCards.get(idx), true);
+			autoAbilityTriggers.triggerAutoAbilitiesForAttack(
+					p1ForwardPrimedTop.get(idx) != null ? p1ForwardPrimedTop.get(idx) : p1ForwardCards.get(idx), true);
 
 		setAttackSubStep(2); // moving to block-declaration sub-step
 		refreshAttackButton();
 
 		if (selection.size() == 1) {
 			int idx = selection.get(0);
-			CardData attacker = p1ForwardCards.get(idx);
+			CardData attacker = p1ForwardPrimedTop.get(idx) != null ? p1ForwardPrimedTop.get(idx) : p1ForwardCards.get(idx);
 			logEntry(attacker.name() + " attacks!");
 			// Priority window after attacker declared (P1 attacks → P1 priority first)
 			combatPriority("Attacker Declared", true, () -> {
