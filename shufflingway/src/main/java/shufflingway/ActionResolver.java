@@ -4509,6 +4509,7 @@ public class ActionResolver {
             if (selfM.find() && selfM.group("selfsubject").trim().equalsIgnoreCase(source.name()))
                 return "SelfPowerBoost";
         }
+        if (FOLLOWUP_PLACE_COUNTER_ON_IT.matcher(followupText).find())                 return "PlaceCounterOnIt";
         if (FOLLOWUP_CANCEL_EFFECT.matcher(followupText).find())                      return "CancelEffect";
         if (FOLLOWUP_SHIELD_NEXT_DMG_ZERO.matcher(followupText).find())               return "ShieldNextDmgZero";
         if (FOLLOWUP_SHIELD_NEXT_ABILITY_DMG_REDUCTION.matcher(followupText).find())   return "ShieldNextAbilityDmgReduction";
@@ -4635,6 +4636,20 @@ public class ActionResolver {
                 secondaryDesc = fullDescription(secondaryTxt, source);
             if (secondaryDesc == null && secondaryTxt != null && !secondaryTxt.isEmpty())
                 secondaryDesc = matchedFollowupName(secondaryTxt, source);
+            // Compound-sentence fallback: split secondary on ". " and describe each sentence.
+            if (secondaryDesc == null && secondaryTxt != null && !secondaryTxt.isEmpty()) {
+                String[] secSentences = secondaryTxt.split("(?<=\\.)\\s+(?=[A-Z])");
+                if (secSentences.length > 1) {
+                    List<String> parts = new ArrayList<>();
+                    for (String s : secSentences) {
+                        String d = fullDescription(s.trim(), source);
+                        if (d == null) d = matchedPatternName(s.trim(), source);
+                        if (d == null) d = matchedFollowupName(s.trim(), source);
+                        parts.add(d != null ? d : "?");
+                    }
+                    secondaryDesc = String.join("+", parts);
+                }
+            }
             StringBuilder sb = new StringBuilder("ChooseCharacter / ")
                     .append(followupName != null ? followupName : "?");
             if (secondaryDesc != null) sb.append(" + ").append(secondaryDesc);
