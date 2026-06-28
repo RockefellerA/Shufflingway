@@ -2441,6 +2441,14 @@ public class ActionResolver {
     );
 
     /**
+     * Matches "Place N [Name] Counter(s) on it[/them]."
+     * Groups: {@code count} — number of counters; {@code name} — counter type name.
+     */
+    private static final Pattern FOLLOWUP_PLACE_COUNTER_ON_IT = Pattern.compile(
+        "(?i)Place\\s+(?<count>\\d+)\\s+(?<name>.+?)\\s+Counters?\\s+on\\s+(?:it|them)[.!]?"
+    );
+
+    /**
      * Matches "Deal it N damage for each [Name] Counter(s) placed on [card]."
      * Groups: {@code perunit} = damage per counter; {@code counterName} = counter type name.
      * Uses {@code xValue} captured before any BZ-cost payment cleared the counters.
@@ -5428,19 +5436,19 @@ public class ActionResolver {
             return new DamageInsteadCondition.YouHaveSummonInBreakZone();
 
         // Opponent damage count: "your opponent has received N points of damage or more"
-        java.util.regex.Matcher oppDmgM = java.util.regex.Pattern
+        Matcher oppDmgM = java.util.regex.Pattern
                 .compile("(?i)your opponent has received (\\d+) points? of damage or more").matcher(s);
         if (oppDmgM.find())
             return new DamageInsteadCondition.OpponentDamageAtLeast(Integer.parseInt(oppDmgM.group(1)));
 
         // Opponent hand size: "your opponent has N cards or less in their hand"
-        java.util.regex.Matcher oppHandM = java.util.regex.Pattern
+        Matcher oppHandM = java.util.regex.Pattern
                 .compile("(?i)your opponent has (\\d+) cards? or (?:less|fewer) in their hand").matcher(s);
         if (oppHandM.find())
             return new DamageInsteadCondition.OpponentHandAtMost(Integer.parseInt(oppHandM.group(1)));
 
         // Cards cast this turn: "you have cast N or more cards this turn"
-        java.util.regex.Matcher castM = java.util.regex.Pattern
+        Matcher castM = java.util.regex.Pattern
                 .compile("(?i)you have cast (\\d+) or more cards this turn").matcher(s);
         if (castM.find())
             return new DamageInsteadCondition.YouCastAtLeast(Integer.parseInt(castM.group(1)));
@@ -5498,7 +5506,7 @@ public class ActionResolver {
             };
 
         // Return + draw must precede plain return (draw extends the return text)
-        java.util.regex.Matcher retDrawM = FOLLOWUP_RETURN_AND_DRAW.matcher(t);
+        Matcher retDrawM = FOLLOWUP_RETURN_AND_DRAW.matcher(t);
         if (retDrawM.find()) {
             int draws = Integer.parseInt(retDrawM.group("draw"));
             return (ctx, ts) -> {
@@ -5521,7 +5529,7 @@ public class ActionResolver {
             };
 
         // Power reduce — both word orders
-        java.util.regex.Matcher reduceM = FOLLOWUP_POWER_REDUCE.matcher(t);
+        Matcher reduceM = FOLLOWUP_POWER_REDUCE.matcher(t);
         if (reduceM.find()) {
             int reduction = reduceM.group(1) != null ? Integer.parseInt(reduceM.group(1)) : 0;
             EnumSet<CardData.Trait> traits = parseTraits(reduceM.group(2));
@@ -5531,7 +5539,7 @@ public class ActionResolver {
             };
         }
         // Power reduce for each [element] [type] you control (must precede plain reduce-until)
-        java.util.regex.Matcher reduceForEachM = FOLLOWUP_POWER_REDUCE_UNTIL_FOR_EACH.matcher(t);
+        Matcher reduceForEachM = FOLLOWUP_POWER_REDUCE_UNTIL_FOR_EACH.matcher(t);
         if (reduceForEachM.find()) {
             boolean untilPrefix = reduceForEachM.group(1) != null;
             int    perUnit = Integer.parseInt(untilPrefix ? reduceForEachM.group(1) : reduceForEachM.group(4));
@@ -5548,7 +5556,7 @@ public class ActionResolver {
                 sortedByIdxDesc(ts, false).forEach(ft -> ctx.reduceTarget(ft, reduction, noTraits));
             };
         }
-        java.util.regex.Matcher reduceUntilM = FOLLOWUP_POWER_REDUCE_UNTIL.matcher(t);
+        Matcher reduceUntilM = FOLLOWUP_POWER_REDUCE_UNTIL.matcher(t);
         if (reduceUntilM.find()) {
             int reduction = reduceUntilM.group(1) != null ? Integer.parseInt(reduceUntilM.group(1)) : 0;
             EnumSet<CardData.Trait> traits = parseTraits(reduceUntilM.group(2));
@@ -5558,7 +5566,7 @@ public class ActionResolver {
             };
         }
         // Bare power reduce with no timing qualifier — used in former/latter splits (implied EOT)
-        java.util.regex.Matcher reduceBareM = FOLLOWUP_POWER_REDUCE_BARE.matcher(t);
+        Matcher reduceBareM = FOLLOWUP_POWER_REDUCE_BARE.matcher(t);
         if (reduceBareM.find()) {
             int reduction = Integer.parseInt(reduceBareM.group(1));
             EnumSet<CardData.Trait> noTraits = EnumSet.noneOf(CardData.Trait.class);
@@ -5568,8 +5576,21 @@ public class ActionResolver {
             };
         }
 
+        // Place N [Name] Counter(s) on it
+        Matcher placeCounterM = FOLLOWUP_PLACE_COUNTER_ON_IT.matcher(t);
+        if (placeCounterM.find()) {
+            int    count       = Integer.parseInt(placeCounterM.group("count"));
+            String counterName = placeCounterM.group("name").trim();
+            return (ctx, ts) -> {
+                for (ForwardTarget ft : ts) {
+                    CardData card = ft.isP1() ? ctx.p1Forward(ft.idx()) : ctx.p2Forward(ft.idx());
+                    ctx.placeCounters(card, counterName, count);
+                }
+            };
+        }
+
         // Deal N damage [and/minus M [more] damage] for each [Category X] [Element] Type [of cost N] you control
-        java.util.regex.Matcher forEachM = FOLLOWUP_DAMAGE_FOR_EACH.matcher(t);
+        Matcher forEachM = FOLLOWUP_DAMAGE_FOR_EACH.matcher(t);
         if (forEachM.find() && forEachM.group("chartype") != null) {
             int    baseDmg  = Integer.parseInt(forEachM.group("base"));
             String perStr   = forEachM.group("per");
@@ -7279,7 +7300,7 @@ public class ActionResolver {
         // --- Cannot-be-chosen followups (gains form, then both, Summons, abilities) ---
         {   // scoped block so scope-parsing locals don't leak
             String fp = primaryFollowup;
-            java.util.regex.Matcher gcM = FOLLOWUP_GAINS_CANNOT_BE_CHOSEN.matcher(fp);
+            Matcher gcM = FOLLOWUP_GAINS_CANNOT_BE_CHOSEN.matcher(fp);
             if (!gcM.find()) gcM = null;
             boolean chosenBoth      = gcM != null || FOLLOWUP_CANNOT_BE_CHOSEN_BOTH.matcher(fp).find();
             boolean chosenSummons   = chosenBoth  || (gcM == null && FOLLOWUP_CANNOT_BE_CHOSEN_SUMMONS.matcher(fp).find());
@@ -10717,9 +10738,9 @@ public class ActionResolver {
         boolean isDynamic   = dynFilterRaw != null;
         String dynJob = null, dynName = null;
         if (isDynamic) {
-            java.util.regex.Matcher djm = java.util.regex.Pattern.compile(
+            Matcher djm = java.util.regex.Pattern.compile(
                 "(?i)Job\\s+(.+?)(?:\\s+and/or\\s+|$)").matcher(dynFilterRaw);
-            java.util.regex.Matcher dnm = java.util.regex.Pattern.compile(
+            Matcher dnm = java.util.regex.Pattern.compile(
                 "(?i)Card\\s+Name\\s+(\\S+(?:\\s+\\([^)]+\\))?)").matcher(dynFilterRaw);
             if (djm.find()) dynJob  = djm.group(1).trim();
             if (dnm.find()) dynName = dnm.group(1).trim();
@@ -11976,7 +11997,7 @@ public class ActionResolver {
     }
 
     private static Consumer<GameContext> tryParseLookTopDeckReturnTopOrdered(String text) {
-        java.util.regex.Matcher m = LOOK_TOP_DECK_RETURN_TOP_ORDERED.matcher(text);
+        Matcher m = LOOK_TOP_DECK_RETURN_TOP_ORDERED.matcher(text);
         if (!m.find()) return null;
         int count = Integer.parseInt(m.group("count"));
         return ctx -> {
@@ -11986,7 +12007,7 @@ public class ActionResolver {
     }
 
     private static Consumer<GameContext> tryParseLookTopDeckAddToHandRestBottom(String text) {
-        java.util.regex.Matcher m = LOOK_TOP_DECK_ADD_TO_HAND_REST_BOTTOM.matcher(text);
+        Matcher m = LOOK_TOP_DECK_ADD_TO_HAND_REST_BOTTOM.matcher(text);
         if (!m.find()) return null;
         int count = Integer.parseInt(m.group("count"));
         return ctx -> {
@@ -11996,7 +12017,7 @@ public class ActionResolver {
     }
 
     private static Consumer<GameContext> tryParseLookTopDeckAddToHandOneToBreakRestBottom(String text) {
-        java.util.regex.Matcher m = LOOK_TOP_DECK_ADD_TO_HAND_ONE_TO_BREAK_REST_BOTTOM.matcher(text);
+        Matcher m = LOOK_TOP_DECK_ADD_TO_HAND_ONE_TO_BREAK_REST_BOTTOM.matcher(text);
         if (!m.find()) return null;
         int count = Integer.parseInt(m.group("count"));
         return ctx -> {
@@ -12006,7 +12027,7 @@ public class ActionResolver {
     }
 
     private static Consumer<GameContext> tryParseLookTopDeckAddToHandRestBreak(String text) {
-        java.util.regex.Matcher m = LOOK_TOP_DECK_ADD_TO_HAND_REST_BREAK.matcher(text);
+        Matcher m = LOOK_TOP_DECK_ADD_TO_HAND_REST_BREAK.matcher(text);
         if (!m.find()) return null;
         int    count   = Integer.parseInt(m.group("count"));
         String element = m.group("element");
@@ -12018,7 +12039,7 @@ public class ActionResolver {
     }
 
     private static Consumer<GameContext> tryParseLookTopDeckTopOrBottom(String text) {
-        java.util.regex.Matcher m = LOOK_TOP_DECK_TOP_OR_BOTTOM.matcher(text);
+        Matcher m = LOOK_TOP_DECK_TOP_OR_BOTTOM.matcher(text);
         if (!m.find()) return null;
         int count = Integer.parseInt(m.group("count"));
         return ctx -> {
@@ -12028,7 +12049,7 @@ public class ActionResolver {
     }
 
     private static Consumer<GameContext> tryParseLookTopDeckPickOneTopRestBottom(String text) {
-        java.util.regex.Matcher m = LOOK_TOP_DECK_PICK_ONE_TOP_REST_BOTTOM.matcher(text);
+        Matcher m = LOOK_TOP_DECK_PICK_ONE_TOP_REST_BOTTOM.matcher(text);
         if (!m.find()) return null;
         int count = Integer.parseInt(m.group("count"));
         return ctx -> {
@@ -12038,7 +12059,7 @@ public class ActionResolver {
     }
 
     private static Consumer<GameContext> tryParseLookTopDeckPeek(String text) {
-        java.util.regex.Matcher m = LOOK_TOP_DECK_PEEK.matcher(text);
+        Matcher m = LOOK_TOP_DECK_PEEK.matcher(text);
         if (!m.find()) return null;
         String countStr = m.group("count");
         int count = (countStr != null) ? Integer.parseInt(countStr) : 1;
@@ -12049,7 +12070,7 @@ public class ActionResolver {
     }
 
     private static Consumer<GameContext> tryParseLookTopDeckCastSummonFreeRestBottom(String text, int xValue) {
-        java.util.regex.Matcher m = LOOK_TOP_DECK_CAST_SUMMON_FREE_REST_BOTTOM.matcher(text.trim());
+        Matcher m = LOOK_TOP_DECK_CAST_SUMMON_FREE_REST_BOTTOM.matcher(text.trim());
         if (!m.find()) return null;
         String countStr = m.group("count");
         String costStr  = m.group("cost");
@@ -12062,7 +12083,7 @@ public class ActionResolver {
     }
 
     private static Consumer<GameContext> tryParseRemoveTopOfDeckFromGame(String text) {
-        java.util.regex.Matcher m = REMOVE_TOP_OF_DECK_FROM_GAME.matcher(text);
+        Matcher m = REMOVE_TOP_OF_DECK_FROM_GAME.matcher(text);
         if (!m.find()) return null;
         String countStr = m.group("count");
         int count = (countStr != null) ? Integer.parseInt(countStr) : 1;

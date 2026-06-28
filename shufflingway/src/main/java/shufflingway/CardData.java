@@ -966,7 +966,7 @@ public record CardData(
             int    minCounterRequired = 0;
             String minCounterType     = null;
             if (cminM.find()) {
-                minCounterRequired = Integer.parseInt(cminM.group("count"));
+                minCounterRequired = cminM.group("count") != null ? Integer.parseInt(cminM.group("count")) : 1;
                 minCounterType     = cminM.group("type").trim();
             }
             result.add(new ActionAbility(abilityName, requiresDull, isSpecial, crystalCost, selfMillCost, hasXCost, cpCost, breakZoneCosts, discardCosts, removeFromGameCosts, returnToHandCosts, counterCosts, dullForwardCosts, yourTurnOnly, opponentTurnOnly, oncePerTurn, mainPhaseOnly, whileCardAtk, whileCardBlk, whilePartyAtk, whileCardInHand, hasBlockingTarget, effectRaw, damageThreshold, controlCondition, cpBackupElement, cpAllowedElements, sourceInBattle, requiresOppDiscardedThisTurn, requiresCastSummonThisTurn, requiresElementForwardEnteredThisTurn, requiresCardNameEnteredThisTurn, breakZoneOnly, requiresOpponentEmptyHand, requiresSelfEmptyHand, requiresNamedCardTookDamageThisTurn, requiresSelfReceivedDamageThisTurn, requiresForwardPutToBZThisTurn, blockerForAttacker, ownBzCard, counterScaleName, minCounterRequired, minCounterType));
@@ -1197,7 +1197,9 @@ public record CardData(
 
     /** Restriction: "You can only use this ability if N or more [Type] Counters are placed on [CardName]." */
     static final Pattern COUNTER_MINIMUM_RESTRICTION = Pattern.compile(
-        "(?i)You\\s+can\\s+only\\s+use\\s+this\\s+ability\\s+if\\s+(?<count>\\d+)\\s+or\\s+more\\s+(?<type>\\w+)\\s+Counters?\\s+are\\s+placed\\s+on\\s+.+?[.!]?\\s*$"
+        "(?i)You\\s+can\\s+only\\s+use\\s+this\\s+ability\\s+if\\s+" +
+        "(?:(?<count>\\d+)\\s+or\\s+more\\s+|a\\s+)" +
+        "(?<type>\\w+)\\s+Counters?\\s+(?:are|is)\\s+placed\\s+on\\s+.+?[.!]?\\s*$"
     );
 
     /** Captures the counter type name from "the same number of X as the [Name] Counters placed on [card]". */
