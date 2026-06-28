@@ -453,6 +453,14 @@ public record CardData(
     );
 
     /**
+     * "You can only play [name] if you control a Category X Forward."
+     * Group {@code cat} — the category token (e.g. "VII").
+     */
+    private static final Pattern CAST_ONLY_PLAY_IF_CONTROL_CATEGORY_FWD = Pattern.compile(
+        "(?i)You\\s+can\\s+only\\s+play\\s+\\S[^.]*?\\s+if\\s+you\\s+control\\s+a\\s+Category\\s+(?<cat>\\S+)\\s+Forward[.!]?"
+    );
+
+    /**
      * "You can only cast X if you have a Forward, Backup, Monster, and a Summon in your Break Zone …"
      * Group {@code types} captures the word list before "in your Break Zone".
      * The negative lookahead {@code (?!a\s+total)} prevents matching Eiko's count variant.
@@ -522,6 +530,14 @@ public record CardData(
         }
         if (mustControl == null) {
             Matcher catM = CAST_MUST_CONTROL_CATEGORY_FWD.matcher(textEn);
+            if (catM.find()) {
+                mustControl = new ControlCondition(
+                        java.util.List.of(), 1, false, "Forward", null, null,
+                        catM.group("cat").trim(), 0, java.util.List.of());
+            }
+        }
+        if (mustControl == null) {
+            Matcher catM = CAST_ONLY_PLAY_IF_CONTROL_CATEGORY_FWD.matcher(textEn);
             if (catM.find()) {
                 mustControl = new ControlCondition(
                         java.util.List.of(), 1, false, "Forward", null, null,
