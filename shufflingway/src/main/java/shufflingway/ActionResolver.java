@@ -4656,10 +4656,11 @@ public class ActionResolver {
         String normalizedEffectText = ELEM_TYPE_OR_ELEM_TYPE.matcher(effectText).replaceAll("$1 or $3 $2");
         String escapedEffectText = escapePeriodInName(normalizedEffectText, source);
         Matcher oneEachM = CHOOSE_ONE_EACH_PATTERN.matcher(normalizedEffectText);
-        if (oneEachM.find()) {
+        if (oneEachM.find() && tryParseChooseOneEach(normalizedEffectText, source) != null) {
             String followupName = matchedFollowupName(oneEachM.group("followup").trim(), source);
             return "ChooseOneEach / " + (followupName != null ? followupName : "?");
         }
+        if (tryParseChooseFormerLatter(normalizedEffectText, source) != null) return "ChooseFormerLatter";
         if (tryParseChooseForwardDealSelfDamageBreakIfCostLeDamage(normalizedEffectText) != null)
             return "ChooseForwardDealSelfDamageBreakIfCostLeDamage";
         if (tryParseChooseForwardSharedPowerLoss(normalizedEffectText, source) != null)
@@ -5849,6 +5850,26 @@ public class ActionResolver {
                 ctx.logEntry("Mutual damage: self Forward (" + selfPower + ") ↔ opp Forward (" + oppPower + ")");
                 ctx.damageTarget(selfT, oppPower);
                 ctx.damageTarget(oppT,  selfPower);
+            };
+        }
+
+        Matcher btpM = FORMER_BOOST_THEN_POWER_DAMAGE_TO_LATTER.matcher(followup);
+        if (btpM.find()) {
+            int boost = Integer.parseInt(btpM.group("boost"));
+            EnumSet<CardData.Trait> noTraits = EnumSet.noneOf(CardData.Trait.class);
+            return ctx -> {
+                ctx.logEntry(logPrefix + " — boost former +" + boost + ", deal its power to latter");
+                List<ForwardTarget> selfTs = selectTargets(ctx, count1, false,
+                        false, true, null, null, null, false, -1, null, -1, null,
+                        fwd1, bak1, mon1, null, null, null, null, false, null, false);
+                List<ForwardTarget> oppTs = selectTargets(ctx, count2, false,
+                        true, false, null, null, null, false, -1, null, -1, null,
+                        fwd2, bak2, mon2, null, null, null, null, false, null, false);
+                if (selfTs.isEmpty() || oppTs.isEmpty()) return;
+                ctx.boostTarget(selfTs.get(0), boost, noTraits);
+                int power = Math.max(0, ctx.effectiveTargetPower(selfTs.get(0)));
+                ctx.logEntry("Former power after boost: " + power + " → dealing to latter");
+                ctx.damageTarget(oppTs.get(0), power);
             };
         }
 
