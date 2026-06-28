@@ -500,6 +500,7 @@ class ComputerPlayer {
 		mw.p1GlobalDmgReduction  = 0;        mw.p2GlobalDmgReduction  = 0;
 		mw.opponentAttackDeclarationLimit = Integer.MAX_VALUE; mw.p2AttackDeclarationsThisTurn = 0;
 		mw.p1AttackDeclarationLimit = Integer.MAX_VALUE;       mw.p1AttackDeclarationsThisTurn = 0;
+		mw.p1CannotSearchThisTurn = false; mw.p2CannotSearchThisTurn = false;
 		mw.gameState.advancePhase(); // MAIN_2 → END
 		mw.refreshPhaseTracker();
 		mw.logEntry("[P2] End Phase");

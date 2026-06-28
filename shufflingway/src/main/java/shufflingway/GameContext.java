@@ -1088,6 +1088,9 @@ public interface GameContext {
     /** Limits the opponent's attack declarations to {@code max} this turn. */
     void limitOpponentAttackDeclarationsThisTurn(int max);
 
+    /** Prevents the opponent from searching their deck this turn. */
+    void setOpponentCannotSearchThisTurn();
+
     /**
      * Removes the named card from the current Battle — marks it as having escaped so that
      * {@code resolveCombat} skips damage resolution for that pairing.

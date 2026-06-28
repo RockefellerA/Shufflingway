@@ -1775,6 +1775,10 @@ public class ActionResolver {
         "(?i)During\\s+this\\s+turn,?\\s+your\\s+opponent\\s+may\\s+only\\s+declare\\s+attack\\s+once\\.?"
     );
 
+    private static final Pattern OPPONENT_CANNOT_SEARCH_THIS_TURN = Pattern.compile(
+        "(?i)During\\s+this\\s+turn,?\\s+your\\s+opponent\\s+cannot\\s+search\\.?"
+    );
+
     /** Splits "and Card Name" within an activate target list. */
     private static final Pattern ACTIVATE_AND_CARD_NAME_SPLIT = Pattern.compile(
         "(?i)\\s+and\\s+Card\\s+Name\\s+"
@@ -4087,6 +4091,9 @@ public class ActionResolver {
         result = tryParseOpponentAttackOnceThisTurn(effectText);
         if (result != null) return result;
 
+        result = tryParseOpponentCannotSearchThisTurn(effectText);
+        if (result != null) return result;
+
         result = tryParseRemoveFromBattle(effectText);
         if (result != null) return result;
 
@@ -4372,6 +4379,7 @@ public class ActionResolver {
         if (tryParsePlaySourceFromBreakZone(effectText, source) != null) return "PlaySourceFromBreakZone";
         if (tryParseActivateNamedCard(effectText)               != null) return "ActivateNamedCard";
         if (tryParseAttackOnceMore(effectText)                  != null) return "AttackOnceMore";
+        if (tryParseOpponentCannotSearchThisTurn(effectText)    != null) return "OpponentCannotSearch";
         if (tryParseRemoveFromBattle(effectText)                != null) return "RemoveFromBattle";
         if (tryParseChooseSummonFromBzToHandWithCostReduction(effectText) != null) return "ChooseSummonFromBzToHandWithCostReduction";
         if (tryParseChooseSummonInBzCastable(effectText)         != null) return "ChooseSummonInBzCastable";
@@ -4759,6 +4767,7 @@ public class ActionResolver {
         if (tryParsePlayAllByNameFromBreakZone(effectText) != null)         return "PlayAllByNameFromBreakZone";
         if (tryParsePlaySourceFromBreakZone(effectText, source) != null)    return "PlaySourceFromBreakZone";
         if (tryParseActivateNamedCard(effectText) != null)                  return "ActivateNamedCard";
+        if (tryParseOpponentCannotSearchThisTurn(effectText) != null)       return "OpponentCannotSearch";
         if (tryParseExtraTurnThenLose(effectText) != null)                  return "ExtraTurnThenLose";
         if (tryParseGainCrystalPerX(effectText, 0) != null)                 return "GainCrystalPerX";
         if (tryParseGainCrystal(effectText)        != null)                  return "GainCrystal";
@@ -12411,6 +12420,11 @@ public class ActionResolver {
     private static Consumer<GameContext> tryParseOpponentAttackOnceThisTurn(String text) {
         if (!OPPONENT_ATTACK_ONCE_THIS_TURN.matcher(text).find()) return null;
         return ctx -> ctx.limitOpponentAttackDeclarationsThisTurn(1);
+    }
+
+    private static Consumer<GameContext> tryParseOpponentCannotSearchThisTurn(String text) {
+        if (!OPPONENT_CANNOT_SEARCH_THIS_TURN.matcher(text).find()) return null;
+        return ctx -> ctx.setOpponentCannotSearchThisTurn();
     }
 
     /**

@@ -463,6 +463,10 @@ public class MainWindow {
 	int p1AttackDeclarationLimit        = Integer.MAX_VALUE;
 	/** Number of attack declarations made by P1 in the current turn (cleared at end of each turn). */
 	int p1AttackDeclarationsThisTurn    = 0;
+	/** Set when an ability forbids P1 from searching this turn. */
+	boolean p1CannotSearchThisTurn      = false;
+	/** Set when an ability forbids P2 from searching this turn. */
+	boolean p2CannotSearchThisTurn      = false;
 
 	/** End-of-turn effects queued this turn; fired at the beginning of the END phase. */
 	final List<Consumer<GameContext>> endOfTurnEffects = new ArrayList<>();
@@ -2113,6 +2117,7 @@ public class MainWindow {
                                 p1GlobalDmgReduction  = 0;        p2GlobalDmgReduction  = 0;
                                 opponentAttackDeclarationLimit = Integer.MAX_VALUE; p2AttackDeclarationsThisTurn = 0;
                                 p1AttackDeclarationLimit = Integer.MAX_VALUE;       p1AttackDeclarationsThisTurn = 0;
+                                p1CannotSearchThisTurn = false; p2CannotSearchThisTurn = false;
                                 for (int i = 0; i < p2ForwardCards.size(); i++) refreshP2ForwardSlot(i);
                                 showEndPhaseDiscardDialog();
                                 onNextPhase();             // END → ACTIVE (auto-advance)
@@ -3503,6 +3508,10 @@ public class MainWindow {
 			int costVal, String costCmp, String cardNameFilter, String jobFilter,
 			String categoryFilter, String elementFilter, String excludeName, String excludeElem,
 			String destination, int count, boolean entersDull) {
+		if (isP1 ? p1CannotSearchThisTurn : p2CannotSearchThisTurn) {
+			logEntry("Search blocked — opponent cannot search this turn");
+			return;
+		}
 		Deque<CardData> deck = isP1 ? gameState.getP1MainDeck() : gameState.getP2MainDeck();
 		boolean anyType = !inclForwards && !inclBackups && !inclMonsters && !inclSummons;
 		List<CardData> matches = new ArrayList<>();
@@ -3719,6 +3728,10 @@ public class MainWindow {
 	}
 
 	void searchDeckJobAndTypeDontShareElements(boolean isP1, String jobFilter, String typeName) {
+		if (isP1 ? p1CannotSearchThisTurn : p2CannotSearchThisTurn) {
+			logEntry("Search blocked — opponent cannot search this turn");
+			return;
+		}
 		Deque<CardData> deck = isP1 ? gameState.getP1MainDeck() : gameState.getP2MainDeck();
 		List<CardData> pool1 = new ArrayList<>();  // Job [jobFilter]
 		List<CardData> pool2 = new ArrayList<>();  // [typeName] type cards
@@ -3771,6 +3784,10 @@ public class MainWindow {
 	}
 
 	void searchDeckElementOrCategoryCharsDifferentCost(boolean isP1, String element, String category) {
+		if (isP1 ? p1CannotSearchThisTurn : p2CannotSearchThisTurn) {
+			logEntry("Search blocked — opponent cannot search this turn");
+			return;
+		}
 		Deque<CardData> deck = isP1 ? gameState.getP1MainDeck() : gameState.getP2MainDeck();
 		// Combined pool: element Characters ∪ category Characters (insertion-ordered, no duplicates)
 		java.util.LinkedHashSet<CardData> poolSet = new java.util.LinkedHashSet<>();

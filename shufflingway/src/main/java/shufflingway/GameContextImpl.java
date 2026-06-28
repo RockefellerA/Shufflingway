@@ -3225,6 +3225,11 @@ final class GameContextImpl implements GameContext {
 				logEntry("Effect: Opponent may only declare attack " + max + " time(s) this turn");
 			}
 
+			@Override public void setOpponentCannotSearchThisTurn() {
+				if (isP1) mw.p2CannotSearchThisTurn = true; else mw.p1CannotSearchThisTurn = true;
+				logEntry("Effect: Opponent cannot search this turn");
+			}
+
 			@Override public void returnNamedCardToYourHand(String cardName) {
 				if (mw.currentResolutionIsSummon && mw.currentSummonSource != null
 						&& mw.currentSummonSource.name().equalsIgnoreCase(cardName)) {
