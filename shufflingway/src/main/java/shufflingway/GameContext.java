@@ -1558,10 +1558,11 @@ public interface GameContext {
      * @param element       optional element filter; {@code null} = any
      * @param costVal       CP cost filter value; {@code -1} = no filter
      * @param costCmp       {@code "less"}, {@code "more"}, or {@code null} for exact
+     * @param excludeName   optional card name to exclude; {@code null} = no exclusion
      */
     void applyMassFieldPowerBoost(int amount, boolean inclForwards, boolean inclMonsters,
             boolean opponentOnly, boolean selfOnly,
-            String element, int costVal, String costCmp, String category);
+            String element, int costVal, String costCmp, String category, String excludeName);
 
     /**
      * Applies a power boost until end of turn to all Forwards (and Monsters when

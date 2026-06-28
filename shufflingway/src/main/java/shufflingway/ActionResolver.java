@@ -2717,6 +2717,7 @@ public class ActionResolver {
         "(?:Category\\s+(?<category>\\S+)\\s+)?" +
         "(?<targets>Forwards?(?:\\s+and\\s+Monsters?)?|Backups?|Characters?)" +
         "(?:\\s+of\\s+cost\\s+(?<cost>\\d+)(?:\\s+or\\s+(?<costcmp>less|more))?)?" +
+        "(?:\\s+other\\s+than\\s+(?<excludename>.+?))?" +
         "(?:\\s+(?<control>(?:your\\s+)?opponent\\s+controls?|you\\s+control))?" +
         "\\s+(?<verb>gains?|loses?)\\s+\\+?(?<amount>\\d+)\\s+[Pp]ower" +
         "\\s+until\\s+(?:the\\s+)?end\\s+of\\s+(?:the\\s+)?turn[.!]?"
@@ -10353,13 +10354,19 @@ public class ActionResolver {
         String logMsg = "All " + elemLabel + catLabel + targets + costLabel + controlLabel
                 + " " + change + " power until end of turn";
 
+        String excludeName = m.group("excludename") != null ? m.group("excludename").trim() : null;
+        String excludeLabel = excludeName != null ? " other than " + excludeName : "";
+
         String trailingRaw = text.substring(m.end()).trim().replaceAll("^[.!,]+\\s*", "").trim();
         Consumer<GameContext> secondary = trailingRaw.isEmpty() ? null : parse(trailingRaw, null);
 
+        String logMsg2 = "All " + elemLabel + catLabel + targets + costLabel + excludeLabel + controlLabel
+                + " " + change + " power until end of turn";
+
         return ctx -> {
-            ctx.logEntry("Effect: " + logMsg);
+            ctx.logEntry("Effect: " + logMsg2);
             ctx.applyMassFieldPowerBoost(amount, inclForwards, inclMonsters,
-                    opponentOnly, selfOnly, element, costVal, costCmp, category);
+                    opponentOnly, selfOnly, element, costVal, costCmp, category, excludeName);
             if (secondary != null) secondary.accept(ctx);
         };
     }
@@ -10483,7 +10490,7 @@ public class ActionResolver {
         return ctx -> {
             ctx.logEntry("Effect: " + logMsg);
             ctx.applyMassFieldPowerBoost(signedAmount, inclForwards, inclMonsters,
-                    opponentOnly, selfOnly, element, costVal, costCmp, category);
+                    opponentOnly, selfOnly, element, costVal, costCmp, category, null);
             if (!traits.isEmpty())
                 ctx.applyMassFieldKeywordGrant(traits, inclForwards, inclMonsters,
                         opponentOnly, selfOnly, element, costVal, costCmp, category);
@@ -10525,8 +10532,8 @@ public class ActionResolver {
 
         return ctx -> {
             ctx.logEntry("Effect: " + logMsg);
-            ctx.applyMassFieldPowerBoost( amount1, inclFwd1, inclMon1, opp1, self1, null, -1, null, null);
-            ctx.applyMassFieldPowerBoost(-amount2, inclFwd2, inclMon2, opp2, self2, null, -1, null, null);
+            ctx.applyMassFieldPowerBoost( amount1, inclFwd1, inclMon1, opp1, self1, null, -1, null, null, null);
+            ctx.applyMassFieldPowerBoost(-amount2, inclFwd2, inclMon2, opp2, self2, null, -1, null, null, null);
         };
     }
 
@@ -11395,7 +11402,7 @@ public class ActionResolver {
             ctx.logEntry("Effect: Name 1 Job or Element — all controlled Forwards +" + amount + " power and named until EOT");
             String[] choice = ctx.selectJobOrElement("Name 1 Job or 1 Element:");
             if (choice == null || choice[1] == null) return;
-            ctx.applyMassFieldPowerBoost(amount, true, false, false, true, null, -1, null, null);
+            ctx.applyMassFieldPowerBoost(amount, true, false, false, true, null, -1, null, null, null);
             if ("job".equalsIgnoreCase(choice[0]))
                 ctx.grantAllControlledForwardsJobUntilEOT(choice[1]);
             else

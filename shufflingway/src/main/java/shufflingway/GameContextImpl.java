@@ -3701,7 +3701,7 @@ final class GameContextImpl implements GameContext {
 			@Override
 			public void applyMassFieldPowerBoost(int amount, boolean inclForwards, boolean inclMonsters,
 					boolean opponentOnly, boolean selfOnly,
-					String element, int costVal, String costCmp, String category) {
+					String element, int costVal, String costCmp, String category, String excludeName) {
 				boolean touchP1 = isP1 ? !opponentOnly : !selfOnly;
 				boolean touchP2 = isP1 ? !selfOnly     : !opponentOnly;
 				if (touchP1) {
@@ -3711,6 +3711,7 @@ final class GameContextImpl implements GameContext {
 							if (element != null && !c.containsElement(element)) continue;
 							if (!meetsCostConstraint(c.cost(), costVal, costCmp)) continue;
 							if (!CardFilters.meetsCategoryFilter(c, category)) continue;
+							if (excludeName != null && CardFilters.meetsCardNameFilter(c, excludeName)) continue;
 							mw.p1ForwardPowerBoost.set(i, mw.p1ForwardPowerBoost.get(i) + amount);
 							logEntry(c.name() + " gains +" + amount + " power until end of turn");
 							mw.refreshP1ForwardSlot(i);
@@ -3722,6 +3723,7 @@ final class GameContextImpl implements GameContext {
 							if (element != null && !c.containsElement(element)) continue;
 							if (!meetsCostConstraint(c.cost(), costVal, costCmp)) continue;
 							if (!CardFilters.meetsCategoryFilter(c, category)) continue;
+							if (excludeName != null && CardFilters.meetsCardNameFilter(c, excludeName)) continue;
 							logEntry(c.name() + " gains +" + amount + " power until end of turn");
 						}
 					}
@@ -3733,6 +3735,7 @@ final class GameContextImpl implements GameContext {
 							if (element != null && !c.containsElement(element)) continue;
 							if (!meetsCostConstraint(c.cost(), costVal, costCmp)) continue;
 							if (!CardFilters.meetsCategoryFilter(c, category)) continue;
+							if (excludeName != null && CardFilters.meetsCardNameFilter(c, excludeName)) continue;
 							mw.p2ForwardPowerBoost.set(i, mw.p2ForwardPowerBoost.get(i) + amount);
 							logEntry("[P2] " + c.name() + " gains +" + amount + " power until end of turn");
 							mw.refreshP2ForwardSlot(i);
@@ -3744,6 +3747,7 @@ final class GameContextImpl implements GameContext {
 							if (element != null && !c.containsElement(element)) continue;
 							if (!meetsCostConstraint(c.cost(), costVal, costCmp)) continue;
 							if (!CardFilters.meetsCategoryFilter(c, category)) continue;
+							if (excludeName != null && CardFilters.meetsCardNameFilter(c, excludeName)) continue;
 							logEntry("[P2] " + c.name() + " gains +" + amount + " power until end of turn");
 						}
 					}
