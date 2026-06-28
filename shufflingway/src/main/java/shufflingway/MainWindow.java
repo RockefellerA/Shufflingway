@@ -7530,6 +7530,7 @@ public class MainWindow {
 		if (ability.requiresOppDiscardedThisTurn())       { if (!firstRestrict) restrict.append(", "); restrict.append("opp discarded");    firstRestrict = false; }
 		if (ability.requiresCastSummonThisTurn())         { if (!firstRestrict) restrict.append(", "); restrict.append("cast summon");       firstRestrict = false; }
 		if (ability.requiresOpponentEmptyHand())          { if (!firstRestrict) restrict.append(", "); restrict.append("opp empty hand");    firstRestrict = false; }
+		if (ability.maxOpponentHandSize() >= 0)           { if (!firstRestrict) restrict.append(", "); restrict.append("opp hand ≤").append(ability.maxOpponentHandSize()); firstRestrict = false; }
 		if (ability.requiresSelfEmptyHand())              { if (!firstRestrict) restrict.append(", "); restrict.append("self empty hand");   firstRestrict = false; }
 		if (ability.requiresElementForwardEnteredThisTurn() != null) { if (!firstRestrict) restrict.append(", "); restrict.append(ability.requiresElementForwardEnteredThisTurn()).append(" fwd entered"); firstRestrict = false; }
 		if (ability.requiresNamedCardTookDamageThisTurn() != null)  { if (!firstRestrict) restrict.append(", "); restrict.append(ability.requiresNamedCardTookDamageThisTurn()).append(" took dmg");  firstRestrict = false; }
@@ -7867,6 +7868,10 @@ public class MainWindow {
 		if (ability.requiresOpponentEmptyHand()) {
 			List<CardData> oppHand = isP1 ? gameState.getP2Hand() : gameState.getP1Hand();
 			if (!oppHand.isEmpty()) return false;
+		}
+		if (ability.maxOpponentHandSize() >= 0) {
+			List<CardData> oppHand = isP1 ? gameState.getP2Hand() : gameState.getP1Hand();
+			if (oppHand.size() > ability.maxOpponentHandSize()) return false;
 		}
 		if (ability.requiresSelfEmptyHand()) {
 			List<CardData> selfHand = isP1 ? gameState.getP1Hand() : gameState.getP2Hand();

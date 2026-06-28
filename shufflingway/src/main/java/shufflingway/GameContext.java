@@ -1678,6 +1678,12 @@ public interface GameContext {
     void makeMonsterTemporaryForward(CardData source, int power);
 
     /**
+     * Makes the Monster at {@code t} also a Forward with {@code power} until end of turn.
+     * Handles targets on either side of the field. No-op if the target is not a Monster zone.
+     */
+    void makeTargetTemporaryForward(ForwardTarget t, int power);
+
+    /**
      * Grants {@code source} a temporary action ability whose sole cost is
      * "Put {@code bzCardName} into the Break Zone" until end of turn.
      */

@@ -4273,6 +4273,31 @@ final class GameContextImpl implements GameContext {
 				}
 			}
 
+			@Override public void makeTargetTemporaryForward(ForwardTarget t, int power) {
+				if (t.zone() != ForwardTarget.CardZone.MONSTER) return;
+				if (t.isP1()) {
+					CardData card = mw.p1MonsterCards.get(t.idx());
+					mw.p1MonsterTempForwardPower.put(card, power);
+					logEntry(card.name() + " also becomes a Forward with " + power + " power until end of turn");
+					mw.endOfTurnEffects.add(ctx -> {
+						mw.p1MonsterTempForwardPower.remove(card);
+						int stillIdx = mw.p1MonsterCards.indexOf(card);
+						if (stillIdx >= 0) mw.refreshP1MonsterSlot(stillIdx);
+					});
+					mw.refreshP1MonsterSlot(t.idx());
+				} else {
+					CardData card = mw.p2MonsterCards.get(t.idx());
+					mw.p2MonsterTempForwardPower.put(card, power);
+					logEntry("[P2] " + card.name() + " also becomes a Forward with " + power + " power until end of turn");
+					mw.endOfTurnEffects.add(ctx -> {
+						mw.p2MonsterTempForwardPower.remove(card);
+						int stillIdx = mw.p2MonsterCards.indexOf(card);
+						if (stillIdx >= 0) mw.refreshP2MonsterSlot(stillIdx);
+					});
+					mw.refreshP2MonsterSlot(t.idx());
+				}
+			}
+
 			@Override public void grantTempBzActionAbility(CardData source, String bzCardName, String effectText) {
 				ActionAbility ability = ActionAbility.makeBzCostTempAbility(bzCardName, effectText);
 				Map<CardData, List<ActionAbility>> map = isP1 ? mw.p1TempGrantedAbilities : mw.p2TempGrantedAbilities;
@@ -4291,7 +4316,7 @@ final class GameContextImpl implements GameContext {
 					false, false, true, false,
 					null, null, false, false, false,
 					original.effectText(),
-					0, null, null, null, false, false, false, null, null, null, false, false, null, false, false, null, null, null, 0, null
+					0, null, null, null, false, false, false, null, null, null, false, false, null, false, false, null, null, null, 0, null, -1
 				);
 				Map<CardData, List<ActionAbility>> map = isP1 ? mw.p1TempGrantedAbilities : mw.p2TempGrantedAbilities;
 				map.computeIfAbsent(source, k -> new ArrayList<>()).add(copy);

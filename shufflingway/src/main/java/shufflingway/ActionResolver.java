@@ -4519,6 +4519,7 @@ public class ActionResolver {
                 return "SelfPowerBoost";
         }
         if (FOLLOWUP_PLACE_COUNTER_ON_IT.matcher(followupText).find())                 return "PlaceCounterOnIt";
+        if (BECOME_FORWARD_UNTIL_EOT_PATTERN.matcher(followupText).find())             return "BecomeForwardUntilEot";
         if (FOLLOWUP_CANCEL_EFFECT.matcher(followupText).find())                      return "CancelEffect";
         if (FOLLOWUP_SHIELD_NEXT_DMG_ZERO.matcher(followupText).find())               return "ShieldNextDmgZero";
         if (FOLLOWUP_SHIELD_NEXT_ABILITY_DMG_REDUCTION.matcher(followupText).find())   return "ShieldNextAbilityDmgReduction";
@@ -5599,6 +5600,13 @@ public class ActionResolver {
                 sortedByIdxDesc(ts, true) .forEach(ft -> ctx.reduceTarget(ft, reduction, noTraits));
                 sortedByIdxDesc(ts, false).forEach(ft -> ctx.reduceTarget(ft, reduction, noTraits));
             };
+        }
+
+        // Until EOT, it also becomes a Forward with N power
+        Matcher becomeForwardM = BECOME_FORWARD_UNTIL_EOT_PATTERN.matcher(t);
+        if (becomeForwardM.find()) {
+            int power = Integer.parseInt(becomeForwardM.group("power"));
+            return (ctx, ts) -> ts.forEach(ft -> ctx.makeTargetTemporaryForward(ft, power));
         }
 
         // Place N [Name] Counter(s) on it
@@ -8585,6 +8593,7 @@ public class ActionResolver {
         s = CardData.FORWARD_PUT_TO_BZ_THIS_TURN_RESTRICTION      .matcher(s).replaceAll("").trim();
         s = CardData.ELEMENT_FORWARD_ENTERED_THIS_TURN_PATTERN.matcher(s).replaceAll("").trim();
         s = CardData.COUNTER_MINIMUM_RESTRICTION              .matcher(s).replaceAll("").trim();
+        s = CardData.OPP_HAND_AT_MOST_RESTRICTION             .matcher(s).replaceAll("").trim();
         s = CardData.SELF_NO_CARDS_IN_HAND_RESTRICTION        .matcher(s).replaceAll("").trim();
         s = CardData.CP_BACKUP_ONLY_ABILITY                   .matcher(s).replaceAll("").trim();
         s = CardData.CP_ELEMENTS_ONLY_ABILITY                 .matcher(s).replaceAll("").trim();

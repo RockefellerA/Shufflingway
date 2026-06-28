@@ -969,7 +969,9 @@ public record CardData(
                 minCounterRequired = cminM.group("count") != null ? Integer.parseInt(cminM.group("count")) : 1;
                 minCounterType     = cminM.group("type").trim();
             }
-            result.add(new ActionAbility(abilityName, requiresDull, isSpecial, crystalCost, selfMillCost, hasXCost, cpCost, breakZoneCosts, discardCosts, removeFromGameCosts, returnToHandCosts, counterCosts, dullForwardCosts, yourTurnOnly, opponentTurnOnly, oncePerTurn, mainPhaseOnly, whileCardAtk, whileCardBlk, whilePartyAtk, whileCardInHand, hasBlockingTarget, effectRaw, damageThreshold, controlCondition, cpBackupElement, cpAllowedElements, sourceInBattle, requiresOppDiscardedThisTurn, requiresCastSummonThisTurn, requiresElementForwardEnteredThisTurn, requiresCardNameEnteredThisTurn, breakZoneOnly, requiresOpponentEmptyHand, requiresSelfEmptyHand, requiresNamedCardTookDamageThisTurn, requiresSelfReceivedDamageThisTurn, requiresForwardPutToBZThisTurn, blockerForAttacker, ownBzCard, counterScaleName, minCounterRequired, minCounterType));
+            Matcher oppHandM = OPP_HAND_AT_MOST_RESTRICTION.matcher(effectRaw);
+            int maxOpponentHandSize = oppHandM.find() ? Integer.parseInt(oppHandM.group("count")) : -1;
+            result.add(new ActionAbility(abilityName, requiresDull, isSpecial, crystalCost, selfMillCost, hasXCost, cpCost, breakZoneCosts, discardCosts, removeFromGameCosts, returnToHandCosts, counterCosts, dullForwardCosts, yourTurnOnly, opponentTurnOnly, oncePerTurn, mainPhaseOnly, whileCardAtk, whileCardBlk, whilePartyAtk, whileCardInHand, hasBlockingTarget, effectRaw, damageThreshold, controlCondition, cpBackupElement, cpAllowedElements, sourceInBattle, requiresOppDiscardedThisTurn, requiresCastSummonThisTurn, requiresElementForwardEnteredThisTurn, requiresCardNameEnteredThisTurn, breakZoneOnly, requiresOpponentEmptyHand, requiresSelfEmptyHand, requiresNamedCardTookDamageThisTurn, requiresSelfReceivedDamageThisTurn, requiresForwardPutToBZThisTurn, blockerForAttacker, ownBzCard, counterScaleName, minCounterRequired, minCounterType, maxOpponentHandSize));
         }
         return List.copyOf(result);
     }
@@ -986,7 +988,7 @@ public record CardData(
                 a.requiresCardNameEnteredThisTurn(), a.breakZoneOnly(), a.requiresOpponentEmptyHand(),
                 a.requiresSelfEmptyHand(), a.requiresNamedCardTookDamageThisTurn(), a.requiresSelfReceivedDamageThisTurn(),
                 a.requiresForwardPutToBZThisTurn(), a.blockerForAttacker(), bzCard,
-                a.counterScaleName(), a.minCounterRequired(), a.minCounterType());
+                a.counterScaleName(), a.minCounterRequired(), a.minCounterType(), a.maxOpponentHandSize());
     }
 
     /** Parses a "discard N [filter]" cost phrase into a {@link DiscardCost} list (0 or 1 item). */
@@ -1054,6 +1056,11 @@ public record CardData(
     /** "You can only use this ability if your opponent has no cards in their hand" — standalone or as part of a compound restriction. */
     static final Pattern OPP_NO_CARDS_IN_HAND_RESTRICTION = Pattern.compile(
         "(?i)You\\s+can\\s+only\\s+use\\s+this\\s+ability\\s+if\\s+your\\s+opponent\\s+has\\s+no\\s+cards?\\s+in\\s+(?:his/her|his|her|their)\\s+hand[,.]?"
+    );
+
+    /** "You can only use this ability if your opponent has N card(s) or less in their hand." Group {@code count}. */
+    static final Pattern OPP_HAND_AT_MOST_RESTRICTION = Pattern.compile(
+        "(?i)You\\s+can\\s+only\\s+use\\s+this\\s+ability\\s+if\\s+your\\s+opponent\\s+has\\s+(?<count>\\d+)\\s+cards?\\s+or\\s+less\\s+in\\s+(?:his/her|his|her|their)\\s+hand[,.]?"
     );
 
     /** "You can only use this ability if you have no cards in your hand." */
