@@ -2488,7 +2488,7 @@ final class AutoAbilityTriggers {
 		if (c == null) return;
 		mw.startBreakAnim(mw.p1BackupLabels[idx]);
 		mw.logEntry(c.name() + " → Break Zone");
-		mw.addToP1BreakZone(c);
+		mw.addToBreakZone(c);
 		mw.p1BackupTempForwardPower.remove(c); mw.p1BackupForwardBoost.remove(c);
 		mw.p1BackupTempTraits.remove(c);       mw.p1BackupForwardDamage.remove(c);
 		if (mw.p1BackupAttackIdx == idx) mw.p1BackupAttackIdx = -1;
@@ -2510,7 +2510,7 @@ final class AutoAbilityTriggers {
 		mw.startBreakAnim(mw.p1MonsterLabels.get(idx));
 		CardData c = mw.p1MonsterCards.get(idx);
 		mw.logEntry(c.name() + " → Break Zone");
-		mw.addToP1BreakZone(c);
+		mw.addToBreakZone(c);
 		mw.p1MonsterTempForwardPower.remove(c);
 		mw.p1MonsterPowerBoost.remove(c);
 		mw.p1MonsterTempTraits.remove(c);

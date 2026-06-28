@@ -1364,7 +1364,7 @@ final class GameContextImpl implements GameContext {
 				int milled = 0;
 				for (int i = 0; i < count && !deck.isEmpty(); i++) {
 					CardData card = deck.pop();
-					mw.addToP2BreakZone(card);
+					mw.addToBreakZone(card);
 					logEntry("[P2] Mill: \"" + card.name() + "\" → Break Zone");
 					mw.cardSlideAnimator.startSlide(img, start, end, i * 5);
 					milled++;
@@ -1387,7 +1387,7 @@ final class GameContextImpl implements GameContext {
 				int milled = 0;
 				for (int i = 0; i < count && !deck.isEmpty(); i++) {
 					CardData card = deck.pop();
-					mw.addToP1BreakZone(card);
+					mw.addToBreakZone(card);
 					logEntry("[P1] Mill: \"" + card.name() + "\" → Break Zone");
 					mw.cardSlideAnimator.startSlide(img, start, end, i * 5);
 					milled++;
@@ -1606,7 +1606,7 @@ final class GameContextImpl implements GameContext {
 								mw.refreshP1HandLabel();
 							}
 							case "putToBreakZone" -> {
-								mw.addToP1BreakZone(card);
+								mw.addToBreakZone(card);
 								logEntry(card.name() + " put into Break Zone from reveal");
 								mw.refreshP1BreakLabel();
 							}
@@ -1968,8 +1968,8 @@ final class GameContextImpl implements GameContext {
 					mw.showSummonOnStack(picked, isP1);
 					mw.lastCardWasCast = false;
 				} else {
-					if (isP1) { mw.addToP1BreakZone(picked); mw.refreshP1BreakLabel(); }
-					else       { mw.addToP2BreakZone(picked); mw.refreshP2BreakLabel(); }
+					if (isP1) { mw.addToBreakZone(picked); mw.refreshP1BreakLabel(); }
+					else       { mw.addToBreakZone(picked); mw.refreshP2BreakLabel(); }
 					logEntry((isP1 ? "" : "[P2] ") + "\"" + picked.name() + "\" put into the Break Zone (chose not to cast)");
 				}
 			}
@@ -3596,7 +3596,7 @@ final class GameContextImpl implements GameContext {
 							switch (action) {
 								case BREAK -> {
 									logEntry(c.name() + " is broken");
-									mw.addToP1BreakZone(c);
+									mw.addToBreakZone(c);
 									mw.p1BackupCards[i] = null;
 									mw.p1BackupStates[i] = CardState.ACTIVE;
 									mw.refreshP1BackupSlot(i);
@@ -3621,7 +3621,7 @@ final class GameContextImpl implements GameContext {
 							switch (action) {
 								case BREAK -> {
 									logEntry(c.name() + " is broken");
-									mw.addToP1BreakZone(c);
+									mw.addToBreakZone(c);
 									mw.p1MonsterTempForwardPower.remove(c);
 									mw.p1MonsterCards.remove(i);
 									mw.p1MonsterStates.remove(i);
@@ -3676,7 +3676,7 @@ final class GameContextImpl implements GameContext {
 							switch (action) {
 								case BREAK -> {
 									logEntry("[P2] " + c.name() + " is broken");
-									mw.addToP2BreakZone(c);
+									mw.addToBreakZone(c);
 									mw.p2BackupCards[i] = null;
 									mw.p2BackupStates[i] = CardState.ACTIVE;
 									mw.refreshP2BackupSlot(i);
@@ -3699,7 +3699,7 @@ final class GameContextImpl implements GameContext {
 							switch (action) {
 								case BREAK -> {
 									logEntry("[P2] " + c.name() + " is broken");
-									mw.addToP2BreakZone(c);
+									mw.addToBreakZone(c);
 									mw.p2MonsterTempForwardPower.remove(c);
 									mw.p2MonsterCards.remove(i);
 									mw.p2MonsterStates.remove(i);

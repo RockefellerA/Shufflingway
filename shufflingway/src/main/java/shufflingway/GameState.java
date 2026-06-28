@@ -1,12 +1,6 @@
 package shufflingway;
 
-import java.util.ArrayDeque;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.Deque;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 
 /**
  * Holds all mutable game state for an in-progress FFTCG match.
@@ -89,6 +83,7 @@ public class GameState {
 
     // --- Shared ---
     private final List<StackEntry>         stack        = new ArrayList<>();
+    private final IdentityHashMap<CardData, Boolean> identity = new IdentityHashMap<>();
 
     // --- P2 ---
     private final Deque<CardData>          p2MainDeck    = new ArrayDeque<>();
@@ -307,6 +302,7 @@ public class GameState {
     public void initializeDeck(List<CardData> mainCards, List<CardData> lbCards) {
         List<CardData> shuffled = new ArrayList<>(mainCards);
         Collections.shuffle(shuffled);
+        for (CardData c :  shuffled) identity.put(c, true);
         p1MainDeck.addAll(shuffled);
         p1LbDeck.addAll(lbCards);
         p1OpeningHandPending = true;
@@ -410,6 +406,7 @@ public class GameState {
     public void initializeP2Deck(List<CardData> mainCards) {
         List<CardData> shuffled = new ArrayList<>(mainCards);
         Collections.shuffle(shuffled);
+        for (CardData c :  shuffled) identity.put(c, false);
         p2MainDeck.addAll(shuffled);
         for (int i = 0; i < 5 && !p2MainDeck.isEmpty(); i++) {
             p2Hand.add(p2MainDeck.poll());
@@ -534,6 +531,7 @@ public class GameState {
 
     /** Returns an unmodifiable view of the Stack (index 0 = bottom, last = top). */
     public List<StackEntry> getStack()              { return Collections.unmodifiableList(stack); }
+    public IdentityHashMap<CardData, Boolean> getIdentity() { return identity; }
 
     public Deque<CardData> getP1MainDeck()          { return p1MainDeck; }
     public List<CardData>  getP1LbDeck()            { return p1LbDeck; }
