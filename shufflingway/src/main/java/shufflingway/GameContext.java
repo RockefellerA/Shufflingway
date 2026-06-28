@@ -1151,6 +1151,13 @@ public interface GameContext {
     void selfDiscardByType(String cardType);
 
     /**
+     * Prompts the ability user to discard 1 card with Job {@code jobName} from their hand.
+     * Sets effectMadeProgress only when a card is actually discarded.
+     * When P2 is the ability user the AI discards the worst eligible card automatically.
+     */
+    void selfDiscardByJob(String jobName);
+
+    /**
      * Lets the ability user optionally reveal 1 card of {@code element} from their hand
      * (card stays in hand). Sets effectMadeProgress only when a card is actually revealed.
      * P2 AI auto-reveals if an eligible card is available.

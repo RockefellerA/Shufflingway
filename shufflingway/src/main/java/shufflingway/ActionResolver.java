@@ -1924,6 +1924,11 @@ public class ActionResolver {
         "(?i)discard\\s+1\\s+(?<type>Summon|Forward|Backup|Monster|Character)[.!]?"
     );
 
+    /** Matches "Discard 1 Job [X] from your hand[.]" — player discards a card with the named job. */
+    private static final Pattern DISCARD_JOB_FROM_HAND = Pattern.compile(
+        "(?i)^discard\\s+1\\s+Job\\s+(?<job>.+?)\\s+from\\s+your\\s+hand[.!]?$"
+    );
+
     /** Matches "Your opponent randomly discards N card(s) [from his/her/their hand]". Group 1 = count. */
     private static final Pattern OPPONENT_RANDOM_DISCARD = Pattern.compile(
         "(?i)Your\\s+opponent\\s+randomly\\s+discards?\\s+(\\d+)\\s+cards?" +
@@ -4028,6 +4033,9 @@ public class ActionResolver {
         result = tryParseDiscardNCards(effectText);
         if (result != null) return result;
 
+        result = tryParseDiscardJobFromHand(effectText);
+        if (result != null) return result;
+
         result = tryParseDiscardThenDraw(effectText);
         if (result != null) return result;
 
@@ -4367,6 +4375,7 @@ public class ActionResolver {
         if (tryParseMayRevealElementFromHand(effectText)      != null) return "MayRevealElementFromHand";
         if (tryParseDiscardHand(effectText)                   != null) return "DiscardHand";
         if (tryParseDiscardNCards(effectText)                 != null) return "DiscardNCards";
+        if (tryParseDiscardJobFromHand(effectText)            != null) return "DiscardJobFromHand";
         if (tryParseDiscardThenDraw(effectText)               != null) return "DiscardThenDraw";
         if (tryParseDealPlayerDamageToOpponent(effectText)    != null) return "DealPlayerDamageToOpponent";
         if (tryParseDealPlayerDamageToSelf(effectText)        != null) return "DealPlayerDamageToSelf";
@@ -4765,6 +4774,7 @@ public class ActionResolver {
         if (tryParseMayRevealElementFromHand(effectText) != null)           return "MayRevealElementFromHand";
         if (tryParseDiscardHand(effectText) != null)                        return "DiscardHand";
         if (tryParseDiscardNCards(effectText) != null)                      return "DiscardNCards";
+        if (tryParseDiscardJobFromHand(effectText) != null)                 return "DiscardJobFromHand";
         if (tryParseDiscardThenDraw(effectText) != null)                    return "DiscardThenDraw";
         if (tryParseDealPlayerDamageToOpponent(effectText) != null)         return "DealPlayerDamageToOpponent";
         if (tryParseDealPlayerDamageToSelf(effectText) != null)             return "DealPlayerDamageToSelf";
@@ -9508,6 +9518,17 @@ public class ActionResolver {
         };
     }
 
+    /** Parses "Discard 1 Job [X] from your hand." — player must discard one card of that job. */
+    private static Consumer<GameContext> tryParseDiscardJobFromHand(String text) {
+        Matcher m = DISCARD_JOB_FROM_HAND.matcher(text.trim());
+        if (!m.matches()) return null;
+        String job = m.group("job").trim();
+        return ctx -> {
+            ctx.logEntry("Effect: Discard 1 Job " + job + " from hand");
+            ctx.selfDiscardByJob(job);
+        };
+    }
+
     /** Parses "You may reveal 1 [Element] card from your hand." */
     private static Consumer<GameContext> tryParseMayRevealElementFromHand(String text) {
         Matcher m = YOU_MAY_REVEAL_ELEMENT_FROM_HAND.matcher(text.trim());
@@ -10387,20 +10408,17 @@ public class ActionResolver {
         String costLabel    = costVal >= 0 ? " of cost " + costVal + (costCmp != null ? " or " + costCmp : "") : "";
         String controlLabel = opponentOnly ? " (opponent)" : selfOnly ? " (yours)" : "";
         String change       = isLose ? "-" + Math.abs(amount) : "+" + amount;
-        String logMsg = "All " + elemLabel + catLabel + targets + costLabel + controlLabel
-                + " " + change + " power until end of turn";
-
         String excludeName = m.group("excludename") != null ? m.group("excludename").trim() : null;
         String excludeLabel = excludeName != null ? " other than " + excludeName : "";
 
         String trailingRaw = text.substring(m.end()).trim().replaceAll("^[.!,]+\\s*", "").trim();
         Consumer<GameContext> secondary = trailingRaw.isEmpty() ? null : parse(trailingRaw, null);
 
-        String logMsg2 = "All " + elemLabel + catLabel + targets + costLabel + excludeLabel + controlLabel
+        String logMsg = "All " + elemLabel + catLabel + targets + costLabel + excludeLabel + controlLabel
                 + " " + change + " power until end of turn";
 
         return ctx -> {
-            ctx.logEntry("Effect: " + logMsg2);
+            ctx.logEntry("Effect: " + logMsg);
             ctx.applyMassFieldPowerBoost(amount, inclForwards, inclMonsters,
                     opponentOnly, selfOnly, element, costVal, costCmp, category, excludeName);
             if (secondary != null) secondary.accept(ctx);
