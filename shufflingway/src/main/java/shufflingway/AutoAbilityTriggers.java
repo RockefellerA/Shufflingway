@@ -2629,6 +2629,57 @@ final class AutoAbilityTriggers {
 		for (String e : rawCost) if (!e.isEmpty()) costByElem.merge(e, 1, Integer::sum);
 		String[] elems = costByElem.keySet().toArray(String[]::new);
 
+		// Pre-select discard-cost cards before committing any payment.
+		// This lets the player cancel the discard dialog and back out of the entire activation.
+		// We exclude indices already committed to CP payment and the S-cost slot to prevent overlap.
+		List<List<CardData>> discardCostPicks = Collections.emptyList();
+		if (isP1 && !ability.discardCosts().isEmpty()) {
+			Set<Integer> reservedIdxs = new HashSet<>(discardIndices);
+			if (ability.isSpecial()) {
+				String primerName = mw.getPrimerCardName(source, isP1);
+				List<CardData> hand = mw.playerHand(isP1);
+				for (int i = 0; i < hand.size(); i++) {
+					if (reservedIdxs.contains(i)) continue;
+					CardData hc = hand.get(i);
+					if (source.name().equalsIgnoreCase(hc.name()) ||
+							(primerName != null && primerName.equalsIgnoreCase(hc.name()))) {
+						reservedIdxs.add(i);
+						break;
+					}
+				}
+			}
+			List<List<CardData>> picks = new ArrayList<>();
+			for (DiscardCost dc : ability.discardCosts()) {
+				List<CardData> hand = mw.playerHand(isP1);
+				List<Integer> eligibleIdx = new ArrayList<>();
+				for (int i = 0; i < hand.size(); i++) {
+					if (reservedIdxs.contains(i)) continue;
+					CardData c = hand.get(i);
+					if (dc.cardName() != null && !meetsCardNameFilter(c, dc.cardName())) continue;
+					if (dc.element() != null && !c.containsElement(dc.element())) continue;
+					if (dc.cardType() != null && !matchesDiscardType(c, dc.cardType())) continue;
+					if (dc.category() != null && !meetsCategoryFilter(c, dc.category())) continue;
+					eligibleIdx.add(i);
+				}
+				if (eligibleIdx.size() < dc.count()) {
+					mw.logEntry("[P1] Not enough eligible cards for discard cost.");
+					return;
+				}
+				List<CardData> eligible = new ArrayList<>();
+				for (int i : eligibleIdx) eligible.add(hand.get(i));
+				List<Integer> chosen = mw.showCardMultiImageChooser(eligible, "Discard Cost",
+						dc.count(), dc.eachDifferentType(), false);
+				if (chosen == null || chosen.size() != dc.count()) return; // cancelled — nothing committed yet
+				List<CardData> pickedCards = new ArrayList<>();
+				for (int p : chosen) {
+					pickedCards.add(eligible.get(p));
+					reservedIdxs.add(eligibleIdx.get(p));
+				}
+				picks.add(pickedCards);
+			}
+			discardCostPicks = picks;
+		}
+
 		CardData[]  bkpCards  = mw.playerBackupCards(isP1);
 		CardState[] bkpStates = mw.playerBackupStates(isP1);
 		for (int bi : backupDullIndices) {
@@ -2702,44 +2753,42 @@ final class AutoAbilityTriggers {
 			}
 		}
 
-		// Discard costs — paid from hand, no CP generated
+		// Discard costs — paid from hand, no CP generated.
+		// P1: apply cards pre-selected above (looked up by identity since CP discards may have shifted indices).
+		// P2: auto-select now.
+		int dcPickIdx = 0;
 		for (DiscardCost dc : ability.discardCosts()) {
 			List<CardData> hand = mw.playerHand(isP1);
-			List<Integer> eligibleIdx = new ArrayList<>();
-			for (int i = 0; i < hand.size(); i++) {
-				CardData c = hand.get(i);
-				if (dc.cardName() != null && !meetsCardNameFilter(c, dc.cardName())) continue;
-				if (dc.element() != null && !c.containsElement(dc.element())) continue;
-				if (dc.cardType() != null && !matchesDiscardType(c, dc.cardType())) continue;
-				if (dc.category() != null && !meetsCategoryFilter(c, dc.category())) continue;
-				eligibleIdx.add(i);
-			}
-
-			if (eligibleIdx.size() < dc.count()) {
-				mw.logEntry((isP1 ? "[P1] " : "[P2] ") + "Not enough eligible cards for discard cost.");
-				return;
-			}
-
-			List<CardData> eligible = new ArrayList<>();
-			for (int i : eligibleIdx) eligible.add(hand.get(i));
-
-			List<Integer> picks;
+			List<CardData> toDiscard;
 			if (isP1) {
-				picks = mw.showCardMultiImageChooser(eligible, "Discard Cost",
-						dc.count(), dc.eachDifferentType(), false);
-				if (picks == null || picks.size() != dc.count()) return;
+				toDiscard = discardCostPicks.get(dcPickIdx++);
 			} else {
-				picks = new ArrayList<>();
-				for (int p = 0; p < dc.count(); p++) picks.add(p);
+				List<Integer> eligibleIdx = new ArrayList<>();
+				for (int i = 0; i < hand.size(); i++) {
+					CardData c = hand.get(i);
+					if (dc.cardName() != null && !meetsCardNameFilter(c, dc.cardName())) continue;
+					if (dc.element() != null && !c.containsElement(dc.element())) continue;
+					if (dc.cardType() != null && !matchesDiscardType(c, dc.cardType())) continue;
+					if (dc.category() != null && !meetsCategoryFilter(c, dc.category())) continue;
+					eligibleIdx.add(i);
+				}
+				if (eligibleIdx.size() < dc.count()) {
+					mw.logEntry("[P2] Not enough eligible cards for discard cost.");
+					return;
+				}
+				toDiscard = new ArrayList<>();
+				for (int p = 0; p < dc.count(); p++) toDiscard.add(hand.get(eligibleIdx.get(p)));
 			}
-
 			List<Integer> handIdxs = new ArrayList<>();
-			for (int p : picks) handIdxs.add(eligibleIdx.get(p));
+			for (CardData c : toDiscard) {
+				int idx = mw.playerHand(isP1).indexOf(c);
+				if (idx >= 0) handIdxs.add(idx);
+			}
 			handIdxs.sort(Collections.reverseOrder());
 			for (int handIdx : handIdxs) {
-				String discarded = hand.get(handIdx).name();
+				String discardedName = mw.playerHand(isP1).get(handIdx).name();
 				mw.lastDiscardedCostCard = mw.playerBreakFromHand(isP1, handIdx);
-				mw.logEntry("Discard cost: \"" + discarded + "\" discarded");
+				mw.logEntry("Discard cost: \"" + discardedName + "\" discarded");
 			}
 		}
 

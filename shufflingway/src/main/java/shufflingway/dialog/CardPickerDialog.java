@@ -712,7 +712,7 @@ public class CardPickerDialog {
         if (cards.isEmpty() || count <= 0) return null;
         JDialog dlg = new JDialog(owner, title, true);
         dlg.setResizable(false);
-        dlg.setDefaultCloseOperation(JDialog.DO_NOTHING_ON_CLOSE);
+        dlg.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
 
         List<Integer> selected = new ArrayList<>();
         List<JLabel> labels = new ArrayList<>();
@@ -806,12 +806,17 @@ public class CardPickerDialog {
             dlg.dispose();
         });
 
+        JButton cancelBtn = new JButton("Cancel");
+        cancelBtn.setFont(FontLoader.loadPixelNESFont(11));
+        cancelBtn.addActionListener(ev -> { onZoomHide.run(); dlg.dispose(); });
+
         refresh.run();
 
         JPanel south = new JPanel(new BorderLayout(0, 4));
         south.add(hint, BorderLayout.CENTER);
         JPanel btnRow = new JPanel(new FlowLayout(FlowLayout.CENTER));
         btnRow.add(selectBtn);
+        btnRow.add(cancelBtn);
         south.add(btnRow, BorderLayout.SOUTH);
 
         dlg.getContentPane().setLayout(new BorderLayout(0, 6));
