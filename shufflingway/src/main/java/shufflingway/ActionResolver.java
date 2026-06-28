@@ -3534,6 +3534,8 @@ public class ActionResolver {
     public static Consumer<GameContext> parse(String effectText, CardData source, int xValue) {
         // Strip leading "EX BURST" / "[[ex]]EX BURST[[/]]" prefix present on summon field ability texts.
         effectText = effectText.replaceFirst("(?i)^(?:\\[\\[ex\\]\\])?\\s*EX\\s+BURST(?:\\[\\[/\\]\\])?\\s*", "").trim();
+        // Strip leading "Then, " connector that appears when this text is a secondary clause.
+        effectText = effectText.replaceFirst("(?i)^Then,?\\s+", "").trim();
         Consumer<GameContext> result;
 
         // "Cast it as though you owned it" family — matched early because the highly specific
@@ -4447,6 +4449,7 @@ public class ActionResolver {
      */
     public static String fullDescription(String effectText, CardData source) {
         effectText = effectText.replaceFirst("(?i)^(?:\\[\\[ex\\]\\])?\\s*EX\\s+BURST(?:\\[\\[/\\]\\])?\\s*", "").trim();
+        effectText = effectText.replaceFirst("(?i)^Then,?\\s+", "").trim();
         if (tryParseChooseSummonInBzCastable(effectText)        != null)    return "ChooseSummonInBzCastable";
         if (tryParseOppRfpTopDeckCastable(effectText)          != null)    return "OppRfpTopDeckCastable";
         if (tryParseChooseFromOppBzCastable(effectText)        != null)    return "ChooseFromOppBzCastable";
@@ -8402,7 +8405,10 @@ public class ActionResolver {
         s = CardData.OWN_DAMAGE_THRESHOLD_RESTRICTION.matcher(s).replaceAll("").trim();
         s = CardData.NAMED_CARD_TOOK_DAMAGE_THIS_TURN_RESTRICTION.matcher(s).replaceAll("").trim();
         s = CardData.SELF_RECEIVED_DAMAGE_THIS_TURN_RESTRICTION   .matcher(s).replaceAll("").trim();
+        s = CardData.FORWARD_PUT_TO_BZ_THIS_TURN_RESTRICTION      .matcher(s).replaceAll("").trim();
         s = CardData.ELEMENT_FORWARD_ENTERED_THIS_TURN_PATTERN.matcher(s).replaceAll("").trim();
+        s = CardData.COUNTER_MINIMUM_RESTRICTION              .matcher(s).replaceAll("").trim();
+        s = CardData.SELF_NO_CARDS_IN_HAND_RESTRICTION        .matcher(s).replaceAll("").trim();
         s = CardData.CONTROL_IF_PATTERN            .matcher(s).replaceAll("").trim();
         s = CardData.CONTROL_IF_NOT_ANY_PATTERN        .matcher(s).replaceAll("").trim();
         // Strip leftover leading/trailing ", and" / "," / "." artifacts
