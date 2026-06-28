@@ -10355,6 +10355,15 @@ public class ActionResolver {
         "you\\s+control\\s+gains?\\s+\\+\\d+\\s+power[.!]?$"
     );
 
+    /** "The [Job (X)] / Job X / Category Y Forwards you control gain +N power." — bracket or plain form. */
+    private static final Pattern FIELD_GRANT_JOB_CAT_PASSIVE = Pattern.compile(
+        "(?i)^The\\s+" +
+        "(?:\\[Job\\s*\\([^)]+\\)\\]|Job\\s+[A-Za-z][A-Za-z\\s''\\-]+?|" +
+        "\\[Category\\s*\\([^)]+\\)\\]|Category\\s+\\S+)\\s+" +
+        "(?:Forwards?(?:\\s+and\\s+Monsters?)?|Backups?|Monsters?|Characters?)\\s+" +
+        "you\\s+control\\s+gains?\\s+\\+\\d+\\s+power[.!]?$"
+    );
+
     /** "The [targets] opponent controls lose N power." — companion to CardData's opponent-debuff pattern. */
     private static final Pattern FIELD_OPPONENT_DEBUFF_PASSIVE = Pattern.compile(
         "(?i)^The\\s+(?:Forwards?(?:\\s+and\\s+Monsters?)?|Backups?|Monsters?|Characters?)\\s+" +
@@ -10379,6 +10388,7 @@ public class ActionResolver {
     private static Consumer<GameContext> tryParseFieldPowerGrantPassive(String text) {
         String trimmed = text.trim();
         if (FIELD_GRANT_BARE_PASSIVE.matcher(trimmed).matches()
+                || FIELD_GRANT_JOB_CAT_PASSIVE.matcher(trimmed).matches()
                 || FIELD_OPPONENT_DEBUFF_PASSIVE.matcher(trimmed).matches()
                 || FIELD_GRANT_BZ_COND_PASSIVE.matcher(trimmed).find()
                 || FIELD_GRANT_DIFF_ELEM_COND_PASSIVE.matcher(trimmed).find()) {

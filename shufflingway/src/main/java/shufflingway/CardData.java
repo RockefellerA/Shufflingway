@@ -2412,6 +2412,9 @@ public record CardData(
         for (String raw : textEn.split("(?i)\\[\\[br\\]\\]")) {
             String seg = SUMMON_MARKUP.matcher(raw.trim()).replaceAll("").trim();
             if (seg.isEmpty()) continue;
+            // Normalize bracket filter notation to plain form so existing patterns match.
+            seg = seg.replaceAll("(?i)\\[Job\\s*\\(([^)]+)\\)\\]", "Job $1");
+            seg = seg.replaceAll("(?i)\\[Category\\s*\\(([^)]+)\\)\\]", "Category $1");
 
             Matcher diffElemM = IF_DIFF_ELEMENTS_FIELD_GRANT.matcher(seg);
             if (diffElemM.matches()) {
