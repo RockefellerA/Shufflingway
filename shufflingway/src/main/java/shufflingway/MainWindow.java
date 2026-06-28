@@ -4787,11 +4787,15 @@ public class MainWindow {
 
 			GameState.GamePhase handPhase = gameState.getCurrentPhase();
 			boolean handIsMainPhase = handPhase == GameState.GamePhase.MAIN_1 || handPhase == GameState.GamePhase.MAIN_2;
-			boolean handIsAttackPrep = handPhase == GameState.GamePhase.ATTACK && attackSubStep == 0;
-			boolean handCanPlayAction = ((handIsMainPhase || (handIsAttackPrep && card.isSummon())) && gameState.getStack().isEmpty()
-					&& (phaseTracker.isMyTurn() || (p1PriorityInP2MainOnDone != null && card.isSummon())))
-					|| (p1IsRespondingToStack && card.isSummon());
+			boolean handIsAttackPhase = handPhase == GameState.GamePhase.ATTACK;
+			boolean handIsAttackPrep = handIsAttackPhase && attackSubStep == 0;
 			boolean handIsCharacter = card.isForward() || card.isBackup() || card.isMonster();
+			boolean handIsBackAttack = handIsCharacter && card.hasTrait(CardData.Trait.BACK_ATTACK);
+			// Back Attack characters share the same timing windows as Summons (Attack Phase + either player's turn)
+			// but don't use the stack, so they cannot be played while responding to a Summon on the stack.
+			boolean handCanPlayAction = ((handIsMainPhase || ((handIsAttackPrep || (handIsAttackPhase && handIsBackAttack)) && (card.isSummon() || handIsBackAttack))) && gameState.getStack().isEmpty()
+					&& (phaseTracker.isMyTurn() || (p1PriorityInP2MainOnDone != null && (card.isSummon() || handIsBackAttack))))
+					|| (p1IsRespondingToStack && card.isSummon());
 			boolean handNameConflict = handIsCharacter && !card.multicard() && hasCharacterNameOnField(card.name()) && !isMultiNameExceptionActive(card.name());
 			boolean handLightDarkConflict = handIsCharacter && isLightDarkConflict(card);
 			final boolean canPlay = handCanPlayAction && !handNameConflict && !handLightDarkConflict
@@ -4888,11 +4892,13 @@ public class MainWindow {
 		JMenuItem playItem = new JMenuItem("Play");
 		GameState.GamePhase phase = gameState.getCurrentPhase();
 		boolean isMainPhase = phase == GameState.GamePhase.MAIN_1 || phase == GameState.GamePhase.MAIN_2;
-		boolean isAttackPrep = phase == GameState.GamePhase.ATTACK && attackSubStep == 0;
-		boolean canPlaySpecialAction = ((isMainPhase || (isAttackPrep && card.isSummon())) && gameState.getStack().isEmpty()
-				&& (phaseTracker.isMyTurn() || (p1PriorityInP2MainOnDone != null && card.isSummon())))
-				|| (p1IsRespondingToStack && card.isSummon());
+		boolean isAttackPhase = phase == GameState.GamePhase.ATTACK;
+		boolean isAttackPrep = isAttackPhase && attackSubStep == 0;
 		boolean isCharacter = card.isForward() || card.isBackup() || card.isMonster();
+		boolean isBackAttack = isCharacter && card.hasTrait(CardData.Trait.BACK_ATTACK);
+		boolean canPlaySpecialAction = ((isMainPhase || ((isAttackPrep || (isAttackPhase && isBackAttack)) && (card.isSummon() || isBackAttack))) && gameState.getStack().isEmpty()
+				&& (phaseTracker.isMyTurn() || (p1PriorityInP2MainOnDone != null && (card.isSummon() || isBackAttack))))
+				|| (p1IsRespondingToStack && card.isSummon());
 		boolean nameConflict = isCharacter && !card.multicard() && hasCharacterNameOnField(card.name()) && !isMultiNameExceptionActive(card.name());
 		boolean lightDarkConflict = isCharacter && isLightDarkConflict(card);
 		playItem.setEnabled(canPlaySpecialAction && !nameConflict && !lightDarkConflict && canAffordCard(card, handIdx)

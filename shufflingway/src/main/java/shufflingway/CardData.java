@@ -618,9 +618,9 @@ public record CardData(
         "(?i)(?:^First\\s+Strike\\s*(?:\\(If|\\[\\[br\\]\\])|\\[\\[br\\]\\]First\\s+Strike\\b|Haste\\s+First\\s+Strike|First\\s+Strike\\s+Brave)"
     );
 
-    // Back Attack: start of card with (Like, <p>, [[br]], or after any [[br]]
+    // Back Attack: at the start of card text or after a [[br]] separator (card data uses [[br]], not <p>).
     private static final Pattern BACK_ATTACK_PATTERN = Pattern.compile(
-        "(?i)(?:^Back\\s+Attack\\s*(?:\\(Like|\\[\\[br\\]\\])|\\[\\[br\\]\\]Back\\s+Attack\\b|<p>Back\\s+Attack)"
+        "(?i)(?:^Back\\s+Attack\\b|\\[\\[br\\]\\]Back\\s+Attack\\b)"
     );
 
     private static final Pattern WARP_PATTERN = Pattern.compile(
