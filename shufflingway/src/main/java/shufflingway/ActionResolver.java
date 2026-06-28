@@ -749,6 +749,17 @@ public class ActionResolver {
         "Add\\s+all\\s+(?:the\\s+)?revealed\\s+cards?\\s+to\\s+your\\s+hand[.!]?"
     );
 
+    /**
+     * Matches the compound followup "Remove them from the game. If these cards are of the
+     * same card type, also draw N card(s)."
+     * Group {@code count} — number of cards to draw.
+     */
+    private static final Pattern FOLLOWUP_RFP_IF_SAME_TYPE_DRAW = Pattern.compile(
+        "(?i)Remove\\s+them\\s+from\\s+(?:the\\s+)?game[.!]?\\s+" +
+        "If\\s+these\\s+cards?\\s+are\\s+of\\s+the\\s+same\\s+card\\s+type,?\\s+" +
+        "(?:also\\s+)?draw\\s+(?<count>\\d+)\\s+cards?[.!]?"
+    );
+
     /** Matches "Shuffle your deck." */
     private static final Pattern SHUFFLE_DECK = Pattern.compile(
         "(?i)Shuffle\\s+your\\s+deck\\.?"
@@ -1382,7 +1393,7 @@ public class ActionResolver {
     /** Matches "If it deals damage to a Forward [opponent controls] this turn, the damage increases by N instead." */
     private static final Pattern FOLLOWUP_OUTGOING_DMG_BOOST_THIS_TURN = Pattern.compile(
         "(?i)If\\s+it\\s+deals\\s+damage\\s+to\\s+a\\s+Forward(?:\\s+opponent\\s+controls?)?\\s+this\\s+turn,?\\s+" +
-        "the\\s+damage\\s+increases?\\s+by\\s+(?<amount>\\d+)(?:\\s+instead)?[.!]?"
+        "(?:the\\s+damage\\s+increases?|increase\\s+the\\s+damage)\\s+by\\s+(?<amount>\\d+)(?:\\s+instead)?[.!]?"
     );
 
     /** Matches "During this turn, if it is dealt damage less than its power, the damage becomes 0 instead." */
@@ -4521,6 +4532,8 @@ public class ActionResolver {
                 return "ChooseCharacter / RfpTopDeckDamagePerCp";
             if (FOLLOWUP_REVEAL_TOP_N_DAMAGE_PER_CP_ADD_ALL_TO_HAND.matcher(followup).find())
                 return "ChooseCharacter / RevealTopNDamagePerCpAddAllToHand";
+            if (FOLLOWUP_RFP_IF_SAME_TYPE_DRAW.matcher(followup).find())
+                return "ChooseCharacter / RfpIfSameTypeDraw";
             int    dotIdx        = followup.indexOf(". ");
             String primaryPart   = dotIdx >= 0 ? followup.substring(0, dotIdx).trim() : followup;
             String secondaryRaw  = dotIdx >= 0 ? followup.substring(dotIdx + 2).trim() : null;
@@ -7344,6 +7357,28 @@ public class ActionResolver {
             };
         }
 
+        // --- "Remove them from the game. If these cards are of the same card type, also draw N card(s)." ---
+        Matcher rfpSameTypeDrawM = FOLLOWUP_RFP_IF_SAME_TYPE_DRAW.matcher(followup);
+        if (rfpSameTypeDrawM.find()) {
+            int drawCount = Integer.parseInt(rfpSameTypeDrawM.group("count"));
+            return ctx -> {
+                ctx.logEntry(choosePrefix + " — Remove From Game (if same type, draw " + drawCount + ")");
+                List<ForwardTarget> ts = selectTargets(ctx, maxCount, upTo,
+                        opponentOnly, selfOnly, condition, element, zone, opponentZone,
+                        costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters,
+                        jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, fExcludeElem, withoutMulticard);
+                java.util.Set<String> typesSeen = new java.util.HashSet<>();
+                for (ForwardTarget t : ts) {
+                    CardData card = t.isP1() ? ctx.p1BreakZoneCard(t.idx()) : ctx.p2BreakZoneCard(t.idx());
+                    if (card != null) typesSeen.add(card.type().toLowerCase(java.util.Locale.ROOT));
+                }
+                sortedByIdxDesc(ts, true) .forEach(ctx::removeTargetFromGame);
+                sortedByIdxDesc(ts, false).forEach(ctx::removeTargetFromGame);
+                if (!ts.isEmpty() && typesSeen.size() == 1) ctx.drawCards(drawCount);
+                if (secondary != null) secondary.accept(ctx);
+            };
+        }
+
         // --- Remove from game + named card followup (e.g. "Remove it and Shuyin from the game") ---
         Matcher rfgNamedM = FOLLOWUP_REMOVE_FROM_GAME_AND_NAMED.matcher(primaryFollowup);
         if (rfgNamedM.find()) {
@@ -8409,6 +8444,8 @@ public class ActionResolver {
         s = CardData.ELEMENT_FORWARD_ENTERED_THIS_TURN_PATTERN.matcher(s).replaceAll("").trim();
         s = CardData.COUNTER_MINIMUM_RESTRICTION              .matcher(s).replaceAll("").trim();
         s = CardData.SELF_NO_CARDS_IN_HAND_RESTRICTION        .matcher(s).replaceAll("").trim();
+        s = CardData.CP_BACKUP_ONLY_ABILITY                   .matcher(s).replaceAll("").trim();
+        s = CardData.CP_ELEMENTS_ONLY_ABILITY                 .matcher(s).replaceAll("").trim();
         s = CardData.CONTROL_IF_PATTERN            .matcher(s).replaceAll("").trim();
         s = CardData.CONTROL_IF_NOT_ANY_PATTERN        .matcher(s).replaceAll("").trim();
         // Strip leftover leading/trailing ", and" / "," / "." artifacts

@@ -949,6 +949,15 @@ public record CardData(
             String cpBackupElement = cpBkpM.find()
                     ? (cpBkpM.group("element") != null ? cpBkpM.group("element") : "")
                     : null;
+            Matcher cpElemsM = CP_ELEMENTS_ONLY_ABILITY.matcher(effectRaw);
+            String cpAllowedElements = null;
+            if (cpElemsM.find()) {
+                List<String> elems = new ArrayList<>();
+                elems.add(cpElemsM.group("elem1"));
+                if (cpElemsM.group("elem2") != null) elems.add(cpElemsM.group("elem2"));
+                if (cpElemsM.group("elem3") != null) elems.add(cpElemsM.group("elem3"));
+                cpAllowedElements = String.join("|", elems);
+            }
             Matcher csrM = COUNTER_SCALE_REF_PATTERN.matcher(effectRaw);
             Matcher cfeM = FOR_EACH_COUNTER_PLACED_ON_PATTERN.matcher(effectRaw);
             String counterScaleName = csrM.find() ? csrM.group("counterName").trim()
@@ -960,7 +969,7 @@ public record CardData(
                 minCounterRequired = Integer.parseInt(cminM.group("count"));
                 minCounterType     = cminM.group("type").trim();
             }
-            result.add(new ActionAbility(abilityName, requiresDull, isSpecial, crystalCost, selfMillCost, hasXCost, cpCost, breakZoneCosts, discardCosts, removeFromGameCosts, returnToHandCosts, counterCosts, dullForwardCosts, yourTurnOnly, opponentTurnOnly, oncePerTurn, mainPhaseOnly, whileCardAtk, whileCardBlk, whilePartyAtk, whileCardInHand, hasBlockingTarget, effectRaw, damageThreshold, controlCondition, cpBackupElement, sourceInBattle, requiresOppDiscardedThisTurn, requiresCastSummonThisTurn, requiresElementForwardEnteredThisTurn, requiresCardNameEnteredThisTurn, breakZoneOnly, requiresOpponentEmptyHand, requiresSelfEmptyHand, requiresNamedCardTookDamageThisTurn, requiresSelfReceivedDamageThisTurn, requiresForwardPutToBZThisTurn, blockerForAttacker, ownBzCard, counterScaleName, minCounterRequired, minCounterType));
+            result.add(new ActionAbility(abilityName, requiresDull, isSpecial, crystalCost, selfMillCost, hasXCost, cpCost, breakZoneCosts, discardCosts, removeFromGameCosts, returnToHandCosts, counterCosts, dullForwardCosts, yourTurnOnly, opponentTurnOnly, oncePerTurn, mainPhaseOnly, whileCardAtk, whileCardBlk, whilePartyAtk, whileCardInHand, hasBlockingTarget, effectRaw, damageThreshold, controlCondition, cpBackupElement, cpAllowedElements, sourceInBattle, requiresOppDiscardedThisTurn, requiresCastSummonThisTurn, requiresElementForwardEnteredThisTurn, requiresCardNameEnteredThisTurn, breakZoneOnly, requiresOpponentEmptyHand, requiresSelfEmptyHand, requiresNamedCardTookDamageThisTurn, requiresSelfReceivedDamageThisTurn, requiresForwardPutToBZThisTurn, blockerForAttacker, ownBzCard, counterScaleName, minCounterRequired, minCounterType));
         }
         return List.copyOf(result);
     }
@@ -972,7 +981,7 @@ public record CardData(
                 a.yourTurnOnly(), a.opponentTurnOnly(), a.oncePerTurn(), a.mainPhaseOnly(), a.whileCardAttacking(),
                 a.whileCardBlocking(), a.whilePartyAttacking(), a.whileCardInHand(),
                 a.hasBlockingTargetEffect(), a.effectText(), a.damageThreshold(), a.controlCondition(),
-                a.cpBackupElement(), a.sourceInBattle(), a.requiresOppDiscardedThisTurn(),
+                a.cpBackupElement(), a.cpAllowedElements(), a.sourceInBattle(), a.requiresOppDiscardedThisTurn(),
                 a.requiresCastSummonThisTurn(), a.requiresElementForwardEnteredThisTurn(),
                 a.requiresCardNameEnteredThisTurn(), a.breakZoneOnly(), a.requiresOpponentEmptyHand(),
                 a.requiresSelfEmptyHand(), a.requiresNamedCardTookDamageThisTurn(), a.requiresSelfReceivedDamageThisTurn(),
@@ -3396,6 +3405,7 @@ public record CardData(
         "|You\\s+can\\s+only\\s+pay\\s+this\\s+cost" +
         "|You\\s+can\\s+only\\s+pay\\s+with\\s+CP\\s+produced\\s+by\\s+(?:(?:Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)\\s+)?Backups" +
         "|You\\s+can\\s+only\\s+pay\\s+with\\s+(?:Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)\\s+CP\\s+to\\s+cast\\b" +
+        "|You\\s+can\\s+only\\s+pay\\s+with\\s+(?:Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)\\s+CP\\s+to\\s+use" +
         "|This\\s+effect\\s+will\\s+trigger" +
         ")"
     );
@@ -3429,6 +3439,18 @@ public record CardData(
         "(?i)You\\s+can\\s+only\\s+pay\\s+with\\s+CP\\s+produced\\s+by\\s+" +
         "(?:(?<element>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)\\s+)?" +
         "Backups\\s+to\\s+use\\s+this\\s+ability[.!]?"
+    );
+
+    /**
+     * Matches "You can only pay with [Elem] CP[, [Elem] CP][, or [Elem] CP] to use this ability."
+     * Captures up to three elements in groups {@code elem1}, {@code elem2}, {@code elem3}.
+     */
+    static final Pattern CP_ELEMENTS_ONLY_ABILITY = Pattern.compile(
+        "(?i)You\\s+can\\s+only\\s+pay\\s+with\\s+" +
+        "(?<elem1>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)\\s+CP" +
+        "(?:,\\s+(?<elem2>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)\\s+CP)?" +
+        "(?:,?\\s+or\\s+(?<elem3>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)\\s+CP)?" +
+        "\\s+to\\s+use\\s+this\\s+ability[.!]?"
     );
 
     /** Matches "[CardName] has all the jobs." as a field ability. */

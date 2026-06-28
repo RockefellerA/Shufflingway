@@ -66,6 +66,7 @@ public record ActionAbility(
         int                     damageThreshold,       // > 0: only usable when controlling player has ≥ this many damage counters
         ControlCondition        controlCondition,      // null = no "if you control X" restriction; non-null = must be satisfied
         String                  cpBackupElement,       // null = no restriction; "" = any Backup CP; "Wind" etc. = specific element
+        String                  cpAllowedElements,     // null = no restriction; "Fire|Ice|Lightning" = only these elements (source-agnostic)
         boolean                 sourceInBattle,        // true = source card must be in Battle (attacking or blocking) to activate
         boolean                 requiresOppDiscardedThisTurn, // true = opponent must have discarded from hand via P1's Summons/abilities this turn
         boolean                 requiresCastSummonThisTurn,   // true = controller must have cast a Summon this turn
@@ -103,7 +104,7 @@ public record ActionAbility(
             true, false, false, false,
             null, null, false, false, false,
             effectText,
-            0, null, null, false, false, false, null, null, null, false, false, null, false, false, null, null, null, 0, null
+            0, null, null, null, false, false, false, null, null, null, false, false, null, false, false, null, null, null, 0, null
         );
     }
 }
