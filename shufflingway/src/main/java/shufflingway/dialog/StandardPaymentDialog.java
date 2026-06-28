@@ -328,6 +328,16 @@ public class StandardPaymentDialog {
                 SwingConstants.CENTER);
         hint.setFont(FontLoader.loadPixelNESFont(9));
 
+        boolean showMultiElemNote = !isLD && elems.length > 1 && cost < elems.length;
+        JLabel multiElemNote = null;
+        if (showMultiElemNote) {
+            multiElemNote = new JLabel(
+                    "<html><center>Multi-element cards still require 1 CP of each of their elements.</center></html>",
+                    SwingConstants.CENTER);
+            multiElemNote.setFont(FontLoader.loadPixelNESFont(9));
+            multiElemNote.setForeground(new Color(255, 200, 80));
+        }
+
         JButton cancelBtn = new JButton("Cancel");
         cancelBtn.setFont(FontLoader.loadPixelNESFont(11));
         cancelBtn.addActionListener(e -> dlg.dispose());
@@ -344,11 +354,20 @@ public class StandardPaymentDialog {
                 SwingConstants.CENTER);
         title.setFont(FontLoader.loadPixelNESFont(11));
 
+        JPanel hintPanel = new JPanel();
+        hintPanel.setLayout(new BoxLayout(hintPanel, BoxLayout.Y_AXIS));
+        hint.setAlignmentX(Component.CENTER_ALIGNMENT);
+        hintPanel.add(hint);
+        if (multiElemNote != null) {
+            multiElemNote.setAlignmentX(Component.CENTER_ALIGNMENT);
+            hintPanel.add(multiElemNote);
+        }
+
         JPanel topPanel = new JPanel(new java.awt.BorderLayout(0, 4));
         topPanel.setBorder(BorderFactory.createEmptyBorder(8, 8, 4, 8));
-        topPanel.add(title,   java.awt.BorderLayout.NORTH);
-        topPanel.add(cpLabel, java.awt.BorderLayout.CENTER);
-        topPanel.add(hint,    java.awt.BorderLayout.SOUTH);
+        topPanel.add(title,     java.awt.BorderLayout.NORTH);
+        topPanel.add(cpLabel,   java.awt.BorderLayout.CENTER);
+        topPanel.add(hintPanel, java.awt.BorderLayout.SOUTH);
 
         JPanel mainPanel = new JPanel(new java.awt.BorderLayout(0, 4));
         mainPanel.setBorder(BorderFactory.createEmptyBorder(0, 8, 8, 8));
