@@ -853,6 +853,9 @@ final class GameContextImpl implements GameContext {
 				else        mw.p1ForwardCannotBlockInferiorPower = true;
 				logEntry("Effect: Opponent Forwards cannot block Forwards with power inferior to their own this turn");
 			}
+			@Override public void setAllForwardsCannotBeBlockedByHigherCostThisTurn() {
+				mw.allForwardsCannotBeBlockedByHigherCostThisTurn = true;
+			}
 			@Override public void oppForwardsLoseAllAbilitiesUntilEndOfTurn() {
 				List<CardData> oppFwds = isP1() ? mw.p2ForwardCards : mw.p1ForwardCards;
 				for (CardData fwd : oppFwds) {
@@ -1988,6 +1991,7 @@ final class GameContextImpl implements GameContext {
 			}
 
 			@Override public int crystalCount()         { return mw.playerCrystals(isP1);  }
+			@Override public int castPaymentDistinctElements() { return mw.lastCastPaymentDistinctElements; }
 			@Override public int opponentCrystalCount() { return mw.playerCrystals(!isP1); }
 
 			@Override public void damageFieldForwardByName(String cardName, int amount) {

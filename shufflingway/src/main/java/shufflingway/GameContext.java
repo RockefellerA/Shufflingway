@@ -363,6 +363,9 @@ public interface GameContext {
     /** Returns the number of Crystal tokens (《C》) currently held by the ability user. */
     int crystalCount();
 
+    /** Returns the number of distinct element types used in the CP payment for the most recently cast card. */
+    int castPaymentDistinctElements();
+
     /** Returns the number of Crystal tokens (《C》) currently held by the opponent. */
     int opponentCrystalCount();
 
@@ -1265,6 +1268,9 @@ public interface GameContext {
 
     /** Marks all opponent Forwards as unable to block Forwards with power inferior to their own this turn. */
     void setOppForwardsCannotBlockInferiorPowerThisTurn();
+
+    /** Sets a global rule this turn: every Forward can only be blocked by a Forward with cost ≤ its own. */
+    void setAllForwardsCannotBeBlockedByHigherCostThisTurn();
 
     /** Causes all opponent Forwards to lose all abilities until end of turn. */
     void oppForwardsLoseAllAbilitiesUntilEndOfTurn();

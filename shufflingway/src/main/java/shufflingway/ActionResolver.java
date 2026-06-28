@@ -505,6 +505,7 @@ public class ActionResolver {
             "|(?<opphand>card\\s+in\\s+your\\s+opponent'?s?\\s+hand)" +
             "|(?<xpaid>CP\\s+paid\\s+as\\s+X)" +
             "|(?<crystal>《C》)\\s+you\\s+have" +
+            "|(?<cpDiffElem>CP\\s+of\\s+a\\s+different\\s+Element\\s+you\\s+paid\\s+to\\s+cast\\s+\\S+)" +
         ")" +
         "[.!]?"
     );
@@ -930,6 +931,15 @@ public class ActionResolver {
     private static final Pattern OPP_FWDS_CANNOT_BLOCK_INFERIOR_POWER_THIS_TURN = Pattern.compile(
         "(?i)All\\s+(?:the\\s+)?Forwards?\\s+(?:(?:your\\s+)?opponent\\s+controls?)\\s+" +
         "cannot\\s+block\\s+Forwards?\\s+with\\s+a\\s+power\\s+inferior\\s+to\\s+their\\s+own\\s+this\\s+turn[.!]?"
+    );
+
+    /**
+     * Matches "Each Forward can only be blocked by a Forward with a cost inferior or equal to
+     * its own this turn." — global rule applying to all attackers on both sides.
+     */
+    private static final Pattern ALL_FWDS_BLOCKED_ONLY_BY_LOWER_COST_THIS_TURN = Pattern.compile(
+        "(?i)Each\\s+Forward\\s+can\\s+only\\s+be\\s+blocked\\s+by\\s+a\\s+Forward\\s+with\\s+a\\s+cost\\s+" +
+        "inferior\\s+or\\s+equal\\s+to\\s+its\\s+own\\s+this\\s+turn[.!]?"
     );
 
     /** Matches "[CardName] cannot be blocked this turn." — self-referential standalone form. */
@@ -3952,6 +3962,9 @@ public class ActionResolver {
         result = tryParseOppFwdsCannotBlockInferiorPower(effectText);
         if (result != null) return result;
 
+        result = tryParseAllFwdsBlockedOnlyByLowerCostThisTurn(effectText);
+        if (result != null) return result;
+
         result = tryParseOppFwdsLoseAllAbilitiesEot(effectText);
         if (result != null) return result;
 
@@ -4403,6 +4416,7 @@ public class ActionResolver {
         if (tryParseForwardsOfCostCannotBlock(effectText)                 != null) return "ForwardsOfCostCannotBlock";
         if (tryParseEndOfNextTurnIfCardOnFieldOppLoses(effectText)        != null) return "EndOfNextTurnIfCardOnFieldOppLoses";
         if (tryParseOppFwdsCannotBlockInferiorPower(effectText)           != null) return "OppFwdsCannotBlockInferiorPower";
+        if (tryParseAllFwdsBlockedOnlyByLowerCostThisTurn(effectText)    != null) return "AllFwdsBlockedOnlyByLowerCost";
         if (tryParseOppFwdsLoseAllAbilitiesEot(effectText)         != null) return "OppFwdsLoseAllAbilitiesEot";
         if (tryParseStandaloneCannotBeBlocked(effectText, source) != null) return "StandaloneCannotBeBlocked";
         if (tryParseRevealHandOptPickRfpOppDraw(effectText)    != null) return "RevealHandOptPickRfpOppDraw";
@@ -4656,9 +4670,10 @@ public class ActionResolver {
         String normalizedEffectText = ELEM_TYPE_OR_ELEM_TYPE.matcher(effectText).replaceAll("$1 or $3 $2");
         String escapedEffectText = escapePeriodInName(normalizedEffectText, source);
         Matcher oneEachM = CHOOSE_ONE_EACH_PATTERN.matcher(normalizedEffectText);
-        if (oneEachM.find() && tryParseChooseOneEach(normalizedEffectText, source) != null) {
+        if (oneEachM.find()) {
             String followupName = matchedFollowupName(oneEachM.group("followup").trim(), source);
-            return "ChooseOneEach / " + (followupName != null ? followupName : "?");
+            if (followupName != null) return "ChooseOneEach / " + followupName;
+            // followup not describable by matchedFollowupName — fall through to tryParseChooseFormerLatter
         }
         if (tryParseChooseFormerLatter(normalizedEffectText, source) != null) return "ChooseFormerLatter";
         if (tryParseChooseForwardDealSelfDamageBreakIfCostLeDamage(normalizedEffectText) != null)
@@ -4806,6 +4821,7 @@ public class ActionResolver {
         if (tryParseForwardsOfCostCannotBlock(effectText)                 != null) return "ForwardsOfCostCannotBlock";
         if (tryParseEndOfNextTurnIfCardOnFieldOppLoses(effectText)        != null) return "EndOfNextTurnIfCardOnFieldOppLoses";
         if (tryParseOppFwdsCannotBlockInferiorPower(effectText)           != null) return "OppFwdsCannotBlockInferiorPower";
+        if (tryParseAllFwdsBlockedOnlyByLowerCostThisTurn(effectText)    != null) return "AllFwdsBlockedOnlyByLowerCost";
         if (tryParseOppFwdsLoseAllAbilitiesEot(effectText)         != null) return "OppFwdsLoseAllAbilitiesEot";
         if (tryParseStandaloneCannotBeBlocked(effectText, source) != null) return "StandaloneCannotBeBlocked";
         if (tryParseRevealHandOptPickRfpOppDraw(effectText) != null)        return "RevealHandOptPickRfpOppDraw";
@@ -7054,8 +7070,9 @@ public class ActionResolver {
             String  srcElement    = srcCharType != null && forEachM.group("element")  != null ? forEachM.group("element").toLowerCase(java.util.Locale.ROOT) : null;
             int     srcCostFilter = srcCharType != null && forEachM.group("costfilter") != null ? Integer.parseInt(forEachM.group("costfilter")) : -1;
             String  srcBzName     = forEachM.group("bzname")   != null ? forEachM.group("bzname").trim()   : null;
-            boolean srcOppHand    = forEachM.group("opphand")  != null;
-            boolean srcCrystal    = forEachM.group("crystal")  != null;
+            boolean srcOppHand    = forEachM.group("opphand")   != null;
+            boolean srcCrystal    = forEachM.group("crystal")   != null;
+            boolean srcCpDiffElem = forEachM.group("cpDiffElem") != null;
             // if none of the above → xpaid
             boolean charFwd = srcCharType != null && (srcCharType.equalsIgnoreCase("forward")   || srcCharType.equalsIgnoreCase("forwards")   || srcCharType.equalsIgnoreCase("character") || srcCharType.equalsIgnoreCase("characters"));
             boolean charBkp = srcCharType != null && (srcCharType.equalsIgnoreCase("backup")    || srcCharType.equalsIgnoreCase("backups")    || srcCharType.equalsIgnoreCase("character") || srcCharType.equalsIgnoreCase("characters"));
@@ -7068,6 +7085,7 @@ public class ActionResolver {
             else if (srcBzName     != null) sourceLabel = "Card Name " + srcBzName + " in BZ";
             else if (srcOppHand)           sourceLabel = "opponent hand";
             else if (srcCrystal)           sourceLabel = "《C》 you have";
+            else if (srcCpDiffElem)        sourceLabel = "CP of a different Element paid to cast";
             else                            sourceLabel = "X CP paid";
             String op = subtract ? " - " : " + ";
             String logLabel = perDmg > 0
@@ -7087,6 +7105,7 @@ public class ActionResolver {
                 else if (srcBzName     != null) n = ctx.countSelfBreakZoneCards(srcBzName, null);
                 else if (srcOppHand)           n = ctx.opponentHandSize();
                 else if (srcCrystal)           n = ctx.crystalCount();
+                else if (srcCpDiffElem)        n = ctx.castPaymentDistinctElements();
                 else                            n = xValue;
                 int damage = perDmg > 0
                         ? (subtract ? Math.max(0, baseDmg - perDmg * n) : baseDmg + perDmg * n)
@@ -9231,6 +9250,14 @@ public class ActionResolver {
     private static Consumer<GameContext> tryParseOppFwdsCannotBlockInferiorPower(String text) {
         if (!OPP_FWDS_CANNOT_BLOCK_INFERIOR_POWER_THIS_TURN.matcher(text).matches()) return null;
         return ctx -> ctx.setOppForwardsCannotBlockInferiorPowerThisTurn();
+    }
+
+    private static Consumer<GameContext> tryParseAllFwdsBlockedOnlyByLowerCostThisTurn(String text) {
+        if (!ALL_FWDS_BLOCKED_ONLY_BY_LOWER_COST_THIS_TURN.matcher(text).matches()) return null;
+        return ctx -> {
+            ctx.logEntry("Effect: Each Forward can only be blocked by a Forward with cost ≤ its own this turn");
+            ctx.setAllForwardsCannotBeBlockedByHigherCostThisTurn();
+        };
     }
 
     private static Consumer<GameContext> tryParseOppFwdsLoseAllAbilitiesEot(String text) {

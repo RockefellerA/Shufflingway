@@ -386,6 +386,7 @@ public class MainWindow {
 	final Map<CardData, Integer> nextAbilityDmgReduceMap       = new HashMap<>();
 	final Map<CardData, Integer> incomingDmgIncreaseMap   = new HashMap<>();
 	int globalForwardIncomingDmgIncrease = 0; // flat increase applied to ALL Forwards' incoming damage this turn
+	boolean allForwardsCannotBeBlockedByHigherCostThisTurn = false;
 	final Set<CardData>          nullifyAbilityDmgSet     = new HashSet<>();
 	final Set<CardData>          nullifyAbilityOnlyDmgSet = new HashSet<>();
 	final Set<CardData>          nextOutgoingDmgZeroSet      = new HashSet<>();
@@ -2105,6 +2106,7 @@ public class MainWindow {
                                 p1TempBlockTriggers.clear();            p2TempBlockTriggers.clear();
                                 nextIncomingDmgZeroSet.clear();   nextIncomingDmgRedirectMap.clear();   nextIncomingDmgReduceMap.clear();   nextAbilityDmgReduceMap.clear();
                                 incomingDmgIncreaseMap.clear();   globalForwardIncomingDmgIncrease = 0;   nullifyAbilityDmgSet.clear();
+                                allForwardsCannotBeBlockedByHigherCostThisTurn = false;
                                 nullifyAbilityOnlyDmgSet.clear(); perCardNonLethalDmgSet.clear();
                                 nextOutgoingDmgZeroSet.clear();    outgoingDmgMultiplierMap.clear();
                                 nextOutgoingDmgDoublerSet.clear(); outgoingDmgFlatBoostMap.clear();
@@ -4215,6 +4217,8 @@ public class MainWindow {
 
 	/** Checks all cost-filter sources (dynamic, intrinsic, conditional ICB) for a P1 Forward attacker. */
 	private boolean p1AttackerCostFiltersExclude(int attackerIdx, int blockerCost) {
+		if (allForwardsCannotBeBlockedByHigherCostThisTurn
+				&& blockerCost > p1ForwardCards.get(attackerIdx).cost()) return true;
 		int[] dyn = p1ForwardCannotBeBlockedByCost.get(attackerIdx);
 		if (dyn != null && blockerCostExcluded(blockerCost, dyn)) return true;
 		int[] intr = p1ForwardCards.get(attackerIdx).fieldCannotBeBlockedByCost();
@@ -10046,6 +10050,8 @@ public class MainWindow {
 	 */
 	private boolean attackerBlockCostFiltersExclude(int blockerCost) {
 		if (pendingP2AttackerIsMonster || pendingP2AttackerIsBackup) return false;
+		if (allForwardsCannotBeBlockedByHigherCostThisTurn
+				&& blockerCost > p2ForwardCards.get(pendingP2AttackerIdx).cost()) return true;
 		int[] dyn = p2ForwardCannotBeBlockedByCost.get(pendingP2AttackerIdx);
 		if (dyn != null && blockerCostExcluded(blockerCost, dyn)) return true;
 		int[] intr = p2ForwardCards.get(pendingP2AttackerIdx).fieldCannotBeBlockedByCost();
