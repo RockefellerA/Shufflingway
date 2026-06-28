@@ -392,6 +392,13 @@ public interface GameContext {
      */
     int revealTopNAndAddAllToHandGetTotalCP(int n);
 
+    /**
+     * Reveals the top {@code n} cards of the active player's deck, counts how many have the
+     * given {@code job}, then places all revealed cards at the bottom of the deck.
+     * Returns the count of cards that matched the job.
+     */
+    int revealTopNCountJobPlaceAllAtBottom(int n, String job);
+
     /** Shuffles the active player's deck. */
     void shuffleDeck();
 

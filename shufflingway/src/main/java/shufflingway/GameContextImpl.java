@@ -2358,6 +2358,23 @@ final class GameContextImpl implements GameContext {
 				return totalCp;
 			}
 
+			@Override public int revealTopNCountJobPlaceAllAtBottom(int n, String job) {
+				java.util.Deque<CardData> deck = isP1 ? mw.gameState.getP1MainDeck() : mw.gameState.getP2MainDeck();
+				int take = Math.min(n, deck.size());
+				if (take == 0) { logEntry("Deck is empty — no cards revealed"); return 0; }
+				List<CardData> revealed = new ArrayList<>();
+				for (int i = 0; i < take; i++) revealed.add(deck.pollFirst());
+				int matchCount = (int) revealed.stream().filter(c -> CardFilters.meetsJobFilter(c, job)).count();
+				String prefix = isP1 ? "" : "[P2] ";
+				logEntry(prefix + "Reveal top " + take + " card(s): " +
+						revealed.stream().map(CardData::name).collect(Collectors.joining(", ")) +
+						" (Job " + job + " matches: " + matchCount + ")");
+				java.util.Collections.shuffle(revealed);
+				for (CardData c : revealed) { deck.addLast(c); logEntry(c.name() + " → bottom of deck"); }
+				if (isP1) mw.refreshP1DeckLabel(); else mw.refreshP2DeckLabel();
+				return matchCount;
+			}
+
 			@Override public void shuffleDeck() {
 				java.util.Deque<CardData> deck = isP1 ? mw.gameState.getP1MainDeck() : mw.gameState.getP2MainDeck();
 				List<CardData> list = new java.util.ArrayList<>(deck);

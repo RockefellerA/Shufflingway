@@ -760,6 +760,20 @@ public class ActionResolver {
         "(?:also\\s+)?draw\\s+(?<count>\\d+)\\s+cards?[.!]?"
     );
 
+    /**
+     * Matches the compound followup "Reveal the top N cards of your deck.
+     * For each Job [Job] revealed this way, deal it M damage.
+     * Then, place the revealed cards at the bottom of your deck in any order."
+     * Groups: {@code n} — card count, {@code job} — job name, {@code dmg} — damage per match.
+     */
+    private static final Pattern FOLLOWUP_REVEAL_TOP_N_JOB_DEAL_DMG_PLACE_BOTTOM = Pattern.compile(
+        "(?i)Reveal\\s+the\\s+top\\s+(?<n>\\d+)\\s+cards?\\s+of\\s+your\\s+deck[.!]?\\s+" +
+        "For\\s+each\\s+(?:Job\\s+)?(?<job>.+?)\\s+revealed\\s+this\\s+way,?\\s+" +
+        "deal\\s+it\\s+(?<dmg>\\d+)\\s+damage[.!]?\\s+" +
+        "(?:Then,?\\s+)?[Pp]lace\\s+the\\s+revealed\\s+cards?\\s+at\\s+the\\s+bottom\\s+of\\s+(?:your|the)\\s+deck" +
+        "(?:\\s+in\\s+any\\s+order)?[.!]?"
+    );
+
     /** Matches "Shuffle your deck." */
     private static final Pattern SHUFFLE_DECK = Pattern.compile(
         "(?i)Shuffle\\s+your\\s+deck\\.?"
@@ -4411,6 +4425,7 @@ public class ActionResolver {
         if (FOLLOWUP_PUT_TOP_OF_DECK.matcher(followupText).find())                    return "PutTopOfDeck";
         if (FOLLOWUP_PUT_UNDER_TOP_OF_DECK.matcher(followupText).find())              return "PutUnderTopOfDeck";
         if (FOLLOWUP_CANNOT_BLOCK.matcher(followupText).find())                       return "CannotBlock";
+        if (FOLLOWUP_ONLY_BLOCKED_BY_COST_LE_OWN.matcher(followupText).find())        return "OnlyBlockedByCostLeOwn";
         if (FOLLOWUP_CANNOT_BE_BLOCKED.matcher(followupText).find())                  return "CannotBeBlocked";
         if (FOLLOWUP_CANNOT_BE_BLOCKED_IF_ELEMENT_CP.matcher(followupText).find())   return "CannotBeBlockedIfElementCP";
         if (FOLLOWUP_MUST_BLOCK.matcher(followupText).find())                         return "MustBlock";
@@ -4450,6 +4465,7 @@ public class ActionResolver {
         if (FOLLOWUP_IF_OPPONENT_CONTROLS_FORWARDS_DAMAGE.matcher(followupText).matches()) return "IfOppControlsForwardsDamage";
         if (FOLLOWUP_IF_SELF_CONTROLS_N_ELEMENT_TYPE_DAMAGE.matcher(followupText).matches()) return "IfSelfControlsNElementTypeDamage";
         if (FOLLOWUP_REVEAL_TOP_N_DAMAGE_PER_CP_ADD_ALL_TO_HAND.matcher(followupText).find()) return "RevealTopNDamagePerCpAddAllToHand";
+        if (FOLLOWUP_REVEAL_TOP_N_JOB_DEAL_DMG_PLACE_BOTTOM.matcher(followupText).find())    return "RevealTopNJobDealDmgPlaceBottom";
         return null;
     }
 
@@ -4534,6 +4550,8 @@ public class ActionResolver {
                 return "ChooseCharacter / RevealTopNDamagePerCpAddAllToHand";
             if (FOLLOWUP_RFP_IF_SAME_TYPE_DRAW.matcher(followup).find())
                 return "ChooseCharacter / RfpIfSameTypeDraw";
+            if (FOLLOWUP_REVEAL_TOP_N_JOB_DEAL_DMG_PLACE_BOTTOM.matcher(followup).find())
+                return "ChooseCharacter / RevealTopNJobDealDmgPlaceBottom";
             int    dotIdx        = followup.indexOf(". ");
             String primaryPart   = dotIdx >= 0 ? followup.substring(0, dotIdx).trim() : followup;
             String secondaryRaw  = dotIdx >= 0 ? followup.substring(dotIdx + 2).trim() : null;
@@ -6764,6 +6782,29 @@ public class ActionResolver {
                         costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters, jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, fExcludeElem, withoutMulticard);
                 sortedByIdxDesc(ts, true) .forEach(t -> ctx.damageTarget(t, damage));
                 sortedByIdxDesc(ts, false).forEach(t -> ctx.damageTarget(t, damage));
+            };
+        }
+
+        // --- "Reveal the top N cards of your deck. For each Job [Job] revealed this way, deal it M damage. Then, place the revealed cards at the bottom of your deck in any order." ---
+        Matcher revealJobDmgM = FOLLOWUP_REVEAL_TOP_N_JOB_DEAL_DMG_PLACE_BOTTOM.matcher(followup);
+        if (revealJobDmgM.find()) {
+            int    revealCount  = Integer.parseInt(revealJobDmgM.group("n"));
+            String revealJob    = revealJobDmgM.group("job").trim();
+            int    dmgPerMatch  = Integer.parseInt(revealJobDmgM.group("dmg"));
+            return ctx -> {
+                List<ForwardTarget> ts = selectTargets(ctx, maxCount, upTo,
+                        opponentOnly, selfOnly, condition, element, zone, opponentZone,
+                        costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters,
+                        jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, fExcludeElem, withoutMulticard);
+                int matchCount = ctx.revealTopNCountJobPlaceAllAtBottom(revealCount, revealJob);
+                if (ts.isEmpty() || matchCount == 0) {
+                    ctx.logEntry(choosePrefix + " — 0 Job " + revealJob + " revealed, no damage");
+                    return;
+                }
+                int totalDmg = matchCount * dmgPerMatch;
+                ctx.logEntry(choosePrefix + " — Deal " + totalDmg + " damage (" + matchCount + "×" + dmgPerMatch + " for Job " + revealJob + ")");
+                sortedByIdxDesc(ts, true) .forEach(t -> ctx.damageTarget(t, totalDmg));
+                sortedByIdxDesc(ts, false).forEach(t -> ctx.damageTarget(t, totalDmg));
             };
         }
 
