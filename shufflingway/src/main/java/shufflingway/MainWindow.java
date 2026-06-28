@@ -7547,11 +7547,20 @@ public class MainWindow {
 		CardState[] bkpStates = playerBackupStates(isP1);
 		for (int i = 0; i < bkpCards.length; i++) {
 			if (bkpCards[i] == null || bkpStates[i] != CardState.ACTIVE) continue;
-			boolean matched = false;
-			for (int ei = 0; ei < elems.length; ei++) {
-				if (bkpCards[i].containsElement(elems[ei])) { available++; hasSrc[ei] = true; matched = true; break; }
+			CardData bkp = bkpCards[i];
+			boolean isAnyElem = bkp.backupCpAnyElement()
+					|| (bkp.backupCpAnyElementOfForwards() && !playerForwardCards(isP1).isEmpty())
+					|| isGrantedAnyElementCp(bkp);
+			if (isAnyElem) {
+				available++;
+				for (int ei = 0; ei < elems.length; ei++) hasSrc[ei] = true;
+			} else {
+				boolean matched = false;
+				for (int ei = 0; ei < elems.length; ei++) {
+					if (bkp.containsElement(elems[ei])) { available++; hasSrc[ei] = true; matched = true; break; }
+				}
+				if (!matched && hasGeneric) available++;
 			}
-			if (!matched && hasGeneric) available++;
 		}
 		for (CardData h : playerHand(isP1)) {
 			if (h.isLightOrDark()) continue;
