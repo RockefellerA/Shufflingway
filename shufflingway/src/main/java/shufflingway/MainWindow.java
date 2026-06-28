@@ -79,15 +79,6 @@ import javax.swing.event.PopupMenuListener;
 
 import scraper.DeckDatabase;
 import scraper.DeckDatabase.DeckCardDetail;
-import shufflingway.graphics.CardAnimation;
-import shufflingway.graphics.CardBreakAnimator;
-import shufflingway.graphics.CardRfpAnimator;
-import shufflingway.graphics.CardSlideAnimator;
-import shufflingway.graphics.CrystalDisplay;
-import shufflingway.graphics.GradientPanel;
-import shufflingway.graphics.GrayscaleLabel;
-import static shufflingway.graphics.CardAnimation.CARD_H;
-import static shufflingway.graphics.CardAnimation.CARD_W;
 import static shufflingway.CardFilters.cardNamesOverlap;
 import static shufflingway.CardFilters.matchesAltBzType;
 import static shufflingway.CardFilters.matchesDiscardType;
@@ -99,6 +90,7 @@ import static shufflingway.CardFilters.meetsJobFilter;
 import static shufflingway.CpPaymentUtils.contributingElement;
 import static shufflingway.CpPaymentUtils.matchesAnyElement;
 import shufflingway.dialog.AltCostPaymentDialog;
+import shufflingway.dialog.DebugCardPickerDialog;
 import shufflingway.dialog.BreakZoneDialog;
 import shufflingway.dialog.DamageZoneDialog;
 import shufflingway.dialog.HandPickDialog;
@@ -107,6 +99,15 @@ import shufflingway.dialog.LbPaymentDialog;
 import shufflingway.dialog.RemovedFromPlayDialog;
 import shufflingway.dialog.StandardPaymentDialog;
 import shufflingway.dialog.WarpPaymentDialog;
+import shufflingway.graphics.CardAnimation;
+import static shufflingway.graphics.CardAnimation.CARD_H;
+import static shufflingway.graphics.CardAnimation.CARD_W;
+import shufflingway.graphics.CardBreakAnimator;
+import shufflingway.graphics.CardRfpAnimator;
+import shufflingway.graphics.CardSlideAnimator;
+import shufflingway.graphics.CrystalDisplay;
+import shufflingway.graphics.GradientPanel;
+import shufflingway.graphics.GrayscaleLabel;
 import shufflingway.menu.FileMenu;
 import shufflingway.menu.HelpMenu;
 import shufflingway.menu.MultiplayerMenu;
@@ -1454,7 +1455,7 @@ public class MainWindow {
 			JOptionPane.showMessageDialog(frame, "Start a game first.", "Debug Spawn", JOptionPane.WARNING_MESSAGE);
 			return;
 		}
-		String serial = CardPickerDialog.pick(frame, "Spawn Card on CPU Field");
+		String serial = DebugCardPickerDialog.pick(frame, "Spawn Card on CPU Field");
 		if (serial == null) return;
 		CardData card = buildCardDataFromSerial(serial);
 		if (card == null) {
@@ -1484,7 +1485,7 @@ public class MainWindow {
 			JOptionPane.showMessageDialog(frame, "Start a game first.", "Debug Spawn", JOptionPane.WARNING_MESSAGE);
 			return;
 		}
-		String serial = CardPickerDialog.pick(frame, "Add Card to CPU Hand");
+		String serial = DebugCardPickerDialog.pick(frame, "Add Card to CPU Hand");
 		if (serial == null) return;
 		CardData card = buildCardDataFromSerial(serial);
 		if (card == null) {
@@ -4787,15 +4788,11 @@ public class MainWindow {
 
 			GameState.GamePhase handPhase = gameState.getCurrentPhase();
 			boolean handIsMainPhase = handPhase == GameState.GamePhase.MAIN_1 || handPhase == GameState.GamePhase.MAIN_2;
-			boolean handIsAttackPhase = handPhase == GameState.GamePhase.ATTACK;
-			boolean handIsAttackPrep = handIsAttackPhase && attackSubStep == 0;
-			boolean handIsCharacter = card.isForward() || card.isBackup() || card.isMonster();
-			boolean handIsBackAttack = handIsCharacter && card.hasTrait(CardData.Trait.BACK_ATTACK);
-			// Back Attack characters share the same timing windows as Summons (Attack Phase + either player's turn)
-			// but don't use the stack, so they cannot be played while responding to a Summon on the stack.
-			boolean handCanPlayAction = ((handIsMainPhase || ((handIsAttackPrep || (handIsAttackPhase && handIsBackAttack)) && (card.isSummon() || handIsBackAttack))) && gameState.getStack().isEmpty()
-					&& (phaseTracker.isMyTurn() || (p1PriorityInP2MainOnDone != null && (card.isSummon() || handIsBackAttack))))
+			boolean handIsAttackPrep = handPhase == GameState.GamePhase.ATTACK && attackSubStep == 0;
+			boolean handCanPlayAction = ((handIsMainPhase || (handIsAttackPrep && card.isSummon())) && gameState.getStack().isEmpty()
+					&& (phaseTracker.isMyTurn() || (p1PriorityInP2MainOnDone != null && card.isSummon())))
 					|| (p1IsRespondingToStack && card.isSummon());
+			boolean handIsCharacter = card.isForward() || card.isBackup() || card.isMonster();
 			boolean handNameConflict = handIsCharacter && !card.multicard() && hasCharacterNameOnField(card.name()) && !isMultiNameExceptionActive(card.name());
 			boolean handLightDarkConflict = handIsCharacter && isLightDarkConflict(card);
 			final boolean canPlay = handCanPlayAction && !handNameConflict && !handLightDarkConflict
@@ -4892,13 +4889,11 @@ public class MainWindow {
 		JMenuItem playItem = new JMenuItem("Play");
 		GameState.GamePhase phase = gameState.getCurrentPhase();
 		boolean isMainPhase = phase == GameState.GamePhase.MAIN_1 || phase == GameState.GamePhase.MAIN_2;
-		boolean isAttackPhase = phase == GameState.GamePhase.ATTACK;
-		boolean isAttackPrep = isAttackPhase && attackSubStep == 0;
-		boolean isCharacter = card.isForward() || card.isBackup() || card.isMonster();
-		boolean isBackAttack = isCharacter && card.hasTrait(CardData.Trait.BACK_ATTACK);
-		boolean canPlaySpecialAction = ((isMainPhase || ((isAttackPrep || (isAttackPhase && isBackAttack)) && (card.isSummon() || isBackAttack))) && gameState.getStack().isEmpty()
-				&& (phaseTracker.isMyTurn() || (p1PriorityInP2MainOnDone != null && (card.isSummon() || isBackAttack))))
+		boolean isAttackPrep = phase == GameState.GamePhase.ATTACK && attackSubStep == 0;
+		boolean canPlaySpecialAction = ((isMainPhase || (isAttackPrep && card.isSummon())) && gameState.getStack().isEmpty()
+				&& (phaseTracker.isMyTurn() || (p1PriorityInP2MainOnDone != null && card.isSummon())))
 				|| (p1IsRespondingToStack && card.isSummon());
+		boolean isCharacter = card.isForward() || card.isBackup() || card.isMonster();
 		boolean nameConflict = isCharacter && !card.multicard() && hasCharacterNameOnField(card.name()) && !isMultiNameExceptionActive(card.name());
 		boolean lightDarkConflict = isCharacter && isLightDarkConflict(card);
 		playItem.setEnabled(canPlaySpecialAction && !nameConflict && !lightDarkConflict && canAffordCard(card, handIdx)
@@ -6912,7 +6907,6 @@ public class MainWindow {
 		isResolvingStack = true;
 		try {
 			GameContext ctx = buildGameContext(entry.isP1());
-			if (entry.preSelectedTargets() != null) ctx.preloadTargets(entry.preSelectedTargets());
 			if (entry.isSummon()) {
 				String effectText = entry.effectText();
 				logEntry("[Summon] Resolving \"" + entry.source().name() + "\": " + effectText);
@@ -10828,15 +10822,14 @@ public class MainWindow {
 			}
 		}
 		for (int idx : selection)
-			autoAbilityTriggers.triggerAutoAbilitiesForAttack(
-					p1ForwardPrimedTop.get(idx) != null ? p1ForwardPrimedTop.get(idx) : p1ForwardCards.get(idx), true);
+			autoAbilityTriggers.triggerAutoAbilitiesForAttack(p1ForwardCards.get(idx), true);
 
 		setAttackSubStep(2); // moving to block-declaration sub-step
 		refreshAttackButton();
 
 		if (selection.size() == 1) {
 			int idx = selection.get(0);
-			CardData attacker = p1ForwardPrimedTop.get(idx) != null ? p1ForwardPrimedTop.get(idx) : p1ForwardCards.get(idx);
+			CardData attacker = p1ForwardCards.get(idx);
 			logEntry(attacker.name() + " attacks!");
 			// Priority window after attacker declared (P1 attacks → P1 priority first)
 			combatPriority("Attacker Declared", true, () -> {

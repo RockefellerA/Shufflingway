@@ -1,4 +1,4 @@
-package shufflingway;
+package shufflingway.dialog;
 
 import java.awt.BorderLayout;
 import java.awt.FlowLayout;
@@ -33,7 +33,7 @@ import javax.swing.table.TableRowSorter;
  * Modal searchable card picker over the entire card database. Returns the selected card's serial
  * (or {@code null} if cancelled). Used by the debug "spawn card to CPU" tooling.
  */
-public class CardPickerDialog extends JDialog {
+public class DebugCardPickerDialog extends JDialog {
 
     private static final String DB_URL = scraper.AppPaths.dbUrl();
     private static final String[] COLUMNS = {"Serial", "Name", "Type", "Element", "Cost", "Power", "Card Text"};
@@ -58,7 +58,7 @@ public class CardPickerDialog extends JDialog {
     private final JTable table;
     private String selectedSerial = null;
 
-    private CardPickerDialog(JFrame parent, String title) {
+    private DebugCardPickerDialog(JFrame parent, String title) {
         super(parent, title, true);
         setSize(720, 520);
         setLocationRelativeTo(parent);
@@ -164,7 +164,7 @@ public class CardPickerDialog extends JDialog {
      * Opens the picker modally and returns the chosen card serial, or {@code null} if cancelled.
      */
     public static String pick(JFrame parent, String title) {
-        CardPickerDialog dialog = new CardPickerDialog(parent, title);
+        DebugCardPickerDialog dialog = new DebugCardPickerDialog(parent, title);
         dialog.setVisible(true);
         return dialog.selectedSerial;
     }
