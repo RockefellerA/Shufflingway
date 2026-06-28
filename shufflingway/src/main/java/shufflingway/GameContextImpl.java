@@ -61,6 +61,7 @@ final class GameContextImpl implements GameContext {
 	private final boolean isP1;
 	private final boolean exBurst;
 	private List<ForwardTarget> lastChosenTargets = List.of();
+	private List<ForwardTarget> preloadedTargets  = null;
 
 	GameContextImpl(MainWindow mw, boolean isP1, boolean exBurst) {
 		this.mw = mw;
@@ -75,6 +76,11 @@ final class GameContextImpl implements GameContext {
 				lastChosenTargets = targets == null ? List.of() : List.copyOf(targets);
 			}
 			@Override public List<ForwardTarget> lastChosenTargets() { return lastChosenTargets; }
+
+			@Override public void preloadTargets(java.util.List<ForwardTarget> targets) { preloadedTargets = targets; }
+			@Override public java.util.List<ForwardTarget> consumePreloadedTargets() {
+				java.util.List<ForwardTarget> t = preloadedTargets; preloadedTargets = null; return t;
+			}
 
 			@Override public void resetEffectProgress() { mw.effectProgress = true; }
 			@Override public void markEffectFizzled()   { mw.effectProgress = false; }
@@ -1258,6 +1264,83 @@ final class GameContextImpl implements GameContext {
 				logEntry(src.name() + " is a Forward — dealing " + damage + " damage");
 				if (chosen.isP1()) damageP1Forward(fwdIdx, damage);
 				else               damageP2Forward(fwdIdx, damage);
+			}
+
+			@Override public void cancelFilteredAbilityOnStack(java.util.function.Predicate<StackEntry> filter, String prompt, boolean requiresControllerTarget) {
+				boolean cancellerIsP1 = isP1;
+				java.util.function.Predicate<StackEntry> fullFilter = requiresControllerTarget
+						? filter.and(e -> {
+							java.util.List<ForwardTarget> stored = e.preSelectedTargets();
+							if (stored == null || stored.isEmpty()) return true;
+							return stored.stream().anyMatch(t -> t.isP1() == cancellerIsP1);
+						})
+						: filter;
+				List<StackEntry> targets = mw.gameState.getStack().stream()
+						.filter(fullFilter)
+						.collect(java.util.stream.Collectors.toList());
+				if (targets.isEmpty()) {
+					logEntry("No matching abilities on the stack to cancel");
+					return;
+				}
+				StackEntry chosen;
+				if (targets.size() == 1) {
+					chosen = targets.get(0);
+				} else if (isP1) {
+					String[] options = new String[targets.size()];
+					for (int i = 0; i < targets.size(); i++) {
+						StackEntry e = targets.get(i);
+						String type = e.isSummon() ? "Summon" : e.isAutoAbility() ? "Auto" : e.isSpecialAbility() ? "Special" : "Action";
+						options[i] = e.source().name() + " (" + type + ", " + (e.isP1() ? "P1" : "P2") + ")";
+					}
+					Object sel = JOptionPane.showInputDialog(mw.frame,
+							prompt, "Cancel Effect", JOptionPane.PLAIN_MESSAGE, null, options, options[0]);
+					if (sel == null) return;
+					int idx = java.util.Arrays.asList(options).indexOf(sel.toString());
+					if (idx < 0) return;
+					chosen = targets.get(idx);
+				} else {
+					chosen = targets.stream().filter(e -> e.isP1())
+							.reduce((a, b) -> b).orElse(targets.get(targets.size() - 1));
+					logEntry("[AI] Chose to cancel: " + chosen.source().name());
+				}
+				mw.cancelledStackEntries.add(chosen);
+				String type = chosen.isSummon() ? "Summon" : chosen.isAutoAbility() ? "auto-ability"
+						: chosen.isSpecialAbility() ? "special ability" : "action ability";
+				logEntry("Effect: " + chosen.source().name() + "'s " + type + " effect will be cancelled");
+			}
+
+			@Override public void redirectAbilityTarget(java.util.function.Predicate<StackEntry> filter, String prompt) {
+				List<StackEntry> targets = mw.gameState.getStack().stream()
+						.filter(filter)
+						.collect(java.util.stream.Collectors.toList());
+				if (targets.isEmpty()) {
+					logEntry("No matching abilities on the stack to redirect");
+					return;
+				}
+				StackEntry chosen;
+				if (targets.size() == 1) {
+					chosen = targets.get(0);
+				} else if (isP1) {
+					String[] options = new String[targets.size()];
+					for (int i = 0; i < targets.size(); i++) {
+						StackEntry e = targets.get(i);
+						String type = e.isSummon() ? "Summon" : e.isAutoAbility() ? "Auto" : e.isSpecialAbility() ? "Special" : "Action";
+						options[i] = e.source().name() + " (" + type + ", " + (e.isP1() ? "P1" : "P2") + ")";
+					}
+					Object sel = JOptionPane.showInputDialog(mw.frame,
+							prompt, "Redirect Target", JOptionPane.PLAIN_MESSAGE, null, options, options[0]);
+					if (sel == null) return;
+					int idx = java.util.Arrays.asList(options).indexOf(sel.toString());
+					if (idx < 0) return;
+					chosen = targets.get(idx);
+				} else {
+					chosen = targets.stream().filter(e -> e.isP1())
+							.reduce((a, b) -> b).orElse(targets.get(targets.size() - 1));
+					logEntry("[AI] Chose to redirect: " + chosen.source().name());
+				}
+				String type = chosen.isSummon() ? "Summon" : chosen.isAutoAbility() ? "auto-ability"
+						: chosen.isSpecialAbility() ? "special ability" : "action ability";
+				logEntry("Effect: " + chosen.source().name() + "'s " + type + " target redirected — choose a new valid target for it");
 			}
 
 			@Override public void forceTargetToBreakZone(ForwardTarget t) {
@@ -2735,7 +2818,7 @@ final class GameContextImpl implements GameContext {
 				for (AutoAbility fa : source.autoAbilities()) {
 					if (fa.trigger().equals(triggerType)) {
 						mw.logEntry("[AutoAbility] " + source.name() + " — retriggered (" + triggerType + ")");
-						mw.gameState.pushStack(new StackEntry(source, null, fa, isP1, 0, false));
+						mw.gameState.pushStack(new StackEntry(source, null, fa, isP1, 0, false, null));
 						mw.showStackWindowIfNeeded();
 						return;
 					}

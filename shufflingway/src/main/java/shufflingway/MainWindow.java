@@ -6912,6 +6912,7 @@ public class MainWindow {
 		isResolvingStack = true;
 		try {
 			GameContext ctx = buildGameContext(entry.isP1());
+			if (entry.preSelectedTargets() != null) ctx.preloadTargets(entry.preSelectedTargets());
 			if (entry.isSummon()) {
 				String effectText = entry.effectText();
 				logEntry("[Summon] Resolving \"" + entry.source().name() + "\": " + effectText);

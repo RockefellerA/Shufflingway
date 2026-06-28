@@ -332,6 +332,37 @@ public class ActionResolver {
     );
 
     /**
+     * Matches the general "Choose 1 [ability type(s)] [optional target filter]. Cancel its effect."
+     * family.  Handles any combination of auto-ability / action ability / special ability / ability
+     * (two types joined by " or " also accepted).  An optional "that is choosing [filter] you control"
+     * or "that has only one target" clause is captured but not enforced in code.
+     * Group {@code types} — the raw ability-type string (e.g. "auto-ability", "special ability or auto ability").
+     */
+    private static final Pattern CANCEL_ABILITY_ON_STACK = Pattern.compile(
+        "(?i)Choose\\s+1\\s+" +
+        "(?<types>(?:auto[- ]ability|action\\s+ability|special\\s+ability|ability)" +
+        "(?:\\s+or\\s+(?:auto[- ]ability|action\\s+ability|special\\s+ability))?)" +
+        "(?:\\s+that\\s+(?:is\\s+)?choosing\\s+(?<tgtFilter>[^.]+?))?" +
+        "(?:\\s+that\\s+has\\s+only\\s+one\\s+target)?" +
+        "\\.\\s*Cancel\\s+its\\s+effect[.!]?"
+    );
+
+    /**
+     * Matches "Choose 1 [ability type(s)] [optional 'that has only one target'].
+     * You may choose another target to become the new target (...)."
+     * Group {@code types} — the raw ability-type string.
+     */
+    private static final Pattern REDIRECT_ABILITY_TARGET = Pattern.compile(
+        "(?i)Choose\\s+1\\s+" +
+        "(?<types>(?:auto[- ]ability|action\\s+ability|special\\s+ability|ability)" +
+        "(?:\\s+or\\s+(?:auto[- ]ability|action\\s+ability|special\\s+ability))?)" +
+        "(?:\\s+that\\s+has\\s+only\\s+one\\s+target)?" +
+        "\\.\\s*You\\s+may\\s+choose\\s+another\\s+target\\s+to\\s+become\\s+the\\s+new\\s+target" +
+        "(?:\\s*\\([^)]*\\))?" +
+        "[.!]?"
+    );
+
+    /**
      * Matches "Choose 1 auto-ability. Cancel its effect. If the cancelled auto-ability triggered
      * from a Forward, deal that Forward N damage."
      * Group {@code amount} — damage to deal if the source was a Forward.
@@ -3732,6 +3763,12 @@ public class ActionResolver {
         result = tryParseCancelAutoAbilityAndDamageIfForward(effectText);
         if (result != null) return result;
 
+        result = tryParseRedirectAbilityTarget(effectText);
+        if (result != null) return result;
+
+        result = tryParseCancelAbilityOnStack(effectText);
+        if (result != null) return result;
+
         result = tryParseCancelStackEntry(effectText);
         if (result != null) return result;
 
@@ -4235,6 +4272,10 @@ public class ActionResolver {
         if (tryParseCannotBecomeDullOpp(effectText, source) != null)     return "CannotBecomeDullOpp";
         if (tryParseStandaloneCannotAttackOrBlock(effectText, source) != null) return "CannotAttackOrBlock";
         if (tryParseNegateAllDamage(effectText)                != null) return "NegateDamage";
+        if (tryParseCancelAutoAbilityAndDamageIfForward(effectText) != null) return "CancelAutoAbilityAndDamageIfForward";
+        if (tryParseCancelStackEntry(effectText)               != null) return "CancelSummonOrAutoAbility";
+        if (tryParseRedirectAbilityTarget(effectText)          != null) return "RedirectAbilityTarget";
+        if (tryParseCancelAbilityOnStack(effectText)           != null) return "CancelAbilityOnStack";
         if (tryParseSelectNumber(effectText, source)          != null) return "SelectNumber";
         if (tryParseDullAllOppFwdsPowerLeSource(effectText, source)        != null) return "DullAllOppFwdsPowerLeSource";
         if (tryParseAllFieldEffect(effectText)                != null) return "AllFieldEffect";
@@ -4589,6 +4630,10 @@ public class ActionResolver {
         if (tryParseCannotBecomeDullOpp(effectText, source) != null)            return "CannotBecomeDullOpp";
         if (tryParseStandaloneCannotAttackOrBlock(effectText, source) != null) return "CannotAttackOrBlock";
         if (tryParseNegateAllDamage(effectText) != null)                       return "NegateDamage";
+        if (tryParseCancelAutoAbilityAndDamageIfForward(effectText) != null) return "CancelAutoAbilityAndDamageIfForward";
+        if (tryParseCancelStackEntry(effectText)              != null) return "CancelSummonOrAutoAbility";
+        if (tryParseRedirectAbilityTarget(effectText)         != null) return "RedirectAbilityTarget";
+        if (tryParseCancelAbilityOnStack(effectText)          != null) return "CancelAbilityOnStack";
         if (tryParseSelectNumber(effectText, source) != null)               return "SelectNumber";
         if (tryParseChooseOppFwdDynCostBreak(effectText)               != null) return "ChooseOppFwdDynCostBreak";
         if (tryParseChooseFwdPowerInferiorToSource(effectText, source) != null) return "ChooseFwdPowerInferiorToSource";
@@ -10171,6 +10216,63 @@ public class ActionResolver {
         };
     }
 
+    /**
+     * Parses the general "Choose 1 [ability type(s)] [optional filter]. Cancel its effect." family.
+     * Builds a {@link java.util.function.Predicate} over {@link StackEntry} from the parsed type string.
+     */
+    private static Consumer<GameContext> tryParseCancelAbilityOnStack(String text) {
+        Matcher m = CANCEL_ABILITY_ON_STACK.matcher(text.trim());
+        if (!m.find()) return null;
+        String types = m.group("types").trim();
+        String tgtFilterText = m.group("tgtFilter");
+        boolean requiresControllerTarget = tgtFilterText != null
+                && tgtFilterText.toLowerCase(java.util.Locale.ROOT).contains("you control");
+        java.util.function.Predicate<StackEntry> filter = parseAbilityTypeFilter(types);
+        String prompt = "Choose 1 " + types + " to cancel:";
+        return ctx -> {
+            ctx.logEntry("Effect: Cancel " + types + " on stack");
+            ctx.cancelFilteredAbilityOnStack(filter, prompt, requiresControllerTarget);
+        };
+    }
+
+    /**
+     * Parses "Choose 1 [ability type(s)] [optional 'that has only one target']. You may choose
+     * another target to become the new target (...)."
+     */
+    private static Consumer<GameContext> tryParseRedirectAbilityTarget(String text) {
+        Matcher m = REDIRECT_ABILITY_TARGET.matcher(text.trim());
+        if (!m.find()) return null;
+        String types = m.group("types").trim();
+        java.util.function.Predicate<StackEntry> filter = parseAbilityTypeFilter(types);
+        String prompt = "Choose 1 " + types + " to redirect:";
+        return ctx -> {
+            ctx.logEntry("Effect: Redirect target of " + types + " on stack");
+            ctx.redirectAbilityTarget(filter, prompt);
+        };
+    }
+
+    /**
+     * Converts an ability-type string captured by {@link #CANCEL_ABILITY_ON_STACK} or
+     * {@link #REDIRECT_ABILITY_TARGET} into a predicate over stack entries.
+     * <ul>
+     *   <li>"auto-ability" / "auto ability" → auto-abilities only</li>
+     *   <li>"action ability" → action abilities (regular and special)</li>
+     *   <li>"special ability" → special (named) action abilities only</li>
+     *   <li>"ability" → any non-summon, non-EX-burst entry</li>
+     *   <li>Two types joined by " or " → union of the two individual predicates</li>
+     * </ul>
+     */
+    private static java.util.function.Predicate<StackEntry> parseAbilityTypeFilter(String types) {
+        String t = types.trim().toLowerCase(java.util.Locale.ROOT);
+        if (t.equals("ability")) return e -> !e.isSummon() && !e.isExBurstEntry();
+        boolean wantsAuto    = t.contains("auto");
+        boolean wantsSpecial = t.contains("special");
+        boolean wantsAction  = t.contains("action");
+        return e -> (wantsAuto    && e.isAutoAbility())
+                 || (wantsSpecial && e.isSpecialAbility())
+                 || (wantsAction  && e.isActionAbility());
+    }
+
     /** "The [targets] you control gain +N power." — companion to CardData's bare-grant pattern. */
     private static final Pattern FIELD_GRANT_BARE_PASSIVE = Pattern.compile(
         "(?i)^The\\s+(?:Forwards?(?:\\s+and\\s+Monsters?)?|Backups?|Monsters?|Characters?)\\s+" +
@@ -12618,6 +12720,141 @@ public class ActionResolver {
         };
     }
 
+    /**
+     * Prompts the activating player to choose targets for a "Choose N [targets]…" effect
+     * <em>before</em> the ability is placed on the stack, so the selections can be stored in
+     * {@link StackEntry#preSelectedTargets()} and later inspected (e.g. to enforce "that is
+     * choosing a Forward you control" cancel filters).
+     *
+     * <p>Returns {@code null} when {@code effectText} does not match
+     * {@link #CHOOSE_CHARACTER_PATTERN}, or when only break-zone selections would be needed
+     * (those are deferred to resolution time since the zone state may change).
+     */
+    public static List<ForwardTarget> preSelectTargets(String effectText, CardData source, int xValue, GameContext ctx) {
+        String text = ELEM_TYPE_OR_ELEM_TYPE.matcher(effectText).replaceAll("$1 or $3 $2");
+        text = escapePeriodInName(text, source);
+        Matcher m = CHOOSE_CHARACTER_PATTERN.matcher(text);
+        if (!m.find()) return null;
+
+        boolean upTo         = m.group("upto") != null;
+        int     maxCount     = Integer.parseInt(m.group("count"));
+        String  rawElement   = m.group("element");
+        String  element      = rawElement != null && rawElement.contains(" or ")
+                ? rawElement.replaceAll("(?i)\\s+or\\s+", "|") : rawElement;
+        String  rawCondition  = m.group("condition");
+        String  postCondition = m.group("postcondition");
+        String  blockingName  = m.group("blockingname");
+        String  blockingJob   = m.group("blockingjob");
+        String  condition     = blockingName  != null ? "blocking:"     + blockingName.trim()
+                              : blockingJob   != null ? "blocking-job:" + blockingJob.trim()
+                              : postCondition != null ? "entered the field this turn"
+                              : rawCondition;
+        String  targets      = m.group("targets");
+        String  tgtLower = targets.toLowerCase();
+        String  jobFilter;
+        String  cardNameFilter;
+        boolean inclForwards;
+        boolean inclBackups;
+        boolean inclMonsters;
+
+        if (tgtLower.startsWith("[job ")) {
+            Matcher jm = JOB_BRACKET_PATTERN.matcher(targets);
+            jobFilter      = jm.find() ? jm.group(1).trim() : null;
+            cardNameFilter = null;
+            inclForwards   = true;
+            inclBackups    = false;
+            inclMonsters   = false;
+        } else if (tgtLower.startsWith("[card name ")) {
+            Matcher nm = CARD_NAME_BRACKET_PATTERN.matcher(targets);
+            cardNameFilter = nm.find() ? nm.group(1).trim() : null;
+            jobFilter      = null;
+            inclForwards   = true;
+            inclBackups    = true;
+            inclMonsters   = true;
+        } else if (tgtLower.startsWith("card name ") && tgtLower.contains(" or job ")) {
+            int orJobIdx = tgtLower.indexOf(" or job ");
+            String cardNamePart = targets.substring("Card Name ".length(), orJobIdx).trim();
+            cardNameFilter = cardNamePart.replaceAll("(?i)\\s+(?:Forwards?|Backups?|Monsters?|Characters?)$", "").trim();
+            String jobPart = targets.substring(orJobIdx + " or job ".length()).trim();
+            jobFilter    = jobPart.replaceAll("(?i)\\s+(?:Forwards?|Backups?|Monsters?|Characters?)$", "").trim();
+            inclForwards = tgtLower.contains("forward");
+            inclBackups  = tgtLower.contains("backup");
+            inclMonsters = tgtLower.contains("monster");
+        } else if (tgtLower.startsWith("card name ")) {
+            String rest = targets.substring("Card Name ".length());
+            String[] nameParts = rest.split("(?i)\\s+or\\s+Card\\s+Name\\s+");
+            cardNameFilter = String.join("|", nameParts).trim();
+            jobFilter      = null;
+            inclForwards   = true;
+            inclBackups    = true;
+            inclMonsters   = true;
+        } else if (tgtLower.startsWith("job ") && tgtLower.contains("or card name ")) {
+            int orCnIdx    = tgtLower.indexOf("or card name ");
+            String rawJob  = targets.substring("Job ".length(), orCnIdx)
+                                    .trim().replaceAll("(?i)\\s*and\\s*/\\s*$", "").trim();
+            List<String> jobParts = new ArrayList<>();
+            for (String p : rawJob.split("(?i)\\s+or\\s+Job\\s+")) jobParts.add(p.trim());
+            jobFilter      = String.join("|", jobParts);
+            cardNameFilter = targets.substring(orCnIdx + "or card name ".length()).trim();
+            inclForwards   = true;
+            inclBackups    = true;
+            inclMonsters   = true;
+        } else if (tgtLower.startsWith("job ")) {
+            List<String> jobs = new ArrayList<>();
+            Matcher wm = JOB_WRITTEN_SEGMENT.matcher(targets);
+            while (wm.find()) jobs.add(wm.group(1).trim());
+            boolean bareJob = jobs.isEmpty();
+            if (bareJob)
+                for (String p : targets.substring("Job ".length()).trim().split("(?i)\\s+or\\s+Job\\s+"))
+                    jobs.add(p.trim());
+            jobFilter      = String.join("|", jobs);
+            cardNameFilter = null;
+            inclForwards   = true;
+            inclBackups    = bareJob;
+            inclMonsters   = bareJob;
+        } else {
+            jobFilter      = null;
+            cardNameFilter = null;
+            boolean isGenericCard = tgtLower.equals("card") || tgtLower.equals("cards");
+            inclForwards   = isGenericCard || tgtLower.contains("forward") || tgtLower.contains("character");
+            inclBackups    = isGenericCard || tgtLower.contains("backup")  || tgtLower.contains("character");
+            inclMonsters   = isGenericCard || tgtLower.contains("monster") || tgtLower.contains("character");
+        }
+        boolean inclSummons    = tgtLower.contains("summon")
+                              || tgtLower.equals("card") || tgtLower.equals("cards");
+        String  categoryFilter = m.group("category");
+        String  excludeName    = restorePeriodInName(m.group("excludename") != null ? m.group("excludename").trim() : null, source);
+        String  rawExcludeKw   = m.group("excludekw");
+        boolean withoutMulticard = "Multicard".equalsIgnoreCase(rawExcludeKw != null ? rawExcludeKw.trim() : null);
+        String  rawExcludeElem = m.group("excludeelem");
+        String  excludeElem    = rawExcludeElem != null ? rawExcludeElem.trim() : null;
+        String  costStr        = m.group("cost");
+        String  costListStr    = m.group("costlist");
+        String  rawCostCmp     = m.group("costcmp");
+        int     costVal2       = costStr != null ? Integer.parseInt(costStr) : -1;
+        String  costCmp;
+        if (rawCostCmp != null && rawCostCmp.matches("\\d+")) {
+            String tail = costListStr != null
+                    ? costListStr.replaceAll("\\s+", "") + "," + rawCostCmp
+                    : rawCostCmp;
+            costCmp = "or_" + tail;
+        } else {
+            costCmp = rawCostCmp;
+        }
+        String  powerStr    = m.group("power");
+        String  powerCmp    = m.group("powercmp");
+        int     powerVal    = powerStr != null ? Integer.parseInt(powerStr) : -1;
+        String  control     = m.group("control");
+        boolean opponentOnly = control != null && !control.equalsIgnoreCase("you control");
+        boolean selfOnly     = "you control".equalsIgnoreCase(control);
+        String  zone        = m.group("zone");
+        if (zone != null) return null; // break-zone targets deferred to resolution time
+
+        return ctx.selectCharacters(maxCount, upTo, opponentOnly, selfOnly, condition, element,
+                costVal2, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters,
+                jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, excludeElem, withoutMulticard);
+    }
+
     private static List<ForwardTarget> selectTargets(GameContext ctx,
             int maxCount, boolean upTo, boolean opponentOnly, boolean selfOnly,
             String condition, String element, String zone, boolean opponentZone,
@@ -12637,6 +12874,11 @@ public class ActionResolver {
             boolean inclForwards, boolean inclBackups, boolean inclMonsters,
             String jobFilter, String cardNameFilter, String categoryFilter, String excludeName, boolean inclSummons,
             String excludeElement, boolean withoutMulticard) {
+        List<ForwardTarget> preloaded = ctx.consumePreloadedTargets();
+        if (preloaded != null) {
+            ctx.recordChosenTargets(preloaded);
+            return preloaded;
+        }
         List<ForwardTarget> result = zone != null
                 ? ctx.selectCharactersFromBreakZone(maxCount, upTo, opponentZone, bothZones, condition, element,
                         costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters, jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, excludeElement, withoutMulticard)

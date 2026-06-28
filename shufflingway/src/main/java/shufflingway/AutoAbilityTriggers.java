@@ -1246,7 +1246,7 @@ final class AutoAbilityTriggers {
 			mw.usedOncePerTurnAbilities.computeIfAbsent(source, k -> new HashSet<>()).add(fa.effectText());
 
 		mw.logEntry("[AutoAbility] " + source.name() + " — pushed to stack");
-		mw.gameState.pushStack(new StackEntry(source, null, fa, effectIsP1, 0, false));
+		mw.gameState.pushStack(new StackEntry(source, null, fa, effectIsP1, 0, false, null));
 	}
 
 	private void executeCounterRemovalWhenDoSoAutoAbility(AutoAbility fa, CardData source,
@@ -2867,7 +2867,9 @@ final class AutoAbilityTriggers {
 
 		mw.logEntry("\"" + source.name() + "\" activated ability");
 
-		mw.gameState.pushStack(new StackEntry(source, ability, isP1, xValue));
+		java.util.List<ForwardTarget> preTargets = ActionResolver.preSelectTargets(
+				ability.effectText(), source, xValue, mw.buildGameContext(isP1));
+		mw.gameState.pushStack(new StackEntry(source, ability, isP1, xValue, preTargets));
 		mw.showStackWindow();
 		mw.refreshP1HandLabel();
 		mw.refreshP1BreakLabel();

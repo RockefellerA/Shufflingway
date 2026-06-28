@@ -160,6 +160,40 @@ public interface GameContext {
     void cancelAutoAbilityAndDamageSourceIfForward(int damage);
 
     /**
+     * Filters the stack to entries matching {@code filter}, presents a selection dialog to the
+     * human player (or AI logic), then marks the chosen entry as cancelled so its effect is
+     * suppressed when it resolves.  If no entries match the filter, logs a message and returns.
+     * {@code prompt} is the dialog header shown to the human player.
+     *
+     * <p>When {@code requiresControllerTarget} is {@code true}, the filter is further restricted
+     * to entries whose {@link StackEntry#preSelectedTargets()} include at least one target owned
+     * by the cancelling player ("that is choosing a Forward you control").  Entries with no stored
+     * targets are treated as passing the check (permissive fallback).
+     */
+    void cancelFilteredAbilityOnStack(java.util.function.Predicate<StackEntry> filter, String prompt, boolean requiresControllerTarget);
+
+    /**
+     * Loads {@code targets} as the pre-selected targets for the ability about to be resolved.
+     * Called by {@link MainWindow} just before running the resolution lambda, so that
+     * {@link ActionResolver}'s {@code selectTargets} can return them without showing a dialog.
+     */
+    void preloadTargets(java.util.List<ForwardTarget> targets);
+
+    /**
+     * Consumes and returns the targets loaded by {@link #preloadTargets}, or {@code null} if none
+     * were loaded.  Subsequent calls return {@code null} until the next {@link #preloadTargets}.
+     */
+    java.util.List<ForwardTarget> consumePreloadedTargets();
+
+    /**
+     * Filters the stack to entries matching {@code filter} and presents a selection dialog.
+     * The chosen ability's target is redirected — logged as an instruction for the player to
+     * manually apply, since the app does not store per-ability targets in the stack entry.
+     * The ability itself is NOT cancelled; it will still resolve.
+     */
+    void redirectAbilityTarget(java.util.function.Predicate<StackEntry> filter, String prompt);
+
+    /**
      * Forces {@code t} directly into the Break Zone, bypassing any
      * "cannot be broken" protection that {@link #breakTarget} would respect.
      */
