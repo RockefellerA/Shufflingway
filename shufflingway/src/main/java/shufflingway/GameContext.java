@@ -328,6 +328,13 @@ public interface GameContext {
     void eachPlayerSelectForwardAndBreak();
 
     /**
+     * The controller selects 1 Forward they control and puts it into the Break Zone.
+     * P1 picks via dialog; P2 (AI) picks automatically (lowest-cost Forward).
+     * No-ops if the controller has no Forwards.
+     */
+    void selectControlledForwardAndBreak();
+
+    /**
      * Each player selects up to {@code count} Forwards and/or Monsters they control
      * and puts them into the Break Zone.
      * P1 picks via dialog; P2 (AI) picks lowest-cost eligible targets.

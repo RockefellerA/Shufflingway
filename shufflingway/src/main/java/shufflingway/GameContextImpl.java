@@ -2061,6 +2061,31 @@ final class GameContextImpl implements GameContext {
 				if (p2Pick != null) forceTargetToBreakZone(p2Pick);
 			}
 
+			@Override public void selectControlledForwardAndBreak() {
+				if (isP1) {
+					if (mw.p1ForwardCards.isEmpty()) {
+						logEntry("P1 has no Forwards — skipping selection");
+						return;
+					}
+					List<ForwardTarget> eligible = new ArrayList<>();
+					for (int i = 0; i < mw.p1ForwardCards.size(); i++)
+						eligible.add(new ForwardTarget(true, i, ForwardTarget.CardZone.FORWARD));
+					List<ForwardTarget> picks = mw.selectFieldTargetsInPlace(eligible, 1, false,
+							"Select 1 Forward you control to put into the Break Zone");
+					if (!picks.isEmpty()) forceTargetToBreakZone(picks.get(0));
+				} else {
+					if (mw.p2ForwardCards.isEmpty()) {
+						logEntry("[AI] P2 has no Forwards — skipping selection");
+						return;
+					}
+					ForwardTarget pick = mw.aiPickForwardForBreak();
+					if (pick != null) {
+						logEntry("[AI] selected " + mw.p2ForwardCards.get(pick.idx()).name());
+						forceTargetToBreakZone(pick);
+					}
+				}
+			}
+
 			@Override public void eachPlayerSalvageFromBreakZone(int count) {
 				List<CardData> p1Bz = mw.gameState.getP1BreakZone();
 				List<CardData> p2Bz = mw.gameState.getP2BreakZone();

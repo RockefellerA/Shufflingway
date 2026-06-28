@@ -2006,6 +2006,7 @@ public class MainWindow {
                                 pending.forEach(e -> e.accept(ctx));
                             }
                             fireFieldMainPhase1Abilities(true);
+                            fireFieldMainPhase1EachTurnAbilities();
             }
 
 			case MAIN_1 -> {
@@ -2072,6 +2073,7 @@ public class MainWindow {
                                 logEntry("End Phase");
                                 fireFieldEndOfTurnAbilities(true);
                                 fireFieldEndOfEachPlayersTurnAbilities();
+                                fireFieldEndOfOpponentTurnAbilities(false);
                                 fireEndOfTurnEffects(true);
                                 for (int i = 0; i < p1ForwardDamage.size(); i++) p1ForwardDamage.set(i, 0);
                                 for (int i = 0; i < p1ForwardPowerBoost.size(); i++) p1ForwardPowerBoost.set(i, 0);
@@ -8508,6 +8510,58 @@ public class MainWindow {
 					ActionResolver.tryParseBeginningOfMainPhase2FieldAbility(fa.effectText(), card);
 			if (effect != null) {
 				logEntry("[Field] " + card.name() + " — Main Phase 2 start: " + fa.effectText());
+				effect.accept(ctx);
+			}
+		}
+	}
+
+	/**
+	 * Fires "Each turn, at the beginning of Main Phase 1" field abilities for ALL cards on BOTH sides.
+	 * Called at the start of every player's Main Phase 1 (both P1 and P2).
+	 */
+	void fireFieldMainPhase1EachTurnAbilities() {
+		for (boolean isP1 : new boolean[]{true, false}) {
+			List<CardData> fwds = isP1 ? p1ForwardCards : p2ForwardCards;
+			CardData[]     bkps = isP1 ? p1BackupCards  : p2BackupCards;
+			List<CardData> mons = isP1 ? p1MonsterCards : p2MonsterCards;
+			GameContext ctx = buildGameContext(isP1);
+			for (CardData card : new ArrayList<>(fwds)) fireFieldMainPhase1EachTurnAbilitiesForCard(card, ctx);
+			for (CardData card : bkps) if (card != null) fireFieldMainPhase1EachTurnAbilitiesForCard(card, ctx);
+			for (CardData card : new ArrayList<>(mons)) fireFieldMainPhase1EachTurnAbilitiesForCard(card, ctx);
+		}
+	}
+
+	private void fireFieldMainPhase1EachTurnAbilitiesForCard(CardData card, GameContext ctx) {
+		for (FieldAbility fa : card.fieldAbilities()) {
+			Consumer<GameContext> effect =
+					ActionResolver.tryParseBeginningOfMainPhase1EachTurnFieldAbility(fa.effectText(), card);
+			if (effect != null) {
+				logEntry("[Field] " + card.name() + " — Main Phase 1 start (each turn): " + fa.effectText());
+				effect.accept(ctx);
+			}
+		}
+	}
+
+	/**
+	 * Fires "At the end of your opponent's turn" field abilities for all cards controlled by
+	 * {@code controllerIsP1}.  Call when the opponent (= {@code !controllerIsP1}) ends their turn.
+	 */
+	void fireFieldEndOfOpponentTurnAbilities(boolean controllerIsP1) {
+		List<CardData> fwds = controllerIsP1 ? p1ForwardCards : p2ForwardCards;
+		CardData[]     bkps = controllerIsP1 ? p1BackupCards  : p2BackupCards;
+		List<CardData> mons = controllerIsP1 ? p1MonsterCards : p2MonsterCards;
+		GameContext ctx = buildGameContext(controllerIsP1);
+		for (CardData card : new ArrayList<>(fwds)) fireFieldEndOfOpponentTurnAbilitiesForCard(card, ctx);
+		for (CardData card : bkps) if (card != null) fireFieldEndOfOpponentTurnAbilitiesForCard(card, ctx);
+		for (CardData card : new ArrayList<>(mons)) fireFieldEndOfOpponentTurnAbilitiesForCard(card, ctx);
+	}
+
+	private void fireFieldEndOfOpponentTurnAbilitiesForCard(CardData card, GameContext ctx) {
+		for (FieldAbility fa : card.fieldAbilities()) {
+			Consumer<GameContext> effect =
+					ActionResolver.tryParseEndOfOpponentTurnFieldAbility(fa.effectText(), card);
+			if (effect != null) {
+				logEntry("[Field] " + card.name() + " — end of opponent's turn: " + fa.effectText());
 				effect.accept(ctx);
 			}
 		}

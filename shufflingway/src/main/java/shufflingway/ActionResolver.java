@@ -708,6 +708,16 @@ public class ActionResolver {
     );
 
     /**
+     * Matches "If either player doesn't control Forwards, put [CardName] into the Break Zone."
+     * Fires if either the controller or their opponent has zero Forwards.
+     * Group {@code name} — the card name that goes to the Break Zone (must equal source name).
+     */
+    private static final Pattern IF_EITHER_PLAYER_NO_FORWARDS_PUT_SOURCE_TO_BZ = Pattern.compile(
+        "(?i)^If\\s+either\\s+player\\s+(?:doesn'?t|does\\s+not)\\s+control\\s+Forwards?," +
+        "\\s+put\\s+(?<name>.+?)\\s+into\\s+the\\s+Break\\s+Zone[.!]?$"
+    );
+
+    /**
      * "If you have received N points of damage, put [CardName] into the Break Zone."
      * Fires when the controlling player's damage zone reaches the threshold.
      * Group {@code points} — the damage count threshold; {@code name} — the card name (must equal source).
@@ -1224,6 +1234,23 @@ public class ActionResolver {
     /** Same as {@link #AT_BEGINNING_OF_MAIN_PHASE_1_FA_PATTERN} but for Main Phase 2. */
     static final Pattern AT_BEGINNING_OF_MAIN_PHASE_2_FA_PATTERN = Pattern.compile(
         "(?i)At\\s+the\\s+beginning\\s+of\\s+your\\s+Main\\s+Phase\\s+2\\b[^,]*,\\s+(?<inner>.+)"
+    );
+
+    /**
+     * "Each turn, at the beginning of Main Phase 1, [inner]" — fires at BOTH players' Main Phase 1 starts.
+     * Group {@code inner} — the conditional effect to evaluate.
+     */
+    static final Pattern AT_BEGINNING_OF_MAIN_PHASE_1_EACH_TURN_FA_PATTERN = Pattern.compile(
+        "(?i)Each\\s+turn,?\\s+at\\s+the\\s+beginning\\s+of\\s+Main\\s+Phase\\s+1,\\s+(?<inner>.+)"
+    );
+
+    /**
+     * "At the end of your opponent's turn, [inner]" — fires at the end of the controlling player's
+     * opponent's turn (i.e., whenever the opponent ends their turn).
+     * Group {@code inner} — the effect to fire.
+     */
+    static final Pattern AT_END_OF_OPP_TURN_FA_PATTERN = Pattern.compile(
+        "(?i)At\\s+the\\s+end\\s+of\\s+your\\s+opponent'?s\\s+turn,\\s+(?<inner>.+)"
     );
 
     /**
@@ -1879,6 +1906,11 @@ public class ActionResolver {
     private static final Pattern BOTH_PLAYERS_SELECT_FORWARD_TO_BREAK_ZONE = Pattern.compile(
         "(?i)(?:Both|Each)\\s+players?\\s+selects?\\s+1\\s+Forward\\s+they\\s+control" +
         "\\s+and\\s+puts?\\s+it\\s+into\\s+the\\s+Break\\s+Zone[.!]?"
+    );
+
+    /** Matches "select 1 Forward you control. Put it into the Break Zone." */
+    private static final Pattern SELECT_1_FORWARD_YOU_CONTROL_TO_BZ = Pattern.compile(
+        "(?i)^[Ss]elect\\s+1\\s+Forward\\s+you\\s+control[.!]?\\s+Put\\s+it\\s+into\\s+the\\s+Break\\s+Zone[.!]?$"
     );
 
     /**
@@ -3757,6 +3789,12 @@ public class ActionResolver {
         result = tryParseBeginningOfMainPhase2FieldAbility(effectText, source);
         if (result != null) return result;
 
+        result = tryParseBeginningOfMainPhase1EachTurnFieldAbility(effectText, source);
+        if (result != null) return result;
+
+        result = tryParseEndOfOpponentTurnFieldAbility(effectText, source);
+        if (result != null) return result;
+
         result = tryParseElementChange(effectText, source);
         if (result != null) return result;
 
@@ -3952,6 +3990,9 @@ public class ActionResolver {
         result = tryParseIfOppNoForwardsPutToBreakZone(effectText, source);
         if (result != null) return result;
 
+        result = tryParseIfEitherPlayerNoForwardsPutSourceToBz(effectText, source);
+        if (result != null) return result;
+
         result = tryParseIfSelfDamagePointsPutToBreakZone(effectText, source);
         if (result != null) return result;
 
@@ -3983,6 +4024,9 @@ public class ActionResolver {
         if (result != null) return result;
 
         result = tryParseBothPlayersSelectForwardToBreakZone(effectText);
+        if (result != null) return result;
+
+        result = tryParseSelectControlledForwardToBz(effectText);
         if (result != null) return result;
 
         result = tryParseEachPlayerSelectUpToNToBreakZone(effectText);
@@ -4278,6 +4322,8 @@ public class ActionResolver {
         // otherwise match the inner "choose 1 Forward..." through the trigger prefix).
         if (tryParseBeginningOfMainPhase1FieldAbility(effectText, source) != null) return "BeginningOfMainPhase1FieldAbility";
         if (tryParseBeginningOfMainPhase2FieldAbility(effectText, source) != null) return "BeginningOfMainPhase2FieldAbility";
+        if (tryParseBeginningOfMainPhase1EachTurnFieldAbility(effectText, source) != null) return "BeginningOfMainPhase1EachTurnFieldAbility";
+        if (tryParseEndOfOpponentTurnFieldAbility(effectText, source)     != null) return "EndOfOpponentTurnFieldAbility";
         if (tryParseChooseOppFwdDynCostBreak(effectText)                   != null) return "ChooseOppFwdDynCostBreak";
         if (tryParseChooseFwdPowerInferiorToSource(effectText, source)     != null) return "ChooseFwdPowerInferiorToSource";
         if (tryParseChooseFwdBzCostInferiorToRemovedPlay(effectText)       != null) return "ChooseFwdBzCostInferiorToRemovedPlay";
@@ -4345,6 +4391,7 @@ public class ActionResolver {
         if (tryParseBreakSourceCard(effectText, source)        != null) return "BreakSourceCard";
         if (tryParsePutSourceIntoBreakZone(effectText, source) != null) return "PutSourceIntoBreakZone";
         if (tryParseIfOppNoForwardsPutToBreakZone(effectText, source)          != null) return "IfOppNoForwardsPutToBreakZone";
+        if (tryParseIfEitherPlayerNoForwardsPutSourceToBz(effectText, source)  != null) return "IfEitherPlayerNoForwardsPutSourceToBz";
         if (tryParseIfSelfDamagePointsPutToBreakZone(effectText, source)      != null) return "IfSelfDamagePointsPutToBreakZone";
         if (tryParsePutSourceToBottomOfDeck(effectText, source) != null) return "PutSourceToBottomOfDeck";
         if (tryParseBreakBlockingForward(effectText)           != null) return "BreakBlockingForward";
@@ -4359,6 +4406,7 @@ public class ActionResolver {
         if (tryParseOpponentRandomDiscard(effectText)         != null) return "OpponentRandomDiscard";
         if (tryParseEachPlayerSelectForwardDamage(effectText)  != null) return "EachPlayerSelectForwardDamage";
         if (tryParseBothPlayersSelectForwardToBreakZone(effectText) != null) return "BothPlayersSelectForwardToBreakZone";
+        if (tryParseSelectControlledForwardToBz(effectText)        != null) return "SelectControlledForwardToBz";
         if (tryParseEachPlayerSelectUpToNToBreakZone(effectText)   != null) return "EachPlayerSelectUpToNToBreakZone";
         if (tryParseEachPlayerDiscard(effectText)              != null) return "EachPlayerDiscard";
         if (tryParseEachPlayerSalvageFromBreakZone(effectText) != null) return "EachPlayerSalvageFromBreakZone";
@@ -4683,6 +4731,8 @@ public class ActionResolver {
         if (tryParseDullAllOppFwdsPowerLeSource(effectText, source)    != null) return "DullAllOppFwdsPowerLeSource";
         if (tryParseEndOfEachTurnFieldAbility(effectText, source)             != null) return "EndOfEachTurnFieldAbility";
         if (tryParseEndOfEachPlayersTurnIfSelfFwdDamage(effectText, source)  != null) return "EndOfEachPlayersTurnIfSelfFwdDamage";
+        if (tryParseBeginningOfMainPhase1EachTurnFieldAbility(effectText, source) != null) return "BeginningOfMainPhase1EachTurnFieldAbility";
+        if (tryParseEndOfOpponentTurnFieldAbility(effectText, source)        != null) return "EndOfOpponentTurnFieldAbility";
         if (tryParseIfRfpCount(effectText, source)                     != null) return "IfRfpCount";
         if (tryParseAllFieldEffect(effectText) != null)                     return "AllFieldEffect";
         if (tryParseFieldPowerGrantPassive(effectText) != null) {
@@ -4747,7 +4797,8 @@ public class ActionResolver {
         if (tryParseRemoveNamedFromGame(effectText, source) != null)        return "RemoveNamedFromGame";
         if (tryParseBreakSourceCard(effectText, source)        != null)     return "BreakSourceCard";
         if (tryParsePutSourceIntoBreakZone(effectText, source) != null)     return "PutSourceIntoBreakZone";
-        if (tryParseIfOppNoForwardsPutToBreakZone(effectText, source)     != null) return "IfOppNoForwardsPutToBreakZone";
+        if (tryParseIfOppNoForwardsPutToBreakZone(effectText, source)          != null) return "IfOppNoForwardsPutToBreakZone";
+        if (tryParseIfEitherPlayerNoForwardsPutSourceToBz(effectText, source)  != null) return "IfEitherPlayerNoForwardsPutSourceToBz";
         if (tryParseIfSelfDamagePointsPutToBreakZone(effectText, source) != null) return "IfSelfDamagePointsPutToBreakZone";
         if (tryParsePutSourceToBottomOfDeck(effectText, source) != null)   return "PutSourceToBottomOfDeck";
         if (tryParseBreakBlockingForward(effectText)           != null)     return "BreakBlockingForward";
@@ -4762,6 +4813,7 @@ public class ActionResolver {
         if (tryParseOpponentRandomDiscard(effectText) != null)              return "OpponentRandomDiscard";
         if (tryParseEachPlayerSelectForwardDamage(effectText) != null)      return "EachPlayerSelectForwardDamage";
         if (tryParseBothPlayersSelectForwardToBreakZone(effectText) != null) return "BothPlayersSelectForwardToBreakZone";
+        if (tryParseSelectControlledForwardToBz(effectText)        != null)  return "SelectControlledForwardToBz";
         if (tryParseEachPlayerSelectUpToNToBreakZone(effectText) != null)   return "EachPlayerSelectUpToNToBreakZone";
         if (tryParseEachPlayerDiscard(effectText) != null)                  return "EachPlayerDiscard";
         if (tryParseEachPlayerSalvageFromBreakZone(effectText) != null)     return "EachPlayerSalvageFromBreakZone";
@@ -9736,6 +9788,15 @@ public class ActionResolver {
         };
     }
 
+    /** Parses "select 1 Forward you control. Put it into the Break Zone." */
+    private static Consumer<GameContext> tryParseSelectControlledForwardToBz(String text) {
+        if (!SELECT_1_FORWARD_YOU_CONTROL_TO_BZ.matcher(text.trim()).matches()) return null;
+        return ctx -> {
+            ctx.logEntry("Effect: select 1 Forward you control → Break Zone");
+            ctx.selectControlledForwardAndBreak();
+        };
+    }
+
     /** Parses "Both players select 1 Forward they control and put it into the Break Zone." */
     private static Consumer<GameContext> tryParseBothPlayersSelectForwardToBreakZone(String text) {
         Matcher m = BOTH_PLAYERS_SELECT_FORWARD_TO_BREAK_ZONE.matcher(text);
@@ -9948,6 +10009,18 @@ public class ActionResolver {
         return ctx -> {
             if (ctx.opponentForwardCount() > 0) return;
             ctx.logEntry("Effect: opponent controls no Forwards — Break " + source.name());
+            ctx.breakSourceCard(source);
+        };
+    }
+
+    static Consumer<GameContext> tryParseIfEitherPlayerNoForwardsPutSourceToBz(String text, CardData source) {
+        if (source == null) return null;
+        Matcher m = IF_EITHER_PLAYER_NO_FORWARDS_PUT_SOURCE_TO_BZ.matcher(text.trim());
+        if (!m.matches()) return null;
+        if (!m.group("name").trim().equalsIgnoreCase(source.name())) return null;
+        return ctx -> {
+            if (ctx.selfForwardCount() > 0 && ctx.opponentForwardCount() > 0) return;
+            ctx.logEntry("Effect: a player controls no Forwards — Break " + source.name());
             ctx.breakSourceCard(source);
         };
     }
@@ -11438,6 +11511,28 @@ public class ActionResolver {
      */
     static Consumer<GameContext> tryParseBeginningOfMainPhase2FieldAbility(String text, CardData source) {
         Matcher m = AT_BEGINNING_OF_MAIN_PHASE_2_FA_PATTERN.matcher(text);
+        if (!m.find()) return null;
+        return parse(m.group("inner").trim(), source);
+    }
+
+    /**
+     * Parses "Each turn, at the beginning of Main Phase 1, &lt;effect&gt;" — fires at the start of
+     * BOTH players' Main Phase 1 for all cards the controller has on the field.
+     * {@code fireFieldMainPhase1EachTurnAbilities} is responsible for invoking it.
+     */
+    static Consumer<GameContext> tryParseBeginningOfMainPhase1EachTurnFieldAbility(String text, CardData source) {
+        Matcher m = AT_BEGINNING_OF_MAIN_PHASE_1_EACH_TURN_FA_PATTERN.matcher(text);
+        if (!m.find()) return null;
+        return parse(m.group("inner").trim(), source);
+    }
+
+    /**
+     * Parses "At the end of your opponent's turn, &lt;effect&gt;" — fires when the controlling
+     * player's opponent ends their turn.
+     * {@code fireFieldEndOfOpponentTurnAbilities} is responsible for invoking it.
+     */
+    static Consumer<GameContext> tryParseEndOfOpponentTurnFieldAbility(String text, CardData source) {
+        Matcher m = AT_END_OF_OPP_TURN_FA_PATTERN.matcher(text);
         if (!m.find()) return null;
         return parse(m.group("inner").trim(), source);
     }

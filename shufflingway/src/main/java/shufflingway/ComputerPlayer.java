@@ -134,6 +134,7 @@ class ComputerPlayer {
 		mw.refreshPhaseTracker();
 		mw.logEntry("[P2] Main Phase 1");
 		mw.fireFieldMainPhase1Abilities(false);
+		mw.fireFieldMainPhase1EachTurnAbilities();
 		step(() -> doMainPhase(() -> {
 			mw.gameState.advancePhase(); // MAIN_1 → ATTACK
 			mw.refreshPhaseTracker();
@@ -457,6 +458,7 @@ class ComputerPlayer {
 		mw.refreshP2BreakLabel();
 		mw.refreshP2HandCountLabel();
 		mw.fireFieldEndOfEachPlayersTurnAbilities();
+		mw.fireFieldEndOfOpponentTurnAbilities(true);
 		mw.fireEndOfTurnEffects(false);
 		for (int i = 0; i < mw.p2ForwardDamage.size(); i++) mw.p2ForwardDamage.set(i, 0);
 		for (int i = 0; i < mw.p2ForwardPowerBoost.size(); i++) mw.p2ForwardPowerBoost.set(i, 0);
