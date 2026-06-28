@@ -331,6 +331,11 @@ public class ActionResolver {
         "(?i)Choose\\s+1\\s+Summon\\s+or\\s+auto-ability\\.\\s+Cancel\\s+its\\s+effect\\.?"
     );
 
+    /** Matches "Choose 1 Summon targeting a Character you control. Cancel its effect." */
+    private static final Pattern CANCEL_SUMMON_TARGETING_MY_CHARACTER = Pattern.compile(
+        "(?i)Choose\\s+1\\s+Summon\\s+targeting\\s+a\\s+Character\\s+you\\s+control\\.\\s+Cancel\\s+its\\s+effect\\.?"
+    );
+
     /**
      * Matches the general "Choose 1 [ability type(s)] [optional target filter]. Cancel its effect."
      * family.  Handles any combination of auto-ability / action ability / special ability / ability
@@ -2016,6 +2021,20 @@ public class ActionResolver {
         "(?<targets>Forwards?|Characters?)" +
         "(?:\\s+(?:he|she|they)(?:\\s*/\\s*(?:he|she|they))?\\s+controls?)?" +
         "\\s+into\\s+the\\s+Break\\s+Zone[.]?"
+    );
+
+    /**
+     * Matches the compound EX Burst effect:
+     * "Choose up to 1 Forward from your Break Zone of cost equal to or less than the damage you
+     *  have been dealt. Return it to your hand. Your opponent selects 1 Forward of cost equal to
+     *  or less than the damage you have been dealt and puts it into the Break Zone."
+     */
+    private static final Pattern BZ_FWD_TO_HAND_OPP_FWD_TO_BZ_BY_DAMAGE = Pattern.compile(
+        "(?i)Choose\\s+up\\s+to\\s+1\\s+Forward\\s+from\\s+your\\s+Break\\s+Zone\\s+of\\s+cost\\s+" +
+        "equal\\s+to\\s+or\\s+less\\s+than\\s+the\\s+damage\\s+you\\s+have\\s+been\\s+dealt\\.\\s*" +
+        "Return\\s+it\\s+to\\s+your\\s+hand\\.\\s*" +
+        "Your\\s+opponent\\s+selects?\\s+1\\s+Forward\\s+of\\s+cost\\s+equal\\s+to\\s+or\\s+less\\s+than\\s+" +
+        "the\\s+damage\\s+you\\s+have\\s+been\\s+dealt\\s+and\\s+puts?\\s+it\\s+into\\s+the\\s+Break\\s+Zone\\.?"
     );
 
     /**
@@ -3825,6 +3844,9 @@ public class ActionResolver {
         result = tryParseCancelAbilityOnStack(effectText);
         if (result != null) return result;
 
+        result = tryParseCancelSummonTargetingMyCharacter(effectText);
+        if (result != null) return result;
+
         result = tryParseCancelStackEntry(effectText);
         if (result != null) return result;
 
@@ -4104,6 +4126,9 @@ public class ActionResolver {
         result = tryParseOpponentSelects(effectText);
         if (result != null) return result;
 
+        result = tryParseBzFwdToHandOppFwdToBzByDamage(effectText);
+        if (result != null) return result;
+
         result = tryParseOpponentPutsForwardToBreakZone(effectText);
         if (result != null) return result;
 
@@ -4346,6 +4371,7 @@ public class ActionResolver {
         if (tryParseCancelStackEntry(effectText)               != null) return "CancelSummonOrAutoAbility";
         if (tryParseRedirectAbilityTarget(effectText)          != null) return "RedirectAbilityTarget";
         if (tryParseCancelAbilityOnStack(effectText)           != null) return "CancelAbilityOnStack";
+        if (tryParseCancelSummonTargetingMyCharacter(effectText) != null) return "CancelSummonTargetingMyCharacter";
         if (tryParseSelectNumber(effectText, source)          != null) return "SelectNumber";
         if (tryParseDullAllOppFwdsPowerLeSource(effectText, source)        != null) return "DullAllOppFwdsPowerLeSource";
         if (tryParseAllFieldEffect(effectText)                != null) return "AllFieldEffect";
@@ -4431,6 +4457,7 @@ public class ActionResolver {
         if (tryParseSearchAndCastSummonFree(effectText)       != null) return "SearchAndCastSummonFree";
         if (tryParsePlayFromHand(effectText, source, 0)       != null) return "PlayFromHand";
         if (tryParseOpponentSelects(effectText)               != null) return "OpponentSelects";
+        if (tryParseBzFwdToHandOppFwdToBzByDamage(effectText)  != null) return "BzFwdToHandOppFwdToBzByDamage";
         if (tryParseOpponentPutsForwardToBreakZone(effectText) != null) return "OpponentPutsForwardToBreakZone";
         if (tryParseOpponentMill(effectText)                  != null) return "OpponentMill";
         if (tryParseSelfMill(effectText)                      != null) return "SelfMill";
@@ -4724,6 +4751,7 @@ public class ActionResolver {
         if (tryParseCancelStackEntry(effectText)              != null) return "CancelSummonOrAutoAbility";
         if (tryParseRedirectAbilityTarget(effectText)         != null) return "RedirectAbilityTarget";
         if (tryParseCancelAbilityOnStack(effectText)          != null) return "CancelAbilityOnStack";
+        if (tryParseCancelSummonTargetingMyCharacter(effectText) != null) return "CancelSummonTargetingMyCharacter";
         if (tryParseSelectNumber(effectText, source) != null)               return "SelectNumber";
         if (tryParseChooseOppFwdDynCostBreak(effectText)               != null) return "ChooseOppFwdDynCostBreak";
         if (tryParseChooseFwdPowerInferiorToSource(effectText, source) != null) return "ChooseFwdPowerInferiorToSource";
@@ -4842,6 +4870,7 @@ public class ActionResolver {
             return "OpponentSelects / " + (followupName != null ? followupName : "?");
         }
 
+        if (tryParseBzFwdToHandOppFwdToBzByDamage(effectText) != null)      return "BzFwdToHandOppFwdToBzByDamage";
         if (tryParseOpponentMill(effectText) != null)                       return "OpponentMill";
         if (tryParseSelfMill(effectText) != null)                           return "SelfMill";
         if (tryParseOpponentRevealHand(effectText) != null)                 return "OpponentRevealHand";
@@ -10354,6 +10383,19 @@ public class ActionResolver {
     }
 
     /**
+     * Parses "Choose 1 Summon targeting a Character you control. Cancel its effect."
+     * Only Summons whose pre-selected targets include a card the canceler controls are eligible.
+     */
+    private static Consumer<GameContext> tryParseCancelSummonTargetingMyCharacter(String text) {
+        if (!CANCEL_SUMMON_TARGETING_MY_CHARACTER.matcher(text).find()) return null;
+        java.util.function.Predicate<StackEntry> filter = StackEntry::isSummon;
+        return ctx -> {
+            ctx.logEntry("Effect: Choose 1 Summon targeting your Character — cancel its effect");
+            ctx.cancelFilteredAbilityOnStack(filter, "Choose 1 Summon targeting your Character to cancel:", true);
+        };
+    }
+
+    /**
      * Parses "Choose 1 Summon or auto-ability. Cancel its effect." (Y'shtola).
      * The player selects a stack entry; its effect is suppressed when it resolves.
      */
@@ -11004,6 +11046,27 @@ public class ActionResolver {
 
         return ctx -> ctx.logEntry(
                 "[ActionResolver] Opponent selects — followup not yet implemented: " + followup);
+    }
+
+    /**
+     * Parses the EX Burst compound effect:
+     * "Choose up to 1 Forward from your Break Zone of cost ≤ damage dealt → hand;
+     *  opponent selects 1 Forward of cost ≤ damage dealt → Break Zone."
+     */
+    private static Consumer<GameContext> tryParseBzFwdToHandOppFwdToBzByDamage(String text) {
+        if (!BZ_FWD_TO_HAND_OPP_FWD_TO_BZ_BY_DAMAGE.matcher(text).find()) return null;
+        return ctx -> {
+            int dmg = ctx.selfDamageCount();
+            ctx.logEntry("Effect: own BZ Forward cost ≤ " + dmg + " → hand; opponent Forward cost ≤ " + dmg + " → BZ");
+            List<ForwardTarget> bzTs = ctx.selectCharactersFromBreakZone(
+                    1, true, false, false, null, null, dmg, "less", -1, null,
+                    true, false, false, null, null, null, null, false, null, false);
+            sortedByIdxDesc(bzTs, true).forEach(ctx::addTargetToHand);
+            List<ForwardTarget> oppTs = ctx.selectCharacters(
+                    1, false, true, false, null, null, dmg, "less", -1, null,
+                    true, false, false, null, null, null, null, false, null, false);
+            sortedByIdxDesc(oppTs, false).forEach(ctx::forceTargetToBreakZone);
+        };
     }
 
     private static Consumer<GameContext> tryParseOpponentPutsForwardToBreakZone(String text) {
