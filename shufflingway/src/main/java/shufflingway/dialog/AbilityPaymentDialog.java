@@ -93,8 +93,9 @@ public class AbilityPaymentDialog {
         Map<String, Integer> bankCpByElem = new LinkedHashMap<>(costByElem);
         for (String k : bankCpByElem.keySet()) bankCpByElem.put(k, 0);
 
-        List<Integer> selectedBackups  = new ArrayList<>();
-        List<Integer> selectedDiscards = new ArrayList<>();
+        List<Integer>         selectedBackups       = new ArrayList<>();
+        List<Integer>         selectedDiscards      = new ArrayList<>();
+        Map<Integer, String>  backupElementOverrides = new LinkedHashMap<>();
 
         List<Integer> eligibleBackupSlots = new ArrayList<>();
         for (int i = 0; i < backupCards.length; i++) {
@@ -125,7 +126,11 @@ public class AbilityPaymentDialog {
             Map<String, Integer> cpByElem = new LinkedHashMap<>(bankCpByElem);
             int extraCp = 0;
             for (int slot : selectedBackups) {
-                if (matchesAnyElement(backupCards[slot], elems))
+                if (backupElementOverrides.containsKey(slot)) {
+                    String overElem = backupElementOverrides.get(slot);
+                    if (cpByElem.containsKey(overElem)) cpByElem.merge(overElem, 1, Integer::sum);
+                    else extraCp++;
+                } else if (matchesAnyElement(backupCards[slot], elems))
                     cpByElem.merge(contributingElement(backupCards[slot], elems, cpByElem, costByElem), 1, Integer::sum);
                 else extraCp++;
             }
@@ -229,8 +234,23 @@ public class AbilityPaymentDialog {
                 final String url = backupUrls[slot];
                 lbl.addMouseListener(new MouseAdapter() {
                     @Override public void mousePressed(MouseEvent ev) {
-                        if (!selectedBackups.remove(Integer.valueOf(slot)) && canAddBackup[0]) selectedBackups.add(slot);
-                        updateAll.run();
+                        if (selectedBackups.remove(Integer.valueOf(slot))) {
+                            backupElementOverrides.remove(slot);
+                            updateAll.run();
+                            return;
+                        }
+                        if (!canAddBackup[0]) return;
+                        if (backupCards[slot].backupCpAnyElement()) {
+                            StandardPaymentDialog.showElementPicker(lbl, ev, backupCards[slot].name(),
+                                    StandardPaymentDialog.ALL_ELEMENTS, picked -> {
+                                        backupElementOverrides.put(slot, picked);
+                                        selectedBackups.add(slot);
+                                        updateAll.run();
+                                    });
+                        } else {
+                            selectedBackups.add(slot);
+                            updateAll.run();
+                        }
                     }
                     @Override public void mouseEntered(MouseEvent ev) { if (lbl.getIcon() != null) onZoom.accept(url); }
                     @Override public void mouseExited(MouseEvent ev)  { onZoomHide.run(); }
