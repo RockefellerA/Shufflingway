@@ -2505,7 +2505,7 @@ final class AutoAbilityTriggers {
 		if (c == null) return;
 		mw.startBreakAnim(mw.p1BackupLabels[idx]);
 		mw.logEntry(c.name() + " → Break Zone");
-		mw.addToP1BreakZone(c);
+		mw.addToBreakZone(c);
 		mw.p1BackupTempForwardPower.remove(c); mw.p1BackupForwardBoost.remove(c);
 		mw.p1BackupTempTraits.remove(c);       mw.p1BackupForwardDamage.remove(c);
 		if (mw.p1BackupAttackIdx == idx) mw.p1BackupAttackIdx = -1;
@@ -2527,7 +2527,7 @@ final class AutoAbilityTriggers {
 		mw.startBreakAnim(mw.p1MonsterLabels.get(idx));
 		CardData c = mw.p1MonsterCards.get(idx);
 		mw.logEntry(c.name() + " → Break Zone");
-		mw.addToP1BreakZone(c);
+		mw.addToBreakZone(c);
 		mw.p1MonsterTempForwardPower.remove(c);
 		mw.p1MonsterPowerBoost.remove(c);
 		mw.p1MonsterTempTraits.remove(c);
@@ -2903,7 +2903,7 @@ final class AutoAbilityTriggers {
 				java.util.Deque<CardData> deck = isP1 ? mw.gameState.getP1MainDeck() : mw.gameState.getP2MainDeck();
 				for (int i = 0; i < rfg.count() && !deck.isEmpty(); i++) {
 					CardData c = deck.pollFirst();
-					if (isP1) mw.gameState.addToP1PermanentRfp(c); else mw.gameState.addToP2PermanentRfp(c);
+					mw.gameState.addToPermanentRfp(c);
 					mw.logEntry(c.name() + " → Removed From Game (cost)");
 				}
 				if (isP1) mw.refreshP1DeckLabel(); else mw.refreshP2DeckLabel();
@@ -2918,7 +2918,7 @@ final class AutoAbilityTriggers {
 						// Named card — auto-select
 						CardData c = hand.get(eligible.get(0));
 						hand.remove((int) eligible.get(0));
-						if (isP1) mw.gameState.addToP1PermanentRfp(c); else mw.gameState.addToP2PermanentRfp(c);
+						mw.gameState.addToPermanentRfp (c);
 						mw.logEntry(c.name() + " → Removed From Game (cost)");
 					} else {
 						String[] options = eligible.stream()
@@ -2934,7 +2934,7 @@ final class AutoAbilityTriggers {
 						int handIdx = eligible.get(listIdx);
 						CardData c = hand.get(handIdx);
 						hand.remove(handIdx);
-						if (isP1) mw.gameState.addToP1PermanentRfp(c); else mw.gameState.addToP2PermanentRfp(c);
+						mw.gameState.addToPermanentRfp(c);
 						mw.logEntry(c.name() + " → Removed From Game (cost)");
 					}
 				}
@@ -2947,7 +2947,7 @@ final class AutoAbilityTriggers {
 					List<Integer> eligible = eligibleRfgBzIndices(rfg, isP1);
 					for (int i = eligible.size() - 1; i >= 0; i--) {
 						CardData c = bz.remove((int) eligible.get(i));
-						if (isP1) mw.gameState.addToP1PermanentRfp(c); else mw.gameState.addToP2PermanentRfp(c);
+						mw.gameState.addToPermanentRfp(c);
 						mw.logEntry(c.name() + " → Removed From Game (cost)");
 					}
 				} else {
@@ -2956,7 +2956,7 @@ final class AutoAbilityTriggers {
 						if (eligible.isEmpty()) { mw.logEntry("No eligible Break Zone card for remove-from-game cost."); break; }
 						if (eligible.size() == 1 && rfg.cardName() != null) {
 							CardData c = bz.remove((int) eligible.get(0));
-							if (isP1) mw.gameState.addToP1PermanentRfp(c); else mw.gameState.addToP2PermanentRfp(c);
+							mw.gameState.addToPermanentRfp(c);
 							mw.logEntry(c.name() + " → Removed From Game (cost)");
 						} else {
 							String[] options = eligible.stream().map(i -> bz.get(i).name()).toArray(String[]::new);
@@ -2969,7 +2969,7 @@ final class AutoAbilityTriggers {
 							if (listIdx < 0) break;
 							int bzIdx = eligible.get(listIdx);
 							CardData c = bz.remove(bzIdx);
-							if (isP1) mw.gameState.addToP1PermanentRfp(c); else mw.gameState.addToP2PermanentRfp(c);
+							mw.gameState.addToPermanentRfp(c);
 							mw.logEntry(c.name() + " → Removed From Game (cost)");
 						}
 					}

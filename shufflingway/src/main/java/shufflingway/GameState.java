@@ -1,12 +1,6 @@
 package shufflingway;
 
-import java.util.ArrayDeque;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.Deque;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 
 /**
  * Holds all mutable game state for an in-progress FFTCG match.
@@ -89,6 +83,7 @@ public class GameState {
 
     // --- Shared ---
     private final List<StackEntry>         stack        = new ArrayList<>();
+    private final IdentityHashMap<CardData, Boolean> identity = new IdentityHashMap<>();
 
     // --- P2 ---
     private final Deque<CardData>          p2MainDeck    = new ArrayDeque<>();
@@ -210,20 +205,22 @@ public class GameState {
     // Permanent Removed-From-Game zone (Primed top cards, etc.)
     // -------------------------------------------------------------------------
 
-    /** Permanently removes a card from the game (not Warp — no counter, never returns). */
-    public void addToP1PermanentRfp(CardData card) { p1PermanentRfp.add(card); }
-
-    /** Removes the first identity-matching {@code card} from P1's removed-from-game zone. */
-    public boolean removeFromP1PermanentRfp(CardData card) {
-        for (int i = 0; i < p1PermanentRfp.size(); i++)
-            if (p1PermanentRfp.get(i) == card) { p1PermanentRfp.remove(i); return true; }
-        return false;
+    public void addToPermanentRfp(CardData card)
+    {
+        (identity.get(card) ? p1PermanentRfp : p2PermanentRfp).add(card);
     }
 
-    /** Removes the first identity-matching {@code card} from P2's removed-from-game zone. */
-    public boolean removeFromP2PermanentRfp(CardData card) {
-        for (int i = 0; i < p2PermanentRfp.size(); i++)
-            if (p2PermanentRfp.get(i) == card) { p2PermanentRfp.remove(i); return true; }
+    public boolean removeFromPermanentRfp(CardData card)
+    {
+        List<CardData> zone = identity.get(card) ? p1PermanentRfp : p2PermanentRfp;
+
+        for (int i = 0; i < zone.size(); i++) {
+            if(zone.get(i) == card) {
+                zone.remove(i);
+                return true;
+            }
+        }
+
         return false;
     }
 
@@ -231,9 +228,6 @@ public class GameState {
     public List<CardData> getP1PermanentRfp() {
         return Collections.unmodifiableList(p1PermanentRfp);
     }
-
-    /** Permanently removes a P2 card from the game. */
-    public void addToP2PermanentRfp(CardData card) { p2PermanentRfp.add(card); }
 
     /** Returns an unmodifiable view of P2's permanently removed cards. */
     public List<CardData> getP2PermanentRfp() {
@@ -307,6 +301,8 @@ public class GameState {
     public void initializeDeck(List<CardData> mainCards, List<CardData> lbCards) {
         List<CardData> shuffled = new ArrayList<>(mainCards);
         Collections.shuffle(shuffled);
+        for (CardData c : shuffled) identity.put(c, true);
+        for (CardData c : lbCards) identity.put(c, true);
         p1MainDeck.addAll(shuffled);
         p1LbDeck.addAll(lbCards);
         p1OpeningHandPending = true;
@@ -402,6 +398,7 @@ public class GameState {
     /** Loads P2's LB deck (not shuffled — order is preserved as the hidden zone). */
     public void initializeP2LbDeck(List<CardData> lbCards) {
         p2LbDeck.addAll(lbCards);
+        for (CardData c : lbCards) identity.put(c, false);
     }
 
     public List<CardData> getP2LbDeck() { return p2LbDeck; }
@@ -410,6 +407,7 @@ public class GameState {
     public void initializeP2Deck(List<CardData> mainCards) {
         List<CardData> shuffled = new ArrayList<>(mainCards);
         Collections.shuffle(shuffled);
+        for (CardData c : shuffled) identity.put(c, false);
         p2MainDeck.addAll(shuffled);
         for (int i = 0; i < 5 && !p2MainDeck.isEmpty(); i++) {
             p2Hand.add(p2MainDeck.poll());
@@ -534,6 +532,9 @@ public class GameState {
 
     /** Returns an unmodifiable view of the Stack (index 0 = bottom, last = top). */
     public List<StackEntry> getStack()              { return Collections.unmodifiableList(stack); }
+
+    /** Returns IdentityHashMap, Boolean = True: Belongs to P1, False: Belongs to P2/CPU */
+    public IdentityHashMap<CardData, Boolean> getIdentity() { return identity; }
 
     public Deque<CardData> getP1MainDeck()          { return p1MainDeck; }
     public List<CardData>  getP1LbDeck()            { return p1LbDeck; }
