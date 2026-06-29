@@ -207,13 +207,12 @@ public class GameState {
 
     public void addToPermanentRfp(CardData card)
     {
-        List<CardData> zone = this.identity.get(card) ? this.getP1PermanentRfp() : this.getP2PermanentRfp();
-        zone.add(card);
+        (identity.get(card) ? p1PermanentRfp : p2PermanentRfp).add(card);
     }
 
     public boolean removeFromPermanentRfp(CardData card)
     {
-        List<CardData> zone = this.identity.get(card) ? this.getP1PermanentRfp() : this.getP2PermanentRfp();
+        List<CardData> zone = identity.get(card) ? p1PermanentRfp : p2PermanentRfp;
 
         for (int i = 0; i < zone.size(); i++) {
             if(zone.get(i) == card) {
@@ -302,7 +301,8 @@ public class GameState {
     public void initializeDeck(List<CardData> mainCards, List<CardData> lbCards) {
         List<CardData> shuffled = new ArrayList<>(mainCards);
         Collections.shuffle(shuffled);
-        for (CardData c :  shuffled) identity.put(c, true);
+        for (CardData c : shuffled) identity.put(c, true);
+        for (CardData c : lbCards) identity.put(c, true);
         p1MainDeck.addAll(shuffled);
         p1LbDeck.addAll(lbCards);
         p1OpeningHandPending = true;
@@ -398,6 +398,7 @@ public class GameState {
     /** Loads P2's LB deck (not shuffled — order is preserved as the hidden zone). */
     public void initializeP2LbDeck(List<CardData> lbCards) {
         p2LbDeck.addAll(lbCards);
+        for (CardData c : lbCards) identity.put(c, false);
     }
 
     public List<CardData> getP2LbDeck() { return p2LbDeck; }
@@ -406,7 +407,7 @@ public class GameState {
     public void initializeP2Deck(List<CardData> mainCards) {
         List<CardData> shuffled = new ArrayList<>(mainCards);
         Collections.shuffle(shuffled);
-        for (CardData c :  shuffled) identity.put(c, false);
+        for (CardData c : shuffled) identity.put(c, false);
         p2MainDeck.addAll(shuffled);
         for (int i = 0; i < 5 && !p2MainDeck.isEmpty(); i++) {
             p2Hand.add(p2MainDeck.poll());
