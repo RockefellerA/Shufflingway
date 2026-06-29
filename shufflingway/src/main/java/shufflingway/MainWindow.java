@@ -8670,6 +8670,17 @@ public class MainWindow {
 				}
 			}
 
+			// Passive field ability: nullify opponent's non-Summon ability damage
+			if (!currentResolutionIsSummon && currentAbilitySourceIsP1 != isP1) {
+				for (FieldAbility fa : card.fieldAbilities()) {
+					Matcher m = AutoAbilityTriggers.FA_NULLIFY_OPPONENT_ABILITY_DAMAGE.matcher(fa.effectText());
+					if (m.find() && m.group("card").trim().equalsIgnoreCase(card.name())) {
+						logEntry(card.name() + " — opponent ability damage nullified by field ability (→ 0)");
+						return 0;
+					}
+				}
+			}
+
 			// Passive field ability: reduce ability-source damage by N (gated on damage threshold)
 			if (!currentResolutionIsSummon) {
 				int dmgInZone = isP1 ? gameState.getP1DamageZone().size() : gameState.getP2DamageZone().size();

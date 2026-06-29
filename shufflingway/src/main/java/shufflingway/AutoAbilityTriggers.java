@@ -228,6 +228,12 @@ final class AutoAbilityTriggers {
 				"(?i)If\\s+(?<card>.+?)\\s+is\\s+dealt\\s+damage\\s+by\\s+an?\\s+abilit(?:y|ies),\\s+the\\s+damage\\s+becomes\\s+0\\s+instead\\.?"
 			);
 
+	/** "If [name] is dealt damage by your opponent's abilities, the damage becomes 0 instead." — nullifies non-Summon ability damage whose source is on the opposing side. */
+	static final Pattern FA_NULLIFY_OPPONENT_ABILITY_DAMAGE =
+			Pattern.compile(
+				"(?i)If\\s+(?<card>.+?)\\s+is\\s+dealt\\s+damage\\s+by\\s+your\\s+opponent's\\s+abilit(?:y|ies),\\s+the\\s+damage\\s+becomes\\s+0\\s+instead\\.?"
+			);
+
 	/**
 	 * General incoming-damage modifier field ability.
 	 * Covers "reduce the damage by N", "the damage becomes N", and "the damage increases by N" variants,
