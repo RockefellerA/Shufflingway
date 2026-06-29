@@ -1466,6 +1466,7 @@ public class MainWindow {
 			JOptionPane.showMessageDialog(frame, "Card not found: " + serial, "Debug Spawn", JOptionPane.ERROR_MESSAGE);
 			return;
 		}
+		gameState.getIdentity().put(card, false);
 		if (card.isForward())      placeP2CardInForwardZone(card);
 		else if (card.isMonster()) placeP2CardInMonsterZone(card);
 		else if (card.isBackup()) {
@@ -1496,6 +1497,7 @@ public class MainWindow {
 			JOptionPane.showMessageDialog(frame, "Card not found: " + serial, "Debug Spawn", JOptionPane.ERROR_MESSAGE);
 			return;
 		}
+		gameState.getIdentity().put(card, false);
 		gameState.getP2Hand().add(card);
 		refreshP2HandCountLabel();
 		logEntry("[Debug] Added " + card.name() + " (" + serial + ") to CPU hand.");
