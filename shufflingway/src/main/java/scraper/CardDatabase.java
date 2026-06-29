@@ -143,6 +143,9 @@ public class CardDatabase implements AutoCloseable {
                                  .replace("IXForward", "IX Forward")
                                  .replace("Zackand", "Zack and")
                                  .replace("’", "'")
+                                 .replace("　", " ") // U+3000 ideographic space
+                                 .replace("、", ",") // U+3001 ideographic comma
+                                 .replace("１", "1") // U+FF11 fullwidth digit one
                                  .replace("1Card", "1 Card") //"Search for 1Card Name..."
                                  .replace("2card", "2 card") // "FFTA2card"
                                 .replace("1Job", "1 Job") // "Search for 1Job..."
