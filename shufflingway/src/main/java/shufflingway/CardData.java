@@ -1855,6 +1855,15 @@ public record CardData(
     );
 
     /**
+     * "If your opponent controls N or more Forwards, [target] gains [effects]."
+     * Groups: {@code n}, {@code target}, {@code effects}.
+     */
+    private static final Pattern IF_OPP_CTRL_N_OR_MORE_FWD_BOOST = Pattern.compile(
+        "(?i)^If\\s+your\\s+opponent\\s+controls\\s+(?<n>\\d+)\\s+or\\s+more\\s+Forwards?," +
+        "\\s+(?<target>.+?)\\s+gains?\\s+(?<effects>.+?)\\.?\\s*$"
+    );
+
+    /**
      * "If you have a 《C》, [target] gains [effects]."
      * Groups: {@code target}, {@code effects}.
      */
@@ -2118,6 +2127,27 @@ public record CardData(
                     FieldPowerGrant targetFilter = parseIcbTargetFilter(targetName);
                     result.add(new IfControlBoost(List.of(), "", targetName, targetFilter,
                             powerBonus, EnumSet.noneOf(Trait.class), "", false, false, false, null, 0, 0, false, maxHand));
+                }
+                continue;
+            }
+
+            // "If your opponent controls N or more Forwards, [target] gains [effects]."
+            Matcher oppFwdM = IF_OPP_CTRL_N_OR_MORE_FWD_BOOST.matcher(seg);
+            if (oppFwdM.find()) {
+                int minFwds       = Integer.parseInt(oppFwdM.group("n"));
+                String targetName = oppFwdM.group("target").trim();
+                String effectsStr = oppFwdM.group("effects").trim();
+                Matcher pwrM = IF_CTRL_EFFECT_POWER.matcher(effectsStr);
+                int powerBonus = pwrM.find() ? Integer.parseInt(pwrM.group(1)) : 0;
+                EnumSet<Trait> traits = EnumSet.noneOf(Trait.class);
+                if (ICB_EFFECT_HASTE.matcher(effectsStr).find())        traits.add(Trait.HASTE);
+                if (ICB_EFFECT_BRAVE.matcher(effectsStr).find())        traits.add(Trait.BRAVE);
+                if (ICB_EFFECT_FIRST_STRIKE.matcher(effectsStr).find()) traits.add(Trait.FIRST_STRIKE);
+                if (ICB_EFFECT_BACK_ATTACK.matcher(effectsStr).find())  traits.add(Trait.BACK_ATTACK);
+                if (powerBonus != 0 || !traits.isEmpty()) {
+                    FieldPowerGrant targetFilter = parseIcbTargetFilter(targetName);
+                    result.add(new IfControlBoost(List.of(), "", targetName, targetFilter,
+                            powerBonus, traits, "", false, false, false, null, 0, 0, false, 0, minFwds));
                 }
                 continue;
             }

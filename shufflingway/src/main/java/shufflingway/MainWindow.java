@@ -8093,6 +8093,10 @@ public class MainWindow {
 			int oppHandSize = (isP1 ? gameState.getP2Hand() : gameState.getP1Hand()).size();
 			if (oppHandSize > icb.maxOpponentHandSize()) return false;
 		}
+		if (icb.minOpponentForwards() > 0) {
+			List<CardData> oppFwds = isP1 ? p2ForwardCards : p1ForwardCards;
+			if (oppFwds.size() < icb.minOpponentForwards()) return false;
+		}
 		return true;
 	}
 
