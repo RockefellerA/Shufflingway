@@ -268,7 +268,11 @@ public interface GameContext {
      * @param returnToHandAfterUse when {@code true}, the Summon returns to the caster's hand
      *                           after resolving instead of going to the Break Zone
      */
-    void castSummonFromHandFree(int maxCost, boolean returnToHandAfterUse);
+    void castSummonFromHandFree(int maxCost, boolean returnToHandAfterUse, String excludeElements);
+
+    default void castSummonFromHandFree(int maxCost, boolean returnToHandAfterUse) {
+        castSummonFromHandFree(maxCost, returnToHandAfterUse, null);
+    }
 
     /**
      * Searches the deck for a Summon matching the element and cost filters, then offers
@@ -486,6 +490,13 @@ public interface GameContext {
      * No-op if the source card is not found on the field.
      */
     void boostSourceForward(CardData source, int amount, EnumSet<CardData.Trait> traits);
+
+    /**
+     * Sets the source card's power to {@code power} until the end of the turn by zeroing
+     * existing boosts/reductions and applying the required offset from the card's base power.
+     * No-op if the source card is not found on the field.
+     */
+    void setSourceForwardPower(CardData source, int power);
 
     /**
      * Finds {@code source} on the field and doubles its power (and optionally grants
@@ -958,6 +969,13 @@ public interface GameContext {
      */
     int lastRemovedFromGameCardCost();
 
+    /**
+     * Returns the power of the Forward most recently removed from the game by a
+     * "remove it from the game" effect in the current ability chain.
+     * Returns {@code 0} if no Forward has been removed yet or the card has no power.
+     */
+    int lastRemovedFromGameCardPower();
+
     /** Returns the total number of cards permanently removed from the game (both players' RFP zones combined). */
     int countRemovedFromGame();
 
@@ -1298,7 +1316,11 @@ public interface GameContext {
      * ("Forward", "Backup", "Monster", or "Character") onto the field for free;
      * all remaining cards go to the bottom of the deck in any order.
      */
-    void revealTopNPlayUpToTypeOntoFieldRestBottom(int reveal, int maxPlay, String typeFilter);
+    void revealTopNPlayUpToTypeOntoFieldRestBottom(int reveal, int maxPlay, String typeFilter, String categoryFilter);
+
+    default void revealTopNPlayUpToTypeOntoFieldRestBottom(int reveal, int maxPlay, String typeFilter) {
+        revealTopNPlayUpToTypeOntoFieldRestBottom(reveal, maxPlay, typeFilter, null);
+    }
 
     /**
      * Reveals the top {@code reveal} cards. The player may either add up to {@code handMax}

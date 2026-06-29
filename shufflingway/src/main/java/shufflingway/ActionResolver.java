@@ -1074,7 +1074,9 @@ public class ActionResolver {
      */
     private static final Pattern REVEAL_PLAY_TYPE_ONTO_FIELD_REST_BOTTOM = Pattern.compile(
         "(?i)reveal\\s+the\\s+top\\s+(?<n>\\d+)\\s+cards?\\s+of\\s+your\\s+deck[.!]?\\s+" +
-        "Play\\s+up\\s+to\\s+(?<max>\\d+)\\s+(?<type>Forward|Backup|Monster|Character)s?\\s+" +
+        "Play\\s+(?:up\\s+to\\s+)?(?<max>\\d+)\\s+" +
+        "(?:Category\\s+(?<category>\\S+)\\s+)?" +
+        "(?<type>Forward|Backup|Monster|Character)s?\\s+" +
         "among\\s+them\\s+onto\\s+(?:the\\s+)?field\\s+" +
         "and\\s+return\\s+the\\s+other\\s+cards?\\s+to\\s+the\\s+bottom\\s+of\\s+(?:your|the)\\s+deck" +
         "(?:\\s+in\\s+any\\s+order)?[.!]?$"
@@ -2060,7 +2062,7 @@ public class ActionResolver {
         "(?:the\\s+top\\s+(?:(?<count>\\d+)\\s+cards?|card)\\s+of" +
         "|(?<count2>\\d+)\\s+cards?\\s+from\\s+the\\s+top\\s+of)\\s+" +
         "(?:his/her|his|her|their)\\s+deck\\s+into\\s+the\\s+Break\\s+Zone" +
-        "(?:[.!]?\\s*Draw\\s+(?<draw>\\d+)\\s+cards?[.!]?)?"
+        "(?:[.!]?\\s*(?:You\\s+)?[Dd]raw\\s+(?<draw>\\d+)\\s+cards?[.!]?)?"
     );
 
     private static final Pattern SELF_MILL_PATTERN = Pattern.compile(
@@ -2092,6 +2094,8 @@ public class ActionResolver {
     private static final Pattern CAST_SUMMON_FROM_HAND_FREE = Pattern.compile(
         "(?i)Cast\\s+1\\s+Summon" +
         "(?:\\s+of\\s+cost\\s+(?<cost>\\d+|X)\\s+or\\s+less)?" +
+        "(?:\\s+other\\s+than\\s+(?<excludeelems>(?:Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)" +
+            "(?:\\s+or\\s+(?:Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark))*))?" +
         "\\s+from\\s+your\\s+hand\\s+without\\s+paying\\s+(?:its|the)\\s+cost[.!]?" +
         "(?<returnToHand>\\s*Then,?\\s+return\\s+that\\s+Summon\\s+to\\s+your\\s+hand\\s+after\\s+use" +
         "\\s+instead\\s+of\\s+putting\\s+it\\s+in\\s+the\\s+Break\\s+Zone[.!]?)?"
@@ -2329,6 +2333,16 @@ public class ActionResolver {
         "(?i)(?<subject>.+?)\\s+gains?\\s+\\+(?<amount>\\d+)\\s+[Pp]ower\\s+" +
         "until\\s+(?:the\\s+)?end\\s+of\\s+(?:the\\s+)?turn\\s+and\\s+activate\\s+" +
         "(?<activateName>.+?)[.!]?\\s*$"
+    );
+
+    /**
+     * Matches "[CardName]'s power becomes the same as that Forward's power until the end of the turn."
+     * Used as a secondary effect after choosing and removing a Forward from the Break Zone.
+     * Group {@code name} — the card whose power is set (should match the source card).
+     */
+    private static final Pattern SOURCE_POWER_BECOMES_SAME_AS_REMOVED_FORWARD = Pattern.compile(
+        "(?i)(?<name>.+?)'s\\s+power\\s+becomes\\s+the\\s+same\\s+as\\s+that\\s+Forward's\\s+power" +
+        "\\s+until\\s+the\\s+end\\s+of\\s+(?:the\\s+)?turn[.!]?\\s*$"
     );
 
     /**
@@ -4291,6 +4305,9 @@ public class ActionResolver {
         result = tryParseGrantPartyAnyElementThisTurn(effectText);
         if (result != null) return result;
 
+        result = tryParseSourcePowerBecomesRemovedForwardPower(effectText, source);
+        if (result != null) return result;
+
         // Compound-sentence fallback: split on ". " between sentences and compose effects.
         // Handles "Activate <cardName>. <cardName> gains +2000 power until the end of the turn." etc.
         // Sentences that don't parse are silently skipped so that implemented parts still fire.
@@ -4651,6 +4668,9 @@ public class ActionResolver {
         if (CardData.WHILE_CARD_ATTACKING_PATTERN.matcher(effectText).matches())  return "WhileCardAttacking";
         if (CardData.WHILE_CARD_BLOCKING_PATTERN.matcher(effectText).matches())   return "WhileCardBlocking";
         if (CardData.WHILE_CARD_IN_HAND_PATTERN.matcher(effectText).matches())   return "WhileCardInHand";
+        if (CardData.CONTROL_IF_PATTERN.matcher(effectText).find())               return "UseRestriction";
+        if (CardData.YOUR_TURN_AND_CONTROL_IF_PATTERN.matcher(effectText).find()) return "UseRestriction";
+        if (CardData.CONTROL_IF_NOT_ANY_PATTERN.matcher(effectText).find())       return "UseRestriction";
         if (tryParseWhenYouDoSoSequence(effectText, source, 0)          != null) return "WhenYouDoSo";
         if (tryParseIfCastAtLeast(effectText, source, 0)                != null) return "IfCastAtLeast";
         if (tryParseDiscardConditionalElement(effectText, source, 0)    != null) return "DiscardConditionalElement";
@@ -4933,6 +4953,7 @@ public class ActionResolver {
         if (tryParseNameElementAndJobSelfBecomes(effectText, source)   != null) return "NameElementAndJobSelfBecomes";
         if (tryParseNameJob(effectText)                                != null) return "NameJob";
         if (tryParseGrantPartyAnyElementThisTurn(effectText)           != null) return "GrantPartyAnyElementThisTurn";
+        if (tryParseSourcePowerBecomesRemovedForwardPower(effectText, source) != null) return "SourcePowerBecomesRemovedPower";
         if (tryParseConditionalOpponentHand(effectText, source, 0)    != null) return "ConditionalOpponentHand";
         if (SELECT_FOLLOWING_ACTIONS_DETECT.matcher(effectText).find())    return "SelectFollowingActions";
         if (CardData.HAS_ALL_ELEMENTS_PATTERN.matcher(effectText.trim()).matches()) return "HasAllElements";
@@ -9161,6 +9182,23 @@ public class ActionResolver {
     }
 
     /**
+     * Parses "[CardName]'s power becomes the same as that Forward's power until the end of the turn."
+     * Sets the source card's power to the power of the Forward most recently removed from the game.
+     */
+    private static Consumer<GameContext> tryParseSourcePowerBecomesRemovedForwardPower(
+            String text, CardData source) {
+        if (source == null) return null;
+        Matcher m = SOURCE_POWER_BECOMES_SAME_AS_REMOVED_FORWARD.matcher(text.trim());
+        if (!m.matches()) return null;
+        if (!m.group("name").trim().equalsIgnoreCase(source.name())) return null;
+        return ctx -> {
+            int power = ctx.lastRemovedFromGameCardPower();
+            ctx.logEntry(source.name() + " — power becomes " + power + " (removed Forward's power) until end of turn");
+            ctx.setSourceForwardPower(source, power);
+        };
+    }
+
+    /**
      * Parses "Dull [CardName]. [CardName] gains '[...] cannot be broken.' until end of turn."
      * Dulls the source then shields it. Must be tried before {@link #tryParseStandaloneShieldCannotBeBroken}
      * so the dull step is not silently dropped.
@@ -10128,14 +10166,16 @@ public class ActionResolver {
     }
 
     private static Consumer<GameContext> tryParseRevealPlayTypeOntoFieldRestBottom(String text) {
-        Matcher m = REVEAL_PLAY_TYPE_ONTO_FIELD_REST_BOTTOM.matcher(text.trim());
+        String s = stripRestrictionSentences(text);
+        Matcher m = REVEAL_PLAY_TYPE_ONTO_FIELD_REST_BOTTOM.matcher((s.isEmpty() ? text : s).trim());
         if (!m.matches()) return null;
         int n      = Integer.parseInt(m.group("n"));
         int max    = Integer.parseInt(m.group("max"));
         String typeRaw  = m.group("type");
         String normType = Character.toUpperCase(typeRaw.charAt(0))
                 + typeRaw.substring(1).toLowerCase();
-        return ctx -> ctx.revealTopNPlayUpToTypeOntoFieldRestBottom(n, max, normType);
+        String category = m.group("category");
+        return ctx -> ctx.revealTopNPlayUpToTypeOntoFieldRestBottom(n, max, normType, category);
     }
 
     /** Parses "Choose 1 card with EX Burst in your Damage Zone. You may trigger its EX Burst effect." */
@@ -10873,11 +10913,15 @@ public class ActionResolver {
         } else {
             maxCost = Integer.parseInt(costStr);
         }
+        String excludeRaw = m.group("excludeelems");
+        String excludeElements = excludeRaw != null
+                ? excludeRaw.trim().replaceAll("(?i)\\s+or\\s+", "|") : null;
         return ctx -> {
             String costDesc = maxCost < 0 ? "any cost" : "cost " + maxCost + " or less";
             ctx.logEntry("Effect: Cast 1 Summon (" + costDesc + ") from hand for free"
+                    + (excludeElements != null ? " (not " + excludeElements + ")" : "")
                     + (returnToHand ? " (return to hand after use)" : ""));
-            ctx.castSummonFromHandFree(maxCost, returnToHand);
+            ctx.castSummonFromHandFree(maxCost, returnToHand, excludeElements);
         };
     }
 

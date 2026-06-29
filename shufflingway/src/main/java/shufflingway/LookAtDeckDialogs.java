@@ -1158,9 +1158,10 @@ class LookAtDeckDialogs {
      * Clicking two non-selected cards swaps their bottom-of-deck order.
      */
     void showRevealPlayTypeOntoFieldRestBottom(List<CardData> cards, Deque<CardData> deck,
-            boolean isP1, int maxPlay, String typeFilter, Consumer<CardData> playOntoField) {
+            boolean isP1, int maxPlay, String typeFilter, String categoryFilter, Consumer<CardData> playOntoField) {
         int n = cards.size();
-        JDialog dlg = new JDialog(frame, "Reveal — Play up to " + maxPlay + " " + typeFilter + " onto Field, Rest to Bottom", true);
+        String typeLabel = (categoryFilter != null ? "Category " + categoryFilter + " " : "") + typeFilter;
+        JDialog dlg = new JDialog(frame, "Reveal — Play up to " + maxPlay + " " + typeLabel + " onto Field, Rest to Bottom", true);
         dlg.setResizable(false);
         dlg.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
 
@@ -1187,7 +1188,8 @@ class LookAtDeckDialogs {
             int count = fieldSet.size();
             for (int j = 0; j < n; j++) {
                 CardData c = order.get(j);
-                boolean matches = meetsRevealTypeFilter(c, typeFilter);
+                boolean matches = meetsRevealTypeFilter(c, typeFilter)
+                        && CardFilters.meetsCategoryFilter(c, categoryFilter);
                 boolean inField = fieldSet.contains(c);
                 fieldBtns[j].setEnabled(matches && (inField || count < maxPlay));
             }

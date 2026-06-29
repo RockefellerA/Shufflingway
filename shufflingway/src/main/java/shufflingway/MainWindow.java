@@ -422,8 +422,9 @@ public class MainWindow {
 	String   lastDiscardedCardName        = null;
 	// Card most recently discarded as a cost payment (for element-conditional branch effects).
 	CardData lastDiscardedCostCard        = null;
-	// Cost of the Forward most recently removed from the game by a "remove it from the game" effect.
+	// Cost/power of the Forward most recently removed from the game by a "remove it from the game" effect.
 	int     lastRemovedFromGameCardCost  = 0;
+	int     lastRemovedFromGameCardPower = 0;
 	boolean p1FormedPartyThisTurn        = false;
 	boolean p1PartyAnyElementThisTurn   = false;
 	boolean p2PartyAnyElementThisTurn   = false;

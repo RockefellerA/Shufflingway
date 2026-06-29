@@ -1040,7 +1040,8 @@ final class GameContextImpl implements GameContext {
 
 			@Override public void removeP1ForwardFromGame(int idx) {
 				if (idx >= mw.p1ForwardCards.size()) return;
-				mw.lastRemovedFromGameCardCost = p1Forward(idx).cost();
+				mw.lastRemovedFromGameCardCost  = p1Forward(idx).cost();
+				mw.lastRemovedFromGameCardPower = p1Forward(idx).power();
 				logEntry(p1Forward(idx).name() + " → Removed From Game");
 				mw.startRfpAnim(idx, true);
 				List<CardData> bz = mw.gameState.getP1BreakZone();
@@ -1055,7 +1056,8 @@ final class GameContextImpl implements GameContext {
 
 			@Override public void removeP2ForwardFromGame(int idx) {
 				if (idx >= mw.p2ForwardCards.size()) return;
-				mw.lastRemovedFromGameCardCost = mw.p2ForwardCards.get(idx).cost();
+				mw.lastRemovedFromGameCardCost  = mw.p2ForwardCards.get(idx).cost();
+				mw.lastRemovedFromGameCardPower = mw.p2ForwardCards.get(idx).power();
 				logEntry("[P2] " + mw.p2ForwardCards.get(idx).name() + " → Removed From Game");
 				mw.startRfpAnim(idx, false);
 				List<CardData> bz = mw.gameState.getP2BreakZone();
@@ -1860,13 +1862,18 @@ final class GameContextImpl implements GameContext {
 				}
 			}
 
-			@Override public void castSummonFromHandFree(int maxCost, boolean returnToHandAfterUse) {
+			@Override public void castSummonFromHandFree(int maxCost, boolean returnToHandAfterUse, String excludeElements) {
 				List<CardData> hand = isP1 ? mw.gameState.getP1Hand() : mw.gameState.getP2Hand();
 				List<Integer> eligible = new ArrayList<>();
+				java.util.Set<String> excludeSet = excludeElements == null ? java.util.Set.of()
+						: java.util.Arrays.stream(excludeElements.split("\\|"))
+								.map(String::toLowerCase).collect(java.util.stream.Collectors.toSet());
 				for (int i = 0; i < hand.size(); i++) {
 					CardData c = hand.get(i);
 					if (!c.isSummon()) continue;
 					if (maxCost >= 0 && c.cost() > maxCost) continue;
+					if (!excludeSet.isEmpty() && java.util.Arrays.stream(c.elements())
+							.map(String::toLowerCase).anyMatch(excludeSet::contains)) continue;
 					eligible.add(i);
 				}
 				if (eligible.isEmpty()) {
@@ -1879,7 +1886,8 @@ final class GameContextImpl implements GameContext {
 					List<CardData> candidates = new ArrayList<>();
 					for (int i : eligible) candidates.add(hand.get(i));
 					String title = "Cast 1 Summon from hand for free"
-							+ (maxCost >= 0 ? " (cost " + maxCost + " or less)" : "");
+							+ (maxCost >= 0 ? " (cost " + maxCost + " or less)" : "")
+							+ (excludeElements != null ? " (not " + excludeElements + ")" : "");
 					int listIdx = mw.showCardImageChooser(candidates, title, true);
 					if (listIdx < 0) { markEffectFizzled(); return; }
 					handIdx = eligible.get(listIdx);
@@ -2425,6 +2433,8 @@ final class GameContextImpl implements GameContext {
 						List<CardData> bz = t.isP1() ? mw.gameState.getP1BreakZone() : mw.gameState.getP2BreakZone();
 						if (i >= bz.size()) return;
 						CardData c = bz.remove(i);
+						mw.lastRemovedFromGameCardCost  = c.cost();
+						mw.lastRemovedFromGameCardPower = c.power();
 						logEntry((t.isP1() ? "" : "[P2] ") + c.name() + " → Removed From Game (from Break Zone)");
 						if (t.isP1()) { mw.gameState.addToP1PermanentRfp(c); mw.refreshP1BreakLabel(); mw.refreshP1WarpZoneUI(); }
 						else          { mw.gameState.addToP2PermanentRfp(c); mw.refreshP2BreakLabel(); mw.refreshP2WarpZoneUI(); }
@@ -2687,6 +2697,19 @@ final class GameContextImpl implements GameContext {
 				}
 			}
 
+			@Override public void setSourceForwardPower(CardData source, int power) {
+				for (int i = 0; i < mw.p1ForwardCards.size(); i++) {
+					if (mw.p1ForwardCards.get(i).name().equals(source.name())) {
+						int base = mw.p1ForwardCards.get(i).power();
+						mw.p1ForwardPowerReduction.set(i, 0);
+						mw.p1ForwardPowerBoost.set(i, power - base);
+						logEntry(source.name() + " — power becomes " + power + " until end of turn");
+						mw.refreshP1ForwardSlot(i);
+						return;
+					}
+				}
+			}
+
 			@Override public void addPendingMainPhase1Effect(Consumer<GameContext> effect) {
 				mw.pendingMainPhase1Effects.add(effect);
 			}
@@ -2838,7 +2861,8 @@ final class GameContextImpl implements GameContext {
 			@Override public String lastDiscardedCostCardElement() {
 				return mw.lastDiscardedCostCard == null ? null : mw.lastDiscardedCostCard.elements()[0];
 			}
-			@Override public int lastRemovedFromGameCardCost() { return mw.lastRemovedFromGameCardCost; }
+			@Override public int lastRemovedFromGameCardCost()  { return mw.lastRemovedFromGameCardCost; }
+			@Override public int lastRemovedFromGameCardPower() { return mw.lastRemovedFromGameCardPower; }
 			@Override public int countRemovedFromGame() {
 				return mw.gameState.getP1PermanentRfp().size() + mw.gameState.getP2PermanentRfp().size();
 			}
@@ -4590,7 +4614,7 @@ final class GameContextImpl implements GameContext {
 				logEntry("Effect: " + source.name() + " not found on field — fizzle");
 			}
 
-			@Override public void revealTopNPlayUpToTypeOntoFieldRestBottom(int reveal, int maxPlay, String typeFilter) {
+			@Override public void revealTopNPlayUpToTypeOntoFieldRestBottom(int reveal, int maxPlay, String typeFilter, String categoryFilter) {
 				Deque<CardData> deck = isP1 ? mw.gameState.getP1MainDeck() : mw.gameState.getP2MainDeck();
 				int n = Math.min(reveal, deck.size());
 				if (n == 0) { logEntry("Reveal top: deck is empty."); return; }
@@ -4605,7 +4629,8 @@ final class GameContextImpl implements GameContext {
 				};
 				if (!isP1 && mw.isP2Cpu()) {
 					List<CardData> eligible = peeked.stream()
-							.filter(c -> meetsRevealTypeFilter(c, typeFilter))
+							.filter(c -> meetsRevealTypeFilter(c, typeFilter)
+									&& CardFilters.meetsCategoryFilter(c, categoryFilter))
 							.sorted(java.util.Comparator.comparingInt(CardData::cost).reversed())
 							.collect(Collectors.toList());
 					List<CardData> chosen = eligible.subList(0, Math.min(maxPlay, eligible.size()));
@@ -4620,7 +4645,7 @@ final class GameContextImpl implements GameContext {
 						playOntoField.accept(c);
 					}
 				} else {
-					mw.lookDialogs().showRevealPlayTypeOntoFieldRestBottom(peeked, deck, isP1, maxPlay, typeFilter, playOntoField);
+					mw.lookDialogs().showRevealPlayTypeOntoFieldRestBottom(peeked, deck, isP1, maxPlay, typeFilter, categoryFilter, playOntoField);
 				}
 			}
 
