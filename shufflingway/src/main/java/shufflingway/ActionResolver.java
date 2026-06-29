@@ -2056,8 +2056,10 @@ public class ActionResolver {
      * </ul>
      */
     private static final Pattern OPPONENT_MILL_PATTERN = Pattern.compile(
-        "(?i)Your\\s+opponent\\s+puts?\\s+the\\s+top\\s+(?:(?<count>\\d+)\\s+cards?|card)\\s+" +
-        "of\\s+(?:his/her|his|her|their)\\s+deck\\s+into\\s+the\\s+Break\\s+Zone" +
+        "(?i)Your\\s+opponent\\s+puts?\\s+" +
+        "(?:the\\s+top\\s+(?:(?<count>\\d+)\\s+cards?|card)\\s+of" +
+        "|(?<count2>\\d+)\\s+cards?\\s+from\\s+the\\s+top\\s+of)\\s+" +
+        "(?:his/her|his|her|their)\\s+deck\\s+into\\s+the\\s+Break\\s+Zone" +
         "(?:[.!]?\\s*Draw\\s+(?<draw>\\d+)\\s+cards?[.!]?)?"
     );
 
@@ -11150,6 +11152,7 @@ public class ActionResolver {
         if (!m.find()) return null;
 
         String countStr = m.group("count");
+        if (countStr == null) countStr = m.group("count2");
         int    mill     = countStr != null ? Integer.parseInt(countStr) : 1;
         String drawStr  = m.group("draw");
         int    draw     = drawStr  != null ? Integer.parseInt(drawStr)  : 0;
