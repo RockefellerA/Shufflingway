@@ -143,7 +143,7 @@ public class DebugCardPickerDialog extends JDialog {
     }
 
     private void loadCards() {
-        String sql = "SELECT serial, name_en, type_en, element, cost, power, text_en FROM cards ORDER BY serial";
+        String sql = "SELECT serial, name_en, type_en, element, cost, power, text_en FROM cards WHERE serial NOT LIKE 'B-%' AND serial NOT LIKE 'C-%' ORDER BY serial";
         try (Connection conn = DriverManager.getConnection(DB_URL);
              Statement stmt = conn.createStatement();
              ResultSet rs = stmt.executeQuery(sql)) {

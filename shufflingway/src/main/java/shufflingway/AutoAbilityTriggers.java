@@ -2186,7 +2186,7 @@ final class AutoAbilityTriggers {
 
 		new AbilityPaymentDialog(mw.frame, ability, source,
 				mw.playerHand(isP1), mw.playerBackupCards(isP1), mw.playerBackupStates(isP1), mw.playerBackupUrls(isP1),
-				mw::showZoomAt, mw::hideZoom,
+				mw::showZoomAt, mw::hideZoom, null,
 				(discards, backups, xValue) -> {
 					List<ForwardTarget> bzTargets = resolveBzCostTargetsForBzAbility(bzCosts, isP1);
 					if (bzTargets == null) return;
@@ -2595,9 +2595,10 @@ final class AutoAbilityTriggers {
 			return;
 		}
 
+		CardData.SpecialAbilityProxy proxy = ability.isSpecial() ? source.specialAbilityProxy() : null;
 		new AbilityPaymentDialog(mw.frame, ability, source,
 				mw.playerHand(isP1), mw.playerBackupCards(isP1), mw.playerBackupStates(isP1), mw.playerBackupUrls(isP1),
-				mw::showZoomAt, mw::hideZoom,
+				mw::showZoomAt, mw::hideZoom, proxy,
 				(discards, backups, xValue) -> executeAbilityPayment(ability, source, applyDull,
 						discards, backups, autoResolveBzTargets(source, bzCosts, isP1), isP1, xValue))
 			.show();
@@ -2637,12 +2638,14 @@ final class AutoAbilityTriggers {
 			Set<Integer> reservedIdxs = new HashSet<>(discardIndices);
 			if (ability.isSpecial()) {
 				String primerName = mw.getPrimerCardName(source, isP1);
+				CardData.SpecialAbilityProxy proxy = source.specialAbilityProxy();
 				List<CardData> hand = mw.playerHand(isP1);
 				for (int i = 0; i < hand.size(); i++) {
 					if (reservedIdxs.contains(i)) continue;
 					CardData hc = hand.get(i);
-					if (source.name().equalsIgnoreCase(hc.name()) ||
-							(primerName != null && primerName.equalsIgnoreCase(hc.name()))) {
+					boolean isSameName = source.name().equalsIgnoreCase(hc.name())
+							|| (primerName != null && primerName.equalsIgnoreCase(hc.name()));
+					if (isSameName || (proxy != null && proxy.meetsSubstitute(hc))) {
 						reservedIdxs.add(i);
 						break;
 					}
@@ -2712,14 +2715,16 @@ final class AutoAbilityTriggers {
 		// Dull source card
 		if (ability.requiresDull()) applyDull.run();
 
-		// Special: discard first same-name card from hand (primer card name also qualifies)
+		// Special: discard first same-name, primer, or proxy-substitute card from hand
 		if (ability.isSpecial()) {
 			String primerName = mw.getPrimerCardName(source, isP1);
+			CardData.SpecialAbilityProxy proxy = source.specialAbilityProxy();
 			List<CardData> hand = mw.playerHand(isP1);
 			for (int i = 0; i < hand.size(); i++) {
 				CardData hc = hand.get(i);
-				if (source.name().equalsIgnoreCase(hc.name()) ||
-						(primerName != null && primerName.equalsIgnoreCase(hc.name()))) {
+				boolean isSameName = source.name().equalsIgnoreCase(hc.name())
+						|| (primerName != null && primerName.equalsIgnoreCase(hc.name()));
+				if (isSameName || (proxy != null && proxy.meetsSubstitute(hc))) {
 					mw.playerBreakFromHand(isP1, i);
 					mw.logEntry("Special: discarded \"" + hc.name() + "\" from hand");
 					break;

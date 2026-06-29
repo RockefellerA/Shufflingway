@@ -3554,6 +3554,20 @@ public record CardData(
         "(?i)^.+?\\s+enters\\s+the\\s+field\\s+dull[.!]?\\s*$"
     );
 
+    /**
+     * Matches "You may use [Target]'s special ability by discarding a[n] [Substitute] instead of
+     * discarding a Card Name [Target] as part of the cost."
+     * Groups: {@code target} — whose special ability; {@code subName} — substitute card name;
+     * {@code subElem} — substitute element; {@code subType} — substitute card type.
+     */
+    private static final Pattern SPECIAL_ABILITY_PROXY_PATTERN = Pattern.compile(
+        "(?i)^You\\s+may\\s+use\\s+(?<target>.+?)'s\\s+special\\s+ability" +
+        "\\s+by\\s+discarding\\s+an?\\s+" +
+        "(?:Card\\s+Name\\s+(?<subName>.+?)" +
+        "|(?:(?<subElem>[A-Z]\\w+)\\s+)?(?<subType>Summon|Forward|Backup|Monster|Character))" +
+        "\\s+instead\\s+of\\s+discarding\\s+a\\s+Card\\s+Name\\s+.+?\\s+as\\s+part\\s+of\\s+the\\s+cost\\.?\\s*$"
+    );
+
     /** Matches "The opponent's Forwards enter the field dull." */
     static final Pattern OPPONENT_FORWARDS_ENTER_DULL_PATTERN = Pattern.compile(
         "(?i)^(?:the\\s+)?(?:your\\s+)?opponent'?s?\\s+Forwards?\\s+enters?\\s+the\\s+field\\s+dull[.!]?\\s*$"
@@ -3733,6 +3747,7 @@ public record CardData(
             if (IS_ALSO_MONSTER_PATTERN.matcher(seg).find())                continue;
             if (ENTERS_FIELD_DULL_PATTERN.matcher(seg).matches())           continue;
             if (ALIAS_PLAY_RESTRICTION_PATTERN.matcher(seg).matches())      continue;
+            if (SPECIAL_ABILITY_PROXY_PATTERN.matcher(seg).matches())       continue;
             if (BECOME_FORWARD_IF_CONTROL_N_MONSTERS_PATTERN.matcher(seg).find()) continue;
             if (BECOME_FORWARD_DURING_TURN_PATTERN.matcher(seg).find())       continue;
             if (BECOME_FORWARD_UNCONDITIONAL_PATTERN.matcher(seg).find())     continue;
@@ -4174,6 +4189,42 @@ public record CardData(
         for (String seg : rawFieldSegments())
             if (IS_ALSO_MONSTER_PATTERN.matcher(seg).matches()) return true;
         return false;
+    }
+
+    /**
+     * Grants use of {@code targetName}'s special ability by discarding a substitute card:
+     * either a specific card name ({@code subCardName}), a typed card ({@code subType}),
+     * or an element+type card ({@code subElement} + {@code subType}).
+     */
+    public record SpecialAbilityProxy(String targetName, String subElement, String subType, String subCardName) {
+        public boolean meetsSubstitute(CardData handCard) {
+            if (subCardName != null) return subCardName.equalsIgnoreCase(handCard.name());
+            if (subType == null) return false;
+            if (!CardFilters.matchesDiscardType(handCard, subType)) return false;
+            return subElement == null || CardFilters.meetsElementFilter(handCard, subElement);
+        }
+        public String substituteDescription() {
+            if (subCardName != null) return subCardName;
+            return (subElement != null ? subElement + " " : "") + subType;
+        }
+    }
+
+    /**
+     * Returns a {@link SpecialAbilityProxy} if this card grants use of another card's special
+     * ability with an alternate substitute discard, or {@code null} if it has none.
+     */
+    public SpecialAbilityProxy specialAbilityProxy() {
+        for (String seg : rawFieldSegments()) {
+            Matcher m = SPECIAL_ABILITY_PROXY_PATTERN.matcher(seg);
+            if (!m.matches()) continue;
+            return new SpecialAbilityProxy(
+                m.group("target").trim(),
+                m.group("subElem") != null ? m.group("subElem").trim() : null,
+                m.group("subType") != null ? m.group("subType").trim() : null,
+                m.group("subName") != null ? m.group("subName").trim() : null
+            );
+        }
+        return null;
     }
 
     /**

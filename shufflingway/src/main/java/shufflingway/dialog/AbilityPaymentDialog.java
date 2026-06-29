@@ -60,12 +60,13 @@ public class AbilityPaymentDialog {
     private final String[]       backupUrls;
     private final Consumer<String> onZoom;
     private final Runnable         onZoomHide;
+    private final CardData.SpecialAbilityProxy proxy;
     private final Callback         onConfirm;
 
     public AbilityPaymentDialog(JFrame owner, ActionAbility ability, CardData source,
             List<CardData> hand, CardData[] backupCards, CardState[] backupStates,
             String[] backupUrls, Consumer<String> onZoom, Runnable onZoomHide,
-            Callback onConfirm) {
+            CardData.SpecialAbilityProxy proxy, Callback onConfirm) {
         this.owner        = owner;
         this.ability      = ability;
         this.source       = source;
@@ -75,6 +76,7 @@ public class AbilityPaymentDialog {
         this.backupUrls   = backupUrls;
         this.onZoom       = onZoom;
         this.onZoomHide   = onZoomHide;
+        this.proxy        = proxy;
         this.onConfirm    = onConfirm;
     }
 
@@ -262,9 +264,10 @@ public class AbilityPaymentDialog {
         }
 
         // S cost slot — only shown for special abilities. The player clicks a same-named card
-        // from the hand row to commit it here; clicking the slot returns it.
+        // (or a valid substitute via a proxy) from the hand row to commit it here.
         if (ability.isSpecial()) {
-            JLabel sHdr = new JLabel("S Cost — click a " + source.name() + " below to commit:");
+            String sCostDesc = source.name() + (proxy != null ? " or " + proxy.substituteDescription() : "");
+            JLabel sHdr = new JLabel("S Cost — click a " + sCostDesc + " below to commit:");
             sHdr.setFont(FontLoader.loadPixelNESFont(9));
             sHdr.setAlignmentX(Component.LEFT_ALIGNMENT);
 
@@ -307,8 +310,9 @@ public class AbilityPaymentDialog {
         for (int i = 0; i < hand.size(); i++) {
             final int hi = i;
             CardData hc = hand.get(i);
-            // Same-named cards (for a special ability) go to the S slot, not to CP payment.
-            boolean sameNamed = ability.isSpecial() && source.name().equalsIgnoreCase(hc.name());
+            // Same-named or proxy-substitute cards go to the S slot, not to CP payment.
+            boolean sameNamed = ability.isSpecial() && (source.name().equalsIgnoreCase(hc.name())
+                    || (proxy != null && proxy.meetsSubstitute(hc)));
             boolean payable   = !sameNamed && !hc.isLightOrDark() && hc != source;
             JLabel lbl = makeCardLabel();
             lbl.setBackground(payable || sameNamed ? Color.DARK_GRAY : new Color(50, 50, 50));
@@ -385,7 +389,7 @@ public class AbilityPaymentDialog {
         StringBuilder costDesc = new StringBuilder();
         boolean cf = true;
         if (ability.requiresDull())    { costDesc.append("Dull"); cf = false; }
-        if (ability.isSpecial())       { if (!cf) costDesc.append(" + "); costDesc.append("S (discard ").append(source.name()).append(")"); cf = false; }
+        if (ability.isSpecial())       { if (!cf) costDesc.append(" + "); costDesc.append("S (discard ").append(proxy != null ? source.name() + " or " + proxy.substituteDescription() : source.name()).append(")"); cf = false; }
         if (ability.hasXCost())        { if (!cf) costDesc.append(" + "); costDesc.append("X CP"); cf = false; }
         if (ability.crystalCost() > 0) { if (!cf) costDesc.append(" + "); costDesc.append(ability.crystalCost()).append(" Crystal"); cf = false; }
         if (ability.selfMillCost() > 0) { if (!cf) costDesc.append(" + "); costDesc.append("mill ").append(ability.selfMillCost()); cf = false; }

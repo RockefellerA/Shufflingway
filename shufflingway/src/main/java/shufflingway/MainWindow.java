@@ -7857,7 +7857,13 @@ public class MainWindow {
 			if (state != CardState.ACTIVE) return false;
 			if (playedTurn > 0 && gameState.getTurnNumber() - playedTurn < 2) return false;
 		}
-		if (ability.isSpecial() && !hasSameNameInHand(source.name(), getPrimerCardName(source, isP1), isP1)) return false;
+		if (ability.isSpecial()) {
+			String primerName = getPrimerCardName(source, isP1);
+			if (!hasSameNameInHand(source.name(), primerName, isP1)) {
+				CardData.SpecialAbilityProxy proxy = source.specialAbilityProxy();
+				if (proxy == null || playerHand(isP1).stream().noneMatch(proxy::meetsSubstitute)) return false;
+			}
+		}
 		if (ability.damageThreshold() > 0) {
 			int dmg = isP1 ? gameState.getP1DamageZone().size() : gameState.getP2DamageZone().size();
 			if (dmg < ability.damageThreshold()) return false;
@@ -10930,14 +10936,15 @@ public class MainWindow {
 			}
 		}
 		for (int idx : selection)
-			autoAbilityTriggers.triggerAutoAbilitiesForAttack(p1ForwardCards.get(idx), true);
+			autoAbilityTriggers.triggerAutoAbilitiesForAttack(
+					p1ForwardPrimedTop.get(idx) != null ? p1ForwardPrimedTop.get(idx) : p1ForwardCards.get(idx), true);
 
 		setAttackSubStep(2); // moving to block-declaration sub-step
 		refreshAttackButton();
 
 		if (selection.size() == 1) {
 			int idx = selection.get(0);
-			CardData attacker = p1ForwardCards.get(idx);
+			CardData attacker = p1ForwardPrimedTop.get(idx) != null ? p1ForwardPrimedTop.get(idx) : p1ForwardCards.get(idx);
 			logEntry(attacker.name() + " attacks!");
 			// Priority window after attacker declared (P1 attacks → P1 priority first)
 			combatPriority("Attacker Declared", true, () -> {

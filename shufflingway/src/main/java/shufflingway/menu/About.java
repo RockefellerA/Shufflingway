@@ -1,5 +1,7 @@
 package shufflingway.menu;
 
+import shufflingway.UpdateChecker;
+
 import java.awt.BorderLayout;
 import java.awt.FlowLayout;
 import java.awt.Toolkit;
@@ -51,6 +53,7 @@ public class About extends JDialog {
 			buttonPane.setLayout(new FlowLayout(FlowLayout.RIGHT));
 			JLabel lblNewLabel = new JLabel("<html><div style='text-align: center;'>Author: Andrew Rockefeller © 2023<br/>" +
 			"Pixel NES font by Neale Davidson<br/><br/>" +
+			"Version: " + UpdateChecker.currentVersion() + "<br/><br/>" +
 			"This is an unofficial fan tool — it is not affiliated with Square Enix.</div></html>");
 			lblNewLabel.setHorizontalAlignment(SwingConstants.CENTER);
 			getContentPane().add(lblNewLabel, BorderLayout.CENTER);
