@@ -8115,6 +8115,10 @@ public class MainWindow {
 			List<CardData> oppFwds = isP1 ? p2ForwardCards : p1ForwardCards;
 			if (oppFwds.size() < icb.minOpponentForwards()) return false;
 		}
+		if (icb.maxOwnHandSize() > 0) {
+			int ownHandSize = (isP1 ? gameState.getP1Hand() : gameState.getP2Hand()).size();
+			if (ownHandSize > icb.maxOwnHandSize()) return false;
+		}
 		return true;
 	}
 

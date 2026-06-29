@@ -35,13 +35,27 @@ public record IfControlBoost(
         int       minDamageReceived,          // 0 = unused; >0 = condition requires the controlling player to have taken this many damage points
         boolean   instead,                    // true = this effect replaces (rather than stacks with) the base field effect
         int       maxOpponentHandSize,        // 0 = unused; >0 = condition requires opponent hand size to be ≤ this value
-        int       minOpponentForwards         // 0 = unused; >0 = condition requires opponent to control this many Forwards
+        int       minOpponentForwards,        // 0 = unused; >0 = condition requires opponent to control this many Forwards
+        int       maxOwnHandSize             // 0 = unused; >0 = condition requires own hand size to be ≤ this value
 ) {
     public IfControlBoost {
         conditions    = List.copyOf(conditions);
         grantedTraits = Set.copyOf(grantedTraits);
         if (exceptCardName == null) exceptCardName = "";
         if (specialText    == null) specialText    = "";
+    }
+
+    /** Compatibility constructor preserving the prior 16-arg signature; defaults maxOwnHandSize to 0. */
+    public IfControlBoost(List<ControlCondition> conditions, String exceptCardName,
+            String targetCardName, FieldPowerGrant targetFilter, int powerBonus,
+            Set<CardData.Trait> grantedTraits, String specialText,
+            boolean cannotBeChosenBySummons, boolean cannotBeChosenByAbilities, boolean cannotBeBlocked,
+            int[] cannotBeBlockedByCost, int minRemovedFromGame, int minDamageReceived, boolean instead,
+            int maxOpponentHandSize, int minOpponentForwards) {
+        this(conditions, exceptCardName, targetCardName, targetFilter, powerBonus, grantedTraits,
+                specialText, cannotBeChosenBySummons, cannotBeChosenByAbilities, cannotBeBlocked,
+                cannotBeBlockedByCost, minRemovedFromGame, minDamageReceived, instead, maxOpponentHandSize,
+                minOpponentForwards, 0);
     }
 
     /** Compatibility constructor preserving the prior 15-arg signature; defaults minOpponentForwards to 0. */
@@ -144,6 +158,7 @@ public record IfControlBoost(
         if (instead)                   sb.append(" instead");
         if (maxOpponentHandSize > 0)   sb.append(" oppHand<=").append(maxOpponentHandSize);
         if (minOpponentForwards > 0)   sb.append(" oppFwds>=").append(minOpponentForwards);
+        if (maxOwnHandSize > 0)        sb.append(" ownHand<=").append(maxOwnHandSize);
         sb.append(']');
         return sb.toString();
     }
