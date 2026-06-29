@@ -531,6 +531,8 @@ public class GameState {
 
     /** Returns an unmodifiable view of the Stack (index 0 = bottom, last = top). */
     public List<StackEntry> getStack()              { return Collections.unmodifiableList(stack); }
+
+    /** Returns IdentityHashMap, Boolean = True: Belongs to P1, False: Belongs to P2/CPU */
     public IdentityHashMap<CardData, Boolean> getIdentity() { return identity; }
 
     public Deque<CardData> getP1MainDeck()          { return p1MainDeck; }
