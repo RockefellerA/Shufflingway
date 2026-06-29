@@ -31,6 +31,8 @@ package shufflingway;
  * @param scalingJobFilter if non-null, multiply {@code amountPerUnit} by the number of active
  *                         forwards with this job the casting player controls
  * @param anyElement      if {@code true}, the cost may be paid with CP of any element
+ * @param bzConditionJob  if non-null, the grant only applies when the owning player has at least
+ *                        one card with this job in their Break Zone
  */
 public record FieldCostReduction(
         int     amountPerUnit,
@@ -45,7 +47,8 @@ public record FieldCostReduction(
         String  cardNameFilter,
         String  categoryFilter,
         String  scalingJobFilter,
-        boolean anyElement
+        boolean anyElement,
+        String  bzConditionJob
 ) {
     /** Returns {@code true} if this modifier can apply to {@code card}. */
     public boolean matchesCard(CardData card) {

@@ -2954,7 +2954,7 @@ public record CardData(
             boolean iM  = type == null || tl.contains("monster")  || tl.contains("character");
             boolean iS  = type == null || tl.contains("summon");
             return new FieldCostReduction(amount, floorAtOne, ownerOnly, iF, iB, iM, iS,
-                    null, job, null, null, scalingJob, false);
+                    null, job, null, null, scalingJob, false, null);
         }
 
         m = CAST_SPEC_JOB_TYPE.matcher(branch);
@@ -2967,18 +2967,18 @@ public record CardData(
             boolean iM  = type == null || tl.contains("monster")  || tl.contains("character");
             boolean iS  = type == null || tl.contains("summon");
             return new FieldCostReduction(amount, floorAtOne, ownerOnly, iF, iB, iM, iS,
-                    null, job, null, null, scalingJob, false);
+                    null, job, null, null, scalingJob, false, null);
         }
 
         m = CAST_SPEC_BRACKETED.matcher(branch);
         if (m.find())
             return new FieldCostReduction(amount, floorAtOne, ownerOnly, true, true, true, true,
-                    null, null, m.group("name").trim(), null, scalingJob, false);
+                    null, null, m.group("name").trim(), null, scalingJob, false, null);
 
         m = PLAY_SPEC_CARD_NAME.matcher(branch);
         if (m.find())
             return new FieldCostReduction(amount, floorAtOne, ownerOnly, true, true, true, true,
-                    null, null, m.group("name").trim(), null, scalingJob, false);
+                    null, null, m.group("name").trim(), null, scalingJob, false, null);
 
         m = CAST_SPEC_CATEGORY_TYPE.matcher(branch);
         if (m.find()) {
@@ -2989,7 +2989,7 @@ public record CardData(
             boolean iM  = tl.contains("monster")  || tl.contains("character");
             boolean iS  = tl.contains("summon");
             return new FieldCostReduction(amount, floorAtOne, ownerOnly, iF, iB, iM, iS,
-                    null, null, null, cat, scalingJob, false);
+                    null, null, null, cat, scalingJob, false, null);
         }
 
         m = CAST_SPEC_TYPE.matcher(branch);
@@ -3001,7 +3001,7 @@ public record CardData(
             boolean iM     = tl.contains("monster")  || tl.contains("character");
             boolean iS     = tl.contains("summon");
             return new FieldCostReduction(amount, floorAtOne, ownerOnly, iF, iB, iM, iS,
-                    element, null, null, null, scalingJob, false);
+                    element, null, null, null, scalingJob, false, null);
         }
 
         return null;
@@ -3048,7 +3048,7 @@ public record CardData(
 
                 result.add(new FieldCostReduction(amount, floorAtOne, ownerOnly,
                         inclForwards, inclBackups, inclMonsters, inclSummons,
-                        elementFilter, jobFilter, cardNameFilter, null, scalingJob, false));
+                        elementFilter, jobFilter, cardNameFilter, null, scalingJob, false, null));
                 continue;
             }
 
@@ -3074,7 +3074,17 @@ public record CardData(
                 int    amount   = Integer.parseInt(cm.group("amount"));
                 String cardName = cm.group("cardname").trim();
                 result.add(new FieldCostReduction(amount, false, false, true, true, true, true,
-                        null, null, cardName, null, null, false));
+                        null, null, cardName, null, null, false, null));
+                continue;
+            }
+
+            // Conditional BZ-job any-element grant
+            Matcher bzJobM = FIELD_CONDITIONAL_BZ_JOB_ANY_ELEMENT_PATTERN.matcher(seg);
+            if (bzJobM.find()) {
+                String job      = bzJobM.group("job").trim();
+                String cardName = bzJobM.group("cardname").trim();
+                result.add(new FieldCostReduction(0, false, true, true, true, true, true,
+                        null, null, cardName, null, null, true, job));
                 continue;
             }
 
@@ -3092,6 +3102,16 @@ public record CardData(
         }
         return List.copyOf(result);
     }
+
+    /**
+     * Matches "If you have a Job &lt;job&gt; in your Break Zone, the cost required to cast &lt;cardname&gt;
+     * can be paid with CP of any Element."
+     * Groups: {@code job}, {@code cardname}.
+     */
+    private static final Pattern FIELD_CONDITIONAL_BZ_JOB_ANY_ELEMENT_PATTERN = Pattern.compile(
+        "(?i)^If\\s+you\\s+have\\s+a\\s+Job\\s+(?<job>[^,]+?)\\s+in\\s+your\\s+Break\\s+Zone,\\s+" +
+        "the\\s+cost\\s+required\\s+to\\s+cast\\s+(?<cardname>.+?)\\s+can\\s+be\\s+paid\\s+with\\s+CP\\s+of\\s+any\\s+Element\\s*\\.?$"
+    );
 
     /**
      * Matches "can be paid with CP of any Element" cast-cost grants, with an optional
@@ -3142,18 +3162,18 @@ public record CardData(
             boolean iM  = type == null || tl.contains("monster")  || tl.contains("character");
             boolean iS  = type == null || tl.contains("summon");
             return new FieldCostReduction(amount, false, ownerOnly, iF, iB, iM, iS,
-                    null, job, null, null, null, true);
+                    null, job, null, null, null, true, null);
         }
 
         m = CAST_SPEC_BRACKETED.matcher(branch);
         if (m.find())
             return new FieldCostReduction(amount, false, ownerOnly, true, true, true, true,
-                    null, null, m.group("name").trim(), null, null, true);
+                    null, null, m.group("name").trim(), null, null, true, null);
 
         m = CAST_SPEC_CARD_NAME.matcher(branch);
         if (m.find())
             return new FieldCostReduction(amount, false, ownerOnly, true, true, true, true,
-                    null, null, m.group("name"), null, null, true);
+                    null, null, m.group("name"), null, null, true, null);
 
         m = CAST_SPEC_CATEGORY_TYPE.matcher(branch);
         if (m.find()) {
@@ -3164,7 +3184,7 @@ public record CardData(
             boolean iM  = tl.contains("monster")  || tl.contains("character");
             boolean iS  = tl.contains("summon");
             return new FieldCostReduction(amount, false, ownerOnly, iF, iB, iM, iS,
-                    null, null, null, cat, null, true);
+                    null, null, null, cat, null, true, null);
         }
 
         m = CAST_SPEC_TYPE.matcher(branch);
@@ -3176,7 +3196,7 @@ public record CardData(
             boolean iM     = tl.contains("monster")  || tl.contains("character");
             boolean iS     = tl.contains("summon");
             return new FieldCostReduction(amount, false, ownerOnly, iF, iB, iM, iS,
-                    element, null, null, null, null, true);
+                    element, null, null, null, null, true, null);
         }
 
         return null;
@@ -3736,6 +3756,7 @@ public record CardData(
             if (FIELD_CONDITIONAL_COST_REDUCTION_PATTERN.matcher(seg).find()) continue;
             // Self-cost modifier ("If <cond>, the cost required to cast/play <cardName>…") — handled via parseSelfCostModifiers
             if (isSelfCostModifierText(seg))                                  continue;
+            if (FIELD_CONDITIONAL_BZ_JOB_ANY_ELEMENT_PATTERN.matcher(seg).find()) continue;
             if (FIELD_CAST_ANY_ELEMENT_PATTERN.matcher(seg).find())          continue;
             if (FIELD_PRIMING_ANY_ELEMENT_PATTERN.matcher(seg).find())       continue;
             if (WARP_ANY_ELEMENT_PATTERN.matcher(seg).find())                continue;

@@ -6410,7 +6410,13 @@ public class MainWindow {
 		for (FieldCostReduction fcr : src.fieldCostReductions()) {
 			if (!fcr.anyElement()) continue;
 			if (fcr.ownerOnly() && !srcIsP1) continue;
-			if (fcr.matchesCard(card)) return true;
+			if (!fcr.matchesCard(card)) continue;
+			if (fcr.bzConditionJob() != null) {
+				List<CardData> bz = srcIsP1 ? gameState.getP1BreakZone() : gameState.getP2BreakZone();
+				String job = fcr.bzConditionJob();
+				if (bz.stream().noneMatch(c -> c.hasJob(job))) continue;
+			}
+			return true;
 		}
 		return false;
 	}
