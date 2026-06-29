@@ -265,6 +265,17 @@ final class AutoAbilityTriggers {
 	);
 
 	/**
+	 * Outgoing combat damage boost from a friendly Element Forward to an opposing Forward.
+	 * "If a Fire Forward you control deals damage to a Forward, the damage increases by N instead."
+	 * Checked on the ATTACKER's side field cards (Forwards and Backups).
+	 * Groups: {@code element}, {@code amount}.
+	 */
+	static final Pattern FA_ELEMENT_FORWARD_DAMAGE_BOOST = Pattern.compile(
+		"(?i)If\\s+a\\s+(?<element>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)\\s+Forward\\s+you\\s+control" +
+		"\\s+deals?\\s+damage\\s+to\\s+a\\s+Forward,\\s+the\\s+damage\\s+increases\\s+by\\s+(?<amount>\\d+)\\s+instead\\.?"
+	);
+
+	/**
 	 * Field-wide incoming-damage modifier: "If a [Category X | Job Y] Forward [of cost N or less/more]
 	 * [other than Z] you control [other than Z] is dealt damage [less than its power | by a Backup],
 	 * [reduce the damage by N | the damage becomes N] instead."

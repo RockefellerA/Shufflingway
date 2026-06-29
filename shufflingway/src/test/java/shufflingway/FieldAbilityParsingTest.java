@@ -111,6 +111,7 @@ public class FieldAbilityParsingTest {
         if (CardData.MULTI_NAME_PLAY_PATTERN.matcher(fa.effectText()).matches()) return true;
         if (AutoAbilityTriggers.FA_DAMAGE_MODIFIER.matcher(fa.effectText()).find()) return true;
         if (AutoAbilityTriggers.FA_FIELD_DAMAGE_MODIFIER.matcher(fa.effectText()).find()) return true;
+        if (AutoAbilityTriggers.FA_ELEMENT_FORWARD_DAMAGE_BOOST.matcher(fa.effectText()).find()) return true;
         if (AutoAbilityTriggers.FA_PARTY_DAMAGE_PROTECTION.matcher(fa.effectText()).find()) return true;
         if (AutoAbilityTriggers.FA_NULLIFY_SUMMON_DAMAGE.matcher(fa.effectText()).find()) return true;
         if (AutoAbilityTriggers.FA_NULLIFY_ABILITY_DAMAGE.matcher(fa.effectText()).find()) return true;
@@ -206,6 +207,8 @@ public class FieldAbilityParsingTest {
             return "DmgModifier[" + (src != null ? src.trim() : "any") + ": "
                     + (reduceBy != null ? "reduce " + reduceBy : "becomes " + setsTo) + "]";
         }
+        m = AutoAbilityTriggers.FA_ELEMENT_FORWARD_DAMAGE_BOOST.matcher(fa.effectText());
+        if (m.find()) return "ElementFwdDmgBoost[" + m.group("element") + " Fwd +" + m.group("amount") + "]";
         m = AutoAbilityTriggers.FA_FIELD_DAMAGE_MODIFIER.matcher(fa.effectText());
         if (m.find()) {
             String src      = m.group("sourceclause");

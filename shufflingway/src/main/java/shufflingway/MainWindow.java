@@ -537,6 +537,8 @@ public class MainWindow {
 	private boolean  currentSummonSourceIsP1 = false;
 	/** The source card of the action ability currently resolving off the stack (null otherwise). */
 	CardData currentAbilitySource       = null;
+	/** {@code true} if {@link #currentAbilitySource} belongs to P1. */
+	private boolean currentAbilitySourceIsP1 = false;
 	/** Set to {@code true} while a Summon effect is resolving so {@link #selectCharacters} applies the correct protection set. */
 	boolean currentResolutionIsSummon = false;
 	/** Set to {@code true} by {@code returnNamedCardToYourHand} when the Summon itself is being returned to hand. */
@@ -7011,7 +7013,8 @@ public class MainWindow {
 				logEntry("[EX Burst on Stack] Resolving \"" + entry.source().name() + "\": " + exText);
 				Consumer<GameContext> effect = ActionResolver.parse(exText, entry.source());
 				if (effect != null) {
-					currentAbilitySource = entry.source();
+					currentAbilitySource     = entry.source();
+					currentAbilitySourceIsP1 = entry.isP1();
 					try { effect.accept(ctx); } finally { currentAbilitySource = null; }
 				} else {
 					logEntry("[EX Burst on Stack] Effect not yet implemented: " + exText);
@@ -7023,7 +7026,8 @@ public class MainWindow {
 				logEntry("[AutoAbility] Resolving \"" + entry.source().name() + "\": " + ab.effectText());
 				Consumer<GameContext> effect = ActionResolver.parse(ab.effectText(), entry.source());
 				if (effect != null) {
-					currentAbilitySource = entry.source();
+					currentAbilitySource     = entry.source();
+					currentAbilitySourceIsP1 = entry.isP1();
 					try { effect.accept(ctx); } finally { currentAbilitySource = null; }
 				} else {
 					logEntry("[AutoAbility] Unrecognized effect: " + ab.effectText());
@@ -7031,7 +7035,8 @@ public class MainWindow {
 				refreshP1HandLabel();
 				refreshP1BreakLabel();
 			} else {
-				currentAbilitySource = entry.source();
+				currentAbilitySource     = entry.source();
+				currentAbilitySourceIsP1 = entry.isP1();
 				try {
 					ActionResolver.resolve(entry.ability(), entry.source(), gameState, ctx, entry.xValue());
 				} finally {
@@ -8625,6 +8630,8 @@ public class MainWindow {
 
 		// Outgoing damage boost from caster's side field cards (e.g. Caetuna — Fire Summon +1000)
 		if (fromAbility) amount = applyCasterSideElementSummonDamageBoosts(amount, isP1);
+		// Outgoing damage boost from caster's side field cards when source is an Element Forward
+		if (fromAbility) amount = applyCasterSideElementForwardDamageBoosts(amount, isP1);
 
 		// Source-based nullification (these block damage by type of source, not by reducing amount)
 		if (fromAbility) {
@@ -8854,6 +8861,33 @@ public class MainWindow {
 	}
 
 	/**
+	 * Scans the caster's side field cards for {@link AutoAbilityTriggers#FA_ELEMENT_FORWARD_DAMAGE_BOOST}
+	 * abilities and applies any that match when the resolving ability source is an Element Forward
+	 * dealing damage to a Forward on the opposing side.
+	 */
+	private int applyCasterSideElementForwardDamageBoosts(int amount, boolean targetIsP1) {
+		if (currentAbilitySource == null || !currentAbilitySource.isForward()) return amount;
+		if (currentAbilitySourceIsP1 == targetIsP1) return amount;
+		boolean casterIsP1 = currentAbilitySourceIsP1;
+		List<CardData> casterField = new ArrayList<>(casterIsP1 ? p1ForwardCards : p2ForwardCards);
+		for (CardData bkp : casterIsP1 ? p1BackupCards : p2BackupCards)
+			if (bkp != null) casterField.add(bkp);
+		for (CardData booster : casterField) {
+			for (FieldAbility fa : booster.fieldAbilities()) {
+				Matcher m = AutoAbilityTriggers.FA_ELEMENT_FORWARD_DAMAGE_BOOST.matcher(fa.effectText());
+				if (!m.find()) continue;
+				if (!currentAbilitySource.containsElement(m.group("element"))) continue;
+				int boost = Integer.parseInt(m.group("amount"));
+				int before = amount;
+				amount += boost;
+				logEntry(booster.name() + " — " + m.group("element") + " Forward ability damage increased by "
+						+ boost + " (" + before + " → " + amount + ")");
+			}
+		}
+		return amount;
+	}
+
+	/**
 	 * Applies outgoing-damage modifiers for a forward that is about to deal combat damage.
 	 * Checks and consumes the one-time "next outgoing damage = 0" shield.
 	 */
@@ -8866,7 +8900,27 @@ public class MainWindow {
 		if (nextOutgoingDmgDoublerSet.remove(card)) mult *= 2;
 		if (target != null) mult *= fieldAbilityCombatOutgoingMult(card, target);
 		int flat = (target != null) ? outgoingDmgFlatBoostMap.getOrDefault(card, 0) : 0;
+		if (target != null && target.isForward() && card.isForward())
+			flat += friendlyElementForwardCombatBoost(card, isP1);
 		return rawAmount * mult + flat;
+	}
+
+	private int friendlyElementForwardCombatBoost(CardData attacker, boolean isP1) {
+		int boost = 0;
+		List<CardData> sources = new ArrayList<>(isP1 ? p1ForwardCards : p2ForwardCards);
+		for (CardData bkp : isP1 ? p1BackupCards : p2BackupCards)
+			if (bkp != null) sources.add(bkp);
+		for (CardData source : sources) {
+			for (FieldAbility fa : source.fieldAbilities()) {
+				Matcher m = AutoAbilityTriggers.FA_ELEMENT_FORWARD_DAMAGE_BOOST.matcher(fa.effectText());
+				if (!m.find()) continue;
+				if (!attacker.containsElement(m.group("element"))) continue;
+				int amount = Integer.parseInt(m.group("amount"));
+				boost += amount;
+				logEntry(source.name() + " — " + m.group("element") + " Forward combat damage increased by " + amount);
+			}
+		}
+		return boost;
 	}
 
 	private int fieldAbilityCombatOutgoingMult(CardData attacker, CardData target) {
