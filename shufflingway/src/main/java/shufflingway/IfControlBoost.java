@@ -36,13 +36,27 @@ public record IfControlBoost(
         boolean   instead,                    // true = this effect replaces (rather than stacks with) the base field effect
         int       maxOpponentHandSize,        // 0 = unused; >0 = condition requires opponent hand size to be ≤ this value
         int       minOpponentForwards,        // 0 = unused; >0 = condition requires opponent to control this many Forwards
-        int       maxOwnHandSize             // 0 = unused; >0 = condition requires own hand size to be ≤ this value
+        int       maxOwnHandSize,            // 0 = unused; >0 = condition requires own hand size to be ≤ this value
+        boolean   allBackupsDifferentElements // true = condition requires all controlled Backups to be different Elements
 ) {
     public IfControlBoost {
         conditions    = List.copyOf(conditions);
         grantedTraits = Set.copyOf(grantedTraits);
         if (exceptCardName == null) exceptCardName = "";
         if (specialText    == null) specialText    = "";
+    }
+
+    /** Compatibility constructor preserving the prior 17-arg signature; defaults allBackupsDifferentElements to false. */
+    public IfControlBoost(List<ControlCondition> conditions, String exceptCardName,
+            String targetCardName, FieldPowerGrant targetFilter, int powerBonus,
+            Set<CardData.Trait> grantedTraits, String specialText,
+            boolean cannotBeChosenBySummons, boolean cannotBeChosenByAbilities, boolean cannotBeBlocked,
+            int[] cannotBeBlockedByCost, int minRemovedFromGame, int minDamageReceived, boolean instead,
+            int maxOpponentHandSize, int minOpponentForwards, int maxOwnHandSize) {
+        this(conditions, exceptCardName, targetCardName, targetFilter, powerBonus, grantedTraits,
+                specialText, cannotBeChosenBySummons, cannotBeChosenByAbilities, cannotBeBlocked,
+                cannotBeBlockedByCost, minRemovedFromGame, minDamageReceived, instead, maxOpponentHandSize,
+                minOpponentForwards, maxOwnHandSize, false);
     }
 
     /** Compatibility constructor preserving the prior 16-arg signature; defaults maxOwnHandSize to 0. */
@@ -159,6 +173,7 @@ public record IfControlBoost(
         if (maxOpponentHandSize > 0)   sb.append(" oppHand<=").append(maxOpponentHandSize);
         if (minOpponentForwards > 0)   sb.append(" oppFwds>=").append(minOpponentForwards);
         if (maxOwnHandSize > 0)        sb.append(" ownHand<=").append(maxOwnHandSize);
+        if (allBackupsDifferentElements) sb.append(" allBkpsDiffElem");
         sb.append(']');
         return sb.toString();
     }

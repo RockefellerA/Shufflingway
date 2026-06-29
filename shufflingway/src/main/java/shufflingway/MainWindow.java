@@ -8119,6 +8119,12 @@ public class MainWindow {
 			int ownHandSize = (isP1 ? gameState.getP1Hand() : gameState.getP2Hand()).size();
 			if (ownHandSize > icb.maxOwnHandSize()) return false;
 		}
+		if (icb.allBackupsDifferentElements()) {
+			CardData[] bkps = isP1 ? p1BackupCards : p2BackupCards;
+			java.util.Set<String> seen = new java.util.HashSet<>();
+			for (CardData b : bkps)
+				if (b != null && !seen.add(effectiveElement(b))) return false;
+		}
 		return true;
 	}
 

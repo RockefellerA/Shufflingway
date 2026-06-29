@@ -1864,6 +1864,16 @@ public record CardData(
     );
 
     /**
+     * "If you control N or more Backups and if the Backups you control are all of different Elements,
+     * [target] gains +[power] power."
+     * Groups: {@code count}, {@code target}, {@code power}.
+     */
+    private static final Pattern IF_N_BACKUPS_ALL_DIFF_ELEMENTS_BOOST = Pattern.compile(
+        "(?i)^If\\s+you\\s+control\\s+(?<count>\\d+)\\s+or\\s+more\\s+Backups?\\s+and\\s+if\\s+the\\s+Backups?\\s+you\\s+control\\s+are\\s+all\\s+of\\s+different\\s+Elements?,\\s+" +
+        "(?<target>.+?)\\s+gains?\\s+\\+?(?<power>\\d+)\\s+power\\.?\\s*$"
+    );
+
+    /**
      * "If your opponent controls N or more Forwards, [target] gains [effects]."
      * Groups: {@code n}, {@code target}, {@code effects}.
      */
@@ -2158,6 +2168,20 @@ public record CardData(
                     result.add(new IfControlBoost(List.of(), "", targetName, targetFilter,
                             powerBonus, traits, "", false, false, false, null, 0, 0, false, 0, 0, maxHand));
                 }
+                continue;
+            }
+
+            // "If you control N or more Backups and if the Backups you control are all of different Elements, [target] gains +[power] power."
+            Matcher diffElemM = IF_N_BACKUPS_ALL_DIFF_ELEMENTS_BOOST.matcher(seg);
+            if (diffElemM.find()) {
+                int minCount      = Integer.parseInt(diffElemM.group("count"));
+                String targetName = diffElemM.group("target").trim();
+                int powerBonus    = Integer.parseInt(diffElemM.group("power"));
+                ControlCondition bkpCond = new ControlCondition(
+                        List.of(), minCount, false, "Backup", null, null, null, 0, List.of());
+                FieldPowerGrant targetFilter = parseIcbTargetFilter(targetName);
+                result.add(new IfControlBoost(List.of(bkpCond), "", targetName, targetFilter,
+                        powerBonus, EnumSet.noneOf(Trait.class), "", false, false, false, null, 0, 0, false, 0, 0, 0, true));
                 continue;
             }
 
