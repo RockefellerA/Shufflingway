@@ -2749,7 +2749,7 @@ public class MainWindow {
 			addToBreakZone(topCard);
 			logEntry(card.name() + " + " + topCard.name() + " → Break Zone (Primed)");
 			gameState.getP1BreakZone().remove(topCard);
-			gameState.addToP1PermanentRfp(topCard);
+			gameState.addToPermanentRfp(topCard);
 			logEntry(topCard.name() + " → Removed From Play");
 		} else {
 			addToBreakZone(card);
@@ -2856,7 +2856,7 @@ public class MainWindow {
 			addToBreakZone(topCard);
 			logEntry("[P2] " + card.name() + " + " + topCard.name() + " → Break Zone (Primed)");
 			gameState.getP2BreakZone().remove(topCard);
-			gameState.addToP2PermanentRfp(topCard);
+			gameState.addToPermanentRfp(topCard);
 			logEntry("[P2] " + topCard.name() + " → Removed From Play");
 		} else {
 			addToBreakZone(card);
@@ -3229,12 +3229,17 @@ public class MainWindow {
 		CardData card    = p1ForwardCards.get(idx);
 		CardData topCard = p1ForwardPrimedTop.get(idx);
 		String   pos     = toBottom ? "bottom" : "top";
+
+		boolean player1 = gameState.getIdentity().get(card);
+		Deque<CardData> zone = player1 ? gameState.getP1MainDeck() : gameState.getP2MainDeck();
+		zone.add(card);
+
 		if (topCard != null) {
-			gameState.addToP1PermanentRfp(topCard);
+			gameState.addToPermanentRfp(topCard);
 			logEntry(topCard.name() + " → Removed From Play");
 		}
-		if (toBottom) gameState.getP1MainDeck().addLast(card);
-		else          gameState.getP1MainDeck().addFirst(card);
+		if (toBottom) zone.addLast(card);
+		else          zone.addFirst(card);
 		logEntry(card.name() + " → " + pos + " of deck");
 
 		p1ForwardCards.remove(idx);
@@ -3294,7 +3299,7 @@ public class MainWindow {
 			p1ForwardPanel.repaint();
 			for (int i = 0; i < p1ForwardCards.size(); i++) refreshP1ForwardSlot(i);
 		}
-		refreshP1DeckLabel();
+		if (player1) refreshP1DeckLabel(); else refreshP2DeckLabel();
 		if (topCard != null) refreshP1WarpZoneUI();
 		autoAbilityTriggers.triggerAutoAbilitiesForLeavesField(card, true);
 	}
@@ -3304,12 +3309,17 @@ public class MainWindow {
 		CardData card    = p2ForwardCards.get(idx);
 		CardData topCard = p2ForwardPrimedTop.get(idx);
 		String   pos     = toBottom ? "bottom" : "top";
+
+		boolean player1 = gameState.getIdentity().get(card);
+		Deque<CardData> zone = player1 ? gameState.getP1MainDeck() : gameState.getP2MainDeck();
+		zone.add(card);
+
 		if (topCard != null) {
-			gameState.addToP2PermanentRfp(topCard);
+			gameState.addToPermanentRfp(topCard);
 			logEntry("[P2] " + topCard.name() + " → Removed From Play");
 		}
-		if (toBottom) gameState.getP2MainDeck().addLast(card);
-		else          gameState.getP2MainDeck().addFirst(card);
+		if (toBottom) zone.addLast(card);
+		else          zone.addFirst(card);
 		logEntry("[P2] " + card.name() + " → " + pos + " of deck");
 
 		p2ForwardCards.remove(idx);
@@ -3357,7 +3367,7 @@ public class MainWindow {
 			p2ForwardPanel.repaint();
 			for (int i = 0; i < p2ForwardCards.size(); i++) refreshP2ForwardSlot(i);
 		}
-		refreshP2DeckLabel();
+		if (player1) refreshP1DeckLabel(); else refreshP2DeckLabel();
 		autoAbilityTriggers.triggerAutoAbilitiesForLeavesField(card, false);
 	}
 
@@ -3365,8 +3375,13 @@ public class MainWindow {
 		if (idx < 0 || idx >= p1ForwardCards.size()) return;
 		CardData card    = p1ForwardCards.get(idx);
 		CardData topCard = p1ForwardPrimedTop.get(idx);
+
+		boolean player1 = gameState.getIdentity().get(card);
+		Deque<CardData> zone = player1 ? gameState.getP1MainDeck() : gameState.getP2MainDeck();
+		zone.add(card);
+
 		if (topCard != null) {
-			gameState.addToP1PermanentRfp(topCard);
+			gameState.addToPermanentRfp(topCard);
 			logEntry(topCard.name() + " → Removed From Play");
 		}
 		Deque<CardData> deck = gameState.getP1MainDeck();
@@ -3433,7 +3448,7 @@ public class MainWindow {
 			p1ForwardPanel.repaint();
 			for (int i = 0; i < p1ForwardCards.size(); i++) refreshP1ForwardSlot(i);
 		}
-		refreshP1DeckLabel();
+		if (player1) refreshP1DeckLabel(); else refreshP2DeckLabel();
 		if (topCard != null) refreshP1WarpZoneUI();
 		autoAbilityTriggers.triggerAutoAbilitiesForLeavesField(card, true);
 	}
@@ -3442,8 +3457,13 @@ public class MainWindow {
 		if (idx < 0 || idx >= p2ForwardCards.size()) return;
 		CardData card    = p2ForwardCards.get(idx);
 		CardData topCard = p2ForwardPrimedTop.get(idx);
+
+		boolean player1 = gameState.getIdentity().get(card);
+		Deque<CardData> zone = player1 ? gameState.getP1MainDeck() : gameState.getP2MainDeck();
+		zone.add(card);
+
 		if (topCard != null) {
-			gameState.addToP2PermanentRfp(topCard);
+			gameState.addToPermanentRfp(topCard);
 			logEntry("[P2] " + topCard.name() + " → Removed From Play");
 		}
 		Deque<CardData> deck = gameState.getP2MainDeck();
@@ -3498,7 +3518,7 @@ public class MainWindow {
 			p2ForwardPanel.repaint();
 			for (int i = 0; i < p2ForwardCards.size(); i++) refreshP2ForwardSlot(i);
 		}
-		refreshP2DeckLabel();
+		if (player1) refreshP1DeckLabel(); else refreshP2DeckLabel();
 		autoAbilityTriggers.triggerAutoAbilitiesForLeavesField(card, false);
 	}
 
@@ -3846,11 +3866,13 @@ public class MainWindow {
 		CardData card    = p1ForwardCards.get(idx);
 		boolean hadGrants = !card.fieldPowerGrants().isEmpty();
 		CardData topCard = p1ForwardPrimedTop.get(idx);
+		boolean player1 = gameState.getIdentity().get(card);
+		List<CardData> zone = player1 ? gameState.getP1Hand() : gameState.getP2Hand();
 		if (topCard != null) {
-			gameState.addToP1PermanentRfp(topCard);
+			gameState.addToPermanentRfp(topCard);
 			logEntry(topCard.name() + " → Removed From Play");
 		}
-		gameState.getP1Hand().add(card);
+		zone.add(card);
 		logEntry(card.name() + " → returned to hand");
 
 		p1ForwardCards.remove(idx);
@@ -3911,7 +3933,7 @@ public class MainWindow {
 			for (int i = 0; i < p1ForwardCards.size(); i++) refreshP1ForwardSlot(i);
 		}
 		if (hadGrants) for (int i = 0; i < p1MonsterCards.size(); i++) refreshP1MonsterSlot(i);
-		refreshP1HandLabel();
+		if (player1) refreshP1HandLabel(); else refreshP2HandCountLabel();
 		if (topCard != null) refreshP1WarpZoneUI();
 		if (gameState.getCurrentPlayer() == GameState.Player.P1) p1ForwardsLeftFieldThisTurn++;
 		else p2ForwardsLeftFieldThisTurn++;
@@ -3924,11 +3946,13 @@ public class MainWindow {
 		CardData card    = p2ForwardCards.get(idx);
 		boolean hadGrants = !card.fieldPowerGrants().isEmpty();
 		CardData topCard = p2ForwardPrimedTop.get(idx);
+		boolean player1 = gameState.getIdentity().get(card);
+		List<CardData> zone = player1 ? gameState.getP1Hand() : gameState.getP2Hand();
 		if (topCard != null) {
-			gameState.addToP2PermanentRfp(topCard);
+			gameState.addToPermanentRfp(topCard);
 			logEntry("[P2] " + topCard.name() + " → Removed From Play");
 		}
-		gameState.getP2Hand().add(card);
+		zone.add(card);
 		logEntry("[P2] " + card.name() + " → returned to hand");
 
 		p2ForwardCards.remove(idx);
@@ -3977,7 +4001,7 @@ public class MainWindow {
 			for (int i = 0; i < p2ForwardCards.size(); i++) refreshP2ForwardSlot(i);
 		}
 		if (hadGrants) for (int i = 0; i < p2MonsterCards.size(); i++) refreshP2MonsterSlot(i);
-		refreshP2HandCountLabel();
+		if (player1) refreshP1HandLabel(); else refreshP2HandCountLabel();
 		if (gameState.getCurrentPlayer() == GameState.Player.P1) p1ForwardsLeftFieldThisTurn++;
 		else p2ForwardsLeftFieldThisTurn++;
 		p1TurnOpponentCharReturnedToHand = true;
@@ -3987,7 +4011,11 @@ public class MainWindow {
 	void returnP1BackupToHand(int idx) {
 		if (idx < 0 || idx >= p1BackupCards.length || p1BackupCards[idx] == null) return;
 		CardData c = p1BackupCards[idx];
-		gameState.getP1Hand().add(c);
+
+		boolean player1 = gameState.getIdentity().get(c);
+		List<CardData> zone = player1 ? gameState.getP1Hand() : gameState.getP2Hand();
+		zone.add(c);
+
 		logEntry(c.name() + " → returned to hand");
 		p1BackupTempForwardPower.remove(c); p1BackupForwardBoost.remove(c);
 		p1BackupTempTraits.remove(c);       p1BackupForwardDamage.remove(c);
@@ -3997,7 +4025,7 @@ public class MainWindow {
 		p1BackupStates[idx] = CardState.ACTIVE;
 		p1BackupFrozen[idx] = false;
 		if (p1BackupLabels[idx] != null) { p1BackupLabels[idx].setIcon(null); p1BackupLabels[idx].setText(null); }
-		refreshP1HandLabel();
+		if (player1) refreshP1HandLabel(); else refreshP2HandCountLabel();
 		p2TurnOpponentCharReturnedToHand = true;
 		autoAbilityTriggers.triggerAutoAbilitiesForLeavesField(c, true);
 	}
@@ -4005,7 +4033,11 @@ public class MainWindow {
 	void returnP2BackupToHand(int idx) {
 		if (idx < 0 || idx >= p2BackupCards.length || p2BackupCards[idx] == null) return;
 		CardData c = p2BackupCards[idx];
-		gameState.getP2Hand().add(c);
+
+		boolean player1 = gameState.getIdentity().get(c);
+		List<CardData> zone = player1 ? gameState.getP1Hand() : gameState.getP2Hand();
+		zone.add(c);
+
 		logEntry("[P2] " + c.name() + " → returned to hand");
 		p2BackupTempForwardPower.remove(c); p2BackupForwardBoost.remove(c);
 		p2BackupTempTraits.remove(c);       p2BackupForwardDamage.remove(c);
@@ -4015,6 +4047,7 @@ public class MainWindow {
 		p2BackupStates[idx] = CardState.ACTIVE;
 		p2BackupFrozen[idx] = false;
 		if (p2BackupLabels[idx] != null) { p2BackupLabels[idx].setIcon(null); p2BackupLabels[idx].setText(null); }
+		if (player1) refreshP1HandLabel(); else refreshP2HandCountLabel();
 		p1TurnOpponentCharReturnedToHand = true;
 		autoAbilityTriggers.triggerAutoAbilitiesForLeavesField(c, false);
 	}
@@ -4022,7 +4055,11 @@ public class MainWindow {
 	void returnP1MonsterToHand(int idx) {
 		if (idx < 0 || idx >= p1MonsterCards.size()) return;
 		CardData c = p1MonsterCards.get(idx);
-		gameState.getP1Hand().add(c);
+
+		boolean player1 = gameState.getIdentity().get(c);
+		List<CardData> zone = player1 ? gameState.getP1Hand() : gameState.getP2Hand();
+		zone.add(c);
+
 		logEntry(c.name() + " → returned to hand");
 		p1MonsterTempForwardPower.remove(c);
 		p1MonsterCards.remove(idx);
@@ -4032,14 +4069,18 @@ public class MainWindow {
 		p1MonsterUrls.remove(idx);
 		JLabel lbl = p1MonsterLabels.remove(idx);
 		if (p1MonsterPanel != null) { p1MonsterPanel.remove(lbl); p1MonsterPanel.revalidate(); p1MonsterPanel.repaint(); }
-		refreshP1HandLabel();
+		if (player1) refreshP1HandLabel(); else refreshP2HandCountLabel();
 		autoAbilityTriggers.triggerAutoAbilitiesForLeavesField(c, true);
 	}
 
 	void returnP2MonsterToHand(int idx) {
 		if (idx < 0 || idx >= p2MonsterCards.size()) return;
 		CardData c = p2MonsterCards.get(idx);
-		gameState.getP2Hand().add(c);
+
+		boolean player1 = gameState.getIdentity().get(c);
+		List<CardData> zone = player1 ? gameState.getP1Hand() : gameState.getP2Hand();
+		zone.add(c);
+
 		logEntry("[P2] " + c.name() + " → returned to hand");
 		p2MonsterTempForwardPower.remove(c);
 		p2MonsterCards.remove(idx);
@@ -4049,6 +4090,7 @@ public class MainWindow {
 		p2MonsterUrls.remove(idx);
 		JLabel lbl = p2MonsterLabels.remove(idx);
 		if (p2MonsterPanel != null) { p2MonsterPanel.remove(lbl); p2MonsterPanel.revalidate(); p2MonsterPanel.repaint(); }
+		if (player1) refreshP1HandLabel(); else refreshP2HandCountLabel();
 		autoAbilityTriggers.triggerAutoAbilitiesForLeavesField(c, false);
 	}
 
@@ -4634,11 +4676,10 @@ public class MainWindow {
 			for (int ri : selected) {
 				if (ri < targetHand.size()) {
 					CardData d = targetHand.remove(ri);
+					gameState.addToPermanentRfp(d);
 					if (rfpIsP1) {
-						gameState.addToP1PermanentRfp(d);
 						logEntry("Removed from game: " + d.name());
 					} else {
-						gameState.addToP2PermanentRfp(d);
 						logEntry("[P2] Removed from game (selected by P1): " + d.name());
 					}
 				}
@@ -5015,12 +5056,8 @@ public class MainWindow {
 
 	void addToBreakZone(CardData card)
 	{
-		List<CardData> zone;
 		boolean player1 = gameState.getIdentity().get(card);
-		if (player1)
-			zone = gameState.getP1BreakZone();
-		else
-			zone = gameState.getP2BreakZone();
+		List<CardData> zone = player1 ? gameState.getP1BreakZone() : gameState.getP2BreakZone();
 
 		zone.add(card);
 		if (card.isLb()) zone.remove(card);
@@ -5029,26 +5066,6 @@ public class MainWindow {
 			refreshP1BreakLabel();
 		else
 			refreshP2BreakLabel();
-	}
-
-	/**
-	 * Adds {@code card} to P1's Break Zone. LB cards enter then are immediately removed,
-	 * so "when put into the Break Zone" triggers fire but the card does not stay there.
-	 */
-	void addToP1BreakZone(CardData card) {
-		List<CardData> zone = gameState.getP1BreakZone();
-		zone.add(card);
-		if (card.isLb()) zone.remove(card);
-	}
-
-	/**
-	 * Adds {@code card} to P2's Break Zone. LB cards enter then are immediately removed,
-	 * so "when put into the Break Zone" triggers fire but the card does not stay there.
-	 */
-	void addToP2BreakZone(CardData card) {
-		List<CardData> zone = gameState.getP2BreakZone();
-		zone.add(card);
-		if (card.isLb()) zone.remove(card);
 	}
 
 	void refreshP1BreakLabel() {
@@ -6101,7 +6118,7 @@ public class MainWindow {
 				CardData c = bz.get(i);
 				if (c.containsElement(elem) && matchesAltBzType(c, type)) {
 					bz.remove(i);
-					gameState.addToP1PermanentRfp(c);
+					gameState.addToPermanentRfp(c);
 					logEntry(c.name() + " removed from Break Zone → Removed From Play (alt cost)");
 					refreshP1BreakLabel();
 					refreshP1WarpZoneUI();
@@ -6639,7 +6656,7 @@ public class MainWindow {
 	 */
 	private String removeBorrowedSourceCard(CardData card, PlayableEntry entry) {
 		if (entry != null && entry.source() == PlayableEntry.SourceZone.RFP) {
-			if (gameState.removeFromP1PermanentRfp(card) || gameState.removeFromP2PermanentRfp(card))
+			if (gameState.removeFromPermanentRfp(card))
 				return "Removed From Game";
 		}
 		List<CardData> p1bz = gameState.getP1BreakZone();
@@ -6647,7 +6664,7 @@ public class MainWindow {
 		List<CardData> p2bz = gameState.getP2BreakZone();
 		for (int i = 0; i < p2bz.size(); i++) if (p2bz.get(i) == card) { p2bz.remove(i); return "Break Zone"; }
 		// Fallback: also sweep RFP zones if the entry was missing/mislabeled.
-		if (gameState.removeFromP1PermanentRfp(card) || gameState.removeFromP2PermanentRfp(card))
+		if (gameState.removeFromPermanentRfp(card))
 			return "Removed From Game";
 		return "outside hand";
 	}
@@ -6999,22 +7016,15 @@ public class MainWindow {
 					logEntry("\"" + entry.source().name() + "\" → Hand (after use)");
 				} else if (rfgAfterUseSummons.remove(entry.source())) {
 					// Borrowed Summon cast under "remove from the game after use" — never reaches the Break Zone.
+					gameState.addToPermanentRfp(entry.source());
 					if (entry.isP1()) {
-						gameState.addToP1PermanentRfp(entry.source());
 						refreshP1WarpZoneUI();
 					} else {
-						gameState.addToP2PermanentRfp(entry.source());
 						refreshP2WarpZoneUI();
 					}
 					logEntry("\"" + entry.source().name() + "\" → Removed From Game (after use)");
 				} else {
-					if (entry.isP1()) {
-						addToBreakZone(entry.source());
-						refreshP1BreakLabel();
-					} else {
-						addToBreakZone(entry.source());
-						refreshP2BreakLabel();
-					}
+					addToBreakZone(entry.source());
 					logEntry("\"" + entry.source().name() + "\" → Break Zone");
 				}
 			} else if (entry.isExBurstEntry()) {
@@ -9007,7 +9017,7 @@ public class MainWindow {
 					addToBreakZone(c);
 					addToBreakZone(top);
 					gameState.getP1BreakZone().remove(top);
-					gameState.addToP1PermanentRfp(top);
+					gameState.addToPermanentRfp(top);
 				} else {
 					addToBreakZone(c);
 				}

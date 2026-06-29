@@ -1045,7 +1045,7 @@ final class GameContextImpl implements GameContext {
 				mw.suppressNextBreakAnim = true;
 				mw.breakP1Forward(idx);
 				while (bz.size() > before)
-					mw.gameState.addToP1PermanentRfp(bz.remove(bz.size() - 1));
+					mw.gameState.addToPermanentRfp(bz.remove(bz.size() - 1));
 				mw.refreshP1BreakLabel();
 				mw.refreshP1WarpZoneUI();
 			}
@@ -1060,7 +1060,7 @@ final class GameContextImpl implements GameContext {
 				mw.suppressNextBreakAnim = true;
 				mw.breakP2Forward(idx);
 				while (bz.size() > before)
-					mw.gameState.addToP2PermanentRfp(bz.remove(bz.size() - 1));
+					mw.gameState.addToPermanentRfp(bz.remove(bz.size() - 1));
 				mw.refreshP2BreakLabel();
 			}
 
@@ -2371,7 +2371,7 @@ final class GameContextImpl implements GameContext {
 						CardState[] states = t.isP1() ? mw.p1BackupStates : mw.p2BackupStates;
 						if (i >= cards.length || cards[i] == null) return;
 						logEntry((t.isP1() ? "" : "[P2] ") + cards[i].name() + " → Removed From Game");
-						if (t.isP1()) mw.gameState.addToP1PermanentRfp(cards[i]); else mw.gameState.addToP2PermanentRfp(cards[i]);
+						mw.gameState.addToPermanentRfp(cards[i]);
 						cards[i] = null; states[i] = CardState.ACTIVE;
 						if (t.isP1()) mw.refreshP1BackupSlot(i); else mw.refreshP2BackupSlot(i);
 					}
@@ -2381,7 +2381,7 @@ final class GameContextImpl implements GameContext {
 						if (i >= cards.size()) return;
 						CardData c = cards.get(i);
 						logEntry((t.isP1() ? "" : "[P2] ") + c.name() + " → Removed From Game");
-						if (t.isP1()) mw.gameState.addToP1PermanentRfp(c); else mw.gameState.addToP2PermanentRfp(c);
+						mw.gameState.addToPermanentRfp(c);
 						cards.remove(i);
 						(t.isP1() ? mw.p1MonsterStates : mw.p2MonsterStates).remove(i);
 						(t.isP1() ? mw.p1MonsterFrozen : mw.p2MonsterFrozen).remove(i);
@@ -2397,8 +2397,9 @@ final class GameContextImpl implements GameContext {
 						if (i >= bz.size()) return;
 						CardData c = bz.remove(i);
 						logEntry((t.isP1() ? "" : "[P2] ") + c.name() + " → Removed From Game (from Break Zone)");
-						if (t.isP1()) { mw.gameState.addToP1PermanentRfp(c); mw.refreshP1BreakLabel(); mw.refreshP1WarpZoneUI(); }
-						else          { mw.gameState.addToP2PermanentRfp(c); mw.refreshP2BreakLabel(); mw.refreshP2WarpZoneUI(); }
+						mw.gameState.addToPermanentRfp(c);
+						if (t.isP1()) { mw.refreshP1BreakLabel(); mw.refreshP1WarpZoneUI(); }
+						else          { mw.refreshP2BreakLabel(); mw.refreshP2WarpZoneUI(); }
 					}
 				}
 			}
@@ -2407,7 +2408,7 @@ final class GameContextImpl implements GameContext {
 				java.util.Deque<CardData> deck = isP1 ? mw.gameState.getP1MainDeck() : mw.gameState.getP2MainDeck();
 				for (int i = 0; i < count && !deck.isEmpty(); i++) {
 					CardData c = deck.pollFirst();
-					if (isP1) mw.gameState.addToP1PermanentRfp(c); else mw.gameState.addToP2PermanentRfp(c);
+					mw.gameState.addToPermanentRfp(c);
 					logEntry(c.name() + " → Removed From Game (top of deck)");
 				}
 				if (isP1) mw.refreshP1DeckLabel(); else mw.refreshP2DeckLabel();
@@ -2417,7 +2418,7 @@ final class GameContextImpl implements GameContext {
 				java.util.Deque<CardData> deck = isP1 ? mw.gameState.getP1MainDeck() : mw.gameState.getP2MainDeck();
 				if (deck.isEmpty()) { logEntry("Deck is empty — no card removed"); return 0; }
 				CardData c = deck.pollFirst();
-				if (isP1) mw.gameState.addToP1PermanentRfp(c); else mw.gameState.addToP2PermanentRfp(c);
+				mw.gameState.addToPermanentRfp(c);
 				logEntry(c.name() + " → Removed From Game (top of deck, cost=" + c.cost() + ")");
 				if (isP1) mw.refreshP1DeckLabel(); else mw.refreshP2DeckLabel();
 				return c.cost();
@@ -2961,7 +2962,7 @@ final class GameContextImpl implements GameContext {
 						if (hand.isEmpty()) break;
 						int idx = (int) (Math.random() * hand.size());
 						CardData d = hand.remove(idx);
-						mw.gameState.addToP2PermanentRfp(d);
+						mw.gameState.addToPermanentRfp(d);
 						logEntry("[P2] Randomly removed from game: " + d.name());
 					}
 					mw.refreshP2HandCountLabel();
@@ -2972,7 +2973,7 @@ final class GameContextImpl implements GameContext {
 						if (hand.isEmpty()) break;
 						int idx = (int) (Math.random() * hand.size());
 						CardData d = mw.gameState.removeFromHand(idx);
-						if (d != null) { mw.gameState.addToP1PermanentRfp(d); logEntry("[P1] Randomly removed from game: " + d.name()); }
+						if (d != null) { mw.gameState.addToPermanentRfp(d); logEntry("[P1] Randomly removed from game: " + d.name()); }
 					}
 					mw.refreshP1HandLabel();
 					mw.refreshP1WarpZoneUI();
@@ -3022,7 +3023,7 @@ final class GameContextImpl implements GameContext {
 						for (int j = 1; j < hand.size(); j++)
 							if (hand.get(j).cost() > hand.get(best).cost()) best = j;
 						CardData d = mw.gameState.removeFromHand(best);
-						if (d != null) { mw.gameState.addToP1PermanentRfp(d); logEntry("[P2 AI selects from P1 hand] " + d.name() + " removed from game"); }
+						if (d != null) { mw.gameState.addToPermanentRfp(d); logEntry("[P2 AI selects from P1 hand] " + d.name() + " removed from game"); }
 					}
 					mw.refreshP1HandLabel();
 					mw.refreshP1WarpZoneUI();
@@ -3036,7 +3037,7 @@ final class GameContextImpl implements GameContext {
 					CardData picked = mw.showRevealHandOptPickDialog(hand);
 					if (picked != null) {
 						hand.remove(picked);
-						mw.gameState.addToP2PermanentRfp(picked);
+						mw.gameState.addToPermanentRfp(picked);
 						logEntry("[P2] " + picked.name() + " removed from game by P1");
 						mw.refreshP2HandCountLabel();
 						mw.refreshP2WarpZoneUI();
@@ -3050,7 +3051,7 @@ final class GameContextImpl implements GameContext {
 						if (hand.get(j).cost() > hand.get(best).cost()) best = j;
 					CardData d = mw.gameState.removeFromHand(best);
 					if (d != null) {
-						mw.gameState.addToP1PermanentRfp(d);
+						mw.gameState.addToPermanentRfp(d);
 						logEntry("[P2 AI] " + d.name() + " selected from P1 hand — removed from game");
 						mw.refreshP1HandLabel();
 						mw.refreshP1WarpZoneUI();
@@ -3067,7 +3068,7 @@ final class GameContextImpl implements GameContext {
 						if (hand.isEmpty()) break;
 						int idx = MainWindow.pickWorstHandCard0(hand);
 						CardData d = hand.remove(idx);
-						mw.gameState.addToP2PermanentRfp(d);
+						mw.gameState.addToPermanentRfp(d);
 						logEntry("[P2] Removes from game: " + d.name());
 					}
 					mw.refreshP2HandCountLabel();
@@ -3085,7 +3086,7 @@ final class GameContextImpl implements GameContext {
 				for (int i = 0; i < mw.p1BackupCards.length; i++) {
 					if (mw.p1BackupCards[i] != null && mw.p1BackupCards[i].name().equalsIgnoreCase(cardName)) {
 						logEntry(cardName + " → Removed From Game");
-						mw.gameState.addToP1PermanentRfp(mw.p1BackupCards[i]);
+						mw.gameState.addToPermanentRfp(mw.p1BackupCards[i]);
 						mw.p1BackupCards[i] = null; mw.p1BackupStates[i] = CardState.ACTIVE;
 						mw.refreshP1BackupSlot(i); mw.refreshP1WarpZoneUI(); return;
 					}
@@ -3104,7 +3105,7 @@ final class GameContextImpl implements GameContext {
 				for (int i = 0; i < mw.p2BackupCards.length; i++) {
 					if (mw.p2BackupCards[i] != null && mw.p2BackupCards[i].name().equalsIgnoreCase(cardName)) {
 						logEntry("[P2] " + cardName + " → Removed From Game");
-						mw.gameState.addToP2PermanentRfp(mw.p2BackupCards[i]);
+						mw.gameState.addToPermanentRfp(mw.p2BackupCards[i]);
 						mw.p2BackupCards[i] = null; mw.p2BackupStates[i] = CardState.ACTIVE;
 						mw.refreshP2BackupSlot(i); return;
 					}
@@ -3123,8 +3124,7 @@ final class GameContextImpl implements GameContext {
 				while (!bz.isEmpty()) {
 					CardData card = bz.remove(bz.size() - 1);
 					logEntry((isP1 ? "[P2] " : "") + card.name() + " (opponent BZ) → Removed From Game");
-					if (isP1) mw.gameState.addToP2PermanentRfp(card);
-					else      mw.gameState.addToP1PermanentRfp(card);
+					mw.gameState.addToPermanentRfp(card);
 				}
 				if (isP1) { mw.refreshP2BreakLabel(); mw.refreshP2WarpZoneUI(); }
 				else      { mw.refreshP1BreakLabel(); mw.refreshP1WarpZoneUI(); }
@@ -3133,7 +3133,7 @@ final class GameContextImpl implements GameContext {
 			@Override public void playNamedFromRfpOntoField(String cardName) {
 				for (CardData card : mw.gameState.getP1PermanentRfp()) {
 					if (card.name().equalsIgnoreCase(cardName)) {
-						mw.gameState.removeFromP1PermanentRfp(card);
+						mw.gameState.removeFromPermanentRfp(card);
 						logEntry(card.name() + " returns from RFP → P1 field");
 						mw.placeCardInForwardZone(card);
 						return;
@@ -3141,7 +3141,7 @@ final class GameContextImpl implements GameContext {
 				}
 				for (CardData card : mw.gameState.getP2PermanentRfp()) {
 					if (card.name().equalsIgnoreCase(cardName)) {
-						mw.gameState.removeFromP2PermanentRfp(card);
+						mw.gameState.removeFromPermanentRfp(card);
 						logEntry(card.name() + " returns from RFP → P2 field");
 						mw.placeP2CardInForwardZone(card);
 						return;
@@ -3158,7 +3158,7 @@ final class GameContextImpl implements GameContext {
 				}
 				CardData card = rfp.get(rfp.size() - 1);
 				if (isP1) {
-					mw.gameState.removeFromP1PermanentRfp(card);
+					mw.gameState.removeFromPermanentRfp(card);
 					logEntry(card.name() + " returns from RFP → P1 field" + (dull ? " (dull)" : ""));
 					mw.placeCardInForwardZone(card);
 					if (dull) {
@@ -3167,7 +3167,7 @@ final class GameContextImpl implements GameContext {
 						mw.refreshP1ForwardSlot(newIdx);
 					}
 				} else {
-					mw.gameState.removeFromP2PermanentRfp(card);
+					mw.gameState.removeFromPermanentRfp(card);
 					logEntry(card.name() + " returns from RFP → P2 field" + (dull ? " (dull)" : ""));
 					mw.placeP2CardInForwardZone(card);
 					if (dull) {
@@ -3938,7 +3938,7 @@ final class GameContextImpl implements GameContext {
 				java.util.Deque<CardData> oppDeck = isP1 ? mw.gameState.getP2MainDeck() : mw.gameState.getP1MainDeck();
 				if (oppDeck.isEmpty()) { logEntry("Opponent's deck is empty — nothing removed"); return; }
 				CardData top = oppDeck.pollFirst();
-				if (isP1) mw.gameState.addToP2PermanentRfp(top); else mw.gameState.addToP1PermanentRfp(top);
+				mw.gameState.addToPermanentRfp(top);
 				if (isP1) mw.refreshP2DeckLabel(); else mw.refreshP1DeckLabel();
 				PlayableEntry entry = new PlayableEntry(PlayableEntry.SourceZone.RFP,
 						costReduction, anyElement, false, false, false);
@@ -3968,7 +3968,7 @@ final class GameContextImpl implements GameContext {
 				if (picked == null) return;
 				List<CardData> ownerBz = isP1 ? mw.gameState.getP2BreakZone() : mw.gameState.getP1BreakZone();
 				ownerBz.remove(picked);
-				if (isP1) mw.gameState.addToP2PermanentRfp(picked); else mw.gameState.addToP1PermanentRfp(picked);
+				mw.gameState.addToPermanentRfp(picked);
 				if (isP1) mw.refreshP2BreakLabel(); else mw.refreshP1BreakLabel();
 				PlayableEntry entry = new PlayableEntry(PlayableEntry.SourceZone.RFP, 0, false, false, false, false);
 				mw.registerBorrowedPlayable(isP1, picked, entry);
@@ -3997,7 +3997,7 @@ final class GameContextImpl implements GameContext {
 					boolean inOwnBz = ownBz.remove(picked);
 					if (!inOwnBz) oppBz.remove(picked);
 					boolean cardOwnerIsP1 = inOwnBz ? isP1 : !isP1;
-					if (cardOwnerIsP1) mw.gameState.addToP1PermanentRfp(picked); else mw.gameState.addToP2PermanentRfp(picked);
+					mw.gameState.addToPermanentRfp(picked);
 					mw.refreshP1BreakLabel(); mw.refreshP2BreakLabel();
 					PlayableEntry entry = new PlayableEntry(PlayableEntry.SourceZone.RFP, 0, false,
 							freeCast, rfgAfterUse, expiresThisTurn);

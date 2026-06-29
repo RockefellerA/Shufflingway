@@ -205,20 +205,23 @@ public class GameState {
     // Permanent Removed-From-Game zone (Primed top cards, etc.)
     // -------------------------------------------------------------------------
 
-    /** Permanently removes a card from the game (not Warp — no counter, never returns). */
-    public void addToP1PermanentRfp(CardData card) { p1PermanentRfp.add(card); }
-
-    /** Removes the first identity-matching {@code card} from P1's removed-from-game zone. */
-    public boolean removeFromP1PermanentRfp(CardData card) {
-        for (int i = 0; i < p1PermanentRfp.size(); i++)
-            if (p1PermanentRfp.get(i) == card) { p1PermanentRfp.remove(i); return true; }
-        return false;
+    public void addToPermanentRfp(CardData card)
+    {
+        List<CardData> zone = this.identity.get(card) ? this.getP1PermanentRfp() : this.getP2PermanentRfp();
+        zone.add(card);
     }
 
-    /** Removes the first identity-matching {@code card} from P2's removed-from-game zone. */
-    public boolean removeFromP2PermanentRfp(CardData card) {
-        for (int i = 0; i < p2PermanentRfp.size(); i++)
-            if (p2PermanentRfp.get(i) == card) { p2PermanentRfp.remove(i); return true; }
+    public boolean removeFromPermanentRfp(CardData card)
+    {
+        List<CardData> zone = this.identity.get(card) ? this.getP1PermanentRfp() : this.getP2PermanentRfp();
+
+        for (int i = 0; i < zone.size(); i++) {
+            if(zone.get(i) == card) {
+                zone.remove(i);
+                return true;
+            }
+        }
+
         return false;
     }
 
@@ -226,9 +229,6 @@ public class GameState {
     public List<CardData> getP1PermanentRfp() {
         return Collections.unmodifiableList(p1PermanentRfp);
     }
-
-    /** Permanently removes a P2 card from the game. */
-    public void addToP2PermanentRfp(CardData card) { p2PermanentRfp.add(card); }
 
     /** Returns an unmodifiable view of P2's permanently removed cards. */
     public List<CardData> getP2PermanentRfp() {
