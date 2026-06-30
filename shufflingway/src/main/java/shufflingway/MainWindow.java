@@ -8247,8 +8247,14 @@ public class MainWindow {
 				boost += icb.powerBonus();
 		for (FieldPowerGrant fpg : src.fieldPowerGrants())
 			if (!fpg.affectsOpponent() && fpg.appliesToCard(target) && fpgBzConditionMet(fpg, isP1)
-					&& (!fpg.yourTurnOnly() || isP1 == (gameState.getCurrentPlayer() == GameState.Player.P1)))
+					&& (!fpg.yourTurnOnly() || isP1 == (gameState.getCurrentPlayer() == GameState.Player.P1))) {
 				boost += fpg.powerBonus();
+				if (fpg.exBurstDmgPerGroup() > 0) {
+					List<CardData> dmg = isP1 ? gameState.getP1DamageZone() : gameState.getP2DamageZone();
+					int exCount = (int) dmg.stream().filter(CardData::exBurst).count();
+					boost += (exCount / fpg.exBurstDmgGroupSize()) * fpg.exBurstDmgPerGroup();
+				}
+			}
 		if (src == target) {
 			for (ScalingSelfPowerBoost ssb : src.scalingSelfPowerBoosts()) {
 				int count = switch (ssb.source()) {

@@ -31,11 +31,26 @@ public record FieldPowerGrant(
         String  bzFilterJob,         // job filter for BZ cards counted by minBzFilterCount; null = any job
         boolean bzFilterFwds,        // true = only count Forwards when evaluating minBzFilterCount
         boolean yourTurnOnly,        // true = trait/power grant applies only during the controller's turn
-        int     minDistinctElements  // 0 = no restriction; >0 = grant applies only when controller has ≥ this many distinct elements among the target type
+        int     minDistinctElements, // 0 = no restriction; >0 = grant applies only when controller has ≥ this many distinct elements among the target type
+        int     exBurstDmgPerGroup,  // 0 = unused; >0 = bonus per group of exBurstDmgGroupSize EX Burst cards in own damage zone
+        int     exBurstDmgGroupSize  // group size for EX Burst damage zone scaling (e.g. 3 means +N per 3 EX Burst cards)
 ) {
     public FieldPowerGrant {
         grantedTraits = Set.copyOf(grantedTraits);
         if (exceptCardName == null) exceptCardName = "";
+    }
+
+    /** Compatibility constructor preserving the prior 19-arg form; defaults {@code exBurstDmgPerGroup/GroupSize} to 0/1. */
+    public FieldPowerGrant(String jobFilter, String categoryFilter,
+            boolean inclForwards, boolean inclBackups, boolean inclMonsters,
+            String exceptCardName, int powerBonus, Set<CardData.Trait> grantedTraits,
+            boolean affectsOpponent, int costFilter, String costCmp, String elementFilter,
+            String inclCardName, int minBzSize, int minBzFilterCount, String bzFilterJob,
+            boolean bzFilterFwds, boolean yourTurnOnly, int minDistinctElements) {
+        this(jobFilter, categoryFilter, inclForwards, inclBackups, inclMonsters,
+                exceptCardName, powerBonus, grantedTraits, affectsOpponent, costFilter, costCmp, elementFilter,
+                inclCardName, minBzSize, minBzFilterCount, bzFilterJob, bzFilterFwds, yourTurnOnly,
+                minDistinctElements, 0, 1);
     }
 
     /** Compatibility constructor preserving the prior 18-arg form; defaults {@code minDistinctElements} to 0. */
@@ -146,6 +161,7 @@ public record FieldPowerGrant(
         }
         if (yourTurnOnly) sb.append(" yourTurnOnly");
         if (minDistinctElements > 0) sb.append(" ifDistinctElem>=").append(minDistinctElements);
+        if (exBurstDmgPerGroup > 0) sb.append(" +").append(exBurstDmgPerGroup).append("/").append(exBurstDmgGroupSize).append("EXBurstDmg");
         return sb.toString();
     }
 

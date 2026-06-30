@@ -2495,6 +2495,14 @@ public record CardData(
         "you\\s+control\\s+gains?\\s+\\+(?<power>\\d+)\\s+power[.!]?$"
     );
 
+    /**
+     * "The Forwards you control gain +N power for every M cards with EX Burst in your Damage Zone."
+     * Groups: {@code bonus}, {@code groupsize}.
+     */
+    private static final Pattern FIELD_EX_BURST_DMG_SCALING_GRANT = Pattern.compile(
+        "(?i)^The\\s+Forwards?\\s+you\\s+control\\s+gain\\s+\\+(?<bonus>\\d+)\\s+power\\s+for\\s+every\\s+(?<groupsize>\\d+)\\s+cards?\\s+with\\s+EX\\s+Burst\\s+in\\s+your\\s+Damage\\s+Zone\\.?\\s*$"
+    );
+
     private static final Pattern FIELD_GRANT_BZ_COND_CN_AND_JOB_PATTERN = Pattern.compile(
         "(?i)^If\\s+there\\s+are\\s+(?<bzcount>\\d+)\\s+or\\s+more\\s+cards?\\s+in\\s+your\\s+Break\\s+Zone,?\\s+" +
         "the\\s+Card\\s+Name\\s+(?<cardname>[A-Za-z][A-Za-z\\s''\\-]*)\\s+(?<type1>Forwards?|Characters?|Backups?|Monsters?)\\s+" +
@@ -2515,6 +2523,16 @@ public record CardData(
             // Normalize bracket filter notation to plain form so existing patterns match.
             seg = seg.replaceAll("(?i)\\[Job\\s*\\(([^)]+)\\)\\]", "Job $1");
             seg = seg.replaceAll("(?i)\\[Category\\s*\\(([^)]+)\\)\\]", "Category $1");
+
+            Matcher exBurstDmgM = FIELD_EX_BURST_DMG_SCALING_GRANT.matcher(seg);
+            if (exBurstDmgM.matches()) {
+                int bonus     = Integer.parseInt(exBurstDmgM.group("bonus"));
+                int groupSize = Integer.parseInt(exBurstDmgM.group("groupsize"));
+                result.add(new FieldPowerGrant(null, null, true, false, false,
+                        null, 0, EnumSet.noneOf(Trait.class), false, -1, null, null, null,
+                        0, 0, null, false, false, 0, bonus, groupSize));
+                continue;
+            }
 
             Matcher diffElemM = IF_DIFF_ELEMENTS_FIELD_GRANT.matcher(seg);
             if (diffElemM.matches()) {
@@ -3794,8 +3812,9 @@ public record CardData(
             if (SCALING_SELF_BZ_CARD_NAME_PATTERN.matcher(seg).find())        continue;
             // Scaling self power boost ("For each card in your hand, X gains +N power")
             if (SCALING_SELF_HAND_PATTERN.matcher(seg).find())                 continue;
-            // BZ-conditional / distinct-element-conditional passive grant — handled by parseFieldPowerGrants
+            // BZ-conditional / distinct-element-conditional / EX Burst scaling passive grant — handled by parseFieldPowerGrants
             if (FIELD_GRANT_BZ_COND_CN_AND_JOB_PATTERN.matcher(seg).find())   continue;
+            if (FIELD_EX_BURST_DMG_SCALING_GRANT.matcher(seg).matches())       continue;
             if (FIELD_GRANT_BZ_JOB_SELF_PATTERN.matcher(seg).matches())        continue;
             if (IF_DIFF_ELEMENTS_FIELD_GRANT.matcher(seg).matches())           continue;
 
