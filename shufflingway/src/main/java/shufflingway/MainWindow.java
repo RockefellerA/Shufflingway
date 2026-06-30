@@ -4593,6 +4593,27 @@ public class MainWindow {
 				});
 	}
 
+	boolean showDiscardByElementDialog(String element) {
+		List<CardData> hand = gameState.getP1Hand();
+		List<Integer> eligible = new ArrayList<>();
+		for (int i = 0; i < hand.size(); i++) {
+			if (hand.get(i).containsElement(element)) eligible.add(i);
+		}
+		if (eligible.isEmpty()) return false;
+		return HandPickDialog.showDiscardByType(frame, hand, eligible, element + " card",
+				this::showZoomAt, this::hideZoom, idx -> {
+					CardData d = playerBreakFromHand(true, idx);
+					if (d != null) {
+						logEntry("Discards " + d.name());
+						p1DiscardedByEffectThisTurn = true;
+						lastDiscardedCardName = d.name();
+						if (d.isForward()) lastDiscardedForwardPower = d.power();
+					}
+					refreshP1HandLabel();
+					refreshP1BreakLabel();
+				});
+	}
+
 	/**
 	 * Lets P1 optionally reveal 1 card of {@code element} from hand (card stays in hand).
 	 * Returns {@code true} if the player revealed one, {@code false} if they passed or had no eligible cards.

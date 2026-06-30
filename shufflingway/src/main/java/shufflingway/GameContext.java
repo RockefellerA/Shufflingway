@@ -1186,6 +1186,14 @@ public interface GameContext {
     void selfDiscardByJob(String jobName);
 
     /**
+     * Prompts the ability user to optionally discard 1 card matching the given element
+     * (e.g. "Multi-Element") from their hand to the Break Zone. No CP is generated.
+     * Sets effectMadeProgress only when a card is actually discarded.
+     * When P2 is the ability user the AI discards the worst eligible card automatically.
+     */
+    void selfDiscardByElement(String element);
+
+    /**
      * Lets the ability user optionally reveal 1 card of {@code element} from their hand
      * (card stays in hand). Sets effectMadeProgress only when a card is actually revealed.
      * P2 AI auto-reveals if an eligible card is available.

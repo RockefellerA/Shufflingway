@@ -1978,6 +1978,11 @@ public class ActionResolver {
         "(?i)^discard\\s+1\\s+Job\\s+(?<job>.+?)\\s+from\\s+your\\s+hand[.!]?$"
     );
 
+    /** Matches "You may discard 1 &lt;element&gt; card" — player may optionally discard a card matching the element. */
+    private static final Pattern DISCARD_ELEMENT_FROM_HAND = Pattern.compile(
+        "(?i)^(?:you\\s+may\\s+)?discard\\s+1\\s+(?<element>Multi-Element|Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)\\s+card(?:\\s+from\\s+your\\s+hand)?[.!]?$"
+    );
+
     /** Matches "Your opponent randomly discards N card(s) [from his/her/their hand]". Group 1 = count. */
     private static final Pattern OPPONENT_RANDOM_DISCARD = Pattern.compile(
         "(?i)Your\\s+opponent\\s+randomly\\s+discards?\\s+(\\d+)\\s+cards?" +
@@ -2244,6 +2249,7 @@ public class ActionResolver {
         "(?:(?<elements>(?:Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)" +
             "(?:\\s+or\\s+(?:Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark))*)\\s+)?" +
         "(?<targets>Forwards?|Backups?|Monsters?|Summons?|Characters?|card)?\\s*" +
+        "(?:\\s+other\\s+than\\s+a(?:n)?\\s+(?<excludetype>Forward|Backup|Monster|Summon|Character))?\\s*" +
         "(?:\\s+other\\s+than\\s+Card\\s+Name\\s+(?<excludename>.+?)(?=\\s+of\\s+cost|\\s+and\\b))?" +
         "(?:of\\s+cost\\s+(?<cost>\\d+)(?:\\s+or\\s+(?<costcmp>less|more|\\d+))?\\s*)?" +
         "(?:\\s+other\\s+than\\s+(?<excludeelem>(?:Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)" +
@@ -4117,6 +4123,9 @@ public class ActionResolver {
         if (result != null) return result;
 
         result = tryParseYouMayDiscardType(effectText);
+        if (result != null) return result;
+
+        result = tryParseDiscardElementFromHand(effectText);
         if (result != null) return result;
 
         result = tryParseMayRevealElementFromHand(effectText);
@@ -9707,6 +9716,17 @@ public class ActionResolver {
         };
     }
 
+    /** Parses "You may discard 1 &lt;element&gt; card" — player may optionally discard a card matching the element. */
+    private static Consumer<GameContext> tryParseDiscardElementFromHand(String text) {
+        Matcher m = DISCARD_ELEMENT_FROM_HAND.matcher(text.trim());
+        if (!m.matches()) return null;
+        String element = m.group("element");
+        return ctx -> {
+            ctx.logEntry("Effect: May discard 1 " + element + " card from hand");
+            ctx.selfDiscardByElement(element);
+        };
+    }
+
     /** Parses "You may reveal 1 [Element] card from your hand." */
     private static Consumer<GameContext> tryParseMayRevealElementFromHand(String text) {
         Matcher m = YOU_MAY_REVEAL_ELEMENT_FROM_HAND.matcher(text.trim());
@@ -12877,6 +12897,16 @@ public class ActionResolver {
         boolean inclBackups  = anyType || tgtLower.contains("backup")  || tgtLower.contains("character");
         boolean inclMonsters = anyType || tgtLower.contains("monster") || tgtLower.contains("character");
         boolean inclSummons  = anyType || tgtLower.contains("summon");
+
+        // --- Type exclusion (e.g. "card other than a Backup") ---
+        String excludeTypeRaw = m.group("excludetype");
+        if (excludeTypeRaw != null) {
+            String etl = excludeTypeRaw.toLowerCase();
+            if (etl.equals("forward")   || etl.equals("character")) inclForwards = false;
+            if (etl.equals("backup")    || etl.equals("character")) inclBackups  = false;
+            if (etl.equals("monster")   || etl.equals("character")) inclMonsters = false;
+            if (etl.equals("summon"))                                inclSummons  = false;
+        }
 
         // --- Cost filter ---
         String costStr = m.group("cost");

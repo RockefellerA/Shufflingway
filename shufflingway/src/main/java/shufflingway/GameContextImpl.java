@@ -3434,6 +3434,31 @@ final class GameContextImpl implements GameContext {
 				}
 			}
 
+			@Override public void selfDiscardByElement(String element) {
+				if (isP1) {
+					boolean discarded = mw.showDiscardByElementDialog(element);
+					if (!discarded) markEffectFizzled();
+				} else {
+					List<CardData> hand = mw.gameState.getP2Hand();
+					List<Integer> eligible = new ArrayList<>();
+					for (int i = 0; i < hand.size(); i++) {
+						if (hand.get(i).containsElement(element)) eligible.add(i);
+					}
+					if (eligible.isEmpty()) { markEffectFizzled(); return; }
+					List<CardData> eligibleCards = eligible.stream().map(hand::get).collect(Collectors.toList());
+					int relIdx = MainWindow.pickWorstHandCard0(eligibleCards);
+					int idx = eligible.get(relIdx);
+					CardData d = mw.playerBreakFromHand(false, idx);
+					if (d != null) {
+						logEntry("[P2] Discards " + d.name());
+						mw.p2DiscardedByEffectThisTurn = true;
+						if (d.isForward()) mw.lastDiscardedForwardPower = d.power();
+					}
+					mw.refreshP2HandCountLabel();
+					mw.refreshP2BreakLabel();
+				}
+			}
+
 			@Override public void mayRevealCardByElementFromHand(String element) {
 				List<CardData> hand = isP1 ? mw.gameState.getP1Hand() : mw.gameState.getP2Hand();
 				List<Integer> eligible = new ArrayList<>();
