@@ -2168,6 +2168,14 @@ public class ActionResolver {
         "[.!]?"
     );
 
+    /** Matches "play any number of [Job X] [type] from your hand onto [the] field". */
+    private static final Pattern PLAY_ANY_NUMBER_FROM_HAND_PATTERN = Pattern.compile(
+        "(?i)(?:Then,?\\s+)?(?:you\\s+may\\s+)?[Pp]lay\\s+any\\s+number\\s+of\\s+" +
+        "(?:Job\\s+(?<jobnm>.+?)\\s+)?" +
+        "(?<targets>Forwards?|Backups?|Monsters?|Characters?)?" +
+        "\\s*from\\s+your\\s+hand\\s+onto\\s+(?:the\\s+)?field[.!]?"
+    );
+
     /**
      * Matches "Search for [up to] 1 [elements] [filter] [elements] [type] [other than Card Name X] [of cost N [or less|more]] and [destination]".
      * <ul>
@@ -2250,7 +2258,7 @@ public class ActionResolver {
         "(?:Category\\s+(?<catafterjob>\\S+)\\s+)?" +
         "(?:(?<elements>(?:Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)" +
             "(?:\\s+or\\s+(?:Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark))*)\\s+)?" +
-        "(?<targets>Forwards?|Backups?|Monsters?|Summons?|Characters?|card)?\\s*" +
+        "(?<targets>Forwards?|Backups?|Monsters?|Summons?|Characters?|cards?)?\\s*" +
         "(?:\\s+other\\s+than\\s+a(?:n)?\\s+(?<excludetype>Forward|Backup|Monster|Summon|Character))?\\s*" +
         "(?:\\s+other\\s+than\\s+Card\\s+Name\\s+(?<excludename>.+?)(?=\\s+of\\s+cost|\\s+and\\b))?" +
         "(?:of\\s+cost\\s+(?<cost>\\d+)(?:\\s+or\\s+(?<costcmp>less|more|\\d+))?\\s*)?" +
@@ -2262,6 +2270,7 @@ public class ActionResolver {
             "|add\\s+them\\s+to\\s+your\\s+hand" +
             "|play\\s+it\\s+onto\\s+(?:the\\s+)?field(?:\\s+dull)?" +
             "|play\\s+them\\s+onto\\s+(?:the\\s+)?field(?:\\s+dull)?" +
+            "|put\\s+it\\s+on\\s+top\\s+of\\s+(?:your|its\\s+owner's)\\s+deck" +
             "|put\\s+it\\s+under\\s+the\\s+top\\s+card\\s+of\\s+(?:your|its\\s+owner's)\\s+deck" +
             "|put\\s+it\\s+into\\s+(?:the\\s+)?Break\\s+Zone" +
         ")" +
@@ -4189,6 +4198,9 @@ public class ActionResolver {
         result = tryParseSearchAndCastSummonFree(effectText);
         if (result != null) return result;
 
+        result = tryParsePlayAnyNumberFromHand(effectText, source);
+        if (result != null) return result;
+
         result = tryParsePlayFromHand(effectText, source, xValue);
         if (result != null) return result;
 
@@ -4534,6 +4546,7 @@ public class ActionResolver {
         if (tryParseDealPlayerDamageToSelf(effectText)        != null) return "DealPlayerDamageToSelf";
         if (tryParseCastSummonFromHandFree(effectText, 0)     != null) return "CastSummonFromHandFree";
         if (tryParseSearchAndCastSummonFree(effectText)       != null) return "SearchAndCastSummonFree";
+        if (tryParsePlayAnyNumberFromHand(effectText, source) != null) return "PlayAnyNumberFromHand";
         if (tryParsePlayFromHand(effectText, source, 0)       != null) return "PlayFromHand";
         if (tryParseOpponentSelects(effectText)               != null) return "OpponentSelects";
         if (tryParseBzFwdToHandOppFwdToBzByDamage(effectText)  != null) return "BzFwdToHandOppFwdToBzByDamage";
@@ -4951,6 +4964,7 @@ public class ActionResolver {
         if (tryParseDealPlayerDamageToSelf(effectText) != null)             return "DealPlayerDamageToSelf";
         if (tryParseCastSummonFromHandFree(effectText, 0) != null)          return "CastSummonFromHandFree";
         if (tryParseSearchAndCastSummonFree(effectText) != null)            return "SearchAndCastSummonFree";
+        if (tryParsePlayAnyNumberFromHand(effectText, source) != null)      return "PlayAnyNumberFromHand";
         if (tryParsePlayFromHand(effectText, source, 0) != null)            return "PlayFromHand";
 
         Matcher opSelM = OPPONENT_SELECTS_PATTERN.matcher(effectText);
@@ -11091,6 +11105,28 @@ public class ActionResolver {
     }
 
     /**
+     * Parses "play any number of Job X from your hand onto the field".
+     */
+    private static Consumer<GameContext> tryParsePlayAnyNumberFromHand(String text, CardData source) {
+        Matcher m = PLAY_ANY_NUMBER_FROM_HAND_PATTERN.matcher(text.trim());
+        if (!m.find()) return null;
+
+        String jobFilter = m.group("jobnm") != null ? m.group("jobnm").trim() : null;
+        String targets   = m.group("targets");
+        boolean anyType  = targets == null;
+        String tgtLower  = anyType ? "" : targets.toLowerCase();
+        boolean inclForwards = anyType || tgtLower.contains("forward") || tgtLower.contains("character");
+        boolean inclBackups  = anyType || tgtLower.contains("backup")  || tgtLower.contains("character");
+        boolean inclMonsters = anyType || tgtLower.contains("monster") || tgtLower.contains("character");
+
+        final String fJob = jobFilter;
+        return ctx -> {
+            ctx.logEntry("Effect: Play any number of" + (fJob != null ? " Job " + fJob : "") + " from hand → field");
+            ctx.playAnyNumberFromHand(inclForwards, inclBackups, inclMonsters, fJob, null, null, null);
+        };
+    }
+
+    /**
      * Parses "Play 1 [type] of cost N [or less|more] from your hand onto the field".
      */
     private static Consumer<GameContext> tryParsePlayFromHand(String text, CardData source, int xValue) {
@@ -13054,7 +13090,7 @@ public class ActionResolver {
 
         // --- Type flags ---
         String  targets  = m.group("targets");
-        boolean anyType  = targets == null || targets.equalsIgnoreCase("card");
+        boolean anyType  = targets == null || targets.toLowerCase().startsWith("card");
         String  tgtLower;
         if (anyType || targets == null) { tgtLower = ""; }
         else                            { tgtLower = targets.toLowerCase(); }
@@ -13088,10 +13124,11 @@ public class ActionResolver {
         // --- Destination ---
         String destText   = m.group("destination").toLowerCase();
         boolean entersDull = destText.contains("dull");
-        String destination = destText.contains("hand")    ? "hand"
-                           : destText.contains("field")   ? "field"
-                           : destText.contains("break")   ? "breakZone"
-                           :                                "underTop";
+        String destination = destText.contains("hand")     ? "hand"
+                           : destText.contains("field")    ? "field"
+                           : destText.contains("break")    ? "breakZone"
+                           : destText.contains("on top")   ? "deckTop"
+                           :                                 "underTop";
 
         // Build log label
         StringBuilder filterDesc = new StringBuilder();

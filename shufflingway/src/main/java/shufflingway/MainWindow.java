@@ -3630,6 +3630,11 @@ public class MainWindow {
 						else                       placeP2CardInForwardZone(card);
 					}
 				}
+				case "deckTop" -> {
+					deck.addFirst(card);
+					logEntry((isP1 ? "" : "[P2] ") + card.name() + " → top of deck (search)");
+					if (isP1) refreshP1DeckLabel(); else refreshP2DeckLabel();
+				}
 				case "underTop" -> {
 					if (deck.isEmpty()) {
 						deck.addFirst(card);

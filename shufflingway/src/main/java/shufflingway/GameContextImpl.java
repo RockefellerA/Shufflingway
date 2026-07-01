@@ -1862,6 +1862,51 @@ final class GameContextImpl implements GameContext {
 				}
 			}
 
+			@Override public void playAnyNumberFromHand(boolean inclForwards, boolean inclBackups,
+					boolean inclMonsters, String jobFilter, String cardNameFilter, String categoryFilter,
+					String elementFilter) {
+				while (true) {
+					List<CardData> hand = isP1 ? mw.gameState.getP1Hand() : mw.gameState.getP2Hand();
+					List<Integer> eligible = new ArrayList<>();
+					for (int i = 0; i < hand.size(); i++) {
+						CardData c = hand.get(i);
+						if (c.isForward()  && !inclForwards) continue;
+						if (c.isBackup()   && !inclBackups)  continue;
+						if (c.isMonster()  && !inclMonsters) continue;
+						if (c.isSummon()) continue;
+						if (!mw.meetsJobFilterEffective(c, jobFilter)) continue;
+						if (!meetsCardNameFilter(c, cardNameFilter)) continue;
+						if (!meetsCategoryFilter(c, categoryFilter)) continue;
+						if (!meetsElementFilter(c, elementFilter)) continue;
+						eligible.add(i);
+					}
+					if (eligible.isEmpty()) return;
+					int handIdx;
+					if (isP1) {
+						List<CardData> candidates = new ArrayList<>();
+						for (int i : eligible) candidates.add(hand.get(i));
+						int listIdx = mw.showCardImageChooser(candidates, "Play a card onto the field (any number)", true, true);
+						if (listIdx < 0) return;
+						handIdx = eligible.get(listIdx);
+					} else {
+						handIdx = eligible.get(0);
+					}
+					CardData card = hand.remove(handIdx);
+					logEntry((isP1 ? "" : "[P2] ") + card.name() + " played from hand onto field");
+					if (isP1) {
+						if (card.isBackup()) mw.placeCardInFirstBackupSlot(card);
+						else if (card.isMonster()) mw.placeCardInMonsterZone(card);
+						else mw.placeCardInForwardZone(card);
+						mw.refreshP1HandLabel();
+					} else {
+						if (card.isBackup()) mw.placeP2CardInFirstBackupSlot(card);
+						else if (card.isMonster()) mw.placeP2CardInMonsterZone(card);
+						else mw.placeP2CardInForwardZone(card);
+						mw.refreshP2HandCountLabel();
+					}
+				}
+			}
+
 			@Override public void castSummonFromHandFree(int maxCost, boolean returnToHandAfterUse, String excludeElements) {
 				List<CardData> hand = isP1 ? mw.gameState.getP1Hand() : mw.gameState.getP2Hand();
 				List<Integer> eligible = new ArrayList<>();

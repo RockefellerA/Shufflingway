@@ -261,6 +261,13 @@ public interface GameContext {
             boolean suppressAutoAbility);
 
     /**
+     * Repeatedly prompts the ability user to play matching characters from their hand onto the
+     * field until no eligible cards remain or they decline.
+     */
+    void playAnyNumberFromHand(boolean inclForwards, boolean inclBackups, boolean inclMonsters,
+            String jobFilter, String cardNameFilter, String categoryFilter, String elementFilter);
+
+    /**
      * Prompts the ability user to choose 1 Summon from their hand and casts it immediately
      * without paying its cost.
      *
@@ -1435,6 +1442,7 @@ public interface GameContext {
      * @param elementFilter  bar-separated element(s) — card must contain at least one; {@code null} = any
      * @param excludeName    exact card name to exclude from results; {@code null} = no exclusion
      * @param destination    {@code "hand"} — add to hand, {@code "field"} — play onto field,
+     *                       {@code "deckTop"} — place on top of deck,
      *                       {@code "underTop"} — place second from top of deck,
      *                       {@code "breakZone"} — put into the Break Zone
      */
