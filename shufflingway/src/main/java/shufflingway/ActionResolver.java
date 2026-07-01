@@ -3118,6 +3118,15 @@ public class ActionResolver {
     );
 
     /**
+     * Matches "Place N [Name] Counter(s) on [CardName] for each [Type] you control."
+     * Groups: {@code count}, {@code name}, {@code target}, {@code type}.
+     */
+    private static final Pattern PLACE_COUNTERS_FOR_EACH = Pattern.compile(
+        "(?i)^[Pp]lace\\s+(?<count>\\d+)\\s+(?<name>.+?)\\s+Counters?\\s+on\\s+(?<target>.+?)" +
+        "\\s+for\\s+each\\s+(?<type>Forwards?|Backups?|Monsters?|Characters?)\\s+you\\s+control[.!]?$"
+    );
+
+    /**
      * Matches "Choose 1 Forward opponent controls. [Name] gains its Special Ability until the end of the turn.
      * You can use this ability without paying any cost but only once."
      * Group {@code sourceName} — card name that gains the ability (used for logging).
@@ -4267,6 +4276,9 @@ public class ActionResolver {
         result = tryParseGainCrystalIfOpponentHas(effectText);
         if (result != null) return result;
 
+        result = tryParsePlaceCountersForEach(effectText, source);
+        if (result != null) return result;
+
         result = tryParsePlaceCounters(effectText, source);
         if (result != null) return result;
 
@@ -4550,6 +4562,7 @@ public class ActionResolver {
         if (tryParseGainCrystalPerX(effectText, 0)               != null) return "GainCrystalPerX";
         if (tryParseGainCrystal(effectText)                      != null) return "GainCrystal";
         if (tryParseGainCrystalIfOpponentHas(effectText)         != null) return "GainCrystalIfOpponentHas";
+        if (tryParsePlaceCountersForEach(effectText, source)     != null) return "PlaceCountersForEach";
         if (tryParsePlaceCounters(effectText, source)            != null) return "PlaceCounters";
         if (tryParseLookTopDeckOptionallyBreak(effectText)        != null) return "LookTopDeckOptionallyBreak";
         if (tryParseLookTopDeckBottomOrKeep(effectText)           != null) return "LookTopDeckBottomOrKeep";
@@ -4965,6 +4978,7 @@ public class ActionResolver {
         if (tryParseGainCrystalPerX(effectText, 0) != null)                 return "GainCrystalPerX";
         if (tryParseGainCrystal(effectText)        != null)                  return "GainCrystal";
         if (tryParseGainCrystalIfOpponentHas(effectText) != null)            return "GainCrystalIfOpponentHas";
+        if (tryParsePlaceCountersForEach(effectText, source) != null)        return "PlaceCountersForEach";
         if (tryParsePlaceCounters(effectText, source) != null)               return "PlaceCounters";
         if (tryParseLookTopDeckOptionallyBreak(effectText)        != null) return "LookTopDeckOptionallyBreak";
         if (tryParseLookTopDeckBottomOrKeep(effectText)           != null) return "LookTopDeckBottomOrKeep";
@@ -12433,6 +12447,24 @@ public class ActionResolver {
         return ctx -> {
             ctx.logEntry("Effect: Place " + count + " " + name + " Counter(s) on " + source.name());
             ctx.placeCounters(source, name, count);
+        };
+    }
+
+    private static Consumer<GameContext> tryParsePlaceCountersForEach(String text, CardData source) {
+        Matcher m = PLACE_COUNTERS_FOR_EACH.matcher(text.trim());
+        if (!m.matches()) return null;
+        int    baseCount  = Integer.parseInt(m.group("count"));
+        String name       = m.group("name").trim();
+        String target     = m.group("target").trim();
+        if (source == null || !source.name().equalsIgnoreCase(target)) return null;
+        String typeRaw    = m.group("type");
+        String cardType   = Character.toUpperCase(typeRaw.charAt(0))
+                + typeRaw.substring(1).toLowerCase().replaceAll("s$", "");
+        return ctx -> {
+            int total = baseCount * ctx.ownFieldCount(cardType);
+            ctx.logEntry("Effect: Place " + baseCount + " " + name + " Counter(s) per " + cardType
+                    + " you control (" + total + " total) on " + source.name());
+            if (total > 0) ctx.placeCounters(source, name, total);
         };
     }
 
