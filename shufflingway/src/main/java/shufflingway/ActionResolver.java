@@ -3370,6 +3370,16 @@ public class ActionResolver {
     );
 
     /**
+     * Matches "deal N damage for each Job X or [a] Card Name Y you control to all [the] Forwards opponent controls."
+     * Groups: {@code amount}, {@code job}, {@code cardname}.
+     */
+    private static final Pattern DEAL_N_FOR_EACH_JOB_OR_NAME_TO_OPP_FORWARDS = Pattern.compile(
+        "(?i)deal\\s+(?<amount>\\d+)\\s+damage\\s+for\\s+each\\s+" +
+        "Job\\s+(?<job>.+?)\\s+or\\s+(?:a\\s+)?Card\\s+[Nn]ame\\s+(?<cardname>.+?)\\s+you\\s+control\\s+" +
+        "to\\s+all\\s+(?:the\\s+)?Forwards?(?:\\s+(?:your\\s+)?opponent\\s+controls)?[.!]?$"
+    );
+
+    /**
      * Matches "deal N damage and M more damage for each Card Name [name] in your Break Zone
      * to all [the] Forwards [opponent controls]."
      * Groups: {@code base} — fixed base damage; {@code per} — additional per copy; {@code cardname} — name filter;
@@ -3788,6 +3798,9 @@ public class ActionResolver {
         if (result != null) return result;
 
         result = tryParseForEachJobAndNameDealDamageToForwards(effectText);
+        if (result != null) return result;
+
+        result = tryParseDealNForEachJobOrNameToOppForwards(effectText);
         if (result != null) return result;
 
         result = tryParseDealBasePlusBzNameDamageToForwards(effectText);
@@ -4422,6 +4435,7 @@ public class ActionResolver {
         if (tryParseChooseSummonsFromBzCastable(effectText)             != null) return "ChooseSummonsFromBzCastable";
         if (tryParseSelectNumber(effectText, source)                    != null) return "SelectNumber";
         if (tryParseForEachJobAndNameDealDamageToForwards(effectText)   != null) return "ForEachJobAndNameDealDamageToForwards";
+        if (tryParseDealNForEachJobOrNameToOppForwards(effectText)      != null) return "DealNForEachJobOrNameToOppForwards";
         if (tryParseSelfGainsWhenAttacksEOT(effectText, source)        != null) return "SelfGainsWhenAttacksEOT";
         if (tryParseDealDamageToForwardsForEach(effectText)             != null) return "DealDamageToForwardsForEach";
         if (tryParseDealDamageToForwardsExceptElement(effectText)       != null) return "DealDamageToForwardsExceptElement";
@@ -5418,6 +5432,29 @@ public class ActionResolver {
                     if (i < ctx.p2ForwardCount()) ctx.damageP2Forward(i, damage);
             }
             if (!opponentOnly || oppIsP1) {
+                for (int i = ctx.p1ForwardCount() - 1; i >= 0; i--)
+                    if (i < ctx.p1ForwardCount()) ctx.damageP1Forward(i, damage);
+            }
+        };
+    }
+
+    private static Consumer<GameContext> tryParseDealNForEachJobOrNameToOppForwards(String text) {
+        Matcher m = DEAL_N_FOR_EACH_JOB_OR_NAME_TO_OPP_FORWARDS.matcher(text.trim());
+        if (!m.matches()) return null;
+        String job      = m.group("job").trim();
+        String cardName = m.group("cardname").trim();
+        int    baseDmg  = Integer.parseInt(m.group("amount"));
+        return ctx -> {
+            int count = ctx.countSelfFieldCards(true, true, true, job, null)
+                      + ctx.countSelfFieldCards(true, true, true, null, cardName);
+            int damage = baseDmg * count;
+            ctx.logEntry("Effect: Deal " + baseDmg + " × " + count
+                    + " (Job " + job + "/Name " + cardName + ") = " + damage + " to all opponent Forwards");
+            if (damage <= 0) return;
+            if (ctx.isP1()) {
+                for (int i = ctx.p2ForwardCount() - 1; i >= 0; i--)
+                    if (i < ctx.p2ForwardCount()) ctx.damageP2Forward(i, damage);
+            } else {
                 for (int i = ctx.p1ForwardCount() - 1; i >= 0; i--)
                     if (i < ctx.p1ForwardCount()) ctx.damageP1Forward(i, damage);
             }

@@ -1439,6 +1439,11 @@ public record CardData(
         "(?i)^a\\s+Forward\\s+other\\s+than\\s+.+?\\s+you\\s+control$"
     );
 
+    /** "a Job X [or a Card Name Y] you control" — subject of a filtered-forward attack trigger. */
+    static final Pattern FILTER_FORWARD_SUBJECT = Pattern.compile(
+        "(?i)^a\\s+(?:Job\\s+|Card\\s+Name\\s+).+?(?:\\s+or\\s+a\\s+(?:Job\\s+|Card\\s+Name\\s+).+?)?\\s+you\\s+control$"
+    );
+
     /** Matches the restriction sentence appended to a auto-ability effect, capturing flags. */
     private static final Pattern FA_TRIGGER_RESTRICTION = Pattern.compile(
         "(?i)[.!,]?\\s*This\\s+effect\\s+will\\s+trigger\\s+only\\s+" +
@@ -1610,6 +1615,8 @@ public record CardData(
             else if (triggerRaw.contains("enter") && triggerRaw.contains("attack"))                        trigger = "enters the field or attacks";
             else if (triggerRaw.contains("enter") && triggerRaw.contains("other than from your hand"))     trigger = "enters your field not from hand";
             else if (triggerRaw.contains("enter") && triggerRaw.contains("your field"))                            trigger = "enters your field";
+            else if (triggerRaw.contains("attack")
+                    && FILTER_FORWARD_SUBJECT.matcher(card).matches())                                       trigger = "filtered forward attacks";
             else if (triggerRaw.contains("attack")
                     && OTHER_FORWARD_SUBJECT.matcher(card).matches())                                        trigger = "other forward attacks";
             else if (triggerRaw.contains("attack")

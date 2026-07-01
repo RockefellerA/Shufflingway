@@ -572,6 +572,12 @@ final class AutoAbilityTriggers {
 			java.util.regex.Pattern.compile(
 				"(?i)^a\\s+Forward\\s+other\\s+than\\s+(?<name>.+?)\\s+you\\s+control$");
 
+	private static final java.util.regex.Pattern FILTERED_FORWARD_SUBJECT_PATTERN =
+			java.util.regex.Pattern.compile(
+				"(?i)^a\\s+(?<type1>Job|Card\\s+Name)\\s+(?<val1>.+?)" +
+				"(?:\\s+or\\s+a\\s+(?<type2>Job|Card\\s+Name)\\s+(?<val2>.+?))?" +
+				"\\s+you\\s+control$");
+
 	/**
 	 * Returns true when {@code attacker} matches "a Forward other than [excluded] you control".
 	 */
@@ -580,6 +586,27 @@ final class AutoAbilityTriggers {
 		if (!m.matches()) return false;
 		String excludedName = m.group("name").trim();
 		return attacker.isForward() && !CardFilters.meetsCardNameFilter(attacker, excludedName);
+	}
+
+	/**
+	 * Returns true when {@code attacker} matches "a Job X [or a Card Name Y] you control".
+	 */
+	private boolean matchesFilteredForwardSubject(String triggerCard, CardData attacker) {
+		java.util.regex.Matcher m = FILTERED_FORWARD_SUBJECT_PATTERN.matcher(triggerCard);
+		if (!m.matches()) return false;
+		String type1 = m.group("type1").trim();
+		String val1  = m.group("val1").trim();
+		String type2 = m.group("type2") != null ? m.group("type2").trim() : null;
+		String val2  = m.group("val2")  != null ? m.group("val2").trim()  : null;
+		boolean matches = type1.equalsIgnoreCase("Job")
+				? mw.meetsJobFilterEffective(attacker, val1)
+				: CardFilters.meetsCardNameFilter(attacker, val1);
+		if (!matches && type2 != null) {
+			matches = type2.equalsIgnoreCase("Job")
+					? mw.meetsJobFilterEffective(attacker, val2)
+					: CardFilters.meetsCardNameFilter(attacker, val2);
+		}
+		return matches;
 	}
 
 	void triggerAutoAbilitiesForDealsDamageToOpponent(CardData attacker, boolean attackerIsP1) {
@@ -633,6 +660,27 @@ final class AutoAbilityTriggers {
 						Consumer<GameContext> effect = ActionResolver.parse(fa.effectText(), card);
 						if (effect == null) {
 							mw.logEntry("[AutoAbility] Unrecognized 'other forward attacks' effect: " + fa.effectText());
+							continue;
+						}
+						mw.logEntry("[AutoAbility] " + watcherCard.name() + " — " + card.name() + " attacks, effect: " + fa.effectText());
+						effect.accept(mw.buildGameContext(isP1));
+					}
+				}
+			}
+			// "When a Job X or Card Name Y you control attacks" — filtered watcher on all same-side cards
+			{
+				List<CardData> allWatchers = new ArrayList<>();
+				for (CardData c : isP1 ? mw.p1ForwardCards : mw.p2ForwardCards) allWatchers.add(c);
+				for (CardData c : isP1 ? mw.p1BackupCards  : mw.p2BackupCards)  if (c != null) allWatchers.add(c);
+				for (CardData c : isP1 ? mw.p1MonsterCards : mw.p2MonsterCards) allWatchers.add(c);
+				for (CardData watcherCard : allWatchers) {
+					if (mw.lostAbilitiesCards.contains(watcherCard)) continue;
+					for (AutoAbility fa : watcherCard.autoAbilities()) {
+						if (!fa.trigger().equals("filtered forward attacks")) continue;
+						if (!matchesFilteredForwardSubject(fa.triggerCard(), card)) continue;
+						Consumer<GameContext> effect = ActionResolver.parse(fa.effectText(), watcherCard);
+						if (effect == null) {
+							mw.logEntry("[AutoAbility] Unrecognized 'filtered forward attacks' effect: " + fa.effectText());
 							continue;
 						}
 						mw.logEntry("[AutoAbility] " + watcherCard.name() + " — " + card.name() + " attacks, effect: " + fa.effectText());
