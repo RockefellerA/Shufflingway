@@ -90,7 +90,6 @@ import static shufflingway.CardFilters.meetsJobFilter;
 import static shufflingway.CpPaymentUtils.contributingElement;
 import static shufflingway.CpPaymentUtils.matchesAnyElement;
 import shufflingway.dialog.AltCostPaymentDialog;
-import shufflingway.dialog.DebugCardPickerDialog;
 import shufflingway.dialog.BreakZoneDialog;
 import shufflingway.dialog.DamageZoneDialog;
 import shufflingway.dialog.HandPickDialog;
@@ -296,7 +295,7 @@ public class MainWindow {
 	final Map<CardData, EnumSet<CardData.Trait>> p2MonsterTempTraits = new HashMap<>();
 	JPanel p2MonsterPanel;
 
-	private int      p2DamageCount = 0;
+	int      p2DamageCount = 0;
 	private JPanel[] p2DamageSlots = new JPanel[7];
 
 	// P2 field state (managed by ComputerPlayer)
@@ -642,15 +641,20 @@ public class MainWindow {
 		menuBar.add(new HelpMenu(frame));
 
 		if (AppSettings.isDebugEnabled()) {
+			DebugUtility debug = new DebugUtility(this);
 			JMenu debugMenu = new JMenu("Debug");
 			JMenuItem spawnFieldItem = new JMenuItem("Spawn Card on CPU Field…");
 			spawnFieldItem.setToolTipText("Place any card directly onto the CPU's field to watch its AI behavior.");
-			spawnFieldItem.addActionListener(e -> debugSpawnOnCpuField());
+			spawnFieldItem.addActionListener(e -> debug.spawnOnCpuField());
 			debugMenu.add(spawnFieldItem);
 			JMenuItem spawnHandItem = new JMenuItem("Add Card to CPU Hand…");
 			spawnHandItem.setToolTipText("Add any card directly to the CPU's hand so it can cast it on its turn.");
-			spawnHandItem.addActionListener(e -> debugAddToCpuHand());
+			spawnHandItem.addActionListener(e -> debug.addToCpuHand());
 			debugMenu.add(spawnHandItem);
+			JMenuItem setDamageItem = new JMenuItem("Set Damage Counts…");
+			setDamageItem.setToolTipText("Directly set P1/P2 damage zone counts for testing damage-threshold triggers.");
+			setDamageItem.addActionListener(e -> debug.setDamage());
+			debugMenu.add(setDamageItem);
 			menuBar.add(debugMenu);
 		}
 
@@ -1433,7 +1437,7 @@ public class MainWindow {
 	}
 
 	/** Loads and builds a {@link CardData} for {@code serial} from the card DB, or {@code null} if unknown. */
-	private CardData buildCardDataFromSerial(String serial) {
+	CardData buildCardDataFromSerial(String serial) {
 		try (DeckDatabase db = new DeckDatabase()) {
 			DeckCardDetail detail = db.getCardDetailBySerial(serial);
 			return detail == null ? null : buildCardData(detail);
@@ -1449,62 +1453,8 @@ public class MainWindow {
 	// -------------------------------------------------------------------------
 
 	/** True once a game has started (the deck has been dealt). Guards debug spawns that need a live board. */
-	private boolean gameInProgress() {
+	boolean gameInProgress() {
 		return gameState != null && gameState.getCurrentPhase() != null;
-	}
-
-	/**
-	 * Debug: pick any card from the database and place it directly onto the CPU's field, routed by
-	 * card type (Forward / Backup / Monster). Summons can't sit on the field, so they're added to
-	 * P2's hand instead. The card then plays out under the normal {@link ComputerPlayer} AI.
-	 */
-	private void debugSpawnOnCpuField() {
-		if (!gameInProgress()) {
-			JOptionPane.showMessageDialog(frame, "Start a game first.", "Debug Spawn", JOptionPane.WARNING_MESSAGE);
-			return;
-		}
-		String serial = DebugCardPickerDialog.pick(frame, "Spawn Card on CPU Field");
-		if (serial == null) return;
-		CardData card = buildCardDataFromSerial(serial);
-		if (card == null) {
-			JOptionPane.showMessageDialog(frame, "Card not found: " + serial, "Debug Spawn", JOptionPane.ERROR_MESSAGE);
-			return;
-		}
-		gameState.getIdentity().put(card, false);
-		if (card.isForward())      placeP2CardInForwardZone(card);
-		else if (card.isMonster()) placeP2CardInMonsterZone(card);
-		else if (card.isBackup()) {
-			if (!p2HasAvailableBackupSlot()) {
-				JOptionPane.showMessageDialog(frame, "CPU has no free Backup slot.", "Debug Spawn", JOptionPane.WARNING_MESSAGE);
-				return;
-			}
-			placeP2CardInFirstBackupSlot(card);
-		} else { // Summon — can't be placed on the field
-			gameState.getP2Hand().add(card);
-			refreshP2HandCountLabel();
-			logEntry("[Debug] " + card.name() + " is a Summon — added to CPU hand instead of field.");
-			return;
-		}
-		logEntry("[Debug] Spawned " + card.name() + " (" + serial + ") onto CPU field.");
-	}
-
-	/** Debug: pick any card from the database and add it directly to the CPU's hand. */
-	private void debugAddToCpuHand() {
-		if (!gameInProgress()) {
-			JOptionPane.showMessageDialog(frame, "Start a game first.", "Debug Spawn", JOptionPane.WARNING_MESSAGE);
-			return;
-		}
-		String serial = DebugCardPickerDialog.pick(frame, "Add Card to CPU Hand");
-		if (serial == null) return;
-		CardData card = buildCardDataFromSerial(serial);
-		if (card == null) {
-			JOptionPane.showMessageDialog(frame, "Card not found: " + serial, "Debug Spawn", JOptionPane.ERROR_MESSAGE);
-			return;
-		}
-		gameState.getIdentity().put(card, false);
-		gameState.getP2Hand().add(card);
-		refreshP2HandCountLabel();
-		logEntry("[Debug] Added " + card.name() + " (" + serial + ") to CPU hand.");
 	}
 
 	// -------------------------------------------------------------------------
