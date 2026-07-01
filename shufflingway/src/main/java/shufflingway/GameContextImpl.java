@@ -3961,7 +3961,7 @@ final class GameContextImpl implements GameContext {
 					if (inclForwards) {
 						for (int i = 0; i < mw.p1ForwardCards.size(); i++) {
 							CardData c = p1Forward(i);
-							if (!CardFilters.meetsJobFilter(c, jobFilter) && !CardFilters.meetsCardNameFilter(c, cardNameFilter)) continue;
+							if (!CardFilters.meetsJobFilter(c, jobFilter) && (cardNameFilter == null || !CardFilters.meetsCardNameFilter(c, cardNameFilter))) continue;
 							mw.p1ForwardPowerBoost.set(i, mw.p1ForwardPowerBoost.get(i) + amount);
 							logEntry(c.name() + " gains +" + amount + " power until end of turn");
 							mw.refreshP1ForwardSlot(i);
@@ -3970,7 +3970,7 @@ final class GameContextImpl implements GameContext {
 					if (inclMonsters) {
 						for (int i = 0; i < mw.p1MonsterCards.size(); i++) {
 							CardData c = mw.p1MonsterCards.get(i);
-							if (!CardFilters.meetsJobFilter(c, jobFilter) && !CardFilters.meetsCardNameFilter(c, cardNameFilter)) continue;
+							if (!CardFilters.meetsJobFilter(c, jobFilter) && (cardNameFilter == null || !CardFilters.meetsCardNameFilter(c, cardNameFilter))) continue;
 							logEntry(c.name() + " gains +" + amount + " power until end of turn");
 						}
 					}
@@ -3979,7 +3979,7 @@ final class GameContextImpl implements GameContext {
 					if (inclForwards) {
 						for (int i = 0; i < mw.p2ForwardCards.size(); i++) {
 							CardData c = mw.p2ForwardCards.get(i);
-							if (!CardFilters.meetsJobFilter(c, jobFilter) && !CardFilters.meetsCardNameFilter(c, cardNameFilter)) continue;
+							if (!CardFilters.meetsJobFilter(c, jobFilter) && (cardNameFilter == null || !CardFilters.meetsCardNameFilter(c, cardNameFilter))) continue;
 							mw.p2ForwardPowerBoost.set(i, mw.p2ForwardPowerBoost.get(i) + amount);
 							logEntry("[P2] " + c.name() + " gains +" + amount + " power until end of turn");
 							mw.refreshP2ForwardSlot(i);
@@ -3988,7 +3988,7 @@ final class GameContextImpl implements GameContext {
 					if (inclMonsters) {
 						for (int i = 0; i < mw.p2MonsterCards.size(); i++) {
 							CardData c = mw.p2MonsterCards.get(i);
-							if (!CardFilters.meetsJobFilter(c, jobFilter) && !CardFilters.meetsCardNameFilter(c, cardNameFilter)) continue;
+							if (!CardFilters.meetsJobFilter(c, jobFilter) && (cardNameFilter == null || !CardFilters.meetsCardNameFilter(c, cardNameFilter))) continue;
 							logEntry("[P2] " + c.name() + " gains +" + amount + " power until end of turn");
 						}
 					}

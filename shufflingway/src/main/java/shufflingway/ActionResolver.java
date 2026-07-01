@@ -2844,6 +2844,19 @@ public class ActionResolver {
     );
 
     /**
+     * Matches "All [the] Job X Forwards/Backups/Characters [you control | opponent controls]
+     * gain +N power until [the] end of [the] turn."
+     * Groups: {@code job}, {@code targets}, {@code control}, {@code verb}, {@code amount}.
+     */
+    private static final Pattern ALL_FIELD_JOB_POWER_BOOST_PATTERN = Pattern.compile(
+        "(?i)All\\s+(?:the\\s+)?Job\\s+(?<job>[A-Za-z][A-Za-z\\s''\\-]*?)\\s+" +
+        "(?<targets>Forwards?(?:\\s+and\\s+Monsters?)?|Backups?|Characters?)" +
+        "(?:\\s+(?<control>(?:your\\s+)?opponent\\s+controls?|you\\s+control))?" +
+        "\\s+(?<verb>gains?|loses?)\\s+\\+?(?<amount>\\d+)\\s+[Pp]ower" +
+        "\\s+until\\s+(?:the\\s+)?end\\s+of\\s+(?:the\\s+)?turn[.!]?"
+    );
+
+    /**
      * Matches "All [the] [element] [Category X] [targets] [of cost N [or less|more]]
      * [you control | opponent controls] gain Keyword[, Keyword2, ...] until end of turn."
      * Groups: {@code element}, {@code category}, {@code targets}, {@code cost}, {@code costcmp},
@@ -3954,6 +3967,9 @@ public class ActionResolver {
         result = tryParseAllFieldJobCardNamePowerBoost(effectText);
         if (result != null) return result;
 
+        result = tryParseAllFieldJobPowerBoost(effectText);
+        if (result != null) return result;
+
         result = tryParseAllFieldKeywordGrant(effectText);
         if (result != null) return result;
 
@@ -4897,6 +4913,7 @@ public class ActionResolver {
             }
         }
         if (tryParseAllFieldJobCardNamePowerBoost(effectText) != null)       return "AllFieldJobCardNamePowerBoost";
+        if (tryParseAllFieldJobPowerBoost(effectText) != null)              return "AllFieldJobPowerBoost";
         if (tryParseAllFieldKeywordGrant(effectText) != null)               return "AllFieldKeywordGrant";
         if (tryParseUntilEotDualPowerShift(effectText) != null)            return "UntilEotDualPowerShift";
         if (tryParseUntilEotAllFieldPowerBoost(effectText) != null)        return "UntilEotAllFieldPowerBoost";
@@ -10881,6 +10898,41 @@ public class ActionResolver {
             ctx.logEntry("Effect: " + logMsg);
             ctx.applyMassFieldJobCardNamePowerBoost(amount, true, true,
                     opponentOnly, selfOnly, job, cardName);
+            if (secondary != null) secondary.accept(ctx);
+        };
+    }
+
+    /**
+     * Parses "All [the] Job X Forwards [you control] gain +N power until end of turn."
+     */
+    private static Consumer<GameContext> tryParseAllFieldJobPowerBoost(String text) {
+        Matcher m = ALL_FIELD_JOB_POWER_BOOST_PATTERN.matcher(text);
+        if (!m.find()) return null;
+
+        String job      = m.group("job").trim();
+        String targets  = m.group("targets");
+        String tgtLower = targets.toLowerCase();
+        boolean inclForwards = tgtLower.contains("forward") || tgtLower.contains("character");
+        boolean inclMonsters = tgtLower.contains("monster") || tgtLower.contains("character");
+
+        String control       = m.group("control");
+        boolean opponentOnly = control != null && !control.toLowerCase().contains("you control");
+        boolean selfOnly     = control != null &&  control.toLowerCase().contains("you control");
+
+        boolean isLose = m.group("verb").toLowerCase().startsWith("lose");
+        int amount = Integer.parseInt(m.group("amount")) * (isLose ? -1 : 1);
+
+        String controlLabel = opponentOnly ? " (opponent)" : selfOnly ? " (yours)" : "";
+        String change       = isLose ? "-" + Math.abs(amount) : "+" + amount;
+        String logMsg       = "All Job " + job + " " + targets + controlLabel + " " + change + " power until end of turn";
+
+        String trailingRaw = text.substring(m.end()).trim().replaceAll("^[.!,]+\\s*", "").trim();
+        Consumer<GameContext> secondary = trailingRaw.isEmpty() ? null : parse(trailingRaw, null);
+
+        return ctx -> {
+            ctx.logEntry("Effect: " + logMsg);
+            ctx.applyMassFieldJobCardNamePowerBoost(amount, inclForwards, inclMonsters,
+                    opponentOnly, selfOnly, job, null);
             if (secondary != null) secondary.accept(ctx);
         };
     }
