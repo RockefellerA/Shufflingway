@@ -728,6 +728,13 @@ public interface GameContext {
      */
     boolean opponentControlsCard(String cardType, String cardCondition);
 
+    /**
+     * Counts how many of the opponent's field cards satisfy both the type filter and the condition.
+     * {@code inclForwards}, {@code inclBackups}, {@code inclMonsters} select which card types to count.
+     * {@code condition} is "dull", "damaged", "active", "attacking", "blocking", or {@code null} for any.
+     */
+    int countOppFieldCardsWithCondition(boolean inclForwards, boolean inclBackups, boolean inclMonsters, String condition);
+
     /** Returns {@code true} if the active player received at least one point of game damage this turn. */
     boolean selfReceivedDamageThisTurn();
 

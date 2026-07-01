@@ -3142,14 +3142,15 @@ public class ActionResolver {
      * where the count is derived at resolution time from the acting player's field.
      * Group {@code targetType} — card type to choose (Forward/Character/etc.).
      * Group {@code targetSide} — "opponent controls" if targeting the opponent's cards; null = self.
-     * Group {@code countSrc} — job-bracket, "Category X Type", or "Job X" count source.
-     * Group {@code followup} — effect to apply (Dull/Activate).
+     * Group {@code countSrc} — job-bracket, "Category X Type", "Job X", or plain card-type count source.
+     * Group {@code followup} — effect to apply (Dull/Activate/Freeze).
      */
     private static final Pattern CHOOSE_AS_MANY_AS_FIELD_COUNT = Pattern.compile(
-        "(?i)^Choose\\s+as\\s+many\\s+(?<targetType>Forwards?|Characters?|Backups?|Monsters?)(?:\\s+Cards?)?\\s+" +
+        "(?i)^Choose\\s+(?:as\\s+many|up\\s+to\\s+the\\s+same\\s+number\\s+of)\\s+" +
+        "(?<targetType>Forwards?|Characters?|Backups?|Monsters?)(?:\\s+Cards?)?\\s+" +
         "(?:(?<targetSide>(?:your\\s+)?opponent\\s+controls|you\\s+control)\\s+)?" +
         "as\\s+(?:the\\s+)?" +
-        "(?<countSrc>\\[Job\\s*\\([^)]+\\)\\]|Category\\s+\\S+(?:\\s+(?:Forwards?|Characters?|Backups?|Monsters?))?|Job\\s+.+?(?=\\s+you\\s+control))" +
+        "(?<countSrc>\\[Job\\s*\\([^)]+\\)\\]|Category\\s+\\S+(?:\\s+(?:Forwards?|Characters?|Backups?|Monsters?))?|Job\\s+.+?(?=\\s+you\\s+control)|Forwards?|Backups?|Monsters?|Characters?)" +
         "\\s+you\\s+control[,.]?\\s+" +
         "(?<followup>.+)$"
     );
@@ -3746,6 +3747,9 @@ public class ActionResolver {
         if (result != null) return result;
 
         result = tryParseOpponentControlsCardGate(effectText, source, xValue);
+        if (result != null) return result;
+
+        result = tryParseIfOppControlsNOrMoreCondTypeGate(effectText, source, xValue);
         if (result != null) return result;
 
         result = tryParseDiscardConditionalElement(effectText, source, xValue);
@@ -4558,6 +4562,7 @@ public class ActionResolver {
         if (tryParseIfOwnForwardFormedParty(effectText, source, 0)       != null) return "IfOwnForwardFormedParty";
         if (tryParseIfControlAtMost(effectText, source, 0)             != null) return "IfControlAtMost";
         if (tryParseIfCastAtLeast(effectText, source, 0)               != null) return "IfCastAtLeast";
+        if (tryParseIfOppControlsNOrMoreCondTypeGate(effectText, source, 0) != null) return "IfOppControlsNOrMoreCondType";
         if (tryParseDiscardConditionalElement(effectText, source, 0)   != null) return "DiscardConditionalElement";
         if (tryParseConditionalOpponentHand(effectText, source, 0)     != null) return "ConditionalOpponentHand";
         if (SELECT_FOLLOWING_ACTIONS_DETECT.matcher(effectText).find())        return "SelectFollowingActions";
@@ -4698,6 +4703,7 @@ public class ActionResolver {
         if (CardData.CONTROL_IF_NOT_ANY_PATTERN.matcher(effectText).find())       return "UseRestriction";
         if (tryParseWhenYouDoSoSequence(effectText, source, 0)          != null) return "WhenYouDoSo";
         if (tryParseIfCastAtLeast(effectText, source, 0)                != null) return "IfCastAtLeast";
+        if (tryParseIfOppControlsNOrMoreCondTypeGate(effectText, source, 0) != null) return "IfOppControlsNOrMoreCondTypeDraw";
         if (tryParseDiscardConditionalElement(effectText, source, 0)    != null) return "DiscardConditionalElement";
         if (tryParseSelectNumber(effectText, source)          != null) return "SelectNumber";
         if (tryParseForEachJobAndNameDealDamageToForwards(effectText)   != null) return "ForEachJobAndNameDealDamageToForwards";
@@ -9448,6 +9454,14 @@ public class ActionResolver {
         "(?<effect>.+)$"
     );
 
+    /** Matches "If your opponent controls N or more [cond] [type], [effect]." */
+    private static final Pattern IF_OPP_CONTROLS_N_OR_MORE_COND_TYPE_GATE = Pattern.compile(
+        "(?i)^[Ii]f\\s+your\\s+opponent\\s+controls\\s+(?<count>\\d+)\\s+or\\s+more\\s+" +
+        "(?<cond>dull|damaged|active|attacking|blocking)\\s+" +
+        "(?<type>Forwards?|Monsters?|Backups?|Characters?),\\s+" +
+        "(?<effect>.+)$"
+    );
+
     /** Matches "if there are N or more different Elements among [type] you control, [effect]." */
     private static final Pattern IF_N_DIFF_ELEMENTS_AMONG = Pattern.compile(
         "(?is)^if\\s+there\\s+are\\s+(?<min>\\d+)\\s+or\\s+more\\s+different\\s+Elements?\\s+among\\s+" +
@@ -9601,6 +9615,29 @@ public class ActionResolver {
                 inner.accept(ctx);
             } else {
                 ctx.logEntry("Effect: opponent has no " + cond + " " + normType + " — skipped");
+            }
+        };
+    }
+
+    private static Consumer<GameContext> tryParseIfOppControlsNOrMoreCondTypeGate(String text, CardData source, int xValue) {
+        Matcher m = IF_OPP_CONTROLS_N_OR_MORE_COND_TYPE_GATE.matcher(text.trim());
+        if (!m.matches()) return null;
+        int    threshold = Integer.parseInt(m.group("count"));
+        String cond      = m.group("cond").toLowerCase();
+        String typeRaw   = m.group("type");
+        String normType  = Character.toUpperCase(typeRaw.charAt(0))
+                + typeRaw.substring(1).toLowerCase().replaceAll("s$", "");
+        boolean inclFwds = normType.equals("Forward")   || normType.equals("Character");
+        boolean inclBkps = normType.equals("Backup")    || normType.equals("Character");
+        boolean inclMons = normType.equals("Monster")   || normType.equals("Character");
+        Consumer<GameContext> inner = parse(m.group("effect").trim(), source, xValue);
+        if (inner == null) return null;
+        return ctx -> {
+            int cnt = ctx.countOppFieldCardsWithCondition(inclFwds, inclBkps, inclMons, cond);
+            if (cnt >= threshold) {
+                inner.accept(ctx);
+            } else {
+                ctx.logEntry("Effect: " + threshold + "+ " + cond + " " + normType + "(s) required, opponent has " + cnt + " — skipped");
             }
         };
     }
@@ -12267,18 +12304,28 @@ public class ActionResolver {
             String rest = countSrc.substring("job ".length()).trim();
             countJobFilter = rest.replaceAll("(?i)\\s+(Forwards?|Backups?|Monsters?|Characters?)\\s*$", "").trim();
         } else {
-            return null;
+            String csTypeLow = countSrc.toLowerCase().replaceAll("s$", "");
+            if (csTypeLow.equals("forward") || csTypeLow.equals("backup")
+                    || csTypeLow.equals("monster") || csTypeLow.equals("character")) {
+                countFwds = csTypeLow.equals("forward") || csTypeLow.equals("character");
+                countBkps = csTypeLow.equals("backup")  || csTypeLow.equals("character");
+                countMons = csTypeLow.equals("monster") || csTypeLow.equals("character");
+            } else {
+                return null;
+            }
         }
 
         boolean doActivate = FOLLOWUP_ACTIVATE.matcher(followupText).find();
         boolean doDull     = FOLLOWUP_DULL.matcher(followupText).find();
-        if (!doActivate && !doDull) return null;
+        boolean doFreeze   = !doActivate && !doDull && FOLLOWUP_FREEZE.matcher(followupText).find();
+        if (!doActivate && !doDull && !doFreeze) return null;
 
         final String  fJob = countJobFilter, fCat = countCatFilter;
         final boolean fCFwds = countFwds, fCBkps = countBkps, fCMons = countMons;
         final boolean fOppOnly = opponentOnly, fSelfOnly = selfOnly;
         final boolean fFwds = inclForwards, fBkps = inclBackups, fMons = inclMonsters;
-        final String  logPfx = "Choose as many " + targetTypeRaw
+        final String  action = doActivate ? "Activate" : doDull ? "Dull" : "Freeze";
+        final String  logPfx = "Choose up to as many " + targetTypeRaw
                 + (targetSide != null ? " " + targetSide : " you control")
                 + " as " + countSrc + " you control";
 
@@ -12289,7 +12336,7 @@ public class ActionResolver {
                 ctx.markEffectFizzled();
                 return;
             }
-            ctx.logEntry(logPfx + " (count=" + count + ") — " + (doActivate ? "Activate" : "Dull"));
+            ctx.logEntry(logPfx + " (count=" + count + ") — " + action);
             List<ForwardTarget> ts = selectTargets(ctx, count, true,
                     fOppOnly, fSelfOnly, null, null, null, false,
                     -1, null, -1, null,
@@ -12297,9 +12344,12 @@ public class ActionResolver {
             if (doActivate) {
                 sortedByIdxDesc(ts, true) .forEach(ctx::activateTarget);
                 sortedByIdxDesc(ts, false).forEach(ctx::activateTarget);
-            } else {
+            } else if (doDull) {
                 sortedByIdxDesc(ts, true) .forEach(ctx::dullTarget);
                 sortedByIdxDesc(ts, false).forEach(ctx::dullTarget);
+            } else {
+                sortedByIdxDesc(ts, true) .forEach(ctx::freezeTarget);
+                sortedByIdxDesc(ts, false).forEach(ctx::freezeTarget);
             }
         };
     }
