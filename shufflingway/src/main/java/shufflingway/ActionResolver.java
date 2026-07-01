@@ -2273,6 +2273,7 @@ public class ActionResolver {
             "|put\\s+it\\s+on\\s+top\\s+of\\s+(?:your|its\\s+owner's)\\s+deck" +
             "|put\\s+it\\s+under\\s+the\\s+top\\s+card\\s+of\\s+(?:your|its\\s+owner's)\\s+deck" +
             "|put\\s+it\\s+into\\s+(?:the\\s+)?Break\\s+Zone" +
+            "|put\\s+them\\s+into\\s+(?:the\\s+)?Break\\s+Zone" +
         ")" +
         "[.!]?"
     );
