@@ -144,7 +144,12 @@ public class AutoAbilityParsingTest {
     /** Reconstructs the original trigger line for display. */
     private static String autoAbilityText(AutoAbility fa) {
         StringBuilder sb = new StringBuilder("When ");
-        sb.append(fa.triggerCard()).append(' ').append(triggerDisplayText(fa.trigger())).append(", ");
+        String trigger = triggerDisplayText(fa.trigger());
+        if (fa.warpOnly() && trigger.equals("enters the field"))
+            trigger = "enters the field due to Warp";
+        else if (fa.castOnly() && trigger.equals("enters the field"))
+            trigger = "enters the field due to your cast";
+        sb.append(fa.triggerCard()).append(' ').append(trigger).append(", ");
         if (fa.youMay())       sb.append("you may ");
         else if (fa.opponentMay()) sb.append("your opponent may ");
         sb.append(fa.effectText()).append(dmgTag(fa.damageThreshold()));
