@@ -8053,7 +8053,7 @@ public class MainWindow {
 	 * every pool before evaluating — used for the "other than X" exclusion in
 	 * {@link IfControlBoost}.
 	 */
-	private boolean controlConditionMetExcluding(ControlCondition cond, String exceptName, boolean isP1) {
+	boolean controlConditionMetExcluding(ControlCondition cond, String exceptName, boolean isP1) {
 		if (exceptName.isEmpty()) return controlConditionMet(cond, isP1);
 		List<CardData> fwds = new ArrayList<>(isP1 ? p1ForwardCards : p2ForwardCards);
 		CardData[] srcBkps  = isP1 ? p1BackupCards : p2BackupCards;

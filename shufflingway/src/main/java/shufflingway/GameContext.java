@@ -722,6 +722,12 @@ public interface GameContext {
     boolean controlConditionMet(ControlCondition cond);
 
     /**
+     * Like {@link #controlConditionMet} but excludes all field cards named {@code excludeName}
+     * before evaluating — used for "other than [name]" conditions.
+     */
+    boolean controlConditionMetExcluding(ControlCondition cond, String excludeName);
+
+    /**
      * Returns {@code true} if the opponent controls at least one card of {@code cardType}
      * ("Forward", "Monster", "Backup", or "Character") satisfying {@code cardCondition}
      * ("damaged", "dull", "active", "attacking", "blocking", or {@code null} for any state).

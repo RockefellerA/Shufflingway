@@ -2241,11 +2241,13 @@ public class ActionResolver {
             "\\s+(?:and/)?or\\s+Card\\s+Name\\s+(?<cnameor>.+?)" +
             "(?=\\s+of\\s+cost|\\s+(?:Forwards?|Backups?|Monsters?|Summons?|Characters?|card)\\b|\\s+and\\b)\\s*" +
         "|" +
-            // Written job — lookahead keeps element, type word, "of cost", "other than", or "and" ahead
+            // Written job — lookahead keeps element, type word, "of cost", "other than", Category, or "and" ahead
             "Job\\s+(?<jobnm>.+?)(?=\\s+(?:Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)\\b" +
             "|\\s+(?:Forwards?|Backups?|Monsters?|Summons?|Characters?|card)\\b" +
-            "|\\s+of\\s+cost\\b|\\s+other\\b|\\s+and\\b)\\s*" +
+            "|\\s+of\\s+cost\\b|\\s+other\\b|\\s+Category\\b|\\s+and\\b)\\s*" +
         ")?" +
+        // Optional Category filter following a Job filter (e.g. "Job Standard Unit Category FFCC")
+        "(?:Category\\s+(?<catafterjob>\\S+)\\s+)?" +
         "(?:(?<elements>(?:Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)" +
             "(?:\\s+or\\s+(?:Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark))*)\\s+)?" +
         "(?<targets>Forwards?|Backups?|Monsters?|Summons?|Characters?|card)?\\s*" +
@@ -3743,6 +3745,9 @@ public class ActionResolver {
         result = tryParseIfNDiffElements(effectText, source, xValue);
         if (result != null) return result;
 
+        result = tryParseIfControlCondOtherThan(effectText, source, xValue);
+        if (result != null) return result;
+
         result = tryParseControlConditionGate(effectText, source, xValue);
         if (result != null) return result;
 
@@ -4562,6 +4567,7 @@ public class ActionResolver {
         if (tryParseIfOwnForwardFormedParty(effectText, source, 0)       != null) return "IfOwnForwardFormedParty";
         if (tryParseIfControlAtMost(effectText, source, 0)             != null) return "IfControlAtMost";
         if (tryParseIfCastAtLeast(effectText, source, 0)               != null) return "IfCastAtLeast";
+        if (tryParseIfControlCondOtherThan(effectText, source, 0)      != null) return "IfControlCondOtherThan";
         if (tryParseIfOppControlsNOrMoreCondTypeGate(effectText, source, 0) != null) return "IfOppControlsNOrMoreCondType";
         if (tryParseDiscardConditionalElement(effectText, source, 0)   != null) return "DiscardConditionalElement";
         if (tryParseConditionalOpponentHand(effectText, source, 0)     != null) return "ConditionalOpponentHand";
@@ -4703,6 +4709,7 @@ public class ActionResolver {
         if (CardData.CONTROL_IF_NOT_ANY_PATTERN.matcher(effectText).find())       return "UseRestriction";
         if (tryParseWhenYouDoSoSequence(effectText, source, 0)          != null) return "WhenYouDoSo";
         if (tryParseIfCastAtLeast(effectText, source, 0)                != null) return "IfCastAtLeast";
+        if (tryParseIfControlCondOtherThan(effectText, source, 0)      != null) return "IfControlCondOtherThan";
         if (tryParseIfOppControlsNOrMoreCondTypeGate(effectText, source, 0) != null) return "IfOppControlsNOrMoreCondTypeDraw";
         if (tryParseDiscardConditionalElement(effectText, source, 0)    != null) return "DiscardConditionalElement";
         if (tryParseSelectNumber(effectText, source)          != null) return "SelectNumber";
@@ -9446,6 +9453,15 @@ public class ActionResolver {
         "(?is)^if\\s+you\\s+(?<neg>do\\s+not\\s+|don't\\s+)?control\\s+(?<cond>.+?),\\s+(?<effect>.+)$"
     );
 
+    /**
+     * Matches "if you control [cond] other than [name], [effect]."
+     * Used for abilities like "if you control a Category FFCC Forward other than Bel Dat, draw 1 card."
+     * Tried before {@link #CONTROL_CONDITION_GATE} because it is more specific.
+     */
+    private static final Pattern IF_CONTROL_COND_OTHER_THAN = Pattern.compile(
+        "(?is)^if\\s+you\\s+control\\s+(?<cond>.+?)\\s+other\\s+than\\s+(?<exclude>[^,]+?),\\s+(?<effect>.+)$"
+    );
+
     /** Matches "If your opponent controls a(n) [cond] [type], [effect]" — e.g. "a damaged Forward". */
     private static final Pattern OPP_CONTROL_CARD_GATE = Pattern.compile(
         "(?is)^if\\s+your\\s+opponent\\s+controls\\s+a(?:n)?\\s+" +
@@ -9584,6 +9600,23 @@ public class ActionResolver {
      * (un)met at resolution time. Returns {@code null} when the condition or inner effect cannot
      * be parsed so the text falls through to the regular matchers (preserving prior behaviour).
      */
+    private static Consumer<GameContext> tryParseIfControlCondOtherThan(String text, CardData source, int xValue) {
+        Matcher m = IF_CONTROL_COND_OTHER_THAN.matcher(text.trim());
+        if (!m.matches()) return null;
+        ControlCondition cc = CardData.parseControlCondition(m.group("cond").trim());
+        if (cc == null) return null;
+        String excludeName = m.group("exclude").trim();
+        Consumer<GameContext> inner = parse(m.group("effect").trim(), source, xValue);
+        if (inner == null) return null;
+        return ctx -> {
+            if (ctx.controlConditionMetExcluding(cc, excludeName)) {
+                inner.accept(ctx);
+            } else {
+                ctx.logEntry("Effect: control condition (excl. " + excludeName + ") not met — skipped");
+            }
+        };
+    }
+
     private static Consumer<GameContext> tryParseControlConditionGate(String text, CardData source, int xValue) {
         Matcher m = CONTROL_CONDITION_GATE.matcher(text.trim());
         if (!m.matches()) return null;
@@ -12968,6 +13001,8 @@ public class ActionResolver {
 
         // --- Category filter ---
         String categoryFilter = m.group("category") != null ? m.group("category").trim() : null;
+        String catAfterJob = m.group("catafterjob");
+        if (catAfterJob != null && categoryFilter == null) categoryFilter = catAfterJob.trim();
 
         // --- Element filter (e.g. "Fire or Earth" → "Fire|Earth") ---
         // preelems captures elements that precede a Job/Name filter (e.g. "Fire Job Knight");

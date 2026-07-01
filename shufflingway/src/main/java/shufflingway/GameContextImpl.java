@@ -4276,6 +4276,10 @@ final class GameContextImpl implements GameContext {
 				return mw.controlConditionMet(cond, isP1);
 			}
 
+			@Override public boolean controlConditionMetExcluding(ControlCondition cond, String excludeName) {
+				return mw.controlConditionMetExcluding(cond, excludeName, isP1);
+			}
+
 			@Override public boolean opponentControlsCard(String cardType, String cardCondition) {
 				boolean oppIsP1 = !isP1;
 				String norm = cardType == null ? null : cardType.toLowerCase().replaceAll("s$", "");
