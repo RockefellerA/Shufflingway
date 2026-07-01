@@ -144,11 +144,42 @@ public class AutoAbilityParsingTest {
     /** Reconstructs the original trigger line for display. */
     private static String autoAbilityText(AutoAbility fa) {
         StringBuilder sb = new StringBuilder("When ");
-        sb.append(fa.triggerCard()).append(' ').append(fa.trigger()).append(", ");
+        sb.append(fa.triggerCard()).append(' ').append(triggerDisplayText(fa.trigger())).append(", ");
         if (fa.youMay())       sb.append("you may ");
         else if (fa.opponentMay()) sb.append("your opponent may ");
         sb.append(fa.effectText()).append(dmgTag(fa.damageThreshold()));
         return sb.toString();
+    }
+
+    /** Maps a canonical trigger key back to a human-readable trigger phrase. */
+    private static String triggerDisplayText(String trigger) {
+        return switch (trigger) {
+            case "attacks"                                  -> "attacks";
+            case "attacks or blocks"                        -> "attacks or blocks";
+            case "blocks"                                   -> "blocks";
+            case "is blocked"                               -> "is blocked";
+            case "blocks or is blocked"                     -> "blocks or is blocked";
+            case "enters the field"                         -> "enters the field";
+            case "enters your field"                        -> "enters your field";
+            case "enters your field not from hand"          -> "enters your field other than from your hand";
+            case "enters the field or attacks"              -> "enters the field or attacks";
+            case "enters the field or put into break zone"  -> "enters the field or is put from the field into the Break Zone";
+            case "put into break zone"                      -> "is put from the field into the Break Zone";
+            case "other forward attacks"                    -> "attacks";
+            case "party attacks"                            -> "forms a party and attacks";
+            case "chosen by opponent's summon"              -> "is chosen by your opponent's Summon or ability";
+            case "cast summon"                              -> "casts a Summon";
+            case "damage zone"                              -> "is put into the Damage Zone";
+            case "leaves the field"                         -> "leaves the field";
+            case "warp placed"                              -> "Warp is placed in the field";
+            case "deals damage to opponent"                 -> "deals damage to your opponent";
+            case "deals damage to forward"                  -> "deals damage to a Forward";
+            case "you receive damage"                       -> "you receive damage";
+            case "either player receives damage"            -> "either player receives damage";
+            case "enters opponent's field"                  -> "enters your opponent's field";
+            case "attack"                                   -> "attacks";
+            default                                         -> trigger;
+        };
     }
 
     private static String dmgTag(int threshold) {

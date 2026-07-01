@@ -2098,6 +2098,57 @@ final class GameContextImpl implements GameContext {
 				}
 			}
 
+			@Override public void selectControlledTypeAndBreak(boolean inclForwards, boolean inclBackups, boolean inclMonsters) {
+				if (isP1) {
+					List<ForwardTarget> eligible = new ArrayList<>();
+					if (inclForwards)
+						for (int i = 0; i < mw.p1ForwardCards.size(); i++)
+							eligible.add(new ForwardTarget(true, i, ForwardTarget.CardZone.FORWARD));
+					if (inclBackups)
+						for (int i = 0; i < mw.p1BackupCards.length; i++)
+							if (mw.p1BackupCards[i] != null)
+								eligible.add(new ForwardTarget(true, i, ForwardTarget.CardZone.BACKUP));
+					if (inclMonsters)
+						for (int i = 0; i < mw.p1MonsterCards.size(); i++)
+							eligible.add(new ForwardTarget(true, i, ForwardTarget.CardZone.MONSTER));
+					if (eligible.isEmpty()) { logEntry("P1 has no eligible characters — skipping"); return; }
+					List<ForwardTarget> picks = mw.selectFieldTargetsInPlace(eligible, 1, false,
+							"Select 1 Character you control to put into the Break Zone");
+					if (!picks.isEmpty()) forceTargetToBreakZone(picks.get(0));
+				} else {
+					List<ForwardTarget> eligible = new ArrayList<>();
+					if (inclForwards)
+						for (int i = 0; i < mw.p2ForwardCards.size(); i++)
+							eligible.add(new ForwardTarget(false, i, ForwardTarget.CardZone.FORWARD));
+					if (inclBackups)
+						for (int i = 0; i < mw.p2BackupCards.length; i++)
+							if (mw.p2BackupCards[i] != null)
+								eligible.add(new ForwardTarget(false, i, ForwardTarget.CardZone.BACKUP));
+					if (inclMonsters)
+						for (int i = 0; i < mw.p2MonsterCards.size(); i++)
+							eligible.add(new ForwardTarget(false, i, ForwardTarget.CardZone.MONSTER));
+					if (eligible.isEmpty()) { logEntry("[AI] P2 has no eligible characters — skipping"); return; }
+					ForwardTarget pick = null;
+					if (inclForwards && !mw.p2ForwardCards.isEmpty()) pick = mw.aiPickForwardForBreak();
+					if (pick == null && inclBackups) {
+						for (int i = 0; i < mw.p2BackupCards.length; i++)
+							if (mw.p2BackupCards[i] != null) { pick = new ForwardTarget(false, i, ForwardTarget.CardZone.BACKUP); break; }
+					}
+					if (pick == null && inclMonsters && !mw.p2MonsterCards.isEmpty())
+						pick = new ForwardTarget(false, 0, ForwardTarget.CardZone.MONSTER);
+					if (pick != null) {
+						String name = switch (pick.zone()) {
+							case FORWARD   -> mw.p2ForwardCards.get(pick.idx()).name();
+							case BACKUP    -> mw.p2BackupCards[pick.idx()].name();
+							case MONSTER   -> mw.p2MonsterCards.get(pick.idx()).name();
+							default        -> "?";
+						};
+						logEntry("[AI] selected " + name);
+						forceTargetToBreakZone(pick);
+					}
+				}
+			}
+
 			@Override public void eachPlayerSalvageFromBreakZone(int count) {
 				List<CardData> p1Bz = mw.gameState.getP1BreakZone();
 				List<CardData> p2Bz = mw.gameState.getP2BreakZone();

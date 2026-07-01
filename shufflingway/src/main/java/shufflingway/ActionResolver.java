@@ -1925,9 +1925,9 @@ public class ActionResolver {
         "\\s+and\\s+puts?\\s+it\\s+into\\s+the\\s+Break\\s+Zone[.!]?"
     );
 
-    /** Matches "select 1 Forward you control. Put it into the Break Zone." */
-    private static final Pattern SELECT_1_FORWARD_YOU_CONTROL_TO_BZ = Pattern.compile(
-        "(?i)^[Ss]elect\\s+1\\s+Forward\\s+you\\s+control[.!]?\\s+Put\\s+it\\s+into\\s+the\\s+Break\\s+Zone[.!]?$"
+    /** Matches "select 1 [Forward|Backup|Monster|Character] you control. Put it into the Break Zone." */
+    private static final Pattern SELECT_1_CHARACTER_YOU_CONTROL_TO_BZ = Pattern.compile(
+        "(?i)^[Ss]elect\\s+1\\s+(?<type>Forward|Backup|Monster|Character)\\s+you\\s+control[.!]?\\s+Put\\s+it\\s+into\\s+the\\s+Break\\s+Zone[.!]?$"
     );
 
     /**
@@ -3349,6 +3349,19 @@ public class ActionResolver {
     );
 
     /**
+     * Matches "deal N damage and M more damage for each Card Name [name] in your Break Zone
+     * to all [the] Forwards [opponent controls]."
+     * Groups: {@code base} — fixed base damage; {@code per} — additional per copy; {@code cardname} — name filter;
+     * {@code opponent} — present when "opponent controls" appears.
+     */
+    private static final Pattern DEAL_BASE_PLUS_BZ_NAME_DAMAGE_TO_FORWARDS = Pattern.compile(
+        "(?i)^deal\\s+(?<base>\\d+)\\s+damage\\s+and\\s+(?<per>\\d+)\\s+more\\s+damage\\s+" +
+        "for\\s+each\\s+Card\\s+Name\\s+(?<cardname>.+?)\\s+in\\s+your\\s+Break\\s+Zone\\s+" +
+        "to\\s+all(?:\\s+the)?\\s+Forwards?" +
+        "(?:\\s+(?<opponent>(?:your\\s+)?opponent\\s+controls))?[.!]?$"
+    );
+
+    /**
      * Matches "Until the end of the turn, [CardName] gains 'When [CardName] attacks, [innerEffect]'"
      * — grants the source card a temporary attack trigger for this turn.
      * Group {@code inner} — the effect text inside the quoted auto-ability.
@@ -3750,6 +3763,9 @@ public class ActionResolver {
         result = tryParseForEachJobAndNameDealDamageToForwards(effectText);
         if (result != null) return result;
 
+        result = tryParseDealBasePlusBzNameDamageToForwards(effectText);
+        if (result != null) return result;
+
         result = tryParseSelfGainsWhenAttacksEOT(effectText, source);
         if (result != null) return result;
 
@@ -4083,7 +4099,7 @@ public class ActionResolver {
         result = tryParseBothPlayersSelectForwardToBreakZone(effectText);
         if (result != null) return result;
 
-        result = tryParseSelectControlledForwardToBz(effectText);
+        result = tryParseSelectControlledCharacterToBz(effectText);
         if (result != null) return result;
 
         result = tryParseEachPlayerSelectUpToNToBreakZone(effectText);
@@ -4474,7 +4490,7 @@ public class ActionResolver {
         if (tryParseOpponentRandomDiscard(effectText)         != null) return "OpponentRandomDiscard";
         if (tryParseEachPlayerSelectForwardDamage(effectText)  != null) return "EachPlayerSelectForwardDamage";
         if (tryParseBothPlayersSelectForwardToBreakZone(effectText) != null) return "BothPlayersSelectForwardToBreakZone";
-        if (tryParseSelectControlledForwardToBz(effectText)        != null) return "SelectControlledForwardToBz";
+        if (tryParseSelectControlledCharacterToBz(effectText)        != null) return "SelectControlledCharacterToBz";
         if (tryParseEachPlayerSelectUpToNToBreakZone(effectText)   != null) return "EachPlayerSelectUpToNToBreakZone";
         if (tryParseEachPlayerDiscard(effectText)              != null) return "EachPlayerDiscard";
         if (tryParseEachPlayerSalvageFromBreakZone(effectText) != null) return "EachPlayerSalvageFromBreakZone";
@@ -4889,7 +4905,7 @@ public class ActionResolver {
         if (tryParseOpponentRandomDiscard(effectText) != null)              return "OpponentRandomDiscard";
         if (tryParseEachPlayerSelectForwardDamage(effectText) != null)      return "EachPlayerSelectForwardDamage";
         if (tryParseBothPlayersSelectForwardToBreakZone(effectText) != null) return "BothPlayersSelectForwardToBreakZone";
-        if (tryParseSelectControlledForwardToBz(effectText)        != null)  return "SelectControlledForwardToBz";
+        if (tryParseSelectControlledCharacterToBz(effectText)        != null)  return "SelectControlledCharacterToBz";
         if (tryParseEachPlayerSelectUpToNToBreakZone(effectText) != null)   return "EachPlayerSelectUpToNToBreakZone";
         if (tryParseEachPlayerDiscard(effectText) != null)                  return "EachPlayerDiscard";
         if (tryParseEachPlayerSalvageFromBreakZone(effectText) != null)     return "EachPlayerSalvageFromBreakZone";
@@ -5355,6 +5371,33 @@ public class ActionResolver {
             String scopeLabel = opponentOnly ? "opponent's " : "all ";
             ctx.logEntry("Effect: For each Job " + job + " and Card name " + cardName
                     + " (" + count + "), deal " + damage + " damage to " + scopeLabel + "Forwards");
+            if (damage <= 0) return;
+            if (!opponentOnly || oppIsP2) {
+                for (int i = ctx.p2ForwardCount() - 1; i >= 0; i--)
+                    if (i < ctx.p2ForwardCount()) ctx.damageP2Forward(i, damage);
+            }
+            if (!opponentOnly || oppIsP1) {
+                for (int i = ctx.p1ForwardCount() - 1; i >= 0; i--)
+                    if (i < ctx.p1ForwardCount()) ctx.damageP1Forward(i, damage);
+            }
+        };
+    }
+
+    private static Consumer<GameContext> tryParseDealBasePlusBzNameDamageToForwards(String text) {
+        Matcher m = DEAL_BASE_PLUS_BZ_NAME_DAMAGE_TO_FORWARDS.matcher(text);
+        if (!m.matches()) return null;
+        int    base          = Integer.parseInt(m.group("base"));
+        int    per           = Integer.parseInt(m.group("per"));
+        String cardName      = m.group("cardname").trim();
+        boolean opponentOnly = m.group("opponent") != null;
+        return ctx -> {
+            int count  = ctx.countSelfBreakZoneCards(cardName, null);
+            int damage = base + per * count;
+            boolean oppIsP2 = opponentOnly && ctx.isP1();
+            boolean oppIsP1 = opponentOnly && !ctx.isP1();
+            String scopeLabel = opponentOnly ? "opponent's " : "all ";
+            ctx.logEntry("Effect: Deal " + damage + " damage (" + base + " + " + per + "×" + count
+                    + " [" + cardName + "] in BZ) to " + scopeLabel + "Forwards");
             if (damage <= 0) return;
             if (!opponentOnly || oppIsP2) {
                 for (int i = ctx.p2ForwardCount() - 1; i >= 0; i--)
@@ -9925,12 +9968,17 @@ public class ActionResolver {
         };
     }
 
-    /** Parses "select 1 Forward you control. Put it into the Break Zone." */
-    private static Consumer<GameContext> tryParseSelectControlledForwardToBz(String text) {
-        if (!SELECT_1_FORWARD_YOU_CONTROL_TO_BZ.matcher(text.trim()).matches()) return null;
+    /** Parses "select 1 [Forward|Backup|Monster|Character] you control. Put it into the Break Zone." */
+    private static Consumer<GameContext> tryParseSelectControlledCharacterToBz(String text) {
+        Matcher m = SELECT_1_CHARACTER_YOU_CONTROL_TO_BZ.matcher(text.trim());
+        if (!m.matches()) return null;
+        String type    = m.group("type");
+        boolean inclFwd = type.matches("(?i)Forward|Character");
+        boolean inclBkp = type.matches("(?i)Backup|Character");
+        boolean inclMon = type.matches("(?i)Monster|Character");
         return ctx -> {
-            ctx.logEntry("Effect: select 1 Forward you control → Break Zone");
-            ctx.selectControlledForwardAndBreak();
+            ctx.logEntry("Effect: select 1 " + type + " you control → Break Zone");
+            ctx.selectControlledTypeAndBreak(inclFwd, inclBkp, inclMon);
         };
     }
 

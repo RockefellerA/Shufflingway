@@ -339,6 +339,12 @@ public interface GameContext {
     void selectControlledForwardAndBreak();
 
     /**
+     * Prompts the ability user to select 1 controlled card of the specified type(s)
+     * and put it into the Break Zone. AI picks the lowest-cost Forward, then Backup, then Monster.
+     */
+    void selectControlledTypeAndBreak(boolean inclForwards, boolean inclBackups, boolean inclMonsters);
+
+    /**
      * Each player selects up to {@code count} Forwards and/or Monsters they control
      * and puts them into the Break Zone.
      * P1 picks via dialog; P2 (AI) picks lowest-cost eligible targets.
