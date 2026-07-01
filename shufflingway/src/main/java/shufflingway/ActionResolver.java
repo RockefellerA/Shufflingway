@@ -111,6 +111,18 @@ public class ActionResolver {
     );
 
     /**
+     * Matches "Choose 1 Forward you control other than [CardName]. During this turn, the next
+     * damage dealt to it is dealt to [CardName] instead."
+     * Groups: {@code shield} = excluded/redirect card name (first occurrence);
+     *         {@code redirect} = redirect target name (second occurrence, should match {@code shield}).
+     */
+    private static final Pattern CHOOSE_FORWARD_REDIRECT_TO_NAMED = Pattern.compile(
+        "(?i)Choose\\s+1\\s+Forward\\s+you\\s+control\\s+other\\s+than\\s+(?<shield>[A-Za-z][^.]+?)[.!]\\s+" +
+        "During\\s+this\\s+turn[,.]?\\s+the\\s+next\\s+damage\\s+dealt\\s+to\\s+it\\s+" +
+        "is\\s+(?:received\\s+by|dealt\\s+to)\\s+(?<redirect>[A-Za-z][^.!]+?)\\s+instead[.!]?"
+    );
+
+    /**
      * Matches "During this turn, the next damage dealt to the former is received by / dealt to the latter instead."
      * — one-shot damage redirect from former to latter, with an optional trailing bonus clause.
      * Group {@code suffix} = optional bonus text (e.g. BACKUP_CP_DRAW).
@@ -3856,6 +3868,9 @@ public class ActionResolver {
         result = tryParseChooseOneEach(effectText, source);
         if (result != null) return result;
 
+        result = tryParseChooseForwardRedirectToNamed(effectText);
+        if (result != null) return result;
+
         result = tryParseChooseFormerLatter(effectText, source);
         if (result != null) return result;
 
@@ -4792,6 +4807,7 @@ public class ActionResolver {
             if (followupName != null) return "ChooseOneEach / " + followupName;
             // followup not describable by matchedFollowupName — fall through to tryParseChooseFormerLatter
         }
+        if (tryParseChooseForwardRedirectToNamed(normalizedEffectText) != null) return "ChooseForwardRedirectToNamed";
         if (tryParseChooseFormerLatter(normalizedEffectText, source) != null) return "ChooseFormerLatter";
         if (tryParseChooseForwardDealSelfDamageBreakIfCostLeDamage(normalizedEffectText) != null)
             return "ChooseForwardDealSelfDamageBreakIfCostLeDamage";
@@ -6655,6 +6671,46 @@ public class ActionResolver {
 
             fFormerAction.accept(ctx, ts1);
             fLatterAction.accept(ctx, ts2);
+        };
+    }
+
+    /**
+     * Parses "Choose 1 Forward you control other than [CardName]. During this turn, the next
+     * damage dealt to it is dealt to [CardName] instead." — one-shot damage redirect where the
+     * player picks a Forward to shield and a named card on the field absorbs the damage.
+     */
+    private static Consumer<GameContext> tryParseChooseForwardRedirectToNamed(String text) {
+        Matcher m = CHOOSE_FORWARD_REDIRECT_TO_NAMED.matcher(text);
+        if (!m.find()) return null;
+
+        String shieldName   = m.group("shield").trim();
+        String redirectName = m.group("redirect").trim();
+        if (!shieldName.equalsIgnoreCase(redirectName)) return null;
+
+        String logMsg = "Choose 1 Forward you control other than " + shieldName
+                + " → redirect next incoming damage to " + shieldName;
+
+        return ctx -> {
+            ctx.logEntry("Effect: " + logMsg);
+            List<ForwardTarget> targets = selectTargets(ctx, 1, false,
+                    false, true,
+                    null, null, null, false,
+                    -1, null, -1, null,
+                    true, false, false,
+                    null, null, null, shieldName,
+                    false, null, false);
+            if (targets.isEmpty()) return;
+
+            List<ForwardTarget> redirectTargets = selectTargets(ctx, 1, false,
+                    false, true,
+                    null, null, null, false,
+                    -1, null, -1, null,
+                    true, false, false,
+                    null, redirectName, null, null,
+                    false, null, false);
+            if (redirectTargets.isEmpty()) return;
+
+            ctx.redirectNextIncomingDamage(targets.get(0), redirectTargets.get(0));
         };
     }
 
