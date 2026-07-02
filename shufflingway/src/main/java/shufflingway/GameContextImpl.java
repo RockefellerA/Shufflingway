@@ -40,6 +40,8 @@ import static shufflingway.graphics.CardAnimation.CARD_W;
 import static shufflingway.CardFilters.formatCostFilterLabel;
 import static shufflingway.CardFilters.isBlockingTargetFilter;
 import static shufflingway.CardFilters.isEnteredThisTurnCondition;
+import static shufflingway.CardFilters.isTraitCondition;
+import static shufflingway.CardFilters.parseTraitFromCondition;
 import static shufflingway.CardFilters.matchesDiscardType;
 import static shufflingway.CardFilters.meetsCardNameFilter;
 import static shufflingway.CardFilters.meetsCategoryFilter;
@@ -524,6 +526,7 @@ final class GameContextImpl implements GameContext {
 							if (!meetsCategoryFilter(card, categoryFilter)) continue;
 							if (excludeName != null && excludeName.equalsIgnoreCase(card.name())) continue;
 							if (withoutMulticard && card.multicard()) continue;
+							if (isTraitCondition(condition) && !mw.effectiveP1HasTrait(i, parseTraitFromCondition(condition))) continue;
 							if (isBlockingTargetFilter(condition)
 									? mw.meetsBlockingTargetFilter(true, i, condition)
 									: isEnteredThisTurnCondition(condition)
@@ -579,6 +582,7 @@ final class GameContextImpl implements GameContext {
 							if (!meetsCategoryFilter(card, categoryFilter)) continue;
 							if (excludeName != null && excludeName.equalsIgnoreCase(card.name())) continue;
 							if (withoutMulticard && card.multicard()) continue;
+							if (isTraitCondition(condition) && !mw.effectiveP2HasTrait(i, parseTraitFromCondition(condition))) continue;
 							if (isBlockingTargetFilter(condition)
 									? mw.meetsBlockingTargetFilter(false, i, condition)
 									: isEnteredThisTurnCondition(condition)
@@ -638,6 +642,7 @@ final class GameContextImpl implements GameContext {
 							if (!meetsCategoryFilter(card, categoryFilter)) continue;
 							if (excludeName != null && excludeName.equalsIgnoreCase(card.name())) continue;
 							if (withoutMulticard && card.multicard()) continue;
+							if (isTraitCondition(condition) && !mw.effectiveP2HasTrait(i, parseTraitFromCondition(condition))) continue;
 							if (isBlockingTargetFilter(condition)
 									? mw.meetsBlockingTargetFilter(false, i, condition)
 									: isEnteredThisTurnCondition(condition)
@@ -696,6 +701,7 @@ final class GameContextImpl implements GameContext {
 							if (!meetsCategoryFilter(card, categoryFilter)) continue;
 							if (excludeName != null && excludeName.equalsIgnoreCase(card.name())) continue;
 							if (withoutMulticard && card.multicard()) continue;
+							if (isTraitCondition(condition) && !mw.effectiveP1HasTrait(i, parseTraitFromCondition(condition))) continue;
 							if (isBlockingTargetFilter(condition)
 									? mw.meetsBlockingTargetFilter(true, i, condition)
 									: isEnteredThisTurnCondition(condition)
@@ -748,10 +754,15 @@ final class GameContextImpl implements GameContext {
 						: inclBackups && !inclForwards && !inclMonsters ? "Backup"
 						: inclMonsters && !inclForwards && !inclBackups ? "Monster"
 						: "Character";
+				String preCondLabel  = (condition == null || isTraitCondition(condition)) ? ""
+						: " " + condition;
+				String postCondLabel = !isTraitCondition(condition) ? ""
+						: " with " + condition.substring("trait:".length()).charAt(0)
+						  + condition.substring("trait:".length()).substring(1).toLowerCase(java.util.Locale.ROOT).replace("_", " ");
 				String title = "Choose " + (upTo ? "up to " : "") + maxCount
-						+ (condition != null ? " " + condition : "")
+						+ preCondLabel
 						+ (element != null ? " " + element : "")
-						+ " " + targetNoun + (maxCount != 1 ? "s" : "") + costLabel + powerLabel
+						+ " " + targetNoun + (maxCount != 1 ? "s" : "") + postCondLabel + costLabel + powerLabel
 						+ (opponentOnly ? " (opponent)" : selfOnly ? " (yours)" : "");
 				if (!isP1) {
 					// AI (P2 controls the effect): auto-select rather than prompting the human.

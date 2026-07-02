@@ -216,6 +216,26 @@ public final class CardFilters {
         return "entered the field this turn".equals(condition);
     }
 
+    /** Returns true when {@code condition} is a trait filter ("trait:BRAVE", "trait:HASTE", etc.). */
+    public static boolean isTraitCondition(String condition) {
+        if (condition == null) return false;
+        return condition.toLowerCase().startsWith("trait:");
+    }
+
+    /**
+     * Extracts the {@link CardData.Trait} from a "trait:NAME" condition string.
+     * Returns {@code null} if the condition is not a trait condition or the trait is unrecognised.
+     */
+    public static CardData.Trait parseTraitFromCondition(String condition) {
+        if (!isTraitCondition(condition)) return null;
+        String name = condition.substring("trait:".length()).trim();
+        try {
+            return CardData.Trait.valueOf(name.toUpperCase(java.util.Locale.ROOT));
+        } catch (IllegalArgumentException e) {
+            return null;
+        }
+    }
+
     // -------------------------------------------------------------------------
     // Card-name overlap (uniqueness rule)
     // -------------------------------------------------------------------------
