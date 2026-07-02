@@ -8972,9 +8972,40 @@ public class MainWindow {
 		if (nextOutgoingDmgDoublerSet.remove(card)) mult *= 2;
 		if (target != null) mult *= fieldAbilityCombatOutgoingMult(card, target);
 		int flat = (target != null) ? outgoingDmgFlatBoostMap.getOrDefault(card, 0) : 0;
-		if (target != null && target.isForward() && card.isForward())
+		if (target != null && target.isForward() && card.isForward()) {
 			flat += friendlyElementForwardCombatBoost(card, isP1);
+			flat += costBasedCombatFlatAdjustments(card, target);
+		}
 		return rawAmount * mult + flat;
+	}
+
+	private int costBasedCombatFlatAdjustments(CardData attacker, CardData target) {
+		int adj = 0;
+		if (!lostAbilitiesCards.contains(attacker)) {
+			for (FieldAbility fa : attacker.fieldAbilities()) {
+				Matcher m = AutoAbilityTriggers.FA_OUTGOING_FLAT_BOOST_VS_COST.matcher(fa.effectText());
+				if (!m.find()) continue;
+				if (!m.group("card").trim().equalsIgnoreCase(attacker.name())) continue;
+				if (target.cost() >= Integer.parseInt(m.group("cost"))) {
+					int boost = Integer.parseInt(m.group("amount"));
+					adj += boost;
+					logEntry(attacker.name() + " — damage +" + boost + " vs cost-" + target.cost() + " target");
+				}
+			}
+		}
+		if (!lostAbilitiesCards.contains(target)) {
+			for (FieldAbility fa : target.fieldAbilities()) {
+				Matcher m = AutoAbilityTriggers.FA_INCOMING_REDUCTION_VS_COST.matcher(fa.effectText());
+				if (!m.find()) continue;
+				if (!m.group("card").trim().equalsIgnoreCase(target.name())) continue;
+				if (attacker.cost() >= Integer.parseInt(m.group("cost"))) {
+					int reduction = Integer.parseInt(m.group("amount"));
+					adj -= reduction;
+					logEntry(target.name() + " — damage -" + reduction + " vs cost-" + attacker.cost() + " Forward");
+				}
+			}
+		}
+		return adj;
 	}
 
 	private int friendlyElementForwardCombatBoost(CardData attacker, boolean isP1) {

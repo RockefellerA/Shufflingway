@@ -2475,6 +2475,17 @@ public record CardData(
     );
 
     /**
+     * Matches "The Card Name X you control gains Trait [and Trait]." (unconditional, always-on).
+     * Groups: {@code cardname}, {@code traitstext}.
+     */
+    private static final Pattern FIELD_GRANT_CARD_NAME_TRAIT_ALWAYS = Pattern.compile(
+        "(?i)^(?:The\\s+)?Card\\s+Name\\s+(?<cardname>.+?)\\s+you\\s+control\\s+gains?\\s+" +
+        "(?<traitstext>Haste|Brave|First\\s+Strike|Back\\s+Attack" +
+        "(?:\\s+(?:and\\s+)?(?:Haste|Brave|First\\s+Strike|Back\\s+Attack))*)" +
+        "[.!]?$"
+    );
+
+    /**
      * Matches a cost-filtered same-side grant with optional power and/or traits:
      * "The [type] of cost N you control gain[s] [+P power [and]] [Trait...]"
      * Groups: {@code targets}, {@code cost}, {@code power} (optional), {@code traitstext} (optional).
@@ -2650,6 +2661,20 @@ public record CardData(
                 result.add(new FieldPowerGrant(null, null, true, true, true, null, 0, traits,
                         false, -1, null, null, cnTraitYourTurnM.group("cardname").trim(),
                         0, 0, null, false, true));
+                continue;
+            }
+
+            Matcher cnTraitAlwaysM = FIELD_GRANT_CARD_NAME_TRAIT_ALWAYS.matcher(seg);
+            if (cnTraitAlwaysM.matches()) {
+                String traitsText = cnTraitAlwaysM.group("traitstext");
+                EnumSet<Trait> traits = EnumSet.noneOf(Trait.class);
+                if (ICB_EFFECT_HASTE.matcher(traitsText).find())        traits.add(Trait.HASTE);
+                if (ICB_EFFECT_BRAVE.matcher(traitsText).find())        traits.add(Trait.BRAVE);
+                if (ICB_EFFECT_FIRST_STRIKE.matcher(traitsText).find()) traits.add(Trait.FIRST_STRIKE);
+                if (ICB_EFFECT_BACK_ATTACK.matcher(traitsText).find())  traits.add(Trait.BACK_ATTACK);
+                result.add(new FieldPowerGrant(null, null, true, true, true, null, 0, traits,
+                        false, -1, null, null, cnTraitAlwaysM.group("cardname").trim(),
+                        0, 0, null, false, false));
                 continue;
             }
 
@@ -3915,6 +3940,7 @@ public record CardData(
             if (BECOME_FORWARD_UNCONDITIONAL_PATTERN.matcher(seg).find())     continue;
             if (FIELD_CAN_ATTACK_TWICE.matcher(seg).matches())               continue;
             if (FIELD_GRANT_CARD_NAME_TRAIT_YOUR_TURN.matcher(seg).matches()) continue;
+            if (FIELD_GRANT_CARD_NAME_TRAIT_ALWAYS.matcher(seg).matches())    continue;
 
             result.add(new FieldAbility(seg, damageThreshold));
         }

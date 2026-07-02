@@ -319,6 +319,18 @@ final class AutoAbilityTriggers {
 				"\\s+or\\s+more,\\s+double\\s+the\\s+damage\\s+instead[.!]?"
 			);
 
+	/** "If [card] deals damage to a Forward of cost N or more, [increase the damage by | the damage increases by] X instead." */
+	static final Pattern FA_OUTGOING_FLAT_BOOST_VS_COST = Pattern.compile(
+		"(?i)^If\\s+(?<card>.+?)\\s+deals?\\s+damage\\s+to\\s+a\\s+Forward\\s+of\\s+cost\\s+(?<cost>\\d+)\\s+or\\s+more," +
+		"\\s+(?:increase\\s+the\\s+damage\\s+by|the\\s+damage\\s+increases\\s+by)\\s+(?<amount>\\d+)\\s+instead[.!]?$"
+	);
+
+	/** "If [card] is dealt damage by a Forward of cost N or more, reduce the damage by X instead." */
+	static final Pattern FA_INCOMING_REDUCTION_VS_COST = Pattern.compile(
+		"(?i)^If\\s+(?<card>.+?)\\s+is\\s+dealt\\s+damage\\s+by\\s+a\\s+Forward\\s+of\\s+cost\\s+(?<cost>\\d+)\\s+or\\s+more," +
+		"\\s+reduce\\s+the\\s+damage\\s+by\\s+(?<amount>\\d+)\\s+instead[.!]?$"
+	);
+
 	/** "If [name] deals damage to a Forward due to an ability, double the damage instead." */
 	static final Pattern FA_DOUBLE_ABILITY_DAMAGE =
 			Pattern.compile(
