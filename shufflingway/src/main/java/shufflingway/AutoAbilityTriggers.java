@@ -2807,14 +2807,23 @@ final class AutoAbilityTriggers {
 		// Break-zone costs: process in reverse index order within each zone to avoid index shifting
 		List<ForwardTarget> sortedBz = new ArrayList<>(bzTargets);
 		sortedBz.sort((a, b) -> a.zone() == b.zone() ? Integer.compare(b.idx(), a.idx()) : 0);
+		mw.lastBzCostForwardPower = 0;
 		for (ForwardTarget t : sortedBz) {
 			if (t.isP1()) {
+				if (t.zone() == ForwardTarget.CardZone.FORWARD) {
+					CardData bf = mw.p1ForwardCards.get(t.idx());
+					if (bf != null) mw.lastBzCostForwardPower += bf.power();
+				}
 				switch (t.zone()) {
 					case FORWARD -> mw.breakP1Forward(t.idx());
 					case BACKUP  -> breakP1BackupSlot(t.idx());
 					case MONSTER -> breakP1MonsterSlot(t.idx());
 				}
 			} else {
+				if (t.zone() == ForwardTarget.CardZone.FORWARD) {
+					CardData bf = mw.p2ForwardCards.get(t.idx());
+					if (bf != null) mw.lastBzCostForwardPower += bf.power();
+				}
 				switch (t.zone()) {
 					case FORWARD -> mw.breakP2Forward(t.idx());
 					case BACKUP  -> mw.breakP2BackupSlot(t.idx());

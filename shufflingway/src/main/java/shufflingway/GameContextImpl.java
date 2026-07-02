@@ -2968,6 +2968,7 @@ final class GameContextImpl implements GameContext {
 
 			@Override public int dullForwardCostPower() { return mw.lastDullForwardCostPower; }
 			@Override public int lastDiscardedForwardPower() { return mw.lastDiscardedForwardPower; }
+			@Override public int bzCostForwardPower() { return mw.lastBzCostForwardPower; }
 			@Override public String lastDiscardedCardName() { return mw.lastDiscardedCardName; }
 			@Override public String lastDiscardedCostCardElement() {
 				return mw.lastDiscardedCostCard == null ? null : mw.lastDiscardedCostCard.elements()[0];

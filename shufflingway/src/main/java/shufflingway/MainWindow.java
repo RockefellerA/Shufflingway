@@ -368,6 +368,8 @@ public class MainWindow {
 
 	// Power of the Forward dulled as "Dull N active Forward" ability cost; set during payment.
 	int      lastDullForwardCostPower = 0;
+	// Power of the Forward put into the Break Zone as an ability cost; set during payment.
+	int      lastBzCostForwardPower   = 0;
 
 	boolean  effectProgress = true;
 

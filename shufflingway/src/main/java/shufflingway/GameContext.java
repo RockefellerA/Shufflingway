@@ -980,6 +980,12 @@ public interface GameContext {
     int lastDiscardedForwardPower();
 
     /**
+     * Returns the total printed power of the Forward(s) put into the Break Zone as a cost
+     * for the current ability. Returns {@code 0} when no Forward was put into the BZ as a cost.
+     */
+    int bzCostForwardPower();
+
+    /**
      * Returns the name of the card most recently discarded by a self-discard effect in the
      * current ability chain, or {@code null} when no card has been discarded yet.
      */
