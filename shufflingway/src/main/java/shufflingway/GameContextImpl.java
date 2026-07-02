@@ -2735,7 +2735,12 @@ final class GameContextImpl implements GameContext {
 					}
 				} else {
 					List<Integer> boost = isP1 ? mw.p1ForwardPowerBoost : mw.p2ForwardPowerBoost;
-					boost.set(idx, boost.get(idx) + amount);
+					int effectiveAmount = amount;
+					if (amount > 0 && mw.oppForwardPowerBoostSuppressedFor(isP1)) {
+						logEntry((isP1 ? "" : "[P2] ") + card.name() + " — power boost suppressed (opponent's field ability)");
+						effectiveAmount = 0;
+					}
+					boost.set(idx, boost.get(idx) + effectiveAmount);
 					(isP1 ? mw.p1ForwardTempTraits : mw.p2ForwardTempTraits).get(idx).addAll(traits);
 					grantedTraits.addAll(traits);
 				}
@@ -2791,6 +2796,10 @@ final class GameContextImpl implements GameContext {
 					java.util.EnumSet<CardData.Trait> traits) {
 				for (int i = 0; i < mw.p1ForwardCards.size(); i++) {
 					if (mw.p1ForwardCards.get(i).name().equals(source.name())) {
+						if (amount > 0 && mw.oppForwardPowerBoostSuppressedFor(true)) {
+							logEntry(source.name() + " — power boost suppressed (opponent's field ability)");
+							return;
+						}
 						mw.p1ForwardPowerBoost.set(i, mw.p1ForwardPowerBoost.get(i) + amount);
 						mw.p1ForwardTempTraits.get(i).addAll(traits);
 						logEntry(source.name() + " gains +" + amount + " power until end of turn");
@@ -2804,6 +2813,10 @@ final class GameContextImpl implements GameContext {
 					java.util.EnumSet<CardData.Trait> traits) {
 				for (int i = 0; i < mw.p1ForwardCards.size(); i++) {
 					if (mw.p1ForwardCards.get(i).name().equals(source.name())) {
+						if (mw.oppForwardPowerBoostSuppressedFor(true)) {
+							logEntry(source.name() + " — power doubling suppressed (opponent's field ability)");
+							return;
+						}
 						int current = mw.effectiveP1ForwardPower(i);
 						mw.p1ForwardPowerBoost.set(i, mw.p1ForwardPowerBoost.get(i) + current);
 						mw.p1ForwardTempTraits.get(i).addAll(traits);
@@ -3925,6 +3938,8 @@ final class GameContextImpl implements GameContext {
 					String element, int costVal, String costCmp, String category, String excludeName) {
 				boolean touchP1 = isP1 ? !opponentOnly : !selfOnly;
 				boolean touchP2 = isP1 ? !selfOnly     : !opponentOnly;
+				boolean p1BoostSuppressed = inclForwards && amount > 0 && mw.oppForwardPowerBoostSuppressedFor(true);
+				boolean p2BoostSuppressed = inclForwards && amount > 0 && mw.oppForwardPowerBoostSuppressedFor(false);
 				if (touchP1) {
 					if (inclForwards) {
 						for (int i = 0; i < mw.p1ForwardCards.size(); i++) {
@@ -3933,6 +3948,7 @@ final class GameContextImpl implements GameContext {
 							if (!meetsCostConstraint(c.cost(), costVal, costCmp)) continue;
 							if (!CardFilters.meetsCategoryFilter(c, category)) continue;
 							if (excludeName != null && CardFilters.meetsCardNameFilter(c, excludeName)) continue;
+							if (p1BoostSuppressed) { logEntry(c.name() + " — power boost suppressed"); continue; }
 							mw.p1ForwardPowerBoost.set(i, mw.p1ForwardPowerBoost.get(i) + amount);
 							logEntry(c.name() + " gains +" + amount + " power until end of turn");
 							mw.refreshP1ForwardSlot(i);
@@ -3957,6 +3973,7 @@ final class GameContextImpl implements GameContext {
 							if (!meetsCostConstraint(c.cost(), costVal, costCmp)) continue;
 							if (!CardFilters.meetsCategoryFilter(c, category)) continue;
 							if (excludeName != null && CardFilters.meetsCardNameFilter(c, excludeName)) continue;
+							if (p2BoostSuppressed) { logEntry("[P2] " + c.name() + " — power boost suppressed"); continue; }
 							mw.p2ForwardPowerBoost.set(i, mw.p2ForwardPowerBoost.get(i) + amount);
 							logEntry("[P2] " + c.name() + " gains +" + amount + " power until end of turn");
 							mw.refreshP2ForwardSlot(i);
@@ -3979,11 +3996,14 @@ final class GameContextImpl implements GameContext {
 					boolean opponentOnly, boolean selfOnly, String jobFilter, String cardNameFilter) {
 				boolean touchP1 = isP1 ? !opponentOnly : !selfOnly;
 				boolean touchP2 = isP1 ? !selfOnly     : !opponentOnly;
+				boolean p1JobBoostSuppressed = inclForwards && amount > 0 && mw.oppForwardPowerBoostSuppressedFor(true);
+				boolean p2JobBoostSuppressed = inclForwards && amount > 0 && mw.oppForwardPowerBoostSuppressedFor(false);
 				if (touchP1) {
 					if (inclForwards) {
 						for (int i = 0; i < mw.p1ForwardCards.size(); i++) {
 							CardData c = p1Forward(i);
 							if (!CardFilters.meetsJobFilter(c, jobFilter) && (cardNameFilter == null || !CardFilters.meetsCardNameFilter(c, cardNameFilter))) continue;
+							if (p1JobBoostSuppressed) { logEntry(c.name() + " — power boost suppressed"); continue; }
 							mw.p1ForwardPowerBoost.set(i, mw.p1ForwardPowerBoost.get(i) + amount);
 							logEntry(c.name() + " gains +" + amount + " power until end of turn");
 							mw.refreshP1ForwardSlot(i);
@@ -4002,6 +4022,7 @@ final class GameContextImpl implements GameContext {
 						for (int i = 0; i < mw.p2ForwardCards.size(); i++) {
 							CardData c = mw.p2ForwardCards.get(i);
 							if (!CardFilters.meetsJobFilter(c, jobFilter) && (cardNameFilter == null || !CardFilters.meetsCardNameFilter(c, cardNameFilter))) continue;
+							if (p2JobBoostSuppressed) { logEntry("[P2] " + c.name() + " — power boost suppressed"); continue; }
 							mw.p2ForwardPowerBoost.set(i, mw.p2ForwardPowerBoost.get(i) + amount);
 							logEntry("[P2] " + c.name() + " gains +" + amount + " power until end of turn");
 							mw.refreshP2ForwardSlot(i);

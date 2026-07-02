@@ -312,6 +312,21 @@ final class AutoAbilityTriggers {
 		"(?i)^If\\s+a\\s+Forward\\s+forming\\s+a\\s+party\\s+with\\s+(?<source>.+?)\\s+is\\s+dealt\\s+damage,\\s+the\\s+damage\\s+becomes\\s+0\\s+instead\\.?$"
 	);
 
+	/**
+	 * Field ability: "The power of Forwards opponent controls cannot be increased by Summons or abilities."
+	 * Placed on any field card; suppresses positive power boosts to the opposing player's Forwards.
+	 */
+	static final Pattern FA_OPP_FORWARD_POWER_BOOST_SUPPRESSED = Pattern.compile(
+		"(?i)The\\s+power\\s+of\\s+Forwards?\\s+(?:your\\s+)?opponent\\s+controls?\\s+cannot\\s+be\\s+increased\\s+by\\s+Summons?\\s+or\\s+abilit(?:y|ies)[.!]?"
+	);
+
+	/** Returns true if {@code card} has the opponent-Forward-power-boost-suppression field ability. */
+	static boolean hasOppForwardPowerBoostSuppression(CardData card) {
+		for (FieldAbility fa : card.fieldAbilities())
+			if (FA_OPP_FORWARD_POWER_BOOST_SUPPRESSED.matcher(fa.effectText()).find()) return true;
+		return false;
+	}
+
 	/** "If [name] deals damage to a Forward of cost N or more, double the damage instead." */
 	static final Pattern FA_DOUBLE_DAMAGE_VS_COST_THRESHOLD =
 			Pattern.compile(

@@ -5806,6 +5806,22 @@ public class MainWindow {
 	}
 
 	/**
+	 * Returns {@code true} when the opposing player (of player {@code targetIsP1}) controls a field card
+	 * with "The power of Forwards opponent controls cannot be increased by Summons or abilities."
+	 * Used to suppress positive power boosts applied to player {@code targetIsP1}'s Forwards.
+	 */
+	boolean oppForwardPowerBoostSuppressedFor(boolean targetIsP1) {
+		// The suppressing player is the opponent of the player whose Forwards would be boosted.
+		List<CardData> fwds = targetIsP1 ? p2ForwardCards : p1ForwardCards;
+		CardData[]     bkps = targetIsP1 ? p2BackupCards  : p1BackupCards;
+		List<CardData> mons = targetIsP1 ? p2MonsterCards : p1MonsterCards;
+		for (CardData c : fwds) if (!lostAbilitiesCards.contains(c) && AutoAbilityTriggers.hasOppForwardPowerBoostSuppression(c)) return true;
+		for (CardData c : bkps) if (c != null && !lostAbilitiesCards.contains(c) && AutoAbilityTriggers.hasOppForwardPowerBoostSuppression(c)) return true;
+		for (CardData c : mons) if (!lostAbilitiesCards.contains(c) && AutoAbilityTriggers.hasOppForwardPowerBoostSuppression(c)) return true;
+		return false;
+	}
+
+	/**
 	 * Returns {@code true} if the given player has a field card that protects their Break Zone
 	 * Summons from being removed from the game by the opponent's Summons or abilities.
 	 */
