@@ -597,9 +597,9 @@ public class ActionResolver {
         "(?i)Break\\s+(?:it|them)"
     );
 
-    /** Matches "It loses all abilities until the end of the turn." */
+    /** Matches "It loses all [its] abilities until the end of the turn." */
     private static final Pattern FOLLOWUP_LOSE_ALL_ABILITIES_EOT = Pattern.compile(
-        "(?i)It\\s+loses\\s+all\\s+abilities\\s+until\\s+(?:the\\s+)?end\\s+of\\s+(?:the\\s+)?turn[.!]?"
+        "(?i)It\\s+loses\\s+all\\s+(?:its\\s+)?abilities\\s+until\\s+(?:the\\s+)?end\\s+of\\s+(?:the\\s+)?turn[.!]?"
     );
 
     /** Matches "Remove it/them from the game". */
@@ -3012,11 +3012,13 @@ public class ActionResolver {
 
     /**
      * Followup used inside {@link #tryParseChooseCharacter}:
-     * "Select a Job. It gains that Job until the end of the turn."
+     * "Select a Job. It gains that Job until the end of the turn." or
+     * "Name 1 Job. It gains the named Job until the end of the turn."
      * Matched against the full followup (before the dot-split) so both sentences are seen together.
      */
     private static final Pattern FOLLOWUP_SELECT_JOB_GRANT = Pattern.compile(
-        "(?i)^Select\\s+a\\s+Job\\.\\s+It\\s+gains?\\s+that\\s+Job\\s+until\\s+(?:the\\s+)?end\\s+of\\s+(?:the\\s+)?turn[.!]?$"
+        "(?i)^(?:Select\\s+a|Name\\s+1)\\s+Job[.!]?\\s+" +
+        "It\\s+gains?\\s+(?:that|the\\s+named)\\s+Job\\s+until\\s+(?:the\\s+)?end\\s+of\\s+(?:the\\s+)?turn[.!]?$"
     );
 
     /**
