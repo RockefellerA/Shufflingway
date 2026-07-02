@@ -204,6 +204,9 @@ class ComputerPlayer {
 			return;
 		}
 
+		// Sync any "cast Forwards from BZ" field ability entries before attempting BZ plays.
+		mw.syncBzForwardPlayables(false);
+
 		// Try casting a Break-Zone-playable Summon (registered by a "Choose 1 [Element] Summon
 		// in your Break Zone" effect) before normal hand plays — the discount makes it
 		// strictly better value than discarding-for-CP from a fresh hand cast.
@@ -671,6 +674,7 @@ class ComputerPlayer {
 	) {}
 
 	private P2Plan findPlayPlan() {
+		if (mw.p2CastLimitReached()) return null;
 		List<CardData> hand = mw.gameState.getP2Hand();
 		if (hand.isEmpty()) return null;
 
@@ -746,6 +750,7 @@ class ComputerPlayer {
 	 */
 	private boolean tryP2BzPlay() {
 		if (mw.bzPlayableP2.isEmpty()) return false;
+		if (mw.p2CastLimitReached()) return false;
 
 		// Borrowed casts from any source zone (Break Zone or removed-from-game), most expensive first.
 		List<Map.Entry<CardData, PlayableEntry>> entries = new ArrayList<>(mw.bzPlayableP2.entrySet());

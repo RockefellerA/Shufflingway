@@ -3805,7 +3805,7 @@ final class GameContextImpl implements GameContext {
 							switch (action) {
 								case BREAK -> {
 									logEntry(c.name() + " is broken");
-									mw.addToBreakZone(c);
+									mw.addToBreakZone(c, true);
 									mw.p1BackupCards[i] = null;
 									mw.p1BackupStates[i] = CardState.ACTIVE;
 									mw.refreshP1BackupSlot(i);
@@ -3830,7 +3830,7 @@ final class GameContextImpl implements GameContext {
 							switch (action) {
 								case BREAK -> {
 									logEntry(c.name() + " is broken");
-									mw.addToBreakZone(c);
+									mw.addToBreakZone(c, true);
 									mw.p1MonsterTempForwardPower.remove(c);
 									mw.p1MonsterCards.remove(i);
 									mw.p1MonsterStates.remove(i);
@@ -3885,7 +3885,7 @@ final class GameContextImpl implements GameContext {
 							switch (action) {
 								case BREAK -> {
 									logEntry("[P2] " + c.name() + " is broken");
-									mw.addToBreakZone(c);
+									mw.addToBreakZone(c, true);
 									mw.p2BackupCards[i] = null;
 									mw.p2BackupStates[i] = CardState.ACTIVE;
 									mw.refreshP2BackupSlot(i);
@@ -3908,7 +3908,7 @@ final class GameContextImpl implements GameContext {
 							switch (action) {
 								case BREAK -> {
 									logEntry("[P2] " + c.name() + " is broken");
-									mw.addToBreakZone(c);
+									mw.addToBreakZone(c, true);
 									mw.p2MonsterTempForwardPower.remove(c);
 									mw.p2MonsterCards.remove(i);
 									mw.p2MonsterStates.remove(i);

@@ -327,6 +327,72 @@ final class AutoAbilityTriggers {
 		return false;
 	}
 
+	/** "You can cast Forwards from your Break Zone." — passive field ability. */
+	static final Pattern FA_CAST_FORWARDS_FROM_BZ = Pattern.compile(
+		"(?i)^You\\s+can\\s+cast\\s+Forwards?\\s+from\\s+your\\s+Break\\s+Zone[.!]?$"
+	);
+
+	static boolean hasCastForwardsFromBz(CardData card) {
+		for (FieldAbility fa : card.fieldAbilities())
+			if (FA_CAST_FORWARDS_FROM_BZ.matcher(fa.effectText().trim()).matches()) return true;
+		return false;
+	}
+
+	/** "You can only cast up to 2 cards per turn." — limits the controlling player. */
+	static final Pattern FA_SELF_CAST_LIMIT = Pattern.compile(
+		"(?i)^You\\s+can\\s+only\\s+cast\\s+up\\s+to\\s+2\\s+cards?\\s+per\\s+turn[.!]?$"
+	);
+
+	/** "Each player can only cast up to 2 cards per turn." — limits both players. */
+	static final Pattern FA_BOTH_CAST_LIMIT = Pattern.compile(
+		"(?i)^Each\\s+player\\s+can\\s+only\\s+cast\\s+up\\s+to\\s+2\\s+cards?\\s+per\\s+turn[.!]?$"
+	);
+
+	static boolean hasSelfCastLimit(CardData card) {
+		for (FieldAbility fa : card.fieldAbilities())
+			if (FA_SELF_CAST_LIMIT.matcher(fa.effectText().trim()).matches()) return true;
+		return false;
+	}
+
+	static boolean hasBothCastLimit(CardData card) {
+		for (FieldAbility fa : card.fieldAbilities())
+			if (FA_BOTH_CAST_LIMIT.matcher(fa.effectText().trim()).matches()) return true;
+		return false;
+	}
+
+	/** "If a card is put into your Break Zone in any situation, remove it from the game instead." */
+	static final Pattern FA_BZ_TO_RFG_ANY_SITUATION = Pattern.compile(
+		"(?i)^If\\s+a\\s+card\\s+is\\s+put\\s+into\\s+your\\s+Break\\s+Zone\\s+in\\s+any\\s+situation,\\s+remove\\s+it\\s+from\\s+the\\s+game\\s+instead[.!]?$"
+	);
+
+	/** "If a Character is put from the field into the Break Zone, you may remove it from the game instead." */
+	static final Pattern FA_CHARACTER_FIELD_TO_BZ_MAY_RFG = Pattern.compile(
+		"(?i)^If\\s+a\\s+Character\\s+is\\s+put\\s+from\\s+the\\s+field\\s+into\\s+the\\s+Break\\s+Zone,\\s+you\\s+may\\s+remove\\s+it\\s+from\\s+the\\s+game\\s+instead[.!]?$"
+	);
+
+	/** "If a damaged Forward opponent controls is put from the field into the Break Zone, remove it from the game instead." */
+	static final Pattern FA_OPP_DAMAGED_FORWARD_FIELD_TO_BZ_RFG = Pattern.compile(
+		"(?i)^If\\s+a\\s+damaged\\s+Forward\\s+opponent\\s+controls?\\s+is\\s+put\\s+from\\s+the\\s+field\\s+into\\s+the\\s+Break\\s+Zone,\\s+remove\\s+it\\s+from\\s+the\\s+game\\s+instead[.!]?$"
+	);
+
+	static boolean hasBzToRfgAnySituation(CardData card) {
+		for (FieldAbility fa : card.fieldAbilities())
+			if (FA_BZ_TO_RFG_ANY_SITUATION.matcher(fa.effectText()).find()) return true;
+		return false;
+	}
+
+	static boolean hasCharacterFieldToBzMayRfg(CardData card) {
+		for (FieldAbility fa : card.fieldAbilities())
+			if (FA_CHARACTER_FIELD_TO_BZ_MAY_RFG.matcher(fa.effectText()).find()) return true;
+		return false;
+	}
+
+	static boolean hasOppDamagedForwardFieldToBzRfg(CardData card) {
+		for (FieldAbility fa : card.fieldAbilities())
+			if (FA_OPP_DAMAGED_FORWARD_FIELD_TO_BZ_RFG.matcher(fa.effectText()).find()) return true;
+		return false;
+	}
+
 	/** "If [name] deals damage to a Forward of cost N or more, double the damage instead." */
 	static final Pattern FA_DOUBLE_DAMAGE_VS_COST_THRESHOLD =
 			Pattern.compile(
@@ -2580,7 +2646,7 @@ final class AutoAbilityTriggers {
 		if (c == null) return;
 		mw.startBreakAnim(mw.p1BackupLabels[idx]);
 		mw.logEntry(c.name() + " → Break Zone");
-		mw.addToBreakZone(c);
+		mw.addToBreakZone(c, true);
 		mw.p1BackupTempForwardPower.remove(c); mw.p1BackupForwardBoost.remove(c);
 		mw.p1BackupTempTraits.remove(c);       mw.p1BackupForwardDamage.remove(c);
 		if (mw.p1BackupAttackIdx == idx) mw.p1BackupAttackIdx = -1;
@@ -2602,7 +2668,7 @@ final class AutoAbilityTriggers {
 		mw.startBreakAnim(mw.p1MonsterLabels.get(idx));
 		CardData c = mw.p1MonsterCards.get(idx);
 		mw.logEntry(c.name() + " → Break Zone");
-		mw.addToBreakZone(c);
+		mw.addToBreakZone(c, true);
 		mw.p1MonsterTempForwardPower.remove(c);
 		mw.p1MonsterPowerBoost.remove(c);
 		mw.p1MonsterTempTraits.remove(c);

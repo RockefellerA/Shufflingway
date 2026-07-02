@@ -1780,7 +1780,7 @@ public class MainWindow {
 			boolean ldConflict    = isCharacter && isLightDarkConflict(cd);
 			boolean noSlot        = cd.isBackup() && !hasAvailableBackupSlot();
 			boolean summonBlocked = cd.isSummon() && summonCastingProhibited();
-			final boolean legal   = !nameConflict && !ldConflict && !noSlot && !summonBlocked;
+			final boolean legal   = !nameConflict && !ldConflict && !noSlot && !summonBlocked && !p1CastLimitReached();
 			final String reason   = nameConflict ? "Name conflict" : ldConflict ? "Light/Dark"
 					: noSlot ? "No slot" : summonBlocked ? "Summons blocked" : null;
 
@@ -1971,6 +1971,7 @@ public class MainWindow {
                             }
                             fireFieldMainPhase1Abilities(true);
                             fireFieldMainPhase1EachTurnAbilities();
+                            syncBzForwardPlayables(true);
             }
 
 			case MAIN_1 -> {
@@ -2026,6 +2027,7 @@ public class MainWindow {
                             refreshAllForwardSlots();
                             logEntry("Main Phase 2");
                             fireFieldMainPhase2Abilities(true);
+                            syncBzForwardPlayables(true);
 			}
 
 			case MAIN_2 -> {
@@ -2526,7 +2528,8 @@ public class MainWindow {
 			public boolean hasBzPlay(CardData card) {
 				return isP1 && bzPlayableP1.containsKey(card)
 						&& bzPlayableP1.get(card).source() == PlayableEntry.SourceZone.BREAK_ZONE
-						&& (!card.isSummon() || !summonCastingProhibited());
+						&& (!card.isSummon() || !summonCastingProhibited())
+						&& !p1CastLimitReached();
 			}
 			public int bzPlayCost(CardData card) {
 				return hasBzPlay(card) ? bzPlayableP1.get(card).effectiveCost(card) : -1;
@@ -2724,14 +2727,14 @@ public class MainWindow {
 
 		if (topCard != null) {
 			// Primed: both cards move to break zone, then top card is immediately RFP'd
-			addToBreakZone(card);
+			addToBreakZone(card, true);
 			addToBreakZone(topCard);
 			logEntry(card.name() + " + " + topCard.name() + " → Break Zone (Primed)");
 			gameState.getP1BreakZone().remove(topCard);
 			gameState.addToPermanentRfp(topCard);
 			logEntry(topCard.name() + " → Removed From Play");
 		} else {
-			addToBreakZone(card);
+			addToBreakZone(card, true);
 			logEntry(card.name() + " → Break Zone");
 		}
 
@@ -2831,14 +2834,14 @@ public class MainWindow {
 		}
 
 		if (topCard != null) {
-			addToBreakZone(card);
+			addToBreakZone(card, true);
 			addToBreakZone(topCard);
 			logEntry("[P2] " + card.name() + " + " + topCard.name() + " → Break Zone (Primed)");
 			gameState.getP2BreakZone().remove(topCard);
 			gameState.addToPermanentRfp(topCard);
 			logEntry("[P2] " + topCard.name() + " → Removed From Play");
 		} else {
-			addToBreakZone(card);
+			addToBreakZone(card, true);
 			logEntry("[P2] " + card.name() + " → Break Zone");
 		}
 
@@ -4883,7 +4886,7 @@ public class MainWindow {
 			boolean handLightDarkConflict = handIsCharacter && isLightDarkConflict(card);
 			final boolean canPlay = handCanPlayAction && !handNameConflict && !handLightDarkConflict
 					&& canAffordCard(card, idx) && (!card.isBackup() || hasAvailableBackupSlot()) && castRestrictionMet(card)
-					&& (!card.isSummon() || !summonCastingProhibited());
+					&& (!card.isSummon() || !summonCastingProhibited()) && !p1CastLimitReached();
 
 			// Load image async; bake cost pill into the image when cost differs from base
 			new SwingWorker<ImageIcon, Void>() {
@@ -4984,7 +4987,7 @@ public class MainWindow {
 		boolean lightDarkConflict = isCharacter && isLightDarkConflict(card);
 		playItem.setEnabled(canPlaySpecialAction && !nameConflict && !lightDarkConflict && canAffordCard(card, handIdx)
 				&& (!card.isBackup() || hasAvailableBackupSlot()) && castRestrictionMet(card)
-				&& (!card.isSummon() || !summonCastingProhibited()));
+				&& (!card.isSummon() || !summonCastingProhibited()) && !p1CastLimitReached());
 		playItem.addActionListener(ae -> {
 			hideZoom();
 			if (handPopup != null) { handPopup.dispose(); handPopup = null; }
@@ -4995,7 +4998,7 @@ public class MainWindow {
 		if (card.hasWarp()) {
 			JMenuItem warpItem = new JMenuItem("Play (Warp " + card.warpValue() + ")");
 			warpItem.setEnabled(canPlaySpecialAction && canAffordWarpCost(card, handIdx) && castRestrictionMet(card)
-					&& (!card.isSummon() || !summonCastingProhibited()));
+					&& (!card.isSummon() || !summonCastingProhibited()) && !p1CastLimitReached());
 			warpItem.addActionListener(ae -> {
 				hideZoom();
 				if (handPopup != null) { handPopup.dispose(); handPopup = null; }
@@ -5017,7 +5020,7 @@ public class MainWindow {
 			JMenuItem altItem = new JMenuItem(altLabel);
 			altItem.setEnabled(canPlaySpecialAction && !nameConflict && !lightDarkConflict
 					&& canAffordAltCost(card, handIdx)
-					&& (!card.isBackup() || hasAvailableBackupSlot()) && castRestrictionMet(card));
+					&& (!card.isBackup() || hasAvailableBackupSlot()) && castRestrictionMet(card) && !p1CastLimitReached());
 			altItem.addActionListener(ae -> {
 				hideZoom();
 				if (handPopup != null) { handPopup.dispose(); handPopup = null; }
@@ -5061,18 +5064,99 @@ public class MainWindow {
 		showZoomAt(url);
 	}
 
-	void addToBreakZone(CardData card)
+	void addToBreakZone(CardData card) { addToBreakZone(card, false); }
+
+	void addToBreakZone(CardData card, boolean fromField)
 	{
 		boolean player1 = gameState.getIdentity().get(card);
-		List<CardData> zone = player1 ? gameState.getP1BreakZone() : gameState.getP2BreakZone();
 
+		// FA1: "If a card is put into your Break Zone in any situation, remove it from the game instead."
+		if (playerHasBzToRfgAnySituation(player1)) {
+			gameState.addToPermanentRfp(card);
+			logEntry((player1 ? "" : "[P2] ") + card.name() + " → Removed From Game instead of Break Zone");
+			return;
+		}
+
+		if (fromField) {
+			// FA3: "If a damaged Forward opponent controls is put from the field into the Break Zone, remove it from the game instead."
+			if (card.isForward() && getCardFieldDamage(card) > 0
+					&& playerHasBzToRfgOppDamagedForwardFromField(!player1)) {
+				gameState.addToPermanentRfp(card);
+				logEntry((player1 ? "" : "[P2] ") + card.name() + " → Removed From Game instead of Break Zone");
+				return;
+			}
+
+			// FA2: "If a Character is put from the field into the Break Zone, you may remove it from the game instead."
+			if (!card.isSummon()) {
+				if (playerHasBzToRfgCharacterFromField(true)) {
+					int choice = showEffectOptionDialog(
+							"Remove \"" + card.name() + "\" from the game instead of the Break Zone?",
+							"Field Ability", new Object[]{"Remove from Game", "Break Zone"});
+					if (choice == 0) {
+						gameState.addToPermanentRfp(card);
+						logEntry((player1 ? "" : "[P2] ") + card.name() + " → Removed From Game instead of Break Zone");
+						return;
+					}
+				}
+				if (playerHasBzToRfgCharacterFromField(false)) {
+					int choice = showEffectOptionDialog(
+							"[P2] Remove \"" + card.name() + "\" from the game instead of the Break Zone?",
+							"[P2] Field Ability", new Object[]{"Remove from Game", "Break Zone"});
+					if (choice == 0) {
+						gameState.addToPermanentRfp(card);
+						logEntry((player1 ? "" : "[P2] ") + card.name() + " → Removed From Game instead of Break Zone");
+						return;
+					}
+				}
+			}
+		}
+
+		List<CardData> zone = player1 ? gameState.getP1BreakZone() : gameState.getP2BreakZone();
 		zone.add(card);
 		if (card.isLb()) zone.remove(card);
+		if (player1) refreshP1BreakLabel(); else refreshP2BreakLabel();
+		if (card.isForward()) syncBzForwardPlayables(player1);
+	}
 
-		if (player1)
-			refreshP1BreakLabel();
-		else
-			refreshP2BreakLabel();
+	private boolean playerHasBzToRfgAnySituation(boolean isP1) {
+		List<CardData> fwds = isP1 ? p1ForwardCards : p2ForwardCards;
+		CardData[]     bkps = isP1 ? p1BackupCards  : p2BackupCards;
+		List<CardData> mons = isP1 ? p1MonsterCards : p2MonsterCards;
+		for (CardData c : fwds) if (!lostAbilitiesCards.contains(c) && AutoAbilityTriggers.hasBzToRfgAnySituation(c)) return true;
+		for (CardData c : bkps) if (c != null && !lostAbilitiesCards.contains(c) && AutoAbilityTriggers.hasBzToRfgAnySituation(c)) return true;
+		for (CardData c : mons) if (!lostAbilitiesCards.contains(c) && AutoAbilityTriggers.hasBzToRfgAnySituation(c)) return true;
+		return false;
+	}
+
+	private boolean playerHasBzToRfgCharacterFromField(boolean isP1) {
+		List<CardData> fwds = isP1 ? p1ForwardCards : p2ForwardCards;
+		CardData[]     bkps = isP1 ? p1BackupCards  : p2BackupCards;
+		List<CardData> mons = isP1 ? p1MonsterCards : p2MonsterCards;
+		for (CardData c : fwds) if (!lostAbilitiesCards.contains(c) && AutoAbilityTriggers.hasCharacterFieldToBzMayRfg(c)) return true;
+		for (CardData c : bkps) if (c != null && !lostAbilitiesCards.contains(c) && AutoAbilityTriggers.hasCharacterFieldToBzMayRfg(c)) return true;
+		for (CardData c : mons) if (!lostAbilitiesCards.contains(c) && AutoAbilityTriggers.hasCharacterFieldToBzMayRfg(c)) return true;
+		return false;
+	}
+
+	private boolean playerHasBzToRfgOppDamagedForwardFromField(boolean isP1) {
+		List<CardData> fwds = isP1 ? p1ForwardCards : p2ForwardCards;
+		CardData[]     bkps = isP1 ? p1BackupCards  : p2BackupCards;
+		List<CardData> mons = isP1 ? p1MonsterCards : p2MonsterCards;
+		for (CardData c : fwds) if (!lostAbilitiesCards.contains(c) && AutoAbilityTriggers.hasOppDamagedForwardFieldToBzRfg(c)) return true;
+		for (CardData c : bkps) if (c != null && !lostAbilitiesCards.contains(c) && AutoAbilityTriggers.hasOppDamagedForwardFieldToBzRfg(c)) return true;
+		for (CardData c : mons) if (!lostAbilitiesCards.contains(c) && AutoAbilityTriggers.hasOppDamagedForwardFieldToBzRfg(c)) return true;
+		return false;
+	}
+
+	private int getCardFieldDamage(CardData card) {
+		int idx = p1ForwardCards.indexOf(card);
+		if (idx >= 0) return p1ForwardDamage.get(idx);
+		idx = p2ForwardCards.indexOf(card);
+		if (idx >= 0) return p2ForwardDamage.get(idx);
+		Integer d = p1BackupForwardDamage.get(card);
+		if (d != null) return d;
+		d = p2BackupForwardDamage.get(card);
+		return d != null ? d : 0;
 	}
 
 	void refreshP1BreakLabel() {
@@ -5802,6 +5886,64 @@ public class MainWindow {
 		for (CardData c : p1BackupCards)  if (c != null && ActionResolver.hasPlayerCannotCastSummonsFieldAbility(c)) return true;
 		for (CardData c : p2ForwardCards) if (c != null && ActionResolver.hasPlayerCannotCastSummonsFieldAbility(c)) return true;
 		for (CardData c : p2BackupCards)  if (c != null && ActionResolver.hasPlayerCannotCastSummonsFieldAbility(c)) return true;
+		return false;
+	}
+
+	private boolean playerHasCastForwardsFromBz(boolean isP1) {
+		List<CardData> fwds = isP1 ? p1ForwardCards : p2ForwardCards;
+		CardData[]     bkps = isP1 ? p1BackupCards  : p2BackupCards;
+		List<CardData> mons = isP1 ? p1MonsterCards : p2MonsterCards;
+		for (CardData c : fwds) if (!lostAbilitiesCards.contains(c) && AutoAbilityTriggers.hasCastForwardsFromBz(c)) return true;
+		for (CardData c : bkps) if (c != null && !lostAbilitiesCards.contains(c) && AutoAbilityTriggers.hasCastForwardsFromBz(c)) return true;
+		for (CardData c : mons) if (!lostAbilitiesCards.contains(c) && AutoAbilityTriggers.hasCastForwardsFromBz(c)) return true;
+		return false;
+	}
+
+	/**
+	 * Registers any Forwards in {@code isP1}'s Break Zone as castable this turn when the
+	 * "You can cast Forwards from your Break Zone" field ability is active.
+	 * Skips cards already registered (to avoid overwriting better-cost entries).
+	 */
+	void syncBzForwardPlayables(boolean isP1) {
+		if (!playerHasCastForwardsFromBz(isP1)) return;
+		IdentityHashMap<CardData, PlayableEntry> reg = isP1 ? bzPlayableP1 : bzPlayableP2;
+		List<CardData> bz = isP1 ? gameState.getP1BreakZone() : gameState.getP2BreakZone();
+		boolean added = false;
+		for (CardData card : bz) {
+			if (!card.isForward()) continue;
+			if (reg.containsKey(card)) continue;
+			reg.put(card, new PlayableEntry(PlayableEntry.SourceZone.BREAK_ZONE, 0, false, false, false, true));
+			endOfTurnEffects.add(ctx -> reg.remove(card));
+			added = true;
+		}
+		if (added) refreshPlayableCardsButton();
+	}
+
+	/** Returns {@code true} if P1 has already cast 2 cards this turn and a field ability caps them at 2. */
+	boolean p1CastLimitReached() {
+		if (p1CardsCastThisTurn < 2) return false;
+		for (CardData c : p1ForwardCards) if (!lostAbilitiesCards.contains(c) && AutoAbilityTriggers.hasSelfCastLimit(c)) return true;
+		for (CardData c : p1BackupCards)  if (c != null && !lostAbilitiesCards.contains(c) && AutoAbilityTriggers.hasSelfCastLimit(c)) return true;
+		for (CardData c : p1MonsterCards) if (!lostAbilitiesCards.contains(c) && AutoAbilityTriggers.hasSelfCastLimit(c)) return true;
+		return anyCastLimitBothReached();
+	}
+
+	/** Returns {@code true} if P2 has already cast 2 cards this turn and a field ability caps them at 2. */
+	boolean p2CastLimitReached() {
+		if (p2CardsCastThisTurn < 2) return false;
+		for (CardData c : p2ForwardCards) if (!lostAbilitiesCards.contains(c) && AutoAbilityTriggers.hasSelfCastLimit(c)) return true;
+		for (CardData c : p2BackupCards)  if (c != null && !lostAbilitiesCards.contains(c) && AutoAbilityTriggers.hasSelfCastLimit(c)) return true;
+		for (CardData c : p2MonsterCards) if (!lostAbilitiesCards.contains(c) && AutoAbilityTriggers.hasSelfCastLimit(c)) return true;
+		return anyCastLimitBothReached();
+	}
+
+	private boolean anyCastLimitBothReached() {
+		for (CardData c : p1ForwardCards) if (!lostAbilitiesCards.contains(c) && AutoAbilityTriggers.hasBothCastLimit(c)) return true;
+		for (CardData c : p1BackupCards)  if (c != null && !lostAbilitiesCards.contains(c) && AutoAbilityTriggers.hasBothCastLimit(c)) return true;
+		for (CardData c : p1MonsterCards) if (!lostAbilitiesCards.contains(c) && AutoAbilityTriggers.hasBothCastLimit(c)) return true;
+		for (CardData c : p2ForwardCards) if (!lostAbilitiesCards.contains(c) && AutoAbilityTriggers.hasBothCastLimit(c)) return true;
+		for (CardData c : p2BackupCards)  if (c != null && !lostAbilitiesCards.contains(c) && AutoAbilityTriggers.hasBothCastLimit(c)) return true;
+		for (CardData c : p2MonsterCards) if (!lostAbilitiesCards.contains(c) && AutoAbilityTriggers.hasBothCastLimit(c)) return true;
 		return false;
 	}
 
@@ -7797,7 +7939,7 @@ public class MainWindow {
 		if (c == null) return;
 		startBreakAnim(p2BackupLabels[idx]);
 		logEntry("[P2] " + c.name() + " → Break Zone");
-		addToBreakZone(c);
+		addToBreakZone(c, true);
 		p2BackupTempForwardPower.remove(c); p2BackupForwardBoost.remove(c);
 		p2BackupTempTraits.remove(c);       p2BackupForwardDamage.remove(c);
 		if (p2BackupAttackIdx == idx) p2BackupAttackIdx = -1;
@@ -7819,7 +7961,7 @@ public class MainWindow {
 		startBreakAnim(p2MonsterLabels.get(idx));
 		CardData c = p2MonsterCards.get(idx);
 		logEntry("[P2] " + c.name() + " → Break Zone");
-		addToBreakZone(c);
+		addToBreakZone(c, true);
 		p2MonsterTempForwardPower.remove(c);
 		p2MonsterPowerBoost.remove(c);
 		p2MonsterTempTraits.remove(c);
@@ -9228,12 +9370,12 @@ public class MainWindow {
 				animateUniquenessSlide(p1ForwardLabels.get(i), true);
 				CardData top = p1ForwardPrimedTop.get(i);
 				if (top != null) {
-					addToBreakZone(c);
+					addToBreakZone(c, true);
 					addToBreakZone(top);
 					gameState.getP1BreakZone().remove(top);
 					gameState.addToPermanentRfp(top);
 				} else {
-					addToBreakZone(c);
+					addToBreakZone(c, true);
 				}
 				p1ForwardCards.remove(i); p1ForwardUrls.remove(i);
 				p1ForwardStates.remove(i); p1ForwardPlayedOnTurn.remove(i);
@@ -9257,7 +9399,7 @@ public class MainWindow {
 				conflict = true;
 				logEntry("[Uniqueness] " + c.name() + " — sent to Break Zone");
 				animateUniquenessSlide(p1BackupLabels[i], true);
-				addToBreakZone(c);
+				addToBreakZone(c, true);
 				p1BackupCards[i] = null; p1BackupStates[i] = CardState.ACTIVE;
 				refreshP1BackupSlot(i); refreshP1BreakLabel();
 				autoAbilityTriggers.triggerAutoAbilitiesForLeavesField(c, true);
@@ -9268,7 +9410,7 @@ public class MainWindow {
 				if (c == incoming || !cardNamesOverlap(incoming, c)) continue;
 				conflict = true;
 				logEntry("[Uniqueness] " + c.name() + " — sent to Break Zone");
-				addToBreakZone(c);
+				addToBreakZone(c, true);
 				p1MonsterTempForwardPower.remove(c);
 				p1MonsterCards.remove(i); p1MonsterStates.remove(i);
 				p1MonsterFrozen.remove(i); p1MonsterPlayedOnTurn.remove(i);
@@ -9289,7 +9431,7 @@ public class MainWindow {
 				conflict = true;
 				logEntry("[Uniqueness] [P2] " + c.name() + " — sent to Break Zone");
 				animateUniquenessSlide(p2ForwardLabels.get(i), false);
-				addToBreakZone(c);
+				addToBreakZone(c, true);
 				p2ForwardCards.remove(i); p2ForwardUrls.remove(i);
 				p2ForwardStates.remove(i); p2ForwardPlayedOnTurn.remove(i);
 				p2ForwardDamage.remove(i); p2ForwardPowerBoost.remove(i);
@@ -9310,7 +9452,7 @@ public class MainWindow {
 				conflict = true;
 				logEntry("[Uniqueness] [P2] " + c.name() + " — sent to Break Zone");
 				animateUniquenessSlide(p2BackupLabels[i], false);
-				addToBreakZone(c);
+				addToBreakZone(c, true);
 				p2BackupCards[i] = null; p2BackupStates[i] = CardState.ACTIVE;
 				refreshP2BackupSlot(i); refreshP2BreakLabel();
 				autoAbilityTriggers.triggerAutoAbilitiesForLeavesField(c, false);
@@ -9321,7 +9463,7 @@ public class MainWindow {
 				if (c == incoming || !cardNamesOverlap(incoming, c)) continue;
 				conflict = true;
 				logEntry("[Uniqueness] [P2] " + c.name() + " — sent to Break Zone");
-				addToBreakZone(c);
+				addToBreakZone(c, true);
 				p2MonsterTempForwardPower.remove(c);
 				p2MonsterCards.remove(i); p2MonsterStates.remove(i);
 				p2MonsterFrozen.remove(i); p2MonsterPlayedOnTurn.remove(i);
