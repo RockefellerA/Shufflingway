@@ -226,6 +226,9 @@ final class GameContextImpl implements GameContext {
 			@Override public void shieldNonLethal(ForwardTarget t) {
 				CardData c = mw.autoAbilityTriggers.fieldCardData(t); if (c != null) mw.perCardNonLethalDmgSet.add(c);
 			}
+			@Override public void shieldPlayerNextDamage() {
+				if (isP1) mw.p1NextDamageZero = true; else mw.p2NextDamageZero = true;
+			}
 			@Override public void disableOpponentDamageReduction() {
 				if (isP1) mw.p2DmgReductionDisabled = true; else mw.p1DmgReductionDisabled = true;
 			}

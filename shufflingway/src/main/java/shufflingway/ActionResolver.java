@@ -855,6 +855,17 @@ public class ActionResolver {
     );
 
     /**
+     * Matches "When it enters the field, if it is [cond], [inner]" — a conditional secondary
+     * for Play-onto-field that fires only when the played card satisfies the condition.
+     * Group {@code cond} is fed to {@link #parseRevealCondition}; group {@code inner}
+     * is parsed as a standalone effect via {@link #parse}.
+     */
+    private static final Pattern FOLLOWUP_PLAY_ONTO_FIELD_WHEN_ENTERS_CONDITIONAL = Pattern.compile(
+        "(?i)^When\\s+it\\s+enters\\s+(?:the\\s+)?field,?\\s+if\\s+it\\s+is\\s+(?<cond>.+?),\\s*(?<inner>.+?)[.!]?$",
+        Pattern.DOTALL
+    );
+
+    /**
      * Matches "If its cost is equal to or less than the number of Job [job] you control, play it onto the field."
      * Group {@code job} captures the job name (without "Job " prefix).
      */
@@ -1470,6 +1481,11 @@ public class ActionResolver {
     /** Matches "During this turn, the next damage dealt to it/him becomes 0 instead." */
     private static final Pattern FOLLOWUP_SHIELD_NEXT_DMG_ZERO = Pattern.compile(
         "(?i)During\\s+this\\s+turn,\\s+the\\s+next\\s+damage\\s+dealt\\s+to\\s+(?:it|him)\\s+becomes\\s+0\\s+instead\\.?"
+    );
+
+    /** Matches "During this turn, the next damage dealt to you becomes 0 instead." */
+    private static final Pattern PLAYER_NEXT_DAMAGE_ZERO = Pattern.compile(
+        "(?i)During\\s+this\\s+turn,\\s+the\\s+next\\s+damage\\s+dealt\\s+to\\s+you\\s+becomes\\s+0\\s+instead\\.?"
     );
 
     /** Matches "During this turn, the next damage dealt to it by Summons or abilities is reduced by N instead." */
@@ -3953,6 +3969,9 @@ public class ActionResolver {
         result = tryParseNegateAllDamage(effectText);
         if (result != null) return result;
 
+        result = tryParsePlayerNextDamageZero(effectText);
+        if (result != null) return result;
+
         result = tryParseCancelAutoAbilityAndDamageIfForward(effectText);
         if (result != null) return result;
 
@@ -4504,6 +4523,7 @@ public class ActionResolver {
         if (tryParseCannotBecomeDullOpp(effectText, source) != null)     return "CannotBecomeDullOpp";
         if (tryParseStandaloneCannotAttackOrBlock(effectText, source) != null) return "CannotAttackOrBlock";
         if (tryParseNegateAllDamage(effectText)                != null) return "NegateDamage";
+        if (tryParsePlayerNextDamageZero(effectText)           != null) return "PlayerNextDamageZero";
         if (tryParseCancelAutoAbilityAndDamageIfForward(effectText) != null) return "CancelAutoAbilityAndDamageIfForward";
         if (tryParseCancelStackEntry(effectText)               != null) return "CancelSummonOrAutoAbility";
         if (tryParseRedirectAbilityTarget(effectText)          != null) return "RedirectAbilityTarget";
@@ -4867,6 +4887,16 @@ public class ActionResolver {
                     secondaryDesc = "IfAddedCard(" + (innerDesc != null ? innerDesc : "?") + ")";
                 }
             }
+            if ("PlayOntoField".equals(followupName) && secondaryTxt != null && !secondaryTxt.isEmpty()) {
+                Matcher etfM = FOLLOWUP_PLAY_ONTO_FIELD_WHEN_ENTERS_CONDITIONAL.matcher(secondaryTxt);
+                if (etfM.matches() && parseRevealCondition(etfM.group("cond").trim()) != null) {
+                    String innerTxt  = etfM.group("inner").trim();
+                    String innerDesc = fullDescription(innerTxt, source);
+                    if (innerDesc == null) innerDesc = matchedPatternName(innerTxt, source);
+                    if (innerDesc == null) innerDesc = matchedFollowupName(innerTxt, source);
+                    secondaryDesc = "IfETF(" + (innerDesc != null ? innerDesc : "?") + ")";
+                }
+            }
             if (secondaryDesc == null && secondaryTxt != null && !secondaryTxt.isEmpty())
                 secondaryDesc = fullDescription(secondaryTxt, source);
             if (secondaryDesc == null && secondaryTxt != null && !secondaryTxt.isEmpty())
@@ -4897,6 +4927,7 @@ public class ActionResolver {
         if (tryParseCannotBecomeDullOpp(effectText, source) != null)            return "CannotBecomeDullOpp";
         if (tryParseStandaloneCannotAttackOrBlock(effectText, source) != null) return "CannotAttackOrBlock";
         if (tryParseNegateAllDamage(effectText) != null)                       return "NegateDamage";
+        if (tryParsePlayerNextDamageZero(effectText) != null)                  return "PlayerNextDamageZero";
         if (tryParseCancelAutoAbilityAndDamageIfForward(effectText) != null) return "CancelAutoAbilityAndDamageIfForward";
         if (tryParseCancelStackEntry(effectText)              != null) return "CancelSummonOrAutoAbility";
         if (tryParseRedirectAbilityTarget(effectText)         != null) return "RedirectAbilityTarget";
@@ -7934,14 +7965,51 @@ public class ActionResolver {
         }
 
         if (FOLLOWUP_PLAY_ONTO_FIELD.matcher(primaryFollowup).find()) {
+            // Check for "When it enters the field, if it is [cond], [inner]" conditional secondary.
+            // Peek at the chosen card's data before playing so we can evaluate the condition after.
+            final Predicate<CardData> etfCond;
+            final Consumer<GameContext> etfInner;
+            final String etfInnerText;
+            if (secondaryText != null) {
+                Matcher etfM = FOLLOWUP_PLAY_ONTO_FIELD_WHEN_ENTERS_CONDITIONAL.matcher(secondaryText);
+                if (etfM.matches()) {
+                    Predicate<CardData> parsedCond = parseRevealCondition(etfM.group("cond").trim());
+                    String innerTxt = etfM.group("inner").trim();
+                    Consumer<GameContext> inner = parsedCond != null ? parse(innerTxt, source) : null;
+                    etfCond      = (parsedCond != null && inner != null) ? parsedCond : null;
+                    etfInner     = (parsedCond != null && inner != null) ? inner      : null;
+                    etfInnerText = (parsedCond != null && inner != null) ? innerTxt   : null;
+                } else {
+                    etfCond = null; etfInner = null; etfInnerText = null;
+                }
+            } else {
+                etfCond = null; etfInner = null; etfInnerText = null;
+            }
             return ctx -> {
                 ctx.logEntry(choosePrefix + " — Play onto Field");
                 List<ForwardTarget> ts = selectTargets(ctx, maxCount, upTo,
                         opponentOnly, selfOnly, condition, element, zone, opponentZone,
                         costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters, jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, fExcludeElem, withoutMulticard);
+                List<CardData> chosenCards = new ArrayList<>();
+                if (etfCond != null) {
+                    for (ForwardTarget t : ts) {
+                        CardData c = zone != null
+                                ? (t.isP1() ? ctx.p1BreakZoneCard(t.idx()) : ctx.p2BreakZoneCard(t.idx()))
+                                : null;
+                        if (c != null) chosenCards.add(c);
+                    }
+                }
                 sortedByIdxDesc(ts, true) .forEach(t -> ctx.playTargetOntoField(t));
                 sortedByIdxDesc(ts, false).forEach(t -> ctx.playTargetOntoField(t));
-                if (secondary != null) secondary.accept(ctx);
+                if (etfCond != null && etfInner != null) {
+                    boolean anyMatched = chosenCards.stream().anyMatch(etfCond);
+                    if (anyMatched) {
+                        ctx.logEntry("ETF Condition met — " + etfInnerText);
+                        etfInner.accept(ctx);
+                    }
+                } else if (secondary != null) {
+                    secondary.accept(ctx);
+                }
             };
         }
 
@@ -11650,9 +11718,9 @@ public class ActionResolver {
 
         Predicate<CardData> pred;
 
-        // 1. "Job X [or Card Name Y]"
+        // 1. "Job X [or [a/an] Card Name Y]"
         Matcher jobM = Pattern.compile(
-            "(?i)^Job\\s+(.+?)(?:\\s+or\\s+Card\\s+Name\\s+(.+))?$"
+            "(?i)^Job\\s+(.+?)(?:\\s+or\\s+(?:an?\\s+)?Card\\s+Name\\s+(.+))?$"
         ).matcher(cond);
         if (jobM.matches()) {
             String job  = jobM.group(1).trim();
@@ -12298,6 +12366,14 @@ public class ActionResolver {
             };
         }
         return null;
+    }
+
+    private static Consumer<GameContext> tryParsePlayerNextDamageZero(String text) {
+        if (!PLAYER_NEXT_DAMAGE_ZERO.matcher(text).find()) return null;
+        return ctx -> {
+            ctx.logEntry("Effect: next damage to you becomes 0 this turn");
+            ctx.shieldPlayerNextDamage();
+        };
     }
 
     /**

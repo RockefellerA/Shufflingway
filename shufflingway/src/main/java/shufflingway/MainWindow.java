@@ -400,6 +400,8 @@ public class MainWindow {
 	final Set<CardData>          perCardNonLethalDmgSet      = new HashSet<>();
 	boolean p1ReceivedDamageThisTurn = false;
 	boolean p2ReceivedDamageThisTurn = false;
+	boolean p1NextDamageZero = false;
+	boolean p2NextDamageZero = false;
 	boolean p1ForwardPutToBZThisTurn = false;
 	boolean p2ForwardPutToBZThisTurn = false;
 	boolean p1ForwardCannotBlockInferiorPower = false; // set by P2 action: P1 Forwards cannot block targets with power < their own
@@ -1318,6 +1320,8 @@ public class MainWindow {
 		// Per-turn tracking flags.
 		p1ReceivedDamageThisTurn = false;
 		p2ReceivedDamageThisTurn = false;
+		p1NextDamageZero = false;
+		p2NextDamageZero = false;
 		p1ForwardPutToBZThisTurn = false;
 		p2ForwardPutToBZThisTurn = false;
 		p1PartyAnyElementThisTurn = false;
@@ -2557,6 +2561,12 @@ public class MainWindow {
 
 	void p1TakeDamage(Runnable onDone) {
 		if (gameState.isP1GameOver()) { if (onDone != null) onDone.run(); return; }
+		if (p1NextDamageZero) {
+			p1NextDamageZero = false;
+			logEntry("P1 damage negated (shield active).");
+			if (onDone != null) onDone.run();
+			return;
+		}
 		p1ReceivedDamageThisTurn = true;
 		CardData drawn = gameState.drawToDamageZone();
 		if (drawn == null) {
@@ -2612,6 +2622,12 @@ public class MainWindow {
 	void p2TakeDamage() { p2TakeDamage(null); }
 
 	void p2TakeDamage(Runnable onDone) {
+		if (p2NextDamageZero) {
+			p2NextDamageZero = false;
+			logEntry("[P2] damage negated (shield active).");
+			if (onDone != null) onDone.run();
+			return;
+		}
 		p2ReceivedDamageThisTurn = true;
 		CardData drawn = gameState.drawToP2DamageZone();
 		p2DamageCount++;
