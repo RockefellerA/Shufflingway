@@ -2449,6 +2449,10 @@ final class GameContextImpl implements GameContext {
 						logEntry((t.isP1() ? "" : "[P2] ") + breakCard.name() + " cannot be broken (protected until end of turn)");
 						return;
 					}
+					if (breakCard.hasTrait(CardData.Trait.CANNOT_BE_BROKEN_BY_NON_DMG)) {
+						logEntry((t.isP1() ? "" : "[P2] ") + breakCard.name() + " cannot be broken by this effect (protected from non-damage breaks)");
+						return;
+					}
 					if (t.zone() == ForwardTarget.CardZone.FORWARD && t.idx() >= 0) {
 						java.util.EnumSet<CardData.Trait> tmp = t.isP1()
 								? mw.p1ForwardTempTraits.get(t.idx())
@@ -2457,8 +2461,10 @@ final class GameContextImpl implements GameContext {
 							logEntry((t.isP1() ? "" : "[P2] ") + breakCard.name() + " cannot be broken (protected until end of turn)");
 							return;
 						}
-						if (tmp.contains(CardData.Trait.CANNOT_BE_BROKEN_BY_NON_DMG)) {
-							logEntry((t.isP1() ? "" : "[P2] ") + breakCard.name() + " cannot be broken by this effect (protected from non-damage breaks until end of turn)");
+						if (tmp.contains(CardData.Trait.CANNOT_BE_BROKEN_BY_NON_DMG)
+								|| (t.isP1() ? mw.effectiveP1HasTrait(t.idx(), CardData.Trait.CANNOT_BE_BROKEN_BY_NON_DMG)
+								             : mw.effectiveP2HasTrait(t.idx(), CardData.Trait.CANNOT_BE_BROKEN_BY_NON_DMG))) {
+							logEntry((t.isP1() ? "" : "[P2] ") + breakCard.name() + " cannot be broken by this effect (protected from non-damage breaks)");
 							return;
 						}
 					}

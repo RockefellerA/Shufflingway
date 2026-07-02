@@ -650,6 +650,26 @@ public record CardData(
         "(?i)cannot\\s+be\\s+broken(?!\\s+(?:this\\s+turn|until|by))\\s*[.!]?"
     );
 
+    // Permanent "cannot be broken by [opposing Summons or] abilities that don't deal damage" (e.g. Vincent, Wicked Thunder).
+    private static final Pattern CANNOT_BE_BROKEN_BY_NON_DMG_TRAIT_PATTERN = Pattern.compile(
+        "(?i)cannot\\s+be\\s+broken\\s+by\\s+(?:opposing\\s+)?(?:Summons?\\s+or\\s+)?abilit(?:y|ies)\\s+that\\s+don'?t\\s+deal\\s+damage[.!]?"
+    );
+
+    // Field-ability grants: "[CardName] gains '[CardName] cannot be broken by … abilities that don't deal damage.'"
+    private static final Pattern SELF_NON_DMG_BREAK_SHIELD_GRANT = Pattern.compile(
+        "(?i)^(?<name>.+?)\\s+gains?\\s+['\"][^'\"]*?cannot\\s+be\\s+broken\\s+by\\s+(?:opposing\\s+)?(?:Summons?\\s+or\\s+)?abilit(?:y|ies)\\s+that\\s+don'?t\\s+deal\\s+damage\\.?['\"][.!]?$"
+    );
+
+    /**
+     * Returns {@code true} when {@code effectText} is a self-targeted field-ability protection grant
+     * of the form "[cardName] gains '[cardName] cannot be broken by … abilities that don't deal damage.'".
+     */
+    static boolean parseSelfNonDmgBreakShield(String effectText, String cardName) {
+        Matcher m = SELF_NON_DMG_BREAK_SHIELD_GRANT.matcher(effectText.trim());
+        if (!m.matches()) return false;
+        return m.group("name").trim().equalsIgnoreCase(cardName);
+    }
+
     private static final Pattern PRIMING_PATTERN = Pattern.compile(
         "(?i)Priming\\s+\"([^\"]+)\"\\s*--\\s*((?:《[^》]*》\\s*)*)"
     );
@@ -2149,10 +2169,15 @@ public record CardData(
                 String effectsStr = oppHandM.group("effects").trim();
                 Matcher pwrM = IF_CTRL_EFFECT_POWER.matcher(effectsStr);
                 int powerBonus = pwrM.find() ? Integer.parseInt(pwrM.group(1)) : 0;
-                if (powerBonus != 0) {
+                EnumSet<Trait> traits = EnumSet.noneOf(Trait.class);
+                if (ICB_EFFECT_HASTE.matcher(effectsStr).find())        traits.add(Trait.HASTE);
+                if (ICB_EFFECT_BRAVE.matcher(effectsStr).find())        traits.add(Trait.BRAVE);
+                if (ICB_EFFECT_FIRST_STRIKE.matcher(effectsStr).find()) traits.add(Trait.FIRST_STRIKE);
+                if (ICB_EFFECT_BACK_ATTACK.matcher(effectsStr).find())  traits.add(Trait.BACK_ATTACK);
+                if (powerBonus != 0 || !traits.isEmpty()) {
                     FieldPowerGrant targetFilter = parseIcbTargetFilter(targetName);
                     result.add(new IfControlBoost(List.of(), "", targetName, targetFilter,
-                            powerBonus, EnumSet.noneOf(Trait.class), "", false, false, false, null, 0, 0, false, maxHand));
+                            powerBonus, traits, "", false, false, false, null, 0, 0, false, maxHand));
                 }
                 continue;
             }
@@ -4156,6 +4181,8 @@ public record CardData(
                 .replaceAll("(?i)gains\\s*\"[^\"]*\"", "");
         if (CANNOT_BE_BROKEN_TRAIT_PATTERN.matcher(strippedForCbb).find())
             found.add(Trait.CANNOT_BE_BROKEN);
+        if (CANNOT_BE_BROKEN_BY_NON_DMG_TRAIT_PATTERN.matcher(strippedForCbb).find())
+            found.add(Trait.CANNOT_BE_BROKEN_BY_NON_DMG);
         return found;
     }
 

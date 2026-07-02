@@ -8384,6 +8384,8 @@ public class MainWindow {
 				// Damage-gated (e.g., "Damage 1 -- Desch gains First Strike.")
 				if (fa.damageThreshold() > 0 && dmg < fa.damageThreshold()) continue;
 				out.addAll(CardData.parseSelfTraitGrant(fa.effectText(), src.name()));
+				if (CardData.parseSelfNonDmgBreakShield(fa.effectText(), src.name()))
+					out.add(CardData.Trait.CANNOT_BE_BROKEN_BY_NON_DMG);
 				// Job-count conditional ("If [name] has N Jobs or more, gains [traits].")
 				int threshold = CardData.parseIfSelfJobCountTraitGrantThreshold(fa.effectText(), src.name());
 				if (threshold >= 0 && countEffectiveJobs(src, isP1) >= threshold)
