@@ -986,6 +986,12 @@ public interface GameContext {
     int bzCostForwardPower();
 
     /**
+     * Suppresses EX Burst triggers for all cards put into any Damage Zone
+     * due to this ability's resolution. Cleared automatically at the start of the next ability.
+     */
+    void suppressExBurstsThisAbility();
+
+    /**
      * Returns the name of the card most recently discarded by a self-discard effect in the
      * current ability chain, or {@code null} when no card has been discarded yet.
      */
@@ -1668,6 +1674,15 @@ public interface GameContext {
             String element, int costVal, String costCmp, String category);
 
     /**
+     * Grants {@code traits} until end of turn to all Forwards (and Monsters when
+     * {@code inclMonsters} is true) that have the given job.
+     */
+    void applyMassFieldJobKeywordGrant(java.util.EnumSet<CardData.Trait> traits,
+            boolean inclForwards, boolean inclMonsters,
+            boolean opponentOnly, boolean selfOnly,
+            String jobFilter);
+
+    /**
      * Returns all {@link FieldAbility} instances currently active — that is, belonging to
      * any card (Forward, Backup, or Monster) on either player's field.
      *
@@ -1761,6 +1776,12 @@ public interface GameContext {
      * Handles targets on either side of the field. No-op if the target is not a Monster zone.
      */
     void makeTargetTemporaryForward(ForwardTarget t, int power);
+
+    /**
+     * Makes all Monsters the ability user controls also become Forwards with {@code power}
+     * until end of turn.
+     */
+    void makeAllMonstersTemporaryForwards(int power);
 
     /**
      * Grants {@code source} a temporary action ability whose sole cost is

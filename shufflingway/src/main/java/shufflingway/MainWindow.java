@@ -370,6 +370,8 @@ public class MainWindow {
 	int      lastDullForwardCostPower = 0;
 	// Power of the Forward put into the Break Zone as an ability cost; set during payment.
 	int      lastBzCostForwardPower   = 0;
+	// Set by an EX burst suppression clause; cleared at the start of each new ability context.
+	boolean  suppressExBurstsThisAbility = false;
 
 	boolean  effectProgress = true;
 
@@ -2614,7 +2616,7 @@ public class MainWindow {
 				triggerGameOver("7 Damage Taken - You Lose!");
 				return;
 			}
-			if (isEx) autoAbilityTriggers.triggerExBurst(drawn, true);
+			if (isEx && !suppressExBurstsThisAbility) autoAbilityTriggers.triggerExBurst(drawn, true);
 			if (onDone != null) onDone.run();
 		});
 		revealTimer.setRepeats(false);
@@ -2671,7 +2673,7 @@ public class MainWindow {
 				triggerGameOver("Player 2 Defeated - You Win!");
 				return;
 			}
-			if (isEx && drawn != null) autoAbilityTriggers.triggerExBurst(drawn, false);
+			if (isEx && drawn != null && !suppressExBurstsThisAbility) autoAbilityTriggers.triggerExBurst(drawn, false);
 			if (onDone != null) onDone.run();
 		});
 		revealTimer.setRepeats(false);
@@ -8430,6 +8432,7 @@ public class MainWindow {
 	}
 
 	GameContext buildGameContext(boolean isP1, boolean exBurst) {
+		suppressExBurstsThisAbility = false;
 		return new GameContextImpl(this, isP1, exBurst);
 	}
 

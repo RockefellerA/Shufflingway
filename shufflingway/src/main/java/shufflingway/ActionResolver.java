@@ -2887,6 +2887,19 @@ public class ActionResolver {
     );
 
     /**
+     * Matches "All [the] Job X [targets] [you control | opponent controls]
+     * gain Keyword[, ...] until end of turn."
+     * Groups: {@code job}, {@code targets} (optional), {@code control}, {@code keywords}.
+     */
+    private static final Pattern ALL_FIELD_JOB_KEYWORD_GRANT_PATTERN = Pattern.compile(
+        "(?i)All\\s+(?:the\\s+)?Job\\s+(?<job>[A-Za-z][A-Za-z\\s''\\-]*?)" +
+        "(?:\\s+(?<targets>Forwards?(?:\\s+and\\s+Monsters?)?|Backups?|Characters?))?" +
+        "(?:\\s+(?<control>(?:your\\s+)?opponent\\s+controls?|you\\s+control))?" +
+        "\\s+gains?\\s+(?<keywords>(?:(?:Haste|First\\s+Strike|Brave)(?:\\s*[,]?\\s*(?:and\\s+)?)?)+)" +
+        "\\s+until\\s+(?:the\\s+)?end\\s+of\\s+(?:the\\s+)?turn[.!]?"
+    );
+
+    /**
      * Matches "All [the] [element] [Category X] [targets] [of cost N [or less|more]]
      * [you control | opponent controls] gain Keyword[, Keyword2, ...] until end of turn."
      * Groups: {@code element}, {@code category}, {@code targets}, {@code cost}, {@code costcmp},
@@ -3365,6 +3378,11 @@ public class ActionResolver {
         "(?i)During\\s+this\\s+turn,?\\s+the\\s+Forwards?\\s+you\\s+control\\s+cannot\\s+be\\s+chosen\\s+by\\s+EX\\s+Bursts?[.!]?"
     );
 
+    /** Matches "EX Bursts of cards put into the Damage Zone due to this ability cannot be used." */
+    private static final Pattern EX_BURST_SUPPRESSION_PATTERN = Pattern.compile(
+        "(?i)EX\\s+Bursts?\\s+of\\s+cards?\\s+put\\s+into\\s+the\\s+Damage\\s+Zone\\s+due\\s+to\\s+this\\s+ability\\s+cannot\\s+be\\s+used[.!]?"
+    );
+
     /**
      * Alternate word order: "Deal all [the] [condition] Forwards [of cost N] [other than Job Y] [opponent controls] X damage."
      * Same named groups as {@link #DEAL_DAMAGE_TO_FORWARDS} so {@link #tryParseDealDamageToForwards} can share extraction logic.
@@ -3640,6 +3658,15 @@ public class ActionResolver {
     );
 
     /**
+     * Matches "Until the end of the turn, all the Monsters you control also become Forwards with N power."
+     * Group {@code power} captures the power value.
+     */
+    private static final Pattern ALL_MONSTERS_BECOME_FORWARDS_UNTIL_EOT_PATTERN = Pattern.compile(
+        "(?i)^Until\\s+(?:the\\s+)?end\\s+of\\s+(?:the\\s+)?turn,?\\s+" +
+        "all\\s+(?:the\\s+)?Monsters?\\s+you\\s+control\\s+also\\s+become\\s+Forwards?\\s+with\\s+(?<power>\\d+)\\s+power[.!]?"
+    );
+
+    /**
      * Matches "Until the end of the turn, [CardName] also becomes a Forward with N power."
      * Used for action abilities on Monsters.  Group {@code power} captures the power value.
      */
@@ -3838,6 +3865,9 @@ public class ActionResolver {
         result = tryParseSelectNumber(effectText, source);
         if (result != null) return result;
 
+        result = tryParseAllMonstersTemporaryForward(effectText);
+        if (result != null) return result;
+
         result = tryParseBecomeForwardUntilEot(effectText, source);
         if (result != null) return result;
 
@@ -3869,6 +3899,9 @@ public class ActionResolver {
         if (result != null) return result;
 
         result = tryParseOwnForwardsCannotBeChosenByExBurst(effectText);
+        if (result != null) return result;
+
+        result = tryParseExBurstSuppression(effectText);
         if (result != null) return result;
 
         result = tryParseDealHalfPowerDamageToForwards(effectText);
@@ -4004,6 +4037,9 @@ public class ActionResolver {
         if (result != null) return result;
 
         result = tryParseAllFieldJobPowerBoost(effectText);
+        if (result != null) return result;
+
+        result = tryParseAllFieldJobKeywordGrant(effectText);
         if (result != null) return result;
 
         result = tryParseAllFieldKeywordGrant(effectText);
@@ -4495,6 +4531,7 @@ public class ActionResolver {
         if (tryParseDealDamageToForwards(effectText)                    != null) return "DealDamageToForwards";
         if (tryParseNoForwardCostCannotAttack(effectText)               != null) return "NoForwardCostCannotAttack";
         if (tryParseOwnForwardsCannotBeChosenByExBurst(effectText)      != null) return "OwnForwardsCannotBeChosenByExBurst";
+        if (tryParseExBurstSuppression(effectText)                      != null) return "ExBurstSuppression";
         if (tryParseDealHalfPowerDamageToForwards(effectText)           != null) return "DealHalfPowerDamageToForwards";
         if (tryParseDealPowerMinusNDamageToForwards(effectText)         != null) return "DealPowerMinusNDamageToForwards";
         if (tryParseDealHalfSourcePowerDamageToForwards(effectText)     != null) return "DealHalfSourcePowerDamageToForwards";
@@ -4582,6 +4619,7 @@ public class ActionResolver {
         if (tryParseBreakBlockingForward(effectText)           != null) return "BreakBlockingForward";
         if (tryParseBreakForwardThatBlocksCard(effectText)     != null) return "BreakForwardThatBlocksCard";
         if (tryParseChooseExBurstFromDamageZone(effectText)    != null) return "ChooseExBurstFromDamageZone";
+        if (tryParseExBurstSuppression(effectText)             != null) return "ExBurstSuppression";
         if (tryParseDamageZoneSwap(effectText)                 != null) {
             Matcher m = DAMAGE_ZONE_SWAP_PATTERN.matcher(effectText.trim());
             return m.matches() && m.group("draw") != null ? "DamageZoneSwap + DrawCards" : "DamageZoneSwap";
@@ -4815,6 +4853,7 @@ public class ActionResolver {
         if (tryParseDealDamageToForwards(effectText)                       != null) return "DealDamageToForwards";
         if (tryParseNoForwardCostCannotAttack(effectText)           != null) return "NoForwardCostCannotAttack";
         if (tryParseOwnForwardsCannotBeChosenByExBurst(effectText)  != null) return "OwnForwardsCannotBeChosenByExBurst";
+        if (tryParseExBurstSuppression(effectText)                  != null) return "ExBurstSuppression";
         if (tryParseDealHalfPowerDamageToForwards(effectText)       != null) return "DealHalfPowerDamageToForwards";
         if (tryParseDealPowerMinusNDamageToForwards(effectText)     != null) return "DealPowerMinusNDamageToForwards";
         if (tryParseDealHalfSourcePowerDamageToForwards(effectText) != null) return "DealHalfSourcePowerDamageToForwards";
@@ -4963,6 +5002,7 @@ public class ActionResolver {
         }
         if (tryParseAllFieldJobCardNamePowerBoost(effectText) != null)       return "AllFieldJobCardNamePowerBoost";
         if (tryParseAllFieldJobPowerBoost(effectText) != null)              return "AllFieldJobPowerBoost";
+        if (tryParseAllFieldJobKeywordGrant(effectText) != null)            return "AllFieldJobKeywordGrant";
         if (tryParseAllFieldKeywordGrant(effectText) != null)               return "AllFieldKeywordGrant";
         if (tryParseUntilEotDualPowerShift(effectText) != null)            return "UntilEotDualPowerShift";
         if (tryParseUntilEotAllFieldPowerBoost(effectText) != null)        return "UntilEotAllFieldPowerBoost";
@@ -5016,6 +5056,7 @@ public class ActionResolver {
         if (tryParseBreakBlockingForward(effectText)           != null)     return "BreakBlockingForward";
         if (tryParseBreakForwardThatBlocksCard(effectText)     != null)     return "BreakForwardThatBlocksCard";
         if (tryParseChooseExBurstFromDamageZone(effectText)    != null)     return "ChooseExBurstFromDamageZone";
+        if (tryParseExBurstSuppression(effectText)             != null)     return "ExBurstSuppression";
         if (tryParseDamageZoneSwap(effectText)              != null) {
             Matcher m = DAMAGE_ZONE_SWAP_PATTERN.matcher(effectText.trim());
             return m.matches() && m.group("draw") != null ? "DamageZoneSwap + DrawCards" : "DamageZoneSwap";
@@ -5095,6 +5136,7 @@ public class ActionResolver {
         if (tryParseRevealPlayTypeOntoFieldRestBottom(effectText)           != null) return "RevealPlayTypeOntoFieldRestBottom";
         if (tryParseShuffleDeck(effectText)                              != null) return "ShuffleDeck";
         if (tryParseBackupCpDraw(effectText)                             != null) return "BackupCpDraw";
+        if (tryParseAllMonstersTemporaryForward(effectText)            != null) return "AllMonstersTemporaryForward";
         if (tryParseBecomeForwardUntilEot(effectText, source)         != null) return "BecomeForwardUntilEot";
         if (tryParseNameElementOnlySelfBecomes(effectText, source)      != null) return "NameElementOnlySelfBecomes";
         if (tryParseNameElementAndJobSelfBecomes(effectText, source)   != null) return "NameElementAndJobSelfBecomes";
@@ -5405,6 +5447,14 @@ public class ActionResolver {
     private static Consumer<GameContext> tryParseOwnForwardsCannotBeChosenByExBurst(String text) {
         if (!OWN_FORWARDS_CANNOT_BE_CHOSEN_BY_EX_BURST.matcher(text.trim()).matches()) return null;
         return ctx -> ctx.shieldAllOwnForwardsCannotBeChosen(true, false);
+    }
+
+    private static Consumer<GameContext> tryParseExBurstSuppression(String text) {
+        if (!EX_BURST_SUPPRESSION_PATTERN.matcher(text.trim()).matches()) return null;
+        return ctx -> {
+            ctx.logEntry("Effect: EX Bursts due to this ability are suppressed");
+            ctx.suppressExBurstsThisAbility();
+        };
     }
 
     private static Consumer<GameContext> tryParseDealDamageToForwardsForEach(String text) {
@@ -11077,6 +11127,39 @@ public class ActionResolver {
     }
 
     /**
+     * Parses "All [the] Job X [targets] [you control] gain Keyword[, ...] until end of turn."
+     */
+    private static Consumer<GameContext> tryParseAllFieldJobKeywordGrant(String text) {
+        Matcher m = ALL_FIELD_JOB_KEYWORD_GRANT_PATTERN.matcher(text);
+        if (!m.find()) return null;
+
+        String job      = m.group("job").trim();
+        String targets  = m.group("targets");
+        boolean inclForwards = targets == null || targets.toLowerCase().contains("forward")
+                            || targets.toLowerCase().contains("character");
+        boolean inclMonsters = targets == null || targets.toLowerCase().contains("monster")
+                            || targets.toLowerCase().contains("character");
+
+        String control       = m.group("control");
+        boolean opponentOnly = control != null && !control.toLowerCase().contains("you control");
+        boolean selfOnly     = control != null &&  control.toLowerCase().contains("you control");
+
+        EnumSet<CardData.Trait> traits = parseTraits(m.group("keywords"));
+        if (traits.isEmpty()) return null;
+
+        String traitNames = traitNamesOnly(traits);
+        String typeLabel  = targets != null ? " " + targets : "";
+        String controlLabel = opponentOnly ? " (opponent)" : selfOnly ? " (yours)" : "";
+        String logMsg = "All Job " + job + typeLabel + controlLabel + " gain " + traitNames + " until end of turn";
+
+        return ctx -> {
+            ctx.logEntry("Effect: " + logMsg);
+            ctx.applyMassFieldJobKeywordGrant(traits, inclForwards, inclMonsters,
+                    opponentOnly, selfOnly, job);
+        };
+    }
+
+    /**
      * Parses "All [the] [element] [targets] [of cost N or less/more] [you control] gain
      * Keyword[, Keyword2, ...] until end of turn."
      */
@@ -12868,6 +12951,16 @@ public class ActionResolver {
                 ctx.logEntry("BackupCpDraw — CP was only from Backups, draw " + count);
                 ctx.drawCards(count);
             }
+        };
+    }
+
+    private static Consumer<GameContext> tryParseAllMonstersTemporaryForward(String text) {
+        Matcher m = ALL_MONSTERS_BECOME_FORWARDS_UNTIL_EOT_PATTERN.matcher(text.trim());
+        if (!m.find()) return null;
+        int power = Integer.parseInt(m.group("power"));
+        return ctx -> {
+            ctx.logEntry("Effect: All Monsters you control become Forwards with " + power + " power until end of turn");
+            ctx.makeAllMonstersTemporaryForwards(power);
         };
     }
 

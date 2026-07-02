@@ -2969,6 +2969,7 @@ final class GameContextImpl implements GameContext {
 			@Override public int dullForwardCostPower() { return mw.lastDullForwardCostPower; }
 			@Override public int lastDiscardedForwardPower() { return mw.lastDiscardedForwardPower; }
 			@Override public int bzCostForwardPower() { return mw.lastBzCostForwardPower; }
+			@Override public void suppressExBurstsThisAbility() { mw.suppressExBurstsThisAbility = true; }
 			@Override public String lastDiscardedCardName() { return mw.lastDiscardedCardName; }
 			@Override public String lastDiscardedCostCardElement() {
 				return mw.lastDiscardedCostCard == null ? null : mw.lastDiscardedCostCard.elements()[0];
@@ -4040,6 +4041,32 @@ final class GameContextImpl implements GameContext {
 				}
 			}
 
+			@Override public void applyMassFieldJobKeywordGrant(java.util.EnumSet<CardData.Trait> traits,
+					boolean inclForwards, boolean inclMonsters,
+					boolean opponentOnly, boolean selfOnly,
+					String jobFilter) {
+				boolean touchP1 = isP1 ? !opponentOnly : !selfOnly;
+				boolean touchP2 = isP1 ? !selfOnly     : !opponentOnly;
+				if (touchP1 && inclForwards) {
+					for (int i = 0; i < mw.p1ForwardCards.size(); i++) {
+						CardData c = p1Forward(i);
+						if (!CardFilters.meetsJobFilter(c, jobFilter)) continue;
+						mw.p1ForwardTempTraits.get(i).addAll(traits);
+						logEntry(c.name() + " gains " + traits + " until end of turn");
+						mw.refreshP1ForwardSlot(i);
+					}
+				}
+				if (touchP2 && inclForwards) {
+					for (int i = 0; i < mw.p2ForwardCards.size(); i++) {
+						CardData c = mw.p2ForwardCards.get(i);
+						if (!CardFilters.meetsJobFilter(c, jobFilter)) continue;
+						mw.p2ForwardTempTraits.get(i).addAll(traits);
+						logEntry("[P2] " + c.name() + " gains " + traits + " until end of turn");
+						mw.refreshP2ForwardSlot(i);
+					}
+				}
+			}
+
 			@Override public void addEndOfTurnEffect(Consumer<GameContext> effect) {
 				mw.endOfTurnEffects.add(effect);
 			}
@@ -4518,6 +4545,27 @@ final class GameContextImpl implements GameContext {
 						if (stillIdx >= 0) mw.refreshP2MonsterSlot(stillIdx);
 					});
 					mw.refreshP2MonsterSlot(t.idx());
+				}
+			}
+
+			@Override public void makeAllMonstersTemporaryForwards(int power) {
+				List<CardData> monsters = isP1 ? mw.p1MonsterCards : mw.p2MonsterCards;
+				Map<CardData, Integer> tempMap = isP1 ? mw.p1MonsterTempForwardPower : mw.p2MonsterTempForwardPower;
+				for (int i = 0; i < monsters.size(); i++) {
+					CardData card = monsters.get(i);
+					tempMap.put(card, power);
+					logEntry((isP1 ? "" : "[P2] ") + card.name() + " also becomes a Forward with " + power + " power until end of turn");
+					final int idx = i;
+					mw.endOfTurnEffects.add(ctx -> {
+						tempMap.remove(card);
+						int stillIdx = monsters.indexOf(card);
+						if (stillIdx >= 0) {
+							if (isP1) mw.refreshP1MonsterSlot(stillIdx);
+							else      mw.refreshP2MonsterSlot(stillIdx);
+						}
+					});
+					if (isP1) mw.refreshP1MonsterSlot(idx);
+					else      mw.refreshP2MonsterSlot(idx);
 				}
 			}
 
