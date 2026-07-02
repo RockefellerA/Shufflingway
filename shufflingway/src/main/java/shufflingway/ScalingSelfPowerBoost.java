@@ -4,7 +4,9 @@ package shufflingway;
  * A passive self-targeting power boost whose magnitude scales with a counted game state.
  *
  * <p>Active while the owning card is on the field; the bonus is recomputed on each query as
- * {@link #perUnit} multiplied by the count derived from {@link #source}.
+ * {@link #perUnit} multiplied by {@code floor(count / groupSize)}, where {@code count} is
+ * derived from {@link #source} and {@code groupSize} is 1 for "for each" patterns and N for
+ * "for every N" patterns.
  */
 public record ScalingSelfPowerBoost(
         Source source,
@@ -14,16 +16,27 @@ public record ScalingSelfPowerBoost(
         String cardNameFilter, // pipe-separated; null if unused
         String elementFilter,  // include-only element (e.g., "Earth"); null if unused
         String excludeElement, // exclude this element (e.g., "Fire"); null if unused
-        boolean requireActive  // count only active (non-dull) characters
+        boolean requireActive, // count only active (non-dull) characters
+        int    groupSize       // 1 for "for each", N for "for every N"
 ) {
-    /** Convenience constructor for sources that do not filter at all. */
+    /** Convenience constructor for sources that do not filter at all (groupSize = 1). */
     public ScalingSelfPowerBoost(Source source, int perUnit) {
-        this(source, perUnit, null, null, null, null, null, false);
+        this(source, perUnit, null, null, null, null, null, false, 1);
+    }
+
+    /** Convenience constructor with all filter fields but groupSize = 1. */
+    public ScalingSelfPowerBoost(Source source, int perUnit,
+            String jobFilter, String categoryFilter, String cardNameFilter,
+            String elementFilter, String excludeElement, boolean requireActive) {
+        this(source, perUnit, jobFilter, categoryFilter, cardNameFilter,
+                elementFilter, excludeElement, requireActive, 1);
     }
 
     public enum Source {
         /** Number of Forwards the opponent currently controls. */
         OPPONENT_FORWARDS,
+        /** Number of Backups the opponent currently controls. */
+        OPPONENT_BACKUPS,
         /**
          * Number of Characters the controller controls whose name differs from the source card's name.
          * Honors {@link #requireActive}, {@link #elementFilter}, {@link #excludeElement}, and the
@@ -48,6 +61,11 @@ public record ScalingSelfPowerBoost(
          * The {@link #cardNameFilter} field holds the card name to count.
          */
         CARD_NAME_IN_BREAK_ZONE,
+        /**
+         * Number of Summons in the controller's Break Zone.
+         * Typically paired with {@link #groupSize} &gt; 1 for "for every N Summons" patterns.
+         */
+        SUMMONS_IN_BREAK_ZONE,
         /** Number of cards currently in the controller's hand. */
         CARDS_IN_HAND
     }

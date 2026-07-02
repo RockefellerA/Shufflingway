@@ -2723,6 +2723,12 @@ public record CardData(
         "(?<target>.+?)\\s+gains?\\s+\\+(?<power>\\d+)\\s+power[.!]?$"
     );
 
+    /** "For each Backup [your] opponent controls, [target] gains +N power." */
+    private static final Pattern SCALING_SELF_OPP_BACKUP_PATTERN = Pattern.compile(
+        "(?i)^For\\s+each\\s+Backup\\s+(?:your\\s+)?opponent\\s+controls,\\s+" +
+        "(?<target>.+?)\\s+gains?\\s+\\+(?<power>\\d+)\\s+power[.!]?$"
+    );
+
     /** "For each point of damage you have received, [target] gains +N power." */
     private static final Pattern SCALING_SELF_DMG_PATTERN = Pattern.compile(
         "(?i)^For\\s+each\\s+point\\s+of\\s+damage\\s+you\\s+have\\s+received,\\s+" +
@@ -2738,6 +2744,12 @@ public record CardData(
     /** "For each Card Name X in your Break Zone, [target] gains +N power." */
     private static final Pattern SCALING_SELF_BZ_CARD_NAME_PATTERN = Pattern.compile(
         "(?i)^For\\s+each\\s+Card\\s+Name\\s+(?<name>.+?)\\s+in\\s+your\\s+Break\\s+Zone,\\s+" +
+        "(?<target>.+?)\\s+gains?\\s+\\+(?<power>\\d+)\\s+power[.!]?$"
+    );
+
+    /** "For every N Summons in your Break Zone, [target] gains +P power." */
+    private static final Pattern SCALING_SELF_BZ_SUMMON_EVERY_N_PATTERN = Pattern.compile(
+        "(?i)^For\\s+every\\s+(?<n>\\d+)\\s+Summons?\\s+in\\s+your\\s+Break\\s+Zone,\\s+" +
         "(?<target>.+?)\\s+gains?\\s+\\+(?<power>\\d+)\\s+power[.!]?$"
     );
 
@@ -2888,6 +2900,15 @@ public record CardData(
                         ScalingSelfPowerBoost.Source.OPPONENT_FORWARDS, perUnit));
                 continue;
             }
+            Matcher ob = SCALING_SELF_OPP_BACKUP_PATTERN.matcher(seg);
+            if (ob.find()) {
+                if (!ob.group("target").trim().equalsIgnoreCase(cardName)) continue;
+                int perUnit = Integer.parseInt(ob.group("power"));
+                if (perUnit <= 0) continue;
+                result.add(new ScalingSelfPowerBoost(
+                        ScalingSelfPowerBoost.Source.OPPONENT_BACKUPS, perUnit));
+                continue;
+            }
             Matcher dm = SCALING_SELF_DMG_PATTERN.matcher(seg);
             if (dm.find()) {
                 if (!dm.group("target").trim().equalsIgnoreCase(cardName)) continue;
@@ -2905,6 +2926,17 @@ public record CardData(
                 result.add(new ScalingSelfPowerBoost(
                         ScalingSelfPowerBoost.Source.CARD_NAME_IN_BREAK_ZONE, perUnit,
                         null, null, bz.group("name").trim(), null, null, false));
+                continue;
+            }
+            Matcher bzSummon = SCALING_SELF_BZ_SUMMON_EVERY_N_PATTERN.matcher(seg);
+            if (bzSummon.find()) {
+                if (!bzSummon.group("target").trim().equalsIgnoreCase(cardName)) continue;
+                int perUnit   = Integer.parseInt(bzSummon.group("power"));
+                int groupSize = Integer.parseInt(bzSummon.group("n"));
+                if (perUnit <= 0 || groupSize <= 0) continue;
+                result.add(new ScalingSelfPowerBoost(
+                        ScalingSelfPowerBoost.Source.SUMMONS_IN_BREAK_ZONE, perUnit,
+                        null, null, null, null, null, false, groupSize));
                 continue;
             }
             Matcher hm = SCALING_SELF_HAND_PATTERN.matcher(seg);
@@ -3811,12 +3843,16 @@ public record CardData(
 
             // Scaling self power boost ("For each Forward opponent controls, X gains +N power")
             if (SCALING_SELF_OPP_FWD_PATTERN.matcher(seg).find())            continue;
+            // Scaling self power boost ("For each Backup opponent controls, X gains +N power")
+            if (SCALING_SELF_OPP_BACKUP_PATTERN.matcher(seg).find())         continue;
             // Scaling self power boost ("For each [filter] you control, X gains +N power")
             if (SCALING_SELF_FOR_EACH_PATTERN.matcher(seg).find())            continue;
             // Scaling self power boost ("For each point of damage you have received, X gains +N power")
             if (SCALING_SELF_DMG_PATTERN.matcher(seg).find())                 continue;
             // Scaling self power boost ("For each Card Name X in your Break Zone, X gains +N power")
             if (SCALING_SELF_BZ_CARD_NAME_PATTERN.matcher(seg).find())        continue;
+            // Scaling self power boost ("For every N Summons in your Break Zone, X gains +P power")
+            if (SCALING_SELF_BZ_SUMMON_EVERY_N_PATTERN.matcher(seg).find())   continue;
             // Scaling self power boost ("For each card in your hand, X gains +N power")
             if (SCALING_SELF_HAND_PATTERN.matcher(seg).find())                 continue;
             // BZ-conditional / distinct-element-conditional / EX Burst scaling passive grant — handled by parseFieldPowerGrants

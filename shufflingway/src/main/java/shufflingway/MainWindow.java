@@ -8251,6 +8251,12 @@ public class MainWindow {
 			for (ScalingSelfPowerBoost ssb : src.scalingSelfPowerBoosts()) {
 				int count = switch (ssb.source()) {
 					case OPPONENT_FORWARDS -> isP1 ? p2ForwardCards.size() : p1ForwardCards.size();
+					case OPPONENT_BACKUPS -> {
+						CardData[] bkps = isP1 ? p2BackupCards : p1BackupCards;
+						int n = 0;
+						for (CardData b : bkps) if (b != null) n++;
+						yield n;
+					}
 					case OTHER_CHARACTERS_YOU_CONTROL -> {
 						List<CardData>  fwds   = isP1 ? p1ForwardCards  : p2ForwardCards;
 						List<CardState> fwdSt  = isP1 ? p1ForwardStates : p2ForwardStates;
@@ -8302,10 +8308,14 @@ public class MainWindow {
 						yield nameFilter == null ? 0 : (int) bz.stream()
 								.filter(c -> nameFilter.equalsIgnoreCase(c.name())).count();
 					}
+					case SUMMONS_IN_BREAK_ZONE -> {
+						List<CardData> bz = isP1 ? gameState.getP1BreakZone() : gameState.getP2BreakZone();
+						yield (int) bz.stream().filter(CardData::isSummon).count();
+					}
 					case CARDS_IN_HAND ->
 						(isP1 ? gameState.getP1Hand() : gameState.getP2Hand()).size();
 				};
-				boost += ssb.perUnit() * count;
+				boost += ssb.perUnit() * (count / ssb.groupSize());
 			}
 		}
 		return boost;
