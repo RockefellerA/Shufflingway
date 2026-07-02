@@ -1654,6 +1654,15 @@ public class ActionResolver {
         "\\s+until\\s+(?:the\\s+)?end\\s+of\\s+(?:the\\s+)?turn\\.?"
     );
 
+    /**
+     * "During this turn, if a Forward you control is dealt damage by a Summon or an ability,
+     *  the damage becomes 0 instead."
+     */
+    private static final Pattern ALL_OWN_FORWARDS_NULLIFY_ABILITY_DAMAGE_PATTERN = Pattern.compile(
+        "(?i)During\\s+this\\s+turn,?\\s+if\\s+(?:a\\s+)?Forwards?\\s+you\\s+control\\s+(?:is|are)\\s+dealt\\s+damage" +
+        "\\s+by\\s+(?:a\\s+)?Summons?\\s+or\\s+an?\\s+abilit(?:y|ies),?\\s+the\\s+damage\\s+becomes?\\s+0\\s+instead[.!]?"
+    );
+
     /** "It gains 'When this Forward deals battle damage to a Forward, break that Forward.' until the end of the turn." */
     private static final Pattern FOLLOWUP_GAINS_BREAKTOUCH_BATTLE = Pattern.compile(
         "(?i)(?:it|they)\\s+gains?\\s+['\"]When\\s+this\\s+Forward\\s+deals\\s+battle\\s+damage\\s+to\\s+a\\s+Forward,\\s+break\\s+that\\s+Forward\\.?['\"]" +
@@ -4117,6 +4126,9 @@ public class ActionResolver {
         result = tryParseStandaloneShieldCannotBeBroken(effectText, source);
         if (result != null) return result;
 
+        result = tryParseAllOwnForwardsNullifyAbilityDamage(effectText);
+        if (result != null) return result;
+
         result = tryParseAllForwardsCannotBlock(effectText);
         if (result != null) return result;
 
@@ -4594,6 +4606,7 @@ public class ActionResolver {
         if (tryParseStandaloneSelfBoost(effectText, source)   != null) return "StandaloneSelfBoost";
         if (tryParseStandaloneSelfDullAndShield(effectText, source) != null) return "StandaloneSelfDullAndShield";
         if (tryParseStandaloneShieldCannotBeBroken(effectText, source) != null) return "StandaloneShieldCannotBeBroken";
+        if (tryParseAllOwnForwardsNullifyAbilityDamage(effectText)        != null) return "AllOwnForwardsNullifyAbilityDamage";
         if (tryParseAllForwardsCannotBlock(effectText)                    != null) return "AllForwardsCannotBlock";
         if (tryParseForwardsOfCostCannotBlock(effectText)                 != null) return "ForwardsOfCostCannotBlock";
         if (tryParseEndOfNextTurnIfCardOnFieldOppLoses(effectText)        != null) return "EndOfNextTurnIfCardOnFieldOppLoses";
@@ -5024,6 +5037,7 @@ public class ActionResolver {
         if (tryParseStandaloneSelfBoost(effectText, source) != null)        return "StandaloneSelfBoost";
         if (tryParseStandaloneSelfDullAndShield(effectText, source) != null) return "StandaloneSelfDullAndShield";
         if (tryParseStandaloneShieldCannotBeBroken(effectText, source) != null) return "StandaloneShieldCannotBeBroken";
+        if (tryParseAllOwnForwardsNullifyAbilityDamage(effectText)        != null) return "AllOwnForwardsNullifyAbilityDamage";
         if (tryParseAllForwardsCannotBlock(effectText)                    != null) return "AllForwardsCannotBlock";
         if (tryParseForwardsOfCostCannotBlock(effectText)                 != null) return "ForwardsOfCostCannotBlock";
         if (tryParseEndOfNextTurnIfCardOnFieldOppLoses(effectText)        != null) return "EndOfNextTurnIfCardOnFieldOppLoses";
@@ -9579,6 +9593,17 @@ public class ActionResolver {
         return ctx -> {
             ctx.logEntry(source.name() + " cannot be broken until end of turn");
             ctx.shieldSourceForward(source);
+        };
+    }
+
+    private static Consumer<GameContext> tryParseAllOwnForwardsNullifyAbilityDamage(String text) {
+        if (!ALL_OWN_FORWARDS_NULLIFY_ABILITY_DAMAGE_PATTERN.matcher(text.trim()).matches()) return null;
+        return ctx -> {
+            ctx.logEntry("Effect: All own Forwards — damage from Summons/abilities becomes 0 this turn");
+            boolean p1 = ctx.isP1();
+            int count = p1 ? ctx.p1ForwardCount() : ctx.p2ForwardCount();
+            for (int i = 0; i < count; i++)
+                ctx.shieldAbilityDamage(new ForwardTarget(p1, i, ForwardTarget.CardZone.FORWARD));
         };
     }
 
