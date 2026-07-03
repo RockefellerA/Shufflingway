@@ -2423,6 +2423,7 @@ final class AutoAbilityTriggers {
 		List<CardState> fwdSt   = isP1 ? mw.p1ForwardStates : mw.p2ForwardStates;
 		List<CardData>  mons    = isP1 ? mw.p1MonsterCards  : mw.p2MonsterCards;
 		CardData[]      bkps    = isP1 ? mw.p1BackupCards   : mw.p2BackupCards;
+		CardState[]     bkpSt   = isP1 ? mw.p1BackupStates  : mw.p2BackupStates;
 		int eligible = 0;
 		for (int i = 0; i < fwds.size(); i++) {
 			if (fwdSt.get(i) != CardState.ACTIVE) continue;
@@ -2430,8 +2431,8 @@ final class AutoAbilityTriggers {
 			eligible++;
 		}
 		if (anyChar) {
-			for (CardData bkp : bkps)
-				if (bkp != null && dfcCardMatches(dfc, bkp)) eligible++;
+			for (int i = 0; i < bkps.length; i++)
+				if (bkps[i] != null && bkpSt[i] == CardState.ACTIVE && dfcCardMatches(dfc, bkps[i])) eligible++;
 			for (CardData mon : mons)
 				if (dfcCardMatches(dfc, mon)) eligible++;
 		}
@@ -2982,35 +2983,50 @@ final class AutoAbilityTriggers {
 					+ mw.gameState.getCounters(source, cc.counterName()) + "]");
 		}
 
-		// Dull-forward costs: player picks an active forward to dull; its power is stored for effect resolution
+		// Dull-forward costs: player picks active forward(s) (and backups when anyChar) to dull
 		mw.lastDullForwardCostPower = 0;
 		for (DullForwardCost dfc : ability.dullForwardCosts()) {
-			List<CardData> fwds = isP1 ? mw.p1ForwardCards : mw.p2ForwardCards;
-			List<CardState> states = isP1 ? mw.p1ForwardStates : mw.p2ForwardStates;
-			List<Integer> eligible = new ArrayList<>();
+			boolean anyChar = "Character".equalsIgnoreCase(dfc.cardType());
+			List<CardData>  fwds  = isP1 ? mw.p1ForwardCards  : mw.p2ForwardCards;
+			List<CardState> fwdSt = isP1 ? mw.p1ForwardStates : mw.p2ForwardStates;
+			CardData[]      bkps  = isP1 ? mw.p1BackupCards   : mw.p2BackupCards;
+			CardState[]     bkpSt = isP1 ? mw.p1BackupStates  : mw.p2BackupStates;
+			List<ForwardTarget> targets = new ArrayList<>();
 			for (int i = 0; i < fwds.size(); i++) {
-				if (states.get(i) != CardState.ACTIVE) continue;
-				if (dfc.element() != null && !dfc.element().isEmpty() && !fwds.get(i).containsElement(dfc.element())) continue;
-				eligible.add(i);
+				if (fwdSt.get(i) != CardState.ACTIVE) continue;
+				if (!dfcCardMatches(dfc, fwds.get(i))) continue;
+				targets.add(new ForwardTarget(isP1, i, ForwardTarget.CardZone.FORWARD));
 			}
-			if (eligible.isEmpty()) { mw.logEntry("No eligible active Forward for Dull cost."); continue; }
-			List<ForwardTarget> targets = eligible.stream()
-					.map(i -> new ForwardTarget(isP1, i, ForwardTarget.CardZone.FORWARD)).toList();
+			if (anyChar) {
+				for (int i = 0; i < bkps.length; i++) {
+					if (bkps[i] == null || bkpSt[i] != CardState.ACTIVE) continue;
+					if (!dfcCardMatches(dfc, bkps[i])) continue;
+					targets.add(new ForwardTarget(isP1, i, ForwardTarget.CardZone.BACKUP));
+				}
+			}
+			if (targets.isEmpty()) { mw.logEntry("No eligible active card for Dull cost."); continue; }
 			List<ForwardTarget> picks;
 			if (isP1) {
-				picks = mw.showForwardSelectDialog(targets, dfc.count(), false, "Dull Forward Cost");
+				picks = mw.showForwardSelectDialog(targets, dfc.count(), false, "Dull Cost");
 				if (picks.size() < dfc.count()) continue;
 			} else {
 				picks = new ArrayList<>(targets.subList(0, Math.min(dfc.count(), targets.size())));
 				if (picks.size() < dfc.count()) continue;
 			}
 			for (ForwardTarget pick : picks) {
-				int fwdIdx = pick.idx();
-				int pow = fwds.get(fwdIdx).power();
-				mw.lastDullForwardCostPower += pow;
-				states.set(fwdIdx, CardState.DULL);
-				if (isP1) mw.animateDullForward(fwdIdx, null); else mw.animateDullP2Forward(fwdIdx, null);
-				mw.logEntry("Dull cost: \"" + fwds.get(fwdIdx).name() + "\" dulled (power " + pow + ")");
+				if (pick.zone() == ForwardTarget.CardZone.BACKUP) {
+					int bi = pick.idx();
+					bkpSt[bi] = CardState.DULL;
+					mw.playerDullBackupSlot(isP1, bi);
+					mw.logEntry("Dull cost: \"" + bkps[bi].name() + "\" (backup) dulled");
+				} else {
+					int fi = pick.idx();
+					int pow = fwds.get(fi).power();
+					mw.lastDullForwardCostPower += pow;
+					fwdSt.set(fi, CardState.DULL);
+					if (isP1) mw.animateDullForward(fi, null); else mw.animateDullP2Forward(fi, null);
+					mw.logEntry("Dull cost: \"" + fwds.get(fi).name() + "\" dulled (power " + pow + ")");
+				}
 			}
 		}
 

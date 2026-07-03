@@ -779,12 +779,15 @@ public record CardData(
         "((?i)(?:,\\s*)?remove\\s+[^:]+?\\s+from\\s+(?:the\\s+)?game\\s*)?" + // group 6: optional remove-from-game cost phrase
         "((?i)(?:,\\s*)?return\\s+[^:]+?\\s+to\\s+(?:its|their)\\s+owner(?:'s|s')?\\s+hand\\s*)?" + // group 7: optional return-to-hand cost phrase
         "((?i)(?:,\\s*)?remove\\s+\\d+\\s+[^:]+?\\s+Counters?\\s+from\\s+[^:,]+?\\s*)?" +           // group 8: optional counter-removal cost phrase
-        "(?<dullcost>(?i)(?:,\\s*)?Dull\\s+(?<dullcount>\\d+)\\s*(?<dullcond>active|dull|damaged)?\\s*" + // group 9 (named): optional Dull N [cond] Forward(s) cost — simple or Card Name form
+        "(?<dullcost>(?i)(?:,\\s*)?Dull\\s+(?:a\\s+total\\s+of\\s+)?(?<dullcount>\\d+)\\s*(?<dullcond>active|dull|damaged)?\\s*" + // group 9 (named): optional Dull N [cond] Forward(s) cost — simple or Card Name form
         "(?:Card\\s+Name\\s+.+?\\s+Forwards?" +                                              // named-card branch: "Dull N [cond] Card Name X Forward [and N [cond] Card Name Y Forward]"
         "(?:\\s+and\\s+\\d+\\s*(?:active|dull|damaged)?\\s*Card\\s+Name\\s+.+?\\s+Forwards?)*" +
         "|Category\\s+(?<dullcat>[A-Za-z0-9][A-Za-z0-9\\s''\\-]*?)(?:\\s+(?:Forwards?|Backups?|Monsters?|Characters?))?" + // category branch
-        "|Job\\s+(?<dulljob>[A-Za-z][A-Za-z''\\s\\-]*?)(?:\\s+(?:Forwards?|Backups?|Monsters?|Characters?))?(?:\\s+and/or\\s+Card\\s+Name\\s+[^:]+?)?" + // job branch: "Dull N [cond] Job X [Forwards/Characters] [and/or Card Name Y]"
-        "|(?<dullelem>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)?\\s*(?:Forwards?|Characters?))\\s*)?" + // standard branch: "Dull N [cond] [elem] Forward(s)/Characters"
+        "|Job\\s+(?<dulljob>[A-Za-z][A-Za-z''\\s\\-]*?)(?:\\s+(?:Forwards?|Backups?|Monsters?|Characters?))?(?:\\s+(?:and/)?or\\s+Card\\s+Name\\s+[^:]+?)?" + // job branch: "Dull N [cond] Job X [and/or Card Name Y]"
+        "|(?<dullelem>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)?\\s*" + // standard branch
+        "(?:Forwards?(?:\\s+or\\s+(?:Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)?\\s*Backups?)?" + // Forwards [or Backups]
+        "|Backups?(?:\\s+of\\s+the\\s+same\\s+Element)?(?:\\s+or\\s+\\d+\\s*(?:active|dull|damaged)?\\s*Backups?\\s+of\\s+the\\s+same\\s+Element(?:\\s+and\\s+[A-Za-z][A-Za-z\\s''\\-]*?)?)?" + // Backups [of the same Element] [or N Backups ... and Name]
+        "|Characters?))\\s*)?" + // Characters
         ":\\s*"                                                              +  // colon separator
         "(?<effecttext>(?:[^\\[]|\\[(?!\\[))*)"                                // effect text (up to next [[markup]])
     );
@@ -794,13 +797,16 @@ public record CardData(
         "(?i)put\\s+(.+?)\\s+into\\s+the\\s+Break\\s+Zone"
     );
 
-    /** Matches a single dull cost item: Card Name, Category, Job, or element-filtered Forward/Character. */
+    /** Matches a single dull cost item: Card Name, Category, Job, or element-filtered Forward/Backup/Character. */
     private static final Pattern DULL_COST_ITEM_PATTERN = Pattern.compile(
-        "(?i)Dull\\s+(?<count>\\d+)\\s*(?<cond>active|dull|damaged)?\\s*" +
+        "(?i)Dull\\s+(?:a\\s+total\\s+of\\s+)?(?<count>\\d+)\\s*(?<cond>active|dull|damaged)?\\s*" +
         "(?:Card\\s+Name\\s+(?<cardname>.+?)\\s+Forwards?" +
         "|Category\\s+(?<category>[A-Za-z0-9][A-Za-z0-9\\s''\\-]*?)(?:\\s+(?:Forwards?|Backups?|Monsters?|(?<catchar>Characters?)))?" +
-        "|Job\\s+(?<job>[A-Za-z][A-Za-z''\\s\\-]*?)(?:\\s+(?:Forwards?|Backups?|Monsters?|(?<jobchar>Characters?)))?(?:\\s+and/or\\s+Card\\s+Name\\s+(?<joborcardname>.+))?" +
-        "|(?<elem>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)?\\s*(?:Forwards?|(?<stdchar>Characters?)))"
+        "|Job\\s+(?<job>[A-Za-z][A-Za-z''\\s\\-]*?)(?:\\s+(?:Forwards?|Backups?|Monsters?|(?<jobchar>Characters?)))?(?:\\s+(?:and/)?or\\s+Card\\s+Name\\s+(?<joborcardname>.+))?" +
+        "|(?<elem>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)?\\s*" +
+        "(?:Forwards?(?<orbackup>\\s+or\\s+(?:Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)?\\s*Backups?)?" + // Forwards [or Backups]
+        "|(?<sameelembackup>Backups?(?:\\s+of\\s+the\\s+same\\s+Element)?)" + // Backups [of same element] — e.g. Yuri
+        "|(?<stdchar>Characters?)))"
     );
 
     private static final Pattern SELF_MILL_COST_PATTERN = Pattern.compile(
@@ -4016,9 +4022,12 @@ public record CardData(
             String job         = m.group("job");
             String category    = m.group("category");
             String jobOrName   = m.group("joborcardname");
+            // "Forwards or Backups" and plain "Backups [of the same Element]" forms include non-Forward characters
+            boolean inclBackups = m.group("orbackup") != null || m.group("sameelembackup") != null;
             boolean isChar     = m.group("catchar") != null
                               || m.group("jobchar") != null
-                              || m.group("stdchar") != null;
+                              || m.group("stdchar") != null
+                              || inclBackups;
             costs.add(new DullForwardCost(count,
                     cond      != null ? cond.toLowerCase()          : null,
                     elem      != null ? elem.trim()                 : null,
