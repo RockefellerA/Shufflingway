@@ -2658,6 +2658,7 @@ final class AutoAbilityTriggers {
 			mw.p1BackupLabels[idx].setIcon(null);
 			mw.p1BackupLabels[idx].setText(null);
 		}
+		mw.syncBzForwardPlayables(true);
 		mw.refreshP1BreakLabel();
 		triggerAutoAbilitiesForLeavesField(c, true);
 		triggerAutoAbilitiesForBreakZone(c, true, Collections.emptySet());
@@ -2684,6 +2685,7 @@ final class AutoAbilityTriggers {
 			mw.p1MonsterPanel.revalidate();
 			mw.p1MonsterPanel.repaint();
 		}
+		mw.syncBzForwardPlayables(true);
 		mw.refreshP1BreakLabel();
 		triggerAutoAbilitiesForLeavesField(c, true);
 		triggerAutoAbilitiesForBreakZone(c, true, Collections.emptySet());

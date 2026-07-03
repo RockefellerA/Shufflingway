@@ -2537,6 +2537,16 @@ public class MainWindow {
 						&& (!card.isSummon() || !summonCastingProhibited())
 						&& !p1CastLimitReached();
 			}
+			public boolean canAffordBzPlay(CardData card) {
+				int cost = bzPlayCost(card);
+				if (cost <= 0) return true;
+				int backupCp = 0;
+				for (int i = 0; i < p1BackupCards.length; i++) {
+					if (p1BackupCards[i] != null && p1BackupStates[i] == CardState.ACTIVE && !p1BackupFrozen[i])
+						backupCp++;
+				}
+				return backupCp + gameState.getP1Hand().size() * 2 >= cost;
+			}
 			public int bzPlayCost(CardData card) {
 				return hasBzPlay(card) ? bzPlayableP1.get(card).effectiveCost(card) : -1;
 			}
@@ -2817,6 +2827,7 @@ public class MainWindow {
 		// Restore any forwards that were conditioned on this card remaining on the field
 		checkAndRestoreStolenOnLeave(card.name());
 
+		syncBzForwardPlayables(true);
 		refreshP1BreakLabel();
 		if (topCard != null) refreshP1WarpZoneUI();
 		autoAbilityTriggers.triggerAutoAbilitiesForLeavesField(card, true);
@@ -2907,6 +2918,7 @@ public class MainWindow {
 		if (gameState.getCurrentPlayer() == GameState.Player.P1) p1ForwardsLeftFieldThisTurn++;
 		else p2ForwardsLeftFieldThisTurn++;
 		p2ForwardPutToBZThisTurn = true;
+		syncBzForwardPlayables(false);
 		refreshP2BreakLabel();
 		autoAbilityTriggers.triggerAutoAbilitiesForLeavesField(card, false);
 		autoAbilityTriggers.triggerAutoAbilitiesForBreakZone(card, false, partySnapshot);
@@ -5080,6 +5092,7 @@ public class MainWindow {
 		if (playerHasBzToRfgAnySituation(player1)) {
 			gameState.addToPermanentRfp(card);
 			logEntry((player1 ? "" : "[P2] ") + card.name() + " → Removed From Game instead of Break Zone");
+			if (player1) refreshP1WarpZoneUI(); else refreshP2WarpZoneUI();
 			return;
 		}
 
@@ -5089,6 +5102,7 @@ public class MainWindow {
 					&& playerHasBzToRfgOppDamagedForwardFromField(!player1)) {
 				gameState.addToPermanentRfp(card);
 				logEntry((player1 ? "" : "[P2] ") + card.name() + " → Removed From Game instead of Break Zone");
+				if (player1) refreshP1WarpZoneUI(); else refreshP2WarpZoneUI();
 				return;
 			}
 
@@ -5101,6 +5115,7 @@ public class MainWindow {
 					if (choice == 0) {
 						gameState.addToPermanentRfp(card);
 						logEntry((player1 ? "" : "[P2] ") + card.name() + " → Removed From Game instead of Break Zone");
+						if (player1) refreshP1WarpZoneUI(); else refreshP2WarpZoneUI();
 						return;
 					}
 				}
@@ -5111,6 +5126,7 @@ public class MainWindow {
 					if (choice == 0) {
 						gameState.addToPermanentRfp(card);
 						logEntry((player1 ? "" : "[P2] ") + card.name() + " → Removed From Game instead of Break Zone");
+						if (player1) refreshP1WarpZoneUI(); else refreshP2WarpZoneUI();
 						return;
 					}
 				}

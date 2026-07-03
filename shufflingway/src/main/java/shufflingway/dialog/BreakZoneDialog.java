@@ -17,6 +17,7 @@ public class BreakZoneDialog {
     public interface Callbacks {
         boolean hasBzAbility(CardData card);
         boolean hasBzPlay(CardData card);
+        boolean canAffordBzPlay(CardData card);
         int bzPlayCost(CardData card);
         boolean isAbilityEnabled(ActionAbility ability, CardData card);
         String abilityMenuHtml(ActionAbility ability);
@@ -41,6 +42,8 @@ public class BreakZoneDialog {
             final boolean hasBzAbility = cb.hasBzAbility(cd);
             final boolean hasBzPlay    = cb.hasBzPlay(cd);
             final int     bzPlayCost   = hasBzPlay ? cb.bzPlayCost(cd) : -1;
+            final boolean canAfford    = hasBzPlay && cb.canAffordBzPlay(cd);
+            final int     costDelta    = hasBzPlay ? cd.cost() - bzPlayCost : 0;
             final boolean interactive  = hasBzAbility || hasBzPlay;
 
             JPanel cardWrapper = new JPanel(new BorderLayout(0, 4));
@@ -68,6 +71,7 @@ public class BreakZoneDialog {
                     JPopupMenu menu = new JPopupMenu();
                     if (hasBzPlay) {
                         JMenuItem playItem = new JMenuItem("Play  (" + bzPlayCost + " CP)");
+                        playItem.setEnabled(canAfford);
                         playItem.addActionListener(ae -> {
                             dlg.dispose();
                             cb.onBzPlay(cd, bzPlayCost);
@@ -97,21 +101,21 @@ public class BreakZoneDialog {
                     g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING,  RenderingHints.VALUE_ANTIALIAS_ON);
                     g2.drawImage(img, 0, 0, CARD_W, CARD_H, null);
                     if (hasBzAbility) CardAnimation.drawGlow(g2, new Color(30, 144, 255), 0, 0, CARD_W, CARD_H);
-                    if (hasBzPlay) {
-                        CardAnimation.drawGlow(g2, new Color(0, 220, 80), 0, 0, CARD_W, CARD_H);
-                        int badgeW = 26, badgeH = 22;
-                        int bx = 4, by = 4;
-                        g2.setColor(new Color(0, 0, 0, 200));
-                        g2.fillRoundRect(bx, by, badgeW, badgeH, 6, 6);
-                        g2.setColor(new Color(0, 220, 80));
-                        g2.drawRoundRect(bx, by, badgeW, badgeH, 6, 6);
-                        g2.setColor(Color.WHITE);
-                        g2.setFont(FontLoader.loadPixelNESFont(11));
-                        String costStr = String.valueOf(bzPlayCost);
+                    if (canAfford)    CardAnimation.drawGlow(g2, new Color(0, 220, 80),   0, 0, CARD_W, CARD_H);
+                    if (hasBzPlay && costDelta != 0) {
+                        g2.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING,
+                                RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
+                        String text = String.valueOf(bzPlayCost);
+                        g2.setFont(FontLoader.loadPixelNESFont(15));
                         FontMetrics fm = g2.getFontMetrics();
-                        int tx = bx + (badgeW - fm.stringWidth(costStr)) / 2;
-                        int ty = by + (badgeH - fm.getHeight()) / 2 + fm.getAscent();
-                        g2.drawString(costStr, tx, ty);
+                        int x = 8, y = fm.getAscent() + 7;
+                        g2.setColor(Color.BLACK);
+                        g2.drawString(text, x + 1, y + 1);
+                        g2.drawString(text, x + 2, y + 1);
+                        g2.drawString(text, x + 1, y + 2);
+                        g2.drawString(text, x + 2, y + 2);
+                        g2.setColor(costDelta > 0 ? new Color(0x44EE44) : new Color(0xFF8844));
+                        g2.drawString(text, x, y);
                     }
                     g2.dispose();
                     return new ImageIcon(buf);

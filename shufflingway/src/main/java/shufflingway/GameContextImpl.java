@@ -3721,19 +3721,23 @@ final class GameContextImpl implements GameContext {
 				if (isP1) {
 					List<CardData> hand = mw.gameState.getP1Hand();
 					for (int i = hand.size() - 1; i >= 0; i--) {
-						CardData d = mw.playerBreakFromHand(true,i);
-						if (d != null) { logEntry("Discards " + d.name()); mw.p1DiscardedByEffectThisTurn = true; }
+						CardData d = hand.remove(i);
+						mw.animateCardDiscard(true, d);
+						logEntry("Discards " + d.name());
+						mw.p1DiscardedByEffectThisTurn = true;
+						mw.addToBreakZone(d, false);
 					}
 					mw.refreshP1HandLabel();
-					mw.refreshP1BreakLabel();
 				} else {
 					List<CardData> hand = mw.gameState.getP2Hand();
 					for (int i = hand.size() - 1; i >= 0; i--) {
-						CardData d = mw.playerBreakFromHand(false,i);
-						if (d != null) { logEntry("[P2] Discards " + d.name()); mw.p2DiscardedByEffectThisTurn = true; }
+						CardData d = hand.remove(i);
+						mw.animateCardDiscard(false, d);
+						logEntry("[P2] Discards " + d.name());
+						mw.p2DiscardedByEffectThisTurn = true;
+						mw.addToBreakZone(d, false);
 					}
 					mw.refreshP2HandCountLabel();
-					mw.refreshP2BreakLabel();
 				}
 			}
 
