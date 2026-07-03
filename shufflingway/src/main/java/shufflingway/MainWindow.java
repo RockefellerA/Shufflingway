@@ -499,6 +499,10 @@ public class MainWindow {
 	final IdentityHashMap<CardData, PlayableEntry> bzPlayableP1 = new IdentityHashMap<>();
 	/** P2 equivalent of {@link #bzPlayableP1}. */
 	final IdentityHashMap<CardData, PlayableEntry> bzPlayableP2 = new IdentityHashMap<>();
+	/** Cards registered in bzPlayableP1/P2 specifically by the "cast Forwards from BZ" field ability
+	 *  (used to remove them when that FA becomes inactive). */
+	private final Set<CardData> bzForwardFaP1 = Collections.newSetFromMap(new IdentityHashMap<>());
+	private final Set<CardData> bzForwardFaP2 = Collections.newSetFromMap(new IdentityHashMap<>());
 
 	/**
 	 * Borrowed Summons that, once they resolve, must be removed from the game instead of going to
@@ -1342,6 +1346,8 @@ public class MainWindow {
 		lostAbilitiesCards.clear();
 		bzPlayableP1.clear();
 		bzPlayableP2.clear();
+		bzForwardFaP1.clear();
+		bzForwardFaP2.clear();
 		rfgAfterUseSummons.clear();
 		returnToHandAfterUseSummons.clear();
 		if (computerPlayer != null) computerPlayer.cancel();
@@ -5115,7 +5121,7 @@ public class MainWindow {
 		zone.add(card);
 		if (card.isLb()) zone.remove(card);
 		if (player1) refreshP1BreakLabel(); else refreshP2BreakLabel();
-		if (card.isForward()) syncBzForwardPlayables(player1);
+		syncBzForwardPlayables(player1);
 	}
 
 	private boolean playerHasBzToRfgAnySituation(boolean isP1) {
@@ -5905,15 +5911,23 @@ public class MainWindow {
 	 * Skips cards already registered (to avoid overwriting better-cost entries).
 	 */
 	void syncBzForwardPlayables(boolean isP1) {
-		if (!playerHasCastForwardsFromBz(isP1)) return;
 		IdentityHashMap<CardData, PlayableEntry> reg = isP1 ? bzPlayableP1 : bzPlayableP2;
+		Set<CardData> faSet = isP1 ? bzForwardFaP1 : bzForwardFaP2;
+		if (!playerHasCastForwardsFromBz(isP1)) {
+			if (!faSet.isEmpty()) {
+				faSet.forEach(reg::remove);
+				faSet.clear();
+				refreshPlayableCardsButton();
+			}
+			return;
+		}
 		List<CardData> bz = isP1 ? gameState.getP1BreakZone() : gameState.getP2BreakZone();
 		boolean added = false;
 		for (CardData card : bz) {
 			if (!card.isForward()) continue;
-			if (reg.containsKey(card)) continue;
-			reg.put(card, new PlayableEntry(PlayableEntry.SourceZone.BREAK_ZONE, 0, false, false, false, true));
-			endOfTurnEffects.add(ctx -> reg.remove(card));
+			if (faSet.contains(card) || reg.containsKey(card)) continue;
+			reg.put(card, new PlayableEntry(PlayableEntry.SourceZone.BREAK_ZONE, 0, false, false, false, false));
+			faSet.add(card);
 			added = true;
 		}
 		if (added) refreshPlayableCardsButton();
@@ -6788,6 +6802,7 @@ public class MainWindow {
 		PlayableEntry borrowEntry = bzPlayableP1.get(card);
 		String sourceLabel = removeBorrowedSourceCard(card, borrowEntry);
 		bzPlayableP1.remove(card);
+		bzForwardFaP1.remove(card);
 		refreshP1BreakLabel();
 		refreshP1WarpZoneUI();
 		refreshP2WarpZoneUI();
@@ -6920,6 +6935,7 @@ public class MainWindow {
 		PlayableEntry borrowEntry = bzPlayableP2.get(card);
 		String sourceLabel = removeBorrowedSourceCard(card, borrowEntry);
 		bzPlayableP2.remove(card);
+		bzForwardFaP2.remove(card);
 		refreshP2BreakLabel();
 		refreshP1WarpZoneUI();
 		refreshP2WarpZoneUI();
@@ -7319,6 +7335,7 @@ public class MainWindow {
 			p1BackupPlayedOnTurn[i]  = gameState.getTurnNumber();
 			refreshP1BackupSlot(i);
 			autoAbilityTriggers.triggerAutoAbilitiesForEntersField(card, true);
+			syncBzForwardPlayables(true);
 			sendToBreakZoneByUniquenessRule(card, true);
 			break;
 		}
@@ -9847,6 +9864,7 @@ public class MainWindow {
 		if (!card.fieldPowerGrants().isEmpty()) refreshFieldGrantDependents(true);
 		if (!card.fieldCostReductions().isEmpty() || p1HandHasSelfCostModifiers()) refreshHandPopupIfVisible();
 		autoAbilityTriggers.triggerAutoAbilitiesForEntersField(card, true);
+		syncBzForwardPlayables(true);
 		sendToBreakZoneByUniquenessRule(card, true);
 		fireOppNoForwardsFieldAbilitiesForCard(card, true);
 	}
@@ -9896,6 +9914,7 @@ public class MainWindow {
 		// Monster entering the field may satisfy a condition for a forward's boost
 		refreshAllForwardSlots();
 		autoAbilityTriggers.triggerAutoAbilitiesForEntersField(card, true);
+		syncBzForwardPlayables(true);
 		sendToBreakZoneByUniquenessRule(card, true);
 	}
 
@@ -9990,6 +10009,7 @@ public class MainWindow {
 
 		refreshP2MonsterSlot(idx);
 		autoAbilityTriggers.triggerAutoAbilitiesForEntersField(card, false);
+		syncBzForwardPlayables(false);
 		sendToBreakZoneByUniquenessRule(card, false);
 	}
 
@@ -12401,6 +12421,7 @@ public class MainWindow {
 		if (!card.fieldPowerGrants().isEmpty()) refreshFieldGrantDependents(false);
 		if (!card.fieldCostReductions().isEmpty() || p1HandHasSelfCostModifiers()) refreshHandPopupIfVisible();
 		autoAbilityTriggers.triggerAutoAbilitiesForEntersField(card, false);
+		syncBzForwardPlayables(false);
 		sendToBreakZoneByUniquenessRule(card, false);
 		fireOppNoForwardsFieldAbilitiesForCard(card, false);
 	}
@@ -12413,6 +12434,7 @@ public class MainWindow {
 			p2BackupStates[i] = CardState.DULL;
 			refreshP2BackupSlot(i);
 			autoAbilityTriggers.triggerAutoAbilitiesForEntersField(card, false);
+			syncBzForwardPlayables(false);
 			sendToBreakZoneByUniquenessRule(card, false);
 			return;
 		}
