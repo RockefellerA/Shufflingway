@@ -1074,6 +1074,15 @@ final class AutoAbilityTriggers {
 	}
 
 	/**
+	 * Fires "opponent uses ex burst" abilities on the field cards of the player whose opponent
+	 * just resolved an EX Burst. {@code exBurstIsP1} is the player whose damage zone received
+	 * the EX Burst card; the watchers belong to {@code !exBurstIsP1}.
+	 */
+	void triggerAutoAbilitiesForOpponentUsesExBurst(boolean exBurstIsP1) {
+		triggerAutoAbilitiesForEvent("opponent uses ex burst", !exBurstIsP1);
+	}
+
+	/**
 	 * Resolves the EX Burst effect on {@code card} for the player whose damage zone received it.
 	 * The controlling player may decline; if accepted the effect resolves immediately, bypassing
 	 * the stack so neither player can respond.
@@ -1167,6 +1176,7 @@ final class AutoAbilityTriggers {
 		mw.logEntry("[EX BURST] " + card.name() + " — " + effect);
 		if (card.isSummon()) { mw.currentResolutionIsSummon = true; mw.currentSummonSource = card; }
 		try { fn.accept(mw.buildGameContext(isP1, true)); } finally { mw.currentResolutionIsSummon = false; mw.currentSummonSource = null; }
+		triggerAutoAbilitiesForOpponentUsesExBurst(isP1);
 	}
 
 	/**

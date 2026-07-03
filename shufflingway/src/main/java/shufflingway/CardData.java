@@ -1360,10 +1360,11 @@ public record CardData(
             "|deals?\\s+damage\\s+to\\s+a\\s+Forward" +
             "|receives?\\s+a\\s+point\\s+of\\s+damage" +
             "|is\\s+chosen\\s+by\\s+your\\s+opponent's\\s+Summons?" +
+            "|uses?\\s+an\\s+EX\\s+Burst" +
         ")\\s*,\\s+" +
         "(?<youmay>(?:you|your\\s+opponent)\\s+may\\s+)?" +
         "(?<effect>.+?)\\s*" +
-        "(?=\\s*\\[\\[br\\]\\]|\\s*When\\s+[^,]+?\\s+(?:forms?\\s+a\\s+party\\s+and\\s+attacks?|attacks?|blocks?|enters?|leaves?|is\\s+(?:put|removed|blocked)|deals?)|\\s*(?:《[^》]+》)+\\s*:|\\s*$)",
+        "(?=\\s*\\[\\[br\\]\\]|\\s*When\\s+[^,]+?\\s+(?:forms?\\s+a\\s+party\\s+and\\s+attacks?|attacks?|blocks?|enters?|leaves?|is\\s+(?:put|removed|blocked)|deals?|uses?)|\\s*(?:《[^》]+》)+\\s*:|\\s*$)",
         Pattern.DOTALL
     );
 
@@ -1671,6 +1672,7 @@ public record CardData(
                 if (card.equalsIgnoreCase("you"))   trigger = "you receive damage";
                 else                                trigger = "either player receives damage";
             }
+            else if (triggerRaw.contains("uses") && triggerRaw.contains("ex burst"))                        trigger = "opponent uses ex burst";
             else                                                                                             trigger = "enters the field";
 
             // For "warp placed", strip the " in your hand" suffix from the card name
