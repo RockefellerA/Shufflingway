@@ -948,6 +948,7 @@ public record CardData(
             boolean requiresCastSummonThisTurn   = CAST_SUMMON_THIS_TURN_PATTERN.matcher(effectRaw).find();
             boolean requiresOpponentEmptyHand    = OPP_NO_CARDS_IN_HAND_RESTRICTION.matcher(effectRaw).find();
             boolean requiresSelfEmptyHand        = SELF_NO_CARDS_IN_HAND_RESTRICTION.matcher(effectRaw).find();
+            boolean requiresSourceIsForward      = SOURCE_IS_FORWARD_RESTRICTION.matcher(effectRaw).find();
             Matcher dmgThreshM = OWN_DAMAGE_THRESHOLD_RESTRICTION.matcher(effectRaw);
             if (damageThreshold == 0 && dmgThreshM.find()) damageThreshold = Integer.parseInt(dmgThreshM.group("count"));
             Matcher namedCardDmgM = NAMED_CARD_TOOK_DAMAGE_THIS_TURN_RESTRICTION.matcher(effectRaw);
@@ -1013,7 +1014,7 @@ public record CardData(
             }
             Matcher oppHandM = OPP_HAND_AT_MOST_RESTRICTION.matcher(effectRaw);
             int maxOpponentHandSize = oppHandM.find() ? Integer.parseInt(oppHandM.group("count")) : -1;
-            result.add(new ActionAbility(abilityName, requiresDull, isSpecial, crystalCost, selfMillCost, hasXCost, cpCost, breakZoneCosts, discardCosts, removeFromGameCosts, returnToHandCosts, counterCosts, dullForwardCosts, yourTurnOnly, opponentTurnOnly, oncePerTurn, mainPhaseOnly, whileCardAtk, whileCardBlk, whilePartyAtk, whileCardInHand, hasBlockingTarget, effectRaw, damageThreshold, controlCondition, cpBackupElement, cpAllowedElements, sourceInBattle, requiresOppDiscardedThisTurn, requiresCastSummonThisTurn, requiresElementForwardEnteredThisTurn, requiresCardNameEnteredThisTurn, breakZoneOnly, requiresOpponentEmptyHand, requiresSelfEmptyHand, requiresNamedCardTookDamageThisTurn, requiresSelfReceivedDamageThisTurn, requiresForwardPutToBZThisTurn, blockerForAttacker, ownBzCard, counterScaleName, minCounterRequired, minCounterType, maxOpponentHandSize));
+            result.add(new ActionAbility(abilityName, requiresDull, isSpecial, crystalCost, selfMillCost, hasXCost, cpCost, breakZoneCosts, discardCosts, removeFromGameCosts, returnToHandCosts, counterCosts, dullForwardCosts, yourTurnOnly, opponentTurnOnly, oncePerTurn, mainPhaseOnly, whileCardAtk, whileCardBlk, whilePartyAtk, whileCardInHand, hasBlockingTarget, effectRaw, damageThreshold, controlCondition, cpBackupElement, cpAllowedElements, sourceInBattle, requiresOppDiscardedThisTurn, requiresCastSummonThisTurn, requiresElementForwardEnteredThisTurn, requiresCardNameEnteredThisTurn, breakZoneOnly, requiresOpponentEmptyHand, requiresSelfEmptyHand, requiresNamedCardTookDamageThisTurn, requiresSelfReceivedDamageThisTurn, requiresForwardPutToBZThisTurn, blockerForAttacker, ownBzCard, counterScaleName, minCounterRequired, minCounterType, maxOpponentHandSize, requiresSourceIsForward));
         }
         return List.copyOf(result);
     }
@@ -1030,7 +1031,7 @@ public record CardData(
                 a.requiresCardNameEnteredThisTurn(), a.breakZoneOnly(), a.requiresOpponentEmptyHand(),
                 a.requiresSelfEmptyHand(), a.requiresNamedCardTookDamageThisTurn(), a.requiresSelfReceivedDamageThisTurn(),
                 a.requiresForwardPutToBZThisTurn(), a.blockerForAttacker(), bzCard,
-                a.counterScaleName(), a.minCounterRequired(), a.minCounterType(), a.maxOpponentHandSize());
+                a.counterScaleName(), a.minCounterRequired(), a.minCounterType(), a.maxOpponentHandSize(), a.requiresSourceIsForward());
     }
 
     /** Parses a "discard N [filter]" cost phrase into a {@link DiscardCost} list (0 or 1 item). */
@@ -1108,6 +1109,11 @@ public record CardData(
     /** "You can only use this ability if you have no cards in your hand." */
     static final Pattern SELF_NO_CARDS_IN_HAND_RESTRICTION = Pattern.compile(
         "(?i)You\\s+can\\s+only\\s+use\\s+this\\s+ability\\s+if\\s+you\\s+have\\s+no\\s+cards?\\s+in\\s+your\\s+hand[.!]?"
+    );
+
+    /** "You can only use this ability if [CardName] is a Forward." */
+    static final Pattern SOURCE_IS_FORWARD_RESTRICTION = Pattern.compile(
+        "(?i)You\\s+can\\s+only\\s+use\\s+this\\s+ability\\s+if\\s+.+?\\s+is\\s+a\\s+Forward[.!]?"
     );
 
     static final Pattern ONCE_PER_TURN_PATTERN = Pattern.compile(

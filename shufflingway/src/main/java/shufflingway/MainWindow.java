@@ -8132,6 +8132,13 @@ public class MainWindow {
 			Set<String> entered = isP1 ? p1ElementForwardsEnteredThisTurn : p2ElementForwardsEnteredThisTurn;
 			if (!entered.contains(ability.requiresElementForwardEnteredThisTurn())) return false;
 		}
+		if (ability.requiresSourceIsForward()) {
+			boolean inMonsterZone = isP1 ? p1MonsterCards.contains(source) : p2MonsterCards.contains(source);
+			if (inMonsterZone) {
+				Map<CardData, Integer> tempFwdMap = isP1 ? p1MonsterTempForwardPower : p2MonsterTempForwardPower;
+				if (!tempFwdMap.containsKey(source)) return false;
+			}
+		}
 		if (ability.controlCondition() != null && !controlConditionMet(ability.controlCondition(), isP1)) return false;
 		if (ability.crystalCost() > 0 && playerCrystals(isP1) < ability.crystalCost()) return false;
 		for (BreakZoneCost bz : ability.breakZoneCosts())

@@ -951,6 +951,17 @@ public class ActionResolver {
     );
 
     /**
+     * Matches "All the Forwards opponent controls lose N power for each CP required to play them
+     * until the end of the turn." (Flare Star / Ozma).
+     * Group {@code amount} — power lost per CP of cost.
+     */
+    private static final Pattern OPP_FWDS_LOSE_POWER_PER_PLAY_COST = Pattern.compile(
+        "(?i)All\\s+(?:the\\s+)?Forwards?\\s+(?:(?:your\\s+)?opponent\\s+controls?)\\s+" +
+        "lose\\s+(?<amount>\\d+)\\s+power\\s+for\\s+each\\s+CP\\s+required\\s+to\\s+play\\s+them\\s+" +
+        "until\\s+(?:the\\s+)?end\\s+of\\s+(?:the\\s+)?turn[.!]?"
+    );
+
+    /**
      * Matches "All the Forwards opponent controls cannot block Forwards with a power inferior to their own this turn."
      */
     private static final Pattern OPP_FWDS_CANNOT_BLOCK_INFERIOR_POWER_THIS_TURN = Pattern.compile(
@@ -4167,6 +4178,9 @@ public class ActionResolver {
         result = tryParseOppFwdsLoseAllAbilitiesEot(effectText);
         if (result != null) return result;
 
+        result = tryParseOppFwdsLosePowerPerPlayCost(effectText);
+        if (result != null) return result;
+
         result = tryParseStandaloneCannotBeBlocked(effectText, source);
         if (result != null) return result;
 
@@ -4633,6 +4647,7 @@ public class ActionResolver {
         if (tryParseOppFwdsCannotBlockInferiorPower(effectText)           != null) return "OppFwdsCannotBlockInferiorPower";
         if (tryParseAllFwdsBlockedOnlyByLowerCostThisTurn(effectText)    != null) return "AllFwdsBlockedOnlyByLowerCost";
         if (tryParseOppFwdsLoseAllAbilitiesEot(effectText)         != null) return "OppFwdsLoseAllAbilitiesEot";
+        if (tryParseOppFwdsLosePowerPerPlayCost(effectText)        != null) return "OppFwdsLosePowerPerPlayCost";
         if (tryParseStandaloneCannotBeBlocked(effectText, source) != null) return "StandaloneCannotBeBlocked";
         if (tryParseRevealHandOptPickRfpOppDraw(effectText)    != null) return "RevealHandOptPickRfpOppDraw";
         if (tryParseRevealSelectHandRfp(effectText)            != null) return "RevealSelectHandRfp";
@@ -5065,6 +5080,7 @@ public class ActionResolver {
         if (tryParseOppFwdsCannotBlockInferiorPower(effectText)           != null) return "OppFwdsCannotBlockInferiorPower";
         if (tryParseAllFwdsBlockedOnlyByLowerCostThisTurn(effectText)    != null) return "AllFwdsBlockedOnlyByLowerCost";
         if (tryParseOppFwdsLoseAllAbilitiesEot(effectText)         != null) return "OppFwdsLoseAllAbilitiesEot";
+        if (tryParseOppFwdsLosePowerPerPlayCost(effectText)        != null) return "OppFwdsLosePowerPerPlayCost";
         if (tryParseStandaloneCannotBeBlocked(effectText, source) != null) return "StandaloneCannotBeBlocked";
         if (tryParseRevealHandOptPickRfpOppDraw(effectText) != null)        return "RevealHandOptPickRfpOppDraw";
         if (tryParseRevealSelectHandRfp(effectText) != null)               return "RevealSelectHandRfp";
@@ -9686,6 +9702,16 @@ public class ActionResolver {
     private static Consumer<GameContext> tryParseOppFwdsLoseAllAbilitiesEot(String text) {
         if (!OPP_FWDS_LOSE_ALL_ABILITIES_EOT.matcher(text).matches()) return null;
         return ctx -> ctx.oppForwardsLoseAllAbilitiesUntilEndOfTurn();
+    }
+
+    private static Consumer<GameContext> tryParseOppFwdsLosePowerPerPlayCost(String text) {
+        Matcher m = OPP_FWDS_LOSE_POWER_PER_PLAY_COST.matcher(text);
+        if (!m.find()) return null;
+        int powerPerCp = Integer.parseInt(m.group("amount"));
+        return ctx -> {
+            ctx.logEntry("Effect: All opponent Forwards lose " + powerPerCp + "×cost power until end of turn");
+            ctx.applyOppFwdsCostScaledPowerDebuff(powerPerCp);
+        };
     }
 
     private static Consumer<GameContext> tryParseStandaloneCannotBeBlocked(String text, CardData source) {

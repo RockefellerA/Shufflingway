@@ -83,7 +83,8 @@ public record ActionAbility(
         String                  counterScaleName,             // null = normal; non-null = counter type name (e.g. "Monster") whose count on the source card becomes xValue at activation, captured before BZ cost is paid
         int                     minCounterRequired,           // 0 = no restriction; >0 = min counter count needed to activate
         String                  minCounterType,               // null = no restriction; else = counter type name (e.g. "Monster") that must appear in sufficient quantity
-        int                     maxOpponentHandSize           // -1 = no restriction; >=0 = opponent's hand must have at most this many cards
+        int                     maxOpponentHandSize,          // -1 = no restriction; >=0 = opponent's hand must have at most this many cards
+        boolean                 requiresSourceIsForward       // true = source card must currently be acting as a Forward (for Monster cards that temporarily become Forwards)
 ) {
     public ActionAbility {
         cpCost            = List.copyOf(cpCost);
@@ -105,7 +106,7 @@ public record ActionAbility(
             true, false, false, false,
             null, null, false, false, false,
             effectText,
-            0, null, null, null, false, false, false, null, null, null, false, false, null, false, false, null, null, null, 0, null, -1
+            0, null, null, null, false, false, false, null, null, null, false, false, null, false, false, null, null, null, 0, null, -1, false
         );
     }
 }

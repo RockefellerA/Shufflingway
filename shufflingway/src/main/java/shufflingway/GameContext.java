@@ -1665,6 +1665,12 @@ public interface GameContext {
             boolean opponentOnly, boolean selfOnly, String jobFilter, String cardNameFilter);
 
     /**
+     * Applies a power debuff until end of turn to all opponent Forwards, where each Forward
+     * loses {@code powerPerCp} × its CP cost. Forwards reduced to 0 or below are broken.
+     */
+    void applyOppFwdsCostScaledPowerDebuff(int powerPerCp);
+
+    /**
      * Grants {@code traits} until end of turn to every matching Forward (and Monster when
      * {@code inclMonsters} is true) that satisfies the element, cost, and category filters.
      */

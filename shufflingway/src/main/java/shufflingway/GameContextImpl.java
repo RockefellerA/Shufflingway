@@ -4042,6 +4042,30 @@ final class GameContextImpl implements GameContext {
 				}
 			}
 
+			@Override public void applyOppFwdsCostScaledPowerDebuff(int powerPerCp) {
+				List<CardData> oppFwds  = isP1 ? mw.p2ForwardCards       : mw.p1ForwardCards;
+				List<Integer>  oppBoost = isP1 ? mw.p2ForwardPowerBoost   : mw.p1ForwardPowerBoost;
+				String prefix = isP1 ? "[P2] " : "";
+
+				// First pass: apply per-cost debuff to every opponent Forward
+				for (int i = 0; i < oppFwds.size(); i++) {
+					CardData c = oppFwds.get(i);
+					int reduction = c.cost() * powerPerCp;
+					oppBoost.set(i, oppBoost.get(i) - reduction);
+					logEntry(prefix + c.name() + " loses " + reduction + " power until end of turn");
+					if (isP1) mw.refreshP2ForwardSlot(i); else mw.refreshP1ForwardSlot(i);
+				}
+
+				// Second pass: break any that dropped to 0 or below (iterate backwards to preserve indices)
+				for (int i = oppFwds.size() - 1; i >= 0; i--) {
+					int effPower = isP1 ? mw.effectiveP2ForwardPower(i) : mw.effectiveP1ForwardPower(i);
+					if (effPower <= 0) {
+						logEntry(prefix + oppFwds.get(i).name() + " power dropped to " + effPower + " — broken");
+						if (isP1) breakP2Forward(i); else breakP1Forward(i);
+					}
+				}
+			}
+
 			@Override public void applyMassFieldKeywordGrant(java.util.EnumSet<CardData.Trait> traits,
 					boolean inclForwards, boolean inclMonsters,
 					boolean opponentOnly, boolean selfOnly,
@@ -4618,7 +4642,7 @@ final class GameContextImpl implements GameContext {
 					false, false, true, false,
 					null, null, false, false, false,
 					original.effectText(),
-					0, null, null, null, false, false, false, null, null, null, false, false, null, false, false, null, null, null, 0, null, -1
+					0, null, null, null, false, false, false, null, null, null, false, false, null, false, false, null, null, null, 0, null, -1, false
 				);
 				Map<CardData, List<ActionAbility>> map = isP1 ? mw.p1TempGrantedAbilities : mw.p2TempGrantedAbilities;
 				map.computeIfAbsent(source, k -> new ArrayList<>()).add(copy);
