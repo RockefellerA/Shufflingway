@@ -2266,6 +2266,16 @@ public class ActionResolver {
         "each\\s+with\\s+a\\s+different\\s+cost,?\\s+and\\s+add\\s+them\\s+to\\s+your\\s+hand[.!]?"
     );
 
+    /**
+     * Matches "Search for N [Element] Summons each with a different cost and add them to your hand."
+     * Groups: {@code count}, {@code element}.
+     */
+    private static final Pattern SEARCH_N_ELEM_SUMMONS_DIFF_COST = Pattern.compile(
+        "(?i)Search\\s+for\\s+(?<count>\\d+)\\s+" +
+        "(?<element>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)\\s+Summons?" +
+        "\\s+each\\s+with\\s+a\\s+different\\s+cost\\s+and\\s+add\\s+them\\s+to\\s+your\\s+hand[.!]?"
+    );
+
     private static final Pattern SEARCH_DECK_PATTERN = Pattern.compile(
         "(?i)Search\\s+for\\s+(?:up\\s+to\\s+)?(?<count>\\d+)\\s+" +
         // Element(s) that precede the job/name filter (e.g. "Fire Job Knight")
@@ -3621,6 +3631,15 @@ public class ActionResolver {
     );
 
     /**
+     * Matches "Choose N Summons in your Break Zone. Add 1 of them to your hand, and remove the rest from the game."
+     * Group {@code total} — number of Summons to choose.
+     */
+    private static final Pattern CHOOSE_N_SUMMONS_BZ_PICK_ONE_HAND_REST_RFG = Pattern.compile(
+        "(?i)Choose\\s+(?<total>\\d+)\\s+Summons?\\s+in\\s+your\\s+Break\\s+Zone[.!]?\\s+" +
+        "Add\\s+1\\s+of\\s+them\\s+to\\s+your\\s+hand[,.]?(?:\\s+and)?\\s+remove\\s+the\\s+rest\\s+from\\s+the\\s+game[.!]?\\s*$"
+    );
+
+    /**
      * Matches "Choose 1 [Element] Summon in your Break Zone. You can cast it at any time you
      * could normally cast it this turn. The cost required to cast it is reduced by N."
      * Used by abilities that "borrow" a Summon from the Break Zone for one extra cast.
@@ -4388,6 +4407,9 @@ public class ActionResolver {
         result = tryParseSearchElementOrCategoryCharsDiffCost(effectText);
         if (result != null) return result;
 
+        result = tryParseSearchNElementSummonsDiffCost(effectText);
+        if (result != null) return result;
+
         result = tryParseSearchDeck(effectText, source, xValue);
         if (result != null) return result;
 
@@ -4416,6 +4438,9 @@ public class ActionResolver {
         if (result != null) return result;
 
         result = tryParseChooseSummonFromBzToHandWithCostReduction(effectText);
+        if (result != null) return result;
+
+        result = tryParseChooseNSummonsBzPickOneHandRestRfg(effectText);
         if (result != null) return result;
 
         result = tryParseChooseSummonInBzCastable(effectText);
@@ -4713,6 +4738,7 @@ public class ActionResolver {
         if (tryParseStandaloneDamageShields(effectText, source) != null) return "StandaloneDamageShields";
         if (tryParseDualSearchJobAndTypeDontShareElements(effectText)      != null) return "DualSearchDontShareElements";
         if (tryParseSearchElementOrCategoryCharsDiffCost(effectText)       != null) return "SearchElementOrCategoryCharsDiffCost";
+        if (tryParseSearchNElementSummonsDiffCost(effectText)              != null) return "SearchNElementSummonsDiffCost";
         if (tryParseSearchDeck(effectText, source, 0)                      != null) return "SearchDeck";
         if (tryParsePlayAllByNameFromBreakZone(effectText)      != null) return "PlayAllByNameFromBreakZone";
         if (tryParsePlaySourceFromBreakZone(effectText, source) != null) return "PlaySourceFromBreakZone";
@@ -4721,6 +4747,7 @@ public class ActionResolver {
         if (tryParseOpponentCannotSearchThisTurn(effectText)    != null) return "OpponentCannotSearch";
         if (tryParseRemoveFromBattle(effectText)                != null) return "RemoveFromBattle";
         if (tryParseChooseSummonFromBzToHandWithCostReduction(effectText) != null) return "ChooseSummonFromBzToHandWithCostReduction";
+        if (tryParseChooseNSummonsBzPickOneHandRestRfg(effectText)        != null) return "ChooseNSummonsBzPickOneHandRestRfg";
         if (tryParseChooseSummonInBzCastable(effectText)         != null) return "ChooseSummonInBzCastable";
         if (tryParseCostReductionThisTurn(effectText)            != null) return "CostReductionThisTurn";
         if (tryParsePlayCostReductionThisTurn(effectText)        != null) return "PlayCostReductionThisTurn";
@@ -5156,6 +5183,7 @@ public class ActionResolver {
             return revealTopDeckDescription(effectText, source) + restrictionDesc(effectText);
         if (tryParseStandaloneDamageShields(effectText, source) != null)    return "StandaloneDamageShields";
         if (tryParseDualSearchJobAndTypeDontShareElements(effectText) != null) return "DualSearchDontShareElements";
+        if (tryParseSearchNElementSummonsDiffCost(effectText)         != null) return "SearchNElementSummonsDiffCost";
         if (tryParseSearchDeck(effectText, source, 0) != null)              return "SearchDeck";
         if (tryParsePlayAllByNameFromBreakZone(effectText) != null)         return "PlayAllByNameFromBreakZone";
         if (tryParsePlaySourceFromBreakZone(effectText, source) != null)    return "PlaySourceFromBreakZone";
@@ -13176,6 +13204,17 @@ public class ActionResolver {
         };
     }
 
+    /** Parses "Choose N Summons in your Break Zone. Add 1 of them to your hand, and remove the rest from the game." */
+    private static Consumer<GameContext> tryParseChooseNSummonsBzPickOneHandRestRfg(String text) {
+        Matcher m = CHOOSE_N_SUMMONS_BZ_PICK_ONE_HAND_REST_RFG.matcher(text);
+        if (!m.find()) return null;
+        int total = Integer.parseInt(m.group("total"));
+        return ctx -> {
+            ctx.logEntry("Effect: Choose " + total + " Summons from own BZ — add 1 to hand, remove rest");
+            ctx.chooseSummonsFromBzPickOneToHandRestRfg(total);
+        };
+    }
+
     /**
      * Parses "Choose 1 [Element] Summon in your Break Zone. You can cast it at any time
      * you could normally cast it this turn. The cost required to cast it is reduced by N."
@@ -13443,6 +13482,18 @@ public class ActionResolver {
             ctx.logEntry("Effect: Search — 2 " + element + " Characters, 2 Category " + category
                     + " Characters, or 1 of each, each with a different cost → hand");
             ctx.searchDeckElementOrCategoryCharsDifferentCost(element, category);
+        };
+    }
+
+    /** Parses "Search for N [Element] Summons each with a different cost and add them to your hand." */
+    private static Consumer<GameContext> tryParseSearchNElementSummonsDiffCost(String text) {
+        Matcher m = SEARCH_N_ELEM_SUMMONS_DIFF_COST.matcher(text);
+        if (!m.find()) return null;
+        int    count   = Integer.parseInt(m.group("count"));
+        String element = m.group("element").trim();
+        return ctx -> {
+            ctx.logEntry("Effect: Search — " + count + " " + element + " Summons, each different cost → hand");
+            ctx.searchDeckNElementSummonsDifferentCost(count, element);
         };
     }
 

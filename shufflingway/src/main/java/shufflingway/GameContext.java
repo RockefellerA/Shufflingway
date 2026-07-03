@@ -1480,6 +1480,12 @@ public interface GameContext {
     void searchDeckElementOrCategoryCharsDifferentCost(String element, String category);
 
     /**
+     * Searches the deck and adds up to {@code count} {@code element} Summons to the active
+     * player's hand. The chosen Summons must each have a different cost.
+     */
+    void searchDeckNElementSummonsDifferentCost(int count, String element);
+
+    /**
      * Moves all cards matching {@code cardName} from the active player's Break Zone onto the
      * field, entering dull if {@code dull} is true.
      */
@@ -1710,6 +1716,13 @@ public interface GameContext {
      * No-op if the Break Zone contains no Summons.
      */
     void chooseSummonFromOwnBzToHand();
+
+    /**
+     * Resolves "Choose {@code total} Summons in your Break Zone. Add 1 of them to your hand,
+     * and remove the rest from the game."
+     * If fewer than {@code total} Summons are available, treats all available Summons as the pool.
+     */
+    void chooseSummonsFromBzPickOneToHandRestRfg(int total);
 
     /**
      * Resolves a "Choose 1 [Element] Summon in your Break Zone. You can cast it at any time

@@ -971,6 +971,9 @@ final class GameContextImpl implements GameContext {
 			@Override public void searchDeckElementOrCategoryCharsDifferentCost(String element, String category) {
 				mw.searchDeckElementOrCategoryCharsDifferentCost(isP1, element, category);
 			}
+			@Override public void searchDeckNElementSummonsDifferentCost(int count, String element) {
+				mw.searchDeckNElementSummonsDifferentCost(isP1, count, element);
+			}
 
 			@Override public void playAllByNameFromOwnBreakZoneDull(String cardName, boolean dull) {
 				List<CardData> bz = isP1 ? mw.gameState.getP1BreakZone() : mw.gameState.getP2BreakZone();
@@ -4181,6 +4184,52 @@ final class GameContextImpl implements GameContext {
 				List<CardData> hand = isP1 ? mw.gameState.getP1Hand() : mw.gameState.getP2Hand();
 				hand.add(picked);
 				logEntry(picked.name() + " → " + (isP1 ? "P1" : "P2") + " hand from Break Zone");
+				if (isP1) { mw.refreshP1BreakLabel(); mw.refreshP1HandLabel(); }
+				else       { mw.refreshP2BreakLabel(); mw.refreshP2HandCountLabel(); }
+			}
+
+			@Override public void chooseSummonsFromBzPickOneToHandRestRfg(int total) {
+				List<CardData> bz = isP1 ? mw.gameState.getP1BreakZone() : mw.gameState.getP2BreakZone();
+				List<CardData> allSummons = new ArrayList<>();
+				for (CardData c : bz) if (c.isSummon()) allSummons.add(c);
+				if (allSummons.isEmpty()) {
+					logEntry((isP1 ? "P1" : "P2") + " Break Zone has no Summons — effect fizzles");
+					return;
+				}
+				// Build the pool of up to `total` Summons to choose from
+				List<CardData> pool;
+				if (allSummons.size() <= total) {
+					pool = new ArrayList<>(allSummons);
+				} else if (isP1) {
+					pool = new ArrayList<>();
+					List<CardData> remaining = new ArrayList<>(allSummons);
+					for (int i = 0; i < total && !remaining.isEmpty(); i++) {
+						CardData pick = mw.chooseCardFromBzDialog(remaining,
+								"Choose Summon " + (i + 1) + " of " + total + " from your Break Zone");
+						if (pick == null) break;
+						pool.add(pick);
+						remaining.remove(pick);
+					}
+					if (pool.isEmpty()) return;
+				} else {
+					pool = new ArrayList<>(allSummons.subList(0, total));
+				}
+				// Pick 1 from the pool to add to hand
+				CardData kept = isP1
+						? mw.chooseCardFromBzDialog(pool, "Choose 1 Summon to add to your hand")
+						: pool.get(0);
+				if (kept == null) return;
+				bz.remove(kept);
+				List<CardData> hand = isP1 ? mw.gameState.getP1Hand() : mw.gameState.getP2Hand();
+				hand.add(kept);
+				logEntry((isP1 ? "" : "[P2] ") + kept.name() + " → hand from Break Zone");
+				// Remove the rest from the game
+				for (CardData c : pool) {
+					if (c == kept) continue;
+					bz.remove(c);
+					mw.gameState.addToPermanentRfp(c);
+					logEntry((isP1 ? "" : "[P2] ") + c.name() + " → Removed From Game");
+				}
 				if (isP1) { mw.refreshP1BreakLabel(); mw.refreshP1HandLabel(); }
 				else       { mw.refreshP2BreakLabel(); mw.refreshP2HandCountLabel(); }
 			}

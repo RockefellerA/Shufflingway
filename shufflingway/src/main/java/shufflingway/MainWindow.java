@@ -3853,6 +3853,45 @@ public class MainWindow {
 		}
 	}
 
+	void searchDeckNElementSummonsDifferentCost(boolean isP1, int count, String element) {
+		if (isP1 ? p1CannotSearchThisTurn : p2CannotSearchThisTurn) {
+			logEntry("Search blocked — opponent cannot search this turn");
+			return;
+		}
+		Deque<CardData> deck = isP1 ? gameState.getP1MainDeck() : gameState.getP2MainDeck();
+		List<CardData> pool = new ArrayList<>();
+		for (CardData c : deck) {
+			if (c.isSummon() && c.containsElement(element)) pool.add(c);
+		}
+		shuffleDeck(isP1);
+		if (pool.isEmpty()) {
+			logEntry("Search: no " + element + " Summons found");
+			return;
+		}
+		List<CardData> chosen = new ArrayList<>();
+		if (!isP1) {
+			// AI: prefer a different-cost pair, otherwise take the single best card
+			CardData first = null, second = null;
+			outer:
+			for (CardData a : pool)
+				for (CardData b : pool)
+					if (a != b && a.cost() != b.cost()) { first = a; second = b; break outer; }
+			if (first != null) { chosen.add(first); if (count > 1) chosen.add(second); }
+			else chosen.add(pool.get(0));
+		} else {
+			List<CardData> picks = cardPickerDialog.pickTwoFromDeckSearchDifferentCost(pool);
+			chosen.addAll(picks);
+		}
+		for (CardData card : chosen) {
+			if (isP1) gameState.removeFromP1MainDeck(card);
+			else      deck.remove(card);
+			playerHand(isP1).add(card);
+			logEntry((isP1 ? "" : "[P2] ") + card.name() + " → hand (search)");
+			if (isP1) refreshP1HandLabel(); else refreshP2HandCountLabel();
+			animateCardDraw(isP1, 1);
+		}
+	}
+
 	int showCardImageChooser(List<CardData> cards, String title, boolean allowCancel) {
 		return cardPickerDialog.pickCardImage(cards, title, allowCancel);
 	}
