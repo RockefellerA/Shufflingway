@@ -2442,6 +2442,24 @@ public record CardData(
     );
 
     /**
+     * Matches the two-tier damage-conditional grant:
+     * "The [type] [other than X] you control gain +BASE power.
+     *  If you have received THRESHOLD points of damage or more,
+     *  the [type2] you control gain +BOOST power instead."
+     * Groups: {@code targets}, {@code except} (optional), {@code basepower},
+     * {@code threshold}, {@code targets2}, {@code boostpower}.
+     */
+    private static final Pattern FIELD_GRANT_DAMAGE_THRESHOLD_PATTERN = Pattern.compile(
+        "(?i)^The\\s+" +
+        "(?<targets>Forwards?(?:\\s+and\\s+Monsters?)?|Backups?|Monsters?|Characters?)\\s+" +
+        "(?:other\\s+than\\s+(?<except>[A-Z][A-Za-z''\\-]+(?:\\s+[A-Za-z''\\-]+)*)\\s+)?" +
+        "you\\s+control\\s+gains?\\s+\\+(?<basepower>\\d+)\\s+power\\.\\s+" +
+        "If\\s+you\\s+have\\s+received\\s+(?<threshold>\\d+)\\s+points?\\s+of\\s+damage\\s+or\\s+more,?\\s+" +
+        "the\\s+(?<targets2>Forwards?(?:\\s+and\\s+Monsters?)?|Backups?|Monsters?|Characters?)\\s+" +
+        "you\\s+control\\s+gains?\\s+\\+(?<boostpower>\\d+)\\s+power\\s+instead[.!]?$"
+    );
+
+    /**
      * Matches the bare same-side grant "The [Element] Forwards?|Backups?|Monsters?|Characters?
      * [other than Z] you control gain +N power" (no Job/Category prefix).
      * The optional {@code element} group captures an element name prefix (e.g. "Ice").
@@ -2625,6 +2643,27 @@ public record CardData(
                 result.add(new FieldPowerGrant(null, null, true, false, false,
                         null, power, EnumSet.noneOf(Trait.class), false, -1, null, null,
                         selfName, 0, minBzFC, bzJob, bzFwd, false));
+                continue;
+            }
+
+            Matcher dmgThreshM = FIELD_GRANT_DAMAGE_THRESHOLD_PATTERN.matcher(seg);
+            if (dmgThreshM.matches()) {
+                int threshold  = Integer.parseInt(dmgThreshM.group("threshold"));
+                int basepower  = Integer.parseInt(dmgThreshM.group("basepower"));
+                int boostpower = Integer.parseInt(dmgThreshM.group("boostpower"));
+                String except  = dmgThreshM.group("except");
+                int[] incl1    = parseFieldGrantTargetFlags(dmgThreshM.group("targets"));
+                int[] incl2    = parseFieldGrantTargetFlags(dmgThreshM.group("targets2"));
+                // Below-threshold grant: targets (possibly excluding a card), basepower, only when damage < threshold
+                result.add(new FieldPowerGrant(null, null, incl1[0] != 0, incl1[1] != 0, incl1[2] != 0,
+                        except != null ? except.trim() : null, basepower, EnumSet.noneOf(Trait.class),
+                        false, -1, null, null, null, 0, 0, null, false, false, 0, 0, 1,
+                        0, threshold));
+                // At-or-above-threshold grant: targets2 (no exclusion), boostpower, only when damage >= threshold
+                result.add(new FieldPowerGrant(null, null, incl2[0] != 0, incl2[1] != 0, incl2[2] != 0,
+                        null, boostpower, EnumSet.noneOf(Trait.class),
+                        false, -1, null, null, null, 0, 0, null, false, false, 0, 0, 1,
+                        threshold, 0));
                 continue;
             }
 
@@ -3906,10 +3945,11 @@ public record CardData(
             // Scaling self power boost ("For each card in your hand, X gains +N power")
             if (SCALING_SELF_HAND_PATTERN.matcher(seg).find())                 continue;
             // BZ-conditional / distinct-element-conditional / EX Burst scaling passive grant — handled by parseFieldPowerGrants
-            if (FIELD_GRANT_BZ_COND_CN_AND_JOB_PATTERN.matcher(seg).find())   continue;
-            if (FIELD_EX_BURST_DMG_SCALING_GRANT.matcher(seg).matches())       continue;
-            if (FIELD_GRANT_BZ_JOB_SELF_PATTERN.matcher(seg).matches())        continue;
-            if (IF_DIFF_ELEMENTS_FIELD_GRANT.matcher(seg).matches())           continue;
+            if (FIELD_GRANT_BZ_COND_CN_AND_JOB_PATTERN.matcher(seg).find())       continue;
+            if (FIELD_EX_BURST_DMG_SCALING_GRANT.matcher(seg).matches())           continue;
+            if (FIELD_GRANT_BZ_JOB_SELF_PATTERN.matcher(seg).matches())            continue;
+            if (IF_DIFF_ELEMENTS_FIELD_GRANT.matcher(seg).matches())               continue;
+            if (FIELD_GRANT_DAMAGE_THRESHOLD_PATTERN.matcher(seg).matches())       continue;
 
             // Cast/play restrictions — handled as static properties via castRestriction()
             if (CAST_REQUIRES_NO_FORWARDS.matcher(seg).find())                continue;

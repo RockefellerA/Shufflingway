@@ -8414,6 +8414,11 @@ public class MainWindow {
 			if (fpg.inclMonsters()) for (CardData c : mons) for (String e : c.element().split("/")) elems.add(e);
 			if (elems.size() < fpg.minDistinctElements()) return false;
 		}
+		if (fpg.minDamageThreshold() > 0 || fpg.maxDamageThreshold() > 0) {
+			int dmg = (isP1 ? gameState.getP1DamageZone() : gameState.getP2DamageZone()).size();
+			if (fpg.minDamageThreshold() > 0 && dmg < fpg.minDamageThreshold()) return false;
+			if (fpg.maxDamageThreshold() > 0 && dmg >= fpg.maxDamageThreshold()) return false;
+		}
 		return true;
 	}
 
