@@ -1800,6 +1800,7 @@ class LookAtDeckDialogs {
             case "forward"   -> c.isForward();
             case "backup"    -> c.isBackup();
             case "character" -> c.isForward() || c.isBackup() || c.isMonster();
+            case "summon"    -> c.isSummon();
             default          -> false;
         };
     }

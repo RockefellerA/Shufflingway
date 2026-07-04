@@ -1454,7 +1454,7 @@ public class ActionResolver {
      */
     private static final Pattern REVEAL_TOP_N_TYPE_TO_HAND = Pattern.compile(
         "(?i)^\\s*(?:you\\s+may\\s+)?reveal\\s+the\\s+top\\s+(?<n>\\d+)\\s+cards?\\s+of\\s+your\\s+deck[.!]?\\s+" +
-        "Add\\s+(?<max>\\d+)\\s+(?<type>Forwards?|Backups?|Monsters?|Characters?)\\s+among\\s+them\\s+to\\s+your\\s+hand\\s+" +
+        "Add\\s+(?<max>\\d+)\\s+(?<type>Forwards?|Backups?|Monsters?|Characters?|Summons?)\\s+among\\s+them\\s+to\\s+your\\s+hand\\s+" +
         "and\\s+return\\s+the\\s+other\\s+cards?\\s+to\\s+the\\s+bottom\\s+of\\s+(?:your|the)\\s+deck(?:\\s+in\\s+any\\s+order)?[.!]?\\s*$"
     );
 
@@ -1465,7 +1465,7 @@ public class ActionResolver {
      */
     private static final Pattern REVEAL_TOP_N_TYPE_COST_TO_HAND = Pattern.compile(
         "(?i)^\\s*(?:you\\s+may\\s+)?reveal\\s+the\\s+top\\s+(?<n>\\d+)\\s+cards?\\s+of\\s+your\\s+deck[.!]?\\s+" +
-        "Add\\s+(?<max>\\d+)\\s+(?<type>Forwards?|Backups?|Monsters?|Characters?)\\s+of\\s+cost\\s+(?<cost>\\d+)\\s+or\\s+less\\s+among\\s+them\\s+to\\s+your\\s+hand\\s+" +
+        "Add\\s+(?<max>\\d+)\\s+(?<type>Forwards?|Backups?|Monsters?|Characters?|Summons?)\\s+of\\s+cost\\s+(?<cost>\\d+)\\s+or\\s+less\\s+among\\s+them\\s+to\\s+your\\s+hand\\s+" +
         "and\\s+return\\s+the\\s+other\\s+cards?\\s+to\\s+the\\s+bottom\\s+of\\s+(?:your|the)\\s+deck(?:\\s+in\\s+any\\s+order)?[.!]?\\s*$"
     );
 
