@@ -1361,6 +1361,22 @@ public interface GameContext {
 
     /**
      * Reveals the top {@code reveal} cards of the active player's deck.
+     * The player plays exactly 1 Card Name {@code cardName} of cost ≤ {@code maxCost} among them
+     * onto the field (or the AI auto-selects the first matching card); the remaining cards go to
+     * the bottom of the deck in any order.
+     */
+    void revealTopNPlayNamedWithMaxCostOntoFieldRestBottom(int reveal, String cardName, int maxCost);
+
+    /**
+     * The ability user selects 1 card type (Forward/Backup/Monster/Summon), then cards are turned
+     * over one at a time from the top of their deck until a card of the selected type is revealed.
+     * That card is added to their hand; all other revealed cards are shuffled and returned to the
+     * bottom of their deck.
+     */
+    void flipUntilTypeToHandRestShuffleBottom();
+
+    /**
+     * Reveals the top {@code reveal} cards of the active player's deck.
      * The player plays up to {@code maxPlay} cards matching {@code typeFilter}
      * ("Forward", "Backup", "Monster", or "Character") onto the field for free;
      * all remaining cards go to the bottom of the deck in any order.

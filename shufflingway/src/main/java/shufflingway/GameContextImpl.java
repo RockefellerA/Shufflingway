@@ -5055,6 +5055,85 @@ final class GameContextImpl implements GameContext {
 				}
 			}
 
+			@Override public void revealTopNPlayNamedWithMaxCostOntoFieldRestBottom(int reveal, String cardName, int maxCost) {
+				Deque<CardData> deck = isP1 ? mw.gameState.getP1MainDeck() : mw.gameState.getP2MainDeck();
+				int n = Math.min(reveal, deck.size());
+				if (n == 0) { logEntry("Reveal top: deck is empty."); return; }
+				List<CardData> peeked = new ArrayList<>();
+				for (CardData c : deck) { peeked.add(c); if (peeked.size() >= n) break; }
+				logEntry("Reveal top " + n + " card(s): " +
+						peeked.stream().map(CardData::name).collect(Collectors.joining(", ")));
+				if (!isP1 && mw.isP2Cpu()) {
+					CardData chosen = peeked.stream()
+							.filter(c -> c.name().equalsIgnoreCase(cardName) && c.cost() <= maxCost)
+							.findFirst().orElse(null);
+					for (int i = 0; i < n; i++) deck.pollFirst();
+					for (CardData c : peeked) {
+						if (c == chosen) continue;
+						deck.addLast(c);
+						logEntry("[AI] " + c.name() + " → [P2] bottom of deck");
+					}
+					mw.refreshP2DeckLabel();
+					if (chosen != null) {
+						logEntry("[AI] " + chosen.name() + " played onto field");
+						mw.placeCardInForwardZone(chosen);
+					} else {
+						logEntry("[AI] No Card Name " + cardName + " of cost ≤ " + maxCost + " found — all cards to bottom");
+					}
+				} else {
+					Consumer<CardData> playOntoField = c -> {
+						if (c.isBackup())       mw.placeCardInFirstBackupSlot(c);
+						else if (c.isMonster()) mw.placeCardInMonsterZone(c);
+						else                    mw.placeCardInForwardZone(c);
+					};
+					mw.lookDialogs().showRevealPlayNamedOntoFieldRestBottom(peeked, deck, isP1, cardName, maxCost, playOntoField);
+				}
+			}
+
+			@Override public void flipUntilTypeToHandRestShuffleBottom() {
+				final String[] TYPES = {"Forward", "Backup", "Monster", "Summon"};
+				Deque<CardData> deck = isP1 ? mw.gameState.getP1MainDeck() : mw.gameState.getP2MainDeck();
+				String selectedType;
+				if (!isP1) {
+					selectedType = ComputerPlayer.pickMostCommonCardType(new ArrayList<>(deck));
+					logEntry("[AI] selects card type: " + selectedType);
+				} else {
+					Object sel = javax.swing.JOptionPane.showInputDialog(mw.frame,
+							"Select 1 card type:", "Select Card Type",
+							javax.swing.JOptionPane.PLAIN_MESSAGE, null, TYPES, TYPES[0]);
+					if (sel == null) { logEntry("Card type selection cancelled."); return; }
+					selectedType = (String) sel;
+					logEntry("Selected card type: " + selectedType);
+				}
+				List<CardData> revealed = new ArrayList<>();
+				CardData found = null;
+				while (!deck.isEmpty()) {
+					CardData c = deck.pollFirst();
+					String typeLabel = c.isForward() ? "Forward" : c.isBackup() ? "Backup"
+							: c.isMonster() ? "Monster" : "Summon";
+					logEntry("Revealed: " + c.name() + " [" + typeLabel + "]");
+					if (ComputerPlayer.cardMatchesType(c, selectedType)) {
+						found = c;
+						break;
+					}
+					revealed.add(c);
+				}
+				List<CardData> hand = isP1 ? mw.gameState.getP1Hand() : mw.gameState.getP2Hand();
+				if (found != null) {
+					hand.add(found);
+					logEntry(found.name() + " → hand");
+					if (isP1) mw.refreshP1HandLabel(); else mw.refreshP2HandCountLabel();
+				} else {
+					logEntry("No " + selectedType + " found in deck — deck exhausted");
+				}
+				if (!revealed.isEmpty()) {
+					java.util.Collections.shuffle(revealed);
+					for (CardData c : revealed) deck.addLast(c);
+					logEntry(revealed.size() + " revealed card(s) shuffled to bottom of deck");
+				}
+				if (isP1) mw.refreshP1DeckLabel(); else mw.refreshP2DeckLabel();
+			}
+
 			@Override public void nameCardTypeOpponentDiscardDrawIfMatch() {
 				final String[] TYPES = {"Forward", "Backup", "Monster", "Summon"};
 				// Step 1: Name 1 card type

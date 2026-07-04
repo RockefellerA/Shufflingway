@@ -1510,8 +1510,14 @@ class LookAtDeckDialogs {
 
     void showRevealPlayNamedOntoFieldRestBottom(List<CardData> cards, Deque<CardData> deck,
             boolean isP1, String cardName, Consumer<CardData> playOntoField) {
+        showRevealPlayNamedOntoFieldRestBottom(cards, deck, isP1, cardName, -1, playOntoField);
+    }
+
+    void showRevealPlayNamedOntoFieldRestBottom(List<CardData> cards, Deque<CardData> deck,
+            boolean isP1, String cardName, int maxCost, Consumer<CardData> playOntoField) {
+        String costSuffix = maxCost >= 0 ? " of cost " + maxCost + " or less" : "";
         int n = cards.size();
-        JDialog dlg = new JDialog(frame, "Reveal — Play " + cardName + " onto Field, Rest to Bottom", true);
+        JDialog dlg = new JDialog(frame, "Reveal — Play " + cardName + costSuffix + " onto Field, Rest to Bottom", true);
         dlg.setResizable(false);
         dlg.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
 
@@ -1537,7 +1543,8 @@ class LookAtDeckDialogs {
         Runnable refreshFieldButtons = () -> {
             for (int j = 0; j < n; j++) {
                 CardData c   = order.get(j);
-                boolean eligible = c.name().equalsIgnoreCase(cardName);
+                boolean eligible = c.name().equalsIgnoreCase(cardName)
+                        && (maxCost < 0 || c.cost() <= maxCost);
                 boolean chosen   = chosenToPlay[0] == c;
                 fieldBtns[j].setEnabled(eligible && (chosen || chosenToPlay[0] == null));
             }
@@ -1625,7 +1632,7 @@ class LookAtDeckDialogs {
         }
 
         JLabel instructions = new JLabel(
-                "Click '→ Field' on 1 Card Name " + cardName + " to play. Swap the rest to order (left = first at bottom).",
+                "Click '→ Field' on 1 Card Name " + cardName + costSuffix + " to play. Swap the rest to order (left = first at bottom).",
                 SwingConstants.CENTER);
         instructions.setFont(FontLoader.loadPixelNESFont(9));
         confirmBtn.addActionListener(ae -> { hideZoom(); dlg.dispose(); });
@@ -1656,7 +1663,7 @@ class LookAtDeckDialogs {
             log(played.name() + " played onto field");
             playOntoField.accept(played);
         } else {
-            log("No Card Name " + cardName + " selected — all cards to bottom");
+            log("No Card Name " + cardName + costSuffix + " selected — all cards to bottom");
         }
     }
 

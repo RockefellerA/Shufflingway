@@ -1085,6 +1085,32 @@ public class ActionResolver {
     );
 
     /**
+     * Matches "Reveal the top N cards of your deck. Play 1 Card Name X of cost M or less among
+     * them onto the field and return the other cards to the bottom of your deck in any order."
+     * Groups: {@code n}, {@code cardname}, {@code maxcost}.
+     */
+    private static final Pattern REVEAL_PLAY_NAMED_MAX_COST_REST_BOTTOM = Pattern.compile(
+        "(?i)reveal\\s+the\\s+top\\s+(?<n>\\d+)\\s+cards?\\s+of\\s+your\\s+deck[.!]?\\s+" +
+        "Play\\s+1\\s+Card\\s+Name\\s+(?<cardname>.+?)\\s+of\\s+cost\\s+(?<maxcost>\\d+)\\s+or\\s+less\\s+" +
+        "among\\s+them\\s+onto\\s+(?:the\\s+)?field\\s+" +
+        "and\\s+return\\s+the\\s+other\\s+cards?\\s+to\\s+the\\s+bottom\\s+of\\s+(?:your|the)\\s+deck" +
+        "(?:\\s+in\\s+any\\s+order)?[.!]?"
+    );
+
+    /**
+     * Matches "Select 1 card type. Turn over one card at a time from the top of your deck until
+     * a selected type is revealed. Add it to your hand. Then, shuffle the other cards revealed
+     * and return them to the bottom of your deck."
+     */
+    private static final Pattern FLIP_UNTIL_TYPE_TO_HAND_REST_SHUFFLE_BOTTOM = Pattern.compile(
+        "(?i)select\\s+1\\s+card\\s+type[.]?\\s+" +
+        "Turn\\s+over\\s+one\\s+card\\s+at\\s+a\\s+time\\s+from\\s+the\\s+top\\s+of\\s+your\\s+deck\\s+" +
+        "until\\s+a\\s+selected\\s+type\\s+is\\s+revealed[.]?\\s+" +
+        "Add\\s+it\\s+to\\s+your\\s+hand[.]?\\s+" +
+        "Then,?\\s+shuffle\\s+the\\s+other\\s+cards?\\s+revealed\\s+and\\s+return\\s+them\\s+to\\s+the\\s+bottom\\s+of\\s+your\\s+deck[.!]?"
+    );
+
+    /**
      * Matches "Shuffle your deck. Then, reveal the top N cards of your deck.
      * Play 1 Card Name [name] among them onto the field and return the other cards to the
      * bottom of your deck in any order." — used as the 'when you do so' followup on self-bounce
@@ -1976,6 +2002,15 @@ public class ActionResolver {
     );
 
     /** Matches "select 1 [Forward|Backup|Monster|Character] you control. Put it into the Break Zone." */
+    /**
+     * Matches "select 1 [type] of cost N or less other than [name] you control. Put it into the Break Zone."
+     * Groups: {@code type}, {@code costval}, {@code excludename}.
+     */
+    private static final Pattern SELECT_1_CHAR_COST_LE_EXCL_TO_BZ = Pattern.compile(
+        "(?i)^[Ss]elect\\s+1\\s+(?<type>Forward|Backup|Monster|Character)\\s+of\\s+cost\\s+(?<costval>\\d+)\\s+or\\s+less\\s+" +
+        "other\\s+than\\s+(?<excludename>.+?)\\s+you\\s+control[.!]?\\s+Put\\s+it\\s+into\\s+the\\s+Break\\s+Zone[.!]?$"
+    );
+
     private static final Pattern SELECT_1_CHARACTER_YOU_CONTROL_TO_BZ = Pattern.compile(
         "(?i)^[Ss]elect\\s+1\\s+(?<type>Forward|Backup|Monster|Character)\\s+you\\s+control[.!]?\\s+Put\\s+it\\s+into\\s+the\\s+Break\\s+Zone[.!]?$"
     );
@@ -4293,6 +4328,9 @@ public class ActionResolver {
         result = tryParseBothPlayersSelectForwardToBreakZone(effectText);
         if (result != null) return result;
 
+        result = tryParseSelectCharCostLeExclToBz(effectText);
+        if (result != null) return result;
+
         result = tryParseSelectControlledCharacterToBz(effectText);
         if (result != null) return result;
 
@@ -4503,6 +4541,12 @@ public class ActionResolver {
         result = tryParseRemoveTopOfDeckFromGame(effectText);
         if (result != null) return result;
 
+        result = tryParseRevealPlayNamedWithMaxCostRestBottom(effectText);
+        if (result != null) return result;
+
+        result = tryParseFlipUntilTypeToHandRestShuffleBottom(effectText);
+        if (result != null) return result;
+
         result = tryParseShuffleThenRevealPlayNamedRestBottom(effectText, source);
         if (result != null) return result;
 
@@ -4702,6 +4746,7 @@ public class ActionResolver {
         if (tryParseOpponentRandomDiscard(effectText)         != null) return "OpponentRandomDiscard";
         if (tryParseEachPlayerSelectForwardDamage(effectText)  != null) return "EachPlayerSelectForwardDamage";
         if (tryParseBothPlayersSelectForwardToBreakZone(effectText) != null) return "BothPlayersSelectForwardToBreakZone";
+        if (tryParseSelectCharCostLeExclToBz(effectText)             != null) return "SelectCharCostLeExclToBz";
         if (tryParseSelectControlledCharacterToBz(effectText)        != null) return "SelectControlledCharacterToBz";
         if (tryParseEachPlayerSelectUpToNToBreakZone(effectText)   != null) return "EachPlayerSelectUpToNToBreakZone";
         if (tryParseEachPlayerDiscard(effectText)              != null) return "EachPlayerDiscard";
@@ -4770,6 +4815,8 @@ public class ActionResolver {
         if (tryParseLookTopDeckCastSummonFreeRestBottom(effectText, 0)       != null) return "LookTopDeckCastSummonFreeRestBottom";
         if (tryParseLookTopDeckPeek(effectText)                              != null) return "LookTopDeckPeek";
         if (tryParseRemoveTopOfDeckFromGame(effectText)                      != null) return "RemoveTopOfDeckFromGame";
+        if (tryParseRevealPlayNamedWithMaxCostRestBottom(effectText)         != null) return "RevealPlayNamedWithMaxCostRestBottom";
+        if (tryParseFlipUntilTypeToHandRestShuffleBottom(effectText)         != null) return "FlipUntilTypeToHandRestShuffleBottom";
         if (tryParseShuffleDeck(effectText)                                  != null) return "ShuffleDeck";
         if (tryParseIfOwnForwardFormedParty(effectText, source, 0)       != null) return "IfOwnForwardFormedParty";
         if (tryParseIfControlAtMost(effectText, source, 0)             != null) return "IfControlAtMost";
@@ -5144,6 +5191,7 @@ public class ActionResolver {
         if (tryParseOpponentRandomDiscard(effectText) != null)              return "OpponentRandomDiscard";
         if (tryParseEachPlayerSelectForwardDamage(effectText) != null)      return "EachPlayerSelectForwardDamage";
         if (tryParseBothPlayersSelectForwardToBreakZone(effectText) != null) return "BothPlayersSelectForwardToBreakZone";
+        if (tryParseSelectCharCostLeExclToBz(effectText)             != null)  return "SelectCharCostLeExclToBz";
         if (tryParseSelectControlledCharacterToBz(effectText)        != null)  return "SelectControlledCharacterToBz";
         if (tryParseEachPlayerSelectUpToNToBreakZone(effectText) != null)   return "EachPlayerSelectUpToNToBreakZone";
         if (tryParseEachPlayerDiscard(effectText) != null)                  return "EachPlayerDiscard";
@@ -5211,6 +5259,8 @@ public class ActionResolver {
         if (tryParseLookTopDeckCastSummonFreeRestBottom(effectText, 0)       != null) return "LookTopDeckCastSummonFreeRestBottom";
         if (tryParseLookTopDeckPeek(effectText)                              != null) return "LookTopDeckPeek";
         if (tryParseRemoveTopOfDeckFromGame(effectText)                      != null) return "RemoveTopOfDeckFromGame";
+        if (tryParseRevealPlayNamedWithMaxCostRestBottom(effectText)           != null) return "RevealPlayNamedWithMaxCostRestBottom";
+        if (tryParseFlipUntilTypeToHandRestShuffleBottom(effectText)           != null) return "FlipUntilTypeToHandRestShuffleBottom";
         if (tryParseShuffleThenRevealPlayNamedRestBottom(effectText, source) != null) return "ShuffleThenRevealPlayNamedRestBottom";
         if (tryParseRevealPlayTypeOntoFieldRestBottom(effectText)           != null) return "RevealPlayTypeOntoFieldRestBottom";
         if (tryParseShuffleDeck(effectText)                              != null) return "ShuffleDeck";
@@ -9831,7 +9881,7 @@ public class ActionResolver {
      * Tried before {@link #CONTROL_CONDITION_GATE} because it is more specific.
      */
     private static final Pattern IF_CONTROL_COND_OTHER_THAN = Pattern.compile(
-        "(?is)^if\\s+you\\s+control\\s+(?<cond>.+?)\\s+other\\s+than\\s+(?<exclude>[^,]+?),\\s+(?<effect>.+)$"
+        "(?is)^if\\s+you\\s+(?<neg>don't\\s+|do\\s+not\\s+)?control\\s+(?<cond>.+?)\\s+other\\s+than\\s+(?<exclude>[^,]+?),\\s+(?<effect>.+)$"
     );
 
     /** Matches "If your opponent controls a(n) [cond] [type], [effect]" — e.g. "a damaged Forward". */
@@ -9977,11 +10027,13 @@ public class ActionResolver {
         if (!m.matches()) return null;
         ControlCondition cc = CardData.parseControlCondition(m.group("cond").trim());
         if (cc == null) return null;
+        boolean negated    = m.group("neg") != null;
         String excludeName = m.group("exclude").trim();
         Consumer<GameContext> inner = parse(m.group("effect").trim(), source, xValue);
         if (inner == null) return null;
         return ctx -> {
-            if (ctx.controlConditionMetExcluding(cc, excludeName)) {
+            boolean met = ctx.controlConditionMetExcluding(cc, excludeName);
+            if (met != negated) {
                 inner.accept(ctx);
             } else {
                 ctx.logEntry("Effect: control condition (excl. " + excludeName + ") not met — skipped");
@@ -10410,6 +10462,26 @@ public class ActionResolver {
         };
     }
 
+    /** Parses "select 1 [type] of cost N or less other than [name] you control. Put it into the Break Zone." */
+    private static Consumer<GameContext> tryParseSelectCharCostLeExclToBz(String text) {
+        Matcher m = SELECT_1_CHAR_COST_LE_EXCL_TO_BZ.matcher(text.trim());
+        if (!m.matches()) return null;
+        String type        = m.group("type");
+        int    costVal     = Integer.parseInt(m.group("costval"));
+        String excludeName = m.group("excludename").trim();
+        boolean inclFwd = type.matches("(?i)Forward|Character");
+        boolean inclBkp = type.matches("(?i)Backup|Character");
+        boolean inclMon = type.matches("(?i)Monster|Character");
+        return ctx -> {
+            ctx.logEntry("Effect: select 1 " + type + " of cost ≤ " + costVal + " other than " + excludeName + " you control → Break Zone");
+            List<ForwardTarget> targets = ctx.selectCharacters(1, false, false, true,
+                    null, null, costVal, "less", -1, null,
+                    inclFwd, inclBkp, inclMon,
+                    null, null, null, excludeName, false, null, false);
+            for (ForwardTarget t : targets) ctx.breakTarget(t);
+        };
+    }
+
     /** Parses "select 1 [Forward|Backup|Monster|Character] you control. Put it into the Break Zone." */
     private static Consumer<GameContext> tryParseSelectControlledCharacterToBz(String text) {
         Matcher m = SELECT_1_CHARACTER_YOU_CONTROL_TO_BZ.matcher(text.trim());
@@ -10673,6 +10745,20 @@ public class ActionResolver {
             ctx.shuffleDeck();
             ctx.revealTopNPlayNamedOntoFieldRestBottom(n, cardName);
         };
+    }
+
+    private static Consumer<GameContext> tryParseRevealPlayNamedWithMaxCostRestBottom(String text) {
+        Matcher m = REVEAL_PLAY_NAMED_MAX_COST_REST_BOTTOM.matcher(text.trim());
+        if (!m.matches()) return null;
+        int n           = Integer.parseInt(m.group("n"));
+        String cardName = m.group("cardname").trim();
+        int maxCost     = Integer.parseInt(m.group("maxcost"));
+        return ctx -> ctx.revealTopNPlayNamedWithMaxCostOntoFieldRestBottom(n, cardName, maxCost);
+    }
+
+    private static Consumer<GameContext> tryParseFlipUntilTypeToHandRestShuffleBottom(String text) {
+        if (!FLIP_UNTIL_TYPE_TO_HAND_REST_SHUFFLE_BOTTOM.matcher(text.trim()).matches()) return null;
+        return GameContext::flipUntilTypeToHandRestShuffleBottom;
     }
 
     private static Consumer<GameContext> tryParseRevealPlayTypeOntoFieldRestBottom(String text) {
