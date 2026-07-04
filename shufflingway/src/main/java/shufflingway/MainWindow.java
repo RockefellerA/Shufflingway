@@ -8632,8 +8632,22 @@ public class MainWindow {
 				int threshold = CardData.parseIfSelfJobCountTraitGrantThreshold(fa.effectText(), src.name());
 				if (threshold >= 0 && countEffectiveJobs(src, isP1) >= threshold)
 					out.addAll(CardData.parseIfSelfJobCountTraitGrantTraits(fa.effectText()));
+				// LB face-up count conditional ("If there are N or more face-up cards in your LB deck, [name] gains [traits].")
+				int lbThreshold = CardData.parseIfSelfLbFaceUpCountTraitGrantThreshold(fa.effectText(), src.name());
+				if (lbThreshold >= 0 && countFaceUpLbCards(isP1) >= lbThreshold)
+					out.addAll(CardData.parseIfSelfLbFaceUpCountTraitGrantTraits(fa.effectText()));
 			}
 		}
+	}
+
+	/** Face-up LB deck cards = spent indices minus any LB card still on the field (which hasn't returned yet). */
+	private int countFaceUpLbCards(boolean isP1) {
+		Set<Integer> spent = isP1 ? spentLbIndices : p2SpentLbIndices;
+		List<CardData> fwds = isP1 ? p1ForwardCards : p2ForwardCards;
+		List<CardData> mons = isP1 ? p1MonsterCards : p2MonsterCards;
+		long onField = fwds.stream().filter(CardData::isLb).count()
+		             + mons.stream().filter(CardData::isLb).count();
+		return (int) (spent.size() - onField);
 	}
 
 	private int countEffectiveJobs(CardData card, boolean isP1) {

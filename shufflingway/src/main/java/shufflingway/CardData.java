@@ -3146,7 +3146,7 @@ public record CardData(
         "onto\\s+the\\s+field\\s+" +
         "is\\s+reduced\\s+by\\s+(?<amount>\\d+)" +
         "(?:\\s+for\\s+each\\s+Job\\s+(?<scalingjob>[A-Za-z][A-Za-z\\s'''\\-]*?)\\s+forward\\s+you\\s+control)?" +
-        "(?:\\s+(?<flooratone>\\(it\\s+cannot\\s+become\\s+0\\)))?" +
+        "(?:\\s*(?<flooratone>\\(it\\s+cannot\\s+become\\s+0\\)))?" +
         "\\s*\\.?$"
     );
 
@@ -3782,6 +3782,12 @@ public record CardData(
         "(?<traits>(?:(?:Haste|First\\s+Strike|Brave|Back\\s+Attack)(?:\\s*(?:,|and)\\s*)?)+)[.!]?\\s*$"
     );
 
+    /** Matches "If there are N or more face-up cards in your LB deck, [name] gains [traits]." */
+    static final Pattern IF_SELF_LB_FACEUP_COUNT_TRAIT_GRANT = Pattern.compile(
+        "(?i)^If\\s+there\\s+are\\s+(?<n>\\d+)\\s+or\\s+more\\s+face[- ]up\\s+cards?\\s+in\\s+your\\s+LB\\s+deck,\\s+(?<cardname>.+?)\\s+gains?\\s+" +
+        "(?<traits>(?:(?:Haste|First\\s+Strike|Brave|Back\\s+Attack)(?:\\s*(?:,|and)\\s*)?)+)[.!]?\\s*$"
+    );
+
     /**
      * Matches "[CardName] is also Card Name X [and Card Name Y ...] in all situations."
      * Group {@code names} captures the raw "Card Name A [and Card Name B]" list.
@@ -4366,6 +4372,34 @@ public record CardData(
      */
     public static EnumSet<Trait> parseIfSelfJobCountTraitGrantTraits(String text) {
         Matcher m = IF_SELF_JOB_COUNT_TRAIT_GRANT.matcher(text.trim());
+        if (!m.matches()) return EnumSet.noneOf(Trait.class);
+        String traitsText = m.group("traits");
+        EnumSet<Trait> result = EnumSet.noneOf(Trait.class);
+        if (ICB_EFFECT_HASTE.matcher(traitsText).find())        result.add(Trait.HASTE);
+        if (ICB_EFFECT_BRAVE.matcher(traitsText).find())        result.add(Trait.BRAVE);
+        if (ICB_EFFECT_FIRST_STRIKE.matcher(traitsText).find()) result.add(Trait.FIRST_STRIKE);
+        if (ICB_EFFECT_BACK_ATTACK.matcher(traitsText).find())  result.add(Trait.BACK_ATTACK);
+        return result;
+    }
+
+    /**
+     * Returns the LB face-up threshold for a "If there are N or more face-up cards in your LB deck,
+     * [cardName] gains [traits]" ability, or -1 if the text doesn't match or the name doesn't match.
+     */
+    public static int parseIfSelfLbFaceUpCountTraitGrantThreshold(String text, String cardName) {
+        Matcher m = IF_SELF_LB_FACEUP_COUNT_TRAIT_GRANT.matcher(text.trim());
+        if (!m.matches()) return -1;
+        if (!m.group("cardname").trim().equalsIgnoreCase(cardName)) return -1;
+        return Integer.parseInt(m.group("n"));
+    }
+
+    /**
+     * Returns the traits granted by a "If there are N or more face-up cards in your LB deck,
+     * [cardName] gains [traits]" ability.
+     * Assumes the text already matches {@link #IF_SELF_LB_FACEUP_COUNT_TRAIT_GRANT}.
+     */
+    public static EnumSet<Trait> parseIfSelfLbFaceUpCountTraitGrantTraits(String text) {
+        Matcher m = IF_SELF_LB_FACEUP_COUNT_TRAIT_GRANT.matcher(text.trim());
         if (!m.matches()) return EnumSet.noneOf(Trait.class);
         String traitsText = m.group("traits");
         EnumSet<Trait> result = EnumSet.noneOf(Trait.class);
