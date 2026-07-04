@@ -4156,18 +4156,24 @@ public class MainWindow {
 		if (p1ForwardRemovedTraits.get(idx).contains(trait)) return false;
 		CardData card = p1ForwardCards.get(idx);
 		if (lostAbilitiesCards.contains(card)) return false;
-		if (card.hasTrait(trait)) return true;
-		if (p1ForwardTempTraits.get(idx).contains(trait)) return true;
-		return computeConditionalTraitsForTarget(card, true).contains(trait);
+		boolean has = card.hasTrait(trait)
+		           || p1ForwardTempTraits.get(idx).contains(trait)
+		           || computeConditionalTraitsForTarget(card, true).contains(trait);
+		if (!has) return false;
+		if (trait == CardData.Trait.HASTE && isHasteSuppressedGlobally()) return false;
+		return true;
 	}
 
 	boolean effectiveP2HasTrait(int idx, CardData.Trait trait) {
 		if (p2ForwardRemovedTraits.get(idx).contains(trait)) return false;
 		CardData card = p2ForwardCards.get(idx);
 		if (lostAbilitiesCards.contains(card)) return false;
-		if (card.hasTrait(trait)) return true;
-		if (p2ForwardTempTraits.get(idx).contains(trait)) return true;
-		return computeConditionalTraitsForTarget(card, false).contains(trait);
+		boolean has = card.hasTrait(trait)
+		           || p2ForwardTempTraits.get(idx).contains(trait)
+		           || computeConditionalTraitsForTarget(card, false).contains(trait);
+		if (!has) return false;
+		if (trait == CardData.Trait.HASTE && isHasteSuppressedGlobally()) return false;
+		return true;
 	}
 
 	private boolean effectiveHasTrait(boolean isP1, int idx, CardData.Trait trait) {
@@ -4328,7 +4334,20 @@ public class MainWindow {
 		return false;
 	}
 
+	/** True if {@code attacker} carries a "Opponent must block [name] if possible" field ability. */
+	private boolean attackerMustBeBlocked(CardData attacker) {
+		for (FieldAbility fa : attacker.fieldAbilities()) {
+			Matcher m = AutoAbilityTriggers.FA_OPPONENT_MUST_BLOCK.matcher(fa.effectText());
+			if (m.find() && m.group("cardname").trim().equalsIgnoreCase(attacker.name())) return true;
+		}
+		return false;
+	}
+
 	private ForwardTarget p2ChooseBlocker(int effectiveAttackerPower, ForwardTarget attacker) {
+		return p2ChooseBlocker(effectiveAttackerPower, attacker, false);
+	}
+
+	private ForwardTarget p2ChooseBlocker(int effectiveAttackerPower, ForwardTarget attacker, boolean forcedBlock) {
 		// Attacker-side unblockability is only tracked for Forwards.
 		// Attacker-side restrictions are only tracked for P1 Forwards.
 		int     p1AttackerIdx         = -1;
@@ -4388,6 +4407,14 @@ public class MainWindow {
 			int p = fieldForwardPower(false, t.zone(), t.idx());
 			if (p >= effectiveAttackerPower && p > bestPow) { best = t; bestPow = p; }
 		}
+		// Forced block (e.g. "Opponent must block X if possible"): no survivor found — pick weakest candidate.
+		if (best == null && forcedBlock && !cands.isEmpty()) {
+			int minPow = Integer.MAX_VALUE;
+			for (ForwardTarget t : cands) {
+				int p = fieldForwardPower(false, t.zone(), t.idx());
+				if (p < minPow) { best = t; minPow = p; }
+			}
+		}
 		return best;
 	}
 
@@ -4398,7 +4425,8 @@ public class MainWindow {
 	/** Called after P1 attacks: gives P2 AI a chance to declare a blocker. */
 	private void p2OfferBlock(CardData attacker, int attackerIdx) {
 		ForwardTarget blk = p2ChooseBlocker(effectiveP1ForwardPower(attackerIdx),
-				new ForwardTarget(true, attackerIdx, ForwardTarget.CardZone.FORWARD));
+				new ForwardTarget(true, attackerIdx, ForwardTarget.CardZone.FORWARD),
+				attackerMustBeBlocked(attacker));
 		if (blk != null) {
 			CardData blocker = autoAbilityTriggers.fieldCardData(blk);
 			logEntry("[P2] " + blocker.name() + " blocks!");
@@ -8640,6 +8668,28 @@ public class MainWindow {
 		}
 	}
 
+	/** True if any field card on either side is suppressing Haste globally. */
+	private boolean isHasteSuppressedGlobally() {
+		for (int side = 0; side < 2; side++) {
+			boolean isP1 = side == 0;
+			List<CardData> fwds = isP1 ? p1ForwardCards : p2ForwardCards;
+			CardData[]     bkps = isP1 ? p1BackupCards  : p2BackupCards;
+			List<CardData> mons = isP1 ? p1MonsterCards : p2MonsterCards;
+			for (CardData c : fwds) if (!lostAbilitiesCards.contains(c) && cardHasHasteSuppression(c)) return true;
+			for (CardData c : bkps) if (c != null && !lostAbilitiesCards.contains(c) && cardHasHasteSuppression(c)) return true;
+			for (CardData c : mons) if (!lostAbilitiesCards.contains(c) && cardHasHasteSuppression(c)) return true;
+		}
+		return false;
+	}
+
+	private boolean cardHasHasteSuppression(CardData card) {
+		for (FieldAbility fa : card.fieldAbilities()) {
+			if (AutoAbilityTriggers.FA_ALL_FORWARDS_LOSE_HASTE.matcher(fa.effectText()).find()) return true;
+			if (AutoAbilityTriggers.FA_FORWARDS_CANNOT_GAIN_HASTE.matcher(fa.effectText()).find()) return true;
+		}
+		return false;
+	}
+
 	/** Face-up LB deck cards = spent indices minus any LB card still on the field (which hasn't returned yet). */
 	private int countFaceUpLbCards(boolean isP1) {
 		Set<Integer> spent = isP1 ? spentLbIndices : p2SpentLbIndices;
@@ -9073,6 +9123,19 @@ public class MainWindow {
 				int before = amount;
 				amount = amount + Integer.parseInt(increaseStr);
 				logEntry(card.name() + " — damage increased by " + increaseStr + " (" + before + " → " + amount + ")");
+			}
+		}
+
+		// Passive field ability: self-targeted incoming damage reduction while dull
+		for (FieldAbility fa : card.fieldAbilities()) {
+			Matcher m = AutoAbilityTriggers.FA_DAMAGE_WHILE_DULL_REDUCTION.matcher(fa.effectText());
+			if (!m.find() || !m.group("card").trim().equalsIgnoreCase(card.name())) continue;
+			CardState state = (isP1 ? p1ForwardStates : p2ForwardStates).get(idx);
+			if (state == CardState.DULL) {
+				int reduction = Integer.parseInt(m.group("amount"));
+				int before = amount;
+				amount = Math.max(0, amount - reduction);
+				logEntry(card.name() + " — damage while dull reduced by " + reduction + " (" + before + " → " + amount + ")");
 			}
 		}
 
@@ -10585,6 +10648,17 @@ public class MainWindow {
 		else if (p1BlockerMonsterIdx >= 0) { blkZone = ForwardTarget.CardZone.MONSTER; blkIdx = p1BlockerMonsterIdx; }
 		else if (p1BlockerBackupIdx >= 0)  { blkZone = ForwardTarget.CardZone.BACKUP;  blkIdx = p1BlockerBackupIdx; }
 
+		// Must-block validation: done before clearing state so isForwardBlockSelectable still works.
+		if (blkZone == null && attackerMustBeBlocked(attacker)) {
+			for (int i = 0; i < p1ForwardStates.size(); i++) {
+				if (isForwardBlockSelectable(i)) {
+					showEffectOptionDialog("You must block " + attacker.name()
+							+ " — select an eligible Forward.", "Must Block", new Object[]{"OK"});
+					return;
+				}
+			}
+		}
+
 		// Clear pending state before any callbacks to avoid re-entrancy
 		pendingP2Attacker           = null;
 		pendingP2AttackerIdx        = -1;
@@ -10641,6 +10715,25 @@ public class MainWindow {
 		int           combinedPower   = pendingP2PartyCombined;
 		Runnable      onDone          = pendingP2BlockDone;
 		int           blockerIdx      = p1BlockerSelection;
+
+		// Must-block validation: done before clearing state so isForwardBlockSelectable still works.
+		if (blockerIdx < 0) {
+			boolean partyMustBeBlocked = attackerIndices.stream()
+					.anyMatch(i -> attackerMustBeBlocked(p2ForwardCards.get(i)));
+			if (partyMustBeBlocked) {
+				for (int i = 0; i < p1ForwardStates.size(); i++) {
+					if (isForwardBlockSelectable(i)) {
+						String mustBlockName = attackerIndices.stream()
+								.filter(i2 -> attackerMustBeBlocked(p2ForwardCards.get(i2)))
+								.map(i2 -> p2ForwardCards.get(i2).name())
+								.findFirst().orElse("a party member");
+						showEffectOptionDialog("You must block " + mustBlockName
+								+ " — select an eligible Forward.", "Must Block", new Object[]{"OK"});
+						return;
+					}
+				}
+			}
+		}
 
 		pendingP2PartyIndices  = null;
 		pendingP2PartyCombined = 0;

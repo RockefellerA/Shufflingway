@@ -412,6 +412,27 @@ final class AutoAbilityTriggers {
 		"\\s+reduce\\s+the\\s+damage\\s+by\\s+(?<amount>\\d+)\\s+instead[.!]?$"
 	);
 
+	/** "Opponent must block [cardName] if possible." — forces the opponent to declare a blocker when the named card attacks. */
+	static final Pattern FA_OPPONENT_MUST_BLOCK = Pattern.compile(
+		"(?i)^Opponent\\s+must\\s+block\\s+(?<cardname>.+?)\\s+if\\s+possible[.!]?$"
+	);
+
+	/** "All Forwards lose Haste." — global suppression that strips Haste from every Forward in play. */
+	static final Pattern FA_ALL_FORWARDS_LOSE_HASTE = Pattern.compile(
+		"(?i)^All\\s+Forwards?\\s+lose\\s+Haste[.!]?$"
+	);
+
+	/** "Forwards cannot gain Haste." — global suppression that prevents any Forward from having Haste. */
+	static final Pattern FA_FORWARDS_CANNOT_GAIN_HASTE = Pattern.compile(
+		"(?i)^Forwards?\\s+cannot\\s+gain\\s+Haste[.!]?$"
+	);
+
+	/** "If [card] receives damage while dull, the damage is reduced by N instead." */
+	static final Pattern FA_DAMAGE_WHILE_DULL_REDUCTION = Pattern.compile(
+		"(?i)^If\\s+(?<card>.+?)\\s+(?:receives|is\\s+dealt)\\s+damage\\s+while\\s+dull,\\s+" +
+		"the\\s+damage\\s+is\\s+reduced\\s+by\\s+(?<amount>\\d+)\\s+instead[.!]?$"
+	);
+
 	/** "If [name] deals damage to a Forward due to an ability, double the damage instead." */
 	static final Pattern FA_DOUBLE_ABILITY_DAMAGE =
 			Pattern.compile(
