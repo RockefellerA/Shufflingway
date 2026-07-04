@@ -2496,6 +2496,14 @@ public record CardData(
     );
 
     /**
+     * Matches "The Card Name X and Card Name Y you control gain +N power."
+     * Groups: {@code cardname1}, {@code cardname2}, {@code power}.
+     */
+    private static final Pattern FIELD_GRANT_DUAL_CARD_NAME_PATTERN = Pattern.compile(
+        "(?i)^The\\s+Card\\s+Name\\s+(?<cardname1>.+?)\\s+and\\s+Card\\s+Name\\s+(?<cardname2>.+?)\\s+you\\s+control\\s+gains?\\s+\\+(?<power>\\d+)\\s+power[.!]?$"
+    );
+
+    /**
      * Matches "The Card Name X you control gains Trait [and Trait] during your turn."
      * Groups: {@code cardname}, {@code traitstext}.
      */
@@ -2598,6 +2606,7 @@ public record CardData(
             // Normalize bracket filter notation to plain form so existing patterns match.
             seg = seg.replaceAll("(?i)\\[Job\\s*\\(([^)]+)\\)\\]", "Job $1");
             seg = seg.replaceAll("(?i)\\[Category\\s*\\(([^)]+)\\)\\]", "Category $1");
+            seg = seg.replaceAll("(?i)\\[Card\\s+Name\\s*\\(([^)]+)\\)\\]", "Card Name $1");
 
             Matcher exBurstDmgM = FIELD_EX_BURST_DMG_SCALING_GRANT.matcher(seg);
             if (exBurstDmgM.matches()) {
@@ -2691,6 +2700,18 @@ public record CardData(
                         Integer.parseInt(bareM.group("power")),
                         EnumSet.noneOf(Trait.class), false, -1, null,
                         bareElem != null ? bareElem.trim() : null));
+                continue;
+            }
+
+            Matcher dualCnM = FIELD_GRANT_DUAL_CARD_NAME_PATTERN.matcher(seg);
+            if (dualCnM.matches()) {
+                int power = Integer.parseInt(dualCnM.group("power"));
+                result.add(new FieldPowerGrant(null, null, true, true, true, null,
+                        power, EnumSet.noneOf(Trait.class), false, -1, null, null,
+                        dualCnM.group("cardname1").trim()));
+                result.add(new FieldPowerGrant(null, null, true, true, true, null,
+                        power, EnumSet.noneOf(Trait.class), false, -1, null, null,
+                        dualCnM.group("cardname2").trim()));
                 continue;
             }
 

@@ -156,6 +156,8 @@ public class CardDatabase implements AutoCloseable {
                                 .replace("eachJob", "each Job") // "on eachJob Apprentice Mage..."
                                 .replace("\"\"", "\"") // Alexander has doubled quotes around choice text
                                 .replaceAll("\\[Category\\s+\\(([^)]+)\\)\\]", "Category $1") // [Category (XII)] → Category XII
+                                .replaceAll("\\[Job\\s+\\(([^)]+)\\)\\]", "Job $1")           // [Job (Knight)] → Job Knight
+                                .replaceAll("\\[Card\\s+Name\\s+\\(([^)]+)\\)\\]", "Card Name $1") // [Card Name (Ormi)] → Card Name Ormi
                                 .replaceAll("\r\n[ \t]+", " ").replaceAll("\r\n", " "); // collapse mid-sentence line-wraps (e.g. Opus XXIII)
             ps.setString(13, textEn);
             ps.setString(14, card.thumbName);
