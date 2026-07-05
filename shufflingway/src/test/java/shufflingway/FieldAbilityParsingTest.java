@@ -126,6 +126,7 @@ public class FieldAbilityParsingTest {
         if (AutoAbilityTriggers.FA_ALL_FORWARDS_LOSE_HASTE.matcher(fa.effectText()).find()) return true;
         if (AutoAbilityTriggers.FA_FORWARDS_CANNOT_GAIN_HASTE.matcher(fa.effectText()).find()) return true;
         if (!CardData.parseSelfTraitGrant(fa.effectText(), source.name()).isEmpty()) return true;
+        if (CardData.parseSelfNonDmgBreakShield(fa.effectText(), source.name())) return true;
         if (CardData.TRAIT_ONLY_SEGMENT.matcher(fa.effectText()).matches()) return true;
         if (CardData.parseOpponentForwardsEnterDull(fa.effectText())) return true;
         if (CardData.parseFieldCannotBeBlockedByCost(fa.effectText(), source.name()) != null) return true;
