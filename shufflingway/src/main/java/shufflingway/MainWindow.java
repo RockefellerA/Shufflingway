@@ -3902,6 +3902,11 @@ public class MainWindow {
 		return cardPickerDialog.pickCardImage(cards, title, allowCancel, showCost);
 	}
 
+	int showCardImageChooser(List<CardData> cards, String title, boolean allowCancel,
+			java.util.function.ToIntFunction<CardData> costFn) {
+		return cardPickerDialog.pickCardImage(cards, title, allowCancel, costFn);
+	}
+
 	List<Integer> showCardMultiImageChooser(List<CardData> cards, String title, int count,
 			boolean eachDifferentType, boolean showCost) {
 		return cardPickerDialog.pickMultiCardImage(cards, title, count, eachDifferentType, showCost);
@@ -5457,7 +5462,7 @@ public class MainWindow {
 	 * cost-reduction modifier that matches it.  Only the first matching modifier
 	 * is applied (modifiers stack only when multiple fire independently).
 	 */
-	private int effectiveCastCost(CardData card) {
+	int effectiveCastCost(CardData card) {
 		int selfRed = 0;
 		int selfInc = 0;
 		int selfFloor = 0;
@@ -6663,7 +6668,7 @@ public class MainWindow {
 			.show();
 	}
 
-	private void showPaymentDialog(CardData card, int handIdx) {
+	void showPaymentDialog(CardData card, int handIdx) {
 		int cost = effectiveCastCost(card);
 		if (cost <= 0) {
 			executePlay(card, handIdx, List.of(), List.of(), Map.of());

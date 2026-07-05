@@ -27,6 +27,7 @@ import java.util.Set;
 import java.util.concurrent.ExecutionException;
 import java.util.stream.Collectors;
 import java.util.function.Consumer;
+import java.util.function.ToIntFunction;
 
 import javax.swing.BorderFactory;
 import javax.swing.Box;
@@ -622,6 +623,15 @@ public class CardPickerDialog {
     }
 
     public int pickCardImage(List<CardData> cards, String title, boolean allowCancel, boolean showCost) {
+        return pickCardImage(cards, title, allowCancel, showCost ? CardData::cost : null);
+    }
+
+    /**
+     * Like {@link #pickCardImage(List, String, boolean, boolean)} but with a custom cost function.
+     * Pass {@code null} for {@code costFn} to hide the cost line entirely.
+     */
+    public int pickCardImage(List<CardData> cards, String title, boolean allowCancel,
+            ToIntFunction<CardData> costFn) {
         if (cards.isEmpty()) return -1;
         JDialog dlg = new JDialog(owner, title, true);
         dlg.setResizable(false);
@@ -673,16 +683,16 @@ public class CardPickerDialog {
             }.execute();
 
             JLabel nameLabel;
-            if (showCost) {
+            if (costFn != null) {
                 nameLabel = new JLabel("<html><div style='width:" + CARD_W + "px;text-align:center'>"
-                        + candidate.name() + "<br>(Cost: " + candidate.cost() + ")" + "</div></html>",
+                        + candidate.name() + "<br>(Cost: " + costFn.applyAsInt(candidate) + ")" + "</div></html>",
                         SwingConstants.CENTER);
             } else {
                 nameLabel = new JLabel(candidate.name(), SwingConstants.CENTER);
                 nameLabel.setPreferredSize(new Dimension(CARD_W, 18));
             }
             nameLabel.setFont(FontLoader.loadPixelNESFont(9));
-            nameLabel.setPreferredSize(new Dimension(CARD_W, showCost ? 30 : 18));
+            nameLabel.setPreferredSize(new Dimension(CARD_W, costFn != null ? 30 : 18));
 
             wrapper.add(lbl, BorderLayout.CENTER);
             wrapper.add(nameLabel, BorderLayout.SOUTH);

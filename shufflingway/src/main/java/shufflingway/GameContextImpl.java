@@ -2100,6 +2100,51 @@ final class GameContextImpl implements GameContext {
 				mw.lastCardWasCast = false;
 			}
 
+			@Override public void castSummonFromHandDiscounted(int discount) {
+				List<CardData> hand = isP1 ? mw.gameState.getP1Hand() : mw.gameState.getP2Hand();
+				List<Integer> eligible = new ArrayList<>();
+				for (int i = 0; i < hand.size(); i++)
+					if (hand.get(i).isSummon()) eligible.add(i);
+				if (eligible.isEmpty()) {
+					logEntry("No Summons in hand — effect fizzles");
+					markEffectFizzled();
+					return;
+				}
+				int handIdx;
+				if (isP1) {
+					List<CardData> candidates = new ArrayList<>();
+					for (int i : eligible) candidates.add(hand.get(i));
+					java.util.function.ToIntFunction<CardData> costFn =
+							c -> Math.max(1, mw.effectiveCastCost(c) - discount);
+					int listIdx = mw.showCardImageChooser(candidates,
+							"Cast a Summon (cost reduced by " + discount + ", min 1)", true, costFn);
+					if (listIdx < 0) { markEffectFizzled(); return; }
+					handIdx = eligible.get(listIdx);
+				} else {
+					handIdx = eligible.get(0);
+				}
+				CardData card = hand.get(handIdx);
+				CostReductionModifier mod = new CostReductionModifier(
+						discount, true, true,
+						false, false, false, true,
+						null, null, card.name().toLowerCase(), null, false);
+				mw.activeCostReductions.add(mod);
+				if (isP1) {
+					mw.showPaymentDialog(card, handIdx);
+				} else {
+					hand.remove(handIdx);
+					mw.refreshP2HandCountLabel();
+					mw.p2CardsCastThisTurn++;
+					mw.p2SummonCastThisTurn = true;
+					for (String j : card.jobs()) mw.p2CastJobsThisTurn.add(j.toLowerCase());
+					mw.p2CastNamesThisTurn.add(card.name().toLowerCase());
+					mw.p2CastCountByNameThisTurn.merge(card.name().toLowerCase(), 1, Integer::sum);
+					mw.activeCostReductions.remove(mod);
+					logEntry("[P2] Cast \"" + card.name() + "\" from hand (cost -" + discount + ")");
+					mw.showSummonOnStack(card, false);
+				}
+			}
+
 			@Override public void searchAndCastSummonFreeFromDeck(int maxCost, String elementFilter) {
 				java.util.Deque<CardData> deck = isP1 ? mw.gameState.getP1MainDeck() : mw.gameState.getP2MainDeck();
 				java.util.List<CardData> matches = new java.util.ArrayList<>();

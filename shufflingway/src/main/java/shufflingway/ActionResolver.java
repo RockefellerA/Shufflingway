@@ -2201,6 +2201,16 @@ public class ActionResolver {
     );
 
     /**
+     * "Cast a Summon from your hand. The cost required to cast it is reduced by N (it cannot become 0)."
+     * Group {@code amount} — the reduction amount.
+     */
+    private static final Pattern CAST_SUMMON_FROM_HAND_DISCOUNTED = Pattern.compile(
+        "(?i)Cast\\s+a\\s+Summon\\s+from\\s+your\\s+hand[.!]?\\s+" +
+        "The\\s+cost\\s+required\\s+to\\s+cast\\s+it\\s+is\\s+reduced\\s+by\\s+(?<amount>\\d+)" +
+        "(?:\\s*\\(it\\s+cannot\\s+become\\s+0\\))?[.!]?"
+    );
+
+    /**
      * "Search for 1 [Element] Summon [of cost N or less] and cast it without paying [its|the] cost.
      * If you do not cast it, put the Summon into the Break Zone."
      * Groups: {@code element} — element name; {@code cost} — optional numeric cost cap.
@@ -4423,6 +4433,9 @@ public class ActionResolver {
         result = tryParseRandomRevealHandCastIfSummonFree(effectText);
         if (result != null) return result;
 
+        result = tryParseCastSummonFromHandDiscounted(effectText);
+        if (result != null) return result;
+
         result = tryParseCastSummonFromHandFree(effectText, xValue);
         if (result != null) return result;
 
@@ -4796,6 +4809,7 @@ public class ActionResolver {
         if (tryParseDealPlayerDamageToOpponent(effectText)    != null) return "DealPlayerDamageToOpponent";
         if (tryParseDealPlayerDamageToSelf(effectText)        != null) return "DealPlayerDamageToSelf";
         if (tryParseRandomRevealHandCastIfSummonFree(effectText) != null) return "RandomRevealHandCastIfSummonFree";
+        if (tryParseCastSummonFromHandDiscounted(effectText)     != null) return "CastSummonFromHandDiscounted";
         if (tryParseCastSummonFromHandFree(effectText, 0)     != null) return "CastSummonFromHandFree";
         if (tryParseSearchAndCastSummonFree(effectText)       != null) return "SearchAndCastSummonFree";
         if (tryParsePlayAnyNumberFromHand(effectText, source) != null) return "PlayAnyNumberFromHand";
@@ -5240,6 +5254,7 @@ public class ActionResolver {
         if (tryParseDealPlayerDamageToOpponent(effectText) != null)         return "DealPlayerDamageToOpponent";
         if (tryParseDealPlayerDamageToSelf(effectText) != null)             return "DealPlayerDamageToSelf";
         if (tryParseRandomRevealHandCastIfSummonFree(effectText) != null)   return "RandomRevealHandCastIfSummonFree";
+        if (tryParseCastSummonFromHandDiscounted(effectText) != null)       return "CastSummonFromHandDiscounted";
         if (tryParseCastSummonFromHandFree(effectText, 0) != null)          return "CastSummonFromHandFree";
         if (tryParseSearchAndCastSummonFree(effectText) != null)            return "SearchAndCastSummonFree";
         if (tryParsePlayAnyNumberFromHand(effectText, source) != null)      return "PlayAnyNumberFromHand";
@@ -11632,6 +11647,16 @@ public class ActionResolver {
         return ctx -> {
             ctx.logEntry("Effect: Randomly reveal 1 card from hand — cast it for free if it is a Summon");
             ctx.randomRevealHandCastIfSummonFree();
+        };
+    }
+
+    private static Consumer<GameContext> tryParseCastSummonFromHandDiscounted(String text) {
+        Matcher m = CAST_SUMMON_FROM_HAND_DISCOUNTED.matcher(text.trim());
+        if (!m.find()) return null;
+        final int amount = Integer.parseInt(m.group("amount"));
+        return ctx -> {
+            ctx.logEntry("Effect: Cast a Summon from hand (cost reduced by " + amount + ", floor 1)");
+            ctx.castSummonFromHandDiscounted(amount);
         };
     }
 

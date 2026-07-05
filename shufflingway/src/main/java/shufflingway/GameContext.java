@@ -295,6 +295,13 @@ public interface GameContext {
     void randomRevealHandCastIfSummonFree();
 
     /**
+     * Shows all Summons in the player's hand with their effective cast cost reduced by
+     * {@code discount} (floored at 1).  The player selects one to cast at that reduced cost,
+     * or cancels.  Existing cost modifiers are also applied before the additional discount.
+     */
+    void castSummonFromHandDiscounted(int discount);
+
+    /**
      * Searches the deck for a Summon matching the element and cost filters, then offers
      * the player a choice to cast it for free.  If the player declines to cast, the Summon
      * is put into the Break Zone.  The deck is shuffled after the search regardless.
