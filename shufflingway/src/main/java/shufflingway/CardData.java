@@ -984,6 +984,15 @@ public record CardData(
                             String cardType = rawType.replaceAll("(?i)s$", "").trim();
                             cardType = Character.toUpperCase(cardType.charAt(0)) + cardType.substring(1).toLowerCase();
                             controlCondition = new ControlCondition(List.of(), 0, true, cardType, null, null, null, 0, List.of());
+                        } else {
+                            Matcher oppM = OPPONENT_CONTROLS_N_OR_MORE_PATTERN.matcher(effectRaw);
+                            if (oppM.find()) {
+                                int count = Integer.parseInt(oppM.group("count"));
+                                String rawType = oppM.group("type");
+                                String cardType = rawType.replaceAll("(?i)s$", "").trim();
+                                cardType = Character.toUpperCase(cardType.charAt(0)) + cardType.substring(1).toLowerCase();
+                                controlCondition = ControlCondition.forOpponentCount(count, cardType);
+                            }
                         }
                     }
                 }
@@ -1280,6 +1289,12 @@ public record CardData(
     /** Captures the card type from "You can only use this ability if you don't control any [type]". */
     static final Pattern CONTROL_IF_NOT_ANY_PATTERN = Pattern.compile(
         "(?i)You\\s+can\\s+only\\s+use\\s+this\\s+ability\\s+if\\s+you\\s+don't\\s+control\\s+any\\s+(?<type>Forwards?|Monsters?|Backups?|Characters?)\\s*[.!]?\\s*$"
+    );
+
+    /** Captures count and type from "You can only use this ability if your opponent controls N or more [type]". */
+    static final Pattern OPPONENT_CONTROLS_N_OR_MORE_PATTERN = Pattern.compile(
+        "(?i)You\\s+can\\s+only\\s+use\\s+this\\s+ability\\s+if\\s+your\\s+opponent\\s+controls?\\s+" +
+        "(?<count>\\d+)\\s+or\\s+more\\s+(?<type>Forwards?|Backups?|Monsters?|Characters?)\\s*[.!]?\\s*$"
     );
 
     /**

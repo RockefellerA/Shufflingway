@@ -8227,14 +8227,15 @@ public class MainWindow {
 	}
 
 	/**
-	 * Returns {@code true} when the "if you control [X]" restriction on an action ability is met
-	 * by the controlling player's current field state.
+	 * Returns {@code true} when the "if you/opponent control(s) [X]" restriction on an action
+	 * ability is met.  When {@code cond.opponentControls()} is true, checks the opponent's field.
 	 */
 	boolean controlConditionMet(ControlCondition cond, boolean isP1) {
+		boolean checkP1 = cond.opponentControls() ? !isP1 : isP1;
 		return controlConditionMetWithPools(cond,
-				isP1 ? p1ForwardCards : p2ForwardCards,
-				isP1 ? p1BackupCards  : p2BackupCards,
-				isP1 ? p1MonsterCards : p2MonsterCards);
+				checkP1 ? p1ForwardCards : p2ForwardCards,
+				checkP1 ? p1BackupCards  : p2BackupCards,
+				checkP1 ? p1MonsterCards : p2MonsterCards);
 	}
 
 	private boolean controlConditionMetWithPools(ControlCondition cond,

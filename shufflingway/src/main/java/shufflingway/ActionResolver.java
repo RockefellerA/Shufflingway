@@ -5048,9 +5048,10 @@ public class ActionResolver {
         if (CardData.WHILE_CARD_ATTACKING_PATTERN.matcher(effectText).matches())  return "WhileCardAttacking";
         if (CardData.WHILE_CARD_BLOCKING_PATTERN.matcher(effectText).matches())   return "WhileCardBlocking";
         if (CardData.WHILE_CARD_IN_HAND_PATTERN.matcher(effectText).matches())   return "WhileCardInHand";
-        if (CardData.CONTROL_IF_PATTERN.matcher(effectText).find())               return "UseRestriction";
-        if (CardData.YOUR_TURN_AND_CONTROL_IF_PATTERN.matcher(effectText).find()) return "UseRestriction";
-        if (CardData.CONTROL_IF_NOT_ANY_PATTERN.matcher(effectText).find())       return "UseRestriction";
+        if (CardData.CONTROL_IF_PATTERN.matcher(effectText).find())                  return "UseRestriction";
+        if (CardData.YOUR_TURN_AND_CONTROL_IF_PATTERN.matcher(effectText).find())  return "UseRestriction";
+        if (CardData.CONTROL_IF_NOT_ANY_PATTERN.matcher(effectText).find())        return "UseRestriction";
+        if (CardData.OPPONENT_CONTROLS_N_OR_MORE_PATTERN.matcher(effectText).find()) return "UseRestriction";
         if (tryParseWhenYouDoSoSequence(effectText, source, 0)          != null) return "WhenYouDoSo";
         if (tryParseIfCastAtLeast(effectText, source, 0)                != null) return "IfCastAtLeast";
         if (tryParseIfControlCondOtherThan(effectText, source, 0)      != null) return "IfControlCondOtherThan";
