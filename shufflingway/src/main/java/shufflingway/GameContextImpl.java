@@ -1801,6 +1801,78 @@ final class GameContextImpl implements GameContext {
 				}
 			}
 
+			@Override public void revealTopBreakSameCostAddToHand() {
+				Deque<CardData> deck = isP1 ? mw.gameState.getP1MainDeck() : mw.gameState.getP2MainDeck();
+				if (deck.isEmpty()) {
+					logEntry("Deck is empty — effect fizzles");
+					markEffectFizzled();
+					return;
+				}
+				CardData card = deck.pollFirst();
+				if (isP1) mw.refreshP1DeckLabel(); else mw.refreshP2DeckLabel();
+				logEntry((isP1 ? "" : "[P2] ") + "Revealed from top of deck: " + card.name() + " (cost " + card.cost() + ")");
+
+				if (isP1) {
+					JDialog dlg = new JDialog(mw.frame, "Reveal", true);
+					dlg.setResizable(false);
+					dlg.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
+					JLabel cardLabel = new JLabel("...", SwingConstants.CENTER);
+					cardLabel.setPreferredSize(new Dimension(CARD_W, CARD_H));
+					cardLabel.setMinimumSize(new Dimension(CARD_W, CARD_H));
+					cardLabel.setOpaque(true);
+					cardLabel.setBackground(Color.DARK_GRAY);
+					cardLabel.setBorder(BorderFactory.createLineBorder(new Color(160, 110, 220), 1));
+					cardLabel.addMouseListener(new MouseAdapter() {
+						@Override public void mouseEntered(MouseEvent e) { mw.showZoomAt(card.imageUrl()); }
+						@Override public void mouseExited(MouseEvent e)  { mw.hideZoom(); }
+					});
+					new SwingWorker<ImageIcon, Void>() {
+						@Override protected ImageIcon doInBackground() throws Exception {
+							Image img = ImageCache.load(card.imageUrl());
+							return img == null ? null : new ImageIcon(img.getScaledInstance(CARD_W, CARD_H, Image.SCALE_SMOOTH));
+						}
+						@Override protected void done() {
+							try { ImageIcon icon = get(); if (icon != null) { cardLabel.setIcon(icon); cardLabel.setText(null); } }
+							catch (InterruptedException | ExecutionException ignored) {}
+						}
+					}.execute();
+					JPanel wrapper = new JPanel(new BorderLayout(0, 4));
+					wrapper.setBorder(BorderFactory.createEmptyBorder(8, 8, 0, 8));
+					JLabel nameLabel = new JLabel(card.name() + " (cost " + card.cost() + ")", SwingConstants.CENTER);
+					nameLabel.setFont(FontLoader.loadPixelNESFont(9));
+					nameLabel.setPreferredSize(new Dimension(CARD_W, 18));
+					wrapper.add(cardLabel, BorderLayout.CENTER);
+					wrapper.add(nameLabel, BorderLayout.SOUTH);
+					JPanel south = new JPanel(new FlowLayout(FlowLayout.CENTER, 12, 6));
+					south.setBorder(BorderFactory.createEmptyBorder(0, 8, 8, 8));
+					JButton okBtn = new JButton("OK");
+					okBtn.setFont(FontLoader.loadPixelNESFont(11));
+					okBtn.addActionListener(ae -> { mw.hideZoom(); dlg.dispose(); });
+					south.add(okBtn);
+					dlg.getContentPane().setLayout(new BorderLayout(0, 4));
+					dlg.getContentPane().add(wrapper, BorderLayout.CENTER);
+					dlg.getContentPane().add(south,   BorderLayout.SOUTH);
+					dlg.pack();
+					dlg.setLocationRelativeTo(mw.frame);
+					dlg.setVisible(true);
+				}
+
+				// Break all opponent Forwards with the same cost as the revealed card
+				applyMassFieldEffect(GameContext.MassAction.BREAK, true, false, false,
+						true, false, null, card.cost(), null, -1, null, null);
+
+				// Add the revealed card to hand
+				if (isP1) {
+					mw.gameState.getP1Hand().add(card);
+					mw.animateCardDraw(true, 1);
+					mw.refreshP1HandLabel();
+				} else {
+					mw.gameState.getP2Hand().add(card);
+					mw.refreshP2HandCountLabel();
+				}
+				logEntry((isP1 ? "" : "[P2] ") + card.name() + " added to hand");
+			}
+
 			@Override public void playCharacterFromHand(boolean inclForwards, boolean inclBackups,
 					boolean inclMonsters, int costVal, String costCmp, int costVal2,
 					String jobFilter, String cardNameFilter, String categoryFilter,
@@ -1976,6 +2048,55 @@ final class GameContextImpl implements GameContext {
 				logEntry((isP1 ? "" : "[P2] ") + "Cast \"" + card.name() + "\" from hand for free"
 						+ (returnToHandAfterUse ? " (return to hand after use)" : ""));
 				mw.showSummonOnStack(card, isP1);
+				mw.lastCardWasCast = false;
+			}
+
+			@Override public void randomRevealHandCastIfSummonFree() {
+				List<CardData> hand = isP1 ? mw.gameState.getP1Hand() : mw.gameState.getP2Hand();
+				if (hand.isEmpty()) {
+					logEntry("Hand is empty — effect fizzles");
+					markEffectFizzled();
+					return;
+				}
+				int idx = (int) (Math.random() * hand.size());
+				CardData revealed = hand.get(idx);
+				logEntry((isP1 ? "" : "[P2] ") + "Randomly revealed: " + revealed.name());
+				if (!revealed.isSummon()) {
+					logEntry(revealed.name() + " is not a Summon — no cast");
+					return;
+				}
+				boolean cast;
+				if (isP1) {
+					int choice = mw.showEffectOptionDialog(
+							"Randomly revealed: " + revealed.name() + " (Summon)\nCast it without paying the cost?",
+							"May Cast Summon", new Object[]{"Cast", "Decline"});
+					cast = (choice == 0);
+				} else {
+					cast = true;
+					logEntry("[P2 AI] Auto-casts " + revealed.name());
+				}
+				if (!cast) {
+					logEntry("Declined to cast " + revealed.name());
+					return;
+				}
+				hand.remove(idx);
+				if (isP1) mw.refreshP1HandLabel(); else mw.refreshP2HandCountLabel();
+				if (isP1) {
+					mw.p1CardsCastThisTurn++;
+					mw.p1SummonCastThisTurn = true;
+					for (String j : revealed.jobs()) mw.p1CastJobsThisTurn.add(j.toLowerCase());
+					mw.p1CastNamesThisTurn.add(revealed.name().toLowerCase());
+					mw.p1CastCountByNameThisTurn.merge(revealed.name().toLowerCase(), 1, Integer::sum);
+				} else {
+					mw.p2CardsCastThisTurn++;
+					mw.p2SummonCastThisTurn = true;
+					for (String j : revealed.jobs()) mw.p2CastJobsThisTurn.add(j.toLowerCase());
+					mw.p2CastNamesThisTurn.add(revealed.name().toLowerCase());
+					mw.p2CastCountByNameThisTurn.merge(revealed.name().toLowerCase(), 1, Integer::sum);
+				}
+				mw.lastCardWasCast = true;
+				logEntry((isP1 ? "" : "[P2] ") + "Cast \"" + revealed.name() + "\" from hand for free");
+				mw.showSummonOnStack(revealed, isP1);
 				mw.lastCardWasCast = false;
 			}
 

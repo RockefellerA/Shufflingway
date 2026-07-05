@@ -233,6 +233,12 @@ public interface GameContext {
     void revealEachPlayerTopDeckMayPlay(java.util.function.Predicate<CardData> eligibleCondition);
 
     /**
+     * Reveals the top card of the player's deck in a modal popup, breaks all opponent Forwards
+     * with the same cost as the revealed card, then adds the revealed card to the player's hand.
+     */
+    void revealTopBreakSameCostAddToHand();
+
+    /**
      * Lets P1 choose one eligible card from their hand and places it onto the field
      * without paying costs.
      *
@@ -280,6 +286,13 @@ public interface GameContext {
     default void castSummonFromHandFree(int maxCost, boolean returnToHandAfterUse) {
         castSummonFromHandFree(maxCost, returnToHandAfterUse, null);
     }
+
+    /**
+     * Randomly reveals 1 card from the player's hand.  If it is a Summon, the player
+     * may cast it without paying the cost.  The card stays in hand if it is not a Summon
+     * or the player declines to cast.
+     */
+    void randomRevealHandCastIfSummonFree();
 
     /**
      * Searches the deck for a Summon matching the element and cost filters, then offers

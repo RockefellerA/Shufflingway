@@ -2193,6 +2193,14 @@ public class ActionResolver {
     );
 
     /**
+     * "Randomly reveal 1 card from your hand. If it is a Summon, you may cast it without paying the cost."
+     */
+    private static final Pattern RANDOM_REVEAL_HAND_CAST_IF_SUMMON_FREE = Pattern.compile(
+        "(?i)Randomly\\s+reveal\\s+1\\s+card\\s+from\\s+your\\s+hand[.!]?\\s+" +
+        "If\\s+it\\s+is\\s+a\\s+Summon,?\\s+you\\s+may\\s+cast\\s+it\\s+without\\s+paying\\s+(?:its|the)\\s+cost[.!]?"
+    );
+
+    /**
      * "Search for 1 [Element] Summon [of cost N or less] and cast it without paying [its|the] cost.
      * If you do not cast it, put the Summon into the Break Zone."
      * Groups: {@code element} — element name; {@code cost} — optional numeric cost cap.
@@ -3215,6 +3223,17 @@ public class ActionResolver {
     );
 
     /**
+     * "Reveal the top card of your deck. Break all Forwards opponent controls with the same cost
+     * as the revealed card. Add the revealed card to your hand."
+     */
+    private static final Pattern REVEAL_TOP_BREAK_SAME_COST_ADD_TO_HAND = Pattern.compile(
+        "(?i)Reveal\\s+the\\s+top\\s+card\\s+of\\s+your\\s+deck[.!]?\\s+" +
+        "Break\\s+all\\s+Forwards?\\s+(?:your\\s+)?opponent\\s+controls?\\s+with\\s+the\\s+same\\s+cost\\s+" +
+        "as\\s+the\\s+revealed\\s+card[.!]?\\s+" +
+        "Add\\s+the\\s+revealed\\s+card\\s+to\\s+your\\s+hand[.!]?"
+    );
+
+    /**
      * Detects "select [up to] N of the M following actions" — handled by MainWindow's
      * {@code executeSelectFollowingActionsAutoAbility}, not by ActionResolver's parse chain.
      * Used only for pattern-name reporting.
@@ -4116,6 +4135,9 @@ public class ActionResolver {
         result = tryParseDullAllOppFwdsPowerLeSource(effectText, source);
         if (result != null) return result;
 
+        result = tryParseRevealTopBreakSameCostAddToHand(effectText);
+        if (result != null) return result;
+
         result = tryParseAllFieldEffect(effectText);
         if (result != null) return result;
 
@@ -4396,6 +4418,9 @@ public class ActionResolver {
         if (result != null) return result;
 
         result = tryParseDealPlayerDamageToSelf(effectText);
+        if (result != null) return result;
+
+        result = tryParseRandomRevealHandCastIfSummonFree(effectText);
         if (result != null) return result;
 
         result = tryParseCastSummonFromHandFree(effectText, xValue);
@@ -4685,6 +4710,7 @@ public class ActionResolver {
         if (tryParseCancelSummonTargetingMyCharacter(effectText) != null) return "CancelSummonTargetingMyCharacter";
         if (tryParseSelectNumber(effectText, source)          != null) return "SelectNumber";
         if (tryParseDullAllOppFwdsPowerLeSource(effectText, source)        != null) return "DullAllOppFwdsPowerLeSource";
+        if (tryParseRevealTopBreakSameCostAddToHand(effectText)           != null) return "RevealTopBreakSameCostAddToHand";
         if (tryParseAllFieldEffect(effectText)                != null) return "AllFieldEffect";
         if (tryParseFieldPowerGrantPassive(effectText)        != null) {
             String trimmed = effectText.trim();
@@ -4769,6 +4795,7 @@ public class ActionResolver {
         if (tryParseDiscardThenDraw(effectText)               != null) return "DiscardThenDraw";
         if (tryParseDealPlayerDamageToOpponent(effectText)    != null) return "DealPlayerDamageToOpponent";
         if (tryParseDealPlayerDamageToSelf(effectText)        != null) return "DealPlayerDamageToSelf";
+        if (tryParseRandomRevealHandCastIfSummonFree(effectText) != null) return "RandomRevealHandCastIfSummonFree";
         if (tryParseCastSummonFromHandFree(effectText, 0)     != null) return "CastSummonFromHandFree";
         if (tryParseSearchAndCastSummonFree(effectText)       != null) return "SearchAndCastSummonFree";
         if (tryParsePlayAnyNumberFromHand(effectText, source) != null) return "PlayAnyNumberFromHand";
@@ -5101,6 +5128,7 @@ public class ActionResolver {
         if (tryParseChooseFwdPowerInferiorToSource(effectText, source) != null) return "ChooseFwdPowerInferiorToSource";
         if (tryParseChooseFwdBzCostInferiorToRemovedPlay(effectText)   != null) return "ChooseFwdBzCostInferiorToRemovedPlay";
         if (tryParseDullAllOppFwdsPowerLeSource(effectText, source)    != null) return "DullAllOppFwdsPowerLeSource";
+        if (tryParseRevealTopBreakSameCostAddToHand(effectText)       != null) return "RevealTopBreakSameCostAddToHand";
         if (tryParseEndOfEachTurnFieldAbility(effectText, source)             != null) return "EndOfEachTurnFieldAbility";
         if (tryParseEndOfEachPlayersTurnIfSelfFwdDamage(effectText, source)  != null) return "EndOfEachPlayersTurnIfSelfFwdDamage";
         if (tryParseBeginningOfMainPhase1EachTurnFieldAbility(effectText, source) != null) return "BeginningOfMainPhase1EachTurnFieldAbility";
@@ -5211,6 +5239,7 @@ public class ActionResolver {
         if (tryParseDiscardThenDraw(effectText) != null)                    return "DiscardThenDraw";
         if (tryParseDealPlayerDamageToOpponent(effectText) != null)         return "DealPlayerDamageToOpponent";
         if (tryParseDealPlayerDamageToSelf(effectText) != null)             return "DealPlayerDamageToSelf";
+        if (tryParseRandomRevealHandCastIfSummonFree(effectText) != null)   return "RandomRevealHandCastIfSummonFree";
         if (tryParseCastSummonFromHandFree(effectText, 0) != null)          return "CastSummonFromHandFree";
         if (tryParseSearchAndCastSummonFree(effectText) != null)            return "SearchAndCastSummonFree";
         if (tryParsePlayAnyNumberFromHand(effectText, source) != null)      return "PlayAnyNumberFromHand";
@@ -11598,6 +11627,14 @@ public class ActionResolver {
         };
     }
 
+    private static Consumer<GameContext> tryParseRandomRevealHandCastIfSummonFree(String text) {
+        if (!RANDOM_REVEAL_HAND_CAST_IF_SUMMON_FREE.matcher(text.trim()).find()) return null;
+        return ctx -> {
+            ctx.logEntry("Effect: Randomly reveal 1 card from hand — cast it for free if it is a Summon");
+            ctx.randomRevealHandCastIfSummonFree();
+        };
+    }
+
     private static Consumer<GameContext> tryParseCastSummonFromHandFree(String text, int xValue) {
         Matcher m = CAST_SUMMON_FROM_HAND_FREE.matcher(text.trim());
         if (!m.find()) return null;
@@ -13130,6 +13167,14 @@ public class ActionResolver {
         return ctx -> {
             ctx.logEntry("Effect: Look at top " + count + " card(s) of deck");
             ctx.lookAtTopDeck(new LookConfig(count, LookConfig.LookAction.PEEK));
+        };
+    }
+
+    private static Consumer<GameContext> tryParseRevealTopBreakSameCostAddToHand(String text) {
+        if (!REVEAL_TOP_BREAK_SAME_COST_ADD_TO_HAND.matcher(text.trim()).find()) return null;
+        return ctx -> {
+            ctx.logEntry("Effect: Reveal top of deck — break all opponent Forwards with same cost, add revealed card to hand");
+            ctx.revealTopBreakSameCostAddToHand();
         };
     }
 
