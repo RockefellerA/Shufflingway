@@ -1646,10 +1646,11 @@ public class ActionResolver {
         "(?i)(?:it|they)\\s+cannot\\s+be\\s+chosen\\s+by\\s+your\\s+opponent's\\s+abilities\\.?"
     );
 
-    /** "It gains 'This Character/Forward/Monster cannot be broken.' until the end of the turn." */
+    /** "It gains 'This Character/Forward/Monster cannot be broken.' until the end of the turn." Also matches the leading-Until form: "Until the end of the turn, it gains '...'." */
     private static final Pattern FOLLOWUP_CANNOT_BE_BROKEN = Pattern.compile(
-        "(?i)(?:it|they)\\s+gains?\\s+['\"]This\\s+(?:Forward|Character|Monster)\\s+cannot\\s+be\\s+broken\\.?['\"]" +
-        "\\s+until\\s+(?:the\\s+)?end\\s+of\\s+(?:the\\s+)?turn\\.?"
+        "(?i)(?:Until\\s+(?:the\\s+)?end\\s+of\\s+(?:the\\s+)?turn,\\s+)?" +
+        "(?:it|they)\\s+gains?\\s+['\"]This\\s+(?:Forward|Character|Monster)\\s+cannot\\s+be\\s+broken\\.?['\"]" +
+        "(?:\\s+until\\s+(?:the\\s+)?end\\s+of\\s+(?:the\\s+)?turn\\.?)?"
     );
 
     /** "It cannot be broken this turn." */
@@ -7253,6 +7254,11 @@ public class ActionResolver {
                                 sortedByIdxDesc(chosen, true) .forEach(ctx::breakTarget);
                                 sortedByIdxDesc(chosen, false).forEach(ctx::breakTarget);
                             };
+                        } else if (FOLLOWUP_CANNOT_BE_BROKEN.matcher(secondaryText).find()
+                                || FOLLOWUP_CANNOT_BE_BROKEN_SIMPLE.matcher(secondaryText).find()) {
+                            secondary = ctx -> ctx.lastChosenTargets().forEach(ctx::shieldCannotBeBroken);
+                        } else if (FOLLOWUP_CANNOT_BE_BROKEN_BY_NON_DMG.matcher(secondaryText).find()) {
+                            secondary = ctx -> ctx.lastChosenTargets().forEach(ctx::shieldCannotBeBrokenByNonDmg);
                         } else {
                             Matcher rfpM = SECONDARY_PLAY_REMOVED_ONTO_FIELD.matcher(secondaryText);
                             if (rfpM.find()) {
