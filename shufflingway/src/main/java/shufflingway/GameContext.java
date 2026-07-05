@@ -205,6 +205,13 @@ public interface GameContext {
     void opponentMillCards(int count);
 
     /**
+     * Mills the top {@code millCount} cards from the opponent's deck into their Break Zone,
+     * then draws {@code drawCount} cards for the ability user if all milled cards share
+     * at least one common element.
+     */
+    void opponentMillIfSameElementDraw(int millCount, int drawCount);
+
+    /**
      * Moves the top {@code count} cards from the ability user's own main deck into their Break Zone,
      * animating each card sliding from deck to break zone.
      */
@@ -1699,6 +1706,14 @@ public interface GameContext {
             String element, int costVal, String costCmp, String category, String excludeName);
 
     /**
+     * Boosts all Forwards (selected by {@code opponentOnly}/{@code selfOnly}) that share
+     * any element with the card named {@code cardName} on the caster's own field.
+     * Fizzles if the named card is not found on the field.
+     */
+    void allForwardsSameElementAsNamedGainPowerUntilEOT(String cardName, int amount,
+            boolean opponentOnly, boolean selfOnly);
+
+    /**
      * Applies a power boost until end of turn to all Forwards (and Monsters when
      * {@code inclMonsters} is true) that match {@code jobFilter} OR {@code cardNameFilter}.
      * Both filters use bar-separated OR semantics (see {@link CardFilters}).
@@ -1960,6 +1975,13 @@ public interface GameContext {
             String jobFilter, String categoryFilter, String cardNameFilter, String typeFilter) {
         revealTopAddUpToMatchingRestBottom(reveal, maxAdd, jobFilter, categoryFilter, cardNameFilter, typeFilter, -1, null);
     }
+
+    /**
+     * Reveals the top {@code reveal} cards of the player's deck.  The player may add up to
+     * {@code maxAdd} of them to hand, excluding any card whose name equals {@code excludeName}.
+     * All remaining revealed cards go to the Break Zone.
+     */
+    void revealTopAddUpToExcludingNameRestBz(int reveal, int maxAdd, String excludeName);
 
     /**
      * Grants all Forwards controlled by the acting player the given {@code job} until end of turn.

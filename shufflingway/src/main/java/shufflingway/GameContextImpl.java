@@ -34,14 +34,10 @@ import javax.swing.SwingUtilities;
 import javax.swing.SwingWorker;
 import javax.swing.Timer;
 
-import shufflingway.graphics.CardAnimation;
-import static shufflingway.graphics.CardAnimation.CARD_H;
-import static shufflingway.graphics.CardAnimation.CARD_W;
 import static shufflingway.CardFilters.formatCostFilterLabel;
 import static shufflingway.CardFilters.isBlockingTargetFilter;
 import static shufflingway.CardFilters.isEnteredThisTurnCondition;
 import static shufflingway.CardFilters.isTraitCondition;
-import static shufflingway.CardFilters.parseTraitFromCondition;
 import static shufflingway.CardFilters.matchesDiscardType;
 import static shufflingway.CardFilters.meetsCardNameFilter;
 import static shufflingway.CardFilters.meetsCategoryFilter;
@@ -50,6 +46,10 @@ import static shufflingway.CardFilters.meetsElementExclusion;
 import static shufflingway.CardFilters.meetsElementFilter;
 import static shufflingway.CardFilters.meetsPowerConstraint;
 import static shufflingway.CardFilters.meetsTargetCondition;
+import static shufflingway.CardFilters.parseTraitFromCondition;
+import shufflingway.graphics.CardAnimation;
+import static shufflingway.graphics.CardAnimation.CARD_H;
+import static shufflingway.graphics.CardAnimation.CARD_W;
 
 /**
  * Stateless adapter that lets {@link ActionResolver} reach back into {@link MainWindow}
@@ -1375,7 +1375,7 @@ final class GameContextImpl implements GameContext {
 			}
 
 			@Override public void opponentMillCards(int count) {
-				java.util.Deque<CardData> deck = mw.gameState.getP2MainDeck();
+				Deque<CardData> deck = mw.gameState.getP2MainDeck();
 				JLayeredPane lp    = mw.frame.getRootPane().getLayeredPane();
 				Point start = SwingUtilities.convertPoint(
 						mw.p2DeckLabel, mw.p2DeckLabel.getWidth() / 2, mw.p2DeckLabel.getHeight() / 2, lp);
@@ -1397,8 +1397,45 @@ final class GameContextImpl implements GameContext {
 				}
 			}
 
+			@Override public void opponentMillIfSameElementDraw(int millCount, int drawCount) {
+				Deque<CardData> oppDeck = isP1 ? mw.gameState.getP2MainDeck() : mw.gameState.getP1MainDeck();
+				JLayeredPane lp = mw.frame.getRootPane().getLayeredPane();
+				JLabel deckLbl  = isP1 ? mw.p2DeckLabel  : mw.p1DeckLabel;
+				JLabel breakLbl = isP1 ? mw.p2BreakLabel : mw.p1BreakLabel;
+				Point start = SwingUtilities.convertPoint(deckLbl,  deckLbl.getWidth() / 2,  deckLbl.getHeight() / 2,  lp);
+				Point end   = SwingUtilities.convertPoint(breakLbl, breakLbl.getWidth() / 2, breakLbl.getHeight() / 2, lp);
+				BufferedImage img = CardAnimation.toARGB(
+						mw.loadCardbackImage(), CardAnimation.CARD_W, CardAnimation.CARD_H);
+				List<CardData> milled = new ArrayList<>();
+				for (int i = 0; i < millCount && !oppDeck.isEmpty(); i++) {
+					CardData card = oppDeck.pop();
+					(isP1 ? mw.gameState.getP2BreakZone() : mw.gameState.getP1BreakZone()).add(card);
+					logEntry((isP1 ? "[P2] " : "[P1] ") + "Mill: \"" + card.name() + "\" → Break Zone");
+					mw.cardSlideAnimator.startSlide(img, start, end, i * 5);
+					milled.add(card);
+				}
+				if (!milled.isEmpty()) {
+					if (isP1) { mw.refreshP2DeckLabel(); mw.refreshP2BreakLabel(); }
+					else      { mw.refreshP1DeckLabel(); mw.refreshP1BreakLabel(); }
+				}
+				if (milled.size() < 2) return;
+				// Check if all milled cards share at least one common element
+				boolean sameElement = false;
+				for (String e : List.of("fire","ice","wind","earth","lightning","water","light","dark")) {
+					boolean allHave = true;
+					for (CardData c : milled) if (!c.containsElement(e)) { allHave = false; break; }
+					if (allHave) { sameElement = true; break; }
+				}
+				if (sameElement) {
+					logEntry("All milled cards share an element — draw " + drawCount);
+					drawCards(drawCount);
+				} else {
+					logEntry("Milled cards do not share an element — no draw");
+				}
+			}
+
 			@Override public void millCards(int count) {
-				java.util.Deque<CardData> deck = mw.gameState.getP1MainDeck();
+				Deque<CardData> deck = mw.gameState.getP1MainDeck();
 				JLayeredPane lp    = mw.frame.getRootPane().getLayeredPane();
 				Point start = SwingUtilities.convertPoint(
 						mw.p1DeckLabel, mw.p1DeckLabel.getWidth() / 2, mw.p1DeckLabel.getHeight() / 2, lp);
@@ -1517,7 +1554,7 @@ final class GameContextImpl implements GameContext {
 					logEntry("[P2] Reveal top deck card — not yet implemented for P2");
 					return;
 				}
-				java.util.Deque<CardData> deck = opponentDeck
+				Deque<CardData> deck = opponentDeck
 						? mw.gameState.getP2MainDeck()
 						: mw.gameState.getP1MainDeck();
 				String deckLabel = opponentDeck ? "opponent's deck" : "your deck";
@@ -2146,7 +2183,7 @@ final class GameContextImpl implements GameContext {
 			}
 
 			@Override public void searchAndCastSummonFreeFromDeck(int maxCost, String elementFilter) {
-				java.util.Deque<CardData> deck = isP1 ? mw.gameState.getP1MainDeck() : mw.gameState.getP2MainDeck();
+				Deque<CardData> deck = isP1 ? mw.gameState.getP1MainDeck() : mw.gameState.getP2MainDeck();
 				java.util.List<CardData> matches = new java.util.ArrayList<>();
 				for (CardData c : deck) {
 					if (!c.isSummon()) continue;
@@ -2729,7 +2766,7 @@ final class GameContextImpl implements GameContext {
 			}
 
 			@Override public void removeTopCardsOfDeckFromGame(int count) {
-				java.util.Deque<CardData> deck = isP1 ? mw.gameState.getP1MainDeck() : mw.gameState.getP2MainDeck();
+				Deque<CardData> deck = isP1 ? mw.gameState.getP1MainDeck() : mw.gameState.getP2MainDeck();
 				for (int i = 0; i < count && !deck.isEmpty(); i++) {
 					CardData c = deck.pollFirst();
 					mw.gameState.addToPermanentRfp(c);
@@ -2739,7 +2776,7 @@ final class GameContextImpl implements GameContext {
 			}
 
 			@Override public int removeTopCardOfDeckFromGameAndGetCost() {
-				java.util.Deque<CardData> deck = isP1 ? mw.gameState.getP1MainDeck() : mw.gameState.getP2MainDeck();
+				Deque<CardData> deck = isP1 ? mw.gameState.getP1MainDeck() : mw.gameState.getP2MainDeck();
 				if (deck.isEmpty()) { logEntry("Deck is empty — no card removed"); return 0; }
 				CardData c = deck.pollFirst();
 				mw.gameState.addToPermanentRfp(c);
@@ -2749,7 +2786,7 @@ final class GameContextImpl implements GameContext {
 			}
 
 			@Override public int revealTopNAndAddAllToHandGetTotalCP(int n) {
-				java.util.Deque<CardData> deck = isP1 ? mw.gameState.getP1MainDeck() : mw.gameState.getP2MainDeck();
+				Deque<CardData> deck = isP1 ? mw.gameState.getP1MainDeck() : mw.gameState.getP2MainDeck();
 				List<CardData> hand = isP1 ? mw.gameState.getP1Hand() : mw.gameState.getP2Hand();
 				int take = Math.min(n, deck.size());
 				if (take == 0) { logEntry("Deck is empty — no cards revealed"); return 0; }
@@ -2767,7 +2804,7 @@ final class GameContextImpl implements GameContext {
 			}
 
 			@Override public int revealTopNCountJobPlaceAllAtBottom(int n, String job) {
-				java.util.Deque<CardData> deck = isP1 ? mw.gameState.getP1MainDeck() : mw.gameState.getP2MainDeck();
+				Deque<CardData> deck = isP1 ? mw.gameState.getP1MainDeck() : mw.gameState.getP2MainDeck();
 				int take = Math.min(n, deck.size());
 				if (take == 0) { logEntry("Deck is empty — no cards revealed"); return 0; }
 				List<CardData> revealed = new ArrayList<>();
@@ -2784,7 +2821,7 @@ final class GameContextImpl implements GameContext {
 			}
 
 			@Override public void shuffleDeck() {
-				java.util.Deque<CardData> deck = isP1 ? mw.gameState.getP1MainDeck() : mw.gameState.getP2MainDeck();
+				Deque<CardData> deck = isP1 ? mw.gameState.getP1MainDeck() : mw.gameState.getP2MainDeck();
 				List<CardData> list = new java.util.ArrayList<>(deck);
 				java.util.Collections.shuffle(list);
 				deck.clear();
@@ -4165,6 +4202,53 @@ final class GameContextImpl implements GameContext {
 				}
 			}
 
+			@Override public void allForwardsSameElementAsNamedGainPowerUntilEOT(
+					String cardName, int amount, boolean opponentOnly, boolean selfOnly) {
+				// Find the named card on the caster's own field to determine its element(s)
+				List<CardData> myFwds = isP1 ? mw.p1ForwardCards : mw.p2ForwardCards;
+				CardData[] myBkps    = isP1 ? mw.p1BackupCards   : mw.p2BackupCards;
+				List<CardData> myMons = isP1 ? mw.p1MonsterCards : mw.p2MonsterCards;
+				CardData named = null;
+				for (CardData c : myFwds) if (CardFilters.meetsCardNameFilter(c, cardName)) { named = c; break; }
+				if (named == null) for (CardData c : myBkps) if (c != null && CardFilters.meetsCardNameFilter(c, cardName)) { named = c; break; }
+				if (named == null) for (CardData c : myMons) if (CardFilters.meetsCardNameFilter(c, cardName)) { named = c; break; }
+				if (named == null) {
+					logEntry(cardName + " not found on field — effect fizzles");
+					markEffectFizzled();
+					return;
+				}
+				final CardData src = named;
+				java.util.function.Predicate<CardData> sharesElement = c -> {
+					for (String e : List.of("fire","ice","wind","earth","lightning","water","light","dark"))
+						if (c.containsElement(e) && src.containsElement(e)) return true;
+					return false;
+				};
+				boolean touchP1 = isP1 ? !opponentOnly : !selfOnly;
+				boolean touchP2 = isP1 ? !selfOnly     : !opponentOnly;
+				if (touchP1) {
+					boolean suppressed = amount > 0 && mw.oppForwardPowerBoostSuppressedFor(true);
+					for (int i = 0; i < mw.p1ForwardCards.size(); i++) {
+						CardData c = p1Forward(i);
+						if (!sharesElement.test(c)) continue;
+						if (suppressed) { logEntry(c.name() + " — power boost suppressed"); continue; }
+						mw.p1ForwardPowerBoost.set(i, mw.p1ForwardPowerBoost.get(i) + amount);
+						logEntry(c.name() + " gains +" + amount + " power until end of turn");
+						mw.refreshP1ForwardSlot(i);
+					}
+				}
+				if (touchP2) {
+					boolean suppressed = amount > 0 && mw.oppForwardPowerBoostSuppressedFor(false);
+					for (int i = 0; i < mw.p2ForwardCards.size(); i++) {
+						CardData c = p2Forward(i);
+						if (!sharesElement.test(c)) continue;
+						if (suppressed) { logEntry("[P2] " + c.name() + " — power boost suppressed"); continue; }
+						mw.p2ForwardPowerBoost.set(i, mw.p2ForwardPowerBoost.get(i) + amount);
+						logEntry("[P2] " + c.name() + " gains +" + amount + " power until end of turn");
+						mw.refreshP2ForwardSlot(i);
+					}
+				}
+			}
+
 			@Override public void applyMassFieldJobCardNamePowerBoost(int amount, boolean inclForwards, boolean inclMonsters,
 					boolean opponentOnly, boolean selfOnly, String jobFilter, String cardNameFilter) {
 				boolean touchP1 = isP1 ? !opponentOnly : !selfOnly;
@@ -4421,7 +4505,7 @@ final class GameContextImpl implements GameContext {
 			}
 
 			@Override public void opponentRfpTopDeckMakeCastable(int costReduction, boolean anyElement) {
-				java.util.Deque<CardData> oppDeck = isP1 ? mw.gameState.getP2MainDeck() : mw.gameState.getP1MainDeck();
+				Deque<CardData> oppDeck = isP1 ? mw.gameState.getP2MainDeck() : mw.gameState.getP1MainDeck();
 				if (oppDeck.isEmpty()) { logEntry("Opponent's deck is empty — nothing removed"); return; }
 				CardData top = oppDeck.pollFirst();
 				mw.gameState.addToPermanentRfp(top);
@@ -5075,6 +5159,40 @@ final class GameContextImpl implements GameContext {
 					mw.refreshP2DeckLabel();
 				} else {
 					mw.lookDialogs().showRevealAddUpToMatchingRestBottom(peeked, deck, isP1, maxAdd, jobFilter, categoryFilter, cardNameFilter, typeFilter, maxCost, elementFilter);
+				}
+			}
+
+			@Override public void revealTopAddUpToExcludingNameRestBz(int reveal, int maxAdd, String excludeName) {
+				Deque<CardData> deck = isP1 ? mw.gameState.getP1MainDeck() : mw.gameState.getP2MainDeck();
+				int n = Math.min(reveal, deck.size());
+				if (n == 0) { logEntry("Reveal top: deck is empty."); return; }
+				List<CardData> peeked = new ArrayList<>();
+				for (CardData c : deck) { peeked.add(c); if (peeked.size() >= n) break; }
+				logEntry("Reveal top " + n + " card(s): " +
+						peeked.stream().map(CardData::name).collect(Collectors.joining(", ")));
+				if (!isP1 && mw.isP2Cpu()) {
+					// CPU P2: auto-add up to maxAdd cards (highest cost first, skipping excluded name)
+					List<CardData> eligible = peeked.stream()
+							.filter(c -> !c.name().equalsIgnoreCase(excludeName))
+							.sorted(java.util.Comparator.comparingInt(CardData::cost).reversed())
+							.collect(Collectors.toList());
+					Set<CardData> chosen = new java.util.LinkedHashSet<>(
+							eligible.subList(0, Math.min(maxAdd, eligible.size())));
+					for (int i = 0; i < n; i++) deck.pollFirst();
+					for (CardData c : chosen) {
+						mw.gameState.getP2Hand().add(c);
+						logEntry("[AI] " + c.name() + " → [P2] hand");
+					}
+					if (!chosen.isEmpty()) mw.refreshP2HandCountLabel();
+					for (CardData c : peeked) {
+						if (!chosen.contains(c)) {
+							mw.gameState.getP2BreakZone().add(c);
+							logEntry("[AI] " + c.name() + " → [P2] Break Zone");
+						}
+					}
+					mw.refreshP2DeckLabel();
+				} else {
+					mw.lookDialogs().showRevealAddUpToExcludingNameRestBz(peeked, deck, isP1, maxAdd, excludeName);
 				}
 			}
 

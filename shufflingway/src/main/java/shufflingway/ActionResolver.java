@@ -1492,6 +1492,18 @@ public class ActionResolver {
     );
 
     /**
+     * Matches "Reveal the top N cards of your deck. Add up to M cards other than Card Name [name]
+     * among them to your hand, and put the rest of the cards into the Break Zone."
+     * Groups: {@code n}, {@code max}, {@code name}.
+     */
+    private static final Pattern REVEAL_TOP_N_ADD_UP_TO_EXCLUDING_NAME_REST_BZ = Pattern.compile(
+        "(?i)^\\s*reveal\\s+the\\s+top\\s+(?<n>\\d+)\\s+cards?\\s+of\\s+your\\s+deck[.!]?\\s+" +
+        "Add\\s+up\\s+to\\s+(?<max>\\d+)\\s+cards?\\s+other\\s+than\\s+Card\\s+Name\\s+(?<name>.+?)\\s+" +
+        "among\\s+them\\s+to\\s+your\\s+hand,?\\s+" +
+        "and\\s+put\\s+the\\s+rest\\s+of\\s+the\\s+cards?\\s+into\\s+the\\s+Break\\s+Zone[.!]?\\s*$"
+    );
+
+    /**
      * Matches "Reveal the top N cards of your deck. Add M [Type] among them to your hand or
      * play M [Job] [Type] among them onto the field, and return the other cards to the bottom
      * of your deck in any order."
@@ -2154,6 +2166,19 @@ public class ActionResolver {
         "|(?<count2>\\d+)\\s+cards?\\s+from\\s+the\\s+top\\s+of)\\s+" +
         "(?:his/her|his|her|their)\\s+deck\\s+into\\s+the\\s+Break\\s+Zone" +
         "(?:[.!]?\\s*(?:You\\s+)?[Dd]raw\\s+(?<draw>\\d+)\\s+cards?[.!]?)?"
+    );
+
+    /**
+     * Matches "Your opponent puts the top N cards of his/her deck into the Break Zone.
+     * If both [all] cards are of the same Element, draw M card(s)."
+     * Groups: {@code count}, {@code draw}.
+     */
+    private static final Pattern OPPONENT_MILL_IF_SAME_ELEMENT_DRAW = Pattern.compile(
+        "(?i)Your\\s+opponent\\s+puts?\\s+" +
+        "(?:the\\s+top\\s+(?<count>\\d+)\\s+cards?\\s+of|(?<count2>\\d+)\\s+cards?\\s+from\\s+the\\s+top\\s+of)\\s+" +
+        "(?:his/her|his|her|their)\\s+deck\\s+into\\s+the\\s+Break\\s+Zone[.!]?\\s+" +
+        "If\\s+(?:both|all)\\s+(?:the\\s+)?cards?\\s+are\\s+of\\s+the\\s+same\\s+Element,?\\s+" +
+        "draw\\s+(?<draw>\\d+)\\s+cards?[.!]?"
     );
 
     private static final Pattern SELF_MILL_PATTERN = Pattern.compile(
@@ -2942,6 +2967,19 @@ public class ActionResolver {
         "(?:\\s+other\\s+than\\s+(?<excludename>.+?))?" +
         "(?:\\s+(?<control>(?:your\\s+)?opponent\\s+controls?|you\\s+control))?" +
         "\\s+(?<verb>gains?|loses?)\\s+\\+?(?<amount>\\d+)\\s+[Pp]ower" +
+        "\\s+until\\s+(?:the\\s+)?end\\s+of\\s+(?:the\\s+)?turn[.!]?"
+    );
+
+    /**
+     * Matches "All [the] Forwards of the same Element as [Card Name] X you control
+     * gain +N power until [the] end of [the] turn."
+     * Groups: {@code name}, {@code control}, {@code verb}, {@code amount}.
+     */
+    private static final Pattern ALL_FORWARDS_SAME_ELEMENT_AS_NAMED_POWER_BOOST = Pattern.compile(
+        "(?i)All\\s+(?:the\\s+)?Forwards?\\s+of\\s+the\\s+same\\s+Element\\s+as\\s+" +
+        "(?:Card\\s+Name\\s+)?(?<name>[A-Za-z][A-Za-z0-9\\s''\\-]*?)\\s+" +
+        "(?<control>(?:your\\s+)?opponent\\s+controls?|you\\s+control)\\s+" +
+        "(?<verb>gains?|loses?)\\s+\\+?(?<amount>\\d+)\\s+[Pp]ower" +
         "\\s+until\\s+(?:the\\s+)?end\\s+of\\s+(?:the\\s+)?turn[.!]?"
     );
 
@@ -4154,6 +4192,9 @@ public class ActionResolver {
         result = tryParseFieldPowerGrantPassive(effectText);
         if (result != null) return result;
 
+        result = tryParseAllForwardsSameElementAsNamedPowerBoost(effectText);
+        if (result != null) return result;
+
         result = tryParseAllFieldPowerBoost(effectText);
         if (result != null) return result;
 
@@ -4281,6 +4322,9 @@ public class ActionResolver {
         if (result != null) return result;
 
         result = tryParseOpponentHandRfp(effectText);
+        if (result != null) return result;
+
+        result = tryParseRevealTopNAddUpToExcludingNameRestBz(effectText);
         if (result != null) return result;
 
         result = tryParseRevealTopNTypeCostToHand(effectText);
@@ -4458,6 +4502,9 @@ public class ActionResolver {
         if (result != null) return result;
 
         result = tryParseOpponentPutsForwardToBreakZone(effectText);
+        if (result != null) return result;
+
+        result = tryParseOpponentMillIfSameElementDraw(effectText);
         if (result != null) return result;
 
         result = tryParseOpponentMill(effectText);
@@ -4817,6 +4864,7 @@ public class ActionResolver {
         if (tryParseOpponentSelects(effectText)               != null) return "OpponentSelects";
         if (tryParseBzFwdToHandOppFwdToBzByDamage(effectText)  != null) return "BzFwdToHandOppFwdToBzByDamage";
         if (tryParseOpponentPutsForwardToBreakZone(effectText) != null) return "OpponentPutsForwardToBreakZone";
+        if (tryParseOpponentMillIfSameElementDraw(effectText)  != null) return "OpponentMillIfSameElementDraw";
         if (tryParseOpponentMill(effectText)                  != null) return "OpponentMill";
         if (tryParseSelfMill(effectText)                      != null) return "SelfMill";
         if (tryParseOpponentRevealHand(effectText)            != null) return "OpponentRevealHand";
@@ -5165,6 +5213,7 @@ public class ActionResolver {
                 return "AllFieldPowerBoost";
             }
         }
+        if (tryParseAllForwardsSameElementAsNamedPowerBoost(effectText) != null) return "AllForwardsSameElementAsNamedPowerBoost";
         if (tryParseAllFieldJobCardNamePowerBoost(effectText) != null)       return "AllFieldJobCardNamePowerBoost";
         if (tryParseTwoCardNamesPowerBoost(effectText) != null)             return "TwoCardNamesPowerBoost";
         if (tryParseAllFieldJobPowerBoost(effectText) != null)              return "AllFieldJobPowerBoost";
@@ -5204,6 +5253,7 @@ public class ActionResolver {
         if (tryParseOpponentRandomHandRfp(effectText) != null)              return "OpponentRandomHandRfp";
         if (tryParseOpponentRandomHandToBottomDeck(effectText) != null)     return "OpponentRandomHandToBottomDeck";
         if (tryParseOpponentHandRfp(effectText) != null)                   return "OpponentHandRfp";
+        if (tryParseRevealTopNAddUpToExcludingNameRestBz(effectText) != null)  return "RevealTopNAddUpToExcludingNameRestBz";
         if (tryParseRevealTopNTypeCostToHand(effectText)   != null)           return "RevealTopNTypeCostToHand";
         if (tryParseRevealTopNTypeToHand(effectText)       != null)           return "RevealTopNTypeToHand";
         if (tryParseRevealTopNCategoryToHand(effectText)   != null)          return "RevealTopNCategoryToHand";
@@ -5268,6 +5318,7 @@ public class ActionResolver {
         }
 
         if (tryParseBzFwdToHandOppFwdToBzByDamage(effectText) != null)      return "BzFwdToHandOppFwdToBzByDamage";
+        if (tryParseOpponentMillIfSameElementDraw(effectText) != null)      return "OpponentMillIfSameElementDraw";
         if (tryParseOpponentMill(effectText) != null)                       return "OpponentMill";
         if (tryParseSelfMill(effectText) != null)                           return "SelfMill";
         if (tryParseOpponentRevealHand(effectText) != null)                 return "OpponentRevealHand";
@@ -11295,6 +11346,23 @@ public class ActionResolver {
         };
     }
 
+    private static Consumer<GameContext> tryParseAllForwardsSameElementAsNamedPowerBoost(String text) {
+        Matcher m = ALL_FORWARDS_SAME_ELEMENT_AS_NAMED_POWER_BOOST.matcher(text);
+        if (!m.find()) return null;
+        String name    = m.group("name").trim();
+        boolean isLose = m.group("verb").toLowerCase().startsWith("lose");
+        int amount     = Integer.parseInt(m.group("amount")) * (isLose ? -1 : 1);
+        String control = m.group("control");
+        boolean opponentOnly = control != null && !control.toLowerCase().contains("you control");
+        boolean selfOnly     = control != null &&  control.toLowerCase().contains("you control");
+        return ctx -> {
+            ctx.logEntry("Effect: All Forwards same element as " + name
+                    + (selfOnly ? " (yours)" : opponentOnly ? " (opponent's)" : "")
+                    + " " + (isLose ? "-" : "+") + Math.abs(amount) + " power until end of turn");
+            ctx.allForwardsSameElementAsNamedGainPowerUntilEOT(name, amount, opponentOnly, selfOnly);
+        };
+    }
+
     /**
      * Parses "All Job X and Card Name Y [you control | opponent controls] gain +N power
      * until end of turn." — matches cards that have Job X OR are Card Name Y.
@@ -11991,6 +12059,19 @@ public class ActionResolver {
         };
     }
 
+    private static Consumer<GameContext> tryParseOpponentMillIfSameElementDraw(String text) {
+        Matcher m = OPPONENT_MILL_IF_SAME_ELEMENT_DRAW.matcher(text);
+        if (!m.find()) return null;
+        String countStr = m.group("count");
+        if (countStr == null) countStr = m.group("count2");
+        int mill = countStr != null ? Integer.parseInt(countStr) : 2;
+        int draw = Integer.parseInt(m.group("draw"));
+        return ctx -> {
+            ctx.logEntry("Effect: Opponent mills " + mill + " — draw " + draw + " if all same element");
+            ctx.opponentMillIfSameElementDraw(mill, draw);
+        };
+    }
+
     /** Parses "Put the top N card(s) of your deck into the Break Zone." */
     private static Consumer<GameContext> tryParseSelfMill(String text) {
         Matcher m = SELF_MILL_PATTERN.matcher(text);
@@ -12617,6 +12698,19 @@ public class ActionResolver {
             ctx.logEntry("Effect: Reveal top " + n + " — add up to " + max + " " + normElement
                     + (typeFilter != null ? " " + typeFilter : " card") + "(s) to hand, rest to bottom");
             ctx.revealTopAddUpToMatchingRestBottom(n, max, null, null, null, typeFilter, -1, normElement);
+        };
+    }
+
+    private static Consumer<GameContext> tryParseRevealTopNAddUpToExcludingNameRestBz(String text) {
+        Matcher m = REVEAL_TOP_N_ADD_UP_TO_EXCLUDING_NAME_REST_BZ.matcher(text.trim());
+        if (!m.find()) return null;
+        int n = Integer.parseInt(m.group("n"));
+        int max = Integer.parseInt(m.group("max"));
+        String name = m.group("name").trim();
+        return ctx -> {
+            ctx.logEntry("Effect: Reveal top " + n + " — add up to " + max
+                    + " (excl. Card Name " + name + ") to hand, rest to Break Zone");
+            ctx.revealTopAddUpToExcludingNameRestBz(n, max, name);
         };
     }
 
