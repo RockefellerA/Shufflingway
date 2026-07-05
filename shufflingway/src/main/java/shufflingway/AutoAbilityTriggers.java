@@ -320,6 +320,15 @@ final class AutoAbilityTriggers {
 		"(?i)The\\s+power\\s+of\\s+Forwards?\\s+(?:your\\s+)?opponent\\s+controls?\\s+cannot\\s+be\\s+increased\\s+by\\s+Summons?\\s+or\\s+abilit(?:y|ies)[.!]?"
 	);
 
+	/**
+	 * Field ability: "Opposing Forwards entering the field will not trigger any auto-abilities ..."
+	 * Suppresses both the entering Forward's own ETF abilities and the opponent's same-side ETF watchers.
+	 * The controller's own "when an opposing Forward enters" abilities are NOT suppressed.
+	 */
+	static final Pattern FA_OPP_FORWARD_ETF_SUPPRESSED = Pattern.compile(
+		"(?i)Opposing\\s+Forwards?\\s+entering\\s+the\\s+field\\s+will\\s+not\\s+trigger\\s+any\\s+auto.?abilities"
+	);
+
 	/** Returns true if {@code card} has the opponent-Forward-power-boost-suppression field ability. */
 	static boolean hasOppForwardPowerBoostSuppression(CardData card) {
 		for (FieldAbility fa : card.fieldAbilities())
@@ -519,27 +528,51 @@ final class AutoAbilityTriggers {
 			for (int i = 0; i < mw.p2ForwardCards.size(); i++) mw.refreshP2ForwardSlot(i);
 			return;
 		}
+		// Check if the opponent suppresses this Forward's ETF abilities.
+		// Suppresses only the entering card's own abilities and the opponent's same-side watchers.
+		// The controller's own "enters opponent's field" watchers are NOT suppressed.
+		boolean ownEtfSuppressed = card.isForward() && oppSuppressesForwardEtf(!isP1);
 		withBatch(() -> {
-			for (AutoAbility fa : card.autoAbilities()) {
-				if (!fa.triggerCard().equalsIgnoreCase(card.name())) continue;
-				if (!fa.trigger().contains("enter")) continue;
-				// "enters your field other than from your hand" — skip when played normally from hand
-				if (fa.trigger().equals("enters your field not from hand") && mw.lastCardWasCast) continue;
-				executeAutoAbility(fa, card, isP1);
+			if (!ownEtfSuppressed) {
+				for (AutoAbility fa : card.autoAbilities()) {
+					if (!fa.triggerCard().equalsIgnoreCase(card.name())) continue;
+					if (!fa.trigger().contains("enter")) continue;
+					// "enters your field other than from your hand" — skip when played normally from hand
+					if (fa.trigger().equals("enters your field not from hand") && mw.lastCardWasCast) continue;
+					executeAutoAbility(fa, card, isP1);
+				}
+				// Watcher dispatch: "When a <Type> enters your field, ..." abilities live on other field cards
+				// on the same side as the entering card.
+				fireEntersYourFieldWatchers(card, isP1);
+				// Also fire watcher abilities on break-zone cards (only those gated by bzConditionCard).
+				fireEntersYourFieldBreakZoneWatchers(card, isP1);
 			}
-			// Watcher dispatch: "When a <Type> enters your field, ..." abilities live on other field cards
-			// on the same side as the entering card.
-			fireEntersYourFieldWatchers(card, isP1);
-			// Also fire watcher abilities on break-zone cards (only those gated by bzConditionCard).
-			fireEntersYourFieldBreakZoneWatchers(card, isP1);
 			// Watcher dispatch: "When a <Type> of your opponent enters the field, ..." lives on the
 			// opponent's cards and uses trigger "enters opponent's field".
+			// Not suppressed — the controller still gets their own triggers.
 			fireEntersOpponentFieldWatchers(card, isP1);
 		});
 		// Re-evaluate all conditional field boosts now that the field composition has changed
 		mw.refreshAllForwardSlots();
 		for (int i = 0; i < mw.p2ForwardCards.size(); i++) mw.refreshP2ForwardSlot(i);
 		mw.showStackWindowIfNeeded();
+	}
+
+	/** True if the player identified by {@code oppIsP1} controls a card with {@link #FA_OPP_FORWARD_ETF_SUPPRESSED}. */
+	private boolean oppSuppressesForwardEtf(boolean oppIsP1) {
+		List<CardData> fwds = oppIsP1 ? mw.p1ForwardCards : mw.p2ForwardCards;
+		CardData[]     bkps = oppIsP1 ? mw.p1BackupCards  : mw.p2BackupCards;
+		List<CardData> mons = oppIsP1 ? mw.p1MonsterCards : mw.p2MonsterCards;
+		for (CardData c : fwds) if (!mw.lostAbilitiesCards.contains(c) && hasOppForwardEtfSuppression(c)) return true;
+		for (CardData c : bkps) if (c != null && !mw.lostAbilitiesCards.contains(c) && hasOppForwardEtfSuppression(c)) return true;
+		for (CardData c : mons) if (!mw.lostAbilitiesCards.contains(c) && hasOppForwardEtfSuppression(c)) return true;
+		return false;
+	}
+
+	private static boolean hasOppForwardEtfSuppression(CardData card) {
+		for (FieldAbility fa : card.fieldAbilities())
+			if (FA_OPP_FORWARD_ETF_SUPPRESSED.matcher(fa.effectText()).find()) return true;
+		return false;
 	}
 
 	/**
