@@ -1640,6 +1640,28 @@ public class ActionResolver {
     );
 
     /**
+     * "[Cardname] and it gain '[quote]' until the end of your opponent's turn."
+     * Rydia-style: source card and chosen target both receive the quoted ability until opponent's EOT.
+     */
+    private static final Pattern FOLLOWUP_SELF_AND_TARGET_GAIN_QUOTE_UNTIL_OPP_TURN = Pattern.compile(
+        "(?i)\\S.*?\\s+and\\s+it\\s+gains?\\s+['\"].+?['\"]\\s+until\\s+the\\s+end\\s+of\\s+your\\s+opponent.s\\s+turn[.!]?"
+    );
+
+    /** "The next time you use its special ability this turn, you can do so without paying [cost]."
+     *  Edgar-style: waives the special-ability cost for the chosen target once this turn. */
+    private static final Pattern FOLLOWUP_TARGET_NEXT_SPECIAL_FREE = Pattern.compile(
+        "(?i)The\\s+next\\s+time\\s+you\\s+use\\s+its\\s+special\\s+ability\\s+this\\s+turn,\\s+" +
+        "you\\s+can\\s+do\\s+so\\s+without\\s+paying\\s+.+?[.!]?"
+    );
+
+    /** "During this turn, you can cast it at any time you could normally cast it as long as you have
+     *  no cards in hand."  Minwu (FFBE)-style: allows instant-casting the chosen BZ card this turn. */
+    private static final Pattern FOLLOWUP_CAST_IT_FROM_BZ_ANYTIME_NO_HAND = Pattern.compile(
+        "(?i)During\\s+this\\s+turn,\\s+you\\s+can\\s+cast\\s+it\\s+at\\s+any\\s+time\\s+" +
+        "you\\s+could\\s+normally\\s+cast\\s+it\\s+as\\s+long\\s+as\\s+you\\s+have\\s+no\\s+cards\\s+in\\s+hand[.!]?"
+    );
+
+    /**
      * "It/They cannot be chosen by your opponent's Summons or abilities [this turn]."
      * More specific than the Summons-only and abilities-only forms; checked first.
      */
@@ -4978,6 +5000,9 @@ public class ActionResolver {
         if (FOLLOWUP_GAIN_CONTROL_WHILE_CARD.matcher(followupText).find())            return "GainControlWhileCard";
         if (FOLLOWUP_GAIN_CONTROL_EOT.matcher(followupText).find())                   return "GainControlEOT";
         if (FOLLOWUP_GAIN_CONTROL.matcher(followupText).find())                       return "GainControl";
+        if (FOLLOWUP_SELF_AND_TARGET_GAIN_QUOTE_UNTIL_OPP_TURN.matcher(followupText).find()) return "SelfAndTargetGainUntilOppTurn";
+        if (FOLLOWUP_TARGET_NEXT_SPECIAL_FREE.matcher(followupText).find())              return "TargetNextSpecialFree";
+        if (FOLLOWUP_CAST_IT_FROM_BZ_ANYTIME_NO_HAND.matcher(followupText).find())      return "CastItFromBzAnytime";
         if (FOLLOWUP_GAINS_CANNOT_BE_CHOSEN.matcher(followupText).find())             return "GainsCannotBeChosen";
         if (FOLLOWUP_CANNOT_BE_BROKEN.matcher(followupText).find())                  return "CannotBeBroken";
         if (FOLLOWUP_CANNOT_BE_BROKEN_SIMPLE.matcher(followupText).find())           return "CannotBeBrokenSimple";
