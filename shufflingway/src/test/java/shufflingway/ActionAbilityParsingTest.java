@@ -152,6 +152,31 @@ public class ActionAbilityParsingTest {
         if (ab.yourTurnOnly())                sb.append("  [Your turn only]");
         if (ab.oncePerTurn())                 sb.append("  [Once per turn]");
         if (ab.mainPhaseOnly())               sb.append("  [Main phase only]");
+        if (ab.controlCondition() != null) {
+            ControlCondition cc = ab.controlCondition();
+            StringBuilder tag = new StringBuilder("  [If ");
+            if (cc.opponentControls()) tag.append("opp ");
+            if (cc.requiresCrystal()) {
+                tag.append("has Crystal");
+            } else if (cc.dullCardName() != null) {
+                tag.append(cc.dullCardName()).append(" dull");
+            } else if (!cc.requiredCardNames().isEmpty()) {
+                tag.append("controls: ").append(String.join(cc.anyOf() ? " or " : " + ", cc.requiredCardNames()));
+            } else {
+                if (cc.exactCount()) tag.append("exactly ");
+                if (cc.minCount() > 1) tag.append(cc.minCount()).append("+ ");
+                if (cc.allHave()) tag.append("all ");
+                if (cc.element() != null) tag.append(cc.element()).append(" ");
+                if (cc.excludeElement() != null) tag.append("non-").append(cc.excludeElement()).append(" ");
+                if (cc.job() != null) tag.append("Job ").append(cc.job()).append(" ");
+                if (cc.category() != null) tag.append("Cat. ").append(cc.category()).append(" ");
+                tag.append(cc.cardType() != null ? cc.cardType() : "Character");
+                if (!cc.orCardNames().isEmpty()) tag.append(" or ").append(String.join("/", cc.orCardNames()));
+                if (cc.minPower() > 0) tag.append(" ≥").append(cc.minPower()).append("power");
+            }
+            tag.append("]");
+            sb.append(tag);
+        }
         return sb.toString();
     }
 

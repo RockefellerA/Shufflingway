@@ -557,6 +557,14 @@ public interface GameContext {
     int getCounters(CardData card, String counterName);
 
     /**
+     * Selects and removes one counter from the character at {@code t}.
+     * If the card has no counters the effect fizzles.
+     * If it has exactly one counter type the counter is removed silently.
+     * If it has multiple counter types the active player is prompted to choose one.
+     */
+    void removeOneCounterFromTarget(ForwardTarget t);
+
+    /**
      * General "look at the top N cards" effect.  The {@link LookConfig} specifies how
      * many cards to look at and what the player may do with them afterward.
      */

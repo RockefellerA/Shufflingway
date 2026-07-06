@@ -3081,6 +3081,31 @@ final class GameContextImpl implements GameContext {
 				return mw.gameState.getCounters(card, counterName);
 			}
 
+			@Override public void removeOneCounterFromTarget(ForwardTarget t) {
+				CardData card = switch (t.zone()) {
+					case BACKUP  -> t.isP1() ? mw.p1BackupCards[t.idx()] : mw.p2BackupCards[t.idx()];
+					case MONSTER -> t.isP1() ? mw.p1MonsterCards.get(t.idx()) : mw.p2MonsterCards.get(t.idx());
+					default      -> t.isP1() ? mw.p1ForwardCards.get(t.idx()) : mw.p2ForwardCards.get(t.idx());
+				};
+				if (card == null) { logEntry("removeOneCounter — target card not found"); return; }
+				Map<String, Integer> counters = mw.gameState.getCountersMap(card);
+				if (counters.isEmpty()) {
+					logEntry(card.name() + " — no counters to remove (fizzle)");
+					return;
+				}
+				String chosen;
+				if (counters.size() == 1) {
+					chosen = counters.keySet().iterator().next();
+				} else {
+					String[] types = counters.keySet().toArray(new String[0]);
+					chosen = selectOption("Select a Counter to remove from " + card.name(), types);
+					if (chosen == null) chosen = types[0];
+				}
+				mw.gameState.removeCounters(card, chosen, 1);
+				logEntry(card.name() + " — removed 1 " + chosen + " Counter  [remaining: "
+						+ mw.gameState.getCountersMap(card) + "]");
+			}
+
 			@Override public void lookAtTopDeck(LookConfig config) {
 				mw.lookDialogs().show(config, isP1);
 			}

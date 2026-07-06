@@ -2688,6 +2688,15 @@ public class ActionResolver {
     );
 
     /**
+     * Matches "Select 1 Counter placed on it, and remove the selected Counter."
+     * The counter type is chosen by the player at resolution time (dialog if multiple types).
+     */
+    private static final Pattern FOLLOWUP_REMOVE_ONE_COUNTER = Pattern.compile(
+        "(?i)Select\\s+1\\s+Counter\\s+placed\\s+on\\s+(?:it|them)[,.]?\\s+" +
+        "and\\s+remove\\s+the\\s+selected\\s+Counter[.!]?"
+    );
+
+    /**
      * Matches "Deal it N damage for each [Name] Counter(s) placed on [card]."
      * Groups: {@code perunit} = damage per counter; {@code counterName} = counter type name.
      * Uses {@code xValue} captured before any BZ-cost payment cleared the counters.
@@ -5029,6 +5038,7 @@ public class ActionResolver {
                 return "SelfPowerBoost";
         }
         if (FOLLOWUP_PLACE_COUNTER_ON_IT.matcher(followupText).find())                 return "PlaceCounterOnIt";
+        if (FOLLOWUP_REMOVE_ONE_COUNTER.matcher(followupText).find())                  return "RemoveOneCounter";
         if (BECOME_FORWARD_UNTIL_EOT_PATTERN.matcher(followupText).find())             return "BecomeForwardUntilEot";
         if (FOLLOWUP_CANCEL_EFFECT.matcher(followupText).find())                      return "CancelEffect";
         if (FOLLOWUP_SHIELD_NEXT_DMG_ZERO.matcher(followupText).find())               return "ShieldNextDmgZero";
@@ -5056,6 +5066,9 @@ public class ActionResolver {
     public static String fullDescription(String effectText, CardData source) {
         effectText = effectText.replaceFirst("(?i)^(?:\\[\\[ex\\]\\])?\\s*EX\\s+BURST(?:\\[\\[/\\]\\])?\\s*", "").trim();
         effectText = effectText.replaceFirst("(?i)^Then,?\\s+", "").trim();
+        // Strip trailing use-restriction sentences so they don't short-circuit before effect patterns match
+        String noRestriction = stripRestrictionSentences(effectText);
+        if (!noRestriction.isEmpty()) effectText = noRestriction;
         if (tryParseChooseSummonInBzCastable(effectText)        != null)    return "ChooseSummonInBzCastable";
         if (tryParseOppRfpTopDeckCastable(effectText)          != null)    return "OppRfpTopDeckCastable";
         if (tryParseChooseFromOppBzCastable(effectText)        != null)    return "ChooseFromOppBzCastable";
@@ -6236,6 +6249,11 @@ public class ActionResolver {
                     ctx.placeCounters(card, counterName, count);
                 }
             };
+        }
+
+        // Select and remove one counter from the chosen character (dialog if multiple types)
+        if (FOLLOWUP_REMOVE_ONE_COUNTER.matcher(t).find()) {
+            return (ctx, ts) -> ts.forEach(ctx::removeOneCounterFromTarget);
         }
 
         // Deal N damage [and/minus M [more] damage] for each [Category X] [Element] Type [of cost N] you control
@@ -9358,8 +9376,10 @@ public class ActionResolver {
         s = CardData.SELF_NO_CARDS_IN_HAND_RESTRICTION        .matcher(s).replaceAll("").trim();
         s = CardData.CP_BACKUP_ONLY_ABILITY                   .matcher(s).replaceAll("").trim();
         s = CardData.CP_ELEMENTS_ONLY_ABILITY                 .matcher(s).replaceAll("").trim();
-        s = CardData.CONTROL_IF_PATTERN            .matcher(s).replaceAll("").trim();
-        s = CardData.CONTROL_IF_NOT_ANY_PATTERN        .matcher(s).replaceAll("").trim();
+        s = CardData.CONTROL_IF_PATTERN                    .matcher(s).replaceAll("").trim();
+        s = CardData.CONTROL_IF_NOT_ANY_PATTERN            .matcher(s).replaceAll("").trim();
+        s = CardData.OPPONENT_CONTROLS_N_OR_MORE_PATTERN   .matcher(s).replaceAll("").trim();
+        s = CardData.COUNTER_ZERO_RESTRICTION              .matcher(s).replaceAll("").trim();
         // Strip leftover leading/trailing ", and" / "," / "." artifacts
         s = s.replaceAll("^[,.;\\s]+|[,.;\\s]+$", "").trim();
         return s;
