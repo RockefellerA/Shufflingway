@@ -3738,12 +3738,12 @@ public class ActionResolver {
      * [(it cannot become 0)][.]" — applies to all matching plays this turn (not consumed on use).
      */
     private static final Pattern PLAY_COST_REDUCTION_THIS_TURN = Pattern.compile(
-        "(?i)The\\s+cost\\s+required\\s+to\\s+play\\s+your\\s+" +
+        "(?i)The\\s+cost\\s+required\\s+to\\s+(?:play|cast)\\s+your\\s+" +
         "(?:(?<element>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)\\s+)?" +
         "(?:Category\\s+(?<category>\\S+)\\s+)?" +
         "(?:Job\\s+(?<job>.+?)\\s+)?" +
         "(?:Card\\s+Name\\s+(?<cardname>\\S+)|(?<type>Forwards?|Backups?|Monsters?|Characters?))\\s+" +
-        "onto\\s+the\\s+field\\s+this\\s+turn\\s+is\\s+reduced\\s+by\\s+(?<amount>\\d+)" +
+        "(?:onto\\s+the\\s+field\\s+)?this\\s+turn\\s+is\\s+reduced\\s+by\\s+(?<amount>\\d+)" +
         "(?<floorone>\\s*\\(it\\s+cannot\\s+become\\s+0\\))?[.!]?"
     );
 
