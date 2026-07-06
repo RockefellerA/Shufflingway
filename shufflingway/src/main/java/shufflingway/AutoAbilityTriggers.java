@@ -436,6 +436,15 @@ final class AutoAbilityTriggers {
 		"(?i)^Forwards?\\s+cannot\\s+gain\\s+Haste[.!]?$"
 	);
 
+	/**
+	 * "If you receive damage while [cardName] is active, dull [cardName]. The damage becomes 0 instead."
+	 * Groups: {@code card} (the self-dulling card name that must be active).
+	 */
+	static final Pattern FA_RECV_PLAYER_DAMAGE_ACTIVE_DULL_ZERO = Pattern.compile(
+		"(?i)^If\\s+you\\s+receive\\s+damage\\s+while\\s+(?<card>.+?)\\s+is\\s+active,\\s+" +
+		"dull\\s+(?<dullcard>.+?)[.,]?\\s+The\\s+damage\\s+becomes\\s+0\\s+instead[.!]?$"
+	);
+
 	/** "If [card] receives damage while dull, the damage is reduced by N instead." */
 	static final Pattern FA_DAMAGE_WHILE_DULL_REDUCTION = Pattern.compile(
 		"(?i)^If\\s+(?<card>.+?)\\s+(?:receives|is\\s+dealt)\\s+damage\\s+while\\s+dull,\\s+" +

@@ -20,6 +20,7 @@ import java.util.function.Consumer;
 import java.util.regex.Matcher;
 import java.util.stream.Collectors;
 
+import shufflingway.graphics.ShieldIcon;
 import javax.swing.BorderFactory;
 import javax.swing.ImageIcon;
 import javax.swing.JButton;
@@ -227,7 +228,8 @@ final class GameContextImpl implements GameContext {
 				CardData c = mw.autoAbilityTriggers.fieldCardData(t); if (c != null) mw.perCardNonLethalDmgSet.add(c);
 			}
 			@Override public void shieldPlayerNextDamage() {
-				if (isP1) mw.p1NextDamageZero = true; else mw.p2NextDamageZero = true;
+				if (isP1) { mw.p1NextDamageZero = true; if (mw.p1ShieldIcon != null) mw.p1ShieldIcon.reset(); }
+				else       { mw.p2NextDamageZero = true; if (mw.p2ShieldIcon != null) mw.p2ShieldIcon.reset(); }
 			}
 			@Override public void disableOpponentDamageReduction() {
 				if (isP1) mw.p2DmgReductionDisabled = true; else mw.p1DmgReductionDisabled = true;
