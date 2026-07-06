@@ -2045,6 +2045,84 @@ final class GameContextImpl implements GameContext {
 				}
 			}
 
+			@Override public void chooseAnyNumberReturnToHand(boolean inclForwards, boolean inclBackups,
+					boolean inclMonsters, boolean opponentOnly, boolean selfOnly) {
+				// Which player zones to include (from the ability user's perspective)
+				boolean includeP1 = opponentOnly ? !isP1 : (selfOnly ? isP1 : true);
+				boolean includeP2 = opponentOnly ?  isP1 : (selfOnly ? !isP1 : true);
+
+				if (!isP1) {
+					// P2 AI: return all eligible cards from P1's zone (opponent), nothing from own
+					if (includeP1) {
+						if (inclForwards)
+							for (int i = mw.p1ForwardCards.size() - 1; i >= 0; i--) returnP1ForwardToHand(i);
+						if (inclBackups)
+							for (int i = mw.p1BackupCards.length - 1; i >= 0; i--)
+								if (mw.p1BackupCards[i] != null) returnP1BackupToHand(i);
+						if (inclMonsters)
+							for (int i = mw.p1MonsterCards.size() - 1; i >= 0; i--) returnP1MonsterToHand(i);
+					}
+					return;
+				}
+
+				// P1 human: loop-chooser, rebuilt each iteration so indices stay valid
+				while (true) {
+					List<CardData> candidates = new ArrayList<>();
+					List<int[]>    zoneIdx    = new ArrayList<>(); // [player: 0=P1 1=P2, zone: 0=fwd 1=bkp 2=mon, idx]
+					if (includeP1) {
+						if (inclForwards)
+							for (int i = 0; i < mw.p1ForwardCards.size(); i++) {
+								CardData c = mw.p1ForwardCards.get(i);
+								if (c != null) { candidates.add(c); zoneIdx.add(new int[]{0, 0, i}); }
+							}
+						if (inclBackups)
+							for (int i = 0; i < mw.p1BackupCards.length; i++) {
+								CardData c = mw.p1BackupCards[i];
+								if (c != null) { candidates.add(c); zoneIdx.add(new int[]{0, 1, i}); }
+							}
+						if (inclMonsters)
+							for (int i = 0; i < mw.p1MonsterCards.size(); i++) {
+								CardData c = mw.p1MonsterCards.get(i);
+								if (c != null) { candidates.add(c); zoneIdx.add(new int[]{0, 2, i}); }
+							}
+					}
+					if (includeP2) {
+						if (inclForwards)
+							for (int i = 0; i < mw.p2ForwardCards.size(); i++) {
+								CardData c = mw.p2ForwardCards.get(i);
+								if (c != null) { candidates.add(c); zoneIdx.add(new int[]{1, 0, i}); }
+							}
+						if (inclBackups)
+							for (int i = 0; i < mw.p2BackupCards.length; i++) {
+								CardData c = mw.p2BackupCards[i];
+								if (c != null) { candidates.add(c); zoneIdx.add(new int[]{1, 1, i}); }
+							}
+						if (inclMonsters)
+							for (int i = 0; i < mw.p2MonsterCards.size(); i++) {
+								CardData c = mw.p2MonsterCards.get(i);
+								if (c != null) { candidates.add(c); zoneIdx.add(new int[]{1, 2, i}); }
+							}
+					}
+					if (candidates.isEmpty()) return;
+					int pick = mw.showCardImageChooser(candidates, "Return a Character to hand (cancel when done)", true);
+					if (pick < 0) return;
+					int[] zi = zoneIdx.get(pick);
+					if (zi[0] == 0) { // P1 zone
+						switch (zi[1]) {
+							case 0 -> returnP1ForwardToHand(zi[2]);
+							case 1 -> returnP1BackupToHand(zi[2]);
+							case 2 -> returnP1MonsterToHand(zi[2]);
+						}
+					} else { // P2 zone
+						switch (zi[1]) {
+							case 0 -> returnP2ForwardToHand(zi[2]);
+							case 1 -> returnP2BackupToHand(zi[2]);
+							case 2 -> returnP2MonsterToHand(zi[2]);
+						}
+					}
+				}
+			}
+
 			@Override public void castSummonFromHandFree(int maxCost, boolean returnToHandAfterUse, String excludeElements) {
 				List<CardData> hand = isP1 ? mw.gameState.getP1Hand() : mw.gameState.getP2Hand();
 				List<Integer> eligible = new ArrayList<>();
@@ -4614,6 +4692,26 @@ final class GameContextImpl implements GameContext {
 							+ (expiresThisTurn ? " this turn" : " during this game")
 							+ (freeCast ? " without paying its cost" : ""));
 				}
+			}
+
+			@Override public void chooseSummonInBzByMaxCostFreeCastRfgAfterUse(int maxCost) {
+				List<CardData> bz = isP1 ? mw.gameState.getP1BreakZone() : mw.gameState.getP2BreakZone();
+				List<CardData> candidates = new ArrayList<>();
+				for (CardData c : bz)
+					if (c.isSummon() && c.cost() <= maxCost) candidates.add(c);
+				if (candidates.isEmpty()) {
+					logEntry((isP1 ? "" : "[P2] ") + "No Summon of cost ≤ " + maxCost + " in Break Zone — effect fizzles");
+					return;
+				}
+				CardData picked = isP1
+						? mw.chooseCardFromBzDialog(candidates, "Choose a Summon of cost ≤ " + maxCost)
+						: candidates.get(0);
+				if (picked == null) return;
+				PlayableEntry entry = new PlayableEntry(PlayableEntry.SourceZone.BREAK_ZONE, 0, false, true, true, true);
+				mw.registerBorrowedPlayable(isP1, picked, entry);
+				logEntry((isP1 ? "" : "[P2] ") + picked.name()
+						+ " in Break Zone is castable this turn (free) — removed from game after use");
+				if (isP1) mw.refreshP1BreakLabel(); else mw.refreshP2BreakLabel();
 			}
 
 			@Override public List<FieldAbility> getActiveFieldAbilities() {

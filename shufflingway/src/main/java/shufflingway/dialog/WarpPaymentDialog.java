@@ -203,13 +203,20 @@ public class WarpPaymentDialog {
                                 || isGrantedAnyElement(bkp);
                         boolean isAnyElemOfFwds = bkp.backupCpAnyElementOfForwards()
                                 && !controlledForwards.isEmpty();
-                        if (isAnyElem || isAnyElemOfFwds) {
+                        java.util.List<String> grantedSpecific = getGrantedSpecificElements(bkp);
+                        boolean hasGrantedSpecific = !grantedSpecific.isEmpty();
+                        if (isAnyElem || isAnyElemOfFwds || hasGrantedSpecific) {
                             String[] available;
                             if (isAnyElemOfFwds && !isAnyElem) {
                                 java.util.LinkedHashSet<String> fwdElems = new java.util.LinkedHashSet<>();
                                 for (CardData fwd : controlledForwards)
                                     for (String fe : fwd.elements()) fwdElems.add(fe);
                                 available = fwdElems.toArray(String[]::new);
+                            } else if (hasGrantedSpecific && !isAnyElem && !isAnyElemOfFwds) {
+                                java.util.LinkedHashSet<String> opts = new java.util.LinkedHashSet<>(
+                                        java.util.Arrays.asList(bkp.elements()));
+                                opts.addAll(grantedSpecific);
+                                available = opts.toArray(String[]::new);
                             } else {
                                 available = StandardPaymentDialog.ALL_ELEMENTS;
                             }
@@ -310,14 +317,35 @@ public class WarpPaymentDialog {
         for (CardData b : backupCards) {
             if (b != null) {
                 BackupCpGrant grant = b.backupCpGrant();
-                if (grant != null && grant.appliesTo(backup)) return true;
+                if (grant != null && grant.isAnyElementGrant() && grant.appliesTo(backup)) return true;
             }
         }
         for (CardData fwd : controlledForwards) {
             BackupCpGrant grant = fwd.backupCpGrant();
-            if (grant != null && grant.appliesTo(backup)) return true;
+            if (grant != null && grant.isAnyElementGrant() && grant.appliesTo(backup)) return true;
         }
         return false;
+    }
+
+    private java.util.List<String> getGrantedSpecificElements(CardData backup) {
+        java.util.List<String> result = null;
+        for (CardData b : backupCards) {
+            if (b != null) {
+                BackupCpGrant grant = b.backupCpGrant();
+                if (grant != null && !grant.isAnyElementGrant() && grant.appliesTo(backup)) {
+                    if (result == null) result = new java.util.ArrayList<>();
+                    for (String e : grant.grantedElements()) if (!result.contains(e)) result.add(e);
+                }
+            }
+        }
+        for (CardData fwd : controlledForwards) {
+            BackupCpGrant grant = fwd.backupCpGrant();
+            if (grant != null && !grant.isAnyElementGrant() && grant.appliesTo(backup)) {
+                if (result == null) result = new java.util.ArrayList<>();
+                for (String e : grant.grantedElements()) if (!result.contains(e)) result.add(e);
+            }
+        }
+        return result != null ? result : java.util.List.of();
     }
 
     private static JLabel makeCardLabel() {

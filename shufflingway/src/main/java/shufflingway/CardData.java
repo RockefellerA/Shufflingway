@@ -380,21 +380,39 @@ public record CardData(
         "Backups\\s+you\\s+control\\s+can\\s+produce\\s+CP\\s+of\\s+any\\s+Element"
     );
 
+    /** Matches "The Job Sky Pirate Backups you control can produce Wind or Water CP." */
+    private static final Pattern BACKUP_CP_GRANT_SPECIFIC_ELEMS = Pattern.compile(
+        "(?i)(?:The\\s+)?(?:Job\\s+(?<job>[^B]+?)\\s+|Category\\s+(?<category>\\S+)\\s+" +
+        "|(?<element>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)\\s+)?" +
+        "Backups\\s+you\\s+control\\s+can\\s+produce\\s+" +
+        "(?<elems>(?:(?:Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)(?:\\s+or\\s+))+(?:Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark))\\s+CP"
+    );
+
     /**
      * Returns a {@link BackupCpGrant} describing the field-ability grant on this card, or
-     * {@code null} if no such ability is present.  All three filter fields are {@code null}
-     * when the grant applies to every Backup (the unconditional form).
+     * {@code null} if no such ability is present.  The {@code grantedElements} field is
+     * {@code null} for any-element grants, or a specific list for element-restricted grants.
      */
     public BackupCpGrant backupCpGrant() {
         Matcher m = BACKUP_CP_GRANT.matcher(textEn);
-        if (!m.find()) return null;
-        return new BackupCpGrant(m.group("job"), m.group("category"), m.group("element"));
+        if (m.find())
+            return new BackupCpGrant(m.group("job"), m.group("category"), m.group("element"), null);
+        Matcher ms = BACKUP_CP_GRANT_SPECIFIC_ELEMS.matcher(textEn);
+        if (ms.find()) {
+            String[] parts = ms.group("elems").split("(?i)\\s+or\\s+");
+            List<String> elems = new ArrayList<>();
+            for (String p : parts) elems.add(p.trim());
+            return new BackupCpGrant(ms.group("job"), ms.group("category"), ms.group("element"), elems);
+        }
+        return null;
     }
 
     /** Returns {@code true} if {@code text} describes any "produce CP" backup ability (self or grant). */
     static boolean isBackupCpAbility(String text) {
         return BACKUP_CP_ANY_ELEM_ALWAYS.matcher(text).find()
-            || BACKUP_CP_EXTRA_ELEMENTS.matcher(text).find();
+            || BACKUP_CP_EXTRA_ELEMENTS.matcher(text).find()
+            || BACKUP_CP_GRANT.matcher(text).find()
+            || BACKUP_CP_GRANT_SPECIFIC_ELEMS.matcher(text).find();
     }
 
     /** "You can only cast X during your turn." */

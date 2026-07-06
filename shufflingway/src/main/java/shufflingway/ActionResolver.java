@@ -1059,6 +1059,21 @@ public class ActionResolver {
         "\\s+to\\s+(?:(?:its|their)\\s+owner(?:'s|s')?\\s+hands?|your\\s+hand)[.!]?"
     );
 
+    /**
+     * Matches "Choose any number of [Forwards[/and Monsters]/Backups/Characters]
+     * [opponent controls | you control | &lt;none&gt;].
+     * [Return them to their owners' hands.]"
+     *
+     * <p>The control clause and the return sentence are both optional so the pattern covers
+     * abbreviated forms (e.g. Zell/Vivi ETF) as well as the full explicit version.
+     */
+    private static final Pattern CHOOSE_ANY_NUMBER_RETURN_TO_HAND = Pattern.compile(
+        "(?i)Choose\\s+any\\s+number\\s+of\\s+" +
+        "(?<types>Forwards?(?:\\s+and\\s+Monsters?)?|Monsters?(?:\\s+and\\s+Forwards?)?|Backups?|Characters?)" +
+        "(?:\\s+(?<control>(?:your\\s+)?opponent\\s+controls?|you\\s+control))?" +
+        "[.!]?(?:\\s*Return\\s+them\\s+to\\s+their\\s+owners?'?s?\\s+hands?[.!]?)?"
+    );
+
     /** Matches "Return [name] to its owner's hand." — named card, not a pronoun. */
     private static final Pattern RETURN_NAMED_TO_OWNERS_HAND = Pattern.compile(
         "(?i)Return\\s+(?!(?:it|them)\\b)(?<named>.+?)\\s+to\\s+its\\s+owner(?:'s|s')?\\s+hand[.!]?"
@@ -3871,6 +3886,16 @@ public class ActionResolver {
     );
 
     /**
+     * "Choose 1 Summon of cost N or less in your Break Zone. Cast it without paying the cost.
+     * Remove that Summon from the game after use instead of putting it in the Break Zone."
+     */
+    private static final Pattern CHOOSE_SUMMON_IN_BZ_MAX_COST_FREE_CAST_RFG = Pattern.compile(
+        "(?is)Choose\\s+1\\s+Summon\\s+of\\s+cost\\s+(?<cost>\\d+)\\s+or\\s+less\\s+in\\s+your\\s+Break\\s+Zone[.!]?\\s+" +
+        "Cast\\s+it\\s+without\\s+paying\\s+the\\s+cost[.!]?\\s+" +
+        "Remove\\s+that\\s+Summon\\s+from\\s+the\\s+game\\s+after\\s+use\\s+instead\\s+of\\s+putting\\s+it\\s+in\\s+the\\s+Break\\s+Zone[.!]?"
+    );
+
+    /**
      * "Choose 1 Forward with N power or less and up to 1 Forward in your opponent's Break Zone.
      * Remove them from the game."
      */
@@ -4050,6 +4075,9 @@ public class ActionResolver {
         result = tryParseChooseSummonsFromBzCastable(effectText);
         if (result != null) return result;
 
+        result = tryParseChooseSummonInBzMaxCostFreeCastRfg(effectText);
+        if (result != null) return result;
+
         result = tryParseSelectFollowingActions(effectText, source);
         if (result != null) return result;
 
@@ -4188,6 +4216,9 @@ public class ActionResolver {
         if (result != null) return result;
 
         result = tryParseChooseCounterScaleCharsActivate(effectText, xValue);
+        if (result != null) return result;
+
+        result = tryParseChooseAnyNumberReturnToHand(effectText);
         if (result != null) return result;
 
         result = tryParseChooseCharacter(effectText, source, xValue);
@@ -4796,6 +4827,7 @@ public class ActionResolver {
         if (tryParseOppRfpTopDeckCastable(effectText)                   != null) return "OppRfpTopDeckCastable";
         if (tryParseChooseFromOppBzCastable(effectText)                 != null) return "ChooseFromOppBzCastable";
         if (tryParseChooseSummonsFromBzCastable(effectText)             != null) return "ChooseSummonsFromBzCastable";
+        if (tryParseChooseSummonInBzMaxCostFreeCastRfg(effectText)      != null) return "ChooseSummonInBzMaxCostFreeCastRfg";
         if (tryParseSelectNumber(effectText, source)                    != null) return "SelectNumber";
         if (tryParseForEachJobAndNameDealDamageToForwards(effectText)   != null) return "ForEachJobAndNameDealDamageToForwards";
         if (tryParseDealNForEachJobOrNameToOppForwards(effectText)      != null) return "DealNForEachJobOrNameToOppForwards";
@@ -4824,6 +4856,7 @@ public class ActionResolver {
         if (tryParseChooseOppDamagedFwdIfHasAbilityBreak(effectText)     != null) return "ChooseOppDamagedFwdIfHasAbilityBreak";
         if (tryParseChooseAsManyAsFieldCount(effectText, source)         != null) return "ChooseAsManyAsFieldCount";
         if (tryParseChooseCounterScaleCharsActivate(effectText, 1)    != null) return "ChooseCounterScaleCharsActivate";
+        if (tryParseChooseAnyNumberReturnToHand(effectText)    != null) return "ChooseAnyNumberReturnToHand";
         if (tryParseChooseCharacter(effectText, source, 0)              != null) return "ChooseCharacter";
         if (tryParseEndOfEachTurnFieldAbility(effectText, source)             != null) return "EndOfEachTurnFieldAbility";
         if (tryParseEndOfEachPlayersTurnIfSelfFwdDamage(effectText, source)  != null) return "EndOfEachPlayersTurnIfSelfFwdDamage";
@@ -4957,8 +4990,9 @@ public class ActionResolver {
         if (tryParseRemoveFromBattle(effectText)                != null) return "RemoveFromBattle";
         if (tryParseChooseSummonFromBzToHandWithCostReduction(effectText) != null) return "ChooseSummonFromBzToHandWithCostReduction";
         if (tryParseChooseNSummonsBzPickOneHandRestRfg(effectText)        != null) return "ChooseNSummonsBzPickOneHandRestRfg";
-        if (tryParseChooseSummonInBzCastable(effectText)         != null) return "ChooseSummonInBzCastable";
-        if (tryParseCostReductionThisTurn(effectText)            != null) return "CostReductionThisTurn";
+        if (tryParseChooseSummonInBzCastable(effectText)              != null) return "ChooseSummonInBzCastable";
+        if (tryParseChooseSummonInBzMaxCostFreeCastRfg(effectText)    != null) return "ChooseSummonInBzMaxCostFreeCastRfg";
+        if (tryParseCostReductionThisTurn(effectText)                 != null) return "CostReductionThisTurn";
         if (tryParsePlayCostReductionThisTurn(effectText)        != null) return "PlayCostReductionThisTurn";
         if (CardData.isSelfCostModifierText(effectText))                  return "SelfCostModifier";
         if (tryParseExtraTurnThenLose(effectText)               != null) return "ExtraTurnThenLose";
@@ -5120,8 +5154,9 @@ public class ActionResolver {
         if (tryParseChooseSummonInBzCastable(effectText)        != null)    return "ChooseSummonInBzCastable";
         if (tryParseOppRfpTopDeckCastable(effectText)          != null)    return "OppRfpTopDeckCastable";
         if (tryParseChooseFromOppBzCastable(effectText)        != null)    return "ChooseFromOppBzCastable";
-        if (tryParseChooseSummonsFromBzCastable(effectText)    != null)    return "ChooseSummonsFromBzCastable";
-        if (CardData.isSelfCostModifierText(effectText))                    return "SelfCostModifier";
+        if (tryParseChooseSummonsFromBzCastable(effectText)         != null)    return "ChooseSummonsFromBzCastable";
+        if (tryParseChooseSummonInBzMaxCostFreeCastRfg(effectText)  != null)    return "ChooseSummonInBzMaxCostFreeCastRfg";
+        if (CardData.isSelfCostModifierText(effectText))                        return "SelfCostModifier";
         if (CardData.YOUR_TURN_ONLY_PATTERN.matcher(effectText).matches())  return "YourTurnOnly";
         if (CardData.ONCE_PER_TURN_PATTERN.matcher(effectText).matches())   return "OncePerTurn";
         if (CardData.YOUR_TURN_ONLY_PATTERN.matcher(effectText).find()
@@ -5172,6 +5207,8 @@ public class ActionResolver {
             return "ChooseForwardSharedPowerLoss";
         if (tryParseChooseFwdPowerLeAndOptOppBzFwdRfp(normalizedEffectText) != null)
             return "ChooseFwdPowerLeAndOptOppBzFwdRfp";
+        if (tryParseChooseAnyNumberReturnToHand(normalizedEffectText) != null)
+            return "ChooseAnyNumberReturnToHand";
         Matcher threeMixedM = CHOOSE_THREE_MIXED_TYPES_PATTERN.matcher(normalizedEffectText);
         if (threeMixedM.find()) {
             String followupName = matchedFollowupName(threeMixedM.group("followup").trim(), source);
@@ -11303,6 +11340,24 @@ public class ActionResolver {
         };
     }
 
+    private static Consumer<GameContext> tryParseChooseAnyNumberReturnToHand(String text) {
+        Matcher m = CHOOSE_ANY_NUMBER_RETURN_TO_HAND.matcher(text);
+        if (!m.matches()) return null;
+        String typesRaw = m.group("types").toLowerCase(java.util.Locale.ROOT);
+        boolean inclForwards = typesRaw.contains("forward") || typesRaw.contains("character");
+        boolean inclBackups  = typesRaw.contains("backup")  || typesRaw.contains("character");
+        boolean inclMonsters = typesRaw.contains("monster") || typesRaw.contains("character");
+        String controlRaw    = m.group("control");
+        boolean opponentOnly = controlRaw != null && !controlRaw.toLowerCase(java.util.Locale.ROOT).contains("you control");
+        boolean selfOnly     = controlRaw != null &&  controlRaw.toLowerCase(java.util.Locale.ROOT).contains("you control");
+        String typeLabel     = m.group("types");
+        String controlLabel  = opponentOnly ? " (opponent's)" : selfOnly ? " (yours)" : "";
+        return ctx -> {
+            ctx.logEntry("Effect: Choose any number of " + typeLabel + controlLabel + " — return to hand");
+            ctx.chooseAnyNumberReturnToHand(inclForwards, inclBackups, inclMonsters, opponentOnly, selfOnly);
+        };
+    }
+
     /**
      * Parses "Choose 1 auto-ability. Cancel its effect. If the cancelled auto-ability triggered
      * from a Forward, deal that Forward N damage."
@@ -13687,6 +13742,16 @@ public class ActionResolver {
             };
         }
         return null;
+    }
+
+    private static Consumer<GameContext> tryParseChooseSummonInBzMaxCostFreeCastRfg(String text) {
+        Matcher m = CHOOSE_SUMMON_IN_BZ_MAX_COST_FREE_CAST_RFG.matcher(text);
+        if (!m.find()) return null;
+        final int maxCost = Integer.parseInt(m.group("cost"));
+        return ctx -> {
+            ctx.logEntry("Effect: Choose Summon (cost ≤ " + maxCost + ") from BZ — cast free, RFG after use");
+            ctx.chooseSummonInBzByMaxCostFreeCastRfgAfterUse(maxCost);
+        };
     }
 
     private static Consumer<GameContext> tryParseCostReductionThisTurn(String text) {

@@ -6224,19 +6224,41 @@ public class MainWindow {
 		return true;
 	}
 
-	/** Returns true if any on-field card (backup or forward) grants {@code backup} any-element CP. */
+	/** Returns true if any on-field card grants {@code backup} any-element CP. */
 	private boolean isGrantedAnyElementCp(CardData backup) {
 		for (CardData b : p1BackupCards) {
 			if (b != null) {
 				BackupCpGrant grant = b.backupCpGrant();
-				if (grant != null && grant.appliesTo(backup)) return true;
+				if (grant != null && grant.isAnyElementGrant() && grant.appliesTo(backup)) return true;
 			}
 		}
 		for (CardData fwd : p1ForwardCards) {
 			BackupCpGrant grant = fwd.backupCpGrant();
-			if (grant != null && grant.appliesTo(backup)) return true;
+			if (grant != null && grant.isAnyElementGrant() && grant.appliesTo(backup)) return true;
 		}
 		return false;
+	}
+
+	/** Returns the union of specific elements granted to {@code backup} by field cards (empty = no specific grant). */
+	private List<String> getGrantedSpecificElementsCp(CardData backup) {
+		List<String> result = null;
+		for (CardData b : p1BackupCards) {
+			if (b != null) {
+				BackupCpGrant grant = b.backupCpGrant();
+				if (grant != null && !grant.isAnyElementGrant() && grant.appliesTo(backup)) {
+					if (result == null) result = new ArrayList<>();
+					for (String e : grant.grantedElements()) if (!result.contains(e)) result.add(e);
+				}
+			}
+		}
+		for (CardData fwd : p1ForwardCards) {
+			BackupCpGrant grant = fwd.backupCpGrant();
+			if (grant != null && !grant.isAnyElementGrant() && grant.appliesTo(backup)) {
+				if (result == null) result = new ArrayList<>();
+				for (String e : grant.grantedElements()) if (!result.contains(e)) result.add(e);
+			}
+		}
+		return result != null ? result : List.of();
 	}
 
 	private boolean canAffordCard(CardData card, int excludeHandIdx) {
@@ -6288,8 +6310,9 @@ public class MainWindow {
 					totalGenerate += 1;
 					for (int ei = 0; ei < elems.length; ei++) hasElemSource[ei] = true;
 				} else {
+					List<String> grantedSpecific = getGrantedSpecificElementsCp(bkp);
 					for (int ei = 0; ei < elems.length; ei++) {
-						if (bkp.containsElement(elems[ei])) {
+						if (bkp.containsElement(elems[ei]) || grantedSpecific.contains(elems[ei])) {
 							totalGenerate += 1;
 							hasElemSource[ei] = true;
 							break;
@@ -8004,9 +8027,12 @@ public class MainWindow {
 				available++;
 				for (int ei = 0; ei < elems.length; ei++) hasSrc[ei] = true;
 			} else {
+				List<String> grantedSpecific = getGrantedSpecificElementsCp(bkp);
 				boolean matched = false;
 				for (int ei = 0; ei < elems.length; ei++) {
-					if (bkp.containsElement(elems[ei])) { available++; hasSrc[ei] = true; matched = true; break; }
+					if (bkp.containsElement(elems[ei]) || grantedSpecific.contains(elems[ei])) {
+						available++; hasSrc[ei] = true; matched = true; break;
+					}
 				}
 				if (!matched && hasGeneric) available++;
 			}

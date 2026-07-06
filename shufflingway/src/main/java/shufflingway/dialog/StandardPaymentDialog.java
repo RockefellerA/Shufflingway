@@ -242,8 +242,10 @@ public class StandardPaymentDialog {
                         boolean isAnyElemOfFwds = bkp.backupCpAnyElementOfForwards()
                                 && !controlledForwards.isEmpty();
                         java.util.List<String> extraElems = bkp.backupCpExtraElements();
+                        java.util.List<String> grantedSpecific = getGrantedSpecificElements(bkp);
                         boolean hasExtraElems = !extraElems.isEmpty();
-                        if (isAnyElem || isAnyElemOfFwds || hasExtraElems) {
+                        boolean hasGrantedSpecific = !grantedSpecific.isEmpty();
+                        if (isAnyElem || isAnyElemOfFwds || hasExtraElems || hasGrantedSpecific) {
                             if (castElemOnly != null) {
                                 // Element-locked cast: any-element backup auto-produces the required element.
                                 backupElementOverrides.put(slot, castElemOnly);
@@ -256,10 +258,11 @@ public class StandardPaymentDialog {
                                     for (CardData fwd : controlledForwards)
                                         for (String fe : fwd.elements()) fwdElems.add(fe);
                                     available = fwdElems.toArray(String[]::new);
-                                } else if (hasExtraElems && !isAnyElem && !isAnyElemOfFwds) {
+                                } else if ((hasExtraElems || hasGrantedSpecific) && !isAnyElem && !isAnyElemOfFwds) {
                                     java.util.LinkedHashSet<String> opts = new java.util.LinkedHashSet<>(
                                             java.util.Arrays.asList(bkp.elements()));
                                     opts.addAll(extraElems);
+                                    opts.addAll(grantedSpecific);
                                     available = opts.toArray(String[]::new);
                                 } else {
                                     available = ALL_ELEMENTS;
@@ -380,19 +383,41 @@ public class StandardPaymentDialog {
         dlg.pack(); dlg.setLocationRelativeTo(owner); dlg.setVisible(true);
     }
 
-    /** Returns true if any on-field card (backup or forward) grants {@code backup} any-element CP. */
+    /** Returns true if any on-field card grants {@code backup} any-element CP. */
     private boolean isGrantedAnyElement(CardData backup) {
         for (CardData b : backupCards) {
             if (b != null) {
                 BackupCpGrant grant = b.backupCpGrant();
-                if (grant != null && grant.appliesTo(backup)) return true;
+                if (grant != null && grant.isAnyElementGrant() && grant.appliesTo(backup)) return true;
             }
         }
         for (CardData fwd : controlledForwards) {
             BackupCpGrant grant = fwd.backupCpGrant();
-            if (grant != null && grant.appliesTo(backup)) return true;
+            if (grant != null && grant.isAnyElementGrant() && grant.appliesTo(backup)) return true;
         }
         return false;
+    }
+
+    /** Returns the union of specific elements granted to {@code backup} by field cards (empty = none). */
+    private java.util.List<String> getGrantedSpecificElements(CardData backup) {
+        java.util.List<String> result = null;
+        for (CardData b : backupCards) {
+            if (b != null) {
+                BackupCpGrant grant = b.backupCpGrant();
+                if (grant != null && !grant.isAnyElementGrant() && grant.appliesTo(backup)) {
+                    if (result == null) result = new java.util.ArrayList<>();
+                    for (String e : grant.grantedElements()) if (!result.contains(e)) result.add(e);
+                }
+            }
+        }
+        for (CardData fwd : controlledForwards) {
+            BackupCpGrant grant = fwd.backupCpGrant();
+            if (grant != null && !grant.isAnyElementGrant() && grant.appliesTo(backup)) {
+                if (result == null) result = new java.util.ArrayList<>();
+                for (String e : grant.grantedElements()) if (!result.contains(e)) result.add(e);
+            }
+        }
+        return result != null ? result : java.util.List.of();
     }
 
     static final String[] ALL_ELEMENTS =

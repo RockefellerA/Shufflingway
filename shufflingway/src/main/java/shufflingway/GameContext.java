@@ -281,6 +281,20 @@ public interface GameContext {
             String jobFilter, String cardNameFilter, String categoryFilter, String elementFilter);
 
     /**
+     * "Choose any number of [Forwards/Backups/Monsters/Characters] [opponent/you] control.
+     * Return them to their owners' hands."
+     *
+     * <p>For P1 (human): loops showing a cancellable chooser drawn from the eligible zones;
+     * each pick returns one card.  For P2 (AI): returns all eligible opponent-controlled cards
+     * automatically; returns none of its own.
+     *
+     * @param opponentOnly restrict candidates to the ability user's opponent's field
+     * @param selfOnly     restrict candidates to the ability user's own field
+     */
+    void chooseAnyNumberReturnToHand(boolean inclForwards, boolean inclBackups, boolean inclMonsters,
+            boolean opponentOnly, boolean selfOnly);
+
+    /**
      * Prompts the ability user to choose 1 Summon from their hand and casts it immediately
      * without paying its cost.
      *
@@ -1830,6 +1844,16 @@ public interface GameContext {
      */
     void chooseSummonsFromBzMakeCastable(int count, boolean eitherBz, boolean expiresThisTurn,
             boolean rfgAfterUse, boolean freeCast);
+
+    /**
+     * "Choose 1 Summon of cost N or less in your Break Zone. Cast it without paying the cost.
+     * Remove that Summon from the game after use instead of putting it in the Break Zone."
+     *
+     * <p>Prompts the ability user to pick a matching Summon from their own Break Zone, registers
+     * it as castable this turn (free cost, RFG after use). The card remains in the Break Zone
+     * until cast; it is removed from the game when it resolves rather than going back to the BZ.
+     */
+    void chooseSummonInBzByMaxCostFreeCastRfgAfterUse(int maxCost);
 
     /**
      * Returns {@code true} if the most recent card cast by the ability user
