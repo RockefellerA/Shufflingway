@@ -2664,6 +2664,7 @@ public class MainWindow {
 				logEntry(p1ForwardCards.get(i).name() + " dulled — P1 damage negated.");
 				p1ForwardStates.set(i, CardState.DULL);
 				animateDullForward(i, null);
+				autoAbilityTriggers.triggerAutoAbilitiesForBecomesDull(p1ForwardCards.get(i), true);
 			}
 			if (onDone != null) onDone.run();
 			return;
@@ -2740,8 +2741,11 @@ public class MainWindow {
 				refreshP2BackupSlot(i);
 			} else {
 				logEntry("[P2] " + p2ForwardCards.get(i).name() + " dulled — P2 damage negated.");
+				CardState p2ShieldFwdBefore = p2ForwardStates.get(i);
 				p2ForwardStates.set(i, CardState.DULL);
 				animateDullP2Forward(i, null);
+				if (p2ShieldFwdBefore == CardState.ACTIVE)
+					autoAbilityTriggers.triggerAutoAbilitiesForBecomesDull(p2ForwardCards.get(i), false);
 			}
 			if (onDone != null) onDone.run();
 			return;
@@ -11451,8 +11455,11 @@ public class MainWindow {
 				p1ForwardStates.set(idx, CardState.BRAVE_ATTACKED);
 				refreshP1ForwardSlot(idx);
 			} else {
+				CardState p1AttackFwdBefore = p1ForwardStates.get(idx);
 				p1ForwardStates.set(idx, CardState.DULL);
 				animateDullForward(idx, null);
+				if (p1AttackFwdBefore == CardState.ACTIVE)
+					autoAbilityTriggers.triggerAutoAbilitiesForBecomesDull(p1ForwardCards.get(idx), true);
 			}
 			// Track second-attack eligibility for "can attack twice" forwards
 			if (p1ForwardCards.get(idx).canAttackTwice()) {
@@ -11785,7 +11792,13 @@ public class MainWindow {
 				? p1ForwardPrimedTop.get(idx) : p1ForwardCards.get(idx);
 		autoAbilityTriggers.addAbilityMenuItems(menu, effectiveFwd, p1ForwardFrozen.get(idx),
 				p1ForwardStates.get(idx), p1ForwardPlayedOnTurn.get(idx),
-				() -> { p1ForwardStates.set(idx, CardState.DULL); animateDullForward(idx, null); }, true);
+				() -> {
+					CardState p1AACostBefore = p1ForwardStates.get(idx);
+					p1ForwardStates.set(idx, CardState.DULL);
+					animateDullForward(idx, null);
+					if (p1AACostBefore == CardState.ACTIVE)
+						autoAbilityTriggers.triggerAutoAbilitiesForBecomesDull(p1ForwardCards.get(idx), true);
+				}, true);
 
 		// Prime — visible only when not yet primed
 		CardData fwd = p1ForwardCards.get(idx);
@@ -11829,7 +11842,13 @@ public class MainWindow {
 		CardData effectiveFwd = p2ForwardPrimedTop.get(idx) != null ? p2ForwardPrimedTop.get(idx) : fwd;
 		autoAbilityTriggers.addAbilityMenuItems(menu, effectiveFwd, p2ForwardFrozen.get(idx),
 				p2ForwardStates.get(idx), p2ForwardPlayedOnTurn.get(idx),
-				() -> { p2ForwardStates.set(idx, CardState.DULL); refreshP2ForwardSlot(idx); }, false);
+				() -> {
+					CardState p2AACostBefore = p2ForwardStates.get(idx);
+					p2ForwardStates.set(idx, CardState.DULL);
+					refreshP2ForwardSlot(idx);
+					if (p2AACostBefore == CardState.ACTIVE)
+						autoAbilityTriggers.triggerAutoAbilitiesForBecomesDull(p2ForwardCards.get(idx), false);
+				}, false);
 
 		if (fwd.hasPriming() && p2ForwardPrimedTop.get(idx) == null) {
 			JMenuItem primeItem = new JMenuItem("Prime (" + fwd.primingTarget() + ")");

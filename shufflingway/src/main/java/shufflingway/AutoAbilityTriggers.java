@@ -1137,6 +1137,22 @@ final class AutoAbilityTriggers {
 	}
 
 	/**
+	 * Fires "becomes dull" auto abilities on {@code card} (owned by {@code isP1}) after it
+	 * transitions from ACTIVE to DULL.  Only abilities whose {@code triggerCard} matches the
+	 * card's name are executed.
+	 */
+	void triggerAutoAbilitiesForBecomesDull(CardData card, boolean isP1) {
+		withBatch(() -> {
+			for (AutoAbility fa : card.autoAbilities()) {
+				if (!fa.trigger().equals("becomes dull")) continue;
+				if (!fa.triggerCard().equalsIgnoreCase(card.name())) continue;
+				executeAutoAbility(fa, card, isP1);
+			}
+		});
+		mw.showStackWindowIfNeeded();
+	}
+
+	/**
 	 * Fires "opponent uses ex burst" abilities on the field cards of the player whose opponent
 	 * just resolved an EX Burst. {@code exBurstIsP1} is the player whose damage zone received
 	 * the EX Burst card; the watchers belong to {@code !exBurstIsP1}.

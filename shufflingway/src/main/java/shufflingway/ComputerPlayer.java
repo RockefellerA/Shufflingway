@@ -328,8 +328,11 @@ class ComputerPlayer {
 				mw.p2ForwardStates.set(idx, CardState.BRAVE_ATTACKED);
 				mw.refreshP2ForwardSlot(idx);
 			} else {
+				CardState p2PartyBefore = mw.p2ForwardStates.get(idx);
 				mw.p2ForwardStates.set(idx, CardState.DULL);
 				mw.animateDullP2Forward(idx, null);
+				if (p2PartyBefore == CardState.ACTIVE)
+					mw.autoAbilityTriggers.triggerAutoAbilitiesForBecomesDull(mw.p2ForwardCards.get(idx), false);
 			}
 			combinedPower += mw.effectiveP2ForwardPower(idx);
 			if (names.length() > 0) names.append(", ");
@@ -388,8 +391,11 @@ class ComputerPlayer {
 				mw.p2ForwardStates.set(i, CardState.BRAVE_ATTACKED);
 				mw.refreshP2ForwardSlot(i);
 			} else {
+				CardState p2SingleBefore = mw.p2ForwardStates.get(i);
 				mw.p2ForwardStates.set(i, CardState.DULL);
 				mw.animateDullP2Forward(i, null);
+				if (p2SingleBefore == CardState.ACTIVE)
+					mw.autoAbilityTriggers.triggerAutoAbilitiesForBecomesDull(mw.p2ForwardCards.get(i), false);
 			}
 			if (attacker.canAttackTwice()) {
 				if (!mw.p2ForwardCanDoSecondAttack.remove(i))

@@ -20,7 +20,6 @@ import java.util.function.Consumer;
 import java.util.regex.Matcher;
 import java.util.stream.Collectors;
 
-import shufflingway.graphics.ShieldIcon;
 import javax.swing.BorderFactory;
 import javax.swing.ImageIcon;
 import javax.swing.JButton;
@@ -812,9 +811,12 @@ final class GameContextImpl implements GameContext {
 					logEntry(c.name() + " cannot become dull by opponent's effects");
 					return;
 				}
+				CardState before = mw.p1ForwardStates.get(idx);
 				mw.p1ForwardStates.set(idx, CardState.DULL);
 				logEntry(c.name() + " is dulled");
 				mw.animateDullForward(idx, null);
+				if (before == CardState.ACTIVE)
+					mw.autoAbilityTriggers.triggerAutoAbilitiesForBecomesDull(c, true);
 			}
 
 			@Override public void dullP2Forward(int idx) {
@@ -825,9 +827,12 @@ final class GameContextImpl implements GameContext {
 					logEntry("[P2] " + c.name() + " cannot become dull by opponent's effects");
 					return;
 				}
+				CardState before = mw.p2ForwardStates.get(idx);
 				mw.p2ForwardStates.set(idx, CardState.DULL);
 				logEntry("[P2] " + c.name() + " is dulled");
 				mw.animateDullP2Forward(idx, null);
+				if (before == CardState.ACTIVE)
+					mw.autoAbilityTriggers.triggerAutoAbilitiesForBecomesDull(c, false);
 			}
 
 			@Override public void freezeP1Forward(int idx) {

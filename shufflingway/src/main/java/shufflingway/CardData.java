@@ -1391,10 +1391,11 @@ public record CardData(
             "|receives?\\s+a\\s+point\\s+of\\s+damage" +
             "|is\\s+chosen\\s+by\\s+your\\s+opponent's\\s+Summons?" +
             "|uses?\\s+an\\s+EX\\s+Burst" +
+            "|becomes?\\s+dull" +
         ")\\s*,\\s+" +
         "(?<youmay>(?:you|your\\s+opponent)\\s+may\\s+)?" +
         "(?<effect>.+?)\\s*" +
-        "(?=\\s*\\[\\[br\\]\\]|\\s*When\\s+[^,]+?\\s+(?:forms?\\s+a\\s+party\\s+and\\s+attacks?|attacks?|blocks?|enters?|leaves?|is\\s+(?:put|removed|blocked)|deals?|uses?)|\\s*(?:《[^》]+》)+\\s*:|\\s*$)",
+        "(?=\\s*\\[\\[br\\]\\]|\\s*When\\s+[^,]+?\\s+(?:forms?\\s+a\\s+party\\s+and\\s+attacks?|attacks?|blocks?|enters?|leaves?|is\\s+(?:put|removed|blocked)|deals?|uses?|becomes?)|\\s*(?:《[^》]+》)+\\s*:|\\s*$)",
         Pattern.DOTALL
     );
 
@@ -1703,8 +1704,14 @@ public record CardData(
                 else                                trigger = "either player receives damage";
             }
             else if (triggerRaw.contains("uses") && triggerRaw.contains("ex burst"))                        trigger = "opponent uses ex burst";
+            else if (triggerRaw.contains("dull"))                                                            trigger = "becomes dull";
             else                                                                                             trigger = "enters the field";
 
+            // For "becomes dull", strip optional "active " state qualifier from the card name
+            // e.g. "active Ra-la" → triggerCard = "Ra-la"; the state check is enforced at dispatch time
+            if (trigger.equals("becomes dull")) {
+                card = card.replaceAll("(?i)^active\\s+", "").trim();
+            }
             // For "warp placed", strip the " in your hand" suffix from the card name
             if (trigger.equals("warp placed")) {
                 card = card.replaceAll("(?i)\\s+in\\s+your\\s+hand$", "").trim();
