@@ -2700,6 +2700,27 @@ public class ActionResolver {
     );
 
     /**
+     * Matches "it gains +N power for each [Job (name)] / Job name [Type] you control until end of turn"
+     * in both word orders (until-prefix or until-suffix).
+     * Groups: {@code amount}/{@code amount2} = per-unit amount; {@code jobb}/{@code jobb2} = bracket job name;
+     * {@code jobw}/{@code jobw2} = written job name; {@code jobt}/{@code jobt2} = optional type qualifier.
+     * Must be checked before {@link #FOLLOWUP_POWER_BOOST_UNTIL}, which would match the +N and drop the rest.
+     */
+    private static final Pattern FOLLOWUP_POWER_BOOST_UNTIL_FOR_EACH_JOB = Pattern.compile(
+        "(?i)(?:" +
+            "Until\\s+(?:the\\s+)?end\\s+of\\s+(?:the\\s+)?turn\\s*,\\s+" +
+            "(?:it|they)\\s+gains?\\s+\\+(?<amount>\\d+)\\s+[Pp]ower\\s+for\\s+each\\s+" +
+            "(?:\\[Job\\s+\\((?<jobb>[^)]+)\\)\\]|Job\\s+(?<jobw>.+?)(?:\\s+(?<jobt>Forwards?|Backups?|Monsters?))?)" +
+            "\\s+you\\s+control" +
+        "|" +
+            "(?:it|they)\\s+gains?\\s+\\+(?<amount2>\\d+)\\s+[Pp]ower\\s+for\\s+each\\s+" +
+            "(?:\\[Job\\s+\\((?<jobb2>[^)]+)\\)\\]|Job\\s+(?<jobw2>.+?)(?:\\s+(?<jobt2>Forwards?|Backups?|Monsters?))?)" +
+            "\\s+you\\s+control" +
+            "\\s+until\\s+(?:the\\s+)?end\\s+of\\s+(?:the\\s+)?turn" +
+        ")[.!]?"
+    );
+
+    /**
      * Matches "Until the end of the turn, it gains +N power for each point of damage you have received."
      * Group {@code perunit} = per-damage power amount.
      * Must be checked before {@link #FOLLOWUP_POWER_BOOST_UNTIL}, which would match the +N and drop the rest.
@@ -4991,6 +5012,7 @@ public class ActionResolver {
         if (FOLLOWUP_POWER_BECOMES.matcher(followupText).find())                      return "PowerBecomes";
         if (FOLLOWUP_POWER_BOOST.matcher(followupText).find())                        return "PowerBoost";
         if (FOLLOWUP_POWER_BOOST_UNTIL_FOR_EACH.matcher(followupText).find())              return "PowerBoostUntilForEach";
+        if (FOLLOWUP_POWER_BOOST_UNTIL_FOR_EACH_JOB.matcher(followupText).find())         return "PowerBoostUntilForEachJob";
         if (FOLLOWUP_POWER_BOOST_UNTIL_FOR_EACH_COUNTER.matcher(followupText).find())      return "PowerBoostUntilForEachCounter";
         if (FOLLOWUP_POWER_BOOST_UNTIL_FOR_EACH_SELF_DMG.matcher(followupText).find())    return "PowerBoostUntilForEachSelfDmg";
         if (FOLLOWUP_POWER_BOOST_UNTIL.matcher(followupText).find())                      return "PowerBoostUntil";
@@ -8753,6 +8775,33 @@ public class ActionResolver {
                 int n      = ctx.countSelfFieldCards(cntFwd, cntBkp, cntMon, null, null, null, srcElem);
                 int boost  = perUnit * n;
                 ctx.logEntry(choosePrefix + logSuffix + " (n=" + n + ", boost=" + boost + ")");
+                List<ForwardTarget> ts = selectTargets(ctx, maxCount, upTo,
+                        opponentOnly, selfOnly, condition, element, zone, opponentZone,
+                        costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters, jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, fExcludeElem, withoutMulticard);
+                EnumSet<CardData.Trait> noTraits = EnumSet.noneOf(CardData.Trait.class);
+                sortedByIdxDesc(ts, true) .forEach(t -> ctx.boostTarget(t, boost, noTraits));
+                sortedByIdxDesc(ts, false).forEach(t -> ctx.boostTarget(t, boost, noTraits));
+                if (secondary != null) secondary.accept(ctx);
+            };
+        }
+
+        // --- Power boost for each Job [name] you control (must precede plain UNTIL boost) ---
+        Matcher boostForEachJobM = FOLLOWUP_POWER_BOOST_UNTIL_FOR_EACH_JOB.matcher(primaryFollowup);
+        if (boostForEachJobM.find()) {
+            boolean untilPrefixJ = boostForEachJobM.group("amount") != null;
+            int    perUnitJ  = Integer.parseInt(untilPrefixJ ? boostForEachJobM.group("amount") : boostForEachJobM.group("amount2"));
+            String jobBracket = untilPrefixJ ? boostForEachJobM.group("jobb") : boostForEachJobM.group("jobb2");
+            String jobWritten = untilPrefixJ ? boostForEachJobM.group("jobw") : boostForEachJobM.group("jobw2");
+            String jobTypeStr = untilPrefixJ ? boostForEachJobM.group("jobt") : boostForEachJobM.group("jobt2");
+            String jobNameJ   = (jobBracket != null ? jobBracket : jobWritten).trim();
+            boolean jwFwd = jobTypeStr == null || jobTypeStr.matches("(?i)Forwards?");
+            boolean jwBkp = jobTypeStr == null || jobTypeStr.matches("(?i)Backups?");
+            boolean jwMon = jobTypeStr == null || jobTypeStr.matches("(?i)Monsters?");
+            String logSuffixJ = " +" + perUnitJ + "×[Job " + jobNameJ + " you control] until EOT";
+            return ctx -> {
+                int n     = ctx.countSelfFieldCards(jwFwd, jwBkp, jwMon, jobNameJ, null);
+                int boost = perUnitJ * n;
+                ctx.logEntry(choosePrefix + logSuffixJ + " (n=" + n + ", boost=" + boost + ")");
                 List<ForwardTarget> ts = selectTargets(ctx, maxCount, upTo,
                         opponentOnly, selfOnly, condition, element, zone, opponentZone,
                         costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters, jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, fExcludeElem, withoutMulticard);

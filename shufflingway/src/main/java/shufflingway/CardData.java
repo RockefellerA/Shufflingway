@@ -1023,7 +1023,14 @@ public record CardData(
             }
             Matcher oppHandM = OPP_HAND_AT_MOST_RESTRICTION.matcher(effectRaw);
             int maxOpponentHandSize = oppHandM.find() ? Integer.parseInt(oppHandM.group("count")) : -1;
-            result.add(new ActionAbility(abilityName, requiresDull, isSpecial, crystalCost, selfMillCost, hasXCost, cpCost, breakZoneCosts, discardCosts, removeFromGameCosts, returnToHandCosts, counterCosts, dullForwardCosts, yourTurnOnly, opponentTurnOnly, oncePerTurn, mainPhaseOnly, whileCardAtk, whileCardBlk, whilePartyAtk, whileCardInHand, hasBlockingTarget, effectRaw, damageThreshold, controlCondition, cpBackupElement, cpAllowedElements, sourceInBattle, requiresOppDiscardedThisTurn, requiresCastSummonThisTurn, requiresElementForwardEnteredThisTurn, requiresCardNameEnteredThisTurn, breakZoneOnly, requiresOpponentEmptyHand, requiresSelfEmptyHand, requiresNamedCardTookDamageThisTurn, requiresSelfReceivedDamageThisTurn, requiresForwardPutToBZThisTurn, blockerForAttacker, ownBzCard, counterScaleName, minCounterRequired, minCounterType, maxOpponentHandSize, requiresSourceIsForward));
+            Matcher cmaxM = COUNTER_ZERO_RESTRICTION.matcher(effectRaw);
+            int    maxCounterAllowed = -1;
+            String maxCounterType    = null;
+            if (cmaxM.find()) {
+                maxCounterAllowed = 0;
+                maxCounterType    = cmaxM.group("type").trim();
+            }
+            result.add(new ActionAbility(abilityName, requiresDull, isSpecial, crystalCost, selfMillCost, hasXCost, cpCost, breakZoneCosts, discardCosts, removeFromGameCosts, returnToHandCosts, counterCosts, dullForwardCosts, yourTurnOnly, opponentTurnOnly, oncePerTurn, mainPhaseOnly, whileCardAtk, whileCardBlk, whilePartyAtk, whileCardInHand, hasBlockingTarget, effectRaw, damageThreshold, controlCondition, cpBackupElement, cpAllowedElements, sourceInBattle, requiresOppDiscardedThisTurn, requiresCastSummonThisTurn, requiresElementForwardEnteredThisTurn, requiresCardNameEnteredThisTurn, breakZoneOnly, requiresOpponentEmptyHand, requiresSelfEmptyHand, requiresNamedCardTookDamageThisTurn, requiresSelfReceivedDamageThisTurn, requiresForwardPutToBZThisTurn, blockerForAttacker, ownBzCard, counterScaleName, minCounterRequired, minCounterType, maxOpponentHandSize, requiresSourceIsForward, maxCounterAllowed, maxCounterType));
         }
         return List.copyOf(result);
     }
@@ -1040,7 +1047,8 @@ public record CardData(
                 a.requiresCardNameEnteredThisTurn(), a.breakZoneOnly(), a.requiresOpponentEmptyHand(),
                 a.requiresSelfEmptyHand(), a.requiresNamedCardTookDamageThisTurn(), a.requiresSelfReceivedDamageThisTurn(),
                 a.requiresForwardPutToBZThisTurn(), a.blockerForAttacker(), bzCard,
-                a.counterScaleName(), a.minCounterRequired(), a.minCounterType(), a.maxOpponentHandSize(), a.requiresSourceIsForward());
+                a.counterScaleName(), a.minCounterRequired(), a.minCounterType(), a.maxOpponentHandSize(), a.requiresSourceIsForward(),
+                a.maxCounterAllowed(), a.maxCounterType());
     }
 
     /** Parses a "discard N [filter]" cost phrase into a {@link DiscardCost} list (0 or 1 item). */
@@ -1264,6 +1272,13 @@ public record CardData(
         "(?i)You\\s+can\\s+only\\s+use\\s+this\\s+ability\\s+if\\s+" +
         "(?:(?<count>\\d+)\\s+or\\s+more\\s+|a\\s+)" +
         "(?<type>\\w+)\\s+Counters?\\s+(?:are|is)\\s+placed\\s+on\\s+.+?[.!]?\\s*$"
+    );
+
+    /** Restriction: "You can only use this ability if there are no [Type] Counters on [CardName]." */
+    static final Pattern COUNTER_ZERO_RESTRICTION = Pattern.compile(
+        "(?i)You\\s+can\\s+only\\s+use\\s+this\\s+ability\\s+if\\s+" +
+        "there\\s+are\\s+no\\s+" +
+        "(?<type>\\w+)\\s+Counters?\\s+on\\s+.+?[.!]?\\s*$"
     );
 
     /** Captures the counter type name from "the same number of X as the [Name] Counters placed on [card]". */

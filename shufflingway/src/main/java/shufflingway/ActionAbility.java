@@ -84,7 +84,9 @@ public record ActionAbility(
         int                     minCounterRequired,           // 0 = no restriction; >0 = min counter count needed to activate
         String                  minCounterType,               // null = no restriction; else = counter type name (e.g. "Monster") that must appear in sufficient quantity
         int                     maxOpponentHandSize,          // -1 = no restriction; >=0 = opponent's hand must have at most this many cards
-        boolean                 requiresSourceIsForward       // true = source card must currently be acting as a Forward (for Monster cards that temporarily become Forwards)
+        boolean                 requiresSourceIsForward,      // true = source card must currently be acting as a Forward (for Monster cards that temporarily become Forwards)
+        int                     maxCounterAllowed,            // -1 = no restriction; >=0 = source card must have ≤ this many of maxCounterType to activate
+        String                  maxCounterType                // null = no restriction; else = counter type name (e.g. "Flyer")
 ) {
     public ActionAbility {
         cpCost            = List.copyOf(cpCost);
@@ -106,7 +108,7 @@ public record ActionAbility(
             true, false, false, false,
             null, null, false, false, false,
             effectText,
-            0, null, null, null, false, false, false, null, null, null, false, false, null, false, false, null, null, null, 0, null, -1, false
+            0, null, null, null, false, false, false, null, null, null, false, false, null, false, false, null, null, null, 0, null, -1, false, -1, null
         );
     }
 }

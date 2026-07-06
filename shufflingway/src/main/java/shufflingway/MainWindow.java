@@ -7825,6 +7825,7 @@ public class MainWindow {
 		boolean firstRestrict = true;
 		if (ability.damageThreshold() > 0)         { restrict.append("Dmg≥").append(ability.damageThreshold()); firstRestrict = false; }
 		if (ability.minCounterRequired() > 0 && ability.minCounterType() != null) { if (!firstRestrict) restrict.append(", "); restrict.append("≥").append(ability.minCounterRequired()).append(" ").append(ability.minCounterType()).append(" Ctr"); firstRestrict = false; }
+		if (ability.maxCounterAllowed() >= 0 && ability.maxCounterType() != null) { if (!firstRestrict) restrict.append(", "); restrict.append("no ").append(ability.maxCounterType()).append(" Ctr"); firstRestrict = false; }
 		if (ability.yourTurnOnly())                 { if (!firstRestrict) restrict.append(", "); restrict.append("your turn");     firstRestrict = false; }
 		if (ability.opponentTurnOnly())             { if (!firstRestrict) restrict.append(", "); restrict.append("opp turn");      firstRestrict = false; }
 		if (ability.oncePerTurn())                  { if (!firstRestrict) restrict.append(", "); restrict.append("1/turn");        firstRestrict = false; }
@@ -8168,6 +8169,9 @@ public class MainWindow {
 		}
 		if (ability.minCounterRequired() > 0 && ability.minCounterType() != null) {
 			if (gameState.getCounters(source, ability.minCounterType()) < ability.minCounterRequired()) return false;
+		}
+		if (ability.maxCounterAllowed() >= 0 && ability.maxCounterType() != null) {
+			if (gameState.getCounters(source, ability.maxCounterType()) > ability.maxCounterAllowed()) return false;
 		}
 		if (ability.requiresOppDiscardedThisTurn()) {
 			boolean caused = isP1 ? p1CausedOpponentDiscardThisTurn : p2CausedOpponentDiscardThisTurn;
