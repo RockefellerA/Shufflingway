@@ -3032,7 +3032,7 @@ final class GameContextImpl implements GameContext {
 				} else {
 					List<Integer> boost = isP1 ? mw.p1ForwardPowerBoost : mw.p2ForwardPowerBoost;
 					int effectiveAmount = amount;
-					if (amount > 0 && mw.oppForwardPowerBoostSuppressedFor(isP1)) {
+					if (amount > 0 && (mw.oppForwardPowerBoostSuppressedFor(isP1) || mw.oppForwardSelfBoostSuppressedFor(isP1))) {
 						logEntry((isP1 ? "" : "[P2] ") + card.name() + " — power boost suppressed (opponent's field ability)");
 						effectiveAmount = 0;
 					}
@@ -3092,7 +3092,7 @@ final class GameContextImpl implements GameContext {
 					java.util.EnumSet<CardData.Trait> traits) {
 				for (int i = 0; i < mw.p1ForwardCards.size(); i++) {
 					if (mw.p1ForwardCards.get(i).name().equals(source.name())) {
-						if (amount > 0 && mw.oppForwardPowerBoostSuppressedFor(true)) {
+						if (amount > 0 && (mw.oppForwardPowerBoostSuppressedFor(true) || mw.oppForwardSelfBoostSuppressedFor(true))) {
 							logEntry(source.name() + " — power boost suppressed (opponent's field ability)");
 							return;
 						}
@@ -3109,7 +3109,7 @@ final class GameContextImpl implements GameContext {
 					java.util.EnumSet<CardData.Trait> traits) {
 				for (int i = 0; i < mw.p1ForwardCards.size(); i++) {
 					if (mw.p1ForwardCards.get(i).name().equals(source.name())) {
-						if (mw.oppForwardPowerBoostSuppressedFor(true)) {
+						if (mw.oppForwardPowerBoostSuppressedFor(true) || mw.oppForwardSelfBoostSuppressedFor(true)) {
 							logEntry(source.name() + " — power doubling suppressed (opponent's field ability)");
 							return;
 						}
@@ -4263,8 +4263,8 @@ final class GameContextImpl implements GameContext {
 					String element, int costVal, String costCmp, String category, String excludeName) {
 				boolean touchP1 = isP1 ? !opponentOnly : !selfOnly;
 				boolean touchP2 = isP1 ? !selfOnly     : !opponentOnly;
-				boolean p1BoostSuppressed = inclForwards && amount > 0 && mw.oppForwardPowerBoostSuppressedFor(true);
-				boolean p2BoostSuppressed = inclForwards && amount > 0 && mw.oppForwardPowerBoostSuppressedFor(false);
+				boolean p1BoostSuppressed = inclForwards && amount > 0 && (mw.oppForwardPowerBoostSuppressedFor(true) || (isP1 && mw.oppForwardSelfBoostSuppressedFor(true)));
+				boolean p2BoostSuppressed = inclForwards && amount > 0 && (mw.oppForwardPowerBoostSuppressedFor(false) || (!isP1 && mw.oppForwardSelfBoostSuppressedFor(false)));
 				if (touchP1) {
 					if (inclForwards) {
 						for (int i = 0; i < mw.p1ForwardCards.size(); i++) {
@@ -4341,7 +4341,7 @@ final class GameContextImpl implements GameContext {
 				boolean touchP1 = isP1 ? !opponentOnly : !selfOnly;
 				boolean touchP2 = isP1 ? !selfOnly     : !opponentOnly;
 				if (touchP1) {
-					boolean suppressed = amount > 0 && mw.oppForwardPowerBoostSuppressedFor(true);
+					boolean suppressed = amount > 0 && (mw.oppForwardPowerBoostSuppressedFor(true) || (isP1 && mw.oppForwardSelfBoostSuppressedFor(true)));
 					for (int i = 0; i < mw.p1ForwardCards.size(); i++) {
 						CardData c = p1Forward(i);
 						if (!sharesElement.test(c)) continue;
@@ -4352,7 +4352,7 @@ final class GameContextImpl implements GameContext {
 					}
 				}
 				if (touchP2) {
-					boolean suppressed = amount > 0 && mw.oppForwardPowerBoostSuppressedFor(false);
+					boolean suppressed = amount > 0 && (mw.oppForwardPowerBoostSuppressedFor(false) || (!isP1 && mw.oppForwardSelfBoostSuppressedFor(false)));
 					for (int i = 0; i < mw.p2ForwardCards.size(); i++) {
 						CardData c = p2Forward(i);
 						if (!sharesElement.test(c)) continue;
@@ -4368,8 +4368,8 @@ final class GameContextImpl implements GameContext {
 					boolean opponentOnly, boolean selfOnly, String jobFilter, String cardNameFilter) {
 				boolean touchP1 = isP1 ? !opponentOnly : !selfOnly;
 				boolean touchP2 = isP1 ? !selfOnly     : !opponentOnly;
-				boolean p1JobBoostSuppressed = inclForwards && amount > 0 && mw.oppForwardPowerBoostSuppressedFor(true);
-				boolean p2JobBoostSuppressed = inclForwards && amount > 0 && mw.oppForwardPowerBoostSuppressedFor(false);
+				boolean p1JobBoostSuppressed = inclForwards && amount > 0 && (mw.oppForwardPowerBoostSuppressedFor(true) || (isP1 && mw.oppForwardSelfBoostSuppressedFor(true)));
+				boolean p2JobBoostSuppressed = inclForwards && amount > 0 && (mw.oppForwardPowerBoostSuppressedFor(false) || (!isP1 && mw.oppForwardSelfBoostSuppressedFor(false)));
 				if (touchP1) {
 					if (inclForwards) {
 						for (int i = 0; i < mw.p1ForwardCards.size(); i++) {

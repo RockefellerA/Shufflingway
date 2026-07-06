@@ -314,11 +314,35 @@ final class AutoAbilityTriggers {
 
 	/**
 	 * Field ability: "The power of Forwards opponent controls cannot be increased by Summons or abilities."
-	 * Placed on any field card; suppresses positive power boosts to the opposing player's Forwards.
+	 * Placed on any field card; suppresses positive power boosts to the opposing player's Forwards
+	 * regardless of who is applying the boost.
 	 */
 	static final Pattern FA_OPP_FORWARD_POWER_BOOST_SUPPRESSED = Pattern.compile(
 		"(?i)The\\s+power\\s+of\\s+Forwards?\\s+(?:your\\s+)?opponent\\s+controls?\\s+cannot\\s+be\\s+increased\\s+by\\s+Summons?\\s+or\\s+abilit(?:y|ies)[.!]?"
 	);
+
+	/**
+	 * Field ability: "The power of Forwards opponent controls cannot be increased by your opponent's Summons or abilities."
+	 * Like FA_OPP_FORWARD_POWER_BOOST_SUPPRESSED but only blocks the forward-controller's OWN boosts;
+	 * the field card's controller may still increase those Forwards' power.
+	 */
+	static final Pattern FA_OPP_FORWARD_SELF_BOOST_SUPPRESSED = Pattern.compile(
+		"(?i)The\\s+power\\s+of\\s+Forwards?\\s+(?:your\\s+)?opponent\\s+controls?\\s+cannot\\s+be\\s+increased\\s+by\\s+your\\s+opponent(?:'s|s')\\s+Summons?\\s+or\\s+abilit(?:y|ies)[.!]?"
+	);
+
+	/** Returns true if {@code card} has the opponent-Forward-power-boost-suppression field ability. */
+	static boolean hasOppForwardPowerBoostSuppression(CardData card) {
+		for (FieldAbility fa : card.fieldAbilities())
+			if (FA_OPP_FORWARD_POWER_BOOST_SUPPRESSED.matcher(fa.effectText()).find()) return true;
+		return false;
+	}
+
+	/** Returns true if {@code card} has the self-only power-boost-suppression field ability. */
+	static boolean hasOppForwardSelfBoostSuppression(CardData card) {
+		for (FieldAbility fa : card.fieldAbilities())
+			if (FA_OPP_FORWARD_SELF_BOOST_SUPPRESSED.matcher(fa.effectText()).find()) return true;
+		return false;
+	}
 
 	/**
 	 * Field ability: "Opposing Forwards entering the field will not trigger any auto-abilities ..."
@@ -328,13 +352,6 @@ final class AutoAbilityTriggers {
 	static final Pattern FA_OPP_FORWARD_ETF_SUPPRESSED = Pattern.compile(
 		"(?i)Opposing\\s+Forwards?\\s+entering\\s+the\\s+field\\s+will\\s+not\\s+trigger\\s+any\\s+auto.?abilities"
 	);
-
-	/** Returns true if {@code card} has the opponent-Forward-power-boost-suppression field ability. */
-	static boolean hasOppForwardPowerBoostSuppression(CardData card) {
-		for (FieldAbility fa : card.fieldAbilities())
-			if (FA_OPP_FORWARD_POWER_BOOST_SUPPRESSED.matcher(fa.effectText()).find()) return true;
-		return false;
-	}
 
 	/** "You can cast Forwards from your Break Zone." — passive field ability. */
 	static final Pattern FA_CAST_FORWARDS_FROM_BZ = Pattern.compile(

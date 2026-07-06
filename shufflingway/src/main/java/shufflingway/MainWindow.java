@@ -1139,7 +1139,7 @@ public class MainWindow {
 			}
 		});
 
-		// Next-phase button, centred below the preview
+		// Next-phase button, centered below the preview
 		JPanel nextBtnPanel = new JPanel(new FlowLayout(FlowLayout.CENTER, 8, 8));
 		nextBtnPanel.add(nextPhaseButton);
 		nextBtnPanel.add(attackButton);
@@ -1246,7 +1246,7 @@ public class MainWindow {
 		}
 
 		// --- Main game area (wraps both player zones + board so the side panel
-		//     spans the full frame height rather than just the centre strip) ---
+		//     spans the full frame height rather than just the center strip) ---
 		JPanel mainArea = new JPanel(new BorderLayout());
 		mainArea.add(p2ZonesPanel, BorderLayout.NORTH);
 		mainArea.add(southPanel,   BorderLayout.SOUTH);
@@ -1663,7 +1663,7 @@ public class MainWindow {
 		openingHandPopup.getContentPane().add(mainPanel);
 		openingHandPopup.pack();
 
-		// Centre on screen
+		// Center on screen
 		Dimension screen = Toolkit.getDefaultToolkit().getScreenSize();
 		openingHandPopup.setLocation(
 				(screen.width  - openingHandPopup.getWidth())  / 2,
@@ -2639,8 +2639,28 @@ public class MainWindow {
 		// Re-run doLayout so the shield is positioned over the correct (next undamaged) slot.
 		Container parent = icon.getParent();
 		if (parent != null) parent.revalidate();
-		if (findPlayerShieldAbilityCard(isP1) != null) icon.reset();
-		else                                            icon.triggerFade();
+		if (findPlayerShieldAbilityCard(isP1) != null) {
+			icon.reset();
+		} else {
+			// Suppress premature triggerFade when the shield card is a forward mid-dull-animation:
+			// the auto-abilities fired on "becomes dull" can trigger refreshes before the animation
+			// visually commits, causing the fade to run and complete inside the p2AutoPass window.
+			// The explicit triggerShieldFadeForForward call at animation completion handles it instead.
+			int[] dulled = findPlayerShieldAbilityCard(isP1, false);
+			if (dulled != null && dulled[0] == 1) { // forward zone
+				List<CardState> fStates = isP1 ? p1ForwardStates : p2ForwardStates;
+				if (fStates.get(dulled[1]) == CardState.DULL) return;
+			}
+			icon.triggerFade();
+		}
+	}
+
+	/** Triggers the damage-shield fade after the dull animation for forward {@code idx} completes. */
+	private void triggerShieldFadeForForward(boolean isP1, int idx) {
+		ShieldIcon si = isP1 ? p1ShieldIcon : p2ShieldIcon;
+		if (si == null || si.isShattering()) return;
+		int[] shld = findPlayerShieldAbilityCard(isP1, false);
+		if (shld != null && shld[0] == 1 && shld[1] == idx) si.triggerFade();
 	}
 
 	void p1TakeDamage() { p1TakeDamage(null); }
@@ -6166,6 +6186,22 @@ public class MainWindow {
 	}
 
 	/**
+	 * Returns {@code true} when the forward-controlling player cannot increase those Forwards' power
+	 * via their own Summons or abilities (i.e., self-boost only is suppressed).
+	 * Checked in addition to {@link #oppForwardPowerBoostSuppressedFor} when the booster IS the
+	 * same player as the forward controller.
+	 */
+	boolean oppForwardSelfBoostSuppressedFor(boolean targetIsP1) {
+		List<CardData> fwds = targetIsP1 ? p2ForwardCards : p1ForwardCards;
+		CardData[]     bkps = targetIsP1 ? p2BackupCards  : p1BackupCards;
+		List<CardData> mons = targetIsP1 ? p2MonsterCards : p1MonsterCards;
+		for (CardData c : fwds) if (!lostAbilitiesCards.contains(c) && AutoAbilityTriggers.hasOppForwardSelfBoostSuppression(c)) return true;
+		for (CardData c : bkps) if (c != null && !lostAbilitiesCards.contains(c) && AutoAbilityTriggers.hasOppForwardSelfBoostSuppression(c)) return true;
+		for (CardData c : mons) if (!lostAbilitiesCards.contains(c) && AutoAbilityTriggers.hasOppForwardSelfBoostSuppression(c)) return true;
+		return false;
+	}
+
+	/**
 	 * Returns {@code true} if the given player has a field card that protects their Break Zone
 	 * Summons from being removed from the game by the opponent's Summons or abilities.
 	 */
@@ -7596,7 +7632,12 @@ public class MainWindow {
 	void animateDullForward(int idx, Runnable onComplete) {
 		String url  = p1ForwardUrls.get(idx);
 		JLabel slot = p1ForwardLabels.get(idx);
-		if (url == null || slot == null) { refreshP1ForwardSlot(idx); if (onComplete != null) onComplete.run(); return; }
+		if (url == null || slot == null) {
+			refreshP1ForwardSlot(idx);
+			triggerShieldFadeForForward(true, idx);
+			if (onComplete != null) onComplete.run();
+			return;
+		}
 
 		new SwingWorker<BufferedImage, Void>() {
 			@Override protected BufferedImage doInBackground() throws Exception {
@@ -7606,7 +7647,12 @@ public class MainWindow {
 			@Override protected void done() {
 				try {
 					BufferedImage card = get();
-					if (card == null) { refreshP1ForwardSlot(idx); if (onComplete != null) onComplete.run(); return; }
+					if (card == null) {
+						refreshP1ForwardSlot(idx);
+						triggerShieldFadeForForward(true, idx);
+						if (onComplete != null) onComplete.run();
+						return;
+					}
 
 					int   totalFrames = 12;
 					int[] frame       = { 0 };
@@ -7623,12 +7669,14 @@ public class MainWindow {
 						if (frame[0] >= totalFrames) {
 							timer.stop();
 							refreshP1ForwardSlot(idx);
+							triggerShieldFadeForForward(true, idx);
 							if (onComplete != null) onComplete.run();
 						}
 					});
 					timer.start();
 				} catch (InterruptedException | ExecutionException ignored) {
 					refreshP1ForwardSlot(idx);
+					triggerShieldFadeForForward(true, idx);
 					if (onComplete != null) onComplete.run();
 				}
 			}
@@ -7638,7 +7686,12 @@ public class MainWindow {
 	void animateDullP2Forward(int idx, Runnable onComplete) {
 		String url  = p2ForwardUrls.get(idx);
 		JLabel slot = p2ForwardLabels.get(idx);
-		if (url == null || slot == null) { refreshP2ForwardSlot(idx); if (onComplete != null) onComplete.run(); return; }
+		if (url == null || slot == null) {
+			refreshP2ForwardSlot(idx);
+			triggerShieldFadeForForward(false, idx);
+			if (onComplete != null) onComplete.run();
+			return;
+		}
 
 		new SwingWorker<BufferedImage, Void>() {
 			@Override protected BufferedImage doInBackground() throws Exception {
@@ -7648,7 +7701,12 @@ public class MainWindow {
 			@Override protected void done() {
 				try {
 					BufferedImage card = get();
-					if (card == null) { refreshP2ForwardSlot(idx); if (onComplete != null) onComplete.run(); return; }
+					if (card == null) {
+						refreshP2ForwardSlot(idx);
+						triggerShieldFadeForForward(false, idx);
+						if (onComplete != null) onComplete.run();
+						return;
+					}
 
 					int   totalFrames = 12;
 					int[] frame       = { 0 };
@@ -7665,12 +7723,14 @@ public class MainWindow {
 						if (frame[0] >= totalFrames) {
 							timer.stop();
 							refreshP2ForwardSlot(idx);
+							triggerShieldFadeForForward(false, idx);
 							if (onComplete != null) onComplete.run();
 						}
 					});
 					timer.start();
 				} catch (InterruptedException | ExecutionException ignored) {
 					refreshP2ForwardSlot(idx);
+					triggerShieldFadeForForward(false, idx);
 					if (onComplete != null) onComplete.run();
 				}
 			}
@@ -12445,7 +12505,7 @@ public class MainWindow {
 			p1ShieldIcon = new ShieldIcon();
 
 		} else {
-			// P2: mirrored damage slots — card on right, letter centred, EX in upper-left
+			// P2: mirrored damage slots — card on right, letter centered, EX in upper-left
 			String[] letters = { "D", "A", "M", "A", "G", "E", playerLabel };
 			slotsPanel = new JPanel(new GridLayout(7, 1, 2, 2)) {
 				@Override public void setBackground(Color c) { /* paintComponent owns background */ }

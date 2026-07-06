@@ -678,12 +678,27 @@ public record CardData(
         "(?i)^(?<name>.+?)\\s+gains?\\s+['\"][^'\"]*?cannot\\s+be\\s+broken\\s+by\\s+(?:opposing\\s+)?(?:Summons?\\s+or\\s+)?abilit(?:y|ies)\\s+that\\s+don'?t\\s+deal\\s+damage\\.?['\"][.!]?$"
     );
 
+    // Direct self-protection: "[CardName] cannot be broken by opposing Summons or abilities that don't deal damage."
+    private static final Pattern SELF_NON_DMG_BREAK_SHIELD_DIRECT = Pattern.compile(
+        "(?i)^(?<name>[^.!]+?)\\s+cannot\\s+be\\s+broken\\s+by\\s+opposing\\s+(?:Summons?\\s+or\\s+)?abilit(?:y|ies)\\s+that\\s+don'?t\\s+deal\\s+damage[.!]?$"
+    );
+
     /**
      * Returns {@code true} when {@code effectText} is a self-targeted field-ability protection grant
      * of the form "[cardName] gains '[cardName] cannot be broken by … abilities that don't deal damage.'".
      */
     static boolean parseSelfNonDmgBreakShield(String effectText, String cardName) {
         Matcher m = SELF_NON_DMG_BREAK_SHIELD_GRANT.matcher(effectText.trim());
+        if (!m.matches()) return false;
+        return m.group("name").trim().equalsIgnoreCase(cardName);
+    }
+
+    /**
+     * Returns {@code true} when {@code effectText} is a direct self-protection field ability
+     * of the form "[cardName] cannot be broken by opposing [Summons or] abilities that don't deal damage."
+     */
+    static boolean parseSelfNonDmgBreakShieldDirect(String effectText, String cardName) {
+        Matcher m = SELF_NON_DMG_BREAK_SHIELD_DIRECT.matcher(effectText.trim());
         if (!m.matches()) return false;
         return m.group("name").trim().equalsIgnoreCase(cardName);
     }

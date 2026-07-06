@@ -118,6 +118,7 @@ public class FieldAbilityParsingTest {
         if (AutoAbilityTriggers.FA_NULLIFY_OPPONENT_ABILITY_DAMAGE.matcher(fa.effectText()).find()) return true;
         if (AutoAbilityTriggers.FA_REDUCE_ABILITY_DAMAGE.matcher(fa.effectText()).find()) return true;
         if (AutoAbilityTriggers.FA_OPP_FORWARD_POWER_BOOST_SUPPRESSED.matcher(fa.effectText()).find()) return true;
+        if (AutoAbilityTriggers.FA_OPP_FORWARD_SELF_BOOST_SUPPRESSED.matcher(fa.effectText()).find()) return true;
         if (AutoAbilityTriggers.FA_OPP_FORWARD_ETF_SUPPRESSED.matcher(fa.effectText()).find()) return true;
         if (AutoAbilityTriggers.FA_OUTGOING_FLAT_BOOST_VS_COST.matcher(fa.effectText()).find()) return true;
         if (AutoAbilityTriggers.FA_INCOMING_REDUCTION_VS_COST.matcher(fa.effectText()).find()) return true;
@@ -127,6 +128,7 @@ public class FieldAbilityParsingTest {
         if (AutoAbilityTriggers.FA_FORWARDS_CANNOT_GAIN_HASTE.matcher(fa.effectText()).find()) return true;
         if (!CardData.parseSelfTraitGrant(fa.effectText(), source.name()).isEmpty()) return true;
         if (CardData.parseSelfNonDmgBreakShield(fa.effectText(), source.name())) return true;
+        if (CardData.parseSelfNonDmgBreakShieldDirect(fa.effectText(), source.name())) return true;
         if (CardData.TRAIT_ONLY_SEGMENT.matcher(fa.effectText()).matches()) return true;
         if (CardData.parseOpponentForwardsEnterDull(fa.effectText())) return true;
         if (CardData.parseFieldCannotBeBlockedByCost(fa.effectText(), source.name()) != null) return true;
@@ -253,6 +255,8 @@ public class FieldAbilityParsingTest {
         if (m.find()) return "ReduceAbilityDmg[" + m.group("reduction") + "]";
         if (AutoAbilityTriggers.FA_OPP_FORWARD_POWER_BOOST_SUPPRESSED.matcher(fa.effectText()).find())
             return "OppFwdPowerBoostSuppressed";
+        if (AutoAbilityTriggers.FA_OPP_FORWARD_SELF_BOOST_SUPPRESSED.matcher(fa.effectText()).find())
+            return "OppFwdSelfBoostSuppressed";
         if (AutoAbilityTriggers.FA_OPP_FORWARD_ETF_SUPPRESSED.matcher(fa.effectText()).find())
             return "OppForwardEtfSuppressed";
         m = AutoAbilityTriggers.FA_OUTGOING_FLAT_BOOST_VS_COST.matcher(fa.effectText());
@@ -268,6 +272,7 @@ public class FieldAbilityParsingTest {
         if (CardData.isBackupCpAbility(fa.effectText())) return "BackupCpAbility";
         int lbN = CardData.parseIfSelfLbFaceUpCountTraitGrantThreshold(fa.effectText(), source.name());
         if (lbN >= 0) return "LbFaceUpTraitGrant[n≥" + lbN + " " + CardData.parseIfSelfLbFaceUpCountTraitGrantTraits(fa.effectText()) + "]";
+        if (CardData.parseSelfNonDmgBreakShieldDirect(fa.effectText(), source.name())) return "SelfNonDmgBreakShield";
         return null;
     }
 
