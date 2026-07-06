@@ -875,6 +875,15 @@ public class ActionResolver {
         "Job\\s+(?<job>.+?)\\s+you\\s+control[,.]\\s+play\\s+it\\s+onto\\s+(?:the\\s+)?field[.!]?"
     );
 
+    /**
+     * Matches "If its cost is equal to or less than the number of cards in your hand, return it to its owner's hand."
+     * Used by Leviathan (5-139C) EX Burst.
+     */
+    private static final Pattern FOLLOWUP_RETURN_IF_COST_LE_HAND = Pattern.compile(
+        "(?i)If\\s+its\\s+cost\\s+is\\s+equal\\s+to\\s+or\\s+less\\s+than\\s+the\\s+number\\s+of\\s+" +
+        "cards?\\s+in\\s+your\\s+hand,?\\s+return\\s+it\\s+to\\s+its\\s+owner'?s?\\s+hand[.!]?"
+    );
+
     /** Matches "Add it to your hand" or "Add them to your hand". */
     private static final Pattern FOLLOWUP_ADD_TO_HAND = Pattern.compile(
         "(?i)Add\\s+(?:it|them)\\s+to\\s+your\\s+hand"
@@ -5025,6 +5034,7 @@ public class ActionResolver {
         if (FOLLOWUP_REMOVE_FROM_GAME.matcher(followupText).find())                   return "RemoveFromGame";
         if (SECONDARY_PLAY_REMOVED_ONTO_FIELD.matcher(followupText).find())           return "PlayRemovedOntoField";
         if (FOLLOWUP_PLAY_IF_COST_LE_JOB_COUNT.matcher(followupText).matches())       return "PlayIfCostLeJobCount";
+        if (FOLLOWUP_RETURN_IF_COST_LE_HAND.matcher(followupText).matches())          return "ReturnIfCostLeHand";
         if (FOLLOWUP_PLAY_ONTO_FIELD.matcher(followupText).find())                    return "PlayOntoField";
         if (FOLLOWUP_ADD_TO_HAND.matcher(followupText).find())                        return "AddToHand";
         if (FOLLOWUP_RETURN_AND_NAMED_TO_OWNERS_HAND.matcher(followupText).find())    return "ReturnAndNamedToOwnersHand";
@@ -8444,6 +8454,30 @@ public class ActionResolver {
                     else          ctx.returnP2ForwardToHand(t.idx());
                 }
                 ctx.returnNamedCardToOwnersHand(alsoNamed);
+                if (secondary != null) secondary.accept(ctx);
+            };
+        }
+
+        // --- "If its cost ≤ number of cards in your hand, return to owner's hand" (Leviathan EX Burst) ---
+        if (FOLLOWUP_RETURN_IF_COST_LE_HAND.matcher(strippedPrimaryFollowup).matches()) {
+            return ctx -> {
+                int handSize = ctx.yourHandSize();
+                ctx.logEntry(choosePrefix + " — Return to owner's hand if cost ≤ hand size (" + handSize + ")");
+                List<ForwardTarget> ts = selectTargets(ctx, maxCount, upTo,
+                        opponentOnly, selfOnly, condition, element, zone, opponentZone,
+                        costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters,
+                        jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, fExcludeElem, withoutMulticard);
+                for (ForwardTarget t : ts) {
+                    if (t.zone() != ForwardTarget.CardZone.FORWARD) continue;
+                    CardData card = t.isP1() ? ctx.p1Forward(t.idx()) : ctx.p2Forward(t.idx());
+                    if (card == null || card.cost() > handSize) {
+                        if (card != null) ctx.logEntry("Cost " + card.cost() + " > hand size " + handSize + " — condition not met");
+                        continue;
+                    }
+                    ctx.logEntry("Cost " + card.cost() + " ≤ hand size " + handSize + " — returning to hand");
+                    if (t.isP1()) ctx.returnP1ForwardToHand(t.idx());
+                    else          ctx.returnP2ForwardToHand(t.idx());
+                }
                 if (secondary != null) secondary.accept(ctx);
             };
         }
