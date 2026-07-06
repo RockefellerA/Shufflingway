@@ -394,6 +394,8 @@ public class MainWindow {
 	final Map<CardData, Integer> incomingDmgIncreaseMap   = new HashMap<>();
 	int globalForwardIncomingDmgIncrease = 0; // flat increase applied to ALL Forwards' incoming damage this turn
 	boolean allForwardsCannotBeBlockedByHigherCostThisTurn = false;
+	boolean p1FwdBoostSuppressedThisTurn = false; // P1's Forwards cannot have power increased this turn
+	boolean p2FwdBoostSuppressedThisTurn = false; // P2's Forwards cannot have power increased this turn
 	final Set<CardData>          nullifyAbilityDmgSet     = new HashSet<>();
 	final Set<CardData>          nullifyAbilityOnlyDmgSet = new HashSet<>();
 	final Set<CardData>          nextOutgoingDmgZeroSet      = new HashSet<>();
@@ -2086,6 +2088,7 @@ public class MainWindow {
                                 nextIncomingDmgZeroSet.clear();   nextIncomingDmgRedirectMap.clear();   nextIncomingDmgReduceMap.clear();   nextAbilityDmgReduceMap.clear();
                                 incomingDmgIncreaseMap.clear();   globalForwardIncomingDmgIncrease = 0;   nullifyAbilityDmgSet.clear();
                                 allForwardsCannotBeBlockedByHigherCostThisTurn = false;
+                                p1FwdBoostSuppressedThisTurn = false; p2FwdBoostSuppressedThisTurn = false;
                                 nullifyAbilityOnlyDmgSet.clear(); perCardNonLethalDmgSet.clear();
                                 nextOutgoingDmgZeroSet.clear();    outgoingDmgMultiplierMap.clear();
                                 nextOutgoingDmgDoublerSet.clear(); outgoingDmgFlatBoostMap.clear();
@@ -6157,6 +6160,8 @@ public class MainWindow {
 		for (CardData c : fwds) if (!lostAbilitiesCards.contains(c) && AutoAbilityTriggers.hasOppForwardPowerBoostSuppression(c)) return true;
 		for (CardData c : bkps) if (c != null && !lostAbilitiesCards.contains(c) && AutoAbilityTriggers.hasOppForwardPowerBoostSuppression(c)) return true;
 		for (CardData c : mons) if (!lostAbilitiesCards.contains(c) && AutoAbilityTriggers.hasOppForwardPowerBoostSuppression(c)) return true;
+		if (targetIsP1 && p1FwdBoostSuppressedThisTurn) return true;
+		if (!targetIsP1 && p2FwdBoostSuppressedThisTurn) return true;
 		return false;
 	}
 

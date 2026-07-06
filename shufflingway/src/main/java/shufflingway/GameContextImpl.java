@@ -877,6 +877,11 @@ final class GameContextImpl implements GameContext {
 			@Override public void setAllForwardsCannotBeBlockedByHigherCostThisTurn() {
 				mw.allForwardsCannotBeBlockedByHigherCostThisTurn = true;
 			}
+			@Override public void setOppFwdPowerBoostSuppressedThisTurn() {
+				if (isP1()) mw.p2FwdBoostSuppressedThisTurn = true;
+				else        mw.p1FwdBoostSuppressedThisTurn = true;
+				logEntry("Effect: Opponent Forwards cannot have their power increased this turn");
+			}
 			@Override public void oppForwardsLoseAllAbilitiesUntilEndOfTurn() {
 				List<CardData> oppFwds = isP1() ? mw.p2ForwardCards : mw.p1ForwardCards;
 				for (CardData fwd : oppFwds) {

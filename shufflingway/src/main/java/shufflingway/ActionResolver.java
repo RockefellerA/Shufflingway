@@ -987,6 +987,15 @@ public class ActionResolver {
         "inferior\\s+or\\s+equal\\s+to\\s+its\\s+own\\s+this\\s+turn[.!]?"
     );
 
+    /**
+     * Matches "During this turn, the power of Forwards opponent controls cannot be increased by Summons or abilities."
+     * Action-ability counterpart to the persistent field effect FA_OPP_FORWARD_POWER_BOOST_SUPPRESSED.
+     */
+    private static final Pattern OPP_FWD_POWER_BOOST_SUPPRESSED_THIS_TURN = Pattern.compile(
+        "(?i)During\\s+this\\s+turn,?\\s+the\\s+power\\s+of\\s+Forwards?\\s+(?:your\\s+)?opponent\\s+controls?\\s+" +
+        "cannot\\s+be\\s+increased\\s+by\\s+Summons?\\s+or\\s+abilit(?:y|ies)[.!]?"
+    );
+
     /** Matches "[CardName] cannot be blocked this turn." — self-referential standalone form. */
     private static final Pattern STANDALONE_SELF_CANNOT_BE_BLOCKED = Pattern.compile(
         "(?i)(?<subject>.+?)\\s+cannot\\s+be\\s+blocked" +
@@ -4367,6 +4376,9 @@ public class ActionResolver {
         result = tryParseOppFwdsLoseAllAbilitiesEot(effectText);
         if (result != null) return result;
 
+        result = tryParseOppFwdPowerBoostSuppressedThisTurn(effectText);
+        if (result != null) return result;
+
         result = tryParseOppFwdsLosePowerPerPlayCost(effectText);
         if (result != null) return result;
 
@@ -4864,6 +4876,7 @@ public class ActionResolver {
         if (tryParseOppFwdsCannotBlockInferiorPower(effectText)           != null) return "OppFwdsCannotBlockInferiorPower";
         if (tryParseAllFwdsBlockedOnlyByLowerCostThisTurn(effectText)    != null) return "AllFwdsBlockedOnlyByLowerCost";
         if (tryParseOppFwdsLoseAllAbilitiesEot(effectText)         != null) return "OppFwdsLoseAllAbilitiesEot";
+        if (tryParseOppFwdPowerBoostSuppressedThisTurn(effectText) != null) return "OppFwdPowerBoostSuppressedThisTurn";
         if (tryParseOppFwdsLosePowerPerPlayCost(effectText)        != null) return "OppFwdsLosePowerPerPlayCost";
         if (tryParseStandaloneCannotBeBlocked(effectText, source) != null) return "StandaloneCannotBeBlocked";
         if (tryParseRevealHandOptPickRfpOppDraw(effectText)    != null) return "RevealHandOptPickRfpOppDraw";
@@ -5317,6 +5330,7 @@ public class ActionResolver {
         if (tryParseOppFwdsCannotBlockInferiorPower(effectText)           != null) return "OppFwdsCannotBlockInferiorPower";
         if (tryParseAllFwdsBlockedOnlyByLowerCostThisTurn(effectText)    != null) return "AllFwdsBlockedOnlyByLowerCost";
         if (tryParseOppFwdsLoseAllAbilitiesEot(effectText)         != null) return "OppFwdsLoseAllAbilitiesEot";
+        if (tryParseOppFwdPowerBoostSuppressedThisTurn(effectText) != null) return "OppFwdPowerBoostSuppressedThisTurn";
         if (tryParseOppFwdsLosePowerPerPlayCost(effectText)        != null) return "OppFwdsLosePowerPerPlayCost";
         if (tryParseStandaloneCannotBeBlocked(effectText, source) != null) return "StandaloneCannotBeBlocked";
         if (tryParseRevealHandOptPickRfpOppDraw(effectText) != null)        return "RevealHandOptPickRfpOppDraw";
@@ -10010,6 +10024,11 @@ public class ActionResolver {
     private static Consumer<GameContext> tryParseOppFwdsLoseAllAbilitiesEot(String text) {
         if (!OPP_FWDS_LOSE_ALL_ABILITIES_EOT.matcher(text).matches()) return null;
         return ctx -> ctx.oppForwardsLoseAllAbilitiesUntilEndOfTurn();
+    }
+
+    private static Consumer<GameContext> tryParseOppFwdPowerBoostSuppressedThisTurn(String text) {
+        if (!OPP_FWD_POWER_BOOST_SUPPRESSED_THIS_TURN.matcher(text).matches()) return null;
+        return ctx -> ctx.setOppFwdPowerBoostSuppressedThisTurn();
     }
 
     private static Consumer<GameContext> tryParseOppFwdsLosePowerPerPlayCost(String text) {

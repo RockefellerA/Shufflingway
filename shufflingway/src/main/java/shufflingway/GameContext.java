@@ -1374,6 +1374,9 @@ public interface GameContext {
     /** Sets a global rule this turn: every Forward can only be blocked by a Forward with cost ≤ its own. */
     void setAllForwardsCannotBeBlockedByHigherCostThisTurn();
 
+    /** During this turn, the power of Forwards the opponent controls cannot be increased by Summons or abilities. */
+    void setOppFwdPowerBoostSuppressedThisTurn();
+
     /** Causes all opponent Forwards to lose all abilities until end of turn. */
     void oppForwardsLoseAllAbilitiesUntilEndOfTurn();
 
