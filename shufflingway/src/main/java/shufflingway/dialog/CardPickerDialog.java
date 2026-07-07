@@ -1342,8 +1342,6 @@ public class CardPickerDialog {
     public List<Integer> selectDamageAmount(int damage, String prompt, List<CardData> cards) {
         JDialog dlg = new JDialog(owner, "Divide Damage", true);
         dlg.setResizable(false);
-        // The full amount must be divided up before this can close — block the window's X button
-        // (and Alt+F4) so it can't be used to bypass that requirement; only the OK button disposes it.
         dlg.setDefaultCloseOperation(JDialog.DO_NOTHING_ON_CLOSE);
 
         JPanel header = new JPanel();
