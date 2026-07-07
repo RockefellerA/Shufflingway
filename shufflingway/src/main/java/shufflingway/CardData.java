@@ -438,7 +438,7 @@ public record CardData(
     /** "You can only cast X if you have a Forward." (on the field; not in Break Zone) */
     private static final Pattern CAST_REQUIRES_A_FORWARD = Pattern.compile(
         "(?i)You\\s+can\\s+only\\s+cast\\s+\\S[^.]+?\\s+if\\s+you\\s+have\\s+a\\s+Forward" +
-        "(?!\\s+in\\s+your\\s+Break\\s+Zone)[.!]?"
+        "(?!\\s+in\\s+your\\s+Break\\s+Zone)(?!,)[.!]?"
     );
 
     /**
@@ -4102,6 +4102,7 @@ public record CardData(
             if (CAST_REQUIRES_NO_FORWARDS.matcher(seg).find())                continue;
             if (CAST_MUST_CONTROL.matcher(seg).find())                        continue;
             if (CAST_MUST_CONTROL_CATEGORY_FWD.matcher(seg).find())          continue;
+            if (CAST_ONLY_PLAY_IF_CONTROL_CATEGORY_FWD.matcher(seg).find())  continue;
 
             // Field cost reduction / any-element declarations — handled as static card properties
             if (FIELD_COST_REDUCTION_PATTERN.matcher(seg).find())            continue;
