@@ -2373,6 +2373,52 @@ final class GameContextImpl implements GameContext {
 				logEntry("[ActionResolver] damageFieldForwardByName: \"" + cardName + "\" not found on field");
 			}
 
+			@Override public void eachPlayerMaySearchForwardMinPowerToHand(int count, int minPower) {
+				// P1
+				Deque<CardData> p1Deck = mw.gameState.getP1MainDeck();
+				List<CardData> p1Matches = new ArrayList<>();
+				for (CardData c : p1Deck) if (c.isForward() && c.power() >= minPower) p1Matches.add(c);
+				if (p1Matches.isEmpty()) {
+					logEntry("P1 search: no Forward of " + minPower + "+ power in deck");
+					mw.shuffleDeck(true);
+				} else {
+					String src = mw.currentAbilitySource != null ? mw.currentAbilitySource.name() : "Ability";
+					int choice = mw.showEffectOptionDialog(
+							src + " — Search for 1 Forward of power " + minPower + " or more?",
+							"You May Search", new Object[]{"Search", "Pass"});
+					if (choice == 0) {
+						CardData pick = mw.cardPickerDialog.pickFromDeckSearch(p1Matches);
+						if (pick != null) {
+							mw.gameState.removeFromP1MainDeck(pick);
+							mw.gameState.getP1Hand().add(pick);
+							logEntry(pick.name() + " → hand (search)");
+							mw.refreshP1HandLabel();
+							mw.animateCardDraw(true, 1);
+						}
+					} else {
+						logEntry("P1 passes on search");
+					}
+					mw.shuffleDeck(true);
+				}
+
+				// P2
+				Deque<CardData> p2Deck = mw.gameState.getP2MainDeck();
+				List<CardData> p2Matches = new ArrayList<>();
+				for (CardData c : p2Deck) if (c.isForward() && c.power() >= minPower) p2Matches.add(c);
+				if (p2Matches.isEmpty()) {
+					logEntry("[P2] search: no Forward of " + minPower + "+ power in deck");
+					mw.shuffleDeck(false);
+				} else {
+					p2Matches.sort(java.util.Comparator.comparingInt(CardData::power).reversed());
+					CardData pick = p2Matches.get(0);
+					mw.gameState.getP2MainDeck().remove(pick);
+					mw.gameState.getP2Hand().add(pick);
+					logEntry("[P2 AI] " + pick.name() + " → hand (search)");
+					mw.refreshP2HandCountLabel();
+					mw.shuffleDeck(false);
+				}
+			}
+
 			@Override public void eachPlayerSelectForwardAndDamage(int amount) {
 				ForwardTarget p1Pick = null;
 				if (!mw.p1ForwardCards.isEmpty()) {
@@ -4955,6 +5001,18 @@ final class GameContextImpl implements GameContext {
 				if (t.equals("monster")   || t.equals("character")) count += mons.size();
 				if (t.equals("backup")    || t.equals("character")) { for (CardData c : bkps) if (c != null) count++; }
 				return count;
+			}
+
+			@Override public int ownFieldCountByCategory(String category, String type) {
+				String t = type.toLowerCase().replaceAll("s$", "");
+				List<CardData> all = new ArrayList<>();
+				List<CardData> fwds = isP1 ? mw.p1ForwardCards : mw.p2ForwardCards;
+				CardData[]     bkps = isP1 ? mw.p1BackupCards  : mw.p2BackupCards;
+				List<CardData> mons = isP1 ? mw.p1MonsterCards : mw.p2MonsterCards;
+				if (t.equals("forward")   || t.equals("character")) all.addAll(fwds);
+				if (t.equals("monster")   || t.equals("character")) all.addAll(mons);
+				if (t.equals("backup")    || t.equals("character")) { for (CardData c : bkps) if (c != null) all.add(c); }
+				return (int) all.stream().filter(c -> meetsCategoryFilter(c, category)).count();
 			}
 
 			@Override public boolean selfHasSummonInBreakZone() {

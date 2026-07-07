@@ -2132,6 +2132,16 @@ public class ActionResolver {
         "may\\s+play\\s+it\\s+onto\\s+the\\s+field[.!]?\\s*$"
     );
 
+    /**
+     * Matches "each player may search for N Forward(s) of power X or more and add it/them to his/her hand."
+     * Groups: {@code count}, {@code power}.
+     */
+    private static final Pattern EACH_PLAYER_MAY_SEARCH_FORWARD_MIN_POWER = Pattern.compile(
+        "(?i)^\\s*each\\s+player\\s+may\\s+search\\s+for\\s+(?<count>\\d+)\\s+Forwards?\\s+" +
+        "of\\s+power\\s+(?<power>\\d+)\\s+or\\s+more\\s+and\\s+add\\s+it(?:/them|s)?\\s+to\\s+" +
+        "(?:his/her|his|her|their)\\s+hand[.!]?\\s*$"
+    );
+
     /** Matches "Discard your hand. Then, draw N card(s)." Group 1 = draw count. */
     private static final Pattern DISCARD_HAND_THEN_DRAW = Pattern.compile(
         "(?i)Discard\\s+your\\s+hand[.,]?\\s+[Tt]hen[,]?\\s+draw\\s+(\\d+)\\s+cards?[.!]?\\s*$"
@@ -4651,6 +4661,9 @@ public class ActionResolver {
         result = tryParseEachPlayerRevealCharacterMayPlay(effectText);
         if (result != null) return result;
 
+        result = tryParseEachPlayerMaySearchForwardMinPower(effectText);
+        if (result != null) return result;
+
         result = tryParseRevealTopDeck(effectText, source);
         if (result != null) return result;
 
@@ -5010,7 +5023,8 @@ public class ActionResolver {
         if (tryParseOpponentMill(effectText)                  != null) return "OpponentMill";
         if (tryParseSelfMill(effectText)                      != null) return "SelfMill";
         if (tryParseOpponentRevealHand(effectText)            != null) return "OpponentRevealHand";
-        if (tryParseEachPlayerRevealCharacterMayPlay(effectText) != null) return "EachPlayerRevealMayPlay";
+        if (tryParseEachPlayerRevealCharacterMayPlay(effectText)      != null) return "EachPlayerRevealMayPlay";
+        if (tryParseEachPlayerMaySearchForwardMinPower(effectText)     != null) return "EachPlayerMaySearchForwardMinPower";
         if (tryParseRevealTopDeck(effectText, source)         != null) return "RevealTopDeck";
         if (tryParseStandaloneDamageShields(effectText, source) != null) return "StandaloneDamageShields";
         if (tryParseDualSearchJobAndTypeDontShareElements(effectText)      != null) return "DualSearchDontShareElements";
@@ -5480,7 +5494,8 @@ public class ActionResolver {
         if (tryParseOpponentMill(effectText) != null)                       return "OpponentMill";
         if (tryParseSelfMill(effectText) != null)                           return "SelfMill";
         if (tryParseOpponentRevealHand(effectText) != null)                 return "OpponentRevealHand";
-        if (tryParseEachPlayerRevealCharacterMayPlay(effectText) != null) return "EachPlayerRevealMayPlay";
+        if (tryParseEachPlayerRevealCharacterMayPlay(effectText) != null)   return "EachPlayerRevealMayPlay";
+        if (tryParseEachPlayerMaySearchForwardMinPower(effectText) != null) return "EachPlayerMaySearchForwardMinPower";
         if (tryParseRevealTopDeck(effectText, source) != null)
             return revealTopDeckDescription(effectText, source) + restrictionDesc(effectText);
         if (tryParseStandaloneDamageShields(effectText, source) != null)    return "StandaloneDamageShields";
@@ -10194,7 +10209,9 @@ public class ActionResolver {
      * Groups: {@code max} — the maximum count; {@code type} — card type; {@code effect} — inner effect.
      */
     private static final Pattern IF_CONTROL_AT_MOST = Pattern.compile(
-        "(?is)^if\\s+you\\s+control\\s+(?<max>\\d+)\\s+or\\s+(?:less|fewer)\\s+(?<type>Forwards?|Backups?|Monsters?|Characters?),\\s+(?<effect>.+)$"
+        "(?is)^if\\s+you\\s+control\\s+(?<max>\\d+)\\s+or\\s+(?:less|fewer)\\s+" +
+        "(?:Category\\s+(?<category>\\S+)\\s+)?" +
+        "(?<type>Forwards?|Backups?|Monsters?|Characters?),\\s+(?<effect>.+)$"
     );
 
     /**
@@ -10439,16 +10456,20 @@ public class ActionResolver {
     private static Consumer<GameContext> tryParseIfControlAtMost(String text, CardData source, int xValue) {
         Matcher m = IF_CONTROL_AT_MOST.matcher(text.trim());
         if (!m.matches()) return null;
-        int max = Integer.parseInt(m.group("max"));
-        String type = m.group("type").trim();
+        int max          = Integer.parseInt(m.group("max"));
+        String category  = m.group("category");
+        String type      = m.group("type").trim();
         Consumer<GameContext> inner = parse(m.group("effect").trim(), source, xValue);
         if (inner == null) return null;
+        String label = (category != null ? "Category " + category + " " : "") + type;
         return ctx -> {
-            int count = ctx.ownFieldCount(type);
+            int count = category != null
+                    ? ctx.ownFieldCountByCategory(category, type)
+                    : ctx.ownFieldCount(type);
             if (count <= max) {
                 inner.accept(ctx);
             } else {
-                ctx.logEntry("Effect: control " + count + " " + type + " (max " + max + ") — skipped");
+                ctx.logEntry("Effect: control " + count + " " + label + " (max " + max + ") — skipped");
             }
         };
     }
@@ -12406,6 +12427,17 @@ public class ActionResolver {
         return ctx -> {
             ctx.logEntry("Effect: Each player reveals top card, may play if " + typeStr);
             ctx.revealEachPlayerTopDeckMayPlay(eligible);
+        };
+    }
+
+    private static Consumer<GameContext> tryParseEachPlayerMaySearchForwardMinPower(String text) {
+        Matcher m = EACH_PLAYER_MAY_SEARCH_FORWARD_MIN_POWER.matcher(text.trim());
+        if (!m.matches()) return null;
+        int count    = Integer.parseInt(m.group("count"));
+        int minPower = Integer.parseInt(m.group("power"));
+        return ctx -> {
+            ctx.logEntry("Effect: Each player may search for " + count + " Forward(s) power " + minPower + "+");
+            ctx.eachPlayerMaySearchForwardMinPowerToHand(count, minPower);
         };
     }
 

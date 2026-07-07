@@ -373,6 +373,13 @@ public interface GameContext {
     void eachPlayerSelectForwardAndDamage(int amount);
 
     /**
+     * Each player may search their deck for up to {@code count} Forward(s) with power
+     * &ge; {@code minPower} and add the chosen card(s) to their hand.
+     * P1 is shown a yes/no offer then a search dialog; P2 AI always searches.
+     */
+    void eachPlayerMaySearchForwardMinPowerToHand(int count, int minPower);
+
+    /**
      * Both players each select 1 Forward they control and put it into the Break Zone.
      * P1 picks via dialog; P2 (AI) picks automatically (lowest-cost Forward).
      * Skips a side that has no Forwards.
@@ -811,6 +818,12 @@ public interface GameContext {
      * or "Character") the active player currently controls on the field.
      */
     int ownFieldCount(String cardType);
+
+    /**
+     * Returns the number of cards on the active player's field that match {@code type}
+     * (Forward/Backup/Monster/Character) AND belong to {@code category}.
+     */
+    int ownFieldCountByCategory(String category, String type);
 
     /** Returns {@code true} if the active player has at least one Summon in their Break Zone. */
     boolean selfHasSummonInBreakZone();
