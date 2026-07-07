@@ -5246,6 +5246,20 @@ public class MainWindow {
 			menu.add(altItem);
 		}
 
+		for (FieldDiscardCastEntry grant : findFieldDiscardCastGrants(card.name(), true)) {
+			JMenuItem dItem = new JMenuItem("Play (Discard " + grant.count() + " Job " + grant.job() + ")");
+			dItem.setEnabled(canPlaySpecialAction && !nameConflict && !lightDarkConflict
+					&& hasEligibleJobInHand(grant.job(), handIdx, grant.count())
+					&& (!card.isBackup() || hasAvailableBackupSlot()) && castRestrictionMet(card)
+					&& (!card.isSummon() || !summonCastingProhibited()) && !p1CastLimitReached());
+			dItem.addActionListener(ae -> {
+				hideZoom();
+				if (handPopup != null) { handPopup.dispose(); handPopup = null; }
+				showFieldDiscardCastDialog(card, handIdx, grant);
+			});
+			menu.add(dItem);
+		}
+
 		for (ActionAbility ability : card.actionAbilities()) {
 			if (!ability.whileCardInHand()) continue;
 			boolean abilityEnabled = autoAbilityTriggers.canActivateHandAbility(ability, card, true);
@@ -6853,6 +6867,62 @@ public class MainWindow {
 				(discards, backups, overrides) -> executePlay(card, handIdx, discards, backups, overrides),
 				isAnyElementCast(card))
 			.show();
+	}
+
+	/** Carries a field-granted "discard N Job X to cast [CardName]" alt cost entry. */
+	private record FieldDiscardCastEntry(int count, String job) {}
+
+	/** Returns field-granted discard-cast entries for {@code targetCardName} playable by {@code isP1}. */
+	private List<FieldDiscardCastEntry> findFieldDiscardCastGrants(String targetCardName, boolean isP1) {
+		List<FieldDiscardCastEntry> result = new ArrayList<>();
+		List<CardData> fwds = isP1 ? p1ForwardCards : p2ForwardCards;
+		CardData[]     bkps = isP1 ? p1BackupCards  : p2BackupCards;
+		List<CardData> mons = isP1 ? p1MonsterCards : p2MonsterCards;
+		for (CardData src : fwds)                   addDiscardCastGrants(src, targetCardName, result);
+		for (CardData bkp : bkps) if (bkp != null) addDiscardCastGrants(bkp, targetCardName, result);
+		for (CardData src : mons)                   addDiscardCastGrants(src, targetCardName, result);
+		return result;
+	}
+
+	private void addDiscardCastGrants(CardData src, String targetCardName, List<FieldDiscardCastEntry> out) {
+		if (lostAbilitiesCards.contains(src)) return;
+		for (FieldAbility fa : src.fieldAbilities()) {
+			java.util.regex.Matcher m = AutoAbilityTriggers.FA_DISCARD_JOB_TO_CAST.matcher(fa.effectText());
+			if (m.find() && m.group("target").trim().equalsIgnoreCase(targetCardName))
+				out.add(new FieldDiscardCastEntry(Integer.parseInt(m.group("count")), m.group("job").trim()));
+		}
+	}
+
+	/** Returns true if P1's hand has at least {@code count} cards matching Job {@code job}, excluding {@code excludeIdx}. */
+	private boolean hasEligibleJobInHand(String job, int excludeIdx, int count) {
+		List<CardData> hand = gameState.getP1Hand();
+		int found = 0;
+		for (int i = 0; i < hand.size(); i++) {
+			if (i != excludeIdx && CardFilters.meetsJobFilter(hand.get(i), job)) found++;
+		}
+		return found >= count;
+	}
+
+	/** Shows the field-granted discard-cast dialog for P1: pick {@code grant.count()} Job cards to discard, then cast free. */
+	private void showFieldDiscardCastDialog(CardData card, int handIdx, FieldDiscardCastEntry grant) {
+		List<CardData> hand = gameState.getP1Hand();
+		List<Integer> eligible = new ArrayList<>();
+		for (int i = 0; i < hand.size(); i++) {
+			if (i != handIdx && CardFilters.meetsJobFilter(hand.get(i), grant.job())) eligible.add(i);
+		}
+		if (eligible.isEmpty()) { logEntry("No eligible Job " + grant.job() + " in hand"); return; }
+		HandPickDialog.showDiscardByType(frame, hand, eligible, "Job " + grant.job(),
+				this::showZoomAt, this::hideZoom, discardIdx -> {
+					CardData d = playerBreakFromHand(true, discardIdx);
+					if (d != null) {
+						logEntry("Discards " + d.name() + " (alt cost — casting " + card.name() + " for free)");
+						p1DiscardedByEffectThisTurn = true;
+					}
+					refreshP1HandLabel();
+					refreshP1BreakLabel();
+					int adjustedHandIdx = discardIdx < handIdx ? handIdx - 1 : handIdx;
+					executePlay(card, adjustedHandIdx, Collections.emptyList(), Collections.emptyList(), Map.of());
+				});
 	}
 
 	/** Returns true if any field card grants any-element payment for {@code card}. */

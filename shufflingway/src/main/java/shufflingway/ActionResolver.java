@@ -5113,6 +5113,7 @@ public class ActionResolver {
         if (tryParsePlayCostReductionThisTurn(effectText)        != null) return "PlayCostReductionThisTurn";
         if (CardData.isSelfCostModifierText(effectText))                  return "SelfCostModifier";
         if (CardData.FIELD_OPP_CAST_COST_INCREASE_PATTERN.matcher(effectText).find()) return "OppCastCostIncrease";
+        if (AutoAbilityTriggers.FA_DISCARD_JOB_TO_CAST.matcher(effectText).find()) return "DiscardJobToCast";
         if (tryParseExtraTurnThenLose(effectText)               != null) return "ExtraTurnThenLose";
         if (tryParseGainCrystalPerX(effectText, 0)               != null) return "GainCrystalPerX";
         if (tryParseGainCrystal(effectText)                      != null) return "GainCrystal";
@@ -5278,6 +5279,7 @@ public class ActionResolver {
         if (tryParseChooseSummonInBzMaxCostFreeCastRfg(effectText)  != null)    return "ChooseSummonInBzMaxCostFreeCastRfg";
         if (CardData.isSelfCostModifierText(effectText))                        return "SelfCostModifier";
         if (CardData.FIELD_OPP_CAST_COST_INCREASE_PATTERN.matcher(effectText).find()) return "OppCastCostIncrease";
+        if (AutoAbilityTriggers.FA_DISCARD_JOB_TO_CAST.matcher(effectText).find()) return "DiscardJobToCast";
         if (CardData.YOUR_TURN_ONLY_PATTERN.matcher(effectText).matches())  return "YourTurnOnly";
         if (CardData.ONCE_PER_TURN_PATTERN.matcher(effectText).matches())   return "OncePerTurn";
         if (CardData.YOUR_TURN_ONLY_PATTERN.matcher(effectText).find()

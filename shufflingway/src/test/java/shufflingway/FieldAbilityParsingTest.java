@@ -127,6 +127,7 @@ public class FieldAbilityParsingTest {
         if (AutoAbilityTriggers.FA_NULLIFY_TRAIT_FORWARD_DAMAGE.matcher(fa.effectText()).find()) return true;
         if (AutoAbilityTriggers.FA_OUTGOING_DAMAGE_DOUBLER.matcher(fa.effectText()).find()) return true;
         if (AutoAbilityTriggers.FA_RECV_PLAYER_DAMAGE_ACTIVE_DULL_ZERO.matcher(fa.effectText()).find()) return true;
+        if (AutoAbilityTriggers.FA_DISCARD_JOB_TO_CAST.matcher(fa.effectText()).find()) return true;
         if (ActionResolver.tryParseBeginningOfOppMainPhase1FieldAbility(fa.effectText(), source) != null) return true;
         if (AutoAbilityTriggers.FA_OPPONENT_MUST_BLOCK.matcher(fa.effectText()).find()) return true;
         if (AutoAbilityTriggers.FA_ALL_FORWARDS_LOSE_HASTE.matcher(fa.effectText()).find()) return true;

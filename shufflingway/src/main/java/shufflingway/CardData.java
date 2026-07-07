@@ -2645,11 +2645,14 @@ public record CardData(
     );
 
     /**
-     * Matches "The Card Name X you control gain +N power."
-     * Groups: {@code cardname}, {@code power}.
+     * Matches "The Card Name X you control gains +N power [and Trait(s)]."
+     * Groups: {@code cardname}, {@code power}, {@code traitstext} (optional).
      */
     private static final Pattern FIELD_GRANT_CARD_NAME_PATTERN = Pattern.compile(
-        "(?i)^The\\s+Card\\s+Name\\s+(?<cardname>.+?)\\s+you\\s+control\\s+gains?\\s+\\+(?<power>\\d+)\\s+power[.!]?$"
+        "(?i)^The\\s+Card\\s+Name\\s+(?<cardname>.+?)\\s+you\\s+control\\s+gains?\\s+" +
+        "\\+(?<power>\\d+)\\s+power" +
+        "(?:\\s+and\\s+(?<traitstext>Haste|Brave|First\\s+Strike|Back\\s+Attack" +
+        "(?:\\s+and\\s+(?:Haste|Brave|First\\s+Strike|Back\\s+Attack))*))?[.!]?$"
     );
 
     /**
@@ -2904,9 +2907,17 @@ public record CardData(
 
             Matcher cnM = FIELD_GRANT_CARD_NAME_PATTERN.matcher(seg);
             if (cnM.matches()) {
+                int power = Integer.parseInt(cnM.group("power"));
+                String traitsText = cnM.group("traitstext");
+                EnumSet<Trait> traits = EnumSet.noneOf(Trait.class);
+                if (traitsText != null) {
+                    if (ICB_EFFECT_HASTE.matcher(traitsText).find())        traits.add(Trait.HASTE);
+                    if (ICB_EFFECT_BRAVE.matcher(traitsText).find())        traits.add(Trait.BRAVE);
+                    if (ICB_EFFECT_FIRST_STRIKE.matcher(traitsText).find()) traits.add(Trait.FIRST_STRIKE);
+                    if (ICB_EFFECT_BACK_ATTACK.matcher(traitsText).find())  traits.add(Trait.BACK_ATTACK);
+                }
                 result.add(new FieldPowerGrant(null, null, true, true, true, null,
-                        Integer.parseInt(cnM.group("power")),
-                        EnumSet.noneOf(Trait.class), false, -1, null, null,
+                        power, traits, false, -1, null, null,
                         cnM.group("cardname").trim()));
                 continue;
             }
