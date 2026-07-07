@@ -6076,7 +6076,9 @@ public class MainWindow {
 	private int applyFieldReductionsFrom(CardData src, int cost, CardData card, boolean isP1, boolean srcIsP1) {
 		for (FieldCostReduction fcr : src.fieldCostReductions()) {
 			if (fcr.amountPerUnit() == 0) continue;
-			if (fcr.ownerOnly() && srcIsP1 != isP1) continue;
+			if (fcr.opponentOnly() && srcIsP1 == isP1) continue;  // skip if opponent-only and caster is the owner
+			if (!fcr.opponentOnly() && fcr.ownerOnly() && srcIsP1 != isP1) continue;
+			if (lostAbilitiesCards.contains(src)) continue;
 			if (!fcr.matchesCard(card)) continue;
 			int units = fcr.scalingJobFilter() != null
 					? countForwardsWithJob(fcr.scalingJobFilter(), isP1) : 1;

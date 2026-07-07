@@ -3337,6 +3337,17 @@ public record CardData(
         "\\s*\\.?$"
     );
 
+    /**
+     * Matches "The cost required for your opponent to cast [Type] is increased by N."
+     * Groups: {@code type} — card type(s); {@code amount} — increase magnitude.
+     */
+    static final Pattern FIELD_OPP_CAST_COST_INCREASE_PATTERN = Pattern.compile(
+        "(?i)^The\\s+cost\\s+required\\s+for\\s+your\\s+opponent\\s+to\\s+cast\\s+" +
+        "(?<type>(?:Forwards?|Backups?|Monsters?|Summons?|Characters?)(?:\\s+or\\s+(?:Forwards?|Backups?|Monsters?|Summons?|Characters?))?)" +
+        "\\s+is\\s+(?:increased|reduced)\\s+by\\s+(?<amount>\\d+)" +
+        "\\s*\\.?$"
+    );
+
     /** Matches "If you control N or more [Category X] Y, the cost required to cast/play Name is reduced by N." */
     private static final Pattern FIELD_CONDITIONAL_COST_REDUCTION_PATTERN = Pattern.compile(
         "(?i)^If\\s+you\\s+control\\s+\\d+\\s+or\\s+more\\s+" +
@@ -3375,7 +3386,7 @@ public record CardData(
             boolean iB  = type == null || tl.contains("backup")   || tl.contains("character");
             boolean iM  = type == null || tl.contains("monster")  || tl.contains("character");
             boolean iS  = type == null || tl.contains("summon");
-            return new FieldCostReduction(amount, floorAtOne, ownerOnly, iF, iB, iM, iS,
+            return new FieldCostReduction(amount, floorAtOne, ownerOnly, false, iF, iB, iM, iS,
                     null, job, null, null, scalingJob, false, null);
         }
 
@@ -3388,18 +3399,18 @@ public record CardData(
             boolean iB  = type == null || tl.contains("backup")   || tl.contains("character");
             boolean iM  = type == null || tl.contains("monster")  || tl.contains("character");
             boolean iS  = type == null || tl.contains("summon");
-            return new FieldCostReduction(amount, floorAtOne, ownerOnly, iF, iB, iM, iS,
+            return new FieldCostReduction(amount, floorAtOne, ownerOnly, false, iF, iB, iM, iS,
                     null, job, null, null, scalingJob, false, null);
         }
 
         m = CAST_SPEC_BRACKETED.matcher(branch);
         if (m.find())
-            return new FieldCostReduction(amount, floorAtOne, ownerOnly, true, true, true, true,
+            return new FieldCostReduction(amount, floorAtOne, ownerOnly, false, true, true, true, true,
                     null, null, m.group("name").trim(), null, scalingJob, false, null);
 
         m = PLAY_SPEC_CARD_NAME.matcher(branch);
         if (m.find())
-            return new FieldCostReduction(amount, floorAtOne, ownerOnly, true, true, true, true,
+            return new FieldCostReduction(amount, floorAtOne, ownerOnly, false, true, true, true, true,
                     null, null, m.group("name").trim(), null, scalingJob, false, null);
 
         m = CAST_SPEC_CATEGORY_TYPE.matcher(branch);
@@ -3410,7 +3421,7 @@ public record CardData(
             boolean iB  = tl.contains("backup")   || tl.contains("character");
             boolean iM  = tl.contains("monster")  || tl.contains("character");
             boolean iS  = tl.contains("summon");
-            return new FieldCostReduction(amount, floorAtOne, ownerOnly, iF, iB, iM, iS,
+            return new FieldCostReduction(amount, floorAtOne, ownerOnly, false, iF, iB, iM, iS,
                     null, null, null, cat, scalingJob, false, null);
         }
 
@@ -3422,7 +3433,7 @@ public record CardData(
             boolean iB     = tl.contains("backup")   || tl.contains("character");
             boolean iM     = tl.contains("monster")  || tl.contains("character");
             boolean iS     = tl.contains("summon");
-            return new FieldCostReduction(amount, floorAtOne, ownerOnly, iF, iB, iM, iS,
+            return new FieldCostReduction(amount, floorAtOne, ownerOnly, false, iF, iB, iM, iS,
                     element, null, null, null, scalingJob, false, null);
         }
 
@@ -3468,7 +3479,7 @@ public record CardData(
                     inclSummons  = tl.contains("summon");
                 }
 
-                result.add(new FieldCostReduction(amount, floorAtOne, ownerOnly,
+                result.add(new FieldCostReduction(amount, floorAtOne, ownerOnly, false,
                         inclForwards, inclBackups, inclMonsters, inclSummons,
                         elementFilter, jobFilter, cardNameFilter, null, scalingJob, false, null));
                 continue;
@@ -3495,7 +3506,7 @@ public record CardData(
             if (cm.find()) {
                 int    amount   = Integer.parseInt(cm.group("amount"));
                 String cardName = cm.group("cardname").trim();
-                result.add(new FieldCostReduction(amount, false, false, true, true, true, true,
+                result.add(new FieldCostReduction(amount, false, false, false, true, true, true, true,
                         null, null, cardName, null, null, false, null));
                 continue;
             }
@@ -3505,8 +3516,23 @@ public record CardData(
             if (bzJobM.find()) {
                 String job      = bzJobM.group("job").trim();
                 String cardName = bzJobM.group("cardname").trim();
-                result.add(new FieldCostReduction(0, false, true, true, true, true, true,
+                result.add(new FieldCostReduction(0, false, true, false, true, true, true, true,
                         null, null, cardName, null, null, true, job));
+                continue;
+            }
+
+            // Opponent cast cost increase ("The cost required for your opponent to cast X is increased by N")
+            Matcher oppM = FIELD_OPP_CAST_COST_INCREASE_PATTERN.matcher(seg);
+            if (oppM.find()) {
+                int    amount = Integer.parseInt(oppM.group("amount"));
+                String tl     = oppM.group("type").toLowerCase();
+                boolean iF    = tl.contains("forward")  || tl.contains("character");
+                boolean iB    = tl.contains("backup")   || tl.contains("character");
+                boolean iM    = tl.contains("monster")  || tl.contains("character");
+                boolean iS    = tl.contains("summon");
+                // Store increase as negative amountPerUnit so apply() adds it: cost - (-amount) = cost + amount
+                result.add(new FieldCostReduction(-amount, false, false, true, iF, iB, iM, iS,
+                        null, null, null, null, null, false, null));
                 continue;
             }
 
@@ -3583,18 +3609,18 @@ public record CardData(
             boolean iB  = type == null || tl.contains("backup")   || tl.contains("character");
             boolean iM  = type == null || tl.contains("monster")  || tl.contains("character");
             boolean iS  = type == null || tl.contains("summon");
-            return new FieldCostReduction(amount, false, ownerOnly, iF, iB, iM, iS,
+            return new FieldCostReduction(amount, false, ownerOnly, false, iF, iB, iM, iS,
                     null, job, null, null, null, true, null);
         }
 
         m = CAST_SPEC_BRACKETED.matcher(branch);
         if (m.find())
-            return new FieldCostReduction(amount, false, ownerOnly, true, true, true, true,
+            return new FieldCostReduction(amount, false, ownerOnly, false, true, true, true, true,
                     null, null, m.group("name").trim(), null, null, true, null);
 
         m = CAST_SPEC_CARD_NAME.matcher(branch);
         if (m.find())
-            return new FieldCostReduction(amount, false, ownerOnly, true, true, true, true,
+            return new FieldCostReduction(amount, false, ownerOnly, false, true, true, true, true,
                     null, null, m.group("name"), null, null, true, null);
 
         m = CAST_SPEC_CATEGORY_TYPE.matcher(branch);
@@ -3605,7 +3631,7 @@ public record CardData(
             boolean iB  = tl.contains("backup")   || tl.contains("character");
             boolean iM  = tl.contains("monster")  || tl.contains("character");
             boolean iS  = tl.contains("summon");
-            return new FieldCostReduction(amount, false, ownerOnly, iF, iB, iM, iS,
+            return new FieldCostReduction(amount, false, ownerOnly, false, iF, iB, iM, iS,
                     null, null, null, cat, null, true, null);
         }
 
@@ -3617,7 +3643,7 @@ public record CardData(
             boolean iB     = tl.contains("backup")   || tl.contains("character");
             boolean iM     = tl.contains("monster")  || tl.contains("character");
             boolean iS     = tl.contains("summon");
-            return new FieldCostReduction(amount, false, ownerOnly, iF, iB, iM, iS,
+            return new FieldCostReduction(amount, false, ownerOnly, false, iF, iB, iM, iS,
                     element, null, null, null, null, true, null);
         }
 
@@ -4194,6 +4220,7 @@ public record CardData(
             if (FIELD_CONDITIONAL_COST_REDUCTION_PATTERN.matcher(seg).find()) continue;
             // Self-cost modifier ("If <cond>, the cost required to cast/play <cardName>…") — handled via parseSelfCostModifiers
             if (isSelfCostModifierText(seg))                                  continue;
+            if (FIELD_OPP_CAST_COST_INCREASE_PATTERN.matcher(seg).find())   continue;
             if (FIELD_CONDITIONAL_BZ_JOB_ANY_ELEMENT_PATTERN.matcher(seg).find()) continue;
             if (FIELD_CAST_ANY_ELEMENT_PATTERN.matcher(seg).find())          continue;
             if (FIELD_PRIMING_ANY_ELEMENT_PATTERN.matcher(seg).find())       continue;
