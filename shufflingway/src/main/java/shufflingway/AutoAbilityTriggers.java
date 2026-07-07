@@ -2438,23 +2438,26 @@ final class AutoAbilityTriggers {
 
 	/** Payment dialog for an action ability activated from the Break Zone. */
 	void showBzAbilityPaymentDialog(ActionAbility ability, CardData source, boolean isP1) {
-		List<String> rawCost = ability.cpCost();
-		List<BreakZoneCost> bzCosts = ability.breakZoneCosts();
+		final ActionAbility eff = ability.inlineCostReductionJob() != null
+				? ability.withReducedCp(mw.computeInlineReduction(ability.inlineCostReductionJob(), ability.inlineCostReductionExcludeName(), isP1))
+				: ability;
+		List<String> rawCost = eff.cpCost();
+		List<BreakZoneCost> bzCosts = eff.breakZoneCosts();
 
-		if (rawCost.isEmpty() && !ability.hasXCost()) {
+		if (rawCost.isEmpty() && !eff.hasXCost()) {
 			List<ForwardTarget> bzTargets = resolveBzCostTargetsForBzAbility(bzCosts, isP1);
 			if (bzTargets == null) return;
-			executeAbilityPayment(ability, source, () -> {}, new ArrayList<>(), new ArrayList<>(), bzTargets, isP1, 0);
+			executeAbilityPayment(eff, source, () -> {}, new ArrayList<>(), new ArrayList<>(), bzTargets, isP1, 0);
 			return;
 		}
 
-		new AbilityPaymentDialog(mw.frame, ability, source,
+		new AbilityPaymentDialog(mw.frame, eff, source,
 				mw.playerHand(isP1), mw.playerBackupCards(isP1), mw.playerBackupStates(isP1), mw.playerBackupUrls(isP1),
 				mw::showZoomAt, mw::hideZoom, null,
 				(discards, backups, xValue) -> {
 					List<ForwardTarget> bzTargets = resolveBzCostTargetsForBzAbility(bzCosts, isP1);
 					if (bzTargets == null) return;
-					executeAbilityPayment(ability, source, () -> {}, discards, backups, bzTargets, isP1, xValue);
+					executeAbilityPayment(eff, source, () -> {}, discards, backups, bzTargets, isP1, xValue);
 				})
 			.show();
 	}
@@ -2852,21 +2855,24 @@ final class AutoAbilityTriggers {
 	 */
 	void showActionAbilityPaymentDialog(ActionAbility ability, CardData source,
 			Runnable applyDull, boolean isP1) {
-		List<String> rawCost = ability.cpCost();
-		List<BreakZoneCost> bzCosts = ability.breakZoneCosts();
+		final ActionAbility eff = ability.inlineCostReductionJob() != null
+				? ability.withReducedCp(mw.computeInlineReduction(ability.inlineCostReductionJob(), ability.inlineCostReductionExcludeName(), isP1))
+				: ability;
+		List<String> rawCost = eff.cpCost();
+		List<BreakZoneCost> bzCosts = eff.breakZoneCosts();
 
 		// Zero CP + no X: confirm immediately
-		if (rawCost.isEmpty() && !ability.hasXCost()) {
-			executeAbilityPayment(ability, source, applyDull, new ArrayList<>(), new ArrayList<>(),
+		if (rawCost.isEmpty() && !eff.hasXCost()) {
+			executeAbilityPayment(eff, source, applyDull, new ArrayList<>(), new ArrayList<>(),
 					autoResolveBzTargets(source, bzCosts, isP1), isP1, 0);
 			return;
 		}
 
-		CardData.SpecialAbilityProxy proxy = ability.isSpecial() ? source.specialAbilityProxy() : null;
-		new AbilityPaymentDialog(mw.frame, ability, source,
+		CardData.SpecialAbilityProxy proxy = eff.isSpecial() ? source.specialAbilityProxy() : null;
+		new AbilityPaymentDialog(mw.frame, eff, source,
 				mw.playerHand(isP1), mw.playerBackupCards(isP1), mw.playerBackupStates(isP1), mw.playerBackupUrls(isP1),
 				mw::showZoomAt, mw::hideZoom, proxy,
-				(discards, backups, xValue) -> executeAbilityPayment(ability, source, applyDull,
+				(discards, backups, xValue) -> executeAbilityPayment(eff, source, applyDull,
 						discards, backups, autoResolveBzTargets(source, bzCosts, isP1), isP1, xValue))
 			.show();
 	}

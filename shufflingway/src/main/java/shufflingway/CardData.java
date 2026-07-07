@@ -807,6 +807,7 @@ public record CardData(
         "(?:(?i)\\[\\[s\\]\\]\\s*([^\\[]+?)\\s*\\[\\[/\\]\\]\\s*)?"        +  // group 2: optional [[s]]Name[[/]]
         "(?=(?:《|(?i:put)\\b|(?i:discard)\\b|(?i:remove)\\b|(?i:return)\\b|(?i:dull)\\b))" + // lookahead: must start with 《, put, discard, remove, return, or dull
         "((?:《[^》]*》\\s*)*)"                                            +  // group 3: zero or more 《cost》 tokens
+        "(?:\\s*\\(This cost is reduced by 1 for each Job (?<inlinejob>[^)]+?) other than (?<inlineexclude>[^)]+?) you control\\.\\))?" + // optional inline cost modifier
         "((?i)(?:,\\s*)?put\\s+(?:(?!\\[\\[br\\]\\]).)+?\\s+into\\s+the\\s+Break\\s+Zone\\s*)?"  + // group 4: optional BZ cost phrase
         "((?i)(?:,\\s*)?discard(?:(?!,\\s*(?:remove|return)\\b)[^:])+)?"     +  // group 5: optional discard cost phrase
         "((?i)(?:,\\s*)?remove\\s+[^:]+?\\s+from\\s+(?:the\\s+)?game\\s*)?" + // group 6: optional remove-from-game cost phrase
@@ -1063,7 +1064,11 @@ public record CardData(
                 maxCounterAllowed = 0;
                 maxCounterType    = cmaxM.group("type").trim();
             }
-            result.add(new ActionAbility(abilityName, requiresDull, isSpecial, crystalCost, selfMillCost, hasXCost, cpCost, breakZoneCosts, discardCosts, removeFromGameCosts, returnToHandCosts, counterCosts, dullForwardCosts, yourTurnOnly, opponentTurnOnly, oncePerTurn, mainPhaseOnly, whileCardAtk, whileCardBlk, whilePartyAtk, whileCardInHand, hasBlockingTarget, effectRaw, damageThreshold, controlCondition, cpBackupElement, cpAllowedElements, sourceInBattle, requiresOppDiscardedThisTurn, requiresCastSummonThisTurn, requiresElementForwardEnteredThisTurn, requiresCardNameEnteredThisTurn, breakZoneOnly, requiresOpponentEmptyHand, requiresSelfEmptyHand, requiresNamedCardTookDamageThisTurn, requiresSelfReceivedDamageThisTurn, requiresForwardPutToBZThisTurn, blockerForAttacker, ownBzCard, counterScaleName, minCounterRequired, minCounterType, maxOpponentHandSize, requiresSourceIsForward, maxCounterAllowed, maxCounterType));
+            String inlineJobRaw = m.group("inlinejob");
+            String inlineCostReductionJob = inlineJobRaw != null ? inlineJobRaw.trim() : null;
+            String inlineExcludeRaw = inlineJobRaw != null ? m.group("inlineexclude") : null;
+            String inlineCostReductionExcludeName = inlineExcludeRaw != null ? inlineExcludeRaw.trim() : null;
+            result.add(new ActionAbility(abilityName, requiresDull, isSpecial, crystalCost, selfMillCost, hasXCost, cpCost, breakZoneCosts, discardCosts, removeFromGameCosts, returnToHandCosts, counterCosts, dullForwardCosts, yourTurnOnly, opponentTurnOnly, oncePerTurn, mainPhaseOnly, whileCardAtk, whileCardBlk, whilePartyAtk, whileCardInHand, hasBlockingTarget, effectRaw, damageThreshold, controlCondition, cpBackupElement, cpAllowedElements, sourceInBattle, requiresOppDiscardedThisTurn, requiresCastSummonThisTurn, requiresElementForwardEnteredThisTurn, requiresCardNameEnteredThisTurn, breakZoneOnly, requiresOpponentEmptyHand, requiresSelfEmptyHand, requiresNamedCardTookDamageThisTurn, requiresSelfReceivedDamageThisTurn, requiresForwardPutToBZThisTurn, blockerForAttacker, ownBzCard, counterScaleName, minCounterRequired, minCounterType, maxOpponentHandSize, requiresSourceIsForward, maxCounterAllowed, maxCounterType, inlineCostReductionJob, inlineCostReductionExcludeName));
         }
         return List.copyOf(result);
     }
@@ -1081,7 +1086,7 @@ public record CardData(
                 a.requiresSelfEmptyHand(), a.requiresNamedCardTookDamageThisTurn(), a.requiresSelfReceivedDamageThisTurn(),
                 a.requiresForwardPutToBZThisTurn(), a.blockerForAttacker(), bzCard,
                 a.counterScaleName(), a.minCounterRequired(), a.minCounterType(), a.maxOpponentHandSize(), a.requiresSourceIsForward(),
-                a.maxCounterAllowed(), a.maxCounterType());
+                a.maxCounterAllowed(), a.maxCounterType(), a.inlineCostReductionJob(), a.inlineCostReductionExcludeName());
     }
 
     /** Parses a "discard N [filter]" cost phrase into a {@link DiscardCost} list (0 or 1 item). */

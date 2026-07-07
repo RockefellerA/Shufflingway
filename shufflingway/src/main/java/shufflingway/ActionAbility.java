@@ -86,7 +86,9 @@ public record ActionAbility(
         int                     maxOpponentHandSize,          // -1 = no restriction; >=0 = opponent's hand must have at most this many cards
         boolean                 requiresSourceIsForward,      // true = source card must currently be acting as a Forward (for Monster cards that temporarily become Forwards)
         int                     maxCounterAllowed,            // -1 = no restriction; >=0 = source card must have ≤ this many of maxCounterType to activate
-        String                  maxCounterType                // null = no restriction; else = counter type name (e.g. "Flyer")
+        String                  maxCounterType,               // null = no restriction; else = counter type name (e.g. "Flyer")
+        String                  inlineCostReductionJob,       // null = no modifier; else = job name for "reduced by 1 for each Job X other than Y you control"
+        String                  inlineCostReductionExcludeName // null = no exclusion; else = card name excluded from the reduction count
 ) {
     public ActionAbility {
         cpCost            = List.copyOf(cpCost);
@@ -96,6 +98,34 @@ public record ActionAbility(
         returnToHandCosts   = List.copyOf(returnToHandCosts);
         counterCosts        = List.copyOf(counterCosts);
         dullForwardCosts    = List.copyOf(dullForwardCosts);
+    }
+
+    /**
+     * Returns a copy of this ability with {@code reduction} generic CP slots removed from
+     * {@link #cpCost}, floored at 0.  Used to apply inline cost-modifier text at activation time.
+     */
+    public ActionAbility withReducedCp(int reduction) {
+        if (reduction <= 0) return this;
+        List<String> orig = cpCost();
+        long genericCount = orig.stream().filter(String::isEmpty).count();
+        int toRemove = (int) Math.min(reduction, genericCount);
+        if (toRemove == 0) return this;
+        List<String> reduced = new java.util.ArrayList<>(orig);
+        for (int i = 0; i < toRemove; i++) reduced.remove("");
+        return new ActionAbility(abilityName(), requiresDull(), isSpecial(), crystalCost(),
+                selfMillCost(), hasXCost(), reduced, breakZoneCosts(), discardCosts(),
+                removeFromGameCosts(), returnToHandCosts(), counterCosts(), dullForwardCosts(),
+                yourTurnOnly(), opponentTurnOnly(), oncePerTurn(), mainPhaseOnly(),
+                whileCardAttacking(), whileCardBlocking(), whilePartyAttacking(), whileCardInHand(),
+                hasBlockingTargetEffect(), effectText(), damageThreshold(), controlCondition(),
+                cpBackupElement(), cpAllowedElements(), sourceInBattle(), requiresOppDiscardedThisTurn(),
+                requiresCastSummonThisTurn(), requiresElementForwardEnteredThisTurn(),
+                requiresCardNameEnteredThisTurn(), breakZoneOnly(), requiresOpponentEmptyHand(),
+                requiresSelfEmptyHand(), requiresNamedCardTookDamageThisTurn(), requiresSelfReceivedDamageThisTurn(),
+                requiresForwardPutToBZThisTurn(), blockerForAttacker(), ownBreakZoneNameRequired(),
+                counterScaleName(), minCounterRequired(), minCounterType(), maxOpponentHandSize(),
+                requiresSourceIsForward(), maxCounterAllowed(), maxCounterType(),
+                inlineCostReductionJob(), inlineCostReductionExcludeName());
     }
 
     /** Creates an action ability whose sole cost is "Put {@code bzCardName} into the Break Zone." */
@@ -108,7 +138,7 @@ public record ActionAbility(
             true, false, false, false,
             null, null, false, false, false,
             effectText,
-            0, null, null, null, false, false, false, null, null, null, false, false, null, false, false, null, null, null, 0, null, -1, false, -1, null
+            0, null, null, null, false, false, false, null, null, null, false, false, null, false, false, null, null, null, 0, null, -1, false, -1, null, null, null
         );
     }
 }

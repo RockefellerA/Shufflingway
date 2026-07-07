@@ -8062,6 +8062,8 @@ public class MainWindow {
 		for (String e : cost) if (!e.isEmpty()) needed.merge(e, 1, Integer::sum);
 		String[] elems = needed.keySet().toArray(String[]::new);
 		int total = cost.size();
+		if (ability.inlineCostReductionJob() != null)
+			total = Math.max(0, total - computeInlineReduction(ability.inlineCostReductionJob(), ability.inlineCostReductionExcludeName(), isP1));
 
 		boolean[] hasSrc = new boolean[elems.length];
 		int available = 0;
@@ -8104,6 +8106,16 @@ public class MainWindow {
 		}
 		for (boolean s : hasSrc) if (!s) return false;
 		return available >= total;
+	}
+
+	/** Counts field cards (forwards + backups) with the given job, excluding any named {@code excludeName}. */
+	int computeInlineReduction(String job, String excludeName, boolean isP1) {
+		int count = 0;
+		for (CardData fwd : playerForwardCards(isP1))
+			if (fwd.hasJob(job) && (excludeName == null || !fwd.name().equalsIgnoreCase(excludeName))) count++;
+		for (CardData bkp : playerBackupCards(isP1))
+			if (bkp != null && bkp.hasJob(job) && (excludeName == null || !bkp.name().equalsIgnoreCase(excludeName))) count++;
+		return count;
 	}
 
 	/**
