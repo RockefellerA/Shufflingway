@@ -2273,7 +2273,7 @@ public class ActionResolver {
 
     private static final Pattern DIVIDE_DAMAGE_PATTERN = Pattern.compile(
             "(?i)Divide\\s+(?<amount>\\d+)\\s+damage\\b(?:.*?\\b(?<mode>equally)\\b)?"
-      
+    );
     /**
      * Matches "Your opponent puts the top N cards of his/her deck into the Break Zone.
      * If both [all] cards are of the same Element, draw M card(s)."
