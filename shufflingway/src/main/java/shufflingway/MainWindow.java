@@ -7325,6 +7325,7 @@ public class MainWindow {
 				currentAbilitySource     = entry.source();
 				currentAbilitySourceIsP1 = entry.isP1();
 				try {
+					if (entry.preSelectedTargets() != null) ctx.preloadTargets(entry.preSelectedTargets());
 					ActionResolver.resolve(entry.ability(), entry.source(), gameState, ctx, entry.xValue());
 				} finally {
 					currentAbilitySource = null;
@@ -9566,6 +9567,10 @@ public class MainWindow {
 
 	int showPowerAmountDialog(int maxAmount, String prompt) {
 		return cardPickerDialog.selectPowerAmount(maxAmount, prompt);
+	}
+
+	List<Integer> showDivideDamageDialog(int damage, String prompt, List<CardData> cards) {
+		return cardPickerDialog.selectDamageAmount(damage, prompt, cards);
 	}
 
 	/**

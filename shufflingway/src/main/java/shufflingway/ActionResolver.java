@@ -2,7 +2,9 @@ package shufflingway;
 
 import java.util.ArrayList;
 import java.util.EnumSet;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.function.Consumer;
 import java.util.function.Predicate;
 import java.util.regex.Matcher;
@@ -53,38 +55,38 @@ public class ActionResolver {
      * </ul>
      */
     private static final Pattern CHOOSE_CHARACTER_PATTERN = Pattern.compile(
-        "(?i)Choose\\s+(?<upto>up\\s+to\\s+)?(?<count>\\d+)\\s+" +
-        "(?:(?<condition>dull|damaged|attacking|blocking|active)\\s+)?" +
-        "(?:(?<element>(?:Multi-Element|Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)(?:\\s+or\\s+(?:Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark))*)\\s+)?" +
-        "(?:Category\\s+(?<category>.+?)(?=\\s+(?:cards?|Forwards?|Backups?|Characters?|Monsters?|Summons?))\\s+)?" +
-        "(?<targets>cards?|Forwards?(?:\\s+(?:and/or|or)\\s+(?:Monsters?|Backups?))?|Monsters?|Backups?|Characters?|Summons?" +
-            "|\\[Job\\s+\\([^)]+\\)\\]" +
-            "|\\[Card\\s+Name\\s+\\([^)]+\\)\\]" +
-            "|Card\\s+Name\\s+.+?\\s+Forwards?(?:\\s+or\\s+Job\\s+.+?\\s+Forwards?)*" +
-            "|Card\\s+Name\\s+\\S+(?:\\s+\\S+)*?(?:\\s+\\([^)]+\\))?(?:\\s+or\\s+Card\\s+Name\\s+\\S+(?:\\s+\\S+)*?(?:\\s+\\([^)]+\\))?)*" +
-            "|Job\\s+.+?\\s+(?:and/)?or\\s+Card\\s+Name\\s+\\S+" +
-            "|Job\\s+.+?\\s+Forwards?(?:\\s+or\\s+Job\\s+.+?\\s+Forwards?)*" +
-            "|Job\\s+.+?(?=\\s+(?:of\\s+|other\\s+than|in\\s+your|from\\s+your)|[,.]))" +
-        "(?:\\s+Cards?)?" +
-        "(?:\\s+with\\s+(?<trait>Brave|Haste|First\\s+Strike))?" +
-        "(?:\\s+that\\s+(?<postcondition>entered\\s+the\\s+field\\s+this\\s+turn|entered\\s+this\\s+turn))?" +
-        "(?:\\s+without\\s+《(?<excludekw>[^》]+)》)?" +
-        "(?:\\s+of\\s+(?:any|an)\\s+Element\\s+(?:except|other\\s+than)\\s+(?<excludeelem>" +
-            "(?:Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)" +
-            "(?:\\s+and\\s+(?:Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark))*))?" +
-        "(?:\\s+of\\s+cost\\s+(?<cost>\\d+)" +
-            "(?:,\\s*(?<costlist>\\d+(?:\\s*,\\s*\\d+)*))?" +
-            "(?:\\s+or\\s+(?<costcmp>less|more|higher|\\d+))?)?" +
-        "(?:\\s+of\\s+(?:power\\s+)?(?<power>\\d+)(?:\\s+power)?(?:\\s+or\\s+(?<powercmp>less|more))?)?" +
-        "(?:\\s+(?<control>(?:your\\s+)?opponent\\s+controls|you\\s+control))?" +
-        "(?:\\s+other\\s+than\\s+(?:Card\\s+Name\\s+)?(?<excludename>\\S(?:.*?\\S)?))?"+
-        "(?:\\s+(?<zone>(?:in|from)\\s+(?:your(?:\\s+opponent(?:'s)?)?|the|either\\s+player'?s|any\\s+player'?s)\\s+Break\\s+Zone))?" +
-        // "blocking [CardName]" or "blocking a [Job] [JobName]" — targets the blocker of the named card
-        "(?:\\s+blocking\\s+" +
-            "(?:(?:a\\s+(?:Job\\s+)?(?<blockingjob>[^.,]+?)(?=\\s*[.,]))" +
-            "|(?<blockingname>[^.,]+?)(?=\\s*[.,])))?"+
-        "(?:[.]\\s+|\\s+and\\s+|,\\s*)" +
-        "(?<followup>.+)"
+            "(?i)Choose\\s+" +
+                    "(?:(?<anycount>any\\s+number)|(?<upto>up\\s+to\\s+)?(?<count>\\d+))\\s+(?:of\\s+)?" +
+                    "(?:(?<condition>dull|damaged|attacking|blocking|active)\\s+)?" +
+                    "(?:(?<element>(?:Multi-Element|Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)(?:\\s+or\\s+(?:Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark))*)\\s+)?" +
+                    "(?:Category\\s+(?<category>.+?)(?=\\s+(?:cards?|Forwards?|Backups?|Characters?|Monsters?|Summons?))\\s+)?" +
+                    "(?<targets>cards?|Forwards?(?:\\s+(?:and/or|or)\\s+(?:Monsters?|Backups?))?|Monsters?|Backups?|Characters?|Summons?" +
+                    "|\\[Job\\s+\\([^)]+\\)\\]" +
+                    "|\\[Card\\s+Name\\s+\\([^)]+\\)\\]" +
+                    "|Card\\s+Name\\s+.+?\\s+Forwards?(?:\\s+or\\s+Job\\s+.+?\\s+Forwards?)*" +
+                    "|Card\\s+Name\\s+\\S+(?:\\s+\\S+)*?(?:\\s+\\([^)]+\\))?(?:\\s+or\\s+Card\\s+Name\\s+\\S+(?:\\s+\\S+)*?(?:\\s+\\([^)]+\\))?)*" +
+                    "|Job\\s+.+?\\s+(?:and/)?or\\s+Card\\s+Name\\s+\\S+" +
+                    "|Job\\s+.+?\\s+Forwards?(?:\\s+or\\s+Job\\s+.+?\\s+Forwards?)*" +
+                    "|Job\\s+.+?(?=\\s+(?:of\\s+|other\\s+than|in\\s+your|from\\s+your)|[,.]))" +
+                    "(?:\\s+Cards?)?" +
+                    "(?:\\s+with\\s+(?<trait>Brave|Haste|First\\s+Strike))?" +
+                    "(?:\\s+that\\s+(?<postcondition>entered\\s+the\\s+field\\s+this\\s+turn|entered\\s+this\\s+turn))?" +
+                    "(?:\\s+without\\s+《(?<excludekw>[^》]+)》)?" +
+                    "(?:\\s+of\\s+(?:any|an)\\s+Element\\s+(?:except|other\\s+than)\\s+(?<excludeelem>" +
+                    "(?:Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)" +
+                    "(?:\\s+and\\s+(?:Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark))*))?" +
+                    "(?:\\s+of\\s+cost\\s+(?<cost>\\d+)" +
+                    "(?:,\\s*(?<costlist>\\d+(?:\\s*,\\s*\\d+)*))?" +
+                    "(?:\\s+or\\s+(?<costcmp>less|more|higher|\\d+))?)?" +
+                    "(?:\\s+of\\s+(?:power\\s+)?(?<power>\\d+)(?:\\s+power)?(?:\\s+or\\s+(?<powercmp>less|more))?)?" +
+                    "(?:\\s+(?<control>(?:your\\s+)?opponent\\s+controls|you\\s+control))?" +
+                    "(?:\\s+other\\s+than\\s+(?:Card\\s+Name\\s+)?(?<excludename>\\S(?:.*?\\S)?))?" +
+                    "(?:\\s+(?<zone>(?:in|from)\\s+(?:your(?:\\s+opponent(?:'s)?)?|the|either\\s+player'?s|any\\s+player'?s)\\s+Break\\s+Zone))?" +
+                    "(?:\\s+blocking\\s+" +
+                    "(?:(?:a\\s+(?:Job\\s+)?(?<blockingjob>[^.,]+?)(?=\\s*[.,]))" +
+                    "|(?<blockingname>[^.,]+?)(?=\\s*[.,])))?" +
+                    "(?:[.]\\s+|\\s+and\\s+|,\\s*)" +
+                    "(?<followup>.+)"
     );
 
     /**
@@ -2154,6 +2156,10 @@ public class ActionResolver {
         "|(?<count2>\\d+)\\s+cards?\\s+from\\s+the\\s+top\\s+of)\\s+" +
         "(?:his/her|his|her|their)\\s+deck\\s+into\\s+the\\s+Break\\s+Zone" +
         "(?:[.!]?\\s*(?:You\\s+)?[Dd]raw\\s+(?<draw>\\d+)\\s+cards?[.!]?)?"
+    );
+
+    private static final Pattern DIVIDE_DAMAGE_PATTERN = Pattern.compile(
+            "(?i)Divide\\s+(?<amount>\\d+)\\s+damage\\b(?:.*?\\b(?<mode>equally)\\b)?"
     );
 
     private static final Pattern SELF_MILL_PATTERN = Pattern.compile(
@@ -7100,8 +7106,9 @@ public class ActionResolver {
         Matcher m = CHOOSE_CHARACTER_PATTERN.matcher(text);
         if (!m.find()) return null;
 
+        boolean any          = m.group("anycount") != null;
         boolean upTo         = m.group("upto") != null;
-        int     maxCount     = Integer.parseInt(m.group("count"));
+        int     maxCount     = any ? Integer.MAX_VALUE : Integer.parseInt(m.group("count"));
         String  rawElement   = m.group("element");
         String  element      = rawElement != null && rawElement.contains(" or ")
                 ? rawElement.replaceAll("(?i)\\s+or\\s+", "|") : rawElement;
@@ -7322,7 +7329,7 @@ public class ActionResolver {
         String excludeLabel  = excludeName != null ? " (excl. " + excludeName + ")" : "";
         String zoneLabel     = zone != null
                 ? " in " + (bothZones ? "either player's" : opponentZone ? "opponent's" : "your") + " Break Zone" : "";
-        String choosePrefix = "Choose " + (upTo ? "up to " : "") + maxCount
+        String choosePrefix = "Choose " + (upTo ? "up to " : any ? "any number of " : "") + (maxCount < Integer.MAX_VALUE ? maxCount : "")
                 + (condition != null ? " " + condition : "")
                 + (element   != null ? " " + element   : "")
                 + categoryLabel + " " + targets + costLabel + powerLabel + controlLabel + excludeLabel + zoneLabel;
@@ -7343,6 +7350,88 @@ public class ActionResolver {
                     sortedByIdxDesc(ts, true) .forEach(t -> ctx2.damageTarget(t, damage));
                     sortedByIdxDesc(ts, false).forEach(t -> ctx2.damageTarget(t, damage));
                 });
+            };
+        }
+
+        // --- "Divide N damage" ---
+        Matcher divideM = DIVIDE_DAMAGE_PATTERN.matcher(followup);
+        if (divideM.find())
+        {
+            int baseDamage = Integer.parseInt(divideM.group("amount"));
+            final boolean equally = divideM.group("mode") != null;
+
+            int dotSpaceIdxCond = followup.indexOf(". ");
+            String followup_cond = dotSpaceIdxCond >= 0 ? followup.substring(dotSpaceIdxCond + 2) : "";
+            Matcher divideAmp = IF_YOU_CONTROL_CATEGORY.matcher(followup_cond);
+            final String  condCategory;
+            final boolean condInclFwd, condInclBkp, condInclMon;
+            final String  condExcludeName;
+            final int     altDamage;
+            if (divideAmp.find()) {
+                condCategory = divideAmp.group("category").trim();
+                String condType = divideAmp.group("type").trim().toLowerCase(java.util.Locale.ROOT);
+                condInclFwd = condType.startsWith("forward") || condType.startsWith("character");
+                condInclBkp = condType.startsWith("backup")  || condType.startsWith("character");
+                condInclMon = condType.startsWith("monster") || condType.startsWith("character");
+                condExcludeName = divideAmp.group("name") != null ? divideAmp.group("name").trim()
+                        : (source != null ? source.name() : null);
+
+                // Anchored to "divide N damage" specifically — a bare \d+ search would wrongly
+                // grab a digit embedded in the category name itself (e.g. "Category FFTA2").
+                Matcher mAmp = DIVIDE_DAMAGE_PATTERN.matcher(followup_cond);
+                altDamage = mAmp.find() ? Integer.parseInt(mAmp.group("amount")) : baseDamage;
+            } else {
+                condCategory = null;
+                condInclFwd = condInclBkp = condInclMon = false;
+                condExcludeName = null;
+                altDamage = baseDamage;
+            }
+
+            final int fBaseDamage = baseDamage;
+            return ctx -> {
+                int fDamage = fBaseDamage;
+                if (condCategory != null) {
+                    int totalCat = ctx.isP1()
+                            ? ctx.countP1FieldCards(condInclFwd, condInclBkp, condInclMon, null, null, condCategory)
+                            : ctx.countP2FieldCards(condInclFwd, condInclBkp, condInclMon, null, null, condCategory);
+                    int namedCat = condExcludeName == null ? 0
+                            : ctx.isP1()
+                                    ? ctx.countP1FieldCards(condInclFwd, condInclBkp, condInclMon, null, condExcludeName, condCategory)
+                                    : ctx.countP2FieldCards(condInclFwd, condInclBkp, condInclMon, null, condExcludeName, condCategory);
+                    // "a Category X Forward other than <name>" is met when a matching card exists
+                    // besides the copies that are named <name> (usually just the source itself).
+                    if (totalCat > namedCat) fDamage = altDamage;
+                }
+
+                List<ForwardTarget> ts = selectTargets(ctx, maxCount, any ? any : upTo,
+                        opponentOnly, selfOnly, null, null, null, false,
+                        -1, null, -1, null,
+                        true, false, false,
+                        null, null, null, null, false, null, false);
+                if (ts.isEmpty()) return;
+
+                if (equally) {
+                    int n      = ts.size();
+                    int base   = fDamage / n;
+                    int extra  = fDamage % n;
+                    Map<ForwardTarget, Integer> amountByTarget = new HashMap<>();
+                    for (int i = 0; i < n; i++) amountByTarget.put(ts.get(i), base + (i < extra ? 1 : 0));
+                    sortedByIdxDesc(ts, true) .forEach(t -> ctx.damageTarget(t, amountByTarget.get(t)));
+                    sortedByIdxDesc(ts, false).forEach(t -> ctx.damageTarget(t, amountByTarget.get(t)));
+                } else if (ts.size() == 1) {
+                    // Nothing to divide — skip the allocation dialog and deal it all.
+                    ctx.damageTarget(ts.get(0), fDamage);
+                } else {
+                    List<CardData> cards = new ArrayList<>();
+                    for (ForwardTarget t : ts) {
+                        cards.add(t.isP1() ? ctx.p1Forward(t.idx()) : ctx.p2Forward(t.idx()));
+                    }
+                    List<Integer> allocation = ctx.divideDamageAmount(fDamage, "Divide Damage: ", cards);
+                    Map<ForwardTarget, Integer> amountByTarget = new HashMap<>();
+                    for (int i = 0; i < ts.size(); i++) amountByTarget.put(ts.get(i), allocation.get(i));
+                    sortedByIdxDesc(ts, true) .forEach(t -> { int amt = amountByTarget.get(t); if (amt > 0) ctx.damageTarget(t, amt); });
+                    sortedByIdxDesc(ts, false).forEach(t -> { int amt = amountByTarget.get(t); if (amt > 0) ctx.damageTarget(t, amt); });
+                }
             };
         }
 
@@ -9893,6 +9982,15 @@ public class ActionResolver {
      */
     private static final Pattern IF_CONTROL_AT_MOST = Pattern.compile(
         "(?is)^if\\s+you\\s+control\\s+(?<max>\\d+)\\s+or\\s+(?:less|fewer)\\s+(?<type>Forwards?|Backups?|Monsters?|Characters?),\\s+(?<effect>.+)$"
+    );
+
+    /**
+     * Match condition if you control a Category, of any type. Also takes into account multiple spaces (e.g. "Crystal Hunt" category)
+     * Also checks if it requires it to be a card other than itself
+     * Groups: <category>, <type, <other>
+     */
+    private static final Pattern IF_YOU_CONTROL_CATEGORY = Pattern.compile(
+            "(?i)If\\s+you\\s+control\\s+a\\s+Category\\s+(?<category>.+?)\\s+(?<type>Forward|Monster|Backup|Character)(?:\\s+other\\s+than\\s+(?<name>\\w+))?"
     );
 
     /**

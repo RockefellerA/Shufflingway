@@ -1446,6 +1446,9 @@ public interface GameContext {
      */
     int selectPowerAmount(int maxAmount, String prompt);
 
+    /** Prompts the player to divide {@code damage} among {@code cards} (multiples of 1000); returns the chosen per-card allocation, parallel to {@code cards}. */
+    List<Integer> divideDamageAmount(int damage, String prompt, List<CardData> cards);
+
     /** Removes P1's forward at {@code idx} from the field and adds it to P1's hand. */
     void returnP1ForwardToHand(int idx);
 
