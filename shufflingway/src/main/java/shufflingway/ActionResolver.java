@@ -2952,6 +2952,18 @@ public class ActionResolver {
         "\\s+and\\s+\".+?\\s+cannot\\s+be\\s+blocked\\.?\"[.!]?"
     );
 
+    /** Matches "Choose 1 card removed from the game. Remove 1 Warp Counter from it." */
+    private static final Pattern CHOOSE_WARP_CARD_REMOVE_COUNTER = Pattern.compile(
+        "(?i)^Choose\\s+1\\s+card\\s+removed\\s+from\\s+the\\s+game\\.\\s*" +
+        "Remove\\s+1\\s+Warp\\s+Counter\\s+from\\s+it[.!]?"
+    );
+
+    /** Matches "[Name] gains '[Name] cannot be blocked.' until the end of the turn." */
+    private static final Pattern STANDALONE_GAINS_CANNOT_BE_BLOCKED = Pattern.compile(
+        "(?i)(?<subject>.+?)\\s+gains?\\s+\".+?\\s+cannot\\s+be\\s+blocked\\.?\"" +
+        "\\s+until\\s+(?:the\\s+)?end\\s+of\\s+(?:the\\s+)?turn[.!]?"
+    );
+
     private static final Pattern STANDALONE_POWER_BOOST_UNTIL = Pattern.compile(
         "(?i)Until\\s+(?:the\\s+)?end\\s+of\\s+(?:the\\s+)?turn\\s*,\\s+" +
         "(?<subject>.+?)\\s+gains?\\s+" +
@@ -4429,6 +4441,9 @@ public class ActionResolver {
         result = tryParseStandaloneGainsTraitsAndCannotBeBlocked(effectText, source);
         if (result != null) return result;
 
+        result = tryParseStandaloneGainsCannotBeBlocked(effectText, source);
+        if (result != null) return result;
+
         result = tryParseStandalonePowerBoostUntil(effectText, source);
         if (result != null) return result;
 
@@ -4786,6 +4801,9 @@ public class ActionResolver {
         result = tryParseChooseNSummonsBzPickOneHandRestRfg(effectText);
         if (result != null) return result;
 
+        result = tryParseChooseWarpCardRemoveCounter(effectText);
+        if (result != null) return result;
+
         result = tryParseChooseSummonInBzCastable(effectText);
         if (result != null) return result;
 
@@ -5026,6 +5044,7 @@ public class ActionResolver {
         }
         if (tryParseStandalonePowerBoostAndAttackTrigger(effectText, source) != null) return "StandalonePowerBoostAndAttackTrigger";
         if (tryParseStandaloneGainsTraitsAndCannotBeBlocked(effectText, source) != null) return "StandaloneGainsTraitsAndCannotBeBlocked";
+        if (tryParseStandaloneGainsCannotBeBlocked(effectText, source) != null) return "StandaloneGainsCannotBeBlocked";
         if (tryParseStandalonePowerBoostUntil(effectText, source) != null) return "StandalonePowerBoostUntil";
         if (tryParseStandaloneDoublePowerUntil(effectText, source) != null) return "StandaloneDoublePowerUntil";
         if (tryParseStandaloneDoublesItsPowerUntil(effectText, source) != null) return "StandaloneDoublesItsPowerUntil";
@@ -5054,6 +5073,7 @@ public class ActionResolver {
         if (tryParseOppFwdsLoseAllAbilitiesEot(effectText)         != null) return "OppFwdsLoseAllAbilitiesEot";
         if (tryParseOppFwdPowerBoostSuppressedThisTurn(effectText) != null) return "OppFwdPowerBoostSuppressedThisTurn";
         if (tryParseOppFwdsLosePowerPerPlayCost(effectText)        != null) return "OppFwdsLosePowerPerPlayCost";
+        if (tryParseStandaloneGainsCannotBeBlocked(effectText, source) != null) return "StandaloneGainsCannotBeBlocked";
         if (tryParseStandaloneCannotBeBlocked(effectText, source) != null) return "StandaloneCannotBeBlocked";
         if (tryParseRevealHandOptPickRfpOppDraw(effectText)    != null) return "RevealHandOptPickRfpOppDraw";
         if (tryParseRevealSelectHandRfp(effectText)            != null) return "RevealSelectHandRfp";
@@ -5136,6 +5156,7 @@ public class ActionResolver {
         if (tryParseRemoveFromBattle(effectText)                != null) return "RemoveFromBattle";
         if (tryParseChooseSummonFromBzToHandWithCostReduction(effectText) != null) return "ChooseSummonFromBzToHandWithCostReduction";
         if (tryParseChooseNSummonsBzPickOneHandRestRfg(effectText)        != null) return "ChooseNSummonsBzPickOneHandRestRfg";
+        if (tryParseChooseWarpCardRemoveCounter(effectText)               != null) return "ChooseWarpCardRemoveCounter";
         if (tryParseChooseSummonInBzCastable(effectText)              != null) return "ChooseSummonInBzCastable";
         if (tryParseChooseSummonInBzMaxCostFreeCastRfg(effectText)    != null) return "ChooseSummonInBzMaxCostFreeCastRfg";
         if (tryParseCostReductionThisTurn(effectText)                 != null) return "CostReductionThisTurn";
@@ -5507,6 +5528,7 @@ public class ActionResolver {
         if (tryParseUntilEotAllFieldPowerBoost(effectText) != null)        return "UntilEotAllFieldPowerBoost";
         if (tryParseStandalonePowerBoostAndAttackTrigger(effectText, source) != null) return "StandalonePowerBoostAndAttackTrigger";
         if (tryParseStandaloneGainsTraitsAndCannotBeBlocked(effectText, source) != null) return "StandaloneGainsTraitsAndCannotBeBlocked";
+        if (tryParseStandaloneGainsCannotBeBlocked(effectText, source) != null) return "StandaloneGainsCannotBeBlocked";
         if (tryParseStandalonePowerBoostUntil(effectText, source) != null)  return "StandalonePowerBoostUntil";
         if (tryParseStandaloneDoublePowerUntil(effectText, source) != null) return "StandaloneDoublePowerUntil";
         if (tryParseStandaloneDoublesItsPowerUntil(effectText, source) != null) return "StandaloneDoublesItsPowerUntil";
@@ -5534,6 +5556,7 @@ public class ActionResolver {
         if (tryParseOppFwdsLoseAllAbilitiesEot(effectText)         != null) return "OppFwdsLoseAllAbilitiesEot";
         if (tryParseOppFwdPowerBoostSuppressedThisTurn(effectText) != null) return "OppFwdPowerBoostSuppressedThisTurn";
         if (tryParseOppFwdsLosePowerPerPlayCost(effectText)        != null) return "OppFwdsLosePowerPerPlayCost";
+        if (tryParseStandaloneGainsCannotBeBlocked(effectText, source) != null) return "StandaloneGainsCannotBeBlocked";
         if (tryParseStandaloneCannotBeBlocked(effectText, source) != null) return "StandaloneCannotBeBlocked";
         if (tryParseRevealHandOptPickRfpOppDraw(effectText) != null)        return "RevealHandOptPickRfpOppDraw";
         if (tryParseRevealSelectHandRfp(effectText) != null)               return "RevealSelectHandRfp";
@@ -9660,6 +9683,9 @@ public class ActionResolver {
         s = CardData.OWN_BZ_NAME_REQUIRED_RESTRICTION  .matcher(s).replaceAll("").trim();
         s = CardData.MAIN_PHASE_ONLY_PATTERN              .matcher(s).replaceAll("").trim();
         s = CardData.YOUR_TURN_AND_CONTROL_IF_PATTERN    .matcher(s).replaceAll("").trim();
+        // Strip "during your turn and if X is in your hand" before YOUR_TURN_ONLY_PATTERN so the
+        // whole sentence is removed as a unit rather than leaving "and if X is in your hand." as a fragment.
+        s = CardData.WHILE_CARD_IN_HAND_PATTERN           .matcher(s).replaceAll("").trim();
         s = CardData.YOUR_TURN_ONLY_PATTERN               .matcher(s).replaceAll("").trim();
         s = CardData.OPP_TURN_ONLY_PATTERN                .matcher(s).replaceAll("").trim();
         s = CardData.OPP_NO_CARDS_IN_HAND_RESTRICTION     .matcher(s).replaceAll("").trim();
@@ -9755,6 +9781,23 @@ public class ActionResolver {
         return ctx -> {
             ctx.logEntry(source.name() + logSuffix);
             ctx.boostSourceForward(source, 0, traits);
+            ctx.setSourceForwardCannotBeBlocked(source);
+        };
+    }
+
+    private static Consumer<GameContext> tryParseChooseWarpCardRemoveCounter(String text) {
+        if (!CHOOSE_WARP_CARD_REMOVE_COUNTER.matcher(text).find()) return null;
+        return GameContext::chooseAndRemoveWarpCounter;
+    }
+
+    private static Consumer<GameContext> tryParseStandaloneGainsCannotBeBlocked(
+            String text, CardData source) {
+        if (source == null) return null;
+        Matcher m = STANDALONE_GAINS_CANNOT_BE_BLOCKED.matcher(text.trim());
+        if (!m.matches()) return null;
+        if (!m.group("subject").trim().equalsIgnoreCase(source.name())) return null;
+        return ctx -> {
+            ctx.logEntry(source.name() + " cannot be blocked until end of turn");
             ctx.setSourceForwardCannotBeBlocked(source);
         };
     }

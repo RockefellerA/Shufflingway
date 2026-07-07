@@ -164,6 +164,34 @@ final class GameContextImpl implements GameContext {
 				logEntry(source.name() + " — outgoing combat damage +" + amount + " vs Forwards until end of turn");
 			}
 
+			@Override public void chooseAndRemoveWarpCounter() {
+				String p = isP1 ? "" : "[P2] ";
+				List<GameState.WarpEntry> zone = isP1
+						? mw.gameState.getP1WarpZone() : mw.gameState.getP2WarpZone();
+				if (zone.isEmpty()) { logEntry(p + "Warp zone is empty — no target."); return; }
+				GameState.WarpEntry chosen;
+				if (zone.size() == 1) {
+					chosen = zone.get(0);
+				} else if (!isP1) {
+					chosen = zone.get(0); // P2 AI: pick first
+				} else {
+					List<CardData> cards = new java.util.ArrayList<>();
+					for (GameState.WarpEntry e : zone) cards.add(e.card);
+					int idx = mw.showCardImageChooser(cards, "Choose 1 card — Remove Warp Counter", false);
+					if (idx < 0) return;
+					chosen = zone.get(idx);
+				}
+				logEntry(p + "Remove Warp Counter from \"" + chosen.card.name()
+						+ "\" (" + chosen.counters + " → " + (chosen.counters - 1) + ")");
+				mw.autoAbilityTriggers.triggerAutoAbilitiesForWarpCounterRemoved(chosen.card, isP1);
+				int remaining = mw.gameState.removeOneWarpCounterFrom(chosen.card, isP1);
+				if (remaining <= 0) {
+					mw.resolveWarpCard(chosen.card, isP1);
+					if (isP1) mw.refreshP1BreakLabel(); else mw.refreshP2BreakLabel();
+				}
+				if (isP1) mw.refreshP1WarpZoneUI(); else mw.refreshP2WarpZoneUI();
+			}
+
 			@Override public void doubleOpponentForwardIncomingDamage() {
 				if (isP1) {
 					mw.p2ForwardIncomingDmgMult *= 2;
@@ -5307,7 +5335,7 @@ final class GameContextImpl implements GameContext {
 					false, false, true, false,
 					null, null, false, false, false,
 					original.effectText(),
-					0, null, null, null, false, false, false, null, null, null, false, false, null, false, false, null, null, null, 0, null, -1, false, -1, null, null, null
+					0, null, null, null, false, false, false, null, null, null, false, false, null, false, false, null, null, null, 0, null, -1, false, -1, null, null, null, false
 				);
 				Map<CardData, List<ActionAbility>> map = isP1 ? mw.p1TempGrantedAbilities : mw.p2TempGrantedAbilities;
 				map.computeIfAbsent(source, k -> new ArrayList<>()).add(copy);

@@ -2488,44 +2488,38 @@ public class MainWindow {
 
 		List<CardData> resolved = isP1
 				? gameState.tickP1WarpCounters() : gameState.tickP2WarpCounters();
-		for (CardData card : resolved) {
-			logEntry(tag + "\"" + card.name() + "\" enters play (auto-ability)");
-			lastCardWarpedIn = true;
-			try {
-				if (card.isForward()) {
-					if (isP1) {
-						placeCardInForwardZone(card);
-						p1ForwardEnteredViaWarpThisTurn = true;
-					} else {
-						placeP2CardInForwardZone(card);
-						p2ForwardEnteredViaWarpThisTurn = true;
-					}
-				} else if (card.isBackup()) {
-					if (isP1) {
-						if (hasAvailableBackupSlot()) placeCardInFirstBackupSlot(card);
-						else {
-							addToBreakZone(card);
-							logEntry("  No backup slot — \"" + card.name() + "\" → Break Zone");
-						}
-					} else {
-						if (hasAvailableP2BackupSlot()) placeP2CardInFirstBackupSlot(card);
-						else {
-							addToBreakZone(card);
-							logEntry("  No backup slot — \"" + card.name() + "\" → Break Zone");
-						}
-					}
-				} else if (card.isMonster()) {
-					if (isP1) placeCardInMonsterZone(card);
-					else      placeP2CardInMonsterZone(card);
-				}
-			} finally {
-				lastCardWarpedIn = false;
-			}
-		}
+		for (CardData card : resolved) resolveWarpCard(card, isP1);
 		if (!resolved.isEmpty()) {
 			if (isP1) refreshP1BreakLabel(); else refreshP2BreakLabel();
 		}
 		if (isP1) refreshP1WarpZoneUI(); else refreshP2WarpZoneUI();
+	}
+
+	/** Places a card that just had its last Warp counter removed onto the field. */
+	void resolveWarpCard(CardData card, boolean isP1) {
+		String tag = isP1 ? "Warp: " : "[P2] Warp: ";
+		logEntry(tag + "\"" + card.name() + "\" enters play");
+		lastCardWarpedIn = true;
+		try {
+			if (card.isForward()) {
+				if (isP1) { placeCardInForwardZone(card);   p1ForwardEnteredViaWarpThisTurn = true; }
+				else       { placeP2CardInForwardZone(card); p2ForwardEnteredViaWarpThisTurn = true; }
+			} else if (card.isBackup()) {
+				if (isP1) {
+					if (hasAvailableBackupSlot()) placeCardInFirstBackupSlot(card);
+					else { addToBreakZone(card); logEntry("  No backup slot — \"" + card.name() + "\" → Break Zone"); }
+				} else {
+					if (hasAvailableP2BackupSlot()) placeP2CardInFirstBackupSlot(card);
+					else { addToBreakZone(card); logEntry("  No backup slot — \"" + card.name() + "\" → Break Zone"); }
+				}
+			} else if (card.isMonster()) {
+				if (isP1) placeCardInMonsterZone(card);
+				else      placeP2CardInMonsterZone(card);
+			}
+		} finally {
+			lastCardWarpedIn = false;
+		}
+		startWarpInAnimForCard(card, isP1);
 	}
 
 	private void showRemovedFromPlayDialog(GrayscaleLabel removeLabel, String player) {
@@ -5549,6 +5543,42 @@ public class MainWindow {
 		rfpAnimator.startRfp(img, center);
 	}
 
+	/** Plays the warp-in (reversed RFP) animation on whichever field slot the card just entered. */
+	void startWarpInAnimForCard(CardData card, boolean isP1) {
+		JLabel label = null;
+		// Forward zone
+		List<CardData> fwds = isP1 ? p1ForwardCards : p2ForwardCards;
+		int fIdx = fwds.indexOf(card);
+		if (fIdx >= 0) {
+			List<JLabel> fLabels = isP1 ? p1ForwardLabels : p2ForwardLabels;
+			if (fIdx < fLabels.size()) label = fLabels.get(fIdx);
+		}
+		// Backup zone
+		if (label == null) {
+			CardData[] backups = isP1 ? p1BackupCards : p2BackupCards;
+			JLabel[]   bLabels = isP1 ? p1BackupLabels : p2BackupLabels;
+			for (int i = 0; i < backups.length; i++) {
+				if (backups[i] == card) { label = bLabels[i]; break; }
+			}
+		}
+		// Monster zone
+		if (label == null) {
+			List<CardData> monsters = isP1 ? p1MonsterCards : p2MonsterCards;
+			int mIdx = monsters.indexOf(card);
+			if (mIdx >= 0) {
+				List<JLabel> mLabels = isP1 ? p1MonsterLabels : p2MonsterLabels;
+				if (mIdx < mLabels.size()) label = mLabels.get(mIdx);
+			}
+		}
+		if (label == null) return;
+		Icon icon = label.getIcon();
+		if (!(icon instanceof ImageIcon ii)) return;
+		JLayeredPane lp = frame.getRootPane().getLayeredPane();
+		Point center = SwingUtilities.convertPoint(label, label.getWidth() / 2, label.getHeight() / 2, lp);
+		java.awt.image.BufferedImage img = CardAnimation.toARGB(ii.getImage(), ii.getIconWidth(), ii.getIconHeight());
+		rfpAnimator.startWarpIn(img, center);
+	}
+
 	void startBreakAnim(JLabel label) {
 		if (suppressNextBreakAnim) { suppressNextBreakAnim = false; return; }
 		if (label == null) return;
@@ -8110,6 +8140,7 @@ public class MainWindow {
 		if (ability.requiresSelfReceivedDamageThisTurn())           { if (!firstRestrict) restrict.append(", "); restrict.append("self rcvd dmg"); firstRestrict = false; }
 		if (ability.requiresForwardPutToBZThisTurn())               { if (!firstRestrict) restrict.append(", "); restrict.append("own fwd to BZ"); firstRestrict = false; }
 		if (ability.blockerForAttacker() != null)                   { if (!firstRestrict) restrict.append(", "); restrict.append("blks ").append(ability.blockerForAttacker()); firstRestrict = false; }
+		if (ability.requiresOwnWarpCard())                         { if (!firstRestrict) restrict.append(", "); restrict.append("needs Warp card");  firstRestrict = false; }
 		if (restrict.length() > 0) sb.append(restrict).append(" — ");
 
 		String fx = ability.effectText();
@@ -8469,6 +8500,10 @@ public class MainWindow {
 		if (ability.maxOpponentHandSize() >= 0) {
 			List<CardData> oppHand = isP1 ? gameState.getP2Hand() : gameState.getP1Hand();
 			if (oppHand.size() > ability.maxOpponentHandSize()) return false;
+		}
+		if (ability.requiresOwnWarpCard()) {
+			List<GameState.WarpEntry> zone = isP1 ? gameState.getP1WarpZone() : gameState.getP2WarpZone();
+			if (zone.isEmpty()) return false;
 		}
 		if (ability.requiresSelfEmptyHand()) {
 			List<CardData> selfHand = isP1 ? gameState.getP1Hand() : gameState.getP2Hand();

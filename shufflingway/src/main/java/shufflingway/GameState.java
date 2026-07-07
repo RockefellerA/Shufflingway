@@ -187,6 +187,24 @@ public class GameState {
         return tickWarpCounters(p2WarpZone);
     }
 
+    /**
+     * Decrements the Warp counter on {@code card} in the given player's zone by 1,
+     * removing the entry when the counter reaches zero.
+     * @return the remaining counter value, or -1 if {@code card} was not found in the zone
+     */
+    public int removeOneWarpCounterFrom(CardData card, boolean isP1) {
+        List<WarpEntry> zone = isP1 ? p1WarpZone : p2WarpZone;
+        for (java.util.Iterator<WarpEntry> it = zone.iterator(); it.hasNext(); ) {
+            WarpEntry entry = it.next();
+            if (entry.card == card) {
+                entry.counters--;
+                if (entry.counters <= 0) { it.remove(); return 0; }
+                return entry.counters;
+            }
+        }
+        return -1;
+    }
+
     private static List<CardData> tickWarpCounters(List<WarpEntry> zone) {
         List<CardData> resolved = new ArrayList<>();
         java.util.Iterator<WarpEntry> it = zone.iterator();

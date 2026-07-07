@@ -2000,6 +2000,13 @@ public interface GameContext {
     void boostSelfOutgoingDamageThisTurn(CardData source, int amount);
 
     /**
+     * Shows a selection dialog for the active player to choose 1 card from their Warp zone,
+     * removes 1 Warp Counter from it, and enters it onto the field if the counter reaches 0.
+     * Auto-chooses if only 1 card is present; no-ops if the zone is empty.
+     */
+    void chooseAndRemoveWarpCounter();
+
+    /**
      * Shows a modal dialog listing every distinct Job name in the card database and returns
      * the one the player selected, or {@code null} if the dialog was cancelled.
      */

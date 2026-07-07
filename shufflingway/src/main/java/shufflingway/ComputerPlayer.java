@@ -133,6 +133,7 @@ class ComputerPlayer {
 		mw.gameState.advancePhase(); // DRAW → MAIN_1
 		mw.refreshPhaseTracker();
 		mw.logEntry("[P2] Main Phase 1");
+		mw.processWarpCounters(false);
 		mw.fireFieldMainPhase1Abilities(false);
 		mw.fireFieldMainPhase1EachTurnAbilities();
 		mw.fireFieldOppMainPhase1Abilities(true);
@@ -607,7 +608,7 @@ class ComputerPlayer {
 		mw.gameState.advancePhase(); // DRAW → MAIN_1
 		mw.refreshPhaseTracker();
 		mw.logEntry("Main Phase 1");
-		mw.processWarpCounters(false);
+		mw.processWarpCounters(true);
 		mw.nextPhaseButton.setEnabled(true);
 	}
 

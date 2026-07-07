@@ -35,11 +35,13 @@ public class CardRfpAnimator extends JComponent {
     private static class Rfp {
         final BufferedImage img;
         final Point         center;
+        final boolean       reversed;
         int frame;  // starts at 0; first rendered value is 1
 
-        Rfp(BufferedImage img, Point center) {
-            this.img    = img;
-            this.center = center;
+        Rfp(BufferedImage img, Point center, boolean reversed) {
+            this.img      = img;
+            this.center   = center;
+            this.reversed = reversed;
         }
     }
 
@@ -67,7 +69,13 @@ public class CardRfpAnimator extends JComponent {
     }
 
     public void startRfp(BufferedImage img, Point center) {
-        rfps.add(new Rfp(img, center));
+        rfps.add(new Rfp(img, center, false));
+        if (!timer.isRunning()) timer.start();
+    }
+
+    /** Plays the removal animation in reverse — card expands from a flash into full size. */
+    public void startWarpIn(BufferedImage img, Point center) {
+        rfps.add(new Rfp(img, center, true));
         if (!timer.isRunning()) timer.start();
     }
 
@@ -94,7 +102,7 @@ public class CardRfpAnimator extends JComponent {
         int h  = anim.img.getHeight();
         int cx = anim.center.x;
         int cy = anim.center.y;
-        int f  = anim.frame;
+        int f  = anim.reversed ? (TOTAL_FRAMES - anim.frame) : anim.frame;
 
         float maxFlash   = Math.max(w, h) * 0.55f;
         float maxTravel  = Math.max(w, h) * 0.38f;

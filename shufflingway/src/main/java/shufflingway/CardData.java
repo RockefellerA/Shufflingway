@@ -1109,7 +1109,8 @@ public record CardData(
             String inlineCostReductionJob = inlineJobRaw != null ? inlineJobRaw.trim() : null;
             String inlineExcludeRaw = inlineJobRaw != null ? m.group("inlineexclude") : null;
             String inlineCostReductionExcludeName = inlineExcludeRaw != null ? inlineExcludeRaw.trim() : null;
-            result.add(new ActionAbility(abilityName, requiresDull, isSpecial, crystalCost, selfMillCost, hasXCost, cpCost, breakZoneCosts, discardCosts, removeFromGameCosts, returnToHandCosts, counterCosts, dullForwardCosts, yourTurnOnly, opponentTurnOnly, oncePerTurn, mainPhaseOnly, whileCardAtk, whileCardBlk, whilePartyAtk, whileCardInHand, hasBlockingTarget, effectRaw, damageThreshold, controlCondition, cpBackupElement, cpAllowedElements, sourceInBattle, requiresOppDiscardedThisTurn, requiresCastSummonThisTurn, requiresElementForwardEnteredThisTurn, requiresCardNameEnteredThisTurn, breakZoneOnly, requiresOpponentEmptyHand, requiresSelfEmptyHand, requiresNamedCardTookDamageThisTurn, requiresSelfReceivedDamageThisTurn, requiresForwardPutToBZThisTurn, blockerForAttacker, ownBzCard, counterScaleName, minCounterRequired, minCounterType, maxOpponentHandSize, requiresSourceIsForward, maxCounterAllowed, maxCounterType, inlineCostReductionJob, inlineCostReductionExcludeName));
+            boolean requiresOwnWarpCard = REMOVE_WARP_COUNTER_FROM_RFG.matcher(effectRaw).find();
+            result.add(new ActionAbility(abilityName, requiresDull, isSpecial, crystalCost, selfMillCost, hasXCost, cpCost, breakZoneCosts, discardCosts, removeFromGameCosts, returnToHandCosts, counterCosts, dullForwardCosts, yourTurnOnly, opponentTurnOnly, oncePerTurn, mainPhaseOnly, whileCardAtk, whileCardBlk, whilePartyAtk, whileCardInHand, hasBlockingTarget, effectRaw, damageThreshold, controlCondition, cpBackupElement, cpAllowedElements, sourceInBattle, requiresOppDiscardedThisTurn, requiresCastSummonThisTurn, requiresElementForwardEnteredThisTurn, requiresCardNameEnteredThisTurn, breakZoneOnly, requiresOpponentEmptyHand, requiresSelfEmptyHand, requiresNamedCardTookDamageThisTurn, requiresSelfReceivedDamageThisTurn, requiresForwardPutToBZThisTurn, blockerForAttacker, ownBzCard, counterScaleName, minCounterRequired, minCounterType, maxOpponentHandSize, requiresSourceIsForward, maxCounterAllowed, maxCounterType, inlineCostReductionJob, inlineCostReductionExcludeName, requiresOwnWarpCard));
         }
         return List.copyOf(result);
     }
@@ -1127,7 +1128,7 @@ public record CardData(
                 a.requiresSelfEmptyHand(), a.requiresNamedCardTookDamageThisTurn(), a.requiresSelfReceivedDamageThisTurn(),
                 a.requiresForwardPutToBZThisTurn(), a.blockerForAttacker(), bzCard,
                 a.counterScaleName(), a.minCounterRequired(), a.minCounterType(), a.maxOpponentHandSize(), a.requiresSourceIsForward(),
-                a.maxCounterAllowed(), a.maxCounterType(), a.inlineCostReductionJob(), a.inlineCostReductionExcludeName());
+                a.maxCounterAllowed(), a.maxCounterType(), a.inlineCostReductionJob(), a.inlineCostReductionExcludeName(), a.requiresOwnWarpCard());
     }
 
     /** Parses a "discard N [filter]" cost phrase into a {@link DiscardCost} list (0 or 1 item). */
@@ -1351,6 +1352,11 @@ public record CardData(
         "(?i)You\\s+can\\s+only\\s+use\\s+this\\s+ability\\s+if\\s+" +
         "(?:(?<count>\\d+)\\s+or\\s+more\\s+|a\\s+)" +
         "(?<type>\\w+)\\s+Counters?\\s+(?:are|is)\\s+placed\\s+on\\s+.+?[.!]?\\s*$"
+    );
+
+    /** Effect marker: "Choose 1 card removed from the game. Remove 1 Warp Counter from it." */
+    static final Pattern REMOVE_WARP_COUNTER_FROM_RFG = Pattern.compile(
+        "(?i)Choose\\s+1\\s+card\\s+removed\\s+from\\s+the\\s+game\\.\\s*Remove\\s+1\\s+Warp\\s+Counter\\s+from\\s+it"
     );
 
     /** Restriction: "You can only use this ability if there are no [Type] Counters on [CardName]." */
