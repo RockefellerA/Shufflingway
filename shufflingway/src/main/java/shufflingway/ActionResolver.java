@@ -2533,6 +2533,21 @@ public class ActionResolver {
     );
 
     /**
+     * Matches "Choose 1 Forward. Reveal the top card of your deck. If the revealed card's
+     * CP cost is an even number, [eveneffect]. Add the revealed card to your hand.
+     * If the revealed card's CP cost is an odd number, [oddeffect]. Add the revealed card to your hand."
+     */
+    private static final Pattern CHOOSE_FWD_REVEAL_COST_PARITY_PATTERN = Pattern.compile(
+        "(?i)^Choose\\s+1\\s+Forward[.!]?\\s+" +
+        "Reveal\\s+the\\s+top\\s+card\\s+of\\s+your\\s+deck[.!]?\\s+" +
+        "If\\s+the\\s+revealed\\s+card's\\s+CP\\s+cost\\s+is\\s+an?\\s+even\\s+number,\\s+" +
+        "(?<eveneffect>.+?)[.!]?\\s+Add\\s+the\\s+revealed\\s+card\\s+to\\s+your\\s+hand[.!]?\\s+" +
+        "If\\s+the\\s+revealed\\s+card's\\s+CP\\s+cost\\s+is\\s+an?\\s+odd\\s+number,\\s+" +
+        "(?<oddeffect>.+?)[.!]?\\s+Add\\s+the\\s+revealed\\s+card\\s+to\\s+your\\s+hand[.!]?$",
+        Pattern.DOTALL
+    );
+
+    /**
      * Anchored prefix that confirms the effect text is a deck-reveal ability.
      * Group {@code who} captures the deck owner phrase so callers can tell
      * whether it is the ability user's own deck or the opponent's.
@@ -4711,6 +4726,9 @@ public class ActionResolver {
         result = tryParseEachPlayerMaySearchForwardMinPower(effectText);
         if (result != null) return result;
 
+        result = tryParseChooseFwdRevealCostParity(effectText);
+        if (result != null) return result;
+
         result = tryParseRevealTopDeck(effectText, source);
         if (result != null) return result;
 
@@ -5093,6 +5111,7 @@ public class ActionResolver {
         if (tryParseOpponentRevealHand(effectText)            != null) return "OpponentRevealHand";
         if (tryParseEachPlayerRevealCharacterMayPlay(effectText)      != null) return "EachPlayerRevealMayPlay";
         if (tryParseEachPlayerMaySearchForwardMinPower(effectText)     != null) return "EachPlayerMaySearchForwardMinPower";
+        if (tryParseChooseFwdRevealCostParity(effectText)             != null) return "ChooseFwdRevealCostParity";
         if (tryParseRevealTopDeck(effectText, source)         != null) return "RevealTopDeck";
         if (tryParseStandaloneDamageShields(effectText, source) != null) return "StandaloneDamageShields";
         if (tryParseDualSearchJobAndTypeDontShareElements(effectText)      != null) return "DualSearchDontShareElements";
@@ -5580,6 +5599,7 @@ public class ActionResolver {
         if (tryParseOpponentRevealHand(effectText) != null)                 return "OpponentRevealHand";
         if (tryParseEachPlayerRevealCharacterMayPlay(effectText) != null)   return "EachPlayerRevealMayPlay";
         if (tryParseEachPlayerMaySearchForwardMinPower(effectText) != null) return "EachPlayerMaySearchForwardMinPower";
+        if (tryParseChooseFwdRevealCostParity(effectText)          != null) return "ChooseFwdRevealCostParity";
         if (tryParseRevealTopDeck(effectText, source) != null)
             return revealTopDeckDescription(effectText, source) + restrictionDesc(effectText);
         if (tryParseStandaloneDamageShields(effectText, source) != null)    return "StandaloneDamageShields";
@@ -12518,6 +12538,30 @@ public class ActionResolver {
      * Each action is either a card-referencing op code or a standalone effect
      * parsed by {@link #parse}.
      */
+    private static Consumer<GameContext> tryParseChooseFwdRevealCostParity(String text) {
+        Matcher m = CHOOSE_FWD_REVEAL_COST_PARITY_PATTERN.matcher(text.trim());
+        if (!m.matches()) return null;
+        return ctx -> {
+            ctx.logEntry("Effect: Choose 1 Forward, reveal top card — even cost→bounce, odd cost→4000 damage + dull + freeze");
+            List<ForwardTarget> ts = selectTargets(ctx, 1, false, false, false, null, null, null, false,
+                    -1, null, -1, null, true, false, false, null, null, null, null, false, null, false);
+            if (ts.isEmpty()) return;
+            ForwardTarget t = ts.get(0);
+            ctx.revealTopDeckCostParityEffect(
+                ctx2 -> {
+                    ctx2.logEntry("Even cost — returning chosen Forward to owner's hand");
+                    if (t.isP1()) ctx2.returnP1ForwardToHand(t.idx());
+                    else          ctx2.returnP2ForwardToHand(t.idx());
+                },
+                ctx2 -> {
+                    ctx2.logEntry("Odd cost — dealing 4000 damage, dulling and freezing chosen Forward");
+                    ctx2.damageTarget(t, 4000);
+                    ctx2.dullAndFreezeTarget(t);
+                }
+            );
+        };
+    }
+
     private static Consumer<GameContext> tryParseRevealTopDeck(String text, CardData source) {
         Matcher header = REVEAL_TOP_DECK_HEADER.matcher(text);
         if (!header.find()) return null;

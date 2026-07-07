@@ -233,6 +233,14 @@ public interface GameContext {
     void revealTopDeckCard(List<RevealClause> clauses, boolean opponentDeck);
 
     /**
+     * Reveals the top card of the player's deck in a modal popup, applies {@code onEven}
+     * or {@code onOdd} to the game context depending on whether the revealed card's CP cost
+     * is even or odd, then adds the revealed card to the player's hand.
+     */
+    void revealTopDeckCostParityEffect(java.util.function.Consumer<GameContext> onEven,
+                                       java.util.function.Consumer<GameContext> onOdd);
+
+    /**
      * Each player reveals the top card of their deck. Each player whose revealed card satisfies
      * {@code eligibleCondition} may play it onto the field; otherwise it is returned to the top
      * of their deck. P1 gets a Decline/OK dialog; P2 auto-accepts.
