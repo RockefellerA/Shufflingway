@@ -317,14 +317,26 @@ public record CardData(
     );
 
     /**
-     * Returns the list of extra CP elements this backup can produce when on the field
-     * (the "If [Name] is on the field, [Name] can produce X [or Y] CP." ability).
+     * "If [Name] is on the field, it gains Elements of Fire, Ice, Wind, Earth, Lightning and Water."
+     * Group {@code elems} — comma-and-separated element list.
+     */
+    private static final Pattern BACKUP_GAINS_ELEMENTS = Pattern.compile(
+        "(?i)If\\s+.+?\\s+is\\s+on\\s+the\\s+field,\\s+it\\s+gains\\s+Elements?\\s+of\\s+" +
+        "(?<elems>(?:(?:Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)(?:,\\s*|\\s+and\\s+))*" +
+        "(?:Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark))[.!]?"
+    );
+
+    /**
+     * Returns the list of extra CP elements this backup can produce when on the field.
+     * Covers both "can produce X or Y CP" and "gains Elements of X, Y, Z and W" forms.
      * Returns an empty list if no such ability exists.
      */
     public List<String> backupCpExtraElements() {
         Matcher m = BACKUP_CP_EXTRA_ELEMENTS.matcher(textEn);
-        if (!m.find()) return List.of();
-        return List.of(m.group("elems").split("(?i)\\s+or\\s+"));
+        if (m.find()) return List.of(m.group("elems").split("(?i)\\s+or\\s+"));
+        Matcher mg = BACKUP_GAINS_ELEMENTS.matcher(textEn);
+        if (mg.find()) return List.of(mg.group("elems").split("(?i),\\s*|\\s+and\\s+"));
+        return List.of();
     }
 
     // "If Sherlotta is on the field, Sherlotta can produce CP of any Element of the Forwards you control."
@@ -411,6 +423,7 @@ public record CardData(
     static boolean isBackupCpAbility(String text) {
         return BACKUP_CP_ANY_ELEM_ALWAYS.matcher(text).find()
             || BACKUP_CP_EXTRA_ELEMENTS.matcher(text).find()
+            || BACKUP_GAINS_ELEMENTS.matcher(text).find()
             || BACKUP_CP_GRANT.matcher(text).find()
             || BACKUP_CP_GRANT_SPECIFIC_ELEMS.matcher(text).find();
     }
@@ -813,7 +826,7 @@ public record CardData(
         "((?i)(?:,\\s*)?remove\\s+[^:]+?\\s+from\\s+(?:the\\s+)?game\\s*)?" + // group 6: optional remove-from-game cost phrase
         "((?i)(?:,\\s*)?return\\s+[^:]+?\\s+to\\s+(?:its|their)\\s+owner(?:'s|s')?\\s+hand\\s*)?" + // group 7: optional return-to-hand cost phrase
         "((?i)(?:,\\s*)?remove\\s+\\d+\\s+[^:]+?\\s+Counters?\\s+from\\s+[^:,]+?\\s*)?" +           // group 8: optional counter-removal cost phrase
-        "(?<dullcost>(?i)(?:,\\s*)?Dull\\s+(?:a\\s+total\\s+of\\s+)?(?<dullcount>\\d+)\\s*(?<dullcond>active|dull|damaged)?\\s*" + // group 9 (named): optional Dull N [cond] Forward(s) cost — simple or Card Name form
+        "(?<dullcost>(?i)(?:,\\s*)?Dull\\s+(?:a\\s+total\\s+of\\s+)?(?<dullcount>\\d+)?\\s*(?<dullcond>active|dull|damaged)?\\s*" + // group 9 (named): optional Dull N? [cond] Forward(s) cost — simple, Card Name, or bare-name form
         "(?:Card\\s+Name\\s+.+?\\s+Forwards?" +                                              // named-card branch: "Dull N [cond] Card Name X Forward [and N [cond] Card Name Y Forward]"
         "(?:\\s+and\\s+\\d+\\s*(?:active|dull|damaged)?\\s*Card\\s+Name\\s+.+?\\s+Forwards?)*" +
         "|Category\\s+(?<dullcat>[A-Za-z0-9][A-Za-z0-9\\s''\\-]*?)(?:\\s+(?:Forwards?|Backups?|Monsters?|Characters?))?" + // category branch
@@ -821,7 +834,8 @@ public record CardData(
         "|(?<dullelem>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)?\\s*" + // standard branch
         "(?:Forwards?(?:\\s+or\\s+(?:Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)?\\s*Backups?)?" + // Forwards [or Backups]
         "|Backups?(?:\\s+of\\s+the\\s+same\\s+Element)?(?:\\s+or\\s+\\d+\\s*(?:active|dull|damaged)?\\s*Backups?\\s+of\\s+the\\s+same\\s+Element(?:\\s+and\\s+[A-Za-z][A-Za-z\\s''\\-]*?)?)?" + // Backups [of the same Element] [or N Backups ... and Name]
-        "|Characters?))\\s*)?" + // Characters
+        "|Characters?)" + // Characters
+        "|(?<dullbarename>[A-Z][A-Za-z''\\-]+)(?:\\s+(?:Forwards?|Backups?|Monsters?|Characters?))?(?:\\s+and\\s+[^:]+)?)\\s*)?" + // bare-name branch: "Dull [cond] CardName [and N [cond] ...]"
         ":\\s*"                                                              +  // colon separator
         "(?<effecttext>(?:[^\\[]|\\[(?!\\[))*)"                                // effect text (up to next [[markup]])
     );
@@ -829,6 +843,17 @@ public record CardData(
     // Captures the content between "put " and " into the Break Zone"
     private static final Pattern BREAK_ZONE_COST_PATTERN = Pattern.compile(
         "(?i)put\\s+(.+?)\\s+into\\s+the\\s+Break\\s+Zone"
+    );
+
+    /**
+     * Matches "Dull [cond] CardName [Forward] [and continuation]" — the bare-name cost form where
+     * count is implicit (1) and the card is named directly without a "Card Name" prefix.
+     * Groups: {@code cond}, {@code barename}, {@code continuation} (text after "and", may be null).
+     */
+    private static final Pattern DULL_BARE_NAME_COST_PATTERN = Pattern.compile(
+        "(?i)Dull\\s+(?<cond>active|dull|damaged)?\\s*" +
+        "(?<barename>[A-Z][A-Za-z''\\-]+)(?:\\s+(?:Forwards?|Backups?|Monsters?|Characters?))?" +
+        "(?:\\s+and\\s+(?<continuation>.+))?"
     );
 
     /** Matches a single dull cost item: Card Name, Category, Job, or element-filtered Forward/Backup/Character. */
@@ -1999,6 +2024,15 @@ public record CardData(
     );
 
     /**
+     * General "If your opponent controls [any] X, [target] gains [effects]." pattern.
+     * Handles job/element/type filters via {@link #parseControlCondition} after normalising
+     * "any" to "a".  Groups: {@code raw} (condition text), {@code target}, {@code effects}.
+     */
+    private static final Pattern IF_OPP_CTRL_BOOST_OUTER = Pattern.compile(
+        "(?i)^If\\s+your\\s+opponent\\s+controls?\\s+(?<raw>[^,]+),\\s+(?<target>.+?)\\s+gains?\\s+(?<effects>.+?)\\.?\\s*$"
+    );
+
+    /**
      * "If you have a 《C》, [target] gains [effects]."
      * Groups: {@code target}, {@code effects}.
      */
@@ -2323,6 +2357,38 @@ public record CardData(
                     FieldPowerGrant targetFilter = parseIcbTargetFilter(targetName);
                     result.add(new IfControlBoost(List.of(), "", targetName, targetFilter,
                             powerBonus, traits, "", false, false, false, null, 0, 0, false, 0, minFwds));
+                }
+                continue;
+            }
+
+            // "If your opponent controls [any] X, [target] gains [effects]."
+            Matcher oppCtrlM = IF_OPP_CTRL_BOOST_OUTER.matcher(seg);
+            if (oppCtrlM.find()) {
+                // Normalise "any" → "a" so parseControlCondition handles it as minCount=1
+                String rawCond    = oppCtrlM.group("raw").trim()
+                                        .replaceFirst("(?i)^any\\s+", "a ");
+                String targetName = oppCtrlM.group("target").trim();
+                String effectsStr = oppCtrlM.group("effects").trim();
+                ControlCondition base = parseControlCondition(rawCond);
+                if (base != null) {
+                    ControlCondition oppCond = new ControlCondition(
+                            base.requiredCardNames(), base.minCount(), base.exactCount(),
+                            base.cardType(), base.element(), base.job(), base.category(),
+                            base.minPower(), base.orCardNames(), base.anyOf(),
+                            base.excludeElement(), base.dullCardName(),
+                            base.requiresCrystal(), base.allHave(), true);
+                    Matcher pwrM = IF_CTRL_EFFECT_POWER.matcher(effectsStr);
+                    int powerBonus = pwrM.find() ? Integer.parseInt(pwrM.group(1)) : 0;
+                    EnumSet<Trait> traits = EnumSet.noneOf(Trait.class);
+                    if (ICB_EFFECT_HASTE.matcher(effectsStr).find())        traits.add(Trait.HASTE);
+                    if (ICB_EFFECT_BRAVE.matcher(effectsStr).find())        traits.add(Trait.BRAVE);
+                    if (ICB_EFFECT_FIRST_STRIKE.matcher(effectsStr).find()) traits.add(Trait.FIRST_STRIKE);
+                    if (ICB_EFFECT_BACK_ATTACK.matcher(effectsStr).find())  traits.add(Trait.BACK_ATTACK);
+                    if (powerBonus != 0 || !traits.isEmpty()) {
+                        FieldPowerGrant targetFilter = parseIcbTargetFilter(targetName);
+                        result.add(new IfControlBoost(List.of(oppCond), "", targetName, targetFilter,
+                                powerBonus, traits, "", false, false, false, null));
+                    }
                 }
                 continue;
             }
@@ -4075,6 +4141,7 @@ public record CardData(
 
             // Extra-element CP production — handled as a static card property
             if (BACKUP_CP_EXTRA_ELEMENTS.matcher(seg).find())               continue;
+            if (BACKUP_GAINS_ELEMENTS.matcher(seg).find())                  continue;
 
             // Scaling self power boost ("For each Forward opponent controls, X gains +N power")
             if (SCALING_SELF_OPP_FWD_PATTERN.matcher(seg).find())            continue;
@@ -4151,10 +4218,53 @@ public record CardData(
     }
 
     /** Parses one or more dull-forward cost items from the raw {@code dullcost} group string.
-     *  Handles both "Dull N [cond] [elem] Forward(s)" and "Dull N [cond] Card Name X Forward [and ...]" forms. */
+     *  Handles "Dull N [cond] [elem] Forward(s)", "Dull N [cond] Card Name X Forward [and ...]",
+     *  and the bare-name form "Dull [cond] CardName [and N [cond] ...]". */
     private static List<DullForwardCost> parseDullForwardCosts(String raw) {
         if (raw == null || raw.isBlank()) return List.of();
         List<DullForwardCost> costs = new ArrayList<>();
+
+        // "Dull [cond] BareCardName [and N [cond] continuation]" — implicit count=1, no "Card Name" prefix.
+        // Guard: barename must not be a game type/element keyword that belongs in the standard branch.
+        Matcher bareM = DULL_BARE_NAME_COST_PATTERN.matcher(raw.trim());
+        if (bareM.matches()) {
+            String barename = bareM.group("barename");
+            boolean isKeyword = barename.matches(
+                    "(?i)Forwards?|Backups?|Monsters?|Characters?|Summons?|Category|Job" +
+                    "|Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark");
+            if (!isKeyword) {
+                costs.add(new DullForwardCost(1,
+                        bareM.group("cond") != null ? bareM.group("cond").toLowerCase() : null,
+                        null, barename.trim(), null, null, null, null));
+                String cont = bareM.group("continuation");
+                if (cont != null && !cont.isBlank()) {
+                    // Prepend "Dull " so the continuation matches DULL_COST_ITEM_PATTERN normally
+                    Matcher contM = DULL_COST_ITEM_PATTERN.matcher("Dull " + cont.trim());
+                    if (contM.find()) {
+                        int    count     = contM.group("count") != null ? Integer.parseInt(contM.group("count")) : 1;
+                        String cond      = contM.group("cond");
+                        String cardName  = contM.group("cardname");
+                        String elem      = contM.group("elem");
+                        String job       = contM.group("job");
+                        String category  = contM.group("category");
+                        String jobOrName = contM.group("joborcardname");
+                        boolean inclBkps = contM.group("orbackup") != null || contM.group("sameelembackup") != null;
+                        boolean isChar   = contM.group("catchar") != null || contM.group("jobchar") != null
+                                        || contM.group("stdchar") != null || inclBkps;
+                        costs.add(new DullForwardCost(count,
+                                cond     != null ? cond.toLowerCase()              : null,
+                                elem     != null ? elem.trim()                     : null,
+                                cardName != null ? cardName.trim()                 : null,
+                                job      != null ? job.trim()                      : null,
+                                category != null ? category.trim()                 : null,
+                                isChar           ? "Character"                     : null,
+                                jobOrName != null ? stripTrailingType(jobOrName)   : null));
+                    }
+                }
+                return List.copyOf(costs);
+            }
+        }
+
         Matcher m = DULL_COST_ITEM_PATTERN.matcher(raw);
         while (m.find()) {
             int    count       = Integer.parseInt(m.group("count"));
