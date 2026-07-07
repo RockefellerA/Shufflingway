@@ -304,6 +304,15 @@ final class AutoAbilityTriggers {
 	);
 
 	/**
+	 * Field-wide exact-amount damage nullification:
+	 * "If a Forward you control receives N damage, the damage becomes 0 instead."
+	 * Group: {@code amount} — the exact damage value to intercept.
+	 */
+	static final Pattern FA_FIELD_DAMAGE_EXACT_NULLIFY = Pattern.compile(
+		"(?i)^If\\s+a\\s+Forward\\s+you\\s+control\\s+receives\\s+(?<amount>\\d+)\\s+damage,?\\s+the\\s+damage\\s+becomes\\s+0\\s+instead\\.?$"
+	);
+
+	/**
 	 * Party-forming damage protection: "If a Forward forming a party with [CardName] is dealt damage,
 	 * the damage becomes 0 instead."
 	 * Group: {@code source} — the card name whose party membership triggers the protection.

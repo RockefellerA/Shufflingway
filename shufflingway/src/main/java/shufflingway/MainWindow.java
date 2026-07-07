@@ -8680,6 +8680,9 @@ public class MainWindow {
 	boolean fpgBzConditionMet(FieldPowerGrant fpg, boolean isP1) {
 		List<CardData> bz = isP1 ? gameState.getP1BreakZone() : gameState.getP2BreakZone();
 		if (fpg.minBzSize() > 0 && bz.size() < fpg.minBzSize()) return false;
+		if (fpg.bzFilterCardName() != null) {
+			if (bz.stream().noneMatch(c -> CardFilters.meetsCardNameFilter(c, fpg.bzFilterCardName()))) return false;
+		}
 		if (fpg.minBzFilterCount() > 0) {
 			long cnt = bz.stream()
 				.filter(c -> !fpg.bzFilterFwds() || c.isForward())
@@ -9339,6 +9342,19 @@ public class MainWindow {
 					int fixed = Integer.parseInt(setstoStr);
 					logEntry(damaged.name() + " — damage set to " + fixed + " instead [" + protector.name() + "]");
 					amount = fixed;
+				}
+			}
+
+			// Exact-amount nullification: "If a Forward you control receives N damage, the damage becomes 0 instead."
+			if (!lostAbilitiesCards.contains(protector)) {
+				for (FieldAbility fa : protector.fieldAbilities()) {
+					Matcher m = AutoAbilityTriggers.FA_FIELD_DAMAGE_EXACT_NULLIFY.matcher(fa.effectText());
+					if (!m.find()) continue;
+					int exactAmt = Integer.parseInt(m.group("amount"));
+					if (amount == exactAmt) {
+						logEntry(damaged.name() + " — " + exactAmt + " damage becomes 0 [" + protector.name() + "]");
+						amount = 0;
+					}
 				}
 			}
 		}

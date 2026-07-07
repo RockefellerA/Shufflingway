@@ -2642,6 +2642,17 @@ public record CardData(
     );
 
     /**
+     * Matches "If you have a Card Name X in your Break Zone, X gains +N power [and Trait]."
+     * Groups: {@code bzname}, {@code selfname}, {@code power}, {@code traitstext} (optional).
+     */
+    private static final Pattern FIELD_GRANT_BZ_CARD_NAME_SELF_PATTERN = Pattern.compile(
+        "(?i)^If\\s+you\\s+have\\s+a\\s+Card\\s+Name\\s+(?<bzname>[A-Za-z][A-Za-z\\s''\\-]*)\\s+" +
+        "in\\s+your\\s+Break\\s+Zone,?\\s+" +
+        "(?<selfname>[A-Za-z][A-Za-z\\s''\\-]*)\\s+gains?\\s+\\+(?<power>\\d+)\\s+power" +
+        "(?:\\s+and\\s+(?<traitstext>.+?))?[.!]?\\s*$"
+    );
+
+    /**
      * Matches "If there are N or more different Elements among Forwards/Characters you control,
      * the Forwards/Characters you control gain +P power."
      * Groups: {@code min}, {@code ctype} (condition type), {@code gttype} (grant target type), {@code power}.
@@ -2744,6 +2755,25 @@ public record CardData(
                 continue;
             }
 
+            Matcher bzCnSelfM = FIELD_GRANT_BZ_CARD_NAME_SELF_PATTERN.matcher(seg);
+            if (bzCnSelfM.matches()) {
+                String bzName     = bzCnSelfM.group("bzname").trim();
+                String selfName   = bzCnSelfM.group("selfname").trim();
+                int power         = Integer.parseInt(bzCnSelfM.group("power"));
+                String traitsText = bzCnSelfM.group("traitstext");
+                EnumSet<Trait> traits = EnumSet.noneOf(Trait.class);
+                if (traitsText != null) {
+                    if (ICB_EFFECT_HASTE.matcher(traitsText).find())        traits.add(Trait.HASTE);
+                    if (ICB_EFFECT_BRAVE.matcher(traitsText).find())        traits.add(Trait.BRAVE);
+                    if (ICB_EFFECT_FIRST_STRIKE.matcher(traitsText).find()) traits.add(Trait.FIRST_STRIKE);
+                    if (ICB_EFFECT_BACK_ATTACK.matcher(traitsText).find())  traits.add(Trait.BACK_ATTACK);
+                }
+                result.add(new FieldPowerGrant(null, null, true, true, true,
+                        null, power, traits, false, -1, null, null,
+                        selfName, 0, 0, null, bzName, false, false, 0, 0, 1, 0, 0));
+                continue;
+            }
+
             Matcher dmgThreshM = FIELD_GRANT_DAMAGE_THRESHOLD_PATTERN.matcher(seg);
             if (dmgThreshM.matches()) {
                 int threshold  = Integer.parseInt(dmgThreshM.group("threshold"));
@@ -2755,12 +2785,12 @@ public record CardData(
                 // Below-threshold grant: targets (possibly excluding a card), basepower, only when damage < threshold
                 result.add(new FieldPowerGrant(null, null, incl1[0] != 0, incl1[1] != 0, incl1[2] != 0,
                         except != null ? except.trim() : null, basepower, EnumSet.noneOf(Trait.class),
-                        false, -1, null, null, null, 0, 0, null, false, false, 0, 0, 1,
+                        false, -1, null, null, null, 0, 0, null, null, false, false, 0, 0, 1,
                         0, threshold));
                 // At-or-above-threshold grant: targets2 (no exclusion), boostpower, only when damage >= threshold
                 result.add(new FieldPowerGrant(null, null, incl2[0] != 0, incl2[1] != 0, incl2[2] != 0,
                         null, boostpower, EnumSet.noneOf(Trait.class),
-                        false, -1, null, null, null, 0, 0, null, false, false, 0, 0, 1,
+                        false, -1, null, null, null, 0, 0, null, null, false, false, 0, 0, 1,
                         threshold, 0));
                 continue;
             }
@@ -4064,6 +4094,7 @@ public record CardData(
             if (FIELD_GRANT_BZ_COND_CN_AND_JOB_PATTERN.matcher(seg).find())       continue;
             if (FIELD_EX_BURST_DMG_SCALING_GRANT.matcher(seg).matches())           continue;
             if (FIELD_GRANT_BZ_JOB_SELF_PATTERN.matcher(seg).matches())            continue;
+            if (FIELD_GRANT_BZ_CARD_NAME_SELF_PATTERN.matcher(seg).matches())      continue;
             if (IF_DIFF_ELEMENTS_FIELD_GRANT.matcher(seg).matches())               continue;
             if (FIELD_GRANT_DAMAGE_THRESHOLD_PATTERN.matcher(seg).matches())       continue;
 

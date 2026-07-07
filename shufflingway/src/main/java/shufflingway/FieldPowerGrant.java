@@ -29,6 +29,7 @@ public record FieldPowerGrant(
         int     minBzSize,           // 0 = no restriction; >0 = grant applies only when own BZ has ≥ this many total cards
         int     minBzFilterCount,    // 0 = no restriction; >0 = requires this many filtered BZ cards (see bzFilterJob/bzFilterFwds)
         String  bzFilterJob,         // job filter for BZ cards counted by minBzFilterCount; null = any job
+        String  bzFilterCardName,    // if non-null, BZ must contain at least 1 card with this name
         boolean bzFilterFwds,        // true = only count Forwards when evaluating minBzFilterCount
         boolean yourTurnOnly,        // true = trait/power grant applies only during the controller's turn
         int     minDistinctElements, // 0 = no restriction; >0 = grant applies only when controller has ≥ this many distinct elements among the target type
@@ -52,7 +53,7 @@ public record FieldPowerGrant(
             int exBurstDmgPerGroup, int exBurstDmgGroupSize) {
         this(jobFilter, categoryFilter, inclForwards, inclBackups, inclMonsters,
                 exceptCardName, powerBonus, grantedTraits, affectsOpponent, costFilter, costCmp, elementFilter,
-                inclCardName, minBzSize, minBzFilterCount, bzFilterJob, bzFilterFwds, yourTurnOnly,
+                inclCardName, minBzSize, minBzFilterCount, bzFilterJob, null, bzFilterFwds, yourTurnOnly,
                 minDistinctElements, exBurstDmgPerGroup, exBurstDmgGroupSize, 0, 0);
     }
 
@@ -65,7 +66,7 @@ public record FieldPowerGrant(
             boolean bzFilterFwds, boolean yourTurnOnly, int minDistinctElements) {
         this(jobFilter, categoryFilter, inclForwards, inclBackups, inclMonsters,
                 exceptCardName, powerBonus, grantedTraits, affectsOpponent, costFilter, costCmp, elementFilter,
-                inclCardName, minBzSize, minBzFilterCount, bzFilterJob, bzFilterFwds, yourTurnOnly,
+                inclCardName, minBzSize, minBzFilterCount, bzFilterJob, null, bzFilterFwds, yourTurnOnly,
                 minDistinctElements, 0, 1, 0, 0);
     }
 
@@ -169,6 +170,7 @@ public record FieldPowerGrant(
         if (powerBonus != 0) sb.append(" +").append(powerBonus);
         if (!grantedTraits.isEmpty()) sb.append(' ').append(grantedTraits);
         if (minBzSize > 0) sb.append(" ifBZ>=").append(minBzSize);
+        if (bzFilterCardName != null) sb.append(" ifBZ(CN:").append(bzFilterCardName).append(')');
         if (minBzFilterCount > 0) {
             sb.append(" ifBZ(");
             if (bzFilterJob != null) sb.append("Job:").append(bzFilterJob).append(' ');
