@@ -477,6 +477,17 @@ final class AutoAbilityTriggers {
 		"the\\s+damage\\s+is\\s+reduced\\s+by\\s+(?<amount>\\d+)\\s+instead[.!]?$"
 	);
 
+	/**
+	 * "If [card] is dealt damage by a Forward with [Trait1] or [Trait2], the damage becomes 0 instead."
+	 * Nullifies battle damage when the attacking Forward has any of the listed traits.
+	 * Groups: {@code card}, {@code trait1}, {@code trait2} (optional).
+	 */
+	static final Pattern FA_NULLIFY_TRAIT_FORWARD_DAMAGE = Pattern.compile(
+		"(?i)^If\\s+(?<card>.+?)\\s+is\\s+dealt\\s+damage\\s+by\\s+a\\s+Forward\\s+with\\s+" +
+		"(?<trait1>[^,]+?)(?:\\s+or\\s+(?<trait2>[^,]+?))?" +
+		",\\s+the\\s+damage\\s+becomes\\s+0\\s+instead[.!]?$"
+	);
+
 	/** "If [name] deals damage to a Forward due to an ability, double the damage instead." */
 	static final Pattern FA_DOUBLE_ABILITY_DAMAGE =
 			Pattern.compile(

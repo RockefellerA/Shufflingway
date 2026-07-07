@@ -405,6 +405,10 @@ public class MainWindow {
 	final Map<CardData, Integer> perCardIncomingDmgMultiplierMap = new IdentityHashMap<>();
 	int p1ForwardIncomingDmgMult = 1; // multiplier applied when any P1 Forward receives damage
 	int p2ForwardIncomingDmgMult = 1; // multiplier applied when any P2 Forward receives damage
+	// Set by resolveCombat before modifyIncomingDamage so field abilities can inspect the attacker's traits
+	private CardData currentBattleAttacker      = null;
+	private boolean  currentBattleAttackerIsP1  = false;
+	private int      currentBattleAttackerIdx   = -1;
 	int p1AbilityOutgoingDmgMult = 1; // player-wide ability outgoing damage multiplier
 	int p2AbilityOutgoingDmgMult = 1;
 	final Set<CardData>          perCardNonLethalDmgSet      = new HashSet<>();
@@ -4340,11 +4344,15 @@ public class MainWindow {
 		logEntry((attackerIsP1 ? "" : "[P2] ") + attacker.name() + " (" + effAttackerPow + ")"
 				+ " vs " + (blockerIsP1 ? "" : "[P2] ") + blocker.name() + " (" + effBlockerPow + ")");
 
-		// Compute actual damage each side deals after outgoing and incoming modifiers
+		// Compute actual damage each side deals after outgoing and incoming modifiers.
+		// currentBattleAttacker is set so modifyIncomingDamage can inspect the opposing Forward's traits.
 		int rawDmgToBlocker  = modifyOutgoingCombatDamage(attackerIsP1, attackerIdx, effAttackerPow, blocker);
+		currentBattleAttacker = attacker; currentBattleAttackerIsP1 = attackerIsP1; currentBattleAttackerIdx = attackerIdx;
 		int dmgToBlocker     = modifyIncomingDamage(blockerIsP1,  blockerIdx,  rawDmgToBlocker,  false, false);
 		int rawDmgToAttacker = modifyOutgoingCombatDamage(blockerIsP1, blockerIdx, effBlockerPow, attacker);
+		currentBattleAttacker = blocker;  currentBattleAttackerIsP1 = blockerIsP1;  currentBattleAttackerIdx = blockerIdx;
 		int dmgToAttacker    = modifyIncomingDamage(attackerIsP1, attackerIdx, rawDmgToAttacker, false, false);
+		currentBattleAttacker = null;
 
 		List<Integer> attackerDmgList = attackerIsP1 ? p1ForwardDamage : p2ForwardDamage;
 		List<Integer> blockerDmgList  = blockerIsP1  ? p1ForwardDamage : p2ForwardDamage;
@@ -9100,6 +9108,17 @@ public class MainWindow {
 	// Damage modifier helpers
 	// -------------------------------------------------------------------------
 
+	private static CardData.Trait traitFromName(String name) {
+		return switch (name.trim().toLowerCase().replace(" ", "_").replace("-", "_")) {
+			case "haste"        -> CardData.Trait.HASTE;
+			case "brave"        -> CardData.Trait.BRAVE;
+			case "first_strike" -> CardData.Trait.FIRST_STRIKE;
+			case "back_attack"  -> CardData.Trait.BACK_ATTACK;
+			case "warp"         -> CardData.Trait.WARP;
+			default             -> null;
+		};
+	}
+
 	/**
 	 * Applies all incoming-damage modifiers for {@code idx} and returns the final amount.
 	 * One-time shields (next-damage-zero, next-damage-reduction) are consumed here.
@@ -9179,6 +9198,25 @@ public class MainWindow {
 						amount = Math.max(0, amount - reduction);
 						logEntry(card.name() + " — ability damage reduced by " + reduction + " (" + before + " → " + amount + ")");
 					}
+				}
+			}
+		}
+
+		// Passive field ability: nullify battle damage from a Forward with specific traits (e.g. Haste, First Strike)
+		if (!fromAbility && currentBattleAttacker != null) {
+			for (FieldAbility fa : card.fieldAbilities()) {
+				Matcher fam = AutoAbilityTriggers.FA_NULLIFY_TRAIT_FORWARD_DAMAGE.matcher(fa.effectText());
+				if (!fam.find() || !fam.group("card").trim().equalsIgnoreCase(card.name())) continue;
+				String t1 = fam.group("trait1").trim();
+				String t2raw = fam.group("trait2");
+				String t2 = t2raw != null ? t2raw.trim() : null;
+				CardData.Trait trait1 = traitFromName(t1);
+				CardData.Trait trait2 = t2 != null ? traitFromName(t2) : null;
+				boolean t1Match = trait1 != null && effectiveHasTrait(currentBattleAttackerIsP1, currentBattleAttackerIdx, trait1);
+				boolean t2Match = trait2 != null && effectiveHasTrait(currentBattleAttackerIsP1, currentBattleAttackerIdx, trait2);
+				if (t1Match || t2Match) {
+					logEntry(card.name() + " — battle damage nullified (attacker has " + (t1Match ? t1 : t2) + ")");
+					return 0;
 				}
 			}
 		}

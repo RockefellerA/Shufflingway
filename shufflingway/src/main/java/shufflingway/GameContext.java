@@ -1333,6 +1333,13 @@ public interface GameContext {
     void mayDiscardCardNameFromHand(String cardName, java.util.function.Consumer<GameContext> ifDiscarded);
 
     /**
+     * Prompts the controlling player to optionally put {@code source} into the Break Zone.
+     * If the player accepts, the card is broken and {@code whenDoSo} is executed.
+     * P2 AI always passes.
+     */
+    void mayBreakSourceWhenDoSo(CardData source, java.util.function.Consumer<GameContext> whenDoSo);
+
+    /**
      * Reveals 1 card matching {@code element} from the ability user's hand (the card stays in hand),
      * then draws {@code drawCount} cards. The caller is responsible for any prior "you may" gating;
      * this method assumes the reveal-and-draw will happen. If no qualifying card is in hand, the

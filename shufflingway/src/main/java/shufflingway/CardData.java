@@ -716,6 +716,22 @@ public record CardData(
         return m.group("name").trim().equalsIgnoreCase(cardName);
     }
 
+    /** "If your opponent has N card(s) or less in their hand, [CardName] cannot be broken." */
+    static final Pattern IF_OPP_HAND_SIZE_CANNOT_BE_BROKEN = Pattern.compile(
+        "(?i)^If\\s+your\\s+opponent\\s+has\\s+(?<n>\\d+)\\s+cards?\\s+or\\s+less\\s+in\\s+their\\s+hand,\\s+" +
+        "(?<card>.+?)\\s+cannot\\s+be\\s+broken[.!]?$"
+    );
+
+    /**
+     * Returns the opponent hand-size threshold for the "cannot be broken" condition,
+     * or {@code -1} if the text does not match or the card name does not match.
+     */
+    static int parseIfOpponentHandSizeCannotBeBrokenThreshold(String effectText, String cardName) {
+        Matcher m = IF_OPP_HAND_SIZE_CANNOT_BE_BROKEN.matcher(effectText.trim());
+        if (!m.matches() || !m.group("card").trim().equalsIgnoreCase(cardName)) return -1;
+        return Integer.parseInt(m.group("n"));
+    }
+
     private static final Pattern PRIMING_PATTERN = Pattern.compile(
         "(?i)Priming\\s+\"([^\"]+)\"\\s*--\\s*((?:《[^》]*》\\s*)*)"
     );
@@ -4170,6 +4186,7 @@ public record CardData(
             if (CAST_MUST_CONTROL.matcher(seg).find())                        continue;
             if (CAST_MUST_CONTROL_CATEGORY_FWD.matcher(seg).find())          continue;
             if (CAST_ONLY_PLAY_IF_CONTROL_CATEGORY_FWD.matcher(seg).find())  continue;
+            if (CAST_MAX_OPPONENT_HAND.matcher(seg).find())                   continue;
 
             // Field cost reduction / any-element declarations — handled as static card properties
             if (FIELD_COST_REDUCTION_PATTERN.matcher(seg).find())            continue;

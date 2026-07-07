@@ -63,6 +63,12 @@ class FieldGrantCalculator {
                 int lbThreshold = CardData.parseIfSelfLbFaceUpCountTraitGrantThreshold(fa.effectText(), src.name());
                 if (lbThreshold >= 0 && countFaceUpLbCards(isP1) >= lbThreshold)
                     out.addAll(CardData.parseIfSelfLbFaceUpCountTraitGrantTraits(fa.effectText()));
+                // Opponent-hand-size conditional ("If your opponent has N cards or less in their hand, [name] cannot be broken.")
+                int oppHandThreshold = CardData.parseIfOpponentHandSizeCannotBeBrokenThreshold(fa.effectText(), src.name());
+                if (oppHandThreshold >= 0) {
+                    int oppHandSize = isP1 ? mw.gameState.getP2Hand().size() : mw.gameState.getP1Hand().size();
+                    if (oppHandSize <= oppHandThreshold) out.add(CardData.Trait.CANNOT_BE_BROKEN);
+                }
             }
         }
     }

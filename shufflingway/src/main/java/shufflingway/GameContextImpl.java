@@ -2799,8 +2799,10 @@ final class GameContextImpl implements GameContext {
 						java.util.EnumSet<CardData.Trait> tmp = t.isP1()
 								? mw.p1ForwardTempTraits.get(t.idx())
 								: mw.p2ForwardTempTraits.get(t.idx());
-						if (tmp.contains(CardData.Trait.CANNOT_BE_BROKEN)) {
-							logEntry((t.isP1() ? "" : "[P2] ") + breakCard.name() + " cannot be broken (protected until end of turn)");
+						if (tmp.contains(CardData.Trait.CANNOT_BE_BROKEN)
+								|| (t.isP1() ? mw.effectiveP1HasTrait(t.idx(), CardData.Trait.CANNOT_BE_BROKEN)
+								             : mw.effectiveP2HasTrait(t.idx(), CardData.Trait.CANNOT_BE_BROKEN))) {
+							logEntry((t.isP1() ? "" : "[P2] ") + breakCard.name() + " cannot be broken");
 							return;
 						}
 						if (tmp.contains(CardData.Trait.CANNOT_BE_BROKEN_BY_NON_DMG)
@@ -4057,6 +4059,18 @@ final class GameContextImpl implements GameContext {
 				mw.refreshP1HandLabel();
 				mw.refreshP1BreakLabel();
 				ifDiscarded.accept(this);
+			}
+
+			@Override public void mayBreakSourceWhenDoSo(CardData source, java.util.function.Consumer<GameContext> whenDoSo) {
+				if (!isP1) { logEntry("[P2 AI] Passes on optional break of " + source.name()); return; }
+				String title = (mw.currentAbilitySource != null ? mw.currentAbilitySource.name() : source.name());
+				int choice = mw.showEffectOptionDialog(
+						title + " — Put " + source.name() + " into the Break Zone?",
+						"You May", new Object[]{"Break", "Pass"});
+				if (choice != 0) { logEntry("[Effect] Declined to break " + source.name()); return; }
+				logEntry("[Effect] " + source.name() + " → Break Zone (by choice)");
+				breakSourceCard(source);
+				whenDoSo.accept(this);
 			}
 
 			@Override public void revealElementCardFromHandDraw(String element, int drawCount) {

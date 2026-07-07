@@ -719,6 +719,17 @@ public class ActionResolver {
     );
 
     /**
+     * "you may put [CardName] into the Break Zone. When you do so, [effect]"
+     * Prompts the player; if they choose to break the source card, the follow-up effect fires.
+     * Groups: {@code name} — card name (must equal source); {@code effect} — the conditional effect.
+     */
+    private static final Pattern YOU_MAY_PUT_SELF_TO_BZ_WHEN_DO_SO = Pattern.compile(
+        "(?i)^you\\s+may\\s+put\\s+(?<name>.+?)\\s+into\\s+the\\s+Break\\s+Zone[.!]?\\s+" +
+        "When\\s+you\\s+do\\s+so,\\s+(?<effect>.+)$",
+        Pattern.DOTALL
+    );
+
+    /**
      * Matches "If your opponent doesn't control Forwards, put [CardName] into the Break Zone."
      * Group {@code name} — the card name that goes to the Break Zone (must equal source name).
      */
@@ -1378,7 +1389,7 @@ public class ActionResolver {
      * Group {@code inner} — the effect to fire.
      */
     static final Pattern AT_END_OF_OPP_TURN_FA_PATTERN = Pattern.compile(
-        "(?i)At\\s+the\\s+end\\s+of\\s+your\\s+opponent'?s\\s+turn,\\s+(?<inner>.+)"
+        "(?i)At\\s+the\\s+end\\s+of\\s+(?:each\\s+of\\s+)?your\\s+opponent'?s\\s+turns?,\\s+(?<inner>.+)"
     );
 
     /**
@@ -4019,6 +4030,17 @@ public class ActionResolver {
     );
 
     /**
+     * Matches "If your opponent has N cards or more in their hand, [effect]."
+     * Fires the inner effect only when the opponent's hand meets the minimum threshold.
+     * Groups: {@code n} — minimum hand size; {@code effect} — the conditional effect text.
+     */
+    private static final Pattern OPPONENT_HAND_MIN_CONDITION_PATTERN = Pattern.compile(
+        "(?i)^If\\s+your\\s+opponent\\s+has\\s+(?<n>\\d+)\\s+cards?\\s+or\\s+more\\s+in\\s+" +
+        "(?:his/her|his|her|their)\\s+hand,?\\s*" +
+        "(?<effect>.+?)\\s*[.!]?$"
+    );
+
+    /**
      * Matches a two-clause hand condition used as a Choose followup:
      * "If your opponent has N cards or less …, [action1]. If your opponent has no cards …, [action2] instead."
      * <ul>
@@ -4508,6 +4530,9 @@ public class ActionResolver {
         result = tryParsePutSourceIntoBreakZone(effectText, source);
         if (result != null) return result;
 
+        result = tryParseYouMayPutSelfToBZWhenDoSo(effectText, source);
+        if (result != null) return result;
+
         result = tryParseIfOppNoForwardsPutToBreakZone(effectText, source);
         if (result != null) return result;
 
@@ -4837,6 +4862,9 @@ public class ActionResolver {
         result = tryParseConditionalOpponentHand(effectText, source, xValue);
         if (result != null) return result;
 
+        result = tryParseConditionalOpponentHandMin(effectText, source, xValue);
+        if (result != null) return result;
+
         if (CardData.HAS_ALL_ELEMENTS_PATTERN.matcher(effectText.trim()).matches()) return ctx -> {};
 
         result = tryParseMultiPlayGrant(effectText);
@@ -4865,6 +4893,22 @@ public class ActionResolver {
             if (!condMet) return;
             ctx.logEntry("[Hand condition] opponent has " + hs
                     + " card(s) — " + innerText);
+            inner.accept(ctx);
+        };
+    }
+
+    private static Consumer<GameContext> tryParseConditionalOpponentHandMin(
+            String text, CardData source, int xValue) {
+        Matcher m = OPPONENT_HAND_MIN_CONDITION_PATTERN.matcher(text.trim());
+        if (!m.matches()) return null;
+        int minThreshold = Integer.parseInt(m.group("n"));
+        String innerText = m.group("effect").trim();
+        Consumer<GameContext> inner = parse(innerText, source, xValue);
+        if (inner == null) return null;
+        return ctx -> {
+            int hs = ctx.opponentHandSize();
+            if (hs < minThreshold) return;
+            ctx.logEntry("[Hand condition] opponent has " + hs + " card(s) — " + innerText);
             inner.accept(ctx);
         };
     }
@@ -4971,6 +5015,7 @@ public class ActionResolver {
         if (tryParseRemoveNamedFromGame(effectText, source)   != null) return "RemoveNamedFromGame";
         if (tryParseBreakSourceCard(effectText, source)        != null) return "BreakSourceCard";
         if (tryParsePutSourceIntoBreakZone(effectText, source) != null) return "PutSourceIntoBreakZone";
+        if (tryParseYouMayPutSelfToBZWhenDoSo(effectText, source)    != null) return "YouMayPutSelfToBZWhenDoSo";
         if (tryParseIfOppNoForwardsPutToBreakZone(effectText, source)          != null) return "IfOppNoForwardsPutToBreakZone";
         if (tryParseIfEitherPlayerNoForwardsPutSourceToBz(effectText, source)  != null) return "IfEitherPlayerNoForwardsPutSourceToBz";
         if (tryParseIfSelfDamagePointsPutToBreakZone(effectText, source)      != null) return "IfSelfDamagePointsPutToBreakZone";
@@ -5072,6 +5117,8 @@ public class ActionResolver {
         if (tryParseIfOppControlsNOrMoreCondTypeGate(effectText, source, 0) != null) return "IfOppControlsNOrMoreCondType";
         if (tryParseDiscardConditionalElement(effectText, source, 0)   != null) return "DiscardConditionalElement";
         if (tryParseConditionalOpponentHand(effectText, source, 0)     != null) return "ConditionalOpponentHand";
+        if (tryParseConditionalOpponentHandMin(effectText, source, 0) != null) return "ConditionalOpponentHandMin";
+        if (tryParseYouMayPutSelfToBZWhenDoSo(effectText, source)    != null) return "YouMayPutSelfToBZWhenDoSo";
         if (SELECT_FOLLOWING_ACTIONS_DETECT.matcher(effectText).find())        return "SelectFollowingActions";
         if (CardData.HAS_ALL_ELEMENTS_PATTERN.matcher(effectText.trim()).matches()) return "HasAllElements";
         if (tryParseMultiPlayGrant(effectText) != null)                         return "MultiPlayGrant";
@@ -5439,6 +5486,7 @@ public class ActionResolver {
         if (tryParseRemoveNamedFromGame(effectText, source) != null)        return "RemoveNamedFromGame";
         if (tryParseBreakSourceCard(effectText, source)        != null)     return "BreakSourceCard";
         if (tryParsePutSourceIntoBreakZone(effectText, source) != null)     return "PutSourceIntoBreakZone";
+        if (tryParseYouMayPutSelfToBZWhenDoSo(effectText, source)    != null) return "YouMayPutSelfToBZWhenDoSo";
         if (tryParseIfOppNoForwardsPutToBreakZone(effectText, source)          != null) return "IfOppNoForwardsPutToBreakZone";
         if (tryParseIfEitherPlayerNoForwardsPutSourceToBz(effectText, source)  != null) return "IfEitherPlayerNoForwardsPutSourceToBz";
         if (tryParseIfSelfDamagePointsPutToBreakZone(effectText, source) != null) return "IfSelfDamagePointsPutToBreakZone";
@@ -5544,6 +5592,8 @@ public class ActionResolver {
         if (tryParseGrantPartyAnyElementThisTurn(effectText)           != null) return "GrantPartyAnyElementThisTurn";
         if (tryParseSourcePowerBecomesRemovedForwardPower(effectText, source) != null) return "SourcePowerBecomesRemovedPower";
         if (tryParseConditionalOpponentHand(effectText, source, 0)    != null) return "ConditionalOpponentHand";
+        if (tryParseConditionalOpponentHandMin(effectText, source, 0) != null) return "ConditionalOpponentHandMin";
+        if (tryParseYouMayPutSelfToBZWhenDoSo(effectText, source)    != null) return "YouMayPutSelfToBZWhenDoSo";
         if (SELECT_FOLLOWING_ACTIONS_DETECT.matcher(effectText).find())    return "SelectFollowingActions";
         if (CardData.HAS_ALL_ELEMENTS_PATTERN.matcher(effectText.trim()).matches()) return "HasAllElements";
         if (tryParseMultiPlayGrant(effectText) != null)                     return "MultiPlayGrant";
@@ -11056,6 +11106,17 @@ public class ActionResolver {
             ctx.logEntry("Effect: Break " + source.name());
             ctx.breakSourceCard(source);
         };
+    }
+
+    private static Consumer<GameContext> tryParseYouMayPutSelfToBZWhenDoSo(String text, CardData source) {
+        if (source == null) return null;
+        Matcher m = YOU_MAY_PUT_SELF_TO_BZ_WHEN_DO_SO.matcher(text.trim());
+        if (!m.matches()) return null;
+        if (!m.group("name").trim().equalsIgnoreCase(source.name())) return null;
+        String followupText = m.group("effect").trim();
+        Consumer<GameContext> followup = parse(followupText, source);
+        if (followup == null) return null;
+        return ctx -> ctx.mayBreakSourceWhenDoSo(source, followup);
     }
 
     static Consumer<GameContext> tryParseIfOppNoForwardsPutToBreakZone(String text, CardData source) {
