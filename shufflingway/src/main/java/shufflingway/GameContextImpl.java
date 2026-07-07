@@ -34,14 +34,10 @@ import javax.swing.SwingUtilities;
 import javax.swing.SwingWorker;
 import javax.swing.Timer;
 
-import shufflingway.graphics.CardAnimation;
-import static shufflingway.graphics.CardAnimation.CARD_H;
-import static shufflingway.graphics.CardAnimation.CARD_W;
 import static shufflingway.CardFilters.formatCostFilterLabel;
 import static shufflingway.CardFilters.isBlockingTargetFilter;
 import static shufflingway.CardFilters.isEnteredThisTurnCondition;
 import static shufflingway.CardFilters.isTraitCondition;
-import static shufflingway.CardFilters.parseTraitFromCondition;
 import static shufflingway.CardFilters.matchesDiscardType;
 import static shufflingway.CardFilters.meetsCardNameFilter;
 import static shufflingway.CardFilters.meetsCategoryFilter;
@@ -50,6 +46,10 @@ import static shufflingway.CardFilters.meetsElementExclusion;
 import static shufflingway.CardFilters.meetsElementFilter;
 import static shufflingway.CardFilters.meetsPowerConstraint;
 import static shufflingway.CardFilters.meetsTargetCondition;
+import static shufflingway.CardFilters.parseTraitFromCondition;
+import shufflingway.graphics.CardAnimation;
+import static shufflingway.graphics.CardAnimation.CARD_H;
+import static shufflingway.graphics.CardAnimation.CARD_W;
 
 /**
  * Stateless adapter that lets {@link ActionResolver} reach back into {@link MainWindow}
@@ -227,7 +227,8 @@ final class GameContextImpl implements GameContext {
 				CardData c = mw.autoAbilityTriggers.fieldCardData(t); if (c != null) mw.perCardNonLethalDmgSet.add(c);
 			}
 			@Override public void shieldPlayerNextDamage() {
-				if (isP1) mw.p1NextDamageZero = true; else mw.p2NextDamageZero = true;
+				if (isP1) { mw.p1NextDamageZero = true; if (mw.p1ShieldIcon != null) mw.p1ShieldIcon.reset(); }
+				else       { mw.p2NextDamageZero = true; if (mw.p2ShieldIcon != null) mw.p2ShieldIcon.reset(); }
 			}
 			@Override public void disableOpponentDamageReduction() {
 				if (isP1) mw.p2DmgReductionDisabled = true; else mw.p1DmgReductionDisabled = true;
@@ -813,9 +814,12 @@ final class GameContextImpl implements GameContext {
 					logEntry(c.name() + " cannot become dull by opponent's effects");
 					return;
 				}
+				CardState before = mw.p1ForwardStates.get(idx);
 				mw.p1ForwardStates.set(idx, CardState.DULL);
 				logEntry(c.name() + " is dulled");
 				mw.animateDullForward(idx, null);
+				if (before == CardState.ACTIVE)
+					mw.autoAbilityTriggers.triggerAutoAbilitiesForBecomesDull(c, true);
 			}
 
 			@Override public void dullP2Forward(int idx) {
@@ -826,9 +830,12 @@ final class GameContextImpl implements GameContext {
 					logEntry("[P2] " + c.name() + " cannot become dull by opponent's effects");
 					return;
 				}
+				CardState before = mw.p2ForwardStates.get(idx);
 				mw.p2ForwardStates.set(idx, CardState.DULL);
 				logEntry("[P2] " + c.name() + " is dulled");
 				mw.animateDullP2Forward(idx, null);
+				if (before == CardState.ACTIVE)
+					mw.autoAbilityTriggers.triggerAutoAbilitiesForBecomesDull(c, false);
 			}
 
 			@Override public void freezeP1Forward(int idx) {
@@ -872,6 +879,11 @@ final class GameContextImpl implements GameContext {
 			}
 			@Override public void setAllForwardsCannotBeBlockedByHigherCostThisTurn() {
 				mw.allForwardsCannotBeBlockedByHigherCostThisTurn = true;
+			}
+			@Override public void setOppFwdPowerBoostSuppressedThisTurn() {
+				if (isP1()) mw.p2FwdBoostSuppressedThisTurn = true;
+				else        mw.p1FwdBoostSuppressedThisTurn = true;
+				logEntry("Effect: Opponent Forwards cannot have their power increased this turn");
 			}
 			@Override public void oppForwardsLoseAllAbilitiesUntilEndOfTurn() {
 				List<CardData> oppFwds = isP1() ? mw.p2ForwardCards : mw.p1ForwardCards;
@@ -1382,7 +1394,7 @@ final class GameContextImpl implements GameContext {
 			}
 
 			@Override public void opponentMillCards(int count) {
-				java.util.Deque<CardData> deck = mw.gameState.getP2MainDeck();
+				Deque<CardData> deck = mw.gameState.getP2MainDeck();
 				JLayeredPane lp    = mw.frame.getRootPane().getLayeredPane();
 				Point start = SwingUtilities.convertPoint(
 						mw.p2DeckLabel, mw.p2DeckLabel.getWidth() / 2, mw.p2DeckLabel.getHeight() / 2, lp);
@@ -1404,8 +1416,45 @@ final class GameContextImpl implements GameContext {
 				}
 			}
 
+			@Override public void opponentMillIfSameElementDraw(int millCount, int drawCount) {
+				Deque<CardData> oppDeck = isP1 ? mw.gameState.getP2MainDeck() : mw.gameState.getP1MainDeck();
+				JLayeredPane lp = mw.frame.getRootPane().getLayeredPane();
+				JLabel deckLbl  = isP1 ? mw.p2DeckLabel  : mw.p1DeckLabel;
+				JLabel breakLbl = isP1 ? mw.p2BreakLabel : mw.p1BreakLabel;
+				Point start = SwingUtilities.convertPoint(deckLbl,  deckLbl.getWidth() / 2,  deckLbl.getHeight() / 2,  lp);
+				Point end   = SwingUtilities.convertPoint(breakLbl, breakLbl.getWidth() / 2, breakLbl.getHeight() / 2, lp);
+				BufferedImage img = CardAnimation.toARGB(
+						mw.loadCardbackImage(), CardAnimation.CARD_W, CardAnimation.CARD_H);
+				List<CardData> milled = new ArrayList<>();
+				for (int i = 0; i < millCount && !oppDeck.isEmpty(); i++) {
+					CardData card = oppDeck.pop();
+					(isP1 ? mw.gameState.getP2BreakZone() : mw.gameState.getP1BreakZone()).add(card);
+					logEntry((isP1 ? "[P2] " : "[P1] ") + "Mill: \"" + card.name() + "\" → Break Zone");
+					mw.cardSlideAnimator.startSlide(img, start, end, i * 5);
+					milled.add(card);
+				}
+				if (!milled.isEmpty()) {
+					if (isP1) { mw.refreshP2DeckLabel(); mw.refreshP2BreakLabel(); }
+					else      { mw.refreshP1DeckLabel(); mw.refreshP1BreakLabel(); }
+				}
+				if (milled.size() < 2) return;
+				// Check if all milled cards share at least one common element
+				boolean sameElement = false;
+				for (String e : List.of("fire","ice","wind","earth","lightning","water","light","dark")) {
+					boolean allHave = true;
+					for (CardData c : milled) if (!c.containsElement(e)) { allHave = false; break; }
+					if (allHave) { sameElement = true; break; }
+				}
+				if (sameElement) {
+					logEntry("All milled cards share an element — draw " + drawCount);
+					drawCards(drawCount);
+				} else {
+					logEntry("Milled cards do not share an element — no draw");
+				}
+			}
+
 			@Override public void millCards(int count) {
-				java.util.Deque<CardData> deck = mw.gameState.getP1MainDeck();
+				Deque<CardData> deck = mw.gameState.getP1MainDeck();
 				JLayeredPane lp    = mw.frame.getRootPane().getLayeredPane();
 				Point start = SwingUtilities.convertPoint(
 						mw.p1DeckLabel, mw.p1DeckLabel.getWidth() / 2, mw.p1DeckLabel.getHeight() / 2, lp);
@@ -1524,7 +1573,7 @@ final class GameContextImpl implements GameContext {
 					logEntry("[P2] Reveal top deck card — not yet implemented for P2");
 					return;
 				}
-				java.util.Deque<CardData> deck = opponentDeck
+				Deque<CardData> deck = opponentDeck
 						? mw.gameState.getP2MainDeck()
 						: mw.gameState.getP1MainDeck();
 				String deckLabel = opponentDeck ? "opponent's deck" : "your deck";
@@ -2003,6 +2052,84 @@ final class GameContextImpl implements GameContext {
 				}
 			}
 
+			@Override public void chooseAnyNumberReturnToHand(boolean inclForwards, boolean inclBackups,
+					boolean inclMonsters, boolean opponentOnly, boolean selfOnly) {
+				// Which player zones to include (from the ability user's perspective)
+				boolean includeP1 = opponentOnly ? !isP1 : (selfOnly ? isP1 : true);
+				boolean includeP2 = opponentOnly ?  isP1 : (selfOnly ? !isP1 : true);
+
+				if (!isP1) {
+					// P2 AI: return all eligible cards from P1's zone (opponent), nothing from own
+					if (includeP1) {
+						if (inclForwards)
+							for (int i = mw.p1ForwardCards.size() - 1; i >= 0; i--) returnP1ForwardToHand(i);
+						if (inclBackups)
+							for (int i = mw.p1BackupCards.length - 1; i >= 0; i--)
+								if (mw.p1BackupCards[i] != null) returnP1BackupToHand(i);
+						if (inclMonsters)
+							for (int i = mw.p1MonsterCards.size() - 1; i >= 0; i--) returnP1MonsterToHand(i);
+					}
+					return;
+				}
+
+				// P1 human: loop-chooser, rebuilt each iteration so indices stay valid
+				while (true) {
+					List<CardData> candidates = new ArrayList<>();
+					List<int[]>    zoneIdx    = new ArrayList<>(); // [player: 0=P1 1=P2, zone: 0=fwd 1=bkp 2=mon, idx]
+					if (includeP1) {
+						if (inclForwards)
+							for (int i = 0; i < mw.p1ForwardCards.size(); i++) {
+								CardData c = mw.p1ForwardCards.get(i);
+								if (c != null) { candidates.add(c); zoneIdx.add(new int[]{0, 0, i}); }
+							}
+						if (inclBackups)
+							for (int i = 0; i < mw.p1BackupCards.length; i++) {
+								CardData c = mw.p1BackupCards[i];
+								if (c != null) { candidates.add(c); zoneIdx.add(new int[]{0, 1, i}); }
+							}
+						if (inclMonsters)
+							for (int i = 0; i < mw.p1MonsterCards.size(); i++) {
+								CardData c = mw.p1MonsterCards.get(i);
+								if (c != null) { candidates.add(c); zoneIdx.add(new int[]{0, 2, i}); }
+							}
+					}
+					if (includeP2) {
+						if (inclForwards)
+							for (int i = 0; i < mw.p2ForwardCards.size(); i++) {
+								CardData c = mw.p2ForwardCards.get(i);
+								if (c != null) { candidates.add(c); zoneIdx.add(new int[]{1, 0, i}); }
+							}
+						if (inclBackups)
+							for (int i = 0; i < mw.p2BackupCards.length; i++) {
+								CardData c = mw.p2BackupCards[i];
+								if (c != null) { candidates.add(c); zoneIdx.add(new int[]{1, 1, i}); }
+							}
+						if (inclMonsters)
+							for (int i = 0; i < mw.p2MonsterCards.size(); i++) {
+								CardData c = mw.p2MonsterCards.get(i);
+								if (c != null) { candidates.add(c); zoneIdx.add(new int[]{1, 2, i}); }
+							}
+					}
+					if (candidates.isEmpty()) return;
+					int pick = mw.showCardImageChooser(candidates, "Return a Character to hand (cancel when done)", true);
+					if (pick < 0) return;
+					int[] zi = zoneIdx.get(pick);
+					if (zi[0] == 0) { // P1 zone
+						switch (zi[1]) {
+							case 0 -> returnP1ForwardToHand(zi[2]);
+							case 1 -> returnP1BackupToHand(zi[2]);
+							case 2 -> returnP1MonsterToHand(zi[2]);
+						}
+					} else { // P2 zone
+						switch (zi[1]) {
+							case 0 -> returnP2ForwardToHand(zi[2]);
+							case 1 -> returnP2BackupToHand(zi[2]);
+							case 2 -> returnP2MonsterToHand(zi[2]);
+						}
+					}
+				}
+			}
+
 			@Override public void castSummonFromHandFree(int maxCost, boolean returnToHandAfterUse, String excludeElements) {
 				List<CardData> hand = isP1 ? mw.gameState.getP1Hand() : mw.gameState.getP2Hand();
 				List<Integer> eligible = new ArrayList<>();
@@ -2107,8 +2234,53 @@ final class GameContextImpl implements GameContext {
 				mw.lastCardWasCast = false;
 			}
 
+			@Override public void castSummonFromHandDiscounted(int discount) {
+				List<CardData> hand = isP1 ? mw.gameState.getP1Hand() : mw.gameState.getP2Hand();
+				List<Integer> eligible = new ArrayList<>();
+				for (int i = 0; i < hand.size(); i++)
+					if (hand.get(i).isSummon()) eligible.add(i);
+				if (eligible.isEmpty()) {
+					logEntry("No Summons in hand — effect fizzles");
+					markEffectFizzled();
+					return;
+				}
+				int handIdx;
+				if (isP1) {
+					List<CardData> candidates = new ArrayList<>();
+					for (int i : eligible) candidates.add(hand.get(i));
+					java.util.function.ToIntFunction<CardData> costFn =
+							c -> Math.max(1, mw.effectiveCastCost(c) - discount);
+					int listIdx = mw.showCardImageChooser(candidates,
+							"Cast a Summon (cost reduced by " + discount + ", min 1)", true, costFn);
+					if (listIdx < 0) { markEffectFizzled(); return; }
+					handIdx = eligible.get(listIdx);
+				} else {
+					handIdx = eligible.get(0);
+				}
+				CardData card = hand.get(handIdx);
+				CostReductionModifier mod = new CostReductionModifier(
+						discount, true, true,
+						false, false, false, true,
+						null, null, card.name().toLowerCase(), null, false);
+				mw.activeCostReductions.add(mod);
+				if (isP1) {
+					mw.showPaymentDialog(card, handIdx);
+				} else {
+					hand.remove(handIdx);
+					mw.refreshP2HandCountLabel();
+					mw.p2CardsCastThisTurn++;
+					mw.p2SummonCastThisTurn = true;
+					for (String j : card.jobs()) mw.p2CastJobsThisTurn.add(j.toLowerCase());
+					mw.p2CastNamesThisTurn.add(card.name().toLowerCase());
+					mw.p2CastCountByNameThisTurn.merge(card.name().toLowerCase(), 1, Integer::sum);
+					mw.activeCostReductions.remove(mod);
+					logEntry("[P2] Cast \"" + card.name() + "\" from hand (cost -" + discount + ")");
+					mw.showSummonOnStack(card, false);
+				}
+			}
+
 			@Override public void searchAndCastSummonFreeFromDeck(int maxCost, String elementFilter) {
-				java.util.Deque<CardData> deck = isP1 ? mw.gameState.getP1MainDeck() : mw.gameState.getP2MainDeck();
+				Deque<CardData> deck = isP1 ? mw.gameState.getP1MainDeck() : mw.gameState.getP2MainDeck();
 				java.util.List<CardData> matches = new java.util.ArrayList<>();
 				for (CardData c : deck) {
 					if (!c.isSummon()) continue;
@@ -2206,6 +2378,52 @@ final class GameContextImpl implements GameContext {
 					}
 				}
 				logEntry("[ActionResolver] damageFieldForwardByName: \"" + cardName + "\" not found on field");
+			}
+
+			@Override public void eachPlayerMaySearchForwardMinPowerToHand(int count, int minPower) {
+				// P1
+				Deque<CardData> p1Deck = mw.gameState.getP1MainDeck();
+				List<CardData> p1Matches = new ArrayList<>();
+				for (CardData c : p1Deck) if (c.isForward() && c.power() >= minPower) p1Matches.add(c);
+				if (p1Matches.isEmpty()) {
+					logEntry("P1 search: no Forward of " + minPower + "+ power in deck");
+					mw.shuffleDeck(true);
+				} else {
+					String src = mw.currentAbilitySource != null ? mw.currentAbilitySource.name() : "Ability";
+					int choice = mw.showEffectOptionDialog(
+							src + " — Search for 1 Forward of power " + minPower + " or more?",
+							"You May Search", new Object[]{"Search", "Pass"});
+					if (choice == 0) {
+						CardData pick = mw.cardPickerDialog.pickFromDeckSearch(p1Matches);
+						if (pick != null) {
+							mw.gameState.removeFromP1MainDeck(pick);
+							mw.gameState.getP1Hand().add(pick);
+							logEntry(pick.name() + " → hand (search)");
+							mw.refreshP1HandLabel();
+							mw.animateCardDraw(true, 1);
+						}
+					} else {
+						logEntry("P1 passes on search");
+					}
+					mw.shuffleDeck(true);
+				}
+
+				// P2
+				Deque<CardData> p2Deck = mw.gameState.getP2MainDeck();
+				List<CardData> p2Matches = new ArrayList<>();
+				for (CardData c : p2Deck) if (c.isForward() && c.power() >= minPower) p2Matches.add(c);
+				if (p2Matches.isEmpty()) {
+					logEntry("[P2] search: no Forward of " + minPower + "+ power in deck");
+					mw.shuffleDeck(false);
+				} else {
+					p2Matches.sort(java.util.Comparator.comparingInt(CardData::power).reversed());
+					CardData pick = p2Matches.get(0);
+					mw.gameState.getP2MainDeck().remove(pick);
+					mw.gameState.getP2Hand().add(pick);
+					logEntry("[P2 AI] " + pick.name() + " → hand (search)");
+					mw.refreshP2HandCountLabel();
+					mw.shuffleDeck(false);
+				}
 			}
 
 			@Override public void eachPlayerSelectForwardAndDamage(int amount) {
@@ -2588,8 +2806,10 @@ final class GameContextImpl implements GameContext {
 						java.util.EnumSet<CardData.Trait> tmp = t.isP1()
 								? mw.p1ForwardTempTraits.get(t.idx())
 								: mw.p2ForwardTempTraits.get(t.idx());
-						if (tmp.contains(CardData.Trait.CANNOT_BE_BROKEN)) {
-							logEntry((t.isP1() ? "" : "[P2] ") + breakCard.name() + " cannot be broken (protected until end of turn)");
+						if (tmp.contains(CardData.Trait.CANNOT_BE_BROKEN)
+								|| (t.isP1() ? mw.effectiveP1HasTrait(t.idx(), CardData.Trait.CANNOT_BE_BROKEN)
+								             : mw.effectiveP2HasTrait(t.idx(), CardData.Trait.CANNOT_BE_BROKEN))) {
+							logEntry((t.isP1() ? "" : "[P2] ") + breakCard.name() + " cannot be broken");
 							return;
 						}
 						if (tmp.contains(CardData.Trait.CANNOT_BE_BROKEN_BY_NON_DMG)
@@ -2691,7 +2911,7 @@ final class GameContextImpl implements GameContext {
 			}
 
 			@Override public void removeTopCardsOfDeckFromGame(int count) {
-				java.util.Deque<CardData> deck = isP1 ? mw.gameState.getP1MainDeck() : mw.gameState.getP2MainDeck();
+				Deque<CardData> deck = isP1 ? mw.gameState.getP1MainDeck() : mw.gameState.getP2MainDeck();
 				for (int i = 0; i < count && !deck.isEmpty(); i++) {
 					CardData c = deck.pollFirst();
 					mw.gameState.addToPermanentRfp(c);
@@ -2701,7 +2921,7 @@ final class GameContextImpl implements GameContext {
 			}
 
 			@Override public int removeTopCardOfDeckFromGameAndGetCost() {
-				java.util.Deque<CardData> deck = isP1 ? mw.gameState.getP1MainDeck() : mw.gameState.getP2MainDeck();
+				Deque<CardData> deck = isP1 ? mw.gameState.getP1MainDeck() : mw.gameState.getP2MainDeck();
 				if (deck.isEmpty()) { logEntry("Deck is empty — no card removed"); return 0; }
 				CardData c = deck.pollFirst();
 				mw.gameState.addToPermanentRfp(c);
@@ -2711,7 +2931,7 @@ final class GameContextImpl implements GameContext {
 			}
 
 			@Override public int revealTopNAndAddAllToHandGetTotalCP(int n) {
-				java.util.Deque<CardData> deck = isP1 ? mw.gameState.getP1MainDeck() : mw.gameState.getP2MainDeck();
+				Deque<CardData> deck = isP1 ? mw.gameState.getP1MainDeck() : mw.gameState.getP2MainDeck();
 				List<CardData> hand = isP1 ? mw.gameState.getP1Hand() : mw.gameState.getP2Hand();
 				int take = Math.min(n, deck.size());
 				if (take == 0) { logEntry("Deck is empty — no cards revealed"); return 0; }
@@ -2729,7 +2949,7 @@ final class GameContextImpl implements GameContext {
 			}
 
 			@Override public int revealTopNCountJobPlaceAllAtBottom(int n, String job) {
-				java.util.Deque<CardData> deck = isP1 ? mw.gameState.getP1MainDeck() : mw.gameState.getP2MainDeck();
+				Deque<CardData> deck = isP1 ? mw.gameState.getP1MainDeck() : mw.gameState.getP2MainDeck();
 				int take = Math.min(n, deck.size());
 				if (take == 0) { logEntry("Deck is empty — no cards revealed"); return 0; }
 				List<CardData> revealed = new ArrayList<>();
@@ -2746,7 +2966,7 @@ final class GameContextImpl implements GameContext {
 			}
 
 			@Override public void shuffleDeck() {
-				java.util.Deque<CardData> deck = isP1 ? mw.gameState.getP1MainDeck() : mw.gameState.getP2MainDeck();
+				Deque<CardData> deck = isP1 ? mw.gameState.getP1MainDeck() : mw.gameState.getP2MainDeck();
 				List<CardData> list = new java.util.ArrayList<>(deck);
 				java.util.Collections.shuffle(list);
 				deck.clear();
@@ -2867,7 +3087,7 @@ final class GameContextImpl implements GameContext {
 				} else {
 					List<Integer> boost = isP1 ? mw.p1ForwardPowerBoost : mw.p2ForwardPowerBoost;
 					int effectiveAmount = amount;
-					if (amount > 0 && mw.oppForwardPowerBoostSuppressedFor(isP1)) {
+					if (amount > 0 && (mw.oppForwardPowerBoostSuppressedFor(isP1) || mw.oppForwardSelfBoostSuppressedFor(isP1))) {
 						logEntry((isP1 ? "" : "[P2] ") + card.name() + " — power boost suppressed (opponent's field ability)");
 						effectiveAmount = 0;
 					}
@@ -2927,7 +3147,7 @@ final class GameContextImpl implements GameContext {
 					java.util.EnumSet<CardData.Trait> traits) {
 				for (int i = 0; i < mw.p1ForwardCards.size(); i++) {
 					if (mw.p1ForwardCards.get(i).name().equals(source.name())) {
-						if (amount > 0 && mw.oppForwardPowerBoostSuppressedFor(true)) {
+						if (amount > 0 && (mw.oppForwardPowerBoostSuppressedFor(true) || mw.oppForwardSelfBoostSuppressedFor(true))) {
 							logEntry(source.name() + " — power boost suppressed (opponent's field ability)");
 							return;
 						}
@@ -2944,7 +3164,7 @@ final class GameContextImpl implements GameContext {
 					java.util.EnumSet<CardData.Trait> traits) {
 				for (int i = 0; i < mw.p1ForwardCards.size(); i++) {
 					if (mw.p1ForwardCards.get(i).name().equals(source.name())) {
-						if (mw.oppForwardPowerBoostSuppressedFor(true)) {
+						if (mw.oppForwardPowerBoostSuppressedFor(true) || mw.oppForwardSelfBoostSuppressedFor(true)) {
 							logEntry(source.name() + " — power doubling suppressed (opponent's field ability)");
 							return;
 						}
@@ -3004,6 +3224,31 @@ final class GameContextImpl implements GameContext {
 
 			@Override public int getCounters(CardData card, String counterName) {
 				return mw.gameState.getCounters(card, counterName);
+			}
+
+			@Override public void removeOneCounterFromTarget(ForwardTarget t) {
+				CardData card = switch (t.zone()) {
+					case BACKUP  -> t.isP1() ? mw.p1BackupCards[t.idx()] : mw.p2BackupCards[t.idx()];
+					case MONSTER -> t.isP1() ? mw.p1MonsterCards.get(t.idx()) : mw.p2MonsterCards.get(t.idx());
+					default      -> t.isP1() ? mw.p1ForwardCards.get(t.idx()) : mw.p2ForwardCards.get(t.idx());
+				};
+				if (card == null) { logEntry("removeOneCounter — target card not found"); return; }
+				Map<String, Integer> counters = mw.gameState.getCountersMap(card);
+				if (counters.isEmpty()) {
+					logEntry(card.name() + " — no counters to remove (fizzle)");
+					return;
+				}
+				String chosen;
+				if (counters.size() == 1) {
+					chosen = counters.keySet().iterator().next();
+				} else {
+					String[] types = counters.keySet().toArray(new String[0]);
+					chosen = selectOption("Select a Counter to remove from " + card.name(), types);
+					if (chosen == null) chosen = types[0];
+				}
+				mw.gameState.removeCounters(card, chosen, 1);
+				logEntry(card.name() + " — removed 1 " + chosen + " Counter  [remaining: "
+						+ mw.gameState.getCountersMap(card) + "]");
 			}
 
 			@Override public void lookAtTopDeck(LookConfig config) {
@@ -3823,6 +4068,39 @@ final class GameContextImpl implements GameContext {
 				ifDiscarded.accept(this);
 			}
 
+			@Override public void mayBreakSourceWhenDoSo(CardData source, java.util.function.Consumer<GameContext> whenDoSo) {
+				if (!isP1) { logEntry("[P2 AI] Passes on optional break of " + source.name()); return; }
+				String title = (mw.currentAbilitySource != null ? mw.currentAbilitySource.name() : source.name());
+				int choice = mw.showEffectOptionDialog(
+						title + " — Put " + source.name() + " into the Break Zone?",
+						"You May", new Object[]{"Break", "Pass"});
+				if (choice != 0) { logEntry("[Effect] Declined to break " + source.name()); return; }
+				logEntry("[Effect] " + source.name() + " → Break Zone (by choice)");
+				breakSourceCard(source);
+				whenDoSo.accept(this);
+			}
+
+			@Override public void revealElementCardFromHandDraw(String element, int drawCount) {
+				List<CardData> hand = isP1 ? mw.gameState.getP1Hand() : mw.gameState.getP2Hand();
+				List<CardData> eligible = hand.stream()
+						.filter(c -> c.containsElement(element))
+						.collect(Collectors.toList());
+				if (eligible.isEmpty()) { logEntry("[Effect] No " + element + " card in hand — fizzle"); return; }
+				CardData toReveal;
+				if (!isP1) {
+					toReveal = eligible.get(0);
+				} else if (eligible.size() == 1) {
+					toReveal = eligible.get(0);
+				} else {
+					String src = mw.currentAbilitySource != null ? mw.currentAbilitySource.name() : "Ability";
+					Object[] names = eligible.stream().map(CardData::name).toArray();
+					int pick = mw.showEffectOptionDialog(src + " — Choose " + element + " card to reveal:", "Reveal", names);
+					toReveal = eligible.get(Math.max(0, Math.min(pick, eligible.size() - 1)));
+				}
+				logEntry("[Effect] Reveals " + toReveal.name() + " from hand");
+				drawCards(drawCount);
+			}
+
 			@Override public void playerMayDoEffect(String prompt, java.util.function.Consumer<GameContext> effect) {
 				if (!isP1) { logEntry("[P2 AI] Auto-accepts: " + prompt); effect.accept(this); return; }
 				String src = mw.currentAbilitySource != null ? mw.currentAbilitySource.name() : "Ability";
@@ -4073,8 +4351,8 @@ final class GameContextImpl implements GameContext {
 					String element, int costVal, String costCmp, String category, String excludeName) {
 				boolean touchP1 = isP1 ? !opponentOnly : !selfOnly;
 				boolean touchP2 = isP1 ? !selfOnly     : !opponentOnly;
-				boolean p1BoostSuppressed = inclForwards && amount > 0 && mw.oppForwardPowerBoostSuppressedFor(true);
-				boolean p2BoostSuppressed = inclForwards && amount > 0 && mw.oppForwardPowerBoostSuppressedFor(false);
+				boolean p1BoostSuppressed = inclForwards && amount > 0 && (mw.oppForwardPowerBoostSuppressedFor(true) || (isP1 && mw.oppForwardSelfBoostSuppressedFor(true)));
+				boolean p2BoostSuppressed = inclForwards && amount > 0 && (mw.oppForwardPowerBoostSuppressedFor(false) || (!isP1 && mw.oppForwardSelfBoostSuppressedFor(false)));
 				if (touchP1) {
 					if (inclForwards) {
 						for (int i = 0; i < mw.p1ForwardCards.size(); i++) {
@@ -4127,12 +4405,59 @@ final class GameContextImpl implements GameContext {
 				}
 			}
 
+			@Override public void allForwardsSameElementAsNamedGainPowerUntilEOT(
+					String cardName, int amount, boolean opponentOnly, boolean selfOnly) {
+				// Find the named card on the caster's own field to determine its element(s)
+				List<CardData> myFwds = isP1 ? mw.p1ForwardCards : mw.p2ForwardCards;
+				CardData[] myBkps    = isP1 ? mw.p1BackupCards   : mw.p2BackupCards;
+				List<CardData> myMons = isP1 ? mw.p1MonsterCards : mw.p2MonsterCards;
+				CardData named = null;
+				for (CardData c : myFwds) if (CardFilters.meetsCardNameFilter(c, cardName)) { named = c; break; }
+				if (named == null) for (CardData c : myBkps) if (c != null && CardFilters.meetsCardNameFilter(c, cardName)) { named = c; break; }
+				if (named == null) for (CardData c : myMons) if (CardFilters.meetsCardNameFilter(c, cardName)) { named = c; break; }
+				if (named == null) {
+					logEntry(cardName + " not found on field — effect fizzles");
+					markEffectFizzled();
+					return;
+				}
+				final CardData src = named;
+				java.util.function.Predicate<CardData> sharesElement = c -> {
+					for (String e : List.of("fire","ice","wind","earth","lightning","water","light","dark"))
+						if (c.containsElement(e) && src.containsElement(e)) return true;
+					return false;
+				};
+				boolean touchP1 = isP1 ? !opponentOnly : !selfOnly;
+				boolean touchP2 = isP1 ? !selfOnly     : !opponentOnly;
+				if (touchP1) {
+					boolean suppressed = amount > 0 && (mw.oppForwardPowerBoostSuppressedFor(true) || (isP1 && mw.oppForwardSelfBoostSuppressedFor(true)));
+					for (int i = 0; i < mw.p1ForwardCards.size(); i++) {
+						CardData c = p1Forward(i);
+						if (!sharesElement.test(c)) continue;
+						if (suppressed) { logEntry(c.name() + " — power boost suppressed"); continue; }
+						mw.p1ForwardPowerBoost.set(i, mw.p1ForwardPowerBoost.get(i) + amount);
+						logEntry(c.name() + " gains +" + amount + " power until end of turn");
+						mw.refreshP1ForwardSlot(i);
+					}
+				}
+				if (touchP2) {
+					boolean suppressed = amount > 0 && (mw.oppForwardPowerBoostSuppressedFor(false) || (!isP1 && mw.oppForwardSelfBoostSuppressedFor(false)));
+					for (int i = 0; i < mw.p2ForwardCards.size(); i++) {
+						CardData c = p2Forward(i);
+						if (!sharesElement.test(c)) continue;
+						if (suppressed) { logEntry("[P2] " + c.name() + " — power boost suppressed"); continue; }
+						mw.p2ForwardPowerBoost.set(i, mw.p2ForwardPowerBoost.get(i) + amount);
+						logEntry("[P2] " + c.name() + " gains +" + amount + " power until end of turn");
+						mw.refreshP2ForwardSlot(i);
+					}
+				}
+			}
+
 			@Override public void applyMassFieldJobCardNamePowerBoost(int amount, boolean inclForwards, boolean inclMonsters,
 					boolean opponentOnly, boolean selfOnly, String jobFilter, String cardNameFilter) {
 				boolean touchP1 = isP1 ? !opponentOnly : !selfOnly;
 				boolean touchP2 = isP1 ? !selfOnly     : !opponentOnly;
-				boolean p1JobBoostSuppressed = inclForwards && amount > 0 && mw.oppForwardPowerBoostSuppressedFor(true);
-				boolean p2JobBoostSuppressed = inclForwards && amount > 0 && mw.oppForwardPowerBoostSuppressedFor(false);
+				boolean p1JobBoostSuppressed = inclForwards && amount > 0 && (mw.oppForwardPowerBoostSuppressedFor(true) || (isP1 && mw.oppForwardSelfBoostSuppressedFor(true)));
+				boolean p2JobBoostSuppressed = inclForwards && amount > 0 && (mw.oppForwardPowerBoostSuppressedFor(false) || (!isP1 && mw.oppForwardSelfBoostSuppressedFor(false)));
 				if (touchP1) {
 					if (inclForwards) {
 						for (int i = 0; i < mw.p1ForwardCards.size(); i++) {
@@ -4383,7 +4708,7 @@ final class GameContextImpl implements GameContext {
 			}
 
 			@Override public void opponentRfpTopDeckMakeCastable(int costReduction, boolean anyElement) {
-				java.util.Deque<CardData> oppDeck = isP1 ? mw.gameState.getP2MainDeck() : mw.gameState.getP1MainDeck();
+				Deque<CardData> oppDeck = isP1 ? mw.gameState.getP2MainDeck() : mw.gameState.getP1MainDeck();
 				if (oppDeck.isEmpty()) { logEntry("Opponent's deck is empty — nothing removed"); return; }
 				CardData top = oppDeck.pollFirst();
 				mw.gameState.addToPermanentRfp(top);
@@ -4455,6 +4780,26 @@ final class GameContextImpl implements GameContext {
 							+ (expiresThisTurn ? " this turn" : " during this game")
 							+ (freeCast ? " without paying its cost" : ""));
 				}
+			}
+
+			@Override public void chooseSummonInBzByMaxCostFreeCastRfgAfterUse(int maxCost) {
+				List<CardData> bz = isP1 ? mw.gameState.getP1BreakZone() : mw.gameState.getP2BreakZone();
+				List<CardData> candidates = new ArrayList<>();
+				for (CardData c : bz)
+					if (c.isSummon() && c.cost() <= maxCost) candidates.add(c);
+				if (candidates.isEmpty()) {
+					logEntry((isP1 ? "" : "[P2] ") + "No Summon of cost ≤ " + maxCost + " in Break Zone — effect fizzles");
+					return;
+				}
+				CardData picked = isP1
+						? mw.chooseCardFromBzDialog(candidates, "Choose a Summon of cost ≤ " + maxCost)
+						: candidates.get(0);
+				if (picked == null) return;
+				PlayableEntry entry = new PlayableEntry(PlayableEntry.SourceZone.BREAK_ZONE, 0, false, true, true, true);
+				mw.registerBorrowedPlayable(isP1, picked, entry);
+				logEntry((isP1 ? "" : "[P2] ") + picked.name()
+						+ " in Break Zone is castable this turn (free) — removed from game after use");
+				if (isP1) mw.refreshP1BreakLabel(); else mw.refreshP2BreakLabel();
 			}
 
 			@Override public List<FieldAbility> getActiveFieldAbilities() {
@@ -4679,6 +5024,18 @@ final class GameContextImpl implements GameContext {
 				return count;
 			}
 
+			@Override public int ownFieldCountByCategory(String category, String type) {
+				String t = type.toLowerCase().replaceAll("s$", "");
+				List<CardData> all = new ArrayList<>();
+				List<CardData> fwds = isP1 ? mw.p1ForwardCards : mw.p2ForwardCards;
+				CardData[]     bkps = isP1 ? mw.p1BackupCards  : mw.p2BackupCards;
+				List<CardData> mons = isP1 ? mw.p1MonsterCards : mw.p2MonsterCards;
+				if (t.equals("forward")   || t.equals("character")) all.addAll(fwds);
+				if (t.equals("monster")   || t.equals("character")) all.addAll(mons);
+				if (t.equals("backup")    || t.equals("character")) { for (CardData c : bkps) if (c != null) all.add(c); }
+				return (int) all.stream().filter(c -> meetsCategoryFilter(c, category)).count();
+			}
+
 			@Override public boolean selfHasSummonInBreakZone() {
 				List<CardData> bz = isP1 ? mw.gameState.getP1BreakZone() : mw.gameState.getP2BreakZone();
 				return bz.stream().anyMatch(CardData::isSummon);
@@ -4819,7 +5176,7 @@ final class GameContextImpl implements GameContext {
 					false, false, true, false,
 					null, null, false, false, false,
 					original.effectText(),
-					0, null, null, null, false, false, false, null, null, null, false, false, null, false, false, null, null, null, 0, null, -1, false
+					0, null, null, null, false, false, false, null, null, null, false, false, null, false, false, null, null, null, 0, null, -1, false, -1, null, null, null
 				);
 				Map<CardData, List<ActionAbility>> map = isP1 ? mw.p1TempGrantedAbilities : mw.p2TempGrantedAbilities;
 				map.computeIfAbsent(source, k -> new ArrayList<>()).add(copy);
@@ -5040,6 +5397,40 @@ final class GameContextImpl implements GameContext {
 				}
 			}
 
+			@Override public void revealTopAddUpToExcludingNameRestBz(int reveal, int maxAdd, String excludeName) {
+				Deque<CardData> deck = isP1 ? mw.gameState.getP1MainDeck() : mw.gameState.getP2MainDeck();
+				int n = Math.min(reveal, deck.size());
+				if (n == 0) { logEntry("Reveal top: deck is empty."); return; }
+				List<CardData> peeked = new ArrayList<>();
+				for (CardData c : deck) { peeked.add(c); if (peeked.size() >= n) break; }
+				logEntry("Reveal top " + n + " card(s): " +
+						peeked.stream().map(CardData::name).collect(Collectors.joining(", ")));
+				if (!isP1 && mw.isP2Cpu()) {
+					// CPU P2: auto-add up to maxAdd cards (highest cost first, skipping excluded name)
+					List<CardData> eligible = peeked.stream()
+							.filter(c -> !c.name().equalsIgnoreCase(excludeName))
+							.sorted(java.util.Comparator.comparingInt(CardData::cost).reversed())
+							.collect(Collectors.toList());
+					Set<CardData> chosen = new java.util.LinkedHashSet<>(
+							eligible.subList(0, Math.min(maxAdd, eligible.size())));
+					for (int i = 0; i < n; i++) deck.pollFirst();
+					for (CardData c : chosen) {
+						mw.gameState.getP2Hand().add(c);
+						logEntry("[AI] " + c.name() + " → [P2] hand");
+					}
+					if (!chosen.isEmpty()) mw.refreshP2HandCountLabel();
+					for (CardData c : peeked) {
+						if (!chosen.contains(c)) {
+							mw.gameState.getP2BreakZone().add(c);
+							logEntry("[AI] " + c.name() + " → [P2] Break Zone");
+						}
+					}
+					mw.refreshP2DeckLabel();
+				} else {
+					mw.lookDialogs().showRevealAddUpToExcludingNameRestBz(peeked, deck, isP1, maxAdd, excludeName);
+				}
+			}
+
 			private boolean meetsRevealTypeFilter(CardData c, String type) {
 				return switch (type.toLowerCase()) {
 					case "monster"   -> c.isMonster();
@@ -5097,6 +5488,43 @@ final class GameContextImpl implements GameContext {
 					}
 				} else {
 					mw.lookDialogs().showRevealPlayTypeOntoFieldRestBottom(peeked, deck, isP1, maxPlay, typeFilter, categoryFilter, playOntoField);
+				}
+			}
+
+			@Override public void revealTopNPlayUpToElementTypeCostOntoFieldRestBottom(int reveal, int maxPlay, String element, String typeFilter, int maxCost) {
+				Deque<CardData> deck = isP1 ? mw.gameState.getP1MainDeck() : mw.gameState.getP2MainDeck();
+				int n = Math.min(reveal, deck.size());
+				if (n == 0) { logEntry("Reveal top: deck is empty."); return; }
+				List<CardData> peeked = new ArrayList<>();
+				for (CardData c : deck) { peeked.add(c); if (peeked.size() >= n) break; }
+				logEntry("Reveal top " + n + " card(s): " +
+						peeked.stream().map(CardData::name).collect(Collectors.joining(", ")));
+				Consumer<CardData> playOntoField = c -> {
+					if (c.isBackup())       mw.placeCardInFirstBackupSlot(c);
+					else if (c.isMonster()) mw.placeCardInMonsterZone(c);
+					else                    mw.placeCardInForwardZone(c);
+				};
+				java.util.function.Predicate<CardData> eligible = c ->
+						meetsRevealTypeFilter(c, typeFilter)
+						&& (element == null || c.containsElement(element))
+						&& (maxCost < 0 || c.cost() <= maxCost);
+				if (!isP1 && mw.isP2Cpu()) {
+					List<CardData> chosen = peeked.stream().filter(eligible)
+							.sorted(java.util.Comparator.comparingInt(CardData::cost).reversed())
+							.limit(maxPlay)
+							.collect(Collectors.toList());
+					Set<CardData> chosenSet = new java.util.LinkedHashSet<>(chosen);
+					for (int i = 0; i < n; i++) deck.pollFirst();
+					for (CardData c : peeked) {
+						if (!chosenSet.contains(c)) { deck.addLast(c); logEntry("[AI] " + c.name() + " → [P2] bottom of deck"); }
+					}
+					mw.refreshP2DeckLabel();
+					for (CardData c : chosenSet) {
+						logEntry("[AI] " + c.name() + " played onto field");
+						playOntoField.accept(c);
+					}
+				} else {
+					mw.lookDialogs().showRevealPlayElementTypeCostOntoFieldRestBottom(peeked, deck, isP1, maxPlay, element, typeFilter, maxCost, playOntoField);
 				}
 			}
 

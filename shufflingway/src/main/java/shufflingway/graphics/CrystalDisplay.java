@@ -1,8 +1,5 @@
 package shufflingway.graphics;
 
-import shufflingway.ElementColor;
-import shufflingway.FontLoader;
-
 import java.awt.BasicStroke;
 import java.awt.Color;
 import java.awt.Dimension;
@@ -13,10 +10,13 @@ import java.awt.RenderingHints;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 
+import shufflingway.ElementColor;
+import shufflingway.FontLoader;
+
 /**
  * A compact custom component that renders an elongated upright hexagon
  * (point-top, flat left/right sides) in crystal-blue and draws ": N"
- * centred inside it, where N is the current Crystal count.
+ * centered inside it, where N is the current Crystal count.
  */
 public class CrystalDisplay extends javax.swing.JComponent {
 	public static final int CRYSTAL_H = 36;  // component height
@@ -66,7 +66,7 @@ public class CrystalDisplay extends javax.swing.JComponent {
 
 		int cw = getWidth(), ch = getHeight();
 
-		// Elongated upright hexagon: 22 px wide, 32 px tall, centred
+		// Elongated upright hexagon: 22 px wide, 32 px tall, centered
 		int hxW = 22, hxH = 32;
 		int hxX = (cw - hxW) / 2;
 		int hxY = (ch - hxH) / 2;
@@ -82,7 +82,7 @@ public class CrystalDisplay extends javax.swing.JComponent {
 		g.setStroke(new BasicStroke(1.5f));
 		g.drawPolygon(xp, yp, 6);
 
-		// Count number centred inside the hexagon (no colon)
+		// Count number centered inside the hexagon (no colon)
 		g.setFont(FontLoader.loadPixelNESFont(10));
 		g.setColor(Color.WHITE);
 		String text = String.valueOf(count);

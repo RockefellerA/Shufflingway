@@ -254,7 +254,7 @@ final class AutoAbilityTriggers {
 			"|\\s+less\\s+than\\s+(?:his|her|its)\\s+power" +
 		")?" +
 		"\\s*,\\s+" +
-		"(?:reduce\\s+the\\s+damage\\s+by\\s+(?<reduceby>\\d+)|the\\s+damage\\s+becomes\\s+(?<setsto>\\d+)|the\\s+damage\\s+increases\\s+by\\s+(?<increaseby>\\d+))" +
+		"(?:reduce\\s+the\\s+damage\\s+by\\s+(?<reduceby>\\d+)|the\\s+damage\\s+becomes\\s+(?<setsto>\\d+)|the\\s+damage\\s+increases\\s+by\\s+(?<increaseby>\\d+)|(?<double>double\\s+the\\s+damage))" +
 		"\\s+instead\\.?$"
 	);
 
@@ -304,6 +304,15 @@ final class AutoAbilityTriggers {
 	);
 
 	/**
+	 * Field-wide exact-amount damage nullification:
+	 * "If a Forward you control receives N damage, the damage becomes 0 instead."
+	 * Group: {@code amount} — the exact damage value to intercept.
+	 */
+	static final Pattern FA_FIELD_DAMAGE_EXACT_NULLIFY = Pattern.compile(
+		"(?i)^If\\s+a\\s+Forward\\s+you\\s+control\\s+receives\\s+(?<amount>\\d+)\\s+damage,?\\s+the\\s+damage\\s+becomes\\s+0\\s+instead\\.?$"
+	);
+
+	/**
 	 * Party-forming damage protection: "If a Forward forming a party with [CardName] is dealt damage,
 	 * the damage becomes 0 instead."
 	 * Group: {@code source} — the card name whose party membership triggers the protection.
@@ -314,11 +323,35 @@ final class AutoAbilityTriggers {
 
 	/**
 	 * Field ability: "The power of Forwards opponent controls cannot be increased by Summons or abilities."
-	 * Placed on any field card; suppresses positive power boosts to the opposing player's Forwards.
+	 * Placed on any field card; suppresses positive power boosts to the opposing player's Forwards
+	 * regardless of who is applying the boost.
 	 */
 	static final Pattern FA_OPP_FORWARD_POWER_BOOST_SUPPRESSED = Pattern.compile(
 		"(?i)The\\s+power\\s+of\\s+Forwards?\\s+(?:your\\s+)?opponent\\s+controls?\\s+cannot\\s+be\\s+increased\\s+by\\s+Summons?\\s+or\\s+abilit(?:y|ies)[.!]?"
 	);
+
+	/**
+	 * Field ability: "The power of Forwards opponent controls cannot be increased by your opponent's Summons or abilities."
+	 * Like FA_OPP_FORWARD_POWER_BOOST_SUPPRESSED but only blocks the forward-controller's OWN boosts;
+	 * the field card's controller may still increase those Forwards' power.
+	 */
+	static final Pattern FA_OPP_FORWARD_SELF_BOOST_SUPPRESSED = Pattern.compile(
+		"(?i)The\\s+power\\s+of\\s+Forwards?\\s+(?:your\\s+)?opponent\\s+controls?\\s+cannot\\s+be\\s+increased\\s+by\\s+your\\s+opponent(?:'s|s')\\s+Summons?\\s+or\\s+abilit(?:y|ies)[.!]?"
+	);
+
+	/** Returns true if {@code card} has the opponent-Forward-power-boost-suppression field ability. */
+	static boolean hasOppForwardPowerBoostSuppression(CardData card) {
+		for (FieldAbility fa : card.fieldAbilities())
+			if (FA_OPP_FORWARD_POWER_BOOST_SUPPRESSED.matcher(fa.effectText()).find()) return true;
+		return false;
+	}
+
+	/** Returns true if {@code card} has the self-only power-boost-suppression field ability. */
+	static boolean hasOppForwardSelfBoostSuppression(CardData card) {
+		for (FieldAbility fa : card.fieldAbilities())
+			if (FA_OPP_FORWARD_SELF_BOOST_SUPPRESSED.matcher(fa.effectText()).find()) return true;
+		return false;
+	}
 
 	/**
 	 * Field ability: "Opposing Forwards entering the field will not trigger any auto-abilities ..."
@@ -328,13 +361,6 @@ final class AutoAbilityTriggers {
 	static final Pattern FA_OPP_FORWARD_ETF_SUPPRESSED = Pattern.compile(
 		"(?i)Opposing\\s+Forwards?\\s+entering\\s+the\\s+field\\s+will\\s+not\\s+trigger\\s+any\\s+auto.?abilities"
 	);
-
-	/** Returns true if {@code card} has the opponent-Forward-power-boost-suppression field ability. */
-	static boolean hasOppForwardPowerBoostSuppression(CardData card) {
-		for (FieldAbility fa : card.fieldAbilities())
-			if (FA_OPP_FORWARD_POWER_BOOST_SUPPRESSED.matcher(fa.effectText()).find()) return true;
-		return false;
-	}
 
 	/** "You can cast Forwards from your Break Zone." — passive field ability. */
 	static final Pattern FA_CAST_FORWARDS_FROM_BZ = Pattern.compile(
@@ -436,10 +462,30 @@ final class AutoAbilityTriggers {
 		"(?i)^Forwards?\\s+cannot\\s+gain\\s+Haste[.!]?$"
 	);
 
+	/**
+	 * "If you receive damage while [cardName] is active, dull [cardName]. The damage becomes 0 instead."
+	 * Groups: {@code card} (the self-dulling card name that must be active).
+	 */
+	static final Pattern FA_RECV_PLAYER_DAMAGE_ACTIVE_DULL_ZERO = Pattern.compile(
+		"(?i)^If\\s+you\\s+receive\\s+damage\\s+while\\s+(?<card>.+?)\\s+is\\s+active,\\s+" +
+		"dull\\s+(?<dullcard>.+?)[.,]?\\s+The\\s+damage\\s+becomes\\s+0\\s+instead[.!]?$"
+	);
+
 	/** "If [card] receives damage while dull, the damage is reduced by N instead." */
 	static final Pattern FA_DAMAGE_WHILE_DULL_REDUCTION = Pattern.compile(
 		"(?i)^If\\s+(?<card>.+?)\\s+(?:receives|is\\s+dealt)\\s+damage\\s+while\\s+dull,\\s+" +
 		"the\\s+damage\\s+is\\s+reduced\\s+by\\s+(?<amount>\\d+)\\s+instead[.!]?$"
+	);
+
+	/**
+	 * "If [card] is dealt damage by a Forward with [Trait1] or [Trait2], the damage becomes 0 instead."
+	 * Nullifies battle damage when the attacking Forward has any of the listed traits.
+	 * Groups: {@code card}, {@code trait1}, {@code trait2} (optional).
+	 */
+	static final Pattern FA_NULLIFY_TRAIT_FORWARD_DAMAGE = Pattern.compile(
+		"(?i)^If\\s+(?<card>.+?)\\s+is\\s+dealt\\s+damage\\s+by\\s+a\\s+Forward\\s+with\\s+" +
+		"(?<trait1>[^,]+?)(?:\\s+or\\s+(?<trait2>[^,]+?))?" +
+		",\\s+the\\s+damage\\s+becomes\\s+0\\s+instead[.!]?$"
 	);
 
 	/** "If [name] deals damage to a Forward due to an ability, double the damage instead." */
@@ -1125,6 +1171,22 @@ final class AutoAbilityTriggers {
 	/** Fires "you receive damage" abilities on all field cards belonging to the player who took damage. */
 	void triggerAutoAbilitiesForYouReceiveDamage(boolean isP1) {
 		triggerAutoAbilitiesForEvent("you receive damage", isP1);
+	}
+
+	/**
+	 * Fires "becomes dull" auto abilities on {@code card} (owned by {@code isP1}) after it
+	 * transitions from ACTIVE to DULL.  Only abilities whose {@code triggerCard} matches the
+	 * card's name are executed.
+	 */
+	void triggerAutoAbilitiesForBecomesDull(CardData card, boolean isP1) {
+		withBatch(() -> {
+			for (AutoAbility fa : card.autoAbilities()) {
+				if (!fa.trigger().equals("becomes dull")) continue;
+				if (!fa.triggerCard().equalsIgnoreCase(card.name())) continue;
+				executeAutoAbility(fa, card, isP1);
+			}
+		});
+		mw.showStackWindowIfNeeded();
 	}
 
 	/**
@@ -2026,8 +2088,8 @@ final class AutoAbilityTriggers {
 					int sel = 0;
 					for (javax.swing.JCheckBox c : checks) if (c.isSelected()) sel++;
 					countLbl.setText("Selected: " + sel + " / " + selectCount + (upTo ? " (up to)" : ""));
-					// For exact selection: disable unchecked boxes once limit is reached
-					if (!upTo && sel >= selectCount) {
+					// Disable unchecked boxes once limit is reached (applies to both exact and up-to)
+					if (sel >= selectCount) {
 						for (javax.swing.JCheckBox c : checks) if (!c.isSelected()) c.setEnabled(false);
 					} else {
 						for (javax.swing.JCheckBox c : checks) c.setEnabled(true);
@@ -2396,23 +2458,26 @@ final class AutoAbilityTriggers {
 
 	/** Payment dialog for an action ability activated from the Break Zone. */
 	void showBzAbilityPaymentDialog(ActionAbility ability, CardData source, boolean isP1) {
-		List<String> rawCost = ability.cpCost();
-		List<BreakZoneCost> bzCosts = ability.breakZoneCosts();
+		final ActionAbility eff = ability.inlineCostReductionJob() != null
+				? ability.withReducedCp(mw.computeInlineReduction(ability.inlineCostReductionJob(), ability.inlineCostReductionExcludeName(), isP1))
+				: ability;
+		List<String> rawCost = eff.cpCost();
+		List<BreakZoneCost> bzCosts = eff.breakZoneCosts();
 
-		if (rawCost.isEmpty() && !ability.hasXCost()) {
+		if (rawCost.isEmpty() && !eff.hasXCost()) {
 			List<ForwardTarget> bzTargets = resolveBzCostTargetsForBzAbility(bzCosts, isP1);
 			if (bzTargets == null) return;
-			executeAbilityPayment(ability, source, () -> {}, new ArrayList<>(), new ArrayList<>(), bzTargets, isP1, 0);
+			executeAbilityPayment(eff, source, () -> {}, new ArrayList<>(), new ArrayList<>(), bzTargets, isP1, 0);
 			return;
 		}
 
-		new AbilityPaymentDialog(mw.frame, ability, source,
+		new AbilityPaymentDialog(mw.frame, eff, source,
 				mw.playerHand(isP1), mw.playerBackupCards(isP1), mw.playerBackupStates(isP1), mw.playerBackupUrls(isP1),
 				mw::showZoomAt, mw::hideZoom, null,
 				(discards, backups, xValue) -> {
 					List<ForwardTarget> bzTargets = resolveBzCostTargetsForBzAbility(bzCosts, isP1);
 					if (bzTargets == null) return;
-					executeAbilityPayment(ability, source, () -> {}, discards, backups, bzTargets, isP1, xValue);
+					executeAbilityPayment(eff, source, () -> {}, discards, backups, bzTargets, isP1, xValue);
 				})
 			.show();
 	}
@@ -2810,21 +2875,24 @@ final class AutoAbilityTriggers {
 	 */
 	void showActionAbilityPaymentDialog(ActionAbility ability, CardData source,
 			Runnable applyDull, boolean isP1) {
-		List<String> rawCost = ability.cpCost();
-		List<BreakZoneCost> bzCosts = ability.breakZoneCosts();
+		final ActionAbility eff = ability.inlineCostReductionJob() != null
+				? ability.withReducedCp(mw.computeInlineReduction(ability.inlineCostReductionJob(), ability.inlineCostReductionExcludeName(), isP1))
+				: ability;
+		List<String> rawCost = eff.cpCost();
+		List<BreakZoneCost> bzCosts = eff.breakZoneCosts();
 
 		// Zero CP + no X: confirm immediately
-		if (rawCost.isEmpty() && !ability.hasXCost()) {
-			executeAbilityPayment(ability, source, applyDull, new ArrayList<>(), new ArrayList<>(),
+		if (rawCost.isEmpty() && !eff.hasXCost()) {
+			executeAbilityPayment(eff, source, applyDull, new ArrayList<>(), new ArrayList<>(),
 					autoResolveBzTargets(source, bzCosts, isP1), isP1, 0);
 			return;
 		}
 
-		CardData.SpecialAbilityProxy proxy = ability.isSpecial() ? source.specialAbilityProxy() : null;
-		new AbilityPaymentDialog(mw.frame, ability, source,
+		CardData.SpecialAbilityProxy proxy = eff.isSpecial() ? source.specialAbilityProxy() : null;
+		new AbilityPaymentDialog(mw.frame, eff, source,
 				mw.playerHand(isP1), mw.playerBackupCards(isP1), mw.playerBackupStates(isP1), mw.playerBackupUrls(isP1),
 				mw::showZoomAt, mw::hideZoom, proxy,
-				(discards, backups, xValue) -> executeAbilityPayment(ability, source, applyDull,
+				(discards, backups, xValue) -> executeAbilityPayment(eff, source, applyDull,
 						discards, backups, autoResolveBzTargets(source, bzCosts, isP1), isP1, xValue))
 			.show();
 	}
