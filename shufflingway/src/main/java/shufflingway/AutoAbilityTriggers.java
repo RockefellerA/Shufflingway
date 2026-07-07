@@ -2068,8 +2068,8 @@ final class AutoAbilityTriggers {
 					int sel = 0;
 					for (javax.swing.JCheckBox c : checks) if (c.isSelected()) sel++;
 					countLbl.setText("Selected: " + sel + " / " + selectCount + (upTo ? " (up to)" : ""));
-					// For exact selection: disable unchecked boxes once limit is reached
-					if (!upTo && sel >= selectCount) {
+					// Disable unchecked boxes once limit is reached (applies to both exact and up-to)
+					if (sel >= selectCount) {
 						for (javax.swing.JCheckBox c : checks) if (!c.isSelected()) c.setEnabled(false);
 					} else {
 						for (javax.swing.JCheckBox c : checks) c.setEnabled(true);

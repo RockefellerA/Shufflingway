@@ -1177,6 +1177,22 @@ public class ActionResolver {
         "(?:\\s+in\\s+any\\s+order)?[.!]?$"
     );
 
+    /** Matches "reveal 1 &lt;Element&gt; card from your hand. If you do so, draw N card(s)." */
+    private static final Pattern REVEAL_ELEMENT_CARD_FROM_HAND_IF_SO_DRAW = Pattern.compile(
+        "(?i)^\\s*reveal\\s+1\\s+(?<element>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)\\s+card\\s+from\\s+your\\s+hand[.]?\\s+" +
+        "If\\s+you\\s+do\\s+so,?\\s+draw\\s+(?<draw>\\d+)\\s+cards?[.]?\\s*$"
+    );
+
+    private static final Pattern REVEAL_PLAY_ELEMENT_TYPE_COST_ONTO_FIELD_REST_BOTTOM = Pattern.compile(
+        "(?i)^\\s*reveal\\s+the\\s+top\\s+(?<n>\\d+)\\s+cards?\\s+of\\s+your\\s+deck[.!]?\\s+" +
+        "Play\\s+(?:up\\s+to\\s+)?(?<max>\\d+)\\s+" +
+        "(?:(?<element>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)\\s+)?" +
+        "(?<type>Forward|Backup|Monster|Character)s?\\s+of\\s+cost\\s+(?<cost>\\d+)\\s+or\\s+less\\s+" +
+        "among\\s+them\\s+onto\\s+(?:the\\s+)?field[,.]?\\s+" +
+        "and\\s+return\\s+the\\s+other\\s+cards?\\s+to\\s+the\\s+bottom\\s+of\\s+(?:your|the)\\s+deck" +
+        "(?:\\s+in\\s+any\\s+order)?[.!]?\\s*$"
+    );
+
     /** Matches "Put it at the top or bottom of its owner's deck." — player chooses placement. Also handles "Your opponent puts it…" */
     private static final Pattern FOLLOWUP_PUT_TOP_OR_BOTTOM_OF_DECK = Pattern.compile(
         "(?i)(?:Your\\s+opponent\\s+puts?\\s+it|Put\\s+it)\\s+at\\s+the\\s+top\\s+or\\s+bottom\\s+of\\s+its\\s+owner's\\s+deck\\.?"
@@ -1740,6 +1756,15 @@ public class ActionResolver {
     /** Standalone: "[CardName] cannot be broken this turn." — bare form without 'gains' quoting. */
     private static final Pattern STANDALONE_SELF_SHIELD_CANNOT_BE_BROKEN_SIMPLE = Pattern.compile(
         "(?i)(?<subject>.+?)\\s+cannot\\s+be\\s+broken\\s+this\\s+turn\\.?"
+    );
+
+    /**
+     * Standalone: "Dull [CardName]." — dulls the source card with no other effect.
+     * Must be tried after {@link #STANDALONE_SELF_DULL_AND_SHIELD_CANNOT_BE_BROKEN} so the
+     * compound case is not shadowed.
+     */
+    private static final Pattern STANDALONE_SELF_DULL = Pattern.compile(
+        "(?i)^dull\\s+(?<subject>.+?)\\.?\\s*$"
     );
 
     /**
@@ -4383,6 +4408,9 @@ public class ActionResolver {
         result = tryParseStandaloneSelfDullAndShield(effectText, source);
         if (result != null) return result;
 
+        result = tryParseStandaloneSelfDull(effectText, source);
+        if (result != null) return result;
+
         result = tryParseStandaloneShieldCannotBeBroken(effectText, source);
         if (result != null) return result;
 
@@ -4743,6 +4771,12 @@ public class ActionResolver {
         result = tryParseRevealPlayTypeOntoFieldRestBottom(effectText);
         if (result != null) return result;
 
+        result = tryParseRevealElementCardFromHandIfSoDraw(effectText);
+        if (result != null) return result;
+
+        result = tryParseRevealPlayElementTypeCostOntoFieldRestBottom(effectText);
+        if (result != null) return result;
+
         result = tryParseShuffleDeck(effectText);
         if (result != null) return result;
 
@@ -4901,6 +4935,7 @@ public class ActionResolver {
         if (tryParseStandaloneSelfBoostForEachCrystal(effectText, source) != null) return "StandaloneSelfBoostForEachCrystal";
         if (tryParseStandaloneSelfBoost(effectText, source)   != null) return "StandaloneSelfBoost";
         if (tryParseStandaloneSelfDullAndShield(effectText, source) != null) return "StandaloneSelfDullAndShield";
+        if (tryParseStandaloneSelfDull(effectText, source) != null)          return "StandaloneSelfDull";
         if (tryParseStandaloneShieldCannotBeBroken(effectText, source) != null) return "StandaloneShieldCannotBeBroken";
         if (tryParseAllOwnForwardsNullifyAbilityDamage(effectText)        != null) return "AllOwnForwardsNullifyAbilityDamage";
         if (tryParseAllForwardsCannotBlock(effectText)                    != null) return "AllForwardsCannotBlock";
@@ -5359,6 +5394,7 @@ public class ActionResolver {
         if (tryParseStandaloneSelfBoostForEachCrystal(effectText, source) != null) return "StandaloneSelfBoostForEachCrystal";
         if (tryParseStandaloneSelfBoost(effectText, source) != null)        return "StandaloneSelfBoost";
         if (tryParseStandaloneSelfDullAndShield(effectText, source) != null) return "StandaloneSelfDullAndShield";
+        if (tryParseStandaloneSelfDull(effectText, source) != null)          return "StandaloneSelfDull";
         if (tryParseStandaloneShieldCannotBeBroken(effectText, source) != null) return "StandaloneShieldCannotBeBroken";
         if (tryParseAllOwnForwardsNullifyAbilityDamage(effectText)        != null) return "AllOwnForwardsNullifyAbilityDamage";
         if (tryParseAllForwardsCannotBlock(effectText)                    != null) return "AllForwardsCannotBlock";
@@ -5480,7 +5516,9 @@ public class ActionResolver {
         if (tryParseRevealPlayNamedWithMaxCostRestBottom(effectText)           != null) return "RevealPlayNamedWithMaxCostRestBottom";
         if (tryParseFlipUntilTypeToHandRestShuffleBottom(effectText)           != null) return "FlipUntilTypeToHandRestShuffleBottom";
         if (tryParseShuffleThenRevealPlayNamedRestBottom(effectText, source) != null) return "ShuffleThenRevealPlayNamedRestBottom";
-        if (tryParseRevealPlayTypeOntoFieldRestBottom(effectText)           != null) return "RevealPlayTypeOntoFieldRestBottom";
+        if (tryParseRevealPlayTypeOntoFieldRestBottom(effectText)                != null) return "RevealPlayTypeOntoFieldRestBottom";
+        if (tryParseRevealElementCardFromHandIfSoDraw(effectText)                != null) return "RevealElementCardFromHandIfSoDraw";
+        if (tryParseRevealPlayElementTypeCostOntoFieldRestBottom(effectText)     != null) return "RevealPlayElementTypeCostOntoFieldRestBottom";
         if (tryParseShuffleDeck(effectText)                              != null) return "ShuffleDeck";
         if (tryParseBackupCpDraw(effectText)                             != null) return "BackupCpDraw";
         if (tryParseAllMonstersTemporaryForward(effectText)            != null) return "AllMonstersTemporaryForward";
@@ -9945,6 +9983,19 @@ public class ActionResolver {
         };
     }
 
+    /** Parses "Dull [CardName]." — dulls the source card with no other effect. */
+    private static Consumer<GameContext> tryParseStandaloneSelfDull(String text, CardData source) {
+        if (source == null) return null;
+        Matcher m = STANDALONE_SELF_DULL.matcher(text.trim());
+        if (!m.find()) return null;
+        String subject = m.group("subject").trim();
+        if (!subject.equalsIgnoreCase(source.name())) return null;
+        return ctx -> {
+            ctx.logEntry(source.name() + " — dulled");
+            ctx.dullSourceForward(source);
+        };
+    }
+
     /**
      * Parses "Dull [CardName]. [CardName] gains '[...] cannot be broken.' until end of turn."
      * Dulls the source then shields it. Must be tried before {@link #tryParseStandaloneShieldCannotBeBroken}
@@ -11058,6 +11109,28 @@ public class ActionResolver {
                 + typeRaw.substring(1).toLowerCase();
         String category = m.group("category");
         return ctx -> ctx.revealTopNPlayUpToTypeOntoFieldRestBottom(n, max, normType, category);
+    }
+
+    private static Consumer<GameContext> tryParseRevealElementCardFromHandIfSoDraw(String text) {
+        Matcher m = REVEAL_ELEMENT_CARD_FROM_HAND_IF_SO_DRAW.matcher(text.trim());
+        if (!m.matches()) return null;
+        String elementRaw = m.group("element");
+        String element    = Character.toUpperCase(elementRaw.charAt(0)) + elementRaw.substring(1).toLowerCase();
+        int drawCount     = Integer.parseInt(m.group("draw"));
+        return ctx -> ctx.revealElementCardFromHandDraw(element, drawCount);
+    }
+
+    private static Consumer<GameContext> tryParseRevealPlayElementTypeCostOntoFieldRestBottom(String text) {
+        Matcher m = REVEAL_PLAY_ELEMENT_TYPE_COST_ONTO_FIELD_REST_BOTTOM.matcher(text.trim());
+        if (!m.matches()) return null;
+        int n           = Integer.parseInt(m.group("n"));
+        int max         = Integer.parseInt(m.group("max"));
+        String elementRaw = m.group("element");
+        String element    = elementRaw != null ? Character.toUpperCase(elementRaw.charAt(0)) + elementRaw.substring(1).toLowerCase() : null;
+        String typeRaw  = m.group("type");
+        String normType = Character.toUpperCase(typeRaw.charAt(0)) + typeRaw.substring(1).toLowerCase();
+        int maxCost     = Integer.parseInt(m.group("cost"));
+        return ctx -> ctx.revealTopNPlayUpToElementTypeCostOntoFieldRestBottom(n, max, element, normType, maxCost);
     }
 
     /** Parses "Choose 1 card with EX Burst in your Damage Zone. You may trigger its EX Burst effect." */

@@ -1320,6 +1320,14 @@ public interface GameContext {
     void mayDiscardCardNameFromHand(String cardName, java.util.function.Consumer<GameContext> ifDiscarded);
 
     /**
+     * Reveals 1 card matching {@code element} from the ability user's hand (the card stays in hand),
+     * then draws {@code drawCount} cards. The caller is responsible for any prior "you may" gating;
+     * this method assumes the reveal-and-draw will happen. If no qualifying card is in hand, the
+     * effect fizzles silently.
+     */
+    void revealElementCardFromHandDraw(String element, int drawCount);
+
+    /**
      * Offers the ability user the option to carry out {@code effect}.
      * P1 is shown a dialog; P2 AI auto-accepts.
      */
@@ -1438,6 +1446,13 @@ public interface GameContext {
     default void revealTopNPlayUpToTypeOntoFieldRestBottom(int reveal, int maxPlay, String typeFilter) {
         revealTopNPlayUpToTypeOntoFieldRestBottom(reveal, maxPlay, typeFilter, null);
     }
+
+    /**
+     * Reveals the top {@code reveal} cards. The player may play up to {@code maxPlay} cards
+     * matching {@code element} (if non-null), {@code typeFilter}, and cost &le; {@code maxCost}
+     * (if &ge; 0) onto the field for free. The remaining cards go to the bottom of the deck in any order.
+     */
+    void revealTopNPlayUpToElementTypeCostOntoFieldRestBottom(int reveal, int maxPlay, String element, String typeFilter, int maxCost);
 
     /**
      * Reveals the top {@code reveal} cards. The player may either add up to {@code handMax}

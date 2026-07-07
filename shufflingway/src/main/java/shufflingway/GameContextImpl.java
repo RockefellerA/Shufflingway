@@ -4013,6 +4013,27 @@ final class GameContextImpl implements GameContext {
 				ifDiscarded.accept(this);
 			}
 
+			@Override public void revealElementCardFromHandDraw(String element, int drawCount) {
+				List<CardData> hand = isP1 ? mw.gameState.getP1Hand() : mw.gameState.getP2Hand();
+				List<CardData> eligible = hand.stream()
+						.filter(c -> c.containsElement(element))
+						.collect(Collectors.toList());
+				if (eligible.isEmpty()) { logEntry("[Effect] No " + element + " card in hand — fizzle"); return; }
+				CardData toReveal;
+				if (!isP1) {
+					toReveal = eligible.get(0);
+				} else if (eligible.size() == 1) {
+					toReveal = eligible.get(0);
+				} else {
+					String src = mw.currentAbilitySource != null ? mw.currentAbilitySource.name() : "Ability";
+					Object[] names = eligible.stream().map(CardData::name).toArray();
+					int pick = mw.showEffectOptionDialog(src + " — Choose " + element + " card to reveal:", "Reveal", names);
+					toReveal = eligible.get(Math.max(0, Math.min(pick, eligible.size() - 1)));
+				}
+				logEntry("[Effect] Reveals " + toReveal.name() + " from hand");
+				drawCards(drawCount);
+			}
+
 			@Override public void playerMayDoEffect(String prompt, java.util.function.Consumer<GameContext> effect) {
 				if (!isP1) { logEntry("[P2 AI] Auto-accepts: " + prompt); effect.accept(this); return; }
 				String src = mw.currentAbilitySource != null ? mw.currentAbilitySource.name() : "Ability";
@@ -5388,6 +5409,43 @@ final class GameContextImpl implements GameContext {
 					}
 				} else {
 					mw.lookDialogs().showRevealPlayTypeOntoFieldRestBottom(peeked, deck, isP1, maxPlay, typeFilter, categoryFilter, playOntoField);
+				}
+			}
+
+			@Override public void revealTopNPlayUpToElementTypeCostOntoFieldRestBottom(int reveal, int maxPlay, String element, String typeFilter, int maxCost) {
+				Deque<CardData> deck = isP1 ? mw.gameState.getP1MainDeck() : mw.gameState.getP2MainDeck();
+				int n = Math.min(reveal, deck.size());
+				if (n == 0) { logEntry("Reveal top: deck is empty."); return; }
+				List<CardData> peeked = new ArrayList<>();
+				for (CardData c : deck) { peeked.add(c); if (peeked.size() >= n) break; }
+				logEntry("Reveal top " + n + " card(s): " +
+						peeked.stream().map(CardData::name).collect(Collectors.joining(", ")));
+				Consumer<CardData> playOntoField = c -> {
+					if (c.isBackup())       mw.placeCardInFirstBackupSlot(c);
+					else if (c.isMonster()) mw.placeCardInMonsterZone(c);
+					else                    mw.placeCardInForwardZone(c);
+				};
+				java.util.function.Predicate<CardData> eligible = c ->
+						meetsRevealTypeFilter(c, typeFilter)
+						&& (element == null || c.containsElement(element))
+						&& (maxCost < 0 || c.cost() <= maxCost);
+				if (!isP1 && mw.isP2Cpu()) {
+					List<CardData> chosen = peeked.stream().filter(eligible)
+							.sorted(java.util.Comparator.comparingInt(CardData::cost).reversed())
+							.limit(maxPlay)
+							.collect(Collectors.toList());
+					Set<CardData> chosenSet = new java.util.LinkedHashSet<>(chosen);
+					for (int i = 0; i < n; i++) deck.pollFirst();
+					for (CardData c : peeked) {
+						if (!chosenSet.contains(c)) { deck.addLast(c); logEntry("[AI] " + c.name() + " → [P2] bottom of deck"); }
+					}
+					mw.refreshP2DeckLabel();
+					for (CardData c : chosenSet) {
+						logEntry("[AI] " + c.name() + " played onto field");
+						playOntoField.accept(c);
+					}
+				} else {
+					mw.lookDialogs().showRevealPlayElementTypeCostOntoFieldRestBottom(peeked, deck, isP1, maxPlay, element, typeFilter, maxCost, playOntoField);
 				}
 			}
 

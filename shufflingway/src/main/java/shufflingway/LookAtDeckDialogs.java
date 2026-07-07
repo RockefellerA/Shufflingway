@@ -1293,8 +1293,27 @@ class LookAtDeckDialogs {
      */
     void showRevealPlayTypeOntoFieldRestBottom(List<CardData> cards, Deque<CardData> deck,
             boolean isP1, int maxPlay, String typeFilter, String categoryFilter, Consumer<CardData> playOntoField) {
-        int n = cards.size();
         String typeLabel = (categoryFilter != null ? "Category " + categoryFilter + " " : "") + typeFilter;
+        java.util.function.Predicate<CardData> eligible = c ->
+                meetsRevealTypeFilter(c, typeFilter) && CardFilters.meetsCategoryFilter(c, categoryFilter);
+        showRevealPlayOntoFieldRestBottomImpl(cards, deck, isP1, maxPlay, typeLabel, eligible, playOntoField);
+    }
+
+    void showRevealPlayElementTypeCostOntoFieldRestBottom(List<CardData> cards, Deque<CardData> deck,
+            boolean isP1, int maxPlay, String element, String typeFilter, int maxCost, Consumer<CardData> playOntoField) {
+        String typeLabel = (element != null ? element + " " : "") + typeFilter
+                + (maxCost >= 0 ? " of cost " + maxCost + " or less" : "");
+        java.util.function.Predicate<CardData> eligible = c ->
+                meetsRevealTypeFilter(c, typeFilter)
+                && (element == null || c.containsElement(element))
+                && (maxCost < 0 || c.cost() <= maxCost);
+        showRevealPlayOntoFieldRestBottomImpl(cards, deck, isP1, maxPlay, typeLabel, eligible, playOntoField);
+    }
+
+    private void showRevealPlayOntoFieldRestBottomImpl(List<CardData> cards, Deque<CardData> deck,
+            boolean isP1, int maxPlay, String typeLabel,
+            java.util.function.Predicate<CardData> eligible, Consumer<CardData> playOntoField) {
+        int n = cards.size();
         JDialog dlg = new JDialog(frame, "Reveal — Play up to " + maxPlay + " " + typeLabel + " onto Field, Rest to Bottom", true);
         dlg.setResizable(false);
         dlg.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
@@ -1322,10 +1341,8 @@ class LookAtDeckDialogs {
             int count = fieldSet.size();
             for (int j = 0; j < n; j++) {
                 CardData c = order.get(j);
-                boolean matches = meetsRevealTypeFilter(c, typeFilter)
-                        && CardFilters.meetsCategoryFilter(c, categoryFilter);
                 boolean inField = fieldSet.contains(c);
-                fieldBtns[j].setEnabled(matches && (inField || count < maxPlay));
+                fieldBtns[j].setEnabled(eligible.test(c) && (inField || count < maxPlay));
             }
         };
 
@@ -1411,7 +1428,7 @@ class LookAtDeckDialogs {
         }
 
         JLabel instructions = new JLabel(
-                "Click '→ Field' on up to " + maxPlay + " " + typeFilter + "(s) to play. Swap the rest to set bottom-of-deck order (left = first).",
+                "Click '→ Field' on up to " + maxPlay + " " + typeLabel + "(s) to play. Swap the rest to set bottom-of-deck order (left = first).",
                 SwingConstants.CENTER);
         instructions.setFont(FontLoader.loadPixelNESFont(9));
         confirmBtn.addActionListener(ae -> { hideZoom(); dlg.dispose(); });
