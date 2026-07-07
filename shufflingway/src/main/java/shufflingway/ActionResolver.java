@@ -7698,7 +7698,7 @@ public class ActionResolver {
                     if (totalCat > namedCat) fDamage = altDamage;
                 }
 
-                List<ForwardTarget> ts = selectTargets(ctx, maxCount, any ? any : upTo,
+                List<ForwardTarget> ts = selectTargets(ctx, maxCount, any || upTo,
                         opponentOnly, selfOnly, null, null, null, false,
                         -1, null, -1, null,
                         true, false, false,
