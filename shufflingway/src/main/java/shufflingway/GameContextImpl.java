@@ -159,6 +159,11 @@ final class GameContextImpl implements GameContext {
 				logEntry(card.name() + " — outgoing combat damage +" + amount + " vs Forwards until end of turn");
 			}
 
+			@Override public void boostSelfOutgoingDamageThisTurn(CardData source, int amount) {
+				mw.outgoingDmgFlatBoostMap.merge(source, amount, Integer::sum);
+				logEntry(source.name() + " — outgoing combat damage +" + amount + " vs Forwards until end of turn");
+			}
+
 			@Override public void doubleOpponentForwardIncomingDamage() {
 				if (isP1) {
 					mw.p2ForwardIncomingDmgMult *= 2;

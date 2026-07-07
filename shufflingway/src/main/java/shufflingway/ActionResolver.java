@@ -1633,6 +1633,12 @@ public class ActionResolver {
         "(?:the\\s+damage\\s+increases?|increase\\s+the\\s+damage)\\s+by\\s+(?<amount>\\d+)(?:\\s+instead)?[.!]?"
     );
 
+    /** Matches "If [CardName] deals damage to a Forward this turn, the damage increases by N instead." */
+    private static final Pattern SELF_OUTGOING_DMG_BOOST_THIS_TURN = Pattern.compile(
+        "(?i)If\\s+(?<subject>.+?)\\s+deals\\s+damage\\s+to\\s+a\\s+Forward\\s+this\\s+turn,?\\s+" +
+        "the\\s+damage\\s+increases?\\s+by\\s+(?<amount>\\d+)(?:\\s+instead)?[.!]?$"
+    );
+
     /** Matches "During this turn, if it is dealt damage less than its power, the damage becomes 0 instead." */
     private static final Pattern FOLLOWUP_SHIELD_NONLETHAL = Pattern.compile(
         "(?i)During\\s+this\\s+turn,\\s+if\\s+it\\s+is\\s+dealt\\s+damage\\s+less\\s+than\\s+its\\s+power,\\s+the\\s+damage\\s+becomes\\s+0\\s+instead\\.?"
@@ -4447,6 +4453,9 @@ public class ActionResolver {
         result = tryParseDoubleOutgoingDamageThisTurnAlt(effectText, source);
         if (result != null) return result;
 
+        result = tryParseSelfOutgoingDmgBoostThisTurn(effectText, source);
+        if (result != null) return result;
+
         result = tryParseDoubleOpponentIncomingDamageThisTurn(effectText);
         if (result != null) return result;
 
@@ -5025,6 +5034,7 @@ public class ActionResolver {
         if (tryParseFieldSelfPowerBoost(effectText, source)    != null) return "FieldSelfPowerBoost";
         if (tryParseDoubleOutgoingDamageThisTurn(effectText, source) != null)    return "DoubleOutgoingDamageThisTurn";
         if (tryParseDoubleOutgoingDamageThisTurnAlt(effectText, source) != null) return "DoubleOutgoingDamageThisTurnAlt";
+        if (tryParseSelfOutgoingDmgBoostThisTurn(effectText, source) != null)   return "SelfOutgoingDmgBoostThisTurn";
         if (tryParseDoubleOpponentIncomingDamageThisTurn(effectText) != null)   return "DoubleOpponentIncomingDamageThisTurn";
         if (tryParseAllForwardIncomingDmgIncreaseThisTurn(effectText) != null)  return "AllForwardIncomingDmgIncreaseThisTurn";
         if (tryParseChooseForwardDoubleIncomingThisTurn(effectText) != null)    return "ChooseForwardDoubleIncomingThisTurn";
@@ -5291,11 +5301,13 @@ public class ActionResolver {
         // Strip trailing use-restriction sentences so they don't short-circuit before effect patterns match
         String noRestriction = stripRestrictionSentences(effectText);
         if (!noRestriction.isEmpty()) effectText = noRestriction;
-        if (tryParseChooseSummonInBzCastable(effectText)        != null)    return "ChooseSummonInBzCastable";
-        if (tryParseOppRfpTopDeckCastable(effectText)          != null)    return "OppRfpTopDeckCastable";
-        if (tryParseChooseFromOppBzCastable(effectText)        != null)    return "ChooseFromOppBzCastable";
-        if (tryParseChooseSummonsFromBzCastable(effectText)         != null)    return "ChooseSummonsFromBzCastable";
-        if (tryParseChooseSummonInBzMaxCostFreeCastRfg(effectText)  != null)    return "ChooseSummonInBzMaxCostFreeCastRfg";
+        if (tryParseChooseSummonInBzCastable(effectText)              != null) return "ChooseSummonInBzCastable";
+        if (tryParseChooseSummonFromBzToHandWithCostReduction(effectText) != null) return "ChooseSummonFromBzToHandWithCostReduction";
+        if (tryParseChooseNSummonsBzPickOneHandRestRfg(effectText)    != null) return "ChooseNSummonsBzPickOneHandRestRfg";
+        if (tryParseOppRfpTopDeckCastable(effectText)                != null) return "OppRfpTopDeckCastable";
+        if (tryParseChooseFromOppBzCastable(effectText)              != null) return "ChooseFromOppBzCastable";
+        if (tryParseChooseSummonsFromBzCastable(effectText)          != null) return "ChooseSummonsFromBzCastable";
+        if (tryParseChooseSummonInBzMaxCostFreeCastRfg(effectText)   != null) return "ChooseSummonInBzMaxCostFreeCastRfg";
         if (CardData.isSelfCostModifierText(effectText))                        return "SelfCostModifier";
         if (CardData.FIELD_OPP_CAST_COST_INCREASE_PATTERN.matcher(effectText).find()) return "OppCastCostIncrease";
         if (AutoAbilityTriggers.FA_DISCARD_JOB_TO_CAST.matcher(effectText).find()) return "DiscardJobToCast";
@@ -5502,6 +5514,7 @@ public class ActionResolver {
         if (tryParseStandalonePowerReduceUntil(effectText, source) != null) return "StandalonePowerReduceUntil";
         if (tryParseDoubleOutgoingDamageThisTurn(effectText, source) != null)    return "DoubleOutgoingDamageThisTurn";
         if (tryParseDoubleOutgoingDamageThisTurnAlt(effectText, source) != null) return "DoubleOutgoingDamageThisTurnAlt";
+        if (tryParseSelfOutgoingDmgBoostThisTurn(effectText, source) != null)   return "SelfOutgoingDmgBoostThisTurn";
         if (tryParseDoubleOpponentIncomingDamageThisTurn(effectText) != null)   return "DoubleOpponentIncomingDamageThisTurn";
         if (tryParseAllForwardIncomingDmgIncreaseThisTurn(effectText) != null)  return "AllForwardIncomingDmgIncreaseThisTurn";
         if (tryParseChooseForwardDoubleIncomingThisTurn(effectText) != null)    return "ChooseForwardDoubleIncomingThisTurn";
@@ -9896,6 +9909,15 @@ public class ActionResolver {
     private static Consumer<GameContext> tryParseDoubleOpponentIncomingDamageThisTurn(String text) {
         if (!DOUBLE_OPPONENT_INCOMING_DAMAGE_THIS_TURN.matcher(text).find()) return null;
         return ctx -> ctx.doubleOpponentForwardIncomingDamage();
+    }
+
+    private static Consumer<GameContext> tryParseSelfOutgoingDmgBoostThisTurn(String text, CardData source) {
+        if (source == null) return null;
+        Matcher m = SELF_OUTGOING_DMG_BOOST_THIS_TURN.matcher(text.trim());
+        if (!m.matches()) return null;
+        if (!m.group("subject").trim().equalsIgnoreCase(source.name())) return null;
+        int amount = Integer.parseInt(m.group("amount"));
+        return ctx -> ctx.boostSelfOutgoingDamageThisTurn(source, amount);
     }
 
     /**

@@ -1996,6 +1996,9 @@ public interface GameContext {
      */
     void boostForwardOutgoingDamageThisTurn(ForwardTarget t, int amount);
 
+    /** Grants {@code source} a flat +{@code amount} bonus to outgoing combat damage vs Forwards this turn. */
+    void boostSelfOutgoingDamageThisTurn(CardData source, int amount);
+
     /**
      * Shows a modal dialog listing every distinct Job name in the card database and returns
      * the one the player selected, or {@code null} if the dialog was cancelled.

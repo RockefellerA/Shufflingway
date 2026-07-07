@@ -9583,6 +9583,7 @@ public class MainWindow {
 		if (nextOutgoingDmgDoublerSet.remove(card)) mult *= 2;
 		if (target != null) mult *= fieldAbilityCombatOutgoingMult(card, target);
 		int flat = (target != null) ? outgoingDmgFlatBoostMap.getOrDefault(card, 0) : 0;
+
 		if (target != null && target.isForward() && card.isForward()) {
 			flat += friendlyElementForwardCombatBoost(card, isP1);
 			flat += costBasedCombatFlatAdjustments(card, target);
