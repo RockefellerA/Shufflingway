@@ -4,6 +4,7 @@ import java.awt.AlphaComposite;
 import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Component;
+import java.awt.Container;
 import java.awt.Cursor;
 import java.awt.Dimension;
 import java.awt.EventQueue;
@@ -72,6 +73,7 @@ import javax.swing.SwingUtilities;
 import javax.swing.SwingWorker;
 import javax.swing.Timer;
 import javax.swing.UIManager;
+import shufflingway.graphics.ShieldIcon;
 import javax.swing.border.BevelBorder;
 import javax.swing.border.SoftBevelBorder;
 import javax.swing.event.PopupMenuEvent;
@@ -317,8 +319,10 @@ public class MainWindow {
 	JButton            p2LimitButton;
 
 	// Damage zone UI
-	private JPanel   p1DamageSlotPanel;
-	private JPanel[] p1DamageSlots = new JPanel[7];
+	private JPanel     p1DamageSlotPanel;
+	private JPanel[]   p1DamageSlots = new JPanel[7];
+	ShieldIcon         p1ShieldIcon;
+	ShieldIcon         p2ShieldIcon;
 
 	// Next-phase button and its glow animation
 	JButton              nextPhaseButton;
@@ -390,6 +394,8 @@ public class MainWindow {
 	final Map<CardData, Integer> incomingDmgIncreaseMap   = new HashMap<>();
 	int globalForwardIncomingDmgIncrease = 0; // flat increase applied to ALL Forwards' incoming damage this turn
 	boolean allForwardsCannotBeBlockedByHigherCostThisTurn = false;
+	boolean p1FwdBoostSuppressedThisTurn = false; // P1's Forwards cannot have power increased this turn
+	boolean p2FwdBoostSuppressedThisTurn = false; // P2's Forwards cannot have power increased this turn
 	final Set<CardData>          nullifyAbilityDmgSet     = new HashSet<>();
 	final Set<CardData>          nullifyAbilityOnlyDmgSet = new HashSet<>();
 	final Set<CardData>          nextOutgoingDmgZeroSet      = new HashSet<>();
@@ -399,6 +405,10 @@ public class MainWindow {
 	final Map<CardData, Integer> perCardIncomingDmgMultiplierMap = new IdentityHashMap<>();
 	int p1ForwardIncomingDmgMult = 1; // multiplier applied when any P1 Forward receives damage
 	int p2ForwardIncomingDmgMult = 1; // multiplier applied when any P2 Forward receives damage
+	// Set by resolveCombat before modifyIncomingDamage so field abilities can inspect the attacker's traits
+	private CardData currentBattleAttacker      = null;
+	private boolean  currentBattleAttackerIsP1  = false;
+	private int      currentBattleAttackerIdx   = -1;
 	int p1AbilityOutgoingDmgMult = 1; // player-wide ability outgoing damage multiplier
 	int p2AbilityOutgoingDmgMult = 1;
 	final Set<CardData>          perCardNonLethalDmgSet      = new HashSet<>();
@@ -1133,7 +1143,7 @@ public class MainWindow {
 			}
 		});
 
-		// Next-phase button, centred below the preview
+		// Next-phase button, centered below the preview
 		JPanel nextBtnPanel = new JPanel(new FlowLayout(FlowLayout.CENTER, 8, 8));
 		nextBtnPanel.add(nextPhaseButton);
 		nextBtnPanel.add(attackButton);
@@ -1240,7 +1250,7 @@ public class MainWindow {
 		}
 
 		// --- Main game area (wraps both player zones + board so the side panel
-		//     spans the full frame height rather than just the centre strip) ---
+		//     spans the full frame height rather than just the center strip) ---
 		JPanel mainArea = new JPanel(new BorderLayout());
 		mainArea.add(p2ZonesPanel, BorderLayout.NORTH);
 		mainArea.add(southPanel,   BorderLayout.SOUTH);
@@ -1330,6 +1340,8 @@ public class MainWindow {
 		// Per-turn tracking flags.
 		p1ReceivedDamageThisTurn = false;
 		p2ReceivedDamageThisTurn = false;
+		if (p1NextDamageZero && p1ShieldIcon != null) p1ShieldIcon.triggerFade();
+		if (p2NextDamageZero && p2ShieldIcon != null) p2ShieldIcon.triggerFade();
 		p1NextDamageZero = false;
 		p2NextDamageZero = false;
 		p1ForwardPutToBZThisTurn = false;
@@ -1655,7 +1667,7 @@ public class MainWindow {
 		openingHandPopup.getContentPane().add(mainPanel);
 		openingHandPopup.pack();
 
-		// Centre on screen
+		// Center on screen
 		Dimension screen = Toolkit.getDefaultToolkit().getScreenSize();
 		openingHandPopup.setLocation(
 				(screen.width  - openingHandPopup.getWidth())  / 2,
@@ -2080,6 +2092,7 @@ public class MainWindow {
                                 nextIncomingDmgZeroSet.clear();   nextIncomingDmgRedirectMap.clear();   nextIncomingDmgReduceMap.clear();   nextAbilityDmgReduceMap.clear();
                                 incomingDmgIncreaseMap.clear();   globalForwardIncomingDmgIncrease = 0;   nullifyAbilityDmgSet.clear();
                                 allForwardsCannotBeBlockedByHigherCostThisTurn = false;
+                                p1FwdBoostSuppressedThisTurn = false; p2FwdBoostSuppressedThisTurn = false;
                                 nullifyAbilityOnlyDmgSet.clear(); perCardNonLethalDmgSet.clear();
                                 nextOutgoingDmgZeroSet.clear();    outgoingDmgMultiplierMap.clear();
                                 nextOutgoingDmgDoublerSet.clear(); outgoingDmgFlatBoostMap.clear();
@@ -2582,6 +2595,78 @@ public class MainWindow {
 		if (nextPhaseButton != null) nextPhaseButton.setEnabled(false);
 	}
 
+	/**
+	 * Scans the player's backup and forward zones for a card whose field ability reads
+	 * "If you receive damage while [cardName] is active, dull [cardName]. The damage becomes 0 instead."
+	 *
+	 * @param requireActive when {@code true} only {@link CardState#ACTIVE} slots are considered;
+	 *                      when {@code false} any non-null slot qualifies.
+	 * @return {@code int[]{zone, index}} — zone 0 = backup, zone 1 = forward — or {@code null} if not found.
+	 */
+	private int[] findPlayerShieldAbilityCard(boolean isP1, boolean requireActive) {
+		CardData[] backups = isP1 ? p1BackupCards : p2BackupCards;
+		CardState[] bStates = isP1 ? p1BackupStates : p2BackupStates;
+		for (int i = 0; i < backups.length; i++) {
+			CardData c = backups[i];
+			if (c == null) continue;
+			if (requireActive && bStates[i] != CardState.ACTIVE) continue;
+			for (FieldAbility fa : c.fieldAbilities()) {
+				java.util.regex.Matcher m =
+					AutoAbilityTriggers.FA_RECV_PLAYER_DAMAGE_ACTIVE_DULL_ZERO.matcher(fa.effectText());
+				if (m.find()) return new int[]{0, i};
+			}
+		}
+		List<CardData>  fwds   = isP1 ? p1ForwardCards  : p2ForwardCards;
+		List<CardState> fStates = isP1 ? p1ForwardStates : p2ForwardStates;
+		for (int i = 0; i < fwds.size(); i++) {
+			CardData c = fwds.get(i);
+			if (c == null) continue;
+			if (requireActive && fStates.get(i) != CardState.ACTIVE) continue;
+			for (FieldAbility fa : c.fieldAbilities()) {
+				java.util.regex.Matcher m =
+					AutoAbilityTriggers.FA_RECV_PLAYER_DAMAGE_ACTIVE_DULL_ZERO.matcher(fa.effectText());
+				if (m.find()) return new int[]{1, i};
+			}
+		}
+		return null;
+	}
+
+	/** Calls {@link #findPlayerShieldAbilityCard(boolean, boolean)} requiring {@link CardState#ACTIVE}. */
+	private int[] findPlayerShieldAbilityCard(boolean isP1) {
+		return findPlayerShieldAbilityCard(isP1, true);
+	}
+
+	/** Shows or hides the damage-zone shield icon based on whether an active shield-ability backup exists. */
+	void refreshPlayerDamageShieldIcon(boolean isP1) {
+		ShieldIcon icon = isP1 ? p1ShieldIcon : p2ShieldIcon;
+		if (icon == null || icon.isShattering()) return;
+		// Re-run doLayout so the shield is positioned over the correct (next undamaged) slot.
+		Container parent = icon.getParent();
+		if (parent != null) parent.revalidate();
+		if (findPlayerShieldAbilityCard(isP1) != null) {
+			icon.reset();
+		} else {
+			// Suppress premature triggerFade when the shield card is a forward mid-dull-animation:
+			// the auto-abilities fired on "becomes dull" can trigger refreshes before the animation
+			// visually commits, causing the fade to run and complete inside the p2AutoPass window.
+			// The explicit triggerShieldFadeForForward call at animation completion handles it instead.
+			int[] dulled = findPlayerShieldAbilityCard(isP1, false);
+			if (dulled != null && dulled[0] == 1) { // forward zone
+				List<CardState> fStates = isP1 ? p1ForwardStates : p2ForwardStates;
+				if (fStates.get(dulled[1]) == CardState.DULL) return;
+			}
+			icon.triggerFade();
+		}
+	}
+
+	/** Triggers the damage-shield fade after the dull animation for forward {@code idx} completes. */
+	private void triggerShieldFadeForForward(boolean isP1, int idx) {
+		ShieldIcon si = isP1 ? p1ShieldIcon : p2ShieldIcon;
+		if (si == null || si.isShattering()) return;
+		int[] shld = findPlayerShieldAbilityCard(isP1, false);
+		if (shld != null && shld[0] == 1 && shld[1] == idx) si.triggerFade();
+	}
+
 	void p1TakeDamage() { p1TakeDamage(null); }
 
 	void p1TakeDamage(Runnable onDone) {
@@ -2589,6 +2674,25 @@ public class MainWindow {
 		if (p1NextDamageZero) {
 			p1NextDamageZero = false;
 			logEntry("P1 damage negated (shield active).");
+			if (p1ShieldIcon != null) p1ShieldIcon.triggerShatter();
+			if (onDone != null) onDone.run();
+			return;
+		}
+		int[] shieldCard = findPlayerShieldAbilityCard(true);
+		if (shieldCard != null) {
+			int zone = shieldCard[0], i = shieldCard[1];
+			if (p1ShieldIcon != null) p1ShieldIcon.triggerShatter();
+			if (zone == 0) {
+				logEntry(p1BackupCards[i].name() + " dulled — P1 damage negated.");
+				p1BackupStates[i] = CardState.DULL;
+				animateDullBackup(i, true);
+				refreshP1BackupSlot(i);
+			} else {
+				logEntry(p1ForwardCards.get(i).name() + " dulled — P1 damage negated.");
+				p1ForwardStates.set(i, CardState.DULL);
+				animateDullForward(i, null);
+				autoAbilityTriggers.triggerAutoAbilitiesForBecomesDull(p1ForwardCards.get(i), true);
+			}
 			if (onDone != null) onDone.run();
 			return;
 		}
@@ -2650,6 +2754,26 @@ public class MainWindow {
 		if (p2NextDamageZero) {
 			p2NextDamageZero = false;
 			logEntry("[P2] damage negated (shield active).");
+			if (p2ShieldIcon != null) p2ShieldIcon.triggerShatter();
+			if (onDone != null) onDone.run();
+			return;
+		}
+		int[] p2ShieldCard = findPlayerShieldAbilityCard(false);
+		if (p2ShieldCard != null) {
+			int zone = p2ShieldCard[0], i = p2ShieldCard[1];
+			if (p2ShieldIcon != null) p2ShieldIcon.triggerShatter();
+			if (zone == 0) {
+				logEntry("[P2] " + p2BackupCards[i].name() + " dulled — P2 damage negated.");
+				p2BackupStates[i] = CardState.DULL;
+				refreshP2BackupSlot(i);
+			} else {
+				logEntry("[P2] " + p2ForwardCards.get(i).name() + " dulled — P2 damage negated.");
+				CardState p2ShieldFwdBefore = p2ForwardStates.get(i);
+				p2ForwardStates.set(i, CardState.DULL);
+				animateDullP2Forward(i, null);
+				if (p2ShieldFwdBefore == CardState.ACTIVE)
+					autoAbilityTriggers.triggerAutoAbilitiesForBecomesDull(p2ForwardCards.get(i), false);
+			}
 			if (onDone != null) onDone.run();
 			return;
 		}
@@ -3902,6 +4026,11 @@ public class MainWindow {
 		return cardPickerDialog.pickCardImage(cards, title, allowCancel, showCost);
 	}
 
+	int showCardImageChooser(List<CardData> cards, String title, boolean allowCancel,
+			java.util.function.ToIntFunction<CardData> costFn) {
+		return cardPickerDialog.pickCardImage(cards, title, allowCancel, costFn);
+	}
+
 	List<Integer> showCardMultiImageChooser(List<CardData> cards, String title, int count,
 			boolean eachDifferentType, boolean showCost) {
 		return cardPickerDialog.pickMultiCardImage(cards, title, count, eachDifferentType, showCost);
@@ -4215,11 +4344,15 @@ public class MainWindow {
 		logEntry((attackerIsP1 ? "" : "[P2] ") + attacker.name() + " (" + effAttackerPow + ")"
 				+ " vs " + (blockerIsP1 ? "" : "[P2] ") + blocker.name() + " (" + effBlockerPow + ")");
 
-		// Compute actual damage each side deals after outgoing and incoming modifiers
+		// Compute actual damage each side deals after outgoing and incoming modifiers.
+		// currentBattleAttacker is set so modifyIncomingDamage can inspect the opposing Forward's traits.
 		int rawDmgToBlocker  = modifyOutgoingCombatDamage(attackerIsP1, attackerIdx, effAttackerPow, blocker);
+		currentBattleAttacker = attacker; currentBattleAttackerIsP1 = attackerIsP1; currentBattleAttackerIdx = attackerIdx;
 		int dmgToBlocker     = modifyIncomingDamage(blockerIsP1,  blockerIdx,  rawDmgToBlocker,  false, false);
 		int rawDmgToAttacker = modifyOutgoingCombatDamage(blockerIsP1, blockerIdx, effBlockerPow, attacker);
+		currentBattleAttacker = blocker;  currentBattleAttackerIsP1 = blockerIsP1;  currentBattleAttackerIdx = blockerIdx;
 		int dmgToAttacker    = modifyIncomingDamage(attackerIsP1, attackerIdx, rawDmgToAttacker, false, false);
+		currentBattleAttacker = null;
 
 		List<Integer> attackerDmgList = attackerIsP1 ? p1ForwardDamage : p2ForwardDamage;
 		List<Integer> blockerDmgList  = blockerIsP1  ? p1ForwardDamage : p2ForwardDamage;
@@ -5457,7 +5590,7 @@ public class MainWindow {
 	 * cost-reduction modifier that matches it.  Only the first matching modifier
 	 * is applied (modifiers stack only when multiple fire independently).
 	 */
-	private int effectiveCastCost(CardData card) {
+	int effectiveCastCost(CardData card) {
 		int selfRed = 0;
 		int selfInc = 0;
 		int selfFloor = 0;
@@ -6055,6 +6188,24 @@ public class MainWindow {
 		for (CardData c : fwds) if (!lostAbilitiesCards.contains(c) && AutoAbilityTriggers.hasOppForwardPowerBoostSuppression(c)) return true;
 		for (CardData c : bkps) if (c != null && !lostAbilitiesCards.contains(c) && AutoAbilityTriggers.hasOppForwardPowerBoostSuppression(c)) return true;
 		for (CardData c : mons) if (!lostAbilitiesCards.contains(c) && AutoAbilityTriggers.hasOppForwardPowerBoostSuppression(c)) return true;
+		if (targetIsP1 && p1FwdBoostSuppressedThisTurn) return true;
+		if (!targetIsP1 && p2FwdBoostSuppressedThisTurn) return true;
+		return false;
+	}
+
+	/**
+	 * Returns {@code true} when the forward-controlling player cannot increase those Forwards' power
+	 * via their own Summons or abilities (i.e., self-boost only is suppressed).
+	 * Checked in addition to {@link #oppForwardPowerBoostSuppressedFor} when the booster IS the
+	 * same player as the forward controller.
+	 */
+	boolean oppForwardSelfBoostSuppressedFor(boolean targetIsP1) {
+		List<CardData> fwds = targetIsP1 ? p2ForwardCards : p1ForwardCards;
+		CardData[]     bkps = targetIsP1 ? p2BackupCards  : p1BackupCards;
+		List<CardData> mons = targetIsP1 ? p2MonsterCards : p1MonsterCards;
+		for (CardData c : fwds) if (!lostAbilitiesCards.contains(c) && AutoAbilityTriggers.hasOppForwardSelfBoostSuppression(c)) return true;
+		for (CardData c : bkps) if (c != null && !lostAbilitiesCards.contains(c) && AutoAbilityTriggers.hasOppForwardSelfBoostSuppression(c)) return true;
+		for (CardData c : mons) if (!lostAbilitiesCards.contains(c) && AutoAbilityTriggers.hasOppForwardSelfBoostSuppression(c)) return true;
 		return false;
 	}
 
@@ -6117,19 +6268,41 @@ public class MainWindow {
 		return true;
 	}
 
-	/** Returns true if any on-field card (backup or forward) grants {@code backup} any-element CP. */
+	/** Returns true if any on-field card grants {@code backup} any-element CP. */
 	private boolean isGrantedAnyElementCp(CardData backup) {
 		for (CardData b : p1BackupCards) {
 			if (b != null) {
 				BackupCpGrant grant = b.backupCpGrant();
-				if (grant != null && grant.appliesTo(backup)) return true;
+				if (grant != null && grant.isAnyElementGrant() && grant.appliesTo(backup)) return true;
 			}
 		}
 		for (CardData fwd : p1ForwardCards) {
 			BackupCpGrant grant = fwd.backupCpGrant();
-			if (grant != null && grant.appliesTo(backup)) return true;
+			if (grant != null && grant.isAnyElementGrant() && grant.appliesTo(backup)) return true;
 		}
 		return false;
+	}
+
+	/** Returns the union of specific elements granted to {@code backup} by field cards (empty = no specific grant). */
+	private List<String> getGrantedSpecificElementsCp(CardData backup) {
+		List<String> result = null;
+		for (CardData b : p1BackupCards) {
+			if (b != null) {
+				BackupCpGrant grant = b.backupCpGrant();
+				if (grant != null && !grant.isAnyElementGrant() && grant.appliesTo(backup)) {
+					if (result == null) result = new ArrayList<>();
+					for (String e : grant.grantedElements()) if (!result.contains(e)) result.add(e);
+				}
+			}
+		}
+		for (CardData fwd : p1ForwardCards) {
+			BackupCpGrant grant = fwd.backupCpGrant();
+			if (grant != null && !grant.isAnyElementGrant() && grant.appliesTo(backup)) {
+				if (result == null) result = new ArrayList<>();
+				for (String e : grant.grantedElements()) if (!result.contains(e)) result.add(e);
+			}
+		}
+		return result != null ? result : List.of();
 	}
 
 	private boolean canAffordCard(CardData card, int excludeHandIdx) {
@@ -6181,8 +6354,9 @@ public class MainWindow {
 					totalGenerate += 1;
 					for (int ei = 0; ei < elems.length; ei++) hasElemSource[ei] = true;
 				} else {
+					List<String> grantedSpecific = getGrantedSpecificElementsCp(bkp);
 					for (int ei = 0; ei < elems.length; ei++) {
-						if (bkp.containsElement(elems[ei])) {
+						if (bkp.containsElement(elems[ei]) || grantedSpecific.contains(elems[ei])) {
 							totalGenerate += 1;
 							hasElemSource[ei] = true;
 							break;
@@ -6663,7 +6837,7 @@ public class MainWindow {
 			.show();
 	}
 
-	private void showPaymentDialog(CardData card, int handIdx) {
+	void showPaymentDialog(CardData card, int handIdx) {
 		int cost = effectiveCastCost(card);
 		if (cost <= 0) {
 			executePlay(card, handIdx, List.of(), List.of(), Map.of());
@@ -7467,7 +7641,12 @@ public class MainWindow {
 	void animateDullForward(int idx, Runnable onComplete) {
 		String url  = p1ForwardUrls.get(idx);
 		JLabel slot = p1ForwardLabels.get(idx);
-		if (url == null || slot == null) { refreshP1ForwardSlot(idx); if (onComplete != null) onComplete.run(); return; }
+		if (url == null || slot == null) {
+			refreshP1ForwardSlot(idx);
+			triggerShieldFadeForForward(true, idx);
+			if (onComplete != null) onComplete.run();
+			return;
+		}
 
 		new SwingWorker<BufferedImage, Void>() {
 			@Override protected BufferedImage doInBackground() throws Exception {
@@ -7477,7 +7656,12 @@ public class MainWindow {
 			@Override protected void done() {
 				try {
 					BufferedImage card = get();
-					if (card == null) { refreshP1ForwardSlot(idx); if (onComplete != null) onComplete.run(); return; }
+					if (card == null) {
+						refreshP1ForwardSlot(idx);
+						triggerShieldFadeForForward(true, idx);
+						if (onComplete != null) onComplete.run();
+						return;
+					}
 
 					int   totalFrames = 12;
 					int[] frame       = { 0 };
@@ -7494,12 +7678,14 @@ public class MainWindow {
 						if (frame[0] >= totalFrames) {
 							timer.stop();
 							refreshP1ForwardSlot(idx);
+							triggerShieldFadeForForward(true, idx);
 							if (onComplete != null) onComplete.run();
 						}
 					});
 					timer.start();
 				} catch (InterruptedException | ExecutionException ignored) {
 					refreshP1ForwardSlot(idx);
+					triggerShieldFadeForForward(true, idx);
 					if (onComplete != null) onComplete.run();
 				}
 			}
@@ -7509,7 +7695,12 @@ public class MainWindow {
 	void animateDullP2Forward(int idx, Runnable onComplete) {
 		String url  = p2ForwardUrls.get(idx);
 		JLabel slot = p2ForwardLabels.get(idx);
-		if (url == null || slot == null) { refreshP2ForwardSlot(idx); if (onComplete != null) onComplete.run(); return; }
+		if (url == null || slot == null) {
+			refreshP2ForwardSlot(idx);
+			triggerShieldFadeForForward(false, idx);
+			if (onComplete != null) onComplete.run();
+			return;
+		}
 
 		new SwingWorker<BufferedImage, Void>() {
 			@Override protected BufferedImage doInBackground() throws Exception {
@@ -7519,7 +7710,12 @@ public class MainWindow {
 			@Override protected void done() {
 				try {
 					BufferedImage card = get();
-					if (card == null) { refreshP2ForwardSlot(idx); if (onComplete != null) onComplete.run(); return; }
+					if (card == null) {
+						refreshP2ForwardSlot(idx);
+						triggerShieldFadeForForward(false, idx);
+						if (onComplete != null) onComplete.run();
+						return;
+					}
 
 					int   totalFrames = 12;
 					int[] frame       = { 0 };
@@ -7536,12 +7732,14 @@ public class MainWindow {
 						if (frame[0] >= totalFrames) {
 							timer.stop();
 							refreshP2ForwardSlot(idx);
+							triggerShieldFadeForForward(false, idx);
 							if (onComplete != null) onComplete.run();
 						}
 					});
 					timer.start();
 				} catch (InterruptedException | ExecutionException ignored) {
 					refreshP2ForwardSlot(idx);
+					triggerShieldFadeForForward(false, idx);
 					if (onComplete != null) onComplete.run();
 				}
 			}
@@ -7722,6 +7920,7 @@ public class MainWindow {
 		CardState state = p1BackupStates[idx];
 		JLabel slot  = p1BackupLabels[idx];
 		if (slot == null) return;
+		refreshPlayerDamageShieldIcon(true);
 		if (url == null) { slot.setIcon(null); slot.setText(null); slot.setToolTipText(null); return; }
 		CardData card = p1BackupCards[idx];
 		boolean actingForward = isP1BackupTemporarilyForward(idx);
@@ -7821,6 +8020,7 @@ public class MainWindow {
 		boolean firstRestrict = true;
 		if (ability.damageThreshold() > 0)         { restrict.append("Dmg≥").append(ability.damageThreshold()); firstRestrict = false; }
 		if (ability.minCounterRequired() > 0 && ability.minCounterType() != null) { if (!firstRestrict) restrict.append(", "); restrict.append("≥").append(ability.minCounterRequired()).append(" ").append(ability.minCounterType()).append(" Ctr"); firstRestrict = false; }
+		if (ability.maxCounterAllowed() >= 0 && ability.maxCounterType() != null) { if (!firstRestrict) restrict.append(", "); restrict.append("no ").append(ability.maxCounterType()).append(" Ctr"); firstRestrict = false; }
 		if (ability.yourTurnOnly())                 { if (!firstRestrict) restrict.append(", "); restrict.append("your turn");     firstRestrict = false; }
 		if (ability.opponentTurnOnly())             { if (!firstRestrict) restrict.append(", "); restrict.append("opp turn");      firstRestrict = false; }
 		if (ability.oncePerTurn())                  { if (!firstRestrict) restrict.append(", "); restrict.append("1/turn");        firstRestrict = false; }
@@ -7871,6 +8071,8 @@ public class MainWindow {
 		for (String e : cost) if (!e.isEmpty()) needed.merge(e, 1, Integer::sum);
 		String[] elems = needed.keySet().toArray(String[]::new);
 		int total = cost.size();
+		if (ability.inlineCostReductionJob() != null)
+			total = Math.max(0, total - computeInlineReduction(ability.inlineCostReductionJob(), ability.inlineCostReductionExcludeName(), isP1));
 
 		boolean[] hasSrc = new boolean[elems.length];
 		int available = 0;
@@ -7896,9 +8098,12 @@ public class MainWindow {
 				available++;
 				for (int ei = 0; ei < elems.length; ei++) hasSrc[ei] = true;
 			} else {
+				List<String> grantedSpecific = getGrantedSpecificElementsCp(bkp);
 				boolean matched = false;
 				for (int ei = 0; ei < elems.length; ei++) {
-					if (bkp.containsElement(elems[ei])) { available++; hasSrc[ei] = true; matched = true; break; }
+					if (bkp.containsElement(elems[ei]) || grantedSpecific.contains(elems[ei])) {
+						available++; hasSrc[ei] = true; matched = true; break;
+					}
 				}
 				if (!matched && hasGeneric) available++;
 			}
@@ -7910,6 +8115,16 @@ public class MainWindow {
 		}
 		for (boolean s : hasSrc) if (!s) return false;
 		return available >= total;
+	}
+
+	/** Counts field cards (forwards + backups) with the given job, excluding any named {@code excludeName}. */
+	int computeInlineReduction(String job, String excludeName, boolean isP1) {
+		int count = 0;
+		for (CardData fwd : playerForwardCards(isP1))
+			if (fwd.hasJob(job) && (excludeName == null || !fwd.name().equalsIgnoreCase(excludeName))) count++;
+		for (CardData bkp : playerBackupCards(isP1))
+			if (bkp != null && bkp.hasJob(job) && (excludeName == null || !bkp.name().equalsIgnoreCase(excludeName))) count++;
+		return count;
 	}
 
 	/**
@@ -8165,6 +8380,9 @@ public class MainWindow {
 		if (ability.minCounterRequired() > 0 && ability.minCounterType() != null) {
 			if (gameState.getCounters(source, ability.minCounterType()) < ability.minCounterRequired()) return false;
 		}
+		if (ability.maxCounterAllowed() >= 0 && ability.maxCounterType() != null) {
+			if (gameState.getCounters(source, ability.maxCounterType()) > ability.maxCounterAllowed()) return false;
+		}
 		if (ability.requiresOppDiscardedThisTurn()) {
 			boolean caused = isP1 ? p1CausedOpponentDiscardThisTurn : p2CausedOpponentDiscardThisTurn;
 			if (!caused) return false;
@@ -8223,14 +8441,15 @@ public class MainWindow {
 	}
 
 	/**
-	 * Returns {@code true} when the "if you control [X]" restriction on an action ability is met
-	 * by the controlling player's current field state.
+	 * Returns {@code true} when the "if you/opponent control(s) [X]" restriction on an action
+	 * ability is met.  When {@code cond.opponentControls()} is true, checks the opponent's field.
 	 */
 	boolean controlConditionMet(ControlCondition cond, boolean isP1) {
+		boolean checkP1 = cond.opponentControls() ? !isP1 : isP1;
 		return controlConditionMetWithPools(cond,
-				isP1 ? p1ForwardCards : p2ForwardCards,
-				isP1 ? p1BackupCards  : p2BackupCards,
-				isP1 ? p1MonsterCards : p2MonsterCards);
+				checkP1 ? p1ForwardCards : p2ForwardCards,
+				checkP1 ? p1BackupCards  : p2BackupCards,
+				checkP1 ? p1MonsterCards : p2MonsterCards);
 	}
 
 	private boolean controlConditionMetWithPools(ControlCondition cond,
@@ -8470,6 +8689,9 @@ public class MainWindow {
 	boolean fpgBzConditionMet(FieldPowerGrant fpg, boolean isP1) {
 		List<CardData> bz = isP1 ? gameState.getP1BreakZone() : gameState.getP2BreakZone();
 		if (fpg.minBzSize() > 0 && bz.size() < fpg.minBzSize()) return false;
+		if (fpg.bzFilterCardName() != null) {
+			if (bz.stream().noneMatch(c -> CardFilters.meetsCardNameFilter(c, fpg.bzFilterCardName()))) return false;
+		}
 		if (fpg.minBzFilterCount() > 0) {
 			long cnt = bz.stream()
 				.filter(c -> !fpg.bzFilterFwds() || c.isForward())
@@ -8887,6 +9109,17 @@ public class MainWindow {
 	// Damage modifier helpers
 	// -------------------------------------------------------------------------
 
+	private static CardData.Trait traitFromName(String name) {
+		return switch (name.trim().toLowerCase().replace(" ", "_").replace("-", "_")) {
+			case "haste"        -> CardData.Trait.HASTE;
+			case "brave"        -> CardData.Trait.BRAVE;
+			case "first_strike" -> CardData.Trait.FIRST_STRIKE;
+			case "back_attack"  -> CardData.Trait.BACK_ATTACK;
+			case "warp"         -> CardData.Trait.WARP;
+			default             -> null;
+		};
+	}
+
 	/**
 	 * Applies all incoming-damage modifiers for {@code idx} and returns the final amount.
 	 * One-time shields (next-damage-zero, next-damage-reduction) are consumed here.
@@ -8970,6 +9203,25 @@ public class MainWindow {
 			}
 		}
 
+		// Passive field ability: nullify battle damage from a Forward with specific traits (e.g. Haste, First Strike)
+		if (!fromAbility && currentBattleAttacker != null) {
+			for (FieldAbility fa : card.fieldAbilities()) {
+				Matcher fam = AutoAbilityTriggers.FA_NULLIFY_TRAIT_FORWARD_DAMAGE.matcher(fa.effectText());
+				if (!fam.find() || !fam.group("card").trim().equalsIgnoreCase(card.name())) continue;
+				String t1 = fam.group("trait1").trim();
+				String t2raw = fam.group("trait2");
+				String t2 = t2raw != null ? t2raw.trim() : null;
+				CardData.Trait trait1 = traitFromName(t1);
+				CardData.Trait trait2 = t2 != null ? traitFromName(t2) : null;
+				boolean t1Match = trait1 != null && effectiveHasTrait(currentBattleAttackerIsP1, currentBattleAttackerIdx, trait1);
+				boolean t2Match = trait2 != null && effectiveHasTrait(currentBattleAttackerIsP1, currentBattleAttackerIdx, trait2);
+				if (t1Match || t2Match) {
+					logEntry(card.name() + " — battle damage nullified (attacker has " + (t1Match ? t1 : t2) + ")");
+					return 0;
+				}
+			}
+		}
+
 		if (unreduced) {
 			// Consume one-shot shields so they are spent, but do not apply any reduction.
 			// Persistent shields ("until end of turn") remain in place unchanged.
@@ -9035,6 +9287,10 @@ public class MainWindow {
 				int before = amount;
 				amount = amount + Integer.parseInt(increaseStr);
 				logEntry(card.name() + " — damage increased by " + increaseStr + " (" + before + " → " + amount + ")");
+			} else if (fam.group("double") != null) {
+				int before = amount;
+				amount = amount * 2;
+				logEntry(card.name() + " — damage doubled (" + before + " → " + amount + ")");
 			}
 		}
 
@@ -9129,6 +9385,19 @@ public class MainWindow {
 					int fixed = Integer.parseInt(setstoStr);
 					logEntry(damaged.name() + " — damage set to " + fixed + " instead [" + protector.name() + "]");
 					amount = fixed;
+				}
+			}
+
+			// Exact-amount nullification: "If a Forward you control receives N damage, the damage becomes 0 instead."
+			if (!lostAbilitiesCards.contains(protector)) {
+				for (FieldAbility fa : protector.fieldAbilities()) {
+					Matcher m = AutoAbilityTriggers.FA_FIELD_DAMAGE_EXACT_NULLIFY.matcher(fa.effectText());
+					if (!m.find()) continue;
+					int exactAmt = Integer.parseInt(m.group("amount"));
+					if (amount == exactAmt) {
+						logEntry(damaged.name() + " — " + exactAmt + " damage becomes 0 [" + protector.name() + "]");
+						amount = 0;
+					}
 				}
 			}
 		}
@@ -10148,6 +10417,7 @@ public class MainWindow {
 
 	/** Reloads and re-renders a single P1 forward slot using its stored URL and state. */
 	void refreshP1ForwardSlot(int idx) {
+		refreshPlayerDamageShieldIcon(true);
 		CardData topCard = p1ForwardPrimedTop.get(idx);
 		boolean  primed  = topCard != null;
 		// Primed: display and stats come from the top card
@@ -11351,8 +11621,11 @@ public class MainWindow {
 				p1ForwardStates.set(idx, CardState.BRAVE_ATTACKED);
 				refreshP1ForwardSlot(idx);
 			} else {
+				CardState p1AttackFwdBefore = p1ForwardStates.get(idx);
 				p1ForwardStates.set(idx, CardState.DULL);
 				animateDullForward(idx, null);
+				if (p1AttackFwdBefore == CardState.ACTIVE)
+					autoAbilityTriggers.triggerAutoAbilitiesForBecomesDull(p1ForwardCards.get(idx), true);
 			}
 			// Track second-attack eligibility for "can attack twice" forwards
 			if (p1ForwardCards.get(idx).canAttackTwice()) {
@@ -11685,7 +11958,13 @@ public class MainWindow {
 				? p1ForwardPrimedTop.get(idx) : p1ForwardCards.get(idx);
 		autoAbilityTriggers.addAbilityMenuItems(menu, effectiveFwd, p1ForwardFrozen.get(idx),
 				p1ForwardStates.get(idx), p1ForwardPlayedOnTurn.get(idx),
-				() -> { p1ForwardStates.set(idx, CardState.DULL); animateDullForward(idx, null); }, true);
+				() -> {
+					CardState p1AACostBefore = p1ForwardStates.get(idx);
+					p1ForwardStates.set(idx, CardState.DULL);
+					animateDullForward(idx, null);
+					if (p1AACostBefore == CardState.ACTIVE)
+						autoAbilityTriggers.triggerAutoAbilitiesForBecomesDull(p1ForwardCards.get(idx), true);
+				}, true);
 
 		// Prime — visible only when not yet primed
 		CardData fwd = p1ForwardCards.get(idx);
@@ -11729,7 +12008,13 @@ public class MainWindow {
 		CardData effectiveFwd = p2ForwardPrimedTop.get(idx) != null ? p2ForwardPrimedTop.get(idx) : fwd;
 		autoAbilityTriggers.addAbilityMenuItems(menu, effectiveFwd, p2ForwardFrozen.get(idx),
 				p2ForwardStates.get(idx), p2ForwardPlayedOnTurn.get(idx),
-				() -> { p2ForwardStates.set(idx, CardState.DULL); refreshP2ForwardSlot(idx); }, false);
+				() -> {
+					CardState p2AACostBefore = p2ForwardStates.get(idx);
+					p2ForwardStates.set(idx, CardState.DULL);
+					refreshP2ForwardSlot(idx);
+					if (p2AACostBefore == CardState.ACTIVE)
+						autoAbilityTriggers.triggerAutoAbilitiesForBecomesDull(p2ForwardCards.get(idx), false);
+				}, false);
 
 		if (fwd.hasPriming() && p2ForwardPrimedTop.get(idx) == null) {
 			JMenuItem primeItem = new JMenuItem("Prime (" + fwd.primingTarget() + ")");
@@ -12292,9 +12577,10 @@ public class MainWindow {
 			});
 
 			p1DamageSlotPanel = slotsPanel;
+			p1ShieldIcon = new ShieldIcon();
 
 		} else {
-			// P2: mirrored damage slots — card on right, letter centred, EX in upper-left
+			// P2: mirrored damage slots — card on right, letter centered, EX in upper-left
 			String[] letters = { "D", "A", "M", "A", "G", "E", playerLabel };
 			slotsPanel = new JPanel(new GridLayout(7, 1, 2, 2)) {
 				@Override public void setBackground(Color c) { /* paintComponent owns background */ }
@@ -12354,12 +12640,33 @@ public class MainWindow {
 					if (!gameState.getP2DamageZone().isEmpty()) showP2DamageZoneDialog();
 				}
 			});
+			p2ShieldIcon = new ShieldIcon();
 		}
+
+		ShieldIcon shieldIcon = isP1 ? p1ShieldIcon : p2ShieldIcon;
+		JPanel[] damageSlots = isP1 ? p1DamageSlots : p2DamageSlots;
+		JLayeredPane layered = new JLayeredPane() {
+			@Override public void doLayout() {
+				int w = getWidth(), h = getHeight();
+				slotsPanel.setBounds(0, 0, w, h);
+				slotsPanel.doLayout();   // ensure slot Y/H are current before reading them
+				int dmg = isP1 ? gameState.getP1DamageZone().size()
+				               : gameState.getP2DamageZone().size();
+				if (dmg < 7 && damageSlots[dmg] != null && damageSlots[dmg].getHeight() > 0) {
+					JPanel t = damageSlots[dmg];
+					shieldIcon.setBounds(0, t.getY(), w, t.getHeight());
+				} else {
+					shieldIcon.setBounds(0, 0, 0, 0);
+				}
+			}
+		};
+		layered.add(slotsPanel, JLayeredPane.DEFAULT_LAYER);
+		layered.add(shieldIcon, JLayeredPane.PALETTE_LAYER);
 
 		JPanel panel = new JPanel(new BorderLayout(0, 4));
 		panel.setPreferredSize(new Dimension(CARD_W, CARD_H * 2));
-		panel.add(slotsPanel, BorderLayout.CENTER);
-		panel.add(colorBox,   BorderLayout.SOUTH);
+		panel.add(layered,  BorderLayout.CENTER);
+		panel.add(colorBox, BorderLayout.SOUTH);
 		return panel;
 	}
 
@@ -12535,6 +12842,7 @@ public class MainWindow {
 		JLabel slot   = p2BackupLabels[idx];
 		CardState state = p2BackupStates[idx];
 		if (slot == null) return;
+		refreshPlayerDamageShieldIcon(false);
 		if (url == null) { slot.setIcon(null); slot.setText(null); slot.setToolTipText(null); return; }
 		CardData card = p2BackupCards[idx];
 		boolean actingForward = isP2BackupTemporarilyForward(idx);
@@ -12567,6 +12875,7 @@ public class MainWindow {
 	}
 
 	void refreshP2ForwardSlot(int idx) {
+		refreshPlayerDamageShieldIcon(false);
 		CardData topCard = p2ForwardPrimedTop.get(idx);
 		String url      = topCard != null ? topCard.imageUrl() : p2ForwardUrls.get(idx);
 		CardState state = p2ForwardStates.get(idx);

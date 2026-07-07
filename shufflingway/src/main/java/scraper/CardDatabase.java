@@ -158,7 +158,10 @@ public class CardDatabase implements AutoCloseable {
                                 .replaceAll("\\[Category\\s+\\(([^)]+)\\)\\]", "Category $1") // [Category (XII)] → Category XII
                                 .replaceAll("\\[Job\\s+\\(([^)]+)\\)\\]", "Job $1")           // [Job (Knight)] → Job Knight
                                 .replaceAll("\\[Card\\s+Name\\s+\\(([^)]+)\\)\\]", "Card Name $1") // [Card Name (Ormi)] → Card Name Ormi
-                                .replaceAll("\r\n[ \t]+", " ").replaceAll("\r\n", " "); // collapse mid-sentence line-wraps (e.g. Opus XXIII)
+                                .replaceAll("\r\n[ \t]+", " ").replaceAll("\r\n", " ") // collapse mid-sentence line-wraps (e.g. Opus XXIII)
+                                .replace("Break [[br]]   Zone", "Break Zone") // Glaive's card was particularly mangled
+                                .replace("Card Name [[br]]   Glaive", "Card Name Glaive")
+                                .replace("you [[br]]   control", "you control");
             ps.setString(13, textEn);
             ps.setString(14, card.thumbName);
             ps.setString(15, card.imageUrl);

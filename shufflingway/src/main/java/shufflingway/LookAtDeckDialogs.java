@@ -1145,6 +1145,140 @@ class LookAtDeckDialogs {
     }
 
     /**
+     * Reveals {@code cards} (already peeked from the top of {@code deck}). The player toggles
+     * up to {@code maxAdd} cards to hand; any card whose name equals {@code excludeName} cannot
+     * be chosen for hand. All non-hand cards go to the Break Zone.
+     */
+    void showRevealAddUpToExcludingNameRestBz(List<CardData> cards, Deque<CardData> deck,
+            boolean isP1, int maxAdd, String excludeName) {
+        int n = cards.size();
+        JDialog dlg = new JDialog(frame,
+                "Reveal — Add to Hand (up to " + maxAdd + "), Rest to Break Zone", true);
+        dlg.setResizable(false);
+        dlg.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
+
+        Map<CardData, ImageIcon> imgCache = new LinkedHashMap<>();
+        JLabel[] cardLabels = new JLabel[n];
+        Set<CardData> handSet = new LinkedHashSet<>();
+
+        JButton confirmBtn = new JButton("Confirm");
+        confirmBtn.setFont(FontLoader.loadPixelNESFont(11));
+
+        JToggleButton[] handBtns = new JToggleButton[n];
+
+        Runnable refreshHandButtons = () -> {
+            int count = handSet.size();
+            for (int j = 0; j < n; j++) {
+                CardData c = cards.get(j);
+                boolean excluded = c.name().equalsIgnoreCase(excludeName);
+                boolean inHand = handSet.contains(c);
+                handBtns[j].setEnabled(!excluded && (inHand || count < maxAdd));
+            }
+        };
+
+        Runnable refreshBorders = () -> {
+            for (int j = 0; j < n; j++) {
+                CardData c = cards.get(j);
+                boolean excluded = c.name().equalsIgnoreCase(excludeName);
+                if (handSet.contains(c))
+                    cardLabels[j].setBorder(BorderFactory.createLineBorder(new Color(0, 200, 80), 3));
+                else if (excluded)
+                    cardLabels[j].setBorder(BorderFactory.createLineBorder(Color.RED, 2));
+                else
+                    cardLabels[j].setBorder(BorderFactory.createLineBorder(new Color(160, 110, 220), 1));
+            }
+        };
+
+        JPanel cardsPanel = new JPanel(new FlowLayout(FlowLayout.CENTER, 8, 8));
+        for (int i = 0; i < n; i++) {
+            final int idx = i;
+            JLabel lbl = makeCardLabel(null);
+            lbl.addMouseListener(new MouseAdapter() {
+                @Override public void mouseEntered(MouseEvent e) { showZoom(cards.get(idx).imageUrl()); }
+                @Override public void mouseExited(MouseEvent e)  { hideZoom(); }
+            });
+            cardLabels[i] = lbl;
+
+            JToggleButton handBtn = new JToggleButton("→ Hand");
+            handBtn.setFont(FontLoader.loadPixelNESFont(9));
+            handBtns[i] = handBtn;
+            handBtn.addItemListener(ie -> {
+                CardData c = cards.get(idx);
+                if (ie.getStateChange() == java.awt.event.ItemEvent.SELECTED) handSet.add(c);
+                else handSet.remove(c);
+                refreshHandButtons.run();
+                refreshBorders.run();
+            });
+
+            JPanel wrapper = new JPanel(new BorderLayout(0, 2));
+            wrapper.setOpaque(false);
+            wrapper.add(lbl,     BorderLayout.CENTER);
+            wrapper.add(handBtn, BorderLayout.SOUTH);
+            cardsPanel.add(wrapper);
+        }
+
+        refreshHandButtons.run();
+        refreshBorders.run();
+
+        for (CardData c : cards) {
+            new SwingWorker<ImageIcon, Void>() {
+                @Override protected ImageIcon doInBackground() throws Exception {
+                    Image img = ImageCache.load(c.imageUrl());
+                    return img == null ? null
+                            : new ImageIcon(img.getScaledInstance(CARD_W, CARD_H, Image.SCALE_SMOOTH));
+                }
+                @Override protected void done() {
+                    try {
+                        ImageIcon ic = get();
+                        int j = cards.indexOf(c);
+                        if (ic != null && j >= 0) { imgCache.put(c, ic); cardLabels[j].setIcon(ic); cardLabels[j].setText(null); }
+                    } catch (InterruptedException | ExecutionException ignored) {}
+                }
+            }.execute();
+        }
+
+        JLabel instructions = new JLabel(
+                "Toggle '→ Hand' to add cards (up to " + maxAdd
+                        + "). Card Name " + excludeName + " (red) must go to Break Zone.",
+                SwingConstants.CENTER);
+        instructions.setFont(FontLoader.loadPixelNESFont(9));
+        confirmBtn.addActionListener(ae -> { hideZoom(); dlg.dispose(); });
+
+        JPanel south = new JPanel(new BorderLayout(0, 2));
+        south.add(instructions, BorderLayout.NORTH);
+        JPanel btnRow = new JPanel(new FlowLayout(FlowLayout.CENTER, 12, 6));
+        btnRow.add(confirmBtn);
+        south.add(btnRow, BorderLayout.SOUTH);
+
+        dlg.getContentPane().setLayout(new BorderLayout(0, 4));
+        dlg.getContentPane().add(cardsPanel, BorderLayout.CENTER);
+        dlg.getContentPane().add(south,      BorderLayout.SOUTH);
+        dlg.pack();
+        dlg.setLocationRelativeTo(frame);
+        dlg.setVisible(true);
+
+        // Consume all peeked cards from the top of the deck, then distribute
+        for (int i = 0; i < n; i++) deck.pollFirst();
+        List<CardData> bz = isP1 ? gameState.getP1BreakZone() : gameState.getP2BreakZone();
+        for (CardData c : cards) {
+            if (handSet.contains(c)) {
+                if (isP1) gameState.getP1Hand().add(c);
+                else      gameState.getP2Hand().add(c);
+                log(c.name() + " → hand");
+            } else {
+                bz.add(c);
+                log(c.name() + " → Break Zone");
+            }
+        }
+        if (!handSet.isEmpty()) {
+            if (isP1) cb.refreshP1Hand().run();
+            else      cb.refreshP2Hand().run();
+        }
+        if (isP1) cb.refreshP1Deck().run();
+        else      cb.refreshP2Deck().run();
+    }
+
+    /**
      * Reveals {@code cards} (already peeked from the top of {@code deck}).
      * Player chooses exactly 1 card whose name matches {@code cardName} to play onto
      * the field; the remaining cards go to the bottom of the deck in any order.
@@ -1159,8 +1293,27 @@ class LookAtDeckDialogs {
      */
     void showRevealPlayTypeOntoFieldRestBottom(List<CardData> cards, Deque<CardData> deck,
             boolean isP1, int maxPlay, String typeFilter, String categoryFilter, Consumer<CardData> playOntoField) {
-        int n = cards.size();
         String typeLabel = (categoryFilter != null ? "Category " + categoryFilter + " " : "") + typeFilter;
+        java.util.function.Predicate<CardData> eligible = c ->
+                meetsRevealTypeFilter(c, typeFilter) && CardFilters.meetsCategoryFilter(c, categoryFilter);
+        showRevealPlayOntoFieldRestBottomImpl(cards, deck, isP1, maxPlay, typeLabel, eligible, playOntoField);
+    }
+
+    void showRevealPlayElementTypeCostOntoFieldRestBottom(List<CardData> cards, Deque<CardData> deck,
+            boolean isP1, int maxPlay, String element, String typeFilter, int maxCost, Consumer<CardData> playOntoField) {
+        String typeLabel = (element != null ? element + " " : "") + typeFilter
+                + (maxCost >= 0 ? " of cost " + maxCost + " or less" : "");
+        java.util.function.Predicate<CardData> eligible = c ->
+                meetsRevealTypeFilter(c, typeFilter)
+                && (element == null || c.containsElement(element))
+                && (maxCost < 0 || c.cost() <= maxCost);
+        showRevealPlayOntoFieldRestBottomImpl(cards, deck, isP1, maxPlay, typeLabel, eligible, playOntoField);
+    }
+
+    private void showRevealPlayOntoFieldRestBottomImpl(List<CardData> cards, Deque<CardData> deck,
+            boolean isP1, int maxPlay, String typeLabel,
+            java.util.function.Predicate<CardData> eligible, Consumer<CardData> playOntoField) {
+        int n = cards.size();
         JDialog dlg = new JDialog(frame, "Reveal — Play up to " + maxPlay + " " + typeLabel + " onto Field, Rest to Bottom", true);
         dlg.setResizable(false);
         dlg.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
@@ -1188,10 +1341,8 @@ class LookAtDeckDialogs {
             int count = fieldSet.size();
             for (int j = 0; j < n; j++) {
                 CardData c = order.get(j);
-                boolean matches = meetsRevealTypeFilter(c, typeFilter)
-                        && CardFilters.meetsCategoryFilter(c, categoryFilter);
                 boolean inField = fieldSet.contains(c);
-                fieldBtns[j].setEnabled(matches && (inField || count < maxPlay));
+                fieldBtns[j].setEnabled(eligible.test(c) && (inField || count < maxPlay));
             }
         };
 
@@ -1277,7 +1428,7 @@ class LookAtDeckDialogs {
         }
 
         JLabel instructions = new JLabel(
-                "Click '→ Field' on up to " + maxPlay + " " + typeFilter + "(s) to play. Swap the rest to set bottom-of-deck order (left = first).",
+                "Click '→ Field' on up to " + maxPlay + " " + typeLabel + "(s) to play. Swap the rest to set bottom-of-deck order (left = first).",
                 SwingConstants.CENTER);
         instructions.setFont(FontLoader.loadPixelNESFont(9));
         confirmBtn.addActionListener(ae -> { hideZoom(); dlg.dispose(); });

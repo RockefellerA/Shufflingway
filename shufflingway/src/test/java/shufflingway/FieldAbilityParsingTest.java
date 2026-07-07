@@ -111,6 +111,7 @@ public class FieldAbilityParsingTest {
         if (CardData.MULTI_NAME_PLAY_PATTERN.matcher(fa.effectText()).matches()) return true;
         if (AutoAbilityTriggers.FA_DAMAGE_MODIFIER.matcher(fa.effectText()).find()) return true;
         if (AutoAbilityTriggers.FA_FIELD_DAMAGE_MODIFIER.matcher(fa.effectText()).find()) return true;
+        if (AutoAbilityTriggers.FA_FIELD_DAMAGE_EXACT_NULLIFY.matcher(fa.effectText()).find()) return true;
         if (AutoAbilityTriggers.FA_ELEMENT_FORWARD_DAMAGE_BOOST.matcher(fa.effectText()).find()) return true;
         if (AutoAbilityTriggers.FA_PARTY_DAMAGE_PROTECTION.matcher(fa.effectText()).find()) return true;
         if (AutoAbilityTriggers.FA_NULLIFY_SUMMON_DAMAGE.matcher(fa.effectText()).find()) return true;
@@ -118,15 +119,19 @@ public class FieldAbilityParsingTest {
         if (AutoAbilityTriggers.FA_NULLIFY_OPPONENT_ABILITY_DAMAGE.matcher(fa.effectText()).find()) return true;
         if (AutoAbilityTriggers.FA_REDUCE_ABILITY_DAMAGE.matcher(fa.effectText()).find()) return true;
         if (AutoAbilityTriggers.FA_OPP_FORWARD_POWER_BOOST_SUPPRESSED.matcher(fa.effectText()).find()) return true;
+        if (AutoAbilityTriggers.FA_OPP_FORWARD_SELF_BOOST_SUPPRESSED.matcher(fa.effectText()).find()) return true;
         if (AutoAbilityTriggers.FA_OPP_FORWARD_ETF_SUPPRESSED.matcher(fa.effectText()).find()) return true;
         if (AutoAbilityTriggers.FA_OUTGOING_FLAT_BOOST_VS_COST.matcher(fa.effectText()).find()) return true;
         if (AutoAbilityTriggers.FA_INCOMING_REDUCTION_VS_COST.matcher(fa.effectText()).find()) return true;
         if (AutoAbilityTriggers.FA_DAMAGE_WHILE_DULL_REDUCTION.matcher(fa.effectText()).find()) return true;
+        if (AutoAbilityTriggers.FA_NULLIFY_TRAIT_FORWARD_DAMAGE.matcher(fa.effectText()).find()) return true;
         if (AutoAbilityTriggers.FA_OPPONENT_MUST_BLOCK.matcher(fa.effectText()).find()) return true;
         if (AutoAbilityTriggers.FA_ALL_FORWARDS_LOSE_HASTE.matcher(fa.effectText()).find()) return true;
         if (AutoAbilityTriggers.FA_FORWARDS_CANNOT_GAIN_HASTE.matcher(fa.effectText()).find()) return true;
         if (!CardData.parseSelfTraitGrant(fa.effectText(), source.name()).isEmpty()) return true;
         if (CardData.parseSelfNonDmgBreakShield(fa.effectText(), source.name())) return true;
+        if (CardData.parseSelfNonDmgBreakShieldDirect(fa.effectText(), source.name())) return true;
+        if (CardData.parseIfOpponentHandSizeCannotBeBrokenThreshold(fa.effectText(), source.name()) >= 0) return true;
         if (CardData.TRAIT_ONLY_SEGMENT.matcher(fa.effectText()).matches()) return true;
         if (CardData.parseOpponentForwardsEnterDull(fa.effectText())) return true;
         if (CardData.parseFieldCannotBeBlockedByCost(fa.effectText(), source.name()) != null) return true;
@@ -212,11 +217,16 @@ public class FieldAbilityParsingTest {
         if (m.matches()) return "MultiNamePlay[" + m.group("cardname") + "]";
         m = AutoAbilityTriggers.FA_DAMAGE_MODIFIER.matcher(fa.effectText());
         if (m.find()) {
-            String src     = m.group("sourceclause");
+            String src      = m.group("sourceclause");
             String reduceBy = m.group("reduceby");
             String setsTo   = m.group("setsto");
-            return "DmgModifier[" + (src != null ? src.trim() : "any") + ": "
-                    + (reduceBy != null ? "reduce " + reduceBy : "becomes " + setsTo) + "]";
+            String increase = m.group("increaseby");
+            String dbl      = m.group("double");
+            String effect   = dbl != null ? "×2"
+                            : reduceBy != null ? "reduce " + reduceBy
+                            : increase != null ? "+" + increase
+                            : "becomes " + setsTo;
+            return "DmgModifier[" + (src != null ? src.trim() : "any") + ": " + effect + "]";
         }
         m = AutoAbilityTriggers.FA_ELEMENT_FORWARD_DAMAGE_BOOST.matcher(fa.effectText());
         if (m.find()) return "ElementFwdDmgBoost[" + m.group("element") + " Fwd +" + m.group("amount") + "]";
@@ -253,6 +263,8 @@ public class FieldAbilityParsingTest {
         if (m.find()) return "ReduceAbilityDmg[" + m.group("reduction") + "]";
         if (AutoAbilityTriggers.FA_OPP_FORWARD_POWER_BOOST_SUPPRESSED.matcher(fa.effectText()).find())
             return "OppFwdPowerBoostSuppressed";
+        if (AutoAbilityTriggers.FA_OPP_FORWARD_SELF_BOOST_SUPPRESSED.matcher(fa.effectText()).find())
+            return "OppFwdSelfBoostSuppressed";
         if (AutoAbilityTriggers.FA_OPP_FORWARD_ETF_SUPPRESSED.matcher(fa.effectText()).find())
             return "OppForwardEtfSuppressed";
         m = AutoAbilityTriggers.FA_OUTGOING_FLAT_BOOST_VS_COST.matcher(fa.effectText());
@@ -261,6 +273,11 @@ public class FieldAbilityParsingTest {
         if (m.find()) return "IncomingReductionVsCost[cost≥" + m.group("cost") + " -" + m.group("amount") + "]";
         m = AutoAbilityTriggers.FA_DAMAGE_WHILE_DULL_REDUCTION.matcher(fa.effectText());
         if (m.find()) return "DmgWhileDullReduction[-" + m.group("amount") + "]";
+        m = AutoAbilityTriggers.FA_NULLIFY_TRAIT_FORWARD_DAMAGE.matcher(fa.effectText());
+        if (m.find()) {
+            String t2 = m.group("trait2");
+            return "NullifyTraitFwdDmg[" + m.group("trait1").trim() + (t2 != null ? " or " + t2.trim() : "") + "]";
+        }
         m = AutoAbilityTriggers.FA_OPPONENT_MUST_BLOCK.matcher(fa.effectText());
         if (m.find()) return "OpponentMustBlock[" + m.group("cardname") + "]";
         if (AutoAbilityTriggers.FA_ALL_FORWARDS_LOSE_HASTE.matcher(fa.effectText()).find()) return "AllForwardsLoseHaste";
@@ -268,6 +285,9 @@ public class FieldAbilityParsingTest {
         if (CardData.isBackupCpAbility(fa.effectText())) return "BackupCpAbility";
         int lbN = CardData.parseIfSelfLbFaceUpCountTraitGrantThreshold(fa.effectText(), source.name());
         if (lbN >= 0) return "LbFaceUpTraitGrant[n≥" + lbN + " " + CardData.parseIfSelfLbFaceUpCountTraitGrantTraits(fa.effectText()) + "]";
+        if (CardData.parseSelfNonDmgBreakShieldDirect(fa.effectText(), source.name())) return "SelfNonDmgBreakShield";
+        int oppHst = CardData.parseIfOpponentHandSizeCannotBeBrokenThreshold(fa.effectText(), source.name());
+        if (oppHst >= 0) return "IfOppHandSize≤" + oppHst + ":CannotBeBroken";
         return null;
     }
 

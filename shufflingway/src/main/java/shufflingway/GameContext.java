@@ -205,6 +205,13 @@ public interface GameContext {
     void opponentMillCards(int count);
 
     /**
+     * Mills the top {@code millCount} cards from the opponent's deck into their Break Zone,
+     * then draws {@code drawCount} cards for the ability user if all milled cards share
+     * at least one common element.
+     */
+    void opponentMillIfSameElementDraw(int millCount, int drawCount);
+
+    /**
      * Moves the top {@code count} cards from the ability user's own main deck into their Break Zone,
      * animating each card sliding from deck to break zone.
      */
@@ -274,6 +281,20 @@ public interface GameContext {
             String jobFilter, String cardNameFilter, String categoryFilter, String elementFilter);
 
     /**
+     * "Choose any number of [Forwards/Backups/Monsters/Characters] [opponent/you] control.
+     * Return them to their owners' hands."
+     *
+     * <p>For P1 (human): loops showing a cancellable chooser drawn from the eligible zones;
+     * each pick returns one card.  For P2 (AI): returns all eligible opponent-controlled cards
+     * automatically; returns none of its own.
+     *
+     * @param opponentOnly restrict candidates to the ability user's opponent's field
+     * @param selfOnly     restrict candidates to the ability user's own field
+     */
+    void chooseAnyNumberReturnToHand(boolean inclForwards, boolean inclBackups, boolean inclMonsters,
+            boolean opponentOnly, boolean selfOnly);
+
+    /**
      * Prompts the ability user to choose 1 Summon from their hand and casts it immediately
      * without paying its cost.
      *
@@ -293,6 +314,13 @@ public interface GameContext {
      * or the player declines to cast.
      */
     void randomRevealHandCastIfSummonFree();
+
+    /**
+     * Shows all Summons in the player's hand with their effective cast cost reduced by
+     * {@code discount} (floored at 1).  The player selects one to cast at that reduced cost,
+     * or cancels.  Existing cost modifiers are also applied before the additional discount.
+     */
+    void castSummonFromHandDiscounted(int discount);
 
     /**
      * Searches the deck for a Summon matching the element and cost filters, then offers
@@ -343,6 +371,13 @@ public interface GameContext {
      * Skips a side that has no Forwards.
      */
     void eachPlayerSelectForwardAndDamage(int amount);
+
+    /**
+     * Each player may search their deck for up to {@code count} Forward(s) with power
+     * &ge; {@code minPower} and add the chosen card(s) to their hand.
+     * P1 is shown a yes/no offer then a search dialog; P2 AI always searches.
+     */
+    void eachPlayerMaySearchForwardMinPowerToHand(int count, int minPower);
 
     /**
      * Both players each select 1 Forward they control and put it into the Break Zone.
@@ -541,6 +576,14 @@ public interface GameContext {
 
     /** Returns the number of counters named {@code counterName} currently on {@code card}. */
     int getCounters(CardData card, String counterName);
+
+    /**
+     * Selects and removes one counter from the character at {@code t}.
+     * If the card has no counters the effect fizzles.
+     * If it has exactly one counter type the counter is removed silently.
+     * If it has multiple counter types the active player is prompted to choose one.
+     */
+    void removeOneCounterFromTarget(ForwardTarget t);
 
     /**
      * General "look at the top N cards" effect.  The {@link LookConfig} specifies how
@@ -775,6 +818,12 @@ public interface GameContext {
      * or "Character") the active player currently controls on the field.
      */
     int ownFieldCount(String cardType);
+
+    /**
+     * Returns the number of cards on the active player's field that match {@code type}
+     * (Forward/Backup/Monster/Character) AND belong to {@code category}.
+     */
+    int ownFieldCountByCategory(String category, String type);
 
     /** Returns {@code true} if the active player has at least one Summon in their Break Zone. */
     boolean selfHasSummonInBreakZone();
@@ -1284,6 +1333,21 @@ public interface GameContext {
     void mayDiscardCardNameFromHand(String cardName, java.util.function.Consumer<GameContext> ifDiscarded);
 
     /**
+     * Prompts the controlling player to optionally put {@code source} into the Break Zone.
+     * If the player accepts, the card is broken and {@code whenDoSo} is executed.
+     * P2 AI always passes.
+     */
+    void mayBreakSourceWhenDoSo(CardData source, java.util.function.Consumer<GameContext> whenDoSo);
+
+    /**
+     * Reveals 1 card matching {@code element} from the ability user's hand (the card stays in hand),
+     * then draws {@code drawCount} cards. The caller is responsible for any prior "you may" gating;
+     * this method assumes the reveal-and-draw will happen. If no qualifying card is in hand, the
+     * effect fizzles silently.
+     */
+    void revealElementCardFromHandDraw(String element, int drawCount);
+
+    /**
      * Offers the ability user the option to carry out {@code effect}.
      * P1 is shown a dialog; P2 AI auto-accepts.
      */
@@ -1352,6 +1416,9 @@ public interface GameContext {
     /** Sets a global rule this turn: every Forward can only be blocked by a Forward with cost ≤ its own. */
     void setAllForwardsCannotBeBlockedByHigherCostThisTurn();
 
+    /** During this turn, the power of Forwards the opponent controls cannot be increased by Summons or abilities. */
+    void setOppFwdPowerBoostSuppressedThisTurn();
+
     /** Causes all opponent Forwards to lose all abilities until end of turn. */
     void oppForwardsLoseAllAbilitiesUntilEndOfTurn();
 
@@ -1399,6 +1466,13 @@ public interface GameContext {
     default void revealTopNPlayUpToTypeOntoFieldRestBottom(int reveal, int maxPlay, String typeFilter) {
         revealTopNPlayUpToTypeOntoFieldRestBottom(reveal, maxPlay, typeFilter, null);
     }
+
+    /**
+     * Reveals the top {@code reveal} cards. The player may play up to {@code maxPlay} cards
+     * matching {@code element} (if non-null), {@code typeFilter}, and cost &le; {@code maxCost}
+     * (if &ge; 0) onto the field for free. The remaining cards go to the bottom of the deck in any order.
+     */
+    void revealTopNPlayUpToElementTypeCostOntoFieldRestBottom(int reveal, int maxPlay, String element, String typeFilter, int maxCost);
 
     /**
      * Reveals the top {@code reveal} cards. The player may either add up to {@code handMax}
@@ -1695,6 +1769,14 @@ public interface GameContext {
             String element, int costVal, String costCmp, String category, String excludeName);
 
     /**
+     * Boosts all Forwards (selected by {@code opponentOnly}/{@code selfOnly}) that share
+     * any element with the card named {@code cardName} on the caster's own field.
+     * Fizzles if the named card is not found on the field.
+     */
+    void allForwardsSameElementAsNamedGainPowerUntilEOT(String cardName, int amount,
+            boolean opponentOnly, boolean selfOnly);
+
+    /**
      * Applies a power boost until end of turn to all Forwards (and Monsters when
      * {@code inclMonsters} is true) that match {@code jobFilter} OR {@code cardNameFilter}.
      * Both filters use bar-separated OR semantics (see {@link CardFilters}).
@@ -1800,6 +1882,16 @@ public interface GameContext {
      */
     void chooseSummonsFromBzMakeCastable(int count, boolean eitherBz, boolean expiresThisTurn,
             boolean rfgAfterUse, boolean freeCast);
+
+    /**
+     * "Choose 1 Summon of cost N or less in your Break Zone. Cast it without paying the cost.
+     * Remove that Summon from the game after use instead of putting it in the Break Zone."
+     *
+     * <p>Prompts the ability user to pick a matching Summon from their own Break Zone, registers
+     * it as castable this turn (free cost, RFG after use). The card remains in the Break Zone
+     * until cast; it is removed from the game when it resolves rather than going back to the BZ.
+     */
+    void chooseSummonInBzByMaxCostFreeCastRfgAfterUse(int maxCost);
 
     /**
      * Returns {@code true} if the most recent card cast by the ability user
@@ -1956,6 +2048,13 @@ public interface GameContext {
             String jobFilter, String categoryFilter, String cardNameFilter, String typeFilter) {
         revealTopAddUpToMatchingRestBottom(reveal, maxAdd, jobFilter, categoryFilter, cardNameFilter, typeFilter, -1, null);
     }
+
+    /**
+     * Reveals the top {@code reveal} cards of the player's deck.  The player may add up to
+     * {@code maxAdd} of them to hand, excluding any card whose name equals {@code excludeName}.
+     * All remaining revealed cards go to the Break Zone.
+     */
+    void revealTopAddUpToExcludingNameRestBz(int reveal, int maxAdd, String excludeName);
 
     /**
      * Grants all Forwards controlled by the acting player the given {@code job} until end of turn.
