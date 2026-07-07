@@ -1563,133 +1563,159 @@ final class GameContextImpl implements GameContext {
 			}
 
 			@Override public void revealTopDeckCard(List<RevealClause> clauses, boolean opponentDeck) {
-				if (!isP1) {
-					logEntry("[P2] Reveal top deck card — not yet implemented for P2");
-					return;
-				}
-				Deque<CardData> deck = opponentDeck
-						? mw.gameState.getP2MainDeck()
-						: mw.gameState.getP1MainDeck();
+				// opponentDeck is relative to the acting player: own deck = isP1 XOR opponentDeck selects P1 deck
+				boolean revealFromP1 = isP1 != opponentDeck;
+				Deque<CardData> deck = revealFromP1
+						? mw.gameState.getP1MainDeck()
+						: mw.gameState.getP2MainDeck();
+				Runnable refreshDeck = revealFromP1 ? mw::refreshP1DeckLabel : mw::refreshP2DeckLabel;
+				String p = isP1 ? "" : "[P2] ";
 				String deckLabel = opponentDeck ? "opponent's deck" : "your deck";
 				if (deck.isEmpty()) {
-					logEntry("Reveal: " + deckLabel + " is empty.");
+					logEntry(p + "Reveal: " + deckLabel + " is empty.");
 					return;
 				}
 				CardData card = deck.pollFirst();
-				logEntry("Revealed from " + deckLabel + ": " + card.name() + " (" + card.type() + ")");
+				logEntry(p + "Revealed from " + deckLabel + ": " + card.name() + " (" + card.type() + ")");
 
-				// When the only applicable clause is "castSummonFree" and the card is a Summon,
-				// show Decline/OK buttons so the player can choose whether to cast it.
+				// P2 AI auto-accepts castSummonFree; P1 is prompted via dialog below
 				boolean castFreeApplicable = card.isSummon() &&
 						clauses.stream().anyMatch(c -> "castSummonFree".equals(c.cardOp()));
-				boolean[] activated = {false};
+				boolean[] activated = {!isP1};
 
-				JDialog dlg = new JDialog(mw.frame, "Reveal", true);
-				dlg.setResizable(false);
-				dlg.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
+				if (isP1) {
+					JDialog dlg = new JDialog(mw.frame, "Reveal", true);
+					dlg.setResizable(false);
+					dlg.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
 
-				JLabel cardLabel = new JLabel("...", SwingConstants.CENTER);
-				cardLabel.setPreferredSize(new Dimension(CARD_W, CARD_H));
-				cardLabel.setMinimumSize(new Dimension(CARD_W, CARD_H));
-				cardLabel.setOpaque(true);
-				cardLabel.setBackground(Color.DARK_GRAY);
-				cardLabel.setBorder(BorderFactory.createLineBorder(new Color(160, 110, 220), 1));
-				cardLabel.addMouseListener(new MouseAdapter() {
-					@Override public void mouseEntered(MouseEvent e) { mw.showZoomAt(card.imageUrl()); }
-					@Override public void mouseExited(MouseEvent e)  { mw.hideZoom(); }
-				});
-				new SwingWorker<ImageIcon, Void>() {
-					@Override protected ImageIcon doInBackground() throws Exception {
-						Image img = ImageCache.load(card.imageUrl());
-						return img == null ? null
-								: new ImageIcon(img.getScaledInstance(CARD_W, CARD_H, Image.SCALE_SMOOTH));
+					JLabel cardLabel = new JLabel("...", SwingConstants.CENTER);
+					cardLabel.setPreferredSize(new Dimension(CARD_W, CARD_H));
+					cardLabel.setMinimumSize(new Dimension(CARD_W, CARD_H));
+					cardLabel.setOpaque(true);
+					cardLabel.setBackground(Color.DARK_GRAY);
+					cardLabel.setBorder(BorderFactory.createLineBorder(new Color(160, 110, 220), 1));
+					cardLabel.addMouseListener(new MouseAdapter() {
+						@Override public void mouseEntered(MouseEvent e) { mw.showZoomAt(card.imageUrl()); }
+						@Override public void mouseExited(MouseEvent e)  { mw.hideZoom(); }
+					});
+					new SwingWorker<ImageIcon, Void>() {
+						@Override protected ImageIcon doInBackground() throws Exception {
+							Image img = ImageCache.load(card.imageUrl());
+							return img == null ? null
+									: new ImageIcon(img.getScaledInstance(CARD_W, CARD_H, Image.SCALE_SMOOTH));
+						}
+						@Override protected void done() {
+							try {
+								ImageIcon icon = get();
+								if (icon != null) { cardLabel.setIcon(icon); cardLabel.setText(null); }
+							} catch (InterruptedException | ExecutionException ignored) {}
+						}
+					}.execute();
+
+					JPanel wrapper = new JPanel(new BorderLayout(0, 4));
+					wrapper.setBorder(BorderFactory.createEmptyBorder(8, 8, 0, 8));
+					JLabel nameLabel = new JLabel(card.name(), SwingConstants.CENTER);
+					nameLabel.setFont(FontLoader.loadPixelNESFont(9));
+					nameLabel.setPreferredSize(new Dimension(CARD_W, 18));
+					wrapper.add(cardLabel,  BorderLayout.CENTER);
+					wrapper.add(nameLabel,  BorderLayout.SOUTH);
+
+					JPanel south = new JPanel(new FlowLayout(FlowLayout.CENTER, 12, 6));
+					south.setBorder(BorderFactory.createEmptyBorder(0, 8, 8, 8));
+					if (castFreeApplicable) {
+						JButton declineBtn = new JButton("Decline");
+						declineBtn.setFont(FontLoader.loadPixelNESFont(11));
+						declineBtn.addActionListener(ae -> { mw.hideZoom(); dlg.dispose(); });
+						JButton okBtn = new JButton("OK");
+						okBtn.setFont(FontLoader.loadPixelNESFont(11));
+						okBtn.addActionListener(ae -> { activated[0] = true; mw.hideZoom(); dlg.dispose(); });
+						south.add(declineBtn);
+						south.add(okBtn);
+					} else {
+						JButton okBtn = new JButton("OK");
+						okBtn.setFont(FontLoader.loadPixelNESFont(11));
+						okBtn.addActionListener(ae -> { mw.hideZoom(); dlg.dispose(); });
+						south.add(okBtn);
 					}
-					@Override protected void done() {
-						try {
-							ImageIcon icon = get();
-							if (icon != null) { cardLabel.setIcon(icon); cardLabel.setText(null); }
-						} catch (InterruptedException | ExecutionException ignored) {}
-					}
-				}.execute();
 
-				JPanel wrapper = new JPanel(new BorderLayout(0, 4));
-				wrapper.setBorder(BorderFactory.createEmptyBorder(8, 8, 0, 8));
-				JLabel nameLabel = new JLabel(card.name(), SwingConstants.CENTER);
-				nameLabel.setFont(FontLoader.loadPixelNESFont(9));
-				nameLabel.setPreferredSize(new Dimension(CARD_W, 18));
-				wrapper.add(cardLabel,  BorderLayout.CENTER);
-				wrapper.add(nameLabel,  BorderLayout.SOUTH);
-
-				JPanel south = new JPanel(new FlowLayout(FlowLayout.CENTER, 12, 6));
-				south.setBorder(BorderFactory.createEmptyBorder(0, 8, 8, 8));
-				if (castFreeApplicable) {
-					JButton declineBtn = new JButton("Decline");
-					declineBtn.setFont(FontLoader.loadPixelNESFont(11));
-					declineBtn.addActionListener(ae -> { mw.hideZoom(); dlg.dispose(); });
-					JButton okBtn = new JButton("OK");
-					okBtn.setFont(FontLoader.loadPixelNESFont(11));
-					okBtn.addActionListener(ae -> { activated[0] = true; mw.hideZoom(); dlg.dispose(); });
-					south.add(declineBtn);
-					south.add(okBtn);
-				} else {
-					JButton okBtn = new JButton("OK");
-					okBtn.setFont(FontLoader.loadPixelNESFont(11));
-					okBtn.addActionListener(ae -> { mw.hideZoom(); dlg.dispose(); });
-					south.add(okBtn);
+					dlg.getContentPane().setLayout(new BorderLayout(0, 4));
+					dlg.getContentPane().add(wrapper, BorderLayout.CENTER);
+					dlg.getContentPane().add(south,   BorderLayout.SOUTH);
+					dlg.pack();
+					dlg.setLocationRelativeTo(mw.frame);
+					dlg.setVisible(true); // modal — blocks until dismissed
 				}
-
-				dlg.getContentPane().setLayout(new BorderLayout(0, 4));
-				dlg.getContentPane().add(wrapper, BorderLayout.CENTER);
-				dlg.getContentPane().add(south,   BorderLayout.SOUTH);
-				dlg.pack();
-				dlg.setLocationRelativeTo(mw.frame);
-				dlg.setVisible(true); // modal — blocks until dismissed
 
 				// Find the first matching clause and execute its action
 				for (RevealClause clause : clauses) {
 					if (!clause.condition().test(card)) continue;
-					logEntry("Condition matched for " + card.name());
+					logEntry(p + "Condition matched for " + card.name());
 					if (clause.cardOp() != null) {
 						switch (clause.cardOp()) {
 							case "playOntoField" -> {
-								logEntry(card.name() + " played from reveal onto field");
-								if (card.isBackup())       mw.placeCardInFirstBackupSlot(card);
-								else if (card.isMonster()) mw.placeCardInMonsterZone(card);
-								else                       mw.placeCardInForwardZone(card);
+								logEntry(p + card.name() + " played from reveal onto field");
+								if (isP1) {
+									if (card.isBackup())       mw.placeCardInFirstBackupSlot(card);
+									else if (card.isMonster()) mw.placeCardInMonsterZone(card);
+									else                       mw.placeCardInForwardZone(card);
+								} else {
+									if (card.isBackup())       mw.placeP2CardInFirstBackupSlot(card);
+									else if (card.isMonster()) mw.placeP2CardInMonsterZone(card);
+									else                       mw.placeP2CardInForwardZone(card);
+								}
 							}
 							case "playOntoFieldDull" -> {
-								logEntry(card.name() + " played from reveal onto field (dull)");
-								if (card.isBackup()) {
-									mw.placeCardInFirstBackupSlot(card);
-								} else if (card.isMonster()) {
-									mw.placeCardInMonsterZone(card);
-									int idx = mw.p1MonsterCards.size() - 1;
-									mw.p1MonsterStates.set(idx, CardState.DULL);
-									mw.refreshP1MonsterSlot(idx);
+								logEntry(p + card.name() + " played from reveal onto field (dull)");
+								if (isP1) {
+									if (card.isBackup()) {
+										mw.placeCardInFirstBackupSlot(card);
+									} else if (card.isMonster()) {
+										mw.placeCardInMonsterZone(card);
+										int idx = mw.p1MonsterCards.size() - 1;
+										mw.p1MonsterStates.set(idx, CardState.DULL);
+										mw.refreshP1MonsterSlot(idx);
+									} else {
+										mw.placeCardInForwardZone(card);
+										dullP1Forward(mw.p1ForwardCards.size() - 1);
+									}
 								} else {
-									mw.placeCardInForwardZone(card);
-									dullP1Forward(mw.p1ForwardCards.size() - 1);
+									if (card.isBackup()) {
+										mw.placeP2CardInFirstBackupSlot(card);
+									} else if (card.isMonster()) {
+										mw.placeP2CardInMonsterZone(card);
+										int idx = mw.p2MonsterCards.size() - 1;
+										mw.p2MonsterStates.set(idx, CardState.DULL);
+										mw.refreshP2MonsterSlot(idx);
+									} else {
+										mw.placeP2CardInForwardZone(card);
+										dullP2Forward(mw.p2ForwardCards.size() - 1);
+									}
 								}
 							}
 							case "addToHand" -> {
-								mw.gameState.getP1Hand().add(card);
-								mw.animateCardDraw(true, 1);
-								logEntry(card.name() + " added to hand from reveal");
-								mw.refreshP1HandLabel();
+								if (isP1) {
+									mw.gameState.getP1Hand().add(card);
+									mw.animateCardDraw(true, 1);
+									mw.refreshP1HandLabel();
+								} else {
+									mw.gameState.getP2Hand().add(card);
+									mw.refreshP2HandCountLabel();
+								}
+								logEntry(p + card.name() + " added to hand from reveal");
 							}
 							case "putToBreakZone" -> {
 								mw.addToBreakZone(card);
-								logEntry(card.name() + " put into Break Zone from reveal");
-								mw.refreshP1BreakLabel();
+								logEntry(p + card.name() + " put into Break Zone from reveal");
+								if (isP1) mw.refreshP1BreakLabel(); else mw.refreshP2BreakLabel();
 							}
 							case "castSummonFree" -> {
 								if (!activated[0]) {
 									logEntry(card.name() + " — free cast declined, returned to top of deck");
 									deck.addFirst(card);
-									if (opponentDeck) mw.refreshP2DeckLabel(); else mw.refreshP1DeckLabel();
+									refreshDeck.run();
 									return;
 								}
-								logEntry(card.name() + " — cast for free from reveal");
+								logEntry(p + card.name() + " — cast for free from reveal");
 								mw.showSummonOnStack(card, isP1);
 							}
 						}
@@ -1697,16 +1723,16 @@ final class GameContextImpl implements GameContext {
 						// Standalone effect — return card to top of appropriate deck first
 						// so any subsequent draw includes it
 						deck.addFirst(card);
-						if (opponentDeck) mw.refreshP2DeckLabel(); else mw.refreshP1DeckLabel();
+						refreshDeck.run();
 						clause.effect().accept(this);
 					}
-					if (opponentDeck) mw.refreshP2DeckLabel(); else mw.refreshP1DeckLabel();
+					refreshDeck.run();
 					return;
 				}
 				// No clause matched — put card back on top
-				logEntry("No condition matched — returning " + card.name() + " to top of " + deckLabel);
+				logEntry(p + "No condition matched — returning " + card.name() + " to top of " + deckLabel);
 				deck.addFirst(card);
-				if (opponentDeck) mw.refreshP2DeckLabel(); else mw.refreshP1DeckLabel();
+				refreshDeck.run();
 			}
 
 			@Override public void revealTopDeckCostParityEffect(java.util.function.Consumer<GameContext> onEven,
