@@ -254,7 +254,7 @@ final class AutoAbilityTriggers {
 			"|\\s+less\\s+than\\s+(?:his|her|its)\\s+power" +
 		")?" +
 		"\\s*,\\s+" +
-		"(?:reduce\\s+the\\s+damage\\s+by\\s+(?<reduceby>\\d+)|the\\s+damage\\s+becomes\\s+(?<setsto>\\d+)|the\\s+damage\\s+increases\\s+by\\s+(?<increaseby>\\d+))" +
+		"(?:reduce\\s+the\\s+damage\\s+by\\s+(?<reduceby>\\d+)|the\\s+damage\\s+becomes\\s+(?<setsto>\\d+)|the\\s+damage\\s+increases\\s+by\\s+(?<increaseby>\\d+)|(?<double>double\\s+the\\s+damage))" +
 		"\\s+instead\\.?$"
 	);
 

@@ -9248,6 +9248,10 @@ public class MainWindow {
 				int before = amount;
 				amount = amount + Integer.parseInt(increaseStr);
 				logEntry(card.name() + " — damage increased by " + increaseStr + " (" + before + " → " + amount + ")");
+			} else if (fam.group("double") != null) {
+				int before = amount;
+				amount = amount * 2;
+				logEntry(card.name() + " — damage doubled (" + before + " → " + amount + ")");
 			}
 		}
 

@@ -215,11 +215,16 @@ public class FieldAbilityParsingTest {
         if (m.matches()) return "MultiNamePlay[" + m.group("cardname") + "]";
         m = AutoAbilityTriggers.FA_DAMAGE_MODIFIER.matcher(fa.effectText());
         if (m.find()) {
-            String src     = m.group("sourceclause");
+            String src      = m.group("sourceclause");
             String reduceBy = m.group("reduceby");
             String setsTo   = m.group("setsto");
-            return "DmgModifier[" + (src != null ? src.trim() : "any") + ": "
-                    + (reduceBy != null ? "reduce " + reduceBy : "becomes " + setsTo) + "]";
+            String increase = m.group("increaseby");
+            String dbl      = m.group("double");
+            String effect   = dbl != null ? "×2"
+                            : reduceBy != null ? "reduce " + reduceBy
+                            : increase != null ? "+" + increase
+                            : "becomes " + setsTo;
+            return "DmgModifier[" + (src != null ? src.trim() : "any") + ": " + effect + "]";
         }
         m = AutoAbilityTriggers.FA_ELEMENT_FORWARD_DAMAGE_BOOST.matcher(fa.effectText());
         if (m.find()) return "ElementFwdDmgBoost[" + m.group("element") + " Fwd +" + m.group("amount") + "]";
