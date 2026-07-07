@@ -259,6 +259,19 @@ final class AutoAbilityTriggers {
 	);
 
 	/**
+	 * Outgoing damage doubler on the dealing card:
+	 * "If [card] deals damage to a Forward or your opponent, double the damage instead."
+	 * Checked against the DEALING card's field abilities (combat via {@code fieldAbilityCombatOutgoingMult},
+	 * ability via {@code modifyIncomingDamage}/{@code dealDamageToOpponent}).
+	 * Groups: {@code card}, {@code target} (contains "Forward" and/or "opponent").
+	 */
+	static final Pattern FA_OUTGOING_DAMAGE_DOUBLER = Pattern.compile(
+		"(?i)^If\\s+(?<card>.+?)\\s+deals\\s+damage\\s+to\\s+" +
+		"(?<target>a\\s+Forward(?:\\s+or\\s+your\\s+opponent)?|your\\s+opponent)" +
+		",\\s+double\\s+the\\s+damage\\s+instead\\.?$"
+	);
+
+	/**
 	 * Outgoing damage boost: "If a Forward is dealt damage by your [Element] Summon,
 	 * the damage increases by N instead."
 	 * Checked on the CASTER's side field cards (not the target's side).

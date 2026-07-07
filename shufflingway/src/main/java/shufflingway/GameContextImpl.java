@@ -11,6 +11,7 @@ import java.awt.event.MouseEvent;
 import java.awt.image.BufferedImage;
 import java.util.ArrayList;
 import java.util.Deque;
+import java.util.EnumSet;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -282,7 +283,7 @@ final class GameContextImpl implements GameContext {
 				if (t.zone() != ForwardTarget.CardZone.FORWARD) return;
 				CardData c = mw.autoAbilityTriggers.fieldCardData(t);
 				if (c == null) return;
-				java.util.EnumSet<CardData.Trait> tempTraits = t.isP1()
+				EnumSet<CardData.Trait> tempTraits = t.isP1()
 						? mw.p1ForwardTempTraits.get(t.idx())
 						: mw.p2ForwardTempTraits.get(t.idx());
 				tempTraits.add(CardData.Trait.CANNOT_BE_BROKEN);
@@ -293,7 +294,7 @@ final class GameContextImpl implements GameContext {
 				if (t.zone() != ForwardTarget.CardZone.FORWARD) return;
 				CardData c = mw.autoAbilityTriggers.fieldCardData(t);
 				if (c == null) return;
-				java.util.EnumSet<CardData.Trait> tempTraits = t.isP1()
+				EnumSet<CardData.Trait> tempTraits = t.isP1()
 						? mw.p1ForwardTempTraits.get(t.idx())
 						: mw.p2ForwardTempTraits.get(t.idx());
 				tempTraits.add(CardData.Trait.CANNOT_BE_BROKEN_BY_NON_DMG);
@@ -312,7 +313,7 @@ final class GameContextImpl implements GameContext {
 
 			@Override public void shieldSourceForward(CardData source) {
 				List<CardData> fwds = isP1 ? mw.p1ForwardCards : mw.p2ForwardCards;
-				List<java.util.EnumSet<CardData.Trait>> tempList =
+				List<EnumSet<CardData.Trait>> tempList =
 						isP1 ? mw.p1ForwardTempTraits : mw.p2ForwardTempTraits;
 				for (int i = 0; i < fwds.size(); i++) {
 					if (fwds.get(i).name().equalsIgnoreCase(source.name())) {
@@ -325,7 +326,7 @@ final class GameContextImpl implements GameContext {
 
 			@Override public void shieldAllOwnForwards() {
 				List<CardData> fwds = isP1 ? mw.p1ForwardCards : mw.p2ForwardCards;
-				List<java.util.EnumSet<CardData.Trait>> tempList =
+				List<EnumSet<CardData.Trait>> tempList =
 						isP1 ? mw.p1ForwardTempTraits : mw.p2ForwardTempTraits;
 				for (int i = 0; i < fwds.size(); i++) {
 					tempList.get(i).add(CardData.Trait.CANNOT_BE_BROKEN);
@@ -2796,7 +2797,7 @@ final class GameContextImpl implements GameContext {
 						return;
 					}
 					if (t.zone() == ForwardTarget.CardZone.FORWARD && t.idx() >= 0) {
-						java.util.EnumSet<CardData.Trait> tmp = t.isP1()
+						EnumSet<CardData.Trait> tmp = t.isP1()
 								? mw.p1ForwardTempTraits.get(t.idx())
 								: mw.p2ForwardTempTraits.get(t.idx());
 						if (tmp.contains(CardData.Trait.CANNOT_BE_BROKEN)
@@ -3027,7 +3028,7 @@ final class GameContextImpl implements GameContext {
 			}
 
 			@Override public void boostTarget(ForwardTarget t, int amount,
-					java.util.EnumSet<CardData.Trait> traits) {
+					EnumSet<CardData.Trait> traits) {
 				boolean isP1    = t.isP1();
 				boolean monster = t.zone() == ForwardTarget.CardZone.MONSTER;
 				int     idx     = t.idx();
@@ -3039,10 +3040,10 @@ final class GameContextImpl implements GameContext {
 					if (!asFwd || idx < 0 || idx >= bcards.length || bcards[idx] == null) return;
 					CardData bcard = bcards[idx];
 					(isP1 ? mw.p1BackupForwardBoost : mw.p2BackupForwardBoost).merge(bcard, amount, Integer::sum);
-					java.util.EnumSet<CardData.Trait> bGranted = java.util.EnumSet.noneOf(CardData.Trait.class);
+					EnumSet<CardData.Trait> bGranted = EnumSet.noneOf(CardData.Trait.class);
 					if (!traits.isEmpty()) {
 						(isP1 ? mw.p1BackupTempTraits : mw.p2BackupTempTraits)
-								.computeIfAbsent(bcard, k -> java.util.EnumSet.noneOf(CardData.Trait.class))
+								.computeIfAbsent(bcard, k -> EnumSet.noneOf(CardData.Trait.class))
 								.addAll(traits);
 						bGranted.addAll(traits);
 					}
@@ -3066,14 +3067,14 @@ final class GameContextImpl implements GameContext {
 				CardData card = cards.get(idx);
 
 				// A Monster only keeps granted traits while it is actually acting as a Forward.
-				java.util.EnumSet<CardData.Trait> grantedTraits = java.util.EnumSet.noneOf(CardData.Trait.class);
+				EnumSet<CardData.Trait> grantedTraits = EnumSet.noneOf(CardData.Trait.class);
 				if (monster) {
 					(isP1 ? mw.p1MonsterPowerBoost : mw.p2MonsterPowerBoost).merge(card, amount, Integer::sum);
 					boolean asForward = isP1 ? mw.isP1MonsterTemporarilyForward(idx)
 					                         : mw.isP2MonsterTemporarilyForward(idx);
 					if (asForward && !traits.isEmpty()) {
 						(isP1 ? mw.p1MonsterTempTraits : mw.p2MonsterTempTraits)
-								.computeIfAbsent(card, k -> java.util.EnumSet.noneOf(CardData.Trait.class))
+								.computeIfAbsent(card, k -> EnumSet.noneOf(CardData.Trait.class))
 								.addAll(traits);
 						grantedTraits.addAll(traits);
 					}
@@ -3106,9 +3107,9 @@ final class GameContextImpl implements GameContext {
 			}
 
 			@Override public void removeTraitsUntilEotFromTarget(ForwardTarget t,
-					java.util.EnumSet<CardData.Trait> traits) {
+					EnumSet<CardData.Trait> traits) {
 				if (t.zone() != ForwardTarget.CardZone.FORWARD) return;
-				List<java.util.EnumSet<CardData.Trait>> removedList =
+				List<EnumSet<CardData.Trait>> removedList =
 						t.isP1() ? mw.p1ForwardRemovedTraits : mw.p2ForwardRemovedTraits;
 				if (t.idx() >= removedList.size()) return;
 				removedList.get(t.idx()).addAll(traits);
@@ -3137,7 +3138,7 @@ final class GameContextImpl implements GameContext {
 			}
 
 			@Override public void boostSourceForward(CardData source, int amount,
-					java.util.EnumSet<CardData.Trait> traits) {
+					EnumSet<CardData.Trait> traits) {
 				for (int i = 0; i < mw.p1ForwardCards.size(); i++) {
 					if (mw.p1ForwardCards.get(i).name().equals(source.name())) {
 						if (amount > 0 && (mw.oppForwardPowerBoostSuppressedFor(true) || mw.oppForwardSelfBoostSuppressedFor(true))) {
@@ -3154,7 +3155,7 @@ final class GameContextImpl implements GameContext {
 			}
 
 			@Override public void doubleSourceForwardPower(CardData source,
-					java.util.EnumSet<CardData.Trait> traits) {
+					EnumSet<CardData.Trait> traits) {
 				for (int i = 0; i < mw.p1ForwardCards.size(); i++) {
 					if (mw.p1ForwardCards.get(i).name().equals(source.name())) {
 						if (mw.oppForwardPowerBoostSuppressedFor(true) || mw.oppForwardSelfBoostSuppressedFor(true)) {
@@ -3308,7 +3309,7 @@ final class GameContextImpl implements GameContext {
 			}
 
 			@Override public void reduceTarget(ForwardTarget t, int amount,
-					java.util.EnumSet<CardData.Trait> traits) {
+					EnumSet<CardData.Trait> traits) {
 				if (t.zone() == ForwardTarget.CardZone.BACKUP) return;
 				if (t.isP1()) {
 					int idx = t.idx();
@@ -3345,7 +3346,7 @@ final class GameContextImpl implements GameContext {
 			}
 
 			@Override public void reduceSourceForward(CardData source, int amount,
-					java.util.EnumSet<CardData.Trait> traits) {
+					EnumSet<CardData.Trait> traits) {
 				for (int i = 0; i < mw.p1ForwardCards.size(); i++) {
 					if (mw.p1ForwardCards.get(i).name().equals(source.name())) {
 						reduceTarget(new ForwardTarget(true, i, ForwardTarget.CardZone.FORWARD), amount, traits);
@@ -3985,6 +3986,23 @@ final class GameContextImpl implements GameContext {
 				});
 			}
 
+			@Override public void mayPayElementCpToEffect(String element, java.util.function.Consumer<GameContext> onPay) {
+				if (!isP1) {
+					logEntry("[P2 AI] Pays 《" + element + "》 for optional effect");
+					mw.autoAbilityTriggers.showAutoAbilityPaymentDialog("", 1, 1, isP1, paid -> {
+						if (paid >= 1) { logEntry("[P2 AI] Paid 《" + element + "》 — applying effect"); onPay.accept(this); }
+					});
+					return;
+				}
+				String src    = mw.currentAbilitySource != null ? mw.currentAbilitySource.name() : "Ability";
+				String label  = "Pay 《" + element + "》?";
+				int choice = mw.showEffectOptionDialog(src + " — " + label, "Optional Cost", new Object[]{"Pay", "Pass"});
+				if (choice != 0) { logEntry("Optional pay: declined 《" + element + "》"); return; }
+				mw.autoAbilityTriggers.showAutoAbilityPaymentDialog(src, 1, 1, isP1, paid -> {
+					if (paid >= 1) { logEntry("Optional pay: paid 《" + element + "》 — applying effect"); onPay.accept(this); }
+				});
+			}
+
 			@Override public void mayDullActiveCardToReplayAbility(String cardName, java.util.function.Consumer<GameContext> replayAction) {
 				// Find an active card of that name on the ability user's side
 				int fwdIdx = -1;
@@ -4144,6 +4162,19 @@ final class GameContextImpl implements GameContext {
 			}
 
 			@Override public void dealDamageToOpponent(int amount) {
+				if (mw.currentAbilitySource != null
+						&& !mw.lostAbilitiesCards.contains(mw.currentAbilitySource)) {
+					for (FieldAbility fa : mw.currentAbilitySource.fieldAbilities()) {
+						Matcher m = AutoAbilityTriggers.FA_OUTGOING_DAMAGE_DOUBLER.matcher(fa.effectText());
+						if (!m.find()) continue;
+						if (!m.group("card").trim().equalsIgnoreCase(mw.currentAbilitySource.name())) continue;
+						if (!m.group("target").toLowerCase().contains("opponent")) continue;
+						logEntry(mw.currentAbilitySource.name() + " — outgoing damage to opponent doubled ("
+								+ amount + " → " + (amount * 2) + ")");
+						amount *= 2;
+						break;
+					}
+				}
 				for (int i = 0; i < amount; i++) {
 					if (isP1) mw.p2TakeDamage(); else mw.p1TakeDamage();
 				}
@@ -4155,14 +4186,14 @@ final class GameContextImpl implements GameContext {
 				}
 			}
 
-			private boolean forwardHasAnyTrait(boolean p1Side, int idx, java.util.EnumSet<CardData.Trait> traitFilter) {
+			private boolean forwardHasAnyTrait(boolean p1Side, int idx, EnumSet<CardData.Trait> traitFilter) {
 				if (traitFilter.isEmpty()) return true;
-				List<java.util.EnumSet<CardData.Trait>> tempList = p1Side ? mw.p1ForwardTempTraits : mw.p2ForwardTempTraits;
-				List<java.util.EnumSet<CardData.Trait>> rmList   = p1Side ? mw.p1ForwardRemovedTraits : mw.p2ForwardRemovedTraits;
+				List<EnumSet<CardData.Trait>> tempList = p1Side ? mw.p1ForwardTempTraits : mw.p2ForwardTempTraits;
+				List<EnumSet<CardData.Trait>> rmList   = p1Side ? mw.p1ForwardRemovedTraits : mw.p2ForwardRemovedTraits;
 				CardData c = p1Side ? p1Forward(idx) : mw.p2ForwardCards.get(idx);
 				Set<CardData.Trait> base = c.traits();
-				java.util.EnumSet<CardData.Trait> temp = idx < tempList.size() ? tempList.get(idx) : null;
-				java.util.EnumSet<CardData.Trait> rem  = idx < rmList.size()   ? rmList.get(idx)   : null;
+				EnumSet<CardData.Trait> temp = idx < tempList.size() ? tempList.get(idx) : null;
+				EnumSet<CardData.Trait> rem  = idx < rmList.size()   ? rmList.get(idx)   : null;
 				for (CardData.Trait t : traitFilter) {
 					boolean has = base.contains(t) || (temp != null && temp.contains(t));
 					if (has && (rem == null || !rem.contains(t))) return true;
@@ -4175,7 +4206,7 @@ final class GameContextImpl implements GameContext {
 					boolean forwards, boolean backups, boolean monsters,
 					boolean opponentOnly, boolean selfOnly,
 					String element, int costVal, String costCmp, int excludeCostVal,
-					String job, String category, java.util.EnumSet<CardData.Trait> traitFilter) {
+					String job, String category, EnumSet<CardData.Trait> traitFilter) {
 				boolean touchP1 = isP1 ? !opponentOnly : !selfOnly;
 				boolean touchP2 = isP1 ? !selfOnly     : !opponentOnly;
 				if (touchP1) {
@@ -4515,7 +4546,7 @@ final class GameContextImpl implements GameContext {
 				}
 			}
 
-			@Override public void applyMassFieldKeywordGrant(java.util.EnumSet<CardData.Trait> traits,
+			@Override public void applyMassFieldKeywordGrant(EnumSet<CardData.Trait> traits,
 					boolean inclForwards, boolean inclMonsters,
 					boolean opponentOnly, boolean selfOnly,
 					String element, int costVal, String costCmp, String category) {
@@ -4545,7 +4576,7 @@ final class GameContextImpl implements GameContext {
 				}
 			}
 
-			@Override public void applyMassFieldJobKeywordGrant(java.util.EnumSet<CardData.Trait> traits,
+			@Override public void applyMassFieldJobKeywordGrant(EnumSet<CardData.Trait> traits,
 					boolean inclForwards, boolean inclMonsters,
 					boolean opponentOnly, boolean selfOnly,
 					String jobFilter) {

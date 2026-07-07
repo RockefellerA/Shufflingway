@@ -1312,6 +1312,12 @@ public interface GameContext {
     void mayPayToReplayAbility(String element, java.util.function.Consumer<GameContext> replayAction);
 
     /**
+     * Offers the player the option to pay 1 CP of {@code element} to apply an optional effect.
+     * Skips the offer if the player has no way to pay. Calls {@code onPay} if the player accepts.
+     */
+    void mayPayElementCpToEffect(String element, java.util.function.Consumer<GameContext> onPay);
+
+    /**
      * Offers the player the option to dull an active card named {@code cardName} to replay
      * the ability. Skips the offer silently if no active card of that name is on the field.
      * Calls {@code replayAction} if the player accepts.

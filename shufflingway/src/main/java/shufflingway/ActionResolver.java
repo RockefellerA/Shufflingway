@@ -1384,6 +1384,15 @@ public class ActionResolver {
     );
 
     /**
+     * "At the beginning of your opponent's Main Phase 1, [inner]" — fires at the start of the
+     * opponent's Main Phase 1 (i.e., when the card controller's opponent begins their Main Phase 1).
+     * Group {@code inner} — the effect to evaluate.
+     */
+    static final Pattern AT_BEGINNING_OF_OPP_MAIN_PHASE_1_FA_PATTERN = Pattern.compile(
+        "(?i)At\\s+the\\s+beginning\\s+of\\s+your\\s+opponent'?s\\s+Main\\s+Phase\\s+1\\b[^,]*,\\s+(?<inner>.+)"
+    );
+
+    /**
      * "At the end of your opponent's turn, [inner]" — fires at the end of the controlling player's
      * opponent's turn (i.e., whenever the opponent ends their turn).
      * Group {@code inner} — the effect to fire.
@@ -3570,6 +3579,16 @@ public class ActionResolver {
         Pattern.DOTALL
     );
 
+    /**
+     * Matches "You may pay 《Element》. If you do so, [effect]." — an optional CP payment followed
+     * by a conditional target action, used as the followup inside {@link #tryParseChooseCharacter}.
+     * Groups: {@code element} — the element name (e.g. "Ice"); {@code effect} — the conditional action text.
+     */
+    static final Pattern FOLLOWUP_YOU_MAY_PAY_ELEMENT_IF_DO_SO = Pattern.compile(
+        "(?i)^You\\s+may\\s+pay\\s+《(?<element>[^》]+)》[.!]?\\s+If\\s+you\\s+do\\s+so[,.]?\\s+(?<effect>.+)$",
+        Pattern.DOTALL
+    );
+
     private static final Pattern DRAW_DISCARD_RETRIGGER_IF_CARD_NAME = Pattern.compile(
         "(?i)^Draw\\s+(?<draw>\\d+)\\s+cards?\\s+then\\s+discard\\s+(?<discard>\\d+)\\s+cards?[.!]?\\s+" +
         "If\\s+you\\s+discard\\s+a\\s+Card\\s+Name\\s+(?<name>.+?)\\s+by\\s+this\\s+effect,\\s+" +
@@ -4296,6 +4315,9 @@ public class ActionResolver {
         result = tryParseBeginningOfMainPhase1EachTurnFieldAbility(effectText, source);
         if (result != null) return result;
 
+        result = tryParseBeginningOfOppMainPhase1FieldAbility(effectText, source);
+        if (result != null) return result;
+
         result = tryParseEndOfOpponentTurnFieldAbility(effectText, source);
         if (result != null) return result;
 
@@ -4939,6 +4961,7 @@ public class ActionResolver {
         if (tryParseBeginningOfMainPhase1FieldAbility(effectText, source) != null) return "BeginningOfMainPhase1FieldAbility";
         if (tryParseBeginningOfMainPhase2FieldAbility(effectText, source) != null) return "BeginningOfMainPhase2FieldAbility";
         if (tryParseBeginningOfMainPhase1EachTurnFieldAbility(effectText, source) != null) return "BeginningOfMainPhase1EachTurnFieldAbility";
+        if (tryParseBeginningOfOppMainPhase1FieldAbility(effectText, source)    != null) return "BeginningOfOppMainPhase1FieldAbility";
         if (tryParseEndOfOpponentTurnFieldAbility(effectText, source)     != null) return "EndOfOpponentTurnFieldAbility";
         if (tryParseChooseOppFwdDynCostBreak(effectText)                   != null) return "ChooseOppFwdDynCostBreak";
         if (tryParseChooseFwdPowerInferiorToSource(effectText, source)     != null) return "ChooseFwdPowerInferiorToSource";
@@ -5335,6 +5358,14 @@ public class ActionResolver {
                 return "ChooseCharacter / RfpIfSameTypeDraw";
             if (FOLLOWUP_REVEAL_TOP_N_JOB_DEAL_DMG_PLACE_BOTTOM.matcher(followup).find())
                 return "ChooseCharacter / RevealTopNJobDealDmgPlaceBottom";
+            {
+                Matcher youMayPayM = FOLLOWUP_YOU_MAY_PAY_ELEMENT_IF_DO_SO.matcher(followup);
+                if (youMayPayM.matches()) {
+                    String innerEff  = youMayPayM.group("effect").trim();
+                    String innerDesc = matchedFollowupName(innerEff, source);
+                    return "ChooseCharacter / YouMayPayElement[" + (innerDesc != null ? innerDesc : "?") + "]";
+                }
+            }
             int    dotIdx        = followup.indexOf(". ");
             String primaryPart   = dotIdx >= 0 ? followup.substring(0, dotIdx).trim() : followup;
             String secondaryRaw  = dotIdx >= 0 ? followup.substring(dotIdx + 2).trim() : null;
@@ -5411,6 +5442,7 @@ public class ActionResolver {
         if (tryParseEndOfEachTurnFieldAbility(effectText, source)             != null) return "EndOfEachTurnFieldAbility";
         if (tryParseEndOfEachPlayersTurnIfSelfFwdDamage(effectText, source)  != null) return "EndOfEachPlayersTurnIfSelfFwdDamage";
         if (tryParseBeginningOfMainPhase1EachTurnFieldAbility(effectText, source) != null) return "BeginningOfMainPhase1EachTurnFieldAbility";
+        if (tryParseBeginningOfOppMainPhase1FieldAbility(effectText, source)    != null) return "BeginningOfOppMainPhase1FieldAbility";
         if (tryParseEndOfOpponentTurnFieldAbility(effectText, source)        != null) return "EndOfOpponentTurnFieldAbility";
         if (tryParseIfRfpCount(effectText, source)                     != null) return "IfRfpCount";
         if (tryParseAllFieldEffect(effectText) != null)                     return "AllFieldEffect";
@@ -7622,6 +7654,28 @@ public class ActionResolver {
                 + (condition != null ? " " + condition : "")
                 + (element   != null ? " " + element   : "")
                 + categoryLabel + " " + targets + costLabel + powerLabel + controlLabel + excludeLabel + zoneLabel;
+
+        // --- "You may pay 《Element》. If you do so, [target action]." ---
+        // Checked against the full followup before the primary/secondary split so the conditional is not lost.
+        {
+            Matcher youMayPayM = FOLLOWUP_YOU_MAY_PAY_ELEMENT_IF_DO_SO.matcher(followup);
+            if (youMayPayM.matches()) {
+                String cpElem    = youMayPayM.group("element").trim();
+                String cpEffText = youMayPayM.group("effect").trim();
+                java.util.function.BiConsumer<GameContext, List<ForwardTarget>> cpAction =
+                        parseTargetAction(cpEffText, xValue);
+                if (cpAction != null) {
+                    return ctx -> {
+                        ctx.logEntry(choosePrefix + " — You may pay 《" + cpElem + "》; if so: " + cpEffText);
+                        List<ForwardTarget> ts = selectTargets(ctx, maxCount, upTo,
+                                opponentOnly, selfOnly, condition, element, zone, opponentZone,
+                                costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters,
+                                jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, fExcludeElem, withoutMulticard);
+                        ctx.mayPayElementCpToEffect(cpElem, ctx2 -> cpAction.accept(ctx2, ts));
+                    };
+                }
+            }
+        }
 
         // --- "You may discard 1 Card Name X from your hand. If you do so, deal it N damage." ---
         // Checked against the full followup before the primary/secondary split.
@@ -12912,6 +12966,17 @@ public class ActionResolver {
      */
     static Consumer<GameContext> tryParseBeginningOfMainPhase1EachTurnFieldAbility(String text, CardData source) {
         Matcher m = AT_BEGINNING_OF_MAIN_PHASE_1_EACH_TURN_FA_PATTERN.matcher(text);
+        if (!m.find()) return null;
+        return parse(m.group("inner").trim(), source);
+    }
+
+    /**
+     * Parses "At the beginning of your opponent's Main Phase 1, &lt;effect&gt;" — fires at the start of
+     * the controller's opponent's Main Phase 1.
+     * {@code fireFieldOppMainPhase1Abilities} is responsible for invoking it.
+     */
+    static Consumer<GameContext> tryParseBeginningOfOppMainPhase1FieldAbility(String text, CardData source) {
+        Matcher m = AT_BEGINNING_OF_OPP_MAIN_PHASE_1_FA_PATTERN.matcher(text);
         if (!m.find()) return null;
         return parse(m.group("inner").trim(), source);
     }

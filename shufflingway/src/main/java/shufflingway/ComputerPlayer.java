@@ -135,6 +135,7 @@ class ComputerPlayer {
 		mw.logEntry("[P2] Main Phase 1");
 		mw.fireFieldMainPhase1Abilities(false);
 		mw.fireFieldMainPhase1EachTurnAbilities();
+		mw.fireFieldOppMainPhase1Abilities(true);
 		step(() -> doMainPhase(() -> {
 			mw.gameState.advancePhase(); // MAIN_1 → ATTACK
 			mw.refreshPhaseTracker();

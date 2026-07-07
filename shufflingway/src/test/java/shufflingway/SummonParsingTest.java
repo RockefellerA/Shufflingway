@@ -126,11 +126,11 @@ public class SummonParsingTest {
     }
 
     private static void reservoirAdd(List<String> reservoir, String item, int seen, java.util.Random rng) {
-        if (reservoir.size() < 3) {
+        if (reservoir.size() < 5) {
             reservoir.add(item);
         } else {
             int j = rng.nextInt(seen);
-            if (j < 3) reservoir.set(j, item);
+            if (j < 5) reservoir.set(j, item);
         }
     }
 

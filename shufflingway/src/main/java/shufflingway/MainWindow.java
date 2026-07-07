@@ -1991,6 +1991,7 @@ public class MainWindow {
                             }
                             fireFieldMainPhase1Abilities(true);
                             fireFieldMainPhase1EachTurnAbilities();
+                            fireFieldOppMainPhase1Abilities(false);
                             syncBzForwardPlayables(true);
             }
 
@@ -4571,8 +4572,8 @@ public class MainWindow {
 			p2BlockingIdx       = -1;
 			p2BlockedByAttacker = null;
 		} else {
-			p2TakeDamage();
-			autoAbilityTriggers.triggerAutoAbilitiesForDealsDamageToOpponent(attacker, true);
+			dealCombatDamageToOpponent(attacker, true,
+				() -> autoAbilityTriggers.triggerAutoAbilitiesForDealsDamageToOpponent(attacker, true));
 		}
 	}
 
@@ -4596,7 +4597,7 @@ public class MainWindow {
 
 		if (!anyEligible) {
 			// No eligible blockers — auto-take damage
-			p1TakeDamage(() -> {
+			dealCombatDamageToOpponent(attacker, false, () -> {
 				autoAbilityTriggers.triggerAutoAbilitiesForDealsDamageToOpponent(attacker, false);
 				onDone.run();
 			});
@@ -9063,6 +9064,32 @@ public class MainWindow {
 	}
 
 	/**
+	 * Fires "At the beginning of your opponent's Main Phase 1" field abilities for all cards
+	 * controlled by {@code controllerIsP1}.  Call at the start of the OPPONENT's Main Phase 1
+	 * (i.e., when {@code !controllerIsP1} begins their turn's Main Phase 1).
+	 */
+	void fireFieldOppMainPhase1Abilities(boolean controllerIsP1) {
+		List<CardData> fwds = controllerIsP1 ? p1ForwardCards : p2ForwardCards;
+		CardData[]     bkps = controllerIsP1 ? p1BackupCards  : p2BackupCards;
+		List<CardData> mons = controllerIsP1 ? p1MonsterCards : p2MonsterCards;
+		GameContext ctx = buildGameContext(controllerIsP1);
+		for (CardData card : new ArrayList<>(fwds)) fireFieldOppMainPhase1AbilitiesForCard(card, ctx);
+		for (CardData card : bkps) if (card != null) fireFieldOppMainPhase1AbilitiesForCard(card, ctx);
+		for (CardData card : new ArrayList<>(mons)) fireFieldOppMainPhase1AbilitiesForCard(card, ctx);
+	}
+
+	private void fireFieldOppMainPhase1AbilitiesForCard(CardData card, GameContext ctx) {
+		for (FieldAbility fa : card.fieldAbilities()) {
+			Consumer<GameContext> effect =
+					ActionResolver.tryParseBeginningOfOppMainPhase1FieldAbility(fa.effectText(), card);
+			if (effect != null) {
+				logEntry("[Field] " + card.name() + " — start of opponent's Main Phase 1: " + fa.effectText());
+				effect.accept(ctx);
+			}
+		}
+	}
+
+	/**
 	 * Fires "At the end of your opponent's turn" field abilities for all cards controlled by
 	 * {@code controllerIsP1}.  Call when the opponent (= {@code !controllerIsP1}) ends their turn.
 	 */
@@ -9143,6 +9170,19 @@ public class MainWindow {
 		if (fromAbility) amount = applyCasterSideElementSummonDamageBoosts(amount, isP1);
 		// Outgoing damage boost from caster's side field cards when source is an Element Forward
 		if (fromAbility) amount = applyCasterSideElementForwardDamageBoosts(amount, isP1);
+
+		// Outgoing damage doubler from the source card's own field ability (ability damage to opponent's Forward)
+		if (fromAbility && currentAbilitySource != null && currentAbilitySourceIsP1 != isP1
+				&& !lostAbilitiesCards.contains(currentAbilitySource)) {
+			for (FieldAbility fa : currentAbilitySource.fieldAbilities()) {
+				Matcher fam = AutoAbilityTriggers.FA_OUTGOING_DAMAGE_DOUBLER.matcher(fa.effectText());
+				if (!fam.find() || !fam.group("card").trim().equalsIgnoreCase(currentAbilitySource.name())) continue;
+				if (!fam.group("target").toLowerCase().contains("forward")) continue;
+				int before = amount;
+				amount *= 2;
+				logEntry(currentAbilitySource.name() + " — outgoing damage doubled (" + before + " → " + amount + ")");
+			}
+		}
 
 		// Source-based nullification (these block damage by type of source, not by reducing amount)
 		if (fromAbility) {
@@ -9532,8 +9572,36 @@ public class MainWindow {
 			if (m.find() && m.group("name").trim().equalsIgnoreCase(attacker.name())
 					&& target.cost() >= Integer.parseInt(m.group("cost")))
 				mult *= 2;
+			m = AutoAbilityTriggers.FA_OUTGOING_DAMAGE_DOUBLER.matcher(fa.effectText());
+			if (m.find() && m.group("card").trim().equalsIgnoreCase(attacker.name())
+					&& m.group("target").toLowerCase().contains("forward"))
+				mult *= 2;
 		}
 		return mult;
+	}
+
+	private boolean sourceHasOutgoingDmgToOpponentDoubler(CardData attacker) {
+		if (attacker == null || lostAbilitiesCards.contains(attacker)) return false;
+		for (FieldAbility fa : attacker.fieldAbilities()) {
+			Matcher m = AutoAbilityTriggers.FA_OUTGOING_DAMAGE_DOUBLER.matcher(fa.effectText());
+			if (m.find() && m.group("card").trim().equalsIgnoreCase(attacker.name())
+					&& m.group("target").toLowerCase().contains("opponent"))
+				return true;
+		}
+		return false;
+	}
+
+	/** Deals 1 (or 2 if the attacker has the outgoing-damage doubler FA) combat damage to the opponent,
+	 *  calling {@code afterDamage} after all damage points and any EX bursts have resolved. */
+	private void dealCombatDamageToOpponent(CardData attacker, boolean attackerIsP1, Runnable afterDamage) {
+		boolean doubled = sourceHasOutgoingDmgToOpponentDoubler(attacker);
+		if (attackerIsP1) {
+			if (doubled) p2TakeDamage(() -> p2TakeDamage(afterDamage));
+			else         p2TakeDamage(afterDamage);
+		} else {
+			if (doubled) p1TakeDamage(() -> p1TakeDamage(afterDamage));
+			else         p1TakeDamage(afterDamage);
+		}
 	}
 
 	/**
@@ -10883,7 +10951,7 @@ public class MainWindow {
 				onDone.run();
 			});
 		} else {
-			p1TakeDamage(() -> {
+			dealCombatDamageToOpponent(attacker, false, () -> {
 				autoAbilityTriggers.triggerAutoAbilitiesForDealsDamageToOpponent(attacker, false);
 				setAttackSubStep(-1);
 				onDone.run();
@@ -11258,7 +11326,7 @@ public class MainWindow {
 				});
 			} else {
 				setAttackSubStep(3);
-				p2TakeDamage(() -> {
+				dealCombatDamageToOpponent(attacker, true, () -> {
 					autoAbilityTriggers.triggerAutoAbilitiesForDealsDamageToOpponent(attacker, true);
 					continueAttackPhase();
 				});
@@ -11544,7 +11612,7 @@ public class MainWindow {
 				});
 			} else {
 				setAttackSubStep(3);
-				p2TakeDamage(() -> {
+				dealCombatDamageToOpponent(attacker, true, () -> {
 					autoAbilityTriggers.triggerAutoAbilitiesForDealsDamageToOpponent(attacker, true);
 					continueAttackPhase();
 				});
@@ -11662,7 +11730,7 @@ public class MainWindow {
 					});
 				} else {
 					setAttackSubStep(3);
-					p2TakeDamage(() -> {
+					dealCombatDamageToOpponent(attacker, true, () -> {
 						autoAbilityTriggers.triggerAutoAbilitiesForDealsDamageToOpponent(attacker, true);
 						continueAttackPhase();
 					});
