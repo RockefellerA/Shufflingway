@@ -3358,6 +3358,24 @@ final class GameContextImpl implements GameContext {
 				Map<String, Integer> all = mw.gameState.getCountersMap(card);
 				logEntry(card.name() + " — placed " + count + " " + counterName
 						+ " Counter(s)  [now: " + all + "]");
+				for (int i = 0; i < mw.p1ForwardCards.size(); i++) {
+					if (mw.p1ForwardCards.get(i) == card) { mw.refreshP1ForwardSlot(i); return; }
+				}
+				for (int i = 0; i < mw.p2ForwardCards.size(); i++) {
+					if (mw.p2ForwardCards.get(i) == card) { mw.refreshP2ForwardSlot(i); return; }
+				}
+				for (int i = 0; i < mw.p1BackupCards.length; i++) {
+					if (mw.p1BackupCards[i] == card) { mw.refreshP1BackupSlot(i); return; }
+				}
+				for (int i = 0; i < mw.p2BackupCards.length; i++) {
+					if (mw.p2BackupCards[i] == card) { mw.refreshP2BackupSlot(i); return; }
+				}
+				for (int i = 0; i < mw.p1MonsterCards.size(); i++) {
+					if (mw.p1MonsterCards.get(i) == card) { mw.refreshP1MonsterSlot(i); return; }
+				}
+				for (int i = 0; i < mw.p2MonsterCards.size(); i++) {
+					if (mw.p2MonsterCards.get(i) == card) { mw.refreshP2MonsterSlot(i); return; }
+				}
 			}
 
 			@Override public int getCounters(CardData card, String counterName) {
@@ -3387,6 +3405,12 @@ final class GameContextImpl implements GameContext {
 				mw.gameState.removeCounters(card, chosen, 1);
 				logEntry(card.name() + " — removed 1 " + chosen + " Counter  [remaining: "
 						+ mw.gameState.getCountersMap(card) + "]");
+				int ridx = t.idx();
+				switch (t.zone()) {
+					case BACKUP  -> { if (t.isP1()) mw.refreshP1BackupSlot(ridx); else mw.refreshP2BackupSlot(ridx); }
+					case MONSTER -> { if (t.isP1()) mw.refreshP1MonsterSlot(ridx); else mw.refreshP2MonsterSlot(ridx); }
+					default      -> { if (t.isP1()) mw.refreshP1ForwardSlot(ridx); else mw.refreshP2ForwardSlot(ridx); }
+				}
 			}
 
 			@Override public void lookAtTopDeck(LookConfig config) {
