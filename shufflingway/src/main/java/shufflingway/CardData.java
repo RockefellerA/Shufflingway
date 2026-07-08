@@ -883,13 +883,13 @@ public record CardData(
         "(?:(?i)\\[\\[s\\]\\]\\s*([^\\[]+?)\\s*\\[\\[/\\]\\]\\s*)?"        +  // group 2: optional [[s]]Name[[/]]
         "(?=(?:《|(?i:put)\\b|(?i:discard)\\b|(?i:remove)\\b|(?i:return)\\b|(?i:dull)\\b))" + // lookahead: must start with 《, put, discard, remove, return, or dull
         "((?:《[^》]*》\\s*)*)"                                            +  // group 3: zero or more 《cost》 tokens
-        "(?:\\s*\\(This cost is reduced by 1 for each Job (?<inlinejob>[^)]+?) other than (?<inlineexclude>[^)]+?) you control\\.\\))?" + // optional inline cost modifier
-        "((?i)(?:,\\s*)?put\\s+(?:(?!\\[\\[br\\]\\]).)+?\\s+into\\s+the\\s+Break\\s+Zone\\s*)?"  + // group 4: optional BZ cost phrase
-        "((?i)(?:,\\s*)?discard(?:(?!,\\s*(?:remove|return)\\b)[^:])+)?"     +  // group 5: optional discard cost phrase
-        "((?i)(?:,\\s*)?remove\\s+[^:]+?\\s+from\\s+(?:the\\s+)?game\\s*)?" + // group 6: optional remove-from-game cost phrase
-        "((?i)(?:,\\s*)?return\\s+[^:]+?\\s+to\\s+(?:its|their)\\s+owner(?:'s|s')?\\s+hand\\s*)?" + // group 7: optional return-to-hand cost phrase
-        "((?i)(?:,\\s*)?remove\\s+\\d+\\s+[^:]+?\\s+Counters?\\s+from\\s+[^:,]+?\\s*)?" +           // group 8: optional counter-removal cost phrase
-        "(?<dullcost>(?i)(?:,\\s*)?Dull\\s+(?:a\\s+total\\s+of\\s+)?(?<dullcount>\\d+)?\\s*(?<dullcond>active|dull|damaged)?\\s*" + // group 9 (named): optional Dull N? [cond] Forward(s) cost — simple, Card Name, or bare-name form
+        "(?:\\s*\\(This cost is reduced by 1 for each Job (?<inlinejob>[^)]+?) other than (?<inlineexclude>[^)]+?) you control\\.\\))?" + // groups 4-5 (named): optional inline cost modifier
+        "((?i)(?:,\\s*)?put\\s+(?:(?!\\[\\[br\\]\\]).)+?\\s+into\\s+the\\s+Break\\s+Zone\\s*)?"  + // group 6: optional BZ cost phrase
+        "((?i)(?:,\\s*)?discard(?:(?!,\\s*(?:remove|return)\\b)[^:])+)?"     +  // group 7: optional discard cost phrase
+        "((?i)(?:,\\s*)?remove\\s+[^:]+?\\s+from\\s+(?:the\\s+)?game\\s*)?" + // group 8: optional remove-from-game cost phrase
+        "((?i)(?:,\\s*)?return\\s+[^:]+?\\s+to\\s+(?:its|their)\\s+owner(?:'s|s')?\\s+hand\\s*)?" + // group 9: optional return-to-hand cost phrase
+        "((?i)(?:,\\s*)?remove\\s+\\d+\\s+[^:]+?\\s+Counters?\\s+from\\s+[^:,]+?\\s*)?" +           // group 10: optional counter-removal cost phrase
+        "(?<dullcost>(?i)(?:,\\s*)?Dull\\s+(?:a\\s+total\\s+of\\s+)?(?<dullcount>\\d+)?\\s*(?<dullcond>active|dull|damaged)?\\s*" + // group 11 (named): optional Dull N? [cond] Forward(s) cost — simple, Card Name, or bare-name form
         "(?:Card\\s+Name\\s+.+?\\s+Forwards?" +                                              // named-card branch: "Dull N [cond] Card Name X Forward [and N [cond] Card Name Y Forward]"
         "(?:\\s+and\\s+\\d+\\s*(?:active|dull|damaged)?\\s*Card\\s+Name\\s+.+?\\s+Forwards?)*" +
         "|Category\\s+(?<dullcat>[A-Za-z0-9][A-Za-z0-9\\s''\\-]*?)(?:\\s+(?:Forwards?|Backups?|Monsters?|Characters?))?" + // category branch
@@ -996,11 +996,11 @@ public record CardData(
             int    damageThreshold = thresholdStr != null ? Integer.parseInt(thresholdStr) : 0;
             String rawName       = m.group(2);
             String costPart      = m.group(3);
-            String bzRaw         = m.group(4);
-            String discardRaw    = m.group(5);
-            String removeRaw     = m.group(6);
-            String returnRaw     = m.group(7);
-            String counterRaw    = m.group(8);
+            String bzRaw         = m.group(6);
+            String discardRaw    = m.group(7);
+            String removeRaw     = m.group(8);
+            String returnRaw     = m.group(9);
+            String counterRaw    = m.group(10);
             String dullCostRaw   = m.group("dullcost");
             String effectRaw     = DAMAGE_THRESHOLD_REMINDER_PAREN.matcher(m.group("effecttext").trim()).replaceAll("").trim();
             if (effectRaw.isEmpty()) continue;

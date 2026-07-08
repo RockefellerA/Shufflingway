@@ -5636,10 +5636,21 @@ public class MainWindow {
 		if (pendingCostBreakDestLabel != null) {
 			JLabel dest = pendingCostBreakDestLabel;
 			pendingCostBreakDestLabel = null;
+			boolean destIsP1 = dest == p1BreakLabel;
 			Point start = SwingUtilities.convertPoint(label, label.getWidth() / 2, label.getHeight() / 2, lp);
 			Point end   = SwingUtilities.convertPoint(dest,  dest.getWidth()  / 2, dest.getHeight()  / 2, lp);
 			java.awt.image.BufferedImage img = CardAnimation.toARGB(ii.getImage(), ii.getIconWidth(), ii.getIconHeight());
+			if (destIsP1) p1BreakAnimHide++; else p2BreakAnimHide++;
+			if (destIsP1) refreshP1BreakLabel(); else refreshP2BreakLabel();
 			cardSlideAnimator.startSlide(img, start, end, 0);
+			int delayMs = CardSlideAnimator.TOTAL_FRAMES * CardSlideAnimator.FRAME_MS;
+			Timer reveal = new Timer(delayMs, e -> {
+				if (destIsP1) p1BreakAnimHide = Math.max(0, p1BreakAnimHide - 1);
+				else          p2BreakAnimHide = Math.max(0, p2BreakAnimHide - 1);
+				if (destIsP1) refreshP1BreakLabel(); else refreshP2BreakLabel();
+			});
+			reveal.setRepeats(false);
+			reveal.start();
 			return;
 		}
 		Point         center = SwingUtilities.convertPoint(

@@ -3064,6 +3064,7 @@ final class AutoAbilityTriggers {
 		sortedBz.sort((a, b) -> a.zone() == b.zone() ? Integer.compare(b.idx(), a.idx()) : 0);
 		mw.lastBzCostForwardPower = 0;
 		for (ForwardTarget t : sortedBz) {
+			mw.pendingCostBreakDestLabel = t.isP1() ? mw.p1BreakLabel : mw.p2BreakLabel;
 			if (t.isP1()) {
 				if (t.zone() == ForwardTarget.CardZone.FORWARD) {
 					CardData bf = mw.p1ForwardCards.get(t.idx());
