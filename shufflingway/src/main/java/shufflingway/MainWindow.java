@@ -7697,7 +7697,7 @@ public class MainWindow {
 				}
 
 				logEntry("[Summon] Resolving \"" + entry.source().name() + "\": " + effectText);
-				Consumer<GameContext> effect = ActionResolver.parse(effectText, entry.source());
+				Consumer<GameContext> effect = ActionResolver.parse(effectText, entry.source(), entry.xValue());
 				if (effect != null) {
 					currentResolutionIsSummon   = true;
 					currentSummonSource     = entry.source();

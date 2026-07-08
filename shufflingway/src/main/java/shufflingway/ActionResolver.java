@@ -1216,9 +1216,10 @@ public class ActionResolver {
         "(?i)^\\s*reveal\\s+the\\s+top\\s+(?<n>\\d+)\\s+cards?\\s+of\\s+your\\s+deck[.!]?\\s+" +
         "Play\\s+(?:up\\s+to\\s+)?(?<max>\\d+)\\s+" +
         "(?:(?<element>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)\\s+)?" +
-        "(?<type>Forward|Backup|Monster|Character)s?\\s+of\\s+cost\\s+(?<cost>\\d+)\\s+or\\s+less\\s+" +
+        "(?<type>Forward|Backup|Monster|Character)s?\\s+of\\s+cost\\s+(?<cost>\\d+|X)\\s+or\\s+less\\s+" +
         "among\\s+them\\s+onto\\s+(?:the\\s+)?field[,.]?\\s+" +
-        "and\\s+return\\s+the\\s+other\\s+cards?\\s+to\\s+the\\s+bottom\\s+of\\s+(?:your|the)\\s+deck" +
+        "(?:Then,?\\s+shuffle\\s+the\\s+other\\s+cards?\\s+revealed\\s+and\\s+return\\s+them|" +
+        "and\\s+return\\s+the\\s+other\\s+cards?)\\s+to\\s+the\\s+bottom\\s+of\\s+(?:your|the)\\s+deck" +
         "(?:\\s+in\\s+any\\s+order)?[.!]?\\s*$"
     );
 
@@ -2260,7 +2261,7 @@ public class ActionResolver {
         "(?i)^Your\\s+opponent\\s+selects?\\s+(?<count>\\d+)\\s+" +
         "(?:(?<condition>dull|damaged|attacking|blocking|active)\\s+)?" +
         "(?:(?<element>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)\\s+)?" +
-        "(?<targets>Forwards?|Backups?|Characters?)" +
+        "(?<targets>(?:Forwards?|Backups?|Characters?|Monsters?)(?:\\s+(?:and/or|or|and)\\s+(?:Forwards?|Backups?|Characters?|Monsters?))?)" +
         "\\s+(?:they|he/she|he|she)\\s+controls?" +
         "(?:[.]\\s*|\\s+and\\s+)" +
         "(?<followup>.+)",
@@ -4970,7 +4971,7 @@ public class ActionResolver {
         result = tryParseRevealElementCardFromHandIfSoDraw(effectText);
         if (result != null) return result;
 
-        result = tryParseRevealPlayElementTypeCostOntoFieldRestBottom(effectText);
+        result = tryParseRevealPlayElementTypeCostOntoFieldRestBottom(effectText, xValue);
         if (result != null) return result;
 
         result = tryParseShuffleDeck(effectText);
@@ -11464,7 +11465,14 @@ public class ActionResolver {
     }
 
     private static Consumer<GameContext> tryParseRevealPlayElementTypeCostOntoFieldRestBottom(String text) {
-        Matcher m = REVEAL_PLAY_ELEMENT_TYPE_COST_ONTO_FIELD_REST_BOTTOM.matcher(text.trim());
+        return tryParseRevealPlayElementTypeCostOntoFieldRestBottom(text, 0);
+    }
+
+    private static Consumer<GameContext> tryParseRevealPlayElementTypeCostOntoFieldRestBottom(String text, int xValue) {
+        // Strip "You can only cast [CardName] during your Main Phase." restriction prefix.
+        String stripped = text.trim().replaceFirst(
+                "(?i)You\\s+can\\s+only\\s+cast\\s+[^.]+?during\\s+your\\s+Main\\s+Phase[.!]?\\s*", "").trim();
+        Matcher m = REVEAL_PLAY_ELEMENT_TYPE_COST_ONTO_FIELD_REST_BOTTOM.matcher(stripped);
         if (!m.matches()) return null;
         int n           = Integer.parseInt(m.group("n"));
         int max         = Integer.parseInt(m.group("max"));
@@ -11472,7 +11480,8 @@ public class ActionResolver {
         String element    = elementRaw != null ? Character.toUpperCase(elementRaw.charAt(0)) + elementRaw.substring(1).toLowerCase() : null;
         String typeRaw  = m.group("type");
         String normType = Character.toUpperCase(typeRaw.charAt(0)) + typeRaw.substring(1).toLowerCase();
-        int maxCost     = Integer.parseInt(m.group("cost"));
+        String costStr  = m.group("cost");
+        int maxCost     = "X".equalsIgnoreCase(costStr) ? xValue : Integer.parseInt(costStr);
         return ctx -> ctx.revealTopNPlayUpToElementTypeCostOntoFieldRestBottom(n, max, element, normType, maxCost);
     }
 
