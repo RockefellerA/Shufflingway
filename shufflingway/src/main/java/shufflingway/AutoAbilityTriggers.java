@@ -1554,7 +1554,7 @@ final class AutoAbilityTriggers {
 			mw.usedOncePerTurnAbilities.computeIfAbsent(source, k -> new HashSet<>()).add(fa.effectText());
 
 		mw.logEntry("[AutoAbility] " + source.name() + " — pushed to stack");
-		mw.gameState.pushStack(new StackEntry(source, null, fa, effectIsP1, 0, false, null));
+		mw.gameState.pushStack(new StackEntry(source, null, fa, effectIsP1, 0, false, null, false));
 	}
 
 	private void executeCounterRemovalWhenDoSoAutoAbility(AutoAbility fa, CardData source,

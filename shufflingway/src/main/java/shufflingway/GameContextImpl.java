@@ -183,10 +183,15 @@ final class GameContextImpl implements GameContext {
 				}
 				logEntry(p + "Remove Warp Counter from \"" + chosen.card.name()
 						+ "\" (" + chosen.counters + " → " + (chosen.counters - 1) + ")");
+				// Push warp-resolve first (sits below the trigger on the stack) so the
+				// counter-removed auto-ability resolves before the card enters the field.
+				boolean willResolve = chosen.counters - 1 <= 0;
+				if (willResolve) {
+					mw.gameState.pushStack(StackEntry.forWarpResolve(chosen.card, isP1));
+				}
 				mw.autoAbilityTriggers.triggerAutoAbilitiesForWarpCounterRemoved(chosen.card, isP1);
-				int remaining = mw.gameState.removeOneWarpCounterFrom(chosen.card, isP1);
-				if (remaining <= 0) {
-					mw.resolveWarpCard(chosen.card, isP1);
+				mw.gameState.removeOneWarpCounterFrom(chosen.card, isP1);
+				if (willResolve) {
 					if (isP1) mw.refreshP1BreakLabel(); else mw.refreshP2BreakLabel();
 				}
 				if (isP1) mw.refreshP1WarpZoneUI(); else mw.refreshP2WarpZoneUI();
@@ -2062,7 +2067,7 @@ final class GameContextImpl implements GameContext {
 					boolean inclMonsters, int costVal, String costCmp, int costVal2,
 					String jobFilter, String cardNameFilter, String categoryFilter,
 					String elementFilter, String excludeName, boolean entersDull, String excludeElement,
-					boolean suppressAutoAbility) {
+					boolean suppressAutoAbility, String withTrait) {
 				List<CardData> hand = isP1 ? mw.gameState.getP1Hand() : mw.gameState.getP2Hand();
 				List<Integer> eligible = new ArrayList<>();
 				for (int i = 0; i < hand.size(); i++) {
@@ -2084,6 +2089,7 @@ final class GameContextImpl implements GameContext {
 					if (!meetsElementFilter(card, elementFilter)) continue;
 					if (!meetsElementExclusion(card, excludeElement)) continue;
 					if (excludeName != null && excludeName.equalsIgnoreCase(card.name())) continue;
+					if ("Warp".equalsIgnoreCase(withTrait) && !card.hasWarp()) continue;
 					eligible.add(i);
 				}
 				if (eligible.isEmpty()) {
@@ -3508,7 +3514,7 @@ final class GameContextImpl implements GameContext {
 				for (AutoAbility fa : source.autoAbilities()) {
 					if (fa.trigger().equals(triggerType)) {
 						mw.logEntry("[AutoAbility] " + source.name() + " — retriggered (" + triggerType + ")");
-						mw.gameState.pushStack(new StackEntry(source, null, fa, isP1, 0, false, null));
+						mw.gameState.pushStack(new StackEntry(source, null, fa, isP1, 0, false, null, false));
 						mw.showStackWindowIfNeeded();
 						return;
 					}

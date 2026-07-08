@@ -2478,18 +2478,31 @@ public class MainWindow {
 		if (zone.isEmpty()) return;
 
 		String tag = isP1 ? "Warp: " : "[P2] Warp: ";
+
+		// Push warp-resolve entries FIRST so they sit below the counter-removed auto-ability
+		// triggers on the stack; triggers resolve first, then the card enters the field.
+		boolean anyResolving = false;
+		for (GameState.WarpEntry entry : zone) {
+			if (entry.counters - 1 <= 0) {
+				gameState.pushStack(StackEntry.forWarpResolve(entry.card, isP1));
+				anyResolving = true;
+			}
+		}
+
+		// Fire counter-removed triggers; these are pushed on top and resolve before the warp-resolve entries.
 		for (GameState.WarpEntry entry : zone) {
 			int before = entry.counters;
 			int after  = before - 1;
 			logEntry(tag + "\"" + entry.card.name() + "\" counter " + before + " → " + after
-					+ (after == 0 ? " (resolving!)" : ""));
+					+ (after <= 0 ? " (resolving!)" : ""));
 			autoAbilityTriggers.triggerAutoAbilitiesForWarpCounterRemoved(entry.card, isP1);
 		}
 
-		List<CardData> resolved = isP1
-				? gameState.tickP1WarpCounters() : gameState.tickP2WarpCounters();
-		for (CardData card : resolved) resolveWarpCard(card, isP1);
-		if (!resolved.isEmpty()) {
+		// Decrement all counters; cards that hit 0 are removed from the warp zone here.
+		// resolveWarpCard for those cards is now deferred to the warp-resolve stack entries.
+		if (isP1) gameState.tickP1WarpCounters(); else gameState.tickP2WarpCounters();
+
+		if (anyResolving) {
 			if (isP1) refreshP1BreakLabel(); else refreshP2BreakLabel();
 		}
 		if (isP1) refreshP1WarpZoneUI(); else refreshP2WarpZoneUI();
@@ -2519,7 +2532,7 @@ public class MainWindow {
 		} finally {
 			lastCardWarpedIn = false;
 		}
-		startWarpInAnimForCard(card, isP1);
+		SwingUtilities.invokeLater(() -> startWarpInAnimForCard(card, isP1));
 	}
 
 	private void showRemovedFromPlayDialog(GrayscaleLabel removeLabel, String player) {
@@ -5576,7 +5589,12 @@ public class MainWindow {
 		JLayeredPane lp = frame.getRootPane().getLayeredPane();
 		Point center = SwingUtilities.convertPoint(label, label.getWidth() / 2, label.getHeight() / 2, lp);
 		java.awt.image.BufferedImage img = CardAnimation.toARGB(ii.getImage(), ii.getIconWidth(), ii.getIconHeight());
+		label.setVisible(false);
 		rfpAnimator.startWarpIn(img, center);
+		JLabel reveal = label;
+		Timer t = new Timer(CardRfpAnimator.TOTAL_FRAMES * CardRfpAnimator.FRAME_MS, e -> reveal.setVisible(true));
+		t.setRepeats(false);
+		t.start();
 	}
 
 	void startBreakAnim(JLabel label) {
@@ -7598,6 +7616,10 @@ public class MainWindow {
 				}
 				refreshP1HandLabel();
 				refreshP1BreakLabel();
+			} else if (entry.isWarpResolve()) {
+				// Warp card enters the field after its triggers have resolved.
+				resolveWarpCard(entry.source(), entry.isP1());
+				if (entry.isP1()) refreshP1BreakLabel(); else refreshP2BreakLabel();
 			} else {
 				currentAbilitySource     = entry.source();
 				currentAbilitySourceIsP1 = entry.isP1();
@@ -11256,8 +11278,16 @@ public class MainWindow {
 		p2AutoPassTimer = new Timer(1500, e -> {
 			((Timer) e.getSource()).stop();
 			p2AutoPassTimer = null;
-			phaseTracker.setHasPriority(true);
-			onDone.run();
+			// On P1's turn: let the CPU activate any reactive shields before passing.
+			if (gameState.getCurrentPlayer() == GameState.Player.P1) {
+				computerPlayer.tryP2ReactiveShieldAbilities(() -> {
+					phaseTracker.setHasPriority(true);
+					onDone.run();
+				});
+			} else {
+				phaseTracker.setHasPriority(true);
+				onDone.run();
+			}
 		});
 		p2AutoPassTimer.setRepeats(false);
 		p2AutoPassTimer.start();

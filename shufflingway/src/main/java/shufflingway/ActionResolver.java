@@ -1971,6 +1971,18 @@ public class ActionResolver {
     );
 
     /**
+     * Returns {@code true} if the effect grants the source card itself immunity to ability/summon
+     * damage for the turn ("if [cardName] is dealt damage by Summons or abilities, it becomes 0").
+     * These are reactive defensive abilities: the CPU should use them in response to opponent
+     * actions, not proactively during its own main phase.
+     */
+    public static boolean isReactiveDamageShield(String effectText, CardData source) {
+        if (source == null || effectText == null) return false;
+        Matcher m = STANDALONE_NULLIFY_ABILITY_DAMAGE.matcher(effectText);
+        return m.find() && m.group("card").trim().equalsIgnoreCase(source.name());
+    }
+
+    /**
      * "During this turn, the next damage dealt to [name] becomes 0 instead."
      * "The next damage dealt to Card Name [name] becomes 0 this turn."
      */
@@ -2407,6 +2419,7 @@ public class ActionResolver {
         "\\s*" +
         // Exclusion
         "(?:other\\s+than\\s+Card\\s+Name\\s+(?<excludename>\\S+(?:\\s+\\([^)]+\\))?)\\s+)?" +
+        "(?:with\\s+(?<trait>Warp)\\s+)?" +
         "from\\s+your\\s+hand\\s+onto\\s+(?:the\\s+)?field" +
         // Dull modifier
         "(?:\\s+(?<dull>dull))?" +
@@ -12403,6 +12416,7 @@ public class ActionResolver {
         String rawExcludeElem = m.group("excludeelem");
         final String fExcludeElem = rawExcludeElem != null ? rawExcludeElem.trim() : null;
         final boolean fSuppressAuto = ITS_AUTO_ABILITY_WILL_NOT_TRIGGER.matcher(text).find();
+        final String fWithTrait = m.group("trait");
 
         return ctx -> {
             int resolvedCost = fCostVal;
@@ -12423,7 +12437,7 @@ public class ActionResolver {
                     + (fSuppressAuto ? " (no ETF auto-ability)" : ""));
             ctx.playCharacterFromHand(inclForwards, inclBackups, inclMonsters,
                     resolvedCost, resolvedCmp, fCostVal2,
-                    fJob, fName, fCat, fElem, fExclude, fEntersDull, fExcludeElem, fSuppressAuto);
+                    fJob, fName, fCat, fElem, fExclude, fEntersDull, fExcludeElem, fSuppressAuto, fWithTrait);
         };
     }
 

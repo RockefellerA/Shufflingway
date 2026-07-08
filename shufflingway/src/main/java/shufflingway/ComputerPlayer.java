@@ -982,6 +982,41 @@ class ComputerPlayer {
 	}
 
 	/**
+	 * Called from {@link MainWindow#p2AutoPass} when P1 has priority.
+	 * Activates any reactive "ability/summon damage becomes 0" shield abilities on P2's forwards
+	 * that are not already shielded, then runs {@code onDone}.
+	 */
+	void tryP2ReactiveShieldAbilities(Runnable onDone) {
+		for (int i = 0; i < mw.p2ForwardCards.size(); i++) {
+			CardData card = mw.p2ForwardCards.get(i);
+			if (card == null) continue;
+			if (mw.nullifyAbilityDmgSet.contains(card)) continue; // already shielded this turn
+			if (mw.lostAbilitiesCards.contains(card)) continue;
+			boolean isFrozen  = mw.p2ForwardFrozen.get(i);
+			CardState state   = mw.p2ForwardStates.get(i);
+			int playedTurn    = mw.p2ForwardPlayedOnTurn.get(i);
+			final int fi      = i;
+			for (ActionAbility ability : card.actionAbilities()) {
+				if (!ActionResolver.isReactiveDamageShield(ability.effectText(), card)) continue;
+				if (!mw.canActivateAbility(ability, isFrozen, state, playedTurn, card, false)) continue;
+				if (ActionResolver.parse(ability.effectText(), card) == null) continue;
+				List<Integer>        backupDullIndices = new ArrayList<>();
+				Map<Integer, String> backupElems       = new LinkedHashMap<>();
+				List<Integer>        discardIndices    = new ArrayList<>();
+				Map<Integer, String> discardElems      = new LinkedHashMap<>();
+				if (!p2PlanAbilityPayment(ability, backupDullIndices, backupElems, discardIndices, discardElems)) continue;
+				mw.logEntry("[P2] Activates reactive shield: " + card.name() + " — " + ability.effectText());
+				mw.autoAbilityTriggers.executeP2AbilityActivation(ability, card,
+						() -> { mw.p2ForwardStates.set(fi, CardState.DULL); mw.refreshP2ForwardSlot(fi); },
+						backupDullIndices, discardIndices, 0);
+				step(() -> tryP2ReactiveShieldAbilities(onDone));
+				return;
+			}
+		}
+		onDone.run();
+	}
+
+	/**
 	 * Tries to activate any available P2 break-zone action abilities.
 	 * Called at the end of {@link #tryP2ActionAbilities} before {@code onDone}.
 	 */
@@ -1039,6 +1074,9 @@ class ComputerPlayer {
 					&& ActionResolver.isTempSelfPowerBoostEffect(ability.effectText(), card)
 					&& !p1ThreatensCard(card))
 				continue;
+			// Reactive shields ("if [card] is dealt damage by Summons/abilities, damage becomes 0")
+			// are only useful on the opponent's turn; skip them here and let p2AutoPass handle them.
+			if (ActionResolver.isReactiveDamageShield(ability.effectText(), card)) continue;
 
 			List<Integer>        backupDullIndices = new ArrayList<>();
 			Map<Integer, String> backupElems       = new LinkedHashMap<>();

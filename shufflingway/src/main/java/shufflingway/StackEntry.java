@@ -4,7 +4,8 @@ import java.util.List;
 
 /**
  * A single entry on the resolution stack — a Summon being cast,
- * an Action Ability being activated, or an Auto-ability that has triggered.
+ * an Action Ability being activated, an Auto-ability that has triggered,
+ * or a Warp card that is about to enter the field.
  *
  * @param source               the card that owns this effect
  * @param ability              non-null for Action Abilities; {@code null} otherwise
@@ -16,30 +17,38 @@ import java.util.List;
  *                             and skips the Summon post-resolution steps
  * @param preSelectedTargets   targets chosen at activation time (before the entry goes on the stack);
  *                             {@code null} when the ability doesn't pre-select targets
+ * @param isWarpResolve        {@code true} when this entry represents a Warp card entering the field
+ *                             after its last counter was removed; resolution calls
+ *                             {@link MainWindow#resolveWarpCard}
  */
-public record StackEntry(CardData source, ActionAbility ability, AutoAbility autoAbility, boolean isP1, int xValue, boolean isExBurst, List<ForwardTarget> preSelectedTargets) {
+public record StackEntry(CardData source, ActionAbility ability, AutoAbility autoAbility, boolean isP1, int xValue, boolean isExBurst, List<ForwardTarget> preSelectedTargets, boolean isWarpResolve) {
 
     /** Convenience constructor for Summons and Action Abilities without an X cost. */
     public StackEntry(CardData source, ActionAbility ability, boolean isP1) {
-        this(source, ability, null, isP1, 0, false, null);
+        this(source, ability, null, isP1, 0, false, null, false);
     }
 
     /** Convenience constructor for Action Abilities with an X cost. */
     public StackEntry(CardData source, ActionAbility ability, boolean isP1, int xValue) {
-        this(source, ability, null, isP1, xValue, false, null);
+        this(source, ability, null, isP1, xValue, false, null, false);
     }
 
     /** Convenience constructor for Action Abilities with pre-selected targets. */
     public StackEntry(CardData source, ActionAbility ability, boolean isP1, int xValue, List<ForwardTarget> preSelectedTargets) {
-        this(source, ability, null, isP1, xValue, false, preSelectedTargets);
+        this(source, ability, null, isP1, xValue, false, preSelectedTargets, false);
     }
 
     /** Convenience constructor for EX Burst effects placed on the stack. */
     public StackEntry(CardData source, boolean isP1, boolean isExBurst) {
-        this(source, null, null, isP1, 0, isExBurst, null);
+        this(source, null, null, isP1, 0, isExBurst, null, false);
     }
 
-    public boolean isSummon()        { return ability == null && autoAbility == null && !isExBurst; }
+    /** Creates a stack entry that, when it resolves, places {@code card} on the field via Warp. */
+    public static StackEntry forWarpResolve(CardData card, boolean isP1) {
+        return new StackEntry(card, null, null, isP1, 0, false, null, true);
+    }
+
+    public boolean isSummon()        { return ability == null && autoAbility == null && !isExBurst && !isWarpResolve; }
     public boolean isAutoAbility()   { return autoAbility != null; }
     public boolean isActionAbility() { return ability != null; }
     public boolean isSpecialAbility(){ return ability != null && ability.isSpecial(); }

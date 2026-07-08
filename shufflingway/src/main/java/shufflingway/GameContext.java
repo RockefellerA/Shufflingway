@@ -279,7 +279,7 @@ public interface GameContext {
             int costVal, String costCmp, int costVal2,
             String jobFilter, String cardNameFilter, String categoryFilter,
             String elementFilter, String excludeName, boolean entersDull, String excludeElement,
-            boolean suppressAutoAbility);
+            boolean suppressAutoAbility, String withTrait);
 
     /**
      * Repeatedly prompts the ability user to play matching characters from their hand onto the
