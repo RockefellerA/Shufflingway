@@ -137,6 +137,33 @@ public record CardData(
         "(?:\\s+(Character|Forward|Backup|Monster))?"
     );
 
+    /**
+     * Matches the extra-cost clause for summons. Five variants:
+     * <ul>
+     *   <li>remove N [Element] cards in your Break Zone from the game as an extra cost</li>
+     *   <li>remove N Forward(s) in your Break Zone from the game as an extra cost</li>
+     *   <li>remove N Card Name [name] in your Break Zone from the game as an extra cost</li>
+     *   <li>discard N card(s) as an extra cost</li>
+     *   <li>pay 《X》 as an extra cost</li>
+     * </ul>
+     * Groups: {@code count}, {@code element}, {@code forward}, {@code cardname}, {@code discardcount}.
+     */
+    static final Pattern EXTRA_COST_SUMMON = Pattern.compile(
+        "(?i)If\\s+you\\s+cast\\s+[^,]+,\\s+you\\s+may\\s+" +
+        "(?:" +
+            "remove\\s+(?<count>\\d+)\\s+" +
+            "(?:(?<element>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)\\s+cards?|" +
+            "(?<forward>Forwards?)|" +
+            "Card\\s+Name\\s+(?<cardname>.+?)(?=\\s+in\\s+your\\s+Break))" +
+            "\\s+in\\s+your\\s+Break\\s+Zone\\s+from\\s+the\\s+game" +
+        "|" +
+            "discard\\s+(?<discardcount>\\d+)\\s+cards?" +
+        "|" +
+            "pay\\s+《X》" +
+        ")" +
+        "\\s+as\\s+an\\s+extra\\s+cost"
+    );
+
     /** Extracts card names from "a Card Name X" phrases in a condition string. */
     private static final Pattern CONDITION_CARD_NAME = Pattern.compile(
         "(?i)a\\s+Card\\s+Name\\s+(?<name>[^,]+?)(?=\\s+(?:or\\b|and\\b)|\\s*$)"
@@ -241,6 +268,25 @@ public record CardData(
         Matcher m = ALT_COST_NONSUMMON.matcher(textEn);
         if (m.find()) { String f = m.group("followup"); return f != null ? f.trim() : ""; }
         return "";
+    }
+
+    /**
+     * Returns the optional extra cost for this summon card, or {@code null} if none is defined.
+     * An extra cost lets the player remove cards from their Break Zone from the game when casting
+     * in exchange for an enhanced effect ("If you paid the extra cost, …").
+     */
+    public ExtraCost extraCost() {
+        Matcher m = EXTRA_COST_SUMMON.matcher(textEn);
+        if (!m.find()) return null;
+        String discardcount = m.group("discardcount");
+        if (discardcount != null) return ExtraCost.discardHand(Integer.parseInt(discardcount));
+        String count = m.group("count");
+        if (count == null) return ExtraCost.cpX();  // pay 《X》 branch
+        String cardname = m.group("cardname");
+        if (cardname != null) return ExtraCost.bzRemoveCardName(Integer.parseInt(count), cardname.trim());
+        String element = m.group("element");
+        if (element != null) return ExtraCost.bzRemoveElement(Integer.parseInt(count), element);
+        return ExtraCost.bzRemoveForward(Integer.parseInt(count));
     }
 
     /**
@@ -594,15 +640,16 @@ public record CardData(
      */
     public String summonEffect() {
         String t = SUMMON_EX_PREFIX.matcher(textEn).replaceFirst("");
-        if (altCrystalCost() > 0) {
+        if (altCrystalCost() > 0 || extraCost() != null) {
             String[] parts = SUMMON_BR.split(t);
             StringBuilder sb = new StringBuilder();
             for (String part : parts) {
                 String trimmed = part.trim();
                 if (trimmed.isEmpty()) continue;
-                if (ALT_COST_SUMMON.matcher(trimmed).find())    continue; // alt-cost block
-                if (ALT_COST_NONSUMMON.matcher(trimmed).find()) continue; // alt-cost block
-                if (TRAIT_ONLY_SEGMENT.matcher(trimmed).matches()) continue; // trait-only line
+                if (ALT_COST_SUMMON.matcher(trimmed).find())    continue;
+                if (ALT_COST_NONSUMMON.matcher(trimmed).find()) continue;
+                if (EXTRA_COST_SUMMON.matcher(trimmed).find())  continue; // extra-cost clause
+                if (TRAIT_ONLY_SEGMENT.matcher(trimmed).matches()) continue;
                 sb.append(trimmed).append(" ");
             }
             t = sb.toString().trim();

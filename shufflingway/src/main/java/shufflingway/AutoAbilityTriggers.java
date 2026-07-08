@@ -1235,6 +1235,9 @@ final class AutoAbilityTriggers {
 			mw.logEntry("[EX BURST] " + card.name() + " — no parseable effect");
 			return;
 		}
+		// Strip any extra cost clause — extra cost cannot be paid when triggered as an EX Burst.
+		if (card.extraCost() != null)
+			effect = ActionResolver.stripExtraCostClause(effect);
 		Consumer<GameContext> fn = ActionResolver.parse(effect, card);
 		if (fn == null) {
 			mw.logEntry("[EX BURST] Effect not yet implemented: " + effect);
@@ -1554,7 +1557,7 @@ final class AutoAbilityTriggers {
 			mw.usedOncePerTurnAbilities.computeIfAbsent(source, k -> new HashSet<>()).add(fa.effectText());
 
 		mw.logEntry("[AutoAbility] " + source.name() + " — pushed to stack");
-		mw.gameState.pushStack(new StackEntry(source, null, fa, effectIsP1, 0, false, null, false));
+		mw.gameState.pushStack(new StackEntry(source, null, fa, effectIsP1, 0, false, null, false, false, 0));
 	}
 
 	private void executeCounterRemovalWhenDoSoAutoAbility(AutoAbility fa, CardData source,

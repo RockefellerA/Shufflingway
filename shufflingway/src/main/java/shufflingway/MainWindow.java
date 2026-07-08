@@ -64,6 +64,8 @@ import javax.swing.JPanel;
 import javax.swing.JPopupMenu;
 import javax.swing.JScrollPane;
 import javax.swing.JSeparator;
+import javax.swing.JSpinner;
+import javax.swing.SpinnerNumberModel;
 import javax.swing.JTextArea;
 import javax.swing.JTextField;
 import javax.swing.JWindow;
@@ -92,6 +94,7 @@ import static shufflingway.CardFilters.meetsJobFilter;
 import static shufflingway.CpPaymentUtils.contributingElement;
 import static shufflingway.CpPaymentUtils.matchesAnyElement;
 import shufflingway.dialog.AltCostPaymentDialog;
+import shufflingway.dialog.ExtraCostBzSelectDialog;
 import shufflingway.dialog.BreakZoneDialog;
 import shufflingway.dialog.DamageZoneDialog;
 import shufflingway.dialog.HandPickDialog;
@@ -556,6 +559,20 @@ public class MainWindow {
 	CardData currentSummonSource    = null;
 	/** {@code true} if {@link #currentSummonSource} belongs to P1. */
 	private boolean  currentSummonSourceIsP1 = false;
+	/** {@code true} when the summon currently resolving was cast with its extra cost paid. */
+	boolean currentSummonPaidExtraCost = false;
+	/** Power of the Forward removed by the extra cost (Titan); 0 otherwise. */
+	int currentExtraCostRemovedCardPower = 0;
+	/** BZ cards to remove from the game once the current extra-cost CP payment is confirmed. */
+	private List<CardData> pendingExtraCostBzRemovals = null;
+	/** Hand cards to discard as extra cost once the current CP payment is confirmed (Fenrir). */
+	private List<CardData> pendingExtraCostHandDiscards = null;
+	/** X value chosen for a 《X》 extra cost payment (Valefor). */
+	private int pendingExtraCostXValue = 0;
+	/** Extra CP to add to the payment dialog when the extra cost is 《X》 CP (Valefor). */
+	private int pendingExtraCostExtraCp = 0;
+	/** Cost of the card discarded as the hand-discard extra cost; 0 if not applicable. */
+	int currentExtraCostDiscardedCardCost = 0;
 	/** The source card of the action ability currently resolving off the stack (null otherwise). */
 	CardData currentAbilitySource       = null;
 	/** {@code true} if {@link #currentAbilitySource} belongs to P1. */
@@ -5231,6 +5248,19 @@ public class MainWindow {
 			menu.add(warpItem);
 		}
 
+		ExtraCost ec = card.extraCost();
+		if (ec != null && card.isSummon()) {
+			JMenuItem ecItem = new JMenuItem("Play (Extra Cost: " + ec.description() + ")");
+			ecItem.setEnabled(canPlaySpecialAction && !summonCastingProhibited()
+					&& canAffordCard(card, handIdx) && canAffordExtraCost(ec) && !p1CastLimitReached());
+			ecItem.addActionListener(ae -> {
+				hideZoom();
+				if (handPopup != null) { handPopup.dispose(); handPopup = null; }
+				showExtraCostPlayDialog(card, handIdx, ec);
+			});
+			menu.add(ecItem);
+		}
+
 		if (card.altCrystalCost() > 0 || card.altCpCost() > 0) {
 			int ac = card.altCrystalCost();
 			List<String> altElems = card.altCpElements();
@@ -6434,6 +6464,57 @@ public class MainWindow {
 		return totalExisting + totalGenerate >= effectiveCastCost(card);
 	}
 
+	/** Returns {@code true} when P1 can pay the extra cost. */
+	private boolean canAffordExtraCost(ExtraCost ec) {
+		return switch (ec.type()) {
+			case BZ_REMOVE    -> gameState.getP1BreakZone().stream().filter(ec::matches).count() >= ec.count();
+			case DISCARD_HAND -> gameState.getP1Hand().size() > ec.count(); // must have cards beyond the one being cast
+			case CP_X         -> true;
+		};
+	}
+
+	/**
+	 * Opens the appropriate extra-cost selection dialog (BZ removal, hand discard, or X spinner),
+	 * then chains into the normal CP payment dialog.
+	 */
+	private void showExtraCostPlayDialog(CardData card, int handIdx, ExtraCost ec) {
+		switch (ec.type()) {
+			case BZ_REMOVE -> {
+				List<CardData> eligible = gameState.getP1BreakZone().stream()
+						.filter(ec::matches).collect(Collectors.toList());
+				new ExtraCostBzSelectDialog(frame, card, ec, eligible,
+						this::showZoomAt, this::hideZoom,
+						selectedCards -> {
+							pendingExtraCostBzRemovals = selectedCards;
+							showPaymentDialog(card, handIdx);
+						}).show();
+			}
+			case DISCARD_HAND -> {
+				// Build hand list excluding the card being cast so it cannot be discarded as its own extra cost.
+				List<CardData> handChoices = new ArrayList<>(gameState.getP1Hand());
+				handChoices.remove(card);
+				new ExtraCostBzSelectDialog(frame, card, ec, handChoices,
+						this::showZoomAt, this::hideZoom,
+						selectedCards -> {
+							pendingExtraCostHandDiscards = selectedCards;
+							showPaymentDialog(card, handIdx);
+						}).show();
+			}
+			case CP_X -> {
+				int maxX = gameState.getP1Hand().size() + 8; // generous upper bound
+				JSpinner spinner = new JSpinner(new SpinnerNumberModel(0, 0, maxX, 1));
+				int result = JOptionPane.showConfirmDialog(frame,
+						new Object[]{"Pay how much extra CP (X)?", spinner},
+						"Extra Cost: " + card.name(), JOptionPane.OK_CANCEL_OPTION);
+				if (result != JOptionPane.OK_OPTION) return;
+				int x = (int) spinner.getValue();
+				pendingExtraCostXValue = x;
+				pendingExtraCostExtraCp = x;
+				showPaymentDialog(card, handIdx);
+			}
+		}
+	}
+
 	/**
 	 * Returns true when the player can pay the alternate cast cost for {@code card},
 	 * including satisfying any field-presence condition.
@@ -6903,7 +6984,8 @@ public class MainWindow {
 	}
 
 	void showPaymentDialog(CardData card, int handIdx) {
-		int cost = effectiveCastCost(card);
+		int cost = effectiveCastCost(card) + pendingExtraCostExtraCp;
+		pendingExtraCostExtraCp = 0;
 		if (cost <= 0) {
 			executePlay(card, handIdx, List.of(), List.of(), Map.of());
 			return;
@@ -7089,6 +7171,42 @@ public class MainWindow {
 		}
 		logEntry("Played \"" + card.name() + "\"");
 
+		// Process pending extra cost payments (set by showExtraCostPlayDialog).
+		boolean paidExtraCost = false;
+		int extraCostRemovedPower = 0;
+		int extraCostXVal = 0;
+		if (pendingExtraCostBzRemovals != null) {
+			paidExtraCost = true;
+			List<CardData> removed = pendingExtraCostBzRemovals;
+			pendingExtraCostBzRemovals = null;
+			if (!removed.isEmpty()) {
+				extraCostRemovedPower = removed.get(0).power();
+				for (CardData rm : removed) {
+					gameState.getP1BreakZone().remove(rm);
+					gameState.addToPermanentRfp(rm);
+					logEntry("Extra Cost: \"" + rm.name() + "\" removed from game");
+				}
+			}
+		}
+		if (pendingExtraCostHandDiscards != null) {
+			paidExtraCost = true;
+			List<CardData> discards = pendingExtraCostHandDiscards;
+			pendingExtraCostHandDiscards = null;
+			for (CardData dc : discards) {
+				gameState.getP1Hand().remove(dc);
+				gameState.getP1BreakZone().add(dc);
+				currentExtraCostDiscardedCardCost = dc.cost();
+				logEntry("Extra Cost: discarded \"" + dc.name() + "\" (cost " + dc.cost() + ")");
+			}
+			refreshP1HandLabel();
+		}
+		if (pendingExtraCostXValue > 0) {
+			paidExtraCost = true;
+			extraCostXVal = pendingExtraCostXValue;
+			pendingExtraCostXValue = 0;
+			logEntry("Extra Cost: paid 《" + extraCostXVal + "》 extra CP");
+		}
+
 		lastCardWasCast = true;
 		if (card.isBackup()) {
 			placeCardInFirstBackupSlot(card);
@@ -7097,7 +7215,10 @@ public class MainWindow {
 		} else if (card.isMonster()) {
 			placeCardInMonsterZone(card);
 		} else if (card.isSummon()) {
-			showSummonOnStack(card, true);
+			if (paidExtraCost)
+				showSummonOnStack(card, true, extraCostRemovedPower, extraCostXVal);
+			else
+				showSummonOnStack(card, true);
 		}
 		lastCardWasCast = false;
 
@@ -7349,6 +7470,18 @@ public class MainWindow {
 		showStackWindow();
 	}
 
+	/** Pushes a Summon cast with extra cost onto the stack (no X value). */
+	void showSummonOnStack(CardData card, boolean isP1, int extraCostRemovedCardPower) {
+		showSummonOnStack(card, isP1, extraCostRemovedCardPower, 0);
+	}
+
+	/** Pushes a Summon cast with extra cost onto the stack, including an X value for 《X》 costs (e.g. Valefor). */
+	void showSummonOnStack(CardData card, boolean isP1, int extraCostRemovedCardPower, int xValue) {
+		gameState.pushStack(StackEntry.forSummonWithExtraCost(card, isP1, extraCostRemovedCardPower, xValue));
+		logEntry("[Stack] \"" + card.name() + "\" — Summon on the stack (Extra Cost paid)");
+		showStackWindow();
+	}
+
 	/**
 	 * Shows the resolution overlay for the current top of the stack.
 	 * Disposes any existing overlay first and increments the generation counter
@@ -7544,7 +7677,25 @@ public class MainWindow {
 		try {
 			GameContext ctx = buildGameContext(entry.isP1());
 			if (entry.isSummon()) {
+				// Propagate extra cost context so GameContextImpl can expose it.
+				currentSummonPaidExtraCost          = entry.paidExtraCost();
+				currentExtraCostRemovedCardPower     = entry.extraCostRemovedCardPower();
+				currentExtraCostDiscardedCardCost    = 0;
+
 				String effectText = entry.effectText();
+				// Strip extra cost clause from EX Burst stack entries (extra cost cannot be paid via EX Burst).
+				if (entry.isExBurstEntry() && entry.source().extraCost() != null)
+					effectText = ActionResolver.stripExtraCostClause(effectText);
+				// Transform conditional text based on whether extra cost was paid.
+				else if (entry.paidExtraCost()) {
+					effectText = ActionResolver.applyExtraCostPaid(effectText);
+					// Substitute 《X》 with the actual value paid (Valefor and similar).
+					if (entry.xValue() > 0)
+						effectText = effectText.replace("《X》", String.valueOf(entry.xValue()));
+				} else {
+					effectText = ActionResolver.stripExtraCostClause(effectText);
+				}
+
 				logEntry("[Summon] Resolving \"" + entry.source().name() + "\": " + effectText);
 				Consumer<GameContext> effect = ActionResolver.parse(effectText, entry.source());
 				if (effect != null) {

@@ -232,6 +232,9 @@ final class GameContextImpl implements GameContext {
 					logEntry("P2 abilities — outgoing damage ×" + mw.p2AbilityOutgoingDmgMult + " until end of turn");
 				}
 			}
+			@Override public boolean wasExtraCostPaid()          { return mw.currentSummonPaidExtraCost; }
+			@Override public int extraCostRemovedCardPower()     { return mw.currentExtraCostRemovedCardPower; }
+			@Override public int extraCostDiscardedCardCost()    { return mw.currentExtraCostDiscardedCardCost; }
 			@Override public void damageTargetUnreduced(ForwardTarget t, int amount) {
 				if (t.zone() == ForwardTarget.CardZone.BACKUP) { mw.applyDamageToBackup(t.isP1(), t.idx(), amount); return; }
 				if (t.zone() == ForwardTarget.CardZone.MONSTER) { mw.applyDamageToMonster(t.isP1(), t.idx(), amount); return; }
@@ -3514,7 +3517,7 @@ final class GameContextImpl implements GameContext {
 				for (AutoAbility fa : source.autoAbilities()) {
 					if (fa.trigger().equals(triggerType)) {
 						mw.logEntry("[AutoAbility] " + source.name() + " — retriggered (" + triggerType + ")");
-						mw.gameState.pushStack(new StackEntry(source, null, fa, isP1, 0, false, null, false));
+						mw.gameState.pushStack(new StackEntry(source, null, fa, isP1, 0, false, null, false, false, 0));
 						mw.showStackWindowIfNeeded();
 						return;
 					}

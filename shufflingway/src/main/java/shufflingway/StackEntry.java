@@ -17,35 +17,47 @@ import java.util.List;
  *                             and skips the Summon post-resolution steps
  * @param preSelectedTargets   targets chosen at activation time (before the entry goes on the stack);
  *                             {@code null} when the ability doesn't pre-select targets
- * @param isWarpResolve        {@code true} when this entry represents a Warp card entering the field
- *                             after its last counter was removed; resolution calls
- *                             {@link MainWindow#resolveWarpCard}
+ * @param isWarpResolve              {@code true} when this entry represents a Warp card entering the field
+ *                                   after its last counter was removed; resolution calls
+ *                                   {@link MainWindow#resolveWarpCard}
+ * @param paidExtraCost              {@code true} when the summon was cast with its optional extra cost paid
+ * @param extraCostRemovedCardPower  power of the Forward removed by the extra cost (Titan); {@code 0} otherwise
  */
-public record StackEntry(CardData source, ActionAbility ability, AutoAbility autoAbility, boolean isP1, int xValue, boolean isExBurst, List<ForwardTarget> preSelectedTargets, boolean isWarpResolve) {
+public record StackEntry(CardData source, ActionAbility ability, AutoAbility autoAbility, boolean isP1, int xValue, boolean isExBurst, List<ForwardTarget> preSelectedTargets, boolean isWarpResolve, boolean paidExtraCost, int extraCostRemovedCardPower) {
 
     /** Convenience constructor for Summons and Action Abilities without an X cost. */
     public StackEntry(CardData source, ActionAbility ability, boolean isP1) {
-        this(source, ability, null, isP1, 0, false, null, false);
+        this(source, ability, null, isP1, 0, false, null, false, false, 0);
     }
 
     /** Convenience constructor for Action Abilities with an X cost. */
     public StackEntry(CardData source, ActionAbility ability, boolean isP1, int xValue) {
-        this(source, ability, null, isP1, xValue, false, null, false);
+        this(source, ability, null, isP1, xValue, false, null, false, false, 0);
     }
 
     /** Convenience constructor for Action Abilities with pre-selected targets. */
     public StackEntry(CardData source, ActionAbility ability, boolean isP1, int xValue, List<ForwardTarget> preSelectedTargets) {
-        this(source, ability, null, isP1, xValue, false, preSelectedTargets, false);
+        this(source, ability, null, isP1, xValue, false, preSelectedTargets, false, false, 0);
     }
 
     /** Convenience constructor for EX Burst effects placed on the stack. */
     public StackEntry(CardData source, boolean isP1, boolean isExBurst) {
-        this(source, null, null, isP1, 0, isExBurst, null, false);
+        this(source, null, null, isP1, 0, isExBurst, null, false, false, 0);
     }
 
     /** Creates a stack entry that, when it resolves, places {@code card} on the field via Warp. */
     public static StackEntry forWarpResolve(CardData card, boolean isP1) {
-        return new StackEntry(card, null, null, isP1, 0, false, null, true);
+        return new StackEntry(card, null, null, isP1, 0, false, null, true, false, 0);
+    }
+
+    /** Creates a stack entry for a summon cast with its extra cost paid. */
+    public static StackEntry forSummonWithExtraCost(CardData card, boolean isP1, int removedCardPower) {
+        return new StackEntry(card, null, null, isP1, 0, false, null, false, true, removedCardPower);
+    }
+
+    /** Creates a stack entry for a summon cast with its extra cost paid, including an X value (e.g. Valefor). */
+    public static StackEntry forSummonWithExtraCost(CardData card, boolean isP1, int removedCardPower, int xValue) {
+        return new StackEntry(card, null, null, isP1, xValue, false, null, false, true, removedCardPower);
     }
 
     public boolean isSummon()        { return ability == null && autoAbility == null && !isExBurst && !isWarpResolve; }

@@ -2130,4 +2130,20 @@ public interface GameContext {
      * Stacks multiplicatively if called more than once.
      */
     void doublePlayerAbilityOutgoingDamage();
+
+    /** Returns {@code true} if the summon currently resolving was cast with its optional extra cost paid. */
+    boolean wasExtraCostPaid();
+
+    /**
+     * Returns the power of the Forward removed from the Break Zone as the extra cost.
+     * Used by Titan's "deal it damage equal to the power of the Forward removed by the extra cost."
+     * Returns {@code 0} if the extra cost was not paid or no Forward was removed.
+     */
+    int extraCostRemovedCardPower();
+
+    /**
+     * Returns the cost of the card discarded from hand as the extra cost (Fenrir).
+     * Returns {@code 0} if the extra cost was not paid via a hand discard.
+     */
+    int extraCostDiscardedCardCost();
 }

@@ -404,6 +404,24 @@ public class ActionResolver {
     );
 
     /**
+     * Matches Titan's unique damage clause:
+     * "Deal it damage equal to the power of the Forward removed by the extra cost."
+     * At runtime the damage value is read from {@link GameContext#extraCostRemovedCardPower()}.
+     */
+    private static final Pattern FOLLOWUP_DAMAGE_EXTRA_COST_POWER = Pattern.compile(
+        "(?i)deal\\s+it\\s+damage\\s+equal\\s+to\\s+the\\s+power\\s+of\\s+the\\s+Forward\\s+removed\\s+by\\s+the\\s+extra\\s+cost\\.?"
+    );
+
+    /**
+     * Matches Fenrir's conditional break-and-draw:
+     * "If its cost is equal to the cost of the card discarded by the extra cost, break it and draw N card(s)."
+     * Group: {@code draw} — number of cards to draw.
+     */
+    private static final Pattern FOLLOWUP_IF_COST_EQUALS_DISCARD_BREAK_DRAW = Pattern.compile(
+        "(?i)if\\s+its\\s+cost\\s+is\\s+equal\\s+to\\s+the\\s+cost\\s+of\\s+the\\s+card\\s+discarded\\s+by\\s+the\\s+extra\\s+cost,?\\s+break\\s+it\\s+and\\s+draw\\s+(?<draw>\\d+)\\s+cards?\\.?"
+    );
+
+    /**
      * Matches "Deal it/them N damage and M point(s) of damage to that Forward's controller."
      * Groups: {@code amount} — damage to the chosen Forward; {@code controllerdmg} — card damage dealt to its controller.
      */
@@ -4156,6 +4174,66 @@ public class ActionResolver {
     // -------------------------------------------------------------------------
 
     /**
+     * Matches the "If you paid the extra cost" conditional clause in summon effect text.
+     * Groups: {@code base}, {@code also}, {@code effect}, {@code instead}.
+     */
+    private static final java.util.regex.Pattern IF_PAID_EXTRA_COST = java.util.regex.Pattern.compile(
+        "(?i)(?<base>.+?)\\s+If\\s+you\\s+paid\\s+the\\s+extra\\s+cost(?:\\s+and\\s+[^,]+)?,\\s+" +
+        "(?<also>also\\s+)?" +
+        "(?<effect>.+?)" +
+        "(?<instead>\\s+instead)?" +
+        "\\.?\\s*$",
+        java.util.regex.Pattern.DOTALL
+    );
+
+    /**
+     * Transforms summon effect text to apply the paid branch of an extra-cost conditional.
+     * <ul>
+     *   <li><b>Additive</b> ("also …"): appends the paid effect to the base.</li>
+     *   <li><b>Replacement without "it"</b>: replaces the entire base text.</li>
+     *   <li><b>Replacement with "it"</b>: keeps earlier base sentences, replaces the last.</li>
+     *   <li><b>No conditional</b> (Titan): text is returned unchanged.</li>
+     * </ul>
+     */
+    public static String applyExtraCostPaid(String text) {
+        java.util.regex.Matcher m = IF_PAID_EXTRA_COST.matcher(text);
+        if (!m.find()) return text;
+
+        String base      = m.group("base").trim();
+        boolean isAlso   = m.group("also") != null;
+        String effect    = m.group("effect").trim();
+        boolean isInstead = m.group("instead") != null;
+
+        String cap = Character.toUpperCase(effect.charAt(0)) + effect.substring(1);
+        if (!cap.endsWith(".")) cap += ".";
+
+        if (isAlso) {
+            return base + " " + cap;
+        }
+        if (isInstead) {
+            if (java.util.regex.Pattern.compile("(?i)\\bit\\b").matcher(effect).find()) {
+                String withoutLast = removeLastSentence(base);
+                return withoutLast.isEmpty() ? cap : withoutLast + " " + cap;
+            }
+            return cap;
+        }
+        // Additive without "also" keyword (Leviathan-style): append
+        return base + " " + cap;
+    }
+
+    /** Strips the "If you paid the extra cost, … ." clause (single- or multi-sentence) from the end of {@code text}. */
+    public static String stripExtraCostClause(String text) {
+        return text.replaceAll("(?i)\\s*If\\s+you\\s+paid\\s+the\\s+extra\\s+cost.*$", "").trim();
+    }
+
+    private static String removeLastSentence(String text) {
+        int last = text.lastIndexOf('.');
+        if (last <= 0) return "";
+        int prev = text.lastIndexOf('.', last - 1);
+        return prev < 0 ? "" : text.substring(0, prev + 1).trim();
+    }
+
+    /**
      * Attempts to parse {@code effectText} into a ready-to-execute
      * {@link Consumer}{@code <GameContext>}.
      *
@@ -6808,6 +6886,33 @@ public class ActionResolver {
             return (ctx, ts) -> {
                 sortedByIdxDesc(ts, true) .forEach(ft -> ctx.boostTarget(ft, boost, traits));
                 sortedByIdxDesc(ts, false).forEach(ft -> ctx.boostTarget(ft, boost, traits));
+            };
+        }
+
+        // "If its cost equals the cost of the card discarded by the extra cost, break it and draw N" (Fenrir)
+        Matcher fenrirM = FOLLOWUP_IF_COST_EQUALS_DISCARD_BREAK_DRAW.matcher(t);
+        if (fenrirM.find()) {
+            int draw = Integer.parseInt(fenrirM.group("draw"));
+            return (ctx, ts) -> {
+                int discardCost = ctx.extraCostDiscardedCardCost();
+                java.util.List<ForwardTarget> allTargets = new java.util.ArrayList<>(ts);
+                for (ForwardTarget ft : allTargets) {
+                    CardData fwd = ft.isP1() ? ctx.p1Forward(ft.idx()) : ctx.p2Forward(ft.idx());
+                    if (fwd != null && fwd.cost() == discardCost) {
+                        ctx.breakTarget(ft);
+                        ctx.drawCards(draw);
+                    }
+                }
+            };
+        }
+
+        // "Deal it damage equal to the power of the Forward removed by the extra cost" (Titan)
+        if (FOLLOWUP_DAMAGE_EXTRA_COST_POWER.matcher(t).find()) {
+            return (ctx, ts) -> {
+                int power = ctx.extraCostRemovedCardPower();
+                ctx.logEntry("Effect: Deal it " + power + " damage (Extra Cost removed Forward power)");
+                sortedByIdxDesc(ts, true) .forEach(ft -> ctx.damageTarget(ft, power));
+                sortedByIdxDesc(ts, false).forEach(ft -> ctx.damageTarget(ft, power));
             };
         }
 
