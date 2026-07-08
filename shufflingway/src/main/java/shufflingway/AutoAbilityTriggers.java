@@ -1182,6 +1182,46 @@ final class AutoAbilityTriggers {
 		triggerAutoAbilitiesForEvent("beginning of attack phase", isP1);
 	}
 
+	/** Fires "end of your turn" auto-abilities for all cards controlled by {@code isP1}. */
+	void triggerAutoAbilitiesForEndOfYourTurn(boolean isP1) {
+		triggerAutoAbilitiesForEvent("end of your turn", isP1);
+	}
+
+	/** Fires "end of each player's turn" auto-abilities for all cards on both sides. */
+	void triggerAutoAbilitiesForEndOfEachPlayersTurn() {
+		triggerAutoAbilitiesForEvent("end of each player's turn", true);
+		triggerAutoAbilitiesForEvent("end of each player's turn", false);
+	}
+
+	/** Fires "end of opponent's turn" auto-abilities for all cards controlled by {@code isP1}. */
+	void triggerAutoAbilitiesForEndOfOpponentTurn(boolean isP1) {
+		triggerAutoAbilitiesForEvent("end of opponent's turn", isP1);
+	}
+
+	/** Fires "beginning of main phase 1" auto-abilities for all cards controlled by {@code isP1}. */
+	void triggerAutoAbilitiesForBeginningOfMainPhase1(boolean isP1) {
+		triggerAutoAbilitiesForEvent("beginning of main phase 1", isP1);
+	}
+
+	/** Fires "beginning of main phase 2" auto-abilities for all cards controlled by {@code isP1}. */
+	void triggerAutoAbilitiesForBeginningOfMainPhase2(boolean isP1) {
+		triggerAutoAbilitiesForEvent("beginning of main phase 2", isP1);
+	}
+
+	/** Fires "beginning of main phase 1 each turn" auto-abilities for all cards on both sides. */
+	void triggerAutoAbilitiesForBeginningOfMainPhase1EachTurn() {
+		triggerAutoAbilitiesForEvent("beginning of main phase 1 each turn", true);
+		triggerAutoAbilitiesForEvent("beginning of main phase 1 each turn", false);
+	}
+
+	/**
+	 * Fires "beginning of opponent's main phase 1" auto-abilities for all cards controlled by
+	 * {@code isP1}. Call at the start of {@code !isP1}'s Main Phase 1.
+	 */
+	void triggerAutoAbilitiesForBeginningOfOppMainPhase1(boolean isP1) {
+		triggerAutoAbilitiesForEvent("beginning of opponent's main phase 1", isP1);
+	}
+
 	/** Fires "either player receives damage" abilities on all field cards from both sides. */
 	void triggerAutoAbilitiesForEitherPlayerReceivesDamage() {
 		// Batch both sides together so the player sees one ordering dialog, not two.

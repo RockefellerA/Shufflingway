@@ -1354,8 +1354,13 @@ public class ActionResolver {
      *   <li>Group {@code inner} — the effect text that fires each end phase</li>
      * </ul>
      */
-    static final Pattern AT_END_OF_EACH_TURN_FA_PATTERN = Pattern.compile(
+    static final Pattern AT_END_OF_EACH_TURN_PATTERN = Pattern.compile(
         "(?i)At\\s+the\\s+end\\s+of\\s+each\\s+of\\s+your\\s+turns?\\s*,\\s+(?<inner>.+)"
+    );
+
+    /** Matches "At the end of each player's turn, &lt;inner&gt;" — fires at both players' end phase. */
+    static final Pattern AT_END_OF_EACH_PLAYERS_TURN_PATTERN = Pattern.compile(
+        "(?i)At\\s+the\\s+end\\s+of\\s+each\\s+player'?s\\s+turn,\\s+(?<inner>.+)"
     );
 
     /**
@@ -1382,15 +1387,15 @@ public class ActionResolver {
     /**
      * "At the beginning of your Main Phase 1[ each turn etc.], &lt;effect&gt;"
      * Group {@code inner} captures the effect text after the trigger comma.  Modeled on
-     * {@link #AT_END_OF_EACH_TURN_FA_PATTERN} — the inner effect is dispatched through
+     * {@link #AT_END_OF_EACH_TURN_PATTERN} — the inner effect is dispatched through
      * the full {@link #parse} chain so any supported effect can follow the trigger.
      */
-    static final Pattern AT_BEGINNING_OF_MAIN_PHASE_1_FA_PATTERN = Pattern.compile(
+    static final Pattern AT_BEGINNING_OF_MAIN_PHASE_1_PATTERN = Pattern.compile(
         "(?i)At\\s+the\\s+beginning\\s+of\\s+your\\s+Main\\s+Phase\\s+1\\b[^,]*,\\s+(?<inner>.+)"
     );
 
-    /** Same as {@link #AT_BEGINNING_OF_MAIN_PHASE_1_FA_PATTERN} but for Main Phase 2. */
-    static final Pattern AT_BEGINNING_OF_MAIN_PHASE_2_FA_PATTERN = Pattern.compile(
+    /** Same as {@link #AT_BEGINNING_OF_MAIN_PHASE_1_PATTERN} but for Main Phase 2. */
+    static final Pattern AT_BEGINNING_OF_MAIN_PHASE_2_PATTERN = Pattern.compile(
         "(?i)At\\s+the\\s+beginning\\s+of\\s+your\\s+Main\\s+Phase\\s+2\\b[^,]*,\\s+(?<inner>.+)"
     );
 
@@ -1398,7 +1403,7 @@ public class ActionResolver {
      * "Each turn, at the beginning of Main Phase 1, [inner]" — fires at BOTH players' Main Phase 1 starts.
      * Group {@code inner} — the conditional effect to evaluate.
      */
-    static final Pattern AT_BEGINNING_OF_MAIN_PHASE_1_EACH_TURN_FA_PATTERN = Pattern.compile(
+    static final Pattern AT_BEGINNING_OF_MAIN_PHASE_1_EACH_TURN_PATTERN = Pattern.compile(
         "(?i)Each\\s+turn,?\\s+at\\s+the\\s+beginning\\s+of\\s+Main\\s+Phase\\s+1,\\s+(?<inner>.+)"
     );
 
@@ -1407,7 +1412,7 @@ public class ActionResolver {
      * opponent's Main Phase 1 (i.e., when the card controller's opponent begins their Main Phase 1).
      * Group {@code inner} — the effect to evaluate.
      */
-    static final Pattern AT_BEGINNING_OF_OPP_MAIN_PHASE_1_FA_PATTERN = Pattern.compile(
+    static final Pattern AT_BEGINNING_OF_OPP_MAIN_PHASE_1_PATTERN = Pattern.compile(
         "(?i)At\\s+the\\s+beginning\\s+of\\s+your\\s+opponent'?s\\s+Main\\s+Phase\\s+1\\b[^,]*,\\s+(?<inner>.+)"
     );
 
@@ -1416,7 +1421,7 @@ public class ActionResolver {
      * opponent's turn (i.e., whenever the opponent ends their turn).
      * Group {@code inner} — the effect to fire.
      */
-    static final Pattern AT_END_OF_OPP_TURN_FA_PATTERN = Pattern.compile(
+    static final Pattern AT_END_OF_OPP_TURN_PATTERN = Pattern.compile(
         "(?i)At\\s+the\\s+end\\s+of\\s+(?:each\\s+of\\s+)?your\\s+opponent'?s\\s+turns?,\\s+(?<inner>.+)"
     );
 
@@ -2633,6 +2638,32 @@ public class ActionResolver {
         "(?:\\+(?<selfamount>\\d+)\\s+[Pp]ower)?" +
         "(?<selftraits>(?:\\s*,?\\s*(?:and\\s+)?(?:Haste|First\\s+Strike|Brave))*)" +
         "\\s+until\\s+(?:the\\s+)?end\\s+of\\s+(?:the\\s+)?turn[.!]?"
+    );
+
+    /**
+     * Matches "if [CardName] has received N damage or more, draw M card(s)." —
+     * the inner effect extracted from "At the end of each player's turn, …".
+     * Groups: {@code cardname}, {@code damage}, {@code draw}.
+     */
+    private static final Pattern IF_SELF_FWD_RECEIVED_DAMAGE_DRAW = Pattern.compile(
+        "(?i)^if\\s+(?<cardname>.+?)\\s+has\\s+received\\s+(?<damage>\\d+)\\s+damage\\s+or\\s+more,\\s+" +
+        "draw\\s+(?<draw>\\d+)\\s+cards?[.!]?\\s*$"
+    );
+
+    /**
+     * Matches "if you have N or more cards in your hand, [subject] gains [+P power] [traits]
+     * until end of turn[. If you have M or more cards, [subject] also gains +Q power until end of turn]."
+     * Groups: {@code min1}, {@code subject}, {@code amount1}, {@code traits1}, {@code min2}, {@code amount2}.
+     */
+    private static final Pattern IF_HAND_SIZE_SELF_BOOST = Pattern.compile(
+        "(?i)if\\s+you\\s+have\\s+(?<min1>\\d+)\\s+or\\s+more\\s+cards?\\s+in\\s+your\\s+hand,\\s+" +
+        "(?<subject>.+?)\\s+gains?\\s+" +
+        "(?:\\+(?<amount1>\\d+)\\s+[Pp]ower)?" +
+        "(?<traits1>(?:\\s*,?\\s*(?:and\\s+)?(?:Haste|First\\s+Strike|Brave))*)" +
+        "\\s+until\\s+(?:the\\s+)?end\\s+of\\s+(?:the\\s+)?turn[.!]?" +
+        "(?:\\s+If\\s+you\\s+have\\s+(?<min2>\\d+)\\s+or\\s+more\\s+cards?\\s+in\\s+your\\s+hand,\\s+" +
+        ".+?also\\s+gains?\\s+\\+(?<amount2>\\d+)\\s+[Pp]ower\\s+" +
+        "until\\s+(?:the\\s+)?end\\s+of\\s+(?:the\\s+)?turn[.!]?)?"
     );
 
     /**
@@ -4425,25 +4456,7 @@ public class ActionResolver {
         result = tryParseChooseCharacter(effectText, source, xValue);
         if (result != null) return result;
 
-        result = tryParseEndOfEachTurnFieldAbility(effectText, source);
-        if (result != null) return result;
-
-        result = tryParseEndOfEachPlayersTurnIfSelfFwdDamage(effectText, source);
-        if (result != null) return result;
-
-        result = tryParseBeginningOfMainPhase1FieldAbility(effectText, source);
-        if (result != null) return result;
-
-        result = tryParseBeginningOfMainPhase2FieldAbility(effectText, source);
-        if (result != null) return result;
-
-        result = tryParseBeginningOfMainPhase1EachTurnFieldAbility(effectText, source);
-        if (result != null) return result;
-
-        result = tryParseBeginningOfOppMainPhase1FieldAbility(effectText, source);
-        if (result != null) return result;
-
-        result = tryParseEndOfOpponentTurnFieldAbility(effectText, source);
+        result = tryParseIfSelfFwdReceivedDamageDraw(effectText, source);
         if (result != null) return result;
 
         result = tryParseElementChange(effectText, source);
@@ -4585,6 +4598,9 @@ public class ActionResolver {
         if (result != null) return result;
 
         result = tryParseSelfPowerBoostAndActivate(effectText, source);
+        if (result != null) return result;
+
+        result = tryParseIfHandSizeSelfBoost(effectText, source);
         if (result != null) return result;
 
         result = tryParseStandaloneSelfBoost(effectText, source);
@@ -5092,14 +5108,6 @@ public class ActionResolver {
         if (tryParseDealPowerMinusNDamageToForwards(effectText)         != null) return "DealPowerMinusNDamageToForwards";
         if (tryParseDealHalfSourcePowerDamageToForwards(effectText)     != null) return "DealHalfSourcePowerDamageToForwards";
         if (tryParseDamageToCombatBlocker(effectText)                   != null) return "DamageToCombatBlocker";
-        // Trigger parsers checked before ChooseCharacter so coverage diagnostics report the
-        // trigger name rather than the inner effect (ChooseCharacter uses find() and would
-        // otherwise match the inner "choose 1 Forward..." through the trigger prefix).
-        if (tryParseBeginningOfMainPhase1FieldAbility(effectText, source) != null) return "BeginningOfMainPhase1FieldAbility";
-        if (tryParseBeginningOfMainPhase2FieldAbility(effectText, source) != null) return "BeginningOfMainPhase2FieldAbility";
-        if (tryParseBeginningOfMainPhase1EachTurnFieldAbility(effectText, source) != null) return "BeginningOfMainPhase1EachTurnFieldAbility";
-        if (tryParseBeginningOfOppMainPhase1FieldAbility(effectText, source)    != null) return "BeginningOfOppMainPhase1FieldAbility";
-        if (tryParseEndOfOpponentTurnFieldAbility(effectText, source)     != null) return "EndOfOpponentTurnFieldAbility";
         if (tryParseChooseOppFwdDynCostBreak(effectText)                   != null) return "ChooseOppFwdDynCostBreak";
         if (tryParseChooseFwdPowerInferiorToSource(effectText, source)     != null) return "ChooseFwdPowerInferiorToSource";
         if (tryParseChooseFwdBzCostInferiorToRemovedPlay(effectText)       != null) return "ChooseFwdBzCostInferiorToRemovedPlay";
@@ -5109,8 +5117,7 @@ public class ActionResolver {
         if (tryParseChooseCounterScaleCharsActivate(effectText, 1)    != null) return "ChooseCounterScaleCharsActivate";
         if (tryParseChooseAnyNumberReturnToHand(effectText)    != null) return "ChooseAnyNumberReturnToHand";
         if (tryParseChooseCharacter(effectText, source, 0)              != null) return "ChooseCharacter";
-        if (tryParseEndOfEachTurnFieldAbility(effectText, source)             != null) return "EndOfEachTurnFieldAbility";
-        if (tryParseEndOfEachPlayersTurnIfSelfFwdDamage(effectText, source)  != null) return "EndOfEachPlayersTurnIfSelfFwdDamage";
+        if (tryParseIfSelfFwdReceivedDamageDraw(effectText, source)          != null) return "IfSelfFwdReceivedDamageDraw";
         if (tryParseIfRfpCount(effectText, source)               != null) return "IfRfpCount";
         if (tryParseElementChange(effectText, source) != null) return "ElementChange";
         if (tryParseDelayedEffect(effectText)                 != null) return "DelayedEffect";
@@ -5152,6 +5159,7 @@ public class ActionResolver {
         if (tryParseChooseForwardDoubleNextOutgoing(effectText) != null)        return "ChooseForwardDoubleNextOutgoing";
         if (tryParseDoublePlayerAbilityOutgoingThisTurn(effectText) != null)   return "DoublePlayerAbilityOutgoingThisTurn";
         if (tryParseStandaloneSelfBoostForEachCrystal(effectText, source) != null) return "StandaloneSelfBoostForEachCrystal";
+        if (tryParseIfHandSizeSelfBoost(effectText, source)               != null) return "IfHandSizeSelfBoost";
         if (tryParseStandaloneSelfBoost(effectText, source)   != null) return "StandaloneSelfBoost";
         if (tryParseStandaloneSelfDullAndShield(effectText, source) != null) return "StandaloneSelfDullAndShield";
         if (tryParseStandaloneSelfDull(effectText, source) != null)          return "StandaloneSelfDull";
@@ -5587,11 +5595,7 @@ public class ActionResolver {
         if (tryParseChooseFwdBzCostInferiorToRemovedPlay(effectText)   != null) return "ChooseFwdBzCostInferiorToRemovedPlay";
         if (tryParseDullAllOppFwdsPowerLeSource(effectText, source)    != null) return "DullAllOppFwdsPowerLeSource";
         if (tryParseRevealTopBreakSameCostAddToHand(effectText)       != null) return "RevealTopBreakSameCostAddToHand";
-        if (tryParseEndOfEachTurnFieldAbility(effectText, source)             != null) return "EndOfEachTurnFieldAbility";
-        if (tryParseEndOfEachPlayersTurnIfSelfFwdDamage(effectText, source)  != null) return "EndOfEachPlayersTurnIfSelfFwdDamage";
-        if (tryParseBeginningOfMainPhase1EachTurnFieldAbility(effectText, source) != null) return "BeginningOfMainPhase1EachTurnFieldAbility";
-        if (tryParseBeginningOfOppMainPhase1FieldAbility(effectText, source)    != null) return "BeginningOfOppMainPhase1FieldAbility";
-        if (tryParseEndOfOpponentTurnFieldAbility(effectText, source)        != null) return "EndOfOpponentTurnFieldAbility";
+        if (tryParseIfSelfFwdReceivedDamageDraw(effectText, source)            != null) return "IfSelfFwdReceivedDamageDraw";
         if (tryParseIfRfpCount(effectText, source)                     != null) return "IfRfpCount";
         if (tryParseAllFieldEffect(effectText) != null)                     return "AllFieldEffect";
         if (tryParseFieldPowerGrantPassive(effectText) != null) {
@@ -5635,6 +5639,8 @@ public class ActionResolver {
         if (tryParseChooseForwardDoubleNextOutgoing(effectText) != null)        return "ChooseForwardDoubleNextOutgoing";
         if (tryParseDoublePlayerAbilityOutgoingThisTurn(effectText) != null)   return "DoublePlayerAbilityOutgoingThisTurn";
         if (tryParseStandaloneSelfBoostForEachCrystal(effectText, source) != null) return "StandaloneSelfBoostForEachCrystal";
+        if (tryParseIfHandSizeSelfBoost(effectText, source)               != null) return "IfHandSizeSelfBoost";
+        if (tryParseIfHandSizeSelfBoost(effectText, source)               != null) return "IfHandSizeSelfBoost";
         if (tryParseStandaloneSelfBoost(effectText, source) != null)        return "StandaloneSelfBoost";
         if (tryParseStandaloneSelfDullAndShield(effectText, source) != null) return "StandaloneSelfDullAndShield";
         if (tryParseStandaloneSelfDull(effectText, source) != null)          return "StandaloneSelfDull";
@@ -10258,6 +10264,37 @@ public class ActionResolver {
         };
     }
 
+    /**
+     * Parses "if you have N or more cards in your hand, [subject] gains [traits/power] until end of turn"
+     * with an optional higher-threshold power boost clause for the same subject.
+     */
+    private static Consumer<GameContext> tryParseIfHandSizeSelfBoost(String text, CardData source) {
+        if (source == null) return null;
+        Matcher m = IF_HAND_SIZE_SELF_BOOST.matcher(text.trim());
+        if (!m.find()) return null;
+        String subject = m.group("subject").trim();
+        if (!subject.equalsIgnoreCase(source.name())) return null;
+        int min1 = Integer.parseInt(m.group("min1"));
+        int amount1 = m.group("amount1") != null ? Integer.parseInt(m.group("amount1")) : 0;
+        EnumSet<CardData.Trait> traits1 = parseTraits(m.group("traits1"));
+        if (amount1 == 0 && traits1.isEmpty()) return null;
+        int min2   = m.group("min2")   != null ? Integer.parseInt(m.group("min2"))   : -1;
+        int amount2 = m.group("amount2") != null ? Integer.parseInt(m.group("amount2")) : 0;
+        String logSuffix1 = boostLogSuffix(amount1, traits1);
+        String logSuffix2 = min2 > 0 ? boostLogSuffix(amount2, EnumSet.noneOf(CardData.Trait.class)) : "";
+        return ctx -> {
+            int handSize = ctx.yourHandSize();
+            if (handSize >= min1) {
+                ctx.logEntry(source.name() + logSuffix1 + " (hand ≥ " + min1 + ")");
+                ctx.boostSourceForward(source, amount1, traits1);
+            }
+            if (min2 > 0 && handSize >= min2) {
+                ctx.logEntry(source.name() + logSuffix2 + " (hand ≥ " + min2 + ")");
+                ctx.boostSourceForward(source, amount2, EnumSet.noneOf(CardData.Trait.class));
+            }
+        };
+    }
+
     private static Consumer<GameContext> tryParseStandaloneSelfBoostForEachCrystal(String text, CardData source) {
         if (source == null) return null;
         Matcher m = SELF_POWER_BOOST_FOR_EACH_CRYSTAL.matcher(text);
@@ -11563,7 +11600,7 @@ public class ActionResolver {
      * effect types work.
      */
     static Consumer<GameContext> tryParseEndOfEachTurnFieldAbility(String text, CardData source) {
-        Matcher m = AT_END_OF_EACH_TURN_FA_PATTERN.matcher(text);
+        Matcher m = AT_END_OF_EACH_TURN_PATTERN.matcher(text);
         if (!m.find()) return null;
         String inner = m.group("inner").trim();
         Consumer<GameContext> innerEffect = parse(inner, source);
@@ -11592,6 +11629,34 @@ public class ActionResolver {
                     int dmg = ctx.isP1() ? ctx.p1ForwardCurrentDamage(i) : ctx.p2ForwardCurrentDamage(i);
                     if (dmg >= minDamage) {
                         ctx.logEntry("Field: " + source.name() + " — draw " + drawCount + " (" + dmg + " damage)");
+                        ctx.drawCards(drawCount);
+                    }
+                    return;
+                }
+            }
+        };
+    }
+
+    /**
+     * Parses "if [CardName] has received N damage or more, draw M card(s)." —
+     * the inner effect of "At the end of each player's turn, …" auto abilities.
+     */
+    private static Consumer<GameContext> tryParseIfSelfFwdReceivedDamageDraw(String text, CardData source) {
+        if (source == null) return null;
+        Matcher m = IF_SELF_FWD_RECEIVED_DAMAGE_DRAW.matcher(text.trim());
+        if (!m.matches()) return null;
+        String targetName = m.group("cardname").trim();
+        if (!targetName.equalsIgnoreCase(source.name())) return null;
+        int minDamage = Integer.parseInt(m.group("damage"));
+        int drawCount = Integer.parseInt(m.group("draw"));
+        return ctx -> {
+            int fwdCount = ctx.isP1() ? ctx.p1ForwardCount() : ctx.p2ForwardCount();
+            for (int i = 0; i < fwdCount; i++) {
+                CardData fwd = ctx.isP1() ? ctx.p1Forward(i) : ctx.p2Forward(i);
+                if (fwd.name().equalsIgnoreCase(targetName)) {
+                    int dmg = ctx.isP1() ? ctx.p1ForwardCurrentDamage(i) : ctx.p2ForwardCurrentDamage(i);
+                    if (dmg >= minDamage) {
+                        ctx.logEntry(source.name() + " — draw " + drawCount + " (" + dmg + " damage)");
                         ctx.drawCards(drawCount);
                     }
                     return;
@@ -13185,7 +13250,7 @@ public class ActionResolver {
      * {@code fireFieldMainPhase1Abilities} is responsible for invoking it each Main Phase 1 start.
      */
     static Consumer<GameContext> tryParseBeginningOfMainPhase1FieldAbility(String text, CardData source) {
-        Matcher m = AT_BEGINNING_OF_MAIN_PHASE_1_FA_PATTERN.matcher(text);
+        Matcher m = AT_BEGINNING_OF_MAIN_PHASE_1_PATTERN.matcher(text);
         if (!m.find()) return null;
         return parse(m.group("inner").trim(), source);
     }
@@ -13195,7 +13260,7 @@ public class ActionResolver {
      * {@link #tryParseBeginningOfMainPhase1FieldAbility} but for Main Phase 2.
      */
     static Consumer<GameContext> tryParseBeginningOfMainPhase2FieldAbility(String text, CardData source) {
-        Matcher m = AT_BEGINNING_OF_MAIN_PHASE_2_FA_PATTERN.matcher(text);
+        Matcher m = AT_BEGINNING_OF_MAIN_PHASE_2_PATTERN.matcher(text);
         if (!m.find()) return null;
         return parse(m.group("inner").trim(), source);
     }
@@ -13206,7 +13271,7 @@ public class ActionResolver {
      * {@code fireFieldMainPhase1EachTurnAbilities} is responsible for invoking it.
      */
     static Consumer<GameContext> tryParseBeginningOfMainPhase1EachTurnFieldAbility(String text, CardData source) {
-        Matcher m = AT_BEGINNING_OF_MAIN_PHASE_1_EACH_TURN_FA_PATTERN.matcher(text);
+        Matcher m = AT_BEGINNING_OF_MAIN_PHASE_1_EACH_TURN_PATTERN.matcher(text);
         if (!m.find()) return null;
         return parse(m.group("inner").trim(), source);
     }
@@ -13217,7 +13282,7 @@ public class ActionResolver {
      * {@code fireFieldOppMainPhase1Abilities} is responsible for invoking it.
      */
     static Consumer<GameContext> tryParseBeginningOfOppMainPhase1FieldAbility(String text, CardData source) {
-        Matcher m = AT_BEGINNING_OF_OPP_MAIN_PHASE_1_FA_PATTERN.matcher(text);
+        Matcher m = AT_BEGINNING_OF_OPP_MAIN_PHASE_1_PATTERN.matcher(text);
         if (!m.find()) return null;
         return parse(m.group("inner").trim(), source);
     }
@@ -13228,7 +13293,7 @@ public class ActionResolver {
      * {@code fireFieldEndOfOpponentTurnAbilities} is responsible for invoking it.
      */
     static Consumer<GameContext> tryParseEndOfOpponentTurnFieldAbility(String text, CardData source) {
-        Matcher m = AT_END_OF_OPP_TURN_FA_PATTERN.matcher(text);
+        Matcher m = AT_END_OF_OPP_TURN_PATTERN.matcher(text);
         if (!m.find()) return null;
         return parse(m.group("inner").trim(), source);
     }

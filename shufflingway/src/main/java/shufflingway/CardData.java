@@ -1925,6 +1925,69 @@ public record CardData(
             if (fa != null) result.add(fa);
         }
 
+        // Fifth pass: "At the end of each of your turns, [effect]"
+        Matcher eotm = ActionResolver.AT_END_OF_EACH_TURN_PATTERN.matcher(textForSearch);
+        while (eotm.find()) {
+            String effect = SUMMON_MARKUP.matcher(eotm.group("inner").trim()).replaceAll("").trim();
+            if (effect.isEmpty()) continue;
+            AutoAbility aa = parseAutoAbilityRestrictions("", "end of your turn", false, false, false, false, effect, 0);
+            if (aa != null) result.add(aa);
+        }
+
+        // Sixth pass: "At the beginning of your Main Phase 1, [effect]"
+        Matcher mp1m = ActionResolver.AT_BEGINNING_OF_MAIN_PHASE_1_PATTERN.matcher(textForSearch);
+        while (mp1m.find()) {
+            String effect = SUMMON_MARKUP.matcher(mp1m.group("inner").trim()).replaceAll("").trim();
+            if (effect.isEmpty()) continue;
+            AutoAbility aa = parseAutoAbilityRestrictions("", "beginning of main phase 1", false, false, false, false, effect, 0);
+            if (aa != null) result.add(aa);
+        }
+
+        // Seventh pass: "At the beginning of your Main Phase 2, [effect]"
+        Matcher mp2m = ActionResolver.AT_BEGINNING_OF_MAIN_PHASE_2_PATTERN.matcher(textForSearch);
+        while (mp2m.find()) {
+            String effect = SUMMON_MARKUP.matcher(mp2m.group("inner").trim()).replaceAll("").trim();
+            if (effect.isEmpty()) continue;
+            AutoAbility aa = parseAutoAbilityRestrictions("", "beginning of main phase 2", false, false, false, false, effect, 0);
+            if (aa != null) result.add(aa);
+        }
+
+        // Eighth pass: "Each turn, at the beginning of Main Phase 1, [effect]" (fires both players)
+        Matcher mp1et = ActionResolver.AT_BEGINNING_OF_MAIN_PHASE_1_EACH_TURN_PATTERN.matcher(textForSearch);
+        while (mp1et.find()) {
+            String effect = SUMMON_MARKUP.matcher(mp1et.group("inner").trim()).replaceAll("").trim();
+            if (effect.isEmpty()) continue;
+            AutoAbility aa = parseAutoAbilityRestrictions("", "beginning of main phase 1 each turn", false, false, false, false, effect, 0);
+            if (aa != null) result.add(aa);
+        }
+
+        // Ninth pass: "At the beginning of your opponent's Main Phase 1, [effect]"
+        Matcher ompm = ActionResolver.AT_BEGINNING_OF_OPP_MAIN_PHASE_1_PATTERN.matcher(textForSearch);
+        while (ompm.find()) {
+            String effect = SUMMON_MARKUP.matcher(ompm.group("inner").trim()).replaceAll("").trim();
+            if (effect.isEmpty()) continue;
+            AutoAbility aa = parseAutoAbilityRestrictions("", "beginning of opponent's main phase 1", false, false, false, false, effect, 0);
+            if (aa != null) result.add(aa);
+        }
+
+        // Tenth pass: "At the end of your opponent's turn(s), [effect]"
+        Matcher ootm = ActionResolver.AT_END_OF_OPP_TURN_PATTERN.matcher(textForSearch);
+        while (ootm.find()) {
+            String effect = SUMMON_MARKUP.matcher(ootm.group("inner").trim()).replaceAll("").trim();
+            if (effect.isEmpty()) continue;
+            AutoAbility aa = parseAutoAbilityRestrictions("", "end of opponent's turn", false, false, false, false, effect, 0);
+            if (aa != null) result.add(aa);
+        }
+
+        // Eleventh pass: "At the end of each player's turn, [effect]" (fires both players)
+        Matcher eptm = ActionResolver.AT_END_OF_EACH_PLAYERS_TURN_PATTERN.matcher(textForSearch);
+        while (eptm.find()) {
+            String effect = SUMMON_MARKUP.matcher(eptm.group("inner").trim()).replaceAll("").trim();
+            if (effect.isEmpty()) continue;
+            AutoAbility aa = parseAutoAbilityRestrictions("", "end of each player's turn", false, false, false, false, effect, 0);
+            if (aa != null) result.add(aa);
+        }
+
         return List.copyOf(result);
     }
 
@@ -4229,9 +4292,16 @@ public record CardData(
             if (ALT_COST_SUMMON.matcher(seg).find())    continue;
             if (ALT_COST_NONSUMMON.matcher(seg).find()) continue;
 
-            // Auto abilities: "When [card/event] [trigger], [effect]" and "At the beginning of [Phase]…"
+            // Auto abilities: "When [card/event] [trigger], [effect]" and phase-trigger patterns
             if (FA_AUTO_PREFIX.matcher(seg).find()) continue;
             if (AT_BEGINNING_OF_ATTACK_PHASE_PATTERN.matcher(seg).find()) continue;
+            if (ActionResolver.AT_END_OF_EACH_TURN_PATTERN.matcher(seg).find()) continue;
+            if (ActionResolver.AT_BEGINNING_OF_MAIN_PHASE_1_PATTERN.matcher(seg).find()) continue;
+            if (ActionResolver.AT_BEGINNING_OF_MAIN_PHASE_2_PATTERN.matcher(seg).find()) continue;
+            if (ActionResolver.AT_BEGINNING_OF_MAIN_PHASE_1_EACH_TURN_PATTERN.matcher(seg).find()) continue;
+            if (ActionResolver.AT_BEGINNING_OF_OPP_MAIN_PHASE_1_PATTERN.matcher(seg).find()) continue;
+            if (ActionResolver.AT_END_OF_OPP_TURN_PATTERN.matcher(seg).find()) continue;
+            if (ActionResolver.AT_END_OF_EACH_PLAYERS_TURN_PATTERN.matcher(seg).find()) continue;
 
             // Quoted sub-action lines from "select the following actions" auto-abilities
             if (seg.startsWith("\"")) continue;

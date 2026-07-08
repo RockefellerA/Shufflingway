@@ -134,9 +134,9 @@ class ComputerPlayer {
 		mw.refreshPhaseTracker();
 		mw.logEntry("[P2] Main Phase 1");
 		mw.processWarpCounters(false);
-		mw.fireFieldMainPhase1Abilities(false);
-		mw.fireFieldMainPhase1EachTurnAbilities();
-		mw.fireFieldOppMainPhase1Abilities(true);
+		mw.autoAbilityTriggers.triggerAutoAbilitiesForBeginningOfMainPhase1(false);
+		mw.autoAbilityTriggers.triggerAutoAbilitiesForBeginningOfMainPhase1EachTurn();
+		mw.autoAbilityTriggers.triggerAutoAbilitiesForBeginningOfOppMainPhase1(true);
 		step(() -> doMainPhase(() -> {
 			mw.gameState.advancePhase(); // MAIN_1 → ATTACK
 			mw.refreshPhaseTracker();
@@ -154,7 +154,7 @@ class ComputerPlayer {
 				mw.gameState.advancePhase(); // ATTACK → MAIN_2
 				mw.refreshPhaseTracker();
 				mw.logEntry("[P2] Main Phase 2");
-				mw.fireFieldMainPhase2Abilities(false);
+				mw.autoAbilityTriggers.triggerAutoAbilitiesForBeginningOfMainPhase2(false);
 				step(() -> doMainPhase(this::doEndPhase));
 			} else {
 				mw.logEntry("[P2] Attack Phase");
@@ -164,7 +164,7 @@ class ComputerPlayer {
 					mw.gameState.advancePhase(); // ATTACK → MAIN_2
 					mw.refreshPhaseTracker();
 					mw.logEntry("[P2] Main Phase 2");
-					mw.fireFieldMainPhase2Abilities(false);
+					mw.autoAbilityTriggers.triggerAutoAbilitiesForBeginningOfMainPhase2(false);
 					step(() -> doMainPhase(this::doEndPhase));
 				}));
 			}
@@ -468,8 +468,9 @@ class ComputerPlayer {
 		}
 		mw.refreshP2BreakLabel();
 		mw.refreshP2HandCountLabel();
-		mw.fireFieldEndOfEachPlayersTurnAbilities();
-		mw.fireFieldEndOfOpponentTurnAbilities(true);
+		mw.autoAbilityTriggers.triggerAutoAbilitiesForEndOfYourTurn(false);
+		mw.autoAbilityTriggers.triggerAutoAbilitiesForEndOfEachPlayersTurn();
+		mw.autoAbilityTriggers.triggerAutoAbilitiesForEndOfOpponentTurn(true);
 		mw.fireEndOfTurnEffects(false);
 		for (int i = 0; i < mw.p2ForwardDamage.size(); i++) mw.p2ForwardDamage.set(i, 0);
 		for (int i = 0; i < mw.p2ForwardPowerBoost.size(); i++) mw.p2ForwardPowerBoost.set(i, 0);
