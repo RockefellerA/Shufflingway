@@ -1345,6 +1345,140 @@ public class CardPickerDialog {
         return value[0];
     }
 
+    /** Returns the chosen per-card damage allocation, parallel to {@code cards}; entries sum to {@code damage}. */
+    public List<Integer> selectDamageAmount(int damage, String prompt, List<CardData> cards) {
+        JDialog dlg = new JDialog(owner, "Divide Damage", true);
+        dlg.setResizable(false);
+        dlg.setDefaultCloseOperation(JDialog.DO_NOTHING_ON_CLOSE);
+
+        JPanel header = new JPanel();
+        header.setLayout(new BoxLayout(header, BoxLayout.Y_AXIS));
+        JLabel promptLabel = new JLabel(prompt, SwingConstants.CENTER);
+        JLabel damageLabel = new JLabel(String.format(damage >= 10000 ? "%05d" : "%04d", damage));
+
+        promptLabel.setFont(FontLoader.loadPixelNESFont(11));
+        promptLabel.setBorder(BorderFactory.createEmptyBorder(10, 12, 4, 12));
+        promptLabel.setAlignmentX(Component.CENTER_ALIGNMENT);
+        damageLabel.setFont(FontLoader.loadPixelNESFont(11));
+        damageLabel.setBorder(BorderFactory.createEmptyBorder(10, 12, 4, 12));
+        damageLabel.setAlignmentX(Component.CENTER_ALIGNMENT);
+
+        header.add(promptLabel);
+        header.add(Box.createVerticalStrut(5));
+        header.add(damageLabel);
+
+        JPanel grid = new JPanel(new FlowLayout(FlowLayout.CENTER, 12, 10));
+
+        // Total damage is tracked among all elements in values
+        int[] totalDamage = {0};
+        List<int[]> values = new ArrayList<>();
+
+        // Declared before the per-card loop so the up/down listeners below can toggle it directly;
+        // added to the layout later. Only allow confirming once the full amount has been divided up.
+        JButton okBtn = new JButton("OK");
+        okBtn.setFont(FontLoader.loadPixelNESFont(11));
+        okBtn.setFocusPainted(false);
+        okBtn.setEnabled(damage == 0);
+        okBtn.addActionListener(e -> dlg.dispose());
+
+        for (CardData c : cards) {
+            int[] v = { 0 };
+            values.add(v);
+
+            JLabel valueLabel = new JLabel(String.format("%05d", v[0]), SwingConstants.CENTER);
+            valueLabel.setFont(FontLoader.loadPixelNESFont(16));
+            valueLabel.setOpaque(true);
+            valueLabel.setBackground(Color.WHITE);
+            valueLabel.setBorder(BorderFactory.createLineBorder(Color.DARK_GRAY, 2));
+            valueLabel.setPreferredSize(new Dimension(80, 30));
+
+            JButton upBtn = new JButton("▲");
+            JButton downBtn = new JButton("▼");
+
+            upBtn.setFont(FontLoader.loadPixelNESFont(12));
+            downBtn.setFont(FontLoader.loadPixelNESFont(12));
+
+            upBtn.setFocusPainted(false);
+            downBtn.setFocusPainted(false);
+
+            upBtn.addActionListener(e -> {
+                if (v[0] < damage && totalDamage[0] < damage) {
+                    v[0] += 1000;
+                    totalDamage[0] += 1000;
+                    damageLabel.setText(String.format("%05d", damage - totalDamage[0]));
+                    valueLabel.setText(String.format("%05d", v[0]));
+                    okBtn.setEnabled(totalDamage[0] == damage);
+                }
+            });
+
+            downBtn.addActionListener(e -> {
+                if (v[0] > 0 && totalDamage[0] > 0) {
+                    v[0] -= 1000;
+                    totalDamage[0] -= 1000;
+                    damageLabel.setText(String.format("%05d", damage - totalDamage[0]));
+                    valueLabel.setText(String.format("%05d", v[0]));
+                    okBtn.setEnabled(totalDamage[0] == damage);
+                }
+            });
+
+            JPanel cardPanel = new JPanel();
+            cardPanel.setLayout(new BoxLayout(cardPanel, BoxLayout.Y_AXIS));
+            cardPanel.setBorder(BorderFactory.createEmptyBorder(6, 10, 6, 10));
+
+            // Card image
+            JLabel cardImage = new JLabel("...");
+            cardImage.setAlignmentX(Component.CENTER_ALIGNMENT);
+
+            upBtn.setAlignmentX(Component.CENTER_ALIGNMENT);
+            downBtn.setAlignmentX(Component.CENTER_ALIGNMENT);
+            valueLabel.setAlignmentX(Component.CENTER_ALIGNMENT);
+
+            new SwingWorker<ImageIcon, Void>() {
+                @Override protected ImageIcon doInBackground() throws Exception {
+                    Image img = ImageCache.load(c.imageUrl());
+                    return img == null ? null
+                            : new ImageIcon(img.getScaledInstance(CARD_W, CARD_H, Image.SCALE_SMOOTH));
+                }
+                @Override protected void done() {
+                    try {
+                        ImageIcon icon = get();
+                        if (icon != null) { cardImage.setIcon(icon); cardImage.setText(null); }
+                    } catch (InterruptedException | ExecutionException ignored) {}
+                }
+            }.execute();
+
+            cardPanel.add(cardImage);
+            cardPanel.add(Box.createVerticalStrut(5));
+            cardPanel.add(upBtn);
+            cardPanel.add(valueLabel);
+            cardPanel.add(downBtn);
+
+            grid.add(cardPanel);
+        }
+
+        JScrollPane scroll = new JScrollPane(grid);
+        scroll.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createLineBorder(Color.BLACK, 1),
+                BorderFactory.createEmptyBorder(6, 6, 6, 6)));
+
+        JPanel south = new JPanel(new FlowLayout(FlowLayout.CENTER, 0, 8));
+        south.add(okBtn);
+
+        dlg.getContentPane().setLayout(new BorderLayout(0, 5));
+        dlg.getContentPane().add(header, BorderLayout.NORTH);
+        dlg.getContentPane().add(scroll, BorderLayout.CENTER);
+        dlg.getContentPane().add(south, BorderLayout.SOUTH);
+
+        dlg.pack();
+        dlg.setLocationRelativeTo(owner);
+        dlg.setSize(dlg.getSize().width + 125, dlg.getSize().getSize().height + 220);
+        dlg.setVisible(true);
+
+        List<Integer> result = new ArrayList<>();
+        for (int[] v : values) result.add(v[0]);
+        return result;
+    }
+
     // -------------------------------------------------------------------------
     // Break-zone picker
     // -------------------------------------------------------------------------

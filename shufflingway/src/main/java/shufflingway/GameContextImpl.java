@@ -805,7 +805,10 @@ final class GameContextImpl implements GameContext {
 				String postCondLabel = !isTraitCondition(condition) ? ""
 						: " with " + condition.substring("trait:".length()).charAt(0)
 						  + condition.substring("trait:".length()).substring(1).toLowerCase(java.util.Locale.ROOT).replace("_", " ");
-				String title = "Choose " + (upTo ? "up to " : "") + maxCount
+				String strUpto = upTo && maxCount == Integer.MAX_VALUE ? "any number of"
+						: upTo ? "up to " + maxCount
+						: String.valueOf(maxCount);
+				String title = "Choose " + strUpto
 						+ preCondLabel
 						+ (element != null ? " " + element : "")
 						+ " " + targetNoun + (maxCount != 1 ? "s" : "") + postCondLabel + costLabel + powerLabel
@@ -1004,6 +1007,10 @@ final class GameContextImpl implements GameContext {
 					return maxAmount;
 				}
 				return mw.showPowerAmountDialog(maxAmount, prompt);
+			}
+
+			@Override public List<Integer> divideDamageAmount(int damage, String prompt, List<CardData> cards) {
+				return mw.showDivideDamageDialog(damage, prompt, cards);
 			}
 			@Override public void returnP1ForwardToDeckBottom(int idx)   { mw.returnP1ForwardToDeck(idx, true);  }
 			@Override public void returnP2ForwardToDeckBottom(int idx)   { mw.returnP2ForwardToDeck(idx, true);  }
