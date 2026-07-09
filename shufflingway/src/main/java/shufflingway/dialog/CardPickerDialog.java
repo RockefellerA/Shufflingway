@@ -1,11 +1,5 @@
 package shufflingway.dialog;
 
-import shufflingway.CardData;
-import shufflingway.FontLoader;
-import shufflingway.ForwardTarget;
-import shufflingway.ImageCache;
-import shufflingway.graphics.CardAnimation;
-
 import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Component;
@@ -25,9 +19,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ExecutionException;
-import java.util.stream.Collectors;
 import java.util.function.Consumer;
 import java.util.function.ToIntFunction;
+import java.util.stream.Collectors;
 
 import javax.swing.BorderFactory;
 import javax.swing.Box;
@@ -44,9 +38,14 @@ import javax.swing.SwingConstants;
 import javax.swing.SwingUtilities;
 import javax.swing.SwingWorker;
 
+import shufflingway.CardData;
+import static shufflingway.CardFilters.discardTypeKey;
+import shufflingway.FontLoader;
+import shufflingway.ForwardTarget;
+import shufflingway.ImageCache;
+import shufflingway.graphics.CardAnimation;
 import static shufflingway.graphics.CardAnimation.CARD_H;
 import static shufflingway.graphics.CardAnimation.CARD_W;
-import static shufflingway.CardFilters.discardTypeKey;
 
 /**
  * Modal card-selection dialogs that have no game-state side effects — they
@@ -1297,7 +1296,6 @@ public class CardPickerDialog {
                 BorderFactory.createEmptyBorder(2, 8, 2, 8)));
 
         JButton upBtn = new JButton("▲");
-        upBtn.setFont(FontLoader.loadPixelNESFont(14));
         upBtn.setFocusPainted(false);
         upBtn.addActionListener(ae -> {
             if (value[0] < safeMax) {
@@ -1307,7 +1305,6 @@ public class CardPickerDialog {
         });
 
         JButton downBtn = new JButton("▼");
-        downBtn.setFont(FontLoader.loadPixelNESFont(14));
         downBtn.setFocusPainted(false);
         downBtn.addActionListener(ae -> {
             if (value[0] > 0) {
