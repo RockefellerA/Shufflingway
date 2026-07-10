@@ -2916,11 +2916,22 @@ final class AutoAbilityTriggers {
 					|| ability.whileCardBlocking() != null || ability.whilePartyAttacking()
 					|| ability.hasBlockingTargetEffect() || ability.blockerForAttacker() != null;
 			boolean phaseOk = hasAttackRestriction ? isAttackPhase : (isMainPhase || (isAttackPhase && mw.attackSubStep == 0));
-			boolean abilityEnabled = phaseOk && mw.canActivateAbility(ability, isFrozen, state, playedTurn, card, isP1);
-			JMenuItem item = new JMenuItem(abilityEnabled ? mw.buildAbilityMenuLabelHtml(ability) : mw.buildAbilityMenuLabel(ability));
+
+			// "Each player can use this ability." — P1 (the human) is always the one driving this
+			// menu, so when the card belongs to P2 (the CPU), let P1 activate it too, paying costs
+			// from P1's own resources instead of P2's (P2's hand/backups aren't human-interactive).
+			boolean activatorIsP1 = (!isP1 && ability.usableByEitherPlayer()) ? true : isP1;
+
+			boolean abilityEnabled = phaseOk && mw.canActivateAbility(ability, isFrozen, state, playedTurn, card, activatorIsP1);
+			String label = abilityEnabled ? mw.buildAbilityMenuLabelHtml(ability) : mw.buildAbilityMenuLabel(ability);
+			if (activatorIsP1 != isP1) {
+				String suffix = " (pay your own cost)";
+				label = label.startsWith("<html>") ? label.replace("</html>", suffix + "</html>") : label + suffix;
+			}
+			JMenuItem item = new JMenuItem(label);
 			item.setEnabled(abilityEnabled);
 			item.addActionListener(ae ->
-					showActionAbilityPaymentDialog(ability, card, applyDull, isP1));
+					showActionAbilityPaymentDialog(ability, card, applyDull, activatorIsP1));
 			menu.add(item);
 		}
 

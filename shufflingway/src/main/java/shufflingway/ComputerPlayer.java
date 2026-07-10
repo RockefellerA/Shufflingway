@@ -979,7 +979,7 @@ class ComputerPlayer {
 					() -> { mw.p2MonsterStates.set(mi, CardState.DULL); mw.refreshP2MonsterSlot(mi); },
 					onDone)) return;
 		}
-		tryP2BzActionAbilities(onDone);
+		tryP2BzActionAbilities(() -> tryP2SharedOpponentAbilities(onDone));
 	}
 
 	/**
@@ -1044,6 +1044,84 @@ class ComputerPlayer {
 			}
 		}
 		onDone.run();
+	}
+
+	/**
+	 * Minimum P2 hand size to keep after paying a "usableByEitherPlayer" ability's discard
+	 * cost.  Activating one of P1's shared-use abilities only ever helps P2 indirectly (e.g.
+	 * stripping a protective counter from P1's card), so it's not worth spending down P2's own
+	 * hand advantage to do it.
+	 */
+	private static final int MIN_HAND_AFTER_SHARED_ABILITY = 2;
+
+	/**
+	 * "Each player can use this ability." — tries to activate a {@code usableByEitherPlayer}
+	 * ability on one of P1's field cards, paying costs from P2's own resources.  Called as a
+	 * low-priority fallback after P2 has exhausted its own abilities this main phase.
+	 */
+	private void tryP2SharedOpponentAbilities(Runnable onDone) {
+		for (int i = 0; i < mw.p1ForwardCards.size(); i++) {
+			CardData card = mw.p1ForwardCards.get(i);
+			if (card == null) continue;
+			final int fi = i;
+			if (tryP2UseOpponentSharedAbility(card, mw.p1ForwardFrozen.get(i), mw.p1ForwardStates.get(i),
+					mw.p1ForwardPlayedOnTurn.get(i),
+					() -> { mw.p1ForwardStates.set(fi, CardState.DULL); mw.animateDullForward(fi, null); },
+					onDone)) return;
+		}
+		for (int i = 0; i < mw.p1BackupCards.length; i++) {
+			CardData card = mw.p1BackupCards[i];
+			if (card == null) continue;
+			final int bi = i;
+			if (tryP2UseOpponentSharedAbility(card, mw.p1BackupFrozen[i], mw.p1BackupStates[i], 0,
+					() -> { mw.p1BackupStates[bi] = CardState.DULL; mw.refreshP1BackupSlot(bi); },
+					onDone)) return;
+		}
+		for (int i = 0; i < mw.p1MonsterCards.size(); i++) {
+			CardData card = mw.p1MonsterCards.get(i);
+			if (card == null) continue;
+			final int mi = i;
+			if (tryP2UseOpponentSharedAbility(card, mw.p1MonsterFrozen.get(i), mw.p1MonsterStates.get(i),
+					mw.p1MonsterPlayedOnTurn.get(i),
+					() -> { mw.p1MonsterStates.set(mi, CardState.DULL); mw.refreshP1MonsterSlot(mi); },
+					onDone)) return;
+		}
+		onDone.run();
+	}
+
+	/**
+	 * Checks each {@code usableByEitherPlayer} action ability on {@code card} (a P1 card).
+	 * If one is usable, affordable without giving up P2's hand advantage, and its effect is
+	 * implemented, pays cost from P2's resources and schedules a doMainPhase continuation.
+	 * Returns {@code true} if an ability was dispatched.
+	 */
+	private boolean tryP2UseOpponentSharedAbility(CardData card, boolean isFrozen, CardState state,
+			int playedTurn, Runnable applyDull, Runnable onDone) {
+		if (mw.lostAbilitiesCards.contains(card)) return false;
+		for (ActionAbility ability : card.actionAbilities()) {
+			if (!ability.usableByEitherPlayer()) continue;
+			if (ability.whileCardInHand()) continue;
+			if (ability.breakZoneOnly() != null) continue;
+			if (!mw.canActivateAbility(ability, isFrozen, state, playedTurn, card, false)) continue;
+			if (ActionResolver.parse(ability.effectText(), card) == null) continue;
+			if (!ability.discardCosts().isEmpty()) {
+				int totalDiscard = ability.discardCosts().stream().mapToInt(DiscardCost::count).sum();
+				if (mw.gameState.getP2Hand().size() - totalDiscard < MIN_HAND_AFTER_SHARED_ABILITY) continue;
+			}
+
+			List<Integer>        backupDullIndices = new ArrayList<>();
+			Map<Integer, String> backupElems       = new LinkedHashMap<>();
+			List<Integer>        discardIndices    = new ArrayList<>();
+			Map<Integer, String> discardElems      = new LinkedHashMap<>();
+			if (!p2PlanAbilityPayment(ability, backupDullIndices, backupElems, discardIndices, discardElems))
+				continue;
+
+			mw.logEntry("[P2] Activates shared ability on " + card.name() + " — " + ability.effectText());
+			mw.autoAbilityTriggers.executeP2AbilityActivation(ability, card, applyDull, backupDullIndices, discardIndices, 0);
+			step(() -> doMainPhase(onDone));
+			return true;
+		}
+		return false;
 	}
 
 	/**
