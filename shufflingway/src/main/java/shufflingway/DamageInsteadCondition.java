@@ -8,6 +8,7 @@ public sealed interface DamageInsteadCondition
                 DamageInsteadCondition.TargetIsMultiElement,
                 DamageInsteadCondition.YouControl,
                 DamageInsteadCondition.YouReceivedDamageThisTurn,
+                DamageInsteadCondition.YouReceivedDamageAtLeast,
                 DamageInsteadCondition.YouHaveSummonInBreakZone,
                 DamageInsteadCondition.OpponentDamageAtLeast,
                 DamageInsteadCondition.OpponentHandAtMost,
@@ -21,11 +22,14 @@ public sealed interface DamageInsteadCondition
     /** "If it is a Multi-Element Forward" (or similar card type) */
     record TargetIsMultiElement() implements DamageInsteadCondition {}
 
-    /** "If you control [ControlCondition]" */
-    record YouControl(ControlCondition cond) implements DamageInsteadCondition {}
+    /** "If you control [ControlCondition][ other than excludeName]" */
+    record YouControl(ControlCondition cond, String excludeName) implements DamageInsteadCondition {}
 
     /** "If you have received a point of damage this turn" */
     record YouReceivedDamageThisTurn() implements DamageInsteadCondition {}
+
+    /** "If you have received N points of damage or more" */
+    record YouReceivedDamageAtLeast(int min) implements DamageInsteadCondition {}
 
     /** "If you have a Summon in your Break Zone" */
     record YouHaveSummonInBreakZone() implements DamageInsteadCondition {}

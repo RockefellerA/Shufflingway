@@ -2325,6 +2325,29 @@ public class ActionResolver {
     private static final Pattern DIVIDE_DAMAGE_PATTERN = Pattern.compile(
             "(?i)Divide\\s+(?<amount>\\d+)\\s+damage\\b(?:.*?\\b(?<mode>equally)\\b)?"
     );
+
+    /**
+     * Matches the condition clause of "If &lt;cond&gt;, divide M damage among them [as you like|
+     * equally] instead." — captures just {@code cond}; the alt amount is re-extracted separately
+     * via {@link #DIVIDE_DAMAGE_PATTERN} against the same substring.
+     */
+    private static final Pattern DIVIDE_DAMAGE_INSTEAD_COND = Pattern.compile(
+            "(?i)^If\\s+(?<cond>.+?),\\s*(?=[Dd]ivide\\s+\\d+\\s+damage)"
+    );
+
+    /**
+     * Matches "Divide N damage equally among all the Forwards/Backups/Characters [you control|
+     * opponent controls][ (round up to the nearest 1000)]." — a blanket, no-choice variant of
+     * the "Choose ... Divide N damage" pattern (e.g. Strago's "Grand Delta").
+     * Groups: {@code amount}, {@code type}, {@code control}.
+     */
+    private static final Pattern DIVIDE_DAMAGE_EQUALLY_AMONG_ALL = Pattern.compile(
+            "(?i)^Divide\\s+(?<amount>\\d+)\\s+damage\\s+equally\\s+among\\s+all\\s+(?:the\\s+)?" +
+            "(?<type>Forwards?|Backups?|Characters?)" +
+            "(?:\\s+(?<control>(?:your\\s+)?opponent\\s+controls|you\\s+control))?" +
+            "(?:\\s*\\([^)]*\\))?[.!]?\\s*$"
+    );
+
     /**
      * Matches "Your opponent puts the top N cards of his/her deck into the Break Zone.
      * If both [all] cards are of the same Element, draw M card(s)."
@@ -4389,6 +4412,9 @@ public class ActionResolver {
         result = tryParseDealDamageToForwards(effectText);
         if (result != null) return result;
 
+        result = tryParseDivideDamageEquallyAmongAll(effectText);
+        if (result != null) return result;
+
         result = tryParseNoForwardCostCannotAttack(effectText);
         if (result != null) return result;
 
@@ -5106,6 +5132,7 @@ public class ActionResolver {
         if (tryParseDealDamageToForwardsForEach(effectText)             != null) return "DealDamageToForwardsForEach";
         if (tryParseDealDamageToForwardsExceptElement(effectText)       != null) return "DealDamageToForwardsExceptElement";
         if (tryParseDealDamageToForwards(effectText)                    != null) return "DealDamageToForwards";
+        if (tryParseDivideDamageEquallyAmongAll(effectText)             != null) return "DivideDamageEquallyAmongAll";
         if (tryParseNoForwardCostCannotAttack(effectText)               != null) return "NoForwardCostCannotAttack";
         if (tryParseOwnForwardsCannotBeChosenByExBurst(effectText)      != null) return "OwnForwardsCannotBeChosenByExBurst";
         if (tryParseExBurstSuppression(effectText)                      != null) return "ExBurstSuppression";
@@ -5462,6 +5489,7 @@ public class ActionResolver {
         if (tryParseDealDamageToForwardsExceptElement(effectText)          != null) return "DealDamageToForwardsExceptElement";
         if (tryParseRfpAllFwdExceptElementsThenTwiceDeck(effectText)       != null) return "RfpAllFwdExceptElementsThenTwiceDeck";
         if (tryParseDealDamageToForwards(effectText)                       != null) return "DealDamageToForwards";
+        if (tryParseDivideDamageEquallyAmongAll(effectText)                != null) return "DivideDamageEquallyAmongAll";
         if (tryParseNoForwardCostCannotAttack(effectText)           != null) return "NoForwardCostCannotAttack";
         if (tryParseOwnForwardsCannotBeChosenByExBurst(effectText)  != null) return "OwnForwardsCannotBeChosenByExBurst";
         if (tryParseExBurstSuppression(effectText)                  != null) return "ExBurstSuppression";
@@ -5948,6 +5976,38 @@ public class ActionResolver {
                     effect.accept(ctx);
                 }
             }
+        };
+    }
+
+    /** Parses "Divide N damage equally among all the [type] [you control|opponent controls]." — no target choice. */
+    private static Consumer<GameContext> tryParseDivideDamageEquallyAmongAll(String text) {
+        Matcher m = DIVIDE_DAMAGE_EQUALLY_AMONG_ALL.matcher(text.trim());
+        if (!m.find()) return null;
+
+        int    damage    = Integer.parseInt(m.group("amount"));
+        String control    = m.group("control");
+        boolean opponentOnly = control != null && !control.equalsIgnoreCase("you control");
+        boolean selfOnly     = control != null && control.equalsIgnoreCase("you control");
+        boolean unreduced    = CANNOT_BE_REDUCED_PATTERN.matcher(text).find();
+
+        return ctx -> {
+            boolean oppIsP2  = opponentOnly && ctx.isP1();
+            boolean oppIsP1  = opponentOnly && !ctx.isP1();
+            boolean selfIsP1 = selfOnly && ctx.isP1();
+            boolean selfIsP2 = selfOnly && !ctx.isP1();
+            boolean inclP2   = (!opponentOnly && !selfOnly) || oppIsP2 || selfIsP2;
+            boolean inclP1   = (!opponentOnly && !selfOnly) || oppIsP1 || selfIsP1;
+
+            List<ForwardTarget> ts = new ArrayList<>();
+            if (inclP2) for (int i = 0; i < ctx.p2ForwardCount(); i++) ts.add(new ForwardTarget(false, i, ForwardTarget.CardZone.FORWARD));
+            if (inclP1) for (int i = 0; i < ctx.p1ForwardCount(); i++) ts.add(new ForwardTarget(true, i, ForwardTarget.CardZone.FORWARD));
+            if (ts.isEmpty()) return;
+
+            int perTarget = roundUpToThousand(damage, ts.size());
+            ctx.logEntry("Effect: Divide " + damage + " damage equally among all Forwards ("
+                    + perTarget + " each, rounded up to the nearest 1000)");
+            sortedByIdxDesc(ts, true) .forEach(t -> damageTargetMaybeUnreduced(ctx, t, perTarget, unreduced));
+            sortedByIdxDesc(ts, false).forEach(t -> damageTargetMaybeUnreduced(ctx, t, perTarget, unreduced));
         };
     }
 
@@ -6474,6 +6534,12 @@ public class ActionResolver {
         if (s.equalsIgnoreCase("you have a Summon in your Break Zone"))
             return new DamageInsteadCondition.YouHaveSummonInBreakZone();
 
+        // Self damage count: "you have received N points of damage or more"
+        Matcher selfDmgM = java.util.regex.Pattern
+                .compile("(?i)you have received (\\d+) points? of damage or more").matcher(s);
+        if (selfDmgM.find())
+            return new DamageInsteadCondition.YouReceivedDamageAtLeast(Integer.parseInt(selfDmgM.group(1)));
+
         // Opponent damage count: "your opponent has received N points of damage or more"
         Matcher oppDmgM = java.util.regex.Pattern
                 .compile("(?i)your opponent has received (\\d+) points? of damage or more").matcher(s);
@@ -6500,10 +6566,18 @@ public class ActionResolver {
         if (s.matches("(?i).+ results from an EX Burst"))
             return new DamageInsteadCondition.IsExBurst();
 
-        // "If you control …" — delegate to ControlCondition parser
+        // "If you control … [other than <name>]" — delegate to ControlCondition parser
         if (s.toLowerCase().startsWith("you control ")) {
-            ControlCondition cc = CardData.parseControlCondition(s.substring("you control ".length()).trim());
-            if (cc != null) return new DamageInsteadCondition.YouControl(cc);
+            String rest = s.substring("you control ".length()).trim();
+            String excludeName = null;
+            Matcher otherThanM = java.util.regex.Pattern
+                    .compile("(?i)^(?<cond>.+?)\\s+other\\s+than\\s+(?<name>.+)$").matcher(rest);
+            if (otherThanM.matches()) {
+                excludeName = otherThanM.group("name").trim();
+                rest = otherThanM.group("cond").trim();
+            }
+            ControlCondition cc = CardData.parseControlCondition(rest);
+            if (cc != null) return new DamageInsteadCondition.YouControl(cc, excludeName);
         }
         return null;
     }
@@ -6674,10 +6748,28 @@ public class ActionResolver {
                 (t.isP1() ? ctx.p1ForwardState(t.idx()) : ctx.p2ForwardState(t.idx())) == CardState.ACTIVE;
             case DamageInsteadCondition.TargetIsMultiElement() ->
                 (t.isP1() ? ctx.p1Forward(t.idx()) : ctx.p2Forward(t.idx())).containsElement("Multi-Element");
-            case DamageInsteadCondition.YouControl(ControlCondition cc) ->
-                ctx.controlConditionMet(cc);
+            default -> insteadConditionMet(ctx, cond);
+        };
+        return condMet ? alt : base;
+    }
+
+    /**
+     * Evaluates a {@link DamageInsteadCondition} that does not depend on a specific target
+     * (i.e. every variant except {@code TargetIsActive}/{@code TargetIsMultiElement}, which
+     * require a {@link ForwardTarget} and must go through {@link #resolveInsteadDamage}).
+     */
+    private static boolean insteadConditionMet(GameContext ctx, DamageInsteadCondition cond) {
+        return switch (cond) {
+            case DamageInsteadCondition.TargetIsActive() ->
+                throw new IllegalArgumentException("TargetIsActive requires resolveInsteadDamage(ctx, target, ...)");
+            case DamageInsteadCondition.TargetIsMultiElement() ->
+                throw new IllegalArgumentException("TargetIsMultiElement requires resolveInsteadDamage(ctx, target, ...)");
+            case DamageInsteadCondition.YouControl(ControlCondition cc, String excludeName) ->
+                excludeName != null ? ctx.controlConditionMetExcluding(cc, excludeName) : ctx.controlConditionMet(cc);
             case DamageInsteadCondition.YouReceivedDamageThisTurn() ->
                 ctx.selfReceivedDamageThisTurn();
+            case DamageInsteadCondition.YouReceivedDamageAtLeast(int min) ->
+                ctx.selfDamageCount() >= min;
             case DamageInsteadCondition.YouHaveSummonInBreakZone() ->
                 ctx.selfHasSummonInBreakZone();
             case DamageInsteadCondition.OpponentDamageAtLeast(int min) ->
@@ -6691,7 +6783,6 @@ public class ActionResolver {
             case DamageInsteadCondition.IsExBurst() ->
                 ctx.isExBurst();
         };
-        return condMet ? alt : base;
     }
 
     // -------------------------------------------------------------------------
@@ -7896,46 +7987,26 @@ public class ActionResolver {
 
             int dotSpaceIdxCond = followup.indexOf(". ");
             String followup_cond = dotSpaceIdxCond >= 0 ? followup.substring(dotSpaceIdxCond + 2) : "";
-            Matcher divideAmp = IF_YOU_CONTROL_CATEGORY.matcher(followup_cond);
-            final String  condCategory;
-            final boolean condInclFwd, condInclBkp, condInclMon;
-            final String  condExcludeName;
-            final int     altDamage;
-            if (divideAmp.find()) {
-                condCategory = divideAmp.group("category").trim();
-                String condType = divideAmp.group("type").trim().toLowerCase(java.util.Locale.ROOT);
-                condInclFwd = condType.startsWith("forward") || condType.startsWith("character");
-                condInclBkp = condType.startsWith("backup")  || condType.startsWith("character");
-                condInclMon = condType.startsWith("monster") || condType.startsWith("character");
-                condExcludeName = divideAmp.group("name") != null ? divideAmp.group("name").trim()
-                        : (source != null ? source.name() : null);
-
+            Matcher divideCondM = DIVIDE_DAMAGE_INSTEAD_COND.matcher(followup_cond);
+            final DamageInsteadCondition insteadCond;
+            final int altDamage;
+            if (divideCondM.find()) {
+                DamageInsteadCondition parsedCond = parseDamageInsteadCondition(divideCondM.group("cond").trim());
                 // Anchored to "divide N damage" specifically — a bare \d+ search would wrongly
-                // grab a digit embedded in the category name itself (e.g. "Category FFTA2").
+                // grab a digit embedded in the condition text itself (e.g. "Category FFTA2").
                 Matcher mAmp = DIVIDE_DAMAGE_PATTERN.matcher(followup_cond);
-                altDamage = mAmp.find() ? Integer.parseInt(mAmp.group("amount")) : baseDamage;
+                insteadCond = parsedCond;
+                altDamage   = (parsedCond != null && mAmp.find()) ? Integer.parseInt(mAmp.group("amount")) : baseDamage;
             } else {
-                condCategory = null;
-                condInclFwd = condInclBkp = condInclMon = false;
-                condExcludeName = null;
-                altDamage = baseDamage;
+                insteadCond = null;
+                altDamage   = baseDamage;
             }
 
+            final boolean fUnreduced = unreduced;
             final int fBaseDamage = baseDamage;
             return ctx -> {
                 int fDamage = fBaseDamage;
-                if (condCategory != null) {
-                    int totalCat = ctx.isP1()
-                            ? ctx.countP1FieldCards(condInclFwd, condInclBkp, condInclMon, null, null, condCategory)
-                            : ctx.countP2FieldCards(condInclFwd, condInclBkp, condInclMon, null, null, condCategory);
-                    int namedCat = condExcludeName == null ? 0
-                            : ctx.isP1()
-                                    ? ctx.countP1FieldCards(condInclFwd, condInclBkp, condInclMon, null, condExcludeName, condCategory)
-                                    : ctx.countP2FieldCards(condInclFwd, condInclBkp, condInclMon, null, condExcludeName, condCategory);
-                    // "a Category X Forward other than <name>" is met when a matching card exists
-                    // besides the copies that are named <name> (usually just the source itself).
-                    if (totalCat > namedCat) fDamage = altDamage;
-                }
+                if (insteadCond != null && insteadConditionMet(ctx, insteadCond)) fDamage = altDamage;
 
                 List<ForwardTarget> ts = selectTargets(ctx, maxCount, any || upTo,
                         opponentOnly, selfOnly, null, null, null, false,
@@ -7945,16 +8016,12 @@ public class ActionResolver {
                 if (ts.isEmpty()) return;
 
                 if (equally) {
-                    int n      = ts.size();
-                    int base   = fDamage / n;
-                    int extra  = fDamage % n;
-                    Map<ForwardTarget, Integer> amountByTarget = new HashMap<>();
-                    for (int i = 0; i < n; i++) amountByTarget.put(ts.get(i), base + (i < extra ? 1 : 0));
-                    sortedByIdxDesc(ts, true) .forEach(t -> ctx.damageTarget(t, amountByTarget.get(t)));
-                    sortedByIdxDesc(ts, false).forEach(t -> ctx.damageTarget(t, amountByTarget.get(t)));
+                    int perTarget = roundUpToThousand(fDamage, ts.size());
+                    sortedByIdxDesc(ts, true) .forEach(t -> damageTargetMaybeUnreduced(ctx, t, perTarget, fUnreduced));
+                    sortedByIdxDesc(ts, false).forEach(t -> damageTargetMaybeUnreduced(ctx, t, perTarget, fUnreduced));
                 } else if (ts.size() == 1) {
                     // Nothing to divide — skip the allocation dialog and deal it all.
-                    ctx.damageTarget(ts.get(0), fDamage);
+                    damageTargetMaybeUnreduced(ctx, ts.get(0), fDamage, fUnreduced);
                 } else {
                     List<CardData> cards = new ArrayList<>();
                     for (ForwardTarget t : ts) {
@@ -7963,8 +8030,8 @@ public class ActionResolver {
                     List<Integer> allocation = ctx.divideDamageAmount(fDamage, "Divide Damage: ", cards);
                     Map<ForwardTarget, Integer> amountByTarget = new HashMap<>();
                     for (int i = 0; i < ts.size(); i++) amountByTarget.put(ts.get(i), allocation.get(i));
-                    sortedByIdxDesc(ts, true) .forEach(t -> { int amt = amountByTarget.get(t); if (amt > 0) ctx.damageTarget(t, amt); });
-                    sortedByIdxDesc(ts, false).forEach(t -> { int amt = amountByTarget.get(t); if (amt > 0) ctx.damageTarget(t, amt); });
+                    sortedByIdxDesc(ts, true) .forEach(t -> { int amt = amountByTarget.get(t); if (amt > 0) damageTargetMaybeUnreduced(ctx, t, amt, fUnreduced); });
+                    sortedByIdxDesc(ts, false).forEach(t -> { int amt = amountByTarget.get(t); if (amt > 0) damageTargetMaybeUnreduced(ctx, t, amt, fUnreduced); });
                 }
             };
         }
@@ -9842,6 +9909,23 @@ public class ActionResolver {
                 .sorted((a, b) -> Integer.compare(b.idx(), a.idx()));
     }
 
+    /** Deals {@code amount} damage to {@code t}, bypassing reduction effects when {@code unreduced}. */
+    private static void damageTargetMaybeUnreduced(GameContext ctx, ForwardTarget t, int amount, boolean unreduced) {
+        if (unreduced) ctx.damageTargetUnreduced(t, amount);
+        else           ctx.damageTarget(t, amount);
+    }
+
+    /**
+     * Splits {@code damage} evenly across {@code count} targets, rounding each target's share
+     * up to the nearest 1000 (per official card rulings, e.g. "divide 12000 damage equally...
+     * round up to the nearest 1000") — the total dealt may exceed {@code damage} when it doesn't
+     * divide evenly.
+     */
+    private static int roundUpToThousand(int damage, int count) {
+        if (count <= 0) return 0;
+        return ((damage + count * 1000 - 1) / (count * 1000)) * 1000;
+    }
+
     /** Builds a log suffix like " — Gain +1000 power, Haste, and First Strike until end of turn". */
     private static String boostLogSuffix(int amount, EnumSet<CardData.Trait> traits) {
         List<String> parts = new ArrayList<>();
@@ -10649,15 +10733,6 @@ public class ActionResolver {
         "(?is)^if\\s+you\\s+control\\s+(?<max>\\d+)\\s+or\\s+(?:less|fewer)\\s+" +
         "(?:Category\\s+(?<category>\\S+)\\s+)?" +
         "(?<type>Forwards?|Backups?|Monsters?|Characters?),\\s+(?<effect>.+)$"
-    );
-
-    /**
-     * Match condition if you control a Category, of any type. Also takes into account multiple spaces (e.g. "Crystal Hunt" category)
-     * Also checks if it requires it to be a card other than itself
-     * Groups: <category>, <type, <other>
-     */
-    private static final Pattern IF_YOU_CONTROL_CATEGORY = Pattern.compile(
-            "(?i)If\\s+you\\s+control\\s+a\\s+Category\\s+(?<category>.+?)\\s+(?<type>Forward|Monster|Backup|Character)(?:\\s+other\\s+than\\s+(?<name>\\w+))?"
     );
 
     /**

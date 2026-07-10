@@ -130,6 +130,14 @@
       <scope>test</scope>
     </dependency>
 
+    <!-- Mockito for behavioral tests against the (very large) GameContext interface -->
+    <dependency>
+      <groupId>org.mockito</groupId>
+      <artifactId>mockito-core</artifactId>
+      <version>5.23.0</version>
+      <scope>test</scope>
+    </dependency>
+
   </dependencies>
 
 </project>

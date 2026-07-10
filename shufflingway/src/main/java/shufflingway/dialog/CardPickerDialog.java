@@ -1225,7 +1225,6 @@ public class CardPickerDialog {
                 BorderFactory.createEmptyBorder(2, 8, 2, 8)));
 
         JButton leftBtn = new JButton("◄");
-        leftBtn.setFont(FontLoader.loadPixelNESFont(14));
         leftBtn.setFocusPainted(false);
         leftBtn.addActionListener(ae -> {
             if (value[0] > min) {
@@ -1235,7 +1234,6 @@ public class CardPickerDialog {
         });
 
         JButton rightBtn = new JButton("►");
-        rightBtn.setFont(FontLoader.loadPixelNESFont(14));
         rightBtn.setFocusPainted(false);
         rightBtn.addActionListener(ae -> {
             if (value[0] < max) {
@@ -1394,9 +1392,6 @@ public class CardPickerDialog {
 
             JButton upBtn = new JButton("▲");
             JButton downBtn = new JButton("▼");
-
-            upBtn.setFont(FontLoader.loadPixelNESFont(12));
-            downBtn.setFont(FontLoader.loadPixelNESFont(12));
 
             upBtn.setFocusPainted(false);
             downBtn.setFocusPainted(false);
