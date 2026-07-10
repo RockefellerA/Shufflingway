@@ -4245,11 +4245,14 @@ public class ActionResolver {
     // -------------------------------------------------------------------------
 
     /**
-     * Matches the "If you paid the extra cost" conditional clause in summon effect text.
+     * Matches the "If you paid the extra cost" conditional clause in effect text. {@code base}
+     * may be empty when the condition is the entire ability (e.g. Summoner: "If you paid the
+     * extra cost, your opponent selects …") rather than a suffix on an unconditional lead-in
+     * (e.g. Samurai: "Choose 1 Forward … If you paid the extra cost, break it.").
      * Groups: {@code base}, {@code also}, {@code effect}, {@code instead}.
      */
     private static final java.util.regex.Pattern IF_PAID_EXTRA_COST = java.util.regex.Pattern.compile(
-        "(?i)(?<base>.+?)\\s+If\\s+you\\s+paid\\s+the\\s+extra\\s+cost(?:\\s+and\\s+[^,]+)?,\\s+" +
+        "(?i)(?<base>.*?)\\s*\\b[Ii]f\\s+you\\s+paid\\s+the\\s+extra\\s+cost(?:\\s+and\\s+[^,]+)?,\\s+" +
         "(?<also>also\\s+)?" +
         "(?<effect>.+?)" +
         "(?<instead>\\s+instead)?" +
@@ -4279,7 +4282,7 @@ public class ActionResolver {
         if (!cap.endsWith(".")) cap += ".";
 
         if (isAlso) {
-            return base + " " + cap;
+            return base.isEmpty() ? cap : base + " " + cap;
         }
         if (isInstead) {
             if (java.util.regex.Pattern.compile("(?i)\\bit\\b").matcher(effect).find()) {
@@ -4289,7 +4292,7 @@ public class ActionResolver {
             return cap;
         }
         // Additive without "also" keyword (Leviathan-style): append
-        return base + " " + cap;
+        return base.isEmpty() ? cap : base + " " + cap;
     }
 
     /** Strips the "If you paid the extra cost, … ." clause (single- or multi-sentence) from the end of {@code text}. */

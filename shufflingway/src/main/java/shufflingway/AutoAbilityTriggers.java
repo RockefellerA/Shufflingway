@@ -123,13 +123,13 @@ final class AutoAbilityTriggers {
 					items);
 			for (int i = ordered.size() - 1; i >= 0; i--) {
 				StackOrderingDialog.Item it = ordered.get(i);
-				executeAutoAbilityImpl(it.ability(), it.source(), it.controllerIsP1());
+				executeAutoAbilityImpl(it.ability(), it.source(), it.controllerIsP1(), it.paidExtraCost());
 			}
 		} else {
 			// No dialog: preserve historical iteration order (first walked = pushed
 			// first = bottom of stack = resolves last).
 			for (StackOrderingDialog.Item it : items) {
-				executeAutoAbilityImpl(it.ability(), it.source(), it.controllerIsP1());
+				executeAutoAbilityImpl(it.ability(), it.source(), it.controllerIsP1(), it.paidExtraCost());
 			}
 		}
 	}
@@ -591,6 +591,11 @@ final class AutoAbilityTriggers {
 	}
 
 	void triggerAutoAbilitiesForEntersField(CardData card, boolean isP1) {
+		triggerAutoAbilitiesForEntersField(card, isP1, false);
+	}
+
+	/** @param paidExtraCost whether {@code card}'s optional extra cost was paid when it was cast (threaded to its own "enters the field" trigger only, not to watcher abilities on other cards). */
+	void triggerAutoAbilitiesForEntersField(CardData card, boolean isP1, boolean paidExtraCost) {
 		if (mw.suppressAutoAbilityForNextCard) {
 			mw.suppressAutoAbilityForNextCard = false;
 			// Re-evaluate field boosts even when ETF auto-abilities are suppressed
@@ -609,7 +614,7 @@ final class AutoAbilityTriggers {
 					if (!fa.trigger().contains("enter")) continue;
 					// "enters your field other than from your hand" — skip when played normally from hand
 					if (fa.trigger().equals("enters your field not from hand") && mw.lastCardWasCast) continue;
-					executeAutoAbility(fa, card, isP1);
+					executeAutoAbility(fa, card, isP1, paidExtraCost);
 				}
 				// Watcher dispatch: "When a <Type> enters your field, ..." abilities live on other field cards
 				// on the same side as the entering card.
@@ -1437,15 +1442,24 @@ final class AutoAbilityTriggers {
 	 * {@link #executeAutoAbilityImpl}.
 	 */
 	private void executeAutoAbility(AutoAbility fa, CardData source, boolean isP1) {
+		executeAutoAbility(fa, source, isP1, false);
+	}
+
+	/** @param paidExtraCost whether {@code source}'s optional extra cost was paid when it was cast. */
+	private void executeAutoAbility(AutoAbility fa, CardData source, boolean isP1, boolean paidExtraCost) {
 		if (mw.lostAbilitiesCards.contains(source)) return;
 		if (pendingBatch != null) {
-			pendingBatch.add(new StackOrderingDialog.Item(fa, source, isP1));
+			pendingBatch.add(new StackOrderingDialog.Item(fa, source, isP1, paidExtraCost));
 			return;
 		}
-		executeAutoAbilityImpl(fa, source, isP1);
+		executeAutoAbilityImpl(fa, source, isP1, paidExtraCost);
 	}
 
 	private void executeAutoAbilityImpl(AutoAbility fa, CardData source, boolean isP1) {
+		executeAutoAbilityImpl(fa, source, isP1, false);
+	}
+
+	private void executeAutoAbilityImpl(AutoAbility fa, CardData source, boolean isP1, boolean paidExtraCost) {
 		// Damage threshold: skip if the controlling player doesn't have enough damage counters
 		if (fa.damageThreshold() > 0) {
 			int dmg = isP1 ? mw.gameState.getP1DamageZone().size() : mw.gameState.getP2DamageZone().size();
@@ -1597,7 +1611,7 @@ final class AutoAbilityTriggers {
 			mw.usedOncePerTurnAbilities.computeIfAbsent(source, k -> new HashSet<>()).add(fa.effectText());
 
 		mw.logEntry("[AutoAbility] " + source.name() + " — pushed to stack");
-		mw.gameState.pushStack(new StackEntry(source, null, fa, effectIsP1, 0, false, null, false, false, 0));
+		mw.gameState.pushStack(new StackEntry(source, null, fa, effectIsP1, 0, false, null, false, paidExtraCost, 0));
 	}
 
 	private void executeCounterRemovalWhenDoSoAutoAbility(AutoAbility fa, CardData source,

@@ -571,6 +571,8 @@ public class MainWindow {
 	private int pendingExtraCostXValue = 0;
 	/** Extra CP to add to the payment dialog when the extra cost is 《X》 CP (Valefor). */
 	private int pendingExtraCostExtraCp = 0;
+	/** Fixed CP elements pending for a CP_FIXED extra cost (e.g. "Wind" + 2 generic, Samurai); null when not confirmed. */
+	private List<String> pendingExtraCostCpElements = null;
 	/** Cost of the card discarded as the hand-discard extra cost; 0 if not applicable. */
 	int currentExtraCostDiscardedCardCost = 0;
 	/** The source card of the action ability currently resolving off the stack (null otherwise). */
@@ -5249,10 +5251,12 @@ public class MainWindow {
 		}
 
 		ExtraCost ec = card.extraCost();
-		if (ec != null && card.isSummon()) {
+		// Extra costs were originally summon-only; CP_FIXED (e.g. "pay 《Wind》《2》 as an extra
+		// cost") also appears on Forward/Character "enters the field" abilities (e.g. Samurai).
+		if (ec != null && (card.isSummon() || ec.type() == ExtraCost.Type.CP_FIXED)) {
 			JMenuItem ecItem = new JMenuItem("Play (Extra Cost: " + ec.description() + ")");
-			ecItem.setEnabled(canPlaySpecialAction && !summonCastingProhibited()
-					&& canAffordCard(card, handIdx) && canAffordExtraCost(ec) && !p1CastLimitReached());
+			ecItem.setEnabled(canPlaySpecialAction && (!card.isSummon() || !summonCastingProhibited())
+					&& canAffordCard(card, handIdx) && canAffordExtraCost(card, handIdx, ec) && !p1CastLimitReached());
 			ecItem.addActionListener(ae -> {
 				hideZoom();
 				if (handPopup != null) { handPopup.dispose(); handPopup = null; }
@@ -6412,9 +6416,22 @@ public class MainWindow {
 	}
 
 	private boolean canAffordCard(CardData card, int excludeHandIdx) {
-		String[]       elems = card.elements();
+		return canAffordCard(card, excludeHandIdx, null, 0);
+	}
+
+	/**
+	 * Like {@link #canAffordCard(CardData, int)} but adds {@code extraGenericCost} to the CP
+	 * total needed and {@code extraRequiredElems} to the set of elements that must have at
+	 * least one available source — used to pre-check a fixed-CP extra cost (e.g. "pay 《Wind》《2》
+	 * as an extra cost") on top of the card's own casting cost.
+	 */
+	private boolean canAffordCard(CardData card, int excludeHandIdx, String[] extraRequiredElems, int extraGenericCost) {
+		String[] elems = (extraRequiredElems == null || extraRequiredElems.length == 0) ? card.elements()
+				: java.util.stream.Stream.concat(Arrays.stream(card.elements()), Arrays.stream(extraRequiredElems))
+						.distinct().toArray(String[]::new);
 		List<CardData> hand  = gameState.getP1Hand();
 		int totalGenerate = 0;
+		int totalCostNeeded = effectiveCastCost(card) + extraGenericCost;
 
 		if (card.isLightOrDark()) {
 			// L/D cards accept any element — sum all banked CP and all available sources
@@ -6427,7 +6444,7 @@ public class MainWindow {
 				if (p1BackupCards[i] != null && p1BackupStates[i] == CardState.ACTIVE)
 					totalGenerate += 1;
 			}
-			return totalExisting + totalGenerate >= effectiveCastCost(card);
+			return totalExisting + totalGenerate >= totalCostNeeded;
 		}
 
 		boolean[] hasElemSource = new boolean[elems.length];
@@ -6472,15 +6489,21 @@ public class MainWindow {
 			}
 		}
 		for (boolean hs : hasElemSource) if (!hs) return false;
-		return totalExisting + totalGenerate >= effectiveCastCost(card);
+		return totalExisting + totalGenerate >= totalCostNeeded;
 	}
 
 	/** Returns {@code true} when P1 can pay the extra cost. */
-	private boolean canAffordExtraCost(ExtraCost ec) {
+	private boolean canAffordExtraCost(CardData card, int handIdx, ExtraCost ec) {
 		return switch (ec.type()) {
 			case BZ_REMOVE    -> gameState.getP1BreakZone().stream().filter(ec::matches).count() >= ec.count();
 			case DISCARD_HAND -> gameState.getP1Hand().size() > ec.count(); // must have cards beyond the one being cast
 			case CP_X         -> true;
+			case CP_FIXED     -> {
+				String[] extraElems = ec.cpElements().stream().filter(e -> !e.isEmpty())
+						.distinct().toArray(String[]::new);
+				int extraGeneric = (int) ec.cpElements().stream().filter(String::isEmpty).count();
+				yield canAffordCard(card, handIdx, extraElems, extraGeneric);
+			}
 		};
 	}
 
@@ -6521,6 +6544,15 @@ public class MainWindow {
 				int x = (int) spinner.getValue();
 				pendingExtraCostXValue = x;
 				pendingExtraCostExtraCp = x;
+				showPaymentDialog(card, handIdx);
+			}
+			case CP_FIXED -> {
+				// Fixed, non-negotiable amount — just confirm, no selection needed.
+				int result = JOptionPane.showConfirmDialog(frame,
+						"Pay " + ec.description() + " to cast " + card.name() + " with its extra cost?",
+						"Extra Cost: " + card.name(), JOptionPane.OK_CANCEL_OPTION);
+				if (result != JOptionPane.OK_OPTION) return;
+				pendingExtraCostCpElements = ec.cpElements();
 				showPaymentDialog(card, handIdx);
 			}
 		}
@@ -6995,18 +7027,22 @@ public class MainWindow {
 	}
 
 	void showPaymentDialog(CardData card, int handIdx) {
-		int cost = effectiveCastCost(card) + pendingExtraCostExtraCp;
+		int extraGeneric = pendingExtraCostCpElements == null ? 0
+				: (int) pendingExtraCostCpElements.stream().filter(String::isEmpty).count();
+		int cost = effectiveCastCost(card) + pendingExtraCostExtraCp + extraGeneric;
 		pendingExtraCostExtraCp = 0;
 		if (cost <= 0) {
 			executePlay(card, handIdx, List.of(), List.of(), Map.of());
 			return;
 		}
+		String[] extraElems = pendingExtraCostCpElements == null ? null
+				: pendingExtraCostCpElements.stream().filter(e -> !e.isEmpty()).distinct().toArray(String[]::new);
 		new StandardPaymentDialog(frame, card, handIdx, cost,
 				gameState.getP1Hand(), p1BackupCards, p1BackupStates, p1BackupUrls,
 				this::showZoomAt, this::hideZoom,
 				new ArrayList<>(p1ForwardCards),
 				(discards, backups, overrides) -> executePlay(card, handIdx, discards, backups, overrides),
-				isAnyElementCast(card))
+				isAnyElementCast(card), extraElems)
 			.show();
 	}
 
@@ -7217,12 +7253,17 @@ public class MainWindow {
 			pendingExtraCostXValue = 0;
 			logEntry("Extra Cost: paid 《" + extraCostXVal + "》 extra CP");
 		}
+		if (pendingExtraCostCpElements != null) {
+			paidExtraCost = true;
+			logEntry("Extra Cost: paid " + ExtraCost.cpFixed(pendingExtraCostCpElements).description());
+			pendingExtraCostCpElements = null;
+		}
 
 		lastCardWasCast = true;
 		if (card.isBackup()) {
 			placeCardInFirstBackupSlot(card);
 		} else if (card.isForward()) {
-			placeCardInForwardZone(card);
+			placeCardInForwardZone(card, paidExtraCost);
 		} else if (card.isMonster()) {
 			placeCardInMonsterZone(card);
 		} else if (card.isSummon()) {
@@ -7767,14 +7808,27 @@ public class MainWindow {
 				refreshP1BreakLabel();
 			} else if (entry.isAutoAbility()) {
 				AutoAbility ab = entry.autoAbility();
-				logEntry("[AutoAbility] Resolving \"" + entry.source().name() + "\": " + ab.effectText());
-				Consumer<GameContext> effect = ActionResolver.parse(ab.effectText(), entry.source());
+				// Transform the "If you paid the extra cost, …" clause based on whether it actually
+				// was paid at cast time — a no-op for abilities with no such clause. Without this,
+				// the raw text's conditional gets matched loosely by unrelated patterns (e.g. a bare
+				// "break it" follow-up) and the effect would fire unconditionally.
+				boolean hadExtraCostClause = !ab.effectText().equals(ActionResolver.stripExtraCostClause(ab.effectText()));
+				String effectText = entry.paidExtraCost()
+						? ActionResolver.applyExtraCostPaid(ab.effectText())
+						: ActionResolver.stripExtraCostClause(ab.effectText());
+				Consumer<GameContext> effect = effectText.isBlank() ? null : ActionResolver.parse(effectText, entry.source());
 				if (effect != null) {
+					logEntry("[AutoAbility] Resolving \"" + entry.source().name() + "\": " + effectText);
 					currentAbilitySource     = entry.source();
 					currentAbilitySourceIsP1 = entry.isP1();
 					try { effect.accept(ctx); } finally { currentAbilitySource = null; }
+				} else if (hadExtraCostClause && !entry.paidExtraCost()) {
+					// Extra cost wasn't paid, and the remaining unconditional lead-in (if any) has no
+					// follow-up action of its own — e.g. "Choose 1 Forward of cost 6 or more." alone.
+					// This is the expected "nothing happens" case, not a parsing failure.
+					logEntry("[AutoAbility] \"" + entry.source().name() + "\" — extra cost not paid, no effect");
 				} else {
-					logEntry("[AutoAbility] Unrecognized effect: " + ab.effectText());
+					logEntry("[AutoAbility] Unrecognized effect: " + effectText);
 				}
 				refreshP1HandLabel();
 				refreshP1BreakLabel();
@@ -10333,6 +10387,11 @@ public class MainWindow {
 
 	/** Adds a Forward card to P1's forward zone and wires up the debug context menu. */
 	void placeCardInForwardZone(CardData card) {
+		placeCardInForwardZone(card, false);
+	}
+
+	/** @param paidExtraCost whether the optional extra cost was paid when casting {@code card} (threaded to its ETB auto-ability). */
+	void placeCardInForwardZone(CardData card, boolean paidExtraCost) {
 		if (p1ForwardPanel == null) return;
 		int idx = p1ForwardLabels.size();
 
@@ -10383,7 +10442,7 @@ public class MainWindow {
 		refreshP1ForwardSlot(idx);
 		if (!card.fieldPowerGrants().isEmpty()) refreshFieldGrantDependents(true);
 		if (!card.fieldCostReductions().isEmpty() || p1HandHasSelfCostModifiers()) refreshHandPopupIfVisible();
-		autoAbilityTriggers.triggerAutoAbilitiesForEntersField(card, true);
+		autoAbilityTriggers.triggerAutoAbilitiesForEntersField(card, true, paidExtraCost);
 		syncBzForwardPlayables(true);
 		sendToBreakZoneByUniquenessRule(card, true);
 		fireOppNoForwardsFieldAbilitiesForCard(card, true);

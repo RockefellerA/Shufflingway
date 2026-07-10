@@ -138,15 +138,19 @@ public record CardData(
     );
 
     /**
-     * Matches the extra-cost clause for summons. Five variants:
+     * Matches the extra-cost clause "If you cast [Name], you may [cost] as an extra cost."
+     * Originally written for summons but the phrasing is identical for Forward/Character
+     * "enters the field" abilities (e.g. Samurai). Six variants:
      * <ul>
      *   <li>remove N [Element] cards in your Break Zone from the game as an extra cost</li>
      *   <li>remove N Forward(s) in your Break Zone from the game as an extra cost</li>
      *   <li>remove N Card Name [name] in your Break Zone from the game as an extra cost</li>
      *   <li>discard N card(s) as an extra cost</li>
-     *   <li>pay 《X》 as an extra cost</li>
+     *   <li>pay 《X》 as an extra cost — variable amount, player's choice</li>
+     *   <li>pay 《Element》《N》 as an extra cost — fixed CP amount, e.g. "Wind + 2 generic"</li>
      * </ul>
-     * Groups: {@code count}, {@code element}, {@code forward}, {@code cardname}, {@code discardcount}.
+     * Groups: {@code count}, {@code element}, {@code forward}, {@code cardname}, {@code discardcount},
+     * {@code cptoks} (raw {@code 《...》《...》} token string for the fixed-CP variant).
      */
     static final Pattern EXTRA_COST_SUMMON = Pattern.compile(
         "(?i)If\\s+you\\s+cast\\s+[^,]+,\\s+you\\s+may\\s+" +
@@ -160,6 +164,8 @@ public record CardData(
             "discard\\s+(?<discardcount>\\d+)\\s+cards?" +
         "|" +
             "pay\\s+《X》" +
+        "|" +
+            "pay\\s+(?<cptoks>(?:《[^》]+》)+)" +
         ")" +
         "\\s+as\\s+an\\s+extra\\s+cost"
     );
@@ -271,15 +277,18 @@ public record CardData(
     }
 
     /**
-     * Returns the optional extra cost for this summon card, or {@code null} if none is defined.
-     * An extra cost lets the player remove cards from their Break Zone from the game when casting
-     * in exchange for an enhanced effect ("If you paid the extra cost, …").
+     * Returns the optional extra cost for this card, or {@code null} if none is defined.
+     * An extra cost lets the player pay something extra when casting — remove cards from
+     * their Break Zone, discard from hand, or pay additional CP — in exchange for an
+     * enhanced effect ("If you paid the extra cost, …").
      */
     public ExtraCost extraCost() {
         Matcher m = EXTRA_COST_SUMMON.matcher(textEn);
         if (!m.find()) return null;
         String discardcount = m.group("discardcount");
         if (discardcount != null) return ExtraCost.discardHand(Integer.parseInt(discardcount));
+        String cptoks = m.group("cptoks");
+        if (cptoks != null) return ExtraCost.cpFixed(parseCostTokens(cptoks, new int[1]));
         String count = m.group("count");
         if (count == null) return ExtraCost.cpX();  // pay 《X》 branch
         String cardname = m.group("cardname");

@@ -66,6 +66,7 @@ public class StandardPaymentDialog {
     /** Called on Confirm with (discardIndices, backupSlots, elementOverrides). */
     private final ConfirmCallback onConfirm;
     private final boolean        anyElementCast;
+    private final String[]       extraRequiredElements;
 
     public StandardPaymentDialog(JFrame owner, CardData card, int handIdx, int cost,
             List<CardData> hand, CardData[] backupCards, CardState[] backupStates,
@@ -80,6 +81,20 @@ public class StandardPaymentDialog {
             String[] backupUrls, Consumer<String> onZoom, Runnable onZoomHide,
             List<CardData> controlledForwards, ConfirmCallback onConfirm,
             boolean anyElementCast) {
+        this(owner, card, handIdx, cost, hand, backupCards, backupStates, backupUrls,
+                onZoom, onZoomHide, controlledForwards, onConfirm, anyElementCast, null);
+    }
+
+    /**
+     * @param extraRequiredElements additional elements (beyond the card's own) that must each
+     *     have at least 1 CP paid — used for a fixed-CP extra cost like "pay 《Wind》《2》 as an
+     *     extra cost" on top of the card's own casting cost. Nullable/empty when not applicable.
+     */
+    public StandardPaymentDialog(JFrame owner, CardData card, int handIdx, int cost,
+            List<CardData> hand, CardData[] backupCards, CardState[] backupStates,
+            String[] backupUrls, Consumer<String> onZoom, Runnable onZoomHide,
+            List<CardData> controlledForwards, ConfirmCallback onConfirm,
+            boolean anyElementCast, String[] extraRequiredElements) {
         this.owner              = owner;
         this.card               = card;
         this.handIdx            = handIdx;
@@ -93,6 +108,15 @@ public class StandardPaymentDialog {
         this.controlledForwards = controlledForwards;
         this.onConfirm          = onConfirm;
         this.anyElementCast     = anyElementCast;
+        this.extraRequiredElements = extraRequiredElements;
+    }
+
+    /** Unions {@code baseElems} with {@link #extraRequiredElements}, deduplicated, base order first. */
+    private String[] mergeExtraElements(String[] baseElems) {
+        if (extraRequiredElements == null || extraRequiredElements.length == 0) return baseElems;
+        java.util.LinkedHashSet<String> merged = new java.util.LinkedHashSet<>(java.util.Arrays.asList(baseElems));
+        merged.addAll(java.util.Arrays.asList(extraRequiredElements));
+        return merged.toArray(String[]::new);
     }
 
     public void show() {
@@ -105,7 +129,7 @@ public class StandardPaymentDialog {
         // "You can only pay with [Element] CP to cast [Name]" — overrides element and disables wildcards.
         final String castElemOnly = card.castElementOnly();
         final String   elem  = castElemOnly != null ? castElemOnly : card.element();
-        final String[] elems = castElemOnly != null ? new String[]{ castElemOnly } : card.elements();
+        final String[] elems = castElemOnly != null ? new String[]{ castElemOnly } : mergeExtraElements(card.elements());
         final boolean  isLD  = castElemOnly == null && (card.isLightOrDark() || anyElementCast);
 
         Map<String, Integer> bankCpByElem = new LinkedHashMap<>();

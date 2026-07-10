@@ -39,8 +39,8 @@ import shufflingway.graphics.CardAnimation;
  */
 final class StackOrderingDialog {
 
-	/** Lightweight view-model: one ability + its source card + controller. */
-	record Item(AutoAbility ability, CardData source, boolean controllerIsP1) {
+	/** Lightweight view-model: one ability + its source card + controller + extra-cost-paid state. */
+	record Item(AutoAbility ability, CardData source, boolean controllerIsP1, boolean paidExtraCost) {
 		String displayEffect() {
 			String txt = ability.effectText();
 			return txt == null || txt.isBlank() ? "(no effect text)" : txt;

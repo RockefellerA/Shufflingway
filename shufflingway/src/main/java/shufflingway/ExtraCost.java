@@ -1,36 +1,49 @@
 package shufflingway;
 
+import java.util.List;
+
 /**
- * Describes the optional extra cost for a summon card, above its normal CP cost.
- * Three variants exist:
+ * Describes the optional extra cost for a card, above its normal CP cost.
+ * Four variants exist:
  * <ul>
  *   <li>{@link Type#BZ_REMOVE} — remove {@link #count} cards from the Break Zone from the game.
  *       The eligible cards are filtered by {@link #element} (nullable), {@link #forwardOnly},
  *       or an exact {@link #cardName} (nullable).</li>
  *   <li>{@link Type#DISCARD_HAND} — discard {@link #count} cards from hand.</li>
- *   <li>{@link Type#CP_X} — pay 《X》 additional CP; {@link #count} is unused.</li>
+ *   <li>{@link Type#CP_X} — pay 《X》 additional CP (player's choice of amount); {@link #count} is unused.</li>
+ *   <li>{@link Type#CP_FIXED} — pay a fixed additional CP amount, e.g. {@code 《Wind》《2》}
+ *       ("1 Wind + 2 generic"). {@link #cpElements} holds one entry per required CP
+ *       (empty string {@code ""} = generic); {@link #count}/{@link #element} are unused.</li>
  * </ul>
  */
-public record ExtraCost(Type type, int count, String element, boolean forwardOnly, String cardName) {
+public record ExtraCost(Type type, int count, String element, boolean forwardOnly, String cardName,
+        List<String> cpElements) {
 
-    public enum Type { BZ_REMOVE, DISCARD_HAND, CP_X }
+    public enum Type { BZ_REMOVE, DISCARD_HAND, CP_X, CP_FIXED }
+
+    public ExtraCost {
+        cpElements = cpElements == null ? List.of() : List.copyOf(cpElements);
+    }
 
     // ── Convenience factories ─────────────────────────────────────────────────
 
     public static ExtraCost bzRemoveElement(int count, String element) {
-        return new ExtraCost(Type.BZ_REMOVE, count, element, false, null);
+        return new ExtraCost(Type.BZ_REMOVE, count, element, false, null, List.of());
     }
     public static ExtraCost bzRemoveForward(int count) {
-        return new ExtraCost(Type.BZ_REMOVE, count, null, true, null);
+        return new ExtraCost(Type.BZ_REMOVE, count, null, true, null, List.of());
     }
     public static ExtraCost bzRemoveCardName(int count, String cardName) {
-        return new ExtraCost(Type.BZ_REMOVE, count, null, false, cardName);
+        return new ExtraCost(Type.BZ_REMOVE, count, null, false, cardName, List.of());
     }
     public static ExtraCost discardHand(int count) {
-        return new ExtraCost(Type.DISCARD_HAND, count, null, false, null);
+        return new ExtraCost(Type.DISCARD_HAND, count, null, false, null, List.of());
     }
     public static ExtraCost cpX() {
-        return new ExtraCost(Type.CP_X, 0, null, false, null);
+        return new ExtraCost(Type.CP_X, 0, null, false, null, List.of());
+    }
+    public static ExtraCost cpFixed(List<String> cpElements) {
+        return new ExtraCost(Type.CP_FIXED, 0, null, false, null, cpElements);
     }
 
     // ── Descriptions ─────────────────────────────────────────────────────────
@@ -46,6 +59,13 @@ public record ExtraCost(Type type, int count, String element, boolean forwardOnl
             }
             case DISCARD_HAND -> "Discard " + count + " card" + (count != 1 ? "s" : "");
             case CP_X         -> "Pay 《X》 extra CP";
+            case CP_FIXED     -> {
+                List<String> parts = new java.util.ArrayList<>();
+                for (String e : cpElements) if (!e.isEmpty()) parts.add(e + " CP");
+                long generic = cpElements.stream().filter(String::isEmpty).count();
+                if (generic > 0) parts.add(generic + " CP");
+                yield "Pay " + String.join(" + ", parts) + " extra";
+            }
         };
     }
 
