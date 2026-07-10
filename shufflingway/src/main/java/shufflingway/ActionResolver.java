@@ -15032,8 +15032,9 @@ public class ActionResolver {
         Matcher m = CHOOSE_CHARACTER_PATTERN.matcher(text);
         if (!m.find()) return null;
 
-        boolean upTo         = m.group("upto") != null;
-        int     maxCount     = Integer.parseInt(m.group("count"));
+        boolean any          = m.group("anycount") != null;
+        boolean upTo         = any || m.group("upto") != null;
+        int     maxCount     = any ? Integer.MAX_VALUE : Integer.parseInt(m.group("count"));
         String  rawElement   = m.group("element");
         String  element      = rawElement != null && rawElement.contains(" or ")
                 ? rawElement.replaceAll("(?i)\\s+or\\s+", "|") : rawElement;
