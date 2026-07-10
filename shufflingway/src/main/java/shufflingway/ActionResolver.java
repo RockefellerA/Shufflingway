@@ -5376,6 +5376,7 @@ public class ActionResolver {
         if (FOLLOWUP_DAMAGE_AND_CONTROLLER_DAMAGE.matcher(followupText).find())       return "DamageAndControllerDamage";
         if (FOLLOWUP_DAMAGE.matcher(followupText).find())                             return "Damage";
         if (FOLLOWUP_DAMAGE_EXPR.matcher(followupText).find())                        return "DamageExpr";
+        if (FOLLOWUP_DIVIDE_DAMAGE_AMONG_CHOSEN.matcher(followupText).find())         return "DivideDamageAmongChosen";
         if (FOLLOWUP_ACTIVATE_AND_GAIN_CONTROL_EOT.matcher(followupText).find())        return "ActivateAndGainControlEOT";
         if (FOLLOWUP_ACTIVATE_AND_NEGATE_DAMAGE.matcher(followupText).find())          return "ActivateAndNegateDamage";
         if (FOLLOWUP_NEGATE_DAMAGE.matcher(followupText).find())                      return "NegateDamage";
@@ -10032,10 +10033,32 @@ public class ActionResolver {
         s = CardData.OPPONENT_CONTROLS_N_OR_MORE_PATTERN   .matcher(s).replaceAll("").trim();
         s = CardData.COUNTER_ZERO_RESTRICTION              .matcher(s).replaceAll("").trim();
         s = CardData.EACH_PLAYER_CAN_USE_PATTERN           .matcher(s).replaceAll("").trim();
+        // Boilerplate divide-damage rounding clarification — restates a fixed game rule
+        // (damage is always allocated in increments of 1000), carries no extra info to describe.
+        s = DAMAGE_INCREMENT_CLARIFICATION.matcher(s).replaceAll("").trim();
         // Strip leftover leading/trailing ", and" / "," / "." artifacts
         s = s.replaceAll("^[,.;\\s]+|[,.;\\s]+$", "").trim();
         return s;
     }
+
+    /**
+     * Matches the boilerplate "(Units must be 1000.)" / "(damage must be in increments of 1000)"
+     * clarification that appears after "divide/split damage among chosen targets as you like/wish"
+     * effects (e.g. Yuffie, Faris) — purely restates the standard rounding rule.
+     */
+    private static final Pattern DAMAGE_INCREMENT_CLARIFICATION = Pattern.compile(
+        "(?i)\\(\\s*(?:Units?\\s+must\\s+be\\s+\\d+\\.?|damage\\s+must\\s+be\\s+in\\s+increments\\s+of\\s+\\d+)\\s*\\)\\.?"
+    );
+
+    /**
+     * Matches "Divide N damage among them as you like/equally" or "...split [it] as you wish/like
+     * among the chosen ..." — a chosen-target damage allocation left to the controller's discretion
+     * (e.g. Yuffie, Faris). The actual allocation is handled by {@link GameContext#divideDamageAmount};
+     * this is used only to name the followup for description purposes.
+     */
+    private static final Pattern FOLLOWUP_DIVIDE_DAMAGE_AMONG_CHOSEN = Pattern.compile(
+        "(?i)\\b(?:divide\\s+\\d+\\s+damage\\s+among\\s+them|split\\s+(?:it\\s+)?as\\s+you\\s+(?:like|wish))\\b"
+    );
 
     private static String traitNamesOnly(EnumSet<CardData.Trait> traits) {
         List<String> names = new ArrayList<>();
