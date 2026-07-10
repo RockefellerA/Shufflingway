@@ -1013,6 +1013,15 @@ public interface GameContext {
     /** Returns the highest effective power among all own (ability-user's) Forwards; {@code 0} if none. */
     default int selfHighestForwardPower() { return isP1() ? highestP1ForwardPower() : highestP2ForwardPower(); }
 
+    /** Returns the lowest effective power among all P1 Forwards on the field; {@code 0} if none. */
+    int lowestP1ForwardPower();
+
+    /** Returns the lowest effective power among all P2 Forwards on the field; {@code 0} if none. */
+    int lowestP2ForwardPower();
+
+    /** Returns the lowest effective power among the opponent's (of the ability-user) Forwards; {@code 0} if none. */
+    default int opponentLowestForwardPower() { return isP1() ? lowestP2ForwardPower() : lowestP1ForwardPower(); }
+
     /**
      * Returns the effective power of the first field Forward or Monster whose name matches
      * {@code cardName} (case-insensitive), searching P1's zones then P2's.

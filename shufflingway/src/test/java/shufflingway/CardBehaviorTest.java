@@ -1,0 +1,407 @@
+package shufflingway;
+
+import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.*;
+import static org.mockito.Mockito.*;
+
+import java.util.List;
+import java.util.Set;
+import java.util.function.Consumer;
+
+import org.junit.jupiter.api.Test;
+
+/**
+ * Consolidated behavioral tests for one-off card-specific action-ability logic — each section
+ * below targets a single card or narrow bug fix, exercised against a mocked or minimally
+ * constructed {@link GameContext}/{@link CardData} rather than just asserting that the text
+ * parses. Kept in one file/class so the whole set runs together as a single suite.
+ */
+public class CardBehaviorTest {
+
+    // =========================================================================================
+    // Firion: "If you control 5 or more Characters, Firion gains Haste and 'When Firion attacks,
+    // draw 1 card.'  Discard 1 card: If the discarded card is of Fire Element, until the end of
+    // the turn, Firion gains +2000 power and First Strike. If the discarded card is of Water
+    // Element, Firion gains +2000 power until the end of the turn and activate Firion."
+    //
+    // The CPU's block-selection logic must consider spending this discard trick, but only when
+    // it actually changes the outcome of the block.
+    // =========================================================================================
+
+    private static final String FIRION_TEXT =
+            "If you control 5 or more Characters, Firion gains Haste and \"When Firion attacks, draw 1 card.\"[[br]]   "
+            + "Discard 1 card: If the discarded card is of Fire Element, until the end of the turn, Firion gains +2000 power and First Strike. "
+            + "If the discarded card is of Water Element, Firion gains +2000 power until the end of the turn and activate Firion.";
+
+    private static CardData makeForward(String name, String element, int cost, int power) {
+        return makeForward(name, element, cost, power, List.of());
+    }
+
+    private static CardData makeForward(String name, String element, int cost, int power, List<ActionAbility> abilities) {
+        return new CardData(null, name, element, cost, power, "Forward", false, 0, false, false,
+                Set.of(), 0, List.of(), null, List.of(),
+                abilities, List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(),
+                false, false, null, false, false, false, false, false, false,
+                null, null, null, "");
+    }
+
+    private static CardData makeFirion(int power) {
+        return makeForward("Firion", "Fire", 2, power, CardData.parseActionAbilities(FIRION_TEXT));
+    }
+
+    /** Builds a real MainWindow (no window shown) with Firion on P2's field and a P1 attacker declared. */
+    private static MainWindow firionSetUp(CardState firionState, int firionPower, int attackerPower,
+            List<CardData> p2HandCards) {
+        MainWindow mw = new MainWindow();
+        mw.placeCardInForwardZone(makeForward("Attacker", "Water", 3, attackerPower)); // P1 idx 0
+        mw.placeP2CardInForwardZone(makeFirion(firionPower));                          // P2 idx 0
+        mw.p2ForwardStates.set(0, firionState);
+        mw.gameState.getP2Hand().addAll(p2HandCards);
+        return mw;
+    }
+
+    @Test
+    void firionDiscardConditionalElementBranchesParsesCorrectly() {
+        List<ActionAbility> abilities = CardData.parseActionAbilities(FIRION_TEXT);
+        assertEquals(1, abilities.size());
+        List<ActionResolver.DiscardElementBranch> branches =
+                ActionResolver.discardConditionalElementBranches(abilities.get(0).effectText());
+        assertNotNull(branches);
+        assertEquals(2, branches.size());
+        assertEquals("Fire", branches.get(0).element());
+        assertTrue(branches.get(0).effectText().toLowerCase().contains("first strike"));
+        assertEquals("Water", branches.get(1).element());
+        assertTrue(branches.get(1).effectText().toLowerCase().contains("activate"));
+    }
+
+    @Test
+    void firionDeclinesToBlockAndDoesNotDiscardWhenHandHasNoMatchingElement() {
+        // Firion (4000) can't survive a 6000-power attacker unblocked-boosted; hand has only an
+        // Earth card, so neither branch of the ability can do anything — must not be used.
+        MainWindow mw = firionSetUp(CardState.ACTIVE, 4000, 6000,
+                List.of(makeForward("Filler", "Earth", 1, 1000)));
+        int handSizeBefore = mw.gameState.getP2Hand().size();
+
+        ForwardTarget blk = new ComputerPlayer(mw).chooseBlocker(6000,
+                new ForwardTarget(true, 0, ForwardTarget.CardZone.FORWARD));
+
+        assertNull(blk, "should decline to block rather than lose Firion for nothing");
+        assertEquals(handSizeBefore, mw.gameState.getP2Hand().size(), "must not waste a card with no benefit");
+    }
+
+    @Test
+    void firionUsesFireBranchToWinAnOtherwiseLosingBlock() {
+        // Firion (4000) alone can't survive/break a 5000-power attacker, but +2000 power and
+        // First Strike (6000) does. Hand has the needed Fire card plus an unrelated one.
+        CardData fireCard = makeForward("Fire Fodder", "Fire", 1, 1000);
+        MainWindow mw = firionSetUp(CardState.ACTIVE, 4000, 5000,
+                List.of(makeForward("Filler", "Earth", 1, 1000), fireCard));
+
+        ForwardTarget blk = new ComputerPlayer(mw).chooseBlocker(5000,
+                new ForwardTarget(true, 0, ForwardTarget.CardZone.FORWARD));
+
+        assertNotNull(blk, "should use the Fire branch to turn this into a winning block");
+        assertEquals(0, blk.idx());
+        assertEquals(ForwardTarget.CardZone.FORWARD, blk.zone());
+        assertFalse(mw.gameState.getP2Hand().contains(fireCard), "the Fire card should have been discarded");
+        assertEquals(6000, mw.effectiveP2ForwardPower(0), "Firion should now be boosted to 6000 power");
+        assertTrue(mw.p2ForwardTempTraits.get(0).contains(CardData.Trait.FIRST_STRIKE), "Firion should have gained First Strike");
+    }
+
+    @Test
+    void firionUsesWaterBranchToActivateADullFirionSoItCanBlock() {
+        // Dull Firion is normally not even a candidate; the Water branch both boosts power and
+        // activates it, so it should become the chosen blocker against a 5000-power attacker.
+        CardData waterCard = makeForward("Water Fodder", "Water", 1, 1000);
+        MainWindow mw = firionSetUp(CardState.DULL, 4000, 5000,
+                List.of(makeForward("Filler", "Earth", 1, 1000), waterCard));
+
+        ForwardTarget blk = new ComputerPlayer(mw).chooseBlocker(5000,
+                new ForwardTarget(true, 0, ForwardTarget.CardZone.FORWARD));
+
+        assertNotNull(blk, "should activate dull Firion via the Water branch so it can block");
+        assertEquals(0, blk.idx());
+        assertFalse(mw.gameState.getP2Hand().contains(waterCard), "the Water card should have been discarded");
+        assertEquals(CardState.ACTIVE, mw.p2ForwardStates.get(0), "Firion should now be active");
+        assertEquals(6000, mw.effectiveP2ForwardPower(0), "Firion should now be boosted to 6000 power");
+    }
+
+    @Test
+    void firionDoesNotUseTrickWhenAnAdequateBlockerAlreadyExists() {
+        // Firion (7000, active) already survives/breaks a 5000-power attacker unaided — the
+        // ability must not be spent for no reason.
+        CardData fireCard = makeForward("Fire Fodder", "Fire", 1, 1000);
+        MainWindow mw = firionSetUp(CardState.ACTIVE, 7000, 5000,
+                List.of(fireCard));
+        int handSizeBefore = mw.gameState.getP2Hand().size();
+
+        ForwardTarget blk = new ComputerPlayer(mw).chooseBlocker(5000,
+                new ForwardTarget(true, 0, ForwardTarget.CardZone.FORWARD));
+
+        assertNotNull(blk);
+        assertEquals(0, blk.idx());
+        assertEquals(handSizeBefore, mw.gameState.getP2Hand().size(), "must not spend the card when already winning");
+    }
+
+    // =========================================================================================
+    // Llednar: "Discard 2 cards: Remove all Fortune Counters from Llednar. Each player can use
+    // this ability." — the "Remove all [Name] Counters from [CardName]." action and the
+    // "Each player can use this ability." flag.
+    // =========================================================================================
+
+    @Test
+    void llednarAbilityParsesDiscardCostAndUsableByEitherPlayerFlag() {
+        String text = "When Llednar enters the field due to your cast, place 1 Fortune Counter on Llednar.[[br]]   "
+                + "If a Fortune Counter is placed on Llednar, Llednar cannot be broken.[[br]]   "
+                + "Discard 2 cards: Remove all Fortune Counters from Llednar. Each player can use this ability.";
+
+        List<ActionAbility> abilities = CardData.parseActionAbilities(text);
+        assertEquals(1, abilities.size());
+        ActionAbility ability = abilities.get(0);
+
+        assertTrue(ability.usableByEitherPlayer());
+        assertEquals(1, ability.discardCosts().size());
+        assertEquals(2, ability.discardCosts().get(0).count());
+        assertEquals("Remove all Fortune Counters from Llednar. Each player can use this ability.",
+                ability.effectText());
+    }
+
+    @Test
+    void llednarRemoveAllCountersClearsExactCurrentCount() {
+        CardData source = mock(CardData.class);
+        when(source.name()).thenReturn("Llednar");
+        GameContext ctx = mock(GameContext.class);
+        when(ctx.getCounters(source, "Fortune")).thenReturn(3);
+
+        Consumer<GameContext> fn = ActionResolver.parse(
+                "Remove all Fortune Counters from Llednar. Each player can use this ability.", source);
+        assertNotNull(fn);
+        fn.accept(ctx);
+
+        verify(ctx).removeCounters(source, "Fortune", 3);
+    }
+
+    @Test
+    void llednarRemoveAllCountersIsNoOpWhenNonePresent() {
+        CardData source = mock(CardData.class);
+        when(source.name()).thenReturn("Llednar");
+        GameContext ctx = mock(GameContext.class);
+        when(ctx.getCounters(source, "Fortune")).thenReturn(0);
+
+        Consumer<GameContext> fn = ActionResolver.parse(
+                "Remove all Fortune Counters from Llednar. Each player can use this ability.", source);
+        assertNotNull(fn);
+        fn.accept(ctx);
+
+        verify(ctx, never()).removeCounters(any(), any(), anyInt());
+    }
+
+    @Test
+    void llednarRemoveAllCountersOnlyAppliesToNamedTarget() {
+        // "Llednar" refers to itself; a differently-named source must not match.
+        CardData source = mock(CardData.class);
+        when(source.name()).thenReturn("Someone Else");
+
+        Consumer<GameContext> fn = ActionResolver.parse(
+                "Remove all Fortune Counters from Llednar. Each player can use this ability.", source);
+        assertNull(fn);
+    }
+
+    // =========================================================================================
+    // Samurai / Bard / Summoner: the CP_FIXED "extra cost" pattern — "If you cast [Name], you
+    // may pay 《Element》《N》 as an extra cost." plus the paired "If you paid the extra cost,
+    // [effect]" auto-ability clause.
+    // =========================================================================================
+
+    private static CardData makeExtraCostCard(String name, String element, String textEn) {
+        return new CardData(null, name, element, 1, 4000, "Forward", false, 0, false, false,
+                Set.of(), 0, List.of(), null, List.of(),
+                List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(),
+                false, false, null, false, false, false, false, false, false,
+                null, null, null, textEn);
+    }
+
+    @Test
+    void samuraiParsesAsWindPlusTwoGenericFixedCp() {
+        CardData samurai = makeExtraCostCard("Samurai", "Fire",
+                "If you cast Samurai, you may pay 《Wind》《2》 as an extra cost.[[br]]"
+                + "When Samurai enters the field, choose 1 Forward of cost 6 or more. If you paid the extra cost, break it.");
+        ExtraCost ec = samurai.extraCost();
+        assertNotNull(ec);
+        assertEquals(ExtraCost.Type.CP_FIXED, ec.type());
+        assertEquals(List.of("Wind", "", ""), ec.cpElements());
+    }
+
+    @Test
+    void bardParsesAsEarthPlusThreeGenericFixedCp() {
+        CardData bard = makeExtraCostCard("Bard", "Ice",
+                "If you cast Bard, you may pay 《Earth》《3》 as an extra cost.[[br]]"
+                + "When Bard enters the field, choose 1 dull Forward. If you paid the extra cost, break it.");
+        ExtraCost ec = bard.extraCost();
+        assertNotNull(ec);
+        assertEquals(ExtraCost.Type.CP_FIXED, ec.type());
+        assertEquals(List.of("Earth", "", "", ""), ec.cpElements());
+    }
+
+    @Test
+    void samuraiBreaksTargetOnlyWhenExtraCostPaid() {
+        String rawEffect = "choose 1 Forward of cost 6 or more. If you paid the extra cost, break it.";
+
+        String paidText = ActionResolver.applyExtraCostPaid(rawEffect);
+        String notPaidText = ActionResolver.stripExtraCostClause(rawEffect);
+
+        GameContext ctx = mock(GameContext.class);
+        when(ctx.consumePreloadedTargets()).thenReturn(null);
+        ForwardTarget t = new ForwardTarget(false, 0, ForwardTarget.CardZone.FORWARD);
+        when(ctx.selectCharacters(
+                anyInt(), anyBoolean(), anyBoolean(), anyBoolean(),
+                any(), any(), anyInt(), any(), anyInt(), any(),
+                anyBoolean(), anyBoolean(), anyBoolean(),
+                any(), any(), any(), any(), anyBoolean(), any(), anyBoolean()
+        )).thenReturn(List.of(t));
+
+        Consumer<GameContext> paidFn = ActionResolver.parse(paidText, null);
+        assertNotNull(paidFn, "paid-branch text should parse: " + paidText);
+        paidFn.accept(ctx);
+        verify(ctx).breakTarget(t);
+
+        // Not-paid branch: the clause is stripped entirely, leaving just "choose a Forward" with
+        // no follow-up action — nothing should break.
+        Consumer<GameContext> notPaidFn = ActionResolver.parse(notPaidText, null);
+        if (notPaidFn != null) {
+            GameContext ctx2 = mock(GameContext.class);
+            notPaidFn.accept(ctx2);
+            verify(ctx2, never()).breakTarget(any());
+        }
+    }
+
+    // Summoner's whole ability is the condition itself — no unconditional lead-in before
+    // "If you paid the extra cost" (unlike Samurai's "Choose 1 Forward … If you paid …").
+    // This shape previously broke applyExtraCostPaid/stripExtraCostClause (both require a
+    // non-empty prefix before the clause), which — worse — meant ActionResolver.parse() was
+    // handed the raw, still-conditional text and would NPE on the null-source smoke test,
+    // or silently execute the effect unconditionally in the real (non-null source) game path.
+    @Test
+    void summonerSelectsOpponentForwardOnlyWhenExtraCostPaid() {
+        CardData summoner = mock(CardData.class);
+        when(summoner.name()).thenReturn("Summoner");
+        String rawEffect = "if you paid the extra cost, your opponent selects 1 Forward they control. Put it into the Break Zone.";
+
+        String paidText = ActionResolver.applyExtraCostPaid(rawEffect);
+        assertEquals("Your opponent selects 1 Forward they control. Put it into the Break Zone.", paidText);
+
+        GameContext ctx = mock(GameContext.class);
+        ForwardTarget t = new ForwardTarget(false, 0, ForwardTarget.CardZone.FORWARD);
+        when(ctx.selectCharacters(
+                anyInt(), anyBoolean(), anyBoolean(), anyBoolean(),
+                any(), any(), anyInt(), any(), anyInt(), any(),
+                anyBoolean(), anyBoolean(), anyBoolean(),
+                any(), any(), any(), any(), anyBoolean(), any(), anyBoolean()
+        )).thenReturn(List.of(t));
+
+        Consumer<GameContext> paidFn = ActionResolver.parse(paidText, summoner);
+        assertNotNull(paidFn, "paid-branch text should parse: " + paidText);
+        paidFn.accept(ctx);
+        verify(ctx).forceTargetToBreakZone(t);
+
+        // Not-paid: the whole ability was the condition, so stripping it leaves nothing at all.
+        String notPaidText = ActionResolver.stripExtraCostClause(rawEffect);
+        assertTrue(notPaidText.isBlank(), "not-paid text should be empty: [" + notPaidText + "]");
+    }
+
+    // =========================================================================================
+    // Yuffie: regression test for a bug where activating a "Choose any number of [targets]..."
+    // action ability (e.g. "Doom of the Living": "Choose any number of Forwards. Divide 24000
+    // damage among them as you like.") silently failed — no target prompt, no effect, nothing on
+    // the stack — because ActionResolver.preSelectTargets had its own separate copy of the
+    // "Choose N" count extraction that didn't know about the "any number of" branch and threw a
+    // NumberFormatException parsing a null count group, which aborted activation before the
+    // ability ever reached the stack.
+    // =========================================================================================
+
+    private static CardData makePreSelectCard(String name) {
+        return new CardData(null, name, "Wind", 3, 6000, "Forward", false, 0, false, false,
+                Set.of(), 0, List.of(), null, List.of(),
+                List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(),
+                false, false, null, false, false, false, false, false, false,
+                null, null, null, "");
+    }
+
+    @Test
+    void anyNumberChooseDoesNotThrowAndPromptsWithUnboundedMax() {
+        CardData yuffie = makePreSelectCard("Yuffie");
+        GameContext ctx = mock(GameContext.class);
+        ForwardTarget t = new ForwardTarget(false, 0, ForwardTarget.CardZone.FORWARD);
+        when(ctx.selectCharacters(
+                eq(Integer.MAX_VALUE), eq(true), anyBoolean(), anyBoolean(),
+                any(), any(), anyInt(), any(), anyInt(), any(),
+                anyBoolean(), anyBoolean(), anyBoolean(),
+                any(), any(), any(), any(), anyBoolean(), any(), anyBoolean()
+        )).thenReturn(List.of(t));
+
+        List<ForwardTarget> result = assertDoesNotThrow(() ->
+                ActionResolver.preSelectTargets(
+                        "Choose any number of Forwards. Divide 24000 damage among them as you like. (Units must be 1000.)",
+                        yuffie, 0, ctx));
+
+        assertEquals(List.of(t), result);
+        verify(ctx).selectCharacters(eq(Integer.MAX_VALUE), eq(true), anyBoolean(), anyBoolean(),
+                any(), any(), anyInt(), any(), anyInt(), any(),
+                anyBoolean(), anyBoolean(), anyBoolean(),
+                any(), any(), any(), any(), anyBoolean(), any(), anyBoolean());
+    }
+
+    @Test
+    void plainChooseCountStillWorks() {
+        // Regression guard: the fix must not break the ordinary "Choose N" path.
+        CardData card = makePreSelectCard("Barret");
+        GameContext ctx = mock(GameContext.class);
+        when(ctx.selectCharacters(
+                eq(2), eq(true), anyBoolean(), anyBoolean(),
+                any(), any(), anyInt(), any(), anyInt(), any(),
+                anyBoolean(), anyBoolean(), anyBoolean(),
+                any(), any(), any(), any(), anyBoolean(), any(), anyBoolean()
+        )).thenReturn(List.of());
+
+        List<ForwardTarget> result = assertDoesNotThrow(() ->
+                ActionResolver.preSelectTargets(
+                        "Choose up to 2 Forwards. Divide 10000 damage among them as you like. (Units must be 1000.)",
+                        card, 0, ctx));
+
+        assertNotNull(result);
+    }
+
+    // =========================================================================================
+    // Mime: "Mime's power becomes the same as your opponent's weakest Forward until the end of
+    // the turn."
+    // =========================================================================================
+
+    private static final String MIME_TEXT =
+            "Mime's power becomes the same as your opponent's weakest Forward until the end of the turn.";
+
+    @Test
+    void mimeSetsSourcePowerToOpponentsLowestForwardPower() {
+        CardData mime = mock(CardData.class);
+        when(mime.name()).thenReturn("Mime");
+
+        Consumer<GameContext> fn = ActionResolver.parse(MIME_TEXT, mime);
+        assertNotNull(fn, "Expected Mime's ability text to parse");
+
+        GameContext ctx = mock(GameContext.class);
+        when(ctx.opponentLowestForwardPower()).thenReturn(3000);
+
+        fn.accept(ctx);
+
+        verify(ctx).setSourceForwardPower(mime, 3000);
+    }
+
+    @Test
+    void mimeDoesNotFireWhenSourceNameDoesNotMatch() {
+        CardData other = mock(CardData.class);
+        when(other.name()).thenReturn("Not Mime");
+
+        Consumer<GameContext> fn = ActionResolver.parse(MIME_TEXT, other);
+
+        assertNull(fn, "Ability text naming Mime should not resolve for a differently-named source");
+    }
+}

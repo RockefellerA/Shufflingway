@@ -3601,6 +3601,20 @@ final class GameContextImpl implements GameContext {
 				return max;
 			}
 
+			@Override public int lowestP1ForwardPower() {
+				int min = Integer.MAX_VALUE;
+				for (int i = 0; i < mw.p1ForwardCards.size(); i++)
+					min = Math.min(min, mw.effectiveP1ForwardPower(i));
+				return min == Integer.MAX_VALUE ? 0 : min;
+			}
+
+			@Override public int lowestP2ForwardPower() {
+				int min = Integer.MAX_VALUE;
+				for (int i = 0; i < mw.p2ForwardCards.size(); i++)
+					min = Math.min(min, mw.effectiveP2ForwardPower(i));
+				return min == Integer.MAX_VALUE ? 0 : min;
+			}
+
 			@Override public int fieldForwardPowerByName(String cardName) {
 				for (int i = 0; i < mw.p1ForwardCards.size(); i++)
 					if (mw.p1ForwardCards.get(i).name().equalsIgnoreCase(cardName))

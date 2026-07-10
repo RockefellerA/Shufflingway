@@ -2730,6 +2730,15 @@ public class ActionResolver {
     );
 
     /**
+     * Matches "[CardName]'s power becomes the same as your opponent's weakest Forward until the
+     * end of the turn." Group {@code name} — the card whose power is set (should match the source card).
+     */
+    private static final Pattern SOURCE_POWER_BECOMES_OPPONENT_WEAKEST_FORWARD = Pattern.compile(
+        "(?i)(?<name>.+?)'s\\s+power\\s+becomes\\s+the\\s+same\\s+as\\s+your\\s+opponent's\\s+weakest\\s+Forward" +
+        "\\s+until\\s+the\\s+end\\s+of\\s+(?:the\\s+)?turn[.!]?\\s*$"
+    );
+
+    /**
      * Matches "During this turn, if [CardName] deals damage to a Forward, double the damage instead."
      * Groups: {@code subject} — the card name.
      */
@@ -5073,6 +5082,9 @@ public class ActionResolver {
         result = tryParseSourcePowerBecomesRemovedForwardPower(effectText, source);
         if (result != null) return result;
 
+        result = tryParseSourcePowerBecomesOpponentWeakestForward(effectText, source);
+        if (result != null) return result;
+
         // Compound-sentence fallback: split on ". " between sentences and compose effects.
         // Handles "Activate <cardName>. <cardName> gains +2000 power until the end of the turn." etc.
         // Sentences that don't parse are silently skipped so that implemented parts still fire.
@@ -5839,6 +5851,7 @@ public class ActionResolver {
         if (tryParseNameJob(effectText)                                != null) return "NameJob";
         if (tryParseGrantPartyAnyElementThisTurn(effectText)           != null) return "GrantPartyAnyElementThisTurn";
         if (tryParseSourcePowerBecomesRemovedForwardPower(effectText, source) != null) return "SourcePowerBecomesRemovedPower";
+        if (tryParseSourcePowerBecomesOpponentWeakestForward(effectText, source) != null) return "SourcePowerBecomesOpponentWeakestForward";
         if (tryParseConditionalOpponentHand(effectText, source, 0)    != null) return "ConditionalOpponentHand";
         if (tryParseConditionalOpponentHandMin(effectText, source, 0) != null) return "ConditionalOpponentHandMin";
         if (tryParseYouMayPutSelfToBZWhenDoSo(effectText, source)    != null) return "YouMayPutSelfToBZWhenDoSo";
@@ -10563,6 +10576,24 @@ public class ActionResolver {
         return ctx -> {
             int power = ctx.lastRemovedFromGameCardPower();
             ctx.logEntry(source.name() + " — power becomes " + power + " (removed Forward's power) until end of turn");
+            ctx.setSourceForwardPower(source, power);
+        };
+    }
+
+    /**
+     * Parses "[CardName]'s power becomes the same as your opponent's weakest Forward until the
+     * end of the turn." Sets the source card's power to the lowest effective power among the
+     * opponent's Forwards on the field.
+     */
+    private static Consumer<GameContext> tryParseSourcePowerBecomesOpponentWeakestForward(
+            String text, CardData source) {
+        if (source == null) return null;
+        Matcher m = SOURCE_POWER_BECOMES_OPPONENT_WEAKEST_FORWARD.matcher(text.trim());
+        if (!m.matches()) return null;
+        if (!m.group("name").trim().equalsIgnoreCase(source.name())) return null;
+        return ctx -> {
+            int power = ctx.opponentLowestForwardPower();
+            ctx.logEntry(source.name() + " — power becomes " + power + " (opponent's weakest Forward) until end of turn");
             ctx.setSourceForwardPower(source, power);
         };
     }
