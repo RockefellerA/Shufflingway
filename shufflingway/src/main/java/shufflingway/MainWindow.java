@@ -6341,7 +6341,7 @@ public class MainWindow {
 		return result != null ? result : List.of();
 	}
 
-	private boolean canAffordCard(CardData card, int excludeHandIdx) {
+	boolean canAffordCard(CardData card, int excludeHandIdx) {
 		return canAffordCard(card, excludeHandIdx, null, 0);
 	}
 

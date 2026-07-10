@@ -2056,6 +2056,11 @@ public class ActionResolver {
         "(?i)During\\s+this\\s+turn,?\\s+your\\s+opponent\\s+cannot\\s+search\\.?"
     );
 
+    /** Returns {@code true} if the effect is "During this turn, your opponent cannot search." */
+    public static boolean isOpponentCannotSearchAbility(String effectText) {
+        return effectText != null && OPPONENT_CANNOT_SEARCH_THIS_TURN.matcher(effectText).find();
+    }
+
     /** Splits "and Card Name" within an activate target list. */
     private static final Pattern ACTIVATE_AND_CARD_NAME_SPLIT = Pattern.compile(
         "(?i)\\s+and\\s+Card\\s+Name\\s+"

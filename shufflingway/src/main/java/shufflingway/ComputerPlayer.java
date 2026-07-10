@@ -1219,6 +1219,9 @@ class ComputerPlayer {
 				if (!mw.autoAbilityTriggers.canActivateBzAbility(ability, card, false)) continue;
 				if (ActionResolver.parse(ability.effectText(), card) == null) continue;
 				if (abilityHarmsChosenTarget(ability) && !p1HasAnyForward()) continue;
+				// "Opponent cannot search" (e.g. Mog (VI)) only matters if P1 actually has a
+				// search option available this turn — otherwise it's a wasted Break Zone activation.
+				if (ActionResolver.isOpponentCannotSearchAbility(ability.effectText()) && !p1HasSearchOption()) continue;
 
 				List<Integer>        backupDullIndices = new ArrayList<>();
 				Map<Integer, String> backupElems       = new LinkedHashMap<>();
@@ -1415,6 +1418,50 @@ class ComputerPlayer {
 			if (mw.p1ForwardCards.get(i) != null) return true;
 		for (int i = 0; i < mw.p1MonsterCards.size(); i++)
 			if (mw.p1MonsterCards.get(i) != null && mw.isP1MonsterTemporarilyForward(i)) return true;
+		return false;
+	}
+
+	private static final Pattern SEARCH_WORD = Pattern.compile("(?i)\\bsearch\\b");
+
+	/** True if the card's text mentions searching (deck search, either as a cast/ETB effect or an ability). */
+	private static boolean mentionsSearch(String text) {
+		return text != null && SEARCH_WORD.matcher(text).find();
+	}
+
+	/** True if any action or auto ability on {@code card} can search. */
+	private static boolean hasSearchAbility(CardData card) {
+		for (ActionAbility a : card.actionAbilities())
+			if (mentionsSearch(a.effectText())) return true;
+		for (AutoAbility a : card.autoAbilities())
+			if (mentionsSearch(a.effectText())) return true;
+		return false;
+	}
+
+	/**
+	 * True if P1 currently has either a hand card they can afford to play whose text can search
+	 * the deck, or a field Forward/Backup/Monster with a search-capable ability. Used to gate
+	 * "your opponent cannot search this turn" disruption abilities (e.g. Mog (VI)'s Break Zone
+	 * ability) so the CPU doesn't spend one for no effect.
+	 */
+	private boolean p1HasSearchOption() {
+		List<CardData> hand = mw.gameState.getP1Hand();
+		for (int i = 0; i < hand.size(); i++) {
+			CardData c = hand.get(i);
+			String text = c.isSummon() ? c.summonEffect() : c.textEn();
+			if (mentionsSearch(text) && mw.canAffordCard(c, i)) return true;
+		}
+		for (int i = 0; i < mw.p1ForwardCards.size(); i++) {
+			CardData c = mw.p1ForwardCards.get(i);
+			if (c != null && !mw.lostAbilitiesCards.contains(c) && hasSearchAbility(c)) return true;
+		}
+		for (int i = 0; i < mw.p1BackupCards.length; i++) {
+			CardData c = mw.p1BackupCards[i];
+			if (c != null && !mw.lostAbilitiesCards.contains(c) && hasSearchAbility(c)) return true;
+		}
+		for (int i = 0; i < mw.p1MonsterCards.size(); i++) {
+			CardData c = mw.p1MonsterCards.get(i);
+			if (c != null && !mw.lostAbilitiesCards.contains(c) && hasSearchAbility(c)) return true;
+		}
 		return false;
 	}
 
