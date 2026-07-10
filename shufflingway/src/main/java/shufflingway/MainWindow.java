@@ -4446,7 +4446,7 @@ public class MainWindow {
 	 * Strategy: block with the highest-power active forward that can survive (power >= attacker) or trade evenly.
 	 */
 	/** True when a P2 monster acting as a Forward may be declared as a blocker. */
-	private boolean p2MonsterCanBlockAsForward(int idx) {
+	boolean p2MonsterCanBlockAsForward(int idx) {
 		if (idx < 0 || idx >= p2MonsterStates.size()) return false;
 		if (p2MonsterStates.get(idx) != CardState.ACTIVE) return false;
 		if (Boolean.TRUE.equals(p2MonsterFrozen.get(idx))) return false;
@@ -4454,7 +4454,7 @@ public class MainWindow {
 	}
 
 	/** True when a P2 backup acting as a Forward may be declared as a blocker. */
-	private boolean p2BackupCanBlockAsForward(int idx) {
+	boolean p2BackupCanBlockAsForward(int idx) {
 		if (idx < 0 || idx >= p2BackupCards.length || p2BackupCards[idx] == null) return false;
 		if (p2BackupStates[idx] != CardState.ACTIVE) return false;
 		if (p2BackupFrozen[idx]) return false;
@@ -4462,7 +4462,7 @@ public class MainWindow {
 	}
 
 	/** Checks all cost-filter sources (dynamic, intrinsic, conditional ICB) for a P1 Forward attacker. */
-	private boolean p1AttackerCostFiltersExclude(int attackerIdx, int blockerCost) {
+	boolean p1AttackerCostFiltersExclude(int attackerIdx, int blockerCost) {
 		if (allForwardsCannotBeBlockedByHigherCostThisTurn
 				&& blockerCost > p1ForwardCards.get(attackerIdx).cost()) return true;
 		int[] dyn = p1ForwardCannotBeBlockedByCost.get(attackerIdx);
@@ -4501,80 +4501,6 @@ public class MainWindow {
 		return false;
 	}
 
-	private ForwardTarget p2ChooseBlocker(int effectiveAttackerPower, ForwardTarget attacker) {
-		return p2ChooseBlocker(effectiveAttackerPower, attacker, false);
-	}
-
-	private ForwardTarget p2ChooseBlocker(int effectiveAttackerPower, ForwardTarget attacker, boolean forcedBlock) {
-		// Attacker-side unblockability is only tracked for Forwards.
-		// Attacker-side restrictions are only tracked for P1 Forwards.
-		int     p1AttackerIdx         = -1;
-		boolean p1AttackerHigherPower = false;
-		int     p1AttackerPower       = 0;
-		if (attacker != null && attacker.isP1() && attacker.zone() == ForwardTarget.CardZone.FORWARD) {
-			p1AttackerIdx = attacker.idx();
-			if (p1ForwardCannotBeBlocked.contains(p1AttackerIdx)) return null;
-			p1AttackerHigherPower = p1ForwardCards.get(p1AttackerIdx).cannotBeBlockedByHigherPower();
-			if (p1AttackerHigherPower)
-				p1AttackerPower = fieldForwardPower(true, ForwardTarget.CardZone.FORWARD, p1AttackerIdx);
-		}
-
-		// Candidate P2 blockers: Forwards plus Monsters/Backups acting as Forwards.
-		List<ForwardTarget> cands = new ArrayList<>();
-		for (int i = 0; i < p2ForwardStates.size(); i++) {
-			if (p2ForwardCannotBlock.contains(i) || p2ForwardCannotBlockPersistent.contains(i)) continue;
-			if (p2ForwardStates.get(i) != CardState.ACTIVE) continue;
-			if (p1AttackerIdx >= 0 && p1AttackerCostFiltersExclude(p1AttackerIdx, p2ForwardCards.get(i).cost())) continue;
-			if (p1AttackerHigherPower && fieldForwardPower(false, ForwardTarget.CardZone.FORWARD, i) > p1AttackerPower) continue;
-			if (p2ForwardCannotBlockInferiorPower && p1AttackerIdx >= 0 &&
-				fieldForwardPower(false, ForwardTarget.CardZone.FORWARD, i) > fieldForwardPower(true, ForwardTarget.CardZone.FORWARD, p1AttackerIdx)) continue;
-			cands.add(new ForwardTarget(false, i, ForwardTarget.CardZone.FORWARD));
-		}
-		for (int i = 0; i < p2MonsterCards.size(); i++) {
-			if (!p2MonsterCanBlockAsForward(i)) continue;
-			if (p1AttackerIdx >= 0 && p1AttackerCostFiltersExclude(p1AttackerIdx, p2MonsterCards.get(i).cost())) continue;
-			if (p1AttackerHigherPower && fieldForwardPower(false, ForwardTarget.CardZone.MONSTER, i) > p1AttackerPower) continue;
-			if (p2ForwardCannotBlockInferiorPower && p1AttackerIdx >= 0 &&
-				fieldForwardPower(false, ForwardTarget.CardZone.MONSTER, i) > fieldForwardPower(true, ForwardTarget.CardZone.FORWARD, p1AttackerIdx)) continue;
-			cands.add(new ForwardTarget(false, i, ForwardTarget.CardZone.MONSTER));
-		}
-		for (int i = 0; i < p2BackupCards.length; i++) {
-			if (!p2BackupCanBlockAsForward(i)) continue;
-			if (p1AttackerIdx >= 0 && p1AttackerCostFiltersExclude(p1AttackerIdx, p2BackupCards[i].cost())) continue;
-			if (p1AttackerHigherPower && fieldForwardPower(false, ForwardTarget.CardZone.BACKUP, i) > p1AttackerPower) continue;
-			if (p2ForwardCannotBlockInferiorPower && p1AttackerIdx >= 0 &&
-				fieldForwardPower(false, ForwardTarget.CardZone.BACKUP, i) > fieldForwardPower(true, ForwardTarget.CardZone.FORWARD, p1AttackerIdx)) continue;
-			cands.add(new ForwardTarget(false, i, ForwardTarget.CardZone.BACKUP));
-		}
-
-		// Honour must-block Forwards first: pick the weakest that can survive.
-		if (!p2ForwardMustBlock.isEmpty()) {
-			ForwardTarget best = null; int bestPow = -1;
-			for (ForwardTarget t : cands) {
-				if (t.zone() != ForwardTarget.CardZone.FORWARD || !p2ForwardMustBlock.contains(t.idx())) continue;
-				int p = fieldForwardPower(false, t.zone(), t.idx());
-				if (p >= effectiveAttackerPower && (best == null || p < bestPow)) { best = t; bestPow = p; }
-			}
-			if (best != null) return best;
-			// else fall through — constraint lifted if none can survive
-		}
-
-		// Otherwise pick the strongest blocker that survives the attack.
-		ForwardTarget best = null; int bestPow = -1;
-		for (ForwardTarget t : cands) {
-			int p = fieldForwardPower(false, t.zone(), t.idx());
-			if (p >= effectiveAttackerPower && p > bestPow) { best = t; bestPow = p; }
-		}
-		// Forced block (e.g. "Opponent must block X if possible"): no survivor found — pick weakest candidate.
-		if (best == null && forcedBlock && !cands.isEmpty()) {
-			int minPow = Integer.MAX_VALUE;
-			for (ForwardTarget t : cands) {
-				int p = fieldForwardPower(false, t.zone(), t.idx());
-				if (p < minPow) { best = t; minPow = p; }
-			}
-		}
-		return best;
-	}
 
 	private static boolean blockerCostExcluded(int blockerCost, int[] costFilter) {
 		return costFilter[1] == 1 ? blockerCost >= costFilter[0] : blockerCost <= costFilter[0];
@@ -4582,7 +4508,7 @@ public class MainWindow {
 
 	/** Called after P1 attacks: gives P2 AI a chance to declare a blocker. */
 	private void p2OfferBlock(CardData attacker, int attackerIdx) {
-		ForwardTarget blk = p2ChooseBlocker(effectiveP1ForwardPower(attackerIdx),
+		ForwardTarget blk = computerPlayer.chooseBlocker(effectiveP1ForwardPower(attackerIdx),
 				new ForwardTarget(true, attackerIdx, ForwardTarget.CardZone.FORWARD),
 				attackerMustBeBlocked(attacker));
 		if (blk != null) {
@@ -11504,7 +11430,7 @@ public class MainWindow {
 
 		logEntry(attacker.name() + " attacks! (Forward — " + attackerPower + ")");
 		combatPriority("Attacker Declared", true, () -> {
-			ForwardTarget blk = p2ChooseBlocker(attackerPower,
+			ForwardTarget blk = computerPlayer.chooseBlocker(attackerPower,
 					new ForwardTarget(true, monIdx, ForwardTarget.CardZone.MONSTER));
 			if (blk != null) {
 				CardData blocker = autoAbilityTriggers.fieldCardData(blk);
@@ -11531,7 +11457,7 @@ public class MainWindow {
 
 	// ── Generalized combat for cards acting as Forwards (any zone on either side) ──
 
-	private int fieldForwardPower(boolean isP1, ForwardTarget.CardZone zone, int idx) {
+	int fieldForwardPower(boolean isP1, ForwardTarget.CardZone zone, int idx) {
 		return switch (zone) {
 			case FORWARD -> isP1 ? effectiveP1ForwardPower(idx) : effectiveP2ForwardPower(idx);
 			case MONSTER -> isP1 ? p1MonsterForwardPower(idx)   : p2MonsterForwardPower(idx);
@@ -11790,7 +11716,7 @@ public class MainWindow {
 
 		logEntry(attacker.name() + " attacks! (Forward — " + attackerPower + ")");
 		combatPriority("Attacker Declared", true, () -> {
-			ForwardTarget blk = p2ChooseBlocker(attackerPower,
+			ForwardTarget blk = computerPlayer.chooseBlocker(attackerPower,
 					new ForwardTarget(true, bIdx, ForwardTarget.CardZone.BACKUP));
 			if (blk != null) {
 				CardData blocker = autoAbilityTriggers.fieldCardData(blk);
@@ -11904,7 +11830,7 @@ public class MainWindow {
 			logEntry(attacker.name() + " attacks!");
 			// Priority window after attacker declared (P1 attacks → P1 priority first)
 			combatPriority("Attacker Declared", true, () -> {
-				ForwardTarget blk = p2ChooseBlocker(effectiveP1ForwardPower(idx),
+				ForwardTarget blk = computerPlayer.chooseBlocker(effectiveP1ForwardPower(idx),
 						new ForwardTarget(true, idx, ForwardTarget.CardZone.FORWARD));
 				if (blk != null) {
 					CardData blocker = autoAbilityTriggers.fieldCardData(blk);

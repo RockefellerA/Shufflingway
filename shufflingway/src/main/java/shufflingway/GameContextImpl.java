@@ -3280,9 +3280,10 @@ final class GameContextImpl implements GameContext {
 			}
 
 			@Override public void setSourceForwardCannotBeBlocked(CardData source) {
-				for (int i = 0; i < mw.p1ForwardCards.size(); i++) {
-					if (mw.p1ForwardCards.get(i).name().equals(source.name())) {
-						setP1ForwardCannotBeBlocked(i);
+				List<CardData> fwds = isP1 ? mw.p1ForwardCards : mw.p2ForwardCards;
+				for (int i = 0; i < fwds.size(); i++) {
+					if (fwds.get(i).name().equals(source.name())) {
+						if (isP1) setP1ForwardCannotBeBlocked(i); else setP2ForwardCannotBeBlocked(i);
 						return;
 					}
 				}
@@ -3290,16 +3291,19 @@ final class GameContextImpl implements GameContext {
 
 			@Override public void boostSourceForward(CardData source, int amount,
 					EnumSet<CardData.Trait> traits) {
-				for (int i = 0; i < mw.p1ForwardCards.size(); i++) {
-					if (mw.p1ForwardCards.get(i).name().equals(source.name())) {
-						if (amount > 0 && (mw.oppForwardPowerBoostSuppressedFor(true) || mw.oppForwardSelfBoostSuppressedFor(true))) {
+				List<CardData> fwds = isP1 ? mw.p1ForwardCards : mw.p2ForwardCards;
+				List<Integer> powerBoost = isP1 ? mw.p1ForwardPowerBoost : mw.p2ForwardPowerBoost;
+				List<EnumSet<CardData.Trait>> tempTraits = isP1 ? mw.p1ForwardTempTraits : mw.p2ForwardTempTraits;
+				for (int i = 0; i < fwds.size(); i++) {
+					if (fwds.get(i).name().equals(source.name())) {
+						if (amount > 0 && (mw.oppForwardPowerBoostSuppressedFor(isP1) || mw.oppForwardSelfBoostSuppressedFor(isP1))) {
 							logEntry(source.name() + " — power boost suppressed (opponent's field ability)");
 							return;
 						}
-						mw.p1ForwardPowerBoost.set(i, mw.p1ForwardPowerBoost.get(i) + amount);
-						mw.p1ForwardTempTraits.get(i).addAll(traits);
+						powerBoost.set(i, powerBoost.get(i) + amount);
+						tempTraits.get(i).addAll(traits);
 						logEntry(source.name() + " gains +" + amount + " power until end of turn");
-						mw.refreshP1ForwardSlot(i);
+						if (isP1) mw.refreshP1ForwardSlot(i); else mw.refreshP2ForwardSlot(i);
 						return;
 					}
 				}
@@ -3307,30 +3311,36 @@ final class GameContextImpl implements GameContext {
 
 			@Override public void doubleSourceForwardPower(CardData source,
 					EnumSet<CardData.Trait> traits) {
-				for (int i = 0; i < mw.p1ForwardCards.size(); i++) {
-					if (mw.p1ForwardCards.get(i).name().equals(source.name())) {
-						if (mw.oppForwardPowerBoostSuppressedFor(true) || mw.oppForwardSelfBoostSuppressedFor(true)) {
+				List<CardData> fwds = isP1 ? mw.p1ForwardCards : mw.p2ForwardCards;
+				List<Integer> powerBoost = isP1 ? mw.p1ForwardPowerBoost : mw.p2ForwardPowerBoost;
+				List<EnumSet<CardData.Trait>> tempTraits = isP1 ? mw.p1ForwardTempTraits : mw.p2ForwardTempTraits;
+				for (int i = 0; i < fwds.size(); i++) {
+					if (fwds.get(i).name().equals(source.name())) {
+						if (mw.oppForwardPowerBoostSuppressedFor(isP1) || mw.oppForwardSelfBoostSuppressedFor(isP1)) {
 							logEntry(source.name() + " — power doubling suppressed (opponent's field ability)");
 							return;
 						}
-						int current = mw.effectiveP1ForwardPower(i);
-						mw.p1ForwardPowerBoost.set(i, mw.p1ForwardPowerBoost.get(i) + current);
-						mw.p1ForwardTempTraits.get(i).addAll(traits);
+						int current = isP1 ? mw.effectiveP1ForwardPower(i) : mw.effectiveP2ForwardPower(i);
+						powerBoost.set(i, powerBoost.get(i) + current);
+						tempTraits.get(i).addAll(traits);
 						logEntry(source.name() + " — power doubled to " + (current * 2) + " until end of turn");
-						mw.refreshP1ForwardSlot(i);
+						if (isP1) mw.refreshP1ForwardSlot(i); else mw.refreshP2ForwardSlot(i);
 						return;
 					}
 				}
 			}
 
 			@Override public void setSourceForwardPower(CardData source, int power) {
-				for (int i = 0; i < mw.p1ForwardCards.size(); i++) {
-					if (mw.p1ForwardCards.get(i).name().equals(source.name())) {
-						int base = mw.p1ForwardCards.get(i).power();
-						mw.p1ForwardPowerReduction.set(i, 0);
-						mw.p1ForwardPowerBoost.set(i, power - base);
+				List<CardData> fwds = isP1 ? mw.p1ForwardCards : mw.p2ForwardCards;
+				List<Integer> powerBoost = isP1 ? mw.p1ForwardPowerBoost : mw.p2ForwardPowerBoost;
+				List<Integer> powerReduction = isP1 ? mw.p1ForwardPowerReduction : mw.p2ForwardPowerReduction;
+				for (int i = 0; i < fwds.size(); i++) {
+					if (fwds.get(i).name().equals(source.name())) {
+						int base = fwds.get(i).power();
+						powerReduction.set(i, 0);
+						powerBoost.set(i, power - base);
 						logEntry(source.name() + " — power becomes " + power + " until end of turn");
-						mw.refreshP1ForwardSlot(i);
+						if (isP1) mw.refreshP1ForwardSlot(i); else mw.refreshP2ForwardSlot(i);
 						return;
 					}
 				}
@@ -3535,9 +3545,10 @@ final class GameContextImpl implements GameContext {
 
 			@Override public void reduceSourceForward(CardData source, int amount,
 					EnumSet<CardData.Trait> traits) {
-				for (int i = 0; i < mw.p1ForwardCards.size(); i++) {
-					if (mw.p1ForwardCards.get(i).name().equals(source.name())) {
-						reduceTarget(new ForwardTarget(true, i, ForwardTarget.CardZone.FORWARD), amount, traits);
+				List<CardData> fwds = isP1 ? mw.p1ForwardCards : mw.p2ForwardCards;
+				for (int i = 0; i < fwds.size(); i++) {
+					if (fwds.get(i).name().equals(source.name())) {
+						reduceTarget(new ForwardTarget(isP1, i, ForwardTarget.CardZone.FORWARD), amount, traits);
 						return;
 					}
 				}

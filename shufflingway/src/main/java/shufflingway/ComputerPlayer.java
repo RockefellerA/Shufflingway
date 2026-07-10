@@ -6,6 +6,9 @@ import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Consumer;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 import javax.swing.Timer;
@@ -938,6 +941,193 @@ class ComputerPlayer {
 		return bestEi >= 0 ? bestEi : 0;
 	}
 
+	// ── Blocking AI ──────────────────────────────────────────────────────
+
+	ForwardTarget chooseBlocker(int effectiveAttackerPower, ForwardTarget attacker) {
+		return chooseBlocker(effectiveAttackerPower, attacker, false);
+	}
+
+	ForwardTarget chooseBlocker(int effectiveAttackerPower, ForwardTarget attacker, boolean forcedBlock) {
+		// Attacker-side unblockability is only tracked for Forwards.
+		// Attacker-side restrictions are only tracked for P1 Forwards.
+		int     p1AttackerIdx         = -1;
+		boolean p1AttackerHigherPower = false;
+		int     p1AttackerPower       = 0;
+		if (attacker != null && attacker.isP1() && attacker.zone() == ForwardTarget.CardZone.FORWARD) {
+			p1AttackerIdx = attacker.idx();
+			if (mw.p1ForwardCannotBeBlocked.contains(p1AttackerIdx)) return null;
+			p1AttackerHigherPower = mw.p1ForwardCards.get(p1AttackerIdx).cannotBeBlockedByHigherPower();
+			if (p1AttackerHigherPower)
+				p1AttackerPower = mw.fieldForwardPower(true, ForwardTarget.CardZone.FORWARD, p1AttackerIdx);
+		}
+
+		// Candidate P2 blockers: Forwards plus Monsters/Backups acting as Forwards.
+		List<ForwardTarget> cands = new ArrayList<>();
+		for (int i = 0; i < mw.p2ForwardStates.size(); i++) {
+			if (mw.p2ForwardCannotBlock.contains(i) || mw.p2ForwardCannotBlockPersistent.contains(i)) continue;
+			if (mw.p2ForwardStates.get(i) != CardState.ACTIVE) continue;
+			if (p1AttackerIdx >= 0 && mw.p1AttackerCostFiltersExclude(p1AttackerIdx, mw.p2ForwardCards.get(i).cost())) continue;
+			if (p1AttackerHigherPower && mw.fieldForwardPower(false, ForwardTarget.CardZone.FORWARD, i) > p1AttackerPower) continue;
+			if (mw.p2ForwardCannotBlockInferiorPower && p1AttackerIdx >= 0 &&
+				mw.fieldForwardPower(false, ForwardTarget.CardZone.FORWARD, i) > mw.fieldForwardPower(true, ForwardTarget.CardZone.FORWARD, p1AttackerIdx)) continue;
+			cands.add(new ForwardTarget(false, i, ForwardTarget.CardZone.FORWARD));
+		}
+		for (int i = 0; i < mw.p2MonsterCards.size(); i++) {
+			if (!mw.p2MonsterCanBlockAsForward(i)) continue;
+			if (p1AttackerIdx >= 0 && mw.p1AttackerCostFiltersExclude(p1AttackerIdx, mw.p2MonsterCards.get(i).cost())) continue;
+			if (p1AttackerHigherPower && mw.fieldForwardPower(false, ForwardTarget.CardZone.MONSTER, i) > p1AttackerPower) continue;
+			if (mw.p2ForwardCannotBlockInferiorPower && p1AttackerIdx >= 0 &&
+				mw.fieldForwardPower(false, ForwardTarget.CardZone.MONSTER, i) > mw.fieldForwardPower(true, ForwardTarget.CardZone.FORWARD, p1AttackerIdx)) continue;
+			cands.add(new ForwardTarget(false, i, ForwardTarget.CardZone.MONSTER));
+		}
+		for (int i = 0; i < mw.p2BackupCards.length; i++) {
+			if (!mw.p2BackupCanBlockAsForward(i)) continue;
+			if (p1AttackerIdx >= 0 && mw.p1AttackerCostFiltersExclude(p1AttackerIdx, mw.p2BackupCards[i].cost())) continue;
+			if (p1AttackerHigherPower && mw.fieldForwardPower(false, ForwardTarget.CardZone.BACKUP, i) > p1AttackerPower) continue;
+			if (mw.p2ForwardCannotBlockInferiorPower && p1AttackerIdx >= 0 &&
+				mw.fieldForwardPower(false, ForwardTarget.CardZone.BACKUP, i) > mw.fieldForwardPower(true, ForwardTarget.CardZone.FORWARD, p1AttackerIdx)) continue;
+			cands.add(new ForwardTarget(false, i, ForwardTarget.CardZone.BACKUP));
+		}
+
+		// Honour must-block Forwards first: pick the weakest that can survive.
+		if (!mw.p2ForwardMustBlock.isEmpty()) {
+			ForwardTarget best = null; int bestPow = -1;
+			for (ForwardTarget t : cands) {
+				if (t.zone() != ForwardTarget.CardZone.FORWARD || !mw.p2ForwardMustBlock.contains(t.idx())) continue;
+				int p = mw.fieldForwardPower(false, t.zone(), t.idx());
+				if (p >= effectiveAttackerPower && (best == null || p < bestPow)) { best = t; bestPow = p; }
+			}
+			if (best != null) return best;
+			// else fall through — constraint lifted if none can survive
+		}
+
+		// Otherwise pick the strongest blocker that survives the attack.
+		ForwardTarget best = null; int bestPow = -1;
+		for (ForwardTarget t : cands) {
+			int p = mw.fieldForwardPower(false, t.zone(), t.idx());
+			if (p >= effectiveAttackerPower && p > bestPow) { best = t; bestPow = p; }
+		}
+
+		// No active candidate survives — see if a "discard 1 card: if Elem1..., if Elem2..."
+		// combat-trick ability (e.g. Firion) can create a winning block: either boosting an
+		// existing candidate over the line (Fire: +power/First Strike), or activating a dull
+		// Forward that would otherwise not be a legal blocker at all (Water: +power/activate).
+		if (best == null) {
+			ForwardTarget trick = findDiscardCombatTrickBlocker(
+					effectiveAttackerPower, p1AttackerIdx, p1AttackerHigherPower, p1AttackerPower);
+			if (trick != null) return trick;
+		}
+
+		// Forced block (e.g. "Opponent must block X if possible"): no survivor found — pick weakest candidate.
+		if (best == null && forcedBlock && !cands.isEmpty()) {
+			int minPow = Integer.MAX_VALUE;
+			for (ForwardTarget t : cands) {
+				int p = mw.fieldForwardPower(false, t.zone(), t.idx());
+				if (p < minPow) { best = t; minPow = p; }
+			}
+		}
+		return best;
+	}
+
+	/** +N in "+N power" style effect text; 0 if no such fragment is present. */
+	private static final Pattern BRANCH_POWER_BOOST = Pattern.compile("\\+(\\d+)\\s*power", Pattern.CASE_INSENSITIVE);
+
+	private static int branchPowerBoost(String effectText) {
+		Matcher m = BRANCH_POWER_BOOST.matcher(effectText);
+		return m.find() ? Integer.parseInt(m.group(1)) : 0;
+	}
+
+	private static boolean branchGrantsFirstStrike(String effectText) {
+		return effectText.toLowerCase().contains("first strike");
+	}
+
+	private static boolean branchActivatesSelf(String effectText, CardData source) {
+		return effectText.toLowerCase().contains("activate " + source.name().toLowerCase());
+	}
+
+	/** Index of the first hand card of {@code element}, or -1 if none. */
+	private static int findHandCardIndex(List<CardData> hand, String element) {
+		for (int i = 0; i < hand.size(); i++)
+			if (hand.get(i).containsElement(element)) return i;
+		return -1;
+	}
+
+	/**
+	 * Looks for a P2 Forward — active or dull — whose "Discard 1 card: If the discarded card
+	 * is of Elem1 Element, eff1. If ... Elem2 ..., eff2." ability, if paid with a matching card
+	 * from hand, would let it survive and break {@code attackerPower} (or, for a dull Forward,
+	 * become a legal blocker at all via an "activate" branch). If a viable trick is found, pays
+	 * the discard and applies that branch's effect immediately, returning the now-eligible
+	 * blocker. This is a same-instant tactical decision with no meaningful window for P1 to
+	 * respond, so the effect is applied directly rather than round-tripped through the stack.
+	 * Returns {@code null} if no such trick exists or no matching-element card is in hand.
+	 */
+	private ForwardTarget findDiscardCombatTrickBlocker(int effectiveAttackerPower, int p1AttackerIdx,
+			boolean p1AttackerHigherPower, int p1AttackerPower) {
+		List<CardData> hand = mw.gameState.getP2Hand();
+		if (hand.isEmpty()) return null;
+
+		for (int i = 0; i < mw.p2ForwardStates.size(); i++) {
+			CardData card = mw.p2ForwardCards.get(i);
+			if (card == null) continue;
+			if (mw.lostAbilitiesCards.contains(card)) continue;
+			if (mw.p2ForwardCannotBlock.contains(i) || mw.p2ForwardCannotBlockPersistent.contains(i)) continue;
+			if (mw.p2ForwardFrozen.get(i)) continue; // frozen forwards can't become legal blockers regardless
+			CardState state = mw.p2ForwardStates.get(i);
+			boolean isDull = state != CardState.ACTIVE;
+			if (p1AttackerIdx >= 0 && mw.p1AttackerCostFiltersExclude(p1AttackerIdx, card.cost())) continue;
+
+			for (ActionAbility ability : card.actionAbilities()) {
+				if (ability.discardCosts().size() != 1) continue;
+				DiscardCost dc = ability.discardCosts().get(0);
+				// Must be a plain "discard 1 card" cost — no filter, since either element could pay it.
+				if (dc.count() != 1 || dc.cardName() != null || dc.element() != null
+						|| dc.cardType() != null || dc.category() != null) continue;
+				List<ActionResolver.DiscardElementBranch> branches =
+						ActionResolver.discardConditionalElementBranches(ability.effectText());
+				if (branches == null) continue;
+				if (!mw.canActivateAbility(ability, false, state, mw.p2ForwardPlayedOnTurn.get(i), card, false)) continue;
+
+				for (ActionResolver.DiscardElementBranch branch : branches) {
+					boolean activates = branchActivatesSelf(branch.effectText(), card);
+					if (isDull && !activates) continue; // dull needs the activating branch specifically
+
+					int basePower = mw.effectiveP2ForwardPower(i);
+					int postPower = basePower + branchPowerBoost(branch.effectText());
+					if (p1AttackerHigherPower && postPower > p1AttackerPower) continue;
+					if (mw.p2ForwardCannotBlockInferiorPower && p1AttackerIdx >= 0
+							&& postPower > p1AttackerPower) continue;
+					// Equal power breaks BOTH characters — not "survives" per the user's ask — unless
+					// First Strike breaks the attacker before it can deal damage back, in which
+					// case reaching (not exceeding) the threshold is enough.
+					boolean firstStrike = branchGrantsFirstStrike(branch.effectText());
+					boolean survivesAndBreaks = firstStrike
+							? postPower >= effectiveAttackerPower
+							: postPower > effectiveAttackerPower;
+					if (!survivesAndBreaks) continue;
+
+					int handIdx = findHandCardIndex(hand, branch.element());
+					if (handIdx < 0) continue; // no matching card to discard — no benefit possible
+
+					CardData discarded = mw.playerBreakFromHand(false, handIdx);
+					mw.logEntry("[P2] " + card.name() + " — Discard cost: \""
+							+ (discarded != null ? discarded.name() : "?") + "\" discarded");
+					mw.refreshP2HandCountLabel();
+					GameContext ctx = mw.buildGameContext(false);
+					Consumer<GameContext> effect = ActionResolver.parse(branch.effectText(), card);
+					if (effect != null) {
+						mw.logEntry("[P2] " + card.name() + " — " + branch.element() + " branch: " + branch.effectText());
+						effect.accept(ctx);
+					}
+					if (ability.oncePerTurn())
+						mw.usedOncePerTurnAbilities.computeIfAbsent(card, k -> new java.util.HashSet<>()).add(ability.effectText());
+					return new ForwardTarget(false, i, ForwardTarget.CardZone.FORWARD);
+				}
+			}
+		}
+		return null;
+	}
+
 	// ── Action Ability AI ─────────────────────────────────────────────────
 
 	/**
@@ -1156,6 +1346,11 @@ class ComputerPlayer {
 			// Reactive shields ("if [card] is dealt damage by Summons/abilities, damage becomes 0")
 			// are only useful on the opponent's turn; skip them here and let p2AutoPass handle them.
 			if (ActionResolver.isReactiveDamageShield(ability.effectText(), card)) continue;
+			// "Discard 1 card: If Elem1..., if Elem2..." combat tricks (e.g. Firion) are reserved
+			// for chooseBlocker's combat-trick evaluation: activating one here would either waste
+			// a card outright (no matching-element card in hand) or grant a boost with no relevant
+			// combat to use it in (e.g. no Haste to attack with the turn it enters the field).
+			if (ActionResolver.discardConditionalElementBranches(ability.effectText()) != null) continue;
 
 			List<Integer>        backupDullIndices = new ArrayList<>();
 			Map<Integer, String> backupElems       = new LinkedHashMap<>();

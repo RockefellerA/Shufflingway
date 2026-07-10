@@ -10849,6 +10849,27 @@ public class ActionResolver {
         };
     }
 
+    /**
+     * One branch of a "discard conditional element" ability, e.g. {@code element="Fire"},
+     * {@code effectText="until the end of the turn, Firion gains +2000 power and First Strike."}.
+     */
+    record DiscardElementBranch(String element, String effectText) {}
+
+    /**
+     * Exposes the two branches of a "Discard 1 card: If the discarded card is of Elem1 Element,
+     * eff1. If the discarded card is of Elem2 Element, eff2." ability for AI evaluation —
+     * lets a caller check which element a discard needs to actually produce a benefit before
+     * committing to the cost. Returns {@code null} if {@code effectText} isn't this shape.
+     */
+    static List<DiscardElementBranch> discardConditionalElementBranches(String effectText) {
+        Matcher m = DISCARD_CONDITIONAL_ELEMENT.matcher(effectText.trim());
+        if (!m.find()) return null;
+        return List.of(
+            new DiscardElementBranch(m.group("elem1").trim(), m.group("eff1").trim()),
+            new DiscardElementBranch(m.group("elem2").trim(), m.group("eff2").trim())
+        );
+    }
+
     private static Consumer<GameContext> tryParseIfOwnForwardFormedParty(String text, CardData source, int xValue) {
         Matcher m = IF_OWN_FORWARD_FORMED_PARTY.matcher(text.trim());
         if (!m.matches()) return null;
