@@ -4079,13 +4079,16 @@ public class ActionResolver {
     );
 
     /**
-     * "Choose N Summon(s) from [your and/or your opponent's|either player's|your] Break Zone. Remove
-     * them from the game. During this game, you can cast them as though you owned them ..." (Shantotto 23-067R)
+     * "Choose N Summon(s) [in|from] [your and/or your opponent's|either player's|your] Break Zone.
+     * Remove it/them from the game. During this game, you can cast it/them [as though you owned
+     * it/them ]at any time you could normally cast it/them ..." (Shantotto 23-067R; also the plain
+     * "you can cast it at any time you could normally cast it" phrasing without "as though you owned it").
      */
     private static final Pattern CHOOSE_SUMMONS_FROM_BZ_GAME = Pattern.compile(
-        "(?is)[Cc]hoose\\s+(?<count>\\d+)\\s+Summons?\\s+from\\s+(?<scope>your\\s+and/or\\s+your\\s+opponent'?s|either\\s+player'?s|your\\s+opponent'?s|your)\\s+Break\\s+Zone[.!]?\\s+" +
+        "(?is)[Cc]hoose\\s+(?<count>\\d+)\\s+Summons?\\s+(?:in|from)\\s+(?<scope>your\\s+and/or\\s+your\\s+opponent'?s|either\\s+player'?s|your\\s+opponent'?s|your)\\s+Break\\s+Zone[.!]?\\s+" +
         "Remove\\s+(?:it|them)\\s+from\\s+the\\s+game[.!]?\\s+" +
-        "During\\s+this\\s+game,?\\s+you\\s+can\\s+cast\\s+(?:it|them)\\s+as\\s+though\\s+you\\s+owned\\s+(?:it|them).*"
+        "During\\s+this\\s+game,?\\s+you\\s+can\\s+cast\\s+(?:it|them)\\s+" +
+        "(?:as\\s+though\\s+you\\s+owned\\s+(?:it|them)\\s+)?.*"
     );
 
     /**

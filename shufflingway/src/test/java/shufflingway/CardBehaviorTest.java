@@ -404,4 +404,253 @@ public class CardBehaviorTest {
 
         assertNull(fn, "Ability text naming Mime should not resolve for a differently-named source");
     }
+
+    // =========================================================================================
+    // "Choose 1 Summon in your Break Zone. Remove it from the game. During this game, you can
+    // cast it at any time you could normally cast it." — the plain-phrasing variant (no "as
+    // though you owned it") of the Shantotto-style BZ-Summon-castable-forever pattern.
+    // =========================================================================================
+
+    @Test
+    void chooseSummonInOwnBzRemoveFromGameCastableDuringGameParses() {
+        Consumer<GameContext> fn = ActionResolver.parse(
+                "Choose 1 Summon in your Break Zone. Remove it from the game. "
+                + "During this game, you can cast it at any time you could normally cast it.", null);
+        assertNotNull(fn);
+
+        GameContext ctx = mock(GameContext.class);
+        fn.accept(ctx);
+
+        verify(ctx).chooseSummonsFromBzMakeCastable(1, false, false, false, false);
+    }
+
+    // =========================================================================================
+    // Cloud / Strago / Vivi / Zell / Bahamut / Eden / Barret: the "Divide N damage [equally]
+    // among ..." action-ability pattern, exercised against real card texts pulled from
+    // shufflingway.db. These assert on the actual damage amounts/targets dealt via a mocked
+    // GameContext, not just that the text parses.
+    // =========================================================================================
+
+    private static GameContext divideMockContext(boolean isP1) {
+        GameContext ctx = mock(GameContext.class);
+        when(ctx.isP1()).thenReturn(isP1);
+        // Mockito's default answer returns an empty List (not null) for collection-typed methods;
+        // selectTargets() treats a non-null return from consumePreloadedTargets() as "already
+        // chosen" and skips selectCharacters() entirely, so this must be explicitly null here.
+        when(ctx.consumePreloadedTargets()).thenReturn(null);
+        return ctx;
+    }
+
+    private static void divideStubSelectCharacters(GameContext ctx, List<ForwardTarget> result) {
+        when(ctx.selectCharacters(
+                anyInt(), anyBoolean(), anyBoolean(), anyBoolean(),
+                any(), any(), anyInt(), any(), anyInt(), any(),
+                anyBoolean(), anyBoolean(), anyBoolean(),
+                any(), any(), any(), any(), anyBoolean(), any(), anyBoolean()
+        )).thenReturn(result);
+    }
+
+    private static Consumer<GameContext> divideParse(String effectText) {
+        Consumer<GameContext> fn = ActionResolver.parse(effectText, null);
+        assertNotNull(fn, "Expected \"" + effectText + "\" to parse");
+        return fn;
+    }
+
+    // --- Cloud: "Choose up to 2 Forwards. Divide 10000 damage among them equally." ---
+
+    @Test
+    void cloudSplitsEquallyAcrossTwoTargets() {
+        GameContext ctx = divideMockContext(true);
+        ForwardTarget t0 = new ForwardTarget(false, 0, ForwardTarget.CardZone.FORWARD);
+        ForwardTarget t1 = new ForwardTarget(false, 1, ForwardTarget.CardZone.FORWARD);
+        divideStubSelectCharacters(ctx, List.of(t0, t1));
+
+        divideParse("Choose up to 2 Forwards. Divide 10000 damage among them equally.").accept(ctx);
+
+        verify(ctx).damageTarget(t0, 5000);
+        verify(ctx).damageTarget(t1, 5000);
+        verify(ctx, never()).divideDamageAmount(anyInt(), any(), any());
+    }
+
+    @Test
+    void cloudDealsFullAmountToSingleTarget() {
+        GameContext ctx = divideMockContext(true);
+        ForwardTarget t0 = new ForwardTarget(false, 0, ForwardTarget.CardZone.FORWARD);
+        divideStubSelectCharacters(ctx, List.of(t0));
+
+        divideParse("Choose up to 2 Forwards. Divide 10000 damage among them equally.").accept(ctx);
+
+        verify(ctx).damageTarget(t0, 10000);
+    }
+
+    // --- Strago: "Divide 12000 damage equally among all the Forwards opponent controls
+    //             (round up to the nearest 1000)." — no Choose clause, blanket target. ---
+
+    @Test
+    void stragoRoundsUpPerTargetWhenNotEvenlyDivisible() {
+        GameContext ctx = divideMockContext(true);
+        when(ctx.p2ForwardCount()).thenReturn(5);
+        when(ctx.p1ForwardCount()).thenReturn(0);
+
+        divideParse("Divide 12000 damage equally among all the Forwards opponent controls (round up to the nearest 1000).")
+                .accept(ctx);
+
+        // 12000 / 5 = 2400 -> rounds up to 3000 per target; total dealt (15000) exceeds the stated 12000.
+        for (int i = 0; i < 5; i++) {
+            verify(ctx).damageTarget(new ForwardTarget(false, i, ForwardTarget.CardZone.FORWARD), 3000);
+        }
+    }
+
+    // --- Vivi: "...Divide 7000 damage among them as you like. If you control a Category IX
+    //           Forward other than Vivi, divide 10000 damage among them instead..." ---
+
+    @Test
+    void viviDealsBoostedDamageWhenOtherCategoryForwardPresent() {
+        GameContext ctx = divideMockContext(true);
+        ForwardTarget t0 = new ForwardTarget(false, 0, ForwardTarget.CardZone.FORWARD);
+        divideStubSelectCharacters(ctx, List.of(t0));
+        when(ctx.controlConditionMetExcluding(any(), eq("Vivi"))).thenReturn(true);
+
+        divideParse("Choose any number of Forwards opponent controls. Divide 7000 damage among them as you like. "
+                + "If you control a Category IX Forward other than Vivi, divide 10000 damage among them instead. "
+                + "(Units must be 1000.)").accept(ctx);
+
+        verify(ctx).controlConditionMetExcluding(any(), eq("Vivi"));
+        verify(ctx).damageTarget(t0, 10000);
+    }
+
+    @Test
+    void viviDealsBaseDamageWhenNoOtherCategoryForwardPresent() {
+        GameContext ctx = divideMockContext(true);
+        ForwardTarget t0 = new ForwardTarget(false, 0, ForwardTarget.CardZone.FORWARD);
+        divideStubSelectCharacters(ctx, List.of(t0));
+        when(ctx.controlConditionMetExcluding(any(), eq("Vivi"))).thenReturn(false);
+
+        divideParse("Choose any number of Forwards opponent controls. Divide 7000 damage among them as you like. "
+                + "If you control a Category IX Forward other than Vivi, divide 10000 damage among them instead. "
+                + "(Units must be 1000.)").accept(ctx);
+
+        verify(ctx).damageTarget(t0, 7000);
+    }
+
+    // --- Zell: "...Divide 5000 damage among them as you like. If you control 4 or more
+    //           Category VIII Characters, divide 9000 damage among them as you like instead..." ---
+
+    @Test
+    void zellDealsBoostedDamageWhenCountThresholdMet() {
+        GameContext ctx = divideMockContext(true);
+        ForwardTarget t0 = new ForwardTarget(false, 0, ForwardTarget.CardZone.FORWARD);
+        divideStubSelectCharacters(ctx, List.of(t0));
+        when(ctx.controlConditionMet(any())).thenReturn(true);
+
+        divideParse("Choose any number of Forwards. Divide 5000 damage among them as you like. "
+                + "If you control 4 or more Category VIII Characters, divide 9000 damage among them as you like instead. "
+                + "(Units must be 1000.)").accept(ctx);
+
+        // No "other than" clause in Zell's condition — must use the non-excluding check.
+        verify(ctx).controlConditionMet(any());
+        verify(ctx, never()).controlConditionMetExcluding(any(), any());
+        verify(ctx).damageTarget(t0, 9000);
+    }
+
+    @Test
+    void zellDealsBaseDamageWhenCountThresholdNotMet() {
+        GameContext ctx = divideMockContext(true);
+        ForwardTarget t0 = new ForwardTarget(false, 0, ForwardTarget.CardZone.FORWARD);
+        divideStubSelectCharacters(ctx, List.of(t0));
+        when(ctx.controlConditionMet(any())).thenReturn(false);
+
+        divideParse("Choose any number of Forwards. Divide 5000 damage among them as you like. "
+                + "If you control 4 or more Category VIII Characters, divide 9000 damage among them as you like instead. "
+                + "(Units must be 1000.)").accept(ctx);
+
+        verify(ctx).damageTarget(t0, 5000);
+    }
+
+    // --- Bahamut: "...Divide 10000 damage among them as you like. If you have received 5 points
+    //              of damage or more, divide 15000 damage among those instead..." ---
+
+    @Test
+    void bahamutDealsBoostedDamageWhenSelfDamageThresholdMet() {
+        GameContext ctx = divideMockContext(true);
+        ForwardTarget t0 = new ForwardTarget(false, 0, ForwardTarget.CardZone.FORWARD);
+        divideStubSelectCharacters(ctx, List.of(t0));
+        when(ctx.selfDamageCount()).thenReturn(5);
+
+        divideParse("Choose up to 2 Forwards. Divide 10000 damage among them as you like. "
+                + "If you have received 5 points of damage or more, divide 15000 damage among those instead. "
+                + "(Units must be 1000.)").accept(ctx);
+
+        verify(ctx).damageTarget(t0, 15000);
+    }
+
+    @Test
+    void bahamutDealsBaseDamageWhenSelfDamageThresholdNotMet() {
+        GameContext ctx = divideMockContext(true);
+        ForwardTarget t0 = new ForwardTarget(false, 0, ForwardTarget.CardZone.FORWARD);
+        divideStubSelectCharacters(ctx, List.of(t0));
+        when(ctx.selfDamageCount()).thenReturn(2);
+
+        divideParse("Choose up to 2 Forwards. Divide 10000 damage among them as you like. "
+                + "If you have received 5 points of damage or more, divide 15000 damage among those instead. "
+                + "(Units must be 1000.)").accept(ctx);
+
+        verify(ctx).damageTarget(t0, 10000);
+    }
+
+    // --- Eden: "...Divide 30000 damage among them as you like. (Units must be 1000.)
+    //           This damage cannot be reduced." ---
+
+    @Test
+    void edenUsesUnreducedDamageWhenCannotBeReduced() {
+        GameContext ctx = divideMockContext(true);
+        ForwardTarget t0 = new ForwardTarget(false, 0, ForwardTarget.CardZone.FORWARD);
+        divideStubSelectCharacters(ctx, List.of(t0));
+
+        divideParse("Choose up to 2 Forwards. Divide 30000 damage among them as you like. (Units must be 1000.) "
+                + "This damage cannot be reduced.").accept(ctx);
+
+        verify(ctx).damageTargetUnreduced(t0, 30000);
+        verify(ctx, never()).damageTarget(any(), anyInt());
+    }
+
+    // --- Barret: "Choose up to 2 Forwards. Divide 10000 damage among them as you like.
+    //             (Units must be 1000.)" — baseline multi-target "as you like" dialog path. ---
+
+    @Test
+    void barretInvokesAllocationDialogForMultipleTargets() {
+        GameContext ctx = divideMockContext(true);
+        ForwardTarget t0 = new ForwardTarget(false, 0, ForwardTarget.CardZone.FORWARD);
+        ForwardTarget t1 = new ForwardTarget(false, 1, ForwardTarget.CardZone.FORWARD);
+        divideStubSelectCharacters(ctx, List.of(t0, t1));
+        CardData c0 = mock(CardData.class);
+        CardData c1 = mock(CardData.class);
+        when(ctx.p2Forward(0)).thenReturn(c0);
+        when(ctx.p2Forward(1)).thenReturn(c1);
+        when(ctx.divideDamageAmount(eq(10000), any(), eq(List.of(c0, c1))))
+                .thenReturn(List.of(4000, 6000));
+
+        divideParse("Choose up to 2 Forwards. Divide 10000 damage among them as you like. (Units must be 1000.)")
+                .accept(ctx);
+
+        verify(ctx).damageTarget(t0, 4000);
+        verify(ctx).damageTarget(t1, 6000);
+    }
+
+    @Test
+    void barretSkipsZeroAllocationTargets() {
+        GameContext ctx = divideMockContext(true);
+        ForwardTarget t0 = new ForwardTarget(false, 0, ForwardTarget.CardZone.FORWARD);
+        ForwardTarget t1 = new ForwardTarget(false, 1, ForwardTarget.CardZone.FORWARD);
+        divideStubSelectCharacters(ctx, List.of(t0, t1));
+        when(ctx.p2Forward(anyInt())).thenReturn(mock(CardData.class));
+        when(ctx.divideDamageAmount(eq(10000), any(), any()))
+                .thenReturn(List.of(10000, 0));
+
+        divideParse("Choose up to 2 Forwards. Divide 10000 damage among them as you like. (Units must be 1000.)")
+                .accept(ctx);
+
+        verify(ctx).damageTarget(t0, 10000);
+        verify(ctx, never()).damageTarget(eq(t1), anyInt());
+    }
 }
