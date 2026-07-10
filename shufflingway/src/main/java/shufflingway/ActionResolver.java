@@ -3598,6 +3598,17 @@ public class ActionResolver {
     );
 
     /**
+     * Matches "Remove all [Name] Counters from [CardName][.]".
+     * <ul>
+     *   <li>Group {@code name}   — counter name (e.g. {@code "Fortune"})</li>
+     *   <li>Group {@code target} — card name the counters are removed from</li>
+     * </ul>
+     */
+    private static final Pattern REMOVE_ALL_COUNTERS = Pattern.compile(
+        "(?i)Remove\\s+all\\s+(?<name>.+?)\\s+Counters?\\s+from\\s+(?<target>[^.!,]+)\\s*[.!]?"
+    );
+
+    /**
      * Matches "Place N [Name] Counter(s) on [CardName] for each [Type] you control."
      * Groups: {@code count}, {@code name}, {@code target}, {@code type}.
      */
@@ -4967,6 +4978,9 @@ public class ActionResolver {
         result = tryParsePlaceCounters(effectText, source);
         if (result != null) return result;
 
+        result = tryParseRemoveAllCounters(effectText, source);
+        if (result != null) return result;
+
         result = tryParseLookTopDeckOptionallyBreak(effectText);
         if (result != null) return result;
 
@@ -5302,6 +5316,7 @@ public class ActionResolver {
         if (tryParseGainCrystalIfOpponentHas(effectText)         != null) return "GainCrystalIfOpponentHas";
         if (tryParsePlaceCountersForEach(effectText, source)     != null) return "PlaceCountersForEach";
         if (tryParsePlaceCounters(effectText, source)            != null) return "PlaceCounters";
+        if (tryParseRemoveAllCounters(effectText, source)         != null) return "RemoveAllCounters";
         if (tryParseLookTopDeckOptionallyBreak(effectText)        != null) return "LookTopDeckOptionallyBreak";
         if (tryParseLookTopDeckBottomOrKeep(effectText)           != null) return "LookTopDeckBottomOrKeep";
         if (tryParseCounterScaleLookAddToHand(effectText, 1)               != null) return "CounterScaleLookAddToHand";
@@ -5783,6 +5798,7 @@ public class ActionResolver {
         if (tryParseGainCrystalIfOpponentHas(effectText) != null)            return "GainCrystalIfOpponentHas";
         if (tryParsePlaceCountersForEach(effectText, source) != null)        return "PlaceCountersForEach";
         if (tryParsePlaceCounters(effectText, source) != null)               return "PlaceCounters";
+        if (tryParseRemoveAllCounters(effectText, source) != null)           return "RemoveAllCounters";
         if (tryParseLookTopDeckOptionallyBreak(effectText)        != null) return "LookTopDeckOptionallyBreak";
         if (tryParseLookTopDeckBottomOrKeep(effectText)           != null) return "LookTopDeckBottomOrKeep";
         if (tryParseChooseOppFwdGainsSpecialAbilityFreeOnce(effectText, source) != null) return "ChooseOppFwdGainsSpecialAbilityFreeOnce";
@@ -10007,6 +10023,7 @@ public class ActionResolver {
         s = CardData.CONTROL_IF_NOT_ANY_PATTERN            .matcher(s).replaceAll("").trim();
         s = CardData.OPPONENT_CONTROLS_N_OR_MORE_PATTERN   .matcher(s).replaceAll("").trim();
         s = CardData.COUNTER_ZERO_RESTRICTION              .matcher(s).replaceAll("").trim();
+        s = CardData.EACH_PLAYER_CAN_USE_PATTERN           .matcher(s).replaceAll("").trim();
         // Strip leftover leading/trailing ", and" / "," / "." artifacts
         s = s.replaceAll("^[,.;\\s]+|[,.;\\s]+$", "").trim();
         return s;
@@ -14077,6 +14094,23 @@ public class ActionResolver {
             }
             ctx.logEntry("Effect: Look at top " + count + " card(s) (" + counterName + " Counters) — add 1 to hand, shuffle rest to bottom");
             ctx.lookAtTopDeck(new LookConfig(count, LookConfig.LookAction.ADD_TO_HAND_REST_BOTTOM));
+        };
+    }
+
+    private static Consumer<GameContext> tryParseRemoveAllCounters(String text, CardData source) {
+        Matcher m = REMOVE_ALL_COUNTERS.matcher(text);
+        if (!m.find()) return null;
+        String name   = m.group("name").trim();
+        String target = m.group("target").trim();
+        // Only handle self-removal (target matches the source card's name)
+        if (source == null || !source.name().equalsIgnoreCase(target)) return null;
+        return ctx -> {
+            int current = ctx.getCounters(source, name);
+            if (current <= 0) {
+                ctx.logEntry("Effect: Remove all " + name + " Counters from " + source.name() + " — none present");
+                return;
+            }
+            ctx.removeCounters(source, name, current);
         };
     }
 

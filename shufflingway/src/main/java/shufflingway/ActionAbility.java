@@ -89,7 +89,8 @@ public record ActionAbility(
         String                  maxCounterType,               // null = no restriction; else = counter type name (e.g. "Flyer")
         String                  inlineCostReductionJob,       // null = no modifier; else = job name for "reduced by 1 for each Job X other than Y you control"
         String                  inlineCostReductionExcludeName, // null = no exclusion; else = card name excluded from the reduction count
-        boolean                 requiresOwnWarpCard           // true = ability disabled when the controller has no cards in the Warp zone
+        boolean                 requiresOwnWarpCard,          // true = ability disabled when the controller has no cards in the Warp zone
+        boolean                 usableByEitherPlayer          // "Each player can use this ability." — the non-controller may also activate it, paying costs from their own resources
 ) {
     public ActionAbility {
         cpCost            = List.copyOf(cpCost);
@@ -126,7 +127,8 @@ public record ActionAbility(
                 requiresForwardPutToBZThisTurn(), blockerForAttacker(), ownBreakZoneNameRequired(),
                 counterScaleName(), minCounterRequired(), minCounterType(), maxOpponentHandSize(),
                 requiresSourceIsForward(), maxCounterAllowed(), maxCounterType(),
-                inlineCostReductionJob(), inlineCostReductionExcludeName(), requiresOwnWarpCard());
+                inlineCostReductionJob(), inlineCostReductionExcludeName(), requiresOwnWarpCard(),
+                usableByEitherPlayer());
     }
 
     /** Creates an action ability whose sole cost is "Put {@code bzCardName} into the Break Zone." */
@@ -139,7 +141,7 @@ public record ActionAbility(
             true, false, false, false,
             null, null, false, false, false,
             effectText,
-            0, null, null, null, false, false, false, null, null, null, false, false, null, false, false, null, null, null, 0, null, -1, false, -1, null, null, null, false
+            0, null, null, null, false, false, false, null, null, null, false, false, null, false, false, null, null, null, 0, null, -1, false, -1, null, null, null, false, false
         );
     }
 }

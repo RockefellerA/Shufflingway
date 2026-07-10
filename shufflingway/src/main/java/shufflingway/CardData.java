@@ -1157,7 +1157,8 @@ public record CardData(
             String inlineExcludeRaw = inlineJobRaw != null ? m.group("inlineexclude") : null;
             String inlineCostReductionExcludeName = inlineExcludeRaw != null ? inlineExcludeRaw.trim() : null;
             boolean requiresOwnWarpCard = REMOVE_WARP_COUNTER_FROM_RFG.matcher(effectRaw).find();
-            result.add(new ActionAbility(abilityName, requiresDull, isSpecial, crystalCost, selfMillCost, hasXCost, cpCost, breakZoneCosts, discardCosts, removeFromGameCosts, returnToHandCosts, counterCosts, dullForwardCosts, yourTurnOnly, opponentTurnOnly, oncePerTurn, mainPhaseOnly, whileCardAtk, whileCardBlk, whilePartyAtk, whileCardInHand, hasBlockingTarget, effectRaw, damageThreshold, controlCondition, cpBackupElement, cpAllowedElements, sourceInBattle, requiresOppDiscardedThisTurn, requiresCastSummonThisTurn, requiresElementForwardEnteredThisTurn, requiresCardNameEnteredThisTurn, breakZoneOnly, requiresOpponentEmptyHand, requiresSelfEmptyHand, requiresNamedCardTookDamageThisTurn, requiresSelfReceivedDamageThisTurn, requiresForwardPutToBZThisTurn, blockerForAttacker, ownBzCard, counterScaleName, minCounterRequired, minCounterType, maxOpponentHandSize, requiresSourceIsForward, maxCounterAllowed, maxCounterType, inlineCostReductionJob, inlineCostReductionExcludeName, requiresOwnWarpCard));
+            boolean usableByEitherPlayer = EACH_PLAYER_CAN_USE_PATTERN.matcher(effectRaw).find();
+            result.add(new ActionAbility(abilityName, requiresDull, isSpecial, crystalCost, selfMillCost, hasXCost, cpCost, breakZoneCosts, discardCosts, removeFromGameCosts, returnToHandCosts, counterCosts, dullForwardCosts, yourTurnOnly, opponentTurnOnly, oncePerTurn, mainPhaseOnly, whileCardAtk, whileCardBlk, whilePartyAtk, whileCardInHand, hasBlockingTarget, effectRaw, damageThreshold, controlCondition, cpBackupElement, cpAllowedElements, sourceInBattle, requiresOppDiscardedThisTurn, requiresCastSummonThisTurn, requiresElementForwardEnteredThisTurn, requiresCardNameEnteredThisTurn, breakZoneOnly, requiresOpponentEmptyHand, requiresSelfEmptyHand, requiresNamedCardTookDamageThisTurn, requiresSelfReceivedDamageThisTurn, requiresForwardPutToBZThisTurn, blockerForAttacker, ownBzCard, counterScaleName, minCounterRequired, minCounterType, maxOpponentHandSize, requiresSourceIsForward, maxCounterAllowed, maxCounterType, inlineCostReductionJob, inlineCostReductionExcludeName, requiresOwnWarpCard, usableByEitherPlayer));
         }
         return List.copyOf(result);
     }
@@ -1175,7 +1176,8 @@ public record CardData(
                 a.requiresSelfEmptyHand(), a.requiresNamedCardTookDamageThisTurn(), a.requiresSelfReceivedDamageThisTurn(),
                 a.requiresForwardPutToBZThisTurn(), a.blockerForAttacker(), bzCard,
                 a.counterScaleName(), a.minCounterRequired(), a.minCounterType(), a.maxOpponentHandSize(), a.requiresSourceIsForward(),
-                a.maxCounterAllowed(), a.maxCounterType(), a.inlineCostReductionJob(), a.inlineCostReductionExcludeName(), a.requiresOwnWarpCard());
+                a.maxCounterAllowed(), a.maxCounterType(), a.inlineCostReductionJob(), a.inlineCostReductionExcludeName(), a.requiresOwnWarpCard(),
+                a.usableByEitherPlayer());
     }
 
     /** Parses a "discard N [filter]" cost phrase into a {@link DiscardCost} list (0 or 1 item). */
@@ -1266,6 +1268,11 @@ public record CardData(
 
     static final Pattern MAIN_PHASE_ONLY_PATTERN = Pattern.compile(
         "(?i)You\\s+can\\s+only\\s+use\\s+this\\s+ability\\s+during\\s+your\\s+Main\\s+Phase[.!]?"
+    );
+
+    /** "Each player can use this ability." — the non-controller may also activate it. */
+    static final Pattern EACH_PLAYER_CAN_USE_PATTERN = Pattern.compile(
+        "(?i)Each\\s+player\\s+can\\s+use\\s+this\\s+ability[.!]?"
     );
 
     /**

@@ -3365,6 +3365,23 @@ final class GameContextImpl implements GameContext {
 				Map<String, Integer> all = mw.gameState.getCountersMap(card);
 				logEntry(card.name() + " — placed " + count + " " + counterName
 						+ " Counter(s)  [now: " + all + "]");
+				refreshCounterOwnerSlot(card);
+			}
+
+			@Override public int getCounters(CardData card, String counterName) {
+				return mw.gameState.getCounters(card, counterName);
+			}
+
+			@Override public void removeCounters(CardData card, String counterName, int count) {
+				int removed = mw.gameState.removeCounters(card, counterName, count);
+				Map<String, Integer> all = mw.gameState.getCountersMap(card);
+				logEntry(card.name() + " — removed " + removed + " " + counterName
+						+ " Counter(s)  [now: " + all + "]");
+				refreshCounterOwnerSlot(card);
+			}
+
+			/** Refreshes whichever field slot currently holds {@code card}, if any (updates the on-screen counter badge). */
+			private void refreshCounterOwnerSlot(CardData card) {
 				for (int i = 0; i < mw.p1ForwardCards.size(); i++) {
 					if (mw.p1ForwardCards.get(i) == card) { mw.refreshP1ForwardSlot(i); return; }
 				}
@@ -3383,10 +3400,6 @@ final class GameContextImpl implements GameContext {
 				for (int i = 0; i < mw.p2MonsterCards.size(); i++) {
 					if (mw.p2MonsterCards.get(i) == card) { mw.refreshP2MonsterSlot(i); return; }
 				}
-			}
-
-			@Override public int getCounters(CardData card, String counterName) {
-				return mw.gameState.getCounters(card, counterName);
 			}
 
 			@Override public void removeOneCounterFromTarget(ForwardTarget t) {
@@ -5375,7 +5388,7 @@ final class GameContextImpl implements GameContext {
 					false, false, true, false,
 					null, null, false, false, false,
 					original.effectText(),
-					0, null, null, null, false, false, false, null, null, null, false, false, null, false, false, null, null, null, 0, null, -1, false, -1, null, null, null, false
+					0, null, null, null, false, false, false, null, null, null, false, false, null, false, false, null, null, null, 0, null, -1, false, -1, null, null, null, false, false
 				);
 				Map<CardData, List<ActionAbility>> map = isP1 ? mw.p1TempGrantedAbilities : mw.p2TempGrantedAbilities;
 				map.computeIfAbsent(source, k -> new ArrayList<>()).add(copy);

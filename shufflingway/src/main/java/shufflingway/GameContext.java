@@ -585,6 +585,9 @@ public interface GameContext {
     /** Returns the number of counters named {@code counterName} currently on {@code card}. */
     int getCounters(CardData card, String counterName);
 
+    /** Removes up to {@code count} counters named {@code counterName} from {@code card} (no-op if fewer are present). */
+    void removeCounters(CardData card, String counterName, int count);
+
     /**
      * Selects and removes one counter from the character at {@code t}.
      * If the card has no counters the effect fizzles.
