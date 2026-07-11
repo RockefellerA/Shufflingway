@@ -1226,6 +1226,44 @@ public class CardBehaviorTest {
     }
 
     @Test
+    void cancelChosenTargetUnlessDiscardParsesAndDelegatesToGameContext() {
+        // Kuja / Charlotte real card text: discard-cost variant of the pay-to-avoid-cancel mechanic.
+        Consumer<GameContext> fn = ActionResolver.parse(
+                "If your opponent doesn't discard 1 card, cancel its effect.", null);
+        assertNotNull(fn);
+
+        GameContext ctx = mock(GameContext.class);
+        fn.accept(ctx);
+        verify(ctx).vetoChosenSelectionUnlessOpponentDiscards(1);
+    }
+
+    @Test
+    void cancelChosenTargetUnlessPayOrCrystalParsesAndDelegatesToGameContext() {
+        // Zeromus real card text: opponent may pay 4 CP OR 1 Crystal to avoid the cancel.
+        Consumer<GameContext> fn = ActionResolver.parse(
+                "If your opponent doesn't pay 《4》 or 《C》, cancel its effects.", null);
+        assertNotNull(fn);
+
+        GameContext ctx = mock(GameContext.class);
+        fn.accept(ctx);
+        verify(ctx).vetoChosenSelectionUnlessOpponentPaysOrCrystal(4, 1);
+        verify(ctx, never()).vetoChosenSelectionUnlessOpponentPays(anyInt());
+    }
+
+    @Test
+    void cancelChosenTargetUnlessPayWithoutCrystalStaysPlainPay() {
+        // Regression guard: the plain pay form must not route to the crystal variant.
+        Consumer<GameContext> fn = ActionResolver.parse(
+                "If your opponent doesn't pay 《2》, cancel their effects.", null);
+        assertNotNull(fn);
+
+        GameContext ctx = mock(GameContext.class);
+        fn.accept(ctx);
+        verify(ctx).vetoChosenSelectionUnlessOpponentPays(2);
+        verify(ctx, never()).vetoChosenSelectionUnlessOpponentPaysOrCrystal(anyInt(), anyInt());
+    }
+
+    @Test
     void cancelChosenTargetUnlessPayParsesReversedClauseOrder() {
         // White Tiger l'Cie Qun'mi's real card text: "its effect is cancelled if your opponent
         // doesn't pay 《N》." instead of "if your opponent doesn't pay 《N》, cancel its effect."

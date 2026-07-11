@@ -190,6 +190,23 @@ public interface GameContext {
     void vetoChosenSelectionUnlessOpponentPays(int cost);
 
     /**
+     * Discard-cost sibling of {@link #vetoChosenSelectionUnlessOpponentPays}: the opponent must
+     * discard {@code count} cards from hand (in full) to prevent the in-progress selection from
+     * being vetoed. Declining — or holding fewer than {@code count} cards — cancels the triggering
+     * Summon/ability's choice of this context's controller's Character(s).
+     */
+    void vetoChosenSelectionUnlessOpponentDiscards(int count);
+
+    /**
+     * Crystal-alternative sibling of {@link #vetoChosenSelectionUnlessOpponentPays}: the opponent may
+     * prevent the in-progress selection from being vetoed by paying EITHER {@code cpCost} CP the
+     * normal way OR {@code crystalCost} Crystals. The Crystal option is unavailable when the opponent
+     * holds fewer than {@code crystalCost} Crystals. Declining both cancels the triggering
+     * Summon/ability's choice of this context's controller's Character(s).
+     */
+    void vetoChosenSelectionUnlessOpponentPaysOrCrystal(int cpCost, int crystalCost);
+
+    /**
      * Loads {@code targets} as the pre-selected targets for the ability about to be resolved.
      * Called by {@link MainWindow} just before running the resolution lambda, so that
      * {@link ActionResolver}'s {@code selectTargets} can return them without showing a dialog.

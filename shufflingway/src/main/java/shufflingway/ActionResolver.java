@@ -407,13 +407,16 @@ public class ActionResolver {
     );
 
     /**
-     * Matches the standalone "If your opponent doesn't pay 《N》, cancel its/their effect(s)." clause
-     * used as the body of a "chosen by opponent's Summons or abilities" auto-ability — the target is
-     * implicit (whatever triggered the reactive ability), so there is no leading "Choose 1..." clause.
-     * Group {@code cost} — the CP amount that must be paid in full to prevent the cancellation.
+     * Matches the standalone "If your opponent doesn't pay 《N》[ or 《C》…], cancel its/their effect(s)."
+     * clause used as the body of a "chosen by opponent's Summons or abilities" auto-ability — the
+     * target is implicit (whatever triggered the reactive ability), so there is no leading
+     * "Choose 1..." clause. Group {@code cost} — the CP amount that must be paid in full. Group
+     * {@code crystal} — the optional Crystal alternative (one 《C》 per Crystal, e.g. Zeromus's
+     * "pay 《4》 or 《C》"); when present the opponent may instead pay that many Crystals.
      */
     private static final Pattern CANCEL_CHOSEN_TARGET_UNLESS_PAY = Pattern.compile(
-        "(?i)^If\\s+your\\s+opponent\\s+doesn(?:'|’)?t\\s+pay\\s*《\\s*(?<cost>\\d+)\\s*》,?\\s*" +
+        "(?i)^If\\s+your\\s+opponent\\s+doesn(?:'|’)?t\\s+pay\\s*《\\s*(?<cost>\\d+)\\s*》" +
+        "(?:\\s+or\\s+(?<crystal>(?:《\\s*C\\s*》)+))?,?\\s*" +
         "cancel\\s+(?:its|their)\\s+effects?[.!]?$"
     );
 
@@ -426,6 +429,17 @@ public class ActionResolver {
     private static final Pattern CANCEL_CHOSEN_TARGET_UNLESS_PAY_REVERSED = Pattern.compile(
         "(?i)^(?:its|their)\\s+effects?\\s+(?:is|are)\\s+cancelled\\s+if\\s+your\\s+opponent\\s+" +
         "doesn(?:'|’)?t\\s+pay\\s*《\\s*(?<cost>\\d+)\\s*》[.!]?$"
+    );
+
+    /**
+     * Discard-cost sibling of {@link #CANCEL_CHOSEN_TARGET_UNLESS_PAY}: "If your opponent doesn't
+     * discard N card(s), cancel its/their effect(s)." (e.g. Kuja, Charlotte). Same implicit-target
+     * veto mechanic, but the opponent must discard from hand instead of paying CP to prevent it.
+     * Group {@code count} — the number of cards that must be discarded in full.
+     */
+    private static final Pattern CANCEL_CHOSEN_TARGET_UNLESS_DISCARD = Pattern.compile(
+        "(?i)^If\\s+your\\s+opponent\\s+doesn(?:'|’)?t\\s+discard\\s+(?<count>\\d+)\\s+cards?,?\\s*" +
+        "cancel\\s+(?:its|their)\\s+effects?[.!]?$"
     );
 
     /**
@@ -4711,6 +4725,9 @@ public class ActionResolver {
         result = tryParseCancelChosenTargetUnlessPay(effectText);
         if (result != null) return result;
 
+        result = tryParseCancelChosenTargetUnlessDiscard(effectText);
+        if (result != null) return result;
+
         result = tryParseCancelSummonTargetingMyCharacter(effectText);
         if (result != null) return result;
 
@@ -5371,6 +5388,7 @@ public class ActionResolver {
         if (tryParseRedirectAbilityTarget(effectText)          != null) return "RedirectAbilityTarget";
         if (tryParseCancelAbilityOnStack(effectText)           != null) return "CancelAbilityOnStack";
         if (tryParseCancelChosenTargetUnlessPay(effectText)    != null) return "CancelChosenTargetUnlessPay";
+        if (tryParseCancelChosenTargetUnlessDiscard(effectText) != null) return "CancelChosenTargetUnlessDiscard";
         if (tryParseCancelSummonTargetingMyCharacter(effectText) != null) return "CancelSummonTargetingMyCharacter";
         if (tryParseSelectNumber(effectText, source)          != null) return "SelectNumber";
         if (tryParseDullAllOppFwdsPowerLeSource(effectText, source)        != null) return "DullAllOppFwdsPowerLeSource";
@@ -5839,6 +5857,7 @@ public class ActionResolver {
         if (tryParseCancelAbilityOnStack(effectText)          != null) return "CancelAbilityOnStack";
         if (tryParseCancelStackEntryUnlessPay(effectText)     != null) return "CancelStackEntryUnlessPay";
         if (tryParseCancelChosenTargetUnlessPay(effectText)   != null) return "CancelChosenTargetUnlessPay";
+        if (tryParseCancelChosenTargetUnlessDiscard(effectText) != null) return "CancelChosenTargetUnlessDiscard";
         if (tryParseCancelSummonTargetingMyCharacter(effectText) != null) return "CancelSummonTargetingMyCharacter";
         if (tryParseSelectNumber(effectText, source) != null)               return "SelectNumber";
         if (tryParseChooseOppFwdDynCostBreak(effectText)               != null) return "ChooseOppFwdDynCostBreak";
@@ -12474,21 +12493,47 @@ public class ActionResolver {
     }
 
     /**
-     * Parses the standalone "If your opponent doesn't pay 《N》, cancel its/their effect(s)." body of
-     * a "chosen by opponent's Summons or abilities" auto-ability. The target is implicit — whatever
-     * Summon/ability just triggered this reaction — so it just vetoes that in-progress selection.
+     * Parses the standalone "If your opponent doesn't pay 《N》[ or 《C》…], cancel its/their effect(s)."
+     * body of a "chosen by opponent's Summons or abilities" auto-ability. The target is implicit —
+     * whatever Summon/ability just triggered this reaction — so it just vetoes that in-progress
+     * selection. When a Crystal alternative is present (Zeromus), the opponent may pay CP or Crystals.
      */
     private static Consumer<GameContext> tryParseCancelChosenTargetUnlessPay(String text) {
         String trimmed = text.trim();
         Matcher m = CANCEL_CHOSEN_TARGET_UNLESS_PAY.matcher(trimmed);
-        if (!m.find()) {
+        boolean forward = m.find();
+        if (!forward) {
             m = CANCEL_CHOSEN_TARGET_UNLESS_PAY_REVERSED.matcher(trimmed);
             if (!m.find()) return null;
         }
         int cost = Integer.parseInt(m.group("cost"));
+        // Only the forward pattern captures the optional Crystal alternative.
+        String crystalGroup = forward ? m.group("crystal") : null;
+        int crystalCost = crystalGroup == null ? 0 : (int) crystalGroup.chars().filter(c -> c == 'C' || c == 'c').count();
+        if (crystalCost > 0) {
+            return ctx -> {
+                ctx.logEntry("Effect: cancel unless opponent pays 《" + cost + "》 or 《C》×" + crystalCost);
+                ctx.vetoChosenSelectionUnlessOpponentPaysOrCrystal(cost, crystalCost);
+            };
+        }
         return ctx -> {
             ctx.logEntry("Effect: cancel unless opponent pays 《" + cost + "》");
             ctx.vetoChosenSelectionUnlessOpponentPays(cost);
+        };
+    }
+
+    /**
+     * Discard-cost sibling of {@link #tryParseCancelChosenTargetUnlessPay}: parses "If your opponent
+     * doesn't discard N card(s), cancel its/their effect(s)." and vetoes the in-progress selection
+     * unless the opponent discards the full number of cards from hand.
+     */
+    private static Consumer<GameContext> tryParseCancelChosenTargetUnlessDiscard(String text) {
+        Matcher m = CANCEL_CHOSEN_TARGET_UNLESS_DISCARD.matcher(text.trim());
+        if (!m.find()) return null;
+        int count = Integer.parseInt(m.group("count"));
+        return ctx -> {
+            ctx.logEntry("Effect: cancel unless opponent discards " + count + " card(s)");
+            ctx.vetoChosenSelectionUnlessOpponentDiscards(count);
         };
     }
 

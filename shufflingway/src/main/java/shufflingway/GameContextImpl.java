@@ -1504,7 +1504,7 @@ final class GameContextImpl implements GameContext {
 						: chosen.isSpecialAbility() ? "special ability" : "action ability";
 				int[] paidHolder = {-1};
 				String label = chosen.source().name() + " — pay 《" + cost + "》 or its effect is cancelled";
-				mw.autoAbilityTriggers.showAutoAbilityPaymentDialog(label, cost, cost, !isP1, paid -> paidHolder[0] = paid);
+				mw.autoAbilityTriggers.showAutoAbilityPaymentDialog(label, cost, cost, !isP1, 0, paid -> paidHolder[0] = paid, null);
 				if (paidHolder[0] < cost) {
 					mw.cancelledStackEntries.add(chosen);
 					logEntry("Effect: opponent declined to pay 《" + cost + "》 — " + chosen.source().name() + "'s " + type + " effect will be cancelled");
@@ -1517,12 +1517,76 @@ final class GameContextImpl implements GameContext {
 				String src = mw.currentAbilitySource != null ? mw.currentAbilitySource.name() : "Ability";
 				String label = src + " — pay 《" + cost + "》 or the effect choosing your Character(s) is cancelled";
 				int[] paidHolder = {-1};
-				mw.autoAbilityTriggers.showAutoAbilityPaymentDialog(label, cost, cost, !isP1, paid -> paidHolder[0] = paid);
+				mw.autoAbilityTriggers.showAutoAbilityPaymentDialog(label, cost, cost, !isP1, 0, paid -> paidHolder[0] = paid, null);
 				if (paidHolder[0] < cost) {
 					mw.lastChosenSelectionVetoed = true;
 					logEntry("Effect: opponent declined to pay 《" + cost + "》 — selection cancelled");
 				} else {
 					logEntry("Effect: opponent paid 《" + cost + "》 — selection proceeds");
+				}
+			}
+
+			@Override public void vetoChosenSelectionUnlessOpponentPaysOrCrystal(int cpCost, int crystalCost) {
+				String src = mw.currentAbilitySource != null ? mw.currentAbilitySource.name() : "Ability";
+				String label = src + " — pay 《" + cpCost + "》 or " + crystalCost + " Crystal"
+						+ (crystalCost == 1 ? "" : "s") + " or the effect choosing your Character(s) is cancelled";
+				int[] paidHolder = {-1};
+				boolean[] paidByCrystal = {false};
+				mw.autoAbilityTriggers.showAutoAbilityPaymentDialog(label, cpCost, cpCost, !isP1, crystalCost,
+						paid -> paidHolder[0] = paid,
+						() -> paidByCrystal[0] = true);
+				if (paidByCrystal[0]) {
+					logEntry("Effect: opponent paid " + crystalCost + " Crystal" + (crystalCost == 1 ? "" : "s") + " — selection proceeds");
+				} else if (paidHolder[0] < cpCost) {
+					mw.lastChosenSelectionVetoed = true;
+					logEntry("Effect: opponent declined to pay — selection cancelled");
+				} else {
+					logEntry("Effect: opponent paid 《" + cpCost + "》 — selection proceeds");
+				}
+			}
+
+			@Override public void vetoChosenSelectionUnlessOpponentDiscards(int count) {
+				String src = mw.currentAbilitySource != null ? mw.currentAbilitySource.name() : "Ability";
+				boolean opponentIsP1 = !isP1;   // the player being asked to discard
+				List<CardData> oppHand = opponentIsP1 ? mw.gameState.getP1Hand() : mw.gameState.getP2Hand();
+
+				// Can't discard the full amount → automatic veto, no choice offered.
+				if (oppHand.size() < count) {
+					mw.lastChosenSelectionVetoed = true;
+					logEntry("Effect: opponent cannot discard " + count + " card(s) — selection cancelled");
+					return;
+				}
+
+				boolean discarded;
+				if (opponentIsP1) {
+					// Human opponent decides whether to pay the discard cost.
+					int choice = mw.showEffectOptionDialog(
+							src + " — discard " + count + " card" + (count == 1 ? "" : "s")
+									+ " or the effect choosing your Character(s) is cancelled?",
+							"Discard or Cancel", new Object[]{"Discard", "Decline"});
+					if (choice == 0) {
+						mw.showForcedDiscardDialog(count, true);   // modal; discards exactly `count`
+						discarded = true;
+					} else {
+						discarded = false;
+					}
+				} else {
+					// P2 AI opponent: discard its worst `count` cards to keep its effect.
+					for (int i = 0; i < count; i++) {
+						int idx = MainWindow.pickWorstHandCard0(mw.gameState.getP2Hand());
+						CardData d = mw.playerBreakFromHand(false, idx);
+						if (d != null) logEntry("[P2] Discards " + d.name() + " to keep its effect");
+					}
+					mw.refreshP2HandCountLabel();
+					mw.refreshP2BreakLabel();
+					discarded = true;
+				}
+
+				if (!discarded) {
+					mw.lastChosenSelectionVetoed = true;
+					logEntry("Effect: opponent declined to discard — selection cancelled");
+				} else {
+					logEntry("Effect: opponent discarded " + count + " card(s) — selection proceeds");
 				}
 			}
 
@@ -4328,26 +4392,26 @@ final class GameContextImpl implements GameContext {
 				String src   = mw.currentAbilitySource != null ? mw.currentAbilitySource.name() : "Ability";
 				int choice = mw.showEffectOptionDialog(src + " — " + label, "Replay Ability", new Object[]{"Pay", "Pass"});
 				if (choice != 0) { logEntry("Replay: declined to pay 《" + element + "》"); return; }
-				mw.autoAbilityTriggers.showAutoAbilityPaymentDialog(src + " (replay)", 1, 1, isP1, paid -> {
+				mw.autoAbilityTriggers.showAutoAbilityPaymentDialog(src + " (replay)", 1, 1, isP1, 0, paid -> {
 					if (paid >= 1) { logEntry("Replay: paid 《" + element + "》 — using ability again"); replayAction.accept(this); }
-				});
+				}, null);
 			}
 
 			@Override public void mayPayElementCpToEffect(String element, java.util.function.Consumer<GameContext> onPay) {
 				if (!isP1) {
 					logEntry("[P2 AI] Pays 《" + element + "》 for optional effect");
-					mw.autoAbilityTriggers.showAutoAbilityPaymentDialog("", 1, 1, isP1, paid -> {
+					mw.autoAbilityTriggers.showAutoAbilityPaymentDialog("", 1, 1, isP1, 0, paid -> {
 						if (paid >= 1) { logEntry("[P2 AI] Paid 《" + element + "》 — applying effect"); onPay.accept(this); }
-					});
+					}, null);
 					return;
 				}
 				String src    = mw.currentAbilitySource != null ? mw.currentAbilitySource.name() : "Ability";
 				String label  = "Pay 《" + element + "》?";
 				int choice = mw.showEffectOptionDialog(src + " — " + label, "Optional Cost", new Object[]{"Pay", "Pass"});
 				if (choice != 0) { logEntry("Optional pay: declined 《" + element + "》"); return; }
-				mw.autoAbilityTriggers.showAutoAbilityPaymentDialog(src, 1, 1, isP1, paid -> {
+				mw.autoAbilityTriggers.showAutoAbilityPaymentDialog(src, 1, 1, isP1, 0, paid -> {
 					if (paid >= 1) { logEntry("Optional pay: paid 《" + element + "》 — applying effect"); onPay.accept(this); }
-				});
+				}, null);
 			}
 
 			@Override public void mayDullActiveCardToReplayAbility(String cardName, java.util.function.Consumer<GameContext> replayAction) {

@@ -1955,8 +1955,8 @@ final class AutoAbilityTriggers {
 		}
 
 		String finalSubEffect = subEffect;
-		showAutoAbilityPaymentDialog(source.name(), fixedCost, maxCp, isP1,
-				paid -> applyPayWhenDoSoEffect(finalSubEffect, source, paid, effectIsP1));
+		showAutoAbilityPaymentDialog(source.name(), fixedCost, maxCp, isP1, 0,
+				paid -> applyPayWhenDoSoEffect(finalSubEffect, source, paid, effectIsP1), null);
 	}
 
 	private void applyPayWhenDoSoEffect(String subEffect, CardData source, int xValue, boolean effectIsP1) {
@@ -2268,11 +2268,18 @@ final class AutoAbilityTriggers {
 
 	/**
 	 * Payment dialog for a auto ability that requires CP payment.
-	 * Shows backup cards (1 CP each) and hand cards to discard (2 CP each).
-	 * Calls {@code onConfirm} with total CP paid after dulling backups / discarding cards.
+	 * Shows backup cards (1 CP each) and hand cards to discard (2 CP each), and calls
+	 * {@code onConfirm} with total CP paid after dulling backups / discarding cards.
+	 *
+	 * <p>When {@code crystalAltCost > 0}, also adds a "Pay N Crystal" button that lets the player
+	 * satisfy the whole cost with Crystals instead of assembling CP (disabled when the player holds
+	 * fewer than {@code crystalAltCost} Crystals); pass {@code 0} and a {@code null} {@code onCrystalPaid}
+	 * when there is no Crystal alternative. Exactly one of the callbacks fires when the player commits:
+	 * {@code onConfirm} (with CP paid) for the CP route, or {@code onCrystalPaid} for the Crystal route
+	 * (Crystals already spent). Neither fires on Cancel.
 	 */
 	void showAutoAbilityPaymentDialog(String cardName, int minCp, int maxCp,
-			boolean isP1, java.util.function.IntConsumer onConfirm) {
+			boolean isP1, int crystalAltCost, java.util.function.IntConsumer onConfirm, Runnable onCrystalPaid) {
 		CardData[]     bkpCards  = mw.playerBackupCards(isP1);
 		CardState[]    bkpStates = mw.playerBackupStates(isP1);
 		String[]       bkpUrls  = mw.playerBackupUrls(isP1);
@@ -2450,7 +2457,21 @@ final class AutoAbilityTriggers {
 		});
 
 		JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.CENTER, 12, 6));
-		buttonPanel.add(confirmBtn); buttonPanel.add(cancelBtn);
+		buttonPanel.add(confirmBtn);
+		if (crystalAltCost > 0) {
+			JButton crystalBtn = new JButton("Pay " + crystalAltCost + " Crystal" + (crystalAltCost == 1 ? "" : "s"));
+			crystalBtn.setFont(FontLoader.loadPixelNESFont(11));
+			crystalBtn.setEnabled(mw.playerCrystals(isP1) >= crystalAltCost);
+			crystalBtn.addActionListener(ev -> {
+				dlg.dispose();
+				mw.playerSpendCrystals(isP1, crystalAltCost);
+				mw.refreshCrystalDisplays();
+				mw.logEntry("[AutoAbility] " + cardName + " — paid " + crystalAltCost + " Crystal" + (crystalAltCost == 1 ? "" : "s"));
+				if (onCrystalPaid != null) onCrystalPaid.run();
+			});
+			buttonPanel.add(crystalBtn);
+		}
+		buttonPanel.add(cancelBtn);
 
 		JPanel topPanel = new JPanel(new BorderLayout(0, 4));
 		topPanel.setBorder(BorderFactory.createEmptyBorder(8, 8, 4, 8));
