@@ -3132,6 +3132,19 @@ public class ActionResolver {
         "\\s+and\\s+\".+?\\s+cannot\\s+be\\s+blocked\\.?\"[.!]?"
     );
 
+    /**
+     * Matches "[name] gains [traits] and '[name] cannot be blocked.' until the end of the turn."
+     * — trailing-order sibling of {@link #STANDALONE_GAINS_TRAITS_AND_CANNOT_BE_BLOCKED} (e.g.
+     * Queen's Speedrush: {@code Queen gains Haste and "Queen cannot be blocked" until the end of
+     * the turn.}). Groups: {@code subject} — card name; {@code traits} — keyword list.
+     */
+    private static final Pattern STANDALONE_GAINS_TRAITS_AND_CANNOT_BE_BLOCKED_TRAILING = Pattern.compile(
+        "(?i)(?<subject>.+?)\\s+gains?\\s+" +
+        "(?<traits>(?:Haste|First\\s+Strike|Brave)(?:\\s+and\\s+(?:Haste|First\\s+Strike|Brave))*)" +
+        "\\s+and\\s+\".+?\\s+cannot\\s+be\\s+blocked\\.?\"" +
+        "\\s+until\\s+(?:the\\s+)?end\\s+of\\s+(?:the\\s+)?turn[.!]?"
+    );
+
     /** Matches "Choose 1 card removed from the game. Remove 1 Warp Counter from it." */
     private static final Pattern CHOOSE_WARP_CARD_REMOVE_COUNTER = Pattern.compile(
         "(?i)^Choose\\s+1\\s+card\\s+removed\\s+from\\s+the\\s+game\\.\\s*" +
@@ -4696,6 +4709,9 @@ public class ActionResolver {
         result = tryParseStandaloneGainsTraitsAndCannotBeBlocked(effectText, source);
         if (result != null) return result;
 
+        result = tryParseStandaloneGainsTraitsAndCannotBeBlockedTrailing(effectText, source);
+        if (result != null) return result;
+
         result = tryParseStandaloneGainsCannotBeBlocked(effectText, source);
         if (result != null) return result;
 
@@ -5309,6 +5325,7 @@ public class ActionResolver {
         }
         if (tryParseStandalonePowerBoostAndAttackTrigger(effectText, source) != null) return "StandalonePowerBoostAndAttackTrigger";
         if (tryParseStandaloneGainsTraitsAndCannotBeBlocked(effectText, source) != null) return "StandaloneGainsTraitsAndCannotBeBlocked";
+        if (tryParseStandaloneGainsTraitsAndCannotBeBlockedTrailing(effectText, source) != null) return "StandaloneGainsTraitsAndCannotBeBlockedTrailing";
         if (tryParseStandaloneGainsCannotBeBlocked(effectText, source) != null) return "StandaloneGainsCannotBeBlocked";
         if (tryParseStandalonePowerBoostUntil(effectText, source) != null) return "StandalonePowerBoostUntil";
         if (tryParseStandaloneDoublePowerUntil(effectText, source) != null) return "StandaloneDoublePowerUntil";
@@ -10241,6 +10258,22 @@ public class ActionResolver {
             String text, CardData source) {
         if (source == null) return null;
         Matcher m = STANDALONE_GAINS_TRAITS_AND_CANNOT_BE_BLOCKED.matcher(text);
+        if (!m.find()) return null;
+        String subject = m.group("subject").trim();
+        if (!subject.equalsIgnoreCase(source.name())) return null;
+        EnumSet<CardData.Trait> traits = parseTraits(m.group("traits"));
+        String logSuffix = boostLogSuffix(0, traits) + " and cannot be blocked until end of turn";
+        return ctx -> {
+            ctx.logEntry(source.name() + logSuffix);
+            ctx.boostSourceForward(source, 0, traits);
+            ctx.setSourceForwardCannotBeBlocked(source);
+        };
+    }
+
+    private static Consumer<GameContext> tryParseStandaloneGainsTraitsAndCannotBeBlockedTrailing(
+            String text, CardData source) {
+        if (source == null) return null;
+        Matcher m = STANDALONE_GAINS_TRAITS_AND_CANNOT_BE_BLOCKED_TRAILING.matcher(text);
         if (!m.find()) return null;
         String subject = m.group("subject").trim();
         if (!subject.equalsIgnoreCase(source.name())) return null;

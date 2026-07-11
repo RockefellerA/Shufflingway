@@ -1115,4 +1115,25 @@ public class CardBehaviorTest {
         assertTrue(mw.canActivateAbility(ability, false, CardState.ACTIVE, 0, source, true),
                 "must be usable once a Job AVALANCHE Operative was put from the field into the BZ this turn");
     }
+
+    // =========================================================================================
+    // Queen's Speedrush special ability: "Queen gains Haste and 'Queen cannot be blocked.' until
+    // the end of the turn." — trailing-order sibling of the EOT-prefixed
+    // "Until the end of the turn, [name] gains [traits] and '[name] cannot be blocked.'" pattern.
+    // =========================================================================================
+
+    @Test
+    void queenGainsTraitsAndCannotBeBlockedTrailingParsesAndResolves() {
+        CardData queen = makeForward("Queen", "Lightning", 2, 5000);
+        String effectText = "Queen gains Haste and \"Queen cannot be blocked\" until the end of the turn.";
+
+        Consumer<GameContext> fn = ActionResolver.parse(effectText, queen);
+        assertNotNull(fn, "Expected \"" + effectText + "\" to parse");
+
+        GameContext ctx = mock(GameContext.class);
+        fn.accept(ctx);
+
+        verify(ctx).boostSourceForward(queen, 0, java.util.EnumSet.of(CardData.Trait.HASTE));
+        verify(ctx).setSourceForwardCannotBeBlocked(queen);
+    }
 }
