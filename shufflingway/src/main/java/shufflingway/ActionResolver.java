@@ -346,9 +346,15 @@ public class ActionResolver {
         "(?i)Choose\\s+1\\s+Summon\\s+or\\s+auto-ability\\.\\s+Cancel\\s+its\\s+effect\\.?"
     );
 
-    /** Matches "Choose 1 Summon targeting a Character you control. Cancel its effect." */
+    /**
+     * Matches "Choose 1 Summon targeting/choosing a Character/Forward you control. Cancel its effect."
+     * The zone/type noun ("Character" or "Forward") is captured but not enforced in code — like the
+     * ability-on-stack family, {@link GameContext#cancelFilteredAbilityOnStack}'s
+     * {@code requiresControllerTarget} flag only restricts to Summons whose stored targets include a
+     * card the canceller controls.
+     */
     private static final Pattern CANCEL_SUMMON_TARGETING_MY_CHARACTER = Pattern.compile(
-        "(?i)Choose\\s+1\\s+Summon\\s+targeting\\s+a\\s+Character\\s+you\\s+control\\.\\s+Cancel\\s+its\\s+effect\\.?"
+        "(?i)Choose\\s+1\\s+Summon\\s+(?:targeting|choosing)\\s+an?\\s+(?:Character|Forward)\\s+you\\s+control\\.\\s+Cancel\\s+its\\s+effect\\.?"
     );
 
     /**
@@ -380,6 +386,46 @@ public class ActionResolver {
         "\\.\\s*You\\s+may\\s+choose\\s+another\\s+target\\s+to\\s+become\\s+the\\s+new\\s+target" +
         "(?:\\s*\\([^)]*\\))?" +
         "[.!]?"
+    );
+
+    /**
+     * Matches the "Choose 1 [Summon/ability type(s)] [optional 'opponent's']. If your opponent
+     * doesn't pay 《N》, cancel its effect." family — a conditional cancel gated on an unpaid CP cost
+     * (Dull's active/action-ability cost form). Group {@code opponents} — present when the target
+     * must belong to the opponent (e.g. "opponent's auto-ability"). Group {@code types} — same
+     * vocabulary as {@link #CANCEL_ABILITY_ON_STACK} plus {@code Summon}. Group {@code cost} — the
+     * CP amount that must be paid in full to prevent the cancellation.
+     */
+    private static final Pattern CANCEL_STACK_ENTRY_UNLESS_PAY = Pattern.compile(
+        "(?i)Choose\\s+(?:1\\s+|an?\\s+)?" +
+        "(?<opponents>opponent's\\s+)?" +
+        "(?<types>(?:Summon|auto[- ]ability|action\\s+ability|special\\s+ability|ability)" +
+        "(?:\\s+or\\s+(?:Summon|auto[- ]ability|action\\s+ability|special\\s+ability))?)" +
+        "(?:\\s+that\\s+(?:is\\s+)?choosing\\s+(?<tgtFilter>[^.]+?))?" +
+        "\\.\\s*If\\s+your\\s+opponent\\s+doesn(?:'|’)?t\\s+pay\\s*《\\s*(?<cost>\\d+)\\s*》,?\\s*" +
+        "cancel\\s+its\\s+effect[.!]?"
+    );
+
+    /**
+     * Matches the standalone "If your opponent doesn't pay 《N》, cancel its/their effect(s)." clause
+     * used as the body of a "chosen by opponent's Summons or abilities" auto-ability — the target is
+     * implicit (whatever triggered the reactive ability), so there is no leading "Choose 1..." clause.
+     * Group {@code cost} — the CP amount that must be paid in full to prevent the cancellation.
+     */
+    private static final Pattern CANCEL_CHOSEN_TARGET_UNLESS_PAY = Pattern.compile(
+        "(?i)^If\\s+your\\s+opponent\\s+doesn(?:'|’)?t\\s+pay\\s*《\\s*(?<cost>\\d+)\\s*》,?\\s*" +
+        "cancel\\s+(?:its|their)\\s+effects?[.!]?$"
+    );
+
+    /**
+     * Matches the reversed-clause-order variant of {@link #CANCEL_CHOSEN_TARGET_UNLESS_PAY}: "its/their
+     * effect(s) is/are cancelled if your opponent doesn't pay 《N》." (e.g. White Tiger l'Cie Qun'mi's
+     * "First Strike[[br]] When 1 or more Forwards you control are chosen by your opponent's Summon,
+     * its effect is cancelled if your opponent doesn't pay 《3》.").
+     */
+    private static final Pattern CANCEL_CHOSEN_TARGET_UNLESS_PAY_REVERSED = Pattern.compile(
+        "(?i)^(?:its|their)\\s+effects?\\s+(?:is|are)\\s+cancelled\\s+if\\s+your\\s+opponent\\s+" +
+        "doesn(?:'|’)?t\\s+pay\\s*《\\s*(?<cost>\\d+)\\s*》[.!]?$"
     );
 
     /**
@@ -4616,6 +4662,13 @@ public class ActionResolver {
         result = tryParseChooseAnyNumberReturnToHand(effectText);
         if (result != null) return result;
 
+        // Checked ahead of tryParseChooseCharacter: its "Summons?" target noun would otherwise
+        // match bare "Choose 1 Summon. If your opponent doesn't pay..." text first, and its generic
+        // followup dispatch's unanchored "Cancel its effect" substring match would misfire on the
+        // conditional-pay clause as if it were a plain unconditional cancel.
+        result = tryParseCancelStackEntryUnlessPay(effectText);
+        if (result != null) return result;
+
         result = tryParseChooseCharacter(effectText, source, xValue);
         if (result != null) return result;
 
@@ -4653,6 +4706,9 @@ public class ActionResolver {
         if (result != null) return result;
 
         result = tryParseCancelAbilityOnStack(effectText);
+        if (result != null) return result;
+
+        result = tryParseCancelChosenTargetUnlessPay(effectText);
         if (result != null) return result;
 
         result = tryParseCancelSummonTargetingMyCharacter(effectText);
@@ -5298,6 +5354,7 @@ public class ActionResolver {
         if (tryParseChooseAsManyAsFieldCount(effectText, source)         != null) return "ChooseAsManyAsFieldCount";
         if (tryParseChooseCounterScaleCharsActivate(effectText, 1)    != null) return "ChooseCounterScaleCharsActivate";
         if (tryParseChooseAnyNumberReturnToHand(effectText)    != null) return "ChooseAnyNumberReturnToHand";
+        if (tryParseCancelStackEntryUnlessPay(effectText)      != null) return "CancelStackEntryUnlessPay";
         if (tryParseChooseCharacter(effectText, source, 0)              != null) return "ChooseCharacter";
         if (tryParseIfSelfFwdReceivedDamageDraw(effectText, source)          != null) return "IfSelfFwdReceivedDamageDraw";
         if (tryParseIfRfpCount(effectText, source)               != null) return "IfRfpCount";
@@ -5313,6 +5370,7 @@ public class ActionResolver {
         if (tryParseCancelStackEntry(effectText)               != null) return "CancelSummonOrAutoAbility";
         if (tryParseRedirectAbilityTarget(effectText)          != null) return "RedirectAbilityTarget";
         if (tryParseCancelAbilityOnStack(effectText)           != null) return "CancelAbilityOnStack";
+        if (tryParseCancelChosenTargetUnlessPay(effectText)    != null) return "CancelChosenTargetUnlessPay";
         if (tryParseCancelSummonTargetingMyCharacter(effectText) != null) return "CancelSummonTargetingMyCharacter";
         if (tryParseSelectNumber(effectText, source)          != null) return "SelectNumber";
         if (tryParseDullAllOppFwdsPowerLeSource(effectText, source)        != null) return "DullAllOppFwdsPowerLeSource";
@@ -5779,6 +5837,8 @@ public class ActionResolver {
         if (tryParseCancelStackEntry(effectText)              != null) return "CancelSummonOrAutoAbility";
         if (tryParseRedirectAbilityTarget(effectText)         != null) return "RedirectAbilityTarget";
         if (tryParseCancelAbilityOnStack(effectText)          != null) return "CancelAbilityOnStack";
+        if (tryParseCancelStackEntryUnlessPay(effectText)     != null) return "CancelStackEntryUnlessPay";
+        if (tryParseCancelChosenTargetUnlessPay(effectText)   != null) return "CancelChosenTargetUnlessPay";
         if (tryParseCancelSummonTargetingMyCharacter(effectText) != null) return "CancelSummonTargetingMyCharacter";
         if (tryParseSelectNumber(effectText, source) != null)               return "SelectNumber";
         if (tryParseChooseOppFwdDynCostBreak(effectText)               != null) return "ChooseOppFwdDynCostBreak";
@@ -12346,15 +12406,15 @@ public class ActionResolver {
     }
 
     /**
-     * Parses "Choose 1 Summon targeting a Character you control. Cancel its effect."
+     * Parses "Choose 1 Summon targeting/choosing a Character/Forward you control. Cancel its effect."
      * Only Summons whose pre-selected targets include a card the canceler controls are eligible.
      */
     private static Consumer<GameContext> tryParseCancelSummonTargetingMyCharacter(String text) {
         if (!CANCEL_SUMMON_TARGETING_MY_CHARACTER.matcher(text).find()) return null;
         java.util.function.Predicate<StackEntry> filter = StackEntry::isSummon;
         return ctx -> {
-            ctx.logEntry("Effect: Choose 1 Summon targeting your Character — cancel its effect");
-            ctx.cancelFilteredAbilityOnStack(filter, "Choose 1 Summon targeting your Character to cancel:", true);
+            ctx.logEntry("Effect: Choose 1 Summon choosing your Character — cancel its effect");
+            ctx.cancelFilteredAbilityOnStack(filter, "Choose 1 Summon choosing your Character to cancel:", true);
         };
     }
 
@@ -12390,6 +12450,49 @@ public class ActionResolver {
     }
 
     /**
+     * Parses the "Choose 1 [Summon/ability type(s)] [optional 'opponent's']. If your opponent
+     * doesn't pay 《N》, cancel its effect." family (Dull's active/action-ability cost form). Builds
+     * the target filter the same way as {@link #tryParseCancelAbilityOnStack}, additionally
+     * restricting to the opponent's entries when "opponent's" qualifies the type — composed at
+     * resolution time since the canceller's side is only known once the effect actually runs.
+     */
+    private static Consumer<GameContext> tryParseCancelStackEntryUnlessPay(String text) {
+        Matcher m = CANCEL_STACK_ENTRY_UNLESS_PAY.matcher(text.trim());
+        if (!m.find()) return null;
+        String types = m.group("types").trim();
+        boolean opponentsOnly = m.group("opponents") != null;
+        int cost = Integer.parseInt(m.group("cost"));
+        java.util.function.Predicate<StackEntry> baseFilter = parseAbilityTypeFilter(types);
+        String prompt = "Choose 1 " + (opponentsOnly ? "opponent's " : "") + types + " to threaten:";
+        return ctx -> {
+            java.util.function.Predicate<StackEntry> filter = opponentsOnly
+                    ? baseFilter.and(e -> e.isP1() != ctx.isP1())
+                    : baseFilter;
+            ctx.logEntry("Effect: Choose 1 " + types + " — cancel unless opponent pays 《" + cost + "》");
+            ctx.cancelFilteredAbilityOnStackUnlessOpponentPays(filter, prompt, cost);
+        };
+    }
+
+    /**
+     * Parses the standalone "If your opponent doesn't pay 《N》, cancel its/their effect(s)." body of
+     * a "chosen by opponent's Summons or abilities" auto-ability. The target is implicit — whatever
+     * Summon/ability just triggered this reaction — so it just vetoes that in-progress selection.
+     */
+    private static Consumer<GameContext> tryParseCancelChosenTargetUnlessPay(String text) {
+        String trimmed = text.trim();
+        Matcher m = CANCEL_CHOSEN_TARGET_UNLESS_PAY.matcher(trimmed);
+        if (!m.find()) {
+            m = CANCEL_CHOSEN_TARGET_UNLESS_PAY_REVERSED.matcher(trimmed);
+            if (!m.find()) return null;
+        }
+        int cost = Integer.parseInt(m.group("cost"));
+        return ctx -> {
+            ctx.logEntry("Effect: cancel unless opponent pays 《" + cost + "》");
+            ctx.vetoChosenSelectionUnlessOpponentPays(cost);
+        };
+    }
+
+    /**
      * Parses "Choose 1 [ability type(s)] [optional 'that has only one target']. You may choose
      * another target to become the new target (...)."
      */
@@ -12413,16 +12516,19 @@ public class ActionResolver {
      *   <li>"action ability" → action abilities (regular and special)</li>
      *   <li>"special ability" → special (named) action abilities only</li>
      *   <li>"ability" → any non-summon, non-EX-burst entry</li>
+     *   <li>"summon" → Summons only</li>
      *   <li>Two types joined by " or " → union of the two individual predicates</li>
      * </ul>
      */
     private static java.util.function.Predicate<StackEntry> parseAbilityTypeFilter(String types) {
         String t = types.trim().toLowerCase(java.util.Locale.ROOT);
         if (t.equals("ability")) return e -> !e.isSummon() && !e.isExBurstEntry();
+        boolean wantsSummon  = t.contains("summon");
         boolean wantsAuto    = t.contains("auto");
         boolean wantsSpecial = t.contains("special");
         boolean wantsAction  = t.contains("action");
-        return e -> (wantsAuto    && e.isAutoAbility())
+        return e -> (wantsSummon  && e.isSummon())
+                 || (wantsAuto    && e.isAutoAbility())
                  || (wantsSpecial && e.isSpecialAbility())
                  || (wantsAction  && e.isActionAbility());
     }

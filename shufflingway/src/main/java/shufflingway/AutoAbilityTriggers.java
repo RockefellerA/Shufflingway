@@ -1177,6 +1177,16 @@ final class AutoAbilityTriggers {
 		triggerAutoAbilitiesForEvent("chosen by opponent's summon", chosenSideIsP1);
 	}
 
+	/**
+	 * Fires "chosen by opponent's summon or ability" field abilities for all field cards belonging
+	 * to {@code chosenSideIsP1}'s side — called when that player's Character was selected as a
+	 * target by the opponent's Summon *or* action/auto-ability (broader than
+	 * {@link #triggerAutoAbilitiesForChosenByOpponentSummon}, which only covers Summons).
+	 */
+	void triggerAutoAbilitiesForChosenByOpponentSummonOrAbility(boolean chosenSideIsP1) {
+		triggerAutoAbilitiesForEvent("chosen by opponent's summon or ability", chosenSideIsP1);
+	}
+
 	/** Fires "damage zone" field abilities for all field cards belonging to the player who took damage. */
 	void triggerAutoAbilitiesForDamageZone(boolean isP1) {
 		triggerAutoAbilitiesForEvent("damage zone", isP1);

@@ -173,6 +173,23 @@ public interface GameContext {
     void cancelFilteredAbilityOnStack(java.util.function.Predicate<StackEntry> filter, String prompt, boolean requiresControllerTarget);
 
     /**
+     * Filters the stack to entries matching {@code filter} and presents a selection dialog the same
+     * way as {@link #cancelFilteredAbilityOnStack}, but the chosen entry is only cancelled if the
+     * canceller's opponent declines (or is unable) to pay the full {@code cost} in CP. The payment
+     * is pay-in-full-or-decline — there is no partial payment that still averts the cancellation.
+     */
+    void cancelFilteredAbilityOnStackUnlessOpponentPays(java.util.function.Predicate<StackEntry> filter, String prompt, int cost);
+
+    /**
+     * Body of a "chosen by opponent's Summons or abilities" auto-ability: gates the *implicit*
+     * target — whatever Summon/ability just triggered this reaction, currently mid-selection of a
+     * Character this context's controller owns — behind a pay-in-full-or-decline CP tax. If the
+     * opponent declines (or is unable) to pay the full {@code cost}, the in-progress selection is
+     * vetoed so the triggering Summon/ability ends up choosing nothing.
+     */
+    void vetoChosenSelectionUnlessOpponentPays(int cost);
+
+    /**
      * Loads {@code targets} as the pre-selected targets for the ability about to be resolved.
      * Called by {@link MainWindow} just before running the resolution lambda, so that
      * {@link ActionResolver}'s {@code selectTargets} can return them without showing a dialog.

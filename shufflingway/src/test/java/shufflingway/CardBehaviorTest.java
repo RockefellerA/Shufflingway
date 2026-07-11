@@ -1136,4 +1136,140 @@ public class CardBehaviorTest {
         verify(ctx).boostSourceForward(queen, 0, java.util.EnumSet.of(CardData.Trait.HASTE));
         verify(ctx).setSourceForwardCannotBeBlocked(queen);
     }
+
+    // =========================================================================================
+    // "Cancel unless opponent pays" (Dull-style) — Tier 1: "Choose 1 [Summon/ability]. If your
+    // opponent doesn't pay 《N》, cancel its effect." and Tier 2: the standalone body of a
+    // "chosen by opponent's Summons or abilities" auto-ability.
+    // =========================================================================================
+
+    @Test
+    void cancelSummonChoosingMyForwardParsesAndDelegatesToGameContext() {
+        // "choosing a Forward you control" variant of the existing "targeting a Character you control" pattern.
+        Consumer<GameContext> fn = ActionResolver.parse(
+                "Choose 1 Summon choosing a Forward you control. Cancel its effect.", null);
+        assertNotNull(fn);
+
+        GameContext ctx = mock(GameContext.class);
+        fn.accept(ctx);
+        verify(ctx).cancelFilteredAbilityOnStack(any(), any(), eq(true));
+    }
+
+    @Test
+    void cancelSummonTargetingMyCharacterStillParses() {
+        // Regression guard: the original wording must keep working after broadening the pattern.
+        Consumer<GameContext> fn = ActionResolver.parse(
+                "Choose 1 Summon targeting a Character you control. Cancel its effect.", null);
+        assertNotNull(fn);
+
+        GameContext ctx = mock(GameContext.class);
+        fn.accept(ctx);
+        verify(ctx).cancelFilteredAbilityOnStack(any(), any(), eq(true));
+    }
+
+    @Test
+    void cancelUnlessPaySummonParsesAndDelegatesToGameContext() {
+        Consumer<GameContext> fn = ActionResolver.parse(
+                "Choose 1 Summon. If your opponent doesn't pay 《2》, cancel its effect.", null);
+        assertNotNull(fn);
+
+        GameContext ctx = mock(GameContext.class);
+        fn.accept(ctx);
+        verify(ctx).cancelFilteredAbilityOnStackUnlessOpponentPays(any(), any(), eq(2));
+    }
+
+    @Test
+    void cancelUnlessPayOpponentsAutoAbilityParses() {
+        Consumer<GameContext> fn = ActionResolver.parse(
+                "Choose 1 opponent's auto-ability. If your opponent doesn't pay 《2》, cancel its effect.", null);
+        assertNotNull(fn);
+
+        GameContext ctx = mock(GameContext.class);
+        fn.accept(ctx);
+        verify(ctx).cancelFilteredAbilityOnStackUnlessOpponentPays(any(), any(), eq(2));
+    }
+
+    @Test
+    void cancelUnlessPayOpponentsAutoAbilityParsesWithIndefiniteArticle() {
+        // Qun'mi/Vanille-style variants use "Choose an opponent's..." instead of "Choose 1 opponent's...".
+        Consumer<GameContext> fn = ActionResolver.parse(
+                "Choose an opponent's auto-ability. If your opponent doesn't pay 《2》, cancel its effect.", null);
+        assertNotNull(fn);
+    }
+
+    @Test
+    void cancelUnlessPaySummonOrAutoAbilityParsesInsideSelectFollowingActions() {
+        String text = "Select 1 of the 3 following actions. "
+                + "\"Choose up to 2 Forwards. Dull them.\" "
+                + "\"Choose 1 Character. Freeze it.\" "
+                + "\"Choose 1 Summon or auto-ability. If your opponent doesn't pay 《1》, cancel its effect.\"";
+        Consumer<GameContext> fn = ActionResolver.parse(text, null);
+        assertNotNull(fn, "Expected the select-list wrapper to parse");
+
+        GameContext ctx = mock(GameContext.class);
+        when(ctx.chooseActions(any(), any(), anyInt(), anyBoolean())).thenReturn(
+                List.of("Choose 1 Summon or auto-ability. If your opponent doesn't pay 《1》, cancel its effect."));
+        fn.accept(ctx);
+
+        verify(ctx).cancelFilteredAbilityOnStackUnlessOpponentPays(any(), any(), eq(1));
+    }
+
+    @Test
+    void cancelChosenTargetUnlessPayParsesStandaloneAndDelegatesToGameContext() {
+        Consumer<GameContext> fn = ActionResolver.parse(
+                "If your opponent doesn't pay 《2》, cancel their effects.", null);
+        assertNotNull(fn);
+
+        GameContext ctx = mock(GameContext.class);
+        fn.accept(ctx);
+        verify(ctx).vetoChosenSelectionUnlessOpponentPays(2);
+    }
+
+    @Test
+    void cancelChosenTargetUnlessPayParsesReversedClauseOrder() {
+        // White Tiger l'Cie Qun'mi's real card text: "its effect is cancelled if your opponent
+        // doesn't pay 《N》." instead of "if your opponent doesn't pay 《N》, cancel its effect."
+        Consumer<GameContext> fn = ActionResolver.parse(
+                "its effect is cancelled if your opponent doesn't pay 《3》.", null);
+        assertNotNull(fn);
+
+        GameContext ctx = mock(GameContext.class);
+        fn.accept(ctx);
+        verify(ctx).vetoChosenSelectionUnlessOpponentPays(3);
+    }
+
+    @Test
+    void chosenByOpponentSummonOrAbilityTriggerIsExtractedAsDistinctAutoAbility() {
+        // Real Cecil text: plural subject ("are chosen") and the "or abilities" suffix previously
+        // fell outside AUTO_ABILITY_PATTERN's trigger vocabulary entirely, so this clause was
+        // silently dropped rather than merely failing to parse.
+        String text = "When Cecil enters the field, draw 1 card.[[br]]"
+                + "When 1 or more Characters you control are chosen by your opponent's Summons or abilities, "
+                + "if your opponent doesn't pay 《2》, cancel their effects.";
+        List<AutoAbility> abilities = CardData.parseAutoAbilities(text);
+
+        AutoAbility chosenFa = abilities.stream()
+                .filter(fa -> fa.trigger().equals("chosen by opponent's summon or ability"))
+                .findFirst().orElse(null);
+        assertNotNull(chosenFa, "Expected a distinct AutoAbility for the chosen-by trigger");
+        assertEquals("if your opponent doesn't pay 《2》, cancel their effects.", chosenFa.effectText());
+
+        Consumer<GameContext> fn = ActionResolver.parse(chosenFa.effectText(), null);
+        assertNotNull(fn);
+    }
+
+    @Test
+    void chosenByOpponentSummonOnlyTriggerStaysNarrowWhenAbilitiesNotMentioned() {
+        // Existing cards that only say "...Summons" (no "or abilities") must keep the narrow
+        // trigger key so they don't start reacting to ability-driven targeting too.
+        String text = "First Strike[[br]] When 1 or more Forwards you control are chosen by "
+                + "your opponent's Summon, its effect is cancelled if your opponent doesn't pay 《3》.";
+        List<AutoAbility> abilities = CardData.parseAutoAbilities(text);
+
+        AutoAbility chosenFa = abilities.stream()
+                .filter(fa -> fa.trigger().startsWith("chosen by opponent's summon"))
+                .findFirst().orElse(null);
+        assertNotNull(chosenFa, "Expected a distinct AutoAbility for the chosen-by trigger");
+        assertEquals("chosen by opponent's summon", chosenFa.trigger());
+    }
 }

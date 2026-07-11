@@ -1551,7 +1551,7 @@ public record CardData(
             "|deals?\\s+damage\\s+to\\s+your\\s+opponent" +
             "|deals?\\s+damage\\s+to\\s+a\\s+Forward" +
             "|receives?\\s+a\\s+point\\s+of\\s+damage" +
-            "|is\\s+chosen\\s+by\\s+your\\s+opponent's\\s+Summons?" +
+            "|(?:is|are)\\s+chosen\\s+by\\s+your\\s+opponent's\\s+Summons?(?:\\s+or\\s+abilit(?:y|ies))?" +
             "|uses?\\s+an\\s+EX\\s+Burst" +
             "|becomes?\\s+dull" +
         ")\\s*,\\s+" +
@@ -1892,6 +1892,7 @@ public record CardData(
             else if (triggerRaw.contains("block") && triggerRaw.contains("is blocked"))                    trigger = "blocks or is blocked";
             else if (triggerRaw.contains("block"))                                                          trigger = "blocks";
             else if (triggerRaw.contains("break zone"))                                                     trigger = "put into break zone";
+            else if (triggerRaw.contains("chosen") && triggerRaw.contains("abilit"))                        trigger = "chosen by opponent's summon or ability";
             else if (triggerRaw.contains("chosen"))                                                         trigger = "chosen by opponent's summon";
             else if (triggerRaw.contains("summon"))                                                         trigger = "cast summon";
             else if (triggerRaw.contains("damage zone"))                                                    trigger = "damage zone";

@@ -589,6 +589,13 @@ public class MainWindow {
 	boolean pendingSummonReturnToHand = false;
 	/** Stack entries whose effect has been cancelled by Y'shtola or similar; checked and consumed at resolution. */
 	final Set<StackEntry> cancelledStackEntries = Collections.newSetFromMap(new IdentityHashMap<>());
+	/**
+	 * One-shot flag set by {@code GameContextImpl.vetoChosenSelectionUnlessOpponentPays} when a
+	 * "chosen by opponent's summon or ability" auto-ability's Dull-style CP tax goes unpaid; read
+	 * immediately afterward by {@code GameContextImpl.selectCharacters} to empty out the selection
+	 * it's about to return, so the outer Summon/ability effect sees no targets.
+	 */
+	boolean lastChosenSelectionVetoed = false;
 	/** True while {@link #resolveTopOfStack} or EX Burst execution is running; suppresses {@link #showStackWindowIfNeeded}. */
 	private boolean isResolvingStack      = false;
 	/** True while P1 has clicked "Respond" in the stack window and not yet cast or passed. */
@@ -1341,6 +1348,7 @@ public class MainWindow {
 		pendingSummonReturnToHand = false;
 		currentSummonSource      = null;
 		currentAbilitySource     = null;
+		lastChosenSelectionVetoed = false;
 		suppressAutoAbilityForNextCard = false;
 		// Per-game callback/priority state.
 		p1PriorityInP2MainOnDone = null;

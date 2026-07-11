@@ -894,18 +894,37 @@ final class GameContextImpl implements GameContext {
 						};
 						logEntry("[AI] chose " + c.name());
 					});
-					if (mw.currentResolutionIsSummon)
-						for (ForwardTarget t : picked)
-							if (t.zone() == ForwardTarget.CardZone.FORWARD && t.isP1() != isP1)
-								mw.autoAbilityTriggers.triggerAutoAbilitiesForChosenByOpponentSummon(t.isP1());
-					return picked;
+					return fireChosenByOpponentTriggers(picked);
 				}
 				List<ForwardTarget> chosen = mw.showForwardSelectDialog(eligible, maxCount, upTo, title);
-				if (mw.currentResolutionIsSummon)
-					for (ForwardTarget t : chosen)
-						if (t.zone() == ForwardTarget.CardZone.FORWARD && t.isP1() != isP1)
-							mw.autoAbilityTriggers.triggerAutoAbilitiesForChosenByOpponentSummon(t.isP1());
-				return chosen;
+				return fireChosenByOpponentTriggers(chosen);
+			}
+
+			/**
+			 * Fires the "chosen by opponent's summon" (Summon-only, Forward-only — unchanged scope)
+			 * and "chosen by opponent's summon or ability" (Summon or ability, any zone) triggers for
+			 * whichever of {@code selected}'s cards belong to this context's opponent, then returns
+			 * {@code selected} unchanged — unless the broad trigger vetoes the selection (opponent
+			 * declined to pay a Dull-style CP tax), in which case an empty list is returned so the
+			 * calling effect sees no targets at all and no-ops, per its usual "nothing eligible"
+			 * handling.
+			 */
+			private List<ForwardTarget> fireChosenByOpponentTriggers(List<ForwardTarget> selected) {
+				boolean anyOppForwardChosen = selected.stream()
+						.anyMatch(t -> t.zone() == ForwardTarget.CardZone.FORWARD && t.isP1() != isP1);
+				boolean anyOppCharacterChosen = selected.stream()
+						.anyMatch(t -> t.isP1() != isP1);
+				if (mw.currentResolutionIsSummon && anyOppForwardChosen)
+					mw.autoAbilityTriggers.triggerAutoAbilitiesForChosenByOpponentSummon(!isP1);
+				if (anyOppCharacterChosen) {
+					mw.lastChosenSelectionVetoed = false;
+					mw.autoAbilityTriggers.triggerAutoAbilitiesForChosenByOpponentSummonOrAbility(!isP1);
+					if (mw.lastChosenSelectionVetoed) {
+						logEntry("Selection cancelled — opponent declined to pay");
+						return List.of();
+					}
+				}
+				return selected;
 			}
 
 			@Override public void dullP1Forward(int idx) {
@@ -1450,6 +1469,61 @@ final class GameContextImpl implements GameContext {
 				String type = chosen.isSummon() ? "Summon" : chosen.isAutoAbility() ? "auto-ability"
 						: chosen.isSpecialAbility() ? "special ability" : "action ability";
 				logEntry("Effect: " + chosen.source().name() + "'s " + type + " effect will be cancelled");
+			}
+
+			@Override public void cancelFilteredAbilityOnStackUnlessOpponentPays(java.util.function.Predicate<StackEntry> filter, String prompt, int cost) {
+				List<StackEntry> targets = mw.gameState.getStack().stream()
+						.filter(filter)
+						.collect(java.util.stream.Collectors.toList());
+				if (targets.isEmpty()) {
+					logEntry("No matching abilities on the stack to threaten");
+					return;
+				}
+				StackEntry chosen;
+				if (targets.size() == 1) {
+					chosen = targets.get(0);
+				} else if (isP1) {
+					String[] options = new String[targets.size()];
+					for (int i = 0; i < targets.size(); i++) {
+						StackEntry e = targets.get(i);
+						String type = e.isSummon() ? "Summon" : e.isAutoAbility() ? "Auto" : e.isSpecialAbility() ? "Special" : "Action";
+						options[i] = e.source().name() + " (" + type + ", " + (e.isP1() ? "P1" : "P2") + ")";
+					}
+					Object sel = JOptionPane.showInputDialog(mw.frame,
+							prompt, "Cancel Effect", JOptionPane.PLAIN_MESSAGE, null, options, options[0]);
+					if (sel == null) return;
+					int idx = java.util.Arrays.asList(options).indexOf(sel.toString());
+					if (idx < 0) return;
+					chosen = targets.get(idx);
+				} else {
+					chosen = targets.stream().filter(e -> e.isP1())
+							.reduce((a, b) -> b).orElse(targets.get(targets.size() - 1));
+					logEntry("[AI] Chose to threaten: " + chosen.source().name());
+				}
+				String type = chosen.isSummon() ? "Summon" : chosen.isAutoAbility() ? "auto-ability"
+						: chosen.isSpecialAbility() ? "special ability" : "action ability";
+				int[] paidHolder = {-1};
+				String label = chosen.source().name() + " — pay 《" + cost + "》 or its effect is cancelled";
+				mw.autoAbilityTriggers.showAutoAbilityPaymentDialog(label, cost, cost, !isP1, paid -> paidHolder[0] = paid);
+				if (paidHolder[0] < cost) {
+					mw.cancelledStackEntries.add(chosen);
+					logEntry("Effect: opponent declined to pay 《" + cost + "》 — " + chosen.source().name() + "'s " + type + " effect will be cancelled");
+				} else {
+					logEntry("Effect: opponent paid 《" + cost + "》 — " + chosen.source().name() + "'s " + type + " effect proceeds");
+				}
+			}
+
+			@Override public void vetoChosenSelectionUnlessOpponentPays(int cost) {
+				String src = mw.currentAbilitySource != null ? mw.currentAbilitySource.name() : "Ability";
+				String label = src + " — pay 《" + cost + "》 or the effect choosing your Character(s) is cancelled";
+				int[] paidHolder = {-1};
+				mw.autoAbilityTriggers.showAutoAbilityPaymentDialog(label, cost, cost, !isP1, paid -> paidHolder[0] = paid);
+				if (paidHolder[0] < cost) {
+					mw.lastChosenSelectionVetoed = true;
+					logEntry("Effect: opponent declined to pay 《" + cost + "》 — selection cancelled");
+				} else {
+					logEntry("Effect: opponent paid 《" + cost + "》 — selection proceeds");
+				}
 			}
 
 			@Override public void redirectAbilityTarget(java.util.function.Predicate<StackEntry> filter, String prompt) {
