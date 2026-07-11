@@ -8472,6 +8472,7 @@ public class MainWindow {
 		if (ability.requiresSelfReceivedDamageThisTurn())           { if (!firstRestrict) restrict.append(", "); restrict.append("self rcvd dmg"); firstRestrict = false; }
 		if (ability.requiresForwardPutToBZThisTurn())               { if (!firstRestrict) restrict.append(", "); restrict.append("own fwd to BZ"); firstRestrict = false; }
 		if (ability.requiresJobPutToBZThisTurn() != null)           { if (!firstRestrict) restrict.append(", "); restrict.append("own Job ").append(ability.requiresJobPutToBZThisTurn()).append(" to BZ"); firstRestrict = false; }
+		if (ability.requiresJobPutToBZThisTurn() != null)           { if (!firstRestrict) restrict.append(", "); restrict.append("own Job ").append(ability.requiresJobPutToBZThisTurn()).append(" to BZ"); firstRestrict = false; }
 		if (ability.blockerForAttacker() != null)                   { if (!firstRestrict) restrict.append(", "); restrict.append("blks ").append(ability.blockerForAttacker()); firstRestrict = false; }
 		if (ability.requiresOwnWarpCard())                         { if (!firstRestrict) restrict.append(", "); restrict.append("needs Warp card");  firstRestrict = false; }
 		if (restrict.length() > 0) sb.append(restrict).append(" — ");
