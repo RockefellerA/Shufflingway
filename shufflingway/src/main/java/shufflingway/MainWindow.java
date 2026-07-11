@@ -549,6 +549,8 @@ public class MainWindow {
 	final Map<CardData, String> nullifyElementDamageMap = new HashMap<>();
 	/** Maps a card to an element: damage dealt to that card by abilities (not Summons) of that element becomes 0 this turn. */
 	final Map<CardData, String> nullifyElementDamageAbilityOnlyMap = new HashMap<>();
+	/** Cards marked (by a targeted ability) to be removed from the game instead of put into the Break Zone, if that happens from the field this turn. */
+	final Set<CardData> rfgInsteadOfBzThisTurn = new HashSet<>();
 	/** Maps a card to a permanent element override (Kam'lanaut ability); persists across turns. */
 	final Map<CardData, String> elementOverrideMap      = new HashMap<>();
 	/** Maps a card to a permanently-granted extra job (e.g. Bartz ability); persists across turns. */
@@ -2121,7 +2123,7 @@ public class MainWindow {
                                 perCardIncomingDmgMultiplierMap.clear();
                                 p1ForwardIncomingDmgMult = 1;      p2ForwardIncomingDmgMult = 1;
                                 p1AbilityOutgoingDmgMult = 1;      p2AbilityOutgoingDmgMult = 1;
-                                cannotBeChosenBySummons.clear();  cannotBeChosenByAbilities.clear();  cannotBeChosenBySummonsAnyone.clear();  cannotBeChosenByElement.clear();  nullifyElementDamageMap.clear();  nullifyElementDamageAbilityOnlyMap.clear();
+                                cannotBeChosenBySummons.clear();  cannotBeChosenByAbilities.clear();  cannotBeChosenBySummonsAnyone.clear();  cannotBeChosenByElement.clear();  nullifyElementDamageMap.clear();  nullifyElementDamageAbilityOnlyMap.clear();  rfgInsteadOfBzThisTurn.clear();
                                 breaktouchBattleSet.clear();
                                 p1NonLethalProtection = false;    p2NonLethalProtection = false;
                                 p1DmgReductionDisabled = false;   p2DmgReductionDisabled = false;
@@ -5431,6 +5433,16 @@ public class MainWindow {
 		}
 
 		if (fromField) {
+			// Targeted marker: "If it is put from the field into the Break Zone this turn, remove it
+			// from the game instead." (e.g. Jet Bahamut) — set on this specific card instance by an
+			// action ability, independent of any player's field abilities.
+			if (rfgInsteadOfBzThisTurn.remove(card)) {
+				gameState.addToPermanentRfp(card);
+				logEntry((player1 ? "" : "[P2] ") + card.name() + " → Removed From Game instead of Break Zone (marked this turn)");
+				if (player1) refreshP1WarpZoneUI(); else refreshP2WarpZoneUI();
+				return;
+			}
+
 			// FA3: "If a damaged Forward opponent controls is put from the field into the Break Zone, remove it from the game instead."
 			if (card.isForward() && getCardFieldDamage(card) > 0
 					&& playerHasBzToRfgOppDamagedForwardFromField(!player1)) {

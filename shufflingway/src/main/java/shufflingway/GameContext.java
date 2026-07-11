@@ -761,6 +761,13 @@ public interface GameContext {
      */
     void shieldCannotBeBrokenByNonDmg(ForwardTarget t);
 
+    /**
+     * Marks the Forward at {@code t} so that, if it is put from the field into the Break Zone at
+     * any point this turn (by any effect — battle, another ability, etc.), it is removed from the
+     * game instead. Cleared at end of turn if not triggered.
+     */
+    void markTargetRfgInsteadOfBzThisTurn(ForwardTarget t);
+
     /** Finds {@code source} on the field by name and dulls it. No-op if not found. */
     void dullSourceForward(CardData source);
 
@@ -2042,6 +2049,14 @@ public interface GameContext {
      * Auto-chooses if only 1 card is present; no-ops if the zone is empty.
      */
     void chooseAndRemoveWarpCounter();
+
+    /**
+     * Like {@link #chooseAndRemoveWarpCounter()}, but the removal itself is optional: after the
+     * card is chosen, the active player is asked "You may remove 1 Warp Counter from it." and the
+     * counter is only decremented (and the "warp counter removed" trigger only fires) if accepted.
+     * No-ops if the Warp zone is empty.
+     */
+    void chooseAndMayRemoveWarpCounter();
 
     /**
      * Shows a modal dialog listing every distinct Job name in the card database and returns

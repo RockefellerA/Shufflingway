@@ -197,6 +197,42 @@ final class GameContextImpl implements GameContext {
 				if (isP1) mw.refreshP1WarpZoneUI(); else mw.refreshP2WarpZoneUI();
 			}
 
+			@Override public void chooseAndMayRemoveWarpCounter() {
+				String p = isP1 ? "" : "[P2] ";
+				List<GameState.WarpEntry> zone = isP1
+						? mw.gameState.getP1WarpZone() : mw.gameState.getP2WarpZone();
+				if (zone.isEmpty()) { logEntry(p + "Warp zone is empty — no target."); return; }
+				GameState.WarpEntry chosen;
+				if (zone.size() == 1) {
+					chosen = zone.get(0);
+				} else if (!isP1) {
+					chosen = zone.get(0); // P2 AI: pick first
+				} else {
+					List<CardData> cards = new java.util.ArrayList<>();
+					for (GameState.WarpEntry e : zone) cards.add(e.card);
+					int idx = mw.showCardImageChooser(cards, "Choose 1 card — Remove Warp Counter", false);
+					if (idx < 0) return;
+					chosen = zone.get(idx);
+				}
+				if (!promptYouMay("Remove 1 Warp Counter from \"" + chosen.card.name() + "\" ("
+						+ chosen.counters + " → " + (chosen.counters - 1) + ")?")) {
+					logEntry(p + "Declined to remove Warp Counter from \"" + chosen.card.name() + "\"");
+					return;
+				}
+				logEntry(p + "Remove Warp Counter from \"" + chosen.card.name()
+						+ "\" (" + chosen.counters + " → " + (chosen.counters - 1) + ")");
+				boolean willResolve = chosen.counters - 1 <= 0;
+				if (willResolve) {
+					mw.gameState.pushStack(StackEntry.forWarpResolve(chosen.card, isP1));
+				}
+				mw.autoAbilityTriggers.triggerAutoAbilitiesForWarpCounterRemoved(chosen.card, isP1);
+				mw.gameState.removeOneWarpCounterFrom(chosen.card, isP1);
+				if (willResolve) {
+					if (isP1) mw.refreshP1BreakLabel(); else mw.refreshP2BreakLabel();
+				}
+				if (isP1) mw.refreshP1WarpZoneUI(); else mw.refreshP2WarpZoneUI();
+			}
+
 			@Override public void doubleOpponentForwardIncomingDamage() {
 				if (isP1) {
 					mw.p2ForwardIncomingDmgMult *= 2;
@@ -340,6 +376,15 @@ final class GameContextImpl implements GameContext {
 						: mw.p2ForwardTempTraits.get(t.idx());
 				tempTraits.add(CardData.Trait.CANNOT_BE_BROKEN_BY_NON_DMG);
 				logEntry((t.isP1() ? "" : "[P2] ") + c.name() + " cannot be broken by opposing non-damage Summons or abilities until end of turn");
+			}
+
+			@Override public void markTargetRfgInsteadOfBzThisTurn(ForwardTarget t) {
+				if (t.zone() != ForwardTarget.CardZone.FORWARD) return;
+				CardData c = mw.autoAbilityTriggers.fieldCardData(t);
+				if (c == null) return;
+				mw.rfgInsteadOfBzThisTurn.add(c);
+				logEntry((t.isP1() ? "" : "[P2] ") + c.name()
+						+ " — if put from the field into the Break Zone this turn, removed from the game instead");
 			}
 
 			@Override public void dullSourceForward(CardData source) {

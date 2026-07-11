@@ -1365,6 +1365,19 @@ public class ActionResolver {
     );
 
     /**
+     * Shared boundary lookahead for the "global" (card-less) phase-trigger patterns' {@code inner}
+     * capture group below — stops before the next "[[br]]" marker, the next "When ..." trigger
+     * sentence, or a cost-token action-ability header (or end of string). Mirrors the boundary
+     * already used by {@code CardData.AUTO_ABILITY_PATTERN} and {@code CardData.WARP_COUNTER_PATTERN}
+     * so a multi-ability card text (e.g. "At the beginning of your Main Phase 1, X.[[br]]   When Y,
+     * Z.") doesn't have its first inner effect swallow the second ability's text too.
+     */
+    private static final String GLOBAL_TRIGGER_INNER_BOUNDARY =
+        "(?=\\s*\\[\\[br\\]\\]|\\s*When\\s+[^,]+?\\s+(?:forms?\\s+a\\s+party\\s+and\\s+attacks?" +
+        "|attacks?|blocks?|enters?|leaves?|is\\s+(?:put|removed|blocked)|deals?|uses?|becomes?)" +
+        "|\\s*(?:《[^》]+》)+\\s*:|\\s*$)";
+
+    /**
      * Matches "At the end of each of your turns, &lt;inner&gt;" — a recurring end-of-turn
      * field-ability trigger.
      * <ul>
@@ -1372,12 +1385,16 @@ public class ActionResolver {
      * </ul>
      */
     static final Pattern AT_END_OF_EACH_TURN_PATTERN = Pattern.compile(
-        "(?i)At\\s+the\\s+end\\s+of\\s+each\\s+of\\s+your\\s+turns?\\s*,\\s+(?<inner>.+)"
+        "(?i)At\\s+the\\s+end\\s+of\\s+each\\s+of\\s+your\\s+turns?\\s*,\\s+" +
+        "(?<inner>.+?)\\s*" + GLOBAL_TRIGGER_INNER_BOUNDARY,
+        Pattern.DOTALL
     );
 
     /** Matches "At the end of each player's turn, &lt;inner&gt;" — fires at both players' end phase. */
     static final Pattern AT_END_OF_EACH_PLAYERS_TURN_PATTERN = Pattern.compile(
-        "(?i)At\\s+the\\s+end\\s+of\\s+each\\s+player'?s\\s+turn,\\s+(?<inner>.+)"
+        "(?i)At\\s+the\\s+end\\s+of\\s+each\\s+player'?s\\s+turn,\\s+" +
+        "(?<inner>.+?)\\s*" + GLOBAL_TRIGGER_INNER_BOUNDARY,
+        Pattern.DOTALL
     );
 
     /**
@@ -1408,12 +1425,16 @@ public class ActionResolver {
      * the full {@link #parse} chain so any supported effect can follow the trigger.
      */
     static final Pattern AT_BEGINNING_OF_MAIN_PHASE_1_PATTERN = Pattern.compile(
-        "(?i)At\\s+the\\s+beginning\\s+of\\s+your\\s+Main\\s+Phase\\s+1\\b[^,]*,\\s+(?<inner>.+)"
+        "(?i)At\\s+the\\s+beginning\\s+of\\s+your\\s+Main\\s+Phase\\s+1\\b[^,]*,\\s+" +
+        "(?<inner>.+?)\\s*" + GLOBAL_TRIGGER_INNER_BOUNDARY,
+        Pattern.DOTALL
     );
 
     /** Same as {@link #AT_BEGINNING_OF_MAIN_PHASE_1_PATTERN} but for Main Phase 2. */
     static final Pattern AT_BEGINNING_OF_MAIN_PHASE_2_PATTERN = Pattern.compile(
-        "(?i)At\\s+the\\s+beginning\\s+of\\s+your\\s+Main\\s+Phase\\s+2\\b[^,]*,\\s+(?<inner>.+)"
+        "(?i)At\\s+the\\s+beginning\\s+of\\s+your\\s+Main\\s+Phase\\s+2\\b[^,]*,\\s+" +
+        "(?<inner>.+?)\\s*" + GLOBAL_TRIGGER_INNER_BOUNDARY,
+        Pattern.DOTALL
     );
 
     /**
@@ -1421,7 +1442,9 @@ public class ActionResolver {
      * Group {@code inner} — the conditional effect to evaluate.
      */
     static final Pattern AT_BEGINNING_OF_MAIN_PHASE_1_EACH_TURN_PATTERN = Pattern.compile(
-        "(?i)Each\\s+turn,?\\s+at\\s+the\\s+beginning\\s+of\\s+Main\\s+Phase\\s+1,\\s+(?<inner>.+)"
+        "(?i)Each\\s+turn,?\\s+at\\s+the\\s+beginning\\s+of\\s+Main\\s+Phase\\s+1,\\s+" +
+        "(?<inner>.+?)\\s*" + GLOBAL_TRIGGER_INNER_BOUNDARY,
+        Pattern.DOTALL
     );
 
     /**
@@ -1430,7 +1453,9 @@ public class ActionResolver {
      * Group {@code inner} — the effect to evaluate.
      */
     static final Pattern AT_BEGINNING_OF_OPP_MAIN_PHASE_1_PATTERN = Pattern.compile(
-        "(?i)At\\s+the\\s+beginning\\s+of\\s+your\\s+opponent'?s\\s+Main\\s+Phase\\s+1\\b[^,]*,\\s+(?<inner>.+)"
+        "(?i)At\\s+the\\s+beginning\\s+of\\s+your\\s+opponent'?s\\s+Main\\s+Phase\\s+1\\b[^,]*,\\s+" +
+        "(?<inner>.+?)\\s*" + GLOBAL_TRIGGER_INNER_BOUNDARY,
+        Pattern.DOTALL
     );
 
     /**
@@ -1439,7 +1464,9 @@ public class ActionResolver {
      * Group {@code inner} — the effect to fire.
      */
     static final Pattern AT_END_OF_OPP_TURN_PATTERN = Pattern.compile(
-        "(?i)At\\s+the\\s+end\\s+of\\s+(?:each\\s+of\\s+)?your\\s+opponent'?s\\s+turns?,\\s+(?<inner>.+)"
+        "(?i)At\\s+the\\s+end\\s+of\\s+(?:each\\s+of\\s+)?your\\s+opponent'?s\\s+turns?,\\s+" +
+        "(?<inner>.+?)\\s*" + GLOBAL_TRIGGER_INNER_BOUNDARY,
+        Pattern.DOTALL
     );
 
     /**
@@ -1822,6 +1849,16 @@ public class ActionResolver {
     private static final Pattern FOLLOWUP_CANNOT_BE_BROKEN_BY_NON_DMG = Pattern.compile(
         "(?i)(?:During\\s+this\\s+turn,\\s+)?(?:it|they)\\s+cannot\\s+be\\s+broken\\s+by\\s+" +
         "(?:opposing|your\\s+opponent's)\\s+Summons\\s+or\\s+abilities\\s+that\\s+don'?t\\s+deal\\s+damage\\.?"
+    );
+
+    /**
+     * "If it is put from the field into the Break Zone this turn, remove it from the game
+     * instead." (Jet Bahamut-style) — marks the chosen target for redirect-to-RFG for the rest
+     * of the turn, regardless of what later effect breaks it.
+     */
+    private static final Pattern FOLLOWUP_IF_PUT_TO_BZ_THIS_TURN_RFG_INSTEAD = Pattern.compile(
+        "(?i)If\\s+(?:it|they)\\s+(?:is|are)\\s+put\\s+from\\s+the\\s+field\\s+into\\s+the\\s+Break\\s+Zone\\s+this\\s+turn,\\s+" +
+        "remove\\s+(?:it|them)\\s+from\\s+the\\s+game\\s+instead\\.?"
     );
 
     /** Standalone: "[CardName] gains '[...] cannot be broken.' until end of turn." */
@@ -3097,6 +3134,16 @@ public class ActionResolver {
     private static final Pattern CHOOSE_WARP_CARD_REMOVE_COUNTER = Pattern.compile(
         "(?i)^Choose\\s+1\\s+card\\s+removed\\s+from\\s+the\\s+game\\.\\s*" +
         "Remove\\s+1\\s+Warp\\s+Counter\\s+from\\s+it[.!]?"
+    );
+
+    /**
+     * Matches "Choose 1 card removed from the game with a Warp Counter on it. You may remove 1
+     * Warp Counter from it." (Vayne) — the optional-removal variant: choosing the target is
+     * mandatory, but the removal itself is a "you may" decision.
+     */
+    private static final Pattern CHOOSE_WARP_CARD_MAY_REMOVE_COUNTER = Pattern.compile(
+        "(?i)^Choose\\s+1\\s+card\\s+removed\\s+from\\s+the\\s+game\\s+with\\s+a\\s+Warp\\s+Counter\\s+on\\s+it\\.\\s*" +
+        "You\\s+may\\s+remove\\s+1\\s+Warp\\s+Counter\\s+from\\s+it[.!]?"
     );
 
     /** Matches "[Name] gains '[Name] cannot be blocked.' until the end of the turn." */
@@ -5013,6 +5060,9 @@ public class ActionResolver {
         result = tryParseChooseWarpCardRemoveCounter(effectText);
         if (result != null) return result;
 
+        result = tryParseChooseWarpCardMayRemoveCounter(effectText);
+        if (result != null) return result;
+
         result = tryParseChooseSummonInBzCastable(effectText);
         if (result != null) return result;
 
@@ -5371,6 +5421,7 @@ public class ActionResolver {
         if (tryParseChooseSummonFromBzToHandWithCostReduction(effectText) != null) return "ChooseSummonFromBzToHandWithCostReduction";
         if (tryParseChooseNSummonsBzPickOneHandRestRfg(effectText)        != null) return "ChooseNSummonsBzPickOneHandRestRfg";
         if (tryParseChooseWarpCardRemoveCounter(effectText)               != null) return "ChooseWarpCardRemoveCounter";
+        if (tryParseChooseWarpCardMayRemoveCounter(effectText)            != null) return "ChooseWarpCardMayRemoveCounter";
         if (tryParseChooseSummonInBzCastable(effectText)              != null) return "ChooseSummonInBzCastable";
         if (tryParseChooseSummonInBzMaxCostFreeCastRfg(effectText)    != null) return "ChooseSummonInBzMaxCostFreeCastRfg";
         if (tryParseCostReductionThisTurn(effectText)                 != null) return "CostReductionThisTurn";
@@ -5452,6 +5503,7 @@ public class ActionResolver {
         if (FOLLOWUP_CANNOT_BE_BROKEN.matcher(followupText).find())                  return "CannotBeBroken";
         if (FOLLOWUP_CANNOT_BE_BROKEN_SIMPLE.matcher(followupText).find())           return "CannotBeBrokenSimple";
         if (FOLLOWUP_CANNOT_BE_BROKEN_BY_NON_DMG.matcher(followupText).find())      return "CannotBeBrokenByNonDmg";
+        if (FOLLOWUP_IF_PUT_TO_BZ_THIS_TURN_RFG_INSTEAD.matcher(followupText).find()) return "IfPutToBzThisTurnRfgInstead";
         if (FOLLOWUP_GAINS_BREAKTOUCH_BATTLE.matcher(followupText).find())           return "BreaktouchBattle";
         if (FOLLOWUP_CANNOT_BE_CHOSEN_BOTH.matcher(followupText).find())              return "CannotBeChosenBoth";
         if (FOLLOWUP_CANNOT_BE_CHOSEN_SUMMONS.matcher(followupText).find())           return "CannotBeChosenSummons";
@@ -7989,6 +8041,8 @@ public class ActionResolver {
                             secondary = ctx -> ctx.lastChosenTargets().forEach(ctx::shieldCannotBeBroken);
                         } else if (FOLLOWUP_CANNOT_BE_BROKEN_BY_NON_DMG.matcher(secondaryText).find()) {
                             secondary = ctx -> ctx.lastChosenTargets().forEach(ctx::shieldCannotBeBrokenByNonDmg);
+                        } else if (FOLLOWUP_IF_PUT_TO_BZ_THIS_TURN_RFG_INSTEAD.matcher(secondaryText).find()) {
+                            secondary = ctx -> ctx.lastChosenTargets().forEach(ctx::markTargetRfgInsteadOfBzThisTurn);
                         } else {
                             Matcher rfpM = SECONDARY_PLAY_REMOVED_ONTO_FIELD.matcher(secondaryText);
                             if (rfpM.find()) {
@@ -10199,6 +10253,11 @@ public class ActionResolver {
     private static Consumer<GameContext> tryParseChooseWarpCardRemoveCounter(String text) {
         if (!CHOOSE_WARP_CARD_REMOVE_COUNTER.matcher(text).find()) return null;
         return GameContext::chooseAndRemoveWarpCounter;
+    }
+
+    private static Consumer<GameContext> tryParseChooseWarpCardMayRemoveCounter(String text) {
+        if (!CHOOSE_WARP_CARD_MAY_REMOVE_COUNTER.matcher(text).find()) return null;
+        return GameContext::chooseAndMayRemoveWarpCounter;
     }
 
     private static Consumer<GameContext> tryParseStandaloneGainsCannotBeBlocked(

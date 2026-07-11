@@ -880,4 +880,139 @@ public class CardBehaviorTest {
 
         verify(ctx).revealTopNPlayUpToNamedOrJobWithMaxCostOntoFieldRestBottom(3, 1, "Moogle (XIV)", "Moogle", 3);
     }
+
+    // =========================================================================================
+    // Jet Bahamut: "When Jet Bahamut enters the field, choose 1 Forward. Deal it 5000 damage. If
+    // it is put from the field into the Break Zone this turn, remove it from the game instead."
+    // — the secondary clause must mark the chosen target so that ANY later break-to-BZ this turn
+    // (battle, another ability, etc.) redirects it to RFG instead.
+    // =========================================================================================
+
+    private static final String JET_BAHAMUT_EFFECT_TEXT =
+            "choose 1 Forward. Deal it 5000 damage. If it is put from the field into the Break "
+            + "Zone this turn, remove it from the game instead.";
+
+    @Test
+    void jetBahamutDealsDamageAndMarksTargetForRfgInstead() {
+        GameContext ctx = mock(GameContext.class);
+        ForwardTarget t = new ForwardTarget(false, 0, ForwardTarget.CardZone.FORWARD);
+        when(ctx.consumePreloadedTargets()).thenReturn(null);
+        when(ctx.selectCharacters(
+                anyInt(), anyBoolean(), anyBoolean(), anyBoolean(),
+                any(), any(), anyInt(), any(), anyInt(), any(),
+                anyBoolean(), anyBoolean(), anyBoolean(),
+                any(), any(), any(), any(), anyBoolean(), any(), anyBoolean()
+        )).thenReturn(List.of(t));
+        when(ctx.lastChosenTargets()).thenReturn(List.of(t));
+
+        Consumer<GameContext> fn = ActionResolver.parse(JET_BAHAMUT_EFFECT_TEXT, null);
+        assertNotNull(fn, "Expected Jet Bahamut's effect text to parse");
+        fn.accept(ctx);
+
+        verify(ctx).damageTarget(t, 5000);
+        verify(ctx).markTargetRfgInsteadOfBzThisTurn(t);
+    }
+
+    @Test
+    void rfgInsteadOfBzMarkerRedirectsFieldBreakToRemovedFromGame() {
+        MainWindow mw = new MainWindow();
+        CardData victim = makeForward("Victim", "Fire", 3, 5000);
+        mw.gameState.getIdentity().put(victim, true); // owned by P1
+        mw.placeCardInForwardZone(victim); // P1 idx 0
+
+        mw.buildGameContext(true).markTargetRfgInsteadOfBzThisTurn(
+                new ForwardTarget(true, 0, ForwardTarget.CardZone.FORWARD));
+        mw.breakP1Forward(0);
+
+        assertFalse(mw.gameState.getP1BreakZone().contains(victim), "should not land in the Break Zone");
+        assertTrue(mw.gameState.getP1PermanentRfp().contains(victim), "should be removed from the game instead");
+    }
+
+    @Test
+    void rfgInsteadOfBzMarkerDoesNotAffectUnmarkedForwards() {
+        // Regression guard: an ordinary break (no marker set) must still go to the Break Zone.
+        MainWindow mw = new MainWindow();
+        CardData bystander = makeForward("Bystander", "Fire", 3, 5000);
+        mw.gameState.getIdentity().put(bystander, true); // owned by P1
+        mw.placeCardInForwardZone(bystander); // P1 idx 0
+
+        mw.breakP1Forward(0);
+
+        assertTrue(mw.gameState.getP1BreakZone().contains(bystander));
+        assertFalse(mw.gameState.getP1PermanentRfp().contains(bystander));
+    }
+
+    // =========================================================================================
+    // Vayne: "When Vayne enters the field or at the beginning of your Main Phase 1 during each
+    // of your turns, choose 1 card removed from the game with a Warp Counter on it. You may
+    // remove 1 Warp Counter from it.[[br]]   When a Warp Counter is removed from any player's
+    // card, draw 1 card. This effect will trigger only once per turn." — the compound
+    // ETF-or-phase trigger, plus the optional-removal Warp Counter effect.
+    // =========================================================================================
+
+    private static final String VAYNE_TEXT =
+            "When Vayne enters the field or at the beginning of your Main Phase 1 during each of "
+            + "your turns, choose 1 card removed from the game with a Warp Counter on it. You may "
+            + "remove 1 Warp Counter from it.[[br]]   When a Warp Counter is removed from any "
+            + "player's card, draw 1 card. This effect will trigger only once per turn.";
+
+    private static final String VAYNE_CHOOSE_EFFECT_TEXT =
+            "choose 1 card removed from the game with a Warp Counter on it. You may remove 1 Warp Counter from it.";
+
+    @Test
+    void vayneAutoAbilitiesParseAsThreeCleanEntries() {
+        List<AutoAbility> autos = CardData.parseAutoAbilities(VAYNE_TEXT);
+        assertEquals(3, autos.size(), "expected ETF + phase + warp-counter-removed entries");
+
+        AutoAbility etf = autos.stream().filter(a -> a.trigger().equals("enters the field")).findFirst().orElse(null);
+        assertNotNull(etf);
+        assertEquals("Vayne", etf.triggerCard());
+        assertEquals(VAYNE_CHOOSE_EFFECT_TEXT, etf.effectText());
+
+        AutoAbility phase = autos.stream().filter(a -> a.trigger().equals("beginning of main phase 1")).findFirst().orElse(null);
+        assertNotNull(phase);
+        assertEquals("", phase.triggerCard());
+        assertEquals(VAYNE_CHOOSE_EFFECT_TEXT, phase.effectText());
+
+        AutoAbility warp = autos.stream().filter(a -> a.trigger().equals("warp counter removed")).findFirst().orElse(null);
+        assertNotNull(warp);
+        assertEquals("draw 1 card", warp.effectText());
+        assertTrue(warp.oncePerTurn(), "the once-per-turn restriction must not leak into the ETF/phase abilities");
+        assertFalse(etf.oncePerTurn());
+        assertFalse(phase.oncePerTurn());
+    }
+
+    @Test
+    void vayneChooseEffectTextParsesAndDelegates() {
+        Consumer<GameContext> fn = ActionResolver.parse(VAYNE_CHOOSE_EFFECT_TEXT, null);
+        assertNotNull(fn, "Expected Vayne's choose/may-remove effect text to parse");
+
+        GameContext ctx = mock(GameContext.class);
+        fn.accept(ctx);
+
+        verify(ctx).chooseAndMayRemoveWarpCounter();
+    }
+
+    @Test
+    void chooseAndMayRemoveWarpCounterIsNoOpWhenWarpZoneEmpty() {
+        MainWindow mw = new MainWindow();
+        mw.buildGameContext(true).chooseAndMayRemoveWarpCounter();
+        // No exception, no crash — nothing to assert on an empty zone beyond it staying empty.
+        assertTrue(mw.gameState.getP1WarpZone().isEmpty());
+    }
+
+    @Test
+    void chooseAndMayRemoveWarpCounterAiDeclinesAndLeavesCounterUntouched() {
+        // promptYouMay() always declines for the non-P1 (AI/opponent) context, so P2's own
+        // "you may" decision here must leave the Warp entry completely untouched.
+        MainWindow mw = new MainWindow();
+        CardData warped = makeForward("Warped One", "Fire", 3, 5000);
+        mw.gameState.addToP2WarpZone(warped, 2);
+
+        mw.buildGameContext(false).chooseAndMayRemoveWarpCounter();
+
+        List<GameState.WarpEntry> zone = mw.gameState.getP2WarpZone();
+        assertEquals(1, zone.size());
+        assertEquals(2, zone.get(0).counters, "AI must decline, leaving the counter count unchanged");
+    }
 }

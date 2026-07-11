@@ -1607,6 +1607,20 @@ public record CardData(
     );
 
     /**
+     * Matches "When [CardName] enters the field or at the beginning of [Main Phase 1 | the
+     * Attack Phase] during each of your turns, [effect]" — a compound trigger combining an ETF
+     * condition with a recurring phase trigger (e.g. Vayne, Alus, Orphan, Number 24, Yiazmat).
+     * Group {@code phase} distinguishes Main Phase 1 from the Attack Phase.
+     */
+    private static final Pattern ETF_OR_PHASE_TRIGGER_PATTERN = Pattern.compile(
+        "(?i)When\\s+(?<card>[A-Z][A-Za-z0-9''\\-\\s\\(\\)]+?)\\s+enters\\s+the\\s+field\\s+or\\s+at\\s+the\\s+beginning\\s+of\\s+" +
+        "(?<phase>(?:your\\s+)?Main\\s+Phase\\s+1|the\\s+Attack\\s+Phase)\\s+during\\s+each\\s+of\\s+your\\s+turns\\s*,\\s+" +
+        "(?<effect>.+?)\\s*" +
+        "(?=\\s*\\[\\[br\\]\\]|\\s*When\\s+[^,]+?\\s+(?:attacks?|blocks?|enters?|leaves?|is\\s+(?:put|removed|blocked))|\\s*(?:《[^》]+》)+\\s*:|\\s*$)",
+        Pattern.DOTALL
+    );
+
+    /**
      * Matches priming triggers in two forms:
      * <ol>
      *   <li>Pure: {@code "When [PrimerCard] primes into [TargetCard], [effect]"}</li>
@@ -1807,6 +1821,30 @@ public record CardData(
         pm.appendTail(strippedBuf);
         textForSearch = strippedBuf.toString();
 
+        // Second pass: "When [CardName] enters the field or at the beginning of [phase] during
+        // each of your turns, [effect]" — registers two AutoAbility entries sharing the same
+        // effect text: one for entering the field, one for the recurring phase trigger. Matched
+        // regions are stripped from textForSearch first so the later phase-trigger passes below
+        // (which independently scan the same text) don't also pick up this same clause and
+        // produce a duplicate entry.
+        Matcher efm = ETF_OR_PHASE_TRIGGER_PATTERN.matcher(textForSearch);
+        StringBuffer efBuf = new StringBuffer();
+        while (efm.find()) {
+            String card      = efm.group("card").trim();
+            String phaseRaw  = efm.group("phase").trim().toLowerCase(java.util.Locale.ROOT);
+            String phaseTrigger = phaseRaw.contains("attack") ? "beginning of attack phase" : "beginning of main phase 1";
+            String effect = SUMMON_MARKUP.matcher(efm.group("effect").trim()).replaceAll("").trim();
+            if (!effect.isEmpty()) {
+                AutoAbility etfFa = parseAutoAbilityRestrictions(card, "enters the field", false, false, false, false, effect, 0);
+                if (etfFa != null) result.add(etfFa);
+                AutoAbility phaseFa = parseAutoAbilityRestrictions("", phaseTrigger, false, false, false, false, effect, 0);
+                if (phaseFa != null) result.add(phaseFa);
+            }
+            efm.appendReplacement(efBuf, "");
+        }
+        efm.appendTail(efBuf);
+        textForSearch = efBuf.toString();
+
         // Convert "If N or more [filter] Forwards form the party, also [effect]." into a second trigger sentence.
         textForSearch = expandPartyAttackFollowups(textForSearch);
 
@@ -1906,7 +1944,7 @@ public record CardData(
             if (fa != null) result.add(fa);
         }
 
-        // Second pass: "When a Warp Counter is removed from [CardName], [effect]"
+        // Third pass: "When a Warp Counter is removed from [CardName], [effect]"
         Matcher wm = WARP_COUNTER_PATTERN.matcher(textForSearch);
         while (wm.find()) {
             String target     = wm.group("target").trim();
@@ -1920,7 +1958,7 @@ public record CardData(
             if (fa != null) result.add(fa);
         }
 
-        // Third pass: "When [CardName] or your [Element] Summon deals damage to a Forward, [effect]"
+        // Fourth pass: "When [CardName] or your [Element] Summon deals damage to a Forward, [effect]"
         // Produces two AutoAbility entries: battle-damage trigger and element-summon trigger.
         Matcher sm = BREAKTOUCH_SUMMON_PATTERN.matcher(textForSearch);
         while (sm.find()) {
@@ -1936,7 +1974,7 @@ public record CardData(
             if (fa2 != null) result.add(fa2);
         }
 
-        // Fourth pass: "At the beginning of the Attack Phase during each of your turns, [effect]"
+        // Fifth pass: "At the beginning of the Attack Phase during each of your turns, [effect]"
         Matcher bam = AT_BEGINNING_OF_ATTACK_PHASE_PATTERN.matcher(textForSearch);
         while (bam.find()) {
             String effect = SUMMON_MARKUP.matcher(bam.group("effect").trim()).replaceAll("").trim();
@@ -1945,7 +1983,7 @@ public record CardData(
             if (fa != null) result.add(fa);
         }
 
-        // Fifth pass: "At the end of each of your turns, [effect]"
+        // Sixth pass: "At the end of each of your turns, [effect]"
         Matcher eotm = ActionResolver.AT_END_OF_EACH_TURN_PATTERN.matcher(textForSearch);
         while (eotm.find()) {
             String effect = SUMMON_MARKUP.matcher(eotm.group("inner").trim()).replaceAll("").trim();
@@ -1954,7 +1992,7 @@ public record CardData(
             if (aa != null) result.add(aa);
         }
 
-        // Sixth pass: "At the beginning of your Main Phase 1, [effect]"
+        // Seventh pass: "At the beginning of your Main Phase 1, [effect]"
         Matcher mp1m = ActionResolver.AT_BEGINNING_OF_MAIN_PHASE_1_PATTERN.matcher(textForSearch);
         while (mp1m.find()) {
             String effect = SUMMON_MARKUP.matcher(mp1m.group("inner").trim()).replaceAll("").trim();
@@ -1963,7 +2001,7 @@ public record CardData(
             if (aa != null) result.add(aa);
         }
 
-        // Seventh pass: "At the beginning of your Main Phase 2, [effect]"
+        // Eighth pass: "At the beginning of your Main Phase 2, [effect]"
         Matcher mp2m = ActionResolver.AT_BEGINNING_OF_MAIN_PHASE_2_PATTERN.matcher(textForSearch);
         while (mp2m.find()) {
             String effect = SUMMON_MARKUP.matcher(mp2m.group("inner").trim()).replaceAll("").trim();
@@ -1972,7 +2010,7 @@ public record CardData(
             if (aa != null) result.add(aa);
         }
 
-        // Eighth pass: "Each turn, at the beginning of Main Phase 1, [effect]" (fires both players)
+        // Ninth pass: "Each turn, at the beginning of Main Phase 1, [effect]" (fires both players)
         Matcher mp1et = ActionResolver.AT_BEGINNING_OF_MAIN_PHASE_1_EACH_TURN_PATTERN.matcher(textForSearch);
         while (mp1et.find()) {
             String effect = SUMMON_MARKUP.matcher(mp1et.group("inner").trim()).replaceAll("").trim();
@@ -1981,7 +2019,7 @@ public record CardData(
             if (aa != null) result.add(aa);
         }
 
-        // Ninth pass: "At the beginning of your opponent's Main Phase 1, [effect]"
+        // Tenth pass: "At the beginning of your opponent's Main Phase 1, [effect]"
         Matcher ompm = ActionResolver.AT_BEGINNING_OF_OPP_MAIN_PHASE_1_PATTERN.matcher(textForSearch);
         while (ompm.find()) {
             String effect = SUMMON_MARKUP.matcher(ompm.group("inner").trim()).replaceAll("").trim();
@@ -1990,7 +2028,7 @@ public record CardData(
             if (aa != null) result.add(aa);
         }
 
-        // Tenth pass: "At the end of your opponent's turn(s), [effect]"
+        // Eleventh pass: "At the end of your opponent's turn(s), [effect]"
         Matcher ootm = ActionResolver.AT_END_OF_OPP_TURN_PATTERN.matcher(textForSearch);
         while (ootm.find()) {
             String effect = SUMMON_MARKUP.matcher(ootm.group("inner").trim()).replaceAll("").trim();
@@ -1999,7 +2037,7 @@ public record CardData(
             if (aa != null) result.add(aa);
         }
 
-        // Eleventh pass: "At the end of each player's turn, [effect]" (fires both players)
+        // Twelfth pass: "At the end of each player's turn, [effect]" (fires both players)
         Matcher eptm = ActionResolver.AT_END_OF_EACH_PLAYERS_TURN_PATTERN.matcher(textForSearch);
         while (eptm.find()) {
             String effect = SUMMON_MARKUP.matcher(eptm.group("inner").trim()).replaceAll("").trim();
