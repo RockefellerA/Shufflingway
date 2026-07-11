@@ -1726,6 +1726,16 @@ public class ActionResolver {
         "(?i)(?:you\\s+)?gain\\s+control\\s+of\\s+(?:it|them)\\.?"
     );
 
+    /**
+     * Standalone: "Your opponent gains control of [CardName]." — permanent control transfer of
+     * the source card itself, away from its own controller, to their opponent (e.g. Leon). The
+     * reverse direction of {@link #FOLLOWUP_GAIN_CONTROL}, which is always the ability user
+     * gaining control of a chosen target.
+     */
+    private static final Pattern STANDALONE_OPPONENT_GAINS_CONTROL = Pattern.compile(
+        "(?i)^Your\\s+opponent\\s+gains?\\s+control\\s+of\\s+(?<name>[A-Z][A-Za-z''\\-\\s]+?)\\.?\\s*$"
+    );
+
     // ---- Cannot-be-chosen followup patterns -----------------------------------------
 
     /**
@@ -1903,6 +1913,17 @@ public class ActionResolver {
         "(?i)Name\\s+1\\s+Element\\.\\s+During\\s+this\\s+turn,\\s+" +
         "(?<name>[A-Z][A-Za-z''\\-\\s]+?)\\s+cannot\\s+be\\s+chosen\\s+by\\s+Summons?\\s+or\\s+abilities\\s+of\\s+the\\s+named\\s+Element" +
         "\\s+and\\s+if\\s+[A-Za-z''\\-\\s]+?is\\s+dealt\\s+damage\\s+by\\s+a\\s+Summon\\s+or\\s+an\\s+ability\\s+of\\s+the\\s+named\\s+Element,\\s+" +
+        "the\\s+damage\\s+becomes\\s+0\\s+instead\\s*\\.?"
+    );
+
+    /**
+     * "Name 1 Element. During this turn, if [CardName] is dealt damage by abilities of the named
+     * Element, the damage becomes 0 instead." — (Rubicante-style) damage-only nullification,
+     * scoped to abilities alone (Summons are not covered), with no targeting immunity.
+     */
+    private static final Pattern STANDALONE_NAME_ELEMENT_NULLIFY_ABILITY_DAMAGE_ONLY = Pattern.compile(
+        "(?i)Name\\s+1\\s+Element\\.\\s+During\\s+this\\s+turn,\\s+if\\s+" +
+        "(?<name>[A-Z][A-Za-z''\\-\\s]+?)\\s+is\\s+dealt\\s+damage\\s+by\\s+abilities\\s+of\\s+the\\s+named\\s+Element,\\s+" +
         "the\\s+damage\\s+becomes\\s+0\\s+instead\\s*\\.?"
     );
 
@@ -4407,6 +4428,9 @@ public class ActionResolver {
         result = tryParseDiscardConditionalElement(effectText, source, xValue);
         if (result != null) return result;
 
+        result = tryParseDiscardConditionalElementSingle(effectText, source, xValue);
+        if (result != null) return result;
+
         result = tryParseIfCastAtLeast(effectText, source, xValue);
         if (result != null) return result;
 
@@ -5088,6 +5112,9 @@ public class ActionResolver {
         result = tryParseSourcePowerBecomesOpponentWeakestForward(effectText, source);
         if (result != null) return result;
 
+        result = tryParseOpponentGainsControlOfSource(effectText, source);
+        if (result != null) return result;
+
         // Compound-sentence fallback: split on ". " between sentences and compose effects.
         // Handles "Activate <cardName>. <cardName> gains +2000 power until the end of the turn." etc.
         // Sentences that don't parse are silently skipped so that implemented parts still fire.
@@ -5361,6 +5388,7 @@ public class ActionResolver {
         if (tryParseIfControlCondOtherThan(effectText, source, 0)      != null) return "IfControlCondOtherThan";
         if (tryParseIfOppControlsNOrMoreCondTypeGate(effectText, source, 0) != null) return "IfOppControlsNOrMoreCondType";
         if (tryParseDiscardConditionalElement(effectText, source, 0)   != null) return "DiscardConditionalElement";
+        if (tryParseDiscardConditionalElementSingle(effectText, source, 0) != null) return "DiscardConditionalElementSingle";
         if (tryParseConditionalOpponentHand(effectText, source, 0)     != null) return "ConditionalOpponentHand";
         if (tryParseConditionalOpponentHandMin(effectText, source, 0) != null) return "ConditionalOpponentHandMin";
         if (tryParseYouMayPutSelfToBZWhenDoSo(effectText, source)    != null) return "YouMayPutSelfToBZWhenDoSo";
@@ -5521,6 +5549,7 @@ public class ActionResolver {
         if (tryParseIfControlCondOtherThan(effectText, source, 0)      != null) return "IfControlCondOtherThan";
         if (tryParseIfOppControlsNOrMoreCondTypeGate(effectText, source, 0) != null) return "IfOppControlsNOrMoreCondTypeDraw";
         if (tryParseDiscardConditionalElement(effectText, source, 0)    != null) return "DiscardConditionalElement";
+        if (tryParseDiscardConditionalElementSingle(effectText, source, 0) != null) return "DiscardConditionalElementSingle";
         if (tryParseSelectNumber(effectText, source)          != null) return "SelectNumber";
         if (tryParseForEachJobAndNameDealDamageToForwards(effectText)   != null) return "ForEachJobAndNameDealDamageToForwards";
         if (tryParseSelfGainsWhenAttacksEOT(effectText, source)        != null) return "SelfGainsWhenAttacksEOT";
@@ -5855,6 +5884,7 @@ public class ActionResolver {
         if (tryParseGrantPartyAnyElementThisTurn(effectText)           != null) return "GrantPartyAnyElementThisTurn";
         if (tryParseSourcePowerBecomesRemovedForwardPower(effectText, source) != null) return "SourcePowerBecomesRemovedPower";
         if (tryParseSourcePowerBecomesOpponentWeakestForward(effectText, source) != null) return "SourcePowerBecomesOpponentWeakestForward";
+        if (tryParseOpponentGainsControlOfSource(effectText, source) != null) return "OpponentGainsControlOfSource";
         if (tryParseConditionalOpponentHand(effectText, source, 0)    != null) return "ConditionalOpponentHand";
         if (tryParseConditionalOpponentHandMin(effectText, source, 0) != null) return "ConditionalOpponentHandMin";
         if (tryParseYouMayPutSelfToBZWhenDoSo(effectText, source)    != null) return "YouMayPutSelfToBZWhenDoSo";
@@ -10601,6 +10631,21 @@ public class ActionResolver {
         };
     }
 
+    /**
+     * Parses "Your opponent gains control of [CardName]." — permanently transfers the source
+     * card itself to its controller's opponent.
+     */
+    private static Consumer<GameContext> tryParseOpponentGainsControlOfSource(String text, CardData source) {
+        if (source == null) return null;
+        Matcher m = STANDALONE_OPPONENT_GAINS_CONTROL.matcher(text.trim());
+        if (!m.matches()) return null;
+        if (!m.group("name").trim().equalsIgnoreCase(source.name())) return null;
+        return ctx -> {
+            ctx.logEntry(source.name() + " — control given to opponent");
+            ctx.giveSourceControlToOpponent(source);
+        };
+    }
+
     /** Parses "Dull [CardName]." — dulls the source card with no other effect. */
     private static Consumer<GameContext> tryParseStandaloneSelfDull(String text, CardData source) {
         if (source == null) return null;
@@ -10881,6 +10926,21 @@ public class ActionResolver {
         Pattern.DOTALL
     );
 
+    /**
+     * Matches the single-branch, additive-only variant of the discard-element conditional:
+     * "If the discarded card is of Elem Element, also &lt;effect&gt;." Unlike
+     * {@link #DISCARD_CONDITIONAL_ELEMENT} (two branches covering the whole ability), this
+     * appears as a lone secondary clause tacked on after another cost effect (e.g.
+     * "Choose 3 cards in your opponent's Break Zone. Remove them from the game. If the discarded
+     * card is of Water Element, also draw 1 card, then discard 1 card.") and only ever grants a
+     * bonus — there is no "otherwise" branch.
+     */
+    private static final Pattern DISCARD_CONDITIONAL_ELEMENT_SINGLE = Pattern.compile(
+        "(?i)^If\\s+the\\s+discarded\\s+card\\s+is\\s+of\\s+(?<elem>\\w+)\\s+Element\\s*,\\s*" +
+        "also\\s+(?<effect>.+)$",
+        Pattern.DOTALL
+    );
+
     private static Consumer<GameContext> tryParseDiscardConditionalElement(String text, CardData source, int xValue) {
         Matcher m = DISCARD_CONDITIONAL_ELEMENT.matcher(text.trim());
         if (!m.find()) return null;
@@ -10907,6 +10967,28 @@ public class ActionResolver {
                 else ctx.logEntry("Discard conditional: " + elem2 + " branch not implemented");
             } else {
                 ctx.logEntry("Discard conditional: element " + discardedElem + " matches neither branch");
+            }
+        };
+    }
+
+    private static Consumer<GameContext> tryParseDiscardConditionalElementSingle(String text, CardData source, int xValue) {
+        Matcher m = DISCARD_CONDITIONAL_ELEMENT_SINGLE.matcher(text.trim());
+        if (!m.matches()) return null;
+        String elem   = m.group("elem").trim();
+        String effTxt = m.group("effect").trim();
+        Consumer<GameContext> effect = parse(effTxt, source, xValue);
+        if (effect == null) return null;
+        return ctx -> {
+            String discardedElem = ctx.lastDiscardedCostCardElement();
+            if (discardedElem == null) {
+                ctx.logEntry("Discard conditional: no cost card recorded");
+                return;
+            }
+            if (discardedElem.equalsIgnoreCase(elem)) {
+                ctx.logEntry("Discard conditional: discarded " + discardedElem + " card — bonus applies");
+                effect.accept(ctx);
+            } else {
+                ctx.logEntry("Discard conditional: discarded card is " + discardedElem + ", not " + elem + " — no bonus");
             }
         };
     }
@@ -13360,6 +13442,22 @@ public class ActionResolver {
                         ctx.logEntry("Effect: " + nm + " cannot be chosen by " + elem + " Summons/abilities; damage from them → 0 this turn");
                         ctx.shieldNamedCardCannotBeChosenByElement(nm, elem);
                         ctx.nullifyNamedCardDamageByElement(nm, elem);
+                    }
+                };
+        }
+
+        // 6b. "Name 1 Element. During this turn, if [Name] is dealt damage by abilities of the named
+        //     Element, the damage becomes 0 instead." (Rubicante-style: ability-only damage
+        //     nullification, no targeting immunity — unlike Hein's combined block above.)
+        Matcher rubiM = STANDALONE_NAME_ELEMENT_NULLIFY_ABILITY_DAMAGE_ONLY.matcher(text);
+        if (rubiM.find() && source != null) {
+            String nm = rubiM.group("name").trim();
+            if (nm.equalsIgnoreCase(source.name()))
+                return ctx -> {
+                    String elem = ctx.selectElement("Name 1 Element (" + nm + " damage nullification):");
+                    if (elem != null) {
+                        ctx.logEntry("Effect: " + nm + " — damage from " + elem + " abilities becomes 0 this turn");
+                        ctx.nullifyNamedCardDamageByElementAbilityOnly(nm, elem);
                     }
                 };
         }

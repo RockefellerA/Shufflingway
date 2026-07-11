@@ -709,6 +709,12 @@ public interface GameContext {
     void nullifyNamedCardDamageByElement(String cardName, String element);
 
     /**
+     * Registers that damage dealt to the named card by an ability (not a Summon) whose element
+     * matches {@code element} becomes 0 this turn — including AoE effects that do not target.
+     */
+    void nullifyNamedCardDamageByElementAbilityOnly(String cardName, String element);
+
+    /**
      * Finds the named card on the field and stores a permanent element override.
      * While active, the card's effective element is {@code element} instead of its printed element.
      * This override persists across turns until explicitly changed.
@@ -781,6 +787,14 @@ public interface GameContext {
      * @param activate  {@code true} to force the card to ACTIVE state when it arrives
      */
     void gainControlOfForward(ForwardTarget t, String condition, boolean activate);
+
+    /**
+     * Permanently gives the ability user's opponent control of {@code source} (currently a
+     * Forward on the field, either side). The reverse direction of {@link #gainControlOfForward}
+     * — used for "your opponent gains control of [CardName]" effects (e.g. Leon). Preserves
+     * accumulated damage and current state; no ETF auto-abilities fire.
+     */
+    void giveSourceControlToOpponent(CardData source);
 
     /**
      * Immediately removes all accumulated damage from the Forward at {@code t}, negating it.

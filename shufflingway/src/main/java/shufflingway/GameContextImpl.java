@@ -431,6 +431,17 @@ final class GameContextImpl implements GameContext {
 				logEntry("nullifyDamageByElement: " + cardName + " not found on field");
 			}
 
+			@Override public void nullifyNamedCardDamageByElementAbilityOnly(String cardName, String element) {
+				List<CardData> fwds = isP1 ? mw.p1ForwardCards : mw.p2ForwardCards;
+				for (CardData c : fwds) {
+					if (c.name().equalsIgnoreCase(cardName)) {
+						mw.nullifyElementDamageAbilityOnlyMap.put(c, element);
+						return;
+					}
+				}
+				logEntry("nullifyDamageByElementAbilityOnly: " + cardName + " not found on field");
+			}
+
 			@Override public void setCardElement(String cardName, String element) {
 				for (boolean p1s : new boolean[]{true, false}) {
 					List<CardData> fwds = p1s ? mw.p1ForwardCards : mw.p2ForwardCards;
@@ -488,6 +499,10 @@ final class GameContextImpl implements GameContext {
 				// Only supported for P1 stealing from P2 in the current implementation
 				if (!isP1 || t.isP1() || t.zone() != ForwardTarget.CardZone.FORWARD) return;
 				mw.stealForwardFromP2ToP1(t.idx(), condition, activate);
+			}
+
+			@Override public void giveSourceControlToOpponent(CardData source) {
+				mw.giveForwardControlToOpponent(source);
 			}
 
 			@Override

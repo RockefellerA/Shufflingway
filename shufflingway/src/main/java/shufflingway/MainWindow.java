@@ -547,6 +547,8 @@ public class MainWindow {
 	final Map<CardData, String> cannotBeChosenByElement = new HashMap<>();
 	/** Maps a card to an element: damage dealt to that card by Summons/abilities of that element becomes 0 this turn. */
 	final Map<CardData, String> nullifyElementDamageMap = new HashMap<>();
+	/** Maps a card to an element: damage dealt to that card by abilities (not Summons) of that element becomes 0 this turn. */
+	final Map<CardData, String> nullifyElementDamageAbilityOnlyMap = new HashMap<>();
 	/** Maps a card to a permanent element override (Kam'lanaut ability); persists across turns. */
 	final Map<CardData, String> elementOverrideMap      = new HashMap<>();
 	/** Maps a card to a permanently-granted extra job (e.g. Bartz ability); persists across turns. */
@@ -2119,7 +2121,7 @@ public class MainWindow {
                                 perCardIncomingDmgMultiplierMap.clear();
                                 p1ForwardIncomingDmgMult = 1;      p2ForwardIncomingDmgMult = 1;
                                 p1AbilityOutgoingDmgMult = 1;      p2AbilityOutgoingDmgMult = 1;
-                                cannotBeChosenBySummons.clear();  cannotBeChosenByAbilities.clear();  cannotBeChosenBySummonsAnyone.clear();  cannotBeChosenByElement.clear();  nullifyElementDamageMap.clear();
+                                cannotBeChosenBySummons.clear();  cannotBeChosenByAbilities.clear();  cannotBeChosenBySummonsAnyone.clear();  cannotBeChosenByElement.clear();  nullifyElementDamageMap.clear();  nullifyElementDamageAbilityOnlyMap.clear();
                                 breaktouchBattleSet.clear();
                                 p1NonLethalProtection = false;    p2NonLethalProtection = false;
                                 p1DmgReductionDisabled = false;   p2DmgReductionDisabled = false;
@@ -3267,6 +3269,52 @@ public class MainWindow {
 		if (!card.fieldCostReductions().isEmpty() || p1HandHasSelfCostModifiers()) refreshHandPopupIfVisible();
 	}
 
+	/** Adds {@code card} to P2's forward zone with the given damage and state; does NOT fire ETF. */
+	private void addStolenForwardToP2Field(CardData card, int damage, CardState state) {
+		if (p2ForwardPanel == null) return;
+		int idx = p2ForwardLabels.size();
+
+		JLabel lbl = new JLabel("", SwingConstants.CENTER);
+		lbl.setPreferredSize(new Dimension(CARD_H, CARD_H));
+		lbl.setMinimumSize(new Dimension(CARD_H, CARD_H));
+		lbl.setOpaque(false);
+		lbl.setFont(FontLoader.loadPixelNESFont(11));
+		lbl.setBorder(BorderFactory.createEmptyBorder());
+		lbl.addMouseListener(new MouseAdapter() {
+			@Override public void mousePressed(MouseEvent e) {
+				if (lbl.getIcon() != null && SwingUtilities.isRightMouseButton(e))
+					showP2ForwardContextMenu(idx, lbl, e);
+			}
+			@Override public void mouseEntered(MouseEvent e) {
+				if (lbl.getIcon() == null) return;
+				CardData top = p2ForwardPrimedTop.get(idx);
+				showZoomAt(top != null ? top.imageUrl() : p2ForwardUrls.get(idx));
+			}
+			@Override public void mouseExited(MouseEvent e) { hideZoom(); }
+		});
+
+		p2ForwardUrls.add(card.imageUrl());
+		p2ForwardCards.add(card);
+		p2ForwardStates.add(state);
+		p2ForwardPlayedOnTurn.add(gameState.getTurnNumber());
+		p2ForwardDamage.add(damage);
+		p2ForwardPowerBoost.add(0);
+		p2ForwardPowerReduction.add(0);
+		p2ForwardTempTraits.add(EnumSet.noneOf(CardData.Trait.class));
+		p2ForwardRemovedTraits.add(EnumSet.noneOf(CardData.Trait.class));
+		p2ForwardTempJobs.add(null);
+		p2ForwardPrimedTop.add(null);
+		p2ForwardFrozen.add(false);
+		p2ForwardLabels.add(lbl);
+
+		p2ForwardPanel.add(lbl);
+		p2ForwardPanel.revalidate();
+		p2ForwardPanel.repaint();
+		refreshP2ForwardSlot(idx);
+		if (!card.fieldPowerGrants().isEmpty()) refreshFieldGrantDependents(false);
+		if (!card.fieldCostReductions().isEmpty() || p1HandHasSelfCostModifiers()) refreshHandPopupIfVisible();
+	}
+
 	/**
 	 * Removes a stolen forward from P1's field (without sending it to any zone) and returns
 	 * it to P2's field with its current state.  If the card is no longer on P1's field
@@ -3363,6 +3411,112 @@ public class MainWindow {
 		if (!card.fieldCostReductions().isEmpty() || p1HandHasSelfCostModifiers()) refreshHandPopupIfVisible();
 
 		logEntry(card.name() + " — control returned to P2");
+	}
+
+	/**
+	 * Permanently moves {@code source} (currently a Forward on either side's field) to the
+	 * opposing player's forward zone — the reverse direction of {@link #stealForwardFromP2ToP1}.
+	 * Used for "your opponent gains control of [CardName]" auto-abilities (e.g. Leon). Preserves
+	 * accumulated damage and current state; no ETF or leave/break auto-abilities fire, except
+	 * when the uniqueness rule sends both copies to their owners' Break Zones instead.
+	 * No-op (with a log entry) if {@code source} is not currently a Forward on either field.
+	 */
+	void giveForwardControlToOpponent(CardData source) {
+		int p1Idx = -1;
+		for (int i = 0; i < p1ForwardCards.size(); i++) {
+			if (p1ForwardCards.get(i) == source) { p1Idx = i; break; }
+		}
+		if (p1Idx >= 0) {
+			int       savedDmg   = p1ForwardDamage.get(p1Idx);
+			CardState savedState = p1ForwardStates.get(p1Idx);
+
+			if (!source.multicard()) {
+				for (int i = 0; i < p2ForwardCards.size(); i++) {
+					if (p2ForwardCards.get(i).name().equalsIgnoreCase(source.name())) {
+						logEntry(source.name() + " — uniqueness rule: both copies sent to their owner's Break Zone");
+						breakP1Forward(p1Idx);
+						breakP2Forward(i);
+						return;
+					}
+				}
+			}
+
+			p1ForwardCards.remove(p1Idx);
+			p1ForwardUrls.remove(p1Idx);
+			p1ForwardStates.remove(p1Idx);
+			p1ForwardPlayedOnTurn.remove(p1Idx);
+			p1ForwardDamage.remove(p1Idx);
+			p1ForwardPowerBoost.remove(p1Idx);
+			p1ForwardPowerReduction.remove(p1Idx);
+			p1ForwardTempTraits.remove(p1Idx);
+			p1ForwardRemovedTraits.remove(p1Idx);
+			p1ForwardTempJobs.remove(p1Idx);
+			p1ForwardPrimedTop.remove(p1Idx);
+			p1ForwardFrozen.remove(p1Idx);
+			p1ForwardLabels.remove(p1Idx);
+			shiftBlockSet(p1ForwardCannotBlock,            p1Idx);
+			shiftBlockSet(p1ForwardMustBlock,              p1Idx);
+			shiftBlockSet(p1ForwardCannotAttack,           p1Idx);
+			shiftBlockSet(p1ForwardMustAttack,             p1Idx);
+			shiftBlockSet(p1ForwardCannotAttackPersistent, p1Idx);
+			shiftBlockSet(p1ForwardCannotBlockPersistent,  p1Idx);
+			shiftBlockSet(p1ForwardCannotBeBlocked,        p1Idx);
+			shiftBlockMap(p1ForwardCannotBeBlockedByCost,  p1Idx);
+			rebuildP1ForwardPanel();
+
+			addStolenForwardToP2Field(source, savedDmg, savedState);
+			logEntry(source.name() + " — control given to opponent (P2)");
+			return;
+		}
+
+		int p2Idx = -1;
+		for (int i = 0; i < p2ForwardCards.size(); i++) {
+			if (p2ForwardCards.get(i) == source) { p2Idx = i; break; }
+		}
+		if (p2Idx >= 0) {
+			int       savedDmg   = p2ForwardDamage.get(p2Idx);
+			CardState savedState = p2ForwardStates.get(p2Idx);
+
+			if (!source.multicard()) {
+				for (int i = 0; i < p1ForwardCards.size(); i++) {
+					if (p1ForwardCards.get(i).name().equalsIgnoreCase(source.name())) {
+						logEntry(source.name() + " — uniqueness rule: both copies sent to their owner's Break Zone");
+						breakP2Forward(p2Idx);
+						breakP1Forward(i);
+						return;
+					}
+				}
+			}
+
+			p2ForwardCards.remove(p2Idx);
+			p2ForwardUrls.remove(p2Idx);
+			p2ForwardStates.remove(p2Idx);
+			p2ForwardPlayedOnTurn.remove(p2Idx);
+			p2ForwardDamage.remove(p2Idx);
+			p2ForwardPowerBoost.remove(p2Idx);
+			p2ForwardPowerReduction.remove(p2Idx);
+			p2ForwardTempTraits.remove(p2Idx);
+			p2ForwardRemovedTraits.remove(p2Idx);
+			p2ForwardTempJobs.remove(p2Idx);
+			p2ForwardPrimedTop.remove(p2Idx);
+			p2ForwardFrozen.remove(p2Idx);
+			p2ForwardLabels.remove(p2Idx);
+			shiftBlockSet(p2ForwardCannotBlock,            p2Idx);
+			shiftBlockSet(p2ForwardMustBlock,              p2Idx);
+			shiftBlockSet(p2ForwardCannotAttack,           p2Idx);
+			shiftBlockSet(p2ForwardMustAttack,             p2Idx);
+			shiftBlockSet(p2ForwardCannotAttackPersistent, p2Idx);
+			shiftBlockSet(p2ForwardCannotBlockPersistent,  p2Idx);
+			shiftBlockSet(p2ForwardCannotBeBlocked,        p2Idx);
+			shiftBlockMap(p2ForwardCannotBeBlockedByCost,  p2Idx);
+			rebuildP2ForwardPanel();
+
+			addStolenForwardToP1Field(source, savedDmg, savedState);
+			logEntry(source.name() + " — control given to opponent (P1)");
+			return;
+		}
+
+		logEntry(source.name() + " — not currently a Forward on the field, cannot transfer control");
 	}
 
 	/** Checks if any stolen forward had {@code leavingCardName} as its on-field condition and restores them. */
@@ -9298,6 +9452,12 @@ public class MainWindow {
 			if (nullifyElem != null) {
 				CardData resCard = currentResolutionIsSummon ? currentSummonSource : currentAbilitySource;
 				if (resCard != null && effectiveElements(resCard).contains(nullifyElem)) return 0;
+			}
+			// Element-scoped, ability-only nullification (Rubicante ability): Summons are not covered
+			if (!currentResolutionIsSummon) {
+				String nullifyAbilityElem = nullifyElementDamageAbilityOnlyMap.get(card);
+				if (nullifyAbilityElem != null && currentAbilitySource != null
+						&& effectiveElements(currentAbilitySource).contains(nullifyAbilityElem)) return 0;
 			}
 			// Passive field ability: nullify Summon-only damage
 			if (currentResolutionIsSummon) {

@@ -1529,6 +1529,9 @@ public record CardData(
             // "enters your field other than from your hand" must precede plain "enters your field"
             "|enters?\\s+your\\s+field\\s+other\\s+than\\s+from\\s+your\\s+hand" +
             "|enters?\\s+your\\s+field" +
+            // "enters your opponent's field" — location-based phrasing of the watcher trigger,
+            // distinct from "of your opponent enters the field" (possessive-based; see below)
+            "|enters?\\s+your\\s+opponent's\\s+field" +
             "|leaves?\\s+the\\s+field" +
             "|is\\s+put\\s+(?:from\\s+the\\s+field\\s+)?into\\s+the\\s+Break\\s+Zone" +
             "|casts?\\s+a\\s+Summon" +
@@ -1826,6 +1829,7 @@ public record CardData(
             else if (triggerRaw.contains("enter") && triggerRaw.contains("break zone"))                   trigger = "enters the field or put into break zone";
             else if (triggerRaw.contains("enter") && triggerRaw.contains("attack"))                        trigger = "enters the field or attacks";
             else if (triggerRaw.contains("enter") && triggerRaw.contains("other than from your hand"))     trigger = "enters your field not from hand";
+            else if (triggerRaw.contains("enter") && triggerRaw.contains("opponent") && triggerRaw.contains("field")) trigger = "enters opponent's field";
             else if (triggerRaw.contains("enter") && triggerRaw.contains("your field"))                            trigger = "enters your field";
             else if (triggerRaw.contains("attack")
                     && FILTER_FORWARD_SUBJECT.matcher(card).matches())                                       trigger = "filtered forward attacks";

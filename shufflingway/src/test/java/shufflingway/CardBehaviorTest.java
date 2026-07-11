@@ -406,6 +406,100 @@ public class CardBehaviorTest {
     }
 
     // =========================================================================================
+    // "《Dull》, discard 1 card: Choose 3 cards in your opponent's Break Zone. Remove them from
+    // the game. If the discarded card is of Water Element, also draw 1 card, then discard 1
+    // card." — the single-branch, additive-only discard-element conditional attached as a
+    // secondary effect after a "Choose ... Remove them from the game" primary.
+    // =========================================================================================
+
+    private static final String DISCARD_RFG_EFFECT_TEXT =
+            "Choose 3 cards in your opponent's Break Zone. Remove them from the game. "
+            + "If the discarded card is of Water Element, also draw 1 card, then discard 1 card.";
+
+    private static void stubOpponentBzTargets(GameContext ctx, List<ForwardTarget> result) {
+        when(ctx.consumePreloadedTargets()).thenReturn(null);
+        when(ctx.selectCharactersFromBreakZone(
+                eq(3), anyBoolean(), anyBoolean(), anyBoolean(),
+                any(), any(), anyInt(), any(), anyInt(), any(),
+                anyBoolean(), anyBoolean(), anyBoolean(),
+                any(), any(), any(), any(), anyBoolean(), any(), anyBoolean()
+        )).thenReturn(result);
+    }
+
+    @Test
+    void removesThreeChosenCardsFromOpponentBzRegardlessOfDiscardElement() {
+        GameContext ctx = mock(GameContext.class);
+        ForwardTarget t0 = new ForwardTarget(false, 0, ForwardTarget.CardZone.BREAK_ZONE);
+        ForwardTarget t1 = new ForwardTarget(false, 1, ForwardTarget.CardZone.BREAK_ZONE);
+        ForwardTarget t2 = new ForwardTarget(false, 2, ForwardTarget.CardZone.BREAK_ZONE);
+        stubOpponentBzTargets(ctx, List.of(t0, t1, t2));
+        when(ctx.lastDiscardedCostCardElement()).thenReturn("Fire");
+
+        Consumer<GameContext> fn = ActionResolver.parse(DISCARD_RFG_EFFECT_TEXT, null);
+        assertNotNull(fn);
+        fn.accept(ctx);
+
+        verify(ctx).removeTargetFromGame(t0);
+        verify(ctx).removeTargetFromGame(t1);
+        verify(ctx).removeTargetFromGame(t2);
+        verify(ctx, never()).drawCards(anyInt());
+        verify(ctx, never()).selfDiscard(anyInt());
+    }
+
+    @Test
+    void alsoDrawsThenDiscardsWhenDiscardedCardIsWater() {
+        GameContext ctx = mock(GameContext.class);
+        ForwardTarget t0 = new ForwardTarget(false, 0, ForwardTarget.CardZone.BREAK_ZONE);
+        stubOpponentBzTargets(ctx, List.of(t0));
+        when(ctx.lastDiscardedCostCardElement()).thenReturn("Water");
+
+        Consumer<GameContext> fn = ActionResolver.parse(DISCARD_RFG_EFFECT_TEXT, null);
+        assertNotNull(fn);
+        fn.accept(ctx);
+
+        verify(ctx).removeTargetFromGame(t0);
+        verify(ctx).drawCards(1);
+        verify(ctx).selfDiscard(1);
+    }
+
+    // =========================================================================================
+    // Rubicante: "Name 1 Element. During this turn, if Rubicante is dealt damage by abilities of
+    // the named Element, the damage becomes 0 instead." — ability-only element damage
+    // nullification, distinct from Hein's combined immunity+nullification block.
+    // =========================================================================================
+
+    @Test
+    void rubicanteNullifiesDamageFromNamedElementAbilitiesOnly() {
+        CardData rubicante = mock(CardData.class);
+        when(rubicante.name()).thenReturn("Rubicante");
+
+        Consumer<GameContext> fn = ActionResolver.parse(
+                "Name 1 Element. During this turn, if Rubicante is dealt damage by abilities of the named Element, "
+                + "the damage becomes 0 instead.", rubicante);
+        assertNotNull(fn);
+
+        GameContext ctx = mock(GameContext.class);
+        when(ctx.selectElement(anyString())).thenReturn("Fire");
+
+        fn.accept(ctx);
+
+        verify(ctx).nullifyNamedCardDamageByElementAbilityOnly("Rubicante", "Fire");
+        verify(ctx, never()).shieldNamedCardCannotBeChosenByElement(any(), any());
+    }
+
+    @Test
+    void rubicanteDoesNotFireWhenSourceNameDoesNotMatch() {
+        CardData other = mock(CardData.class);
+        when(other.name()).thenReturn("Not Rubicante");
+
+        Consumer<GameContext> fn = ActionResolver.parse(
+                "Name 1 Element. During this turn, if Rubicante is dealt damage by abilities of the named Element, "
+                + "the damage becomes 0 instead.", other);
+
+        assertNull(fn);
+    }
+
+    // =========================================================================================
     // "Choose 1 Summon in your Break Zone. Remove it from the game. During this game, you can
     // cast it at any time you could normally cast it." — the plain-phrasing variant (no "as
     // though you owned it") of the Shantotto-style BZ-Summon-castable-forever pattern.
@@ -652,5 +746,103 @@ public class CardBehaviorTest {
 
         verify(ctx).damageTarget(t0, 10000);
         verify(ctx, never()).damageTarget(eq(t1), anyInt());
+    }
+
+    // =========================================================================================
+    // Leon: "When Leon enters the field, your opponent gains control of Leon." / "When a
+    // Category II Character enters your opponent's field, your opponent gains control of Leon."
+    // — permanent control transfer of the source card itself to its own controller's opponent.
+    // =========================================================================================
+
+    private static final String LEON_TEXT =
+            "When Leon enters the field, your opponent gains control of Leon.[[br]]   "
+            + "When a Category II Character enters your opponent's field, your opponent gains control of Leon.";
+
+    @Test
+    void leonAutoAbilitiesParseWithExpectedTriggersAndSubjects() {
+        List<AutoAbility> autos = CardData.parseAutoAbilities(LEON_TEXT);
+        assertEquals(2, autos.size());
+
+        assertEquals("enters the field", autos.get(0).trigger());
+        assertEquals("Leon", autos.get(0).triggerCard());
+        assertTrue(autos.get(0).effectText().equalsIgnoreCase("your opponent gains control of Leon."));
+
+        assertEquals("enters opponent's field", autos.get(1).trigger());
+        assertEquals("a Category II Character", autos.get(1).triggerCard());
+        assertTrue(autos.get(1).effectText().equalsIgnoreCase("your opponent gains control of Leon."));
+    }
+
+    @Test
+    void opponentGainsControlOfSourceParsesAndDelegatesToGameContext() {
+        CardData leon = mock(CardData.class);
+        when(leon.name()).thenReturn("Leon");
+
+        Consumer<GameContext> fn = ActionResolver.parse("Your opponent gains control of Leon.", leon);
+        assertNotNull(fn);
+
+        GameContext ctx = mock(GameContext.class);
+        fn.accept(ctx);
+
+        verify(ctx).giveSourceControlToOpponent(leon);
+    }
+
+    @Test
+    void opponentGainsControlDoesNotFireWhenSourceNameDoesNotMatch() {
+        CardData other = mock(CardData.class);
+        when(other.name()).thenReturn("Not Leon");
+
+        Consumer<GameContext> fn = ActionResolver.parse("Your opponent gains control of Leon.", other);
+
+        assertNull(fn);
+    }
+
+    @Test
+    void giveForwardControlToOpponentMovesFromP1ToP2PreservingDamageAndState() {
+        MainWindow mw = new MainWindow();
+        CardData leon = makeForward("Leon", "Fire", 3, 5000);
+        mw.placeCardInForwardZone(leon); // P1 idx 0
+        mw.p1ForwardStates.set(0, CardState.DULL);
+        mw.p1ForwardDamage.set(0, 2000);
+
+        mw.giveForwardControlToOpponent(leon);
+
+        assertFalse(mw.p1ForwardCards.contains(leon), "Leon should have left P1's field");
+        assertEquals(1, mw.p2ForwardCards.size());
+        assertSame(leon, mw.p2ForwardCards.get(0));
+        assertEquals(CardState.DULL, mw.p2ForwardStates.get(0), "state should carry over");
+        assertEquals(2000, (int) mw.p2ForwardDamage.get(0), "damage should carry over");
+    }
+
+    @Test
+    void giveForwardControlToOpponentMovesFromP2ToP1() {
+        MainWindow mw = new MainWindow();
+        CardData leon = makeForward("Leon", "Fire", 3, 5000);
+        mw.placeP2CardInForwardZone(leon); // P2 idx 0
+
+        mw.giveForwardControlToOpponent(leon);
+
+        assertFalse(mw.p2ForwardCards.contains(leon), "Leon should have left P2's field");
+        assertEquals(1, mw.p1ForwardCards.size());
+        assertSame(leon, mw.p1ForwardCards.get(0));
+    }
+
+    @Test
+    void giveForwardControlToOpponentAppliesUniquenessRuleAgainstExistingCopy() {
+        // The opponent already controls their own Leon; once control crosses over, the two
+        // same-named copies conflict under the uniqueness rule and both go to the Break Zone.
+        MainWindow mw = new MainWindow();
+        CardData incomingLeon  = makeForward("Leon", "Fire", 3, 5000);
+        CardData existingLeon  = makeForward("Leon", "Fire", 3, 5000);
+        mw.gameState.getIdentity().put(incomingLeon, true);   // owned by P1
+        mw.gameState.getIdentity().put(existingLeon, false);  // owned by P2
+        mw.placeCardInForwardZone(incomingLeon);    // P1 idx 0
+        mw.placeP2CardInForwardZone(existingLeon);  // P2 idx 0
+
+        mw.giveForwardControlToOpponent(incomingLeon);
+
+        assertFalse(mw.p1ForwardCards.contains(incomingLeon));
+        assertFalse(mw.p2ForwardCards.contains(existingLeon));
+        assertTrue(mw.gameState.getP1BreakZone().contains(incomingLeon));
+        assertTrue(mw.gameState.getP2BreakZone().contains(existingLeon));
     }
 }
