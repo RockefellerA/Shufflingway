@@ -10144,6 +10144,7 @@ public class ActionResolver {
         s = CardData.NAMED_CARD_TOOK_DAMAGE_THIS_TURN_RESTRICTION.matcher(s).replaceAll("").trim();
         s = CardData.SELF_RECEIVED_DAMAGE_THIS_TURN_RESTRICTION   .matcher(s).replaceAll("").trim();
         s = CardData.FORWARD_PUT_TO_BZ_THIS_TURN_RESTRICTION      .matcher(s).replaceAll("").trim();
+        s = CardData.JOB_PUT_TO_BZ_THIS_TURN_RESTRICTION          .matcher(s).replaceAll("").trim();
         s = CardData.ELEMENT_FORWARD_ENTERED_THIS_TURN_PATTERN.matcher(s).replaceAll("").trim();
         s = CardData.COUNTER_MINIMUM_RESTRICTION              .matcher(s).replaceAll("").trim();
         s = CardData.OPP_HAND_AT_MOST_RESTRICTION             .matcher(s).replaceAll("").trim();

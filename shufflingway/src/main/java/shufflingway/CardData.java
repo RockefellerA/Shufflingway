@@ -1086,6 +1086,8 @@ public record CardData(
             String requiresNamedCardTookDamageThisTurn = namedCardDmgM.find() ? namedCardDmgM.group("card").trim() : null;
             boolean requiresSelfReceivedDamageThisTurn = SELF_RECEIVED_DAMAGE_THIS_TURN_RESTRICTION.matcher(effectRaw).find();
             boolean requiresForwardPutToBZThisTurn = FORWARD_PUT_TO_BZ_THIS_TURN_RESTRICTION.matcher(effectRaw).find();
+            Matcher jobPutToBzM = JOB_PUT_TO_BZ_THIS_TURN_RESTRICTION.matcher(effectRaw);
+            String  requiresJobPutToBZThisTurn = jobPutToBzM.find() ? jobPutToBzM.group("job").trim().toLowerCase() : null;
             Matcher blockerForAttackerM = BREAK_FORWARD_THAT_BLOCKS_NAMED_CARD.matcher(effectRaw);
             String  blockerForAttacker  = blockerForAttackerM.find() ? blockerForAttackerM.group("name").trim() : null;
             Matcher elemFwdM = ELEMENT_FORWARD_ENTERED_THIS_TURN_PATTERN.matcher(effectRaw);
@@ -1167,7 +1169,7 @@ public record CardData(
             String inlineCostReductionExcludeName = inlineExcludeRaw != null ? inlineExcludeRaw.trim() : null;
             boolean requiresOwnWarpCard = REMOVE_WARP_COUNTER_FROM_RFG.matcher(effectRaw).find();
             boolean usableByEitherPlayer = EACH_PLAYER_CAN_USE_PATTERN.matcher(effectRaw).find();
-            result.add(new ActionAbility(abilityName, requiresDull, isSpecial, crystalCost, selfMillCost, hasXCost, cpCost, breakZoneCosts, discardCosts, removeFromGameCosts, returnToHandCosts, counterCosts, dullForwardCosts, yourTurnOnly, opponentTurnOnly, oncePerTurn, mainPhaseOnly, whileCardAtk, whileCardBlk, whilePartyAtk, whileCardInHand, hasBlockingTarget, effectRaw, damageThreshold, controlCondition, cpBackupElement, cpAllowedElements, sourceInBattle, requiresOppDiscardedThisTurn, requiresCastSummonThisTurn, requiresElementForwardEnteredThisTurn, requiresCardNameEnteredThisTurn, breakZoneOnly, requiresOpponentEmptyHand, requiresSelfEmptyHand, requiresNamedCardTookDamageThisTurn, requiresSelfReceivedDamageThisTurn, requiresForwardPutToBZThisTurn, blockerForAttacker, ownBzCard, counterScaleName, minCounterRequired, minCounterType, maxOpponentHandSize, requiresSourceIsForward, maxCounterAllowed, maxCounterType, inlineCostReductionJob, inlineCostReductionExcludeName, requiresOwnWarpCard, usableByEitherPlayer));
+            result.add(new ActionAbility(abilityName, requiresDull, isSpecial, crystalCost, selfMillCost, hasXCost, cpCost, breakZoneCosts, discardCosts, removeFromGameCosts, returnToHandCosts, counterCosts, dullForwardCosts, yourTurnOnly, opponentTurnOnly, oncePerTurn, mainPhaseOnly, whileCardAtk, whileCardBlk, whilePartyAtk, whileCardInHand, hasBlockingTarget, effectRaw, damageThreshold, controlCondition, cpBackupElement, cpAllowedElements, sourceInBattle, requiresOppDiscardedThisTurn, requiresCastSummonThisTurn, requiresElementForwardEnteredThisTurn, requiresCardNameEnteredThisTurn, breakZoneOnly, requiresOpponentEmptyHand, requiresSelfEmptyHand, requiresNamedCardTookDamageThisTurn, requiresSelfReceivedDamageThisTurn, requiresForwardPutToBZThisTurn, requiresJobPutToBZThisTurn, blockerForAttacker, ownBzCard, counterScaleName, minCounterRequired, minCounterType, maxOpponentHandSize, requiresSourceIsForward, maxCounterAllowed, maxCounterType, inlineCostReductionJob, inlineCostReductionExcludeName, requiresOwnWarpCard, usableByEitherPlayer));
         }
         return List.copyOf(result);
     }
@@ -1183,7 +1185,7 @@ public record CardData(
                 a.requiresCastSummonThisTurn(), a.requiresElementForwardEnteredThisTurn(),
                 a.requiresCardNameEnteredThisTurn(), a.breakZoneOnly(), a.requiresOpponentEmptyHand(),
                 a.requiresSelfEmptyHand(), a.requiresNamedCardTookDamageThisTurn(), a.requiresSelfReceivedDamageThisTurn(),
-                a.requiresForwardPutToBZThisTurn(), a.blockerForAttacker(), bzCard,
+                a.requiresForwardPutToBZThisTurn(), a.requiresJobPutToBZThisTurn(), a.blockerForAttacker(), bzCard,
                 a.counterScaleName(), a.minCounterRequired(), a.minCounterType(), a.maxOpponentHandSize(), a.requiresSourceIsForward(),
                 a.maxCounterAllowed(), a.maxCounterType(), a.inlineCostReductionJob(), a.inlineCostReductionExcludeName(), a.requiresOwnWarpCard(),
                 a.usableByEitherPlayer());
@@ -1368,6 +1370,15 @@ public record CardData(
     /** "You can only use this ability if a Forward you controlled has been put from the field into the Break Zone this turn." */
     static final Pattern FORWARD_PUT_TO_BZ_THIS_TURN_RESTRICTION = Pattern.compile(
         "(?i)You\\s+can\\s+only\\s+use\\s+this\\s+ability\\s+if\\s+a\\s+Forward\\s+you\\s+controlled\\s+has\\s+been\\s+put\\s+from\\s+the\\s+field\\s+into\\s+the\\s+Break\\s+Zone\\s+this\\s+turn[.!]?"
+    );
+
+    /**
+     * "You can only use this ability if a Job [Job Name] you controlled has been put from the
+     * field into the Break Zone this turn." — job-qualified sibling of
+     * {@link #FORWARD_PUT_TO_BZ_THIS_TURN_RESTRICTION}. Captures the job name in group {@code job}.
+     */
+    static final Pattern JOB_PUT_TO_BZ_THIS_TURN_RESTRICTION = Pattern.compile(
+        "(?i)You\\s+can\\s+only\\s+use\\s+this\\s+ability\\s+if\\s+a\\s+Job\\s+(?<job>.+?)\\s+you\\s+controlled\\s+has\\s+been\\s+put\\s+from\\s+the\\s+field\\s+into\\s+the\\s+Break\\s+Zone\\s+this\\s+turn[.!]?"
     );
 
     /** "You can only use this ability if an/a [Element] Forward has entered your field this turn." */

@@ -78,6 +78,7 @@ public record ActionAbility(
         String                  requiresNamedCardTookDamageThisTurn, // null = no restriction; non-null = card name that must have received damage this turn
         boolean                 requiresSelfReceivedDamageThisTurn,  // true = controller must have received ≥1 point of game damage this turn
         boolean                 requiresForwardPutToBZThisTurn,      // true = a Forward the controller controlled must have been put from the field into the BZ this turn
+        String                  requiresJobPutToBZThisTurn,          // null = no restriction; else = job name (lower-case) of which a controlled card must have been put from the field into the BZ this turn
         String                  blockerForAttacker,           // null = no restriction; non-null = that named attacker must currently have a blocker declared against it (substep 3 only)
         String                  ownBreakZoneNameRequired,     // null = no restriction; non-null = named card must be in the controller's own BZ (ability used from the field)
         String                  counterScaleName,             // null = normal; non-null = counter type name (e.g. "Monster") whose count on the source card becomes xValue at activation, captured before BZ cost is paid
@@ -124,7 +125,7 @@ public record ActionAbility(
                 requiresCastSummonThisTurn(), requiresElementForwardEnteredThisTurn(),
                 requiresCardNameEnteredThisTurn(), breakZoneOnly(), requiresOpponentEmptyHand(),
                 requiresSelfEmptyHand(), requiresNamedCardTookDamageThisTurn(), requiresSelfReceivedDamageThisTurn(),
-                requiresForwardPutToBZThisTurn(), blockerForAttacker(), ownBreakZoneNameRequired(),
+                requiresForwardPutToBZThisTurn(), requiresJobPutToBZThisTurn(), blockerForAttacker(), ownBreakZoneNameRequired(),
                 counterScaleName(), minCounterRequired(), minCounterType(), maxOpponentHandSize(),
                 requiresSourceIsForward(), maxCounterAllowed(), maxCounterType(),
                 inlineCostReductionJob(), inlineCostReductionExcludeName(), requiresOwnWarpCard(),
@@ -141,7 +142,7 @@ public record ActionAbility(
             true, false, false, false,
             null, null, false, false, false,
             effectText,
-            0, null, null, null, false, false, false, null, null, null, false, false, null, false, false, null, null, null, 0, null, -1, false, -1, null, null, null, false, false
+            0, null, null, null, false, false, false, null, null, null, false, false, null, false, false, null, null, null, null, 0, null, -1, false, -1, null, null, null, false, false
         );
     }
 }

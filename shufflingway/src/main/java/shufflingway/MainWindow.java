@@ -8471,6 +8471,7 @@ public class MainWindow {
 		if (ability.requiresNamedCardTookDamageThisTurn() != null)  { if (!firstRestrict) restrict.append(", "); restrict.append(ability.requiresNamedCardTookDamageThisTurn()).append(" took dmg");  firstRestrict = false; }
 		if (ability.requiresSelfReceivedDamageThisTurn())           { if (!firstRestrict) restrict.append(", "); restrict.append("self rcvd dmg"); firstRestrict = false; }
 		if (ability.requiresForwardPutToBZThisTurn())               { if (!firstRestrict) restrict.append(", "); restrict.append("own fwd to BZ"); firstRestrict = false; }
+		if (ability.requiresJobPutToBZThisTurn() != null)           { if (!firstRestrict) restrict.append(", "); restrict.append("own Job ").append(ability.requiresJobPutToBZThisTurn()).append(" to BZ"); firstRestrict = false; }
 		if (ability.blockerForAttacker() != null)                   { if (!firstRestrict) restrict.append(", "); restrict.append("blks ").append(ability.blockerForAttacker()); firstRestrict = false; }
 		if (ability.requiresOwnWarpCard())                         { if (!firstRestrict) restrict.append(", "); restrict.append("needs Warp card");  firstRestrict = false; }
 		if (restrict.length() > 0) sb.append(restrict).append(" — ");
@@ -8850,6 +8851,10 @@ public class MainWindow {
 		}
 		if (ability.requiresForwardPutToBZThisTurn()) {
 			if (!(isP1 ? p1ForwardPutToBZThisTurn : p2ForwardPutToBZThisTurn)) return false;
+		}
+		if (ability.requiresJobPutToBZThisTurn() != null) {
+			Set<String> brokenJobs = isP1 ? p1BrokenJobsThisTurn : p2BrokenJobsThisTurn;
+			if (!brokenJobs.contains(ability.requiresJobPutToBZThisTurn())) return false;
 		}
 		if (ability.requiresElementForwardEnteredThisTurn() != null) {
 			Set<String> entered = isP1 ? p1ElementForwardsEnteredThisTurn : p2ElementForwardsEnteredThisTurn;

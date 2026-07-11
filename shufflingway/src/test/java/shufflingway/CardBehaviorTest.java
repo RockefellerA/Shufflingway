@@ -1076,4 +1076,43 @@ public class CardBehaviorTest {
         assertTrue(mw.gameState.getP2Hand().contains(warped), "the Warp card should have been found");
         assertFalse(mw.gameState.getP2Hand().contains(plain), "the non-Warp card must not match");
     }
+
+    // =========================================================================================
+    // Job-scoped "put from the field into the Break Zone this turn" restriction: "Choose 1
+    // Forward opponent controls. Break it. You can only use this ability if a Job AVALANCHE
+    // Operative you controlled has been put from the field into the Break Zone this turn."
+    // =========================================================================================
+
+    private static final String JOB_BROKEN_ABILITY_TEXT =
+            "《Dull》: Choose 1 Forward opponent controls. Break it. You can only use this "
+            + "ability if a Job AVALANCHE Operative you controlled has been put from the field into "
+            + "the Break Zone this turn.";
+
+    @Test
+    void jobBrokenThisTurnRestrictionParsesJobNameAndStripsFromEffectText() {
+        List<ActionAbility> abilities = CardData.parseActionAbilities(JOB_BROKEN_ABILITY_TEXT);
+        assertEquals(1, abilities.size());
+        ActionAbility ability = abilities.get(0);
+
+        assertEquals("avalanche operative", ability.requiresJobPutToBZThisTurn());
+        assertFalse(ability.requiresForwardPutToBZThisTurn(),
+                "the generic (non-job) restriction must not also fire for the job-qualified sentence");
+    }
+
+    @Test
+    void jobBrokenThisTurnRestrictionGatesActivation() {
+        List<ActionAbility> abilities = CardData.parseActionAbilities(JOB_BROKEN_ABILITY_TEXT);
+        ActionAbility ability = abilities.get(0);
+
+        MainWindow mw = new MainWindow();
+        CardData source = makeForward("Source", "Fire", 1, 5000);
+        mw.placeCardInForwardZone(source);
+
+        assertFalse(mw.canActivateAbility(ability, false, CardState.ACTIVE, 0, source, true),
+                "must not be usable when no Job AVALANCHE Operative has broken this turn");
+
+        mw.p1BrokenJobsThisTurn.add("avalanche operative");
+        assertTrue(mw.canActivateAbility(ability, false, CardState.ACTIVE, 0, source, true),
+                "must be usable once a Job AVALANCHE Operative was put from the field into the BZ this turn");
+    }
 }
