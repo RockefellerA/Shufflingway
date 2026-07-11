@@ -3836,7 +3836,7 @@ public class MainWindow {
 			boolean inclMonsters, boolean inclSummons,
 			int costVal, String costCmp, String cardNameFilter, String jobFilter,
 			String categoryFilter, String elementFilter, String excludeName, String excludeElem,
-			String destination, int count, boolean entersDull) {
+			String destination, int count, boolean entersDull, boolean requireWarp) {
 		if (isP1 ? p1CannotSearchThisTurn : p2CannotSearchThisTurn) {
 			logEntry("Search blocked — opponent cannot search this turn");
 			return;
@@ -3852,6 +3852,7 @@ public class MainWindow {
 				                 || (inclSummons  && c.isSummon());
 				if (!typeMatch) continue;
 			}
+			if (requireWarp && !c.hasWarp()) continue;
 			if (!meetsCostConstraint(c.cost(), costVal, costCmp)) continue;
 			boolean passesNameJob = (jobFilter == null && cardNameFilter == null)
 				|| (jobFilter != null && cardNameFilter != null

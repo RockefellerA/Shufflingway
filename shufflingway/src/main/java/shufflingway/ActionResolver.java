@@ -2577,6 +2577,7 @@ public class ActionResolver {
      *   <li>Group {@code preelems}   — element(s) appearing BEFORE the job/name filter, e.g. {@code "Fire"} in {@code "Search for 1 Fire Job Knight"}</li>
      *   <li>Group {@code elements}   — element(s) appearing AFTER the job/name filter; {@code preelems} takes priority when both could apply</li>
      *   <li>Group {@code targets}    — card type word; absent or {@code "card"} means any type</li>
+     *   <li>Group {@code withwarp}   — present for {@code "card with Warp"}; restricts results to cards with the Warp trait</li>
      *   <li>Group {@code excludename}— card name to exclude, from {@code "other than Card Name X"}</li>
      *   <li>Group {@code cost}       — optional cost number</li>
      *   <li>Group {@code costcmp}    — optional {@code "less"} or {@code "more"}</li>
@@ -2657,6 +2658,7 @@ public class ActionResolver {
         "(?:(?<elements>(?:Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)" +
             "(?:\\s+or\\s+(?:Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark))*)\\s+)?" +
         "(?<targets>(?:Forwards?|Backups?|Monsters?|Summons?|Characters?)(?:\\s+or\\s+(?:Forwards?|Backups?|Monsters?|Summons?|Characters?))*|cards?)?\\s*" +
+        "(?<withwarp>with\\s+Warp)?\\s*" +
         "(?:\\s+other\\s+than\\s+a(?:n)?\\s+(?<excludetype>Forward|Backup|Monster|Summon|Character))?\\s*" +
         "(?:\\s+other\\s+than\\s+Card\\s+Name\\s+(?<excludename>.+?)(?=\\s+of\\s+cost|\\s+and\\b))?" +
         "(?:of\\s+cost\\s+(?<cost>\\d+)(?:\\s+or\\s+(?<costcmp>less|more|\\d+))?\\s*)?" +
@@ -15097,6 +15099,9 @@ public class ActionResolver {
                            : destText.contains("on top")   ? "deckTop"
                            :                                 "underTop";
 
+        // --- Warp trait filter ("card with Warp") ---
+        boolean requireWarp = m.group("withwarp") != null;
+
         // Build log label
         StringBuilder filterDesc = new StringBuilder();
         if (cardNameFilter  != null) filterDesc.append(" [Name ").append(cardNameFilter).append("]");
@@ -15105,6 +15110,7 @@ public class ActionResolver {
         if (elementFilter   != null) filterDesc.append(" [").append(elementsRaw).append("]");
         if (excludeName     != null) filterDesc.append(" [not ").append(excludeName).append("]");
         if (excludeElem     != null) filterDesc.append(" [not ").append(excludeElem).append("]");
+        if (requireWarp     )        filterDesc.append(" [with Warp]");
         String typeDesc  = (targets != null && !anyType) ? " " + targets : "";
         String costLabel = CardFilters.formatCostFilterLabel(costVal, costCmp);
 
@@ -15117,9 +15123,10 @@ public class ActionResolver {
         final boolean fwd = inclForwards, bk = inclBackups, mn = inclMonsters, sm = inclSummons;
         final int fCount = count;
         final boolean fDull = entersDull;
+        final boolean fWarp = requireWarp;
         return ctx -> {
             ctx.logEntry("Effect: Search deck for " + fCount + filterDesc + typeDesc + costLabel + " → " + destination + (fDull ? " dull" : ""));
-            ctx.searchDeckForCard(fwd, bk, mn, sm, costVal, costCmp, fName, fJob, fCat, fElem, fExclude, fExclElem, destination, fCount, fDull);
+            ctx.searchDeckForCard(fwd, bk, mn, sm, costVal, costCmp, fName, fJob, fCat, fElem, fExclude, fExclElem, destination, fCount, fDull, fWarp);
             if (secondary != null) secondary.accept(ctx);
         };
     }

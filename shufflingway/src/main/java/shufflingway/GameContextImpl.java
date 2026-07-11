@@ -1082,9 +1082,9 @@ final class GameContextImpl implements GameContext {
 					boolean inclMonsters, boolean inclSummons,
 					int costVal, String costCmp, String cardNameFilter, String jobFilter,
 					String categoryFilter, String elementFilter, String excludeName, String excludeElem,
-					String destination, int count, boolean entersDull) {
+					String destination, int count, boolean entersDull, boolean requireWarp) {
 				mw.searchDeckForCard(isP1, inclForwards, inclBackups, inclMonsters, inclSummons,
-						costVal, costCmp, cardNameFilter, jobFilter, categoryFilter, elementFilter, excludeName, excludeElem, destination, count, entersDull);
+						costVal, costCmp, cardNameFilter, jobFilter, categoryFilter, elementFilter, excludeName, excludeElem, destination, count, entersDull, requireWarp);
 			}
 			@Override public void searchDeckJobAndTypeDontShareElements(String jobFilter, String typeName) {
 				mw.searchDeckJobAndTypeDontShareElements(isP1, jobFilter, typeName);

@@ -1015,4 +1015,65 @@ public class CardBehaviorTest {
         assertEquals(1, zone.size());
         assertEquals(2, zone.get(0).counters, "AI must decline, leaving the counter count unchanged");
     }
+
+    // =========================================================================================
+    // Cid (II): "When Cid (II) enters the field, you may search for 1 card with Warp and add it
+    // to your hand." — the generic "search deck" pattern had no way to restrict results to cards
+    // with the Warp trait, so this always failed to parse.
+    // =========================================================================================
+
+    private static final String CID_II_TEXT =
+            "When Cid (II) enters the field, you may search for 1 card with Warp and add it to "
+            + "your hand.[[br]]   《Dull》, put Cid (II) into the Break Zone: Choose 1 card removed "
+            + "from the game. Remove 1 Warp Counter from it. You can only use this ability during your turn.";
+
+    private static CardData makeForwardWithWarp(String name, String element, int cost, int power, int warpValue) {
+        return new CardData(null, name, element, cost, power, "Forward", false, 0, false, false,
+                Set.of(), warpValue, List.of(), null, List.of(),
+                List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(),
+                false, false, null, false, false, false, false, false, false,
+                null, null, null, "");
+    }
+
+    @Test
+    void cidIiEnterTheFieldAutoAbilityParsesAsOptionalSearchWithWarp() {
+        List<AutoAbility> autos = CardData.parseAutoAbilities(CID_II_TEXT);
+        assertEquals(1, autos.size(), "the 《Dull》 action ability must not be picked up as an auto-ability");
+        AutoAbility fa = autos.get(0);
+        assertEquals("enters the field", fa.trigger());
+        assertEquals("Cid (II)", fa.triggerCard());
+        assertTrue(fa.youMay());
+        assertEquals("search for 1 card with Warp and add it to your hand.", fa.effectText());
+    }
+
+    @Test
+    void searchForCardWithWarpParsesAndRequiresWarpTrait() {
+        Consumer<GameContext> fn = ActionResolver.parse(
+                "search for 1 card with Warp and add it to your hand.", null);
+        assertNotNull(fn);
+
+        GameContext ctx = mock(GameContext.class);
+        fn.accept(ctx);
+
+        verify(ctx).searchDeckForCard(anyBoolean(), anyBoolean(), anyBoolean(), anyBoolean(),
+                anyInt(), any(), any(), any(), any(), any(), any(), any(),
+                eq("hand"), eq(1), eq(false), eq(true));
+    }
+
+    @Test
+    void searchDeckForCardWithWarpFindsOnlyTheWarpCard() {
+        // AI (P2) path avoids the modal card-picker dialog used for a single P1 match.
+        MainWindow mw = new MainWindow();
+        CardData plain  = makeForwardWithWarp("Plain One", "Fire", 3, 5000, 0);
+        CardData warped = makeForwardWithWarp("Warp One", "Fire", 3, 5000, 2);
+        mw.gameState.getP2MainDeck().add(plain);
+        mw.gameState.getP2MainDeck().add(warped);
+
+        mw.searchDeckForCard(false, true, true, true, true,
+                -1, null, null, null, null, null, null, null,
+                "hand", 1, false, true);
+
+        assertTrue(mw.gameState.getP2Hand().contains(warped), "the Warp card should have been found");
+        assertFalse(mw.gameState.getP2Hand().contains(plain), "the non-Warp card must not match");
+    }
 }

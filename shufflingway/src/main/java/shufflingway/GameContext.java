@@ -1621,11 +1621,12 @@ public interface GameContext {
      *                       {@code "deckTop"} — place on top of deck,
      *                       {@code "underTop"} — place second from top of deck,
      *                       {@code "breakZone"} — put into the Break Zone
+     * @param requireWarp    if {@code true}, restrict results to cards with the Warp trait
      */
     void searchDeckForCard(boolean inclForwards, boolean inclBackups, boolean inclMonsters, boolean inclSummons,
             int costVal, String costCmp, String cardNameFilter, String jobFilter,
             String categoryFilter, String elementFilter, String excludeName, String excludeElem,
-            String destination, int count, boolean entersDull);
+            String destination, int count, boolean entersDull, boolean requireWarp);
 
     /**
      * Searches the deck for up to 1 card with {@code jobFilter} job and up to 1 card of {@code typeName} type
