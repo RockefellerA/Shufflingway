@@ -1515,6 +1515,14 @@ public interface GameContext {
     void revealTopNPlayUpToElementTypeCostOntoFieldRestBottom(int reveal, int maxPlay, String element, String typeFilter, int maxCost);
 
     /**
+     * Reveals the top {@code reveal} cards. The player may play up to {@code maxPlay} cards
+     * matching Card Name {@code cardName} OR Job {@code job}, with cost &le; {@code maxCost},
+     * onto the field for free. The remaining cards go to the bottom of the deck in any order.
+     */
+    void revealTopNPlayUpToNamedOrJobWithMaxCostOntoFieldRestBottom(
+            int reveal, int maxPlay, String cardName, String job, int maxCost);
+
+    /**
      * Reveals the top {@code reveal} cards. The player may either add up to {@code handMax}
      * cards matching {@code handType} to their hand, OR play up to {@code fieldMax} cards
      * matching {@code fieldJob} (optional) and {@code fieldType} onto the field for free.

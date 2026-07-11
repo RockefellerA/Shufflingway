@@ -143,17 +143,42 @@ public class AutoAbilityParsingTest {
 
     /** Reconstructs the original trigger line for display. */
     private static String autoAbilityText(AutoAbility fa) {
-        StringBuilder sb = new StringBuilder("When ");
-        String trigger = triggerDisplayText(fa.trigger());
-        if (fa.warpOnly() && trigger.equals("enters the field"))
-            trigger = "enters the field due to Warp";
-        else if (fa.castOnly() && trigger.equals("enters the field"))
-            trigger = "enters the field due to your cast";
-        sb.append(fa.triggerCard()).append(' ').append(trigger).append(", ");
+        StringBuilder sb = new StringBuilder();
+        String phaseTrigger = phaseTriggerDisplayText(fa.trigger());
+        if (phaseTrigger != null && fa.triggerCard().isEmpty()) {
+            sb.append(phaseTrigger).append(", ");
+        } else {
+            sb.append("When ");
+            String trigger = triggerDisplayText(fa.trigger());
+            if (fa.warpOnly() && trigger.equals("enters the field"))
+                trigger = "enters the field due to Warp";
+            else if (fa.castOnly() && trigger.equals("enters the field"))
+                trigger = "enters the field due to your cast";
+            sb.append(fa.triggerCard()).append(' ').append(trigger).append(", ");
+        }
         if (fa.youMay())       sb.append("you may ");
         else if (fa.opponentMay()) sb.append("your opponent may ");
         sb.append(fa.effectText()).append(dmgTag(fa.damageThreshold()));
         return sb.toString();
+    }
+
+    /**
+     * Maps a canonical global (card-less) phase/time trigger key back to its original,
+     * grammatically correct lead-in phrase. Returns {@code null} for ordinary card-relative
+     * triggers, which use the "When [card] [trigger]" form instead.
+     */
+    private static String phaseTriggerDisplayText(String trigger) {
+        return switch (trigger) {
+            case "beginning of attack phase"           -> "At the beginning of the Attack Phase during each of your turns";
+            case "end of your turn"                     -> "At the end of each of your turns";
+            case "beginning of main phase 1"            -> "At the beginning of your Main Phase 1";
+            case "beginning of main phase 2"            -> "At the beginning of your Main Phase 2";
+            case "beginning of main phase 1 each turn"  -> "Each turn, at the beginning of Main Phase 1";
+            case "beginning of opponent's main phase 1" -> "At the beginning of your opponent's Main Phase 1";
+            case "end of opponent's turn"                -> "At the end of your opponent's turn";
+            case "end of each player's turn"             -> "At the end of each player's turn";
+            default                                      -> null;
+        };
     }
 
     /** Maps a canonical trigger key back to a human-readable trigger phrase. */

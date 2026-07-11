@@ -5780,6 +5780,43 @@ final class GameContextImpl implements GameContext {
 				}
 			}
 
+			@Override public void revealTopNPlayUpToNamedOrJobWithMaxCostOntoFieldRestBottom(
+					int reveal, int maxPlay, String cardName, String job, int maxCost) {
+				Deque<CardData> deck = isP1 ? mw.gameState.getP1MainDeck() : mw.gameState.getP2MainDeck();
+				int n = Math.min(reveal, deck.size());
+				if (n == 0) { logEntry("Reveal top: deck is empty."); return; }
+				List<CardData> peeked = new ArrayList<>();
+				for (CardData c : deck) { peeked.add(c); if (peeked.size() >= n) break; }
+				logEntry("Reveal top " + n + " card(s): " +
+						peeked.stream().map(CardData::name).collect(Collectors.joining(", ")));
+				Consumer<CardData> playOntoField = c -> {
+					if (c.isBackup())       mw.placeCardInFirstBackupSlot(c);
+					else if (c.isMonster()) mw.placeCardInMonsterZone(c);
+					else                    mw.placeCardInForwardZone(c);
+				};
+				java.util.function.Predicate<CardData> eligible = c ->
+						(CardFilters.meetsCardNameFilter(c, cardName) || CardFilters.meetsJobFilter(c, job))
+						&& (maxCost < 0 || c.cost() <= maxCost);
+				if (!isP1 && mw.isP2Cpu()) {
+					List<CardData> chosen = peeked.stream().filter(eligible)
+							.sorted(java.util.Comparator.comparingInt(CardData::cost).reversed())
+							.limit(maxPlay)
+							.collect(Collectors.toList());
+					Set<CardData> chosenSet = new java.util.LinkedHashSet<>(chosen);
+					for (int i = 0; i < n; i++) deck.pollFirst();
+					for (CardData c : peeked) {
+						if (!chosenSet.contains(c)) { deck.addLast(c); logEntry("[AI] " + c.name() + " → [P2] bottom of deck"); }
+					}
+					mw.refreshP2DeckLabel();
+					for (CardData c : chosenSet) {
+						logEntry("[AI] " + c.name() + " played onto field");
+						playOntoField.accept(c);
+					}
+				} else {
+					mw.lookDialogs().showRevealPlayNamedOrJobMaxCostOntoFieldRestBottom(peeked, deck, isP1, maxPlay, cardName, job, maxCost, playOntoField);
+				}
+			}
+
 			@Override public void revealTopNAddTypeToHandOrPlayJobTypeOntoFieldRestBottom(
 					int reveal, int handMax, String handType, int fieldMax, String fieldJob, String fieldType) {
 				Deque<CardData> deck = isP1 ? mw.gameState.getP1MainDeck() : mw.gameState.getP2MainDeck();

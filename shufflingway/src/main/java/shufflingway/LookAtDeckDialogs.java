@@ -1310,6 +1310,21 @@ class LookAtDeckDialogs {
         showRevealPlayOntoFieldRestBottomImpl(cards, deck, isP1, maxPlay, typeLabel, eligible, playOntoField);
     }
 
+    /**
+     * "Play up to {@code maxPlay} Card Name {@code cardName} or Job {@code job} of cost
+     * {@code maxCost} or less among them onto the field; rest to the bottom of the deck in any
+     * order." — combined Card-Name-or-Job filter (e.g. "Card Name Moogle (XIV) or Job Moogle").
+     */
+    void showRevealPlayNamedOrJobMaxCostOntoFieldRestBottom(List<CardData> cards, Deque<CardData> deck,
+            boolean isP1, int maxPlay, String cardName, String job, int maxCost, Consumer<CardData> playOntoField) {
+        String typeLabel = "Card Name " + cardName + " or Job " + job
+                + (maxCost >= 0 ? " of cost " + maxCost + " or less" : "");
+        java.util.function.Predicate<CardData> eligible = c ->
+                (CardFilters.meetsCardNameFilter(c, cardName) || CardFilters.meetsJobFilter(c, job))
+                && (maxCost < 0 || c.cost() <= maxCost);
+        showRevealPlayOntoFieldRestBottomImpl(cards, deck, isP1, maxPlay, typeLabel, eligible, playOntoField);
+    }
+
     private void showRevealPlayOntoFieldRestBottomImpl(List<CardData> cards, Deque<CardData> deck,
             boolean isP1, int maxPlay, String typeLabel,
             java.util.function.Predicate<CardData> eligible, Consumer<CardData> playOntoField) {

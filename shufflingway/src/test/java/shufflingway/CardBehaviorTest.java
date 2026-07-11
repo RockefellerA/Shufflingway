@@ -845,4 +845,39 @@ public class CardBehaviorTest {
         assertTrue(mw.gameState.getP1BreakZone().contains(incomingLeon));
         assertTrue(mw.gameState.getP2BreakZone().contains(existingLeon));
     }
+
+    // =========================================================================================
+    // Moogle (XIV): "At the end of each of your turns, reveal the top 3 cards of your deck. Play
+    // up to 1 Card Name Moogle (XIV) or Job Moogle of cost 3 or less among them onto the field
+    // and return the other cards to the bottom of your deck in any order." — the combined
+    // Card-Name-or-Job filter with a cost ceiling on a "reveal top N, play up to M" effect.
+    // =========================================================================================
+
+    private static final String MOOGLE_XIV_TEXT =
+            "At the end of each of your turns, reveal the top 3 cards of your deck. Play up to 1 "
+            + "Card Name Moogle (XIV) or Job Moogle of cost 3 or less among them onto the field "
+            + "and return the other cards to the bottom of your deck in any order.";
+
+    @Test
+    void moogleXivAutoAbilityParsesAsEndOfTurnGlobalTrigger() {
+        List<AutoAbility> autos = CardData.parseAutoAbilities(MOOGLE_XIV_TEXT);
+        assertEquals(1, autos.size());
+        AutoAbility fa = autos.get(0);
+        assertEquals("end of your turn", fa.trigger());
+        assertEquals("", fa.triggerCard());
+        assertTrue(fa.effectText().toLowerCase().startsWith("reveal the top 3 cards of your deck"));
+    }
+
+    @Test
+    void moogleXivRevealPlayNamedOrJobMaxCostParsesAndResolves() {
+        String effectText = CardData.parseAutoAbilities(MOOGLE_XIV_TEXT).get(0).effectText();
+
+        Consumer<GameContext> fn = ActionResolver.parse(effectText, null);
+        assertNotNull(fn, "Expected \"" + effectText + "\" to parse");
+
+        GameContext ctx = mock(GameContext.class);
+        fn.accept(ctx);
+
+        verify(ctx).revealTopNPlayUpToNamedOrJobWithMaxCostOntoFieldRestBottom(3, 1, "Moogle (XIV)", "Moogle", 3);
+    }
 }

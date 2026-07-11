@@ -1162,6 +1162,21 @@ public class ActionResolver {
     );
 
     /**
+     * Matches "Reveal the top N cards of your deck. Play up to M Card Name X or Job Y of cost C
+     * or less among them onto the field and return the other cards to the bottom of your deck in
+     * any order." — combined Card-Name-or-Job filter with a cost ceiling (e.g. Moogle (XIV)).
+     * Groups: {@code n}, {@code max}, {@code cardname}, {@code job}, {@code maxcost}.
+     */
+    private static final Pattern REVEAL_PLAY_NAMED_OR_JOB_MAX_COST_REST_BOTTOM = Pattern.compile(
+        "(?i)reveal\\s+the\\s+top\\s+(?<n>\\d+)\\s+cards?\\s+of\\s+your\\s+deck[.!]?\\s+" +
+        "Play\\s+(?:up\\s+to\\s+)?(?<max>\\d+)\\s+Card\\s+Name\\s+(?<cardname>.+?)\\s+or\\s+Job\\s+(?<job>.+?)\\s+" +
+        "of\\s+cost\\s+(?<maxcost>\\d+)\\s+or\\s+less\\s+" +
+        "among\\s+them\\s+onto\\s+(?:the\\s+)?field\\s+" +
+        "and\\s+return\\s+the\\s+other\\s+cards?\\s+to\\s+the\\s+bottom\\s+of\\s+(?:your|the)\\s+deck" +
+        "(?:\\s+in\\s+any\\s+order)?[.!]?"
+    );
+
+    /**
      * Matches "Select 1 card type. Turn over one card at a time from the top of your deck until
      * a selected type is revealed. Add it to your hand. Then, shuffle the other cards revealed
      * and return them to the bottom of your deck."
@@ -5064,6 +5079,9 @@ public class ActionResolver {
         result = tryParseRevealPlayNamedWithMaxCostRestBottom(effectText);
         if (result != null) return result;
 
+        result = tryParseRevealPlayNamedOrJobMaxCostRestBottom(effectText);
+        if (result != null) return result;
+
         result = tryParseFlipUntilTypeToHandRestShuffleBottom(effectText);
         if (result != null) return result;
 
@@ -5380,6 +5398,7 @@ public class ActionResolver {
         if (tryParseLookTopDeckPeek(effectText)                              != null) return "LookTopDeckPeek";
         if (tryParseRemoveTopOfDeckFromGame(effectText)                      != null) return "RemoveTopOfDeckFromGame";
         if (tryParseRevealPlayNamedWithMaxCostRestBottom(effectText)         != null) return "RevealPlayNamedWithMaxCostRestBottom";
+        if (tryParseRevealPlayNamedOrJobMaxCostRestBottom(effectText)        != null) return "RevealPlayNamedOrJobMaxCostRestBottom";
         if (tryParseFlipUntilTypeToHandRestShuffleBottom(effectText)         != null) return "FlipUntilTypeToHandRestShuffleBottom";
         if (tryParseShuffleDeck(effectText)                                  != null) return "ShuffleDeck";
         if (tryParseIfOwnForwardFormedParty(effectText, source, 0)       != null) return "IfOwnForwardFormedParty";
@@ -5869,6 +5888,7 @@ public class ActionResolver {
         if (tryParseLookTopDeckPeek(effectText)                              != null) return "LookTopDeckPeek";
         if (tryParseRemoveTopOfDeckFromGame(effectText)                      != null) return "RemoveTopOfDeckFromGame";
         if (tryParseRevealPlayNamedWithMaxCostRestBottom(effectText)           != null) return "RevealPlayNamedWithMaxCostRestBottom";
+        if (tryParseRevealPlayNamedOrJobMaxCostRestBottom(effectText)          != null) return "RevealPlayNamedOrJobMaxCostRestBottom";
         if (tryParseFlipUntilTypeToHandRestShuffleBottom(effectText)           != null) return "FlipUntilTypeToHandRestShuffleBottom";
         if (tryParseShuffleThenRevealPlayNamedRestBottom(effectText, source) != null) return "ShuffleThenRevealPlayNamedRestBottom";
         if (tryParseRevealPlayTypeOntoFieldRestBottom(effectText)                != null) return "RevealPlayTypeOntoFieldRestBottom";
@@ -11829,6 +11849,17 @@ public class ActionResolver {
         String cardName = m.group("cardname").trim();
         int maxCost     = Integer.parseInt(m.group("maxcost"));
         return ctx -> ctx.revealTopNPlayNamedWithMaxCostOntoFieldRestBottom(n, cardName, maxCost);
+    }
+
+    private static Consumer<GameContext> tryParseRevealPlayNamedOrJobMaxCostRestBottom(String text) {
+        Matcher m = REVEAL_PLAY_NAMED_OR_JOB_MAX_COST_REST_BOTTOM.matcher(text.trim());
+        if (!m.matches()) return null;
+        int n           = Integer.parseInt(m.group("n"));
+        int max         = Integer.parseInt(m.group("max"));
+        String cardName = m.group("cardname").trim();
+        String job      = m.group("job").trim();
+        int maxCost     = Integer.parseInt(m.group("maxcost"));
+        return ctx -> ctx.revealTopNPlayUpToNamedOrJobWithMaxCostOntoFieldRestBottom(n, max, cardName, job, maxCost);
     }
 
     private static Consumer<GameContext> tryParseFlipUntilTypeToHandRestShuffleBottom(String text) {
