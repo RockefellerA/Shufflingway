@@ -455,6 +455,19 @@ public class ActionResolver {
     );
 
     /**
+     * Standalone "If your opponent doesn't pay 《N》, [target action]." — the body of a reactive
+     * auto-ability (e.g. Remedi: "…if your opponent doesn't pay 《2》, break it.") whose target is
+     * supplied via {@link GameContext#consumePreloadedTargets()} (the entering card). The opponent
+     * may pay {@code cost} in full to prevent it; otherwise the action ("break it", "dull it",
+     * "Freeze it", …) runs against the preloaded target(s) — parsed by {@link #parseTargetAction}.
+     * Groups: {@code cost} — CP amount; {@code effect} — the target action text.
+     */
+    private static final Pattern IF_OPP_NOT_PAY_ACTION = Pattern.compile(
+        "(?i)^If\\s+your\\s+opponent\\s+doesn(?:'|’)?t\\s+pay\\s+《\\s*(?<cost>\\d+)\\s*》,?\\s+(?<effect>.+)$",
+        Pattern.DOTALL
+    );
+
+    /**
      * Banon: "Reveal the top card of your deck. If it is a [Type], cancel all effects choosing [Name]."
      * Reveals (peeks) the top card of the controller's deck; if it is of the captured {@code type},
      * the in-progress selection is cancelled. Group {@code type} — Forward / Backup / Monster / Summon.
@@ -2289,6 +2302,12 @@ public class ActionResolver {
         "\\s+(?:in|from)\\s+your\\s+Break\\s+Zone\\s+and\\s+add\\s+it\\s+to\\s+your\\s+hand[.!]?$"
     );
 
+    /** Ceodore: "Choose 1 Card with Warp in your Break Zone. Add it to your hand." */
+    private static final Pattern CHOOSE_WARP_CARD_FROM_BZ_TO_HAND = Pattern.compile(
+        "(?i)^choose\\s+1\\s+Card\\s+with\\s+Warp\\s+(?:in|from)\\s+your\\s+Break\\s+Zone[.!]?\\s+" +
+        "Add\\s+it\\s+to\\s+your\\s+hand[.!]?$"
+    );
+
     /**
      * Matches "Each player who doesn't control N or more Forwards discards M card(s) [from their hand]."
      * Groups: {@code min} — forward threshold; {@code count} — cards to discard.
@@ -3931,6 +3950,18 @@ public class ActionResolver {
         Pattern.DOTALL
     );
 
+    /**
+     * Matches "If your opponent doesn't pay 《N》, [target action]." — the followup inside
+     * {@link #tryParseChooseCharacter} (e.g. Arkasodara: "choose 1 dull Forward. If your opponent
+     * doesn't pay 《3》, break it."). The opponent may pay {@code cost} CP in full to prevent the
+     * action; otherwise it runs against the chosen target(s).
+     * Groups: {@code cost} — CP amount; {@code effect} — the target action text (e.g. "break it").
+     */
+    static final Pattern FOLLOWUP_IF_OPP_NOT_PAY_ACTION = Pattern.compile(
+        "(?i)^If\\s+your\\s+opponent\\s+doesn(?:'|’)?t\\s+pay\\s+《\\s*(?<cost>\\d+)\\s*》,?\\s+(?<effect>.+)$",
+        Pattern.DOTALL
+    );
+
     private static final Pattern DRAW_DISCARD_RETRIGGER_IF_CARD_NAME = Pattern.compile(
         "(?i)^Draw\\s+(?<draw>\\d+)\\s+cards?\\s+then\\s+discard\\s+(?<discard>\\d+)\\s+cards?[.!]?\\s+" +
         "If\\s+you\\s+discard\\s+a\\s+Card\\s+Name\\s+(?<name>.+?)\\s+by\\s+this\\s+effect,\\s+" +
@@ -4766,6 +4797,9 @@ public class ActionResolver {
         result = tryParseCancelChosenTargetBare(effectText);
         if (result != null) return result;
 
+        result = tryParseIfOppNotPayAction(effectText);
+        if (result != null) return result;
+
         result = tryParseCancelChosenRevealTopIfType(effectText);
         if (result != null) return result;
 
@@ -5040,6 +5074,9 @@ public class ActionResolver {
         if (result != null) return result;
 
         result = tryParseSelectCharacterFromBzToHand(effectText);
+        if (result != null) return result;
+
+        result = tryParseChooseWarpCardFromBzToHand(effectText);
         if (result != null) return result;
 
         result = tryParseEachPlayerDraw(effectText);
@@ -5434,6 +5471,7 @@ public class ActionResolver {
         if (tryParseCancelChosenTargetUnlessPay(effectText)    != null) return "CancelChosenTargetUnlessPay";
         if (tryParseCancelChosenTargetUnlessDiscard(effectText) != null) return "CancelChosenTargetUnlessDiscard";
         if (tryParseCancelChosenTargetBare(effectText)         != null) return "CancelChosenTargetBare";
+        if (tryParseIfOppNotPayAction(effectText)             != null) return "IfOppNotPayAction";
         if (tryParseCancelChosenRevealTopIfType(effectText)    != null) return "CancelChosenRevealTopIfType";
         if (tryParseCancelChosenMillTopIfNotType(effectText)   != null) return "CancelChosenMillTopIfNotType";
         if (tryParseCancelSummonTargetingMyCharacter(effectText) != null) return "CancelSummonTargetingMyCharacter";
@@ -5516,6 +5554,7 @@ public class ActionResolver {
         if (tryParseEachPlayerDiscard(effectText)              != null) return "EachPlayerDiscard";
         if (tryParseEachPlayerSalvageFromBreakZone(effectText) != null) return "EachPlayerSalvageFromBreakZone";
         if (tryParseSelectCharacterFromBzToHand(effectText)    != null) return "SelectCharacterFromBzToHand";
+        if (tryParseChooseWarpCardFromBzToHand(effectText)     != null) return "ChooseWarpCardFromBzToHand";
         if (tryParseEachPlayerDraw(effectText)                 != null) return "EachPlayerDraw";
         if (tryParseNameCardTypeOpponentDiscardDrawIfMatch(effectText) != null) return "NameCardTypeOpponentDiscardDrawIfMatch";
         if (tryParseOpponentDiscard(effectText)               != null) return "OpponentDiscard";
@@ -5906,6 +5945,7 @@ public class ActionResolver {
         if (tryParseCancelChosenTargetUnlessPay(effectText)   != null) return "CancelChosenTargetUnlessPay";
         if (tryParseCancelChosenTargetUnlessDiscard(effectText) != null) return "CancelChosenTargetUnlessDiscard";
         if (tryParseCancelChosenTargetBare(effectText)         != null) return "CancelChosenTargetBare";
+        if (tryParseIfOppNotPayAction(effectText)             != null) return "IfOppNotPayAction";
         if (tryParseCancelChosenRevealTopIfType(effectText)    != null) return "CancelChosenRevealTopIfType";
         if (tryParseCancelChosenMillTopIfNotType(effectText)   != null) return "CancelChosenMillTopIfNotType";
         if (tryParseCancelSummonTargetingMyCharacter(effectText) != null) return "CancelSummonTargetingMyCharacter";
@@ -8247,6 +8287,29 @@ public class ActionResolver {
                                 costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters,
                                 jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, fExcludeElem, withoutMulticard);
                         ctx.mayPayElementCpToEffect(cpElem, ctx2 -> cpAction.accept(ctx2, ts));
+                    };
+                }
+            }
+        }
+
+        // --- "If your opponent doesn't pay 《N》, [target action]." (Arkasodara) ---
+        // The opponent may pay to prevent the action against the chosen target(s).
+        {
+            Matcher notPayM = FOLLOWUP_IF_OPP_NOT_PAY_ACTION.matcher(followup);
+            if (notPayM.matches()) {
+                int notPayCost = Integer.parseInt(notPayM.group("cost").trim());
+                String notPayEffText = notPayM.group("effect").trim();
+                java.util.function.BiConsumer<GameContext, List<ForwardTarget>> notPayAction =
+                        parseTargetAction(notPayEffText, xValue);
+                if (notPayAction != null) {
+                    return ctx -> {
+                        ctx.logEntry(choosePrefix + " — unless opponent pays 《" + notPayCost + "》: " + notPayEffText);
+                        List<ForwardTarget> ts = selectTargets(ctx, maxCount, upTo,
+                                opponentOnly, selfOnly, condition, element, zone, opponentZone,
+                                costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters,
+                                jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, fExcludeElem, withoutMulticard);
+                        if (ts.isEmpty()) return;
+                        ctx.opponentMayPayToPreventAction(notPayCost, () -> notPayAction.accept(ctx, ts));
                     };
                 }
             }
@@ -11759,6 +11822,15 @@ public class ActionResolver {
         };
     }
 
+    /** Ceodore: "Choose 1 Card with Warp in your Break Zone. Add it to your hand." */
+    private static Consumer<GameContext> tryParseChooseWarpCardFromBzToHand(String text) {
+        if (!CHOOSE_WARP_CARD_FROM_BZ_TO_HAND.matcher(text.trim()).find()) return null;
+        return ctx -> {
+            ctx.logEntry("Effect: Choose 1 Card with Warp from own Break Zone → hand");
+            ctx.chooseWarpCardFromBreakZoneToHand();
+        };
+    }
+
     /** Parses "Each player selects 1 Forward they control. Deal them N damage." */
     private static Consumer<GameContext> tryParseEachPlayerSelectForwardDamage(String text) {
         Matcher m = EACH_PLAYER_SELECT_FORWARD_DAMAGE.matcher(text);
@@ -12597,6 +12669,37 @@ public class ActionResolver {
         return ctx -> {
             ctx.logEntry("Effect: cancel the effect choosing your Character(s)");
             ctx.cancelChosenSelection();
+        };
+    }
+
+    /**
+     * True if {@code text} is a standalone "If your opponent doesn't pay 《N》, [target action]."
+     * whose action is a recognised target action — the reactive "enters opponent's field not from
+     * hand" watcher effects (e.g. Remedi) that {@code AutoAbilityTriggers} runs inline with the
+     * entering card preloaded as the target.
+     */
+    static boolean isIfOppNotPayAction(String text) {
+        return tryParseIfOppNotPayAction(text) != null;
+    }
+
+    /**
+     * Parses a standalone "If your opponent doesn't pay 《N》, [target action]." (e.g. Remedi's
+     * "break it") into an effect that applies the action to the preloaded target(s) — the entering
+     * card — unless the opponent pays {@code cost} in full. The inner action is resolved via
+     * {@link #parseTargetAction}, so any standard action ("break it", "dull it", "Freeze it", …) works.
+     */
+    private static Consumer<GameContext> tryParseIfOppNotPayAction(String text) {
+        Matcher m = IF_OPP_NOT_PAY_ACTION.matcher(text.trim());
+        if (!m.find()) return null;
+        int cost = Integer.parseInt(m.group("cost"));
+        String effText = m.group("effect").trim();
+        java.util.function.BiConsumer<GameContext, List<ForwardTarget>> action = parseTargetAction(effText, 0);
+        if (action == null) return null;
+        return ctx -> {
+            List<ForwardTarget> ts = ctx.consumePreloadedTargets();
+            if (ts == null || ts.isEmpty()) { ctx.logEntry("If-opp-not-pay: no preloaded target — skipped"); return; }
+            ctx.logEntry("Effect: unless opponent pays 《" + cost + "》: " + effText);
+            ctx.opponentMayPayToPreventAction(cost, () -> action.accept(ctx, ts));
         };
     }
 

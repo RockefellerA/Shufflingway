@@ -1540,6 +1540,8 @@ public record CardData(
             // "enters your field other than from your hand" must precede plain "enters your field"
             "|enters?\\s+your\\s+field\\s+other\\s+than\\s+from\\s+your\\s+hand" +
             "|enters?\\s+your\\s+field" +
+            // "enters your opponent's field other than from their hand" must precede the plain form.
+            "|enters?\\s+your\\s+opponent's\\s+field\\s+other\\s+than\\s+from\\s+(?:his/her|his|her|their)\\s+hand" +
             // "enters your opponent's field" — location-based phrasing of the watcher trigger,
             // distinct from "of your opponent enters the field" (possessive-based; see below)
             "|enters?\\s+your\\s+opponent's\\s+field" +
@@ -1859,6 +1861,13 @@ public record CardData(
         // Convert "If N or more [filter] Forwards form the party, also [effect]." into a second trigger sentence.
         textForSearch = expandPartyAttackFollowups(textForSearch);
 
+        // Rewrite Remedi's "your opponent plays a <Type> onto the field other than from his/her hand"
+        // into the equivalent watcher phrasing "a <Type> enters your opponent's field other than from
+        // their hand", so AUTO_ABILITY_PATTERN captures the type as the subject (card) group.
+        textForSearch = textForSearch.replaceAll(
+                "(?i)your\\s+opponent\\s+plays\\s+(an?)\\s+(Forward|Backup|Monster|Character)\\s+onto\\s+the\\s+field\\s+other\\s+than\\s+from\\s+(?:his/her|his|her|their)\\s+hand",
+                "$1 $2 enters your opponent's field other than from their hand");
+
         // Rewrite "When X, a Y or a Z [trigger]" into "When X or a Y or a Z [trigger]" so that
         // AUTO_ABILITY_PATTERN's (?<card>[^,]+?) group captures the full disjunction as one subject.
         textForSearch = expandMultiSubjectTriggers(textForSearch);
@@ -1877,6 +1886,7 @@ public record CardData(
             else if (triggerRaw.contains("attack") && (cardIsParty || triggerHasParty))                    trigger = "party attacks";
             else if (triggerRaw.contains("enter") && triggerRaw.contains("break zone"))                   trigger = "enters the field or put into break zone";
             else if (triggerRaw.contains("enter") && triggerRaw.contains("attack"))                        trigger = "enters the field or attacks";
+            else if (triggerRaw.contains("enter") && triggerRaw.contains("opponent") && triggerRaw.contains("other than from")) trigger = "enters opponent's field not from hand";
             else if (triggerRaw.contains("enter") && triggerRaw.contains("other than from your hand"))     trigger = "enters your field not from hand";
             else if (triggerRaw.contains("enter") && triggerRaw.contains("opponent") && triggerRaw.contains("field")) trigger = "enters opponent's field";
             else if (triggerRaw.contains("enter") && triggerRaw.contains("your field"))                            trigger = "enters your field";

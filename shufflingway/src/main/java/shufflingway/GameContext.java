@@ -485,6 +485,13 @@ public interface GameContext {
      */
     void salvageCharacterFromOwnBreakZone(int count, boolean fwds, boolean bkps, boolean mons);
 
+    /**
+     * Ceodore: chooses 1 card with the Warp trait ({@link CardData#hasWarp()}) — of any type — from
+     * the controller's own Break Zone and adds it to their hand. P1 picks via dialog; P2 (AI) picks
+     * the highest-cost eligible card. No-op if the Break Zone holds no Warp card.
+     */
+    void chooseWarpCardFromBreakZoneToHand();
+
     /** Grants the ability user {@code count} Crystals. */
     void gainCrystal(int count);
 
@@ -1412,6 +1419,14 @@ public interface GameContext {
      * Skips the offer if the player has no way to pay. Calls {@code onPay} if the player accepts.
      */
     void mayPayElementCpToEffect(String element, java.util.function.Consumer<GameContext> onPay);
+
+    /**
+     * Offers the ability controller's <em>opponent</em> the chance to pay {@code cost} CP in full to
+     * prevent a pending action (e.g. Arkasodara: "If your opponent doesn't pay 《3》, break it."). If
+     * the opponent declines or cannot pay the full amount, {@code onNotPaid} runs; if they pay in
+     * full, it does not. Pay-in-full-or-decline — there is no partial payment that still prevents it.
+     */
+    void opponentMayPayToPreventAction(int cost, Runnable onNotPaid);
 
     /**
      * Offers the player the option to dull an active card named {@code cardName} to replay

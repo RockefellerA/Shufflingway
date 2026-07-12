@@ -627,10 +627,76 @@ final class AutoAbilityTriggers {
 			// Not suppressed — the controller still gets their own triggers.
 			fireEntersOpponentFieldWatchers(card, isP1);
 		});
+		// Remedi-style watchers ("a Character enters your opponent's field other than from their
+		// hand") — only when the entering card was NOT played from hand. Run inline (outside the
+		// batch) with the entering card supplied as the target, so "break it" can act on it.
+		if (!mw.lastCardWasCast) fireEntersOpponentFieldNotFromHandWatchers(card, isP1);
 		// Re-evaluate all conditional field boosts now that the field composition has changed
 		mw.refreshAllForwardSlots();
 		for (int i = 0; i < mw.p2ForwardCards.size(); i++) mw.refreshP2ForwardSlot(i);
 		mw.showStackWindowIfNeeded();
+	}
+
+	/**
+	 * Locates {@code card} on its controller's field and returns a {@link ForwardTarget} for it,
+	 * or {@code null} if it is not currently on the field.
+	 */
+	private ForwardTarget enteringCardTarget(CardData card, boolean enteringIsP1) {
+		List<CardData> fwds = enteringIsP1 ? mw.p1ForwardCards : mw.p2ForwardCards;
+		int fi = fwds.indexOf(card);
+		if (fi >= 0) return new ForwardTarget(enteringIsP1, fi, ForwardTarget.CardZone.FORWARD);
+		CardData[] bkps = enteringIsP1 ? mw.p1BackupCards : mw.p2BackupCards;
+		for (int i = 0; i < bkps.length; i++) if (bkps[i] == card) return new ForwardTarget(enteringIsP1, i, ForwardTarget.CardZone.BACKUP);
+		List<CardData> mons = enteringIsP1 ? mw.p1MonsterCards : mw.p2MonsterCards;
+		int mi = mons.indexOf(card);
+		if (mi >= 0) return new ForwardTarget(enteringIsP1, mi, ForwardTarget.CardZone.MONSTER);
+		return null;
+	}
+
+	/**
+	 * Fires "a &lt;Type&gt; enters your opponent's field other than from their hand" watcher abilities
+	 * (Remedi) on the opposite side from {@code enteringCard}. Runs each matching effect inline with
+	 * the entering card preloaded as the target, so effects like "break it" act on the entering card.
+	 */
+	private void fireEntersOpponentFieldNotFromHandWatchers(CardData enteringCard, boolean enteringIsP1) {
+		boolean watcherIsP1 = !enteringIsP1;
+		ForwardTarget enteringTarget = enteringCardTarget(enteringCard, enteringIsP1);
+		List<CardData> fwds = new ArrayList<>(watcherIsP1 ? mw.p1ForwardCards : mw.p2ForwardCards);
+		CardData[]     bkps = watcherIsP1 ? mw.p1BackupCards : mw.p2BackupCards;
+		List<CardData> mons = new ArrayList<>(watcherIsP1 ? mw.p1MonsterCards : mw.p2MonsterCards);
+		for (CardData c : fwds) fireEntersOppNotFromHandWatcher(c, enteringCard, watcherIsP1, enteringTarget);
+		for (CardData c : bkps) if (c != null) fireEntersOppNotFromHandWatcher(c, enteringCard, watcherIsP1, enteringTarget);
+		for (CardData c : mons) fireEntersOppNotFromHandWatcher(c, enteringCard, watcherIsP1, enteringTarget);
+	}
+
+	private void fireEntersOppNotFromHandWatcher(CardData watcher, CardData enteringCard,
+			boolean watcherIsP1, ForwardTarget enteringTarget) {
+		if (mw.lostAbilitiesCards.contains(watcher)) return;
+		for (AutoAbility fa : watcher.autoAbilities()) {
+			if (!fa.trigger().equals("enters opponent's field not from hand")) continue;
+			if (!matchesEntersFieldSubject(fa.triggerCard(), enteringCard)) continue;
+			// Only the "if your opponent doesn't pay 《N》, [action]" form (Remedi) is wired for inline
+			// resolution with the entering card as its target. Other watchers of this trigger (e.g. Cid
+			// Raines / Jack Garland's "you may put self into the Break Zone. When you do so, …") need
+			// their own self-sacrifice + entering-card plumbing and remain dormant for now.
+			if (!ActionResolver.isIfOppNotPayAction(fa.effectText())) continue;
+			Consumer<GameContext> effect = ActionResolver.parse(fa.effectText(), watcher);
+			if (effect == null) continue;
+			if (enteringTarget == null) {
+				mw.logEntry("[AutoAbility] " + watcher.name() + " — entering card no longer on field; skipped");
+				continue;
+			}
+			GameContext ctx = mw.buildGameContext(watcherIsP1);
+			ctx.preloadTargets(List.of(enteringTarget));
+			CardData prevSource = mw.currentAbilitySource;
+			mw.currentAbilitySource = watcher;
+			try {
+				mw.logEntry("[AutoAbility] " + watcher.name() + " — " + fa.effectText());
+				effect.accept(ctx);
+			} finally {
+				mw.currentAbilitySource = prevSource;
+			}
+		}
 	}
 
 	/** True if the player identified by {@code oppIsP1} controls a card with {@link #FA_OPP_FORWARD_ETF_SUPPRESSED}. */

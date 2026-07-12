@@ -1373,4 +1373,83 @@ public class CardBehaviorTest {
         assertNotNull(chosenFa, "Expected a distinct AutoAbility for the chosen-by trigger");
         assertEquals("chosen by opponent's summon", chosenFa.trigger());
     }
+
+    @Test
+    void remediBreakEnteringUnlessOpponentPaysParsesAndDelegates() {
+        // Remedi body: "it" is the entering card, supplied via preloaded targets.
+        Consumer<GameContext> fn = ActionResolver.parse(
+                "If your opponent doesn't pay 《2》, break it.", null);
+        assertNotNull(fn);
+
+        GameContext ctx = mock(GameContext.class);
+        ForwardTarget entering = new ForwardTarget(false, 0, ForwardTarget.CardZone.FORWARD);
+        when(ctx.consumePreloadedTargets()).thenReturn(List.of(entering));
+        doAnswer(inv -> { ((Runnable) inv.getArgument(1)).run(); return null; })
+                .when(ctx).opponentMayPayToPreventAction(eq(2), any());
+
+        fn.accept(ctx);
+
+        verify(ctx).opponentMayPayToPreventAction(eq(2), any());
+        verify(ctx).breakTarget(entering);
+    }
+
+    @Test
+    void ifOppNotPayActionIsGenericOverStandardActions() {
+        // The wrapper must reuse standard target actions, not be hardcoded to "break".
+        assertTrue(ActionResolver.isIfOppNotPayAction("If your opponent doesn't pay 《2》, break it."));
+        assertTrue(ActionResolver.isIfOppNotPayAction("If your opponent doesn't pay 《1》, Freeze it."));
+        // Cid Raines' self-sacrifice form is NOT this wrapper (so it isn't inline-fired).
+        assertFalse(ActionResolver.isIfOppNotPayAction(
+                "put Cid Raines into the Break Zone. When you do so, break it."));
+
+        // Freeze variant delegates to freezeTarget on the preloaded target.
+        Consumer<GameContext> fn = ActionResolver.parse("If your opponent doesn't pay 《1》, Freeze it.", null);
+        assertNotNull(fn);
+        GameContext ctx = mock(GameContext.class);
+        ForwardTarget entering = new ForwardTarget(false, 0, ForwardTarget.CardZone.FORWARD);
+        when(ctx.consumePreloadedTargets()).thenReturn(List.of(entering));
+        doAnswer(inv -> { ((Runnable) inv.getArgument(1)).run(); return null; })
+                .when(ctx).opponentMayPayToPreventAction(eq(1), any());
+        fn.accept(ctx);
+        verify(ctx).freezeTarget(entering);
+    }
+
+    @Test
+    void arkasodaraChooseThenBreakUnlessOpponentPaysParsesAndDelegates() {
+        // Arkasodara (20-064C) ETF: choose a dull Forward, then break it unless the opponent pays 3.
+        Consumer<GameContext> fn = ActionResolver.parse(
+                "choose 1 dull Forward. If your opponent doesn't pay 《3》, break it.", null);
+        assertNotNull(fn);
+
+        GameContext ctx = mock(GameContext.class);
+        // Selection returns one opponent Forward target.
+        ForwardTarget t = new ForwardTarget(false, 0, ForwardTarget.CardZone.FORWARD);
+        when(ctx.selectCharacters(
+                anyInt(), anyBoolean(), anyBoolean(), anyBoolean(),
+                any(), any(), anyInt(), any(), anyInt(), any(),
+                anyBoolean(), anyBoolean(), anyBoolean(),
+                any(), any(), any(), any(), anyBoolean(), any(), anyBoolean()
+        )).thenReturn(List.of(t));
+        when(ctx.consumePreloadedTargets()).thenReturn(null);
+        // Opponent declines to pay → the action runs.
+        doAnswer(inv -> { ((Runnable) inv.getArgument(1)).run(); return null; })
+                .when(ctx).opponentMayPayToPreventAction(eq(3), any());
+
+        fn.accept(ctx);
+
+        verify(ctx).opponentMayPayToPreventAction(eq(3), any());
+        verify(ctx).breakTarget(t);
+    }
+
+    @Test
+    void ceodoreChooseWarpCardFromBreakZoneParsesAndDelegates() {
+        // Ceodore (25-044C) ETF effect body.
+        Consumer<GameContext> fn = ActionResolver.parse(
+                "choose 1 Card with Warp in your Break Zone. Add it to your hand.", null);
+        assertNotNull(fn);
+
+        GameContext ctx = mock(GameContext.class);
+        fn.accept(ctx);
+        verify(ctx).chooseWarpCardFromBreakZoneToHand();
+    }
 }

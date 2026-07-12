@@ -3029,6 +3029,41 @@ final class GameContextImpl implements GameContext {
 				else       { mw.refreshP2BreakLabel(); mw.refreshP2HandCountLabel(); }
 			}
 
+			@Override public void chooseWarpCardFromBreakZoneToHand() {
+				List<CardData> bz = isP1 ? mw.gameState.getP1BreakZone() : mw.gameState.getP2BreakZone();
+				List<ForwardTarget> eligible = new ArrayList<>();
+				for (int i = 0; i < bz.size(); i++) {
+					CardData c = bz.get(i);
+					if (!c.hasWarp()) continue;
+					ForwardTarget.CardZone cz = c.isBackup()  ? ForwardTarget.CardZone.BACKUP
+					                          : c.isMonster() ? ForwardTarget.CardZone.MONSTER
+					                          :                 ForwardTarget.CardZone.FORWARD;
+					eligible.add(new ForwardTarget(isP1, i, cz));
+				}
+				if (eligible.isEmpty()) {
+					logEntry((isP1 ? "P1" : "P2") + " Break Zone has no card with Warp — skipped");
+					return;
+				}
+				ForwardTarget pick;
+				if (isP1) {
+					List<ForwardTarget> picks = mw.showBreakZoneSelectDialog(eligible, bz, 1, false,
+							"Choose 1 Card with Warp from your Break Zone to add to hand");
+					if (picks.isEmpty()) return;
+					pick = picks.get(0);
+				} else {
+					pick = eligible.stream()
+							.max(java.util.Comparator.comparingInt(t -> bz.get(t.idx()).cost()))
+							.orElse(eligible.get(0));
+					logEntry("[AI] chose " + bz.get(pick.idx()).name() + " (with Warp) from Break Zone");
+				}
+				CardData card = bz.remove(pick.idx());
+				List<CardData> hand = isP1 ? mw.gameState.getP1Hand() : mw.gameState.getP2Hand();
+				hand.add(card);
+				logEntry(card.name() + " → " + (isP1 ? "P1" : "P2") + " hand from Break Zone");
+				if (isP1) { mw.refreshP1BreakLabel(); mw.refreshP1HandLabel(); }
+				else       { mw.refreshP2BreakLabel(); mw.refreshP2HandCountLabel(); }
+			}
+
 			@Override public void eachPlayerSelectUpToNAndBreak(int count, boolean inclForwards, boolean inclMonsters) {
 				// Build P1 eligible list
 				List<ForwardTarget> p1Eligible = new ArrayList<>();
@@ -4446,6 +4481,20 @@ final class GameContextImpl implements GameContext {
 				mw.autoAbilityTriggers.showAutoAbilityPaymentDialog(src, 1, 1, isP1, 0, paid -> {
 					if (paid >= 1) { logEntry("Optional pay: paid 《" + element + "》 — applying effect"); onPay.accept(this); }
 				}, null);
+			}
+
+			@Override public void opponentMayPayToPreventAction(int cost, Runnable onNotPaid) {
+				String src = mw.currentAbilitySource != null ? mw.currentAbilitySource.name() : "Ability";
+				String label = src + " — pay 《" + cost + "》 to prevent its effect";
+				int[] paidHolder = {-1};
+				mw.autoAbilityTriggers.showAutoAbilityPaymentDialog(label, cost, cost, !isP1, 0,
+						paid -> paidHolder[0] = paid, null);
+				if (paidHolder[0] < cost) {
+					logEntry("Effect: opponent declined to pay 《" + cost + "》 — effect applies");
+					onNotPaid.run();
+				} else {
+					logEntry("Effect: opponent paid 《" + cost + "》 — effect prevented");
+				}
 			}
 
 			@Override public void mayDullActiveCardToReplayAbility(String cardName, java.util.function.Consumer<GameContext> replayAction) {
