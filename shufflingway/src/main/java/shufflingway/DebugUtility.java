@@ -25,52 +25,61 @@ class DebugUtility {
         this.mw = mw;
     }
 
-    void spawnOnCpuField() {
+    void spawnOnField() {
         if (!mw.gameInProgress()) {
             JOptionPane.showMessageDialog(mw.frame, "Start a game first.", "Debug Spawn", JOptionPane.WARNING_MESSAGE);
             return;
         }
-        String serial = DebugCardPickerDialog.pick(mw.frame, "Spawn Card on CPU Field");
-        if (serial == null) return;
-        CardData card = mw.buildCardDataFromSerial(serial);
+        DebugCardPickerDialog.Selection sel = DebugCardPickerDialog.pick(mw.frame, "Spawn Card on Field");
+        if (sel == null) return;
+        CardData card = mw.buildCardDataFromSerial(sel.serial());
         if (card == null) {
-            JOptionPane.showMessageDialog(mw.frame, "Card not found: " + serial, "Debug Spawn", JOptionPane.ERROR_MESSAGE);
+            JOptionPane.showMessageDialog(mw.frame, "Card not found: " + sel.serial(), "Debug Spawn", JOptionPane.ERROR_MESSAGE);
             return;
         }
-        mw.gameState.getIdentity().put(card, false);
-        if (card.isForward())      mw.placeP2CardInForwardZone(card);
-        else if (card.isMonster()) mw.placeP2CardInMonsterZone(card);
-        else if (card.isBackup()) {
-            if (!mw.p2HasAvailableBackupSlot()) {
-                JOptionPane.showMessageDialog(mw.frame, "CPU has no free Backup slot.", "Debug Spawn", JOptionPane.WARNING_MESSAGE);
+        boolean isP1 = sel.isP1();
+        String who = isP1 ? "P1" : "P2";
+        mw.gameState.getIdentity().put(card, isP1);
+        if (card.isForward()) {
+            if (isP1) mw.placeCardInForwardZone(card); else mw.placeP2CardInForwardZone(card);
+        } else if (card.isMonster()) {
+            if (isP1) mw.placeCardInMonsterZone(card); else mw.placeP2CardInMonsterZone(card);
+        } else if (card.isBackup()) {
+            boolean hasSlot = isP1 ? mw.hasAvailableBackupSlot() : mw.p2HasAvailableBackupSlot();
+            if (!hasSlot) {
+                JOptionPane.showMessageDialog(mw.frame, who + " has no free Backup slot.", "Debug Spawn", JOptionPane.WARNING_MESSAGE);
                 return;
             }
-            mw.placeP2CardInFirstBackupSlot(card);
+            if (isP1) mw.placeCardInFirstBackupSlot(card); else mw.placeP2CardInFirstBackupSlot(card);
         } else {
-            mw.gameState.getP2Hand().add(card);
-            mw.refreshP2HandCountLabel();
-            mw.logEntry("[Debug] " + card.name() + " is a Summon — added to CPU hand instead of field.");
+            addCardToHand(card, isP1);
+            mw.logEntry("[Debug] " + card.name() + " is a Summon — added to " + who + " hand instead of field.");
             return;
         }
-        mw.logEntry("[Debug] Spawned " + card.name() + " (" + serial + ") onto CPU field.");
+        mw.logEntry("[Debug] Spawned " + card.name() + " (" + sel.serial() + ") onto " + who + " field.");
     }
 
-    void addToCpuHand() {
+    void addToHand() {
         if (!mw.gameInProgress()) {
             JOptionPane.showMessageDialog(mw.frame, "Start a game first.", "Debug Spawn", JOptionPane.WARNING_MESSAGE);
             return;
         }
-        String serial = DebugCardPickerDialog.pick(mw.frame, "Add Card to CPU Hand");
-        if (serial == null) return;
-        CardData card = mw.buildCardDataFromSerial(serial);
+        DebugCardPickerDialog.Selection sel = DebugCardPickerDialog.pick(mw.frame, "Add Card to Hand");
+        if (sel == null) return;
+        CardData card = mw.buildCardDataFromSerial(sel.serial());
         if (card == null) {
-            JOptionPane.showMessageDialog(mw.frame, "Card not found: " + serial, "Debug Spawn", JOptionPane.ERROR_MESSAGE);
+            JOptionPane.showMessageDialog(mw.frame, "Card not found: " + sel.serial(), "Debug Spawn", JOptionPane.ERROR_MESSAGE);
             return;
         }
-        mw.gameState.getIdentity().put(card, false);
-        mw.gameState.getP2Hand().add(card);
-        mw.refreshP2HandCountLabel();
-        mw.logEntry("[Debug] Added " + card.name() + " (" + serial + ") to CPU hand.");
+        boolean isP1 = sel.isP1();
+        mw.gameState.getIdentity().put(card, isP1);
+        addCardToHand(card, isP1);
+        mw.logEntry("[Debug] Added " + card.name() + " (" + sel.serial() + ") to " + (isP1 ? "P1" : "P2") + " hand.");
+    }
+
+    private void addCardToHand(CardData card, boolean isP1) {
+        if (isP1) { mw.gameState.getP1Hand().add(card); mw.refreshP1HandLabel(); }
+        else      { mw.gameState.getP2Hand().add(card); mw.refreshP2HandCountLabel(); }
     }
 
     void setDamage() {

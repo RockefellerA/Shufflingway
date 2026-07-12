@@ -695,13 +695,13 @@ public class MainWindow {
 		if (AppSettings.isDebugEnabled()) {
 			DebugUtility debug = new DebugUtility(this);
 			JMenu debugMenu = new JMenu("Debug");
-			JMenuItem spawnFieldItem = new JMenuItem("Spawn Card on CPU Field…");
-			spawnFieldItem.setToolTipText("Place any card directly onto the CPU's field to watch its AI behavior.");
-			spawnFieldItem.addActionListener(e -> debug.spawnOnCpuField());
+			JMenuItem spawnFieldItem = new JMenuItem("Spawn Card on Field…");
+			spawnFieldItem.setToolTipText("Place any card directly onto the chosen player's field.");
+			spawnFieldItem.addActionListener(e -> debug.spawnOnField());
 			debugMenu.add(spawnFieldItem);
-			JMenuItem spawnHandItem = new JMenuItem("Add Card to CPU Hand…");
-			spawnHandItem.setToolTipText("Add any card directly to the CPU's hand so it can cast it on its turn.");
-			spawnHandItem.addActionListener(e -> debug.addToCpuHand());
+			JMenuItem spawnHandItem = new JMenuItem("Add Card to Hand…");
+			spawnHandItem.setToolTipText("Add any card directly to the chosen player's hand.");
+			spawnHandItem.addActionListener(e -> debug.addToHand());
 			debugMenu.add(spawnHandItem);
 			JMenuItem setDamageItem = new JMenuItem("Set Damage Counts…");
 			setDamageItem.setToolTipText("Directly set P1/P2 damage zone counts for testing damage-threshold triggers.");
@@ -7082,7 +7082,7 @@ public class MainWindow {
 		return false;
 	}
 
-	private boolean hasAvailableBackupSlot() {
+	boolean hasAvailableBackupSlot() {
 		if (p1BackupLabels == null) return false;
 		for (JLabel slot : p1BackupLabels) {
 			if (slot != null && slot.getIcon() == null) return true;

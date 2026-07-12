@@ -10,6 +10,7 @@ import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.regex.Pattern;
 
+import javax.swing.ButtonGroup;
 import javax.swing.JButton;
 import javax.swing.JComponent;
 import javax.swing.JDialog;
@@ -17,6 +18,7 @@ import javax.swing.JFrame;
 import javax.swing.JLabel;
 import javax.swing.JOptionPane;
 import javax.swing.JPanel;
+import javax.swing.JRadioButton;
 import javax.swing.JScrollPane;
 import javax.swing.JTable;
 import javax.swing.JTextField;
@@ -31,9 +33,12 @@ import javax.swing.table.TableRowSorter;
 
 /**
  * Modal searchable card picker over the entire card database. Returns the selected card's serial
- * (or {@code null} if cancelled). Used by the debug "spawn card to CPU" tooling.
+ * together with the target player (or {@code null} if cancelled). Used by the debug spawn/add tooling.
  */
 public class DebugCardPickerDialog extends JDialog {
+
+    /** A confirmed pick: the chosen card serial and which player it targets. */
+    public record Selection(String serial, boolean isP1) {}
 
     private static final String DB_URL = scraper.AppPaths.dbUrl();
     private static final String[] COLUMNS = {"Serial", "Name", "Type", "Element", "Cost", "Power", "Card Text"};
@@ -57,6 +62,8 @@ public class DebugCardPickerDialog extends JDialog {
     private final TableRowSorter<DefaultTableModel> sorter;
     private final JTable table;
     private String selectedSerial = null;
+    /** Target player for the spawn/add; defaults to P2. */
+    private boolean targetIsP1 = false;
 
     private DebugCardPickerDialog(JFrame parent, String title) {
         super(parent, title, true);
@@ -91,7 +98,23 @@ public class DebugCardPickerDialog extends JDialog {
         searchPanel.add(new JLabel("Search:"));
         searchPanel.add(searchField);
 
-        JButton selectButton = new JButton("Spawn");
+        JRadioButton p1Radio = new JRadioButton("P1");
+        JRadioButton p2Radio = new JRadioButton("P2", true);
+        ButtonGroup targetGroup = new ButtonGroup();
+        targetGroup.add(p1Radio);
+        targetGroup.add(p2Radio);
+        p1Radio.addActionListener(e -> targetIsP1 = true);
+        p2Radio.addActionListener(e -> targetIsP1 = false);
+        JPanel targetPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 4));
+        targetPanel.add(new JLabel("Target player:"));
+        targetPanel.add(p1Radio);
+        targetPanel.add(p2Radio);
+
+        JPanel northPanel = new JPanel(new BorderLayout());
+        northPanel.add(targetPanel, BorderLayout.NORTH);
+        northPanel.add(searchPanel, BorderLayout.CENTER);
+
+        JButton selectButton = new JButton("Select");
         JButton cancelButton = new JButton("Cancel");
         selectButton.addActionListener(e -> confirmSelection());
         cancelButton.addActionListener(e -> { selectedSerial = null; dispose(); });
@@ -106,7 +129,7 @@ public class DebugCardPickerDialog extends JDialog {
             }
         });
 
-        add(searchPanel, BorderLayout.NORTH);
+        add(northPanel, BorderLayout.NORTH);
         add(new JScrollPane(table), BorderLayout.CENTER);
         add(buttonPanel, BorderLayout.SOUTH);
 
@@ -161,11 +184,12 @@ public class DebugCardPickerDialog extends JDialog {
     }
 
     /**
-     * Opens the picker modally and returns the chosen card serial, or {@code null} if cancelled.
+     * Opens the picker modally and returns the chosen card serial and target player,
+     * or {@code null} if cancelled.
      */
-    public static String pick(JFrame parent, String title) {
+    public static Selection pick(JFrame parent, String title) {
         DebugCardPickerDialog dialog = new DebugCardPickerDialog(parent, title);
         dialog.setVisible(true);
-        return dialog.selectedSerial;
+        return dialog.selectedSerial == null ? null : new Selection(dialog.selectedSerial, dialog.targetIsP1);
     }
 }
