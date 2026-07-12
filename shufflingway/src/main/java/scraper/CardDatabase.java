@@ -161,7 +161,12 @@ public class CardDatabase implements AutoCloseable {
                                 .replaceAll("\r\n[ \t]+", " ").replaceAll("\r\n", " ") // collapse mid-sentence line-wraps (e.g. Opus XXIII)
                                 .replace("Break [[br]]   Zone", "Break Zone") // Glaive's card was particularly mangled
                                 .replace("Card Name [[br]]   Glaive", "Card Name Glaive")
-                                .replace("you [[br]]   control", "you control");
+                                .replace("you [[br]]   control", "you control")
+                                // Strip inline [[s]]…[[/]] ability-name references (e.g. Bartz 7-059L, Gogo
+                                // 15-028H). A [[s]]…[[/]] is a special-ability header only when followed by a
+                                // cost 《; anywhere else it's an inline name reference whose markup otherwise
+                                // reads as the next ability's header and truncates the effect at parse time.
+                                .replaceAll("\\[\\[s\\]\\]\\s*([^\\[]+?)\\s*\\[\\[/\\]\\](?!\\s*《)", "$1");
             ps.setString(13, textEn);
             ps.setString(14, card.thumbName);
             ps.setString(15, card.imageUrl);
