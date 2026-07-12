@@ -8028,7 +8028,7 @@ public class MainWindow {
 		}
 	}
 
-	private void animateDullBackup(int idx, boolean dulling) {
+	void animateDullBackup(int idx, boolean dulling) {
 		String url  = p1BackupUrls[idx];
 		JLabel slot = p1BackupLabels[idx];
 		if (url == null || slot == null) return;

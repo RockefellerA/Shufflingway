@@ -847,6 +847,55 @@ public class CardBehaviorTest {
     }
 
     // =========================================================================================
+    // Sahagin Chief: "When a Water Character other than Sahagin Chief enters your field, place 1
+    // Monster Counter on Sahagin Chief." — "other than Sahagin Chief" excludes only the source
+    // instance (a card naming itself means that specific card), so another copy of Sahagin Chief
+    // entering the field must still place a counter on the existing one.
+    // =========================================================================================
+
+    private static final String SAHAGIN_CHIEF_TEXT =
+            "When a Water Character other than Sahagin Chief enters your field, place 1 Monster Counter on Sahagin Chief.[[br]]   "
+            + "Put Sahagin Chief into the Break Zone: Choose 1 Forward you control. Return it to its owner's hand.[[br]]   "
+            + "Put Sahagin Chief into the Break Zone: Choose up to 2 Forwards. Return them to their owners' hands. "
+            + "You can only use this ability if 3 or more Monster Counters are placed on Sahagin Chief.";
+
+    private static CardData makeSahaginChief() {
+        // multicard = true: Sahagin Chief is exempt from the same-name uniqueness rule, so two
+        // copies can share the field.
+        return new CardData(null, "Sahagin Chief", "Water", 2, 5000, "Monster", false, 0, false, true,
+                Set.of(), 0, List.of(), null, List.of(),
+                CardData.parseActionAbilities(SAHAGIN_CHIEF_TEXT), CardData.parseAutoAbilities(SAHAGIN_CHIEF_TEXT),
+                List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(),
+                false, false, null, false, false, false, false, false, false,
+                null, null, null, SAHAGIN_CHIEF_TEXT);
+    }
+
+    @Test
+    void sahaginChiefCountersFromAnotherCopyButNotItself() {
+        MainWindow mw = new MainWindow();
+        CardData chiefA = makeSahaginChief();
+        CardData chiefB = makeSahaginChief();
+        mw.gameState.getIdentity().put(chiefA, true);
+        mw.gameState.getIdentity().put(chiefB, true);
+
+        // Placing chiefA fires its own enters-field trigger; its watcher sees chiefA entering and
+        // must self-exclude ("other than Sahagin Chief" = this instance), so no counter yet.
+        mw.placeCardInMonsterZone(chiefA);
+        assertEquals(0, mw.gameState.getCounters(chiefA, "Monster"),
+                "Sahagin Chief entering must not counter itself");
+
+        // chiefB enters: chiefA's watcher fires (a different Sahagin Chief instance, still a Water
+        // Character "other than" the source), while chiefB self-excludes. Both stay on the field
+        // because the multicard is exempt from the same-name uniqueness rule.
+        mw.placeCardInMonsterZone(chiefB);
+        assertEquals(2, mw.p1MonsterCards.size(), "multicard Sahagin Chiefs both remain on the field");
+        assertEquals(1, mw.gameState.getCounters(chiefA, "Monster"),
+                "A different Sahagin Chief entering should counter the existing one");
+        assertEquals(0, mw.gameState.getCounters(chiefB, "Monster"),
+                "The entering Sahagin Chief must not counter itself");
+    }
+
+    // =========================================================================================
     // Moogle (XIV): "At the end of each of your turns, reveal the top 3 cards of your deck. Play
     // up to 1 Card Name Moogle (XIV) or Job Moogle of cost 3 or less among them onto the field
     // and return the other cards to the bottom of your deck in any order." — the combined

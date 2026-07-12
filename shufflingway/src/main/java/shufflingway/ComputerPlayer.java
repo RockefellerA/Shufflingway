@@ -77,7 +77,7 @@ class ComputerPlayer {
 		for (int i = 0; i < mw.p2BackupStates.length; i++) {
 			if (mw.p2BackupCards[i] == null) continue;
 			if (mw.p2BackupStates[i] == CardState.DULL && !mw.p2BackupFrozen[i]) {
-				mw.p2BackupStates[i] = CardState.ACTIVE;  mw.refreshP2BackupSlot(i); activated++;
+				mw.p2BackupStates[i] = CardState.ACTIVE;  mw.animateDullP2Backup(i, false); activated++;
 			}
 		}
 		for (int i = 0; i < mw.p2ForwardStates.size(); i++) {
@@ -561,7 +561,7 @@ class ComputerPlayer {
 		// Pass 1: activate DULL/BRAVE_ATTACKED cards; frozen cards are skipped
 		for (int i = 0; i < mw.p1BackupStates.length; i++) {
 			if (mw.p1BackupStates[i] == CardState.DULL && !mw.p1BackupFrozen[i]) {
-				mw.p1BackupStates[i] = CardState.ACTIVE; mw.refreshP1BackupSlot(i); activated++;
+				mw.p1BackupStates[i] = CardState.ACTIVE; mw.animateDullBackup(i, false); activated++;
 			}
 		}
 		for (int i = 0; i < mw.p1ForwardStates.size(); i++) {

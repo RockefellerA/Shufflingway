@@ -674,7 +674,7 @@ final class AutoAbilityTriggers {
 		if (mw.lostAbilitiesCards.contains(watcher)) return;
 		for (AutoAbility fa : watcher.autoAbilities()) {
 			if (!fa.trigger().equals("enters opponent's field not from hand")) continue;
-			if (!matchesEntersFieldSubject(fa.triggerCard(), enteringCard)) continue;
+			if (!matchesEntersFieldSubject(fa.triggerCard(), enteringCard, watcher)) continue;
 			// Only the "if your opponent doesn't pay 《N》, [action]" form (Remedi) is wired for inline
 			// resolution with the entering card as its target. Other watchers of this trigger (e.g. Cid
 			// Raines / Jack Garland's "you may put self into the Break Zone. When you do so, …") need
@@ -734,7 +734,7 @@ final class AutoAbilityTriggers {
 	private void fireEntersYourFieldWatcher(CardData watcher, CardData enteringCard, boolean enteringIsP1) {
 		for (AutoAbility fa : watcher.autoAbilities()) {
 			if (!fa.trigger().equals("enters your field")) continue;
-			if (!matchesEntersFieldSubject(fa.triggerCard(), enteringCard)) continue;
+			if (!matchesEntersFieldSubject(fa.triggerCard(), enteringCard, watcher)) continue;
 			executeAutoAbility(fa, watcher, enteringIsP1);
 		}
 	}
@@ -750,7 +750,7 @@ final class AutoAbilityTriggers {
 			for (AutoAbility fa : c.autoAbilities()) {
 				if (!fa.trigger().equals("enters your field")) continue;
 				if (fa.bzConditionCard().isEmpty()) continue;
-				if (!matchesEntersFieldSubject(fa.triggerCard(), enteringCard)) continue;
+				if (!matchesEntersFieldSubject(fa.triggerCard(), enteringCard, c)) continue;
 				executeAutoAbility(fa, c, enteringIsP1);
 			}
 		}
@@ -774,7 +774,7 @@ final class AutoAbilityTriggers {
 	private void fireEntersOpponentFieldWatcher(CardData watcher, CardData enteringCard, boolean watcherIsP1) {
 		for (AutoAbility fa : watcher.autoAbilities()) {
 			if (!fa.trigger().equals("enters opponent's field")) continue;
-			if (!matchesEntersFieldSubject(fa.triggerCard(), enteringCard)) continue;
+			if (!matchesEntersFieldSubject(fa.triggerCard(), enteringCard, watcher)) continue;
 			executeAutoAbility(fa, watcher, watcherIsP1);
 		}
 	}
@@ -791,22 +791,34 @@ final class AutoAbilityTriggers {
 	 *   <li>a card-name phrase ({@code "a Card Name Warrior"}) — matched by name/aliases.</li>
 	 * </ul>
 	 */
-	private boolean matchesEntersFieldSubject(String subject, CardData enteringCard) {
+	private boolean matchesEntersFieldSubject(String subject, CardData enteringCard, CardData self) {
 		if (subject == null || subject.isBlank()) return false;
 		for (String part : subject.split("(?i)\\s+or\\s+")) {
-			if (matchesSingleSubject(part.trim(), enteringCard)) return true;
+			if (matchesSingleSubject(part.trim(), enteringCard, self)) return true;
 		}
 		return false;
 	}
 
-	private boolean matchesSingleSubject(String subject, CardData enteringCard) {
+	/**
+	 * @param self the card that owns the trigger (the "source"); used to resolve "other than
+	 *             [self name]" as a reference to that specific instance rather than every copy
+	 *             of the name. May be {@code null} when no source context is available.
+	 */
+	private boolean matchesSingleSubject(String subject, CardData enteringCard, CardData self) {
 		if (subject.isEmpty()) return false;
 		// "a [X] other than [Name]" — match base subject but exclude the named card
 		Matcher otherThanM = java.util.regex.Pattern.compile(
 				"(?i)^(.+?)\\s+other\\s+than\\s+(.+)$").matcher(subject);
-		if (otherThanM.matches())
-			return matchesSingleSubject(otherThanM.group(1).trim(), enteringCard)
-				&& !CardFilters.meetsCardNameFilter(enteringCard, otherThanM.group(2).trim());
+		if (otherThanM.matches()) {
+			String excludeName = otherThanM.group(2).trim();
+			if (!matchesSingleSubject(otherThanM.group(1).trim(), enteringCard, self)) return false;
+			// "other than [self name]" refers to THIS specific card (the rule that a card naming
+			// itself means only that instance), so exclude only the source — another copy of the
+			// same name entering still qualifies.
+			if (self != null && CardFilters.meetsCardNameFilter(self, excludeName))
+				return enteringCard != self;
+			return !CardFilters.meetsCardNameFilter(enteringCard, excludeName);
+		}
 		// "a Job X Forward/Backup/Monster/Character" — job + type (must precede plain "a Job X")
 		Matcher jobTypeM = java.util.regex.Pattern.compile(
 				"(?i)^an?\\s+Job\\s+(?<job>.+?)\\s+(?<type>Forwards?|Backups?|Monsters?|Characters?)$").matcher(subject);
@@ -1159,7 +1171,7 @@ final class AutoAbilityTriggers {
 			if (selfCtrl != brokenByOwner) return false;
 			String filters = subject.substring(0, ctrlM.start());
 			for (String part : filters.split("(?i)\\s+or\\s+")) {
-				if (matchesSingleSubject(part.trim(), broken)) return true;
+				if (matchesSingleSubject(part.trim(), broken, source)) return true;
 			}
 			return false;
 		}
@@ -2674,15 +2686,22 @@ final class AutoAbilityTriggers {
 	}
 
 	/**
-	 * Builds the BZ-target list for ability payment by finding the source card's
-	 * current field position.  The BZ cost is always "put itself into the Break Zone",
-	 * so no player selection is needed — one entry is added per cost item.
+	 * Builds the BZ-target list for an action ability's "put ... into the Break Zone" cost.
+	 * A cost that names the source's own card ("Put [self] into the Break Zone") is a
+	 * self-reference to THIS instance, so it breaks the source directly with no player choice —
+	 * even when other copies of the same name are on the field.  Other costs select among the
+	 * eligible field cards, prompting the player when more than {@code count} qualify.
 	 */
 	private List<ForwardTarget> autoResolveBzTargets(CardData source, List<BreakZoneCost> bzCosts, boolean isP1) {
 		if (bzCosts.isEmpty()) return List.of();
 		List<ForwardTarget> result = new ArrayList<>();
 
 		for (BreakZoneCost bz : bzCosts) {
+			// "Put [self] into the Break Zone" — the card naming itself means this specific instance.
+			if (!bz.name().isEmpty() && meetsCardNameFilter(source, bz.name())) {
+				ForwardTarget self = findSourceOnField(source, isP1);
+				if (self != null) { result.add(self); continue; }
+			}
 			List<ForwardTarget> eligible = eligibleBzFieldCards(bz, isP1);
 			if (eligible.size() <= bz.count()) result.addAll(eligible);
 			else {
