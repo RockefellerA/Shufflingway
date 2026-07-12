@@ -443,6 +443,18 @@ public class ActionResolver {
     );
 
     /**
+     * Matches a bare "Cancel its/their effect(s)." — the consequent of a reactive "chosen by opponent's
+     * Summons or abilities" auto-ability whose cost was already paid upstream (e.g. Phantasmal Girl's
+     * "you may pay 《2》. When you do so, cancel their effects.", or Regis/Tama/Yuna's "…put/discard…,
+     * cancel its effect."). Since the paying/cost step is handled before this sub-effect runs, this
+     * unconditionally vetoes the in-progress selection. Anchored to the whole string so it never
+     * matches the "Choose 1 Summon…" stack-cancel forms.
+     */
+    private static final Pattern CANCEL_CHOSEN_TARGET_BARE = Pattern.compile(
+        "(?i)^Cancel\\s+(?:its|their)\\s+effects?[.!]?$"
+    );
+
+    /**
      * Matches "Choose 1 auto-ability. Cancel its effect. If the cancelled auto-ability triggered
      * from a Forward, deal that Forward N damage."
      * Group {@code amount} — damage to deal if the source was a Forward.
@@ -4728,6 +4740,9 @@ public class ActionResolver {
         result = tryParseCancelChosenTargetUnlessDiscard(effectText);
         if (result != null) return result;
 
+        result = tryParseCancelChosenTargetBare(effectText);
+        if (result != null) return result;
+
         result = tryParseCancelSummonTargetingMyCharacter(effectText);
         if (result != null) return result;
 
@@ -5389,6 +5404,7 @@ public class ActionResolver {
         if (tryParseCancelAbilityOnStack(effectText)           != null) return "CancelAbilityOnStack";
         if (tryParseCancelChosenTargetUnlessPay(effectText)    != null) return "CancelChosenTargetUnlessPay";
         if (tryParseCancelChosenTargetUnlessDiscard(effectText) != null) return "CancelChosenTargetUnlessDiscard";
+        if (tryParseCancelChosenTargetBare(effectText)         != null) return "CancelChosenTargetBare";
         if (tryParseCancelSummonTargetingMyCharacter(effectText) != null) return "CancelSummonTargetingMyCharacter";
         if (tryParseSelectNumber(effectText, source)          != null) return "SelectNumber";
         if (tryParseDullAllOppFwdsPowerLeSource(effectText, source)        != null) return "DullAllOppFwdsPowerLeSource";
@@ -5858,6 +5874,7 @@ public class ActionResolver {
         if (tryParseCancelStackEntryUnlessPay(effectText)     != null) return "CancelStackEntryUnlessPay";
         if (tryParseCancelChosenTargetUnlessPay(effectText)   != null) return "CancelChosenTargetUnlessPay";
         if (tryParseCancelChosenTargetUnlessDiscard(effectText) != null) return "CancelChosenTargetUnlessDiscard";
+        if (tryParseCancelChosenTargetBare(effectText)         != null) return "CancelChosenTargetBare";
         if (tryParseCancelSummonTargetingMyCharacter(effectText) != null) return "CancelSummonTargetingMyCharacter";
         if (tryParseSelectNumber(effectText, source) != null)               return "SelectNumber";
         if (tryParseChooseOppFwdDynCostBreak(effectText)               != null) return "ChooseOppFwdDynCostBreak";
@@ -12534,6 +12551,19 @@ public class ActionResolver {
         return ctx -> {
             ctx.logEntry("Effect: cancel unless opponent discards " + count + " card(s)");
             ctx.vetoChosenSelectionUnlessOpponentDiscards(count);
+        };
+    }
+
+    /**
+     * Parses a bare "Cancel its/their effect(s)." — the consequent of a reactive "chosen by opponent's
+     * Summons or abilities" auto-ability whose optional cost was already paid upstream (Phantasmal
+     * Girl, Regis, Tama, Yuna). Unconditionally vetoes the in-progress selection.
+     */
+    private static Consumer<GameContext> tryParseCancelChosenTargetBare(String text) {
+        if (!CANCEL_CHOSEN_TARGET_BARE.matcher(text.trim()).find()) return null;
+        return ctx -> {
+            ctx.logEntry("Effect: cancel the effect choosing your Character(s)");
+            ctx.vetoChosenSelection();
         };
     }
 

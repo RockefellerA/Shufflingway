@@ -1545,6 +1545,11 @@ final class GameContextImpl implements GameContext {
 				}
 			}
 
+			@Override public void vetoChosenSelection() {
+				mw.lastChosenSelectionVetoed = true;
+				logEntry("Effect: the effect choosing your Character(s) is cancelled");
+			}
+
 			@Override public void vetoChosenSelectionUnlessOpponentDiscards(int count) {
 				String src = mw.currentAbilitySource != null ? mw.currentAbilitySource.name() : "Ability";
 				boolean opponentIsP1 = !isP1;   // the player being asked to discard

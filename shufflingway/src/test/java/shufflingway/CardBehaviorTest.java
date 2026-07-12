@@ -1238,6 +1238,31 @@ public class CardBehaviorTest {
     }
 
     @Test
+    void bareCancelChosenTargetParsesToUnconditionalVeto() {
+        // Consequent of Phantasmal Girl / Regis / Tama / Yuna after the optional cost is paid upstream:
+        // a bare "cancel their effects" / "cancel its effect" just vetoes the in-progress selection.
+        for (String txt : new String[]{"Cancel their effects.", "Cancel its effect."}) {
+            Consumer<GameContext> fn = ActionResolver.parse(txt, null);
+            assertNotNull(fn, "Expected \"" + txt + "\" to parse");
+            GameContext ctx = mock(GameContext.class);
+            fn.accept(ctx);
+            verify(ctx).vetoChosenSelection();
+        }
+    }
+
+    @Test
+    void bareCancelDoesNotMatchStackCancelWordings() {
+        // Clione ("cancel the Summon's effect") and Hill Gigas ("cancel its effect and break…") must
+        // NOT be swallowed by the bare-veto pattern.
+        GameContext ctx = mock(GameContext.class);
+        Consumer<GameContext> a = ActionResolver.parse("Cancel the Summon's effect.", null);
+        if (a != null) { a.accept(ctx); }
+        Consumer<GameContext> b = ActionResolver.parse("Cancel its effect and break that Character.", null);
+        if (b != null) { b.accept(ctx); }
+        verify(ctx, never()).vetoChosenSelection();
+    }
+
+    @Test
     void cancelChosenTargetUnlessPayOrCrystalParsesAndDelegatesToGameContext() {
         // Zeromus real card text: opponent may pay 4 CP OR 1 Crystal to avoid the cancel.
         Consumer<GameContext> fn = ActionResolver.parse(

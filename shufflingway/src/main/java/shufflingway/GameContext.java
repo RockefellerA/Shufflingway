@@ -207,6 +207,15 @@ public interface GameContext {
     void vetoChosenSelectionUnlessOpponentPaysOrCrystal(int cpCost, int crystalCost);
 
     /**
+     * Unconditionally vetoes the in-progress selection that triggered this reactive "chosen by
+     * opponent's Summons or abilities" auto-ability — used when the controller has already paid the
+     * ability's optional cost upstream (Phantasmal Girl's "you may pay 《2》. When you do so, cancel
+     * their effects."; Regis/Tama/Yuna's "…put/discard…, cancel its effect."), so no further choice
+     * is offered. The triggering Summon/ability ends up choosing nothing.
+     */
+    void vetoChosenSelection();
+
+    /**
      * Loads {@code targets} as the pre-selected targets for the ability about to be resolved.
      * Called by {@link MainWindow} just before running the resolution lambda, so that
      * {@link ActionResolver}'s {@code selectTargets} can return them without showing a dialog.
