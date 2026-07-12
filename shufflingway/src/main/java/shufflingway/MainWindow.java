@@ -56,7 +56,6 @@ import javax.swing.JDialog;
 import javax.swing.JFrame;
 import javax.swing.JLabel;
 import javax.swing.JLayeredPane;
-import javax.swing.JMenu;
 import javax.swing.JMenuBar;
 import javax.swing.JMenuItem;
 import javax.swing.JOptionPane;
@@ -112,6 +111,7 @@ import shufflingway.graphics.CardSlideAnimator;
 import shufflingway.graphics.CrystalDisplay;
 import shufflingway.graphics.GradientPanel;
 import shufflingway.graphics.GrayscaleLabel;
+import shufflingway.menu.DebugMenu;
 import shufflingway.menu.FileMenu;
 import shufflingway.menu.HelpMenu;
 import shufflingway.menu.MultiplayerMenu;
@@ -694,20 +694,7 @@ public class MainWindow {
 
 		if (AppSettings.isDebugEnabled()) {
 			DebugUtility debug = new DebugUtility(this);
-			JMenu debugMenu = new JMenu("Debug");
-			JMenuItem spawnFieldItem = new JMenuItem("Spawn Card on Field…");
-			spawnFieldItem.setToolTipText("Place any card directly onto the chosen player's field.");
-			spawnFieldItem.addActionListener(e -> debug.spawnOnField());
-			debugMenu.add(spawnFieldItem);
-			JMenuItem spawnHandItem = new JMenuItem("Add Card to Hand…");
-			spawnHandItem.setToolTipText("Add any card directly to the chosen player's hand.");
-			spawnHandItem.addActionListener(e -> debug.addToHand());
-			debugMenu.add(spawnHandItem);
-			JMenuItem setDamageItem = new JMenuItem("Set Damage Counts…");
-			setDamageItem.setToolTipText("Directly set P1/P2 damage zone counts for testing damage-threshold triggers.");
-			setDamageItem.addActionListener(e -> debug.setDamage());
-			debugMenu.add(setDamageItem);
-			menuBar.add(debugMenu);
+			menuBar.add(new DebugMenu(debug::spawnOnField, debug::addToHand, debug::setDamage));
 		}
 
 		Dimension cardSize = new Dimension(CARD_W, CARD_H);

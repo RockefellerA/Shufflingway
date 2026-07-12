@@ -1693,24 +1693,16 @@ public class ActionResolver {
      * card-name filter at parse time.
      */
     /**
-     * Matches "Reveal the top N cards of your deck. Add M [Type] among them to your hand
-     * and return the other cards to the bottom of your deck in any order."
-     * Groups: {@code n} (reveal count), {@code max} (max to add), {@code type} (card type).
+     * Matches "Reveal the top N cards of your deck. Add M [Type] [of cost C or less] among them
+     * to your hand and return the other cards to the bottom of your deck in any order."
+     * The "of cost C or less" clause is optional.
+     * Groups: {@code n} (reveal count), {@code max} (max to add), {@code type} (card type),
+     * {@code cost} (max cost; {@code null} when the clause is absent).
      */
     private static final Pattern REVEAL_TOP_N_TYPE_TO_HAND = Pattern.compile(
         "(?i)^\\s*(?:you\\s+may\\s+)?reveal\\s+the\\s+top\\s+(?<n>\\d+)\\s+cards?\\s+of\\s+your\\s+deck[.!]?\\s+" +
-        "Add\\s+(?<max>\\d+)\\s+(?<type>Forwards?|Backups?|Monsters?|Characters?|Summons?)\\s+among\\s+them\\s+to\\s+your\\s+hand\\s+" +
-        "and\\s+return\\s+the\\s+other\\s+cards?\\s+to\\s+the\\s+bottom\\s+of\\s+(?:your|the)\\s+deck(?:\\s+in\\s+any\\s+order)?[.!]?\\s*$"
-    );
-
-    /**
-     * Matches "Reveal the top N cards of your deck. Add M [Type] of cost C or less among them
-     * to your hand and return the other cards to the bottom of your deck in any order."
-     * Groups: {@code n} (reveal count), {@code max} (max to add), {@code type} (card type), {@code cost} (max cost).
-     */
-    private static final Pattern REVEAL_TOP_N_TYPE_COST_TO_HAND = Pattern.compile(
-        "(?i)^\\s*(?:you\\s+may\\s+)?reveal\\s+the\\s+top\\s+(?<n>\\d+)\\s+cards?\\s+of\\s+your\\s+deck[.!]?\\s+" +
-        "Add\\s+(?<max>\\d+)\\s+(?<type>Forwards?|Backups?|Monsters?|Characters?|Summons?)\\s+of\\s+cost\\s+(?<cost>\\d+)\\s+or\\s+less\\s+among\\s+them\\s+to\\s+your\\s+hand\\s+" +
+        "Add\\s+(?<max>\\d+)\\s+(?<type>Forwards?|Backups?|Monsters?|Characters?|Summons?)" +
+        "(?:\\s+of\\s+cost\\s+(?<cost>\\d+)\\s+or\\s+less)?\\s+among\\s+them\\s+to\\s+your\\s+hand\\s+" +
         "and\\s+return\\s+the\\s+other\\s+cards?\\s+to\\s+the\\s+bottom\\s+of\\s+(?:your|the)\\s+deck(?:\\s+in\\s+any\\s+order)?[.!]?\\s*$"
     );
 
@@ -1724,14 +1716,22 @@ public class ActionResolver {
     );
 
     /**
-     * Matches "Reveal the top N cards of your deck. Add M [Element] card[s] among them to your
-     * hand and return the other cards to the bottom of your deck in any order."
-     * Groups: {@code n} (reveal count), {@code max} (max to add), {@code element} (element name).
+     * Matches "Reveal the top N cards of your deck. Add M [Element] [Type|card[s]] among them to
+     * your hand and return the other cards to the bottom of your deck in any order", plus the
+     * "Add 1 [Element] or Category [X] card …" variant (Wakka) where the optional {@code or Category}
+     * clause makes the element and category <em>alternatives</em> (a card qualifies if it contains
+     * the element OR belongs to the category).
+     * Groups: {@code n} (reveal count), {@code max} (max to add), {@code element} (element name),
+     * {@code type} (card type; only in the plain form), {@code cat} (category; only in the "or Category" form).
      */
     private static final Pattern REVEAL_TOP_N_ELEMENT_TO_HAND = Pattern.compile(
         "(?i)^\\s*(?:you\\s+may\\s+)?reveal\\s+the\\s+top\\s+(?<n>\\d+)\\s+cards?\\s+of\\s+your\\s+deck[.!]?\\s+" +
         "Add\\s+(?<max>\\d+)\\s+(?<element>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark|Multi-Element)\\s+" +
-        "(?:(?<type>Forwards?|Backups?|Monsters?|Characters?)|cards?)\\s+" +
+        "(?:" +
+            "or\\s+Category\\s+(?<cat>\\S+)(?:\\s+(?:Forward|Backup|Character|Monster|card)s?)?" +
+            "|" +
+            "(?:(?<type>Forwards?|Backups?|Monsters?|Characters?)|cards?)" +
+        ")\\s+" +
         "among\\s+them\\s+to\\s+your\\s+hand\\s+" +
         "and\\s+return\\s+the\\s+other\\s+cards?\\s+to\\s+the\\s+bottom\\s+of\\s+(?:your|the)\\s+deck(?:\\s+in\\s+any\\s+order)?[.!]?\\s*$"
     );
@@ -4977,9 +4977,6 @@ public class ActionResolver {
         result = tryParseRevealTopNAddUpToExcludingNameRestBz(effectText);
         if (result != null) return result;
 
-        result = tryParseRevealTopNTypeCostToHand(effectText);
-        if (result != null) return result;
-
         result = tryParseRevealTopNTypeToHand(effectText);
         if (result != null) return result;
 
@@ -6022,7 +6019,6 @@ public class ActionResolver {
         if (tryParseOpponentRandomHandToBottomDeck(effectText) != null)     return "OpponentRandomHandToBottomDeck";
         if (tryParseOpponentHandRfp(effectText) != null)                   return "OpponentHandRfp";
         if (tryParseRevealTopNAddUpToExcludingNameRestBz(effectText) != null)  return "RevealTopNAddUpToExcludingNameRestBz";
-        if (tryParseRevealTopNTypeCostToHand(effectText)   != null)           return "RevealTopNTypeCostToHand";
         if (tryParseRevealTopNTypeToHand(effectText)       != null)           return "RevealTopNTypeToHand";
         if (tryParseRevealTopNCategoryToHand(effectText)   != null)          return "RevealTopNCategoryToHand";
         if (tryParseRevealTopNJobOrNameToHand(effectText)  != null)          return "RevealTopNJobOrNameToHand";
@@ -14262,26 +14258,13 @@ public class ActionResolver {
         if (!m.find()) return null;
         int n = Integer.parseInt(m.group("n"));
         int max = Integer.parseInt(m.group("max"));
-        String rawType = m.group("type");
         // Normalise plural → singular (e.g. "Monsters" → "Monster")
-        String typeFilter = rawType.replaceAll("(?i)s$", "");
-        return ctx -> {
-            ctx.logEntry("Effect: Reveal top " + n + " — add up to " + max + " " + typeFilter + " to hand, rest to bottom");
-            ctx.revealTopAddUpToMatchingRestBottom(n, max, null, null, null, typeFilter);
-        };
-    }
-
-    private static Consumer<GameContext> tryParseRevealTopNTypeCostToHand(String text) {
-        String s = stripRestrictionSentences(text);
-        Matcher m = REVEAL_TOP_N_TYPE_COST_TO_HAND.matcher(s.isEmpty() ? text : s);
-        if (!m.find()) return null;
-        int n = Integer.parseInt(m.group("n"));
-        int max = Integer.parseInt(m.group("max"));
         String typeFilter = m.group("type").replaceAll("(?i)s$", "");
-        int maxCost = Integer.parseInt(m.group("cost"));
+        String costRaw = m.group("cost");
+        int maxCost = costRaw != null ? Integer.parseInt(costRaw) : -1;
         return ctx -> {
             ctx.logEntry("Effect: Reveal top " + n + " — add up to " + max + " " + typeFilter
-                    + " of cost " + maxCost + " or less to hand, rest to bottom");
+                    + (maxCost >= 0 ? " of cost " + maxCost + " or less" : "") + " to hand, rest to bottom");
             ctx.revealTopAddUpToMatchingRestBottom(n, max, null, null, null, typeFilter, maxCost);
         };
     }
@@ -14293,8 +14276,19 @@ public class ActionResolver {
         int n = Integer.parseInt(m.group("n"));
         int max = Integer.parseInt(m.group("max"));
         String normElement = cap(m.group("element"));
+        String cat = m.group("cat");
+        if (cat != null) {
+            // "Add M [Element] or Category [X] card" — element and category are alternatives.
+            // The element is a disjunct (orElementFilter), not an AND-gate — "Water OR Category X".
+            return ctx -> {
+                ctx.logEntry("Effect: Reveal top " + n + " — add up to " + max + " " + normElement
+                        + " or Category " + cat + " to hand, rest to bottom");
+                ctx.revealTopAddUpToMatchingRestBottom(n, max, null, cat, null, null, -1, null, normElement);
+            };
+        }
         String typeRaw = m.group("type");
         String typeFilter = typeRaw != null ? cap(typeRaw.replaceAll("(?i)s$", "")) : null;
+        // "Add M [Element] [Type]" — the element is an AND-gate on the type (e.g. "Fire Forward").
         return ctx -> {
             ctx.logEntry("Effect: Reveal top " + n + " — add up to " + max + " " + normElement
                     + (typeFilter != null ? " " + typeFilter : " card") + "(s) to hand, rest to bottom");

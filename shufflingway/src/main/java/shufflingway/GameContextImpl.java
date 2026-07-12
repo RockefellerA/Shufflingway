@@ -5873,7 +5873,7 @@ final class GameContextImpl implements GameContext {
 
 			@Override public void revealTopAddUpToMatchingRestBottom(int reveal, int maxAdd,
 					String jobFilter, String categoryFilter, String cardNameFilter, String typeFilter, int maxCost,
-					String elementFilter) {
+					String elementFilter, String orElementFilter) {
 				Deque<CardData> deck = isP1 ? mw.gameState.getP1MainDeck() : mw.gameState.getP2MainDeck();
 				int n = Math.min(reveal, deck.size());
 				if (n == 0) { logEntry("Reveal top: deck is empty."); return; }
@@ -5889,12 +5889,13 @@ final class GameContextImpl implements GameContext {
 								if (maxCost >= 0 && c.cost() > maxCost) return false;
 								if (elementFilter != null && !CardFilters.meetsElementFilter(c, elementFilter)) return false;
 								boolean noFilters = jobFilter == null && categoryFilter == null
-										&& cardNameFilter == null && typeFilter == null;
+										&& cardNameFilter == null && typeFilter == null && orElementFilter == null;
 								if (noFilters) return true;
 								return (jobFilter      != null && CardFilters.meetsJobFilter(c, jobFilter))
 								    || (categoryFilter != null && CardFilters.meetsCategoryFilter(c, categoryFilter))
 								    || (cardNameFilter != null && CardFilters.meetsCardNameFilter(c, cardNameFilter))
-								    || (typeFilter     != null && meetsRevealTypeFilter(c, typeFilter));
+								    || (typeFilter     != null && meetsRevealTypeFilter(c, typeFilter))
+									    || (orElementFilter != null && CardFilters.meetsElementFilter(c, orElementFilter));
 							})
 							.sorted(java.util.Comparator.comparingInt(CardData::cost).reversed())
 							.collect(Collectors.toList());
@@ -5913,7 +5914,7 @@ final class GameContextImpl implements GameContext {
 				} else if (!isP1) {
 					multiplayerP2RevealPending(n);
 				} else {
-					mw.lookDialogs().showRevealAddUpToMatchingRestBottom(peeked, deck, isP1, maxAdd, jobFilter, categoryFilter, cardNameFilter, typeFilter, maxCost, elementFilter);
+					mw.lookDialogs().showRevealAddUpToMatchingRestBottom(peeked, deck, isP1, maxAdd, jobFilter, categoryFilter, cardNameFilter, typeFilter, maxCost, elementFilter, orElementFilter);
 				}
 			}
 

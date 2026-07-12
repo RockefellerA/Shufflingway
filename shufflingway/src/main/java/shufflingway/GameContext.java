@@ -2170,27 +2170,40 @@ public interface GameContext {
     /**
      * Reveals the top {@code reveal} cards of the active player's deck.
      * The player may add up to {@code maxAdd} Characters matching {@code jobFilter},
-     * {@code categoryFilter}, {@code cardNameFilter}, or {@code typeFilter} (treated as a
-     * disjunction across the non-null filters) to their hand; the rest go to the bottom of
-     * the deck in any order.  Pass {@code null} for unused filters.
+     * {@code categoryFilter}, {@code cardNameFilter}, {@code typeFilter}, or {@code orElementFilter}
+     * (treated as a disjunction across the non-null filters) to their hand; the rest go to the
+     * bottom of the deck in any order.  Pass {@code null} for unused filters.
      * {@code typeFilter} may be {@code "Monster"}, {@code "Forward"}, {@code "Backup"},
      * or {@code "Character"} (matches any character type).
      * {@code maxCost} restricts eligible cards to those with cost ≤ that value; {@code -1} = no restriction.
+     * <p>
+     * Note the two element parameters differ: {@code elementFilter} is an AND-gate — an eligible
+     * card must contain that element <em>in addition</em> to matching the disjunction (e.g. "Fire
+     * Forward"). {@code orElementFilter} is instead one of the disjunction's terms — a card is
+     * eligible if it contains that element <em>or</em> matches any other filter (e.g. "Water or
+     * Category X card"). Both are bar-separated; pass {@code null} to disable.
      */
     void revealTopAddUpToMatchingRestBottom(int reveal, int maxAdd,
             String jobFilter, String categoryFilter, String cardNameFilter, String typeFilter, int maxCost,
-            String elementFilter);
+            String elementFilter, String orElementFilter);
+
+    /** Convenience overload without the disjunct element filter (passes {@code null}). */
+    default void revealTopAddUpToMatchingRestBottom(int reveal, int maxAdd,
+            String jobFilter, String categoryFilter, String cardNameFilter, String typeFilter, int maxCost,
+            String elementFilter) {
+        revealTopAddUpToMatchingRestBottom(reveal, maxAdd, jobFilter, categoryFilter, cardNameFilter, typeFilter, maxCost, elementFilter, null);
+    }
 
     /** Convenience overload without element filter (passes {@code null}). */
     default void revealTopAddUpToMatchingRestBottom(int reveal, int maxAdd,
             String jobFilter, String categoryFilter, String cardNameFilter, String typeFilter, int maxCost) {
-        revealTopAddUpToMatchingRestBottom(reveal, maxAdd, jobFilter, categoryFilter, cardNameFilter, typeFilter, maxCost, null);
+        revealTopAddUpToMatchingRestBottom(reveal, maxAdd, jobFilter, categoryFilter, cardNameFilter, typeFilter, maxCost, null, null);
     }
 
     /** Convenience overload with no cost or element restriction. */
     default void revealTopAddUpToMatchingRestBottom(int reveal, int maxAdd,
             String jobFilter, String categoryFilter, String cardNameFilter, String typeFilter) {
-        revealTopAddUpToMatchingRestBottom(reveal, maxAdd, jobFilter, categoryFilter, cardNameFilter, typeFilter, -1, null);
+        revealTopAddUpToMatchingRestBottom(reveal, maxAdd, jobFilter, categoryFilter, cardNameFilter, typeFilter, -1, null, null);
     }
 
     /**

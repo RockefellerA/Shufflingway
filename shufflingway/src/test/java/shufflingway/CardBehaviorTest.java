@@ -882,6 +882,67 @@ public class CardBehaviorTest {
     }
 
     // =========================================================================================
+    // Wakka: "EX BURST When Wakka enters the field, reveal the top 3 cards of your deck. Add 1
+    // Water or Category X card among them to your hand and return the other cards to the bottom
+    // of your deck in any order." — the element-OR-category disjunction on the hand-add filter,
+    // fired via the "enters the field" auto ability (despite also carrying the EX Burst marker).
+    // =========================================================================================
+
+    private static final String WAKKA_TEXT =
+            "[[ex]]EX BURST[[/]] When Wakka enters the field, reveal the top 3 cards of your deck. "
+            + "Add 1 Water or Category X card among them to your hand and return the other cards to "
+            + "the bottom of your deck in any order.";
+
+    @Test
+    void wakkaAutoAbilityParsesAsEntersFieldTrigger() {
+        List<AutoAbility> autos = CardData.parseAutoAbilities(WAKKA_TEXT);
+        assertEquals(1, autos.size());
+        AutoAbility fa = autos.get(0);
+        assertTrue(fa.trigger().contains("enter"), "Expected an 'enters the field' trigger, got: " + fa.trigger());
+        assertEquals("Wakka", fa.triggerCard());
+        assertTrue(fa.effectText().toLowerCase().startsWith("reveal the top 3 cards of your deck"),
+                "Unexpected effect text: " + fa.effectText());
+    }
+
+    @Test
+    void wakkaRevealAddWaterOrCategoryXParsesAndResolves() {
+        String effectText = CardData.parseAutoAbilities(WAKKA_TEXT).get(0).effectText();
+
+        Consumer<GameContext> fn = ActionResolver.parse(effectText, null);
+        assertNotNull(fn, "Expected \"" + effectText + "\" to parse");
+
+        GameContext ctx = mock(GameContext.class);
+        fn.accept(ctx);
+
+        // element "Water" is a disjunct (orElementFilter, last arg), NOT the AND-gate elementFilter.
+        verify(ctx).revealTopAddUpToMatchingRestBottom(3, 1, null, "X", null, null, -1, null, "Water");
+    }
+
+    private static CardData makeWakka() {
+        return new CardData(null, "Wakka", "Water", 4, 7000, "Forward", false, 0, true, false,
+                Set.of(), 0, List.of(), null, List.of(),
+                List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(),
+                false, false, null, false, false, false, false, false, false,
+                null, null, null, WAKKA_TEXT);
+    }
+
+    @Test
+    void wakkaExBurstStripsWhenClauseAndResolvesReveal() {
+        CardData wakka = makeWakka();
+        // When revealed as EX Burst damage the "When Wakka enters the field," trigger clause is
+        // dropped and the bare reveal action runs.
+        String ex = wakka.exBurstEffect();
+        assertTrue(ex.toLowerCase().startsWith("reveal the top 3 cards of your deck"),
+                "EX Burst effect should drop the 'When … enters the field,' clause: " + ex);
+
+        Consumer<GameContext> fn = ActionResolver.parse(ex, wakka);
+        assertNotNull(fn, "Expected EX Burst text to parse: " + ex);
+        GameContext ctx = mock(GameContext.class);
+        fn.accept(ctx);
+        verify(ctx).revealTopAddUpToMatchingRestBottom(3, 1, null, "X", null, null, -1, null, "Water");
+    }
+
+    // =========================================================================================
     // Jet Bahamut: "When Jet Bahamut enters the field, choose 1 Forward. Deal it 5000 damage. If
     // it is put from the field into the Break Zone this turn, remove it from the game instead."
     // — the secondary clause must mark the chosen target so that ANY later break-to-BZ this turn

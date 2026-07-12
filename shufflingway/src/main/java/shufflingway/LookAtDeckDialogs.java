@@ -1053,7 +1053,7 @@ class LookAtDeckDialogs {
 
     void showRevealAddUpToMatchingRestBottom(List<CardData> cards, Deque<CardData> deck,
             boolean isP1, int maxAdd, String jobFilter, String categoryFilter, String cardNameFilter, String typeFilter, int maxCost,
-            String elementFilter) {
+            String elementFilter, String orElementFilter) {
         int n = cards.size();
         JDialog dlg = new JDialog(frame, "Reveal — Add to Hand, Rest to Bottom", true);
         dlg.setResizable(false);
@@ -1085,12 +1085,13 @@ class LookAtDeckDialogs {
                 CardData c = order.get(j);
                 boolean isChar = c.isForward() || c.isBackup() || c.isMonster();
                 boolean noFilters = jobFilter == null && categoryFilter == null
-                        && cardNameFilter == null && typeFilter == null;
+                        && cardNameFilter == null && typeFilter == null && orElementFilter == null;
                 boolean matches = noFilters
-                        || (jobFilter      != null && CardFilters.meetsJobFilter(c, jobFilter))
-                        || (categoryFilter != null && CardFilters.meetsCategoryFilter(c, categoryFilter))
-                        || (cardNameFilter != null && CardFilters.meetsCardNameFilter(c, cardNameFilter))
-                        || (typeFilter     != null && meetsRevealTypeFilter(c, typeFilter));
+                        || (jobFilter       != null && CardFilters.meetsJobFilter(c, jobFilter))
+                        || (categoryFilter  != null && CardFilters.meetsCategoryFilter(c, categoryFilter))
+                        || (cardNameFilter  != null && CardFilters.meetsCardNameFilter(c, cardNameFilter))
+                        || (typeFilter      != null && meetsRevealTypeFilter(c, typeFilter))
+                        || (orElementFilter != null && CardFilters.meetsElementFilter(c, orElementFilter));
                 boolean elemOk = elementFilter == null || CardFilters.meetsElementFilter(c, elementFilter);
                 boolean costOk = maxCost < 0 || c.cost() <= maxCost;
                 boolean inHand = handSet.contains(c);
@@ -1185,6 +1186,7 @@ class LookAtDeckDialogs {
                 : categoryFilter != null ? "Category [" + categoryFilter + "] Characters"
                 : "Characters";
         if (elementFilter != null) filterDesc = elementFilter + " " + filterDesc;
+        if (orElementFilter != null) filterDesc = orElementFilter + " or " + filterDesc;
         if (maxCost >= 0) filterDesc += " of cost " + maxCost + " or less";
         JLabel instructions = new JLabel(
                 "Toggle '→ Hand' on " + filterDesc + " (up to " + maxAdd + "). Swap the rest to order (left = first at bottom).",
