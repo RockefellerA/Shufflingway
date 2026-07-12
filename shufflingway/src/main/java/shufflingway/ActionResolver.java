@@ -434,7 +434,7 @@ public class ActionResolver {
     /**
      * Discard-cost sibling of {@link #CANCEL_CHOSEN_TARGET_UNLESS_PAY}: "If your opponent doesn't
      * discard N card(s), cancel its/their effect(s)." (e.g. Kuja, Charlotte). Same implicit-target
-     * veto mechanic, but the opponent must discard from hand instead of paying CP to prevent it.
+     * cancel mechanic, but the opponent must discard from hand instead of paying CP to prevent it.
      * Group {@code count} — the number of cards that must be discarded in full.
      */
     private static final Pattern CANCEL_CHOSEN_TARGET_UNLESS_DISCARD = Pattern.compile(
@@ -447,11 +447,34 @@ public class ActionResolver {
      * Summons or abilities" auto-ability whose cost was already paid upstream (e.g. Phantasmal Girl's
      * "you may pay 《2》. When you do so, cancel their effects.", or Regis/Tama/Yuna's "…put/discard…,
      * cancel its effect."). Since the paying/cost step is handled before this sub-effect runs, this
-     * unconditionally vetoes the in-progress selection. Anchored to the whole string so it never
+     * unconditionally cancels the in-progress selection. Anchored to the whole string so it never
      * matches the "Choose 1 Summon…" stack-cancel forms.
      */
     private static final Pattern CANCEL_CHOSEN_TARGET_BARE = Pattern.compile(
         "(?i)^Cancel\\s+(?:its|their)\\s+effects?[.!]?$"
+    );
+
+    /**
+     * Banon: "Reveal the top card of your deck. If it is a [Type], cancel all effects choosing [Name]."
+     * Reveals (peeks) the top card of the controller's deck; if it is of the captured {@code type},
+     * the in-progress selection is cancelled. Group {@code type} — Forward / Backup / Monster / Summon.
+     */
+    private static final Pattern CANCEL_CHOSEN_REVEAL_TOP_IF_TYPE = Pattern.compile(
+        "(?i)^Reveal\\s+the\\s+top\\s+card\\s+of\\s+your\\s+deck[.!]?\\s+" +
+        "If\\s+it\\s+is\\s+an?\\s+(?<type>Forward|Backup|Monster|Summon)s?,\\s*" +
+        "cancel\\s+all\\s+effects?\\s+choosing\\s+.+?[.!]?$"
+    );
+
+    /**
+     * Siren (V): "Put the top card of your deck into the Break Zone. If the card put into the Break
+     * Zone is not a [Type], cancel its/their effect(s)." Mills the top card of the controller's deck;
+     * if that card is NOT of the captured {@code type}, the in-progress selection is cancelled.
+     * Group {@code type} — Forward / Backup / Monster / Summon.
+     */
+    private static final Pattern CANCEL_CHOSEN_MILL_TOP_IF_NOT_TYPE = Pattern.compile(
+        "(?i)^Put\\s+the\\s+top\\s+card\\s+of\\s+your\\s+deck\\s+into\\s+the\\s+Break\\s+Zone[.!]?\\s+" +
+        "If\\s+the\\s+card\\s+put\\s+into\\s+the\\s+Break\\s+Zone\\s+is\\s+not\\s+an?\\s+" +
+        "(?<type>Forward|Backup|Monster|Summon)s?,\\s*cancel\\s+(?:its|their)\\s+effects?[.!]?$"
     );
 
     /**
@@ -4743,6 +4766,12 @@ public class ActionResolver {
         result = tryParseCancelChosenTargetBare(effectText);
         if (result != null) return result;
 
+        result = tryParseCancelChosenRevealTopIfType(effectText);
+        if (result != null) return result;
+
+        result = tryParseCancelChosenMillTopIfNotType(effectText);
+        if (result != null) return result;
+
         result = tryParseCancelSummonTargetingMyCharacter(effectText);
         if (result != null) return result;
 
@@ -5405,6 +5434,8 @@ public class ActionResolver {
         if (tryParseCancelChosenTargetUnlessPay(effectText)    != null) return "CancelChosenTargetUnlessPay";
         if (tryParseCancelChosenTargetUnlessDiscard(effectText) != null) return "CancelChosenTargetUnlessDiscard";
         if (tryParseCancelChosenTargetBare(effectText)         != null) return "CancelChosenTargetBare";
+        if (tryParseCancelChosenRevealTopIfType(effectText)    != null) return "CancelChosenRevealTopIfType";
+        if (tryParseCancelChosenMillTopIfNotType(effectText)   != null) return "CancelChosenMillTopIfNotType";
         if (tryParseCancelSummonTargetingMyCharacter(effectText) != null) return "CancelSummonTargetingMyCharacter";
         if (tryParseSelectNumber(effectText, source)          != null) return "SelectNumber";
         if (tryParseDullAllOppFwdsPowerLeSource(effectText, source)        != null) return "DullAllOppFwdsPowerLeSource";
@@ -5875,6 +5906,8 @@ public class ActionResolver {
         if (tryParseCancelChosenTargetUnlessPay(effectText)   != null) return "CancelChosenTargetUnlessPay";
         if (tryParseCancelChosenTargetUnlessDiscard(effectText) != null) return "CancelChosenTargetUnlessDiscard";
         if (tryParseCancelChosenTargetBare(effectText)         != null) return "CancelChosenTargetBare";
+        if (tryParseCancelChosenRevealTopIfType(effectText)    != null) return "CancelChosenRevealTopIfType";
+        if (tryParseCancelChosenMillTopIfNotType(effectText)   != null) return "CancelChosenMillTopIfNotType";
         if (tryParseCancelSummonTargetingMyCharacter(effectText) != null) return "CancelSummonTargetingMyCharacter";
         if (tryParseSelectNumber(effectText, source) != null)               return "SelectNumber";
         if (tryParseChooseOppFwdDynCostBreak(effectText)               != null) return "ChooseOppFwdDynCostBreak";
@@ -12512,7 +12545,7 @@ public class ActionResolver {
     /**
      * Parses the standalone "If your opponent doesn't pay 《N》[ or 《C》…], cancel its/their effect(s)."
      * body of a "chosen by opponent's Summons or abilities" auto-ability. The target is implicit —
-     * whatever Summon/ability just triggered this reaction — so it just vetoes that in-progress
+     * whatever Summon/ability just triggered this reaction — so it just cancels that in-progress
      * selection. When a Crystal alternative is present (Zeromus), the opponent may pay CP or Crystals.
      */
     private static Consumer<GameContext> tryParseCancelChosenTargetUnlessPay(String text) {
@@ -12530,18 +12563,18 @@ public class ActionResolver {
         if (crystalCost > 0) {
             return ctx -> {
                 ctx.logEntry("Effect: cancel unless opponent pays 《" + cost + "》 or 《C》×" + crystalCost);
-                ctx.vetoChosenSelectionUnlessOpponentPaysOrCrystal(cost, crystalCost);
+                ctx.cancelChosenSelectionUnlessOpponentPaysOrCrystal(cost, crystalCost);
             };
         }
         return ctx -> {
             ctx.logEntry("Effect: cancel unless opponent pays 《" + cost + "》");
-            ctx.vetoChosenSelectionUnlessOpponentPays(cost);
+            ctx.cancelChosenSelectionUnlessOpponentPays(cost);
         };
     }
 
     /**
      * Discard-cost sibling of {@link #tryParseCancelChosenTargetUnlessPay}: parses "If your opponent
-     * doesn't discard N card(s), cancel its/their effect(s)." and vetoes the in-progress selection
+     * doesn't discard N card(s), cancel its/their effect(s)." and cancels the in-progress selection
      * unless the opponent discards the full number of cards from hand.
      */
     private static Consumer<GameContext> tryParseCancelChosenTargetUnlessDiscard(String text) {
@@ -12550,21 +12583,66 @@ public class ActionResolver {
         int count = Integer.parseInt(m.group("count"));
         return ctx -> {
             ctx.logEntry("Effect: cancel unless opponent discards " + count + " card(s)");
-            ctx.vetoChosenSelectionUnlessOpponentDiscards(count);
+            ctx.cancelChosenSelectionUnlessOpponentDiscards(count);
         };
     }
 
     /**
      * Parses a bare "Cancel its/their effect(s)." — the consequent of a reactive "chosen by opponent's
      * Summons or abilities" auto-ability whose optional cost was already paid upstream (Phantasmal
-     * Girl, Regis, Tama, Yuna). Unconditionally vetoes the in-progress selection.
+     * Girl, Regis, Tama, Yuna). Unconditionally cancels the in-progress selection.
      */
     private static Consumer<GameContext> tryParseCancelChosenTargetBare(String text) {
         if (!CANCEL_CHOSEN_TARGET_BARE.matcher(text.trim()).find()) return null;
         return ctx -> {
             ctx.logEntry("Effect: cancel the effect choosing your Character(s)");
-            ctx.vetoChosenSelection();
+            ctx.cancelChosenSelection();
         };
+    }
+
+    /**
+     * Parses Banon's "Reveal the top card of your deck. If it is a [Type], cancel all effects
+     * choosing [Name]." — reveals the top deck card and cancels the in-progress selection when it
+     * is of the given type.
+     */
+    private static Consumer<GameContext> tryParseCancelChosenRevealTopIfType(String text) {
+        Matcher m = CANCEL_CHOSEN_REVEAL_TOP_IF_TYPE.matcher(text.trim());
+        if (!m.find()) return null;
+        String type = m.group("type");
+        return ctx -> {
+            ctx.logEntry("Effect: reveal top of deck; if a " + type + ", cancel the effect choosing your Character");
+            ctx.revealTopDeckCancelChosenIfType(type);
+        };
+    }
+
+    /**
+     * Parses Siren (V)'s "Put the top card of your deck into the Break Zone. If the card put into
+     * the Break Zone is not a [Type], cancel its/their effect(s)." — mills the top deck card and
+     * cancels the in-progress selection when it is not of the given type.
+     */
+    private static Consumer<GameContext> tryParseCancelChosenMillTopIfNotType(String text) {
+        Matcher m = CANCEL_CHOSEN_MILL_TOP_IF_NOT_TYPE.matcher(text.trim());
+        if (!m.find()) return null;
+        String type = m.group("type");
+        return ctx -> {
+            ctx.logEntry("Effect: mill top of deck; if not a " + type + ", cancel the effect choosing your Character(s)");
+            ctx.millTopDeckCancelChosenIfNotType(type);
+        };
+    }
+
+    /**
+     * Returns {@code true} if {@code text} is one of the reactive "chosen by opponent's Summons or
+     * abilities" cancel effects — the family that must run <em>inline</em> during the opponent's
+     * target selection (so {@code selectCharacters} can drop the cancelled targets), rather than being
+     * pushed onto the stack to resolve after the choosing effect has already acted. See
+     * {@code AutoAbilityTriggers.executeAutoAbilityImpl}.
+     */
+    static boolean isChosenSelectionCancelEffect(String text) {
+        return tryParseCancelChosenTargetUnlessPay(text)     != null
+            || tryParseCancelChosenTargetUnlessDiscard(text)  != null
+            || tryParseCancelChosenTargetBare(text)           != null
+            || tryParseCancelChosenRevealTopIfType(text)      != null
+            || tryParseCancelChosenMillTopIfNotType(text)     != null;
     }
 
     /**

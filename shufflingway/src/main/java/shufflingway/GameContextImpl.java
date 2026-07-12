@@ -904,7 +904,7 @@ final class GameContextImpl implements GameContext {
 			 * Fires the "chosen by opponent's summon" (Summon-only, Forward-only — unchanged scope)
 			 * and "chosen by opponent's summon or ability" (Summon or ability, any zone) triggers for
 			 * whichever of {@code selected}'s cards belong to this context's opponent, then returns
-			 * {@code selected} unchanged — unless the broad trigger vetoes the selection (opponent
+			 * {@code selected} unchanged — unless the broad trigger cancels the selection (opponent
 			 * declined to pay a Dull-style CP tax), in which case an empty list is returned so the
 			 * calling effect sees no targets at all and no-ops, per its usual "nothing eligible"
 			 * handling.
@@ -917,9 +917,9 @@ final class GameContextImpl implements GameContext {
 				if (mw.currentResolutionIsSummon && anyOppForwardChosen)
 					mw.autoAbilityTriggers.triggerAutoAbilitiesForChosenByOpponentSummon(!isP1);
 				if (anyOppCharacterChosen) {
-					mw.lastChosenSelectionVetoed = false;
+					mw.lastChosenSelectionCancelled = false;
 					mw.autoAbilityTriggers.triggerAutoAbilitiesForChosenByOpponentSummonOrAbility(!isP1);
-					if (mw.lastChosenSelectionVetoed) {
+					if (mw.lastChosenSelectionCancelled) {
 						logEntry("Selection cancelled — opponent declined to pay");
 						return List.of();
 					}
@@ -1513,20 +1513,20 @@ final class GameContextImpl implements GameContext {
 				}
 			}
 
-			@Override public void vetoChosenSelectionUnlessOpponentPays(int cost) {
+			@Override public void cancelChosenSelectionUnlessOpponentPays(int cost) {
 				String src = mw.currentAbilitySource != null ? mw.currentAbilitySource.name() : "Ability";
 				String label = src + " — pay 《" + cost + "》 or the effect choosing your Character(s) is cancelled";
 				int[] paidHolder = {-1};
 				mw.autoAbilityTriggers.showAutoAbilityPaymentDialog(label, cost, cost, !isP1, 0, paid -> paidHolder[0] = paid, null);
 				if (paidHolder[0] < cost) {
-					mw.lastChosenSelectionVetoed = true;
+					mw.lastChosenSelectionCancelled = true;
 					logEntry("Effect: opponent declined to pay 《" + cost + "》 — selection cancelled");
 				} else {
 					logEntry("Effect: opponent paid 《" + cost + "》 — selection proceeds");
 				}
 			}
 
-			@Override public void vetoChosenSelectionUnlessOpponentPaysOrCrystal(int cpCost, int crystalCost) {
+			@Override public void cancelChosenSelectionUnlessOpponentPaysOrCrystal(int cpCost, int crystalCost) {
 				String src = mw.currentAbilitySource != null ? mw.currentAbilitySource.name() : "Ability";
 				String label = src + " — pay 《" + cpCost + "》 or " + crystalCost + " Crystal"
 						+ (crystalCost == 1 ? "" : "s") + " or the effect choosing your Character(s) is cancelled";
@@ -1538,26 +1538,55 @@ final class GameContextImpl implements GameContext {
 				if (paidByCrystal[0]) {
 					logEntry("Effect: opponent paid " + crystalCost + " Crystal" + (crystalCost == 1 ? "" : "s") + " — selection proceeds");
 				} else if (paidHolder[0] < cpCost) {
-					mw.lastChosenSelectionVetoed = true;
+					mw.lastChosenSelectionCancelled = true;
 					logEntry("Effect: opponent declined to pay — selection cancelled");
 				} else {
 					logEntry("Effect: opponent paid 《" + cpCost + "》 — selection proceeds");
 				}
 			}
 
-			@Override public void vetoChosenSelection() {
-				mw.lastChosenSelectionVetoed = true;
+			@Override public void cancelChosenSelection() {
+				mw.lastChosenSelectionCancelled = true;
 				logEntry("Effect: the effect choosing your Character(s) is cancelled");
 			}
 
-			@Override public void vetoChosenSelectionUnlessOpponentDiscards(int count) {
+			@Override public void revealTopDeckCancelChosenIfType(String type) {
+				Deque<CardData> deck = isP1 ? mw.gameState.getP1MainDeck() : mw.gameState.getP2MainDeck();
+				if (deck.isEmpty()) { logEntry("Reveal: your deck is empty — no cancel"); return; }
+				CardData top = deck.peekFirst();   // revealed; stays on top
+				logEntry((isP1 ? "" : "[P2] ") + "Revealed top of deck: " + top.name() + " (" + top.type() + ")");
+				if (ComputerPlayer.cardMatchesType(top, type)) {
+					mw.lastChosenSelectionCancelled = true;
+					logEntry("Revealed card is a " + type + " — the effect choosing your Character is cancelled");
+				} else {
+					logEntry("Revealed card is not a " + type + " — the effect proceeds");
+				}
+			}
+
+			@Override public void millTopDeckCancelChosenIfNotType(String type) {
+				Deque<CardData> deck = isP1 ? mw.gameState.getP1MainDeck() : mw.gameState.getP2MainDeck();
+				if (deck.isEmpty()) { logEntry("Your deck is empty — nothing to put into the Break Zone"); return; }
+				CardData top = deck.pollFirst();
+				logEntry((isP1 ? "" : "[P2] ") + top.name() + " (" + top.type() + ") → Break Zone (top of deck)");
+				mw.addToBreakZone(top);
+				if (isP1) { mw.refreshP1DeckLabel(); mw.refreshP1BreakLabel(); }
+				else      { mw.refreshP2DeckLabel(); mw.refreshP2BreakLabel(); }
+				if (!ComputerPlayer.cardMatchesType(top, type)) {
+					mw.lastChosenSelectionCancelled = true;
+					logEntry("The milled card is not a " + type + " — the effect choosing your Character(s) is cancelled");
+				} else {
+					logEntry("The milled card is a " + type + " — the effect proceeds");
+				}
+			}
+
+			@Override public void cancelChosenSelectionUnlessOpponentDiscards(int count) {
 				String src = mw.currentAbilitySource != null ? mw.currentAbilitySource.name() : "Ability";
 				boolean opponentIsP1 = !isP1;   // the player being asked to discard
 				List<CardData> oppHand = opponentIsP1 ? mw.gameState.getP1Hand() : mw.gameState.getP2Hand();
 
-				// Can't discard the full amount → automatic veto, no choice offered.
+				// Can't discard the full amount → automatic cancel, no choice offered.
 				if (oppHand.size() < count) {
-					mw.lastChosenSelectionVetoed = true;
+					mw.lastChosenSelectionCancelled = true;
 					logEntry("Effect: opponent cannot discard " + count + " card(s) — selection cancelled");
 					return;
 				}
@@ -1588,7 +1617,7 @@ final class GameContextImpl implements GameContext {
 				}
 
 				if (!discarded) {
-					mw.lastChosenSelectionVetoed = true;
+					mw.lastChosenSelectionCancelled = true;
 					logEntry("Effect: opponent declined to discard — selection cancelled");
 				} else {
 					logEntry("Effect: opponent discarded " + count + " card(s) — selection proceeds");

@@ -1222,7 +1222,7 @@ public class CardBehaviorTest {
 
         GameContext ctx = mock(GameContext.class);
         fn.accept(ctx);
-        verify(ctx).vetoChosenSelectionUnlessOpponentPays(2);
+        verify(ctx).cancelChosenSelectionUnlessOpponentPays(2);
     }
 
     @Test
@@ -1234,32 +1234,70 @@ public class CardBehaviorTest {
 
         GameContext ctx = mock(GameContext.class);
         fn.accept(ctx);
-        verify(ctx).vetoChosenSelectionUnlessOpponentDiscards(1);
+        verify(ctx).cancelChosenSelectionUnlessOpponentDiscards(1);
     }
 
     @Test
-    void bareCancelChosenTargetParsesToUnconditionalVeto() {
+    void bareCancelChosenTargetParsesToUnconditionalCancel() {
         // Consequent of Phantasmal Girl / Regis / Tama / Yuna after the optional cost is paid upstream:
-        // a bare "cancel their effects" / "cancel its effect" just vetoes the in-progress selection.
+        // a bare "cancel their effects" / "cancel its effect" just cancels the in-progress selection.
         for (String txt : new String[]{"Cancel their effects.", "Cancel its effect."}) {
             Consumer<GameContext> fn = ActionResolver.parse(txt, null);
             assertNotNull(fn, "Expected \"" + txt + "\" to parse");
             GameContext ctx = mock(GameContext.class);
             fn.accept(ctx);
-            verify(ctx).vetoChosenSelection();
+            verify(ctx).cancelChosenSelection();
         }
     }
 
     @Test
     void bareCancelDoesNotMatchStackCancelWordings() {
         // Clione ("cancel the Summon's effect") and Hill Gigas ("cancel its effect and break…") must
-        // NOT be swallowed by the bare-veto pattern.
+        // NOT be swallowed by the bare-cancel pattern.
         GameContext ctx = mock(GameContext.class);
         Consumer<GameContext> a = ActionResolver.parse("Cancel the Summon's effect.", null);
         if (a != null) { a.accept(ctx); }
         Consumer<GameContext> b = ActionResolver.parse("Cancel its effect and break that Character.", null);
         if (b != null) { b.accept(ctx); }
-        verify(ctx, never()).vetoChosenSelection();
+        verify(ctx, never()).cancelChosenSelection();
+    }
+
+    @Test
+    void banonRevealTopIfBackupCancelParsesAndDelegates() {
+        // Banon real card text.
+        Consumer<GameContext> fn = ActionResolver.parse(
+                "Reveal the top card of your deck. If it is a Backup, cancel all effects choosing Banon.", null);
+        assertNotNull(fn);
+
+        GameContext ctx = mock(GameContext.class);
+        fn.accept(ctx);
+        verify(ctx).revealTopDeckCancelChosenIfType("Backup");
+    }
+
+    @Test
+    void sirenMillTopIfNotForwardCancelParsesAndDelegates() {
+        // Siren (V) real card text (post "you may" strip).
+        Consumer<GameContext> fn = ActionResolver.parse(
+                "Put the top card of your deck into the Break Zone. If the card put into the Break Zone "
+                + "is not a Forward, cancel its effects.", null);
+        assertNotNull(fn);
+
+        GameContext ctx = mock(GameContext.class);
+        fn.accept(ctx);
+        verify(ctx).millTopDeckCancelChosenIfNotType("Forward");
+    }
+
+    @Test
+    void chosenSelectionCancelEffectsAreRecognizedForInlineExecution() {
+        // All the reactive-cancel bodies must be flagged so AutoAbilityTriggers runs them inline.
+        assertTrue(ActionResolver.isChosenSelectionCancelEffect("If your opponent doesn't pay 《2》, cancel their effects."));
+        assertTrue(ActionResolver.isChosenSelectionCancelEffect("If your opponent doesn't pay 《4》 or 《C》, cancel its effects."));
+        assertTrue(ActionResolver.isChosenSelectionCancelEffect("If your opponent doesn't discard 1 card, cancel its effect."));
+        assertTrue(ActionResolver.isChosenSelectionCancelEffect("Cancel their effects."));
+        assertTrue(ActionResolver.isChosenSelectionCancelEffect("Reveal the top card of your deck. If it is a Backup, cancel all effects choosing Banon."));
+        assertTrue(ActionResolver.isChosenSelectionCancelEffect("Put the top card of your deck into the Break Zone. If the card put into the Break Zone is not a Forward, cancel its effects."));
+        // A non-cancel chosen effect must NOT be flagged (still goes on the stack normally).
+        assertFalse(ActionResolver.isChosenSelectionCancelEffect("Your opponent discards 1 card from their hand."));
     }
 
     @Test
@@ -1271,8 +1309,8 @@ public class CardBehaviorTest {
 
         GameContext ctx = mock(GameContext.class);
         fn.accept(ctx);
-        verify(ctx).vetoChosenSelectionUnlessOpponentPaysOrCrystal(4, 1);
-        verify(ctx, never()).vetoChosenSelectionUnlessOpponentPays(anyInt());
+        verify(ctx).cancelChosenSelectionUnlessOpponentPaysOrCrystal(4, 1);
+        verify(ctx, never()).cancelChosenSelectionUnlessOpponentPays(anyInt());
     }
 
     @Test
@@ -1284,8 +1322,8 @@ public class CardBehaviorTest {
 
         GameContext ctx = mock(GameContext.class);
         fn.accept(ctx);
-        verify(ctx).vetoChosenSelectionUnlessOpponentPays(2);
-        verify(ctx, never()).vetoChosenSelectionUnlessOpponentPaysOrCrystal(anyInt(), anyInt());
+        verify(ctx).cancelChosenSelectionUnlessOpponentPays(2);
+        verify(ctx, never()).cancelChosenSelectionUnlessOpponentPaysOrCrystal(anyInt(), anyInt());
     }
 
     @Test
@@ -1298,7 +1336,7 @@ public class CardBehaviorTest {
 
         GameContext ctx = mock(GameContext.class);
         fn.accept(ctx);
-        verify(ctx).vetoChosenSelectionUnlessOpponentPays(3);
+        verify(ctx).cancelChosenSelectionUnlessOpponentPays(3);
     }
 
     @Test

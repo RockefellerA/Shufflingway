@@ -185,35 +185,47 @@ public interface GameContext {
      * target — whatever Summon/ability just triggered this reaction, currently mid-selection of a
      * Character this context's controller owns — behind a pay-in-full-or-decline CP tax. If the
      * opponent declines (or is unable) to pay the full {@code cost}, the in-progress selection is
-     * vetoed so the triggering Summon/ability ends up choosing nothing.
+     * cancelled so the triggering Summon/ability ends up choosing nothing.
      */
-    void vetoChosenSelectionUnlessOpponentPays(int cost);
+    void cancelChosenSelectionUnlessOpponentPays(int cost);
 
     /**
-     * Discard-cost sibling of {@link #vetoChosenSelectionUnlessOpponentPays}: the opponent must
+     * Discard-cost sibling of {@link #cancelChosenSelectionUnlessOpponentPays}: the opponent must
      * discard {@code count} cards from hand (in full) to prevent the in-progress selection from
-     * being vetoed. Declining — or holding fewer than {@code count} cards — cancels the triggering
+     * being cancelled. Declining — or holding fewer than {@code count} cards — cancels the triggering
      * Summon/ability's choice of this context's controller's Character(s).
      */
-    void vetoChosenSelectionUnlessOpponentDiscards(int count);
+    void cancelChosenSelectionUnlessOpponentDiscards(int count);
 
     /**
-     * Crystal-alternative sibling of {@link #vetoChosenSelectionUnlessOpponentPays}: the opponent may
-     * prevent the in-progress selection from being vetoed by paying EITHER {@code cpCost} CP the
+     * Crystal-alternative sibling of {@link #cancelChosenSelectionUnlessOpponentPays}: the opponent may
+     * prevent the in-progress selection from being cancelled by paying EITHER {@code cpCost} CP the
      * normal way OR {@code crystalCost} Crystals. The Crystal option is unavailable when the opponent
      * holds fewer than {@code crystalCost} Crystals. Declining both cancels the triggering
      * Summon/ability's choice of this context's controller's Character(s).
      */
-    void vetoChosenSelectionUnlessOpponentPaysOrCrystal(int cpCost, int crystalCost);
+    void cancelChosenSelectionUnlessOpponentPaysOrCrystal(int cpCost, int crystalCost);
 
     /**
-     * Unconditionally vetoes the in-progress selection that triggered this reactive "chosen by
+     * Unconditionally cancels the in-progress selection that triggered this reactive "chosen by
      * opponent's Summons or abilities" auto-ability — used when the controller has already paid the
      * ability's optional cost upstream (Phantasmal Girl's "you may pay 《2》. When you do so, cancel
      * their effects."; Regis/Tama/Yuna's "…put/discard…, cancel its effect."), so no further choice
      * is offered. The triggering Summon/ability ends up choosing nothing.
      */
-    void vetoChosenSelection();
+    void cancelChosenSelection();
+
+    /**
+     * Banon: reveals (peeks) the top card of the controller's deck; if it is of {@code type}
+     * (e.g. {@code "Backup"}), cancels the in-progress selection. The revealed card stays on top.
+     */
+    void revealTopDeckCancelChosenIfType(String type);
+
+    /**
+     * Siren (V): mills the top card of the controller's deck into their Break Zone; if that card is
+     * NOT of {@code type} (e.g. {@code "Forward"}), cancels the in-progress selection.
+     */
+    void millTopDeckCancelChosenIfNotType(String type);
 
     /**
      * Loads {@code targets} as the pre-selected targets for the ability about to be resolved.

@@ -590,12 +590,12 @@ public class MainWindow {
 	/** Stack entries whose effect has been cancelled by Y'shtola or similar; checked and consumed at resolution. */
 	final Set<StackEntry> cancelledStackEntries = Collections.newSetFromMap(new IdentityHashMap<>());
 	/**
-	 * One-shot flag set by {@code GameContextImpl.vetoChosenSelectionUnlessOpponentPays} when a
+	 * One-shot flag set by {@code GameContextImpl.cancelChosenSelectionUnlessOpponentPays} when a
 	 * "chosen by opponent's summon or ability" auto-ability's Dull-style CP tax goes unpaid; read
 	 * immediately afterward by {@code GameContextImpl.selectCharacters} to empty out the selection
 	 * it's about to return, so the outer Summon/ability effect sees no targets.
 	 */
-	boolean lastChosenSelectionVetoed = false;
+	boolean lastChosenSelectionCancelled = false;
 	/** True while {@link #resolveTopOfStack} or EX Burst execution is running; suppresses {@link #showStackWindowIfNeeded}. */
 	private boolean isResolvingStack      = false;
 	/** True while P1 has clicked "Respond" in the stack window and not yet cast or passed. */
@@ -1348,7 +1348,7 @@ public class MainWindow {
 		pendingSummonReturnToHand = false;
 		currentSummonSource      = null;
 		currentAbilitySource     = null;
-		lastChosenSelectionVetoed = false;
+		lastChosenSelectionCancelled = false;
 		suppressAutoAbilityForNextCard = false;
 		// Per-game callback/priority state.
 		p1PriorityInP2MainOnDone = null;
@@ -11525,7 +11525,6 @@ public class MainWindow {
 		}
 	}
 
-	/** Returns true when the P1 monster at {@code idx} can attack as a Forward this turn. */
 	/** Returns true when the P1 monster at {@code idx} currently has the Forward type. */
 	boolean isP1MonsterTemporarilyForward(int idx) {
 		if (idx < 0 || idx >= p1MonsterCards.size()) return false;
@@ -11550,6 +11549,7 @@ public class MainWindow {
 		return gameState.getCurrentPlayer() == GameState.Player.P2;
 	}
 
+	/** Returns true when the P1 monster at {@code idx} can attack as a Forward this turn. */
 	private boolean isMonsterSelectableAsForward(int idx) {
 		if (gameState.getCurrentPhase() != GameState.GamePhase.ATTACK) return false;
 		if (gameState.getCurrentPlayer() != GameState.Player.P1) return false;

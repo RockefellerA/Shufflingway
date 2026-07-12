@@ -1620,6 +1620,19 @@ final class AutoAbilityTriggers {
 		if (fa.oncePerTurn())
 			mw.usedOncePerTurnAbilities.computeIfAbsent(source, k -> new HashSet<>()).add(fa.effectText());
 
+		// Reactive "chosen by opponent's Summons or abilities" cancel effects must resolve INLINE,
+		// synchronously within the opponent's in-progress target selection (see
+		// GameContextImpl.selectCharacters / lastChosenSelectionCancelled), rather than being pushed
+		// onto the stack — a stacked cancel would resolve only after the choosing effect has already
+		// acted on its targets, making the cancellation a no-op.
+		if (fa.trigger().startsWith("chosen by opponent's summon")
+				&& ActionResolver.isChosenSelectionCancelEffect(fa.effectText())) {
+			Consumer<GameContext> effect = ActionResolver.parse(fa.effectText(), source);
+			mw.logEntry("[AutoAbility] " + source.name() + " — " + fa.effectText());
+			effect.accept(mw.buildGameContext(effectIsP1));
+			return;
+		}
+
 		mw.logEntry("[AutoAbility] " + source.name() + " — pushed to stack");
 		mw.gameState.pushStack(new StackEntry(source, null, fa, effectIsP1, 0, false, null, false, paidExtraCost, 0));
 	}
