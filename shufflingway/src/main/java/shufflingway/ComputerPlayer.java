@@ -91,7 +91,10 @@ class ComputerPlayer {
 		}
 		for (int i = 0; i < mw.p2MonsterStates.size(); i++) {
 			CardState ms = mw.p2MonsterStates.get(i);
-			if ((ms == CardState.DULL || ms == CardState.BRAVE_ATTACKED) && !mw.p2MonsterFrozen.get(i)) {
+			if (ms == CardState.DULL && !mw.p2MonsterFrozen.get(i)) {
+				mw.p2MonsterStates.set(i, CardState.ACTIVE); mw.animateActivateP2Monster(i); activated++;
+			} else if (ms == CardState.BRAVE_ATTACKED && !mw.p2MonsterFrozen.get(i)) {
+				// Already upright (Brave attacked without dulling) — no rotation to animate.
 				mw.p2MonsterStates.set(i, CardState.ACTIVE); mw.refreshP2MonsterSlot(i); activated++;
 			} else {
 				mw.refreshP2MonsterSlot(i);

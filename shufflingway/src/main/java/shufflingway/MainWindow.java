@@ -40,6 +40,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ExecutionException;
+import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
 import java.util.function.Predicate;
 import java.util.regex.Matcher;
@@ -8028,313 +8029,113 @@ public class MainWindow {
 		}
 	}
 
-	void animateDullBackup(int idx, boolean dulling) {
-		String url  = p1BackupUrls[idx];
-		JLabel slot = p1BackupLabels[idx];
-		if (url == null || slot == null) return;
-
+	/**
+	 * Shared dull/activate rotation for a single card slot: rotates {@code slot}'s image between
+	 * upright (0°) and dulled (90°) over 12 frames, then re-renders it via {@code refresh}.  All the
+	 * per-zone {@code animateDull*}/{@code animateActivate*} methods are thin wrappers over this.
+	 *
+	 * @param dulling      {@code true} rotates upright→dulled (0°→90°); {@code false} the reverse
+	 * @param stillPresent optional per-frame guard; when it returns {@code false} the animation
+	 *                     aborts and the slot is cleared (used by backups, whose card can leave the
+	 *                     field mid-animation).  Pass {@code null} for no guard.
+	 * @param refresh      re-renders the slot at its final resting state
+	 * @param onComplete   optional callback run after the final {@code refresh}; may be {@code null}
+	 */
+	private void animateCardRotation(String url, JLabel slot, boolean dulling,
+			BooleanSupplier stillPresent, Runnable refresh, Runnable onComplete) {
+		if (url == null || slot == null) {
+			refresh.run();
+			if (onComplete != null) onComplete.run();
+			return;
+		}
 		new SwingWorker<BufferedImage, Void>() {
 			@Override protected BufferedImage doInBackground() throws Exception {
 				Image raw = ImageCache.load(url);
 				return raw == null ? null : CardAnimation.toARGB(raw, CARD_W, CARD_H);
 			}
 			@Override protected void done() {
+				BufferedImage card;
 				try {
-					BufferedImage card = get();
-					if (card == null) { refreshP1BackupSlot(idx); return; }
-
-					int   totalFrames = 12;
-					int[] frame       = { 0 };
-					Timer timer = new Timer(16, null);
-					timer.addActionListener(ae -> {
-						if (p1BackupUrls[idx] == null) { timer.stop(); slot.setIcon(null); slot.setText(null); return; }
-						frame[0]++;
-						double progress = Math.min(1.0, (double) frame[0] / totalFrames);
-						// ease in-out
-						double t = progress < 0.5
-								? 2 * progress * progress
-								: 1 - Math.pow(-2 * progress + 2, 2) / 2;
-						double angle = dulling ? (Math.PI / 2 * t) : (Math.PI / 2 * (1 - t));
-						slot.setIcon(new ImageIcon(CardAnimation.renderBackupCardAtAngle(card, angle)));
+					card = get();
+				} catch (InterruptedException | ExecutionException ex) {
+					refresh.run();
+					if (onComplete != null) onComplete.run();
+					return;
+				}
+				if (card == null) {
+					refresh.run();
+					if (onComplete != null) onComplete.run();
+					return;
+				}
+				int   totalFrames = 12;
+				int[] frame       = { 0 };
+				Timer timer = new Timer(16, null);
+				timer.addActionListener(ae -> {
+					if (stillPresent != null && !stillPresent.getAsBoolean()) {
+						timer.stop();
+						slot.setIcon(null);
 						slot.setText(null);
-						if (frame[0] >= totalFrames) {
-							timer.stop();
-							refreshP1BackupSlot(idx);
-						}
-					});
-					timer.start();
-				} catch (InterruptedException | ExecutionException ignored) {}
+						return;
+					}
+					frame[0]++;
+					double progress = Math.min(1.0, (double) frame[0] / totalFrames);
+					// ease in-out
+					double t = progress < 0.5
+							? 2 * progress * progress
+							: 1 - Math.pow(-2 * progress + 2, 2) / 2;
+					double angle = dulling ? (Math.PI / 2 * t) : (Math.PI / 2 * (1 - t));
+					slot.setIcon(new ImageIcon(CardAnimation.renderBackupCardAtAngle(card, angle)));
+					slot.setText(null);
+					if (frame[0] >= totalFrames) {
+						timer.stop();
+						refresh.run();
+						if (onComplete != null) onComplete.run();
+					}
+				});
+				timer.start();
 			}
 		}.execute();
+	}
+
+	void animateDullBackup(int idx, boolean dulling) {
+		animateCardRotation(p1BackupUrls[idx], p1BackupLabels[idx], dulling,
+				() -> p1BackupUrls[idx] != null, () -> refreshP1BackupSlot(idx), null);
 	}
 
 
 	void animateDullForward(int idx, Runnable onComplete) {
-		String url  = p1ForwardUrls.get(idx);
-		JLabel slot = p1ForwardLabels.get(idx);
-		if (url == null || slot == null) {
-			refreshP1ForwardSlot(idx);
-			triggerShieldFadeForForward(true, idx);
-			if (onComplete != null) onComplete.run();
-			return;
-		}
-
-		new SwingWorker<BufferedImage, Void>() {
-			@Override protected BufferedImage doInBackground() throws Exception {
-				Image raw = ImageCache.load(url);
-				return raw == null ? null : CardAnimation.toARGB(raw, CARD_W, CARD_H);
-			}
-			@Override protected void done() {
-				try {
-					BufferedImage card = get();
-					if (card == null) {
-						refreshP1ForwardSlot(idx);
-						triggerShieldFadeForForward(true, idx);
-						if (onComplete != null) onComplete.run();
-						return;
-					}
-
-					int   totalFrames = 12;
-					int[] frame       = { 0 };
-					Timer timer = new Timer(16, null);
-					timer.addActionListener(ae -> {
-						frame[0]++;
-						double progress = Math.min(1.0, (double) frame[0] / totalFrames);
-						double t = progress < 0.5
-								? 2 * progress * progress
-								: 1 - Math.pow(-2 * progress + 2, 2) / 2;
-						double angle = Math.PI / 2 * t;
-						slot.setIcon(new ImageIcon(CardAnimation.renderBackupCardAtAngle(card, angle)));
-						slot.setText(null);
-						if (frame[0] >= totalFrames) {
-							timer.stop();
-							refreshP1ForwardSlot(idx);
-							triggerShieldFadeForForward(true, idx);
-							if (onComplete != null) onComplete.run();
-						}
-					});
-					timer.start();
-				} catch (InterruptedException | ExecutionException ignored) {
-					refreshP1ForwardSlot(idx);
-					triggerShieldFadeForForward(true, idx);
-					if (onComplete != null) onComplete.run();
-				}
-			}
-		}.execute();
+		animateCardRotation(p1ForwardUrls.get(idx), p1ForwardLabels.get(idx), true, null,
+				() -> { refreshP1ForwardSlot(idx); triggerShieldFadeForForward(true, idx); }, onComplete);
 	}
 
 	void animateDullP2Forward(int idx, Runnable onComplete) {
-		String url  = p2ForwardUrls.get(idx);
-		JLabel slot = p2ForwardLabels.get(idx);
-		if (url == null || slot == null) {
-			refreshP2ForwardSlot(idx);
-			triggerShieldFadeForForward(false, idx);
-			if (onComplete != null) onComplete.run();
-			return;
-		}
-
-		new SwingWorker<BufferedImage, Void>() {
-			@Override protected BufferedImage doInBackground() throws Exception {
-				Image raw = ImageCache.load(url);
-				return raw == null ? null : CardAnimation.toARGB(raw, CARD_W, CARD_H);
-			}
-			@Override protected void done() {
-				try {
-					BufferedImage card = get();
-					if (card == null) {
-						refreshP2ForwardSlot(idx);
-						triggerShieldFadeForForward(false, idx);
-						if (onComplete != null) onComplete.run();
-						return;
-					}
-
-					int   totalFrames = 12;
-					int[] frame       = { 0 };
-					Timer timer = new Timer(16, null);
-					timer.addActionListener(ae -> {
-						frame[0]++;
-						double progress = Math.min(1.0, (double) frame[0] / totalFrames);
-						double t = progress < 0.5
-								? 2 * progress * progress
-								: 1 - Math.pow(-2 * progress + 2, 2) / 2;
-						double angle = Math.PI / 2 * t;
-						slot.setIcon(new ImageIcon(CardAnimation.renderBackupCardAtAngle(card, angle)));
-						slot.setText(null);
-						if (frame[0] >= totalFrames) {
-							timer.stop();
-							refreshP2ForwardSlot(idx);
-							triggerShieldFadeForForward(false, idx);
-							if (onComplete != null) onComplete.run();
-						}
-					});
-					timer.start();
-				} catch (InterruptedException | ExecutionException ignored) {
-					refreshP2ForwardSlot(idx);
-					triggerShieldFadeForForward(false, idx);
-					if (onComplete != null) onComplete.run();
-				}
-			}
-		}.execute();
+		animateCardRotation(p2ForwardUrls.get(idx), p2ForwardLabels.get(idx), true, null,
+				() -> { refreshP2ForwardSlot(idx); triggerShieldFadeForForward(false, idx); }, onComplete);
 	}
 
 	void animateActivateForward(int idx) {
-		String url  = p1ForwardUrls.get(idx);
-		JLabel slot = p1ForwardLabels.get(idx);
-		if (url == null || slot == null) { refreshP1ForwardSlot(idx); return; }
-
-		new SwingWorker<BufferedImage, Void>() {
-			@Override protected BufferedImage doInBackground() throws Exception {
-				Image raw = ImageCache.load(url);
-				return raw == null ? null : CardAnimation.toARGB(raw, CARD_W, CARD_H);
-			}
-			@Override protected void done() {
-				try {
-					BufferedImage card = get();
-					if (card == null) { refreshP1ForwardSlot(idx); return; }
-
-					int   totalFrames = 12;
-					int[] frame       = { 0 };
-					Timer timer = new Timer(16, null);
-					timer.addActionListener(ae -> {
-						frame[0]++;
-						double progress = Math.min(1.0, (double) frame[0] / totalFrames);
-						double t = progress < 0.5
-								? 2 * progress * progress
-								: 1 - Math.pow(-2 * progress + 2, 2) / 2;
-						double angle = Math.PI / 2 * (1 - t);
-						slot.setIcon(new ImageIcon(CardAnimation.renderBackupCardAtAngle(card, angle)));
-						slot.setText(null);
-						if (frame[0] >= totalFrames) {
-							timer.stop();
-							refreshP1ForwardSlot(idx);
-						}
-					});
-					timer.start();
-				} catch (InterruptedException | ExecutionException ignored) {
-					refreshP1ForwardSlot(idx);
-				}
-			}
-		}.execute();
+		animateCardRotation(p1ForwardUrls.get(idx), p1ForwardLabels.get(idx), false, null,
+				() -> refreshP1ForwardSlot(idx), null);
 	}
 
 	void animateActivateMonster(int idx) {
-		String url  = p1MonsterUrls.get(idx);
-		JLabel slot = p1MonsterLabels.get(idx);
-		if (url == null || slot == null) { refreshP1MonsterSlot(idx); return; }
-
-		new SwingWorker<BufferedImage, Void>() {
-			@Override protected BufferedImage doInBackground() throws Exception {
-				Image raw = ImageCache.load(url);
-				return raw == null ? null : CardAnimation.toARGB(raw, CARD_W, CARD_H);
-			}
-			@Override protected void done() {
-				try {
-					BufferedImage card = get();
-					if (card == null) { refreshP1MonsterSlot(idx); return; }
-
-					int   totalFrames = 12;
-					int[] frame       = { 0 };
-					Timer timer = new Timer(16, null);
-					timer.addActionListener(ae -> {
-						frame[0]++;
-						double progress = Math.min(1.0, (double) frame[0] / totalFrames);
-						double t = progress < 0.5
-								? 2 * progress * progress
-								: 1 - Math.pow(-2 * progress + 2, 2) / 2;
-						double angle = Math.PI / 2 * (1 - t);
-						slot.setIcon(new ImageIcon(CardAnimation.renderBackupCardAtAngle(card, angle)));
-						slot.setText(null);
-						if (frame[0] >= totalFrames) {
-							timer.stop();
-							refreshP1MonsterSlot(idx);
-						}
-					});
-					timer.start();
-				} catch (InterruptedException | ExecutionException ignored) {
-					refreshP1MonsterSlot(idx);
-				}
-			}
-		}.execute();
+		animateCardRotation(p1MonsterUrls.get(idx), p1MonsterLabels.get(idx), false, null,
+				() -> refreshP1MonsterSlot(idx), null);
 	}
 
 	private void animateDullMonster(int idx) {
-		String url  = p1MonsterUrls.get(idx);
-		JLabel slot = p1MonsterLabels.get(idx);
-		if (url == null || slot == null) { refreshP1MonsterSlot(idx); return; }
-
-		new SwingWorker<BufferedImage, Void>() {
-			@Override protected BufferedImage doInBackground() throws Exception {
-				Image raw = ImageCache.load(url);
-				return raw == null ? null : CardAnimation.toARGB(raw, CARD_W, CARD_H);
-			}
-			@Override protected void done() {
-				try {
-					BufferedImage card = get();
-					if (card == null) { refreshP1MonsterSlot(idx); return; }
-
-					int   totalFrames = 12;
-					int[] frame       = { 0 };
-					Timer timer = new Timer(16, null);
-					timer.addActionListener(ae -> {
-						frame[0]++;
-						double progress = Math.min(1.0, (double) frame[0] / totalFrames);
-						double t = progress < 0.5
-								? 2 * progress * progress
-								: 1 - Math.pow(-2 * progress + 2, 2) / 2;
-						double angle = Math.PI / 2 * t;
-						slot.setIcon(new ImageIcon(CardAnimation.renderBackupCardAtAngle(card, angle)));
-						slot.setText(null);
-						if (frame[0] >= totalFrames) {
-							timer.stop();
-							refreshP1MonsterSlot(idx);
-						}
-					});
-					timer.start();
-				} catch (InterruptedException | ExecutionException ignored) {
-					refreshP1MonsterSlot(idx);
-				}
-			}
-		}.execute();
+		animateCardRotation(p1MonsterUrls.get(idx), p1MonsterLabels.get(idx), true, null,
+				() -> refreshP1MonsterSlot(idx), null);
 	}
 
 	void animateActivateP2Forward(int idx) {
-		String url  = p2ForwardUrls.get(idx);
-		JLabel slot = p2ForwardLabels.get(idx);
-		if (url == null || slot == null) { refreshP2ForwardSlot(idx); return; }
+		animateCardRotation(p2ForwardUrls.get(idx), p2ForwardLabels.get(idx), false, null,
+				() -> refreshP2ForwardSlot(idx), null);
+	}
 
-		new SwingWorker<BufferedImage, Void>() {
-			@Override protected BufferedImage doInBackground() throws Exception {
-				Image raw = ImageCache.load(url);
-				return raw == null ? null : CardAnimation.toARGB(raw, CARD_W, CARD_H);
-			}
-			@Override protected void done() {
-				try {
-					BufferedImage card = get();
-					if (card == null) { refreshP2ForwardSlot(idx); return; }
-
-					int   totalFrames = 12;
-					int[] frame       = { 0 };
-					Timer timer = new Timer(16, null);
-					timer.addActionListener(ae -> {
-						frame[0]++;
-						double progress = Math.min(1.0, (double) frame[0] / totalFrames);
-						double t = progress < 0.5
-								? 2 * progress * progress
-								: 1 - Math.pow(-2 * progress + 2, 2) / 2;
-						double angle = Math.PI / 2 * (1 - t);
-						slot.setIcon(new ImageIcon(CardAnimation.renderBackupCardAtAngle(card, angle)));
-						slot.setText(null);
-						if (frame[0] >= totalFrames) {
-							timer.stop();
-							refreshP2ForwardSlot(idx);
-						}
-					});
-					timer.start();
-				} catch (InterruptedException | ExecutionException ignored) {
-					refreshP2ForwardSlot(idx);
-				}
-			}
-		}.execute();
+	void animateActivateP2Monster(int idx) {
+		animateCardRotation(p2MonsterUrls.get(idx), p2MonsterLabels.get(idx), false, null,
+				() -> refreshP2MonsterSlot(idx), null);
 	}
 
 	private static String buildCounterTooltip(Map<String, Integer> countersMap) {
@@ -8612,74 +8413,13 @@ public class MainWindow {
 	}
 
 	void animateDullP2Backup(int idx, boolean dulling) {
-		String url  = p2BackupUrls[idx];
-		JLabel slot = p2BackupLabels[idx];
-		if (url == null || slot == null) return;
-		new SwingWorker<java.awt.image.BufferedImage, Void>() {
-			@Override protected java.awt.image.BufferedImage doInBackground() throws Exception {
-				Image raw = ImageCache.load(url);
-				return raw == null ? null : CardAnimation.toARGB(raw, CARD_W, CARD_H);
-			}
-			@Override protected void done() {
-				try {
-					java.awt.image.BufferedImage card = get();
-					if (card == null) { refreshP2BackupSlot(idx); return; }
-					int totalFrames = 12; int[] frame = {0};
-					Timer timer = new Timer(16, null);
-					timer.addActionListener(ae -> {
-						if (p2BackupUrls[idx] == null) { timer.stop(); slot.setIcon(null); slot.setText(null); return; }
-						frame[0]++;
-						double progress = Math.min(1.0, (double) frame[0] / totalFrames);
-						double t = progress < 0.5 ? 2*progress*progress : 1 - Math.pow(-2*progress+2, 2)/2;
-						double angle = dulling ? (Math.PI/2*t) : (Math.PI/2*(1-t));
-						slot.setIcon(new ImageIcon(CardAnimation.renderBackupCardAtAngle(card, angle)));
-						slot.setText(null);
-						if (frame[0] >= totalFrames) { timer.stop(); refreshP2BackupSlot(idx); }
-					});
-					timer.start();
-				} catch (InterruptedException | ExecutionException ignored) {}
-			}
-		}.execute();
+		animateCardRotation(p2BackupUrls[idx], p2BackupLabels[idx], dulling,
+				() -> p2BackupUrls[idx] != null, () -> refreshP2BackupSlot(idx), null);
 	}
 
 	void animateDullP2Monster(int idx) {
-		String url  = p2MonsterUrls.get(idx);
-		JLabel slot = p2MonsterLabels.get(idx);
-		if (url == null || slot == null) { refreshP2MonsterSlot(idx); return; }
-
-		new SwingWorker<BufferedImage, Void>() {
-			@Override protected BufferedImage doInBackground() throws Exception {
-				Image raw = ImageCache.load(url);
-				return raw == null ? null : CardAnimation.toARGB(raw, CARD_W, CARD_H);
-			}
-			@Override protected void done() {
-				try {
-					BufferedImage card = get();
-					if (card == null) { refreshP2MonsterSlot(idx); return; }
-
-					int   totalFrames = 12;
-					int[] frame       = { 0 };
-					Timer timer = new Timer(16, null);
-					timer.addActionListener(ae -> {
-						frame[0]++;
-						double progress = Math.min(1.0, (double) frame[0] / totalFrames);
-						double t = progress < 0.5
-								? 2 * progress * progress
-								: 1 - Math.pow(-2 * progress + 2, 2) / 2;
-						double angle = Math.PI / 2 * t;
-						slot.setIcon(new ImageIcon(CardAnimation.renderBackupCardAtAngle(card, angle)));
-						slot.setText(null);
-						if (frame[0] >= totalFrames) {
-							timer.stop();
-							refreshP2MonsterSlot(idx);
-						}
-					});
-					timer.start();
-				} catch (InterruptedException | ExecutionException ignored) {
-					refreshP2MonsterSlot(idx);
-				}
-			}
-		}.execute();
+		animateCardRotation(p2MonsterUrls.get(idx), p2MonsterLabels.get(idx), true, null,
+				() -> refreshP2MonsterSlot(idx), null);
 	}
 
 	void breakP2BackupSlot(int idx) {
