@@ -97,13 +97,18 @@ class LookAtDeckDialogs {
 
     // ── Public entry point ──────────────────────────────────────────────────────
 
-    void show(LookConfig config, boolean isP1) {
+    void show(LookConfig config, boolean isP1, boolean p2IsCpu) {
         Deque<CardData> deck = isP1 ? gameState.getP1MainDeck() : gameState.getP2MainDeck();
         int n = Math.min(config.count(), deck.size());
         if (n == 0) { log("Look at top: deck is empty."); return; }
 
         List<CardData> peeked = new ArrayList<>();
         for (CardData c : deck) { peeked.add(c); if (peeked.size() >= n) break; }
+
+        // P2 controls the effect, so the choice belongs to P2, never P1 — never prompt the human
+        // sitting at P1's seat, and never reveal the peeked cards to the shared log.
+        if (!isP1) { resolveForP2(config, peeked, deck, p2IsCpu); return; }
+
         log("Look at top " + n + " card(s): " +
                 peeked.stream().map(CardData::name)
                       .collect(java.util.stream.Collectors.joining(", ")));
@@ -119,6 +124,79 @@ class LookAtDeckDialogs {
             case TOP_OR_BOTTOM_ORDERED           -> showTopOrBottom(peeked, deck, isP1);
             case PICK_ONE_TOP_REST_BOTTOM        -> showPickOneTopRestBottom(peeked, deck, isP1);
         }
+    }
+
+    /**
+     * Resolves a "look at the top of your deck" effect that P2 controls, without ever prompting the
+     * human at P1's seat. The peeked cards stay private (only public zone changes — hand/Break Zone —
+     * are logged), and the deck mutations mirror the human dialogs.
+     *
+     * <p>When P2 is the built-in computer ({@code p2IsCpu}), the AI genuinely makes the choice using
+     * simple, safe defaults: keep private looks on top in their current order, and for effects that
+     * pull a card to hand, take the topmost. When P2 is a remote human (multiplayer), sending the
+     * choice to that player is not yet wired up, so the same safe default is applied and logged as a
+     * placeholder — matching the existing multiplayer fallbacks elsewhere in the engine.
+     *
+     * <p>The {@code peeked} cards are the current top {@code n} of {@code deck}, in top-first order.
+     */
+    private void resolveForP2(LookConfig config, List<CardData> peeked, Deque<CardData> deck, boolean p2IsCpu) {
+        int n = peeked.size();
+
+        if (!p2IsCpu) {
+            // A remote human P2 controls this choice; routing it to that player is not yet wired up.
+            // The choice belongs to P2, so it must not be auto-resolved as if the AI made it, and the
+            // dialog must never appear at P1's seat. Leave the deck untouched as a safe placeholder.
+            log("[P2] looks at the top " + n + " card(s) of their deck — remote player choice not yet "
+                    + "implemented; cards left on top.");
+            cb.refreshP2Deck().run();
+            return;
+        }
+
+        switch (config.action()) {
+            case PEEK, RETURN_TOP_ORDERED, TOP_OR_BOTTOM_ORDERED ->
+                // Keep the cards on top in their current order — no deck change.
+                log("[P2] looks at the top " + n + " card(s) of their deck.");
+
+            case BREAK_OR_KEEP, BOTTOM_OR_KEEP ->
+                // Keep the card on top rather than breaking it / sending it to the bottom.
+                log("[P2] looks at the top card of their deck and keeps it on top.");
+
+            case PICK_ONE_TOP_REST_BOTTOM -> {
+                for (int i = 0; i < n; i++) deck.pollFirst();
+                deck.addFirst(peeked.get(0));
+                for (int i = 1; i < n; i++) deck.addLast(peeked.get(i));
+                log("[P2] looks at the top " + n + " card(s): keeps 1 on top, "
+                        + (n - 1) + " to the bottom.");
+            }
+
+            case ADD_TO_HAND_REST_BOTTOM -> {
+                for (int i = 0; i < n; i++) deck.pollFirst();
+                gameState.getP2Hand().add(peeked.get(0));
+                cb.refreshP2Hand().run();
+                for (int i = 1; i < n; i++) deck.addLast(peeked.get(i));
+                log("[P2] adds a card to hand and returns " + (n - 1)
+                        + " to the bottom of their deck.");
+            }
+
+            case ADD_TO_HAND_REST_BREAK -> {
+                for (int i = 0; i < n; i++) deck.pollFirst();
+                gameState.getP2Hand().add(peeked.get(0));
+                cb.refreshP2Hand().run();
+                for (int i = 1; i < n; i++) gameState.getP2BreakZone().add(peeked.get(i));
+                cb.refreshP2Break().run();
+                log("[P2] adds a card to hand and sends " + (n - 1) + " to the Break Zone.");
+            }
+
+            case ADD_TO_HAND_ONE_TO_BREAK_REST_BOTTOM -> {
+                for (int i = 0; i < n; i++) deck.pollFirst();
+                gameState.getP2Hand().add(peeked.get(0));
+                cb.refreshP2Hand().run();
+                if (n > 1) { gameState.getP2BreakZone().add(peeked.get(1)); cb.refreshP2Break().run(); }
+                for (int i = 2; i < n; i++) deck.addLast(peeked.get(i));
+                log("[P2] adds a card to hand, 1 to the Break Zone, and returns the rest to the bottom.");
+            }
+        }
+        cb.refreshP2Deck().run();
     }
 
     // ── Dialog implementations ──────────────────────────────────────────────────
@@ -1672,11 +1750,6 @@ class LookAtDeckDialogs {
             log(chosenCard[0].name() + " → hand");
             if (isP1) cb.refreshP1Hand().run(); else cb.refreshP2Hand().run();
         }
-    }
-
-    void showRevealPlayNamedOntoFieldRestBottom(List<CardData> cards, Deque<CardData> deck,
-            boolean isP1, String cardName, Consumer<CardData> playOntoField) {
-        showRevealPlayNamedOntoFieldRestBottom(cards, deck, isP1, cardName, -1, playOntoField);
     }
 
     void showRevealPlayNamedOntoFieldRestBottom(List<CardData> cards, Deque<CardData> deck,

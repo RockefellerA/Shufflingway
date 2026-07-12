@@ -3711,7 +3711,7 @@ final class GameContextImpl implements GameContext {
 			}
 
 			@Override public void lookAtTopDeck(LookConfig config) {
-				mw.lookDialogs().show(config, isP1);
+				mw.lookDialogs().show(config, isP1, mw.isP2Cpu());
 			}
 
 			@Override public void lookAtTopDeckCastSummonFreeRestBottom(int count, int maxCost) {
@@ -5910,6 +5910,8 @@ final class GameContextImpl implements GameContext {
 						if (!chosenSet.contains(c)) { deck.addLast(c); logEntry("[AI] " + c.name() + " → [P2] bottom of deck"); }
 					}
 					mw.refreshP2DeckLabel();
+				} else if (!isP1) {
+					multiplayerP2RevealPending(n);
 				} else {
 					mw.lookDialogs().showRevealAddUpToMatchingRestBottom(peeked, deck, isP1, maxAdd, jobFilter, categoryFilter, cardNameFilter, typeFilter, maxCost, elementFilter);
 				}
@@ -5944,9 +5946,22 @@ final class GameContextImpl implements GameContext {
 						}
 					}
 					mw.refreshP2DeckLabel();
+				} else if (!isP1) {
+					multiplayerP2RevealPending(n);
 				} else {
 					mw.lookDialogs().showRevealAddUpToExcludingNameRestBz(peeked, deck, isP1, maxAdd, excludeName);
 				}
+			}
+
+			/**
+			 * Placeholder for a reveal-and-choose effect that a remote human P2 controls. Routing the
+			 * choice to that player is not yet wired up, so — like the other multiplayer fallbacks in
+			 * this engine — the choice is not auto-resolved as if the AI made it, the dialog is never
+			 * shown at P1's seat, and the revealed cards are left on top of the deck as a safe default.
+			 */
+			private void multiplayerP2RevealPending(int n) {
+				logEntry("[P2] reveal top " + n + " card(s) — remote player choice not yet "
+						+ "implemented; cards left on top of deck");
 			}
 
 			private boolean meetsRevealTypeFilter(CardData c, String type) {
@@ -6004,6 +6019,8 @@ final class GameContextImpl implements GameContext {
 						logEntry("[AI] " + c.name() + " played onto field");
 						playOntoField.accept(c);
 					}
+				} else if (!isP1) {
+					multiplayerP2RevealPending(n);
 				} else {
 					mw.lookDialogs().showRevealPlayTypeOntoFieldRestBottom(peeked, deck, isP1, maxPlay, typeFilter, categoryFilter, playOntoField);
 				}
@@ -6041,6 +6058,8 @@ final class GameContextImpl implements GameContext {
 						logEntry("[AI] " + c.name() + " played onto field");
 						playOntoField.accept(c);
 					}
+				} else if (!isP1) {
+					multiplayerP2RevealPending(n);
 				} else {
 					mw.lookDialogs().showRevealPlayElementTypeCostOntoFieldRestBottom(peeked, deck, isP1, maxPlay, element, typeFilter, maxCost, playOntoField);
 				}
@@ -6078,6 +6097,8 @@ final class GameContextImpl implements GameContext {
 						logEntry("[AI] " + c.name() + " played onto field");
 						playOntoField.accept(c);
 					}
+				} else if (!isP1) {
+					multiplayerP2RevealPending(n);
 				} else {
 					mw.lookDialogs().showRevealPlayNamedOrJobMaxCostOntoFieldRestBottom(peeked, deck, isP1, maxPlay, cardName, job, maxCost, playOntoField);
 				}
@@ -6126,6 +6147,8 @@ final class GameContextImpl implements GameContext {
 						mw.refreshP2HandCountLabel();
 						logEntry("[AI] " + chosen.name() + " → [P2] hand");
 					}
+				} else if (!isP1) {
+					multiplayerP2RevealPending(n);
 				} else {
 					mw.lookDialogs().showRevealAddTypeToHandOrPlayJobTypeOntoFieldRestBottom(
 							peeked, deck, isP1, handMax, handType, fieldMax, fieldJob, fieldType, playOntoField);
@@ -6133,38 +6156,9 @@ final class GameContextImpl implements GameContext {
 			}
 
 			@Override public void revealTopNPlayNamedOntoFieldRestBottom(int reveal, String cardName) {
-				Deque<CardData> deck = isP1 ? mw.gameState.getP1MainDeck() : mw.gameState.getP2MainDeck();
-				int n = Math.min(reveal, deck.size());
-				if (n == 0) { logEntry("Reveal top: deck is empty."); return; }
-				List<CardData> peeked = new ArrayList<>();
-				for (CardData c : deck) { peeked.add(c); if (peeked.size() >= n) break; }
-				logEntry("Reveal top " + n + " card(s): " +
-						peeked.stream().map(CardData::name).collect(Collectors.joining(", ")));
-				if (!isP1 && mw.isP2Cpu()) {
-					CardData chosen = peeked.stream()
-							.filter(c -> c.name().equalsIgnoreCase(cardName))
-							.findFirst().orElse(null);
-					for (int i = 0; i < n; i++) deck.pollFirst();
-					for (CardData c : peeked) {
-						if (c == chosen) continue;
-						deck.addLast(c);
-						logEntry("[AI] " + c.name() + " → [P2] bottom of deck");
-					}
-					mw.refreshP2DeckLabel();
-					if (chosen != null) {
-						logEntry("[AI] " + chosen.name() + " played onto field");
-						mw.placeCardInForwardZone(chosen);
-					} else {
-						logEntry("[AI] No Card Name " + cardName + " found — all cards to bottom");
-					}
-				} else {
-					Consumer<CardData> playOntoField = c -> {
-					if (c.isBackup())       mw.placeCardInFirstBackupSlot(c);
-					else if (c.isMonster()) mw.placeCardInMonsterZone(c);
-					else                    mw.placeCardInForwardZone(c);
-				};
-				mw.lookDialogs().showRevealPlayNamedOntoFieldRestBottom(peeked, deck, isP1, cardName, playOntoField);
-				}
+				// "Play 1 Card Name X …" with no cost cap — same effect as the cost-capped variant
+				// with an unbounded cap.
+				revealTopNPlayNamedWithMaxCostOntoFieldRestBottom(reveal, cardName, -1);
 			}
 
 			@Override public void revealTopNPlayNamedWithMaxCostOntoFieldRestBottom(int reveal, String cardName, int maxCost) {
@@ -6175,9 +6169,10 @@ final class GameContextImpl implements GameContext {
 				for (CardData c : deck) { peeked.add(c); if (peeked.size() >= n) break; }
 				logEntry("Reveal top " + n + " card(s): " +
 						peeked.stream().map(CardData::name).collect(Collectors.joining(", ")));
+				String costSuffix = maxCost >= 0 ? " of cost ≤ " + maxCost : "";
 				if (!isP1 && mw.isP2Cpu()) {
 					CardData chosen = peeked.stream()
-							.filter(c -> c.name().equalsIgnoreCase(cardName) && c.cost() <= maxCost)
+							.filter(c -> c.name().equalsIgnoreCase(cardName) && (maxCost < 0 || c.cost() <= maxCost))
 							.findFirst().orElse(null);
 					for (int i = 0; i < n; i++) deck.pollFirst();
 					for (CardData c : peeked) {
@@ -6190,8 +6185,10 @@ final class GameContextImpl implements GameContext {
 						logEntry("[AI] " + chosen.name() + " played onto field");
 						mw.placeCardInForwardZone(chosen);
 					} else {
-						logEntry("[AI] No Card Name " + cardName + " of cost ≤ " + maxCost + " found — all cards to bottom");
+						logEntry("[AI] No Card Name " + cardName + costSuffix + " found — all cards to bottom");
 					}
+				} else if (!isP1) {
+					multiplayerP2RevealPending(n);
 				} else {
 					Consumer<CardData> playOntoField = c -> {
 						if (c.isBackup())       mw.placeCardInFirstBackupSlot(c);
