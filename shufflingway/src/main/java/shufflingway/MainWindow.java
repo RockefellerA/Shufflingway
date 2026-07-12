@@ -7286,8 +7286,9 @@ public class MainWindow {
 			String actualElem = d.elements()[0];
 			if (!actualElem.isEmpty()) lastCastActualPaymentElements.add(actualElem);
 		}
-		discardIndices.sort(Collections.reverseOrder());
-		for (int di : discardIndices) {
+		List<Integer> discardRemovalOrder = new ArrayList<>(discardIndices);
+		discardRemovalOrder.sort(Collections.reverseOrder());
+		for (int di : discardRemovalOrder) {
 			gameState.addP1Cp(cpAssignments.get(di), 2);
 			playerBreakFromHand(true,di);
 			if (di < cardHandIdx) cardHandIdx--;
@@ -7431,8 +7432,9 @@ public class MainWindow {
 			String actualElem = d.elements()[0];
 			if (!actualElem.isEmpty()) lastCastActualPaymentElements.add(actualElem);
 		}
-		discardIndices.sort(Collections.reverseOrder());
-		for (int di : discardIndices) {
+		List<Integer> discardRemovalOrder = new ArrayList<>(discardIndices);
+		discardRemovalOrder.sort(Collections.reverseOrder());
+		for (int di : discardRemovalOrder) {
 			gameState.addP1Cp(cpAssignments.get(di), 2);
 			playerBreakFromHand(true, di);
 		}
