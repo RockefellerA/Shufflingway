@@ -10305,15 +10305,23 @@ public class MainWindow {
 		lbl.addMouseListener(new MouseAdapter() {
 			@Override public void mousePressed(MouseEvent e) {
 				if (lbl.getIcon() == null) return;
+				// Resolve the current index dynamically: breaking a monster (e.g. paying a
+				// "Put X into the Break Zone" cost) compacts p1MonsterLabels, so a captured
+				// index would go stale and address the wrong card.
+				int currentIdx = p1MonsterLabels.indexOf(lbl);
+				if (currentIdx < 0) return;
 				if (SwingUtilities.isLeftMouseButton(e)
 						&& gameState.getCurrentPhase() == GameState.GamePhase.ATTACK) {
-					handleP1MonsterLeftClick(idx);
+					handleP1MonsterLeftClick(currentIdx);
 				} else {
-					showMonsterContextMenu(idx, lbl, e);
+					showMonsterContextMenu(currentIdx, lbl, e);
 				}
 			}
 			@Override public void mouseEntered(MouseEvent e) {
-				if (lbl.getIcon() != null) showZoomAt(p1MonsterUrls.get(idx));
+				if (lbl.getIcon() != null) {
+					int currentIdx = p1MonsterLabels.indexOf(lbl);
+					if (currentIdx >= 0) showZoomAt(p1MonsterUrls.get(currentIdx));
+				}
 			}
 			@Override public void mouseExited(MouseEvent e) { hideZoom(); }
 		});

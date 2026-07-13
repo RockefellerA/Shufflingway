@@ -895,6 +895,65 @@ public class CardBehaviorTest {
                 "The entering Sahagin Chief must not counter itself");
     }
 
+    // Sahagin Chief's "Choose up to 2 Forwards. Return them to their owners' hands." — regression
+    // for two return-to-hand bugs:
+    //  1) Returning two Forwards controlled by the SAME player must return both. Each return
+    //     compacts that player's Forward list, so processing them in selection (ascending) order
+    //     left the second target's index stale and only one card came back.
+    //  2) A Monster (or Backup) that has become a Forward this turn is a legal target and must be
+    //     returned from its actual zone, not silently skipped because its zone isn't FORWARD.
+    private static Consumer<GameContext> sahaginReturnEffect() {
+        Consumer<GameContext> fn = ActionResolver.parse(
+                "Choose up to 2 Forwards. Return them to their owners' hands.", null);
+        assertNotNull(fn, "Sahagin Chief return-to-hand effect should parse");
+        return fn;
+    }
+
+    @Test
+    void sahaginChiefReturnsBothForwardsControlledBySamePlayer() {
+        MainWindow mw = new MainWindow();
+        CardData a = makeForward("Opp A", "Water", 2, 5000);
+        CardData b = makeForward("Opp B", "Water", 3, 6000);
+        mw.gameState.getIdentity().put(a, false);   // owned by P2
+        mw.gameState.getIdentity().put(b, false);
+        mw.placeP2CardInForwardZone(a);             // P2 idx 0
+        mw.placeP2CardInForwardZone(b);             // P2 idx 1
+
+        GameContext ctx = mw.buildGameContext(true); // P1 activates the ability
+        ctx.preloadTargets(List.of(
+                new ForwardTarget(false, 0, ForwardTarget.CardZone.FORWARD),
+                new ForwardTarget(false, 1, ForwardTarget.CardZone.FORWARD)));
+
+        sahaginReturnEffect().accept(ctx);
+
+        assertTrue(mw.p2ForwardCards.isEmpty(), "both opponent Forwards should leave the field");
+        assertTrue(mw.gameState.getP2Hand().contains(a), "Opp A should be back in P2's hand");
+        assertTrue(mw.gameState.getP2Hand().contains(b), "Opp B should be back in P2's hand");
+    }
+
+    @Test
+    void sahaginChiefReturnsMonsterActingAsForward() {
+        MainWindow mw = new MainWindow();
+        CardData monster = new CardData(null, "Water Beast", "Water", 2, 5000, "Monster",
+                false, 0, false, false, Set.of(), 0, List.of(), null, List.of(),
+                List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(),
+                List.of(), List.of(), false, false, null, false, false, false, false, false, false,
+                null, null, null, "");
+        mw.gameState.getIdentity().put(monster, true);  // owned by P1
+        mw.placeCardInMonsterZone(monster);             // P1 monster idx 0
+        // The monster becomes a Forward until end of turn — now a legal "Forward" target.
+        mw.p1MonsterTempForwardPower.put(monster, 5000);
+        assertTrue(mw.isP1MonsterTemporarilyForward(0), "monster should count as a Forward");
+
+        GameContext ctx = mw.buildGameContext(true);
+        ctx.preloadTargets(List.of(new ForwardTarget(true, 0, ForwardTarget.CardZone.MONSTER)));
+
+        sahaginReturnEffect().accept(ctx);
+
+        assertTrue(mw.p1MonsterCards.isEmpty(), "the monster-as-Forward should leave the field");
+        assertTrue(mw.gameState.getP1Hand().contains(monster), "the monster should be back in P1's hand");
+    }
+
     // =========================================================================================
     // Moogle (XIV): "At the end of each of your turns, reveal the top 3 cards of your deck. Play
     // up to 1 Card Name Moogle (XIV) or Job Moogle of cost 3 or less among them onto the field

@@ -7173,16 +7173,9 @@ public class ActionResolver {
                 List<ForwardTarget> oppTs = selectTargets(ctx, count2, false,
                         true, false, null, null, null, false, -1, null, -1, null,
                         fwd2, bak2, mon2, null, null, null, null, false, null, false);
-                for (ForwardTarget t : selfTs) {
-                    if (t.zone() != ForwardTarget.CardZone.FORWARD) continue;
-                    if (t.isP1()) ctx.returnP1ForwardToHand(t.idx());
-                    else          ctx.returnP2ForwardToHand(t.idx());
-                }
-                for (ForwardTarget t : oppTs) {
-                    if (t.zone() != ForwardTarget.CardZone.FORWARD) continue;
-                    if (t.isP1()) ctx.returnP1ForwardToHand(t.idx());
-                    else          ctx.returnP2ForwardToHand(t.idx());
-                }
+                List<ForwardTarget> all = new ArrayList<>(selfTs);
+                all.addAll(oppTs);
+                returnTargetsToOwnersHand(ctx, all);
             };
         }
 
@@ -9348,11 +9341,7 @@ public class ActionResolver {
                 List<ForwardTarget> ts = selectTargets(ctx, maxCount, upTo,
                         opponentOnly, selfOnly, condition, element, zone, opponentZone,
                         costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters, jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, fExcludeElem, withoutMulticard);
-                for (ForwardTarget t : ts) {
-                    if (t.zone() != ForwardTarget.CardZone.FORWARD) continue;
-                    if (t.isP1()) ctx.returnP1ForwardToHand(t.idx());
-                    else          ctx.returnP2ForwardToHand(t.idx());
-                }
+                returnTargetsToOwnersHand(ctx, ts);
                 ctx.returnNamedCardToOwnersHand(alsoNamed);
                 if (secondary != null) secondary.accept(ctx);
             };
@@ -9367,6 +9356,9 @@ public class ActionResolver {
                         opponentOnly, selfOnly, condition, element, zone, opponentZone,
                         costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters,
                         jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, fExcludeElem, withoutMulticard);
+                // Filter to eligible-by-cost targets first (indices are still valid here, before any
+                // removal), then return them highest-index-first per side to avoid index shifting.
+                List<ForwardTarget> toReturn = new ArrayList<>();
                 for (ForwardTarget t : ts) {
                     if (t.zone() != ForwardTarget.CardZone.FORWARD) continue;
                     CardData card = t.isP1() ? ctx.p1Forward(t.idx()) : ctx.p2Forward(t.idx());
@@ -9375,9 +9367,9 @@ public class ActionResolver {
                         continue;
                     }
                     ctx.logEntry("Cost " + card.cost() + " ≤ hand size " + handSize + " — returning to hand");
-                    if (t.isP1()) ctx.returnP1ForwardToHand(t.idx());
-                    else          ctx.returnP2ForwardToHand(t.idx());
+                    toReturn.add(t);
                 }
+                returnTargetsToOwnersHand(ctx, toReturn);
                 if (secondary != null) secondary.accept(ctx);
             };
         }
@@ -9390,11 +9382,7 @@ public class ActionResolver {
                         opponentOnly, selfOnly, condition, element, zone, opponentZone,
                         costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters, jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, fExcludeElem, withoutMulticard);
                 Consumer<GameContext> doReturn = ctx2 -> {
-                    for (ForwardTarget t : ts) {
-                        if (t.zone() != ForwardTarget.CardZone.FORWARD) continue;
-                        if (t.isP1()) ctx2.returnP1ForwardToHand(t.idx());
-                        else          ctx2.returnP2ForwardToHand(t.idx());
-                    }
+                    returnTargetsToOwnersHand(ctx2, ts);
                     if (secondary != null) secondary.accept(ctx2);
                 };
                 if (followupIsOptional && !ts.isEmpty()) ctx.playerMayDoEffect("Return it to its owner's hand?", doReturn);
@@ -9409,10 +9397,9 @@ public class ActionResolver {
                 List<ForwardTarget> ts = selectTargets(ctx, maxCount, upTo,
                         opponentOnly, selfOnly, condition, element, zone, opponentZone,
                         costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters, jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, fExcludeElem, withoutMulticard);
-                for (ForwardTarget t : ts) {
-                    if (t.zone() != ForwardTarget.CardZone.FORWARD) continue;
-                    if (t.isP1()) ctx.returnP1ForwardToHand(t.idx());
-                }
+                sortedByIdxDesc(ts, true)
+                        .filter(t -> t.zone() == ForwardTarget.CardZone.FORWARD)
+                        .forEach(t -> ctx.returnP1ForwardToHand(t.idx()));
                 if (secondary != null) secondary.accept(ctx);
             };
         }
@@ -10259,6 +10246,28 @@ public class ActionResolver {
         return targets.stream()
                 .filter(t -> t.isP1() == isP1)
                 .sorted((a, b) -> Integer.compare(b.idx(), a.idx()));
+    }
+
+    /**
+     * Returns {@code t} to its owner's hand, dispatching by zone so a Monster or Backup that has
+     * become a Forward this turn is returned from its actual zone rather than being silently skipped.
+     */
+    private static void returnTargetToOwnersHand(GameContext ctx, ForwardTarget t) {
+        switch (t.zone()) {
+            case FORWARD -> { if (t.isP1()) ctx.returnP1ForwardToHand(t.idx()); else ctx.returnP2ForwardToHand(t.idx()); }
+            case MONSTER -> { if (t.isP1()) ctx.returnP1MonsterToHand(t.idx()); else ctx.returnP2MonsterToHand(t.idx()); }
+            case BACKUP  -> { if (t.isP1()) ctx.returnP1BackupToHand(t.idx());  else ctx.returnP2BackupToHand(t.idx()); }
+        }
+    }
+
+    /**
+     * Returns every target in {@code ts} to its owner's hand. Cards are processed highest-index-first
+     * within each side, because returning one card compacts its zone list and would otherwise
+     * invalidate a later same-zone target's index (so a second same-controller card is missed).
+     */
+    private static void returnTargetsToOwnersHand(GameContext ctx, List<ForwardTarget> ts) {
+        sortedByIdxDesc(ts, true) .forEach(t -> returnTargetToOwnersHand(ctx, t));
+        sortedByIdxDesc(ts, false).forEach(t -> returnTargetToOwnersHand(ctx, t));
     }
 
     /** Deals {@code amount} damage to {@code t}, bypassing reduction effects when {@code unreduced}. */
