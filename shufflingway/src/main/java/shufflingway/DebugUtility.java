@@ -64,7 +64,7 @@ class DebugUtility {
             JOptionPane.showMessageDialog(mw.frame, "Start a game first.", "Debug Spawn", JOptionPane.WARNING_MESSAGE);
             return;
         }
-        DebugCardPickerDialog.Selection sel = DebugCardPickerDialog.pick(mw.frame, "Add Card to Hand");
+        DebugCardPickerDialog.Selection sel = DebugCardPickerDialog.pick(mw.frame, "Add Card to Hand", this::clearHand);
         if (sel == null) return;
         CardData card = mw.buildCardDataFromSerial(sel.serial());
         if (card == null) {
@@ -80,6 +80,16 @@ class DebugUtility {
     private void addCardToHand(CardData card, boolean isP1) {
         if (isP1) { mw.gameState.getP1Hand().add(card); mw.refreshP1HandLabel(); }
         else      { mw.gameState.getP2Hand().add(card); mw.refreshP2HandCountLabel(); }
+    }
+
+    /** Debug helper: removes every card from the given player's hand and refreshes the hand display. */
+    private void clearHand(boolean isP1) {
+        var hand = isP1 ? mw.gameState.getP1Hand() : mw.gameState.getP2Hand();
+        int removed = hand.size();
+        if (removed == 0) return;
+        hand.clear();
+        if (isP1) mw.refreshP1HandLabel(); else mw.refreshP2HandCountLabel();
+        mw.logEntry("[Debug] Removed all " + removed + " card(s) from " + (isP1 ? "P1" : "P2") + "'s hand.");
     }
 
     void setDamage() {

@@ -1621,4 +1621,161 @@ public class CardBehaviorTest {
         fn.accept(ctx);
         verify(ctx).chooseWarpCardFromBreakZoneToHand();
     }
+
+    // =========================================================================================
+    // Cloud of Darkness: "When Cloud of Darkness enters the field, if your opponent has 2 cards
+    // or less in their hand, your opponent selects 1 Forward they control. Put it into the Break
+    // Zone." — an ETF trigger gated on the opponent's hand size, whose inner effect makes the
+    // opponent send one of their own Forwards to the Break Zone. Regression guard for the
+    // OPPONENT_HAND_CONDITION_PATTERN bug where "N cards or less in their hand" (the real card
+    // wording, one "cards") never matched because the pattern demanded a second "cards".
+    // =========================================================================================
+
+    private static final String CLOUD_OF_DARKNESS_TEXT =
+            "When Cloud of Darkness enters the field, if your opponent has 2 cards or less in their hand, "
+            + "your opponent selects 1 Forward they control. Put it into the Break Zone.";
+
+    private static CardData makeCloudOfDarkness() {
+        return new CardData(null, "Cloud of Darkness", "Dark", 5, 9000, "Forward", false, 0, false, false,
+                Set.of(), 0, List.of(), null, List.of(),
+                List.of(), CardData.parseAutoAbilities(CLOUD_OF_DARKNESS_TEXT),
+                List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(),
+                false, false, null, false, false, false, false, false, false,
+                null, null, null, CLOUD_OF_DARKNESS_TEXT);
+    }
+
+    @Test
+    void cloudOfDarknessParsesAsEntersFieldTriggerWithHandGatedBreak() {
+        CardData cloud = makeCloudOfDarkness();
+        List<AutoAbility> autos = cloud.autoAbilities();
+        assertEquals(1, autos.size(), "Cloud of Darkness has one auto-ability");
+        AutoAbility fa = autos.get(0);
+        assertEquals("enters the field", fa.trigger());
+        assertEquals("Cloud of Darkness", fa.triggerCard());
+        assertNotNull(ActionResolver.parse(fa.effectText(), cloud),
+                "the hand-gated opponent-break effect should parse");
+    }
+
+    /** Drives the parsed ETF effect against a P1-activated context and returns the MainWindow. */
+    private static MainWindow runCloudEffect(int opponentHandSize) {
+        MainWindow mw = new MainWindow();
+        CardData cloud = makeCloudOfDarkness();
+        mw.gameState.getIdentity().put(cloud, true);           // Cloud owned/controlled by P1
+
+        CardData oppForward = makeForward("Opp Forward", "Fire", 2, 5000);
+        mw.gameState.getIdentity().put(oppForward, false);     // owned by P2
+        mw.placeP2CardInForwardZone(oppForward);               // P2 idx 0
+
+        for (int i = 0; i < opponentHandSize; i++) {
+            CardData filler = makeForward("Filler " + i, "Ice", 1, 1000);
+            mw.gameState.getIdentity().put(filler, false);
+            mw.gameState.getP2Hand().add(filler);
+        }
+
+        GameContext ctx = mw.buildGameContext(true);           // P1 activates (opponent = P2)
+        ctx.preloadTargets(List.of(new ForwardTarget(false, 0, ForwardTarget.CardZone.FORWARD)));
+
+        AutoAbility fa = cloud.autoAbilities().get(0);
+        ActionResolver.parse(fa.effectText(), cloud).accept(ctx);
+        return mw;
+    }
+
+    @Test
+    void cloudOfDarknessBreaksOpponentForwardWhenHandIsSmall() {
+        MainWindow mw = runCloudEffect(2);   // opponent hand size 2 → condition met (≤ 2)
+        assertTrue(mw.p2ForwardCards.isEmpty(), "the opponent's Forward should leave the field");
+        assertEquals(1, mw.gameState.getP2BreakZone().size(),
+                "the opponent's Forward should be in their Break Zone");
+    }
+
+    @Test
+    void cloudOfDarknessDoesNothingWhenOpponentHandTooLarge() {
+        MainWindow mw = runCloudEffect(3);   // opponent hand size 3 → condition fails (> 2)
+        assertEquals(1, mw.p2ForwardCards.size(), "the opponent's Forward should remain on the field");
+        assertTrue(mw.gameState.getP2BreakZone().isEmpty(),
+                "nothing should be put into the Break Zone");
+    }
+
+    // =========================================================================================
+    // Physalis: "When Physalis enters the field or attacks, if your opponent has 3 cards or less
+    // in their hand, select 1 of the 2 following actions. If your opponent has no cards in their
+    // hand, select up to 2 of the 2 following actions instead. "Choose 1 Character. Dull it and
+    // Freeze it." "Draw 1 card."" plus a "《S》《Ice》《Ice》: Choose 1 Forward. Deal it 10000 damage.
+    // That Forward's controller discards 1 card." special ability.
+    //
+    // Three things had to be wired up:
+    //  1) The "Dull it and Freeze it" quoted sub-action used to collide with ACTION_ABILITY_PATTERN
+    //     (the case-insensitive bare-name dull-cost branch matched the pronoun "it" and its "and …"
+    //     continuation devoured the following [[s]] ability's name and 《S》 cost).
+    //  2) The base gate — the modal must only fire when the opponent has ≤ 3 cards in hand.
+    //  3) The empty-hand upgrade — with an empty opponent hand the player selects up to 2 (not 1).
+    // =========================================================================================
+
+    private static final String PHYSALIS_TEXT =
+            "When Physalis enters the field or attacks, if your opponent has 3 cards or less in their hand, "
+            + "select 1 of the 2 following actions. If your opponent has no cards in their hand, select up to 2 "
+            + "of the 2 following actions instead. \"Choose 1 Character. Dull it and Freeze it.\" \"Draw 1 card.\"[[br]]   "
+            + "[[s]]Premium Physalis Bullet [[/]]《S》《Ice》《Ice》: Choose 1 Forward. "
+            + "Deal it 10000 damage. That Forward's controller discards 1 card from their hand.";
+
+    @Test
+    void physalisParsesModalAutoAbilityAndSpecialAbilityWithoutCollision() {
+        List<AutoAbility> autos = CardData.parseAutoAbilities(PHYSALIS_TEXT);
+        assertEquals(1, autos.size(), "one auto-ability (the modal ETF/attack trigger)");
+        AutoAbility fa = autos.get(0);
+        assertEquals("enters the field or attacks", fa.trigger());
+        assertEquals("Physalis", fa.triggerCard());
+        assertNotNull(ActionResolver.parse(fa.effectText(), null), "the modal effect should parse");
+
+        // The [[s]] special ability must survive parsing alongside the "Dull it and Freeze it" quote.
+        List<ActionAbility> actions = CardData.parseActionAbilities(PHYSALIS_TEXT);
+        assertEquals(1, actions.size(), "one action ability (the S ability)");
+        ActionAbility s = actions.get(0);
+        assertEquals("Premium Physalis Bullet", s.abilityName());
+        assertTrue(s.isSpecial(), "the 《S》 cost must mark it Special");
+        assertEquals(List.of("Ice", "Ice"), s.cpCost());
+    }
+
+    @Test
+    void physalisSelectsOneNormallyButUpToTwoWhenOpponentHandEmpty() {
+        String effect = CardData.parseAutoAbilities(PHYSALIS_TEXT).get(0).effectText();
+        Consumer<GameContext> fn = ActionResolver.parse(effect, null);
+        assertNotNull(fn);
+
+        // Opponent has cards (2): base modal — select exactly 1.
+        GameContext some = mock(GameContext.class);
+        when(some.opponentHandSize()).thenReturn(2);
+        fn.accept(some);
+        verify(some).chooseActions(any(), any(), eq(1), eq(false));
+
+        // Opponent hand empty: upgrade — select up to 2.
+        GameContext empty = mock(GameContext.class);
+        when(empty.opponentHandSize()).thenReturn(0);
+        fn.accept(empty);
+        verify(empty).chooseActions(any(), any(), eq(2), eq(true));
+    }
+
+    @Test
+    void physalisBaseGateChecksOpponentHandSize() throws Exception {
+        MainWindow mw = new MainWindow();
+        java.lang.reflect.Method check = AutoAbilityTriggers.class
+                .getDeclaredMethod("checkAutoAbilityCondition", String.class, boolean.class);
+        check.setAccessible(true);
+        String cond = "your opponent has 3 cards or less in their hand";
+
+        // P1 owns the ability → opponent is P2.
+        setHandSize(mw, false, 3);
+        assertEquals(true,  check.invoke(mw.autoAbilityTriggers, cond, true), "3 ≤ 3 — condition met");
+        setHandSize(mw, false, 4);
+        assertEquals(false, check.invoke(mw.autoAbilityTriggers, cond, true), "4 > 3 — condition fails");
+        setHandSize(mw, false, 0);
+        assertEquals(true,  check.invoke(mw.autoAbilityTriggers, cond, true), "empty hand — condition met");
+    }
+
+    /** Sets the given player's hand to exactly {@code n} filler cards. */
+    private static void setHandSize(MainWindow mw, boolean isP1, int n) {
+        List<CardData> hand = isP1 ? mw.gameState.getP1Hand() : mw.gameState.getP2Hand();
+        hand.clear();
+        for (int i = 0; i < n; i++) hand.add(makeForward("Filler " + i, "Ice", 1, 1000));
+    }
 }

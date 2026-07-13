@@ -65,7 +65,8 @@ public class DebugCardPickerDialog extends JDialog {
     /** Target player for the spawn/add; defaults to P2. */
     private boolean targetIsP1 = false;
 
-    private DebugCardPickerDialog(JFrame parent, String title) {
+    private DebugCardPickerDialog(JFrame parent, String title,
+            java.util.function.Consumer<Boolean> clearHandAction) {
         super(parent, title, true);
         setSize(720, 520);
         setLocationRelativeTo(parent);
@@ -123,6 +124,19 @@ public class DebugCardPickerDialog extends JDialog {
         buttonPanel.add(cancelButton);
         buttonPanel.add(selectButton);
 
+        JPanel southPanel = new JPanel(new BorderLayout());
+        // Optional lower-left action (only wired up for the "Add Card to Hand" flow): wipe the hand
+        // of whichever player is currently selected by the target radio buttons.
+        if (clearHandAction != null) {
+            JButton clearHandButton = new JButton("Clear Hand");
+            clearHandButton.setToolTipText("Remove all cards from the selected player's hand.");
+            clearHandButton.addActionListener(e -> clearHandAction.accept(targetIsP1));
+            JPanel leftPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
+            leftPanel.add(clearHandButton);
+            southPanel.add(leftPanel, BorderLayout.WEST);
+        }
+        southPanel.add(buttonPanel, BorderLayout.EAST);
+
         table.addMouseListener(new java.awt.event.MouseAdapter() {
             @Override public void mouseClicked(java.awt.event.MouseEvent e) {
                 if (e.getClickCount() == 2) confirmSelection();
@@ -131,7 +145,7 @@ public class DebugCardPickerDialog extends JDialog {
 
         add(northPanel, BorderLayout.NORTH);
         add(new JScrollPane(table), BorderLayout.CENTER);
-        add(buttonPanel, BorderLayout.SOUTH);
+        add(southPanel, BorderLayout.SOUTH);
 
         getRootPane().setDefaultButton(selectButton);
         getRootPane().registerKeyboardAction(
@@ -188,7 +202,17 @@ public class DebugCardPickerDialog extends JDialog {
      * or {@code null} if cancelled.
      */
     public static Selection pick(JFrame parent, String title) {
-        DebugCardPickerDialog dialog = new DebugCardPickerDialog(parent, title);
+        return pick(parent, title, null);
+    }
+
+    /**
+     * Variant that also shows a lower-left "Clear Hand" button running {@code clearHandAction} with the
+     * currently selected target player ({@code true} = P1); pass {@code null} to omit the button. The
+     * action fires in place and does not close the dialog, so the picker can still be used to add a card
+     * afterwards.
+     */
+    public static Selection pick(JFrame parent, String title, java.util.function.Consumer<Boolean> clearHandAction) {
+        DebugCardPickerDialog dialog = new DebugCardPickerDialog(parent, title, clearHandAction);
         dialog.setVisible(true);
         return dialog.selectedSerial == null ? null : new Selection(dialog.selectedSerial, dialog.targetIsP1);
     }

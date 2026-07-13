@@ -3812,6 +3812,22 @@ public class ActionResolver {
     );
 
     /**
+     * Matches an inline conditional upgrade gated on the opponent's hand size, appearing before the
+     * quoted actions: "If your opponent has [no|N cards or less] cards in their hand, select [up to]
+     * M of the K following actions instead." (e.g. Physalis' empty-hand upgrade to select up to 2).
+     * Groups: {@code handCount} (absent means "no cards" = 0), {@code handUpTo} (optional),
+     *         {@code handSelect}.
+     */
+    private static final Pattern SELECT_FOLLOWING_ACTIONS_HAND_UPGRADE = Pattern.compile(
+        "(?i)^If\\s+your\\s+opponent\\s+has\\s+" +
+        "(?:no\\s+cards?|(?<handCount>\\d+)\\s+cards?\\s+or\\s+less)\\s+in\\s+" +
+        "(?:his/her|his|her|their)\\s+hand,\\s+" +
+        "select\\s+(?<handUpTo>up\\s+to\\s+)?(?<handSelect>\\d+)\\s+of\\s+the\\s+\\d+\\s+" +
+        "following\\s+actions?\\s+instead[.!]?\\s*",
+        Pattern.DOTALL
+    );
+
+    /**
      * Matches "Place N [Name] Counter(s) on [CardName][.]".
      * <ul>
      *   <li>Group {@code count} — number of counters to place</li>
@@ -4418,7 +4434,10 @@ public class ActionResolver {
      */
     private static final Pattern OPPONENT_HAND_CONDITION_PATTERN = Pattern.compile(
         "(?i)^If\\s+your\\s+opponent\\s+has\\s+" +
-        "(?:no|(?<n>\\d+)\\s+cards?\\s+or\\s+less)\\s+cards?\\s+in\\s+" +
+        // Each branch carries its own trailing noun: the "no" branch ("no cards in their hand")
+        // needs it, while "N cards or less" already consumes one "cards" and the real card wording
+        // ("2 cards or less in their hand") runs straight into "in" with no second "cards".
+        "(?:no\\s+cards?|(?<n>\\d+)\\s+cards?\\s+or\\s+less)\\s+in\\s+" +
         "(?:his/her|his|her|their)\\s+hand,?\\s*" +
         "(?<effect>.+?)" +
         "(?<instead>\\s+instead)?[.!]?$"
@@ -6276,6 +6295,25 @@ public class ActionResolver {
             condUpTo       = false; condSelect   = 0;
         }
 
+        // Detect an opponent-hand-size upgrade:
+        // "If your opponent has [no|N cards or less] cards in their hand, select [up to] M ... instead."
+        final boolean hasHandUpgrade;
+        final int     handUpgThreshold;
+        final boolean handUpgUpTo;
+        final int     handUpgSelect;
+
+        Matcher handUpM = SELECT_FOLLOWING_ACTIONS_HAND_UPGRADE.matcher(actionsRaw);
+        if (handUpM.find()) {
+            hasHandUpgrade   = true;
+            handUpgThreshold = handUpM.group("handCount") != null ? Integer.parseInt(handUpM.group("handCount")) : 0;
+            handUpgUpTo      = handUpM.group("handUpTo") != null;
+            handUpgSelect    = Integer.parseInt(handUpM.group("handSelect"));
+            actionsRaw       = actionsRaw.substring(handUpM.end());
+        } else {
+            hasHandUpgrade   = false;
+            handUpgThreshold = 0; handUpgUpTo = false; handUpgSelect = 0;
+        }
+
         Matcher qm = SELECT_FOLLOWING_QUOTED_ACTION.matcher(actionsRaw);
         List<String> actions = new ArrayList<>();
         while (qm.find()) actions.add(qm.group(1).trim());
@@ -6288,6 +6326,10 @@ public class ActionResolver {
                     && ctx.selfFieldCount(condElem, condInclFwd, condInclBkp, condInclMon) >= condMinCount) {
                 effSelect = condSelect;
                 effUpTo   = condUpTo;
+            }
+            if (hasHandUpgrade && ctx.opponentHandSize() <= handUpgThreshold) {
+                effSelect = handUpgSelect;
+                effUpTo   = handUpgUpTo;
             }
             List<String> chosen = ctx.chooseActions(source, actions, effSelect, effUpTo);
             if (chosen == null || chosen.isEmpty()) {

@@ -2316,9 +2316,21 @@ final class AutoAbilityTriggers {
 			String spec = lo.replaceFirst("^you\\s+control\\s+an?\\s+", "").trim();
 			return controlsMatchingCard(spec, isP1);
 		}
+		// "your opponent has [no|N cards or less] cards in their hand"
+		Matcher oppHandM = OPP_HAND_AT_MOST_CONDITION.matcher(lo);
+		if (oppHandM.matches()) {
+			int threshold = oppHandM.group("n") != null ? Integer.parseInt(oppHandM.group("n")) : 0;
+			int oppHand   = (isP1 ? mw.gameState.getP2Hand() : mw.gameState.getP1Hand()).size();
+			return oppHand <= threshold;
+		}
 		mw.logEntry("[AutoAbility] Unrecognized condition (defaulting to true): " + condition);
 		return true;
 	}
+
+	/** "your opponent has [no|N cards or less] cards in their hand" — {@code n} absent means "no cards" (0). */
+	private static final Pattern OPP_HAND_AT_MOST_CONDITION = Pattern.compile(
+		"(?i)^your\\s+opponent\\s+has\\s+(?:no\\s+cards?|(?<n>\\d+)\\s+cards?\\s+or\\s+less)\\s+in\\s+" +
+		"(?:his/her|his|her|their)\\s+hand$");
 
 	/**
 	 * Returns {@code true} if the given player has at least one card on the field that matches

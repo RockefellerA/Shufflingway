@@ -907,7 +907,7 @@ public record CardData(
         "(?:Forwards?(?:\\s+or\\s+(?:Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)?\\s*Backups?)?" + // Forwards [or Backups]
         "|Backups?(?:\\s+of\\s+the\\s+same\\s+Element)?(?:\\s+or\\s+\\d+\\s*(?:active|dull|damaged)?\\s*Backups?\\s+of\\s+the\\s+same\\s+Element(?:\\s+and\\s+[A-Za-z][A-Za-z\\s''\\-]*?)?)?" + // Backups [of the same Element] [or N Backups ... and Name]
         "|Characters?)" + // Characters
-        "|(?<dullbarename>[A-Z][A-Za-z''\\-]+)(?:\\s+(?:Forwards?|Backups?|Monsters?|Characters?))?(?:\\s+and\\s+[^:]+)?)\\s*)?" + // bare-name branch: "Dull [cond] CardName [and N [cond] ...]"
+        "|(?<dullbarename>(?-i:[A-Z])[A-Za-z''\\-]+)(?:\\s+(?:Forwards?|Backups?|Monsters?|Characters?))?(?:\\s+and\\s+[^:\\[]+)?)\\s*)?" + // bare-name branch: "Dull [cond] CardName [and N [cond] ...]"
         ":\\s*"                                                              +  // colon separator
         "(?<effecttext>(?:[^\\[]|\\[(?!\\[))*)"                                // effect text (up to next [[markup]])
     );
