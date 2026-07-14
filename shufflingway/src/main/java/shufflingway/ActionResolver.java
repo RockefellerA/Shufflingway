@@ -4768,6 +4768,12 @@ public class ActionResolver {
         result = tryParseCancelStackEntryUnlessPay(effectText);
         if (result != null) return result;
 
+        // Checked ahead of tryParseChooseCharacter: this "Choose 1 Forward. Reveal … even/odd …"
+        // compound would otherwise be claimed by ChooseCharacter's generic followup dispatch, which
+        // only partially handles it (it misses the reveal-cost-parity branch).
+        result = tryParseChooseFwdRevealCostParity(effectText);
+        if (result != null) return result;
+
         result = tryParseChooseCharacter(effectText, source, xValue);
         if (result != null) return result;
 
@@ -5194,9 +5200,6 @@ public class ActionResolver {
         result = tryParseEachPlayerMaySearchForwardMinPower(effectText);
         if (result != null) return result;
 
-        result = tryParseChooseFwdRevealCostParity(effectText);
-        if (result != null) return result;
-
         result = tryParseRevealTopDeck(effectText, source);
         if (result != null) return result;
 
@@ -5469,6 +5472,7 @@ public class ActionResolver {
         if (tryParseChooseCounterScaleCharsActivate(effectText, 1)    != null) return "ChooseCounterScaleCharsActivate";
         if (tryParseChooseAnyNumberReturnToHand(effectText)    != null) return "ChooseAnyNumberReturnToHand";
         if (tryParseCancelStackEntryUnlessPay(effectText)      != null) return "CancelStackEntryUnlessPay";
+        if (tryParseChooseFwdRevealCostParity(effectText)             != null) return "ChooseFwdRevealCostParity";
         if (tryParseChooseCharacter(effectText, source, 0)              != null) return "ChooseCharacter";
         if (tryParseIfSelfFwdReceivedDamageDraw(effectText, source)          != null) return "IfSelfFwdReceivedDamageDraw";
         if (tryParseIfRfpCount(effectText, source)               != null) return "IfRfpCount";
@@ -5602,7 +5606,6 @@ public class ActionResolver {
         if (tryParseOpponentRevealHand(effectText)            != null) return "OpponentRevealHand";
         if (tryParseEachPlayerRevealCharacterMayPlay(effectText)      != null) return "EachPlayerRevealMayPlay";
         if (tryParseEachPlayerMaySearchForwardMinPower(effectText)     != null) return "EachPlayerMaySearchForwardMinPower";
-        if (tryParseChooseFwdRevealCostParity(effectText)             != null) return "ChooseFwdRevealCostParity";
         if (tryParseRevealTopDeck(effectText, source)         != null) return "RevealTopDeck";
         if (tryParseStandaloneDamageShields(effectText, source) != null) return "StandaloneDamageShields";
         if (tryParseDualSearchJobAndTypeDontShareElements(effectText)      != null) return "DualSearchDontShareElements";
@@ -5863,6 +5866,10 @@ public class ActionResolver {
             String followupName = matchedFollowupName(mixedM.group("followup").trim(), source);
             return "ChooseTwoMixedTypes / " + (followupName != null ? followupName : "?");
         }
+        // Checked ahead of the ChooseCharacter block: the "Choose 1 Forward. Reveal … even/odd …"
+        // compound would otherwise be described as "ChooseCharacter / ?" (its parity branch isn't a
+        // recognised followup), keeping the card stuck in "partially parsed" coverage.
+        if (tryParseChooseFwdRevealCostParity(effectText) != null) return "ChooseFwdRevealCostParity";
         Matcher chooseM = CHOOSE_CHARACTER_PATTERN.matcher(escapedEffectText);
         if (chooseM.find()) {
             String followup      = restorePeriodInName(chooseM.group("followup").trim(), source);
@@ -6108,7 +6115,6 @@ public class ActionResolver {
         if (tryParseOpponentRevealHand(effectText) != null)                 return "OpponentRevealHand";
         if (tryParseEachPlayerRevealCharacterMayPlay(effectText) != null)   return "EachPlayerRevealMayPlay";
         if (tryParseEachPlayerMaySearchForwardMinPower(effectText) != null) return "EachPlayerMaySearchForwardMinPower";
-        if (tryParseChooseFwdRevealCostParity(effectText)          != null) return "ChooseFwdRevealCostParity";
         if (tryParseRevealTopDeck(effectText, source) != null)
             return revealTopDeckDescription(effectText, source) + restrictionDesc(effectText);
         if (tryParseStandaloneDamageShields(effectText, source) != null)    return "StandaloneDamageShields";

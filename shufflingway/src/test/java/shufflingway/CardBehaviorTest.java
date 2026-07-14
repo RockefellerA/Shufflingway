@@ -1778,4 +1778,42 @@ public class CardBehaviorTest {
         hand.clear();
         for (int i = 0; i < n; i++) hand.add(makeForward("Filler " + i, "Ice", 1, 1000));
     }
+
+    // =========================================================================================
+    // Mog (VI) 9-117C "Dusk Requiem" (《S》《Water》《Water》《Dull》): "Choose 1 Forward. Reveal the top
+    // card of your deck. If the revealed card's CP cost is an even number, return chosen Forward to
+    // its owner's hand … If … odd …, deal the chosen Forward 4000 damage, dull it and Freeze it …"
+    //
+    // Guards two bugs that broke this wired-up ability:
+    //  1) The preceding "…leaves the field, discard 2 cards from your hand." auto-ability let the
+    //     discard-cost group of ACTION_ABILITY_PATTERN run across the [[br]][[s]] markup to the S
+    //     ability's colon, swallowing its name and 《S》 cost (name lost, isSpecial cleared).
+    //  2) The dedicated reveal-cost-parity parser sat AFTER tryParseChooseCharacter in the parse
+    //     chain, so the generic ChooseCharacter parser claimed the effect and only partially
+    //     handled it — the parity branch has to be tried first.
+    // =========================================================================================
+
+    private static final String MOG_VI_TEXT =
+            "When Mog (VI) enters the field, draw 2 cards.[[br]] When Mog (VI) leaves the field, discard 2 cards from your hand.[[br]]"
+            + "[[s]]Dusk Requiem[[/]] 《S》《Water》《Water》《Dull》: Choose 1 Forward. Reveal the top card of your deck. "
+            + "If the revealed card's CP cost is an even number, return chosen Forward to its owner's hand. Add the revealed card to your hand. "
+            + "If the revealed card's CP cost is an odd number, deal the chosen Forward 4000 damage, dull it and Freeze it. Add the revealed card to your hand.";
+
+    @Test
+    void mogViDuskRequiemKeepsSpecialIdentityAndRoutesToParityParser() {
+        List<ActionAbility> actions = CardData.parseActionAbilities(MOG_VI_TEXT);
+        assertEquals(1, actions.size(), "one action ability (the S ability)");
+        ActionAbility s = actions.get(0);
+
+        // (1) The [[s]] identity must survive the neighbouring discard-cost auto-ability.
+        assertEquals("Dusk Requiem", s.abilityName());
+        assertTrue(s.isSpecial(), "《S》 must mark it Special");
+        assertTrue(s.requiresDull(), "《Dull》 is part of the cost");
+        assertEquals(List.of("Water", "Water"), s.cpCost());
+
+        // (2) The effect must reach the dedicated reveal-cost-parity parser, not generic ChooseCharacter.
+        assertEquals("ChooseFwdRevealCostParity",
+                ActionResolver.matchedPatternName(s.effectText(), null));
+        assertNotNull(ActionResolver.parse(s.effectText(), null));
+    }
 }

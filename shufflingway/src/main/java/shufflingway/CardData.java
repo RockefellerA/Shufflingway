@@ -894,7 +894,7 @@ public record CardData(
         "((?:《[^》]*》\\s*)*)"                                            +  // group 3: zero or more 《cost》 tokens
         "(?:\\s*\\(This cost is reduced by 1 for each Job (?<inlinejob>[^)]+?) other than (?<inlineexclude>[^)]+?) you control\\.\\))?" + // groups 4-5 (named): optional inline cost modifier
         "((?i)(?:,\\s*)?put\\s+(?:(?!\\[\\[br\\]\\]).)+?\\s+into\\s+the\\s+Break\\s+Zone\\s*)?"  + // group 6: optional BZ cost phrase
-        "((?i)(?:,\\s*)?discard(?:(?!,\\s*(?:remove|return)\\b)[^:])+)?"     +  // group 7: optional discard cost phrase
+        "((?i)(?:,\\s*)?discard(?:(?!,\\s*(?:remove|return)\\b)[^:\\[])+)?"  +  // group 7: optional discard cost phrase (never crosses [[…]] markup)
         "((?i)(?:,\\s*)?remove\\s+[^:]+?\\s+from\\s+(?:the\\s+)?game\\s*)?" + // group 8: optional remove-from-game cost phrase
         "((?i)(?:,\\s*)?return\\s+[^:]+?\\s+to\\s+(?:its|their)\\s+owner(?:'s|s')?\\s+hand\\s*)?" + // group 9: optional return-to-hand cost phrase
         "((?i)(?:,\\s*)?remove\\s+\\d+\\s+[^:]+?\\s+Counters?\\s+from\\s+[^:,]+?\\s*)?" +           // group 10: optional counter-removal cost phrase
