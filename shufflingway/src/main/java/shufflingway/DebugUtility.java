@@ -64,7 +64,7 @@ class DebugUtility {
             JOptionPane.showMessageDialog(mw.frame, "Start a game first.", "Debug Spawn", JOptionPane.WARNING_MESSAGE);
             return;
         }
-        DebugCardPickerDialog.Selection sel = DebugCardPickerDialog.pick(mw.frame, "Add Card to Hand", this::clearHand);
+        DebugCardPickerDialog.Selection sel = DebugCardPickerDialog.pick(mw.frame, "Add Card to Hand", this::clearHand, "Clear Hand");
         if (sel == null) return;
         CardData card = mw.buildCardDataFromSerial(sel.serial());
         if (card == null) {
@@ -90,6 +90,34 @@ class DebugUtility {
         hand.clear();
         if (isP1) mw.refreshP1HandLabel(); else mw.refreshP2HandCountLabel();
         mw.logEntry("[Debug] Removed all " + removed + " card(s) from " + (isP1 ? "P1" : "P2") + "'s hand.");
+    }
+
+    void addToBreakZone() {
+        if (!mw.gameInProgress()) {
+            JOptionPane.showMessageDialog(mw.frame, "Start a game first.", "Debug Spawn", JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+        DebugCardPickerDialog.Selection sel = DebugCardPickerDialog.pick(mw.frame, "Add Card to BZ", this::clearBreakZone, "Clear BZ");
+        if (sel == null) return;
+        CardData card = mw.buildCardDataFromSerial(sel.serial());
+        if (card == null) {
+            JOptionPane.showMessageDialog(mw.frame, "Card not found: " + sel.serial(), "Debug Spawn", JOptionPane.ERROR_MESSAGE);
+            return;
+        }
+        boolean isP1 = sel.isP1();
+        mw.gameState.getIdentity().put(card, isP1);
+        mw.addToBreakZone(card);
+        mw.logEntry("[Debug] Added " + card.name() + " (" + sel.serial() + ") to " + (isP1 ? "P1" : "P2") + " Break Zone.");
+    }
+
+    /** Debug helper: removes every card from the given player's Break Zone and refreshes its display. */
+    private void clearBreakZone(boolean isP1) {
+        var bz = isP1 ? mw.gameState.getP1BreakZone() : mw.gameState.getP2BreakZone();
+        int removed = bz.size();
+        if (removed == 0) return;
+        bz.clear();
+        if (isP1) mw.refreshP1BreakLabel(); else mw.refreshP2BreakLabel();
+        mw.logEntry("[Debug] Removed all " + removed + " card(s) from " + (isP1 ? "P1" : "P2") + "'s Break Zone.");
     }
 
     void setDamage() {

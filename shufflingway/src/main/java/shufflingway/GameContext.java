@@ -651,6 +651,13 @@ public interface GameContext {
     void removeCounters(CardData card, String counterName, int count);
 
     /**
+     * Grants the Forward at {@code target} the single action ability parsed from {@code abilityText}
+     * (e.g. "《Dull》: Choose 1 Forward. Deal it 4000 damage.") until the end of the turn. The grant is
+     * keyed by the Forward's card identity and cleared with the rest of the end-of-turn state.
+     */
+    void grantEotActionAbility(ForwardTarget target, String abilityText);
+
+    /**
      * Selects and removes one counter from the character at {@code t}.
      * If the card has no counters the effect fizzles.
      * If it has exactly one counter type the counter is removed silently.

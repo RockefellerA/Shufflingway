@@ -695,7 +695,7 @@ public class MainWindow {
 
 		if (AppSettings.isDebugEnabled()) {
 			DebugUtility debug = new DebugUtility(this);
-			menuBar.add(new DebugMenu(debug::spawnOnField, debug::addToHand, debug::setDamage));
+			menuBar.add(new DebugMenu(debug::spawnOnField, debug::addToHand, debug::addToBreakZone, debug::setDamage));
 		}
 
 		Dimension cardSize = new Dimension(CARD_W, CARD_H);
@@ -10627,6 +10627,9 @@ public class MainWindow {
 	 * {@link CardData#cannotAttackOrBlock()}).
 	 */
 	boolean isFieldAbilityCannotAttackOrBlock(CardData card, boolean isP1) {
+		// Medusa's granted "If a Petrification Counter is placed on this Forward, this Forward cannot
+		// attack or block." — driven off the counter itself (Medusa is the only source of them).
+		if (gameState.getCounters(card, "Petrification") > 0) return true;
 		for (FieldAbility fa : card.fieldAbilities()) {
 			Matcher m2 = ActionResolver.IF_DONT_CONTROL_CARD_NAME_FWD_CANNOT_ATTACK_OR_BLOCK.matcher(fa.effectText());
 			if (m2.find() && m2.group("subject").trim().equalsIgnoreCase(card.name())) {

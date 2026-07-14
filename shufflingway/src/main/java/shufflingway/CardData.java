@@ -999,6 +999,16 @@ public record CardData(
         bzGainsM.appendTail(sbBz);
         textEn = sbBz.toString();
 
+        // Strip quoted abilities that a card grants to a Forward (e.g. Medusa's "《5》: Remove all
+        // Petrification Counters…", Machinist's "《Dull》: Choose 1 Forward. Deal it 4000 damage.").
+        // Such a grant is an ability handed to some OTHER card, not one of THIS card's own action
+        // abilities, so remove it before ACTION_ABILITY_PATTERN runs — otherwise its 《cost》: is
+        // mis-read as the source card's own ability. Matched narrowly: a quote that OPENS with one or
+        // more 《cost》 tokens then a colon, and does not span [[…]] markup — so it can't swallow a
+        // card's real [[s]] special ability that merely sits inside a wider quoted span. (Self-grants
+        // gated on the Break Zone were already extracted above and are gone by now.)
+        textEn = textEn.replaceAll("\"(?:\\s*《[^》]*》)+\\s*:[^\"\\[]*\"", "");
+
         Matcher m = ACTION_ABILITY_PATTERN.matcher(textEn);
         while (m.find()) {
             String thresholdStr  = m.group(1);
@@ -1559,7 +1569,10 @@ public record CardData(
         ")\\s*,\\s+" +
         "(?<youmay>(?:you|your\\s+opponent)\\s+may\\s+)?" +
         "(?<effect>.+?)\\s*" +
-        "(?=\\s*\\[\\[br\\]\\]|\\s*When\\s+[^,]+?\\s+(?:forms?\\s+a\\s+party\\s+and\\s+attacks?|attacks?|blocks?|enters?|leaves?|is\\s+(?:put|removed|blocked)|deals?|uses?|becomes?)|\\s*(?:《[^》]+》)+\\s*:|\\s*$)",
+        // Effect ends at: a [[br]], the next "When …" trigger, a card's own 《cost》: special-ability
+        // marker, or end of text. The (?<!\") guard keeps a 《cost》: that sits INSIDE a quoted granted
+        // ability (e.g. Machinist's "《Dull》: …", Medusa's "《5》: …") from prematurely ending the effect.
+        "(?=\\s*\\[\\[br\\]\\]|\\s*When\\s+[^,]+?\\s+(?:forms?\\s+a\\s+party\\s+and\\s+attacks?|attacks?|blocks?|enters?|leaves?|is\\s+(?:put|removed|blocked)|deals?|uses?|becomes?)|\\s*(?<!\")(?:《[^》]+》)+\\s*:|\\s*$)",
         Pattern.DOTALL
     );
 

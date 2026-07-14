@@ -13,7 +13,7 @@ import javax.swing.JMenuItem;
  */
 public class DebugMenu extends JMenu {
 
-    public DebugMenu(Runnable spawnOnField, Runnable addToHand, Runnable setDamage) {
+    public DebugMenu(Runnable spawnOnField, Runnable addToHand, Runnable addToBreakZone, Runnable setDamage) {
         super("Debug");
 
         addItem("Spawn Card on Field…",
@@ -22,6 +22,9 @@ public class DebugMenu extends JMenu {
         addItem("Add Card to Hand…",
                 "Add any card directly to the chosen player's hand.",
                 addToHand);
+        addItem("Add Card to BZ…",
+                "Add any card directly to the chosen player's Break Zone.",
+                addToBreakZone);
         addItem("Set Damage Counts…",
                 "Directly set P1/P2 damage zone counts for testing damage-threshold triggers.",
                 setDamage);

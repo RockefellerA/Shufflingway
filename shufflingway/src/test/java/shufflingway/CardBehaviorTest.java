@@ -1816,4 +1816,90 @@ public class CardBehaviorTest {
                 ActionResolver.matchedPatternName(s.effectText(), null));
         assertNotNull(ActionResolver.parse(s.effectText(), null));
     }
+
+    // =========================================================================================
+    // Ability-granting cards. These grant a quoted "《cost》: effect" ability to a chosen Forward.
+    // The quoted grant used to (a) truncate the ETB auto-ability effect at the 《cost》: inside the
+    // quote and (b) be mis-parsed as the granting card's OWN action ability. Now the grant text is
+    // captured whole, the card exposes no spurious own-abilities, and the grant is applied.
+    //   • Machinist 12-057C — grants an EOT ability to up to 2 Forwards.
+    //   • Medusa 22-034H     — places a Petrification Counter (drives a cannot-attack/block
+    //                          restriction + a "《5》: remove counters" ability off the counter).
+    //   • Innocence 13-137S  — a Break-Zone-gated SELF grant; must stay intact (regression guard).
+    // =========================================================================================
+
+    private static final String MACHINIST_TEXT =
+            "When Machinist enters the field, choose up to 2 Forwards. Until the end of the turn, "
+            + "they gain \"《Dull》: Choose 1 Forward. Deal it 4000 damage.\"";
+    private static final String MEDUSA_TEXT =
+            "When Medusa enters the field, choose 1 Forward. Place 1 Petrification Counter on it and it gains "
+            + "\"If a Petrification Counter is placed on this Forward, this Forward cannot attack or block.\" and "
+            + "\"《5》: Remove all Petrification Counters from this Forward.\" (These effects do not end at the end of the turn.)";
+    private static final String INNOCENCE_TEXT =
+            "Brave[[br]]If you have a Card Name Innocence in your Break Zone, Innocence gains "
+            + "\"《Fire》《Dull》: Choose 1 Forward. Deal it 10000 damage.\" and "
+            + "\"《Ice》《Dull》: Your opponent discards 2 cards from their hand. You can only use this ability during your turn and only once per turn.\"";
+
+    @Test
+    void grantingCardsExposeNoOwnAbilitiesAndTheirEtbEffectsParse() {
+        // Neither granting card should surface the quoted grant as its OWN action ability.
+        assertTrue(CardData.parseActionAbilities(MACHINIST_TEXT).isEmpty(), "Machinist has no own action ability");
+        assertTrue(CardData.parseActionAbilities(MEDUSA_TEXT).isEmpty(),    "Medusa has no own action ability");
+
+        // The full ETB effect (grant text no longer truncated at the 《cost》: inside the quote) parses.
+        String machEtb = CardData.parseAutoAbilities(MACHINIST_TEXT).get(0).effectText();
+        assertEquals("ChooseForwardsGainAbilityEot", ActionResolver.matchedPatternName(machEtb, null));
+        String medusaEtb = CardData.parseAutoAbilities(MEDUSA_TEXT).get(0).effectText();
+        assertEquals("ChooseForwardPlacePetrification", ActionResolver.matchedPatternName(medusaEtb, null));
+
+        // Innocence's Break-Zone-gated self-grant must remain two intact, gated action abilities.
+        List<ActionAbility> inno = CardData.parseActionAbilities(INNOCENCE_TEXT);
+        assertEquals(2, inno.size(), "Innocence keeps its two self-granted abilities");
+        assertTrue(inno.stream().allMatch(a -> "Innocence".equalsIgnoreCase(a.ownBreakZoneNameRequired())),
+                "both abilities stay gated on Innocence being in the Break Zone");
+    }
+
+    @Test
+    void machinistGrantsEotAbilityToChosenForward() {
+        MainWindow mw = new MainWindow();
+        CardData machinist = makeForward("Machinist", "Fire", 2, 5000);
+        CardData target    = makeForward("Target", "Ice", 3, 7000);
+        mw.gameState.getIdentity().put(target, true);
+        mw.placeCardInForwardZone(target);   // P1 idx 0
+
+        GameContext ctx = mw.buildGameContext(true);
+        ctx.preloadTargets(List.of(new ForwardTarget(true, 0, ForwardTarget.CardZone.FORWARD)));
+        String etb = CardData.parseAutoAbilities(MACHINIST_TEXT).get(0).effectText();
+        ActionResolver.parse(etb, machinist).accept(ctx);
+
+        List<ActionAbility> granted = mw.p1TempGrantedAbilities.get(target);
+        assertNotNull(granted, "the chosen Forward should have a granted ability");
+        assertEquals(1, granted.size());
+        assertEquals("Choose 1 Forward. Deal it 4000 damage.", granted.get(0).effectText());
+        assertTrue(granted.get(0).requiresDull(), "the granted ability keeps its 《Dull》 cost");
+    }
+
+    @Test
+    void medusaPetrifiesForwardAndTheFiveCostAbilityRemovesIt() {
+        MainWindow mw = new MainWindow();
+        CardData medusa = makeForward("Medusa", "Earth", 4, 8000);
+        CardData target = makeForward("Victim", "Fire", 3, 7000);
+        mw.gameState.getIdentity().put(target, true);
+        mw.placeCardInForwardZone(target);   // P1 idx 0
+
+        GameContext ctx = mw.buildGameContext(true);
+        ctx.preloadTargets(List.of(new ForwardTarget(true, 0, ForwardTarget.CardZone.FORWARD)));
+        String etb = CardData.parseAutoAbilities(MEDUSA_TEXT).get(0).effectText();
+        ActionResolver.parse(etb, medusa).accept(ctx);
+
+        assertEquals(1, mw.gameState.getCounters(target, "Petrification"), "target is petrified");
+        assertTrue(mw.isFieldAbilityCannotAttackOrBlock(target, true),
+                "a petrified Forward cannot attack or block");
+
+        // The granted "《5》: Remove all Petrification Counters from this Forward." lifts it.
+        ActionResolver.parse("Remove all Petrification Counters from this Forward.", target)
+                .accept(mw.buildGameContext(true));
+        assertEquals(0, mw.gameState.getCounters(target, "Petrification"), "counters removed");
+        assertFalse(mw.isFieldAbilityCannotAttackOrBlock(target, true), "restriction lifted");
+    }
 }

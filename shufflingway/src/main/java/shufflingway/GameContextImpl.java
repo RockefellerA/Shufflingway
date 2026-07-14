@@ -3649,6 +3649,22 @@ final class GameContextImpl implements GameContext {
 				return mw.gameState.getCounters(card, counterName);
 			}
 
+			@Override public void grantEotActionAbility(ForwardTarget target, String abilityText) {
+				if (target.zone() != ForwardTarget.CardZone.FORWARD) return;
+				List<ActionAbility> parsed = CardData.parseActionAbilities(abilityText);
+				if (parsed.isEmpty()) return;
+				List<CardData> fwds = target.isP1() ? mw.p1ForwardCards : mw.p2ForwardCards;
+				if (target.idx() < 0 || target.idx() >= fwds.size()) return;
+				CardData fwd = fwds.get(target.idx());
+				if (fwd == null) return;
+				// Keyed by card identity (not index) so it survives Forward-list compaction; the
+				// end-of-turn reset (clearBackupForwardState) wipes the whole temp-grant map.
+				Map<CardData, List<ActionAbility>> map = target.isP1()
+						? mw.p1TempGrantedAbilities : mw.p2TempGrantedAbilities;
+				map.computeIfAbsent(fwd, k -> new ArrayList<>()).add(parsed.get(0));
+				logEntry(fwd.name() + " gains until end of turn: " + parsed.get(0).effectText());
+			}
+
 			@Override public void removeCounters(CardData card, String counterName, int count) {
 				int removed = mw.gameState.removeCounters(card, counterName, count);
 				Map<String, Integer> all = mw.gameState.getCountersMap(card);

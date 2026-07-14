@@ -4768,10 +4768,19 @@ public class ActionResolver {
         result = tryParseCancelStackEntryUnlessPay(effectText);
         if (result != null) return result;
 
-        // Checked ahead of tryParseChooseCharacter: this "Choose 1 Forward. Reveal … even/odd …"
-        // compound would otherwise be claimed by ChooseCharacter's generic followup dispatch, which
-        // only partially handles it (it misses the reveal-cost-parity branch).
+        // Checked ahead of tryParseChooseCharacter: these "choose … Forward(s) …" compounds would
+        // otherwise be claimed by ChooseCharacter's generic followup dispatch, which only partially
+        // handles them (the reveal-cost-parity branch, and the ability-granting forms).
         result = tryParseChooseFwdRevealCostParity(effectText);
+        if (result != null) return result;
+
+        result = tryParseChooseForwardsGainAbilityEot(effectText);
+        if (result != null) return result;
+
+        result = tryParseChooseForwardPlacePetrification(effectText);
+        if (result != null) return result;
+
+        result = tryParseRemoveAllCountersFromSelf(effectText, source);
         if (result != null) return result;
 
         result = tryParseChooseCharacter(effectText, source, xValue);
@@ -5473,6 +5482,9 @@ public class ActionResolver {
         if (tryParseChooseAnyNumberReturnToHand(effectText)    != null) return "ChooseAnyNumberReturnToHand";
         if (tryParseCancelStackEntryUnlessPay(effectText)      != null) return "CancelStackEntryUnlessPay";
         if (tryParseChooseFwdRevealCostParity(effectText)             != null) return "ChooseFwdRevealCostParity";
+        if (tryParseChooseForwardsGainAbilityEot(effectText)          != null) return "ChooseForwardsGainAbilityEot";
+        if (tryParseChooseForwardPlacePetrification(effectText)       != null) return "ChooseForwardPlacePetrification";
+        if (tryParseRemoveAllCountersFromSelf(effectText, source)     != null) return "RemoveAllCountersFromSelf";
         if (tryParseChooseCharacter(effectText, source, 0)              != null) return "ChooseCharacter";
         if (tryParseIfSelfFwdReceivedDamageDraw(effectText, source)          != null) return "IfSelfFwdReceivedDamageDraw";
         if (tryParseIfRfpCount(effectText, source)               != null) return "IfRfpCount";
@@ -5866,10 +5878,13 @@ public class ActionResolver {
             String followupName = matchedFollowupName(mixedM.group("followup").trim(), source);
             return "ChooseTwoMixedTypes / " + (followupName != null ? followupName : "?");
         }
-        // Checked ahead of the ChooseCharacter block: the "Choose 1 Forward. Reveal … even/odd …"
-        // compound would otherwise be described as "ChooseCharacter / ?" (its parity branch isn't a
-        // recognised followup), keeping the card stuck in "partially parsed" coverage.
+        // Checked ahead of the ChooseCharacter block: these "choose … Forward(s) …" compounds would
+        // otherwise be described as "ChooseCharacter / ?" (their branches aren't recognised followups),
+        // keeping the card stuck in "partially parsed" coverage.
         if (tryParseChooseFwdRevealCostParity(effectText) != null) return "ChooseFwdRevealCostParity";
+        if (tryParseChooseForwardsGainAbilityEot(effectText) != null) return "ChooseForwardsGainAbilityEot";
+        if (tryParseChooseForwardPlacePetrification(effectText) != null) return "ChooseForwardPlacePetrification";
+        if (tryParseRemoveAllCountersFromSelf(effectText, source) != null) return "RemoveAllCountersFromSelf";
         Matcher chooseM = CHOOSE_CHARACTER_PATTERN.matcher(escapedEffectText);
         if (chooseM.find()) {
             String followup      = restorePeriodInName(chooseM.group("followup").trim(), source);
@@ -13715,6 +13730,75 @@ public class ActionResolver {
                     ctx2.dullAndFreezeTarget(t);
                 }
             );
+        };
+    }
+
+    /**
+     * Matches "choose [up to] N Forwards. Until the end of the turn, they gain "&lt;ability&gt;"."
+     * (Machinist) — grants the quoted action ability to each chosen Forward until end of turn.
+     * Group {@code upto} present when "up to"; {@code count}; {@code ability} — the quoted grant text.
+     */
+    private static final Pattern CHOOSE_FORWARDS_GAIN_ABILITY_EOT = Pattern.compile(
+        "(?i)^choose\\s+(?<upto>up\\s+to\\s+)?(?<count>\\d+)\\s+Forwards?[.!]?\\s+" +
+        "Until\\s+the\\s+end\\s+of\\s+the\\s+turn,?\\s+(?:they|it)\\s+gains?\\s+" +
+        "\"(?<ability>[^\"]+)\"[.!]?\\s*$",
+        Pattern.DOTALL
+    );
+
+    private static Consumer<GameContext> tryParseChooseForwardsGainAbilityEot(String text) {
+        Matcher m = CHOOSE_FORWARDS_GAIN_ABILITY_EOT.matcher(text.trim());
+        if (!m.matches()) return null;
+        boolean upTo  = m.group("upto") != null;
+        int     count = Integer.parseInt(m.group("count"));
+        String  ability = m.group("ability").trim();
+        return ctx -> {
+            ctx.logEntry("Effect: choose " + (upTo ? "up to " : "") + count
+                    + " Forward(s) — grant until end of turn: " + ability);
+            List<ForwardTarget> ts = selectTargets(ctx, count, upTo, false, false, null, null, null, false,
+                    -1, null, -1, null, true, false, false, null, null, null, null, false, null, false);
+            for (ForwardTarget t : ts) ctx.grantEotActionAbility(t, ability);
+        };
+    }
+
+    /**
+     * Matches "choose 1 Forward. Place 1 Petrification Counter on it …" (Medusa). The chosen Forward
+     * receives a Petrification Counter; the "cannot attack or block while petrified" restriction and
+     * the "《5》: Remove all Petrification Counters" ability are driven off the counter's presence
+     * (see {@code MainWindow#isFieldAbilityCannotAttackOrBlock} and {@code addAbilityMenuItems}).
+     */
+    private static final Pattern CHOOSE_FORWARD_PLACE_PETRIFICATION = Pattern.compile(
+        "(?i)^choose\\s+1\\s+Forward[.!]?\\s+Place\\s+1\\s+Petrification\\s+Counter\\s+on\\s+it\\b.*",
+        Pattern.DOTALL
+    );
+
+    private static Consumer<GameContext> tryParseChooseForwardPlacePetrification(String text) {
+        if (!CHOOSE_FORWARD_PLACE_PETRIFICATION.matcher(text.trim()).matches()) return null;
+        return ctx -> {
+            ctx.logEntry("Effect: choose 1 Forward — place 1 Petrification Counter (cannot attack/block; 《5》 to remove)");
+            List<ForwardTarget> ts = selectTargets(ctx, 1, false, false, false, null, null, null, false,
+                    -1, null, -1, null, true, false, false, null, null, null, null, false, null, false);
+            if (ts.isEmpty()) return;
+            ForwardTarget t = ts.get(0);
+            CardData fwd = t.isP1() ? ctx.p1Forward(t.idx()) : ctx.p2Forward(t.idx());
+            if (fwd != null) ctx.placeCounters(fwd, "Petrification", 1);
+        };
+    }
+
+    /**
+     * Matches "Remove all &lt;Name&gt; Counters from this Forward." — removes every counter of the
+     * named kind from the ability's own source card (used by Medusa's granted "《5》:" ability).
+     */
+    private static final Pattern REMOVE_ALL_COUNTERS_FROM_SELF = Pattern.compile(
+        "(?i)^Remove\\s+all\\s+(?<name>.+?)\\s+Counters\\s+from\\s+this\\s+Forward[.!]?\\s*$"
+    );
+
+    private static Consumer<GameContext> tryParseRemoveAllCountersFromSelf(String text, CardData source) {
+        Matcher m = REMOVE_ALL_COUNTERS_FROM_SELF.matcher(text.trim());
+        if (!m.matches() || source == null) return null;
+        String counterName = m.group("name").trim();
+        return ctx -> {
+            int n = ctx.getCounters(source, counterName);
+            if (n > 0) ctx.removeCounters(source, counterName, n);
         };
     }
 

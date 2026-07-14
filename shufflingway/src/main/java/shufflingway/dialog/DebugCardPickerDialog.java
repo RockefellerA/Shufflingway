@@ -66,7 +66,7 @@ public class DebugCardPickerDialog extends JDialog {
     private boolean targetIsP1 = false;
 
     private DebugCardPickerDialog(JFrame parent, String title,
-            java.util.function.Consumer<Boolean> clearHandAction) {
+            java.util.function.Consumer<Boolean> clearAction, String clearActionLabel) {
         super(parent, title, true);
         setSize(720, 520);
         setLocationRelativeTo(parent);
@@ -125,14 +125,14 @@ public class DebugCardPickerDialog extends JDialog {
         buttonPanel.add(selectButton);
 
         JPanel southPanel = new JPanel(new BorderLayout());
-        // Optional lower-left action (only wired up for the "Add Card to Hand" flow): wipe the hand
-        // of whichever player is currently selected by the target radio buttons.
-        if (clearHandAction != null) {
-            JButton clearHandButton = new JButton("Clear Hand");
-            clearHandButton.setToolTipText("Remove all cards from the selected player's hand.");
-            clearHandButton.addActionListener(e -> clearHandAction.accept(targetIsP1));
+        // Optional lower-left action (e.g. the "Add Card to Hand"/"Add Card to BZ" flows): wipe the
+        // corresponding zone of whichever player is currently selected by the target radio buttons.
+        if (clearAction != null) {
+            JButton clearButton = new JButton(clearActionLabel);
+            clearButton.setToolTipText("Remove all cards from the selected player's zone.");
+            clearButton.addActionListener(e -> clearAction.accept(targetIsP1));
             JPanel leftPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
-            leftPanel.add(clearHandButton);
+            leftPanel.add(clearButton);
             southPanel.add(leftPanel, BorderLayout.WEST);
         }
         southPanel.add(buttonPanel, BorderLayout.EAST);
@@ -202,17 +202,18 @@ public class DebugCardPickerDialog extends JDialog {
      * or {@code null} if cancelled.
      */
     public static Selection pick(JFrame parent, String title) {
-        return pick(parent, title, null);
+        return pick(parent, title, null, null);
     }
 
     /**
-     * Variant that also shows a lower-left "Clear Hand" button running {@code clearHandAction} with the
-     * currently selected target player ({@code true} = P1); pass {@code null} to omit the button. The
-     * action fires in place and does not close the dialog, so the picker can still be used to add a card
-     * afterwards.
+     * Variant that also shows a lower-left button labelled {@code clearActionLabel} running
+     * {@code clearAction} with the currently selected target player ({@code true} = P1); pass
+     * {@code null} to omit the button. The action fires in place and does not close the dialog, so the
+     * picker can still be used to add a card afterwards.
      */
-    public static Selection pick(JFrame parent, String title, java.util.function.Consumer<Boolean> clearHandAction) {
-        DebugCardPickerDialog dialog = new DebugCardPickerDialog(parent, title, clearHandAction);
+    public static Selection pick(JFrame parent, String title,
+            java.util.function.Consumer<Boolean> clearAction, String clearActionLabel) {
+        DebugCardPickerDialog dialog = new DebugCardPickerDialog(parent, title, clearAction, clearActionLabel);
         dialog.setVisible(true);
         return dialog.selectedSerial == null ? null : new Selection(dialog.selectedSerial, dialog.targetIsP1);
     }

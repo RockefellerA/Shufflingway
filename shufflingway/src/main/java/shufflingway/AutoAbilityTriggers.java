@@ -3058,7 +3058,11 @@ final class AutoAbilityTriggers {
 		List<ActionAbility> abilities = card.actionAbilities();
 		List<ActionAbility> tempAbilities = (isP1 ? mw.p1TempGrantedAbilities : mw.p2TempGrantedAbilities)
 				.getOrDefault(card, List.of());
-		if (abilities.isEmpty() && tempAbilities.isEmpty()) return;
+		// Medusa grants a petrified Forward "《5》: Remove all Petrification Counters from this Forward."
+		// It's driven off the counter's presence rather than a stored grant (which wouldn't survive the
+		// turn), so synthesize the menu item whenever the card carries a Petrification Counter.
+		boolean petrified = mw.gameState.getCounters(card, "Petrification") > 0;
+		if (abilities.isEmpty() && tempAbilities.isEmpty() && !petrified) return;
 
 		GameState.GamePhase phase = mw.gameState.getCurrentPhase();
 		boolean isMainPhase  = phase == GameState.GamePhase.MAIN_1 || phase == GameState.GamePhase.MAIN_2;
@@ -3094,10 +3098,33 @@ final class AutoAbilityTriggers {
 			boolean abilityEnabled = isMainPhase && mw.canActivateAbility(ability, isFrozen, state, playedTurn, card, isP1);
 			JMenuItem item = new JMenuItem(abilityEnabled ? mw.buildAbilityMenuLabelHtml(ability) : mw.buildAbilityMenuLabel(ability));
 			item.setEnabled(abilityEnabled);
+			// Reuse the caller's dull runnable so a granted "《Dull》: …" ability (e.g. Machinist's) dulls
+			// its grantee Forward when activated.
 			item.addActionListener(ae ->
-					showActionAbilityPaymentDialog(ability, card, () -> {}, isP1));
+					showActionAbilityPaymentDialog(ability, card, applyDull, isP1));
 			menu.add(item);
 		}
+
+		ActionAbility petrifyRemoval = petrificationRemovalAbility();
+		if (petrified && petrifyRemoval != null) {
+			boolean abilityEnabled = isMainPhase && mw.canActivateAbility(petrifyRemoval, isFrozen, state, playedTurn, card, isP1);
+			JMenuItem item = new JMenuItem(abilityEnabled ? mw.buildAbilityMenuLabelHtml(petrifyRemoval) : mw.buildAbilityMenuLabel(petrifyRemoval));
+			item.setEnabled(abilityEnabled);
+			item.addActionListener(ae ->
+					showActionAbilityPaymentDialog(petrifyRemoval, card, applyDull, isP1));
+			menu.add(item);
+		}
+	}
+
+	/** Lazily-parsed "《5》: Remove all Petrification Counters from this Forward." — Medusa's granted ability. */
+	private static ActionAbility petrificationRemovalAbility;
+	private static ActionAbility petrificationRemovalAbility() {
+		if (petrificationRemovalAbility == null) {
+			List<ActionAbility> parsed = CardData.parseActionAbilities(
+					"《5》: Remove all Petrification Counters from this Forward.");
+			if (!parsed.isEmpty()) petrificationRemovalAbility = parsed.get(0);
+		}
+		return petrificationRemovalAbility;
 	}
 
 	/**
