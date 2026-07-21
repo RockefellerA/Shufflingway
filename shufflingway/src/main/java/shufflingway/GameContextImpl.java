@@ -1303,8 +1303,9 @@ final class GameContextImpl implements GameContext {
 					for (ForwardTarget t : chosen) result.add(eligible.get(t.idx()));
 					return result;
 				}
-				List<CardData> bz = opponentZone
-						? mw.gameState.getP2BreakZone() : mw.gameState.getP1BreakZone();
+				boolean useP1Zone = isP1 != opponentZone;
+				List<CardData> bz = useP1Zone
+						? mw.gameState.getP1BreakZone() : mw.gameState.getP2BreakZone();
 				List<ForwardTarget> eligible = new ArrayList<>();
 				for (int i = 0; i < bz.size(); i++) {
 					CardData card = bz.get(i);
@@ -1320,7 +1321,7 @@ final class GameContextImpl implements GameContext {
 					if (!meetsCategoryFilter(card, categoryFilter)) continue;
 					if (excludeName != null && excludeName.equalsIgnoreCase(card.name())) continue;
 					if (withoutMulticard && card.multicard()) continue;
-					eligible.add(new ForwardTarget(!opponentZone, i, ForwardTarget.CardZone.BREAK_ZONE));
+					eligible.add(new ForwardTarget(useP1Zone, i, ForwardTarget.CardZone.BREAK_ZONE));
 				}
 				String costLabel  = formatCostFilterLabel(costVal, costCmp);
 				String powerLabel = powerVal >= 0 ? " of power " + powerVal + (powerCmp != null ? " or " + powerCmp : "") : "";
