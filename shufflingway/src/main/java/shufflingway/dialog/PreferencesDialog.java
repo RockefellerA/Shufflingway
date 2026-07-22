@@ -40,10 +40,16 @@ import javax.swing.filechooser.FileNameExtensionFilter;
 public class PreferencesDialog extends JDialog {
 
 	public PreferencesDialog(Frame owner) {
-		this(owner, null);
+		this(owner, null, null);
 	}
 
-	public PreferencesDialog(Frame owner, Runnable onLayoutChanged) {
+	/**
+	 * @param onLayoutChanged     invoked after a layout setting changes (e.g. side panel side)
+	 * @param onBoardColorChanged invoked as {@code (isP1, colorName)} when a field color changes;
+	 *                            applies the color to the live board. May be {@code null}.
+	 */
+	public PreferencesDialog(Frame owner, Runnable onLayoutChanged,
+			java.util.function.BiConsumer<Boolean, String> onBoardColorChanged) {
 		super(owner, "Preferences", true);
 		setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
 		setResizable(false);
@@ -98,6 +104,23 @@ public class PreferencesDialog extends JDialog {
 
 		layoutPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
 		contentPanel.add(layoutPanel);
+		contentPanel.add(javax.swing.Box.createVerticalStrut(8));
+
+		// ── Field Color ──────────────────────────────────────────────────────
+		JPanel fieldColorPanel = new JPanel();
+		fieldColorPanel.setLayout(new BoxLayout(fieldColorPanel, BoxLayout.Y_AXIS));
+		fieldColorPanel.setBorder(BorderFactory.createTitledBorder(
+				BorderFactory.createEtchedBorder(), "Field Color",
+				TitledBorder.LEFT, TitledBorder.TOP));
+
+		fieldColorPanel.add(buildFieldColorRow("P1 Field:",
+				AppSettings.getP1BoardColor(), true, onBoardColorChanged));
+		fieldColorPanel.add(javax.swing.Box.createVerticalStrut(4));
+		fieldColorPanel.add(buildFieldColorRow("P2 Field:",
+				AppSettings.getP2BoardColor(), false, onBoardColorChanged));
+
+		fieldColorPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
+		contentPanel.add(fieldColorPanel);
 		contentPanel.add(javax.swing.Box.createVerticalStrut(8));
 
 		// ── Card Back ────────────────────────────────────────────────────────
@@ -316,6 +339,31 @@ public class PreferencesDialog extends JDialog {
 
 		pack();
 		setLocationRelativeTo(owner);
+	}
+
+	/**
+	 * Builds one field-color row: a label plus a color dropdown seeded to {@code current}. On
+	 * change it persists the choice (via {@link AppSettings}) and applies it to the live board
+	 * through {@code onBoardColorChanged}.
+	 */
+	private static JPanel buildFieldColorRow(String label, String current, boolean isP1,
+			java.util.function.BiConsumer<Boolean, String> onBoardColorChanged) {
+		JPanel row = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
+		row.add(new JLabel(label));
+		JComboBox<String> combo = new JComboBox<>(ElementColor.boardColorChoices());
+		combo.setSelectedItem(current);
+		combo.setFocusable(false);
+		combo.addActionListener(e -> {
+			String sel = (String) combo.getSelectedItem();
+			if (sel == null) return;
+			if (isP1) AppSettings.setP1BoardColor(sel);
+			else      AppSettings.setP2BoardColor(sel);
+			AppSettings.save();
+			if (onBoardColorChanged != null) onBoardColorChanged.accept(isP1, sel);
+		});
+		row.add(combo);
+		row.setAlignmentX(Component.LEFT_ALIGNMENT);
+		return row;
 	}
 
 	private static Color hexToColor(String hex) {

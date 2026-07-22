@@ -19,6 +19,20 @@ public enum ElementColor {
         this.color = Color.decode(hex);
     }
 
+    /**
+     * Board field-color menu choices: {@code "Default"} followed by each element name in title
+     * case (e.g. {@code "Fire"}). Shared by the Preferences field-color dropdowns.
+     */
+    public static String[] boardColorChoices() {
+        String[] items = new String[values().length + 1];
+        items[0] = "Default";
+        for (int i = 0; i < values().length; i++) {
+            String n = values()[i].name();
+            items[i + 1] = n.charAt(0) + n.substring(1).toLowerCase();
+        }
+        return items;
+    }
+
     /** Returns the ElementColor for the given element name (case-insensitive), or null if not found. */
     public static ElementColor fromName(String name) {
         if (name == null) return null;

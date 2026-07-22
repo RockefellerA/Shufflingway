@@ -21,7 +21,8 @@ import shufflingway.dialog.PreferencesDialog;
  */
 public class FileMenu extends JMenu {
 
-    public FileMenu(JFrame owner, BiConsumer<Integer, Integer> startGame, Runnable onLayoutChanged) {
+    public FileMenu(JFrame owner, BiConsumer<Integer, Integer> startGame, Runnable onLayoutChanged,
+            BiConsumer<Boolean, String> onBoardColorChanged) {
         super("File");
 
         JMenuItem newGame = new JMenuItem("New Game");
@@ -51,7 +52,7 @@ public class FileMenu extends JMenu {
         JMenuItem preferences = new JMenuItem("Preferences");
         add(preferences);
         preferences.addActionListener((ActionEvent e) -> {
-            PreferencesDialog dialog = new PreferencesDialog(owner, onLayoutChanged);
+            PreferencesDialog dialog = new PreferencesDialog(owner, onLayoutChanged, onBoardColorChanged);
             dialog.setVisible(true);
         });
 

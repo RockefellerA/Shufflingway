@@ -52,7 +52,6 @@ import javax.swing.BoxLayout;
 import javax.swing.Icon;
 import javax.swing.ImageIcon;
 import javax.swing.JButton;
-import javax.swing.JComboBox;
 import javax.swing.JDialog;
 import javax.swing.JFrame;
 import javax.swing.JLabel;
@@ -185,6 +184,11 @@ public class MainWindow {
 	private int p2BreakAnimHide = 0;
 	// Horizontal separator where the P1 and P2 fields meet (anchor for centered effect prompts)
 	private JSeparator fieldDivider;
+	// Player field/board panels — retained so the Preferences field-color dropdowns can retint them
+	private GradientPanel p1Board;
+	private GradientPanel p2Board;
+	private JPanel p1ZonesPanel;
+	private JPanel p2ZonesPanel;
 	// Opening hand confirmation popup
 	private JWindow openingHandPopup;
 	// Hand hover popover (deck zone mouseover)
@@ -678,7 +682,8 @@ public class MainWindow {
 		JMenuBar menuBar = new JMenuBar();
 		frame.setJMenuBar(menuBar);
 		menuBar.add(new FileMenu(frame, (p1Id, p2Id) -> startGame(p1Id, p2Id),
-				() -> applySidePanelSide(AppSettings.getSidePanelSide())));
+				() -> applySidePanelSide(AppSettings.getSidePanelSide()),
+				this::applyBoardColor));
 		multiplayerMenu = new MultiplayerMenu(frame,
 				() -> {
 					logEntry("Multiplayer connection established");
@@ -827,8 +832,7 @@ public class MainWindow {
 		p2CornerWrapper.add(p2CornerPanel, BorderLayout.CENTER);
 		p2CornerWrapper.add(p2HandRow,     BorderLayout.SOUTH);
 
-		JComboBox<String> p2ColorBox = buildColorDropdown();
-		JPanel p2DamagePanel = buildDamageZonePanel("P2", p2ColorBox);
+		JPanel p2DamagePanel = buildDamageZonePanel("P2");
 
 		JPanel p2BackupSlots = buildBackupZonePanel(p2BackupLabels);
 		for (int i = 0; i < p2BackupLabels.length; i++) {
@@ -860,7 +864,7 @@ public class MainWindow {
 		p2MainArea.add(p2TopRow,      BorderLayout.NORTH);
 		p2MainArea.add(p2ForwardZone, BorderLayout.SOUTH);
 
-		JPanel p2ZonesPanel = new JPanel(new GridBagLayout());
+		p2ZonesPanel = new JPanel(new GridBagLayout());
 		{
 			GridBagConstraints z = new GridBagConstraints();
 			z.gridy = 0; z.fill = GridBagConstraints.NONE; z.anchor = GridBagConstraints.NORTH; z.weightx = 0;
@@ -871,8 +875,7 @@ public class MainWindow {
 		}
 
 		// --- P1 Zones (bottom of screen) ---
-		JComboBox<String> p1ColorBox = buildColorDropdown();
-		JPanel p1DamagePanel = buildDamageZonePanel("P1", p1ColorBox);
+		JPanel p1DamagePanel = buildDamageZonePanel("P1");
 
 		// P1 deck label — interactive
 		p1DeckLabel = new JLabel("DECK");
@@ -1048,7 +1051,7 @@ public class MainWindow {
 		lgbc.weighty = 1.0;
 		p1LeftGroup.add(p1DamagePanel, lgbc);
 
-		JPanel p1ZonesPanel = new JPanel(new GridBagLayout());
+		p1ZonesPanel = new JPanel(new GridBagLayout());
 		{
 			GridBagConstraints z = new GridBagConstraints();
 			z.gridy = 0; z.fill = GridBagConstraints.NONE; z.anchor = GridBagConstraints.SOUTH; z.weightx = 0;
@@ -1062,8 +1065,8 @@ public class MainWindow {
 		southPanel.add(p1ZonesPanel, BorderLayout.CENTER);
 
 		// --- Game Board ---
-		GradientPanel p2Board = new GradientPanel(true);
-		GradientPanel p1Board = new GradientPanel(false);
+		p2Board = new GradientPanel(true);
+		p1Board = new GradientPanel(false);
 
 		JSeparator divider = new JSeparator(JSeparator.HORIZONTAL);
 		divider.setForeground(Color.LIGHT_GRAY);
@@ -1082,25 +1085,10 @@ public class MainWindow {
 		gbc.weighty = 1.0; gbc.gridy = 2; gameBoard.add(p1Board,  gbc);
 
 
-		p2ColorBox.addActionListener(e -> {
-			String sel = (String) p2ColorBox.getSelectedItem();
-			Color c = "Default".equals(sel) ? null : ElementColor.fromName(sel).color;
-			applyElementColor(sel, p2ZonesPanel);
-			p2Board.setGradientColor(c);
-			AppSettings.setP2BoardColor(sel);
-			AppSettings.save();
-		});
-		p1ColorBox.addActionListener(e -> {
-			String sel = (String) p1ColorBox.getSelectedItem();
-			Color c = "Default".equals(sel) ? null : ElementColor.fromName(sel).color;
-			applyElementColor(sel, p1ZonesPanel);
-			p1Board.setGradientColor(c);
-			AppSettings.setP1BoardColor(sel);
-			AppSettings.save();
-		});
-
-		p2ColorBox.setSelectedItem(AppSettings.getP2BoardColor());
-		p1ColorBox.setSelectedItem(AppSettings.getP1BoardColor());
+		// Apply the saved field colors at startup. The dropdowns that change these live in
+		// Preferences (see applyBoardColor, wired through FileMenu → PreferencesDialog).
+		applyBoardColor(false, AppSettings.getP2BoardColor());
+		applyBoardColor(true,  AppSettings.getP1BoardColor());
 
 		// --- Side Panel (card preview + Next button + Game Log) ---
 
@@ -12628,7 +12616,7 @@ public class MainWindow {
 		return slotsPanel;
 	}
 
-	private JPanel buildDamageZonePanel(String playerLabel, JComboBox<String> colorBox) {
+	private JPanel buildDamageZonePanel(String playerLabel) {
 		boolean isP1 = "P1".equals(playerLabel);
 
 		// Inner panel: 7 mini-card slots stacked vertically.
@@ -12804,8 +12792,7 @@ public class MainWindow {
 
 		JPanel panel = new JPanel(new BorderLayout(0, 4));
 		panel.setPreferredSize(new Dimension(CARD_W, CARD_H * 2));
-		panel.add(layered,  BorderLayout.CENTER);
-		panel.add(colorBox, BorderLayout.SOUTH);
+		panel.add(layered, BorderLayout.CENTER);
 		return panel;
 	}
 
@@ -12864,15 +12851,21 @@ public class MainWindow {
 		return new ImageIcon(buf);
 	}
 
-	private JComboBox<String> buildColorDropdown() {
-		String[] items = new String[ElementColor.values().length + 1];
-		items[0] = "Default";
-		for (int i = 0; i < ElementColor.values().length; i++)
-			items[i + 1] = ElementColor.values()[i].name().charAt(0)
-					+ ElementColor.values()[i].name().substring(1).toLowerCase();
-		JComboBox<String> box = new JComboBox<>(items);
-		box.setFocusable(false);
-		return box;
+	/**
+	 * Applies a field/board color to one player's zones and gradient board. Visual only — the
+	 * caller (Preferences) is responsible for persisting the choice. {@code colorName} is a value
+	 * from {@link ElementColor#boardColorChoices()} ({@code "Default"} or a title-case element).
+	 */
+	void applyBoardColor(boolean isP1, String colorName) {
+		Color c = "Default".equals(colorName) ? null
+				: (ElementColor.fromName(colorName) != null ? ElementColor.fromName(colorName).color : null);
+		if (isP1) {
+			applyElementColor(colorName, p1ZonesPanel);
+			if (p1Board != null) p1Board.setGradientColor(c);
+		} else {
+			applyElementColor(colorName, p2ZonesPanel);
+			if (p2Board != null) p2Board.setGradientColor(c);
+		}
 	}
 
 	private void applyElementColor(String selection, JPanel... panels) {
