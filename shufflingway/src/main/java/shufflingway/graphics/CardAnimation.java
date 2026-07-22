@@ -4,6 +4,7 @@ import shufflingway.CardState;
 import shufflingway.FontLoader;
 import shufflingway.UiScale;
 
+import java.awt.AlphaComposite;
 import java.awt.BasicStroke;
 import java.awt.Color;
 import java.awt.Font;
@@ -11,6 +12,7 @@ import java.awt.FontMetrics;
 import java.awt.Graphics2D;
 import java.awt.Image;
 import java.awt.RenderingHints;
+import java.awt.geom.RoundRectangle2D;
 import java.awt.image.BufferedImage;
 import java.awt.image.RescaleOp;
 
@@ -213,10 +215,26 @@ public class CardAnimation {
 	}
 
 	/** Converts any {@link Image} to a scaled {@link BufferedImage} (ARGB). */
+	/**
+	 * Corner-rounding radius applied to every scaled card image, as a fraction of the card's
+	 * shorter side. The source card images are opaque JPEGs whose rounded corners are baked
+	 * against white (no alpha channel), so on the board they'd otherwise show sharp white corners.
+	 * Clipping each card to a rounded silhouette drops those corners to transparent — the board
+	 * shows through instead — and gives every card a consistent rounded-card look. Tune to taste.
+	 */
+	public static final double CORNER_RADIUS_FRACTION = 0.05;
+
 	public static BufferedImage toARGB(Image src, int w, int h) {
 		BufferedImage buf = new BufferedImage(w, h, BufferedImage.TYPE_INT_ARGB);
 		Graphics2D g = buf.createGraphics();
 		g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+		g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+		// Paint an antialiased rounded-rectangle mask, then keep only the image inside it (SrcIn),
+		// so the square (white) corners fall outside the silhouette and become transparent.
+		double diameter = Math.min(w, h) * CORNER_RADIUS_FRACTION * 2.0;
+		g.setColor(Color.WHITE);
+		g.fill(new RoundRectangle2D.Double(0, 0, w, h, diameter, diameter));
+		g.setComposite(AlphaComposite.SrcIn);
 		g.drawImage(src, 0, 0, w, h, null);
 		g.dispose();
 		return buf;
