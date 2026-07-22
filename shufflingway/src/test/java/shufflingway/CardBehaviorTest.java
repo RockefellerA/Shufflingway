@@ -502,6 +502,66 @@ public class CardBehaviorTest {
     }
 
     // =========================================================================================
+    // Yuna Doublecast: "When you cast a Summon this turn, you may cast 1 Summon from your hand
+    // with a cost inferior to that of the Summon you cast without paying its cost." — turn-long
+    // rolling free-Summon field effect.
+    // =========================================================================================
+
+    @Test
+    void doublecastActivatesRollingFreeSummonEffect() {
+        Consumer<GameContext> fn = ActionResolver.parse(
+                "When you cast a Summon this turn, you may cast 1 Summon from your hand with a cost "
+                + "inferior to that of the Summon you cast without paying its cost.", null);
+        assertNotNull(fn);
+
+        GameContext ctx = mock(GameContext.class);
+        fn.accept(ctx);
+
+        verify(ctx).activateDoublecastFreeSummons();
+    }
+
+    // =========================================================================================
+    // Maat: "Maat gains "Maat cannot be broken by opposing Summons or abilities that don't deal
+    // damage." until the end of the turn." — standalone quoted-gains form of the non-damage-only
+    // cannot-be-broken shield.
+    // =========================================================================================
+
+    private static final String MAAT_SHIELD_TEXT =
+            "Maat gains \"Maat cannot be broken by opposing Summons or abilities that don't deal "
+            + "damage.\" until the end of the turn.";
+
+    @Test
+    void maatGainsNonDamageBreakShieldUntilEndOfTurn() {
+        CardData maat = mock(CardData.class);
+        when(maat.name()).thenReturn("Maat");
+
+        Consumer<GameContext> fn = ActionResolver.parse(MAAT_SHIELD_TEXT, maat);
+        assertNotNull(fn);
+
+        CardData other = mock(CardData.class);
+        when(other.name()).thenReturn("Zidane");
+
+        GameContext ctx = mock(GameContext.class);
+        when(ctx.isP1()).thenReturn(true);
+        when(ctx.p1ForwardCount()).thenReturn(2);
+        when(ctx.p1Forward(0)).thenReturn(other);
+        when(ctx.p1Forward(1)).thenReturn(maat);
+
+        fn.accept(ctx);
+
+        verify(ctx).shieldCannotBeBrokenByNonDmg(new ForwardTarget(true, 1, ForwardTarget.CardZone.FORWARD));
+        verify(ctx, never()).shieldSourceForward(any());
+    }
+
+    @Test
+    void maatShieldDoesNotFireForDifferentlyNamedSource() {
+        CardData other = mock(CardData.class);
+        when(other.name()).thenReturn("Not Maat");
+
+        assertNull(ActionResolver.parse(MAAT_SHIELD_TEXT, other));
+    }
+
+    // =========================================================================================
     // "During this turn, if a Job Dancer or Card Name Dancer you control is dealt damage by a
     // Summon or an ability, the damage becomes 0 instead." — persistent turn-scoped, filtered
     // own-side Summon/ability damage nullification (also covers Dancers entering later).

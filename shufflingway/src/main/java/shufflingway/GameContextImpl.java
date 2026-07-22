@@ -302,6 +302,10 @@ final class GameContextImpl implements GameContext {
 			@Override public void shieldOwnForwardsAbilityDamageFilter(Predicate<CardData> filter) {
 				(isP1 ? mw.p1NullifyAbilityDmgFilters : mw.p2NullifyAbilityDmgFilters).add(filter);
 			}
+			@Override public void activateDoublecastFreeSummons() {
+				if (isP1) { mw.p1DoublecastFreeSummons = true; mw.p1DoublecastLastSummonCost = -1; }
+				else      { mw.p2DoublecastFreeSummons = true; mw.p2DoublecastLastSummonCost = -1; }
+			}
 			@Override public void shieldAbilityOnlyDamage(ForwardTarget t) {
 				CardData c = mw.autoAbilityTriggers.fieldCardData(t); if (c != null) mw.nullifyAbilityOnlyDmgSet.add(c);
 			}
@@ -2623,6 +2627,7 @@ final class GameContextImpl implements GameContext {
 					mw.p2CastNamesThisTurn.add(card.name().toLowerCase());
 					mw.p2CastCountByNameThisTurn.merge(card.name().toLowerCase(), 1, Integer::sum);
 				}
+				mw.noteDoublecastSummonCast(isP1, card);
 				mw.lastCardWasCast = true;
 				logEntry((isP1 ? "" : "[P2] ") + "Cast \"" + card.name() + "\" from hand for free"
 						+ (returnToHandAfterUse ? " (return to hand after use)" : ""));
@@ -2673,6 +2678,7 @@ final class GameContextImpl implements GameContext {
 					mw.p2CastNamesThisTurn.add(revealed.name().toLowerCase());
 					mw.p2CastCountByNameThisTurn.merge(revealed.name().toLowerCase(), 1, Integer::sum);
 				}
+				mw.noteDoublecastSummonCast(isP1, revealed);
 				mw.lastCardWasCast = true;
 				logEntry((isP1 ? "" : "[P2] ") + "Cast \"" + revealed.name() + "\" from hand for free");
 				mw.showSummonOnStack(revealed, isP1);
@@ -2718,6 +2724,7 @@ final class GameContextImpl implements GameContext {
 					for (String j : card.jobs()) mw.p2CastJobsThisTurn.add(j.toLowerCase());
 					mw.p2CastNamesThisTurn.add(card.name().toLowerCase());
 					mw.p2CastCountByNameThisTurn.merge(card.name().toLowerCase(), 1, Integer::sum);
+					mw.noteDoublecastSummonCast(false, card);
 					mw.activeCostReductions.remove(mod);
 					logEntry("[P2] Cast \"" + card.name() + "\" from hand (cost -" + discount + ")");
 					mw.showSummonOnStack(card, false);
@@ -2781,6 +2788,7 @@ final class GameContextImpl implements GameContext {
 						mw.p2CastNamesThisTurn.add(picked.name().toLowerCase());
 						mw.p2CastCountByNameThisTurn.merge(picked.name().toLowerCase(), 1, Integer::sum);
 					}
+					mw.noteDoublecastSummonCast(isP1, picked);
 					mw.lastCardWasCast = true;
 					logEntry((isP1 ? "" : "[P2] ") + "Cast \"" + picked.name() + "\" from deck search for free");
 					mw.showSummonOnStack(picked, isP1);
@@ -3848,6 +3856,7 @@ final class GameContextImpl implements GameContext {
 						mw.p2CastNamesThisTurn.add(picked.name().toLowerCase());
 						mw.p2CastCountByNameThisTurn.merge(picked.name().toLowerCase(), 1, Integer::sum);
 					}
+					mw.noteDoublecastSummonCast(isP1, picked);
 					mw.lastCardWasCast = true;
 					logEntry((isP1 ? "" : "[P2] ") + "Cast \"" + picked.name() + "\" from top of deck for free");
 					mw.showSummonOnStack(picked, isP1);

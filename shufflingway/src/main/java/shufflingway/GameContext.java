@@ -725,6 +725,13 @@ public interface GameContext {
      */
     void shieldOwnForwardsAbilityDamageFilter(Predicate<CardData> filter);
 
+    /**
+     * Doublecast (Yuna): until end of turn, each time the active player casts a Summon, hand
+     * Summons with a printed cost lower than that Summon's printed cost cast for 0. The threshold
+     * follows the most recently cast Summon, so successively lower costs can chain for free.
+     */
+    void activateDoublecastFreeSummons();
+
     /** Damage from the opponent's abilities (not Summons) to target becomes 0 until end of turn. */
     void shieldAbilityOnlyDamage(ForwardTarget t);
 

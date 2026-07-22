@@ -202,7 +202,7 @@ class ComputerPlayer {
 			for (String j : card.jobs()) mw.p2CastJobsThisTurn.add(j.toLowerCase());
 			mw.p2CastNamesThisTurn.add(card.name().toLowerCase());
 			mw.p2CastCountByNameThisTurn.merge(card.name().toLowerCase(), 1, Integer::sum);
-			if (card.isSummon()) mw.p2SummonCastThisTurn = true;
+			if (card.isSummon()) { mw.p2SummonCastThisTurn = true; mw.noteDoublecastSummonCast(false, card); }
 			if (card.isForward())      mw.placeP2CardInForwardZone(card);
 			else if (card.isBackup())  mw.placeP2CardInFirstBackupSlot(card);
 			else if (card.isMonster()) mw.placeP2CardInMonsterZone(card);
@@ -248,29 +248,34 @@ class ComputerPlayer {
 		if (toPlay == null) return;
 
 		String[] elems = toPlay.elements();
-		int remaining = toPlay.cost();
-		if (elems.length > 1) {
-			for (String e : elems) { mw.gameState.spendP2Cp(e, 1); remaining--; }
+		boolean freeCast = plan.reducedCost() <= 0;
+		if (!freeCast) {
+			int remaining = toPlay.cost();
+			if (elems.length > 1) {
+				for (String e : elems) { mw.gameState.spendP2Cp(e, 1); remaining--; }
+			}
+			for (String e : elems) {
+				if (remaining <= 0) break;
+				int avail = mw.gameState.getP2CpForElement(e);
+				int toSpend = Math.min(remaining, avail);
+				if (toSpend > 0) { mw.gameState.spendP2Cp(e, toSpend); remaining -= toSpend; }
+			}
+			for (String e : elems) mw.gameState.clearP2Cp(e);
 		}
-		for (String e : elems) {
-			if (remaining <= 0) break;
-			int avail = mw.gameState.getP2CpForElement(e);
-			int toSpend = Math.min(remaining, avail);
-			if (toSpend > 0) { mw.gameState.spendP2Cp(e, toSpend); remaining -= toSpend; }
-		}
-		for (String e : elems) mw.gameState.clearP2Cp(e);
 
 		mw.lastCastPaymentElements.clear();
 		mw.lastCastActualPaymentElements.clear();
-		for (String e : elems) if (!e.isEmpty()) { mw.lastCastPaymentElements.add(e); mw.lastCastActualPaymentElements.add(e); }
+		if (!freeCast)
+			for (String e : elems) if (!e.isEmpty()) { mw.lastCastPaymentElements.add(e); mw.lastCastActualPaymentElements.add(e); }
 
-		mw.logEntry("[P2] Plays " + toPlay.name());
+		mw.logEntry("[P2] Plays " + toPlay.name()
+				+ (freeCast && mw.p2DoublecastFreeSummons ? " (free — Doublecast)" : ""));
 		mw.lastCardWasCast = true;
 		mw.p2CardsCastThisTurn++;
 		for (String j : toPlay.jobs()) mw.p2CastJobsThisTurn.add(j.toLowerCase());
 		mw.p2CastNamesThisTurn.add(toPlay.name().toLowerCase());
 		mw.p2CastCountByNameThisTurn.merge(toPlay.name().toLowerCase(), 1, Integer::sum);
-		if (toPlay.isSummon()) mw.p2SummonCastThisTurn = true;
+		if (toPlay.isSummon()) { mw.p2SummonCastThisTurn = true; mw.noteDoublecastSummonCast(false, toPlay); }
 		if (toPlay.isForward())      mw.placeP2CardInForwardZone(toPlay);
 		else if (toPlay.isBackup())  mw.placeP2CardInFirstBackupSlot(toPlay);
 		else if (toPlay.isMonster()) mw.placeP2CardInMonsterZone(toPlay);
@@ -508,6 +513,8 @@ class ComputerPlayer {
 		mw.nextIncomingDmgZeroSet.clear();   mw.nextIncomingDmgReduceMap.clear();   mw.nextAbilityDmgReduceMap.clear();
 		mw.incomingDmgIncreaseMap.clear();   mw.globalForwardIncomingDmgIncrease = 0;   mw.nullifyAbilityDmgSet.clear();
 		mw.p1NullifyAbilityDmgFilters.clear(); mw.p2NullifyAbilityDmgFilters.clear();
+		mw.p1DoublecastFreeSummons = false;  mw.p2DoublecastFreeSummons = false;
+		mw.p1DoublecastLastSummonCost = -1;  mw.p2DoublecastLastSummonCost = -1;
 		mw.nullifyAbilityOnlyDmgSet.clear(); mw.perCardNonLethalDmgSet.clear();
 		mw.cannotBeChosenByElement.clear();  mw.nullifyElementDamageMap.clear();
 		mw.nextOutgoingDmgZeroSet.clear();    mw.outgoingDmgMultiplierMap.clear();
@@ -732,6 +739,16 @@ class ComputerPlayer {
 		}
 		backupCands.sort((a, b) -> hand.get(b).cost() - hand.get(a).cost());
 
+		// Doublecast: any hand Summon with printed cost under the current threshold casts free —
+		// take the most expensive one first (keeps the chain of successively lower costs alive)
+		// before spending backups/discards on anything else.
+		if (mw.p2DoublecastFreeSummons && mw.p2DoublecastLastSummonCost >= 0) {
+			for (int i : summonCands) {
+				if (hand.get(i).cost() < mw.p2DoublecastLastSummonCost)
+					return new P2Plan(i, 0, List.of(), Map.of(), List.of(), Map.of());
+			}
+		}
+
 		List<Integer> candidates = new ArrayList<>(fieldCands);
 		candidates.addAll(summonCands);
 		candidates.addAll(backupCands);
@@ -849,6 +866,18 @@ class ComputerPlayer {
 	private boolean p2PlanPayment(CardData card, int reducedCost, int excludeHandIdx,
 			List<Integer> outBackups, Map<Integer, String> outBackupElems,
 			List<Integer> outDiscards, Map<Integer, String> outDiscardElems) {
+		return p2PlanPayment(card, reducedCost, excludeHandIdx, -1,
+				outBackups, outBackupElems, outDiscards, outDiscardElems);
+	}
+
+	/**
+	 * Variant of {@link #p2PlanPayment} with a second excluded hand index —
+	 * {@code reservedHandIdx} is held back from discard-for-CP (e.g. a same-name copy reserved
+	 * to pay a special ability's 《S》 discard cost). Pass -1 to reserve nothing.
+	 */
+	private boolean p2PlanPayment(CardData card, int reducedCost, int excludeHandIdx, int reservedHandIdx,
+			List<Integer> outBackups, Map<Integer, String> outBackupElems,
+			List<Integer> outDiscards, Map<Integer, String> outDiscardElems) {
 		String[] elems = card.elements();
 		int[] simCp = new int[elems.length];
 		for (int ei = 0; ei < elems.length; ei++)
@@ -898,7 +927,7 @@ class ComputerPlayer {
 		List<CardData> hand = mw.gameState.getP2Hand();
 		List<Integer> discardable = new ArrayList<>();
 		for (int i = 0; i < hand.size(); i++) {
-			if (i == excludeHandIdx) continue;
+			if (i == excludeHandIdx || i == reservedHandIdx) continue;
 			CardData c = hand.get(i);
 			if (c.isLightOrDark()) continue;
 			for (String e : elems) if (c.containsElement(e)) { discardable.add(i); break; }
@@ -1353,6 +1382,10 @@ class ComputerPlayer {
 			// Reactive shields ("if [card] is dealt damage by Summons/abilities, damage becomes 0")
 			// are only useful on the opponent's turn; skip them here and let p2AutoPass handle them.
 			if (ActionResolver.isReactiveDamageShield(ability.effectText(), card)) continue;
+			// Doublecast is only worth its cost when a chain can actually fire: a payable hand
+			// Summon with a strictly cheaper Summon alongside it (which would then cast free).
+			if (ActionResolver.isDoublecastFreeSummonsEffect(ability.effectText())
+					&& (mw.p2DoublecastFreeSummons || !p2CanStartAffordableDoublecastChain(card))) continue;
 			// "Discard 1 card: If Elem1..., if Elem2..." combat tricks (e.g. Firion) are reserved
 			// for chooseBlocker's combat-trick evaluation: activating one here would either waste
 			// a card outright (no matching-element card in hand) or grant a boost with no relevant
@@ -1384,6 +1417,44 @@ class ComputerPlayer {
 			mw.autoAbilityTriggers.executeP2AbilityActivation(ability, card, applyDull, backupDullIndices, discardIndices, xValue);
 			step(() -> doMainPhase(onDone));
 			return true;
+		}
+		return false;
+	}
+
+	/**
+	 * Returns true if P2 can actually start a Doublecast chain this turn: some hand Summon that
+	 * (a) has a strictly cheaper Summon alongside it in hand (which would then cast free), and
+	 * (b) P2 can afford right now per {@link #p2PlanPayment} — with one hand copy of
+	 * {@code source}'s name reserved for the special's 《S》 discard cost and therefore not
+	 * counted as a CP source.  Payment planning here is speculative (the plan lists are
+	 * discarded); it prevents burning the ability when no chain could ever fire.
+	 */
+	private boolean p2CanStartAffordableDoublecastChain(CardData source) {
+		if (mw.summonCastingProhibited()) return false;
+		List<CardData> hand = mw.gameState.getP2Hand();
+		// Reserve the first hand copy of the source's name for the 《S》 discard cost.
+		int reservedIdx = -1;
+		for (int j = 0; j < hand.size(); j++) {
+			if (hand.get(j).name().equalsIgnoreCase(source.name())) { reservedIdx = j; break; }
+		}
+		for (int i = 0; i < hand.size(); i++) {
+			if (i == reservedIdx) continue;
+			CardData starter = hand.get(i);
+			if (!starter.isSummon()) continue;
+			boolean hasCheaper = false;
+			for (int j = 0; j < hand.size(); j++) {
+				if (j == i || j == reservedIdx) continue;
+				CardData o = hand.get(j);
+				if (o.isSummon() && o.cost() < starter.cost()) { hasCheaper = true; break; }
+			}
+			if (!hasCheaper) continue;
+			List<Integer>        backups      = new ArrayList<>();
+			Map<Integer, String> backupElems  = new LinkedHashMap<>();
+			List<Integer>        discards     = new ArrayList<>();
+			Map<Integer, String> discardElems = new LinkedHashMap<>();
+			if (p2PlanPayment(starter, starter.cost(), i, reservedIdx,
+					backups, backupElems, discards, discardElems))
+				return true;
 		}
 		return false;
 	}

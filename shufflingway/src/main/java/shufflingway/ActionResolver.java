@@ -1992,6 +1992,17 @@ public class ActionResolver {
     );
 
     /**
+     * Standalone: "[CardName] gains "[CardName] cannot be broken by opposing Summons or abilities
+     * that don't deal damage." until the end of the turn." — self-shield limited to non-damage
+     * breaks (Maat-style), the quoted-gains form of {@link #FOLLOWUP_CANNOT_BE_BROKEN_BY_NON_DMG}.
+     */
+    private static final Pattern STANDALONE_SELF_SHIELD_CANNOT_BE_BROKEN_BY_NON_DMG = Pattern.compile(
+        "(?i)(?<subject>.+?)\\s+gains?\\s+['\"].+?\\s+cannot\\s+be\\s+broken\\s+by\\s+" +
+        "(?:opposing|your\\s+opponent's)\\s+Summons\\s+or\\s+abilities\\s+that\\s+don'?t\\s+deal\\s+damage\\.?['\"]" +
+        "\\s+until\\s+(?:the\\s+)?end\\s+of\\s+(?:the\\s+)?turn\\.?"
+    );
+
+    /**
      * Standalone: "Dull [CardName]." — dulls the source card with no other effect.
      * Must be tried after {@link #STANDALONE_SELF_DULL_AND_SHIELD_CANNOT_BE_BROKEN} so the
      * compound case is not shadowed.
@@ -2024,6 +2035,17 @@ public class ActionResolver {
     private static final Pattern ALL_OWN_FORWARDS_NULLIFY_ABILITY_DAMAGE_PATTERN = Pattern.compile(
         "(?i)During\\s+this\\s+turn,?\\s+if\\s+(?:a\\s+)?Forwards?\\s+you\\s+control\\s+(?:is|are)\\s+dealt\\s+damage" +
         "\\s+by\\s+(?:a\\s+)?Summons?\\s+or\\s+an?\\s+abilit(?:y|ies),?\\s+the\\s+damage\\s+becomes?\\s+0\\s+instead[.!]?"
+    );
+
+    /**
+     * Doublecast (Yuna): "When you cast a Summon this turn, you may cast 1 Summon from your hand
+     * with a cost inferior to that of the Summon you cast without paying its cost." — turn-long
+     * field effect; the free-cast threshold follows the printed cost of the last Summon cast.
+     */
+    private static final Pattern DOUBLECAST_FREE_SUMMONS_PATTERN = Pattern.compile(
+        "(?i)When\\s+you\\s+cast\\s+a\\s+Summon\\s+this\\s+turn,?\\s+you\\s+may\\s+cast\\s+1\\s+Summon\\s+" +
+        "from\\s+your\\s+hand\\s+with\\s+a\\s+cost\\s+inferior\\s+to\\s+that\\s+of\\s+the\\s+Summon\\s+" +
+        "you\\s+cast\\s+without\\s+paying\\s+its\\s+cost[.!]?"
     );
 
     /**
@@ -5074,6 +5096,9 @@ public class ActionResolver {
         result = tryParseOwnJobOrNameNullifyAbilityDamage(effectText);
         if (result != null) return result;
 
+        result = tryParseDoublecastFreeSummons(effectText);
+        if (result != null) return result;
+
         result = tryParseAllForwardsCannotBlock(effectText);
         if (result != null) return result;
 
@@ -5653,6 +5678,7 @@ public class ActionResolver {
         if (tryParseStandaloneShieldCannotBeBroken(effectText, source) != null) return "StandaloneShieldCannotBeBroken";
         if (tryParseAllOwnForwardsNullifyAbilityDamage(effectText)        != null) return "AllOwnForwardsNullifyAbilityDamage";
         if (tryParseOwnJobOrNameNullifyAbilityDamage(effectText)          != null) return "OwnJobOrNameNullifyAbilityDamage";
+        if (tryParseDoublecastFreeSummons(effectText)                     != null) return "DoublecastFreeSummons";
         if (tryParseAllForwardsCannotBlock(effectText)                    != null) return "AllForwardsCannotBlock";
         if (tryParseForwardsOfCostCannotBlock(effectText)                 != null) return "ForwardsOfCostCannotBlock";
         if (tryParseEndOfNextTurnIfCardOnFieldOppLoses(effectText)        != null) return "EndOfNextTurnIfCardOnFieldOppLoses";
@@ -6165,6 +6191,7 @@ public class ActionResolver {
         if (tryParseStandaloneShieldCannotBeBroken(effectText, source) != null) return "StandaloneShieldCannotBeBroken";
         if (tryParseAllOwnForwardsNullifyAbilityDamage(effectText)        != null) return "AllOwnForwardsNullifyAbilityDamage";
         if (tryParseOwnJobOrNameNullifyAbilityDamage(effectText)          != null) return "OwnJobOrNameNullifyAbilityDamage";
+        if (tryParseDoublecastFreeSummons(effectText)                     != null) return "DoublecastFreeSummons";
         if (tryParseAllForwardsCannotBlock(effectText)                    != null) return "AllForwardsCannotBlock";
         if (tryParseForwardsOfCostCannotBlock(effectText)                 != null) return "ForwardsOfCostCannotBlock";
         if (tryParseEndOfNextTurnIfCardOnFieldOppLoses(effectText)        != null) return "EndOfNextTurnIfCardOnFieldOppLoses";
@@ -11217,6 +11244,8 @@ public class ActionResolver {
      * Parses standalone "cannot be broken until end of turn" grants:
      * <ul>
      *   <li>"[CardName] gains '[...] cannot be broken.' until end of turn." — self-shield</li>
+     *   <li>"[CardName] gains '[...] cannot be broken by opposing Summons or abilities that
+     *       don't deal damage.' until the end of the turn." — self-shield vs non-damage breaks</li>
      *   <li>"All [the] Forwards you control gain '[...] cannot be broken.' until end of turn." — all own</li>
      * </ul>
      */
@@ -11229,6 +11258,22 @@ public class ActionResolver {
             };
         }
         if (source == null) return null;
+        // Non-damage-only variant first: its quoted body would not satisfy the plain pattern,
+        // but checking it first keeps the two from ever competing.
+        Matcher nd = STANDALONE_SELF_SHIELD_CANNOT_BE_BROKEN_BY_NON_DMG.matcher(text);
+        if (nd.find() && nd.group("subject").trim().equalsIgnoreCase(source.name())) {
+            return ctx -> {
+                boolean p1 = ctx.isP1();
+                int count = p1 ? ctx.p1ForwardCount() : ctx.p2ForwardCount();
+                for (int i = 0; i < count; i++) {
+                    CardData c = p1 ? ctx.p1Forward(i) : ctx.p2Forward(i);
+                    if (c.name().equalsIgnoreCase(source.name())) {
+                        ctx.shieldCannotBeBrokenByNonDmg(new ForwardTarget(p1, i, ForwardTarget.CardZone.FORWARD));
+                        return;
+                    }
+                }
+            };
+        }
         Matcher m = STANDALONE_SELF_SHIELD_CANNOT_BE_BROKEN.matcher(text);
         if (!m.find()) {
             m = STANDALONE_SELF_SHIELD_CANNOT_BE_BROKEN_SIMPLE.matcher(text);
@@ -11250,6 +11295,27 @@ public class ActionResolver {
             int count = p1 ? ctx.p1ForwardCount() : ctx.p2ForwardCount();
             for (int i = 0; i < count; i++)
                 ctx.shieldAbilityDamage(new ForwardTarget(p1, i, ForwardTarget.CardZone.FORWARD));
+        };
+    }
+
+    /**
+     * Returns {@code true} if {@code text} is the Doublecast free-Summons field effect.
+     * Used by the AI to gate activation on actually having a Summon chain to exploit.
+     */
+    static boolean isDoublecastFreeSummonsEffect(String text) {
+        return DOUBLECAST_FREE_SUMMONS_PATTERN.matcher(text.trim()).matches();
+    }
+
+    /**
+     * Parses Doublecast (Yuna): "When you cast a Summon this turn, you may cast 1 Summon from
+     * your hand with a cost inferior to that of the Summon you cast without paying its cost."
+     */
+    private static Consumer<GameContext> tryParseDoublecastFreeSummons(String text) {
+        if (!DOUBLECAST_FREE_SUMMONS_PATTERN.matcher(text.trim()).matches()) return null;
+        return ctx -> {
+            ctx.logEntry("Effect: Doublecast — after each Summon cast this turn, "
+                + "lower-cost hand Summons cast free");
+            ctx.activateDoublecastFreeSummons();
         };
     }
 

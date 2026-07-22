@@ -520,6 +520,15 @@ public class MainWindow {
 	/** Active "next cast costs N less" modifiers; consumed on first matching cast, or cleared at EOT. */
 	final List<CostReductionModifier> activeCostReductions = new ArrayList<>();
 
+	// Doublecast (Yuna): "When you cast a Summon this turn, you may cast 1 Summon from your hand
+	// with a cost inferior to that of the Summon you cast without paying its cost."
+	// While active for a side, hand Summons with printed cost lower than the printed cost of the
+	// last Summon that side cast this turn cast free. The threshold updates on EVERY Summon cast
+	// (free or paid), so successively lower-cost Summons can chain for free. Cleared at EOT.
+	boolean p1DoublecastFreeSummons = false, p2DoublecastFreeSummons = false;
+	/** Printed cost of the last Summon cast while Doublecast is active; -1 = none cast yet. */
+	int p1DoublecastLastSummonCost = -1, p2DoublecastLastSummonCost = -1;
+
 	/**
 	 * Cards P1 is permitted to cast from outside their hand (Break Zone or RFP zone) under a
 	 * "cast it as though you owned it" effect.  The {@link PlayableEntry} value carries the
@@ -2133,6 +2142,8 @@ public class MainWindow {
                                 nextIncomingDmgZeroSet.clear();   nextIncomingDmgRedirectMap.clear();   nextIncomingDmgReduceMap.clear();   nextAbilityDmgReduceMap.clear();
                                 incomingDmgIncreaseMap.clear();   globalForwardIncomingDmgIncrease = 0;   nullifyAbilityDmgSet.clear();
                                 p1NullifyAbilityDmgFilters.clear(); p2NullifyAbilityDmgFilters.clear();
+                                p1DoublecastFreeSummons = false;  p2DoublecastFreeSummons = false;
+                                p1DoublecastLastSummonCost = -1;  p2DoublecastLastSummonCost = -1;
                                 allForwardsCannotBeBlockedByHigherCostThisTurn = false;
                                 p1FwdBoostSuppressedThisTurn = false; p2FwdBoostSuppressedThisTurn = false;
                                 nullifyAbilityOnlyDmgSet.clear(); perCardNonLethalDmgSet.clear();
@@ -5810,6 +5821,10 @@ public class MainWindow {
 	 * is applied (modifiers stack only when multiple fire independently).
 	 */
 	int effectiveCastCost(CardData card) {
+		// Doublecast (Yuna): Summons with printed cost lower than the last Summon cast this turn cast free
+		if (card.isSummon() && p1DoublecastFreeSummons
+				&& p1DoublecastLastSummonCost >= 0 && card.cost() < p1DoublecastLastSummonCost)
+			return 0;
 		int selfRed = 0;
 		int selfInc = 0;
 		int selfFloor = 0;
@@ -5829,6 +5844,21 @@ public class MainWindow {
 			if (m.matches(card)) return m.apply(cost);
 		}
 		return cost;
+	}
+
+	/**
+	 * Doublecast (Yuna): records the printed cost of a Summon just cast by {@code isP1} so that
+	 * lower-cost hand Summons cast free for the rest of the turn. No-op while Doublecast is
+	 * inactive for that side. Call from every path that registers a Summon cast.
+	 */
+	void noteDoublecastSummonCast(boolean isP1, CardData card) {
+		if (!(isP1 ? p1DoublecastFreeSummons : p2DoublecastFreeSummons)) return;
+		if (isP1) p1DoublecastLastSummonCost = card.cost();
+		else      p2DoublecastLastSummonCost = card.cost();
+		if (card.cost() > 0)
+			logEntry((isP1 ? "" : "[P2] ") + "Doublecast — Summons of cost "
+					+ (card.cost() - 1) + " or less now cast free");
+		refreshHandPopupIfVisible();
 	}
 
 	List<CardData> drawP1Cards(int count) {
@@ -7341,6 +7371,7 @@ public class MainWindow {
 		p1CastCountByNameThisTurn.merge(card.name().toLowerCase(), 1, Integer::sum);
 		if (card.isSummon()) {
 			p1SummonCastThisTurn = true;
+			noteDoublecastSummonCast(true, card);
 			refreshHandPopupIfVisible();
 		}
 		logEntry("Played \"" + card.name() + "\"");
@@ -7492,6 +7523,7 @@ public class MainWindow {
 		p1CastCountByNameThisTurn.merge(card.name().toLowerCase(), 1, Integer::sum);
 		if (card.isSummon()) {
 			p1SummonCastThisTurn = true;
+			noteDoublecastSummonCast(true, card);
 			refreshHandPopupIfVisible();
 		}
 		logEntry("Played \"" + card.name() + "\" from " + sourceLabel);
@@ -7625,7 +7657,7 @@ public class MainWindow {
 		for (String j : card.jobs()) p2CastJobsThisTurn.add(j.toLowerCase());
 		p2CastNamesThisTurn.add(card.name().toLowerCase());
 		p2CastCountByNameThisTurn.merge(card.name().toLowerCase(), 1, Integer::sum);
-		if (card.isSummon()) p2SummonCastThisTurn = true;
+		if (card.isSummon()) { p2SummonCastThisTurn = true; noteDoublecastSummonCast(false, card); }
 		logEntry("[P2] Played \"" + card.name() + "\" from " + sourceLabel);
 
 		// Borrowed casts are NOT cast from hand: leave lastCardWasCast false so "due to your cast"
