@@ -1941,6 +1941,17 @@ public class ActionResolver {
         "(?i)(?:it|they)\\s+cannot\\s+be\\s+chosen\\s+by\\s+your\\s+opponent's\\s+abilities\\.?"
     );
 
+    /**
+     * "[During this turn,] it/they cannot be returned to its/their owner's hand by your
+     * opponent's Summons or abilities [this turn]." — EOT return-to-hand protection for the
+     * chosen target(s), enforced via {@link CardData.Trait#CANNOT_BE_RETURNED_TO_HAND_BY_OPP}.
+     */
+    private static final Pattern FOLLOWUP_CANNOT_BE_RETURNED_TO_HAND = Pattern.compile(
+        "(?i)(?:During\\s+this\\s+turn,\\s+)?(?:it|they)\\s+cannot\\s+be\\s+returned\\s+to\\s+" +
+        "(?:its|their)\\s+owner's\\s+hand\\s+by\\s+(?:your\\s+)?opponent's\\s+" +
+        "(?:Summons?(?:\\s+or\\s+abilities)?|abilities)\\.?"
+    );
+
     /** "It gains 'This Character/Forward/Monster cannot be broken.' until the end of the turn." Also matches the leading-Until form: "Until the end of the turn, it gains '...'." */
     private static final Pattern FOLLOWUP_CANNOT_BE_BROKEN = Pattern.compile(
         "(?i)(?:Until\\s+(?:the\\s+)?end\\s+of\\s+(?:the\\s+)?turn,\\s+)?" +
@@ -2139,6 +2150,34 @@ public class ActionResolver {
     private static final Pattern STANDALONE_NAMED_CANNOT_BECOME_DULL_OPP = Pattern.compile(
         "(?i)(?<name>[A-Z][A-Za-z''\\-\\s]+?)\\s+cannot\\s+become\\s+dull\\s+by\\s+your\\s+opponent's\\s+" +
         "(?:Summons?(?:\\s+or\\s+abilities)?|abilities)\\s*\\.?"
+    );
+
+    /**
+     * "[CardName] cannot be returned to its owner's hand by [your] opponent's Summons or abilities."
+     * Permanent self-protection while this card is on the field (Gilgamesh).
+     */
+    private static final Pattern STANDALONE_NAMED_CANNOT_BE_RETURNED_TO_HAND_OPP = Pattern.compile(
+        "(?i)(?<name>[A-Z][A-Za-z''\\-\\s]+?)\\s+cannot\\s+be\\s+returned\\s+to\\s+(?:its|their)\\s+owner's\\s+hand" +
+        "\\s+by\\s+(?:your\\s+)?opponent's\\s+(?:Summons?(?:\\s+or\\s+abilities)?|abilities)\\s*\\.?"
+    );
+
+    /**
+     * "Characters you control cannot be returned to their owner's hand by your opponent's
+     * Summons or abilities." — blanket protection for every character the controller controls
+     * while this card is on the field.
+     */
+    private static final Pattern STANDALONE_CHARACTERS_CANNOT_BE_RETURNED_TO_HAND_OPP = Pattern.compile(
+        "(?i)Characters\\s+you\\s+control\\s+cannot\\s+be\\s+returned\\s+to\\s+their\\s+owner's\\s+hand" +
+        "\\s+by\\s+(?:your\\s+)?opponent's\\s+(?:Summons?(?:\\s+or\\s+abilities)?|abilities)\\s*\\.?"
+    );
+
+    /**
+     * "[CardName] cannot be put into the Break Zone by [your] opponent's Summons or abilities."
+     * Permanent self-protection while this card is on the field (Black Tortoise l'Cie Gilgamesh).
+     */
+    private static final Pattern STANDALONE_NAMED_CANNOT_BE_PUT_INTO_BZ_OPP = Pattern.compile(
+        "(?i)(?<name>[A-Z][A-Za-z''\\-\\s]+?)\\s+cannot\\s+be\\s+put\\s+into\\s+the\\s+Break\\s+Zone" +
+        "\\s+by\\s+(?:your\\s+)?opponent's\\s+(?:Summons?(?:\\s+or\\s+abilities)?|abilities)\\s*\\.?"
     );
 
     // ---- Standalone damage-shield patterns (apply globally or to a named card) --------
@@ -4811,6 +4850,12 @@ public class ActionResolver {
         result = tryParseChooseForwardPlacePetrification(effectText);
         if (result != null) return result;
 
+        result = tryParseChooseOwnFwdBoostProtectionsOrAllIfDmg(effectText);
+        if (result != null) return result;
+
+        result = tryParseActivateAllOwnFwdsGainProtections(effectText);
+        if (result != null) return result;
+
         result = tryParseRemoveAllCountersFromSelf(effectText, source);
         if (result != null) return result;
 
@@ -4833,6 +4878,15 @@ public class ActionResolver {
         if (result != null) return result;
 
         result = tryParseCannotBecomeDullOpp(effectText, source);
+        if (result != null) return result;
+
+        result = tryParseCannotBeReturnedToHandOpp(effectText, source);
+        if (result != null) return result;
+
+        result = tryParseCharactersCannotBeReturnedToHandOpp(effectText);
+        if (result != null) return result;
+
+        result = tryParseCannotBePutIntoBzOpp(effectText, source);
         if (result != null) return result;
 
         result = tryParseStandaloneCannotAttackOrBlock(effectText, source);
@@ -5530,6 +5584,11 @@ public class ActionResolver {
         if (tryParsePlayerCannotCastSummons(effectText)                != null) return "PlayerCannotCastSummons";
         if (tryParseCannotBeChosenStandalone(effectText, source) != null) return "CannotBeChosen";
         if (tryParseCannotBecomeDullOpp(effectText, source) != null)     return "CannotBecomeDullOpp";
+        if (tryParseCannotBeReturnedToHandOpp(effectText, source) != null) return "CannotBeReturnedToHandOpp";
+        if (tryParseCharactersCannotBeReturnedToHandOpp(effectText) != null) return "CharactersCannotBeReturnedToHandOpp";
+        if (tryParseCannotBePutIntoBzOpp(effectText, source) != null)    return "CannotBePutIntoBzOpp";
+        if (tryParseChooseOwnFwdBoostProtectionsOrAllIfDmg(effectText) != null) return "ChooseOwnFwdBoostProtectionsOrAllIfDmg";
+        if (tryParseActivateAllOwnFwdsGainProtections(effectText) != null) return "ActivateAllOwnFwdsGainProtections";
         if (tryParseStandaloneCannotAttackOrBlock(effectText, source) != null) return "CannotAttackOrBlock";
         if (tryParseNegateAllDamage(effectText)                != null) return "NegateDamage";
         if (tryParsePlayerNextDamageZero(effectText)           != null) return "PlayerNextDamageZero";
@@ -5758,6 +5817,7 @@ public class ActionResolver {
         if (FOLLOWUP_CANNOT_BE_CHOSEN_BOTH.matcher(followupText).find())              return "CannotBeChosenBoth";
         if (FOLLOWUP_CANNOT_BE_CHOSEN_SUMMONS.matcher(followupText).find())           return "CannotBeChosenSummons";
         if (FOLLOWUP_CANNOT_BE_CHOSEN_ABILITIES.matcher(followupText).find())         return "CannotBeChosenAbilities";
+        if (FOLLOWUP_CANNOT_BE_RETURNED_TO_HAND.matcher(followupText).find())         return "CannotBeReturnedToHand";
         if (FOLLOWUP_DULL_OR_ACTIVATE.matcher(followupText).find())                   return "DullOrActivate";
         if (FOLLOWUP_DULL_OR_FREEZE.matcher(followupText).find())                     return "DullOrFreeze";
         if (FOLLOWUP_ACTIVATE.matcher(followupText).find())                           return "Activate";
@@ -6010,6 +6070,11 @@ public class ActionResolver {
         if (tryParsePlayerCannotCastSummons(effectText)                != null) return "PlayerCannotCastSummons";
         if (tryParseCannotBeChosenStandalone(effectText, source) != null)       return "CannotBeChosen";
         if (tryParseCannotBecomeDullOpp(effectText, source) != null)            return "CannotBecomeDullOpp";
+        if (tryParseCannotBeReturnedToHandOpp(effectText, source) != null)      return "CannotBeReturnedToHandOpp";
+        if (tryParseCharactersCannotBeReturnedToHandOpp(effectText) != null)    return "CharactersCannotBeReturnedToHandOpp";
+        if (tryParseCannotBePutIntoBzOpp(effectText, source) != null)           return "CannotBePutIntoBzOpp";
+        if (tryParseChooseOwnFwdBoostProtectionsOrAllIfDmg(effectText) != null) return "ChooseOwnFwdBoostProtectionsOrAllIfDmg";
+        if (tryParseActivateAllOwnFwdsGainProtections(effectText) != null)      return "ActivateAllOwnFwdsGainProtections";
         if (tryParseStandaloneCannotAttackOrBlock(effectText, source) != null) return "CannotAttackOrBlock";
         if (tryParseNegateAllDamage(effectText) != null)                       return "NegateDamage";
         if (tryParsePlayerNextDamageZero(effectText) != null)                  return "PlayerNextDamageZero";
@@ -9096,6 +9161,19 @@ public class ActionResolver {
                     if (secondary != null) secondary.accept(ctx);
                 };
             }
+        }
+
+        // --- Cannot-be-returned-to-hand followup ("During this turn, it cannot be returned…") ---
+        if (FOLLOWUP_CANNOT_BE_RETURNED_TO_HAND.matcher(primaryFollowup).find()) {
+            return ctx -> {
+                ctx.logEntry(choosePrefix + " — Cannot be returned to owner's hand by opponent this turn");
+                List<ForwardTarget> ts = selectTargets(ctx, maxCount, upTo,
+                        opponentOnly, selfOnly, condition, element, zone, opponentZone,
+                        costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters, jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, fExcludeElem, withoutMulticard);
+                ts.forEach(t -> ctx.boostTarget(t, 0,
+                        EnumSet.of(CardData.Trait.CANNOT_BE_RETURNED_TO_HAND_BY_OPP)));
+                if (secondary != null) secondary.accept(ctx);
+            };
         }
 
         // --- Activate + Negate damage followup (must precede plain Activate to avoid partial match) ---
@@ -14210,6 +14288,182 @@ public class ActionResolver {
             if (m.find() && m.group("name").trim().equalsIgnoreCase(card.name())) return true;
         }
         return false;
+    }
+
+    /**
+     * Parses "[CardName] cannot be returned to its owner's hand by [your] opponent's Summons or
+     * abilities." Enforcement is handled in the {@link GameContextImpl} return-to-hand wrappers
+     * via {@link #hasCannotBeReturnedToHandByOppFieldAbility}.
+     */
+    private static Consumer<GameContext> tryParseCannotBeReturnedToHandOpp(String text, CardData source) {
+        Matcher m = STANDALONE_NAMED_CANNOT_BE_RETURNED_TO_HAND_OPP.matcher(text);
+        if (!m.find() || source == null) return null;
+        String nm = m.group("name").trim();
+        if (!nm.equalsIgnoreCase(source.name())) return null;
+        return ctx -> ctx.logEntry("Field ability: " + nm + " cannot be returned to its owner's hand by opponent's Summons or abilities");
+    }
+
+    /**
+     * Parses "Characters you control cannot be returned to their owner's hand by your opponent's
+     * Summons or abilities." Enforcement is handled in the {@link GameContextImpl} return-to-hand
+     * wrappers via {@link #hasCharactersCannotBeReturnedFieldAbility}.
+     */
+    private static Consumer<GameContext> tryParseCharactersCannotBeReturnedToHandOpp(String text) {
+        if (!STANDALONE_CHARACTERS_CANNOT_BE_RETURNED_TO_HAND_OPP.matcher(text).find()) return null;
+        return ctx -> ctx.logEntry("Field ability: Characters you control cannot be returned to their owner's hand by opponent's Summons or abilities");
+    }
+
+    /**
+     * Parses "[CardName] cannot be put into the Break Zone by [your] opponent's Summons or
+     * abilities." Enforcement is handled in the {@link GameContextImpl} break wrappers via
+     * {@link #hasCannotBePutIntoBzByOppFieldAbility}.
+     */
+    private static Consumer<GameContext> tryParseCannotBePutIntoBzOpp(String text, CardData source) {
+        Matcher m = STANDALONE_NAMED_CANNOT_BE_PUT_INTO_BZ_OPP.matcher(text);
+        if (!m.find() || source == null) return null;
+        String nm = m.group("name").trim();
+        if (!nm.equalsIgnoreCase(source.name())) return null;
+        return ctx -> ctx.logEntry("Field ability: " + nm + " cannot be put into the Break Zone by opponent's Summons or abilities");
+    }
+
+    /**
+     * Returns {@code true} if the card has a permanent field ability of the form
+     * "[CardName] cannot be returned to its owner's hand by [your] opponent's Summons or abilities."
+     */
+    static boolean hasCannotBeReturnedToHandByOppFieldAbility(CardData card) {
+        for (FieldAbility fa : card.fieldAbilities()) {
+            Matcher m = STANDALONE_NAMED_CANNOT_BE_RETURNED_TO_HAND_OPP.matcher(fa.effectText());
+            if (m.find() && m.group("name").trim().equalsIgnoreCase(card.name())) return true;
+        }
+        return false;
+    }
+
+    /**
+     * Returns {@code true} if the card has the blanket field ability
+     * "Characters you control cannot be returned to their owner's hand by your opponent's
+     * Summons or abilities." (protects every character its controller controls).
+     */
+    static boolean hasCharactersCannotBeReturnedFieldAbility(CardData card) {
+        for (FieldAbility fa : card.fieldAbilities()) {
+            if (STANDALONE_CHARACTERS_CANNOT_BE_RETURNED_TO_HAND_OPP.matcher(fa.effectText()).find()) return true;
+        }
+        return false;
+    }
+
+    /**
+     * Returns {@code true} if the card has a permanent field ability of the form
+     * "[CardName] cannot be put into the Break Zone by [your] opponent's Summons or abilities."
+     */
+    static boolean hasCannotBePutIntoBzByOppFieldAbility(CardData card) {
+        for (FieldAbility fa : card.fieldAbilities()) {
+            Matcher m = STANDALONE_NAMED_CANNOT_BE_PUT_INTO_BZ_OPP.matcher(fa.effectText());
+            if (m.find() && m.group("name").trim().equalsIgnoreCase(card.name())) return true;
+        }
+        return false;
+    }
+
+    /**
+     * Matches "Choose 1 Forward you control. Until the end of the turn, it gains +N power[,
+     * keywords] and "&lt;quoted grant&gt;" [and "&lt;quoted grant&gt;"…]. If your opponent has
+     * received M points of damage or more, all the Forwards you control gain all previous
+     * effects instead."
+     */
+    private static final Pattern CHOOSE_OWN_FWD_BOOST_PROTECTIONS_OR_ALL_IF_DMG = Pattern.compile(
+        "(?i)^Choose\\s+1\\s+Forward\\s+you\\s+control\\.\\s+" +
+        "Until\\s+(?:the\\s+)?end\\s+of\\s+(?:the\\s+)?turn,\\s+it\\s+gains\\s+\\+(?<amount>\\d+)\\s+power" +
+        "(?:,\\s*(?<traits>(?:Haste|First\\s+Strike|Brave)(?:\\s*,\\s*(?:Haste|First\\s+Strike|Brave))*))?" +
+        "(?<quotes>(?:,?\\s+and\\s+\"[^\"]*\")+)\\s*\\.?\\s+" +
+        "If\\s+your\\s+opponent\\s+has\\s+received\\s+(?<dmg>\\d+)\\s+points?\\s+of\\s+damage\\s+or\\s+more,\\s+" +
+        "all\\s+the\\s+Forwards\\s+you\\s+control\\s+gain\\s+all\\s+(?:the\\s+)?previous\\s+effects\\s+instead\\.?\\s*$"
+    );
+
+    /**
+     * Matches "Activate all the Forwards you control. Until the end of the turn, all the
+     * Forwards you control gain "&lt;quoted grant&gt;" [and "&lt;quoted grant&gt;"…]."
+     */
+    private static final Pattern ACTIVATE_ALL_OWN_FWDS_GAIN_PROTECTIONS = Pattern.compile(
+        "(?i)^Activate\\s+all\\s+(?:the\\s+)?Forwards\\s+you\\s+control\\.\\s+" +
+        "Until\\s+(?:the\\s+)?end\\s+of\\s+(?:the\\s+)?turn,\\s+all\\s+(?:the\\s+)?Forwards\\s+you\\s+control\\s+gain\\s+" +
+        "(?<quotes>\"[^\"]*\"(?:\\s+and\\s+\"[^\"]*\")*)\\s*\\.?\\s*$"
+    );
+
+    /** Extracts the contents of each "…" quote in a quoted-grant list. */
+    private static final Pattern QUOTED_GRANT = Pattern.compile("\"([^\"]*)\"");
+
+    /**
+     * Maps a quoted granted-ability string to the trait that enforces it, or {@code null}
+     * when the quote is not a recognized protection grant.
+     */
+    private static CardData.Trait quotedProtectionTrait(String quote) {
+        String q = quote.toLowerCase(java.util.Locale.ROOT);
+        if (q.contains("cannot become dull"))                 return CardData.Trait.CANNOT_BE_DULLED_BY_OPP;
+        if (q.contains("cannot be returned to its owner"))    return CardData.Trait.CANNOT_BE_RETURNED_TO_HAND_BY_OPP;
+        if (q.contains("cannot be decreased"))                return CardData.Trait.POWER_CANNOT_BE_DECREASED_BY_OPP;
+        return null;
+    }
+
+    /**
+     * Parses each quote in {@code quotesRaw} into a protection trait and adds it to
+     * {@code traits}. Returns {@code false} (leaving the text unparsed) when any quote
+     * is not a recognized protection grant.
+     */
+    private static boolean addQuotedProtectionTraits(String quotesRaw, EnumSet<CardData.Trait> traits) {
+        Matcher qm = QUOTED_GRANT.matcher(quotesRaw);
+        while (qm.find()) {
+            CardData.Trait tr = quotedProtectionTrait(qm.group(1));
+            if (tr == null) return false;
+            traits.add(tr);
+        }
+        return true;
+    }
+
+    /**
+     * Parses "Choose 1 Forward you control. Until the end of the turn, it gains +N power[,
+     * keywords] and "&lt;protection&gt;"…. If your opponent has received M points of damage or
+     * more, all the Forwards you control gain all previous effects instead." (Black Tortoise
+     * EX Burst) — single-target buff that upgrades to all own Forwards at the damage threshold.
+     */
+    private static Consumer<GameContext> tryParseChooseOwnFwdBoostProtectionsOrAllIfDmg(String text) {
+        Matcher m = CHOOSE_OWN_FWD_BOOST_PROTECTIONS_OR_ALL_IF_DMG.matcher(text.trim());
+        if (!m.matches()) return null;
+        int amount    = Integer.parseInt(m.group("amount"));
+        int dmgThresh = Integer.parseInt(m.group("dmg"));
+        EnumSet<CardData.Trait> traits = m.group("traits") != null
+                ? parseTraits(m.group("traits")) : EnumSet.noneOf(CardData.Trait.class);
+        if (!addQuotedProtectionTraits(m.group("quotes"), traits)) return null;
+        final EnumSet<CardData.Trait> grant = traits;
+        return ctx -> {
+            if (ctx.opponentDamageCount() >= dmgThresh) {
+                ctx.logEntry("Effect: opponent has received " + dmgThresh + "+ damage — all own Forwards gain +"
+                        + amount + " power and protections until end of turn");
+                ctx.applyMassFieldPowerBoost(amount, true, false, false, true, null, -1, null, null, null);
+                ctx.applyMassFieldKeywordGrant(grant, true, false, false, true, null, -1, null, null);
+            } else {
+                ctx.logEntry("Effect: Choose 1 own Forward — +" + amount + " power and protections until end of turn");
+                List<ForwardTarget> ts = selectTargets(ctx, 1, false, false, true, null, null, null, false,
+                        -1, null, -1, null, true, false, false, null, null, null, null, false, null, false);
+                ts.forEach(t -> ctx.boostTarget(t, amount, grant));
+            }
+        };
+    }
+
+    /**
+     * Parses "Activate all the Forwards you control. Until the end of the turn, all the
+     * Forwards you control gain "&lt;protection&gt;" and "&lt;protection&gt;"." — mass activate
+     * plus EOT protection grants for every own Forward.
+     */
+    private static Consumer<GameContext> tryParseActivateAllOwnFwdsGainProtections(String text) {
+        Matcher m = ACTIVATE_ALL_OWN_FWDS_GAIN_PROTECTIONS.matcher(text.trim());
+        if (!m.matches()) return null;
+        EnumSet<CardData.Trait> traits = EnumSet.noneOf(CardData.Trait.class);
+        if (!addQuotedProtectionTraits(m.group("quotes"), traits)) return null;
+        final EnumSet<CardData.Trait> grant = traits;
+        return ctx -> {
+            ctx.logEntry("Effect: Activate all own Forwards + protections until end of turn");
+            ctx.applyMassFieldEffect(GameContext.MassAction.ACTIVATE, true, false, false, false, true,
+                    null, -1, null, -1, null, null);
+            ctx.applyMassFieldKeywordGrant(grant, true, false, false, true, null, -1, null, null);
+        };
     }
 
     /**

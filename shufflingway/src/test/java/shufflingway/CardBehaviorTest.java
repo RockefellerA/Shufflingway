@@ -2027,4 +2027,240 @@ public class CardBehaviorTest {
         assertEquals(7000, mw2.effectiveP1ForwardPower(1), "A1 unchanged — no Chocobo in the party");
         assertEquals(6000, mw2.effectiveP1ForwardPower(2), "A2 unchanged — no Chocobo in the party");
     }
+
+    // =========================================================================================
+    // "Cannot be returned to its owner's hand by your opponent's Summons or abilities" family:
+    //   • Krile (6-071H)     — action ability followup granting EOT return protection
+    //   • Gilgamesh (1-207S) — named permanent field ability
+    //   • Ritz (4-072H)      — blanket "Characters you control" field ability
+    //   • Black Tortoise l'Cie Gilgamesh (10-069R) — compound dull/return/BZ protection clauses
+    //   • Exodus (11-070R)   — EX Burst single-target buff upgrading to all Forwards at 5+ damage
+    //   • Asura (23-039R)    — activate-all + return/power-decrease protection grants
+    // =========================================================================================
+
+    private static CardData makeForwardWithText(String name, String element, int cost, int power, String textEn) {
+        return new CardData(null, name, element, cost, power, "Forward", false, 0, false, false,
+                Set.of(), 0, List.of(), null, List.of(),
+                CardData.parseActionAbilities(textEn), CardData.parseAutoAbilities(textEn),
+                CardData.parseFieldAbilities(textEn, "Forward"),
+                List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(),
+                false, false, null, false, false, false, false, false, false,
+                null, null, null, textEn);
+    }
+
+    private static final String KRILE_TEXT =
+            "《Earth》《1》《Dull》: Choose 1 Forward you control. During this turn, it cannot be "
+            + "returned to its owner's hand by your opponent's Summons or abilities.";
+
+    @Test
+    void krileFollowupGrantsReturnToHandProtectionUntilEot() {
+        List<ActionAbility> abilities = CardData.parseActionAbilities(KRILE_TEXT);
+        assertEquals(1, abilities.size());
+        ActionAbility ability = abilities.get(0);
+        assertTrue(ability.requiresDull());
+        assertEquals(List.of("Earth", ""), ability.cpCost());
+
+        Consumer<GameContext> fn = ActionResolver.parse(ability.effectText(), null);
+        assertNotNull(fn, "Krile's followup should parse");
+
+        GameContext ctx = mock(GameContext.class);
+        when(ctx.consumePreloadedTargets()).thenReturn(null);
+        ForwardTarget t = new ForwardTarget(true, 0, ForwardTarget.CardZone.FORWARD);
+        when(ctx.selectCharacters(
+                anyInt(), anyBoolean(), anyBoolean(), anyBoolean(),
+                any(), any(), anyInt(), any(), anyInt(), any(),
+                anyBoolean(), anyBoolean(), anyBoolean(),
+                any(), any(), any(), any(), anyBoolean(), any(), anyBoolean()
+        )).thenReturn(List.of(t));
+        fn.accept(ctx);
+        verify(ctx).boostTarget(t, 0,
+                java.util.EnumSet.of(CardData.Trait.CANNOT_BE_RETURNED_TO_HAND_BY_OPP));
+    }
+
+    private static final String GILGAMESH_TEXT =
+            "Gilgamesh cannot be returned to its owner's hand by opponent's Summons or abilities.[[br]] "
+            + "《Lightning》《Lightning》: Gilgamesh gains +1000 power until the end of the turn.";
+
+    @Test
+    void gilgameshNamedFieldAbilityBlocksOnlyOpponentReturnToHand() {
+        CardData gilgamesh = makeForwardWithText("Gilgamesh", "Lightning", 4, 8000, GILGAMESH_TEXT);
+        assertTrue(ActionResolver.hasCannotBeReturnedToHandByOppFieldAbility(gilgamesh));
+
+        MainWindow mw = new MainWindow();
+        mw.gameState.getIdentity().put(gilgamesh, true);
+        mw.placeCardInForwardZone(gilgamesh);
+
+        // Opponent (P2) attempts the return — must be prevented.
+        mw.buildGameContext(false).returnP1ForwardToHand(0);
+        assertEquals(1, mw.p1ForwardCards.size(), "Gilgamesh must still be on the field");
+        assertTrue(mw.gameState.getP1Hand().isEmpty());
+
+        // The controller's own effect may still return it.
+        mw.buildGameContext(true).returnP1ForwardToHand(0);
+        assertTrue(mw.p1ForwardCards.isEmpty(), "own effects may return Gilgamesh to hand");
+        assertEquals(1, mw.gameState.getP1Hand().size());
+    }
+
+    private static final String RITZ_TEXT =
+            "Characters you control cannot be returned to their owner's hand by your opponent's "
+            + "Summons or abilities. [[br]] If you control Card Name Shara, Ritz gains +2000 power.";
+
+    @Test
+    void ritzBlanketFieldAbilityProtectsAllOwnCharacters() {
+        CardData ritz = makeForwardWithText("Ritz", "Wind", 4, 7000, RITZ_TEXT);
+        assertTrue(ActionResolver.hasCharactersCannotBeReturnedFieldAbility(ritz));
+
+        MainWindow mw = new MainWindow();
+        CardData ally = makeForward("Ally", "Wind", 2, 5000);
+        mw.gameState.getIdentity().put(ritz, true);
+        mw.gameState.getIdentity().put(ally, true);
+        mw.placeCardInForwardZone(ritz);   // P1 idx 0
+        mw.placeCardInForwardZone(ally);   // P1 idx 1
+
+        // Opponent cannot return the ally while Ritz is on the field.
+        mw.buildGameContext(false).returnP1ForwardToHand(1);
+        assertEquals(2, mw.p1ForwardCards.size(), "ally must still be on the field");
+
+        // P2's own characters are unaffected by P1's Ritz.
+        CardData oppFwd = makeForward("Opp Forward", "Fire", 2, 5000);
+        mw.gameState.getIdentity().put(oppFwd, false);
+        mw.placeP2CardInForwardZone(oppFwd);
+        mw.buildGameContext(true).returnP2ForwardToHand(0);
+        assertTrue(mw.p2ForwardCards.isEmpty(), "P1 may still return P2's characters");
+    }
+
+    private static final String BLACK_TORTOISE_TEXT =
+            "Brave[[br]]   Black Tortoise l'Cie Gilgamesh cannot become dull by your opponent's "
+            + "Summons or abilities, cannot be returned to its owner's hand by your opponent's Summons "
+            + "or abilities, and cannot be put into the Break Zone by your opponent's Summons or "
+            + "abilities (If Black Tortoise l'Cie Gilgamesh is broken, put it into the Break Zone).";
+
+    @Test
+    void blackTortoiseCompoundClausesSplitIntoIndividualFieldAbilities() {
+        List<FieldAbility> fas = CardData.parseFieldAbilities(BLACK_TORTOISE_TEXT, "Forward");
+        assertEquals(3, fas.size(), "the compound sentence must split into three individual clauses: " + fas);
+
+        CardData tortoise = makeForwardWithText("Black Tortoise l'Cie Gilgamesh", "Earth", 5, 9000, BLACK_TORTOISE_TEXT);
+        assertTrue(ActionResolver.hasCannotBeDulledByOppFieldAbility(tortoise));
+        assertTrue(ActionResolver.hasCannotBeReturnedToHandByOppFieldAbility(tortoise));
+        assertTrue(ActionResolver.hasCannotBePutIntoBzByOppFieldAbility(tortoise));
+    }
+
+    @Test
+    void blackTortoiseProtectionsBlockOpponentDullReturnAndBreak() {
+        CardData tortoise = makeForwardWithText("Black Tortoise l'Cie Gilgamesh", "Earth", 5, 9000, BLACK_TORTOISE_TEXT);
+        MainWindow mw = new MainWindow();
+        mw.gameState.getIdentity().put(tortoise, true);
+        mw.placeCardInForwardZone(tortoise);
+
+        GameContext opp = mw.buildGameContext(false);
+        opp.dullP1Forward(0);
+        assertEquals(CardState.ACTIVE, mw.p1ForwardStates.get(0), "opponent's effects cannot dull it");
+        opp.returnP1ForwardToHand(0);
+        assertEquals(1, mw.p1ForwardCards.size(), "opponent's effects cannot return it to hand");
+        opp.breakP1Forward(0);
+        assertEquals(1, mw.p1ForwardCards.size(), "opponent's effects cannot put it into the Break Zone");
+
+        // The controller's own effects are unrestricted.
+        GameContext own = mw.buildGameContext(true);
+        own.dullP1Forward(0);
+        assertEquals(CardState.DULL, mw.p1ForwardStates.get(0), "own effects may still dull it");
+        own.breakP1Forward(0);
+        assertTrue(mw.p1ForwardCards.isEmpty(), "own effects may still break it");
+    }
+
+    private static final String EXODUS_TEXT =
+            "[[ex]]EX BURST[[/]] Choose 1 Forward you control. Until the end of the turn, it gains "
+            + "+3000 power, Brave and \"This Forward cannot become dull by your opponent's Summons or "
+            + "abilities.\" and \"This Forward cannot be returned to its owner's hand by your opponent's "
+            + "Summons or abilities.\" If your opponent has received 5 points of damage or more, all the "
+            + "Forwards you control gain all previous effects instead.";
+
+    @Test
+    void exodusBuffsSingleForwardBelowDamageThreshold() {
+        Consumer<GameContext> fn = ActionResolver.parse(EXODUS_TEXT, null);
+        assertNotNull(fn, "Exodus's EX Burst should parse");
+
+        GameContext ctx = mock(GameContext.class);
+        when(ctx.consumePreloadedTargets()).thenReturn(null);
+        when(ctx.opponentDamageCount()).thenReturn(4);
+        ForwardTarget t = new ForwardTarget(true, 0, ForwardTarget.CardZone.FORWARD);
+        when(ctx.selectCharacters(
+                anyInt(), anyBoolean(), anyBoolean(), anyBoolean(),
+                any(), any(), anyInt(), any(), anyInt(), any(),
+                anyBoolean(), anyBoolean(), anyBoolean(),
+                any(), any(), any(), any(), anyBoolean(), any(), anyBoolean()
+        )).thenReturn(List.of(t));
+        fn.accept(ctx);
+
+        verify(ctx).boostTarget(t, 3000, java.util.EnumSet.of(
+                CardData.Trait.BRAVE,
+                CardData.Trait.CANNOT_BE_DULLED_BY_OPP,
+                CardData.Trait.CANNOT_BE_RETURNED_TO_HAND_BY_OPP));
+        verify(ctx, never()).applyMassFieldPowerBoost(anyInt(), anyBoolean(), anyBoolean(),
+                anyBoolean(), anyBoolean(), any(), anyInt(), any(), any(), any());
+    }
+
+    @Test
+    void exodusBuffsAllOwnForwardsAtDamageThreshold() {
+        Consumer<GameContext> fn = ActionResolver.parse(EXODUS_TEXT, null);
+        assertNotNull(fn);
+
+        GameContext ctx = mock(GameContext.class);
+        when(ctx.opponentDamageCount()).thenReturn(5);
+        fn.accept(ctx);
+
+        verify(ctx).applyMassFieldPowerBoost(3000, true, false, false, true, null, -1, null, null, null);
+        verify(ctx).applyMassFieldKeywordGrant(java.util.EnumSet.of(
+                CardData.Trait.BRAVE,
+                CardData.Trait.CANNOT_BE_DULLED_BY_OPP,
+                CardData.Trait.CANNOT_BE_RETURNED_TO_HAND_BY_OPP),
+                true, false, false, true, null, -1, null, null);
+        verify(ctx, never()).boostTarget(any(), anyInt(), any());
+    }
+
+    private static final String ASURA_TEXT =
+            "Activate all the Forwards you control. Until the end of the turn, all the Forwards you "
+            + "control gain \"This Forward cannot be returned to its owner's hand by your opponent's "
+            + "Summons or abilities.\" and \"The power of this Forward cannot be decreased by your "
+            + "opponent's Summons or abilities.\"";
+
+    @Test
+    void asuraActivatesAllAndGrantsReturnAndPowerDecreaseProtection() {
+        Consumer<GameContext> fn = ActionResolver.parse(ASURA_TEXT, null);
+        assertNotNull(fn, "Asura's effect should parse");
+
+        GameContext ctx = mock(GameContext.class);
+        fn.accept(ctx);
+
+        verify(ctx).applyMassFieldEffect(GameContext.MassAction.ACTIVATE, true, false, false, false, true,
+                null, -1, null, -1, null, null);
+        verify(ctx).applyMassFieldKeywordGrant(java.util.EnumSet.of(
+                CardData.Trait.CANNOT_BE_RETURNED_TO_HAND_BY_OPP,
+                CardData.Trait.POWER_CANNOT_BE_DECREASED_BY_OPP),
+                true, false, false, true, null, -1, null, null);
+    }
+
+    @Test
+    void grantedTraitsBlockOpponentReturnAndPowerDecreaseUntilEot() {
+        MainWindow mw = new MainWindow();
+        CardData fwd = makeForward("Warrior of Light", "Light", 4, 7000);
+        mw.gameState.getIdentity().put(fwd, true);
+        mw.placeCardInForwardZone(fwd);
+        mw.p1ForwardTempTraits.get(0).add(CardData.Trait.CANNOT_BE_RETURNED_TO_HAND_BY_OPP);
+        mw.p1ForwardTempTraits.get(0).add(CardData.Trait.POWER_CANNOT_BE_DECREASED_BY_OPP);
+
+        GameContext opp = mw.buildGameContext(false);
+        opp.returnP1ForwardToHand(0);
+        assertEquals(1, mw.p1ForwardCards.size(), "granted trait must block the opponent's return");
+
+        ForwardTarget t = new ForwardTarget(true, 0, ForwardTarget.CardZone.FORWARD);
+        opp.boostTarget(t, -2000, java.util.EnumSet.noneOf(CardData.Trait.class));
+        assertEquals(0, mw.p1ForwardPowerBoost.get(0),
+                "granted trait must block the opponent's power decrease");
+
+        // The controller's own debuff still applies (protection is opponent-only).
+        mw.buildGameContext(true).boostTarget(t, -2000, java.util.EnumSet.noneOf(CardData.Trait.class));
+        assertEquals(-2000, mw.p1ForwardPowerBoost.get(0));
+    }
 }

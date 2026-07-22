@@ -6392,6 +6392,21 @@ public class MainWindow {
 	}
 
 	/**
+	 * Returns {@code true} when player {@code targetIsP1} controls a field card with
+	 * "Characters you control cannot be returned to their owner's hand by your opponent's
+	 * Summons or abilities." — every character that player controls is protected while it remains.
+	 */
+	boolean charactersProtectedFromOppReturnToHand(boolean targetIsP1) {
+		List<CardData> fwds = targetIsP1 ? p1ForwardCards : p2ForwardCards;
+		CardData[]     bkps = targetIsP1 ? p1BackupCards  : p2BackupCards;
+		List<CardData> mons = targetIsP1 ? p1MonsterCards : p2MonsterCards;
+		for (CardData c : fwds) if (!lostAbilitiesCards.contains(c) && ActionResolver.hasCharactersCannotBeReturnedFieldAbility(c)) return true;
+		for (CardData c : bkps) if (c != null && !lostAbilitiesCards.contains(c) && ActionResolver.hasCharactersCannotBeReturnedFieldAbility(c)) return true;
+		for (CardData c : mons) if (!lostAbilitiesCards.contains(c) && ActionResolver.hasCharactersCannotBeReturnedFieldAbility(c)) return true;
+		return false;
+	}
+
+	/**
 	 * Returns {@code true} when the opposing player (of player {@code targetIsP1}) controls a field card
 	 * with "The power of Forwards opponent controls cannot be increased by Summons or abilities."
 	 * Used to suppress positive power boosts applied to player {@code targetIsP1}'s Forwards.

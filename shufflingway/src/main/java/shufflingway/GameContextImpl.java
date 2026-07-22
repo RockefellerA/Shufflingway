@@ -1058,8 +1058,30 @@ final class GameContextImpl implements GameContext {
 					mw.p2ForwardCannotBlockPersistent.add(idx);
 				}
 			}
-			@Override public void returnP1ForwardToHand(int idx) { mw.returnP1ForwardToHand(idx); }
-			@Override public void returnP2ForwardToHand(int idx) { mw.returnP2ForwardToHand(idx); }
+			@Override public void returnP1ForwardToHand(int idx) {
+				if (!isP1 && idx >= 0 && idx < mw.p1ForwardCards.size()) {
+					CardData c = p1Forward(idx);
+					if (ActionResolver.hasCannotBeReturnedToHandByOppFieldAbility(c)
+							|| mw.effectiveP1HasTrait(idx, CardData.Trait.CANNOT_BE_RETURNED_TO_HAND_BY_OPP)
+							|| mw.charactersProtectedFromOppReturnToHand(true)) {
+						logEntry(c.name() + " cannot be returned to its owner's hand by opponent's effects");
+						return;
+					}
+				}
+				mw.returnP1ForwardToHand(idx);
+			}
+			@Override public void returnP2ForwardToHand(int idx) {
+				if (isP1 && idx >= 0 && idx < mw.p2ForwardCards.size()) {
+					CardData c = mw.p2ForwardCards.get(idx);
+					if (ActionResolver.hasCannotBeReturnedToHandByOppFieldAbility(c)
+							|| mw.effectiveP2HasTrait(idx, CardData.Trait.CANNOT_BE_RETURNED_TO_HAND_BY_OPP)
+							|| mw.charactersProtectedFromOppReturnToHand(false)) {
+						logEntry("[P2] " + c.name() + " cannot be returned to its owner's hand by opponent's effects");
+						return;
+					}
+				}
+				mw.returnP2ForwardToHand(idx);
+			}
 			@Override public boolean askTopOrBottom(String cardName) {
 					if (!isP1) {
 						logEntry("[AI] places " + cardName + " on top of the deck");
@@ -1142,10 +1164,41 @@ final class GameContextImpl implements GameContext {
 				if (isP1) mw.refreshP1BreakLabel(); else mw.refreshP2BreakLabel();
 			}
 
-			@Override public void returnP1BackupToHand(int idx) { mw.returnP1BackupToHand(idx); }
-			@Override public void returnP2BackupToHand(int idx) { mw.returnP2BackupToHand(idx); }
-			@Override public void returnP1MonsterToHand(int idx) { mw.returnP1MonsterToHand(idx); }
-			@Override public void returnP2MonsterToHand(int idx) { mw.returnP2MonsterToHand(idx); }
+			@Override public void returnP1BackupToHand(int idx) {
+				CardData c = idx >= 0 && idx < mw.p1BackupCards.length ? mw.p1BackupCards[idx] : null;
+				if (!isP1 && c != null && characterReturnToHandProtected(c, true)) return;
+				mw.returnP1BackupToHand(idx);
+			}
+			@Override public void returnP2BackupToHand(int idx) {
+				CardData c = idx >= 0 && idx < mw.p2BackupCards.length ? mw.p2BackupCards[idx] : null;
+				if (isP1 && c != null && characterReturnToHandProtected(c, false)) return;
+				mw.returnP2BackupToHand(idx);
+			}
+			@Override public void returnP1MonsterToHand(int idx) {
+				CardData c = idx >= 0 && idx < mw.p1MonsterCards.size() ? mw.p1MonsterCards.get(idx) : null;
+				if (!isP1 && c != null && characterReturnToHandProtected(c, true)) return;
+				mw.returnP1MonsterToHand(idx);
+			}
+			@Override public void returnP2MonsterToHand(int idx) {
+				CardData c = idx >= 0 && idx < mw.p2MonsterCards.size() ? mw.p2MonsterCards.get(idx) : null;
+				if (isP1 && c != null && characterReturnToHandProtected(c, false)) return;
+				mw.returnP2MonsterToHand(idx);
+			}
+
+			/**
+			 * True when {@code card} (a backup or monster controlled by {@code targetIsP1}) is protected
+			 * from being returned to hand by the acting opponent — via its own named field ability or a
+			 * controller-wide "Characters you control cannot be returned…" field card. Logs when protected.
+			 */
+			private boolean characterReturnToHandProtected(CardData card, boolean targetIsP1) {
+				if (ActionResolver.hasCannotBeReturnedToHandByOppFieldAbility(card)
+						|| mw.charactersProtectedFromOppReturnToHand(targetIsP1)) {
+					logEntry((targetIsP1 ? "" : "[P2] ") + card.name()
+							+ " cannot be returned to its owner's hand by opponent's effects");
+					return true;
+				}
+				return false;
+			}
 
 			@Override public boolean isP1ForwardAttacking(int idx) { return mw.p1AttackSelection.contains(idx); }
 			@Override public boolean isP2ForwardAttacking(int idx) { return false; }
@@ -1184,12 +1237,22 @@ final class GameContextImpl implements GameContext {
 					logEntry(mw.p1ForwardCards.get(idx).name() + " cannot be broken");
 					return;
 				}
+				if (!isP1 && idx >= 0 && idx < mw.p1ForwardCards.size()
+						&& ActionResolver.hasCannotBePutIntoBzByOppFieldAbility(p1Forward(idx))) {
+					logEntry(p1Forward(idx).name() + " cannot be put into the Break Zone by opponent's effects");
+					return;
+				}
 				mw.breakP1Forward(idx);
 			}
 			@Override public void breakP2Forward(int idx) {
 				if (idx >= 0 && idx < mw.p2ForwardCards.size()
 						&& mw.effectiveP2HasTrait(idx, CardData.Trait.CANNOT_BE_BROKEN)) {
 					logEntry("[P2] " + mw.p2ForwardCards.get(idx).name() + " cannot be broken");
+					return;
+				}
+				if (isP1 && idx >= 0 && idx < mw.p2ForwardCards.size()
+						&& ActionResolver.hasCannotBePutIntoBzByOppFieldAbility(mw.p2ForwardCards.get(idx))) {
+					logEntry("[P2] " + mw.p2ForwardCards.get(idx).name() + " cannot be put into the Break Zone by opponent's effects");
 					return;
 				}
 				mw.breakP2Forward(idx);
@@ -3504,6 +3567,13 @@ final class GameContextImpl implements GameContext {
 						logEntry((isP1 ? "" : "[P2] ") + card.name() + " — power boost suppressed (opponent's field ability)");
 						effectiveAmount = 0;
 					}
+					// NOTE: local isP1 is the TARGET's side (shadows the acting player); isP1() is the actor.
+					if (amount < 0 && isP1 != isP1()
+							&& (isP1 ? mw.effectiveP1HasTrait(idx, CardData.Trait.POWER_CANNOT_BE_DECREASED_BY_OPP)
+							         : mw.effectiveP2HasTrait(idx, CardData.Trait.POWER_CANNOT_BE_DECREASED_BY_OPP))) {
+						logEntry((isP1 ? "" : "[P2] ") + card.name() + " — power cannot be decreased by opponent's effects");
+						effectiveAmount = 0;
+					}
 					boost.set(idx, boost.get(idx) + effectiveAmount);
 					(isP1 ? mw.p1ForwardTempTraits : mw.p2ForwardTempTraits).get(idx).addAll(traits);
 					grantedTraits.addAll(traits);
@@ -4897,6 +4967,11 @@ final class GameContextImpl implements GameContext {
 							if (!CardFilters.meetsCategoryFilter(c, category)) continue;
 							if (excludeName != null && CardFilters.meetsCardNameFilter(c, excludeName)) continue;
 							if (p1BoostSuppressed) { logEntry(c.name() + " — power boost suppressed"); continue; }
+							if (amount < 0 && !isP1
+									&& mw.effectiveP1HasTrait(i, CardData.Trait.POWER_CANNOT_BE_DECREASED_BY_OPP)) {
+								logEntry(c.name() + " — power cannot be decreased by opponent's effects");
+								continue;
+							}
 							mw.p1ForwardPowerBoost.set(i, mw.p1ForwardPowerBoost.get(i) + amount);
 							logEntry(c.name() + " gains +" + amount + " power until end of turn");
 							mw.refreshP1ForwardSlot(i);
@@ -4922,6 +4997,11 @@ final class GameContextImpl implements GameContext {
 							if (!CardFilters.meetsCategoryFilter(c, category)) continue;
 							if (excludeName != null && CardFilters.meetsCardNameFilter(c, excludeName)) continue;
 							if (p2BoostSuppressed) { logEntry("[P2] " + c.name() + " — power boost suppressed"); continue; }
+							if (amount < 0 && isP1
+									&& mw.effectiveP2HasTrait(i, CardData.Trait.POWER_CANNOT_BE_DECREASED_BY_OPP)) {
+								logEntry("[P2] " + c.name() + " — power cannot be decreased by opponent's effects");
+								continue;
+							}
 							mw.p2ForwardPowerBoost.set(i, mw.p2ForwardPowerBoost.get(i) + amount);
 							logEntry("[P2] " + c.name() + " gains +" + amount + " power until end of turn");
 							mw.refreshP2ForwardSlot(i);

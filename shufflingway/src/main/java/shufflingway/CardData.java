@@ -66,7 +66,9 @@ public record CardData(
         PRIMING,
         CANNOT_BE_BROKEN,
         CANNOT_BE_BROKEN_BY_NON_DMG,
-        CANNOT_BE_DULLED_BY_OPP
+        CANNOT_BE_DULLED_BY_OPP,
+        CANNOT_BE_RETURNED_TO_HAND_BY_OPP,
+        POWER_CANNOT_BE_DECREASED_BY_OPP
     }
 
     /** Defensive copy — collection fields are always immutable after construction. */
@@ -4478,9 +4480,44 @@ public record CardData(
             if (FIELD_GRANT_CARD_NAME_TRAIT_YOUR_TURN.matcher(seg).matches()) continue;
             if (FIELD_GRANT_CARD_NAME_TRAIT_ALWAYS.matcher(seg).matches())    continue;
 
-            result.add(new FieldAbility(seg, damageThreshold));
+            List<String> cannotClauses = splitCompoundCannotClauses(seg);
+            if (cannotClauses != null) {
+                for (String clause : cannotClauses) result.add(new FieldAbility(clause, damageThreshold));
+            } else {
+                result.add(new FieldAbility(seg, damageThreshold));
+            }
         }
         return List.copyOf(result);
+    }
+
+    /**
+     * Matches a compound protection sentence
+     * "X cannot A, cannot B[, and cannot C] [(reminder text)]." — a single subject with
+     * multiple joined "cannot" clauses (e.g. Black Tortoise l'Cie Gilgamesh).
+     */
+    private static final Pattern FA_COMPOUND_CANNOT_CLAUSES = Pattern.compile(
+        "(?i)^(?<subject>[A-Za-z''\\-\\s]+?)\\s+(?<first>cannot\\s+[^,]+?)" +
+        "(?<rest>(?:,\\s*(?:and\\s+)?cannot\\s+[^,]+?)+)\\s*(?:\\([^)]*\\))?\\s*\\.?$"
+    );
+
+    /**
+     * Splits "X cannot A, cannot B, and cannot C (reminder)." into individual sentences
+     * ("X cannot A.", "X cannot B.", "X cannot C.") so each protection clause is parsed and
+     * evaluated on its own. Returns {@code null} when {@code seg} is not a compound-cannot
+     * sentence (fewer than two "cannot" clauses).
+     */
+    private static List<String> splitCompoundCannotClauses(String seg) {
+        Matcher m = FA_COMPOUND_CANNOT_CLAUSES.matcher(seg.trim());
+        if (!m.matches()) return null;
+        String subject = m.group("subject").trim();
+        List<String> out = new ArrayList<>();
+        out.add(subject + " " + m.group("first").trim() + ".");
+        for (String part : m.group("rest").split("(?i),\\s*(?:and\\s+)?(?=cannot\\s)")) {
+            part = part.trim();
+            if (part.isEmpty()) continue;
+            out.add(subject + " " + part + ".");
+        }
+        return out;
     }
 
     private static final Pattern COUNTER_COST_PATTERN = Pattern.compile(
