@@ -3235,6 +3235,24 @@ public class ActionResolver {
     );
 
     /**
+     * Matches "Until the end of the turn, [Name] gains +N power and [Name]/it cannot be
+     * chosen by your opponent's Summons/abilities." (Quina) — a self-buff granting a power
+     * boost AND opponent-targeting protection simultaneously.
+     * <ul>
+     *   <li>Group {@code subject}  — card name before "gains"; must match {@code source.name()}</li>
+     *   <li>Group {@code amount}   — power boost value</li>
+     *   <li>Group {@code subject2} — card name (or "it") before "cannot be chosen"</li>
+     *   <li>Group {@code scope}    — "Summons", "abilities", or "Summons or abilities"</li>
+     * </ul>
+     */
+    private static final Pattern STANDALONE_POWER_BOOST_AND_CANNOT_BE_CHOSEN = Pattern.compile(
+        "(?i)Until\\s+(?:the\\s+)?end\\s+of\\s+(?:the\\s+)?turn\\s*,\\s+" +
+        "(?<subject>.+?)\\s+gains?\\s+\\+(?<amount>\\d+)\\s+[Pp]ower\\s+and\\s+" +
+        "(?<subject2>.+?)\\s+cannot\\s+be\\s+chosen\\s+by\\s+your\\s+opponent's\\s+" +
+        "(?<scope>Summons?(?:\\s+or\\s+abilities)?|abilities)\\s*\\.?"
+    );
+
+    /**
      * Matches "Until the end of the turn, [name] gains [traits] and '[name] cannot be blocked.'"
      * Used when a self-buff grants keyword traits AND unblockable status simultaneously.
      * Groups: {@code subject} — card name; {@code traits} — keyword list.
@@ -4907,6 +4925,9 @@ public class ActionResolver {
         result = tryParseStandalonePowerBoostAndAttackTrigger(effectText, source);
         if (result != null) return result;
 
+        result = tryParseStandalonePowerBoostAndCannotBeChosen(effectText, source);
+        if (result != null) return result;
+
         result = tryParseStandaloneGainsTraitsAndCannotBeBlocked(effectText, source);
         if (result != null) return result;
 
@@ -5533,6 +5554,7 @@ public class ActionResolver {
                     ? "FieldOpponentPowerDebuff" : "FieldPowerGrant";
         }
         if (tryParseStandalonePowerBoostAndAttackTrigger(effectText, source) != null) return "StandalonePowerBoostAndAttackTrigger";
+        if (tryParseStandalonePowerBoostAndCannotBeChosen(effectText, source) != null) return "StandalonePowerBoostAndCannotBeChosen";
         if (tryParseStandaloneGainsTraitsAndCannotBeBlocked(effectText, source) != null) return "StandaloneGainsTraitsAndCannotBeBlocked";
         if (tryParseStandaloneGainsTraitsAndCannotBeBlockedTrailing(effectText, source) != null) return "StandaloneGainsTraitsAndCannotBeBlockedTrailing";
         if (tryParseStandaloneGainsCannotBeBlocked(effectText, source) != null) return "StandaloneGainsCannotBeBlocked";
@@ -6038,6 +6060,7 @@ public class ActionResolver {
         if (tryParseUntilEotDualPowerShift(effectText) != null)            return "UntilEotDualPowerShift";
         if (tryParseUntilEotAllFieldPowerBoost(effectText) != null)        return "UntilEotAllFieldPowerBoost";
         if (tryParseStandalonePowerBoostAndAttackTrigger(effectText, source) != null) return "StandalonePowerBoostAndAttackTrigger";
+        if (tryParseStandalonePowerBoostAndCannotBeChosen(effectText, source) != null) return "StandalonePowerBoostAndCannotBeChosen";
         if (tryParseStandaloneGainsTraitsAndCannotBeBlocked(effectText, source) != null) return "StandaloneGainsTraitsAndCannotBeBlocked";
         if (tryParseStandaloneGainsCannotBeBlocked(effectText, source) != null) return "StandaloneGainsCannotBeBlocked";
         if (tryParseStandalonePowerBoostUntil(effectText, source) != null)  return "StandalonePowerBoostUntil";
@@ -10528,6 +10551,33 @@ public class ActionResolver {
                     + " and gains 'When attacks: " + attackEffectText + "'");
             ctx.boostSourceForward(source, boost, EnumSet.noneOf(CardData.Trait.class));
             ctx.addTempAttackTrigger(source, attackEffect);
+        };
+    }
+
+    /**
+     * Parses "Until the end of the turn, [Name] gains +N power and [Name]/it cannot be chosen
+     * by your opponent's Summons/abilities." (Quina) — applies an EOT power boost plus
+     * opponent-targeting protection to the source card.
+     */
+    private static Consumer<GameContext> tryParseStandalonePowerBoostAndCannotBeChosen(
+            String text, CardData source) {
+        if (source == null) return null;
+        Matcher m = STANDALONE_POWER_BOOST_AND_CANNOT_BE_CHOSEN.matcher(text);
+        if (!m.find()) return null;
+        if (!m.group("subject").trim().equalsIgnoreCase(source.name())) return null;
+        String second = m.group("subject2").trim();
+        if (!second.equalsIgnoreCase(source.name()) && !second.equalsIgnoreCase("it")) return null;
+        int boost = Integer.parseInt(m.group("amount"));
+        String scope = m.group("scope").toLowerCase(java.util.Locale.ROOT);
+        boolean bySummons   = scope.contains("summon");
+        boolean byAbilities = scope.contains("abilit");
+        String scopeDesc = bySummons && byAbilities ? "Summons or abilities"
+                         : bySummons ? "Summons" : "abilities";
+        return ctx -> {
+            ctx.logEntry(source.name() + " — +" + boost + " power and cannot be chosen by opponent's "
+                    + scopeDesc + " until end of turn");
+            ctx.boostSourceForward(source, boost, EnumSet.noneOf(CardData.Trait.class));
+            ctx.shieldNamedCardCannotBeChosen(source.name(), bySummons, byAbilities);
         };
     }
 

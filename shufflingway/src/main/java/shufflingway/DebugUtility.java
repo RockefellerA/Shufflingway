@@ -27,10 +27,6 @@ import javax.swing.JTable;
 import javax.swing.JTextField;
 import javax.swing.ListSelectionModel;
 import javax.swing.table.DefaultTableModel;
-import javax.swing.text.AbstractDocument;
-import javax.swing.text.AttributeSet;
-import javax.swing.text.BadLocationException;
-import javax.swing.text.DocumentFilter;
 
 import shufflingway.dialog.DebugCardPickerDialog;
 
@@ -139,9 +135,10 @@ class DebugUtility {
 
     /**
      * Debug tool: place a named counter on (or remove one from) any card on the field.
-     * Counter names are singular proper nouns — spaces are rejected as typed and
-     * capitalization is normalized ("ARISE" → "Arise"). Changes refresh the owning
-     * field slot immediately so they are visible on the board while the dialog stays open.
+     * Counter names are freeform — they may be multi-word ("Guinea Pig") or all-caps
+     * ("EXP"), so the input is used as typed with only leading/trailing whitespace
+     * trimmed. Changes refresh the owning field slot immediately so they are visible
+     * on the board while the dialog stays open.
      */
     void addRemoveCounters() {
         if (!mw.gameInProgress()) {
@@ -150,18 +147,6 @@ class DebugUtility {
         }
 
         JTextField nameField = new JTextField(16);
-        // Counters are singular proper nouns — silently drop any whitespace typed or pasted.
-        ((AbstractDocument) nameField.getDocument()).setDocumentFilter(new DocumentFilter() {
-            @Override public void insertString(FilterBypass fb, int off, String s, AttributeSet a) throws BadLocationException {
-                fb.insertString(off, stripSpaces(s), a);
-            }
-            @Override public void replace(FilterBypass fb, int off, int len, String s, AttributeSet a) throws BadLocationException {
-                fb.replace(off, len, stripSpaces(s), a);
-            }
-            private String stripSpaces(String s) {
-                return s == null ? null : s.replaceAll("\\s+", "");
-            }
-        });
 
         List<CardData> rowCards = new ArrayList<>();
         DefaultTableModel model = new DefaultTableModel(new Object[] { "Player", "Name", "Type", "Position" }, 0) {
@@ -226,13 +211,12 @@ class DebugUtility {
             JOptionPane.showMessageDialog(dialog, "Select a card in the table first.", "Debug Counters", JOptionPane.WARNING_MESSAGE);
             return;
         }
-        String raw = nameField.getText().trim();
-        if (raw.isEmpty()) {
+        // Freeform name ("Guinea Pig", "EXP") — trim only leading/trailing whitespace.
+        String name = nameField.getText().trim();
+        if (name.isEmpty()) {
             JOptionPane.showMessageDialog(dialog, "Enter a counter name first.", "Debug Counters", JOptionPane.WARNING_MESSAGE);
             return;
         }
-        // Normalize to a proper noun: first letter capitalized, rest lowercase.
-        String name = Character.toUpperCase(raw.charAt(0)) + raw.substring(1).toLowerCase();
         CardData card = rowCards.get(row);
         if (add) {
             mw.gameState.placeCounters(card, name, 1);

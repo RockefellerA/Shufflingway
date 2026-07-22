@@ -1307,6 +1307,46 @@ public class CardBehaviorTest {
     }
 
     // =========================================================================================
+    // Quina's action ability: "Until the end of the turn, Quina gains +2000 power and Quina
+    // cannot be chosen by your opponent's abilities. You can only use this ability once per
+    // turn." — EOT power boost + opponent-targeting protection in a single sentence.
+    // =========================================================================================
+
+    private static final String QUINA_ABILITY_TEXT =
+            "Remove the top 5 cards of your deck from the game: Until the end of the turn, "
+            + "Quina gains +2000 power and Quina cannot be chosen by your opponent's abilities. "
+            + "You can only use this ability once per turn.";
+
+    @Test
+    void quinaPowerBoostAndCannotBeChosenParsesCostAndOncePerTurnRestriction() {
+        List<ActionAbility> abilities = CardData.parseActionAbilities(QUINA_ABILITY_TEXT);
+        assertEquals(1, abilities.size());
+        ActionAbility ability = abilities.get(0);
+
+        assertTrue(ability.oncePerTurn());
+        assertEquals(1, ability.removeFromGameCosts().size());
+        RemoveFromGameCost cost = ability.removeFromGameCosts().get(0);
+        assertEquals("DECK", cost.zone());
+        assertEquals(5, cost.count());
+    }
+
+    @Test
+    void quinaPowerBoostAndCannotBeChosenResolves() {
+        CardData quina = makeForward("Quina", "Water", 2, 5000);
+        List<ActionAbility> abilities = CardData.parseActionAbilities(QUINA_ABILITY_TEXT);
+        assertEquals(1, abilities.size());
+
+        Consumer<GameContext> fn = ActionResolver.parse(abilities.get(0).effectText(), quina);
+        assertNotNull(fn, "Expected Quina's effect text to parse");
+
+        GameContext ctx = mock(GameContext.class);
+        fn.accept(ctx);
+
+        verify(ctx).boostSourceForward(quina, 2000, java.util.EnumSet.noneOf(CardData.Trait.class));
+        verify(ctx).shieldNamedCardCannotBeChosen("Quina", false, true);
+    }
+
+    // =========================================================================================
     // "Cancel unless opponent pays" (Dull-style) — Tier 1: "Choose 1 [Summon/ability]. If your
     // opponent doesn't pay 《N》, cancel its effect." and Tier 2: the standalone body of a
     // "chosen by opponent's Summons or abilities" auto-ability.
