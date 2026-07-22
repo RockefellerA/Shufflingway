@@ -707,7 +707,8 @@ public class MainWindow {
 
 		if (AppSettings.isDebugEnabled()) {
 			DebugUtility debug = new DebugUtility(this);
-			menuBar.add(new DebugMenu(debug::spawnOnField, debug::addToHand, debug::addToBreakZone, debug::setDamage));
+			menuBar.add(new DebugMenu(debug::spawnOnField, debug::addToHand, debug::addToBreakZone,
+					debug::addRemoveCounters, debug::setDamage));
 		}
 
 		Dimension cardSize = new Dimension(CARD_W, CARD_H);
