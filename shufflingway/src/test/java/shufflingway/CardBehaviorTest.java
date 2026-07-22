@@ -502,6 +502,38 @@ public class CardBehaviorTest {
     }
 
     // =========================================================================================
+    // Chaos: "Choose 1 Forward. Break it. You can only use this ability during your turn and if
+    // Chaos is in the Break Zone." — combined your-turn-only + BZ-activation restriction.
+    // =========================================================================================
+
+    private static final String CHAOS_ABILITY_TEXT =
+            "Choose 1 Forward. Break it. You can only use this ability during your turn "
+            + "and if Chaos is in the Break Zone.";
+
+    @Test
+    void chaosCombinedRestrictionIsFullyRecognized() {
+        // The combined restriction must be stripped as one sentence: the coverage description
+        // should see a clean "Choose 1 Forward. Break it." with no "?" (unrecognized) layer.
+        String desc = ActionResolver.fullDescription(CHAOS_ABILITY_TEXT, null);
+        assertNotNull(desc);
+        assertFalse(desc.contains("?"), "restriction fragment left a partially-recognized layer: " + desc);
+    }
+
+    @Test
+    void chaosEffectBreaksChosenForwardAndKeepsRestrictions() {
+        Consumer<GameContext> fn = ActionResolver.parse(CHAOS_ABILITY_TEXT, null);
+        assertNotNull(fn);
+
+        GameContext ctx = mock(GameContext.class);
+        ForwardTarget t = new ForwardTarget(false, 0, ForwardTarget.CardZone.FORWARD);
+        when(ctx.consumePreloadedTargets()).thenReturn(List.of(t));
+
+        fn.accept(ctx);
+
+        verify(ctx).breakTarget(t);
+    }
+
+    // =========================================================================================
     // Gau: "Dull active Gau: Choose 1 Monster. Until the end of the turn, it also becomes a
     // Forward with 8000 power." — bare-name dull cost + chosen-Monster temporary-Forward effect.
     // =========================================================================================

@@ -10577,6 +10577,9 @@ public class ActionResolver {
         // MAIN_PHASE_ONLY_PATTERN so the whole sentence is removed as a unit rather than leaving
         // "and if X is in the Break Zone." as an unparsed secondary fragment.
         s = CardData.OWN_BZ_NAME_REQUIRED_RESTRICTION  .matcher(s).replaceAll("").trim();
+        // Same for the "during your turn and if X is in the Break Zone" combined form (Chaos),
+        // which must go before YOUR_TURN_ONLY_PATTERN for the same reason.
+        s = CardData.YOUR_TURN_AND_BZ_RESTRICTION      .matcher(s).replaceAll("").trim();
         s = CardData.MAIN_PHASE_ONLY_PATTERN              .matcher(s).replaceAll("").trim();
         s = CardData.YOUR_TURN_AND_CONTROL_IF_PATTERN    .matcher(s).replaceAll("").trim();
         // Strip "during your turn and if X is in your hand" before YOUR_TURN_ONLY_PATTERN so the

@@ -1425,6 +1425,19 @@ public record CardData(
     );
 
     /**
+     * Combined restriction: "You can only use this ability during your turn and if [CardName] is
+     * in the Break Zone." — your-turn-only + BZ-activation in one sentence (e.g. Chaos).  Parsing
+     * picks the two parts up separately ({@link #YOUR_TURN_ONLY_PATTERN} sets yourTurnOnly and
+     * {@link #CARD_IN_BREAK_ZONE_PATTERN} sets breakZoneOnly); this pattern exists so restriction
+     * stripping can remove the whole sentence as a unit rather than leaving
+     * "and if X is in the Break Zone." as an unparsed fragment.
+     */
+    static final Pattern YOUR_TURN_AND_BZ_RESTRICTION = Pattern.compile(
+        "(?i)You\\s+can\\s+only\\s+use\\s+this\\s+ability\\s+during\\s+your\\s+turn\\s+and\\s+if\\s+" +
+        "\\S+(?:\\s+\\S+){0,2}\\s+is\\s+in\\s+the\\s+Break\\s+Zone[.!]?\\s*$"
+    );
+
+    /**
      * Outer structure: "If you have [a] Card Name X in your Break Zone, Y gains 'ab1' [and 'ab2']"
      * The {@code bzcard} group captures the card name; {@code quotedAbilities} captures all quoted ability strings.
      */
