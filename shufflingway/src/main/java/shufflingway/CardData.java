@@ -1970,7 +1970,17 @@ public record CardData(
                     partyCategory = pf.group("category");
                     partyJob      = pf.group("job");
                 } else {
-                    partyCardName = card;   // e.g. "Morrow" in "When Morrow forms a party and attacks"
+                    // A named-card party subject. Strip an optional "a Card Name " prefix and a
+                    // "you control" suffix so "a Card Name Chocobo you control" (9-050C) yields the
+                    // bare name "Chocobo"; a plain "Morrow" ("When Morrow forms a party and attacks")
+                    // passes through unchanged. "a Job X you control" resolves to a job filter.
+                    String subject = card.replaceAll("(?i)\\s+you\\s+control$", "").trim();
+                    Matcher jobM = Pattern.compile("(?i)^an?\\s+Job\\s+(?<job>.+)$").matcher(subject);
+                    if (jobM.matches()) {
+                        partyJob = jobM.group("job").trim();
+                    } else {
+                        partyCardName = subject.replaceAll("(?i)^an?\\s+Card\\s+Name\\s+", "").trim();
+                    }
                 }
             }
 

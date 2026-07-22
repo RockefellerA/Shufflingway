@@ -1902,6 +1902,15 @@ public interface GameContext {
             String element, int costVal, String costCmp, String category, String excludeName);
 
     /**
+     * Adds {@code amount} power until end of turn to every Forward in the party that most
+     * recently formed and attacked on the ability user's side — the "all Forwards in that
+     * party" referent of a party-attack auto-ability followup (e.g. Gippal). Party members
+     * no longer on the field are skipped, and the boost respects opponent power-boost
+     * suppression the same way {@link #applyMassFieldPowerBoost} does.
+     */
+    void applyCurrentPartyForwardsPowerBoost(int amount);
+
+    /**
      * Boosts all Forwards (selected by {@code opponentOnly}/{@code selfOnly}) that share
      * any element with the card named {@code cardName} on the caster's own field.
      * Fizzles if the named card is not found on the field.

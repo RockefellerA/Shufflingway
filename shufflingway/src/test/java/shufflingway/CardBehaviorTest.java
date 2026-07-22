@@ -1902,4 +1902,89 @@ public class CardBehaviorTest {
         assertEquals(0, mw.gameState.getCounters(target, "Petrification"), "counters removed");
         assertFalse(mw.isFieldAbilityCannotAttackOrBlock(target, true), "restriction lifted");
     }
+
+    // =========================================================================================
+    // Gippal (12-058C): "When a party you control attacks, all Forwards in that party gain +5000
+    // power until the end of the turn."  The party-attack trigger must record the attacking party
+    // and the followup must boost exactly those Forwards (not other Forwards on the field).
+    // =========================================================================================
+
+    private static final String GIPPAL_TEXT =
+            "The Forwards forming a party you control gain Brave.[[br]]   "
+            + "When a party you control attacks, all Forwards in that party gain +5000 power until the end of the turn.";
+
+    private static CardData makeGippal(int power) {
+        return new CardData(null, "Gippal", "Lightning", 5, power, "Forward", false, 0, false, false,
+                Set.of(), 0, List.of(), null, List.of(),
+                List.of(), CardData.parseAutoAbilities(GIPPAL_TEXT), List.of(), List.of(), List.of(),
+                List.of(), List.of(), List.of(), List.of(), List.of(),
+                false, false, null, false, false, false, false, false, false,
+                null, null, null, GIPPAL_TEXT);
+    }
+
+    @Test
+    void gippalPartyAttackBoostsAllPartyForwardsBy5000() {
+        MainWindow mw = new MainWindow();
+        CardData gippal = makeGippal(9000);
+        CardData ally   = makeForward("Ally", "Lightning", 3, 7000);
+        CardData bench  = makeForward("Bench", "Lightning", 2, 5000);
+        mw.placeCardInForwardZone(gippal); // P1 idx 0
+        mw.placeCardInForwardZone(ally);   // P1 idx 1
+        mw.placeCardInForwardZone(bench);  // P1 idx 2
+
+        // Gippal + Ally form a party and attack; Bench stays home. P1 acted, so the CPU has
+        // priority and Gippal's auto-ability resolves off the stack immediately.
+        List<CardData> party = List.of(gippal, ally);
+        mw.autoAbilityTriggers.triggerAutoAbilitiesForPartyAttack(true, party);
+
+        // The attacking party is recorded, and every Forward in it gained +5000 power.
+        assertEquals(party, mw.p1CurrentPartyAttackers);
+        assertEquals(14000, mw.effectiveP1ForwardPower(0), "Gippal (in party) should be +5000");
+        assertEquals(12000, mw.effectiveP1ForwardPower(1), "Ally (in party) should be +5000");
+        assertEquals(5000,  mw.effectiveP1ForwardPower(2), "Bench (not in party) should be unchanged");
+    }
+
+    // =========================================================================================
+    // Chocobo (9-050C): "When a Card Name Chocobo you control forms a party and attacks, all
+    // Forwards in that party gain +1000 power until the end of the turn."  The "a Card Name X you
+    // control" subject must resolve to a card-name party filter (partyCardName = "Chocobo") so the
+    // followup fires only when a Chocobo is actually in the attacking party.
+    // =========================================================================================
+
+    private static final String CHOCOBO_TEXT =
+            "When a Card Name Chocobo you control forms a party and attacks, all Forwards in that party gain +1000 power until the end of the turn.";
+
+    private static CardData makeChocobo(int power) {
+        return new CardData(null, "Chocobo", "Wind", 2, power, "Forward", false, 0, false, false,
+                Set.of(), 0, List.of(), null, List.of(),
+                List.of(), CardData.parseAutoAbilities(CHOCOBO_TEXT), List.of(), List.of(), List.of(),
+                List.of(), List.of(), List.of(), List.of(), List.of(),
+                false, false, null, false, false, false, false, false, false,
+                null, null, null, CHOCOBO_TEXT);
+    }
+
+    @Test
+    void chocoboPartyAttackFiresOnlyWhenAChocoboIsInTheParty() {
+        // Positive: Chocobo + ally attack together — the Card-Name filter matches, both get +1000.
+        MainWindow mw = new MainWindow();
+        CardData chocobo = makeChocobo(3000);
+        CardData ally    = makeForward("Ally", "Wind", 3, 7000);
+        mw.placeCardInForwardZone(chocobo); // P1 idx 0
+        mw.placeCardInForwardZone(ally);    // P1 idx 1
+        mw.autoAbilityTriggers.triggerAutoAbilitiesForPartyAttack(true, List.of(chocobo, ally));
+        assertEquals(4000, mw.effectiveP1ForwardPower(0), "Chocobo (in party) should be +1000");
+        assertEquals(8000, mw.effectiveP1ForwardPower(1), "Ally (in party) should be +1000");
+
+        // Negative: two non-Chocobo Forwards attack while Chocobo sits out — filter fails, no boost.
+        MainWindow mw2 = new MainWindow();
+        CardData benched = makeChocobo(3000);
+        CardData a1 = makeForward("A1", "Wind", 3, 7000);
+        CardData a2 = makeForward("A2", "Wind", 3, 6000);
+        mw2.placeCardInForwardZone(benched); // P1 idx 0 — owns the ability but does not attack
+        mw2.placeCardInForwardZone(a1);      // P1 idx 1
+        mw2.placeCardInForwardZone(a2);      // P1 idx 2
+        mw2.autoAbilityTriggers.triggerAutoAbilitiesForPartyAttack(true, List.of(a1, a2));
+        assertEquals(7000, mw2.effectiveP1ForwardPower(1), "A1 unchanged — no Chocobo in the party");
+        assertEquals(6000, mw2.effectiveP1ForwardPower(2), "A2 unchanged — no Chocobo in the party");
+    }
 }

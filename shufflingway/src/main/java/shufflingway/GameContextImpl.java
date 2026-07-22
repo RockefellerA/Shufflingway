@@ -4940,6 +4940,28 @@ final class GameContextImpl implements GameContext {
 				}
 			}
 
+			@Override public void applyCurrentPartyForwardsPowerBoost(int amount) {
+				List<CardData> party = isP1 ? mw.p1CurrentPartyAttackers : mw.p2CurrentPartyAttackers;
+				List<CardData> fwds  = isP1 ? mw.p1ForwardCards : mw.p2ForwardCards;
+				// The booster is always the party controller, so self-boost suppression applies too.
+				boolean suppressed = amount > 0
+						&& (mw.oppForwardPowerBoostSuppressedFor(isP1) || mw.oppForwardSelfBoostSuppressedFor(isP1));
+				for (CardData member : party) {
+					int i = fwds.indexOf(member);
+					if (i < 0) continue; // party member has since left the field
+					if (suppressed) { logEntry((isP1 ? "" : "[P2] ") + member.name() + " — power boost suppressed"); continue; }
+					if (isP1) {
+						mw.p1ForwardPowerBoost.set(i, mw.p1ForwardPowerBoost.get(i) + amount);
+						logEntry(member.name() + " gains +" + amount + " power until end of turn");
+						mw.refreshP1ForwardSlot(i);
+					} else {
+						mw.p2ForwardPowerBoost.set(i, mw.p2ForwardPowerBoost.get(i) + amount);
+						logEntry("[P2] " + member.name() + " gains +" + amount + " power until end of turn");
+						mw.refreshP2ForwardSlot(i);
+					}
+				}
+			}
+
 			@Override public void allForwardsSameElementAsNamedGainPowerUntilEOT(
 					String cardName, int amount, boolean opponentOnly, boolean selfOnly) {
 				// Find the named card on the caster's own field to determine its element(s)

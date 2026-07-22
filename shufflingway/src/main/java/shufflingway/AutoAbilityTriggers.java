@@ -1063,6 +1063,10 @@ final class AutoAbilityTriggers {
 	 * @param partyMembers the CardData objects that are attacking in the party
 	 */
 	void triggerAutoAbilitiesForPartyAttack(boolean isP1, List<CardData> partyMembers) {
+		// Record the attacking party so "all Forwards in that party" followups can act on it
+		// when their auto-ability resolves off the stack (see applyCurrentPartyForwardsPowerBoost).
+		if (isP1) mw.p1CurrentPartyAttackers = new ArrayList<>(partyMembers);
+		else      mw.p2CurrentPartyAttackers = new ArrayList<>(partyMembers);
 		withBatch(() -> {
 			List<CardData> fwds = new ArrayList<>(isP1 ? mw.p1ForwardCards : mw.p2ForwardCards);
 			for (CardData card : fwds) {
@@ -1089,7 +1093,7 @@ final class AutoAbilityTriggers {
 	private boolean partyAttackMatchesFilter(AutoAbility fa, List<CardData> partyMembers) {
 		if (fa.partyCardName() != null) {
 			boolean found = partyMembers.stream()
-					.anyMatch(m -> m.name().equalsIgnoreCase(fa.partyCardName()));
+					.anyMatch(m -> meetsCardNameFilter(m, fa.partyCardName()));
 			if (!found) return false;
 		}
 		if (fa.partyMinCount() > 0) {

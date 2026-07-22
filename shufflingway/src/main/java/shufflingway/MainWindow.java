@@ -445,6 +445,13 @@ public class MainWindow {
 	int     lastRemovedFromGameCardCost  = 0;
 	int     lastRemovedFromGameCardPower = 0;
 	boolean p1FormedPartyThisTurn        = false;
+	/**
+	 * The Forwards in the party that most recently formed and attacked this turn, per side.
+	 * Set when a party attack fires; read by party-attack auto-ability followups that act on
+	 * "all Forwards in that party" (e.g. Gippal's +5000 power boost).
+	 */
+	List<CardData> p1CurrentPartyAttackers = new ArrayList<>();
+	List<CardData> p2CurrentPartyAttackers = new ArrayList<>();
 	boolean p1PartyAnyElementThisTurn   = false;
 	boolean p2PartyAnyElementThisTurn   = false;
 	int     p2CardsCastThisTurn          = 0;

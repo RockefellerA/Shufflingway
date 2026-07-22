@@ -3461,6 +3461,19 @@ public class ActionResolver {
     );
 
     /**
+     * Matches "all Forwards in that party gain/lose +N power until [the] end of [the] turn."
+     * The party-attack followup that boosts every Forward in the party that just formed and
+     * attacked (Gippal +5000, Celestia / Chocobo +1000). "That party" resolves at run time to
+     * the recorded attacking party via {@link GameContext#applyCurrentPartyForwardsPowerBoost}.
+     * Groups: {@code verb}, {@code amount}.
+     */
+    private static final Pattern PARTY_FORWARDS_POWER_BOOST_PATTERN = Pattern.compile(
+        "(?i)all\\s+Forwards?\\s+in\\s+that\\s+party\\s+" +
+        "(?<verb>gains?|loses?)\\s+\\+?(?<amount>\\d+)\\s+[Pp]ower" +
+        "\\s+until\\s+(?:the\\s+)?end\\s+of\\s+(?:the\\s+)?turn[.!]?"
+    );
+
+    /**
      * Matches "All [the] Forwards of the same Element as [Card Name] X you control
      * gain +N power until [the] end of [the] turn."
      * Groups: {@code name}, {@code control}, {@code verb}, {@code amount}.
@@ -4861,6 +4874,9 @@ public class ActionResolver {
         result = tryParseAllForwardsSameElementAsNamedPowerBoost(effectText);
         if (result != null) return result;
 
+        result = tryParsePartyForwardsPowerBoost(effectText);
+        if (result != null) return result;
+
         result = tryParseAllFieldPowerBoost(effectText);
         if (result != null) return result;
 
@@ -6013,6 +6029,7 @@ public class ActionResolver {
             }
         }
         if (tryParseAllForwardsSameElementAsNamedPowerBoost(effectText) != null) return "AllForwardsSameElementAsNamedPowerBoost";
+        if (tryParsePartyForwardsPowerBoost(effectText) != null)            return "PartyForwardsPowerBoost";
         if (tryParseAllFieldJobCardNamePowerBoost(effectText) != null)       return "AllFieldJobCardNamePowerBoost";
         if (tryParseTwoCardNamesPowerBoost(effectText) != null)             return "TwoCardNamesPowerBoost";
         if (tryParseAllFieldJobPowerBoost(effectText) != null)              return "AllFieldJobPowerBoost";
@@ -12903,6 +12920,22 @@ public class ActionResolver {
             return ctx -> { /* passive field grant — applied via fieldPowerGrants() */ };
         }
         return null;
+    }
+
+    /**
+     * Parses "all Forwards in that party gain/lose +N power until end of turn." — the party-attack
+     * followup that boosts every Forward in the party that just formed and attacked.
+     */
+    private static Consumer<GameContext> tryParsePartyForwardsPowerBoost(String text) {
+        Matcher m = PARTY_FORWARDS_POWER_BOOST_PATTERN.matcher(text);
+        if (!m.find()) return null;
+        boolean isLose = m.group("verb").toLowerCase().startsWith("lose");
+        int amount = Integer.parseInt(m.group("amount")) * (isLose ? -1 : 1);
+        return ctx -> {
+            ctx.logEntry("Effect: All Forwards in that party " + (isLose ? "-" : "+") + Math.abs(amount)
+                    + " power until end of turn");
+            ctx.applyCurrentPartyForwardsPowerBoost(amount);
+        };
     }
 
     /**
