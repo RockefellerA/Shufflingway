@@ -661,7 +661,7 @@ public class MainWindow {
 		frame = new JFrame("Shufflingway");
 		cardPickerDialog = new shufflingway.dialog.CardPickerDialog(frame, this::showZoomAt, this::hideZoom);
 		frame.getContentPane().setBackground(Color.LIGHT_GRAY);
-		frame.setBounds(0, 0, UiScale.scale(1920), UiScale.scale(1080));
+		frame.setBounds(0, 0, UiScale.windowWidth(), UiScale.windowHeight());
 		frame.setLocationRelativeTo(null);
 		frame.setResizable(false);
 		frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
@@ -1284,6 +1284,19 @@ public class MainWindow {
 		// --- Assemble ---
 		frame.getContentPane().add(mainArea, BorderLayout.CENTER);
 		applySidePanelSide(AppSettings.getSidePanelSide());
+
+		// When the chosen resolution is taller than the scaled 16:9 board, split the leftover
+		// height into equal letterbox bars in the free NORTH and SOUTH regions, centring the play
+		// area. BorderLayout keeps the side panel (EAST/WEST) and board (CENTER) at their designed
+		// size; only these bars take the surplus.
+		int letterboxVertical = UiScale.letterboxVertical();
+		if (letterboxVertical > 0) {
+			int topBar    = letterboxVertical / 2;
+			int bottomBar = letterboxVertical - topBar;
+			frame.getContentPane().add(makeLetterboxBar(topBar),    BorderLayout.NORTH);
+			frame.getContentPane().add(makeLetterboxBar(bottomBar), BorderLayout.SOUTH);
+		}
+
 		cardSlideAnimator = CardSlideAnimator.install(frame);
 		breakAnimator     = CardBreakAnimator.install(frame);
 		rfpAnimator       = CardRfpAnimator.install(frame);
@@ -1320,6 +1333,14 @@ public class MainWindow {
 		frame.getContentPane().add(sideWrapper, right ? BorderLayout.EAST : BorderLayout.WEST);
 		frame.revalidate();
 		frame.repaint();
+	}
+
+	/** Builds a solid black letterbox bar of the given height for centering the play area. */
+	private static JPanel makeLetterboxBar(int height) {
+		JPanel bar = new JPanel();
+		bar.setBackground(Color.BLACK);
+		bar.setPreferredSize(new Dimension(0, height));
+		return bar;
 	}
 
 	// -------------------------------------------------------------------------

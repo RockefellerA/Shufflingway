@@ -71,6 +71,30 @@ public class PreferencesDialog extends JDialog {
 		sidePanelRow.add(sidePanelCombo);
 		sidePanelRow.setAlignmentX(Component.LEFT_ALIGNMENT);
 		layoutPanel.add(sidePanelRow);
+		layoutPanel.add(javax.swing.Box.createVerticalStrut(6));
+
+		// Window resolution — the whole 16:9 board scales uniformly to fit; applies on restart.
+		JLabel resHint = new JLabel(
+				"<html><font color='gray' size='2'>Applies after restart.</font></html>");
+		resHint.setBorder(new EmptyBorder(0, 4, 2, 4));
+		resHint.setAlignmentX(Component.LEFT_ALIGNMENT);
+		resHint.setVisible(false);
+
+		JPanel resolutionRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
+		resolutionRow.add(new JLabel("Resolution:"));
+		JComboBox<String> resolutionCombo = new JComboBox<>(AppSettings.RESOLUTIONS);
+		resolutionCombo.setSelectedItem(AppSettings.getResolution());
+		resolutionCombo.addActionListener(e -> {
+			String chosen = (String) resolutionCombo.getSelectedItem();
+			if (chosen == null || chosen.equals(AppSettings.getResolution())) return;
+			AppSettings.setResolution(chosen);
+			AppSettings.save();
+			resHint.setVisible(true);
+		});
+		resolutionRow.add(resolutionCombo);
+		resolutionRow.setAlignmentX(Component.LEFT_ALIGNMENT);
+		layoutPanel.add(resolutionRow);
+		layoutPanel.add(resHint);
 
 		layoutPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
 		contentPanel.add(layoutPanel);
