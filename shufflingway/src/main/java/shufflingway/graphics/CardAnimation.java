@@ -76,9 +76,9 @@ public class CardAnimation {
 		int ch = dull ? CARD_W : CARD_H;
 
 		if (selected) {
-			drawGlow(g, new Color(255, 165, 0), cx, cy, cw, ch);
+			drawRoundedGlow(g, new Color(255, 165, 0), cx, cy, cw, ch);
 		} else if (highlight) {
-			drawGlow(g, new Color(0, 220, 0), cx, cy, cw, ch);
+			drawRoundedGlow(g, new Color(0, 220, 0), cx, cy, cw, ch);
 		}
 		g.dispose();
 		return canvas;
@@ -87,9 +87,25 @@ public class CardAnimation {
 	/**
 	 * Draws a multi-layer inner glow on {@code g} within the rectangle
 	 * {@code (cx, cy, cw, ch)}.  Layers fade inward with a quadratic falloff,
-	 * matching the PhaseTracker halo style.
+	 * matching the PhaseTracker halo style.  Sharp-cornered — for card displays outside the
+	 * field (hand, Break Zone, dialogs), where card images are shown rectangular.
 	 */
 	public static void drawGlow(Graphics2D g, Color color, int cx, int cy, int cw, int ch) {
+		drawGlow(g, color, cx, cy, cw, ch, 0);
+	}
+
+	/**
+	 * Rounded variant of {@link #drawGlow} for cards on the field: each layer's corner radius
+	 * matches the card silhouette clipped in {@link #toARGB} (shrinking as the layers move
+	 * inward), so the glow hugs the rounded card edge instead of squaring it off.
+	 */
+	public static void drawRoundedGlow(Graphics2D g, Color color, int cx, int cy, int cw, int ch) {
+		// Same arc diameter as the toARGB rounding mask: 2 × (5% of the shorter side).
+		drawGlow(g, color, cx, cy, cw, ch,
+				(int) Math.round(Math.min(cw, ch) * CORNER_RADIUS_FRACTION * 2.0));
+	}
+
+	private static void drawGlow(Graphics2D g, Color color, int cx, int cy, int cw, int ch, int arc) {
 		g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
 		int layers = 10;
 		for (int layer = layers; layer >= 0; layer--) {
@@ -98,7 +114,9 @@ public class CardAnimation {
 			g.setColor(new Color(color.getRed(), color.getGreen(), color.getBlue(), alpha));
 			g.setStroke(new BasicStroke(1.5f));
 			int off = layers - layer;
-			g.drawRect(cx + off, cy + off, cw - 1 - 2 * off, ch - 1 - 2 * off);
+			// Inner parallel curve of a rounded rect: corner radius shrinks with the inset.
+			int layerArc = Math.max(0, arc - 2 * off);
+			g.drawRoundRect(cx + off, cy + off, cw - 1 - 2 * off, ch - 1 - 2 * off, layerArc, layerArc);
 		}
 	}
 

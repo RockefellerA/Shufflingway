@@ -10068,6 +10068,8 @@ public class MainWindow {
 				java.awt.Graphics2D g = (java.awt.Graphics2D) g0.create();
 				g.setRenderingHint(java.awt.RenderingHints.KEY_ANTIALIASING,
 						java.awt.RenderingHints.VALUE_ANTIALIAS_ON);
+				// Field cards are clipped to a rounded silhouette — trace the same corner radius.
+				int arc = (int) Math.round(Math.min(cw, ch) * CardAnimation.CORNER_RADIUS_FRACTION * 2.0);
 				int layers = 16;
 				for (int layer = layers; layer >= 0; layer--) {
 					float t   = (float) layer / layers;
@@ -10075,11 +10077,12 @@ public class MainWindow {
 					g.setColor(new Color(color.getRed(), color.getGreen(), color.getBlue(), alpha));
 					g.setStroke(new java.awt.BasicStroke(2.5f));
 					int off = layers - layer;
-					g.drawRect(x + off, cy + off, cw - 1 - 2 * off, ch - 1 - 2 * off);
+					int layerArc = Math.max(0, arc - 2 * off);
+					g.drawRoundRect(x + off, cy + off, cw - 1 - 2 * off, ch - 1 - 2 * off, layerArc, layerArc);
 				}
 				g.setColor(color);
 				g.setStroke(new java.awt.BasicStroke(3f));
-				g.drawRect(x + 1, cy + 1, cw - 3, ch - 3);
+				g.drawRoundRect(x + 1, cy + 1, cw - 3, ch - 3, Math.max(0, arc - 2), Math.max(0, arc - 2));
 				g.dispose();
 			}
 		};
