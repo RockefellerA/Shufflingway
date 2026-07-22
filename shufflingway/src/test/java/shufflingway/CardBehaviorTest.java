@@ -7,8 +7,10 @@ import static org.mockito.Mockito.*;
 import java.util.List;
 import java.util.Set;
 import java.util.function.Consumer;
+import java.util.function.Predicate;
 
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 
 /**
  * Consolidated behavioral tests for one-off card-specific action-ability logic — each section
@@ -497,6 +499,44 @@ public class CardBehaviorTest {
                 + "the damage becomes 0 instead.", other);
 
         assertNull(fn);
+    }
+
+    // =========================================================================================
+    // "During this turn, if a Job Dancer or Card Name Dancer you control is dealt damage by a
+    // Summon or an ability, the damage becomes 0 instead." — persistent turn-scoped, filtered
+    // own-side Summon/ability damage nullification (also covers Dancers entering later).
+    // =========================================================================================
+
+    private static final String DANCER_SHIELD_TEXT =
+            "During this turn, if a Job Dancer or Card Name Dancer you control is dealt damage "
+            + "by a Summon or an ability, the damage becomes 0 instead.";
+
+    @Test
+    void registersPersistentFilterShieldingOnlyDancers() {
+        Consumer<GameContext> fn = ActionResolver.parse(DANCER_SHIELD_TEXT, null);
+        assertNotNull(fn);
+
+        GameContext ctx = mock(GameContext.class);
+        fn.accept(ctx);
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<Predicate<CardData>> captor =
+                ArgumentCaptor.forClass((Class<Predicate<CardData>>) (Class<?>) Predicate.class);
+        verify(ctx).shieldOwnForwardsAbilityDamageFilter(captor.capture());
+        Predicate<CardData> filter = captor.getValue();
+
+        CardData jobDancer = mock(CardData.class);
+        when(jobDancer.hasJob("Dancer")).thenReturn(true);
+        CardData namedDancer = mock(CardData.class);
+        when(namedDancer.hasJob("Dancer")).thenReturn(false);
+        when(namedDancer.name()).thenReturn("Dancer");
+        CardData other = mock(CardData.class);
+        when(other.hasJob("Dancer")).thenReturn(false);
+        when(other.name()).thenReturn("Warrior of Light");
+
+        assertTrue(filter.test(jobDancer), "Job Dancer should be shielded");
+        assertTrue(filter.test(namedDancer), "Card Name Dancer should be shielded");
+        assertFalse(filter.test(other), "Non-Dancer should not be shielded");
     }
 
     // =========================================================================================

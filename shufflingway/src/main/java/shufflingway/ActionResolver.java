@@ -2026,6 +2026,17 @@ public class ActionResolver {
         "\\s+by\\s+(?:a\\s+)?Summons?\\s+or\\s+an?\\s+abilit(?:y|ies),?\\s+the\\s+damage\\s+becomes?\\s+0\\s+instead[.!]?"
     );
 
+    /**
+     * "During this turn, if a Job [X] or Card Name [Y] you control is dealt damage by a Summon
+     *  or an ability, the damage becomes 0 instead." — job/card-name-filtered variant of
+     * {@link #ALL_OWN_FORWARDS_NULLIFY_ABILITY_DAMAGE_PATTERN}.
+     */
+    private static final Pattern OWN_JOB_OR_NAME_NULLIFY_ABILITY_DAMAGE_PATTERN = Pattern.compile(
+        "(?i)During\\s+this\\s+turn,?\\s+if\\s+a\\s+Job\\s+(?<job>.+?)\\s+or\\s+(?:a\\s+)?Card\\s+Name\\s+(?<cardname>.+?)" +
+        "\\s+you\\s+control\\s+(?:is|are)\\s+dealt\\s+damage" +
+        "\\s+by\\s+(?:a\\s+)?Summons?\\s+or\\s+an?\\s+abilit(?:y|ies),?\\s+the\\s+damage\\s+becomes?\\s+0\\s+instead[.!]?"
+    );
+
     /** "It gains 'When this Forward deals battle damage to a Forward, break that Forward.' until the end of the turn." */
     private static final Pattern FOLLOWUP_GAINS_BREAKTOUCH_BATTLE = Pattern.compile(
         "(?i)(?:it|they)\\s+gains?\\s+['\"]When\\s+this\\s+Forward\\s+deals\\s+battle\\s+damage\\s+to\\s+a\\s+Forward,\\s+break\\s+that\\s+Forward\\.?['\"]" +
@@ -5060,6 +5071,9 @@ public class ActionResolver {
         result = tryParseAllOwnForwardsNullifyAbilityDamage(effectText);
         if (result != null) return result;
 
+        result = tryParseOwnJobOrNameNullifyAbilityDamage(effectText);
+        if (result != null) return result;
+
         result = tryParseAllForwardsCannotBlock(effectText);
         if (result != null) return result;
 
@@ -5638,6 +5652,7 @@ public class ActionResolver {
         if (tryParseStandaloneSelfDull(effectText, source) != null)          return "StandaloneSelfDull";
         if (tryParseStandaloneShieldCannotBeBroken(effectText, source) != null) return "StandaloneShieldCannotBeBroken";
         if (tryParseAllOwnForwardsNullifyAbilityDamage(effectText)        != null) return "AllOwnForwardsNullifyAbilityDamage";
+        if (tryParseOwnJobOrNameNullifyAbilityDamage(effectText)          != null) return "OwnJobOrNameNullifyAbilityDamage";
         if (tryParseAllForwardsCannotBlock(effectText)                    != null) return "AllForwardsCannotBlock";
         if (tryParseForwardsOfCostCannotBlock(effectText)                 != null) return "ForwardsOfCostCannotBlock";
         if (tryParseEndOfNextTurnIfCardOnFieldOppLoses(effectText)        != null) return "EndOfNextTurnIfCardOnFieldOppLoses";
@@ -6149,6 +6164,7 @@ public class ActionResolver {
         if (tryParseStandaloneSelfDull(effectText, source) != null)          return "StandaloneSelfDull";
         if (tryParseStandaloneShieldCannotBeBroken(effectText, source) != null) return "StandaloneShieldCannotBeBroken";
         if (tryParseAllOwnForwardsNullifyAbilityDamage(effectText)        != null) return "AllOwnForwardsNullifyAbilityDamage";
+        if (tryParseOwnJobOrNameNullifyAbilityDamage(effectText)          != null) return "OwnJobOrNameNullifyAbilityDamage";
         if (tryParseAllForwardsCannotBlock(effectText)                    != null) return "AllForwardsCannotBlock";
         if (tryParseForwardsOfCostCannotBlock(effectText)                 != null) return "ForwardsOfCostCannotBlock";
         if (tryParseEndOfNextTurnIfCardOnFieldOppLoses(effectText)        != null) return "EndOfNextTurnIfCardOnFieldOppLoses";
@@ -11234,6 +11250,24 @@ public class ActionResolver {
             int count = p1 ? ctx.p1ForwardCount() : ctx.p2ForwardCount();
             for (int i = 0; i < count; i++)
                 ctx.shieldAbilityDamage(new ForwardTarget(p1, i, ForwardTarget.CardZone.FORWARD));
+        };
+    }
+
+    /**
+     * Parses "During this turn, if a Job [X] or Card Name [Y] you control is dealt damage by a
+     * Summon or an ability, the damage becomes 0 instead." — a persistent turn-scoped filter, so
+     * it also covers matching Forwards that enter the field after resolution.
+     */
+    private static Consumer<GameContext> tryParseOwnJobOrNameNullifyAbilityDamage(String text) {
+        Matcher m = OWN_JOB_OR_NAME_NULLIFY_ABILITY_DAMAGE_PATTERN.matcher(text.trim());
+        if (!m.matches()) return null;
+        String job = m.group("job").trim();
+        String cardName = m.group("cardname").trim();
+        return ctx -> {
+            ctx.logEntry("Effect: Own Job " + job + " / Card Name " + cardName
+                + " — damage from Summons/abilities becomes 0 this turn");
+            ctx.shieldOwnForwardsAbilityDamageFilter(
+                c -> c.hasJob(job) || c.name().equalsIgnoreCase(cardName));
         };
     }
 

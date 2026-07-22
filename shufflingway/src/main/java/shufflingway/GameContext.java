@@ -3,6 +3,7 @@ package shufflingway;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.function.Consumer;
+import java.util.function.Predicate;
 
 /**
  * Bridge interface that gives {@link ActionResolver} controlled access to the
@@ -716,6 +717,13 @@ public interface GameContext {
 
     /** Damage from the opponent's Summons or abilities to target becomes 0 until end of turn. */
     void shieldAbilityDamage(ForwardTarget t);
+
+    /**
+     * Until end of turn: any Forward the active player controls matching {@code filter} takes 0
+     * damage from Summons or abilities. Unlike {@link #shieldAbilityDamage}, this is evaluated at
+     * damage time, so it also covers Forwards that enter the field after the shield resolves.
+     */
+    void shieldOwnForwardsAbilityDamageFilter(Predicate<CardData> filter);
 
     /** Damage from the opponent's abilities (not Summons) to target becomes 0 until end of turn. */
     void shieldAbilityOnlyDamage(ForwardTarget t);

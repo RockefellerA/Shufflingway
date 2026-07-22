@@ -405,6 +405,10 @@ public class MainWindow {
 	boolean p1FwdBoostSuppressedThisTurn = false; // P1's Forwards cannot have power increased this turn
 	boolean p2FwdBoostSuppressedThisTurn = false; // P2's Forwards cannot have power increased this turn
 	final Set<CardData>          nullifyAbilityDmgSet     = new HashSet<>();
+	// Turn-scoped filter variants of nullifyAbilityDmgSet: a Forward on the given side matching any
+	// filter takes 0 damage from Summons/abilities — also covers Forwards entering the field later this turn.
+	final List<Predicate<CardData>> p1NullifyAbilityDmgFilters = new ArrayList<>();
+	final List<Predicate<CardData>> p2NullifyAbilityDmgFilters = new ArrayList<>();
 	final Set<CardData>          nullifyAbilityOnlyDmgSet = new HashSet<>();
 	final Set<CardData>          nextOutgoingDmgZeroSet      = new HashSet<>();
 	final Map<CardData, Integer> outgoingDmgMultiplierMap    = new IdentityHashMap<>();
@@ -2128,6 +2132,7 @@ public class MainWindow {
                                 p1TempBlockTriggers.clear();            p2TempBlockTriggers.clear();
                                 nextIncomingDmgZeroSet.clear();   nextIncomingDmgRedirectMap.clear();   nextIncomingDmgReduceMap.clear();   nextAbilityDmgReduceMap.clear();
                                 incomingDmgIncreaseMap.clear();   globalForwardIncomingDmgIncrease = 0;   nullifyAbilityDmgSet.clear();
+                                p1NullifyAbilityDmgFilters.clear(); p2NullifyAbilityDmgFilters.clear();
                                 allForwardsCannotBeBlockedByHigherCostThisTurn = false;
                                 p1FwdBoostSuppressedThisTurn = false; p2FwdBoostSuppressedThisTurn = false;
                                 nullifyAbilityOnlyDmgSet.clear(); perCardNonLethalDmgSet.clear();
@@ -9233,6 +9238,9 @@ public class MainWindow {
 		if (fromAbility) {
 			// Nullify all ability/summon damage
 			if (nullifyAbilityDmgSet.contains(card)) return 0;
+			// Filter-based nullification: covers Forwards that entered the field after the shield resolved
+			for (Predicate<CardData> f : (isP1 ? p1NullifyAbilityDmgFilters : p2NullifyAbilityDmgFilters))
+				if (f.test(card)) return 0;
 			// Nullify ability-only damage (not Summons)
 			if (!currentResolutionIsSummon && nullifyAbilityOnlyDmgSet.contains(card)) return 0;
 			// Element-scoped nullification (Hein ability): covers both targeted and AoE damage

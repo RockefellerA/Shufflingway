@@ -18,6 +18,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ExecutionException;
 import java.util.function.Consumer;
+import java.util.function.Predicate;
 import java.util.regex.Matcher;
 import java.util.stream.Collectors;
 
@@ -297,6 +298,9 @@ final class GameContextImpl implements GameContext {
 			}
 			@Override public void shieldAbilityDamage(ForwardTarget t) {
 				CardData c = mw.autoAbilityTriggers.fieldCardData(t); if (c != null) mw.nullifyAbilityDmgSet.add(c);
+			}
+			@Override public void shieldOwnForwardsAbilityDamageFilter(Predicate<CardData> filter) {
+				(isP1 ? mw.p1NullifyAbilityDmgFilters : mw.p2NullifyAbilityDmgFilters).add(filter);
 			}
 			@Override public void shieldAbilityOnlyDamage(ForwardTarget t) {
 				CardData c = mw.autoAbilityTriggers.fieldCardData(t); if (c != null) mw.nullifyAbilityOnlyDmgSet.add(c);
