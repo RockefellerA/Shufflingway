@@ -732,6 +732,13 @@ public interface GameContext {
      */
     void activateDoublecastFreeSummons();
 
+    /**
+     * Sephiroth: registers the card instance(s) named {@code cardName} that were removed from
+     * the game while paying the current ability's costs as castable from the RFP zone until end
+     * of turn (at printed cost). They appear in the playable-cards window while registered.
+     */
+    void makeRfgCostCardCastableThisTurn(String cardName);
+
     /** Damage from the opponent's abilities (not Summons) to target becomes 0 until end of turn. */
     void shieldAbilityOnlyDamage(ForwardTarget t);
 

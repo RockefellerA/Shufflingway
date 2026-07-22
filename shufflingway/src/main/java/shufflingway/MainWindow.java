@@ -520,6 +520,13 @@ public class MainWindow {
 	/** Active "next cast costs N less" modifiers; consumed on first matching cast, or cleared at EOT. */
 	final List<CostReductionModifier> activeCostReductions = new ArrayList<>();
 
+	/**
+	 * Cards moved to the RFP zone while paying the most recent ability's remove-from-game costs.
+	 * Cleared each time an ability's costs are paid; read by "you can cast [X] removed by this
+	 * ability's cost" followups (Sephiroth) to register those exact card instances as castable.
+	 */
+	final List<CardData> lastRfgCostCards = new ArrayList<>();
+
 	// Doublecast (Yuna): "When you cast a Summon this turn, you may cast 1 Summon from your hand
 	// with a cost inferior to that of the Summon you cast without paying its cost."
 	// While active for a side, hand Summons with printed cost lower than the printed cost of the

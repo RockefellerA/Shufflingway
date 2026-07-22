@@ -502,6 +502,46 @@ public class CardBehaviorTest {
     }
 
     // =========================================================================================
+    // Sephiroth (hand ability): "《Ice》《2》, remove Sephiroth in your hand from the game:
+    // Choose 1 dull Forward. Break it. Until the end of your turn, you can cast Sephiroth
+    // removed by this ability's cost. You can only use this ability if Sephiroth is in your
+    // hand." — RFG-from-hand cost + break + RFP-castable-this-turn followup.
+    // =========================================================================================
+
+    private static final String SEPHIROTH_EFFECT_TEXT =
+            "Choose 1 dull Forward. Break it. Until the end of your turn, you can cast Sephiroth "
+            + "removed by this ability's cost. You can only use this ability if Sephiroth is in your hand.";
+
+    @Test
+    void sephirothAbilityCostParsesAsHandRfgWithHandRestriction() {
+        List<ActionAbility> abilities = CardData.parseActionAbilities(
+                "《Ice》《2》, remove Sephiroth in your hand from the game: " + SEPHIROTH_EFFECT_TEXT);
+        assertEquals(1, abilities.size());
+        ActionAbility a = abilities.get(0);
+        assertTrue(a.whileCardInHand(), "hand-only restriction should be set");
+        assertEquals(1, a.removeFromGameCosts().size());
+        RemoveFromGameCost rfg = a.removeFromGameCosts().get(0);
+        assertEquals("HAND", rfg.zone());
+        assertEquals("Sephiroth", rfg.cardName());
+        assertEquals(1, rfg.count());
+    }
+
+    @Test
+    void sephirothBreaksDullForwardAndRegistersRfgCostCardCastable() {
+        Consumer<GameContext> fn = ActionResolver.parse(SEPHIROTH_EFFECT_TEXT, null);
+        assertNotNull(fn);
+
+        GameContext ctx = mock(GameContext.class);
+        ForwardTarget t = new ForwardTarget(false, 1, ForwardTarget.CardZone.FORWARD);
+        when(ctx.consumePreloadedTargets()).thenReturn(List.of(t));
+
+        fn.accept(ctx);
+
+        verify(ctx).breakTarget(t);
+        verify(ctx).makeRfgCostCardCastableThisTurn("Sephiroth");
+    }
+
+    // =========================================================================================
     // Chaos: "Choose 1 Forward. Break it. You can only use this ability during your turn and if
     // Chaos is in the Break Zone." — combined your-turn-only + BZ-activation restriction.
     // =========================================================================================

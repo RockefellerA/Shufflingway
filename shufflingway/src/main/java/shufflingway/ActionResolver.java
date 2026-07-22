@@ -5099,6 +5099,9 @@ public class ActionResolver {
         result = tryParseDoublecastFreeSummons(effectText);
         if (result != null) return result;
 
+        result = tryParseCastRfgCostCardThisTurn(effectText);
+        if (result != null) return result;
+
         result = tryParseAllForwardsCannotBlock(effectText);
         if (result != null) return result;
 
@@ -5679,6 +5682,7 @@ public class ActionResolver {
         if (tryParseAllOwnForwardsNullifyAbilityDamage(effectText)        != null) return "AllOwnForwardsNullifyAbilityDamage";
         if (tryParseOwnJobOrNameNullifyAbilityDamage(effectText)          != null) return "OwnJobOrNameNullifyAbilityDamage";
         if (tryParseDoublecastFreeSummons(effectText)                     != null) return "DoublecastFreeSummons";
+        if (tryParseCastRfgCostCardThisTurn(effectText)                   != null) return "CastRfgCostCardThisTurn";
         if (tryParseAllForwardsCannotBlock(effectText)                    != null) return "AllForwardsCannotBlock";
         if (tryParseForwardsOfCostCannotBlock(effectText)                 != null) return "ForwardsOfCostCannotBlock";
         if (tryParseEndOfNextTurnIfCardOnFieldOppLoses(effectText)        != null) return "EndOfNextTurnIfCardOnFieldOppLoses";
@@ -6192,6 +6196,7 @@ public class ActionResolver {
         if (tryParseAllOwnForwardsNullifyAbilityDamage(effectText)        != null) return "AllOwnForwardsNullifyAbilityDamage";
         if (tryParseOwnJobOrNameNullifyAbilityDamage(effectText)          != null) return "OwnJobOrNameNullifyAbilityDamage";
         if (tryParseDoublecastFreeSummons(effectText)                     != null) return "DoublecastFreeSummons";
+        if (tryParseCastRfgCostCardThisTurn(effectText)                   != null) return "CastRfgCostCardThisTurn";
         if (tryParseAllForwardsCannotBlock(effectText)                    != null) return "AllForwardsCannotBlock";
         if (tryParseForwardsOfCostCannotBlock(effectText)                 != null) return "ForwardsOfCostCannotBlock";
         if (tryParseEndOfNextTurnIfCardOnFieldOppLoses(effectText)        != null) return "EndOfNextTurnIfCardOnFieldOppLoses";
@@ -11313,6 +11318,28 @@ public class ActionResolver {
             for (int i = 0; i < count; i++)
                 ctx.shieldAbilityDamage(new ForwardTarget(p1, i, ForwardTarget.CardZone.FORWARD));
         };
+    }
+
+    /**
+     * "Until the end of your turn, you can cast [CardName] removed by this ability's cost."
+     * (Sephiroth) — registers the card instance(s) removed from the game while paying this
+     * ability's costs as castable from the RFP zone for the rest of the turn.
+     */
+    private static final Pattern CAST_RFG_COST_CARD_THIS_TURN = Pattern.compile(
+        "(?i)Until\\s+the\\s+end\\s+of\\s+(?:your|the)\\s+turn,?\\s+you\\s+(?:can|may)\\s+cast\\s+" +
+        "(?<name>.+?)\\s+removed\\s+by\\s+this\\s+ability(?:'s\\s+cost)?[.!]?"
+    );
+
+    /**
+     * Parses "Until the end of your turn, you can cast [CardName] removed by this ability's
+     * cost." — reachable both standalone and as a choose-effect secondary (the secondary
+     * fallback re-enters {@link #parse}).
+     */
+    private static Consumer<GameContext> tryParseCastRfgCostCardThisTurn(String text) {
+        Matcher m = CAST_RFG_COST_CARD_THIS_TURN.matcher(text.trim());
+        if (!m.matches()) return null;
+        String name = m.group("name").trim();
+        return ctx -> ctx.makeRfgCostCardCastableThisTurn(name);
     }
 
     /**

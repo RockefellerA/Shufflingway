@@ -306,6 +306,19 @@ final class GameContextImpl implements GameContext {
 				if (isP1) { mw.p1DoublecastFreeSummons = true; mw.p1DoublecastLastSummonCost = -1; }
 				else      { mw.p2DoublecastFreeSummons = true; mw.p2DoublecastLastSummonCost = -1; }
 			}
+			@Override public void makeRfgCostCardCastableThisTurn(String cardName) {
+				var playable = isP1 ? mw.bzPlayableP1 : mw.bzPlayableP2;
+				boolean any = false;
+				for (CardData c : mw.lastRfgCostCards) {
+					if (!c.name().equalsIgnoreCase(cardName)) continue;
+					playable.put(c, new PlayableEntry(PlayableEntry.SourceZone.RFP, 0, false, false, false, true));
+					logEntry((isP1 ? "" : "[P2] ") + c.name()
+							+ " — castable from Removed From Game until end of turn");
+					any = true;
+				}
+				if (!any) logEntry("No " + cardName + " was removed by this ability's cost — nothing to register");
+				mw.refreshPlayableCardsButton();
+			}
 			@Override public void shieldAbilityOnlyDamage(ForwardTarget t) {
 				CardData c = mw.autoAbilityTriggers.fieldCardData(t); if (c != null) mw.nullifyAbilityOnlyDmgSet.add(c);
 			}
