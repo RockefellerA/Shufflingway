@@ -502,6 +502,41 @@ public class CardBehaviorTest {
     }
 
     // =========================================================================================
+    // Gau: "Dull active Gau: Choose 1 Monster. Until the end of the turn, it also becomes a
+    // Forward with 8000 power." — bare-name dull cost + chosen-Monster temporary-Forward effect.
+    // =========================================================================================
+
+    @Test
+    void gauAbilityCostParsesAsBareNameDull() {
+        List<ActionAbility> abilities = CardData.parseActionAbilities(
+                "Dull active Gau: Choose 1 Monster. Until the end of the turn, "
+                + "it also becomes a Forward with 8000 power.");
+        assertEquals(1, abilities.size());
+        ActionAbility a = abilities.get(0);
+        assertEquals(1, a.dullForwardCosts().size());
+        DullForwardCost dc = a.dullForwardCosts().get(0);
+        assertEquals("Gau", dc.cardName());
+        assertEquals("active", dc.condition());
+        assertEquals("Choose 1 Monster. Until the end of the turn, it also becomes a Forward with 8000 power.",
+                a.effectText().trim());
+    }
+
+    @Test
+    void gauChosenMonsterBecomesForwardUntilEot() {
+        Consumer<GameContext> fn = ActionResolver.parse(
+                "Choose 1 Monster. Until the end of the turn, it also becomes a Forward with 8000 power.", null);
+        assertNotNull(fn);
+
+        GameContext ctx = mock(GameContext.class);
+        ForwardTarget t = new ForwardTarget(true, 0, ForwardTarget.CardZone.MONSTER);
+        when(ctx.consumePreloadedTargets()).thenReturn(List.of(t));
+
+        fn.accept(ctx);
+
+        verify(ctx).makeTargetTemporaryForward(t, 8000);
+    }
+
+    // =========================================================================================
     // Yuna Doublecast: "When you cast a Summon this turn, you may cast 1 Summon from your hand
     // with a cost inferior to that of the Summon you cast without paying its cost." — turn-long
     // rolling free-Summon field effect.

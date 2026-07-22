@@ -132,8 +132,11 @@ public class DeckManager extends JFrame {
         return sa.compareTo(sb);
     };
 
-    private static final int PREVIEW_W = UiScale.scale(429);
-    private static final int PREVIEW_H = UiScale.scale(600);
+    // Native card-image size, deliberately NOT UiScale'd (matching CardBrowser): scaling the
+    // preview with the window made it gigantic at taller resolutions (e.g. 1440p) for no
+    // fidelity gain, since the source images are 429×600.
+    private static final int PREVIEW_W = 429;
+    private static final int PREVIEW_H = 600;
 
     private DeckDatabase db;
     private int selectedDeckId = -1;

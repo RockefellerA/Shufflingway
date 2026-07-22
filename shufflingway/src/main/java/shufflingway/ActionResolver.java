@@ -10458,6 +10458,20 @@ public class ActionResolver {
             };
         }
 
+        // --- "Until the end of the turn, it also becomes a Forward with N power." (Gau) ---
+        Matcher becomeFwdM = BECOME_FORWARD_UNTIL_EOT_PATTERN.matcher(primaryFollowup);
+        if (becomeFwdM.find()) {
+            int power = Integer.parseInt(becomeFwdM.group("power"));
+            return ctx -> {
+                ctx.logEntry(choosePrefix + " — becomes a Forward with " + power + " power until end of turn");
+                List<ForwardTarget> ts = selectTargets(ctx, maxCount, upTo,
+                        opponentOnly, selfOnly, condition, element, zone, opponentZone,
+                        costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters, jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, fExcludeElem, withoutMulticard);
+                ts.forEach(t -> ctx.makeTargetTemporaryForward(t, power));
+                if (secondary != null) secondary.accept(ctx);
+            };
+        }
+
         // Recognised "Choose" header but followup not yet implemented
         Consumer<GameContext> warnEffect = ctx -> ctx.logEntry(
                 "[ActionResolver] Choose effect — followup not yet implemented: " + followup);

@@ -9104,11 +9104,16 @@ public class MainWindow {
 		return card.power() + computeConditionalBoostForTarget(card, false) + p2MonsterPowerBoost.getOrDefault(card, 0);
 	}
 
-	/** Power a P1 monster uses while acting as a Forward: become-Forward base + conditional/EOT boosts. */
+	/**
+	 * Power a P1 monster uses while acting as a Forward: become-Forward base + conditional/EOT
+	 * boosts. A temp-map entry (an effect that made it a Forward this turn, e.g. Gau) is applied
+	 * later than the printed become-Forward ability, so it takes precedence while it lasts.
+	 */
 	private int p1MonsterForwardPower(int idx) {
 		CardData card = p1MonsterCards.get(idx);
 		CardData.BecomeForwardAbility bfa = card.becomeForwardAbility();
-		int base = bfa != null ? bfa.power() : p1MonsterTempForwardPower.getOrDefault(card, 0);
+		Integer tempPower = p1MonsterTempForwardPower.get(card);
+		int base = tempPower != null ? tempPower.intValue() : (bfa != null ? bfa.power() : 0);
 		return base + computeConditionalBoostForTarget(card, true) + p1MonsterPowerBoost.getOrDefault(card, 0);
 	}
 
@@ -11551,11 +11556,16 @@ public class MainWindow {
 		else if (!atkFirst && dmgToBlk > 0) addFieldCombatDamage(blkP1, blkZone, blkIdx, dmgToBlk);
 	}
 
-	/** Returns the power a P2 monster uses when attacking as a Forward. */
+	/**
+	 * Returns the power a P2 monster uses when attacking as a Forward. A temp-map entry (an
+	 * effect that made it a Forward this turn, e.g. Gau) is applied later than the printed
+	 * become-Forward ability, so it takes precedence while it lasts.
+	 */
 	int p2MonsterForwardPower(int idx) {
 		CardData card = p2MonsterCards.get(idx);
 		CardData.BecomeForwardAbility bfa = card.becomeForwardAbility();
-		int base = bfa != null ? bfa.power() : p2MonsterTempForwardPower.getOrDefault(card, 0);
+		Integer tempPower = p2MonsterTempForwardPower.get(card);
+		int base = tempPower != null ? tempPower.intValue() : (bfa != null ? bfa.power() : 0);
 		return base + computeConditionalBoostForTarget(card, false) + p2MonsterPowerBoost.getOrDefault(card, 0);
 	}
 
