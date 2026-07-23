@@ -250,7 +250,7 @@ final class AutoAbilityTriggers {
 			"\\s+by\\s+a\\s+Forward" +
 			"|\\s+other\\s+than\\s+battle\\s+damage" +
 			"|\\s+by\\s+(?:your\\s+opponent's\\s+)?(?:a\\s+)?Summons?(?:\\s+or\\s+(?:an?\\s+)?abilit(?:y|ies))?" +
-			"|\\s+by\\s+(?:a\\s+Summon\\s+or\\s+)?an?\\s+abilit(?:y|ies)" +
+			"|\\s+by\\s+(?:your\\s+opponent's\\s+)?(?:a\\s+Summon\\s+or\\s+)?(?:an?\\s+)?abilit(?:y|ies)" +
 			"|\\s+less\\s+than\\s+(?:his|her|its)\\s+power" +
 		")?" +
 		"\\s*,\\s+" +
@@ -451,6 +451,20 @@ final class AutoAbilityTriggers {
 	/** "If [card] deals damage to a Forward of cost N or more, [increase the damage by | the damage increases by] X instead." */
 	static final Pattern FA_OUTGOING_FLAT_BOOST_VS_COST = Pattern.compile(
 		"(?i)^If\\s+(?<card>.+?)\\s+deals?\\s+damage\\s+to\\s+a\\s+Forward\\s+of\\s+cost\\s+(?<cost>\\d+)\\s+or\\s+more," +
+		"\\s+(?:increase\\s+the\\s+damage\\s+by|the\\s+damage\\s+increases\\s+by)\\s+(?<amount>\\d+)\\s+instead[.!]?$"
+	);
+
+	/**
+	 * Self, unconditional outgoing flat boost vs any Forward:
+	 * "If [card] deals damage to a Forward, [increase the damage by | the damage increases by] X instead."
+	 * Checked against the DEALING card's own field abilities, matched on the card's name — this is the
+	 * self variant, distinct from the "a Fire Forward you control" / "your Summon" grants which name no
+	 * specific card ({@link #FA_ELEMENT_FORWARD_DAMAGE_BOOST}, {@link #FA_ELEMENT_SUMMON_DAMAGE_BOOST}).
+	 * Applies to both combat and ability damage the source deals to a Forward; may carry a
+	 * "Damage N --" threshold. Groups: {@code card}, {@code amount}.
+	 */
+	static final Pattern FA_OUTGOING_FLAT_BOOST = Pattern.compile(
+		"(?i)^If\\s+(?<card>(?!(?:a|an|your|the)\\s)\\S.*?)\\s+deals?\\s+damage\\s+to\\s+a\\s+Forward," +
 		"\\s+(?:increase\\s+the\\s+damage\\s+by|the\\s+damage\\s+increases\\s+by)\\s+(?<amount>\\d+)\\s+instead[.!]?$"
 	);
 

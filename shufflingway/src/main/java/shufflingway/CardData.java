@@ -3055,6 +3055,49 @@ public record CardData(
         "(?<traitstext>.+?)?[.!]?$"
     );
 
+    /**
+     * Matches a counter-conditioned grant to Forwards you control:
+     * "Each Forward you control with a [name] Counter on it gains [grant]."
+     * Groups: {@code counter} — counter type name; {@code grant} — the granted power/ability text.
+     */
+    static final Pattern COUNTER_GRANT_PATTERN = Pattern.compile(
+        "(?i)^Each\\s+Forward\\s+you\\s+control\\s+with\\s+an?\\s+(?<counter>.+?)\\s+Counter\\s+on\\s+it\\s+gains\\s+(?<grant>.+)$"
+    );
+
+    /** Captures the "+N power" bonus within a {@link #COUNTER_GRANT_PATTERN} grant clause. */
+    private static final Pattern COUNTER_GRANT_POWER = Pattern.compile("(?i)\\+(?<power>\\d+)\\s+power");
+
+    /**
+     * Parses "Each Forward you control with a [X] Counter on it gains …" grants from this card's
+     * field abilities. Each grant is either a power bonus or a quoted ability granted to every
+     * controlled Forward that currently carries at least one counter named {@code X}.
+     * The returned list is immutable (empty when the card has no such grant).
+     */
+    public List<CounterGrant> counterGrants() {
+        List<CounterGrant> out = null;
+        for (FieldAbility fa : fieldAbilities()) {
+            Matcher m = COUNTER_GRANT_PATTERN.matcher(fa.effectText());
+            if (!m.matches()) continue;
+            String counter = m.group("counter").trim();
+            String grant   = m.group("grant").trim();
+            CounterGrant cg;
+            if (grant.startsWith("\"")) {
+                int end = grant.lastIndexOf('"');
+                if (end <= 0) continue;
+                String ability = grant.substring(1, end).trim();
+                if (ability.isEmpty()) continue;
+                cg = new CounterGrant(counter, 0, ability);
+            } else {
+                Matcher pm = COUNTER_GRANT_POWER.matcher(grant);
+                if (!pm.find()) continue;
+                cg = new CounterGrant(counter, Integer.parseInt(pm.group("power")), null);
+            }
+            if (out == null) out = new ArrayList<>();
+            out.add(cg);
+        }
+        return out == null ? List.of() : List.copyOf(out);
+    }
+
     public static List<FieldPowerGrant> parseFieldPowerGrants(String textEn, String cardType) {
         if (textEn == null || textEn.isBlank()) return List.of();
         if ("Summon".equalsIgnoreCase(cardType)) return List.of();

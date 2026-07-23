@@ -110,6 +110,7 @@ public class FieldAbilityParsingTest {
         if (CardData.MULTI_LIGHT_DARK_PLAY_PATTERN.matcher(fa.effectText()).matches()) return true;
         if (CardData.MULTI_NAME_PLAY_PATTERN.matcher(fa.effectText()).matches()) return true;
         if (CardData.LIGHT_DARK_DISCARD_CP_PATTERN.matcher(fa.effectText()).matches()) return true;
+        if (CardData.COUNTER_GRANT_PATTERN.matcher(fa.effectText()).matches()) return true;
         if (AutoAbilityTriggers.FA_DAMAGE_MODIFIER.matcher(fa.effectText()).find()) return true;
         if (AutoAbilityTriggers.FA_FIELD_DAMAGE_MODIFIER.matcher(fa.effectText()).find()) return true;
         if (AutoAbilityTriggers.FA_FIELD_DAMAGE_EXACT_NULLIFY.matcher(fa.effectText()).find()) return true;
@@ -123,6 +124,7 @@ public class FieldAbilityParsingTest {
         if (AutoAbilityTriggers.FA_OPP_FORWARD_SELF_BOOST_SUPPRESSED.matcher(fa.effectText()).find()) return true;
         if (AutoAbilityTriggers.FA_OPP_FORWARD_ETF_SUPPRESSED.matcher(fa.effectText()).find()) return true;
         if (AutoAbilityTriggers.FA_OUTGOING_FLAT_BOOST_VS_COST.matcher(fa.effectText()).find()) return true;
+        if (AutoAbilityTriggers.FA_OUTGOING_FLAT_BOOST.matcher(fa.effectText()).find()) return true;
         if (AutoAbilityTriggers.FA_INCOMING_REDUCTION_VS_COST.matcher(fa.effectText()).find()) return true;
         if (AutoAbilityTriggers.FA_DAMAGE_WHILE_DULL_REDUCTION.matcher(fa.effectText()).find()) return true;
         if (AutoAbilityTriggers.FA_NULLIFY_TRAIT_FORWARD_DAMAGE.matcher(fa.effectText()).find()) return true;
@@ -225,6 +227,12 @@ public class FieldAbilityParsingTest {
             return "LightDarkDiscardCp[" + m.group("e1")
                 + (m.group("e2") != null ? ", " + m.group("e2") : "") + "]";
         }
+        m = CardData.COUNTER_GRANT_PATTERN.matcher(fa.effectText());
+        if (m.matches()) {
+            String grant = m.group("grant").trim();
+            return "CounterGrant[" + m.group("counter").trim() + ": "
+                + (grant.startsWith("\"") ? "ability" : grant.replaceAll("[.!]$", "")) + "]";
+        }
         m = AutoAbilityTriggers.FA_DAMAGE_MODIFIER.matcher(fa.effectText());
         if (m.find()) {
             String src      = m.group("sourceclause");
@@ -279,6 +287,8 @@ public class FieldAbilityParsingTest {
             return "OppForwardEtfSuppressed";
         m = AutoAbilityTriggers.FA_OUTGOING_FLAT_BOOST_VS_COST.matcher(fa.effectText());
         if (m.find()) return "OutgoingFlatBoostVsCost[cost≥" + m.group("cost") + " +" + m.group("amount") + "]";
+        m = AutoAbilityTriggers.FA_OUTGOING_FLAT_BOOST.matcher(fa.effectText());
+        if (m.find()) return "OutgoingFlatBoost[" + m.group("card") + " +" + m.group("amount") + "]";
         m = AutoAbilityTriggers.FA_INCOMING_REDUCTION_VS_COST.matcher(fa.effectText());
         if (m.find()) return "IncomingReductionVsCost[cost≥" + m.group("cost") + " -" + m.group("amount") + "]";
         m = AutoAbilityTriggers.FA_DAMAGE_WHILE_DULL_REDUCTION.matcher(fa.effectText());

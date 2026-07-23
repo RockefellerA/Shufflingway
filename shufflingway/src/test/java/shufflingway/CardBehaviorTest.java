@@ -2620,9 +2620,14 @@ public class CardBehaviorTest {
 
     /** Builds a Forward whose fieldAbilities are parsed from {@code text}. */
     private static CardData makeFieldAbilityForward(String name, String text) {
-        return new CardData(null, name, "Fire", 3, 7000, "Forward", false, 0, false, false,
+        return makeFieldAbilityCard(name, "Fire", "Forward", text);
+    }
+
+    /** Builds a card of the given type/element whose fieldAbilities are parsed from {@code text}. */
+    private static CardData makeFieldAbilityCard(String name, String element, String type, String text) {
+        return new CardData(null, name, element, 3, 7000, type, false, 0, false, false,
                 Set.of(), 0, List.of(), null, List.of(),
-                List.of(), List.of(), CardData.parseFieldAbilities(text, "Forward"),
+                List.of(), List.of(), CardData.parseFieldAbilities(text, type),
                 List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(),
                 false, false, null, false, false, false, false, false, false,
                 null, null, null, text);
@@ -2837,5 +2842,311 @@ public class CardBehaviorTest {
         Map<Integer, String> discardElems = new LinkedHashMap<>();
         assertFalse(cpu.p2PlanPayment(dual, 2, 0, -1, backups, backupElems, discards, discardElems),
                 "a Fire/Ice cast still needs 1 Fire and 1 Ice from matching sources");
+    }
+
+    // =========================================================================================
+    // Gladiolus / Foulander: "If [self] deals damage to a Forward, the damage increases by 2000
+    // instead." — a self, unconditional outgoing flat boost, optionally behind a "Damage N --"
+    // threshold. Applies to both combat and ability damage the source deals to a Forward.
+    // =========================================================================================
+
+    private static final String GLADIOLUS_BOOST_TEXT =
+            "If Gladiolus deals damage to a Forward, the damage increases by 2000 instead.";
+
+    /** Foulander's full text: the boost segment sits behind a Damage-3 threshold, among siblings. */
+    private static final String FOULANDER_TEXT =
+            "During your turn, Foulander also becomes a Forward with 4000 power.[[br]]   "
+            + "When Foulander attacks, choose 1 Forward opponent controls. Deal it 3000 damage.[[br]]   "
+            + "Damage 3 -- If Foulander deals damage to a Forward, the damage increases by 2000 instead.";
+
+    /** Returns the FieldAbility whose text is the self outgoing-flat-boost, or null. */
+    private static FieldAbility findOutgoingFlatBoost(CardData card) {
+        for (FieldAbility fa : card.fieldAbilities())
+            if (AutoAbilityTriggers.FA_OUTGOING_FLAT_BOOST.matcher(fa.effectText()).find()) return fa;
+        return null;
+    }
+
+    @Test
+    void gladiolusOutgoingBoostParsesUnconditional() {
+        CardData gladiolus = makeFieldAbilityForward("Gladiolus", GLADIOLUS_BOOST_TEXT);
+        FieldAbility fa = findOutgoingFlatBoost(gladiolus);
+        assertNotNull(fa, "self outgoing flat boost should parse");
+        assertEquals(0, fa.damageThreshold(), "no Damage-N prefix — always active");
+        java.util.regex.Matcher m = AutoAbilityTriggers.FA_OUTGOING_FLAT_BOOST.matcher(fa.effectText());
+        assertTrue(m.find());
+        assertEquals("Gladiolus", m.group("card").trim());
+        assertEquals("2000", m.group("amount"));
+    }
+
+    @Test
+    void foulanderOutgoingBoostCarriesDamageThresholdAmongSiblings() {
+        CardData foulander = makeFieldAbilityForward("Foulander", FOULANDER_TEXT);
+        FieldAbility fa = findOutgoingFlatBoost(foulander);
+        assertNotNull(fa, "the boost segment should parse out from the sibling abilities");
+        assertEquals(3, fa.damageThreshold(), "the 'Damage 3 --' prefix must carry onto the boost");
+    }
+
+    @Test
+    void grantFormsDoNotMatchSelfBoostPattern() {
+        // "a Fire Character you control" and "your Fire Summon or ..." are field-wide grants, not
+        // self boosts — they name no specific card and must be left to their own handlers.
+        assertFalse(AutoAbilityTriggers.FA_OUTGOING_FLAT_BOOST.matcher(
+                "If a Fire Character you control deals damage to a Forward, the damage increases by 1000 instead.").find(),
+                "friendly-Character grant must not match the self pattern");
+        assertFalse(AutoAbilityTriggers.FA_OUTGOING_FLAT_BOOST.matcher(
+                "If your Fire Summon or a Fire Character you control deals damage to a Forward, the damage increases by 2000 instead.").find(),
+                "Summon/Character grant must not match the self pattern");
+        // The cost-qualified self variant is a different pattern and must not match this one either.
+        assertFalse(AutoAbilityTriggers.FA_OUTGOING_FLAT_BOOST.matcher(
+                "If Gilgamesh deals damage to a Forward of cost 5 or more, the damage increases by 2000 instead.").find(),
+                "cost-qualified variant belongs to FA_OUTGOING_FLAT_BOOST_VS_COST");
+    }
+
+    @Test
+    void selfOutgoingBoostHelperRespectsNameLostAbilitiesAndThreshold() {
+        MainWindow mw = new MainWindow();
+        CardData gladiolus = makeFieldAbilityForward("Gladiolus", GLADIOLUS_BOOST_TEXT);
+        assertEquals(2000, mw.selfOutgoingFlatBoostVsForward(gladiolus, true), "unconditional boost applies");
+
+        mw.lostAbilitiesCards.add(gladiolus);
+        assertEquals(0, mw.selfOutgoingFlatBoostVsForward(gladiolus, true), "no boost while abilities are lost");
+
+        // A card that doesn't own the ability text gets nothing (name guard).
+        assertEquals(0, mw.selfOutgoingFlatBoostVsForward(makeForward("Amon", "Fire", 3, 7000), true));
+
+        // Foulander's boost is gated on 3 damage in its controller's Damage Zone.
+        CardData foulander = makeFieldAbilityForward("Foulander", FOULANDER_TEXT);
+        assertEquals(0, mw.selfOutgoingFlatBoostVsForward(foulander, true), "no damage yet — gated off");
+        List<CardData> dmgZone = mw.gameState.getP1DamageZone();
+        dmgZone.add(makeForward("D1", "Fire", 1, 1000));
+        dmgZone.add(makeForward("D2", "Fire", 1, 1000));
+        assertEquals(0, mw.selfOutgoingFlatBoostVsForward(foulander, true), "2 damage — still gated off");
+        dmgZone.add(makeForward("D3", "Fire", 1, 1000));
+        assertEquals(2000, mw.selfOutgoingFlatBoostVsForward(foulander, true), "3 damage — boost active");
+    }
+
+    @Test
+    void gladiolusCombatDamageToForwardIsBoosted() {
+        MainWindow mw = new MainWindow();
+        CardData gladiolus = makeFieldAbilityForward("Gladiolus", GLADIOLUS_BOOST_TEXT);
+        mw.placeCardInForwardZone(gladiolus); // P1 idx 0
+        CardData target = makeForward("Amon", "Lightning", 3, 7000);
+        assertEquals(10000, mw.modifyOutgoingCombatDamage(true, 0, 8000, target),
+                "combat damage to a Forward gains +2000");
+        // No target Forward (e.g. direct opponent damage) → the vs-Forward boost doesn't apply.
+        assertEquals(8000, mw.modifyOutgoingCombatDamage(true, 0, 8000, null),
+                "boost is scoped to dealing damage to a Forward");
+    }
+
+    // =========================================================================================
+    // Monster/Backup acting as a Forward: a card acting as a Forward is a Forward for every
+    // eligible purpose, so combat damage modifiers (self boost, doubler) and incoming-damage
+    // protections now apply to it via the zone-aware combat pipeline.
+    // =========================================================================================
+
+    @Test
+    void monsterAsForwardCombatDamageGetsSelfBoost() {
+        MainWindow mw = new MainWindow();
+        // Foulander is a Monster; its boost sits behind a Damage-3 threshold.
+        CardData foulander = makeFieldAbilityCard("Foulander", "Fire", "Monster", FOULANDER_TEXT);
+        mw.p1MonsterCards.add(foulander);
+        mw.p1MonsterStates.add(CardState.ACTIVE);
+        mw.p1MonsterDamage.add(0);
+        CardData target = makeForward("Amon", "Lightning", 3, 7000);
+
+        // Below threshold: no boost.
+        assertEquals(4000, mw.modifyOutgoingCombatDamage(true, ForwardTarget.CardZone.MONSTER, 0, 4000, target),
+                "monster-as-forward with <3 damage deals unmodified combat damage");
+
+        // At threshold: the self boost applies to its combat damage, just like a real Forward.
+        List<CardData> dz = mw.gameState.getP1DamageZone();
+        dz.add(makeForward("D1", "Fire", 1, 1000));
+        dz.add(makeForward("D2", "Fire", 1, 1000));
+        dz.add(makeForward("D3", "Fire", 1, 1000));
+        assertEquals(6000, mw.modifyOutgoingCombatDamage(true, ForwardTarget.CardZone.MONSTER, 0, 4000, target),
+                "monster-as-forward combat damage now gains +2000");
+    }
+
+    @Test
+    void backupAsForwardCombatDamageGetsOutgoingDoubler() {
+        MainWindow mw = new MainWindow();
+        // A backup acting as a Forward with the generic outgoing doubler.
+        CardData bruiser = makeFieldAbilityCard("Bruiser", "Fire", "Backup",
+                "If Bruiser deals damage to a Forward or your opponent, double the damage instead.");
+        mw.p1BackupCards[0] = bruiser;
+        mw.p1BackupStates[0] = CardState.ACTIVE;
+        CardData target = makeForward("Amon", "Lightning", 3, 7000);
+        assertEquals(6000, mw.modifyOutgoingCombatDamage(true, ForwardTarget.CardZone.BACKUP, 0, 3000, target),
+                "backup-as-forward combat damage is doubled by its own field ability");
+    }
+
+    @Test
+    void backupAsForwardReceivesSelfIncomingReduction() {
+        MainWindow mw = new MainWindow();
+        // A backup acting as a Forward with a self incoming-damage reduction.
+        CardData ward = makeFieldAbilityCard("Ward", "Earth", "Backup",
+                "If Ward is dealt damage by a Forward, reduce the damage by 3000 instead.");
+        mw.p1BackupCards[0] = ward;
+        mw.p1BackupStates[0] = CardState.ACTIVE;
+        // Combat damage (fromAbility=false) to the backup-as-forward is reduced.
+        assertEquals(5000, mw.modifyIncomingDamage(true, ForwardTarget.CardZone.BACKUP, 0, 8000, false, false),
+                "incoming combat damage to a backup-as-forward is reduced by its field ability");
+    }
+
+    @Test
+    void forwardZoneCombatDamageUnchangedByZoneAwareRefactor() {
+        // Regression: routing through the zone-aware path must not change real Forward-vs-Forward.
+        MainWindow mw = new MainWindow();
+        CardData gladiolus = makeFieldAbilityForward("Gladiolus", GLADIOLUS_BOOST_TEXT);
+        mw.placeCardInForwardZone(gladiolus);
+        CardData target = makeForward("Amon", "Lightning", 3, 7000);
+        assertEquals(10000, mw.modifyOutgoingCombatDamage(true, ForwardTarget.CardZone.FORWARD, 0, 8000, target));
+        assertEquals(10000, mw.modifyOutgoingCombatDamage(true, 0, 8000, target),
+                "the FORWARD overload matches the explicit-zone call");
+    }
+
+    // =========================================================================================
+    // Breaktouch parity: "deals damage to a Forward, break it" and battle Breaktouch resolve
+    // against a Monster/Backup acting as a Forward, not only real Forwards.
+    // =========================================================================================
+
+    /** Builds a Forward whose autoAbilities are parsed from {@code text}. */
+    private static CardData makeAutoAbilityForward(String name, String text) {
+        return new CardData(null, name, "Fire", 3, 7000, "Forward", false, 0, false, false,
+                Set.of(), 0, List.of(), null, List.of(),
+                List.of(), CardData.parseAutoAbilities(text), List.of(), List.of(), List.of(),
+                List.of(), List.of(), List.of(), List.of(), List.of(),
+                false, false, null, false, false, false, false, false, false,
+                null, null, null, text);
+    }
+
+    @Test
+    void breaktouchBreaksBackupActingAsForward() {
+        MainWindow mw = new MainWindow();
+        CardData slayer = makeAutoAbilityForward("Slayer", "When Slayer deals damage to a Forward, break it.");
+        // The damaged card is an opponent Backup acting as a Forward.
+        CardData golem = makeFieldAbilityCard("Golem", "Earth", "Backup", "");
+        mw.gameState.getIdentity().put(golem, false); // owned by P2
+        mw.p2BackupCards[0]  = golem;
+        mw.p2BackupStates[0] = CardState.ACTIVE;
+        assertTrue(mw.fireBreaktouchForDamage(slayer, true, false, ForwardTarget.CardZone.BACKUP, 0),
+                "'deals damage to a Forward, break it' fires against a backup acting as a Forward");
+        assertNull(mw.p2BackupCards[0], "the backup-as-forward was broken");
+    }
+
+    @Test
+    void breaktouchWithoutTriggerLeavesActingForwardIntact() {
+        MainWindow mw = new MainWindow();
+        CardData plain = makeForward("Bench", "Fire", 3, 7000); // no break trigger
+        CardData golem = makeFieldAbilityCard("Golem", "Earth", "Backup", "");
+        mw.gameState.getIdentity().put(golem, false); // owned by P2
+        mw.p2BackupCards[0]  = golem;
+        mw.p2BackupStates[0] = CardState.ACTIVE;
+        assertFalse(mw.fireBreaktouchForDamage(plain, true, false, ForwardTarget.CardZone.BACKUP, 0),
+                "no break trigger — nothing fires");
+        assertNotNull(mw.p2BackupCards[0], "the backup-as-forward survives");
+    }
+
+    // =========================================================================================
+    // Counter-conditioned grants: "Each Forward you control with a [X] Counter on it gains
+    // [+N power | \"ability\"]." (Legendary Turk, Kimahri, Tidus)
+    // =========================================================================================
+
+    private static final String LEGENDARY_TURK_TEXT =
+            "Each Forward you control with a Turks Counter on it gains +5000 power.[[br]]   "
+            + "Discard 2 cards: Choose 1 Category VII Forward you control. Place 1 Turks Counter on it.[[br]]   "
+            + "Put Legendary Turk into the Break Zone: Choose 1 Forward. Break it. "
+            + "You can only use this ability if a Turks Counter is placed on Legendary Turk.";
+
+    private static final String KIMAHRI_TEXT =
+            "Each Forward you control with a Ronso Counter on it gains \"If this Forward is dealt "
+            + "damage by your opponent's Summons or abilities, the damage becomes 0 instead.\"[[br]]   "
+            + "When Kimahri enters the field, choose 1 Forward you control. Place 1 Ronso Counter on it.";
+
+    private static final String TIDUS_TEXT =
+            "Each Forward you control with a Guardian Counter on it gains \"If this Forward is dealt "
+            + "damage by abilities, reduce the damage by 5000 instead.\"[[br]]"
+            + "When Tidus enters the field, choose 1 Forward. Place 1 Guardian Counter on it and Tidus.[[br]]"
+            + "《Water》《1》: All the Forwards you control gain +1000 power until the end of the turn.";
+
+    @Test
+    void legendaryTurkParsesAsCounterPowerGrant() {
+        CardData turk = makeFieldAbilityCard("Legendary Turk", "Ice", "Forward", LEGENDARY_TURK_TEXT);
+        List<CounterGrant> grants = turk.counterGrants();
+        assertEquals(1, grants.size(), "the power grant parses out from the sibling action abilities");
+        CounterGrant cg = grants.get(0);
+        assertEquals("Turks", cg.counterName());
+        assertEquals(5000, cg.powerBonus());
+        assertNull(cg.grantedAbilityText());
+    }
+
+    @Test
+    void kimahriAndTidusParseAsCounterAbilityGrants() {
+        CounterGrant ronso = makeFieldAbilityCard("Kimahri", "Water", "Backup", KIMAHRI_TEXT)
+                .counterGrants().get(0);
+        assertEquals("Ronso", ronso.counterName());
+        assertEquals(0, ronso.powerBonus());
+        assertEquals("If this Forward is dealt damage by your opponent's Summons or abilities, "
+                + "the damage becomes 0 instead.", ronso.grantedAbilityText());
+        // The granted text must be recognized by the incoming damage-modifier parser.
+        assertTrue(AutoAbilityTriggers.FA_DAMAGE_MODIFIER.matcher(ronso.grantedAbilityText()).find());
+
+        CounterGrant guardian = makeFieldAbilityCard("Tidus", "Water", "Forward", TIDUS_TEXT)
+                .counterGrants().get(0);
+        assertEquals("Guardian", guardian.counterName());
+        assertEquals("If this Forward is dealt damage by abilities, reduce the damage by 5000 instead.",
+                guardian.grantedAbilityText());
+        // "by abilities" (no article) must now match the incoming damage-modifier parser.
+        assertTrue(AutoAbilityTriggers.FA_DAMAGE_MODIFIER.matcher(guardian.grantedAbilityText()).find(),
+                "bare 'by abilities' should be recognized");
+    }
+
+    @Test
+    void turksCounterPowerGrantAppliesOnlyToCountedForward() {
+        MainWindow mw = new MainWindow();
+        CardData turk    = makeFieldAbilityCard("Legendary Turk", "Ice", "Forward", LEGENDARY_TURK_TEXT);
+        CardData counted = makeForward("Rufus", "Ice", 3, 7000);
+        mw.placeCardInForwardZone(turk);    // P1 idx 0
+        mw.placeCardInForwardZone(counted); // P1 idx 1
+        assertEquals(7000, mw.effectiveP1ForwardPower(1), "no counter yet — no boost");
+
+        mw.gameState.placeCounters(counted, "Turks", 1);
+        assertEquals(12000, mw.effectiveP1ForwardPower(1), "Turks Counter → +5000");
+        // A different counter type does not qualify.
+        CardData other = makeForward("Reno", "Ice", 3, 6000);
+        mw.placeCardInForwardZone(other);   // P1 idx 2
+        mw.gameState.placeCounters(other, "Shuriken", 1);
+        assertEquals(6000, mw.effectiveP1ForwardPower(2), "wrong counter type → no boost");
+    }
+
+    @Test
+    void ronsoCounterGrantZeroesOpponentAbilityDamage() {
+        MainWindow mw = new MainWindow();
+        mw.p1BackupCards[0] = makeFieldAbilityCard("Kimahri", "Water", "Backup", KIMAHRI_TEXT);
+        mw.p1BackupStates[0] = CardState.ACTIVE;
+        CardData counted = makeForward("Yuna", "Water", 3, 7000);
+        mw.placeCardInForwardZone(counted); // P1 idx 0
+
+        // No counter yet: ability damage passes through unchanged.
+        assertEquals(8000, mw.modifyIncomingDamage(true, ForwardTarget.CardZone.FORWARD, 0, 8000, true, false),
+                "no Ronso Counter — damage unmodified");
+
+        mw.gameState.placeCounters(counted, "Ronso", 1);
+        assertEquals(0, mw.modifyIncomingDamage(true, ForwardTarget.CardZone.FORWARD, 0, 8000, true, false),
+                "Ronso Counter — ability damage becomes 0");
+        // Combat damage (not from an ability/summon) is unaffected by the grant.
+        assertEquals(8000, mw.modifyIncomingDamage(true, ForwardTarget.CardZone.FORWARD, 0, 8000, false, false),
+                "grant only covers Summons/abilities, not battle damage");
+    }
+
+    @Test
+    void guardianCounterGrantReducesAbilityDamageBy5000() {
+        MainWindow mw = new MainWindow();
+        mw.placeCardInForwardZone(makeFieldAbilityCard("Tidus", "Water", "Forward", TIDUS_TEXT)); // idx 0
+        CardData counted = makeForward("Wakka", "Water", 3, 9000);
+        mw.placeCardInForwardZone(counted); // idx 1
+        mw.gameState.placeCounters(counted, "Guardian", 1);
+        assertEquals(3000, mw.modifyIncomingDamage(true, ForwardTarget.CardZone.FORWARD, 1, 8000, true, false),
+                "Guardian Counter — ability damage reduced by 5000");
     }
 }
