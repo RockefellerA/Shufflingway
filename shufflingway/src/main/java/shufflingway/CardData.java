@@ -1731,6 +1731,16 @@ public record CardData(
     );
 
     /**
+     * Matches a prefix condition requiring a named card (optionally with a specific Job) to be
+     * in the owner's Break Zone:
+     * "if you have a Card Name X [with Job Y] in your Break Zone, "
+     */
+    private static final Pattern FA_BZ_HAVE_CONDITION = Pattern.compile(
+        "(?i)^if\\s+you\\s+have\\s+a\\s+Card\\s+Name\\s+(?<bzCard>.+?)" +
+        "(?:\\s+with\\s+Job\\s+(?<bzJob>.+?))?\\s+in\\s+your\\s+Break\\s+Zone,\\s+"
+    );
+
+    /**
      * Matches a prefix condition requiring the card's cast cost to have been paid with CP from
      * N or more different element types:
      * "if the cost to cast X was paid with CP of N or more different Elements, "
@@ -2132,6 +2142,7 @@ public record CardData(
         boolean oncePerTurn = false, yourTurnOnly = false;
         String  rfpConditionCard = "";
         String  bzConditionCard  = "";
+        String  bzConditionJob   = "";
         int     castPaymentMinElements = 0;
 
         // Suffix restrictions (strip from end)
@@ -2154,6 +2165,14 @@ public record CardData(
             effect = effect.substring(0, bzCond.start()).trim().replaceAll("[.!,]+$", "").trim();
         }
 
+        // Prefix condition: "if you have a Card Name X [with Job Y] in your Break Zone, "
+        Matcher bzHave = FA_BZ_HAVE_CONDITION.matcher(effect);
+        if (bzHave.find()) {
+            bzConditionCard = bzHave.group("bzCard").trim();
+            if (bzHave.group("bzJob") != null) bzConditionJob = bzHave.group("bzJob").trim();
+            effect = effect.substring(bzHave.end()).trim();
+        }
+
         // Prefix condition: "if the cost to cast X was paid with CP of N or more different Elements, "
         Matcher pay = FA_CAST_PAYMENT_ELEMENTS.matcher(effect);
         if (pay.find()) {
@@ -2163,7 +2182,7 @@ public record CardData(
 
         if (effect.isEmpty()) return null;
         return new AutoAbility(card, trigger, youMay, opponentMay, effect,
-                oncePerTurn, yourTurnOnly, rfpConditionCard, bzConditionCard, castPaymentMinElements, castOnly, warpOnly, damageThreshold,
+                oncePerTurn, yourTurnOnly, rfpConditionCard, bzConditionCard, bzConditionJob, castPaymentMinElements, castOnly, warpOnly, damageThreshold,
                 partyMinCount, partyCategory, partyJob, partyCardName);
     }
 

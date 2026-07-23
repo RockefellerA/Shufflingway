@@ -2541,4 +2541,38 @@ public class CardBehaviorTest {
         mw.buildGameContext(true).boostTarget(t, -2000, java.util.EnumSet.noneOf(CardData.Trait.class));
         assertEquals(-2000, mw.p1ForwardPowerBoost.get(0));
     }
+
+    // =========================================================================================
+    // Cecil: "When Cecil enters the field, if you have a Card Name Cecil with Job Dark Knight
+    // in your Break Zone, draw 1 card." — the "if you have a Card Name X with Job Y in your
+    // Break Zone" prefix becomes a bzConditionCard + bzConditionJob firing gate.
+    // =========================================================================================
+
+    private static final String CECIL_BZ_COND_TEXT =
+            "When Cecil enters the field, if you have a Card Name Cecil with Job Dark Knight "
+            + "in your Break Zone, draw 1 card.";
+
+    @Test
+    void cecilBzNameAndJobConditionParsesAsFiringGate() {
+        List<AutoAbility> autos = CardData.parseAutoAbilities(CECIL_BZ_COND_TEXT);
+        assertEquals(1, autos.size());
+        AutoAbility fa = autos.get(0);
+        assertEquals("enters the field", fa.trigger());
+        assertEquals("Cecil", fa.triggerCard());
+        assertEquals("Cecil", fa.bzConditionCard());
+        assertEquals("Dark Knight", fa.bzConditionJob());
+        assertEquals("draw 1 card.", fa.effectText());
+        assertNotNull(ActionResolver.parse(fa.effectText(), null), "stripped effect should parse");
+    }
+
+    @Test
+    void bzNameConditionWithoutJobLeavesJobEmpty() {
+        List<AutoAbility> autos = CardData.parseAutoAbilities(
+                "When Cecil enters the field, if you have a Card Name Golbez in your Break Zone, draw 1 card.");
+        assertEquals(1, autos.size());
+        AutoAbility fa = autos.get(0);
+        assertEquals("Golbez", fa.bzConditionCard());
+        assertEquals("", fa.bzConditionJob());
+        assertEquals("draw 1 card.", fa.effectText());
+    }
 }

@@ -1591,10 +1591,13 @@ final class AutoAbilityTriggers {
 		}
 
 		// "only if [card] is in the Break Zone" — skip if that card is not in the owner's Break Zone
+		// (with an optional Job requirement: "a Card Name X with Job Y in your Break Zone")
 		if (!fa.bzConditionCard().isEmpty()) {
-			String cond = fa.bzConditionCard();
+			String cond    = fa.bzConditionCard();
+			String condJob = fa.bzConditionJob().isEmpty() ? null : fa.bzConditionJob();
 			List<CardData> bz = isP1 ? mw.gameState.getP1BreakZone() : mw.gameState.getP2BreakZone();
-			if (bz.stream().noneMatch(c -> CardFilters.meetsCardNameFilter(c, cond))) return;
+			if (bz.stream().noneMatch(c -> CardFilters.meetsCardNameFilter(c, cond)
+					&& CardFilters.meetsJobFilter(c, condJob))) return;
 		}
 
 		// "only once per turn" — skip if already fired this turn
