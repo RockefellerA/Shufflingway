@@ -62,11 +62,17 @@ public class AbilityPaymentDialog {
     private final Runnable         onZoomHide;
     private final CardData.SpecialAbilityProxy proxy;
     private final Callback         onConfirm;
+    private final java.util.Set<String> ldDiscardGrants;
 
+    /**
+     * @param ldDiscardGrants Light/Dark elements the player may discard from hand for CP via a
+     *     field grant (see {@code MainWindow.lightDarkDiscardGrants}); empty when none apply.
+     */
     public AbilityPaymentDialog(JFrame owner, ActionAbility ability, CardData source,
             List<CardData> hand, CardData[] backupCards, CardState[] backupStates,
             String[] backupUrls, Consumer<String> onZoom, Runnable onZoomHide,
-            CardData.SpecialAbilityProxy proxy, Callback onConfirm) {
+            CardData.SpecialAbilityProxy proxy, java.util.Set<String> ldDiscardGrants,
+            Callback onConfirm) {
         this.owner        = owner;
         this.ability      = ability;
         this.source       = source;
@@ -77,6 +83,7 @@ public class AbilityPaymentDialog {
         this.onZoom       = onZoom;
         this.onZoomHide   = onZoomHide;
         this.proxy        = proxy;
+        this.ldDiscardGrants = ldDiscardGrants;
         this.onConfirm    = onConfirm;
     }
 
@@ -313,7 +320,7 @@ public class AbilityPaymentDialog {
             // Same-named or proxy-substitute cards go to the S slot, not to CP payment.
             boolean sameNamed = ability.isSpecial() && (source.name().equalsIgnoreCase(hc.name())
                     || (proxy != null && proxy.meetsSubstitute(hc)));
-            boolean payable   = !sameNamed && !hc.isLightOrDark() && hc != source;
+            boolean payable   = !sameNamed && CpPaymentUtils.canDiscardForCp(hc, ldDiscardGrants) && hc != source;
             JLabel lbl = makeCardLabel();
             lbl.setBackground(payable || sameNamed ? Color.DARK_GRAY : new Color(50, 50, 50));
             lbl.setBorder(sameNamed

@@ -28,15 +28,16 @@ import javax.swing.SwingConstants;
 import javax.swing.SwingWorker;
 
 import shufflingway.BackupCpGrant;
-import shufflingway.graphics.CardAnimation;
-import static shufflingway.graphics.CardAnimation.CARD_H;
-import static shufflingway.graphics.CardAnimation.CARD_W;
 import shufflingway.CardData;
 import shufflingway.CardState;
+import shufflingway.CpPaymentUtils;
 import static shufflingway.CpPaymentUtils.contributingElement;
 import static shufflingway.CpPaymentUtils.matchesAnyElement;
 import shufflingway.FontLoader;
 import shufflingway.ImageCache;
+import shufflingway.graphics.CardAnimation;
+import static shufflingway.graphics.CardAnimation.CARD_H;
+import static shufflingway.graphics.CardAnimation.CARD_W;
 
 /** CP payment dialog for a Warp alternate cost. */
 public class WarpPaymentDialog {
@@ -58,11 +59,17 @@ public class WarpPaymentDialog {
     private final Consumer<String> onZoom;
     private final Runnable         onZoomHide;
     private final ConfirmCallback  onConfirm;
+    private final java.util.Set<String> ldDiscardGrants;
 
+    /**
+     * @param ldDiscardGrants Light/Dark elements the player may discard from hand for CP via a
+     *     field grant (see {@code MainWindow.lightDarkDiscardGrants}); empty when none apply.
+     */
     public WarpPaymentDialog(JFrame owner, CardData card, int handIdx,
             List<CardData> hand, CardData[] backupCards, CardState[] backupStates,
             String[] backupUrls, List<CardData> controlledForwards,
             Consumer<String> onZoom, Runnable onZoomHide,
+            java.util.Set<String> ldDiscardGrants,
             ConfirmCallback onConfirm) {
         this.owner              = owner;
         this.card               = card;
@@ -74,6 +81,7 @@ public class WarpPaymentDialog {
         this.controlledForwards = controlledForwards;
         this.onZoom             = onZoom;
         this.onZoomHide         = onZoomHide;
+        this.ldDiscardGrants    = ldDiscardGrants;
         this.onConfirm          = onConfirm;
     }
 
@@ -245,7 +253,7 @@ public class WarpPaymentDialog {
         for (int i = 0; i < hand.size(); i++) {
             if (i == handIdx) continue;
             final int hi = i; CardData hc = hand.get(i);
-            boolean payable = !hc.isLightOrDark();
+            boolean payable = CpPaymentUtils.canDiscardForCp(hc, ldDiscardGrants);
             JLabel lbl = makeCardLabel();
             lbl.setBackground(payable ? Color.DARK_GRAY : new Color(50, 50, 50));
             lbl.setBorder(BorderFactory.createLineBorder(payable ? Color.GRAY : new Color(80, 80, 80), 1));

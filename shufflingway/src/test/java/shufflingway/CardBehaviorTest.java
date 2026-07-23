@@ -4,7 +4,10 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.function.Consumer;
 import java.util.function.Predicate;
@@ -2686,5 +2689,153 @@ public class CardBehaviorTest {
         assertTrue(mw.icbConditionsMet(icb, true), "cost-3 Forward doesn't break the condition");
         mw.placeP2CardInForwardZone(makeForward("Big", "Fire", 5, 9000));
         assertFalse(mw.icbConditionsMet(icb, true), "cost-5 Forward breaks the condition");
+    }
+
+    // =========================================================================================
+    // Tilika / Spiritus: "You can discard [Light and Dark|Dark] Element cards from your hand
+    // to produce CP." — a field-wide payment grant handled as a static card property.
+    // =========================================================================================
+
+    private static final String TILIKA_DISCARD_CP_TEXT =
+            "You can discard Light and Dark Element cards from your hand to produce CP. "
+            + "(Light cards produce 2 Light CP each and Dark cards produce 2 Dark CP each.)";
+
+    @Test
+    void tilikaLightAndDarkDiscardCpGrantParses() {
+        CardData tilika = makeFieldAbilityForward("Tilika", TILIKA_DISCARD_CP_TEXT);
+        assertEquals(List.of("Light", "Dark"), tilika.grantsLightDarkDiscardCp());
+        // The segment must count as recognized so it doesn't show as an unparsed field ability
+        assertNotNull(ActionResolver.parse(TILIKA_DISCARD_CP_TEXT, tilika),
+                "discard-for-CP grant should be recognized as a no-op field ability");
+    }
+
+    /** Boss card variation: Dark-only grant embedded among Spiritus's other field abilities. */
+    private static final String SPIRITUS_TEXT =
+            "Spiritus cannot leave the field due to your opponent's Summons or abilities.[[br]]   "
+            + "You can play 2 or more Dark Characters onto the field.[[br]]   "
+            + "If Spiritus is on the field, Spiritus can produce CP of any Element. [[br]]   "
+            + "You can discard Dark Element cards from your hand to produce CP. "
+            + "(Dark cards produce 2 Dark CP each.)";
+
+    @Test
+    void spiritusDarkOnlyDiscardCpGrantParsesAmongOtherSegments() {
+        CardData spiritus = makeFieldAbilityForward("Spiritus", SPIRITUS_TEXT);
+        assertEquals(List.of("Dark"), spiritus.grantsLightDarkDiscardCp());
+        assertEquals("Dark", spiritus.grantsMultiLightDarkPlay(),
+                "sibling multi-play grant segment must still parse");
+    }
+
+    @Test
+    void hypotheticalLightOnlyDiscardCpGrantParses() {
+        CardData card = makeFieldAbilityForward("Materia",
+                "You can discard Light Element cards from your hand to produce CP. "
+                + "(Light cards produce 2 Light CP each.)");
+        assertEquals(List.of("Light"), card.grantsLightDarkDiscardCp());
+    }
+
+    @Test
+    void noDiscardCpGrantYieldsEmptyList() {
+        CardData plain = makeForward("Amon", "Lightning", 3, 7000);
+        assertEquals(List.of(), plain.grantsLightDarkDiscardCp());
+    }
+
+    // =========================================================================================
+    // Wiring: the discard-for-CP grant feeds payment eligibility and affordability.
+    // =========================================================================================
+
+    @Test
+    void canDiscardForCpGatesLightDarkOnGrant() {
+        CardData light = makeForward("Rem", "Light", 3, 7000);
+        CardData fire  = makeForward("Ifrit", "Fire", 3, 7000);
+        assertTrue(CpPaymentUtils.canDiscardForCp(fire, Set.of()), "non-L/D always discardable");
+        assertFalse(CpPaymentUtils.canDiscardForCp(light, Set.of()), "Light blocked without grant");
+        assertFalse(CpPaymentUtils.canDiscardForCp(light, Set.of("Dark")), "Dark-only grant doesn't cover Light");
+        assertTrue(CpPaymentUtils.canDiscardForCp(light, Set.of("Light", "Dark")), "grant covers Light");
+    }
+
+    @Test
+    void lightDarkDiscardGrantsCollectFromControlledFieldCards() {
+        MainWindow mw = new MainWindow();
+        assertEquals(Set.of(), mw.lightDarkDiscardGrants(true), "no grant by default");
+
+        CardData tilika = makeFieldAbilityForward("Tilika", TILIKA_DISCARD_CP_TEXT);
+        mw.p1ForwardCards.add(tilika);
+        assertEquals(Set.of("Light", "Dark"), mw.lightDarkDiscardGrants(true));
+        assertEquals(Set.of(), mw.lightDarkDiscardGrants(false), "P1's grant doesn't apply to P2");
+
+        mw.p2BackupCards[0] = makeFieldAbilityForward("Spiritus", SPIRITUS_TEXT);
+        assertEquals(Set.of("Dark"), mw.lightDarkDiscardGrants(false), "Spiritus grants Dark to P2");
+
+        // A card that has lost its abilities stops granting
+        mw.lostAbilitiesCards.add(tilika);
+        assertEquals(Set.of(), mw.lightDarkDiscardGrants(true));
+    }
+
+    @Test
+    void tilikaGrantMakesLightHandCardCountTowardAffordability() {
+        MainWindow mw = new MainWindow();
+        CardData earthCast = makeForward("Enkidu", "Earth", 4, 7000);
+        List<CardData> hand = mw.gameState.getP1Hand();
+        hand.add(earthCast);                                // idx 0 — the card being cast
+        hand.add(makeForward("Gaia", "Earth", 2, 5000));    // idx 1 — 2 CP, satisfies Earth
+        hand.add(makeForward("Rem", "Light", 2, 5000));     // idx 2 — Light, needs the grant
+        assertFalse(mw.canAffordCard(earthCast, 0), "only 2 CP available without the grant");
+
+        mw.p1ForwardCards.add(makeFieldAbilityForward("Tilika", TILIKA_DISCARD_CP_TEXT));
+        assertTrue(mw.canAffordCard(earthCast, 0), "Light discard adds 2 CP once granted");
+    }
+
+    @Test
+    void spiritusGrantMakesDarkHandCardCountForDarkCast() {
+        MainWindow mw = new MainWindow();
+        CardData darkCast = makeForward("Cloud of Darkness", "Dark", 4, 9000);
+        List<CardData> hand = mw.gameState.getP1Hand();
+        hand.add(darkCast);                                     // idx 0 — the card being cast
+        hand.add(makeForward("Nightmare", "Dark", 2, 5000));    // idx 1 — Dark, needs the grant
+        hand.add(makeForward("Ifrit", "Fire", 2, 5000));        // idx 2 — 2 CP toward L/D cast
+        assertFalse(mw.canAffordCard(darkCast, 0), "only 2 CP available without the grant");
+
+        mw.p1BackupCards[0] = makeFieldAbilityForward("Spiritus", SPIRITUS_TEXT);
+        assertTrue(mw.canAffordCard(darkCast, 0), "Dark discard adds 2 CP once granted");
+    }
+
+    // =========================================================================================
+    // P2 payment planner: off-color hand discards act as generic filler (Phase 2b), matching
+    // the engine's rules model where only per-element minimums need matching sources.
+    // =========================================================================================
+
+    @Test
+    void p2PlannerUsesOffColorDiscardsAsGenericFiller() {
+        MainWindow mw = new MainWindow();
+        ComputerPlayer cpu = new ComputerPlayer(mw);
+        CardData darkCast = makeForward("Nightmare", "Dark", 2, 5000);
+        List<CardData> hand = mw.gameState.getP2Hand();
+        hand.add(darkCast);                                 // idx 0 — the card being cast
+        hand.add(makeForward("Ifrit", "Fire", 3, 7000));    // idx 1 — off-color filler
+        List<Integer> backups = new ArrayList<>();
+        Map<Integer, String> backupElems = new LinkedHashMap<>();
+        List<Integer> discards = new ArrayList<>();
+        Map<Integer, String> discardElems = new LinkedHashMap<>();
+        assertTrue(cpu.p2PlanPayment(darkCast, 2, 0, -1, backups, backupElems, discards, discardElems),
+                "off-color Fire discard covers the Dark cast as generic filler");
+        assertEquals(List.of(1), discards);
+        assertEquals("Dark", discardElems.get(1), "off-color CP deposits into the cast element bucket");
+    }
+
+    @Test
+    void p2PlannerOffColorDiscardsCannotSatisfyPerElementMinimums() {
+        MainWindow mw = new MainWindow();
+        ComputerPlayer cpu = new ComputerPlayer(mw);
+        CardData dual = makeForward("Fusoya", "Fire/Ice", 2, 7000);
+        List<CardData> hand = mw.gameState.getP2Hand();
+        hand.add(dual);                                          // idx 0 — the card being cast
+        hand.add(makeForward("Ramuh", "Lightning", 3, 7000));    // off-color only
+        hand.add(makeForward("Ixion", "Lightning", 3, 7000));
+        List<Integer> backups = new ArrayList<>();
+        Map<Integer, String> backupElems = new LinkedHashMap<>();
+        List<Integer> discards = new ArrayList<>();
+        Map<Integer, String> discardElems = new LinkedHashMap<>();
+        assertFalse(cpu.p2PlanPayment(dual, 2, 0, -1, backups, backupElems, discards, discardElems),
+                "a Fire/Ice cast still needs 1 Fire and 1 Ice from matching sources");
     }
 }

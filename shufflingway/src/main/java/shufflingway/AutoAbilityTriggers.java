@@ -2504,11 +2504,13 @@ final class AutoAbilityTriggers {
 		}
 
 		if (!hand.isEmpty()) {
+			java.util.Set<String> ldGrants = mw.lightDarkDiscardGrants(isP1);
 			JLabel discHdr = new JLabel("Hand — discard for 2 CP each:");
 			discHdr.setFont(FontLoader.loadPixelNESFont(9)); discHdr.setAlignmentX(Component.LEFT_ALIGNMENT);
 			JPanel dp = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 6)); dp.setAlignmentX(Component.LEFT_ALIGNMENT);
 			for (int i = 0; i < hand.size(); i++) {
-				final int hi = i; CardData hc = hand.get(i); boolean payable = !hc.isLightOrDark();
+				final int hi = i; CardData hc = hand.get(i);
+				boolean payable = CpPaymentUtils.canDiscardForCp(hc, ldGrants);
 				JLabel lbl = new JLabel("...", SwingConstants.CENTER);
 				lbl.setPreferredSize(new Dimension(CARD_W, CARD_H)); lbl.setMinimumSize(new Dimension(CARD_W, CARD_H));
 				lbl.setOpaque(true); lbl.setBackground(payable ? Color.DARK_GRAY : new Color(50, 50, 50));
@@ -2698,7 +2700,7 @@ final class AutoAbilityTriggers {
 
 		new AbilityPaymentDialog(mw.frame, eff, source,
 				mw.playerHand(isP1), mw.playerBackupCards(isP1), mw.playerBackupStates(isP1), mw.playerBackupUrls(isP1),
-				mw::showZoomAt, mw::hideZoom, null,
+				mw::showZoomAt, mw::hideZoom, null, mw.lightDarkDiscardGrants(isP1),
 				(discards, backups, xValue) -> {
 					List<ForwardTarget> bzTargets = resolveBzCostTargetsForBzAbility(bzCosts, isP1);
 					if (bzTargets == null) return;
@@ -3161,7 +3163,7 @@ final class AutoAbilityTriggers {
 		CardData.SpecialAbilityProxy proxy = eff.isSpecial() ? source.specialAbilityProxy() : null;
 		new AbilityPaymentDialog(mw.frame, eff, source,
 				mw.playerHand(isP1), mw.playerBackupCards(isP1), mw.playerBackupStates(isP1), mw.playerBackupUrls(isP1),
-				mw::showZoomAt, mw::hideZoom, proxy,
+				mw::showZoomAt, mw::hideZoom, proxy, mw.lightDarkDiscardGrants(isP1),
 				(discards, backups, xValue) -> executeAbilityPayment(eff, source, applyDull,
 						discards, backups, autoResolveBzTargets(source, bzCosts, isP1), isP1, xValue))
 			.show();

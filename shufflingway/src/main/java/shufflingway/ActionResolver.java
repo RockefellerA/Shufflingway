@@ -5556,6 +5556,9 @@ public class ActionResolver {
         result = tryParseMultiPlayGrant(effectText);
         if (result != null) return result;
 
+        result = tryParseLightDarkDiscardCpGrant(effectText);
+        if (result != null) return result;
+
         return null;
     }
 
@@ -5836,6 +5839,7 @@ public class ActionResolver {
         if (SELECT_FOLLOWING_ACTIONS_DETECT.matcher(effectText).find())        return "SelectFollowingActions";
         if (CardData.HAS_ALL_ELEMENTS_PATTERN.matcher(effectText.trim()).matches()) return "HasAllElements";
         if (tryParseMultiPlayGrant(effectText) != null)                         return "MultiPlayGrant";
+        if (tryParseLightDarkDiscardCpGrant(effectText) != null)                return "LightDarkDiscardCpGrant";
         return null;
     }
 
@@ -6359,6 +6363,7 @@ public class ActionResolver {
         if (SELECT_FOLLOWING_ACTIONS_DETECT.matcher(effectText).find())    return "SelectFollowingActions";
         if (CardData.HAS_ALL_ELEMENTS_PATTERN.matcher(effectText.trim()).matches()) return "HasAllElements";
         if (tryParseMultiPlayGrant(effectText) != null)                     return "MultiPlayGrant";
+        if (tryParseLightDarkDiscardCpGrant(effectText) != null)            return "LightDarkDiscardCpGrant";
         return null;
     }
 
@@ -12692,6 +12697,12 @@ public class ActionResolver {
     private static Consumer<GameContext> tryParseMultiPlayGrant(String text) {
         if (CardData.MULTI_LIGHT_DARK_PLAY_PATTERN.matcher(text).matches()) return ctx -> {};
         if (CardData.MULTI_NAME_PLAY_PATTERN.matcher(text).matches())       return ctx -> {};
+        return null;
+    }
+
+    /** No-op recogniser for the Light/Dark hand-discard CP grant handled as a static card property. */
+    private static Consumer<GameContext> tryParseLightDarkDiscardCpGrant(String text) {
+        if (CardData.LIGHT_DARK_DISCARD_CP_PATTERN.matcher(text).matches()) return ctx -> {};
         return null;
     }
 

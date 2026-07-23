@@ -842,8 +842,10 @@ class ComputerPlayer {
 		if (total >= cost) return true;
 
 		List<CardData> hand = mw.gameState.getP2Hand();
+		java.util.Set<String> ldGrants = mw.lightDarkDiscardGrants(false);
 		List<Integer> discardable = new ArrayList<>();
-		for (int i = 0; i < hand.size(); i++) if (!hand.get(i).isLightOrDark()) discardable.add(i);
+		for (int i = 0; i < hand.size(); i++)
+			if (CpPaymentUtils.canDiscardForCp(hand.get(i), ldGrants)) discardable.add(i);
 		discardable.sort((a, b) -> hand.get(a).cost() - hand.get(b).cost());
 		for (int di : discardable) {
 			if (total >= cost) break;
@@ -859,9 +861,9 @@ class ComputerPlayer {
 	 * backups (preferring less-versatile ones first) and then discarding hand cards
 	 * (cheapest matching-element first) until the simulated CP covers {@code reducedCost}.
 	 * Returns {@code true} when affordable; the chosen plan is written into the four
-	 * out-parameters.  Backups whose elements don't match any required element are skipped
-	 * since their CP would be wasted.  {@code excludeHandIdx == -1} means no exclusion
-	 * (used by BZ-cast where the source isn't in hand).
+	 * out-parameters.  Off-color backups and hand discards are used last: their CP counts
+	 * toward the total but cannot satisfy per-element minimums.  {@code excludeHandIdx == -1}
+	 * means no exclusion (used by BZ-cast where the source isn't in hand).
 	 */
 	private boolean p2PlanPayment(CardData card, int reducedCost, int excludeHandIdx,
 			List<Integer> outBackups, Map<Integer, String> outBackupElems,
@@ -875,7 +877,7 @@ class ComputerPlayer {
 	 * {@code reservedHandIdx} is held back from discard-for-CP (e.g. a same-name copy reserved
 	 * to pay a special ability's 《S》 discard cost). Pass -1 to reserve nothing.
 	 */
-	private boolean p2PlanPayment(CardData card, int reducedCost, int excludeHandIdx, int reservedHandIdx,
+	boolean p2PlanPayment(CardData card, int reducedCost, int excludeHandIdx, int reservedHandIdx,
 			List<Integer> outBackups, Map<Integer, String> outBackupElems,
 			List<Integer> outDiscards, Map<Integer, String> outDiscardElems) {
 		String[] elems = card.elements();
@@ -923,14 +925,19 @@ class ComputerPlayer {
 		}
 		if (p2CanAfford(reducedCost, elems, simCp, anyCp)) return true;
 
-		// Phase 2: discard cheapest matching-element non-Light/Dark hand cards.
+		// Phase 2: discard cheapest matching-element hand cards (Light/Dark only via field grant).
 		List<CardData> hand = mw.gameState.getP2Hand();
+		java.util.Set<String> ldGrants = mw.lightDarkDiscardGrants(false);
 		List<Integer> discardable = new ArrayList<>();
+		List<Integer> offColorDiscards = new ArrayList<>();
 		for (int i = 0; i < hand.size(); i++) {
 			if (i == excludeHandIdx || i == reservedHandIdx) continue;
 			CardData c = hand.get(i);
-			if (c.isLightOrDark()) continue;
-			for (String e : elems) if (c.containsElement(e)) { discardable.add(i); break; }
+			if (!CpPaymentUtils.canDiscardForCp(c, ldGrants)) continue;
+			boolean matches = false;
+			for (String e : elems) if (c.containsElement(e)) { matches = true; break; }
+			if (matches) discardable.add(i);
+			else         offColorDiscards.add(i);
 		}
 		discardable.sort((a, b) -> hand.get(a).cost() - hand.get(b).cost());
 		for (int di : discardable) {
@@ -940,7 +947,18 @@ class ComputerPlayer {
 			outDiscardElems.put(di, elems[ei]);
 			if (p2CanAfford(reducedCost, elems, simCp, anyCp)) return true;
 		}
-		return false;
+
+		// Phase 2b: off-color discards — their CP counts toward total but not per-element
+		// minimums (mirrors Phase 1b).  Assign to elems[0] so payP2CostViaBackupsAndDiscards
+		// deposits correctly; the spend phase drains and clears that bucket.
+		offColorDiscards.sort((a, b) -> hand.get(a).cost() - hand.get(b).cost());
+		for (int di : offColorDiscards) {
+			if (p2CanAfford(reducedCost, elems, simCp, anyCp)) break;
+			anyCp += 2;
+			outDiscards.add(di);
+			outDiscardElems.put(di, elems[0]);
+		}
+		return p2CanAfford(reducedCost, elems, simCp, anyCp);
 	}
 
 	/** Returns true when {@code cpByElemIdx} satisfies the cost and per-element minimums. */
@@ -1612,10 +1630,11 @@ class ComputerPlayer {
 		if (p2CanAfford(totalCost, elems, simCp, anyCp)) return true;
 
 		List<CardData> hand = mw.gameState.getP2Hand();
+		java.util.Set<String> ldGrants = mw.lightDarkDiscardGrants(false);
 		List<Integer> discardable = new ArrayList<>();
 		for (int i = 0; i < hand.size(); i++) {
 			CardData c = hand.get(i);
-			if (c.isLightOrDark()) continue;
+			if (!CpPaymentUtils.canDiscardForCp(c, ldGrants)) continue;
 			if (elems.length == 0 || genericCount > 0) { discardable.add(i); continue; }
 			for (String e : elems) if (c.containsElement(e)) { discardable.add(i); break; }
 		}

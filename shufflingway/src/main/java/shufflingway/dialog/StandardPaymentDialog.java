@@ -67,6 +67,7 @@ public class StandardPaymentDialog {
     private final ConfirmCallback onConfirm;
     private final boolean        anyElementCast;
     private final String[]       extraRequiredElements;
+    private final java.util.Set<String> ldDiscardGrants;
 
     public StandardPaymentDialog(JFrame owner, CardData card, int handIdx, int cost,
             List<CardData> hand, CardData[] backupCards, CardState[] backupStates,
@@ -82,19 +83,23 @@ public class StandardPaymentDialog {
             List<CardData> controlledForwards, ConfirmCallback onConfirm,
             boolean anyElementCast) {
         this(owner, card, handIdx, cost, hand, backupCards, backupStates, backupUrls,
-                onZoom, onZoomHide, controlledForwards, onConfirm, anyElementCast, null);
+                onZoom, onZoomHide, controlledForwards, onConfirm, anyElementCast, null,
+                java.util.Set.of());
     }
 
     /**
      * @param extraRequiredElements additional elements (beyond the card's own) that must each
      *     have at least 1 CP paid — used for a fixed-CP extra cost like "pay 《Wind》《2》 as an
      *     extra cost" on top of the card's own casting cost. Nullable/empty when not applicable.
+     * @param ldDiscardGrants Light/Dark elements the player may discard from hand for CP via a
+     *     field grant (see {@code MainWindow.lightDarkDiscardGrants}); empty when none apply.
      */
     public StandardPaymentDialog(JFrame owner, CardData card, int handIdx, int cost,
             List<CardData> hand, CardData[] backupCards, CardState[] backupStates,
             String[] backupUrls, Consumer<String> onZoom, Runnable onZoomHide,
             List<CardData> controlledForwards, ConfirmCallback onConfirm,
-            boolean anyElementCast, String[] extraRequiredElements) {
+            boolean anyElementCast, String[] extraRequiredElements,
+            java.util.Set<String> ldDiscardGrants) {
         this.owner              = owner;
         this.card               = card;
         this.handIdx            = handIdx;
@@ -109,6 +114,7 @@ public class StandardPaymentDialog {
         this.onConfirm          = onConfirm;
         this.anyElementCast     = anyElementCast;
         this.extraRequiredElements = extraRequiredElements;
+        this.ldDiscardGrants    = ldDiscardGrants;
     }
 
     /** Unions {@code baseElems} with {@link #extraRequiredElements}, deduplicated, base order first. */
@@ -318,7 +324,7 @@ public class StandardPaymentDialog {
             for (int i = 0; i < hand.size(); i++) {
                 if (i == handIdx) continue;
                 final int hi = i; CardData hc = hand.get(i);
-                boolean payable = !hc.isLightOrDark()
+                boolean payable = CpPaymentUtils.canDiscardForCp(hc, ldDiscardGrants)
                         && (castElemOnly == null || hc.containsElement(castElemOnly));
                 JLabel lbl = makeCardLabel();
                 lbl.setBackground(payable ? Color.DARK_GRAY : new Color(50, 50, 50));
@@ -351,7 +357,9 @@ public class StandardPaymentDialog {
         JLabel hint = new JLabel(
                 backupCpOnly
                 ? "<html><center>Backups only: dull for 1 CP each.<br>Hand discards are not allowed for this card.</center></html>"
-                : "<html><center>Backups: dull for 1 CP. Hand cards (" + elem + ", non-Light/Dark): discard for 2 CP.</center></html>",
+                : "<html><center>Backups: dull for 1 CP. Hand cards (" + elem + ", non-Light/Dark"
+                        + (ldDiscardGrants.isEmpty() ? "" : " or " + String.join("/", ldDiscardGrants))
+                        + "): discard for 2 CP.</center></html>",
                 SwingConstants.CENTER);
         hint.setFont(FontLoader.loadPixelNESFont(9));
 

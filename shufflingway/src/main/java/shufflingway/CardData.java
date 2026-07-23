@@ -4419,6 +4419,16 @@ public record CardData(
     );
 
     /**
+     * Matches "You can discard [Light and Dark|Light|Dark] Element cards from your hand to
+     * produce CP." (with optional reminder text) as a field-wide payment grant ability.
+     * Groups: {@code e1} and, for the "X and Y" form, {@code e2}.
+     */
+    static final Pattern LIGHT_DARK_DISCARD_CP_PATTERN = Pattern.compile(
+        "(?i)^You can discard (?<e1>Light|Dark)(?: and (?<e2>Light|Dark))? Element cards " +
+        "from your hand to produce CP\\.?(?:\\s*\\([^)]*\\))?$"
+    );
+
+    /**
      * Parses all Field Abilities from {@code textEn} by exclusion:
      * any {@code [[br]]}-delimited segment that is not a trait keyword, an Auto ability,
      * an Action ability, an alternate-cost declaration, or an ability restriction sentence
@@ -5245,6 +5255,22 @@ public record CardData(
             if (m.matches()) return m.group("cardname").trim();
         }
         return null;
+    }
+
+    /**
+     * Returns the Light/Dark elements whose cards this card allows discarding from hand to
+     * produce CP ("You can discard [Light and Dark|Dark] Element cards from your hand to
+     * produce CP") while on the field, or an empty list if no such ability is present.
+     */
+    public List<String> grantsLightDarkDiscardCp() {
+        for (FieldAbility fa : fieldAbilities()) {
+            Matcher m = LIGHT_DARK_DISCARD_CP_PATTERN.matcher(fa.effectText());
+            if (!m.matches()) continue;
+            return m.group("e2") == null
+                ? List.of(m.group("e1"))
+                : List.of(m.group("e1"), m.group("e2"));
+        }
+        return List.of();
     }
 
     /** Returns each element of this card as a separate string. */

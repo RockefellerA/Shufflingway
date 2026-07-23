@@ -6657,6 +6657,7 @@ public class MainWindow {
 				: java.util.stream.Stream.concat(Arrays.stream(card.elements()), Arrays.stream(extraRequiredElems))
 						.distinct().toArray(String[]::new);
 		List<CardData> hand  = gameState.getP1Hand();
+		Set<String> ldGrants = lightDarkDiscardGrants(true);
 		int totalGenerate = 0;
 		int totalCostNeeded = effectiveCastCost(card) + extraGenericCost;
 
@@ -6665,7 +6666,7 @@ public class MainWindow {
 			int totalExisting = gameState.getP1CpByElement().values().stream().mapToInt(Integer::intValue).sum();
 			for (int i = 0; i < hand.size(); i++) {
 				if (i == excludeHandIdx) continue;
-				if (!hand.get(i).isLightOrDark()) totalGenerate += 2;
+				if (CpPaymentUtils.canDiscardForCp(hand.get(i), ldGrants)) totalGenerate += 2;
 			}
 			for (int i = 0; i < p1BackupCards.length; i++) {
 				if (p1BackupCards[i] != null && p1BackupStates[i] == CardState.ACTIVE)
@@ -6684,7 +6685,7 @@ public class MainWindow {
 		for (int i = 0; i < hand.size(); i++) {
 			if (i == excludeHandIdx) continue;
 			CardData h = hand.get(i);
-			if (h.isLightOrDark()) continue;
+			if (!CpPaymentUtils.canDiscardForCp(h, ldGrants)) continue;
 			totalGenerate += 2;
 			for (int ei = 0; ei < elems.length; ei++) {
 				if (h.containsElement(elems[ei])) hasElemSource[ei] = true;
@@ -6829,10 +6830,12 @@ public class MainWindow {
 			if (p1BackupCards[i] != null && p1BackupStates[i] == CardState.ACTIVE
 					&& (genericNeeded > 0 || matchesAnyElement(p1BackupCards[i], elems))) totalSources++;
 		if (!card.altBackupOnlyCp()) {
+			Set<String> ldGrants = lightDarkDiscardGrants(true);
 			for (int i = 0; i < gameState.getP1Hand().size(); i++) {
 				if (i == handIdx) continue;
 				CardData h = gameState.getP1Hand().get(i);
-				if (!h.isLightOrDark() && (genericNeeded > 0 || matchesAnyElement(h, elems))) totalSources += 2;
+				if (CpPaymentUtils.canDiscardForCp(h, ldGrants)
+						&& (genericNeeded > 0 || matchesAnyElement(h, elems))) totalSources += 2;
 			}
 		}
 		return totalSources >= altElems.size();
@@ -6885,12 +6888,13 @@ public class MainWindow {
 			if (!matched && hasGeneric) available++;
 		}
 
-		// Non-L/D hand cards always contribute 2 CP toward total
+		// Non-L/D (or grant-covered L/D) hand cards always contribute 2 CP toward total
 		List<CardData> hand = gameState.getP1Hand();
+		Set<String> ldGrants = lightDarkDiscardGrants(true);
 		for (int i = 0; i < hand.size(); i++) {
 			if (i == handIdx) continue;
 			CardData h = hand.get(i);
-			if (h.isLightOrDark()) continue;
+			if (!CpPaymentUtils.canDiscardForCp(h, ldGrants)) continue;
 			available += 2;
 			for (int ei = 0; ei < elems.length; ei++) {
 				if (h.containsElement(elems[ei])) hasSrc[ei] = true;
@@ -6945,6 +6949,7 @@ public class MainWindow {
 		new AltCostPaymentDialog(frame, card, handIdx, altCp, genericNeeded, elems, costByElem,
 				backupOnly, gameState.getP1Hand(), playerBackupCards(true), playerBackupStates(true),
 				playerBackupUrls(true), this::showZoomAt, this::hideZoom,
+				lightDarkDiscardGrants(true),
 				(discards, backups) -> {
 					if (altC > 0) { playerSpendCrystals(true, altC); refreshCrystalDisplays(); }
 					executeAltBzRemovals(bzRemovals);
@@ -6995,6 +7000,7 @@ public class MainWindow {
 				gameState.getP1Hand(), p1BackupCards, p1BackupStates, p1BackupUrls,
 				p1ForwardCards,
 				this::showZoomAt, this::hideZoom,
+				lightDarkDiscardGrants(true),
 				(discards, backups, overrides) -> executeWarpPlay(card, handIdx, discards, backups, overrides))
 			.show();
 	}
@@ -7208,6 +7214,22 @@ public class MainWindow {
 		return false;
 	}
 
+	/**
+	 * Returns the union of Light/Dark elements the given player may currently discard from
+	 * hand to produce CP, granted by "You can discard [Light and Dark|Dark] Element cards
+	 * from your hand to produce CP" field abilities on their controlled cards.
+	 */
+	Set<String> lightDarkDiscardGrants(boolean isP1) {
+		java.util.LinkedHashSet<String> out = new java.util.LinkedHashSet<>();
+		for (CardData c : playerForwardCards(isP1))
+			if (!lostAbilitiesCards.contains(c)) out.addAll(c.grantsLightDarkDiscardCp());
+		for (CardData c : playerBackupCards(isP1))
+			if (c != null && !lostAbilitiesCards.contains(c)) out.addAll(c.grantsLightDarkDiscardCp());
+		for (CardData c : playerMonsterCards(isP1))
+			if (!lostAbilitiesCards.contains(c)) out.addAll(c.grantsLightDarkDiscardCp());
+		return out;
+	}
+
 	boolean hasAvailableBackupSlot() {
 		if (p1BackupLabels == null) return false;
 		for (JLabel slot : p1BackupLabels) {
@@ -7249,7 +7271,7 @@ public class MainWindow {
 				this::showZoomAt, this::hideZoom,
 				new ArrayList<>(p1ForwardCards),
 				(discards, backups, overrides) -> executePlayFromBzP1(card, discards, backups, overrides),
-				anyElement)
+				anyElement, null, lightDarkDiscardGrants(true))
 			.show();
 	}
 
@@ -7269,7 +7291,7 @@ public class MainWindow {
 				this::showZoomAt, this::hideZoom,
 				new ArrayList<>(p1ForwardCards),
 				(discards, backups, overrides) -> executePlay(card, handIdx, discards, backups, overrides),
-				isAnyElementCast(card), extraElems)
+				isAnyElementCast(card), extraElems, lightDarkDiscardGrants(true))
 			.show();
 	}
 
@@ -8100,6 +8122,7 @@ public class MainWindow {
 		new LbPaymentDialog(frame, card,
 				gameState.getP1Hand(), p1BackupCards, p1BackupStates, p1BackupUrls,
 				this::showZoomAt, this::hideZoom,
+				lightDarkDiscardGrants(true),
 				(discards, backups) -> {
 					spentLbIndices.add(lbCastIdx);
 					spentLbIndices.addAll(pendingLbPayment);
@@ -8483,8 +8506,9 @@ public class MainWindow {
 				if (!matched && hasGeneric) available++;
 			}
 		}
+		Set<String> ldGrants = lightDarkDiscardGrants(isP1);
 		for (CardData h : playerHand(isP1)) {
-			if (h.isLightOrDark()) continue;
+			if (!CpPaymentUtils.canDiscardForCp(h, ldGrants)) continue;
 			available += 2;
 			for (int ei = 0; ei < elems.length; ei++) if (h.containsElement(elems[ei])) hasSrc[ei] = true;
 		}
@@ -8953,7 +8977,7 @@ public class MainWindow {
 		}
 		if (icb.allBackupsDifferentElements()) {
 			CardData[] bkps = isP1 ? p1BackupCards : p2BackupCards;
-			java.util.Set<String> seen = new java.util.HashSet<>();
+			Set<String> seen = new java.util.HashSet<>();
 			for (CardData b : bkps)
 				if (b != null && !seen.add(effectiveElement(b))) return false;
 		}
@@ -9026,7 +9050,7 @@ public class MainWindow {
 			List<CardData> fwds = isP1 ? p1ForwardCards : p2ForwardCards;
 			CardData[]     bkps = isP1 ? p1BackupCards  : p2BackupCards;
 			List<CardData> mons = isP1 ? p1MonsterCards : p2MonsterCards;
-			java.util.Set<String> elems = new java.util.HashSet<>();
+			Set<String> elems = new java.util.HashSet<>();
 			if (fpg.inclForwards()) for (CardData c : fwds) for (String e : c.element().split("/")) elems.add(e);
 			if (fpg.inclBackups())  for (CardData c : bkps) { if (c != null) for (String e : c.element().split("/")) elems.add(e); }
 			if (fpg.inclMonsters()) for (CardData c : mons) for (String e : c.element().split("/")) elems.add(e);
@@ -12361,8 +12385,9 @@ public class MainWindow {
 			if (!matched && hasGeneric) available++;
 		}
 		List<CardData> hand = gameState.getP1Hand();
+		Set<String> ldGrants = lightDarkDiscardGrants(true);
 		for (CardData h : hand) {
-			if (h.isLightOrDark()) continue;
+			if (!CpPaymentUtils.canDiscardForCp(h, ldGrants)) continue;
 			available += 2;
 			for (int ei = 0; ei < elems.length; ei++) if (h.containsElement(elems[ei])) hasSrc[ei] = true;
 		}
@@ -12514,8 +12539,10 @@ public class MainWindow {
 		JLabel discardHdr = new JLabel("Hand — discard for 2 CP each:");
 		discardHdr.setFont(FontLoader.loadPixelNESFont(9)); discardHdr.setAlignmentX(Component.LEFT_ALIGNMENT);
 		JPanel dp = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 6)); dp.setAlignmentX(Component.LEFT_ALIGNMENT);
+		Set<String> primingLdGrants = lightDarkDiscardGrants(true);
 		for (int i = 0; i < hand.size(); i++) {
-			final int hi = i; CardData hc = hand.get(i); boolean payable = !hc.isLightOrDark();
+			final int hi = i; CardData hc = hand.get(i);
+			boolean payable = CpPaymentUtils.canDiscardForCp(hc, primingLdGrants);
 			JLabel lbl = new JLabel("...", SwingConstants.CENTER);
 			lbl.setPreferredSize(new Dimension(CARD_W, CARD_H)); lbl.setMinimumSize(new Dimension(CARD_W, CARD_H));
 			lbl.setOpaque(true); lbl.setBackground(payable ? Color.DARK_GRAY : new Color(50,50,50));

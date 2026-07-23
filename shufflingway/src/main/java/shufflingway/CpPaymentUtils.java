@@ -40,4 +40,19 @@ public class CpPaymentUtils {
 			if (source.containsElement(pe)) return true;
 		return false;
 	}
+
+	/**
+	 * Returns true when {@code handCard} may be discarded from hand for CP: non-Light/Dark
+	 * cards always may; Light/Dark cards only when a field grant ("You can discard [Light and
+	 * Dark|Dark] Element cards from your hand to produce CP") covers their element.
+	 *
+	 * @param ldDiscardGrants the Light/Dark elements granted by the player's field cards
+	 *                        (see {@code MainWindow.lightDarkDiscardGrants})
+	 */
+	public static boolean canDiscardForCp(CardData handCard, java.util.Set<String> ldDiscardGrants) {
+		if (!handCard.isLightOrDark()) return true;
+		for (String e : handCard.elements())
+			if (ldDiscardGrants.contains(e)) return true;
+		return false;
+	}
 }

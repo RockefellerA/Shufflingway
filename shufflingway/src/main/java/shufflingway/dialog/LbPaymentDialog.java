@@ -54,10 +54,16 @@ public class LbPaymentDialog {
     private final Runnable         onZoomHide;
     /** Called on Confirm with (discardIndices, backupSlots). */
     private final BiConsumer<List<Integer>, List<Integer>> onConfirm;
+    private final java.util.Set<String> ldDiscardGrants;
 
+    /**
+     * @param ldDiscardGrants Light/Dark elements the player may discard from hand for CP via a
+     *     field grant (see {@code MainWindow.lightDarkDiscardGrants}); empty when none apply.
+     */
     public LbPaymentDialog(JFrame owner, CardData card,
             List<CardData> hand, CardData[] backupCards, CardState[] backupStates,
             String[] backupUrls, Consumer<String> onZoom, Runnable onZoomHide,
+            java.util.Set<String> ldDiscardGrants,
             BiConsumer<List<Integer>, List<Integer>> onConfirm) {
         this.owner        = owner;
         this.card         = card;
@@ -67,6 +73,7 @@ public class LbPaymentDialog {
         this.backupUrls   = backupUrls;
         this.onZoom       = onZoom;
         this.onZoomHide   = onZoomHide;
+        this.ldDiscardGrants = ldDiscardGrants;
         this.onConfirm    = onConfirm;
     }
 
@@ -192,7 +199,7 @@ public class LbPaymentDialog {
         JPanel dp = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 6)); dp.setAlignmentX(Component.LEFT_ALIGNMENT);
         for (int i = 0; i < hand.size(); i++) {
             final int hi = i; CardData hc = hand.get(i);
-            boolean payable = !hc.isLightOrDark();
+            boolean payable = CpPaymentUtils.canDiscardForCp(hc, ldDiscardGrants);
             JLabel lbl = makeCardLabel();
             lbl.setBackground(payable ? Color.DARK_GRAY : new Color(50, 50, 50));
             lbl.setBorder(BorderFactory.createLineBorder(payable ? Color.GRAY : new Color(80, 80, 80), 1));
@@ -222,7 +229,9 @@ public class LbPaymentDialog {
 
         JLabel hint = new JLabel(
                 "<html><center>Backups: dull for 1 CP. Hand cards (" + elem
-                + ", non-Light/Dark): discard for 2 CP.</center></html>",
+                + ", non-Light/Dark"
+                + (ldDiscardGrants.isEmpty() ? "" : " or " + String.join("/", ldDiscardGrants))
+                + "): discard for 2 CP.</center></html>",
                 SwingConstants.CENTER);
         hint.setFont(FontLoader.loadPixelNESFont(9));
 

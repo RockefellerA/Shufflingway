@@ -109,6 +109,7 @@ public class FieldAbilityParsingTest {
         if (CardData.SELF_LIGHT_DARK_PLAY_EXCEPTION_PATTERN.matcher(fa.effectText()).matches()) return true;
         if (CardData.MULTI_LIGHT_DARK_PLAY_PATTERN.matcher(fa.effectText()).matches()) return true;
         if (CardData.MULTI_NAME_PLAY_PATTERN.matcher(fa.effectText()).matches()) return true;
+        if (CardData.LIGHT_DARK_DISCARD_CP_PATTERN.matcher(fa.effectText()).matches()) return true;
         if (AutoAbilityTriggers.FA_DAMAGE_MODIFIER.matcher(fa.effectText()).find()) return true;
         if (AutoAbilityTriggers.FA_FIELD_DAMAGE_MODIFIER.matcher(fa.effectText()).find()) return true;
         if (AutoAbilityTriggers.FA_FIELD_DAMAGE_EXACT_NULLIFY.matcher(fa.effectText()).find()) return true;
@@ -219,6 +220,11 @@ public class FieldAbilityParsingTest {
         if (m.matches()) return "MultiLightDarkPlay[" + m.group("element") + "]";
         m = CardData.MULTI_NAME_PLAY_PATTERN.matcher(fa.effectText());
         if (m.matches()) return "MultiNamePlay[" + m.group("cardname") + "]";
+        m = CardData.LIGHT_DARK_DISCARD_CP_PATTERN.matcher(fa.effectText());
+        if (m.matches()) {
+            return "LightDarkDiscardCp[" + m.group("e1")
+                + (m.group("e2") != null ? ", " + m.group("e2") : "") + "]";
+        }
         m = AutoAbilityTriggers.FA_DAMAGE_MODIFIER.matcher(fa.effectText());
         if (m.find()) {
             String src      = m.group("sourceclause");
