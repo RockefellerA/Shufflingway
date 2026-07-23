@@ -559,6 +559,10 @@ public class MainWindow {
 	 *  (used to remove them when that FA becomes inactive). */
 	private final Set<CardData> bzForwardFaP1 = Collections.newSetFromMap(new IdentityHashMap<>());
 	private final Set<CardData> bzForwardFaP2 = Collections.newSetFromMap(new IdentityHashMap<>());
+	/** Cards registered in bzPlayableP1/P2 by their own "You can cast [self] from your Break Zone"
+	 *  ability (used to remove them when they leave the Break Zone). */
+	private final Set<CardData> bzSelfCastFaP1 = Collections.newSetFromMap(new IdentityHashMap<>());
+	private final Set<CardData> bzSelfCastFaP2 = Collections.newSetFromMap(new IdentityHashMap<>());
 
 	/**
 	 * Borrowed Summons that, once they resolve, must be removed from the game instead of going to
@@ -1439,6 +1443,8 @@ public class MainWindow {
 		bzPlayableP2.clear();
 		bzForwardFaP1.clear();
 		bzForwardFaP2.clear();
+		bzSelfCastFaP1.clear();
+		bzSelfCastFaP2.clear();
 		rfgAfterUseSummons.clear();
 		returnToHandAfterUseSummons.clear();
 		if (computerPlayer != null) computerPlayer.cancel();
@@ -6449,6 +6455,7 @@ public class MainWindow {
 	 * Skips cards already registered (to avoid overwriting better-cost entries).
 	 */
 	void syncBzForwardPlayables(boolean isP1) {
+		syncBzSelfCastPlayables(isP1);
 		IdentityHashMap<CardData, PlayableEntry> reg = isP1 ? bzPlayableP1 : bzPlayableP2;
 		Set<CardData> faSet = isP1 ? bzForwardFaP1 : bzForwardFaP2;
 		if (!playerHasCastForwardsFromBz(isP1)) {
@@ -6469,6 +6476,33 @@ public class MainWindow {
 			added = true;
 		}
 		if (added) refreshPlayableCardsButton();
+	}
+
+	/**
+	 * Registers any card in {@code isP1}'s Break Zone that carries its own "You can cast [self]
+	 * from your Break Zone" ability (e.g. Zenos) as castable from the Break Zone, and prunes
+	 * entries for cards that have since left the Break Zone.  Unlike {@link #syncBzForwardPlayables}
+	 * this is independent of any field card — the granting ability lives on the Break Zone card itself.
+	 */
+	void syncBzSelfCastPlayables(boolean isP1) {
+		IdentityHashMap<CardData, PlayableEntry> reg = isP1 ? bzPlayableP1 : bzPlayableP2;
+		Set<CardData> faSet = isP1 ? bzSelfCastFaP1 : bzSelfCastFaP2;
+		List<CardData> bz   = isP1 ? gameState.getP1BreakZone() : gameState.getP2BreakZone();
+		boolean changed = false;
+		// Prune entries whose card has left the Break Zone (cast, removed, etc.).
+		for (java.util.Iterator<CardData> it = faSet.iterator(); it.hasNext(); ) {
+			CardData card = it.next();
+			if (!bz.contains(card)) { reg.remove(card); it.remove(); changed = true; }
+		}
+		// Register Break Zone cards whose own ability lets them be cast from there.
+		for (CardData card : bz) {
+			if (faSet.contains(card) || reg.containsKey(card)) continue;
+			if (!AutoAbilityTriggers.canCastSelfFromBz(card)) continue;
+			reg.put(card, new PlayableEntry(PlayableEntry.SourceZone.BREAK_ZONE, 0, false, false, false, false));
+			faSet.add(card);
+			changed = true;
+		}
+		if (changed) refreshPlayableCardsButton();
 	}
 
 	/** Returns {@code true} if P1 has already cast 2 cards this turn and a field ability caps them at 2. */
@@ -7606,6 +7640,7 @@ public class MainWindow {
 		String sourceLabel = removeBorrowedSourceCard(card, borrowEntry);
 		bzPlayableP1.remove(card);
 		bzForwardFaP1.remove(card);
+		bzSelfCastFaP1.remove(card);
 		refreshP1BreakLabel();
 		refreshP1WarpZoneUI();
 		refreshP2WarpZoneUI();
@@ -7740,6 +7775,7 @@ public class MainWindow {
 		String sourceLabel = removeBorrowedSourceCard(card, borrowEntry);
 		bzPlayableP2.remove(card);
 		bzForwardFaP2.remove(card);
+		bzSelfCastFaP2.remove(card);
 		refreshP2BreakLabel();
 		refreshP1WarpZoneUI();
 		refreshP2WarpZoneUI();
@@ -9163,6 +9199,8 @@ public class MainWindow {
 					}
 					case CARDS_IN_HAND ->
 						(isP1 ? gameState.getP1Hand() : gameState.getP2Hand()).size();
+					case COUNTERS_ON_SELF ->
+						ssb.cardNameFilter() == null ? 0 : gameState.getCounters(src, ssb.cardNameFilter());
 				};
 				boost += ssb.perUnit() * (count / ssb.groupSize());
 			}

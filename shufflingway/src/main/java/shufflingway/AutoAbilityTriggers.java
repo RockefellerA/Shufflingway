@@ -386,6 +386,25 @@ final class AutoAbilityTriggers {
 		return false;
 	}
 
+	/**
+	 * "You can cast [CardName] from your Break Zone." — a self-referential break-zone ability
+	 * (e.g. Zenos) that lets the card cast itself while it sits in its owner's Break Zone.
+	 * Distinct from {@link #FA_CAST_FORWARDS_FROM_BZ} by the name-vs-self check in
+	 * {@link #canCastSelfFromBz}.  Group: {@code name}.
+	 */
+	static final Pattern FA_CAST_SELF_FROM_BZ = Pattern.compile(
+		"(?i)^You\\s+can\\s+cast\\s+(?<name>.+?)\\s+from\\s+your\\s+Break\\s+Zone[.!]?$"
+	);
+
+	/** Returns {@code true} if {@code card} has "You can cast [its own name] from your Break Zone." */
+	static boolean canCastSelfFromBz(CardData card) {
+		for (FieldAbility fa : card.fieldAbilities()) {
+			Matcher m = FA_CAST_SELF_FROM_BZ.matcher(fa.effectText().trim());
+			if (m.matches() && m.group("name").trim().equalsIgnoreCase(card.name())) return true;
+		}
+		return false;
+	}
+
 	/** "You can only cast up to 2 cards per turn." — limits the controlling player. */
 	static final Pattern FA_SELF_CAST_LIMIT = Pattern.compile(
 		"(?i)^You\\s+can\\s+only\\s+cast\\s+up\\s+to\\s+2\\s+cards?\\s+per\\s+turn[.!]?$"

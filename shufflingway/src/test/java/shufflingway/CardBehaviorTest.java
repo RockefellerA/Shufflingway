@@ -2633,6 +2633,17 @@ public class CardBehaviorTest {
                 null, null, null, text);
     }
 
+    /** Builds a Forward whose scalingSelfPowerBoosts (and fieldAbilities) are parsed from {@code text}. */
+    private static CardData makeScalingSelfForward(String name, String element, int power, String text) {
+        return new CardData(null, name, element, 3, power, "Forward", false, 0, false, false,
+                Set.of(), 0, List.of(), null, List.of(),
+                List.of(), List.of(), CardData.parseFieldAbilities(text, "Forward"),
+                List.of(), List.of(), CardData.parseScalingSelfPowerBoosts(text, "Forward", name),
+                List.of(), List.of(), List.of(), List.of(),
+                false, false, null, false, false, false, false, false, false,
+                null, null, null, text);
+    }
+
     @Test
     void famedMimicGogoSelfBreakParsesWithSourceCard() {
         CardData gogo = makeForward("Famed Mimic Gogo", "Fire", 5, 9000);
@@ -3148,5 +3159,92 @@ public class CardBehaviorTest {
         mw.gameState.placeCounters(counted, "Guardian", 1);
         assertEquals(3000, mw.modifyIncomingDamage(true, ForwardTarget.CardZone.FORWARD, 1, 8000, true, false),
                 "Guardian Counter — ability damage reduced by 5000");
+    }
+
+    // =========================================================================================
+    // Zenos: "You can cast Zenos from your Break Zone." — a self-referential Break-Zone ability
+    // that registers the card as castable from the Break Zone while it sits there.
+    // =========================================================================================
+
+    private static final String ZENOS_TEXT =
+            "You can cast Zenos from your Break Zone.[[br]]   "
+            + "When Zenos enters the field from the Break Zone, at the end of the turn, remove Zenos from the game.";
+
+    private static final String ACE_BZ_TEXT =
+            "You can only cast up to 2 cards per turn.[[br]]   "
+            + "You can cast Forwards from your Break Zone.[[br]]   "
+            + "If a card is put into your Break Zone in any situation, remove it from the game instead.[[br]]   "
+            + "When Ace enters the field, discard your hand.";
+
+    @Test
+    void zenosSelfCastFromBzParsesDistinctlyFromForwardsGrant() {
+        CardData zenos = makeFieldAbilityCard("Zenos", "Dark", "Forward", ZENOS_TEXT);
+        assertTrue(AutoAbilityTriggers.canCastSelfFromBz(zenos), "Zenos grants itself a Break-Zone cast");
+        assertFalse(AutoAbilityTriggers.hasCastForwardsFromBz(zenos), "not the field-wide Forwards grant");
+
+        // Ace's "cast Forwards from BZ" must NOT be read as a self-cast (its name isn't "Forwards").
+        CardData ace = makeFieldAbilityCard("Ace", "Light", "Forward", ACE_BZ_TEXT);
+        assertTrue(AutoAbilityTriggers.hasCastForwardsFromBz(ace), "Ace grants the field-wide Forwards cast");
+        assertFalse(AutoAbilityTriggers.canCastSelfFromBz(ace), "Ace's grant is not a self-cast");
+    }
+
+    @Test
+    void zenosRegistersAsBzPlayableWhileInBreakZoneAndPrunesWhenItLeaves() {
+        MainWindow mw = new MainWindow();
+        CardData zenos = makeFieldAbilityCard("Zenos", "Dark", "Forward", ZENOS_TEXT);
+        CardData plain = makeForward("Grunt", "Dark", 2, 5000); // no self-cast ability
+
+        mw.gameState.getP1BreakZone().add(zenos);
+        mw.gameState.getP1BreakZone().add(plain);
+        mw.syncBzSelfCastPlayables(true);
+
+        assertTrue(mw.bzPlayableP1.containsKey(zenos), "Zenos is castable from its own Break Zone");
+        assertEquals(PlayableEntry.SourceZone.BREAK_ZONE, mw.bzPlayableP1.get(zenos).source());
+        assertFalse(mw.bzPlayableP1.containsKey(plain), "an ordinary Break-Zone card is not registered");
+
+        // Once Zenos leaves the Break Zone, the entry is pruned on the next sync.
+        mw.gameState.getP1BreakZone().remove(zenos);
+        mw.syncBzSelfCastPlayables(true);
+        assertFalse(mw.bzPlayableP1.containsKey(zenos), "entry removed after Zenos leaves the Break Zone");
+    }
+
+    // =========================================================================================
+    // Palom / Porom: "For each EXP Counter placed on [self], [self] gains +1000 power." — a
+    // self power boost scaling by the count of a named counter on the card itself.
+    // =========================================================================================
+
+    private static final String PALOM_TEXT =
+            "At the end of each of your turns, place 1 EXP Counter on each Job Apprentice Mage you control.[[br]]   "
+            + "For each EXP Counter placed on Palom, Palom gains +1000 power.[[br]]   "
+            + "《0》: Choose 1 Forward. Deal it 2000 damage. If there are 3 or more EXP Counters placed on Palom, "
+            + "deal it 8000 damage instead. You can only use this ability once per turn.";
+
+    @Test
+    void palomParsesAsSelfCounterScalingBoost() {
+        List<ScalingSelfPowerBoost> boosts = CardData.parseScalingSelfPowerBoosts(PALOM_TEXT, "Forward", "Palom");
+        assertEquals(1, boosts.size(), "only the 'For each EXP Counter' segment scales power");
+        ScalingSelfPowerBoost ssb = boosts.get(0);
+        assertEquals(ScalingSelfPowerBoost.Source.COUNTERS_ON_SELF, ssb.source());
+        assertEquals(1000, ssb.perUnit());
+        assertEquals("EXP", ssb.cardNameFilter(), "the counter name is carried in cardNameFilter");
+        assertEquals(1, ssb.groupSize());
+    }
+
+    @Test
+    void palomPowerScalesWithExpCountersOnItself() {
+        MainWindow mw = new MainWindow();
+        CardData palom = makeScalingSelfForward("Palom", "Fire", 5000, PALOM_TEXT);
+        mw.placeCardInForwardZone(palom); // P1 idx 0
+        assertEquals(5000, mw.effectiveP1ForwardPower(0), "no counters — base power");
+
+        mw.gameState.placeCounters(palom, "EXP", 2);
+        assertEquals(7000, mw.effectiveP1ForwardPower(0), "2 EXP Counters → +2000");
+
+        mw.gameState.placeCounters(palom, "EXP", 1);
+        assertEquals(8000, mw.effectiveP1ForwardPower(0), "3 EXP Counters → +3000");
+
+        // Counters of a different name do not feed this scaling.
+        mw.gameState.placeCounters(palom, "Turks", 5);
+        assertEquals(8000, mw.effectiveP1ForwardPower(0), "unrelated counters don't scale power");
     }
 }

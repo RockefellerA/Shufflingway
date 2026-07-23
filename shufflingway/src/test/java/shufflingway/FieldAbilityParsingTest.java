@@ -111,6 +111,7 @@ public class FieldAbilityParsingTest {
         if (CardData.MULTI_NAME_PLAY_PATTERN.matcher(fa.effectText()).matches()) return true;
         if (CardData.LIGHT_DARK_DISCARD_CP_PATTERN.matcher(fa.effectText()).matches()) return true;
         if (CardData.COUNTER_GRANT_PATTERN.matcher(fa.effectText()).matches()) return true;
+        if (AutoAbilityTriggers.FA_CAST_SELF_FROM_BZ.matcher(fa.effectText().trim()).matches()) return true;
         if (AutoAbilityTriggers.FA_DAMAGE_MODIFIER.matcher(fa.effectText()).find()) return true;
         if (AutoAbilityTriggers.FA_FIELD_DAMAGE_MODIFIER.matcher(fa.effectText()).find()) return true;
         if (AutoAbilityTriggers.FA_FIELD_DAMAGE_EXACT_NULLIFY.matcher(fa.effectText()).find()) return true;
@@ -233,6 +234,8 @@ public class FieldAbilityParsingTest {
             return "CounterGrant[" + m.group("counter").trim() + ": "
                 + (grant.startsWith("\"") ? "ability" : grant.replaceAll("[.!]$", "")) + "]";
         }
+        m = AutoAbilityTriggers.FA_CAST_SELF_FROM_BZ.matcher(fa.effectText().trim());
+        if (m.matches()) return "CastFromBreakZone[" + m.group("name").trim() + "]";
         m = AutoAbilityTriggers.FA_DAMAGE_MODIFIER.matcher(fa.effectText());
         if (m.find()) {
             String src      = m.group("sourceclause");

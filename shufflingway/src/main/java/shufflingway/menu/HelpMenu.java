@@ -42,19 +42,21 @@ public class HelpMenu extends JMenu {
         super("Help");
         this.owner = owner;
 
-        addGuideItem("How to Play (Basics)",
+        JMenu guides = new JMenu("Guides");
+        add(guides);
+        addGuideItem(guides, "How to Play (Basics)",
                 "This will open the FFTCG Starter Guide in your browser. Continue?",
                 0);
-        addGuideItem("How to Play (Advanced)",
+        addGuideItem(guides, "How to Play (Advanced)",
                 "This will open the FFTCG Comprehensive Rules in your browser. Continue?",
                 1);
-        addGuideItem("Limit Break Rules Sheet",
+        addGuideItem(guides, "Limit Break Rules Sheet",
                 "This will open the FFTCG Limit Break Rules Sheet in your browser. Continue?",
                 2);
-        addGuideItem("Priming Rules Explanation",
+        addGuideItem(guides, "Priming Rules Explanation",
                 "This will open the FFTCG Priming Rules Explanation in your browser. Continue?",
                 3);
-        addGuideItem("Priming Rules Supplementary Explanation",
+        addGuideItem(guides, "Priming Rules Supplementary Explanation",
                 "This will open the FFTCG Priming Rules Supplementary Explanation in your browser. Continue?",
                 4);
 
@@ -214,9 +216,9 @@ public class HelpMenu extends JMenu {
         progress.setVisible(true); // blocks (modal) until dispose() or System.exit()
     }
 
-    private void addGuideItem(String label, String prompt, int guideIndex) {
+    private void addGuideItem(JMenu parent, String label, String prompt, int guideIndex) {
         JMenuItem item = new JMenuItem(label);
-        add(item);
+        parent.add(item);
         item.addActionListener((ActionEvent e) -> {
             int result = JOptionPane.showConfirmDialog(owner, prompt, label,
                     JOptionPane.YES_NO_OPTION,

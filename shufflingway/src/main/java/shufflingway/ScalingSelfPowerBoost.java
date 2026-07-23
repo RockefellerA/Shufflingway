@@ -67,6 +67,11 @@ public record ScalingSelfPowerBoost(
          */
         SUMMONS_IN_BREAK_ZONE,
         /** Number of cards currently in the controller's hand. */
-        CARDS_IN_HAND
+        CARDS_IN_HAND,
+        /**
+         * Number of counters placed on the source card itself, named by {@link #cardNameFilter}
+         * (e.g. "EXP" for "For each EXP Counter placed on Palom, Palom gains +1000 power.").
+         */
+        COUNTERS_ON_SELF
     }
 }

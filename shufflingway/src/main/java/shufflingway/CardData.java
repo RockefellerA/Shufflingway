@@ -3401,6 +3401,12 @@ public record CardData(
         "(?<target>.+?)\\s+gains?\\s+\\+(?<power>\\d+)\\s+power[.!]?$"
     );
 
+    /** "For each [X] Counter placed on [Name], [Name] gains +N power." (self counter scaling) */
+    private static final Pattern SCALING_SELF_COUNTER_PATTERN = Pattern.compile(
+        "(?i)^For\\s+each\\s+(?<counter>.+?)\\s+Counter\\s+placed\\s+on\\s+(?<target>.+?),\\s+" +
+        "(?<subject>.+?)\\s+gains?\\s+\\+(?<power>\\d+)\\s+power[.!]?$"
+    );
+
     /** "For every N Summons in your Break Zone, [target] gains +P power." */
     private static final Pattern SCALING_SELF_BZ_SUMMON_EVERY_N_PATTERN = Pattern.compile(
         "(?i)^For\\s+every\\s+(?<n>\\d+)\\s+Summons?\\s+in\\s+your\\s+Break\\s+Zone,\\s+" +
@@ -3580,6 +3586,18 @@ public record CardData(
                 result.add(new ScalingSelfPowerBoost(
                         ScalingSelfPowerBoost.Source.CARD_NAME_IN_BREAK_ZONE, perUnit,
                         null, null, bz.group("name").trim(), null, null, false));
+                continue;
+            }
+            Matcher cc = SCALING_SELF_COUNTER_PATTERN.matcher(seg);
+            if (cc.find()) {
+                if (!cc.group("target").trim().equalsIgnoreCase(cardName)) continue;
+                if (!cc.group("subject").trim().equalsIgnoreCase(cardName)) continue;
+                int perUnit = Integer.parseInt(cc.group("power"));
+                if (perUnit <= 0) continue;
+                // cardNameFilter carries the counter name (see Source.COUNTERS_ON_SELF).
+                result.add(new ScalingSelfPowerBoost(
+                        ScalingSelfPowerBoost.Source.COUNTERS_ON_SELF, perUnit,
+                        null, null, cc.group("counter").trim(), null, null, false));
                 continue;
             }
             Matcher bzSummon = SCALING_SELF_BZ_SUMMON_EVERY_N_PATTERN.matcher(seg);
@@ -4555,6 +4573,8 @@ public record CardData(
             if (SCALING_SELF_DMG_PATTERN.matcher(seg).find())                 continue;
             // Scaling self power boost ("For each Card Name X in your Break Zone, X gains +N power")
             if (SCALING_SELF_BZ_CARD_NAME_PATTERN.matcher(seg).find())        continue;
+            // Scaling self power boost ("For each X Counter placed on Self, Self gains +N power")
+            if (SCALING_SELF_COUNTER_PATTERN.matcher(seg).find())             continue;
             // Scaling self power boost ("For every N Summons in your Break Zone, X gains +P power")
             if (SCALING_SELF_BZ_SUMMON_EVERY_N_PATTERN.matcher(seg).find())   continue;
             // Scaling self power boost ("For each card in your hand, X gains +N power")
