@@ -2575,4 +2575,116 @@ public class CardBehaviorTest {
         assertEquals("", fa.bzConditionJob());
         assertEquals("draw 1 card.", fa.effectText());
     }
+
+    // =========================================================================================
+    // Yugiri: "If your opponent doesn't control Forwards, Yugiri gains Haste." — a conditional
+    // field boost gated on the opponent controlling exactly zero Forwards.
+    // =========================================================================================
+
+    private static final String YUGIRI_TEXT =
+            "If your opponent doesn't control Forwards, Yugiri gains Haste.";
+
+    @Test
+    void yugiriNoOpponentForwardsHasteParsesAsIfControlBoost() {
+        List<IfControlBoost> boosts = CardData.parseIfControlBoosts(YUGIRI_TEXT, "Forward");
+        assertEquals(1, boosts.size());
+        IfControlBoost icb = boosts.get(0);
+        assertEquals("Yugiri", icb.targetCardName());
+        assertEquals(Set.of(CardData.Trait.HASTE), icb.grantedTraits());
+        assertEquals(0, icb.powerBonus());
+        assertEquals(1, icb.conditions().size());
+        ControlCondition cond = icb.conditions().get(0);
+        assertTrue(cond.opponentControls(), "condition must check the opponent's field");
+        assertTrue(cond.exactCount(), "condition must be an exact-count check");
+        assertEquals(0, cond.minCount(), "condition must require exactly zero Forwards");
+        assertEquals("Forward", cond.cardType());
+    }
+
+    @Test
+    void yugiriHasteConditionTracksOpponentForwardCount() {
+        IfControlBoost icb = CardData.parseIfControlBoosts(YUGIRI_TEXT, "Forward").get(0);
+        MainWindow mw = new MainWindow();
+        assertTrue(mw.icbConditionsMet(icb, true), "no opponent Forwards — condition met");
+        mw.placeP2CardInForwardZone(makeForward("Amon", "Lightning", 3, 7000));
+        assertFalse(mw.icbConditionsMet(icb, true), "opponent Forward present — condition unmet");
+    }
+
+    // =========================================================================================
+    // Other "If your opponent doesn't control …" instances. Famed Mimic Gogo's self-break and
+    // King/Queen of Eblan's attack restriction ride pre-existing ActionResolver machinery;
+    // Kelger's cost-qualified variant extends the IfControlBoost condition with a minCost filter.
+    // =========================================================================================
+
+    /** Builds a Forward whose fieldAbilities are parsed from {@code text}. */
+    private static CardData makeFieldAbilityForward(String name, String text) {
+        return new CardData(null, name, "Fire", 3, 7000, "Forward", false, 0, false, false,
+                Set.of(), 0, List.of(), null, List.of(),
+                List.of(), List.of(), CardData.parseFieldAbilities(text, "Forward"),
+                List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(),
+                false, false, null, false, false, false, false, false, false,
+                null, null, null, text);
+    }
+
+    @Test
+    void famedMimicGogoSelfBreakParsesWithSourceCard() {
+        CardData gogo = makeForward("Famed Mimic Gogo", "Fire", 5, 9000);
+        assertNotNull(ActionResolver.parse(
+                "If your opponent doesn't control Forwards, put Famed Mimic Gogo into the Break Zone.", gogo),
+                "Gogo's conditional self-break should be recognized");
+        // Verbiage variant: "any Forwards" must parse the same way
+        assertNotNull(ActionResolver.parse(
+                "If your opponent doesn't control any Forwards, put Famed Mimic Gogo into the Break Zone.", gogo),
+                "the 'any Forwards' wording should also be recognized");
+    }
+
+    @Test
+    void kingOfEblanCannotAttackGatesOnOpponentForwards() {
+        String text = "If your opponent doesn't control any Forwards, King of Eblan cannot attack.";
+        CardData king = makeFieldAbilityForward("King of Eblan", text);
+        assertNotNull(ActionResolver.parse(text, king), "restriction sentence should be recognized");
+
+        MainWindow mw = new MainWindow();
+        assertTrue(mw.isFieldAbilityCannotAttack(king, true), "no opponent Forwards — cannot attack");
+        mw.placeP2CardInForwardZone(makeForward("Amon", "Lightning", 3, 7000));
+        assertFalse(mw.isFieldAbilityCannotAttack(king, true), "opponent Forward present — attack allowed");
+
+        // Verbiage variant: without "any" must gate the same way
+        CardData queen = makeFieldAbilityForward("Queen of Eblan",
+                "If your opponent doesn't control Forwards, Queen of Eblan cannot attack.");
+        MainWindow mw2 = new MainWindow();
+        assertTrue(mw2.isFieldAbilityCannotAttack(queen, true),
+                "the wording without 'any' should also be recognized");
+    }
+
+    private static final String KELGER_TEXT =
+            "If your opponent doesn't control a Forward of cost 5 or more, "
+            + "Kelger gains Haste, First Strike, and Brave.";
+
+    @Test
+    void kelgerCostQualifiedBoostParsesWithMinCostCondition() {
+        List<IfControlBoost> boosts = CardData.parseIfControlBoosts(KELGER_TEXT, "Forward");
+        assertEquals(1, boosts.size());
+        IfControlBoost icb = boosts.get(0);
+        assertEquals("Kelger", icb.targetCardName());
+        assertEquals(Set.of(CardData.Trait.HASTE, CardData.Trait.FIRST_STRIKE, CardData.Trait.BRAVE),
+                icb.grantedTraits());
+        assertEquals(1, icb.conditions().size());
+        ControlCondition cond = icb.conditions().get(0);
+        assertTrue(cond.opponentControls());
+        assertTrue(cond.exactCount());
+        assertEquals(0, cond.minCount());
+        assertEquals(5, cond.minCost(), "cost qualifier must carry into the condition");
+        assertEquals("Forward", cond.cardType());
+    }
+
+    @Test
+    void kelgerConditionIgnoresCheapOpponentForwards() {
+        IfControlBoost icb = CardData.parseIfControlBoosts(KELGER_TEXT, "Forward").get(0);
+        MainWindow mw = new MainWindow();
+        assertTrue(mw.icbConditionsMet(icb, true), "empty opponent field — condition met");
+        mw.placeP2CardInForwardZone(makeForward("Cheap", "Fire", 3, 5000));
+        assertTrue(mw.icbConditionsMet(icb, true), "cost-3 Forward doesn't break the condition");
+        mw.placeP2CardInForwardZone(makeForward("Big", "Fire", 5, 9000));
+        assertFalse(mw.icbConditionsMet(icb, true), "cost-5 Forward breaks the condition");
+    }
 }

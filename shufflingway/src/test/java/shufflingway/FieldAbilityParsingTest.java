@@ -102,7 +102,7 @@ public class FieldAbilityParsingTest {
      * card construction. So a field-ability is "recognized" if any of those three parsers
      * accept its text.
      */
-    private static boolean isFieldAbilityRecognized(FieldAbility fa, CardData source, String typeEn) {
+    static boolean isFieldAbilityRecognized(FieldAbility fa, CardData source, String typeEn) {
         if (ActionResolver.parse(fa.effectText(), source) != null) return true;
         if (!CardData.parseFieldPowerGrants(fa.effectText(), typeEn).isEmpty()) return true;
         if (!CardData.parseIfControlBoosts(fa.effectText(), typeEn).isEmpty()) return true;
@@ -205,7 +205,7 @@ public class FieldAbilityParsingTest {
         return sb.toString();
     }
 
-    private static String describeFieldAbility(FieldAbility fa, CardData source, String typeEn) {
+    static String describeFieldAbility(FieldAbility fa, CardData source, String typeEn) {
         String desc = ActionResolver.fullDescription(fa.effectText(), source);
         if (desc != null) return desc;
         List<FieldPowerGrant> grants = CardData.parseFieldPowerGrants(fa.effectText(), typeEn);

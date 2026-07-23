@@ -36,11 +36,22 @@ public record ControlCondition(
         String       dullCardName,      // non-null: the named card must currently be DULL on the field
         boolean      requiresCrystal,   // true: condition requires the player to have ≥1 Crystal
         boolean      allHave,           // true: ALL controlled cards of cardType must satisfy element/job (not "N or more")
-        boolean      opponentControls   // true: check opponent's field instead of activating player's field
+        boolean      opponentControls,  // true: check opponent's field instead of activating player's field
+        int          minCost            // 0 = no cost filter; > 0 = card cost must be ≥ this
 ) {
     public ControlCondition {
         requiredCardNames = List.copyOf(requiredCardNames);
         orCardNames       = List.copyOf(orCardNames);
+    }
+
+    /** Compatibility constructor preserving the prior 15-arg signature; defaults {@code minCost} to 0. */
+    public ControlCondition(List<String> requiredCardNames, int minCount, boolean exactCount,
+            String cardType, String element, String job, String category, int minPower,
+            List<String> orCardNames, boolean anyOf, String excludeElement, String dullCardName,
+            boolean requiresCrystal, boolean allHave, boolean opponentControls) {
+        this(requiredCardNames, minCount, exactCount, cardType, element, job, category, minPower,
+                orCardNames, anyOf, excludeElement, dullCardName, requiresCrystal, allHave,
+                opponentControls, 0);
     }
 
     /** Convenience constructor without {@code opponentControls}; defaults it to {@code false}. */
@@ -135,6 +146,7 @@ public record ControlCondition(
         if (job            != null) sb.append(' ').append(job);
         if (category       != null) sb.append(' ').append(category);
         if (minPower        > 0   ) sb.append(" pow>=").append(minPower);
+        if (minCost         > 0   ) sb.append(" cost>=").append(minCost);
         if (cardType       != null) sb.append(' ').append(cardType);
         if (excludeElement != null) sb.append(" !").append(excludeElement);
         if (!orCardNames.isEmpty()) sb.append('/').append(String.join("|", orCardNames));

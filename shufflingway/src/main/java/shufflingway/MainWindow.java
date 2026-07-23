@@ -8823,6 +8823,7 @@ public class MainWindow {
 			if (cond.job()            != null && !meetsJobFilterEffective(card, cond.job()))   continue;
 			if (cond.category() != null && !meetsCategoryFilter(card, cond.category())) continue;
 			if (cond.minPower() > 0     && card.power() < cond.minPower())         continue;
+			if (cond.minCost()  > 0     && card.cost()  < cond.minCost())          continue;
 			count++;
 		}
 		return cond.exactCount() ? count == cond.minCount() : count >= cond.minCount();

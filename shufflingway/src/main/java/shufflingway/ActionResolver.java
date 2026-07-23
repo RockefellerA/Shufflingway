@@ -402,7 +402,7 @@ public class ActionResolver {
         "(?<types>(?:Summon|auto[- ]ability|action\\s+ability|special\\s+ability|ability)" +
         "(?:\\s+or\\s+(?:Summon|auto[- ]ability|action\\s+ability|special\\s+ability))?)" +
         "(?:\\s+that\\s+(?:is\\s+)?choosing\\s+(?<tgtFilter>[^.]+?))?" +
-        "\\.\\s*If\\s+your\\s+opponent\\s+doesn(?:'|’)?t\\s+pay\\s*《\\s*(?<cost>\\d+)\\s*》,?\\s*" +
+        "\\.\\s*If\\s+your\\s+opponent\\s+doesn'?t\\s+pay\\s*《\\s*(?<cost>\\d+)\\s*》,?\\s*" +
         "cancel\\s+its\\s+effect[.!]?"
     );
 
@@ -415,7 +415,7 @@ public class ActionResolver {
      * "pay 《4》 or 《C》"); when present the opponent may instead pay that many Crystals.
      */
     private static final Pattern CANCEL_CHOSEN_TARGET_UNLESS_PAY = Pattern.compile(
-        "(?i)^If\\s+your\\s+opponent\\s+doesn(?:'|’)?t\\s+pay\\s*《\\s*(?<cost>\\d+)\\s*》" +
+        "(?i)^If\\s+your\\s+opponent\\s+doesn'?t\\s+pay\\s*《\\s*(?<cost>\\d+)\\s*》" +
         "(?:\\s+or\\s+(?<crystal>(?:《\\s*C\\s*》)+))?,?\\s*" +
         "cancel\\s+(?:its|their)\\s+effects?[.!]?$"
     );
@@ -428,7 +428,7 @@ public class ActionResolver {
      */
     private static final Pattern CANCEL_CHOSEN_TARGET_UNLESS_PAY_REVERSED = Pattern.compile(
         "(?i)^(?:its|their)\\s+effects?\\s+(?:is|are)\\s+cancelled\\s+if\\s+your\\s+opponent\\s+" +
-        "doesn(?:'|’)?t\\s+pay\\s*《\\s*(?<cost>\\d+)\\s*》[.!]?$"
+        "doesn'?t\\s+pay\\s*《\\s*(?<cost>\\d+)\\s*》[.!]?$"
     );
 
     /**
@@ -438,7 +438,7 @@ public class ActionResolver {
      * Group {@code count} — the number of cards that must be discarded in full.
      */
     private static final Pattern CANCEL_CHOSEN_TARGET_UNLESS_DISCARD = Pattern.compile(
-        "(?i)^If\\s+your\\s+opponent\\s+doesn(?:'|’)?t\\s+discard\\s+(?<count>\\d+)\\s+cards?,?\\s*" +
+        "(?i)^If\\s+your\\s+opponent\\s+doesn'?t\\s+discard\\s+(?<count>\\d+)\\s+cards?,?\\s*" +
         "cancel\\s+(?:its|their)\\s+effects?[.!]?$"
     );
 
@@ -463,7 +463,7 @@ public class ActionResolver {
      * Groups: {@code cost} — CP amount; {@code effect} — the target action text.
      */
     private static final Pattern IF_OPP_NOT_PAY_ACTION = Pattern.compile(
-        "(?i)^If\\s+your\\s+opponent\\s+doesn(?:'|’)?t\\s+pay\\s+《\\s*(?<cost>\\d+)\\s*》,?\\s+(?<effect>.+)$",
+        "(?i)^If\\s+your\\s+opponent\\s+doesn'?t\\s+pay\\s+《\\s*(?<cost>\\d+)\\s*》,?\\s+(?<effect>.+)$",
         Pattern.DOTALL
     );
 
@@ -858,21 +858,21 @@ public class ActionResolver {
     );
 
     /**
-     * Matches "If your opponent doesn't control Forwards, put [CardName] into the Break Zone."
+     * Matches "If your opponent doesn't control [any] Forwards, put [CardName] into the Break Zone."
      * Group {@code name} — the card name that goes to the Break Zone (must equal source name).
      */
     private static final Pattern IF_OPP_NO_FORWARDS_PUT_TO_BREAK_ZONE = Pattern.compile(
-        "(?i)^If\\s+your\\s+opponent\\s+(?:doesn'?t|does\\s+not)\\s+control\\s+Forwards?," +
+        "(?i)^If\\s+your\\s+opponent\\s+(?:doesn'?t|does\\s+not)\\s+control\\s+(?:any\\s+)?Forwards?," +
         "\\s+put\\s+(?<name>.+?)\\s+into\\s+the\\s+Break\\s+Zone[.!]?$"
     );
 
     /**
-     * Matches "If either player doesn't control Forwards, put [CardName] into the Break Zone."
+     * Matches "If either player doesn't control [any] Forwards, put [CardName] into the Break Zone."
      * Fires if either the controller or their opponent has zero Forwards.
      * Group {@code name} — the card name that goes to the Break Zone (must equal source name).
      */
     private static final Pattern IF_EITHER_PLAYER_NO_FORWARDS_PUT_SOURCE_TO_BZ = Pattern.compile(
-        "(?i)^If\\s+either\\s+player\\s+(?:doesn'?t|does\\s+not)\\s+control\\s+Forwards?," +
+        "(?i)^If\\s+either\\s+player\\s+(?:doesn'?t|does\\s+not)\\s+control\\s+(?:any\\s+)?Forwards?," +
         "\\s+put\\s+(?<name>.+?)\\s+into\\s+the\\s+Break\\s+Zone[.!]?$"
     );
 
@@ -1442,11 +1442,11 @@ public class ActionResolver {
     );
 
     /**
-     * "If your opponent doesn't control any Forwards, [CardName] cannot attack."
+     * "If your opponent doesn't control [any] Forwards, [CardName] cannot attack."
      * {@code subject} — the card that cannot attack.
      */
     static final Pattern IF_OPP_NO_FORWARDS_CANNOT_ATTACK = Pattern.compile(
-        "(?i)^If\\s+your\\s+opponent\\s+(?:doesn'?t|does\\s+not)\\s+control\\s+any\\s+Forwards?," +
+        "(?i)^If\\s+your\\s+opponent\\s+(?:doesn'?t|does\\s+not)\\s+control\\s+(?:any\\s+)?Forwards?," +
         "\\s+(?<subject>.+?)\\s+cannot\\s+attack[.!]?\\s*$"
     );
 
@@ -4086,7 +4086,7 @@ public class ActionResolver {
      * Groups: {@code cost} — CP amount; {@code effect} — the target action text (e.g. "break it").
      */
     static final Pattern FOLLOWUP_IF_OPP_NOT_PAY_ACTION = Pattern.compile(
-        "(?i)^If\\s+your\\s+opponent\\s+doesn(?:'|’)?t\\s+pay\\s+《\\s*(?<cost>\\d+)\\s*》,?\\s+(?<effect>.+)$",
+        "(?i)^If\\s+your\\s+opponent\\s+doesn'?t\\s+pay\\s+《\\s*(?<cost>\\d+)\\s*》,?\\s+(?<effect>.+)$",
         Pattern.DOTALL
     );
 

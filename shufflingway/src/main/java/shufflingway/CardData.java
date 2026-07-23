@@ -2302,6 +2302,16 @@ public record CardData(
     );
 
     /**
+     * "If your opponent doesn't control [any|a] Forward[s] [of cost N or more], [target] gains [effects]."
+     * Groups: {@code mincost} (optional cost filter), {@code target}, {@code effects}.
+     */
+    private static final Pattern IF_OPP_CTRL_NO_FWD_BOOST = Pattern.compile(
+        "(?i)^If\\s+your\\s+opponent\\s+(?:doesn'?t|does\\s+not)\\s+control\\s+(?:any\\s+|a\\s+)?Forwards?" +
+        "(?:\\s+of\\s+cost\\s+(?<mincost>\\d+)\\s+or\\s+more)?,\\s+" +
+        "(?<target>.+?)\\s+gains?\\s+(?<effects>.+?)\\.?\\s*$"
+    );
+
+    /**
      * "If you have a 《C》, [target] gains [effects]."
      * Groups: {@code target}, {@code effects}.
      */
@@ -2626,6 +2636,32 @@ public record CardData(
                     FieldPowerGrant targetFilter = parseIcbTargetFilter(targetName);
                     result.add(new IfControlBoost(List.of(), "", targetName, targetFilter,
                             powerBonus, traits, "", false, false, false, null, 0, 0, false, 0, minFwds));
+                }
+                continue;
+            }
+
+            // "If your opponent doesn't control Forwards [of cost N or more], [target] gains [effects]."
+            Matcher oppNoFwdM = IF_OPP_CTRL_NO_FWD_BOOST.matcher(seg);
+            if (oppNoFwdM.find()) {
+                String targetName = oppNoFwdM.group("target").trim();
+                String effectsStr = oppNoFwdM.group("effects").trim();
+                int minCost = oppNoFwdM.group("mincost") != null
+                        ? Integer.parseInt(oppNoFwdM.group("mincost")) : 0;
+                // "exactly 0 [cost ≥ N] Forwards on the opponent's field"
+                ControlCondition noFwdCond = new ControlCondition(
+                        List.of(), 0, true, "Forward", null, null, null, 0,
+                        List.of(), false, null, null, false, false, true, minCost);
+                Matcher pwrM = IF_CTRL_EFFECT_POWER.matcher(effectsStr);
+                int powerBonus = pwrM.find() ? Integer.parseInt(pwrM.group(1)) : 0;
+                EnumSet<Trait> traits = EnumSet.noneOf(Trait.class);
+                if (ICB_EFFECT_HASTE.matcher(effectsStr).find())        traits.add(Trait.HASTE);
+                if (ICB_EFFECT_BRAVE.matcher(effectsStr).find())        traits.add(Trait.BRAVE);
+                if (ICB_EFFECT_FIRST_STRIKE.matcher(effectsStr).find()) traits.add(Trait.FIRST_STRIKE);
+                if (ICB_EFFECT_BACK_ATTACK.matcher(effectsStr).find())  traits.add(Trait.BACK_ATTACK);
+                if (powerBonus != 0 || !traits.isEmpty()) {
+                    FieldPowerGrant targetFilter = parseIcbTargetFilter(targetName);
+                    result.add(new IfControlBoost(List.of(noFwdCond), "", targetName, targetFilter,
+                            powerBonus, traits, "", false, false, false, null));
                 }
                 continue;
             }
