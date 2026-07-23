@@ -306,6 +306,51 @@ final class GameContextImpl implements GameContext {
 				if (isP1) { mw.p1DoublecastFreeSummons = true; mw.p1DoublecastLastSummonCost = -1; }
 				else      { mw.p2DoublecastFreeSummons = true; mw.p2DoublecastLastSummonCost = -1; }
 			}
+			@Override public void removeTargetFromGameWhileNamedCardOnField(ForwardTarget t, String watcherName) {
+				if (t.zone() != ForwardTarget.CardZone.FORWARD) return;
+				List<CardData> targetFwds = t.isP1() ? mw.p1ForwardCards : mw.p2ForwardCards;
+				if (t.idx() >= targetFwds.size()) return;
+				CardData exiled = targetFwds.get(t.idx());
+				List<CardData> ownFwds = isP1 ? mw.p1ForwardCards : mw.p2ForwardCards;
+				CardData watcher = null;
+				for (CardData c : ownFwds) if (c.name().equalsIgnoreCase(watcherName)) { watcher = c; break; }
+				if (watcher != null) {
+					mw.tempExiledCards.put(exiled, watcher);
+					logEntry(exiled.name() + " — removed from the game while " + watcher.name() + " is on the field");
+				} else {
+					logEntry(watcherName + " is not on the field — " + exiled.name() + " removed permanently");
+				}
+				removeTargetFromGame(t);
+			}
+
+			@Override public void putCardRemovedBySourceIntoBreakZone(CardData source) {
+				List<CardData> removed = new ArrayList<>();
+				for (Map.Entry<CardData, CardData> e : mw.tempExiledCards.entrySet())
+					if (e.getValue() == source) removed.add(e.getKey());
+				if (removed.isEmpty()) {
+					logEntry("No card removed by " + source.name() + "'s ability — effect fizzles");
+					markEffectFizzled();
+					return;
+				}
+				CardData pick;
+				if (removed.size() == 1) {
+					pick = removed.get(0);
+				} else if (isP1) {
+					int idx = mw.showCardImageChooser(removed,
+							"Choose 1 card removed by " + source.name() + "'s ability", true);
+					if (idx < 0) { markEffectFizzled(); return; }
+					pick = removed.get(idx);
+				} else {
+					pick = removed.get(0);
+				}
+				mw.tempExiledCards.remove(pick);
+				mw.gameState.removeFromPermanentRfp(pick);
+				mw.addToBreakZone(pick);
+				boolean ownerP1 = Boolean.TRUE.equals(mw.gameState.getIdentity().get(pick));
+				if (ownerP1) mw.refreshP1BreakLabel(); else mw.refreshP2BreakLabel();
+				logEntry(pick.name() + " → Break Zone (no longer returns to the field)");
+			}
+
 			@Override public void makeRfgCostCardCastableThisTurn(String cardName) {
 				var playable = isP1 ? mw.bzPlayableP1 : mw.bzPlayableP2;
 				boolean any = false;
@@ -328,6 +373,11 @@ final class GameContextImpl implements GameContext {
 			@Override public void shieldPlayerNextDamage() {
 				if (isP1) { mw.p1NextDamageZero = true; if (mw.p1ShieldIcon != null) mw.p1ShieldIcon.reset(); }
 				else       { mw.p2NextDamageZero = true; if (mw.p2ShieldIcon != null) mw.p2ShieldIcon.reset(); }
+			}
+			@Override public void shieldPlayerNextDamageRedirect(String cardName, int damage) {
+				shieldPlayerNextDamage();
+				if (isP1) { mw.p1NextDamageZeroRedirectName = cardName; mw.p1NextDamageZeroRedirectDmg = damage; }
+				else      { mw.p2NextDamageZeroRedirectName = cardName; mw.p2NextDamageZeroRedirectDmg = damage; }
 			}
 			@Override public void disableOpponentDamageReduction() {
 				if (isP1) mw.p2DmgReductionDisabled = true; else mw.p1DmgReductionDisabled = true;

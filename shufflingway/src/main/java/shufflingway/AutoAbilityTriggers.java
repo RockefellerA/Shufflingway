@@ -1235,6 +1235,9 @@ final class AutoAbilityTriggers {
 				executeAutoAbility(fa, departing, isP1);
 			}
 		});
+		// Necron: cards the departing card had removed "for as long as it is on the field"
+		// re-enter their owner's field.
+		mw.returnTempExiledOnLeave(departing);
 		mw.gameState.clearCounters(departing);
 		// Re-evaluate all conditional field boosts now that the field composition has changed
 		mw.refreshAllForwardSlots();

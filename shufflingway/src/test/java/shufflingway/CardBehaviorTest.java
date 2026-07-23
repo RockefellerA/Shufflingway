@@ -502,6 +502,77 @@ public class CardBehaviorTest {
     }
 
     // =========================================================================================
+    // Necron: ETB "choose 1 Forward of cost 5 or less opponent controls. Remove it from the
+    // game for as long as Necron is on the field." + action "《Ice》《Dull》: Choose 1 card
+    // removed by Necron's ability. Put it into the Break Zone." — temporary exile that returns
+    // when Necron leaves the field, unless first sent to the Break Zone.
+    // =========================================================================================
+
+    @Test
+    void necronEtbRemovesChosenForwardWhileNecronOnField() {
+        CardData necron = mock(CardData.class);
+        when(necron.name()).thenReturn("Necron");
+
+        Consumer<GameContext> fn = ActionResolver.parse(
+                "Choose 1 Forward of cost 5 or less opponent controls. "
+                + "Remove it from the game for as long as Necron is on the field.", necron);
+        assertNotNull(fn);
+
+        GameContext ctx = mock(GameContext.class);
+        ForwardTarget t = new ForwardTarget(false, 0, ForwardTarget.CardZone.FORWARD);
+        when(ctx.consumePreloadedTargets()).thenReturn(List.of(t));
+
+        fn.accept(ctx);
+
+        verify(ctx).removeTargetFromGameWhileNamedCardOnField(t, "Necron");
+        verify(ctx, never()).removeTargetFromGame(any());
+    }
+
+    @Test
+    void necronActionPutsRemovedCardIntoBreakZone() {
+        CardData necron = mock(CardData.class);
+        when(necron.name()).thenReturn("Necron");
+
+        Consumer<GameContext> fn = ActionResolver.parse(
+                "Choose 1 card removed by Necron's ability. Put it into the Break Zone.", necron);
+        assertNotNull(fn);
+
+        GameContext ctx = mock(GameContext.class);
+        fn.accept(ctx);
+
+        verify(ctx).putCardRemovedBySourceIntoBreakZone(necron);
+    }
+
+    @Test
+    void necronActionDoesNotFireForDifferentlyNamedSource() {
+        CardData other = mock(CardData.class);
+        when(other.name()).thenReturn("Not Necron");
+
+        assertNull(ActionResolver.parse(
+                "Choose 1 card removed by Necron's ability. Put it into the Break Zone.", other));
+    }
+
+    // =========================================================================================
+    // Auron: "During this turn, the next damage dealt to you becomes 0 and deal Auron 8000
+    // damage instead. You can only use this ability once per turn." — player shield whose
+    // consumption redirects the damage to Auron.
+    // =========================================================================================
+
+    @Test
+    void auronPlayerShieldWithRedirectParses() {
+        Consumer<GameContext> fn = ActionResolver.parse(
+                "During this turn, the next damage dealt to you becomes 0 and deal Auron 8000 damage "
+                + "instead. You can only use this ability once per turn.", null);
+        assertNotNull(fn);
+
+        GameContext ctx = mock(GameContext.class);
+        fn.accept(ctx);
+
+        verify(ctx).shieldPlayerNextDamageRedirect("Auron", 8000);
+        verify(ctx, never()).shieldPlayerNextDamage();
+    }
+
+    // =========================================================================================
     // Sephiroth (hand ability): "《Ice》《2》, remove Sephiroth in your hand from the game:
     // Choose 1 dull Forward. Break it. Until the end of your turn, you can cast Sephiroth
     // removed by this ability's cost. You can only use this ability if Sephiroth is in your

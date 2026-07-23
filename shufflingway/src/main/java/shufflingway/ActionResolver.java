@@ -1783,6 +1783,15 @@ public class ActionResolver {
         "(?i)During\\s+this\\s+turn,\\s+the\\s+next\\s+damage\\s+dealt\\s+to\\s+you\\s+becomes\\s+0\\s+instead\\.?"
     );
 
+    /**
+     * Matches "During this turn, the next damage dealt to you becomes 0 and deal [Name] N damage
+     * instead." (Auron) — the player shield plus a redirect to the named Forward on consumption.
+     */
+    private static final Pattern PLAYER_NEXT_DAMAGE_ZERO_REDIRECT = Pattern.compile(
+        "(?i)During\\s+this\\s+turn,\\s+the\\s+next\\s+damage\\s+dealt\\s+to\\s+you\\s+becomes\\s+0\\s+" +
+        "and\\s+deal\\s+(?<name>.+?)\\s+(?<dmg>\\d+)\\s+damage\\s+instead\\.?"
+    );
+
     /** Matches "During this turn, the next damage dealt to it by Summons or abilities is reduced by N instead." */
     private static final Pattern FOLLOWUP_SHIELD_NEXT_ABILITY_DMG_REDUCTION = Pattern.compile(
         "(?i)During\\s+this\\s+turn,\\s+the\\s+next\\s+damage\\s+dealt\\s+to\\s+it\\s+by\\s+Summons?\\s+or\\s+abilities\\s+is\\s+reduced\\s+by\\s+(?<reduction>\\d+)\\s+instead\\.?"
@@ -4928,6 +4937,9 @@ public class ActionResolver {
         result = tryParseNegateAllDamage(effectText);
         if (result != null) return result;
 
+        result = tryParsePlayerNextDamageZeroRedirect(effectText);
+        if (result != null) return result;
+
         result = tryParsePlayerNextDamageZero(effectText);
         if (result != null) return result;
 
@@ -5100,6 +5112,9 @@ public class ActionResolver {
         if (result != null) return result;
 
         result = tryParseCastRfgCostCardThisTurn(effectText);
+        if (result != null) return result;
+
+        result = tryParseChooseCardRemovedBySourceToBz(effectText, source);
         if (result != null) return result;
 
         result = tryParseAllForwardsCannotBlock(effectText);
@@ -5633,6 +5648,7 @@ public class ActionResolver {
         if (tryParseActivateAllOwnFwdsGainProtections(effectText) != null) return "ActivateAllOwnFwdsGainProtections";
         if (tryParseStandaloneCannotAttackOrBlock(effectText, source) != null) return "CannotAttackOrBlock";
         if (tryParseNegateAllDamage(effectText)                != null) return "NegateDamage";
+        if (tryParsePlayerNextDamageZeroRedirect(effectText)   != null) return "PlayerNextDamageZeroRedirect";
         if (tryParsePlayerNextDamageZero(effectText)           != null) return "PlayerNextDamageZero";
         if (tryParseCancelAutoAbilityAndDamageIfForward(effectText) != null) return "CancelAutoAbilityAndDamageIfForward";
         if (tryParseCancelStackEntry(effectText)               != null) return "CancelSummonOrAutoAbility";
@@ -5683,6 +5699,7 @@ public class ActionResolver {
         if (tryParseOwnJobOrNameNullifyAbilityDamage(effectText)          != null) return "OwnJobOrNameNullifyAbilityDamage";
         if (tryParseDoublecastFreeSummons(effectText)                     != null) return "DoublecastFreeSummons";
         if (tryParseCastRfgCostCardThisTurn(effectText)                   != null) return "CastRfgCostCardThisTurn";
+        if (tryParseChooseCardRemovedBySourceToBz(effectText, source)     != null) return "ChooseCardRemovedBySourceToBz";
         if (tryParseAllForwardsCannotBlock(effectText)                    != null) return "AllForwardsCannotBlock";
         if (tryParseForwardsOfCostCannotBlock(effectText)                 != null) return "ForwardsOfCostCannotBlock";
         if (tryParseEndOfNextTurnIfCardOnFieldOppLoses(effectText)        != null) return "EndOfNextTurnIfCardOnFieldOppLoses";
@@ -6122,6 +6139,7 @@ public class ActionResolver {
         if (tryParseActivateAllOwnFwdsGainProtections(effectText) != null)      return "ActivateAllOwnFwdsGainProtections";
         if (tryParseStandaloneCannotAttackOrBlock(effectText, source) != null) return "CannotAttackOrBlock";
         if (tryParseNegateAllDamage(effectText) != null)                       return "NegateDamage";
+        if (tryParsePlayerNextDamageZeroRedirect(effectText) != null)          return "PlayerNextDamageZeroRedirect";
         if (tryParsePlayerNextDamageZero(effectText) != null)                  return "PlayerNextDamageZero";
         if (tryParseCancelAutoAbilityAndDamageIfForward(effectText) != null) return "CancelAutoAbilityAndDamageIfForward";
         if (tryParseCancelStackEntry(effectText)              != null) return "CancelSummonOrAutoAbility";
@@ -6197,6 +6215,7 @@ public class ActionResolver {
         if (tryParseOwnJobOrNameNullifyAbilityDamage(effectText)          != null) return "OwnJobOrNameNullifyAbilityDamage";
         if (tryParseDoublecastFreeSummons(effectText)                     != null) return "DoublecastFreeSummons";
         if (tryParseCastRfgCostCardThisTurn(effectText)                   != null) return "CastRfgCostCardThisTurn";
+        if (tryParseChooseCardRemovedBySourceToBz(effectText, source)     != null) return "ChooseCardRemovedBySourceToBz";
         if (tryParseAllForwardsCannotBlock(effectText)                    != null) return "AllForwardsCannotBlock";
         if (tryParseForwardsOfCostCannotBlock(effectText)                 != null) return "ForwardsOfCostCannotBlock";
         if (tryParseEndOfNextTurnIfCardOnFieldOppLoses(effectText)        != null) return "EndOfNextTurnIfCardOnFieldOppLoses";
@@ -9417,6 +9436,22 @@ public class ActionResolver {
             };
         }
 
+        // --- "Remove it from the game for as long as [Name] is on the field." (Necron) ---
+        // Must precede the plain remove-from-game followup, whose pattern is a prefix of this one.
+        Matcher rfgWhileM = FOLLOWUP_REMOVE_FROM_GAME_WHILE_ON_FIELD.matcher(primaryFollowup);
+        if (rfgWhileM.find()) {
+            String watcherName = rfgWhileM.group("name").trim();
+            return ctx -> {
+                ctx.logEntry(choosePrefix + " — Remove from game while " + watcherName + " is on the field");
+                List<ForwardTarget> ts = selectTargets(ctx, maxCount, upTo,
+                        opponentOnly, selfOnly, condition, element, zone, opponentZone,
+                        costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters, jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, fExcludeElem, withoutMulticard);
+                sortedByIdxDesc(ts, true) .forEach(t -> ctx.removeTargetFromGameWhileNamedCardOnField(t, watcherName));
+                sortedByIdxDesc(ts, false).forEach(t -> ctx.removeTargetFromGameWhileNamedCardOnField(t, watcherName));
+                if (secondary != null) secondary.accept(ctx);
+            };
+        }
+
         // --- Remove from game followup ---
         if (FOLLOWUP_REMOVE_FROM_GAME.matcher(primaryFollowup).find()) {
             return ctx -> {
@@ -11318,6 +11353,37 @@ public class ActionResolver {
             for (int i = 0; i < count; i++)
                 ctx.shieldAbilityDamage(new ForwardTarget(p1, i, ForwardTarget.CardZone.FORWARD));
         };
+    }
+
+    /**
+     * "Remove it/them from the game for as long as [Name] is on the field." (Necron ETB) —
+     * temporary exile that ends when the named watcher leaves the field.
+     */
+    private static final Pattern FOLLOWUP_REMOVE_FROM_GAME_WHILE_ON_FIELD = Pattern.compile(
+        "(?i)Remove\\s+(?:it|them)\\s+from\\s+the\\s+game\\s+for\\s+as\\s+long\\s+as\\s+" +
+        "(?<name>.+?)\\s+is\\s+on\\s+the\\s+field\\.?"
+    );
+
+    /**
+     * "Choose 1 card removed by [Name]'s ability. Put it into the Break Zone." (Necron action
+     * ability) — only targets cards exiled by this specific source instance's ETB ability;
+     * moving one to the Break Zone cancels its pending return to the field.
+     */
+    private static final Pattern CHOOSE_CARD_REMOVED_BY_SOURCE_TO_BZ = Pattern.compile(
+        "(?i)Choose\\s+1\\s+card\\s+removed\\s+by\\s+(?<name>.+?)'s\\s+ability\\.\\s*" +
+        "Put\\s+it\\s+into\\s+the\\s+Break\\s+Zone\\.?"
+    );
+
+    /**
+     * Parses "Choose 1 card removed by [SourceName]'s ability. Put it into the Break Zone." —
+     * requires the named card to be the ability source so the exile tracking can be looked up
+     * by instance identity.
+     */
+    private static Consumer<GameContext> tryParseChooseCardRemovedBySourceToBz(String text, CardData source) {
+        Matcher m = CHOOSE_CARD_REMOVED_BY_SOURCE_TO_BZ.matcher(text.trim());
+        if (!m.matches()) return null;
+        if (source == null || !m.group("name").trim().equalsIgnoreCase(source.name())) return null;
+        return ctx -> ctx.putCardRemovedBySourceIntoBreakZone(source);
     }
 
     /**
@@ -15061,6 +15127,22 @@ public class ActionResolver {
         return ctx -> {
             ctx.logEntry("Effect: next damage to you becomes 0 this turn");
             ctx.shieldPlayerNextDamage();
+        };
+    }
+
+    /**
+     * Parses "During this turn, the next damage dealt to you becomes 0 and deal [Name] N damage
+     * instead." (Auron) — player shield whose consumption redirects the damage to the named Forward.
+     */
+    private static Consumer<GameContext> tryParsePlayerNextDamageZeroRedirect(String text) {
+        Matcher m = PLAYER_NEXT_DAMAGE_ZERO_REDIRECT.matcher(text);
+        if (!m.find()) return null;
+        String name = m.group("name").trim();
+        int    dmg  = Integer.parseInt(m.group("dmg"));
+        return ctx -> {
+            ctx.logEntry("Effect: next damage to you becomes 0 this turn — " + name
+                + " takes " + dmg + " damage instead");
+            ctx.shieldPlayerNextDamageRedirect(name, dmg);
         };
     }
 

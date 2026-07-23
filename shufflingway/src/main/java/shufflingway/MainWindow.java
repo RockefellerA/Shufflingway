@@ -428,6 +428,13 @@ public class MainWindow {
 	boolean p2ReceivedDamageThisTurn = false;
 	boolean p1NextDamageZero = false;
 	boolean p2NextDamageZero = false;
+	// Companion to pXNextDamageZero (Auron): when the player shield consumes, deal this much
+	// damage to the named Forward on the shield owner's field instead
+	// ("the next damage dealt to you becomes 0 and deal Auron 8000 damage instead").
+	String p1NextDamageZeroRedirectName = null;
+	String p2NextDamageZeroRedirectName = null;
+	int p1NextDamageZeroRedirectDmg = 0;
+	int p2NextDamageZeroRedirectDmg = 0;
 	boolean p1ForwardPutToBZThisTurn = false;
 	boolean p2ForwardPutToBZThisTurn = false;
 	boolean p1ForwardCannotBlockInferiorPower = false; // set by P2 action: P1 Forwards cannot block targets with power < their own
@@ -640,6 +647,15 @@ public class MainWindow {
 	 * {@code "permanent"}, {@code "endOfTurn"}, or {@code "whileCardOnField:Name"}.
 	 */
 	private final IdentityHashMap<CardData, String> stolenForwards = new IdentityHashMap<>();
+
+	/**
+	 * Necron: cards removed from the game "for as long as [watcher] is on the field", mapped to
+	 * the specific watcher card instance (identity — two copies of the watcher track their own
+	 * exiles). When the watcher leaves the field the exiled card re-enters its owner's field
+	 * ({@link #returnTempExiledOnLeave}); entries deleted early (Necron's action ability puts
+	 * the card into the Break Zone) never return. Owner side is resolved via the identity map.
+	 */
+	final IdentityHashMap<CardData, CardData> tempExiledCards = new IdentityHashMap<>();
 	/** Distinct element types used to pay the most recent card's CP cost; checked by castPaymentMinElements conditions. */
 	int lastCastPaymentDistinctElements = 0;
 	/** Specific element types used to pay the most recent card's CP cost; checked by castPaymentElement conditions. */
@@ -1383,6 +1399,7 @@ public class MainWindow {
 		elementOverrideMap.clear();
 		permanentExtraJobMap.clear();
 		stolenForwards.clear();
+		tempExiledCards.clear();
 		cannotBeChosenBySummons.clear();
 		cannotBeChosenByAbilities.clear();
 		cannotBeChosenBySummonsAnyone.clear();
@@ -1400,6 +1417,8 @@ public class MainWindow {
 		if (p2NextDamageZero && p2ShieldIcon != null) p2ShieldIcon.triggerFade();
 		p1NextDamageZero = false;
 		p2NextDamageZero = false;
+		p1NextDamageZeroRedirectName = null; p2NextDamageZeroRedirectName = null;
+		p1NextDamageZeroRedirectDmg = 0;     p2NextDamageZeroRedirectDmg = 0;
 		p1ForwardPutToBZThisTurn = false;
 		p2ForwardPutToBZThisTurn = false;
 		p1PartyAnyElementThisTurn = false;
@@ -2734,6 +2753,28 @@ public class MainWindow {
 		if (shld != null && shld[0] == 1 && shld[1] == idx) si.triggerFade();
 	}
 
+	/**
+	 * Auron: consumes the redirect companion of a just-consumed next-player-damage shield,
+	 * dealing the recorded damage to the named Forward on the shield owner's field. No-op when
+	 * the shield had no redirect attached.
+	 */
+	private void consumeNextDamageZeroRedirect(boolean isP1) {
+		String name = isP1 ? p1NextDamageZeroRedirectName : p2NextDamageZeroRedirectName;
+		int    dmg  = isP1 ? p1NextDamageZeroRedirectDmg  : p2NextDamageZeroRedirectDmg;
+		if (isP1) { p1NextDamageZeroRedirectName = null; p1NextDamageZeroRedirectDmg = 0; }
+		else      { p2NextDamageZeroRedirectName = null; p2NextDamageZeroRedirectDmg = 0; }
+		if (name == null || dmg <= 0) return;
+		List<CardData> fwds = isP1 ? p1ForwardCards : p2ForwardCards;
+		for (int i = 0; i < fwds.size(); i++) {
+			if (fwds.get(i).name().equalsIgnoreCase(name)) {
+				logEntry((isP1 ? "" : "[P2] ") + name + " takes " + dmg + " damage instead");
+				buildGameContext(isP1).damageTarget(new ForwardTarget(isP1, i, ForwardTarget.CardZone.FORWARD), dmg);
+				return;
+			}
+		}
+		logEntry(name + " is not on the field — redirected damage not dealt");
+	}
+
 	void p1TakeDamage() { p1TakeDamage(null); }
 
 	void p1TakeDamage(Runnable onDone) {
@@ -2742,6 +2783,7 @@ public class MainWindow {
 			p1NextDamageZero = false;
 			logEntry("P1 damage negated (shield active).");
 			if (p1ShieldIcon != null) p1ShieldIcon.triggerShatter();
+			consumeNextDamageZeroRedirect(true);
 			if (onDone != null) onDone.run();
 			return;
 		}
@@ -2822,6 +2864,7 @@ public class MainWindow {
 			p2NextDamageZero = false;
 			logEntry("[P2] damage negated (shield active).");
 			if (p2ShieldIcon != null) p2ShieldIcon.triggerShatter();
+			consumeNextDamageZeroRedirect(false);
 			if (onDone != null) onDone.run();
 			return;
 		}
@@ -3555,6 +3598,27 @@ public class MainWindow {
 		}
 
 		logEntry(source.name() + " — not currently a Forward on the field, cannot transfer control");
+	}
+
+	/**
+	 * Necron: when {@code departing} leaves the field, any cards it removed "for as long as
+	 * [departing] is on the field" re-enter their owner's field. Entries already moved to the
+	 * Break Zone by the watcher's action ability were deleted from the map and stay put.
+	 * Called from {@link AutoAbilityTriggers#triggerAutoAbilitiesForLeavesField} so every
+	 * leave-field path is covered.
+	 */
+	void returnTempExiledOnLeave(CardData departing) {
+		if (tempExiledCards.isEmpty()) return;
+		List<CardData> toReturn = new ArrayList<>();
+		for (Map.Entry<CardData, CardData> e : tempExiledCards.entrySet())
+			if (e.getValue() == departing) toReturn.add(e.getKey());
+		for (CardData c : toReturn) {
+			tempExiledCards.remove(c);
+			if (!gameState.removeFromPermanentRfp(c)) continue;
+			boolean ownerP1 = Boolean.TRUE.equals(gameState.getIdentity().get(c));
+			logEntry(c.name() + " re-enters the field — " + departing.name() + " left the field");
+			if (ownerP1) placeCardInForwardZone(c); else placeP2CardInForwardZone(c);
+		}
 	}
 
 	/** Checks if any stolen forward had {@code leavingCardName} as its on-field condition and restores them. */

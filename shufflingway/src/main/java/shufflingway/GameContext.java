@@ -703,6 +703,13 @@ public interface GameContext {
     /** The next damage dealt to the effect controller (as a player) becomes 0 (consumed on first hit). */
     void shieldPlayerNextDamage();
 
+    /**
+     * Auron: like {@link #shieldPlayerNextDamage} (next damage to the active player becomes 0,
+     * shield icon shown), but when the shield consumes, {@code damage} is dealt to the Forward
+     * named {@code cardName} on the shield owner's field instead.
+     */
+    void shieldPlayerNextDamageRedirect(String cardName, int damage);
+
     /** The next damage dealt to {@code from} is received by {@code to} instead (consumed on first hit). */
     void redirectNextIncomingDamage(ForwardTarget from, ForwardTarget to);
 
@@ -738,6 +745,21 @@ public interface GameContext {
      * of turn (at printed cost). They appear in the playable-cards window while registered.
      */
     void makeRfgCostCardCastableThisTurn(String cardName);
+
+    /**
+     * Necron: removes the Forward at {@code t} from the game "for as long as [watcherName] is on
+     * the field". The watcher is resolved to the first card with that name on the ability user's
+     * forward line; when it later leaves the field, the removed card re-enters its owner's field.
+     * If no watcher is found the removal is permanent (the watcher already left).
+     */
+    void removeTargetFromGameWhileNamedCardOnField(ForwardTarget t, String watcherName);
+
+    /**
+     * Necron's action ability: choose 1 card removed by {@code source}'s ability (tracked by
+     * instance identity) and put it into its owner's Break Zone, cancelling the pending return.
+     * Fizzles when {@code source} has no tracked removal.
+     */
+    void putCardRemovedBySourceIntoBreakZone(CardData source);
 
     /** Damage from the opponent's abilities (not Summons) to target becomes 0 until end of turn. */
     void shieldAbilityOnlyDamage(ForwardTarget t);
