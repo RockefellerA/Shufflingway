@@ -1130,6 +1130,23 @@ public interface GameContext {
                 : countP2BreakZoneCards(cardNameFilter, jobFilter);
     }
 
+    /** Counts cards owned by P1 that are removed from the game (P1's RFP zone), by name/job filter. */
+    int countP1RfgCards(String cardNameFilter, String jobFilter);
+
+    /** Counts cards owned by P2 that are removed from the game (P2's RFP zone), by name/job filter. */
+    int countP2RfgCards(String cardNameFilter, String jobFilter);
+
+    /**
+     * Counts the ability user's own cards in their Break Zone plus the ones they own that are
+     * removed from the game (e.g. Jill: "the Job Eikon in your Break Zone and/or Job Eikon you
+     * own removed from the game"). Routes to P1 or P2 based on {@link #isP1()}.
+     */
+    default int countSelfBreakZoneAndRfgCards(String cardNameFilter, String jobFilter) {
+        return countSelfBreakZoneCards(cardNameFilter, jobFilter)
+                + (isP1() ? countP1RfgCards(cardNameFilter, jobFilter)
+                          : countP2RfgCards(cardNameFilter, jobFilter));
+    }
+
     /** The {@link CardData} at index {@code idx} in P1's Break Zone, or {@code null} if out of range. */
     CardData p1BreakZoneCard(int idx);
 

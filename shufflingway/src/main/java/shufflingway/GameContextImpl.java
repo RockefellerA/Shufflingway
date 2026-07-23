@@ -5603,6 +5603,26 @@ final class GameContextImpl implements GameContext {
 				return count;
 			}
 
+			@Override public int countP1RfgCards(String cardNameFilter, String jobFilter) {
+				int count = 0;
+				for (CardData c : mw.gameState.getP1PermanentRfp()) {
+					if (!meetsCardNameFilter(c, cardNameFilter)) continue;
+					if (!CardFilters.meetsJobFilter(c, jobFilter)) continue;
+					count++;
+				}
+				return count;
+			}
+
+			@Override public int countP2RfgCards(String cardNameFilter, String jobFilter) {
+				int count = 0;
+				for (CardData c : mw.gameState.getP2PermanentRfp()) {
+					if (!meetsCardNameFilter(c, cardNameFilter)) continue;
+					if (!CardFilters.meetsJobFilter(c, jobFilter)) continue;
+					count++;
+				}
+				return count;
+			}
+
 			@Override public int countP2FieldCards(boolean inclForwards, boolean inclBackups,
 					boolean inclMonsters, String jobFilter, String cardNameFilter) {
 				return countP2FieldCards(inclForwards, inclBackups, inclMonsters, jobFilter, cardNameFilter, null);

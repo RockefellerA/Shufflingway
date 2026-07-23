@@ -50,6 +50,15 @@ public class CardBehaviorTest {
                 null, null, null, "");
     }
 
+    /** Builds a card of the given type/element carrying a single {@code job}. */
+    private static CardData makeJobCard(String name, String element, String type, String job) {
+        return new CardData(null, name, element, 3, 7000, type, false, 0, false, false,
+                Set.of(), 0, List.of(), null, List.of(),
+                List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(),
+                false, false, null, false, false, false, false, false, false,
+                job, null, null, "");
+    }
+
     private static CardData makeFirion(int power) {
         return makeForward("Firion", "Fire", 2, power, CardData.parseActionAbilities(FIRION_TEXT));
     }
@@ -3246,5 +3255,67 @@ public class CardBehaviorTest {
         // Counters of a different name do not feed this scaling.
         mw.gameState.placeCounters(palom, "Turks", 5);
         assertEquals(8000, mw.effectiveP1ForwardPower(0), "unrelated counters don't scale power");
+    }
+
+    // =========================================================================================
+    // Jill (26-034L): "When Jill enters the field, choose up to the same number of Characters as
+    // the Job Eikon in your Break Zone and/or Job Eikon you own removed from the game. Dull them."
+    // Count = (Job Eikon in own Break Zone) + (Job Eikon the acting player owns removed from game).
+    // =========================================================================================
+
+    private static final String JILL_TEXT =
+            "Priming \"Shiva (XVI)\" -- 《Ice》《2》[[br]]"
+            + "When Jill enters the field, choose up to the same number of Characters as the Job Eikon "
+            + "in your Break Zone and/or Job Eikon you own removed from the game. Dull them.[[br]]"
+            + "At the beginning of the Attack Phase during each of your turns, you may pay 《Ice》. "
+            + "When you do so, choose 1 dull Forward. Break it.";
+
+    private static final String JILL_ETB =
+            "choose up to the same number of Characters as the Job Eikon in your Break Zone "
+            + "and/or Job Eikon you own removed from the game. Dull them.";
+
+    @Test
+    void jillEnterFieldAbilityParsesAsBzRfgJobChoose() {
+        boolean recognized = CardData.parseAutoAbilities(JILL_TEXT).stream()
+                .anyMatch(a -> "ChooseAsManyAsBzRfgJobCount".equals(
+                        ActionResolver.matchedPatternName(a.effectText(), null)));
+        assertTrue(recognized, "Jill's ETF ability is recognized as a BZ/RFG job-count dull");
+    }
+
+    @Test
+    void jillDullsCharactersEqualToEikonInBzAndRfg() {
+        MainWindow mw = new MainWindow();
+        CardData jill = makeForward("Jill", "Ice", 3, 7000);
+        // 1 Job Eikon in P1 Break Zone + 1 Job Eikon P1 owns removed from game = count 2.
+        mw.gameState.getP1BreakZone().add(makeJobCard("Ifrit", "Fire", "Summon", "Eikon"));
+        CardData rfgEikon = makeJobCard("Garuda", "Wind", "Summon", "Eikon");
+        mw.gameState.getIdentity().put(rfgEikon, true); // owned by P1
+        mw.gameState.addToPermanentRfp(rfgEikon);
+        // A non-Eikon Break Zone card must not be counted.
+        mw.gameState.getP1BreakZone().add(makeJobCard("Warrior of Light", "Light", "Forward", "Warrior of Light"));
+
+        mw.placeP2CardInForwardZone(makeForward("A", "Fire", 3, 7000)); // P2 idx 0
+        mw.placeP2CardInForwardZone(makeForward("B", "Ice",  3, 7000)); // P2 idx 1
+
+        GameContext ctx = mw.buildGameContext(true);
+        ctx.preloadTargets(List.of(
+                new ForwardTarget(false, 0, ForwardTarget.CardZone.FORWARD),
+                new ForwardTarget(false, 1, ForwardTarget.CardZone.FORWARD)));
+        ActionResolver.parse(JILL_ETB, jill).accept(ctx);
+
+        assertEquals(CardState.DULL, mw.p2ForwardStates.get(0), "first chosen Character dulled");
+        assertEquals(CardState.DULL, mw.p2ForwardStates.get(1), "second chosen Character dulled");
+    }
+
+    @Test
+    void jillWithNoEikonChoosesNothing() {
+        MainWindow mw = new MainWindow();
+        CardData jill = makeForward("Jill", "Ice", 3, 7000);
+        mw.placeP2CardInForwardZone(makeForward("A", "Fire", 3, 7000)); // P2 idx 0
+
+        GameContext ctx = mw.buildGameContext(true);
+        // No preloaded targets: with count 0 the effect must not attempt any selection.
+        ActionResolver.parse(JILL_ETB, jill).accept(ctx);
+        assertEquals(CardState.ACTIVE, mw.p2ForwardStates.get(0), "no Eikon anywhere — nothing dulled");
     }
 }

@@ -4012,6 +4012,20 @@ public class ActionResolver {
     );
 
     /**
+     * Matches "Choose up to the same number of Characters as the Job X in your Break Zone
+     * and/or Job X you own removed from the game. [Dull/Activate/Freeze] them." (Jill 26-034L).
+     * The count is computed at resolution time as (Job X in own Break Zone) + (Job X the acting
+     * player owns removed from the game). Group {@code targetType}, {@code job}, {@code followup}.
+     */
+    private static final Pattern CHOOSE_AS_MANY_AS_BZ_RFG_JOB = Pattern.compile(
+        "(?i)^Choose\\s+(?:as\\s+many|up\\s+to\\s+the\\s+same\\s+number\\s+of)\\s+" +
+        "(?<targetType>Forwards?|Characters?|Backups?|Monsters?)(?:\\s+Cards?)?\\s+" +
+        "as\\s+(?:the\\s+)?Job\\s+(?<job>.+?)\\s+in\\s+your\\s+Break\\s+Zone\\s+and/or\\s+" +
+        "Job\\s+.+?\\s+you\\s+own\\s+removed\\s+from\\s+the\\s+game[,.]?\\s+" +
+        "(?<followup>.+)$"
+    );
+
+    /**
      * Matches "Choose up to the same number of Characters as the [Name] Counters placed on [card]. Activate them."
      * At resolution time {@code xValue} holds the counter count captured before the card was put into the Break Zone.
      * Group {@code counterName} — counter type (e.g. "Monster"); group {@code card} — source card name.
@@ -4867,6 +4881,9 @@ public class ActionResolver {
         result = tryParseChooseAsManyAsFieldCount(effectText, source);
         if (result != null) return result;
 
+        result = tryParseChooseAsManyAsBzRfgJobCount(effectText);
+        if (result != null) return result;
+
         result = tryParseChooseCounterScaleCharsActivate(effectText, xValue);
         if (result != null) return result;
 
@@ -5629,6 +5646,7 @@ public class ActionResolver {
         if (tryParseChooseOppFwdGainsSpecialAbilityFreeOnce(effectText, source) != null) return "ChooseOppFwdGainsSpecialAbilityFreeOnce";
         if (tryParseChooseOppDamagedFwdIfHasAbilityBreak(effectText)     != null) return "ChooseOppDamagedFwdIfHasAbilityBreak";
         if (tryParseChooseAsManyAsFieldCount(effectText, source)         != null) return "ChooseAsManyAsFieldCount";
+        if (tryParseChooseAsManyAsBzRfgJobCount(effectText)             != null) return "ChooseAsManyAsBzRfgJobCount";
         if (tryParseChooseCounterScaleCharsActivate(effectText, 1)    != null) return "ChooseCounterScaleCharsActivate";
         if (tryParseChooseAnyNumberReturnToHand(effectText)    != null) return "ChooseAnyNumberReturnToHand";
         if (tryParseCancelStackEntryUnlessPay(effectText)      != null) return "CancelStackEntryUnlessPay";
@@ -6328,6 +6346,7 @@ public class ActionResolver {
         if (tryParseChooseOppFwdGainsSpecialAbilityFreeOnce(effectText, source) != null) return "ChooseOppFwdGainsSpecialAbilityFreeOnce";
         if (tryParseChooseOppDamagedFwdIfHasAbilityBreak(effectText)       != null) return "ChooseOppDamagedFwdIfHasAbilityBreak";
         if (tryParseChooseAsManyAsFieldCount(effectText, source)           != null) return "ChooseAsManyAsFieldCount";
+        if (tryParseChooseAsManyAsBzRfgJobCount(effectText)               != null) return "ChooseAsManyAsBzRfgJobCount";
         if (tryParseChooseCounterScaleCharsActivate(effectText, 1)         != null) return "ChooseCounterScaleCharsActivate";
         if (tryParseCounterScaleLookAddToHand(effectText, 1)               != null) return "CounterScaleLookAddToHand";
         if (tryParseLookTopDeckAddToHandRestBottom(effectText)          != null) return "LookTopDeckAddToHandRestBottom";
@@ -15434,6 +15453,58 @@ public class ActionResolver {
                 sortedByIdxDesc(ts, true) .forEach(ctx::activateTarget);
                 sortedByIdxDesc(ts, false).forEach(ctx::activateTarget);
             } else if (doDull) {
+                sortedByIdxDesc(ts, true) .forEach(ctx::dullTarget);
+                sortedByIdxDesc(ts, false).forEach(ctx::dullTarget);
+            } else {
+                sortedByIdxDesc(ts, true) .forEach(ctx::freezeTarget);
+                sortedByIdxDesc(ts, false).forEach(ctx::freezeTarget);
+            }
+        };
+    }
+
+    /**
+     * Parses "Choose up to the same number of Characters as the Job X in your Break Zone and/or
+     * Job X you own removed from the game. [Dull/Activate/Freeze] them." (Jill 26-034L). The count
+     * is computed at resolution time from the acting player's Break Zone and removed-from-game zone.
+     */
+    private static Consumer<GameContext> tryParseChooseAsManyAsBzRfgJobCount(String text) {
+        Matcher m = CHOOSE_AS_MANY_AS_BZ_RFG_JOB.matcher(text.trim());
+        if (!m.matches()) return null;
+
+        String targetTypeRaw = m.group("targetType").trim();
+        String job           = m.group("job").trim();
+        String followupText  = m.group("followup").trim();
+
+        String tgtLow = targetTypeRaw.toLowerCase();
+        final boolean inclForwards = tgtLow.startsWith("forward") || tgtLow.startsWith("character");
+        final boolean inclBackups  = tgtLow.startsWith("backup")  || tgtLow.startsWith("character");
+        final boolean inclMonsters = tgtLow.startsWith("monster") || tgtLow.startsWith("character");
+
+        boolean doActivate = FOLLOWUP_ACTIVATE.matcher(followupText).find();
+        boolean doDull     = FOLLOWUP_DULL.matcher(followupText).find();
+        boolean doFreeze   = !doActivate && !doDull && FOLLOWUP_FREEZE.matcher(followupText).find();
+        if (!doActivate && !doDull && !doFreeze) return null;
+
+        final String  action = doActivate ? "Activate" : doDull ? "Dull" : "Freeze";
+        final boolean fActivate = doActivate, fDull = doDull;
+        final String  logPfx = "Choose up to as many " + targetTypeRaw
+                + " as Job " + job + " in your Break Zone and/or removed from the game";
+        return ctx -> {
+            int count = ctx.countSelfBreakZoneAndRfgCards(null, job);
+            if (count <= 0) {
+                ctx.logEntry(logPfx + " — count=0, nothing to choose");
+                ctx.markEffectFizzled();
+                return;
+            }
+            ctx.logEntry(logPfx + " (count=" + count + ") — " + action);
+            List<ForwardTarget> ts = selectTargets(ctx, count, true,
+                    false, false, null, null, null, false,
+                    -1, null, -1, null,
+                    inclForwards, inclBackups, inclMonsters, null, null, null, null, false, null, false);
+            if (fActivate) {
+                sortedByIdxDesc(ts, true) .forEach(ctx::activateTarget);
+                sortedByIdxDesc(ts, false).forEach(ctx::activateTarget);
+            } else if (fDull) {
                 sortedByIdxDesc(ts, true) .forEach(ctx::dullTarget);
                 sortedByIdxDesc(ts, false).forEach(ctx::dullTarget);
             } else {
