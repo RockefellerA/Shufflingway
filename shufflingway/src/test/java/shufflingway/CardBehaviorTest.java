@@ -3318,4 +3318,50 @@ public class CardBehaviorTest {
         ActionResolver.parse(JILL_ETB, jill).accept(ctx);
         assertEquals(CardState.ACTIVE, mw.p2ForwardStates.get(0), "no Eikon anywhere — nothing dulled");
     }
+
+    // =========================================================================================
+    // Lightning (15-041L) — "At the end of each of your turns, if each player has no cards in
+    // their hands, Lightning deals your opponent 1 point of damage."
+    //
+    // The leading ".+?" of DEAL_PLAYER_DAMAGE_TO_OPPONENT used to swallow the whole "if each
+    // player has no cards…" clause, so the damage fired unconditionally every end phase.
+    // =========================================================================================
+
+    private static final String LIGHTNING_TEXT =
+            "The cost required to cast Lightning is increased by 1 for each card in your opponent's hand."
+            + "[[br]]   If you have 2 cards or less in your hand, Lightning gains +1000 power and Haste."
+            + "[[br]]   At the end of each of your turns, if each player has no cards in their hands, "
+            + "Lightning deals your opponent 1 point of damage.";
+
+    @Test
+    void lightningEndOfTurnDamageRequiresBothHandsEmpty() {
+        AutoAbility eot = CardData.parseAutoAbilities(LIGHTNING_TEXT).stream()
+                .filter(a -> "end of your turn".equals(a.trigger()))
+                .findFirst().orElse(null);
+        assertNotNull(eot, "the end-of-your-turn auto ability should parse");
+
+        Consumer<GameContext> fn = ActionResolver.parse(eot.effectText(), null);
+        assertNotNull(fn, "the gated damage effect should parse");
+
+        // Both hands empty — damage fires.
+        GameContext both = mock(GameContext.class);
+        when(both.yourHandSize()).thenReturn(0);
+        when(both.opponentHandSize()).thenReturn(0);
+        fn.accept(both);
+        verify(both).dealDamageToOpponent(1);
+
+        // Controller holds cards — no damage (the reported bug).
+        GameContext mine = mock(GameContext.class);
+        when(mine.yourHandSize()).thenReturn(8);
+        when(mine.opponentHandSize()).thenReturn(0);
+        fn.accept(mine);
+        verify(mine, never()).dealDamageToOpponent(anyInt());
+
+        // Opponent holds cards — no damage.
+        GameContext theirs = mock(GameContext.class);
+        when(theirs.yourHandSize()).thenReturn(0);
+        when(theirs.opponentHandSize()).thenReturn(3);
+        fn.accept(theirs);
+        verify(theirs, never()).dealDamageToOpponent(anyInt());
+    }
 }

@@ -4758,6 +4758,11 @@ public class ActionResolver {
         result = tryParseIfAllHaveElement(effectText, source, xValue);
         if (result != null) return result;
 
+        // Must precede the generic damage/draw matchers: their leading ".+?" would otherwise
+        // swallow the "if each player has no cards…" clause and drop the condition entirely.
+        result = tryParseIfEachPlayerEmptyHand(effectText, source, xValue);
+        if (result != null) return result;
+
         result = tryParseIfNDiffElements(effectText, source, xValue);
         if (result != null) return result;
 
@@ -5781,6 +5786,7 @@ public class ActionResolver {
         if (tryParseDiscardNCards(effectText)                 != null) return "DiscardNCards";
         if (tryParseDiscardJobFromHand(effectText)            != null) return "DiscardJobFromHand";
         if (tryParseDiscardThenDraw(effectText)               != null) return "DiscardThenDraw";
+        if (tryParseIfEachPlayerEmptyHand(effectText, source, 0) != null) return "IfEachPlayerEmptyHand";
         if (tryParseDealPlayerDamageToOpponent(effectText)    != null) return "DealPlayerDamageToOpponent";
         if (tryParseDealPlayerDamageToSelf(effectText)        != null) return "DealPlayerDamageToSelf";
         if (tryParseRandomRevealHandCastIfSummonFree(effectText) != null) return "RandomRevealHandCastIfSummonFree";
@@ -6301,6 +6307,7 @@ public class ActionResolver {
         if (tryParseDiscardNCards(effectText) != null)                      return "DiscardNCards";
         if (tryParseDiscardJobFromHand(effectText) != null)                 return "DiscardJobFromHand";
         if (tryParseDiscardThenDraw(effectText) != null)                    return "DiscardThenDraw";
+        if (tryParseIfEachPlayerEmptyHand(effectText, source, 0) != null)   return "IfEachPlayerEmptyHand";
         if (tryParseDealPlayerDamageToOpponent(effectText) != null)         return "DealPlayerDamageToOpponent";
         if (tryParseDealPlayerDamageToSelf(effectText) != null)             return "DealPlayerDamageToSelf";
         if (tryParseRandomRevealHandCastIfSummonFree(effectText) != null)   return "RandomRevealHandCastIfSummonFree";
@@ -11656,6 +11663,13 @@ public class ActionResolver {
         "(?<effect>.+)$"
     );
 
+    /** Matches "if each player has no cards in their hand(s), [effect]." — both hands must be empty. */
+    private static final Pattern IF_EACH_PLAYER_EMPTY_HAND_GATE = Pattern.compile(
+        "(?i)^[Ii]f\\s+each\\s+player\\s+has\\s+no\\s+cards?\\s+in\\s+" +
+        "(?:their|his/her|his\\s+or\\s+her)\\s+hands?,\\s*(?<effect>.+)$",
+        Pattern.DOTALL
+    );
+
     /** Matches "if there are N or more different Elements among [type] you control, [effect]." */
     private static final Pattern IF_N_DIFF_ELEMENTS_AMONG = Pattern.compile(
         "(?is)^if\\s+there\\s+are\\s+(?<min>\\d+)\\s+or\\s+more\\s+different\\s+Elements?\\s+among\\s+" +
@@ -11804,6 +11818,27 @@ public class ActionResolver {
                 inner.accept(ctx);
             } else {
                 ctx.logEntry("Effect: not all " + logType + " have " + logElem + " Element — skipped");
+            }
+        };
+    }
+
+    /**
+     * Parses "if each player has no cards in their hand(s), [effect]." — the inner effect resolves
+     * only when both the controller's and the opponent's hands are empty at resolution time.
+     */
+    private static Consumer<GameContext> tryParseIfEachPlayerEmptyHand(String text, CardData source, int xValue) {
+        Matcher m = IF_EACH_PLAYER_EMPTY_HAND_GATE.matcher(text.trim());
+        if (!m.matches()) return null;
+        Consumer<GameContext> inner = parse(m.group("effect").trim(), source, xValue);
+        if (inner == null) return null;
+        return ctx -> {
+            int yours = ctx.yourHandSize();
+            int theirs = ctx.opponentHandSize();
+            if (yours == 0 && theirs == 0) {
+                ctx.logEntry("Effect: both players have empty hands — condition met");
+                inner.accept(ctx);
+            } else {
+                ctx.logEntry("Effect: hands not empty (you " + yours + ", opponent " + theirs + ") — skipped");
             }
         };
     }
