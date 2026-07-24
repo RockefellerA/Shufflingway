@@ -10038,6 +10038,68 @@ public class MainWindow {
 	}
 
 	/**
+	 * Rule process: breaks every Forward whose effective power has dropped to 0 or less, or whose
+	 * already-accumulated damage now meets or exceeds that power.
+	 * <p>
+	 * {@link #applyDamageToForward} only compares damage against power at the moment damage lands,
+	 * so a Forward that becomes lethally damaged because its <em>power fell</em> is missed entirely.
+	 * Call this after anything that can lower effective power: direct reductions, "power becomes N"
+	 * overrides, and field-grant changes caused by a buffing card leaving the field.
+	 */
+	void enforceForwardBreakRuleProcess() {
+		// Re-entrant: breaking a Forward fires its leaves-the-field triggers, which land back here.
+		// Bail out and let the in-flight sweep's fixpoint loop absorb the cascade — recursing would
+		// re-enter the lists while a break is still unwinding.
+		if (enforcingForwardBreakRuleProcess) return;
+		enforcingForwardBreakRuleProcess = true;
+		try {
+			// Breaking one Forward can withdraw a field power grant and push another below its
+			// damage, so repeat until a full pass breaks nothing. The bound is a safety net only.
+			for (int pass = 0; pass < 16; pass++) {
+				// Non-short-circuiting: both sides must be swept every pass.
+				boolean brokeAny = sweepForwardBreakRuleProcess(true) | sweepForwardBreakRuleProcess(false);
+				if (!brokeAny) return;
+			}
+		} finally {
+			enforcingForwardBreakRuleProcess = false;
+		}
+	}
+
+	/** Guards {@link #enforceForwardBreakRuleProcess} against re-entry from leaves-the-field triggers. */
+	private boolean enforcingForwardBreakRuleProcess;
+
+	/** One rule-process pass over {@code isP1}'s Forwards. Returns true if anything was broken. */
+	private boolean sweepForwardBreakRuleProcess(boolean isP1) {
+		List<CardData> fwds = isP1 ? p1ForwardCards  : p2ForwardCards;
+		List<Integer>  dmgs = isP1 ? p1ForwardDamage : p2ForwardDamage;
+		boolean brokeAny = false;
+		// Walk downward so breaking a Forward cannot shift the indices still to be checked.
+		for (int idx = Math.min(fwds.size(), dmgs.size()) - 1; idx >= 0; idx--) {
+			int effPow = isP1 ? effectiveP1ForwardPower(idx) : effectiveP2ForwardPower(idx);
+			boolean zeroPower = effPow <= 0;
+			boolean lethalDmg = effPow > 0 && dmgs.get(idx) >= effPow;
+			if (!zeroPower && !lethalDmg) continue;
+			CardData fwd = fwds.get(idx);
+			// "Cannot be broken" only saves against lethal *damage* (matching applyDamageToForward:
+			// the Forward rides it out and its damage clears at end of turn). A Forward at 0 or less
+			// power is removed by a rule process — it is moved to the Break Zone without being
+			// "broken", so the shield does not apply. zeroPower and lethalDmg are mutually exclusive.
+			if (lethalDmg && effectiveHasTrait(isP1, idx, CardData.Trait.CANNOT_BE_BROKEN)) {
+				logEntry((isP1 ? "" : "[P2] ") + fwd.name() + " survives lethal damage (cannot be broken)");
+				if (isP1) refreshP1ForwardSlot(idx); else refreshP2ForwardSlot(idx);
+				continue;
+			}
+			logEntry((isP1 ? "" : "[P2] ") + fwd.name()
+					+ (zeroPower ? " at 0 or less power → Break Zone (rule process)"
+					             : " has " + dmgs.get(idx) + " damage vs " + effPow + " power → Break Zone"));
+			pendingCostBreakDestLabel = isP1 ? p1BreakLabel : p2BreakLabel;
+			if (isP1) breakP1Forward(idx); else breakP2Forward(idx);
+			brokeAny = true;
+		}
+		return brokeAny;
+	}
+
+	/**
 	 * Fires auto-ability "deals damage to forward" triggers for {@code source} dealing damage
 	 * to the surviving forward at {@code damagedIdx}.  Returns {@code true} if the forward was broken.
 	 * Handles two cases:

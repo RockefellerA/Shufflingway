@@ -1275,6 +1275,8 @@ final class AutoAbilityTriggers {
 		// Re-evaluate all conditional field boosts now that the field composition has changed
 		mw.refreshAllForwardSlots();
 		for (int i = 0; i < mw.p2ForwardCards.size(); i++) mw.refreshP2ForwardSlot(i);
+		// A withdrawn power grant can leave a Forward at 0 power or below its accumulated damage.
+		mw.enforceForwardBreakRuleProcess();
 		mw.showStackWindowIfNeeded();
 		// If a Forward just left, check the other player's field cards for
 		// "if your opponent doesn't control Forwards" field abilities

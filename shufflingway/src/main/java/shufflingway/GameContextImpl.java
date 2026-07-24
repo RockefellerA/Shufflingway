@@ -3754,6 +3754,7 @@ final class GameContextImpl implements GameContext {
 						powerBoost.set(i, power - base);
 						logEntry(source.name() + " — power becomes " + power + " until end of turn");
 						if (isP1) mw.refreshP1ForwardSlot(i); else mw.refreshP2ForwardSlot(i);
+						mw.enforceForwardBreakRuleProcess();
 						return;
 					}
 				}
@@ -3781,6 +3782,7 @@ final class GameContextImpl implements GameContext {
 					logEntry("[P2] " + mw.p2ForwardCards.get(idx).name() + " power becomes " + power + " until end of turn");
 					mw.refreshP2ForwardSlot(idx);
 				}
+				mw.enforceForwardBreakRuleProcess();
 			}
 
 			@Override public void placeCounters(CardData card, String counterName, int count) {
@@ -3944,33 +3946,21 @@ final class GameContextImpl implements GameContext {
 					if (idx >= mw.p1ForwardCards.size()) return;
 					mw.p1ForwardPowerReduction.set(idx, mw.p1ForwardPowerReduction.get(idx) + amount);
 					mw.p1ForwardRemovedTraits.get(idx).addAll(traits);
-					int effPow = mw.effectiveP1ForwardPower(idx);
 					logEntry(p1Forward(idx).name() + " loses " + amount + " power"
 							+ (!traits.isEmpty() ? (amount > 0 ? " and " : "") + traits : "") + " until end of turn");
-					if (effPow <= 0) {
-						logEntry(p1Forward(idx).name() + " reduced to 0 power → Break Zone");
-						mw.pendingCostBreakDestLabel = mw.p1BreakLabel;
-						breakP1Forward(idx);
-					} else {
-						mw.refreshP1ForwardSlot(idx);
-					}
+					mw.refreshP1ForwardSlot(idx);
 				} else {
 					int idx = t.idx();
 					if (idx >= mw.p2ForwardCards.size()) return;
 					mw.p2ForwardPowerReduction.set(idx, mw.p2ForwardPowerReduction.get(idx) + amount);
 					mw.p2ForwardRemovedTraits.get(idx).addAll(traits);
-					int effPow = mw.effectiveP2ForwardPower(idx);
 					logEntry("[P2] " + mw.p2ForwardCards.get(idx).name() + " loses "
 							+ (amount > 0 ? amount + " power" : "")
 							+ (!traits.isEmpty() ? (amount > 0 ? " and " : "") + traits : "") + " until end of turn");
-					if (effPow <= 0) {
-						logEntry("[P2] " + mw.p2ForwardCards.get(idx).name() + " reduced to 0 power → Break Zone");
-						mw.pendingCostBreakDestLabel = mw.p2BreakLabel;
-						breakP2Forward(idx);
-					} else {
-						mw.refreshP2ForwardSlot(idx);
-					}
+					mw.refreshP2ForwardSlot(idx);
 				}
+				// Covers both the 0-power rule process and a Forward whose existing damage is now lethal.
+				mw.enforceForwardBreakRuleProcess();
 			}
 
 			@Override public void reduceSourceForward(CardData source, int amount,
@@ -5479,10 +5469,10 @@ final class GameContextImpl implements GameContext {
 							? mw.chooseCardFromBzDialog(candidates, "Choose a Summon from the Break Zone")
 							: candidates.get(0);
 					if (picked == null) return;
-					// Determine the card's true owner by which Break Zone it sits in.
+					// The pick may come from either Break Zone; try our own first, then the opponent's.
+					// addToPermanentRfp resolves the card's true owner from the identity map.
 					boolean inOwnBz = ownBz.remove(picked);
 					if (!inOwnBz) oppBz.remove(picked);
-					boolean cardOwnerIsP1 = inOwnBz ? isP1 : !isP1;
 					mw.gameState.addToPermanentRfp(picked);
 					mw.refreshP1BreakLabel(); mw.refreshP2BreakLabel();
 					PlayableEntry entry = new PlayableEntry(PlayableEntry.SourceZone.RFP, 0, false,

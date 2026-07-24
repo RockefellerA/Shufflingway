@@ -5,6 +5,7 @@ import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 import java.util.ArrayList;
+import java.util.EnumSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -48,6 +49,27 @@ public class CardBehaviorTest {
                 abilities, List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(),
                 false, false, null, false, false, false, false, false, false,
                 null, null, null, "");
+    }
+
+    /** Builds a Forward carrying the given innate traits (e.g. CANNOT_BE_BROKEN). */
+    private static CardData makeForwardWithTraits(String name, String element, int power,
+            Set<CardData.Trait> traits) {
+        return new CardData(null, name, element, 3, power, "Forward", false, 0, false, false,
+                traits, 0, List.of(), null, List.of(),
+                List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(),
+                false, false, null, false, false, false, false, false, false,
+                null, null, null, "");
+    }
+
+    /** Builds a Backup whose field ability grants power to its controller's Forwards. */
+    private static CardData makeBackupWithPowerGrant(String name, String element, String text) {
+        return new CardData(null, name, element, 2, 0, "Backup", false, 0, false, false,
+                Set.of(), 0, List.of(), null, List.of(),
+                List.of(), List.of(), List.of(), List.of(),
+                CardData.parseFieldPowerGrants(text, "Backup"),
+                List.of(), List.of(), List.of(), List.of(), List.of(),
+                false, false, null, false, false, false, false, false, false,
+                null, null, null, text);
     }
 
     /** Builds a card of the given type/element carrying a single {@code job}. */
@@ -3317,6 +3339,120 @@ public class CardBehaviorTest {
         // No preloaded targets: with count 0 the effect must not attempt any selection.
         ActionResolver.parse(JILL_ETB, jill).accept(ctx);
         assertEquals(CardState.ACTIVE, mw.p2ForwardStates.get(0), "no Eikon anywhere — nothing dulled");
+    }
+
+    // =========================================================================================
+    // Forward break rule process — a Forward must break when its power falls to meet or go below
+    // its already-accumulated damage, not only when fresh damage lands on it.
+    //
+    // applyDamageToForward compares damage against power at the moment damage is dealt, so every
+    // path that lowers power instead had to gain a check: reduceTarget, setTargetPower, and the
+    // withdrawal of a field power grant when the granting card leaves the field.
+    // =========================================================================================
+
+    /** Places a Forward for P1 carrying {@code damage} already accumulated on it. */
+    private static void placeDamagedP1Forward(MainWindow mw, CardData fwd, int damage) {
+        mw.gameState.getIdentity().put(fwd, true);
+        mw.placeCardInForwardZone(fwd);
+        mw.p1ForwardDamage.set(mw.p1ForwardCards.indexOf(fwd), damage);
+    }
+
+    @Test
+    void powerReductionBreaksForwardWhoseExistingDamageIsNowLethal() {
+        MainWindow mw = new MainWindow();
+        CardData victim = makeForward("Victim", "Fire", 3, 9000);
+        placeDamagedP1Forward(mw, victim, 5000);
+
+        // 9000 power − 5000 = 4000 effective, with 5000 damage already on it.
+        mw.buildGameContext(true).reduceTarget(
+                new ForwardTarget(true, 0, ForwardTarget.CardZone.FORWARD),
+                5000, EnumSet.noneOf(CardData.Trait.class));
+
+        assertTrue(mw.p1ForwardCards.isEmpty(), "damage 5000 ≥ power 4000 — Victim must break");
+        assertTrue(mw.gameState.getP1BreakZone().contains(victim), "Victim goes to its owner's Break Zone");
+    }
+
+    @Test
+    void powerReductionLeavesForwardAliveWhileDamageStaysBelowPower() {
+        MainWindow mw = new MainWindow();
+        CardData survivor = makeForward("Survivor", "Fire", 3, 9000);
+        placeDamagedP1Forward(mw, survivor, 3000);
+
+        mw.buildGameContext(true).reduceTarget(
+                new ForwardTarget(true, 0, ForwardTarget.CardZone.FORWARD),
+                5000, EnumSet.noneOf(CardData.Trait.class));
+
+        assertEquals(1, mw.p1ForwardCards.size(), "damage 3000 < power 4000 — Survivor stays on the field");
+        assertEquals(4000, mw.effectiveP1ForwardPower(0), "the reduction still applied");
+    }
+
+    @Test
+    void setTargetPowerBreaksForwardWhoseExistingDamageIsNowLethal() {
+        MainWindow mw = new MainWindow();
+        CardData victim = makeForward("Victim", "Fire", 3, 9000);
+        placeDamagedP1Forward(mw, victim, 5000);
+
+        // "Its power becomes 4000 until the end of the turn" against 5000 accumulated damage.
+        mw.buildGameContext(true).setTargetPower(
+                new ForwardTarget(true, 0, ForwardTarget.CardZone.FORWARD), 4000);
+
+        assertTrue(mw.p1ForwardCards.isEmpty(), "damage 5000 ≥ power 4000 — Victim must break");
+    }
+
+    @Test
+    void withdrawnFieldPowerGrantBreaksForwardWhoseDamageIsNowLethal() {
+        MainWindow mw = new MainWindow();
+        CardData buffer = makeBackupWithPowerGrant(
+                "Buffer", "Fire", "The Forwards you control gain +2000 power.");
+        assertFalse(buffer.fieldPowerGrants().isEmpty(), "the +2000 field grant should parse");
+        mw.gameState.getIdentity().put(buffer, true);
+        mw.p1BackupCards[0] = buffer;
+
+        CardData victim = makeForward("Victim", "Fire", 3, 7000);
+        placeDamagedP1Forward(mw, victim, 8000);
+        assertEquals(9000, mw.effectiveP1ForwardPower(0), "the Backup's grant keeps Victim above its damage");
+        assertEquals(1, mw.p1ForwardCards.size(), "Victim survives while the grant stands");
+
+        // The granting Backup leaves the field — Victim drops to 7000 against 8000 damage.
+        mw.returnP1BackupToHand(0);
+
+        assertTrue(mw.p1ForwardCards.isEmpty(), "grant withdrawn — damage 8000 ≥ power 7000, Victim must break");
+    }
+
+    @Test
+    void cannotBeBrokenForwardStillLeavesFieldWhenReducedToZeroPower() {
+        MainWindow mw = new MainWindow();
+        // Base 3000 power; dropping it by 3000 reaches 0 → rule process, shield does not apply.
+        CardData shielded = makeForwardWithTraits("Shielded", "Fire", 3000,
+                EnumSet.of(CardData.Trait.CANNOT_BE_BROKEN));
+        mw.gameState.getIdentity().put(shielded, true);
+        mw.placeCardInForwardZone(shielded);
+        assertTrue(mw.effectiveP1HasTrait(0, CardData.Trait.CANNOT_BE_BROKEN), "trait is present");
+
+        mw.buildGameContext(true).reduceTarget(
+                new ForwardTarget(true, 0, ForwardTarget.CardZone.FORWARD),
+                3000, EnumSet.noneOf(CardData.Trait.class));
+
+        assertTrue(mw.p1ForwardCards.isEmpty(),
+                "0-power rule process moves it to the Break Zone despite 'cannot be broken'");
+        assertTrue(mw.gameState.getP1BreakZone().contains(shielded), "it lands in its owner's Break Zone");
+    }
+
+    @Test
+    void cannotBeBrokenForwardSurvivesLethalDamageWhenPowerStaysPositive() {
+        MainWindow mw = new MainWindow();
+        CardData shielded = makeForwardWithTraits("Shielded", "Fire", 9000,
+                EnumSet.of(CardData.Trait.CANNOT_BE_BROKEN));
+        placeDamagedP1Forward(mw, shielded, 5000);
+
+        // 9000 − 5000 = 4000 power, still positive, against 5000 damage: the shield holds.
+        mw.buildGameContext(true).reduceTarget(
+                new ForwardTarget(true, 0, ForwardTarget.CardZone.FORWARD),
+                5000, EnumSet.noneOf(CardData.Trait.class));
+
+        assertEquals(1, mw.p1ForwardCards.size(),
+                "lethal *damage* is survived because the Forward cannot be broken");
+        assertEquals(4000, mw.effectiveP1ForwardPower(0), "the reduction still applied");
     }
 
     // =========================================================================================
