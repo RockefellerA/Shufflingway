@@ -7855,6 +7855,10 @@ public class MainWindow {
 
 		JLabel cardImg = new JLabel("", SwingConstants.CENTER);
 		cardImg.setPreferredSize(new Dimension(CardAnimation.CARD_W, CardAnimation.CARD_H));
+		cardImg.addMouseListener(new MouseAdapter() {
+			@Override public void mouseEntered(MouseEvent e) { showZoomAt(entry.source().imageUrl()); }
+			@Override public void mouseExited(MouseEvent e)  { hideZoom(); }
+		});
 
 		JLabel nameLabel = new JLabel(entry.source().name(), SwingConstants.CENTER);
 		nameLabel.setFont(FontLoader.loadPixelFont(10));
