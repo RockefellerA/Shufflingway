@@ -1902,6 +1902,17 @@ class ComputerPlayer implements OpponentController {
 		// Plan against the cost P2 will actually be charged, tax included (The Emperor 20-092R).
 		// Planning off the printed cost would have P2 commit to abilities it cannot pay for.
 		ActionAbility ability = rawAbility.withIncreasedCp(mw.actionAbilityCostIncreaseFor(false));
+		// A 《S》 cost wants a hand card of its own, and the CP planner below would spend the only one
+		// that can pay it: two cards in hand, one of them the same-named copy, and the copy goes to
+		// CP. The payment then finds no 《S》 payer and backs out without logging or committing
+		// anything — which the Main Phase loop reads as "the ability is still available" and retries
+		// forever (Cloud 10-006R's Cross-slash). Reserve a payer up front, and call the ability
+		// unaffordable when there is none, so the loop moves on instead of spinning.
+		int sCostReserved = -1;
+		if (ability.isSpecial() && !mw.canPaySpecialCostWithCrystal(source, false)) {
+			sCostReserved = p2SpecialCostPayerSlot(source);
+			if (sCostReserved < 0) return false;
+		}
 		String[] elems = p2AbilityElements(ability);
 		long genericCount = ability.cpCost().stream().filter(String::isEmpty).count();
 		int totalCost = ability.cpCost().size();
@@ -1951,6 +1962,7 @@ class ComputerPlayer implements OpponentController {
 		Set<String> ldGrants = mw.lightDarkDiscardGrants(false);
 		List<Integer> discardable = new ArrayList<>();
 		for (int i = 0; i < hand.size(); i++) {
+			if (i == sCostReserved) continue;
 			CardData c = hand.get(i);
 			if (!CpPaymentUtils.canDiscardForCp(c, ldGrants)) continue;
 			if (elems.length == 0 || genericCount > 0) { discardable.add(i); continue; }
@@ -1976,6 +1988,23 @@ class ComputerPlayer implements OpponentController {
 			if (p2CanAfford(totalCost, elems, simCp, anyCp)) return true;
 		}
 		return false;
+	}
+
+	/**
+	 * The P2 hand slot set aside to pay {@code source}'s 《S》 cost, or -1 when no card in hand can
+	 * pay it.  Eligibility is {@code AutoAbilityTriggers.specialCostCandidateIdxs}' call, so the
+	 * slot reserved here is one the payment will actually accept.
+	 *
+	 * <p>The dearest of the eligible copies, because the CP planner spends the cheapest cards
+	 * first: reserving the dear one leaves its own preferred fodder on the table, so setting the
+	 * 《S》 aside costs the fewest abilities their affordability.
+	 */
+	private int p2SpecialCostPayerSlot(CardData source) {
+		List<CardData> hand = mw.gameState.getP2Hand();
+		int best = -1;
+		for (int i : mw.autoAbilityTriggers.specialCostCandidateIdxs(source, hand, Set.of(), false))
+			if (best < 0 || hand.get(i).cost() > hand.get(best).cost()) best = i;
+		return best;
 	}
 
 	/**

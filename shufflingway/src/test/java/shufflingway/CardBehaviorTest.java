@@ -24741,6 +24741,73 @@ public class CardBehaviorTest {
 	}
 
 	// =========================================================================================
+	// Cloud 10-006R's "Cross-slash" — 《S》《Fire》《Fire》《1》《Dull》 — against a two-card hand
+	// holding the second Cloud.
+	//
+	// The 《S》 discard and the CP payment want the same card, and the CPU's planner only knew about
+	// the CP: it spent the copy on the cost, and executeAbilityPayment then found no card left to
+	// pay the 《S》 and backed out — no log, nothing committed, the Backup still active. The Main
+	// Phase loop re-read the board, found the ability available and affordable exactly as before,
+	// and activated it again, forever. The planner now reserves a payer before it starts spending,
+	// and reports the ability unaffordable when there is none to reserve — so an activation that
+	// gets logged is one the payment can carry through.
+	// =========================================================================================
+
+	private static final String CROSS_SLASH =
+			"[[s]]Cross-slash[[/]] 《S》《Fire》《Fire》《1》《Dull》: Choose up to 2 Forwards. "
+			+ "Divide 10000 damage among them equally.";
+
+	/** Runs the CPU's ability-cost planner, returning the hand discards it planned. */
+	private static List<Integer> planAbilityDiscards(MainWindow mw, ActionAbility ability,
+			CardData source, boolean expectPayable) {
+		List<Integer>        backups      = new ArrayList<>();
+		Map<Integer, String> backupElems  = new LinkedHashMap<>();
+		List<Integer>        discards     = new ArrayList<>();
+		Map<Integer, String> discardElems = new LinkedHashMap<>();
+		assertEquals(expectPayable, new ComputerPlayer(mw).p2PlanAbilityPayment(
+				ability, source, backups, backupElems, discards, discardElems));
+		return discards;
+	}
+
+	@Test
+	void crossSlashCostsAnSDiscardOnTopOfItsCp() {
+		ActionAbility ability = CardData.parseActionAbilities(CROSS_SLASH).get(0);
+		assertTrue(ability.isSpecial(), "《S》 — a same-named card leaves the hand as well");
+		assertEquals(List.of("Fire", "Fire", ""), ability.cpCost(), "《Fire》《Fire》《1》");
+		assertTrue(ability.requiresDull());
+	}
+
+	@Test
+	void theCpuKeepsBackTheOneCardThatCanPayAnSCost() {
+		MainWindow mw = new MainWindow();
+		CardData cloud = makeTraitCard("Cloud", "Fire", "Backup", CROSS_SLASH);
+		placeP2Backup(mw, 0, cloud);                                  // the source — its own 《Dull》
+		placeP2Backup(mw, 1, makeFieldAbilityCard("Alchemist", "Fire", "Backup", ""));
+		placeP2Backup(mw, 2, makeFieldAbilityCard("Alchemist", "Fire", "Backup", ""));
+		mw.gameState.getP2Hand().add(makeTraitCard("Cloud", "Fire", "Backup", CROSS_SLASH));
+		mw.gameState.getP2Hand().add(makeFieldAbilityCard("Chocobo Rider", "Fire", "Backup", ""));
+
+		// Two Backups cover 《Fire》《Fire》; the last 《1》 has to come out of the hand, where the first
+		// card the planner reaches for is the Cloud the 《S》 needs.
+		assertEquals(List.of(1), planAbilityDiscards(mw, cloud.actionAbilities().get(0), cloud, true),
+				"the CP comes from the other card — the Cloud is spoken for");
+	}
+
+	@Test
+	void anSCostWithNoCardToSpareMakesTheAbilityUnaffordable() {
+		MainWindow mw = new MainWindow();
+		CardData cloud = makeTraitCard("Cloud", "Fire", "Backup", CROSS_SLASH);
+		placeP2Backup(mw, 0, cloud);
+		mw.gameState.getP2Hand().add(makeTraitCard("Cloud", "Fire", "Backup", CROSS_SLASH));
+		mw.gameState.getP2Hand().add(makeFieldAbilityCard("Chocobo Rider", "Fire", "Backup", ""));
+
+		// With the Cloud held back the hand is one card, worth 2 CP against a cost of 3. Answering
+		// "no" here is what ends the loop: the CPU passes over the ability instead of announcing an
+		// activation the payment cannot finish.
+		planAbilityDiscards(mw, cloud.actionAbilities().get(0), cloud, false);
+	}
+
+	// =========================================================================================
 	// Titan (XVI) 29-068L: "During your turn, the Backups opponent controls cannot produce CP."
 	//
 	// The payment dialogs have always read the row through MainWindow.cpPayableBackupCards, which

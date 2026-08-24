@@ -5132,15 +5132,28 @@ final class AutoAbilityTriggers {
 	 */
 	private List<CardData> specialCostCandidates(CardData source, List<CardData> hand,
 			Collection<Integer> excludedIdxs, boolean isP1) {
+		List<CardData> eligible = new ArrayList<>();
+		for (int i : specialCostCandidateIdxs(source, hand, excludedIdxs, isP1)) eligible.add(hand.get(i));
+		return eligible;
+	}
+
+	/**
+	 * {@link #specialCostCandidates} as hand slots rather than cards — the shape
+	 * {@code ComputerPlayer.p2PlanAbilityPayment} needs to reserve one of them from the CP payment
+	 * it is planning.  Both read this one rule, so the slot the planner sets aside is always a slot
+	 * the payment above will accept.
+	 */
+	List<Integer> specialCostCandidateIdxs(CardData source, List<CardData> hand,
+			Collection<Integer> excludedIdxs, boolean isP1) {
 		String primerName = mw.priming.getPrimerCardName(source, isP1);
 		CardData.SpecialAbilityProxy proxy = mw.effectiveSpecialAbilityProxy(source, isP1);
-		List<CardData> eligible = new ArrayList<>();
+		List<Integer> eligible = new ArrayList<>();
 		for (int i = 0; i < hand.size(); i++) {
 			if (excludedIdxs.contains(i)) continue;
 			CardData hc = hand.get(i);
 			boolean isSameName = source.name().equalsIgnoreCase(hc.name())
 					|| (primerName != null && primerName.equalsIgnoreCase(hc.name()));
-			if (isSameName || (proxy != null && proxy.meetsSubstitute(hc))) eligible.add(hc);
+			if (isSameName || (proxy != null && proxy.meetsSubstitute(hc))) eligible.add(i);
 		}
 		return eligible;
 	}
