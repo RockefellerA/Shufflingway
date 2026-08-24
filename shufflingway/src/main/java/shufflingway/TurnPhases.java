@@ -255,6 +255,7 @@ class TurnPhases {
 		mw.p1TempAttackTriggers.clear();           mw.p2TempAttackTriggers.clear();
 		mw.p1TempBlockTriggers.clear();            mw.p2TempBlockTriggers.clear();
 		mw.nextIncomingDmgZeroSet.clear();   mw.nextIncomingDmgReduceMap.clear();   mw.nextAbilityDmgReduceMap.clear();
+		mw.nextIncomingDmgReduceKickbackMap.clear();  mw.pendingShieldKickbacks.clear();
 		mw.incomingDmgIncreaseMap.clear();   mw.globalForwardIncomingDmgIncrease = 0;   mw.nullifyAbilityDmgSet.clear();
 		mw.p1Turn.nullifyAbilityDmgFilters.clear(); mw.p2Turn.nullifyAbilityDmgFilters.clear();
 		mw.p1DoublecastFreeSummons = false;  mw.p2DoublecastFreeSummons = false;

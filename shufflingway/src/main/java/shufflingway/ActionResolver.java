@@ -1255,6 +1255,12 @@ public class ActionResolver {
         result = tryParseGainCrystalIfOpponentHas(effectText);
         if (result != null) return result;
 
+        // Must precede tryParsePlaceCounters: that parser is read with find() and reads
+        // "each Job Apprentice Mage you control" as the card name being counted on, with only its
+        // source-name check keeping it off this text.
+        result = tryParsePlaceCountersOnEachJob(effectText);
+        if (result != null) return result;
+
         result = tryParsePlaceCountersForEach(effectText, source);
         if (result != null) return result;
 
@@ -1862,6 +1868,11 @@ public class ActionResolver {
         if (tryParsePlayAllByNameFromBreakZone(effectText)      != null) return "PlayAllByNameFromBreakZone";
         if (tryParsePlaySourceFromBreakZone(effectText, source) != null) return "PlaySourceFromBreakZone";
         if (tryParsePlayBrokenCardOntoFieldDull(effectText) != null) return "PlayBrokenCardOntoFieldDull";
+        // Reads the anchored helper, not tryParsePlaySourceOntoField itself: that parser matches
+        // with find(), so it reports a hit from the middle of texts an earlier parser claims in
+        // parse() ("...search for 1 Forward ... and play it onto the field"). Naming off the loose
+        // form moved 9 abilities onto this name and away from the one that actually runs them.
+        if (isBarePlaySourceOntoField(effectText, source))              return "PlaySourceOntoField";
         if (tryParseActivateNamedCard(effectText)               != null) return "ActivateNamedCard";
         if (tryParseAttackOnceMore(effectText)                  != null) return "AttackOnceMore";
         if (tryParseOpponentCannotSearchThisTurn(effectText)    != null) return "OpponentCannotSearch";
@@ -1894,6 +1905,9 @@ public class ActionResolver {
         }
         if (tryParseGainCrystal(effectText)                      != null) return "GainCrystal";
         if (tryParseGainCrystalIfOpponentHas(effectText)         != null) return "GainCrystalIfOpponentHas";
+        // Mirrors parse(): ahead of PlaceCounters, which reads "each Job Apprentice Mage you
+        // control" as the card name the counters are placed on.
+        if (tryParsePlaceCountersOnEachJob(effectText)           != null) return "PlaceCountersOnEachJob";
         if (tryParsePlaceCountersForEach(effectText, source)     != null) return "PlaceCountersForEach";
         if (tryParsePlaceCounters(effectText, source)            != null) return "PlaceCounters";
         if (tryParseRemoveAllCounters(effectText, source)         != null) return "RemoveAllCounters";
@@ -1957,6 +1971,10 @@ public class ActionResolver {
      * used inside {@link #tryParseChooseCharacter}.
      */
     public static String matchedFollowupName(String followupText, CardData source) {
+        // Kept for the handful of checks below that must see the "You may": the strip that follows
+        // is what lets an optional followup be identified by its effect, but it also erases the
+        // difference between an offer and an order.
+        final String rawFollowup = followupText.trim();
         // Strip leading "You may " so optional-followup effects are identified correctly
         if (followupText.toLowerCase(java.util.Locale.ROOT).startsWith("you may "))
             followupText = followupText.substring("You may ".length()).trim();
@@ -2050,6 +2068,15 @@ public class ActionResolver {
             return "DamageEqualToRevealedForwardPower";
         if (FOLLOWUP_BREAK.matcher(followupText).find())                              return "Break";
         if (FOLLOWUP_LOSE_ABILITIES_AND_POWER_BECOMES.matcher(followupText).find())    return "LoseAllAbilitiesAndPowerBecomes";
+        // Mirrors the choose chain: the standing silence is checked ahead of the until-end-of-turn
+        // one, and carries the same source check — the branch there only fires when the card named
+        // is the ability's own printing, so naming it without that would report an effect parse
+        // declines.
+        if (source != null) {
+            Matcher wardenM = FOLLOWUP_LOSES_ABILITIES_WHILE_NAMED_ON_FIELD.matcher(followupText.trim());
+            if (wardenM.matches() && wardenM.group("name").trim().equalsIgnoreCase(source.name()))
+                return "LosesAbilitiesWhileSourceOnField";
+        }
         if (FOLLOWUP_LOSE_ALL_ABILITIES_EOT.matcher(followupText).find())              return "LoseAllAbilitiesEot";
         if (FOLLOWUP_REMOVE_FROM_GAME_AND_NAMED.matcher(followupText).find())          return "RemoveFromGameAndNamed";
         if (FOLLOWUP_REMOVE_FROM_GAME.matcher(followupText).find())                   return "RemoveFromGame";
@@ -2124,12 +2151,22 @@ public class ActionResolver {
         // The payoff half of the clause above, which the ". " split reports separately even though
         // the parser resolves the two together.
         if (FOLLOWUP_IF_POWER_BECAME_ZERO_DRAW.matcher(followupText).matches())      return "IfPowerBecameZeroDraw";
+        // Mirrors the choose chain, where this precedes every other reduction branch: they all
+        // find() a bare "it loses N power" inside this sentence and would drop the multiplier.
+        if (FOLLOWUP_POWER_REDUCE_UNTIL_FOR_EACH_ATTACKER.matcher(followupText.trim()).matches())
+            return "PowerReduceForEachAttacker";
         // Mirrors the two handlers: a self-side state count is declined there, so naming it here
         // would report a branch that never ran.
         Matcher pruferM = FOLLOWUP_POWER_REDUCE_UNTIL_FOR_EACH.matcher(followupText);
         if (pruferM.find() && !reduceForEachSelfState(pruferM))                       return "PowerReduceUntilForEach";
         if (FOLLOWUP_POWER_REDUCE_UNTIL.matcher(followupText).find())                 return "PowerReduceUntil";
         if (OPPONENT_DISCARD.matcher(followupText).find())                            return "OpponentDiscard";
+        // Mirrors the choose chain, which reads this off the primary followup: the offer whose
+        // payoff is the sentence after it, as opposed to MayDiscardNamedDealDamage's self-contained
+        // form (named on the whole followup, in the ChooseCharacter block of fullDescription).
+        // Read from rawFollowup — after the "You may " strip this text is a plain order to discard,
+        // which is a different effect and reaches a different primitive.
+        if (FOLLOWUP_MAY_DISCARD_TYPE_BARE.matcher(rawFollowup).matches())             return "MayDiscardType";
         if (source != null) {
             Matcher selfM = SELF_POWER_BOOST.matcher(followupText);
             if (selfM.find() && selfM.group("selfsubject").trim().equalsIgnoreCase(source.name()))
@@ -2141,8 +2178,17 @@ public class ActionResolver {
         if (FOLLOWUP_CANCEL_EFFECT.matcher(followupText).find())                      return "CancelEffect";
         if (FOLLOWUP_SHIELD_NEXT_DMG_ZERO.matcher(followupText).find())               return "ShieldNextDmgZero";
         if (FOLLOWUP_SHIELD_NEXT_ABILITY_DMG_REDUCTION.matcher(followupText).find())   return "ShieldNextAbilityDmgReduction";
+        // Mirrors the choose chain: the billed form is checked ahead of the plain reduction, and
+        // carries the same source check — the branch there only fires when the card being billed is
+        // the ability's own source, so naming it without that would report an effect parse declines.
+        if (source != null) {
+            Matcher kickM = FOLLOWUP_SHIELD_NEXT_DMG_REDUCTION_KICKBACK.matcher(followupText);
+            if (kickM.find() && kickM.group("name").trim().equalsIgnoreCase(source.name()))
+                return "ShieldNextDmgReductionKickback";
+        }
         if (FOLLOWUP_SHIELD_NEXT_DMG_REDUCTION.matcher(followupText).find())          return "ShieldNextDmgReduction";
         if (FOLLOWUP_DEBUFF_INCOMING_DMG_INCREASE.matcher(followupText).find())       return "DebuffIncomingDmgIncrease";
+        if (FOLLOWUP_DOUBLE_NEXT_OUTGOING.matcher(followupText).find())               return "DoubleNextOutgoingDamage";
         if (FOLLOWUP_SHIELD_NEXT_OUTGOING_ZERO.matcher(followupText).find())          return "ShieldNextOutgoingZero";
         if (FOLLOWUP_OUTGOING_DMG_BOOST_THIS_TURN.matcher(followupText).find())       return "OutgoingDmgBoostThisTurn";
         if (FOLLOWUP_SHIELD_NONLETHAL.matcher(followupText).find())                   return "ShieldNonLethal";
@@ -2474,6 +2520,11 @@ public class ActionResolver {
                     secondaryDesc = "IfETF(" + (innerDesc != null ? innerDesc : "?") + ")";
                 }
             }
+            // Mirrors the choose chain, where this is tried ahead of the general parse: the
+            // sentence reads as a bare conditional on its own and no chain entry claims it.
+            if (secondaryDesc == null && secondaryTxt != null && !secondaryTxt.isEmpty()
+                    && secondaryCounterGatedPowerBecomes(secondaryTxt, source) != null)
+                secondaryDesc = "IfSourceCounters(PowerBecomes)";
             if (secondaryDesc == null && secondaryTxt != null && !secondaryTxt.isEmpty())
                 secondaryDesc = fullDescription(secondaryTxt, source);
             if (secondaryDesc == null && secondaryTxt != null && !secondaryTxt.isEmpty())
@@ -2756,6 +2807,9 @@ public class ActionResolver {
         if (tryParsePlayAllByNameFromBreakZone(effectText) != null)         return "PlayAllByNameFromBreakZone";
         if (tryParsePlaySourceFromBreakZone(effectText, source) != null)    return "PlaySourceFromBreakZone";
         if (tryParsePlayBrokenCardOntoFieldDull(effectText) != null) return "PlayBrokenCardOntoFieldDull";
+        // See the matching guard in matchedPatternName(): the anchored helper, not the find()-based
+        // parser, so this cannot claim a clause sitting inside a longer ability.
+        if (isBarePlaySourceOntoField(effectText, source))                  return "PlaySourceOntoField";
         if (tryParseActivateNamedCard(effectText) != null)                  return "ActivateNamedCard";
         if (tryParseAttackOnceMore(effectText) != null)                     return "AttackOnceMore";
         if (tryParseOpponentCannotSearchThisTurn(effectText) != null)       return "OpponentCannotSearch";
@@ -2771,6 +2825,8 @@ public class ActionResolver {
         }
         if (tryParseGainCrystal(effectText)        != null)                  return "GainCrystal";
         if (tryParseGainCrystalIfOpponentHas(effectText) != null)            return "GainCrystalIfOpponentHas";
+        // Mirrors parse(); see the matching guard in matchedPatternName().
+        if (tryParsePlaceCountersOnEachJob(effectText) != null)              return "PlaceCountersOnEachJob";
         if (tryParsePlaceCountersForEach(effectText, source) != null)        return "PlaceCountersForEach";
         if (tryParsePlaceCounters(effectText, source) != null)               return "PlaceCounters";
         if (tryParseRemoveAllCounters(effectText, source) != null)           return "RemoveAllCounters";

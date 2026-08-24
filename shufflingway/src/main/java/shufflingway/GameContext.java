@@ -999,6 +999,19 @@ public interface GameContext {
     /** Next damage received by target is reduced by {@code reduction} (consumed on first hit). */
     void shieldNextIncomingDamageReduction(ForwardTarget t, int reduction);
 
+    /**
+     * Like {@link #shieldNextIncomingDamageReduction}, but the shield bills whoever lent it: Cecil
+     * 9-109H reduces the next damage the chosen Forward would take by {@code reduction} and takes
+     * {@code damage} himself when that happens.
+     *
+     * <p>The kickback is dealt after the shielded Forward's damage has fully resolved, so a
+     * kickback that breaks {@code bearer} cannot shift the indices that resolution is using. It is
+     * owed only when the reduction is actually applied — damage that cannot be reduced spends the
+     * shield without billing anyone.
+     */
+    void shieldNextIncomingDamageReductionKickback(ForwardTarget t, int reduction,
+                                                   CardData bearer, int damage);
+
     /** Reduces the next damage dealt to {@code t} by abilities or Summons by {@code reduction}. */
     void shieldNextAbilityIncomingDamageReduction(ForwardTarget t, int reduction);
 
@@ -2038,11 +2051,33 @@ public interface GameContext {
             java.util.function.Consumer<GameContext> ifNot);
 
     /**
+     * Offers the ability user one optional discard of a card matching {@code cardType}, and marks
+     * the effect fizzled when none happens — so a following "When you do so, …" clause does not
+     * run. The type-filtered twin of {@link #mayDiscardCardOfJobFromHand}, and the branchless
+     * sibling of {@link #mayDiscardCardOfTypeFromHandOrElse}: for 7-040C Yunalesca the payoff is
+     * spelled by the sentence that follows rather than by an {@code ifDiscarded} argument.
+     */
+    void mayDiscardCardOfTypeFromHand(String cardType);
+
+    /**
      * Prompts the ability user to discard 1 card with Job {@code jobName} from their hand.
      * Sets effectMadeProgress only when a card is actually discarded.
      * When P2 is the ability user the AI discards the worst eligible card automatically.
      */
     void selfDiscardByJob(String jobName);
+
+    /**
+     * Offers the ability user one optional discard of a card with Job {@code jobName}, and marks
+     * the effect fizzled when none happens — so a following "When you do so, …" clause does not
+     * run. The "you may" spelling of {@link #selfDiscardByJob}.
+     *
+     * <p>P2's AI takes the offer whenever it holds an eligible card, discarding its worst one.
+     * Every printing of this clause pairs it with a payoff worth more than the card
+     * ({@code draw 2}, {@code deal 8000}, {@code break a Forward}), so passing would only ever
+     * mean the ability does nothing. That matches {@code mayDiscardCardOfTypeFromHandOrElse} and
+     * differs from {@code mayDiscardCardNameFromHandOrElse}, where the AI always passes.
+     */
+    void mayDiscardCardOfJobFromHand(String jobName);
 
     /**
      * Prompts the ability user to optionally discard 1 card matching the given element
@@ -2356,6 +2391,20 @@ public interface GameContext {
 
     /** Causes the chosen target Forward to lose all abilities until end of turn. */
     void targetLoseAllAbilitiesUntilEndOfTurn(ForwardTarget t);
+
+    /**
+     * Silences the Character at {@code t} for as long as {@code warden} stays on the field —
+     * 25-035L Aerith and 20-116R Meliadoul, "As long as [Self] is on the field, it loses all its
+     * abilities."
+     *
+     * <p>Not a duration the turn ends: the pairing is held as state and answered live, so the
+     * abilities come back the moment {@code warden} leaves and there is no cleanup to schedule.
+     *
+     * <p>{@code warden} is matched by identity, never by name. The ability names its own printing,
+     * so an opposing card with the same name is a different card and must not keep the silence
+     * alive — nor end it.
+     */
+    void targetLoseAllAbilitiesWhileWardenOnField(ForwardTarget t, CardData warden);
 
     /**
      * Finds the source card on its owner's forward zone and returns it to the bottom of
@@ -2842,6 +2891,17 @@ public interface GameContext {
             boolean opponentOnly, boolean selfOnly);
 
     /**
+     * Places {@code count} counters named {@code counterName} on every card the ability user
+     * controls whose Job matches {@code jobFilter} — Forwards, Backups and Monsters alike
+     * (15-011L Palom, 15-119L Porom: "place 1 EXP Counter on each Job Apprentice Mage you
+     * control").
+     *
+     * <p>The printing card is included when it carries the Job itself, which is what the text
+     * says and what makes these two grow.
+     */
+    void placeCountersOnOwnJobCards(String counterName, int count, String jobFilter);
+
+    /**
      * Adds {@code amount} power until end of turn to every matching field card.
      *
      * @param inclForwards  include Forwards in the sweep
@@ -2865,6 +2925,17 @@ public interface GameContext {
      * suppression the same way {@link #applyMassFieldPowerBoost} does.
      */
     void applyCurrentPartyForwardsPowerBoost(int amount);
+
+    /**
+     * How many Forwards of the party that most recently formed and attacked on the ability user's
+     * side are still on the field — the "each attacking Forward" of 12-105L Yuna's party trigger.
+     *
+     * <p>Counted at resolution and filtered to the field, the same way
+     * {@link #applyCurrentPartyForwardsPowerBoost} treats its party: a member that has already
+     * left is no longer an attacking Forward. Only meaningful while a party attack is resolving;
+     * outside one it reports 0.
+     */
+    int currentPartyAttackerCount();
 
     /**
      * Boosts all Forwards (selected by {@code opponentOnly}/{@code selfOnly}) that share

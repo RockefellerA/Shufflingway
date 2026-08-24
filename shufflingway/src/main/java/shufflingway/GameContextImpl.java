@@ -446,6 +446,12 @@ final class GameContextImpl implements GameContext {
 			@Override public void shieldNextIncomingDamageReduction(ForwardTarget t, int reduction) {
 				CardData c = mw.autoAbilityTriggers.fieldCardData(t); if (c != null) mw.nextIncomingDmgReduceMap.merge(c, reduction, Integer::sum);
 			}
+			@Override public void shieldNextIncomingDamageReductionKickback(ForwardTarget t, int reduction,
+					CardData bearer, int damage) {
+				CardData c = mw.autoAbilityTriggers.fieldCardData(t); if (c == null) return;
+				mw.nextIncomingDmgReduceMap.merge(c, reduction, Integer::sum);
+				mw.nextIncomingDmgReduceKickbackMap.put(c, new MainWindow.ShieldKickback(isP1, bearer, damage));
+			}
 			@Override public void shieldNextAbilityIncomingDamageReduction(ForwardTarget t, int reduction) {
 				CardData c = mw.autoAbilityTriggers.fieldCardData(t); if (c != null) mw.nextAbilityDmgReduceMap.merge(c, reduction, Integer::sum);
 			}
@@ -1699,6 +1705,13 @@ final class GameContextImpl implements GameContext {
 					mw.endOfTurnEffects.add(ctx -> mw.lostAbilitiesCards.remove(card));
 				}
 				logEntry("Effect: " + card.name() + " loses all abilities until end of turn");
+			}
+			@Override public void targetLoseAllAbilitiesWhileWardenOnField(ForwardTarget t, CardData warden) {
+				CardData card = mw.autoAbilityTriggers.fieldCardData(t);
+				if (card == null || warden == null) return;
+				mw.abilitiesStrippedWhileWardenOnField.put(card, warden);
+				logEntry("Effect: " + card.name() + " loses all abilities while "
+						+ warden.name() + " is on the field");
 			}
 			@Override public boolean wasElementCpPaid(String element) {
 				return element != null && mw.lastCastPaymentElements.stream()
@@ -5148,6 +5161,33 @@ final class GameContextImpl implements GameContext {
 				return mw.gameState.getCounters(card, counterName);
 			}
 
+			@Override public void placeCountersOnOwnJobCards(String counterName, int count, String jobFilter) {
+				List<CardData> fwds = isP1 ? mw.p1ForwardCards : mw.p2ForwardCards;
+				for (int i = 0; i < fwds.size(); i++) {
+					if (!CardFilters.meetsJobFilter(fwds.get(i), jobFilter)) continue;
+					mw.gameState.placeCounters(fwds.get(i), counterName, count);
+					if (isP1) mw.refreshP1ForwardSlot(i); else mw.refreshP2ForwardSlot(i);
+					logEntry((isP1 ? "" : "[P2] ") + fwds.get(i).name() + " — " + count + " "
+							+ counterName + " Counter(s) placed");
+				}
+				CardData[] bkps = isP1 ? mw.p1BackupCards : mw.p2BackupCards;
+				for (int i = 0; i < bkps.length; i++) {
+					if (bkps[i] == null || !CardFilters.meetsJobFilter(bkps[i], jobFilter)) continue;
+					mw.gameState.placeCounters(bkps[i], counterName, count);
+					if (isP1) mw.refreshP1BackupSlot(i); else mw.refreshP2BackupSlot(i);
+					logEntry((isP1 ? "" : "[P2] ") + bkps[i].name() + " — " + count + " "
+							+ counterName + " Counter(s) placed");
+				}
+				List<CardData> mons = isP1 ? mw.p1MonsterCards : mw.p2MonsterCards;
+				for (int i = 0; i < mons.size(); i++) {
+					if (!CardFilters.meetsJobFilter(mons.get(i), jobFilter)) continue;
+					mw.gameState.placeCounters(mons.get(i), counterName, count);
+					if (isP1) mw.refreshP1MonsterSlot(i); else mw.refreshP2MonsterSlot(i);
+					logEntry((isP1 ? "" : "[P2] ") + mons.get(i).name() + " — " + count + " "
+							+ counterName + " Counter(s) placed");
+				}
+			}
+
 			@Override public void placeCountersOnAllForwards(String counterName, int count,
 					boolean opponentOnly, boolean selfOnly) {
 				boolean touchP1 = isP1 ? !opponentOnly : !selfOnly;
@@ -6170,8 +6210,52 @@ final class GameContextImpl implements GameContext {
 					java.util.function.Consumer<GameContext> ifNot) {
 				// No markEffectFizzled() here, unlike selfDiscardByType: declining is not a dead
 				// end for these cards, it is the branch ifNot spells out.
-				if (discardOneFromHandByType(cardType)) ifDiscarded.accept(this);
-				else                                    ifNot.accept(this);
+				if (offerDiscardOfType(cardType)) ifDiscarded.accept(this);
+				else                              ifNot.accept(this);
+			}
+
+			@Override public void mayDiscardCardOfTypeFromHand(String cardType) {
+				if (!offerDiscardOfType(cardType)) markEffectFizzled();
+			}
+
+			/**
+			 * Puts one optional discard of a card matching {@code cardType} to the ability user and
+			 * reports whether one happened.
+			 *
+			 * <p>The offer comes first and the picker second, which is the shape the picker is
+			 * built for: {@code HandPickDialog}'s chooser has no Pass button and cannot be
+			 * dismissed, precisely because the player is taken to have committed by accepting a
+			 * "you may?" prompt. Reaching it without that prompt is what left 1-190S Bahamut Fury's
+			 * "You may discard 1 card from your hand" with no way to decline — P1 was shown a modal
+			 * that only closes by discarding, so the "If not, deal it 5000 damage" branch could
+			 * never be taken.
+			 *
+			 * <p>Eligibility is checked before the offer so a player holding nothing is not asked a
+			 * question with one answer.
+			 *
+			 * <p>P2's AI takes every offer it can afford, which is {@code discardOneFromHandByType}'s
+			 * existing behaviour and is left alone here: whether a card is worth the upgrade
+			 * (7000 damage rather than 5000) is a valuation question, not part of making the offer
+			 * declinable.
+			 */
+			private boolean offerDiscardOfType(String cardType) {
+				if (isP1) {
+					List<CardData> hand = mw.gameState.getP1Hand();
+					boolean anyEligible = hand.stream().anyMatch(c -> matchesDiscardType(c, cardType));
+					if (!anyEligible) {
+						logEntry("[Effect] No " + cardType + " in hand — optional discard skipped");
+						return false;
+					}
+					String src = mw.currentAbilitySource != null ? mw.currentAbilitySource.name() : "Ability";
+					int choice = mw.showEffectOptionDialog(
+							src + " — Discard 1 " + cardType + " from hand?",
+							"You May Discard", new Object[]{"Discard", "Pass"});
+					if (choice != 0) {
+						logEntry("[Effect] Declined to discard a " + cardType);
+						return false;
+					}
+				}
+				return discardOneFromHandByType(cardType);
 			}
 
 			/**
@@ -6224,6 +6308,31 @@ final class GameContextImpl implements GameContext {
 					mw.refreshP2HandCountLabel();
 					mw.refreshP2BreakLabel();
 				}
+			}
+
+			@Override public void mayDiscardCardOfJobFromHand(String jobName) {
+				List<CardData> hand = isP1 ? mw.gameState.getP1Hand() : mw.gameState.getP2Hand();
+				boolean anyEligible = hand.stream().anyMatch(c -> CardFilters.meetsJobFilter(c, jobName));
+				if (!anyEligible) {
+					logEntry("[Effect] No Job " + jobName + " in hand — optional discard skipped");
+					markEffectFizzled();
+					return;
+				}
+				if (isP1) {
+					String src = mw.currentAbilitySource != null ? mw.currentAbilitySource.name() : "Ability";
+					int choice = mw.showEffectOptionDialog(
+							src + " — Discard 1 Job " + jobName + " from hand?",
+							"You May Discard", new Object[]{"Discard", "Pass"});
+					if (choice != 0) {
+						logEntry("[Effect] Declined to discard a Job " + jobName);
+						markEffectFizzled();
+						return;
+					}
+					// The pick itself is no longer optional — the offer has been accepted.
+					if (!mw.showDiscardByJobDialog(jobName)) markEffectFizzled();
+					return;
+				}
+				selfDiscardByJob(jobName);
 			}
 
 			@Override public void selfDiscardByElement(String element) {
@@ -6938,6 +7047,14 @@ final class GameContextImpl implements GameContext {
 						mw.refreshP2ForwardSlot(i);
 					}
 				}
+			}
+
+			@Override public int currentPartyAttackerCount() {
+				List<CardData> party = mw.turn(isP1).currentPartyAttackers;
+				List<CardData> fwds  = isP1 ? mw.p1ForwardCards : mw.p2ForwardCards;
+				int count = 0;
+				for (CardData member : party) if (MainWindow.identityIndexOf(fwds, member) >= 0) count++;
+				return count;
 			}
 
 			@Override public void allForwardsSameElementAsNamedGainPowerUntilEOT(

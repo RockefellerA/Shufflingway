@@ -573,6 +573,21 @@ public class MainWindow {
 	final Set<CardData>          nextIncomingDmgZeroSet        = new HashSet<>();
 	final Map<CardData, CardData> nextIncomingDmgRedirectMap   = new HashMap<>();
 	final Map<CardData, Integer> nextIncomingDmgReduceMap      = new HashMap<>();
+	/**
+	 * The bill attached to a one-shot reduction in {@link #nextIncomingDmgReduceMap} — Cecil
+	 * 9-109H's "reduce it by 4000 instead and deal Cecil 4000 damage". Keyed by the shielded card;
+	 * removed in step with the reduction it belongs to.
+	 */
+	final Map<CardData, ShieldKickback> nextIncomingDmgReduceKickbackMap = new HashMap<>();
+	/**
+	 * Kickbacks whose shields have just been spent, waiting for the damage that spent them to
+	 * finish resolving. Drained by {@link #fireShieldKickbacks()} at the end of
+	 * {@code applyDamageToForward}: dealing them any earlier could break a Forward and shift the
+	 * indices that call is still working with.
+	 */
+	final List<ShieldKickback> pendingShieldKickbacks = new ArrayList<>();
+	/** What a damage-reduction shield costs the card that lent it, and which side that card is on. */
+	record ShieldKickback(boolean bearerIsP1, CardData bearer, int damage) {}
 	final Map<CardData, Integer> nextAbilityDmgReduceMap       = new HashMap<>();
 	final Map<CardData, Integer> incomingDmgIncreaseMap   = new HashMap<>();
 	int globalForwardIncomingDmgIncrease = 0; // flat increase applied to ALL Forwards' incoming damage this turn
@@ -657,6 +672,18 @@ public class MainWindow {
 	final Set<CardData> lostAbilitiesCards = new LostAbilitiesSet();
 
 	/**
+	 * Victim to warden for "As long as [Self] is on the field, it loses all its abilities"
+	 * (25-035L Aerith, 20-116R Meliadoul) — the third half of {@link #lostAbilitiesCards}, and
+	 * derived for the same reason as the second: the silence ends when the warden leaves, and
+	 * there is no event to hang that restoration on.
+	 *
+	 * <p>Identity on both sides. The warden is the printing that resolved the trigger, so an
+	 * opposing card of the same name neither sustains the silence nor lifts it; the victim is a
+	 * specific card, so a second copy of it is untouched.
+	 */
+	final Map<CardData, CardData> abilitiesStrippedWhileWardenOnField = new IdentityHashMap<>();
+
+	/**
 	 * Backing store for {@link #lostAbilitiesCards}: an identity set of the cards an effect has
 	 * stripped, with {@code contains} widened to include the standing suppressions.
 	 *
@@ -674,7 +701,8 @@ public class MainWindow {
 
 		@Override public boolean contains(Object o) {
 			if (stripped.contains(o)) return true;
-			return o instanceof CardData c && abilitiesSuppressedByOpposingField(c);
+			if (!(o instanceof CardData c)) return false;
+			return silencedByWardenOnField(c) || abilitiesSuppressedByOpposingField(c);
 		}
 
 		/**
@@ -683,6 +711,27 @@ public class MainWindow {
 		 * {@code contains} would recurse straight back into here.
 		 */
 		boolean strippedByEffect(CardData c) { return stripped.contains(c); }
+	}
+
+	/**
+	 * Whether {@code card} is under an Aerith-style standing silence whose warden is still on the
+	 * field.
+	 *
+	 * <p>The entry is dropped as soon as it is found stale, so a warden that has left cannot
+	 * silence anything again by coming back later: the two are different cards once the first has
+	 * left, and only the pairing made while it was out should ever have been honoured.
+	 *
+	 * <p>Guarded on an empty map first, because {@link #lostAbilitiesCards} is asked on hot paths
+	 * and no ordinary game ever puts an entry here.
+	 */
+	private boolean silencedByWardenOnField(CardData card) {
+		if (abilitiesStrippedWhileWardenOnField.isEmpty()) return false;
+		CardData warden = abilitiesStrippedWhileWardenOnField.get(card);
+		if (warden == null) return false;
+		if (identityIndexOf(fieldCards(true), warden) >= 0
+				|| identityIndexOf(fieldCards(false), warden) >= 0) return true;
+		abilitiesStrippedWhileWardenOnField.remove(card);
+		return false;
 	}
 
 	/**
@@ -1862,6 +1911,7 @@ public class MainWindow {
 		pendingMainPhase1Effects.clear();
 		activeCostReductions.clear();
 		lostAbilitiesCards.clear();
+		abilitiesStrippedWhileWardenOnField.clear();
 		exBurstSuppressingSources.clear();
 		playerDamageSource = null;
 		basePowerOverrides.clear();
@@ -3021,6 +3071,7 @@ public class MainWindow {
                                 p1TempAttackTriggers.clear();           p2TempAttackTriggers.clear();
                                 p1TempBlockTriggers.clear();            p2TempBlockTriggers.clear();
                                 nextIncomingDmgZeroSet.clear();   nextIncomingDmgRedirectMap.clear();   nextIncomingDmgReduceMap.clear();   nextAbilityDmgReduceMap.clear();
+                                nextIncomingDmgReduceKickbackMap.clear();  pendingShieldKickbacks.clear();
                                 incomingDmgIncreaseMap.clear();   globalForwardIncomingDmgIncrease = 0;   nullifyAbilityDmgSet.clear();
                                 p1Turn.nullifyAbilityDmgFilters.clear(); p2Turn.nullifyAbilityDmgFilters.clear();
                                 p1DoublecastFreeSummons = false;  p2DoublecastFreeSummons = false;
@@ -3634,6 +3685,33 @@ public class MainWindow {
 				if (fStates.get(dulled[1]) == CardState.DULL) return;
 			}
 			icon.triggerFade();
+		}
+	}
+
+	/**
+	 * Deals the kickbacks owed by damage-reduction shields spent during the damage that has just
+	 * resolved — Cecil 9-109H taking 4000 for the Forward he shielded.
+	 *
+	 * <p>Drained rather than dealt at the moment the shield is consumed: that happens inside the
+	 * incoming-damage calculation, which is arithmetic, and this is damage that can break a Forward
+	 * and renumber the zone the caller is still indexing into.
+	 *
+	 * <p>A bearer that has left the field owes nothing — the damage has nowhere to land.
+	 */
+	void fireShieldKickbacks() {
+		if (pendingShieldKickbacks.isEmpty()) return;
+		List<ShieldKickback> owed = new ArrayList<>(pendingShieldKickbacks);
+		pendingShieldKickbacks.clear();
+		for (ShieldKickback k : owed) {
+			List<CardData> fwds = k.bearerIsP1() ? p1ForwardCards : p2ForwardCards;
+			int idx = identityIndexOf(fwds, k.bearer());
+			if (idx < 0) {
+				logEntry(k.bearer().name() + " is no longer on the field — takes no damage for the shield it lent");
+				continue;
+			}
+			logEntry((k.bearerIsP1() ? "" : "[P2] ") + k.bearer().name()
+					+ " takes " + k.damage() + " damage for the shield it lent");
+			applyDamageToForward(k.bearerIsP1(), idx, k.damage(), true, false);
 		}
 	}
 

@@ -1076,6 +1076,43 @@ final class ActionResolverChoose {
         return tryParseChooseCharacterInner(text, source, xValue);
     }
     /**
+     * Builds Porom 15-119L's second sentence: "If N or more [X] Counters are placed on [Self], its
+     * power also becomes P until the end of the turn."
+     *
+     * <p>Lives here rather than in the general chain because "its" is the Forward the first
+     * sentence chose — read back through {@code lastChosenTargets()} — while the counters counted
+     * are the ability source's own. Returns null when the counters are named on any card but the
+     * source, so such a text falls through to the general chain instead of being read as if it
+     * said "Self".
+     *
+     * <p>The gate is evaluated at resolution, not at parse: the counters accumulate over turns.
+     */
+    static Consumer<GameContext> secondaryCounterGatedPowerBecomes(String secondaryText, CardData source) {
+        if (source == null) return null;
+        Matcher m = SECONDARY_IF_SOURCE_COUNTERS_POWER_BECOMES.matcher(secondaryText.trim());
+        if (!m.matches()) return null;
+        if (!m.group("name").trim().equalsIgnoreCase(source.name())) return null;
+        final int    required    = Integer.parseInt(m.group("count"));
+        final String counterName = m.group("countername").trim();
+        final int    power       = Integer.parseInt(m.group("power"));
+        return ctx -> {
+            int held = ctx.getCounters(source, counterName);
+            if (held < required) {
+                ctx.logEntry(source.name() + " has " + held + " " + counterName + " Counter(s), needs "
+                        + required + " — power unchanged");
+                return;
+            }
+            ctx.logEntry(source.name() + " has " + held + " " + counterName
+                    + " Counter(s) — the chosen Forward's power becomes " + power + " until end of turn");
+            List<ForwardTarget> chosen = ctx.lastChosenTargets();
+            // Descending order, as everywhere else that sets a power: dropping to the new value can
+            // break a Forward, which shifts the indices of every target above it in the same zone.
+            sortedByIdxDesc(chosen, true) .forEach(t -> ctx.setTargetBasePower(t, power));
+            sortedByIdxDesc(chosen, false).forEach(t -> ctx.setTargetBasePower(t, power));
+        };
+    }
+
+    /**
      * True when {@code followupText} is Tulien 21-072H's grant of both compulsions — the outer
      * two-quotation shape, and each quotation a clause this engine can enforce on whoever receives
      * it.
@@ -1369,7 +1406,11 @@ final class ActionResolverChoose {
                                 boolean dullIt = rfpM.group("dull") != null;
                                 secondary = ctx -> ctx.playLastRemovedFromRfpOntoField(dullIt);
                             } else {
-                                Consumer<GameContext> parsed = parse(secondaryText, source);
+                                // Tried ahead of the general chain: this sentence's "its" is the
+                                // Forward the primary chose, which a standalone parse cannot see.
+                                Consumer<GameContext> parsed =
+                                        secondaryCounterGatedPowerBecomes(secondaryText, source);
+                                if (parsed == null) parsed = parse(secondaryText, source);
                                 secondary = (parsed != null) ? parsed
                                         : ctx -> ctx.logEntry("[ActionResolver] Secondary followup not yet implemented: " + secondaryText);
                             }
@@ -1689,6 +1730,32 @@ final class ActionResolverChoose {
                 else                     ctx.mayDiscardCardOfTypeFromHandOrElse(discardType, ifDiscarded, ifNot);
             };
         }
+
+        // --- "You may discard 1 [type]" with the payoff in the next sentence (7-040C Yunalesca) ---
+        // Must follow the branch above, which reads the whole followup while this one reads only
+        // its first sentence: checked first, this claimed 1-190S Bahamut Fury's opening clause
+        // and dropped the two damage branches that give the offer its point.
+        // The card's own optionality, printed mid-ability: CardData's youMay flag is set only from
+        // a leading "you may", so nothing above this honours it. Left unhandled, the choose logged
+        // an unimplemented followup and the "If you do so" payoff ran with no discard demanded.
+        Matcher mayDiscardTypeM = FOLLOWUP_MAY_DISCARD_TYPE_BARE.matcher(primaryFollowup.trim());
+        if (mayDiscardTypeM.matches()) {
+            final String discardType = mayDiscardTypeM.group("cardtype")
+                    .toLowerCase(java.util.Locale.ROOT).replaceAll("s$", "");
+            return ctx -> {
+                ctx.logEntry(choosePrefix + " — may discard 1 " + discardType);
+                List<ForwardTarget> ts = selectTargets(ctx, maxCount, upTo,
+                        opponentOnly, selfOnly, condition, element, zone, opponentZone,
+                        costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters,
+                        jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, fExcludeElem, withoutMulticard);
+                if (ts.isEmpty()) return;
+                // Last, so the fizzle it marks on a declined offer is the one the enclosing
+                // "When you do so, …" reads.
+                ctx.mayDiscardCardOfTypeFromHand(discardType);
+                if (secondary != null) secondary.accept(ctx);
+            };
+        }
+
 
         // --- "You may search for 1 [Elem] [Type] and remove it from the game. If you do so, break
         //      the chosen Forwards. If not, deal N damage to the chosen Forwards." (29-117H Ark) ---
@@ -2783,6 +2850,22 @@ final class ActionResolverChoose {
                 // the indices of every target above it in the same zone.
                 sortedByIdxDesc(ts, true) .forEach(t -> ctx.setTargetBasePower(t, targetPower));
                 sortedByIdxDesc(ts, false).forEach(t -> ctx.setTargetBasePower(t, targetPower));
+                if (secondary != null) secondary.accept(ctx);
+            };
+        }
+
+        // --- Lose all abilities for as long as the source stays on the field ---
+        // Ahead of the until-end-of-turn branch below, which reads the same "loses all its
+        // abilities" phrase; see the note on the pattern.
+        Matcher silenceM = FOLLOWUP_LOSES_ABILITIES_WHILE_NAMED_ON_FIELD.matcher(primaryFollowup.trim());
+        if (source != null && silenceM.matches()
+                && silenceM.group("name").trim().equalsIgnoreCase(source.name())) {
+            return ctx -> {
+                ctx.logEntry(choosePrefix + " — loses all abilities while " + source.name() + " is on the field");
+                List<ForwardTarget> ts = selectTargets(ctx, maxCount, upTo,
+                        opponentOnly, selfOnly, condition, element, zone, opponentZone,
+                        costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters, jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, fExcludeElem, withoutMulticard);
+                ts.forEach(t -> ctx.targetLoseAllAbilitiesWhileWardenOnField(t, source));
                 if (secondary != null) secondary.accept(ctx);
             };
         }
@@ -3911,6 +3994,29 @@ final class ActionResolverChoose {
 
         // --- Power reduce for each [state] [element] [type] you control / opponent controls
         //     (must precede plain UNTIL reduce) ---
+        // --- Power reduction scaled by the attacking party (12-105L Yuna) ---
+        // Ahead of every other reduction branch: they all find() a bare "it loses N power" inside
+        // this sentence and would drop the multiplier.
+        Matcher reduceForEachAtkM = FOLLOWUP_POWER_REDUCE_UNTIL_FOR_EACH_ATTACKER.matcher(primaryFollowup.trim());
+        if (reduceForEachAtkM.matches()) {
+            int perAttacker = Integer.parseInt(reduceForEachAtkM.group("amount"));
+            return ctx -> {
+                int attackers = ctx.currentPartyAttackerCount();
+                int reduction = perAttacker * attackers;
+                ctx.logEntry(choosePrefix + " -" + perAttacker + "×[attacking Forwards] until EOT (n="
+                        + attackers + ", reduction=" + reduction + ")");
+                List<ForwardTarget> ts = selectTargets(ctx, maxCount, upTo,
+                        opponentOnly, selfOnly, condition, element, zone, opponentZone,
+                        costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters, jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, fExcludeElem, withoutMulticard);
+                EnumSet<CardData.Trait> noTraits = EnumSet.noneOf(CardData.Trait.class);
+                // Descending order: the reduction can break a Forward, which shifts the indices of
+                // every target above it in the same zone.
+                sortedByIdxDesc(ts, true) .forEach(t -> ctx.reduceTarget(t, reduction, noTraits));
+                sortedByIdxDesc(ts, false).forEach(t -> ctx.reduceTarget(t, reduction, noTraits));
+                if (secondary != null) secondary.accept(ctx);
+            };
+        }
+
         Matcher reduceForEachM = FOLLOWUP_POWER_REDUCE_UNTIL_FOR_EACH.matcher(primaryFollowup);
         // A state adjective is only countable on the opponent's side: the counting surface has an
         // opponent call taking one but no self-side equivalent, so a self-side "for each dull …"
@@ -4021,6 +4127,25 @@ final class ActionResolverChoose {
             };
         }
 
+        // --- Next incoming damage reduced by N, and the grantor takes M for it ---
+        // Ahead of the plain reduction below: see the note on the pattern.
+        Matcher shieldKickM = FOLLOWUP_SHIELD_NEXT_DMG_REDUCTION_KICKBACK.matcher(primaryFollowup);
+        if (source != null && shieldKickM.find()
+                && shieldKickM.group("name").trim().equalsIgnoreCase(source.name())) {
+            int reduction = Integer.parseInt(shieldKickM.group("reduction"));
+            int kickback  = Integer.parseInt(shieldKickM.group("dmg"));
+            return ctx -> {
+                ctx.logEntry(choosePrefix + " — Shield: next damage reduced by " + reduction
+                        + ", " + source.name() + " takes " + kickback + " for it");
+                List<ForwardTarget> ts = selectTargets(ctx, maxCount, upTo,
+                        opponentOnly, selfOnly, condition, element, zone, opponentZone,
+                        costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters, jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, fExcludeElem, withoutMulticard);
+                ts.forEach(t -> ctx.shieldNextIncomingDamageReductionKickback(
+                        t, reduction, source, kickback));
+                if (secondary != null) secondary.accept(ctx);
+            };
+        }
+
         // --- Next incoming damage reduced by N followup ---
         Matcher shieldRedM = FOLLOWUP_SHIELD_NEXT_DMG_REDUCTION.matcher(primaryFollowup);
         if (shieldRedM.find()) {
@@ -4045,6 +4170,18 @@ final class ActionResolverChoose {
                         opponentOnly, selfOnly, condition, element, zone, opponentZone,
                         costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters, jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, fExcludeElem, withoutMulticard);
                 ts.forEach(t -> ctx.debuffIncomingDamageIncrease(t, amount));
+                if (secondary != null) secondary.accept(ctx);
+            };
+        }
+
+        // --- Next outgoing damage doubled followup ---
+        if (FOLLOWUP_DOUBLE_NEXT_OUTGOING.matcher(primaryFollowup).find()) {
+            return ctx -> {
+                ctx.logEntry(choosePrefix + " — next outgoing damage doubled this turn");
+                List<ForwardTarget> ts = selectTargets(ctx, maxCount, upTo,
+                        opponentOnly, selfOnly, condition, element, zone, opponentZone,
+                        costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters, jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, fExcludeElem, withoutMulticard);
+                ts.forEach(ctx::doubleForwardNextOutgoingDamage);
                 if (secondary != null) secondary.accept(ctx);
             };
         }

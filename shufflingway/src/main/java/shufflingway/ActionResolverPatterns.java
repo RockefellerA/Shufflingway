@@ -718,6 +718,20 @@ final class ActionResolverPatterns {
      * {@code cardtype} is spelled in the {@code CardFilters.matchesDiscardType} vocabulary so the
      * handler can pass it straight through.
      */
+    /**
+     * Matches "You may discard 1 [type] [from your hand]." standing alone as a choose followup —
+     * 7-040C Yunalesca, whose payoff is spelled by the "If you do so, …" sentence that follows
+     * rather than by this clause.
+     *
+     * <p>Its sibling {@link #FOLLOWUP_MAY_DISCARD_NAMED_DEAL_DAMAGE} carries its own payoff and so
+     * cannot match this text; this one is anchored at both ends for the same reason, so it cannot
+     * take a prefix of that one.
+     */
+    static final Pattern FOLLOWUP_MAY_DISCARD_TYPE_BARE = Pattern.compile(
+        "(?i)^you\\s+may\\s+discard\\s+1\\s+" +
+        "(?<cardtype>card|Forwards?|Backups?|Monsters?|Characters?|Summons?)" +
+        "(?:\\s+from\\s+your\\s+hand)?[.!]?$"
+    );
     static final Pattern FOLLOWUP_MAY_DISCARD_NAMED_DEAL_DAMAGE = Pattern.compile(
         "(?i)^you\\s+may\\s+discard\\s+1\\s+" +
         "(?:Card\\s+Name\\s+(?<cardname>.+?)" +
@@ -1132,6 +1146,21 @@ final class ActionResolverPatterns {
      */
     static final Pattern FOLLOWUP_BREAK_DEMONSTRATIVE = Pattern.compile(
         "(?i)^Break\\s+that\\s+Character\\s*[.!]?$"
+    );
+    /**
+     * Matches "As long as [CardName] is on the field, it loses all its abilities." — the standing
+     * silence 25-035L Aerith and 20-116R Meliadoul lay on a Character as they enter.
+     *
+     * <p>Not a duration in turns: the effect lasts exactly as long as the card that made it stays
+     * on the field, so it is answered as a live query rather than scheduled for cleanup. Checked
+     * ahead of {@link #FOLLOWUP_LOSE_ALL_ABILITIES_EOT}, which reads the same "loses all its
+     * abilities" phrase and would be wrong about when it ends — that pattern demands an explicit
+     * "until the end of the turn", so today the two cannot both match, but the specific one goes
+     * first regardless.
+     */
+    static final Pattern FOLLOWUP_LOSES_ABILITIES_WHILE_NAMED_ON_FIELD = Pattern.compile(
+        "(?i)^As\\s+long\\s+as\\s+(?<name>.+?)\\s+is\\s+on\\s+the\\s+field,\\s+" +
+        "(?:it|they)\\s+loses?\\s+all\\s+(?:its|their)\\s+abilities[.!]?$"
     );
     /** Matches "It loses all [its] abilities until the end of the turn." */
     static final Pattern FOLLOWUP_LOSE_ALL_ABILITIES_EOT = Pattern.compile(
@@ -1798,6 +1827,19 @@ final class ActionResolverPatterns {
      */
     static final Pattern RETURN_SOURCE_ONTO_FIELD = Pattern.compile(
         "(?i)^Return\\s+(?<name>.+?)\\s+onto\\s+(?:the\\s+)?field(?:\\s+(?<dull>dull))?[.!]?$"
+    );
+    /**
+     * The anchored form of {@link #PLAY_SOURCE_ONTO_FIELD_PATTERN}: the clause is the whole
+     * text, with nothing in front of it.
+     *
+     * <p>Read only by the naming chains. The loose pattern below is matched with find() and
+     * so reports a hit inside every "search for 1 Forward ... and play it onto the field" in
+     * the corpus, none of which reach its parser in parse() -- an earlier parser claims them.
+     * Naming off it renamed 9 abilities away from the parser that really runs them; this form
+     * fills the gap without moving any of them.
+     */
+    static final Pattern PLAY_SOURCE_ONTO_FIELD_BARE = Pattern.compile(
+        "(?i)^Play\\s+(?<name>\\S+(?:\\s+\\S+){0,2})\\s+onto\\s+(?:the\\s+)?field(?:\\s+(?<dull>dull))?[.!]?$"
     );
     static final Pattern PLAY_SOURCE_ONTO_FIELD_PATTERN = Pattern.compile(
         "(?i)\\bPlay\\s+(?<name>\\S+(?:\\s+\\S+){0,2})\\s+onto\\s+(?:the\\s+)?field(?:\\s+(?<dull>dull))?" +
@@ -2592,6 +2634,22 @@ final class ActionResolverPatterns {
     static final Pattern FOLLOWUP_SHIELD_NEXT_ABILITY_DMG_REDUCTION = Pattern.compile(
         "(?i)During\\s+this\\s+turn,\\s+the\\s+next\\s+damage\\s+dealt\\s+to\\s+it\\s+by\\s+Summons?\\s+or\\s+abilities\\s+is\\s+reduced\\s+by\\s+(?<reduction>\\d+)\\s+instead\\.?"
     );
+    /**
+     * Matches "During this turn, the next time this Forward would take damage, reduce it by N
+     * instead and deal [CardName] M damage." — 9-109H Cecil, who shields a Forward by taking the
+     * hit himself.
+     *
+     * <p>Checked ahead of {@link #FOLLOWUP_SHIELD_NEXT_DMG_REDUCTION}. That one does not match this
+     * wording today, but both are read with find() and both describe a one-shot reduction, so the
+     * specific form goes first on principle: reaching the general one would leave Cecil unbilled.
+     *
+     * <p>Groups: {@code reduction} — the amount the shielded Forward's damage drops by;
+     * {@code name} — the card the kickback is dealt to; {@code dmg} — how much it takes.
+     */
+    static final Pattern FOLLOWUP_SHIELD_NEXT_DMG_REDUCTION_KICKBACK = Pattern.compile(
+        "(?i)During\\s+this\\s+turn,\\s+the\\s+next\\s+time\\s+this\\s+Forward\\s+would\\s+take\\s+damage,\\s+" +
+        "reduce\\s+it\\s+by\\s+(?<reduction>\\d+)\\s+instead\\s+and\\s+deal\\s+(?<name>.+?)\\s+(?<dmg>\\d+)\\s+damage[.!]?"
+    );
     /** Matches "During this turn, the next damage dealt to it is reduced by N instead." or "Reduce the next damage dealt to it this turn by N." */
     static final Pattern FOLLOWUP_SHIELD_NEXT_DMG_REDUCTION = Pattern.compile(
         "(?i)(?:During\\s+this\\s+turn,\\s+the\\s+next\\s+damage\\s+dealt\\s+to\\s+(?:it|him)\\s+is\\s+reduced\\s+by|Reduce\\s+the\\s+next\\s+damage\\s+dealt\\s+to\\s+(?:it|him)\\s+this\\s+turn\\s+by)\\s+(?<reduction>\\d+)(?:\\s+instead)?\\.?"
@@ -2603,6 +2661,20 @@ final class ActionResolverPatterns {
     /** Matches "During this turn, the next damage it deals to a Forward becomes 0 instead." */
     static final Pattern FOLLOWUP_SHIELD_NEXT_OUTGOING_ZERO = Pattern.compile(
         "(?i)During\\s+this\\s+turn,\\s+the\\s+next\\s+damage\\s+it\\s+deals\\s+to\\s+a\\s+Forward\\s+becomes\\s+0\\s+instead\\.?"
+    );
+    /**
+     * Matches "During this turn, the next damage it deals to a Forward becomes double the damage
+     * instead." — the followup form of {@link #CHOOSE_FORWARD_DOUBLE_NEXT_OUTGOING}, read from the
+     * choose chain once the target filter has already been parsed.
+     *
+     * <p>This is the form that runs. The whole-text pattern spells its own choose clause and
+     * requires the word "Forward" in it, which 9-078C Rinok's "Choose 1 Job Headhunter." does not
+     * carry — and it sits behind tryParseChooseCharacter in parse() regardless, so no card in the
+     * corpus reaches it.
+     */
+    static final Pattern FOLLOWUP_DOUBLE_NEXT_OUTGOING = Pattern.compile(
+        "(?i)During\\s+this\\s+turn,\\s+the\\s+next\\s+damage\\s+it\\s+deals\\s+to\\s+a\\s+Forward\\s+" +
+        "becomes\\s+double\\s+the\\s+damage\\s+instead[.!]?"
     );
     /** Matches "If it deals damage to a Forward [opponent controls] this turn, the damage increases by N instead." */
     static final Pattern FOLLOWUP_OUTGOING_DMG_BOOST_THIS_TURN = Pattern.compile(
@@ -3393,9 +3465,24 @@ final class ActionResolverPatterns {
     static final Pattern DISCARD_TYPE = Pattern.compile(
         "(?i)discard\\s+1\\s+(?<type>Summon|Forward|Backup|Monster|Character)[.!]?"
     );
-    /** Matches "Discard 1 Job [X] from your hand[.]" — player discards a card with the named job. */
+    /**
+     * Matches "[You may] discard 1 Job [X] [from your hand][.]" — a discard of one card carrying
+     * the named Job.
+     *
+     * <p>Both halves are optional because the corpus prints all four combinations, and spelling
+     * them out is what reaches the six "you may discard 1 Job …" printings: the Chaos cycle
+     * (14-018C, 14-048C, 14-076C, 14-104C), 24-104R Mog (VI) and 29-112C Raz. Without the
+     * "you may" alternative their opening clause did not parse, so the "When you do so, …"
+     * sequence parser declined and the whole ability fell through to whichever later parser
+     * matched its second sentence — the three Chaos cards with a target clause resolved that
+     * clause with no discard demanded at all, and the other three did nothing.
+     *
+     * <p>{@code group("optional")} is non-null for the "you may" spelling, which is what decides
+     * whether the discard is offered or required.
+     */
     static final Pattern DISCARD_JOB_FROM_HAND = Pattern.compile(
-        "(?i)^discard\\s+1\\s+Job\\s+(?<job>.+?)\\s+from\\s+your\\s+hand[.!]?$"
+        "(?i)^(?<optional>you\\s+may\\s+)?discard\\s+1\\s+Job\\s+(?<job>.+?)" +
+        "(?:\\s+from\\s+your\\s+hand)?[.!]?$"
     );
     /** Matches "You may discard 1 &lt;element&gt; card" — player may optionally discard a card matching the element. */
     static final Pattern DISCARD_ELEMENT_FROM_HAND = Pattern.compile(
@@ -4311,6 +4398,12 @@ final class ActionResolverPatterns {
      *   <li>Group {@code job} — optional job filter (e.g. {@code "Headhunter"})</li>
      * </ul>
      */
+    /**
+     * Unreachable against the current corpus: tryParseChooseCharacter is called ahead of this
+     * parser in {@code parse()} and claims every text this could match, so the wording is served by
+     * {@link #FOLLOWUP_DOUBLE_NEXT_OUTGOING} in the choose chain instead. Kept rather than deleted
+     * because the golden file can only show that nothing reaches it today.
+     */
     static final Pattern CHOOSE_FORWARD_DOUBLE_NEXT_OUTGOING = Pattern.compile(
         "(?i)Choose\\s+1\\s+(?:Job\\s+(?<job>.+?)\\s+)?Forward[.,]?\\s+" +
         "During\\s+this\\s+turn,\\s+the\\s+next\\s+damage\\s+it\\s+deals\\s+to\\s+a\\s+Forward\\s+" +
@@ -4646,6 +4739,22 @@ final class ActionResolverPatterns {
         "\\s+until\\s+(?:the\\s+)?end\\s+of\\s+(?:the\\s+)?turn"
     );
     /** Matches "Its/Their power becomes N until the end of the turn." — group 1 is the target power. */
+    /**
+     * Matches "If N or more [X] Counters are placed on [CardName], its power also becomes P until
+     * the end of the turn." — Porom 15-119L's second sentence.
+     *
+     * <p>A rider on the Forward the first sentence already chose, so it is built where
+     * {@code lastChosenTargets()} can reach it rather than parsed as a standalone effect: "its"
+     * names that Forward, while the counters counted are the ability source's own.
+     *
+     * <p>Groups: {@code count} — counters required; {@code countername} — which kind;
+     * {@code name} — the card they sit on; {@code power} — the power the chosen Forward drops to.
+     */
+    static final Pattern SECONDARY_IF_SOURCE_COUNTERS_POWER_BECOMES = Pattern.compile(
+        "(?i)^If\\s+(?<count>\\d+)\\s+or\\s+more\\s+(?<countername>\\S+)\\s+Counters?\\s+are\\s+placed\\s+on\\s+" +
+        "(?<name>[^,]+),\\s+its\\s+power\\s+also\\s+becomes\\s+(?<power>\\d+)\\s+until\\s+" +
+        "(?:the\\s+)?end\\s+of\\s+(?:the\\s+)?turn[.!]?$"
+    );
     static final Pattern FOLLOWUP_POWER_BECOMES = Pattern.compile(
         "(?i)(?:its?|their)\\s+power\\s+becomes?\\s+(\\d+)\\s+until\\s+(?:the\\s+)?end\\s+of\\s+(?:the\\s+)?turn[.!]?"
     );
@@ -4685,6 +4794,21 @@ final class ActionResolverPatterns {
      * (2-133R C&ucirc;chulainn, the Impure is the sole printing of either), because the counting
      * surface has no self-side call taking a card state — see the guard in the handlers.
      */
+    /**
+     * Matches "It loses N power for each attacking Forward until the end of the turn." — 12-105L
+     * Yuna, whose party-attack trigger scales with the size of the party it fired on.
+     *
+     * <p>Separate from {@link #FOLLOWUP_POWER_REDUCE_UNTIL_FOR_EACH} rather than another branch of
+     * it: every alternative there counts a field the text names a controller for ("you control",
+     * "opponent controls"), and what is counted here is the attacking party, which is neither.
+     *
+     * <p>Must be checked before {@link #FOLLOWUP_POWER_REDUCE_BARE}, which finds "it loses 4000
+     * power" inside this sentence and would apply a flat reduction, dropping the multiplier.
+     */
+    static final Pattern FOLLOWUP_POWER_REDUCE_UNTIL_FOR_EACH_ATTACKER = Pattern.compile(
+        "(?i)^(?:it|they)\\s+loses?\\s+(?<amount>\\d+)\\s+[Pp]ower\\s+for\\s+each\\s+attacking\\s+" +
+        "Forward\\s+until\\s+(?:the\\s+)?end\\s+of\\s+(?:the\\s+)?turn[.!]?$"
+    );
     static final Pattern FOLLOWUP_POWER_REDUCE_UNTIL_FOR_EACH = Pattern.compile(
         "(?i)(?:" +
             "Until\\s+(?:the\\s+)?end\\s+of\\s+(?:the\\s+)?turn\\s*,\\s+" +
@@ -5198,6 +5322,20 @@ final class ActionResolverPatterns {
      *   <li>Group {@code target} — card name the counters are placed on</li>
      * </ul>
      */
+    /**
+     * Matches "Place N [Name] Counter(s) on each Job [X] you control." — the end-of-turn tick that
+     * grows 15-011L Palom and 15-119L Porom, and every other Apprentice Mage beside them.
+     *
+     * <p>Must precede {@link #PLACE_COUNTERS}, which is read with find() and would take
+     * "each Job Apprentice Mage you control" as a card name. That parser's own source-name check
+     * is all that stops it today, so this one is anchored at both ends and goes first.
+     *
+     * <p>Groups: {@code count}, {@code name} (the counter), {@code job}.
+     */
+    static final Pattern PLACE_COUNTERS_ON_EACH_JOB = Pattern.compile(
+        "(?i)^Place\\s+(?<count>\\d+)\\s+(?<name>.+?)\\s+Counters?\\s+on\\s+each\\s+Job\\s+" +
+        "(?<job>.+?)\\s+you\\s+control[.!]?$"
+    );
     static final Pattern PLACE_COUNTERS = Pattern.compile(
         "(?i)Place\\s+(?<count>\\d+)\\s+(?<name>.+?)\\s+Counters?\\s+on\\s+(?<target>[^.!,]+)\\s*[.!]?"
     );

@@ -343,14 +343,23 @@ final class ActionResolverHand {
             ctx.selfDiscardByType(type);
         };
     }
-    /** Parses "Discard 1 Job [X] from your hand." — player must discard one card of that job. */
+    /**
+     * Parses "[You may] discard 1 Job [X] [from your hand]." — one card carrying that Job leaves
+     * the hand.
+     *
+     * <p>The "you may" spelling routes to the offered discard, which is what the six printings
+     * using it need: each pairs the clause with a "When you do so, …" payoff, and a discard the
+     * player cannot decline would make the offer a cost rather than a choice.
+     */
     static Consumer<GameContext> tryParseDiscardJobFromHand(String text) {
         Matcher m = DISCARD_JOB_FROM_HAND.matcher(text.trim());
         if (!m.matches()) return null;
         String job = m.group("job").trim();
+        boolean optional = m.group("optional") != null;
         return ctx -> {
-            ctx.logEntry("Effect: Discard 1 Job " + job + " from hand");
-            ctx.selfDiscardByJob(job);
+            ctx.logEntry("Effect: " + (optional ? "May discard" : "Discard") + " 1 Job " + job + " from hand");
+            if (optional) ctx.mayDiscardCardOfJobFromHand(job);
+            else          ctx.selfDiscardByJob(job);
         };
     }
     /** Parses "You may discard 1 &lt;element&gt; card" — player may optionally discard a card matching the element. */

@@ -223,6 +223,24 @@ final class ActionResolverPlay {
      * the card name matches the source.  Does not require a "from Break Zone" qualifier —
      * BZ-origin abilities say "Play [itself] onto the field" knowing they start in the BZ.
      */
+    /**
+     * True when {@code text} is nothing but the imperative {@link #tryParsePlaySourceOntoField}
+     * exists for -- "Play [Self] onto the field [dull]" and no more.
+     *
+     * <p>The naming chains read this rather than calling the parser, because the parser matches
+     * with find() and would answer for text it never claims in parse(). Deliberately narrower
+     * than parse(), so the abilities that reach the parser only through find() keep reporting no
+     * name rather than reporting one this check cannot stand behind.
+     */
+    static boolean isBarePlaySourceOntoField(String text, CardData source) {
+        if (source == null) return false;
+        Matcher m = PLAY_SOURCE_ONTO_FIELD_BARE.matcher(text.trim());
+        if (!m.matches()) return false;
+        String name = m.group("name").trim();
+        String resolved = name.equalsIgnoreCase("it") ? source.name() : name;
+        return resolved.equalsIgnoreCase(source.name());
+    }
+
     static Consumer<GameContext> tryParsePlaySourceOntoField(String text, CardData source) {
         if (source == null) return null;
         Matcher m = PLAY_SOURCE_ONTO_FIELD_PATTERN.matcher(text);

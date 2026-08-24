@@ -211,7 +211,10 @@ class DamageResolver {
 			// Consume one-shot shields so they are spent, but do not apply any reduction.
 			// Persistent shields ("until end of turn") remain in place unchanged.
 			mw.nextIncomingDmgZeroSet.remove(card);
+			// The shield is spent but reduced nothing, so its bill is dropped with it rather than
+			// charged: Cecil takes damage for a hit he softened, not for one that went through.
 			mw.nextIncomingDmgReduceMap.remove(card);
+			mw.nextIncomingDmgReduceKickbackMap.remove(card);
 			if (fromAbility) mw.nextAbilityDmgReduceMap.remove(card);
 			return amount;
 		}
@@ -223,8 +226,13 @@ class DamageResolver {
 		if (mw.nextIncomingDmgZeroSet.remove(card)) return 0;
 
 		// One-time: next incoming damage reduced by N
-		if (mw.nextIncomingDmgReduceMap.containsKey(card))
+		if (mw.nextIncomingDmgReduceMap.containsKey(card)) {
 			amount = Math.max(0, amount - mw.nextIncomingDmgReduceMap.remove(card));
+			// Cecil 9-109H's shield bills him for softening the hit. Queued, not dealt: this method
+			// is arithmetic, and the kickback is damage that can break a Forward.
+			MainWindow.ShieldKickback owed = mw.nextIncomingDmgReduceKickbackMap.remove(card);
+			if (owed != null) mw.pendingShieldKickbacks.add(owed);
+		}
 
 		// One-time: next ability/summon damage reduced by N
 		if (fromAbility && mw.nextAbilityDmgReduceMap.containsKey(card))
@@ -960,41 +968,48 @@ class DamageResolver {
 			}
 		}
 		int amount = modifyIncomingDamage(isP1, idx, rawAmount, fromAbility, unreduced);
-		if (amount <= 0) {
-			mw.logEntry((isP1 ? "" : "[P2] ") + fwds.get(idx).name() + " — damage blocked");
-			return;
-		}
-		int accum  = dmgList.get(idx) + amount;
-		dmgList.set(idx, accum);
-		(mw.turn(isP1).cardsTookDamageThisTurn).add(fwds.get(idx).name());
-		mw.recordDamagedBy(fwds.get(idx), abilityDamageSource());
-		int effPow = isP1 ? mw.effectiveP1ForwardPower(idx) : mw.effectiveP2ForwardPower(idx);
-		mw.logEntry((isP1 ? "" : "[P2] ") + fwds.get(idx).name() + " takes " + amount + " damage"
-				+ (effPow > 0 ? " (" + (effPow - accum) + " remaining)" : ""));
-		// Fires on being dealt damage, so before the break check below — 28-043R Gi Nattak's
-		// trigger still resolves when the damage is lethal.
-		mw.autoAbilityTriggers.fireIsDealtDamageTriggers(fwds.get(idx), isP1);
-		// "When this Forward is dealt damage, break this Forward." — Vallaide 22-020R's grant, on
-		// the Forward that just took the damage. Ahead of the lethal check below because any damage
-		// at all is enough, and a Forward the damage would have broken anyway leaves by this route.
-		if (mw.breakOnDealtDamageGrant(isP1, ForwardTarget.CardZone.FORWARD, idx,
-				fwds.get(idx), amount)) return;
-		if (effPow > 0 && accum >= effPow) {
-			CardData fwd = fwds.get(idx);
-			if (isP1 ? mw.effectiveP1HasTrait(idx, CardData.Trait.CANNOT_BE_BROKEN)
-			         : mw.effectiveP2HasTrait(idx, CardData.Trait.CANNOT_BE_BROKEN)) {
-				mw.logEntry((isP1 ? "" : "[P2] ") + fwd.name() + " survives lethal damage (cannot be broken — damage clears at end of turn)");
+		// try/finally so every one of the early returns below still pays out the shields the
+		// reduction above just spent. Dealt here, at the end, because a kickback is damage:
+		// it can break a Forward and renumber the zone this call is indexing into.
+		try {
+			if (amount <= 0) {
+				mw.logEntry((isP1 ? "" : "[P2] ") + fwds.get(idx).name() + " — damage blocked");
+				return;
+			}
+			int accum  = dmgList.get(idx) + amount;
+			dmgList.set(idx, accum);
+			(mw.turn(isP1).cardsTookDamageThisTurn).add(fwds.get(idx).name());
+			mw.recordDamagedBy(fwds.get(idx), abilityDamageSource());
+			int effPow = isP1 ? mw.effectiveP1ForwardPower(idx) : mw.effectiveP2ForwardPower(idx);
+			mw.logEntry((isP1 ? "" : "[P2] ") + fwds.get(idx).name() + " takes " + amount + " damage"
+					+ (effPow > 0 ? " (" + (effPow - accum) + " remaining)" : ""));
+			// Fires on being dealt damage, so before the break check below — 28-043R Gi Nattak's
+			// trigger still resolves when the damage is lethal.
+			mw.autoAbilityTriggers.fireIsDealtDamageTriggers(fwds.get(idx), isP1);
+			// "When this Forward is dealt damage, break this Forward." — Vallaide 22-020R's grant, on
+			// the Forward that just took the damage. Ahead of the lethal check below because any damage
+			// at all is enough, and a Forward the damage would have broken anyway leaves by this route.
+			if (mw.breakOnDealtDamageGrant(isP1, ForwardTarget.CardZone.FORWARD, idx,
+					fwds.get(idx), amount)) return;
+			if (effPow > 0 && accum >= effPow) {
+				CardData fwd = fwds.get(idx);
+				if (isP1 ? mw.effectiveP1HasTrait(idx, CardData.Trait.CANNOT_BE_BROKEN)
+				         : mw.effectiveP2HasTrait(idx, CardData.Trait.CANNOT_BE_BROKEN)) {
+					mw.logEntry((isP1 ? "" : "[P2] ") + fwd.name() + " survives lethal damage (cannot be broken — damage clears at end of turn)");
+					if (isP1) mw.refreshP1ForwardSlot(idx); else mw.refreshP2ForwardSlot(idx);
+					if (mw.currentSummonSource != null)
+						fireBreaktouchForDamage(mw.currentSummonSource, mw.currentSummonSourceIsP1, isP1, idx);
+				} else {
+					if (isP1) mw.breakP1Forward(idx); else mw.breakP2Forward(idx);
+				}
+			} else {
 				if (isP1) mw.refreshP1ForwardSlot(idx); else mw.refreshP2ForwardSlot(idx);
+				// Fire "deals damage to forward" triggers from tracked ability source (e.g. Ramuh + Lightning Summon)
 				if (mw.currentSummonSource != null)
 					fireBreaktouchForDamage(mw.currentSummonSource, mw.currentSummonSourceIsP1, isP1, idx);
-			} else {
-				if (isP1) mw.breakP1Forward(idx); else mw.breakP2Forward(idx);
 			}
-		} else {
-			if (isP1) mw.refreshP1ForwardSlot(idx); else mw.refreshP2ForwardSlot(idx);
-			// Fire "deals damage to forward" triggers from tracked ability source (e.g. Ramuh + Lightning Summon)
-			if (mw.currentSummonSource != null)
-				fireBreaktouchForDamage(mw.currentSummonSource, mw.currentSummonSourceIsP1, isP1, idx);
+		} finally {
+			mw.fireShieldKickbacks();
 		}
 	}
 

@@ -31760,4 +31760,744 @@ public class CardBehaviorTest {
 				ActionResolver.fullDescription(text, null));
 	}
 
+
+    // =========================================================================================
+    // Break-Zone self-play — naming the imperative without claiming the sentences it hides in
+    //
+    // "Play [Self] onto the field." parses (26-122H Ardyn and 30 other abilities reach that
+    // parser), but neither naming chain had an entry for it, so the ability-parsing report showed
+    // Ardyn as "?" with only its second sentence named. The parser matches with find(), and the
+    // corpus is full of longer sentences carrying that phrase — "search for 1 Forward … and play
+    // it onto the field" — which parse() gives to an earlier parser. Naming off the parser itself
+    // therefore renamed nine abilities away from the one that runs them; the naming chains read an
+    // anchored helper instead, which is narrower than parse() on purpose.
+    // =========================================================================================
+
+    private static final String ARDYN_26_122H_EFFECT =
+            "Play Ardyn onto the field. When Ardyn enters the field, Ardyn deals you 1 point of damage. "
+            + "You can only use this ability during your Main Phase and if Ardyn is in the Break Zone.";
+
+    @Test
+    void ardynsBreakZoneReplayIsNamedRatherThanReportedAsAQuestionMark() {
+        CardData ardyn = makeForward("Ardyn", "Dark", 5, 9000);
+
+        assertEquals("PlaySourceOntoField + DealPlayerDamageToSelf",
+                ActionResolver.matchedPatternName(ARDYN_26_122H_EFFECT, ardyn));
+        assertEquals("PlaySourceOntoField + DealPlayerDamageToSelf",
+                ActionResolver.fullDescription(ARDYN_26_122H_EFFECT, ardyn),
+                "both sentences named, so the parsing report no longer flags this ability");
+    }
+
+    @Test
+    void theBareImperativeIsNamedOnlyWhenItIsTheWholeClause() {
+        CardData ardyn = makeForward("Ardyn", "Dark", 5, 9000);
+
+        assertTrue(ActionResolverPlay.isBarePlaySourceOntoField("Play Ardyn onto the field.", ardyn));
+        assertTrue(ActionResolverPlay.isBarePlaySourceOntoField("Play it onto the field dull.", ardyn),
+                "\"it\" is the self-referential pronoun the parser already resolves to the source");
+        assertFalse(ActionResolverPlay.isBarePlaySourceOntoField(
+                        "Search for 1 Forward of cost 3 and play it onto the field.", ardyn),
+                "the phrase sits inside a sentence another parser claims");
+        assertFalse(ActionResolverPlay.isBarePlaySourceOntoField(
+                        "The cost required to play Ardyn onto the field is reduced by 1.", ardyn),
+                "a cost modifier is not an instruction to play anything");
+    }
+
+    @Test
+    void aMidSentencePlayKeepsTheNameOfTheParserThatActuallyRunsIt() {
+        // 17-009C Samurai. The trailing clause matches the loose play-onto-field pattern, and
+        // naming off that pattern rather than the anchored helper renamed this whole family.
+        CardData samurai = makeForward("Samurai", "Fire", 2, 5000);
+        String text = "Choose 1 Job Standard Unit Forward in your Break Zone. Add it to your hand. "
+                + "If it is a Fire Forward of cost 3 or less, play it onto the field instead.";
+
+        assertEquals("ChooseCharacter / AddToHand + PlayOntoField",
+                ActionResolver.fullDescription(text, samurai));
+    }
+
+    // =========================================================================================
+
+    // =========================================================================================
+    // Porom 15-119L — a conditional rider on the Forward the first sentence already chose
+    //
+    // "Choose 1 Forward of cost 5 or less. It loses all abilities until the end of the turn. If 3
+    // or more EXP Counters are placed on Porom, its power also becomes 1000 until the end of the
+    // turn." The choose chain splits that into a primary followup and a secondary, and the
+    // secondary's "its" is the Forward the primary chose while the counters counted are Porom's
+    // own — so it is built inside the choose chain, where lastChosenTargets() can reach it, rather
+    // than parsed as a standalone sentence. Left to the general chain it logged "not yet
+    // implemented" and the second half of the ability did nothing.
+    // =========================================================================================
+
+    private static final String POROM_15_119L_EFFECT =
+            "Choose 1 Forward of cost 5 or less. It loses all abilities until the end of the turn. "
+            + "If 3 or more EXP Counters are placed on Porom, its power also becomes 1000 until the end of the turn. "
+            + "You can only use this ability once per turn.";
+
+    @Test
+    void poromsAbilityDescribesBothOfItsSentences() {
+        CardData porom = makeForward("Porom", "Water", 2, 4000);
+        assertEquals("ChooseCharacter / LoseAllAbilitiesEot + IfSourceCounters(PowerBecomes)",
+                ActionResolver.fullDescription(POROM_15_119L_EFFECT, porom));
+    }
+
+    @Test
+    void poromDropsTheChosenForwardToOneThousandOnceThreeExpCountersAreOnHer() {
+        CardData porom = makeForward("Porom", "Water", 2, 4000);
+        GameContext ctx = mock(GameContext.class);
+        ForwardTarget t = new ForwardTarget(false, 0, ForwardTarget.CardZone.FORWARD);
+        when(ctx.consumePreloadedTargets()).thenReturn(List.of(t));
+        when(ctx.lastChosenTargets()).thenReturn(List.of(t));
+        when(ctx.getCounters(porom, "EXP")).thenReturn(3);
+
+        Consumer<GameContext> fn = ActionResolver.parse(POROM_15_119L_EFFECT, porom);
+        assertNotNull(fn);
+        fn.accept(ctx);
+
+        verify(ctx).targetLoseAllAbilitiesUntilEndOfTurn(t);
+        verify(ctx).setTargetBasePower(t, 1000);
+    }
+
+    @Test
+    void poromStillStripsAbilitiesWhenSheIsShortOfTheThirdCounter() {
+        CardData porom = makeForward("Porom", "Water", 2, 4000);
+        GameContext ctx = mock(GameContext.class);
+        ForwardTarget t = new ForwardTarget(false, 0, ForwardTarget.CardZone.FORWARD);
+        when(ctx.consumePreloadedTargets()).thenReturn(List.of(t));
+        when(ctx.lastChosenTargets()).thenReturn(List.of(t));
+        when(ctx.getCounters(porom, "EXP")).thenReturn(2);
+
+        Consumer<GameContext> fn = ActionResolver.parse(POROM_15_119L_EFFECT, porom);
+        assertNotNull(fn);
+        fn.accept(ctx);
+
+        verify(ctx).targetLoseAllAbilitiesUntilEndOfTurn(t);
+        verify(ctx, never()).setTargetBasePower(any(), anyInt());
+    }
+
+    @Test
+    void theCounterRiderIsDeclinedWhenTheCountersAreNamedOnAnotherCard() {
+        // The gate reads the source's counters and nothing else would be right, so a sentence
+        // naming a different card falls through to the general chain rather than being read as
+        // if it had said "Porom".
+        CardData porom = makeForward("Porom", "Water", 2, 4000);
+        assertNotNull(ActionResolverChoose.secondaryCounterGatedPowerBecomes(
+                "If 3 or more EXP Counters are placed on Porom, its power also becomes 1000 until the end of the turn.",
+                porom));
+        assertNull(ActionResolverChoose.secondaryCounterGatedPowerBecomes(
+                "If 3 or more EXP Counters are placed on Palom, its power also becomes 1000 until the end of the turn.",
+                porom));
+    }
+
+    // =========================================================================================
+
+    // =========================================================================================
+    // Cecil 9-109H — a damage shield that bills the card which lent it
+    //
+    // "Choose 1 Forward you control other than Cecil. During this turn, the next time this Forward
+    // would take damage, reduce it by 4000 instead and deal Cecil 4000 damage." Both halves are
+    // one replacement, so the kickback is stored alongside the reduction and consumed with it. It
+    // is dealt after the shielded Forward's damage has fully resolved: a kickback is damage, and
+    // can break a Forward and renumber the zone the damage path is still indexing into.
+    // =========================================================================================
+
+    private static final String CECIL_9_109H_EFFECT =
+            "Choose 1 Forward you control other than Cecil. During this turn, the next time this Forward "
+            + "would take damage, reduce it by 4000 instead and deal Cecil 4000 damage. "
+            + "You can only use this ability once per turn.";
+
+    @Test
+    void cecilArmsTheShieldWithHisOwnNameAsTheBill() {
+        CardData cecil = makeForward("Cecil", "Water", 4, 8000);
+        GameContext ctx = mock(GameContext.class);
+        ForwardTarget t = new ForwardTarget(true, 1, ForwardTarget.CardZone.FORWARD);
+        when(ctx.consumePreloadedTargets()).thenReturn(List.of(t));
+
+        Consumer<GameContext> fn = ActionResolver.parse(CECIL_9_109H_EFFECT, cecil);
+        assertNotNull(fn);
+        fn.accept(ctx);
+
+        verify(ctx).shieldNextIncomingDamageReductionKickback(t, 4000, cecil, 4000);
+        assertEquals("ChooseCharacter / ShieldNextDmgReductionKickback",
+                ActionResolver.fullDescription(CECIL_9_109H_EFFECT, cecil));
+    }
+
+    @Test
+    void theBillIsDeclinedWhenTheDamageIsOwedToSomeoneOtherThanTheSource() {
+        // Every primitive this branch calls hands the damage to the ability's own source, so a
+        // sentence naming a different card must not report this name either.
+        CardData kain = makeForward("Kain", "Wind", 4, 8000);
+        assertNotEquals("ShieldNextDmgReductionKickback",
+                ActionResolver.matchedFollowupName(
+                        "During this turn, the next time this Forward would take damage, reduce it by "
+                        + "4000 instead and deal Cecil 4000 damage.", kain));
+    }
+
+    @Test
+    void cecilTakesTheDamageHeSpared() {
+        MainWindow mw = new MainWindow();
+        CardData cecil  = makeForward("Cecil", "Water", 4, 8000);
+        CardData shield = makeForward("Ceodore", "Water", 3, 7000);
+        placeDamagedP1Forward(mw, cecil, 0);
+        placeDamagedP1Forward(mw, shield, 0);
+
+        mw.buildGameContext(true).shieldNextIncomingDamageReductionKickback(
+                new ForwardTarget(true, 1, ForwardTarget.CardZone.FORWARD), 4000, cecil, 4000);
+        mw.applyDamageToForward(true, 1, 5000, true, false);
+
+        assertEquals(1000, mw.p1ForwardDamage.get(1), "shielded Forward: 5000 reduced by 4000");
+        assertEquals(4000, mw.p1ForwardDamage.get(0), "Cecil paid the 4000 he spared");
+    }
+
+    @Test
+    void theShieldAndItsBillAreBothSpentByOneHit() {
+        MainWindow mw = new MainWindow();
+        CardData cecil  = makeForward("Cecil", "Water", 4, 8000);
+        CardData shield = makeForward("Ceodore", "Water", 3, 7000);
+        placeDamagedP1Forward(mw, cecil, 0);
+        placeDamagedP1Forward(mw, shield, 0);
+
+        mw.buildGameContext(true).shieldNextIncomingDamageReductionKickback(
+                new ForwardTarget(true, 1, ForwardTarget.CardZone.FORWARD), 4000, cecil, 4000);
+        mw.applyDamageToForward(true, 1, 5000, true, false);
+        mw.applyDamageToForward(true, 1, 1000, true, false);
+
+        assertEquals(2000, mw.p1ForwardDamage.get(1), "the second hit lands in full");
+        assertEquals(4000, mw.p1ForwardDamage.get(0), "Cecil is billed once, not twice");
+    }
+
+    @Test
+    void damageThatCannotBeReducedSpendsTheShieldWithoutBillingCecil() {
+        MainWindow mw = new MainWindow();
+        CardData cecil  = makeForward("Cecil", "Water", 4, 8000);
+        CardData shield = makeForward("Ceodore", "Water", 3, 7000);
+        placeDamagedP1Forward(mw, cecil, 0);
+        placeDamagedP1Forward(mw, shield, 0);
+
+        mw.buildGameContext(true).shieldNextIncomingDamageReductionKickback(
+                new ForwardTarget(true, 1, ForwardTarget.CardZone.FORWARD), 4000, cecil, 4000);
+        mw.applyDamageToForward(true, 1, 5000, true, true);
+
+        assertEquals(5000, mw.p1ForwardDamage.get(1), "unreducible damage lands in full");
+        assertEquals(0, mw.p1ForwardDamage.get(0),
+                "Cecil is billed for softening a hit, not for one that went through");
+    }
+
+    @Test
+    void aCecilWhoHasLeftTheFieldOwesNothing() {
+        MainWindow mw = new MainWindow();
+        CardData cecil  = makeForward("Cecil", "Water", 4, 8000);
+        CardData shield = makeForward("Ceodore", "Water", 3, 7000);
+        placeDamagedP1Forward(mw, cecil, 0);
+        placeDamagedP1Forward(mw, shield, 0);
+
+        mw.buildGameContext(true).shieldNextIncomingDamageReductionKickback(
+                new ForwardTarget(true, 1, ForwardTarget.CardZone.FORWARD), 4000, cecil, 4000);
+        mw.breakP1Forward(0);
+        mw.applyDamageToForward(true, 0, 5000, true, false);
+
+        assertEquals(1, mw.p1ForwardCards.size(), "only the shielded Forward is left");
+        assertEquals(1000, mw.p1ForwardDamage.get(0), "the shield still applied");
+    }
+
+    // =========================================================================================
+
+    // =========================================================================================
+    // Rinok 9-078C — doubling the next damage a chosen Job deals
+    //
+    // "Choose 1 Job Headhunter. During this turn, the next damage it deals to a Forward becomes
+    // double the damage instead." The whole-text parser written for this wording spells its own
+    // choose clause and requires the word "Forward" in it, which "Choose 1 Job Headhunter." does
+    // not carry — and it sits behind tryParseChooseCharacter in parse() regardless, so no card in
+    // the corpus ever reached it. Read as a followup instead, after the Job filter is parsed.
+    // =========================================================================================
+
+    private static final String RINOK_9_078C_EFFECT =
+            "Choose 1 Job Headhunter. During this turn, the next damage it deals to a Forward becomes "
+            + "double the damage instead. You can only use this ability once per turn.";
+
+    @Test
+    void rinokDoublesTheNextDamageTheChosenHeadhunterDeals() {
+        GameContext ctx = mock(GameContext.class);
+        ForwardTarget t = new ForwardTarget(true, 0, ForwardTarget.CardZone.FORWARD);
+        when(ctx.consumePreloadedTargets()).thenReturn(List.of(t));
+
+        Consumer<GameContext> fn = ActionResolver.parse(RINOK_9_078C_EFFECT, null);
+        assertNotNull(fn);
+        fn.accept(ctx);
+
+        verify(ctx).doubleForwardNextOutgoingDamage(t);
+        assertEquals("ChooseCharacter / DoubleNextOutgoingDamage",
+                ActionResolver.fullDescription(RINOK_9_078C_EFFECT, null));
+    }
+
+    @Test
+    void theJobFilterSurvivesIntoTheTargetSelection() {
+        GameContext ctx = mock(GameContext.class);
+        ForwardTarget t = new ForwardTarget(true, 0, ForwardTarget.CardZone.FORWARD);
+        // Left unstubbed this returns an empty list, not null, and selectTargets takes that as
+        // "targets already supplied" and never asks the player anything.
+        when(ctx.consumePreloadedTargets()).thenReturn(null);
+        when(ctx.selectCharacters(anyInt(), anyBoolean(), anyBoolean(), anyBoolean(),
+                any(), any(), anyInt(), any(), anyInt(), any(),
+                anyBoolean(), anyBoolean(), anyBoolean(),
+                any(), any(), any(), any(), anyBoolean(), any(), anyBoolean()))
+            .thenReturn(List.of(t));
+
+        Consumer<GameContext> fn = ActionResolver.parse(RINOK_9_078C_EFFECT, null);
+        assertNotNull(fn);
+        fn.accept(ctx);
+
+        ArgumentCaptor<String> job = ArgumentCaptor.forClass(String.class);
+        verify(ctx).selectCharacters(anyInt(), anyBoolean(), anyBoolean(), anyBoolean(),
+                any(), any(), anyInt(), any(), anyInt(), any(),
+                anyBoolean(), anyBoolean(), anyBoolean(),
+                job.capture(), any(), any(), any(), anyBoolean(), any(), anyBoolean());
+        assertEquals("Headhunter", job.getValue());
+    }
+
+    // =========================================================================================
+
+
+    // =========================================================================================
+    // Apprentice Mage EXP Counters (Palom 15-011L, Porom 15-119L) — board behaviour
+    //
+    // "At the end of each of your turns, place 1 EXP Counter on each Job Apprentice Mage you
+    // control." The trigger was already captured; the effect was not, so both cards sat at their
+    // printed power forever and Porom's action ability could never reach its 3-counter branch.
+    // The sweep is defined by the Job, not by the printing, so it covers the pair standing
+    // together and any Backup Apprentice Mage beside them.
+    // =========================================================================================
+
+    private static final String APPRENTICE_MAGE_PRINTED =
+            "At the end of each of your turns, place 1 EXP Counter on each Job Apprentice Mage you control.";
+    /** What {@code CardData} hands the resolver once it has taken the trigger off the front. */
+    private static final String APPRENTICE_MAGE_TICK =
+            "place 1 EXP Counter on each Job Apprentice Mage you control.";
+
+    @Test
+    void theExpTickIsCapturedAsAnEndOfTurnTriggerAndParsesItsEffect() {
+        List<AutoAbility> autos = CardData.parseAutoAbilities(APPRENTICE_MAGE_PRINTED);
+        assertEquals(1, autos.size());
+        assertEquals("end of your turn", autos.get(0).trigger());
+        assertEquals(APPRENTICE_MAGE_TICK, autos.get(0).effectText());
+
+        assertEquals("PlaceCountersOnEachJob",
+                ActionResolver.matchedPatternName(APPRENTICE_MAGE_TICK, null));
+        assertNotNull(ActionResolver.parse(APPRENTICE_MAGE_TICK, null),
+                "no source is needed — the Job filter picks the cards, not the printing's name");
+    }
+
+    @Test
+    void theTickPlacesACounterOnEveryApprenticeMageAndNothingElse() {
+        MainWindow mw = new MainWindow();
+        CardData palom  = makeJobCard("Palom",  "Fire",  "Forward", "Apprentice Mage");
+        CardData porom  = makeJobCard("Porom",  "Water", "Forward", "Apprentice Mage");
+        CardData stray  = makeJobCard("Rydia",  "Water", "Forward", "Summoner");
+        placeP1Forward(mw, palom);
+        placeP1Forward(mw, porom);
+        placeP1Forward(mw, stray);
+
+        ActionResolver.parse(APPRENTICE_MAGE_TICK, palom).accept(mw.buildGameContext(true));
+
+        assertEquals(1, mw.gameState.getCounters(palom, "EXP"), "the printing is swept too");
+        assertEquals(1, mw.gameState.getCounters(porom, "EXP"), "and so is its partner");
+        assertEquals(0, mw.gameState.getCounters(stray, "EXP"), "a different Job is untouched");
+    }
+
+    @Test
+    void theTickReachesBackupsAndLeavesTheOpponentAlone() {
+        MainWindow mw = new MainWindow();
+        CardData ownBackup = makeJobCard("Apprentice", "Fire", "Backup", "Apprentice Mage");
+        CardData oppMage   = makeJobCard("Palom",      "Fire", "Forward", "Apprentice Mage");
+        mw.placeCardInFirstBackupSlot(ownBackup);
+        mw.placeP2CardInForwardZone(oppMage);
+
+        ActionResolver.parse(APPRENTICE_MAGE_TICK, ownBackup).accept(mw.buildGameContext(true));
+
+        assertEquals(1, mw.gameState.getCounters(ownBackup, "EXP"), "\"you control\" is not \"Forwards\"");
+        assertEquals(0, mw.gameState.getCounters(oppMage, "EXP"), "the opponent's Apprentice Mage is not yours");
+    }
+
+    @Test
+    void poromReachesHerThreeCounterBranchOnceTheTickHasRunThreeTimes() {
+        // The pair of abilities read the same counters, and until the tick was wired the second
+        // one could only ever take its "power unchanged" branch.
+        MainWindow mw = new MainWindow();
+        CardData porom  = makeJobCard("Porom",  "Water", "Forward", "Apprentice Mage");
+        CardData victim = makeForward("Victim", "Fire", 3, 9000);
+        placeP1Forward(mw, porom);
+        mw.placeP2CardInForwardZone(victim);
+
+        Consumer<GameContext> tick = ActionResolver.parse(APPRENTICE_MAGE_TICK, porom);
+        for (int i = 0; i < 3; i++) tick.accept(mw.buildGameContext(true));
+        assertEquals(3, mw.gameState.getCounters(porom, "EXP"));
+
+        GameContext ctx = mw.buildGameContext(true);
+        ctx.preloadTargets(List.of(new ForwardTarget(false, 0, ForwardTarget.CardZone.FORWARD)));
+        ActionResolver.parse(POROM_15_119L_EFFECT, porom).accept(ctx);
+
+        assertEquals(1000, mw.effectiveP2ForwardPower(0), "3 EXP Counters, so the power becomes 1000");
+    }
+
+    // =========================================================================================
+
+    // =========================================================================================
+    // Aerith 25-035L / Meliadoul 20-116R — a silence that lasts as long as its warden stands
+    //
+    // "When Aerith enters the field, choose 1 Character opponent controls. As long as Aerith is on
+    // the field, it loses all its abilities." Not a duration the turn ends, so it is held as a
+    // victim-to-warden pairing and answered live by lostAbilitiesCards, exactly as Gentiana's
+    // standing suppression is: the abilities come back the moment the warden leaves, and there is
+    // no event to hang that restoration on.
+    //
+    // The warden is matched by identity. The text names the printing's own card, so an opposing
+    // card that happens to share the name is a different card and must neither sustain the silence
+    // nor lift it.
+    // =========================================================================================
+
+    private static final String AERITH_25_035L_EFFECT =
+            "choose 1 Character opponent controls. As long as Aerith is on the field, it loses all its abilities.";
+
+    @Test
+    void aerithsSilenceIsNamedAndDistinctFromTheEndOfTurnOne() {
+        CardData aerith = makeForward("Aerith", "Wind", 2, 4000);
+        assertEquals("ChooseCharacter / LosesAbilitiesWhileSourceOnField",
+                ActionResolver.fullDescription(AERITH_25_035L_EFFECT, aerith));
+        assertEquals("ChooseCharacter / LoseAllAbilitiesEot",
+                ActionResolver.fullDescription(
+                        "Choose 1 Forward. It loses all its abilities until the end of the turn.", aerith),
+                "the until-end-of-turn wording still reaches its own branch");
+    }
+
+    @Test
+    void theSilenceIsDeclinedWhenTheClauseNamesACardOtherThanTheSource() {
+        // Every warden this branch installs is the ability's own printing, so a sentence naming
+        // anything else must not report this name either.
+        CardData tifa = makeForward("Tifa", "Wind", 2, 4000);
+        assertNotEquals("LosesAbilitiesWhileSourceOnField",
+                ActionResolver.matchedFollowupName(
+                        "As long as Aerith is on the field, it loses all its abilities.", tifa));
+    }
+
+    @Test
+    void theVictimStaysSilencedWhileAerithStandsAndRecoversWhenSheLeaves() {
+        MainWindow mw = new MainWindow();
+        CardData aerith = makeForward("Aerith", "Wind", 2, 4000);
+        CardData victim = makeForward("Sephiroth", "Dark", 7, 9000);
+        placeP1Forward(mw, aerith);
+        mw.placeP2CardInForwardZone(victim);
+
+        mw.buildGameContext(true).targetLoseAllAbilitiesWhileWardenOnField(
+                new ForwardTarget(false, 0, ForwardTarget.CardZone.FORWARD), aerith);
+
+        assertTrue(mw.lostAbilitiesCards.contains(victim), "silenced while Aerith is on the field");
+        mw.breakP1Forward(0);
+        assertFalse(mw.lostAbilitiesCards.contains(victim), "Aerith left, so the silence lifts");
+    }
+
+    @Test
+    void anOpposingCardOfTheSameNameNeitherSustainsNorLiftsTheSilence() {
+        MainWindow mw = new MainWindow();
+        CardData ownAerith = makeForward("Aerith", "Wind", 2, 4000);
+        CardData impostor  = makeForward("Aerith", "Wind", 2, 4000);   // the opponent's own copy
+        CardData victim    = makeForward("Sephiroth", "Dark", 7, 9000);
+        placeP1Forward(mw, ownAerith);
+        mw.placeP2CardInForwardZone(impostor);
+        mw.placeP2CardInForwardZone(victim);
+
+        mw.buildGameContext(true).targetLoseAllAbilitiesWhileWardenOnField(
+                new ForwardTarget(false, 1, ForwardTarget.CardZone.FORWARD), ownAerith);
+        assertTrue(mw.lostAbilitiesCards.contains(victim));
+
+        mw.breakP1Forward(0);
+        assertFalse(mw.lostAbilitiesCards.contains(victim),
+                "the warden is the printing that resolved the trigger, not every card sharing its name");
+    }
+
+    @Test
+    void aBackupCanBeTheVictimToo() {
+        // "Choose 1 Character", not "Choose 1 Forward" — the pairing is stored against whatever
+        // the target resolves to.
+        MainWindow mw = new MainWindow();
+        CardData aerith = makeForward("Aerith", "Wind", 2, 4000);
+        CardData backup = makeJobCard("Shinra Manager", "Wind", "Backup", "Shinra");
+        placeP1Forward(mw, aerith);
+        mw.placeP2CardInFirstBackupSlot(backup);
+
+        mw.buildGameContext(true).targetLoseAllAbilitiesWhileWardenOnField(
+                new ForwardTarget(false, 0, ForwardTarget.CardZone.BACKUP), aerith);
+
+        assertTrue(mw.lostAbilitiesCards.contains(backup));
+    }
+
+    // =========================================================================================
+
+    // =========================================================================================
+    // Yuna 12-105L — a reduction that scales with the party that just attacked
+    //
+    // "When Yuna forms a party and attacks, choose 1 Forward. It loses 4000 power for each
+    // attacking Forward until the end of the turn." Every other "for each" reduction in the
+    // followup chain counts a field the text names a controller for; this one counts the attacking
+    // party, which is neither side's field. It read as an unimplemented followup, so the ability
+    // chose a Forward and did nothing to it.
+    // =========================================================================================
+
+    private static final String YUNA_12_105L_EFFECT =
+            "choose 1 Forward. It loses 4000 power for each attacking Forward until the end of the turn.";
+
+    @Test
+    void yunaScalesTheReductionByTheSizeOfTheAttackingParty() {
+        GameContext ctx = mock(GameContext.class);
+        ForwardTarget t = new ForwardTarget(false, 0, ForwardTarget.CardZone.FORWARD);
+        when(ctx.consumePreloadedTargets()).thenReturn(List.of(t));
+        when(ctx.currentPartyAttackerCount()).thenReturn(3);
+
+        Consumer<GameContext> fn = ActionResolver.parse(YUNA_12_105L_EFFECT, null);
+        assertNotNull(fn);
+        fn.accept(ctx);
+
+        verify(ctx).reduceTarget(t, 12000, EnumSet.noneOf(CardData.Trait.class));
+        assertEquals("ChooseCharacter / PowerReduceForEachAttacker",
+                ActionResolver.fullDescription(YUNA_12_105L_EFFECT, null));
+    }
+
+    @Test
+    void theMultiplierIsNotDroppedForAFlatReduction() {
+        // The bare "it loses N power" pattern finds its match inside this sentence, so the scaled
+        // branch has to be reached first or the reduction silently becomes 4000.
+        GameContext ctx = mock(GameContext.class);
+        ForwardTarget t = new ForwardTarget(false, 0, ForwardTarget.CardZone.FORWARD);
+        when(ctx.consumePreloadedTargets()).thenReturn(List.of(t));
+        when(ctx.currentPartyAttackerCount()).thenReturn(2);
+
+        ActionResolver.parse(YUNA_12_105L_EFFECT, null).accept(ctx);
+
+        verify(ctx, never()).reduceTarget(eq(t), eq(4000), any());
+        verify(ctx).reduceTarget(t, 8000, EnumSet.noneOf(CardData.Trait.class));
+    }
+
+    @Test
+    void thePartyCountIgnoresMembersThatHaveAlreadyLeftTheField() {
+        MainWindow mw = new MainWindow();
+        CardData yuna  = makeForward("Yuna",  "Water", 3, 7000);
+        CardData rikku = makeForward("Rikku", "Water", 2, 5000);
+        CardData paine = makeForward("Paine", "Water", 2, 5000);
+        placeP1Forward(mw, yuna);
+        placeP1Forward(mw, rikku);
+        placeP1Forward(mw, paine);
+        mw.p1Turn.currentPartyAttackers = new ArrayList<>(List.of(yuna, rikku, paine));
+
+        assertEquals(3, mw.buildGameContext(true).currentPartyAttackerCount());
+        mw.breakP1Forward(2);
+        assertEquals(2, mw.buildGameContext(true).currentPartyAttackerCount(),
+                "a Forward that has left is no longer an attacking Forward");
+    }
+
+    // =========================================================================================
+
+    // =========================================================================================
+    // "You may discard 1 Job X. When you do so, …" — the Chaos cycle and friends
+    //
+    // Kraken (IX) 14-104C, Maliris (IX) 14-018C, Tiamat (IX) 14-048C, Lich (IX) 14-076C,
+    // Mog (VI) 24-104R and Raz 29-112C. The opening clause did not parse, so the "When you do so"
+    // sequence parser declined and the whole ability fell to whichever later parser matched its
+    // second sentence: the three with a target clause resolved it with no discard demanded at all
+    // — Maliris dealt 8000 for free — and the other three did nothing.
+    //
+    // The discard pattern now takes the "you may" and drops the "from your hand" requirement,
+    // which is all the sequence parser needed to claim these texts whole.
+    // =========================================================================================
+
+    private static final String KRAKEN_14_104C_EFFECT =
+            "you may discard 1 Job Chaos. When you do so, draw 2 cards.";
+    private static final String MALIRIS_14_018C_EFFECT =
+            "you may discard 1 Job Chaos. When you do so, choose 1 Forward. Deal it 8000 damage.";
+
+    @Test
+    void krakenDrawsOnlyAfterTheDiscardHappens() {
+        GameContext ctx = mock(GameContext.class);
+        when(ctx.effectMadeProgress()).thenReturn(true);
+
+        Consumer<GameContext> fn = ActionResolver.parse(KRAKEN_14_104C_EFFECT, null);
+        assertNotNull(fn);
+        fn.accept(ctx);
+
+        InOrder order = inOrder(ctx);
+        order.verify(ctx).mayDiscardCardOfJobFromHand("Chaos");
+        order.verify(ctx).drawCards(2);
+    }
+
+    @Test
+    void krakenDrawsNothingWhenTheOfferIsDeclined() {
+        GameContext ctx = mock(GameContext.class);
+        when(ctx.effectMadeProgress()).thenReturn(false);
+
+        ActionResolver.parse(KRAKEN_14_104C_EFFECT, null).accept(ctx);
+
+        verify(ctx).mayDiscardCardOfJobFromHand("Chaos");
+        verify(ctx, never()).drawCards(anyInt());
+    }
+
+    @Test
+    void malirisNoLongerDealsItsDamageWithoutPayingForIt() {
+        // The regression this fixes: the discard clause was dropped entirely and the damage was
+        // resolved unconditionally.
+        assertEquals("WhenYouDoSo", ActionResolver.matchedPatternName(MALIRIS_14_018C_EFFECT, null));
+
+        GameContext ctx = mock(GameContext.class);
+        when(ctx.effectMadeProgress()).thenReturn(false);
+        ActionResolver.parse(MALIRIS_14_018C_EFFECT, null).accept(ctx);
+
+        verify(ctx).mayDiscardCardOfJobFromHand("Chaos");
+        verify(ctx, never()).damageTarget(any(), anyInt());
+    }
+
+    @Test
+    void theMandatorySpellingIsStillMandatory() {
+        // 16-007R Black Waltz 2 pays this as an ability cost and prints no "you may".
+        GameContext ctx = mock(GameContext.class);
+        ActionResolver.parse("Discard 1 Job Black Mage from your hand.", null).accept(ctx);
+
+        verify(ctx).selfDiscardByJob("Black Mage");
+        verify(ctx, never()).mayDiscardCardOfJobFromHand(any());
+    }
+
+    @Test
+    void anEmptyHandFizzlesTheOfferRatherThanPromptingForIt() {
+        MainWindow mw = new MainWindow();   // P2 side: no dialog, and no Job Chaos in hand
+        GameContext ctx = mw.buildGameContext(false);
+        ctx.resetEffectProgress();
+        ctx.mayDiscardCardOfJobFromHand("Chaos");
+
+        assertFalse(ctx.effectMadeProgress(), "nothing to discard, so the \"when you do so\" half is off");
+    }
+
+    @Test
+    void theOpponentAiTakesAnOfferItCanAfford() {
+        MainWindow mw = new MainWindow();
+        mw.gameState.getP2Hand().add(makeJobCard("Kraken (IX)", "Water", "Forward", "Chaos"));
+        GameContext ctx = mw.buildGameContext(false);
+        ctx.resetEffectProgress();
+        ctx.mayDiscardCardOfJobFromHand("Chaos");
+
+        assertTrue(ctx.effectMadeProgress(), "the payoff is always worth more than the card");
+        assertEquals(0, mw.gameState.getP2Hand().size());
+    }
+
+    // =========================================================================================
+
+
+    // =========================================================================================
+    // "You may discard …" — making the offer an offer
+    //
+    // HandPickDialog's discard chooser has no Pass button and cannot be dismissed, by design: the
+    // player is taken to have committed by accepting a "you may?" prompt first. Two paths reached
+    // it without ever putting that prompt up.
+    //
+    // 1-190S Bahamut Fury ("You may discard 1 card from your hand. If you do so, deal it 7000
+    // damage. If not, deal it 5000 damage.") showed P1 a modal that only closes by discarding, so
+    // the "If not" branch could not be taken. mayDiscardCardOfTypeFromHandOrElse now offers first,
+    // exactly as the by-name twin has always done for 5-003C Ifrit and 4-006L Caius.
+    //
+    // 7-040C Yunalesca had the opposite failure. Its "You may" sits mid-ability, after the choose,
+    // so the youMay flag CardData sets from a leading "you may" is false and no layer honoured the
+    // clause: the choose logged an unimplemented followup and the "If you do so, dull it and
+    // Freeze it" payoff resolved with no Summon discarded at all.
+    // =========================================================================================
+
+    private static final String YUNALESCA_7_040C_EFFECT =
+            "choose 1 Forward. You may discard 1 Summon from your hand. "
+            + "If you do so, dull it and Freeze it.";
+
+    @Test
+    void yunalescaNowDemandsTheSummonBeforeDullingAndFreezing() {
+        GameContext ctx = mock(GameContext.class);
+        ForwardTarget t = new ForwardTarget(false, 0, ForwardTarget.CardZone.FORWARD);
+        when(ctx.consumePreloadedTargets()).thenReturn(List.of(t));
+        when(ctx.effectMadeProgress()).thenReturn(true);
+
+        Consumer<GameContext> fn = ActionResolver.parse(YUNALESCA_7_040C_EFFECT, null);
+        assertNotNull(fn);
+        fn.accept(ctx);
+
+        InOrder order = inOrder(ctx);
+        order.verify(ctx).mayDiscardCardOfTypeFromHand("summon");
+        order.verify(ctx).dullAndFreezeTarget(t);
+    }
+
+    @Test
+    void yunalescaDullsNothingWhenTheDiscardIsDeclined() {
+        // The declined offer marks the effect fizzled, which is what the enclosing
+        // "If you do so, …" reads before running its half.
+        GameContext ctx = mock(GameContext.class);
+        ForwardTarget t = new ForwardTarget(false, 0, ForwardTarget.CardZone.FORWARD);
+        when(ctx.consumePreloadedTargets()).thenReturn(List.of(t));
+        when(ctx.effectMadeProgress()).thenReturn(false);
+
+        ActionResolver.parse(YUNALESCA_7_040C_EFFECT, null).accept(ctx);
+
+        verify(ctx).mayDiscardCardOfTypeFromHand("summon");
+        verify(ctx, never()).dullAndFreezeTarget(any());
+    }
+
+    @Test
+    void theOfferIsNamedAndKeptApartFromTheFormThatCarriesItsOwnPayoff() {
+        assertEquals("MayDiscardType",
+                ActionResolver.matchedFollowupName("You may discard 1 Summon from your hand", null));
+        // Read before the "You may " strip at the top of that method: afterwards the text is a
+        // plain order to discard, which is a different effect reaching a different primitive.
+        assertNotEquals("MayDiscardType",
+                ActionResolver.matchedFollowupName("Discard 1 Summon from your hand", null));
+        // The self-contained form is named on the whole followup, one layer up, and the new branch
+        // must not have taken its opening sentence.
+        assertEquals("ChooseCharacter / MayDiscardNamedDealDamage",
+                ActionResolver.fullDescription(BAHAMUT_FURY_EFFECT,
+                        makeForward("Bahamut Fury", "Fire", 6, 0)));
+    }
+
+    @Test
+    void bahamutFuryTakesTheIfNotBranchWhenThereIsNothingToDiscard() {
+        // P1 with an empty hand: no eligible card, so no prompt is raised and the "If not" branch
+        // is the one that runs. This is the path that used to reach a modal with no way out.
+        MainWindow mw = new MainWindow();
+        assertTrue(mw.gameState.getP1Hand().isEmpty());
+
+        boolean[] ran = { false, false };
+        mw.buildGameContext(true).mayDiscardCardOfTypeFromHandOrElse("card",
+                c -> ran[0] = true, c -> ran[1] = true);
+
+        assertFalse(ran[0], "nothing was discarded");
+        assertTrue(ran[1], "so the smaller damage is dealt");
+    }
+
+    @Test
+    void theOpponentAiStillTakesTheUpgradeItCanAfford() {
+        // P2 has no dialog to accept, and its behaviour is deliberately unchanged by the fix.
+        MainWindow mw = new MainWindow();
+        mw.gameState.getP2Hand().add(makeForward("Spare", "Fire", 2, 5000));
+
+        boolean[] ran = { false, false };
+        mw.buildGameContext(false).mayDiscardCardOfTypeFromHandOrElse("card",
+                c -> ran[0] = true, c -> ran[1] = true);
+
+        assertTrue(ran[0], "the discard happened");
+        assertFalse(ran[1]);
+        assertEquals(0, mw.gameState.getP2Hand().size());
+    }
+
+    @Test
+    void aDeclinableOfferWithNothingEligibleFizzlesTheEffectItGates() {
+        MainWindow mw = new MainWindow();
+        mw.gameState.getP2Hand().add(makeForward("Not a Summon", "Fire", 2, 5000));
+        GameContext ctx = mw.buildGameContext(false);
+        ctx.resetEffectProgress();
+        ctx.mayDiscardCardOfTypeFromHand("summon");
+
+        assertFalse(ctx.effectMadeProgress(), "no Summon in hand, so the payoff must not run");
+        assertEquals(1, mw.gameState.getP2Hand().size(), "and the hand is untouched");
+    }
+
+    // =========================================================================================
+
 }

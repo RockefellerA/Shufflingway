@@ -227,6 +227,25 @@ final class ActionResolverState {
             ctx.placeCounters(source, name, count);
         };
     }
+    /**
+     * Parses "Place N [Name] Counter(s) on each Job [X] you control." — 15-011L Palom and 15-119L
+     * Porom's end-of-turn tick, which grows every Apprentice Mage on their side and not just
+     * themselves.
+     *
+     * <p>Takes no source: the sweep is defined by the Job filter, so the printing card is included
+     * only if it carries the Job, which is exactly what the text says.
+     */
+    static Consumer<GameContext> tryParsePlaceCountersOnEachJob(String text) {
+        Matcher m = PLACE_COUNTERS_ON_EACH_JOB.matcher(text.trim());
+        if (!m.matches()) return null;
+        int    count = Integer.parseInt(m.group("count"));
+        String name  = m.group("name").trim();
+        String job   = m.group("job").trim();
+        return ctx -> {
+            ctx.logEntry("Effect: Place " + count + " " + name + " Counter(s) on each Job " + job + " you control");
+            ctx.placeCountersOnOwnJobCards(name, count, job);
+        };
+    }
     static Consumer<GameContext> tryParsePlaceCountersForEach(String text, CardData source) {
         Matcher m = PLACE_COUNTERS_FOR_EACH.matcher(text.trim());
         if (!m.matches()) return null;
