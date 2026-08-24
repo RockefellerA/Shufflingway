@@ -32500,4 +32500,126 @@ public class CardBehaviorTest {
 
     // =========================================================================================
 
+
+    // =========================================================================================
+    // Blade Beam (Cloud 4-145H, Machina 3-022H) — the blow and the splash
+    //
+    // "Choose 1 Forward opponent controls. Deal it 8000 damage, and deal 4000 damage to all the
+    // other Forwards opponent controls." The two clauses are joined by a comma, so the choose
+    // chain's sentence split never separated them and there was no secondary for the splash to be
+    // parsed as; the plain damage followup then find()-matched "Deal it 8000 damage" on its own and
+    // claimed the whole text. Both cards dealt the 8000 and dropped the 4000 entirely.
+    //
+    // The splash resolves against cards, not indices. The blow can break the Forward it is dealt
+    // to, and that renumbers the row every later index would be read against.
+    // =========================================================================================
+
+    private static final String BLADE_BEAM_EFFECT =
+            "Choose 1 Forward opponent controls. Deal it 8000 damage, "
+            + "and deal 4000 damage to all the other Forwards opponent controls.";
+
+    @Test
+    void bladeBeamIsNamedForBothOfItsClauses() {
+        assertEquals("ChooseCharacter / DamageAndSplashOthers",
+                ActionResolver.fullDescription(BLADE_BEAM_EFFECT, null));
+        assertEquals("DamageAndSplashOthers",
+                ActionResolver.matchedFollowupName(
+                        "Deal it 8000 damage, and deal 4000 damage to all the other Forwards opponent controls.",
+                        null));
+        assertEquals("Damage",
+                ActionResolver.matchedFollowupName("Deal it 8000 damage.", null),
+                "the plain clause still reaches the plain name");
+    }
+
+    @Test
+    void bladeBeamCallsTheSplashOnEveryOtherOpponentForward() {
+        ForwardTarget t = new ForwardTarget(false, 0, ForwardTarget.CardZone.FORWARD);
+        GameContext ctx = contextChoosing(List.of(t));
+        CardData chosen = makeForward("Chosen", "Fire", 3, 9000);
+        CardData other  = makeForward("Other",  "Fire", 3, 9000);
+        when(ctx.isP1()).thenReturn(true);
+        when(ctx.p2ForwardCount()).thenReturn(2);
+        when(ctx.p2Forward(0)).thenReturn(chosen);
+        when(ctx.p2Forward(1)).thenReturn(other);
+
+        Consumer<GameContext> fn = ActionResolver.parse(BLADE_BEAM_EFFECT, null);
+        assertNotNull(fn);
+        fn.accept(ctx);
+
+        verify(ctx).damageTarget(t, 8000);
+        verify(ctx).damageP2Forward(1, 4000);
+        verify(ctx, never()).damageP2Forward(0, 4000);
+        verify(ctx, never()).damageP1Forward(anyInt(), anyInt());
+    }
+
+    @Test
+    void bladeBeamHitsTheChosenForwardForEightAndTheRestForFour() {
+        MainWindow mw = new MainWindow();
+        placeP1Forward(mw, makeForward("Mine", "Fire", 3, 9000));
+        placeP2Forward(mw, makeForward("Target",  "Ice", 3, 9000));
+        placeP2Forward(mw, makeForward("Bystander", "Ice", 3, 9000));
+
+        GameContext ctx = mw.buildGameContext(true);
+        ctx.preloadTargets(List.of(new ForwardTarget(false, 0, ForwardTarget.CardZone.FORWARD)));
+        ActionResolver.parse(BLADE_BEAM_EFFECT, null).accept(ctx);
+
+        assertEquals(8000, mw.p2ForwardDamage.get(0), "the chosen Forward takes the blow");
+        assertEquals(4000, mw.p2ForwardDamage.get(1), "the rest of the row takes the splash");
+        assertEquals(0, mw.p1ForwardDamage.get(0), "\"opponent controls\" does not mean yours");
+    }
+
+    @Test
+    void theSplashStillLandsWhenTheBlowBreaksTheForwardItWasDealtTo() {
+        // The trap the identity lookup exists for: breaking the chosen Forward shifts every index
+        // behind it, so a splash resolved against the indices read beforehand would hit the wrong
+        // cards — or run off the end of the row.
+        MainWindow mw = new MainWindow();
+        placeP2Forward(mw, makeForward("Fragile", "Ice", 1, 3000));
+        placeP2Forward(mw, makeForward("Second",  "Ice", 3, 9000));
+        placeP2Forward(mw, makeForward("Third",   "Ice", 3, 9000));
+
+        GameContext ctx = mw.buildGameContext(true);
+        ctx.preloadTargets(List.of(new ForwardTarget(false, 0, ForwardTarget.CardZone.FORWARD)));
+        ActionResolver.parse(BLADE_BEAM_EFFECT, null).accept(ctx);
+
+        assertEquals(2, mw.p2ForwardCards.size(), "8000 broke the 3000-power Forward");
+        assertEquals("Second", mw.p2ForwardCards.get(0).name());
+        assertEquals("Third",  mw.p2ForwardCards.get(1).name());
+        assertEquals(4000, mw.p2ForwardDamage.get(0), "and both survivors still took the splash");
+        assertEquals(4000, mw.p2ForwardDamage.get(1));
+    }
+
+    @Test
+    void aLoneForwardTakesTheBlowAndNothingElseHappens() {
+        MainWindow mw = new MainWindow();
+        placeP2Forward(mw, makeForward("Alone", "Ice", 3, 9000));
+
+        GameContext ctx = mw.buildGameContext(true);
+        ctx.preloadTargets(List.of(new ForwardTarget(false, 0, ForwardTarget.CardZone.FORWARD)));
+        ActionResolver.parse(BLADE_BEAM_EFFECT, null).accept(ctx);
+
+        assertEquals(1, mw.p2ForwardCards.size());
+        assertEquals(8000, mw.p2ForwardDamage.get(0), "there is no other Forward to splash");
+    }
+
+    @Test
+    void machinaFiresTheSameWayFromTheOpposingSide() {
+        // 3-022H Machina prints the identical sentence behind a different cost, and P2 using it
+        // must splash P1's row rather than its own.
+        MainWindow mw = new MainWindow();
+        placeP2Forward(mw, makeForward("Machina's Ally", "Fire", 3, 9000));
+        placeP1Forward(mw, makeForward("Target",    "Wind", 3, 9000));
+        placeP1Forward(mw, makeForward("Bystander", "Wind", 3, 9000));
+
+        GameContext ctx = mw.buildGameContext(false);
+        ctx.preloadTargets(List.of(new ForwardTarget(true, 0, ForwardTarget.CardZone.FORWARD)));
+        ActionResolver.parse(BLADE_BEAM_EFFECT, null).accept(ctx);
+
+        assertEquals(8000, mw.p1ForwardDamage.get(0));
+        assertEquals(4000, mw.p1ForwardDamage.get(1));
+        assertEquals(0, mw.p2ForwardDamage.get(0), "Machina's own side is untouched");
+    }
+
+    // =========================================================================================
+
 }

@@ -1140,6 +1140,20 @@ final class ActionResolverChoose {
     }
 
     /**
+     * Where {@code card} currently sits on {@code isP1}'s Forward row, or -1 when it is no longer
+     * there.
+     *
+     * <p>By identity, never by {@code equals}: {@link CardData} is a record, so two copies of one
+     * card compare equal and a sweep would keep finding the first of them.
+     */
+    private static int forwardIndexByIdentity(GameContext ctx, boolean isP1, CardData card) {
+        int n = isP1 ? ctx.p1ForwardCount() : ctx.p2ForwardCount();
+        for (int i = 0; i < n; i++)
+            if ((isP1 ? ctx.p1Forward(i) : ctx.p2Forward(i)) == card) return i;
+        return -1;
+    }
+
+    /**
      * True when a granted clause's subject is the card receiving it ("This Forward", "It", …)
      * rather than some other card named outright. A quoted grant that names a third party is a
      * different effect, and applying it to the grantee would act on the wrong card.
@@ -2334,6 +2348,52 @@ final class ActionResolverChoose {
                             else              ctx.returnP2ForwardToHand(other.idx());
                         }
                     }
+                }
+                if (secondary != null) secondary.accept(ctx);
+            };
+        }
+
+        // --- Damage to the chosen Forward plus a splash over the opponent's other Forwards ---
+        // Must precede the plain damage branch below, which find()s the first clause and drops the
+        // splash; see the note on the pattern.
+        Matcher splashM = FOLLOWUP_DAMAGE_AND_SPLASH_OTHER_OPP_FORWARDS.matcher(strippedPrimaryFollowup.trim());
+        if (splashM.matches()) {
+            int damage = Integer.parseInt(splashM.group("amount"));
+            int splash = Integer.parseInt(splashM.group("splash"));
+            return ctx -> {
+                ctx.logEntry(choosePrefix + " — Deal " + damage + " damage, and " + splash
+                        + " damage to the opponent's other Forwards");
+                List<ForwardTarget> ts = selectTargets(ctx, maxCount, upTo,
+                        opponentOnly, selfOnly, condition, element, zone, opponentZone,
+                        costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters,
+                        jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, fExcludeElem, withoutMulticard);
+                if (ts.isEmpty()) { if (secondary != null) secondary.accept(ctx); return; }
+
+                // "The other Forwards" is settled before any damage is dealt, and held as cards
+                // rather than indices: the blow below can break the chosen Forward, which renumbers
+                // the row every later index would be read against.
+                boolean oppIsP1 = !ctx.isP1();
+                List<CardData> chosen = new ArrayList<>();
+                for (ForwardTarget t : ts)
+                    if (t.zone() == ForwardTarget.CardZone.FORWARD)
+                        chosen.add(t.isP1() ? ctx.p1Forward(t.idx()) : ctx.p2Forward(t.idx()));
+                List<CardData> others = new ArrayList<>();
+                int oppCount = oppIsP1 ? ctx.p1ForwardCount() : ctx.p2ForwardCount();
+                for (int i = 0; i < oppCount; i++) {
+                    CardData c = oppIsP1 ? ctx.p1Forward(i) : ctx.p2Forward(i);
+                    boolean isChosen = false;
+                    for (CardData ch : chosen) if (ch == c) { isChosen = true; break; }
+                    if (!isChosen) others.add(c);
+                }
+
+                sortedByIdxDesc(ts, true) .forEach(t -> ctx.damageTarget(t, damage));
+                sortedByIdxDesc(ts, false).forEach(t -> ctx.damageTarget(t, damage));
+
+                for (CardData other : others) {
+                    int idx = forwardIndexByIdentity(ctx, oppIsP1, other);
+                    if (idx < 0) continue;   // broken by the blow above, or gone some other way
+                    if (oppIsP1) ctx.damageP1Forward(idx, splash);
+                    else         ctx.damageP2Forward(idx, splash);
                 }
                 if (secondary != null) secondary.accept(ctx);
             };

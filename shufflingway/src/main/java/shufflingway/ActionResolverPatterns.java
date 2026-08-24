@@ -657,6 +657,24 @@ final class ActionResolverPatterns {
      *   <li>{@code amount} — fixed damage value</li>
      * </ul>
      */
+    /**
+     * Matches "Deal it N damage, and deal M damage to all the other Forwards opponent controls." —
+     * 4-145H Cloud's Blade Beam and 3-022H Machina, a single blow plus a splash over the rest of
+     * the opponent's row.
+     *
+     * <p>Must be checked before {@link #FOLLOWUP_DAMAGE}, which is read with find() and matches the
+     * first clause on its own: that is what claimed both cards, dealing the 8000 and silently
+     * dropping the 4000. The two clauses are joined by a comma rather than a full stop, so the
+     * choose chain's sentence split never separated them either and there was no secondary for the
+     * splash to be parsed as.
+     *
+     * <p>Groups: {@code amount} — dealt to the chosen Forward; {@code splash} — dealt to each of
+     * the others.
+     */
+    static final Pattern FOLLOWUP_DAMAGE_AND_SPLASH_OTHER_OPP_FORWARDS = Pattern.compile(
+        "(?i)^Deal\\s+(?:it|them)\\s+(?<amount>\\d+)\\s+damage,?\\s+and\\s+deal\\s+(?<splash>\\d+)\\s+" +
+        "damage\\s+to\\s+all\\s+the\\s+other\\s+Forwards\\s+(?:your\\s+)?opponent\\s+controls[.!]?$"
+    );
     static final Pattern FOLLOWUP_DAMAGE = Pattern.compile(
         "(?i)deal\\s+(?:it|them)(?:\\s+and\\s+(?<also>.+?))?\\s+(?<amount>\\d+)\\s+damage"
     );

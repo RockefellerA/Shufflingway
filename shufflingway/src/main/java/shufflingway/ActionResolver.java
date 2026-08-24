@@ -2011,6 +2011,10 @@ public class ActionResolver {
         if (FOLLOWUP_DULL_AND_DAMAGE.matcher(followupText).find())                   return "DullAndDamage";
         if (FOLLOWUP_FIRST_AND_OTHER.matcher(followupText).find())                    return "FirstAndOther";
         if (FOLLOWUP_DAMAGE_AND_CONTROLLER_DAMAGE.matcher(followupText).find())       return "DamageAndControllerDamage";
+        // Mirrors the choose chain: ahead of the plain damage name, which the first clause of this
+        // sentence matches on its own.
+        if (FOLLOWUP_DAMAGE_AND_SPLASH_OTHER_OPP_FORWARDS.matcher(followupText.trim()).matches())
+                                                                                      return "DamageAndSplashOthers";
         if (FOLLOWUP_DAMAGE.matcher(followupText).find())                             return "Damage";
         if (FOLLOWUP_DAMAGE_EXPR.matcher(followupText).find())                        return "DamageExpr";
         if (FOLLOWUP_DIVIDE_DAMAGE_AMONG_CHOSEN.matcher(followupText).find())         return "DivideDamageAmongChosen";
