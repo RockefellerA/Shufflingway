@@ -2010,6 +2010,18 @@ public class ActionResolver {
                 return null;
             }
         }
+        // Mirrors the block parseChooseFollowup runs next, and for the same precedence reason: the
+        // power clause and the clause quoted inside the grant are both things the find() checks
+        // below would claim, which named Ellone 27-020R "PowerBoost" over a permanent double grant.
+        {
+            String grantCore = stripRestrictionSentences(followupText);
+            if (grantCore.isEmpty()) grantCore = followupText;
+            Matcher permBoostM =
+                    FOLLOWUP_GAINS_POWER_AND_QUOTED_ABILITY_PERMANENT.matcher(grantCore.trim());
+            if (permBoostM.matches()
+                    && !CardData.parseAutoAbilities(permBoostM.group("quoted").trim()).isEmpty())
+                return "GainsPowerAndQuotedAbilityPermanent";
+        }
         if (FOLLOWUP_TARGET_CONTROLLER_DISCARDS.matcher(followupText).matches()) return "TargetControllerDiscards";
         if (source != null) {
             Matcher mutM = FOLLOWUP_MUTUAL_POWER_DAMAGE.matcher(followupText);

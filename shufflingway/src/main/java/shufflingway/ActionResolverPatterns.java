@@ -2743,6 +2743,29 @@ final class ActionResolverPatterns {
     static final Pattern PERMANENCE_REMINDER = Pattern.compile(
         "(?i)\\s*\\(This\\s+effect\\s+does\\s+not\\s+end\\s+at\\s+the\\s+end\\s+of\\s+the\\s+turn\\.?\\)\\s*$"
     );
+    /**
+     * "It/They gains +N power and "[ability]" (This effect does not end at the end of the turn.)"
+     * — Ellone 27-020R, which hands the chosen Forward two permanent halves in one sentence.
+     *
+     * <p>Separate from {@link #FOLLOWUP_GAINS_QUOTED_ABILITY_PERMANENT} because the reminder sits
+     * somewhere else: Lich prints it <em>inside</em> the quotation, so that pattern's {@code quoted}
+     * carries it and the caller strips it back off. Here it sits outside, governing both halves at
+     * once, so it is matched in place and {@code quoted} is already the bare clause.
+     *
+     * <p>{@code quoted} excludes {@code "} so the quotation cannot run past its own closing mark and
+     * swallow the reminder that follows it — without that the permanence would parse as part of the
+     * granted ability and the power half would be handed out for the turn only.
+     *
+     * <p>Anchored at both ends against the whole followup, so a match proves there is no trailing
+     * sentence left over. Callers strip the restriction sentences first, as
+     * {@link ActionResolverChoose#isMustAttackAndMustBlockGrant} does: this card's followup ends with "You
+     * can only use this ability during your turn." and never breaks on ". ", so that sentence rides
+     * along in the followup rather than splitting off into a secondary.
+     */
+    static final Pattern FOLLOWUP_GAINS_POWER_AND_QUOTED_ABILITY_PERMANENT = Pattern.compile(
+        "(?i)^(?:it|they)\\s+gains?\\s+\\+(?<amount>\\d+)\\s+power\\s+and\\s+\"(?<quoted>[^\"]+)\"" +
+        "\\s*\\(This\\s+effect\\s+does\\s+not\\s+end\\s+at\\s+the\\s+end\\s+of\\s+the\\s+turn\\.?\\)[.!]?\\s*$"
+    );
     /** Matches "Negate all [the] damage dealt to it/them." — removes all existing damage immediately. */
     static final Pattern FOLLOWUP_NEGATE_DAMAGE = Pattern.compile(
         "(?i)Negate\\s+all\\s+(?:the\\s+)?damage\\s+dealt\\s+to\\s+(?:it|them)\\.?"

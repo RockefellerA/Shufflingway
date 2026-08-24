@@ -17127,6 +17127,185 @@ public class CardBehaviorTest {
 	}
 
 	// =========================================================================================
+	// Board behaviour: Ellone 27-020R, whose action ability hands a Category VIII Forward two
+	// permanent halves in one sentence — +2000 power and "When this Forward attacks, draw 1 card."
+	//
+	// Both halves outlast the turn, so a second use finds the first still standing and stacks on
+	// it rather than replacing it. That is the whole point of paying for it twice, and it is only
+	// reachable with a second copy of the card: the cost removes Ellone from the game.
+	//
+	// Everything sits on the P2 seat, as the Lich section above does — the AI answers the target
+	// selection without a dialog, and dispatchSimultaneous only prompts for a resolution order
+	// when P1 is the one controlling two or more simultaneous triggers.
+	// =========================================================================================
+
+	private static final String ELLONE_TEXT =
+			"《Dull》, remove Ellone from the game: Choose 1 Category VIII Forward you control. "
+			+ "It gains +2000 power and \"When this Forward attacks, draw 1 card.\" "
+			+ "(This effect does not end at the end of the turn.) "
+			+ "You can only use this ability during your turn.";
+
+	/** A Backup whose action abilities are parsed from {@code text}. */
+	private static CardData makeActionAbilityBackup(String name, String element, String text) {
+		return new CardData(null, name, element, 2, 0, "Backup", false, 0, false, false,
+				Set.of(), 0, List.of(), null, List.of(),
+				CardData.parseActionAbilities(text), List.of(), List.of(), List.of(), List.of(),
+				List.of(), List.of(), List.of(), List.of(), List.of(),
+				false, false, null, false, false, false, false, false, 1,
+				null, "VIII", null, text);
+	}
+
+	/**
+	 * Resolves one use of Ellone's ability against the P2 seat.
+	 *
+	 * <p>Goes straight to the effect rather than paying the cost: the "《Dull》, remove Ellone from
+	 * the game" half belongs to the action-ability cost machinery and already parses (dull plus a
+	 * FIELD remove-from-game, your turn only), while what is under test is what the effect leaves
+	 * behind on the Forward it chose. Each call stands for a separate copy of Ellone, which is what
+	 * a second use costs in a real game.
+	 */
+	private static void useEllone(MainWindow mw) {
+		CardData ellone = makeActionAbilityBackup("Ellone", "Ice", ELLONE_TEXT);
+		ActionResolver.parse(ellone.actionAbilities().get(0).effectText(), ellone)
+				.accept(mw.buildGameContext(false));
+	}
+
+	/** A Category VIII Forward on P2's field, with {@code deckCards} cards behind it to draw. */
+	private static CardData elloneTargetSetUp(MainWindow mw, int deckCards) {
+		CardData squall = makeCategoryForward("Squall", "Ice", "VIII");
+		placeP2Forward(mw, squall);
+		for (int i = 1; i <= deckCards; i++) {
+			CardData deckCard = makeForward("Deck" + i, "Ice", 2, 5000);
+			mw.gameState.getIdentity().put(deckCard, false);   // owner, as a real deck registers
+			mw.gameState.getP2MainDeck().add(deckCard);
+		}
+		return squall;
+	}
+
+	@Test
+	void elloneGrantsBothHalvesToTheChosenCategoryViiiForward() {
+		MainWindow mw = new MainWindow();
+		CardData squall = elloneTargetSetUp(mw, 0);
+		int printed = mw.effectiveP2ForwardPower(0);
+
+		useEllone(mw);
+
+		assertEquals(printed + 2000, mw.effectiveP2ForwardPower(0), "the power half lands");
+		List<AutoAbility> granted = mw.effectiveAutoAbilities(squall);
+		assertEquals(1, granted.size(), "and so does the ability half: " + granted);
+		assertEquals("attacks", granted.get(0).trigger());
+	}
+
+	@Test
+	void ellonesGrantGoesToThePermanentStoresNotTheTurnScopedOnes() {
+		// "(This effect does not end at the end of the turn.)" — both halves have to miss the maps
+		// the turn boundary empties, or the grant quietly expires and the card reads as a trick.
+		MainWindow mw = new MainWindow();
+		CardData squall = elloneTargetSetUp(mw, 0);
+
+		useEllone(mw);
+
+		assertEquals(2000, mw.permanentPowerBoost.getOrDefault(squall, 0),
+				"the power half belongs to the permanent map");
+		assertEquals(0, mw.p2ForwardPowerBoost.get(0),
+				"and not to the per-slot boost cleared at the end of the turn");
+		assertTrue(mw.grantedAutoAbilities.containsKey(squall),
+				"the ability half belongs to the permanent map");
+		assertFalse(mw.grantedFieldAbilities.containsKey(squall),
+				"and not to the map cleared at the end of the turn");
+	}
+
+	@Test
+	void threeEllonesStackIntoSixThousandPowerAndThreeSeparateTriggers() {
+		MainWindow mw = new MainWindow();
+		CardData squall = elloneTargetSetUp(mw, 0);
+		int printed = mw.effectiveP2ForwardPower(0);
+
+		useEllone(mw);
+		useEllone(mw);
+		useEllone(mw);
+
+		assertEquals(printed + 6000, mw.effectiveP2ForwardPower(0),
+				"+2000 three times over, not one grant re-applied");
+		List<AutoAbility> granted = mw.effectiveAutoAbilities(squall);
+		assertEquals(3, granted.size(),
+				"three separate copies of the trigger, not one deduplicated: " + granted);
+	}
+
+	@Test
+	void eachStackedElloneGrantPushesItsOwnTriggerOnOneAttack() {
+		MainWindow mw = new MainWindow();
+		CardData squall = elloneTargetSetUp(mw, 5);
+		useEllone(mw);
+		useEllone(mw);
+		useEllone(mw);
+
+		mw.autoAbilityTriggers.triggerAutoAbilitiesForAttack(squall, false);
+
+		// A triggered ability goes on the Stack rather than resolving where it fires, so what one
+		// attack produces here is three separate entries — not one trigger that happens to draw 3.
+		List<StackEntry> stacked = mw.gameState.getStack();
+		assertEquals(3, stacked.size(), "one Stack entry per granted trigger");
+		for (StackEntry e : stacked) {
+			assertEquals(squall, e.source(), "each entry belongs to the Forward that attacked");
+			assertEquals("draw 1 card.", e.autoAbility().effectText());
+		}
+	}
+
+	@Test
+	void eachStackedElloneGrantDrawsOneCardAsItResolves() {
+		MainWindow mw = new MainWindow();
+		CardData squall = elloneTargetSetUp(mw, 5);
+		useEllone(mw);
+		useEllone(mw);
+		useEllone(mw);
+		mw.autoAbilityTriggers.triggerAutoAbilitiesForAttack(squall, false);
+		int handBefore = mw.gameState.getP2Hand().size();
+		int deckBefore = mw.gameState.getP2MainDeck().size();
+
+		// resolveTopOfStack is private and drives the UI, so each waiting entry's effect is run
+		// directly here, the way resolveP2AutoAbility does above. The count is the point: three
+		// entries are queued, and each is good for its own card.
+		for (StackEntry e : mw.gameState.getStack())
+			ActionResolver.parse(e.autoAbility().effectText(), squall)
+					.accept(mw.buildGameContext(false));
+
+		assertEquals(handBefore + 3, mw.gameState.getP2Hand().size(),
+				"one attack, three granted triggers, three cards");
+		assertEquals(deckBefore - 3, mw.gameState.getP2MainDeck().size());
+	}
+
+	@Test
+	void oneElloneGrantFiresExactlyOneTriggerPerAttack() {
+		// The counterweight to the stacking test: the trigger is granted per use, so a single use
+		// must fire once per attack — no more, and not only on the first attack of the turn.
+		MainWindow mw = new MainWindow();
+		CardData squall = elloneTargetSetUp(mw, 5);
+		useEllone(mw);
+
+		mw.autoAbilityTriggers.triggerAutoAbilitiesForAttack(squall, false);
+		assertEquals(1, mw.gameState.getStack().size(), "one use, one trigger");
+
+		mw.autoAbilityTriggers.triggerAutoAbilitiesForAttack(squall, false);
+		assertEquals(2, mw.gameState.getStack().size(),
+				"and a second attack fires that one granted trigger again");
+	}
+
+	@Test
+	void ellonesGrantIsDroppedWhenTheForwardLeavesTheField() {
+		// Permanent means "for as long as it is on the field" — a Forward that leaves and comes
+		// back is a new object as far as the rules are concerned, and must not keep the grant.
+		MainWindow mw = new MainWindow();
+		CardData squall = elloneTargetSetUp(mw, 0);
+		useEllone(mw);
+
+		mw.clearPermanentGrants(squall);
+
+		assertEquals(0, mw.permanentPowerBoost.getOrDefault(squall, 0));
+		assertFalse(mw.grantedAutoAbilities.containsKey(squall));
+	}
+
+	// =========================================================================================
 	// Board behaviour: three field abilities — Ark Angel EV 4-097H's "by a Character" incoming
 	// damage reduction, and the "Damage 3 -- [Self] gains Brave and "…"" grants on Yumcax 18-067C
 	// and Gilgamesh 18-074L, whose three halves (trait, multi-attack permission, quoted trigger)

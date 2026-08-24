@@ -2381,6 +2381,26 @@ public interface GameContext {
     void grantAutoAbilityPermanently(ForwardTarget target, String abilityText);
 
     /**
+     * Adds {@code amount} power and optionally grants {@code traits} to the card at {@code target}
+     * for as long as it stays on the field — the target-facing twin of
+     * {@link #boostSourceForwardPermanently}, used by the "It gains +N power and "…" (This effect
+     * does not end at the end of the turn.)" choose followup (Ellone 27-020R).
+     *
+     * <p>Additive rather than idempotent: a second application stacks on the first, so a Forward
+     * handed the grant twice carries twice the power. That is the whole of what a second copy of
+     * the granting card buys, since the permanence means the first grant is still there.
+     *
+     * <p>Scoped to the Forward row. The permanent power store is only read by the Forward power
+     * calculation, so a Backup or Monster target is a no-op rather than a boost that is recorded
+     * and never displayed; no printed card grants this outside the Forward row.
+     *
+     * <p>Respects the same opponent-side power-boost suppression as the end-of-turn
+     * {@link #boostTarget}, and is dropped with the other permanent grants when the card leaves
+     * the field.
+     */
+    void boostTargetPermanently(ForwardTarget target, int amount, EnumSet<CardData.Trait> traits);
+
+    /**
      * Grants {@code source} the auto ability written in {@code abilityText} for as long as it stays
      * on the field — the "(This effect does not end at the end of the turn.)" wording, as printed on
      * Odin (XVI) 29-118L / 24-112L's priming payoff.

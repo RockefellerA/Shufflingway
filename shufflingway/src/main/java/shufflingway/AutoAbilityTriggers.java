@@ -2081,10 +2081,22 @@ final class AutoAbilityTriggers {
 		return false;
 	}
 
+	/** "this Forward" and friends — a self-reference spelled without the card's name. */
+	private static final Pattern ATTACK_SUBJECT_SELF =
+			Pattern.compile("(?i)^this\\s+(?:forward|backup|monster|character)$");
+
 	void triggerAutoAbilitiesForAttack(CardData card, boolean isP1) {
 		withBatch(() -> {
 			for (AutoAbility fa : mw.effectiveAutoAbilities(card)) {
-				if (!fa.triggerCard().equalsIgnoreCase(card.name())) continue;
+				// A granted ability spells its subject "this Forward" instead of naming a card, so
+				// the name test alone drops it: effectiveAutoAbilities hands this loop the abilities
+				// the card was given as well as the ones it prints, and Ellone 27-020R's "When this
+				// Forward attacks, draw 1 card." never fired for want of this. No further identity
+				// check is needed — every ability in this list is already the attacking card's, the
+				// same reasoning matchesChosenSubject and matchesDamagedSubject spell out for the
+				// walks that do have to tell watcher from subject.
+				if (!fa.triggerCard().equalsIgnoreCase(card.name())
+						&& !ATTACK_SUBJECT_SELF.matcher(fa.triggerCard().trim()).matches()) continue;
 				if (fa.trigger().contains("attack")) executeAutoAbility(fa, card, isP1);
 			}
 			// "When 1 or more Forwards you control attack" — fires on any controller field card

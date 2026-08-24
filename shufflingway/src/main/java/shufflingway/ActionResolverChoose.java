@@ -1499,6 +1499,47 @@ final class ActionResolverChoose {
             }
         }
 
+        // --- "It gains +N power and "<clause>" (This effect does not end at the end of the turn.)" ---
+        // Ellone 27-020R. Settled beside the quoted-grant block above and ahead of every find()
+        // parser below for the same reason that one is: "gains +2000 power" is exactly what
+        // FOLLOWUP_POWER_BOOST scans for, and the "draw 1 card" printed inside the quotation is what
+        // the draw parsers scan for. Left to the chain, the sentence resolved as neither half of what
+        // the card does — a boost that expires at end of turn, plus an immediate draw for the caster.
+        //
+        // Read off the whole followup rather than the primary half: the reminder sits outside the
+        // quotation here, and the followup still carries the trailing "You can only use this ability
+        // during your turn." because it holds no ". " anywhere to split on. Stripping the restriction
+        // sentences first is what isMustAttackAndMustBlockGrant does with the same problem.
+        {
+            String grantCore = stripRestrictionSentences(followup);
+            if (grantCore.isEmpty()) grantCore = followup;
+            Matcher permBoostM =
+                    FOLLOWUP_GAINS_POWER_AND_QUOTED_ABILITY_PERMANENT.matcher(grantCore.trim());
+            if (permBoostM.matches()) {
+                int    boost   = Integer.parseInt(permBoostM.group("amount"));
+                String granted = permBoostM.group("quoted").trim();
+                // Both halves or neither, the rule the quoted-grant block above follows: a clause
+                // parseAutoAbilities cannot read would be granted inert, and handing out the power
+                // while quietly dropping the ability reports the card as handled when it is not.
+                if (!CardData.parseAutoAbilities(granted).isEmpty()) {
+                    return ctx -> {
+                        ctx.logEntry(choosePrefix + " — gains +" + boost + " power and \"" + granted
+                                + "\" (does not end at end of turn)");
+                        List<ForwardTarget> ts = selectTargets(ctx, maxCount, upTo,
+                                opponentOnly, selfOnly, condition, element, zone, opponentZone,
+                                costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters,
+                                jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, fExcludeElem, withoutMulticard);
+                        // Both stores are additive, so a Forward handed this twice ends up with twice
+                        // the power and two copies of the trigger — see boostTargetPermanently.
+                        ts.forEach(t -> {
+                            ctx.boostTargetPermanently(t, boost, EnumSet.noneOf(CardData.Trait.class));
+                            ctx.grantAutoAbilityPermanently(t, granted);
+                        });
+                    };
+                }
+            }
+        }
+
         // --- "You may pay 《Element》. If you do so, [target action]." ---
         // Checked against the full followup before the primary/secondary split so the conditional is not lost.
         {

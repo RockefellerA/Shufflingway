@@ -1683,6 +1683,35 @@ final class GameContextImpl implements GameContext {
 				if (card == null) return;
 				grantSelfAutoAbilityPermanently(card, abilityText);
 			}
+			@Override public void boostTargetPermanently(ForwardTarget target, int amount,
+					EnumSet<CardData.Trait> traits) {
+				// Forward row only — see the interface note: nothing reads permanentPowerBoost for
+				// the other rows, so recording one there would be a boost that never shows up.
+				if (target.zone() != ForwardTarget.CardZone.FORWARD) return;
+				boolean tgtP1 = target.isP1();
+				List<CardData> fwds = tgtP1 ? mw.p1ForwardCards : mw.p2ForwardCards;
+				int idx = target.idx();
+				if (idx < 0 || idx >= fwds.size()) return;
+				CardData card = fwds.get(idx);
+				if (amount > 0 && (mw.oppForwardPowerBoostSuppressedFor(tgtP1)
+						|| mw.oppForwardSelfBoostSuppressedFor(tgtP1))) {
+					logEntry((tgtP1 ? "" : "[P2] ") + card.name()
+							+ " — power boost suppressed (opponent's field ability)");
+					return;
+				}
+				// merge/addAll, not put — the grant outlasts the turn, so a repeat application finds
+				// the earlier one still standing and has to stack on it (Ellone 27-020R).
+				if (amount > 0) mw.permanentPowerBoost.merge(card, amount, Integer::sum);
+				if (!traits.isEmpty())
+					mw.permanentTraits.computeIfAbsent(card, k -> EnumSet.noneOf(CardData.Trait.class))
+							.addAll(traits);
+				logEntry((tgtP1 ? "" : "[P2] ") + card.name() + " gains "
+						+ (amount > 0 ? "+" + amount + " power" : "")
+						+ (amount > 0 && !traits.isEmpty() ? " and " : "")
+						+ (traits.isEmpty() ? "" : ActionResolver.traitNamesOnly(traits))
+						+ " (does not end at end of turn)");
+				if (tgtP1) mw.refreshP1ForwardSlot(idx); else mw.refreshP2ForwardSlot(idx);
+			}
 			@Override public void setOppForwardsCannotBlockInferiorPowerThisTurn() {
 				if (isP1()) mw.p2Turn.forwardCannotBlockInferiorPower = true;
 				else        mw.p1Turn.forwardCannotBlockInferiorPower = true;
