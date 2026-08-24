@@ -168,6 +168,26 @@ public final class CardFilters {
             || card.category2().toLowerCase().equals(cf);
     }
 
+    /**
+     * Returns {@code true} if {@code c} meets every filter on {@code dc} and may therefore pay it.
+     *
+     * <p>One rule, four readers: the availability check that lets an ability be offered at all
+     * ({@code AutoAbilityTriggers.discardCostSatisfied}), P1's pre-selection and P2's auto-selection
+     * inside the payment, and {@code ComputerPlayer.p2PlanAbilityPayment}, which reserves hand slots
+     * against it before the CP planner spends the hand. They have to agree — a slot the planner sets
+     * aside that the payment then rejects is a cost planned for and never payable.
+     *
+     * <p>Says nothing about {@link DiscardCost#eachDifferentType()}, which constrains a set rather
+     * than a card and so belongs to whoever assembles the set.
+     */
+    public static boolean meetsDiscardCost(CardData c, DiscardCost dc) {
+        if (dc.cardName() != null && !meetsCardNameFilter(c, dc.cardName())) return false;
+        if (dc.element()  != null && !c.containsElement(dc.element()))       return false;
+        if (dc.cardType() != null && !matchesDiscardType(c, dc.cardType()))  return false;
+        if (dc.category() != null && !meetsCategoryFilter(c, dc.category())) return false;
+        return true;
+    }
+
     /** Returns {@code true} if the card contains at least one element from the bar-separated {@code elementFilter}, or if the filter is {@code null}. */
     public static boolean meetsElementFilter(CardData card, String elementFilter) {
         if (elementFilter == null) return true;

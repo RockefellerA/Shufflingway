@@ -63,6 +63,9 @@ public final class TraitTab {
     private static final Color HEART_FILL   = new Color(0xe8, 0x45, 0x5a);
     private static final Color BAR_FILL     = new Color(0xb6, 0xb6, 0xbc);
     private static final Color GEM_FILL     = new Color(0xe8, 0xb4, 0x4a);
+    private static final Color PRIMED_FILL  = new Color(0x3d, 0xd9, 0x4a);
+    private static final Color PRIMED_LINE  = new Color(0x0d, 0x3f, 0x14);
+    private static final Color PRIMED_GLOW  = new Color(0xff, 0x8c, 0x1a);
 
     /** Card width the tab geometry below was authored against; everything scales off it. */
     private static final int DESIGN_CARD_W = 140;
@@ -86,7 +89,8 @@ public final class TraitTab {
         return trait == CardData.Trait.HASTE
             || trait == CardData.Trait.BRAVE
             || trait == CardData.Trait.FIRST_STRIKE
-            || trait == CardData.Trait.CANNOT_BE_BROKEN;
+            || trait == CardData.Trait.CANNOT_BE_BROKEN
+            || trait == CardData.Trait.PRIMING;
     }
 
     /**
@@ -96,8 +100,11 @@ public final class TraitTab {
      * <p>These describe Shufflingway's behaviour, not the comprehensive rules verbatim: First
      * Strike here resolves inside one atomic combat step, with no priority window between the
      * first blow and the return strike, so the text promises only what the engine delivers.
+     *
+     * @param primed whether the card has actually been primed, which {@link CardData.Trait#PRIMING}
+     *               reads two ways — the others ignore it
      */
-    public static String description(CardData.Trait trait) {
+    public static String description(CardData.Trait trait, boolean primed) {
         if (trait == null) return null;
         return switch (trait) {
             case HASTE            -> "Can attack and use abilities that require dulling "
@@ -107,8 +114,18 @@ public final class TraitTab {
                                    + "Forward, this one takes no damage back.";
             case CANNOT_BE_BROKEN -> "Survives damage that would break it. The damage stays on "
                                    + "it and clears at end of turn.";
+            case PRIMING          -> primed
+                                   ? "Primed. The card pulled from the deck is stacked on top, and "
+                                   + "this Forward answers to both card names."
+                                   : "Can be primed: pay the Priming cost to pull its named card "
+                                   + "out of the deck and stack it on top.";
             default               -> null;
         };
+    }
+
+    /** The trait's own name for the tooltip heading — Priming reads as its state once it has one. */
+    public static String displayName(CardData.Trait trait, boolean primed) {
+        return trait == CardData.Trait.PRIMING && primed ? "Primed" : trait.displayName();
     }
 
     /**
@@ -192,9 +209,11 @@ public final class TraitTab {
      *
      * @param canvas the square field-card canvas from {@link CardAnimation#renderBackupCard}
      * @param state  the card's state, which decides where the free strip is
+     * @param primed whether this card has been primed, which lights the Priming glyph up; the
+     *               other glyphs look the same either way
      */
     public static void renderTraitTabs(BufferedImage canvas, CardState state,
-            List<CardData.Trait> traits) {
+            List<CardData.Trait> traits, boolean primed) {
         List<Tab> tabs = layout(state, traits);
         if (tabs.isEmpty()) return;
 
@@ -206,7 +225,7 @@ public final class TraitTab {
         g.setClip(visibleStrip(state));
         for (Tab tab : tabs) {
             Rectangle2D.Float b = tab.bounds();
-            drawTab(g, tab.trait(), b.x, b.y, b.width, b.height, s, dull);
+            drawTab(g, tab.trait(), b.x, b.y, b.width, b.height, s, dull, primed);
         }
         g.dispose();
     }
@@ -216,7 +235,7 @@ public final class TraitTab {
      * A {@code null} trait draws the overflow indicator instead.
      */
     private static void drawTab(Graphics2D g, CardData.Trait trait,
-            float x, float y, float w, float h, float s, boolean dull) {
+            float x, float y, float w, float h, float s, boolean dull, boolean primed) {
         float bezel = BEZEL_W * s;
         RoundRectangle2D.Float rr = new RoundRectangle2D.Float(
                 x + bezel / 2, y + bezel / 2, w - bezel, h - bezel, 3 * s, 3 * s);
@@ -233,16 +252,18 @@ public final class TraitTab {
         float ix = dull ? x + (w - icon) / 2f : x + inset;
         float iy = dull ? y + inset           : y + (h - icon) / 2f;
         if (trait == null) drawOverflowDots(g, ix, iy, icon);
-        else               drawGlyph(g, trait, ix, iy, icon);
+        else               drawGlyph(g, trait, ix, iy, icon, primed);
     }
 
     /** Dispatches to the vector drawing for {@code trait}; silent for traits without a glyph. */
-    private static void drawGlyph(Graphics2D g, CardData.Trait trait, float x, float y, float size) {
+    private static void drawGlyph(Graphics2D g, CardData.Trait trait, float x, float y, float size,
+            boolean primed) {
         switch (trait) {
             case HASTE            -> drawHasteIcon(g, x, y, size);
             case BRAVE            -> drawBraveIcon(g, x, y, size);
             case FIRST_STRIKE     -> drawFirstStrikeIcon(g, x, y, size);
             case CANNOT_BE_BROKEN -> drawCannotBeBrokenIcon(g, x, y, size);
+            case PRIMING          -> drawPrimingIcon(g, x, y, size, primed);
             default               -> { }
         }
     }
@@ -398,6 +419,74 @@ public final class TraitTab {
         g.setStroke(new BasicStroke(0.5f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
         g.setColor(ICON_LINE);
         g.draw(new Line2D.Float(8.5f, 11.4f, 15.5f, 11.4f));
+
+        g.dispose();
+    }
+
+    /**
+     * Draws the "Priming" glyph — a bold letter P — into the box {@code [x, y, x + size, y + size]}.
+     * Same 24x24 logical grid as {@link #drawHasteIcon}.
+     *
+     * <p>Two states, because the trait is a capability before it is a fact. Unprimed it is white
+     * line art like the Haste ring and the Brave chestplate: the card <em>can</em> prime, and the
+     * tab is there so a player can see that without reading the card. Primed, the same outline is
+     * filled green and haloed in orange — the charge is the colour, so the change reads at a glance
+     * across a board where the tab was already sitting.
+     *
+     * <p>The letterform is authored as a path rather than taken from a font outline, like every
+     * other glyph here: a system font would render this differently on each machine and at each UI
+     * scale, and the halo widths below are struck against these exact contours.
+     */
+    public static void drawPrimingIcon(Graphics2D g0, float x, float y, float size, boolean primed) {
+        Graphics2D g = (Graphics2D) g0.create();
+        g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+        float s = size / 24f;
+        g.translate(x, y);
+        g.scale(s, s);
+
+        // Even-odd so the bowl's counter punches a hole rather than filling in.
+        Path2D.Float p = new Path2D.Float(Path2D.WIND_EVEN_ODD);
+        p.moveTo(5.5f, 4);
+        p.lineTo(12.8f, 4);
+        p.curveTo(16.6f, 4, 18.5f, 6f, 18.5f, 8.95f);
+        p.curveTo(18.5f, 11.9f, 16.6f, 13.9f, 12.8f, 13.9f);
+        p.lineTo(9.9f, 13.9f);
+        p.lineTo(9.9f, 20);
+        p.lineTo(5.5f, 20);
+        p.closePath();
+        // The counter is cut generously: unprimed the glyph is stroked rather than filled, and at
+        // the 20px the tab actually renders at, a tighter hole closes up under its own outline.
+        p.moveTo(9.9f, 7f);
+        p.lineTo(12.5f, 7f);
+        p.curveTo(14.2f, 7f, 15.2f, 7.8f, 15.2f, 8.95f);
+        p.curveTo(15.2f, 10.1f, 14.2f, 10.9f, 12.5f, 10.9f);
+        p.lineTo(9.9f, 10.9f);
+        p.closePath();
+
+        if (!primed) {
+            // Capable, not charged: the outline alone, in the same white as the other line art.
+            g.setStroke(new BasicStroke(1.4f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+            g.setColor(ICON_LINE);
+            g.draw(p);
+            g.dispose();
+            return;
+        }
+
+        // Orange glow: successive translucent halos struck on the outline, widest first.
+        float[] widths = { 5.5f, 3.6f, 2f };
+        int[]   alphas = { 45, 80, 130 };
+        for (int i = 0; i < widths.length; i++) {
+            g.setColor(new Color(PRIMED_GLOW.getRed(), PRIMED_GLOW.getGreen(), PRIMED_GLOW.getBlue(),
+                    alphas[i]));
+            g.setStroke(new BasicStroke(widths[i], BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+            g.draw(p);
+        }
+
+        g.setColor(PRIMED_FILL);
+        g.fill(p);
+        g.setColor(PRIMED_LINE);
+        g.setStroke(new BasicStroke(0.7f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+        g.draw(p);
 
         g.dispose();
     }

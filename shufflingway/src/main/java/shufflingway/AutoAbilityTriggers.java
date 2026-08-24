@@ -44,7 +44,9 @@ import static shufflingway.graphics.CardAnimation.CARD_H;
 import static shufflingway.graphics.CardAnimation.CARD_W;
 import static shufflingway.CardFilters.matchesDiscardType;
 import static shufflingway.CardFilters.meetsCardNameFilter;
+import static shufflingway.CardFilters.discardTypeKey;
 import static shufflingway.CardFilters.meetsCategoryFilter;
+import static shufflingway.CardFilters.meetsDiscardCost;
 import static shufflingway.CpPaymentUtils.contributingElement;
 import static shufflingway.CpPaymentUtils.matchesAnyElement;
 import shufflingway.dialog.AbilityPaymentDialog;
@@ -4691,16 +4693,54 @@ final class AutoAbilityTriggers {
 	}
 
 	boolean discardCostSatisfied(DiscardCost dc, boolean isP1) {
-		List<CardData> hand = mw.playerHand(isP1);
-		int eligible = 0;
-		for (CardData c : hand) {
-			if (dc.cardName() != null && !meetsCardNameFilter(c, dc.cardName())) continue;
-			if (dc.element()  != null && !c.containsElement(dc.element()))       continue;
-			if (dc.cardType() != null && !matchesDiscardType(c, dc.cardType()))  continue;
-			if (dc.category() != null && !meetsCategoryFilter(c, dc.category())) continue;
-			if (++eligible >= dc.count()) return true;
+		// Payers, not candidates: an "each of a different card type" cost is not satisfied by a hand
+		// of three Forwards, and offering the ability on that hand only leads P1 to a picker that
+		// will not let them complete the selection.
+		return discardCostPayerIdxs(dc, mw.playerHand(isP1), Set.of()).size() >= dc.count();
+	}
+
+	/**
+	 * Hand slots that can pay {@code dc}, skipping {@code excludedIdxs} — slots already spoken for
+	 * by another cost on the same activation.  The shape
+	 * {@code ComputerPlayer.p2PlanAbilityPayment} needs to reserve payers before its CP planner
+	 * spends the hand, and the same order the P2 payment below selects in, so the slots the planner
+	 * sets aside are slots the payment will accept.
+	 */
+	List<Integer> discardCostCandidateIdxs(DiscardCost dc, List<CardData> hand,
+			Collection<Integer> excludedIdxs) {
+		List<Integer> eligible = new ArrayList<>();
+		for (int i = 0; i < hand.size(); i++) {
+			if (excludedIdxs.contains(i)) continue;
+			if (meetsDiscardCost(hand.get(i), dc)) eligible.add(i);
 		}
-		return false;
+		return eligible;
+	}
+
+	/**
+	 * {@link #discardCostCandidateIdxs} narrowed to slots P2 may spend <em>together</em>: the same
+	 * list when {@code dc} constrains nothing but the individual card, and one slot per card type
+	 * when it reads "each of a different card type" (Ashe 5-114L). A caller pays {@code dc} when the
+	 * result holds at least {@code dc.count()} slots, and spends its first {@code dc.count()}.
+	 *
+	 * <p>Taking the first card of each type is what makes that test correct rather than merely
+	 * convenient: it yields as many distinct types as the hand can offer, so a shortfall here means
+	 * no selection of any kind could have paid the cost.
+	 *
+	 * <p>Read by both P2's payment and {@code ComputerPlayer.p2PlanAbilityPayment}. The set rule has
+	 * to be shared exactly as the per-card rule is — a planner that reserves three Forwards for a
+	 * cost the payment then refuses to pay with them has planned for a cost it cannot pay.
+	 * {@link CardFilters#discardTypeKey} is the same reading of "card type" that P1's picker
+	 * enforces by hand, so the two players are held to one rule.
+	 */
+	List<Integer> discardCostPayerIdxs(DiscardCost dc, List<CardData> hand,
+			Collection<Integer> excludedIdxs) {
+		List<Integer> eligible = discardCostCandidateIdxs(dc, hand, excludedIdxs);
+		if (!dc.eachDifferentType()) return eligible;
+		List<Integer> distinct = new ArrayList<>();
+		Set<String> typesTaken = new HashSet<>();
+		for (int i : eligible)
+			if (typesTaken.add(discardTypeKey(hand.get(i)))) distinct.add(i);
+		return distinct;
 	}
 
 	/**
@@ -5117,31 +5157,26 @@ final class AutoAbilityTriggers {
 	 * Skips all UI dialogs; discard-cost and dull-forward-cost extras are auto-resolved.
 	 * {@code xValue} is the chosen X for X-cost abilities (active backups remaining after base
 	 * payment, min 1); pass 0 for abilities that have no X in their cost.
+	 *
+	 * @return {@code true} when the ability reached the stack.  A {@code false} answer means the
+	 *         payment abandoned the activation, and the caller must move on to the next ability
+	 *         rather than restarting its scan — see {@link #executeAbilityPayment}.
 	 */
-	void executeP2AbilityActivation(ActionAbility ability, CardData source,
+	boolean executeP2AbilityActivation(ActionAbility ability, CardData source,
 			Runnable applyDull, List<Integer> backupDullIndices, List<Integer> discardIndices, int xValue) {
 		List<ForwardTarget> bzTargets = autoResolveBzTargets(source, ability.breakZoneCosts(), false);
-		executeAbilityPayment(ability, source, applyDull, discardIndices, backupDullIndices, bzTargets, false, xValue, -1);
+		return executeAbilityPayment(ability, source, applyDull, discardIndices, backupDullIndices, bzTargets, false, xValue, -1);
 	}
 
 	/**
-	 * Hand cards that can pay a Special ability's S cost: those sharing the source's name, those
+	 * Hand slots that can pay a Special ability's S cost: those sharing the source's name, those
 	 * sharing the name of the primer beneath it (a primed Forward counts as having both names, so
 	 * a primed Ifrit (XVI) accepts a Clive as well), and those meeting the source's proxy
 	 * substitute.  Indices in {@code excludedIdxs} are already committed to CP payment.
-	 */
-	private List<CardData> specialCostCandidates(CardData source, List<CardData> hand,
-			Collection<Integer> excludedIdxs, boolean isP1) {
-		List<CardData> eligible = new ArrayList<>();
-		for (int i : specialCostCandidateIdxs(source, hand, excludedIdxs, isP1)) eligible.add(hand.get(i));
-		return eligible;
-	}
-
-	/**
-	 * {@link #specialCostCandidates} as hand slots rather than cards — the shape
-	 * {@code ComputerPlayer.p2PlanAbilityPayment} needs to reserve one of them from the CP payment
-	 * it is planning.  Both read this one rule, so the slot the planner sets aside is always a slot
-	 * the payment above will accept.
+	 *
+	 * <p>Read by the payment above and by {@code ComputerPlayer.p2PlanAbilityPayment}, which
+	 * reserves one of them from the CP payment it is planning.  Both read this one rule, so the slot
+	 * the planner sets aside is always a slot the payment will accept.
 	 */
 	List<Integer> specialCostCandidateIdxs(CardData source, List<CardData> hand,
 			Collection<Integer> excludedIdxs, boolean isP1) {
@@ -5156,6 +5191,22 @@ final class AutoAbilityTriggers {
 			if (isSameName || (proxy != null && proxy.meetsSubstitute(hc))) eligible.add(i);
 		}
 		return eligible;
+	}
+
+	/**
+	 * The slot in {@code idxs} holding the lowest-cost card, or -1 when {@code idxs} is empty; ties
+	 * go to the earliest slot.
+	 *
+	 * <p>How P2 settles which of several eligible copies pays a 《S》 cost, read from both ends of
+	 * the activation — {@code ComputerPlayer.p2SpecialCostPayerSlot} reserving one from its CP plan,
+	 * and the payment below choosing one to discard. The reserved slot is never passed between them,
+	 * so agreeing on the rule is what makes the reservation mean anything.
+	 */
+	static int cheapest(List<CardData> hand, List<Integer> idxs) {
+		int best = -1;
+		for (int i : idxs)
+			if (best < 0 || hand.get(i).cost() < hand.get(best).cost()) best = i;
+		return best;
 	}
 
 	/** Names accepted for {@code source}'s S cost, for the chooser title. */
@@ -5203,10 +5254,10 @@ final class AutoAbilityTriggers {
 		}
 	}
 
-	private void executeAbilityPayment(ActionAbility ability, CardData source,
+	private boolean executeAbilityPayment(ActionAbility ability, CardData source,
 			Runnable applyDull, List<Integer> discardIndices, List<Integer> backupDullIndices,
 			List<ForwardTarget> bzTargets, boolean isP1, int xValue, int sCostHandIdx) {
-		executeAbilityPayment(ability, source, applyDull, discardIndices, backupDullIndices,
+		return executeAbilityPayment(ability, source, applyDull, discardIndices, backupDullIndices,
 				bzTargets, isP1, xValue, sCostHandIdx, Map.of());
 	}
 
@@ -5214,8 +5265,13 @@ final class AutoAbilityTriggers {
 	 * @param backupBreaks Backups put into the Break Zone for CP as part of this payment, slot to
 	 *                     the Element each produces (Sherlotta 8-053H) — "a CP cost" in her text is
 	 *                     any of them, an ability's included
+	 * @return {@code true} when the ability reached the stack, {@code false} when the activation
+	 *         was abandoned — a cancelled dialog, a lapsed permission, or a cost that turned out
+	 *         to be unpayable.  P2's callers must not re-offer an ability that answered
+	 *         {@code false}: an abandonment that commits nothing leaves the board exactly as the
+	 *         Main Phase scan found it, which is the shape of an infinite loop.
 	 */
-	private void executeAbilityPayment(ActionAbility ability, CardData source,
+	private boolean executeAbilityPayment(ActionAbility ability, CardData source,
 			Runnable applyDull, List<Integer> discardIndices, List<Integer> backupDullIndices,
 			List<ForwardTarget> bzTargets, boolean isP1, int xValue, int sCostHandIdx,
 			Map<Integer, String> backupBreaks) {
@@ -5238,15 +5294,17 @@ final class AutoAbilityTriggers {
 			if (sCostHandIdx == AbilityPaymentDialog.S_COST_CRYSTAL) {
 				// The player ticked "pay 《C》". If the permission has since lapsed the activation
 				// backs out rather than silently falling back to a discard they did not choose.
-				if (!crystalPays) return;
+				if (!crystalPays) return false;
 				sCostFromCrystal = true;
 			} else if (sCostHandIdx >= 0 && sCostHandIdx < hand.size()) {
 				sCostCard = hand.get(sCostHandIdx);
 			} else {
-				List<CardData> eligible = specialCostCandidates(source, hand, discardIndices, isP1);
+				List<Integer> eligibleIdxs = specialCostCandidateIdxs(source, hand, discardIndices, isP1);
+				List<CardData> eligible = new ArrayList<>();
+				for (int i : eligibleIdxs) eligible.add(hand.get(i));
 				if (eligible.isEmpty()) {
 					// No card can pay, so the Crystal is the only reason this activation was legal.
-					if (!crystalPays) return;
+					if (!crystalPays) return false;
 					sCostFromCrystal = true;
 				} else if (crystalPays && !isP1) {
 					// The CPU spends the Crystal rather than the card: a card in hand is CP, a body
@@ -5260,17 +5318,21 @@ final class AutoAbilityTriggers {
 					Object[] options = {"Pay 《C》", "Discard a card"};
 					int choice = mw.showEffectOptionDialog("Pay " + source.name()
 							+ "'s S cost with a Crystal, or by discarding?", "S Cost", options);
-					if (choice < 0) return; // dismissed — nothing committed yet
+					if (choice < 0) return false; // dismissed — nothing committed yet
 					sCostFromCrystal = choice == 0;
 				}
 				if (!sCostFromCrystal && !eligible.isEmpty()) {
 					if (eligible.size() > 1 && isP1) {
 						int pick = mw.showCardImageChooser(eligible,
 								"S Cost — discard 1 " + specialCostDescription(source, isP1), true);
-						if (pick < 0) return; // cancelled — nothing committed yet
+						if (pick < 0) return false; // cancelled — nothing committed yet
 						sCostCard = eligible.get(pick);
 					} else {
-						sCostCard = eligible.get(0);
+						// P2, or P1 holding a single candidate: the cheapest copy. P2's planner
+						// reserved a slot by that same rule and kept it out of the CP payment, so
+						// reading it the same way here is what makes the reservation hold — the slot
+						// itself never travels between them.
+						sCostCard = hand.get(cheapest(hand, eligibleIdxs));
 					}
 				}
 			}
@@ -5289,25 +5351,20 @@ final class AutoAbilityTriggers {
 			List<List<CardData>> picks = new ArrayList<>();
 			for (DiscardCost dc : ability.discardCosts()) {
 				List<CardData> hand = mw.playerHand(isP1);
-				List<Integer> eligibleIdx = new ArrayList<>();
-				for (int i = 0; i < hand.size(); i++) {
-					if (reservedIdxs.contains(i)) continue;
-					CardData c = hand.get(i);
-					if (dc.cardName() != null && !meetsCardNameFilter(c, dc.cardName())) continue;
-					if (dc.element() != null && !c.containsElement(dc.element())) continue;
-					if (dc.cardType() != null && !matchesDiscardType(c, dc.cardType())) continue;
-					if (dc.category() != null && !meetsCategoryFilter(c, dc.category())) continue;
-					eligibleIdx.add(i);
-				}
-				if (eligibleIdx.size() < dc.count()) {
+				// The picker is offered every candidate — which Forward of three to spend is P1's
+				// call — but only opened when a completable selection exists, since the picker
+				// enforces "each of a different card type" by refusing clicks and would otherwise
+				// strand the player in a dialog they cannot satisfy.
+				List<Integer> eligibleIdx = discardCostCandidateIdxs(dc, hand, reservedIdxs);
+				if (discardCostPayerIdxs(dc, hand, reservedIdxs).size() < dc.count()) {
 					mw.logEntry("[P1] Not enough eligible cards for discard cost.");
-					return;
+					return false;
 				}
 				List<CardData> eligible = new ArrayList<>();
 				for (int i : eligibleIdx) eligible.add(hand.get(i));
 				List<Integer> chosen = mw.showCardMultiImageChooser(eligible, "Discard Cost",
 						dc.count(), dc.eachDifferentType(), false);
-				if (chosen == null || chosen.size() != dc.count()) return; // cancelled — nothing committed yet
+				if (chosen == null || chosen.size() != dc.count()) return false; // cancelled — nothing committed yet
 				List<CardData> pickedCards = new ArrayList<>();
 				for (int p : chosen) {
 					pickedCards.add(eligible.get(p));
@@ -5426,21 +5483,16 @@ final class AutoAbilityTriggers {
 			if (isP1) {
 				toDiscard = discardCostPicks.get(dcPickIdx++);
 			} else {
-				List<Integer> eligibleIdx = new ArrayList<>();
-				for (int i = 0; i < hand.size(); i++) {
-					CardData c = hand.get(i);
-					if (dc.cardName() != null && !meetsCardNameFilter(c, dc.cardName())) continue;
-					if (dc.element() != null && !c.containsElement(dc.element())) continue;
-					if (dc.cardType() != null && !matchesDiscardType(c, dc.cardType())) continue;
-					if (dc.category() != null && !meetsCategoryFilter(c, dc.category())) continue;
-					eligibleIdx.add(i);
-				}
-				if (eligibleIdx.size() < dc.count()) {
+				// Payers rather than candidates: "each of a different card type" constrains the set,
+				// not the card, and P2 used to take the first N eligible and pay a three-different-
+				// types cost with three Forwards.
+				List<Integer> payerIdx = discardCostPayerIdxs(dc, hand, Set.of());
+				if (payerIdx.size() < dc.count()) {
 					mw.logEntry("[P2] Not enough eligible cards for discard cost.");
-					return;
+					return false;
 				}
 				toDiscard = new ArrayList<>();
-				for (int p = 0; p < dc.count(); p++) toDiscard.add(hand.get(eligibleIdx.get(p)));
+				for (int p = 0; p < dc.count(); p++) toDiscard.add(hand.get(payerIdx.get(p)));
 			}
 			List<Integer> handIdxs = new ArrayList<>();
 			for (CardData c : toDiscard) {
@@ -5547,7 +5599,7 @@ final class AutoAbilityTriggers {
 				} else {
 					mw.triggerGameOver(msg);
 				}
-				return;
+				return false;
 			}
 		}
 
@@ -5577,6 +5629,7 @@ final class AutoAbilityTriggers {
 		mw.showStackWindow();
 		mw.refreshP1HandLabel();
 		mw.refreshP1BreakLabel();
+		return true;
 	}
 
 	/**

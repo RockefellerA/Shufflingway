@@ -2,6 +2,7 @@ package shufflingway;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -30,7 +31,8 @@ class TraitTabTest {
 
 	private static final List<CardData.Trait> ALL_GLYPHS = List.of(
 			CardData.Trait.HASTE, CardData.Trait.BRAVE,
-			CardData.Trait.FIRST_STRIKE, CardData.Trait.CANNOT_BE_BROKEN);
+			CardData.Trait.FIRST_STRIKE, CardData.Trait.CANNOT_BE_BROKEN,
+			CardData.Trait.PRIMING);
 
 	/** The centre of the on-screen half of {@code tab} — where a player would actually point. */
 	private static int[] visibleCentre(TraitTab.Tab tab, CardState state) {
@@ -102,11 +104,11 @@ class TraitTabTest {
 		int[] p = visibleCentre(tabs.get(0), CardState.ACTIVE);
 		assertEquals(CardData.Trait.BRAVE, TraitTab.traitAt(CardState.ACTIVE, one, p[0], p[1]));
 
-		// The lone tab is centred, so it sits where neither the first nor last of four would be.
-		List<TraitTab.Tab> four = TraitTab.layout(CardState.ACTIVE, ALL_GLYPHS);
+		// The lone tab is centred, so it sits where neither the first nor last of a full stack would.
+		List<TraitTab.Tab> full = TraitTab.layout(CardState.ACTIVE, ALL_GLYPHS);
 		assertNull(TraitTab.traitAt(CardState.ACTIVE, one,
-				(int) four.get(0).bounds().getCenterX(), (int) four.get(0).bounds().y),
-				"the four-tab stack's top slot is empty when the card has one trait");
+				(int) full.get(0).bounds().getCenterX(), (int) full.get(0).bounds().y),
+				"the full stack's top slot is empty when the card has one trait");
 	}
 
 	// Guards the pairing the tooltip relies on: a trait with a tab always has text to show, and
@@ -114,14 +116,18 @@ class TraitTabTest {
 	@Test
 	void everyTraitWithAGlyphHasADescriptionAndViceVersa() {
 		for (CardData.Trait t : CardData.Trait.values()) {
-			if (TraitTab.hasGlyph(t)) {
-				assertNotNull(TraitTab.description(t), t + " has a tab, so it needs a description");
-				assertFalse(TraitTab.description(t).isBlank(), t + " description must not be blank");
-			} else {
-				assertNull(TraitTab.description(t), t + " has no tab, so it should have no description");
+			for (boolean primed : new boolean[]{ false, true }) {
+				if (TraitTab.hasGlyph(t)) {
+					assertNotNull(TraitTab.description(t, primed), t + " has a tab, so it needs a description");
+					assertFalse(TraitTab.description(t, primed).isBlank(),
+							t + " description must not be blank");
+				} else {
+					assertNull(TraitTab.description(t, primed),
+							t + " has no tab, so it should have no description");
+				}
 			}
 		}
-		assertNull(TraitTab.description(null), "null trait is not a tab");
+		assertNull(TraitTab.description(null, false), "null trait is not a tab");
 	}
 
 	// renderTraitTabs and traitAt now share layout(); this pins the drawing half of that contract,
@@ -130,7 +136,7 @@ class TraitTabTest {
 	void renderTraitTabsPaintsOnlyInsideTheVisibleStrip() {
 		BufferedImage canvas = new BufferedImage(
 				CardAnimation.CARD_H, CardAnimation.CARD_H, BufferedImage.TYPE_INT_ARGB);
-		TraitTab.renderTraitTabs(canvas, CardState.ACTIVE, ALL_GLYPHS);
+		TraitTab.renderTraitTabs(canvas, CardState.ACTIVE, ALL_GLYPHS, false);
 
 		Rectangle strip = TraitTab.visibleStrip(CardState.ACTIVE);
 		boolean paintedInStrip = false;
@@ -142,14 +148,67 @@ class TraitTabTest {
 				paintedInStrip = true;
 			}
 		}
-		assertTrue(paintedInStrip, "four traits should have drawn something");
+		assertTrue(paintedInStrip, "every drawable trait should have drawn something");
+	}
+
+	/**
+	 * The widest channel spread over every painted pixel. The tab chrome and the white line art are
+	 * all neutral greys, and antialiasing blends greys into greys — so any real chroma on the canvas
+	 * came from a glyph's coloured accent and nothing else.
+	 */
+	private static int maxChroma(BufferedImage canvas) {
+		int worst = 0;
+		for (int y = 0; y < canvas.getHeight(); y++) {
+			for (int x = 0; x < canvas.getWidth(); x++) {
+				int argb = canvas.getRGB(x, y);
+				if ((argb >>> 24) == 0) continue;
+				int r = (argb >> 16) & 0xff, g = (argb >> 8) & 0xff, b = argb & 0xff;
+				worst = Math.max(worst, Math.max(r, Math.max(g, b)) - Math.min(r, Math.min(g, b)));
+			}
+		}
+		return worst;
+	}
+
+	// The Priming tab is a capability before it is a fact: it shows as soon as a card can prime, and
+	// only takes on the green fill and orange halo once a card has actually been stacked on top.
+	@Test
+	void primingGlyphStaysColourlessUntilTheCardIsActuallyPrimed() {
+		List<CardData.Trait> priming = List.of(CardData.Trait.PRIMING);
+
+		BufferedImage capable = new BufferedImage(
+				CardAnimation.CARD_H, CardAnimation.CARD_H, BufferedImage.TYPE_INT_ARGB);
+		TraitTab.renderTraitTabs(capable, CardState.ACTIVE, priming, false);
+		assertTrue(maxChroma(capable) < 30,
+				"an unprimed card's tab is grey chrome and white line art — no colour");
+
+		BufferedImage primed = new BufferedImage(
+				CardAnimation.CARD_H, CardAnimation.CARD_H, BufferedImage.TYPE_INT_ARGB);
+		TraitTab.renderTraitTabs(primed, CardState.ACTIVE, priming, true);
+		assertTrue(maxChroma(primed) > 60, "priming lights the glyph up");
+	}
+
+	// The other glyphs carry their own colour and must not answer to the priming flag at all.
+	@Test
+	void theOtherGlyphsRenderTheSameWhicheverWayPrimedReads() {
+		for (CardData.Trait t : List.of(CardData.Trait.HASTE, CardData.Trait.BRAVE,
+				CardData.Trait.FIRST_STRIKE, CardData.Trait.CANNOT_BE_BROKEN)) {
+			BufferedImage a = new BufferedImage(
+					CardAnimation.CARD_H, CardAnimation.CARD_H, BufferedImage.TYPE_INT_ARGB);
+			BufferedImage b = new BufferedImage(
+					CardAnimation.CARD_H, CardAnimation.CARD_H, BufferedImage.TYPE_INT_ARGB);
+			TraitTab.renderTraitTabs(a, CardState.ACTIVE, List.of(t), false);
+			TraitTab.renderTraitTabs(b, CardState.ACTIVE, List.of(t), true);
+			for (int y = 0; y < a.getHeight(); y++)
+				for (int x = 0; x < a.getWidth(); x++)
+					assertEquals(a.getRGB(x, y), b.getRGB(x, y), t + " should ignore the primed flag");
+		}
 	}
 
 	@Test
 	void renderTraitTabsDrawsNothingWithoutDrawableTraits() {
 		BufferedImage canvas = new BufferedImage(
 				CardAnimation.CARD_H, CardAnimation.CARD_H, BufferedImage.TYPE_INT_ARGB);
-		TraitTab.renderTraitTabs(canvas, CardState.ACTIVE, List.of(CardData.Trait.WARP));
+		TraitTab.renderTraitTabs(canvas, CardState.ACTIVE, List.of(CardData.Trait.WARP), false);
 		for (int y = 0; y < canvas.getHeight(); y++)
 			for (int x = 0; x < canvas.getWidth(); x++)
 				assertEquals(0, canvas.getRGB(x, y) >>> 24, "WARP has no glyph — nothing to draw");
@@ -170,14 +229,14 @@ class TraitTabTest {
 	void slotTooltipNamesAndExplainsTheTraitUnderThePointer() {
 		MainWindow mw = new MainWindow();
 		JLabel slot = slotWithIcon(CardAnimation.CARD_H, CardAnimation.CARD_H);
-		mw.applyFieldSlotTooltip(slot, CardState.ACTIVE, ALL_GLYPHS, Map.of());
+		mw.applyFieldSlotTooltip(slot, CardState.ACTIVE, ALL_GLYPHS, false, Map.of());
 
 		for (TraitTab.Tab tab : TraitTab.layout(CardState.ACTIVE, ALL_GLYPHS)) {
 			int[] p = visibleCentre(tab, CardState.ACTIVE);
 			String tip = mw.fieldSlotTooltipAt(slot, p[0], p[1]);
 			assertNotNull(tip, "hovering a tab should produce a tooltip");
 			assertTrue(tip.contains(tab.trait().displayName()), "tooltip should name " + tab.trait());
-			assertTrue(tip.contains(TraitTab.description(tab.trait())),
+			assertTrue(tip.contains(TraitTab.description(tab.trait(), false)),
 					"tooltip should explain " + tab.trait());
 		}
 	}
@@ -189,7 +248,7 @@ class TraitTabTest {
 		MainWindow mw = new MainWindow();
 		int pad = 40;
 		JLabel slot = slotWithIcon(CardAnimation.CARD_H + pad, CardAnimation.CARD_H + pad);
-		mw.applyFieldSlotTooltip(slot, CardState.ACTIVE, ALL_GLYPHS, Map.of());
+		mw.applyFieldSlotTooltip(slot, CardState.ACTIVE, ALL_GLYPHS, false, Map.of());
 
 		TraitTab.Tab tab = TraitTab.layout(CardState.ACTIVE, ALL_GLYPHS).get(0);
 		int[] canvasPt = visibleCentre(tab, CardState.ACTIVE);
@@ -206,7 +265,7 @@ class TraitTabTest {
 	void slotTooltipFallsBackToCountersAwayFromTabs() {
 		MainWindow mw = new MainWindow();
 		JLabel slot = slotWithIcon(CardAnimation.CARD_H, CardAnimation.CARD_H);
-		mw.applyFieldSlotTooltip(slot, CardState.ACTIVE, ALL_GLYPHS, Map.of("Warp", 2));
+		mw.applyFieldSlotTooltip(slot, CardState.ACTIVE, ALL_GLYPHS, false, Map.of("Warp", 2));
 
 		int offTabX = CardAnimation.CARD_H - 5;   // deep in the card art, past every tab
 		int offTabY = CardAnimation.CARD_H / 2;
@@ -220,9 +279,30 @@ class TraitTabTest {
 	void slotTooltipIsAbsentWithNoTraitsAndNoCounters() {
 		MainWindow mw = new MainWindow();
 		JLabel slot = slotWithIcon(CardAnimation.CARD_H, CardAnimation.CARD_H);
-		mw.applyFieldSlotTooltip(slot, CardState.ACTIVE, List.of(), Map.of());
+		mw.applyFieldSlotTooltip(slot, CardState.ACTIVE, List.of(), false, Map.of());
 		assertNull(mw.fieldSlotTooltipAt(slot, CardAnimation.CARD_H / 2, CardAnimation.CARD_H / 2));
 		assertNull(slot.getToolTipText(), "a plain card should show no tooltip at all");
+	}
+
+	// The Priming tab is the one glyph whose tooltip depends on more than which trait was hit, so
+	// the primed flag has to reach the hover text the same way it reaches the drawing.
+	@Test
+	void primingTooltipSwitchesFromCapabilityToState() {
+		MainWindow mw = new MainWindow();
+		List<CardData.Trait> priming = List.of(CardData.Trait.PRIMING);
+		JLabel slot = slotWithIcon(CardAnimation.CARD_H, CardAnimation.CARD_H);
+		int[] p = visibleCentre(TraitTab.layout(CardState.ACTIVE, priming).get(0), CardState.ACTIVE);
+
+		mw.applyFieldSlotTooltip(slot, CardState.ACTIVE, priming, false, Map.of());
+		String capable = mw.fieldSlotTooltipAt(slot, p[0], p[1]);
+		assertTrue(capable.contains("Priming"), "unprimed, the tab is named for the trait");
+		assertTrue(capable.contains(TraitTab.description(CardData.Trait.PRIMING, false)));
+
+		mw.applyFieldSlotTooltip(slot, CardState.ACTIVE, priming, true, Map.of());
+		String primed = mw.fieldSlotTooltipAt(slot, p[0], p[1]);
+		assertTrue(primed.contains("Primed"), "once primed, the tab is named for the state");
+		assertTrue(primed.contains(TraitTab.description(CardData.Trait.PRIMING, true)));
+		assertNotEquals(capable, primed, "the two states must not read identically");
 	}
 
 	// Slots are re-rendered constantly; the tooltip has to follow the card's current traits and
@@ -231,10 +311,10 @@ class TraitTabTest {
 	void slotTooltipFollowsRerendersOfTheSameLabel() {
 		MainWindow mw = new MainWindow();
 		JLabel slot = slotWithIcon(CardAnimation.CARD_H, CardAnimation.CARD_H);
-		mw.applyFieldSlotTooltip(slot, CardState.ACTIVE, ALL_GLYPHS, Map.of());
+		mw.applyFieldSlotTooltip(slot, CardState.ACTIVE, ALL_GLYPHS, false, Map.of());
 
 		List<CardData.Trait> justHaste = List.of(CardData.Trait.HASTE);
-		mw.applyFieldSlotTooltip(slot, CardState.ACTIVE, justHaste, Map.of());
+		mw.applyFieldSlotTooltip(slot, CardState.ACTIVE, justHaste, false, Map.of());
 
 		TraitTab.Tab tab = TraitTab.layout(CardState.ACTIVE, justHaste).get(0);
 		int[] p = visibleCentre(tab, CardState.ACTIVE);

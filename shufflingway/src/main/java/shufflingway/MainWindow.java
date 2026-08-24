@@ -5601,6 +5601,19 @@ public class MainWindow {
 		return out;
 	}
 
+	/**
+	 * Whether the Forward at {@code idx} has actually been primed — a card pulled from the deck and
+	 * stacked on top of it — as opposed to merely printing the Priming trait.
+	 *
+	 * <p>The distinction is what the Priming trait tab renders: the tab appears as soon as a card
+	 * can prime, and lights up once it has. The base card stays in {@code pNForwardCards} either
+	 * way, which is why the trait itself never stops reporting true.
+	 */
+	boolean isPrimedForward(boolean isP1, int idx) {
+		List<CardData> tops = isP1 ? p1ForwardPrimedTop : p2ForwardPrimedTop;
+		return idx >= 0 && idx < tops.size() && tops.get(idx) != null;
+	}
+
 	/** Monster equivalent of {@link #visibleTraitTabs}, resolved through {@code effectiveMonsterHasTrait}. */
 	private List<CardData.Trait> visibleMonsterTraitTabs(boolean isP1, int idx) {
 		List<CardData.Trait> out = new ArrayList<>();
@@ -10602,6 +10615,7 @@ public class MainWindow {
 	private static final String SLOT_TIP_STATE   = "shufflingway.slotTipState";    // CardState
 	private static final String SLOT_TIP_TRAITS  = "shufflingway.slotTipTraits";   // List<CardData.Trait>
 	private static final String SLOT_TIP_BASE    = "shufflingway.slotTipBase";     // counter tooltip, or null
+	private static final String SLOT_TIP_PRIMED  = "shufflingway.slotTipPrimed";   // Boolean
 	private static final String SLOT_TIP_WIRED   = "shufflingway.slotTipWired";    // listener installed?
 
 	/**
@@ -10616,11 +10630,12 @@ public class MainWindow {
 	 * the text for the tab the pointer just moved onto rather than the one it left.
 	 */
 	void applyFieldSlotTooltip(JLabel slot, CardState state,
-			List<CardData.Trait> traitTabs, Map<String, Integer> countersMap) {
+			List<CardData.Trait> traitTabs, boolean primed, Map<String, Integer> countersMap) {
 		String base = buildCounterTooltip(countersMap);
 		slot.putClientProperty(SLOT_TIP_STATE,  state);
 		slot.putClientProperty(SLOT_TIP_TRAITS, List.copyOf(traitTabs));
 		slot.putClientProperty(SLOT_TIP_BASE,   base);
+		slot.putClientProperty(SLOT_TIP_PRIMED, primed);
 
 		if (!Boolean.TRUE.equals(slot.getClientProperty(SLOT_TIP_WIRED))) {
 			slot.putClientProperty(SLOT_TIP_WIRED, Boolean.TRUE);
@@ -10662,8 +10677,9 @@ public class MainWindow {
 		int cy = y - (slot.getHeight() - icon.getIconHeight()) / 2;
 		CardData.Trait hit = TraitTab.traitAt(state, traits, cx, cy);
 		if (hit == null) return base;
-		return "<html><b>" + hit.displayName() + "</b><br>"
-				+ TraitTab.description(hit) + "</html>";
+		boolean primed = Boolean.TRUE.equals(slot.getClientProperty(SLOT_TIP_PRIMED));
+		return "<html><b>" + TraitTab.displayName(hit, primed) + "</b><br>"
+				+ TraitTab.description(hit, primed) + "</html>";
 	}
 
 	/** Reloads and re-renders a single P1 backup slot using its stored URL and state. */
@@ -14525,6 +14541,7 @@ public class MainWindow {
 		Map<String, Integer> countersMap = gameState.getCountersMap(card);
 		int totalCounters = countersMap.values().stream().mapToInt(c -> c == null ? 0 : c.intValue()).sum();
 		List<CardData.Trait> traitTabs = visibleMonsterTraitTabs(true, idx);
+		final boolean primed = false;   // Priming tops a Forward slot; the Monster row has no tops
 		if (slot.getIcon() == null) slot.setIcon(new ImageIcon(CardAnimation.renderPlaceholder(state)));
 		new SwingWorker<ImageIcon, Void>() {
 			@Override protected ImageIcon doInBackground() throws Exception {
@@ -14532,7 +14549,7 @@ public class MainWindow {
 				if (raw == null) return new ImageIcon(CardAnimation.renderPlaceholder(state));
 				BufferedImage canvas = CardAnimation.renderBackupCard(
 						CardAnimation.toARGB(raw, CARD_W, CARD_H), state, canAttack || canBlock, selected, p1MonsterFrozen.get(idx), glow);
-				TraitTab.renderTraitTabs(canvas, state, traitTabs);
+				TraitTab.renderTraitTabs(canvas, state, traitTabs, primed);
 				if (damage > 0)
 					CardAnimation.renderDamageOverlay(canvas, damage, state);
 				if (actingForward)
@@ -14547,7 +14564,7 @@ public class MainWindow {
 				try {
 					ImageIcon icon = get();
 					if (icon != null) { slot.setIcon(icon); slot.setText(null); }
-					applyFieldSlotTooltip(slot, state, traitTabs, countersMap);
+					applyFieldSlotTooltip(slot, state, traitTabs, primed, countersMap);
 				} catch (InterruptedException | ExecutionException ignored) {}
 			}
 		}.execute();
@@ -14624,6 +14641,7 @@ public class MainWindow {
 		Map<String, Integer> countersMap = gameState.getCountersMap(card);
 		int totalCounters = countersMap.values().stream().mapToInt(c -> c == null ? 0 : c.intValue()).sum();
 		List<CardData.Trait> traitTabs = visibleMonsterTraitTabs(false, idx);
+		final boolean primed = false;   // Priming tops a Forward slot; the Monster row has no tops
 		if (slot.getIcon() == null) slot.setIcon(new ImageIcon(CardAnimation.renderPlaceholder(state)));
 		new SwingWorker<ImageIcon, Void>() {
 			@Override protected ImageIcon doInBackground() throws Exception {
@@ -14631,7 +14649,7 @@ public class MainWindow {
 				if (raw == null) return new ImageIcon(CardAnimation.renderPlaceholder(state));
 				BufferedImage canvas = CardAnimation.toARGB(raw, CARD_W, CARD_H);
 				canvas = CardAnimation.renderBackupCard(canvas, state, false, false, p2MonsterFrozen.get(idx), glow);
-				TraitTab.renderTraitTabs(canvas, state, traitTabs);
+				TraitTab.renderTraitTabs(canvas, state, traitTabs, primed);
 				if (damage > 0)
 					CardAnimation.renderDamageOverlay(canvas, damage, state);
 				if (actingForward)
@@ -14646,7 +14664,7 @@ public class MainWindow {
 				try {
 					ImageIcon icon = get();
 					if (icon != null) { slot.setIcon(icon); slot.setText(null); }
-					applyFieldSlotTooltip(slot, state, traitTabs, countersMap);
+					applyFieldSlotTooltip(slot, state, traitTabs, primed, countersMap);
 				} catch (InterruptedException | ExecutionException ignored) {}
 			}
 		}.execute();
@@ -14687,7 +14705,7 @@ public class MainWindow {
 		refreshPlayerDamageShieldIcon(true);
 		if (fieldEntryAnimator.holdSlotBlank(p1ForwardLabels.get(idx), p1ForwardCards.get(idx))) return;
 		CardData topCard = p1ForwardPrimedTop.get(idx);
-		boolean  primed  = topCard != null;
+		final boolean primed = isPrimedForward(true, idx);
 		// Primed: display and stats come from the top card
 		String    url    = primed ? topCard.imageUrl() : p1ForwardUrls.get(idx);
 		CardState state  = p1ForwardStates.get(idx);
@@ -14720,7 +14738,7 @@ public class MainWindow {
 				Image raw = ImageCache.load(url);
 				if (raw == null) return new ImageIcon(CardAnimation.renderPlaceholder(state));
 				BufferedImage canvas = CardAnimation.renderBackupCard(CardAnimation.toARGB(raw, CARD_W, CARD_H), state, canAttack || canBlock, selected, Boolean.TRUE.equals(p1ForwardFrozen.get(idx)), glow);
-				TraitTab.renderTraitTabs(canvas, state, traitTabs);
+				TraitTab.renderTraitTabs(canvas, state, traitTabs, primed);
 				if (damage > 0) {
 					CardAnimation.renderDamageOverlay(canvas, damage, state);
 				}
@@ -14738,7 +14756,7 @@ public class MainWindow {
 				try {
 					ImageIcon icon = get();
 					if (icon != null) { slot.setIcon(icon); slot.setText(null); }
-					applyFieldSlotTooltip(slot, state, traitTabs, countersMap);
+					applyFieldSlotTooltip(slot, state, traitTabs, primed, countersMap);
 				} catch (InterruptedException | ExecutionException ignored) {}
 			}
 		}.execute();
@@ -17645,6 +17663,7 @@ public class MainWindow {
 		Map<String, Integer> countersMap = gameState.getCountersMap(fwdCard);
 		int totalCounters = countersMap.values().stream().mapToInt(c -> c == null ? 0 : c.intValue()).sum();
 		List<CardData.Trait> traitTabs = visibleTraitTabs(false, idx);
+		final boolean primed = isPrimedForward(false, idx);
 		if (slot.getIcon() == null) slot.setIcon(new ImageIcon(CardAnimation.renderPlaceholder(state)));
 		final Object renderToken = markSlotRender(slot);
 		new SwingWorker<ImageIcon, Void>() {
@@ -17652,7 +17671,7 @@ public class MainWindow {
 				Image raw = ImageCache.load(url);
 				if (raw == null) return new ImageIcon(CardAnimation.renderPlaceholder(state));
 				BufferedImage canvas = CardAnimation.renderBackupCard(CardAnimation.toARGB(raw, CARD_W, CARD_H), state, false, false, p2ForwardFrozen.get(idx), glow);
-				TraitTab.renderTraitTabs(canvas, state, traitTabs);
+				TraitTab.renderTraitTabs(canvas, state, traitTabs, primed);
 				if (damage > 0) {
 					CardAnimation.renderDamageOverlay(canvas, damage, state);
 				}
@@ -17670,7 +17689,7 @@ public class MainWindow {
 				try {
 					ImageIcon icon = get();
 					if (icon != null) { slot.setIcon(icon); slot.setText(null); }
-					applyFieldSlotTooltip(slot, state, traitTabs, countersMap);
+					applyFieldSlotTooltip(slot, state, traitTabs, primed, countersMap);
 				} catch (InterruptedException | ExecutionException ignored) {}
 			}
 		}.execute();

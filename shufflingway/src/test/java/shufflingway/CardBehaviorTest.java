@@ -24808,6 +24808,278 @@ public class CardBehaviorTest {
 	}
 
 	// =========================================================================================
+	// The Priming trait tab — a capability before it is a fact.
+	//
+	// The tab shows on any Forward that can prime, so a player can see the option without reading
+	// the card, and takes on its colour only once a card has actually been pulled from the deck and
+	// stacked on top. The trait itself never stops reporting true after priming: the base card stays
+	// in pNForwardCards and is what effectiveHasTrait reads, which is exactly why the tab survives
+	// to change state rather than disappearing at the moment it becomes interesting.
+	// =========================================================================================
+
+	private static final String CLIVE_PRIMING =
+			"Priming \"Ifrit (XVI)\" -- 《Fire》《2》[[br]]"
+			+ "When Clive enters the field, choose 1 Forward. Deal it 3000 damage.";
+
+	@Test
+	void aCardThatCanPrimeCarriesThePrimingTrait() {
+		CardData clive = makeTraitCard("Clive", "Fire", "Forward", CLIVE_PRIMING);
+		assertTrue(clive.hasTrait(CardData.Trait.PRIMING), "the Priming line is what grants the trait");
+		assertTrue(shufflingway.graphics.TraitTab.hasGlyph(CardData.Trait.PRIMING),
+				"and the trait draws a tab");
+	}
+
+	@Test
+	void thePrimingTabIsUnlitUntilACardIsStackedOnTop() {
+		MainWindow mw = new MainWindow();
+		CardData clive = makeTraitCard("Clive", "Fire", "Forward", CLIVE_PRIMING);
+		placeP2Forward(mw, clive);
+		int idx = mw.p2ForwardCards.indexOf(clive);
+		assertTrue(idx >= 0, "the Forward should have taken a slot");
+
+		assertFalse(mw.isPrimedForward(false, idx),
+				"printing Priming is a capability — nothing has been primed yet");
+
+		mw.p2ForwardPrimedTop.set(idx, makeTraitCard("Ifrit (XVI)", "Fire", "Forward", ""));
+		assertTrue(mw.isPrimedForward(false, idx), "a stacked top card is what primed means");
+		assertTrue(mw.effectiveP2HasTrait(idx, CardData.Trait.PRIMING),
+				"the base card still carries the trait, so the tab stays on the board to light up");
+	}
+
+	// =========================================================================================
+	// The rest of what the 《S》 reservation left open: the other hand cost that competes with the
+	// CP plan, which copy pays the 《S》, and the contract that makes a bailed payment visible.
+	//
+	// A discard cost is checked against the whole hand before planning starts
+	// (MainWindow.discardCostSatisfied), and was then never reserved — so the CP planner could
+	// spend the only card that met its filter, and the payment bailed with the Backups already
+	// dulled, the hand already burned for CP and the ability already marked used. That one
+	// terminates rather than looping, because the board changed; it just pays in full for nothing.
+	//
+	// Which copy pays a 《S》 is now one rule read from both ends (AutoAbilityTriggers.cheapest),
+	// because the reserved slot is never handed to the payment — only agreement makes the
+	// reservation mean anything.
+	//
+	// And executeP2AbilityActivation now answers whether the ability reached the stack, so a
+	// bail-out of any kind moves the scan on instead of restarting it into the same ability.
+	// =========================================================================================
+
+	/** A CP cost and a filtered hand cost on one ability, wanting the same two-card hand. */
+	private static final String ICE_TITHE =
+			"《1》《Dull》, discard 1 Ice card: Choose 1 Forward. Deal it 5000 damage.";
+
+	/** A 《S》 with no CP alongside it, so the payment runs without a planner in front of it. */
+	private static final String BLADE_BEAM =
+			"[[s]]Blade Beam[[/]] 《S》: Choose 1 Forward. Deal it 5000 damage.";
+
+	/** {@link #makeTraitCard} with an explicit cost, so the planner's cheapest-first order shows. */
+	private static CardData makeCostedTraitCard(String name, String element, String type, int cost,
+			String text) {
+		return new CardData(null, name, element, cost, 7000, type, false, 0, false, false,
+				CardData.parseTraits(text, name), 0, List.of(), null, List.of(),
+				CardData.parseActionAbilities(text), CardData.parseAutoAbilities(text),
+				CardData.parseFieldAbilities(text, type),
+				List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(),
+				false, false, null, false, false, false, false, false, 1,
+				null, null, null, text);
+	}
+
+	@Test
+	void theIceTitheCostsBothCpAndAFilteredDiscard() {
+		ActionAbility ability = CardData.parseActionAbilities(ICE_TITHE).get(0);
+		assertEquals(List.of(""), ability.cpCost(), "《1》 — one generic slot, no Element named");
+		assertTrue(ability.requiresDull(), "《Dull》 — so the source cannot fund its own 《1》");
+		assertEquals(1, ability.discardCosts().size());
+		assertEquals("Ice", ability.discardCosts().get(0).element());
+		assertEquals(1, ability.discardCosts().get(0).count());
+	}
+
+	@Test
+	void theCpuKeepsBackTheOneCardThatCanPayADiscardCost() {
+		MainWindow mw = new MainWindow();
+		CardData shiva = makeCostedTraitCard("Shiva", "Ice", "Backup", 3, ICE_TITHE);
+		placeP2Backup(mw, 0, shiva);   // the 《Dull》 is spent on the cost, so it cannot fund the 《1》
+		mw.gameState.getP2Hand().add(makeCostedTraitCard("Ice Brand", "Ice", "Backup", 1, ""));
+		mw.gameState.getP2Hand().add(makeCostedTraitCard("Fire Brand", "Fire", "Backup", 3, ""));
+
+		// No Backup left to dull, so the 《1》 has to come out of the hand — and the cheapest card
+		// there, the one the CP planner reaches for first, is the only card the discard cost accepts.
+		assertEquals(List.of(1), planAbilityDiscards(mw, shiva.actionAbilities().get(0), shiva, true),
+				"the CP comes from the card the discard cost cannot use");
+	}
+
+	@Test
+	void aDiscardCostWithNoCardToSpareMakesTheAbilityUnaffordable() {
+		MainWindow mw = new MainWindow();
+		CardData shiva = makeCostedTraitCard("Shiva", "Ice", "Backup", 3, ICE_TITHE);
+		placeP2Backup(mw, 0, shiva);
+		mw.gameState.getP2Hand().add(makeCostedTraitCard("Ice Brand", "Ice", "Backup", 1, ""));
+
+		// One card, wanted by both costs. Answering "no" is what stops P2 dulling Shiva and burning
+		// the card for CP on an ability the discard cost then refuses to complete.
+		planAbilityDiscards(mw, shiva.actionAbilities().get(0), shiva, false);
+	}
+
+	// =========================================================================================
+	// Cu Sith's "discard 3 cards, each of a different card type" — the set rule, held by both
+	// players. The only printing in the corpus that carries the constraint.
+	//
+	// eachDifferentType constrains the selection rather than the card, so it lived only in P1's
+	// picker, which enforces it by refusing the click. Everything else counted eligible cards and
+	// stopped there: the availability gate offered the ability on a hand of three Forwards, P2's
+	// payment paid it with them, and the reservation added by the branch above set the same three
+	// aside. All four now read discardCostPayerIdxs, which answers with one slot per card type.
+	//
+	// The CP-competition cases below use a constructed 《1》《Dull》 version rather than Cu Sith's own
+	// cost, which names no CP and so never reaches the planner's hand-spending at all.
+	// =========================================================================================
+
+	private static final String CU_SITH =
+			"《Dull》, discard 3 cards, each of a different card type, "
+			+ "put Cu Sith into the Break Zone: Draw 4 cards.";
+
+	@Test
+	void cuSithNeedsThreeCardTypesAndNotMerelyThreeCards() {
+		MainWindow mw = new MainWindow();
+		ActionAbility ability = CardData.parseActionAbilities(CU_SITH).get(0);
+		DiscardCost dc = ability.discardCosts().get(0);
+		assertEquals(3, dc.count());
+		assertTrue(dc.eachDifferentType(), "the printed constraint");
+
+		fillP2Hand(mw, "Soldier", "Forward", "Knight", "Forward", "Squire", "Forward");
+		assertFalse(mw.autoAbilityTriggers.discardCostSatisfied(dc, false),
+				"three Forwards are three cards but one card type");
+
+		mw.gameState.getP2Hand().add(makeCostedTraitCard("Sage", "Fire", "Backup", 1, ""));
+		assertFalse(mw.autoAbilityTriggers.discardCostSatisfied(dc, false), "two types is still short");
+
+		mw.gameState.getP2Hand().add(makeCostedTraitCard("Behemoth", "Fire", "Monster", 1, ""));
+		assertTrue(mw.autoAbilityTriggers.discardCostSatisfied(dc, false), "Forward, Backup, Monster");
+		assertEquals(List.of(0, 3, 4), mw.autoAbilityTriggers.discardCostPayerIdxs(dc,
+				mw.gameState.getP2Hand(), Set.of()),
+				"one Forward and the two cards that bring a new type each");
+	}
+
+	private static final String THREE_TYPE_TITHE =
+			"《1》《Dull》, discard 3 cards, each of a different card type: "
+			+ "Choose 1 Forward. Deal it 5000 damage.";
+
+	/** Fills P2's hand with {@code (name, type)} pairs, all Fire and all cost 1. */
+	private static void fillP2Hand(MainWindow mw, String... nameThenType) {
+		for (int i = 0; i < nameThenType.length; i += 2)
+			mw.gameState.getP2Hand().add(makeCostedTraitCard(
+					nameThenType[i], "Fire", nameThenType[i + 1], 1, ""));
+	}
+
+	@Test
+	void theThreeTypeTitheParsesAsADiversityConstrainedDiscard() {
+		ActionAbility ability = CardData.parseActionAbilities(THREE_TYPE_TITHE).get(0);
+		assertEquals(1, ability.discardCosts().size());
+		assertEquals(3, ability.discardCosts().get(0).count());
+		assertTrue(ability.discardCosts().get(0).eachDifferentType(),
+				"the constraint is on the set, which is what made it easy to drop");
+	}
+
+	@Test
+	void aHandOfOneTypeCannotPayADifferentTypesDiscardCost() {
+		MainWindow mw = new MainWindow();
+		CardData source = makeCostedTraitCard("Ashe", "Fire", "Backup", 3, THREE_TYPE_TITHE);
+		placeP2Backup(mw, 0, source);
+		fillP2Hand(mw, "Soldier", "Forward", "Knight", "Forward", "Squire", "Forward",
+				"Militia", "Forward");
+		DiscardCost dc = source.actionAbilities().get(0).discardCosts().get(0);
+
+		// Four cards meet every per-card filter, so the old count was 4 and the cost read as payable.
+		assertEquals(4, mw.autoAbilityTriggers.discardCostCandidateIdxs(dc,
+				mw.gameState.getP2Hand(), Set.of()).size(), "all four are eligible cards");
+		assertEquals(1, mw.autoAbilityTriggers.discardCostPayerIdxs(dc,
+				mw.gameState.getP2Hand(), Set.of()).size(), "but they are one card type between them");
+		assertFalse(mw.autoAbilityTriggers.discardCostSatisfied(dc, false),
+				"so the ability is not offered at all");
+		planAbilityDiscards(mw, source.actionAbilities().get(0), source, false);
+	}
+
+	@Test
+	void aHandOfThreeTypesPaysItAndKeepsThoseThreeOutOfTheCpPlan() {
+		MainWindow mw = new MainWindow();
+		CardData source = makeCostedTraitCard("Ashe", "Fire", "Backup", 3, THREE_TYPE_TITHE);
+		placeP2Backup(mw, 0, source);
+		// One of each type up front, then a spare Forward the CP can have.
+		fillP2Hand(mw, "Soldier", "Forward", "Sage", "Backup", "Behemoth", "Monster",
+				"Militia", "Forward");
+		DiscardCost dc = source.actionAbilities().get(0).discardCosts().get(0);
+
+		assertEquals(List.of(0, 1, 2), mw.autoAbilityTriggers.discardCostPayerIdxs(dc,
+				mw.gameState.getP2Hand(), Set.of()),
+				"the first card of each type — the spare Forward adds no new type");
+		// The 《1》 has to come out of the hand, and the only slot the discard cost has not spoken
+		// for is the spare Forward at 3.
+		assertEquals(List.of(3), planAbilityDiscards(mw, source.actionAbilities().get(0), source, true),
+				"the CP takes the one card the diversity rule left over");
+	}
+
+	@Test
+	void theDiversityRuleIsIgnoredWhenTheCostDoesNotAskForIt() {
+		MainWindow mw = new MainWindow();
+		ActionAbility plain = CardData.parseActionAbilities(
+				"《Dull》, discard 2 cards: Choose 1 Forward. Deal it 5000 damage.").get(0);
+		DiscardCost dc = plain.discardCosts().get(0);
+		fillP2Hand(mw, "Soldier", "Forward", "Knight", "Forward", "Squire", "Forward");
+
+		assertEquals(3, mw.autoAbilityTriggers.discardCostPayerIdxs(dc,
+				mw.gameState.getP2Hand(), Set.of()).size(),
+				"an unconstrained cost is happy with three of a kind");
+	}
+
+	@Test
+	void theSCostIsPlannedOntoTheCheapestOfSeveralEligibleCopies() {
+		MainWindow mw = new MainWindow();
+		CardData cloud = makeTraitCard("Cloud", "Fire", "Backup", CROSS_SLASH);
+		placeP2Backup(mw, 0, cloud);
+		placeP2Backup(mw, 1, makeFieldAbilityCard("Alchemist", "Fire", "Backup", ""));
+		placeP2Backup(mw, 2, makeFieldAbilityCard("Alchemist", "Fire", "Backup", ""));
+		mw.gameState.getP2Hand().add(makeCostedTraitCard("Cloud", "Fire", "Backup", 2, CROSS_SLASH));
+		mw.gameState.getP2Hand().add(makeCostedTraitCard("Cloud", "Fire", "Backup", 6, CROSS_SLASH));
+
+		// Both copies can pay the 《S》, so the choice is only about which one P2 keeps. Every hand
+		// card is worth 2 CP whatever it cost to play, so setting the cheap copy aside for the 《S》
+		// and letting the dear one pay the 《1》 is strictly the worse trade — reversed here.
+		assertEquals(List.of(1), planAbilityDiscards(mw, cloud.actionAbilities().get(0), cloud, true),
+				"the dear copy pays the CP; the cheap one is held back for the 《S》");
+	}
+
+	@Test
+	void anUnpayableP2ActivationReportsItselfRatherThanReturningQuietly() {
+		MainWindow mw = new MainWindow();
+		CardData cloud = makeTraitCard("Cloud", "Fire", "Backup", BLADE_BEAM);
+		placeP2Backup(mw, 0, cloud);
+
+		// Nothing in hand to pay the 《S》 and no Crystal to stand in for it. The payment backs out
+		// before committing anything, which is exactly the board the Main Phase scan just read — so
+		// the answer has to come back to the caller, or it offers the same ability again forever.
+		assertFalse(mw.autoAbilityTriggers.executeP2AbilityActivation(cloud.actionAbilities().get(0),
+				cloud, () -> {}, new ArrayList<>(), new ArrayList<>(), 0),
+				"an activation that committed nothing must not read as one that happened");
+		assertEquals(0, mw.gameState.stackSize(), "and nothing reached the stack");
+	}
+
+	@Test
+	void aPayableP2ActivationReportsSuccess() {
+		MainWindow mw = new MainWindow();
+		CardData cloud = makeTraitCard("Cloud", "Fire", "Backup", BLADE_BEAM);
+		placeP2Backup(mw, 0, cloud);
+		mw.gameState.getP2Hand().add(makeTraitCard("Cloud", "Fire", "Backup", BLADE_BEAM));
+
+		// The other half of the contract: with a payer in hand the same call answers true, so the
+		// false above is the payment reporting a bail-out and not a constant.
+		assertTrue(mw.autoAbilityTriggers.executeP2AbilityActivation(cloud.actionAbilities().get(0),
+				cloud, () -> {}, new ArrayList<>(), new ArrayList<>(), 0),
+				"the ability reached the stack");
+		assertEquals(1, mw.gameState.stackSize());
+		assertTrue(mw.gameState.getP2Hand().isEmpty(), "the 《S》 copy was discarded to pay for it");
+	}
+
+	// =========================================================================================
 	// Titan (XVI) 29-068L: "During your turn, the Backups opponent controls cannot produce CP."
 	//
 	// The payment dialogs have always read the row through MainWindow.cpPayableBackupCards, which

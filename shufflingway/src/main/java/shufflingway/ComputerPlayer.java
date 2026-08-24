@@ -1419,9 +1419,12 @@ class ComputerPlayer implements OpponentController {
 				Map<Integer, String> discardElems      = new LinkedHashMap<>();
 				if (!p2PlanAbilityPayment(ability, card, backupDullIndices, backupElems, discardIndices, discardElems)) continue;
 				mw.logEntry("[P2] Activates reactive shield: " + card.name() + " — " + ability.effectText());
-				mw.autoAbilityTriggers.executeP2AbilityActivation(ability, card,
+				if (!mw.autoAbilityTriggers.executeP2AbilityActivation(ability, card,
 						() -> { mw.p2ForwardStates.set(fi, CardState.DULL); mw.refreshP2ForwardSlot(fi); },
-						backupDullIndices, discardIndices, 0);
+						backupDullIndices, discardIndices, 0)) {
+					logAbandonedActivation(card);
+					continue;
+				}
 				step(() -> tryP2ReactiveShieldAbilities(onDone));
 				return;
 			}
@@ -1461,12 +1464,30 @@ class ComputerPlayer implements OpponentController {
 					continue;
 
 				mw.logEntry("[P2] Activates BZ ability: " + card.name() + " — " + ability.effectText());
-				mw.autoAbilityTriggers.executeP2AbilityActivation(ability, card, () -> {}, backupDullIndices, discardIndices, 0);
+				if (!mw.autoAbilityTriggers.executeP2AbilityActivation(ability, card, () -> {},
+						backupDullIndices, discardIndices, 0)) {
+					logAbandonedActivation(card);
+					continue;
+				}
 				step(resume);
 				return;
 			}
 		}
 		onDone.run();
+	}
+
+	/**
+	 * Logs a P2 activation the payment abandoned.  The "[P2] Activates …" line has already claimed
+	 * something happened, so this says otherwise rather than leaving the log reading as though the
+	 * ability resolved.
+	 *
+	 * <p>Every caller pairs it with {@code continue} rather than {@code step(resume)}, and that is
+	 * the part that matters: an abandonment which commits nothing leaves the board exactly as the
+	 * Main Phase scan found it, so restarting the scan picks the same ability again, forever. Moving
+	 * on to the next ability instead makes the loop impossible regardless of why the payment bailed.
+	 */
+	private void logAbandonedActivation(CardData card) {
+		mw.logEntry("[P2] " + card.name() + " — cost could not be paid; activation abandoned");
 	}
 
 	/**
@@ -1541,7 +1562,11 @@ class ComputerPlayer implements OpponentController {
 				continue;
 
 			mw.logEntry("[P2] Activates shared ability on " + card.name() + " — " + ability.effectText());
-			mw.autoAbilityTriggers.executeP2AbilityActivation(ability, card, applyDull, backupDullIndices, discardIndices, 0);
+			if (!mw.autoAbilityTriggers.executeP2AbilityActivation(ability, card, applyDull,
+					backupDullIndices, discardIndices, 0)) {
+				logAbandonedActivation(card);
+				continue;
+			}
 			step(resume);
 			return true;
 		}
@@ -1640,7 +1665,11 @@ class ComputerPlayer implements OpponentController {
 			}
 
 			mw.logEntry("[P2] Activates ability: " + card.name() + " — " + ability.effectText());
-			mw.autoAbilityTriggers.executeP2AbilityActivation(ability, card, applyDull, backupDullIndices, discardIndices, xValue);
+			if (!mw.autoAbilityTriggers.executeP2AbilityActivation(ability, card, applyDull,
+					backupDullIndices, discardIndices, xValue)) {
+				logAbandonedActivation(card);
+				continue;
+			}
 			step(resume);
 			return true;
 		}
@@ -1658,11 +1687,11 @@ class ComputerPlayer implements OpponentController {
 	private boolean p2CanStartAffordableDoublecastChain(CardData source) {
 		if (mw.summonCastingProhibited()) return false;
 		List<CardData> hand = mw.gameState.getP2Hand();
-		// Reserve the first hand copy of the source's name for the 《S》 discard cost.
-		int reservedIdx = -1;
-		for (int j = 0; j < hand.size(); j++) {
-			if (hand.get(j).name().equalsIgnoreCase(source.name())) { reservedIdx = j; break; }
-		}
+		// Reserve the copy that will pay the 《S》 discard cost. Read through the shared rule rather
+		// than matched on the name here: a primed Forward answers to its primer's name too, and a
+		// proxy substitute (Tifa 26-076H) accepts a card of another name entirely, so a name test
+		// alone called chains unaffordable that the payment would have paid for.
+		int reservedIdx = p2SpecialCostPayerSlot(source);
 		for (int i = 0; i < hand.size(); i++) {
 			if (i == reservedIdx) continue;
 			CardData starter = hand.get(i);
@@ -1902,16 +1931,27 @@ class ComputerPlayer implements OpponentController {
 		// Plan against the cost P2 will actually be charged, tax included (The Emperor 20-092R).
 		// Planning off the printed cost would have P2 commit to abilities it cannot pay for.
 		ActionAbility ability = rawAbility.withIncreasedCp(mw.actionAbilityCostIncreaseFor(false));
-		// A 《S》 cost wants a hand card of its own, and the CP planner below would spend the only one
-		// that can pay it: two cards in hand, one of them the same-named copy, and the copy goes to
-		// CP. The payment then finds no 《S》 payer and backs out without logging or committing
-		// anything — which the Main Phase loop reads as "the ability is still available" and retries
-		// forever (Cloud 10-006R's Cross-slash). Reserve a payer up front, and call the ability
-		// unaffordable when there is none, so the loop moves on instead of spinning.
-		int sCostReserved = -1;
+		// Hand costs are settled before the CP planner below is allowed to spend the hand, because
+		// it would otherwise spend the very cards they need. Two cards in hand, one of them the
+		// same-named copy a 《S》 wants, and the copy goes to CP; the payment then finds no payer and
+		// backs out. A 《S》 backs out having committed nothing, which the Main Phase loop reads as
+		// "the ability is still available" and retries forever (Cloud 10-006R's Cross-slash); a
+		// discard cost backs out having already dulled Backups and burned the hand for CP, which
+		// terminates but pays in full for nothing. Both are answered the same way — reserve the
+		// payers up front, and call the ability unaffordable when they cannot all be found.
+		List<CardData> handNow = mw.gameState.getP2Hand();
+		Set<Integer> reservedHandIdxs = new LinkedHashSet<>();
 		if (ability.isSpecial() && !mw.canPaySpecialCostWithCrystal(source, false)) {
-			sCostReserved = p2SpecialCostPayerSlot(source);
-			if (sCostReserved < 0) return false;
+			int sCostSlot = p2SpecialCostPayerSlot(source);
+			if (sCostSlot < 0) return false;
+			reservedHandIdxs.add(sCostSlot);
+		}
+		// The 《S》 first, so the two never claim the same slot: the payment discards the 《S》 card
+		// before it selects for the discard costs, and by then that slot is gone from the hand.
+		for (DiscardCost dc : ability.discardCosts()) {
+			List<Integer> payers = mw.autoAbilityTriggers.discardCostPayerIdxs(dc, handNow, reservedHandIdxs);
+			if (payers.size() < dc.count()) return false;
+			reservedHandIdxs.addAll(payers.subList(0, dc.count()));
 		}
 		String[] elems = p2AbilityElements(ability);
 		long genericCount = ability.cpCost().stream().filter(String::isEmpty).count();
@@ -1962,7 +2002,7 @@ class ComputerPlayer implements OpponentController {
 		Set<String> ldGrants = mw.lightDarkDiscardGrants(false);
 		List<Integer> discardable = new ArrayList<>();
 		for (int i = 0; i < hand.size(); i++) {
-			if (i == sCostReserved) continue;
+			if (reservedHandIdxs.contains(i)) continue;
 			CardData c = hand.get(i);
 			if (!CpPaymentUtils.canDiscardForCp(c, ldGrants)) continue;
 			if (elems.length == 0 || genericCount > 0) { discardable.add(i); continue; }
@@ -1995,16 +2035,20 @@ class ComputerPlayer implements OpponentController {
 	 * pay it.  Eligibility is {@code AutoAbilityTriggers.specialCostCandidateIdxs}' call, so the
 	 * slot reserved here is one the payment will actually accept.
 	 *
-	 * <p>The dearest of the eligible copies, because the CP planner spends the cheapest cards
-	 * first: reserving the dear one leaves its own preferred fodder on the table, so setting the
-	 * 《S》 aside costs the fewest abilities their affordability.
+	 * <p>The cheapest of the eligible copies, and the payment picks the cheapest too
+	 * ({@code AutoAbilityTriggers.cheapest}) — the reservation is only honoured because both ends
+	 * answer "which copy pays" the same way, since the slot itself is never handed to the payment.
+	 *
+	 * <p>Cheapest rather than dearest because a 《S》 payer and a CP discard are wanted by the same
+	 * cost ordering: every hand card is worth 2 CP whatever it cost to play, so which copy is set
+	 * aside cannot change what P2 can afford — only which cards it keeps. Spending the cheap copy
+	 * on the 《S》 leaves the dear one in hand; the earlier reading had this backwards, and reserved
+	 * the dear copy to protect an affordability that was never at risk.
 	 */
 	private int p2SpecialCostPayerSlot(CardData source) {
 		List<CardData> hand = mw.gameState.getP2Hand();
-		int best = -1;
-		for (int i : mw.autoAbilityTriggers.specialCostCandidateIdxs(source, hand, Set.of(), false))
-			if (best < 0 || hand.get(i).cost() > hand.get(best).cost()) best = i;
-		return best;
+		return AutoAbilityTriggers.cheapest(hand,
+				mw.autoAbilityTriggers.specialCostCandidateIdxs(source, hand, Set.of(), false));
 	}
 
 	/**
