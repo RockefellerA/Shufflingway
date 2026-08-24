@@ -397,7 +397,8 @@ public class CardDatabase implements AutoCloseable {
      * changes the card's function.
      */
     private static final List<String> REPRINT_TEXT_UPGRADES = List.of(
-            "11-140S"  // Kadaj — reprint quotes the three nested "select 1 of 3 actions" choices
+            "11-140S",  // Kadaj — reprint quotes the three nested "select 1 of 3 actions" choices
+            "7-059L" // Bartz - reprint matches errata 
     );
 
     /**

@@ -288,6 +288,12 @@ public class ActionResolver {
         result = tryParseAddRemovedBySourceAbilityToHand(effectText, source);
         if (result != null) return result;
 
+        // Beside the other resolution-time gates, and ahead of every parser that could match its
+        // inner effect on its own: the gate is a prefix, so a find()-based reader of the payoff
+        // would resolve it unconditionally.
+        result = tryParseIfSourceUsedSpecialsThisTurn(effectText, source, xValue);
+        if (result != null) return result;
+
         result = tryParseIfOwnForwardFormedParty(effectText, source, xValue);
         if (result != null) return result;
 
@@ -545,6 +551,12 @@ public class ActionResolver {
         // piece of. Order between the two is free -- one ends in a power clause, the other in the
         // quote itself -- but they read as a pair.
         result = tryParseSelfGainsTraitsAndQuotedPermanent(effectText, source);
+        if (result != null) return result;
+
+        // Must precede tryParseCannotBeChosenStandalone: that parser matches with find() and would
+        // claim this text off its opening clause, applying an opponent-scoped shield in place of the
+        // symmetric one the sentence asks for and dropping the trait grant that follows.
+        result = tryParseSelfCannotBeChosenByAnyAndGainsTraits(effectText, source);
         if (result != null) return result;
 
         result = tryParseCannotBeChosenStandalone(effectText, source);
@@ -1641,6 +1653,9 @@ public class ActionResolver {
         // Mirrors parse(): ahead of CannotBeChosen, which would claim it off the quoted clause.
         if (tryParseSelfGainsAndBasePowerBecomesPermanent(effectText, source) != null) return "SelfGainsAndBasePowerBecomesPermanent";
         if (tryParseSelfGainsTraitsAndQuotedPermanent(effectText, source) != null) return "SelfGainsTraitsAndQuotedPermanent";
+        // Mirrors parse(): ahead of CannotBeChosen, which claims this off its opening clause.
+        if (tryParseSelfCannotBeChosenByAnyAndGainsTraits(effectText, source) != null)
+            return "SelfCannotBeChosenByAnyAndGainsTraits";
         if (tryParseCannotBeChosenStandalone(effectText, source) != null) return "CannotBeChosen";
         if (tryParseCannotBecomeDullOpp(effectText, source) != null)     return "CannotBecomeDullOpp";
         if (tryParseCannotBeReturnedToHandOpp(effectText, source) != null) return "CannotBeReturnedToHandOpp";
@@ -1941,6 +1956,7 @@ public class ActionResolver {
         if (tryParseSourcePowerBecomesRemovedForwardPower(effectText, source) != null) return "SourcePowerBecomesRemovedPower";
         if (tryParseSourcePowerBecomesOpponentWeakestForward(effectText, source) != null) return "SourcePowerBecomesOpponentWeakestForward";
         if (tryParseOpponentGainsControlOfSource(effectText, source) != null) return "OpponentGainsControlOfSource";
+        if (tryParseIfSourceUsedSpecialsThisTurn(effectText, source, 0)  != null) return "IfSourceUsedSpecialsThisTurn";
         if (tryParseIfOwnForwardFormedParty(effectText, source, 0)       != null) return "IfOwnForwardFormedParty";
         if (tryParseIfControlAtMost(effectText, source, 0)             != null) return "IfControlAtMost";
         if (tryParseIfCastAtLeast(effectText, source, 0)               != null) return "IfCastAtLeast";
@@ -2316,6 +2332,10 @@ public class ActionResolver {
         if (tryParseIfNotPayOrElse(effectText, source, 0)               != null) return "IfNotPayOrElse";
         if (tryParseRemoveTopThenPileThreshold(effectText, source)          != null) return "RemoveTopThenPileThreshold";
         if (tryParseAddRemovedBySourceAbilityToHand(effectText, source)     != null) return "AddRemovedBySourceAbilityToHand";
+        // Mirrors parse(), where this gate precedes every reader of its inner effect. Described by
+        // the gate plus what it unlocks, so the report shows both halves.
+        if (tryParseIfSourceUsedSpecialsThisTurn(effectText, source, 0) != null)
+            return "IfSourceUsedSpecialsThisTurn(" + ifSourceUsedSpecialsInnerDescription(effectText, source) + ")";
         if (tryParseIfCastAtLeast(effectText, source, 0)                != null) return "IfCastAtLeast";
         if (tryParseIfControlCondOtherThan(effectText, source, 0)      != null) return "IfControlCondOtherThan";
         // Must precede ControlGatedInsteadUpgrade, mirroring parse(): the description belongs to
@@ -2558,6 +2578,9 @@ public class ActionResolver {
         // Mirrors parse(): ahead of CannotBeChosen, which would claim it off the quoted clause.
         if (tryParseSelfGainsAndBasePowerBecomesPermanent(effectText, source) != null) return "SelfGainsAndBasePowerBecomesPermanent";
         if (tryParseSelfGainsTraitsAndQuotedPermanent(effectText, source) != null)     return "SelfGainsTraitsAndQuotedPermanent";
+        // Mirrors parse(); see the matching guard in matchedPatternName().
+        if (tryParseSelfCannotBeChosenByAnyAndGainsTraits(effectText, source) != null)
+            return "SelfCannotBeChosenByAnyAndGainsTraits";
         if (tryParseCannotBeChosenStandalone(effectText, source) != null)       return "CannotBeChosen";
         if (tryParseCannotBecomeDullOpp(effectText, source) != null)            return "CannotBecomeDullOpp";
         if (tryParseCannotBeReturnedToHandOpp(effectText, source) != null)      return "CannotBeReturnedToHandOpp";
@@ -2616,6 +2639,12 @@ public class ActionResolver {
         // Mirrors parse() and matchedPatternName(): kept beside the mass power effect it shares a
         // board with, though the pattern below needs a power figure and could not claim it.
         if (tryParseAllOppForwardsLoseTraitsEot(effectText) != null) return "AllOppForwardsLoseTraitsEot";
+        // Mirrors parse(), where this sits far above the power-boost readers below. It has to: the
+        // boost pattern is read with find() and 4-142R Malboro quotes one inside the ability it
+        // grants itself, so left in its old place further down this chain the card was described as
+        // "AllFieldPowerBoost + ?" — a sweep it does not perform, and no mention of the grant that
+        // is the whole ability. Named here for every printing of the family, as parse() resolves it.
+        if (tryParseBecomeForwardUntilEot(effectText, source) != null) return "BecomeForwardUntilEot";
         {
             Matcher bm = ALL_FIELD_POWER_BOOST_PATTERN.matcher(effectText);
             if (bm.find()) {
@@ -2867,7 +2896,6 @@ public class ActionResolver {
         if (tryParseShuffleDeck(effectText)                              != null) return "ShuffleDeck";
         if (tryParseBackupCpDraw(effectText)                             != null) return "BackupCpDraw";
         if (tryParseAllMonstersTemporaryForward(effectText)            != null) return "AllMonstersTemporaryForward";
-        if (tryParseBecomeForwardUntilEot(effectText, source)         != null) return "BecomeForwardUntilEot";
         if (tryParseNameElementOnlySelfBecomes(effectText, source)      != null) return "NameElementOnlySelfBecomes";
         if (tryParseNameElementAndJobSelfBecomes(effectText, source)   != null) return "NameElementAndJobSelfBecomes";
         if (tryParseNameJob(effectText)                                != null) return "NameJob";
@@ -4167,6 +4195,51 @@ public class ActionResolver {
         );
     }
 
+    /**
+     * Parses "If [Self] used [SpecialA] and [SpecialB] this turn, [effect]" — 7-059L Bartz's Rapid
+     * Fire, whose payoff is unlocked by his two other Special abilities.
+     *
+     * <p>A resolution-time gate, not an activation restriction: the printing lets the ability be
+     * used at any time and simply does nothing when the condition is unmet, which is what the
+     * sentence says and how the rest of this family behaves.
+     *
+     * <p>Declines when the sentence names a card other than the source, and when the inner effect
+     * cannot be parsed — a gate over an unimplemented payoff would report the ability as wired.
+     */
+    /**
+     * The description of what {@link #tryParseIfSourceUsedSpecialsThisTurn} unlocks, or {@code "?"}
+     * when that inner effect has no description of its own.
+     */
+    private static String ifSourceUsedSpecialsInnerDescription(String text, CardData source) {
+        Matcher m = IF_SOURCE_USED_SPECIALS_THIS_TURN.matcher(text.trim());
+        if (!m.matches()) return "?";
+        String inner = fullDescription(m.group("effect").trim(), source);
+        if (inner == null) inner = matchedPatternName(m.group("effect").trim(), source);
+        return inner != null ? inner : "?";
+    }
+
+    private static Consumer<GameContext> tryParseIfSourceUsedSpecialsThisTurn(
+            String text, CardData source, int xValue) {
+        if (source == null) return null;
+        Matcher m = IF_SOURCE_USED_SPECIALS_THIS_TURN.matcher(text.trim());
+        if (!m.matches()) return null;
+        if (!m.group("name").trim().equalsIgnoreCase(source.name())) return null;
+        final String first  = m.group("first").trim();
+        final String second = m.group("second").trim();
+        Consumer<GameContext> inner = parse(m.group("effect").trim(), source, xValue);
+        if (inner == null) return null;
+        return ctx -> {
+            if (!ctx.sourceUsedSpecialThisTurn(source, first)
+                    || !ctx.sourceUsedSpecialThisTurn(source, second)) {
+                ctx.logEntry(source.name() + " has not used both " + first + " and " + second
+                        + " this turn — no effect");
+                return;
+            }
+            ctx.logEntry(source.name() + " used " + first + " and " + second + " this turn");
+            inner.accept(ctx);
+        };
+    }
+
     private static Consumer<GameContext> tryParseIfOwnForwardFormedParty(String text, CardData source, int xValue) {
         Matcher m = IF_OWN_FORWARD_FORMED_PARTY.matcher(text.trim());
         if (!m.matches()) return null;
@@ -5212,12 +5285,19 @@ public class ActionResolver {
             int power = Integer.parseInt(mBlk.group("power"));
             String blockEffectText = mBlk.group("blockEffect").trim();
             Consumer<GameContext> blockEffect = parse(blockEffectText, source);
+            boolean alsoWhenBlocked = mBlk.group("isblocked") != null;
             if (blockEffect != null) {
                 return ctx -> {
                     ctx.logEntry(source.name() + " becomes a Forward with " + power + " power until end of turn");
                     ctx.makeMonsterTemporaryForward(source, power);
-                    ctx.logEntry(source.name() + " gains 'When blocks: " + blockEffectText + "'");
+                    ctx.logEntry(source.name() + " gains 'When "
+                            + (alsoWhenBlocked ? "blocks or is blocked" : "blocks")
+                            + ": " + blockEffectText + "'");
                     ctx.addTempBlockTrigger(source, blockEffect);
+                    // Registered on both events when the clause names both: they fire from
+                    // different places, and the block map alone never sees a Forward that
+                    // attacked and was blocked.
+                    if (alsoWhenBlocked) ctx.addTempIsBlockedTrigger(source, blockEffect);
                 };
             }
         }

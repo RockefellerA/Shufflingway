@@ -2210,6 +2210,16 @@ final class AutoAbilityTriggers {
 					executeAutoAbility(fa, card, isP1);
 			}
 		});
+		// The granted half, which only the block path used to read: 4-142R Malboro's "When Malboro
+		// blocks or is blocked" fired when it blocked and never when it attacked and was blocked.
+		Map<CardData, List<Consumer<GameContext>>> tempTriggers
+				= isP1 ? mw.p1TempIsBlockedTriggers : mw.p2TempIsBlockedTriggers;
+		List<Consumer<GameContext>> effects = tempTriggers.get(card);
+		if (effects != null) {
+			GameContext ctx = mw.buildGameContext(isP1);
+			for (Consumer<GameContext> effect : effects)
+				effect.accept(ctx);
+		}
 		mw.showStackWindowIfNeeded();
 	}
 

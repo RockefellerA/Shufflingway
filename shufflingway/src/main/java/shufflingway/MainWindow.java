@@ -516,6 +516,12 @@ public class MainWindow {
 	final Map<CardData, List<Consumer<GameContext>>> p2TempAttackTriggers = new LinkedHashMap<>();
 	final Map<CardData, List<Consumer<GameContext>>> p1TempBlockTriggers  = new LinkedHashMap<>();
 	final Map<CardData, List<Consumer<GameContext>>> p2TempBlockTriggers  = new LinkedHashMap<>();
+	/**
+	 * The other half of a granted "blocks or is blocked" trigger (4-142R Malboro), kept apart from
+	 * the block maps above because the two events fire from different places.
+	 */
+	final Map<CardData, List<Consumer<GameContext>>> p1TempIsBlockedTriggers = new LinkedHashMap<>();
+	final Map<CardData, List<Consumer<GameContext>>> p2TempIsBlockedTriggers = new LinkedHashMap<>();
 
 	// Attack phase sub-step (0=Prep, 1=Declare, 2=Block, 3=Damage; -1=not in attack phase)
 	int attackSubStep = -1;
@@ -893,6 +899,12 @@ public class MainWindow {
 	final Set<CardData> cannotBeChosenByAbilities      = new HashSet<>();
 	/** Forwards that cannot be selected as targets by either player's Summons this turn. */
 	final Set<CardData> cannotBeChosenBySummonsAnyone  = new HashSet<>();
+	/**
+	 * The ability half of the shield above — "cannot be chosen by a Summon or an ability this turn"
+	 * (2-065L Balthier). Symmetric like its twin, and for the same reason: the sentence names no
+	 * player, so neither may choose the card.
+	 */
+	final Set<CardData> cannotBeChosenByAbilitiesAnyone = new HashSet<>();
 	/** Maps a card to an element: that card cannot be chosen by Summons/abilities of that element this turn. */
 	final Map<CardData, String> cannotBeChosenByElement = new HashMap<>();
 	/** Maps a card to an element: damage dealt to that card by Summons/abilities of that element becomes 0 this turn. */
@@ -1875,11 +1887,14 @@ public class MainWindow {
 		cannotBeChosenBySummons.clear();
 		cannotBeChosenByAbilities.clear();
 		cannotBeChosenBySummonsAnyone.clear();
+		cannotBeChosenByAbilitiesAnyone.clear();
 		cannotBeChosenByElement.clear();
 		p1TempAttackTriggers.clear();
 		p2TempAttackTriggers.clear();
 		p1TempBlockTriggers.clear();
 		p2TempBlockTriggers.clear();
+		p1TempIsBlockedTriggers.clear();
+		p2TempIsBlockedTriggers.clear();
 		p1CannotBlock.clear();
 		p2CannotBlock.clear();
 		cannotUseActionAbilitiesThisTurn.clear();
@@ -3070,6 +3085,7 @@ public class MainWindow {
                                 grantedFieldAbilities.clear();          grantedMaxAttacks.clear();
                                 p1TempAttackTriggers.clear();           p2TempAttackTriggers.clear();
                                 p1TempBlockTriggers.clear();            p2TempBlockTriggers.clear();
+                                p1TempIsBlockedTriggers.clear();        p2TempIsBlockedTriggers.clear();
                                 nextIncomingDmgZeroSet.clear();   nextIncomingDmgRedirectMap.clear();   nextIncomingDmgReduceMap.clear();   nextAbilityDmgReduceMap.clear();
                                 nextIncomingDmgReduceKickbackMap.clear();  pendingShieldKickbacks.clear();
                                 incomingDmgIncreaseMap.clear();   globalForwardIncomingDmgIncrease = 0;   nullifyAbilityDmgSet.clear();
@@ -3084,7 +3100,7 @@ public class MainWindow {
                                 perCardIncomingDmgMultiplierMap.clear();
                                 p1Turn.forwardIncomingDmgMult = 1;      p2Turn.forwardIncomingDmgMult = 1;
                                 p1Turn.abilityOutgoingDmgMult = 1;      p2Turn.abilityOutgoingDmgMult = 1;
-                                cannotBeChosenBySummons.clear();  cannotBeChosenByAbilities.clear();  cannotBeChosenBySummonsAnyone.clear();  cannotBeChosenByElement.clear();  nullifyElementDamageMap.clear();  nullifyElementDamageAbilityOnlyMap.clear();  rfgInsteadOfBzThisTurn.clear();  drawOnFieldToBzThisTurn.clear();  putIntoBzWhenLeavesFieldThisTurn.clear();  damageZeroedSourcesThisTurn.clear();  damagedBySourcesThisTurn.clear();
+                                cannotBeChosenBySummons.clear();  cannotBeChosenByAbilities.clear();  cannotBeChosenBySummonsAnyone.clear();  cannotBeChosenByAbilitiesAnyone.clear();  cannotBeChosenByElement.clear();  nullifyElementDamageMap.clear();  nullifyElementDamageAbilityOnlyMap.clear();  rfgInsteadOfBzThisTurn.clear();  drawOnFieldToBzThisTurn.clear();  putIntoBzWhenLeavesFieldThisTurn.clear();  damageZeroedSourcesThisTurn.clear();  damagedBySourcesThisTurn.clear();
                                 breaktouchBattleSet.clear();   breakWhenDealtDamageSet.clear();
                                 p1Turn.nonLethalProtection = false;    p2Turn.nonLethalProtection = false;
                                 p1Turn.dmgReductionDisabled = false;   p2Turn.dmgReductionDisabled = false;
@@ -11430,6 +11446,7 @@ public class MainWindow {
 
 		// Unqualified grants: no player named, so both are bound.
 		if (bySummon && cannotBeChosenBySummonsAnyone.contains(c)) return true;
+		if (!bySummon && cannotBeChosenByAbilitiesAnyone.contains(c)) return true;
 		if (bySummon && ActionResolver.hasCannotBeChosenByAnySummonFieldAbility(c)) return true;
 		String immuneElem = cannotBeChosenByElement.get(c);
 		if (immuneElem != null && chooserElems.contains(immuneElem)) return true;

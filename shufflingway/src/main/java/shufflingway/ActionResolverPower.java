@@ -136,8 +136,21 @@ final class ActionResolverPower {
         };
     }
     /**
-     * Parses "Until the end of the turn, &lt;cardName&gt; doubles its power [and gains traits]".
+     * Parses "Until the end of the turn, &lt;cardName&gt; doubles its power [and gains traits]",
+     * and the multi-attack sentence 1-128R Gilgamesh prints after it.
      * Subject must match {@code source.name()}.
+     *
+     * <p>The trailing sentence is read here rather than left to the chain because this parser
+     * claims the whole ability: its traits group stops at the first "." and everything past that
+     * was silently discarded, so Gilgamesh doubled and gained its keywords but never got the second
+     * attack that is the point of the ability.
+     *
+     * <p>Only one specific, anchored sentence is looked for, not "whatever follows dispatched
+     * through {@code parse()}". The traits group stops at the first "." <em>wherever it is</em>,
+     * including inside a quotation: on 17-084C Lorenzo the tail is the back half of a quoted
+     * ability ({@code Add it to your hand."}), and handing that to the general chain would resolve
+     * a fragment as if it were an effect of its own. Lorenzo's quoted grant is still dropped, which
+     * is wrong but visibly so.
      */
     static Consumer<GameContext> tryParseStandaloneDoublesItsPowerUntil(
             String text, CardData source) {
@@ -147,11 +160,26 @@ final class ActionResolverPower {
         String subject = m.group("subject").trim();
         if (!subject.equalsIgnoreCase(source.name())) return null;
         EnumSet<CardData.Trait> traits = parseTraits(m.group("traits"));
+
+        // Restrictions are stripped, not parsed: "You can use this ability only during your turn."
+        // is carried as a flag on the ability and gated at activation.
+        String tail = stripRestrictionSentences(
+                text.substring(m.end()).replaceFirst("^\\s*[.!]\\s*", "").trim()).trim();
+        int attacks = 0;
+        Matcher am = SELF_CAN_ATTACK_N_TIMES_THIS_TURN.matcher(tail);
+        if (am.matches() && am.group("subj").trim().equalsIgnoreCase(source.name()))
+            attacks = am.group("count") != null ? Integer.parseInt(am.group("count")) : 2;
+        final int maxAttacks = attacks;
+
         String trailPart = traitNamesOnly(traits);
         String logSuffix = " — power doubled" + (trailPart.isEmpty() ? "" : ", gains " + trailPart) + " until end of turn";
         return ctx -> {
             ctx.logEntry(source.name() + logSuffix);
             ctx.doubleSourceForwardPower(source, traits);
+            if (maxAttacks > 0) {
+                ctx.logEntry(source.name() + " can attack " + maxAttacks + " times this turn");
+                ctx.grantMaxAttacksUntilEndOfTurn(source, maxAttacks);
+            }
         };
     }
     /**

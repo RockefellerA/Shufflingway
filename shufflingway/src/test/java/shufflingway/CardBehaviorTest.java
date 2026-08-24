@@ -32622,4 +32622,346 @@ public class CardBehaviorTest {
 
     // =========================================================================================
 
+
+    // =========================================================================================
+    // Balthier 2-065L "Fires of War" — a shield that binds both players
+    //
+    // "Balthier cannot be chosen by a Summon or an ability this turn and gains First Strike until
+    // the end of the turn." The sentence names no player, so the immunity is symmetric: Balthier's
+    // own controller cannot target him either. Every other turn-scoped shield in the family is
+    // spelled "by your opponent's …" and seeds the opponent-scoped sets, which is why this needed a
+    // shield of its own rather than a widening of theirs.
+    // =========================================================================================
+
+    private static final String BALTHIER_2_065L_EFFECT =
+            "Balthier cannot be chosen by a Summon or an ability this turn "
+            + "and gains First Strike until the end of the turn.";
+
+    @Test
+    void firesOfWarParsesAndIsNamedForBothOfItsHalves() {
+        CardData balthier = makeForward("Balthier", "Wind", 4, 8000);
+        assertNotNull(ActionResolver.parse(BALTHIER_2_065L_EFFECT, balthier));
+        assertEquals("SelfCannotBeChosenByAnyAndGainsTraits",
+                ActionResolver.matchedPatternName(BALTHIER_2_065L_EFFECT, balthier));
+        assertEquals("SelfCannotBeChosenByAnyAndGainsTraits",
+                ActionResolver.fullDescription(BALTHIER_2_065L_EFFECT, balthier));
+    }
+
+    @Test
+    void firesOfWarShieldsBalthierFromEitherPlayer() {
+        MainWindow mw = new MainWindow();
+        CardData balthier = makeForward("Balthier", "Wind", 4, 8000);
+        CardData chooser  = makeForward("Chooser", "Fire", 3, 5000);
+        placeP1Forward(mw, balthier);
+
+        ActionResolver.parse(BALTHIER_2_065L_EFFECT, balthier).accept(mw.buildGameContext(true));
+
+        assertTrue(mw.isProtectedFromChoice(balthier, true, false, true,  chooser), "opponent's Summon");
+        assertTrue(mw.isProtectedFromChoice(balthier, true, false, false, chooser), "opponent's ability");
+        assertTrue(mw.isProtectedFromChoice(balthier, true, true,  true,  chooser),
+                "\"a Summon\" names no player, so his own side is bound too");
+        assertTrue(mw.isProtectedFromChoice(balthier, true, true,  false, chooser),
+                "and likewise for abilities");
+    }
+
+    @Test
+    void firesOfWarAlsoGrantsFirstStrike() {
+        MainWindow mw = new MainWindow();
+        CardData balthier = makeForward("Balthier", "Wind", 4, 8000);
+        placeP1Forward(mw, balthier);
+
+        ActionResolver.parse(BALTHIER_2_065L_EFFECT, balthier).accept(mw.buildGameContext(true));
+
+        assertTrue(mw.effectiveP1HasTrait(0, CardData.Trait.FIRST_STRIKE));
+    }
+
+    @Test
+    void firesOfWarIsDeclinedWhenTheSentenceNamesAnotherCard() {
+        // Every primitive it calls acts on the source, so a mismatch would shield the wrong Forward.
+        CardData fran = makeForward("Fran", "Wind", 3, 7000);
+        assertNull(ActionResolver.parse(BALTHIER_2_065L_EFFECT, fran));
+    }
+
+    // =========================================================================================
+
+    // =========================================================================================
+    // Bartz 7-059L "Rapid Fire" — a payoff unlocked by two other Special abilities
+    //
+    // "If Bartz used Spellblade and Dual-Wield this turn, until the end of the turn, Bartz gains
+    // Haste, Brave and 'Bartz can attack 3 times in the same turn'." The payoff half already
+    // parsed; the gate in front of it did not, so the whole ability was unparsed.
+    //
+    // The record it reads is the one Gogo's Mimic already keeps — every Special activated this
+    // turn, with the card that activated it — so no new tracking was needed.
+    // =========================================================================================
+
+    private static final String BARTZ_7_059L_EFFECT =
+            "If Bartz used Spellblade and Dual-Wield this turn, until the end of the turn, "
+            + "Bartz gains Haste, Brave and \"Bartz can attack 3 times in the same turn\".";
+
+    private static ActionAbility specialNamed(String name) {
+        List<ActionAbility> abilities = CardData.parseActionAbilities(
+                "[[s]]" + name + "[[/]] 《S》: Choose 1 Forward. Deal it 5000 damage.");
+        assertEquals(1, abilities.size(), "the probe ability should parse as one Special");
+        assertEquals(name, abilities.get(0).abilityName());
+        return abilities.get(0);
+    }
+
+    @Test
+    void rapidFireIsDescribedByItsGateAndWhatItUnlocks() {
+        CardData bartz = makeForward("Bartz", "Wind", 3, 7000);
+        assertEquals("IfSourceUsedSpecialsThisTurn",
+                ActionResolver.matchedPatternName(BARTZ_7_059L_EFFECT, bartz));
+        assertEquals("IfSourceUsedSpecialsThisTurn(UntilEotGainsPowerTraitsAndQuoted)",
+                ActionResolver.fullDescription(BARTZ_7_059L_EFFECT, bartz));
+    }
+
+    @Test
+    void rapidFireDoesNothingUntilBothSpecialsHaveBeenUsed() {
+        MainWindow mw = new MainWindow();
+        CardData bartz = makeForward("Bartz", "Wind", 3, 7000);
+        placeP1Forward(mw, bartz);
+        Consumer<GameContext> fn = ActionResolver.parse(BARTZ_7_059L_EFFECT, bartz);
+        assertNotNull(fn);
+
+        fn.accept(mw.buildGameContext(true));
+        assertFalse(mw.effectiveP1HasTrait(0, CardData.Trait.HASTE), "neither Special used yet");
+
+        mw.specialAbilitiesUsedThisTurn.add(new UsedSpecialAbility(bartz, specialNamed("Spellblade")));
+        fn.accept(mw.buildGameContext(true));
+        assertFalse(mw.effectiveP1HasTrait(0, CardData.Trait.HASTE), "one of the two is not enough");
+    }
+
+    @Test
+    void rapidFireGrantsHasteBraveAndTheThirdAttackOnceBothAreUsed() {
+        MainWindow mw = new MainWindow();
+        CardData bartz = makeForward("Bartz", "Wind", 3, 7000);
+        placeP1Forward(mw, bartz);
+        mw.specialAbilitiesUsedThisTurn.add(new UsedSpecialAbility(bartz, specialNamed("Spellblade")));
+        mw.specialAbilitiesUsedThisTurn.add(new UsedSpecialAbility(bartz, specialNamed("Dual-Wield")));
+
+        ActionResolver.parse(BARTZ_7_059L_EFFECT, bartz).accept(mw.buildGameContext(true));
+
+        assertTrue(mw.effectiveP1HasTrait(0, CardData.Trait.HASTE));
+        assertTrue(mw.effectiveP1HasTrait(0, CardData.Trait.BRAVE));
+        assertEquals(3, mw.grantedMaxAttacks.get(bartz),
+                "the quoted clause was already handled — only the gate in front of it was missing");
+    }
+
+    @Test
+    void anotherCopyOfBartzDoesNotUnlockThisOne() {
+        // The record is read by identity: the question is what this Bartz has done.
+        MainWindow mw = new MainWindow();
+        CardData bartz  = makeForward("Bartz", "Wind", 3, 7000);
+        CardData twin   = makeForward("Bartz", "Wind", 3, 7000);
+        placeP1Forward(mw, bartz);
+        mw.specialAbilitiesUsedThisTurn.add(new UsedSpecialAbility(twin, specialNamed("Spellblade")));
+        mw.specialAbilitiesUsedThisTurn.add(new UsedSpecialAbility(twin, specialNamed("Dual-Wield")));
+
+        ActionResolver.parse(BARTZ_7_059L_EFFECT, bartz).accept(mw.buildGameContext(true));
+
+        assertFalse(mw.effectiveP1HasTrait(0, CardData.Trait.HASTE));
+    }
+
+    // =========================================================================================
+
+    // =========================================================================================
+    // Malboro 4-142R — the "or is blocked" half of a granted trigger
+    //
+    // "Until the end of the turn, Malboro also becomes a Forward with 6000 power and 'When Malboro
+    // blocks or is blocked, all the Forwards opponent controls lose 2000 power until the end of the
+    // turn.'" The grant was registered as a block trigger only, and the is-blocked event reads a
+    // different map — so it fired when Malboro blocked and never when Malboro attacked and was
+    // blocked, which is the half the card is usually played for.
+    //
+    // The description was wrong too, and for a reason worth keeping: fullDescription reached the
+    // all-Forwards power-boost reader before the become-Forward one, and that reader find()s the
+    // boost printed inside the quotation. Malboro was reported as "AllFieldPowerBoost + ?" — a
+    // sweep it does not perform.
+    // =========================================================================================
+
+    private static final String MALBORO_4_142R_EFFECT =
+            "Until the end of the turn, Malboro also becomes a Forward with 6000 power and "
+            + "\"When Malboro blocks or is blocked, all the Forwards opponent controls lose 2000 power "
+            + "until the end of the turn.\" You can only use this ability once per turn.";
+
+    @Test
+    void malboroIsNoLongerDescribedAsASweepItDoesNotPerform() {
+        CardData malboro = makeForward("Malboro", "Water", 3, 0);
+        assertEquals("BecomeForwardUntilEot",
+                ActionResolver.matchedPatternName(MALBORO_4_142R_EFFECT, malboro));
+        assertEquals("BecomeForwardUntilEot",
+                ActionResolver.fullDescription(MALBORO_4_142R_EFFECT, malboro),
+                "the boost quoted inside the grant is not an effect this ability performs itself");
+    }
+
+    /** Seats Malboro as a P1 Monster and runs its ability, leaving the granted trigger armed. */
+    private static CardData armedMalboro(MainWindow mw) {
+        CardData malboro = makeForward("Malboro", "Water", 3, 0);
+        mw.gameState.getIdentity().put(malboro, true);
+        mw.placeCardInMonsterZone(malboro);
+        ActionResolver.parse(MALBORO_4_142R_EFFECT, malboro).accept(mw.buildGameContext(true));
+        return malboro;
+    }
+
+    @Test
+    void malboroBecomesAForwardAndArmsBothHalvesOfItsTrigger() {
+        MainWindow mw = new MainWindow();
+        CardData malboro = armedMalboro(mw);
+
+        assertEquals(6000, mw.p1MonsterForwardPower(0));
+        assertTrue(mw.p1TempBlockTriggers.containsKey(malboro), "fires when Malboro blocks");
+        assertTrue(mw.p1TempIsBlockedTriggers.containsKey(malboro), "and when Malboro is blocked");
+    }
+
+    @Test
+    void theGrantedTriggerFiresWhenMalboroIsBlocked() {
+        // The half that was missing: Malboro attacks, the opponent blocks, and the opponent's row
+        // should lose 2000 power.
+        MainWindow mw = new MainWindow();
+        CardData malboro = armedMalboro(mw);
+        placeP2Forward(mw, makeForward("Blocker", "Fire", 3, 7000));
+        placeP2Forward(mw, makeForward("Bystander", "Fire", 3, 7000));
+
+        mw.autoAbilityTriggers.triggerAutoAbilitiesForIsBlocked(malboro, true);
+
+        assertEquals(5000, mw.effectiveP2ForwardPower(0));
+        assertEquals(5000, mw.effectiveP2ForwardPower(1));
+    }
+
+    @Test
+    void theGrantedTriggerStillFiresWhenMalboroBlocks() {
+        MainWindow mw = new MainWindow();
+        CardData malboro = armedMalboro(mw);
+        placeP2Forward(mw, makeForward("Attacker", "Fire", 3, 7000));
+
+        mw.autoAbilityTriggers.triggerAutoAbilitiesForBlock(malboro, true);
+
+        assertEquals(5000, mw.effectiveP2ForwardPower(0));
+    }
+
+    @Test
+    void aGrantThatOnlySaysBlocksIsNotArmedForBeingBlocked() {
+        // 18-089H Echidna's wording. The two halves are registered separately precisely so a clause
+        // naming one event does not answer for the other.
+        MainWindow mw = new MainWindow();
+        CardData echidna = makeForward("Echidna", "Water", 4, 0);
+        mw.gameState.getIdentity().put(echidna, true);
+        mw.placeCardInMonsterZone(echidna);
+
+        ActionResolver.parse("Until the end of the turn, Echidna also becomes a Forward with 8000 power "
+                + "and \"When Echidna blocks, draw 1 card.\"", echidna).accept(mw.buildGameContext(true));
+
+        assertTrue(mw.p1TempBlockTriggers.containsKey(echidna));
+        assertFalse(mw.p1TempIsBlockedTriggers.containsKey(echidna),
+                "the clause says nothing about being blocked");
+    }
+
+    // =========================================================================================
+
+
+    // =========================================================================================
+    // Gilgamesh 1-128R "Morphing Time" — the sentence the doubling parser was eating
+    //
+    // "Until the end of the turn, Gilgamesh doubles its power and gains First Strike and Brave.
+    // Gilgamesh can attack twice this turn. You can use this ability only during your turn."
+    //
+    // The doubling parser claims the whole ability, and its traits group stops at the first "." —
+    // so the second attack, which is what the ability is played for, was silently discarded.
+    // Gilgamesh doubled and gained its keywords and then attacked once.
+    //
+    // The trailing sentence is read as one specific, anchored form rather than dispatched through
+    // parse(). That group stops at the first "." wherever it falls, including inside a quotation:
+    // 17-084C Lorenzo's tail is the back half of a quoted ability, and handing that to the general
+    // chain would resolve a fragment as an effect of its own.
+    // =========================================================================================
+
+    private static final String MORPHING_TIME_EFFECT =
+            "Until the end of the turn, Gilgamesh doubles its power and gains First Strike and Brave. "
+            + "Gilgamesh can attack twice this turn. You can use this ability only during your turn.";
+
+    @Test
+    void morphingTimeDoublesPowerGrantsKeywordsAndTheSecondAttack() {
+        MainWindow mw = new MainWindow();
+        CardData gilgamesh = makeForward("Gilgamesh", "Lightning", 3, 7000);
+        placeP1Forward(mw, gilgamesh);
+
+        ActionResolver.parse(MORPHING_TIME_EFFECT, gilgamesh).accept(mw.buildGameContext(true));
+
+        assertEquals(14000, mw.effectiveP1ForwardPower(0), "7000 doubled");
+        assertTrue(mw.effectiveP1HasTrait(0, CardData.Trait.FIRST_STRIKE));
+        assertTrue(mw.effectiveP1HasTrait(0, CardData.Trait.BRAVE));
+        assertEquals(2, mw.grantedMaxAttacks.get(gilgamesh),
+                "the sentence the traits group used to stop in front of");
+    }
+
+    @Test
+    void theRestrictionSentenceIsNotMistakenForTheAttackClause() {
+        // "You can use this ability only during your turn." is a flag on the ability, stripped
+        // before the trailing sentence is matched rather than parsed as an effect.
+        CardData gilgamesh = makeForward("Gilgamesh", "Lightning", 3, 7000);
+        assertEquals("StandaloneDoublesItsPowerUntil",
+                ActionResolver.matchedPatternName(MORPHING_TIME_EFFECT, gilgamesh));
+
+        List<ActionAbility> abilities = CardData.parseActionAbilities(
+                "[[s]]Gilgamesh Morphing Time [[/]]《S》《Lightning》《Lightning》: " + MORPHING_TIME_EFFECT);
+        assertEquals(1, abilities.size());
+        assertTrue(abilities.get(0).yourTurnOnly(), "carried as a flag, not resolved as an effect");
+    }
+
+    @Test
+    void aDoublingWithNoTrailingSentenceGrantsNoExtraAttack() {
+        MainWindow mw = new MainWindow();
+        CardData gilgamesh = makeForward("Gilgamesh", "Lightning", 3, 7000);
+        placeP1Forward(mw, gilgamesh);
+
+        ActionResolver.parse("Until the end of the turn, Gilgamesh doubles its power.", gilgamesh)
+                .accept(mw.buildGameContext(true));
+
+        assertEquals(14000, mw.effectiveP1ForwardPower(0));
+        assertNull(mw.grantedMaxAttacks.get(gilgamesh));
+    }
+
+    @Test
+    void aTrailingSentenceNamingAnotherCardIsIgnored() {
+        // The grant acts on the source, so a sentence naming someone else must not arm it.
+        MainWindow mw = new MainWindow();
+        CardData gilgamesh = makeForward("Gilgamesh", "Lightning", 3, 7000);
+        placeP1Forward(mw, gilgamesh);
+
+        ActionResolver.parse("Until the end of the turn, Gilgamesh doubles its power. "
+                + "Bartz can attack twice this turn.", gilgamesh).accept(mw.buildGameContext(true));
+
+        assertNull(mw.grantedMaxAttacks.get(gilgamesh));
+    }
+
+    @Test
+    void aQuotedTailIsNotMistakenForTheAttackClause() {
+        // 17-084C Lorenzo's shape. The traits group stops at the "." inside the quotation, so what
+        // the trailing-sentence check is handed is the fragment `Add it to your hand."`. The
+        // anchored pattern declines it, which is the whole reason this reads one specific sentence
+        // rather than dispatching whatever follows through parse().
+        //
+        // Called directly: Lorenzo does not reach this parser through parse() at all — the choose
+        // chain claims the ability off the clause printed inside the quotation, so the card neither
+        // doubles nor gains the trigger. That is a separate, pre-existing gap.
+        MainWindow mw = new MainWindow();
+        CardData lorenzo = makeForward("Lorenzo", "Earth", 3, 7000);
+        placeP1Forward(mw, lorenzo);
+        int handBefore = mw.gameState.getP1Hand().size();
+
+        Consumer<GameContext> fn = ActionResolverPower.tryParseStandaloneDoublesItsPowerUntil(
+                "until the end of the turn, Lorenzo doubles its power and gains "
+                + "\"When Lorenzo deals damage to your opponent, choose 1 Character in your Break Zone. "
+                + "Add it to your hand.\"", lorenzo);
+        assertNotNull(fn);
+        fn.accept(mw.buildGameContext(true));
+
+        assertEquals(14000, mw.effectiveP1ForwardPower(0), "the doubling half still happens");
+        assertEquals(handBefore, mw.gameState.getP1Hand().size(), "and the fragment resolved nothing");
+        assertNull(mw.grantedMaxAttacks.get(lorenzo));
+    }
+
+    // =========================================================================================
+
 }

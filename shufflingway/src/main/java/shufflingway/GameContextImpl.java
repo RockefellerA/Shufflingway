@@ -750,6 +750,12 @@ final class GameContextImpl implements GameContext {
 				logEntry("Effect: " + name + " cannot be chosen by any Summon this turn");
 			}
 
+			@Override public void shieldSelfCannotBeChosenByAnySummonOrAbility(CardData source) {
+				if (source == null) return;
+				mw.cannotBeChosenBySummonsAnyone.add(source);
+				mw.cannotBeChosenByAbilitiesAnyone.add(source);
+			}
+
 			@Override public void shieldNamedCardCannotBeChosenByElement(String cardName, String element) {
 				List<CardData> fwds = isP1 ? mw.p1ForwardCards : mw.p2ForwardCards;
 				for (CardData c : fwds) {
@@ -965,7 +971,9 @@ final class GameContextImpl implements GameContext {
 				final Set<CardData> abilityImmuneFromOpp;
 				{
 					Set<CardData> sumTmp = new HashSet<>(mw.cannotBeChosenBySummonsAnyone);
-					Set<CardData> ablTmp = new HashSet<>();
+					// Balthier 2-065L's turn-scoped shield is the one that names no player, so it
+					// seeds the symmetric ability set rather than the opponent-scoped one below.
+					Set<CardData> ablTmp = new HashSet<>(mw.cannotBeChosenByAbilitiesAnyone);
 					// The turn-scoped shields are all printed "by your opponent's ...", so they seed
 					// the opponent-scoped sets rather than the symmetric ones.
 					Set<CardData> sumOpp = new HashSet<>(mw.cannotBeChosenBySummons);
@@ -7280,6 +7288,11 @@ final class GameContextImpl implements GameContext {
 				triggers.computeIfAbsent(card, k -> new ArrayList<>()).add(effect);
 			}
 
+			@Override public void addTempIsBlockedTrigger(CardData card, Consumer<GameContext> effect) {
+				Map<CardData, List<Consumer<GameContext>>> map
+						= isP1 ? mw.p1TempIsBlockedTriggers : mw.p2TempIsBlockedTriggers;
+				map.computeIfAbsent(card, k -> new ArrayList<>()).add(effect);
+			}
 			@Override public void addTempBlockTrigger(CardData card, Consumer<GameContext> effect) {
 				Map<CardData, List<Consumer<GameContext>>> triggers
 						= isP1 ? mw.p1TempBlockTriggers : mw.p2TempBlockTriggers;
@@ -7771,6 +7784,19 @@ final class GameContextImpl implements GameContext {
 
 			@Override public boolean selfReceivedDamageThisTurn() {
 				return mw.turn(isP1).receivedDamageThisTurn;
+			}
+
+			@Override public boolean sourceUsedSpecialThisTurn(CardData source, String specialName) {
+				if (source == null || specialName == null) return false;
+				// The record Gogo's Mimic already keeps, read for a second purpose: it lists every
+				// Special activated this turn with the card that activated it, which is exactly the
+				// question Rapid Fire asks. Identity on the source — what this Bartz has done, not
+				// what a second copy of him did.
+				for (UsedSpecialAbility used : mw.specialAbilitiesUsedThisTurn)
+					if (used.source() == source
+							&& used.ability().abilityName().equalsIgnoreCase(specialName.trim()))
+						return true;
+				return false;
 			}
 
 			@Override public boolean ownForwardFormedPartyThisTurn() {

@@ -3093,6 +3093,23 @@ final class ActionResolverPatterns {
      * swallowed whole, never reaching the parsers below that read them. Requiring the sentence to
      * end here sends each of those on to its own branch.
      */
+    /**
+     * Matches "[Self] cannot be chosen by a Summon or an ability this turn and gains [traits] until
+     * the end of the turn." — 2-065L Balthier's Fires of War, the corpus's only printing of the
+     * unqualified both-halves immunity.
+     *
+     * <p>"a Summon or an ability", not "your opponent's Summons or abilities": this binds both
+     * players, so it seeds the symmetric shields rather than the opponent-scoped ones. Nothing else
+     * in the family spells it that way, which is why it is read here rather than folded into
+     * {@link #STANDALONE_NAMED_CANNOT_BE_CHOSEN}.
+     *
+     * <p>Groups: {@code name} — the card shielding itself; {@code traits} — the keywords it gains.
+     */
+    static final Pattern SELF_CANNOT_BE_CHOSEN_BY_ANY_AND_GAINS_TRAITS = Pattern.compile(
+        "(?i)^(?<name>[A-Z][A-Za-z''\\-\\s()]+?)\\s+cannot\\s+be\\s+chosen\\s+by\\s+a\\s+Summon\\s+or\\s+an\\s+" +
+        "ability\\s+this\\s+turn\\s+and\\s+gains?\\s+(?<traits>.+?)\\s+until\\s+(?:the\\s+)?end\\s+of\\s+" +
+        "(?:the\\s+)?turn[.!]?$"
+    );
     static final Pattern STANDALONE_NAMED_CANNOT_BE_CHOSEN_ANY_SUMMON = Pattern.compile(
         "(?i)(?<name>[A-Z][A-Za-z''\\-\\s()]+?)\\s+cannot\\s+be\\s+chosen\\s+by\\s+(?!your\\s)Summons?" +
         "(?:\\s+during\\s+this\\s+turn)?\\s*(?=[.!\"]|$)"
@@ -4726,6 +4743,24 @@ final class ActionResolverPatterns {
      *   <li>Group {@code traits}  — optional trailing text (e.g. "and gains First Strike and Brave")</li>
      * </ul>
      */
+    /**
+     * Matches "[Self] can attack twice|N times this turn." standing as a sentence of its own —
+     * 1-128R Gilgamesh's Morphing Time.
+     *
+     * <p>The only turn-scoped multi-attack grant in the corpus that is neither printed as a field
+     * ability ({@code CardData.FIELD_CAN_ATTACK_TWICE}) nor quoted inside one
+     * ({@link #GRANTED_CAN_ATTACK_TWICE}), and the only one spelled "this turn" rather than "in the
+     * same turn". It is read from the doubling parser rather than from a dispatch of its own,
+     * because that parser already claims the sentence in front of it and no card prints this one
+     * alone; the constant is here so a card that ever does has something to reach for.
+     *
+     * <p>Anchored at both ends. It is tried against whatever follows the clause the doubling
+     * pattern matched, and that tail is not always a sentence — see the note on the parser.
+     */
+    static final Pattern SELF_CAN_ATTACK_N_TIMES_THIS_TURN = Pattern.compile(
+        "(?i)^(?<subj>[A-Z][A-Za-z''\\-\\s()]+?)\\s+can\\s+attack\\s+" +
+        "(?:twice|(?<count>\\d+)\\s+times)\\s+this\\s+turn[.!]?$"
+    );
     static final Pattern STANDALONE_DOUBLES_ITS_POWER_UNTIL = Pattern.compile(
         "(?i)Until\\s+(?:the\\s+)?end\\s+of\\s+(?:the\\s+)?turn\\s*,\\s+" +
         "(?<subject>.+?)\\s+doubles?\\s+its\\s+power(?<traits>[^.!]*)"
@@ -5350,6 +5385,26 @@ final class ActionResolverPatterns {
      *
      * <p>Groups: {@code count}, {@code name} (the counter), {@code job}.
      */
+    /**
+     * Matches "If [Self] used [SpecialA] and [SpecialB] this turn, [effect]" — 7-059L Bartz's Rapid
+     * Fire, which pays off only after both of his other Special abilities have been used.
+     *
+     * <p>The corpus's only ability that reads back <em>which named Special abilities</em> a card has
+     * used, so the tracking behind it is deliberately minimal: a per-turn record of Special names
+     * keyed by card, written where an activation's costs are paid.
+     *
+     * <p>Both names are captured lazily and separated on the last " and " before "this turn", which
+     * is safe while the shape stays two names; a third would need a list form here and in the
+     * handler.
+     *
+     * <p>Groups: {@code name} — the card, checked against the source; {@code first} and
+     * {@code second} — the Special ability names; {@code effect} — what happens if both were used.
+     */
+    static final Pattern IF_SOURCE_USED_SPECIALS_THIS_TURN = Pattern.compile(
+        "(?i)^If\\s+(?<name>[A-Z][A-Za-z''\\-\\s()]+?)\\s+used\\s+(?<first>.+?)\\s+and\\s+(?<second>.+?)\\s+" +
+        "this\\s+turn,\\s+(?<effect>.+)$",
+        Pattern.DOTALL
+    );
     static final Pattern PLACE_COUNTERS_ON_EACH_JOB = Pattern.compile(
         "(?i)^Place\\s+(?<count>\\d+)\\s+(?<name>.+?)\\s+Counters?\\s+on\\s+each\\s+Job\\s+" +
         "(?<job>.+?)\\s+you\\s+control[.!]?$"
@@ -6104,12 +6159,18 @@ final class ActionResolverPatterns {
         Pattern.DOTALL
     );
     /**
-     * Extended form: "…becomes a Forward with N power and "When [name] blocks or is blocked, [effect]"."
-     * Groups: {@code power}, {@code blockEffect}.
+     * Extended form: "…becomes a Forward with N power and "When [name] blocks[ or is blocked],
+     * [effect]"."
+     *
+     * <p>Group {@code isblocked} is non-null for the longer spelling, and the parser needs it: the
+     * two halves are fired from different places, so a grant registered only as "blocks" never
+     * reaches a Malboro that attacked and was blocked.
+     *
+     * <p>Groups: {@code power}, {@code isblocked}, {@code blockEffect}.
      */
     static final Pattern BECOME_FORWARD_AND_BLOCK_TRIGGER = Pattern.compile(
         "(?i)^Until\\s+the\\s+end\\s+of\\s+the\\s+turn,\\s+.+?\\s+also\\s+becomes?\\s+a\\s+Forward\\s+with\\s+(?<power>\\d+)\\s+power" +
-        "\\s+and\\s+\"When\\s+[^\"]+?\\s+blocks?(?:\\s+or\\s+is\\s+blocked)?\\s*,\\s+(?<blockEffect>[^\"]+?)\"\\s*[.!]?",
+        "\\s+and\\s+\"When\\s+[^\"]+?\\s+blocks?(?<isblocked>\\s+or\\s+is\\s+blocked)?\\s*,\\s+(?<blockEffect>[^\"]+?)\"\\s*[.!]?",
         Pattern.DOTALL
     );
     /**

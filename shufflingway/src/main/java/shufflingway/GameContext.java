@@ -1106,6 +1106,19 @@ public interface GameContext {
     void shieldNamedCardCannotBeChosenByAnySummon(String name);
 
     /**
+     * Shields {@code source} from being chosen by any Summon <em>or</em> ability this turn, by
+     * either player — 2-065L Balthier's Fires of War, the corpus's only unqualified both-halves
+     * immunity.
+     *
+     * <p>Symmetric, unlike the shields spelled "by your opponent's …": nothing in the sentence
+     * names a player, so Balthier's own controller cannot choose him either.
+     *
+     * <p>By identity rather than by name, as the card names its own printing: a second copy of it
+     * on either side is a different card and is not shielded.
+     */
+    void shieldSelfCannotBeChosenByAnySummonOrAbility(CardData source);
+
+    /**
      * Registers that the named card (on the ability user's field) cannot be chosen by
      * Summons or abilities whose element matches {@code element} this turn.
      */
@@ -1318,6 +1331,15 @@ public interface GameContext {
 
     /** Returns {@code true} if a Forward the active player controls formed a party attack this turn. */
     boolean ownForwardFormedPartyThisTurn();
+
+    /**
+     * Whether {@code source} has activated the Special ability named {@code specialName} this turn
+     * — 7-059L Bartz's Rapid Fire, which reads back Spellblade and Dual-Wield.
+     *
+     * <p>Recorded when an activation's costs are paid, so an ability that is cancelled on the stack
+     * still counts as used, which is what "used … this turn" means.
+     */
+    boolean sourceUsedSpecialThisTurn(CardData source, String specialName);
 
     /**
      * Returns the number of cards of {@code cardType} ("Forward", "Backup", "Monster",
@@ -2801,6 +2823,16 @@ public interface GameContext {
      * that fires once this turn (cleared at end of turn).
      */
     void addTempBlockTrigger(CardData card, Consumer<GameContext> effect);
+
+    /**
+     * Registers {@code effect} to fire when {@code card} <em>is blocked</em> this turn — the other
+     * half of a granted "When [card] blocks or is blocked, …" trigger (4-142R Malboro).
+     *
+     * <p>Held apart from {@link #addTempBlockTrigger} because the two events are fired from
+     * different places: a grant registered only as a block trigger never reaches a Forward that
+     * attacked and was blocked, which is half of what Malboro's clause says.
+     */
+    void addTempIsBlockedTrigger(CardData card, Consumer<GameContext> effect);
 
     /**
      * Registers {@code effect} to execute at the start of the player's next Main Phase 1

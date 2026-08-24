@@ -348,4 +348,29 @@ final class ActionResolverRestriction {
         }
         return null;
     }
+    /**
+     * Parses "[Self] cannot be chosen by a Summon or an ability this turn and gains [traits] until
+     * the end of the turn." — 2-065L Balthier's Fires of War.
+     *
+     * <p>The immunity binds both players, not just the opponent: nothing in the sentence names one,
+     * so Balthier's own controller cannot target him either. That is the whole reason it does not
+     * go through the opponent-scoped shield the rest of this family uses.
+     *
+     * <p>Declines when the sentence names a card other than the source — every primitive it calls
+     * acts on the source, so a mismatch would shield the wrong Forward.
+     */
+    static Consumer<GameContext> tryParseSelfCannotBeChosenByAnyAndGainsTraits(String text, CardData source) {
+        if (source == null) return null;
+        Matcher m = SELF_CANNOT_BE_CHOSEN_BY_ANY_AND_GAINS_TRAITS.matcher(text.trim());
+        if (!m.matches()) return null;
+        if (!m.group("name").trim().equalsIgnoreCase(source.name())) return null;
+        EnumSet<CardData.Trait> traits = parseTraits(m.group("traits"));
+        if (traits.isEmpty()) return null;
+        return ctx -> {
+            ctx.logEntry(source.name() + " cannot be chosen by any Summon or ability this turn");
+            ctx.shieldSelfCannotBeChosenByAnySummonOrAbility(source);
+            ctx.logEntry(source.name() + " gains " + traitNamesOnly(traits) + " until end of turn");
+            ctx.boostSourceForward(source, 0, traits);
+        };
+    }
 }
