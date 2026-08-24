@@ -7358,7 +7358,18 @@ public class MainWindow {
 
 		List<CardData> zone = player1 ? gameState.getP1BreakZone() : gameState.getP2BreakZone();
 		zone.add(card);
-		if (card.isLb()) zone.remove(card);
+		// An LB card only passes through the Break Zone: it is put there — so everything watching
+		// "put from the field into the Break Zone" fires — and then moves straight on to the LB
+		// deck face up, where it has sat all along marked spent (spentLbIndices). Without the log
+		// line the card reads as having vanished, which is what the zone list looks like.
+		//
+		// Removed by index rather than by value: CardData is a record, so remove(Object) would take
+		// the first equal element, not necessarily the one just appended.
+		if (card.isLb()) {
+			zone.remove(zone.size() - 1);
+			logEntry((player1 ? "" : "[P2] ") + card.name()
+					+ " is an LB card — it returns to the LB deck face up rather than staying in the Break Zone");
+		}
 		if (player1) refreshP1BreakLabel(); else refreshP2BreakLabel();
 		syncBzForwardPlayables(player1);
 		if (fromField) fireFieldToBzDrawTriggers(card);

@@ -6903,12 +6903,14 @@ final class ActionResolverPatterns {
      *   <li>"add all the cards removed by X's ability to your hand." — Gutsco 14-010H, Cloud of Darkness B-012</li>
      *   <li>"add 1 card removed by X's ability to your hand, and put the rest of the cards into the
      *       Break Zone." — Cloud of Darkness 10-140S</li>
+     *   <li>"add the card removed by X's ability to your hand." — Wind Drake 29-121R, whose removal
+     *       ability takes exactly one card, so the singular definite article stands in for "1"</li>
      * </ul>
      * Group {@code all} is set for the "all the cards" form; {@code rest} for the "put the rest into
      * the Break Zone" tail; {@code name} is checked against the ability's own source.
      */
     static final Pattern ADD_REMOVED_BY_SOURCE_ABILITY_TO_HAND = Pattern.compile(
-        "(?i)^add\\s+(?:(?<all>all\\s+the)|1)\\s+cards?\\s+removed\\s+by\\s+(?<name>.+?)'s?\\s+ability\\s+" +
+        "(?i)^add\\s+(?:(?<all>all\\s+the)|1|the)\\s+cards?\\s+removed\\s+by\\s+(?<name>.+?)'s?\\s+ability\\s+" +
         "to\\s+your\\s+hand(?<rest>\\s*,?\\s*and\\s+put\\s+the\\s+rest\\s+of\\s+the\\s+cards?\\s+into\\s+" +
         "the\\s+Break\\s+Zone)?[.!]?$",
         Pattern.DOTALL

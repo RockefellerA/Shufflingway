@@ -8570,6 +8570,141 @@ public class CardBehaviorTest {
     }
 
     // =========================================================================================
+    // Wind Drake 29-121R: "When Wind Drake enters the field, choose 1 Character in your Break
+    // Zone. Remove it from the game.[[br]]When Wind Drake leaves the field, add the card removed
+    // by Wind Drake's ability to your hand."  The same pile the section above tracks, filled from
+    // the Break Zone rather than the deck top and emptied one card at a time; the retrieval is
+    // worded with the definite article ("the card") because the removal takes exactly one.
+    //
+    // Wind Drake is also an LB card, so its own trip to the Break Zone is a pass-through — see
+    // lbCardPassesThroughTheBreakZoneOnItsWayToTheLbDeck below.
+    // =========================================================================================
+
+    private static final String WIND_DRAKE_TEXT =
+            "Limit Break -- 1[[br]]When Wind Drake enters the field, choose 1 Character in your "
+            + "Break Zone. Remove it from the game.[[br]]When Wind Drake leaves the field, add the "
+            + "card removed by Wind Drake's ability to your hand.";
+
+    /** Wind Drake as printed: an LB Forward carrying both of its auto-abilities. */
+    private static CardData makeWindDrake() {
+        return new CardData(null, "Wind Drake", "Wind", 5, 8000, "Forward", true, 1, false, false,
+                Set.of(), 0, List.of(), null, List.of(),
+                List.of(), CardData.parseAutoAbilities(WIND_DRAKE_TEXT), List.of(), List.of(), List.of(),
+                List.of(), List.of(), List.of(), List.of(), List.of(),
+                false, false, null, false, false, false, false, false, 1,
+                "Dragon", "V", null, WIND_DRAKE_TEXT);
+    }
+
+    /** Seats {@code cards} in P2's Break Zone with their owner recorded. */
+    private static void stockP2BreakZone(MainWindow mw, CardData... cards) {
+        for (CardData c : cards) {
+            mw.gameState.getIdentity().put(c, false);
+            mw.gameState.getP2BreakZone().add(c);
+        }
+    }
+
+    @Test
+    void windDrakeSplitsIntoAnEnterAndALeaveTrigger() {
+        List<AutoAbility> autos = makeWindDrake().autoAbilities();
+        assertEquals(2, autos.size(), "the Limit Break declaration is a card property, not an ability");
+        assertEquals("enters the field", autos.get(0).trigger());
+        assertEquals("leaves the field", autos.get(1).trigger());
+        assertEquals("Wind Drake", autos.get(1).triggerCard(),
+                "the leave trigger is keyed to Wind Drake itself, or it never fires");
+    }
+
+    @Test
+    void windDrakeExilesAndReturnsOneBreakZoneCharacter() {
+        MainWindow mw = new MainWindow();
+        CardData drake = makeWindDrake();
+        mw.gameState.getIdentity().put(drake, false);   // P2's side: the AI picks without a dialog
+        CardData bz1 = makeForward("BzOne", "Wind", 2, 5000);
+        CardData bz2 = makeForward("BzTwo", "Wind", 4, 9000);
+        stockP2BreakZone(mw, bz1, bz2);
+
+        GameContext ctx = mw.buildGameContext(false);
+        mw.currentAbilitySource = drake;                 // as the stack sets while an ability resolves
+        try {
+            ActionResolver.parse(drake.autoAbilities().get(0).effectText(), drake).accept(ctx);
+        } finally {
+            mw.currentAbilitySource = null;
+        }
+        assertEquals(1, mw.gameState.getP2BreakZone().size(), "exactly one card left the Break Zone");
+        assertEquals(1, mw.gameState.getP2PermanentRfp().size(), "and is out of the game");
+        assertEquals(1, ctx.cardsRemovedBySourceCount(drake),
+                "credited to Wind Drake, which is how the leave trigger finds it again");
+
+        CardData exiled = mw.gameState.getP2PermanentRfp().get(0);
+        ActionResolver.parse(drake.autoAbilities().get(1).effectText(), drake)
+                .accept(mw.buildGameContext(false));
+        assertEquals(List.of(exiled), mw.gameState.getP2Hand(), "the exiled card comes back to hand");
+        assertEquals(0, mw.gameState.getP2PermanentRfp().size(), "and is no longer out of the game");
+        assertFalse(mw.cardsRemovedBySource.containsKey(drake), "the pile is emptied on the way out");
+    }
+
+    @Test
+    void windDrakeIgnoresNonCharactersInTheBreakZone() {
+        MainWindow mw = new MainWindow();
+        CardData drake = makeWindDrake();
+        mw.gameState.getIdentity().put(drake, false);
+        CardData summon = makeSummon("Kujata", "Wind", 2, "");
+        stockP2BreakZone(mw, summon);
+
+        GameContext ctx = mw.buildGameContext(false);
+        mw.currentAbilitySource = drake;
+        try {
+            ActionResolver.parse(drake.autoAbilities().get(0).effectText(), drake).accept(ctx);
+        } finally {
+            mw.currentAbilitySource = null;
+        }
+        assertEquals(List.of(summon), mw.gameState.getP2BreakZone(),
+                "a Summon is not a Character — nothing eligible, so nothing is removed");
+        assertEquals(0, ctx.cardsRemovedBySourceCount(drake));
+    }
+
+    @Test
+    void windDrakeLeaveTriggerIsQuietWhenItRemovedNothing() {
+        MainWindow mw = new MainWindow();
+        CardData drake = makeWindDrake();
+        mw.gameState.getIdentity().put(drake, false);
+
+        // No enter-the-field removal happened, so there is no pile to call back.
+        ActionResolver.parse(drake.autoAbilities().get(1).effectText(), drake)
+                .accept(mw.buildGameContext(false));
+        assertTrue(mw.gameState.getP2Hand().isEmpty(), "nothing to add to hand");
+    }
+
+    @Test
+    void lbCardPassesThroughTheBreakZoneOnItsWayToTheLbDeck() {
+        // An LB card leaving the field is put into the Break Zone — so "put from the field into the
+        // Break Zone" triggers fire — and then moves on to the LB deck face up. It must not stay in
+        // the Break Zone, and must not be left in no zone at all.
+        MainWindow mw = new MainWindow();
+        CardData drake = makeWindDrake();
+        mw.gameState.getP2LbDeck().add(drake);
+        placeP2Forward(mw, drake);
+
+        mw.breakP2Forward(mw.p2ForwardCards.indexOf(drake));
+
+        assertTrue(mw.p2ForwardCards.isEmpty(), "it left the field");
+        assertTrue(mw.gameState.getP2BreakZone().isEmpty(), "an LB card does not stay in the Break Zone");
+        assertTrue(mw.gameState.getP2PermanentRfp().isEmpty(), "nor is it removed from the game");
+        assertEquals(List.of(drake), mw.gameState.getP2LbDeck(), "it is back in the LB deck");
+    }
+
+    @Test
+    void nonLbCardStaysInTheBreakZone() {
+        MainWindow mw = new MainWindow();
+        CardData plain = makeForward("Plain", "Wind", 3, 7000);
+        placeP2Forward(mw, plain);
+
+        mw.breakP2Forward(mw.p2ForwardCards.indexOf(plain));
+
+        assertEquals(List.of(plain), mw.gameState.getP2BreakZone(),
+                "only LB cards pass through — the control for the test above");
+    }
+
+    // =========================================================================================
     // Vayne 9-022L: All the Forwards opponent controls gain "At the end of your turn, if you don't
     // pay 《1》, break this Forward."  A continuous field grant, so it is read off Vayne at the
     // moment it fires; each granted Forward resolves its own copy, and "this Forward" means the
