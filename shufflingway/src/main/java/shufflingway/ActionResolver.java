@@ -1992,7 +1992,7 @@ public class ActionResolver {
         // difference between an offer and an order.
         final String rawFollowup = followupText.trim();
         // Strip leading "You may " so optional-followup effects are identified correctly
-        if (followupText.toLowerCase(java.util.Locale.ROOT).startsWith("you may "))
+        if (followupText.toLowerCase(Locale.ROOT).startsWith("you may "))
             followupText = followupText.substring("You may ".length()).trim();
         // Mirrors parseChooseFollowup: a quoted grant spanning a sentence is settled here, ahead
         // of every find() check below, so the name cannot come from a clause printed inside the
@@ -3465,7 +3465,7 @@ public class ActionResolver {
             int    groupSize = forEachM.group("group") != null ? Integer.parseInt(forEachM.group("group")) : 1;
             String charType = forEachM.group("chartype");
             String category = forEachM.group("category") != null ? forEachM.group("category").trim() : null;
-            String element  = forEachM.group("element") != null ? forEachM.group("element").toLowerCase(java.util.Locale.ROOT) : null;
+            String element  = forEachM.group("element") != null ? forEachM.group("element").toLowerCase(Locale.ROOT) : null;
             int    costFilter = forEachM.group("costfilter") != null ? Integer.parseInt(forEachM.group("costfilter")) : -1;
             boolean fwd = charType.matches("(?i)Forwards?|Characters?");
             boolean bkp = charType.matches("(?i)Backups?|Characters?");
@@ -3547,21 +3547,21 @@ public class ActionResolver {
         Matcher m = TARGET_DESC_PATTERN.matcher(desc.trim());
         if (!m.matches()) return null;
 
-        String ct = m.group("cardtype").toLowerCase(java.util.Locale.ROOT);
+        String ct = m.group("cardtype").toLowerCase(Locale.ROOT);
         boolean fwd = ct.startsWith("forward") || ct.startsWith("character");
         boolean bkp = ct.startsWith("backup")  || ct.startsWith("character");
         boolean mon = ct.startsWith("monster") || ct.startsWith("character");
 
         String control      = m.group("control");
-        boolean opponentOnly = control != null && control.toLowerCase(java.util.Locale.ROOT).contains("opponent");
-        boolean selfOnly     = control != null && control.toLowerCase(java.util.Locale.ROOT).contains("you control");
+        boolean opponentOnly = control != null && control.toLowerCase(Locale.ROOT).contains("opponent");
+        boolean selfOnly     = control != null && control.toLowerCase(Locale.ROOT).contains("you control");
 
         int    costVal = m.group("cost") != null ? Integer.parseInt(m.group("cost")) : -1;
         String costCmp = m.group("costcmp");
 
         String  zone       = m.group("zone");
         boolean fromBz     = zone != null;
-        boolean opponentBz = fromBz && zone.toLowerCase(java.util.Locale.ROOT).contains("opponent");
+        boolean opponentBz = fromBz && zone.toLowerCase(Locale.ROOT).contains("opponent");
 
         return new TargetDesc(fwd, bkp, mon, opponentOnly, selfOnly,
                 m.group("condition"), m.group("element"),
@@ -3990,7 +3990,7 @@ public class ActionResolver {
         String subj = m.group("subj1") != null ? m.group("subj1") : m.group("subj2");
         if (subj == null || !subj.trim().equalsIgnoreCase(sourceName)) return null;
         String cost = m.group("cost1") != null ? m.group("cost1") : m.group("cost2");
-        return cost == null ? Integer.MAX_VALUE : Integer.parseInt(cost);
+        return cost == null ? Integer.MAX_VALUE : Integer.valueOf(cost);
     }
 
     /**
@@ -4479,7 +4479,7 @@ public class ActionResolver {
         String types = m.group("types").trim();
         String tgtFilterText = m.group("tgtFilter");
         boolean requiresControllerTarget = tgtFilterText != null
-                && tgtFilterText.toLowerCase(java.util.Locale.ROOT).contains("you control");
+                && tgtFilterText.toLowerCase(Locale.ROOT).contains("you control");
         java.util.function.Predicate<StackEntry> filter = parseAbilityTypeFilter(types);
         String prompt = "Choose 1 " + types + " to cancel:";
         return ctx -> {
@@ -4520,7 +4520,7 @@ public class ActionResolver {
      * </ul>
      */
     static java.util.function.Predicate<StackEntry> parseAbilityTypeFilter(String types) {
-        String t = types.trim().toLowerCase(java.util.Locale.ROOT);
+        String t = types.trim().toLowerCase(Locale.ROOT);
         if (t.equals("ability")) return e -> !e.isSummon() && !e.isExBurstEntry();
         boolean wantsSummon  = t.contains("summon");
         boolean wantsAuto    = t.contains("auto");
@@ -4748,9 +4748,9 @@ public class ActionResolver {
             String cat     = catM.group(1).trim();
             String catType = catM.group(2);
             pred = card -> {
-                String cl = cat.toLowerCase(java.util.Locale.ROOT);
-                if (!card.category1().toLowerCase(java.util.Locale.ROOT).contains(cl)
-                        && !card.category2().toLowerCase(java.util.Locale.ROOT).contains(cl))
+                String cl = cat.toLowerCase(Locale.ROOT);
+                if (!card.category1().toLowerCase(Locale.ROOT).contains(cl)
+                        && !card.category2().toLowerCase(Locale.ROOT).contains(cl))
                     return false;
                 return catType == null || catType.equalsIgnoreCase("card")
                         || meetsTypeCheck(card, catType);
@@ -4788,7 +4788,7 @@ public class ActionResolver {
     }
 
     static boolean meetsTypeCheck(CardData card, String type) {
-        return switch (type.toLowerCase(java.util.Locale.ROOT)) {
+        return switch (type.toLowerCase(Locale.ROOT)) {
             case "forward"   -> card.isForward();
             case "backup"    -> card.isBackup();
             case "character" -> card.isForward() || card.isBackup() || card.isMonster();
@@ -4807,7 +4807,7 @@ public class ActionResolver {
      */
     private static String normalizeRevealOp(String raw) {
         if (raw == null) return null;
-        String lo = raw.trim().toLowerCase(java.util.Locale.ROOT);
+        String lo = raw.trim().toLowerCase(Locale.ROOT);
         // Compound actions that involve selecting another card first are handled by parse(),
         // not treated as simple "place revealed card" ops.
         if (lo.contains("select") || lo.contains("choose") || lo.startsWith("your opponent")) return null;
@@ -4872,7 +4872,7 @@ public class ActionResolver {
      * when the quote is not a recognized protection grant.
      */
     private static CardData.Trait quotedProtectionTrait(String quote) {
-        String q = quote.toLowerCase(java.util.Locale.ROOT);
+        String q = quote.toLowerCase(Locale.ROOT);
         if (q.contains("cannot become dull"))                 return CardData.Trait.CANNOT_BE_DULLED_BY_OPP;
         if (q.contains("cannot be returned to its owner"))    return CardData.Trait.CANNOT_BE_RETURNED_TO_HAND_BY_OPP;
         if (q.contains("cannot be decreased"))                return CardData.Trait.POWER_CANNOT_BE_DECREASED_BY_OPP;
@@ -5044,7 +5044,7 @@ public class ActionResolver {
         for (FieldAbility fa : card.fieldAbilities()) {
             Matcher m = FA_SELF_CANNOT_BE_CHOSEN_BY_OPP.matcher(fa.effectText().trim());
             if (!m.matches() || !m.group("name").trim().equalsIgnoreCase(card.name())) continue;
-            String scope = m.group("scope").toLowerCase(java.util.Locale.ROOT);
+            String scope = m.group("scope").toLowerCase(Locale.ROOT);
             if (bySummon ? scope.contains("summon") : scope.contains("abilit")) return true;
         }
         return false;
@@ -5189,7 +5189,7 @@ public class ActionResolver {
      * Reveal shows the cards to both players; look at keeps them private to the controller.
      */
     static boolean isRevealWording(String verb) {
-        return verb != null && verb.trim().toLowerCase(java.util.Locale.ROOT).startsWith("reveal");
+        return verb != null && verb.trim().toLowerCase(Locale.ROOT).startsWith("reveal");
     }
 
     /**
@@ -5370,7 +5370,7 @@ public class ActionResolver {
      */
     static boolean isReturnForwardToHandEffect(String text) {
         if (text == null) return false;
-        String t = text.toLowerCase(java.util.Locale.ROOT);
+        String t = text.toLowerCase(Locale.ROOT);
         return t.contains("forward") && t.contains("return") && t.contains("hand");
     }
 
@@ -5382,7 +5382,7 @@ public class ActionResolver {
      */
     static boolean isReturnOwnForwardToHandEffect(String text) {
         if (!isReturnForwardToHandEffect(text)) return false;
-        String t = text.toLowerCase(java.util.Locale.ROOT);
+        String t = text.toLowerCase(Locale.ROOT);
         return t.contains("forward you control") || t.contains("forwards you control");
     }
 
@@ -5393,7 +5393,7 @@ public class ActionResolver {
      */
     static boolean targetsOnlyOwnForwards(String text) {
         if (text == null) return false;
-        String t = text.toLowerCase(java.util.Locale.ROOT);
+        String t = text.toLowerCase(Locale.ROOT);
         if (!t.contains("forward you control") && !t.contains("forwards you control")) return false;
         if (t.contains("opponent controls") || t.contains("opponent's field")) return false;
         // Must act on the Forwards standing right now.  A turn-long conditional ("During this turn,
