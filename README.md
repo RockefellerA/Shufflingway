@@ -18,20 +18,17 @@ The ultimate goal for this application will be to play against someone else with
 
 Current card coverage (estimate):
 
-* Action/Special Abilities: (99.0%)
-
-* Auto Abilities: (92.1%)
-
+* Action/Special Abilities: **(100%)**
+* Auto Abilities: (92.4%)
 * Field Abilities: **(100%)**
+* Summons: (92.5%)
 
 # Installation Guide
 
 Use the 'Releases' section on the right to download the latest version.
 
 * .msi: Windows Installer
-
 * .dmg: MacOS 13+
-
 * .deb: Linux
 
 Once the application has been installed, you can update to any new releases from "Check for Updates..." in the Help menu.
@@ -48,4 +45,4 @@ Once the application has been installed, you can update to any new releases from
 * Opus 29 is now live! Cards can be fetched via the Card Browser card update button. New overpayment rules have been implemented.
 * Next features (aside from parsing additions and bugfixes):
   1. Additional animations for better gameplay context
-  2. More trait icons for various card states (Shielded, primed, must attack, cannot block, etc.)
+  2. More trait icons for various card states (Shielded, must attack, cannot block, etc.)
