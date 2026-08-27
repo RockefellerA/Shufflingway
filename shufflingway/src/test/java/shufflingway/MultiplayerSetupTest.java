@@ -601,6 +601,35 @@ class MultiplayerSetupTest {
         assertEquals(List.of(1), d.toBottom());
     }
 
+    // A mandatory "add all" (9-051R Fat Chocobo) is not a cap: every match is taken however many
+    // there are, and maxAdd stops applying. Reveal no match and nothing is taken.
+    @Test
+    void theAiTakesEveryMatchWhenTheAddIsMandatory() {
+        DeckLookDecision d = LookAtDeckDialogs.cpuRevealAddUpToMatchingRestBottom(
+                revealed(), 1, null, null, null, null, -1, null, null, true);
+        assertEquals(List.of(1, 2, 0), d.toHand(), "all three, dearest first, despite maxAdd of 1");
+        assertTrue(d.toBottom().isEmpty());
+    }
+
+    @Test
+    void aMandatoryAddTakesNothingWhenNothingMatches() {
+        DeckLookDecision d = LookAtDeckDialogs.cpuRevealAddUpToMatchingRestBottom(
+                revealed(), 3, "Dragoon", null, null, null, -1, null, null, true);
+        assertTrue(d.toHand().isEmpty(), "no Dragoon among them");
+        assertEquals(List.of(0, 1, 2), d.toBottom());
+    }
+
+    // The forced take still has to be an arrangement of exactly the revealed cards.
+    @Test
+    void aMandatoryAddAnswerIsAlwaysALegalArrangement() {
+        for (DeckLookDecision d : List.of(
+                LookAtDeckDialogs.cpuRevealAddUpToMatchingRestBottom(
+                        revealed(), 1, null, null, null, null, -1, null, null, true),
+                LookAtDeckDialogs.cpuRevealAddUpToMatchingRestBottom(
+                        revealed(), 9, "Dragoon", null, null, null, -1, null, null, true)))
+            assertEquals(d, DeckLookDecision.fromAnswer(d.toAnswer(), 3),
+                    "a mandatory take must still round-trip through the wire answer");
+    }
     @Test
     void anAiRevealAnswerIsAlwaysALegalArrangement() {
         // maxAdd larger than the reveal, and a filter nothing matches: the two ways an arrangement

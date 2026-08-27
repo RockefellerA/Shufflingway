@@ -9830,6 +9830,207 @@ public class CardBehaviorTest {
                 + "The first one waltzes with the second.", null));
     }
 
+    // =========================================================================================
+    // "Deal it and <Self> N damage" — the source is only damaged if a target was chosen.
+    //
+    // 4-096H Raubahn, 5-016C Fighter and 5-092C Master Monk all deal their damage to the chosen
+    // Forward AND to themselves. The self-damage was applied unconditionally, outside the loop
+    // over the chosen targets, so an empty selection — the opponent controls no Forward, none is
+    // eligible, or an "up to" text let the player take zero — still burned the source. Raubahn
+    // entering against an empty board dealt himself 9000.
+    //
+    // "it"/"them" and the named source are one effect: with no "it" there is nothing to deal.
+    // =========================================================================================
+
+    /** The text of 4-096H Raubahn's enters-the-field ability, as parseAutoAbilities yields it. */
+    private static final String RAUBAHN_4_096H_EFFECT =
+            "choose 1 Forward opponent controls. Deal it and Raubahn 9000 damage.";
+
+    private static GameContext ctxSelecting(List<ForwardTarget> selection) {
+        GameContext ctx = mock(GameContext.class);
+        when(ctx.consumePreloadedTargets()).thenReturn(null);
+        when(ctx.selectCharacters(anyInt(), anyBoolean(), anyBoolean(), anyBoolean(), any(), any(),
+                anyInt(), any(), anyInt(), any(), anyBoolean(), anyBoolean(), anyBoolean(), any(), any(),
+                any(), any(), anyBoolean(), any(), anyBoolean()))
+                .thenReturn(selection);
+        return ctx;
+    }
+
+    @Test
+    void raubahnDoesNotDamageHimselfWhenNoForwardIsChosen() {
+        GameContext ctx = ctxSelecting(List.of());
+
+        Consumer<GameContext> fn = ActionResolver.parse(RAUBAHN_4_096H_EFFECT, null);
+        assertNotNull(fn);
+        fn.accept(ctx);
+
+        verify(ctx, never()).damageFieldForwardByName(eq("Raubahn"), anyInt());
+        verify(ctx, never()).damageTarget(any(), anyInt());
+    }
+
+    // The guard must not cost the normal case: with a Forward chosen, both still take the 9000.
+    @Test
+    void raubahnStillDamagesHimselfAlongsideAChosenForward() {
+        ForwardTarget theirs = new ForwardTarget(false, 0, ForwardTarget.CardZone.FORWARD);
+        GameContext ctx = ctxSelecting(List.of(theirs));
+
+        ActionResolver.parse(RAUBAHN_4_096H_EFFECT, null).accept(ctx);
+
+        verify(ctx).damageTarget(theirs, 9000);
+        verify(ctx).damageFieldForwardByName("Raubahn", 9000);
+    }
+
+    // 5-092C Master Monk is "up to 2", so taking zero is a legal choice and must spare him too.
+    @Test
+    void masterMonkIsSparedWhenThePlayerChoosesNoForwards() {
+        GameContext ctx = ctxSelecting(List.of());
+
+        Consumer<GameContext> fn = ActionResolver.parse(
+                "Choose up to 2 Forwards. Deal them and Master Monk 4000 damage.", null);
+        assertNotNull(fn);
+        fn.accept(ctx);
+
+        verify(ctx, never()).damageFieldForwardByName(eq("Master Monk"), anyInt());
+    }
+
+    // =========================================================================================
+    // Chocobo wiring: reveal-and-add-all, and the self-dull price in front of "When you do so".
+    //
+    // Two separate gaps, both on Chocobo cards.
+    //
+    // 1. "Add all Card Name Chocobo among them" (9-051R Fat Chocobo). The reveal pattern only
+    //    accepted a literal "Add 1", so the text fell past it to the standalone return-to-hand
+    //    rule, which read "all Card Name Chocobo among them" as a card name and searched the
+    //    field for it. 28-093H Lightning is the same shape with its two terms joined by "and".
+    //
+    // 2. "dull 1 active Wind Forward you control" (29-050C Chocobo) did not parse on its own, so
+    //    the "When you do so" splitter could not resolve its primary half and gave up. The whole
+    //    text then fell to the choose chain, which matched the payoff alone — Chocobo took the
+    //    Haste without ever dulling anything, and eight siblings skipped their price the same way.
+    // =========================================================================================
+
+    private static final String FAT_CHOCOBO_9_051R =
+            "reveal the top 5 cards of your deck. Add all Card Name Chocobo among them to your hand "
+            + "and return the other cards to the bottom of your deck in any order.";
+
+    private static final String CHOCOBO_29_050C_ETB =
+            "dull 1 active Wind Forward you control. "
+            + "When you do so, Chocobo gains Haste until the end of the turn.";
+
+    /** A context whose target selection returns {@code picks}, with the progress flag modelled. */
+    private static GameContext ctxChoosing(List<ForwardTarget> picks) {
+        GameContext ctx = mock(GameContext.class);
+        when(ctx.consumePreloadedTargets()).thenReturn(null);
+        when(ctx.lastChosenTargets()).thenReturn(picks);
+        when(ctx.selectCharacters(anyInt(), anyBoolean(), anyBoolean(), anyBoolean(), any(), any(),
+                anyInt(), any(), anyInt(), any(), anyBoolean(), anyBoolean(), anyBoolean(), any(), any(),
+                any(), any(), anyBoolean(), any(), anyBoolean()))
+                .thenReturn(picks);
+        boolean[] progress = { true };
+        doAnswer(i -> { progress[0] = true;  return null; }).when(ctx).resetEffectProgress();
+        doAnswer(i -> { progress[0] = false; return null; }).when(ctx).markEffectFizzled();
+        when(ctx.effectMadeProgress()).thenAnswer(i -> progress[0]);
+        return ctx;
+    }
+
+    @Test
+    void fatChocoboAddsEveryChocoboAmongTheRevealedFive() {
+        GameContext ctx = mock(GameContext.class);
+        Consumer<GameContext> fn = ActionResolver.parse(FAT_CHOCOBO_9_051R, null);
+        assertNotNull(fn);
+        fn.accept(ctx);
+
+        // The mandatory primitive, not the "add up to" prompt: the player gets no say in how
+        // many of the revealed Chocobos they take.
+        verify(ctx).revealTopAddAllMatchingRestBottom(5, null, null, "Chocobo", null);
+        verify(ctx, never()).revealTopAddUpToMatchingRestBottom(
+                anyInt(), anyInt(), any(), any(), any(), any());
+    }
+
+    // The wrong parser used to claim this text and hunt the field for a card called
+    // "all Card Name Chocobo among them".
+    @Test
+    void fatChocoboDoesNotLookForACardNamedAfterTheWholePhrase() {
+        assertEquals("RevealTopNJobOrNameToHand",
+                ActionResolver.matchedPatternName(FAT_CHOCOBO_9_051R, null));
+    }
+
+    // 28-093H Lightning joins its two Card Name terms with "and"; both are still alternatives.
+    @Test
+    void lightningAddsEitherNamedCardAmongTheRevealedFive() {
+        GameContext ctx = mock(GameContext.class);
+        ActionResolver.parse(
+                "reveal the top 5 cards of your deck. Add all the Card Name Odin and Card Name "
+                + "Lightning among them to your hand and return the other cards to the bottom of "
+                + "your deck in any order.", null).accept(ctx);
+
+        verify(ctx).revealTopAddAllMatchingRestBottom(5, null, null, "Odin|Lightning", null);
+    }
+
+    // Widening "Add 1" to "Add 1|all" must not turn the singular form into a free-for-all.
+    @Test
+    void theAddOneFormStillAddsExactlyOne() {
+        GameContext ctx = mock(GameContext.class);
+        ActionResolver.parse(
+                "reveal the top 3 cards of your deck. Add 1 Job Chocobo or Card Name Chocobo among "
+                + "them to your hand and return the other cards to the bottom of your deck in any "
+                + "order.", null).accept(ctx);
+
+        verify(ctx).revealTopAddUpToMatchingRestBottom(3, 1, "Chocobo", null, "Chocobo", null);
+    }
+
+    @Test
+    void chocoboDullsAWindForwardThenGainsHaste() {
+        CardData chocobo = makeForward("Chocobo", "Wind", 3, 7000);
+        ForwardTarget mine = new ForwardTarget(true, 0, ForwardTarget.CardZone.FORWARD);
+        GameContext ctx = ctxChoosing(List.of(mine));
+
+        Consumer<GameContext> fn = ActionResolver.parse(CHOCOBO_29_050C_ETB, chocobo);
+        assertNotNull(fn);
+        fn.accept(ctx);
+
+        verify(ctx).dullTarget(mine);
+        verify(ctx).boostSourceForward(eq(chocobo), eq(0),
+                eq(java.util.EnumSet.of(CardData.Trait.HASTE)));
+    }
+
+    // The dull is the price: with nothing eligible to dull, the Haste must not be granted.
+    @Test
+    void chocoboGainsNoHasteWhenNothingIsDulled() {
+        CardData chocobo = makeForward("Chocobo", "Wind", 3, 7000);
+        GameContext ctx = ctxChoosing(List.of());
+
+        ActionResolver.parse(CHOCOBO_29_050C_ETB, chocobo).accept(ctx);
+
+        verify(ctx, never()).dullTarget(any());
+        verify(ctx, never()).boostSourceForward(any(), anyInt(), any());
+    }
+
+    // Snow 12-033R is one of eight siblings that used to resolve the payoff and skip the price.
+    @Test
+    void snowPaysItsDullPriceBeforeFreezing() {
+        ForwardTarget mine = new ForwardTarget(true, 0, ForwardTarget.CardZone.FORWARD);
+        GameContext ctx = ctxChoosing(List.of(mine));
+
+        ActionResolver.parse(
+                "dull 1 active Category XIII Forward you control. "
+                + "When you do so, choose 1 Forward. Dull it and Freeze it.", null).accept(ctx);
+
+        verify(ctx).dullTarget(mine);
+        verify(ctx).dullAndFreezeTarget(mine);
+    }
+
+    @Test
+    void snowSkipsItsPayoffWhenThePriceIsUnpayable() {
+        GameContext ctx = ctxChoosing(List.of());
+
+        ActionResolver.parse(
+                "dull 1 active Category XIII Forward you control. "
+                + "When you do so, choose 1 Forward. Dull it and Freeze it.", null).accept(ctx);
+
+        verify(ctx, never()).dullAndFreezeTarget(any());
+    }
+
 	// =========================================================================================
 	// Trailing draw.
 	//

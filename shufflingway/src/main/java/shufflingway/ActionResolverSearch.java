@@ -500,13 +500,19 @@ final class ActionResolverSearch {
         String jobFilter      = jobs.length()  > 0 ? jobs.toString()  : null;
         String cardNameFilter = names.length() > 0 ? names.toString() : null;
         if (jobFilter == null && cardNameFilter == null) return null;
+        // "Add all …" is mandatory, not a cap: every revealed card matching the filters goes to
+        // hand, so it routes to the reveal that forces the take rather than to the "add up to"
+        // prompt the singular "Add 1" form uses.
+        boolean all = m.group("all") != null;
+        String  desc = (all ? "all" : "1") + " ("
+                + (jobFilter      != null ? "Job " + jobFilter           : "")
+                + (jobFilter != null && cardNameFilter != null ? " | " : "")
+                + (cardNameFilter != null ? "Card Name " + cardNameFilter : "")
+                + ")";
         return ctx -> {
-            ctx.logEntry("Effect: Reveal top " + n + " — add 1 ("
-                    + (jobFilter      != null ? "Job " + jobFilter           : "")
-                    + (jobFilter != null && cardNameFilter != null ? " | " : "")
-                    + (cardNameFilter != null ? "Card Name " + cardNameFilter : "")
-                    + ") to hand, rest to bottom");
-            ctx.revealTopAddUpToMatchingRestBottom(n, 1, jobFilter, null, cardNameFilter, null);
+            ctx.logEntry("Effect: Reveal top " + n + " — add " + desc + " to hand, rest to bottom");
+            if (all) ctx.revealTopAddAllMatchingRestBottom(n, jobFilter, null, cardNameFilter, null);
+            else     ctx.revealTopAddUpToMatchingRestBottom(n, 1, jobFilter, null, cardNameFilter, null);
         };
     }
     static Consumer<GameContext> tryParseRevealTopNTypeToHand(String text) {

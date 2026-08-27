@@ -3348,6 +3348,17 @@ public interface GameContext {
     }
 
     /**
+     * "Reveal the top N cards of your deck. Add <b>all</b> [matching] among them to your hand and
+     * return the other cards to the bottom of your deck in any order." — 9-051R Fat Chocobo.
+     *
+     * <p>Unlike {@link #revealTopAddUpToMatchingRestBottom} the take is not a choice: every
+     * revealed card matching the filters goes to hand, and the player only orders the remainder.
+     * Reveal no match and none is taken; reveal five and all five are.
+     */
+    void revealTopAddAllMatchingRestBottom(int reveal,
+            String jobFilter, String categoryFilter, String cardNameFilter, String typeFilter);
+
+    /**
      * "Reveal the top {@code reveal} cards of your deck. Remove 1 [Category {@code categoryFilter}]
      * card among them from the game and return the other cards to the bottom of your deck in any
      * order. You can cast it at any time you could normally cast it this turn." — Snow 18-109C, and

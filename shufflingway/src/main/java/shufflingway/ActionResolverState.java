@@ -31,6 +31,41 @@ final class ActionResolverState {
         if (!STANDALONE_OPP_FIELD_ENTRY_RFG_INSTEAD.matcher(text.trim()).find()) return null;
         return GameContext::setOppFieldEntryRemovedFromGameThisTurn;
     }
+    /**
+     * Parses the imperative "dull N active [filter] you control" — the self-dull price paid in
+     * front of a "When you do so, …" payoff (29-050C Chocobo, 12-033R Snow, 24-072C Leo, …).
+     *
+     * <p>Resolves by delegating to the equivalent "choose N active [filter] you control. Dull it.",
+     * which the choose chain already parses in full — target selection, the {@code active} state
+     * gate, and every element/job/category filter shape these nine cards use. Restating that here
+     * would be a second, divergent copy of the same targeting rules.
+     *
+     * <p>Until this parsed, {@link ActionResolver#tryParseWhenYouDoSoSequence} could not resolve
+     * its primary half and gave up, and the whole text fell through to the choose chain — which
+     * matched the <em>payoff</em> alone and dropped the price. Snow dulled nothing and still froze
+     * a Forward.
+     */
+    static Consumer<GameContext> tryParseDullActiveYouControl(String text, CardData source, int xValue) {
+        Matcher m = DULL_N_ACTIVE_YOU_CONTROL.matcher(text.trim());
+        if (!m.matches()) return null;
+        String count  = m.group("count");
+        String filter = m.group("filter").trim();
+        // "Dull it." reads as "dull each chosen card" downstream, so one clause covers any count.
+        Consumer<GameContext> inner = parse(
+                "choose " + count + " active " + filter + " you control. Dull it.", source, xValue);
+        if (inner == null) return null;
+        return ctx -> {
+            inner.accept(ctx);
+            // This clause is a price, so an empty selection has to stop the "When you do so"
+            // payoff. The choose chain leaves the progress flag alone when nothing is picked —
+            // correct for the "up to" effects that share it, where taking zero is a legal play —
+            // so the fizzle is marked here rather than in that shared path.
+            if (ctx.lastChosenTargets().isEmpty()) {
+                ctx.logEntry("Nothing dulled — no eligible active card, or none chosen");
+                ctx.markEffectFizzled();
+            }
+        };
+    }
     /** Parses "Dull [CardName]." — dulls the source card with no other effect. */
     static Consumer<GameContext> tryParseStandaloneSelfDull(String text, CardData source) {
         if (source == null) return null;

@@ -5545,6 +5545,11 @@ final class AutoAbilityTriggers {
 
 		// Dull-forward costs: player picks active forward(s) (and backups when anyChar) to dull
 		mw.lastDullForwardCostPower = 0;
+		// Cards dulled to pay this cost still "become dull", so their auto abilities owe a
+		// trigger — 29-051C Stray Chocobo activating itself off 29-056R Lucil's dull cost. They
+		// are collected here and fired once the whole cost is paid rather than mid-loop, so an
+		// ability that resolves off the trigger cannot disturb a payment still in progress.
+		List<CardData> dulledPayingCost = new ArrayList<>();
 		for (DullForwardCost dfc : ability.dullForwardCosts()) {
 			boolean anyChar = "Character".equalsIgnoreCase(dfc.cardType());
 			List<CardData>  fwds  = isP1 ? mw.p1ForwardCards  : mw.p2ForwardCards;
@@ -5577,6 +5582,7 @@ final class AutoAbilityTriggers {
 				if (pick.zone() == ForwardTarget.CardZone.BACKUP) {
 					int bi = pick.idx();
 					bkpSt[bi] = CardState.DULL;
+					dulledPayingCost.add(bkps[bi]);
 					mw.playerDullBackupSlot(isP1, bi);
 					mw.logEntry("Dull cost: \"" + bkps[bi].name() + "\" (backup) dulled");
 				} else {
@@ -5584,11 +5590,14 @@ final class AutoAbilityTriggers {
 					int pow = fwds.get(fi).power();
 					mw.lastDullForwardCostPower += pow;
 					fwdSt.set(fi, CardState.DULL);
+					dulledPayingCost.add(fwds.get(fi));
 					if (isP1) mw.animateDullForward(fi, null); else mw.animateDullP2Forward(fi, null);
 					mw.logEntry("Dull cost: \"" + fwds.get(fi).name() + "\" dulled (power " + pow + ")");
 				}
 			}
 		}
+		for (CardData dulled : dulledPayingCost)
+			triggerAutoAbilitiesForBecomesDull(dulled, isP1);
 
 		// Self-mill cost
 		if (ability.selfMillCost() > 0) {

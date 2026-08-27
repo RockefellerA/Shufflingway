@@ -8261,6 +8261,20 @@ final class GameContextImpl implements GameContext {
 				return new String[] { t.vocabulary().name().toLowerCase(), t.value() };
 			}
 
+			@Override public void revealTopAddAllMatchingRestBottom(int reveal,
+				String jobFilter, String categoryFilter, String cardNameFilter, String typeFilter) {
+				Deque<CardData> deck = isP1 ? mw.gameState.getP1MainDeck() : mw.gameState.getP2MainDeck();
+				int n = Math.min(reveal, deck.size());
+				if (n == 0) { logEntry("Reveal top: deck is empty."); return; }
+				List<CardData> peeked = new ArrayList<>();
+				for (CardData c : deck) { peeked.add(c); if (peeked.size() >= n) break; }
+				logEntry("Reveal top " + n + " card(s): " +
+					peeked.stream().map(CardData::name).collect(Collectors.joining(", ")));
+				// maxAdd is n because every revealed card may match; mandatoryAll makes the take forced.
+				mw.lookDialogs().revealAddUpToMatchingRestBottom(peeked, deck, isP1, n,
+					jobFilter, categoryFilter, cardNameFilter, typeFilter, -1, null, null, true);
+			}
+
 			@Override public void revealTopAddUpToMatchingRestBottom(int reveal, int maxAdd,
 					String jobFilter, String categoryFilter, String cardNameFilter, String typeFilter, int maxCost,
 					String elementFilter, String orElementFilter) {

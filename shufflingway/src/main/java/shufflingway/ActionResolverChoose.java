@@ -2481,7 +2481,10 @@ final class ActionResolverChoose {
                         sortedByIdxDesc(ts, true) .forEach(t -> ctx2.damageTarget(t, damage));
                         sortedByIdxDesc(ts, false).forEach(t -> ctx2.damageTarget(t, damage));
                     }
-                    if (alsoCard != null) ctx2.damageFieldForwardByName(alsoCard, damage);
+                    // "Deal it and <Self> N damage" is one effect: the named source only burns
+                    // alongside a Forward that was actually chosen. With an empty selection —
+                    // no eligible target, or an "up to" text taken at zero — nothing is dealt.
+                    if (alsoCard != null && !ts.isEmpty()) ctx2.damageFieldForwardByName(alsoCard, damage);
                     if (secondary != null) secondary.accept(ctx2);
                 };
                 if (followupIsOptional && !ts.isEmpty()) ctx.playerMayDoEffect("Deal it " + damage + " damage?", doDamage);

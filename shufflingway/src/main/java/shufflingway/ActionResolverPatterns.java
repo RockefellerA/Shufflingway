@@ -2569,11 +2569,24 @@ final class ActionResolverPatterns {
         "\\s+among\\s+them\\s+to\\s+your\\s+hand\\s+" +
         "and\\s+return\\s+the\\s+other\\s+cards?\\s+to\\s+the\\s+bottom\\s+of\\s+(?:your|the)\\s+deck(?:\\s+in\\s+any\\s+order)?[.!]?\\s*$"
     );
+    /**
+     * Matches "Reveal the top N cards of your deck. Add {\\code 1|all} [Job X] [or|and Card Name Y]
+     * among them to your hand and return the other cards to the bottom of your deck in any order."
+     *
+     * <p>The {\\code all} arm covers 9-051R Fat Chocobo ("Add all Card Name Chocobo") and 28-093H
+     * Lightning ("Add all the Card Name Odin and Card Name Lightning"). Without it both fell past
+     * this pattern to the standalone return-to-hand rule, which read the whole phrase "all Card
+     * Name Chocobo among them" as a card name and looked for it on the field.
+     *
+     * <p>"and" joins the two filter terms as an alternative to "or" for the same reason it reads as
+     * a disjunction downstream: "add all the Odin and all the Lightning" takes every card matching
+     * either term, which is exactly what the {\\code first}/{\\code second} filters already express.
+     */
     static final Pattern REVEAL_TOP_N_JOB_OR_NAME_TO_HAND = Pattern.compile(
         "(?i)^\\s*(?:you\\s+may\\s+)?reveal\\s+the\\s+top\\s+(?<n>\\d+)\\s+cards?\\s+of\\s+your\\s+deck[.!]?\\s+" +
-        "Add\\s+1\\s+" +
+        "Add\\s+(?:(?<all>all)(?:\\s+the)?|1)\\s+" +
         "(?<first>(?:Job|Card\\s+Name)\\s+.+?)" +
-        "(?:\\s+or\\s+(?<second>(?:Job|Card\\s+Name)\\s+.+?))?" +
+        "(?:\\s+(?:or|and)\\s+(?<second>(?:Job|Card\\s+Name)\\s+.+?))?" +
         "(?:\\s+(?:Forward|Backup|Character|Monster|card))?\\s+among\\s+them\\s+to\\s+your\\s+hand\\s+" +
         "and\\s+return\\s+the\\s+other\\s+cards?\\s+to\\s+the\\s+bottom\\s+of\\s+(?:your|the)\\s+deck(?:\\s+in\\s+any\\s+order)?[.!]?\\s*$"
     );
@@ -2964,6 +2977,21 @@ final class ActionResolverPatterns {
      * Must be tried after {@link #STANDALONE_SELF_DULL_AND_SHIELD_CANNOT_BE_BROKEN} so the
      * compound case is not shadowed.
      */
+    /**
+     * Matches the imperative "dull N active [filter] you control" — the self-dull <em>price</em> in
+     * front of "When you do so, …" on 29-050C Chocobo, 12-033R Snow, 26-064R Ignis and six others.
+     *
+     * <p>Anchored over the whole clause with {\\code ^…$} so it claims only this bare imperative.
+     * {\\link ActionResolver#tryParseWhenYouDoSoSequence} hands it exactly that: the primary half,
+     * already split off the "When you do so" followup.
+     *
+     * <p>Groups: {\\code count} — how many to dull; {\\code filter} — the target phrase
+     * ("Wind Forward", "Category XIII Forward", "Fire Backups"), passed through to the choose
+     * chain rather than decoded here.
+     */
+    static final Pattern DULL_N_ACTIVE_YOU_CONTROL = Pattern.compile(
+        "(?i)^\\s*dull\\s+(?<count>\\d+)\\s+active\\s+(?<filter>.+?)\\s+you\\s+control[.!]?\\s*$"
+    );
     static final Pattern STANDALONE_SELF_DULL = Pattern.compile(
         "(?i)^dull\\s+(?<subject>.+?)\\.?\\s*$"
     );

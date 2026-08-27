@@ -1300,11 +1300,25 @@ class LookAtDeckDialogs {
     void revealAddUpToMatchingRestBottom(List<CardData> cards, Deque<CardData> deck,
             boolean isP1, int maxAdd, String jobFilter, String categoryFilter, String cardNameFilter,
             String typeFilter, int maxCost, String elementFilter, String orElementFilter) {
+        revealAddUpToMatchingRestBottom(cards, deck, isP1, maxAdd, jobFilter, categoryFilter,
+                cardNameFilter, typeFilter, maxCost, elementFilter, orElementFilter, false);
+    }
+
+    /**
+     * As above, but with {@code mandatoryAll} the take is not a choice: every revealed card that
+     * matches goes to hand, and the player only orders what is left. "Add <b>all</b> Card Name
+     * Chocobo among them" (9-051R Fat Chocobo) reads that way — reveal none and you take none,
+     * reveal five and you take all five.
+     */
+    void revealAddUpToMatchingRestBottom(List<CardData> cards, Deque<CardData> deck,
+            boolean isP1, int maxAdd, String jobFilter, String categoryFilter, String cardNameFilter,
+            String typeFilter, int maxCost, String elementFilter, String orElementFilter,
+            boolean mandatoryAll) {
         resolveReveal(cards, deck, isP1,
                 () -> askRevealAddUpToMatchingRestBottom(cards, maxAdd, jobFilter, categoryFilter,
-                        cardNameFilter, typeFilter, maxCost, elementFilter, orElementFilter),
+                        cardNameFilter, typeFilter, maxCost, elementFilter, orElementFilter, mandatoryAll),
                 () -> cpuRevealAddUpToMatchingRestBottom(cards, maxAdd, jobFilter, categoryFilter,
-                        cardNameFilter, typeFilter, maxCost, elementFilter, orElementFilter),
+                        cardNameFilter, typeFilter, maxCost, elementFilter, orElementFilter, mandatoryAll),
                 null);
     }
 
@@ -1367,13 +1381,23 @@ class LookAtDeckDialogs {
     static DeckLookDecision cpuRevealAddUpToMatchingRestBottom(List<CardData> cards,
             int maxAdd, String jobFilter, String categoryFilter, String cardNameFilter,
             String typeFilter, int maxCost, String elementFilter, String orElementFilter) {
+        return cpuRevealAddUpToMatchingRestBottom(cards, maxAdd, jobFilter, categoryFilter,
+                cardNameFilter, typeFilter, maxCost, elementFilter, orElementFilter, false);
+    }
+
+    /** As above; {@code mandatoryAll} takes every eligible card rather than at most {@code maxAdd}. */
+    static DeckLookDecision cpuRevealAddUpToMatchingRestBottom(List<CardData> cards,
+            int maxAdd, String jobFilter, String categoryFilter, String cardNameFilter,
+            String typeFilter, int maxCost, String elementFilter, String orElementFilter,
+            boolean mandatoryAll) {
         List<Integer> eligible = new ArrayList<>();
         for (int i = 0; i < cards.size(); i++)
             if (eligibleForReveal(cards.get(i), jobFilter, categoryFilter, cardNameFilter,
                     typeFilter, maxCost, elementFilter, orElementFilter)) eligible.add(i);
         eligible.sort(java.util.Comparator.comparingInt((Integer i) -> cards.get(i).cost()).reversed());
 
-        List<Integer> toHand = new ArrayList<>(eligible.subList(0, Math.min(maxAdd, eligible.size())));
+        int take = mandatoryAll ? eligible.size() : Math.min(maxAdd, eligible.size());
+        List<Integer> toHand = new ArrayList<>(eligible.subList(0, take));
         List<Integer> toBottom = new ArrayList<>();
         for (int i = 0; i < cards.size(); i++) if (!toHand.contains(i)) toBottom.add(i);
         return new DeckLookDecision(toHand, List.of(), List.of(), toBottom);
@@ -1381,7 +1405,8 @@ class LookAtDeckDialogs {
 
     private DeckLookDecision askRevealAddUpToMatchingRestBottom(List<CardData> cards,
             int maxAdd, String jobFilter, String categoryFilter, String cardNameFilter,
-            String typeFilter, int maxCost, String elementFilter, String orElementFilter) {
+            String typeFilter, int maxCost, String elementFilter, String orElementFilter,
+            boolean mandatoryAll) {
         int n = cards.size();
         JDialog dlg = new JDialog(frame, "Reveal — Add to Hand, Rest to Bottom", true);
         dlg.setResizable(false);
@@ -1391,6 +1416,12 @@ class LookAtDeckDialogs {
         Map<CardData, ImageIcon> imgCache = new LinkedHashMap<>();
         JLabel[] cardLabels = new JLabel[n];
         List<CardData> handSel = new ArrayList<>();
+        // A mandatory "add all" is settled before the window opens: every match is already in
+        // hand and its toggle is locked below, leaving the player only the ordering of the rest.
+        if (mandatoryAll)
+            for (CardData c : cards)
+                if (eligibleForReveal(c, jobFilter, categoryFilter, cardNameFilter,
+                        typeFilter, maxCost, elementFilter, orElementFilter)) handSel.add(c);
         int[] selectedForSwap = { -1 };
         boolean[] updating = { false };
 
@@ -1414,7 +1445,7 @@ class LookAtDeckDialogs {
                 boolean eligible = eligibleForReveal(c, jobFilter, categoryFilter, cardNameFilter,
                         typeFilter, maxCost, elementFilter, orElementFilter);
                 boolean inHand = holdsIdentity(handSel, c);
-                handBtns[j].setEnabled(eligible && (inHand || count < maxAdd));
+                handBtns[j].setEnabled(!mandatoryAll && eligible && (inHand || count < maxAdd));
             }
         };
 
@@ -1483,8 +1514,16 @@ class LookAtDeckDialogs {
             cardsPanel.add(wrapper);
         }
 
+        // Reflect a forced selection on the toggles themselves, so a locked button still reads
+        // as "going to hand" rather than as an unavailable choice. Guarded, or the item
+        // listener would re-add each card to handSel as it is set.
+        updating[0] = true;
+        for (int j = 0; j < n; j++) handBtns[j].setSelected(holdsIdentity(handSel, order.get(j)));
+        updating[0] = false;
+
         // Initial button enabled state
         refreshHandButtons.run();
+        refreshBorders.run();
 
         for (CardData c : cards) {
             new SwingWorker<ImageIcon, Void>() {
@@ -1503,13 +1542,17 @@ class LookAtDeckDialogs {
         String filterDesc = typeFilter     != null ? typeFilter + "s"
                 : jobFilter      != null ? "Job [" + jobFilter + "] Characters"
                 : categoryFilter != null ? "Category [" + categoryFilter + "] Characters"
+                : cardNameFilter != null ? "Card Name [" + cardNameFilter + "] cards"
                 : "Characters";
         if (elementFilter != null) filterDesc = elementFilter + " " + filterDesc;
         if (orElementFilter != null) filterDesc = orElementFilter + " or " + filterDesc;
         if (maxCost >= 0) filterDesc += " of cost " + maxCost + " or less";
         JLabel instructions = new JLabel(
-                txt("Toggle '→ Hand' on " + filterDesc + " (up to " + maxAdd
-                        + "). Swap the rest to order (left = first at bottom)."),
+                txt(mandatoryAll
+                        ? "All " + filterDesc + " go to your hand. Swap the rest to order "
+                                + "(left = first at bottom)."
+                        : "Toggle '→ Hand' on " + filterDesc + " (up to " + maxAdd
+                                + "). Swap the rest to order (left = first at bottom)."),
                 SwingConstants.CENTER);
         instructions.setFont(FontLoader.loadPixelFont(9));
         confirmBtn.addActionListener(ae -> { hideZoom(); dlg.dispose(); });

@@ -822,6 +822,12 @@ public class ActionResolver {
         result = tryParseStandaloneSelfDull(effectText, source);
         if (result != null) return result;
 
+        // The self-dull price in front of a "When you do so" payoff. Anchored over the whole
+        // clause, so it claims nothing but that bare imperative; it exists so the sequence
+        // parser above can resolve its primary half instead of dropping the cost.
+        result = tryParseDullActiveYouControl(effectText, source, xValue);
+        if (result != null) return result;
+
         result = tryParseStandaloneShieldCannotBeBroken(effectText, source);
         if (result != null) return result;
 
@@ -1747,6 +1753,7 @@ public class ActionResolver {
         if (tryParseOppFieldEntryRfgInstead(effectText)                   != null) return "OppFieldEntryRfgInstead";
         if (tryParseStandaloneSelfDullAndShield(effectText, source) != null) return "StandaloneSelfDullAndShield";
         if (tryParseStandaloneSelfDull(effectText, source) != null)          return "StandaloneSelfDull";
+        if (tryParseDullActiveYouControl(effectText, source, 0) != null)     return "DullActiveYouControl";
         if (tryParseStandaloneShieldCannotBeBroken(effectText, source) != null) return "StandaloneShieldCannotBeBroken";
         if (tryParseAllOwnForwardsNullifyAbilityDamage(effectText)        != null) return "AllOwnForwardsNullifyAbilityDamage";
         if (tryParseOwnJobOrNameNullifyAbilityDamage(effectText)          != null) return "OwnJobOrNameNullifyAbilityDamage";
@@ -2711,6 +2718,7 @@ public class ActionResolver {
         if (tryParseOppFieldEntryRfgInstead(effectText)                   != null) return "OppFieldEntryRfgInstead";
         if (tryParseStandaloneSelfDullAndShield(effectText, source) != null) return "StandaloneSelfDullAndShield";
         if (tryParseStandaloneSelfDull(effectText, source) != null)          return "StandaloneSelfDull";
+        if (tryParseDullActiveYouControl(effectText, source, 0) != null)     return "DullActiveYouControl";
         if (tryParseStandaloneShieldCannotBeBroken(effectText, source) != null) return "StandaloneShieldCannotBeBroken";
         if (tryParseAllOwnForwardsNullifyAbilityDamage(effectText)        != null) return "AllOwnForwardsNullifyAbilityDamage";
         if (tryParseOwnJobOrNameNullifyAbilityDamage(effectText)          != null) return "OwnJobOrNameNullifyAbilityDamage";
