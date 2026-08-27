@@ -171,6 +171,10 @@ final class GameContextImpl implements GameContext {
 		return count;
 	}
 
+
+	// =========================================================================================
+	// Effect bookkeeping: seat, log, chosen targets, progress flag
+	// =========================================================================================
 			@Override public void logEntry(String msg) { mw.logEntry(msg); }
 			@Override public boolean isP1() { return isP1; }
 
@@ -188,6 +192,10 @@ final class GameContextImpl implements GameContext {
 			@Override public void markEffectFizzled()   { mw.effectProgress = false; }
 			@Override public boolean effectMadeProgress() { return mw.effectProgress; }
 
+
+	// =========================================================================================
+	// Forward slots: reads, state, and slot-addressed damage
+	// =========================================================================================
 			@Override public int p1ForwardCount()                    { return mw.p1ForwardCards.size(); }
 			@Override public boolean fieldCardHasElement(CardData card, String elem) {
 				return mw.effectiveContainsElement(card, elem);
@@ -265,6 +273,10 @@ final class GameContextImpl implements GameContext {
 				return amount;
 			}
 
+
+	// =========================================================================================
+	// Damage scaling: doubling and outgoing boosts
+	// =========================================================================================
 			@Override public void doubleOutgoingDamage(CardData source) {
 				int cur = mw.outgoingDmgMultiplierMap.getOrDefault(source, 1);
 				mw.outgoingDmgMultiplierMap.put(source, cur * 2);
@@ -283,6 +295,10 @@ final class GameContextImpl implements GameContext {
 				logEntry(source.name() + " — outgoing combat damage +" + amount + " vs Forwards until end of turn");
 			}
 
+
+	// =========================================================================================
+	// Warp Counters
+	// =========================================================================================
 			@Override public void chooseAndRemoveWarpCounter() {
 				String p = isP1 ? "" : "[P2] ";
 				List<GameState.WarpEntry> zone = isP1
@@ -389,6 +405,10 @@ final class GameContextImpl implements GameContext {
 				}
 			}
 
+
+	// =========================================================================================
+	// Incoming-damage modifiers and extra-cost readbacks
+	// =========================================================================================
 			@Override public void doubleOpponentForwardIncomingDamage() {
 				if (isP1) {
 					mw.p2Turn.forwardIncomingDmgMult *= 2;
@@ -435,6 +455,10 @@ final class GameContextImpl implements GameContext {
 				else          damageP2ForwardUnreduced(t.idx(), amount);
 			}
 
+
+	// =========================================================================================
+	// Damage shields: reduction, redirection and negation
+	// =========================================================================================
 			@Override public void shieldNextIncomingDamage(ForwardTarget t) {
 				CardData c = mw.autoAbilityTriggers.fieldCardData(t); if (c != null) mw.nextIncomingDmgZeroSet.add(c);
 			}
@@ -582,6 +606,10 @@ final class GameContextImpl implements GameContext {
 				}
 			}
 
+
+	// =========================================================================================
+	// Cannot-be-chosen and cannot-be-broken protections
+	// =========================================================================================
 			@Override public void shieldCannotBeChosen(ForwardTarget t, boolean bySummons, boolean byAbilities) {
 				CardData c = mw.autoAbilityTriggers.fieldCardData(t);
 				if (c == null) return;
@@ -611,6 +639,10 @@ final class GameContextImpl implements GameContext {
 				logEntry((t.isP1() ? "" : "[P2] ") + c.name() + " cannot be broken by opposing non-damage Summons or abilities until end of turn");
 			}
 
+
+	// =========================================================================================
+	// Delayed marks armed on a target
+	// =========================================================================================
 			@Override public void markTargetRfgInsteadOfBzThisTurn(ForwardTarget t) {
 				if (t.zone() != ForwardTarget.CardZone.FORWARD) return;
 				CardData c = mw.autoAbilityTriggers.fieldCardData(t);
@@ -651,6 +683,10 @@ final class GameContextImpl implements GameContext {
 						+ " — when it leaves the field this turn, " + source.name() + " → Break Zone");
 			}
 
+
+	// =========================================================================================
+	// Source-card protections and granted abilities
+	// =========================================================================================
 			@Override public void dullSourceForward(CardData source) {
 				List<CardData> fwds = isP1 ? mw.p1ForwardCards : mw.p2ForwardCards;
 				for (int i = 0; i < fwds.size(); i++) {
@@ -789,6 +825,10 @@ final class GameContextImpl implements GameContext {
 				logEntry("nullifyDamageByElementAbilityOnly: " + cardName + " not found on field");
 			}
 
+
+	// =========================================================================================
+	// Element assignment and player prompts
+	// =========================================================================================
 			@Override public void setCardElement(String cardName, String element) {
 				for (boolean p1s : new boolean[]{true, false}) {
 					List<CardData> fwds = p1s ? mw.p1ForwardCards : mw.p2ForwardCards;
@@ -914,6 +954,10 @@ final class GameContextImpl implements GameContext {
 				}
 			}
 
+
+	// =========================================================================================
+	// Control changes
+	// =========================================================================================
 			@Override public void gainControlOfForward(ForwardTarget t, String condition, boolean activate) {
 				// Only a Forward the other player controls can be taken.
 				if (t == null || t.isP1() == isP1 || t.zone() != ForwardTarget.CardZone.FORWARD) return;
@@ -1391,6 +1435,10 @@ final class GameContextImpl implements GameContext {
 				return fireChosenByOpponentTriggers(chosen);
 			}
 
+
+	// =========================================================================================
+	// Multi-target selection helpers
+	// =========================================================================================
 			/**
 			 * Runs an ordinary unbounded Forward selection with {@link #totalCostBudget} set, which
 			 * is what swaps in the budgeted dialog and the budgeted AI pick. Going through
@@ -1543,6 +1591,10 @@ final class GameContextImpl implements GameContext {
 				return -1;
 			}
 
+
+	// =========================================================================================
+	// Dull, freeze and activate by slot
+	// =========================================================================================
 			@Override public void dullP1Forward(int idx) {
 				if (idx >= mw.p1ForwardStates.size()) return;
 				CardData c = p1Forward(idx);
@@ -1597,6 +1649,10 @@ final class GameContextImpl implements GameContext {
 				mw.refreshP2ForwardSlot(idx);
 			}
 
+
+	// =========================================================================================
+	// Attack and block restrictions; granted keywords
+	// =========================================================================================
 			// The row-index API is kept because the effects that use it genuinely mean "the Forward
 			// in slot N" — several sweep the whole row. Storage is by card instance, so the index
 			// is resolved here and never held.
@@ -1801,6 +1857,10 @@ final class GameContextImpl implements GameContext {
 				mw.cannotUseActionAbilitiesThisTurn.add(card);
 				logEntry(card.name() + " cannot use action abilities this turn");
 			}
+
+	// =========================================================================================
+	// Returning Forwards to hand and deck
+	// =========================================================================================
 			@Override public void returnP1ForwardToHand(int idx) {
 				if (!isP1 && idx >= 0 && idx < mw.p1ForwardCards.size()) {
 					CardData c = p1Forward(idx);
@@ -1864,12 +1924,25 @@ final class GameContextImpl implements GameContext {
 			@Override public void returnP2ForwardToDeckTop(int idx)      { mw.returnP2ForwardToDeck(idx, false); }
 			@Override public void returnP1ForwardUnderDeckTop(int idx, int position) { mw.returnP1ForwardUnderDeckTop(idx, position); }
 			@Override public void returnP2ForwardUnderDeckTop(int idx, int position) { mw.returnP2ForwardUnderDeckTop(idx, position); }
+
+	// =========================================================================================
+	// Deck search
+	// =========================================================================================
 			@Override public boolean searchDeckForCard(boolean inclForwards, boolean inclBackups,
 					boolean inclMonsters, boolean inclSummons,
 					int costVal, String costCmp, String cardNameFilter, String jobFilter,
 					String categoryFilter, String elementFilter, String excludeName, String excludeElem,
 					String destination, int count, boolean entersDull, boolean requireWarp) {
 				return mw.searchDeckForCard(isP1, inclForwards, inclBackups, inclMonsters, inclSummons,
+						costVal, costCmp, cardNameFilter, jobFilter, categoryFilter, elementFilter, excludeName, excludeElem, destination, count, entersDull, requireWarp);
+			}
+
+			@Override public boolean searchDeckForCardDistinctNames(boolean inclForwards, boolean inclBackups,
+					boolean inclMonsters, boolean inclSummons,
+					int costVal, String costCmp, String cardNameFilter, String jobFilter,
+					String categoryFilter, String elementFilter, String excludeName, String excludeElem,
+					String destination, int count, boolean entersDull, boolean requireWarp) {
+				return mw.searchDeckForCardDistinctNames(isP1, inclForwards, inclBackups, inclMonsters, inclSummons,
 						costVal, costCmp, cardNameFilter, jobFilter, categoryFilter, elementFilter, excludeName, excludeElem, destination, count, entersDull, requireWarp);
 			}
 			@Override public boolean searchDeckForNamedCardWithJob(boolean inclForwards, boolean inclBackups,
@@ -1917,6 +1990,10 @@ final class GameContextImpl implements GameContext {
 				if (isP1) mw.refreshP1BreakLabel(); else mw.refreshP2BreakLabel();
 			}
 
+
+	// =========================================================================================
+	// Returning Backups and Monsters
+	// =========================================================================================
 			@Override public void returnP1BackupToHand(int idx) {
 				CardData c = idx >= 0 && idx < mw.p1BackupCards.length ? mw.p1BackupCards[idx] : null;
 				if (!isP1 && c != null && characterReturnToHandProtected(c, true)) return;
@@ -1966,6 +2043,10 @@ final class GameContextImpl implements GameContext {
 				return false;
 			}
 
+
+	// =========================================================================================
+	// Combat: attacking, blocking, breaking and removal
+	// =========================================================================================
 			@Override public boolean isP1ForwardAttacking(int idx) { return mw.p1AttackSelection.contains(idx); }
 			@Override public boolean isP2ForwardAttacking(int idx) { return false; }
 			@Override public boolean isP1ForwardBlocking(int idx)  { return false; }
@@ -2196,6 +2277,10 @@ final class GameContextImpl implements GameContext {
 				return mw.showBreakZoneSelectDialog(eligible, bz, maxCount, upTo, title);
 			}
 
+
+	// =========================================================================================
+	// The stack: cancelling abilities and Summons
+	// =========================================================================================
 			@Override public void cancelStackEntry() {
 				StackEntry chosen = chooseSummonOrAutoAbilityOnStack("cancel");
 				if (chosen == null) return;
@@ -2595,6 +2680,10 @@ final class GameContextImpl implements GameContext {
 				}
 			}
 
+
+	// =========================================================================================
+	// Redirection, forced moves and milling
+	// =========================================================================================
 			@Override public void redirectChosenTarget(TargetRedirect spec, CardData source) {
 				List<StackEntry> eligible = mw.gameState.getStack().stream()
 						.filter(mw.redirectEligibility(spec, source, isP1))
@@ -2839,6 +2928,10 @@ final class GameContextImpl implements GameContext {
 				}
 			}
 
+
+	// =========================================================================================
+	// Reveal effects driven by a dialog
+	// =========================================================================================
 			@Override public void revealOpponentHand() {
 				List<CardData> hand = mw.gameState.getP2Hand();
 				if (hand.isEmpty()) {
@@ -3416,6 +3509,10 @@ final class GameContextImpl implements GameContext {
 				logEntry((isP1 ? "" : "[P2] ") + card.name() + " added to hand");
 			}
 
+
+	// =========================================================================================
+	// Playing and casting from hand
+	// =========================================================================================
 			@Override public void playCharacterFromHand(boolean inclForwards, boolean inclBackups,
 					boolean inclMonsters, int costVal, String costCmp, int costVal2,
 					String jobFilter, String cardNameFilter, String categoryFilter,
@@ -3855,6 +3952,10 @@ final class GameContextImpl implements GameContext {
 				}
 			}
 
+
+	// =========================================================================================
+	// Damage, crystals and each-player effects
+	// =========================================================================================
 			@Override public void damageTarget(ForwardTarget t, int amount) {
 				if (t.zone() == ForwardTarget.CardZone.BACKUP) { mw.applyDamageToBackup(t.isP1(), t.idx(), amount); return; }
 				if (t.zone() == ForwardTarget.CardZone.MONSTER) { mw.applyDamageToMonster(t.isP1(), t.idx(), amount); return; }
@@ -4316,6 +4417,10 @@ final class GameContextImpl implements GameContext {
 						.forEach(this::forceTargetToBreakZone);
 			}
 
+
+	// =========================================================================================
+	// Target-addressed state changes and breaks
+	// =========================================================================================
 			@Override public void activateTarget(ForwardTarget t) {
 				switch (t.zone()) {
 					case FORWARD -> {
@@ -4583,6 +4688,10 @@ final class GameContextImpl implements GameContext {
 				}
 			}
 
+
+	// =========================================================================================
+	// Remove from game; deck-top manipulation
+	// =========================================================================================
 			@Override public void removeTopCardsOfDeckFromGame(int count, CardData source) {
 				Deque<CardData> deck = isP1 ? mw.gameState.getP1MainDeck() : mw.gameState.getP2MainDeck();
 				for (int i = 0; i < count && !deck.isEmpty(); i++) {
@@ -4736,6 +4845,10 @@ final class GameContextImpl implements GameContext {
 				logEntry("Shuffled deck");
 			}
 
+
+	// =========================================================================================
+	// Playing targets onto the field; Break Zone moves
+	// =========================================================================================
 			@Override public ForwardTarget playTargetOntoField(ForwardTarget t) {
 				List<CardData> bz = t.isP1() ? mw.gameState.getP1BreakZone() : mw.gameState.getP2BreakZone();
 				if (t.idx() >= bz.size()) return null;
@@ -4852,6 +4965,7 @@ final class GameContextImpl implements GameContext {
 				playTargetOntoFieldDull(new ForwardTarget(isP1(), idx, ForwardTarget.CardZone.FORWARD));
 			}
 
+
 			@Override public void addTargetToHand(ForwardTarget t) {
 				List<CardData> bz = t.isP1() ? mw.gameState.getP1BreakZone() : mw.gameState.getP2BreakZone();
 				if (t.idx() >= bz.size()) return;
@@ -4898,6 +5012,10 @@ final class GameContextImpl implements GameContext {
 				return (idx >= 0 && idx < bz.size()) ? bz.get(idx) : null;
 			}
 
+
+	// =========================================================================================
+	// Power and trait changes on a target
+	// =========================================================================================
 			@Override public void boostTarget(ForwardTarget t, int amount,
 					EnumSet<CardData.Trait> traits) {
 				boolean isP1    = t.isP1();
@@ -5004,6 +5122,10 @@ final class GameContextImpl implements GameContext {
 				                : mw.effectiveP2HasTrait(t.idx(), trait);
 			}
 
+
+	// =========================================================================================
+	// Source-card power, traits and permanent grants
+	// =========================================================================================
 			// Was a row search matching on name(), which granted to the wrong copy when two of the
 			// same card were on the field and missed a source attacking from another row entirely.
 			// The set is keyed by instance, so the source can just be written in.
@@ -5186,6 +5308,10 @@ final class GameContextImpl implements GameContext {
 				mw.enforceForwardBreakRuleProcess();
 			}
 
+
+	// =========================================================================================
+	// Counters
+	// =========================================================================================
 			@Override public void placeCounters(CardData card, String counterName, int count) {
 				mw.gameState.placeCounters(card, counterName, count);
 				Map<String, Integer> all = mw.gameState.getCountersMap(card);
@@ -5350,6 +5476,10 @@ final class GameContextImpl implements GameContext {
 				}
 			}
 
+
+	// =========================================================================================
+	// Look at / reveal the top of the deck
+	// =========================================================================================
 			@Override public void lookAtTopDeck(LookConfig config) {
 				lastLookAddedToHand = mw.lookDialogs().show(config, isP1, mw.isP2Cpu());
 			}
@@ -5444,6 +5574,10 @@ final class GameContextImpl implements GameContext {
 				if (isP1) mw.refreshP1DeckLabel(); else mw.refreshP2DeckLabel();
 			}
 
+
+	// =========================================================================================
+	// Cost reductions and last-action readbacks
+	// =========================================================================================
 			@Override public void reduceTarget(ForwardTarget t, int amount,
 					EnumSet<CardData.Trait> traits) {
 				if (t.zone() == ForwardTarget.CardZone.BACKUP) return;
@@ -5514,6 +5648,10 @@ final class GameContextImpl implements GameContext {
 				return mw.gameState.getP1PermanentRfp().size() + mw.gameState.getP2PermanentRfp().size();
 			}
 
+
+	// =========================================================================================
+	// Retriggering and action choice
+	// =========================================================================================
 			@Override public void retriggerAutoAbility(CardData source, String triggerType) {
 				for (AutoAbility fa : source.autoAbilities()) {
 					if (fa.trigger().equals(triggerType)) {
@@ -5556,6 +5694,10 @@ final class GameContextImpl implements GameContext {
 				return new ArrayList<>(ordered.subList(0, take));
 			}
 
+
+	// =========================================================================================
+	// Board queries: power extremes and combat partners
+	// =========================================================================================
 			@Override public int highestP1ForwardPower() {
 				int max = 0;
 				for (int i = 0; i < mw.p1ForwardCards.size(); i++)
@@ -5652,6 +5794,10 @@ final class GameContextImpl implements GameContext {
 						: (t.idx() < mw.p2MonsterCards.size() ? mw.effectiveP2MonsterPower(t.idx()) : 0);
 			}
 
+
+	// =========================================================================================
+	// Opponent hand disruption
+	// =========================================================================================
 			@Override public void forceOpponentDiscard(int count) {
 				if (isP1) {
 					List<CardData> hand = mw.gameState.getP2Hand();
@@ -5967,6 +6113,10 @@ final class GameContextImpl implements GameContext {
 				}
 			}
 
+
+	// =========================================================================================
+	// Removed-from-game zone and named-card moves
+	// =========================================================================================
 			@Override public void removeNamedCardFromGame(String cardName) {
 				// P1 forwards
 				for (int i = 0; i < mw.p1ForwardCards.size(); i++) {
@@ -6218,6 +6368,10 @@ final class GameContextImpl implements GameContext {
 					(isP1 ? mw.scheduledForP1EndTurn : mw.scheduledForP2EndTurn).add(effect));
 			}
 
+
+	// =========================================================================================
+	// Draw and discard
+	// =========================================================================================
 			@Override public void drawCards(int count) {
 				mw.drawCardsForPlayer(isP1, count);
 			}
@@ -6412,6 +6566,10 @@ final class GameContextImpl implements GameContext {
 				}
 			}
 
+
+	// =========================================================================================
+	// Optional payments and "you may" prompts
+	// =========================================================================================
 			@Override public void mayPayToReplayAbility(String element, java.util.function.Consumer<GameContext> replayAction) {
 				if (!isP1) { logEntry("[P2 AI] Passes on ability replay (pay 《" + element + "》)"); return; }
 				String label = "Pay 《" + element + "》 to use this ability again?";
@@ -6738,6 +6896,10 @@ final class GameContextImpl implements GameContext {
 				}
 			}
 
+
+	// =========================================================================================
+	// Player damage
+	// =========================================================================================
 			@Override public void dealDamageToOpponent(int amount) {
 				// Neon's Runic covers "a Forward or a player", so the player half is blanked here
 				// exactly as DamageResolver blanks the Forward half — before any doubling below.
@@ -6992,6 +7154,10 @@ final class GameContextImpl implements GameContext {
 				}
 			}
 
+
+	// =========================================================================================
+	// Mass field effects: party boosts and keyword grants
+	// =========================================================================================
 			@Override public int lastMassActivateCount() { return mw.lastMassActivateCount; }
 
 			@Override
@@ -7267,6 +7433,10 @@ final class GameContextImpl implements GameContext {
 				}
 			}
 
+
+	// =========================================================================================
+	// Scheduled effects and temporary triggers
+	// =========================================================================================
 			@Override public void addEndOfTurnEffect(Consumer<GameContext> effect) {
 				mw.endOfTurnEffects.add(effect);
 			}
@@ -7343,6 +7513,10 @@ final class GameContextImpl implements GameContext {
 				mw.endOfTurnEffects.add(ctx -> mw.activeCostReductions.remove(modifier));
 			}
 
+
+	// =========================================================================================
+	// Break Zone salvage and cast-from-Break-Zone
+	// =========================================================================================
 			@Override public void chooseSummonFromOwnBzToHand() {
 				List<CardData> bz = isP1 ? mw.gameState.getP1BreakZone() : mw.gameState.getP2BreakZone();
 				List<CardData> candidates = new ArrayList<>();
@@ -7560,6 +7734,10 @@ final class GameContextImpl implements GameContext {
 				if (isP1) mw.refreshP1BreakLabel(); else mw.refreshP2BreakLabel();
 			}
 
+
+	// =========================================================================================
+	// Counting queries: field, Break Zone, RFG, hand
+	// =========================================================================================
 			@Override public List<FieldAbility> getActiveFieldAbilities() {
 				List<FieldAbility> active = new ArrayList<>();
 				for (CardData c : mw.p1ForwardCards) active.addAll(c.fieldAbilities());
@@ -7743,6 +7921,10 @@ final class GameContextImpl implements GameContext {
 				return count;
 			}
 
+
+	// =========================================================================================
+	// Condition checks and per-turn history
+	// =========================================================================================
 			@Override public boolean controlConditionMet(ControlCondition cond) {
 				return mw.controlConditionMet(cond, isP1);
 			}
@@ -7908,6 +8090,10 @@ final class GameContextImpl implements GameContext {
 			@Override public boolean castWasPaidByBackupsOnly() { return mw.lastCastWasPaidByBackupsOnly; }
 			@Override public boolean sourceEnteredViaWarp() { return mw.lastCardWarpedIn; }
 
+
+	// =========================================================================================
+	// Monsters as temporary Forwards; special abilities
+	// =========================================================================================
 			@Override public void makeMonsterTemporaryForward(CardData source, int power) {
 				if (isP1) {
 					int idx = mw.p1MonsterCards.indexOf(source);
@@ -8115,6 +8301,10 @@ final class GameContextImpl implements GameContext {
 				}
 			}
 
+
+	// =========================================================================================
+	// Source-card identity, jobs and elements
+	// =========================================================================================
 			@Override public CardData targetCard(ForwardTarget t) {
 				return t == null ? null : mw.autoAbilityTriggers.fieldCardData(t);
 			}
@@ -8261,6 +8451,10 @@ final class GameContextImpl implements GameContext {
 				return new String[] { t.vocabulary().name().toLowerCase(), t.value() };
 			}
 
+
+	// =========================================================================================
+	// Reveal top N: add to hand, play, or send to the bottom
+	// =========================================================================================
 			@Override public void revealTopAddAllMatchingRestBottom(int reveal,
 				String jobFilter, String categoryFilter, String cardNameFilter, String typeFilter) {
 				Deque<CardData> deck = isP1 ? mw.gameState.getP1MainDeck() : mw.gameState.getP2MainDeck();
@@ -8335,6 +8529,10 @@ final class GameContextImpl implements GameContext {
 				};
 			}
 
+
+	// =========================================================================================
+	// Source to deck; flip-until effects
+	// =========================================================================================
 			@Override public void putSourceToBottomOfDeck(CardData source) {
 				List<CardData> fwds = isP1 ? mw.p1ForwardCards : mw.p2ForwardCards;
 				for (int i = fwds.size() - 1; i >= 0; i--) {
@@ -8554,6 +8752,10 @@ final class GameContextImpl implements GameContext {
 				if (isP1) mw.refreshP1DeckLabel(); else mw.refreshP2DeckLabel();
 			}
 
+
+	// =========================================================================================
+	// Name a type; mass job and element grants
+	// =========================================================================================
 			@Override public void nameCardTypeOpponentDiscardDrawIfMatch() {
 				final String[] TYPES = {"Forward", "Backup", "Monster", "Summon"};
 				// Step 1: Name 1 card type

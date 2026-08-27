@@ -27,6 +27,10 @@ final class ActionResolverChoose {
 
 	private ActionResolverChoose() {}
 
+
+    // =========================================================================================
+    // Two Break-Zone Forwards; select following actions
+    // =========================================================================================
     /**
      * Parses Mont Leonis 22-113L's Break Zone recursion — see
      * {@link ActionResolverPatterns#CHOOSE_TWO_BZ_FWD_PLAY_IF_CONTROL}.
@@ -225,6 +229,10 @@ final class ActionResolverChoose {
             }
         };
     }
+
+    // =========================================================================================
+    // Choose one each; "the former / the latter"
+    // =========================================================================================
     /**
      * Parses "Choose [up to] N [condition] [element] [targets] [of cost X] [control] [zone]
      * [sep] followup".
@@ -814,6 +822,10 @@ final class ActionResolverChoose {
             fLatterAction.accept(ctx, ts2);
         };
     }
+
+    // =========================================================================================
+    // Redirects, mixed types and joint actions
+    // =========================================================================================
     /**
      * Parses "Choose 1 Forward you control other than [CardName]. During this turn, the next
      * damage dealt to it is dealt to [CardName] instead." — one-shot damage redirect where the
@@ -1019,6 +1031,10 @@ final class ActionResolverChoose {
             action.accept(ctx, all);
         };
     }
+
+    // =========================================================================================
+    // Gated boosts and Break-Zone / RFG searches
+    // =========================================================================================
     /**
      * Strips a trailing "When it is put from the field into the Break Zone this turn, draw N"
      * delayed trigger, parses the rest as an ordinary choose-and-act effect, and arms the mark so
@@ -1061,6 +1077,10 @@ final class ActionResolverChoose {
         if (!FOLLOWUP_MAY_SEARCH_RFG_THEN_ELSE.matcher(followup).matches()) return null;
         return tryParseChooseCharacter(text, source, xValue);
     }
+
+    // =========================================================================================
+    // Choose Character: entry point and shared helpers
+    // =========================================================================================
     static Consumer<GameContext> tryParseChooseCharacter(String text, CardData source, int xValue) {
         Matcher bzDrawM = CHOOSE_THEN_WHEN_PUT_TO_BZ_DRAW.matcher(text.trim());
         if (bzDrawM.matches()) {
@@ -1174,6 +1194,10 @@ final class ActionResolverChoose {
         else ctx.logEntry(card.name() + " costs " + card.cost() + ", not " + cost + " — not played");
     }
 
+
+    // =========================================================================================
+    // tryParseChooseCharacterInner: the followup chain
+    // =========================================================================================
     static Consumer<GameContext> tryParseChooseCharacterInner(String text, CardData source, int xValue) {
         text = ELEM_TYPE_OR_ELEM_TYPE.matcher(text).replaceAll("$1 or $3 $2");
         text = escapePeriodInName(text, source);
@@ -1457,6 +1481,10 @@ final class ActionResolverChoose {
                 + (element   != null ? " " + element   : "")
                 + categoryLabel + " " + targets + costLabel + powerLabel + controlLabel + excludeLabel + zoneLabel;
 
+
+        // =====================================================================================
+        // Quoted grants, optional payments and search payoffs
+        // =====================================================================================
         // --- Multi-sentence quoted-ability grants ---------------------------------------
         // Settled here, ahead of every followup parser below, because those all match with
         // find(): the effects printed inside a quotation belong to the ability being granted, not
@@ -1853,6 +1881,10 @@ final class ActionResolverChoose {
             }
         }
 
+
+        // =====================================================================================
+        // Damage followups
+        // =====================================================================================
         // --- "Divide N damage" ---
         Matcher divideM = DIVIDE_DAMAGE_PATTERN.matcher(followup);
         if (divideM.find())
@@ -2623,6 +2655,10 @@ final class ActionResolverChoose {
             }
         }
 
+
+        // =====================================================================================
+        // Control changes and cannot-be-chosen protections
+        // =====================================================================================
         // --- Activate + Gain control (EOT) followup (must precede plain Activate) ---
         if (FOLLOWUP_ACTIVATE_AND_GAIN_CONTROL_EOT.matcher(primaryFollowup).find()) {
             return ctx -> {
@@ -2723,6 +2759,10 @@ final class ActionResolverChoose {
             };
         }
 
+
+        // =====================================================================================
+        // Activate, dull, freeze and element change
+        // =====================================================================================
         // --- Activate + Negate damage followup (must precede plain Activate to avoid partial match) ---
         if (FOLLOWUP_ACTIVATE_AND_NEGATE_DAMAGE.matcher(primaryFollowup).find()) {
             return ctx -> {
@@ -2874,6 +2914,10 @@ final class ActionResolverChoose {
             };
         }
 
+
+        // =====================================================================================
+        // Extra-cost payoffs; break and ability loss
+        // =====================================================================================
         // --- Extra-cost payoffs: 24-065H Fenrir and 18-136S Titan ---
         // These two Summons put their whole effect behind an optional extra cost and then refer
         // back to the card that paid it, rather than saying "If you paid the extra cost" like the
@@ -2987,6 +3031,10 @@ final class ActionResolverChoose {
             };
         }
 
+
+        // =====================================================================================
+        // Remove from game
+        // =====================================================================================
         // --- "Remove them from the game. If these cards are of the same card type, also draw N card(s)." ---
         Matcher rfpSameTypeDrawM = FOLLOWUP_RFP_IF_SAME_TYPE_DRAW.matcher(followup);
         if (rfpSameTypeDrawM.find()) {
@@ -3075,6 +3123,10 @@ final class ActionResolverChoose {
             };
         }
 
+
+        // =====================================================================================
+        // Play onto the field; add to hand; return to hand
+        // =====================================================================================
         // --- Play onto field followup ---
         // --- "If its cost is equal to or less than the number of Job X you control, play it onto the field." ---
         // Must be checked before the generic PlayOntoField handler so the condition is enforced.
@@ -3296,6 +3348,10 @@ final class ActionResolverChoose {
             };
         }
 
+
+        // =====================================================================================
+        // Put on the top or bottom of a deck
+        // =====================================================================================
         // --- Put at top or bottom of owner's deck followup (player chooses) ---
         if (FOLLOWUP_PUT_TOP_OR_BOTTOM_OF_DECK.matcher(primaryFollowup).find()) {
             return ctx -> {
@@ -3486,6 +3542,10 @@ final class ActionResolverChoose {
             };
         }
 
+
+        // =====================================================================================
+        // Block restrictions
+        // =====================================================================================
         // --- Cannot block followup ---
         if (FOLLOWUP_CANNOT_BLOCK.matcher(primaryFollowup).find()) {
             return ctx -> {
@@ -3654,6 +3714,10 @@ final class ActionResolverChoose {
             };
         }
 
+
+        // =====================================================================================
+        // Attack restrictions and quoted attack locks
+        // =====================================================================================
         // --- Cannot attack (this turn) followup ---
         if (FOLLOWUP_CANNOT_ATTACK.matcher(primaryFollowup).find()) {
             return ctx -> {
@@ -3799,6 +3863,10 @@ final class ActionResolverChoose {
             };
         }
 
+
+        // =====================================================================================
+        // Power boosts
+        // =====================================================================================
         // --- Power-becomes followup: "Its power becomes N until end of turn" ---
         Matcher becomesM = FOLLOWUP_POWER_BECOMES.matcher(primaryFollowup);
         if (becomesM.find()) {
@@ -4040,6 +4108,10 @@ final class ActionResolverChoose {
             };
         }
 
+
+        // =====================================================================================
+        // Power reduction
+        // =====================================================================================
         // --- Power / trait reduce followup (standard order: "it/they loses N power [, traits] until…") ---
         Matcher reduceM = FOLLOWUP_POWER_REDUCE.matcher(primaryFollowup);
         if (reduceM.find()) {
@@ -4170,6 +4242,10 @@ final class ActionResolverChoose {
             };
         }
 
+
+        // =====================================================================================
+        // Opponent discard, self boost and cancel
+        // =====================================================================================
         // --- Opponent discard followup ---
         Matcher discardM = OPPONENT_DISCARD.matcher(primaryFollowup);
         if (discardM.find()) {
@@ -4205,6 +4281,10 @@ final class ActionResolverChoose {
             };
         }
 
+
+        // =====================================================================================
+        // Damage shields and cannot-be-broken
+        // =====================================================================================
         // --- Next incoming damage = 0 followup ---
         if (FOLLOWUP_SHIELD_NEXT_DMG_ZERO.matcher(primaryFollowup).find()) {
             return ctx -> {
@@ -4362,6 +4442,10 @@ final class ActionResolverChoose {
             };
         }
 
+
+        // =====================================================================================
+        // Granted abilities and end-of-turn riders
+        // =====================================================================================
         // --- "[Self] gains his/her action abilities until EOT." (Gogo 9-107C) ---
         // The one followup here that acts on the source rather than on what was chosen: the
         // chosen Forward is the donor, and its abilities are re-pointed at the borrower on the
@@ -4480,6 +4564,10 @@ final class ActionResolverChoose {
                 "[ActionResolver] Choose effect — followup not yet implemented: " + followup);
         return secondary == null ? warnEffect : warnEffect.andThen(secondary);
     }
+
+    // =========================================================================================
+    // Standalone choose parsers
+    // =========================================================================================
     /**
      * Index of the first ". " sentence boundary of {@code text} that lies outside every quoted
      * span, or -1 when there is none.

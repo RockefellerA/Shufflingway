@@ -822,6 +822,9 @@ final class ActionResolverSearch {
         };
     }
     static Consumer<GameContext> tryParseSearchDeck(String text, CardData source, int xValue) {
+        // Lifted off before the identity groups read the text — see SEARCH_WITH_DIFFERENT_NAMES.
+        boolean distinctNames = SEARCH_WITH_DIFFERENT_NAMES.matcher(text).find();
+        if (distinctNames) text = SEARCH_WITH_DIFFERENT_NAMES.matcher(text).replaceFirst("");
         Matcher m = SEARCH_DECK_PATTERN.matcher(text);
         if (!m.find()) return null;
 
@@ -992,13 +995,18 @@ final class ActionResolverSearch {
         final boolean fDull = entersDull;
         final boolean fWarp = requireWarp;
         final boolean fBoth = identityConjunctive;
+        final boolean fDistinct = distinctNames;
         final int fCost = costVal;
         final String fCostCmp = costCmp;
         Consumer<GameContext> search = ctx -> {
             ctx.logEntry("Effect: Search deck for " + fCount + filterDesc + typeDesc + costLabel
                     + (fBoth ? " [name and job together]" : "")
+                    + (fDistinct ? " [different names]" : "")
                     + " → " + destination + (fDull ? " dull" : ""));
-            if (fBoth) {
+            if (fDistinct) {
+                ctx.searchDeckForCardDistinctNames(fwd, bk, mn, sm, fCost, fCostCmp, fName, fJob,
+                        fCat, fElem, fExclude, fExclElem, destination, fCount, fDull, fWarp);
+            } else if (fBoth) {
                 ctx.searchDeckForNamedCardWithJob(fwd, bk, mn, sm, fCost, fCostCmp, fName, fJob,
                         fElem, fExclude, fExclElem, destination, fCount, fDull, fWarp);
             } else {

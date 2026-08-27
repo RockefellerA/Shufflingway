@@ -10031,6 +10031,115 @@ public class CardBehaviorTest {
         verify(ctx, never()).dullAndFreezeTarget(any());
     }
 
+    // =========================================================================================
+    // Three Chocobo-adjacent wirings: a quoted attack lock, a different-names search, and an
+    // effect that acts on the card whose departure fired the trigger.
+    //
+    // 1. 17-078R The Night Dancer grants its lock as a quoted ability — It gains "This Forward
+    //    cannot attack." until the end of the turn — where the followups only knew the bare
+    //    "it cannot attack this turn". The whole family read as ChooseCharacter / ?: Onion Knight,
+    //    Man in Black and Gigas were losing their locks too.
+    //
+    // 2. "with different names" was never consumed. The identity groups are lazy runs bounded by
+    //    a lookahead the phrase does not trip, so Glauca searched for a job literally called
+    //    "Captain with different names" and found nothing; the Category arm had no lookahead at
+    //    all, so 23-008H Zidane did not parse.
+    //
+    // 3. 24-022H Gogo's "add it to your hand" names the Forward that was put into the Break Zone,
+    //    not a chosen target — nothing is chosen, so there is no selection to refer back to.
+    // =========================================================================================
+
+    private static final String NIGHT_DANCER_17_078R =
+            "choose 1 Forward opponent controls. "
+            + "It gains \"This Forward cannot attack.\" until the end of the turn.";
+
+    @Test
+    void theNightDancerLocksAChosenOpponentForwardOutOfAttacking() {
+        ForwardTarget theirs = new ForwardTarget(false, 0, ForwardTarget.CardZone.FORWARD);
+        GameContext ctx = ctxChoosing(List.of(theirs));
+
+        Consumer<GameContext> fn = ActionResolver.parse(NIGHT_DANCER_17_078R, null);
+        assertNotNull(fn);
+        fn.accept(ctx);
+
+        verify(ctx).setP2ForwardCannotAttack(0);
+        // "cannot attack", not "cannot attack or block" — blocking is untouched.
+        verify(ctx, never()).setP2ForwardCannotBlock(anyInt());
+    }
+
+    // The quoted arm must not swallow the wider lock its siblings print.
+    @Test
+    void theQuotedAttackLockKeepsAttackOnlyAndAttackOrBlockApart() {
+        assertEquals("ChooseCharacter / CannotAttack",
+                ActionResolver.fullDescription(NIGHT_DANCER_17_078R, null));
+        assertEquals("ChooseCharacter / CannotAttackOrBlock",
+                ActionResolver.fullDescription(
+                        "choose 1 Forward. It gains \"This Forward cannot attack or block.\" "
+                        + "until the end of the turn.", null));
+    }
+
+    // 20-072C Gigas runs to the end of the opponent's turn; that must not be shortened to one turn
+    // by the pattern checked ahead of it.
+    @Test
+    void theQuotedLockKeepsGigasLongerDuration() {
+        assertEquals("ChooseCharacter / CannotAttackOrBlockPersistent",
+                ActionResolver.fullDescription(
+                        "choose 1 Forward. It gains \"This Forward cannot attack or block.\" "
+                        + "until the end of your opponent's turn.", null));
+    }
+
+    @Test
+    void zidaneSearchesTwoCategoryNineForwardsWithDifferentNames() {
+        GameContext ctx = mock(GameContext.class);
+        Consumer<GameContext> fn = ActionResolver.parse(
+                "search for 2 Category IX Forwards with different names other than Card Name "
+                + "Zidane and add them to your hand.", null);
+        assertNotNull(fn);
+        fn.accept(ctx);
+
+        verify(ctx).searchDeckForCardDistinctNames(true, false, false, false, -1, null,
+                null, null, "IX", null, "Zidane", null, "hand", 2, false, false);
+    }
+
+    // The phrase used to be swallowed by the job filter, so Glauca hunted a job called
+    // "Captain with different names" and could never find one.
+    @Test
+    void glaucaSearchesTheJobItselfNotTheJobPlusThePhrase() {
+        GameContext ctx = mock(GameContext.class);
+        ActionResolver.parse(
+                "search for 2 Job Captain with different names and add them to your hand.", null)
+                .accept(ctx);
+
+        verify(ctx).searchDeckForCardDistinctNames(true, true, true, true, -1, null,
+                null, "Captain", null, null, null, null, "hand", 2, false, false);
+    }
+
+    // Without the phrase the search is unconstrained and still goes to the ordinary primitive.
+    @Test
+    void aSearchWithoutTheConstraintIsUnchanged() {
+        GameContext ctx = mock(GameContext.class);
+        ActionResolver.parse("search for 2 Job Captain and add them to your hand.", null).accept(ctx);
+
+        verify(ctx).searchDeckForCard(true, true, true, true, -1, null,
+                null, "Captain", null, null, null, null, "hand", 2, false, false);
+        verify(ctx, never()).searchDeckForCardDistinctNames(anyBoolean(), anyBoolean(), anyBoolean(),
+                anyBoolean(), anyInt(), any(), any(), any(), any(), any(), any(), any(), any(),
+                anyInt(), anyBoolean(), anyBoolean());
+    }
+
+    // The picker's half of "different names": a name already taken cannot be taken twice.
+    @Test
+    void thePickerRefusesASecondCardOfTheSameName() {
+        List<CardData> matches = List.of(
+                makeForward("Vivi", "Ice", 2, 5000),
+                makeForward("Vivi", "Ice", 2, 5000),
+                makeForward("Garnet", "Wind", 3, 7000));
+        assertTrue(shufflingway.dialog.CardPickerDialog.nameAlreadySelected(matches, List.of(0), 1),
+                "the second Vivi shares a name with the first");
+        assertFalse(shufflingway.dialog.CardPickerDialog.nameAlreadySelected(matches, List.of(0), 2),
+                "Garnet is a different name");
+    }
+
 	// =========================================================================================
 	// Trailing draw.
 	//

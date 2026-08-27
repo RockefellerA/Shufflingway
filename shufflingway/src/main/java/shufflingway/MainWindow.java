@@ -4910,6 +4910,36 @@ public class MainWindow {
 	private boolean searchIdentityConjunctive = false;
 
 	/**
+	 * Set while a search must return cards with <em>different names</em> — 23-008H Zidane,
+	 * 18-138S Glauca, 22-067L Nacht. An instance field for the same reason
+	 * {@link #searchIdentityConjunctive} is one: the sixteen-argument search signature and its
+	 * thirty-odd call sites stay as they are.
+	 */
+	private boolean searchDistinctNames = false;
+
+	/**
+	 * Searches with the "different names" constraint applied to the selection: every match is
+	 * still offered, but no two cards taken may share a name.
+	 *
+	 * <p>Cleared in a finally block, so a dialog the player dismisses cannot leave it set for the
+	 * next search.
+	 */
+	boolean searchDeckForCardDistinctNames(boolean isP1,
+		boolean inclForwards, boolean inclBackups, boolean inclMonsters, boolean inclSummons,
+		int costVal, String costCmp, String cardNameFilter, String jobFilter,
+		String categoryFilter, String elementFilter, String excludeName, String excludeElem,
+		String destination, int count, boolean entersDull, boolean requireWarp) {
+		searchDistinctNames = true;
+		try {
+			return searchDeckForCard(isP1, inclForwards, inclBackups, inclMonsters, inclSummons,
+				costVal, costCmp, cardNameFilter, jobFilter, categoryFilter, elementFilter,
+				excludeName, excludeElem, destination, count, entersDull, requireWarp);
+		} finally {
+			searchDistinctNames = false;
+		}
+	}
+
+	/**
 	 * Searches for the card that satisfies <em>both</em> identity filters — the Cecil that carries
 	 * Job Paladin, not any Cecil and not any Paladin.
 	 *
@@ -5028,13 +5058,26 @@ public class MainWindow {
 				List<CardData> copy = new ArrayList<>(matches);
 				Collections.shuffle(copy);
 				CardData pick = copy.get(0);
+				// "with different names": the AI skips past a name it has already taken.
+				if (searchDistinctNames) {
+					CardData distinct = null;
+					for (CardData c : copy) {
+						boolean dup = false;
+						for (CardData already : chosen)
+							if (already.name().equalsIgnoreCase(c.name())) { dup = true; break; }
+						if (!dup) { distinct = c; break; }
+					}
+					if (distinct == null) break;
+					pick = distinct;
+				}
 				logEntry("[AI] chose " + pick.name());
 				matches.remove(pick);
 				deck.remove(pick);
 				chosen.add(pick);
 			}
 		} else if (count > 1) {
-			List<CardData> picks = cardPickerDialog.pickMultiFromDeckSearch(matches, count);
+			List<CardData> picks = cardPickerDialog.pickMultiFromDeckSearch(
+				matches, count, searchDistinctNames);
 			for (CardData pick : picks) {
 				gameState.removeFromP1MainDeck(pick);
 				chosen.add(pick);

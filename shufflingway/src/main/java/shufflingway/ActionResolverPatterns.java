@@ -16,6 +16,10 @@ final class ActionResolverPatterns {
 
     private ActionResolverPatterns() {}
 
+
+    // =========================================================================================
+    // Choose: target patterns and mixed-type selections
+    // =========================================================================================
     /**
      * Matches the "Choose" targeted effect header:
      * "Choose [up to] N [condition] [element] [targets] [of cost X [or less|more]] [control] [zone]
@@ -125,6 +129,10 @@ final class ActionResolverPatterns {
         "(?:your\\s+)?opponent\\s+controls[.]?\\s+" +
         "(?<followup>.+)"
     );
+
+    // =========================================================================================
+    // "The former / the latter" pair effects
+    // =========================================================================================
     /**
      * Matches "The former gains +N power until end of turn. Then, the former deals damage equal
      * to its power to the latter." — boost the former, then deal the (post-boost) power as damage to the latter.
@@ -264,6 +272,10 @@ final class ActionResolverPatterns {
         "(?<effects>.+)$",
         Pattern.DOTALL
     );
+
+    // =========================================================================================
+    // Target descriptors and identity phrase fragments
+    // =========================================================================================
     /**
      * Parses a single target description in a CHOOSE_FORMER_LATTER clause:
      * "[condition] [element] CardType [of cost N [or less|more]] [control] [zone]"
@@ -382,6 +394,10 @@ final class ActionResolverPatterns {
     static final Pattern JOB_PHRASE_TRAILING_TYPE = Pattern.compile(
         "(?i)\\s+(Forwards?|Backups?|Monsters?|Characters?)$"
     );
+
+    // =========================================================================================
+    // Cancelling and redirecting entries on the stack
+    // =========================================================================================
     /** Matches "Cancel its effect." — used to counter a Summon on the stack. */
     static final Pattern FOLLOWUP_CANCEL_EFFECT = Pattern.compile(
         "(?i)Cancel\\s+its\\s+effect\\.?"
@@ -650,6 +666,10 @@ final class ActionResolverPatterns {
         "If\\s+the\\s+cancelled\\s+auto-ability\\s+triggered\\s+from\\s+a\\s+Forward,\\s+" +
         "deal\\s+that\\s+Forward\\s+(?<amount>\\d+)\\s+damage\\.?$"
     );
+
+    // =========================================================================================
+    // Damage followups
+    // =========================================================================================
     /**
      * Matches "Deal it/them [and CardName] N damage".
      * <ul>
@@ -930,6 +950,10 @@ final class ActionResolverPatterns {
         ")" +
         "[.!]?"
     );
+
+    // =========================================================================================
+    // Dull, freeze and activate followups
+    // =========================================================================================
     /** Matches "Activate it" or "Activate them". */
     static final Pattern FOLLOWUP_ACTIVATE = Pattern.compile(
         "(?i)Activate\\s+(?:it|them)\\.?"
@@ -964,6 +988,10 @@ final class ActionResolverPatterns {
     static final Pattern FOLLOWUP_DULL_AND_FREEZE = Pattern.compile(
         "(?i)(?:dull\\s+(?:it|them)\\s+and\\s+freeze|dull\\s+and\\s+freeze)\\s+(?:it|them)"
     );
+
+    // =========================================================================================
+    // Delayed and compound followups
+    // =========================================================================================
     /**
      * A followup action standing alone as an entire ability, where "it" is the card that fired the
      * trigger rather than one the player chooses — 26-032L Charlotte, "When a Character enters your
@@ -1133,6 +1161,10 @@ final class ActionResolverPatterns {
         "If\\s+you\\s+discarded\\s+a\\s+Summon\\s+to\\s+pay\\s+this\\s+ability's\\s+cost,\\s+" +
         "deal\\s+it\\s+double\\s+the\\s+damage\\s+of\\s+the\\s+power\\s+of\\s+(?<name2>.+?)\\s+instead[.!]?$"
     );
+
+    // =========================================================================================
+    // Break, element change and ability loss
+    // =========================================================================================
     /** Matches "Break it" or "Break them". */
     static final Pattern FOLLOWUP_BREAK = Pattern.compile(
         "(?i)Break\\s+(?:it|them)"
@@ -1206,6 +1238,10 @@ final class ActionResolverPatterns {
     static final Pattern FOLLOWUP_REMOVE_FROM_GAME = Pattern.compile(
         "(?i)Remove\\s+(?:it|them)\\s+from\\s+(?:the\\s+)?game"
     );
+
+    // =========================================================================================
+    // Remove from game; opponent hand disruption
+    // =========================================================================================
     /**
      * Matches the secondary "Then, play the removed Forward onto the field [dull]."
      * Used after a RemoveFromGame primary to play the just-removed card back onto the field.
@@ -1345,6 +1381,10 @@ final class ActionResolverPatterns {
     static final Pattern AT_END_OF_OPP_TURN_PLAY_NAMED_ONTO_FIELD = Pattern.compile(
         "(?i)^at\\s+the\\s+end\\s+of\\s+your\\s+opponent'?s\\s+turn,?\\s+play\\s+(?<name>.+?)\\s+onto\\s+the\\s+field[.!]?\\s*$"
     );
+
+    // =========================================================================================
+    // Source card to the field, Break Zone or deck
+    // =========================================================================================
     /**
      * Matches "Play [CardName] onto the field at the end of the turn." — the delayed half of a
      * self-blink, where the card removed itself from the game in the preceding sentence
@@ -1452,6 +1492,10 @@ final class ActionResolverPatterns {
     static final Pattern REMOVE_TOP_OF_DECK_FROM_GAME = Pattern.compile(
         "(?i)Remove\\s+the\\s+top\\s+(?:(?<count>\\d+)\\s+cards?|card)\\s+of\\s+your\\s+deck\\s+from\\s+(?:the\\s+)?game\\.?"
     );
+
+    // =========================================================================================
+    // Reveal the top of the deck: remove, damage, play
+    // =========================================================================================
     /**
      * Matches "Reveal the top N cards of your deck. Remove 1 [Category X] card among them from the
      * game and [return the other cards|put the other] to the bottom of your deck [in any order].
@@ -1544,6 +1588,10 @@ final class ActionResolverPatterns {
     static final Pattern FOLLOWUP_PLAY_ONTO_FIELD = Pattern.compile(
         "(?i)Play\\s+(?:it|them)\\s+onto\\s+(?:the\\s+)?field"
     );
+
+    // =========================================================================================
+    // Play onto the field; add to hand
+    // =========================================================================================
     /** Matches "Play it onto the field dull" or "Play them onto the field dull". */
     static final Pattern FOLLOWUP_PLAY_ONTO_FIELD_DULL = Pattern.compile(
         "(?i)Play\\s+(?:it|them)\\s+onto\\s+(?:the\\s+)?field\\s+dull[.!]?"
@@ -1609,6 +1657,10 @@ final class ActionResolverPatterns {
         ",\\s*(?<inner>.+?)[.!]?$",
         Pattern.DOTALL
     );
+
+    // =========================================================================================
+    // Block and cannot-be-blocked restrictions
+    // =========================================================================================
     /**
      * Matches "it cannot block this turn" or
      * "It gains 'This Forward cannot block.' until the end of the turn."
@@ -1747,6 +1799,10 @@ final class ActionResolverPatterns {
         "(?i)(?:If\\s+it\\s+is\\s+possible,\\s+)?it\\s+must\\s+block\\s+(?<cardname>.+?)\\s+" +
         "this\\s+turn(?:\\s+if\\s+possible)?[.!]?"
     );
+
+    // =========================================================================================
+    // Return to hand
+    // =========================================================================================
     /** Matches "Return it to its owner's hand and draw N card(s)." — group {@code draw} is the count. */
     static final Pattern FOLLOWUP_RETURN_AND_DRAW = Pattern.compile(
         "(?i)Return\\s+it\\s+to\\s+its\\s+owner's\\s+hand\\s+and\\s+draw\\s+(?<draw>\\d+)\\s+cards?[.!]?"
@@ -1832,6 +1888,10 @@ final class ActionResolverPatterns {
         "(?:If|When)\\s+you\\s+do\\s+so,\\s+(?<effect>.+)$",
         Pattern.DOTALL
     );
+
+    // =========================================================================================
+    // Source onto the field; source to the deck
+    // =========================================================================================
     /**
      * Matches "Return [CardName] onto the field [dull]" — the payoff half of
      * {@link #SEARCH_NAMED_RFG_THEN_IF_DO_SO} on 1-093H Vanille.
@@ -1893,6 +1953,10 @@ final class ActionResolverPatterns {
     static final Pattern PUT_SOURCE_ON_TOP_OF_DECK = Pattern.compile(
         "(?i)Put\\s+(?<name>.+?)\\s+on\\s+top\\s+of\\s+its\\s+owner's\\s+deck[.!]?"
     );
+
+    // =========================================================================================
+    // Reveal and play from the top of the deck
+    // =========================================================================================
     /**
      * Matches "Reveal the top N cards of your deck. Play 1 Card Name X of cost M or less among
      * them onto the field and return the other cards to the bottom of your deck in any order."
@@ -2041,6 +2105,10 @@ final class ActionResolverPatterns {
         "and\\s+return\\s+the\\s+other\\s+cards?\\s+to\\s+the\\s+bottom\\s+of\\s+(?:your|the)\\s+deck" +
         "(?:\\s+in\\s+any\\s+order)?[.!]?\\s*$"
     );
+
+    // =========================================================================================
+    // Put on the top or bottom of the deck
+    // =========================================================================================
     /** Matches "Put it at the top or bottom of its owner's deck." — player chooses placement. Also handles "Your opponent puts it…" */
     static final Pattern FOLLOWUP_PUT_TOP_OR_BOTTOM_OF_DECK = Pattern.compile(
         "(?i)(?:Your\\s+opponent\\s+puts?\\s+it|Put\\s+it)\\s+at\\s+the\\s+top\\s+or\\s+bottom\\s+of\\s+its\\s+owner's\\s+deck\\.?"
@@ -2118,9 +2186,25 @@ final class ActionResolverPatterns {
     static final Pattern FOLLOWUP_PUT_UNDER_TOP_OF_DECK = Pattern.compile(
         "(?i)Put\\s+it\\s+under\\s+the\\s+top\\s+(?<numword>four\\s+)?cards?\\s+of\\s+(?:its\\s+owner's|your)\\s+deck\\.?"
     );
-    /** Matches "it cannot attack this turn" or "they cannot attack this turn". */
+
+    // =========================================================================================
+    // Cannot attack / must attack; quoted grants
+    // =========================================================================================
+    /**
+     * Matches "it/they cannot attack this turn", and the quoted-grant wording that says the
+     * same thing — 17-078R The Night Dancer's {\\code It gains "This Forward cannot attack."
+     * until the end of the turn.}
+     *
+     * <p>The quoted arm requires the period and closing quote immediately after "attack", so
+     * it cannot claim the "cannot attack or block" grant handled by
+     * {\\link #FOLLOWUP_CANNOT_ATTACK_OR_BLOCK}. That matters because this pattern is checked
+     * first and both scan with {\\code find()}.
+     */
     static final Pattern FOLLOWUP_CANNOT_ATTACK = Pattern.compile(
-        "(?i)(?:it|they)\\s+cannot\\s+attack\\s+this\\s+turn\\.?"
+        "(?i)(?:it|they)\\s+(?:" +
+            "cannot\\s+attack\\s+this\\s+turn" +
+            "|gains\\s+\"This\\s+(?:Forward|Character|Backup|Monster)\\s+cannot\\s+attack\\.\"\\s+until\\s+the\\s+end\\s+of\\s+the\\s+turn" +
+        ")\\.?"
     );
     /**
      * Gestahlian Empire Cid 11-026H's followup: "Select 1 Counter placed on it, and place 1
@@ -2176,9 +2260,21 @@ final class ActionResolverPatterns {
      */
     static final Pattern GRANTED_CLAUSE_SELF_SUBJECT = Pattern.compile(
         "(?i)^(?:this\\s+(?:Forward|Character|Backup|Monster)|it)$");
-    /** Matches "it/they cannot attack or block this turn". */
+    /**
+     * Matches "it/they cannot attack or block this turn", and the quoted-grant wording —
+     * 17-044R Onion Knight and 17-096H Man in Black's {\\code It gains "This Forward cannot
+     * attack or block." until the end of the turn.}
+     *
+     * <p>The quoted arm pins the duration to "the turn", so 20-072C Gigas's "until the end of
+     * your opponent's turn" falls through to
+     * {\\link #FOLLOWUP_CANNOT_ATTACK_OR_BLOCK_PERSISTENT} as it must — this pattern is
+     * checked first and would otherwise shorten that grant to one turn.
+     */
     static final Pattern FOLLOWUP_CANNOT_ATTACK_OR_BLOCK = Pattern.compile(
-        "(?i)(?:it|they)\\s+cannot\\s+attack\\s+or\\s+block\\s+this\\s+turn\\.?"
+        "(?i)(?:it|they)\\s+(?:" +
+            "cannot\\s+attack\\s+or\\s+block\\s+this\\s+turn" +
+            "|gains\\s+\"This\\s+(?:Forward|Character|Backup|Monster)\\s+cannot\\s+attack\\s+or\\s+block\\.\"\\s+until\\s+the\\s+end\\s+of\\s+the\\s+turn" +
+        ")\\.?"
     );
     /**
      * Matches "During this turn, it cannot attack or block, and it cannot use action abilities."
@@ -2200,8 +2296,12 @@ final class ActionResolverPatterns {
      * "…until the end of the next turn".
      */
     static final Pattern FOLLOWUP_CANNOT_ATTACK_OR_BLOCK_PERSISTENT = Pattern.compile(
-        "(?i)(?:it|they)\\s+cannot\\s+attack\\s+or\\s+block\\s+until\\s+the\\s+end\\s+of\\s+" +
-        "(?:your\\s+opponent's|the\\s+next)\\s+turn\\.?"
+        "(?i)(?:it|they)\\s+(?:" +
+            "cannot\\s+attack\\s+or\\s+block\\s+until\\s+the\\s+end\\s+of\\s+" +
+                "(?:your\\s+opponent's|the\\s+next)\\s+turn" +
+            "|gains\\s+\"This\\s+(?:Forward|Character|Backup|Monster)\\s+cannot\\s+attack\\s+or\\s+block\\.\"\\s+until\\s+the\\s+end\\s+of\\s+" +
+                "(?:your\\s+opponent's|the\\s+next)\\s+turn" +
+        ")\\.?"
     );
     /**
      * Standalone "[CardName] cannot attack or block." — permanent self-restriction.
@@ -2242,6 +2342,10 @@ final class ActionResolverPatterns {
         "(?i)^If\\s+your\\s+opponent\\s+(?:doesn'?t|does\\s+not)\\s+control\\s+(?:any\\s+)?Forwards?," +
         "\\s+(?<subject>.+?)\\s+cannot\\s+attack[.!]?\\s*$"
     );
+
+    // =========================================================================================
+    // Turn-phase and delayed triggers
+    // =========================================================================================
     /**
      * Matches "At the end of this turn, if you control &lt;cardName&gt;, deal it N damage."
      * Used as a Choose followup that queues conditional damage to fire at the end phase.
@@ -2449,6 +2553,10 @@ final class ActionResolverPatterns {
         "(?<inner>.+?)\\s*" + GLOBAL_TRIGGER_INNER_BOUNDARY,
         Pattern.DOTALL
     );
+
+    // =========================================================================================
+    // Naming an element, job or category
+    // =========================================================================================
     /**
      * "Select 1 Element. &lt;CardName&gt; becomes that Element[ (this effect does not end at the
      * end of the turn)]." Group {@code name} is the card whose element changes; the
@@ -2524,6 +2632,10 @@ final class ActionResolverPatterns {
     static final Pattern NAME_JOB_STANDALONE = Pattern.compile(
         "(?i)^(?:name\\s+1|select\\s+a)\\s+Job[.!]?$"
     );
+
+    // =========================================================================================
+    // Reveal top N: add to hand
+    // =========================================================================================
     /**
      * Matches "Name 1 Job or Category. Reveal the top N cards of your deck.
      * Add up to M Characters of the named Job or Category among them to your hand
@@ -2644,6 +2756,10 @@ final class ActionResolverPatterns {
         "(?:\\s+in\\s+any\\s+order)?[.!]?\\s*$"
     );
 
+
+    // =========================================================================================
+    // Damage shields, reductions and negation
+    // =========================================================================================
     // ---- Damage-shield followup patterns (apply to selected "it/them" targets) --------
     /** Matches "During this turn, the next damage dealt to it/him becomes 0 instead." */
     static final Pattern FOLLOWUP_SHIELD_NEXT_DMG_ZERO = Pattern.compile(
@@ -2729,6 +2845,10 @@ final class ActionResolverPatterns {
         "(?i)(?:it|they)\\s+gains?\\s+['\"]If\\s+this\\s+Forward\\s+is\\s+dealt\\s+damage\\s+by\\s+your\\s+opponent's\\s+abilities,\\s+the\\s+damage\\s+becomes\\s+0\\s+instead\\.?['\"]" +
         "\\s+until\\s+(?:the\\s+)?end\\s+of\\s+(?:the\\s+)?turn\\.?"
     );
+
+    // =========================================================================================
+    // Quoted-ability grants and control changes
+    // =========================================================================================
     /**
      * "It/They gains "[ability] (This effect does not end at the end of the turn.)"" — a choose
      * followup handing the chosen Character an ability for good (Lich 21-079R).
@@ -2842,6 +2962,10 @@ final class ActionResolverPatterns {
         "\\s+by\\s+your\\s+opponent's\\s+(?<scope>Summons?(?:\\s+or\\s+abilities)?|abilities)\\.?['\"]" +
         "\\s+until\\s+(?:the\\s+)?end\\s+of\\s+(?:the\\s+)?turn\\.?"
     );
+
+    // =========================================================================================
+    // Cannot-be-chosen and cannot-be-broken protections
+    // =========================================================================================
     /**
      * "[Cardname] and it gain '[quote]' until the end of your opponent's turn."
      * Rydia-style: source card and chosen target both receive the quoted ability until opponent's EOT.
@@ -3010,6 +3134,10 @@ final class ActionResolverPatterns {
         "['\"][^'\"]*?cannot\\s+be\\s+broken\\.?['\"]" +
         "\\s+until\\s+(?:the\\s+)?end\\s+of\\s+(?:the\\s+)?turn\\.?"
     );
+
+    // =========================================================================================
+    // Ability-damage nullification; self protections
+    // =========================================================================================
     /**
      * "During this turn, if a Forward you control is dealt damage by a Summon or an ability,
      *  the damage becomes 0 instead."
@@ -3112,6 +3240,10 @@ final class ActionResolverPatterns {
         "(?<scope>Summons?(?:\\s+or\\s+abilities)?|abilities)\\s*\\.?"
     );
 
+
+    // =========================================================================================
+    // Field abilities: protection from choice and removal
+    // =========================================================================================
     /**
      * The standing field-ability spelling of the sentence above: "[Self] cannot be chosen by [your]
      * opponent's Summons/abilities." — 25 printings, from Zidane 1-071L to Yuna 27-107R.
@@ -3377,6 +3509,10 @@ final class ActionResolverPatterns {
     static final Pattern CANNOT_BE_REDUCED_PATTERN = Pattern.compile(
         "(?i)This\\s+damage\\s+cannot\\s+be\\s+reduced[.!]?"
     );
+
+    // =========================================================================================
+    // Activation, extra attacks and search denial
+    // =========================================================================================
     /**
      * Matches "Activate &lt;cardName&gt;[.]" as a standalone named-card activate effect.
      * Also handles "Activate Card Name X [and Card Name Y] [you control]" for
@@ -3414,6 +3550,10 @@ final class ActionResolverPatterns {
         "(?i)name\\s+1\\s+card\\s+type[.!]?\\s+Then,?\\s+your\\s+opponent\\s+discards?\\s+1\\s+card[.!]?\\s+" +
         "If\\s+the\\s+discarded\\s+card\\s+is\\s+the\\s+named\\s+card\\s+type,\\s+you\\s+draw\\s+1\\s+card[.!]?"
     );
+
+    // =========================================================================================
+    // Each-player and opponent-directed effects
+    // =========================================================================================
     static final Pattern OPPONENT_DISCARD = Pattern.compile(
         "(?i)Your\\s+opponent\\s+discards?\\s+(\\d+)\\s+cards?" +
         "(?:\\s+from\\s+(?:his/her|his|her|their)\\s+hand)?[.!]?"
@@ -3535,6 +3675,10 @@ final class ActionResolverPatterns {
         "of\\s+power\\s+(?<power>\\d+)\\s+or\\s+more\\s+and\\s+add\\s+it(?:/them|s)?\\s+to\\s+" +
         "(?:his/her|his|her|their)\\s+hand[.!]?\\s*$"
     );
+
+    // =========================================================================================
+    // Discard and mill
+    // =========================================================================================
     /** Matches "Discard your hand. Then, draw N card(s)." Group 1 = draw count. */
     static final Pattern DISCARD_HAND_THEN_DRAW = Pattern.compile(
         "(?i)Discard\\s+your\\s+hand[.,]?\\s+[Tt]hen[,]?\\s+draw\\s+(\\d+)\\s+cards?[.!]?\\s*$"
@@ -3738,6 +3882,10 @@ final class ActionResolverPatterns {
         "(?i)Put\\s+the\\s+top\\s+(?:(?<count>\\d+)\\s+cards?|card)\\s+" +
         "of\\s+your\\s+deck\\s+into\\s+the\\s+Break\\s+Zone"
     );
+
+    // =========================================================================================
+    // Casting and playing from hand
+    // =========================================================================================
     /**
      * "Cast 1 Summon [of cost N or less] from your hand without paying [its|the] cost[.
      * Then, return that Summon to your hand after use instead of putting it in the Break Zone.]"
@@ -3873,6 +4021,10 @@ final class ActionResolverPatterns {
         "(?<targets>Forwards?|Backups?|Monsters?|Characters?)?" +
         "\\s*from\\s+your\\s+hand\\s+onto\\s+(?:the\\s+)?field[.!]?"
     );
+
+    // =========================================================================================
+    // Deck search
+    // =========================================================================================
     /**
      * Matches "Search for up to 1 Job [job] and up to 1 [Type] that don't share Elements, and add them to your hand."
      * Used by cards like Rydia that fetch one card from each of two overlapping pools with an element-disjointness constraint.
@@ -3966,6 +4118,20 @@ final class ActionResolverPatterns {
         "(?:Character|Forward|Backup|Monster))" +
         "\\s+and\\s+(?<destination>add\\s+(?:it|them)\\s+to\\s+your\\s+hand" +
         "|play\\s+(?:it|them)\\s+onto\\s+the\\s+field)[.!]?$"
+    );
+    /**
+     * The "with different names" constraint on a multi-card search — 23-008H Zidane, 18-138S
+     * Glauca, 22-067L Nacht.
+     *
+     * <p>Stripped out of the text before {\\link #SEARCH_DECK_PATTERN} reads it, rather than being
+     * expressed there. The identity groups in that pattern are lazy {\\code .+?} runs bounded by a
+     * lookahead, and "with different names" is not one of the words that stops them: Glauca was
+     * searching for a job literally called "Captain with different names", which matches nothing,
+     * and the Category arm has no such lookahead at all so Zidane did not parse. Lifting the phrase
+     * off first fixes both arms at once and leaves the constraint as a flag the search can act on.
+     */
+    static final Pattern SEARCH_WITH_DIFFERENT_NAMES = Pattern.compile(
+        "(?i)\\s+with\\s+different\\s+names\\b"
     );
     static final Pattern SEARCH_DECK_PATTERN = Pattern.compile(
         // "for" is optional: 11-058H Bel Dat is the corpus's only "search 1 …" wording, every other
@@ -4091,6 +4257,10 @@ final class ActionResolverPatterns {
         ")" +
         "[.!]?"
     );
+
+    // =========================================================================================
+    // Opponent reveals; reveal-clause fragments
+    // =========================================================================================
     /**
      * Matches "Your opponent reveals N cards from their hand. Select 1 card among them.
      * Your opponent discards this card." (14-035C Don Corneo, the only card in the corpus with
@@ -4156,6 +4326,10 @@ final class ActionResolverPatterns {
     static final Pattern FOLLOWUP_PUT_TO_BREAK_ZONE = Pattern.compile(
         "(?i)Put\\s+it\\s+into\\s+the\\s+Break\\s+Zone[.!]?"
     );
+
+    // =========================================================================================
+    // Self power boosts
+    // =========================================================================================
     /**
      * Matches "&lt;subject&gt; gains [+N power] [, traits] until end of turn" where the subject
      * may be a card name (checked against the source at runtime) rather than "it"/"they".
@@ -4348,6 +4522,10 @@ final class ActionResolverPatterns {
     static final Pattern DOUBLE_OUTGOING_DAMAGE_THIS_TURN_ALT = Pattern.compile(
         "(?i)If\\s+(?<subject>.+?)\\s+deals?\\s+damage\\s+to\\s+a\\s+Forward\\s+this\\s+turn,\\s+double\\s+the\\s+damage\\s+instead[.!]?"
     );
+
+    // =========================================================================================
+    // Choosing by cost or power; opening choices
+    // =========================================================================================
     /**
      * Matches "Choose 1 Forward opponent controls with a cost inferior or equal to the number of
      * [Element] [Backups/Forwards] you control. [followup]"
@@ -4502,6 +4680,10 @@ final class ActionResolverPatterns {
     static final Pattern DOUBLE_PLAYER_ABILITY_OUTGOING_THIS_TURN = Pattern.compile(
         "(?i)During\\s+this\\s+turn,\\s+if\\s+your\\s+ability\\s+deals?\\s+damage\\s+to\\s+a\\s+Forward,\\s+double\\s+the\\s+damage\\s+instead[.!]?"
     );
+
+    // =========================================================================================
+    // Power-boost followups and Counters on a target
+    // =========================================================================================
     /**
      * Matches "&lt;subject&gt; gains +N power [and traits]." with no duration clause — a permanent
      * passive field-ability self-boost (e.g. "Gilgamesh gains +1000 power.",
@@ -4665,6 +4847,10 @@ final class ActionResolverPatterns {
         "((?:\\s*,?\\s*(?:and\\s+)?(?:Haste|First\\s+Strike|Brave))+)" +
         "[.!]?"
     );
+
+    // =========================================================================================
+    // Standalone power and trait grants
+    // =========================================================================================
     /**
      * Matches "Until [the] end of [the] turn, &lt;subject&gt; gains +N power and
      * '<em>When &lt;subject&gt; attacks, &lt;attackEffect&gt;</em>'."
@@ -4828,6 +5014,10 @@ final class ActionResolverPatterns {
         "\\s+and\\s+until\\s+the\\s+end\\s+of\\s+the\\s+same\\s+turn\\s*,\\s+" +
         "(?<subject>.+?)'s\\s+power\\s+will\\s+double[.!]?"
     );
+
+    // =========================================================================================
+    // Power reduction
+    // =========================================================================================
     /**
      * Matches "it/they loses/lose [N power] [, traits] until end of turn".
      * Both power and traits are optional, but at least one must be present in practice.
@@ -4949,6 +5139,10 @@ final class ActionResolverPatterns {
         "(?<traits>(?:\\s*,?\\s*(?:and\\s+)?(?:Haste|First\\s+Strike|Brave))*)" +
         "[.\\s]*$"
     );
+
+    // =========================================================================================
+    // Mass field effects
+    // =========================================================================================
     /**
      * Matches a mass ACTIVATE whose payoff counts what it woke up: "&lt;sweep&gt;. When N or more
      * dull Characters are activated by this effect, draw M card(s)." — 19-102L Refia.
@@ -5155,6 +5349,10 @@ final class ActionResolverPatterns {
         "\\s+loses?\\s+\\+?(?<amount2>\\d+)\\s+[Pp]ower[.!]?"
     );
 
+
+    // =========================================================================================
+    // Select a number
+    // =========================================================================================
     // ---- "Select 1 number" patterns -------------------------------------------
     /** Matches the "Select 1 number." opening of an ability that lets the active player pick a cost. */
     static final Pattern SELECT_NUMBER_HEADER = Pattern.compile(
@@ -5199,6 +5397,10 @@ final class ActionResolverPatterns {
         "(?i)^(?:Select\\s+a|Name\\s+1)\\s+Job[.!]?\\s+" +
         "It\\s+gains?\\s+(?:that|the\\s+named)\\s+Job\\s+until\\s+(?:the\\s+)?end\\s+of\\s+(?:the\\s+)?turn[.!]?$"
     );
+
+    // =========================================================================================
+    // Look at the top of the deck
+    // =========================================================================================
     /**
      * Matches "Look at the top card of your deck. You may put it into the Break Zone."
      */
@@ -5350,6 +5552,10 @@ final class ActionResolverPatterns {
         "as\\s+the\\s+revealed\\s+card[.!]?\\s+" +
         "Add\\s+the\\s+revealed\\s+card\\s+to\\s+your\\s+hand[.!]?"
     );
+
+    // =========================================================================================
+    // Select following actions
+    // =========================================================================================
     /**
      * Detects "select [up to] N of the M following actions" — handled by MainWindow's
      * {@code executeSelectFollowingActionsAutoAbility}, not by ActionResolver's parse chain.
@@ -5418,6 +5624,10 @@ final class ActionResolverPatterns {
         "following\\s+actions?\\s+instead[.!]?\\s*",
         Pattern.DOTALL
     );
+
+    // =========================================================================================
+    // Counters
+    // =========================================================================================
     /**
      * Matches "Place N [Name] Counter(s) on [CardName][.]".
      * <ul>
@@ -5518,6 +5728,10 @@ final class ActionResolverPatterns {
         "(?<card>[^,]+?),\\s*(?<effect>.+)$",
         Pattern.DOTALL
     );
+
+    // =========================================================================================
+    // Choices scaled by a board count
+    // =========================================================================================
     /**
      * Matches "Choose 1 Forward opponent controls. [Name] gains its Special Ability until the end of the turn.
      * You can use this ability without paying any cost but only once."
@@ -5586,6 +5800,10 @@ final class ActionResolverPatterns {
         "(?i)Look\\s+at\\s+the\\s+same\\s+number\\s+of\\s+cards?\\s+from\\s+the\\s+top\\s+of\\s+your\\s+deck\\s+as\\s+the\\s+(?<counterName>.+?)\\s+Counters?\\s+placed\\s+on\\s+(?<card>.+?)[,.]" +
         ".+?Add\\s+1\\s+card.+?to\\s+your\\s+hand.+?(?:shuffle|return).+?bottom.+?deck[.!]?"
     );
+
+    // =========================================================================================
+    // Crystals; hand to the bottom of the deck
+    // =========================================================================================
     /** Matches "Gain 《C》[《C》...]." — captures one or more consecutive Crystal symbols. */
     static final Pattern GAIN_CRYSTAL = Pattern.compile(
         "(?i)Gain\\s+(?<crystals>(?:《C》)+)[.!]?"
@@ -5619,6 +5837,10 @@ final class ActionResolverPatterns {
         "of\\s+your\\s+deck(?:\\s+in\\s+any\\s+order)?[.,]?\\s+Then[,.]?\\s+draw\\s+the\\s+same\\s+number\\s+" +
         "of\\s+cards?\\s+as\\s+(?:were|was)\\s+returned\\s+to\\s+your\\s+deck[.!]?"
     );
+
+    // =========================================================================================
+    // Optional payments and "when you do so"
+    // =========================================================================================
     /**
      * Matches "pay 《Element》[…]. When you do so, [followup]."
      * Used when an auto-ability's effect text begins with an explicit CP payment followed by
@@ -5684,6 +5906,10 @@ final class ActionResolverPatterns {
         "If\\s+you\\s+discard\\s+a\\s+Card\\s+Name\\s+(?<name>.+?)\\s+by\\s+this\\s+effect,\\s+" +
         "trigger\\s+this\\s+auto-ability\\s+again[.!]?\\s*$"
     );
+
+    // =========================================================================================
+    // Sentence splitting and trailing clauses
+    // =========================================================================================
     /**
      * An ability ending in a standalone "[Then,] draw N card(s)." sentence, split into the leading
      * effect ({@code head}) and the draw ({@code draw}).
@@ -5741,6 +5967,10 @@ final class ActionResolverPatterns {
     static final Pattern TRAILING_GAIN_CRYSTAL_SUFFIX = Pattern.compile(
         "(?is)^(?<head>.*[.!])\\s+Gain\\s+(?<crystals>(?:《C》)+)[.!]?\\s*$"
     );
+
+    // =========================================================================================
+    // Draw, discard and player damage
+    // =========================================================================================
     static final Pattern DRAW_CARDS = Pattern.compile(
         "(?i)^Draw\\s+(\\d+)\\s+cards?(?:\\s*[,.]?\\s*then\\s+discard\\s+(\\d+)\\s+cards?)?[.!]?"
     );
@@ -5773,6 +6003,10 @@ final class ActionResolverPatterns {
     static final Pattern DEAL_PLAYER_DAMAGE_TO_SELF = Pattern.compile(
         "(?i)(?:.+?\\s+deals?\\s+you|receive)\\s+(?<amount>\\d+)\\s+points?\\s+of\\s+damage[.!]?"
     );
+
+    // =========================================================================================
+    // Board-wide damage
+    // =========================================================================================
     /**
      * Matches: "Deal X damage to all [the] [condition] Forwards [of cost N [or less|more]] [other than Job Y] [opponent controls]"
      * <ul>
@@ -5988,6 +6222,10 @@ final class ActionResolverPatterns {
         "(?:\\(\\s*round\\s+(?<rounding>up|down)[^)]*\\))?\\s*" +
         "[.!]?"
     );
+
+    // =========================================================================================
+    // Cost reductions
+    // =========================================================================================
     /**
      * Matches "During this turn, the cost required to cast your next [filter] is reduced by N
      * [(it cannot become 0)][.]"
@@ -6027,6 +6265,10 @@ final class ActionResolverPatterns {
         "(?:onto\\s+the\\s+field\\s+)?this\\s+turn\\s+is\\s+reduced\\s+by\\s+(?<amount>\\d+)" +
         "(?<floorone>\\s*\\(it\\s+cannot\\s+become\\s+0\\))?[.!]?"
     );
+
+    // =========================================================================================
+    // Break Zone and RFG: salvage and castable
+    // =========================================================================================
     /**
      * Matches "Choose 1 Summon in your Break Zone. Add it to your hand. During this turn,
      * the cost required to cast your next Summon is reduced by N [(it cannot become 0)]."
@@ -6176,6 +6418,10 @@ final class ActionResolverPatterns {
         "(?i)Take\\s+1\\s+more\\s+turn\\s+after\\s+this\\s+one[.!]?\\s+" +
         "At\\s+the\\s+end\\s+of\\s+that\\s+turn,\\s+you\\s+lose\\s+the\\s+game[.!]?"
     );
+
+    // =========================================================================================
+    // Monsters becoming Forwards
+    // =========================================================================================
     /**
      * Matches "Until the end of the turn, all the Monsters you control also become Forwards with N power."
      * Group {@code power} captures the power value.
@@ -6232,6 +6478,10 @@ final class ActionResolverPatterns {
         "(?i)If\\s+the\\s+CP\\s+paid\\s+to\\s+cast\\s+.+?\\s+was\\s+only\\s+produced\\s+by\\s+Backups?," +
         "\\s+(?:also\\s+)?draw\\s+(?<count>\\d+)\\s+cards?[.!]?"
     );
+
+    // =========================================================================================
+    // Conditional gates
+    // =========================================================================================
     /**
      * Matches "If your opponent has [no | N cards or less] cards in his/her hand, [effect][ instead][.!]?"
      * <ul>
@@ -6350,6 +6600,10 @@ final class ActionResolverPatterns {
     static final Pattern FOLLOWUP_DIVIDE_DAMAGE_AMONG_CHOSEN = Pattern.compile(
         "(?i)\\b(?:divide\\s+\\d+\\s+damage\\s+among\\s+them|split\\s+(?:it\\s+)?as\\s+you\\s+(?:like|wish))\\b"
     );
+
+    // =========================================================================================
+    // Granted keyword clauses
+    // =========================================================================================
     /**
      * Matches an action ability that temporarily grants the source card its own "deals damage to a
      * Forward → damage increases" field ability:
@@ -6454,6 +6708,10 @@ final class ActionResolverPatterns {
     static final Pattern GRANTED_MUST_BLOCK_IF_POSSIBLE = Pattern.compile(
         "(?i)^(?:If\\s+possible,\\s+(?<subj2>.+?)\\s+must\\s+block" +
         "|(?<subj>.+?)\\s+must\\s+block\\s+if\\s+possible)[.!]?$");
+
+    // =========================================================================================
+    // Permanent self grants
+    // =========================================================================================
     /**
      * "[Self] gains [traits | \"[quoted ability]\"] and [Self]'s power becomes N." — a grant that
      * states no duration, and so lasts as long as the card stays on the field (Hyoh 16-097H,
@@ -6565,6 +6823,10 @@ final class ActionResolverPatterns {
         "(?i)Choose\\s+1\\s+card\\s+removed\\s+by\\s+(?<name>.+?)'s\\s+ability\\.\\s*" +
         "Put\\s+it\\s+into\\s+the\\s+Break\\s+Zone\\.?"
     );
+
+    // =========================================================================================
+    // Cost payment and sequencing
+    // =========================================================================================
     /**
      * "Until the end of your turn, you can cast [CardName] removed by this ability's cost."
      * (Sephiroth) — registers the card instance(s) removed from the game while paying this
@@ -6668,6 +6930,10 @@ final class ActionResolverPatterns {
     static final Pattern UNION_TYPE_NOUN = Pattern.compile(
         "(?i)\\b(Forwards?|Backups?|Monsters?|Characters?)\\b"
     );
+
+    // =========================================================================================
+    // Cast-payment and control gates
+    // =========================================================================================
     /**
      * Matches "&lt;base&gt;. If the cost to cast &lt;name&gt; was paid with CP of &lt;n&gt; or
      * more/less different Elements, &lt;tail&gt;." — the Summon form of the cast-payment condition.
@@ -6796,6 +7062,10 @@ final class ActionResolverPatterns {
         "(?i)^(?<name>.+?)\\s+breaks?\\s+after\\s+the\\s+attack(?:\\s+or\\s+the\\s+block)?\\s+and\\s+" +
         "doesn'?t\\s+deal\\s+any\\s+damage[.!]?$"
     );
+
+    // =========================================================================================
+    // Field-ability grants
+    // =========================================================================================
     /** Matches "All the Forwards [you control|opponent controls] gain "[ability]"." (Vayne 9-022L) */
     static final Pattern FIELD_GRANT_ABILITY_TO_FORWARDS = Pattern.compile(
         "(?i)^All\\s+the\\s+Forwards\\s+(?<who>opponent\\s+controls|you\\s+control)\\s+gains?\\s+" +
@@ -6848,6 +7118,10 @@ final class ActionResolverPatterns {
         "(?i)^If\\s+there\\s+are\\s+\\d+\\s+or\\s+more\\s+different\\s+Elements?\\s+among\\s+" +
         "(?:Forwards?|Backups?|Characters?|Monsters?)\\s+you\\s+control[,.]"
     );
+
+    // =========================================================================================
+    // Counters on chosen Forwards; special-ability reuse
+    // =========================================================================================
     /**
      * Matches "choose [up to] N Forwards. Until the end of the turn, they gain "&lt;ability&gt;"."
      * (Machinist) — grants the quoted action ability to each chosen Forward until end of turn.
@@ -6960,6 +7234,10 @@ final class ActionResolverPatterns {
         "break\\s+all\\s+the\\s+Forwards\\s+opponent\\s+controls[.!]?$",
         Pattern.DOTALL
     );
+
+    // =========================================================================================
+    // Break Zone play; self-benefit fragments
+    // =========================================================================================
     /**
      * Matches a shield granted against the opponent's own effects — "cannot be returned to its
      * owner's hand / chosen / broken / dulled … by your opponent's Summons or abilities".

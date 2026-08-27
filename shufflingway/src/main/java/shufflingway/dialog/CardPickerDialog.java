@@ -177,6 +177,19 @@ public class CardPickerDialog {
      * clicks Skip.  Confirm is disabled until at least one card is selected.
      */
     public List<CardData> pickMultiFromDeckSearch(List<CardData> matches, int maxCount) {
+        return pickMultiFromDeckSearch(matches, maxCount, false);
+    }
+
+    /**
+     * As above; with {@code distinctNames} no two cards taken may share a name — "search for 2
+     * Category IX Forwards with different names" (23-008H Zidane).
+     *
+     * <p>Every match stays on offer and a card whose name is already taken simply will not select,
+     * so the rule reads off the board rather than from a pool quietly filtered before the window
+     * opened — the player still chooses which copy of a name they want.
+     */
+    public List<CardData> pickMultiFromDeckSearch(List<CardData> matches, int maxCount,
+            boolean distinctNames) {
         JDialog dlg = new JDialog(owner,
                 "Search — choose up to " + maxCount + " cards (" + matches.size() + " found)", true);
         dlg.setResizable(false);
@@ -199,6 +212,7 @@ public class CardPickerDialog {
         Runnable refresh = () -> {
             int n = selected.size();
             hint.setText("Select up to " + maxCount + " card" + (maxCount > 1 ? "s" : "")
+                    + (distinctNames ? ", each with a different name" : "")
                     + " (" + n + "/" + maxCount + ")");
             confirmBtn.setEnabled(n >= 1);
             for (int i = 0; i < cardLabels.size(); i++) {
@@ -247,7 +261,8 @@ public class CardPickerDialog {
                 @Override public void mousePressed(MouseEvent e) {
                     if (selected.contains(cardIdx)) {
                         selected.remove(Integer.valueOf(cardIdx));
-                    } else if (selected.size() < maxCount) {
+                    } else if (selected.size() < maxCount
+                            && !(distinctNames && nameAlreadySelected(matches, selected, cardIdx))) {
                         selected.add(cardIdx);
                     }
                     refresh.run();
@@ -308,6 +323,14 @@ public class CardPickerDialog {
         dlg.setVisible(true);
 
         return confirmed[0] ? selected.stream().map(matches::get).collect(Collectors.toList()) : List.of();
+    }
+
+    /** Whether {@code matches[cardIdx]} shares a name with something already selected. */
+    public static boolean nameAlreadySelected(List<CardData> matches, List<Integer> selected, int cardIdx) {
+        String name = matches.get(cardIdx).name();
+        for (int i : selected)
+            if (matches.get(i).name().equalsIgnoreCase(name)) return true;
+        return false;
     }
 
     /**

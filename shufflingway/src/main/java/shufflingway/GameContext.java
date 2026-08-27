@@ -793,6 +793,7 @@ public interface GameContext {
      */
     void playTriggeringBrokenCardOntoFieldDull();
 
+
     /**
      * Moves the target (chosen from either Break Zone) to the resolving player's hand — P1's on a
      * {@link #isP1()} context, P2's otherwise — regardless of which Break Zone it came from.
@@ -2669,6 +2670,19 @@ public interface GameContext {
      *         (29-117H Ark). Callers that only search may ignore it.
      */
     boolean searchDeckForCard(boolean inclForwards, boolean inclBackups, boolean inclMonsters, boolean inclSummons,
+            int costVal, String costCmp, String cardNameFilter, String jobFilter,
+            String categoryFilter, String elementFilter, String excludeName, String excludeElem,
+            String destination, int count, boolean entersDull, boolean requireWarp);
+
+    /**
+     * As {@link #searchDeckForCard}, but the cards found must all have <em>different names</em> —
+     * "search for 2 Category IX Forwards with different names" (23-008H Zidane).
+     *
+     * <p>The constraint binds the selection, not the pool: every match is still offered, and it is
+     * taking two copies of one name that is illegal.
+     */
+    boolean searchDeckForCardDistinctNames(boolean inclForwards, boolean inclBackups,
+            boolean inclMonsters, boolean inclSummons,
             int costVal, String costCmp, String cardNameFilter, String jobFilter,
             String categoryFilter, String elementFilter, String excludeName, String excludeElem,
             String destination, int count, boolean entersDull, boolean requireWarp);

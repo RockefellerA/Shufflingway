@@ -77,6 +77,10 @@ final class AutoAbilityTriggers {
 
 	private List<StackOrderingDialog.Item> pendingBatch;
 
+
+	// =========================================================================================
+	// Batching and ordered dispatch
+	// =========================================================================================
 	/**
 	 * Runs {@code collector} with batching enabled, then dispatches any
 	 * abilities it collected through the stack-ordering UI (or CPU defaults).
@@ -465,6 +469,10 @@ final class AutoAbilityTriggers {
 		"\\s+deals?\\s+damage\\s+to\\s+a\\s+Forward,\\s+the\\s+damage\\s+increases\\s+by\\s+(?<amount>\\d+)\\s+instead\\.?"
 	);
 
+
+	// =========================================================================================
+	// Field-ability queries: boosts, arms and damage modifiers
+	// =========================================================================================
 	/**
 	 * Whether {@code dealer} satisfies the filter a {@link #FA_ELEMENT_FORWARD_DAMAGE_BOOST} match
 	 * captured — its Element, the Category the optional second arm named, or the Job named by the
@@ -768,6 +776,10 @@ final class AutoAbilityTriggers {
 		"(?i)^The\\s+power\\s+of\\s+Forwards?\\s+cannot\\s+be\\s+increased\\s+by\\s+Summons?\\s+or\\s+abilit(?:y|ies)[.!]?$"
 	);
 
+
+	// =========================================================================================
+	// Field-ability queries: suppressions, cast permissions and locks
+	// =========================================================================================
 	/** Returns true if {@code card} has the opponent-Forward-power-boost-suppression field ability. */
 	static boolean hasOppForwardPowerBoostSuppression(CardData card) {
 		for (FieldAbility fa : card.fieldAbilities())
@@ -1582,6 +1594,10 @@ final class AutoAbilityTriggers {
 		return false;
 	}
 
+
+	// =========================================================================================
+	// Enters-the-field triggers
+	// =========================================================================================
 	void triggerAutoAbilitiesForEntersField(CardData card, boolean isP1) {
 		triggerAutoAbilitiesForEntersField(card, isP1, false);
 	}
@@ -1807,6 +1823,10 @@ final class AutoAbilityTriggers {
 		}
 	}
 
+
+	// =========================================================================================
+	// Trigger-subject matching
+	// =========================================================================================
 	/**
 	 * Returns {@code true} if {@code enteringCard} matches the watcher's subject phrase.
 	 * Compound disjunctive subjects ("X or a Y or a Card Name Z") produced by
@@ -1981,6 +2001,10 @@ final class AutoAbilityTriggers {
 		return m.matches() && m.group("count") != null;
 	}
 
+
+	// =========================================================================================
+	// Attack, block and party triggers
+	// =========================================================================================
 	/** One count-form watcher ability that has already fired for the current attack declaration. */
 	private record DeclarationFire(CardData watcher, AutoAbility ability) {}
 
@@ -2318,6 +2342,10 @@ final class AutoAbilityTriggers {
 		"(?i)^a\\s+Forward\\s+forming\\s+a\\s+party\\s+with\\s+(?<name>.+?)$"
 	);
 
+
+	// =========================================================================================
+	// Break Zone and leaves-field triggers
+	// =========================================================================================
 	/**
 	 * Returns true when the broken card satisfies the break-zone trigger subject of {@code fa}.
 	 * Handles named cards ("Geomancer"), type+controller phrases ("a Forward you control"),
@@ -2548,6 +2576,10 @@ final class AutoAbilityTriggers {
 		}
 	}
 
+
+	// =========================================================================================
+	// Cast, chosen-by-opponent and search triggers
+	// =========================================================================================
 	/**
 	 * Fires the cast-a-Summon triggers for a Summon {@code casterIsP1} has just put on the Stack.
 	 *
@@ -2795,6 +2827,10 @@ final class AutoAbilityTriggers {
 		return null;
 	}
 
+
+	// =========================================================================================
+	// Phase, damage and end-of-turn triggers
+	// =========================================================================================
 	/**
 	 * Fires "opponent discards … due to your Summons or abilities" abilities on {@code causerIsP1}'s
 	 * field cards, for the card their effect just made the opponent discard.
@@ -3023,6 +3059,10 @@ final class AutoAbilityTriggers {
 		triggerAutoAbilitiesForEvent("gain crystal", isP1);
 	}
 
+
+	// =========================================================================================
+	// Becomes-dull, EX Burst and Warp triggers
+	// =========================================================================================
 	/**
 	 * Fires "becomes dull" auto abilities on {@code card} (owned by {@code isP1}) after it
 	 * transitions from ACTIVE to DULL.  Only abilities whose {@code triggerCard} matches the
@@ -3190,6 +3230,10 @@ final class AutoAbilityTriggers {
 		mw.showStackWindowIfNeeded();
 	}
 
+
+	// =========================================================================================
+	// Generic event dispatch and ability execution
+	// =========================================================================================
 	private void triggerAutoAbilitiesForEvent(String triggerType, boolean isP1) {
 		withBatch(() -> collectEventTriggers(triggerType, isP1));
 		mw.showStackWindowIfNeeded();
@@ -3486,6 +3530,10 @@ final class AutoAbilityTriggers {
 		mw.cancelFirstOppForwardAuto(entry);
 	}
 
+
+	// =========================================================================================
+	// "When you do so" auto abilities
+	// =========================================================================================
 	private void executeCounterRemovalWhenDoSoAutoAbility(AutoAbility fa, CardData source,
 			boolean isP1, boolean effectIsP1, Matcher m) {
 		int    n           = Integer.parseInt(m.group("n"));
@@ -3956,6 +4004,10 @@ final class AutoAbilityTriggers {
 
 	// ─── "Select N of M following actions" auto-ability ─────────────────────────
 
+
+	// =========================================================================================
+	// Select-following-actions abilities
+	// =========================================================================================
 	private void executeSelectFollowingActionsAutoAbility(
 			AutoAbility fa, CardData source, boolean isP1, boolean effectIsP1,
 			Matcher m) {
@@ -4162,6 +4214,10 @@ final class AutoAbilityTriggers {
 		return result;
 	}
 
+
+	// =========================================================================================
+	// Activation conditions and payment dialogs
+	// =========================================================================================
 	/**
 	 * Evaluates a simple auto-ability precondition such as
 	 * "you control a Job AVALANCHE Operative Forward".
@@ -4629,6 +4685,10 @@ final class AutoAbilityTriggers {
 		return null;
 	}
 
+
+	// =========================================================================================
+	// Cost satisfaction checks
+	// =========================================================================================
 	boolean bzCostSatisfied(BreakZoneCost bz, boolean isP1) {
 		return eligibleBzFieldCards(bz, isP1).size() >= bz.count();
 	}
@@ -4923,6 +4983,10 @@ final class AutoAbilityTriggers {
 		return true;
 	}
 
+
+	// =========================================================================================
+	// Return-to-hand costs and field helpers
+	// =========================================================================================
 	private void executeReturnToHandCost(ReturnToHandCost rth, boolean isP1) {
 		GameContext ctx = mw.buildGameContext(isP1);
 		if (rth.cardName() != null) {
@@ -5011,6 +5075,10 @@ final class AutoAbilityTriggers {
 		triggerAutoAbilitiesForBreakZone(c, true, Collections.emptySet());
 	}
 
+
+	// =========================================================================================
+	// Ability menus and activation
+	// =========================================================================================
 	/**
 	 * Adds an action-ability section to {@code menu} for all abilities on {@code card}.
 	 * Each item is enabled only when the ability is currently activatable.
@@ -5266,6 +5334,10 @@ final class AutoAbilityTriggers {
 		}
 	}
 
+
+	// =========================================================================================
+	// Paying an ability's costs
+	// =========================================================================================
 	private boolean executeAbilityPayment(ActionAbility ability, CardData source,
 			Runnable applyDull, List<Integer> discardIndices, List<Integer> backupDullIndices,
 			List<ForwardTarget> bzTargets, boolean isP1, int xValue, int sCostHandIdx) {
