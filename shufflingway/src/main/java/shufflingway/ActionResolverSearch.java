@@ -197,6 +197,24 @@ final class ActionResolverSearch {
         int maxCost     = Integer.parseInt(m.group("maxcost"));
         return ctx -> ctx.revealTopNPlayNamedWithMaxCostOntoFieldRestBottom(n, cardName, maxCost);
     }
+    /**
+     * Parses "Reveal the top N cards of your deck. Play as many Job [J] [Type]s as you want with a
+     * total cost of [C] or less among them onto the field and return the other cards to the bottom
+     * of your deck in any order." — Warrior of Light 10-065L.
+     */
+    static Consumer<GameContext> tryParseRevealPlayAsManyJobTypeTotalCostRestBottom(String text) {
+        Matcher m = REVEAL_PLAY_AS_MANY_JOB_TYPE_TOTAL_COST_REST_BOTTOM.matcher(text.trim());
+        if (!m.matches()) return null;
+        int    n         = Integer.parseInt(m.group("n"));
+        String job       = m.group("job").trim();
+        String type      = cap(m.group("type").trim());
+        int    totalCost = Integer.parseInt(m.group("totalcost"));
+        return ctx -> {
+            ctx.logEntry("Effect: Reveal top " + n + " — play any number of Job " + job + " "
+                    + type + "s totalling cost " + totalCost + " or less");
+            ctx.revealTopNPlayAnyJobTypeWithTotalCostOntoFieldRestBottom(n, job, type, totalCost);
+        };
+    }
     static Consumer<GameContext> tryParseRevealPlayNamedOrJobMaxCostRestBottom(String text) {
         Matcher m = REVEAL_PLAY_NAMED_OR_JOB_MAX_COST_REST_BOTTOM.matcher(text.trim());
         if (!m.matches()) return null;

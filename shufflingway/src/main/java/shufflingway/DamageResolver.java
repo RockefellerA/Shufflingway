@@ -6,6 +6,7 @@ import java.util.Map;
 import java.util.function.Consumer;
 import java.util.function.Predicate;
 import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * Damage resolution: how much damage a source actually deals and a target actually
@@ -43,6 +44,22 @@ class DamageResolver {
 	 * <p>Summons are excluded: the printing says "abilities", and this mirrors the reading
 	 * {@code nullifyAbilityOnlyDmgSet} already applies to a bare "ability".
 	 */
+	/**
+	 * Whether the damage now resolving is the kind Auron 22-001R's shield answers — dealt by the
+	 * <em>opposing</em> player's Summon or ability, rather than in combat or by the holder's own
+	 * side.
+	 *
+	 * <p>{@code fromAbility} is true for a Summon as well as an ability, which is what the printed
+	 * "Summons or abilities" wants; the side test is what "your opponent's" adds, read off the
+	 * resolving source the same way {@link #abilityDamageUnreducibleByField} reads it.
+	 */
+	private boolean oppEffectShieldApplies(CardData card, boolean targetIsP1, boolean fromAbility) {
+		if (card == null || !fromAbility) return false;
+		boolean sourceIsP1 = mw.currentResolutionIsSummon
+				? mw.currentSummonSourceIsP1 : mw.currentAbilitySourceIsP1;
+		return sourceIsP1 != targetIsP1;
+	}
+
 	private boolean abilityDamageUnreducibleByField(boolean targetIsP1, boolean fromAbility) {
 		if (!fromAbility || mw.currentResolutionIsSummon) return false;
 		if (mw.currentAbilitySource == null || mw.currentAbilitySourceIsP1 == targetIsP1) return false;
@@ -211,6 +228,7 @@ class DamageResolver {
 			// Consume one-shot shields so they are spent, but do not apply any reduction.
 			// Persistent shields ("until end of turn") remain in place unchanged.
 			mw.nextIncomingDmgZeroSet.remove(card);
+			if (oppEffectShieldApplies(card, isP1, fromAbility)) mw.nextOppEffectDmgZeroSet.remove(card);
 			// The shield is spent but reduced nothing, so its bill is dropped with it rather than
 			// charged: Cecil takes damage for a hit he softened, not for one that went through.
 			mw.nextIncomingDmgReduceMap.remove(card);
@@ -224,6 +242,11 @@ class DamageResolver {
 
 		// One-time: next incoming damage = 0
 		if (mw.nextIncomingDmgZeroSet.remove(card)) return 0;
+
+		// The same, scoped to the opposing player's Summons and abilities (Auron 22-001R). Combat
+		// damage passes it untouched and, just as importantly, does not spend it.
+		if (oppEffectShieldApplies(card, isP1, fromAbility)
+				&& mw.nextOppEffectDmgZeroSet.remove(card)) return 0;
 
 		// One-time: next incoming damage reduced by N
 		if (mw.nextIncomingDmgReduceMap.containsKey(card)) {
@@ -846,16 +869,38 @@ class DamageResolver {
 		return false;
 	}
 
+	/** "this Forward" and friends — the self-reference a granted ability uses in place of a name. */
+	private static final Pattern DAMAGE_SUBJECT_SELF =
+			Pattern.compile("(?i)^this\\s+(?:forward|backup|monster|character)$");
+
 	/**
 	 * The fixed number of damage points {@code attacker}'s "If [card] deals damage to your opponent,
-	 * the damage becomes N instead" ability replaces its damage with, or {@code null} when it has no
-	 * such ability. Reads granted abilities too, so an until-end-of-turn grant counts.
+	 * the damage becomes N instead" ability replaces its <em>combat</em> damage with, or
+	 * {@code null} when it has no such ability. Reads granted abilities too, so an until-end-of-turn
+	 * grant counts.
 	 */
 	Integer outgoingDamageToOpponentOverride(CardData attacker) {
+		return damageToOpponentOverride(attacker, false);
+	}
+
+	/**
+	 * The same replacement as {@link #outgoingDamageToOpponentOverride}, for damage the card deals
+	 * through an ability rather than in combat.
+	 *
+	 * <p>Behemoth 24-084R's grant is the difference: "other than by its ability" narrows the
+	 * replacement to combat, so it is dropped here while every unqualified printing — whose wording
+	 * covers ability damage as readily as combat — still answers.
+	 */
+	Integer abilityDamageToOpponentOverride(CardData attacker) {
+		return damageToOpponentOverride(attacker, true);
+	}
+
+	private Integer damageToOpponentOverride(CardData attacker, boolean byAbility) {
 		if (attacker == null || mw.lostAbilitiesCards.contains(attacker)) return null;
 		for (FieldAbility fa : mw.effectiveFieldAbilities(attacker)) {
 			Matcher m = AutoAbilityTriggers.FA_OUTGOING_DAMAGE_TO_OPPONENT_SETS_TO.matcher(fa.effectText());
 			if (!m.find()) continue;
+			if (byAbility && m.group("notbyability") != null) continue;
 			// The subject may qualify the attacker rather than only name it — Lightning 26-098L
 			// deals the 2 points only "forming a party", which is a board state read at the moment
 			// the damage lands, not a property of the card.
@@ -863,7 +908,12 @@ class DamageResolver {
 			Matcher partyM = AutoAbilityTriggers.FA_SUBJECT_FORMING_PARTY.matcher(subject);
 			boolean partyRequired = partyM.matches();
 			if (partyRequired) subject = partyM.group("name").trim();
-			if (!subject.equalsIgnoreCase(attacker.name())) continue;
+			// A granted ability spells its subject "this Forward" rather than naming a card — the
+			// wording is the recipient's, not the granter's, and effectiveFieldAbilities has already
+			// established whose ability this is. The same reasoning as
+			// AutoAbilityTriggers.ATTACK_SUBJECT_SELF.
+			if (!subject.equalsIgnoreCase(attacker.name())
+					&& !DAMAGE_SUBJECT_SELF.matcher(subject).matches()) continue;
 			if (partyRequired) {
 				Boolean side = mw.fieldSideOf(attacker);
 				if (side == null || !mw.isFormingParty(attacker, side)) continue;
@@ -998,7 +1048,7 @@ class DamageResolver {
 					mw.logEntry((isP1 ? "" : "[P2] ") + fwd.name() + " survives lethal damage (cannot be broken — damage clears at end of turn)");
 					if (isP1) mw.refreshP1ForwardSlot(idx); else mw.refreshP2ForwardSlot(idx);
 					if (mw.currentSummonSource != null)
-						fireBreaktouchForDamage(mw.currentSummonSource, mw.currentSummonSourceIsP1, isP1, idx);
+						fireBreaktouchForDamage(mw.currentSummonSource, mw.currentSummonSourceIsP1, isP1, idx, amount);
 				} else {
 					if (isP1) mw.breakP1Forward(idx); else mw.breakP2Forward(idx);
 				}
@@ -1006,7 +1056,7 @@ class DamageResolver {
 				if (isP1) mw.refreshP1ForwardSlot(idx); else mw.refreshP2ForwardSlot(idx);
 				// Fire "deals damage to forward" triggers from tracked ability source (e.g. Ramuh + Lightning Summon)
 				if (mw.currentSummonSource != null)
-					fireBreaktouchForDamage(mw.currentSummonSource, mw.currentSummonSourceIsP1, isP1, idx);
+					fireBreaktouchForDamage(mw.currentSummonSource, mw.currentSummonSourceIsP1, isP1, idx, amount);
 			}
 		} finally {
 			mw.fireShieldKickbacks();
@@ -1025,14 +1075,57 @@ class DamageResolver {
 		return mw.currentAbilitySource != null ? mw.currentAbilitySource : mw.currentSummonSource;
 	}
 
-	/** Forward-zone overload — see {@link #fireBreaktouchForDamage(CardData, boolean, boolean, ForwardTarget.CardZone, int)}. */
+	/**
+	 * Resolves Gulool Ja Ja 27-007H's echo: the damage just dealt is dealt again to another Forward
+	 * the opponent controls.
+	 *
+	 * <p>The printed sentence names neither of the two things it depends on — "that Forward" is the
+	 * card the trigger damaged and "the same amount" is how much it took — so both are substituted
+	 * from the event and the result goes through the ordinary chain. That reuses the whole choose
+	 * and damage machinery rather than rebuilding a selection here.
+	 *
+	 * <p>The exclusion is written as a card-name filter, which is the only exclusion the choose
+	 * grammar has. A second copy of the damaged card's name is therefore excluded too — the same
+	 * reading every printed "other than [name]" gets, and the closest the selection layer can come
+	 * to a pronoun.
+	 */
+	private void echoDamageToAnotherForward(AutoAbility fa, CardData source, boolean sourceIsP1,
+			CardData damaged, int amount) {
+		if (amount <= 0) return;
+		// Once per turn, recorded the way executeAutoAbilityImpl records it — this path never
+		// reaches that method, so the cap has to be applied here or it is no cap at all.
+		if (fa.oncePerTurn()) {
+			if (mw.usedOncePerTurnAbilities.getOrDefault(source, java.util.Set.of())
+					.contains(fa.effectText())) {
+				mw.logEntry((sourceIsP1 ? "" : "[P2] ") + source.name()
+						+ " — echo already used this turn");
+				return;
+			}
+			mw.usedOncePerTurnAbilities.computeIfAbsent(source, k -> new java.util.HashSet<>())
+					.add(fa.effectText());
+		}
+		Matcher m = AutoAbilityTriggers.FA_DAMAGE_ECHO_TO_OTHER_FORWARD.matcher(fa.effectText().trim());
+		if (!m.matches()) return;
+		String rewritten = m.group("head") + " other than Card Name " + damaged.name()
+				+ ". Deal it " + amount + " damage.";
+		Consumer<GameContext> effect = ActionResolver.parse(rewritten, source);
+		if (effect == null) {
+			mw.logEntry("[AutoAbility] Unrecognized echo effect: " + rewritten);
+			return;
+		}
+		mw.logEntry((sourceIsP1 ? "" : "[P2] ") + source.name() + " — echoes " + amount
+				+ " damage to another Forward");
+		effect.accept(mw.buildGameContext(sourceIsP1));
+	}
+
+	/** Forward-zone overload — see {@link #fireBreaktouchForDamage(CardData, boolean, boolean, ForwardTarget.CardZone, int, int)}. */
 	boolean fireBreaktouchForDamage(CardData source, boolean sourceIsP1,
-			boolean damagedIsP1, int damagedIdx) {
-		return fireBreaktouchForDamage(source, sourceIsP1, damagedIsP1, ForwardTarget.CardZone.FORWARD, damagedIdx);
+			boolean damagedIsP1, int damagedIdx, int amount) {
+		return fireBreaktouchForDamage(source, sourceIsP1, damagedIsP1, ForwardTarget.CardZone.FORWARD, damagedIdx, amount);
 	}
 
 	boolean fireBreaktouchForDamage(CardData source, boolean sourceIsP1,
-			boolean damagedIsP1, ForwardTarget.CardZone damagedZone, int damagedIdx) {
+			boolean damagedIsP1, ForwardTarget.CardZone damagedZone, int damagedIdx, int amount) {
 		CardData damaged = mw.fieldCombatant(damagedIsP1, damagedZone, damagedIdx);
 		if (damaged == null) return false;
 
@@ -1046,6 +1139,19 @@ class DamageResolver {
 			// damaged — so they resolve with it preloaded.
 			if (ActionResolver.isTriggeredTargetAction(fa.effectText())) {
 				runOnDamagedCard(fa, source, sourceIsP1, damagedIsP1, damagedZone, damagedIdx);
+				return false;
+			}
+			// Gulool Ja Ja 27-007H passes the damage on to a second Forward instead.
+			if (AutoAbilityTriggers.FA_DAMAGE_ECHO_TO_OTHER_FORWARD.matcher(fa.effectText().trim()).matches()) {
+				echoDamageToAnotherForward(fa, source, sourceIsP1, damaged, amount);
+				return false;
+			}
+			// Only the printings that say so break. This used to be the fallback for everything the
+			// two branches above did not claim, which handed Gulool Ja Ja a Breaktouch he does not
+			// print; an unrecognised shape now does nothing, and says so.
+			if (!AutoAbilityTriggers.FA_BREAKTOUCH_BREAK_IT.matcher(fa.effectText().trim()).matches()) {
+				mw.logEntry((sourceIsP1 ? "" : "[P2] ") + source.name()
+						+ " — unrecognised \"deals damage to a Forward\" effect: " + fa.effectText());
 				return false;
 			}
 			mw.logEntry((sourceIsP1 ? "" : "[P2] ") + source.name() + " — Breaktouch! "

@@ -386,17 +386,24 @@ final class AutoAbilityTriggers {
 	 * card deals no damage to the opponent at all.
 	 *
 	 * <p>The qualified printings must not be treated as this unconditional form — they carry extra
-	 * conditions it would silently drop. Behemoth 24-084R ("other than by its ability") fails the
-	 * pattern outright, but Lightning 26-098L ("If Lightning <em>forming a party</em> deals damage…")
-	 * does not: {@code card} is lazy but unrestricted, so it absorbs the qualifier and the match
-	 * succeeds with {@code card = "Lightning forming a party"}. What excludes an unread qualifier is
-	 * the caller comparing {@code card} against the carrier's own name — every reader of this
-	 * pattern must make that check, not assume the anchors did it. {@link #FA_SUBJECT_FORMING_PARTY}
-	 * is how a reader that does honour the party qualifier takes it off first.
-	 * Groups: {@code card}, {@code amount}.
+	 * conditions it would silently drop. Lightning 26-098L ("If Lightning <em>forming a party</em>
+	 * deals damage…") reaches the pattern all the same: {@code card} is lazy but unrestricted, so it
+	 * absorbs the qualifier and the match succeeds with {@code card = "Lightning forming a party"}.
+	 * What excludes an unread qualifier is the caller comparing {@code card} against the carrier's
+	 * own name — every reader of this pattern must make that check, not assume the anchors did it.
+	 * {@link #FA_SUBJECT_FORMING_PARTY} is how a reader that does honour the party qualifier takes
+	 * it off first.
+	 *
+	 * <p>{@code notbyability} is Behemoth 24-084R's "other than by its ability", the one qualifier
+	 * read here rather than left to the caller's name check — it narrows <em>which damage</em> the
+	 * replacement covers rather than which card, so no name test could catch it. Present, it means
+	 * combat damage only; the ability path has to consult
+	 * {@link DamageResolver#abilityDamageToOpponentOverride} instead, which drops these.
+	 * Groups: {@code card}, {@code notbyability} (optional), {@code amount}.
 	 */
 	static final Pattern FA_OUTGOING_DAMAGE_TO_OPPONENT_SETS_TO = Pattern.compile(
-		"(?i)^If\\s+(?<card>.+?)\\s+deals\\s+damage\\s+to\\s+your\\s+opponent,\\s+" +
+		"(?i)^If\\s+(?<card>.+?)\\s+deals\\s+damage\\s+to\\s+your\\s+opponent" +
+		"(?<notbyability>\\s+other\\s+than\\s+by\\s+its\\s+ability)?,\\s+" +
 		"the\\s+damage\\s+becomes\\s+(?<amount>\\d+)\\s+instead\\.?$"
 	);
 
@@ -2105,6 +2112,32 @@ final class AutoAbilityTriggers {
 		return false;
 	}
 
+	/**
+	 * Breaktouch proper: "break it." and nothing else, as the whole effect of a "deals damage to a
+	 * Forward" trigger — Tonberry 19-097C and its two reprints.
+	 *
+	 * <p>The break used to be the <em>fallback</em> for that trigger, taken by anything the damaged-
+	 * card path did not claim. Only three shapes are printed, and the third is Gulool Ja Ja 27-007H's
+	 * choice — which was therefore breaking the Forward it damaged, a Breaktouch it does not have.
+	 * Naming the effect is what confines the break to the cards that print it.
+	 */
+	static final Pattern FA_BREAKTOUCH_BREAK_IT = Pattern.compile("(?i)^break\\s+it\\s*[.!]?$");
+
+	/**
+	 * "choose 1 Forward opponent controls other than that Forward. Deal it the same amount of
+	 * damage." — Gulool Ja Ja 27-007H, the echo half of a "deals damage to a Forward" trigger.
+	 *
+	 * <p>Neither of the two things this sentence points at is in the text: "that Forward" is the
+	 * card the trigger just damaged, and "the same amount" is how much it took. Both are facts of
+	 * the event, so {@code DamageResolver} substitutes them and hands the result to the ordinary
+	 * chain rather than a parser here reinventing the choice and the damage.
+	 * Group: {@code head} — the selection with the pronoun exclusion still to be filled in.
+	 */
+	static final Pattern FA_DAMAGE_ECHO_TO_OTHER_FORWARD = Pattern.compile(
+		"(?i)^(?<head>choose\\s+1\\s+Forward\\s+(?:your\\s+)?opponent\\s+controls)\\s+other\\s+than\\s+" +
+		"that\\s+Forward[.,]\\s+Deal\\s+it\\s+the\\s+same\\s+amount\\s+of\\s+damage\\s*[.!]?$"
+	);
+
 	/** "this Forward" and friends — a self-reference spelled without the card's name. */
 	private static final Pattern ATTACK_SUBJECT_SELF =
 			Pattern.compile("(?i)^this\\s+(?:forward|backup|monster|character)$");
@@ -3322,6 +3355,55 @@ final class AutoAbilityTriggers {
 		} finally {
 			mw.triggeringBrokenCard = previous;
 		}
+	}
+
+	/**
+	 * Whether this dispatcher resolves {@code fa}'s effect itself, rather than handing it to
+	 * {@link ActionResolver#parse}.
+	 *
+	 * <p>Exists for the coverage reports. {@code parse()} is what every other check asks, and it
+	 * answers {@code null} for these shapes — most are dispatched by {@link #executeAutoAbilityImpl}
+	 * before it ever reaches the parseability check, because each pays a cost or makes a choice
+	 * before the payoff can run. Asking {@code parse()} alone therefore reported working cards as
+	 * unimplemented: Noctis 20-078H trades a Character to return from the Break Zone and has done
+	 * so all along.
+	 *
+	 * <p>Every arm mirrors what the matching executor actually requires, so this cannot claim a card
+	 * the engine would reject — the "when you do so" shapes hand their tail back to {@code parse()}
+	 * and do nothing when it comes back null, so the tail is checked here too. <b>Keep this list in
+	 * step with the dispatch block in {@link #executeAutoAbilityImpl}</b>; the two are in the same
+	 * order deliberately.
+	 *
+	 * <p>The two "select the following actions" shapes are deliberately absent: their executors end
+	 * by calling {@code parse()} on the whole effect text, so a card reaching them is already
+	 * recognised by the ordinary check and adding it here would say nothing new.
+	 */
+	static boolean dispatchedByTriggers(AutoAbility fa, CardData source) {
+		String text = fa.effectText();
+		Matcher m = FA_REMOVE_COUNTER_WHEN_DO_SO.matcher(text);
+		if (m.find()) return subEffectParses(m.group("sub"), source);
+		m = FA_PAY_WHEN_DO_SO.matcher(text);
+		if (m.find()) return subEffectParses(m.group(2), source);
+		m = FA_REMOVE_FIELD_WHEN_DO_SO.matcher(text);
+		if (m.find()) return subEffectParses(m.group("sub"), source);
+		m = FA_PUT_INTO_BZ_WHEN_DO_SO.matcher(text);
+		if (m.find()) return subEffectParses(m.group("sub"), source);
+		m = FA_PUT_SELF_INTO_BZ_IF_DO_SO.matcher(text);
+		if (m.find()) return subEffectParses(m.group("sub"), source);
+		// Self-contained: these two resolve entirely inside their executor and consult nothing
+		// further, so matching is the whole of the question.
+		if (FA_REVEAL_SUMMONS_CONDITIONAL.matcher(text).find()) return true;
+		if (FA_REVEAL_SUMMONS_SAME_NUMBER.matcher(text).find()) return true;
+		// Dispatched by DamageResolver rather than by this class, but for the same reason and with
+		// the same consequence for the reports: Gulool Ja Ja 27-007H's echo names the damaged card
+		// and the amount it took, neither of which is in the text, so it is resolved where the
+		// event is and parse() answers null for it.
+		return FA_DAMAGE_ECHO_TO_OTHER_FORWARD.matcher(text.trim()).matches();
+	}
+
+	/** Whether a "when you do so" tail resolves, which is what its executor requires of it. */
+	private static boolean subEffectParses(String sub, CardData source) {
+		return sub != null && ActionResolver.parse(sub.trim(), source) != null;
 	}
 
 	private void executeAutoAbilityImpl(AutoAbility fa, CardData source, boolean isP1, boolean paidExtraCost) {

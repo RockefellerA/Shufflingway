@@ -144,6 +144,16 @@ class PlayerTurnState {
 	boolean cannotSearchThisTurn = false;
 
 	/**
+	 * True while this player may not cast anything for the rest of the turn — Vayne 28-117H's
+	 * "during this turn, your opponent cannot cast any cards".
+	 *
+	 * <p>Read by {@code MainWindow.p1CastLimitReached} / {@code p2CastLimitReached}, which every
+	 * cast path already consults; the sibling of {@link #cannotSearchThisTurn} in both shape and
+	 * lifetime.
+	 */
+	boolean cannotCastThisTurn = false;
+
+	/**
 	 * Alhanalem 18-018R: while set, any Character entering the field because of a Summon or ability
 	 * belonging to <em>this player's opponent</em> is removed from the game instead of arriving.
 	 *

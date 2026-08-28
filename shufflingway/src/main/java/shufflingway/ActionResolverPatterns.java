@@ -1787,18 +1787,6 @@ final class ActionResolverPatterns {
         "(?:\\s+by\\s+a\\s+Forward\\s+of\\s+cost\\s+(?<costval>\\d+)(?:\\s+or\\s+(?<costcmp>less|more))?)?" +
         "\\s+this\\s+turn[.!]?"
     );
-    /**
-     * Matches "If the cost paid to play [name] included [element] CP, it cannot be blocked
-     * [by a Forward of cost N or more/less] this turn."
-     * Groups: {@code element}, optional {@code costval}/{@code costcmp}
-     */
-    static final Pattern FOLLOWUP_CANNOT_BE_BLOCKED_IF_ELEMENT_CP = Pattern.compile(
-        "(?i)if\\s+the\\s+cost\\s+paid\\s+to\\s+play\\s+.+?\\s+included\\s+" +
-        "(?<element>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)\\s+CP,?\\s+" +
-        "it\\s+cannot\\s+be\\s+blocked" +
-        "(?:\\s+by\\s+a\\s+Forward\\s+of\\s+cost\\s+(?<costval>\\d+)(?:\\s+or\\s+(?<costcmp>less|more))?)?" +
-        "\\s+this\\s+turn\\.?"
-    );
     /** Matches "if possible, it must block this turn" or the gains-until-EOT equivalent. */
     static final Pattern FOLLOWUP_MUST_BLOCK = Pattern.compile(
         "(?i)(?:" +
@@ -2782,6 +2770,24 @@ final class ActionResolverPatterns {
      *   <li>{@code fieldtype}— type filter for the field branch</li>
      * </ul>
      */
+    /**
+     * "Reveal the top N cards of your deck. Play as many Job [J] [Type]s as you want with a total
+     * cost of [C] or less among them onto the field and return the other cards to the bottom of
+     * your deck in any order." — Warrior of Light 10-065L.
+     *
+     * <p>The budgeted member of the reveal-and-play family: every sibling caps how many cards are
+     * played, this caps what they cost together.
+     * Groups: {@code n}, {@code job}, {@code type}, {@code totalcost}.
+     */
+    static final Pattern REVEAL_PLAY_AS_MANY_JOB_TYPE_TOTAL_COST_REST_BOTTOM = Pattern.compile(
+        "(?i)^\\s*reveal\\s+the\\s+top\\s+(?<n>\\d+)\\s+cards?\\s+of\\s+your\\s+deck[.!]?\\s+" +
+        "Play\\s+as\\s+many\\s+Job\\s+(?<job>.+?)\\s+(?<type>Forward|Backup|Monster|Character)s?\\s+" +
+        "as\\s+you\\s+want\\s+with\\s+a\\s+total\\s+cost\\s+of\\s+(?<totalcost>\\d+)\\s+or\\s+less\\s+" +
+        "among\\s+them\\s+onto\\s+(?:the\\s+)?field,?\\s+" +
+        "and\\s+return\\s+the\\s+other\\s+cards?\\s+to\\s+the\\s+bottom\\s+of\\s+(?:your|the)\\s+deck" +
+        "(?:\\s+in\\s+any\\s+order)?[.!]?\\s*$"
+    );
+
     static final Pattern REVEAL_ADD_TYPE_TO_HAND_OR_PLAY_JOB_TYPE_ONTO_FIELD_REST_BOTTOM = Pattern.compile(
         "(?i)^\\s*reveal\\s+the\\s+top\\s+(?<n>\\d+)\\s+cards?\\s+of\\s+your\\s+deck[.!]?\\s+" +
         "Add\\s+(?<handmax>\\d+)\\s+(?<handtype>Forward|Backup|Monster|Character)s?\\s+among\\s+them\\s+to\\s+your\\s+hand\\s+" +
@@ -2800,6 +2806,19 @@ final class ActionResolverPatterns {
     /** Matches "During this turn, the next damage dealt to it/him becomes 0 instead." */
     static final Pattern FOLLOWUP_SHIELD_NEXT_DMG_ZERO = Pattern.compile(
         "(?i)During\\s+this\\s+turn,\\s+the\\s+next\\s+damage\\s+dealt\\s+to\\s+(?:it|him)\\s+becomes\\s+0\\s+instead\\.?"
+    );
+    /**
+     * The source-scoped spelling of the shield above: "During this turn, the next damage dealt to
+     * it by your opponent's Summons or abilities becomes 0 instead." — Auron 22-001R.
+     *
+     * <p>Read before the unqualified pattern, and the two cannot be folded together: that one ends
+     * at "dealt to it", so under {@code find()} it would claim this sentence and hand Auron a
+     * shield against combat damage he does not print.
+     */
+    static final Pattern FOLLOWUP_SHIELD_NEXT_OPP_EFFECT_DMG_ZERO = Pattern.compile(
+        "(?i)During\\s+this\\s+turn,\\s+the\\s+next\\s+damage\\s+dealt\\s+to\\s+(?:it|him)\\s+by\\s+" +
+        "your\\s+opponent's\\s+(?:Summons?\\s+or\\s+abilities|abilities\\s+or\\s+Summons?)\\s+" +
+        "becomes\\s+0\\s+instead\\.?"
     );
     /** Matches "During this turn, the next damage dealt to you becomes 0 instead." */
     static final Pattern PLAYER_NEXT_DAMAGE_ZERO = Pattern.compile(
@@ -3569,6 +3588,18 @@ final class ActionResolverPatterns {
     );
     static final Pattern OPPONENT_CANNOT_SEARCH_THIS_TURN = Pattern.compile(
         "(?i)During\\s+this\\s+turn,?\\s+your\\s+opponent\\s+cannot\\s+search\\.?"
+    );
+    /**
+     * "During this turn, your opponent cannot cast any cards." — Vayne 28-117H's parting shot, the
+     * corpus's only total cast prohibition.
+     *
+     * <p>"any cards" is required rather than optional, which is what keeps this off the narrower
+     * printing beside it: 18-106H's "During this turn, your opponent cannot cast Summons." bans one
+     * card type and is a different, unimplemented effect. Reading it as this one would ban
+     * everything, so it stays visibly unhandled instead.
+     */
+    static final Pattern OPPONENT_CANNOT_CAST_ANY_CARDS_THIS_TURN = Pattern.compile(
+        "(?i)^During\\s+this\\s+turn,?\\s+your\\s+opponent\\s+cannot\\s+cast\\s+any\\s+cards\\s*[.!]?$"
     );
     /** Splits "and Card Name" within an activate target list. */
     static final Pattern ACTIVATE_AND_CARD_NAME_SPLIT = Pattern.compile(
@@ -5960,6 +5991,60 @@ final class ActionResolverPatterns {
      * "draw 1 card, then discard 1 card." and off conditional forms like "…, also draw 1 card."
      * — both are single effects with their own handling, not a trailing addition.
      */
+    /**
+     * "If the cost paid to cast [Self] included [Element] CP, [effect]" — Selkie 13-044C, who
+     * prints one of these for Fire and another for Earth.
+     *
+     * <p>The per-Element sibling of {@link #CAST_PAYMENT_ELEMENTS_GATE}, which counts how many
+     * distinct Elements paid rather than asking after a particular one.
+     *
+     * <p>Reads "cast" or "play": the two printings are the same rule a decade apart — Opus 7 says
+     * "the cost paid to play", Opus 13 says "to cast" — and reading only the later wording left
+     * the whole of the Opus 7 cycle ungated, 7-003C Red Mage discarding and 7-122C Mime granting
+     * +2000 power whatever the cost was paid with.
+     *
+     * <p>Anchored end to end and read before anything else, because the gate is a prefix and every
+     * parser below matches with {@code find()}: Selkie's Earth clause was already being claimed off
+     * its tail by the board-wide power grant, applying to every Forward whatever the cast was paid
+     * with. {@code inner} is greedy and so swallows any further gate clauses in a chain of them;
+     * {@link #CAST_PAYMENT_ELEMENT_CP_GATE_CLAUSE} is what splits those apart.
+     * Groups: {@code name}, {@code element}, {@code inner}.
+     */
+    static final Pattern CAST_PAYMENT_ELEMENT_CP_GATE = Pattern.compile(
+        "(?i)^If\\s+the\\s+cost\\s+paid\\s+to\\s+(?:cast|play)\\s+(?<name>.+?)\\s+included\\s+" +
+        "(?<element>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)\\s+CP,\\s+(?<inner>.+)$"
+    );
+
+    /**
+     * The gate clause of {@link #CAST_PAYMENT_ELEMENT_CP_GATE} on its own — without the effect it
+     * guards, and without anchors, so it can be located rather than only matched whole.
+     *
+     * <p>Two callers need that. 9-123L Chaos (MOBIUS) prints three gates in one ability, one per
+     * Element, and the anchored pattern's greedy {@code inner} reads the second and third as part
+     * of the first one's effect; scanning with this pattern splits the ability at each gate. And
+     * both cycles also print the gate as a <em>choose followup</em> ("choose up to 2 Forwards. If
+     * the cost paid to cast Clavat included Ice CP, Freeze them."), where it has to be recognised
+     * at the head of the followup and stripped off it.
+     * Groups: {@code name}, {@code element}.
+     */
+    static final Pattern CAST_PAYMENT_ELEMENT_CP_GATE_CLAUSE = Pattern.compile(
+        "(?i)If\\s+the\\s+cost\\s+paid\\s+to\\s+(?:cast|play)\\s+(?<name>.+?)\\s+included\\s+" +
+        "(?<element>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)\\s+CP,\\s+"
+    );
+
+    /**
+     * A choose followup that hands the chosen card a quoted ability for the turn:
+     * "Until the end of the turn, it gains "[ability]"." — Behemoth 24-084R.
+     *
+     * <p>Captures the quotation only. Whether the engine can honour what is inside it is the
+     * branch's question, not this pattern's: a grant of an ability nothing reads has to keep
+     * falling through the chain and be reported as unhandled, rather than being accepted here and
+     * resolving as a silent no-op.
+     */
+    static final Pattern FOLLOWUP_GAINS_QUOTED_ABILITY_UNTIL_EOT = Pattern.compile(
+        "(?i)Until\\s+the\\s+end\\s+of\\s+the\\s+turn,?\\s+it\\s+gains\\s+\"(?<granted>[^\"]+)\""
+    );
+
     /**
      * The sentence boundary this family splits on: a period followed by a capitalised word.
      *

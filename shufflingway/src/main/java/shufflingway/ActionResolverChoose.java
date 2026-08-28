@@ -1487,6 +1487,54 @@ final class ActionResolverChoose {
 
 
         // =====================================================================================
+        // Cast-payment gate over the followup
+        // =====================================================================================
+        // --- "Choose … . If the cost paid to cast [Self] included [E] CP, <followup>" ---------
+        // Two whole cycles print the gate here rather than ahead of the choose — Opus 7's
+        // "cost paid to play" (7-011C Summoner, 7-058C Ninja, …) and Opus 13's "cost paid to
+        // cast" (13-004C Clavat, 13-099C Yuke, …), sixteen abilities between them. Every followup
+        // parser below matches with find(), so each of them found its own verb inside the gate
+        // clause and ran it unconditionally: Clavat froze two Forwards whatever the cost was paid
+        // with. Settled here, ahead of all of them, for that reason.
+        //
+        // The gate is stripped and the rest re-parsed from the top, so every followup the chain
+        // already understands is gated without being taught the gate. That subsumed the one branch
+        // that had read a gate for itself — 7-105C Dragoon's "cannot be blocked" — so that branch
+        // and its pattern are gone; the plain FOLLOWUP_CANNOT_BE_BLOCKED it now lands on carries
+        // the same cost qualifier and sets the same flags.
+        //
+        // The choose itself is NOT gated: only the effect is conditional. Targets are chosen
+        // whatever the cost was paid with, and being chosen is an event of its own — 1-037H Kuja
+        // and 12-024H Emet-Selch trigger on it, and selectTargets fires those. Skipping the
+        // selection would silently swallow their triggers.
+        //
+        // A gate this cannot honour — one naming another card's cast, or guarding a followup the
+        // chain does not read — gives up the whole text rather than falling through, which would
+        // hand the followup straight back to the find() matchers below and run it unconditionally.
+        // That is the bug being fixed here, so it is not an acceptable fallback.
+        Matcher castPaidM = CAST_PAYMENT_ELEMENT_CP_GATE_CLAUSE.matcher(followup);
+        if (castPaidM.lookingAt()) {
+            if (source == null || !castPaidM.group("name").trim().equalsIgnoreCase(source.name()))
+                return null;
+            final String gateElement = cap(castPaidM.group("element"));
+            String ungated = text.substring(0, m.start("followup")) + followup.substring(castPaidM.end());
+            Consumer<GameContext> gatedEffect = tryParseChooseCharacterInner(ungated, source, xValue);
+            if (gatedEffect == null) return null;
+            return ctx -> {
+                if (ctx.wasElementCpPaid(gateElement)) {
+                    gatedEffect.accept(ctx);
+                    return;
+                }
+                ctx.logEntry(choosePrefix + " — " + gateElement + " CP was not paid to cast "
+                        + source.name() + "; choosing anyway, no effect");
+                selectTargets(ctx, maxCount, upTo,
+                        opponentOnly, selfOnly, condition, element, zone, opponentZone,
+                        costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters, jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, fExcludeElem, withoutMulticard);
+                if (secondary != null) secondary.accept(ctx);
+            };
+        }
+
+        // =====================================================================================
         // Quoted grants, optional payments and search payoffs
         // =====================================================================================
         // --- Multi-sentence quoted-ability grants ---------------------------------------
@@ -3611,37 +3659,30 @@ final class ActionResolverChoose {
             };
         }
 
-        // --- Cannot be blocked if element CP was paid followup ---
-        if (FOLLOWUP_CANNOT_BE_BLOCKED_IF_ELEMENT_CP.matcher(primaryFollowup).find()) {
-            Matcher bm = FOLLOWUP_CANNOT_BE_BLOCKED_IF_ELEMENT_CP.matcher(primaryFollowup);
-            bm.find();
-            final String elem    = bm.group("element");
-            String eCostStr      = bm.group("costval");
-            String eCostCmp      = bm.group("costcmp");
-            final int   bCostVal = eCostStr != null ? Integer.parseInt(eCostStr) : -1;
-            final boolean bIsMore = "more".equalsIgnoreCase(eCostCmp);
-            String bCostLabel    = bCostVal >= 0 ? " by cost " + bCostVal + " or " + eCostCmp : "";
-            return ctx -> {
-                if (!ctx.wasElementCpPaid(elem)) {
-                    ctx.logEntry(choosePrefix + " — " + elem + " CP not paid, skipping cannot-be-blocked bonus");
-                    return;
-                }
-                ctx.logEntry(choosePrefix + " — Cannot be blocked" + bCostLabel + " this turn (" + elem + " CP paid)");
-                List<ForwardTarget> ts = selectTargets(ctx, maxCount, upTo,
-                        opponentOnly, selfOnly, condition, element, zone, opponentZone,
-                        costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters, jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, fExcludeElem, withoutMulticard);
-                for (ForwardTarget t : ts) {
-                    if (t.zone() != ForwardTarget.CardZone.FORWARD) continue;
-                    if (bCostVal >= 0) {
-                        if (t.isP1()) ctx.setP1ForwardCannotBeBlockedByCost(t.idx(), bCostVal, bIsMore);
-                        else          ctx.setP2ForwardCannotBeBlockedByCost(t.idx(), bCostVal, bIsMore);
-                    } else {
-                        if (t.isP1()) ctx.setP1ForwardCannotBeBlocked(t.idx());
-                        else          ctx.setP2ForwardCannotBeBlocked(t.idx());
+        // --- "Until the end of the turn, it gains "[quoted ability]"" (Behemoth 24-084R) ---
+        // Granted verbatim, the way the must-block branches below store their sentence, so the
+        // reader sees exactly what a printing of the same ability would say — including the
+        // "this Forward" self-reference, which DamageResolver resolves against the holder.
+        //
+        // Deliberately narrow: only a quotation the engine actually reads is claimed here. A grant
+        // of anything else falls through the chain and stays visibly unhandled, rather than being
+        // accepted and resolving as a no-op.
+        Matcher grantQuoted = FOLLOWUP_GAINS_QUOTED_ABILITY_UNTIL_EOT.matcher(primaryFollowup);
+        if (grantQuoted.find()) {
+            String granted = grantQuoted.group("granted").trim();
+            if (AutoAbilityTriggers.FA_OUTGOING_DAMAGE_TO_OPPONENT_SETS_TO.matcher(granted).matches()) {
+                return ctx -> {
+                    ctx.logEntry(choosePrefix + " — gains \"" + granted + "\" this turn");
+                    List<ForwardTarget> ts = selectTargets(ctx, maxCount, upTo,
+                            opponentOnly, selfOnly, condition, element, zone, opponentZone,
+                            costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters, jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, fExcludeElem, withoutMulticard);
+                    for (ForwardTarget t : ts) {
+                        if (t.zone() != ForwardTarget.CardZone.FORWARD) continue;
+                        ctx.grantFieldAbilityUntilEndOfTurn(t, granted);
                     }
-                }
-                if (secondary != null) secondary.accept(ctx);
-            };
+                    if (secondary != null) secondary.accept(ctx);
+                };
+            }
         }
 
         // --- Must block a named attacker followup (Dio 26-075C) ---
@@ -4289,6 +4330,20 @@ final class ActionResolverChoose {
         // =====================================================================================
         // Damage shields and cannot-be-broken
         // =====================================================================================
+        // --- Next damage from the opponent's Summons or abilities = 0 followup (Auron 22-001R) ---
+        // Must precede the unqualified shield below: that pattern ends at "dealt to it" and would
+        // claim this sentence under find(), shielding combat damage the printing does not mention.
+        if (FOLLOWUP_SHIELD_NEXT_OPP_EFFECT_DMG_ZERO.matcher(primaryFollowup).find()) {
+            return ctx -> {
+                ctx.logEntry(choosePrefix + " — Shield: next damage from opponent's Summons or abilities becomes 0");
+                List<ForwardTarget> ts = selectTargets(ctx, maxCount, upTo,
+                        opponentOnly, selfOnly, condition, element, zone, opponentZone,
+                        costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters, jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, fExcludeElem, withoutMulticard);
+                ts.forEach(ctx::shieldNextOpponentEffectDamage);
+                if (secondary != null) secondary.accept(ctx);
+            };
+        }
+
         // --- Next incoming damage = 0 followup ---
         if (FOLLOWUP_SHIELD_NEXT_DMG_ZERO.matcher(primaryFollowup).find()) {
             return ctx -> {

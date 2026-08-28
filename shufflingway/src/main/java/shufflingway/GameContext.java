@@ -994,6 +994,13 @@ public interface GameContext {
     /** Next damage received by target becomes 0 (consumed on first hit). */
     void shieldNextIncomingDamage(ForwardTarget t);
 
+    /**
+     * The same shield, scoped to damage from the opposing player's Summons and abilities — Auron
+     * 22-001R. Combat damage passes it untouched and does not consume it, which is the whole of the
+     * difference from {@link #shieldNextIncomingDamage}.
+     */
+    void shieldNextOpponentEffectDamage(ForwardTarget t);
+
     /** The next damage dealt to the effect controller (as a player) becomes 0 (consumed on first hit). */
     void shieldPlayerNextDamage();
 
@@ -1992,6 +1999,16 @@ public interface GameContext {
     void setOpponentCannotSearchThisTurn();
 
     /**
+     * Bars the resolving player's opponent from casting anything for the rest of the turn — Vayne
+     * 28-117H.
+     *
+     * <p>Turn-scoped state rather than a field ability, because Vayne states it on his way into the
+     * Break Zone: the card is gone before the prohibition takes effect, so there is nothing on the
+     * field left to read it off.
+     */
+    void setOpponentCannotCastThisTurn();
+
+    /**
      * Arms Alhanalem 18-018R for the rest of the turn: any Character that would enter the field
      * because of a Summon or ability belonging to this player's opponent is removed from the game
      * instead, never arriving and so never firing its "enters the field" ability.
@@ -2515,6 +2532,18 @@ public interface GameContext {
      * all remaining cards go to the bottom of the deck in any order.
      */
     void revealTopNPlayUpToTypeOntoFieldRestBottom(int reveal, int maxPlay, String typeFilter, String categoryFilter);
+
+    /**
+     * Reveals the top {@code reveal} cards of the active player's deck. The player plays any number
+     * of Job {@code job} {@code typeFilter}s among them onto the field for free, so long as their
+     * costs add up to {@code totalCost} or less; the rest go to the bottom of the deck in any order.
+     * — Warrior of Light 10-065L.
+     *
+     * <p>The budget is the cap, not a count: the sibling above limits how many cards are played,
+     * this limits what they add up to.
+     */
+    void revealTopNPlayAnyJobTypeWithTotalCostOntoFieldRestBottom(
+            int reveal, String job, String typeFilter, int totalCost);
 
     default void revealTopNPlayUpToTypeOntoFieldRestBottom(int reveal, int maxPlay, String typeFilter) {
         revealTopNPlayUpToTypeOntoFieldRestBottom(reveal, maxPlay, typeFilter, null);

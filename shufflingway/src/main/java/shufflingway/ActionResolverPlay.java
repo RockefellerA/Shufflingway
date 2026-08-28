@@ -157,6 +157,18 @@ final class ActionResolverPlay {
         return ctx -> ctx.logEntry("Static: Players cannot cast Summons");
     }
     /**
+     * Parses "During this turn, your opponent cannot cast any cards." — Vayne 28-117H.
+     *
+     * <p>Unlike the field ability above, this one is an effect that fires and has to be recorded:
+     * it is the payoff of a "when Vayne is put from the field into the Break Zone" trigger, so the
+     * card stating it is gone by the time the prohibition applies and nothing on the field can be
+     * consulted for it. The turn-scoped flag it sets is what the cast gates read.
+     */
+    static Consumer<GameContext> tryParseOpponentCannotCastAnyCardsThisTurn(String text) {
+        if (!OPPONENT_CANNOT_CAST_ANY_CARDS_THIS_TURN.matcher(text.trim()).matches()) return null;
+        return GameContext::setOpponentCannotCastThisTurn;
+    }
+    /**
      * Parses "Choose 1 [Element] Summon in your Break Zone. You can cast it at any time
      * you could normally cast it this turn. The cost required to cast it is reduced by N."
      * At resolution: shows a chooser, moves the picked Summon BZ→hand, and registers a

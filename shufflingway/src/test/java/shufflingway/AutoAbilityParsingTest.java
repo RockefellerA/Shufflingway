@@ -12,6 +12,13 @@ import org.junit.jupiter.api.Test;
 
 public class AutoAbilityParsingTest {
 
+    /**
+     * How many sampled cards each of the three buckets prints. Named rather than inline for the
+     * reason {@code FieldAbilityParsingTest} names its own: the number appears in both halves of
+     * the reservoir sampler, and the two drifting apart silently biases the sample.
+     */
+    private static final int SAMPLE_SIZE = 4;
+
     // -------------------------------------------------------------------------
     // Per-card coverage (mirrors reportCardParsingCoverage in CardParsingTest)
     // -------------------------------------------------------------------------
@@ -160,9 +167,23 @@ public class AutoAbilityParsingTest {
      * coverage instead of overstating it.
      */
     private static String abilityStatus(AutoAbility fa, CardData source) {
+        // An ability AutoAbilityTriggers dispatches itself never reaches ActionResolver.parse, so
+        // asking parse() alone reported working cards as unimplemented. The predicate mirrors what
+        // each executor requires, so this cannot claim one the engine would reject.
+        if (AutoAbilityTriggers.dispatchedByTriggers(fa, source)) return "OK";
         if (ActionResolver.parse(fa.effectText(), source) == null) return "--";
         String desc = ActionResolver.fullDescription(fa.effectText(), source);
         return (desc != null && desc.contains("?")) ? "??" : "OK";
+    }
+
+    /**
+     * Whether {@code fa} is accounted for at all — the question the characterization golden file
+     * asks about each auto ability, and the same one {@code FieldAbilityParsingTest} answers for
+     * field abilities.
+     */
+    static boolean isAutoAbilityRecognized(AutoAbility fa, CardData source) {
+        return AutoAbilityTriggers.dispatchedByTriggers(fa, source)
+                || ActionResolver.parse(fa.effectText(), source) != null;
     }
 
     /** Reconstructs the original trigger line for display. */
@@ -248,11 +269,11 @@ public class AutoAbilityParsingTest {
     }
 
     private static void reservoirAdd(List<String> reservoir, String item, int seen, java.util.Random rng) {
-        if (reservoir.size() < 3) {
+        if (reservoir.size() < SAMPLE_SIZE) {
             reservoir.add(item);
         } else {
             int j = rng.nextInt(seen);
-            if (j < 3) reservoir.set(j, item);
+            if (j < SAMPLE_SIZE) reservoir.set(j, item);
         }
     }
 

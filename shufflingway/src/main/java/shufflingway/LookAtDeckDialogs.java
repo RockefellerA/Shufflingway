@@ -1768,6 +1768,23 @@ class LookAtDeckDialogs {
     }
 
     /**
+     * "Play as many Job {@code job} {@code typeFilter}s as you want with a total cost of
+     * {@code totalCost} or less among them onto the field; rest to the bottom of the deck in any
+     * order." — Warrior of Light 10-065L.
+     *
+     * <p>The only member of this family capped by a budget rather than a count, so the count cap is
+     * left wide open and {@code costBudget} does the work.
+     */
+    void revealPlayAnyJobTypeTotalCostOntoFieldRestBottom(List<CardData> cards, Deque<CardData> deck,
+            boolean isP1, String job, String typeFilter, int totalCost, Consumer<CardData> playOntoField) {
+        String typeLabel = "Job " + job + " " + typeFilter;
+        Predicate<CardData> eligible = c ->
+                meetsRevealTypeFilter(c, typeFilter) && CardFilters.meetsJobFilter(c, job);
+        resolveRevealPlayOntoField(cards, deck, isP1, Integer.MAX_VALUE, totalCost, typeLabel,
+                eligible, RevealRest.BOTTOM, playOntoField, RevealTake.FIELD);
+    }
+
+    /**
      * "Play 1 {@code typeFilter} of cost {@code typeMaxCost} or less [other than Multi-Element] or
      * 1 Card Name {@code cardName} of cost {@code nameMaxCost} or less among them onto the field;
      * rest to the bottom of the deck in any order." (Syldra 29-101H.)
@@ -1826,9 +1843,24 @@ class LookAtDeckDialogs {
     private void resolveRevealPlayOntoField(List<CardData> cards, Deque<CardData> deck,
             boolean isP1, int maxPlay, String typeLabel, Predicate<CardData> eligible,
             RevealRest rest, Consumer<CardData> takeCard, RevealTake take) {
+        resolveRevealPlayOntoField(cards, deck, isP1, maxPlay, -1, typeLabel, eligible, rest,
+                takeCard, take);
+    }
+
+    /**
+     * As above, with a shared budget the picks have to fit inside: Warrior of Light 10-065L
+     * plays "as many ... as you want with a total cost of 5 or less", which caps the sum of the
+     * chosen costs rather than how many are chosen.
+     *
+     * <p>{@code costBudget} of {@code -1} means no budget, which is every other caller.
+     */
+    private void resolveRevealPlayOntoField(List<CardData> cards, Deque<CardData> deck,
+            boolean isP1, int maxPlay, int costBudget, String typeLabel,
+            Predicate<CardData> eligible, RevealRest rest, Consumer<CardData> takeCard,
+            RevealTake take) {
         resolveReveal(cards, deck, isP1,
-                () -> askRevealPlayOntoField(cards, maxPlay, typeLabel, eligible, rest, take),
-                () -> cpuRevealPlayOntoField(cards, maxPlay, eligible, rest),
+                () -> askRevealPlayOntoField(cards, maxPlay, costBudget, typeLabel, eligible, rest, take),
+                () -> cpuRevealPlayOntoField(cards, maxPlay, costBudget, eligible, rest),
                 takeCard, take);
     }
 
@@ -1839,12 +1871,32 @@ class LookAtDeckDialogs {
      */
     static DeckLookDecision cpuRevealPlayOntoField(List<CardData> cards, int maxPlay,
             Predicate<CardData> eligible, RevealRest rest) {
+        return cpuRevealPlayOntoField(cards, maxPlay, -1, eligible, rest);
+    }
+
+    /**
+     * As above, refusing any card that would push the picks past {@code costBudget}.
+     *
+     * <p>Still dearest-first, as the unbudgeted form is. Cheapest-first would fit more cards
+     * into the same budget, but "the dearest it is allowed to play" is the choice this seat
+     * already makes everywhere else, and the two should not disagree by accident.
+     */
+    static DeckLookDecision cpuRevealPlayOntoField(List<CardData> cards, int maxPlay,
+            int costBudget, Predicate<CardData> eligible, RevealRest rest) {
         List<Integer> playable = new ArrayList<>();
         for (int i = 0; i < cards.size(); i++)
             if (eligible.test(cards.get(i))) playable.add(i);
         playable.sort(java.util.Comparator.comparingInt((Integer i) -> cards.get(i).cost()).reversed());
 
-        List<Integer> toField = new ArrayList<>(playable.subList(0, Math.min(maxPlay, playable.size())));
+        List<Integer> toField = new ArrayList<>();
+        int spent = 0;
+        for (int i : playable) {
+            if (toField.size() >= maxPlay) break;
+            int cost = cards.get(i).cost();
+            if (costBudget >= 0 && spent + cost > costBudget) continue;
+            toField.add(i);
+            spent += cost;
+        }
         List<Integer> leftover = new ArrayList<>();
         for (int i = 0; i < cards.size(); i++) if (!toField.contains(i)) leftover.add(i);
         return arrangeRest(leftover, toField, rest);
@@ -1866,8 +1918,8 @@ class LookAtDeckDialogs {
      *             cards going to hand or the Break Zone have no order to choose.
      */
     private DeckLookDecision askRevealPlayOntoField(List<CardData> cards,
-            int maxPlay, String typeLabel, Predicate<CardData> eligible, RevealRest rest,
-            RevealTake take) {
+            int maxPlay, int costBudget, String typeLabel, Predicate<CardData> eligible,
+            RevealRest rest, RevealTake take) {
         int n = cards.size();
         JDialog dlg = new JDialog(frame, take.title(maxPlay, typeLabel, rest), true);
         dlg.setResizable(false);
@@ -1894,10 +1946,16 @@ class LookAtDeckDialogs {
 
         Runnable refreshFieldButtons = () -> {
             int count = fieldSel.size();
+            int spent = fieldSel.stream().mapToInt(CardData::cost).sum();
             for (int j = 0; j < n; j++) {
                 CardData c = order.get(j);
                 boolean inField = holdsIdentity(fieldSel, c);
-                fieldBtns[j].setEnabled(eligible.test(c) && (inField || count < maxPlay));
+                // A budget caps the sum of the picks, so what closes a card off is the room
+                // left rather than the count. An already-picked card stays enabled either
+                // way, or a full selection could never be undone.
+                boolean fitsBudget = costBudget < 0 || spent + c.cost() <= costBudget;
+                fieldBtns[j].setEnabled(eligible.test(c)
+                        && (inField || (count < maxPlay && fitsBudget)));
             }
         };
 
@@ -1983,7 +2041,10 @@ class LookAtDeckDialogs {
         }
 
         JLabel instructions = new JLabel(
-                txt("Click '→ Field' on up to " + maxPlay + " " + typeLabel + "(s) to play. "
+                txt("Click '→ Field' on " + (costBudget >= 0
+                                ? "any number of " + typeLabel + "(s) totalling cost "
+                                        + costBudget + " or less"
+                                : "up to " + maxPlay + " " + typeLabel + "(s)") + " to play. "
                         + switch (rest) {
                             case HAND       -> "The rest go to your hand.";
                             case BREAK_ZONE -> "The rest go to your Break Zone.";

@@ -4,6 +4,8 @@ import static shufflingway.ActionResolverPatterns.*;
 
 import static shufflingway.ActionResolver.*;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.function.Consumer;
 import java.util.regex.Matcher;
 
@@ -129,6 +131,66 @@ final class ActionResolverGate {
      * <p>Returns {@code null} when either half fails to parse, so unsupported wordings fall
      * through to the regular matchers rather than losing the base effect.
      */
+    /**
+     * Parses "If the cost paid to cast [Self] included [Element] CP, [effect]" — Selkie 13-044C,
+     * and its older "cost paid to play" wording — 7-003C Red Mage.
+     *
+     * <p>Self-named and checked by equality, like the rest of this family: the gate asks about the
+     * cast of the card printing it, so a text naming some other card is not this.
+     *
+     * <p>Reads a <em>chain</em> of gates, not only one. 9-123L Chaos (MOBIUS) prints three in a
+     * row, one per Element, each guarding its own effect; the anchored pattern's greedy inner
+     * group swallows the second and third as part of the first one's effect, and the whole text
+     * then fell through to a matcher that found the middle clause's discard and ran it
+     * unconditionally. Splitting on {@link ActionResolverPatterns#CAST_PAYMENT_ELEMENT_CP_GATE_CLAUSE}
+     * gives one (Element, effect) pair per gate, each tested independently at resolution — which
+     * is what the card says: paying Fire and Lightning fires the first and third and not the
+     * second. A single gate is the one-element case of the same loop.
+     *
+     * <p>Returns {@code null} when any gated effect does not parse, rather than a consumer that
+     * checks the payment and then does nothing — an unimplemented payoff has to stay visible.
+     */
+    static Consumer<GameContext> tryParseCastPaymentElementCpGate(String text, CardData source, int xValue) {
+        if (source == null) return null;
+        String trimmed = text.trim();
+        // The whole text has to be gates: the anchored pattern settles that the first clause
+        // starts at the head, and the split below settles that nothing sits between two of them.
+        if (!CAST_PAYMENT_ELEMENT_CP_GATE.matcher(trimmed).matches()) return null;
+
+        List<String> elements = new ArrayList<>();
+        List<Consumer<GameContext>> effects = new ArrayList<>();
+        Matcher clause = CAST_PAYMENT_ELEMENT_CP_GATE_CLAUSE.matcher(trimmed);
+        int effectStart = -1;
+        while (clause.find()) {
+            if (!clause.group("name").trim().equalsIgnoreCase(source.name())) return null;
+            if (effectStart >= 0) {
+                Consumer<GameContext> prev = parse(trimmed.substring(effectStart, clause.start()).trim(), source, xValue);
+                if (prev == null) return null;
+                effects.add(prev);
+            }
+            elements.add(cap(clause.group("element")));
+            effectStart = clause.end();
+        }
+        Consumer<GameContext> last = parse(trimmed.substring(effectStart).trim(), source, xValue);
+        if (last == null) return null;
+        effects.add(last);
+
+        List<String> fElements = List.copyOf(elements);
+        List<Consumer<GameContext>> fEffects = List.copyOf(effects);
+        return ctx -> {
+            for (int i = 0; i < fElements.size(); i++) {
+                String element = fElements.get(i);
+                if (!ctx.wasElementCpPaid(element)) {
+                    ctx.logEntry("Effect: " + element + " CP was not paid to cast "
+                            + source.name() + " — skipped");
+                    continue;
+                }
+                ctx.logEntry("Effect: " + element + " CP was paid to cast " + source.name());
+                fEffects.get(i).accept(ctx);
+            }
+        };
+    }
+
     static Consumer<GameContext> tryParseCastPaymentElementsGate(String text, CardData source, int xValue) {
         Matcher m = CAST_PAYMENT_ELEMENTS_GATE.matcher(text.trim());
         if (!m.matches()) return null;

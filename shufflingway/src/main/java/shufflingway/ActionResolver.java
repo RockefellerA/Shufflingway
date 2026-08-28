@@ -188,6 +188,11 @@ public class ActionResolver {
         result = tryParseCastPaymentElementsGate(effectText, source, xValue);
         if (result != null) return result;
 
+        // Beside its sibling and for the same reason: the gate is a prefix, so every parser
+        // below would claim the effect off its tail and run it whatever the cast was paid with.
+        result = tryParseCastPaymentElementCpGate(effectText, source, xValue);
+        if (result != null) return result;
+
         // Must precede every effect pattern: a trailing "Draw 1 card." rides along behind a
         // complete effect, and whichever pattern matches the leading sentences claims the whole
         // text with find() and returns, so the sentence-splitting fallback at the end of this
@@ -1230,6 +1235,9 @@ public class ActionResolver {
         result = tryParseOpponentCannotSearchThisTurn(effectText);
         if (result != null) return result;
 
+        result = tryParseOpponentCannotCastAnyCardsThisTurn(effectText);
+        if (result != null) return result;
+
         result = tryParseRemoveFromBattle(effectText);
         if (result != null) return result;
 
@@ -1331,6 +1339,9 @@ public class ActionResolver {
         if (result != null) return result;
 
         result = tryParseRevealPlayNamedWithMaxCostRestBottom(effectText);
+        if (result != null) return result;
+
+        result = tryParseRevealPlayAsManyJobTypeTotalCostRestBottom(effectText);
         if (result != null) return result;
 
         result = tryParseRevealPlayNamedOrJobMaxCostRestBottom(effectText);
@@ -1549,6 +1560,8 @@ public class ActionResolver {
         // 16-125C's conditional half off the end of the sentence carrying the condition.
         if (tryParseCastPaymentElementsGate(effectText, source, 0) != null)
             return "CastPaymentElementsGate";
+        if (tryParseCastPaymentElementCpGate(effectText, source, 0) != null)
+            return "CastPaymentElementCpGate";
         // Mirrors parse()'s first dispatch. Reported as a composite so the leading effect still
         // names itself rather than being hidden behind a "TrailingDraw" label.
         if (tryParseTrailingDraw(effectText, source, 0) != null) {
@@ -1909,6 +1922,7 @@ public class ActionResolver {
         if (tryParseActivateNamedCard(effectText)               != null) return "ActivateNamedCard";
         if (tryParseAttackOnceMore(effectText)                  != null) return "AttackOnceMore";
         if (tryParseOpponentCannotSearchThisTurn(effectText)    != null) return "OpponentCannotSearch";
+        if (tryParseOpponentCannotCastAnyCardsThisTurn(effectText) != null) return "OpponentCannotCastAnyCards";
         if (tryParseRemoveFromBattle(effectText)                != null) return "RemoveFromBattle";
         if (tryParseChooseSummonFromBzToHandWithCostReduction(effectText) != null) return "ChooseSummonFromBzToHandWithCostReduction";
         if (tryParseChooseNSummonsBzPickOneHandRestRfg(effectText)        != null) return "ChooseNSummonsBzPickOneHandRestRfg";
@@ -1962,6 +1976,7 @@ public class ActionResolver {
         if (tryParseAddRemovedByPreviousEffectToHand(effectText, source)    != null) return "AddRemovedByPreviousEffectToHand";
         if (tryParseRemoveTopOfDeckFromGame(effectText, source)             != null) return "RemoveTopOfDeckFromGame";
         if (tryParseRevealPlayNamedWithMaxCostRestBottom(effectText)         != null) return "RevealPlayNamedWithMaxCostRestBottom";
+        if (tryParseRevealPlayAsManyJobTypeTotalCostRestBottom(effectText)   != null) return "RevealPlayAsManyJobTypeTotalCost";
         if (tryParseRevealPlayNamedOrJobMaxCostRestBottom(effectText)        != null) return "RevealPlayNamedOrJobMaxCostRestBottom";
         if (tryParseFlipUntilTypeToHandRestShuffleBottom(effectText)         != null) return "FlipUntilTypeToHandRestShuffleBottom";
         if (tryParseFlipUntilElementToHandRestShuffleBottom(effectText)      != null) return "FlipUntilElementToHandRestShuffleBottom";
@@ -2164,7 +2179,13 @@ public class ActionResolver {
         if (FOLLOWUP_CANNOT_BLOCK.matcher(followupText).find())                       return "CannotBlock";
         if (FOLLOWUP_ONLY_BLOCKED_BY_COST_LE_OWN.matcher(followupText).find())        return "OnlyBlockedByCostLeOwn";
         if (FOLLOWUP_CANNOT_BE_BLOCKED.matcher(followupText).find())                  return "CannotBeBlocked";
-        if (FOLLOWUP_CANNOT_BE_BLOCKED_IF_ELEMENT_CP.matcher(followupText).find())   return "CannotBeBlockedIfElementCP";
+        // Mirrors the choose chain, including its guard: the grant is only claimed when the quoted
+        // ability is one the engine reads, so a quotation nothing implements still reports as "?".
+        Matcher fuQuoted = FOLLOWUP_GAINS_QUOTED_ABILITY_UNTIL_EOT.matcher(followupText);
+        if (fuQuoted.find()
+                && AutoAbilityTriggers.FA_OUTGOING_DAMAGE_TO_OPPONENT_SETS_TO
+                        .matcher(fuQuoted.group("granted").trim()).matches())
+                                                                                      return "GainsDamageToOpponentSetsTo";
         // Mirrors the choose chain: the counter duplication, then the two named must-block forms
         // ahead of the unqualified one.
         if (FOLLOWUP_SELECT_COUNTER_AND_ADD_SAME_TYPE.matcher(followupText.trim()).matches())
@@ -2226,6 +2247,10 @@ public class ActionResolver {
         if (FOLLOWUP_REMOVE_ONE_COUNTER.matcher(followupText).find())                  return "RemoveOneCounter";
         if (BECOME_FORWARD_UNTIL_EOT_PATTERN.matcher(followupText).find())             return "BecomeForwardUntilEot";
         if (FOLLOWUP_CANCEL_EFFECT.matcher(followupText).find())                      return "CancelEffect";
+        // Mirrors the choose chain: the source-scoped shield ahead of the unqualified one it
+        // would otherwise be claimed by.
+        if (FOLLOWUP_SHIELD_NEXT_OPP_EFFECT_DMG_ZERO.matcher(followupText).find())
+                                                                                      return "ShieldNextOppEffectDmgZero";
         if (FOLLOWUP_SHIELD_NEXT_DMG_ZERO.matcher(followupText).find())               return "ShieldNextDmgZero";
         if (FOLLOWUP_SHIELD_NEXT_ABILITY_DMG_REDUCTION.matcher(followupText).find())   return "ShieldNextAbilityDmgReduction";
         // Mirrors the choose chain: the billed form is checked ahead of the plain reduction, and
@@ -2296,6 +2321,28 @@ public class ActionResolver {
             // Same normalisation the parser applied, so the report names the clause that ran.
             return describeOrName(baseTxt, source) + " + " + gate
                     + describeOrName(gateTailText(tailTxt, source, 0), source) + ")";
+        }
+        // Mirrors parse(): described like the gates above, with the guarded effect inside.
+        if (tryParseCastPaymentElementCpGate(effectText, source, 0) != null) {
+            // One entry per gate, split the way the parser splits: 9-123L Chaos (MOBIUS) chains
+            // three, and reading only the anchored pattern named the first and hid the rest
+            // inside its greedy inner group.
+            String gateText = effectText.trim();
+            Matcher cpe = CAST_PAYMENT_ELEMENT_CP_GATE_CLAUSE.matcher(gateText);
+            List<String> gates = new ArrayList<>();
+            String element = null;
+            int effectStart = -1;
+            while (cpe.find()) {
+                if (effectStart >= 0)
+                    gates.add("IfCastPaid" + element + "Cp("
+                            + describeOrName(gateText.substring(effectStart, cpe.start()).trim(), source) + ")");
+                element = cap(cpe.group("element"));
+                effectStart = cpe.end();
+            }
+            if (effectStart < 0) return "CastPaymentElementCpGate";
+            gates.add("IfCastPaid" + element + "Cp("
+                    + describeOrName(gateText.substring(effectStart).trim(), source) + ")");
+            return String.join(" + ", gates);
         }
         // Mirrors parse()'s first dispatch; see the matching guard in matchedPatternNameOn().
         if (tryParseTrailingDraw(effectText, source, 0) != null) {
@@ -2490,6 +2537,16 @@ public class ActionResolver {
         Matcher chooseM = CHOOSE_CHARACTER_PATTERN.matcher(escapedEffectText);
         if (chooseM.find()) {
             String followup      = restorePeriodInName(chooseM.group("followup").trim(), source);
+            // Mirrors the choose chain's cast-payment gate, which is settled ahead of every
+            // followup parser: the condition sits between the choose and its followup, so name
+            // the followup with the gate around it rather than as an effect that always happens.
+            Matcher castPaidM = CAST_PAYMENT_ELEMENT_CP_GATE_CLAUSE.matcher(followup);
+            if (source != null && castPaidM.lookingAt()
+                    && castPaidM.group("name").trim().equalsIgnoreCase(source.name())) {
+                String gatedName = matchedFollowupName(followup.substring(castPaidM.end()).trim(), source);
+                return "ChooseCharacter / IfCastPaid" + cap(castPaidM.group("element")) + "Cp("
+                        + (gatedName != null ? gatedName : "?") + ")";
+            }
             // Check damage-instead on the full followup before the ". " split eats the condition clause.
             // This mirrors what tryParseChooseAndFollowup does.
             Matcher insteadM = FOLLOWUP_DAMAGE_INSTEAD.matcher(followup);
@@ -2878,6 +2935,7 @@ public class ActionResolver {
         if (tryParseActivateNamedCard(effectText) != null)                  return "ActivateNamedCard";
         if (tryParseAttackOnceMore(effectText) != null)                     return "AttackOnceMore";
         if (tryParseOpponentCannotSearchThisTurn(effectText) != null)       return "OpponentCannotSearch";
+        if (tryParseOpponentCannotCastAnyCardsThisTurn(effectText) != null) return "OpponentCannotCastAnyCards";
         if (tryParseExtraTurnThenLose(effectText) != null)                  return "ExtraTurnThenLose";
         if (tryParseGainCrystalPerX(effectText, 0) != null)                 return "GainCrystalPerX";
         // Mirrors parse(); see the matching guard in matchedPatternNameOn().
@@ -2919,6 +2977,7 @@ public class ActionResolver {
         if (tryParseAddRemovedByPreviousEffectToHand(effectText, source)    != null) return "AddRemovedByPreviousEffectToHand";
         if (tryParseRemoveTopOfDeckFromGame(effectText, source)             != null) return "RemoveTopOfDeckFromGame";
         if (tryParseRevealPlayNamedWithMaxCostRestBottom(effectText)           != null) return "RevealPlayNamedWithMaxCostRestBottom";
+        if (tryParseRevealPlayAsManyJobTypeTotalCostRestBottom(effectText)     != null) return "RevealPlayAsManyJobTypeTotalCost";
         if (tryParseRevealPlayNamedOrJobMaxCostRestBottom(effectText)          != null) return "RevealPlayNamedOrJobMaxCostRestBottom";
         if (tryParseFlipUntilTypeToHandRestShuffleBottom(effectText)           != null) return "FlipUntilTypeToHandRestShuffleBottom";
         if (tryParseFlipUntilElementToHandRestShuffleBottom(effectText)        != null) return "FlipUntilElementToHandRestShuffleBottom";

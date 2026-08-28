@@ -577,6 +577,15 @@ public class MainWindow {
 
 	// Damage-shield / damage-modifier state (keyed by CardData identity; cleared at end of turn)
 	final Set<CardData>          nextIncomingDmgZeroSet        = new HashSet<>();
+	/**
+	 * The source-scoped twin of {@link #nextIncomingDmgZeroSet} — Auron 22-001R shields "the next
+	 * damage dealt to it <em>by your opponent's Summons or abilities</em>", so combat damage neither
+	 * consumes the shield nor is stopped by it.
+	 *
+	 * <p>Separate from the unqualified set rather than a flag on it: the two differ in what spends
+	 * them, and a shield spent by the wrong kind of damage is a shield that was never there.
+	 */
+	final Set<CardData>          nextOppEffectDmgZeroSet       = new HashSet<>();
 	final Map<CardData, CardData> nextIncomingDmgRedirectMap   = new HashMap<>();
 	final Map<CardData, Integer> nextIncomingDmgReduceMap      = new HashMap<>();
 	/**
@@ -3088,7 +3097,7 @@ public class MainWindow {
                                 p1TempAttackTriggers.clear();           p2TempAttackTriggers.clear();
                                 p1TempBlockTriggers.clear();            p2TempBlockTriggers.clear();
                                 p1TempIsBlockedTriggers.clear();        p2TempIsBlockedTriggers.clear();
-                                nextIncomingDmgZeroSet.clear();   nextIncomingDmgRedirectMap.clear();   nextIncomingDmgReduceMap.clear();   nextAbilityDmgReduceMap.clear();
+                                nextIncomingDmgZeroSet.clear();   nextOppEffectDmgZeroSet.clear();   nextIncomingDmgRedirectMap.clear();   nextIncomingDmgReduceMap.clear();   nextAbilityDmgReduceMap.clear();
                                 nextIncomingDmgReduceKickbackMap.clear();  pendingShieldKickbacks.clear();
                                 incomingDmgIncreaseMap.clear();   globalForwardIncomingDmgIncrease = 0;   nullifyAbilityDmgSet.clear();
                                 p1Turn.nullifyAbilityDmgFilters.clear(); p2Turn.nullifyAbilityDmgFilters.clear();
@@ -3111,6 +3120,7 @@ public class MainWindow {
                                 p2Turn.attackDeclarationLimit = Integer.MAX_VALUE; p2Turn.attackDeclarationsThisTurn = 0;
                                 p1Turn.attackDeclarationLimit = Integer.MAX_VALUE;       p1Turn.attackDeclarationsThisTurn = 0;
                                 p1Turn.cannotSearchThisTurn = false; p2Turn.cannotSearchThisTurn = false;
+                                p1Turn.cannotCastThisTurn = false;   p2Turn.cannotCastThisTurn = false;
                                 p1Turn.oppFieldEntryBecomesRfg = false; p2Turn.oppFieldEntryBecomesRfg = false;
                                 // attacksMadeThisTurn was just emptied, so the exhausted-attacker
                                 // glow comes off with it.
@@ -5793,10 +5803,10 @@ public class MainWindow {
 
 		// Permanent "deals damage to forward" auto-abilities (e.g. Mandragora, Tonberry)
 		if (dmgToBlocker > 0 && !blockerBroken) {
-			if (fireBreaktouchForDamage(attacker, attackerIsP1, blockerIsP1, blockerIdx)) blockerBroken = true;
+			if (fireBreaktouchForDamage(attacker, attackerIsP1, blockerIsP1, blockerIdx, dmgToBlocker)) blockerBroken = true;
 		}
 		if (dmgToAttacker > 0 && !attackerBroken) {
-			if (fireBreaktouchForDamage(blocker, blockerIsP1, attackerIsP1, attackerIdx)) attackerBroken = true;
+			if (fireBreaktouchForDamage(blocker, blockerIsP1, attackerIsP1, attackerIdx, dmgToAttacker)) attackerBroken = true;
 		}
 
 		if (!attackerBroken && !blockerBroken) {
@@ -7184,8 +7194,12 @@ public class MainWindow {
 	/**
 	 * Says that something feeding a card's cost or castability has moved, so the fan should ask
 	 * again. The answers themselves come from {@link #handCardState(int)} during the repaint.
+	 *
+	 * <p>Package-private for {@code GameContextImpl}: an effect that changes what may be cast
+	 * (Vayne 28-117H bars casting outright) has to say so, and nothing on the resolution path
+	 * repaints the fan on its own.
 	 */
-	private void refreshHandCardStates() {
+	void refreshHandCardStates() {
 		if (p1HandFan != null) p1HandFan.repaint();
 	}
 
@@ -8087,8 +8101,14 @@ public class MainWindow {
 		if (changed) refreshPlayableCardsButton();
 	}
 
-	/** Returns {@code true} if P1 has already cast 2 cards this turn and a field ability caps them at 2. */
+	/**
+	 * Returns {@code true} if P1 may not cast right now — either barred outright for the turn
+	 * (Vayne 28-117H) or already at a field ability's two-card cap.
+	 */
 	boolean p1CastLimitReached() {
+		// Ahead of the count, because it is a ban rather than a cap: nothing has to have been cast
+		// for it to apply.
+		if (p1Turn.cannotCastThisTurn) return true;
 		if (p1Turn.cardsCastThisTurn < 2) return false;
 		for (CardData c : p1ForwardCards) if (!lostAbilitiesCards.contains(c) && AutoAbilityTriggers.hasSelfCastLimit(c)) return true;
 		for (CardData c : p1BackupCards)  if (c != null && !lostAbilitiesCards.contains(c) && AutoAbilityTriggers.hasSelfCastLimit(c)) return true;
@@ -8096,8 +8116,9 @@ public class MainWindow {
 		return anyCastLimitBothReached();
 	}
 
-	/** Returns {@code true} if P2 has already cast 2 cards this turn and a field ability caps them at 2. */
+	/** The mirror of {@link #p1CastLimitReached} for P2. */
 	boolean p2CastLimitReached() {
+		if (p2Turn.cannotCastThisTurn) return true;
 		if (p2Turn.cardsCastThisTurn < 2) return false;
 		for (CardData c : p2ForwardCards) if (!lostAbilitiesCards.contains(c) && AutoAbilityTriggers.hasSelfCastLimit(c)) return true;
 		for (CardData c : p2BackupCards)  if (c != null && !lostAbilitiesCards.contains(c) && AutoAbilityTriggers.hasSelfCastLimit(c)) return true;
@@ -13647,8 +13668,8 @@ public class MainWindow {
 	/** @see DamageResolver#sourceHasOutgoingDmgToOpponentDoubler */
 	boolean sourceHasOutgoingDmgToOpponentDoubler(CardData attacker) { return damageResolver.sourceHasOutgoingDmgToOpponentDoubler(attacker); }
 
-	/** @see DamageResolver#outgoingDamageToOpponentOverride */
-	Integer outgoingDamageToOpponentOverride(CardData attacker) { return damageResolver.outgoingDamageToOpponentOverride(attacker); }
+	/** @see DamageResolver#abilityDamageToOpponentOverride */
+	Integer abilityDamageToOpponentOverride(CardData attacker) { return damageResolver.abilityDamageToOpponentOverride(attacker); }
 
 	/** @see DamageResolver#combatDamagePointsToOpponent */
 	int combatDamagePointsToOpponent(CardData attacker) { return damageResolver.combatDamagePointsToOpponent(attacker); }
@@ -13764,10 +13785,10 @@ public class MainWindow {
 	 * </ul>
 	 */
 	/** @see DamageResolver#fireBreaktouchForDamage */
-	private boolean fireBreaktouchForDamage(CardData source, boolean sourceIsP1, boolean damagedIsP1, int damagedIdx) { return damageResolver.fireBreaktouchForDamage(source, sourceIsP1, damagedIsP1, damagedIdx); }
+	private boolean fireBreaktouchForDamage(CardData source, boolean sourceIsP1, boolean damagedIsP1, int damagedIdx, int amount) { return damageResolver.fireBreaktouchForDamage(source, sourceIsP1, damagedIsP1, damagedIdx, amount); }
 
 	/** @see DamageResolver#fireBreaktouchForDamage */
-	boolean fireBreaktouchForDamage(CardData source, boolean sourceIsP1, boolean damagedIsP1, ForwardTarget.CardZone damagedZone, int damagedIdx) { return damageResolver.fireBreaktouchForDamage(source, sourceIsP1, damagedIsP1, damagedZone, damagedIdx); }
+	boolean fireBreaktouchForDamage(CardData source, boolean sourceIsP1, boolean damagedIsP1, ForwardTarget.CardZone damagedZone, int damagedIdx, int amount) { return damageResolver.fireBreaktouchForDamage(source, sourceIsP1, damagedIsP1, damagedZone, damagedIdx, amount); }
 
 	/**
 	 * Returns true when a forward at {@code (cardIsP1, cardIdx)} is the current blocker
@@ -16441,10 +16462,10 @@ public class MainWindow {
 
 		// Permanent "deals damage to forward" auto-abilities (e.g. Mandragora, Tonberry)
 		if (dmgToBlk > 0 && !blkBroken) {
-			if (fireBreaktouchForDamage(attacker, atkP1, blkP1, blkZone, blkIdx)) blkBroken = true;
+			if (fireBreaktouchForDamage(attacker, atkP1, blkP1, blkZone, blkIdx, dmgToBlk)) blkBroken = true;
 		}
 		if (dmgToAtk > 0 && !atkBroken) {
-			if (fireBreaktouchForDamage(blocker, blkP1, atkP1, atkZone, atkIdx)) atkBroken = true;
+			if (fireBreaktouchForDamage(blocker, blkP1, atkP1, atkZone, atkIdx, dmgToAtk)) atkBroken = true;
 		}
 
 		if (!atkBroken && !blkBroken) {

@@ -5208,7 +5208,7 @@ public class CardBehaviorTest {
         mw.gameState.getIdentity().put(golem, false); // owned by P2
         mw.p2BackupCards[0]  = golem;
         mw.p2BackupStates[0] = CardState.ACTIVE;
-        assertTrue(mw.fireBreaktouchForDamage(slayer, true, false, ForwardTarget.CardZone.BACKUP, 0),
+        assertTrue(mw.fireBreaktouchForDamage(slayer, true, false, ForwardTarget.CardZone.BACKUP, 0, 7000),
                 "'deals damage to a Forward, break it' fires against a backup acting as a Forward");
         assertNull(mw.p2BackupCards[0], "the backup-as-forward was broken");
     }
@@ -5221,7 +5221,7 @@ public class CardBehaviorTest {
         mw.gameState.getIdentity().put(golem, false); // owned by P2
         mw.p2BackupCards[0]  = golem;
         mw.p2BackupStates[0] = CardState.ACTIVE;
-        assertFalse(mw.fireBreaktouchForDamage(plain, true, false, ForwardTarget.CardZone.BACKUP, 0),
+        assertFalse(mw.fireBreaktouchForDamage(plain, true, false, ForwardTarget.CardZone.BACKUP, 0, 7000),
                 "no break trigger — nothing fires");
         assertNotNull(mw.p2BackupCards[0], "the backup-as-forward survives");
     }
@@ -26416,6 +26416,552 @@ public class CardBehaviorTest {
 
 		assertEquals(List.of(fwd), mw.gameState.getP2Hand());
 		assertTrue(mw.gameState.getP2BreakZone().isEmpty());
+	}
+
+	// =========================================================================================
+	// Selkie 13-044C: two "enters the field" triggers, each gated on which CP paid for the cast —
+	// "if the cost paid to cast Selkie included Fire CP, …" and "… included Earth CP, …".
+	//
+	// The gate is a prefix and every parser matches with find(), so the Earth clause was already
+	// being claimed off its tail by the board-wide power grant: every Forward got +2000 and Brave
+	// whatever the cast was paid with. Reading the gate first is what stops that.
+	//
+	// Sixteen more abilities print the same gate as a choose *followup* ("choose up to 2
+	// Forwards. If the cost paid to cast Clavat included Ice CP, Freeze them."); those go through
+	// the followup chain, and are covered by the section below.
+	// =========================================================================================
+
+	private static final String SELKIE_EARTH =
+			"if the cost paid to cast Selkie included Earth CP, until the end of the turn, "
+			+ "all the Forwards you control gain +2000 power and Brave.";
+
+	private static final String SELKIE_FIRE =
+			"if the cost paid to cast Selkie included Fire CP, Selkie gains Haste until the end of the turn.";
+
+	/** Selkie plus one ally on P2's field, with {@code paidElements} recorded as the cast payment. */
+	private static MainWindow selkieBoard(String... paidElements) {
+		MainWindow mw = new MainWindow();
+		placeP2Forward(mw, makeForward("Selkie", "Wind", 4, 7000));
+		placeP2Forward(mw, makeForward("Ally", "Wind", 3, 7000));
+		mw.lastCastPaymentElements.addAll(List.of(paidElements));
+		return mw;
+	}
+
+	@Test
+	void selkieDoesNothingWhenTheCastWasPaidWithNeitherElement() {
+		MainWindow mw = selkieBoard("Wind");
+		CardData selkie = mw.p2ForwardCards.get(0);
+
+		resolveAsP2(mw, SELKIE_EARTH, selkie);
+		resolveAsP2(mw, SELKIE_FIRE, selkie);
+
+		assertEquals(0, mw.p2ForwardPowerBoost.get(1), "the Earth clause never fired");
+		assertFalse(mw.p2ForwardTempTraits.get(1).contains(CardData.Trait.BRAVE));
+		assertFalse(mw.p2ForwardTempTraits.get(0).contains(CardData.Trait.HASTE),
+				"nor the Fire one");
+	}
+
+	@Test
+	void earthCpTurnsOnTheBoardWideGrant() {
+		MainWindow mw = selkieBoard("Earth");
+		CardData selkie = mw.p2ForwardCards.get(0);
+
+		resolveAsP2(mw, SELKIE_EARTH, selkie);
+
+		assertEquals(2000, mw.p2ForwardPowerBoost.get(1));
+		assertTrue(mw.p2ForwardTempTraits.get(1).contains(CardData.Trait.BRAVE),
+				"the grant is power and Brave, not power alone");
+		assertFalse(mw.p2ForwardTempTraits.get(0).contains(CardData.Trait.HASTE),
+				"Earth CP says nothing about the Fire clause");
+	}
+
+	@Test
+	void fireCpTurnsOnTheHasteClauseAlone() {
+		MainWindow mw = selkieBoard("Fire");
+		CardData selkie = mw.p2ForwardCards.get(0);
+
+		resolveAsP2(mw, SELKIE_EARTH, selkie);
+		resolveAsP2(mw, SELKIE_FIRE, selkie);
+
+		assertTrue(mw.p2ForwardTempTraits.get(0).contains(CardData.Trait.HASTE));
+		assertEquals(0, mw.p2ForwardPowerBoost.get(1), "and the Earth clause stays shut");
+	}
+
+	@Test
+	void theCastPaymentGateOnlyAnswersForTheCardThatPrintsIt() {
+		assertNull(ActionResolver.parse(
+				"if the cost paid to cast Selkie included Earth CP, draw 1 card.",
+				makeForward("Someone Else", "Wind", 4, 7000)),
+				"the gate asks about its own carrier's cast, so a text naming another card is not this");
+	}
+
+	// =========================================================================================
+	// The same gate printed as a choose *followup*, which is how two whole cycles print it —
+	// Opus 7's "cost paid to play" (7-011C Summoner, 7-058C Ninja, 7-105C Dragoon, …) and Opus
+	// 13's "cost paid to cast" (13-004C Clavat, 13-099C Yuke, …), sixteen abilities between them,
+	// plus 9-123L Chaos (MOBIUS), who chains three gates in one ability.
+	//
+	// "choose up to 2 Forwards. If the cost paid to cast Clavat included Ice CP, Freeze them."
+	// Every followup parser matches with find(), so each of them found its own verb inside the
+	// gate clause and ran it: Clavat froze two Forwards whatever the cost was paid with.
+	//
+	// The choose is not gated, only the effect. Targets are chosen whatever the cost was paid
+	// with, and being chosen is an event of its own — 1-037H Kuja and 12-024H Emet-Selch trigger
+	// on it — so skipping the selection would swallow their triggers.
+	// =========================================================================================
+
+	private static final String CLAVAT_FREEZE =
+			"choose up to 2 Forwards. If the cost paid to cast Clavat included Ice CP, Freeze them.";
+
+	private static final String SUMMONER_DULL =
+			"choose 1 Forward opponent controls. "
+			+ "If the cost paid to play Summoner included Lightning CP, dull it.";
+
+	private static final String CHAOS_MOBIUS =
+			"if the cost paid to play Chaos (MOBIUS) included Fire CP, deal 5000 damage to all the "
+			+ "Forwards opponent controls. If the cost paid to play Chaos (MOBIUS) included Ice CP, "
+			+ "your opponent discards 1 card from his/her hand. If the cost paid to play "
+			+ "Chaos (MOBIUS) included Lightning CP, your opponent selects 1 Monster he/she "
+			+ "controls. Put it into the Break Zone.";
+
+	/**
+	 * P1 resolves {@code text} against P2's only Forward, with {@code paid} recorded as the cast
+	 * payment. Returns the context so the selection it made can be read back.
+	 */
+	private static GameContext resolveGatedChoose(MainWindow mw, String text, CardData source,
+			String... paid) {
+		mw.lastCastPaymentElements.addAll(List.of(paid));
+		GameContext ctx = mw.buildGameContext(true);
+		ctx.preloadTargets(List.of(new ForwardTarget(false, 0, ForwardTarget.CardZone.FORWARD)));
+		Consumer<GameContext> effect = ActionResolver.parse(text, source);
+		assertNotNull(effect, "the printed wording has to parse for the rest of this to mean anything");
+		effect.accept(ctx);
+		return ctx;
+	}
+
+	private static MainWindow boardWithOneOpposingForward() {
+		MainWindow mw = new MainWindow();
+		placeP2Forward(mw, makeForward("Victim", "Fire", 3, 7000));
+		return mw;
+	}
+
+	@Test
+	void theGatedFollowupDoesNotRunWhenThatElementWasNotPaid() {
+		MainWindow mw = boardWithOneOpposingForward();
+
+		resolveGatedChoose(mw, CLAVAT_FREEZE, makeForward("Clavat", "Fire", 4, 7000), "Fire");
+
+		assertFalse(mw.p2ForwardFrozen.get(0),
+				"Ice CP bought the Freeze, and the cast was paid with Fire");
+	}
+
+	@Test
+	void butTheChooseItselfStillHappens() {
+		MainWindow mw = boardWithOneOpposingForward();
+
+		GameContext ctx = resolveGatedChoose(mw, CLAVAT_FREEZE,
+				makeForward("Clavat", "Fire", 4, 7000), "Fire");
+
+		assertEquals(1, ctx.lastChosenTargets().size(),
+				"the choose is unconditional; only the effect is gated");
+	}
+
+	@Test
+	void theGatedFollowupRunsWhenTheElementWasPaid() {
+		MainWindow mw = boardWithOneOpposingForward();
+
+		resolveGatedChoose(mw, CLAVAT_FREEZE, makeForward("Clavat", "Fire", 4, 7000), "Fire", "Ice");
+
+		assertTrue(mw.p2ForwardFrozen.get(0));
+	}
+
+	@Test
+	void theOlderPlayWordingIsTheSameGate() {
+		MainWindow unpaid = boardWithOneOpposingForward();
+		resolveGatedChoose(unpaid, SUMMONER_DULL, makeForward("Summoner", "Lightning", 3, 5000), "Wind");
+		assertNotEquals(CardState.DULL, unpaid.p2ForwardStates.get(0),
+				"\"the cost paid to play\" is Opus 7 saying what Opus 13 says with \"to cast\"");
+
+		MainWindow paid = boardWithOneOpposingForward();
+		resolveGatedChoose(paid, SUMMONER_DULL, makeForward("Summoner", "Lightning", 3, 5000), "Lightning");
+		assertEquals(CardState.DULL, paid.p2ForwardStates.get(0));
+	}
+
+	@Test
+	void aGateNamingAnotherCardIsRefusedRatherThanDropped() {
+		assertNull(ActionResolver.parse(CLAVAT_FREEZE, makeForward("Someone Else", "Fire", 4, 7000)),
+				"a gate on another card's cast cannot be answered, and falling through would hand "
+				+ "the Freeze back to the matchers below and run it unconditionally");
+	}
+
+	@Test
+	void chaosFiresOnlyTheClausesWhoseElementWasPaid() {
+		CardData chaos = makeForward("Chaos (MOBIUS)", "Fire", 9, 11000);
+
+		MainWindow fire = boardWithOneOpposingForward();
+		fire.gameState.getP2Hand().add(makeForward("Held", "Ice", 2, 5000));
+		resolveGatedChoose(fire, CHAOS_MOBIUS, chaos, "Fire");
+		assertEquals(5000, fire.p2ForwardDamage.get(0), "Fire CP bought the damage");
+		assertEquals(1, fire.gameState.getP2Hand().size(), "and nothing else in the chain fired");
+
+		MainWindow ice = boardWithOneOpposingForward();
+		ice.gameState.getP2Hand().add(makeForward("Held", "Ice", 2, 5000));
+		resolveGatedChoose(ice, CHAOS_MOBIUS, chaos, "Ice");
+		assertEquals(0, ice.p2ForwardDamage.get(0));
+		assertTrue(ice.gameState.getP2Hand().isEmpty(), "Ice CP bought the discard");
+	}
+
+	@Test
+	void allThreeOfChaosGatesAreRead() {
+		// The anchored gate pattern's inner group is greedy, so it reads the second and third
+		// clauses as part of the first one's effect. Before the split, the whole ability resolved
+		// as an unconditional discard — the middle clause, found by find() and run every time.
+		assertEquals("IfCastPaidFireCp(DealDamageToForwards) + IfCastPaidIceCp(OpponentDiscard)"
+				+ " + IfCastPaidLightningCp(OpponentSelects / PutToBreakZone)",
+				ActionResolver.fullDescription(CHAOS_MOBIUS,
+						makeForward("Chaos (MOBIUS)", "Fire", 9, 11000)));
+	}
+
+	// =========================================================================================
+	// Vayne 28-117H: "When Vayne is put from the field into the Break Zone, during this turn, your
+	// opponent cannot cast any cards."
+	//
+	// The corpus's only total cast prohibition, and turn-scoped state rather than a field ability
+	// for a reason the wording forces: Vayne states it on his way into the Break Zone, so the card
+	// is gone before the ban applies and there is nothing on the field left to read it off.
+	//
+	// Enforced at the cast gate every path already consults — the one that answers the two-card cap
+	// — ahead of the count, because a ban applies whether or not anything has been cast yet.
+	// =========================================================================================
+
+	private static final String VAYNE_CAST_BAN =
+			"During this turn, your opponent cannot cast any cards.";
+
+	@Test
+	void vayneShutsTheOpponentOutOfCastingForTheTurn() {
+		MainWindow mw = new MainWindow();
+		assertFalse(mw.p1CastLimitReached(), "nothing bars P1 to begin with");
+
+		resolveAsP2(mw, VAYNE_CAST_BAN, makeForward("Vayne", "Dark", 4, 9000));
+
+		assertTrue(mw.p1CastLimitReached(), "the ban binds the resolving player's opponent");
+		assertFalse(mw.p2CastLimitReached(), "and only them — Vayne's own controller still may cast");
+	}
+
+	@Test
+	void theBanAppliesBeforeAnythingHasBeenCast() {
+		MainWindow mw = new MainWindow();
+		resolveAsP2(mw, VAYNE_CAST_BAN, makeForward("Vayne", "Dark", 4, 9000));
+
+		assertEquals(0, mw.p1Turn.cardsCastThisTurn);
+		assertTrue(mw.p1CastLimitReached(),
+				"it is a ban, not a cap — the two-card count never enters into it");
+	}
+
+	@Test
+	void theBanEndsWithTheTurn() {
+		MainWindow mw = new MainWindow();
+		resolveAsP2(mw, VAYNE_CAST_BAN, makeForward("Vayne", "Dark", 4, 9000));
+
+		mw.turnPhases().runP2EndOfTurnCleanup();
+
+		assertFalse(mw.p1CastLimitReached(), "\"during this turn\" ends when the turn does");
+	}
+
+	@Test
+	void theNarrowerSummonOnlyBanIsNotReadAsThisOne() {
+		assertNull(ActionResolver.parse(
+				"During this turn, your opponent cannot cast Summons.",
+				makeForward("Probe", "Dark", 4, 9000)),
+				"18-106H bans one card type and is unimplemented; reading it here would ban everything");
+	}
+
+	// =========================================================================================
+	// Auron 22-001R: "When Auron enters the field, choose 1 Forward. During this turn, the next
+	// damage dealt to it by your opponent's Summons or abilities becomes 0 instead."
+	//
+	// The unqualified shield already existed; this one is scoped to the opposing player's effects,
+	// which means combat damage neither is stopped by it nor spends it. Its own set rather than a
+	// flag on the existing one: a shield spent by the wrong kind of damage is a shield that was
+	// never there.
+	// =========================================================================================
+
+	private static final String AURON_SHIELD =
+			"choose 1 Forward. During this turn, the next damage dealt to it by your opponent's "
+			+ "Summons or abilities becomes 0 instead.";
+
+	/** One P2 Forward carrying Auron's shield, with P1 set up as the resolving opponent. */
+	private static MainWindow auronShielded() {
+		MainWindow mw = new MainWindow();
+		placeP2Forward(mw, makeForward("Guarded", "Fire", 3, 7000));
+		resolveAsP2(mw, AURON_SHIELD, makeForward("Auron", "Fire", 2, 0));
+		return mw;
+	}
+
+	@Test
+	void auronsShieldStopsTheOpponentsAbilityDamage() {
+		MainWindow mw = auronShielded();
+		mw.currentAbilitySource = makeForward("Attacker", "Fire", 3, 7000);
+		mw.currentAbilitySourceIsP1 = true;
+
+		assertEquals(0, mw.modifyIncomingDamage(false, ForwardTarget.CardZone.FORWARD, 0, 9000, true, false),
+				"ability damage from across the table is what it answers");
+		assertEquals(9000, mw.modifyIncomingDamage(false, ForwardTarget.CardZone.FORWARD, 0, 9000, true, false),
+				"and it is a one-shot");
+	}
+
+	@Test
+	void combatDamageNeitherPassesThroughItNorSpendsIt() {
+		MainWindow mw = auronShielded();
+
+		assertEquals(9000, mw.modifyIncomingDamage(false, ForwardTarget.CardZone.FORWARD, 0, 9000, false, false),
+				"combat damage is not what the printing names");
+
+		mw.currentAbilitySource = makeForward("Attacker", "Fire", 3, 7000);
+		mw.currentAbilitySourceIsP1 = true;
+		assertEquals(0, mw.modifyIncomingDamage(false, ForwardTarget.CardZone.FORWARD, 0, 9000, true, false),
+				"so the shield is still there for the ability that follows");
+	}
+
+	@Test
+	void theShieldIgnoresItsOwnControllersAbilities() {
+		MainWindow mw = auronShielded();
+		mw.currentAbilitySource = makeForward("Friendly", "Fire", 3, 7000);
+		mw.currentAbilitySourceIsP1 = false;   // same side as the shielded Forward
+
+		assertEquals(9000, mw.modifyIncomingDamage(false, ForwardTarget.CardZone.FORWARD, 0, 9000, true, false),
+				"\"your opponent's\" is half the sentence");
+	}
+
+	@Test
+	void theUnqualifiedShieldIsStillReadAsItsOwnThing() {
+		assertEquals("ChooseCharacter / ShieldNextDmgZero",
+				ActionResolver.fullDescription(
+						"choose 1 Forward. During this turn, the next damage dealt to it becomes 0 instead.",
+						makeForward("Probe", "Fire", 2, 0)),
+				"the source-scoped pattern must not swallow the printing it was split off from");
+	}
+
+	// =========================================================================================
+	// Behemoth 24-084R: "When Behemoth is put from the field into the Break Zone, choose 1 Forward
+	// you control. Until the end of the turn, it gains "If this Forward deals damage to your
+	// opponent other than by its ability, the damage becomes 2 instead.""
+	//
+	// The choose half already worked; the grant behind it was read as "?" and did nothing. The
+	// quoted ability is stored verbatim, so the reader sees exactly what a printing of it would
+	// say — including the "this Forward" self-reference, which is how a granted ability names its
+	// holder.
+	//
+	// "other than by its ability" is the half that needed new machinery: every other printing of
+	// this replacement covers ability damage as well as combat, so the qualifier had to become
+	// something the reader reports rather than something the caller could infer.
+	// =========================================================================================
+
+	private static final String BEHEMOTH_GRANT =
+			"choose 1 Forward you control. Until the end of the turn, it gains \"If this Forward "
+			+ "deals damage to your opponent other than by its ability, the damage becomes 2 instead.\"";
+
+	@Test
+	void behemothsGrantDoublesTheChosenForwardsCombatDamage() {
+		MainWindow mw = new MainWindow();
+		CardData ally = makeForward("Ally", "Lightning", 3, 7000);
+		placeP2Forward(mw, ally);
+		assertEquals(1, mw.combatDamagePointsToOpponent(ally), "one point before the grant");
+
+		resolveAsP2(mw, BEHEMOTH_GRANT, makeForward("Behemoth", "Lightning", 2, 0));
+
+		assertEquals(2, mw.combatDamagePointsToOpponent(ally),
+				"the granted replacement is read off the holder, which spells itself \"this Forward\"");
+	}
+
+	@Test
+	void theGrantLeavesTheChosenForwardsOwnAbilityDamageAlone() {
+		MainWindow mw = new MainWindow();
+		CardData ally = makeForward("Ally", "Lightning", 3, 7000);
+		placeP2Forward(mw, ally);
+
+		resolveAsP2(mw, BEHEMOTH_GRANT, makeForward("Behemoth", "Lightning", 2, 0));
+
+		assertNull(mw.abilityDamageToOpponentOverride(ally),
+				"\"other than by its ability\" is what keeps this off the ability path");
+	}
+
+	@Test
+	void theGrantEndsWithTheTurn() {
+		MainWindow mw = new MainWindow();
+		CardData ally = makeForward("Ally", "Lightning", 3, 7000);
+		placeP2Forward(mw, ally);
+		resolveAsP2(mw, BEHEMOTH_GRANT, makeForward("Behemoth", "Lightning", 2, 0));
+
+		mw.turnPhases().runP2EndOfTurnCleanup();
+
+		assertEquals(1, mw.combatDamagePointsToOpponent(ally));
+	}
+
+	@Test
+	void aGrantOfAnAbilityNothingReadsIsNotClaimed() {
+		String unread = "choose 1 Forward you control. Until the end of the turn, it gains "
+				+ "\"This Forward wins the game on the spot.\"";
+		assertEquals("ChooseCharacter / ?",
+				ActionResolver.fullDescription(unread, makeForward("Probe", "Lightning", 2, 0)),
+				"only a quotation the engine honours is claimed; the rest stays visibly unhandled");
+	}
+
+	// =========================================================================================
+	// Gulool Ja Ja 27-007H: "When Gulool Ja Ja deals damage to a Forward, choose 1 Forward opponent
+	// controls other than that Forward. Deal it the same amount of damage. This effect will trigger
+	// only once per turn."
+	//
+	// Two bugs in one card. The "deals damage to a Forward" dispatcher treated Breaktouch as its
+	// *fallback* — anything the damaged-card path did not claim was read as "break it" — so Gulool
+	// Ja Ja was breaking every Forward he damaged, a Breaktouch he does not print. And the echo
+	// itself did nothing: neither of the things the sentence points at is in the text, since "that
+	// Forward" is the card just damaged and "the same amount" is how much it took.
+	//
+	// Both facts belong to the event, so they are substituted into the sentence and the result goes
+	// through the ordinary chain — the exclusion becomes a card-name filter, which is the only
+	// exclusion the choose grammar has.
+	// =========================================================================================
+
+	private static final String GULOOL_JA_JA_TEXT =
+			"When Gulool Ja Ja deals damage to a Forward, choose 1 Forward opponent controls other "
+			+ "than that Forward. Deal it the same amount of damage. "
+			+ "This effect will trigger only once per turn.";
+
+	/** Gulool Ja Ja on P1's field with two opposing Forwards to damage. */
+	private static MainWindow gulool() {
+		MainWindow mw = new MainWindow();
+		placeP1Forward(mw, makeAutoAbilityForward("Gulool Ja Ja", GULOOL_JA_JA_TEXT));
+		placeP2Forward(mw, makeForward("Victim", "Fire", 3, 7000));
+		placeP2Forward(mw, makeForward("Other", "Fire", 3, 7000));
+		return mw;
+	}
+
+	@Test
+	void guloolPassesTheDamageOnInsteadOfBreaking() {
+		MainWindow mw = gulool();
+
+		boolean broke = mw.fireBreaktouchForDamage(mw.p1ForwardCards.get(0), true, false,
+				ForwardTarget.CardZone.FORWARD, 0, 5000);
+
+		assertFalse(broke, "he prints no Breaktouch");
+		assertEquals(2, mw.p2ForwardCards.size(), "so the Forward he damaged is still there");
+		assertEquals(0, mw.p2ForwardDamage.get(0), "and takes nothing further");
+		assertEquals(5000, mw.p2ForwardDamage.get(1), "the echo lands on the other Forward");
+	}
+
+	@Test
+	void theEchoFiresOnlyOncePerTurn() {
+		MainWindow mw = gulool();
+		CardData gulool = mw.p1ForwardCards.get(0);
+
+		mw.fireBreaktouchForDamage(gulool, true, false, ForwardTarget.CardZone.FORWARD, 0, 5000);
+		mw.fireBreaktouchForDamage(gulool, true, false, ForwardTarget.CardZone.FORWARD, 0, 5000);
+
+		assertEquals(5000, mw.p2ForwardDamage.get(1), "the second trigger is past the cap");
+	}
+
+	@Test
+	void realBreaktouchStillBreaks() {
+		MainWindow mw = new MainWindow();
+		placeP1Forward(mw, makeAutoAbilityForward("Tonberry",
+				"When Tonberry deals damage to a Forward, break it."));
+		placeP2Forward(mw, makeForward("Victim", "Fire", 3, 7000));
+
+		assertTrue(mw.fireBreaktouchForDamage(mw.p1ForwardCards.get(0), true, false,
+				ForwardTarget.CardZone.FORWARD, 0, 1000),
+				"confining the break to the printings that say so must not lose them");
+		assertTrue(mw.p2ForwardCards.isEmpty());
+	}
+
+	// =========================================================================================
+	// Warrior of Light 10-065L: "When Warrior of Light enters the field, reveal the top 5 cards of
+	// your deck. Play as many Job Standard Unit Forwards as you want with a total cost of 5 or less
+	// among them onto the field and return the other cards to the bottom of your deck in any order."
+	//
+	// The only member of the reveal-and-play family capped by a budget rather than a count, so the
+	// count cap is left open and the running total does the work — in the dialog's enable rule and
+	// in the AI's greedy pick alike.
+	// =========================================================================================
+
+	/** A Job Standard Unit Forward of the given cost — what Warrior of Light's budget picks from. */
+	private static CardData makeStandardUnitForward(String name, int cost) {
+		return new CardData(null, name, "Earth", cost, 7000, "Forward", false, 0, false, false,
+				Set.of(), 0, List.of(), null, List.of(),
+				List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(),
+				List.of(), List.of(), List.of(),
+				false, false, null, false, false, false, false, false, 1,
+				"Standard Unit", null, null, "");
+	}
+
+	@Test
+	void warriorOfLightsBudgetCapsWhatThePicksAddUpTo() {
+		List<CardData> revealed = List.of(
+				makeStandardUnitForward("Cheap", 2), makeStandardUnitForward("Mid", 3), makeStandardUnitForward("Dear", 5));
+		// The AI takes the dearest that fit, so 5 alone rather than 2 + 3.
+		DeckLookDecision d = LookAtDeckDialogs.cpuRevealPlayOntoField(revealed, Integer.MAX_VALUE, 5,
+				c -> true, RevealRest.BOTTOM);
+
+		assertEquals(List.of(2), d.toField(), "only the cost-5 card fits the budget");
+	}
+
+	@Test
+	void thePicksMayBeSeveralCardsWhileTheyFit() {
+		List<CardData> revealed = List.of(
+				makeStandardUnitForward("Two", 2), makeStandardUnitForward("Three", 3), makeStandardUnitForward("Nine", 9));
+		DeckLookDecision d = LookAtDeckDialogs.cpuRevealPlayOntoField(revealed, Integer.MAX_VALUE, 5,
+				c -> true, RevealRest.BOTTOM);
+
+		assertEquals(List.of(1, 0), d.toField(),
+				"3 then 2 exactly fills the budget; the cost-9 card never could");
+	}
+
+	@Test
+	void anUnbudgetedRevealIsUnchanged() {
+		List<CardData> revealed = List.of(makeStandardUnitForward("A", 9), makeStandardUnitForward("B", 9));
+		DeckLookDecision d = LookAtDeckDialogs.cpuRevealPlayOntoField(revealed, 1,
+				c -> true, RevealRest.BOTTOM);
+
+		assertEquals(List.of(0), d.toField(), "the count cap still governs where there is no budget");
+	}
+
+	// =========================================================================================
+	// Noctis 20-078H: "When Noctis is put from the field into the Break Zone, you may put 1
+	// Character you control into the Break Zone. When you do so, play Noctis from the Break Zone
+	// onto the field dull. Noctis gains +2000 power. (This effect does not end at the end of the
+	// turn.)"
+	//
+	// Dispatched by AutoAbilityTriggers rather than through parse(), because the cost is paid
+	// before the payoff resolves — and it worked, except on one side: the Break Zone replay set
+	// the dull state for P1 and not for P2, so the same sentence meant two different things
+	// depending on who read it.
+	// =========================================================================================
+
+	private static final String NOCTIS_20_078H_TEXT =
+			"When Noctis enters the field, choose 1 Forward. Until the end of the turn, it gains "
+			+ "+2000 power and Brave.[[br]]When Noctis is put from the field into the Break Zone, "
+			+ "you may put 1 Character you control into the Break Zone. When you do so, play Noctis "
+			+ "from the Break Zone onto the field dull. Noctis gains +2000 power. "
+			+ "(This effect does not end at the end of the turn.)";
+
+	@Test
+	void noctisTradesACharacterToComeBackDull() {
+		MainWindow mw = new MainWindow();
+		CardData noctis = makeAutoAbilityForward("Noctis", NOCTIS_20_078H_TEXT);
+		placeP2Forward(mw, noctis);
+		placeP2Forward(mw, makeForward("Ally", "Earth", 3, 7000));
+
+		mw.breakP2Forward(0);
+
+		assertEquals(1, mw.p2ForwardCards.size());
+		assertSame(noctis, mw.p2ForwardCards.get(0), "Noctis came back");
+		assertEquals(CardState.DULL, mw.p2ForwardStates.get(0),
+				"dull, as the text says — the P2 branch used to drop the state");
+		assertEquals(2000, mw.permanentPowerBoost.get(noctis),
+				"and the boost outlives the turn, so it is the permanent map");
+		assertEquals(List.of("Ally"),
+				mw.gameState.getP2BreakZone().stream().map(CardData::name).toList(),
+				"the Character put into the Break Zone paid for it");
 	}
 
 	// =========================================================================================

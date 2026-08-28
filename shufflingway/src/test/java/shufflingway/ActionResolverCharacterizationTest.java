@@ -122,9 +122,16 @@ public class ActionResolverCharacterizationTest {
 
 			List<AutoAbility> autos = card.autoAbilities();
 			for (int i = 0; i < autos.size(); i++) {
-				final String text = autos.get(i).effectText();
+				final AutoAbility auto = autos.get(i);
+				final String text = auto.effectText();
+				// Recognition, not parseability: some auto abilities are dispatched by
+				// AutoAbilityTriggers ahead of its ActionResolver.parse check, and asking parse()
+				// alone pinned them as unimplemented while they worked. The name and description
+				// columns still come from the resolver, so a self-dispatched ability shows as
+				// parsed with no name — which is what it is.
 				body.add(line(entry.serial(), "auto", i,
-						call(() -> ActionResolver.parse(text, card) != null ? "parsed" : "unparsed"),
+						call(() -> AutoAbilityParsingTest.isAutoAbilityRecognized(auto, card)
+								? "parsed" : "unparsed"),
 						call(() -> ActionResolver.matchedPatternName(text, card)),
 						call(() -> ActionResolver.fullDescription(text, card))));
 				abilities++;

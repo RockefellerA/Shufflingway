@@ -261,7 +261,7 @@ class TurnPhases {
 		mw.attacksMadeThisTurn.clear();            mw.extraAttacksThisTurn.clear();
 		mw.p1TempAttackTriggers.clear();           mw.p2TempAttackTriggers.clear();
 		mw.p1TempBlockTriggers.clear();            mw.p2TempBlockTriggers.clear();
-		mw.nextIncomingDmgZeroSet.clear();   mw.nextIncomingDmgReduceMap.clear();   mw.nextAbilityDmgReduceMap.clear();
+		mw.nextIncomingDmgZeroSet.clear();   mw.nextOppEffectDmgZeroSet.clear();   mw.nextIncomingDmgReduceMap.clear();   mw.nextAbilityDmgReduceMap.clear();
 		mw.nextIncomingDmgReduceKickbackMap.clear();  mw.pendingShieldKickbacks.clear();
 		mw.incomingDmgIncreaseMap.clear();   mw.globalForwardIncomingDmgIncrease = 0;   mw.nullifyAbilityDmgSet.clear();
 		mw.p1Turn.nullifyAbilityDmgFilters.clear(); mw.p2Turn.nullifyAbilityDmgFilters.clear();
@@ -284,6 +284,7 @@ class TurnPhases {
 		mw.p2Turn.attackDeclarationLimit = Integer.MAX_VALUE; mw.p2Turn.attackDeclarationsThisTurn = 0;
 		mw.p1Turn.attackDeclarationLimit = Integer.MAX_VALUE;       mw.p1Turn.attackDeclarationsThisTurn = 0;
 		mw.p1Turn.cannotSearchThisTurn = false; mw.p2Turn.cannotSearchThisTurn = false;
+		mw.p1Turn.cannotCastThisTurn = false;   mw.p2Turn.cannotCastThisTurn = false;
 		mw.p1Turn.oppFieldEntryBecomesRfg = false; mw.p2Turn.oppFieldEntryBecomesRfg = false;
 		// Last, not with the row refreshes above: the exhausted-attacker glow reads
 		// attacksMadeThisTurn, which this method has just emptied.

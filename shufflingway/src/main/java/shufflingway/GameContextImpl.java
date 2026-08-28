@@ -462,6 +462,12 @@ final class GameContextImpl implements GameContext {
 			@Override public void shieldNextIncomingDamage(ForwardTarget t) {
 				CardData c = mw.autoAbilityTriggers.fieldCardData(t); if (c != null) mw.nextIncomingDmgZeroSet.add(c);
 			}
+			@Override public void shieldNextOpponentEffectDamage(ForwardTarget t) {
+				CardData c = mw.autoAbilityTriggers.fieldCardData(t);
+				if (c == null) return;
+				mw.nextOppEffectDmgZeroSet.add(c);
+				logEntry(c.name() + " — next damage from your opponent's Summons or abilities becomes 0");
+			}
 			@Override public void redirectNextIncomingDamage(ForwardTarget from, ForwardTarget to) {
 				CardData cFrom = mw.autoAbilityTriggers.fieldCardData(from);
 				CardData cTo   = mw.autoAbilityTriggers.fieldCardData(to);
@@ -1984,7 +1990,17 @@ final class GameContextImpl implements GameContext {
 					} else {
 						if (card.isBackup())       mw.placeP2CardInFirstBackupSlot(card);
 						else if (card.isMonster()) mw.placeP2CardInMonsterZone(card);
-						else                       mw.placeP2CardInForwardZone(card);
+						else {
+							mw.placeP2CardInForwardZone(card);
+							// The mirror of the branch above. It was missing, so "play [Self] from
+							// the Break Zone onto the field dull" (Noctis 20-078H) brought the card
+							// back active on P2's side and dull on P1's — the same text, two rules.
+							if (dull) {
+								int idx = mw.p2ForwardCards.size() - 1;
+								mw.p2ForwardStates.set(idx, CardState.DULL);
+								mw.refreshP2ForwardSlot(idx);
+							}
+						}
 					}
 				}
 				if (isP1) mw.refreshP1BreakLabel(); else mw.refreshP2BreakLabel();
@@ -6325,6 +6341,14 @@ final class GameContextImpl implements GameContext {
 				logEntry("Effect: Opponent cannot search this turn");
 			}
 
+			@Override public void setOpponentCannotCastThisTurn() {
+				mw.turn(!isP1).cannotCastThisTurn = true;
+				logEntry("Effect: Opponent cannot cast any cards this turn");
+				// The hand's playability highlighting is computed once and cached; without this the
+				// cards stay lit and clickable until something else happens to refresh them.
+				mw.refreshHandCardStates();
+			}
+
 			@Override public void returnNamedCardToYourHand(String cardName) {
 				if (mw.currentResolutionIsSummon && mw.currentSummonSource != null
 						&& mw.currentSummonSource.name().equalsIgnoreCase(cardName)) {
@@ -6964,8 +6988,10 @@ final class GameContextImpl implements GameContext {
 						}
 					}
 					// A "becomes N instead" replacement wins over the doubler — it sets the damage
-					// rather than scaling it, and the wording covers ability damage as well as combat.
-					Integer override = mw.outgoingDamageToOpponentOverride(mw.currentAbilitySource);
+					// rather than scaling it, and the wording covers ability damage as well as
+					// combat. Except where the printing says otherwise: Behemoth 24-084R's grant
+					// reads "other than by its ability", which this reader drops.
+					Integer override = mw.abilityDamageToOpponentOverride(mw.currentAbilitySource);
 					if (override != null && override != amount) {
 						logEntry(mw.currentAbilitySource.name() + " — damage to opponent becomes "
 								+ override + " instead of " + amount);
@@ -8650,6 +8676,20 @@ final class GameContextImpl implements GameContext {
 				Consumer<CardData> playOntoField = revealPlacement();
 				mw.lookDialogs().revealPlayNamedOrJobMaxCostOntoFieldRestBottom(peeked, deck, isP1,
 						maxPlay, cardName, job, maxCost, playOntoField);
+			}
+
+			@Override public void revealTopNPlayAnyJobTypeWithTotalCostOntoFieldRestBottom(
+					int reveal, String job, String typeFilter, int totalCost) {
+				Deque<CardData> deck = isP1 ? mw.gameState.getP1MainDeck() : mw.gameState.getP2MainDeck();
+				int n = Math.min(reveal, deck.size());
+				if (n == 0) { logEntry("Reveal top: deck is empty."); return; }
+				List<CardData> peeked = new ArrayList<>();
+				for (CardData c : deck) { peeked.add(c); if (peeked.size() >= n) break; }
+				logEntry("Reveal top " + n + " card(s): " +
+						peeked.stream().map(CardData::name).collect(Collectors.joining(", ")));
+				Consumer<CardData> playOntoField = revealPlacement();
+				mw.lookDialogs().revealPlayAnyJobTypeTotalCostOntoFieldRestBottom(peeked, deck, isP1,
+						job, typeFilter, totalCost, playOntoField);
 			}
 
 			@Override public void revealTopNPlayTypeCostOrNamedCostOntoFieldRestBottom(
