@@ -1773,10 +1773,15 @@ final class ActionResolverPatterns {
     );
     /**
      * Matches "All the Forwards opponent controls lose all abilities until the end of the turn."
+     *
+     * <p>The possessive is optional on either side of "all": printings say "lose all abilities"
+     * (16-106R Andrea Rhodea), "lose all their abilities" (24-105R Malboro) and plain "lose their
+     * abilities" (7-119H Halicarnassus) for one and the same effect. Its parser anchors with
+     * matches(), so Malboro's longer "... and 3000 power" is not claimed off this prefix.
      */
     static final Pattern OPP_FWDS_LOSE_ALL_ABILITIES_EOT = Pattern.compile(
         "(?i)All\\s+(?:the\\s+)?Forwards?\\s+(?:(?:your\\s+)?opponent\\s+controls?)\\s+" +
-        "lose\\s+all\\s+abilities\\s+until\\s+(?:the\\s+)?end\\s+of\\s+(?:the\\s+)?turn[.!]?"
+        "lose\\s+(?:all\\s+)?(?:their\\s+)?abilities\\s+until\\s+(?:the\\s+)?end\\s+of\\s+(?:the\\s+)?turn[.!]?"
     );
     /**
      * Matches "All the Forwards opponent controls lose N power for each CP required to play them
@@ -3869,6 +3874,60 @@ final class ActionResolverPatterns {
         "(?:he/she|they)\\s+controls?\\s*" +
         "\\(select\\s+as\\s+many\\s+as\\s+possible\\)[.!]?\\s*" +
         "Dull\\s+them\\s+and\\s+Freeze\\s+them[.!]?"
+    );
+    /**
+     * Matches "Your opponent selects up to N Forwards they control. Then, put all the Forwards
+     * opponent controls other than the selected Forwards into the Break Zone." — Cloud of Darkness
+     * 25-092C, where the opponent's picks are the ones that <em>survive</em>.
+     *
+     * <p>Both sentences are read together rather than left to the sentence splitter, and it has to
+     * be that way round: the second reads on its own as an unbounded "put all the Forwards opponent
+     * controls into the Break Zone", so a split resolves it with no selection in front of it and
+     * takes the row entire.
+     *
+     * <p>Kept apart from {@link #OPPONENT_SELECTS_PATTERN}, whose followup acts <em>on</em> what the
+     * opponent picked. That one requires a bare count and so does not reach "up to N"; the
+     * distinction is worth keeping anyway, because the two readings of this text are opposites.
+     * Group: {@code count}.
+     */
+    static final Pattern OPP_SELECTS_UP_TO_N_FORWARDS_BREAK_REST = Pattern.compile(
+        "(?is)^Your\\s+opponent\\s+selects?\\s+up\\s+to\\s+(?<count>\\d+)\\s+Forwards?\\s+" +
+        "(?:they|he\\s*/\\s*she|he|she)\\s+controls?[.!]\\s*" +
+        "(?:Then,?\\s+)?[Pp]ut\\s+all\\s+(?:the\\s+)?Forwards?\\s+" +
+        "(?:(?:your\\s+)?opponent\\s+controls?\\s+)?" +
+        "other\\s+than\\s+the\\s+selected\\s+Forwards?\\s+into\\s+the\\s+Break\\s+Zone[.!]?\\s*$"
+    );
+    /**
+     * The two-sided sibling of {@link #OPP_SELECTS_UP_TO_N_FORWARDS_BREAK_REST}: "Each player
+     * selects N Forwards they control." followed by a sentence sweeping every Forward that was not
+     * selected — on <em>both</em> rows, the controller's included — into the Break Zone. Cloud of
+     * Darkness 1-158H and 18-091R, the only two printings, and the whole of the family with its
+     * opponent-only cousin above.
+     *
+     * <p>One pattern for both because they differ only in how the sweep is phrased: 18-091R gives
+     * it as an imperative ("Then, put all the Forwards other than the selected Forwards into the
+     * Break Zone.") and 1-158H in the passive ("All the Forwards that were not selected are put
+     * into the Break Zone."). Neither says whose Forwards, and that silence is the effect — it is
+     * what separates these two from 25-092C, which spells out "opponent controls".
+     *
+     * <p>Read as one pattern for the reason its cousin is: either sweep reads on its own as an
+     * unbounded "every Forward into the Break Zone", so a sentence split resolves it with no
+     * selection in front of it and empties the board.
+     *
+     * <p>{@code upto} is carried because the wording admits it, though neither printing uses it —
+     * both say a plain "1", which is a selection the player must make rather than one they may
+     * decline. Group: {@code count}.
+     */
+    static final Pattern EACH_PLAYER_SELECTS_FORWARDS_BREAK_REST = Pattern.compile(
+        "(?is)^Each\\s+player\\s+selects?\\s+(?<upto>up\\s+to\\s+)?(?<count>\\d+)\\s+Forwards?\\s+" +
+        "(?:they|he\\s*/\\s*she|he|she)\\s+controls?[.!]\\s*" +
+        "(?:" +
+            "(?:Then,?\\s+)?put\\s+all\\s+(?:the\\s+)?Forwards?\\s+" +
+            "other\\s+than\\s+the\\s+selected\\s+Forwards?\\s+into\\s+the\\s+Break\\s+Zone" +
+        "|" +
+            "All\\s+(?:the\\s+)?Forwards?\\s+that\\s+(?:were|was)\\s+not\\s+selected\\s+" +
+            "(?:are|is)\\s+put\\s+into\\s+the\\s+Break\\s+Zone" +
+        ")[.!]?\\s*$"
     );
     /**
      * Matches "Each player reveals the top card of his/her deck. Each player who revealed a
@@ -7255,6 +7314,22 @@ final class ActionResolverPatterns {
      */
     static final Pattern CAST_PAYMENT_ELEMENTS_TAIL_INSTEAD = Pattern.compile(
         "(?is)^(?<alt>.+?)\\s+instead[.!]?\\s*$"
+    );
+    /**
+     * Matches "If the cost to play/cast &lt;name&gt; didn't include CP of &lt;n&gt; or more
+     * different Elements, &lt;effect&gt;." — the negated member of the cast-payment family,
+     * printed only by 9-099R Livia, whose payoff is putting herself back into the Break Zone.
+     *
+     * <p>A prefix over the whole effect rather than the trailing sentence
+     * {@link #CAST_PAYMENT_ELEMENTS_GATE} reads, and negated, so neither that pattern nor
+     * {@code CardData}'s {@code FA_CAST_PAYMENT_ELEMENTS} — which strips the affirmative wording
+     * into {@link AutoAbility#castPaymentMinElements()}, a floor and so unable to express "fewer
+     * than" — claims it. Groups: {@code card}, {@code count}, {@code effect}.
+     */
+    static final Pattern CAST_PAYMENT_ELEMENTS_NOT_INCLUDED_GATE = Pattern.compile(
+        "(?is)^If\\s+the\\s+cost\\s+to\\s+(?:play|cast)\\s+(?<card>[^,]+?)\\s+" +
+        "didn'?t\\s+include\\s+CP\\s+of\\s+(?<count>\\d+)\\s+or\\s+more\\s+different\\s+Elements,\\s+" +
+        "(?<effect>.+?)\\s*$"
     );
     /**
      * Matches "if you control [cond] other than [name], [effect]."

@@ -619,6 +619,32 @@ public interface GameContext {
     void eachPlayerSelectUpToNAndBreak(int count, boolean inclForwards, boolean inclMonsters);
 
     /**
+     * The opponent selects up to {@code count} Forwards they control to keep; every other Forward
+     * they control is put into the Break Zone — Cloud of Darkness 25-092C.
+     *
+     * <p>The choice belongs to the opponent, not to the ability's controller: what they pick is
+     * what survives, so the two readings are opposites and only theirs is the card's. Nothing at
+     * all is a legal answer — "up to" — and it costs them their whole row.
+     *
+     * <p>The ability's controller's own Forwards are untouched.
+     */
+    void opponentSelectsUpToNForwardsBreakRest(int count);
+
+    /**
+     * Each player selects {@code count} Forwards they control to keep; every other Forward on the
+     * board — both sides — is put into the Break Zone. Cloud of Darkness 1-158H and 18-091R.
+     *
+     * <p>The two-sided sibling of {@link #opponentSelectsUpToNForwardsBreakRest}, and it costs the
+     * ability's controller their own row too: they keep {@code count} Forwards like anybody else.
+     *
+     * <p>Both seats are asked before anything is broken, so each chooses against the board the
+     * effect found rather than one the other side's losses have already shifted. A seat with no
+     * Forwards is skipped rather than asked, which both clients derive from a board they already
+     * agree on.
+     */
+    void eachPlayerSelectForwardsBreakRest(int count);
+
+    /**
      * Both players dull and Freeze up to {@code count} active Characters of their own, each
      * choosing their own — Cloud of Darkness 10-028L.
      *
@@ -666,6 +692,21 @@ public interface GameContext {
 
     /** Returns the number of distinct element types used in the CP payment for the most recently cast card. */
     int castPaymentDistinctElements();
+
+    /**
+     * Like {@link #castPaymentDistinctElements()}, but answers for {@code card} specifically:
+     * {@code 0} unless the payment on record is the one that put <em>that</em> card into play.
+     *
+     * <p>The seat-wide counter is a running record of the last payment made, and nothing clears it
+     * when a card reaches the field some other way. A gate asking what its own arrival cost — Livia
+     * 9-099R's "if the cost to play Livia didn't include CP of 3 or more different Elements" — would
+     * otherwise read the previous cast's payment and let a Livia played out of the Break Zone by an
+     * effect keep a board slot she was never paid for.
+     *
+     * @param card the card whose own arrival payment is being asked about; identity, so two copies
+     *             answer separately
+     */
+    int castPaymentDistinctElementsFor(CardData card);
 
     /** Returns the number of Crystal tokens (《C》) currently held by the opponent. */
     int opponentCrystalCount();
@@ -786,6 +827,19 @@ public interface GameContext {
      *         not be played. Callers that only need the move may ignore it.
      */
     ForwardTarget playTargetOntoField(ForwardTarget t);
+
+    /**
+     * Like {@link #playTargetOntoField} but the card arrives with its enters-the-field
+     * auto-ability suppressed — "Play it onto the field. Its auto-ability will not trigger."
+     * (22-058H Qator Bashtar).
+     *
+     * <p>Its own method rather than a flag on the caller's side because the suppression has to be
+     * armed between the card leaving the Break Zone and it being placed: placement fires the
+     * trigger synchronously, so there is no moment afterwards in which to hold it back.
+     *
+     * @return where the card landed, or {@code null} if it could not be played
+     */
+    ForwardTarget playTargetOntoFieldNoAutoAbility(ForwardTarget t);
 
     /**
      * Asks for two distinct Forwards of {@code element} in the ability user's own Break Zone, the

@@ -148,6 +148,7 @@ class ComputerPlayer implements OpponentController {
 			mw.lastCastActualPaymentElements.clear();
 			mw.lastCastPaymentElements.add(element);
 			mw.lastCastActualPaymentElements.add(element);
+			mw.lastCastPaymentCard = card;
 			mw.lastCardWasCast = true;
 			mw.noteCardCast(card, false);
 			if (card.isSummon()) { mw.p2Turn.summonCastThisTurn = true; mw.noteDoublecastSummonCast(false, card); }
@@ -225,6 +226,7 @@ class ComputerPlayer implements OpponentController {
 		mw.lastCastActualPaymentElements.clear();
 		if (!freeCast)
 			for (String e : elems) if (!e.isEmpty()) { mw.lastCastPaymentElements.add(e); mw.lastCastActualPaymentElements.add(e); }
+		mw.lastCastPaymentCard = toPlay;
 
 		mw.logEntry("[P2] Plays " + toPlay.name()
 				+ (freeCast && mw.p2DoublecastFreeSummons ? " (free — Doublecast)" : ""));

@@ -35709,4 +35709,406 @@ public class CardBehaviorTest {
 
     // =========================================================================================
 
+	// =========================================================================================
+	// Board behaviour — Halicarnassus 7-119H: "When Halicarnassus enters the field, all the
+	// Forwards opponent controls lose their abilities until the end of the turn."
+	//
+	// The primitive and the pattern both already existed; what did not was the possessive. The
+	// pattern demanded "lose all abilities", so the only two printings that say "lose their
+	// abilities" — Halicarnassus and 24-105R Malboro's longer form — fell through it and the
+	// ability did nothing at all.
+	// =========================================================================================
+
+	private static final String HALICARNASSUS_ETF =
+			"all the Forwards opponent controls lose their abilities until the end of the turn.";
+
+	@Test
+	void halicarnassusStripsEveryForwardTheOpponentControls() {
+		MainWindow mw = new MainWindow();
+		CardData hali = makeForward("Halicarnassus", "Water", 3, 7000);
+		placeP2Forward(mw, hali);
+		CardData ally = makeForward("Ally", "Water", 3, 7000);
+		placeP2Forward(mw, ally);
+		CardData first  = makeForward("First",  "Fire", 3, 7000);
+		CardData second = makeForward("Second", "Fire", 4, 8000);
+		placeP1Forward(mw, first);
+		placeP1Forward(mw, second);
+
+		resolveAsP2(mw, HALICARNASSUS_ETF, hali);
+
+		assertTrue(mw.lostAbilitiesCards.contains(first),  "every Forward on the far side, not just one");
+		assertTrue(mw.lostAbilitiesCards.contains(second));
+		assertFalse(mw.lostAbilitiesCards.contains(hali),  "and nothing on Halicarnassus' own side");
+		assertFalse(mw.lostAbilitiesCards.contains(ally));
+	}
+
+	@Test
+	void andGivesThoseAbilitiesBackAtTheEndOfTheTurn() {
+		MainWindow mw = new MainWindow();
+		CardData hali = makeForward("Halicarnassus", "Water", 3, 7000);
+		placeP2Forward(mw, hali);
+		CardData victim = makeForward("Victim", "Fire", 3, 7000);
+		placeP1Forward(mw, victim);
+
+		resolveAsP2(mw, HALICARNASSUS_ETF, hali);
+		assertTrue(mw.lostAbilitiesCards.contains(victim));
+
+		GameContext ctx = mw.buildGameContext(false);
+		for (Consumer<GameContext> eot : List.copyOf(mw.endOfTurnEffects)) eot.accept(ctx);
+
+		assertFalse(mw.lostAbilitiesCards.contains(victim),
+				"the wording is 'until the end of the turn', so the strip has to be scheduled off");
+	}
+
+	@Test
+	void theLongerMalboroWordingIsStillNotClaimedOffThisPrefix() {
+		// "…lose all their abilities and 3000 power." shares this text's whole prefix, and is a
+		// different effect. The parser anchors with matches() so it cannot take it.
+		assertNull(ActionResolver.parse(
+				"all the Forwards opponent controls lose all their abilities and 3000 power.", null));
+	}
+
+	// =========================================================================================
+
+	// =========================================================================================
+	// Effect wiring + board behaviour — Qator Bashtar 22-058H: "When Qator Bashtar enters the
+	// field, choose 1 Forward of power 4000 or less in your Break Zone. Play it onto the field.
+	// Its auto-ability will not trigger."
+	//
+	// The first two sentences already resolved through the choose chain's PlayOntoField followup.
+	// The third reached the generic secondary parse, matched nothing, and became a log line — so
+	// the Forward Qator brought back entered the field with its own enters-the-field trigger
+	// firing, which is exactly what the sentence forbids. It is not an effect that follows the
+	// play; it qualifies it, and has to be read where the play happens.
+	// =========================================================================================
+
+	private static final String QATOR_ETF =
+			"choose 1 Forward of power 4000 or less in your Break Zone. Play it onto the field. "
+			+ "Its auto-ability will not trigger.";
+
+	@Test
+	void qatorPlaysTheChosenForwardThroughTheSuppressingPrimitive() {
+		GameContext ctx = mock(GameContext.class);
+		ForwardTarget picked = new ForwardTarget(true, 0, ForwardTarget.CardZone.BREAK_ZONE);
+		when(ctx.consumePreloadedTargets()).thenReturn(null);
+		when(ctx.selectCharactersFromBreakZone(anyInt(), anyBoolean(), anyBoolean(), anyBoolean(),
+				any(), any(), anyInt(), any(), anyInt(), any(), anyBoolean(), anyBoolean(),
+				anyBoolean(), any(), any(), any(), any(), anyBoolean(), any(), anyBoolean()))
+				.thenReturn(new ArrayList<>(List.of(picked)));
+
+		Consumer<GameContext> effect =
+				ActionResolver.parse(QATOR_ETF, makeForward("Qator Bashtar", "Earth", 4, 8000));
+		assertNotNull(effect);
+		effect.accept(ctx);
+
+		verify(ctx).playTargetOntoFieldNoAutoAbility(picked);
+		verify(ctx, never()).playTargetOntoField(any());
+	}
+
+	/** A Forward with an enters-the-field ability, sitting in P2's Break Zone ready to be played. */
+	private static MainWindow revenantInBreakZone() {
+		MainWindow mw = new MainWindow();
+		CardData revived = makeAutoAbilityForward("Revenant", "Earth", 4000,
+				"When Revenant enters the field, draw 1 card.");
+		mw.gameState.getIdentity().put(revived, false);
+		mw.gameState.getP2BreakZone().add(revived);
+		return mw;
+	}
+
+	/** The Break Zone target for the only card in P2's Break Zone. */
+	private static ForwardTarget p2BreakZoneTop() {
+		return new ForwardTarget(false, 0, ForwardTarget.CardZone.BREAK_ZONE);
+	}
+
+	@Test
+	void andTheRevivedForwardsEntersTheFieldTriggerDoesNotFire() {
+		MainWindow mw = revenantInBreakZone();
+		CardData revived = mw.gameState.getP2BreakZone().get(0);
+
+		mw.buildGameContext(false).playTargetOntoFieldNoAutoAbility(p2BreakZoneTop());
+
+		assertTrue(mw.p2ForwardCards.contains(revived), "it is still played onto the field");
+		assertTrue(mw.gameState.getStack().isEmpty(),
+				"but its own enters-the-field ability never reached the Stack");
+	}
+
+	@Test
+	void aPlainPlayOntoFieldStillLetsThatTriggerFire() {
+		MainWindow mw = revenantInBreakZone();
+
+		mw.buildGameContext(false).playTargetOntoField(p2BreakZoneTop());
+
+		assertEquals(1, mw.gameState.getStack().size(),
+				"the suppression is Qator's sentence, not something every Break Zone play does");
+	}
+
+	@Test
+	void andASuppressedPlayDoesNotSilenceWhateverEntersAfterIt() {
+		// The suppression is a one-shot flag consumed by the trigger it was armed for. Left
+		// standing it would swallow the next arrival's trigger too — a bug that only shows up a
+		// play later, and nowhere near the card that caused it.
+		MainWindow mw = revenantInBreakZone();
+		mw.buildGameContext(false).playTargetOntoFieldNoAutoAbility(p2BreakZoneTop());
+		assertFalse(mw.suppressAutoAbilityForNextCard, "the flag was consumed, not left armed");
+
+		placeP2Forward(mw, makeAutoAbilityForward("Latecomer", "Earth", 7000,
+				"When Latecomer enters the field, draw 1 card."));
+
+		assertEquals(1, mw.gameState.getStack().size());
+	}
+
+	// =========================================================================================
+
+	// =========================================================================================
+	// Board behaviour — Livia 9-099R: "When Livia enters the field, if the cost to play Livia
+	// didn't include CP of 3 or more different Elements, put Livia into the Break Zone."
+	//
+	// The negated member of the cast-payment family, and the only printing of it. The affirmative
+	// wording is stripped off the trigger into AutoAbility.castPaymentMinElements, a floor — which
+	// cannot say "fewer than" — so this one is read as a gate over the whole effect instead.
+	//
+	// Which payment it asks about is the point of the card. The seat-wide record is whatever was
+	// last paid for anything, so a Livia put onto the field by some other card's effect would
+	// inherit the previous cast's Elements and stay. The gate goes through the card-scoped query,
+	// and a Livia nobody paid for reads as nothing paid at all.
+	// =========================================================================================
+
+	private static final String LIVIA_ETF =
+			"if the cost to play Livia didn't include CP of 3 or more different Elements, "
+			+ "put Livia into the Break Zone.";
+
+	/** Livia on P1's field, with {@code paid} recorded as the payment that put her there. */
+	private static MainWindow liviaBoard(CardData livia, String... paid) {
+		MainWindow mw = new MainWindow();
+		placeP1Forward(mw, livia);
+		mw.lastCastPaymentElements.addAll(List.of(paid));
+		mw.lastCastPaymentCard = livia;
+		return mw;
+	}
+
+	private static void resolveAsP1(MainWindow mw, String text, CardData source) {
+		Consumer<GameContext> effect = ActionResolver.parse(text, source);
+		assertNotNull(effect, "the printed wording has to parse for the rest of this to mean anything");
+		effect.accept(mw.buildGameContext(true));
+	}
+
+	@Test
+	void liviaStaysWhenThreeElementsPaidForHer() {
+		CardData livia = makeForward("Livia", "Lightning", 3, 9000);
+		MainWindow mw = liviaBoard(livia, "Lightning", "Fire", "Ice");
+
+		resolveAsP1(mw, LIVIA_ETF, livia);
+
+		assertTrue(mw.p1ForwardCards.contains(livia));
+		assertFalse(mw.gameState.getP1BreakZone().contains(livia));
+	}
+
+	@Test
+	void butGoesStraightToTheBreakZoneOnTwo() {
+		CardData livia = makeForward("Livia", "Lightning", 3, 9000);
+		MainWindow mw = liviaBoard(livia, "Lightning", "Fire");
+
+		resolveAsP1(mw, LIVIA_ETF, livia);
+
+		assertFalse(mw.p1ForwardCards.contains(livia));
+		assertTrue(mw.gameState.getP1BreakZone().contains(livia));
+	}
+
+	@Test
+	void aLiviaNobodyPaidForIsNotSavedByTheLastCastOnRecord() {
+		// She was put onto the field some other way — off the Break Zone, out of the deck — while
+		// the seat's payment record still holds the three Elements spent on the card before her.
+		CardData livia = makeForward("Livia", "Lightning", 3, 9000);
+		MainWindow mw = liviaBoard(livia, "Lightning", "Fire", "Ice");
+		mw.lastCastPaymentCard = makeForward("Somebody Else", "Fire", 5, 9000);
+
+		resolveAsP1(mw, LIVIA_ETF, livia);
+
+		assertTrue(mw.gameState.getP1BreakZone().contains(livia),
+				"the payment on record bought a different card, so it bought her nothing");
+	}
+
+	@Test
+	void theNegatedGateOnlyAnswersForTheCardThatPrintsIt() {
+		assertNull(ActionResolver.parse(LIVIA_ETF, makeForward("Someone Else", "Lightning", 3, 9000)),
+				"like the rest of the family, it asks about its own carrier's arrival");
+	}
+
+	// =========================================================================================
+
+	// =========================================================================================
+	// Board behaviour — Cloud of Darkness 25-092C: "When Cloud of Darkness enters the field, your
+	// opponent selects up to 2 Forwards they control. Then, put all the Forwards opponent controls
+	// other than the selected Forwards into the Break Zone."
+	//
+	// Two sentences tied together only by "the selected Forwards", which the sentence splitter
+	// does not read as a backward reference. Left to it, the second resolves alone as an unbounded
+	// "put all the Forwards opponent controls into the Break Zone" — the opponent's whole row, with
+	// no selection in front of it. So the pair is read as one pattern.
+	//
+	// The choice is the opponent's, and what they pick is what *survives*: the controller picking
+	// instead would be the same sentence read backwards.
+	// =========================================================================================
+
+	private static final String COD_ETF =
+			"your opponent selects up to 2 Forwards they control. Then, put all the Forwards "
+			+ "opponent controls other than the selected Forwards into the Break Zone.";
+
+	@Test
+	void cloudOfDarknessLeavesTheOpponentTheTwoTheyPicked() {
+		MainWindow mw = new MainWindow();
+		CardData cod = makeForward("Cloud of Darkness", "Water", 5, 8000);
+		placeP1Forward(mw, cod);
+		// P2 answers for itself here, and keeps what it can least afford to lose — the two
+		// costliest — so Cheap is the one that goes.
+		CardData cheap = makeForward("Cheap", "Ice", 1, 3000);
+		CardData mid   = makeForward("Mid",   "Ice", 4, 8000);
+		CardData dear  = makeForward("Dear",  "Ice", 6, 9000);
+		placeP2Forward(mw, cheap);
+		placeP2Forward(mw, mid);
+		placeP2Forward(mw, dear);
+
+		resolveAsP1(mw, COD_ETF, cod);
+
+		assertTrue(mw.p2ForwardCards.contains(mid));
+		assertTrue(mw.p2ForwardCards.contains(dear));
+		assertFalse(mw.p2ForwardCards.contains(cheap));
+		assertTrue(mw.gameState.getP2BreakZone().contains(cheap));
+	}
+
+	@Test
+	void andTakesNothingFromTheControllersOwnSide() {
+		MainWindow mw = new MainWindow();
+		CardData cod = makeForward("Cloud of Darkness", "Water", 5, 8000);
+		CardData ally = makeForward("Ally", "Water", 2, 5000);
+		placeP1Forward(mw, cod);
+		placeP1Forward(mw, ally);
+		placeP2Forward(mw, makeForward("A", "Ice", 3, 7000));
+		placeP2Forward(mw, makeForward("B", "Ice", 3, 7000));
+		placeP2Forward(mw, makeForward("C", "Ice", 3, 7000));
+
+		resolveAsP1(mw, COD_ETF, cod);
+
+		assertEquals(2, mw.p1ForwardCards.size(), "the effect names only the Forwards opponent controls");
+		assertTrue(mw.p1ForwardCards.contains(cod));
+		assertTrue(mw.p1ForwardCards.contains(ally));
+		assertEquals(2, mw.p2ForwardCards.size(), "and leaves the far side exactly the 2 it may keep");
+	}
+
+	@Test
+	void anOpponentAtOrUnderTheLimitLosesNothing() {
+		MainWindow mw = new MainWindow();
+		CardData cod = makeForward("Cloud of Darkness", "Water", 5, 8000);
+		placeP1Forward(mw, cod);
+		placeP2Forward(mw, makeForward("A", "Ice", 3, 7000));
+		placeP2Forward(mw, makeForward("B", "Ice", 3, 7000));
+
+		resolveAsP1(mw, COD_ETF, cod);
+
+		assertEquals(2, mw.p2ForwardCards.size());
+		assertTrue(mw.gameState.getP2BreakZone().isEmpty());
+	}
+
+	// =========================================================================================
+
+	// =========================================================================================
+	// Board behaviour — the two-sided printings of the same effect: Cloud of Darkness 18-091R
+	// ("each player selects 1 Forward they control. Then, put all the Forwards other than the
+	// selected Forwards into the Break Zone.") and 1-158H, which says it in the passive ("All the
+	// Forwards that were not selected are put into the Break Zone."). With 25-092C above, those
+	// three are the whole family in the corpus.
+	//
+	// Neither sweep names a side, and that silence is the effect: it takes the controller's own
+	// row too, Cloud of Darkness included. That is also what made the sentence split dangerous
+	// here in a way it is not for 25-092C — resolved alone the sweep does not merely empty the
+	// opponent's board, it empties both.
+	//
+	// Only the AI's half of the selection can be driven from a test: a seat answered by the local
+	// player answers through a modal selection bar. So these run with P2 as the controller and P1
+	// holding nothing, which is also the path where a seat with no Forwards is skipped rather than
+	// asked. The both-sides wiring is pinned against a mock instead.
+	// =========================================================================================
+
+	private static final String COD_EACH_PLAYER_IMPERATIVE =
+			"each player selects 1 Forward they control. Then, put all the Forwards other than "
+			+ "the selected Forwards into the Break Zone.";
+
+	private static final String COD_EACH_PLAYER_PASSIVE =
+			"each Player selects 1 Forward he/she controls. "
+			+ "All the Forwards that were not selected are put into the Break Zone.";
+
+	@Test
+	void bothWordingsOfTheTwoSidedFormReachTheSamePrimitive() {
+		for (String text : List.of(COD_EACH_PLAYER_IMPERATIVE, COD_EACH_PLAYER_PASSIVE)) {
+			GameContext ctx = mock(GameContext.class);
+			Consumer<GameContext> effect =
+					ActionResolver.parse(text, makeForward("Cloud of Darkness", "Water", 6, 7000));
+			assertNotNull(effect, text);
+			effect.accept(ctx);
+
+			verify(ctx).eachPlayerSelectForwardsBreakRest(1);
+			verify(ctx, never()).opponentSelectsUpToNForwardsBreakRest(anyInt());
+		}
+	}
+
+	@Test
+	void theOpponentOnlyWordingIsNotClaimedByTheTwoSidedParser() {
+		GameContext ctx = mock(GameContext.class);
+		ActionResolver.parse(COD_ETF, makeForward("Cloud of Darkness", "Water", 5, 8000)).accept(ctx);
+
+		verify(ctx).opponentSelectsUpToNForwardsBreakRest(2);
+		verify(ctx, never()).eachPlayerSelectForwardsBreakRest(anyInt());
+	}
+
+	@Test
+	void theTwoSidedFormTakesTheControllersOwnForwardsToo() {
+		MainWindow mw = new MainWindow();
+		// P2 resolves, so P2's half of the selection is the AI's and no dialog opens. It keeps
+		// the costliest — which is not Cloud of Darkness, so the card sweeps itself away.
+		CardData cod   = makeForward("Cloud of Darkness", "Water", 4, 7000);
+		CardData cheap = makeForward("Cheap", "Water", 1, 3000);
+		CardData dear  = makeForward("Dear",  "Water", 6, 9000);
+		placeP2Forward(mw, cod);
+		placeP2Forward(mw, cheap);
+		placeP2Forward(mw, dear);
+
+		resolveAsP2(mw, COD_EACH_PLAYER_IMPERATIVE, cod);
+
+		assertEquals(List.of(dear), mw.p2ForwardCards,
+				"one Forward kept, and the sweep names no side — the controller's own row included");
+		assertTrue(mw.gameState.getP2BreakZone().contains(cod));
+		assertTrue(mw.gameState.getP2BreakZone().contains(cheap));
+	}
+
+	@Test
+	void andTheSideHoldingNoForwardsIsSkippedRatherThanAsked() {
+		// P1 controls nothing. Asking that seat would open a selection bar on a board with nothing
+		// to select, and in a two-client game would be a question the other side waits on forever.
+		MainWindow mw = new MainWindow();
+		CardData cod = makeForward("Cloud of Darkness", "Water", 6, 7000);
+		placeP2Forward(mw, cod);
+		placeP2Forward(mw, makeForward("Spare", "Water", 2, 5000));
+
+		resolveAsP2(mw, COD_EACH_PLAYER_PASSIVE, cod);
+
+		assertTrue(mw.p1ForwardCards.isEmpty());
+		assertTrue(mw.gameState.getP1BreakZone().isEmpty(), "an empty row loses nothing");
+		assertEquals(List.of(cod), mw.p2ForwardCards, "and the other seat still resolves normally");
+	}
+
+	@Test
+	void aLoneForwardIsStillSelectedAndSoSurvives() {
+		MainWindow mw = new MainWindow();
+		CardData cod = makeForward("Cloud of Darkness", "Water", 6, 7000);
+		placeP2Forward(mw, cod);
+
+		resolveAsP2(mw, COD_EACH_PLAYER_IMPERATIVE, cod);
+
+		assertEquals(List.of(cod), mw.p2ForwardCards,
+				"the selection is not 'up to', so the only Forward there is is the one selected");
+		assertTrue(mw.gameState.getP2BreakZone().isEmpty());
+	}
+
+	// =========================================================================================
+
 }

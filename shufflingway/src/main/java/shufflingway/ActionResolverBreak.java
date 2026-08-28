@@ -128,6 +128,45 @@ final class ActionResolverBreak {
             ctx.eachPlayerSelectUpToNAndBreak(count, inclForwards, inclMonsters);
         };
     }
+    /**
+     * Parses "Your opponent selects up to N Forwards they control. Then, put all the Forwards
+     * opponent controls other than the selected Forwards into the Break Zone." — 25-092C Cloud of
+     * Darkness.
+     *
+     * <p>Must precede {@code tryParseIndependentSentences}: the two sentences are tied together
+     * only by "the selected Forwards", which that rule does not read as a backward reference, so
+     * it took them apart and resolved the second alone — every Forward the opponent controls into
+     * the Break Zone with no selection made at all.
+     */
+    static Consumer<GameContext> tryParseOppSelectsUpToNForwardsBreakRest(String text) {
+        Matcher m = OPP_SELECTS_UP_TO_N_FORWARDS_BREAK_REST.matcher(text.trim());
+        if (!m.matches()) return null;
+        int count = Integer.parseInt(m.group("count"));
+        return ctx -> {
+            ctx.logEntry("Effect: opponent selects up to " + count
+                    + " Forward(s) they control — the rest go to the Break Zone");
+            ctx.opponentSelectsUpToNForwardsBreakRest(count);
+        };
+    }
+    /**
+     * Parses the two-sided form of the parser above: "Each player selects N Forwards they control."
+     * plus a sweep of everything that was not selected — 1-158H and 18-091R Cloud of Darkness, in
+     * the imperative and the passive respectively.
+     *
+     * <p>Must precede {@code tryParseIndependentSentences} for the same reason its sibling does,
+     * and the cost of getting it wrong is larger here: the sweep names no side, so resolved on its
+     * own it takes every Forward in play rather than only the opponent's.
+     */
+    static Consumer<GameContext> tryParseEachPlayerSelectsForwardsBreakRest(String text) {
+        Matcher m = EACH_PLAYER_SELECTS_FORWARDS_BREAK_REST.matcher(text.trim());
+        if (!m.matches()) return null;
+        int count = Integer.parseInt(m.group("count"));
+        return ctx -> {
+            ctx.logEntry("Effect: each player selects " + count
+                    + " Forward(s) they control — every other Forward goes to the Break Zone");
+            ctx.eachPlayerSelectForwardsBreakRest(count);
+        };
+    }
     /** Parses "Your opponent randomly removes N card(s) in their hand from the game." */
     static Consumer<GameContext> tryParseOpponentRandomHandRfp(String text) {
         Matcher m = OPPONENT_RANDOM_HAND_RFP.matcher(text);

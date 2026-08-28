@@ -1072,6 +1072,14 @@ public class MainWindow {
 	int lastCastPaymentDistinctElements = 0;
 	/** Specific element types used to pay the most recent card's CP cost; checked by castPaymentElement conditions. */
 	final Set<String> lastCastPaymentElements = new HashSet<>();
+	/**
+	 * The card {@link #lastCastPaymentElements} was recorded for — identity, so two copies of one
+	 * printing are told apart. Read by {@code GameContext.castPaymentDistinctElementsFor}, which a
+	 * gate asking what its own arrival cost has to go through: nothing clears the payment record
+	 * when a card reaches the field without being paid for, so without the owner on record such a
+	 * card inherits the previous cast's payment.
+	 */
+	CardData lastCastPaymentCard = null;
 	/** Actual source-card element types used during payment (not mapped to the played card's element). */
 	final Set<String> lastCastActualPaymentElements = new HashSet<>();
 	/** True if the most recently cast card was paid entirely by dulling Backups (no hand discards). */
@@ -3227,6 +3235,8 @@ public class MainWindow {
 		Arrays.fill(p1BackupPlayedOnTurn, 0);
 		Arrays.fill(p1BackupFrozen, false);
 		lastCastPaymentDistinctElements = 0;
+		lastCastPaymentElements.clear();
+		lastCastPaymentCard = null;
 
 		// Monster zone
 		if (p1MonsterPanel != null) {
@@ -6812,24 +6822,47 @@ public class MainWindow {
 	ForwardTarget selectOwnFieldTarget(boolean chooserIsP1, List<ForwardTarget> eligible,
 	                                   String title, String waitPrompt,
 	                                   Supplier<ForwardTarget> cpuPick) {
-		if (eligible.isEmpty()) return null;
+		List<ForwardTarget> picks = selectOwnFieldTargets(chooserIsP1, eligible, 1, false,
+				title, waitPrompt, () -> {
+					ForwardTarget pick = cpuPick.get();
+					return pick == null ? List.of() : List.of(pick);
+				});
+		return picks.isEmpty() ? null : picks.get(0);
+	}
+
+	/**
+	 * The many-card form of {@link #selectOwnFieldTarget}: the player at seat {@code chooserIsP1}
+	 * picks up to {@code count} of {@code eligible}, all on their own side of the board.  Returns
+	 * the picks in the order they were made, empty when nothing was chosen.
+	 *
+	 * @param count      the most the chooser may pick
+	 * @param upTo       {@code true} lets them confirm with fewer than {@code count}
+	 * @param cpuPick    the AI's answer; may return an empty list to pick nothing
+	 */
+	List<ForwardTarget> selectOwnFieldTargets(boolean chooserIsP1, List<ForwardTarget> eligible,
+	                                          int count, boolean upTo,
+	                                          String title, String waitPrompt,
+	                                          Supplier<List<ForwardTarget>> cpuPick) {
+		if (eligible.isEmpty()) return List.of();
 		List<Integer> answer = decide(PlayerChoice.by(chooserIsP1, ChoiceKind.OWN_FIELD_CARD)
 				.prompting(waitPrompt)
-				.locally(() -> {
-					List<ForwardTarget> picks = selectFieldTargetsInPlace(eligible, 1, false, title);
-					return picks.isEmpty() ? List.of() : List.of(picks.get(0).choiceCode());
-				})
-				.byCpu(() -> {
-					ForwardTarget pick = cpuPick.get();
-					return pick == null ? List.of() : List.of(pick.choiceCode());
-				})
+				.locally(() -> selectFieldTargetsInPlace(eligible, count, upTo, title)
+						.stream().map(ForwardTarget::choiceCode).toList())
+				.byCpu(() -> cpuPick.get().stream().map(ForwardTarget::choiceCode).toList())
 				// The chooser packed their own side; from here that side is the opponent's.
 				.arrivingAs(ForwardTarget::flipChoiceSide)
-				.legalWhen(codes -> codes.stream().allMatch(code -> {
+				// Size as well as membership: "up to 2" is a bound the sender could exceed, and a
+				// third pick arriving unchecked would spare a Forward the effect must take.
+				.legalWhen(codes -> codes.size() <= count && codes.stream().allMatch(code -> {
 					ForwardTarget t = ForwardTarget.fromChoiceCode(code);
 					return t != null && eligible.contains(t);
 				}), "no such card of theirs is eligible here"));
-		return answer.isEmpty() ? null : ForwardTarget.fromChoiceCode(answer.get(0));
+		List<ForwardTarget> out = new ArrayList<>(answer.size());
+		for (int code : answer) {
+			ForwardTarget t = ForwardTarget.fromChoiceCode(code);
+			if (t != null) out.add(t);
+		}
+		return out;
 	}
 
 	/**
@@ -9658,6 +9691,7 @@ public class MainWindow {
 				.filter(e -> !e.isEmpty()).distinct().count();
 		lastCastPaymentElements.clear();
 		execCpAccum.keySet().stream().filter(e -> !e.isEmpty()).forEach(lastCastPaymentElements::add);
+		lastCastPaymentCard = card;
 		lastCastWasPaidByBackupsOnly = discardIndices.isEmpty() && !backupDullIndices.isEmpty();
 		if (isP1) { gameState.removeFromHand(cardHandIdx);   refreshP1HandLabel(); }
 		else      { gameState.removeP2FromHand(cardHandIdx); refreshP2HandCountLabel(); }
@@ -9826,6 +9860,7 @@ public class MainWindow {
 				.filter(e -> !e.isEmpty()).distinct().count();
 		lastCastPaymentElements.clear();
 		execCpAccum.keySet().stream().filter(e -> !e.isEmpty()).forEach(lastCastPaymentElements::add);
+		lastCastPaymentCard = card;
 		lastCastWasPaidByBackupsOnly = discardIndices.isEmpty() && !backupDullIndices.isEmpty();
 
 		// Remove the borrowed card from its source zone (by identity — duplicate-named copies may exist).

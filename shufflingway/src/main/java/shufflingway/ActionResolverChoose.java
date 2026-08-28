@@ -1431,6 +1431,13 @@ final class ActionResolverChoose {
                             secondary = ctx -> ctx.lastChosenTargets().forEach(ctx::shieldCannotBeBroken);
                         } else if (FOLLOWUP_CANNOT_BE_BROKEN_BY_NON_DMG.matcher(secondaryText).find()) {
                             secondary = ctx -> ctx.lastChosenTargets().forEach(ctx::shieldCannotBeBrokenByNonDmg);
+                        } else if (ITS_AUTO_ABILITY_WILL_NOT_TRIGGER.matcher(secondaryText).matches()) {
+                            // Not an effect of its own: it says how the primary's "Play it onto the
+                            // field" resolves, and the PlayOntoField branch below reads it there.
+                            // Left to the generic parse it becomes an unimplemented-followup log
+                            // line and the played card's ETF trigger fires anyway — which for
+                            // 22-058H Qator Bashtar is the whole of what the sentence forbids.
+                            secondary = null;
                         } else if (FOLLOWUP_IF_PUT_TO_BZ_THIS_TURN_RFG_INSTEAD.matcher(secondaryText).find()) {
                             secondary = ctx -> ctx.lastChosenTargets().forEach(ctx::markTargetRfgInsteadOfBzThisTurn);
                         } else if (source != null
@@ -3226,6 +3233,10 @@ final class ActionResolverChoose {
         }
 
         if (FOLLOWUP_PLAY_ONTO_FIELD.matcher(primaryFollowup).find()) {
+            // "Its auto-ability will not trigger." qualifies the play rather than following it, so
+            // it is read here and not run as a secondary — see the guard that nulls it out above.
+            final boolean noAutoAbility = secondaryText != null
+                    && ITS_AUTO_ABILITY_WILL_NOT_TRIGGER.matcher(secondaryText).matches();
             // Check for "When it enters the field, if it is [cond], [inner]" conditional secondary.
             // Peek at the chosen card's data before playing so we can evaluate the condition after.
             final Predicate<CardData> etfCond;
@@ -3247,7 +3258,8 @@ final class ActionResolverChoose {
                 etfCond = null; etfInner = null; etfInnerText = null;
             }
             return ctx -> {
-                ctx.logEntry(choosePrefix + " — Play onto Field");
+                ctx.logEntry(choosePrefix + " — Play onto Field"
+                        + (noAutoAbility ? " (its auto-ability will not trigger)" : ""));
                 List<ForwardTarget> ts = selectTargets(ctx, maxCount, upTo,
                         opponentOnly, selfOnly, condition, element, zone, opponentZone,
                         costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters, jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, fExcludeElem, withoutMulticard);
@@ -3260,8 +3272,14 @@ final class ActionResolverChoose {
                         if (c != null) chosenCards.add(c);
                     }
                 }
-                sortedByIdxDesc(ts, true) .forEach(t -> ctx.playTargetOntoField(t));
-                sortedByIdxDesc(ts, false).forEach(t -> ctx.playTargetOntoField(t));
+                sortedByIdxDesc(ts, true) .forEach(t -> {
+                    if (noAutoAbility) ctx.playTargetOntoFieldNoAutoAbility(t);
+                    else               ctx.playTargetOntoField(t);
+                });
+                sortedByIdxDesc(ts, false).forEach(t -> {
+                    if (noAutoAbility) ctx.playTargetOntoFieldNoAutoAbility(t);
+                    else               ctx.playTargetOntoField(t);
+                });
                 if (etfCond != null && etfInner != null) {
                     boolean anyMatched = chosenCards.stream().anyMatch(etfCond);
                     if (anyMatched) {

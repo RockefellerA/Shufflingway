@@ -237,6 +237,48 @@ final class ActionResolverGate {
     }
 
     /**
+     * Parses "If the cost to play &lt;Self&gt; didn't include CP of &lt;n&gt; or more different
+     * Elements, &lt;effect&gt;." — 9-099R Livia, the one negated printing of the cast-payment
+     * family, whose effect is putting herself straight back into the Break Zone.
+     *
+     * <p>Self-named and checked by equality, like the rest of the family: the gate asks about the
+     * payment that put <em>this</em> card on the field, so a text naming another card is not this.
+     * That is also why the count is read through
+     * {@link GameContext#castPaymentDistinctElementsFor(CardData)} rather than the seat-wide
+     * {@link GameContext#castPaymentDistinctElements()} — a Livia put onto the field by some other
+     * card's effect was paid for by nothing at all, and the plain counter would still be holding
+     * whatever the last cast happened to spend. Failing that test is the whole point of the card:
+     * she goes to the Break Zone unless her own arrival was bought with enough Elements.
+     *
+     * <p>Returns {@code null} when the guarded effect does not parse, so an unimplemented payoff
+     * stays visible rather than becoming a gate that checks the payment and then does nothing.
+     */
+    static Consumer<GameContext> tryParseCastPaymentElementsNotIncludedGate(
+            String text, CardData source, int xValue) {
+        if (source == null) return null;
+        Matcher m = CAST_PAYMENT_ELEMENTS_NOT_INCLUDED_GATE.matcher(text.trim());
+        if (!m.matches()) return null;
+        if (!m.group("card").trim().equalsIgnoreCase(source.name())) return null;
+
+        int required = Integer.parseInt(m.group("count"));
+        Consumer<GameContext> effect = parse(m.group("effect").trim(), source, xValue);
+        if (effect == null) return null;
+
+        String label = "cost to play " + source.name() + " did not include CP of "
+                + required + " or more different Element(s)";
+        return ctx -> {
+            int paid = ctx.castPaymentDistinctElementsFor(source);
+            if (paid >= required) {
+                ctx.logEntry("Effect: " + source.name() + " was paid for with " + paid
+                        + " different Element(s) — condition not met, skipped");
+                return;
+            }
+            ctx.logEntry("Effect: " + label + " (paid " + paid + ") — condition met");
+            effect.accept(ctx);
+        };
+    }
+
+    /**
      * The text a gate's conditional tail is actually resolved from: as printed, or with the
      * additive "also" removed when that is the only reading that parses.
      *

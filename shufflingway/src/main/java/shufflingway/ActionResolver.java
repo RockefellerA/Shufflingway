@@ -188,6 +188,13 @@ public class ActionResolver {
         result = tryParseCastPaymentElementsGate(effectText, source, xValue);
         if (result != null) return result;
 
+        // The negated member of the same family, and a prefix like the two below rather than the
+        // trailing sentence above: 9-099R Livia's payoff is "put Livia into the Break Zone", which
+        // every parser below claims off the gate's tail and runs however she was paid for — the
+        // one reading of the card under which she never stays on the field at all.
+        result = tryParseCastPaymentElementsNotIncludedGate(effectText, source, xValue);
+        if (result != null) return result;
+
         // Beside its sibling and for the same reason: the gate is a prefix, so every parser
         // below would claim the effect off its tail and run it whatever the cast was paid with.
         result = tryParseCastPaymentElementCpGate(effectText, source, xValue);
@@ -1056,6 +1063,17 @@ public class ActionResolver {
         result = tryParseEachPlayerSelectUpToNActiveDullFreeze(effectText);
         if (result != null) return result;
 
+        // Must precede tryParseIndependentSentences: its second sentence reads on its own as an
+        // unbounded "put all the Forwards opponent controls into the Break Zone", so the splitter
+        // resolved it with no selection in front of it and took the whole row.
+        result = tryParseOppSelectsUpToNForwardsBreakRest(effectText);
+        if (result != null) return result;
+
+        // Its two-sided sibling, and here for the same reason — more so, because this one's sweep
+        // names no side at all, so the splitter took every Forward in play and not just one row.
+        result = tryParseEachPlayerSelectsForwardsBreakRest(effectText);
+        if (result != null) return result;
+
         result = tryParseEachPlayerDiscard(effectText);
         if (result != null) return result;
 
@@ -1603,6 +1621,8 @@ public class ActionResolver {
         // 16-125C's conditional half off the end of the sentence carrying the condition.
         if (tryParseCastPaymentElementsGate(effectText, source, 0) != null)
             return "CastPaymentElementsGate";
+        if (tryParseCastPaymentElementsNotIncludedGate(effectText, source, 0) != null)
+            return "CastPaymentElementsNotIncludedGate";
         if (tryParseCastPaymentElementCpGate(effectText, source, 0) != null)
             return "CastPaymentElementCpGate";
         // Mirrors parse(), where these are read beside the gate above.
@@ -1900,6 +1920,10 @@ public class ActionResolver {
         if (tryParseEachPlayerSelectUpToNToBreakZone(effectText)   != null) return "EachPlayerSelectUpToNToBreakZone";
         if (tryParseEachPlayerSelectUpToNActiveDullFreeze(effectText) != null)
             return "EachPlayerSelectUpToNActiveDullFreeze";
+        if (tryParseOppSelectsUpToNForwardsBreakRest(effectText) != null)
+            return "OppSelectsUpToNForwardsBreakRest";
+        if (tryParseEachPlayerSelectsForwardsBreakRest(effectText) != null)
+            return "EachPlayerSelectsForwardsBreakRest";
         if (tryParseEachPlayerDiscard(effectText)              != null) return "EachPlayerDiscard";
         if (tryParseEachPlayerSalvageFromBreakZone(effectText) != null) return "EachPlayerSalvageFromBreakZone";
         if (tryParseSelectCharacterFromBzToHand(effectText)    != null) return "SelectCharacterFromBzToHand";
@@ -2382,6 +2406,13 @@ public class ActionResolver {
             return describeOrName(baseTxt, source) + " + " + gate
                     + describeOrName(gateTailText(tailTxt, source, 0), source) + ")";
         }
+        // Mirrors parse(): the negated sibling of the gate above, described the same way.
+        if (tryParseCastPaymentElementsNotIncludedGate(effectText, source, 0) != null) {
+            Matcher ncpg = CAST_PAYMENT_ELEMENTS_NOT_INCLUDED_GATE.matcher(effectText.trim());
+            if (!ncpg.matches()) return "CastPaymentElementsNotIncludedGate";
+            return "IfCastNotPaidElements(" + ncpg.group("count") + "+: "
+                    + describeOrName(ncpg.group("effect").trim(), source) + ")";
+        }
         // Mirrors parse(): described like the gates above, with the guarded effect inside.
         if (tryParseCrystalHeldGate(effectText, source, 0) != null) {
             Matcher cg = CRYSTAL_HELD_GATE.matcher(effectText.trim());
@@ -2706,6 +2737,14 @@ public class ActionResolver {
                     secondaryDesc = "IfAddedCard(" + (innerDesc != null ? innerDesc : "?") + ")";
                 }
             }
+            // Mirrors the choose chain: "Its auto-ability will not trigger." is part of how the
+            // play resolves rather than an effect after it, so it is folded into the followup's
+            // name instead of being described as a second clause.
+            if ("PlayOntoField".equals(followupName) && secondaryTxt != null
+                    && ITS_AUTO_ABILITY_WILL_NOT_TRIGGER.matcher(secondaryTxt).matches()) {
+                followupName = "PlayOntoFieldNoAutoAbility";
+                secondaryTxt = null;
+            }
             if ("PlayOntoField".equals(followupName) && secondaryTxt != null && !secondaryTxt.isEmpty()) {
                 Matcher etfM = FOLLOWUP_PLAY_ONTO_FIELD_WHEN_ENTERS_CONDITIONAL.matcher(secondaryTxt);
                 if (etfM.matches() && parseRevealCondition(etfM.group("cond").trim()) != null) {
@@ -2947,6 +2986,10 @@ public class ActionResolver {
         if (tryParseEachPlayerSelectUpToNToBreakZone(effectText) != null)   return "EachPlayerSelectUpToNToBreakZone";
         if (tryParseEachPlayerSelectUpToNActiveDullFreeze(effectText) != null)
             return "EachPlayerSelectUpToNActiveDullFreeze";
+        if (tryParseOppSelectsUpToNForwardsBreakRest(effectText) != null)
+            return "OppSelectsUpToNForwardsBreakRest";
+        if (tryParseEachPlayerSelectsForwardsBreakRest(effectText) != null)
+            return "EachPlayerSelectsForwardsBreakRest";
         if (tryParseEachPlayerDiscard(effectText) != null)                  return "EachPlayerDiscard";
         if (tryParseEachPlayerSalvageFromBreakZone(effectText) != null)     return "EachPlayerSalvageFromBreakZone";
         if (tryParseEachPlayerDraw(effectText) != null)                     return "EachPlayerDraw";

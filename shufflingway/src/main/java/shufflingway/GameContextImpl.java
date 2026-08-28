@@ -4083,6 +4083,12 @@ final class GameContextImpl implements GameContext {
 
 			@Override public int crystalCount()         { return mw.playerCrystals(isP1);  }
 			@Override public int castPaymentDistinctElements() { return mw.lastCastPaymentDistinctElements; }
+			@Override public int castPaymentDistinctElementsFor(CardData card) {
+				// Identity, not name: the question is what this copy's own arrival was paid with,
+				// and a second copy still in hand has been paid for by nothing.
+				return card != null && mw.lastCastPaymentCard == card
+						? mw.lastCastPaymentElements.size() : 0;
+			}
 			@Override public int opponentCrystalCount() { return mw.playerCrystals(!isP1); }
 
 			@Override public void damageFieldForwardByName(String cardName, int amount) {
@@ -4525,6 +4531,74 @@ final class GameContextImpl implements GameContext {
 						.forEach(this::forceTargetToBreakZone);
 			}
 
+
+			@Override public void opponentSelectsUpToNForwardsBreakRest(int count) {
+				boolean oppIsP1 = !isP1;
+				breakForwardsOtherThan(oppIsP1, forwardsKeptBySeat(oppIsP1, count, true,
+						"Select up to " + count + " Forward(s) you control to keep — the rest are broken",
+						"Waiting for your opponent to select the Forwards they keep..."));
+			}
+
+			@Override public void eachPlayerSelectForwardsBreakRest(int count) {
+				// Both seats are asked before anything breaks, so each choice is made against the
+				// board as the effect found it. Resolving one side's break in between would move
+				// the row the other side had already been shown.
+				String title = "Each player selects " + count + " Forward(s) — choose yours to keep";
+				List<ForwardTarget> p1Kept = forwardsKeptBySeat(true, count, false, title,
+						"Waiting for your opponent to select the Forward they keep...");
+				List<ForwardTarget> p2Kept = forwardsKeptBySeat(false, count, false, title,
+						"Waiting for your opponent to select the Forward they keep...");
+
+				breakForwardsOtherThan(true,  p1Kept);
+				breakForwardsOtherThan(false, p2Kept);
+			}
+
+			/**
+			 * One seat's half of a "select N Forwards you control" effect whose picks are the ones
+			 * that <em>survive</em>. Returns what that seat kept, empty when they control nothing.
+			 *
+			 * @param upTo whether the seat may confirm on fewer than {@code count} — "up to N" lets
+			 *             them keep nothing at all, a plain "N" does not
+			 */
+			private List<ForwardTarget> forwardsKeptBySeat(boolean seatIsP1, int count, boolean upTo,
+					String title, String waitPrompt) {
+				List<ForwardTarget> eligible = ownForwards(seatIsP1);
+				if (eligible.isEmpty()) {
+					logEntry((seatIsP1 ? "P1" : "[P2]") + " controls no Forwards — nothing to select");
+					return List.of();
+				}
+				List<ForwardTarget> kept = mw.selectOwnFieldTargets(seatIsP1, eligible, count, upTo,
+						title, waitPrompt, () -> aiForwardsWorthKeeping(seatIsP1, count));
+				for (ForwardTarget t : kept) logSelectedOwnCard(seatIsP1, t);
+				return kept;
+			}
+
+			/**
+			 * The {@code count} Forwards on {@code seatIsP1}'s row the AI can least afford to lose —
+			 * the mirror of the pick it makes when a card asks it to give one up, so costliest first.
+			 */
+			private List<ForwardTarget> aiForwardsWorthKeeping(boolean seatIsP1, int count) {
+				List<ForwardTarget> byValue = new ArrayList<>(ownForwards(seatIsP1));
+				byValue.sort(Comparator.comparingInt((ForwardTarget t) -> {
+					CardData c = cardAtTarget(t);
+					return c == null ? 0 : c.cost();
+				}).reversed());
+				return List.copyOf(byValue.subList(0, Math.min(count, byValue.size())));
+			}
+
+			/** Puts every Forward on {@code seatIsP1}'s row except those in {@code kept} into the Break Zone. */
+			private void breakForwardsOtherThan(boolean seatIsP1, List<ForwardTarget> kept) {
+				// Descending row index, so removing one Forward cannot shift the index of another
+				// still waiting. The kept picks name indices in the row as it stands, which is why
+				// nothing may have been broken before this runs.
+				Set<Integer> keptIdx = new HashSet<>();
+				for (ForwardTarget t : kept) keptIdx.add(t.idx());
+				List<CardData> row = seatIsP1 ? mw.p1ForwardCards : mw.p2ForwardCards;
+				for (int i = row.size() - 1; i >= 0; i--) {
+					if (keptIdx.contains(i)) continue;
+					forceTargetToBreakZone(new ForwardTarget(seatIsP1, i, ForwardTarget.CardZone.FORWARD));
+				}
+			}
 
 			@Override public void eachPlayerSelectUpToNActiveAndDullFreeze(int count,
 					boolean inclForwards, boolean inclBackups, boolean inclMonsters) {
@@ -5017,6 +5091,21 @@ final class GameContextImpl implements GameContext {
 	// Playing targets onto the field; Break Zone moves
 	// =========================================================================================
 			@Override public ForwardTarget playTargetOntoField(ForwardTarget t) {
+				return playFromBreakZone(t, false);
+			}
+
+			@Override public ForwardTarget playTargetOntoFieldNoAutoAbility(ForwardTarget t) {
+				return playFromBreakZone(t, true);
+			}
+
+			/**
+			 * @param suppressAutoAbility hold back the card's own enters-the-field trigger. Armed
+			 *                            after the guards above have passed and immediately before
+			 *                            placement, which fires that trigger: set any earlier and a
+			 *                            play that turns out to be prohibited would leave the flag
+			 *                            standing for whatever card entered next.
+			 */
+			private ForwardTarget playFromBreakZone(ForwardTarget t, boolean suppressAutoAbility) {
 				List<CardData> bz = t.isP1() ? mw.gameState.getP1BreakZone() : mw.gameState.getP2BreakZone();
 				if (t.idx() >= bz.size()) return null;
 				// "You cannot play X due to Summons or abilities." — checked before the card leaves
@@ -5028,7 +5117,9 @@ final class GameContextImpl implements GameContext {
 				}
 				CardData card = bz.remove(t.idx());
 				String src = t.isP1() ? "Break Zone" : "opponent's Break Zone";
-				logEntry(card.name() + " played from " + src + " onto field");
+				logEntry(card.name() + " played from " + src + " onto field"
+						+ (suppressAutoAbility ? " (no ETF auto-ability)" : ""));
+				if (suppressAutoAbility) mw.suppressAutoAbilityForNextCard = true;
 				ForwardTarget landed;
 				if (t.isP1()) {
 					if (card.isBackup())       { mw.placeCardInFirstBackupSlot(card); landed = ownBackupTargetOf(true, card); }
