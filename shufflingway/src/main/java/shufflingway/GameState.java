@@ -62,6 +62,30 @@ public class GameState {
         return m == null ? Map.of() : java.util.Collections.unmodifiableMap(m);
     }
 
+    // --- The Job a card has named (Jack Garland 27-111L) ---
+    // Held by identity for the same reason the counters above are: the named Job belongs to the
+    // copy that named it, so two Jack Garlands name their own Jobs and neither reads the other's.
+    //
+    // Every other "name 1 Job" printing spends the Job in the sentence that names it — Shadow Lord
+    // breaks with it, Xande strips abilities with it — and so never needs it stored. Jack Garland
+    // names it in one ability and reads it back in two others, which is what this is for. It lasts
+    // as long as his stay on the field: naming again on a later entry replaces it, and leaving
+    // clears it, so a Jack Garland replayed from the Break Zone starts with no Job named.
+    private final java.util.IdentityHashMap<CardData, String> namedJobs =
+            new java.util.IdentityHashMap<>();
+
+    /** Records that {@code card} has named {@code job}, replacing any Job it named before. */
+    public void setNamedJob(CardData card, String job) {
+        if (card == null || job == null || job.isBlank()) return;
+        namedJobs.put(card, job.trim());
+    }
+
+    /** The Job {@code card} named, or {@code null} if it has named none. */
+    public String getNamedJob(CardData card) { return namedJobs.get(card); }
+
+    /** Forgets the Job {@code card} named (called when it leaves the field). */
+    public void clearNamedJob(CardData card) { namedJobs.remove(card); }
+
     // --- Crystals (persistent resource; does not expire like CP) ---
     private int p1Crystals = 0;
     private int p2Crystals = 0;

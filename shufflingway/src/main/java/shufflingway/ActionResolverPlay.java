@@ -4,6 +4,9 @@ import static shufflingway.ActionResolverPatterns.*;
 
 import static shufflingway.ActionResolver.*;
 
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.List;
 import java.util.function.Consumer;
 import java.util.function.Predicate;
 import java.util.regex.Matcher;
@@ -18,6 +21,55 @@ import java.util.regex.Matcher;
 final class ActionResolverPlay {
 
 	private ActionResolverPlay() {}
+
+    /**
+     * Parses Xande 10-008L's "choose up to 1 Fire Forward of cost 1 and up to 1 Fire Forward of
+     * cost 3 in your Break Zone. Play them onto the field."
+     *
+     * <p>Two prompts, one per cost, both answered before anything is played. Playing between them
+     * would be wrong twice over: a {@link ForwardTarget} is a position and the Break Zone closes up
+     * behind a card that leaves it, so the second prompt would be reading stale indices — and the
+     * card just played would be gone from the pool the player is choosing the second from, which is
+     * true but only by accident of ordering.
+     *
+     * <p>The two picks cannot collide anyway, since a card cannot cost both 1 and 3, so neither
+     * selection has to exclude the other's.
+     */
+    static Consumer<GameContext> tryParseChooseTwoCostsFromBzPlayBoth(String text) {
+        Matcher m = CHOOSE_TWO_COSTS_FROM_BZ_PLAY_BOTH.matcher(text);
+        if (!m.find()) return null;
+        int    count1 = Integer.parseInt(m.group("count1"));
+        int    count2 = Integer.parseInt(m.group("count2"));
+        int    cost1  = Integer.parseInt(m.group("cost1"));
+        int    cost2  = Integer.parseInt(m.group("cost2"));
+        String elem1  = m.group("elem1");
+        String elem2  = m.group("elem2");
+        String type1  = m.group("type1").toLowerCase(java.util.Locale.ROOT);
+        String type2  = m.group("type2").toLowerCase(java.util.Locale.ROOT);
+        return ctx -> {
+            ctx.logEntry("Effect: Choose up to " + count1 + " " + (elem1 != null ? elem1 + " " : "")
+                    + m.group("type1") + " of cost " + cost1 + " and up to " + count2 + " "
+                    + (elem2 != null ? elem2 + " " : "") + m.group("type2") + " of cost " + cost2
+                    + " in your Break Zone — play them onto the field");
+            List<ForwardTarget> picks = new ArrayList<>();
+            picks.addAll(selectFromOwnBreakZone(ctx, count1, cost1, elem1, type1));
+            picks.addAll(selectFromOwnBreakZone(ctx, count2, cost2, elem2, type2));
+            picks.stream()
+                    .sorted(Comparator.comparingInt(ForwardTarget::idx).reversed())
+                    .forEach(ctx::playTargetOntoField);
+        };
+    }
+
+    /** One "up to {@code count} [Element] [type] of cost {@code cost}" pick from the caster's Break Zone. */
+    private static List<ForwardTarget> selectFromOwnBreakZone(GameContext ctx, int count, int cost,
+            String element, String typeLower) {
+        return selectTargets(ctx, count, true, false, false, null, element, "your Break Zone", false,
+                cost, null, -1, null,
+                typeLower.startsWith("forward") || typeLower.startsWith("character"),
+                typeLower.startsWith("backup")  || typeLower.startsWith("character"),
+                typeLower.startsWith("monster") || typeLower.startsWith("character"),
+                null, null, null, null, false, null, false);
+    }
 
     static Consumer<GameContext> tryParseChooseWarpCardRemoveCounter(String text) {
         if (!CHOOSE_WARP_CARD_REMOVE_COUNTER.matcher(text).find()) return null;
@@ -216,6 +268,17 @@ final class ActionResolverPlay {
                 ctx.logEntry("Effect: Choose " + count + " Summon(s) from BZ — castable as your own this turn"
                         + (rfgAfterUse ? " (removed from game after use)" : ""));
                 ctx.chooseSummonsFromBzMakeCastable(count, eitherBz, true, rfgAfterUse, false);
+            };
+        }
+        // Last of the three on purpose: this one reads the printings that leave the duration
+        // unsaid, so it must not be offered a text the turn-scoped branch above would have taken.
+        Matcher mi = CHOOSE_SUMMONS_FROM_BZ_GAME_IMPLICIT.matcher(text.trim());
+        if (mi.matches()) {
+            final int count = Integer.parseInt(mi.group("count"));
+            final boolean eitherBz = !mi.group("scope").toLowerCase(java.util.Locale.ROOT).equals("your");
+            return ctx -> {
+                ctx.logEntry("Effect: Choose " + count + " Summon(s) from BZ, remove from game — castable as your own this game");
+                ctx.chooseSummonsFromBzMakeCastable(count, eitherBz, false, false, false);
             };
         }
         return null;

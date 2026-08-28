@@ -26623,6 +26623,732 @@ public class CardBehaviorTest {
 	}
 
 	// =========================================================================================
+	// Jack Garland 27-111L: "When Jack Garland enters the field, name 1 Job." / "At the end of
+	// each of your turns, choose 1 Forward with the named Job. Remove it from the game."
+	//
+	// The only printing that separates naming a Job from spending it. The other seven name and
+	// use it in one sentence — Shadow Lord breaks with it, Xande strips abilities with it — so
+	// nothing had ever needed to remember a named Job, and "name 1 Job" prompted, logged the
+	// answer and threw it away. The end-of-turn ability had nothing to refer to and did not parse.
+	//
+	// The Job is now recorded against the card that named it, by identity, so two Jack Garlands
+	// name their own and neither reads the other's; it is dropped when he leaves the field.
+	// At resolution the Job is substituted into the text and the rewritten sentence goes through
+	// the ordinary chain, which is what makes every filter and followup the choose grammar
+	// already knows work here for free.
+	// =========================================================================================
+
+	private static final String JACK_GARLAND_TEXT =
+			"When Jack Garland enters the field, name 1 Job.[[br]]"
+			+ "At the end of each of your turns, choose 1 Forward with the named Job. "
+			+ "Remove it from the game.";
+
+	private static final String NAMED_JOB_REMOVE =
+			"choose 1 Forward with the named Job. Remove it from the game.";
+
+	/**
+	 * Fires a trigger and resolves what it queues. Auto abilities go on the stack and
+	 * {@code resolveTopOfStack} is private and drives the UI, so the queued entries are run here
+	 * the way the Ellone tests above run theirs — the dispatch is still the real one.
+	 *
+	 * <p>Only the entries this trigger added: putting Jack Garland on the field queues his entry
+	 * trigger, and running that too would have him name a Job over the one the test set.
+	 */
+	private static void fireAndResolve(MainWindow mw, Runnable trigger) {
+		int alreadyQueued = mw.gameState.getStack().size();
+		trigger.run();
+		List<StackEntry> queued = List.copyOf(mw.gameState.getStack());
+		for (StackEntry e : queued.subList(alreadyQueued, queued.size())) {
+			Consumer<GameContext> effect =
+					ActionResolver.parse(e.autoAbility().effectText(), e.source());
+			if (effect != null) effect.accept(mw.buildGameContext(e.isP1()));
+		}
+	}
+
+	/** Jack Garland on P2's field, with two P1 Forwards to pick between: a Knight and a Thief. */
+	private static MainWindow jackGarlandBoard() {
+		MainWindow mw = new MainWindow();
+		placeP2Forward(mw, makeJobForwardWithAutos("Jack Garland", "Dark", 9000, "Stranger",
+				JACK_GARLAND_TEXT));
+		placeP1Forward(mw, makeJobCard("Cecil", "Light", "Forward", "Knight"));
+		placeP1Forward(mw, makeJobCard("Locke", "Fire", "Forward", "Thief"));
+		return mw;
+	}
+
+	@Test
+	void theJobJackGarlandNamesIsRememberedAgainstHim() {
+		MainWindow mw = new MainWindow();
+		CardData jg = makeJobForwardWithAutos("Jack Garland", "Dark", 9000, "Stranger",
+				JACK_GARLAND_TEXT);
+		placeP2Forward(mw, jg);
+		placeP1Forward(mw, makeJobCard("Cecil", "Light", "Forward", "Knight"));
+
+		fireAndResolve(mw, () -> mw.autoAbilityTriggers.triggerAutoAbilitiesForEntersField(jg, false));
+
+		assertEquals("Knight", mw.gameState.getNamedJob(jg),
+				"naming a Job used to prompt, log the answer and throw it away");
+	}
+
+	@Test
+	void theAiNamesAJobFromAcrossTheTable() {
+		// The default shortlist is the naming player's own field — right for Bartz, who gains the
+		// named Job, and exactly backwards here: it had Jack Garland naming a Job he controlled
+		// and removing one of his own Forwards at the end of every turn.
+		MainWindow mw = new MainWindow();
+		CardData jg = makeJobForwardWithAutos("Jack Garland", "Dark", 9000, "Stranger",
+				JACK_GARLAND_TEXT);
+		placeP2Forward(mw, jg);
+		placeP2Forward(mw, makeJobCard("Ally", "Dark", "Forward", "Knight"));
+		placeP1Forward(mw, makeJobCard("Cecil", "Light", "Forward", "Knight"));
+		placeP1Forward(mw, makeJobCard("Locke", "Fire", "Forward", "Thief"));
+
+		fireAndResolve(mw, () -> mw.autoAbilityTriggers.triggerAutoAbilitiesForEntersField(jg, false));
+
+		assertEquals("Thief", mw.gameState.getNamedJob(jg),
+				"Knight is on both fields, so naming it would put his own ally in reach");
+	}
+
+	@Test
+	void withAnEmptyBoardAcrossTheTableTheAiNamesFromTheOpponentsBreakZone() {
+		MainWindow mw = new MainWindow();
+		CardData jg = makeJobForwardWithAutos("Jack Garland", "Dark", 9000, "Stranger",
+				JACK_GARLAND_TEXT);
+		placeP2Forward(mw, jg);
+		CardData buried = makeJobCard("Cecil", "Light", "Forward", "Knight");
+		mw.gameState.getIdentity().put(buried, true);
+		mw.gameState.getP1BreakZone().add(buried);
+
+		fireAndResolve(mw, () -> mw.autoAbilityTriggers.triggerAutoAbilitiesForEntersField(jg, false));
+
+		assertEquals("Knight", mw.gameState.getNamedJob(jg),
+				"nothing to remove now, but the protection still names what they are likely to play");
+	}
+
+	@Test
+	void theShortlistPrefersJobsTheNamingPlayerDoesNotShare() {
+		assertEquals(List.of("Thief"), NameSelectionDialogs.jobsToNameAgainstOpponent(
+				List.of("Knight", "Thief"), List.of("Knight", "Stranger"), List.of()));
+	}
+
+	@Test
+	void whenEveryJobIsSharedTheShortlistIsStillTheirField() {
+		// Worth taking a Forward of theirs at the price of exposing one of yours; naming a Job
+		// nobody has would take nothing at all.
+		assertEquals(List.of("Knight"), NameSelectionDialogs.jobsToNameAgainstOpponent(
+				List.of("Knight"), List.of("Knight"), List.of("Thief")));
+	}
+
+	@Test
+	void anEmptyOpposingBoardFallsBackToTheirBreakZone() {
+		assertEquals(List.of("Thief"), NameSelectionDialogs.jobsToNameAgainstOpponent(
+				List.of(), List.of("Knight"), List.of("Knight", "Thief")));
+	}
+
+	@Test
+	void withNothingToGoOnTheShortlistIsEmptyAndTheWholeVocabularyIsOffered() {
+		assertTrue(NameSelectionDialogs.jobsToNameAgainstOpponent(
+				List.of(), List.of("Knight"), List.of()).isEmpty());
+	}
+
+	@Test
+	void theEndOfTurnAbilityRemovesAForwardWithTheJobHeNamed() {
+		MainWindow mw = jackGarlandBoard();
+		mw.gameState.setNamedJob(mw.p2ForwardCards.get(0), "Knight");
+
+		fireAndResolve(mw, () -> mw.autoAbilityTriggers.triggerAutoAbilitiesForEndOfYourTurn(false));
+
+		assertTrue(mw.gameState.getP1PermanentRfp().stream().anyMatch(c -> c.name().equals("Cecil")),
+				"the Job Knight Forward is the one the named Job points at");
+		assertTrue(mw.p1ForwardCards.stream().anyMatch(c -> c.name().equals("Locke")),
+				"and the Thief is not eligible to be chosen at all");
+	}
+
+	@Test
+	void namingADifferentJobPointsTheSameSentenceSomewhereElse() {
+		// The whole of "contextually": one text, two boards, and the Job decides the target.
+		MainWindow mw = jackGarlandBoard();
+		mw.gameState.setNamedJob(mw.p2ForwardCards.get(0), "Thief");
+
+		fireAndResolve(mw, () -> mw.autoAbilityTriggers.triggerAutoAbilitiesForEndOfYourTurn(false));
+
+		assertTrue(mw.gameState.getP1PermanentRfp().stream().anyMatch(c -> c.name().equals("Locke")));
+		assertTrue(mw.p1ForwardCards.stream().anyMatch(c -> c.name().equals("Cecil")));
+	}
+
+	@Test
+	void withNoJobNamedTheEndOfTurnAbilityTakesNothing() {
+		MainWindow mw = jackGarlandBoard();
+
+		fireAndResolve(mw, () -> mw.autoAbilityTriggers.triggerAutoAbilitiesForEndOfYourTurn(false));
+
+		assertTrue(mw.gameState.getP1PermanentRfp().isEmpty(),
+				"an unresolved naming leaves nothing to refer to, and a choose with no filter "
+				+ "would take a Forward the card never pointed at");
+		assertEquals(2, mw.p1ForwardCards.size());
+	}
+
+	@Test
+	void theNamedJobDoesNotSurviveLeavingTheField() {
+		MainWindow mw = jackGarlandBoard();
+		CardData jg = mw.p2ForwardCards.get(0);
+		mw.gameState.setNamedJob(jg, "Knight");
+
+		mw.breakP2Forward(0);
+
+		assertNull(mw.gameState.getNamedJob(jg),
+				"the named Job is a property of this copy's stay on the field, like its counters");
+	}
+
+	@Test
+	void theNamedJobIsPerCopyNotPerPlayer() {
+		MainWindow mw = new MainWindow();
+		CardData first  = makeJobForwardWithAutos("Jack Garland", "Dark", 9000, "Stranger", JACK_GARLAND_TEXT);
+		CardData second = makeJobForwardWithAutos("Jack Garland", "Dark", 9000, "Stranger", JACK_GARLAND_TEXT);
+		placeP2Forward(mw, first);
+		placeP2Forward(mw, second);
+
+		mw.gameState.setNamedJob(first, "Knight");
+		mw.gameState.setNamedJob(second, "Thief");
+
+		assertEquals("Knight", mw.gameState.getNamedJob(first));
+		assertEquals("Thief", mw.gameState.getNamedJob(second));
+	}
+
+	@Test
+	void anAbilityThatNamesAJobItselfIsNotAReadBack() {
+		// Shadow Lord 17-079L and Xande 27-010L name a Job and spend it in the same sentence.
+		// There is nothing recorded to read back at the point those resolve, so the read-back
+		// parser has to leave them to the parsers that handle them.
+		CardData xande = makeJobForwardWithAutos("Xande", "Dark", 9000, "Mage", "");
+		assertNull(ActionResolverState.tryParseNamedJobReference(
+				"name 1 Job. All the Forwards with the named Job opponent controls lose all their "
+				+ "abilities until the end of the turn.", xande, 0));
+	}
+
+	@Test
+	void theEndOfTurnAbilityIsNamedAndDescribedByTheJobItReads() {
+		CardData jg = makeJobForwardWithAutos("Jack Garland", "Dark", 9000, "Stranger", JACK_GARLAND_TEXT);
+		assertEquals("NamedJobReference", ActionResolver.matchedPatternName(NAMED_JOB_REMOVE, jg));
+		assertEquals("NamedJob(ChooseCharacter / RemoveFromGame)",
+				ActionResolver.fullDescription(NAMED_JOB_REMOVE, jg));
+	}
+
+	// =========================================================================================
+	// Cloud of Darkness 10-028L: "When Cloud of Darkness attacks, each player selects up to 2
+	// active Characters he/she controls (select as many as possible). Dull them and Freeze them."
+	//
+	// Symmetric, and it costs its own controller too. "(select as many as possible)" is what makes
+	// the count mandatory: neither player may decline by selecting none, so the prompt asks for
+	// exactly min(2, what they have active) rather than offering an "up to" bar.
+	// =========================================================================================
+
+	private static final String CLOUD_OF_DARKNESS_ATTACK =
+			"each player selects up to 2 active Characters he/she controls "
+			+ "(select as many as possible). Dull them and Freeze them.";
+
+	@Test
+	void theAttackTriggerCostsTheAttackersOwnSideToo() {
+		// Asserted from the AI's half of the selection. The other half goes through the in-place
+		// board selection every "each player" effect uses, which needs a click to answer and so
+		// cannot run headless — the opposing Forward here is left dull to keep it out of the pool.
+		MainWindow mw = new MainWindow();
+		placeP2Forward(mw, makeForward("Cloud of Darkness", "Ice", 4, 8000));
+		placeP2Forward(mw, makeForward("Ally", "Ice", 3, 7000));
+		placeP1Forward(mw, makeForward("Theirs", "Fire", 3, 7000));
+		mw.p1ForwardStates.set(0, CardState.DULL);
+		mw.p2ForwardStates.set(0, CardState.ACTIVE);
+		mw.p2ForwardStates.set(1, CardState.ACTIVE);
+
+		resolveAsP2(mw, CLOUD_OF_DARKNESS_ATTACK, mw.p2ForwardCards.get(0));
+
+		assertEquals(CardState.DULL, mw.p2ForwardStates.get(0), "his own side pays too");
+		assertEquals(CardState.DULL, mw.p2ForwardStates.get(1));
+		assertTrue(mw.p2ForwardFrozen.get(0), "dull and Freeze, not dull alone");
+		assertTrue(mw.p2ForwardFrozen.get(1));
+		assertFalse(mw.p1ForwardFrozen.get(0), "and the dull Forward across the table was never eligible");
+	}
+
+	@Test
+	void alreadyDullCharactersAreNotInThePool() {
+		// "active" is a filter on the pool, not decoration: a second attack in the same turn must
+		// not find the Characters the first one already dulled.
+		MainWindow mw = new MainWindow();
+		placeP2Forward(mw, makeForward("Cloud of Darkness", "Ice", 4, 8000));
+		placeP2Forward(mw, makeForward("Ally", "Ice", 3, 7000));
+		mw.p2ForwardStates.set(0, CardState.DULL);
+		mw.p2ForwardStates.set(1, CardState.ACTIVE);
+
+		resolveAsP2(mw, CLOUD_OF_DARKNESS_ATTACK, mw.p2ForwardCards.get(0));
+
+		assertFalse(mw.p2ForwardFrozen.get(0), "the dull one was never eligible to be selected");
+		assertTrue(mw.p2ForwardFrozen.get(1));
+	}
+
+	@Test
+	void backupsCountAsCharactersHere() {
+		MainWindow mw = new MainWindow();
+		placeP2Forward(mw, makeForward("Cloud of Darkness", "Ice", 4, 8000));
+		mw.p2ForwardStates.set(0, CardState.DULL);          // attacking, so out of the pool
+		mw.p2BackupCards[0]  = makePlainBackup("Sage", "Ice", 2);
+		mw.p2BackupStates[0] = CardState.ACTIVE;
+
+		resolveAsP2(mw, CLOUD_OF_DARKNESS_ATTACK, mw.p2ForwardCards.get(0));
+
+		assertEquals(CardState.DULL, mw.p2BackupStates[0], "\"Characters\"" + " reaches the Backup row");
+	}
+
+	// =========================================================================================
+	// Xande 10-008L: "When Xande enters the field, choose up to 1 Fire Forward of cost 1 and up to
+	// 1 Fire Forward of cost 3 in your Break Zone. Play them onto the field."
+	//
+	// Two pools out of one Break Zone, each with its own cost. The choose grammar reads one filter
+	// per sentence, so it took the first pick and left the second's cost with nothing to attach
+	// to: Xande played the cost-1 Forward and the cost-3 pick was never offered.
+	// =========================================================================================
+
+	private static final String XANDE_REVIVE =
+			"choose up to 1 Fire Forward of cost 1 and up to 1 Fire Forward of cost 3 "
+			+ "in your Break Zone. Play them onto the field.";
+
+	/** A Fire Forward of {@code cost} in P2's Break Zone. */
+	private static CardData buriedFireForward(MainWindow mw, String name, int cost) {
+		CardData c = makeForward(name, "Fire", cost, 5000);
+		mw.gameState.getIdentity().put(c, false);
+		mw.gameState.getP2BreakZone().add(c);
+		return c;
+	}
+
+	@Test
+	void xandeTakesOneOfEachCost() {
+		MainWindow mw = new MainWindow();
+		CardData one   = buriedFireForward(mw, "Cheap", 1);
+		CardData three = buriedFireForward(mw, "Dear", 3);
+
+		resolveAsP2(mw, XANDE_REVIVE, makeForward("Xande", "Fire", 8, 9000));
+
+		assertEquals(2, mw.p2ForwardCards.size(), "both picks are played, not just the first");
+		assertTrue(mw.p2ForwardCards.contains(one));
+		assertTrue(mw.p2ForwardCards.contains(three));
+		assertTrue(mw.gameState.getP2BreakZone().isEmpty());
+	}
+
+	@Test
+	void aCostTheSentenceDoesNotNameStaysBuried() {
+		MainWindow mw = new MainWindow();
+		buriedFireForward(mw, "Cheap", 1);
+		CardData two = buriedFireForward(mw, "Middling", 2);
+
+		resolveAsP2(mw, XANDE_REVIVE, makeForward("Xande", "Fire", 8, 9000));
+
+		assertEquals(1, mw.p2ForwardCards.size());
+		assertTrue(mw.gameState.getP2BreakZone().contains(two), "cost 1 and cost 3, and nothing else");
+	}
+
+	@Test
+	void eitherHalfMayComeUpEmpty() {
+		// Both picks are "up to", so a Break Zone answering only one of them still plays that one.
+		MainWindow mw = new MainWindow();
+		CardData three = buriedFireForward(mw, "Dear", 3);
+
+		resolveAsP2(mw, XANDE_REVIVE, makeForward("Xande", "Fire", 8, 9000));
+
+		assertEquals(List.of(three), mw.p2ForwardCards);
+	}
+
+	// =========================================================================================
+	// Leslie 16-084R: "At the end of each of your turns, you may give control of Leslie to your
+	// opponent." — the drawback half of a Backup whose other ability breaks two of your Forwards.
+	//
+	// Control transfer existed for the Forward row only, and Leslie is a Backup. A control change
+	// is not a zone change, so she keeps her state and her grants; what moves is which side's row
+	// she stands in. With the opponent's five slots full there is nowhere to put her, and the
+	// transfer is refused rather than dropping her off the board.
+	// =========================================================================================
+
+	private static final String LESLIE_GIVE_CONTROL =
+			"you may give control of Leslie to your opponent.";
+
+	@Test
+	void leslieCrossesToTheOtherBackupRow() {
+		MainWindow mw = new MainWindow();
+		CardData leslie = makePlainBackup("Leslie", "Earth", 6);
+		mw.gameState.getIdentity().put(leslie, true);
+		mw.p1BackupCards[0]  = leslie;
+		mw.p1BackupStates[0] = CardState.DULL;
+
+		assertTrue(mw.giveBackupControlToOpponent(leslie));
+
+		assertNull(mw.p1BackupCards[0], "she leaves the row she was in");
+		assertEquals(leslie, mw.p2BackupCards[0]);
+		assertEquals(CardState.DULL, mw.p2BackupStates[0],
+				"a control change is not a zone change, so she arrives as she left");
+	}
+
+	@Test
+	void withNoRoomAcrossTheTableSheStaysPut() {
+		MainWindow mw = new MainWindow();
+		CardData leslie = makePlainBackup("Leslie", "Earth", 6);
+		mw.gameState.getIdentity().put(leslie, true);
+		mw.p1BackupCards[0] = leslie;
+		for (int i = 0; i < mw.p2BackupCards.length; i++)
+			mw.p2BackupCards[i] = makePlainBackup("Filler " + i, "Ice", 1);
+
+		assertFalse(mw.giveBackupControlToOpponent(leslie),
+				"five Backups is the cap, and dropping her would be a silent removal");
+		assertEquals(leslie, mw.p1BackupCards[0]);
+	}
+
+	@Test
+	void theOfferIsDeclinable() {
+		// The AI declines every optional effect, which is what the P2 seat answers here.
+		MainWindow mw = new MainWindow();
+		CardData leslie = makePlainBackup("Leslie", "Earth", 6);
+		mw.gameState.getIdentity().put(leslie, false);
+		mw.p2BackupCards[0] = leslie;
+
+		resolveAsP2(mw, LESLIE_GIVE_CONTROL, leslie);
+
+		assertEquals(leslie, mw.p2BackupCards[0], "declined, so she has not moved");
+		assertNull(mw.p1BackupCards[0]);
+	}
+
+	@Test
+	void theOfferOnlyAnswersForTheCardThatPrintsIt() {
+		assertNull(ActionResolver.parse(LESLIE_GIVE_CONTROL, makePlainBackup("Someone Else", "Earth", 2)),
+				"the card offers itself, so a text naming another card is not this");
+	}
+
+	// =========================================================================================
+	// Gogo 27-099H: "When Gogo enters the field due to your cast, choose 1 auto-ability triggered
+	// from your opponent's Forward of cost 4 or less. Gogo triggers the same auto-ability."
+	//
+	// Gogo has Back Attack and can only be cast during the opponent's turn, which is what puts
+	// something on the Stack for him to find. The copy is a second entry above the original, so it
+	// resolves first, and the original still resolves for its own controller — he copies, he does
+	// not steal.
+	//
+	// The controller and cost filters are enforced, where the cancel family this borrows its shape
+	// from captures the same qualifier and lets it go: a cancel offered too widely only ever
+	// removes something, while a copy offered too widely hands its controller an ability the card
+	// never reached.
+	// =========================================================================================
+
+	private static final String GOGO_MIMIC_TRIGGER =
+			"choose 1 auto-ability triggered from your opponent's Forward of cost 4 or less. "
+			+ "Gogo triggers the same auto-ability.";
+
+	private static final String THEIR_TRIGGER = "When Theirs attacks, draw 1 card.";
+
+	/** A Forward of {@code cost} carrying the auto abilities parsed from {@code text}. */
+	private static CardData makeCostedAutoForward(String name, String element, int cost, String text) {
+		return new CardData(null, name, element, cost, 7000, "Forward", false, 0, false, false,
+				Set.of(), 0, List.of(), null, List.of(),
+				List.of(), CardData.parseAutoAbilities(text), List.of(), List.of(), List.of(),
+				List.of(), List.of(), List.of(), List.of(), List.of(),
+				false, false, null, false, false, false, false, false, 1,
+				null, null, null, text);
+	}
+
+	/** P1's Forward of {@code theirCost} with its trigger already on the Stack, and Gogo on P2's field. */
+	private static MainWindow gogoBoard(int theirCost) {
+		MainWindow mw = new MainWindow();
+		CardData theirs = makeCostedAutoForward("Theirs", "Fire", theirCost, THEIR_TRIGGER);
+		placeP1Forward(mw, theirs);
+		placeP2Forward(mw, makeForward("Gogo", "Water", 4, 5000));
+		mw.gameState.pushStack(new StackEntry(theirs, null, theirs.autoAbilities().get(0), true,
+				0, false, null, false, false, 0, 0));
+		return mw;
+	}
+
+	@Test
+	void gogoPutsASecondCopyOfTheirTriggerOnTheStack() {
+		MainWindow mw = gogoBoard(4);
+
+		resolveAsP2(mw, GOGO_MIMIC_TRIGGER, mw.p2ForwardCards.get(0));
+
+		assertEquals(2, mw.gameState.getStack().size(), "the original is left alone");
+		StackEntry copy = mw.gameState.getStack().get(1);
+		assertEquals("Gogo", copy.source().name(), "triggered from Gogo, not from their Forward");
+		assertFalse(copy.isP1(), "and controlled by Gogo's controller");
+		assertEquals(mw.gameState.getStack().get(0).autoAbility().effectText(),
+				copy.autoAbility().effectText());
+	}
+
+	@Test
+	void aForwardOverTheCostIsNotOffered() {
+		MainWindow mw = gogoBoard(5);
+
+		resolveAsP2(mw, GOGO_MIMIC_TRIGGER, mw.p2ForwardCards.get(0));
+
+		assertEquals(1, mw.gameState.getStack().size(), "cost 5 is past " + "\"cost 4 or less\"");
+	}
+
+	@Test
+	void gogoWillNotCopyHisOwnSidesTrigger() {
+		MainWindow mw = new MainWindow();
+		CardData mine = makeCostedAutoForward("Mine", "Water", 3, THEIR_TRIGGER);
+		placeP2Forward(mw, mine);
+		placeP2Forward(mw, makeForward("Gogo", "Water", 4, 5000));
+		mw.gameState.pushStack(new StackEntry(mine, null, mine.autoAbilities().get(0), false,
+				0, false, null, false, false, 0, 0));
+
+		resolveAsP2(mw, GOGO_MIMIC_TRIGGER, mw.p2ForwardCards.get(1));
+
+		assertEquals(1, mw.gameState.getStack().size(), "\"your opponent's\"" + " is enforced, not decorative");
+	}
+
+	@Test
+	void withAnEmptyStackGogoFindsNothingToCopy() {
+		MainWindow mw = new MainWindow();
+		placeP2Forward(mw, makeForward("Gogo", "Water", 4, 5000));
+
+		resolveAsP2(mw, GOGO_MIMIC_TRIGGER, mw.p2ForwardCards.get(0));
+
+		assertTrue(mw.gameState.getStack().isEmpty());
+	}
+
+	// =========================================================================================
+	// Lann 10-017R: "When Lann enters the field, choose 1 Monster that is also a Forward. Until the
+	// end of the turn, it gains +5000 power and Brave."
+	//
+	// "Monster that is also a Forward" is a pool, not a card kind — a Monster only belongs to it
+	// while some effect has made it a Forward for the turn. The choose grammar could not read the
+	// phrase at all, so the choice failed and the trailing sentence was left for a find()-based
+	// parser to claim: Relm 24-107L's "It gains +2000 power until the end of the turn" was read as a
+	// self-boost, and lent the power to Relm instead of to the Monster she chose.
+	// =========================================================================================
+
+	private static final String LANN_ETF =
+			"choose 1 Monster that is also a Forward. "
+			+ "Until the end of the turn, it gains +5000 power and Brave.";
+
+	/** A Monster on P2's field; {@code alsoForward} makes it a Forward for the turn as well. */
+	private static CardData placeP2Monster(MainWindow mw, String name, boolean alsoForward) {
+		CardData c = new CardData(null, name, "Fire", 2, 3000, "Monster", false, 0, false, false,
+				Set.of(), 0, List.of(), null, List.of(),
+				List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(),
+				List.of(), List.of(), List.of(),
+				false, false, null, false, false, false, false, false, 1, null, null, null, "");
+		mw.gameState.getIdentity().put(c, false);
+		mw.placeP2CardInMonsterZone(c);
+		if (alsoForward) mw.p2MonsterTempForwardPower.put(c, 3000);
+		return c;
+	}
+
+	@Test
+	void lannBoostsAMonsterThatIsAlsoAForward() {
+		MainWindow mw = new MainWindow();
+		placeP2Monster(mw, "Chocobo", true);
+
+		resolveAsP2(mw, LANN_ETF, makeForward("Lann", "Fire", 2, 5000));
+
+		assertEquals(5000, mw.p2MonsterPowerBoost.get(mw.p2MonsterCards.get(0)),
+				"the boost goes to the Monster the choice named");
+	}
+
+	@Test
+	void aPlainMonsterIsNotInThePool() {
+		// The qualifier is the whole filter: a Monster nothing has made a Forward is not one.
+		MainWindow mw = new MainWindow();
+		CardData mon = placeP2Monster(mw, "Chocobo", false);
+
+		resolveAsP2(mw, LANN_ETF, makeForward("Lann", "Fire", 2, 5000));
+
+		assertNull(mw.p2MonsterPowerBoost.get(mon), "nothing was eligible, so nothing was boosted");
+	}
+
+	@Test
+	void theSameSentenceNoLongerLendsThePowerToTheCardThatPrintsIt() {
+		// Relm 24-107L's action ability, the shape this fix was found through.
+		MainWindow mw = new MainWindow();
+		placeP2Monster(mw, "Chocobo", true);
+		CardData relm = makeForward("Relm", "Water", 3, 5000);
+		placeP2Forward(mw, relm);
+
+		resolveAsP2(mw, "Choose 1 Monster that is also a Forward. "
+				+ "It gains +2000 power until the end of the turn.", relm);
+
+		assertEquals(2000, mw.p2MonsterPowerBoost.get(mw.p2MonsterCards.get(0)));
+		assertEquals(0, mw.p2ForwardPowerBoost.get(0), "Relm kept the power she was lending out");
+	}
+
+	// =========================================================================================
+	// Airborne Trooper 9-024C: "When a Forward other than Airborne Trooper enters your field,
+	// Airborne Trooper loses all its abilities until the end of the turn."
+	//
+	// Every other printing of the sentence is a choose followup whose "it" is the card the choice
+	// named. This one names its own card and has no choice in front of it, so it needs the
+	// self-addressed form — and the followup printings must keep reaching the followup chain.
+	// =========================================================================================
+
+	private static final String TROOPER_SELF_STRIP =
+			"Airborne Trooper loses all its abilities until the end of the turn.";
+
+	@Test
+	void theTrooperStripsItself() {
+		MainWindow mw = new MainWindow();
+		CardData trooper = makeForward("Airborne Trooper", "Ice", 3, 8000);
+		placeP2Forward(mw, trooper);
+
+		resolveAsP2(mw, TROOPER_SELF_STRIP, trooper);
+
+		assertTrue(mw.lostAbilitiesCards.contains(trooper));
+	}
+
+	@Test
+	void theSelfStripOnlyAnswersForTheCardThatPrintsIt() {
+		assertNull(ActionResolver.parse(TROOPER_SELF_STRIP, makeForward("Someone Else", "Ice", 3, 7000)),
+				"a text naming another card is a followup pronoun's business, not this");
+	}
+
+	// =========================================================================================
+	// Exdeath 3-100L: "When Exdeath attacks, all Characters opponent controls lose their Jobs until
+	// the end of the turn." — the corpus's only Job removal.
+	//
+	// A card with no Job answers no Job filter, which is what Job removal is for: the Job-gated
+	// buffs, searches and counts across the table stop seeing their subjects for the turn.
+	// =========================================================================================
+
+	private static final String EXDEATH_ATTACK =
+			"all Characters opponent controls lose their Jobs until the end of the turn.";
+
+	@Test
+	void exdeathStripsTheJobsAcrossTheTable() {
+		MainWindow mw = new MainWindow();
+		CardData theirs = makeJobCard("Cecil", "Light", "Forward", "Knight");
+		placeP1Forward(mw, theirs);
+		CardData mine = makeJobCard("Ally", "Lightning", "Forward", "Knight");
+		placeP2Forward(mw, mine);
+		assertTrue(mw.meetsJobOrCardNameFilter(theirs, "Knight", null, null));
+
+		resolveAsP2(mw, EXDEATH_ATTACK, makeForward("Exdeath", "Lightning", 5, 9000));
+
+		assertFalse(mw.meetsJobOrCardNameFilter(theirs, "Knight", null, null),
+				"a Job filter passes over a card that has lost its Jobs");
+		assertTrue(mw.meetsJobOrCardNameFilter(mine, "Knight", null, null),
+				"and his own side keeps theirs");
+	}
+
+	// =========================================================================================
+	// Man in Black 17-096H: "choose 1 Summon in your Break Zone. Remove it from the game. You can
+	// cast it at any time you could normally cast it."
+	//
+	// The reprint adds "During this game," where the original leaves the duration unsaid, and the
+	// pattern required the phrase — so the original dropped the permission and only removed the
+	// Summon. Both mean the same thing: a permission with no end lasts the game.
+	// =========================================================================================
+
+	@Test
+	void bothPrintingsOfManInBlackReadTheSame() {
+		CardData mib = makeForward("Man in Black", "Lightning", 5, 9000);
+		String original = "choose 1 Summon in your Break Zone. Remove it from the game. "
+				+ "You can cast it at any time you could normally cast it.";
+		String reprint = "choose 1 Summon in your Break Zone. Remove it from the game. "
+				+ "During this game, you can cast it at any time you could normally cast it.";
+
+		assertEquals("ChooseSummonsFromBzCastable", ActionResolver.fullDescription(reprint, mib));
+		assertEquals("ChooseSummonsFromBzCastable", ActionResolver.fullDescription(original, mib));
+	}
+
+	@Test
+	void aTurnScopedPermissionIsStillTurnScoped() {
+		// The safeguard on making the duration optional: "this turn" is a different card's effect,
+		// and only the end anchor keeps the game-long reading off it.
+		assertFalse(ActionResolverPatterns.CHOOSE_SUMMONS_FROM_BZ_GAME_IMPLICIT.matcher(
+				"choose 1 Summon in your Break Zone. Remove it from the game. "
+				+ "You can cast it at any time you could normally cast it this turn.").matches(),
+				"a game-long reading must not swallow a turn-scoped permission");
+	}
+
+	// =========================================================================================
+	// Kain 15-048L: "At the end of each of your turns, if you don't have a 《C》, your opponent
+	// gains control of Kain." — the drawback on a 2-cost 8000-power Forward.
+	// =========================================================================================
+
+	private static final String KAIN_CRYSTAL_CHECK =
+			"if you don't have a 《C》, your opponent gains control of Kain.";
+
+	@Test
+	void kainChangesHandsWithNoCrystalHeld() {
+		MainWindow mw = new MainWindow();
+		CardData kain = makeForward("Kain", "Wind", 2, 8000);
+		placeP2Forward(mw, kain);
+
+		resolveAsP2(mw, KAIN_CRYSTAL_CHECK, kain);
+
+		assertTrue(mw.p1ForwardCards.contains(kain), "he crosses the table");
+		assertTrue(mw.p2ForwardCards.isEmpty());
+	}
+
+	@Test
+	void aCrystalKeepsHim() {
+		MainWindow mw = new MainWindow();
+		CardData kain = makeForward("Kain", "Wind", 2, 8000);
+		placeP2Forward(mw, kain);
+		mw.gameState.addP2Crystals(1);
+
+		resolveAsP2(mw, KAIN_CRYSTAL_CHECK, kain);
+
+		assertTrue(mw.p2ForwardCards.contains(kain));
+		assertTrue(mw.p1ForwardCards.isEmpty());
+	}
+
+	// =========================================================================================
+	// Number 24 20-036H: "At the end of each of your turns, if 3 or more Barrier Counters are
+	// placed on Number 24, dull Number 24." — the cost of the shield his other abilities build.
+	//
+	// Counters are held per copy, so the count is asked of the card that printed the sentence
+	// rather than of its name.
+	// =========================================================================================
+
+	private static final String NUMBER_24_BARRIER_DULL =
+			"if 3 or more Barrier Counters are placed on Number 24, dull Number 24.";
+
+	@Test
+	void theThirdBarrierCounterDullsHim() {
+		MainWindow mw = new MainWindow();
+		CardData n24 = makeForward("Number 24", "Ice", 3, 9000);
+		placeP2Forward(mw, n24);
+		mw.p2ForwardStates.set(0, CardState.ACTIVE);
+		mw.gameState.placeCounters(n24, "Barrier", 3);
+
+		resolveAsP2(mw, NUMBER_24_BARRIER_DULL, n24);
+
+		assertEquals(CardState.DULL, mw.p2ForwardStates.get(0));
+	}
+
+	@Test
+	void twoBarrierCountersAreNotEnough() {
+		MainWindow mw = new MainWindow();
+		CardData n24 = makeForward("Number 24", "Ice", 3, 9000);
+		placeP2Forward(mw, n24);
+		mw.p2ForwardStates.set(0, CardState.ACTIVE);
+		mw.gameState.placeCounters(n24, "Barrier", 2);
+
+		resolveAsP2(mw, NUMBER_24_BARRIER_DULL, n24);
+
+		assertEquals(CardState.ACTIVE, mw.p2ForwardStates.get(0));
+	}
+
+	@Test
+	void theCounterGateReadsTheCopyThatPrintsIt() {
+		// Counters are held by identity, so a second Number 24's three Barriers are not this
+		// one's. The uniqueness rule keeps two copies off one field, so the other copy is simply
+		// a card that is not on it — which is the same question asked more cheaply.
+		MainWindow mw = new MainWindow();
+		CardData onField  = makeForward("Number 24", "Ice", 3, 9000);
+		CardData elsewhere = makeForward("Number 24", "Ice", 3, 9000);
+		placeP2Forward(mw, onField);
+		mw.p2ForwardStates.set(0, CardState.ACTIVE);
+		mw.gameState.placeCounters(elsewhere, "Barrier", 3);
+
+		resolveAsP2(mw, NUMBER_24_BARRIER_DULL, onField);
+
+		assertEquals(CardState.ACTIVE, mw.p2ForwardStates.get(0),
+				"the counters belong to the other copy, not to the one resolving");
+	}
+
+	// =========================================================================================
 	// Vayne 28-117H: "When Vayne is put from the field into the Break Zone, during this turn, your
 	// opponent cannot cast any cards."
 	//
@@ -26872,6 +27598,29 @@ public class CardBehaviorTest {
 				ForwardTarget.CardZone.FORWARD, 0, 1000),
 				"confining the break to the printings that say so must not lose them");
 		assertTrue(mw.p2ForwardCards.isEmpty());
+	}
+
+	@Test
+	void theEchoIsNamedByTheAmountItDoesNotCarry() {
+		// Naming only: the effect has worked since the echo was wired, but the amount is not in
+		// the text — it is however much the trigger dealt — so no damage followup claimed the
+		// sentence and the ability reported as "ChooseCharacter / ?" in every coverage report.
+		assertEquals("ChooseCharacter / DamageSameAmount",
+				ActionResolver.fullDescription(
+						"choose 1 Forward opponent controls other than that Forward. "
+						+ "Deal it the same amount of damage.",
+						makeAutoAbilityForward("Gulool Ja Ja", GULOOL_JA_JA_TEXT)));
+	}
+
+	@Test
+	void theSameFollowupWithoutTheExclusionKeepsItsQuestionMark() {
+		// 23-077H Azul prints the echo off "is dealt damage" and without the exclusion, which is
+		// a shape nothing resolves. Naming it would say the engine reads an effect it does not:
+		// the "?" is what tells the coverage report the followup is still open.
+		assertEquals("ChooseCharacter / ?",
+				ActionResolver.fullDescription(
+						"choose up to 1 Forward opponent controls. Deal it the same amount of damage.",
+						makeAutoAbilityForward("Azul", "")));
 	}
 
 	// =========================================================================================

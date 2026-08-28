@@ -1220,6 +1220,10 @@ final class ActionResolverChoose {
         // "put in your Break Zone from the field during this turn" states the zone and a condition
         // in one phrase, so it fills both slots — the zone below, and the condition here.
         String  bzFieldZone   = m.group("bzfieldzone");
+        // "that is also a Forward" rides the condition slot, like the Break-Zone-from-field
+        // filter below: both are pools the card kind alone cannot name.
+        if (m.group("alsoforward") != null && rawCondition == null)
+            rawCondition = CardFilters.MONSTER_ALSO_FORWARD;
         String  condition     = bzFieldZone   != null ? CardFilters.PUT_TO_BZ_FROM_FIELD_THIS_TURN
                               : blockingName  != null ? "blocking:"     + blockingName.trim()
                               : blockingJob   != null ? "blocking-job:" + blockingJob.trim()

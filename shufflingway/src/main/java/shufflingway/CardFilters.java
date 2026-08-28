@@ -245,6 +245,19 @@ public final class CardFilters {
         return "entered the field this turn".equals(condition);
     }
 
+    /**
+     * The condition string a "Monster that is also a Forward" choice carries — Lann 10-017R.
+     *
+     * <p>Answered against the temporary-Forward state rather than off the card, which is what
+     * "also a Forward" means here: a Monster is one only while some effect has made it one.
+     */
+    public static final String MONSTER_ALSO_FORWARD = "monster that is also a forward";
+
+    /** Returns true when {@code condition} restricts a choice to Monsters currently also Forwards. */
+    public static boolean isMonsterAlsoForwardCondition(String condition) {
+        return MONSTER_ALSO_FORWARD.equals(condition);
+    }
+
     /** The condition string a "put in your Break Zone from the field during this turn" choice carries. */
     public static final String PUT_TO_BZ_FROM_FIELD_THIS_TURN = "put into the break zone from the field this turn";
 

@@ -240,6 +240,17 @@ public interface GameContext {
      * by the cancelling player ("that is choosing a Forward you control").  Entries with no stored
      * targets are treated as passing the check (permissive fallback).
      */
+    /**
+     * Chooses one Stack entry matching {@code filter} and puts a second copy of its auto-ability
+     * on the Stack, triggered from {@code newSource} and controlled by this context's player —
+     * Gogo 27-099H.
+     *
+     * <p>The original is left alone: this copies, it does not steal. The copy goes on top, so it
+     * resolves before the entry it was taken from.
+     */
+    void copyChosenAutoAbilityOnStack(java.util.function.Predicate<StackEntry> filter,
+            String prompt, CardData newSource);
+
     void cancelFilteredAbilityOnStack(java.util.function.Predicate<StackEntry> filter, String prompt, boolean requiresControllerTarget);
 
     /**
@@ -606,6 +617,17 @@ public interface GameContext {
      * P1 picks via dialog; P2 (AI) picks lowest-cost eligible targets.
      */
     void eachPlayerSelectUpToNAndBreak(int count, boolean inclForwards, boolean inclMonsters);
+
+    /**
+     * Both players dull and Freeze up to {@code count} active Characters of their own, each
+     * choosing their own — Cloud of Darkness 10-028L.
+     *
+     * <p>Neither player chooses how many: "(select as many as possible)" makes it min({@code
+     * count}, whatever they have active). The pool is the active cards alone, so nothing already
+     * dull is taken a second time.
+     */
+    void eachPlayerSelectUpToNActiveAndDullFreeze(int count, boolean inclForwards,
+            boolean inclBackups, boolean inclMonsters);
 
     /**
      * Each player selects {@code count} card(s) from their own Break Zone and adds them to their hand.
@@ -3328,6 +3350,47 @@ public interface GameContext {
      * the one the player selected, or {@code null} if the dialog was cancelled.
      */
     String selectJobFromDatabase();
+
+    /**
+     * Remembers that {@code source} named {@code job}, for the abilities that read it back later.
+     *
+     * <p>Only Jack Garland 27-111L needs this: every other "name 1 Job" printing spends the Job in
+     * the same sentence that names it. Recorded against the card rather than the player, so two
+     * copies name their own Jobs, and dropped when the card leaves the field.
+     */
+    void recordNamedJob(CardData source, String job);
+
+    /**
+     * Strips the Jobs of every Character the ability user's opponent controls until the end of the
+     * turn — Exdeath 3-100L.
+     *
+     * <p>A card with no Job is not caught by a Job filter, which is what Job removal is for: the
+     * Job-gated buffs and searches across the table stop seeing their subjects.
+     */
+    void opponentCharactersLoseJobsUntilEndOfTurn(boolean inclForwards, boolean inclBackups,
+            boolean inclMonsters);
+
+    /**
+     * Strips {@code source}'s own abilities until the end of the turn — Airborne Trooper 9-024C.
+     *
+     * <p>The self-naming form of {@link #targetLoseAllAbilitiesUntilEndOfTurn}, which addresses a
+     * board position: this one is handed the card, because the ability that strips it is its own
+     * and the position is whatever it happens to occupy.
+     */
+    void selfLoseAllAbilitiesUntilEndOfTurn(CardData source);
+
+    /** The Job {@code source} named, or {@code null} if it has named none. */
+    String namedJob(CardData source);
+
+    /**
+     * {@link #selectJobFromDatabase()} for a card that names a Job to use <em>against</em> its
+     * opponent — Jack Garland 27-111L, whose named Job decides what his end-of-turn removal takes
+     * and what he is protected from.
+     *
+     * <p>Identical for a human, who is offered the whole vocabulary either way. The difference is
+     * which Jobs an AI shortlists: its own field for the default, the opponent's for this.
+     */
+    String selectJobNamedAgainstOpponent();
 
     /**
      * Shows a combined dialog for the player to name 1 Element and 1 Job simultaneously.

@@ -4559,6 +4559,109 @@ public class MainWindow {
 	}
 
 	/**
+	 * Hands {@code source} to its controller's opponent, whichever row it stands in.
+	 *
+	 * <p>The Forward row's transfer is the older of the two and logs its own failure, so the row
+	 * is settled here rather than by trying one and falling through to the other.
+	 */
+	void giveControlToOpponent(CardData source) {
+		if (identityIndexOf(p1ForwardCards, source) >= 0 || identityIndexOf(p2ForwardCards, source) >= 0)
+			giveForwardControlToOpponent(source);
+		else
+			giveBackupControlToOpponent(source);
+	}
+
+	/**
+	 * The Backup row's {@link #giveForwardControlToOpponent} — Leslie 16-084R, who offers herself
+	 * to the opponent at the end of each of her controller's turns.
+	 *
+	 * <p>A control change is not a zone change, so the card keeps its state and its temporary
+	 * grants; what moves is which side's row it stands in. The grant maps are per side, so the
+	 * entries are carried across rather than left behind pointing at a card that is no longer
+	 * there.
+	 *
+	 * <p>Fails, with a log entry and no move, when the opponent's five Backup slots are full:
+	 * there is nowhere for the card to stand, and a transfer that dropped it would be a silent
+	 * removal from the game.
+	 *
+	 * @return whether control actually changed
+	 */
+	boolean giveBackupControlToOpponent(CardData source) {
+		int fromIdx = identityIndexOfSlot(p1BackupCards, source);
+		boolean fromP1 = fromIdx >= 0;
+		if (!fromP1) {
+			fromIdx = identityIndexOfSlot(p2BackupCards, source);
+			if (fromIdx < 0) {
+				logEntry(source.name() + " — not currently a Backup on the field, cannot transfer control");
+				return false;
+			}
+		}
+		CardData[]  toCards  = fromP1 ? p2BackupCards  : p1BackupCards;
+		int toIdx = -1;
+		for (int i = 0; i < toCards.length; i++) if (toCards[i] == null) { toIdx = i; break; }
+		if (toIdx < 0) {
+			logEntry(source.name() + " — opponent's Backup slots are full, control cannot be given");
+			return false;
+		}
+
+		String[]    fromUrls   = fromP1 ? p1BackupUrls   : p2BackupUrls;
+		CardData[]  fromCards  = fromP1 ? p1BackupCards  : p2BackupCards;
+		CardState[] fromStates = fromP1 ? p1BackupStates : p2BackupStates;
+		boolean[]   fromFrozen = fromP1 ? p1BackupFrozen : p2BackupFrozen;
+		String[]    toUrls     = fromP1 ? p2BackupUrls   : p1BackupUrls;
+		CardState[] toStates   = fromP1 ? p2BackupStates : p1BackupStates;
+		boolean[]   toFrozen   = fromP1 ? p2BackupFrozen : p1BackupFrozen;
+		JLabel[]    fromLabels = fromP1 ? p1BackupLabels : p2BackupLabels;
+
+		toUrls[toIdx]   = fromUrls[fromIdx];
+		toCards[toIdx]  = source;
+		toStates[toIdx] = fromStates[fromIdx];
+		toFrozen[toIdx] = fromFrozen[fromIdx];
+
+		fromUrls[fromIdx]   = null;
+		fromCards[fromIdx]  = null;
+		fromStates[fromIdx] = CardState.ACTIVE;
+		fromFrozen[fromIdx] = false;
+		if (fromLabels[fromIdx] != null) {
+			fromLabels[fromIdx].setIcon(null);
+			fromLabels[fromIdx].setText(null);
+		}
+		if (fromP1 && p1BackupAttackIdx == fromIdx) p1BackupAttackIdx = -1;
+
+		moveBackupGrants(source, fromP1);
+		if (fromP1) { refreshP1BackupSlot(fromIdx); refreshP2BackupSlot(toIdx); }
+		else        { refreshP2BackupSlot(fromIdx); refreshP1BackupSlot(toIdx); }
+		logEntry(source.name() + " — control given to opponent (" + (fromP1 ? "P2" : "P1") + ")");
+		// Checked after the move, like every other arrival: the rule is about what the receiving
+		// player now controls, and both copies go if they already had one.
+		sendToBreakZoneByUniquenessRule(source, !fromP1);
+		return true;
+	}
+
+	/** {@link #identityIndexOf} over a slot array, whose empty slots are null. */
+	private static int identityIndexOfSlot(CardData[] slots, CardData card) {
+		for (int i = 0; i < slots.length; i++) if (slots[i] == card) return i;
+		return -1;
+	}
+
+	/** Moves {@code card}'s Backup-row grant entries from {@code fromP1}'s maps to the other side's. */
+	private void moveBackupGrants(CardData card, boolean fromP1) {
+		moveGrant(fromP1 ? p1BackupTempForwardPower : p2BackupTempForwardPower,
+		          fromP1 ? p2BackupTempForwardPower : p1BackupTempForwardPower, card);
+		moveGrant(fromP1 ? p1BackupForwardBoost : p2BackupForwardBoost,
+		          fromP1 ? p2BackupForwardBoost : p1BackupForwardBoost, card);
+		moveGrant(fromP1 ? p1BackupForwardDamage : p2BackupForwardDamage,
+		          fromP1 ? p2BackupForwardDamage : p1BackupForwardDamage, card);
+		moveGrant(fromP1 ? p1BackupTempTraits : p2BackupTempTraits,
+		          fromP1 ? p2BackupTempTraits : p1BackupTempTraits, card);
+	}
+
+	private static <V> void moveGrant(Map<CardData, V> from, Map<CardData, V> to, CardData card) {
+		V v = from.remove(card);
+		if (v != null) to.put(card, v);
+	}
+
+	/**
 	 * Necron: when {@code departing} leaves the field, any cards it removed "for as long as
 	 * [departing] is on the field" re-enter their owner's field. Entries already moved to the
 	 * Break Zone by the watcher's action ability were deleted from the map and stay put.
@@ -12272,8 +12375,22 @@ public class MainWindow {
 	 * conjunction unchanged. {@code controlledForwards} is the pool consulted for a card that has
 	 * "the Jobs of the Forwards you control"; pass {@code null} where the caller has no pool.
 	 */
+	/**
+	 * Cards whose Jobs are suppressed for the rest of the turn — Exdeath 3-100L.
+	 *
+	 * <p>Held by identity and cleared by an end-of-turn effect, like the ability-loss set it sits
+	 * beside. Read wherever a Job is read for gameplay: a card in here has no Job to match, so a
+	 * Job filter passes over it and {@link #effectiveJobs} reports it as having none.
+	 */
+	final Set<CardData> jobsLostCards =
+			java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>());
+
 	boolean meetsJobOrCardNameFilter(CardData card, String jobFilter, String cardNameFilter,
 			List<CardData> controlledForwards) {
+		// A card that has lost its Jobs answers no Job filter at all — not even one naming a Job
+		// it is printed with.
+		if (jobFilter != null && jobsLostCards.contains(card))
+			return cardNameFilter != null && meetsCardNameFilter(card, cardNameFilter);
 		boolean jobOk = controlledForwards != null
 				? meetsJobFilterEffective(card, jobFilter, controlledForwards)
 				: meetsJobFilterEffective(card, jobFilter);
@@ -12863,6 +12980,7 @@ public class MainWindow {
 
 	/** {@code card}'s Jobs, lower-cased for comparison, including any permanently named Job. */
 	private Set<String> effectiveJobs(CardData card) {
+		if (jobsLostCards.contains(card)) return Set.of();
 		Set<String> jobs = new java.util.HashSet<>();
 		for (String j : card.jobs()) jobs.add(j.toLowerCase(java.util.Locale.ROOT));
 		String extra = permanentExtraJobMap.get(card);

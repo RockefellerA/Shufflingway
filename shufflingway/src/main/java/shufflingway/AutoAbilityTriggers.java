@@ -2571,6 +2571,9 @@ final class AutoAbilityTriggers {
 		// re-enter their owner's field.
 		mw.returnTempExiledOnLeave(departing);
 		mw.gameState.clearCounters(departing);
+		// Jack Garland 27-111L's named Job, on the same footing as the counters above: it is a
+		// property of this copy's stay on the field, not of the card.
+		mw.gameState.clearNamedJob(departing);
 		// Re-evaluate all conditional field boosts now that the field composition has changed
 		mw.refreshAllForwardSlots();
 		for (int i = 0; i < mw.p2ForwardCards.size(); i++) mw.refreshP2ForwardSlot(i);

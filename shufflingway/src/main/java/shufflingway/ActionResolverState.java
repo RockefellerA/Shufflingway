@@ -200,6 +200,137 @@ final class ActionResolverState {
             ctx.changeSourceCardElementAndJobUntilEOT(source, choice[0], choice[1]);
         };
     }
+    /**
+     * Parses an effect that refers back to a Job the source named earlier — Jack Garland 27-111L's
+     * "At the end of each of your turns, choose 1 Forward with the named Job. Remove it from the
+     * game." He is the only printing that separates the naming from the use: his entry trigger
+     * names a Job and this fires every one of his controller's end phases afterwards.
+     *
+     * <p>The Job is a fact of the game state, not of the text, so it is substituted at resolution
+     * and the rewritten sentence goes through the ordinary chain — the same treatment Gulool Ja
+     * Ja's "that Forward" and "the same amount" get. Nothing here has to know what "choose 1
+     * Forward … . Remove it from the game." means; the choose chain already does, and every
+     * filter and followup it understands comes along for free.
+     *
+     * <p>The shape is still checked at parse time, with a placeholder Job standing in for the one
+     * that will be named, so an effect the chain cannot read stays visibly unparsed rather than
+     * becoming a consumer that resolves to nothing.
+     *
+     * <p>Declines when the text names a Job itself: those printings spend it in the same sentence
+     * and have nothing recorded to read back.
+     */
+    /**
+     * Parses "all Characters opponent controls lose their Jobs until the end of the turn." —
+     * Exdeath 3-100L's attack trigger, and the corpus's only Job removal.
+     */
+    static Consumer<GameContext> tryParseOppLoseJobsUntilEot(String text) {
+        Matcher m = ALL_OPP_LOSE_JOBS_UNTIL_EOT.matcher(text.trim());
+        if (!m.matches()) return null;
+        String t = m.group("targets").toLowerCase(java.util.Locale.ROOT);
+        boolean inclForwards = t.startsWith("forward") || t.startsWith("character");
+        boolean inclBackups  = t.startsWith("backup")  || t.startsWith("character");
+        boolean inclMonsters = t.startsWith("monster") || t.startsWith("character");
+        return ctx -> {
+            ctx.logEntry("Effect: All " + m.group("targets")
+                    + " opponent controls lose their Jobs until end of turn");
+            ctx.opponentCharactersLoseJobsUntilEndOfTurn(inclForwards, inclBackups, inclMonsters);
+        };
+    }
+
+    /**
+     * Parses "[Self] loses all its abilities until the end of the turn." standing alone —
+     * Airborne Trooper 9-024C.
+     *
+     * <p>Self-named and checked by equality: every other printing of this sentence is a choose
+     * followup whose "it" is the card the choice named, and those must keep reaching the followup
+     * chain rather than stripping the card that printed them.
+     */
+    static Consumer<GameContext> tryParseStandaloneSelfLosesAllAbilities(String text, CardData source) {
+        if (source == null) return null;
+        Matcher m = STANDALONE_SELF_LOSES_ALL_ABILITIES.matcher(text.trim());
+        if (!m.matches()) return null;
+        if (!m.group("name").trim().equalsIgnoreCase(source.name())) return null;
+        return ctx -> ctx.selfLoseAllAbilitiesUntilEndOfTurn(source);
+    }
+
+    /**
+     * Parses "if you [don't ]have a 《C》, [effect]" — Kain 15-048L.
+     *
+     * <p>A gate over an effect the chain already reads, like the cast-payment gates: the Crystal
+     * count is settled at resolution and the guarded half goes through {@code parse()} as itself.
+     * Returns {@code null} when that half does not parse, so an unimplemented payoff stays visible
+     * rather than becoming a check that does nothing.
+     */
+    static Consumer<GameContext> tryParseCrystalHeldGate(String text, CardData source, int xValue) {
+        Matcher m = CRYSTAL_HELD_GATE.matcher(text.trim());
+        if (!m.matches()) return null;
+        boolean negated = m.group("negated") != null;
+        Consumer<GameContext> inner = parse(m.group("inner").trim(), source, xValue);
+        if (inner == null) return null;
+        return ctx -> {
+            boolean holds = ctx.crystalCount() > 0;
+            if (holds == negated) {
+                ctx.logEntry("Effect: " + (negated ? "you hold a 《C》" : "you hold no 《C》")
+                        + " — skipped");
+                return;
+            }
+            inner.accept(ctx);
+        };
+    }
+
+    /**
+     * Parses "if N or more [X] Counters are placed on [Self], [effect]" — Number 24 20-036H.
+     *
+     * <p>Self-named like the rest of this card's counter machinery, and a gate over an effect the
+     * chain already reads — "dull Number 24" is the standalone self-dull. Counters are held per
+     * copy, so the count is asked of the card that printed the sentence rather than of its name.
+     */
+    static Consumer<GameContext> tryParseCountersOnSelfGate(String text, CardData source, int xValue) {
+        if (source == null) return null;
+        Matcher m = COUNTERS_ON_SELF_GATE.matcher(text.trim());
+        if (!m.matches()) return null;
+        if (!m.group("name").trim().equalsIgnoreCase(source.name())) return null;
+        // One sentence only. A text that goes on to say something further about the same counters
+        // — Aerith 16-067L's "Then, if there are no Reraise Counters on Aerith, play Aerith onto
+        // the field." — is a shape this gate cannot see the whole of, and has a parser of its own.
+        if (ActionResolverChoose.sentenceBreakOutsideQuotes(m.group("inner").trim()) >= 0) return null;
+        int    required = Integer.parseInt(m.group("count"));
+        String counter  = m.group("counter").trim();
+        Consumer<GameContext> inner = parse(m.group("inner").trim(), source, xValue);
+        if (inner == null) return null;
+        return ctx -> {
+            int held = ctx.getCounters(source, counter);
+            if (held < required) {
+                ctx.logEntry("Effect: " + held + " " + counter + " Counter(s) on " + source.name()
+                        + ", " + required + " needed — skipped");
+                return;
+            }
+            ctx.logEntry("Effect: " + held + " " + counter + " Counter(s) on " + source.name());
+            inner.accept(ctx);
+        };
+    }
+
+    static Consumer<GameContext> tryParseNamedJobReference(String text, CardData source, int xValue) {
+        if (source == null) return null;
+        if (!NAMED_JOB_REFERENCE.matcher(text).find()) return null;
+        if (NAMES_A_JOB_ITSELF.matcher(text).find()) return null;
+        if (parse(namedJobText(text, PLACEHOLDER_JOB), source, xValue) == null) return null;
+        return ctx -> {
+            String job = ctx.namedJob(source);
+            if (job == null || job.isBlank()) {
+                ctx.logEntry("Effect: " + source.name() + " has named no Job — nothing to choose");
+                return;
+            }
+            Consumer<GameContext> inner = parse(namedJobText(text, job), source, xValue);
+            if (inner == null) {
+                ctx.logEntry("[ActionResolver] Named Job effect not yet implemented: " + text);
+                return;
+            }
+            ctx.logEntry("Effect: the named Job is " + job);
+            inner.accept(ctx);
+        };
+    }
+
     static Consumer<GameContext> tryParseNameJobAndElementSelfGainsPermanent(String text, CardData source) {
         if (source == null) return null;
         Matcher m = NAME_JOB_AND_ELEMENT_SELF_GAINS_PERMANENT.matcher(text);
@@ -391,6 +522,29 @@ final class ActionResolverState {
      * supplies it via {@link GameContext#preloadTargets}, exactly as the Remedi-style
      * "enters opponent's field not from hand" watchers already do.
      */
+    /**
+     * Parses "each player selects up to N active Characters he/she controls (select as many as
+     * possible). Dull them and Freeze them." — Cloud of Darkness 10-028L's attack trigger.
+     *
+     * <p>Symmetric, and it costs its own controller too: Cloud of Darkness attacks and both sides
+     * lose the use of two Characters. The parenthetical is what makes the count mandatory, so
+     * neither player can decline by selecting none.
+     */
+    static Consumer<GameContext> tryParseEachPlayerSelectUpToNActiveDullFreeze(String text) {
+        Matcher m = EACH_PLAYER_SELECT_UP_TO_N_ACTIVE_DULL_FREEZE.matcher(text);
+        if (!m.find()) return null;
+        int    count    = Integer.parseInt(m.group("count"));
+        String tgtLower = m.group("targets").toLowerCase(java.util.Locale.ROOT);
+        boolean inclForwards = tgtLower.startsWith("forward") || tgtLower.startsWith("character");
+        boolean inclBackups  = tgtLower.startsWith("backup")  || tgtLower.startsWith("character");
+        boolean inclMonsters = tgtLower.startsWith("monster") || tgtLower.startsWith("character");
+        return ctx -> {
+            ctx.logEntry("Effect: Each player selects up to " + count
+                    + " active Character(s) they control — dull and Freeze");
+            ctx.eachPlayerSelectUpToNActiveAndDullFreeze(count, inclForwards, inclBackups, inclMonsters);
+        };
+    }
+
     static Consumer<GameContext> tryParseTriggeredTargetAction(String text, int xValue) {
         String t = text.trim();
         if (!TRIGGERED_TARGET_ACTION_BARE.matcher(t).matches()) return null;

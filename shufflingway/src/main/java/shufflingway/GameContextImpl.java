@@ -10,6 +10,7 @@ import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.awt.image.BufferedImage;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.Deque;
 import java.util.EnumSet;
 import java.util.HashSet;
@@ -46,6 +47,7 @@ import shufflingway.net.ChoiceKind;
 import static shufflingway.CardFilters.formatCostFilterLabel;
 import static shufflingway.CardFilters.isBlockingTargetFilter;
 import static shufflingway.CardFilters.isEnteredThisTurnCondition;
+import static shufflingway.CardFilters.isMonsterAlsoForwardCondition;
 import static shufflingway.CardFilters.isTraitCondition;
 import static shufflingway.CardFilters.matchesDiscardType;
 import static shufflingway.CardFilters.meetsCardNameFilter;
@@ -971,7 +973,7 @@ final class GameContextImpl implements GameContext {
 			}
 
 			@Override public void giveSourceControlToOpponent(CardData source) {
-				mw.giveForwardControlToOpponent(source);
+				mw.giveControlToOpponent(source);
 			}
 
 			/** Current effective Forward power of the Character at {@code t}, whichever row it stands in. */
@@ -1102,6 +1104,7 @@ final class GameContextImpl implements GameContext {
 							if (isBlockingTargetFilter(condition)) continue;
 							if (mw.p1BackupCards[i] == null) continue;
 							if (!inclBackups && !mw.isP1BackupTemporarilyForward(i)) continue;
+							if (isMonsterAlsoForwardCondition(condition)) continue;
 							if (immuneOwn.contains(mw.p1BackupCards[i])) continue;
 							if (element != null && !mw.effectiveContainsElement(mw.p1BackupCards[i], element)) continue;
 							if (!meetsCostConstraint(mw.p1BackupCards[i].cost(), costVal, costCmp)) continue;
@@ -1115,6 +1118,8 @@ final class GameContextImpl implements GameContext {
 						}
 						if (inclMonsters || inclForwards) for (int i = 0; i < mw.p1MonsterCards.size(); i++) {
 							if (!inclMonsters && !mw.isP1MonsterTemporarilyForward(i)) continue;
+							if (isMonsterAlsoForwardCondition(condition)
+									&& !mw.isP1MonsterTemporarilyForward(i)) continue;
 							CardData card = mw.p1MonsterCards.get(i);
 							if (immuneOwn.contains(card)) continue;
 							if (element != null && !mw.effectiveContainsElement(card, element)) continue;
@@ -1156,6 +1161,7 @@ final class GameContextImpl implements GameContext {
 							if (isBlockingTargetFilter(condition)) continue;
 							if (mw.p2BackupCards[i] == null) continue;
 							if (!inclBackups && !mw.isP2BackupTemporarilyForward(i)) continue;
+							if (isMonsterAlsoForwardCondition(condition)) continue;
 							if (immuneOwn.contains(mw.p2BackupCards[i])) continue;
 							if (element != null && !mw.effectiveContainsElement(mw.p2BackupCards[i], element)) continue;
 							if (!meetsCostConstraint(mw.p2BackupCards[i].cost(), costVal, costCmp)) continue;
@@ -1169,6 +1175,8 @@ final class GameContextImpl implements GameContext {
 						}
 						if (inclMonsters || inclForwards) for (int i = 0; i < mw.p2MonsterCards.size(); i++) {
 							if (!inclMonsters && !mw.isP2MonsterTemporarilyForward(i)) continue;
+							if (isMonsterAlsoForwardCondition(condition)
+									&& !mw.isP2MonsterTemporarilyForward(i)) continue;
 							CardData card = mw.p2MonsterCards.get(i);
 							if (immuneOwn.contains(card)) continue;
 							if (element != null && !mw.effectiveContainsElement(card, element)) continue;
@@ -1213,6 +1221,7 @@ final class GameContextImpl implements GameContext {
 							if (isBlockingTargetFilter(condition)) continue;
 							if (mw.p2BackupCards[i] == null) continue;
 							if (!inclBackups && !mw.isP2BackupTemporarilyForward(i)) continue;
+							if (isMonsterAlsoForwardCondition(condition)) continue;
 							if (immuneOpp.contains(mw.p2BackupCards[i])) continue;
 							if (element != null && !mw.effectiveContainsElement(mw.p2BackupCards[i], element)) continue;
 							if (!meetsCostConstraint(mw.p2BackupCards[i].cost(), costVal, costCmp)) continue;
@@ -1226,6 +1235,8 @@ final class GameContextImpl implements GameContext {
 						}
 						if (inclMonsters || inclForwards) for (int i = 0; i < mw.p2MonsterCards.size(); i++) {
 							if (!inclMonsters && !mw.isP2MonsterTemporarilyForward(i)) continue;
+							if (isMonsterAlsoForwardCondition(condition)
+									&& !mw.isP2MonsterTemporarilyForward(i)) continue;
 							CardData card = mw.p2MonsterCards.get(i);
 							if (immuneOpp.contains(card)) continue;
 							if (element != null && !mw.effectiveContainsElement(card, element)) continue;
@@ -1267,6 +1278,7 @@ final class GameContextImpl implements GameContext {
 							if (isBlockingTargetFilter(condition)) continue;
 							if (mw.p1BackupCards[i] == null) continue;
 							if (!inclBackups && !mw.isP1BackupTemporarilyForward(i)) continue;
+							if (isMonsterAlsoForwardCondition(condition)) continue;
 							if (immuneOpp.contains(mw.p1BackupCards[i])) continue;
 							if (element != null && !mw.effectiveContainsElement(mw.p1BackupCards[i], element)) continue;
 							if (!meetsCostConstraint(mw.p1BackupCards[i].cost(), costVal, costCmp)) continue;
@@ -1280,6 +1292,8 @@ final class GameContextImpl implements GameContext {
 						}
 						if (inclMonsters || inclForwards) for (int i = 0; i < mw.p1MonsterCards.size(); i++) {
 							if (!inclMonsters && !mw.isP1MonsterTemporarilyForward(i)) continue;
+							if (isMonsterAlsoForwardCondition(condition)
+									&& !mw.isP1MonsterTemporarilyForward(i)) continue;
 							CardData card = mw.p1MonsterCards.get(i);
 							if (immuneOpp.contains(card)) continue;
 							if (element != null && !mw.effectiveContainsElement(card, element)) continue;
@@ -1805,6 +1819,29 @@ final class GameContextImpl implements GameContext {
 				}
 				logEntry("Effect: " + card.name() + " loses all abilities until end of turn");
 			}
+			@Override public void opponentCharactersLoseJobsUntilEndOfTurn(boolean inclForwards,
+					boolean inclBackups, boolean inclMonsters) {
+				List<CardData> stripped = new ArrayList<>();
+				if (inclForwards) stripped.addAll(isP1 ? mw.p2ForwardCards : mw.p1ForwardCards);
+				if (inclMonsters) stripped.addAll(isP1 ? mw.p2MonsterCards : mw.p1MonsterCards);
+				if (inclBackups)
+					for (CardData c : (isP1 ? mw.p2BackupCards : mw.p1BackupCards))
+						if (c != null) stripped.add(c);
+				for (CardData c : stripped) {
+					if (!mw.jobsLostCards.add(c)) continue;
+					mw.endOfTurnEffects.add(ctx -> mw.jobsLostCards.remove(c));
+					logEntry(c.name() + " loses its Jobs until end of turn");
+				}
+				if (stripped.isEmpty()) logEntry("No opposing Characters to strip Jobs from");
+			}
+
+			@Override public void selfLoseAllAbilitiesUntilEndOfTurn(CardData source) {
+				if (source == null) return;
+				if (mw.lostAbilitiesCards.add(source))
+					mw.endOfTurnEffects.add(ctx -> mw.lostAbilitiesCards.remove(source));
+				logEntry("Effect: " + source.name() + " loses all abilities until end of turn");
+			}
+
 			@Override public void targetLoseAllAbilitiesWhileWardenOnField(ForwardTarget t, CardData warden) {
 				CardData card = mw.autoAbilityTriggers.fieldCardData(t);
 				if (card == null || warden == null) return;
@@ -2430,6 +2467,52 @@ final class GameContextImpl implements GameContext {
 				logEntry(src.name() + " is a Forward — dealing " + damage + " damage");
 				if (chosen.isP1()) damageP1Forward(fwdIdx, damage);
 				else               damageP2Forward(fwdIdx, damage);
+			}
+
+			@Override public void copyChosenAutoAbilityOnStack(
+					java.util.function.Predicate<StackEntry> filter, String prompt, CardData newSource) {
+				List<StackEntry> targets = mw.gameState.getStack().stream()
+						.filter(StackEntry::isAutoAbility)
+						.filter(e -> e.autoAbility() != null)
+						.filter(filter)
+						.collect(java.util.stream.Collectors.toList());
+				if (targets.isEmpty()) {
+					logEntry("No matching auto-ability on the stack to copy");
+					return;
+				}
+				StackEntry chosen;
+				if (targets.size() == 1) {
+					chosen = targets.get(0);
+				} else if (isP1) {
+					String[] options = new String[targets.size()];
+					for (int i = 0; i < targets.size(); i++) options[i] = describeStackEntry(targets.get(i));
+					Object sel = JOptionPane.showInputDialog(mw.frame,
+							prompt, "Copy Auto-Ability", JOptionPane.PLAIN_MESSAGE, null, options, options[0]);
+					if (sel == null) return;
+					int idx = java.util.Arrays.asList(options).indexOf(sel.toString());
+					if (idx < 0) return;
+					chosen = targets.get(idx);
+				} else {
+					// The AI copies the dearest source it can reach, on the reading that a bigger
+					// Forward's trigger is the better one to have twice.
+					chosen = targets.stream()
+							.max(Comparator.comparingInt(e -> e.source().cost()))
+							.orElse(targets.get(0));
+					logEntry("[AI] copying " + chosen.source().name() + "'s auto-ability");
+				}
+
+				// A fresh selection for the copy: its targets are chosen by its new controller,
+				// against the board as it stands now, and are not the ones the original picked.
+				AutoAbility copied = chosen.autoAbility();
+				List<ForwardTarget> preTargets = ActionResolver.preSelectTargets(
+						copied.effectText(), newSource, 0, mw.buildGameContext(isP1));
+				if (preTargets != null && preTargets.isEmpty()) preTargets = null;
+				mw.gameState.insertStack(mw.gameState.stackSize(),
+						new StackEntry(newSource, null, copied, isP1, 0, false, preTargets,
+								false, false, 0, 0, chosen.triggerCard()));
+				logEntry(newSource.name() + " triggers " + chosen.source().name()
+						+ "'s auto-ability: " + copied.effectText());
+				mw.showStackWindowIfNeeded();
 			}
 
 			@Override public void cancelFilteredAbilityOnStack(java.util.function.Predicate<StackEntry> filter, String prompt, boolean requiresControllerTarget) {
@@ -4440,6 +4523,65 @@ final class GameContextImpl implements GameContext {
 						.forEach(this::forceTargetToBreakZone);
 				p2Picks.stream().sorted(java.util.Comparator.comparingInt(ForwardTarget::idx).reversed())
 						.forEach(this::forceTargetToBreakZone);
+			}
+
+
+			@Override public void eachPlayerSelectUpToNActiveAndDullFreeze(int count,
+					boolean inclForwards, boolean inclBackups, boolean inclMonsters) {
+				List<ForwardTarget> p1Eligible =
+						activeCharacters(true, inclForwards, inclBackups, inclMonsters);
+				List<ForwardTarget> p2Eligible =
+						activeCharacters(false, inclForwards, inclBackups, inclMonsters);
+
+				// "(select as many as possible)" is not a choice about how many, so the prompt asks
+				// for exactly what is there: an "up to" bar would let the player confirm on none.
+				List<ForwardTarget> p1Picks = p1Eligible.isEmpty() ? List.of()
+						: mw.selectFieldTargetsInPlace(p1Eligible,
+								Math.min(count, p1Eligible.size()), false,
+								"Select " + Math.min(count, p1Eligible.size())
+										+ " active Character(s) to dull and Freeze");
+
+				// The AI gives up its cheapest, the same reading of "which hurts least" the break
+				// selections take.
+				p2Eligible.sort(Comparator.comparingInt(t -> {
+					CardData c = cardAtTarget(t);
+					return c == null ? 0 : c.cost();
+				}));
+				List<ForwardTarget> p2Picks =
+						List.copyOf(p2Eligible.subList(0, Math.min(count, p2Eligible.size())));
+				for (ForwardTarget t : p2Picks) {
+					CardData c = cardAtTarget(t);
+					if (c != null) logEntry("[AI] selected " + c.name());
+				}
+
+				p1Picks.forEach(this::dullAndFreezeTarget);
+				p2Picks.forEach(this::dullAndFreezeTarget);
+			}
+
+			/** Every active Character {@code isP1Side} controls, in the rows the caller asked for. */
+			private List<ForwardTarget> activeCharacters(boolean isP1Side, boolean inclForwards,
+					boolean inclBackups, boolean inclMonsters) {
+				List<ForwardTarget> out = new ArrayList<>();
+				if (inclForwards) {
+					List<CardState> states = isP1Side ? mw.p1ForwardStates : mw.p2ForwardStates;
+					for (int i = 0; i < states.size(); i++)
+						if (states.get(i) == CardState.ACTIVE)
+							out.add(new ForwardTarget(isP1Side, i, ForwardTarget.CardZone.FORWARD));
+				}
+				if (inclBackups) {
+					CardData[] cards  = isP1Side ? mw.p1BackupCards  : mw.p2BackupCards;
+					CardState[] states = isP1Side ? mw.p1BackupStates : mw.p2BackupStates;
+					for (int i = 0; i < cards.length; i++)
+						if (cards[i] != null && states[i] == CardState.ACTIVE)
+							out.add(new ForwardTarget(isP1Side, i, ForwardTarget.CardZone.BACKUP));
+				}
+				if (inclMonsters) {
+					List<CardState> states = isP1Side ? mw.p1MonsterStates : mw.p2MonsterStates;
+					for (int i = 0; i < states.size(); i++)
+						if (states.get(i) == CardState.ACTIVE)
+							out.add(new ForwardTarget(isP1Side, i, ForwardTarget.CardZone.MONSTER));
+				}
+				return out;
 			}
 
 
@@ -8413,6 +8555,32 @@ final class GameContextImpl implements GameContext {
 						interactive -> NamedThing.of(NamedThing.Vocabulary.JOB,
 								NameSelectionDialogs.selectJob(mw.frame, candidates, interactive,
 										mw::logEntry))));
+			}
+
+			@Override public String selectJobNamedAgainstOpponent() {
+				List<String> candidates = NameSelectionDialogs.jobsToNameAgainstOpponent(
+						NameSelectionDialogs.collectFieldJobs(
+								isP1 ? mw.p2ForwardCards : mw.p1ForwardCards,
+								isP1 ? mw.p2BackupCards  : mw.p1BackupCards,
+								isP1 ? mw.p2MonsterCards : mw.p1MonsterCards),
+						NameSelectionDialogs.collectFieldJobs(
+								isP1 ? mw.p1ForwardCards : mw.p2ForwardCards,
+								isP1 ? mw.p1BackupCards  : mw.p2BackupCards,
+								isP1 ? mw.p1MonsterCards : mw.p2MonsterCards),
+						NameSelectionDialogs.collectJobs(isP1
+								? mw.gameState.getP2BreakZone() : mw.gameState.getP1BreakZone()));
+				return firstNamed(askToName("Waiting for your opponent to name a Job...",
+						interactive -> NamedThing.of(NamedThing.Vocabulary.JOB,
+								NameSelectionDialogs.selectJob(mw.frame, candidates, interactive,
+										mw::logEntry))));
+			}
+
+			@Override public void recordNamedJob(CardData source, String job) {
+				mw.gameState.setNamedJob(source, job);
+			}
+
+			@Override public String namedJob(CardData source) {
+				return mw.gameState.getNamedJob(source);
 			}
 
 			@Override public void grantJobUntilEndOfTurn(ForwardTarget t, String job) {

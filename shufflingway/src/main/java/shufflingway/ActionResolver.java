@@ -193,6 +193,12 @@ public class ActionResolver {
         result = tryParseCastPaymentElementCpGate(effectText, source, xValue);
         if (result != null) return result;
 
+        // Beside the gate above and read for the same reason: both are prefixes, and every parser
+        // below matches with find(), so a gate left for later has its guarded half claimed off its
+        // tail and run whatever the condition says.
+        result = tryParseCrystalHeldGate(effectText, source, xValue);
+        if (result != null) return result;
+
         // Must precede every effect pattern: a trailing "Draw 1 card." rides along behind a
         // complete effect, and whichever pattern matches the leading sentences claims the whole
         // text with find() and returns, so the sentence-splitting fallback at the end of this
@@ -530,6 +536,11 @@ public class ActionResolver {
         result = tryParseChooseTieredDamage(effectText);
         if (result != null) return result;
 
+        // Must precede tryParseChooseCharacter: that chain reads one filter per sentence, so it
+        // claimed Xande 10-008L's first pick and left the second's cost with nothing to attach to.
+        result = tryParseChooseTwoCostsFromBzPlayBoth(effectText);
+        if (result != null) return result;
+
         result = tryParseChooseCharacter(effectText, source, xValue);
         if (result != null) return withAiTargetPreference(effectText, result);
 
@@ -595,6 +606,12 @@ public class ActionResolver {
         if (result != null) return result;
 
         result = tryParseRedirectChosenTarget(effectText, source);
+        if (result != null) return result;
+
+        // Ahead of the cancel family it borrows its shape from: this text ends in "triggers the
+        // same auto-ability" rather than "Cancel its effect", so neither claims the other, but the
+        // two belong together.
+        result = tryParseCopyChosenAutoAbilityOnStack(effectText, source);
         if (result != null) return result;
 
         result = tryParseCancelAbilityOnStack(effectText);
@@ -824,6 +841,12 @@ public class ActionResolver {
         result = tryParseStandaloneSelfDullAndShield(effectText, source);
         if (result != null) return result;
 
+        result = tryParseStandaloneSelfLosesAllAbilities(effectText, source);
+        if (result != null) return result;
+
+        result = tryParseOppLoseJobsUntilEot(effectText);
+        if (result != null) return result;
+
         result = tryParseStandaloneSelfDull(effectText, source);
         if (result != null) return result;
 
@@ -1028,6 +1051,9 @@ public class ActionResolver {
         if (result != null) return result;
 
         result = tryParseEachPlayerSelectUpToNToBreakZone(effectText);
+        if (result != null) return result;
+
+        result = tryParseEachPlayerSelectUpToNActiveDullFreeze(effectText);
         if (result != null) return result;
 
         result = tryParseEachPlayerDiscard(effectText);
@@ -1299,6 +1325,14 @@ public class ActionResolver {
         result = tryParseRemoveAllCounters(effectText, source);
         if (result != null) return result;
 
+        // Last of the counter parsers on purpose. This is the generic reading of "if N or more X
+        // Counters are placed on [Self], …", and every counter with a parser of its own has to get
+        // there first: Warp Counters do not live in the counter map at all, and Aerith 16-067L's
+        // Reraise gate carries a "Then, if there are none left" tail this one cannot see. What is
+        // left for it is the counters nothing else claims — Number 24 20-036H's Barrier.
+        result = tryParseCountersOnSelfGate(effectText, source, xValue);
+        if (result != null) return result;
+
         result = tryParseLookTopDeckOptionallyBreak(effectText);
         if (result != null) return result;
 
@@ -1383,7 +1417,13 @@ public class ActionResolver {
         result = tryParseNameJobOrCategoryRevealAddToHand(effectText);
         if (result != null) return result;
 
-        result = tryParseNameJob(effectText);
+        // Beside its sibling below rather than ahead of it: the two are the halves of Jack
+        // Garland 27-111L, one naming a Job and the other reading it back, and neither text can
+        // match the other's pattern.
+        result = tryParseNamedJobReference(effectText, source, xValue);
+        if (result != null) return result;
+
+        result = tryParseNameJob(effectText, source);
         if (result != null) return result;
 
         result = tryParseGrantPartyAnyElementThisTurn(effectText);
@@ -1396,6 +1436,9 @@ public class ActionResolver {
         if (result != null) return result;
 
         result = tryParseOpponentGainsControlOfSource(effectText, source);
+        if (result != null) return result;
+
+        result = tryParseMayGiveSourceControlToOpponent(effectText, source);
         if (result != null) return result;
 
         // Compound-sentence fallback: split on ". " between sentences and compose effects.
@@ -1562,6 +1605,8 @@ public class ActionResolver {
             return "CastPaymentElementsGate";
         if (tryParseCastPaymentElementCpGate(effectText, source, 0) != null)
             return "CastPaymentElementCpGate";
+        // Mirrors parse(), where these are read beside the gate above.
+        if (tryParseCrystalHeldGate(effectText, source, 0) != null)   return "CrystalHeldGate";
         // Mirrors parse()'s first dispatch. Reported as a composite so the leading effect still
         // names itself rather than being hidden behind a "TrailingDraw" label.
         if (tryParseTrailingDraw(effectText, source, 0) != null) {
@@ -1672,6 +1717,8 @@ public class ActionResolver {
         // Mirrors parse(): ahead of ChooseCharacter, which claims the text and then has no
         // followup branch for the per-pick amounts.
         if (tryParseChooseTieredDamage(effectText) != null) return "ChooseTieredDamage";
+        // Mirrors parse(): ahead of ChooseCharacter, which claims the first of the two picks.
+        if (tryParseChooseTwoCostsFromBzPlayBoth(effectText) != null) return "ChooseTwoCostsFromBzPlayBoth";
         if (tryParseChooseCharacter(effectText, source, 0)              != null) return "ChooseCharacter";
         if (tryParseIfSelfFwdReceivedDamageDraw(effectText, source)          != null) return "IfSelfFwdReceivedDamageDraw";
         if (tryParseIfRfpCount(effectText, source)               != null) return "IfRfpCount";
@@ -1702,6 +1749,7 @@ public class ActionResolver {
         if (tryParseCancelStackEntry(effectText)               != null) return "CancelSummonOrAutoAbility";
         // Mirrors parse(): ahead of the general redirect, which would otherwise claim the name.
         if (tryParseRedirectChosenTarget(effectText, source)   != null) return "RedirectChosenTarget";
+        if (tryParseCopyChosenAutoAbilityOnStack(effectText, source) != null) return "CopyChosenAutoAbilityOnStack";
         if (tryParseCancelAbilityOnStack(effectText)           != null) return "CancelAbilityOnStack";
         if (tryParseCancelChosenTargetUnlessPay(effectText)    != null) return "CancelChosenTargetUnlessPay";
         if (tryParseCancelChosenTargetUnlessDiscard(effectText) != null) return "CancelChosenTargetUnlessDiscard";
@@ -1774,6 +1822,8 @@ public class ActionResolver {
         if (tryParseSelfAttacksPerOwnDamage(effectText, source) != null) return "SelfAttacksPerOwnDamage";
         if (tryParseStandaloneSelfBoost(effectText, source)   != null) return "StandaloneSelfBoost";
         if (tryParseOppFieldEntryRfgInstead(effectText)                   != null) return "OppFieldEntryRfgInstead";
+        if (tryParseStandaloneSelfLosesAllAbilities(effectText, source) != null) return "StandaloneSelfLosesAllAbilities";
+        if (tryParseOppLoseJobsUntilEot(effectText) != null) return "OppLoseJobsUntilEot";
         if (tryParseStandaloneSelfDullAndShield(effectText, source) != null) return "StandaloneSelfDullAndShield";
         if (tryParseStandaloneSelfDull(effectText, source) != null)          return "StandaloneSelfDull";
         if (tryParseDullActiveYouControl(effectText, source, 0) != null)     return "DullActiveYouControl";
@@ -1848,6 +1898,8 @@ public class ActionResolver {
         if (tryParseSelectCharCostLeExclToBz(effectText)             != null) return "SelectCharCostLeExclToBz";
         if (tryParseSelectControlledCharacterToBz(effectText)        != null) return "SelectControlledCharacterToBz";
         if (tryParseEachPlayerSelectUpToNToBreakZone(effectText)   != null) return "EachPlayerSelectUpToNToBreakZone";
+        if (tryParseEachPlayerSelectUpToNActiveDullFreeze(effectText) != null)
+            return "EachPlayerSelectUpToNActiveDullFreeze";
         if (tryParseEachPlayerDiscard(effectText)              != null) return "EachPlayerDiscard";
         if (tryParseEachPlayerSalvageFromBreakZone(effectText) != null) return "EachPlayerSalvageFromBreakZone";
         if (tryParseSelectCharacterFromBzToHand(effectText)    != null) return "SelectCharacterFromBzToHand";
@@ -1985,10 +2037,15 @@ public class ActionResolver {
         if (tryParseShuffleDeck(effectText)                                  != null) return "ShuffleDeck";
         if (tryParseNameElementOnlySelfBecomes(effectText, source) != null) return "NameElementOnlySelfBecomes";
         if (tryParseNameElementAndJobSelfBecomes(effectText, source) != null) return "NameElementAndJobSelfBecomes";
+        // Mirrors parse(), where these are the two halves of Jack Garland 27-111L. NameJob had no
+        // entry here at all and reported as unnamed while fullDescription named it.
+        if (tryParseNamedJobReference(effectText, source, 0) != null) return "NamedJobReference";
+        if (tryParseNameJob(effectText, source)             != null) return "NameJob";
         if (tryParseGrantPartyAnyElementThisTurn(effectText) != null) return "GrantPartyAnyElementThisTurn";
         if (tryParseSourcePowerBecomesRemovedForwardPower(effectText, source) != null) return "SourcePowerBecomesRemovedPower";
         if (tryParseSourcePowerBecomesOpponentWeakestForward(effectText, source) != null) return "SourcePowerBecomesOpponentWeakestForward";
         if (tryParseOpponentGainsControlOfSource(effectText, source) != null) return "OpponentGainsControlOfSource";
+        if (tryParseMayGiveSourceControlToOpponent(effectText, source) != null) return "MayGiveSourceControlToOpponent";
         if (tryParseIfSourceUsedSpecialsThisTurn(effectText, source, 0)  != null) return "IfSourceUsedSpecialsThisTurn";
         if (tryParseIfOwnForwardFormedParty(effectText, source, 0)       != null) return "IfOwnForwardFormedParty";
         if (tryParseIfControlAtMost(effectText, source, 0)             != null) return "IfControlAtMost";
@@ -1998,6 +2055,9 @@ public class ActionResolver {
         // gated sentence falls through to RemoveNamedFromGame, which find()s a name out of the
         // counter clause and would answer for a parser that never runs.
         if (tryParseWarpCounterCountGate(effectText, source, 0)        != null) return "WarpCounterCountGate";
+        // Mirrors parse(): the generic counter gate is read after every counter that has a parser
+        // of its own, so it names only what those leave.
+        if (tryParseCountersOnSelfGate(effectText, source, 0) != null) return "CountersOnSelfGate";
         if (tryParseIfOppControlsNOrMoreCondTypeGate(effectText, source, 0) != null) return "IfOppControlsNOrMoreCondType";
         if (tryParseDiscardConditionalElement(effectText, source, 0)   != null) return "DiscardConditionalElement";
         if (tryParseDiscardConditionalElementSingle(effectText, source, 0) != null) return "DiscardConditionalElementSingle";
@@ -2323,6 +2383,12 @@ public class ActionResolver {
                     + describeOrName(gateTailText(tailTxt, source, 0), source) + ")";
         }
         // Mirrors parse(): described like the gates above, with the guarded effect inside.
+        if (tryParseCrystalHeldGate(effectText, source, 0) != null) {
+            Matcher cg = CRYSTAL_HELD_GATE.matcher(effectText.trim());
+            if (!cg.matches()) return "CrystalHeldGate";
+            return (cg.group("negated") != null ? "IfNoCrystal(" : "IfCrystal(")
+                    + describeOrName(cg.group("inner").trim(), source) + ")";
+        }
         if (tryParseCastPaymentElementCpGate(effectText, source, 0) != null) {
             // One entry per gate, split the way the parser splits: 9-123L Chaos (MOBIUS) chains
             // three, and reading only the anchored pattern named the first and hid the rest
@@ -2431,6 +2497,14 @@ public class ActionResolver {
             return "IfWarpCounters(" + wcg.group("count") + "+ on " + wcg.group("card").trim()
                     + ": " + (innerDesc != null ? innerDesc : "?") + ")";
         }
+        // Mirrors parse() and matchedPatternName(): the generic counter gate is read after the
+        // Warp one above, which owns the counters that do not live in the counter map.
+        if (tryParseCountersOnSelfGate(effectText, source, 0) != null) {
+            Matcher cg = COUNTERS_ON_SELF_GATE.matcher(effectText.trim());
+            if (!cg.matches()) return "CountersOnSelfGate";
+            return "IfSelfCounters(" + cg.group("count") + "+ " + cg.group("counter").trim() + ": "
+                    + describeOrName(cg.group("inner").trim(), source) + ")";
+        }
         if (tryParseControlConditionGate(effectText, source, 0)        != null) {
             Matcher ccg = CONTROL_CONDITION_GATE.matcher(effectText.trim());
             if (!ccg.matches()) return "ControlConditionGate";
@@ -2534,12 +2608,23 @@ public class ActionResolver {
                 amounts.append(amounts.length() == 0 ? "" : "/").append(tiers.group("amount"));
             return "ChooseTieredDamage(" + amounts + ")";
         }
+        // Mirrors parse() and matchedPatternName(): must precede the ChooseCharacter block, which
+        // describes Xande 10-008L as "ChooseCharacter / ? + PlayOntoField" — one pick, and the
+        // filter that decides the other reported as unread.
+        if (tryParseChooseTwoCostsFromBzPlayBoth(effectText) != null) return "ChooseTwoCostsFromBzPlayBoth";
         Matcher chooseM = CHOOSE_CHARACTER_PATTERN.matcher(escapedEffectText);
         if (chooseM.find()) {
             String followup      = restorePeriodInName(chooseM.group("followup").trim(), source);
             // Mirrors the choose chain's cast-payment gate, which is settled ahead of every
             // followup parser: the condition sits between the choose and its followup, so name
             // the followup with the gate around it rather than as an effect that always happens.
+            // Gulool Ja Ja 27-007H's echo, whose amount is not in the text — it is however much
+            // the trigger dealt. Named off the whole sentence rather than the followup, because
+            // the exclusion is what makes it the echo AutoAbilityTriggers dispatches and
+            // DamageResolver resolves: 23-077H Azul and 20-065H Antlion (IV) print the same
+            // followup with no exclusion, nothing implements theirs, and they keep their "?".
+            if (AutoAbilityTriggers.FA_DAMAGE_ECHO_TO_OTHER_FORWARD.matcher(effectText.trim()).matches())
+                return "ChooseCharacter / DamageSameAmount";
             Matcher castPaidM = CAST_PAYMENT_ELEMENT_CP_GATE_CLAUSE.matcher(followup);
             if (source != null && castPaidM.lookingAt()
                     && castPaidM.group("name").trim().equalsIgnoreCase(source.name())) {
@@ -2685,6 +2770,7 @@ public class ActionResolver {
         if (tryParseCancelStackEntry(effectText)              != null) return "CancelSummonOrAutoAbility";
         // Mirrors parse(): ahead of the general redirect, which would otherwise claim the name.
         if (tryParseRedirectChosenTarget(effectText, source)  != null) return "RedirectChosenTarget";
+        if (tryParseCopyChosenAutoAbilityOnStack(effectText, source) != null) return "CopyChosenAutoAbilityOnStack";
         if (tryParseCancelAbilityOnStack(effectText)          != null) return "CancelAbilityOnStack";
         if (tryParseCancelStackEntryUnlessPay(effectText)     != null) return "CancelStackEntryUnlessPay";
         if (tryParseCancelChosenTargetUnlessPay(effectText)   != null) return "CancelChosenTargetUnlessPay";
@@ -2784,6 +2870,8 @@ public class ActionResolver {
         if (tryParseSelfAttacksPerOwnDamage(effectText, source) != null)    return "SelfAttacksPerOwnDamage";
         if (tryParseStandaloneSelfBoost(effectText, source) != null)        return "StandaloneSelfBoost";
         if (tryParseOppFieldEntryRfgInstead(effectText)                   != null) return "OppFieldEntryRfgInstead";
+        if (tryParseStandaloneSelfLosesAllAbilities(effectText, source) != null) return "StandaloneSelfLosesAllAbilities";
+        if (tryParseOppLoseJobsUntilEot(effectText) != null) return "OppLoseJobsUntilEot";
         if (tryParseStandaloneSelfDullAndShield(effectText, source) != null) return "StandaloneSelfDullAndShield";
         if (tryParseStandaloneSelfDull(effectText, source) != null)          return "StandaloneSelfDull";
         if (tryParseDullActiveYouControl(effectText, source, 0) != null)     return "DullActiveYouControl";
@@ -2857,6 +2945,8 @@ public class ActionResolver {
         if (tryParseSelectCharCostLeExclToBz(effectText)             != null)  return "SelectCharCostLeExclToBz";
         if (tryParseSelectControlledCharacterToBz(effectText)        != null)  return "SelectControlledCharacterToBz";
         if (tryParseEachPlayerSelectUpToNToBreakZone(effectText) != null)   return "EachPlayerSelectUpToNToBreakZone";
+        if (tryParseEachPlayerSelectUpToNActiveDullFreeze(effectText) != null)
+            return "EachPlayerSelectUpToNActiveDullFreeze";
         if (tryParseEachPlayerDiscard(effectText) != null)                  return "EachPlayerDiscard";
         if (tryParseEachPlayerSalvageFromBreakZone(effectText) != null)     return "EachPlayerSalvageFromBreakZone";
         if (tryParseEachPlayerDraw(effectText) != null)                     return "EachPlayerDraw";
@@ -2989,11 +3079,14 @@ public class ActionResolver {
         if (tryParseAllMonstersTemporaryForward(effectText)            != null) return "AllMonstersTemporaryForward";
         if (tryParseNameElementOnlySelfBecomes(effectText, source)      != null) return "NameElementOnlySelfBecomes";
         if (tryParseNameElementAndJobSelfBecomes(effectText, source)   != null) return "NameElementAndJobSelfBecomes";
-        if (tryParseNameJob(effectText)                                != null) return "NameJob";
+        if (tryParseNamedJobReference(effectText, source, 0) != null)
+            return "NamedJob(" + describeOrName(namedJobText(effectText, PLACEHOLDER_JOB), source) + ")";
+        if (tryParseNameJob(effectText, source)                        != null) return "NameJob";
         if (tryParseGrantPartyAnyElementThisTurn(effectText)           != null) return "GrantPartyAnyElementThisTurn";
         if (tryParseSourcePowerBecomesRemovedForwardPower(effectText, source) != null) return "SourcePowerBecomesRemovedPower";
         if (tryParseSourcePowerBecomesOpponentWeakestForward(effectText, source) != null) return "SourcePowerBecomesOpponentWeakestForward";
         if (tryParseOpponentGainsControlOfSource(effectText, source) != null) return "OpponentGainsControlOfSource";
+        if (tryParseMayGiveSourceControlToOpponent(effectText, source) != null) return "MayGiveSourceControlToOpponent";
         if (tryParseConditionalOpponentHand(effectText, source, 0)    != null) return "ConditionalOpponentHand";
         if (tryParseConditionalOpponentHandMin(effectText, source, 0) != null) return "ConditionalOpponentHandMin";
         if (tryParseYouMayPutSelfToBZWhenDoSo(effectText, source)    != null) return "YouMayPutSelfToBZWhenDoSo";
@@ -4146,6 +4239,26 @@ public class ActionResolver {
      * Parses "Your opponent gains control of [CardName]." — permanently transfers the source
      * card itself to its controller's opponent.
      */
+    /**
+     * Parses "You may give control of [Self] to your opponent." — Leslie 16-084R.
+     *
+     * <p>The optional form of {@link #tryParseOpponentGainsControlOfSource}, and self-named the
+     * same way: the card offers itself, so a text naming another card is not this.
+     */
+    private static Consumer<GameContext> tryParseMayGiveSourceControlToOpponent(String text, CardData source) {
+        if (source == null) return null;
+        Matcher m = MAY_GIVE_SOURCE_CONTROL_TO_OPPONENT.matcher(text.trim());
+        if (!m.matches()) return null;
+        if (!m.group("name").trim().equalsIgnoreCase(source.name())) return null;
+        return ctx -> {
+            if (!ctx.promptYouMay("Give control of " + source.name() + " to your opponent?")) {
+                ctx.logEntry(source.name() + " — control not given");
+                return;
+            }
+            ctx.giveSourceControlToOpponent(source);
+        };
+    }
+
     private static Consumer<GameContext> tryParseOpponentGainsControlOfSource(String text, CardData source) {
         if (source == null) return null;
         Matcher m = STANDALONE_OPPONENT_GAINS_CONTROL.matcher(text.trim());
@@ -4552,6 +4665,59 @@ public class ActionResolver {
      * Parses the general "Choose 1 [ability type(s)] [optional filter]. Cancel its effect." family.
      * Builds a {@link java.util.function.Predicate} over {@link StackEntry} from the parsed type string.
      */
+    /**
+     * Parses Gogo 27-099H's "choose 1 auto-ability triggered from your opponent's Forward of cost
+     * 4 or less. Gogo triggers the same auto-ability."
+     *
+     * <p>Self-named, like the rest of the effects that act on their own card: the copy is
+     * triggered from the card printing the sentence.
+     *
+     * <p>The filter is built here and enforced, where the cancel family captures the same
+     * qualifier and lets it go. The two are not the same risk: a cancel offered too widely still
+     * only removes something, while a copy offered too widely hands its controller an ability the
+     * card never reached. "Your opponent's" is read against the entry's controller, and the cost
+     * against the printed cost of the card the trigger came from — which is deliberately not a
+     * check that the card is still on the field, since a Forward that has since left it triggered
+     * from one all the same.
+     */
+    private static Consumer<GameContext> tryParseCopyChosenAutoAbilityOnStack(String text, CardData source) {
+        if (source == null) return null;
+        Matcher m = COPY_CHOSEN_AUTO_ABILITY_ON_STACK.matcher(text.trim());
+        if (!m.find()) return null;
+        if (!m.group("name").trim().equalsIgnoreCase(source.name())) return null;
+        boolean opponentsOnly = m.group("opponents") != null;
+        String  typeLower     = m.group("type").toLowerCase(Locale.ROOT);
+        int     costVal       = m.group("cost") != null ? Integer.parseInt(m.group("cost")) : -1;
+        boolean costIsMore    = "more".equalsIgnoreCase(m.group("cmp"));
+        String  described     = (opponentsOnly ? "your opponent's " : "a ") + m.group("type")
+                + (costVal >= 0 ? " of cost " + costVal + " or " + (costIsMore ? "more" : "less") : "");
+        return ctx -> {
+            boolean mine = ctx.isP1();
+            java.util.function.Predicate<StackEntry> filter = e -> {
+                CardData from = e.source();
+                if (from == null) return false;
+                if (opponentsOnly && e.isP1() == mine) return false;
+                if (!matchesCardKind(from, typeLower)) return false;
+                if (costVal < 0) return true;
+                return costIsMore ? from.cost() >= costVal : from.cost() <= costVal;
+            };
+            ctx.logEntry("Effect: " + source.name() + " triggers an auto-ability of " + described);
+            ctx.copyChosenAutoAbilityOnStack(filter,
+                    "Choose an auto-ability for " + source.name() + " to trigger:", source);
+        };
+    }
+
+    /** Whether {@code card} is the card kind {@code typeLower} names ("forward", "character", …). */
+    private static boolean matchesCardKind(CardData card, String typeLower) {
+        return switch (typeLower) {
+            case "forward"   -> card.isForward();
+            case "backup"    -> card.isBackup();
+            case "monster"   -> card.isMonster();
+            case "character" -> card.isForward() || card.isBackup() || card.isMonster();
+            default          -> false;
+        };
+    }
+
     private static Consumer<GameContext> tryParseCancelAbilityOnStack(String text) {
         Matcher m = CANCEL_ABILITY_ON_STACK.matcher(text.trim());
         if (!m.find()) return null;
@@ -5219,12 +5385,40 @@ public class ActionResolver {
         }
     }
 
-    private static Consumer<GameContext> tryParseNameJob(String text) {
+    /**
+     * Parses the standalone "Name 1 Job" — Jack Garland 27-111L's entry trigger.
+     *
+     * <p>The named Job is recorded against {@code source}, which is the whole point of this
+     * printing: Jack Garland names a Job here and reads it back in two later abilities, where
+     * every other printing of "name 1 Job" spends it in the sentence that names it.
+     * {@link ActionResolverState#tryParseNamedJobReference} is the reader.
+     */
+    /**
+     * A Job token used only to check, at parse time, that the text would read once a Job is
+     * substituted into it. Never reaches a log or the board: the consumer built with it is
+     * discarded, and the one that runs is built from the Job actually named.
+     */
+    static final String PLACEHOLDER_JOB = "Knight";
+
+    /**
+     * {@code text} with "&lt;noun&gt; with the named Job" rewritten to "Job &lt;job&gt;
+     * &lt;noun&gt;" — the spelling the choose grammar already reads.
+     */
+    static String namedJobText(String text, String job) {
+        return NAMED_JOB_REFERENCE.matcher(text)
+                .replaceAll("Job " + Matcher.quoteReplacement(job) + " ${noun}");
+    }
+
+    private static Consumer<GameContext> tryParseNameJob(String text, CardData source) {
         if (!NAME_JOB_STANDALONE.matcher(text.trim()).find()) return null;
         return ctx -> {
             ctx.logEntry("Effect: Name 1 Job");
-            String job = ctx.selectJobFromDatabase();
-            if (job != null && !job.isBlank()) ctx.logEntry("Named Job: " + job);
+            // The naming card is the one that punishes the named Job, so an AI shortlists the
+            // Jobs across the table rather than its own — see selectJobNamedAgainstOpponent.
+            String job = ctx.selectJobNamedAgainstOpponent();
+            if (job == null || job.isBlank()) return;
+            ctx.logEntry("Named Job: " + job);
+            if (source != null) ctx.recordNamedJob(source, job);
         };
     }
 

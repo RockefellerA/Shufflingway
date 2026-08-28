@@ -182,6 +182,47 @@ class NameSelectionDialogs {
         return new ArrayList<>(out);
     }
 
+    /** The distinct Jobs among {@code cards}, splitting multi-job strings into their components. */
+    static List<String> collectJobs(List<CardData> cards) {
+        TreeSet<String> out = new TreeSet<>();
+        for (CardData c : cards) if (c != null) splitJobs(c.job(), out);
+        return new ArrayList<>(out);
+    }
+
+    /**
+     * The shortlist an AI should name from when the Job it names will be used <em>against</em> its
+     * opponent — Jack Garland 27-111L, whose named Job decides both what his removal takes and
+     * what he is protected from.
+     *
+     * <p>The default shortlist is the naming player's own field, which suits Bartz 18-047H (he
+     * gains the named Job) and Nayo 18-062R (she grants it), and is exactly backwards here: it had
+     * Jack Garland naming a Job he controlled and then removing one of his own Forwards at the end
+     * of every turn.
+     *
+     * <p>Preference order, first non-empty wins:
+     * <ol>
+     *   <li>Jobs on the opponent's field that the naming player does not also have — the removal
+     *       only reaches across the table, and nothing of theirs is caught by it;</li>
+     *   <li>any Job on the opponent's field, when every one of them is shared: worth taking a
+     *       Forward of theirs even at the price of exposing one of yours;</li>
+     *   <li>Jobs in the opponent's Break Zone, for the empty board — nothing is removed now, but
+     *       the protection still names something they are likely to play, and their Break Zone is
+     *       the best evidence of what that is;</li>
+     *   <li>nothing, which leaves the caller to fall back on the whole vocabulary.</li>
+     * </ol>
+     */
+    static List<String> jobsToNameAgainstOpponent(List<String> opponentField, List<String> ownField,
+                                                  List<String> opponentBreakZone) {
+        List<String> unshared = new ArrayList<>(opponentField);
+        unshared.removeAll(ownField);
+        if (!unshared.isEmpty()) return unshared;
+        if (!opponentField.isEmpty()) return opponentField;
+        List<String> bzUnshared = new ArrayList<>(opponentBreakZone);
+        bzUnshared.removeAll(ownField);
+        if (!bzUnshared.isEmpty()) return bzUnshared;
+        return opponentBreakZone;
+    }
+
     // -------------------------------------------------------------------------
 
     /**

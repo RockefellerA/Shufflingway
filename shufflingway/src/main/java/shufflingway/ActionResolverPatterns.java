@@ -72,6 +72,13 @@ final class ActionResolverPatterns {
                     "|Job\\s+.+?(?=\\s+(?:of\\s+|other\\s+than|in\\s+your|from\\s+your" +
                     "|you\\s+control|(?:your\\s+)?opponent\\s+controls)|[,.]))" +
                     "(?:\\s+Cards?)?" +
+                    // "1 Monster that is also a Forward" (Lann 10-017R, Relm 24-107L and four
+                    // others) — a Monster some effect has made a Forward for the turn, which is a
+                    // pool and not a card kind. Without it the phrase left " that is also a
+                    // Forward" unmatched before the followup separator and the whole choice
+                    // failed, so the trailing sentence was claimed on its own: Relm's "It gains
+                    // +2000 power" was read as a self-boost and lent the power to Relm.
+                    "(?:\\s+that\\s+(?:is|are)\\s+also\\s+(?:an?\\s+)?(?<alsoforward>Forwards?))?" +
                     "(?:\\s+with\\s+(?<trait>Brave|Haste|First\\s+Strike))?" +
                     "(?:\\s+that\\s+(?<postcondition>entered\\s+the\\s+field\\s+this\\s+turn|entered\\s+this\\s+turn))?" +
                     "(?:\\s+without\\s+《(?<excludekw>[^》]+)》)?" +
@@ -454,6 +461,29 @@ final class ActionResolverPatterns {
         "(?:\\s+that\\s+has\\s+only\\s+one\\s+target)?" +
         "\\.\\s*Cancel\\s+its\\s+effect[.!]?"
     );
+    /**
+     * Matches "choose 1 auto-ability triggered from [your opponent's] [type] [of cost N or
+     * less/more]. [Self] triggers the same auto-ability." — Gogo 27-099H.
+     *
+     * <p>The copy of the cancel family rather than a member of it: everything else that reads the
+     * Stack takes an entry away, and this one adds a second copy of it. Gogo has Back Attack and
+     * can only be cast on the opponent's turn, which is what puts something on the Stack for him
+     * to find.
+     *
+     * <p>Unlike {@link #CANCEL_ABILITY_ON_STACK}, whose "triggered from a Forward" qualifier is
+     * captured and not enforced, the controller and cost here are enforced: a cancel that is
+     * broader than the card says only ever declines to fire, where a copy that is broader hands
+     * its controller an ability the card never offered.
+     * Groups: {@code opponents}, {@code type}, {@code cost}, {@code cmp}, {@code name}.
+     */
+    static final Pattern COPY_CHOSEN_AUTO_ABILITY_ON_STACK = Pattern.compile(
+        "(?i)choose\\s+1\\s+auto[- ]ability\\s+triggered\\s+from\\s+" +
+        "(?<opponents>your\\s+opponent's\\s+)?(?:an?\\s+)?" +
+        "(?<type>Forward|Backup|Monster|Character)" +
+        "(?:\\s+of\\s+cost\\s+(?<cost>\\d+)\\s+or\\s+(?<cmp>less|more))?[.!]\\s*" +
+        "(?<name>.+?)\\s+triggers\\s+the\\s+same\\s+auto[- ]ability[.!]?"
+    );
+
     /**
      * The plural sibling of {@link #CANCEL_ABILITY_ON_STACK}: "Choose any number of [types].
      * Cancel their effects." — Jecht 14-108H's Jecht Block, whose list spans Summons and all three
@@ -2652,9 +2682,106 @@ final class ActionResolverPatterns {
         "all\\s+(?:the\\s+)?Forwards?\\s+you\\s+control\\s+gains?\\s+\\+?(?<amount>\\d+)\\s+[Pp]ower\\s+" +
         "and\\s+(?:the\\s+)?named\\s+(?:Job\\s+or\\s+(?:an?\\s+)?Element|(?:an?\\s+)?Element\\s+or\\s+Job)[.!]?"
     );
+    /**
+     * Matches "you may give control of [Self] to your opponent." — Leslie 16-084R, offered at the
+     * end of each of her controller's turns.
+     *
+     * <p>The optional, self-offering sibling of {@link #STANDALONE_OPPONENT_GAINS_CONTROL}, which
+     * is the same transfer stated as a fact rather than a choice. Group: {@code name}.
+     */
+    static final Pattern MAY_GIVE_SOURCE_CONTROL_TO_OPPONENT = Pattern.compile(
+        "(?i)^you\\s+may\\s+give\\s+control\\s+of\\s+(?<name>.+?)" +
+        "\\s+to\\s+your\\s+opponent[.!]?$"
+    );
+
+    /**
+     * Matches "choose up to N [Element] [type] of cost X and up to M [Element] [type] of cost Y in
+     * your Break Zone. Play them onto the field." — Xande 10-008L, the only printing that makes two
+     * cost-specific picks out of one Break Zone in a single sentence.
+     *
+     * <p>Two pools, not one: a cost-1 Forward and a cost-3 Forward, each optional. The choose
+     * grammar reads one filter per sentence, so it took the first half and left the rest to be
+     * claimed off the tail — Xande played the cost-1 Forward and the cost-3 pick was never offered.
+     * Groups: {@code count1}/{@code elem1}/{@code type1}/{@code cost1}, and the same numbered 2.
+     */
+    static final Pattern CHOOSE_TWO_COSTS_FROM_BZ_PLAY_BOTH = Pattern.compile(
+        "(?i)choose\\s+up\\s+to\\s+(?<count1>\\d+)\\s+(?:(?<elem1>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)\\s+)?" +
+        "(?<type1>Forwards?|Backups?|Monsters?|Characters?)\\s+of\\s+cost\\s+(?<cost1>\\d+)\\s+and\\s+" +
+        "up\\s+to\\s+(?<count2>\\d+)\\s+(?:(?<elem2>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)\\s+)?" +
+        "(?<type2>Forwards?|Backups?|Monsters?|Characters?)\\s+of\\s+cost\\s+(?<cost2>\\d+)\\s+" +
+        "in\\s+your\\s+Break\\s+Zone[.!]\\s*Play\\s+them\\s+onto\\s+the\\s+field[.!]?"
+    );
+
+    /**
+     * Matches "if you [don't ]have a 《C》, [effect]" — Kain 15-048L, who changes hands at the end
+     * of any turn his controller finishes without a Crystal.
+     * Groups: {@code negated} (present for "don't"), {@code inner}.
+     */
+    static final Pattern CRYSTAL_HELD_GATE = Pattern.compile(
+        "(?i)^if\\s+you\\s+(?<negated>don'?t\\s+)?have\\s+(?:a\\s+)?《C》,\\s*(?<inner>.+)$"
+    );
+
+    /**
+     * Matches "if N or more [X] Counters are placed on [Self], [effect]" — Number 24 20-036H,
+     * whose Barrier Counters shut him down once he has three.
+     * Groups: {@code count}, {@code counter}, {@code name}, {@code inner}.
+     */
+    static final Pattern COUNTERS_ON_SELF_GATE = Pattern.compile(
+        "(?i)^if\\s+(?<count>\\d+)\\s+or\\s+more\\s+(?<counter>.+?)\\s+Counters?\\s+" +
+        "(?:are|is)\\s+placed\\s+on\\s+(?<name>.+?),\\s*(?<inner>.+)$"
+    );
+
+    /**
+     * Matches "all Characters [your ]opponent controls lose their Jobs until the end of the turn."
+     * — Exdeath 3-100L, the corpus's only Job removal.
+     * Group: {@code targets}.
+     */
+    static final Pattern ALL_OPP_LOSE_JOBS_UNTIL_EOT = Pattern.compile(
+        "(?i)^all\\s+(?:the\\s+)?(?<targets>Characters?|Forwards?|Backups?|Monsters?)\\s+" +
+        "(?:your\\s+)?opponent\\s+controls?\\s+lose\\s+(?:their|its)\\s+Jobs?\\s+" +
+        "until\\s+the\\s+end\\s+of\\s+the\\s+turn[.!]?$"
+    );
+
+    /**
+     * Matches "[Self] loses all its abilities until the end of the turn." standing alone —
+     * Airborne Trooper 9-024C, whose own trigger strips him whenever another Forward joins him.
+     *
+     * <p>Every other printing of this sentence is a choose followup, where "it" is the card the
+     * choice named. This one names its own card and has no choice in front of it.
+     * Group: {@code name}.
+     */
+    static final Pattern STANDALONE_SELF_LOSES_ALL_ABILITIES = Pattern.compile(
+        "(?i)^(?<name>.+?)\\s+loses\\s+all\\s+(?:its|their)\\s+abilities\\s+" +
+        "until\\s+the\\s+end\\s+of\\s+the\\s+turn[.!]?$"
+    );
+
     /** Matches the standalone "Name 1 Job" / "Select a Job" ETF effect. */
     static final Pattern NAME_JOB_STANDALONE = Pattern.compile(
         "(?i)^(?:name\\s+1|select\\s+a)\\s+Job[.!]?$"
+    );
+
+    /**
+     * Matches a reference back to a Job named earlier — "&lt;N&gt; Forward(s) with the named Job",
+     * Jack Garland 27-111L's "choose 1 Forward with the named Job. Remove it from the game."
+     *
+     * <p>Locates the phrase rather than the whole sentence, because it is used to rewrite the text
+     * with the Job substituted in ("choose 1 Job Knight Forward. …") and hand the result back to
+     * the ordinary chain. {@code noun} is what the Job qualifies, and is carried across the
+     * rewrite so the target type survives it.
+     *
+     * <p>Only reads <em>back</em>. The other seven printings of "the named Job" name it in the
+     * same sentence they spend it in — Shadow Lord 17-079L breaks with it, Xande 27-010L strips
+     * abilities with it — and there is nothing recorded to read at the point those resolve, so
+     * {@link #NAMES_A_JOB_ITSELF} keeps them out.
+     */
+    static final Pattern NAMED_JOB_REFERENCE = Pattern.compile(
+        "(?i)(?<noun>Forwards?|Backups?|Monsters?|Characters?)\\s+with\\s+" +
+        "(?:the\\s+)?named\\s+Job\\b"
+    );
+
+    /** Matches an ability that names a Job itself, rather than reading one named earlier. */
+    static final Pattern NAMES_A_JOB_ITSELF = Pattern.compile(
+        "(?i)\\bname\\s+1\\s+Job\\b"
     );
 
     // =========================================================================================
@@ -3722,6 +3849,26 @@ final class ActionResolverPatterns {
         "(?:he/she|they)\\s+controls?\\s*" +
         "(?:\\(select\\s+as\\s+many\\s+as\\s+possible\\)[.!]?\\s*)?" +
         "Put\\s+them\\s+into\\s+the\\s+Break\\s+Zone[.!]?"
+    );
+    /**
+     * The dull-and-Freeze sibling of {@link #EACH_PLAYER_SELECT_UP_TO_N_TO_BREAK_ZONE} — Cloud of
+     * Darkness 10-028L's "each player selects up to 2 active Characters he/she controls (select as
+     * many as possible). Dull them and Freeze them.", the only printing of this shape.
+     *
+     * <p>"up to N" with "(select as many as possible)" behind it is not a choice about how many:
+     * both players take min(N, eligible), and the only choice is which. The parenthetical is what
+     * says so, so it is required here rather than optional as it is in the sibling above.
+     *
+     * <p>"active" is a state filter on the pool, not decoration: a card already dull cannot be
+     * selected, which is what keeps a second attack in the same turn from finding the same
+     * Characters again. Groups: {@code count}, {@code targets}.
+     */
+    static final Pattern EACH_PLAYER_SELECT_UP_TO_N_ACTIVE_DULL_FREEZE = Pattern.compile(
+        "(?i)Each\\s+player\\s+selects?\\s+up\\s+to\\s+(?<count>\\d+)\\s+active\\s+" +
+        "(?<targets>Characters?|Forwards?|Backups?|Monsters?)\\s+" +
+        "(?:he/she|they)\\s+controls?\\s*" +
+        "\\(select\\s+as\\s+many\\s+as\\s+possible\\)[.!]?\\s*" +
+        "Dull\\s+them\\s+and\\s+Freeze\\s+them[.!]?"
     );
     /**
      * Matches "Each player reveals the top card of his/her deck. Each player who revealed a
@@ -6509,6 +6656,25 @@ final class ActionResolverPatterns {
      * cast it as though you owned it this turn. [If you cast it, remove that Summon from the game after
      * use instead of putting it in the Break Zone.]" (Krile 12-061L)
      */
+    /**
+     * The same effect as {@link #CHOOSE_SUMMONS_FROM_BZ_GAME} on the printings that leave the
+     * duration unsaid — Man in Black 17-096H, whose reprint adds the "During this game," the
+     * original omits. Both mean the same thing: the permission has no end, so it lasts the game.
+     *
+     * <p>End-anchored, where the explicit form ends in {@code .*}. That is the whole safeguard:
+     * "at any time you could normally cast it <em>this turn</em>" is a different card's effect,
+     * and only the anchor keeps this off it.
+     */
+    static final Pattern CHOOSE_SUMMONS_FROM_BZ_GAME_IMPLICIT = Pattern.compile(
+        "(?is)[Cc]hoose\\s+(?<count>\\d+)\\s+Summons?\\s+(?:in|from)\\s+" +
+        "(?<scope>your\\s+and/or\\s+your\\s+opponent'?s|either\\s+player'?s|your\\s+opponent'?s|your)" +
+        "\\s+Break\\s+Zone[.!]?\\s+" +
+        "Remove\\s+(?:it|them)\\s+from\\s+the\\s+game[.!]?\\s+" +
+        "[Yy]ou\\s+can\\s+cast\\s+(?:it|them)\\s+" +
+        "(?:as\\s+though\\s+you\\s+owned\\s+(?:it|them)\\s+)?" +
+        "at\\s+any\\s+time\\s+you\\s+could\\s+normally\\s+cast\\s+(?:it|them)\\s*[.!]?$"
+    );
+
     static final Pattern CHOOSE_SUMMONS_FROM_BZ_TURN = Pattern.compile(
         "(?is)[Cc]hoose\\s+(?<count>\\d+)\\s+Summons?\\s+from\\s+(?<scope>your\\s+and/or\\s+your\\s+opponent'?s|either\\s+player'?s|your\\s+opponent'?s|your)\\s+Break\\s+Zone[.!]?\\s+" +
         "You\\s+can\\s+cast\\s+(?:it|them)\\s+as\\s+though\\s+you\\s+owned\\s+(?:it|them)\\s+this\\s+turn[.!]?" +
