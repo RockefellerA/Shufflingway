@@ -149,6 +149,11 @@ class ComputerPlayer implements OpponentController {
 			mw.lastCastPaymentElements.add(element);
 			mw.lastCastActualPaymentElements.add(element);
 			mw.lastCastPaymentCard = card;
+			// The AI pays out of a CP pool rather than by dulling named Backups, so no Backup
+			// produced this CP. Cleared rather than left alone: a stale record from an earlier
+			// cast would let a "CP only produced by Backups" gate pass on a payment that had none.
+			mw.lastCastPaymentBackups.clear();
+			mw.lastCastWasPaidByBackupsOnly = false;
 			mw.lastCardWasCast = true;
 			mw.noteCardCast(card, false);
 			if (card.isSummon()) { mw.p2Turn.summonCastThisTurn = true; mw.noteDoublecastSummonCast(false, card); }
@@ -227,6 +232,10 @@ class ComputerPlayer implements OpponentController {
 		if (!freeCast)
 			for (String e : elems) if (!e.isEmpty()) { mw.lastCastPaymentElements.add(e); mw.lastCastActualPaymentElements.add(e); }
 		mw.lastCastPaymentCard = toPlay;
+		// See the note on the Limit Break path above: the pool payment names no Backups, and the
+		// previous cast's record must not be left standing for a Backup-source gate to read.
+		mw.lastCastPaymentBackups.clear();
+		mw.lastCastWasPaidByBackupsOnly = false;
 
 		mw.logEntry("[P2] Plays " + toPlay.name()
 				+ (freeCast && mw.p2DoublecastFreeSummons ? " (free — Doublecast)" : ""));

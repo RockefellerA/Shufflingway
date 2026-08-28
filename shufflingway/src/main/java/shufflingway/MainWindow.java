@@ -1085,6 +1085,13 @@ public class MainWindow {
 	/** True if the most recently cast card was paid entirely by dulling Backups (no hand discards). */
 	boolean lastCastWasPaidByBackupsOnly = false;
 	/**
+	 * The Backups actually dulled to produce CP for the most recent cast, in payment order. Read by
+	 * {@code GameContext.castCpOnlyFromBackups} for the gates that ask <em>which</em> Backups paid
+	 * (7-092C Thancred's "only produced by Category XIV Backups"), which
+	 * {@link #lastCastWasPaidByBackupsOnly} alone cannot answer.
+	 */
+	final List<CardData> lastCastPaymentBackups = new ArrayList<>();
+	/**
 	 * The card whose departure fired the "put into the Break Zone" trigger now resolving, or
 	 * {@code null} outside one — Lunafreya 8-132L's "play the Forward placed in the Break Zone onto
 	 * the field dull" is the effect that reads it.
@@ -3237,6 +3244,8 @@ public class MainWindow {
 		lastCastPaymentDistinctElements = 0;
 		lastCastPaymentElements.clear();
 		lastCastPaymentCard = null;
+		lastCastPaymentBackups.clear();
+		lastCastWasPaidByBackupsOnly = false;
 
 		// Monster zone
 		if (p1MonsterPanel != null) {
@@ -9627,6 +9636,7 @@ public class MainWindow {
 		if (!isLD) for (String e : elems) execCostByElem.put(e, 1);
 		Map<String, Integer> execCpAccum = new LinkedHashMap<>();
 		lastCastActualPaymentElements.clear();
+		lastCastPaymentBackups.clear();
 
 		// Backups: sort by fewest element matches first for optimal assignment.
 		List<Integer> sortedBackups = new ArrayList<>(backupDullIndices);
@@ -9634,6 +9644,7 @@ public class MainWindow {
 				(int) Arrays.stream(elems)
 						.filter(e -> effectiveContainsElement(backupCards[s], e)).count()));
 		for (int bi : sortedBackups) {
+			lastCastPaymentBackups.add(backupCards[bi]);
 			backupStates[bi] = CardState.DULL;
 			if (isP1) animateDullBackup(bi, true); else animateDullP2Backup(bi, true);
 			String cpElem;
@@ -9804,12 +9815,14 @@ public class MainWindow {
 		if (!isLD) for (String e : elems) execCostByElem.put(e, 1);
 		Map<String, Integer> execCpAccum = new LinkedHashMap<>();
 		lastCastActualPaymentElements.clear();
+		lastCastPaymentBackups.clear();
 
 		List<Integer> sortedBackups = new ArrayList<>(backupDullIndices);
 		if (!isLD) sortedBackups.sort(Comparator.comparingInt(s ->
 				(int) Arrays.stream(elems)
 						.filter(e -> effectiveContainsElement(p1BackupCards[s], e)).count()));
 		for (int bi : sortedBackups) {
+			lastCastPaymentBackups.add(p1BackupCards[bi]);
 			p1BackupStates[bi] = CardState.DULL;
 			animateDullBackup(bi, true);
 			String cpElem;

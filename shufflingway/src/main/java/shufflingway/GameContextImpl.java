@@ -4089,6 +4089,20 @@ final class GameContextImpl implements GameContext {
 				return card != null && mw.lastCastPaymentCard == card
 						? mw.lastCastPaymentElements.size() : 0;
 			}
+			@Override public boolean castPaymentWasOnlyElement(CardData card, String element) {
+				// Identity on the payer, like castPaymentDistinctElementsFor: a card that reached
+				// the field without being paid for must not inherit the previous cast's payment.
+				if (card == null || element == null || mw.lastCastPaymentCard != card) return false;
+				return mw.lastCastPaymentElements.size() == 1
+						&& mw.lastCastPaymentElements.iterator().next().equalsIgnoreCase(element);
+			}
+			@Override public boolean castCpOnlyFromBackups(CardData card, String category) {
+				if (card == null || mw.lastCastPaymentCard != card) return false;
+				if (!mw.lastCastWasPaidByBackupsOnly || mw.lastCastPaymentBackups.isEmpty()) return false;
+				if (category == null) return true;
+				return mw.lastCastPaymentBackups.stream().allMatch(b -> b != null
+						&& (category.equalsIgnoreCase(b.category1()) || category.equalsIgnoreCase(b.category2())));
+			}
 			@Override public int opponentCrystalCount() { return mw.playerCrystals(!isP1); }
 
 			@Override public void damageFieldForwardByName(String cardName, int amount) {
@@ -4285,6 +4299,43 @@ final class GameContextImpl implements GameContext {
 				}
 				logSelectedOwnCard(oppIsP1, pick);
 				forceTargetToBreakZone(pick);
+				return true;
+			}
+
+			@Override public boolean opponentMayDiscardCards(int count, String sourceName) {
+				boolean oppIsP1 = !isP1;
+				List<CardData> oppHand = oppIsP1 ? mw.gameState.getP1Hand() : mw.gameState.getP2Hand();
+				// All-or-nothing, as the discard-cost sibling is: an opponent who cannot pay the
+				// whole price is not offered the choice, and the consequence lands.
+				if (oppHand.size() < count) {
+					logEntry("Effect: opponent cannot discard " + count + " card(s) — declined by default");
+					return false;
+				}
+				if (oppIsP1) {
+					int choice = mw.showEffectOptionDialog(
+							sourceName + " — discard " + count + " card" + (count == 1 ? "" : "s") + "?",
+							"Discard or Decline", new Object[]{"Discard", "Decline"});
+					if (choice != 0) {
+						logEntry("Effect: opponent declined to discard");
+						return false;
+					}
+					mw.showForcedDiscardDialog(count, true);   // modal; discards exactly `count`
+				} else {
+					// The AI weighs the two prices rather than always paying: two cards is steep,
+					// so it only buys out while it can spare them.
+					if (oppHand.size() <= count + 1) {
+						logEntry("[P2] Declines to discard " + count + " card(s)");
+						return false;
+					}
+					for (int i = 0; i < count; i++) {
+						int idx = MainWindow.pickWorstHandCard0(mw.gameState.getP2Hand());
+						CardData d = mw.playerBreakFromHand(false, idx);
+						if (d != null) logEntry("[P2] Discards " + d.name());
+					}
+					mw.refreshP2HandCountLabel();
+					mw.refreshP2BreakLabel();
+				}
+				logEntry("Effect: opponent discarded " + count + " card(s)");
 				return true;
 			}
 

@@ -356,10 +356,13 @@ final class ActionResolverPatterns {
     /**
      * Matches "Choose up to N [type1], up to N [type2], and up to N [type3]. [followup]"
      * — up to one card of each of three different types.
+     *
+     * <p>The serial comma ahead of "and" is optional: 11-130L and B-039 Sephiroth print it,
+     * 7-029H Kefka does not.
      */
     static final Pattern CHOOSE_THREE_MIXED_TYPES_PATTERN = Pattern.compile(
         "(?i)Choose\\s+up\\s+to\\s+(?<count1>\\d+)\\s+(?<type1>Forwards?|Backups?|Characters?|Monsters?),\\s+" +
-        "up\\s+to\\s+(?<count2>\\d+)\\s+(?<type2>Forwards?|Backups?|Characters?|Monsters?),\\s+and\\s+" +
+        "up\\s+to\\s+(?<count2>\\d+)\\s+(?<type2>Forwards?|Backups?|Characters?|Monsters?),?\\s+and\\s+" +
         "up\\s+to\\s+(?<count3>\\d+)\\s+(?<type3>Forwards?|Backups?|Characters?|Monsters?)[.]?\\s+" +
         "(?<followup>.+)"
     );
@@ -2353,12 +2356,23 @@ final class ActionResolverPatterns {
     /**
      * Matches "it cannot attack or block until the end of your opponent's turn" or
      * "…until the end of the next turn".
+     *
+     * <p>The quoted arm takes "gain" as well as "gains", because the plural subject takes the
+     * plural verb: 20-072C Gigas (FFCC) chooses one Forward and says "It gains …", 29-070R Dragon
+     * Zombie chooses up to three and says "They gain …". The verb is the only difference between
+     * the two texts.
+     *
+     * <p>Only the persistent member of the family takes "gain" — the one-turn
+     * {@link #FOLLOWUP_CANNOT_ATTACK_OR_BLOCK} deliberately does not. Its one "They gain" text
+     * (21-092R Man in Black) puts the grant behind "If your opponent doesn't pay 《3》", which no
+     * followup branch reads; widening that pattern would claim the grant off the tail of the
+     * sentence under {@code find()} and apply it whether or not the toll was paid.
      */
     static final Pattern FOLLOWUP_CANNOT_ATTACK_OR_BLOCK_PERSISTENT = Pattern.compile(
         "(?i)(?:it|they)\\s+(?:" +
             "cannot\\s+attack\\s+or\\s+block\\s+until\\s+the\\s+end\\s+of\\s+" +
                 "(?:your\\s+opponent's|the\\s+next)\\s+turn" +
-            "|gains\\s+\"This\\s+(?:Forward|Character|Backup|Monster)\\s+cannot\\s+attack\\s+or\\s+block\\.\"\\s+until\\s+the\\s+end\\s+of\\s+" +
+            "|gains?\\s+\"This\\s+(?:Forward|Character|Backup|Monster)\\s+cannot\\s+attack\\s+or\\s+block\\.\"\\s+until\\s+the\\s+end\\s+of\\s+" +
                 "(?:your\\s+opponent's|the\\s+next)\\s+turn" +
         ")\\.?"
     );
@@ -4804,9 +4818,13 @@ final class ActionResolverPatterns {
      * [Element] [Backups/Forwards] you control. [followup]"
      * Groups: {@code element} — element name; {@code cardtype} — "Backups" or "Forwards";
      *         {@code followup} — effect sentence(s) to apply to the chosen targets.
+     *
+     * <p>Takes "of cost" alongside "with a cost": Edea's reprint (Re-122L/2-099L) rewords the
+     * original 2-099L's "with a cost inferior or equal to" as "of cost equal to or less than",
+     * and the two printings are the same card.
      */
     static final Pattern CHOOSE_OPP_FWD_DYN_COST_BREAK = Pattern.compile(
-        "(?i)Choose\\s+1\\s+Forward\\s+(?:your\\s+)?opponent\\s+controls\\s+with\\s+a\\s+cost\\s+" +
+        "(?i)Choose\\s+1\\s+Forward\\s+(?:your\\s+)?opponent\\s+controls\\s+(?:with\\s+a\\s+cost|of\\s+cost)\\s+" +
         "(?:inferior\\s+or\\s+equal\\s+to|equal\\s+or\\s+inferior\\s+to|equal\\s+to\\s+or\\s+(?:less\\s+than|inferior))\\s+" +
         "the\\s+number\\s+of\\s+(?<element>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)\\s+" +
         "(?<cardtype>Backups?|Forwards?)\\s+you\\s+control[.,]?\\s+(?<followup>.+)"
@@ -7330,6 +7348,67 @@ final class ActionResolverPatterns {
         "(?is)^If\\s+the\\s+cost\\s+to\\s+(?:play|cast)\\s+(?<card>[^,]+?)\\s+" +
         "didn'?t\\s+include\\s+CP\\s+of\\s+(?<count>\\d+)\\s+or\\s+more\\s+different\\s+Elements,\\s+" +
         "(?<effect>.+?)\\s*$"
+    );
+    /**
+     * Matches "If the cost to play/cast &lt;name&gt; was paid with CP of exactly &lt;n&gt;
+     * different Elements, &lt;effect&gt;." — 7-029H Kefka and 9-021R Varis.
+     *
+     * <p>"Exactly" is a window, not the floor {@code CardData}'s {@code FA_CAST_PAYMENT_ELEMENTS}
+     * strips into {@link AutoAbility#castPaymentMinElements()} — which is why that stripper does
+     * not claim this wording and the condition survives as a prefix for this gate to read. A
+     * fourth Element paid must fail it, and against a floor it would pass.
+     *
+     * <p>Groups: {@code card}, {@code count}, {@code effect}.
+     */
+    static final Pattern CAST_PAYMENT_EXACT_ELEMENTS_GATE = Pattern.compile(
+        "(?is)^If\\s+the\\s+cost\\s+to\\s+(?:play|cast)\\s+(?<card>[^,]+?)\\s+was\\s+paid\\s+" +
+        "with\\s+CP\\s+of\\s+exactly\\s+(?<count>\\d+)\\s+different\\s+Elements,\\s+" +
+        "(?<effect>.+?)\\s*$"
+    );
+    /**
+     * Matches "If the cost to play/cast &lt;name&gt; was only paid with &lt;Element&gt; CP,
+     * &lt;effect&gt;." — 7-029H Kefka, 7-046R Vata and their siblings.
+     *
+     * <p>Distinct from {@link #CAST_PAYMENT_ELEMENT_CP_GATE}, which asks whether an Element was
+     * <em>among</em> the CP spent ("included Lightning CP"): this one asks whether it was the only
+     * one, so a payment mixing in a second Element fails it. Both are anchored prefixes over the
+     * whole effect, and their wordings do not overlap.
+     *
+     * <p>Groups: {@code card}, {@code element}, {@code effect}.
+     */
+    static final Pattern CAST_PAYMENT_ONLY_ELEMENT_CP_GATE = Pattern.compile(
+        "(?is)^If\\s+the\\s+cost\\s+to\\s+(?:play|cast)\\s+(?<card>[^,]+?)\\s+was\\s+only\\s+paid\\s+" +
+        "with\\s+(?<element>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)\\s+CP,\\s+" +
+        "(?<effect>.+?)\\s*$"
+    );
+    /**
+     * Matches "[Until the end of the turn, ]if the CP paid to play/cast &lt;name&gt; was only
+     * produced by [&lt;Category X&gt; ]Backups, &lt;effect&gt;." — 7-092C Thancred.
+     *
+     * <p>The duration sits <em>ahead</em> of the condition on Thancred, which is the whole reason
+     * this pattern captures it: the guarded effect ("Thancred gains +2000 power, Haste and First
+     * Strike") only parses with the "until the end of the turn," it was printed with, so the
+     * parser puts the captured prefix back on the front of the effect before resolving it.
+     *
+     * <p>Groups: {@code until} — the duration prefix, or null; {@code card}; {@code category} —
+     * the Category every paying Backup must carry, or null for any Backup; {@code effect}.
+     */
+    static final Pattern CAST_CP_PRODUCED_BY_BACKUPS_GATE = Pattern.compile(
+        "(?is)^(?<until>Until\\s+the\\s+end\\s+of\\s+the\\s+turn,\\s+)?" +
+        "If\\s+the\\s+CP\\s+paid\\s+to\\s+(?:play|cast)\\s+(?<card>[^,]+?)\\s+was\\s+only\\s+produced\\s+" +
+        "by\\s+(?:Category\\s+(?<category>\\S+)\\s+)?Backups,\\s+(?<effect>.+?)\\s*$"
+    );
+    /**
+     * Matches "Your opponent may discard &lt;n&gt; cards. If he/she doesn't, &lt;effect&gt;."
+     * — 7-029H Kefka, the corpus's one buy-out offer priced in cards from hand.
+     *
+     * <p>The opponent holds the decision and the effect is the price of declining, so the two
+     * halves are read together: matching only the consequence sentence would apply it whether or
+     * not the offer was taken. Groups: {@code count}, {@code effect}.
+     */
+    static final Pattern OPPONENT_MAY_DISCARD_ELSE_EFFECT = Pattern.compile(
+        "(?is)^Your\\s+opponent\\s+may\\s+discard\\s+(?<count>\\d+)\\s+cards?[.!]\\s+" +
+        "If\\s+(?:he/she|they|s?he)\\s+doesn'?t(?:\\s+do\\s+so)?,\\s+(?<effect>.+?)\\s*$"
     );
     /**
      * Matches "if you control [cond] other than [name], [effect]."

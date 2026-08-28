@@ -279,6 +279,149 @@ final class ActionResolverGate {
     }
 
     /**
+     * Parses "If the cost to play/cast &lt;Self&gt; was paid with CP of exactly &lt;n&gt; different
+     * Elements, &lt;effect&gt;." — 7-029H Kefka and 9-021R Varis.
+     *
+     * <p>Self-named and read through {@link GameContext#castPaymentDistinctElementsFor(CardData)},
+     * like the rest of the family: the gate asks what put <em>this</em> copy on the field, and a
+     * Character that arrived by some other card's effect was paid for by nothing at all. The
+     * seat-wide counter would still be holding whatever the last cast spent.
+     *
+     * <p>Returns {@code null} when the guarded effect does not parse, so an unimplemented payoff
+     * stays visible rather than becoming a gate that checks the payment and then does nothing.
+     */
+    static Consumer<GameContext> tryParseCastPaymentExactElementsGate(
+            String text, CardData source, int xValue) {
+        if (source == null) return null;
+        Matcher m = CAST_PAYMENT_EXACT_ELEMENTS_GATE.matcher(text.trim());
+        if (!m.matches()) return null;
+        if (!m.group("card").trim().equalsIgnoreCase(source.name())) return null;
+
+        int required = Integer.parseInt(m.group("count"));
+        Consumer<GameContext> effect = parse(m.group("effect").trim(), source, xValue);
+        if (effect == null) return null;
+
+        return ctx -> {
+            int paid = ctx.castPaymentDistinctElementsFor(source);
+            if (paid != required) {
+                ctx.logEntry("Effect: " + source.name() + " was paid for with " + paid
+                        + " different Element(s), not exactly " + required + " — skipped");
+                return;
+            }
+            ctx.logEntry("Effect: cost to play " + source.name() + " was paid with CP of exactly "
+                    + required + " different Elements — condition met");
+            effect.accept(ctx);
+        };
+    }
+
+    /**
+     * Parses "If the cost to play/cast &lt;Self&gt; was only paid with &lt;Element&gt; CP,
+     * &lt;effect&gt;." — 7-029H Kefka, 7-046R Vata.
+     *
+     * <p>The strict sibling of {@link #tryParseCastPaymentElementCpGate}, which reads the
+     * "included [Element] CP" wording: this one fails on a payment that mixed in any other
+     * Element, so it goes through {@link GameContext#castPaymentWasOnlyElement} rather than
+     * {@code wasElementCpPaid}. Self-named and identity-checked for the same reason the rest of
+     * the family is.
+     *
+     * <p>Returns {@code null} when the guarded effect does not parse, so an unimplemented payoff
+     * stays visible rather than resolving unconditionally with its condition dropped — which is
+     * what the general matchers did with these texts before this gate existed.
+     */
+    static Consumer<GameContext> tryParseCastPaymentOnlyElementCpGate(
+            String text, CardData source, int xValue) {
+        if (source == null) return null;
+        Matcher m = CAST_PAYMENT_ONLY_ELEMENT_CP_GATE.matcher(text.trim());
+        if (!m.matches()) return null;
+        if (!m.group("card").trim().equalsIgnoreCase(source.name())) return null;
+
+        String element = cap(m.group("element"));
+        Consumer<GameContext> effect = parse(m.group("effect").trim(), source, xValue);
+        if (effect == null) return null;
+
+        return ctx -> {
+            if (!ctx.castPaymentWasOnlyElement(source, element)) {
+                ctx.logEntry("Effect: " + source.name() + " was not paid for with " + element
+                        + " CP alone — skipped");
+                return;
+            }
+            ctx.logEntry("Effect: cost to play " + source.name() + " was only paid with "
+                    + element + " CP — condition met");
+            effect.accept(ctx);
+        };
+    }
+
+    /**
+     * Parses "[Until the end of the turn, ]if the CP paid to play/cast &lt;Self&gt; was only
+     * produced by [Category &lt;X&gt; ]Backups, &lt;effect&gt;." — 7-092C Thancred.
+     *
+     * <p>Thancred prints the duration ahead of the condition, so the captured "Until the end of
+     * the turn," is put back on the front of the effect before it is parsed: the guarded clause
+     * ("Thancred gains +2000 power, Haste and First Strike") is a boost that only reads as
+     * temporary with the duration attached, and dropping it would make the grant permanent.
+     *
+     * <p>Ordered after {@code tryParseBackupCpDraw}, which claims the unqualified Summon wording
+     * ("If the CP paid to cast Shiva was only produced by Backups, also draw 1 card") — that one
+     * hangs off a Summon's whole effect block rather than naming a Character on the field, and
+     * keeping it ahead of this leaves the six printings that use it on the parser they already
+     * resolved through.
+     *
+     * <p>Returns {@code null} when the guarded effect does not parse.
+     */
+    static Consumer<GameContext> tryParseCastCpProducedByBackupsGate(
+            String text, CardData source, int xValue) {
+        if (source == null) return null;
+        Matcher m = CAST_CP_PRODUCED_BY_BACKUPS_GATE.matcher(text.trim());
+        if (!m.matches()) return null;
+        if (!m.group("card").trim().equalsIgnoreCase(source.name())) return null;
+
+        String category = m.group("category") != null ? m.group("category").trim() : null;
+        String until    = m.group("until");
+        String effectTxt = (until != null ? until : "") + m.group("effect").trim();
+        Consumer<GameContext> effect = parse(effectTxt, source, xValue);
+        if (effect == null) return null;
+
+        String label = "CP paid to play " + source.name() + " was only produced by "
+                + (category != null ? "Category " + category + " " : "") + "Backups";
+        return ctx -> {
+            if (!ctx.castCpOnlyFromBackups(source, category)) {
+                ctx.logEntry("Effect: " + label + " — condition not met, skipped");
+                return;
+            }
+            ctx.logEntry("Effect: " + label + " — condition met");
+            effect.accept(ctx);
+        };
+    }
+
+    /**
+     * Parses "Your opponent may discard &lt;n&gt; cards. If he/she doesn't, &lt;effect&gt;."
+     * — 7-029H Kefka.
+     *
+     * <p>Both halves are read together on purpose. The consequence sentence matches the ordinary
+     * mass-effect matchers on its own, and letting it resolve that way applies the punishment
+     * whether or not the opponent bought their way out of it — which is what happened to this text
+     * before the pattern existed.
+     *
+     * <p>Returns {@code null} when the consequence does not parse, so an unimplemented payoff
+     * stays visible rather than becoming an offer with nothing behind it.
+     */
+    static Consumer<GameContext> tryParseOpponentMayDiscardElseEffect(
+            String text, CardData source, int xValue) {
+        Matcher m = OPPONENT_MAY_DISCARD_ELSE_EFFECT.matcher(text.trim());
+        if (!m.matches()) return null;
+        int count = Integer.parseInt(m.group("count"));
+        Consumer<GameContext> effect = parse(m.group("effect").trim(), source, xValue);
+        if (effect == null) return null;
+
+        String sourceName = source != null ? source.name() : "Ability";
+        return ctx -> {
+            ctx.logEntry("Effect: opponent may discard " + count + " card(s) to avoid the effect");
+            if (ctx.opponentMayDiscardCards(count, sourceName)) return;
+            effect.accept(ctx);
+        };
+    }
+
+    /**
      * The text a gate's conditional tail is actually resolved from: as printed, or with the
      * additive "also" removed when that is the only reading that parses.
      *

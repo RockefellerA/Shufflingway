@@ -36111,4 +36111,325 @@ public class CardBehaviorTest {
 
 	// =========================================================================================
 
+	// =========================================================================================
+	// Effect wiring — the cast-payment gate family, and the auto abilities that hang off it.
+	//
+	// Every member asks the same kind of question — what was spent to put this card on the field —
+	// and every one of them used to be dropped. The gate is a prefix over the whole effect, and
+	// each parser below it matches with find(), so the guarded half was claimed off the gate's
+	// tail and run whatever the payment had been: 7-029H Kefka froze the opponent's board on any
+	// cast, 7-046R Vata activated its Wind Backups on any cast, 9-021R Varis searched on any cast.
+	//
+	// The new members read card-scoped context queries rather than the seat-wide payment record,
+	// for the reason the Livia section above gives: nothing clears that record when a card reaches
+	// the field without being paid for, so a seat-wide read lets such a card inherit the previous
+	// cast's payment and pass a gate it never met.
+	// =========================================================================================
+
+	private static final String THANCRED_ETF =
+			"until the end of the turn, if the CP paid to play Thancred was only produced by "
+			+ "Category XIV Backups, Thancred gains +2000 power, Haste and First Strike.";
+
+	private static final String KEFKA_ICE_ETF =
+			"if the cost to play Kefka was only paid with Ice CP, your opponent may discard 2 cards. "
+			+ "If he/she doesn't, Freeze all the Forwards opponent controls.";
+
+	private static final String KEFKA_THREE_ELEMENTS_ETF =
+			"if the cost to play Kefka was paid with CP of exactly 3 different Elements, "
+			+ "choose up to 1 Forward, up to 1 Backup and up to 1 Monster. Dull them and Freeze them.";
+
+	/** A mock context that answers every gate query {@code false} / {@code 0} unless restubbed. */
+	private static GameContext gateCtx() {
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.consumePreloadedTargets()).thenReturn(null);
+		return ctx;
+	}
+
+	// ----- 7-092C Thancred: "only produced by Category XIV Backups" ---------------------------
+
+	@Test
+	void thancredsSecondTriggerNowParsesAtAll() {
+		// It did not, before this gate existed — the whole ability was silently absent.
+		CardData thancred = makeCategoryForward("Thancred", "Lightning", "XIV");
+		assertNotNull(ActionResolver.parse(THANCRED_ETF, thancred));
+		assertEquals("CastCpProducedByBackupsGate",
+				ActionResolver.matchedPatternName(THANCRED_ETF, thancred));
+	}
+
+	@Test
+	void thancredBoostsWhenCategoryXivBackupsPaidForHim() {
+		CardData thancred = makeCategoryForward("Thancred", "Lightning", "XIV");
+		GameContext ctx = gateCtx();
+		when(ctx.castCpOnlyFromBackups(thancred, "XIV")).thenReturn(true);
+
+		ActionResolver.parse(THANCRED_ETF, thancred).accept(ctx);
+
+		verify(ctx).boostSourceForward(thancred, 2000,
+				EnumSet.of(CardData.Trait.HASTE, CardData.Trait.FIRST_STRIKE));
+	}
+
+	@Test
+	void andDoesNotWhenTheyDidNot() {
+		CardData thancred = makeCategoryForward("Thancred", "Lightning", "XIV");
+		GameContext ctx = gateCtx();   // castCpOnlyFromBackups answers false
+
+		ActionResolver.parse(THANCRED_ETF, thancred).accept(ctx);
+
+		verify(ctx, never()).boostSourceForward(any(), anyInt(), any());
+	}
+
+	@Test
+	void theDurationSurvivesTheGateItWasPrintedBehind() {
+		// Thancred states the duration ahead of the condition. The guarded clause only reads as a
+		// temporary boost with that "until the end of the turn," attached, so the parser puts the
+		// captured prefix back before resolving it — dropping it would make the grant permanent.
+		CardData thancred = makeCategoryForward("Thancred", "Lightning", "XIV");
+		assertEquals("IfCastCpFromXIVBackups(StandalonePowerBoostUntil)",
+				ActionResolver.fullDescription(THANCRED_ETF, thancred));
+	}
+
+	@Test
+	void theBackupsGateOnlyAnswersForTheCardThatPrintsIt() {
+		assertNull(ActionResolver.parse(THANCRED_ETF, makeForward("Someone Else", "Lightning", 3, 9000)),
+				"like the rest of the family, it asks about its own carrier's arrival");
+	}
+
+	// ----- the payment record the Thancred gate reads -----------------------------------------
+
+	/** Casts {@code card} from P1's hand, paying by dulling every Backup seated ahead of it. */
+	private static MainWindow castPayingWithBackups(CardData card, CardData... backups) {
+		MainWindow mw = new MainWindow();
+		List<Integer> slots = new ArrayList<>();
+		for (int i = 0; i < backups.length; i++) {
+			mw.gameState.getIdentity().put(backups[i], true);
+			mw.p1BackupCards[i]  = backups[i];
+			mw.p1BackupStates[i] = CardState.ACTIVE;
+			slots.add(i);
+		}
+		mw.gameState.getP1Hand().add(card);
+		mw.executePlay(true, card, 0, List.of(), slots, Map.of(), null, false);
+		return mw;
+	}
+
+	@Test
+	void aPaymentMadeEntirelyByCategoryXivBackupsMeetsTheGate() {
+		CardData cast = makeForward("Cast Me", "Lightning", 2, 7000);
+		MainWindow mw = castPayingWithBackups(cast,
+				makeCategoryBackup("Minfilia", "Lightning", "XIV"),
+				makeCategoryBackup("Yshtola",  "Lightning", "XIV"));
+
+		assertTrue(mw.buildGameContext(true).castCpOnlyFromBackups(cast, "XIV"));
+	}
+
+	@Test
+	void oneBackupOfTheWrongCategoryIsEnoughToFailIt() {
+		CardData cast = makeForward("Cast Me", "Lightning", 2, 7000);
+		MainWindow mw = castPayingWithBackups(cast,
+				makeCategoryBackup("Minfilia", "Lightning", "XIV"),
+				makeCategoryBackup("Vaan",     "Lightning", "XII"));
+
+		assertFalse(mw.buildGameContext(true).castCpOnlyFromBackups(cast, "XIV"),
+				"'only produced by Category XIV Backups' is every paying Backup, not any of them");
+	}
+
+	@Test
+	void andTheGateAnswersForTheCardThatWasActuallyPaidFor() {
+		CardData cast = makeForward("Cast Me", "Lightning", 2, 7000);
+		MainWindow mw = castPayingWithBackups(cast,
+				makeCategoryBackup("Minfilia", "Lightning", "XIV"),
+				makeCategoryBackup("Yshtola",  "Lightning", "XIV"));
+
+		CardData someoneElse = makeCategoryForward("Thancred", "Lightning", "XIV");
+		assertFalse(mw.buildGameContext(true).castCpOnlyFromBackups(someoneElse, "XIV"),
+				"a Character put onto the field some other way was paid for by nothing at all");
+	}
+
+	@Test
+	void aCastWithNoBackupsBehindItFailsTheGate() {
+		CardData cast = makeForward("Cast Me", "Lightning", 0, 7000);
+		MainWindow mw = new MainWindow();
+		mw.gameState.getP1Hand().add(cast);
+		mw.executePlay(true, cast, 0, List.of(), List.of(), Map.of(), null, false);
+
+		assertFalse(mw.buildGameContext(true).castCpOnlyFromBackups(cast, null),
+				"nothing was produced by Backups, so nothing was produced only by Backups");
+	}
+
+	// ----- 7-029H Kefka: "only paid with Ice CP" ----------------------------------------------
+
+	@Test
+	void kefkaFreezesTheOpponentsBoardOnlyWhenTheyDeclineTheDiscard() {
+		CardData kefka = makeForward("Kefka", "Ice", 5, 8000);
+		GameContext ctx = gateCtx();
+		when(ctx.castPaymentWasOnlyElement(kefka, "Ice")).thenReturn(true);
+		when(ctx.opponentMayDiscardCards(2, "Kefka")).thenReturn(false);
+
+		ActionResolver.parse(KEFKA_ICE_ETF, kefka).accept(ctx);
+
+		verify(ctx).applyMassFieldEffect(eq(GameContext.MassAction.FREEZE), anyBoolean(), anyBoolean(),
+				anyBoolean(), anyBoolean(), anyBoolean(), any(), anyInt(), any(), anyInt(), any(),
+				any(), any(), any());
+	}
+
+	@Test
+	void andTheDiscardBuysTheirBoardOutOfIt() {
+		CardData kefka = makeForward("Kefka", "Ice", 5, 8000);
+		GameContext ctx = gateCtx();
+		when(ctx.castPaymentWasOnlyElement(kefka, "Ice")).thenReturn(true);
+		when(ctx.opponentMayDiscardCards(2, "Kefka")).thenReturn(true);
+
+		ActionResolver.parse(KEFKA_ICE_ETF, kefka).accept(ctx);
+
+		verify(ctx, never()).applyMassFieldEffect(any(), anyBoolean(), anyBoolean(), anyBoolean(),
+				anyBoolean(), anyBoolean(), any(), anyInt(), any(), anyInt(), any(), any(), any(), any());
+	}
+
+	@Test
+	void aKefkaPaidForWithAnythingButIceIsNeverOfferedTheChoice() {
+		// The regression this gate exists for: the consequence sentence matches the mass-effect
+		// matchers on its own, so the whole ability used to resolve as an unconditional freeze.
+		CardData kefka = makeForward("Kefka", "Ice", 5, 8000);
+		GameContext ctx = gateCtx();   // castPaymentWasOnlyElement answers false
+
+		ActionResolver.parse(KEFKA_ICE_ETF, kefka).accept(ctx);
+
+		verify(ctx, never()).opponentMayDiscardCards(anyInt(), any());
+		verify(ctx, never()).applyMassFieldEffect(any(), anyBoolean(), anyBoolean(), anyBoolean(),
+				anyBoolean(), anyBoolean(), any(), anyInt(), any(), anyInt(), any(), any(), any(), any());
+	}
+
+	@Test
+	void onlyPaidWithIceMeansIceAndNothingElse() {
+		// The strict reading is what separates this gate from "included Ice CP" (9-123L Chaos):
+		// a second Element among the CP fails it.
+		CardData kefka = makeForward("Kefka", "Ice", 5, 8000);
+		MainWindow mw = new MainWindow();
+		mw.lastCastPaymentCard = kefka;
+		mw.lastCastPaymentElements.add("Ice");
+		assertTrue(mw.buildGameContext(true).castPaymentWasOnlyElement(kefka, "Ice"));
+
+		mw.lastCastPaymentElements.add("Fire");
+		assertFalse(mw.buildGameContext(true).castPaymentWasOnlyElement(kefka, "Ice"));
+	}
+
+	// ----- 7-029H Kefka: "CP of exactly 3 different Elements" ---------------------------------
+
+	@Test
+	void kefkaDullsAndFreezesOneOfEachTypeOnExactlyThreeElements() {
+		CardData kefka = makeForward("Kefka", "Ice", 5, 8000);
+		GameContext ctx = gateCtx();
+		when(ctx.castPaymentDistinctElementsFor(kefka)).thenReturn(3);
+		ForwardTarget picked = new ForwardTarget(false, 0, ForwardTarget.CardZone.FORWARD);
+		when(ctx.selectCharacters(anyInt(), anyBoolean(), anyBoolean(), anyBoolean(), any(), any(),
+				anyInt(), any(), anyInt(), any(), anyBoolean(), anyBoolean(), anyBoolean(),
+				any(), any(), any(), any(), anyBoolean(), any(), anyBoolean()))
+				.thenReturn(List.of(picked));
+
+		ActionResolver.parse(KEFKA_THREE_ELEMENTS_ETF, kefka).accept(ctx);
+
+		// One selection per printed clause — Forward, Backup, Monster — and the followup applied to
+		// all of them. Before the serial comma was made optional the pattern missed entirely, and
+		// the choose chain took only "up to 1 Forward" with no followup running at all.
+		verify(ctx, times(3)).selectCharacters(anyInt(), anyBoolean(), anyBoolean(), anyBoolean(),
+				any(), any(), anyInt(), any(), anyInt(), any(), anyBoolean(), anyBoolean(), anyBoolean(),
+				any(), any(), any(), any(), anyBoolean(), any(), anyBoolean());
+		verify(ctx, times(3)).dullAndFreezeTarget(picked);
+	}
+
+	@Test
+	void aFourthElementPaidFailsAnExactlyThreeGate() {
+		// "Exactly" is a window, not the floor CardData strips into castPaymentMinElements — which
+		// is why that stripper leaves this wording alone for the gate to read.
+		CardData kefka = makeForward("Kefka", "Ice", 5, 8000);
+		GameContext ctx = gateCtx();
+		when(ctx.castPaymentDistinctElementsFor(kefka)).thenReturn(4);
+
+		ActionResolver.parse(KEFKA_THREE_ELEMENTS_ETF, kefka).accept(ctx);
+
+		verify(ctx, never()).selectCharacters(anyInt(), anyBoolean(), anyBoolean(), anyBoolean(),
+				any(), any(), anyInt(), any(), anyInt(), any(), anyBoolean(), anyBoolean(), anyBoolean(),
+				any(), any(), any(), any(), anyBoolean(), any(), anyBoolean());
+	}
+
+	@Test
+	void andSoDoesTwo() {
+		CardData kefka = makeForward("Kefka", "Ice", 5, 8000);
+		GameContext ctx = gateCtx();
+		when(ctx.castPaymentDistinctElementsFor(kefka)).thenReturn(2);
+
+		ActionResolver.parse(KEFKA_THREE_ELEMENTS_ETF, kefka).accept(ctx);
+
+		verify(ctx, never()).dullAndFreezeTarget(any());
+	}
+
+	// ----- 29-070R Dragon Zombie: the plural verb ---------------------------------------------
+
+	private static final String DRAGON_ZOMBIE_ETF =
+			"choose up to 3 Forwards. They gain \"This Forward cannot attack or block.\" "
+			+ "until the end of your opponent's turn.";
+
+	@Test
+	void dragonZombieLocksDownEveryForwardItChose() {
+		// 20-072C Gigas prints the same grant over one Forward and says "It gains"; Dragon Zombie
+		// chooses up to three and says "They gain". The verb was the only difference, and the
+		// plural form matched nothing — the followup resolved to a "not yet implemented" log line.
+		MainWindow mw = new MainWindow();
+		CardData dragonZombie = makeForward("Dragon Zombie", "Earth", 3, 8000);
+		CardData a = makeForward("Victim A", "Fire", 3, 7000);
+		CardData b = makeForward("Victim B", "Fire", 4, 8000);
+		placeP2Forward(mw, a);
+		placeP2Forward(mw, b);
+
+		GameContext ctx = mw.buildGameContext(true);
+		Consumer<GameContext> effect = ActionResolver.parse(DRAGON_ZOMBIE_ETF, dragonZombie);
+		assertNotNull(effect, "the printed wording has to parse for the rest of this to mean anything");
+		ctx.preloadTargets(List.of(fwd(false, 0), fwd(false, 1)));
+		effect.accept(ctx);
+
+		assertTrue(mw.p2CannotAttackPersistent.containsAll(List.of(a, b)));
+		assertTrue(mw.p2CannotBlockPersistent.containsAll(List.of(a, b)));
+	}
+
+	@Test
+	void theOneTurnFormStillDoesNotTakeThePluralVerb() {
+		// 21-092R Man in Black's "they gain "…" until the end of the turn" sits behind "If your
+		// opponent doesn't pay 3", which no followup branch reads. Widening the one-turn pattern
+		// would claim the grant off the tail of that sentence under find() and apply it whether or
+		// not the toll was paid, so only the persistent member takes the plural verb.
+		assertFalse(ActionResolverPatterns.FOLLOWUP_CANNOT_ATTACK_OR_BLOCK.matcher(
+				"If your opponent doesn't pay 3, they gain \"This Forward cannot attack or block.\" "
+				+ "until the end of the turn.").find());
+	}
+
+	// ----- Re-122L/2-099L Edea: the reprint's rewording ---------------------------------------
+
+	@Test
+	void edeasReprintReadsTheSameAsHerOriginal() {
+		// 2-099L says "with a cost inferior or equal to"; the reprint says "of cost equal to or
+		// less than". Same card, same effect — the reprint simply did not parse.
+		String reprint = "choose 1 Forward opponent controls of cost equal to or less than "
+				+ "the number of Lightning Backups you control. Break it.";
+		String original = "choose 1 Forward opponent controls with a cost inferior or equal to "
+				+ "the number of Lightning Backups you control. Break it.";
+		CardData edea = makeForward("Edea", "Lightning", 5, 9000);
+
+		assertNotNull(ActionResolver.parse(reprint, edea));
+		assertEquals(ActionResolver.matchedPatternName(original, edea),
+				ActionResolver.matchedPatternName(reprint, edea));
+
+		GameContext ctx = gateCtx();
+		when(ctx.selfFieldCount("Lightning", false, true, false)).thenReturn(2);
+		ForwardTarget victim = new ForwardTarget(false, 0, ForwardTarget.CardZone.FORWARD);
+		when(ctx.selectCharacters(eq(1), eq(false), eq(true), eq(false), any(), any(),
+				eq(2), eq("less"), anyInt(), any(), anyBoolean(), anyBoolean(), anyBoolean(),
+				any(), any(), any(), any(), anyBoolean(), any(), anyBoolean()))
+				.thenReturn(List.of(victim));
+
+		ActionResolver.parse(reprint, edea).accept(ctx);
+
+		verify(ctx).breakTarget(victim);
+	}
+
+	// =========================================================================================
+
 }

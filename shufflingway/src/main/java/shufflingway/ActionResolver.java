@@ -200,10 +200,30 @@ public class ActionResolver {
         result = tryParseCastPaymentElementCpGate(effectText, source, xValue);
         if (result != null) return result;
 
+        // The strict sibling of the gate above — "only paid with Ice CP" rather than "included
+        // Lightning CP" — and here for the same reason. Left to the general matchers, 7-029H
+        // Kefka froze the opponent's board and 7-046R Vata activated its Wind Backups on every
+        // cast, whatever the CP had actually been.
+        result = tryParseCastPaymentOnlyElementCpGate(effectText, source, xValue);
+        if (result != null) return result;
+
+        // The "exactly N different Elements" member of the same family. CardData's
+        // FA_CAST_PAYMENT_ELEMENTS strips only the "N or more" wording into
+        // AutoAbility.castPaymentMinElements, so this one survives as a prefix and had its guarded
+        // half claimed off its tail — 9-021R Varis searched unconditionally.
+        result = tryParseCastPaymentExactElementsGate(effectText, source, xValue);
+        if (result != null) return result;
+
         // Beside the gate above and read for the same reason: both are prefixes, and every parser
         // below matches with find(), so a gate left for later has its guarded half claimed off its
         // tail and run whatever the condition says.
         result = tryParseCrystalHeldGate(effectText, source, xValue);
+        if (result != null) return result;
+
+        // Both halves of the offer read together. The consequence sentence matches the mass-effect
+        // matchers on its own, so leaving it to them applied the punishment whether or not the
+        // opponent paid the discard to avoid it (7-029H Kefka).
+        result = tryParseOpponentMayDiscardElseEffect(effectText, source, xValue);
         if (result != null) return result;
 
         // Must precede every effect pattern: a trailing "Draw 1 card." rides along behind a
@@ -1420,6 +1440,14 @@ public class ActionResolver {
         result = tryParseBackupCpDraw(effectText);
         if (result != null) return result;
 
+        // Must follow tryParseBackupCpDraw: that one reads the unqualified Summon wording ("If the
+        // CP paid to cast Shiva was only produced by Backups, also draw 1 card") with find(), and
+        // this gate would claim the same sentence when the fallback split hands it over alone.
+        // The general form is what 7-092C Thancred needs — a Category qualifier on the paying
+        // Backups, and an arbitrary effect behind the gate rather than a fixed draw.
+        result = tryParseCastCpProducedByBackupsGate(effectText, source, xValue);
+        if (result != null) return result;
+
         result = tryParseNameElementOnlySelfBecomes(effectText, source);
         if (result != null) return result;
 
@@ -1625,8 +1653,14 @@ public class ActionResolver {
             return "CastPaymentElementsNotIncludedGate";
         if (tryParseCastPaymentElementCpGate(effectText, source, 0) != null)
             return "CastPaymentElementCpGate";
+        if (tryParseCastPaymentOnlyElementCpGate(effectText, source, 0) != null)
+            return "CastPaymentOnlyElementCpGate";
+        if (tryParseCastPaymentExactElementsGate(effectText, source, 0) != null)
+            return "CastPaymentExactElementsGate";
         // Mirrors parse(), where these are read beside the gate above.
         if (tryParseCrystalHeldGate(effectText, source, 0) != null)   return "CrystalHeldGate";
+        if (tryParseOpponentMayDiscardElseEffect(effectText, source, 0) != null)
+            return "OpponentMayDiscardElseEffect";
         // Mirrors parse()'s first dispatch. Reported as a composite so the leading effect still
         // names itself rather than being hidden behind a "TrailingDraw" label.
         if (tryParseTrailingDraw(effectText, source, 0) != null) {
@@ -2095,6 +2129,11 @@ public class ActionResolver {
         if (CardData.HAS_ALL_ELEMENTS_PATTERN.matcher(effectText.trim()).matches()) return "HasAllElements";
         if (tryParseMultiPlayGrant(effectText) != null)                         return "MultiPlayGrant";
         if (tryParseLightDarkDiscardCpGrant(effectText) != null)                return "LightDarkDiscardCpGrant";
+        // Mirrors parse()'s position for this gate, which sits behind tryParseBackupCpDraw so the
+        // unqualified Summon wording keeps its own parser. That one has no entry in this chain, so
+        // the mirroring position here is simply "late": nothing ahead claims the qualified form.
+        if (tryParseCastCpProducedByBackupsGate(effectText, source, 0) != null)
+            return "CastCpProducedByBackupsGate";
         return null;
     }
 
@@ -2440,6 +2479,28 @@ public class ActionResolver {
             gates.add("IfCastPaid" + element + "Cp("
                     + describeOrName(gateText.substring(effectStart).trim(), source) + ")");
             return String.join(" + ", gates);
+        }
+        // Mirrors parse(): the strict sibling of the gate above — the whole payment had to be that
+        // Element, not merely include it — described the same way, with the guarded effect inside.
+        if (tryParseCastPaymentOnlyElementCpGate(effectText, source, 0) != null) {
+            Matcher oe = CAST_PAYMENT_ONLY_ELEMENT_CP_GATE.matcher(effectText.trim());
+            if (!oe.matches()) return "CastPaymentOnlyElementCpGate";
+            return "IfCastPaidOnly" + cap(oe.group("element")) + "Cp("
+                    + describeOrName(oe.group("effect").trim(), source) + ")";
+        }
+        // Mirrors parse(): the "exactly N Elements" member of the same family.
+        if (tryParseCastPaymentExactElementsGate(effectText, source, 0) != null) {
+            Matcher ee = CAST_PAYMENT_EXACT_ELEMENTS_GATE.matcher(effectText.trim());
+            if (!ee.matches()) return "CastPaymentExactElementsGate";
+            return "IfCastPaidExactElements(" + ee.group("count") + ": "
+                    + describeOrName(ee.group("effect").trim(), source) + ")";
+        }
+        // Mirrors parse(): the offer and its consequence are one clause, so both are named.
+        if (tryParseOpponentMayDiscardElseEffect(effectText, source, 0) != null) {
+            Matcher od = OPPONENT_MAY_DISCARD_ELSE_EFFECT.matcher(effectText.trim());
+            if (!od.matches()) return "OpponentMayDiscardElseEffect";
+            return "OpponentMayDiscard(" + od.group("count") + ") | else "
+                    + describeOrName(od.group("effect").trim(), source);
         }
         // Mirrors parse()'s first dispatch; see the matching guard in matchedPatternNameOn().
         if (tryParseTrailingDraw(effectText, source, 0) != null) {
@@ -3119,6 +3180,16 @@ public class ActionResolver {
         if (tryParseRevealElementCardFromHandIfSoDraw(effectText)                != null) return "RevealElementCardFromHandIfSoDraw";
         if (tryParseShuffleDeck(effectText)                              != null) return "ShuffleDeck";
         if (tryParseBackupCpDraw(effectText)                             != null) return "BackupCpDraw";
+        // Mirrors parse(): must follow BackupCpDraw, which claims the unqualified Summon wording.
+        // Described like the other cast-payment gates, with the guarded effect named inside it —
+        // and from the same text the parser resolves, duration prefix reattached.
+        if (tryParseCastCpProducedByBackupsGate(effectText, source, 0) != null) {
+            Matcher bg = CAST_CP_PRODUCED_BY_BACKUPS_GATE.matcher(effectText.trim());
+            if (!bg.matches()) return "CastCpProducedByBackupsGate";
+            String inner = (bg.group("until") != null ? bg.group("until") : "") + bg.group("effect").trim();
+            return "IfCastCpFrom" + (bg.group("category") != null ? bg.group("category") : "")
+                    + "Backups(" + describeOrName(inner, source) + ")";
+        }
         if (tryParseAllMonstersTemporaryForward(effectText)            != null) return "AllMonstersTemporaryForward";
         if (tryParseNameElementOnlySelfBecomes(effectText, source)      != null) return "NameElementOnlySelfBecomes";
         if (tryParseNameElementAndJobSelfBecomes(effectText, source)   != null) return "NameElementAndJobSelfBecomes";

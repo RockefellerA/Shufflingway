@@ -708,6 +708,35 @@ public interface GameContext {
      */
     int castPaymentDistinctElementsFor(CardData card);
 
+    /**
+     * Whether {@code card}'s own arrival was paid for entirely with CP of {@code element} — the
+     * "only paid with [Element] CP" gate (7-029H Kefka, 7-046R Vata and their siblings).
+     *
+     * <p>Stricter than {@link #wasElementCpPaid(String)}, which asks only whether that Element
+     * appeared among the CP spent: this requires it to have been the <em>sole</em> Element.
+     * Owner-checked by identity for the same reason
+     * {@link #castPaymentDistinctElementsFor(CardData)} is — a card that reached the field without
+     * being paid for must not inherit the previous cast's payment and pass a gate it never met.
+     *
+     * @param card    the card whose own arrival payment is being asked about
+     * @param element the Element the whole payment must have been made in
+     */
+    boolean castPaymentWasOnlyElement(CardData card, String element);
+
+    /**
+     * Whether {@code card}'s own arrival was paid for entirely with CP produced by Backups, and —
+     * when {@code category} is non-null — by Backups all carrying that Category. 7-092C Thancred's
+     * "if the CP paid to play Thancred was only produced by Category XIV Backups".
+     *
+     * <p>False when nothing was spent on Backups at all, and false for a card that reached the
+     * field some way other than being paid for: owner-checked by identity, like the rest of the
+     * cast-payment family.
+     *
+     * @param card     the card whose own arrival payment is being asked about
+     * @param category Category every paying Backup must carry, or {@code null} for any Backup
+     */
+    boolean castCpOnlyFromBackups(CardData card, String category);
+
     /** Returns the number of Crystal tokens (《C》) currently held by the opponent. */
     int opponentCrystalCount();
 
@@ -2257,6 +2286,21 @@ public interface GameContext {
      */
     boolean opponentMayBreakOwnCharacter(boolean forwards, boolean backups, boolean monsters,
             String sourceName);
+
+    /**
+     * Kefka 7-029H: offers the ability controller's <em>opponent</em> the option to discard
+     * {@code count} cards from hand, and reports whether they took it. The card reads "your
+     * opponent may discard 2 cards. If he/she doesn't, …" — the discard is the opponent's price
+     * for avoiding the consequence, so the decision is theirs.
+     *
+     * <p>All-or-nothing, like the discard-cost sibling
+     * {@link #cancelChosenSelectionUnlessOpponentDiscards(int)}: an opponent holding fewer than
+     * {@code count} cards cannot take the offer and is not prompted. {@code sourceName} names the
+     * printing card in the prompt so they can see what declining costs them.
+     *
+     * @return {@code true} if {@code count} cards were actually discarded
+     */
+    boolean opponentMayDiscardCards(int count, String sourceName);
 
     /**
      * Offers the <em>turn player</em> the chance to put one Character they control into the Break
