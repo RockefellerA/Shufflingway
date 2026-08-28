@@ -85,6 +85,8 @@ public class StandardPaymentDialog {
      * opposing field, which this dialog is never handed — it only ever sees the paying player's.
      */
     private final java.util.function.Function<CardData, java.util.List<String>> gainedElements;
+    /** Board lookup for "this Backup has lost its Jobs this turn"; null = nothing is stripped. */
+    private final java.util.function.Predicate<CardData> jobsStripped;
 
     public StandardPaymentDialog(JFrame owner, CardData card, int handIdx, int cost,
             List<CardData> hand, CardData[] backupCards, CardState[] backupStates,
@@ -135,7 +137,7 @@ public class StandardPaymentDialog {
             java.util.function.Function<CardData, java.util.List<String>> gainedElements) {
         this(owner, card, handIdx, cost, hand, backupCards, backupStates, backupUrls, onZoom,
                 onZoomHide, controlledForwards, onConfirm, anyElementCast, extraRequiredElements,
-                ldDiscardGrants, gainedElements, Map.of());
+                ldDiscardGrants, gainedElements, Map.of(), null);
     }
 
     /**
@@ -151,7 +153,8 @@ public class StandardPaymentDialog {
             boolean anyElementCast, String[] extraRequiredElements,
             java.util.Set<String> ldDiscardGrants,
             java.util.function.Function<CardData, java.util.List<String>> gainedElements,
-            Map<Integer, Integer> breakForCpSlots) {
+            Map<Integer, Integer> breakForCpSlots,
+            java.util.function.Predicate<CardData> jobsStripped) {
         this.owner              = owner;
         this.card               = card;
         this.handIdx            = handIdx;
@@ -169,6 +172,12 @@ public class StandardPaymentDialog {
         this.ldDiscardGrants    = ldDiscardGrants;
         this.gainedElements     = gainedElements;
         this.breakForCpSlots    = breakForCpSlots == null ? Map.of() : breakForCpSlots;
+        this.jobsStripped       = jobsStripped;
+    }
+
+    /** Whether {@code backup} has lost its Jobs this turn; false when no board was supplied. */
+    private boolean jobsStrippedOf(CardData backup) {
+        return jobsStripped != null && jobsStripped.test(backup);
     }
 
     /** The Elements {@code backup} can produce beyond its printed ones; never null. */
@@ -488,12 +497,12 @@ public class StandardPaymentDialog {
         for (CardData b : backupCards) {
             if (b != null) {
                 BackupCpGrant grant = b.backupCpGrant();
-                if (grant != null && grant.isAnyElementGrant() && grant.appliesTo(backup)) return true;
+                if (grant != null && grant.isAnyElementGrant() && grant.appliesTo(backup, jobsStrippedOf(backup))) return true;
             }
         }
         for (CardData fwd : controlledForwards) {
             BackupCpGrant grant = fwd.backupCpGrant();
-            if (grant != null && grant.isAnyElementGrant() && grant.appliesTo(backup)) return true;
+            if (grant != null && grant.isAnyElementGrant() && grant.appliesTo(backup, jobsStrippedOf(backup))) return true;
         }
         return false;
     }
@@ -504,7 +513,7 @@ public class StandardPaymentDialog {
         for (CardData b : backupCards) {
             if (b != null) {
                 BackupCpGrant grant = b.backupCpGrant();
-                if (grant != null && !grant.isAnyElementGrant() && grant.appliesTo(backup)) {
+                if (grant != null && !grant.isAnyElementGrant() && grant.appliesTo(backup, jobsStrippedOf(backup))) {
                     if (result == null) result = new java.util.ArrayList<>();
                     for (String e : grant.grantedElements()) if (!result.contains(e)) result.add(e);
                 }
@@ -512,7 +521,7 @@ public class StandardPaymentDialog {
         }
         for (CardData fwd : controlledForwards) {
             BackupCpGrant grant = fwd.backupCpGrant();
-            if (grant != null && !grant.isAnyElementGrant() && grant.appliesTo(backup)) {
+            if (grant != null && !grant.isAnyElementGrant() && grant.appliesTo(backup, jobsStrippedOf(backup))) {
                 if (result == null) result = new java.util.ArrayList<>();
                 for (String e : grant.grantedElements()) if (!result.contains(e)) result.add(e);
             }

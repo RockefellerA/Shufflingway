@@ -500,7 +500,7 @@ final class AutoAbilityTriggers {
 		String category = m.group("category");
 		if (category != null && CardFilters.meetsCategoryFilter(dealer, category)) return true;
 		String job = m.group("job");
-		return job != null && CardFilters.meetsJobFilter(dealer, job.trim());
+		return job != null && mw.meetsJobFilterEffective(dealer, job.trim());
 	}
 
 	/**
@@ -589,7 +589,7 @@ final class AutoAbilityTriggers {
 		String category = m.group("category");
 		if (category != null && CardFilters.meetsCategoryFilter(dealer, category)) return true;
 		String job = m.group("job");
-		if (job != null && CardFilters.meetsJobFilter(dealer, job.trim())) return true;
+		if (job != null && mw.meetsJobFilterEffective(dealer, job.trim())) return true;
 		String cardname = m.group("cardname");
 		if (cardname != null && CardFilters.meetsCardNameFilter(dealer, cardname.trim())) return true;
 		// An unfiltered Character arm — "an ability of a Character you control" (Ifrit, Lord of the
@@ -1152,8 +1152,12 @@ final class AutoAbilityTriggers {
 			return ability.requiresDull() && (inclSpecial || !ability.isSpecial());
 		}
 
-		/** True when {@code c} is inside the filtered set, using the shared field-filter rules. */
-		boolean coversCard(CardData c) {
+		/**
+		 * True when {@code c} is inside the filtered set, using the shared field-filter rules.
+		 *
+		 * @param jobsStripped whether {@code c} has lost its Jobs for the turn (Exdeath 3-100L)
+		 */
+		boolean coversCard(CardData c, boolean jobsStripped) {
 			if (c == null) return false;
 			boolean typeOk = (inclForwards && c.isForward())
 			              || (inclBackups  && c.isBackup())
@@ -1161,7 +1165,7 @@ final class AutoAbilityTriggers {
 			return typeOk
 				&& CardFilters.meetsCardNameFilter(c, cardName)
 				&& CardFilters.meetsCategoryFilter(c, category)
-				&& CardFilters.meetsJobFilter(c, job);
+				&& CardFilters.meetsJobFilter(c, job, jobsStripped);
 		}
 	}
 
@@ -2225,7 +2229,7 @@ final class AutoAbilityTriggers {
 				if (mw.lostAbilitiesCards.contains(owner)) continue;
 				for (IfControlBoost icb : owner.ifControlBoosts()) {
 					if (icb.specialText().isEmpty()) continue;
-					if (!icb.appliesToCard(card)) continue;
+					if (!icb.appliesToCard(card, mw.jobsStripped(card))) continue;
 					if (!mw.icbConditionsMet(icb, isP1)) continue;
 					Matcher stM = ICB_WHEN_ATTACKS.matcher(icb.specialText().trim());
 					if (!stM.find()) continue;

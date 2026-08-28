@@ -5686,7 +5686,8 @@ public class MainWindow {
 	private int applyFieldGrantBasePower(CardData src, CardData target, int base) {
 		if (lostAbilitiesCards.contains(src)) return base;
 		for (FieldPowerGrant fpg : src.fieldPowerGrants())
-			if (fpg.basePowerSet() > 0 && !fpg.affectsOpponent() && fpg.appliesToCard(target))
+			if (fpg.basePowerSet() > 0 && !fpg.affectsOpponent()
+					&& fpg.appliesToCard(target, jobsStripped(target)))
 				return fpg.basePowerSet();
 		return base;
 	}
@@ -5972,20 +5973,20 @@ public class MainWindow {
 		if (intr != null && blockerCostExcluded(blockerCost, intr)) return true;
 		for (CardData src : p1ForwardCards)
 			for (IfControlBoost icb : src.ifControlBoosts())
-				if (icb.cannotBeBlockedByCost() != null && icb.appliesToCard(attCard)
+				if (icb.cannotBeBlockedByCost() != null && icb.appliesToCard(attCard, jobsStripped(attCard))
 						&& icbConditionsMet(icb, true)
 						&& blockerCostExcluded(blockerCost, icb.cannotBeBlockedByCost()))
 					return true;
 		for (CardData bkp : p1BackupCards)
 			if (bkp != null)
 				for (IfControlBoost icb : bkp.ifControlBoosts())
-					if (icb.cannotBeBlockedByCost() != null && icb.appliesToCard(attCard)
+					if (icb.cannotBeBlockedByCost() != null && icb.appliesToCard(attCard, jobsStripped(attCard))
 							&& icbConditionsMet(icb, true)
 							&& blockerCostExcluded(blockerCost, icb.cannotBeBlockedByCost()))
 						return true;
 		for (CardData mon : p1MonsterCards)
 			for (IfControlBoost icb : mon.ifControlBoosts())
-				if (icb.cannotBeBlockedByCost() != null && icb.appliesToCard(attCard)
+				if (icb.cannotBeBlockedByCost() != null && icb.appliesToCard(attCard, jobsStripped(attCard))
 						&& icbConditionsMet(icb, true)
 						&& blockerCostExcluded(blockerCost, icb.cannotBeBlockedByCost()))
 					return true;
@@ -8456,7 +8457,7 @@ public class MainWindow {
 			// "Zangan and …" — by identity, since a card naming itself means that copy.
 			if (src == target && g.selfName() != null
 					&& g.selfName().equalsIgnoreCase(src.name())) return true;
-			if (g.coversCard(target)) return true;
+			if (g.coversCard(target, jobsStripped(target))) return true;
 		}
 		return false;
 	}
@@ -8503,12 +8504,12 @@ public class MainWindow {
 		for (CardData b : p1BackupCards) {
 			if (b != null) {
 				BackupCpGrant grant = b.backupCpGrant();
-				if (grant != null && grant.isAnyElementGrant() && grant.appliesTo(backup)) return true;
+				if (grant != null && grant.isAnyElementGrant() && grant.appliesTo(backup, jobsStripped(backup))) return true;
 			}
 		}
 		for (CardData fwd : p1ForwardCards) {
 			BackupCpGrant grant = fwd.backupCpGrant();
-			if (grant != null && grant.isAnyElementGrant() && grant.appliesTo(backup)) return true;
+			if (grant != null && grant.isAnyElementGrant() && grant.appliesTo(backup, jobsStripped(backup))) return true;
 		}
 		return false;
 	}
@@ -8519,7 +8520,7 @@ public class MainWindow {
 		for (CardData b : p1BackupCards) {
 			if (b != null) {
 				BackupCpGrant grant = b.backupCpGrant();
-				if (grant != null && !grant.isAnyElementGrant() && grant.appliesTo(backup)) {
+				if (grant != null && !grant.isAnyElementGrant() && grant.appliesTo(backup, jobsStripped(backup))) {
 					if (result == null) result = new ArrayList<>();
 					for (String e : grant.grantedElements()) if (!result.contains(e)) result.add(e);
 				}
@@ -8527,7 +8528,7 @@ public class MainWindow {
 		}
 		for (CardData fwd : p1ForwardCards) {
 			BackupCpGrant grant = fwd.backupCpGrant();
-			if (grant != null && !grant.isAnyElementGrant() && grant.appliesTo(backup)) {
+			if (grant != null && !grant.isAnyElementGrant() && grant.appliesTo(backup, jobsStripped(backup))) {
 				if (result == null) result = new ArrayList<>();
 				for (String e : grant.grantedElements()) if (!result.contains(e)) result.add(e);
 			}
@@ -9001,7 +9002,7 @@ public class MainWindow {
 				lightDarkDiscardGrants(true), warpCostAnyElement(true),
 				(discards, backups, overrides, breaks) ->
 						executeWarpPlay(card, handIdx, discards, backups, overrides, breaks),
-				this::gainedElementsForPayment, breakForCpBackupSlots(true))
+				this::gainedElementsForPayment, breakForCpBackupSlots(true), this::jobsStripped)
 			.show();
 	}
 
@@ -9307,7 +9308,7 @@ public class MainWindow {
 				(discards, backups, overrides, breaks) ->
 						executePlayFromBzP1(card, discards, backups, overrides, breaks),
 				anyElement, null, lightDarkDiscardGrants(true), this::gainedElementsForPayment,
-				breakForCpBackupSlots(true))
+				breakForCpBackupSlots(true), this::jobsStripped)
 			.show();
 	}
 
@@ -9329,7 +9330,7 @@ public class MainWindow {
 				(discards, backups, overrides, breaks) ->
 						executePlay(card, handIdx, discards, backups, overrides, breaks),
 				isAnyElementCast(card), extraElems, lightDarkDiscardGrants(true),
-				this::gainedElementsForPayment, breakForCpBackupSlots(true))
+				this::gainedElementsForPayment, breakForCpBackupSlots(true), this::jobsStripped)
 			.show();
 	}
 
@@ -12347,11 +12348,25 @@ public class MainWindow {
 	}
 
 	boolean meetsJobFilterEffective(CardData card, String jobFilter) {
+		if (jobFilter != null && jobsStripped(card)) return false;
 		return meetsJobFilter(card, jobFilter, effectiveExtraJob(card));
+	}
+
+	/**
+	 * Whether {@code card} has had its Jobs stripped for the turn — Exdeath 3-100L.
+	 *
+	 * <p>The board holds this, not the card, so it is handed to the field-grant records: they
+	 * carry a Job filter and are asked about cards on the field, but have no way to reach here.
+	 * Every one of them takes it as a parameter for that reason, the way they already take the
+	 * resolved trait set.
+	 */
+	boolean jobsStripped(CardData card) {
+		return jobsLostCards.contains(card);
 	}
 
 	boolean meetsJobFilterEffective(CardData card, String jobFilter,
 			List<CardData> controlledForwards) {
+		if (jobFilter != null && jobsStripped(card)) return false;
 		if (meetsJobFilter(card, jobFilter, controlledForwards)) return true;
 		String extra = effectiveExtraJob(card);
 		if (extra == null || jobFilter == null) return false;
@@ -12387,10 +12402,6 @@ public class MainWindow {
 
 	boolean meetsJobOrCardNameFilter(CardData card, String jobFilter, String cardNameFilter,
 			List<CardData> controlledForwards) {
-		// A card that has lost its Jobs answers no Job filter at all — not even one naming a Job
-		// it is printed with.
-		if (jobFilter != null && jobsLostCards.contains(card))
-			return cardNameFilter != null && meetsCardNameFilter(card, cardNameFilter);
 		boolean jobOk = controlledForwards != null
 				? meetsJobFilterEffective(card, jobFilter, controlledForwards)
 				: meetsJobFilterEffective(card, jobFilter);
@@ -12474,11 +12485,11 @@ public class MainWindow {
 		}
 		FieldPowerGrant filter = icb.targetFilter();
 		for (CardData c : fwds)
-			if (targetName.equalsIgnoreCase(c.name()) && icb.appliesToCard(c, fpgTargetTraits(filter, c, isP1))) return true;
+			if (targetName.equalsIgnoreCase(c.name()) && icb.appliesToCard(c, fpgTargetTraits(filter, c, isP1), jobsStripped(c))) return true;
 		for (CardData c : mons)
-			if (targetName.equalsIgnoreCase(c.name()) && icb.appliesToCard(c, fpgTargetTraits(filter, c, isP1))) return true;
+			if (targetName.equalsIgnoreCase(c.name()) && icb.appliesToCard(c, fpgTargetTraits(filter, c, isP1), jobsStripped(c))) return true;
 		for (CardData c : bkps)
-			if (c != null && targetName.equalsIgnoreCase(c.name()) && icb.appliesToCard(c, fpgTargetTraits(filter, c, isP1))) return true;
+			if (c != null && targetName.equalsIgnoreCase(c.name()) && icb.appliesToCard(c, fpgTargetTraits(filter, c, isP1), jobsStripped(c))) return true;
 		return false;
 	}
 
@@ -12745,7 +12756,8 @@ public class MainWindow {
 		int sum = 0;
 		for (FieldPowerGrant fpg : src.fieldPowerGrants())
 			// isP1 is the *source's* side here, so the target's traits are read from the other side.
-			if (fpg.affectsOpponent() && fpg.appliesToCard(target, fpgTargetTraits(fpg, target, !isP1))
+			if (fpg.affectsOpponent()
+					&& fpg.appliesToCard(target, fpgTargetTraits(fpg, target, !isP1), jobsStripped(target))
 					&& fpgBzConditionMet(fpg, isP1)
 					&& (!fpg.attackingOnly() || isDeclaredAttacker(target, !isP1)))
 				sum += fpg.powerBonus();
@@ -12810,10 +12822,11 @@ public class MainWindow {
 		if (lostAbilitiesCards.contains(src)) return 0;
 		int boost = 0;
 		for (IfControlBoost icb : src.ifControlBoosts())
-			if (icb.appliesToCard(target) && icbConditionsMet(icb, isP1))
+			if (icb.appliesToCard(target, jobsStripped(target)) && icbConditionsMet(icb, isP1))
 				boost += icb.powerBonus();
 		for (FieldPowerGrant fpg : src.fieldPowerGrants())
-			if (!fpg.affectsOpponent() && fpg.appliesToCard(target, fpgTargetTraits(fpg, target, isP1))
+			if (!fpg.affectsOpponent()
+					&& fpg.appliesToCard(target, fpgTargetTraits(fpg, target, isP1), jobsStripped(target))
 					&& fpgBzConditionMet(fpg, isP1)
 					&& (!fpg.attackingOnly() || isDeclaredAttacker(target, isP1))
 					&& fpgPartyConditionMet(fpg, src, target, isP1)
@@ -12995,7 +13008,7 @@ public class MainWindow {
 	 */
 	private boolean matchesScalingFilter(CardData c, String jobFilter, String categoryFilter, String cardNameFilter) {
 		if (jobFilter == null && categoryFilter == null && cardNameFilter == null) return true;
-		if (jobFilter      != null && CardFilters.meetsJobFilter(c, jobFilter))           return true;
+		if (jobFilter      != null && meetsJobFilterEffective(c, jobFilter))              return true;
 		if (categoryFilter != null && CardFilters.meetsCategoryFilter(c, categoryFilter)) return true;
 		if (cardNameFilter != null && CardFilters.meetsCardNameFilter(c, cardNameFilter)) return true;
 		return false;
@@ -15255,9 +15268,12 @@ public class MainWindow {
 		List<CardData> srcFwds = isP1 ? p1ForwardCards : p2ForwardCards;
 		CardData[] srcBkps     = isP1 ? p1BackupCards  : p2BackupCards;
 		List<CardData> srcMons = isP1 ? p1MonsterCards : p2MonsterCards;
-		for (CardData src : srcFwds) for (FieldPartyAnyElement g : src.fieldPartyAnyElements()) if (g.appliesToCard(fwd)) return true;
-		for (CardData src : srcBkps) if (src != null) for (FieldPartyAnyElement g : src.fieldPartyAnyElements()) if (g.appliesToCard(fwd)) return true;
-		for (CardData src : srcMons) for (FieldPartyAnyElement g : src.fieldPartyAnyElements()) if (g.appliesToCard(fwd)) return true;
+		for (CardData src : srcFwds) for (FieldPartyAnyElement g : src.fieldPartyAnyElements())
+			if (g.appliesToCard(fwd, jobsStripped(fwd))) return true;
+		for (CardData src : srcBkps) if (src != null) for (FieldPartyAnyElement g : src.fieldPartyAnyElements())
+			if (g.appliesToCard(fwd, jobsStripped(fwd))) return true;
+		for (CardData src : srcMons) for (FieldPartyAnyElement g : src.fieldPartyAnyElements())
+			if (g.appliesToCard(fwd, jobsStripped(fwd))) return true;
 		return false;
 	}
 
@@ -15455,7 +15471,7 @@ public class MainWindow {
 		if (attacker == null) return false;
 		for (CardData src : fieldCardsFor(attackerIsP1))
 			for (IfControlBoost icb : src.ifControlBoosts())
-				if (icb.cannotBeBlocked() && icb.appliesToCard(attacker)
+				if (icb.cannotBeBlocked() && icb.appliesToCard(attacker, jobsStripped(attacker))
 						&& icbConditionsMet(icb, attackerIsP1))
 					return true;
 		return false;
@@ -15623,7 +15639,7 @@ public class MainWindow {
 			if (intr != null && blockerCostExcluded(blockerCost, intr)) return true;
 			for (CardData src : p2FieldCards())
 				for (IfControlBoost icb : src.ifControlBoosts())
-					if (icb.cannotBeBlockedByCost() != null && icb.appliesToCard(attacker)
+					if (icb.cannotBeBlockedByCost() != null && icb.appliesToCard(attacker, jobsStripped(attacker))
 							&& icbConditionsMet(icb, false)
 							&& blockerCostExcluded(blockerCost, icb.cannotBeBlockedByCost()))
 						return true;

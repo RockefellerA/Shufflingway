@@ -105,6 +105,22 @@ public final class CardFilters {
     }
 
     /**
+     * Like {@link #meetsJobFilter(CardData, String)}, but for a card whose Jobs may have been
+     * stripped for the turn — Exdeath 3-100L.
+     *
+     * <p>The board holds that fact, not the card, so the caller supplies it. This is the same
+     * arrangement {@link FieldPowerGrant#appliesToCard(CardData, java.util.Set, boolean)} makes
+     * for a trait filter: what the card is printed with is not what it currently has, and only
+     * the caller can tell the two apart.
+     *
+     * <p>A null filter is "any Job, or none", which a card with no Jobs left still answers.
+     */
+    public static boolean meetsJobFilter(CardData card, String jobFilter, boolean jobsStripped) {
+        if (jobFilter == null) return true;
+        return !jobsStripped && meetsJobFilter(card, jobFilter);
+    }
+
+    /**
      * Like {@link #meetsJobFilter(CardData, String)}, but also considers {@code extraJob} as an
      * additional job the card has (e.g., granted permanently at runtime).
      */

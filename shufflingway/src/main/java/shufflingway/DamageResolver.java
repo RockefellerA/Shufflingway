@@ -608,7 +608,7 @@ class DamageResolver {
 					String re = red.group("element");
 					String rt = red.group("types");
 					if (rc != null && !CardFilters.meetsCategoryFilter(damaged, rc)) continue;
-					if (rj != null && !CardFilters.meetsJobFilter(damaged, rj))      continue;
+					if (rj != null && !mw.meetsJobFilterEffective(damaged, rj))      continue;
 					if (re != null && !mw.effectiveElements(damaged).contains(re))   continue;
 					// "Forwards" binds the type; "Characters" and the bare form do not, and the
 					// damaged card is a combatant either way.
@@ -636,7 +636,7 @@ class DamageResolver {
 				                                             : (m.group("except2") != null ? m.group("except2").trim() : null);
 
 				if (category != null && !CardFilters.meetsCategoryFilter(damaged, category)) continue;
-				if (job      != null && !CardFilters.meetsJobFilter(damaged, job))            continue;
+				if (job      != null && !mw.meetsJobFilterEffective(damaged, job))            continue;
 				if (element  != null && !mw.effectiveElements(damaged).contains(element))        continue;
 				if (costStr  != null) {
 					int costVal = Integer.parseInt(costStr);

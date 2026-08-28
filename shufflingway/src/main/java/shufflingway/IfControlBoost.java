@@ -307,9 +307,14 @@ public record IfControlBoost(
         return sb.toString();
     }
 
-    /** Returns {@code true} when {@code card} is a valid target of this boost. */
-    public boolean appliesToCard(CardData card) {
-        if (targetFilter != null) return targetFilter.appliesToCard(card);
+    /**
+     * Returns {@code true} when {@code card} is a valid target of this boost.
+     *
+     * @param jobsStripped whether {@code card} has lost its Jobs for the turn (Exdeath 3-100L);
+     *                     a name-targeted boost ignores it, a Job-filtered one stops applying
+     */
+    public boolean appliesToCard(CardData card, boolean jobsStripped) {
+        if (targetFilter != null) return targetFilter.appliesToCard(card, jobsStripped);
         return targetCardName != null && targetCardName.equalsIgnoreCase(card.name());
     }
 
@@ -319,8 +324,9 @@ public record IfControlBoost(
      * be chosen" (White Tiger l'Cie Nimbus 23-035H) has to cover a Forward that was granted Brave,
      * and stop covering one whose Brave was stripped.
      */
-    public boolean appliesToCard(CardData card, java.util.Set<CardData.Trait> currentTraits) {
-        if (targetFilter != null) return targetFilter.appliesToCard(card, currentTraits);
+    public boolean appliesToCard(CardData card, java.util.Set<CardData.Trait> currentTraits,
+            boolean jobsStripped) {
+        if (targetFilter != null) return targetFilter.appliesToCard(card, currentTraits, jobsStripped);
         return targetCardName != null && targetCardName.equalsIgnoreCase(card.name());
     }
 }

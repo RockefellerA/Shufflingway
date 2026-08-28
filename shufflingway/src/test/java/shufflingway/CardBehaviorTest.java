@@ -7330,7 +7330,7 @@ public class CardBehaviorTest {
         CardData.NonDmgBreakShieldGrant g = CardData.parseFieldNonDmgBreakShieldGrant(
                 edel.fieldAbilities().get(0).effectText());
         assertNotNull(g, "the quoted-grant wrapper should still parse");
-        assertFalse(g.appliesToCard(edel), "an Adventurer is not a Morze's Soiree Member");
+        assertFalse(g.appliesToCard(edel, false), "an Adventurer is not a Morze's Soiree Member");
     }
 
     // =========================================================================================
@@ -15868,7 +15868,7 @@ public class CardBehaviorTest {
 		assertEquals(3000, g.powerBonus());
 		assertTrue(g.inclForwards());
 		assertFalse(g.affectsOpponent());
-		assertTrue(g.appliesToCard(makeForward("Idle", "Fire", 3, 7000)),
+		assertTrue(g.appliesToCard(makeForward("Idle", "Fire", 3, 7000), false),
 				"appliesToCard cannot see the board, so it passes a Forward that is standing still");
 	}
 
@@ -27349,6 +27349,96 @@ public class CardBehaviorTest {
 	}
 
 	// =========================================================================================
+	// Exdeath's Job removal, read at the points that do not go through the board's Job filter.
+	//
+	// Roughly a dozen places ask "does this card have Job X?" by calling CardFilters.meetsJobFilter
+	// straight, rather than through MainWindow's wrapper — the field grants among them, which are
+	// records holding a filter with no way to reach the board. Each is now handed the fact, the way
+	// each was already handed the resolved trait set for the same reason: what a card is printed
+	// with is not what it currently has, and only the caller can tell the two apart.
+	// =========================================================================================
+
+	/** P2's Exdeath, and P1 holding a Job Knight Forward plus whatever {@code theirs} adds. */
+	private static MainWindow exdeathBoard(CardData... theirs) {
+		MainWindow mw = new MainWindow();
+		placeP2Forward(mw, makeForward("Exdeath", "Lightning", 5, 9000));
+		for (CardData c : theirs) {
+			if (c.isBackup()) {
+				mw.gameState.getIdentity().put(c, true);
+				for (int i = 0; i < mw.p1BackupCards.length; i++)
+					if (mw.p1BackupCards[i] == null) { mw.p1BackupCards[i] = c; break; }
+			} else {
+				placeP1Forward(mw, c);
+			}
+		}
+		return mw;
+	}
+
+	private static void exdeathAttacks(MainWindow mw) {
+		resolveAsP2(mw, EXDEATH_ATTACK, mw.p2ForwardCards.get(0));
+	}
+
+	@Test
+	void aJobKeyedFieldGrantStopsApplyingToAStrippedForward() {
+		// Ovelia 1-156C: "The Job Knight Forwards you control gain +1000 power." Their own Backup,
+		// their own Knight — and Exdeath attacking is exactly when that 1000 decides a trade.
+		CardData knight = makeJobCard("Cecil", "Light", "Forward", "Knight");
+		MainWindow mw = exdeathBoard(knight,
+				makeBackupWithPowerGrant("Ovelia", "Light",
+						"The Job Knight Forwards you control gain +1000 power."));
+		assertEquals(8000, mw.effectiveP1ForwardPower(0), "the grant is live to begin with");
+
+		exdeathAttacks(mw);
+
+		assertEquals(7000, mw.effectiveP1ForwardPower(0),
+				"no Job, so the Job-keyed grant no longer reaches it");
+	}
+
+	@Test
+	void aGrantKeyedOnSomethingElseIsUntouched() {
+		// The counterweight: Job removal is not ability removal. A grant that never asked about
+		// Jobs keeps applying.
+		CardData knight = makeJobCard("Cecil", "Light", "Forward", "Knight");
+		MainWindow mw = exdeathBoard(knight,
+				makeBackupWithPowerGrant("Anonymous", "Light",
+						"The Forwards you control gain +1000 power."));
+
+		exdeathAttacks(mw);
+
+		assertEquals(8000, mw.effectiveP1ForwardPower(0));
+	}
+
+	@Test
+	void aJobKeyedCpGrantStopsCoveringAStrippedBackup() {
+		// BackupCpGrant is the one that reaches the payment dialogs, which hold no board at all and
+		// are handed a lookup instead.
+		CardData knightBackup = makeJobCard("Agrias", "Light", "Backup", "Knight");
+		MainWindow mw = exdeathBoard(knightBackup);
+		BackupCpGrant grant = new BackupCpGrant("Knight", null, null, null);
+		assertTrue(grant.appliesTo(knightBackup, mw.jobsStripped(knightBackup)));
+
+		exdeathAttacks(mw);
+
+		assertFalse(grant.appliesTo(knightBackup, mw.jobsStripped(knightBackup)),
+				"a stripped Backup is outside a Job-keyed CP grant");
+	}
+
+	@Test
+	void theStrippingLastsOnlyTheTurn() {
+		CardData knight = makeJobCard("Cecil", "Light", "Forward", "Knight");
+		MainWindow mw = exdeathBoard(knight,
+				makeBackupWithPowerGrant("Ovelia", "Light",
+						"The Job Knight Forwards you control gain +1000 power."));
+		exdeathAttacks(mw);
+		assertEquals(7000, mw.effectiveP1ForwardPower(0));
+
+		mw.turnPhases().runP2EndOfTurnCleanup();
+
+		assertFalse(mw.jobsStripped(knight), "the Jobs come back when the turn ends");
+		assertEquals(8000, mw.effectiveP1ForwardPower(0));
+	}
+
+	// =========================================================================================
 	// Vayne 28-117H: "When Vayne is put from the field into the Break Zone, during this turn, your
 	// opponent cannot cast any cards."
 	//
@@ -33250,9 +33340,9 @@ public class CardBehaviorTest {
 	@Test
 	void billyGrantsBothKindsOfChocobo() {
 		FieldPowerGrant g = billysGrant();
-		assertTrue(g.appliesToCard(makeJobCard("Chocobo", "Wind", "Forward", "Standard Unit")),
+		assertTrue(g.appliesToCard(makeJobCard("Chocobo", "Wind", "Forward", "Standard Unit"), false),
 				"the cards printed as Card Name Chocobo carry the Job Standard Unit");
-		assertTrue(g.appliesToCard(makeJobCard("Stray Chocobo", "Wind", "Forward", "Chocobo")),
+		assertTrue(g.appliesToCard(makeJobCard("Stray Chocobo", "Wind", "Forward", "Chocobo"), false),
 				"and the Job Chocobo cards are named something else");
 		assertEquals(3000, g.powerBonus());
 	}
@@ -33260,8 +33350,8 @@ public class CardBehaviorTest {
 	@Test
 	void billyGrantsNothingToCardsMatchingNeitherHalf() {
 		FieldPowerGrant g = billysGrant();
-		assertFalse(g.appliesToCard(makeJobCard("Cloud", "Wind", "Forward", "SOLDIER")));
-		assertFalse(g.appliesToCard(makeJobCard("Chocobo", "Wind", "Backup", "Standard Unit")),
+		assertFalse(g.appliesToCard(makeJobCard("Cloud", "Wind", "Forward", "SOLDIER"), false));
+		assertFalse(g.appliesToCard(makeJobCard("Chocobo", "Wind", "Backup", "Standard Unit"), false),
 				"the grant names Forwards, so a Backup of the right name is still out");
 	}
 

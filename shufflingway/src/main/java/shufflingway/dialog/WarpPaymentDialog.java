@@ -73,6 +73,13 @@ public class WarpPaymentDialog {
     private final boolean          anyElement;
     /** @see StandardPaymentDialog#gainedElementsOf */
     private final java.util.function.Function<CardData, java.util.List<String>> gainedElements;
+    /** Board lookup for "this Backup has lost its Jobs this turn"; null = nothing is stripped. */
+    private final java.util.function.Predicate<CardData> jobsStripped;
+
+    /** Whether {@code backup} has lost its Jobs this turn; false when no board was supplied. */
+    private boolean jobsStrippedOf(CardData backup) {
+        return jobsStripped != null && jobsStripped.test(backup);
+    }
 
     /** The Elements {@code backup} can produce beyond its printed ones; never null. */
     private java.util.List<String> gainedElementsOf(CardData backup) {
@@ -108,7 +115,8 @@ public class WarpPaymentDialog {
             ConfirmCallback onConfirm,
             java.util.function.Function<CardData, java.util.List<String>> gainedElements) {
         this(owner, card, handIdx, hand, backupCards, backupStates, backupUrls, controlledForwards,
-                onZoom, onZoomHide, ldDiscardGrants, anyElement, onConfirm, gainedElements, Map.of());
+                onZoom, onZoomHide, ldDiscardGrants, anyElement, onConfirm, gainedElements,
+                Map.of(), null);
     }
 
     /**
@@ -122,9 +130,11 @@ public class WarpPaymentDialog {
             java.util.Set<String> ldDiscardGrants, boolean anyElement,
             ConfirmCallback onConfirm,
             java.util.function.Function<CardData, java.util.List<String>> gainedElements,
-            Map<Integer, Integer> breakForCpSlots) {
+            Map<Integer, Integer> breakForCpSlots,
+            java.util.function.Predicate<CardData> jobsStripped) {
         this.breakForCpSlots    = breakForCpSlots == null ? Map.of() : breakForCpSlots;
         this.gainedElements     = gainedElements;
+        this.jobsStripped       = jobsStripped;
         this.owner              = owner;
         this.card               = card;
         this.handIdx            = handIdx;
@@ -397,12 +407,12 @@ public class WarpPaymentDialog {
         for (CardData b : backupCards) {
             if (b != null) {
                 BackupCpGrant grant = b.backupCpGrant();
-                if (grant != null && grant.isAnyElementGrant() && grant.appliesTo(backup)) return true;
+                if (grant != null && grant.isAnyElementGrant() && grant.appliesTo(backup, jobsStrippedOf(backup))) return true;
             }
         }
         for (CardData fwd : controlledForwards) {
             BackupCpGrant grant = fwd.backupCpGrant();
-            if (grant != null && grant.isAnyElementGrant() && grant.appliesTo(backup)) return true;
+            if (grant != null && grant.isAnyElementGrant() && grant.appliesTo(backup, jobsStrippedOf(backup))) return true;
         }
         return false;
     }
@@ -412,7 +422,7 @@ public class WarpPaymentDialog {
         for (CardData b : backupCards) {
             if (b != null) {
                 BackupCpGrant grant = b.backupCpGrant();
-                if (grant != null && !grant.isAnyElementGrant() && grant.appliesTo(backup)) {
+                if (grant != null && !grant.isAnyElementGrant() && grant.appliesTo(backup, jobsStrippedOf(backup))) {
                     if (result == null) result = new java.util.ArrayList<>();
                     for (String e : grant.grantedElements()) if (!result.contains(e)) result.add(e);
                 }
@@ -420,7 +430,7 @@ public class WarpPaymentDialog {
         }
         for (CardData fwd : controlledForwards) {
             BackupCpGrant grant = fwd.backupCpGrant();
-            if (grant != null && !grant.isAnyElementGrant() && grant.appliesTo(backup)) {
+            if (grant != null && !grant.isAnyElementGrant() && grant.appliesTo(backup, jobsStrippedOf(backup))) {
                 if (result == null) result = new java.util.ArrayList<>();
                 for (String e : grant.grantedElements()) if (!result.contains(e)) result.add(e);
             }

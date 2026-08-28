@@ -59,10 +59,12 @@ class FieldGrantCalculator {
             EnumSet<CardData.Trait> out) {
         if (mw.lostAbilitiesCards.contains(src)) return;
         for (IfControlBoost icb : src.ifControlBoosts())
-            if (icb.appliesToCard(target) && mw.icbConditionsMet(icb, isP1))
+            if (icb.appliesToCard(target, mw.jobsStripped(target)) && mw.icbConditionsMet(icb, isP1))
                 out.addAll(icb.grantedTraits());
         for (FieldPowerGrant fpg : src.fieldPowerGrants())
-            if (!fpg.affectsOpponent() && fpg.appliesToCard(target, mw.fpgTargetTraits(fpg, target, isP1))
+            if (!fpg.affectsOpponent()
+                    && fpg.appliesToCard(target, mw.fpgTargetTraits(fpg, target, isP1),
+                            mw.jobsStripped(target))
                     && mw.fpgBzConditionMet(fpg, isP1)
                     && mw.fpgPartyConditionMet(fpg, src, target, isP1)
                     && mw.fpgTurnWindowOpen(fpg, isP1))
@@ -80,7 +82,8 @@ class FieldGrantCalculator {
             String granted = CardData.selfGrantedFieldAbility(text, src.name());
             if (granted != null) text = granted;
             CardData.NonDmgBreakShieldGrant g = CardData.parseFieldNonDmgBreakShieldGrant(text);
-            if (g != null && g.appliesToCard(target)) out.add(CardData.Trait.CANNOT_BE_BROKEN_BY_NON_DMG);
+            if (g != null && g.appliesToCard(target, mw.jobsStripped(target)))
+                out.add(CardData.Trait.CANNOT_BE_BROKEN_BY_NON_DMG);
         }
         // Self-targeted trait grants, optionally gated on damage threshold or job count.
         if (src == target) {

@@ -1286,15 +1286,19 @@ public record CardData(
     record NonDmgBreakShieldGrant(String job, String cardName, String category, String element,
             boolean inclForwards, boolean inclBackups, boolean inclMonsters) {
 
-        /** True when {@code c} is inside the protected set, using the shared field-filter rules. */
-        boolean appliesToCard(CardData c) {
+        /**
+         * True when {@code c} is inside the protected set, using the shared field-filter rules.
+         *
+         * @param jobsStripped whether {@code c} has lost its Jobs for the turn (Exdeath 3-100L)
+         */
+        boolean appliesToCard(CardData c, boolean jobsStripped) {
             if (c == null) return false;
             boolean typeOk = (inclForwards && c.isForward())
                           || (inclBackups  && c.isBackup())
                           || (inclMonsters && (c.isMonster() || c.alsoCountsAsMonster()));
             return typeOk
                 && CardFilters.meetsElementFilter(c, element)
-                && CardFilters.meetsJobFilter(c, job)
+                && CardFilters.meetsJobFilter(c, job, jobsStripped)
                 && CardFilters.meetsCategoryFilter(c, category)
                 && CardFilters.meetsCardNameFilter(c, cardName);
         }

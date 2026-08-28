@@ -23,9 +23,9 @@ public record FieldPartyAnyElement(
      * Returns {@code true} if this grant applies to {@code card}.
      * Callers must ensure the card and the grant source belong to the same player.
      */
-    public boolean appliesToCard(CardData card) {
+    public boolean appliesToCard(CardData card, boolean jobsStripped) {
         if (!card.isForward()) return false;
-        if (!CardFilters.meetsJobFilter(card, jobFilter))           return false;
+        if (!CardFilters.meetsJobFilter(card, jobFilter, jobsStripped)) return false;
         if (!CardFilters.meetsCategoryFilter(card, categoryFilter)) return false;
         if (!CardFilters.meetsCardNameFilter(card, cardNameFilter)) return false;
         return true;

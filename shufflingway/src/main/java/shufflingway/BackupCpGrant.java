@@ -27,9 +27,14 @@ public record BackupCpGrant(String jobFilter, String categoryFilter, String elem
     /** Returns true if this grant allows the backup to produce CP of any element. */
     public boolean isAnyElementGrant() { return grantedElements == null; }
 
-    /** Returns true if this grant applies to {@code backup}. */
-    public boolean appliesTo(CardData backup) {
-        return CardFilters.meetsJobFilter(backup, jobFilter)
+    /**
+     * Returns true if this grant applies to {@code backup}.
+     *
+     * @param jobsStripped whether {@code backup} has lost its Jobs for the turn (Exdeath 3-100L),
+     *                     which the board knows and the card does not
+     */
+    public boolean appliesTo(CardData backup, boolean jobsStripped) {
+        return CardFilters.meetsJobFilter(backup, jobFilter, jobsStripped)
             && CardFilters.meetsCategoryFilter(backup, categoryFilter)
             && CardFilters.meetsElementFilter(backup, elementFilter);
     }

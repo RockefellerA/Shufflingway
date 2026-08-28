@@ -449,8 +449,8 @@ public record FieldPowerGrant(
      * {@link #attackingOnly}, which needs the board's declared attackers: {@code MainWindow} gates
      * on that separately, so a grant that passes this test may still be dormant.
      */
-    public boolean appliesToCard(CardData card) {
-        return appliesToCard(card, card.traits());
+    public boolean appliesToCard(CardData card, boolean jobsStripped) {
+        return appliesToCard(card, card.traits(), jobsStripped);
     }
 
     /**
@@ -461,7 +461,8 @@ public record FieldPowerGrant(
      * Brave that an effect has stripped, so the caller supplies the resolved set rather than a
      * delta over the printed one.
      */
-    public boolean appliesToCard(CardData card, Set<CardData.Trait> currentTraits) {
+    public boolean appliesToCard(CardData card, Set<CardData.Trait> currentTraits,
+            boolean jobsStripped) {
         if (!exceptCardName.isEmpty() && CardFilters.meetsCardNameFilter(card, exceptCardName)) return false;
         if (!traitFilter.isEmpty() && Collections.disjoint(traitFilter, currentTraits)) return false;
         boolean typeOk = (inclForwards && card.isForward())
@@ -482,7 +483,7 @@ public record FieldPowerGrant(
         // means either, and no card is both, so ANDing them granted nothing. The same rule the
         // board selections and the deck search use. A filter left null is "any", so the
         // single-filter and no-filter cases stay a plain conjunction.
-        boolean jobOk  = CardFilters.meetsJobFilter(card, jobFilter);
+        boolean jobOk  = CardFilters.meetsJobFilter(card, jobFilter, jobsStripped);
         boolean nameOk = CardFilters.meetsCardNameFilter(card, inclCardName);
         boolean identityOk = jobFilter != null && inclCardName != null ? jobOk || nameOk : jobOk && nameOk;
         return CardFilters.meetsElementFilter(card, elementFilter)

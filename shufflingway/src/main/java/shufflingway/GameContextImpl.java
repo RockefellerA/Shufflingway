@@ -5514,7 +5514,7 @@ final class GameContextImpl implements GameContext {
 			@Override public void placeCountersOnOwnJobCards(String counterName, int count, String jobFilter) {
 				List<CardData> fwds = isP1 ? mw.p1ForwardCards : mw.p2ForwardCards;
 				for (int i = 0; i < fwds.size(); i++) {
-					if (!CardFilters.meetsJobFilter(fwds.get(i), jobFilter)) continue;
+					if (!mw.meetsJobFilterEffective(fwds.get(i), jobFilter)) continue;
 					mw.gameState.placeCounters(fwds.get(i), counterName, count);
 					if (isP1) mw.refreshP1ForwardSlot(i); else mw.refreshP2ForwardSlot(i);
 					logEntry((isP1 ? "" : "[P2] ") + fwds.get(i).name() + " — " + count + " "
@@ -5522,7 +5522,7 @@ final class GameContextImpl implements GameContext {
 				}
 				CardData[] bkps = isP1 ? mw.p1BackupCards : mw.p2BackupCards;
 				for (int i = 0; i < bkps.length; i++) {
-					if (bkps[i] == null || !CardFilters.meetsJobFilter(bkps[i], jobFilter)) continue;
+					if (bkps[i] == null || !mw.meetsJobFilterEffective(bkps[i], jobFilter)) continue;
 					mw.gameState.placeCounters(bkps[i], counterName, count);
 					if (isP1) mw.refreshP1BackupSlot(i); else mw.refreshP2BackupSlot(i);
 					logEntry((isP1 ? "" : "[P2] ") + bkps[i].name() + " — " + count + " "
@@ -5530,7 +5530,7 @@ final class GameContextImpl implements GameContext {
 				}
 				List<CardData> mons = isP1 ? mw.p1MonsterCards : mw.p2MonsterCards;
 				for (int i = 0; i < mons.size(); i++) {
-					if (!CardFilters.meetsJobFilter(mons.get(i), jobFilter)) continue;
+					if (!mw.meetsJobFilterEffective(mons.get(i), jobFilter)) continue;
 					mw.gameState.placeCounters(mons.get(i), counterName, count);
 					if (isP1) mw.refreshP1MonsterSlot(i); else mw.refreshP2MonsterSlot(i);
 					logEntry((isP1 ? "" : "[P2] ") + mons.get(i).name() + " — " + count + " "
@@ -7514,7 +7514,7 @@ final class GameContextImpl implements GameContext {
 					if (inclForwards) {
 						for (int i = 0; i < mw.p1ForwardCards.size(); i++) {
 							CardData c = p1Forward(i);
-							if (!CardFilters.meetsJobFilter(c, jobFilter) && (cardNameFilter == null || !CardFilters.meetsCardNameFilter(c, cardNameFilter))) continue;
+							if (!mw.meetsJobFilterEffective(c, jobFilter) && (cardNameFilter == null || !CardFilters.meetsCardNameFilter(c, cardNameFilter))) continue;
 							if (p1JobBoostSuppressed) { logEntry(c.name() + " — power boost suppressed"); continue; }
 							mw.p1ForwardPowerBoost.set(i, mw.p1ForwardPowerBoost.get(i) + amount);
 							logEntry(c.name() + " gains +" + amount + " power until end of turn");
@@ -7524,7 +7524,7 @@ final class GameContextImpl implements GameContext {
 					if (inclMonsters) {
 						for (int i = 0; i < mw.p1MonsterCards.size(); i++) {
 							CardData c = mw.p1MonsterCards.get(i);
-							if (!CardFilters.meetsJobFilter(c, jobFilter) && (cardNameFilter == null || !CardFilters.meetsCardNameFilter(c, cardNameFilter))) continue;
+							if (!mw.meetsJobFilterEffective(c, jobFilter) && (cardNameFilter == null || !CardFilters.meetsCardNameFilter(c, cardNameFilter))) continue;
 							logEntry(c.name() + " gains +" + amount + " power until end of turn");
 						}
 					}
@@ -7533,7 +7533,7 @@ final class GameContextImpl implements GameContext {
 					if (inclForwards) {
 						for (int i = 0; i < mw.p2ForwardCards.size(); i++) {
 							CardData c = mw.p2ForwardCards.get(i);
-							if (!CardFilters.meetsJobFilter(c, jobFilter) && (cardNameFilter == null || !CardFilters.meetsCardNameFilter(c, cardNameFilter))) continue;
+							if (!mw.meetsJobFilterEffective(c, jobFilter) && (cardNameFilter == null || !CardFilters.meetsCardNameFilter(c, cardNameFilter))) continue;
 							if (p2JobBoostSuppressed) { logEntry("[P2] " + c.name() + " — power boost suppressed"); continue; }
 							mw.p2ForwardPowerBoost.set(i, mw.p2ForwardPowerBoost.get(i) + amount);
 							logEntry("[P2] " + c.name() + " gains +" + amount + " power until end of turn");
@@ -7543,7 +7543,7 @@ final class GameContextImpl implements GameContext {
 					if (inclMonsters) {
 						for (int i = 0; i < mw.p2MonsterCards.size(); i++) {
 							CardData c = mw.p2MonsterCards.get(i);
-							if (!CardFilters.meetsJobFilter(c, jobFilter) && (cardNameFilter == null || !CardFilters.meetsCardNameFilter(c, cardNameFilter))) continue;
+							if (!mw.meetsJobFilterEffective(c, jobFilter) && (cardNameFilter == null || !CardFilters.meetsCardNameFilter(c, cardNameFilter))) continue;
 							logEntry("[P2] " + c.name() + " gains +" + amount + " power until end of turn");
 						}
 					}
@@ -7613,7 +7613,7 @@ final class GameContextImpl implements GameContext {
 				if (touchP1 && inclForwards) {
 					for (int i = 0; i < mw.p1ForwardCards.size(); i++) {
 						CardData c = p1Forward(i);
-						if (!CardFilters.meetsJobFilter(c, jobFilter)) continue;
+						if (!mw.meetsJobFilterEffective(c, jobFilter)) continue;
 						mw.p1ForwardTempTraits.get(i).addAll(traits);
 						logEntry(c.name() + " gains " + traits + " until end of turn");
 						mw.refreshP1ForwardSlot(i);
@@ -7622,7 +7622,7 @@ final class GameContextImpl implements GameContext {
 				if (touchP2 && inclForwards) {
 					for (int i = 0; i < mw.p2ForwardCards.size(); i++) {
 						CardData c = mw.p2ForwardCards.get(i);
-						if (!CardFilters.meetsJobFilter(c, jobFilter)) continue;
+						if (!mw.meetsJobFilterEffective(c, jobFilter)) continue;
 						mw.p2ForwardTempTraits.get(i).addAll(traits);
 						logEntry("[P2] " + c.name() + " gains " + traits + " until end of turn");
 						mw.refreshP2ForwardSlot(i);
