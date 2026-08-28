@@ -28,8 +28,24 @@ import java.util.List;
  *                                   {@code extraCostRemovedCardPower} is: the cost is paid at
  *                                   activation, and another activation can happen before this one
  *                                   comes off the stack
+ * @param triggerCard                for an auto ability fired by a card's departure, the card whose
+ *                                   event fired it — what "it" and "the Forward placed in the Break
+ *                                   Zone" point at; {@code null} for every other entry. Carried on
+ *                                   the entry because the field the trigger dispatcher sets is
+ *                                   restored as soon as the ability is <em>pushed</em>, which is
+ *                                   long before it resolves: read off that field, the effect saw
+ *                                   nothing and fizzled.
  */
-public record StackEntry(CardData source, ActionAbility ability, AutoAbility autoAbility, boolean isP1, int xValue, boolean isExBurst, List<ForwardTarget> preSelectedTargets, boolean isWarpResolve, boolean paidExtraCost, int extraCostRemovedCardPower, int revealedForwardPower) {
+public record StackEntry(CardData source, ActionAbility ability, AutoAbility autoAbility, boolean isP1, int xValue, boolean isExBurst, List<ForwardTarget> preSelectedTargets, boolean isWarpResolve, boolean paidExtraCost, int extraCostRemovedCardPower, int revealedForwardPower, CardData triggerCard) {
+
+    /** Compatibility constructor for the entries that carry no triggering card, which is most of them. */
+    public StackEntry(CardData source, ActionAbility ability, AutoAbility autoAbility, boolean isP1,
+            int xValue, boolean isExBurst, List<ForwardTarget> preSelectedTargets,
+            boolean isWarpResolve, boolean paidExtraCost, int extraCostRemovedCardPower,
+            int revealedForwardPower) {
+        this(source, ability, autoAbility, isP1, xValue, isExBurst, preSelectedTargets,
+                isWarpResolve, paidExtraCost, extraCostRemovedCardPower, revealedForwardPower, null);
+    }
 
     /** Convenience constructor for Summons and Action Abilities without an X cost. */
     public StackEntry(CardData source, ActionAbility ability, boolean isP1) {

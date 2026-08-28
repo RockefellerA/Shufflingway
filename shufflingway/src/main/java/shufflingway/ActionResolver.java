@@ -1212,6 +1212,9 @@ public class ActionResolver {
         result = tryParsePlayBrokenCardOntoFieldDull(effectText);
         if (result != null) return result;
 
+        result = tryParseAddBrokenCardToHand(effectText);
+        if (result != null) return result;
+
         result = tryParsePlaySourceOntoField(effectText, source);
         if (result != null) return result;
 
@@ -1397,6 +1400,13 @@ public class ActionResolver {
                 // target. Resolving it standalone would act on nothing while making the whole
                 // ability report as handled — worse than leaving it unparsed.
                 if (isTriggeredTargetAction(trimmed)) continue;
+                // "Add it to your hand." is the same trap one card later: standing alone it is
+                // Gogo 24-022H's whole effect and names the card the trigger watched break, but
+                // reached *here* it is the followup of a Choose the chain above could not read
+                // (14-073R Muraga Fennes), and salvaging the triggering card instead of the chosen
+                // one is both wrong and invisible. Gogo's own text is a single sentence and never
+                // arrives at this fallback.
+                if (isTriggeringBrokenCardSalvage(trimmed)) continue;
                 Consumer<GameContext> c = parse(trimmed, source, xValue);
                 if (c != null) { consumers.add(c); continue; }
                 // Dropping an unparsed sentence is safe while the sentences are independent, but
@@ -1463,7 +1473,7 @@ public class ActionResolver {
         String core = stripRestrictionSentences(text);
         if (core.isEmpty()) core = text;
 
-        String[] sentences = core.trim().split("(?<=\\.)\\s+(?=[A-Z])");
+        String[] sentences = SENTENCE_BREAK.split(core.trim());
         if (sentences.length < 2) return null;
 
         List<String> out = new ArrayList<>();
@@ -1890,6 +1900,7 @@ public class ActionResolver {
         if (tryParsePlayAllByNameFromBreakZone(effectText)      != null) return "PlayAllByNameFromBreakZone";
         if (tryParsePlaySourceFromBreakZone(effectText, source) != null) return "PlaySourceFromBreakZone";
         if (tryParsePlayBrokenCardOntoFieldDull(effectText) != null) return "PlayBrokenCardOntoFieldDull";
+        if (tryParseAddBrokenCardToHand(effectText) != null) return "AddBrokenCardToHand";
         // Reads the anchored helper, not tryParsePlaySourceOntoField itself: that parser matches
         // with find(), so it reports a hit from the middle of texts an earlier parser claims in
         // parse() ("...search for 1 Forward ... and play it onto the field"). Naming off the loose
@@ -2860,6 +2871,7 @@ public class ActionResolver {
         if (tryParsePlayAllByNameFromBreakZone(effectText) != null)         return "PlayAllByNameFromBreakZone";
         if (tryParsePlaySourceFromBreakZone(effectText, source) != null)    return "PlaySourceFromBreakZone";
         if (tryParsePlayBrokenCardOntoFieldDull(effectText) != null) return "PlayBrokenCardOntoFieldDull";
+        if (tryParseAddBrokenCardToHand(effectText) != null) return "AddBrokenCardToHand";
         // See the matching guard in matchedPatternName(): the anchored helper, not the find()-based
         // parser, so this cannot claim a clause sitting inside a longer ability.
         if (isBarePlaySourceOntoField(effectText, source))                  return "PlaySourceOntoField";
@@ -4513,6 +4525,18 @@ public class ActionResolver {
      */
     static boolean isTriggeredTargetAction(String text) {
         return tryParseTriggeredTargetAction(text, 0) != null;
+    }
+
+    /**
+     * True if {@code text} is the bare "Add it to your hand." that Gogo 24-022H prints as a whole
+     * effect, where "it" is the card whose arrival in the Break Zone fired the trigger.
+     *
+     * <p>Read by the compound-sentence fallback, which must never resolve this sentence out of a
+     * longer ability: there the pronoun points at a card an earlier sentence chose, not at the
+     * trigger's own.
+     */
+    static boolean isTriggeringBrokenCardSalvage(String text) {
+        return tryParseAddBrokenCardToHand(text) != null;
     }
 
     /**

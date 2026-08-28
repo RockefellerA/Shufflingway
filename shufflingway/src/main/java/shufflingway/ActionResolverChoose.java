@@ -1217,7 +1217,11 @@ final class ActionResolverChoose {
         String  blockingName  = m.group("blockingname");
         String  blockingJob   = m.group("blockingjob");
         String  traitGroup    = m.group("trait");
-        String  condition     = blockingName  != null ? "blocking:"     + blockingName.trim()
+        // "put in your Break Zone from the field during this turn" states the zone and a condition
+        // in one phrase, so it fills both slots — the zone below, and the condition here.
+        String  bzFieldZone   = m.group("bzfieldzone");
+        String  condition     = bzFieldZone   != null ? CardFilters.PUT_TO_BZ_FROM_FIELD_THIS_TURN
+                              : blockingName  != null ? "blocking:"     + blockingName.trim()
                               : blockingJob   != null ? "blocking-job:" + blockingJob.trim()
                               : postCondition != null ? "entered the field this turn"
                               : traitGroup    != null ? "trait:"        + traitGroup.trim().replace(" ", "_").toUpperCase(java.util.Locale.ROOT)
@@ -1354,7 +1358,7 @@ final class ActionResolverChoose {
         String  control      = m.group("control") != null ? m.group("control") : m.group("control2");
         boolean opponentOnly = control != null && !control.equalsIgnoreCase("you control");
         boolean selfOnly     = "you control".equalsIgnoreCase(control);
-        String  zone         = m.group("zone");
+        String  zone         = m.group("zone") != null ? m.group("zone") : bzFieldZone;
         boolean bothZones    = zone != null && (zone.toLowerCase(java.util.Locale.ROOT).contains("either player")
                                              || zone.toLowerCase(java.util.Locale.ROOT).contains("any player"));
         boolean opponentZone = zone != null && !bothZones && zone.toLowerCase(java.util.Locale.ROOT).contains("opponent");

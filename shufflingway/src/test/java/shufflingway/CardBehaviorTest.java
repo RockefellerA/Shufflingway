@@ -21901,6 +21901,211 @@ public class CardBehaviorTest {
 	}
 
 	// =========================================================================================
+	// The directly stated conditional self-shield: "If you control X, [Self] cannot be chosen by
+	// your opponent's Summons or abilities." — Fran 10-060L, Yuri 11-062R and 18-049R, Adelle
+	// 14-039R, Jack Garland 27-046H, Mog (VI) 4-140H and Elena B-051.
+	//
+	// The same rule the quoted spelling states ("… gains \"[Self] cannot be chosen …\""), written
+	// as one sentence instead of as a grant of a quoted ability. Both now land on the same
+	// IfControlBoost, so the immunity lookup and the condition evaluation are shared and only the
+	// wording differs. Before that they did not: the sentence parsed as a one-shot consumer, which
+	// a field ability never executes, and the shield was silently dropped.
+	// =========================================================================================
+
+	private static final String YURI_FFCC_SHIELD =
+			"If you control 3 or more Category FFCC Characters, Yuri cannot be chosen by "
+			+ "your opponent's Summons or abilities.";
+
+	private static final String FRAN_BALTHIER_SHIELD =
+			"If you control a Card Name Balthier Forward, Fran cannot be chosen by "
+			+ "your opponent's Summons or abilities.";
+
+	private static final String ELENA_TURKS_SHIELD =
+			"If you control a Job Member of the Turks other than Elena, Elena cannot be chosen by "
+			+ "your opponent's Summons.";
+
+	@Test
+	void aDirectlyStatedSelfShieldParsesIntoTheSameBoostTheQuotedSpellingDoes() {
+		CardData yuri = makeIcbCard("Yuri", "Wind", "Forward", YURI_FFCC_SHIELD);
+
+		assertEquals(1, yuri.ifControlBoosts().size());
+		IfControlBoost icb = yuri.ifControlBoosts().get(0);
+		assertEquals("Yuri", icb.targetCardName(), "the sentence names its own carrier");
+		assertTrue(icb.cannotBeChosenBySummons());
+		assertTrue(icb.cannotBeChosenByAbilities(), "\"Summons or abilities\" sets both halves");
+		assertTrue(icb.chosenImmunityOpponentOnly(), "\"your opponent's\" scopes it to one side");
+		assertEquals(3, icb.conditions().get(0).minCount());
+		assertEquals("FFCC", icb.conditions().get(0).category());
+	}
+
+	@Test
+	void theExclusionInTheConditionSurvivesTheDirectSpelling() {
+		CardData elena = makeIcbCard("Elena", "Fire", "Forward", ELENA_TURKS_SHIELD);
+
+		assertEquals(1, elena.ifControlBoosts().size());
+		IfControlBoost icb = elena.ifControlBoosts().get(0);
+		assertEquals("Elena", icb.exceptCardName(),
+				"\"other than Elena\" means a second Turk, not Elena counting herself");
+		assertTrue(icb.cannotBeChosenBySummons());
+		assertFalse(icb.cannotBeChosenByAbilities(), "the text names Summons alone");
+	}
+
+	@Test
+	void franIsShieldedOnlyWhileTheConditionHolds() {
+		MainWindow mw = new MainWindow();
+		placeP1Forward(mw, makeIcbCard("Fran", "Wind", "Forward", FRAN_BALTHIER_SHIELD));
+		CardData fran = mw.p1ForwardCards.get(0);
+
+		assertFalse(mw.isProtectedFromChoice(fran, true, false, false, null),
+				"no Balthier on the field, so the condition is unmet and nothing is shielded");
+
+		placeP1Forward(mw, makeForward("Balthier", "Wind", 3, 7000));
+
+		assertTrue(mw.isProtectedFromChoice(fran, true, false, false, null),
+				"an opposing ability may no longer choose her");
+		assertTrue(mw.isProtectedFromChoice(fran, true, false, true, null),
+				"nor an opposing Summon — the text names both");
+		assertFalse(mw.isProtectedFromChoice(fran, true, true, false, null),
+				"her own controller still may, since the grant names the opponent");
+	}
+
+	@Test
+	void theConditionIsReadOnTheShieldedCardsOwnSide() {
+		MainWindow mw = new MainWindow();
+		placeP1Forward(mw, makeIcbCard("Fran", "Wind", "Forward", FRAN_BALTHIER_SHIELD));
+		placeP2Forward(mw, makeForward("Balthier", "Wind", 3, 7000));
+		CardData fran = mw.p1ForwardCards.get(0);
+
+		assertFalse(mw.isProtectedFromChoice(fran, true, false, false, null),
+				"\"you control\" is Fran's controller, not whoever happens to control a Balthier");
+	}
+
+	// =========================================================================================
+	// The named-card state gate: "If [CardName] is [dull|active|attacking], …" — Trey 3-064H, who
+	// prints one shield for each of the first two states, Knight 17-100C and Queen 21-089R.
+	//
+	// The gate already existed for "dull" alone and only for a "gains" consequence, which is why
+	// Knight's +3000 power worked while his immunity in the sentence above it did not. Widening it
+	// to the three states and letting the consequence be an immunity puts all four abilities on the
+	// one IfControlBoost path.
+	//
+	// Attacking is read off the declared attackers rather than off dull/active: a Forward with
+	// Brave attacks without dulling, so its state says nothing about whether it is attacking.
+	// =========================================================================================
+
+	private static final String TREY_ACTIVE_SHIELD =
+			"If Trey is active, Trey cannot be chosen by your opponent's abilities.";
+
+	private static final String TREY_DULL_SHIELD =
+			"If Trey is dull, Trey cannot be chosen by your opponent's Summons.";
+
+	private static final String QUEEN_ATTACKING_SHIELD =
+			"If Queen is attacking, Queen gains \"If Queen is dealt damage, the damage becomes 0 "
+			+ "instead.\" and \"Queen cannot be chosen by your opponent's Summons or abilities.\"";
+
+	@Test
+	void treysTwoStateGatesParseToOppositeShields() {
+		CardData trey = makeIcbCard("Trey", "Wind", "Forward",
+				TREY_ACTIVE_SHIELD + "[[br]]" + TREY_DULL_SHIELD);
+
+		assertEquals(2, trey.ifControlBoosts().size(), "one boost per printed sentence");
+		IfControlBoost whileActive = trey.ifControlBoosts().get(0);
+		assertEquals(ControlCondition.NamedCardState.ACTIVE, whileActive.conditions().get(0).namedState());
+		assertEquals("Trey", whileActive.conditions().get(0).stateCardName());
+		assertTrue(whileActive.cannotBeChosenByAbilities());
+		assertFalse(whileActive.cannotBeChosenBySummons());
+
+		IfControlBoost whileDull = trey.ifControlBoosts().get(1);
+		assertEquals(ControlCondition.NamedCardState.DULL, whileDull.conditions().get(0).namedState());
+		assertTrue(whileDull.cannotBeChosenBySummons());
+		assertFalse(whileDull.cannotBeChosenByAbilities());
+	}
+
+	@Test
+	void treySwapsWhichHalfShieldsHimWhenHeDulls() {
+		MainWindow mw = new MainWindow();
+		placeP1Forward(mw, makeIcbCard("Trey", "Wind", "Forward",
+				TREY_ACTIVE_SHIELD + "[[br]]" + TREY_DULL_SHIELD));
+		CardData trey = mw.p1ForwardCards.get(0);
+
+		assertTrue(mw.isProtectedFromChoice(trey, true, false, false, null),
+				"active, so opposing abilities cannot choose him");
+		assertFalse(mw.isProtectedFromChoice(trey, true, false, true, null),
+				"but opposing Summons can");
+
+		mw.p1ForwardStates.set(0, CardState.DULL);
+
+		assertFalse(mw.isProtectedFromChoice(trey, true, false, false, null),
+				"dull, so the ability shield is gone");
+		assertTrue(mw.isProtectedFromChoice(trey, true, false, true, null),
+				"and the Summon shield is on");
+	}
+
+	@Test
+	void queenIsShieldedOnlyWhileSheIsInTheDeclaredAttack() {
+		MainWindow mw = new MainWindow();
+		placeP1Forward(mw, makeIcbCard("Queen", "Lightning", "Forward", QUEEN_ATTACKING_SHIELD));
+		CardData queen = mw.p1ForwardCards.get(0);
+
+		assertFalse(mw.isProtectedFromChoice(queen, true, false, false, null),
+				"nothing is attacking yet");
+
+		mw.p1DeclaredAttackers.add(queen);
+
+		assertTrue(mw.isProtectedFromChoice(queen, true, false, false, null),
+				"the quoted shield reads the same under this gate as under any other");
+		assertTrue(mw.isProtectedFromChoice(queen, true, false, true, null),
+				"\"Summons or abilities\" covers both halves");
+		assertFalse(mw.isProtectedFromChoice(queen, true, true, false, null),
+				"her own controller may still choose her");
+	}
+
+	// =========================================================================================
+	// Cecil 7-135S: "If you have received 5 points of damage or more, Cecil gains +2000 power and
+	// "Cecil cannot be chosen by your opponent's abilities"."
+	//
+	// The damage-count gate already built an IfControlBoost for the power half and threw the
+	// quoted shield away; the clause now reads the same under this gate as under "If you
+	// control …". Which gate a card prints decides only when the shield is live, never what it
+	// covers.
+	// =========================================================================================
+
+	private static final String CECIL_DAMAGE_SHIELD =
+			"If you have received 5 points of damage or more, Cecil gains +2000 power and "
+			+ "\"Cecil cannot be chosen by your opponent's abilities\".";
+
+	@Test
+	void cecilKeepsBothHalvesOfTheDamageGatedGrant() {
+		CardData cecil = makeIcbCard("Cecil", "Dark", "Forward", CECIL_DAMAGE_SHIELD);
+
+		assertEquals(1, cecil.ifControlBoosts().size(), "one gate, one boost carrying both halves");
+		IfControlBoost icb = cecil.ifControlBoosts().get(0);
+		assertEquals(2000, icb.powerBonus());
+		assertEquals(5, icb.minDamageReceived());
+		assertTrue(icb.cannotBeChosenByAbilities());
+		assertFalse(icb.cannotBeChosenBySummons(), "the quoted text names abilities alone");
+		assertTrue(icb.chosenImmunityOpponentOnly());
+	}
+
+	@Test
+	void cecilIsShieldedOnlyOnceTheFifthPointOfDamageIsIn() {
+		MainWindow mw = new MainWindow();
+		placeP1Forward(mw, makeIcbCard("Cecil", "Dark", "Forward", CECIL_DAMAGE_SHIELD));
+		CardData cecil = mw.p1ForwardCards.get(0);
+
+		for (int i = 1; i <= 4; i++)
+			mw.gameState.getP1DamageZone().add(makeForward("Damage " + i, "Fire", 1, 1000));
+		assertFalse(mw.isProtectedFromChoice(cecil, true, false, false, null),
+				"four points is not five");
+
+		mw.gameState.getP1DamageZone().add(makeForward("Damage 5", "Fire", 1, 1000));
+		assertTrue(mw.isProtectedFromChoice(cecil, true, false, false, null),
+				"an opposing ability may no longer choose him");
+		assertFalse(mw.isProtectedFromChoice(cecil, true, false, true, null),
+				"a Summon still may");
+	}
+
+	// =========================================================================================
 	// White Mage 3-136C: "If White Mage or a Forward forming a party with White Mage receives
 	// damage, the damage decreases by 3000 instead."
 	//
@@ -26103,6 +26308,198 @@ public class CardBehaviorTest {
 		assertEquals("enters the field", autos.get(0).trigger());
 		assertTrue(autos.get(0).effectText().contains("\"At the beginning of Main Phase 1"),
 				"with the quoted ability handed on intact");
+	}
+
+	// =========================================================================================
+	// "…put in your Break Zone from the field during this turn" — Rydia 17-083C, Maenad 25-032C,
+	// Muraga Fennes 14-073R and Regis 12-122L, the whole family of it.
+	//
+	// A Break Zone choice narrowed to what arrived there from the field on this turn. A card in the
+	// Break Zone carries no record of how or when it got there, so the answer is a per-turn arrival
+	// set filled at MainWindow.addToBreakZone — the one point every field-to-Break-Zone route
+	// converges on, and the one that knows the card actually arrived rather than being redirected
+	// to the RFG zone on the way.
+	//
+	// Until this existed the phrase matched nothing: the choice ran as far as "Break Zone", the
+	// leftover "from the field during this turn" met no followup separator, and the whole selection
+	// failed — which handed the trailing sentence to a find()-based parser and resolved it with the
+	// selection silently dropped. Rydia and Maenad replayed a Forward nobody had chosen.
+	// =========================================================================================
+
+	private static final String BZ_FIELD_THIS_TURN_PLAY =
+			"choose 1 Forward put in your Break Zone from the field during this turn. "
+			+ "Play it onto the field.";
+
+	private static final String BZ_FIELD_THIS_TURN_HAND =
+			"choose 1 Forward put in your Break Zone from the field during this turn. "
+			+ "Add it to your hand.";
+
+	/** Resolves {@code text} as P2, whose selections the AI answers without a dialog. */
+	private static void resolveAsP2(MainWindow mw, String text, CardData source) {
+		Consumer<GameContext> effect = ActionResolver.parse(text, source);
+		assertNotNull(effect, "the printed wording has to parse for the rest of this to mean anything");
+		effect.accept(mw.buildGameContext(false));
+	}
+
+	@Test
+	void onlyTheForwardThatLeftTheFieldThisTurnIsOffered() {
+		MainWindow mw = new MainWindow();
+		CardData stale = makeForward("Stale", "Ice", 3, 7000);
+		mw.gameState.getIdentity().put(stale, false);
+		mw.gameState.getP2BreakZone().add(stale);       // has been sitting there, never on the field
+		CardData fresh = makeForward("Fresh", "Ice", 3, 7000);
+		placeP2Forward(mw, fresh);
+		mw.breakP2Forward(0);
+
+		resolveAsP2(mw, BZ_FIELD_THIS_TURN_PLAY, fresh);
+
+		assertEquals(1, mw.p2ForwardCards.size());
+		assertSame(fresh, mw.p2ForwardCards.get(0), "the Forward that broke this turn came back");
+		assertEquals(List.of(stale), mw.gameState.getP2BreakZone(),
+				"and the one that was already in the Break Zone was never eligible");
+	}
+
+	@Test
+	void aCardThatReachedTheBreakZoneAnyOtherWayIsNotOffered() {
+		MainWindow mw = new MainWindow();
+		CardData discarded = makeForward("Discarded", "Ice", 3, 7000);
+		mw.gameState.getIdentity().put(discarded, false);
+		mw.addToBreakZone(discarded);                   // from hand, not from the field
+
+		resolveAsP2(mw, BZ_FIELD_THIS_TURN_PLAY, discarded);
+
+		assertTrue(mw.p2ForwardCards.isEmpty(), "nothing was eligible, so nothing was played");
+		assertEquals(1, mw.gameState.getP2BreakZone().size());
+	}
+
+	@Test
+	void theArrivalIsRecordedByIdentityNotByName() {
+		MainWindow mw = new MainWindow();
+		CardData olderCopy = makeForward("Rydia", "Ice", 3, 7000);
+		mw.gameState.getIdentity().put(olderCopy, false);
+		mw.gameState.getP2BreakZone().add(olderCopy);
+		CardData brokenCopy = makeForward("Rydia", "Ice", 3, 7000);
+		placeP2Forward(mw, brokenCopy);
+		mw.breakP2Forward(0);
+
+		resolveAsP2(mw, BZ_FIELD_THIS_TURN_PLAY, brokenCopy);
+
+		assertSame(brokenCopy, mw.p2ForwardCards.get(0),
+				"two copies share the name; only the one that left the field this turn qualifies");
+		assertEquals(List.of(olderCopy), mw.gameState.getP2BreakZone());
+	}
+
+	@Test
+	void theRecordEndsWithTheTurn() {
+		MainWindow mw = new MainWindow();
+		CardData fwd = makeForward("Fresh", "Ice", 3, 7000);
+		placeP2Forward(mw, fwd);
+		mw.breakP2Forward(0);
+		assertTrue(mw.turn(false).putToBzFromFieldThisTurn.contains(fwd));
+
+		mw.turnPhases().runP1TurnStart();
+
+		assertFalse(mw.turn(false).putToBzFromFieldThisTurn.contains(fwd),
+				"\"during this turn\" ends when the turn does, whoever owns the Break Zone");
+		resolveAsP2(mw, BZ_FIELD_THIS_TURN_PLAY, fwd);
+		assertTrue(mw.p2ForwardCards.isEmpty(), "so a Forward broken last turn is no longer offered");
+	}
+
+	@Test
+	void theSameSelectionCanSalvageToHandInstead() {
+		MainWindow mw = new MainWindow();
+		CardData fwd = makeForward("Muraga Fennes", "Wind", 3, 7000);
+		placeP2Forward(mw, fwd);
+		mw.breakP2Forward(0);
+
+		resolveAsP2(mw, BZ_FIELD_THIS_TURN_HAND, fwd);
+
+		assertEquals(List.of(fwd), mw.gameState.getP2Hand());
+		assertTrue(mw.gameState.getP2BreakZone().isEmpty());
+	}
+
+	// =========================================================================================
+	// Gogo 24-022H: "When a Category VI Forward other than Gogo you control is put from the field
+	// into the Break Zone, add it to your hand. This effect will trigger only once per turn."
+	//
+	// The salvage twin of Lunafreya 8-132L below, riding the same trigger-card plumbing: "it" is
+	// the card whose arrival in the Break Zone fired the trigger, so the effect names no target.
+	//
+	// The pattern is anchored end to end, and that alone is not what keeps it safe. The sentence is
+	// three common words, and parse()'s compound-sentence fallback re-enters parse() with each
+	// sentence of a longer ability in turn — so an earlier attempt at this card silently gave
+	// 10-127H Citra and 14-073R Muraga Fennes a salvage of the wrong card, with the "choose … in
+	// your Break Zone" in front of it dropped. Two things keep it honest now: Citra's selection is
+	// read (the choose grammar had no "Summon or Monster" union), and the fallback refuses this
+	// sentence outright, which leaves Muraga visibly unimplemented rather than quietly wrong.
+	// =========================================================================================
+
+	private static final String GOGO_24_022H_TEXT =
+			"When a Category VI Forward other than Gogo you control is put from the field into the "
+			+ "Break Zone, add it to your hand. This effect will trigger only once per turn.";
+
+	/** Gogo on P1's Forward row with {@code allies} Category VI Forwards beside him. */
+	private static MainWindow gogoBoard(CardData... allies) {
+		MainWindow mw = new MainWindow();
+		placeP1Forward(mw, makeAutoAbilityForward("Gogo", GOGO_24_022H_TEXT));
+		for (CardData a : allies) placeP1Forward(mw, a);
+		return mw;
+	}
+
+	@Test
+	void gogoSalvagesTheCategoryVIForwardThatJustBroke() {
+		MainWindow mw = gogoBoard(makeCategoryForward("Terra", "Ice", "VI"));
+
+		mw.breakP1Forward(1);
+
+		assertEquals(1, mw.gameState.getP1Hand().size(), "the broken Forward went to hand");
+		assertEquals("Terra", mw.gameState.getP1Hand().get(0).name());
+		assertTrue(mw.gameState.getP1BreakZone().isEmpty(), "and did not stay in the Break Zone");
+	}
+
+	@Test
+	void gogoTriggersOnlyOncePerTurn() {
+		MainWindow mw = gogoBoard(makeCategoryForward("Terra", "Ice", "VI"),
+				makeCategoryForward("Locke", "Ice", "VI"));
+
+		mw.breakP1Forward(1);
+		mw.breakP1Forward(1);   // Locke has slid down into the vacated slot
+
+		assertEquals(1, mw.gameState.getP1Hand().size(), "the second break is past the once-per-turn cap");
+		assertEquals(1, mw.gameState.getP1BreakZone().size());
+		assertEquals("Locke", mw.gameState.getP1BreakZone().get(0).name());
+	}
+
+	@Test
+	void gogoIgnoresAForwardOutsideHisCategory() {
+		MainWindow mw = gogoBoard(makeCategoryForward("Vaan", "Wind", "XII"));
+
+		mw.breakP1Forward(1);
+
+		assertTrue(mw.gameState.getP1Hand().isEmpty(), "the subject names Category VI");
+		assertEquals(1, mw.gameState.getP1BreakZone().size());
+	}
+
+	@Test
+	void aTrailingAddItToYourHandIsNotReadAsGogos() {
+		CardData src = makeAutoAbilityForward("Probe", "");
+
+		assertNotNull(ActionResolver.parse("add it to your hand.", src),
+				"Gogo's own text is the whole sentence and resolves");
+		// Invented wording, deliberately: every printed selection this sentence follows is read
+		// now, so the guard has to be shown against a choice the chain genuinely cannot take.
+		assertNull(ActionResolver.parse(
+				"choose 1 card in the Damage Zone of the player to your left. "
+				+ "Add it to your hand.", src),
+				"but as the tail of a choose nothing can read, the ability stays unimplemented "
+				+ "rather than salvaging the wrong card");
+		assertNotNull(ActionResolver.parse(
+				"choose 1 Summon or Monster in your Break Zone. Add it to your hand.", src),
+				"a choose the chain can read keeps the whole ability, selection included");
+		assertNotNull(ActionResolver.parse(
+				"choose 1 Forward put in your Break Zone from the field during this turn. "
+				+ "Add it to your hand.", src),
+				"Muraga Fennes 14-073R was the second half of that: her selection is read now too");
 	}
 
 	// =========================================================================================

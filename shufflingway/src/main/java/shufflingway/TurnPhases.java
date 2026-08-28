@@ -43,6 +43,10 @@ class TurnPhases {
 		mw.p2Turn.formedPartyThisTurn = false;
 		mw.p2Turn.forwardsLeftFieldThisTurn = 0;
 		mw.p2Turn.forwardPutToBZThisTurn = false;
+		// Both sides, at both turn boundaries: "during this turn" ends when the turn does, whoever
+		// owns the Break Zone. See PlayerTurnState.putToBzFromFieldThisTurn.
+		mw.p1Turn.putToBzFromFieldThisTurn.clear();
+		mw.p2Turn.putToBzFromFieldThisTurn.clear();
 		mw.p2Turn.castRemovedUsedThisTurn.clear();
 		mw.p2Turn.elementForwardsEnteredThisTurn.clear();
 		mw.p2Turn.cardsTookDamageThisTurn.clear();
@@ -119,6 +123,9 @@ class TurnPhases {
 		mw.p2Turn.partyAnyElementThisTurn = false;
 		mw.p1Turn.forwardsLeftFieldThisTurn = 0;
 		mw.p1Turn.forwardPutToBZThisTurn = false;
+		// Both sides, as at the other turn boundary above.
+		mw.p1Turn.putToBzFromFieldThisTurn.clear();
+		mw.p2Turn.putToBzFromFieldThisTurn.clear();
 		mw.p1Turn.castRemovedUsedThisTurn.clear();
 		mw.p1Turn.elementForwardsEnteredThisTurn.clear();
 		mw.p1Turn.cardsTookDamageThisTurn.clear();

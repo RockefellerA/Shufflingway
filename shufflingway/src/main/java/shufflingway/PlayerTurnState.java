@@ -61,6 +61,23 @@ class PlayerTurnState {
 	boolean forwardPutToBZThisTurn = false;
 
 	/**
+	 * The cards put into this player's Break Zone <em>from the field</em> during the current turn —
+	 * what "1 Forward put in your Break Zone from the field during this turn" chooses among (Rydia
+	 * 17-083C, Maenad 25-032C, Muraga Fennes 14-073R, Regis 12-122L).
+	 *
+	 * <p>By identity, not by name: a Break Zone routinely holds several copies of a card, and only
+	 * the copy that actually left the field this turn qualifies.
+	 *
+	 * <p>Cleared at <em>both</em> turn boundaries rather than only at the start of this player's own
+	 * turn, which is where {@link #forwardPutToBZThisTurn} beside it is cleared. That flag answers
+	 * "has this player lost a Forward since their last turn began" and spans the opponent's turn on
+	 * purpose; this one answers "during this turn", so it has to end when the turn does — an EX
+	 * Burst reading it (Muraga Fennes) resolves on the opponent's turn, and would otherwise be
+	 * offered a Forward that broke a turn earlier.
+	 */
+	final Set<CardData> putToBzFromFieldThisTurn = Collections.newSetFromMap(new IdentityHashMap<>());
+
+	/**
 	 * Cards whose "you can cast [what] removed by [self]'s abilities" permission this player has
 	 * already used this turn. Only a printing that caps itself at once per turn reads it (Setzer
 	 * 21-031H does, Rinoa 21-038R does not), and it is keyed by the remover so that spending one

@@ -793,6 +793,16 @@ public interface GameContext {
      */
     void playTriggeringBrokenCardOntoFieldDull();
 
+    /**
+     * Adds the card whose departure fired the "put into the Break Zone" trigger now resolving to the
+     * resolving player's hand — Gogo 24-022H's "add it to your hand".
+     *
+     * <p>The salvage sibling of {@link #playTriggeringBrokenCardOntoFieldDull}, and it takes no
+     * target for the same reason: "it" is the card this very trigger watched arrive. Does nothing
+     * when it has since left that Break Zone, or when no such trigger is resolving.
+     */
+    void addTriggeringBrokenCardToHand();
+
 
     /**
      * Moves the target (chosen from either Break Zone) to the resolving player's hand — P1's on a

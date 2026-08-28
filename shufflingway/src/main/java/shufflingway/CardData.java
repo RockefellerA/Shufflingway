@@ -4249,12 +4249,34 @@ public record CardData(
     );
 
     /**
-     * "If [CardName] is dull, [target] gains [effects]."
-     * Groups: {@code condcard} (the card that must be dull), {@code target}, {@code effects}.
+     * "If [CardName] is [dull|active|attacking], [target] gains [effects]." — Knight 17-100C's
+     * +3000 power, and Queen 21-089R's pair of quoted abilities.
+     * Groups: {@code condcard} (the card whose state is the gate), {@code state}, {@code target},
+     * {@code effects}.
      */
-    private static final Pattern IF_CARD_IS_DULL_BOOST = Pattern.compile(
-        "(?i)^If\\s+(?<condcard>[A-Z][A-Za-z''\\-]+(?:\\s+[A-Za-z''\\-]+)*)\\s+is\\s+dull,\\s+" +
+    private static final Pattern IF_CARD_IS_STATE_BOOST = Pattern.compile(
+        "(?i)^If\\s+(?<condcard>[A-Z][A-Za-z''\\-]+(?:\\s+[A-Za-z''\\-]+)*)\\s+is\\s+" +
+        "(?<state>dull|active|attacking),\\s+" +
         "(?<target>.+?)\\s+gains?\\s+(?<effects>.+?)\\.?\\s*$"
+    );
+
+    /**
+     * The same gate with an immunity for its whole consequence rather than a gain:
+     * "If [CardName] is [dull|active|attacking], [target] cannot be chosen by your opponent's
+     * [Summons or abilities | Summons | abilities]." — Knight 17-100C and Trey 3-064H, who prints
+     * one of each state.
+     *
+     * <p>The state twin of {@link #IF_CTRL_CANNOT_BE_CHOSEN}, and anchored and scoped for the same
+     * reasons: a trailing qualifier would narrow the immunity, and "your opponent's" is what makes
+     * it opponent-scoped downstream.
+     * Groups: {@code condcard}, {@code state}, {@code target}, {@code effects}.
+     */
+    private static final Pattern IF_CARD_IS_STATE_CANNOT_BE_CHOSEN = Pattern.compile(
+        "(?i)^If\\s+(?<condcard>[A-Z][A-Za-z''\\-]+(?:\\s+[A-Za-z''\\-]+)*)\\s+is\\s+" +
+        "(?<state>dull|active|attacking),\\s+(?<target>.+?)\\s+" +
+        "(?<effects>cannot\\s+be\\s+chosen\\s+by\\s+your\\s+opponent's\\s+" +
+        "(?:Summons?\\s+or\\s+abilities|abilities\\s+or\\s+Summons?|Summons?|abilities))" +
+        "\\s*[.!]?\\s*$"
     );
 
     /**
@@ -4426,6 +4448,41 @@ public record CardData(
         "\\.?\\s*$"
     );
 
+    /**
+     * "If you control &lt;raw&gt;, &lt;target&gt; cannot be chosen by your opponent's
+     * [Summons or abilities | Summons | abilities]." — the shield stated directly rather than
+     * handed over inside a quoted grant: Fran 10-060L, Yuri 11-062R and 18-049R, Adelle 14-039R,
+     * Jack Garland 27-046H, Mog (VI) 4-140H and Elena B-051.
+     *
+     * <p>The sibling of {@link #IF_CTRL_BOOST_OUTER} for a condition whose consequence is an
+     * immunity rather than a gain, and of {@link #IF_CONTROL_NAMED_IT_CANNOT_BE_CHOSEN} for a
+     * sentence that repeats the card's name where that one writes "it". Everything downstream is
+     * shared: {@code effects} is handed to {@link #ICB_EFFECT_NO_CHOSEN} exactly as a quoted grant
+     * is, so the two spellings produce the same {@link IfControlBoost}.
+     *
+     * <p>The pronoun is refused in {@code target} rather than left to fall through: Serah 1-045R's
+     * "…, it cannot be chosen…" satisfies this shape too, and without the lookahead she parses
+     * twice — once here into a boost whose target is the literal word "it", which names no card and
+     * so shields nothing, and once into the real boost {@link #IF_CONTROL_NAMED_IT_CANNOT_BE_CHOSEN}
+     * builds by resolving the pronoun back to the card the condition names.
+     *
+     * <p>"your opponent's" is required, not optional, because that qualifier is what makes the
+     * immunity opponent-scoped downstream. A printing that omits it means the broader both-players
+     * rule, and silently reading it as the narrow one would hand out a weaker shield than the card
+     * prints; none exists in this shape today, and one would stay visibly unhandled here.
+     *
+     * <p>Anchored end to end for the reason {@link ActionResolverPatterns#FA_SELF_CANNOT_BE_CHOSEN_BY_OPP}
+     * is: a trailing qualifier narrows the immunity ("…that share its Element"), and a scanning
+     * matcher would stop at the keyword and grant a blanket one instead.
+     * Groups: {@code raw}, {@code target}, {@code effects}.
+     */
+    private static final Pattern IF_CTRL_CANNOT_BE_CHOSEN = Pattern.compile(
+        "(?i)^If\\s+you\\s+control\\s+(?<raw>[^,]+),\\s+(?<target>(?!it\\b).+?)\\s+" +
+        "(?<effects>cannot\\s+be\\s+chosen\\s+by\\s+your\\s+opponent's\\s+" +
+        "(?:Summons?\\s+or\\s+abilities|abilities\\s+or\\s+Summons?|Summons?|abilities))" +
+        "\\s*[.!]?\\s*$"
+    );
+
     /** Splits a single condition part on " other than ": group(1) = condition, group(2) = excluded name. */
     private static final Pattern IF_CTRL_BOOST_EXCEPT = Pattern.compile(
         "(?i)^(.+?)\\s+other\\s+than\\s+(\\S.*)$"
@@ -4488,6 +4545,45 @@ public record CardData(
     private static final Pattern ICB_EFFECT_NO_CHOSEN = Pattern.compile(
         "(?i)cannot\\s+be\\s+chosen\\s+by\\s+(?<opp>your\\s+opponent's\\s+)?" +
         "(?<scope>Summons?\\s+or\\s+abilities|abilities\\s+or\\s+Summons?|Summons?|abilities)");
+
+    /**
+     * The choice immunity an {@link IfControlBoost} effects clause names: which halves it covers,
+     * and whose Summons and abilities it stops.
+     *
+     * <p>{@code NONE} is the answer for a clause that names no immunity at all, and is what every
+     * gate that does not print one gets.
+     */
+    private record ChosenImmunity(boolean summons, boolean abilities, boolean opponentOnly) {
+        static final ChosenImmunity NONE = new ChosenImmunity(false, false, false);
+        boolean any() { return summons || abilities; }
+    }
+
+    /**
+     * Reads every "cannot be chosen" clause in {@code effectsStr}, so a text naming both halves
+     * ("… by your opponent's Summons or abilities") sets both flags.
+     *
+     * <p>The immunity is scoped to the opponent only when <em>every</em> clause carries the
+     * qualifier: on a mixed text the unqualified half is the broader rule, and the broader rule has
+     * to win.
+     *
+     * <p>Shared by every gate that can carry one of these clauses, because which gate a card prints
+     * — "If you control …", "If you have received N points of damage or more…", a quoted grant —
+     * decides only when the shield is live, never what it covers. Reading the clause in one gate
+     * and not another is what left Cecil 7-135S's shield on the card and off the field.
+     */
+    private static ChosenImmunity parseChosenImmunity(String effectsStr) {
+        boolean summons = false, abilities = false, anyClause = false, anyUnqualified = false;
+        Matcher m = ICB_EFFECT_NO_CHOSEN.matcher(effectsStr);
+        while (m.find()) {
+            String scope = m.group("scope").toLowerCase(Locale.ROOT);
+            if (scope.contains("summon")) summons = true;
+            if (scope.contains("abilit")) abilities = true;
+            anyClause = true;
+            if (m.group("opp") == null) anyUnqualified = true;
+        }
+        if (!anyClause) return ChosenImmunity.NONE;
+        return new ChosenImmunity(summons, abilities, !anyUnqualified);
+    }
 
     /**
      * Matches a self-targeted trait grant: "[CardName] gains [+N power,] [Trait(s)]." — no
@@ -4639,25 +4735,28 @@ public record CardData(
                 continue;
             }
 
-            // "If [CardName] is dull, [target] gains [effects]."
-            Matcher dullM = IF_CARD_IS_DULL_BOOST.matcher(seg);
-            if (dullM.find()) {
-                String condCard  = dullM.group("condcard").trim();
-                String targetName = dullM.group("target").trim();
-                String effectsStr = dullM.group("effects").trim();
-                ControlCondition dullCond = new ControlCondition(
-                        List.of(), 0, false, null, null, null, null, 0, List.of(), false, null, condCard);
+            // "If [CardName] is [dull|active|attacking], [target] gains [effects]." and the
+            // spelling whose whole consequence is an immunity, which reaches the same boost.
+            Matcher stateM   = IF_CARD_IS_STATE_BOOST.matcher(seg);
+            Matcher stateCncM = IF_CARD_IS_STATE_CANNOT_BE_CHOSEN.matcher(seg);
+            Matcher stateHit = stateM.find() ? stateM : (stateCncM.find() ? stateCncM : null);
+            if (stateHit != null) {
+                String condCard   = stateHit.group("condcard").trim();
+                String targetName = stateHit.group("target").trim();
+                String effectsStr = stateHit.group("effects").trim();
+                ControlCondition stateCond = ControlCondition.forNamedCardState(condCard,
+                        ControlCondition.NamedCardState.valueOf(
+                                stateHit.group("state").toUpperCase(Locale.ROOT)));
                 Matcher pwrM = IF_CTRL_EFFECT_POWER.matcher(effectsStr);
                 int powerBonus = pwrM.find() ? Integer.parseInt(pwrM.group(1)) : 0;
-                EnumSet<Trait> traits = EnumSet.noneOf(Trait.class);
-                if (ICB_EFFECT_HASTE.matcher(effectsStr).find())        traits.add(Trait.HASTE);
-                if (ICB_EFFECT_BRAVE.matcher(effectsStr).find())        traits.add(Trait.BRAVE);
-                if (ICB_EFFECT_FIRST_STRIKE.matcher(effectsStr).find()) traits.add(Trait.FIRST_STRIKE);
-                if (ICB_EFFECT_BACK_ATTACK.matcher(effectsStr).find())  traits.add(Trait.BACK_ATTACK);
-                if (powerBonus != 0 || !traits.isEmpty()) {
+                EnumSet<Trait> traits = traitsNamedIn(effectsStr);
+                ChosenImmunity stateImmunity = parseChosenImmunity(effectsStr);
+                if (powerBonus != 0 || !traits.isEmpty() || stateImmunity.any()) {
                     FieldPowerGrant targetFilter = parseIcbTargetFilter(targetName);
-                    result.add(new IfControlBoost(List.of(dullCond), "", targetName, targetFilter,
-                            powerBonus, traits, "", false, false, false, null));
+                    IfControlBoost icb = new IfControlBoost(List.of(stateCond), "", targetName,
+                            targetFilter, powerBonus, traits, "", stateImmunity.summons(),
+                            stateImmunity.abilities(), false, null);
+                    result.add(stateImmunity.opponentOnly() ? icb.asOpponentScopedChosenImmunity() : icb);
                 }
                 continue;
             }
@@ -4717,10 +4816,17 @@ public record CardData(
                 if (ICB_EFFECT_BRAVE.matcher(effectsStr).find())        dmgTraits.add(Trait.BRAVE);
                 if (ICB_EFFECT_FIRST_STRIKE.matcher(effectsStr).find()) dmgTraits.add(Trait.FIRST_STRIKE);
                 if (ICB_EFFECT_BACK_ATTACK.matcher(effectsStr).find())  dmgTraits.add(Trait.BACK_ATTACK);
-                if (powerBonus != 0 || !dmgTraits.isEmpty()) {
+                // Cecil 7-135S hands himself a quoted shield alongside the power, and the damage
+                // count is the only thing gating it: "If you have received 5 points of damage or
+                // more, Cecil gains +2000 power and \"Cecil cannot be chosen by your opponent's
+                // abilities\"." The clause reads the same here as under any other gate.
+                ChosenImmunity dmgImmunity = parseChosenImmunity(effectsStr);
+                if (powerBonus != 0 || !dmgTraits.isEmpty() || dmgImmunity.any()) {
                     FieldPowerGrant targetFilter = parseIcbTargetFilter(targetName);
-                    result.add(new IfControlBoost(List.of(), "", targetName, targetFilter,
-                            powerBonus, dmgTraits, "", false, false, false, null, 0, minDmg, false));
+                    IfControlBoost icb = new IfControlBoost(List.of(), "", targetName, targetFilter,
+                            powerBonus, dmgTraits, "", dmgImmunity.summons(), dmgImmunity.abilities(),
+                            false, null, 0, minDmg, false);
+                    result.add(dmgImmunity.opponentOnly() ? icb.asOpponentScopedChosenImmunity() : icb);
                 }
                 continue;
             }
@@ -4877,7 +4983,7 @@ public record CardData(
                             base.requiredCardNames(), base.minCount(), base.exactCount(),
                             base.cardType(), base.element(), base.job(), base.category(),
                             base.minPower(), base.orCardNames(), base.anyOf(),
-                            base.excludeElement(), base.dullCardName(),
+                            base.excludeElement(), base.stateCardName(),
                             base.requiresCrystal(), base.allHave(), true);
                     Matcher pwrM = IF_CTRL_EFFECT_POWER.matcher(effectsStr);
                     int powerBonus = pwrM.find() ? Integer.parseInt(pwrM.group(1)) : 0;
@@ -4948,6 +5054,7 @@ public record CardData(
 
             Matcher m    = IF_CTRL_BOOST_OUTER.matcher(seg);
             Matcher cnbM = IF_CTRL_CANNOT_BE_BLOCKED.matcher(seg);
+            Matcher cncM = IF_CTRL_CANNOT_BE_CHOSEN.matcher(seg);
 
             String rawCond, targetName, effectsStr;
             boolean isCannotBeBlocked;
@@ -4968,6 +5075,15 @@ public record CardData(
                     icbCostFilter = new int[]{costVal, orMore ? 1 : 0};
                 }
                 isCannotBeBlocked = icbCostFilter == null; // full unblockable when no cost clause
+            } else if (cncM.find()) {
+                // "If you control X, [Self] cannot be chosen by your opponent's …" — the whole
+                // consequence is the immunity, so the matched clause is handed on as the effects
+                // string and ICB_EFFECT_NO_CHOSEN below reads it exactly as it reads the quoted
+                // spelling ("… gains \"[Self] cannot be chosen …\"").
+                rawCond           = cncM.group("raw").trim();
+                targetName        = cncM.group("target").trim();
+                effectsStr        = cncM.group("effects").trim();
+                isCannotBeBlocked = false;
             } else {
                 continue;
             }
@@ -5005,21 +5121,10 @@ public record CardData(
             if (ICB_EFFECT_FIRST_STRIKE.matcher(effectsStr).find()) traits.add(Trait.FIRST_STRIKE);
             if (ICB_EFFECT_BACK_ATTACK.matcher(effectsStr).find())  traits.add(Trait.BACK_ATTACK);
 
-            // Every "cannot be chosen" clause in this effects string, so a text naming both halves
-            // ("… by your opponent's Summons or abilities") sets both flags. The immunity is scoped
-            // to the opponent only when *every* clause carries the qualifier: on a mixed text the
-            // unqualified half is the broader rule, and the broader rule has to win.
-            boolean noChooseSummons = false, noChooseAbilits = false;
-            boolean anyChosenClause = false, anyUnqualified = false;
-            Matcher chosenM = ICB_EFFECT_NO_CHOSEN.matcher(effectsStr);
-            while (chosenM.find()) {
-                String scope = chosenM.group("scope").toLowerCase(Locale.ROOT);
-                if (scope.contains("summon")) noChooseSummons = true;
-                if (scope.contains("abilit")) noChooseAbilits = true;
-                anyChosenClause = true;
-                if (chosenM.group("opp") == null) anyUnqualified = true;
-            }
-            boolean chosenImmunityOppOnly = anyChosenClause && !anyUnqualified;
+            ChosenImmunity immunity = parseChosenImmunity(effectsStr);
+            boolean noChooseSummons = immunity.summons();
+            boolean noChooseAbilits = immunity.abilities();
+            boolean chosenImmunityOppOnly = immunity.opponentOnly();
 
             if (powerBonus == 0 && traits.isEmpty() && specialText.isEmpty()
                     && !noChooseSummons && !noChooseAbilits && !isCannotBeBlocked
@@ -8353,7 +8458,7 @@ public record CardData(
 
         return new ControlCondition(List.of(), minCount, exactCount, cardType, element, job, category,
                 minPower, orCardNames, false, excludeElement, null, false, false, false, minCost,
-                List.of(), false, maxCost);
+                List.of(), false, maxCost, null);
     }
 
     /** Parses a "remove … from the game" cost phrase into a list of {@link RemoveFromGameCost} items. */

@@ -3525,7 +3525,11 @@ final class AutoAbilityTriggers {
 		List<ForwardTarget> preTargets = effectText.isBlank() ? null
 				: ActionResolver.preSelectTargets(effectText, source, 0, mw.buildGameContext(effectIsP1));
 		if (preTargets != null && preTargets.isEmpty()) preTargets = null;
-		StackEntry entry = new StackEntry(source, null, fa, effectIsP1, 0, false, preTargets, false, paidExtraCost, 0, 0);
+		// The trigger's own card travels with the entry. The field it is read from here is unwound
+		// the moment this push returns — resolution comes later, off the Stack — so an effect that
+		// names the card back ("add it to your hand") found nothing there and fizzled.
+		StackEntry entry = new StackEntry(source, null, fa, effectIsP1, 0, false, preTargets, false,
+				paidExtraCost, 0, 0, mw.triggeringBrokenCard);
 		mw.gameState.insertStack(depth, entry);
 		mw.cancelFirstOppForwardAuto(entry);
 	}

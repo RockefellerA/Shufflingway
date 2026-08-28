@@ -175,8 +175,8 @@ public class ActionAbilityParsingTest {
             if (cc.opponentControls()) tag.append("opp ");
             if (cc.requiresCrystal()) {
                 tag.append("has Crystal");
-            } else if (cc.dullCardName() != null) {
-                tag.append(cc.dullCardName()).append(" dull");
+            } else if (cc.stateCardName() != null) {
+                tag.append(cc.stateCardName()).append(" dull");
             } else if (!cc.requiredCardNames().isEmpty()) {
                 tag.append("controls: ").append(String.join(cc.anyOf() ? " or " : " + ", cc.requiredCardNames()));
             } else {

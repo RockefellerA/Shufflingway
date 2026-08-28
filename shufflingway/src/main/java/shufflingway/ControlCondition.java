@@ -1,6 +1,7 @@
 package shufflingway;
 
 import java.util.List;
+import java.util.Locale;
 
 /**
  * Parsed "You can only use this ability if you control [X]" restriction on an action ability.
@@ -17,8 +18,9 @@ import java.util.List;
  *       filters (e.g. "Job Samurai or Card Name Samurai").</li>
  *   <li><b>Crystal mode</b>: {@link #requiresCrystal} is {@code true} — condition is met when
  *       the controlling player has at least 1 Crystal.</li>
- *   <li><b>Dull mode</b>: {@link #dullCardName} is non-null — condition is met when the named
- *       card is currently DULL on the controlling player's field.</li>
+ *   <li><b>Named-state mode</b>: {@link #stateCardName} is non-null — condition is met when the
+ *       named card is on the controlling player's field in the state {@link #namedState} gives
+ *       (dull, active, or attacking).</li>
  * </ul>
  */
 public record ControlCondition(
@@ -33,28 +35,49 @@ public record ControlCondition(
         List<String> orCardNames,       // per-card OR alternative: also matches if name is in this list
         boolean      anyOf,             // named mode: true = ANY required name suffices; false = ALL required
         String       excludeElement,    // null or element name the card must NOT have (e.g. "Ice")
-        String       dullCardName,      // non-null: the named card must currently be DULL on the field
+        String       stateCardName,     // non-null: the named card must be on the field in namedState
         boolean      requiresCrystal,   // true: condition requires the player to have ≥1 Crystal
         boolean      allHave,           // true: ALL controlled cards of cardType must satisfy element/job (not "N or more")
         boolean      opponentControls,  // true: check opponent's field instead of activating player's field
         int          minCost,           // 0 = no cost filter; > 0 = card cost must be ≥ this
         List<ControlCondition> orAlternatives, // per-card OR filters; a card counts if it matches ANY
         boolean      bothFields,        // true: count across BOTH players' fields ("neither player controls…")
-        int          maxCost            // 0 = no cost ceiling; > 0 = card cost must be <= this
+        int          maxCost,           // 0 = no cost ceiling; > 0 = card cost must be <= this
+        NamedCardState namedState       // which state stateCardName must be in; DULL when unset
 ) {
+    /** The state a named card has to be in for a named-state condition to hold. */
+    public enum NamedCardState { DULL, ACTIVE, ATTACKING }
+
     public ControlCondition {
         requiredCardNames = List.copyOf(requiredCardNames);
         orCardNames       = List.copyOf(orCardNames);
         orAlternatives    = List.copyOf(orAlternatives);
+        // Dull was the only named-state wording the parser read before the other two were added,
+        // so it is the default the older constructors keep getting without spelling it out.
+        if (namedState == null) namedState = NamedCardState.DULL;
+    }
+
+    /**
+     * A condition on one named card's state — "If Trey is active, …", "If Trey is dull, …",
+     * "If Queen is attacking, …".
+     *
+     * <p>Read against the field rather than against the printing card, like every other condition
+     * here: the name is looked up on the controlling player's side, so a second copy of the card in
+     * the right state satisfies it. Every printing in the corpus names its own carrier, which makes
+     * that indistinguishable from asking the carrier directly until two copies are out at once.
+     */
+    public static ControlCondition forNamedCardState(String cardName, NamedCardState state) {
+        return new ControlCondition(List.of(), 0, false, null, null, null, null, 0,
+                List.of(), false, null, cardName, false, false, false, 0, List.of(), false, 0, state);
     }
 
     /** Compatibility constructor preserving the prior 16-arg signature; defaults {@code orAlternatives} to empty. */
     public ControlCondition(List<String> requiredCardNames, int minCount, boolean exactCount,
             String cardType, String element, String job, String category, int minPower,
-            List<String> orCardNames, boolean anyOf, String excludeElement, String dullCardName,
+            List<String> orCardNames, boolean anyOf, String excludeElement, String stateCardName,
             boolean requiresCrystal, boolean allHave, boolean opponentControls, int minCost) {
         this(requiredCardNames, minCount, exactCount, cardType, element, job, category, minPower,
-                orCardNames, anyOf, excludeElement, dullCardName, requiresCrystal, allHave,
+                orCardNames, anyOf, excludeElement, stateCardName, requiresCrystal, allHave,
                 opponentControls, minCost, List.of(), false);
     }
 
@@ -65,12 +88,12 @@ public record ControlCondition(
      */
     public ControlCondition(List<String> requiredCardNames, int minCount, boolean exactCount,
             String cardType, String element, String job, String category, int minPower,
-            List<String> orCardNames, boolean anyOf, String excludeElement, String dullCardName,
+            List<String> orCardNames, boolean anyOf, String excludeElement, String stateCardName,
             boolean requiresCrystal, boolean allHave, boolean opponentControls, int minCost,
             List<ControlCondition> orAlternatives, boolean bothFields) {
         this(requiredCardNames, minCount, exactCount, cardType, element, job, category, minPower,
-                orCardNames, anyOf, excludeElement, dullCardName, requiresCrystal, allHave,
-                opponentControls, minCost, orAlternatives, bothFields, 0);
+                orCardNames, anyOf, excludeElement, stateCardName, requiresCrystal, allHave,
+                opponentControls, minCost, orAlternatives, bothFields, 0, null);
     }
 
     /**
@@ -98,40 +121,40 @@ public record ControlCondition(
     /** Compatibility constructor preserving the prior 15-arg signature; defaults {@code minCost} to 0. */
     public ControlCondition(List<String> requiredCardNames, int minCount, boolean exactCount,
             String cardType, String element, String job, String category, int minPower,
-            List<String> orCardNames, boolean anyOf, String excludeElement, String dullCardName,
+            List<String> orCardNames, boolean anyOf, String excludeElement, String stateCardName,
             boolean requiresCrystal, boolean allHave, boolean opponentControls) {
         this(requiredCardNames, minCount, exactCount, cardType, element, job, category, minPower,
-                orCardNames, anyOf, excludeElement, dullCardName, requiresCrystal, allHave,
+                orCardNames, anyOf, excludeElement, stateCardName, requiresCrystal, allHave,
                 opponentControls, 0);
     }
 
     /** Convenience constructor without {@code opponentControls}; defaults it to {@code false}. */
     public ControlCondition(List<String> requiredCardNames, int minCount, boolean exactCount,
             String cardType, String element, String job, String category, int minPower,
-            List<String> orCardNames, boolean anyOf, String excludeElement, String dullCardName,
+            List<String> orCardNames, boolean anyOf, String excludeElement, String stateCardName,
             boolean requiresCrystal, boolean allHave) {
         this(requiredCardNames, minCount, exactCount, cardType, element, job, category, minPower,
-                orCardNames, anyOf, excludeElement, dullCardName, requiresCrystal, allHave, false);
+                orCardNames, anyOf, excludeElement, stateCardName, requiresCrystal, allHave, false);
     }
 
     /** Convenience constructor without {@code allHave} or {@code opponentControls}; defaults both to {@code false}. */
     public ControlCondition(List<String> requiredCardNames, int minCount, boolean exactCount,
             String cardType, String element, String job, String category, int minPower,
-            List<String> orCardNames, boolean anyOf, String excludeElement, String dullCardName,
+            List<String> orCardNames, boolean anyOf, String excludeElement, String stateCardName,
             boolean requiresCrystal) {
         this(requiredCardNames, minCount, exactCount, cardType, element, job, category, minPower,
-                orCardNames, anyOf, excludeElement, dullCardName, requiresCrystal, false, false);
+                orCardNames, anyOf, excludeElement, stateCardName, requiresCrystal, false, false);
     }
 
     /** Convenience constructor without {@code requiresCrystal}, {@code allHave}, or {@code opponentControls}. */
     public ControlCondition(List<String> requiredCardNames, int minCount, boolean exactCount,
             String cardType, String element, String job, String category, int minPower,
-            List<String> orCardNames, boolean anyOf, String excludeElement, String dullCardName) {
+            List<String> orCardNames, boolean anyOf, String excludeElement, String stateCardName) {
         this(requiredCardNames, minCount, exactCount, cardType, element, job, category, minPower,
-                orCardNames, anyOf, excludeElement, dullCardName, false, false, false);
+                orCardNames, anyOf, excludeElement, stateCardName, false, false, false);
     }
 
-    /** Convenience constructor without {@code dullCardName}, {@code requiresCrystal}, {@code allHave}, or {@code opponentControls}. */
+    /** Convenience constructor without {@code stateCardName}, {@code requiresCrystal}, {@code allHave}, or {@code opponentControls}. */
     public ControlCondition(List<String> requiredCardNames, int minCount, boolean exactCount,
             String cardType, String element, String job, String category, int minPower,
             List<String> orCardNames, boolean anyOf, String excludeElement) {
@@ -139,7 +162,7 @@ public record ControlCondition(
                 orCardNames, anyOf, excludeElement, null, false, false, false);
     }
 
-    /** Convenience constructor without {@code excludeElement}, {@code dullCardName}, {@code requiresCrystal}, or {@code allHave}. */
+    /** Convenience constructor without {@code excludeElement}, {@code stateCardName}, {@code requiresCrystal}, or {@code allHave}. */
     public ControlCondition(List<String> requiredCardNames, int minCount, boolean exactCount,
             String cardType, String element, String job, String category, int minPower,
             List<String> orCardNames, boolean anyOf) {
@@ -202,7 +225,8 @@ public record ControlCondition(
         if (cardType       != null) sb.append(' ').append(cardType);
         if (excludeElement != null) sb.append(" !").append(excludeElement);
         if (!orCardNames.isEmpty()) sb.append('/').append(String.join("|", orCardNames));
-        if (dullCardName  != null) sb.append(" dull:").append(dullCardName);
+        if (stateCardName  != null) sb.append(' ').append(namedState.name().toLowerCase(Locale.ROOT))
+                                      .append(':').append(stateCardName);
         return sb.toString();
     }
 }

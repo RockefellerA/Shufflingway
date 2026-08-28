@@ -245,6 +245,21 @@ public final class CardFilters {
         return "entered the field this turn".equals(condition);
     }
 
+    /** The condition string a "put in your Break Zone from the field during this turn" choice carries. */
+    public static final String PUT_TO_BZ_FROM_FIELD_THIS_TURN = "put into the break zone from the field this turn";
+
+    /**
+     * Returns true when {@code condition} restricts a Break Zone choice to the cards that arrived
+     * there from the field during the current turn — Rydia 17-083C, Maenad 25-032C, Muraga Fennes
+     * 14-073R and Regis 12-122L.
+     *
+     * <p>Answered against {@code PlayerTurnState.putToBzFromFieldThisTurn} rather than off the card,
+     * which carries no record of how or when it reached the zone.
+     */
+    public static boolean isPutToBzFromFieldThisTurnCondition(String condition) {
+        return PUT_TO_BZ_FROM_FIELD_THIS_TURN.equals(condition);
+    }
+
     /** Returns true when {@code condition} is a trait filter ("trait:BRAVE", "trait:HASTE", etc.). */
     public static boolean isTraitCondition(String condition) {
         if (condition == null) return false;

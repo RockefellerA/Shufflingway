@@ -52,7 +52,13 @@ final class ActionResolverPatterns {
                     "(?:(?<condition>dull|damaged|attacking|blocking|active)\\s+)?" +
                     "(?:(?<element>(?:Multi-Element|Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)(?:\\s+or\\s+(?:Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark))*)\\s+)?" +
                     "(?:Category\\s+(?<category>.+?)(?=\\s+(?:cards?|Forwards?|Backups?|Characters?|Monsters?|Summons?))\\s+)?" +
-                    "(?<targets>cards?|Forwards?(?:\\s+(?:and/or|or)\\s+(?:Monsters?|Backups?))?|Monsters?|Backups?|Characters?|Summons?" +
+                    // "Summon or Monster" (Citra 10-127H) is the Break Zone's own union, and the
+                    // only one this alternation lacked: without the tail the phrase matched
+                    // "Summon" alone, the leftover " or Monster" met no followup separator and the
+                    // whole choice failed — leaving the trailing sentence for a find()-based parser
+                    // below to claim on its own, selection and all silently dropped.
+                    "(?<targets>cards?|Forwards?(?:\\s+(?:and/or|or)\\s+(?:Monsters?|Backups?))?|Monsters?|Backups?|Characters?" +
+                    "|Summons?(?:\\s+(?:and/or|or)\\s+(?:Monsters?|Forwards?|Backups?))?" +
                     "|\\[Job\\s+\\([^)]+\\)\\]" +
                     "|\\[Card\\s+Name\\s+\\([^)]+\\)\\]" +
                     "|Card\\s+Name\\s+.+?\\s+Forwards?(?:\\s+or\\s+Job\\s+.+?\\s+Forwards?)*" +
@@ -102,6 +108,19 @@ final class ActionResolverPatterns {
                     // Being optional and immediately after the lazy group, this is what the engine
                     // tries first, so the shorter exclusion wins whenever the clause is present.
                     "(?:\\s+(?<control2>(?:your\\s+)?opponent\\s+controls|you\\s+control))?" +
+                    // "put in your Break Zone from the field during this turn" (Rydia 17-083C,
+                    // Maenad 25-032C, Muraga Fennes 14-073R, Regis 12-122L) — a Break Zone choice
+                    // narrowed to what arrived there from the field on this turn. It names the zone
+                    // and a condition at once, which is why it is read here rather than through the
+                    // "that …" post-condition slot further up: the words sit where the zone does.
+                    //
+                    // Ahead of the plain zone group and requiring the whole phrase, so it can only
+                    // claim these four printings. Left to the plain group, the sentence matched as
+                    // far as "Break Zone", the leftover " from the field during this turn" met no
+                    // followup separator and the choice failed outright — which handed the trailing
+                    // sentence to a find()-based parser below and dropped the selection.
+                    "(?:\\s+put\\s+(?<bzfieldzone>(?:in|from)\\s+(?:your(?:\\s+opponent(?:'s)?)?|the)\\s+Break\\s+Zone)" +
+                    "\\s+from\\s+the\\s+field\\s+during\\s+this\\s+turn)?" +
                     "(?:\\s+(?<zone>(?:in|from)\\s+(?:your(?:\\s+opponent(?:'s)?)?|the|either\\s+player'?s|any\\s+player'?s)\\s+Break\\s+Zone))?" +
                     "(?:\\s+blocking\\s+" +
                     "(?:(?:a\\s+(?:Job\\s+)?(?<blockingjob>[^.,]+?)(?=\\s*[.,]))" +
@@ -1607,6 +1626,23 @@ final class ActionResolverPatterns {
     static final Pattern PLAY_BROKEN_CARD_ONTO_FIELD_DULL = Pattern.compile(
         "(?i)^Play\\s+the\\s+(?:Forward|Backup|Monster|Character|card)\\s+placed\\s+in\\s+the\\s+" +
         "Break\\s+Zone\\s+onto\\s+(?:the\\s+)?field\\s+dull[.!]?$"
+    );
+    /**
+     * "Add it to your hand." standing alone as a whole effect — Gogo 24-022H, whose "it" is the
+     * Category VI Forward whose arrival in the Break Zone fired the trigger this effect hangs off.
+     *
+     * <p>The salvage twin of {@link #PLAY_BROKEN_CARD_ONTO_FIELD_DULL} and read the same way: the
+     * pronoun points at the trigger's own event, so the effect takes no target.
+     *
+     * <p>Anchored end to end and matched with {@code matches()}, because the sentence is three
+     * common words. Under {@code find()} it would claim the tail of every "choose … . Add it to
+     * your hand." ability and resolve it with the selection dropped — which is how an earlier
+     * attempt at this card broke 10-127H Citra and 14-073R Muraga Fennes. Anchoring is not enough
+     * on its own: the guard is that both of those now parse as a whole through the choose chain,
+     * which runs first, so this never sees their trailing sentence.
+     */
+    static final Pattern ADD_TRIGGERING_BROKEN_CARD_TO_HAND = Pattern.compile(
+        "(?i)^Add\\s+it\\s+to\\s+your\\s+hand[.!]?$"
     );
     /**
      * Matches "When it enters the field, if it is [cond], [inner]" — a conditional secondary
@@ -5924,6 +5960,15 @@ final class ActionResolverPatterns {
      * "draw 1 card, then discard 1 card." and off conditional forms like "…, also draw 1 card."
      * — both are single effects with their own handling, not a trailing addition.
      */
+    /**
+     * The sentence boundary this family splits on: a period followed by a capitalised word.
+     *
+     * <p>Deliberately blind to the period inside a quoted granted ability, which never opens a new
+     * sentence of the outer text and would break a grant in half. Every splitter here shares this
+     * one constant so {@code parse()} and both reporting chains cut identically.
+     */
+    static final Pattern SENTENCE_BREAK = Pattern.compile("(?<=\\.)\\s+(?=[A-Z])");
+
     /**
      * A sentence that depends on the one before it, and so must never be resolved on its own.
      *

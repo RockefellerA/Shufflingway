@@ -1909,6 +1909,8 @@ public class MainWindow {
 		p1Turn.nextDamageZeroRedirectDmg = 0;     p2Turn.nextDamageZeroRedirectDmg = 0;
 		p1Turn.forwardPutToBZThisTurn = false;
 		p2Turn.forwardPutToBZThisTurn = false;
+		p1Turn.putToBzFromFieldThisTurn.clear();
+		p2Turn.putToBzFromFieldThisTurn.clear();
 		p1Turn.castRemovedUsedThisTurn.clear();
 		p2Turn.castRemovedUsedThisTurn.clear();
 		p1Turn.partyAnyElementThisTurn = false;
@@ -7401,6 +7403,10 @@ public class MainWindow {
 
 		List<CardData> zone = player1 ? gameState.getP1BreakZone() : gameState.getP2BreakZone();
 		zone.add(card);
+		// Recorded here rather than at the three field-to-Break-Zone callers, because this is the
+		// one place every route through them converges — and the one place that knows the card
+		// actually arrived, since the RFG redirects above return before reaching it.
+		if (fromField) turn(player1).putToBzFromFieldThisTurn.add(card);
 		// An LB card only passes through the Break Zone: it is put there — so everything watching
 		// "put from the field into the Break Zone" fires — and then moves straight on to the LB
 		// deck face up, where it has sat all along marked spent (spentLbIndices). Without the log
@@ -10245,6 +10251,12 @@ public class MainWindow {
 		}
 
 		isResolvingStack = true;
+		// Re-establish the card whose event fired this entry, for the length of its resolution.
+		// The trigger dispatcher sets the same field while it pushes and unwinds it immediately
+		// after, so an effect naming that card back is reached long after the field has been
+		// cleared; the entry carries it precisely so this can put it back.
+		CardData previousTriggeringBrokenCard = triggeringBrokenCard;
+		triggeringBrokenCard = entry.triggerCard();
 		try {
 			GameContext ctx = buildGameContext(entry.isP1());
 			if (entry.isSummon()) {
@@ -10384,6 +10396,7 @@ public class MainWindow {
 			}
 		} finally {
 			isResolvingStack = false;
+			triggeringBrokenCard = previousTriggeringBrokenCard;
 		}
 
 		if (!gameState.getStack().isEmpty()) showStackWindow();
@@ -12336,8 +12349,8 @@ public class MainWindow {
 		for (ControlCondition cond : icb.conditions()) {
 			if (cond.requiresCrystal()) {
 				if (playerCrystals(isP1) < 1) return false;
-			} else if (cond.dullCardName() != null) {
-				if (!isNamedCardDull(cond.dullCardName(), isP1)) return false;
+			} else if (cond.stateCardName() != null) {
+				if (!isNamedCardInState(cond.stateCardName(), cond.namedState(), isP1)) return false;
 			} else {
 				if (!controlConditionMetExcluding(cond, icb.exceptCardName(), isP1)) return false;
 			}
@@ -12425,15 +12438,33 @@ public class MainWindow {
 		return except != null && !CardFilters.meetsCardNameFilter(entering, except);
 	}
 
-	private boolean isNamedCardDull(String name, boolean isP1) {
+	/**
+	 * Whether a card called {@code name} is on {@code isP1}'s field in {@code state} — the field
+	 * side of a {@link ControlCondition} named-state condition ("If Trey is active, …",
+	 * "If Queen is attacking, …").
+	 *
+	 * <p>Forwards and Monsters only. A Backup has a dull/active state too, but no printing in this
+	 * family names one, and a Backup can never be attacking.
+	 *
+	 * <p>Attacking is read off the declared attackers rather than off the card's state, because a
+	 * Forward is attacking for exactly as long as it is in the declared attack — dulling to attack
+	 * is a consequence of it, and a Forward given Brave attacks without dulling at all.
+	 */
+	private boolean isNamedCardInState(String name, ControlCondition.NamedCardState state, boolean isP1) {
+		if (state == ControlCondition.NamedCardState.ATTACKING) {
+			for (CardData atk : isP1 ? p1DeclaredAttackers : p2DeclaredAttackers)
+				if (atk != null && atk.name().equalsIgnoreCase(name)) return true;
+			return false;
+		}
+		CardState wanted = state == ControlCondition.NamedCardState.DULL ? CardState.DULL : CardState.ACTIVE;
 		List<CardData> fwds = isP1 ? p1ForwardCards : p2ForwardCards;
 		List<CardState> states = isP1 ? p1ForwardStates : p2ForwardStates;
 		for (int i = 0; i < fwds.size(); i++)
-			if (fwds.get(i).name().equalsIgnoreCase(name) && states.get(i) == CardState.DULL) return true;
+			if (fwds.get(i).name().equalsIgnoreCase(name) && states.get(i) == wanted) return true;
 		List<CardData> mons = isP1 ? p1MonsterCards : p2MonsterCards;
 		List<CardState> monStates = isP1 ? p1MonsterStates : p2MonsterStates;
 		for (int i = 0; i < mons.size(); i++)
-			if (mons.get(i).name().equalsIgnoreCase(name) && monStates.get(i) == CardState.DULL) return true;
+			if (mons.get(i).name().equalsIgnoreCase(name) && monStates.get(i) == wanted) return true;
 		return false;
 	}
 

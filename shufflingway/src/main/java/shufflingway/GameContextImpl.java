@@ -2182,10 +2182,19 @@ final class GameContextImpl implements GameContext {
 				for (boolean sideIsP1 : sides) {
 					if (sideIsP1 != isP1 && mw.bzCardsProtectedFromOppChoice(sideIsP1)) continue;
 					List<CardData> bz = sideIsP1 ? mw.gameState.getP1BreakZone() : mw.gameState.getP2BreakZone();
+					// "…put in your Break Zone from the field during this turn": the card carries no
+					// record of how it got there, so the per-turn arrival set answers it, read on the
+					// side whose zone is being searched. By identity, since a Break Zone holds several
+					// copies of a name and only the one that left the field this turn qualifies.
+					boolean fromFieldThisTurnOnly =
+							CardFilters.isPutToBzFromFieldThisTurnCondition(condition);
 					for (int i = 0; i < bz.size(); i++) {
 						if (!breakZoneCardMatches(bz.get(i), element, costVal, costCmp, powerVal, powerCmp,
 								inclForwards, inclBackups, inclMonsters, inclSummons,
 								jobFilter, cardNameFilter, categoryFilter, excludeName, withoutMulticard))
+							continue;
+						if (fromFieldThisTurnOnly
+								&& !mw.turn(sideIsP1).putToBzFromFieldThisTurn.contains(bz.get(i)))
 							continue;
 						eligible.add(new ForwardTarget(sideIsP1, i, ForwardTarget.CardZone.BREAK_ZONE));
 					}
@@ -4963,6 +4972,26 @@ final class GameContextImpl implements GameContext {
 					return;
 				}
 				playTargetOntoFieldDull(new ForwardTarget(isP1(), idx, ForwardTarget.CardZone.FORWARD));
+			}
+
+			@Override public void addTriggeringBrokenCardToHand() {
+				CardData broken = mw.triggeringBrokenCard;
+				if (broken == null) {
+					logEntry("No card was placed in the Break Zone by this trigger");
+					markEffectFizzled();
+					return;
+				}
+				// By identity, as the sibling above: the Break Zone routinely holds several copies
+				// of a name and it is this instance the trigger watched arrive.
+				List<CardData> bz = isP1() ? mw.gameState.getP1BreakZone() : mw.gameState.getP2BreakZone();
+				int idx = -1;
+				for (int i = 0; i < bz.size(); i++) if (bz.get(i) == broken) { idx = i; break; }
+				if (idx < 0) {
+					logEntry(broken.name() + " is no longer in the Break Zone");
+					markEffectFizzled();
+					return;
+				}
+				addTargetToHand(new ForwardTarget(isP1(), idx, ForwardTarget.CardZone.BREAK_ZONE));
 			}
 
 

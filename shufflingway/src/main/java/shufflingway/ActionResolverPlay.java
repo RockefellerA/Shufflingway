@@ -219,6 +219,15 @@ final class ActionResolverPlay {
         return GameContext::playTriggeringBrokenCardOntoFieldDull;
     }
     /**
+     * Parses "Add it to your hand" — Gogo 24-022H. The salvage twin of the parser above, and the
+     * card is resolved the same way: "it" is the one whose arrival in the Break Zone fired the
+     * trigger this effect hangs off, so nothing is named and nothing is chosen.
+     */
+    static Consumer<GameContext> tryParseAddBrokenCardToHand(String text) {
+        if (!ADD_TRIGGERING_BROKEN_CARD_TO_HAND.matcher(text.trim()).matches()) return null;
+        return GameContext::addTriggeringBrokenCardToHand;
+    }
+    /**
      * Parses "Play [name] onto [the] field [dull]" for break-zone-origin abilities where
      * the card name matches the source.  Does not require a "from Break Zone" qualifier —
      * BZ-origin abilities say "Play [itself] onto the field" knowing they start in the BZ.
