@@ -1148,6 +1148,22 @@ public interface GameContext {
     void zeroAllOutgoingDamageThisTurn(ForwardTarget t);
 
     /**
+     * The narrow form of the shield above: only the damage the target deals <em>to a Forward</em>,
+     * and only when it is not battle damage — 17-027R Shiva's "if it deals damage other than battle
+     * damage to a Forward this turn, the damage becomes 0 instead". Its combat damage and its
+     * damage to a player both go through untouched.
+     */
+    void zeroOutgoingAbilityDamageToForwardsThisTurn(ForwardTarget t);
+
+    /**
+     * Bars the opponent from casting any card named {@code cardName} for the rest of this turn and
+     * all of the next — 19-101R Leviathan, which bounces a Forward and then will not let it come
+     * back. The ban is on the name, not on the copy that was bounced, which is what "any copies of
+     * it" says.
+     */
+    void barOpponentFromCastingName(String cardName);
+
+    /**
      * The same shield, scoped to damage from the opposing player's Summons and abilities — Auron
      * 22-001R. Combat damage passes it untouched and does not consume it, which is the whole of the
      * difference from {@link #shieldNextIncomingDamage}.
@@ -1191,6 +1207,14 @@ public interface GameContext {
 
     /** Damage from the opponent's Summons or abilities to target becomes 0 until end of turn. */
     void shieldAbilityDamage(ForwardTarget t);
+
+    /**
+     * Damage from a <em>Summon</em> to target becomes 0 until end of turn; damage from any other
+     * ability is untouched. The narrow reading of 6-125R Leviathan's third option, which says "by
+     * a Summon" and stops there — its B-047 reprint says "by a Summon or an ability" and wants
+     * {@link #shieldAbilityDamage} instead.
+     */
+    void shieldSummonDamage(ForwardTarget t);
 
     /**
      * Until end of turn: any Forward the active player controls matching {@code filter} takes 0

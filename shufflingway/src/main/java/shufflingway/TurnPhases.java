@@ -267,12 +267,12 @@ class TurnPhases {
 		mw.p1Turn.nullifyAbilityDmgFilters.clear(); mw.p2Turn.nullifyAbilityDmgFilters.clear();
 		mw.p1DoublecastFreeSummons = false;  mw.p2DoublecastFreeSummons = false;
 		mw.p1DoublecastLastSummonCost = -1;  mw.p2DoublecastLastSummonCost = -1;
-		mw.nullifyAbilityOnlyDmgSet.clear(); mw.perCardNonLethalDmgSet.clear();
+		mw.nullifyAbilityOnlyDmgSet.clear(); mw.nullifySummonOnlyDmgSet.clear(); mw.perCardNonLethalDmgSet.clear();
 		// The two until-end-of-turn break grants. P1's cleanup has always cleared the Breaktouch
 		// one; this side had not, so a grant made on P2's turn outlived it.
 		mw.breaktouchBattleSet.clear();      mw.breakWhenDealtDamageSet.clear();
 		mw.cannotBeChosenByElement.clear();  mw.nullifyElementDamageMap.clear();
-		mw.nextOutgoingDmgZeroSet.clear();    mw.allOutgoingDmgZeroThisTurnSet.clear();    mw.outgoingDmgMultiplierMap.clear();
+		mw.nextOutgoingDmgZeroSet.clear();    mw.allOutgoingDmgZeroThisTurnSet.clear();    mw.abilityDmgToForwardZeroedThisTurnSet.clear();    mw.outgoingDmgMultiplierMap.clear();
 		mw.nextOutgoingDmgDoublerSet.clear(); mw.outgoingDmgFlatBoostMap.clear();
 		mw.perCardIncomingDmgMultiplierMap.clear();
 		mw.p1Turn.forwardIncomingDmgMult = 1;      mw.p2Turn.forwardIncomingDmgMult = 1;
@@ -286,6 +286,9 @@ class TurnPhases {
 		mw.p1Turn.cannotSearchThisTurn = false; mw.p2Turn.cannotSearchThisTurn = false;
 		mw.p1Turn.cannotCastThisTurn = false;   mw.p2Turn.cannotCastThisTurn = false;
 		mw.p1Turn.oppFieldEntryBecomesRfg = false; mw.p2Turn.oppFieldEntryBecomesRfg = false;
+		// Aged rather than cleared: 19-101R Leviathan's cast ban runs "until the end of the next
+		// turn", so it has to survive this boundary and expire at the following one.
+		mw.ageCastNameBans();
 		// Last, not with the row refreshes above: the exhausted-attacker glow reads
 		// attacksMadeThisTurn, which this method has just emptied.
 		mw.refreshCombatGlows();

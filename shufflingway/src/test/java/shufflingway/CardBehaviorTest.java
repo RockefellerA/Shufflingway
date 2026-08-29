@@ -38155,5 +38155,548 @@ public class CardBehaviorTest {
 	}
 
 	// =========================================================================================
+	// 13-053R Alexander: "Choose 1 Forward you control and up to 1 Forward opponent controls.
+	// Until the end of the turn, the former gains +3000 power and "This Forward cannot become dull
+	// by your opponent's Summons or abilities." If you have received 5 points of damage or more,
+	// also deal the latter damage equal to the highest power Forward you control."
+	//
+	// The former/latter branch for this shape was already written; the pattern reaching it allowed
+	// a single non-word character after "abilities" where the printing has two — the grant's own
+	// full stop and then the closing quote. Declined on that alone, the card fell past every
+	// former/latter case to the plain choose parser, which read the selection and then neither
+	// half of the effect.
+	// =========================================================================================
+
+	private static final String ALEXANDER_FORMER_LATTER_SUMMON =
+			"EX BURST Choose 1 Forward you control and up to 1 Forward opponent controls. "
+			+ "Until the end of the turn, the former gains +3000 power and \"This Forward cannot "
+			+ "become dull by your opponent's Summons or abilities.\" If you have received 5 points "
+			+ "of damage or more, also deal the latter damage equal to the highest power Forward "
+			+ "you control.";
+
+	private static final ForwardTarget ALEX_MINE   = new ForwardTarget(true,  0, ForwardTarget.CardZone.FORWARD);
+	private static final ForwardTarget ALEX_THEIRS = new ForwardTarget(false, 0, ForwardTarget.CardZone.FORWARD);
+
+	/** The two selections come back from consecutive {@code selectCharacters} calls, in text order. */
+	private static GameContext alexanderContext(int damageTaken) {
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.isP1()).thenReturn(true);
+		when(ctx.consumePreloadedTargets()).thenReturn(null);
+		when(ctx.selfDamageCount()).thenReturn(damageTaken);
+		when(ctx.selfHighestForwardPower()).thenReturn(9000);
+		when(ctx.selectCharacters(anyInt(), anyBoolean(), anyBoolean(), anyBoolean(), any(), any(),
+				anyInt(), any(), anyInt(), any(), anyBoolean(), anyBoolean(), anyBoolean(),
+				any(), any(), any(), any(), anyBoolean(), any(), anyBoolean()))
+				.thenReturn(List.of(ALEX_MINE))
+				.thenReturn(List.of(ALEX_THEIRS));
+		return ctx;
+	}
+
+	@Test
+	void alexanderBoostsAndProtectsYourForwardBelowTheThreshold() {
+		GameContext ctx = alexanderContext(4);
+
+		Consumer<GameContext> effect = ActionResolver.parse(ALEXANDER_FORMER_LATTER_SUMMON, null);
+		assertNotNull(effect, "the printed wording has to parse for the rest of this to mean anything");
+		effect.accept(ctx);
+
+		verify(ctx).boostTarget(ALEX_MINE, 3000,
+				EnumSet.of(CardData.Trait.CANNOT_BE_DULLED_BY_OPP));
+		verify(ctx, never()).damageTarget(any(), anyInt());
+	}
+
+	@Test
+	void andBurnsTheirsForYourHighestPowerOnceYouHaveTakenFive() {
+		GameContext ctx = alexanderContext(5);
+
+		ActionResolver.parse(ALEXANDER_FORMER_LATTER_SUMMON, null).accept(ctx);
+
+		verify(ctx).boostTarget(ALEX_MINE, 3000,
+				EnumSet.of(CardData.Trait.CANNOT_BE_DULLED_BY_OPP));
+		verify(ctx).damageTarget(ALEX_THEIRS, 9000);
+	}
+
+	@Test
+	void alexanderIsReadAsTheFormerLatterCardItIs() {
+		assertEquals("ChooseFormerLatter", ActionResolver.fullDescription(ALEXANDER_FORMER_LATTER_SUMMON, null));
+	}
+
+	// =========================================================================================
+	// 6-125R Leviathan, third option: "During this turn, if a Forward you control is dealt damage
+	// by a Summon, the damage becomes 0 instead."
+	//
+	// Its B-047 reprint says "by a Summon or an ability" and was the only wording read; this one
+	// did not parse at all. They are not the same effect, so the narrower printing gets a shield
+	// of its own rather than borrowing the wider one — an ability that is not a Summon still gets
+	// through here.
+	// =========================================================================================
+
+	private static final String LEVIATHAN_OPTION =
+			"During this turn, if a Forward you control is dealt damage by a Summon, "
+			+ "the damage becomes 0 instead.";
+
+	private static final String LEVIATHAN_REPRINT_OPTION =
+			"During this turn, if a Forward you control is dealt damage by a Summon or an ability, "
+			+ "the damage becomes 0 instead.";
+
+	/** Runs {@code option} for P1 and returns the board, with one P1 Forward on the field. */
+	private static MainWindow leviathanBoard(String option) {
+		MainWindow mw = new MainWindow();
+		placeP1Forward(mw, makeForward("Ally", "Water", 3, 9000));
+
+		GameContext ctx = mw.buildGameContext(true);
+		Consumer<GameContext> effect = ActionResolver.parse(option, null);
+		assertNotNull(effect, "the printed wording has to parse: " + option);
+		effect.accept(ctx);
+		return mw;
+	}
+
+	/**
+	 * Deals 5000 to the P1 Forward with the resolution flagged the way a Summon's or a plain
+	 * ability's would be, and reports how much of it landed.
+	 */
+	private static int leviathanDamageThrough(MainWindow mw, boolean asSummon) {
+		GameContext ctx = mw.buildGameContext(true);
+		int before = mw.p1ForwardDamage.get(0);
+		mw.currentResolutionIsSummon = asSummon;
+		try {
+			ctx.damageP1Forward(0, 5000);
+		} finally {
+			mw.currentResolutionIsSummon = false;
+		}
+		return mw.p1ForwardDamage.get(0) - before;
+	}
+
+	@Test
+	void leviathanStopsSummonDamage() {
+		MainWindow mw = leviathanBoard(LEVIATHAN_OPTION);
+		assertEquals(0, leviathanDamageThrough(mw, true));
+	}
+
+	@Test
+	void butLetsAPlainAbilityThrough() {
+		// The printing says "by a Summon" and stops there. Reading it as the reprint's wider
+		// sentence would blank damage the card never mentions.
+		MainWindow mw = leviathanBoard(LEVIATHAN_OPTION);
+		assertEquals(5000, leviathanDamageThrough(mw, false));
+	}
+
+	@Test
+	void whileTheReprintStopsBoth() {
+		MainWindow mw = leviathanBoard(LEVIATHAN_REPRINT_OPTION);
+		assertEquals(0, leviathanDamageThrough(mw, true));
+		assertEquals(0, leviathanDamageThrough(mw, false));
+	}
+
+	@Test
+	void leviathanNamesAllThreeOfItsOptions() {
+		String summon = "Select 1 of the 3 following actions. "
+				+ "\"Choose 1 Forward. Return it to its owner's hand.\" "
+				+ "\"Choose 1 action ability. Cancel its effect.\" "
+				+ "\"" + LEVIATHAN_OPTION + "\"";
+		assertEquals("SelectFollowingActions(1 of 3: ChooseCharacter / ReturnToOwnersHand "
+						+ "| CancelAbilityOnStack | AllOwnForwardsNullifyAbilityDamage)",
+				ActionResolver.fullDescription(summon, null));
+	}
+
+	// =========================================================================================
+	// 28-064H Cactuar, second option: "Choose 1 Forward. It gains 'This Forward cannot attack or
+	// block.' until the end of the turn. Draw 1 card."
+	//
+	// The followup pattern already read this sentence — with double quotes around the grant.
+	// Cactuar is the one printing that uses ', and nothing else distinguishes the two.
+	// =========================================================================================
+
+	private static final String CACTUAR_OPTION =
+			"Choose 1 Forward. It gains 'This Forward cannot attack or block.' until the end of "
+			+ "the turn. Draw 1 card.";
+
+	@Test
+	void cactuarLocksTheForwardAndDraws() {
+		ForwardTarget victim = new ForwardTarget(false, 0, ForwardTarget.CardZone.FORWARD);
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.consumePreloadedTargets()).thenReturn(null);
+		when(ctx.selectCharacters(anyInt(), anyBoolean(), anyBoolean(), anyBoolean(), any(), any(),
+				anyInt(), any(), anyInt(), any(), anyBoolean(), anyBoolean(), anyBoolean(),
+				any(), any(), any(), any(), anyBoolean(), any(), anyBoolean()))
+				.thenReturn(List.of(victim));
+
+		Consumer<GameContext> effect = ActionResolver.parse(CACTUAR_OPTION, null);
+		assertNotNull(effect, "the printed wording has to parse for the rest of this to mean anything");
+		effect.accept(ctx);
+
+		verify(ctx).setP2ForwardCannotAttack(0);
+		verify(ctx).setP2ForwardCannotBlock(0);
+		verify(ctx).drawCards(1);
+	}
+
+	@Test
+	void andTheSingleQuotedGrantIsNamedLikeTheDoubleQuotedOne() {
+		assertEquals("ChooseCharacter / CannotAttackOrBlock + DrawCards",
+				ActionResolver.fullDescription(CACTUAR_OPTION, null));
+		assertEquals("ChooseCharacter / CannotAttackOrBlock + DrawCards",
+				ActionResolver.fullDescription(CACTUAR_OPTION.replace('\'', '"'), null));
+	}
+
+	// =========================================================================================
+	// 2-049H Asura, third option: "Choose 1 Character card of cost 2 or less into your Break Zone.
+	// Add it to your hand."
+	//
+	// "into" is a misprint for "in", corrected on the Re-059H reprint — which parsed while the
+	// original did not. Accepted in the zone slot, which sits between the target descriptor and
+	// the followup separator: a card that puts something *into* the Break Zone says so after that
+	// separator, out of this group's reach.
+	// =========================================================================================
+
+	private static final String ASURA_OPTION =
+			"Choose 1 Character card of cost 2 or less into your Break Zone. Add it to your hand.";
+
+	@Test
+	void asuraTakesTheCharacterOutOfYourBreakZone() {
+		ForwardTarget inBz = new ForwardTarget(true, 0, ForwardTarget.CardZone.BREAK_ZONE);
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.isP1()).thenReturn(true);
+		when(ctx.consumePreloadedTargets()).thenReturn(null);
+		when(ctx.p1BreakZoneCard(0)).thenReturn(makeForward("Recruit", "Water", 2, 5000));
+		when(ctx.selectCharactersFromBreakZone(anyInt(), anyBoolean(), anyBoolean(), anyBoolean(),
+				any(), any(), anyInt(), any(), anyInt(), any(), anyBoolean(), anyBoolean(),
+				anyBoolean(), any(), any(), any(), any(), anyBoolean(), any(), anyBoolean()))
+				.thenReturn(List.of(inBz));
+
+		Consumer<GameContext> effect = ActionResolver.parse(ASURA_OPTION, null);
+		assertNotNull(effect, "the misprinted wording has to parse for the rest of this to mean anything");
+		effect.accept(ctx);
+
+		verify(ctx).addTargetToHand(inBz);
+	}
+
+	@Test
+	void andTheMisprintReadsAsItsReprintDoes() {
+		assertEquals("ChooseCharacter / AddToHand",
+				ActionResolver.fullDescription(ASURA_OPTION, null));
+		assertEquals("ChooseCharacter / AddToHand",
+				ActionResolver.fullDescription(
+						"Choose 1 Character of cost 2 or less in your Break Zone. Add it to your hand.",
+						null));
+	}
+
+	@Test
+	void asuraNamesAllThreeOfItsOptions() {
+		String summon = "Select 1 of the 3 following actions. "
+				+ "\"Choose up to 2 Forwards. Activate them.\" "
+				+ "\"Choose up to 5 Backups. Activate them.\" "
+				+ "\"" + ASURA_OPTION + "\"";
+		assertEquals("SelectFollowingActions(1 of 3: ChooseCharacter / Activate "
+						+ "| ChooseCharacter / Activate | ChooseCharacter / AddToHand)",
+				ActionResolver.fullDescription(summon, null));
+	}
+
+	// =========================================================================================
+	// 6-017C Bahamut: "Choose 1 Forward. Deal it 10000 damage. Bahamut deals you 1 point of
+	// damage. EX Bursts of cards put into the Damage Zone due to this damage cannot be used."
+	//
+	// The suppression clause was already wired — for "due to this ability", which every other
+	// printing says. Bahamut names the damage instead, and the two come to the same thing here:
+	// the ability the suppression scopes to is the one resolution that dealt it, and nothing else
+	// in this text puts a card into a Damage Zone.
+	// =========================================================================================
+
+	private static final String BAHAMUT_SELF_DAMAGE_SUMMON =
+			"EX BURST Choose 1 Forward. Deal it 10000 damage. Bahamut deals you 1 point of damage. "
+			+ "EX Bursts of cards put into the Damage Zone due to this damage cannot be used.";
+
+	@Test
+	void bahamutBurnsHurtsYouAndSuppressesTheExBurst() {
+		ForwardTarget victim = new ForwardTarget(false, 0, ForwardTarget.CardZone.FORWARD);
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.consumePreloadedTargets()).thenReturn(null);
+		when(ctx.selectCharacters(anyInt(), anyBoolean(), anyBoolean(), anyBoolean(), any(), any(),
+				anyInt(), any(), anyInt(), any(), anyBoolean(), anyBoolean(), anyBoolean(),
+				any(), any(), any(), any(), anyBoolean(), any(), anyBoolean()))
+				.thenReturn(List.of(victim));
+
+		Consumer<GameContext> effect = ActionResolver.parse(BAHAMUT_SELF_DAMAGE_SUMMON, null);
+		assertNotNull(effect, "the printed wording has to parse for the rest of this to mean anything");
+		effect.accept(ctx);
+
+		verify(ctx).damageTarget(victim, 10000);
+		verify(ctx).dealDamageToSelf(1);
+		verify(ctx).suppressExBurstsThisAbility();
+	}
+
+	@Test
+	void andTheSuppressionIsNoLongerAnUnreadTail() {
+		// " + " rather than the compound fallback's bare "+": with the marker strip fixed the
+		// secondary parses as one clause instead of being split sentence by sentence.
+		assertEquals("ChooseCharacter / Damage + DealPlayerDamageToSelf + ExBurstSuppression",
+				ActionResolver.fullDescription(BAHAMUT_SELF_DAMAGE_SUMMON, null));
+	}
+
+	// =========================================================================================
+	// 17-027R Shiva, second option: "Choose 1 Forward. If it deals damage other than battle damage
+	// to a Forward this turn, the damage becomes 0 instead."
+	//
+	// The narrow member of the outgoing-shield family. 23-024R Shiva stops everything its target
+	// deals; this one stops only what it deals to a Forward, and only outside combat — so the
+	// chosen Forward still attacks, still blocks, and still hurts the player normally.
+	// =========================================================================================
+
+	private static final String SHIVA_NON_BATTLE_OPTION =
+			"Choose 1 Forward. If it deals damage other than battle damage to a Forward this turn, "
+			+ "the damage becomes 0 instead.";
+
+	/** Runs the option on the single P2 Forward and hands back the board it left. */
+	private static MainWindow shivaNonBattleOn(CardData victim) {
+		MainWindow mw = new MainWindow();
+		placeP2Forward(mw, victim);
+
+		GameContext ctx = mw.buildGameContext(true);
+		ctx.preloadTargets(List.of(fwd(false, 0)));
+		Consumer<GameContext> effect = ActionResolver.parse(SHIVA_NON_BATTLE_OPTION, null);
+		assertNotNull(effect, "the printed wording has to parse for the rest of this to mean anything");
+		effect.accept(ctx);
+		return mw;
+	}
+
+	@Test
+	void shivaBlanksTheAbilityDamageItsTargetDealsToAForward() {
+		CardData victim = makeForward("Victim", "Ice", 3, 7000);
+		MainWindow mw = shivaNonBattleOn(victim);
+		placeP1Forward(mw, makeForward("Ally", "Fire", 3, 9000));
+
+		GameContext ctx = mw.buildGameContext(false);
+		mw.currentAbilitySource = victim;
+		try {
+			ctx.damageP1Forward(0, 5000);
+		} finally {
+			mw.currentAbilitySource = null;
+		}
+
+		assertEquals(0, mw.p1ForwardDamage.get(0), "non-battle damage to a Forward becomes 0");
+	}
+
+	@Test
+	void butLeavesItsCombatDamageAlone() {
+		// "other than battle damage" is the whole difference from 23-024R Shiva, which stops that too.
+		CardData victim = makeForward("Victim", "Ice", 3, 7000);
+		MainWindow mw = shivaNonBattleOn(victim);
+		CardData blocker = makeForward("Blocker", "Fire", 3, 9000);
+		placeP1Forward(mw, blocker);
+
+		assertEquals(7000, mw.modifyOutgoingCombatDamage(false, 0, 7000, blocker));
+	}
+
+	@Test
+	void andLeavesItsDamageToThePlayerAlone() {
+		// "to a Forward" is the other half of the difference.
+		CardData victim = makeForward("Victim", "Ice", 3, 7000);
+		MainWindow mw = shivaNonBattleOn(victim);
+
+		assertEquals(1, mw.combatDamagePointsToOpponent(victim));
+	}
+
+	@Test
+	void shivasNarrowShieldIsNamedApartFromTheWideOne() {
+		assertEquals("ChooseCharacter / ZeroOutgoingAbilityDamageToForwards",
+				ActionResolver.fullDescription(SHIVA_NON_BATTLE_OPTION, null));
+	}
+
+	// =========================================================================================
+	// 24-056C Cu Sith, second option: "Choose 1 Forward opponent controls. If it deals damage to
+	// you or a Forward this turn, the damage becomes 0 instead."
+	//
+	// The same effect 23-024R Shiva prints as "damage to a Forward or a player", spelled from the
+	// caster's side: "you" is the only player a chosen Forward deals damage to. Read by the same
+	// branch and marked the same way, so nothing the Forward deals lands.
+	// =========================================================================================
+
+	private static final String CU_SITH_OPTION =
+			"Choose 1 Forward opponent controls. If it deals damage to you or a Forward this turn, "
+			+ "the damage becomes 0 instead.";
+
+	@Test
+	void cuSithDisarmsTheirForwardEntirely() {
+		MainWindow mw = new MainWindow();
+		CardData victim = makeForward("Theirs", "Fire", 3, 7000);
+		placeP2Forward(mw, victim);
+		CardData blocker = makeForward("Ally", "Water", 3, 9000);
+		placeP1Forward(mw, blocker);
+
+		GameContext ctx = mw.buildGameContext(true);
+		ctx.preloadTargets(List.of(fwd(false, 0)));
+		Consumer<GameContext> effect = ActionResolver.parse(CU_SITH_OPTION, null);
+		assertNotNull(effect, "the printed wording has to parse for the rest of this to mean anything");
+		effect.accept(ctx);
+
+		assertTrue(mw.allOutgoingDmgZeroThisTurnSet.contains(victim),
+				"\"to you or a Forward\" is the same reach as \"to a Forward or a player\"");
+		assertEquals(0, mw.modifyOutgoingCombatDamage(false, 0, 7000, blocker));
+		assertEquals(0, mw.combatDamagePointsToOpponent(victim));
+	}
+
+	@Test
+	void cuSithNamesBothOfItsOptions() {
+		String summon = "EX BURST Select 1 of the 2 following actions. "
+				+ "\"Choose 1 Backup you control. Remove it from the game. Draw 1 card.\" "
+				+ "\"" + CU_SITH_OPTION + "\"";
+		assertEquals("SelectFollowingActions(1 of 2: ChooseCharacter / RemoveFromGame + DrawCards "
+						+ "| ChooseCharacter / ZeroAllOutgoingDamage)",
+				ActionResolver.fullDescription(summon, null));
+	}
+
+	// =========================================================================================
+	// 19-101R Leviathan: "Choose 1 Forward opponent controls. Return it to its owner's hand. Until
+	// the end of the next turn, your opponent cannot cast any copies of it."
+	//
+	// The corpus's only cast ban that outlives the turn it is set in, so it is a countdown of turn
+	// boundaries rather than a turn-scoped flag: two from the cast, covering the rest of this turn
+	// and the whole of the next.
+	//
+	// Both sentences are read as one clause. Split, "it" in the ban reaches the secondary parser
+	// with no referent and the bounce runs alone — which is what left the card at "+ ?".
+	// =========================================================================================
+
+	private static final String LEVIATHAN_BOUNCE_SUMMON =
+			"Choose 1 Forward opponent controls. Return it to its owner's hand. "
+			+ "Until the end of the next turn, your opponent cannot cast any copies of it.";
+
+	/** Bounces the single P2 Forward and returns the board it left. */
+	private static MainWindow leviathanBounce(CardData victim) {
+		MainWindow mw = new MainWindow();
+		placeP2Forward(mw, victim);
+
+		GameContext ctx = mw.buildGameContext(true);
+		ctx.preloadTargets(List.of(fwd(false, 0)));
+		Consumer<GameContext> effect = ActionResolver.parse(LEVIATHAN_BOUNCE_SUMMON, null);
+		assertNotNull(effect, "the printed wording has to parse for the rest of this to mean anything");
+		effect.accept(ctx);
+		return mw;
+	}
+
+	@Test
+	void leviathanBouncesAndBarsTheNameFromComingBack() {
+		CardData victim = makeForward("Bounced", "Fire", 3, 7000);
+		MainWindow mw = leviathanBounce(victim);
+
+		assertTrue(mw.p2ForwardCards.isEmpty(), "the Forward went back to hand");
+		assertFalse(mw.castRestrictionMet(victim, false), "and its owner may not cast it again");
+	}
+
+	@Test
+	void andTheBanIsOnTheNameRatherThanTheCopy() {
+		// "any copies of it" — a second printing of the same card is barred too.
+		CardData victim = makeForward("Bounced", "Fire", 3, 7000);
+		MainWindow mw = leviathanBounce(victim);
+
+		assertFalse(mw.castRestrictionMet(makeForward("Bounced", "Fire", 3, 7000), false));
+		assertTrue(mw.castRestrictionMet(makeForward("Someone Else", "Fire", 3, 7000), false),
+				"and nothing else is");
+	}
+
+	@Test
+	void andItBindsOnlyTheOpponent() {
+		CardData victim = makeForward("Bounced", "Fire", 3, 7000);
+		MainWindow mw = leviathanBounce(victim);
+
+		assertTrue(mw.castRestrictionMet(victim, true), "the caster is free to cast their own copy");
+	}
+
+	@Test
+	void andItSurvivesThisTurnsEndButNotTheNextTurnsEnd() {
+		// "Until the end of the next turn" is two boundaries from the cast, which is the whole
+		// reason this is a countdown rather than one of the turn-scoped flags beside it.
+		CardData victim = makeForward("Bounced", "Fire", 3, 7000);
+		MainWindow mw = leviathanBounce(victim);
+
+		mw.ageCastNameBans();
+		assertFalse(mw.castRestrictionMet(victim, false), "still barred through the next turn");
+
+		mw.ageCastNameBans();
+		assertTrue(mw.castRestrictionMet(victim, false), "and free once that turn has ended");
+	}
+
+	@Test
+	void leviathansBanIsNoLongerAnUnreadTail() {
+		assertEquals("ChooseCharacter / ReturnToOwnersHandAndBanCopies",
+				ActionResolver.fullDescription(LEVIATHAN_BOUNCE_SUMMON, null));
+	}
+
+	// =========================================================================================
+	// 14-047R Choco/Mog: "Choose 1 Forward. Deal it 1000 damage for each Character you control.
+	// If you control a Job Chocobo or Card Name Chocobo and a Job Moogle or Card Name Moogle,
+	// draw 1 card."
+	//
+	// A conjunction of two conditions, each wanting a card of its own — not a disjunction, and not
+	// one condition over one card. Both existing modes claimed it whole and got it wrong: named
+	// mode read it as an either-or over the names "Chocobo and a Job Moogle" and "Moogle", so it
+	// drew on any Moogle at all and never on the pair; count mode's Job group, which runs to the
+	// next " or Card Name", took 7-062R Hope's "a Job Father and a Job Mother" as one Job name
+	// that matches nobody.
+	// =========================================================================================
+
+	private static final String CHOCO_MOG_CONDITION =
+			"a Job Chocobo or Card Name Chocobo and a Job Moogle or Card Name Moogle";
+
+	/** A board with the given Forwards on P1's side, asked whether Choco/Mog's condition holds. */
+	private static boolean chocoMogConditionOn(CardData... p1Forwards) {
+		MainWindow mw = new MainWindow();
+		for (CardData c : p1Forwards) placeP1Forward(mw, c);
+		ControlCondition cond = CardData.parseControlCondition(CHOCO_MOG_CONDITION);
+		assertNotNull(cond, "the condition has to parse for the rest of this to mean anything");
+		return mw.controlConditionMet(cond, true);
+	}
+
+	@Test
+	void chocoMogNeedsBothHalves() {
+		assertFalse(chocoMogConditionOn(makeJobCard("Chocobo", "Wind", "Forward", "Chocobo")),
+				"a Chocobo alone is not enough");
+		assertFalse(chocoMogConditionOn(makeJobCard("Mog", "Wind", "Forward", "Moogle")),
+				"nor is a Moogle alone — which is what the old read drew on");
+		assertTrue(chocoMogConditionOn(
+						makeJobCard("Chocobo", "Wind", "Forward", "Chocobo"),
+						makeJobCard("Mog", "Wind", "Forward", "Moogle")),
+				"both together satisfy it");
+	}
+
+	@Test
+	void andEachHalfTakesTheJobOrTheCardName() {
+		// "a Job Chocobo or Card Name Chocobo" — either arm satisfies that half on its own, which
+		// is the disjunction named mode dropped when it read the name and threw the Job away.
+		assertTrue(chocoMogConditionOn(
+						makeForward("Chocobo", "Wind", 3, 7000),                       // by name
+						makeJobCard("Mog", "Wind", "Forward", "Moogle")),              // by job
+				"a card named Chocobo pairs with a Job Moogle");
+		assertTrue(chocoMogConditionOn(
+						makeJobCard("Boco", "Wind", "Forward", "Chocobo"),             // by job
+						makeForward("Moogle", "Wind", 3, 7000)),                       // by name
+				"and a Job Chocobo pairs with a card named Moogle");
+	}
+
+	@Test
+	void andOneCardCannotSatisfyBothHalves() {
+		// Each half wants a card of its own, which is what separates this from the per-card OR the
+		// record already had.
+		assertFalse(chocoMogConditionOn(makeJobCard("Chocobo", "Wind", "Forward", "Chocobo|Moogle")),
+				"a single Character counts once, however many of the Jobs it carries");
+	}
+
+	@Test
+	void andHopesPlainerConjunctionReadsTheSameWay() {
+		// 7-062R Hope, the other printing of this shape and the one count mode mangled.
+		ControlCondition cond = CardData.parseControlCondition("a Job Father and a Job Mother");
+		assertNotNull(cond);
+		assertEquals("1+ Father & 1+ Mother", cond.toString());
+	}
+
+	@Test
+	void chocoMogsConditionIsDescribedAsTheConjunctionItIs() {
+		assertEquals("ChooseCharacter / DamageForEach + IfControl(1+ Chocobo/Chocobo & 1+ Moogle/Moogle: DrawCards)",
+				ActionResolver.fullDescription(
+						"EX BURST Choose 1 Forward. Deal it 1000 damage for each Character you control. "
+						+ "If you control a Job Chocobo or Card Name Chocobo and a Job Moogle or "
+						+ "Card Name Moogle, draw 1 card.", null));
+	}
+
+	// =========================================================================================
 
 }

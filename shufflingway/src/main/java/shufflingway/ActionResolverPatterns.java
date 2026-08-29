@@ -133,7 +133,12 @@ final class ActionResolverPatterns {
                     // sentence to a find()-based parser below and dropped the selection.
                     "(?:\\s+put\\s+(?<bzfieldzone>(?:in|from)\\s+(?:your(?:\\s+opponent(?:'s)?)?|the)\\s+Break\\s+Zone)" +
                     "\\s+from\\s+the\\s+field\\s+during\\s+this\\s+turn)?" +
-                    "(?:\\s+(?<zone>(?:in|from)\\s+(?:your(?:\\s+opponent(?:'s)?)?|the|either\\s+player'?s|any\\s+player'?s)\\s+Break\\s+Zone))?" +
+                    // "into" is a misprint for "in" on 2-049H Asura ("Choose 1 Character card of
+                    // cost 2 or less into your Break Zone"), corrected on its Re-059H reprint.
+                    // Safe to accept here because this group sits between the target descriptor and
+                    // the followup separator: a card that puts something *into* the Break Zone says
+                    // so after that separator, where this cannot reach it.
+                    "(?:\\s+(?<zone>(?:in(?:to)?|from)\\s+(?:your(?:\\s+opponent(?:'s)?)?|the|either\\s+player'?s|any\\s+player'?s)\\s+Break\\s+Zone))?" +
                     "(?:\\s+blocking\\s+" +
                     "(?:(?:a\\s+(?:Job\\s+)?(?<blockingjob>[^.,]+?)(?=\\s*[.,]))" +
                     "|(?<blockingname>[^.,]+?)(?=\\s*[.,])))?" +
@@ -238,8 +243,12 @@ final class ActionResolverPatterns {
      */
     static final Pattern FORMER_BOOST_DULL_IMMUNITY_COND_DAMAGE_LATTER = Pattern.compile(
         "(?i)Until\\s+the\\s+end\\s+of\\s+the\\s+turn[,.]?\\s+the\\s+former\\s+gains\\s+" +
-        "\\+(?<boost>\\d+)\\s+power\\s+and\\s+\\W?This\\s+Forward\\s+cannot\\s+become\\s+dull\\s+" +
-        "by\\s+your\\s+opponent.s\\s+Summons?\\s+or\\s+abilities\\W?\\s+" +
+        // The quote closes on ." — the grant's own full stop and then the delimiter, two characters
+        // where a single \W slot used to sit. 13-053R Alexander, the one card in this shape, was
+        // declined on that alone and fell through to the plain choose parser, which read the
+        // selection and then neither half of the effect.
+        "\\+(?<boost>\\d+)\\s+power\\s+and\\s+[\"']?This\\s+Forward\\s+cannot\\s+become\\s+dull\\s+" +
+        "by\\s+your\\s+opponent.s\\s+Summons?\\s+or\\s+abilities[.!]?[\"']?\\s+" +
         "If\\s+you\\s+have\\s+received\\s+(?<dmgthresh>\\d+)\\s+(?:points?\\s+of\\s+)?damage\\s+or\\s+more[,.]?\\s+" +
         "also\\s+deal\\s+the\\s+latter\\s+damage\\s+equal\\s+to\\s+the\\s+highest\\s+power\\s+" +
         "Forward\\s+you\\s+control[.!]?"
@@ -2384,7 +2393,9 @@ final class ActionResolverPatterns {
     static final Pattern FOLLOWUP_CANNOT_ATTACK_OR_BLOCK = Pattern.compile(
         "(?i)(?:it|they)\\s+(?:" +
             "cannot\\s+attack\\s+or\\s+block\\s+this\\s+turn" +
-            "|gains\\s+\"This\\s+(?:Forward|Character|Backup|Monster)\\s+cannot\\s+attack\\s+or\\s+block\\.\"\\s+until\\s+the\\s+end\\s+of\\s+the\\s+turn" +
+            // Either delimiter: 28-064H Cactuar quotes the granted sentence with ', every other
+            // printing of it with ". Nothing else distinguishes them.
+            "|gains\\s+[\"']This\\s+(?:Forward|Character|Backup|Monster)\\s+cannot\\s+attack\\s+or\\s+block\\.[\"']\\s+until\\s+the\\s+end\\s+of\\s+the\\s+turn" +
         ")\\.?"
     );
     /**
@@ -2418,6 +2429,40 @@ final class ActionResolverPatterns {
         "(?:(?<incoming>(?:is|are)\\s+dealt\\s+damage)" +
         "|(?<outgoing>deals?\\s+damage\\s+to\\s+a\\s+Forward\\s+or\\s+a\\s+player))," +
         "\\s+the\\s+damage\\s+becomes\\s+0\\s+instead[.!]?\\s*$"
+    );
+    /**
+     * Matches the standalone outgoing-damage replacement "[During this turn,] if it deals
+     * &lt;scope&gt;[ this turn], the damage becomes 0 instead." — the sentence on its own, where
+     * {@link #FOLLOWUP_DULL_THEN_DAMAGE_SHIELD} wants a dull in front of it.
+     *
+     * <p>Two scopes, and they are not the same effect:
+     * <ul>
+     *   <li>{@code any} — "damage to a Forward or a player" (23-024R Shiva) and "damage to you or
+     *       a Forward" (24-056C Cu Sith). Two spellings of every way the card can deal damage;
+     *       "you" is the caster, and the only player a chosen Forward deals damage to.</li>
+     *   <li>{@code nonbattle} — "damage other than battle damage to a Forward" (17-027R Shiva),
+     *       which leaves combat damage and damage to a player alone.</li>
+     * </ul>
+     */
+    static final Pattern FOLLOWUP_OUTGOING_DMG_ZERO_THIS_TURN = Pattern.compile(
+        "(?i)^(?:During\\s+this\\s+turn,\\s+)?If\\s+(?:it|they)\\s+deals?\\s+" +
+        "(?:(?<nonbattle>damage\\s+other\\s+than\\s+battle\\s+damage\\s+to\\s+a\\s+Forward)" +
+        "|(?<any>damage\\s+to\\s+(?:a\\s+Forward\\s+or\\s+a\\s+player|you\\s+or\\s+a\\s+Forward)))" +
+        "(?:\\s+this\\s+turn)?,\\s+the\\s+damage\\s+becomes\\s+0\\s+instead[.!]?\\s*$"
+    );
+    /**
+     * Matches "Return it to its owner's hand. Until the end of the next turn, your opponent cannot
+     * cast any copies of it." — 19-101R Leviathan, the corpus's only printing of a cast ban that
+     * outlives the turn it is set in.
+     *
+     * <p>Read as one clause because "it" in the second sentence names the card the first has
+     * already put in hand: split, the ban is left to the secondary parser with no referent, and
+     * the bounce runs alone.
+     */
+    static final Pattern FOLLOWUP_RETURN_TO_HAND_THEN_BAN_COPIES = Pattern.compile(
+        "(?i)^Return\\s+(?:it|them)\\s+to\\s+(?:its|their)\\s+owner'?s?'?\\s+hands?[.!]\\s+" +
+        "Until\\s+the\\s+end\\s+of\\s+the\\s+next\\s+turn,\\s+your\\s+opponent\\s+cannot\\s+cast\\s+" +
+        "any\\s+copies\\s+of\\s+(?:it|them)[.!]?\\s*$"
     );
     /**
      * Matches "Halve its power until the end of the turn (round down to the nearest 1000)." —
@@ -3433,12 +3478,19 @@ final class ActionResolverPatterns {
     // Ability-damage nullification; self protections
     // =========================================================================================
     /**
-     * "During this turn, if a Forward you control is dealt damage by a Summon or an ability,
+     * "During this turn, if a Forward you control is dealt damage by a Summon[ or an ability],
      *  the damage becomes 0 instead."
+     *
+     * <p>The trailing clause is optional because the two printings differ by it and mean different
+     * things: B-047 Leviathan stops Summons and abilities alike, 6-125R Leviathan stops Summons
+     * only. Group {@code abilities} says which was printed, and the parser picks the matching
+     * shield — reading them the same way would have the older card blanking damage it does not
+     * mention.
      */
     static final Pattern ALL_OWN_FORWARDS_NULLIFY_ABILITY_DAMAGE_PATTERN = Pattern.compile(
         "(?i)During\\s+this\\s+turn,?\\s+if\\s+(?:a\\s+)?Forwards?\\s+you\\s+control\\s+(?:is|are)\\s+dealt\\s+damage" +
-        "\\s+by\\s+(?:a\\s+)?Summons?\\s+or\\s+an?\\s+abilit(?:y|ies),?\\s+the\\s+damage\\s+becomes?\\s+0\\s+instead[.!]?"
+        "\\s+by\\s+(?:a\\s+)?Summons?(?<abilities>\\s+or\\s+an?\\s+abilit(?:y|ies))?,?" +
+        "\\s+the\\s+damage\\s+becomes?\\s+0\\s+instead[.!]?"
     );
     /**
      * Doublecast (Yuna): "When you cast a Summon this turn, you may cast 1 Summon from your hand
@@ -6628,9 +6680,18 @@ final class ActionResolverPatterns {
     static final Pattern OWN_FORWARDS_CANNOT_BE_CHOSEN_BY_EX_BURST = Pattern.compile(
         "(?i)During\\s+this\\s+turn,?\\s+the\\s+Forwards?\\s+you\\s+control\\s+cannot\\s+be\\s+chosen\\s+by\\s+EX\\s+Bursts?[.!]?"
     );
-    /** Matches "EX Bursts of cards put into the Damage Zone due to this ability cannot be used." */
+    /**
+     * Matches "EX Bursts of cards put into the Damage Zone due to this &lt;ability|damage&gt;
+     * cannot be used."
+     *
+     * <p>6-017C Bahamut says "this damage", naming the point of player damage the sentence before
+     * it deals; every other printing says "this ability". They come to the same suppression here,
+     * because the ability {@code suppressExBurstsThisAbility} scopes to is the one resolution that
+     * dealt the damage — nothing else in Bahamut's text puts a card into a Damage Zone.
+     */
     static final Pattern EX_BURST_SUPPRESSION_PATTERN = Pattern.compile(
-        "(?i)EX\\s+Bursts?\\s+of\\s+cards?\\s+put\\s+into\\s+the\\s+Damage\\s+Zone\\s+due\\s+to\\s+this\\s+ability\\s+cannot\\s+be\\s+used[.!]?"
+        "(?i)EX\\s+Bursts?\\s+of\\s+cards?\\s+put\\s+into\\s+the\\s+Damage\\s+Zone\\s+due\\s+to\\s+this\\s+" +
+        "(?:ability|damage)\\s+cannot\\s+be\\s+used[.!]?"
     );
     /**
      * Alternate word order: "Deal all [the] [condition] Forwards [of cost N] [other than Job Y] [opponent controls] X damage."

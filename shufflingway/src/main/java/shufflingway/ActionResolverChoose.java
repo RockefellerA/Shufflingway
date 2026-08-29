@@ -3073,6 +3073,48 @@ final class ActionResolverChoose {
             };
         }
 
+        // --- Turn-long outgoing-damage replacement, standalone (17-027R Shiva, 24-056C Cu Sith) ---
+        // The same act the dull branch below carries as its second sentence, printed on its own.
+        Matcher outZeroM = FOLLOWUP_OUTGOING_DMG_ZERO_THIS_TURN.matcher(primaryFollowup.trim());
+        if (outZeroM.matches()) {
+            final boolean nonBattleOnly = outZeroM.group("nonbattle") != null;
+            return ctx -> {
+                ctx.logChooseHeader(choosePrefix + " — "
+                        + (nonBattleOnly ? "non-battle damage it deals to a Forward"
+                                         : "damage it deals")
+                        + " becomes 0 for the rest of the turn");
+                List<ForwardTarget> ts = selectTargets(ctx, maxCount, upTo,
+                        opponentOnly, selfOnly, condition, element, zone, opponentZone,
+                        costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters,
+                        jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, fExcludeElem, withoutMulticard);
+                for (ForwardTarget t : ts) {
+                    if (nonBattleOnly) ctx.zeroOutgoingAbilityDamageToForwardsThisTurn(t);
+                    else               ctx.zeroAllOutgoingDamageThisTurn(t);
+                }
+                if (secondary != null) secondary.accept(ctx);
+            };
+        }
+
+        // --- Return to hand, then bar every copy of it until the end of the next turn (19-101R Leviathan) ---
+        // Read off the whole followup: "it" in the second sentence names the card the first has
+        // already put in hand, so split, the ban reaches the secondary parser with no referent and
+        // the bounce runs alone. The name is read before the return for the same reason it is read
+        // at all — after it, the card is in a hand and no longer at the target's coordinates.
+        if (FOLLOWUP_RETURN_TO_HAND_THEN_BAN_COPIES.matcher(followup.trim()).matches()) {
+            return ctx -> {
+                ctx.logChooseHeader(choosePrefix
+                        + " — Return to owner's hand; no copies castable until the end of the next turn");
+                List<ForwardTarget> ts = selectTargets(ctx, maxCount, upTo,
+                        opponentOnly, selfOnly, condition, element, zone, opponentZone,
+                        costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters,
+                        jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, fExcludeElem, withoutMulticard);
+                List<String> banned = new ArrayList<>();
+                for (ForwardTarget t : ts) banned.add(getTargetCardName(ctx, t));
+                returnTargetsToOwnersHand(ctx, ts);
+                banned.forEach(ctx::barOpponentFromCastingName);
+            };
+        }
+
         // --- Dull [and Freeze], then a turn-long damage shield (9-068H Mist Dragon, 23-024R Shiva) ---
         // Read off the whole followup and ahead of every dull branch below, for the reason the
         // Cockatrice branch gives: those scan primaryFollowup with find(), so each would claim the

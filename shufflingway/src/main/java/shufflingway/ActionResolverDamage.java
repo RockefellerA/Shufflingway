@@ -558,13 +558,21 @@ final class ActionResolverDamage {
         return ctx -> ctx.doubleOutgoingDamage(source);
     }
     static Consumer<GameContext> tryParseAllOwnForwardsNullifyAbilityDamage(String text) {
-        if (!ALL_OWN_FORWARDS_NULLIFY_ABILITY_DAMAGE_PATTERN.matcher(text.trim()).matches()) return null;
+        Matcher m = ALL_OWN_FORWARDS_NULLIFY_ABILITY_DAMAGE_PATTERN.matcher(text.trim());
+        if (!m.matches()) return null;
+        // "or an ability" is printed on B-047 Leviathan and absent on 6-125R, and the difference is
+        // the effect: the older card blanks Summon damage only.
+        final boolean alsoAbilities = m.group("abilities") != null;
         return ctx -> {
-            ctx.logEntry("Effect: All own Forwards — damage from Summons/abilities becomes 0 this turn");
+            ctx.logEntry("Effect: All own Forwards — damage from Summon"
+                    + (alsoAbilities ? "s/abilities" : "s") + " becomes 0 this turn");
             boolean p1 = ctx.isP1();
             int count = p1 ? ctx.p1ForwardCount() : ctx.p2ForwardCount();
-            for (int i = 0; i < count; i++)
-                ctx.shieldAbilityDamage(new ForwardTarget(p1, i, ForwardTarget.CardZone.FORWARD));
+            for (int i = 0; i < count; i++) {
+                ForwardTarget t = new ForwardTarget(p1, i, ForwardTarget.CardZone.FORWARD);
+                if (alsoAbilities) ctx.shieldAbilityDamage(t);
+                else               ctx.shieldSummonDamage(t);
+            }
         };
     }
     /**

@@ -527,6 +527,11 @@ class CostCalculator {
 	 * turn" means the caster's own turn, not P1's.
 	 */
 	boolean castRestrictionMet(CardData card, boolean isP1) {
+		// Ahead of the printed restriction, and of the null check that skips it: this ban comes
+		// from the board (19-101R Leviathan bounced a copy and barred the name), so a card with no
+		// restriction of its own is just as subject to it.
+		if (mw.castNameBanned(card.name(), isP1)) return false;
+
 		CastRestriction cr = card.castRestriction();
 		if (cr == null) return true;
 

@@ -2,6 +2,7 @@ package shufflingway;
 
 import java.util.List;
 import java.util.Locale;
+import java.util.stream.Collectors;
 
 /**
  * Parsed "You can only use this ability if you control [X]" restriction on an action ability.
@@ -43,7 +44,8 @@ public record ControlCondition(
         List<ControlCondition> orAlternatives, // per-card OR filters; a card counts if it matches ANY
         boolean      bothFields,        // true: count across BOTH players' fields ("neither player controls…")
         int          maxCost,           // 0 = no cost ceiling; > 0 = card cost must be <= this
-        NamedCardState namedState       // which state stateCardName must be in; DULL when unset
+        NamedCardState namedState,      // which state stateCardName must be in; DULL when unset
+        List<ControlCondition> andConditions // whole-condition AND: every one must hold, each on its own card
 ) {
     /** The state a named card has to be in for a named-state condition to hold. */
     public enum NamedCardState { DULL, ACTIVE, ATTACKING }
@@ -52,6 +54,7 @@ public record ControlCondition(
         requiredCardNames = List.copyOf(requiredCardNames);
         orCardNames       = List.copyOf(orCardNames);
         orAlternatives    = List.copyOf(orAlternatives);
+        andConditions     = List.copyOf(andConditions);
         // Dull was the only named-state wording the parser read before the other two were added,
         // so it is the default the older constructors keep getting without spelling it out.
         if (namedState == null) namedState = NamedCardState.DULL;
@@ -69,6 +72,34 @@ public record ControlCondition(
     public static ControlCondition forNamedCardState(String cardName, NamedCardState state) {
         return new ControlCondition(List.of(), 0, false, null, null, null, null, 0,
                 List.of(), false, null, cardName, false, false, false, 0, List.of(), false, 0, state);
+    }
+
+    /**
+     * A condition met only when every one of {@code parts} is — "If you control a Job Chocobo or
+     * Card Name Chocobo <b>and</b> a Job Moogle or Card Name Moogle" (14-047R Choco/Mog), "a Job
+     * Father and a Job Mother" (7-062R Hope).
+     *
+     * <p>Distinct from {@link #orAlternatives}, which is a disjunction <em>within</em> one card:
+     * these each want a card of their own, so one Character that is both a Chocobo and a Moogle
+     * does not satisfy both halves.
+     */
+    public static ControlCondition forAll(List<ControlCondition> parts) {
+        return new ControlCondition(List.of(), 0, false, null, null, null, null, 0,
+                List.of(), false, null, null, false, false, false, 0, List.of(), false, 0, null,
+                List.copyOf(parts));
+    }
+
+    /** Compatibility constructor preserving the prior 20-arg signature; defaults {@code andConditions} to empty. */
+    public ControlCondition(List<String> requiredCardNames, int minCount, boolean exactCount,
+            String cardType, String element, String job, String category, int minPower,
+            List<String> orCardNames, boolean anyOf, String excludeElement, String stateCardName,
+            boolean requiresCrystal, boolean allHave, boolean opponentControls, int minCost,
+            List<ControlCondition> orAlternatives, boolean bothFields, int maxCost,
+            NamedCardState namedState) {
+        this(requiredCardNames, minCount, exactCount, cardType, element, job, category, minPower,
+                orCardNames, anyOf, excludeElement, stateCardName, requiresCrystal, allHave,
+                opponentControls, minCost, orAlternatives, bothFields, maxCost, namedState,
+                List.of());
     }
 
     /** Compatibility constructor preserving the prior 16-arg signature; defaults {@code orAlternatives} to empty. */
@@ -204,6 +235,9 @@ public record ControlCondition(
 
     @Override
     public String toString() {
+        if (!andConditions.isEmpty())
+            return andConditions.stream().map(ControlCondition::toString)
+                    .collect(Collectors.joining(" & "));
         if (requiresCrystal) return "hasCrystal";
         if (isNamedMode()) return String.join(anyOf ? " | " : " & ", requiredCardNames);
         if (allHave) {

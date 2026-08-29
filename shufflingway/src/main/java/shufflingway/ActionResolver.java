@@ -1648,8 +1648,9 @@ public class ActionResolver {
     public static String matchedPatternName(String effectText, CardData source) {
         // Leading normalisations parse() applies before dispatching. This method had no preamble
         // at all, so it decided the name from different text than parse() matched against.
-        // parse()'s EX BURST strip is deliberately not mirrored: fullDescription() calls this
-        // method on sub-clauses, and stripping the marker there costs the ExBurstSuppression name.
+        // parse()'s EX BURST strip is deliberately not mirrored, and is now merely redundant rather
+        // than load-bearing: it used to cost the ExBurstSuppression name on a sub-clause opening
+        // "EX Bursts of cards …", which stripExBurstPrefix's word boundary now leaves alone.
         effectText = effectText.replaceFirst("(?i)^Then,?\\s+", "").trim();
         effectText = effectText.replaceFirst("(?i)^also\\s+", "").trim();
 
@@ -2384,6 +2385,14 @@ public class ActionResolver {
         if (FOLLOWUP_KEYWORD_GRANT.matcher(followupText).find())                      return "KeywordGrant";
         if (FOLLOWUP_KEYWORD_GRANT_UNTIL.matcher(followupText).find())               return "KeywordGrant";
         if (FOLLOWUP_HALVE_POWER.matcher(followupText.trim()).matches())              return "HalvePower";
+        {
+            // Named by scope: 17-027R Shiva stops only what its target deals to a Forward outside
+            // combat, where 23-024R Shiva and 24-056C Cu Sith stop everything it deals.
+            Matcher outZeroM = FOLLOWUP_OUTGOING_DMG_ZERO_THIS_TURN.matcher(followupText.trim());
+            if (outZeroM.matches())
+                return outZeroM.group("nonbattle") != null
+                        ? "ZeroOutgoingAbilityDamageToForwards" : "ZeroAllOutgoingDamage";
+        }
         if (FOLLOWUP_POWER_REDUCE.matcher(followupText).find())                       return "PowerReduce";
         if (FOLLOWUP_POWER_REDUCE_UNTIL_FOR_EACH_HAND.matcher(followupText).find())  return "PowerReduceUntilForEachHand";
         // The payoff half of the clause above, which the ". " split reports separately even though
@@ -2463,7 +2472,9 @@ public class ActionResolver {
     }
 
     public static String fullDescription(String effectText, CardData source) {
-        effectText = effectText.replaceFirst("(?i)^(?:\\[\\[ex\\]\\])?\\s*EX\\s+BURST(?:\\[\\[/\\]\\])?\\s*", "").trim();
+        // Through the shared helper rather than a second copy of its regex: the two had already
+        // drifted, and this one still ate the plural in a clause opening "EX Bursts of cards …".
+        effectText = stripExBurstPrefix(effectText);
         effectText = effectText.replaceFirst("(?i)^Then,?\\s+", "").trim();
         effectText = effectText.replaceFirst("(?i)^also\\s+", "").trim();
         // Strip trailing use-restriction sentences so they don't short-circuit before effect patterns match
@@ -2841,6 +2852,10 @@ public class ActionResolver {
             // the shield points: 9-068H Mist Dragon protects what it dulls, 23-024R Shiva disarms
             // what it freezes. Split, the shield sentence lands in the secondary and is reported
             // unread over a card that has both halves wired.
+            // Read off the whole followup, mirroring the Choose chain: "it" in the ban names the
+            // card the bounce has already put in hand, so the two sentences are one clause.
+            if (FOLLOWUP_RETURN_TO_HAND_THEN_BAN_COPIES.matcher(followup.trim()).matches())
+                return "ChooseCharacter / ReturnToOwnersHandAndBanCopies";
             {
                 Matcher dullShieldM = FOLLOWUP_DULL_THEN_DAMAGE_SHIELD.matcher(followup.trim());
                 if (dullShieldM.matches())
@@ -5498,8 +5513,12 @@ public class ActionResolver {
 
     public static String stripExBurstPrefix(String effectText) {
         if (effectText == null) return null;
+        // \b after BURST is what keeps this a marker strip. Without it the plural in a clause that
+        // opens "EX Bursts of cards put into the Damage Zone …" (6-017C Bahamut's second half) was
+        // read as the marker plus a stray "s", and parse() went on to match nothing at all —
+        // while matchedPatternName(), which does not strip, named the parser that should have run.
         return effectText
-                .replaceFirst("(?i)^(?:\\[\\[ex\\]\\])?\\s*EX\\s+BURST\\s*(?:\\[\\[/\\]\\])?\\s*", "")
+                .replaceFirst("(?i)^(?:\\[\\[ex\\]\\])?\\s*EX\\s+BURST\\b\\s*(?:\\[\\[/\\]\\])?\\s*", "")
                 .trim();
     }
 

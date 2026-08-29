@@ -481,6 +481,15 @@ final class GameContextImpl implements GameContext {
 				mw.allOutgoingDmgZeroThisTurnSet.add(c);
 				logEntry(c.name() + " — damage it deals becomes 0 for the rest of the turn");
 			}
+			@Override public void barOpponentFromCastingName(String cardName) {
+				mw.barCastName(cardName, !isP1);
+			}
+			@Override public void zeroOutgoingAbilityDamageToForwardsThisTurn(ForwardTarget t) {
+				CardData c = mw.autoAbilityTriggers.fieldCardData(t);
+				if (c == null) return;
+				mw.abilityDmgToForwardZeroedThisTurnSet.add(c);
+				logEntry(c.name() + " — non-battle damage it deals to a Forward becomes 0 for the rest of the turn");
+			}
 			@Override public void shieldNextOpponentEffectDamage(ForwardTarget t) {
 				CardData c = mw.autoAbilityTriggers.fieldCardData(t);
 				if (c == null) return;
@@ -509,6 +518,9 @@ final class GameContextImpl implements GameContext {
 			}
 			@Override public void shieldAbilityDamage(ForwardTarget t) {
 				CardData c = mw.autoAbilityTriggers.fieldCardData(t); if (c != null) mw.nullifyAbilityDmgSet.add(c);
+			}
+			@Override public void shieldSummonDamage(ForwardTarget t) {
+				CardData c = mw.autoAbilityTriggers.fieldCardData(t); if (c != null) mw.nullifySummonOnlyDmgSet.add(c);
 			}
 			@Override public void shieldOwnForwardsAbilityDamageFilter(Predicate<CardData> filter) {
 				(mw.turn(isP1).nullifyAbilityDmgFilters).add(filter);

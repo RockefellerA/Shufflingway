@@ -8483,6 +8483,18 @@ public record CardData(
         cond = cond.replaceAll("(?i)\\s*,?\\s*(?:and\\s+)?only\\s+once\\s+per\\s+turn\\b.*", "").trim();
         cond = TRAILING_OR_MORE_COUNT.matcher(cond).replaceAll("${count} or more ${noun}");
 
+        // Conjunction mode: two conditions joined by "and", each wanting a card of its own —
+        // "a Job Chocobo or Card Name Chocobo and a Job Moogle or Card Name Moogle" (14-047R
+        // Choco/Mog), "a Job Father and a Job Mother" (7-062R Hope).
+        //
+        // Must precede both modes below, because each claimed one of the two printings whole.
+        // Named mode read Choco/Mog as an either-or over the names "Chocobo and a Job Moogle" and
+        // "Moogle", so it drew on any Moogle and never on the pair the card asks for; count mode's
+        // job group, which runs to the next " or Card Name" or end of string, took Hope's
+        // conjunction as one Job name that matches nobody.
+        ControlCondition conjunction = parseControlConditionConjunction(cond);
+        if (conjunction != null) return conjunction;
+
         // Named-card mode: "(a) Card Name X [and Card Name Y [and Card Name Z]]"
         // Must be checked before count mode to avoid "a Card Name X" being parsed as count=1
         Matcher namedM = CONTROL_NAMED_CARDS_PATTERN.matcher(cond);
@@ -8496,6 +8508,16 @@ public record CardData(
         }
 
         // Count mode: "[N or more | only N | a] [element] [Category X] [Job name] [type] [of power P or more] [or Card Name X]"
+        return parseCountControlCondition(cond);
+    }
+
+    /**
+     * The count-mode half of {@link #parseControlCondition}, split out so a conjunction can read
+     * each of its parts as one — and only as one. The named and crystal modes are deliberately out
+     * of reach there: "a Job Chocobo or Card Name Chocobo" is a job with a name alternative, and
+     * named mode reads it as the name alone and drops the job.
+     */
+    private static ControlCondition parseCountControlCondition(String cond) {
         Matcher countM = CONTROL_COUNT_CONDITION_PATTERN.matcher(cond);
         if (!countM.find()) return null;
 
@@ -8531,6 +8553,27 @@ public record CardData(
         return new ControlCondition(List.of(), minCount, exactCount, cardType, element, job, category,
                 minPower, orCardNames, false, excludeElement, null, false, false, false, minCost,
                 List.of(), false, maxCost, null);
+    }
+
+    /**
+     * Reads {@code cond} as an "and"-joined list of count conditions, or returns {@code null} when
+     * it is not one.
+     *
+     * <p>Split only before an article, so the "and" has to be starting a fresh "a …"/"an …" term
+     * rather than sitting inside a Job name; and only accepted when every part reads as a count
+     * condition on its own, so an unrecognised half leaves the whole clause to the single-condition
+     * read below rather than silently dropping it. Both corpus printings are two parts.
+     */
+    private static ControlCondition parseControlConditionConjunction(String cond) {
+        String[] parts = cond.split("(?i)\\s+and\\s+(?=an?\\s)");
+        if (parts.length < 2) return null;
+        List<ControlCondition> conditions = new ArrayList<>();
+        for (String part : parts) {
+            ControlCondition parsed = parseCountControlCondition(part.trim());
+            if (parsed == null) return null;
+            conditions.add(parsed);
+        }
+        return ControlCondition.forAll(conditions);
     }
 
     /** Parses a "remove … from the game" cost phrase into a list of {@link RemoveFromGameCost} items. */

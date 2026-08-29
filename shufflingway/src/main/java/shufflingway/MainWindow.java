@@ -615,6 +615,12 @@ public class MainWindow {
 	boolean allForwardsCannotBeBlockedByHigherCostThisTurn = false;
 	final Set<CardData>          nullifyAbilityDmgSet     = new HashSet<>();
 	final Set<CardData>          nullifyAbilityOnlyDmgSet = new HashSet<>();
+	/**
+	 * The mirror of {@link #nullifyAbilityOnlyDmgSet}: damage from a Summon becomes 0, damage from
+	 * any other ability does not. 6-125R Leviathan's third option says "by a Summon" and stops
+	 * there, where its B-047 reprint says "by a Summon or an ability" and takes the wider set.
+	 */
+	final Set<CardData>          nullifySummonOnlyDmgSet  = new HashSet<>();
 	final Set<CardData>          nextOutgoingDmgZeroSet      = new HashSet<>();
 	/**
 	 * The unspent twin of {@link #nextOutgoingDmgZeroSet}, and the outgoing mirror of
@@ -627,6 +633,16 @@ public class MainWindow {
 	 * chosen and a value-keyed set would shield it too.
 	 */
 	final Set<CardData>          allOutgoingDmgZeroThisTurnSet =
+			Collections.newSetFromMap(new IdentityHashMap<>());
+	/**
+	 * The narrow member of that family: only the damage this card deals to a <em>Forward</em>, and
+	 * only when it is not battle damage. 17-027R Shiva's second option — "if it deals damage other
+	 * than battle damage to a Forward this turn, the damage becomes 0 instead" — which leaves both
+	 * its combat damage and its damage to a player alone, where 23-024R Shiva stops everything.
+	 *
+	 * <p>Identity-keyed for the reason {@link #allOutgoingDmgZeroThisTurnSet} gives.
+	 */
+	final Set<CardData>          abilityDmgToForwardZeroedThisTurnSet =
 			Collections.newSetFromMap(new IdentityHashMap<>());
 	final Map<CardData, Integer> outgoingDmgMultiplierMap    = new IdentityHashMap<>();
 	final Map<CardData, Integer> outgoingDmgFlatBoostMap     = new IdentityHashMap<>();
@@ -995,6 +1011,53 @@ public class MainWindow {
 				&& (damageZeroedSourcesThisTurn.contains(source)
 				 || allOutgoingDmgZeroThisTurnSet.contains(source));
 	}
+
+	/**
+	 * The same question for ability damage aimed at a <em>Forward</em>, which one more mark answers:
+	 * 17-027R Shiva blanks what its target deals to a Forward and nothing else, so it is read here
+	 * and not on the path to a player.
+	 */
+	boolean sourceDamageToForwardIsZeroedThisTurn(CardData source) {
+		return sourceDamageIsZeroedThisTurn(source)
+				|| (source != null && abilityDmgToForwardZeroedThisTurnSet.contains(source));
+	}
+	/**
+	 * Card names a player may not cast, against how many end-of-turn boundaries the ban still has
+	 * to survive — 19-101R Leviathan bounces a Forward and bars every copy of it "until the end of
+	 * the next turn". Keyed by lower-cased name, because the ban is on the printing and not on the
+	 * copy that was bounced.
+	 *
+	 * <p>A countdown rather than a turn-scoped flag, because this is the one effect in the corpus
+	 * that outlives the turn it is set in: two boundaries from the cast, so it covers the rest of
+	 * this turn and the whole of the next. {@link TurnPhases} decrements it and drops what expires.
+	 */
+	final Map<String, Integer> p1CastNameBans = new HashMap<>();
+	final Map<String, Integer> p2CastNameBans = new HashMap<>();
+
+	/** Bars {@code cardName} from {@code isP1}'s casts for the rest of this turn and all of the next. */
+	void barCastName(String cardName, boolean isP1) {
+		if (cardName == null || cardName.isBlank()) return;
+		(isP1 ? p1CastNameBans : p2CastNameBans)
+				.merge(cardName.toLowerCase(Locale.ROOT), 2, Math::max);
+		logEntry((isP1 ? "" : "[P2] ") + "cannot cast " + cardName
+				+ " until the end of the next turn");
+	}
+
+	/** Whether {@code isP1} is currently barred from casting cards named {@code cardName}. */
+	boolean castNameBanned(String cardName, boolean isP1) {
+		return cardName != null
+				&& (isP1 ? p1CastNameBans : p2CastNameBans).containsKey(cardName.toLowerCase(Locale.ROOT));
+	}
+
+	/** Ages both ban maps by one turn boundary, dropping the entries that have run out. */
+	void ageCastNameBans() {
+		for (Map<String, Integer> bans : List.of(p1CastNameBans, p2CastNameBans))
+			bans.entrySet().removeIf(e -> {
+				e.setValue(e.getValue() - 1);
+				return e.getValue() <= 0;
+			});
+	}
+
 	/** Maps a card to a permanent element override (Kam'lanaut ability); persists across turns. */
 	final Map<CardData, String> elementOverrideMap      = new HashMap<>();
 	/** Maps a card to a permanently-granted extra job (e.g. Bartz ability); persists across turns. */
@@ -3173,8 +3236,8 @@ public class MainWindow {
                                 p1DoublecastLastSummonCost = -1;  p2DoublecastLastSummonCost = -1;
                                 allForwardsCannotBeBlockedByHigherCostThisTurn = false;
                                 p1Turn.fwdBoostSuppressedThisTurn = false; p2Turn.fwdBoostSuppressedThisTurn = false;
-                                nullifyAbilityOnlyDmgSet.clear(); perCardNonLethalDmgSet.clear();
-                                nextOutgoingDmgZeroSet.clear();    allOutgoingDmgZeroThisTurnSet.clear();    outgoingDmgMultiplierMap.clear();
+                                nullifyAbilityOnlyDmgSet.clear(); nullifySummonOnlyDmgSet.clear(); perCardNonLethalDmgSet.clear();
+                                nextOutgoingDmgZeroSet.clear();    allOutgoingDmgZeroThisTurnSet.clear();    abilityDmgToForwardZeroedThisTurnSet.clear();    outgoingDmgMultiplierMap.clear();
                                 nextOutgoingDmgDoublerSet.clear(); outgoingDmgFlatBoostMap.clear();
                                 perCardIncomingDmgMultiplierMap.clear();
                                 p1Turn.forwardIncomingDmgMult = 1;      p2Turn.forwardIncomingDmgMult = 1;
@@ -12269,6 +12332,13 @@ public class MainWindow {
 
 	private boolean controlConditionMetWithPools(ControlCondition cond,
 			List<CardData> fwds, CardData[] bkps, List<CardData> mons) {
+		// Conjunction first: each part wants a card of its own, so they are counted separately
+		// against the same pools rather than folded into one filter (14-047R Choco/Mog).
+		if (!cond.andConditions().isEmpty()) {
+			for (ControlCondition part : cond.andConditions())
+				if (!controlConditionMetWithPools(part, fwds, bkps, mons)) return false;
+			return true;
+		}
 		if (cond.isNamedMode()) {
 			for (String name : cond.requiredCardNames()) {
 				boolean found = fwds.stream().anyMatch(c -> c.name().equalsIgnoreCase(name))

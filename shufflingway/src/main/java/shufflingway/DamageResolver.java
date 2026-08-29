@@ -98,7 +98,9 @@ class DamageResolver {
 		// 29-012H Neon's Runic and 23-024R Shiva, read here for the same reason and in the same
 		// way: the marked source's damage "becomes 0 instead", so it is settled before any
 		// multiplier below and is not lifted by the unreduced flag either.
-		if (fromAbility && mw.sourceDamageIsZeroedThisTurn(mw.currentAbilitySource)) {
+		// The to-a-Forward form of the question, so 17-027R Shiva's narrower mark is read here and
+		// not on the path to a player.
+		if (fromAbility && mw.sourceDamageToForwardIsZeroedThisTurn(mw.currentAbilitySource)) {
 			mw.logEntry(mw.currentAbilitySource.name() + " — its damage becomes 0 this turn");
 			return 0;
 		}
@@ -160,6 +162,9 @@ class DamageResolver {
 				if (f.test(card)) return 0;
 			// Nullify ability-only damage (not Summons)
 			if (!mw.currentResolutionIsSummon && mw.nullifyAbilityOnlyDmgSet.contains(card)) return 0;
+			// And its mirror: Summon damage only, which is all 6-125R Leviathan's third option
+			// stops. Its B-047 reprint says "or an ability" and takes nullifyAbilityDmgSet above.
+			if (mw.currentResolutionIsSummon && mw.nullifySummonOnlyDmgSet.contains(card)) return 0;
 			// Element-scoped nullification (Hein ability): covers both targeted and AoE damage
 			String nullifyElem = mw.nullifyElementDamageMap.get(card);
 			if (nullifyElem != null) {
