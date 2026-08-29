@@ -19,6 +19,21 @@ public interface GameContext {
     /** Appends a timestamped line to the game log. */
     void logEntry(String message);
 
+    /**
+     * Logs a choose effect's own header — "Choose 1 Forward opponent controls — Break" — the line
+     * that says what was chosen and what is about to happen to it.
+     *
+     * <p>Suppressed while a Summon resolves off the Stack, where the "[Summon] Resolving …" line
+     * printed a moment earlier already carries the card's whole effect and this only restates it.
+     * Auto and action abilities print no such line, so their header is the only account the log
+     * gives of the choose and always appears.
+     *
+     * <p>Separate from {@link #logEntry(String)} rather than a flag inside it because the two are
+     * not interchangeable: an effect's outcomes ("Duncan → returned to hand") and its skipped-gate
+     * notes are wanted in every case, and only this one restates something already said.
+     */
+    default void logChooseHeader(String message) { logEntry(message); }
+
     /** Returns {@code true} if P1 is the ability user for this context. */
     boolean isP1();
 

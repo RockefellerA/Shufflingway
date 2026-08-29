@@ -2805,12 +2805,34 @@ public record CardData(
      * </ul>
      * The effect capture ends at the next auto-ability header, an action-ability cost sequence
      * ({@code 《token》:}), or end of input.
+     *
+     * <p>The {@code card} group admits one comma-joined epithet — "Leviathan, Lord of the Whorl",
+     * "Belias, the Gigas" — because twenty-five printings are named that way and ten of them are
+     * Forwards stating a trigger under their own name. Bounded at a single comma because that is
+     * how every such name is built; an unbounded {@code .+?} would let the subject run into the
+     * effect clause on any text the trigger alternation cannot otherwise satisfy.
+     *
+     * <p>The bound is safe under backtracking rather than by luck: {@code [^,]+?} is reluctant and
+     * the epithet is optional, so the engine reaches the comma-spanning reading only after the
+     * comma-free one has failed to be followed by a trigger. Every subject that parsed before this
+     * still parses the same way and at the same length.
+     *
+     * <p>The epithet also excludes {@code .} and {@code "}, which no such name contains and which
+     * are what stop it running past the end of its sentence. Without that, 19-131S Fang's "When you
+     * cast a Fire Summon, activate Fang. Fang gains "If Fang deals damage to your opponent, …""
+     * produced a whole extra ability whose subject was {@code you cast a Fire Summon, activate
+     * Fang. Fang gains "If Fang} — the epithet arm had reached across the sentence break and picked
+     * up a trigger printed inside the quoted ability being granted.
+     *
+     * <p>{@link #MULTI_SUBJECT_TRIGGER} remains the route for a comma-separated <em>list</em> of
+     * subjects: it rewrites those into an "or"-joined disjunction before this pattern is applied,
+     * so no comma survives for the epithet arm to claim.
      */
     private static final Pattern AUTO_ABILITY_PATTERN = Pattern.compile(
         "(?i)(?:Damage\\s+(?<threshold>\\d+)\\s+--\\s+)?" +
         // "Each time" is the same trigger word as "When" — Cloud 1-187S is the only printing to use
         // it, and it means exactly what the other two do: once per occurrence.
-        "(?:When|Whenever|Each\\s+time)\\s+(?<card>[^,]+?)\\s+" +
+        "(?:When|Whenever|Each\\s+time)\\s+(?<card>[^,]+?(?:,\\s+[^,.\"]+?)?)\\s+" +
         "(?<trigger>" +
             // "forms a party and attacks" must precede plain "attacks" to be preferred
             "forms?\\s+a\\s+party\\s+and\\s+attacks?" +

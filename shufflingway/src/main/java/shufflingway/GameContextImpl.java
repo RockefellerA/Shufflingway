@@ -178,6 +178,10 @@ final class GameContextImpl implements GameContext {
 	// Effect bookkeeping: seat, log, chosen targets, progress flag
 	// =========================================================================================
 			@Override public void logEntry(String msg) { mw.logEntry(msg); }
+			@Override public void logChooseHeader(String msg) {
+				if (mw.summonEffectTextAlreadyLogged) return;
+				mw.logEntry(msg);
+			}
 			@Override public boolean isP1() { return isP1; }
 
 			@Override public void recordChosenTargets(List<ForwardTarget> targets) {

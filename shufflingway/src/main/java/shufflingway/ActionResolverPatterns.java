@@ -359,11 +359,21 @@ final class ActionResolverPatterns {
      *
      * <p>The serial comma ahead of "and" is optional: 11-130L and B-039 Sephiroth print it,
      * 7-029H Kefka does not.
+     *
+     * <p>Each clause may carry its own "opponent controls" qualifier, and 14-102L Leviathan, Lord
+     * of the Whorl repeats it on all three. Per clause rather than once for the sentence because
+     * that is how the card is printed, and because the selection primitive takes the side filter
+     * per call: nothing in the corpus mixes sides across the three, but reading the qualifier
+     * where it appears is what lets the parser answer for the text rather than for a guess.
+     * Groups {@code opp1} / {@code opp2} / {@code opp3} are non-null when their clause carries it.
      */
     static final Pattern CHOOSE_THREE_MIXED_TYPES_PATTERN = Pattern.compile(
-        "(?i)Choose\\s+up\\s+to\\s+(?<count1>\\d+)\\s+(?<type1>Forwards?|Backups?|Characters?|Monsters?),\\s+" +
-        "up\\s+to\\s+(?<count2>\\d+)\\s+(?<type2>Forwards?|Backups?|Characters?|Monsters?),?\\s+and\\s+" +
-        "up\\s+to\\s+(?<count3>\\d+)\\s+(?<type3>Forwards?|Backups?|Characters?|Monsters?)[.]?\\s+" +
+        "(?i)Choose\\s+up\\s+to\\s+(?<count1>\\d+)\\s+(?<type1>Forwards?|Backups?|Characters?|Monsters?)" +
+        "(?<opp1>\\s+(?:your\\s+)?opponent\\s+controls)?,\\s+" +
+        "up\\s+to\\s+(?<count2>\\d+)\\s+(?<type2>Forwards?|Backups?|Characters?|Monsters?)" +
+        "(?<opp2>\\s+(?:your\\s+)?opponent\\s+controls)?,?\\s+and\\s+" +
+        "up\\s+to\\s+(?<count3>\\d+)\\s+(?<type3>Forwards?|Backups?|Characters?|Monsters?)" +
+        "(?<opp3>\\s+(?:your\\s+)?opponent\\s+controls)?[.]?\\s+" +
         "(?<followup>.+)"
     );
     /**
@@ -890,6 +900,20 @@ final class ActionResolverPatterns {
      */
     static final Pattern FOLLOWUP_INSTEAD_EXBURST = Pattern.compile(
         "(?i)(?<primary>.+?)\\.\\s+If\\s+\\S+(?:\\s+\\S+)*?\\s+results\\s+from\\s+an\\s+EX\\s+Burst,\\s+(?<alt>.+?)\\s+instead[.!]?"
+    );
+    /**
+     * The "If [name] results from an EX Burst, &lt;alt&gt; instead." sentence on its own — located
+     * rather than matched whole, so the text either side of it can be kept.
+     *
+     * <p>Read by {@link ActionResolver#resolveExBurstInstead}, which is about what the player is
+     * shown rather than about what resolves: only one of the two readings ever happens, and naming
+     * both in the log and in the stack window described a card doing something it was not about to
+     * do. {@link #FOLLOWUP_INSTEAD_EXBURST} stays the parser's route, where the split into
+     * {@code primary} and {@code alt} is what the two branches are built from.
+     * Group: {@code alt}.
+     */
+    static final Pattern EX_BURST_INSTEAD_SENTENCE = Pattern.compile(
+        "(?i)If\\s+\\S+(?:\\s+\\S+)*?\\s+results\\s+from\\s+an\\s+EX\\s+Burst,\\s+(?<alt>.+?)\\s+instead[.!]?"
     );
     /**
      * Matches "deal it/them damage equal to &lt;expr&gt;" where the amount is computed
@@ -7380,6 +7404,21 @@ final class ActionResolverPatterns {
         "(?is)^If\\s+the\\s+cost\\s+to\\s+(?:play|cast)\\s+(?<card>[^,]+?)\\s+was\\s+only\\s+paid\\s+" +
         "with\\s+(?<element>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)\\s+CP,\\s+" +
         "(?<effect>.+?)\\s*$"
+    );
+    /**
+     * The gate clause of {@link #CAST_PAYMENT_ONLY_ELEMENT_CP_GATE} on its own — without the effect
+     * it guards, and without anchors, so it can be located rather than only matched whole.
+     *
+     * <p>Wanted for the same reason its "included [Element] CP" sibling
+     * {@link #CAST_PAYMENT_ELEMENT_CP_GATE_CLAUSE} is: half of this family prints the gate as a
+     * <em>choose followup</em> rather than ahead of the choose ("choose 1 Forward opponent
+     * controls. If the cost to play Baugauven was only paid with Fire CP, deal it 7000 damage"),
+     * where it has to be recognised at the head of the followup and stripped off it.
+     * Groups: {@code name}, {@code element}.
+     */
+    static final Pattern CAST_PAYMENT_ONLY_ELEMENT_CP_GATE_CLAUSE = Pattern.compile(
+        "(?i)If\\s+the\\s+cost\\s+to\\s+(?:play|cast)\\s+(?<name>.+?)\\s+was\\s+only\\s+paid\\s+" +
+        "with\\s+(?<element>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)\\s+CP,\\s+"
     );
     /**
      * Matches "[Until the end of the turn, ]if the CP paid to play/cast &lt;name&gt; was only

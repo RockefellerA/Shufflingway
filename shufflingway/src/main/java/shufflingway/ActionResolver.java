@@ -2724,6 +2724,15 @@ public class ActionResolver {
                 return "ChooseCharacter / IfCastPaid" + cap(castPaidM.group("element")) + "Cp("
                         + (gatedName != null ? gatedName : "?") + ")";
             }
+            // Mirrors the choose chain, where the strict sibling of the gate above is read
+            // immediately after it and for the same reason.
+            Matcher onlyPaidM = CAST_PAYMENT_ONLY_ELEMENT_CP_GATE_CLAUSE.matcher(followup);
+            if (source != null && onlyPaidM.lookingAt()
+                    && onlyPaidM.group("name").trim().equalsIgnoreCase(source.name())) {
+                String gatedName = matchedFollowupName(followup.substring(onlyPaidM.end()).trim(), source);
+                return "ChooseCharacter / IfCastPaidOnly" + cap(onlyPaidM.group("element")) + "Cp("
+                        + (gatedName != null ? gatedName : "?") + ")";
+            }
             // Check damage-instead on the full followup before the ". " split eats the condition clause.
             // This mirrors what tryParseChooseAndFollowup does.
             Matcher insteadM = FOLLOWUP_DAMAGE_INSTEAD.matcher(followup);
@@ -3645,14 +3654,12 @@ public class ActionResolver {
             };
         }
 
+        // Dispatched by zone rather than skipping everything that is not a Forward. The selections
+        // that reach here are not Forward-only: 14-102L Leviathan, Lord of the Whorl chooses a
+        // Forward, a Backup and a Monster and returns all three, and the Forward-only reading
+        // chose the Backup and the Monster and then left them on the board.
         if (FOLLOWUP_RETURN_TO_OWNERS_HAND.matcher(t).find())
-            return (ctx, ts) -> {
-                for (ForwardTarget ft : ts) {
-                    if (ft.zone() != ForwardTarget.CardZone.FORWARD) continue;
-                    if (ft.isP1()) ctx.returnP1ForwardToHand(ft.idx());
-                    else           ctx.returnP2ForwardToHand(ft.idx());
-                }
-            };
+            return ActionResolver::returnTargetsToOwnersHand;
 
         // Bury a chosen Break Zone card at the bottom of the ability user's deck. Reached through
         // the "If you control N or more …" gate (24-094C Corsair), which is why it lives here
@@ -5274,6 +5281,45 @@ public class ActionResolver {
      * the effect. {@code parse()} drops it before matching; the game log drops it before printing,
      * but only when the card did not in fact resolve off an EX Burst — there it is the whole story.
      */
+    /**
+     * {@code effectText} with its "If [name] results from an EX Burst, &lt;alt&gt; instead."
+     * sentence resolved for the resolution actually happening: dropped when {@code isExBurst} is
+     * false, and folded in over the clause it replaces when it is true.
+     *
+     * <p>For display only — the log line and the stack window's summary. Resolution goes through
+     * {@link ActionResolverPatterns#FOLLOWUP_INSTEAD_EXBURST} and picks its branch at run time;
+     * this says the same thing in the one place the player reads. Printing the card as-written
+     * named both readings at once, so 14-108C Leviathan announced "Return it to its owner's hand"
+     * and "return it to its owner's hand and draw 1 card instead" on a cast that was only ever
+     * going to do the first.
+     *
+     * <p>Returns {@code effectText} unchanged when there is no such sentence, which is all but
+     * seven cards in the corpus, and also when the sentence is not the last thing in the text.
+     * 7-084C Yojimbo is the one printing of that shape — "…the former gains +3000 power until the
+     * end of the turn instead. Then, each Forward deals damage equal to its power to the other." —
+     * and which earlier clause the alternative replaces is not recoverable from the wording: the
+     * trailing "Then, …" restates a sentence the base already has. Rewriting it either duplicated
+     * that sentence or dropped the wrong one, so it is shown as printed and the player reads the
+     * card. The other six all end on the alternative and rewrite cleanly.
+     *
+     * @param source the card, for the name-with-a-period escaping the sentence split needs
+     */
+    public static String resolveExBurstInstead(String effectText, CardData source, boolean isExBurst) {
+        if (effectText == null) return null;
+        Matcher m = EX_BURST_INSTEAD_SENTENCE.matcher(effectText);
+        if (!m.find()) return effectText;
+        if (!effectText.substring(m.end()).isBlank()) return effectText;
+
+        String head = effectText.substring(0, m.start()).trim();
+        if (!isExBurst) return head;
+
+        String alt = m.group("alt").trim();
+        String swapped = insteadVariant(head, alt, source);
+        // A single-sentence head has no earlier clause to keep, so the alternative stands alone.
+        return swapped != null ? swapped
+                : Character.toUpperCase(alt.charAt(0)) + alt.substring(1) + ".";
+    }
+
     public static String stripExBurstPrefix(String effectText) {
         if (effectText == null) return null;
         return effectText

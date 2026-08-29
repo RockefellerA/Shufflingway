@@ -1027,6 +1027,16 @@ public class MainWindow {
 	boolean currentAbilityIsSpecial = false;
 	/** Set to {@code true} while a Summon effect is resolving so {@link #selectCharacters} applies the correct protection set. */
 	boolean currentResolutionIsSummon = false;
+	/**
+	 * True while a Summon's effect runs from the Stack, where the "[Summon] Resolving …" line has
+	 * already printed the whole effect. Read by {@code GameContext.logChooseHeader} so a choose
+	 * effect does not restate it a line later.
+	 *
+	 * <p>Narrower than {@link #currentResolutionIsSummon}, deliberately: that flag is also set on
+	 * the Summon paths that print no "Resolving" line at all, where suppressing the header would
+	 * leave the choose with nothing said about it.
+	 */
+	boolean summonEffectTextAlreadyLogged = false;
 	/** Set to {@code true} by {@code returnNamedCardToYourHand} when the Summon itself is being returned to hand. */
 	boolean pendingSummonReturnToHand = false;
 	/** Stack entries whose effect has been cancelled by Y'shtola or similar; checked and consumed at resolution. */
@@ -5466,6 +5476,9 @@ public class MainWindow {
 		CardData topCard = p1ForwardPrimedTop.get(idx);
 		boolean player1 = gameState.getIdentity().get(card);
 		List<CardData> zone = player1 ? gameState.getP1Hand() : gameState.getP2Hand();
+		// Before the slot is torn down: the slide reads its start point off the live label.
+		animateCardReturnToHand(idx < p1ForwardLabels.size() ? p1ForwardLabels.get(idx) : null,
+				card, player1);
 		if (topCard != null) {
 			gameState.addToPermanentRfp(topCard);
 			logEntry(topCard.name() + " → Removed From Play");
@@ -5527,6 +5540,9 @@ public class MainWindow {
 		CardData topCard = p2ForwardPrimedTop.get(idx);
 		boolean player1 = gameState.getIdentity().get(card);
 		List<CardData> zone = player1 ? gameState.getP1Hand() : gameState.getP2Hand();
+		// Before the slot is torn down: the slide reads its start point off the live label.
+		animateCardReturnToHand(idx < p2ForwardLabels.size() ? p2ForwardLabels.get(idx) : null,
+				card, player1);
 		if (topCard != null) {
 			gameState.addToPermanentRfp(topCard);
 			logEntry("[P2] " + topCard.name() + " → Removed From Play");
@@ -5574,6 +5590,8 @@ public class MainWindow {
 
 		boolean player1 = gameState.getIdentity().get(c);
 		List<CardData> zone = player1 ? gameState.getP1Hand() : gameState.getP2Hand();
+		// Before the slot is torn down: the slide reads its start point off the live label.
+		animateCardReturnToHand(p1BackupLabels[idx], c, player1);
 		zone.add(c);
 
 		logEntry(c.name() + " → returned to hand");
@@ -5596,6 +5614,8 @@ public class MainWindow {
 
 		boolean player1 = gameState.getIdentity().get(c);
 		List<CardData> zone = player1 ? gameState.getP1Hand() : gameState.getP2Hand();
+		// Before the slot is torn down: the slide reads its start point off the live label.
+		animateCardReturnToHand(p2BackupLabels[idx], c, player1);
 		zone.add(c);
 
 		logEntry("[P2] " + c.name() + " → returned to hand");
@@ -5618,6 +5638,9 @@ public class MainWindow {
 
 		boolean player1 = gameState.getIdentity().get(c);
 		List<CardData> zone = player1 ? gameState.getP1Hand() : gameState.getP2Hand();
+		// Before the slot is torn down: the slide reads its start point off the live label.
+		animateCardReturnToHand(idx < p1MonsterLabels.size() ? p1MonsterLabels.get(idx) : null,
+				c, player1);
 		zone.add(c);
 
 		logEntry(c.name() + " → returned to hand");
@@ -5639,6 +5662,9 @@ public class MainWindow {
 
 		boolean player1 = gameState.getIdentity().get(c);
 		List<CardData> zone = player1 ? gameState.getP1Hand() : gameState.getP2Hand();
+		// Before the slot is torn down: the slide reads its start point off the live label.
+		animateCardReturnToHand(idx < p2MonsterLabels.size() ? p2MonsterLabels.get(idx) : null,
+				c, player1);
 		zone.add(c);
 
 		logEntry("[P2] " + c.name() + " → returned to hand");
@@ -7803,6 +7829,46 @@ public class MainWindow {
 		});
 		reveal.setRepeats(false);
 		reveal.start();
+	}
+
+	/**
+	 * Slides {@code card}'s face from the board slot it is leaving toward its owner's hand — the
+	 * off-screen bottom-centre for P1, top-centre for P2, the same off-board points
+	 * {@link #animateCardDraw} and {@link #animateCardDiscard} use to stand for a hand.
+	 *
+	 * <p>The reverse of {@link #animateCardDiscard}, and wanted for the reverse reason: a card
+	 * bounced off the field was vanishing from the board between two repaints, with nothing to say
+	 * where it had gone. The opponent's Leviathan returning a Forward is the case that shows it.
+	 *
+	 * <p><b>Call before the slot is cleared.</b> The start point is read off the live label, and a
+	 * slot already emptied has no position to read. Does nothing when there is no UI to animate in
+	 * — a headless {@code MainWindow} under test never installs the animator.
+	 *
+	 * @param fromSlot  the label the card currently occupies
+	 * @param card      the card being returned, for its face image
+	 * @param ownerIsP1 which hand it is going to, which is its owner's rather than its controller's
+	 */
+	void animateCardReturnToHand(JLabel fromSlot, CardData card, boolean ownerIsP1) {
+		if (card == null || fromSlot == null || frame == null || cardSlideAnimator == null) return;
+		if (!fromSlot.isShowing()) return;
+		JLayeredPane lp = frame.getRootPane().getLayeredPane();
+
+		Point start = SwingUtilities.convertPoint(
+				fromSlot, fromSlot.getWidth() / 2, fromSlot.getHeight() / 2, lp);
+		int   cx  = lp.getWidth() / 2;
+		Point end = ownerIsP1
+				? new Point(cx, lp.getHeight() + CardAnimation.CARD_H)
+				: new Point(cx, -CardAnimation.CARD_H);
+
+		BufferedImage img;
+		try {
+			Image face = ImageCache.load(card.imageUrl());
+			if (face == null) return;
+			img = CardAnimation.toARGB(face, CardAnimation.CARD_W, CardAnimation.CARD_H);
+		} catch (java.io.IOException ignored) {
+			return;
+		}
+		cardSlideAnimator.startSlide(img, start, end, 0);
 	}
 
 	void startRfpAnim(int forwardIdx, boolean isP1) {
@@ -10213,6 +10279,40 @@ public class MainWindow {
 	 * window during which the player may activate cards.  When the response window
 	 * expires (or no new entry was pushed), the top entry resolves automatically.
 	 */
+	/**
+	 * What {@code entry} is actually about to do, as one line of text — the card's effect with the
+	 * clauses that will not apply to <em>this</em> resolution already settled.
+	 *
+	 * <p>Shared by the resolution log line and the stack window's summary so the two cannot
+	 * disagree, and so the player reading either sees the branch that is about to run rather than
+	 * the card as printed:
+	 * <ul>
+	 *   <li>the extra-cost clause is applied or stripped according to what was paid, which is what
+	 *       {@link ActionResolver#parse} will be handed;</li>
+	 *   <li>the "EX BURST" marker is dropped unless the Summon really did resolve off one, where it
+	 *       is a property of the card rather than of what is happening;</li>
+	 *   <li>the "If [name] results from an EX Burst, … instead." alternative is resolved the way
+	 *       resolution will resolve it.</li>
+	 * </ul>
+	 */
+	String resolvingEffectText(StackEntry entry) {
+		String effectText = entry.effectText();
+		if (effectText == null) return null;
+		if (entry.isSummon() || entry.isExBurstEntry()) {
+			if (entry.isExBurstEntry() && entry.source().extraCost() != null)
+				effectText = ActionResolver.stripExtraCostClause(effectText);
+			else if (entry.paidExtraCost()) {
+				effectText = ActionResolver.applyExtraCostPaid(effectText);
+				if (entry.xValue() > 0)
+					effectText = effectText.replace("《X》", String.valueOf(entry.xValue()));
+			} else {
+				effectText = ActionResolver.stripExtraCostClause(effectText);
+			}
+			if (!entry.isExBurstEntry()) effectText = ActionResolver.stripExBurstPrefix(effectText);
+		}
+		return ActionResolver.resolveExBurstInstead(effectText, entry.source(), entry.isExBurstEntry());
+	}
+
 	void showStackWindow() {
 		StackEntry entry = gameState.peekStack();
 		if (entry == null) return;
@@ -10272,11 +10372,16 @@ public class MainWindow {
 		textPanel.setOpaque(false);
 		textPanel.add(nameLabel);
 
-		// Spell out the triggering auto ability so the player knows what they are responding to
-		if (entry.isAutoAbility()) {
+		// Spell out what is about to resolve so the player knows what they are responding to.
+		// Every entry kind, not only auto abilities: a Summon showed its name and its art and left
+		// the player to remember the card. Read through resolvingEffectText so what is shown is the
+		// branch that will actually run — an EX Burst alternative on a cast that is not one is not
+		// what this resolution does.
+		String stackEffectText = resolvingEffectText(entry);
+		if (stackEffectText != null && !stackEffectText.isBlank()) {
 			JLabel effectLabel = new JLabel("<html><div style='text-align:center;width:"
 					+ UiScale.scale(230) + "px'>"
-					+ escapeForHtmlLabel(entry.autoAbility().effectText()) + "</div></html>",
+					+ escapeForHtmlLabel(stackEffectText) + "</div></html>",
 					SwingConstants.CENTER);
 			effectLabel.setFont(FontLoader.loadPixelFont(9));
 			effectLabel.setForeground(new Color(205, 195, 220));
@@ -10452,11 +10557,12 @@ public class MainWindow {
 					effectText = ActionResolver.stripExtraCostClause(effectText);
 				}
 
-				// "EX BURST" belongs on the line only when the Summon actually resolved off one;
-				// on an ordinary cast it is a property of the card, not of what is happening.
-				String loggedText = entry.isExBurstEntry()
-						? effectText : ActionResolver.stripExBurstPrefix(effectText);
-				logEntry("[Summon] Resolving \"" + entry.source().name() + "\": " + loggedText);
+				// What the line reports is the resolution, not the printing: the "EX BURST" marker
+				// and the "If [name] results from an EX Burst, … instead." alternative both belong
+				// on it only when the Summon really did resolve off one. Same text the stack window
+				// showed a moment earlier, from the same helper, so the two cannot disagree.
+				logEntry("[Summon] Resolving \"" + entry.source().name() + "\": "
+						+ resolvingEffectText(entry));
 				Consumer<GameContext> effect = ActionResolver.parse(effectText, entry.source(), entry.xValue());
 				if (effect != null) {
 					// Targets were chosen when the Summon went on the Stack, so the opponent could
@@ -10466,9 +10572,14 @@ public class MainWindow {
 					currentSummonSource     = entry.source();
 					currentSummonSourceIsP1 = entry.isP1();
 					pendingSummonReturnToHand   = false;
+					// The line just printed carries the whole effect, so the choose machinery's own
+					// header would restate it. Set here rather than off currentResolutionIsSummon,
+					// which is also true on the summon paths that print no such line.
+					summonEffectTextAlreadyLogged = true;
 					try { effect.accept(ctx); } finally {
 						currentResolutionIsSummon = false;
 						currentSummonSource   = null;
+						summonEffectTextAlreadyLogged = false;
 					}
 				} else logEntry("[ActionResolver] Summon effect not yet implemented: " + effectText);
 				if (pendingSummonReturnToHand) {

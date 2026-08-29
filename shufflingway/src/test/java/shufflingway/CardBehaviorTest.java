@@ -36432,4 +36432,317 @@ public class CardBehaviorTest {
 
 	// =========================================================================================
 
+	// =========================================================================================
+	// Effect wiring — the cast-payment gate printed as a choose followup rather than ahead of the
+	// choose. 7-014R Baugauven, 7-064R Asmodai and 7-113R Styx print it that way, and 19-056C
+	// Graff reprints the same wording a dozen Opus later.
+	//
+	// The four sat in the same hole the "included [Element] CP" cycle sat in before its own
+	// followup gate was written: every followup matcher scans with find(), so each of them found
+	// its verb inside the gate clause and ran it on every cast. Baugauven dealt 7000 damage
+	// whatever the CP had been.
+	//
+	// The choose still happens when the gate fails. Being chosen is an event other cards watch
+	// (1-037H Kuja, 12-024H Emet-Selch), so skipping the selection would swallow their triggers —
+	// only the effect is conditional.
+	// =========================================================================================
+
+	private static final String BAUGAUVEN_ETF =
+			"choose 1 Forward opponent controls. If the cost to play Baugauven was only paid with "
+			+ "Fire CP, deal it 7000 damage.";
+
+	private static final String STYX_ETF =
+			"choose 1 Forward opponent controls. If the cost to play Styx was only paid with "
+			+ "Water CP, return it to its owner's hand.";
+
+	/** A choose-gate context whose selection returns one P2 Forward and whose gate answers {@code met}. */
+	private static GameContext chooseGateCtx(boolean met, CardData source, String element,
+			ForwardTarget picked) {
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.consumePreloadedTargets()).thenReturn(null);
+		when(ctx.castPaymentWasOnlyElement(source, element)).thenReturn(met);
+		when(ctx.selectCharacters(anyInt(), anyBoolean(), anyBoolean(), anyBoolean(), any(), any(),
+				anyInt(), any(), anyInt(), any(), anyBoolean(), anyBoolean(), anyBoolean(),
+				any(), any(), any(), any(), anyBoolean(), any(), anyBoolean()))
+				.thenReturn(List.of(picked));
+		return ctx;
+	}
+
+	@Test
+	void baugauvenBurnsOnlyWhenFireCpAloneBoughtHim() {
+		CardData baugauven = makeForward("Baugauven", "Fire", 4, 8000);
+		ForwardTarget victim = new ForwardTarget(false, 0, ForwardTarget.CardZone.FORWARD);
+		GameContext ctx = chooseGateCtx(true, baugauven, "Fire", victim);
+
+		ActionResolver.parse(BAUGAUVEN_ETF, baugauven).accept(ctx);
+
+		verify(ctx).damageTarget(victim, 7000);
+	}
+
+	@Test
+	void andChoosesButDoesNotBurnWhenAnythingElseHelpedPay() {
+		// The regression: this used to deal 7000 on every cast. The choose still has to happen —
+		// being chosen is an event of its own, and the damage is the only conditional half.
+		CardData baugauven = makeForward("Baugauven", "Fire", 4, 8000);
+		ForwardTarget victim = new ForwardTarget(false, 0, ForwardTarget.CardZone.FORWARD);
+		GameContext ctx = chooseGateCtx(false, baugauven, "Fire", victim);
+
+		ActionResolver.parse(BAUGAUVEN_ETF, baugauven).accept(ctx);
+
+		verify(ctx, never()).damageTarget(any(), anyInt());
+		verify(ctx).selectCharacters(anyInt(), anyBoolean(), anyBoolean(), anyBoolean(), any(), any(),
+				anyInt(), any(), anyInt(), any(), anyBoolean(), anyBoolean(), anyBoolean(),
+				any(), any(), any(), any(), anyBoolean(), any(), anyBoolean());
+	}
+
+	@Test
+	void theGatedFollowupIsWhateverTheCardPrints() {
+		// Styx returns rather than burns. The gate is stripped and the rest re-parsed from the top,
+		// so every followup the chain already reads is gated without being taught the gate.
+		CardData styx = makeForward("Styx", "Water", 4, 7000);
+		ForwardTarget victim = new ForwardTarget(false, 0, ForwardTarget.CardZone.FORWARD);
+
+		ActionResolver.parse(STYX_ETF, styx).accept(chooseGateCtx(true, styx, "Water", victim));
+		ActionResolver.parse(STYX_ETF, styx).accept(chooseGateCtx(false, styx, "Water", victim));
+
+		assertEquals("ChooseCharacter / IfCastPaidOnlyWaterCp(ReturnToOwnersHand)",
+				ActionResolver.fullDescription(STYX_ETF, styx));
+	}
+
+	@Test
+	void aChooseGateNamingAnotherCardGivesUpTheWholeText() {
+		// Falling through would hand the followup straight back to the find() matchers below and
+		// run it unconditionally, which is the bug this gate exists to fix.
+		assertNull(ActionResolver.parse(BAUGAUVEN_ETF, makeForward("Someone Else", "Fire", 4, 8000)));
+	}
+
+	// =========================================================================================
+	// Trigger parsing — card names carrying a comma-joined epithet.
+	//
+	// AUTO_ABILITY_PATTERN captured the trigger's subject as [^,]+?, so no name with a comma in it
+	// could ever match one. Twenty-five printings are named that way and ten of them are Forwards
+	// stating a trigger under their own name — the whole Opus 14 Eikon cycle among them — and every
+	// one of those abilities was absent rather than unimplemented: nothing in the parse chain ever
+	// saw the text, so nothing reported it missing either.
+	//
+	// The epithet arm is bounded at one comma and excludes "." and '"', which is what stops it
+	// running past the end of its sentence into a quoted granted ability.
+	// =========================================================================================
+
+	@Test
+	void aTriggerUnderACommaJoinedNameIsFoundAtAll() {
+		CardData leviathan = makeAutoAbilityForward("Leviathan, Lord of the Whorl", "Water", 9000,
+				"When Leviathan, Lord of the Whorl enters the field, choose up to 1 Forward "
+				+ "opponent controls, up to 1 Backup opponent controls and up to 1 Monster "
+				+ "opponent controls. Return them to their owners' hands.");
+
+		assertEquals(1, leviathan.autoAbilities().size());
+		AutoAbility etf = leviathan.autoAbilities().get(0);
+		assertEquals("Leviathan, Lord of the Whorl", etf.triggerCard(),
+				"the epithet is part of the name, not the start of the effect");
+		assertEquals("enters the field", etf.trigger());
+	}
+
+	@Test
+	void andTheEpithetDoesNotReachAcrossASentenceBreak() {
+		// 19-131S Fang: "When you cast a Fire Summon, activate Fang. Fang gains "If Fang deals
+		// damage to your opponent, the damage becomes 2 instead." until the end of the turn."
+		// An unbounded epithet took `you cast a Fire Summon, activate Fang. Fang gains "If Fang`
+		// as the subject and the trigger printed inside the granted ability as the trigger,
+		// inventing an ability the card does not have.
+		CardData fang = makeAutoAbilityForward("Fang", "Fire", 7000,
+				"When Fang attacks, during this turn, the cost required to cast your next "
+				+ "Card Name Bahamut is reduced by 2.[[br]]   When you cast a Fire Summon, "
+				+ "activate Fang. Fang gains \"If Fang deals damage to your opponent, the damage "
+				+ "becomes 2 instead.\" until the end of the turn.");
+
+		for (AutoAbility a : fang.autoAbilities())
+			assertFalse(a.triggerCard().contains("\"") || a.triggerCard().contains("."),
+					"a trigger subject is a name, not a run of sentences: " + a.triggerCard());
+	}
+
+	@Test
+	void aCommaSeparatedSubjectListIsStillReadAsAList() {
+		// MULTI_SUBJECT_TRIGGER rewrites these into an "or"-joined disjunction before the pattern
+		// runs, so the epithet arm never sees a comma here and cannot claim one subject as another's
+		// epithet.
+		CardData watcher = makeAutoAbilityForward("Watcher", "Fire", 7000,
+				"When Watcher, a Forward or a Backup enters the field, draw 1 card.");
+
+		assertEquals(1, watcher.autoAbilities().size());
+		String subject = watcher.autoAbilities().get(0).triggerCard();
+		assertTrue(subject.contains("or"), "the list is joined, not truncated: " + subject);
+		assertEquals("enters the field", watcher.autoAbilities().get(0).trigger());
+	}
+
+	@Test
+	void theCommaNamedTriggerActuallyFiresOnTheBoard() {
+		// The dispatcher matches triggerCard() against the card's name, so a subject truncated at
+		// the comma would never have matched even if the pattern had produced one. 23-023H Anima
+		// is the one card in the cycle whose ETF selects nothing, so the dispatch can be watched
+		// without a target prompt standing in the way.
+		MainWindow mw = new MainWindow();
+		CardData anima = makeAutoAbilityForward("Anima, Eikon of Eikons", "Dark", 9000,
+				"When Anima, Eikon of Eikons enters the field, if both you and your opponent have "
+				+ "no cards in hand, dull and Freeze all the Characters opponent controls.");
+		CardData victim = makeForward("Victim", "Fire", 3, 7000);
+		placeP1Forward(mw, anima);
+		placeP2Forward(mw, victim);
+
+		mw.autoAbilityTriggers.triggerAutoAbilitiesForEntersField(anima, true);
+
+		assertEquals(CardState.DULL, mw.p2ForwardStates.get(0),
+				"the entering card's own ETF ability fired and resolved");
+	}
+
+	// =========================================================================================
+	// Board behaviour — 14-102L Leviathan, Lord of the Whorl: "choose up to 1 Forward opponent
+	// controls, up to 1 Backup opponent controls and up to 1 Monster opponent controls. Return
+	// them to their owners' hands."
+	//
+	// Two things had to be true for this to work and neither was. The three-mixed-types pattern
+	// read no per-clause "opponent controls" and no serial-comma-free "and", so it did not match;
+	// and the return-to-owner's-hand action skipped everything that was not a Forward, so the
+	// Backup and the Monster would have been chosen and then left standing.
+	// =========================================================================================
+
+	private static final String LEVIATHAN_ETF =
+			"choose up to 1 Forward opponent controls, up to 1 Backup opponent controls and "
+			+ "up to 1 Monster opponent controls. Return them to their owners' hands.";
+
+	@Test
+	void leviathanChoosesFromTheOpponentsSideInAllThreeRows() {
+		CardData leviathan = makeForward("Leviathan, Lord of the Whorl", "Water", 5, 9000);
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.consumePreloadedTargets()).thenReturn(null);
+		when(ctx.selectCharacters(anyInt(), anyBoolean(), anyBoolean(), anyBoolean(), any(), any(),
+				anyInt(), any(), anyInt(), any(), anyBoolean(), anyBoolean(), anyBoolean(),
+				any(), any(), any(), any(), anyBoolean(), any(), anyBoolean()))
+				.thenReturn(List.of());
+
+		Consumer<GameContext> effect = ActionResolver.parse(LEVIATHAN_ETF, leviathan);
+		assertNotNull(effect, "the printed wording has to parse for the rest of this to mean anything");
+		effect.accept(ctx);
+
+		// opponentOnly is the third flag; all three clauses print the qualifier, so all three
+		// selections carry it. Reading it once for the sentence would have been a guess.
+		verify(ctx, times(3)).selectCharacters(anyInt(), anyBoolean(), eq(true), anyBoolean(),
+				any(), any(), anyInt(), any(), anyInt(), any(), anyBoolean(), anyBoolean(), anyBoolean(),
+				any(), any(), any(), any(), anyBoolean(), any(), anyBoolean());
+	}
+
+	@Test
+	void andReturnsTheBackupAndTheMonsterAsWellAsTheForward() {
+		// Each clause selects from its own row, so the three picks come back one per zone. The
+		// return action used to skip everything that was not a Forward, which chose the Backup
+		// and the Monster and then left them standing.
+		CardData leviathan = makeForward("Leviathan, Lord of the Whorl", "Water", 5, 9000);
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.consumePreloadedTargets()).thenReturn(null);
+		when(ctx.selectCharacters(anyInt(), anyBoolean(), anyBoolean(), anyBoolean(), any(), any(),
+				anyInt(), any(), anyInt(), any(), anyBoolean(), anyBoolean(), anyBoolean(),
+				any(), any(), any(), any(), anyBoolean(), any(), anyBoolean()))
+				.thenReturn(List.of(new ForwardTarget(false, 0, ForwardTarget.CardZone.FORWARD)),
+						List.of(new ForwardTarget(false, 1, ForwardTarget.CardZone.BACKUP)),
+						List.of(new ForwardTarget(false, 2, ForwardTarget.CardZone.MONSTER)));
+
+		ActionResolver.parse(LEVIATHAN_ETF, leviathan).accept(ctx);
+
+		verify(ctx).returnP2ForwardToHand(0);
+		verify(ctx).returnP2BackupToHand(1);
+		verify(ctx).returnP2MonsterToHand(2);
+	}
+
+	// =========================================================================================
+
+	// =========================================================================================
+	// Game log and stack window — what a resolution says it is about to do.
+	//
+	// A card printing "If [name] results from an EX Burst, <alt> instead." was being reported in
+	// full, so 7-125C Leviathan cast normally announced both the return and the return-and-draw
+	// that was not going to happen. Only one of the two readings ever runs; the log and the stack
+	// window name that one.
+	//
+	// The choose machinery's own header is suppressed while a Summon resolves off the Stack,
+	// where the "[Summon] Resolving …" line has already carried the whole effect. Auto and action
+	// abilities print no such line, so theirs always appears.
+	// =========================================================================================
+
+	private static final String LEVIATHAN_SUMMON =
+			"Choose 1 Forward of cost 4 or less. Return it to its owner's hand. "
+			+ "If Leviathan results from an EX Burst, return it to its owner's hand and draw 1 card instead.";
+
+	@Test
+	void anOrdinaryCastDoesNotAnnounceTheExBurstAlternative() {
+		CardData leviathan = makeForward("Leviathan", "Water", 3, 0);
+		assertEquals("Choose 1 Forward of cost 4 or less. Return it to its owner's hand.",
+				ActionResolver.resolveExBurstInstead(LEVIATHAN_SUMMON, leviathan, false));
+	}
+
+	@Test
+	void andAnExBurstAnnouncesTheAlternativeInsteadOfTheClauseItReplaces() {
+		CardData leviathan = makeForward("Leviathan", "Water", 3, 0);
+		assertEquals("Choose 1 Forward of cost 4 or less. Return it to its owner's hand and draw 1 card.",
+				ActionResolver.resolveExBurstInstead(LEVIATHAN_SUMMON, leviathan, true));
+	}
+
+	@Test
+	void aCardWithTextAfterTheAlternativeIsLeftAsPrinted() {
+		// 7-084C Yojimbo's trailing "Then, …" restates a sentence the base already has, so which
+		// clause the alternative replaces is not recoverable from the wording. Rewriting it either
+		// duplicated that sentence or dropped the wrong one; the player reads the card instead.
+		CardData yojimbo = makeForward("Yojimbo", "Earth", 5, 0);
+		String printed = "Choose 1 Forward you control and 1 Forward opponent controls. "
+				+ "The former gains +1000 power until the end of the turn. Then, each Forward deals "
+				+ "damage equal to its power to the other. If Yojimbo results from an EX Burst, the "
+				+ "former gains +3000 power until the end of the turn instead. Then, each Forward "
+				+ "deals damage equal to its power to the other.";
+
+		assertEquals(printed, ActionResolver.resolveExBurstInstead(printed, yojimbo, false));
+		assertEquals(printed, ActionResolver.resolveExBurstInstead(printed, yojimbo, true));
+	}
+
+	@Test
+	void aTextWithNoSuchSentenceIsUntouched() {
+		CardData shiva = makeForward("Shiva", "Ice", 2, 0);
+		String plain = "Choose 1 Forward. Deal it 7000 damage.";
+		assertEquals(plain, ActionResolver.resolveExBurstInstead(plain, shiva, false));
+		assertEquals(plain, ActionResolver.resolveExBurstInstead(plain, shiva, true));
+	}
+
+	@Test
+	void aChooseAnnouncesItselfThroughTheSuppressibleChannel() {
+		// The header is the one line that restates the "[Summon] Resolving …" line, so it goes
+		// through logChooseHeader, which drops it while a Summon resolves off the Stack. A call
+		// site left on plain logEntry would print an un-suppressible duplicate, which is the
+		// regression this guards: there are 154 of them.
+		CardData source = makeForward("Some Summon", "Water", 3, 0);
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.consumePreloadedTargets()).thenReturn(null);
+		when(ctx.selectCharacters(anyInt(), anyBoolean(), anyBoolean(), anyBoolean(), any(), any(),
+				anyInt(), any(), anyInt(), any(), anyBoolean(), anyBoolean(), anyBoolean(),
+				any(), any(), any(), any(), anyBoolean(), any(), anyBoolean()))
+				.thenReturn(List.of());
+
+		ActionResolver.parse("Choose 1 Forward of cost 4 or less. Return it to its owner's hand.",
+				source).accept(ctx);
+
+		verify(ctx).logChooseHeader(argThat(msg -> msg.startsWith("Choose 1 Forward")));
+	}
+
+	@Test
+	void butTheDefaultChannelStillPrints() {
+		// Everything that is not a Summon resolving off the Stack keeps its header: the interface's
+		// default hands straight to logEntry, and only GameContextImpl overrides it, only while
+		// that one flag is set.
+		GameContext ctx = mock(GameContext.class);
+		doCallRealMethod().when(ctx).logChooseHeader(anyString());
+
+		ctx.logChooseHeader("Choose 1 Forward — Break");
+
+		verify(ctx).logEntry("Choose 1 Forward — Break");
+	}
+
+	// =========================================================================================
+
 }
