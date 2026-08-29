@@ -1951,6 +1951,24 @@ public interface GameContext {
     }
 
     /**
+     * Replaces every Forward's base power with {@code power} until the end of the turn, on both
+     * sides of the table — 15-053H Diabolos's upgraded branch, the corpus's only board-wide form
+     * of the single-target {@link #setTargetBasePower(ForwardTarget, int)}.
+     *
+     * <p>Highest index first within each side, for the reason the single-target followup gives:
+     * dropping to the new power can break a Forward outright, and that shifts the index of every
+     * Forward above it in the same row.
+     */
+    default void setAllForwardsBasePower(int power) {
+        logEntry("Effect: all Forwards' base power becomes " + power + " until end of turn");
+        for (boolean side : new boolean[]{true, false}) {
+            int count = side ? p1ForwardCount() : p2ForwardCount();
+            for (int i = count - 1; i >= 0; i--)
+                setTargetBasePower(new ForwardTarget(side, i, ForwardTarget.CardZone.FORWARD), power);
+        }
+    }
+
+    /**
      * Pushes a new stack entry for the auto-ability on {@code source} whose trigger matches
      * {@code triggerType} (e.g. {@code "beginning of attack phase"}). Used to retrigger an
      * ability after a conditional self-discard.
@@ -1962,6 +1980,20 @@ public interface GameContext {
      * Returns {@code 0} for Backups or out-of-range indices.
      */
     int effectiveTargetPower(ForwardTarget t);
+
+    /**
+     * Whether {@code t}'s power currently differs from the value printed on it — "If its power has
+     * been increased or decreased" (12-049H Diabolos, the corpus's only printing of the question).
+     *
+     * <p>Asked as a comparison rather than as a log of what happened, because every way a power
+     * can move ends in the same place: a until-end-of-turn boost, a reduction, a permanent boost,
+     * a one-shot "its power becomes N", and a continuous field grant all show up as a difference
+     * between the effective power and the printed one, and the card does not distinguish them.
+     *
+     * <p>A primed Forward is measured against the card on top, which is the one whose power is
+     * printed on the stack. {@code false} for anything with no printed power to differ from.
+     */
+    boolean targetPowerHasChanged(ForwardTarget t);
 
     /**
      * The card currently occupying {@code t}, or {@code null} if the slot is empty. Useful for

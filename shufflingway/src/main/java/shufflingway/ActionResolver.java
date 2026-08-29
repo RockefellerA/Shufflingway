@@ -2280,6 +2280,10 @@ public class ActionResolver {
             return "DamageEqualToExtraCostPower";
         if (FOLLOWUP_DAMAGE_REVEALED_FORWARD_POWER.matcher(followupText).find())
             return "DamageEqualToRevealedForwardPower";
+        // Mirrors the choose chain: read ahead of the plain break, which find()s "break it" inside
+        // this sentence and would report an unconditional one.
+        if (FOLLOWUP_BREAK_IF_POWER_CHANGED.matcher(followupText.trim()).matches())
+            return "BreakIfPowerChanged";
         if (FOLLOWUP_BREAK.matcher(followupText).find())                              return "Break";
         if (FOLLOWUP_LOSE_ABILITIES_AND_POWER_BECOMES.matcher(followupText).find())    return "LoseAllAbilitiesAndPowerBecomes";
         // Mirrors the choose chain: the standing silence is checked ahead of the until-end-of-turn
@@ -2354,6 +2358,9 @@ public class ActionResolver {
             return "CannotAttackOrBlockOrUseActionAbilities";
         if (FOLLOWUP_CANNOT_ATTACK_OR_BLOCK.matcher(followupText).find())             return "CannotAttackOrBlock";
         if (FOLLOWUP_CANNOT_ATTACK_OR_BLOCK_PERSISTENT.matcher(followupText).find())  return "CannotAttackOrBlockPersistent";
+        // Mirrors the choose chain: the board-wide scope is read ahead of the single-target one.
+        if (FOLLOWUP_ALL_FORWARDS_POWER_BECOMES.matcher(followupText.trim()).matches())
+            return "AllForwardsPowerBecomes";
         if (FOLLOWUP_POWER_BECOMES.matcher(followupText).find())                      return "PowerBecomes";
         if (FOLLOWUP_POWER_BOOST.matcher(followupText).find())                        return "PowerBoost";
         if (FOLLOWUP_POWER_BOOST_UNTIL_FOR_EACH.matcher(followupText).find())              return "PowerBoostUntilForEach";
@@ -2780,6 +2787,13 @@ public class ActionResolver {
                     && onlyPaidM.group("name").trim().equalsIgnoreCase(source.name())) {
                 String gatedName = matchedFollowupName(followup.substring(onlyPaidM.end()).trim(), source);
                 return "ChooseCharacter / IfCastPaidOnly" + cap(onlyPaidM.group("element")) + "Cp("
+                        + (gatedName != null ? gatedName : "?") + ")";
+            }
+            // Mirrors the choose chain, where the third gate is read immediately after those two.
+            Matcher castCountM = CAST_COUNT_GATE_CLAUSE.matcher(followup);
+            if (castCountM.lookingAt()) {
+                String gatedName = matchedFollowupName(followup.substring(castCountM.end()).trim(), source);
+                return "ChooseCharacter / IfCastAtLeast(" + castCountM.group("count") + ": "
                         + (gatedName != null ? gatedName : "?") + ")";
             }
             // Mirrors the choose chain, where this is read off the full followup: the ". " split

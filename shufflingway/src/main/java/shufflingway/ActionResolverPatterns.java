@@ -5369,6 +5369,32 @@ final class ActionResolverPatterns {
         "(?<name>[^,]+),\\s+its\\s+power\\s+also\\s+becomes\\s+(?<power>\\d+)\\s+until\\s+" +
         "(?:the\\s+)?end\\s+of\\s+(?:the\\s+)?turn[.!]?$"
     );
+    /**
+     * "If its power has been increased or decreased, break it." — 12-049H Diabolos, the choose
+     * followup that breaks only a Forward whose power is not the one printed on it.
+     *
+     * <p>Anchored end to end, and read ahead of the plain break followup: that one scans with
+     * {@code find()} and matched "break it" inside this sentence, dropping the condition and
+     * breaking whatever was chosen.
+     */
+    static final Pattern FOLLOWUP_BREAK_IF_POWER_CHANGED = Pattern.compile(
+        "(?i)^If\\s+(?:its|their)\\s+power\\s+has\\s+been\\s+(?:increased\\s+or\\s+decreased" +
+        "|decreased\\s+or\\s+increased),\\s+break\\s+(?:it|them)[.!]?$"
+    );
+    /**
+     * The board-wide form of the followup below: "All the Forwards' power become N until the end
+     * of the turn." — 15-053H Diabolos's upgraded branch, and the corpus's only printing of it.
+     *
+     * <p>Must be checked ahead of {@link #FOLLOWUP_POWER_BECOMES}: that one scans with
+     * {@code find()} and its {@code (?:its?|their)} arm matches nothing here, but the two describe
+     * the same act at different scopes and reading them in the wrong order would set one Forward's
+     * power where the card sets every Forward's.
+     * Group: {@code power}.
+     */
+    static final Pattern FOLLOWUP_ALL_FORWARDS_POWER_BECOMES = Pattern.compile(
+        "(?i)^All\\s+(?:the\\s+)?Forwards?'?s?\\s+powers?\\s+becomes?\\s+(?<power>\\d+)\\s+" +
+        "until\\s+(?:the\\s+)?end\\s+of\\s+(?:the\\s+)?turn[.!]?$"
+    );
     static final Pattern FOLLOWUP_POWER_BECOMES = Pattern.compile(
         "(?i)(?:its?|their)\\s+power\\s+becomes?\\s+(\\d+)\\s+until\\s+(?:the\\s+)?end\\s+of\\s+(?:the\\s+)?turn[.!]?"
     );
@@ -7576,6 +7602,21 @@ final class ActionResolverPatterns {
      * the base, or substituted for its last clause when it ends in "instead".
      * Groups: {@code base}, {@code count}, {@code tail}.
      */
+    /**
+     * The cast-count condition as a <em>choose followup</em>: "Choose N X. If you have cast M or
+     * more cards this turn, &lt;followup&gt;." — 12-043C White Mage, 18-113H Cid Haze and 20-052C
+     * Gnash.
+     *
+     * <p>Located rather than matched whole, so it can be recognised at the head of a followup and
+     * stripped off it — the same job {@link #CAST_PAYMENT_ELEMENT_CP_GATE_CLAUSE} does for its own
+     * family, and needed here for the same reason: every followup matcher scans with
+     * {@code find()}, so each of these three found its verb inside the gate clause and ran it on
+     * every cast. Gnash broke a Backup whatever had been played.
+     * Group: {@code count}.
+     */
+    static final Pattern CAST_COUNT_GATE_CLAUSE = Pattern.compile(
+        "(?i)If\\s+you\\s+have\\s+cast\\s+(?<count>\\d+)\\s+or\\s+more\\s+cards?\\s+this\\s+turn,\\s+"
+    );
     static final Pattern CAST_COUNT_GATE = Pattern.compile(
         "(?is)^(?<base>.+?[.!])\\s+If\\s+you\\s+have\\s+cast\\s+(?<count>\\d+)\\s+or\\s+more\\s+" +
         "cards?\\s+this\\s+turn,\\s+(?<tail>.+?)\\s*$"

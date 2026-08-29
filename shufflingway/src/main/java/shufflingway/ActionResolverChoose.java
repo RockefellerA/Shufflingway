@@ -1594,6 +1594,41 @@ final class ActionResolverChoose {
             };
         }
 
+        // --- "Choose … . If you have cast N or more cards this turn, <followup>" ----------------
+        // The third gate settled here, and settled here for the reason the two above are: it sits
+        // between the choose and its followup, and every followup matcher below scans with find(),
+        // so each of 12-043C White Mage, 18-113H Cid Haze and 20-052C Gnash found its own verb
+        // inside the gate clause and ran it unconditionally — Gnash broke a Backup of cost 5 or
+        // more whatever had been cast that turn.
+        //
+        // Stripped and re-parsed from the top like its siblings, so every followup the chain
+        // already reads is gated without being taught the gate. The choose still happens when the
+        // condition fails: being chosen is an event of its own, and only the effect is conditional.
+        //
+        // Not the same shape as CAST_COUNT_GATE, which reads this condition as a trailing sentence
+        // over an effect that has already resolved. That one cannot reach these three, because
+        // here the condition arrives before the followup rather than after a complete effect.
+        Matcher castCountM = CAST_COUNT_GATE_CLAUSE.matcher(followup);
+        if (castCountM.lookingAt()) {
+            final int required = Integer.parseInt(castCountM.group("count"));
+            String ungated = text.substring(0, m.start("followup")) + followup.substring(castCountM.end());
+            Consumer<GameContext> gatedEffect = tryParseChooseCharacterInner(ungated, source, xValue);
+            if (gatedEffect == null) return null;
+            return ctx -> {
+                int cast = ctx.selfCardsCastThisTurn();
+                if (cast >= required) {
+                    gatedEffect.accept(ctx);
+                    return;
+                }
+                ctx.logChooseHeader(choosePrefix + " — only " + cast + " card(s) cast this turn (need "
+                        + required + "); choosing anyway, no effect");
+                selectTargets(ctx, maxCount, upTo,
+                        opponentOnly, selfOnly, condition, element, zone, opponentZone,
+                        costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters, jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, fExcludeElem, withoutMulticard);
+                if (secondary != null) secondary.accept(ctx);
+            };
+        }
+
         // =====================================================================================
         // Quoted grants, optional payments and search payoffs
         // =====================================================================================
@@ -3112,6 +3147,32 @@ final class ActionResolverChoose {
             };
         }
 
+        // --- "If its power has been increased or decreased, break it." (12-049H Diabolos) ---
+        // Must precede the plain break below: that one scans with find() and matched "break it"
+        // inside this sentence, dropping the condition and breaking whatever was chosen.
+        //
+        // The choose happens either way — being chosen is an event of its own, and only the break
+        // is conditional — so a Forward at its printed power is picked and left standing.
+        if (FOLLOWUP_BREAK_IF_POWER_CHANGED.matcher(primaryFollowup.trim()).matches()) {
+            return ctx -> {
+                ctx.logChooseHeader(choosePrefix + " — Break if its power has been changed");
+                List<ForwardTarget> ts = selectTargets(ctx, maxCount, upTo,
+                        opponentOnly, selfOnly, condition, element, zone, opponentZone,
+                        costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters, jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, fExcludeElem, withoutMulticard);
+                // Tested before any of them is broken: breaking one can end a field grant that was
+                // holding another's power away from its printed value, which would answer the
+                // question differently for a target chosen at the same moment.
+                List<ForwardTarget> changed = new ArrayList<>();
+                for (ForwardTarget t : ts) {
+                    if (ctx.targetPowerHasChanged(t)) changed.add(t);
+                    else ctx.logEntry("Effect: its power is unchanged — not broken");
+                }
+                sortedByIdxDesc(changed, true) .forEach(ctx::breakTarget);
+                sortedByIdxDesc(changed, false).forEach(ctx::breakTarget);
+                if (secondary != null) secondary.accept(ctx);
+            };
+        }
+
         // --- Break followup ---
         if (FOLLOWUP_BREAK.matcher(primaryFollowup).find()) {
             return ctx -> {
@@ -4014,6 +4075,24 @@ final class ActionResolverChoose {
         // =====================================================================================
         // Power boosts
         // =====================================================================================
+        // --- Board-wide power-becomes: "All the Forwards' power become N until end of turn" ---
+        // Must precede the single-target branch below, which scans with find(). 15-053H Diabolos
+        // reaches this as the upgraded half of its cast-count gate, where the choose still happens
+        // — the card names a target and then overrides every Forward's power, so the selection is
+        // kept for the "when chosen" triggers that watch it.
+        Matcher allBecomesM = FOLLOWUP_ALL_FORWARDS_POWER_BECOMES.matcher(primaryFollowup.trim());
+        if (allBecomesM.matches()) {
+            int allPower = Integer.parseInt(allBecomesM.group("power"));
+            return ctx -> {
+                ctx.logChooseHeader(choosePrefix + " → all Forwards' base power becomes " + allPower);
+                selectTargets(ctx, maxCount, upTo,
+                        opponentOnly, selfOnly, condition, element, zone, opponentZone,
+                        costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters, jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, fExcludeElem, withoutMulticard);
+                ctx.setAllForwardsBasePower(allPower);
+                if (secondary != null) secondary.accept(ctx);
+            };
+        }
+
         // --- Power-becomes followup: "Its power becomes N until end of turn" ---
         Matcher becomesM = FOLLOWUP_POWER_BECOMES.matcher(primaryFollowup);
         if (becomesM.find()) {

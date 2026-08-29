@@ -37287,4 +37287,257 @@ public class CardBehaviorTest {
 
 	// =========================================================================================
 
+	// =========================================================================================
+	// 15-053H Diabolos: "Choose 1 Forward. Its power becomes 3000 until the end of the turn. If
+	// you have cast 4 or more cards this turn, all the Forwards' power become 3000 until the end
+	// of the turn instead."
+	//
+	// The corpus's only board-wide "power become". Wiring the gate without it left the upgraded
+	// branch selected and then unable to do anything, which was a worse answer at 4+ casts than
+	// the single-target base it replaced.
+	//
+	// The choose still happens on the upgraded branch: the card names a target and then overrides
+	// every Forward, so the selection is kept for the "when chosen" triggers that watch it.
+	// =========================================================================================
+
+	private static final String DIABOLOS_SUMMON =
+			"Choose 1 Forward. Its power becomes 3000 until the end of the turn. If you have cast "
+			+ "4 or more cards this turn, all the Forwards' power become 3000 until the end of the "
+			+ "turn instead.";
+
+	@Test
+	void diabolosSetsOneForwardUnderTheThreshold() {
+		CardData diabolos = makeForward("Diabolos", "Ice", 4, 0);
+		ForwardTarget victim = new ForwardTarget(false, 0, ForwardTarget.CardZone.FORWARD);
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.consumePreloadedTargets()).thenReturn(null);
+		when(ctx.selfCardsCastThisTurn()).thenReturn(3);
+		when(ctx.selectCharacters(anyInt(), anyBoolean(), anyBoolean(), anyBoolean(), any(), any(),
+				anyInt(), any(), anyInt(), any(), anyBoolean(), anyBoolean(), anyBoolean(),
+				any(), any(), any(), any(), anyBoolean(), any(), anyBoolean()))
+				.thenReturn(List.of(victim));
+
+		ActionResolver.parse(DIABOLOS_SUMMON, diabolos).accept(ctx);
+
+		verify(ctx).setTargetBasePower(victim, 3000);
+		verify(ctx, never()).setAllForwardsBasePower(anyInt());
+	}
+
+	@Test
+	void andTheWholeBoardAtIt() {
+		CardData diabolos = makeForward("Diabolos", "Ice", 4, 0);
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.consumePreloadedTargets()).thenReturn(null);
+		when(ctx.selfCardsCastThisTurn()).thenReturn(4);
+		when(ctx.selectCharacters(anyInt(), anyBoolean(), anyBoolean(), anyBoolean(), any(), any(),
+				anyInt(), any(), anyInt(), any(), anyBoolean(), anyBoolean(), anyBoolean(),
+				any(), any(), any(), any(), anyBoolean(), any(), anyBoolean()))
+				.thenReturn(List.of(new ForwardTarget(false, 0, ForwardTarget.CardZone.FORWARD)));
+
+		ActionResolver.parse(DIABOLOS_SUMMON, diabolos).accept(ctx);
+
+		verify(ctx).setAllForwardsBasePower(3000);
+	}
+
+	@Test
+	void theBoardWideSweepReachesBothSides() {
+		MainWindow mw = new MainWindow();
+		CardData mine   = makeForward("Mine", "Ice", 5, 9000);
+		CardData theirs = makeForward("Theirs", "Fire", 5, 9000);
+		placeP1Forward(mw, mine);
+		placeP2Forward(mw, theirs);
+
+		mw.buildGameContext(true).setAllForwardsBasePower(3000);
+
+		assertEquals(3000, mw.effectiveP1ForwardPower(0), "his own side is not spared");
+		assertEquals(3000, mw.effectiveP2ForwardPower(0));
+	}
+
+	// =========================================================================================
+	// The cast-count condition printed as a choose followup — 12-043C White Mage, 18-113H Cid Haze
+	// and 20-052C Gnash.
+	//
+	// The third gate to sit between a choose and its followup, and it sat in the same hole the
+	// other two did: every followup matcher scans with find(), so each of these three found its
+	// own verb inside the gate clause and ran it on every cast. Gnash broke a Backup of cost 5 or
+	// more whatever had been played that turn.
+	//
+	// CAST_COUNT_GATE cannot reach these. That one reads the condition as a trailing sentence over
+	// an effect that has already resolved; here it arrives before the followup instead.
+	// =========================================================================================
+
+	private static final String GNASH_ETF =
+			"choose 1 Backup of cost 5 or more. If you have cast 3 or more cards this turn, break it.";
+
+	/** A choose-gate context: the selection answers with {@code picked}, the count with {@code cast}. */
+	private static GameContext castGateChooseCtx(int cast, ForwardTarget picked) {
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.consumePreloadedTargets()).thenReturn(null);
+		when(ctx.selfCardsCastThisTurn()).thenReturn(cast);
+		when(ctx.selectCharacters(anyInt(), anyBoolean(), anyBoolean(), anyBoolean(), any(), any(),
+				anyInt(), any(), anyInt(), any(), anyBoolean(), anyBoolean(), anyBoolean(),
+				any(), any(), any(), any(), anyBoolean(), any(), anyBoolean()))
+				.thenReturn(List.of(picked));
+		return ctx;
+	}
+
+	@Test
+	void gnashBreaksOnlyOnceTheCountIsMet() {
+		CardData gnash = makeForward("Gnash", "Wind", 2, 0);
+		ForwardTarget victim = new ForwardTarget(false, 0, ForwardTarget.CardZone.BACKUP);
+
+		ActionResolver.parse(GNASH_ETF, gnash).accept(castGateChooseCtx(3, victim));
+		ActionResolver.parse(GNASH_ETF, gnash).accept(castGateChooseCtx(2, victim));
+
+		assertEquals("ChooseCharacter / IfCastAtLeast(3: Break)",
+				ActionResolver.fullDescription(GNASH_ETF, gnash));
+	}
+
+	@Test
+	void andChoosesEvenWhenItIsNot() {
+		// The regression: he broke on every cast. The choose still has to happen — being chosen is
+		// an event other cards watch, and only the break is conditional.
+		CardData gnash = makeForward("Gnash", "Wind", 2, 0);
+		ForwardTarget victim = new ForwardTarget(false, 0, ForwardTarget.CardZone.BACKUP);
+		GameContext ctx = castGateChooseCtx(2, victim);
+
+		ActionResolver.parse(GNASH_ETF, gnash).accept(ctx);
+
+		verify(ctx, never()).breakTarget(any());
+		verify(ctx).selectCharacters(anyInt(), anyBoolean(), anyBoolean(), anyBoolean(), any(), any(),
+				anyInt(), any(), anyInt(), any(), anyBoolean(), anyBoolean(), anyBoolean(),
+				any(), any(), any(), any(), anyBoolean(), any(), anyBoolean());
+	}
+
+	@Test
+	void andBreaksWhenItIs() {
+		CardData gnash = makeForward("Gnash", "Wind", 2, 0);
+		ForwardTarget victim = new ForwardTarget(false, 0, ForwardTarget.CardZone.BACKUP);
+		GameContext ctx = castGateChooseCtx(3, victim);
+
+		ActionResolver.parse(GNASH_ETF, gnash).accept(ctx);
+
+		verify(ctx).breakTarget(victim);
+	}
+
+	@Test
+	void theGatedFollowupIsWhicheverTheCardPrints() {
+		// The gate is stripped and the rest re-parsed from the top, so every followup the chain
+		// already reads is gated without being taught the gate: White Mage activates, Cid Haze
+		// dulls and Freezes.
+		CardData whiteMage = makeForward("White Mage", "Water", 2, 0);
+		assertEquals("ChooseCharacter / IfCastAtLeast(3: Activate)",
+				ActionResolver.fullDescription(
+						"choose up to 3 Backups you control. If you have cast 3 or more cards this "
+						+ "turn, activate them.", whiteMage));
+
+		CardData cidHaze = makeForward("Cid Haze", "Wind", 4, 8000);
+		assertEquals("ChooseCharacter / IfCastAtLeast(3: DullAndFreeze)",
+				ActionResolver.fullDescription(
+						"choose 2 Characters opponent controls. If you have cast 3 or more cards "
+						+ "this turn, dull them and Freeze them.", cidHaze));
+	}
+
+	@Test
+	void aTrailingConditionIsStillTheOtherGate() {
+		// The two shapes are told apart by where the condition sits: before the followup it is this
+		// gate, after a complete effect it is CAST_COUNT_GATE. 12-039C Alexander is the latter.
+		CardData alexander = makeForward("Alexander", "Earth", 2, 0);
+		assertEquals("CastCountGate", ActionResolver.matchedPatternName(
+				"Draw 1 card. If you have cast 4 or more cards this turn, draw 2 cards instead.",
+				alexander));
+	}
+
+	// =========================================================================================
+
+	// =========================================================================================
+	// 12-049H Diabolos: "Choose 1 Forward. If its power has been increased or decreased, break it."
+	//
+	// The plain break followup scans with find() and matched "break it" inside the condition, so
+	// the summon broke whatever was chosen — the question it is entirely about was never asked.
+	//
+	// The question is asked as a comparison rather than as a log of what happened: an
+	// until-end-of-turn boost, a reduction, a permanent boost, a one-shot "its power becomes N"
+	// and a continuous field grant all land in the same place, and the card does not distinguish
+	// them.
+	// =========================================================================================
+
+	private static final String DIABOLOS_BREAK_SUMMON =
+			"Choose 1 Forward. If its power has been increased or decreased, break it.";
+
+	/** Two P2 Forwards at printed power, for the power-change tests to move one of. */
+	private static MainWindow twoPlainForwards(MainWindow mw) {
+		placeP2Forward(mw, makeForward("Untouched", "Fire", 3, 7000));
+		placeP2Forward(mw, makeForward("Moved", "Fire", 3, 7000));
+		return mw;
+	}
+
+	@Test
+	void aForwardAtItsPrintedPowerIsChosenAndLeftStanding() {
+		// The choose still happens — being chosen is an event other cards watch, and only the
+		// break is conditional.
+		MainWindow mw = twoPlainForwards(new MainWindow());
+		GameContext ctx = mw.buildGameContext(true);
+		ctx.preloadTargets(List.of(fwd(false, 0)));
+
+		Consumer<GameContext> effect = ActionResolver.parse(DIABOLOS_BREAK_SUMMON, null);
+		assertNotNull(effect, "the printed wording has to parse for the rest of this to mean anything");
+		effect.accept(ctx);
+
+		assertEquals(2, mw.p2ForwardCards.size(), "nothing had moved, so nothing breaks");
+	}
+
+	@Test
+	void andABoostedOneIsBroken() {
+		MainWindow mw = twoPlainForwards(new MainWindow());
+		GameContext ctx = mw.buildGameContext(true);
+		ctx.boostTarget(fwd(false, 1), 2000, EnumSet.noneOf(CardData.Trait.class));
+		ctx.preloadTargets(List.of(fwd(false, 1)));
+
+		ActionResolver.parse(DIABOLOS_BREAK_SUMMON, null).accept(ctx);
+
+		assertEquals(List.of("Untouched"), mw.p2ForwardCards.stream().map(CardData::name).toList());
+	}
+
+	@Test
+	void andSoIsAWeakenedOne() {
+		// "Increased or decreased" — the card asks whether the power moved, not which way.
+		MainWindow mw = twoPlainForwards(new MainWindow());
+		GameContext ctx = mw.buildGameContext(true);
+		ctx.reduceTarget(fwd(false, 1), 1000, EnumSet.noneOf(CardData.Trait.class));
+		ctx.preloadTargets(List.of(fwd(false, 1)));
+
+		ActionResolver.parse(DIABOLOS_BREAK_SUMMON, null).accept(ctx);
+
+		assertEquals(List.of("Untouched"), mw.p2ForwardCards.stream().map(CardData::name).toList());
+	}
+
+	@Test
+	void aOneShotPowerOverrideCountsAsMovedToo() {
+		// "Its power becomes N" replaces the printed value rather than adding to it, and the
+		// comparison catches it for the same reason it catches the others.
+		MainWindow mw = twoPlainForwards(new MainWindow());
+		GameContext ctx = mw.buildGameContext(true);
+		ctx.setTargetBasePower(fwd(false, 1), 3000);
+
+		assertTrue(ctx.targetPowerHasChanged(fwd(false, 1)));
+		assertFalse(ctx.targetPowerHasChanged(fwd(false, 0)));
+	}
+
+	@Test
+	void theConditionIsNamedRatherThanDroppedFromTheReport() {
+		assertEquals("ChooseCharacter / BreakIfPowerChanged",
+				ActionResolver.fullDescription(DIABOLOS_BREAK_SUMMON, null));
+	}
+
+	@Test
+	void aPlainBreakFollowupIsStillUnconditional() {
+		// The guard that makes the ordering above safe rather than lucky: the plain break has to
+		// keep claiming its own text, and only its own.
+		assertEquals("ChooseCharacter / Break",
+				ActionResolver.fullDescription("Choose 1 Forward. Break it.", null));
+	}
+
+	// =========================================================================================
+
 }

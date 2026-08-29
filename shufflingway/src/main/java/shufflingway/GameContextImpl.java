@@ -6140,6 +6140,22 @@ final class GameContextImpl implements GameContext {
 						: (t.idx() < mw.p2MonsterCards.size() ? mw.effectiveP2MonsterPower(t.idx()) : 0);
 			}
 
+			@Override public boolean targetPowerHasChanged(ForwardTarget t) {
+				CardData card = cardAtTarget(t);
+				if (card == null) return false;
+				// The same baseline effectiveP1ForwardPower starts from: the card on top of a
+				// primed Forward is the one whose power the stack shows, so it is that card's
+				// printed value the difference is measured against.
+				int printed = card.power();
+				if (t.zone() == ForwardTarget.CardZone.FORWARD) {
+					CardData top = t.isP1() ? mw.p1ForwardPrimedTop.get(t.idx())
+							: mw.p2ForwardPrimedTop.get(t.idx());
+					if (top != null) printed = top.power();
+				}
+				if (printed <= 0) return false;
+				return effectiveTargetPower(t) != printed;
+			}
+
 
 	// =========================================================================================
 	// Opponent hand disruption
