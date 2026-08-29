@@ -616,6 +616,18 @@ public class MainWindow {
 	final Set<CardData>          nullifyAbilityDmgSet     = new HashSet<>();
 	final Set<CardData>          nullifyAbilityOnlyDmgSet = new HashSet<>();
 	final Set<CardData>          nextOutgoingDmgZeroSet      = new HashSet<>();
+	/**
+	 * The unspent twin of {@link #nextOutgoingDmgZeroSet}, and the outgoing mirror of
+	 * {@link #allIncomingDmgZeroThisTurnSet}: 23-024R Shiva zeroes <em>every</em> damage the
+	 * chosen Forward deals for the rest of the turn — "to a Forward or a player", so combat and
+	 * its own abilities alike — rather than the next one only. Read without being removed from.
+	 *
+	 * <p>Identity-keyed, for the reason {@link #damageZeroedSourcesThisTurn} gives: {@code CardData}
+	 * is a record, so a second printing of the same card is {@code equals} to the one that was
+	 * chosen and a value-keyed set would shield it too.
+	 */
+	final Set<CardData>          allOutgoingDmgZeroThisTurnSet =
+			Collections.newSetFromMap(new IdentityHashMap<>());
 	final Map<CardData, Integer> outgoingDmgMultiplierMap    = new IdentityHashMap<>();
 	final Map<CardData, Integer> outgoingDmgFlatBoostMap     = new IdentityHashMap<>();
 	final Set<CardData>          nextOutgoingDmgDoublerSet   = new HashSet<>();
@@ -968,6 +980,21 @@ public class MainWindow {
 	 */
 	final Set<CardData> damageZeroedSourcesThisTurn =
 			Collections.newSetFromMap(new IdentityHashMap<>());
+
+	/**
+	 * True when {@code source}'s <em>ability</em> damage becomes 0 for the rest of this turn, from
+	 * either of the two marks that say so: 29-012H Neon's Runic blanks the one Stack entry it
+	 * chose, and 23-024R Shiva blanks everything the Forward it chose deals. Both are replacements
+	 * rather than reductions, so every ability-damage path asks this before scaling anything.
+	 *
+	 * <p>Only the Shiva mark reaches combat, which has no ability source to ask about — those
+	 * paths read {@link #allOutgoingDmgZeroThisTurnSet} directly.
+	 */
+	boolean sourceDamageIsZeroedThisTurn(CardData source) {
+		return source != null
+				&& (damageZeroedSourcesThisTurn.contains(source)
+				 || allOutgoingDmgZeroThisTurnSet.contains(source));
+	}
 	/** Maps a card to a permanent element override (Kam'lanaut ability); persists across turns. */
 	final Map<CardData, String> elementOverrideMap      = new HashMap<>();
 	/** Maps a card to a permanently-granted extra job (e.g. Bartz ability); persists across turns. */
@@ -3147,7 +3174,7 @@ public class MainWindow {
                                 allForwardsCannotBeBlockedByHigherCostThisTurn = false;
                                 p1Turn.fwdBoostSuppressedThisTurn = false; p2Turn.fwdBoostSuppressedThisTurn = false;
                                 nullifyAbilityOnlyDmgSet.clear(); perCardNonLethalDmgSet.clear();
-                                nextOutgoingDmgZeroSet.clear();    outgoingDmgMultiplierMap.clear();
+                                nextOutgoingDmgZeroSet.clear();    allOutgoingDmgZeroThisTurnSet.clear();    outgoingDmgMultiplierMap.clear();
                                 nextOutgoingDmgDoublerSet.clear(); outgoingDmgFlatBoostMap.clear();
                                 perCardIncomingDmgMultiplierMap.clear();
                                 p1Turn.forwardIncomingDmgMult = 1;      p2Turn.forwardIncomingDmgMult = 1;

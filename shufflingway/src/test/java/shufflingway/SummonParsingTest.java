@@ -88,9 +88,22 @@ public class SummonParsingTest {
                     continue;
                 }
 
-                boolean parsed = ActionResolver.parse(effectText, source) != null;
-                String  desc   = ActionResolver.fullDescription(effectText, source);
-                boolean partial = desc != null && desc.contains("?");
+                List<String> branches = resolvedBranches(effectText);
+                boolean parsed  = true;
+                boolean partial = false;
+                StringBuilder descOut = new StringBuilder();
+                for (int i = 0; i < branches.size(); i++) {
+                    String branch = branches.get(i);
+                    String d      = ActionResolver.fullDescription(branch, source);
+                    parsed  &= ActionResolver.parse(branch, source) != null;
+                    partial |= d != null && d.contains("?");
+                    if (branches.size() > 1) {
+                        if (i > 0) descOut.append("\n          ");
+                        descOut.append(i == 0 ? "[paid]   " : "[unpaid] ");
+                    }
+                    descOut.append(d != null ? d : "(none)");
+                }
+                String desc = descOut.toString();
 
                 if (parsed && !partial) {
                     fullyParsed++;
@@ -132,7 +145,26 @@ public class SummonParsingTest {
         return "  Card: " + source.name() + "\n" +
                (ec != null ? "  Extra cost: " + ec.description() + "\n" : "") +
                "  Effect: " + effectText + "\n" +
-               "  Desc:   " + (desc != null ? desc : "(none)") + "\n";
+               "  Desc:   " + desc + "\n";
+    }
+
+    /**
+     * The texts resolution actually hands the resolver. A card carrying an "If you paid the extra
+     * cost" clause is never parsed as printed: the Stack entry records whether the cost was paid,
+     * and {@code MainWindow} rewrites the text into the paid or the unpaid branch before parsing.
+     * The printed wording deliberately leaves the clause unread — a {@code find()} matcher would
+     * otherwise claim it and fire on every cast — so scoring the printed text marked fully wired
+     * cards partial. 18-045C Dryad read "ChooseCharacter / DamageForEach + ?" for exactly that
+     * reason.
+     *
+     * <p>When stripping the clause leaves nothing (Summoner-style, where the condition is the whole
+     * ability) the unpaid branch has no effect to parse, so only the paid branch is scored.
+     */
+    private static List<String> resolvedBranches(String effectText) {
+        String unpaid = ActionResolver.stripExtraCostClause(effectText);
+        if (unpaid.equals(effectText.trim())) return List.of(effectText);
+        String paid = ActionResolver.applyExtraCostPaid(effectText);
+        return unpaid.isBlank() ? List.of(paid) : List.of(paid, unpaid);
     }
 
     private static void reservoirAdd(List<String> reservoir, String item, int seen, java.util.Random rng) {

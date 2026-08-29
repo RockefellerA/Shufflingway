@@ -644,8 +644,11 @@ final class ActionResolverSearch {
         };
         String tail = text.substring(m.end()).trim();
         if (tail.isEmpty()) return look;
-        // Golem 23-064R also continues past this clause, with a rider that is not understood yet;
-        // reporting the whole ability as unparsed beats running half of it.
+        // Any other rider on this clause is declined rather than dropped: reporting the whole
+        // ability as unparsed beats running half of it. 23-064R Golem's rider — "If you added a
+        // Forward to your hand, deal the chosen Forward damage equal to the power of the added
+        // Forward" — is read by the Choose chain instead, which claims the card ahead of here
+        // because its text opens with the choose.
         if (!ADDED_CARD_EX_BURST_RIDER.matcher(tail).matches()) return null;
         return look.andThen(ctx -> {
             ctx.logEntry("Effect: added card's EX Burst may be put on the stack");

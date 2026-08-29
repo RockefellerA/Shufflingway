@@ -764,6 +764,13 @@ public class ActionResolver {
         result = tryParseAllFieldKeywordGrant(effectText);
         if (result != null) return result;
 
+        // The quoted-protection twin of the grant above. Ordered after it and not before: the
+        // two share their whole opening and differ only in what follows "gain", so whichever
+        // runs first has to be the one that cannot claim the other's text — this one is anchored
+        // whole and requires a quote, the keyword one scans with find().
+        result = tryParseAllFieldQuotedProtectionGrant(effectText);
+        if (result != null) return result;
+
         result = tryParseUntilEotDualPowerShift(effectText);
         if (result != null) return result;
 
@@ -1866,6 +1873,7 @@ public class ActionResolver {
         if (tryParseAllFieldJobPowerBoost(effectText) != null) return "AllFieldJobPowerBoost";
         if (tryParseAllFieldJobKeywordGrant(effectText) != null) return "AllFieldJobKeywordGrant";
         if (tryParseAllFieldKeywordGrant(effectText) != null) return "AllFieldKeywordGrant";
+        if (tryParseAllFieldQuotedProtectionGrant(effectText) != null) return "AllFieldQuotedProtectionGrant";
         if (tryParseUntilEotDualPowerShift(effectText) != null) return "UntilEotDualPowerShift";
         if (tryParseUntilEotAllFieldPowerBoost(effectText) != null) return "UntilEotAllFieldPowerBoost";
         if (tryParseStandalonePowerBoostAndAttackTrigger(effectText, source) != null) return "StandalonePowerBoostAndAttackTrigger";
@@ -2375,6 +2383,7 @@ public class ActionResolver {
         if (FOLLOWUP_KEYWORD_GRANT_CHOICE.matcher(followupText).find())               return "KeywordGrantChoice";
         if (FOLLOWUP_KEYWORD_GRANT.matcher(followupText).find())                      return "KeywordGrant";
         if (FOLLOWUP_KEYWORD_GRANT_UNTIL.matcher(followupText).find())               return "KeywordGrant";
+        if (FOLLOWUP_HALVE_POWER.matcher(followupText.trim()).matches())              return "HalvePower";
         if (FOLLOWUP_POWER_REDUCE.matcher(followupText).find())                       return "PowerReduce";
         if (FOLLOWUP_POWER_REDUCE_UNTIL_FOR_EACH_HAND.matcher(followupText).find())  return "PowerReduceUntilForEachHand";
         // The payoff half of the clause above, which the ". " split reports separately even though
@@ -2818,6 +2827,28 @@ public class ActionResolver {
             Matcher insteadM = FOLLOWUP_DAMAGE_INSTEAD.matcher(followup);
             if (insteadM.find() && parseDamageInsteadCondition(insteadM.group("cond").trim()) != null)
                 return "ChooseCharacter / DamageInstead";
+            // The divide-damage sibling of the check above, read off the whole followup for the
+            // same reason: the ". " split puts the alternate amount in the secondary, which
+            // described 17-014R Bahamut's larger divide as an unread tail over a card whose
+            // parser had been reading it all along.
+            if (isDivideDamageInstead(followup))
+                return "ChooseCharacter / DivideDamageInstead";
+            // Read off the whole followup, mirroring the Choose chain: the amount is the power of
+            // the card the reveal put into hand, so the reveal and the burn are one clause.
+            if (FOLLOWUP_REVEAL_ADD_TO_HAND_IF_FORWARD_DAMAGE_ADDED_POWER.matcher(followup).matches())
+                return "ChooseCharacter / RevealAddToHandIfForwardDamageAddedPower";
+            // Also read off the whole followup, mirroring the Choose chain, and named by which way
+            // the shield points: 9-068H Mist Dragon protects what it dulls, 23-024R Shiva disarms
+            // what it freezes. Split, the shield sentence lands in the secondary and is reported
+            // unread over a card that has both halves wired.
+            {
+                Matcher dullShieldM = FOLLOWUP_DULL_THEN_DAMAGE_SHIELD.matcher(followup.trim());
+                if (dullShieldM.matches())
+                    return "ChooseCharacter / " + (FOLLOWUP_FREEZE.matcher(dullShieldM.group()).find()
+                                    ? "DullAndFreeze" : "Dull")
+                            + (dullShieldM.group("incoming") != null
+                                    ? "AndShieldAllIncoming" : "AndZeroAllOutgoing");
+            }
             if (FOLLOWUP_SELECT_JOB_GRANT.matcher(followup).find())
                 return "ChooseCharacter / SelectJobGrant";
             // Both read off the whole followup, mirroring the Choose chain: the ". " split turns
@@ -3028,6 +3059,7 @@ public class ActionResolver {
         if (tryParseAllFieldJobPowerBoost(effectText) != null)              return "AllFieldJobPowerBoost";
         if (tryParseAllFieldJobKeywordGrant(effectText) != null)            return "AllFieldJobKeywordGrant";
         if (tryParseAllFieldKeywordGrant(effectText) != null)               return "AllFieldKeywordGrant";
+        if (tryParseAllFieldQuotedProtectionGrant(effectText) != null)      return "AllFieldQuotedProtectionGrant";
         if (tryParseUntilEotDualPowerShift(effectText) != null)            return "UntilEotDualPowerShift";
         if (tryParseUntilEotAllFieldPowerBoost(effectText) != null)        return "UntilEotAllFieldPowerBoost";
         if (tryParseStandalonePowerBoostAndAttackTrigger(effectText, source) != null) return "StandalonePowerBoostAndAttackTrigger";
@@ -3481,6 +3513,15 @@ public class ActionResolver {
         return (int)(Math.ceil(power / 2.0 / 1000) * 1000);
     }
 
+    /**
+     * Half of {@code power}, rounded <em>down</em> to the nearest 1000 — the other way the corpus
+     * halves, spelled out by 5-133H Bismarck's "(round down to the nearest 1000)" and by the
+     * damage printings that say the same.
+     */
+    static int halfPowerRoundedDown(int power) {
+        return power / 2 / 1000 * 1000;
+    }
+
     // -------------------------------------------------------------------------
     // Helpers
     // -------------------------------------------------------------------------
@@ -3511,9 +3552,33 @@ public class ActionResolver {
         };
     }
 
+    /**
+     * The power named by a {@link ActionResolverPatterns#FOLLOWUP_POWER_BECOMES} match, whichever
+     * of its two word orders matched.
+     */
+    static int powerBecomesAmount(Matcher m) {
+        String trailing = m.group("power");
+        return Integer.parseInt(trailing != null ? trailing : m.group("powerFront"));
+    }
+
     // -------------------------------------------------------------------------
     // Damage-instead condition helpers
     // -------------------------------------------------------------------------
+
+    /**
+     * True when {@code followup} is the "Divide N damage among them … . If &lt;cond&gt;, divide M
+     * damage among those instead." pair that the Choose parser's divide block reads as one unit
+     * (17-014R Bahamut). Mirrors that block exactly — the same ". " split, the same requirement
+     * that the condition itself be understood — so the description cannot disagree with the effect
+     * about whether the alternate amount was read.
+     */
+    static boolean isDivideDamageInstead(String followup) {
+        if (!DIVIDE_DAMAGE_PATTERN.matcher(followup).find()) return false;
+        int dotSpaceIdx = followup.indexOf(". ");
+        if (dotSpaceIdx < 0) return false;
+        Matcher condM = DIVIDE_DAMAGE_INSTEAD_COND.matcher(followup.substring(dotSpaceIdx + 2));
+        return condM.find() && parseDamageInsteadCondition(condM.group("cond").trim()) != null;
+    }
 
     static DamageInsteadCondition parseDamageInsteadCondition(String cond) {
         String s = cond.trim();
@@ -5345,6 +5410,34 @@ public class ActionResolver {
      * {@code traits}. Returns {@code false} (leaving the text unparsed) when any quote
      * is not a recognized protection grant.
      */
+    /**
+     * The traits enforcing every granted ability in {@code grants} — the quoted blob of an
+     * "… gain &lt;grants&gt; until the end of the turn" clause, delimiters included — or
+     * {@code null} when any of them is not a recognized protection.
+     *
+     * <p>Two quoting styles are in the corpus and they cannot be read the same way. Double quotes
+     * delimit reliably, so a blob containing one is split with {@link ActionResolverPatterns#QUOTED_GRANT}
+     * (23-039R Asura grants two that way). 10-076H Titan quotes with {@code '}, which is also the
+     * apostrophe in "your opponent's" — there is no delimiter to split on, so that blob is taken
+     * whole with its outer quotes trimmed. No printing mixes the two.
+     *
+     * <p>Declining beats granting part of the clause: "cannot be broken" and "cannot be chosen"
+     * are printed in the same shape and have no trait here, and a card that silently granted
+     * nothing would look like it had resolved.
+     */
+    static EnumSet<CardData.Trait> grantedProtectionTraits(String grants) {
+        String blob = grants.trim();
+        EnumSet<CardData.Trait> traits = EnumSet.noneOf(CardData.Trait.class);
+        if (blob.indexOf('"') >= 0) {
+            if (!addQuotedProtectionTraits(blob, traits)) return null;
+        } else {
+            CardData.Trait tr = quotedProtectionTrait(blob.replaceAll("^'|'$", "").trim());
+            if (tr == null) return null;
+            traits.add(tr);
+        }
+        return traits.isEmpty() ? null : traits;
+    }
+
     static boolean addQuotedProtectionTraits(String quotesRaw, EnumSet<CardData.Trait> traits) {
         Matcher qm = QUOTED_GRANT.matcher(quotesRaw);
         while (qm.find()) {

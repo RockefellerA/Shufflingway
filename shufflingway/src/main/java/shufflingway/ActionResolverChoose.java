@@ -2306,6 +2306,41 @@ final class ActionResolverChoose {
             };
         }
 
+        // --- "Reveal the top N cards of your deck. Add 1 card among them to your hand and return the other cards to the bottom of your deck in any order. If you added a Forward to your hand, deal the chosen Forward damage equal to the power of the added Forward." ---
+        // Read off the whole followup: the amount is the added card's power, so the reveal and the
+        // burn are one clause and the ". " split would leave the burn pointing at nothing. This is
+        // the only parser that reads it — LOOK_TOP_DECK_ADD_TO_HAND_REST_BOTTOM claims the middle
+        // sentence over in parse()'s own chain, but it declines any rider it does not recognise
+        // rather than reveal and drop the burn, and 23-064R Golem reaches here first anyway
+        // because its text opens with the choose.
+        Matcher revealAddBurnM = FOLLOWUP_REVEAL_ADD_TO_HAND_IF_FORWARD_DAMAGE_ADDED_POWER.matcher(followup);
+        if (revealAddBurnM.matches()) {
+            int     revealCount = Integer.parseInt(revealAddBurnM.group("n"));
+            boolean reveal      = isRevealWording(revealAddBurnM.group("verb"));
+            return ctx -> {
+                // Chosen first, as the text reads: the Forward is picked before anything is
+                // revealed, so a card that leaves the field in between is still the one burnt.
+                List<ForwardTarget> ts = selectTargets(ctx, maxCount, upTo,
+                        opponentOnly, selfOnly, condition, element, zone, opponentZone,
+                        costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters,
+                        jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, fExcludeElem, withoutMulticard);
+                ctx.lookAtTopDeck(new LookConfig(revealCount,
+                        LookConfig.LookAction.ADD_TO_HAND_REST_BOTTOM, null, null, reveal));
+                CardData added = ctx.cardAddedToHandByLook();
+                if (added == null || !added.isForward()) {
+                    ctx.logChooseHeader(choosePrefix + " — no Forward added to hand, no damage");
+                    return;
+                }
+                // The printed power of the card in hand. It is not on the field, so there is no
+                // board state to read it from and nothing can be buffing it.
+                int dmg = added.power();
+                ctx.logChooseHeader(choosePrefix + " — Deal " + dmg + " damage (power of the added "
+                        + added.name() + ")");
+                sortedByIdxDesc(ts, true) .forEach(t -> ctx.damageTarget(t, dmg));
+                sortedByIdxDesc(ts, false).forEach(t -> ctx.damageTarget(t, dmg));
+            };
+        }
+
         // --- "Deal it N damage for each [Name] Counter placed on [card]." (counter-scaled xValue) ---
         // Must be checked before FOLLOWUP_DAMAGE_FOR_EACH, which would match on the flat N and drop the for-each.
         Matcher dmgForEachCounterM = FOLLOWUP_DAMAGE_FOR_EACH_COUNTER.matcher(primaryFollowup);
@@ -3035,6 +3070,32 @@ final class ActionResolverChoose {
                         costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters, jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, fExcludeElem, withoutMulticard);
                 ts.forEach(t -> ctx.setTargetElement(t, newElement));
                 if (secondary != null) secondary.accept(ctx);
+            };
+        }
+
+        // --- Dull [and Freeze], then a turn-long damage shield (9-068H Mist Dragon, 23-024R Shiva) ---
+        // Read off the whole followup and ahead of every dull branch below, for the reason the
+        // Cockatrice branch gives: those scan primaryFollowup with find(), so each would claim the
+        // dull and leave the shield to the secondary parser, where "it" names nothing.
+        Matcher dullShieldM = FOLLOWUP_DULL_THEN_DAMAGE_SHIELD.matcher(followup.trim());
+        if (dullShieldM.matches()) {
+            final boolean freeze   = FOLLOWUP_FREEZE.matcher(dullShieldM.group()).find();
+            final boolean incoming = dullShieldM.group("incoming") != null;
+            return ctx -> {
+                ctx.logChooseHeader(choosePrefix + " — Dull" + (freeze ? " & Freeze" : "")
+                        + ", and " + (incoming ? "damage dealt to it" : "damage it deals")
+                        + " becomes 0 for the rest of the turn");
+                List<ForwardTarget> ts = selectTargets(ctx, maxCount, upTo,
+                        opponentOnly, selfOnly, condition, element, zone, opponentZone,
+                        costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters,
+                        jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, fExcludeElem, withoutMulticard);
+                for (ForwardTarget t : ts) {
+                    if (freeze) ctx.dullAndFreezeTarget(t); else ctx.dullTarget(t);
+                    // Both shields are keyed by card, so they hold wherever the chosen Character
+                    // sits — the same route the Cockatrice branch takes for the same reason.
+                    if (incoming) ctx.shieldAllIncomingDamageThisTurn(t);
+                    else          ctx.zeroAllOutgoingDamageThisTurn(t);
+                }
             };
         }
 
@@ -4113,10 +4174,10 @@ final class ActionResolverChoose {
             };
         }
 
-        // --- Power-becomes followup: "Its power becomes N until end of turn" ---
+        // --- Power-becomes followup: "Its power becomes N until end of turn", either word order ---
         Matcher becomesM = FOLLOWUP_POWER_BECOMES.matcher(primaryFollowup);
         if (becomesM.find()) {
-            int targetPower = Integer.parseInt(becomesM.group(1));
+            int targetPower = powerBecomesAmount(becomesM);
             return ctx -> {
                 ctx.logChooseHeader(choosePrefix + " → base power becomes " + targetPower);
                 List<ForwardTarget> ts = selectTargets(ctx, maxCount, upTo,
@@ -4358,6 +4419,30 @@ final class ActionResolverChoose {
         // =====================================================================================
         // Power reduction
         // =====================================================================================
+        // --- Halve power followup ("Halve its power until EOT (round down to the nearest 1000)") ---
+        // Expressed as a reduction rather than a new base power, because that is what it is: a
+        // Forward halved while carrying a +3000 lend keeps the lend, and the lend is part of what
+        // gets halved. So the amount is read per target, off the power it has when this resolves.
+        if (FOLLOWUP_HALVE_POWER.matcher(primaryFollowup.trim()).matches()) {
+            return ctx -> {
+                ctx.logChooseHeader(choosePrefix + " — Halve power until EOT (round down to nearest 1000)");
+                List<ForwardTarget> ts = selectTargets(ctx, maxCount, upTo,
+                        opponentOnly, selfOnly, condition, element, zone, opponentZone,
+                        costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters,
+                        jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, fExcludeElem, withoutMulticard);
+                // Descending order, as the plain reduce branch below does: losing power can break
+                // a Forward, which shifts the indices of every target above it in the same zone.
+                EnumSet<CardData.Trait> none = EnumSet.noneOf(CardData.Trait.class);
+                Consumer<ForwardTarget> halve = t -> {
+                    int power = ctx.effectiveTargetPower(t);
+                    if (power > 0) ctx.reduceTarget(t, power - halfPowerRoundedDown(power), none);
+                };
+                sortedByIdxDesc(ts, true) .forEach(halve);
+                sortedByIdxDesc(ts, false).forEach(halve);
+                if (secondary != null) secondary.accept(ctx);
+            };
+        }
+
         // --- Power / trait reduce followup (standard order: "it/they loses N power [, traits] until…") ---
         Matcher reduceM = FOLLOWUP_POWER_REDUCE.matcher(primaryFollowup);
         if (reduceM.find()) {

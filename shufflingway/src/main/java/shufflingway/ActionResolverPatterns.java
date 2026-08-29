@@ -1657,6 +1657,26 @@ final class ActionResolverPatterns {
         "(?:Then,?\\s+)?[Pp]lace\\s+the\\s+revealed\\s+cards?\\s+at\\s+the\\s+bottom\\s+of\\s+(?:your|the)\\s+deck" +
         "(?:\\s+in\\s+any\\s+order)?[.!]?"
     );
+    /**
+     * Matches the compound followup "Reveal the top N cards of your deck. Add 1 card among them
+     * to your hand and return the other cards to the bottom of your deck in any order. If you
+     * added a Forward to your hand, deal the chosen Forward damage equal to the power of the
+     * added Forward." — 23-064R Golem.
+     *
+     * <p>Read whole rather than left to the followup's ". " split: the amount is a property of
+     * the card the first two sentences put into hand, so neither half means anything alone. The
+     * unqualified reveal in the middle is also exactly the wording
+     * {@link #LOOK_TOP_DECK_ADD_TO_HAND_REST_BOTTOM} claims, which would run the reveal and drop
+     * the burn.
+     * Groups: {@code verb} — "Reveal" or "Look at"; {@code n} — how many cards.
+     */
+    static final Pattern FOLLOWUP_REVEAL_ADD_TO_HAND_IF_FORWARD_DAMAGE_ADDED_POWER = Pattern.compile(
+        "(?i)^\\s*(?<verb>Look\\s+at|Reveal)\\s+the\\s+top\\s+(?<n>\\d+)\\s+cards?\\s+of\\s+your\\s+deck[.!]?\\s+" +
+        "Add\\s+1\\s+card\\s+among\\s+them\\s+to\\s+your\\s+hand\\s+and\\s+" +
+        "return\\s+the\\s+other\\s+cards?\\s+to\\s+the\\s+bottom\\s+of\\s+your\\s+deck\\s+in\\s+any\\s+order[.!]?\\s+" +
+        "If\\s+you\\s+added\\s+a\\s+Forward\\s+to\\s+your\\s+hand,\\s+" +
+        "deal\\s+the\\s+chosen\\s+Forward\\s+damage\\s+equal\\s+to\\s+the\\s+power\\s+of\\s+the\\s+added\\s+Forward[.!]?\\s*$"
+    );
     /** Matches "Shuffle your deck." */
     static final Pattern SHUFFLE_DECK = Pattern.compile(
         "(?i)Shuffle\\s+your\\s+deck\\.?"
@@ -2379,6 +2399,37 @@ final class ActionResolverPatterns {
     static final Pattern FOLLOWUP_CANNOT_ATTACK_OR_BLOCK_AND_NEGATE_DAMAGE = Pattern.compile(
         "(?i)^(?:During\\s+this\\s+turn[,.]?\\s+)?(?:it|they)\\s+cannot\\s+attack\\s+or\\s+block[,.]?\\s+" +
         "and\\s+if\\s+(?:it|they)\\s+(?:is|are)\\s+dealt\\s+damage,\\s+the\\s+damage\\s+becomes\\s+0\\s+instead[.!]?$"
+    );
+    /**
+     * Matches "Dull it[ and Freeze it]. During this turn, if it &lt;is dealt damage | deals damage
+     * to a Forward or a player&gt;, the damage becomes 0 instead." — 9-068H Mist Dragon's second
+     * option, which shields what it dulls, and 23-024R Shiva, which blanks what it freezes.
+     *
+     * <p>Two sentences read as one, for the reason the Cockatrice pattern above gives: the dull
+     * branches scan {@code primaryFollowup} with {@code find()} and would claim the first sentence
+     * while the second fell to the secondary parser, where "it" names nothing.
+     *
+     * <p>Exactly one of {@code incoming} and {@code outgoing} is set, and they are opposite
+     * directions of the same replacement — one shields the chosen card, the other disarms it.
+     */
+    static final Pattern FOLLOWUP_DULL_THEN_DAMAGE_SHIELD = Pattern.compile(
+        "(?i)^Dulls?\\s+(?:it|them)(?:\\s+and\\s+Freeze\\s+(?:it|them))?[.!]\\s+" +
+        "During\\s+this\\s+turn,\\s+if\\s+(?:it|they)\\s+" +
+        "(?:(?<incoming>(?:is|are)\\s+dealt\\s+damage)" +
+        "|(?<outgoing>deals?\\s+damage\\s+to\\s+a\\s+Forward\\s+or\\s+a\\s+player))," +
+        "\\s+the\\s+damage\\s+becomes\\s+0\\s+instead[.!]?\\s*$"
+    );
+    /**
+     * Matches "Halve its power until the end of the turn (round down to the nearest 1000)." —
+     * 5-133H Bismarck's third option, and the corpus's only printing of "halve".
+     *
+     * <p>The rounding note is part of the arithmetic, not a reminder, so it is required rather
+     * than optional: a printing that halved without saying which way to round would be a
+     * different effect and should not quietly borrow this one's answer.
+     */
+    static final Pattern FOLLOWUP_HALVE_POWER = Pattern.compile(
+        "(?i)^Halve\\s+(?:its|their)\\s+power\\s+until\\s+(?:the\\s+)?end\\s+of\\s+(?:the\\s+)?turn\\s+" +
+        "\\(\\s*round\\s+down\\s+to\\s+the\\s+nearest\\s+1000\\s*\\)[.!]?\\s*$"
     );
     /**
      * Matches "During this turn, it cannot attack or block, and it cannot use action abilities."
@@ -5399,17 +5450,31 @@ final class ActionResolverPatterns {
      * of the turn." — 15-053H Diabolos's upgraded branch, and the corpus's only printing of it.
      *
      * <p>Must be checked ahead of {@link #FOLLOWUP_POWER_BECOMES}: that one scans with
-     * {@code find()} and its {@code (?:its?|their)} arm matches nothing here, but the two describe
-     * the same act at different scopes and reading them in the wrong order would set one Forward's
-     * power where the card sets every Forward's.
+     * {@code find()} and neither of its arms matches this wording, but the two describe the same
+     * act at different scopes and reading them in the wrong order would set one Forward's power
+     * where the card sets every Forward's.
      * Group: {@code power}.
      */
     static final Pattern FOLLOWUP_ALL_FORWARDS_POWER_BECOMES = Pattern.compile(
         "(?i)^All\\s+(?:the\\s+)?Forwards?'?s?\\s+powers?\\s+becomes?\\s+(?<power>\\d+)\\s+" +
         "until\\s+(?:the\\s+)?end\\s+of\\s+(?:the\\s+)?turn[.!]?$"
     );
+    /**
+     * "Its/their power becomes N until the end of the turn", in either word order: the duration
+     * may trail the clause or lead it ("Until the end of the turn, its power becomes 1000." —
+     * 5-062L Diabolos's second option and 3-066R Barbariccia, the corpus's only two printings of
+     * the fronted form). Both arms are required to state the duration, because "its power becomes
+     * N" with no duration is a permanent change and a different effect.
+     *
+     * <p>Group {@code power} for the trailing form, {@code powerFront} for the fronted one; read
+     * them with {@link ActionResolver#powerBecomesAmount}, since only one can be set per match.
+     */
     static final Pattern FOLLOWUP_POWER_BECOMES = Pattern.compile(
-        "(?i)(?:its?|their)\\s+power\\s+becomes?\\s+(\\d+)\\s+until\\s+(?:the\\s+)?end\\s+of\\s+(?:the\\s+)?turn[.!]?"
+        "(?i)(?:" +
+            "(?:its?|their)\\s+power\\s+becomes?\\s+(?<power>\\d+)\\s+until\\s+(?:the\\s+)?end\\s+of\\s+(?:the\\s+)?turn" +
+        "|" +
+            "until\\s+(?:the\\s+)?end\\s+of\\s+(?:the\\s+)?turn,\\s+(?:its?|their)\\s+power\\s+becomes?\\s+(?<powerFront>\\d+)" +
+        ")[.!]?"
     );
     /**
      * Matches "Until the end of the turn, it/they loses/lose [N power] [and traits]".
@@ -5713,6 +5778,29 @@ final class ActionResolverPatterns {
         "(?:\\s+(?<control>(?:your\\s+)?opponent\\s+controls?|you\\s+control))?" +
         "\\s+gains?\\s+(?<keywords>(?:(?:Haste|First\\s+Strike|Brave)(?:\\s*[,]?\\s*(?:and\\s+)?)?)+)" +
         "\\s+until\\s+(?:the\\s+)?end\\s+of\\s+(?:the\\s+)?turn[.!]?"
+    );
+    /**
+     * Matches "[Until the end of the turn,] All [the] [element] [targets] [you control] gain
+     * "&lt;quoted protection&gt;"[ and "&lt;another&gt;"] [until the end of the turn]." — the
+     * board-wide twin of the single-target grant {@link #FOLLOWUP_CANNOT_BECOME_DULL_BY_OPP}
+     * reads. 10-076H Titan's third option and 23-039R Asura print it in opposite word orders, so
+     * the duration is accepted at either end; one of the two positions must be filled, which is
+     * what keeps this off a permanent printed field ability of the same shape.
+     *
+     * <p>{@code grants} is the whole quoted blob, delimiters included, because the two printings
+     * do not quote the same way — Titan uses single quotes, which are also the apostrophe in
+     * "your opponent's" and so cannot be split on. {@link ActionResolver#grantedProtectionTraits}
+     * takes it apart and declines any grant that is not a protection with a trait behind it.
+     * Groups: {@code element}, {@code targets}, {@code control}, {@code grants}.
+     */
+    static final Pattern ALL_FIELD_QUOTED_PROTECTION_GRANT = Pattern.compile(
+        "(?i)^(?<pre>Until\\s+(?:the\\s+)?end\\s+of\\s+(?:the\\s+)?turn,\\s+)?" +
+        "All\\s+(?:the\\s+)?" +
+        "(?:(?<element>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)\\s+)?" +
+        "(?<targets>Forwards?|Characters?)" +
+        "(?:\\s+(?<control>(?:your\\s+)?opponent\\s+controls?|you\\s+control))?" +
+        "\\s+(?:also\\s+)?gains?\\s+(?<grants>[\"'].+[\"'])" +
+        "(?<post>\\s+until\\s+(?:the\\s+)?end\\s+of\\s+(?:the\\s+)?turn)?[.!]?\\s*$"
     );
     /**
      * Matches "Until end of turn, all [the] [element] [Category X] [targets] [you control]

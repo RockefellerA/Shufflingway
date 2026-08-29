@@ -272,7 +272,7 @@ class TurnPhases {
 		// one; this side had not, so a grant made on P2's turn outlived it.
 		mw.breaktouchBattleSet.clear();      mw.breakWhenDealtDamageSet.clear();
 		mw.cannotBeChosenByElement.clear();  mw.nullifyElementDamageMap.clear();
-		mw.nextOutgoingDmgZeroSet.clear();    mw.outgoingDmgMultiplierMap.clear();
+		mw.nextOutgoingDmgZeroSet.clear();    mw.allOutgoingDmgZeroThisTurnSet.clear();    mw.outgoingDmgMultiplierMap.clear();
 		mw.nextOutgoingDmgDoublerSet.clear(); mw.outgoingDmgFlatBoostMap.clear();
 		mw.perCardIncomingDmgMultiplierMap.clear();
 		mw.p1Turn.forwardIncomingDmgMult = 1;      mw.p2Turn.forwardIncomingDmgMult = 1;

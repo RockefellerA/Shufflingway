@@ -95,11 +95,10 @@ class DamageResolver {
 			mw.logEntry(card.name() + " is dull — incoming damage becomes 0");
 			return 0;
 		}
-		// 29-012H Neon's Runic, read here for the same reason and in the same way: the chosen
-		// effect's damage "becomes 0 instead", so it is settled before any multiplier below and
-		// is not lifted by the unreduced flag either.
-		if (fromAbility && mw.currentAbilitySource != null
-				&& mw.damageZeroedSourcesThisTurn.contains(mw.currentAbilitySource)) {
+		// 29-012H Neon's Runic and 23-024R Shiva, read here for the same reason and in the same
+		// way: the marked source's damage "becomes 0 instead", so it is settled before any
+		// multiplier below and is not lifted by the unreduced flag either.
+		if (fromAbility && mw.sourceDamageIsZeroedThisTurn(mw.currentAbilitySource)) {
 			mw.logEntry(mw.currentAbilitySource.name() + " — its damage becomes 0 this turn");
 			return 0;
 		}
@@ -832,6 +831,11 @@ class DamageResolver {
 	int modifyOutgoingCombatDamage(boolean isP1, ForwardTarget.CardZone zone, int idx, int rawAmount, CardData target) {
 		CardData card = mw.fieldCombatant(isP1, zone, idx);
 		if (card == null) return rawAmount;
+		// For the rest of the turn: every damage this card deals = 0 (23-024R Shiva). Read before
+		// the one-shot below and without removing, so a Forward carrying both does not spend the
+		// single-use shield on a hit this one was already going to stop — the ordering the
+		// incoming twin uses in modifyIncomingDamage, and for the same reason.
+		if (mw.allOutgoingDmgZeroThisTurnSet.contains(card)) return 0;
 		if (mw.nextOutgoingDmgZeroSet.remove(card)) return 0;
 		if (mw.dealsNoCombatDamageSet.contains(card)) return 0;   // deals no damage for the whole battle
 		// "If [card] deals damage … while dull, the damage becomes 0 instead" — Cagnazzo dulls
@@ -932,6 +936,9 @@ class DamageResolver {
 	int combatDamagePointsToOpponent(CardData attacker) {
 		// "(this includes player damage)" is what puts the while-dull replacement on this path too.
 		if (mw.damageZeroedWhileDull(attacker)) return 0;
+		// 23-024R Shiva's "damage to a Forward or a player" — the player half, which is the same
+		// mark modifyOutgoingCombatDamage reads for the Forward half.
+		if (mw.allOutgoingDmgZeroThisTurnSet.contains(attacker)) return 0;
 		Integer override = outgoingDamageToOpponentOverride(attacker);
 		if (override != null) return override;
 		return sourceHasOutgoingDmgToOpponentDoubler(attacker) ? 2 : 1;

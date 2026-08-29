@@ -478,6 +478,46 @@ final class ActionResolverFieldAbility {
         };
     }
     /**
+     * Parses the quoted-protection twin of {@link #tryParseAllFieldKeywordGrant}: "[Until the end
+     * of the turn,] all [the] [element] [targets] [you control] gain "&lt;protection&gt;"[ and
+     * "&lt;another&gt;"] [until the end of the turn]." — 10-076H Titan's third option and 23-039R
+     * Asura.
+     *
+     * <p>Granted the same way a keyword is, because that is what the quoted sentences amount to
+     * here: each one is a protection with a {@link CardData.Trait} behind it, and the traits are
+     * temporary for the turn either way. A quote with no such trait — "cannot be broken",
+     * "cannot be chosen", a whole triggered ability — leaves the text unparsed rather than
+     * granting the ones that were understood and dropping the rest.
+     */
+    static Consumer<GameContext> tryParseAllFieldQuotedProtectionGrant(String text) {
+        Matcher m = ALL_FIELD_QUOTED_PROTECTION_GRANT.matcher(text.trim());
+        if (!m.matches()) return null;
+        // One end or the other has to carry the duration. A printing with neither is a permanent
+        // field ability, which this must not shorten to a turn.
+        if (m.group("pre") == null && m.group("post") == null) return null;
+
+        EnumSet<CardData.Trait> traits = grantedProtectionTraits(m.group("grants"));
+        if (traits == null) return null;
+
+        String targets = m.group("targets");
+        boolean inclForwards = true;   // both arms of the pattern name Forwards or Characters
+        boolean inclMonsters = targets.toLowerCase(Locale.ROOT).contains("character");
+
+        String element       = m.group("element");
+        String control       = m.group("control");
+        boolean opponentOnly = control != null && !control.toLowerCase(Locale.ROOT).contains("you control");
+        boolean selfOnly     = control != null &&  control.toLowerCase(Locale.ROOT).contains("you control");
+
+        String logMsg = "All " + (element != null ? element + " " : "") + targets
+                + (opponentOnly ? " (opponent)" : selfOnly ? " (yours)" : "")
+                + " gain " + traitNamesOnly(traits) + " until end of turn";
+        return ctx -> {
+            ctx.logEntry("Effect: " + logMsg);
+            ctx.applyMassFieldKeywordGrant(traits, inclForwards, inclMonsters,
+                    opponentOnly, selfOnly, element, -1, null, null);
+        };
+    }
+    /**
      * Parses "At the beginning of your Main Phase 1, &lt;effect&gt;" — a recurring
      * field-ability trigger.  Strips the trigger prefix and dispatches the inner effect
      * through the full {@link #parse} chain so any supported effect can follow.

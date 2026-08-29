@@ -475,6 +475,12 @@ final class GameContextImpl implements GameContext {
 				mw.allIncomingDmgZeroThisTurnSet.add(c);
 				logEntry(c.name() + " — damage dealt to it becomes 0 for the rest of the turn");
 			}
+			@Override public void zeroAllOutgoingDamageThisTurn(ForwardTarget t) {
+				CardData c = mw.autoAbilityTriggers.fieldCardData(t);
+				if (c == null) return;
+				mw.allOutgoingDmgZeroThisTurnSet.add(c);
+				logEntry(c.name() + " — damage it deals becomes 0 for the rest of the turn");
+			}
 			@Override public void shieldNextOpponentEffectDamage(ForwardTarget t) {
 				CardData c = mw.autoAbilityTriggers.fieldCardData(t);
 				if (c == null) return;
@@ -5853,6 +5859,10 @@ final class GameContextImpl implements GameContext {
 				logEntry("Reveal top card: " + top.name() + " — a " + cardType + " → hand");
 			}
 
+			@Override public CardData cardAddedToHandByLook() {
+				return lastLookAddedToHand;
+			}
+
 			@Override public void triggerExBurstOfCardAddedToHand() {
 				CardData added = lastLookAddedToHand;
 				if (added == null) {
@@ -7277,10 +7287,10 @@ final class GameContextImpl implements GameContext {
 	// Player damage
 	// =========================================================================================
 			@Override public void dealDamageToOpponent(int amount) {
-				// Neon's Runic covers "a Forward or a player", so the player half is blanked here
-				// exactly as DamageResolver blanks the Forward half — before any doubling below.
-				if (mw.currentAbilitySource != null
-						&& mw.damageZeroedSourcesThisTurn.contains(mw.currentAbilitySource)) {
+				// Neon's Runic and Shiva both cover "a Forward or a player", so the player half is
+				// blanked here exactly as DamageResolver blanks the Forward half — before any
+				// doubling below.
+				if (mw.sourceDamageIsZeroedThisTurn(mw.currentAbilitySource)) {
 					logEntry(mw.currentAbilitySource.name() + " — its damage becomes 0 this turn");
 					return;
 				}

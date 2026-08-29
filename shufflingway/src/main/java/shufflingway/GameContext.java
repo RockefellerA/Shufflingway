@@ -1087,6 +1087,17 @@ public interface GameContext {
     void triggerExBurstOfCardAddedToHand();
 
     /**
+     * The card the preceding {@link #lookAtTopDeck} put into hand, or {@code null} when it added
+     * none — the same card {@link #triggerExBurstOfCardAddedToHand} would offer, exposed for
+     * effects that read a property of it rather than its EX Burst (23-064R Golem burns the
+     * chosen Forward for the added Forward's power).
+     *
+     * <p>It is the card in hand, so its power is the printed one; nothing on the field is
+     * modifying it.
+     */
+    CardData cardAddedToHandByLook();
+
+    /**
      * Looks at the top {@code count} cards of the player's deck, lets the player reveal and
      * cast 1 Summon of cost ≤ {@code maxCost} for free, then shuffles the remaining cards to
      * the bottom of the deck.
@@ -1123,6 +1134,18 @@ public interface GameContext {
      * take the second.
      */
     void shieldAllIncomingDamageThisTurn(ForwardTarget t);
+
+    /**
+     * Every damage the target <em>deals</em> becomes 0 for the rest of the turn — 23-024R Shiva's
+     * "if it deals damage to a Forward or a player, the damage becomes 0 instead". The outgoing
+     * mirror of {@link #shieldAllIncomingDamageThisTurn(ForwardTarget)}, and unspent for the same
+     * reason: the wording names no number of hits.
+     *
+     * <p>"To a Forward or a player" is every way the card can deal damage, so this covers its
+     * combat damage and its own abilities alike, not just the one Stack entry
+     * {@code chooseStackEntryZeroItsDamageThisTurn} marks.
+     */
+    void zeroAllOutgoingDamageThisTurn(ForwardTarget t);
 
     /**
      * The same shield, scoped to damage from the opposing player's Summons and abilities — Auron

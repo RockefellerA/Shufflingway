@@ -37707,5 +37707,453 @@ public class CardBehaviorTest {
 	}
 
 	// =========================================================================================
+	// 17-014R Bahamut: "Choose up to 2 Forwards. Divide 10000 damage among them as you like. If
+	// you have received 5 points of damage or more, divide 15000 damage among those instead."
+	//
+	// The divide parser has read the alternate amount all along; only the report could not say so,
+	// because the description split the followup on ". " and left the condition in the tail. These
+	// pin both halves: the amount actually dealt, and the name that now covers the whole clause.
+	// =========================================================================================
+
+	private static final String BAHAMUT_SUMMON =
+			"Choose up to 2 Forwards. Divide 10000 damage among them as you like. "
+			+ "If you have received 5 points of damage or more, divide 15000 damage among those "
+			+ "instead. (Units must be 1000.)";
+
+	/** One target, so the allocation dialog is skipped and the whole amount lands on it. */
+	private static GameContext bahamutContext(ForwardTarget victim, int damageTaken) {
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.consumePreloadedTargets()).thenReturn(null);
+		when(ctx.selfDamageCount()).thenReturn(damageTaken);
+		when(ctx.selectCharacters(anyInt(), anyBoolean(), anyBoolean(), anyBoolean(), any(), any(),
+				anyInt(), any(), anyInt(), any(), anyBoolean(), anyBoolean(), anyBoolean(),
+				any(), any(), any(), any(), anyBoolean(), any(), anyBoolean()))
+				.thenReturn(List.of(victim));
+		return ctx;
+	}
+
+	@Test
+	void bahamutDividesTenThousandUntilYouHaveTakenFivePoints() {
+		ForwardTarget victim = new ForwardTarget(false, 0, ForwardTarget.CardZone.FORWARD);
+		GameContext ctx = bahamutContext(victim, 4);
+
+		ActionResolver.parse(BAHAMUT_SUMMON, null).accept(ctx);
+
+		verify(ctx).damageTarget(victim, 10000);
+	}
+
+	@Test
+	void bahamutDividesFifteenThousandOnceYouHave() {
+		ForwardTarget victim = new ForwardTarget(false, 0, ForwardTarget.CardZone.FORWARD);
+		GameContext ctx = bahamutContext(victim, 5);
+
+		ActionResolver.parse(BAHAMUT_SUMMON, null).accept(ctx);
+
+		verify(ctx).damageTarget(victim, 15000);
+	}
+
+	@Test
+	void bahamutsAlternateAmountIsNoLongerAnUnreadTail() {
+		assertEquals("ChooseCharacter / DivideDamageInstead",
+				ActionResolver.fullDescription(BAHAMUT_SUMMON, null));
+	}
+
+	// =========================================================================================
+	// 23-064R Golem: "Choose 1 Forward. Reveal the top 3 cards of your deck. Add 1 card among them
+	// to your hand and return the other cards to the bottom of your deck in any order. If you
+	// added a Forward to your hand, deal the chosen Forward damage equal to the power of the added
+	// Forward."
+	//
+	// The middle sentence on its own is the wording LOOK_TOP_DECK_ADD_TO_HAND_REST_BOTTOM claims,
+	// and that parser declined the card outright rather than reveal and then drop the burn. The
+	// Choose chain now reads all three sentences as one clause, so the amount comes from the card
+	// the reveal put into hand — read off the copy in hand, whose power is the printed one.
+	// =========================================================================================
+
+	private static final String GOLEM_SUMMON =
+			"Choose 1 Forward. Reveal the top 3 cards of your deck. Add 1 card among them to your "
+			+ "hand and return the other cards to the bottom of your deck in any order. If you "
+			+ "added a Forward to your hand, deal the chosen Forward damage equal to the power of "
+			+ "the added Forward.";
+
+	private static GameContext golemContext(ForwardTarget victim, CardData added) {
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.consumePreloadedTargets()).thenReturn(null);
+		when(ctx.cardAddedToHandByLook()).thenReturn(added);
+		when(ctx.selectCharacters(anyInt(), anyBoolean(), anyBoolean(), anyBoolean(), any(), any(),
+				anyInt(), any(), anyInt(), any(), anyBoolean(), anyBoolean(), anyBoolean(),
+				any(), any(), any(), any(), anyBoolean(), any(), anyBoolean()))
+				.thenReturn(List.of(victim));
+		return ctx;
+	}
+
+	@Test
+	void golemBurnsForThePowerOfTheForwardItAddedToHand() {
+		ForwardTarget victim = new ForwardTarget(false, 0, ForwardTarget.CardZone.FORWARD);
+		GameContext ctx = golemContext(victim, makeForward("Behemoth", "Earth", 5, 9000));
+
+		ActionResolver.parse(GOLEM_SUMMON, null).accept(ctx);
+
+		ArgumentCaptor<LookConfig> config = ArgumentCaptor.forClass(LookConfig.class);
+		verify(ctx).lookAtTopDeck(config.capture());
+		assertEquals(3, config.getValue().count());
+		assertEquals(LookConfig.LookAction.ADD_TO_HAND_REST_BOTTOM, config.getValue().action());
+		assertTrue(config.getValue().reveal(), "\"Reveal\" makes the three cards public");
+
+		verify(ctx).damageTarget(victim, 9000);
+	}
+
+	@Test
+	void golemDealsNothingWhenTheAddedCardIsNotAForward() {
+		ForwardTarget victim = new ForwardTarget(false, 0, ForwardTarget.CardZone.FORWARD);
+		GameContext ctx = golemContext(victim, makePlainBackup("Chocobo", "Earth", 2));
+
+		ActionResolver.parse(GOLEM_SUMMON, null).accept(ctx);
+
+		verify(ctx).lookAtTopDeck(any());
+		verify(ctx, never()).damageTarget(any(), anyInt());
+	}
+
+	@Test
+	void golemDealsNothingWhenTheLookAddedNoCardAtAll() {
+		// An empty deck adds nothing, and "the power of the added Forward" then names no card.
+		ForwardTarget victim = new ForwardTarget(false, 0, ForwardTarget.CardZone.FORWARD);
+		GameContext ctx = golemContext(victim, null);
+
+		ActionResolver.parse(GOLEM_SUMMON, null).accept(ctx);
+
+		verify(ctx, never()).damageTarget(any(), anyInt());
+	}
+
+	@Test
+	void golemsThreeSentencesAreDescribedAsOneClause() {
+		assertEquals("ChooseCharacter / RevealAddToHandIfForwardDamageAddedPower",
+				ActionResolver.fullDescription(GOLEM_SUMMON, null));
+	}
+
+	// =========================================================================================
+	// 5-062L Diabolos, second option: "Choose 1 Forward of cost 4 or less. Until the end of the
+	// turn, its power becomes 1000."
+	//
+	// The same act FOLLOWUP_POWER_BECOMES already handled, with the duration fronted instead of
+	// trailing. Only this card and 3-066R Barbariccia print it that way, and both went unread —
+	// the pattern required the "until the end of the turn" to come last.
+	// =========================================================================================
+
+	private static final String DIABOLOS_MODAL_SUMMON =
+			"Select up to 2 of the 4 following actions. "
+			+ "\"Choose 1 Forward of cost 5 or more. Break it.\" "
+			+ "\"Choose 1 Forward of cost 4 or less. Until the end of the turn, its power becomes 1000. \" "
+			+ "\"Activate all the Forwards you control.\" "
+			+ "\"Activate all the Backups you control.\"";
+
+	private static final String FRONTED_POWER_BECOMES =
+			"Choose 1 Forward of cost 4 or less. Until the end of the turn, its power becomes 1000.";
+
+	@Test
+	void aFrontedUntilEndOfTurnStillSetsThePower() {
+		ForwardTarget victim = new ForwardTarget(false, 0, ForwardTarget.CardZone.FORWARD);
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.consumePreloadedTargets()).thenReturn(null);
+		when(ctx.selectCharacters(anyInt(), anyBoolean(), anyBoolean(), anyBoolean(), any(), any(),
+				anyInt(), any(), anyInt(), any(), anyBoolean(), anyBoolean(), anyBoolean(),
+				any(), any(), any(), any(), anyBoolean(), any(), anyBoolean()))
+				.thenReturn(List.of(victim));
+
+		ActionResolver.parse(FRONTED_POWER_BECOMES, null).accept(ctx);
+
+		verify(ctx).setTargetBasePower(victim, 1000);
+	}
+
+	@Test
+	void andTheOtherPrintingOfThatWordingReadsTheSameWay() {
+		// 3-066R Barbariccia's enters-the-field ability, the corpus's only other fronted form.
+		assertEquals("ChooseCharacter / PowerBecomes",
+				ActionResolver.fullDescription(
+						"Choose 1 Forward opponent controls. Until the end of the turn, its power becomes 1000.",
+						null));
+	}
+
+	@Test
+	void diabolosNamesAllFourOfItsOptions() {
+		assertEquals("SelectFollowingActions(up to 2 of 4: ChooseCharacter / Break "
+						+ "| ChooseCharacter / PowerBecomes | AllFieldEffect | AllFieldEffect)",
+				ActionResolver.fullDescription(DIABOLOS_MODAL_SUMMON, null));
+	}
+
+	// =========================================================================================
+	// 23-024R Shiva: "Choose 1 Forward. Dull it and Freeze it. During this turn, if it deals
+	// damage to a Forward or a player, the damage becomes 0 instead."
+	//
+	// The outgoing mirror of Cockatrice's shield, and unspent for the same reason — the wording
+	// names no number of hits. "To a Forward or a player" is every way the card can deal damage,
+	// so the mark is read on all four paths: combat damage to a Forward, combat damage to the
+	// player, and the same two from the Forward's own abilities. The last two share the mark that
+	// 29-012H Neon's Runic already sets on a Stack entry; the combat ones cannot, because combat
+	// has no ability source to ask about.
+	// =========================================================================================
+
+	private static final String SHIVA_SUMMON =
+			"EX BURST Choose 1 Forward. Dull it and Freeze it. During this turn, if it deals "
+			+ "damage to a Forward or a player, the damage becomes 0 instead.";
+
+	/** Runs Shiva on the single P2 Forward and hands back the board it left. */
+	private static MainWindow shivaOn(CardData victim) {
+		MainWindow mw = new MainWindow();
+		placeP2Forward(mw, victim);
+
+		GameContext ctx = mw.buildGameContext(true);
+		ctx.preloadTargets(List.of(fwd(false, 0)));
+		Consumer<GameContext> effect = ActionResolver.parse(SHIVA_SUMMON, null);
+		assertNotNull(effect, "the printed wording has to parse for the rest of this to mean anything");
+		effect.accept(ctx);
+		return mw;
+	}
+
+	@Test
+	void shivaDullsFreezesAndDisarms() {
+		CardData victim = makeForward("Victim", "Fire", 3, 7000);
+		MainWindow mw = shivaOn(victim);
+
+		assertEquals(CardState.DULL, mw.p2ForwardStates.get(0), "neither half may be dropped");
+		assertTrue(mw.p2ForwardFrozen.get(0));
+		assertTrue(mw.allOutgoingDmgZeroThisTurnSet.contains(victim));
+	}
+
+	@Test
+	void andItsCombatDamageToAForwardBecomesZero() {
+		CardData victim = makeForward("Victim", "Fire", 3, 7000);
+		MainWindow mw = shivaOn(victim);
+		CardData blocker = makeForward("Blocker", "Ice", 3, 8000);
+		placeP1Forward(mw, blocker);
+
+		assertEquals(0, mw.modifyOutgoingCombatDamage(false, 0, 7000, blocker));
+	}
+
+	@Test
+	void andItsCombatDamageToThePlayerBecomesZero() {
+		// The other half of "a Forward or a player". Player damage is counted in points rather
+		// than in power, so zeroing it means the point is never dealt at all.
+		CardData victim = makeForward("Victim", "Fire", 3, 7000);
+		MainWindow mw = shivaOn(victim);
+
+		assertEquals(0, mw.combatDamagePointsToOpponent(victim));
+	}
+
+	@Test
+	void andTheDisarmIsNotSpentByTheFirstHit() {
+		// The difference between this and the one-shot outgoing shield beside it: the card names
+		// no number of hits, so the second attack deals nothing either.
+		CardData victim = makeForward("Victim", "Fire", 3, 7000);
+		MainWindow mw = shivaOn(victim);
+		CardData blocker = makeForward("Blocker", "Ice", 3, 8000);
+		placeP1Forward(mw, blocker);
+
+		assertEquals(0, mw.modifyOutgoingCombatDamage(false, 0, 7000, blocker));
+		assertEquals(0, mw.modifyOutgoingCombatDamage(false, 0, 7000, blocker));
+	}
+
+	@Test
+	void andAnotherCopyOfTheSameCardIsUntouched() {
+		// CardData is a record, so a second printing is equals() to the one that was chosen. The
+		// mark is identity-keyed for exactly this reason.
+		CardData victim = makeForward("Victim", "Fire", 3, 7000);
+		MainWindow mw = shivaOn(victim);
+		CardData twin = makeForward("Victim", "Fire", 3, 7000);
+		placeP2Forward(mw, twin);
+
+		assertEquals(1, mw.combatDamagePointsToOpponent(twin), "the twin still deals its point");
+	}
+
+	@Test
+	void shivaIsDescribedByWhichWayItsShieldPoints() {
+		assertEquals("ChooseCharacter / DullAndFreezeAndZeroAllOutgoing",
+				ActionResolver.fullDescription(SHIVA_SUMMON, null));
+	}
+
+	// =========================================================================================
+	// 9-068H Mist Dragon, second option: "Choose 1 Forward you control. Dull it. During this turn,
+	// if it is dealt damage, the damage becomes 0 instead."
+	//
+	// The inward-pointing twin of Shiva above, and read by the same branch. Split on ". ", the
+	// dull branch would claim the first sentence and the shield would fall to the secondary
+	// parser, where "it" names nothing — which is what left the option reported as "Dull + ?".
+	// =========================================================================================
+
+	private static final String MIST_DRAGON_OPTION =
+			"Choose 1 Forward you control. Dull it. During this turn, if it is dealt damage, "
+			+ "the damage becomes 0 instead.";
+
+	@Test
+	void mistDragonDullsItsOwnForwardAndShieldsIt() {
+		MainWindow mw = new MainWindow();
+		CardData ally = makeForward("Ally", "Water", 3, 7000);
+		placeP1Forward(mw, ally);
+
+		GameContext ctx = mw.buildGameContext(true);
+		ctx.preloadTargets(List.of(fwd(true, 0)));
+		Consumer<GameContext> effect = ActionResolver.parse(MIST_DRAGON_OPTION, null);
+		assertNotNull(effect, "the printed wording has to parse for the rest of this to mean anything");
+		effect.accept(ctx);
+
+		assertEquals(CardState.DULL, mw.p1ForwardStates.get(0));
+		assertTrue(mw.allIncomingDmgZeroThisTurnSet.contains(ally));
+
+		ctx.damageTarget(fwd(true, 0), 3000);
+		ctx.damageTarget(fwd(true, 0), 3000);
+		assertEquals(0, mw.p1ForwardDamage.get(0), "both hits became 0");
+	}
+
+	@Test
+	void mistDragonNamesAllThreeOfItsOptions() {
+		String summon = "Select 1 of the 3 following actions. "
+				+ "\"Choose 1 Summon of cost 5 or less. Cancel its effect.\" "
+				+ "\"Choose 1 Forward you control. Dull it. During this turn, if it is dealt "
+				+ "damage, the damage becomes 0 instead.\" "
+				+ "\"Remove all the cards in your opponent's Break Zone from the game. Draw 1 card.\"";
+		assertEquals("SelectFollowingActions(1 of 3: ChooseCharacter / CancelEffect "
+						+ "| ChooseCharacter / DullAndShieldAllIncoming "
+						+ "| RemoveAllOppBzFromGame + DrawCards)",
+				ActionResolver.fullDescription(summon, null));
+	}
+
+	// =========================================================================================
+	// 5-133H Bismarck, third option: "Choose 1 Forward. Halve its power until the end of the turn
+	// (round down to the nearest 1000)."
+	//
+	// The corpus's only printing of "halve". Expressed as a reduction rather than a new base
+	// power, because that is what it is — the amount is read per target off the power the Forward
+	// has when this resolves, so a lend on it is halved along with the rest.
+	// =========================================================================================
+
+	private static final String BISMARCK_OPTION =
+			"Choose 1 Forward. Halve its power until the end of the turn (round down to the nearest 1000).";
+
+	private static int bismarckAgainst(int printedPower) {
+		MainWindow mw = new MainWindow();
+		placeP2Forward(mw, makeForward("Victim", "Fire", 3, printedPower));
+
+		GameContext ctx = mw.buildGameContext(true);
+		ctx.preloadTargets(List.of(fwd(false, 0)));
+		Consumer<GameContext> effect = ActionResolver.parse(BISMARCK_OPTION, null);
+		assertNotNull(effect, "the printed wording has to parse for the rest of this to mean anything");
+		effect.accept(ctx);
+		return mw.effectiveP2ForwardPower(0);
+	}
+
+	@Test
+	void bismarckHalvesAnEvenPowerExactly() {
+		assertEquals(4000, bismarckAgainst(8000));
+	}
+
+	@Test
+	void andRoundsAnOddOneDownToTheNearestThousand() {
+		// 9000 halves to 4500, which is not a legal power — the printing says which way to go.
+		assertEquals(4000, bismarckAgainst(9000));
+		assertEquals(3000, bismarckAgainst(7000));
+	}
+
+	@Test
+	void andHalvesThePowerTheForwardActuallyHasRatherThanItsPrinted() {
+		MainWindow mw = new MainWindow();
+		placeP2Forward(mw, makeForward("Victim", "Fire", 3, 5000));
+
+		GameContext ctx = mw.buildGameContext(true);
+		ctx.boostTarget(fwd(false, 0), 3000, EnumSet.noneOf(CardData.Trait.class));
+		assertEquals(8000, mw.effectiveP2ForwardPower(0), "the lend is on before Bismarck resolves");
+
+		ctx.preloadTargets(List.of(fwd(false, 0)));
+		ActionResolver.parse(BISMARCK_OPTION, null).accept(ctx);
+
+		assertEquals(4000, mw.effectiveP2ForwardPower(0), "8000 halved, not 5000");
+	}
+
+	@Test
+	void bismarckNamesAllThreeOfItsOptions() {
+		String summon = "Select 1 of the 3 following actions. "
+				+ "\"Choose 1 Monster. Return it to its owner's hand.\" "
+				+ "\"Choose 1 Character you control. Return it to its owner's hand.\" "
+				+ "\"Choose 1 Forward. Halve its power until the end of the turn (round down to the nearest 1000).\"";
+		assertEquals("SelectFollowingActions(1 of 3: ChooseCharacter / ReturnToOwnersHand "
+						+ "| ChooseCharacter / ReturnToOwnersHand | ChooseCharacter / HalvePower)",
+				ActionResolver.fullDescription(summon, null));
+	}
+
+	// =========================================================================================
+	// 10-076H Titan, third option: "All the Forwards you control gain 'This Forward cannot become
+	// dull by your opponent's Summons or abilities' until the end of the turn."
+	//
+	// The board-wide twin of the single-target grant, and granted the same way a keyword is: the
+	// quoted sentence is a protection with a trait behind it, temporary for the turn either way.
+	//
+	// Titan quotes with ', which is also the apostrophe in "your opponent's", so there is no
+	// delimiter to split the blob on — it is taken whole. 23-039R Asura, the other printing of
+	// this shape, uses " and grants two at once. A quote with no trait behind it is declined
+	// rather than granted in part.
+	// =========================================================================================
+
+	private static final String TITAN_OPTION =
+			"All the Forwards you control gain 'This Forward cannot become dull by your "
+			+ "opponent's Summons or abilities' until the end of the turn.";
+
+	@Test
+	void titanGrantsTheProtectionToEveryForwardYouControl() {
+		MainWindow mw = new MainWindow();
+		placeP1Forward(mw, makeForward("First",  "Earth", 3, 7000));
+		placeP1Forward(mw, makeForward("Second", "Earth", 2, 5000));
+		placeP2Forward(mw, makeForward("Theirs", "Fire",  3, 7000));
+
+		GameContext ctx = mw.buildGameContext(true);
+		Consumer<GameContext> effect = ActionResolver.parse(TITAN_OPTION, null);
+		assertNotNull(effect, "the printed wording has to parse for the rest of this to mean anything");
+		effect.accept(ctx);
+
+		assertTrue(mw.effectiveP1HasTrait(0, CardData.Trait.CANNOT_BE_DULLED_BY_OPP));
+		assertTrue(mw.effectiveP1HasTrait(1, CardData.Trait.CANNOT_BE_DULLED_BY_OPP));
+		assertFalse(mw.effectiveP2HasTrait(0, CardData.Trait.CANNOT_BE_DULLED_BY_OPP),
+				"\"you control\" is a filter, not decoration");
+	}
+
+	@Test
+	void andReadsTheOtherWordOrderTheSameWay() {
+		// 23-039R Asura fronts the duration and grants two protections, double-quoted.
+		assertEquals("AllFieldQuotedProtectionGrant",
+				ActionResolver.fullDescription(
+						"Until the end of the turn, all the Forwards you control gain \"This Forward "
+						+ "cannot be returned to its owner's hand by your opponent's Summons or "
+						+ "abilities.\" and \"The power of this Forward cannot be decreased by your "
+						+ "opponent's Summons or abilities.\"", null));
+	}
+
+	@Test
+	void andDeclinesAQuotedAbilityWithNoTraitBehindIt() {
+		// "cannot be broken" prints in exactly this shape and has no trait here. Granting the ones
+		// that were understood and dropping the rest would look like the card had resolved.
+		assertNull(ActionResolverFieldAbility.tryParseAllFieldQuotedProtectionGrant(
+				"All the Forwards you control gain \"This Forward cannot be broken\" until the end of the turn."));
+	}
+
+	@Test
+	void andDeclinesTheSameGrantWithNoDurationAtAll() {
+		// Without a duration this is a permanent printed field ability, which must not be
+		// shortened to a turn.
+		assertNull(ActionResolverFieldAbility.tryParseAllFieldQuotedProtectionGrant(
+				"All the Forwards you control gain 'This Forward cannot become dull by your "
+				+ "opponent's Summons or abilities'."));
+	}
+
+	@Test
+	void titanNamesAllFourOfItsOptions() {
+		String summon = "Select up to 2 of the 4 following actions. "
+				+ "\"Choose 1 Forward you control. It gains +1000 power until the end of the turn.\" "
+				+ "\"All the Forwards you control gain Brave until the end of the turn.\" "
+				+ "\"" + TITAN_OPTION + "\" "
+				+ "\"Draw 1 card.\"";
+		assertEquals("SelectFollowingActions(up to 2 of 4: ChooseCharacter / PowerBoost "
+						+ "| AllFieldKeywordGrant | AllFieldQuotedProtectionGrant | DrawCards)",
+				ActionResolver.fullDescription(summon, null));
+	}
+
+	// =========================================================================================
 
 }
