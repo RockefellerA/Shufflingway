@@ -2852,6 +2852,19 @@ public class ActionResolver {
             // the shield points: 9-068H Mist Dragon protects what it dulls, 23-024R Shiva disarms
             // what it freezes. Split, the shield sentence lands in the secondary and is reported
             // unread over a card that has both halves wired.
+            // Read off the whole followup, mirroring the Choose chain: the second sentence lifts
+            // the first's power gate rather than breaking a second time, and the ". " split
+            // described 3-102R Odin as "Break + Break" — two unconditional breaks, which is also
+            // what it was doing.
+            {
+                Matcher breakGateM = FOLLOWUP_BREAK_IF_POWER_CONTROL_GATED_INSTEAD.matcher(followup.trim());
+                if (breakGateM.matches()) {
+                    ControlCondition lift = CardData.parseControlCondition(breakGateM.group("cond").trim());
+                    if (lift != null)
+                        return "ChooseCharacter / BreakIfPower(" + breakGateM.group("power")
+                                + "-) | IfControl(" + lift + ": Break)";
+                }
+            }
             // Read off the whole followup, mirroring the Choose chain: "it" in the ban names the
             // card the bounce has already put in hand, so the two sentences are one clause.
             if (FOLLOWUP_RETURN_TO_HAND_THEN_BAN_COPIES.matcher(followup.trim()).matches())

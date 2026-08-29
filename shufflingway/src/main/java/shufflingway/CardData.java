@@ -2784,7 +2784,13 @@ public record CardData(
         "(?:(?<element>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark|Multi-Element)\\s+)?" +
         "(?:Category\\s+(?<category>\\S+)\\s+)?" +
         "(?:Job\\s+(?<job>.+?)(?=\\s+(?:Forwards?|Monsters?|Backups?|Characters?)(?:\\s|$)|\\s+or\\s+Card\\s+Name\\b|\\s*$))?" +
-        "(?<type>Forwards?|Monsters?|Backups?|Characters?)?" +
+        // The space between a Job name and the type noun. Every other optional group above ends by
+        // consuming its own trailing space, but the Job group ends on a lookahead, which consumes
+        // nothing — so the type had to match starting at that space and never could. The engine
+        // then backtracked the lazy Job group over the noun and took the "\s*$" arm instead,
+        // leaving job="Class Zero Cadet Forward" and type=null: a Job no card has, on 36 printings
+        // of "if you control a Job X Forward", none of which could ever be satisfied.
+        "\\s*(?<type>Forwards?|Monsters?|Backups?|Characters?)?" +
         "(?:\\s+of\\s+an?\\s+Element\\s+other\\s+than\\s+(?<excludeelem>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark))?" +
         "(?:\\s+of\\s+power\\s+(?<power>\\d+)\\s+or\\s+more)?" +
         // Garland 17-004C's "a Forward of cost 2 or less". Without it the pattern matched "a

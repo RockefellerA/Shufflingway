@@ -5498,6 +5498,25 @@ final class ActionResolverPatterns {
         "|decreased\\s+or\\s+increased),\\s+break\\s+(?:it|them)[.!]?$"
     );
     /**
+     * "If it has N power or less, break it. If you control &lt;condition&gt;, break it regardless
+     * of its power instead." — 3-102R Odin, the corpus's only printing of a power-gated break with
+     * a control condition that lifts the gate.
+     *
+     * <p>Two sentences read as one clause, for the reason its sibling above gives and then some:
+     * both act on the same chosen Forward, and "instead" makes the second a replacement for the
+     * first's test rather than a second break. Left to the plain break followup, {@code find()}
+     * matched "break it" in the first sentence and broke whatever was chosen — so the card ignored
+     * its power gate <em>and</em> the condition that lifts it, and was strictly stronger than
+     * printed against every Forward on the table.
+     * Groups: {@code power}, {@code cond}.
+     */
+    static final Pattern FOLLOWUP_BREAK_IF_POWER_CONTROL_GATED_INSTEAD = Pattern.compile(
+        "(?i)^If\\s+(?:it|they)\\s+(?:has|have)\\s+(?<power>\\d+)\\s+power\\s+or\\s+less,\\s+" +
+        "break\\s+(?:it|them)[.!]\\s+" +
+        "If\\s+you\\s+control\\s+(?<cond>.+?),\\s+break\\s+(?:it|them)\\s+regardless\\s+of\\s+" +
+        "(?:its|their)\\s+power\\s+instead[.!]?\\s*$"
+    );
+    /**
      * The board-wide form of the followup below: "All the Forwards' power become N until the end
      * of the turn." — 15-053H Diabolos's upgraded branch, and the corpus's only printing of it.
      *

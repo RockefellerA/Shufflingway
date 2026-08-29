@@ -3276,6 +3276,38 @@ final class ActionResolverChoose {
             };
         }
 
+        // --- Break gated on power, with a control condition that lifts the gate (3-102R Odin) ---
+        // Read off the whole followup and ahead of the plain break below, which finds "break it"
+        // in the first sentence and breaks whatever was chosen — dropping both conditions.
+        Matcher breakGateM = FOLLOWUP_BREAK_IF_POWER_CONTROL_GATED_INSTEAD.matcher(followup.trim());
+        if (breakGateM.matches()) {
+            final int maxPower = Integer.parseInt(breakGateM.group("power"));
+            final ControlCondition lift = CardData.parseControlCondition(breakGateM.group("cond").trim());
+            // An unreadable condition leaves the whole ability unparsed rather than falling to the
+            // plain break below, which is the reading this branch exists to prevent.
+            if (lift == null) return null;
+            return ctx -> {
+                ctx.logChooseHeader(choosePrefix + " — Break (" + maxPower
+                        + " power or less; any power while you control " + lift + ")");
+                List<ForwardTarget> ts = selectTargets(ctx, maxCount, upTo,
+                        opponentOnly, selfOnly, condition, element, zone, opponentZone,
+                        costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters,
+                        jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, fExcludeElem, withoutMulticard);
+                // Asked once, before anything breaks: "instead" replaces the power test outright,
+                // and a Cadet that leaves the field to the first break must not change the answer
+                // for the second target.
+                boolean lifted = ctx.controlConditionMet(lift);
+                Consumer<ForwardTarget> maybeBreak = t -> {
+                    if (lifted || ctx.effectiveTargetPower(t) <= maxPower) ctx.breakTarget(t);
+                };
+                sortedByIdxDesc(ts, true) .forEach(maybeBreak);
+                sortedByIdxDesc(ts, false).forEach(maybeBreak);
+                // No secondary: this branch has already read both sentences. Running it would
+                // resolve the second one again as a plain break — which reinstated exactly the
+                // unconditional break this branch exists to prevent.
+            };
+        }
+
         // --- Break followup ---
         if (FOLLOWUP_BREAK.matcher(primaryFollowup).find()) {
             return ctx -> {

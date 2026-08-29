@@ -38698,5 +38698,123 @@ public class CardBehaviorTest {
 	}
 
 	// =========================================================================================
+	// 3-102R Odin: "Choose 1 Forward. If it has 7000 power or less, break it. If you control a Job
+	// Class Zero Cadet Forward, break it regardless of its power instead."
+	//
+	// Two sentences over one chosen Forward, and "instead" makes the second a replacement for the
+	// first's test rather than a second break. Left to the plain break followup, find() matched
+	// "break it" in the first sentence and broke whatever was chosen: the card ignored its power
+	// gate AND the condition that lifts it, and broke any Forward on the table.
+	//
+	// The power read is the effective one, not the printed one — a 7000 Forward holding a lend is
+	// out of range, and a 9000 one that has been cut down is in it.
+	// =========================================================================================
+
+	private static final String ODIN_BREAK_SUMMON =
+			"Choose 1 Forward. If it has 7000 power or less, break it. "
+			+ "If you control a Job Class Zero Cadet Forward, break it regardless of its power instead.";
+
+	/** Casts Odin at P2's only Forward and reports whether it was broken. */
+	private static boolean odinBreaks(MainWindow mw) {
+		GameContext ctx = mw.buildGameContext(true);
+		ctx.preloadTargets(List.of(fwd(false, 0)));
+		Consumer<GameContext> effect = ActionResolver.parse(ODIN_BREAK_SUMMON, null);
+		assertNotNull(effect, "the printed wording has to parse for the rest of this to mean anything");
+		effect.accept(ctx);
+		return mw.p2ForwardCards.isEmpty();
+	}
+
+	/** A board with one P2 Forward of {@code power}, and optionally a Class Zero Cadet for P1. */
+	private static MainWindow odinBoard(int power, boolean withCadet) {
+		MainWindow mw = new MainWindow();
+		placeP2Forward(mw, makeForward("Victim", "Fire", 3, power));
+		if (withCadet) placeP1Forward(mw, makeJobCard("Ace", "Fire", "Forward", "Class Zero Cadet"));
+		return mw;
+	}
+
+	@Test
+	void odinBreaksAForwardInsideThePowerGate() {
+		assertTrue(odinBreaks(odinBoard(7000, false)), "7000 is \"7000 power or less\"");
+		assertTrue(odinBreaks(odinBoard(3000, false)));
+	}
+
+	@Test
+	void andLeavesOneAboveIt() {
+		// The whole point of the gate, and what the card was doing to every Forward regardless.
+		assertFalse(odinBreaks(odinBoard(9000, false)), "9000 is out of range with no Cadet out");
+		assertFalse(odinBreaks(odinBoard(8000, false)));
+	}
+
+	@Test
+	void unlessYouControlAClassZeroCadetForward() {
+		assertTrue(odinBreaks(odinBoard(9000, true)), "the Cadet lifts the gate entirely");
+	}
+
+	@Test
+	void andTheCadetHasToBeOneYouControl() {
+		// "If you control" — the opponent's Cadet is not yours, and lifts nothing.
+		MainWindow mw = odinBoard(9000, false);
+		placeP2Forward(mw, makeJobCard("Ace", "Fire", "Forward", "Class Zero Cadet"));
+
+		GameContext ctx = mw.buildGameContext(true);
+		ctx.preloadTargets(List.of(fwd(false, 0)));
+		ActionResolver.parse(ODIN_BREAK_SUMMON, null).accept(ctx);
+
+		assertEquals(2, mw.p2ForwardCards.size(), "nothing broke");
+	}
+
+	@Test
+	void andThePowerReadIsTheEffectiveOne() {
+		// A 7000 Forward holding a +3000 lend is out of range when Odin resolves.
+		MainWindow lent = odinBoard(7000, false);
+		lent.buildGameContext(true).boostTarget(fwd(false, 0), 3000,
+				EnumSet.noneOf(CardData.Trait.class));
+		assertEquals(10000, lent.effectiveP2ForwardPower(0));
+		assertFalse(odinBreaks(lent), "the lend puts it out of the gate");
+
+		// And a 9000 one that has been cut down is inside it.
+		MainWindow cut = odinBoard(9000, false);
+		cut.buildGameContext(true).reduceTarget(fwd(false, 0), 3000,
+				EnumSet.noneOf(CardData.Trait.class));
+		assertEquals(6000, cut.effectiveP2ForwardPower(0));
+		assertTrue(odinBreaks(cut), "and the reduction brings it in");
+	}
+
+	@Test
+	void odinsTwoClausesAreNoLongerDescribedAsTwoBreaks() {
+		assertEquals("ChooseCharacter / BreakIfPower(7000-) | IfControl(1+ Class Zero Cadet Forward: Break)",
+				ActionResolver.fullDescription(ODIN_BREAK_SUMMON, null));
+	}
+
+	@Test
+	void andAJobNameIsReadApartFromTheTypeNounAfterIt() {
+		// Odin's condition exposed this, but it is not Odin's: the Job group ends on a lookahead
+		// and so consumed no space, leaving the type group to start at one and fail. The lazy Job
+		// group then backtracked over the noun, and 36 printings of "if you control a Job X
+		// Forward" asked for a Job no card has.
+		//
+		// Asserted on the parts rather than on the rendering, because the singular form renders
+		// identically either way — "1+ Class Zero Cadet Forward" whether the noun is the type or
+		// the tail of the Job name, which is why nothing caught it.
+		ControlCondition singular = CardData.parseControlCondition("a Job Class Zero Cadet Forward");
+		assertNotNull(singular);
+		assertEquals("Class Zero Cadet", singular.job(), "the noun is not part of the Job name");
+		assertEquals("Forward", singular.cardType());
+
+		ControlCondition plural = CardData.parseControlCondition("2 or more Job Standard Unit Backups");
+		assertNotNull(plural);
+		assertEquals("Standard Unit", plural.job());
+		assertEquals("Backup", plural.cardType());
+		assertEquals(2, plural.minCount());
+
+		// And a condition with no Job at all still reads its type from the same slot.
+		ControlCondition plain = CardData.parseControlCondition("a Fire Forward");
+		assertNotNull(plain);
+		assertNull(plain.job());
+		assertEquals("Forward", plain.cardType());
+		assertEquals("Fire", plain.element());
+	}
+
+	// =========================================================================================
 
 }
