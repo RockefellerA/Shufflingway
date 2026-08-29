@@ -3165,9 +3165,14 @@ public record CardData(
      * Matches "When [CardName] or your [Element] Summon deals damage to a Forward, [effect]".
      * Produces two {@link AutoAbility} entries: one for the named card's battle damage and one
      * for the element-typed Summon's ability damage (e.g. Ramuh + Lightning Summon).
+     *
+     * <p>The card group admits one comma-joined epithet on the same terms as
+     * {@link #AUTO_ABILITY_PATTERN}'s, and for the same reason: 14-090R Ramuh, Lord of Levin is
+     * the only printing of this shape in the corpus, so a subject that could not cross a comma
+     * meant this pass had never once fired.
      */
     private static final Pattern BREAKTOUCH_SUMMON_PATTERN = Pattern.compile(
-        "(?i)When\\s+(?<card>[^,]+?)\\s+or\\s+your\\s+(?<element>\\w+)\\s+Summon\\s+deals?\\s+damage\\s+to\\s+a\\s+Forward\\s*,\\s+" +
+        "(?i)When\\s+(?<card>[^,]+?(?:,\\s+[^,.\"]+?)?)\\s+or\\s+your\\s+(?<element>\\w+)\\s+Summon\\s+deals?\\s+damage\\s+to\\s+a\\s+Forward\\s*,\\s+" +
         "(?<effect>.+?)\\s*" +
         "(?=\\s*\\[\\[br\\]\\]|\\s*When\\s+[^,]+?\\s+(?:attacks?|blocks?|enters?|leaves?|is\\s+(?:put|removed)|deals?)|\\s*(?:《[^》]+》)+\\s*:|\\s*$)",
         Pattern.DOTALL
@@ -3263,6 +3268,22 @@ public record CardData(
     private static final Pattern FA_BZ_HAVE_CONDITION = Pattern.compile(
         "(?i)^if\\s+you\\s+have\\s+a\\s+Card\\s+Name\\s+(?<bzCard>.+?)" +
         "(?:\\s+with\\s+Job\\s+(?<bzJob>.+?))?\\s+in\\s+your\\s+Break\\s+Zone,\\s+"
+    );
+
+    /**
+     * Matches "select N [spec]. You may put it into the Break Zone. When/If you do so, [sub]" —
+     * 14-011H Susano, Lord of the Revel and 14-061H Calbrena.
+     *
+     * <p>The same act the canonical "put N [spec] into the Break Zone. When you do so, [sub]"
+     * describes, split across two sentences with the option stated inline. Normalised into that
+     * form rather than given an executor of its own, so the one dispatcher and its selection,
+     * decline prompt and AI handling serve both wordings.
+     * Groups: {@code spec} — everything the selection filters on; {@code sub} — the payoff.
+     */
+    private static final Pattern FA_SELECT_MAY_PUT_INTO_BZ = Pattern.compile(
+        "(?i)^select\\s+(?<spec>\\d+\\s+.+?)[.,]\\s*You\\s+may\\s+put\\s+it\\s+into\\s+the\\s+Break\\s+Zone[.,]\\s*" +
+        "(?:When|If)\\s+you\\s+do\\s+so[,.]?\\s*(?<sub>.+?)\\s*$",
+        Pattern.DOTALL
     );
 
     /**
@@ -3635,6 +3656,35 @@ public record CardData(
         // AUTO_ABILITY_PATTERN's (?<card>[^,]+?) group captures the full disjunction as one subject.
         textForSearch = expandMultiSubjectTriggers(textForSearch);
 
+        // "When [CardName] or your [Element] Summon deals damage to a Forward, [effect]" — two
+        // AutoAbility entries sharing one effect: the named card's battle damage, and any Summon
+        // of that Element dealing ability damage. 14-090R Ramuh, Lord of Levin is the only
+        // printing.
+        //
+        // Read before the general pass and its match stripped, the way the primes-into and
+        // enters-or-phase passes above are. The compound subject is a single "When …," sentence,
+        // so the general pattern matches it too — taking "Ramuh, Lord of Levin or your Lightning
+        // Summon" as one subject name that no card on the field can ever equal, and leaving the
+        // Summon half with no trigger at all. Stripping settles it here rather than leaving two
+        // passes to disagree.
+        Matcher sm = BREAKTOUCH_SUMMON_PATTERN.matcher(textForSearch);
+        StringBuffer breaktouchBuf = new StringBuffer();
+        while (sm.find()) {
+            String card    = sm.group("card").trim();
+            String element = sm.group("element").trim();
+            String elemCap = Character.toUpperCase(element.charAt(0)) + element.substring(1).toLowerCase(Locale.ROOT);
+            String effect  = SUMMON_MARKUP.matcher(sm.group("effect").trim()).replaceAll("").trim();
+            if (effect.isEmpty()) continue;
+            AutoAbility fa1 = parseAutoAbilityRestrictions(card, "deals damage to forward", false, false, false, false, effect, 0);
+            if (fa1 != null) result.add(fa1);
+            String summonTrigger = elemCap.toLowerCase(Locale.ROOT) + " summon deals damage to forward";
+            AutoAbility fa2 = parseAutoAbilityRestrictions(card, summonTrigger, false, false, false, false, effect, 0);
+            if (fa2 != null) result.add(fa2);
+            sm.appendReplacement(breaktouchBuf, "");
+        }
+        sm.appendTail(breaktouchBuf);
+        textForSearch = breaktouchBuf.toString();
+
         Matcher m = AUTO_ABILITY_PATTERN.matcher(textForSearch);
         while (m.find()) {
             String card      = m.group("card").trim();
@@ -3792,22 +3842,6 @@ public record CardData(
             if (effect.isEmpty()) continue;
             AutoAbility fa = parseAutoAbilityRestrictions(target, "warp counter removed", youMay, opponentMay, false, false, effect, 0);
             if (fa != null) result.add(fa);
-        }
-
-        // Fourth pass: "When [CardName] or your [Element] Summon deals damage to a Forward, [effect]"
-        // Produces two AutoAbility entries: battle-damage trigger and element-summon trigger.
-        Matcher sm = BREAKTOUCH_SUMMON_PATTERN.matcher(textForSearch);
-        while (sm.find()) {
-            String card    = sm.group("card").trim();
-            String element = sm.group("element").trim();
-            String elemCap = Character.toUpperCase(element.charAt(0)) + element.substring(1).toLowerCase(Locale.ROOT);
-            String effect  = SUMMON_MARKUP.matcher(sm.group("effect").trim()).replaceAll("").trim();
-            if (effect.isEmpty()) continue;
-            AutoAbility fa1 = parseAutoAbilityRestrictions(card, "deals damage to forward", false, false, false, false, effect, 0);
-            if (fa1 != null) result.add(fa1);
-            String summonTrigger = elemCap.toLowerCase(Locale.ROOT) + " summon deals damage to forward";
-            AutoAbility fa2 = parseAutoAbilityRestrictions(card, summonTrigger, false, false, false, false, effect, 0);
-            if (fa2 != null) result.add(fa2);
         }
 
         // Fifth pass: "At the beginning of the Attack Phase during each of your turns, [effect]"
@@ -4072,6 +4106,18 @@ public record CardData(
         }
 
         if (effect.isEmpty()) return null;
+        // "select 1 Backup you control. You may put it into the Break Zone. When you do so, …" is
+        // the canonical put-into-Break-Zone shape with the option stated inline. Rewritten to that
+        // shape so the existing dispatcher reads it, and the inline "you may" lifted onto the
+        // ability, which is where the decline prompt is read from. Done here, beside the opposite
+        // adjustment below, because both are the same act: settling optionality between the
+        // ability and its effect text.
+        Matcher selMayBz = FA_SELECT_MAY_PUT_INTO_BZ.matcher(effect);
+        if (selMayBz.matches()) {
+            effect = "put " + selMayBz.group("spec").trim() + " into the Break Zone. When you do so, "
+                    + selMayBz.group("sub").trim();
+            youMay = true;
+        }
         // "You may pay 《X》. If you don't pay 《X》, …" — the "you may" belongs to the cost, not to the
         // ability: the gate itself asks whether to pay, and the consequence lands either way. Left as
         // an optional ability, declining the prompt would skip the consequence too.

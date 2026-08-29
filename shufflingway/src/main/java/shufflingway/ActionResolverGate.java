@@ -279,6 +279,91 @@ final class ActionResolverGate {
     }
 
     /**
+     * Parses "&lt;base&gt;. If you have cast &lt;n&gt; or more cards this turn, &lt;tail&gt;." —
+     * the trailing form of the cast-count condition, where the base always resolves and the tail is
+     * added, or substituted for the base's last clause when it ends in "instead".
+     *
+     * <p>Built like {@link #tryParseCastPaymentElementsGate}, whose shape this is, and settled in
+     * the same place for the same reason: the condition is the last sentence of the text, so every
+     * parser below matched the base under {@code find()}, claimed the whole ability and dropped the
+     * condition. 12-039C Alexander drew one card however many had been cast.
+     *
+     * <p>Read after {@link ActionResolverPatterns#FOLLOWUP_DAMAGE_INSTEAD}'s cards, which state the
+     * same condition inside a choose followup and already resolve it per target — this declines a
+     * text that one claims rather than taking it onto a second route to the same answer.
+     *
+     * <p>Returns {@code null} when either half fails to parse, so an unsupported wording falls
+     * through to the regular matchers rather than losing the base effect.
+     */
+    static Consumer<GameContext> tryParseCastCountGate(String text, CardData source, int xValue) {
+        String trimmed = text.trim();
+        Matcher m = CAST_COUNT_GATE.matcher(trimmed);
+        if (!m.matches()) return null;
+        // The damage-instead family reads this condition where it is printed, inside the followup,
+        // and picks the amount as it damages. Leaving those cards on it keeps one route per shape.
+        Matcher dmgInstead = FOLLOWUP_DAMAGE_INSTEAD.matcher(trimmed);
+        if (dmgInstead.find() && parseDamageInsteadCondition(dmgInstead.group("cond").trim()) != null)
+            return null;
+
+        int    required = Integer.parseInt(m.group("count"));
+        String baseText = m.group("base").trim();
+        String tailText = m.group("tail").trim();
+
+        Consumer<GameContext> baseFn = parse(baseText, source, xValue);
+        if (baseFn == null) return null;
+
+        String label = "cast " + required + " or more cards this turn";
+
+        Matcher inst = CAST_PAYMENT_ELEMENTS_TAIL_INSTEAD.matcher(tailText);
+        if (inst.matches()) {
+            String altText = castCountInsteadVariant(baseText, inst.group("alt").trim(), source);
+            Consumer<GameContext> altFn = altText == null
+                    ? null : parse(gateTailText(altText, source, xValue), source, xValue);
+            if (altFn == null) return null;
+            return ctx -> {
+                int cast = ctx.selfCardsCastThisTurn();
+                if (cast >= required) {
+                    ctx.logEntry("Effect: " + label + " (cast " + cast
+                            + ") — replacement effect applies instead");
+                    altFn.accept(ctx);
+                } else {
+                    baseFn.accept(ctx);
+                }
+            };
+        }
+
+        Consumer<GameContext> tailFn = parse(gateTailText(tailText, source, xValue), source, xValue);
+        if (tailFn == null) return null;
+        return ctx -> {
+            baseFn.accept(ctx);
+            int cast = ctx.selfCardsCastThisTurn();
+            if (cast >= required) {
+                ctx.logEntry("Effect: " + label + " (cast " + cast + ") — condition met");
+                tailFn.accept(ctx);
+            } else {
+                ctx.logEntry("Effect: " + label + " — cast " + cast + ", condition not met — skipped");
+            }
+        };
+    }
+
+    /**
+     * The replacement text for a cast-count gate's "… instead" tail: the alternative takes the
+     * place of the base's final sentence, or of the whole base when that is the only sentence
+     * there is.
+     *
+     * <p>{@link #insteadVariant} answers {@code null} for a single-sentence base, because for its
+     * own family that means there is an earlier clause the caller must keep and cannot find. This
+     * family has printings where there genuinely is nothing to keep — 12-039C Alexander's whole
+     * effect is "Draw 1 card", and "draw 2 cards instead" replaces it outright — so a null there
+     * is the substitution rather than a reason to give up.
+     */
+    static String castCountInsteadVariant(String baseText, String alt, CardData source) {
+        String swapped = insteadVariant(baseText, alt, source);
+        if (swapped != null) return swapped;
+        return Character.toUpperCase(alt.charAt(0)) + alt.substring(1) + ".";
+    }
+
+    /**
      * Parses "If the cost to play/cast &lt;Self&gt; was paid with CP of exactly &lt;n&gt; different
      * Elements, &lt;effect&gt;." — 7-029H Kefka and 9-021R Varis.
      *

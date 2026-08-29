@@ -249,6 +249,23 @@ public final class CardFilters {
         };
     }
 
+    /**
+     * Whether {@code condition} is the Limit Break filter — "Choose 1 Forward with 《LB》 of cost 6
+     * or less" (26-087R Odin, the only printing).
+     *
+     * <p>Carried in the condition string rather than as another flag on the twenty-argument
+     * selection call, and read beside the Multicard exclusion in each eligibility quadrant: like
+     * that one it asks about the printing rather than about the card's state, so
+     * {@link #meetsTargetCondition} — which answers about state — passes it through on its
+     * {@code default} arm and the real test is made where the card itself is in hand.
+     */
+    public static boolean isLimitBreakCondition(String condition) {
+        return LIMIT_BREAK_CONDITION.equalsIgnoreCase(condition);
+    }
+
+    /** The condition string {@link #isLimitBreakCondition} recognises. */
+    public static final String LIMIT_BREAK_CONDITION = "limit break";
+
     /** Returns true when {@code condition} is a blocking-target filter ("blocking:..." or "blocking-job:..."). */
     public static boolean isBlockingTargetFilter(String condition) {
         if (condition == null) return false;

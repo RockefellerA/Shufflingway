@@ -282,6 +282,49 @@ final class ActionResolverFieldAbility {
     }
 
     /**
+     * Parses 14-062L Titan, Lord of Crags: "Break all the Forwards with power less than [Self].
+     * When N or more Forwards are put from the field into the Break Zone by this effect, [Self]
+     * deals your opponent M point(s) of damage."
+     *
+     * <p>Kept out of the general mass-effect parser because its filter is a comparison against a
+     * card on the field rather than a printed value, and because the payoff counts what the sweep
+     * did. {@code applyMassFieldEffect} can express neither, which is why
+     * {@link #tryParseAllFieldEffect} refuses a power filter instead of dropping it.
+     *
+     * <p>Self-named in both halves: the threshold is the carrier's own power and the damage is
+     * dealt by the carrier, so a text naming another card is declined rather than quietly applied
+     * to whatever printed it.
+     *
+     * <p><b>Must precede {@link #tryParseAllFieldEffect} in every dispatch chain.</b> That one now
+     * declines this text, so the order is not load-bearing for correctness — but a future widening
+     * that made it accept a power filter would silently take this back.
+     */
+    static Consumer<GameContext> tryParseBreakForwardsBelowSelfPower(String text, CardData source) {
+        if (source == null) return null;
+        Matcher m = BREAK_FORWARDS_BELOW_SELF_POWER.matcher(text.trim());
+        if (!m.matches()) return null;
+        if (!m.group("card").trim().equalsIgnoreCase(source.name())) return null;
+
+        boolean hasPayoff = m.group("threshold") != null;
+        if (hasPayoff && !m.group("dmgcard").trim().equalsIgnoreCase(source.name())) return null;
+        int threshold = hasPayoff ? Integer.parseInt(m.group("threshold")) : 0;
+        int amount    = hasPayoff ? Integer.parseInt(m.group("amount"))    : 0;
+
+        return ctx -> {
+            int broken = ctx.breakForwardsWithPowerBelow(source);
+            if (!hasPayoff) return;
+            if (broken < threshold) {
+                ctx.logEntry("Effect: " + broken + " Forward(s) broken — fewer than " + threshold
+                        + ", no damage dealt");
+                return;
+            }
+            ctx.logEntry("Effect: " + broken + " Forward(s) broken — " + source.name()
+                    + " deals your opponent " + amount + " point(s) of damage");
+            ctx.dealDamageToOpponent(amount);
+        };
+    }
+
+    /**
      * Parses "[action] all [the] [element] [targets] [of cost X] [control]".
      *
      * <p>Supported actions: Break, dull, freeze, dull and freeze, Activate.
@@ -290,6 +333,10 @@ final class ActionResolverFieldAbility {
     static Consumer<GameContext> tryParseAllFieldEffect(String text) {
         Matcher m = ALL_FIELD_EFFECT_PATTERN.matcher(text);
         if (!m.find()) return null;
+        // A power filter is captured only so it can be refused here: applyMassFieldEffect has no
+        // power parameter to carry it, and honouring the sweep without it is the board wipe this
+        // guard exists to prevent. tryParseBreakForwardsBelowSelfPower reads the one printing.
+        if (m.group("powercmp") != null) return null;
 
         String rawAction = m.group("action").toLowerCase().replaceAll("\\s+", " ");
         GameContext.MassAction action = switch (rawAction) {

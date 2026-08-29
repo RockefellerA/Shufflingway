@@ -109,6 +109,10 @@ final class ActionResolverDamage {
         int    costVal       = costStr != null ? Integer.parseInt(costStr) : -1;
         String costCmp       = m.group("costcmp");
         String excludeJob    = m.group("excludejob") != null ? m.group("excludejob").trim() : null;
+        // Exclusion by card name, not by Job — 14-011H Susano, Lord of the Revel spares itself and
+        // 4-083L Shantotto spares herself. Matched by name, so a second copy is spared too, which
+        // is what "all the Forwards other than Shantotto" says.
+        String excludeName   = m.group("excludename") != null ? m.group("excludename").trim() : null;
         boolean opponentOnly = m.group("opponent") != null;
         boolean unreduced    = CANNOT_BE_REDUCED_PATTERN.matcher(text).find();
 
@@ -119,7 +123,8 @@ final class ActionResolverDamage {
         return ctx -> {
             String condLabel   = condition  != null ? (condition + " ")   : "";
             String costLabel   = costVal >= 0 ? " of cost " + costVal + (costCmp != null ? " or " + costCmp : "") : "";
-            String exclLabel   = excludeJob != null ? " [not Job " + excludeJob + "]" : "";
+            String exclLabel   = excludeJob != null ? " [not Job " + excludeJob + "]"
+                    : excludeName != null ? " [not " + excludeName + "]" : "";
             boolean oppIsP2    = opponentOnly && ctx.isP1();   // ability owner is P1 → opponent is P2
             boolean oppIsP1    = opponentOnly && !ctx.isP1();  // ability owner is P2 → opponent is P1
             String scopeLabel  = opponentOnly ? "opponent's " : "all ";
@@ -132,8 +137,10 @@ final class ActionResolverDamage {
                 List<Integer> p2Targets = new ArrayList<>();
                 for (int i = 0; i < ctx.p2ForwardCount(); i++) {
                     CardData c = ctx.p2Forward(i);
+                    if (c == null) continue;
                     if (!meetsCostFilter(c.cost(), costVal, costCmp)) continue;
                     if (excludeJob != null && c.hasJob(excludeJob)) continue;
+                    if (excludeName != null && excludeName.equalsIgnoreCase(c.name())) continue;
                     if (meetsCondition(ctx.p2ForwardState(i), ctx.p2ForwardCurrentDamage(i),
                             ctx.isP2ForwardAttacking(i), ctx.isP2ForwardBlocking(i), condition))
                         p2Targets.add(i);
@@ -152,8 +159,10 @@ final class ActionResolverDamage {
                 List<Integer> p1Targets = new ArrayList<>();
                 for (int i = 0; i < ctx.p1ForwardCount(); i++) {
                     CardData c = ctx.p1Forward(i);
+                    if (c == null) continue;
                     if (!meetsCostFilter(c.cost(), costVal, costCmp)) continue;
                     if (excludeJob != null && c.hasJob(excludeJob)) continue;
+                    if (excludeName != null && excludeName.equalsIgnoreCase(c.name())) continue;
                     if (meetsCondition(ctx.p1ForwardState(i), ctx.p1ForwardCurrentDamage(i),
                             ctx.isP1ForwardAttacking(i), ctx.isP1ForwardBlocking(i), condition))
                         p1Targets.add(i);
@@ -169,6 +178,47 @@ final class ActionResolverDamage {
             if (afterDamage != null) afterDamage.accept(ctx);
         };
     }
+    /**
+     * Parses Shantotto 4-083L: "deal the same amount of damage to all the Forwards other than
+     * Shantotto." — the retaliation half of "When Shantotto is dealt damage".
+     *
+     * <p>Self-named, and the amount comes from {@code xValue}: the dispatcher puts the size of the
+     * damage instance that fired the trigger on the stack entry, because the card's text names it
+     * rather than stating it. An entry carrying nothing there resolves to no damage rather than to
+     * a guess.
+     *
+     * <p>Sweeps both sides, sparing every copy of the named card — "all the Forwards other than
+     * Shantotto", not "all the Forwards opponent controls". Highest index first within each side,
+     * because a Forward broken by the damage compacts its row.
+     */
+    static Consumer<GameContext> tryParseDealSameAmountToAllForwardsExcept(
+            String text, CardData source, int xValue) {
+        if (source == null) return null;
+        Matcher m = DEAL_SAME_AMOUNT_TO_ALL_FORWARDS_EXCEPT.matcher(text.trim());
+        if (!m.matches()) return null;
+        String excluded = m.group("card").trim();
+        if (!excluded.equalsIgnoreCase(source.name())) return null;
+
+        return ctx -> {
+            if (xValue <= 0) {
+                ctx.logEntry("Effect: " + source.name()
+                        + " — no damage recorded for this trigger, nothing dealt");
+                return;
+            }
+            ctx.logEntry("Effect: Deal " + xValue + " damage to all Forwards other than " + excluded);
+            for (int i = ctx.p2ForwardCount() - 1; i >= 0; i--) {
+                CardData c = ctx.p2Forward(i);
+                if (c == null || excluded.equalsIgnoreCase(c.name())) continue;
+                ctx.damageP2Forward(i, xValue);
+            }
+            for (int i = ctx.p1ForwardCount() - 1; i >= 0; i--) {
+                CardData c = ctx.p1Forward(i);
+                if (c == null || excluded.equalsIgnoreCase(c.name())) continue;
+                ctx.damageP1Forward(i, xValue);
+            }
+        };
+    }
+
     static Consumer<GameContext> tryParseDealDamageToForwardsExceptElement(String text) {
         Matcher m = DEAL_DAMAGE_TO_FORWARDS_EXCEPT_ELEMENT.matcher(text);
         if (!m.find() || m.start() != 0) return null;

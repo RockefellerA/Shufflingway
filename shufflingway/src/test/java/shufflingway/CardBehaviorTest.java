@@ -36745,4 +36745,546 @@ public class CardBehaviorTest {
 
 	// =========================================================================================
 
+	// =========================================================================================
+	// EX Burst resolution — the flag has to reach the effect.
+	//
+	// Two routes put an EX Burst on the Stack rather than resolving it inline: a card added to
+	// hand whose Burst is offered, and one picked out of the Damage Zone. Both built the context
+	// with the flag off, so "If [name] results from an EX Burst, … instead." resolved as though it
+	// had not been one — 7-005C Ifrit dealt 7000 off its own Burst rather than 8000. The direct
+	// damage-zone path had always passed it; only the Stack route had not.
+	// =========================================================================================
+
+	@Test
+	void anExBurstResolvingOffTheStackKnowsItIsOne() {
+		MainWindow mw = new MainWindow();
+		CardData ifrit = makeForward("Ifrit", "Fire", 2, 0);
+		mw.gameState.pushStack(new StackEntry(ifrit, true, true));
+
+		assertTrue(mw.buildGameContext(true, mw.gameState.peekStack().isExBurstEntry()).isExBurst(),
+				"the entry carries the flag; the context has to be built from it");
+	}
+
+	@Test
+	void andAnOrdinaryStackEntryStillDoesNot() {
+		MainWindow mw = new MainWindow();
+		CardData ifrit = makeForward("Ifrit", "Fire", 2, 0);
+		mw.gameState.pushStack(new StackEntry(ifrit, true, false));
+
+		assertFalse(mw.buildGameContext(true, mw.gameState.peekStack().isExBurstEntry()).isExBurst());
+	}
+
+	@Test
+	void theExBurstBranchIsTakenWhenTheFlagIsSet() {
+		// The consumer side of the same fix: with the flag set the alternative runs, and without
+		// it the base does. Both readings are in the parsed effect either way.
+		CardData ifrit = makeForward("Ifrit", "Fire", 2, 0);
+		String text = "Choose 1 Forward. Deal it 7000 damage. "
+				+ "If Ifrit results from an EX Burst, deal it 8000 damage instead.";
+		ForwardTarget victim = new ForwardTarget(false, 0, ForwardTarget.CardZone.FORWARD);
+
+		GameContext burst = mock(GameContext.class);
+		when(burst.consumePreloadedTargets()).thenReturn(null);
+		when(burst.isExBurst()).thenReturn(true);
+		when(burst.selectCharacters(anyInt(), anyBoolean(), anyBoolean(), anyBoolean(), any(), any(),
+				anyInt(), any(), anyInt(), any(), anyBoolean(), anyBoolean(), anyBoolean(),
+				any(), any(), any(), any(), anyBoolean(), any(), anyBoolean()))
+				.thenReturn(List.of(victim));
+		ActionResolver.parse(text, ifrit).accept(burst);
+		verify(burst).damageTarget(victim, 8000);
+
+		GameContext plain = mock(GameContext.class);
+		when(plain.consumePreloadedTargets()).thenReturn(null);
+		when(plain.isExBurst()).thenReturn(false);
+		when(plain.selectCharacters(anyInt(), anyBoolean(), anyBoolean(), anyBoolean(), any(), any(),
+				anyInt(), any(), anyInt(), any(), anyBoolean(), anyBoolean(), anyBoolean(),
+				any(), any(), any(), any(), anyBoolean(), any(), anyBoolean()))
+				.thenReturn(List.of(victim));
+		ActionResolver.parse(text, ifrit).accept(plain);
+		verify(plain).damageTarget(victim, 7000);
+	}
+
+	// =========================================================================================
+	// 14-062L Titan, Lord of Crags: "Break all the Forwards with power less than Titan, Lord of
+	// Crags. When 5 or more Forwards are put from the field into the Break Zone by this effect,
+	// Titan, Lord of Crags deals your opponent 1 point of damage."
+	//
+	// The general mass-effect pattern matched "Break all the Forwards" and find() discarded the
+	// rest, so this resolved as a break of every Forward on the table — its controller's included,
+	// and Titan with them. The filter is a comparison against a card on the field and the payoff
+	// counts what the sweep did; applyMassFieldEffect can express neither, so that parser now
+	// refuses a power filter rather than dropping one.
+	// =========================================================================================
+
+	private static final String TITAN_ETF =
+			"break all the Forwards with power less than Titan, Lord of Crags. When 5 or more "
+			+ "Forwards are put from the field into the Break Zone by this effect, "
+			+ "Titan, Lord of Crags deals your opponent 1 point of damage.";
+
+	/** Titan on P1's field with {@code powers} seated opposite, one Forward each. */
+	private static MainWindow titanBoard(CardData titan, int... powers) {
+		MainWindow mw = new MainWindow();
+		placeP1Forward(mw, titan);
+		for (int i = 0; i < powers.length; i++)
+			placeP2Forward(mw, makeForward("Victim " + i, "Fire", 3, powers[i]));
+		return mw;
+	}
+
+	@Test
+	void titanBreaksOnlyWhatIsSmallerThanHeIs() {
+		CardData titan = makeForward("Titan, Lord of Crags", "Earth", 7, 9000);
+		MainWindow mw = titanBoard(titan, 7000, 9000, 11000);
+
+		Consumer<GameContext> effect = ActionResolver.parse(TITAN_ETF, titan);
+		assertNotNull(effect, "the printed wording has to parse for the rest of this to mean anything");
+		effect.accept(mw.buildGameContext(true));
+
+		List<String> left = mw.p2ForwardCards.stream().map(CardData::name).toList();
+		assertEquals(List.of("Victim 1", "Victim 2"), left,
+				"strictly less than: equal power survives, and so does greater");
+		assertTrue(mw.p1ForwardCards.contains(titan), "and Titan is not less than himself");
+	}
+
+	@Test
+	void andSweepsHisOwnSideToo() {
+		// "All the Forwards", not "all the Forwards opponent controls" — the card costs its
+		// controller their own small Forwards, which the general sweep got right by accident and
+		// the power filter has to keep getting right on purpose.
+		CardData titan = makeForward("Titan, Lord of Crags", "Earth", 7, 9000);
+		MainWindow mw = titanBoard(titan, 11000);
+		CardData ownSmall = makeForward("Own Small", "Earth", 2, 5000);
+		placeP1Forward(mw, ownSmall);
+
+		ActionResolver.parse(TITAN_ETF, titan).accept(mw.buildGameContext(true));
+
+		assertFalse(mw.p1ForwardCards.contains(ownSmall), "his own side is not spared");
+		assertTrue(mw.p1ForwardCards.contains(titan));
+	}
+
+	@Test
+	void andTakesAPointOffTheOpponentOnlyOnFiveOrMore() {
+		// Read off what the sweep reports rather than off the Damage Zone: dealing a point of
+		// damage runs through the reveal animation and lands on a Swing timer, so the zone is
+		// still empty when this returns. What the payoff turns on is the count.
+		CardData titan = makeForward("Titan, Lord of Crags", "Earth", 7, 9000);
+		Consumer<GameContext> effect = ActionResolver.parse(TITAN_ETF, titan);
+
+		GameContext four = mock(GameContext.class);
+		when(four.breakForwardsWithPowerBelow(titan)).thenReturn(4);
+		effect.accept(four);
+		verify(four, never()).dealDamageToOpponent(anyInt());
+
+		GameContext five = mock(GameContext.class);
+		when(five.breakForwardsWithPowerBelow(titan)).thenReturn(5);
+		effect.accept(five);
+		verify(five).dealDamageToOpponent(1);
+	}
+
+	@Test
+	void theGeneralSweepNoLongerClaimsAPowerFilterItCannotHonour() {
+		// The guard that makes the ordering above safe rather than lucky. Without it, a reordering
+		// or a widening puts the board wipe straight back.
+		assertNull(ActionResolverFieldAbility.tryParseAllFieldEffect(
+				"break all the Forwards with power less than Titan, Lord of Crags."),
+				"refused, not honoured without the filter");
+	}
+
+	@Test
+	void titansSweepOnlyAnswersForTheCardThatPrintsIt() {
+		// The threshold is the carrier's own power, so a text naming another card is not this
+		// parser's. What the rest of the chain then makes of the leftover sentence is its own
+		// business — no printing in the corpus has this wording under a different name.
+		assertNull(ActionResolverFieldAbility.tryParseBreakForwardsBelowSelfPower(
+				TITAN_ETF, makeForward("Someone Else", "Earth", 7, 9000)));
+		assertNotNull(ActionResolverFieldAbility.tryParseBreakForwardsBelowSelfPower(
+				TITAN_ETF, makeForward("Titan, Lord of Crags", "Earth", 7, 9000)));
+	}
+
+	// =========================================================================================
+	// 14-090R Ramuh, Lord of Levin and 14-011H Susano, Lord of the Revel — two triggers that the
+	// comma fix made visible and that then needed wiring of their own.
+	// =========================================================================================
+
+	@Test
+	void ramuhGetsBothHalvesOfHisCompoundTrigger() {
+		// "When Ramuh, Lord of Levin or your Lightning Summon deals damage to a Forward, break it."
+		// is one sentence describing two triggers. BREAKTOUCH_SUMMON_PATTERN was written for it and
+		// had never once fired — its subject group could not cross the comma in his name — so the
+		// general pass claimed the sentence and made "Ramuh, Lord of Levin or your Lightning
+		// Summon" a single subject name that nothing on the field can equal.
+		CardData ramuh = makeAutoAbilityForward("Ramuh, Lord of Levin", "Lightning", 9000,
+				"When Ramuh, Lord of Levin or your Lightning Summon deals damage to a Forward, break it.");
+
+		List<AutoAbility> abilities = ramuh.autoAbilities();
+		assertEquals(2, abilities.size(), "one sentence, two triggers");
+		for (AutoAbility a : abilities)
+			assertEquals("Ramuh, Lord of Levin", a.triggerCard(),
+					"both are his, and the dispatcher matches this against his name");
+		List<String> triggers = abilities.stream().map(AutoAbility::trigger).sorted().toList();
+		assertEquals(List.of("deals damage to forward", "lightning summon deals damage to forward"),
+				triggers);
+	}
+
+	@Test
+	void susanoReadsAsThePutIntoBreakZoneShapeHeIs() {
+		// "select 1 Backup you control. You may put it into the Break Zone. When you do so, …" is
+		// the canonical shape with the option stated inline. Normalised onto it so the existing
+		// dispatcher — with its selection, decline prompt and AI handling — serves both wordings.
+		CardData susano = makeAutoAbilityForward("Susano, Lord of the Revel", "Fire", 8000,
+				"When Susano, Lord of the Revel enters the field, select 1 Backup you control. "
+				+ "You may put it into the Break Zone. When you do so, deal 9000 damage to all the "
+				+ "Forwards other than Susano, Lord of the Revel.");
+
+		AutoAbility etf = susano.autoAbilities().get(0);
+		assertTrue(etf.effectText().startsWith("put 1 Backup you control into the Break Zone."),
+				"rewritten onto the shape the dispatcher reads: " + etf.effectText());
+		assertTrue(etf.youMay(), "the inline \"You may\" is lifted onto the ability");
+		assertTrue(AutoAbilityTriggers.dispatchedByTriggers(etf, susano),
+				"and the dispatcher now claims it");
+	}
+
+	@Test
+	void aMassDamageSweepSparesTheCardItNames() {
+		// "all the Forwards other than Susano" — find() ended at "Forwards" and dropped the
+		// clause, so Susano dealt his own 9000 to himself along with everything else.
+		CardData susano = makeForward("Susano, Lord of the Revel", "Fire", 6, 8000);
+		MainWindow mw = new MainWindow();
+		placeP1Forward(mw, susano);
+		CardData bystander = makeForward("Bystander", "Fire", 3, 7000);
+		placeP2Forward(mw, bystander);
+
+		ActionResolver.parse(
+				"deal 9000 damage to all the Forwards other than Susano, Lord of the Revel.", susano)
+				.accept(mw.buildGameContext(true));
+
+		assertTrue(mw.p1ForwardCards.contains(susano), "he is the one Forward the sweep skips");
+		assertFalse(mw.p2ForwardCards.contains(bystander), "everything else takes it");
+	}
+
+	// =========================================================================================
+
+	// =========================================================================================
+	// 4-083L Shantotto: "When Shantotto is dealt damage, deal the same amount of damage to all the
+	// Forwards other than Shantotto. If a Forward damaged by this ability is put into the Break
+	// Zone this turn, remove it from the game instead."
+	//
+	// Two things the fixed-amount mass-damage family cannot express. "The same amount" is the blow
+	// she has just taken — a number the text never states — so it travels from the damage event on
+	// the stack entry, the field that already means "the number this activation supplied". And her
+	// rider is one sentence of an auto ability rather than a field ability of its own, so the
+	// remove-from-game replacement had nowhere to be read from.
+	// =========================================================================================
+
+	private static final String SHANTOTTO_ETF =
+			"deal the same amount of damage to all the Forwards other than Shantotto. "
+			+ "If a Forward damaged by this ability is put into the Break Zone this turn, "
+			+ "remove it from the game instead.";
+
+	@Test
+	void shantottoDealsBackWhateverSheWasDealt() {
+		CardData shantotto = makeForward("Shantotto", "Earth", 6, 9000);
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.p2ForwardCount()).thenReturn(2);
+		when(ctx.p2Forward(0)).thenReturn(makeForward("Victim A", "Fire", 3, 7000));
+		when(ctx.p2Forward(1)).thenReturn(makeForward("Victim B", "Fire", 3, 7000));
+
+		// 4000 is what the trigger supplied, not anything in the card's text.
+		ActionResolver.parse(SHANTOTTO_ETF, shantotto, 4000).accept(ctx);
+
+		verify(ctx).damageP2Forward(0, 4000);
+		verify(ctx).damageP2Forward(1, 4000);
+	}
+
+	@Test
+	void andSparesHerselfOnBothSidesOfTheTable() {
+		CardData shantotto = makeForward("Shantotto", "Earth", 6, 9000);
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.p1ForwardCount()).thenReturn(2);
+		when(ctx.p1Forward(0)).thenReturn(shantotto);
+		when(ctx.p1Forward(1)).thenReturn(makeForward("Ally", "Earth", 3, 7000));
+		when(ctx.p2ForwardCount()).thenReturn(1);
+		when(ctx.p2Forward(0)).thenReturn(makeForward("Shantotto", "Earth", 6, 9000));
+
+		ActionResolver.parse(SHANTOTTO_ETF, shantotto, 4000).accept(ctx);
+
+		verify(ctx, never()).damageP1Forward(eq(0), anyInt());
+		verify(ctx).damageP1Forward(1, 4000);
+		verify(ctx, never()).damageP2Forward(eq(0), anyInt());
+	}
+
+	@Test
+	void andDealsNothingWhenTheTriggerSuppliedNoAmount() {
+		// A guess would be worse than nothing: the amount is the whole of what the card says.
+		CardData shantotto = makeForward("Shantotto", "Earth", 6, 9000);
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.p2ForwardCount()).thenReturn(1);
+		when(ctx.p2Forward(0)).thenReturn(makeForward("Victim", "Fire", 3, 7000));
+
+		ActionResolver.parse(SHANTOTTO_ETF, shantotto, 0).accept(ctx);
+
+		verify(ctx, never()).damageP2Forward(anyInt(), anyInt());
+	}
+
+	@Test
+	void shantottosRiderIsReadOffTheAutoAbilityItLivesIn() {
+		// 14-011H Susano prints the same replacement as a field ability naming himself; she prints
+		// it as a sentence inside the auto ability, saying "this ability". Both describe one
+		// continuous replacement read as the damaged Forward leaves the field.
+		CardData shantotto = makeAutoAbilityForward("Shantotto", "Earth", 9000,
+				"When Shantotto is dealt damage, " + SHANTOTTO_ETF);
+
+		assertTrue(AutoAbilityTriggers.hasDamagedBySelfFieldToBzRfg(shantotto),
+				"the replacement has to be findable, or a Forward she kills goes to the Break Zone");
+	}
+
+	@Test
+	void aCardWithNoSuchRiderIsNotGivenOne() {
+		assertFalse(AutoAbilityTriggers.hasDamagedBySelfFieldToBzRfg(
+				makeAutoAbilityForward("Plain", "Earth", 7000,
+						"When Plain is dealt damage, deal 1000 damage to all the Forwards.")));
+	}
+
+	@Test
+	void theDamageThatFiredTheTriggerReachesTheEffect() {
+		// The whole path: the dispatcher takes the size of the blow, puts it on the stack entry,
+		// and resolution hands it to the parser. The dispatcher's own record is unwound the moment
+		// the ability is pushed — long before it resolves — which is why the entry has to carry it.
+		CardData shantotto = makeAutoAbilityForward("Shantotto", "Earth", 9000,
+				"When Shantotto is dealt damage, " + SHANTOTTO_ETF);
+		MainWindow mw = new MainWindow();
+		placeP1Forward(mw, shantotto);
+		placeP2Forward(mw, makeForward("Attacker", "Fire", 3, 7000));
+
+		mw.autoAbilityTriggers.fireIsDealtDamageTriggers(shantotto, true, 4000);
+
+		assertEquals(4000, mw.p2ForwardDamage.get(0),
+				"she dealt back exactly what she was dealt");
+		assertEquals(0, mw.lastDealtDamageAmount,
+				"and the dispatcher's record is unwound again afterwards");
+	}
+
+	// =========================================================================================
+	// Coverage reporting — abilities that DamageResolver dispatches.
+	//
+	// dispatchedByTriggers exists so the reports do not call a working card unimplemented. It knew
+	// about Gulool Ja Ja 27-007H's echo but not about Breaktouch, whose "break it." carries no
+	// target of its own — "it" is the card just damaged, which only the damage event knows — so
+	// parse() answers null and 14-090R Ramuh, Lord of Levin read as unimplemented while he had been
+	// breaking Forwards all along.
+	// =========================================================================================
+
+	@Test
+	void breaktouchCountsAsDispatchedRatherThanUnimplemented() {
+		CardData ramuh = makeAutoAbilityForward("Ramuh, Lord of Levin", "Lightning", 9000,
+				"When Ramuh, Lord of Levin or your Lightning Summon deals damage to a Forward, break it.");
+
+		for (AutoAbility a : ramuh.autoAbilities()) {
+			assertNull(ActionResolver.parse(a.effectText(), ramuh),
+					"\"break it.\" names no target — parse() cannot read it, and should not");
+			assertTrue(AutoAbilityTriggers.dispatchedByTriggers(a, ramuh),
+					"but DamageResolver resolves it: " + a.trigger());
+		}
+	}
+
+	@Test
+	void butOnlyOnTheTriggersDamageResolverAnswersTo() {
+		// "break it." hanging off any other trigger reaches no executor at all. Claiming it on the
+		// strength of two words would report a card as working when nothing runs it.
+		CardData impostor = makeAutoAbilityForward("Impostor", "Fire", 7000,
+				"When Impostor attacks, break it.");
+
+		for (AutoAbility a : impostor.autoAbilities())
+			assertFalse(AutoAbilityTriggers.dispatchedByTriggers(a, impostor),
+					"nothing dispatches a Breaktouch that is not on a damage trigger");
+	}
+
+	// =========================================================================================
+
+	// =========================================================================================
+	// The cast-count condition stated as a trailing sentence: "<base>. If you have cast N or more
+	// cards this turn, <tail> [instead]."
+	//
+	// IF_CAST_AT_LEAST is anchored at the head and only claims printings whose whole effect is the
+	// gate. Stated after an effect that has already resolved, the condition was the last sentence
+	// of the text — so every parser below matched the base under find(), claimed the whole ability
+	// and dropped it. 12-039C Alexander drew one card whatever had been cast.
+	// =========================================================================================
+
+	private static final String ALEXANDER_SUMMON =
+			"Draw 1 card. If you have cast 4 or more cards this turn, draw 2 cards instead.";
+
+	/** A context whose only interesting answer is how many cards were cast this turn. */
+	private static GameContext castCountCtx(int cast) {
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.selfCardsCastThisTurn()).thenReturn(cast);
+		when(ctx.consumePreloadedTargets()).thenReturn(null);
+		return ctx;
+	}
+
+	@Test
+	void alexanderDrawsOneUnderTheThreshold() {
+		CardData alexander = makeForward("Alexander", "Earth", 2, 0);
+		GameContext ctx = castCountCtx(3);
+
+		ActionResolver.parse(ALEXANDER_SUMMON, alexander).accept(ctx);
+
+		verify(ctx).drawCards(1);
+		verify(ctx, never()).drawCards(2);
+	}
+
+	@Test
+	void andTwoAtIt() {
+		CardData alexander = makeForward("Alexander", "Earth", 2, 0);
+		GameContext ctx = castCountCtx(4);
+
+		ActionResolver.parse(ALEXANDER_SUMMON, alexander).accept(ctx);
+
+		verify(ctx).drawCards(2);
+		verify(ctx, never()).drawCards(1);
+	}
+
+	@Test
+	void aWholeBaseIsReplacedByTheAlternativeRatherThanKept() {
+		// "instead" normally swaps the base's final sentence and keeps what came before it. Here
+		// there is nothing before it — the base is one sentence — which the shared helper reports
+		// as "no earlier clause to keep". For this family that is the substitution, not a reason
+		// to decline: drawing 1 and then 2 would be drawing three cards.
+		assertEquals("Draw 2 cards.",
+				ActionResolverGate.castCountInsteadVariant("Draw 1 card.", "draw 2 cards",
+						makeForward("Alexander", "Earth", 2, 0)));
+	}
+
+	@Test
+	void anAdditiveTailIsAddedRatherThanSubstituted() {
+		// 21-052R Niini: "…also draw 1 card" with no "instead" — the base always happens and the
+		// tail is extra when the count is met.
+		CardData niini = makeForward("Niini", "Wind", 2, 5000);
+		String text = "Look at the top card of your deck. You may place the card at the bottom of "
+				+ "your deck. If you have cast 3 or more cards this turn, also draw 1 card.";
+		Consumer<GameContext> effect = ActionResolver.parse(text, niini);
+		assertNotNull(effect);
+
+		GameContext under = castCountCtx(2);
+		effect.accept(under);
+		verify(under, never()).drawCards(anyInt());
+
+		GameContext over = castCountCtx(3);
+		effect.accept(over);
+		verify(over).drawCards(1);
+	}
+
+	@Test
+	void theDamageInsteadFamilyKeepsItsOwnRoute() {
+		// 16-001R Vaan states the same condition inside a choose followup and already resolves it
+		// as it damages. Two routes to one answer is how an ordering mistake starts, so the
+		// trailing gate declines a text that one claims.
+		CardData vaan = makeForward("Vaan", "Fire", 2, 0);
+		assertNull(ActionResolverGate.tryParseCastCountGate(
+				"choose 1 Forward opponent controls. Deal it 3000 damage. "
+				+ "If you have cast 3 or more cards this turn, deal it 8000 damage instead.",
+				vaan, 0));
+	}
+
+	// =========================================================================================
+	// 12-108C Remora: "Choose 1 Forward. Draw 1 card. Then, until the end of the turn, it loses
+	// 2000 power for each card in your hand."
+	//
+	// The sentence split put the draw in the primary followup and the reduction in the secondary,
+	// and neither half means anything alone — "it" in the second names the card the first never
+	// chose. Both were logged as unimplemented and nothing happened at all.
+	// =========================================================================================
+
+	private static final String REMORA_SUMMON =
+			"Choose 1 Forward. Draw 1 card. Then, until the end of the turn, "
+			+ "it loses 2000 power for each card in your hand.";
+
+	@Test
+	void remoraDrawsBeforeItCountsTheHand() {
+		// The order is the point: the drawn card is in hand when the hand is counted, so it is
+		// worth another 2000 of reduction. A hand of 2 that draws to 3 reduces by 6000.
+		CardData remora = makeForward("Remora", "Water", 2, 0);
+		ForwardTarget victim = new ForwardTarget(false, 0, ForwardTarget.CardZone.FORWARD);
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.consumePreloadedTargets()).thenReturn(null);
+		when(ctx.yourHandSize()).thenReturn(3);
+		when(ctx.selectCharacters(anyInt(), anyBoolean(), anyBoolean(), anyBoolean(), any(), any(),
+				anyInt(), any(), anyInt(), any(), anyBoolean(), anyBoolean(), anyBoolean(),
+				any(), any(), any(), any(), anyBoolean(), any(), anyBoolean()))
+				.thenReturn(List.of(victim));
+
+		Consumer<GameContext> effect = ActionResolver.parse(REMORA_SUMMON, remora);
+		assertNotNull(effect, "the printed wording has to parse for the rest of this to mean anything");
+		effect.accept(ctx);
+
+		InOrder order = inOrder(ctx);
+		order.verify(ctx).drawCards(1);
+		order.verify(ctx).yourHandSize();
+		verify(ctx).reduceTarget(eq(victim), eq(6000), any());
+	}
+
+	@Test
+	void andReportsBothHalvesAsOneClause() {
+		CardData remora = makeForward("Remora", "Water", 2, 0);
+		assertEquals("ChooseCharacter / DrawThenPowerReduceForEachHand",
+				ActionResolver.fullDescription(REMORA_SUMMON, remora));
+	}
+
+	// =========================================================================================
+	// 26-087R Odin: "Choose 1 Forward with 《LB》 of cost 6 or less. Break it."
+	//
+	// The only printing that filters by 《LB》. Without an arm for it the choose phrase left
+	// " with 《LB》" unmatched before the followup separator and the whole choice failed, so Odin's
+	// second action read as unimplemented and the player could only ever take the first.
+	// =========================================================================================
+
+	private static final String ODIN_LB_ACTION =
+			"Choose 1 Forward with 《LB》 of cost 6 or less. Break it.";
+
+	/** A Limit Break Forward — the printing 《LB》 names. */
+	private static CardData makeLbForward(String name, String element, int cost, int power) {
+		return new CardData(null, name, element, cost, power, "Forward", true, cost, false, false,
+				Set.of(), 0, List.of(), null, List.of(),
+				List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(),
+				List.of(), List.of(), List.of(),
+				false, false, null, false, false, false, false, false, 1,
+				null, null, null, "");
+	}
+
+	@Test
+	void odinsSecondActionParsesAtAll() {
+		CardData odin = makeForward("Odin", "Lightning", 5, 0);
+		assertNotNull(ActionResolver.parse(ODIN_LB_ACTION, odin));
+		assertEquals("ChooseCharacter / Break",
+				ActionResolver.fullDescription(ODIN_LB_ACTION, odin));
+	}
+
+	@Test
+	void andItOffersOnlyLimitBreakForwards() {
+		MainWindow mw = new MainWindow();
+		CardData lb    = makeLbForward("Limit Broken", "Fire", 5, 9000);
+		CardData plain = makeForward("Ordinary", "Fire", 5, 9000);
+		placeP2Forward(mw, lb);
+		placeP2Forward(mw, plain);
+
+		List<ForwardTarget> eligible = mw.buildGameContext(true).selectCharacters(
+				1, false, false, false, CardFilters.LIMIT_BREAK_CONDITION, null,
+				6, "less", -1, null, true, false, false,
+				null, null, null, null, false, null, false);
+
+		// One eligible target needs no prompt, so the selection answers with it directly.
+		assertEquals(1, eligible.size(), "only the 《LB》 Forward qualifies");
+		assertEquals(lb, mw.p2ForwardCards.get(eligible.get(0).idx()));
+	}
+
+	@Test
+	void anUnknownKeywordFilterIsDeclinedRatherThanIgnored() {
+		// An unread filter would widen the choice to every Forward on the table, which is exactly
+		// what the without-《…》 arm beside it exists to prevent.
+		CardData odin = makeForward("Odin", "Lightning", 5, 0);
+		assertNull(ActionResolver.parse(
+				"Choose 1 Forward with 《Something Else》 of cost 6 or less. Break it.", odin));
+	}
+
+	// =========================================================================================
+
 }

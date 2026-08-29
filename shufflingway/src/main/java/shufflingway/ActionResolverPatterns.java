@@ -82,6 +82,11 @@ final class ActionResolverPatterns {
                     "(?:\\s+with\\s+(?<trait>Brave|Haste|First\\s+Strike))?" +
                     "(?:\\s+that\\s+(?<postcondition>entered\\s+the\\s+field\\s+this\\s+turn|entered\\s+this\\s+turn))?" +
                     "(?:\\s+without\\s+《(?<excludekw>[^》]+)》)?" +
+                    // The inclusive counterpart of the arm above — "Choose 1 Forward with 《LB》 of
+                    // cost 6 or less" (26-087R Odin). Without it the phrase left " with 《LB》"
+                    // unmatched before the followup separator and the whole choice failed, so
+                    // Odin's second action read as unimplemented.
+                    "(?:\\s+with\\s+《(?<withkw>[^》]+)》)?" +
                     "(?:\\s+of\\s+(?:any|an)\\s+Element\\s+(?:except|other\\s+than)\\s+(?<excludeelem>" +
                     "(?:Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)" +
                     "(?:\\s+and\\s+(?:Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark))*))?" +
@@ -5381,6 +5386,22 @@ final class ActionResolverPatterns {
         "((?:\\s*,?\\s*(?:and\\s+)?(?:Haste|First\\s+Strike|Brave))*)"
     );
     /** Matches "Until [of] the end of [the] turn, it/they loses N power for each card in your hand." */
+    /**
+     * The same reduction with a draw in front of it: "Draw N card(s). Then, until the end of the
+     * turn, it loses M power for each card in your hand." — 12-108C Remora.
+     *
+     * <p>Read off the whole followup rather than after the sentence split, and given a branch of
+     * its own rather than left to the plain reduction plus a secondary, because the order is the
+     * point: the card drawn is in hand before the hand is counted, so the draw is worth M power of
+     * reduction on top of whatever the hand already held. Split apart, the reduction ran against
+     * the smaller hand — when it ran at all.
+     * Groups: {@code draw}, {@code amount}.
+     */
+    static final Pattern FOLLOWUP_DRAW_THEN_POWER_REDUCE_FOR_EACH_HAND = Pattern.compile(
+        "(?i)^Draw\\s+(?<draw>\\d+)\\s+cards?[.!]\\s*Then\\s*,?\\s*" +
+        "until\\s+(?:of\\s+)?(?:the\\s+)?end\\s+of\\s+(?:the\\s+)?turn\\s*,\\s+" +
+        "(?:it|they)\\s+loses?\\s+(?<amount>\\d+)\\s+power\\s+for\\s+each\\s+card\\s+in\\s+your\\s+hand[.!]?\\s*$"
+    );
     static final Pattern FOLLOWUP_POWER_REDUCE_UNTIL_FOR_EACH_HAND = Pattern.compile(
         "(?i)Until\\s+(?:of\\s+)?(?:the\\s+)?end\\s+of\\s+(?:the\\s+)?turn\\s*,\\s+" +
         "(?:it|they)\\s+loses?\\s+(\\d+)\\s+[Pp]ower\\s+for\\s+each\\s+card\\s+in\\s+your\\s+hand[.!]?"
@@ -5500,7 +5521,34 @@ final class ActionResolverPatterns {
         // opponent controls with a Doom Counter on them". Without this the regex ended at
         // "controls" and find() quietly discarded the restriction, breaking every Forward.
         "(?:\\s+with\\s+(?:a|an|\\d+)\\s+(?<counter>[A-Za-z][A-Za-z ]*?)\\s+Counters?\\s+on\\s+(?:it|them))?" +
+        // Same reason as the counter arm, and the same consequence: without it the regex ended at
+        // "Forwards" and find() discarded "with power less than Titan, Lord of Crags", turning
+        // 14-062L's sweep of everything smaller than itself into a break of every Forward on the
+        // table — its controller's included, which is the opposite of what the card does.
+        // Captured so tryParseAllFieldEffect can decline rather than honour it: the mass-effect
+        // primitive it calls has no power filter to pass this to.
+        "(?:\\s+with\\s+power\\s+(?<powercmp>less|more)\\s+than\\s+(?<powercard>[^.!]+?))?" +
         "[.!]?"
+    );
+    /**
+     * 14-062L Titan, Lord of Crags: "Break all the Forwards with power less than [Self]. When N or
+     * more Forwards are put from the field into the Break Zone by this effect, [Self] deals your
+     * opponent M point(s) of damage."
+     *
+     * <p>Anchored end to end, and both sentences read together, because the second one counts what
+     * the first one did — splitting them would leave the payoff with no sweep to ask about. The
+     * tail is optional so the sweep alone still parses if a printing ever states it without one.
+     *
+     * <p>Groups: {@code card} — the Forward whose power is the threshold, checked against the
+     * carrier; {@code threshold}, {@code dmgcard}, {@code amount} — the payoff.
+     */
+    static final Pattern BREAK_FORWARDS_BELOW_SELF_POWER = Pattern.compile(
+        "(?i)^Break\\s+all\\s+(?:the\\s+)?Forwards\\s+with\\s+power\\s+less\\s+than\\s+(?<card>[^.!]+?)[.!]" +
+        "(?:\\s*When\\s+(?<threshold>\\d+)\\s+or\\s+more\\s+Forwards?\\s+are\\s+put\\s+from\\s+the\\s+field\\s+" +
+        // Bounded on sentence punctuation rather than on a comma: the card naming itself here is
+        // the same card whose name carries one ("Titan, Lord of Crags"), and [^,]+? cannot span it.
+        "into\\s+the\\s+Break\\s+Zone\\s+by\\s+this\\s+effect,\\s*(?<dmgcard>[^.!]+?)\\s+deals?\\s+your\\s+" +
+        "opponent\\s+(?<amount>\\d+)\\s+points?\\s+of\\s+damage[.!]?)?\\s*$"
     );
     /**
      * Matches "All [the] [element] Forwards/Backups/Characters [of cost N [or less|more]]
@@ -6402,8 +6450,33 @@ final class ActionResolverPatterns {
         "Forwards?" +
         "(?:\\s+of\\s+cost\\s+(?<cost>\\d+)(?:\\s+or\\s+(?<costcmp>less|more))?)?" +
         "(?:\\s+other\\s+than\\s+Job\\s+(?<excludejob>.+?)(?=\\s+(?:your\\s+)?opponent\\s+controls\\b|[.!]?$))?" +
+        // Exclusion by card name, read after the Job arm so "other than Job X" still prefers it.
+        // Without it find() ended at "Forwards" and dropped the clause, and 14-011H Susano, Lord of
+        // the Revel dealt its own 9000 damage to itself along with everything else.
+        "(?:\\s+other\\s+than\\s+(?<excludename>[^.!]+?)(?=\\s+(?:your\\s+)?opponent\\s+controls\\b|[.!]?$))?" +
         "(?:\\s+(?<opponent>(?:your\\s+)?opponent\\s+controls))?" +
         "[.!]?"
+    );
+    /**
+     * Shantotto 4-083L: "deal the same amount of damage to all the Forwards other than [Self]."
+     * with her remove-from-game rider optionally trailing it.
+     *
+     * <p>"The same amount" is the damage she has just been dealt — a number the text never states,
+     * only the event knows, and which reaches the effect as the entry's {@code xValue}. That is
+     * why this cannot go through the fixed-amount mass-damage family however its exclusion is
+     * widened.
+     *
+     * <p>The rider is matched and discarded rather than left to trail: it is a continuous
+     * replacement read as the damaged Forward leaves the field, not a step of this resolution, and
+     * an unmatched tail would leave the anchor unsatisfied. Groups: {@code card}.
+     */
+    static final Pattern DEAL_SAME_AMOUNT_TO_ALL_FORWARDS_EXCEPT = Pattern.compile(
+        "(?i)^deal\\s+the\\s+same\\s+amount\\s+of\\s+damage\\s+to\\s+all(?:\\s+the)?\\s+Forwards?\\s+" +
+        "other\\s+than\\s+(?<card>[^.!]+?)[.!]" +
+        "(?:\\s*If\\s+(?:a|the)\\s+Forward\\s+damaged\\s+by\\s+this\\s+ability\\s+is\\s+put\\s+" +
+        "(?:from\\s+the\\s+field\\s+)?into\\s+the\\s+Break\\s+Zone\\s+" +
+        "(?:this\\s+turn|(?:on|during)\\s+the\\s+same\\s+turn),\\s+" +
+        "remove\\s+it\\s+from\\s+the\\s+game\\s+instead[.!]?)?\\s*$"
     );
     /** Matches "Deal N damage to [all] Forwards of all Elements except [Element]." */
     static final Pattern DEAL_DAMAGE_TO_FORWARDS_EXCEPT_ELEMENT = Pattern.compile(
@@ -6442,6 +6515,10 @@ final class ActionResolverPatterns {
         "Forwards?" +
         "(?:\\s+of\\s+cost\\s+(?<cost>\\d+)(?:\\s+or\\s+(?<costcmp>less|more))?)?" +
         "(?:\\s+other\\s+than\\s+Job\\s+(?<excludejob>.+?)(?=\\s+(?:your\\s+)?opponent\\s+controls\\b|\\s+\\d+\\s+damage))?" +
+        // Carried alongside its sibling's arm so the two patterns expose the same group set: the
+        // parser reads whichever one matched, and a group missing from this one is not an absent
+        // filter but an IllegalArgumentException on every card that reaches this wording.
+        "(?:\\s+other\\s+than\\s+(?<excludename>.+?)(?=\\s+(?:your\\s+)?opponent\\s+controls\\b|\\s+\\d+\\s+damage))?" +
         "(?:\\s+(?<opponent>(?:your\\s+)?opponent\\s+controls))?" +
         "\\s+(?<amount>\\d+)\\s+damage[.!]?"
     );
@@ -7485,6 +7562,23 @@ final class ActionResolverPatterns {
     /** Matches "If you have cast N or more cards this turn, &lt;effect&gt;". */
     static final Pattern IF_CAST_AT_LEAST = Pattern.compile(
         "(?is)^if\\s+you\\s+have\\s+cast\\s+(?<min>\\d+)\\s+or\\s+more\\s+cards?\\s+this\\s+turn,\\s+(?<effect>.+)$"
+    );
+    /**
+     * The same condition stated as a <em>trailing</em> sentence over an effect that has already
+     * resolved: "&lt;base&gt;. If you have cast &lt;n&gt; or more cards this turn, &lt;tail&gt;."
+     * — 12-039C Alexander's "Draw 1 card. … draw 2 cards instead."
+     *
+     * <p>{@link #IF_CAST_AT_LEAST} is anchored at the head and so only claims the printings whose
+     * whole effect is the gate. This one needs a sentence in front of it, so the two are disjoint
+     * and neither can take the other's text.
+     *
+     * <p>Read like {@link #CAST_PAYMENT_ELEMENTS_GATE}, whose shape this is: the tail is added to
+     * the base, or substituted for its last clause when it ends in "instead".
+     * Groups: {@code base}, {@code count}, {@code tail}.
+     */
+    static final Pattern CAST_COUNT_GATE = Pattern.compile(
+        "(?is)^(?<base>.+?[.!])\\s+If\\s+you\\s+have\\s+cast\\s+(?<count>\\d+)\\s+or\\s+more\\s+" +
+        "cards?\\s+this\\s+turn,\\s+(?<tail>.+?)\\s*$"
     );
     /**
      * Matches the two-branch element conditional on a cost discard:

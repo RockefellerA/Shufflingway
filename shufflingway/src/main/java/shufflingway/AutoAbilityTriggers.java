@@ -974,12 +974,42 @@ final class AutoAbilityTriggers {
 		"remove\\s+it\\s+from\\s+the\\s+game\\s+instead[.!]?$"
 	);
 
-	/** Whether {@code card} carries {@link #FA_DAMAGED_BY_SELF_FIELD_TO_BZ_RFG} naming itself. */
+	/**
+	 * The same replacement written as a sentence inside an auto ability instead of as a field
+	 * ability of its own, and scoped to that ability rather than to the card: "If a Forward damaged
+	 * by this ability is put into the Break Zone this turn, remove it from the game instead." —
+	 * Shantotto 4-083L.
+	 *
+	 * <p>Honoured as "damaged by this card", which is what {@code damagedBySourcesThisTurn}
+	 * records — it keys on the source card, not on which of its abilities dealt the blow. The two
+	 * readings differ only for a Shantotto who also deals battle damage in the same turn, where
+	 * this is the more generous one. Narrowing it would mean tracking damage per ability, which
+	 * nothing else in the corpus asks for.
+	 */
+	static final Pattern FA_DAMAGED_BY_THIS_ABILITY_TO_BZ_RFG = Pattern.compile(
+		"(?i)If\\s+(?:a|the)\\s+Forward\\s+damaged\\s+by\\s+this\\s+ability\\s+is\\s+put\\s+" +
+		"(?:from\\s+the\\s+field\\s+)?into\\s+the\\s+Break\\s+Zone\\s+" +
+		"(?:this\\s+turn|(?:on|during)\\s+the\\s+same\\s+turn),\\s+" +
+		"remove\\s+it\\s+from\\s+the\\s+game\\s+instead[.!]?"
+	);
+
+	/**
+	 * Whether {@code card} carries the damaged-Forward remove-from-game replacement — as a field
+	 * ability naming itself (14-011H Susano, Lord of the Revel), or as a sentence inside an auto
+	 * ability saying "this ability" (4-083L Shantotto).
+	 *
+	 * <p>Both spellings describe one continuous replacement read as the damaged Forward leaves the
+	 * field, so both are answered here rather than one of them being resolved as a step of its
+	 * ability. Searched rather than matched whole for the auto form: it is one sentence of an
+	 * effect whose other sentence is what the ability actually does.
+	 */
 	static boolean hasDamagedBySelfFieldToBzRfg(CardData card) {
 		for (FieldAbility fa : card.fieldAbilities()) {
 			Matcher m = FA_DAMAGED_BY_SELF_FIELD_TO_BZ_RFG.matcher(fa.effectText().trim());
 			if (m.matches() && m.group("card").trim().equalsIgnoreCase(card.name())) return true;
 		}
+		for (AutoAbility fa : card.autoAbilities())
+			if (FA_DAMAGED_BY_THIS_ABILITY_TO_BZ_RFG.matcher(fa.effectText()).find()) return true;
 		return false;
 	}
 
@@ -2967,14 +2997,31 @@ final class AutoAbilityTriggers {
 	 * {@link #matchesDamagedSubject}, so the self-naming printings keep firing exactly once.
 	 */
 	void fireIsDealtDamageTriggers(CardData damaged, boolean damagedIsP1) {
+		fireIsDealtDamageTriggers(damaged, damagedIsP1, 0);
+	}
+
+	/**
+	 * @param amount the size of this one damage instance, for the effects whose text names it
+	 *     rather than a number — Shantotto 4-083L's "deal the same amount of damage". Held on
+	 *     {@link MainWindow#lastDealtDamageAmount} for the length of the dispatch, and restored
+	 *     afterwards so a damage dealt inside one of these triggers cannot overwrite the amount the
+	 *     outer one is still reading.
+	 */
+	void fireIsDealtDamageTriggers(CardData damaged, boolean damagedIsP1, int amount) {
 		if (damaged == null) return;
-		// Batched: one damage can meet the trigger on more than one card — the Forward's own
-		// printing and a Faris watching it — and those are simultaneous, so their controller picks
-		// the order they go on the stack.
-		withBatch(() -> {
-			for (CardData watcher : fieldCards(damagedIsP1))
-				fireIsDealtDamageTriggers(watcher, damagedIsP1, damaged);
-		});
+		int previousAmount = mw.lastDealtDamageAmount;
+		mw.lastDealtDamageAmount = amount;
+		try {
+			// Batched: one damage can meet the trigger on more than one card — the Forward's own
+			// printing and a Faris watching it — and those are simultaneous, so their controller picks
+			// the order they go on the stack.
+			withBatch(() -> {
+				for (CardData watcher : fieldCards(damagedIsP1))
+					fireIsDealtDamageTriggers(watcher, damagedIsP1, damaged);
+			});
+		} finally {
+			mw.lastDealtDamageAmount = previousAmount;
+		}
 		mw.showStackWindowIfNeeded();
 	}
 
@@ -3405,12 +3452,32 @@ final class AutoAbilityTriggers {
 		// the same consequence for the reports: Gulool Ja Ja 27-007H's echo names the damaged card
 		// and the amount it took, neither of which is in the text, so it is resolved where the
 		// event is and parse() answers null for it.
-		return FA_DAMAGE_ECHO_TO_OTHER_FORWARD.matcher(text.trim()).matches();
+		if (FA_DAMAGE_ECHO_TO_OTHER_FORWARD.matcher(text.trim()).matches()) return true;
+		// Breaktouch, the other DamageResolver-dispatched shape. "break it." carries no target of
+		// its own — "it" is the card just damaged, which only the damage event knows — so parse()
+		// answers null and the reports called Tonberry 19-097C and Ramuh 14-090R unimplemented
+		// while they had been breaking Forwards all along.
+		//
+		// Gated on the trigger as well as the text, mirroring what fireBreaktouchForDamage
+		// requires: a "break it." hanging off any other trigger reaches no executor at all, and
+		// claiming it here would report a card as working on the strength of two words.
+		return isBreaktouchTrigger(fa.trigger())
+				&& FA_BREAKTOUCH_BREAK_IT.matcher(text.trim()).matches();
 	}
 
 	/** Whether a "when you do so" tail resolves, which is what its executor requires of it. */
 	private static boolean subEffectParses(String sub, CardData source) {
 		return sub != null && ActionResolver.parse(sub.trim(), source) != null;
+	}
+
+	/**
+	 * The two triggers {@code DamageResolver.fireBreaktouchForDamage} answers to: the card dealing
+	 * the damage itself, and — for 14-090R Ramuh, Lord of Levin, the one printing that names both —
+	 * a Summon of a given Element the card's controller cast.
+	 */
+	private static boolean isBreaktouchTrigger(String trigger) {
+		return trigger.equals("deals damage to forward")
+				|| trigger.endsWith(" summon deals damage to forward");
 	}
 
 	private void executeAutoAbilityImpl(AutoAbility fa, CardData source, boolean isP1, boolean paidExtraCost) {
@@ -3611,13 +3678,20 @@ final class AutoAbilityTriggers {
 		String effectText = paidExtraCost
 				? ActionResolver.applyExtraCostPaid(fa.effectText())
 				: ActionResolver.stripExtraCostClause(fa.effectText());
+		// The size of the damage instance that fired an "is dealt damage" trigger travels as the
+		// entry's xValue, which is what that field means: the number this activation supplied, not
+		// one the text names. Shantotto 4-083L's "deal the same amount of damage" is the effect
+		// that reads it, and it reads it at resolution — long after the dispatcher has restored
+		// MainWindow.lastDealtDamageAmount, which is why the value cannot be left on that field.
+		// Auto abilities have no X cost of their own, so nothing else is competing for it.
+		int entryX = fa.trigger().equals("is dealt damage") ? mw.lastDealtDamageAmount : 0;
 		List<ForwardTarget> preTargets = effectText.isBlank() ? null
-				: ActionResolver.preSelectTargets(effectText, source, 0, mw.buildGameContext(effectIsP1));
+				: ActionResolver.preSelectTargets(effectText, source, entryX, mw.buildGameContext(effectIsP1));
 		if (preTargets != null && preTargets.isEmpty()) preTargets = null;
 		// The trigger's own card travels with the entry. The field it is read from here is unwound
 		// the moment this push returns — resolution comes later, off the Stack — so an effect that
 		// names the card back ("add it to your hand") found nothing there and fizzled.
-		StackEntry entry = new StackEntry(source, null, fa, effectIsP1, 0, false, preTargets, false,
+		StackEntry entry = new StackEntry(source, null, fa, effectIsP1, entryX, false, preTargets, false,
 				paidExtraCost, 0, 0, mw.triggeringBrokenCard);
 		mw.gameState.insertStack(depth, entry);
 		mw.cancelFirstOppForwardAuto(entry);

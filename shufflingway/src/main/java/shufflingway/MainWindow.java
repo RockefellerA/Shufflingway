@@ -1110,6 +1110,16 @@ public class MainWindow {
 	 * break happening inside another break's effect cannot leave the wrong card standing here.
 	 */
 	CardData triggeringBrokenCard = null;
+	/**
+	 * The size of the single damage instance whose "is dealt damage" triggers are resolving, or
+	 * {@code 0} outside one. Shantotto 4-083L's "deal the same amount of damage to all the Forwards
+	 * other than Shantotto" is the effect that reads it: the amount is not in the card's text, only
+	 * in the event, so it is held here the way {@link #triggeringBrokenCard} holds its card.
+	 *
+	 * <p>Set and restored around each dispatch by {@code AutoAbilityTriggers}, so a damage dealt
+	 * while one is resolving cannot leave its own amount behind for the outer one to read.
+	 */
+	int lastDealtDamageAmount = 0;
 	/** True while a card is being placed as a direct result of being cast from hand; gates castOnly field abilities. */
 	boolean lastCardWasCast = false;
 	/** True while a card is entering the field via Warp resolution; gates warpOnly field abilities. */
@@ -5898,8 +5908,8 @@ public class MainWindow {
 		// trigger is on being dealt damage, not on surviving it, so a Forward broken by this blow
 		// still triggers. Combat damage is dealt simultaneously, so both sides fire together, and
 		// a side whose damage First Strike zeroed above was dealt none and does not fire.
-		if (dmgToAttacker > 0) autoAbilityTriggers.fireIsDealtDamageTriggers(attacker, attackerIsP1);
-		if (dmgToBlocker  > 0) autoAbilityTriggers.fireIsDealtDamageTriggers(blocker,  blockerIsP1);
+		if (dmgToAttacker > 0) autoAbilityTriggers.fireIsDealtDamageTriggers(attacker, attackerIsP1, dmgToAttacker);
+		if (dmgToBlocker  > 0) autoAbilityTriggers.fireIsDealtDamageTriggers(blocker,  blockerIsP1, dmgToBlocker);
 
 		// Recorded here for the same reason the triggers fire here: before the break below, so a
 		// Forward killed by this blow still counts as damaged by whoever struck it.
@@ -10536,7 +10546,13 @@ public class MainWindow {
 		CardData previousTriggeringBrokenCard = triggeringBrokenCard;
 		triggeringBrokenCard = entry.triggerCard();
 		try {
-			GameContext ctx = buildGameContext(entry.isP1());
+			// The entry's own EX Burst flag reaches the effect through the context. The direct
+			// damage-zone path (AutoAbilityTriggers.triggerExBurst) has always passed it; the two
+			// routes that put an EX Burst on the Stack instead — a card added to hand whose Burst
+			// is offered, and one picked out of the Damage Zone — did not, so "If [name] results
+			// from an EX Burst, … instead." resolved as though it had not, and Ifrit 7-005C dealt
+			// 7000 off its own Burst rather than 8000.
+			GameContext ctx = buildGameContext(entry.isP1(), entry.isExBurstEntry());
 			if (entry.isSummon()) {
 				// Propagate extra cost context so GameContextImpl can expose it.
 				currentSummonPaidExtraCost          = entry.paidExtraCost();
@@ -10616,7 +10632,10 @@ public class MainWindow {
 				}
 			} else if (entry.isExBurstEntry()) {
 				String exText = entry.effectText();
-				logEntry("[EX Burst on Stack] Resolving \"" + entry.source().name() + "\": " + exText);
+				// Reported through the same helper the Summon line uses, so the alternative this
+				// resolution is actually going to take is the one named — here, the Burst half.
+				logEntry("[EX Burst on Stack] Resolving \"" + entry.source().name() + "\": "
+						+ resolvingEffectText(entry));
 				Consumer<GameContext> effect = ActionResolver.parse(exText, entry.source());
 				if (effect != null) {
 					currentAbilitySource     = entry.source();
@@ -10638,7 +10657,12 @@ public class MainWindow {
 				String effectText = entry.paidExtraCost()
 						? ActionResolver.applyExtraCostPaid(ab.effectText())
 						: ActionResolver.stripExtraCostClause(ab.effectText());
-				Consumer<GameContext> effect = effectText.isBlank() ? null : ActionResolver.parse(effectText, entry.source());
+				// Resolved with the entry's own xValue, not with 0. Auto abilities have no X cost of
+				// their own, so this was always 0 until the "is dealt damage" dispatcher began
+				// carrying the size of the blow there — 4-083L Shantotto's "the same amount of
+				// damage" is a number only the event knows, and dropping it here dealt nothing.
+				Consumer<GameContext> effect = effectText.isBlank() ? null
+						: ActionResolver.parse(effectText, entry.source(), entry.xValue());
 				if (effect != null) {
 					logEntry("[AutoAbility] Resolving \"" + entry.source().name() + "\": " + effectText);
 					// As with Summons: an auto-ability chooses when it goes on the Stack.
@@ -17147,7 +17171,7 @@ public class MainWindow {
 							&& !effectiveHasTrait(false, blockerIdx, CardData.Trait.FIRST_STRIKE);
 					boolean blockerBroken = combinedPower >= blockerPower;
 					// See resolveP1BlockVsP2Party — the combined power is one instance of damage.
-					if (combinedPower > 0) autoAbilityTriggers.fireIsDealtDamageTriggers(blocker, false);
+					if (combinedPower > 0) autoAbilityTriggers.fireIsDealtDamageTriggers(blocker, false, combinedPower);
 					// Every member of the party dealt part of that one instance, so each is a damager
 					// of the blocker. Recorded before the break, as everywhere damage lands.
 					if (combinedPower > 0)
@@ -17242,7 +17266,7 @@ public class MainWindow {
 			logEntry("[P2] Deals " + dmg + " damage to " + p1ForwardCards.get(idx).name());
 			// One instance of damage per party member the blocker's power was spread across, each
 			// firing "is dealt damage" triggers in its own right — see resolveCombat.
-			autoAbilityTriggers.fireIsDealtDamageTriggers(p1ForwardCards.get(idx), true);
+			autoAbilityTriggers.fireIsDealtDamageTriggers(p1ForwardCards.get(idx), true, dmg);
 			if (dmg > 0) recordDamagedBy(p1ForwardCards.get(idx), blocker);
 		}
 		List<Integer> toBreak = new ArrayList<>();
@@ -17270,7 +17294,7 @@ public class MainWindow {
 		boolean blockerBroken = combinedPower >= blockerPower;
 		// The party's combined power is one instance of damage to the blocker; triggers fire on it
 		// ahead of the break, as everywhere else damage lands.
-		if (combinedPower > 0) autoAbilityTriggers.fireIsDealtDamageTriggers(blocker, true);
+		if (combinedPower > 0) autoAbilityTriggers.fireIsDealtDamageTriggers(blocker, true, combinedPower);
 		// Each member dealt part of that instance, so each is a damager of the blocker.
 		if (combinedPower > 0)
 			for (int i : attackerIndices)
@@ -17312,7 +17336,7 @@ public class MainWindow {
 			p2ForwardDamage.set(idx, p2ForwardDamage.get(idx) + dmg);
 			logEntry("Deals " + dmg + " damage to " + p2ForwardCards.get(idx).name());
 			// See applyPartyBlockerDamage — one instance of damage per party member.
-			autoAbilityTriggers.fireIsDealtDamageTriggers(p2ForwardCards.get(idx), false);
+			autoAbilityTriggers.fireIsDealtDamageTriggers(p2ForwardCards.get(idx), false, dmg);
 			if (dmg > 0) recordDamagedBy(p2ForwardCards.get(idx), blocker);
 		}
 		List<Integer> toBreak = new ArrayList<>();

@@ -1035,7 +1035,7 @@ class DamageResolver {
 					+ (effPow > 0 ? " (" + (effPow - accum) + " remaining)" : ""));
 			// Fires on being dealt damage, so before the break check below — 28-043R Gi Nattak's
 			// trigger still resolves when the damage is lethal.
-			mw.autoAbilityTriggers.fireIsDealtDamageTriggers(fwds.get(idx), isP1);
+			mw.autoAbilityTriggers.fireIsDealtDamageTriggers(fwds.get(idx), isP1, amount);
 			// "When this Forward is dealt damage, break this Forward." — Vallaide 22-020R's grant, on
 			// the Forward that just took the damage. Ahead of the lethal check below because any damage
 			// at all is enough, and a Forward the damage would have broken anyway leaves by this route.

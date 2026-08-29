@@ -1910,6 +1910,47 @@ public interface GameContext {
     }
 
     /**
+     * Breaks every Forward on <em>either</em> side whose effective power is strictly less than
+     * {@code source}'s current effective power on the field, and reports how many were broken.
+     * 14-062L Titan, Lord of Crags.
+     *
+     * <p>The two-sided sibling of {@link #dullOpponentForwardsByPowerAtMost(CardData)}, and reads
+     * the threshold the same way: {@code source}'s power as the field has it, so a boosted Titan
+     * sweeps wider, falling back to the printed power when it is not on the field to be read.
+     *
+     * <p>Strictly less than, so {@code source} never breaks itself — its own power is not less
+     * than its own. Breaks highest index first within each side, because breaking one Forward
+     * compacts that side's row and would otherwise shift a later target's index.
+     *
+     * <p>The count is the return value because a card can ask about it: Titan's second sentence
+     * turns on how many Forwards this sweep actually put into the Break Zone. It counts the ones
+     * that were broken, not the ones that qualified — a Forward with "cannot be broken" is left
+     * standing by {@link #breakTarget} and must not be counted toward the payoff.
+     *
+     * @return the number of Forwards this sweep put into the Break Zone
+     */
+    default int breakForwardsWithPowerBelow(CardData source) {
+        int sourcePower = fieldForwardPowerByName(source.name());
+        if (sourcePower <= 0) sourcePower = source.power();
+        logEntry(source.name() + " — Break all Forwards with power < " + sourcePower);
+        int broken = 0;
+        for (boolean side : new boolean[]{true, false}) {
+            int count = side ? p1ForwardCount() : p2ForwardCount();
+            for (int i = count - 1; i >= 0; i--) {
+                ForwardTarget t = new ForwardTarget(side, i, ForwardTarget.CardZone.FORWARD);
+                int power = effectiveTargetPower(t);
+                if (power <= 0 || power >= sourcePower) continue;
+                CardData before = side ? p1Forward(i) : p2Forward(i);
+                breakTarget(t);
+                CardData after = i < (side ? p1ForwardCount() : p2ForwardCount())
+                        ? (side ? p1Forward(i) : p2Forward(i)) : null;
+                if (after != before) broken++;
+            }
+        }
+        return broken;
+    }
+
+    /**
      * Pushes a new stack entry for the auto-ability on {@code source} whose trigger matches
      * {@code triggerType} (e.g. {@code "beginning of attack phase"}). Used to retrigger an
      * ability after a conditional self-discard.

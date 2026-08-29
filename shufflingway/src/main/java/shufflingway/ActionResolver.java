@@ -188,6 +188,12 @@ public class ActionResolver {
         result = tryParseCastPaymentElementsGate(effectText, source, xValue);
         if (result != null) return result;
 
+        // The same trailing shape with a different condition, and here for the same reason: the
+        // gate is the last sentence, so every parser below matched the base under find(), claimed
+        // the whole ability and dropped it. 12-039C Alexander drew one card on any turn.
+        result = tryParseCastCountGate(effectText, source, xValue);
+        if (result != null) return result;
+
         // The negated member of the same family, and a prefix like the two below rather than the
         // trailing sentence above: 9-099R Livia's payoff is "put Livia into the Break Zone", which
         // every parser below claims off the gate's tail and runs however she was paid for — the
@@ -419,6 +425,12 @@ public class ActionResolver {
         if (result != null) return result;
 
         result = tryParseRfpAllFwdExceptElementsThenTwiceDeck(effectText);
+        if (result != null) return result;
+
+        // Must precede tryParseDealDamageToForwards: that one reads a stated number and matches
+        // with find(), so it never claimed this text — but it is the parser this belongs beside,
+        // and the amount here comes from the trigger rather than from the words.
+        result = tryParseDealSameAmountToAllForwardsExcept(effectText, source, xValue);
         if (result != null) return result;
 
         result = tryParseDealDamageToForwards(effectText);
@@ -708,6 +720,12 @@ public class ActionResolver {
         // Must precede tryParseAllFieldEffect: that one matches with find() and would claim the
         // sweep sentence on its own, silently dropping the draw that counts what the sweep woke up.
         result = tryParseAllFieldActivateThenDraw(effectText);
+        if (result != null) return result;
+
+        // Must precede tryParseAllFieldEffect: that one refuses a power filter rather than
+        // dropping it, so this is the only parser that reads 14-062L's sweep and the payoff
+        // counting what it broke.
+        result = tryParseBreakForwardsBelowSelfPower(effectText, source);
         if (result != null) return result;
 
         result = tryParseAllFieldEffect(effectText);
@@ -1649,6 +1667,8 @@ public class ActionResolver {
         // 16-125C's conditional half off the end of the sentence carrying the condition.
         if (tryParseCastPaymentElementsGate(effectText, source, 0) != null)
             return "CastPaymentElementsGate";
+        if (tryParseCastCountGate(effectText, source, 0) != null)
+            return "CastCountGate";
         if (tryParseCastPaymentElementsNotIncludedGate(effectText, source, 0) != null)
             return "CastPaymentElementsNotIncludedGate";
         if (tryParseCastPaymentElementCpGate(effectText, source, 0) != null)
@@ -1722,6 +1742,9 @@ public class ActionResolver {
         if (tryParseSelfGainsWhenAttacksEOT(effectText, source)        != null) return "SelfGainsWhenAttacksEOT";
         if (tryParseDealDamageToForwardsForEach(effectText)             != null) return "DealDamageToForwardsForEach";
         if (tryParseDealDamageToForwardsExceptElement(effectText)       != null) return "DealDamageToForwardsExceptElement";
+        // Mirrors parse(): read beside the fixed-amount family it cannot use.
+        if (tryParseDealSameAmountToAllForwardsExcept(effectText, source, 0) != null)
+            return "DealSameAmountToAllForwardsExcept";
         if (tryParseDealDamageToForwards(effectText)                    != null) return "DealDamageToForwards";
         if (tryParseDivideDamageEquallyAmongAll(effectText)             != null) return "DivideDamageEquallyAmongAll";
         if (tryParseNoForwardCostCannotAttack(effectText)               != null) return "NoForwardCostCannotAttack";
@@ -1825,6 +1848,9 @@ public class ActionResolver {
         if (tryParsePlaceCounterOnAllForwards(effectText)     != null) return "PlaceCounterOnAllForwards";
         // Must precede AllFieldEffect — see the ordering note in parse().
         if (tryParseAllFieldActivateThenDraw(effectText)      != null) return "AllFieldActivateThenDraw";
+        // Mirrors parse(): read ahead of the general sweep, which declines this text.
+        if (tryParseBreakForwardsBelowSelfPower(effectText, source) != null)
+            return "BreakForwardsBelowSelfPower";
         if (tryParseAllFieldEffect(effectText)                != null) return "AllFieldEffect";
         if (tryParseFieldPowerGrantPassive(effectText)        != null) {
             String trimmed = effectText.trim();
@@ -2445,6 +2471,26 @@ public class ActionResolver {
             return describeOrName(baseTxt, source) + " + " + gate
                     + describeOrName(gateTailText(tailTxt, source, 0), source) + ")";
         }
+        // Mirrors parse(): the trailing cast-count gate, described the same way as the sibling
+        // above — the base named as itself, the condition named around what it guards.
+        if (tryParseCastCountGate(effectText, source, 0) != null) {
+            Matcher ccg = CAST_COUNT_GATE.matcher(effectText.trim());
+            if (!ccg.matches()) return "CastCountGate";
+            String baseTxt = ccg.group("base").trim();
+            String tailTxt = ccg.group("tail").trim();
+            String gate    = "IfCastAtLeast(" + ccg.group("count") + ": ";
+            Matcher inst = CAST_PAYMENT_ELEMENTS_TAIL_INSTEAD.matcher(tailTxt);
+            if (inst.matches()) {
+                // Same substitution the parser made, whole-base case included, so the report names
+                // the clause that will actually run.
+                String altTxt = castCountInsteadVariant(baseTxt, inst.group("alt").trim(), source);
+                if (altTxt != null) altTxt = gateTailText(altTxt, source, 0);
+                return gate + describeOrName(altTxt, source) + " | else "
+                        + describeOrName(baseTxt, source) + ")";
+            }
+            return describeOrName(baseTxt, source) + " + " + gate
+                    + describeOrName(gateTailText(tailTxt, source, 0), source) + ")";
+        }
         // Mirrors parse(): the negated sibling of the gate above, described the same way.
         if (tryParseCastPaymentElementsNotIncludedGate(effectText, source, 0) != null) {
             Matcher ncpg = CAST_PAYMENT_ELEMENTS_NOT_INCLUDED_GATE.matcher(effectText.trim());
@@ -2624,6 +2670,9 @@ public class ActionResolver {
         if (tryParseDealDamageToForwardsForEach(effectText)         != null) return "DealDamageToForwardsForEach";
         if (tryParseDealDamageToForwardsExceptElement(effectText)          != null) return "DealDamageToForwardsExceptElement";
         if (tryParseRfpAllFwdExceptElementsThenTwiceDeck(effectText)       != null) return "RfpAllFwdExceptElementsThenTwiceDeck";
+        // Mirrors parse(); see the matching guard in matchedPatternNameOn().
+        if (tryParseDealSameAmountToAllForwardsExcept(effectText, source, 0) != null)
+            return "DealSameAmountToAllForwardsExcept";
         if (tryParseDealDamageToForwards(effectText)                       != null) return "DealDamageToForwards";
         if (tryParseDivideDamageEquallyAmongAll(effectText)                != null) return "DivideDamageEquallyAmongAll";
         if (tryParseNoForwardCostCannotAttack(effectText)           != null) return "NoForwardCostCannotAttack";
@@ -2733,6 +2782,11 @@ public class ActionResolver {
                 return "ChooseCharacter / IfCastPaidOnly" + cap(onlyPaidM.group("element")) + "Cp("
                         + (gatedName != null ? gatedName : "?") + ")";
             }
+            // Mirrors the choose chain, where this is read off the full followup: the ". " split
+            // puts the draw in one half and the reduction in the other, and describing them apart
+            // reports a card that draws and a clause pointing at nothing.
+            if (FOLLOWUP_DRAW_THEN_POWER_REDUCE_FOR_EACH_HAND.matcher(followup).matches())
+                return "ChooseCharacter / DrawThenPowerReduceForEachHand";
             // Check damage-instead on the full followup before the ". " split eats the condition clause.
             // This mirrors what tryParseChooseAndFollowup does.
             Matcher insteadM = FOLLOWUP_DAMAGE_INSTEAD.matcher(followup);
@@ -2912,6 +2966,9 @@ public class ActionResolver {
         if (tryParsePlaceCounterOnAllForwards(effectText) != null)          return "PlaceCounterOnAllForwards";
         // Must precede AllFieldEffect — see the ordering note in parse().
         if (tryParseAllFieldActivateThenDraw(effectText) != null)           return "AllFieldEffect + DrawCards";
+        // Mirrors parse(); see the matching guard in matchedPatternNameOn().
+        if (tryParseBreakForwardsBelowSelfPower(effectText, source) != null)
+            return "BreakForwardsBelowSelfPower";
         if (tryParseAllFieldEffect(effectText) != null)                     return "AllFieldEffect";
         if (tryParseFieldPowerGrantPassive(effectText) != null) {
             String trimmed = effectText.trim();

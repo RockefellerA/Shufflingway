@@ -47,6 +47,7 @@ import shufflingway.net.ChoiceKind;
 import static shufflingway.CardFilters.formatCostFilterLabel;
 import static shufflingway.CardFilters.isBlockingTargetFilter;
 import static shufflingway.CardFilters.isEnteredThisTurnCondition;
+import static shufflingway.CardFilters.isLimitBreakCondition;
 import static shufflingway.CardFilters.isMonsterAlsoForwardCondition;
 import static shufflingway.CardFilters.isTraitCondition;
 import static shufflingway.CardFilters.matchesDiscardType;
@@ -1095,6 +1096,7 @@ final class GameContextImpl implements GameContext {
 							if (!meetsCategoryFilter(card, categoryFilter)) continue;
 							if (excludeName != null && excludeName.equalsIgnoreCase(card.name())) continue;
 							if (withoutMulticard && card.multicard()) continue;
+							if (isLimitBreakCondition(condition) && !card.isLb()) continue;
 							if (isTraitCondition(condition) && !mw.effectiveP1HasTrait(i, parseTraitFromCondition(condition))) continue;
 							if (isBlockingTargetFilter(condition)
 									? mw.meetsBlockingTargetFilter(true, i, condition)
@@ -1117,6 +1119,7 @@ final class GameContextImpl implements GameContext {
 							if (!meetsCategoryFilter(mw.p1BackupCards[i], categoryFilter)) continue;
 							if (excludeName != null && excludeName.equalsIgnoreCase(mw.p1BackupCards[i].name())) continue;
 							if (withoutMulticard && mw.p1BackupCards[i].multicard()) continue;
+							if (isLimitBreakCondition(condition) && !mw.p1BackupCards[i].isLb()) continue;
 							if (meetsTargetCondition(mw.p1BackupStates[i], 0, false, false, condition))
 								eligible.add(new ForwardTarget(true, i, ForwardTarget.CardZone.BACKUP));
 						}
@@ -1134,6 +1137,7 @@ final class GameContextImpl implements GameContext {
 							if (!meetsCategoryFilter(card, categoryFilter)) continue;
 							if (excludeName != null && excludeName.equalsIgnoreCase(card.name())) continue;
 							if (withoutMulticard && card.multicard()) continue;
+							if (isLimitBreakCondition(condition) && !card.isLb()) continue;
 							if (isEnteredThisTurnCondition(condition)
 									? mw.p1MonsterPlayedOnTurn.get(i) == mw.gameState.getTurnNumber()
 									: meetsTargetCondition(mw.p1MonsterStates.get(i), 0, false, false, condition))
@@ -1152,6 +1156,7 @@ final class GameContextImpl implements GameContext {
 							if (!meetsCategoryFilter(card, categoryFilter)) continue;
 							if (excludeName != null && excludeName.equalsIgnoreCase(card.name())) continue;
 							if (withoutMulticard && card.multicard()) continue;
+							if (isLimitBreakCondition(condition) && !card.isLb()) continue;
 							if (isTraitCondition(condition) && !mw.effectiveP2HasTrait(i, parseTraitFromCondition(condition))) continue;
 							if (isBlockingTargetFilter(condition)
 									? mw.meetsBlockingTargetFilter(false, i, condition)
@@ -1174,6 +1179,7 @@ final class GameContextImpl implements GameContext {
 							if (!meetsCategoryFilter(mw.p2BackupCards[i], categoryFilter)) continue;
 							if (excludeName != null && excludeName.equalsIgnoreCase(mw.p2BackupCards[i].name())) continue;
 							if (withoutMulticard && mw.p2BackupCards[i].multicard()) continue;
+							if (isLimitBreakCondition(condition) && !mw.p2BackupCards[i].isLb()) continue;
 							if (meetsTargetCondition(mw.p2BackupStates[i], 0, false, false, condition))
 								eligible.add(new ForwardTarget(false, i, ForwardTarget.CardZone.BACKUP));
 						}
@@ -1191,6 +1197,7 @@ final class GameContextImpl implements GameContext {
 							if (!meetsCategoryFilter(card, categoryFilter)) continue;
 							if (excludeName != null && excludeName.equalsIgnoreCase(card.name())) continue;
 							if (withoutMulticard && card.multicard()) continue;
+							if (isLimitBreakCondition(condition) && !card.isLb()) continue;
 							if (isEnteredThisTurnCondition(condition)
 									? mw.p2MonsterPlayedOnTurn.get(i) == mw.gameState.getTurnNumber()
 									: meetsTargetCondition(mw.p2MonsterStates.get(i), 0, false, false, condition))
@@ -1212,6 +1219,7 @@ final class GameContextImpl implements GameContext {
 							if (!meetsCategoryFilter(card, categoryFilter)) continue;
 							if (excludeName != null && excludeName.equalsIgnoreCase(card.name())) continue;
 							if (withoutMulticard && card.multicard()) continue;
+							if (isLimitBreakCondition(condition) && !card.isLb()) continue;
 							if (isTraitCondition(condition) && !mw.effectiveP2HasTrait(i, parseTraitFromCondition(condition))) continue;
 							if (isBlockingTargetFilter(condition)
 									? mw.meetsBlockingTargetFilter(false, i, condition)
@@ -1234,6 +1242,7 @@ final class GameContextImpl implements GameContext {
 							if (!meetsCategoryFilter(mw.p2BackupCards[i], categoryFilter)) continue;
 							if (excludeName != null && excludeName.equalsIgnoreCase(mw.p2BackupCards[i].name())) continue;
 							if (withoutMulticard && mw.p2BackupCards[i].multicard()) continue;
+							if (isLimitBreakCondition(condition) && !mw.p2BackupCards[i].isLb()) continue;
 							if (meetsTargetCondition(mw.p2BackupStates[i], 0, false, false, condition))
 								eligible.add(new ForwardTarget(false, i, ForwardTarget.CardZone.BACKUP));
 						}
@@ -1251,6 +1260,7 @@ final class GameContextImpl implements GameContext {
 							if (!meetsCategoryFilter(card, categoryFilter)) continue;
 							if (excludeName != null && excludeName.equalsIgnoreCase(card.name())) continue;
 							if (withoutMulticard && card.multicard()) continue;
+							if (isLimitBreakCondition(condition) && !card.isLb()) continue;
 							if (isEnteredThisTurnCondition(condition)
 									? mw.p2MonsterPlayedOnTurn.get(i) == mw.gameState.getTurnNumber()
 									: meetsTargetCondition(mw.p2MonsterStates.get(i), 0, false, false, condition))
@@ -1269,6 +1279,7 @@ final class GameContextImpl implements GameContext {
 							if (!meetsCategoryFilter(card, categoryFilter)) continue;
 							if (excludeName != null && excludeName.equalsIgnoreCase(card.name())) continue;
 							if (withoutMulticard && card.multicard()) continue;
+							if (isLimitBreakCondition(condition) && !card.isLb()) continue;
 							if (isTraitCondition(condition) && !mw.effectiveP1HasTrait(i, parseTraitFromCondition(condition))) continue;
 							if (isBlockingTargetFilter(condition)
 									? mw.meetsBlockingTargetFilter(true, i, condition)
@@ -1291,6 +1302,7 @@ final class GameContextImpl implements GameContext {
 							if (!meetsCategoryFilter(mw.p1BackupCards[i], categoryFilter)) continue;
 							if (excludeName != null && excludeName.equalsIgnoreCase(mw.p1BackupCards[i].name())) continue;
 							if (withoutMulticard && mw.p1BackupCards[i].multicard()) continue;
+							if (isLimitBreakCondition(condition) && !mw.p1BackupCards[i].isLb()) continue;
 							if (meetsTargetCondition(mw.p1BackupStates[i], 0, false, false, condition))
 								eligible.add(new ForwardTarget(true, i, ForwardTarget.CardZone.BACKUP));
 						}
@@ -1308,6 +1320,7 @@ final class GameContextImpl implements GameContext {
 							if (!meetsCategoryFilter(card, categoryFilter)) continue;
 							if (excludeName != null && excludeName.equalsIgnoreCase(card.name())) continue;
 							if (withoutMulticard && card.multicard()) continue;
+							if (isLimitBreakCondition(condition) && !card.isLb()) continue;
 							if (isEnteredThisTurnCondition(condition)
 									? mw.p1MonsterPlayedOnTurn.get(i) == mw.gameState.getTurnNumber()
 									: meetsTargetCondition(mw.p1MonsterStates.get(i), 0, false, false, condition))

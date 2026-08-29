@@ -1227,6 +1227,15 @@ final class ActionResolverChoose {
         // filter below: both are pools the card kind alone cannot name.
         if (m.group("alsoforward") != null && rawCondition == null)
             rawCondition = CardFilters.MONSTER_ALSO_FORWARD;
+        // "with 《LB》" (26-087R Odin) rides it for the same reason — a Limit Break card is a
+        // printing, not a card kind or a state. Any other keyword in that slot is declined rather
+        // than ignored: an unread filter would widen the choice to every Forward on the table,
+        // which is the failure the without-《…》 arm beside it was written to avoid.
+        String rawWithKw = m.group("withkw");
+        if (rawWithKw != null) {
+            if (!"LB".equalsIgnoreCase(rawWithKw.trim()) || rawCondition != null) return null;
+            rawCondition = CardFilters.LIMIT_BREAK_CONDITION;
+        }
         String  condition     = bzFieldZone   != null ? CardFilters.PUT_TO_BZ_FROM_FIELD_THIS_TURN
                               : blockingName  != null ? "blocking:"     + blockingName.trim()
                               : blockingJob   != null ? "blocking-job:" + blockingJob.trim()
@@ -2043,6 +2052,33 @@ final class ActionResolverChoose {
                     sortedByIdxDesc(ts, true) .forEach(t -> { int amt = amountByTarget.get(t); if (amt > 0) damageTargetMaybeUnreduced(ctx, t, amt, fUnreduced); });
                     sortedByIdxDesc(ts, false).forEach(t -> { int amt = amountByTarget.get(t); if (amt > 0) damageTargetMaybeUnreduced(ctx, t, amt, fUnreduced); });
                 }
+            };
+        }
+
+        // --- "Draw N card(s). Then, until EOT, it loses M power for each card in your hand." ---
+        // Read off the full followup, like the branches below it: the sentence split puts the draw
+        // in the primary and the reduction in the secondary, and neither half means anything alone
+        // — "it" in the second names the card the first sentence never chose. Order is the point,
+        // so the two are resolved together rather than as a followup and a tail.
+        Matcher drawThenHandM = FOLLOWUP_DRAW_THEN_POWER_REDUCE_FOR_EACH_HAND.matcher(followup);
+        if (drawThenHandM.matches()) {
+            int draws   = Integer.parseInt(drawThenHandM.group("draw"));
+            int perCard = Integer.parseInt(drawThenHandM.group("amount"));
+            return ctx -> {
+                ctx.logChooseHeader(choosePrefix + " — Draw " + draws + ", then -" + perCard
+                        + "x[your hand] until EOT");
+                List<ForwardTarget> ts = selectTargets(ctx, maxCount, upTo,
+                        opponentOnly, selfOnly, condition, element, zone, opponentZone,
+                        costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters, jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, fExcludeElem, withoutMulticard);
+                // Drawn before the hand is counted, which is what "Draw 1 card. Then, … for each
+                // card in your hand" says and what makes the draw worth another perCard of it.
+                ctx.drawCards(draws);
+                int n = ctx.yourHandSize();
+                int reduction = perCard * n;
+                ctx.logEntry("Effect: hand is " + n + " card(s) — reduce by " + reduction);
+                EnumSet<CardData.Trait> noTraits = EnumSet.noneOf(CardData.Trait.class);
+                sortedByIdxDesc(ts, true) .forEach(t -> ctx.reduceTarget(t, reduction, noTraits));
+                sortedByIdxDesc(ts, false).forEach(t -> ctx.reduceTarget(t, reduction, noTraits));
             };
         }
 
