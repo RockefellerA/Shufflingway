@@ -578,6 +578,12 @@ public class MainWindow {
 	// Damage-shield / damage-modifier state (keyed by CardData identity; cleared at end of turn)
 	final Set<CardData>          nextIncomingDmgZeroSet        = new HashSet<>();
 	/**
+	 * The unspent twin of {@link #nextIncomingDmgZeroSet}: 5-081C Cockatrice zeroes <em>every</em>
+	 * damage the chosen Forward is dealt for the rest of the turn, not the next one only, so this
+	 * set is read without being removed from and is emptied with the rest at the end of the turn.
+	 */
+	final Set<CardData>          allIncomingDmgZeroThisTurnSet = new HashSet<>();
+	/**
 	 * The source-scoped twin of {@link #nextIncomingDmgZeroSet} — Auron 22-001R shields "the next
 	 * damage dealt to it <em>by your opponent's Summons or abilities</em>", so combat damage neither
 	 * consumes the shield nor is stopped by it.
@@ -3132,7 +3138,7 @@ public class MainWindow {
                                 p1TempAttackTriggers.clear();           p2TempAttackTriggers.clear();
                                 p1TempBlockTriggers.clear();            p2TempBlockTriggers.clear();
                                 p1TempIsBlockedTriggers.clear();        p2TempIsBlockedTriggers.clear();
-                                nextIncomingDmgZeroSet.clear();   nextOppEffectDmgZeroSet.clear();   nextIncomingDmgRedirectMap.clear();   nextIncomingDmgReduceMap.clear();   nextAbilityDmgReduceMap.clear();
+                                nextIncomingDmgZeroSet.clear();   allIncomingDmgZeroThisTurnSet.clear();   nextOppEffectDmgZeroSet.clear();   nextIncomingDmgRedirectMap.clear();   nextIncomingDmgReduceMap.clear();   nextAbilityDmgReduceMap.clear();
                                 nextIncomingDmgReduceKickbackMap.clear();  pendingShieldKickbacks.clear();
                                 incomingDmgIncreaseMap.clear();   globalForwardIncomingDmgIncrease = 0;   nullifyAbilityDmgSet.clear();
                                 p1Turn.nullifyAbilityDmgFilters.clear(); p2Turn.nullifyAbilityDmgFilters.clear();

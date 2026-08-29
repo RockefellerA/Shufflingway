@@ -2354,6 +2354,8 @@ public class ActionResolver {
         if (FOLLOWUP_MUST_ATTACK.matcher(followupText).find())                        return "MustAttack";
         // Must precede the plain form, mirroring the choose chain: that pattern's find() would take
         // the first clause and lose the action-ability half.
+        if (FOLLOWUP_CANNOT_ATTACK_OR_BLOCK_AND_NEGATE_DAMAGE.matcher(followupText.trim()).matches())
+            return "CannotAttackOrBlockAndNegateDamage";
         if (FOLLOWUP_CANNOT_ATTACK_OR_BLOCK_AND_NO_ACTION_ABILITIES.matcher(followupText).find())
             return "CannotAttackOrBlockOrUseActionAbilities";
         if (FOLLOWUP_CANNOT_ATTACK_OR_BLOCK.matcher(followupText).find())             return "CannotAttackOrBlock";
@@ -2760,6 +2762,16 @@ public class ActionResolver {
         // describes Xande 10-008L as "ChooseCharacter / ? + PlayOntoField" — one pick, and the
         // filter that decides the other reported as unread.
         if (tryParseChooseTwoCostsFromBzPlayBoth(effectText) != null) return "ChooseTwoCostsFromBzPlayBoth";
+        // Mirrors tryParseChooseCharacter, which strips this trailing delayed trigger and parses
+        // the rest as an ordinary choose-and-act. Without the same strip here the clause fell past
+        // the choose block's sentence split and was reported as an unread tail — 15-014H Brynhildr
+        // read as "ChooseCharacter / Damage + ?" while its draw had been arming all along.
+        Matcher bzDrawM = CHOOSE_THEN_WHEN_PUT_TO_BZ_DRAW.matcher(effectText.trim());
+        if (bzDrawM.matches() && tryParseChooseCharacter(effectText, source, 0) != null) {
+            String headDesc = fullDescription(bzDrawM.group("head").trim(), source);
+            return (headDesc != null ? headDesc : "ChooseCharacter")
+                    + " + DrawOnFieldToBz(" + bzDrawM.group("count") + ")";
+        }
         Matcher chooseM = CHOOSE_CHARACTER_PATTERN.matcher(escapedEffectText);
         if (chooseM.find()) {
             String followup      = restorePeriodInName(chooseM.group("followup").trim(), source);

@@ -2368,6 +2368,19 @@ final class ActionResolverPatterns {
         ")\\.?"
     );
     /**
+     * Matches "During this turn, it cannot attack or block, and if it is dealt damage, the damage
+     * becomes 0 instead." — 5-081C Cockatrice, the corpus's only printing that pairs the combat
+     * lock with a damage shield.
+     *
+     * <p>Must be checked ahead of both {@link #FOLLOWUP_CANNOT_ATTACK_OR_BLOCK} and
+     * {@link #FOLLOWUP_NEGATE_DAMAGE}, for the reason its Kitone sibling below gives: each of them
+     * finds its own half inside this sentence and would drop the other.
+     */
+    static final Pattern FOLLOWUP_CANNOT_ATTACK_OR_BLOCK_AND_NEGATE_DAMAGE = Pattern.compile(
+        "(?i)^(?:During\\s+this\\s+turn[,.]?\\s+)?(?:it|they)\\s+cannot\\s+attack\\s+or\\s+block[,.]?\\s+" +
+        "and\\s+if\\s+(?:it|they)\\s+(?:is|are)\\s+dealt\\s+damage,\\s+the\\s+damage\\s+becomes\\s+0\\s+instead[.!]?$"
+    );
+    /**
      * Matches "During this turn, it cannot attack or block, and it cannot use action abilities."
      * — 14-064R Kitone.  Three restrictions in one sentence, and the only wording in the corpus
      * that shuts a single chosen Character out of action abilities (14-045H Sin's lock is a

@@ -4020,6 +4020,26 @@ final class ActionResolverChoose {
             };
         }
 
+        // --- Cannot attack or block, and damage becomes 0, this turn (5-081C Cockatrice) ---
+        // Ahead of both halves' own branches, for the reason the Kitone note below gives: each of
+        // them finds its own clause inside this sentence and would silently drop the other.
+        if (FOLLOWUP_CANNOT_ATTACK_OR_BLOCK_AND_NEGATE_DAMAGE.matcher(primaryFollowup.trim()).matches()) {
+            return ctx -> {
+                ctx.logChooseHeader(choosePrefix + " — Cannot attack or block, and damage becomes 0, this turn");
+                List<ForwardTarget> ts = selectTargets(ctx, maxCount, upTo,
+                        opponentOnly, selfOnly, condition, element, zone, opponentZone,
+                        costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters, jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, fExcludeElem, withoutMulticard);
+                for (ForwardTarget t : ts) {
+                    // Keyed by card so the lock holds wherever the chosen Character sits — the
+                    // same reason the Kitone branch below uses this route rather than the row
+                    // indices the plain cannot-attack-or-block branch sets.
+                    ctx.setTargetCannotAttackOrBlockThisTurn(t);
+                    ctx.shieldAllIncomingDamageThisTurn(t);
+                }
+                if (secondary != null) secondary.accept(ctx);
+            };
+        }
+
         // --- Cannot attack or block (this turn) followup ---
         // --- Cannot attack or block, and cannot use action abilities, this turn (Kitone) ---
         // Must precede the plain cannot-attack-or-block branch below: both scan with find(), and

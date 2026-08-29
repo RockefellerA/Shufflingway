@@ -37540,4 +37540,172 @@ public class CardBehaviorTest {
 
 	// =========================================================================================
 
+	// =========================================================================================
+	// 15-014H Brynhildr: "Choose 1 Forward. Deal it 5000 damage. When it is put from the field
+	// into the Break Zone this turn, draw 1 card."
+	//
+	// The delayed trigger was already armed — the mark goes on the Forward before the damage that
+	// breaks it, which is what makes it survive a lethal hit. Only the report was missing it,
+	// reading the clause as an unread tail on a card that had been drawing all along.
+	// =========================================================================================
+
+	private static final String BRYNHILDR_SUMMON =
+			"Choose 1 Forward. Deal it 5000 damage. "
+			+ "When it is put from the field into the Break Zone this turn, draw 1 card.";
+
+	@Test
+	void brynhildrDrawsWhenTheDamageIsLethal() {
+		MainWindow mw = new MainWindow();
+		placeP2Forward(mw, makeForward("Victim", "Fire", 3, 4000));   // 5000 is lethal
+		for (int i = 0; i < 3; i++) mw.gameState.getP1MainDeck().add(makeForward("Deck", "Fire", 3, 5000));
+		int before = mw.gameState.getP1Hand().size();
+
+		GameContext ctx = mw.buildGameContext(true);
+		ctx.preloadTargets(List.of(fwd(false, 0)));
+		Consumer<GameContext> effect = ActionResolver.parse(BRYNHILDR_SUMMON, null);
+		assertNotNull(effect, "the printed wording has to parse for the rest of this to mean anything");
+		effect.accept(ctx);
+
+		assertTrue(mw.p2ForwardCards.isEmpty(), "the damage was lethal");
+		assertEquals(before + 1, mw.gameState.getP1Hand().size(),
+				"and the mark was on it before the damage that broke it");
+	}
+
+	@Test
+	void andDoesNotWhenTheForwardSurvives() {
+		MainWindow mw = new MainWindow();
+		placeP2Forward(mw, makeForward("Survivor", "Fire", 3, 9000));   // 5000 is not lethal
+		for (int i = 0; i < 3; i++) mw.gameState.getP1MainDeck().add(makeForward("Deck", "Fire", 3, 5000));
+		int before = mw.gameState.getP1Hand().size();
+
+		GameContext ctx = mw.buildGameContext(true);
+		ctx.preloadTargets(List.of(fwd(false, 0)));
+		ActionResolver.parse(BRYNHILDR_SUMMON, null).accept(ctx);
+
+		assertEquals(1, mw.p2ForwardCards.size());
+		assertEquals(before, mw.gameState.getP1Hand().size(), "nothing was put into the Break Zone");
+	}
+
+	@Test
+	void andTheDelayedClauseIsNamedRatherThanReportedUnread() {
+		assertEquals("ChooseCharacter / Damage + DrawOnFieldToBz(1)",
+				ActionResolver.fullDescription(BRYNHILDR_SUMMON, null));
+	}
+
+	// =========================================================================================
+	// 5-081C Cockatrice: "Choose 1 Forward. During this turn, it cannot attack or block, and if it
+	// is dealt damage, the damage becomes 0 instead."
+	//
+	// Two clauses in one sentence, and each half's own branch scans with find() — so whichever ran
+	// first would have claimed its clause and dropped the other. Read together, ahead of both.
+	//
+	// The shield is the unspent kind. The card names no number of hits, so a Forward dealt damage
+	// twice in a turn takes neither; the one-shot shield beside it would have stopped only the
+	// first.
+	// =========================================================================================
+
+	private static final String COCKATRICE_SUMMON =
+			"Choose 1 Forward. During this turn, it cannot attack or block, "
+			+ "and if it is dealt damage, the damage becomes 0 instead.";
+
+	@Test
+	void cockatriceLocksTheForwardAndShieldsIt() {
+		MainWindow mw = new MainWindow();
+		CardData victim = makeForward("Victim", "Fire", 3, 7000);
+		placeP2Forward(mw, victim);
+
+		GameContext ctx = mw.buildGameContext(true);
+		ctx.preloadTargets(List.of(fwd(false, 0)));
+		Consumer<GameContext> effect = ActionResolver.parse(COCKATRICE_SUMMON, null);
+		assertNotNull(effect, "the printed wording has to parse for the rest of this to mean anything");
+		effect.accept(ctx);
+
+		assertTrue(mw.p2CannotAttack.contains(victim), "neither half may be dropped");
+		assertTrue(mw.p2CannotBlock.contains(victim));
+		assertTrue(mw.allIncomingDmgZeroThisTurnSet.contains(victim));
+	}
+
+	@Test
+	void andTheShieldIsNotSpentByTheFirstHit() {
+		// The difference between this shield and the one-shot beside it. "If it is dealt damage,
+		// the damage becomes 0" names no number of hits, so the second one is stopped too.
+		MainWindow mw = new MainWindow();
+		CardData victim = makeForward("Victim", "Fire", 3, 7000);
+		placeP2Forward(mw, victim);
+
+		GameContext ctx = mw.buildGameContext(true);
+		ctx.preloadTargets(List.of(fwd(false, 0)));
+		ActionResolver.parse(COCKATRICE_SUMMON, null).accept(ctx);
+
+		ctx.damageTarget(fwd(false, 0), 3000);
+		ctx.damageTarget(fwd(false, 0), 3000);
+
+		assertEquals(0, mw.p2ForwardDamage.get(0), "both hits became 0");
+		assertEquals(1, mw.p2ForwardCards.size());
+	}
+
+	// =========================================================================================
+	// 18-045C Dryad: "If you cast Dryad, you may remove 10 Wind cards in your Break Zone from the
+	// game as an extra cost. … If you paid the extra cost, also draw 1 card."
+	//
+	// The conditional clause is settled before the effect is parsed, not while it resolves: the
+	// Stack entry records whether the cost was paid, and resolution rewrites the text to match.
+	// Parsing the printed text instead would leave the clause for a find() matcher to claim and
+	// draw on every cast — which is why the raw wording deliberately does not resolve it.
+	// =========================================================================================
+
+	private static final String DRYAD_SUMMON =
+			"Choose 1 Forward. Deal it 2000 damage for each Wind Character you control. "
+			+ "If you paid the extra cost, also draw 1 card.";
+
+	@Test
+	void dryadDrawsOnlyWhenTheExtraCostWasPaid() {
+		CardData dryad = makeForward("Dryad", "Wind", 3, 0);
+
+		String paid = ActionResolver.applyExtraCostPaid(DRYAD_SUMMON);
+		assertEquals("ChooseCharacter / DamageForEach + DrawCards",
+				ActionResolver.fullDescription(paid, dryad));
+
+		String notPaid = ActionResolver.stripExtraCostClause(DRYAD_SUMMON);
+		assertEquals("ChooseCharacter / DamageForEach",
+				ActionResolver.fullDescription(notPaid, dryad));
+	}
+
+	@Test
+	void andTheDamageIsDealtEitherWay() {
+		CardData dryad = makeForward("Dryad", "Wind", 3, 0);
+		ForwardTarget victim = new ForwardTarget(false, 0, ForwardTarget.CardZone.FORWARD);
+
+		for (String text : List.of(ActionResolver.applyExtraCostPaid(DRYAD_SUMMON),
+				ActionResolver.stripExtraCostClause(DRYAD_SUMMON))) {
+			GameContext ctx = mock(GameContext.class);
+			when(ctx.consumePreloadedTargets()).thenReturn(null);
+			when(ctx.countSelfFieldCards(anyBoolean(), anyBoolean(), anyBoolean(),
+					any(), any(), any(), any(), anyInt())).thenReturn(3);
+			when(ctx.selectCharacters(anyInt(), anyBoolean(), anyBoolean(), anyBoolean(), any(), any(),
+					anyInt(), any(), anyInt(), any(), anyBoolean(), anyBoolean(), anyBoolean(),
+					any(), any(), any(), any(), anyBoolean(), any(), anyBoolean()))
+					.thenReturn(List.of(victim));
+
+			Consumer<GameContext> effect = ActionResolver.parse(text, dryad);
+			assertNotNull(effect, "both branches have to parse: " + text);
+			effect.accept(ctx);
+
+			verify(ctx).damageTarget(victim, 6000);   // 2000 x 3 Wind Characters
+		}
+	}
+
+	@Test
+	void andTheRawWordingDoesNotResolveTheClauseItself() {
+		// The guard that keeps the draw honest. Resolution always hands parse() one of the two
+		// rewritten texts; if the printed wording resolved the clause on its own, a cast that paid
+		// nothing would still draw.
+		CardData dryad = makeForward("Dryad", "Wind", 3, 0);
+		assertEquals("ChooseCharacter / DamageForEach + ?",
+				ActionResolver.fullDescription(DRYAD_SUMMON, dryad),
+				"the clause is left unread on purpose — the Stack entry settles it");
+	}
+
+	// =========================================================================================
+
 }

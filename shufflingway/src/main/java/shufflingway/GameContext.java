@@ -1115,6 +1115,16 @@ public interface GameContext {
     void shieldNextIncomingDamage(ForwardTarget t);
 
     /**
+     * Every damage the target is dealt becomes 0 for the rest of the turn — 5-081C Cockatrice's
+     * "if it is dealt damage, the damage becomes 0 instead", which names no number of hits.
+     *
+     * <p>The unspent form of {@link #shieldNextIncomingDamage(ForwardTarget)}: that one is
+     * consumed by the first hit it stops, and a Forward that is dealt damage twice in a turn would
+     * take the second.
+     */
+    void shieldAllIncomingDamageThisTurn(ForwardTarget t);
+
+    /**
      * The same shield, scoped to damage from the opposing player's Summons and abilities — Auron
      * 22-001R. Combat damage passes it untouched and does not consume it, which is the whole of the
      * difference from {@link #shieldNextIncomingDamage}.

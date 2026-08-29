@@ -469,6 +469,12 @@ final class GameContextImpl implements GameContext {
 			@Override public void shieldNextIncomingDamage(ForwardTarget t) {
 				CardData c = mw.autoAbilityTriggers.fieldCardData(t); if (c != null) mw.nextIncomingDmgZeroSet.add(c);
 			}
+			@Override public void shieldAllIncomingDamageThisTurn(ForwardTarget t) {
+				CardData c = mw.autoAbilityTriggers.fieldCardData(t);
+				if (c == null) return;
+				mw.allIncomingDmgZeroThisTurnSet.add(c);
+				logEntry(c.name() + " — damage dealt to it becomes 0 for the rest of the turn");
+			}
 			@Override public void shieldNextOpponentEffectDamage(ForwardTarget t) {
 				CardData c = mw.autoAbilityTriggers.fieldCardData(t);
 				if (c == null) return;

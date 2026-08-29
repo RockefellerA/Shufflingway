@@ -240,6 +240,11 @@ class DamageResolver {
 		// If damage reductions are disabled for this side, skip all target-side protections
 		if (mw.turn(isP1).dmgReductionDisabled) return amount;
 
+		// For the rest of the turn: every incoming damage = 0 (5-081C Cockatrice). Read before the
+		// one-shot below and without removing, so a Forward carrying both does not spend the
+		// single-use shield on a hit this one was already going to stop.
+		if (mw.allIncomingDmgZeroThisTurnSet.contains(card)) return 0;
+
 		// One-time: next incoming damage = 0
 		if (mw.nextIncomingDmgZeroSet.remove(card)) return 0;
 
