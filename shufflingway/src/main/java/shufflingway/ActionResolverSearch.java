@@ -277,6 +277,36 @@ final class ActionResolverSearch {
         return GameContext::flipUntilTypeToHandRestShuffleBottom;
     }
     /**
+     * Parses "Turn over one card at a time from the top of your deck until [a | N] [Type][s] [of
+     * cost C or less] [other than Card Name X] (is|are) revealed. Play (it|them) onto the field.
+     * Then, shuffle the other cards [revealed] and return them to the bottom of your deck."
+     *
+     * <p>The play-onto-field arm of the flip-until family — 7-106L Agrias and 20-001R Ardyn.
+     * Its two siblings above put the card into hand; only the destination differs, which is why
+     * the whole sentence has to be read rather than composed from parts.
+     *
+     * <p>Ardyn reaches this as the "If you do so" tail of an optional Break Zone price, so it is
+     * dispatched from {@code AutoAbilityTriggers} as well as from {@code parse()}.
+     */
+    static Consumer<GameContext> tryParseFlipUntilCharactersPlayOntoFieldRestShuffleBottom(String text) {
+        Matcher m = FLIP_UNTIL_CHARACTERS_PLAY_ONTO_FIELD_REST_SHUFFLE_BOTTOM.matcher(text.trim());
+        if (!m.matches()) return null;
+        int    count   = m.group("count")   != null ? Integer.parseInt(m.group("count")) : 1;
+        String type    = cap(m.group("type"));
+        int    maxCost = m.group("maxcost") != null ? Integer.parseInt(m.group("maxcost")) : -1;
+        String exclude = m.group("exclude") != null ? m.group("exclude").trim() : null;
+        String label   = "Turn cards over until " + count + " " + type
+                + (count == 1 ? "" : "s")
+                + (maxCost >= 0 ? " of cost " + maxCost + " or less" : "")
+                + (exclude != null ? " other than Card Name " + exclude : "")
+                + " revealed — play onto field, rest shuffled to bottom";
+        return ctx -> {
+            ctx.logEntry("Effect: " + label);
+            ctx.flipUntilCharactersPlayOntoFieldRestShuffleBottom(count, type, maxCost, exclude);
+        };
+    }
+
+    /**
      * Parses "Turn over one card at a time from the top of your deck until a [Element] or [Element]
      * card is revealed. Add it to your hand. Then, shuffle the other cards and return them to the
      * bottom of your deck." — 13-042C White Mage, 13-005C Black Mage and their ten siblings.
@@ -591,6 +621,32 @@ final class ActionResolverSearch {
             ctx.revealTopAddUpToExcludingNameRestBz(n, max, name);
         };
     }
+    /**
+     * Parses "Reveal the top N cards of your deck. Add 1 [Type], 1 [Type], and 1 [Type] among them
+     * to your hand, and put the rest of the cards into the Break Zone." — 10-138S Ramza.
+     *
+     * <p>One quota per printed card type rather than one count over a single filter: revealing two
+     * Forwards and a Backup takes one of each, not two Forwards. The list is kept as printed rather
+     * than de-duplicated, so a text naming a type twice would ask for two of it.
+     *
+     * <p>Returns {@code null} when fewer than two quotas survive, which cannot happen against the
+     * pattern (its list requires at least two) but keeps the parser honest about what it needs.
+     */
+    static Consumer<GameContext> tryParseRevealTopNAddOnePerTypeRestBz(String text) {
+        Matcher m = REVEAL_TOP_N_ADD_ONE_PER_TYPE_REST_BZ.matcher(text.trim());
+        if (!m.matches()) return null;
+        int n = Integer.parseInt(m.group("n"));
+        List<String> types = new ArrayList<>();
+        Matcher q = REVEAL_ONE_PER_TYPE_QUOTA.matcher(m.group("types"));
+        while (q.find()) types.add(cap(q.group("type")));
+        if (types.size() < 2) return null;
+        return ctx -> {
+            ctx.logEntry("Effect: Reveal top " + n + " — add 1 "
+                    + String.join(", 1 ", types) + " to hand, rest to Break Zone");
+            ctx.revealTopAddOnePerTypeToHandRestBz(n, types);
+        };
+    }
+
     static Consumer<GameContext> tryParseRevealAddTypeToHandOrPlayJobTypeOntoFieldRestBottom(String text) {
         Matcher m = REVEAL_ADD_TYPE_TO_HAND_OR_PLAY_JOB_TYPE_ONTO_FIELD_REST_BOTTOM.matcher(text.trim());
         if (!m.matches()) return null;

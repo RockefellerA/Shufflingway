@@ -1110,6 +1110,85 @@ final class ActionResolverChoose {
         return tryParseChooseCharacterInner(text, source, xValue);
     }
     /**
+     * "If &lt;condition&gt;, &lt;action&gt; it/them/this Forward also." — a choose followup's
+     * second sentence, adding one more action to the cards the first sentence already chose and
+     * gating it on a condition. 1-059R Laguna, 1-043H Snow and 5-029L Orphan.
+     *
+     * <p>Built here rather than parsed standalone for the reason every secondary in this block is:
+     * the sentence's "it" is the card the primary chose, which only {@code lastChosenTargets()}
+     * knows. Left to the general chain, Laguna's sentence matched nothing and Snow's matched a
+     * bare Freeze that had no target to act on.
+     *
+     * <p>Returns {@code null} unless <em>both</em> halves are understood, so a condition or a verb
+     * this does not read falls through to the chain below rather than silently applying half the
+     * sentence.
+     */
+    static Consumer<GameContext> secondaryConditionGatedActionAlso(String secondaryText) {
+        Matcher m = SECONDARY_CONDITION_GATED_ACTION_ALSO.matcher(secondaryText.trim());
+        if (!m.matches()) return null;
+        Predicate<GameContext> gate = alsoGateCondition(m.group("cond").trim());
+        if (gate == null) return null;
+        final String actionText = m.group("action").trim();
+        // Rebuilt as "<verb> it" so the shared target-action vocabulary answers for it; the
+        // pronoun the card actually printed ("this forward") is not one of that vocabulary's.
+        BiConsumer<GameContext, List<ForwardTarget>> action = parseTargetAction(actionText + " it", 0);
+        if (action == null) return null;
+        final String condLabel = m.group("cond").trim();
+        return ctx -> {
+            if (!gate.test(ctx)) {
+                ctx.logEntry("Effect: " + condLabel + " — not met, " + actionText + " skipped");
+                return;
+            }
+            List<ForwardTarget> chosen = ctx.lastChosenTargets();
+            if (chosen.isEmpty()) {
+                ctx.logEntry("Effect: nothing was chosen — " + actionText + " skipped");
+                return;
+            }
+            ctx.logEntry("Effect: " + condLabel + " — " + actionText + " the chosen card(s) also");
+            action.accept(ctx, chosen);
+        };
+    }
+
+    /** The name {@link #secondaryConditionGatedActionAlso} reports, or {@code null} if it declines. */
+    static String secondaryConditionGatedActionAlsoName(String secondaryText, CardData source) {
+        Matcher m = SECONDARY_CONDITION_GATED_ACTION_ALSO.matcher(secondaryText.trim());
+        if (!m.matches() || secondaryConditionGatedActionAlso(secondaryText) == null) return null;
+        String actionName = matchedFollowupName(m.group("action").trim() + " it", source);
+        Matcher cast = ALSO_GATE_CAST_NAMED_THIS_TURN.matcher(m.group("cond").trim());
+        String gateLabel = cast.matches()
+                ? "IfCast(" + cast.group("name").trim() + ")"
+                : "IfControl(" + CardData.parseControlCondition(alsoGateControlText(m.group("cond").trim())) + ")";
+        return gateLabel + "[" + (actionName != null ? actionName : "?") + "]";
+    }
+
+    /**
+     * The two condition wordings this family prints, as a test against the board: "you control
+     * &lt;X&gt;" (Laguna, Orphan) and "you have cast Card Name &lt;X&gt; this turn" (Snow).
+     *
+     * <p>The control form is handed to {@code CardData.parseControlCondition}, which is the whole
+     * of the condition vocabulary the rest of the engine reads, so anything it understands works
+     * here without being listed twice.
+     */
+    private static Predicate<GameContext> alsoGateCondition(String cond) {
+        Matcher cast = ALSO_GATE_CAST_NAMED_THIS_TURN.matcher(cond);
+        if (cast.matches()) {
+            final String name = cast.group("name").trim();
+            return ctx -> ctx.countCardsNamedCastThisTurn(name) > 0;
+        }
+        String controlText = alsoGateControlText(cond);
+        if (controlText == null) return null;
+        ControlCondition cc = CardData.parseControlCondition(controlText);
+        if (cc == null) return null;
+        return ctx -> ctx.controlConditionMet(cc);
+    }
+
+    /** The noun phrase after "you control", which is what {@code parseControlCondition} reads. */
+    private static String alsoGateControlText(String cond) {
+        Matcher control = ALSO_GATE_YOU_CONTROL.matcher(cond);
+        return control.matches() ? control.group("cond").trim() : null;
+    }
+
+    /**
      * Builds Porom 15-119L's second sentence: "If N or more [X] Counters are placed on [Self], its
      * power also becomes P until the end of the turn."
      *
@@ -1429,11 +1508,17 @@ final class ActionResolverChoose {
                             secondary = ctx -> ctx.mayDiscardCardNameToReplayAbility(name, replayEffect);
                         }
                     } else {
+                        // "If <condition>, <action> it also." — read first, because every
+                        // secondary below scans with find() and would take its verb out of this
+                        // sentence and apply it with the condition dropped.
+                        Consumer<GameContext> alsoGated = secondaryConditionGatedActionAlso(secondaryText);
                         // Special case: "That Forward's controller discards N card(s) from their hand."
                         // The discarder depends on the chosen target's controller, which is read back
                         // from GameContext.lastChosenTargets() (populated by selectTargets).
                         Matcher ctrlDiscM = FOLLOWUP_TARGET_CONTROLLER_DISCARDS.matcher(secondaryText);
-                        if (ctrlDiscM.matches()) {
+                        if (alsoGated != null) {
+                            secondary = alsoGated;
+                        } else if (ctrlDiscM.matches()) {
                             final int discardCount = Integer.parseInt(ctrlDiscM.group("count"));
                             secondary = ctx -> {
                                 List<ForwardTarget> chosen = ctx.lastChosenTargets();

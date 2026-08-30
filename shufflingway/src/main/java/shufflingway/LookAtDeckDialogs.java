@@ -1723,6 +1723,184 @@ class LookAtDeckDialogs {
     }
 
     /**
+     * Reveals {@code cards} (already peeked from the top of {@code deck}). The player takes up to
+     * one card of each type in {@code types} to hand — "Add 1 Forward, 1 Backup, and 1 Summon
+     * among them to your hand" (10-138S Ramza). Everything not taken goes to the Break Zone.
+     *
+     * <p>A quota per type rather than one count over all of them, which is the whole of what
+     * separates this from {@link #revealAddUpToExcludingNameRestBz}: revealing two Forwards and a
+     * Backup takes one of each, and the spare Forward is broken. Card types are mutually
+     * exclusive, so each revealed card answers to at most one quota and the quotas never compete.
+     *
+     * <p>{@code types} arrives as printed, so a type named twice asks for two of it.
+     */
+    void revealAddOnePerTypeToHandRestBz(List<CardData> cards, Deque<CardData> deck,
+            boolean isP1, List<String> types) {
+        resolveReveal(cards, deck, isP1,
+                () -> askRevealAddOnePerTypeToHandRestBz(cards, types),
+                () -> cpuRevealAddOnePerTypeToHandRestBz(cards, types),
+                null);
+    }
+
+    /** How many of {@code types} name {@code type} — the quota for that row. */
+    private static int quotaFor(List<String> types, String type) {
+        int q = 0;
+        for (String t : types) if (t.equalsIgnoreCase(type)) q++;
+        return q;
+    }
+
+    /**
+     * The AI's answer: for each quota, the most expensive card of that type it has not already
+     * taken; everything else to the Break Zone.
+     *
+     * <p>Package-private and pure, so it can be asserted on without a window — the same reason
+     * its siblings in this class are.
+     */
+    static DeckLookDecision cpuRevealAddOnePerTypeToHandRestBz(List<CardData> cards,
+            List<String> types) {
+        List<Integer> toHand = new ArrayList<>();
+        for (String type : types) {
+            int best = -1;
+            for (int i = 0; i < cards.size(); i++) {
+                if (toHand.contains(i)) continue;
+                if (!meetsRevealTypeFilter(cards.get(i), type)) continue;
+                if (best < 0 || cards.get(i).cost() > cards.get(best).cost()) best = i;
+            }
+            if (best >= 0) toHand.add(best);
+        }
+        List<Integer> toBreak = new ArrayList<>();
+        for (int i = 0; i < cards.size(); i++) if (!toHand.contains(i)) toBreak.add(i);
+        return new DeckLookDecision(toHand, toBreak, List.of(), List.of());
+    }
+
+    private DeckLookDecision askRevealAddOnePerTypeToHandRestBz(List<CardData> cards,
+            List<String> types) {
+        int n = cards.size();
+        JDialog dlg = new JDialog(frame,
+                "Reveal — Add 1 " + String.join(", 1 ", types) + " to Hand, Rest to Break Zone", true);
+        dlg.setResizable(false);
+        dlg.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
+
+        Map<CardData, ImageIcon> imgCache = new LinkedHashMap<>();
+        JLabel[] cardLabels = new JLabel[n];
+        List<CardData> handSel = new ArrayList<>();
+
+        JButton confirmBtn = new JButton("Confirm");
+        confirmBtn.setFont(FontLoader.loadPixelFont(11));
+
+        JToggleButton[] handBtns = new JToggleButton[n];
+
+        // A card is offered while its own type still has room. Counting the selection by type is
+        // what makes the three quotas independent: filling the Forward slot must not close the
+        // Backup one, which a single running total would do.
+        Runnable refreshHandButtons = () -> {
+            for (int j = 0; j < n; j++) {
+                CardData c = cards.get(j);
+                String type = revealTypeOf(c, types);
+                boolean inHand = holdsIdentity(handSel, c);
+                if (type == null) { handBtns[j].setEnabled(false); continue; }
+                int taken = 0;
+                for (CardData sel : handSel) if (type.equalsIgnoreCase(revealTypeOf(sel, types))) taken++;
+                handBtns[j].setEnabled(inHand || taken < quotaFor(types, type));
+            }
+        };
+
+        Runnable refreshBorders = () -> {
+            for (int j = 0; j < n; j++) {
+                CardData c = cards.get(j);
+                if (holdsIdentity(handSel, c))
+                    cardLabels[j].setBorder(BorderFactory.createLineBorder(new Color(0, 200, 80), 3));
+                else if (revealTypeOf(c, types) == null)
+                    cardLabels[j].setBorder(BorderFactory.createLineBorder(Color.RED, 2));
+                else
+                    cardLabels[j].setBorder(BorderFactory.createLineBorder(new Color(160, 110, 220), 1));
+            }
+        };
+
+        JPanel cardsPanel = new JPanel(new FlowLayout(FlowLayout.CENTER, 8, 8));
+        for (int i = 0; i < n; i++) {
+            final int idx = i;
+            JLabel lbl = makeCardLabel(null);
+            lbl.addMouseListener(new MouseAdapter() {
+                @Override public void mouseEntered(MouseEvent e) { showZoom(cards.get(idx).imageUrl()); }
+                @Override public void mouseExited(MouseEvent e)  { hideZoom(); }
+            });
+            cardLabels[i] = lbl;
+
+            JToggleButton handBtn = new JToggleButton(txt("→ Hand"));
+            handBtn.setFont(FontLoader.loadPixelFont(9));
+            handBtns[i] = handBtn;
+            handBtn.addItemListener(ie -> {
+                CardData c = cards.get(idx);
+                if (ie.getStateChange() == java.awt.event.ItemEvent.SELECTED) {
+                    if (!holdsIdentity(handSel, c)) handSel.add(c);
+                } else {
+                    dropIdentity(handSel, c);
+                }
+                refreshHandButtons.run();
+                refreshBorders.run();
+            });
+
+            JPanel wrapper = new JPanel(new BorderLayout(0, 2));
+            wrapper.setOpaque(false);
+            wrapper.add(lbl,     BorderLayout.CENTER);
+            wrapper.add(handBtn, BorderLayout.SOUTH);
+            cardsPanel.add(wrapper);
+        }
+
+        refreshHandButtons.run();
+        refreshBorders.run();
+
+        for (CardData c : cards) {
+            new SwingWorker<ImageIcon, Void>() {
+                @Override protected ImageIcon doInBackground() throws Exception {
+                    Image img = ImageCache.load(c.imageUrl());
+                    return img == null ? null
+                            : new ImageIcon(img.getScaledInstance(CARD_W, CARD_H, Image.SCALE_SMOOTH));
+                }
+                @Override protected void done() {
+                    try {
+                        ImageIcon ic = get();
+                        int j = cards.indexOf(c);
+                        if (ic != null && j >= 0) { imgCache.put(c, ic); cardLabels[j].setIcon(ic); cardLabels[j].setText(null); }
+                    } catch (InterruptedException | ExecutionException ignored) {}
+                }
+            }.execute();
+        }
+
+        JLabel instructions = new JLabel(
+                txt("Toggle '→ Hand' to add up to 1 " + String.join(", 1 ", types)
+                        + ". Everything else (red is ineligible) goes to your Break Zone."),
+                SwingConstants.CENTER);
+        instructions.setFont(FontLoader.loadPixelFont(9));
+        confirmBtn.addActionListener(ae -> { hideZoom(); dlg.dispose(); });
+
+        JPanel south = new JPanel(new BorderLayout(0, 2));
+        south.add(instructions, BorderLayout.NORTH);
+        JPanel btnRow = new JPanel(new FlowLayout(FlowLayout.CENTER, 12, 6));
+        btnRow.add(confirmBtn);
+        south.add(btnRow, BorderLayout.SOUTH);
+
+        dlg.getContentPane().setLayout(new BorderLayout(0, 4));
+        dlg.getContentPane().add(cardsPanel, BorderLayout.CENTER);
+        dlg.getContentPane().add(south,      BorderLayout.SOUTH);
+        dlg.pack();
+        dlg.setLocationRelativeTo(frame);
+        dlg.setVisible(true);
+
+        List<CardData> broken = new ArrayList<>();
+        for (CardData c : cards) if (!holdsIdentity(handSel, c)) broken.add(c);
+        return new DeckLookDecision(peekIndices(cards, handSel), peekIndices(cards, broken),
+                List.of(), List.of());
+    }
+
+    /** Which of {@code types} {@code c} answers to, or {@code null} when it answers to none. */
+    private static String revealTypeOf(CardData c, List<String> types) {
+        for (String t : types) if (meetsRevealTypeFilter(c, t)) return t;
+        return null;
+    }
+
+    /**
      * "Reveal N cards. Play up to {@code maxPlay} matching {@code typeFilter} onto the field;
      * return the rest to the bottom of the deck in any order."
      *

@@ -2246,6 +2246,36 @@ final class ActionResolverPatterns {
         "return\\s+them\\s+to\\s+the\\s+bottom\\s+of\\s+your\\s+deck[.!]?"
     );
     /**
+     * Matches "Turn over one card at a time from the top of your deck until [a | N] [Type][s]
+     * [of cost C or less] [other than Card Name X] (is|are) revealed. Play (it|them) onto the
+     * field. Then, shuffle the other cards [revealed] and return them to the bottom of your deck."
+     *
+     * <p>The play-onto-field arm of the flip-until family, whose two other arms
+     * ({@link #FLIP_UNTIL_TYPE_TO_HAND_REST_SHUFFLE_BOTTOM} and
+     * {@link #FLIP_UNTIL_ELEMENT_TO_HAND_REST_SHUFFLE_BOTTOM}) put the card found into hand.
+     * Two printings: 7-106L Agrias digs for one Character of cost 3 or less, and 20-001R Ardyn
+     * for two Characters that are not another Ardyn.
+     *
+     * <p>Both had been claimed by {@code tryParsePlaySourceOntoField}, which scans with
+     * {@code find()}: it read "Play it onto the field", resolved the "it" to the ability's own
+     * source and tried to return that card from the Break Zone. So this must be dispatched
+     * <b>ahead of</b> that parser, not merely alongside the rest of its own family.
+     *
+     * <p>Groups: {@code count} (absent for the "a"/"an" singular), {@code type},
+     * {@code maxcost}, {@code exclude}.
+     */
+    static final Pattern FLIP_UNTIL_CHARACTERS_PLAY_ONTO_FIELD_REST_SHUFFLE_BOTTOM = Pattern.compile(
+        "(?i)^\\s*Turn\\s+over\\s+one\\s+card\\s+at\\s+a\\s+time\\s+from\\s+the\\s+top\\s+of\\s+your\\s+deck\\s+" +
+        "until\\s+(?:an?|(?<count>\\d+))\\s+" +
+        "(?<type>Forward|Backup|Monster|Character)s?\\s+" +
+        "(?:of\\s+cost\\s+(?<maxcost>\\d+)\\s+or\\s+less\\s+)?" +
+        "(?:other\\s+than\\s+Card\\s+Name\\s+(?<exclude>.+?)\\s+)?" +
+        "(?:is|are)\\s+revealed[.!]?\\s+" +
+        "Play\\s+(?:it|them)\\s+onto\\s+the\\s+field[.!]?\\s+" +
+        "Then,?\\s+shuffle\\s+the\\s+other\\s+cards?(?:\\s+revealed)?\\s+and\\s+" +
+        "return\\s+them\\s+to\\s+the\\s+bottom\\s+of\\s+your\\s+deck[.!]?\\s*$"
+    );
+    /**
      * Matches "Shuffle your deck. Then, reveal the top N cards of your deck.
      * Play 1 Card Name [name] among them onto the field and return the other cards to the
      * bottom of your deck in any order." — used as the 'when you do so' followup on self-bounce
@@ -3171,6 +3201,30 @@ final class ActionResolverPatterns {
         "Add\\s+up\\s+to\\s+(?<max>\\d+)\\s+cards?\\s+other\\s+than\\s+Card\\s+Name\\s+(?<name>.+?)\\s+" +
         "among\\s+them\\s+to\\s+your\\s+hand,?\\s+" +
         "and\\s+put\\s+the\\s+rest\\s+of\\s+the\\s+cards?\\s+into\\s+the\\s+Break\\s+Zone[.!]?\\s*$"
+    );
+    /**
+     * Matches "Reveal the top N cards of your deck. Add 1 [Type], 1 [Type], and 1 [Type] among
+     * them to your hand, and put the rest of the cards into the Break Zone." — 10-138S Ramza.
+     *
+     * <p>A quota per card <em>type</em> rather than one count over a single filter, which is what
+     * separates it from {@link #LOOK_TOP_DECK_ADD_TO_HAND_REST_BREAK} and its siblings: reveal two
+     * Forwards and a Backup and you take one of each, not two Forwards. The types are mutually
+     * exclusive, so each revealed card answers to at most one quota.
+     *
+     * <p>Group {@code types} holds the whole list; the parser splits it, which keeps the pattern
+     * from having to name a fixed number of quotas.
+     */
+    static final Pattern REVEAL_TOP_N_ADD_ONE_PER_TYPE_REST_BZ = Pattern.compile(
+        "(?i)^\\s*reveal\\s+the\\s+top\\s+(?<n>\\d+)\\s+cards?\\s+of\\s+your\\s+deck[.!]?\\s+" +
+        "Add\\s+(?<types>1\\s+(?:Forward|Backup|Monster|Summon)" +
+        "(?:,?\\s+(?:and\\s+)?1\\s+(?:Forward|Backup|Monster|Summon))+)\\s+" +
+        "among\\s+them\\s+to\\s+your\\s+hand,?\\s+" +
+        "and\\s+put\\s+the\\s+rest\\s+of\\s+the\\s+cards?\\s+into\\s+the\\s+Break\\s+Zone[.!]?\\s*$"
+    );
+
+    /** One "1 [Type]" quota inside {@link #REVEAL_TOP_N_ADD_ONE_PER_TYPE_REST_BZ}'s list. */
+    static final Pattern REVEAL_ONE_PER_TYPE_QUOTA = Pattern.compile(
+        "(?i)1\\s+(?<type>Forward|Backup|Monster|Summon)"
     );
     /**
      * Matches "Reveal the top N cards of your deck. Add M [Type] among them to your hand or
@@ -5638,6 +5692,51 @@ final class ActionResolverPatterns {
         "(?i)^If\\s+(?<count>\\d+)\\s+or\\s+more\\s+(?<countername>\\S+)\\s+Counters?\\s+are\\s+placed\\s+on\\s+" +
         "(?<name>[^,]+),\\s+its\\s+power\\s+also\\s+becomes\\s+(?<power>\\d+)\\s+until\\s+" +
         "(?:the\\s+)?end\\s+of\\s+(?:the\\s+)?turn[.!]?$"
+    );
+    /**
+     * "If <condition>, <action> it/them/this Forward also." — the second sentence of a choose
+     * followup, adding one more action to the cards the first sentence already picked, but only
+     * when a condition holds. Three printings: 1-059R Laguna ("If you control Card Name Squall,
+     * Freeze this forward also"), 1-043H Snow ("If you have cast Card Name Shiva this turn,
+     * Freeze it also") and 5-029L Orphan ("If you control 5 or more Ice Characters, Freeze them
+     * also").
+     *
+     * <p>Anchored end to end, and read <b>ahead of</b> the plain break/dull/freeze secondaries,
+     * which all scan with {@code find()}: each of them matched its verb inside this sentence and
+     * applied it unconditionally. That is not what went wrong for these three — the primary
+     * sentence claimed the followup first and this one was dropped whole — but it is what would
+     * go wrong the moment the split handed it over.
+     *
+     * <p>{@code action} is left open rather than listed, and validated by handing
+     * "{@code <action> it}" to {@code parseTargetAction}: the vocabulary of things a followup can
+     * do to an already-chosen card lives there, and duplicating it here would date.
+     *
+     * <p>Groups: {@code cond} — the gate, in the wording {@code parseControlCondition} or the
+     * cast-this-turn form reads; {@code action} — the verb phrase.
+     */
+    static final Pattern SECONDARY_CONDITION_GATED_ACTION_ALSO = Pattern.compile(
+        "(?i)^If\\s+(?<cond>.+?),\\s+(?<action>.+?)\\s+" +
+        "(?:it|them|this\\s+(?:Forward|Character|Backup|Monster))\\s+also[.!]?$"
+    );
+
+    /**
+     * The "you have cast Card Name X this turn" wording of
+     * {@link #SECONDARY_CONDITION_GATED_ACTION_ALSO}'s condition — 1-043H Snow's gate. Read first
+     * because it is not a control condition at all: it asks what was cast, not what is on the
+     * field, and handing it to {@code parseControlCondition} would answer for a board state
+     * nobody asked about.
+     */
+    static final Pattern ALSO_GATE_CAST_NAMED_THIS_TURN = Pattern.compile(
+        "(?i)^you\\s+have\\s+cast\\s+(?:an?\\s+)?Card\\s+Name\\s+(?<name>.+?)\\s+this\\s+turn$"
+    );
+
+    /**
+     * The "you control &lt;X&gt;" wording of the same condition, stripped down to the noun phrase
+     * {@code CardData.parseControlCondition} reads — 1-059R Laguna's "Card Name Squall" and
+     * 5-029L Orphan's "5 or more Ice Characters".
+     */
+    static final Pattern ALSO_GATE_YOU_CONTROL = Pattern.compile(
+        "(?i)^you\\s+control\\s+(?<cond>\\S.*)$"
     );
     /**
      * "If its power has been increased or decreased, break it." — 12-049H Diabolos, the choose

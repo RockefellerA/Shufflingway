@@ -9085,6 +9085,57 @@ final class GameContextImpl implements GameContext {
 				mw.lookDialogs().revealAddUpToExcludingNameRestBz(peeked, deck, isP1, maxAdd, excludeName);
 			}
 
+			@Override public void revealTopAddOnePerTypeToHandRestBz(int reveal, List<String> types) {
+				Deque<CardData> deck = isP1 ? mw.gameState.getP1MainDeck() : mw.gameState.getP2MainDeck();
+				int n = Math.min(reveal, deck.size());
+				if (n == 0) { logEntry("Reveal top: deck is empty."); return; }
+				List<CardData> peeked = new ArrayList<>();
+				for (CardData c : deck) { peeked.add(c); if (peeked.size() >= n) break; }
+				logEntry("Reveal top " + n + " card(s): " +
+						peeked.stream().map(CardData::name).collect(Collectors.joining(", ")));
+				mw.lookDialogs().revealAddOnePerTypeToHandRestBz(peeked, deck, isP1, types);
+			}
+
+			@Override public void flipUntilCharactersPlayOntoFieldRestShuffleBottom(int count,
+					String type, int maxCost, String excludeName) {
+				Deque<CardData> deck = isP1 ? mw.gameState.getP1MainDeck() : mw.gameState.getP2MainDeck();
+				if (deck.isEmpty()) {
+					// Not a loss: turning cards over is not drawing, so an empty deck just means
+					// there is nothing to reveal.
+					logEntry("Reveal from top: deck is empty — nothing revealed");
+					return;
+				}
+				List<CardData> passed = new ArrayList<>();
+				List<CardData> found  = new ArrayList<>();
+				while (!deck.isEmpty() && found.size() < count) {
+					CardData c = deck.pollFirst();
+					logEntry("Revealed: " + c.name());
+					boolean matches = meetsRevealTypeFilter(c, type)
+							&& (maxCost < 0 || c.cost() <= maxCost)
+							&& (excludeName == null || !CardFilters.meetsCardNameFilter(c, excludeName));
+					if (matches) found.add(c); else passed.add(c);
+				}
+				if (found.isEmpty()) {
+					logEntry("No matching " + type + " found — deck exhausted, nothing played");
+				} else {
+					// Placed after the search rather than as each one turns up, so a card played here
+					// cannot change what the rest of the search is looking at.
+					Consumer<CardData> place = revealPlacement();
+					for (CardData c : found) {
+						logEntry(c.name() + " → field");
+						place.accept(c);
+					}
+					if (found.size() < count)
+						logEntry("Deck exhausted after " + found.size() + " of " + count + " — played what was found");
+				}
+				if (!passed.isEmpty()) {
+					java.util.Collections.shuffle(passed);
+					for (CardData c : passed) deck.addLast(c);
+					logEntry(passed.size() + " revealed card(s) shuffled to bottom of deck");
+				}
+				if (isP1) mw.refreshP1DeckLabel(); else mw.refreshP2DeckLabel();
+			}
+
 			private boolean meetsRevealTypeFilter(CardData c, String type) {
 				return switch (type.toLowerCase()) {
 					case "monster"   -> c.isMonster();

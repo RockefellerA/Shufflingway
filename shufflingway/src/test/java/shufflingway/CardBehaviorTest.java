@@ -40320,6 +40320,338 @@ public class CardBehaviorTest {
 		assertEquals("play", RevealTake.FIELD.takeVerb());
 	}
 
+
+	// =========================================================================================
+	// Ramza 10-138S, Ardyn 20-001R and Laguna 1-059R: three enters-the-field abilities that were
+	// losing everything after their first clause.
+	//
+	// Parsing + board behaviour. Ramza's per-type reveal quota had no parser at all. Ardyn's dig
+	// was the unread tail of an optional Break Zone price, so the price was never offered. And
+	// Laguna's conditional Freeze was dropped by the Choose chain, which reads the primary
+	// sentence and stops — the same drop that hid 1-043H Snow's and 5-029L Orphan's.
+	//
+	// The dig also fixes 7-106L Agrias, which shares Ardyn's sentence: it had been claimed by
+	// PlaySourceOntoField, whose find() took "Play it onto the field" out of the middle and
+	// resolved the "it" to Agrias herself.
+	// =========================================================================================
+
+	private static final String RAMZA_10_138S_TEXT =
+			"When Ramza enters the field, reveal the top 3 cards of your deck. Add 1 Forward, "
+			+ "1 Backup, and 1 Summon among them to your hand, and put the rest of the cards into "
+			+ "the Break Zone.";
+
+	private static final String ARDYN_20_001R_TEXT =
+			"When Ardyn enters the field, you may put 2 Backups you control into the Break Zone. "
+			+ "If you do so, turn over one card at a time from the top of your deck until 2 "
+			+ "Characters other than Card Name Ardyn are revealed. Play them onto the field. Then, "
+			+ "shuffle the other cards revealed and return them to the bottom of your deck.";
+
+	private static final String AGRIAS_7_106L_TEXT =
+			"When Agrias enters the field, turn over one card at a time from the top of your deck "
+			+ "until a Character of cost 3 or less is revealed. Play it onto the field. Then, "
+			+ "shuffle the other cards revealed and return them to the bottom of your deck.";
+
+	private static final String LAGUNA_1_059R_TEXT =
+			"When Laguna enters the field, choose 1 Forward opponent controls. Dull it. "
+			+ "If you control Card Name Squall, Freeze this forward also.";
+
+	private static final String SNOW_1_043H_TEXT =
+			"When Snow attacks, choose 1 Forward opponent controls. Dull it. "
+			+ "If you have cast Card Name Shiva this turn, Freeze it also.";
+
+	private static final String ORPHAN_5_029L_TEXT =
+			"When Orphan enters the field, choose up to 2 Forwards opponent controls. Dull them. "
+			+ "If you control 5 or more Ice Characters, Freeze them also.";
+
+	/** A Backup of a given name/element/cost whose auto abilities are parsed from {@code text}. */
+	private static CardData makeAutoAbilityBackupNamed(String name, String element, int cost,
+			String text) {
+		return new CardData(null, name, element, cost, 0, "Backup", false, 0, false, false,
+				Set.of(), 0, List.of(), null, List.of(),
+				List.of(), CardData.parseAutoAbilities(text), List.of(), List.of(), List.of(),
+				List.of(), List.of(), List.of(), List.of(), List.of(),
+				false, false, null, false, false, false, false, false, 1,
+				null, null, null, text);
+	}
+
+	/** A Summon whose text is irrelevant — these tests only ever ask what type it is. */
+	private static CardData makePlainSummon(String name, String element, int cost) {
+		return new CardData(null, name, element, cost, 0, "Summon", false, 0, false, false,
+				Set.of(), 0, List.of(), null, List.of(),
+				List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(),
+				List.of(), List.of(), List.of(),
+				false, false, null, false, false, false, false, false, 1,
+				null, null, null, "");
+	}
+
+	/** Stacks {@code cards} so the first argument ends up on top of P2's deck. */
+	private static void stackP2Deck(MainWindow mw, CardData... cards) {
+		mw.gameState.getP2MainDeck().clear();
+		for (CardData c : cards) {
+			mw.gameState.getIdentity().put(c, false);
+			mw.gameState.getP2MainDeck().addLast(c);
+		}
+	}
+
+	/** The single auto ability of a card built from {@code text}, resolved against {@code ctx}. */
+	private static Consumer<GameContext> soleAutoEffect(CardData card) {
+		assertEquals(1, card.autoAbilities().size(), "one trigger on " + card.name());
+		Consumer<GameContext> effect =
+				ActionResolver.parse(card.autoAbilities().get(0).effectText(), card);
+		assertNotNull(effect, "the ability text parses");
+		return effect;
+	}
+
+	// ---- Ramza: one card of each printed type ------------------------------------------------
+
+	@Test
+	void ramzasPerTypeQuotaParsesAsItsOwnRevealRatherThanNotAtAll() {
+		CardData ramza = makeAutoAbilityBackupNamed("Ramza", "Lightning", 5, RAMZA_10_138S_TEXT);
+		String text = ramza.autoAbilities().get(0).effectText();
+		assertEquals("RevealTopNAddOnePerTypeRestBz", ActionResolver.matchedPatternName(text, ramza));
+		assertEquals("RevealTopNAddOnePerTypeRestBz", ActionResolver.fullDescription(text, ramza));
+	}
+
+	@Test
+	void ramzaTakesOneOfEachTypeAndBreaksWhatIsLeft() {
+		List<CardData> revealed = List.of(
+				makeForward("A Forward", "Fire", 4, 7000),
+				makePlainBackup("A Backup", "Fire", 2),
+				makePlainSummon("A Summon", "Fire", 3));
+
+		DeckLookDecision d = LookAtDeckDialogs.cpuRevealAddOnePerTypeToHandRestBz(
+				revealed, List.of("Forward", "Backup", "Summon"));
+
+		assertEquals(List.of(0, 1, 2), d.toHand().stream().sorted().toList(),
+				"one of each type is one of every card here");
+		assertTrue(d.toBreak().isEmpty());
+	}
+
+	@Test
+	void ramzasForwardQuotaIsOneEvenWhenTwoForwardsAreRevealed() {
+		// The quota is per type, so the second Forward is broken rather than filling the Backup
+		// or Summon slot. A single running total would have taken both.
+		CardData dear  = makeForward("Dear Forward", "Fire", 5, 9000);
+		CardData cheap = makeForward("Cheap Forward", "Fire", 1, 3000);
+		CardData backup = makePlainBackup("A Backup", "Fire", 2);
+		List<CardData> revealed = List.of(cheap, dear, backup);
+
+		DeckLookDecision d = LookAtDeckDialogs.cpuRevealAddOnePerTypeToHandRestBz(
+				revealed, List.of("Forward", "Backup", "Summon"));
+
+		assertEquals(List.of(1, 2), d.toHand().stream().sorted().toList(),
+				"the dearer Forward and the Backup; no Summon was revealed");
+		assertEquals(List.of(0), d.toBreak(), "the spare Forward is broken");
+	}
+
+	@Test
+	void ramzaFillsHandAndBreakZoneFromTheRealDeck() {
+		MainWindow mw = new MainWindow();
+		CardData fwd  = makeForward("A Forward", "Fire", 4, 7000);
+		CardData bkp  = makePlainBackup("A Backup", "Fire", 2);
+		CardData spare = makeForward("Spare Forward", "Fire", 1, 3000);
+		CardData buried = makeForward("Buried", "Fire", 2, 5000);
+		stackP2Deck(mw, fwd, bkp, spare, buried);
+		mw.gameState.getP2Hand().clear();
+
+		CardData ramza = makeAutoAbilityBackupNamed("Ramza", "Lightning", 5, RAMZA_10_138S_TEXT);
+		soleAutoEffect(ramza).accept(mw.buildGameContext(false));
+
+		assertEquals(List.of(fwd, bkp), mw.gameState.getP2Hand(),
+				"one Forward and one Backup; no Summon was among the three");
+		assertEquals(List.of(spare), mw.gameState.getP2BreakZone(), "the third revealed card");
+		assertEquals(List.of(buried), List.copyOf(mw.gameState.getP2MainDeck()),
+				"only the top 3 were revealed");
+	}
+
+	// ---- Ardyn and Agrias: turning cards over until enough Characters show up -----------------
+
+	@Test
+	void agriasDigsForACharacterInsteadOfReplayingHerself() {
+		// PlaySourceOntoField used to claim this text, resolve "it" to Agrias and try to return
+		// her from the Break Zone. The dig never happened.
+		MainWindow mw = new MainWindow();
+		CardData dear  = makeForward("Too Dear", "Water", 5, 9000);
+		CardData cheap = makeForward("Cheap Enough", "Water", 3, 5000);
+		CardData buried = makeForward("Buried", "Water", 2, 5000);
+		stackP2Deck(mw, dear, cheap, buried);
+
+		CardData agrias = makeAutoAbilityForward("Agrias", "Water", 7000, AGRIAS_7_106L_TEXT);
+		soleAutoEffect(agrias).accept(mw.buildGameContext(false));
+
+		assertEquals(List.of(cheap), mw.p2ForwardCards, "the first Character at or under cost 3");
+		assertTrue(mw.gameState.getP2MainDeck().contains(dear),
+				"the card passed over is shuffled to the bottom, not lost");
+		assertTrue(mw.gameState.getP2MainDeck().contains(buried), "and the rest of the deck is intact");
+		assertTrue(mw.gameState.getP2BreakZone().isEmpty(), "nothing is broken by a dig");
+	}
+
+	@Test
+	void ardynDigsUntilTwoCharactersThatAreNotAnotherArdynAreFound() {
+		MainWindow mw = new MainWindow();
+		CardData otherArdyn = makeForward("Ardyn", "Fire", 5, 7000);
+		CardData summon     = makePlainSummon("A Summon", "Fire", 2);
+		CardData first      = makeForward("First Hit", "Fire", 3, 5000);
+		CardData second     = makePlainBackup("Second Hit", "Fire", 2);
+		CardData buried     = makeForward("Buried", "Fire", 2, 5000);
+		stackP2Deck(mw, otherArdyn, summon, first, second, buried);
+
+		CardData ardyn = makeAutoAbilityForward("Ardyn", "Fire", 7000, ARDYN_20_001R_TEXT);
+		String tail = "turn over one card at a time from the top of your deck until 2 Characters "
+				+ "other than Card Name Ardyn are revealed. Play them onto the field. Then, shuffle "
+				+ "the other cards revealed and return them to the bottom of your deck.";
+		Consumer<GameContext> dig = ActionResolver.parse(tail, ardyn);
+		assertNotNull(dig, "the dig is the tail of Ardyn's optional price");
+		dig.accept(mw.buildGameContext(false));
+
+		assertEquals(List.of(first), mw.p2ForwardCards, "the Forward it found");
+		assertSame(second, mw.p2BackupCards[0], "and the Backup, which is also a Character");
+		assertTrue(mw.gameState.getP2MainDeck().contains(otherArdyn),
+				"another Ardyn is passed over, not played");
+		assertTrue(mw.gameState.getP2MainDeck().contains(summon), "and a Summon is not a Character");
+		assertTrue(mw.gameState.getP2MainDeck().contains(buried), "the untouched rest of the deck");
+	}
+
+	@Test
+	void theDigStopsCleanlyOnAnEmptyDeck() {
+		// Turning cards over is not drawing, so running out costs nothing.
+		MainWindow mw = new MainWindow();
+		mw.gameState.getP2MainDeck().clear();
+
+		CardData agrias = makeAutoAbilityForward("Agrias", "Water", 7000, AGRIAS_7_106L_TEXT);
+		soleAutoEffect(agrias).accept(mw.buildGameContext(false));
+
+		assertTrue(mw.p2ForwardCards.isEmpty());
+		assertTrue(mw.gameState.getP2MainDeck().isEmpty(), "an exhausted dig is not a deck-out");
+	}
+
+	@Test
+	void ardynsWholeAbilityIsRecognisedNowThatItsTailResolves() {
+		// The outer half — "you may put 2 Backups you control into the Break Zone. If you do so,
+		// …" — has always been dispatched by AutoAbilityTriggers. It refused to fire because the
+		// tail did not parse, which is what made the price pointless to offer.
+		CardData ardyn = makeAutoAbilityForward("Ardyn", "Fire", 7000, ARDYN_20_001R_TEXT);
+		AutoAbility fa = ardyn.autoAbilities().get(0);
+		assertTrue(fa.youMay(), "the price is optional");
+		assertTrue(AutoAbilityTriggers.dispatchedByTriggers(fa, ardyn),
+				"the put-into-Break-Zone dispatcher only claims it once the tail resolves");
+	}
+
+	@Test
+	void ardynPaysTwoBackupsAndThenDigs() {
+		MainWindow mw = new MainWindow();
+		CardData ardyn = makeAutoAbilityForward("Ardyn", "Fire", 7000, ARDYN_20_001R_TEXT);
+		placeP2Forward(mw, ardyn);
+		CardData price1 = makePlainBackup("Price One", "Fire", 1);
+		CardData price2 = makePlainBackup("Price Two", "Fire", 1);
+		seatP2Backup(mw, 0, price1, CardState.ACTIVE);
+		seatP2Backup(mw, 1, price2, CardState.ACTIVE);
+
+		CardData first  = makeForward("First Hit", "Fire", 3, 5000);
+		CardData second = makeForward("Second Hit", "Fire", 2, 5000);
+		stackP2Deck(mw, first, second);
+
+		mw.autoAbilityTriggers.triggerAutoAbilitiesForEntersField(ardyn, false);
+
+		assertTrue(mw.gameState.getP2BreakZone().contains(price1), "both Backups paid");
+		assertTrue(mw.gameState.getP2BreakZone().contains(price2));
+		assertTrue(mw.p2ForwardCards.contains(first), "and the dig put both Characters out");
+		assertTrue(mw.p2ForwardCards.contains(second));
+	}
+
+	// ---- Laguna, Snow and Orphan: a second action gated on a condition ------------------------
+
+	@Test
+	void theGatedAlsoClauseIsDescribedRatherThanDropped() {
+		// All three used to lose this sentence. The description is what says which gate was read:
+		// Laguna's and Orphan's ask about the field, Snow's about what was cast.
+		CardData laguna = makeAutoAbilityForward("Laguna", "Ice", 7000, LAGUNA_1_059R_TEXT);
+		assertEquals("ChooseCharacter / Dull + IfControl(Squall)[Freeze]",
+				ActionResolver.fullDescription(laguna.autoAbilities().get(0).effectText(), laguna));
+
+		CardData snow = makeAutoAbilityForward("Snow", "Ice", 7000, SNOW_1_043H_TEXT);
+		assertEquals("ChooseCharacter / Dull + IfCast(Shiva)[Freeze]",
+				ActionResolver.fullDescription(snow.autoAbilities().get(0).effectText(), snow));
+
+		CardData orphan = makeAutoAbilityForward("Orphan", "Ice", 9000, ORPHAN_5_029L_TEXT);
+		assertEquals("ChooseCharacter / Dull + IfControl(5+ Ice Character)[Freeze]",
+				ActionResolver.fullDescription(orphan.autoAbilities().get(0).effectText(), orphan));
+	}
+
+	/** Laguna on P2's field, with a lone P1 Forward for the AI to choose. */
+	private static MainWindow lagunaBoard(boolean withSquall) {
+		MainWindow mw = new MainWindow();
+		CardData laguna = makeAutoAbilityForward("Laguna", "Ice", 7000, LAGUNA_1_059R_TEXT);
+		placeP2Forward(mw, laguna);
+		if (withSquall) placeP2Forward(mw, makeForward("Squall", "Ice", 3, 7000));
+		placeP1Forward(mw, makeForward("Victim", "Fire", 3, 7000));
+		return mw;
+	}
+
+	@Test
+	void lagunaDullsWithoutSquallAndOnlyDullsWithoutHim() {
+		MainWindow mw = lagunaBoard(false);
+		CardData laguna = mw.p2ForwardCards.get(0);
+
+		soleAutoEffect(laguna).accept(mw.buildGameContext(false));
+
+		assertEquals(CardState.DULL, mw.p1ForwardStates.get(0), "the dull is unconditional");
+		assertFalse(mw.p1ForwardFrozen.get(0), "the Freeze is not");
+	}
+
+	@Test
+	void lagunaAlsoFreezesWhileHeControlsSquall() {
+		MainWindow mw = lagunaBoard(true);
+		CardData laguna = mw.p2ForwardCards.get(0);
+
+		soleAutoEffect(laguna).accept(mw.buildGameContext(false));
+
+		assertEquals(CardState.DULL, mw.p1ForwardStates.get(0));
+		assertTrue(mw.p1ForwardFrozen.get(0), "\"Freeze this forward also\" used to be dropped whole");
+	}
+
+	@Test
+	void snowsGateAsksWhatWasCastRatherThanWhatIsOnTheField() {
+		MainWindow mw = new MainWindow();
+		CardData snow = makeAutoAbilityForward("Snow", "Ice", 7000, SNOW_1_043H_TEXT);
+		placeP2Forward(mw, snow);
+		placeP1Forward(mw, makeForward("Victim", "Fire", 3, 7000));
+		mw.turn(false).castCountByNameThisTurn.put("shiva", 1);
+
+		soleAutoEffect(snow).accept(mw.buildGameContext(false));
+
+		assertEquals(CardState.DULL, mw.p1ForwardStates.get(0));
+		assertTrue(mw.p1ForwardFrozen.get(0), "Shiva was cast this turn");
+	}
+
+	@Test
+	void snowDoesNotFreezeWhenShivaWasNotCast() {
+		MainWindow mw = new MainWindow();
+		CardData snow = makeAutoAbilityForward("Snow", "Ice", 7000, SNOW_1_043H_TEXT);
+		placeP2Forward(mw, snow);
+		placeP1Forward(mw, makeForward("Victim", "Fire", 3, 7000));
+
+		soleAutoEffect(snow).accept(mw.buildGameContext(false));
+
+		assertEquals(CardState.DULL, mw.p1ForwardStates.get(0));
+		assertFalse(mw.p1ForwardFrozen.get(0));
+	}
+
+	@Test
+	void orphansGateCountsCharactersRatherThanNamingOne() {
+		MainWindow mw = new MainWindow();
+		CardData orphan = makeAutoAbilityForward("Orphan", "Ice", 9000, ORPHAN_5_029L_TEXT);
+		placeP2Forward(mw, orphan);
+		for (int i = 0; i < 4; i++)
+			seatP2Backup(mw, i, makePlainBackup("Ice Ally " + i, "Ice", 1), CardState.ACTIVE);
+		placeP1Forward(mw, makeForward("Victim", "Fire", 3, 7000));
+
+		soleAutoEffect(orphan).accept(mw.buildGameContext(false));
+
+		assertEquals(CardState.DULL, mw.p1ForwardStates.get(0));
+		assertTrue(mw.p1ForwardFrozen.get(0), "Orphan plus four Ice Backups is five Ice Characters");
+	}
+
 	// =========================================================================================
 
 }

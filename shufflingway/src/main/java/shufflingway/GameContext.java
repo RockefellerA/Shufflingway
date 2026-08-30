@@ -3834,6 +3834,34 @@ public interface GameContext {
     void revealTopAddUpToExcludingNameRestBz(int reveal, int maxAdd, String excludeName);
 
     /**
+     * Reveals the top {@code reveal} cards of the player's deck and takes up to one of each card
+     * type in {@code types} to hand — "Add 1 Forward, 1 Backup, and 1 Summon among them to your
+     * hand" (10-138S Ramza). Every revealed card not taken goes to the Break Zone.
+     *
+     * <p>A quota per type, not a count over one filter: two revealed Forwards fill the Forward
+     * quota once and the second is broken. A type listed twice asks for two of it, which is why
+     * the list arrives as printed rather than as a set.
+     */
+    void revealTopAddOnePerTypeToHandRestBz(int reveal, java.util.List<String> types);
+
+    /**
+     * Turns cards over from the top of the deck one at a time until {@code count} cards matching
+     * the filters have been revealed, plays them onto the field, and shuffles everything else
+     * revealed to the bottom of the deck — 7-106L Agrias and 20-001R Ardyn.
+     *
+     * <p>Not a draw: an empty deck simply ends the search with fewer cards found (or none), and
+     * costs the player nothing.
+     *
+     * @param count       how many matching cards to find; the search stops at the first
+     *                    {@code count} of them, or when the deck runs out
+     * @param type        printed card type the match must be — "Character" accepts all three rows
+     * @param maxCost     cost ceiling a match must be at or under; {@code -1} for no ceiling
+     * @param excludeName card name that cannot be a match, or {@code null}
+     */
+    void flipUntilCharactersPlayOntoFieldRestShuffleBottom(int count, String type, int maxCost,
+            String excludeName);
+
+    /**
      * Grants all Forwards controlled by the acting player the given {@code job} until end of turn.
      */
     void grantAllControlledForwardsJobUntilEOT(String job);

@@ -982,6 +982,9 @@ public class ActionResolver {
         result = tryParseOpponentHandRfp(effectText);
         if (result != null) return result;
 
+        result = tryParseRevealTopNAddOnePerTypeRestBz(effectText);
+        if (result != null) return result;
+
         result = tryParseRevealTopNAddUpToExcludingNameRestBz(effectText);
         if (result != null) return result;
 
@@ -1323,6 +1326,13 @@ public class ActionResolver {
         if (result != null) return result;
 
         result = tryParseAddBrokenCardToHand(effectText);
+        if (result != null) return result;
+
+        // Must precede tryParsePlaySourceOntoField, which matches with find(): it took the
+        // "Play it onto the field" out of the middle of this sentence, resolved the "it" to the
+        // ability's own source and tried to return that card from the Break Zone. 7-106L Agrias
+        // did that instead of digging for a Character for as long as the parser has existed.
+        result = tryParseFlipUntilCharactersPlayOntoFieldRestShuffleBottom(effectText);
         if (result != null) return result;
 
         result = tryParsePlaySourceOntoField(effectText, source);
@@ -1959,6 +1969,7 @@ public class ActionResolver {
         if (tryParseOpponentRandomHandRfp(effectText)            != null) return "OpponentRandomHandRfp";
         if (tryParseOpponentRandomHandToBottomDeck(effectText)   != null) return "OpponentRandomHandToBottomDeck";
         if (tryParseOpponentHandRfp(effectText)               != null) return "OpponentHandRfp";
+        if (tryParseRevealTopNAddOnePerTypeRestBz(effectText) != null) return "RevealTopNAddOnePerTypeRestBz";
         if (tryParseRevealTopNAddUpToExcludingNameRestBz(effectText) != null) return "RevealTopNAddUpToExcludingNameRestBz";
         if (tryParseRevealTopNTypeToHand(effectText) != null) return "RevealTopNTypeToHand";
         if (tryParseRevealTopNCategoryToHand(effectText) != null) return "RevealTopNCategoryToHand";
@@ -2147,6 +2158,10 @@ public class ActionResolver {
         if (tryParseRevealPlayNamedWithMaxCostRestBottom(effectText)         != null) return "RevealPlayNamedWithMaxCostRestBottom";
         if (tryParseRevealPlayAsManyJobTypeTotalCostRestBottom(effectText)   != null) return "RevealPlayAsManyJobTypeTotalCost";
         if (tryParseRevealPlayNamedOrJobMaxCostRestBottom(effectText)        != null) return "RevealPlayNamedOrJobMaxCostRestBottom";
+        // Mirrors parse(), where this is read ahead of tryParsePlaySourceOntoField rather than
+        // beside its own family; the position here only has to keep it off its two siblings,
+        // which it cannot collide with anyway (they end in "Add it to your hand").
+        if (tryParseFlipUntilCharactersPlayOntoFieldRestShuffleBottom(effectText) != null) return "FlipUntilCharactersPlayOntoFieldRestShuffleBottom";
         if (tryParseFlipUntilTypeToHandRestShuffleBottom(effectText)         != null) return "FlipUntilTypeToHandRestShuffleBottom";
         if (tryParseFlipUntilElementToHandRestShuffleBottom(effectText)      != null) return "FlipUntilElementToHandRestShuffleBottom";
         if (tryParseRevealPlayTypeOntoFieldRestBottom(effectText) != null) return "RevealPlayTypeOntoFieldRestBottom";
@@ -3026,6 +3041,12 @@ public class ActionResolver {
                     secondaryDesc = "IfETF(" + (innerDesc != null ? innerDesc : "?") + ")";
                 }
             }
+            // Mirrors the choose chain, where this is read first among the secondaries: the
+            // sentence adds an action to the cards the primary chose, and the generic fallback
+            // below described 1-059R Laguna's as unread and 1-043H Snow's as an unconditional
+            // Freeze over a card that only freezes while it controls Shiva's caster.
+            if (secondaryDesc == null && secondaryTxt != null && !secondaryTxt.isEmpty())
+                secondaryDesc = secondaryConditionGatedActionAlsoName(secondaryTxt, source);
             // Mirrors the choose chain, where this is tried ahead of the general parse: the
             // sentence reads as a bare conditional on its own and no chain entry claims it.
             if (secondaryDesc == null && secondaryTxt != null && !secondaryTxt.isEmpty()
@@ -3214,6 +3235,7 @@ public class ActionResolver {
         if (tryParseOpponentRandomHandRfp(effectText) != null)              return "OpponentRandomHandRfp";
         if (tryParseOpponentRandomHandToBottomDeck(effectText) != null)     return "OpponentRandomHandToBottomDeck";
         if (tryParseOpponentHandRfp(effectText) != null)                   return "OpponentHandRfp";
+        if (tryParseRevealTopNAddOnePerTypeRestBz(effectText) != null)         return "RevealTopNAddOnePerTypeRestBz";
         if (tryParseRevealTopNAddUpToExcludingNameRestBz(effectText) != null)  return "RevealTopNAddUpToExcludingNameRestBz";
         if (tryParseRevealTopNTypeToHand(effectText)       != null)           return "RevealTopNTypeToHand";
         if (tryParseRevealTopNCategoryToHand(effectText)   != null)          return "RevealTopNCategoryToHand";
@@ -3390,6 +3412,8 @@ public class ActionResolver {
         if (tryParseRevealPlayNamedWithMaxCostRestBottom(effectText)           != null) return "RevealPlayNamedWithMaxCostRestBottom";
         if (tryParseRevealPlayAsManyJobTypeTotalCostRestBottom(effectText)     != null) return "RevealPlayAsManyJobTypeTotalCost";
         if (tryParseRevealPlayNamedOrJobMaxCostRestBottom(effectText)          != null) return "RevealPlayNamedOrJobMaxCostRestBottom";
+        // Mirrors parse() and matchedPatternName(); see the note there about its real position.
+        if (tryParseFlipUntilCharactersPlayOntoFieldRestShuffleBottom(effectText) != null) return "FlipUntilCharactersPlayOntoFieldRestShuffleBottom";
         if (tryParseFlipUntilTypeToHandRestShuffleBottom(effectText)           != null) return "FlipUntilTypeToHandRestShuffleBottom";
         if (tryParseFlipUntilElementToHandRestShuffleBottom(effectText)        != null) return "FlipUntilElementToHandRestShuffleBottom";
         if (tryParseShuffleThenRevealPlayNamedRestBottom(effectText, source) != null) return "ShuffleThenRevealPlayNamedRestBottom";
