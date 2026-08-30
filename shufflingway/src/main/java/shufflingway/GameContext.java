@@ -2779,6 +2779,28 @@ public interface GameContext {
     void boostTargetPermanently(ForwardTarget target, int amount, EnumSet<CardData.Trait> traits);
 
     /**
+     * Hands the card at {@code target} {@code amount} power, {@code traits} and, when the flags are
+     * set, immunity to being chosen by {@code warden}'s controller's opponent — for exactly as long
+     * as {@code warden} stays on the field. The "As long as [Self] is on the field, it gains …"
+     * wording, printed by 16-066R Heretical Knight Garland (+4000 power and Brave) and 15-125R
+     * Lunafreya (+2000 power and the cannot-be-chosen clause).
+     *
+     * <p>Neither an end-of-turn grant nor a permanent one, though it is stored as the latter: the
+     * grant survives the end phase, and is withdrawn when the warden leaves rather than when the
+     * grantee does. Both departures end it — the grantee's because it loses every granted thing on
+     * the way out, the warden's because that is what the card says.
+     *
+     * <p>Additive, like {@link #boostTargetPermanently}: a second warden granting the same Forward
+     * power stacks, and each grant is withdrawn on its own warden's departure.
+     *
+     * <p>Scoped to the Forward row, for the reason {@link #boostTargetPermanently} is — the
+     * permanent power store is only read by the Forward power calculation. Both printings choose a
+     * Forward, so nothing is lost.
+     */
+    void boostTargetWhileWardenOnField(ForwardTarget target, CardData warden, int amount,
+            EnumSet<CardData.Trait> traits, boolean shieldFromSummons, boolean shieldFromAbilities);
+
+    /**
      * Grants {@code source} the auto ability written in {@code abilityText} for as long as it stays
      * on the field — the "(This effect does not end at the end of the turn.)" wording, as printed on
      * Odin (XVI) 29-118L / 24-112L's priming payoff.

@@ -1439,6 +1439,9 @@ public class ActionResolver {
         result = tryParseCounterScaleLookAddToHand(effectText, xValue);
         if (result != null) return result;
 
+        result = tryParseLookSelfFieldScaleAddToHandRestBottom(effectText);
+        if (result != null) return result;
+
         result = tryParseLookTopDeckAddToHandRestBottom(effectText);
         if (result != null) return result;
 
@@ -2150,6 +2153,7 @@ public class ActionResolver {
         if (tryParseLookTopDeckOptionallyBreak(effectText)        != null) return "LookTopDeckOptionallyBreak";
         if (tryParseLookTopDeckBottomOrKeep(effectText)           != null) return "LookTopDeckBottomOrKeep";
         if (tryParseCounterScaleLookAddToHand(effectText, 1)               != null) return "CounterScaleLookAddToHand";
+        if (tryParseLookSelfFieldScaleAddToHandRestBottom(effectText)   != null) return "LookSelfFieldScaleAddToHandRestBottom";
         if (tryParseLookTopDeckAddToHandRestBottom(effectText)          != null) return lookAddToHandRestBottomPatternName(effectText);
         if (tryParseLookTopDeckAddToHandOneToBreakRestBottom(effectText) != null) return "LookTopDeckAddToHandOneToBreakRestBottom";
         if (tryParseLookTopDeckAddToHandRestBreak(effectText)           != null) return "LookTopDeckAddToHandRestBreak";
@@ -2262,6 +2266,17 @@ public class ActionResolver {
             if (permBoostM.matches()
                     && !CardData.parseAutoAbilities(permBoostM.group("quoted").trim()).isEmpty())
                 return "GainsPowerAndQuotedAbilityPermanent";
+        }
+        // Mirrors the warden-held grant the choose chain reads immediately after that block, and
+        // for the same precedence reason: the "+N power" and the keyword both sit in front of the
+        // find() checks below, which would name this an ordinary PowerBoost. Carries the same
+        // source check the branch does — it only fires when the card named is the ability's own
+        // printing — so a text naming some other card is left unnamed rather than misreported.
+        if (source != null) {
+            Matcher wardenGrantM = FOLLOWUP_GAINS_WHILE_NAMED_ON_FIELD.matcher(followupText.trim());
+            if (wardenGrantM.matches()
+                    && wardenGrantM.group("name").trim().equalsIgnoreCase(source.name()))
+                return "GainsWhileSourceOnField";
         }
         // Mirrors the choose chain, where the two-tier attacker gate is read before every plain
         // action branch: both of its arms end in ordinary followups, so a find() check below would
@@ -3425,6 +3440,7 @@ public class ActionResolver {
         if (tryParseChooseAsManyAsBzRfgJobCount(effectText)               != null) return "ChooseAsManyAsBzRfgJobCount";
         if (tryParseChooseCounterScaleCharsActivate(effectText, 1)         != null) return "ChooseCounterScaleCharsActivate";
         if (tryParseCounterScaleLookAddToHand(effectText, 1)               != null) return "CounterScaleLookAddToHand";
+        if (tryParseLookSelfFieldScaleAddToHandRestBottom(effectText)   != null) return "LookSelfFieldScaleAddToHandRestBottom";
         if (tryParseLookTopDeckAddToHandRestBottom(effectText)          != null) return lookAddToHandRestBottomPatternName(effectText);
         if (tryParseLookTopDeckAddToHandOneToBreakRestBottom(effectText) != null) return "LookTopDeckAddToHandOneToBreakRestBottom";
         if (tryParseLookTopDeckAddToHandRestBreak(effectText)           != null) return "LookTopDeckAddToHandRestBreak";
@@ -3903,6 +3919,33 @@ public class ActionResolver {
     static BiConsumer<GameContext, List<ForwardTarget>>
             parseTargetAction(String text, int xValue) {
         String t = text.trim();
+
+        // "It gains \"This Forward cannot be blocked[ by a Forward of cost N or more].\" until the
+        // end of the turn" (24-043C Thief). First of all, and anchored end to end, so it cannot be
+        // reached by any of the find() arms below -- and, being anchored, it can claim nothing but
+        // this one sentence from them either.
+        //
+        // Narrow on purpose, the rule the choose chain's quoted-grant branch states: only a
+        // quotation this engine actually enforces is claimed, so a grant of anything else stays
+        // visibly unhandled rather than resolving as a no-op.
+        Matcher nbGrantM = FOLLOWUP_GAINS_QUOTED_CANNOT_BE_BLOCKED.matcher(t);
+        if (nbGrantM.matches()) {
+            String  costStr = nbGrantM.group("cost");
+            final int     nbCost = costStr != null ? Integer.parseInt(costStr) : -1;
+            final boolean nbMore = "more".equalsIgnoreCase(nbGrantM.group("cmp"));
+            return (ctx, ts) -> {
+                for (ForwardTarget x : ts) {
+                    if (x.zone() != ForwardTarget.CardZone.FORWARD) continue;
+                    if (nbCost >= 0) {
+                        if (x.isP1()) ctx.setP1ForwardCannotBeBlockedByCost(x.idx(), nbCost, nbMore);
+                        else          ctx.setP2ForwardCannotBeBlockedByCost(x.idx(), nbCost, nbMore);
+                    } else {
+                        if (x.isP1()) ctx.setP1ForwardCannotBeBlocked(x.idx());
+                        else          ctx.setP2ForwardCannotBeBlocked(x.idx());
+                    }
+                }
+            };
+        }
 
         // Dull+Freeze must precede plain Freeze (Freeze matches as a substring)
         if (FOLLOWUP_DULL_AND_FREEZE.matcher(t).find())

@@ -2670,6 +2670,10 @@ final class AutoAbilityTriggers {
 		// Necron: cards the departing card had removed "for as long as it is on the field"
 		// re-enter their owner's field.
 		mw.returnTempExiledOnLeave(departing);
+		// Garland / Lunafreya: what the departing card was granting "as long as [it] is on the
+		// field" goes with it. Ahead of the refresh and the break sweep below, which is what
+		// resolves a Forward the withdrawn power has left at or below its damage.
+		mw.revokeWardenHeldGrantsOnLeave(departing);
 		mw.gameState.clearCounters(departing);
 		// Jack Garland 27-111L's named Job, on the same footing as the counters above: it is a
 		// property of this copy's stay on the field, not of the card.

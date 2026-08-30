@@ -189,11 +189,14 @@ public class AutoAbilityParsingTest {
     /** Reconstructs the original trigger line for display. */
     private static String autoAbilityText(AutoAbility fa, CardData source) {
         StringBuilder sb = new StringBuilder();
+        // The one firing restriction the card states ahead of its trigger rather than after its
+        // effect, so it is restored ahead of it here and the trigger lead-in loses its capital.
+        if (fa.opponentTurnOnly()) sb.append("During your opponent's turn, ");
         String phaseTrigger = phaseTriggerDisplayText(fa.trigger());
         if (phaseTrigger != null && fa.triggerCard().isEmpty()) {
             sb.append(phaseTrigger).append(", ");
         } else {
-            sb.append("When ");
+            sb.append(fa.opponentTurnOnly() ? "when " : "When ");
             String trigger = triggerDisplayText(fa.trigger());
             if (fa.warpOnly() && trigger.equals("enters the field"))
                 trigger = "enters the field due to Warp";
@@ -206,9 +209,42 @@ public class AutoAbilityParsingTest {
                 trigger = "primes into " + source.name();
             sb.append(fa.triggerCard()).append(' ').append(trigger).append(", ");
         }
+        if (fa.castPaymentMinElements() > 0)
+            sb.append("if the cost to cast ").append(source.name()).append(" was paid with CP of ")
+              .append(fa.castPaymentMinElements()).append(" or more different Elements, ");
         if (fa.youMay())       sb.append("you may ");
         else if (fa.opponentMay()) sb.append("your opponent may ");
-        sb.append(fa.effectText()).append(dmgTag(fa.damageThreshold()));
+        sb.append(fa.effectText()).append(restrictionText(fa)).append(dmgTag(fa.damageThreshold()));
+        return sb.toString();
+    }
+
+    /**
+     * The trailing firing restrictions {@link CardData#parseAutoAbilities} lifts off the effect
+     * text, restored as the sentences the card prints them as. Without them the report shows an
+     * ability shorn of its own limits — Mira 11-122H's once-per-turn search reads as an
+     * unconditional one, which is a different card.
+     *
+     * <p>The Break Zone condition is printed two ways — the trailing "This effect will trigger only
+     * if [card] is in the Break Zone." and the leading "If you have a Card Name [card] … in your
+     * Break Zone," — and {@link AutoAbility} keeps only the card, not which form it came from. Both
+     * are rendered in the trailing form; the restriction is the same either way.
+     */
+    private static String restrictionText(AutoAbility fa) {
+        StringBuilder sb = new StringBuilder();
+        if (fa.yourTurnOnly() || fa.oncePerTurn()) {
+            sb.append(". This effect will trigger only");
+            if (fa.yourTurnOnly())                     sb.append(" during your turn");
+            if (fa.yourTurnOnly() && fa.oncePerTurn()) sb.append(" and only");
+            if (fa.oncePerTurn())                      sb.append(" once per turn");
+            sb.append('.');
+        }
+        if (!fa.rfpConditionCard().isEmpty())
+            sb.append(". This effect will trigger only if ").append(fa.rfpConditionCard())
+              .append(" is removed from the game.");
+        if (!fa.bzConditionCard().isEmpty())
+            sb.append(". This effect will trigger only if ").append(fa.bzConditionCard())
+              .append(fa.bzConditionJob().isEmpty() ? "" : " with Job " + fa.bzConditionJob())
+              .append(" is in the Break Zone.");
         return sb.toString();
     }
 

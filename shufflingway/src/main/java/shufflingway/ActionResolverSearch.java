@@ -6,6 +6,7 @@ import static shufflingway.ActionResolver.*;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.function.Consumer;
 import java.util.function.Predicate;
 import java.util.regex.Matcher;
@@ -685,6 +686,37 @@ final class ActionResolverSearch {
         return ctx -> {
             ctx.logEntry("Effect: Look at top " + count + " card(s) — return to top in any order");
             ctx.lookAtTopDeck(new LookConfig(count, LookConfig.LookAction.RETURN_TOP_ORDERED));
+        };
+    }
+    /**
+     * Parses 27-053C Lehko Habhoka's board-scaled look: the count is however many qualifying cards
+     * the ability's controller has on the field when it resolves.
+     *
+     * <p>Counted at resolution rather than at parse time, which is what makes the source card
+     * itself part of the total -- Lehko Habhoka is a Backup, and its own "enters the field"
+     * trigger resolves with it already seated.
+     */
+    static Consumer<GameContext> tryParseLookSelfFieldScaleAddToHandRestBottom(String text) {
+        Matcher m = LOOK_SELF_FIELD_SCALE_ADD_TO_HAND_REST_BOTTOM.matcher(text);
+        if (!m.find()) return null;
+        boolean reveal  = isRevealWording(m.group("verb"));
+        String  element = m.group("element");
+        String  typeRaw = m.group("type");
+        String  type    = typeRaw.toLowerCase(Locale.ROOT);
+        boolean inclFwd = type.startsWith("forward") || type.startsWith("character");
+        boolean inclBkp = type.startsWith("backup")  || type.startsWith("character");
+        boolean inclMon = type.startsWith("monster") || type.startsWith("character");
+        String  label   = (element != null ? element + " " : "") + typeRaw + " you control";
+        return ctx -> {
+            int count = ctx.countSelfFieldCards(inclFwd, inclBkp, inclMon, null, null, null, element);
+            if (count <= 0) {
+                ctx.logEntry("Effect: no " + label + " -- nothing to look at");
+                return;
+            }
+            ctx.logEntry("Effect: " + (reveal ? "Reveal" : "Look at") + " top " + count
+                    + " card(s) (" + label + ") -- add 1 to hand, return rest to bottom");
+            ctx.lookAtTopDeck(new LookConfig(
+                    count, LookConfig.LookAction.ADD_TO_HAND_REST_BOTTOM, null, null, reveal));
         };
     }
     static Consumer<GameContext> tryParseLookTopDeckAddToHandRestBottom(String text) {

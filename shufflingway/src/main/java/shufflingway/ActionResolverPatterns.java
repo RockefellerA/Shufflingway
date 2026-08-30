@@ -1338,6 +1338,36 @@ final class ActionResolverPatterns {
         "(?i)^As\\s+long\\s+as\\s+(?<name>.+?)\\s+is\\s+on\\s+the\\s+field,\\s+" +
         "(?:it|they)\\s+loses?\\s+all\\s+(?:its|their)\\s+abilities[.!]?$"
     );
+    /**
+     * Matches "As long as [CardName] is on the field, it gains +N power[ and [keywords]][ and
+     * "This Forward cannot be chosen by your opponent's [scope]."]." -- the standing buff 16-066R
+     * Heretical Knight Garland and 15-125R Lunafreya lay on a Forward as they enter, and the
+     * positive twin of {@link #FOLLOWUP_LOSES_ABILITIES_WHILE_NAMED_ON_FIELD}.
+     *
+     * <p>Like that one, not a duration in turns: it lasts exactly as long as the card that made it
+     * stays on the field. It must be checked ahead of {@link #FOLLOWUP_POWER_BOOST} and the keyword
+     * grants, which scan with {@code find()} for the very "+N power" and "Brave" this sentence
+     * contains and would apply both as ordinary until-end-of-turn grants.
+     *
+     * <p>The quoted clause is restricted to the cannot-be-chosen wording on purpose. It is the only
+     * one printed in this shape, and admitting any quotation would mean granting clauses this
+     * engine does not read -- the rule the choose chain's other quoted-grant branches follow.
+     * <ul>
+     *   <li>Group {@code name}   -- the card whose stay on the field sustains the grant</li>
+     *   <li>Group {@code amount} -- the power granted</li>
+     *   <li>Group {@code traits} -- the keyword list, possibly empty</li>
+     *   <li>Group {@code scope}  -- "Summons", "abilities" or "Summons or abilities"; absent when
+     *       no clause is quoted</li>
+     * </ul>
+     */
+    static final Pattern FOLLOWUP_GAINS_WHILE_NAMED_ON_FIELD = Pattern.compile(
+        "(?i)^As\\s+long\\s+as\\s+(?<name>.+?)\\s+is\\s+on\\s+the\\s+field,\\s+" +
+        "(?:it|they)\\s+gains?\\s+\\+(?<amount>\\d+)\\s+power" +
+        "(?<traits>(?:\\s*,?\\s*(?:and\\s+)?(?:Haste|First\\s+Strike|Brave))*)" +
+        "(?:\\s+and\\s+['\"]This\\s+(?:Forward|Character)\\s+cannot\\s+be\\s+chosen\\s+by\\s+" +
+        "your\\s+opponent's\\s+(?<scope>Summons?\\s+or\\s+abilities|Summons?|abilities)[.!]?['\"])?" +
+        "[.!]?$"
+    );
     /** Matches "It loses all [its] abilities until the end of the turn." */
     static final Pattern FOLLOWUP_LOSE_ALL_ABILITIES_EOT = Pattern.compile(
         "(?i)It\\s+loses\\s+all\\s+(?:its\\s+)?abilities\\s+until\\s+(?:the\\s+)?end\\s+of\\s+(?:the\\s+)?turn[.!]?"
@@ -1928,6 +1958,25 @@ final class ActionResolverPatterns {
         "(?i)it\\s+cannot\\s+be\\s+blocked" +
         "(?:\\s+by\\s+a\\s+Forward\\s+of\\s+cost\\s+(?<costval>\\d+)(?:\\s+or\\s+(?<costcmp>less|more))?)?" +
         "\\s+this\\s+turn\\.?"
+    );
+    /**
+     * Matches a target-side grant of a quoted "cannot be blocked" ability:
+     * "it gains \"This Forward cannot be blocked[ by a Forward of cost N or more/less].\" until the
+     * end of the turn." -- 24-043C Thief.
+     *
+     * <p>Distinct from {@link #FOLLOWUP_CANNOT_BE_BLOCKED}, which reads the same restriction stated
+     * directly ("It cannot be blocked this turn."). This one is the granted phrasing, and Thief
+     * prints it behind an "If you control N or more ..." gate, which is why it is read through
+     * {@code parseTargetAction} rather than as a choose followup of its own.
+     * <ul>
+     *   <li>Group {@code cost} -- the cost threshold; absent for the unrestricted form</li>
+     *   <li>Group {@code cmp}  -- "more" or "less"; absent with {@code cost}</li>
+     * </ul>
+     */
+    static final Pattern FOLLOWUP_GAINS_QUOTED_CANNOT_BE_BLOCKED = Pattern.compile(
+        "(?i)^(?:it|they)\\s+gains?\\s+(?<q>[\"'])This\\s+Forward\\s+cannot\\s+be\\s+blocked" +
+        "(?:\\s+by\\s+a\\s+Forward\\s+of\\s+cost\\s+(?<cost>\\d+)\\s+or\\s+(?<cmp>more|less))?" +
+        "[.!]?\\k<q>\\s+until\\s+(?:the\\s+)?end\\s+of\\s+(?:the\\s+)?turn[.!]?$"
     );
     /**
      * Matches "It can only be blocked by a Forward of cost equal or inferior to its own this turn."
@@ -6650,6 +6699,29 @@ final class ActionResolverPatterns {
     static final Pattern LOOK_COUNTER_SCALE_ADD_TO_HAND_REST_BOTTOM = Pattern.compile(
         "(?i)Look\\s+at\\s+the\\s+same\\s+number\\s+of\\s+cards?\\s+from\\s+the\\s+top\\s+of\\s+your\\s+deck\\s+as\\s+the\\s+(?<counterName>.+?)\\s+Counters?\\s+placed\\s+on\\s+(?<card>.+?)[,.]" +
         ".+?Add\\s+1\\s+card.+?to\\s+your\\s+hand.+?(?:shuffle|return).+?bottom.+?deck[.!]?"
+    );
+    /**
+     * Matches "Look at / Reveal the same number of cards from the top of your deck as the
+     * [Element] [Type] you control. Add 1 card among them to your hand and return the other cards
+     * to the bottom of your deck in any order." -- 27-053C Lehko Habhoka.
+     *
+     * <p>The board-scaled sibling of {@link #LOOK_TOP_DECK_ADD_TO_HAND_REST_BOTTOM}, whose count is
+     * a literal, and of {@link #LOOK_COUNTER_SCALE_ADD_TO_HAND_REST_BOTTOM}, whose count comes off
+     * a counter pile. This one is only known at resolution, so the parser reads the field then
+     * rather than when the text is parsed.
+     * <ul>
+     *   <li>Group {@code verb}    -- "Look at" or "Reveal"; the latter makes the cards public</li>
+     *   <li>Group {@code element} -- optional Element filter on what is counted; absent = any</li>
+     *   <li>Group {@code type}    -- the card type counted, e.g. "Backups"</li>
+     * </ul>
+     */
+    static final Pattern LOOK_SELF_FIELD_SCALE_ADD_TO_HAND_REST_BOTTOM = Pattern.compile(
+        "(?i)(?<verb>Look\\s+at|Reveal)\\s+the\\s+same\\s+number\\s+of\\s+cards?\\s+from\\s+the\\s+top\\s+" +
+        "of\\s+your\\s+deck\\s+as\\s+the\\s+" +
+        "(?:(?<element>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)\\s+)?" +
+        "(?<type>Forwards?|Backups?|Monsters?|Characters?)\\s+you\\s+control[.!]?\\s*" +
+        "Add\\s+1\\s+card\\s+among\\s+them\\s+to\\s+your\\s+hand\\s+and\\s+" +
+        "return\\s+the\\s+other\\s+cards?\\s+to\\s+the\\s+bottom\\s+of\\s+your\\s+deck\\s+in\\s+any\\s+order[.!]?"
     );
 
     // =========================================================================================

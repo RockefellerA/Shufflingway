@@ -40883,4 +40883,277 @@ public class CardBehaviorTest {
 
 	// =========================================================================================
 
+	// =========================================================================================
+	// Heretical Knight Garland 16-066R / Lunafreya 15-125R — a buff that lasts as long as its
+	// warden stands
+	//
+	// "When [Self] enters the field, choose 1 Forward other than [Self] you control. As long as
+	// [Self] is on the field, it gains +N power and <Brave | "This Forward cannot be chosen by your
+	// opponent's Summons or abilities.">" — the positive twin of Aerith 25-035L's standing silence,
+	// and the one duration this engine had no store for: it outlasts the turn, but ends when the
+	// granting card leaves rather than when the grantee does.
+	//
+	// Applied into the ordinary outlasts-the-turn stores, so every reader already honours it, with
+	// the delta recorded beside it so the warden's departure can take back exactly what this grant
+	// added and nothing a second source contributed.
+	//
+	// Before this, the sentence reached the chain's plain power-boost branch, which reads "+4000
+	// power" with find(): the grant landed as an ordinary until-end-of-turn buff and the quoted
+	// clause was dropped entirely.
+	// =========================================================================================
+
+	private static final String GARLAND_16_066R_EFFECT =
+			"choose 1 Forward other than Heretical Knight Garland you control. As long as "
+			+ "Heretical Knight Garland is on the field, it gains +4000 power and Brave.";
+
+	private static final String LUNAFREYA_15_125R_EFFECT =
+			"choose 1 Category XV Forward other than Lunafreya you control. As long as Lunafreya "
+			+ "is on the field, it gains +2000 power and \"This Forward cannot be chosen by your "
+			+ "opponent's Summons or abilities.\"";
+
+	@Test
+	void theStandingGrantIsNamedAndNotConfusedWithAnEndOfTurnBoost() {
+		CardData garland = makeForward("Heretical Knight Garland", "Earth", 5, 8000);
+		assertEquals("ChooseCharacter / GainsWhileSourceOnField",
+				ActionResolver.fullDescription(GARLAND_16_066R_EFFECT, garland));
+		assertEquals("ChooseCharacter / PowerBoost",
+				ActionResolver.fullDescription(
+						"Choose 1 Forward. It gains +4000 power until the end of the turn.", garland),
+				"the until-end-of-turn wording still reaches its own branch");
+	}
+
+	@Test
+	void theStandingGrantIsDeclinedWhenTheClauseNamesACardOtherThanTheSource() {
+		// The primitive keys the grant to the printing that resolved it, so a sentence naming some
+		// other card would be silently rewired to this one.
+		CardData tifa = makeForward("Tifa", "Wind", 2, 4000);
+		assertNotEquals("GainsWhileSourceOnField",
+				ActionResolver.matchedFollowupName(
+						"As long as Heretical Knight Garland is on the field, it gains +4000 power and Brave.",
+						tifa));
+	}
+
+	/** Resolves {@code effect} against a mock, with {@code chosen} as the target it settles on. */
+	private static GameContext resolveChoosingOne(String effect, CardData source, ForwardTarget chosen) {
+		Consumer<GameContext> fn = ActionResolver.parse(effect, source);
+		assertNotNull(fn, "the standing-grant effect should parse");
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.consumePreloadedTargets()).thenReturn(null);
+		when(ctx.selectCharacters(anyInt(), anyBoolean(), anyBoolean(), anyBoolean(), any(), any(),
+				anyInt(), any(), anyInt(), any(), anyBoolean(), anyBoolean(), anyBoolean(),
+				any(), any(), any(), any(), anyBoolean(), any(), anyBoolean())).thenReturn(List.of(chosen));
+		fn.accept(ctx);
+		return ctx;
+	}
+
+	@Test
+	void garlandGrantsPowerAndBraveKeyedToHimself() {
+		CardData garland = makeForward("Heretical Knight Garland", "Earth", 5, 8000);
+		ForwardTarget t = fwd(true, 1);
+		verify(resolveChoosingOne(GARLAND_16_066R_EFFECT, garland, t))
+				.boostTargetWhileWardenOnField(t, garland, 4000,
+						EnumSet.of(CardData.Trait.BRAVE), false, false);
+	}
+
+	@Test
+	void lunafreyaGrantsPowerAndTheCannotBeChosenShield() {
+		CardData luna = makeForward("Lunafreya", "Light", 3, 7000);
+		ForwardTarget t = fwd(true, 1);
+		verify(resolveChoosingOne(LUNAFREYA_15_125R_EFFECT, luna, t))
+				.boostTargetWhileWardenOnField(t, luna, 2000,
+						EnumSet.noneOf(CardData.Trait.class), true, true);
+	}
+
+	@Test
+	void theGrantSurvivesTheTurnAndEndsWhenTheWardenLeaves() {
+		MainWindow mw = new MainWindow();
+		CardData ally    = makeForward("Garland", "Earth", 3, 7000);
+		CardData garland = makeForward("Heretical Knight Garland", "Earth", 5, 8000);
+		placeP1Forward(mw, ally);      // index 0
+		placeP1Forward(mw, garland);   // index 1
+
+		mw.buildGameContext(true).boostTargetWhileWardenOnField(
+				fwd(true, 0), garland, 4000, EnumSet.of(CardData.Trait.BRAVE), false, false);
+
+		assertEquals(11000, mw.effectiveP1ForwardPower(0), "the grant is live while Garland stands");
+		assertTrue(mw.effectiveP1HasTrait(0, CardData.Trait.BRAVE));
+
+		mw.breakP1Forward(1);
+		assertEquals(7000, mw.effectiveP1ForwardPower(0), "Garland left, so the power goes with him");
+		assertFalse(mw.effectiveP1HasTrait(0, CardData.Trait.BRAVE));
+	}
+
+	@Test
+	void lunafreyasShieldIsHonouredUntilSheLeaves() {
+		MainWindow mw = new MainWindow();
+		CardData ally = makeForward("Noctis", "Light", 4, 8000);
+		CardData luna = makeForward("Lunafreya", "Light", 3, 7000);
+		placeP1Forward(mw, ally);   // index 0
+		placeP1Forward(mw, luna);   // index 1
+
+		mw.buildGameContext(true).boostTargetWhileWardenOnField(
+				fwd(true, 0), luna, 2000, EnumSet.noneOf(CardData.Trait.class), true, true);
+
+		assertTrue(mw.isProtectedFromChoice(ally, true, false, true, null),
+				"the opponent's Summons cannot choose it");
+		assertTrue(mw.isProtectedFromChoice(ally, true, false, false, null),
+				"nor their abilities");
+		assertFalse(mw.isProtectedFromChoice(ally, true, true, true, null),
+				"the clause names the opponent, so its own controller may still choose it");
+
+		mw.breakP1Forward(1);
+		assertFalse(mw.isProtectedFromChoice(ally, true, false, true, null),
+				"Lunafreya left, so the shield lifts");
+	}
+
+	@Test
+	void revokingTakesBackOnlyWhatThisGrantAdded() {
+		// The store is shared with the ordinary permanent grants, so the withdrawal has to be a
+		// delta rather than a wipe: a Forward already carrying Brave and a boost of its own keeps
+		// both when the warden leaves.
+		MainWindow mw = new MainWindow();
+		CardData ally    = makeForward("Garland", "Earth", 3, 7000);
+		CardData garland = makeForward("Heretical Knight Garland", "Earth", 5, 8000);
+		placeP1Forward(mw, ally);
+		placeP1Forward(mw, garland);
+
+		GameContext ctx = mw.buildGameContext(true);
+		ctx.boostTargetPermanently(fwd(true, 0), 1000, EnumSet.of(CardData.Trait.BRAVE));
+		ctx.boostTargetWhileWardenOnField(fwd(true, 0), garland, 4000,
+				EnumSet.of(CardData.Trait.BRAVE), false, false);
+		assertEquals(12000, mw.effectiveP1ForwardPower(0));
+
+		mw.breakP1Forward(1);
+		assertEquals(8000, mw.effectiveP1ForwardPower(0), "only Garland's 4000 is taken back");
+		assertTrue(mw.effectiveP1HasTrait(0, CardData.Trait.BRAVE),
+				"the Brave it already held permanently is not Garland's to remove");
+	}
+
+	@Test
+	void theGranteeLeavingDropsTheRecordToo() {
+		MainWindow mw = new MainWindow();
+		CardData ally    = makeForward("Garland", "Earth", 3, 7000);
+		CardData garland = makeForward("Heretical Knight Garland", "Earth", 5, 8000);
+		placeP1Forward(mw, ally);
+		placeP1Forward(mw, garland);
+
+		mw.buildGameContext(true).boostTargetWhileWardenOnField(
+				fwd(true, 0), garland, 4000, EnumSet.of(CardData.Trait.BRAVE), false, false);
+		mw.breakP1Forward(0);
+		assertTrue(mw.wardenHeldGrants.isEmpty(),
+				"the grantee took every granted thing with it, so nothing is left to withdraw");
+	}
+
+	// =========================================================================================
+
+	// =========================================================================================
+	// Thief 24-043C — a quoted "cannot be blocked" grant behind a board condition
+	//
+	// "When Thief enters the field, choose 1 Forward. If you control 4 or more Wind Backups, it
+	// gains "This Forward cannot be blocked." until the end of the turn."
+	//
+	// The gate itself was already read; what it had no answer for was the action behind it, so the
+	// whole followup fell through to the chain's "not yet implemented" warning and the Forward was
+	// chosen for nothing. Reading the grant in parseTargetAction is what puts it behind the gate
+	// rather than in a branch of its own — a branch would scan with find() and grant the immunity
+	// however few Wind Backups were out.
+	// =========================================================================================
+
+	private static final String THIEF_24_043C_EFFECT =
+			"choose 1 Forward. If you control 4 or more Wind Backups, it gains "
+			+ "\"This Forward cannot be blocked.\" until the end of the turn.";
+
+	/** Resolves Thief's enters-the-field effect with {@code windBackups} Wind Backups controlled. */
+	private static GameContext resolveThief(ForwardTarget chosen, int windBackups) {
+		Consumer<GameContext> fn = ActionResolver.parse(
+				THIEF_24_043C_EFFECT, makeForward("Thief", "Wind", 2, 0));
+		assertNotNull(fn, "Thief's conditional grant should parse");
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.consumePreloadedTargets()).thenReturn(null);
+		when(ctx.selectCharacters(anyInt(), anyBoolean(), anyBoolean(), anyBoolean(), any(), any(),
+				anyInt(), any(), anyInt(), any(), anyBoolean(), anyBoolean(), anyBoolean(),
+				any(), any(), any(), any(), anyBoolean(), any(), anyBoolean())).thenReturn(List.of(chosen));
+		when(ctx.selfFieldCount(eq("Wind"), anyBoolean(), anyBoolean(), anyBoolean())).thenReturn(windBackups);
+		fn.accept(ctx);
+		return ctx;
+	}
+
+	@Test
+	void thiefsGrantIsNamedRatherThanReportedUnhandled() {
+		assertEquals("ChooseCharacter / IfSelfControlsNElementTypeAction",
+				ActionResolver.fullDescription(THIEF_24_043C_EFFECT, makeForward("Thief", "Wind", 2, 0)));
+	}
+
+	@Test
+	void thiefGrantsTheImmunityWithFourWindBackups() {
+		verify(resolveThief(fwd(true, 0), 4)).setP1ForwardCannotBeBlocked(0);
+	}
+
+	@Test
+	void thiefGrantsNothingWithFewerThanFourWindBackups() {
+		verify(resolveThief(fwd(true, 0), 3), never()).setP1ForwardCannotBeBlocked(anyInt());
+	}
+
+	@Test
+	void thiefsGrantReachesTheOpponentsSideToo() {
+		// "Choose 1 Forward" names no controller, so the chosen Forward can be either player's.
+		verify(resolveThief(fwd(false, 2), 4)).setP2ForwardCannotBeBlocked(2);
+	}
+
+	// =========================================================================================
+
+	// =========================================================================================
+	// Lehko Habhoka 27-053C — a look sized by the board rather than by a printed number
+	//
+	// "When Lehko Habhoka enters the field, look at the same number of cards from the top of your
+	// deck as the Backups you control. Add 1 card among them to your hand and return the other
+	// cards to the bottom of your deck in any order."
+	//
+	// The count is read when the effect resolves, not when the text is parsed, which is what makes
+	// Lehko Habhoka part of its own total: it is a Backup, and its enters-the-field trigger
+	// resolves with it already seated.
+	// =========================================================================================
+
+	private static final String LEHKO_27_053C_EFFECT =
+			"look at the same number of cards from the top of your deck as the Backups you control. "
+			+ "Add 1 card among them to your hand and return the other cards to the bottom of your "
+			+ "deck in any order.";
+
+	/** Resolves Lehko Habhoka's effect with {@code backups} Backups on the controller's field. */
+	private static GameContext resolveLehko(int backups) {
+		Consumer<GameContext> fn = ActionResolver.parse(
+				LEHKO_27_053C_EFFECT, makeForward("Lehko Habhoka", "Wind", 2, 0));
+		assertNotNull(fn, "Lehko Habhoka's board-scaled look should parse");
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.countSelfFieldCards(false, true, false, null, null, null, null)).thenReturn(backups);
+		fn.accept(ctx);
+		return ctx;
+	}
+
+	@Test
+	void lehkoLooksAtOneCardPerBackupAndTakesOne() {
+		ArgumentCaptor<LookConfig> cfg = ArgumentCaptor.forClass(LookConfig.class);
+		verify(resolveLehko(3)).lookAtTopDeck(cfg.capture());
+		assertEquals(3, cfg.getValue().count());
+		assertEquals(LookConfig.LookAction.ADD_TO_HAND_REST_BOTTOM, cfg.getValue().action());
+		assertFalse(cfg.getValue().reveal(), "\"look at\" keeps the cards private to its controller");
+		assertNull(cfg.getValue().handFilterLabel(), "any of the cards seen may be taken");
+	}
+
+	@Test
+	void lehkoLooksAtNothingWithNoBackups() {
+		// Reached only if every Backup left between the trigger and its resolution, Lehko Habhoka
+		// included: a look of 0 cards is not a look at the top card.
+		verify(resolveLehko(0), never()).lookAtTopDeck(any());
+	}
+
+	@Test
+	void lehkosLookIsNamedForItsOwnPattern() {
+		assertEquals("LookSelfFieldScaleAddToHandRestBottom",
+				ActionResolver.fullDescription(
+						LEHKO_27_053C_EFFECT, makeForward("Lehko Habhoka", "Wind", 2, 0)));
+	}
+
+	// =========================================================================================
+
 }

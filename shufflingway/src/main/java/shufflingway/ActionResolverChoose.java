@@ -1811,6 +1811,41 @@ final class ActionResolverChoose {
             }
         }
 
+        // --- "As long as [Self] is on the field, it gains +N power and <keyword | "clause">" ---
+        // 16-066R Heretical Knight Garland, 15-125R Lunafreya. Settled here with the two permanent
+        // grants above, and for the same reason: "+4000 power" is exactly what FOLLOWUP_POWER_BOOST
+        // scans for and "Brave" what the keyword grants scan for, so left to the chain this resolved
+        // as an ordinary until-end-of-turn buff — the one duration the sentence does not have.
+        //
+        // The name is required to be the printing card's own. Every printing states it that way,
+        // and the primitive keys the grant to that instance, so a text naming some other card would
+        // be silently rewired to this one.
+        {
+            Matcher wardenGrantM = FOLLOWUP_GAINS_WHILE_NAMED_ON_FIELD.matcher(primaryFollowup.trim());
+            if (source != null && wardenGrantM.matches()
+                    && wardenGrantM.group("name").trim().equalsIgnoreCase(source.name())) {
+                final int boost = Integer.parseInt(wardenGrantM.group("amount"));
+                final EnumSet<CardData.Trait> traits = parseTraits(wardenGrantM.group("traits"));
+                final String scope = wardenGrantM.group("scope");
+                final boolean shieldSummons   = scope != null && scope.toLowerCase(Locale.ROOT).contains("summon");
+                final boolean shieldAbilities = scope != null && scope.toLowerCase(Locale.ROOT).contains("abilit");
+                String label = "+" + boost + " power"
+                        + (traits.isEmpty() ? "" : " and " + traitNamesOnly(traits))
+                        + (scope == null ? "" : " and cannot be chosen by opponent's " + scope);
+                return ctx -> {
+                    ctx.logChooseHeader(choosePrefix + " — " + label + " while "
+                            + source.name() + " is on the field");
+                    List<ForwardTarget> ts = selectTargets(ctx, maxCount, upTo,
+                            opponentOnly, selfOnly, condition, element, zone, opponentZone,
+                            costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters,
+                            jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, fExcludeElem, withoutMulticard);
+                    ts.forEach(t -> ctx.boostTargetWhileWardenOnField(
+                            t, source, boost, traits, shieldSummons, shieldAbilities));
+                    if (secondary != null) secondary.accept(ctx);
+                };
+            }
+        }
+
         // --- "You may pay 《Element》. If you do so, [target action]." ---
         // Checked against the full followup before the primary/secondary split so the conditional is not lost.
         {

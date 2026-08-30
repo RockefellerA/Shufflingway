@@ -733,6 +733,34 @@ public class MainWindow {
 	final Map<CardData, CardData> abilitiesStrippedWhileWardenOnField = new IdentityHashMap<>();
 
 	/**
+	 * One grant made "As long as [warden] is on the field, it gains ..." -- 16-066R Heretical
+	 * Knight Garland and 15-125R Lunafreya -- recorded as what it actually added on top of what the
+	 * grantee already had.
+	 *
+	 * <p>The grant itself is applied into the ordinary outlasts-the-turn stores, so every reader
+	 * that already honours a permanent boost, trait or shield honours this one with no change. What
+	 * this record adds is the means to take it back again: {@code power}, {@code traits} and the two
+	 * shield flags hold the delta this grant contributed, so revoking removes exactly that and a
+	 * boost the card held from some other source survives the warden's departure.
+	 *
+	 * <p>Identity on both sides, like {@link #abilitiesStrippedWhileWardenOnField}: the warden is the
+	 * printing that resolved the trigger, so an opposing card of the same name neither sustains the
+	 * grant nor ends it.
+	 */
+	record WardenHeldGrant(CardData warden, CardData grantee, int power,
+			EnumSet<CardData.Trait> traits, boolean shieldFromSummons, boolean shieldFromAbilities) {}
+
+	/**
+	 * Every warden-held grant currently standing. A list rather than a map keyed by grantee because
+	 * two wardens can hold grants on the same Character, and each has to be revoked on its own
+	 * warden's departure.
+	 *
+	 * <p>Walked only when a card leaves the field, and guarded on empty there, so the ordinary game
+	 * -- in which this is never populated -- pays nothing for it.
+	 */
+	final List<WardenHeldGrant> wardenHeldGrants = new ArrayList<>();
+
+	/**
 	 * Backing store for {@link #lostAbilitiesCards}: an identity set of the cards an effect has
 	 * stripped, with {@code contains} widened to include the standing suppressions.
 	 *
@@ -2077,6 +2105,7 @@ public class MainWindow {
 		activeCostReductions.clear();
 		lostAbilitiesCards.clear();
 		abilitiesStrippedWhileWardenOnField.clear();
+		wardenHeldGrants.clear();
 		exBurstSuppressingSources.clear();
 		playerDamageSource = null;
 		basePowerOverrides.clear();
@@ -4897,6 +4926,43 @@ public class MainWindow {
 			|| identityIndexOf(p1MonsterCards, card) >= 0 || identityIndexOf(p2MonsterCards, card) >= 0
 			|| identityIndexOf(Arrays.asList(p1BackupCards), card) >= 0
 			|| identityIndexOf(Arrays.asList(p2BackupCards), card) >= 0;
+	}
+
+	/**
+	 * Withdraws every "As long as [departing] is on the field, it gains ..." grant {@code departing}
+	 * was sustaining, as it leaves the field.
+	 *
+	 * <p>Only the delta each grant contributed is taken back -- see {@link WardenHeldGrant} -- so a
+	 * Forward that also holds a permanent boost or shield from elsewhere keeps it. Power is exact
+	 * either way, being additive; the trait and shield stores are sets, so a second source that
+	 * granted the same trait after this one is the case the subtraction cannot tell apart, and it
+	 * loses the trait a turn early. No printed pair does that today.
+	 *
+	 * <p>The caller re-runs the slot refresh and the break-rule sweep straight after, which is what
+	 * settles a Forward the withdrawn power has left at or below its accumulated damage.
+	 */
+	void revokeWardenHeldGrantsOnLeave(CardData departing) {
+		if (wardenHeldGrants.isEmpty()) return;
+		List<WardenHeldGrant> ended = new ArrayList<>();
+		for (WardenHeldGrant g : wardenHeldGrants) if (g.warden() == departing) ended.add(g);
+		wardenHeldGrants.removeAll(ended);
+		for (WardenHeldGrant g : ended) {
+			CardData grantee = g.grantee();
+			if (g.power() != 0) {
+				int left = permanentPowerBoost.getOrDefault(grantee, 0) - g.power();
+				if (left == 0) permanentPowerBoost.remove(grantee);
+				else           permanentPowerBoost.put(grantee, left);
+			}
+			EnumSet<CardData.Trait> held = permanentTraits.get(grantee);
+			if (held != null && !g.traits().isEmpty()) {
+				held.removeAll(g.traits());
+				if (held.isEmpty()) permanentTraits.remove(grantee);
+			}
+			if (g.shieldFromSummons())   permanentCannotBeChosenBySummons.remove(grantee);
+			if (g.shieldFromAbilities()) permanentCannotBeChosenByAbilities.remove(grantee);
+			logEntry(grantee.name() + " loses what " + departing.name() + " granted it -- "
+					+ departing.name() + " left the field");
+		}
 	}
 
 	void returnTempExiledOnLeave(CardData departing) {
@@ -13948,6 +14014,10 @@ public class MainWindow {
 
 	/** Drops everything granted to {@code card} by an outlasts-the-turn effect, as it leaves the field. */
 	void clearPermanentGrants(CardData card) {
+		// The card is losing the stores below wholesale, so any warden-held grant standing on it has
+		// nothing left to withdraw; dropping the record here is what keeps the list from outliving
+		// the grant it describes.
+		wardenHeldGrants.removeIf(g -> g.grantee() == card);
 		grantedAutoAbilities.remove(card);
 		permanentMaxAttacks.remove(card);
 		permanentPowerBoost.remove(card);

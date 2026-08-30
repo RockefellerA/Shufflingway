@@ -1059,6 +1059,15 @@ final class GameContextImpl implements GameContext {
 					// the opponent-scoped sets rather than the symmetric ones.
 					Set<CardData> sumOpp = new HashSet<>(mw.cannotBeChosenBySummons);
 					Set<CardData> ablOpp = new HashSet<>(mw.cannotBeChosenByAbilities);
+					// Their outlasts-the-turn twins: 23-100L Young Excenmille's self-shield, and
+					// the one 15-125R Lunafreya hands a Forward for as long as she is on the field.
+					// Also printed "by your opponent's ...", so they seed the same opponent-scoped
+					// sets. Read here as well as in MainWindow.isProtectedFromChoice, which is the
+					// per-card form of these sets and has to agree with them: an immunity honoured
+					// against a redirect but not when the target is first chosen is a card that is
+					// only protected from the second effect pointed at it.
+					sumOpp.addAll(mw.permanentCannotBeChosenBySummons);
+					ablOpp.addAll(mw.permanentCannotBeChosenByAbilities);
 					// Rubicante-style: "cannot be chosen by [element] Summons/abilities this turn"
 					for (java.util.Map.Entry<CardData, String> e : mw.cannotBeChosenByElement.entrySet()) {
 						if (resElems.contains(e.getValue())) { sumTmp.add(e.getKey()); ablTmp.add(e.getKey()); }
@@ -1814,6 +1823,46 @@ final class GameContextImpl implements GameContext {
 				CardData card = mw.autoAbilityTriggers.fieldCardData(target);
 				if (card == null) return;
 				grantSelfAutoAbilityPermanently(card, abilityText);
+			}
+			@Override public void boostTargetWhileWardenOnField(ForwardTarget target, CardData warden,
+					int amount, EnumSet<CardData.Trait> traits,
+					boolean shieldFromSummons, boolean shieldFromAbilities) {
+				if (target.zone() != ForwardTarget.CardZone.FORWARD || warden == null) return;
+				CardData card = mw.autoAbilityTriggers.fieldCardData(target);
+				if (card == null) return;
+				boolean tgtP1 = target.isP1();
+				if (amount > 0 && (mw.oppForwardPowerBoostSuppressedFor(tgtP1)
+						|| mw.oppForwardSelfBoostSuppressedFor(tgtP1))) {
+					logEntry((tgtP1 ? "" : "[P2] ") + card.name()
+							+ " — power boost suppressed (opponent's field ability)");
+					amount = 0;
+				}
+				// Recorded as the delta this grant actually contributes, which is what makes the
+				// withdrawal on the warden's departure exact: a trait or shield the card already
+				// held from elsewhere is not this grant's to take back.
+				if (amount > 0) mw.permanentPowerBoost.merge(card, amount, Integer::sum);
+				EnumSet<CardData.Trait> added = EnumSet.noneOf(CardData.Trait.class);
+				if (!traits.isEmpty()) {
+					EnumSet<CardData.Trait> held = mw.permanentTraits
+							.computeIfAbsent(card, k -> EnumSet.noneOf(CardData.Trait.class));
+					for (CardData.Trait tr : traits) if (held.add(tr)) added.add(tr);
+				}
+				boolean addedSummons   = shieldFromSummons
+						&& mw.permanentCannotBeChosenBySummons.add(card);
+				boolean addedAbilities = shieldFromAbilities
+						&& mw.permanentCannotBeChosenByAbilities.add(card);
+				mw.wardenHeldGrants.add(new MainWindow.WardenHeldGrant(
+						warden, card, amount, added, addedSummons, addedAbilities));
+				List<String> parts = new ArrayList<>();
+				if (amount > 0)       parts.add("+" + amount + " power");
+				if (!traits.isEmpty()) parts.add(ActionResolver.traitNamesOnly(traits));
+				if (shieldFromSummons || shieldFromAbilities)
+					parts.add("cannot be chosen by your opponent's "
+							+ (shieldFromSummons && shieldFromAbilities ? "Summons or abilities"
+									: shieldFromSummons ? "Summons" : "abilities"));
+				logEntry((tgtP1 ? "" : "[P2] ") + card.name() + " gains " + String.join(" and ", parts)
+						+ " for as long as " + warden.name() + " is on the field");
+				if (tgtP1) mw.refreshP1ForwardSlot(target.idx()); else mw.refreshP2ForwardSlot(target.idx());
 			}
 			@Override public void boostTargetPermanently(ForwardTarget target, int amount,
 					EnumSet<CardData.Trait> traits) {
