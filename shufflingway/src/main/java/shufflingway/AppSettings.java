@@ -125,18 +125,31 @@ public final class AppSettings {
     }
 
     /**
-     * Returns the saved side-panel pixel width, or {@code defaultW} if no value
-     * has been persisted yet.
+     * Returns the side-panel pixel width saved for {@code resolution}, or {@code defaultW} when
+     * that resolution has none.
+     *
+     * <p>Kept per resolution because how much width the panel can spare depends on it: a width
+     * chosen with a 2560x1440 window leaves the board cramped in a 1280x720 one, and the player
+     * would have to redo the choice every time they switched.
+     *
+     * <p>A width saved before this was split per resolution is read as the fallback for every
+     * resolution, so an existing preference carries over rather than being silently dropped. It is
+     * never written back to, so the first save at any resolution starts the per-resolution set.
      */
-    public static int getSidePanelWidth(int defaultW) {
-        String v = props.getProperty("side.panel.width");
+    public static int getSidePanelWidth(String resolution, int defaultW) {
+        String v = props.getProperty(sidePanelWidthKey(resolution));
+        if (v == null) v = props.getProperty("side.panel.width");
         if (v == null) return defaultW;
         try { return Integer.parseInt(v); } catch (NumberFormatException e) { return defaultW; }
     }
 
-    /** Saves the side-panel pixel width (call {@link #save()} to persist). */
-    public static void setSidePanelWidth(int w) {
-        props.setProperty("side.panel.width", String.valueOf(w));
+    /** Saves the side-panel pixel width for {@code resolution} (call {@link #save()} to persist). */
+    public static void setSidePanelWidth(String resolution, int w) {
+        props.setProperty(sidePanelWidthKey(resolution), String.valueOf(w));
+    }
+
+    private static String sidePanelWidthKey(String resolution) {
+        return "side.panel.width." + resolution;
     }
 
     /** Returns the directory where custom card back images are stored. */

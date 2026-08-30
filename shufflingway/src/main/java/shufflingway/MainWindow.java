@@ -155,19 +155,53 @@ public class MainWindow {
 	final FieldEntryAnimator  fieldEntryAnimator  = new FieldEntryAnimator(this);
 
 	// Side info panel dimensions.
-	// The panel is sized to the native card-image width on the first hover;
-	// these are just the fallback values used before any image loads.
 	private static final int    SIDE_MARGIN    = 4;                   // px between card and panel edge
 	private static final double PREVIEW_SCALE  = 0.8;
 	private static final int    RESIZE_HANDLE_W = 5;                 // draggable sidebar divider width
-	private int sidePanelW = (int)(3 * CARD_W * PREVIEW_SCALE);   // updated on first image load
-	private int previewH   =
-			(int)(sidePanelW * (double) CARD_H / CARD_W);         // updated on first image load
+	/**
+	 * The pixel size every card image is stored at. Every one of the images cached in the card
+	 * database is 429x600, so the panel's sizing does not have to wait to find out.
+	 *
+	 * <p>These are what make the resize limits identical before and after a game starts. They used
+	 * to be guessed from {@code 3 * CARD_W}, which is a UI-scaled board measurement and has nothing
+	 * to do with the stored image: at a 1.29 scale that guess allowed the panel out to 544px, where
+	 * the real limit once a card had been previewed was 433. {@link #sizePreviewPanel} still
+	 * measures the first image that actually loads, so a future change of image source corrects
+	 * itself rather than being wrong for good.
+	 */
+	private static final int NATIVE_CARD_W = 429;
+	private static final int NATIVE_CARD_H = 600;
+	private int sidePanelW = defaultSidePanelW();
+	private int previewH   = (int)((sidePanelW - SIDE_MARGIN) * (double) NATIVE_CARD_H / NATIVE_CARD_W);
 	private boolean previewSized = false;
 	private int nativeImgW   = 0;   // native card image dimensions (set on first hover)
 	private int nativeImgH   = 0;
-	private int minSidePanelW = 0;  // resize clamp bounds (set on first hover)
-	private int maxSidePanelW = 0;
+	/**
+	 * Clamp bounds for dragging the divider. Seeded from the same {@code 3 * CARD_W} estimate of
+	 * the native image width that {@link #sidePanelW} above uses, so the divider is draggable from
+	 * the moment the window opens; {@link #sizePreviewPanel} replaces them with the real card's
+	 * measurements once one has been previewed.
+	 *
+	 * <p>They used to start at 0 and be set only on that first hover, which meant the divider did
+	 * nothing at all until a game was under way and a card had been hovered.
+	 */
+	private int minSidePanelW = (int)(NATIVE_CARD_W * 0.75) + SIDE_MARGIN;
+	private int maxSidePanelW = NATIVE_CARD_W + SIDE_MARGIN;
+
+	/**
+	 * The resolution this session is running at, read once at construction.
+	 *
+	 * <p>Not re-read later: Preferences applies a resolution change on the next launch, so from the
+	 * moment the player picks a new one {@code AppSettings.getResolution()} names a resolution this
+	 * window is not showing. Saving the panel width under that on the way out would file this
+	 * session's width against the wrong screen size.
+	 */
+	private final String sessionResolution = AppSettings.getResolution();
+
+	/** The panel width to open at when this resolution has no saved preference. */
+	private static int defaultSidePanelW() {
+		return (int)(NATIVE_CARD_W * PREVIEW_SCALE) + SIDE_MARGIN;
+	}
 
 	// P1 zone labels that change during gameplay
 	JLabel p1DeckLabel;
@@ -1295,7 +1329,7 @@ public class MainWindow {
 		frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
 		frame.addWindowListener(new java.awt.event.WindowAdapter() {
 			@Override public void windowClosing(java.awt.event.WindowEvent e) {
-				AppSettings.setSidePanelWidth(sidePanelW);
+				AppSettings.setSidePanelWidth(sessionResolution, sidePanelW);
 				AppSettings.save();
 			}
 		});
@@ -1904,12 +1938,13 @@ public class MainWindow {
 					pressW = sidePanel.getWidth();
 				}
 				@Override public void mouseDragged(MouseEvent e) {
-					if (nativeImgW == 0) return;
+					// No guard on a loaded card image: the clamp bounds are seeded at construction,
+					// and setSidePanelWidth already falls back to the stored card's aspect ratio
+					// for the preview height while nativeImgH is still unmeasured.
 					int dx = e.getXOnScreen() - pressScreenX;
 					boolean right = "right".equals(AppSettings.getSidePanelSide());
 					int newW = right ? pressW - dx : pressW + dx;
-					newW = Math.max(minSidePanelW, Math.min(maxSidePanelW, newW));
-					setSidePanelWidth(newW);
+					setSidePanelWidth(clampSidePanelW(newW));
 				}
 			};
 			resizeHandle.addMouseListener(sideResizer);
@@ -1926,6 +1961,14 @@ public class MainWindow {
 		// --- Assemble ---
 		frame.getContentPane().add(mainArea, BorderLayout.CENTER);
 		applySidePanelSide(AppSettings.getSidePanelSide());
+		// Open at the width the player left it at, rather than waiting for the first card preview
+		// to apply it. Clamped against the estimated bounds above; sizePreviewPanel re-clamps once
+		// the real ones are known.
+		setSidePanelWidth(clampSidePanelW(
+				AppSettings.getSidePanelWidth(sessionResolution, defaultSidePanelW())));
+		// Open at the width the player left it at, rather than waiting for the first card preview
+		// to apply it. Clamped against the estimated bounds above; sizePreviewPanel re-clamps once
+		// the real ones are known.
 
 		// When the chosen resolution is taller than the scaled 16:9 board, split the leftover
 		// height into equal letterbox bars in the free NORTH and SOUTH regions, centring the play
@@ -7559,9 +7602,15 @@ public class MainWindow {
 	}
 
 	/**
-	 * On the first call, resizes the side panel and preview panel to the card's
-	 * native image dimensions scaled by PREVIEW_SCALE, and establishes the min/max
-	 * bounds for user-driven sidebar resizing. Subsequent calls are no-ops.
+	 * On the first call, replaces the estimated card-image dimensions and resize bounds with the
+	 * real ones, now that a card has actually been previewed. Subsequent calls are no-ops.
+	 *
+	 * <p>Does not move the panel. The width comes from the player's saved preference at build time
+	 * or from wherever they have since dragged the divider, and a game starting is not a reason to
+	 * change it. The bounds it recomputes are the same ones {@link #NATIVE_CARD_W} already seeded,
+	 * so the clamp below is a no-op for as long as that constant matches the stored images; it is
+	 * kept for the case where it stops matching, which is the only way the width could find itself
+	 * out of range.
 	 */
 	private void sizePreviewPanel(int imgW, int imgH) {
 		if (previewSized) return;
@@ -7570,25 +7619,40 @@ public class MainWindow {
 		nativeImgH    = imgH;
 		minSidePanelW = (int)(imgW * 0.75) + SIDE_MARGIN;
 		maxSidePanelW = imgW + SIDE_MARGIN;
-		int defaultW  = (int)(imgW * PREVIEW_SCALE) + SIDE_MARGIN;
-		int savedW    = AppSettings.getSidePanelWidth(defaultW);
-		// Clamp to valid range; fall back to default if saved value is out of bounds
-		int initialW  = (savedW >= minSidePanelW && savedW <= maxSidePanelW) ? savedW : defaultW;
-		setSidePanelWidth(initialW);
+		// Re-run regardless of whether the clamp moves it: previewH is derived from nativeImgH,
+		// which was an estimate until a moment ago.
+		setSidePanelWidth(clampSidePanelW(sidePanelW));
+	}
+
+	/** {@code w} brought inside the current resize bounds. */
+	private int clampSidePanelW(int w) {
+		return Math.max(minSidePanelW, Math.min(maxSidePanelW, w));
 	}
 
 	private void setSidePanelWidth(int w) {
 		sidePanelW = w;
-		previewH = nativeImgH > 0
-				? (int)((w - SIDE_MARGIN) * (double) nativeImgH / nativeImgW)
-				: (int)(w * (double) CARD_H / CARD_W);
+		previewH = (int)((w - SIDE_MARGIN) * (nativeImgH > 0
+				? (double) nativeImgH / nativeImgW
+				: (double) NATIVE_CARD_H / NATIVE_CARD_W));
 		cardPreviewPanel.setPreferredSize(new Dimension(w, previewH));
 		cardPreviewPanel.setMinimumSize  (new Dimension(w, previewH));
 		cardPreviewPanel.setMaximumSize  (new Dimension(w, previewH));
 		sidePanel.setPreferredSize(new Dimension(w, 0));
 		if (sideWrapper != null)
 			sideWrapper.setPreferredSize(new Dimension(w + RESIZE_HANDLE_W, 0));
-		frame.revalidate();
+		// Revalidated on the wrapper rather than the frame, which is what actually re-runs the
+		// content pane's BorderLayout.
+		//
+		// setPreferredSize does not invalidate the component it is called on -- it sets the field
+		// and fires a property change, nothing more. So after the assignments above nothing in the
+		// tree is marked invalid, and both frame.validate() and frame.revalidate() return without
+		// laying anything out. The new preferred width then sat unused until something else forced
+		// a layout pass, which is why dragging the divider appeared to work only once a game was
+		// running: the board revalidates constantly for its own reasons, and the pending width came
+		// along for the ride. revalidate() on a JComponent invalidates it first, then validates the
+		// nearest validate root, so the wrapper's new width is honoured immediately.
+		Component target = sideWrapper != null ? sideWrapper : frame.getContentPane();
+		target.revalidate();
 		frame.repaint();
 	}
 
@@ -16568,6 +16632,19 @@ public class MainWindow {
 		}
 		logEntry(lead + "Use an ability or summon, or pass priority with 'Next'");
 		p1CombatPriorityOnPass = onPass;
+		// The window really is P1's now, so the tracker has to say so. refreshPhaseTracker paints
+		// priority from the turn owner alone, which is right at a phase boundary and wrong here: on
+		// P2's turn it leaves the indicator red while this method hands P1 the Next button, so the
+		// board claimed P2 held priority and offered P1 the control to pass it.
+		//
+		// Attack Preparation on P2's turn is where that showed, because it is the one checkpoint
+		// that reaches here directly -- offerP1AttackPrepPriority calls refreshPhaseTracker and then
+		// this. Every other checkpoint on P2's turn arrives through opponentPriority, which already
+		// flips the indicator back on its way out of P2's half of the round.
+		//
+		// Set after the early return above: a window that passes itself automatically never rests
+		// with P1, and flashing the indicator for it would be a lie in the other direction.
+		if (phaseTracker != null) phaseTracker.setHasPriority(true);
 		if (nextPhaseButton != null) nextPhaseButton.setEnabled(true);
 		refreshHandCardStates();   // the window just opened — recolour what is castable
 		refreshAttackButton();   // Skip is not a legal action while holding priority mid-combat
@@ -16756,6 +16833,10 @@ public class MainWindow {
 		Runnable onPass = p1CombatPriorityOnPass;
 		p1CombatPriorityOnPass = null;
 		if (nextPhaseButton != null) nextPhaseButton.setEnabled(false);
+		// The mirror of the grant in p1HoldPriority: priority has left P1 either way -- to P2 to
+		// respond on P1's turn, or back to P2 to carry on with theirs. Whoever picks it up next
+		// sets it themselves; this is what covers the gap until they do.
+		if (phaseTracker != null) phaseTracker.setHasPriority(false);
 		// On P1's turn P2 responds next; on P2's turn P1 is the one responding, so the round ends here.
 		logEntry(gameState.getCurrentPlayer() == GameState.Player.P1
 				? "[Priority] P1 passes — P2 may respond."

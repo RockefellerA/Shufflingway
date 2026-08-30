@@ -10,8 +10,11 @@ import java.awt.Graphics2D;
 import java.awt.Paint;
 import java.awt.RadialGradientPaint;
 import java.awt.RenderingHints;
+import java.awt.Shape;
+import java.awt.geom.Ellipse2D;
 import java.awt.geom.Path2D;
 import java.awt.geom.Point2D;
+import java.awt.geom.Rectangle2D;
 import java.util.Locale;
 
 import javax.swing.BorderFactory;
@@ -26,10 +29,18 @@ import javax.swing.Timer;
  * red otherwise. On phase change the old diamond's halo fades out as the new
  * one's fades in over ~240ms.
  *
- * The Attack phase is shown as a cluster of four small sub-diamonds connected
- * by a thinner inner line, representing the four internal sub-steps of the
- * Attack phase. The same blue/red glow animates between sub-steps as
+ * The Attack phase is shown as a cluster of four small sub-steps connected by a
+ * thinner inner line, representing the four internal sub-steps of the Attack
+ * phase. The same blue/red glow animates between sub-steps as
  * {@link #setAttackStep(int)} advances.
+ *
+ * Each of those four carries its own shape rather than a diamond: a circle for
+ * Attack Preparation, a priority window before any attack is declared, so the track
+ * visibly pauses rather than running straight through; a sword for declare-attackers;
+ * a shield for declare-blockers; and a square for the damage step that ends the
+ * phase. The sword and shield hang a little below the line the others sit on, and the
+ * sword reaches further above it. Any of the four can be switched back to a diamond
+ * one at a time; see {@link #PREP_STEP_AS_CIRCLE}.
  *
  * Usage (controlled -- parent owns state):
  * <pre>
@@ -55,10 +66,89 @@ public class PhaseTracker extends JPanel {
     };
     private static final int ATTACK_PHASE_IDX = 3;
     public  static final int ATTACK_SUB_STEPS = 4;
+    /**
+     * Attack Preparation, the Attack phase's first sub-step, and the damage step that ends it.
+     * Which shape marks each is the only thing these indices are used for here -- {@code
+     * MainWindow} owns what the steps actually mean, and sets the damage one immediately before
+     * it resolves combat.
+     */
+    private static final int ATTACK_PREP_STEP    = 0;
+    private static final int ATTACK_DECLARE_STEP = 1;
+    private static final int ATTACK_BLOCK_STEP   = 2;
+    private static final int ATTACK_DAMAGE_STEP  = ATTACK_SUB_STEPS - 1;
+
+    // -- Sub-step shape toggles -------------------------------------------------
+    // Flip either to false and re-run to put that sub-step back to a plain diamond, which is what
+    // the whole cluster used to be. They are here to be compared by eye, so they are the two
+    // values to edit -- everything else about the marker (size, stroke, fill, glow, the connector
+    // it butts against) follows from the shape that is actually chosen.
+    //
+    // Deliberately not final: as constants an IDE greys out whichever branch is currently off,
+    // which is exactly the code you are about to want to read when comparing the two.
+
+    /** Attack Preparation as a circle; false draws the diamond it replaced. */
+    private static boolean PREP_STEP_AS_CIRCLE    = false;
+    /** Declare-attackers as an upright sword; false draws the diamond it replaced. */
+    private static boolean DECLARE_STEP_AS_SWORD  = true;
+    /** Declare-blockers as a shield; false draws the diamond it replaced. */
+    private static boolean BLOCK_STEP_AS_SHIELD   = true;
+    /** The damage step as a square; false draws the diamond it replaced. */
+    private static boolean DAMAGE_STEP_AS_SQUARE  = false;
 
     // -- Geometry ---------------------------------------------------------------
     private static final int DIAMOND         = 20;
     private static final int SUB_DIAMOND     = 9;
+    /** Outline weight shared by every marker in the Attack cluster. */
+    private static final float SUB_STROKE    = 1.25f;
+    /**
+     * Side of the damage step's square, smaller than the markers around it because a square fills
+     * its box: at {@link #SUB_DIAMOND}'s 9 it carries over twice a diamond's ink and half again
+     * the circle's, and swamps the row. At 7 the two end markers read as matched bookends around
+     * the diamonds between them.
+     */
+    /**
+     * Diameter of the Attack Preparation circle. Its own constant rather than {@link #SUB_DIAMOND}
+     * because the circle, shield and square are all drawn a couple of pixels over the diamonds':
+     * a diamond fills half its box and these fill most of theirs, so matching boxes made them read
+     * small beside the sword rather than matched to it.
+     */
+    private static final int SUB_CIRCLE      = 11;
+    private static final int SUB_SQUARE      = 9;
+
+    // The sword and shield are the two markers that break the cluster's band, hanging SWORD_FOOT /
+    // SHIELD_FOOT below the centre line where the others stop at about 4. Both feet are equal on
+    // purpose, so the pair reads as sitting on a common baseline. Only the sword rises above the
+    // band, which is what keeps it the tallest thing in the row without widening it.
+
+    /** Half-width of the sword's crossguard, and so the whole marker: the cluster's full width. */
+    private static final float SWORD_GUARD_HALF   = 4.5f;
+    /** Half-thickness of the crossguard. Wants to stay above 1.5f: the connector it meets is 3px
+     *  tall, and a guard that matches it merges into the line and leaves a bare vertical bar. */
+    private static final float SWORD_GUARD_THICK  = 2f;
+    /**
+     * Blade and grip half-widths. Wider than they need to be to read as a sword, because the glow
+     * has to get inside them: the active fill is what lights a marker up, and a 3px blade with a
+     * 1.25f outline down each side left under 2px of it showing, so the sword stayed dim while the
+     * shapes either side of it lit up. See {@link #SWORD_STROKE}.
+     */
+    private static final float SWORD_BLADE_HALF   = 2f;
+    private static final float SWORD_GRIP_HALF    = 1.25f;
+    /**
+     * The sword's outline, thinner than {@link #SUB_STROKE}. The other markers are wide enough that
+     * the border costs them nothing; on the sword every extra fraction of stroke is taken out of
+     * the lit interior of a blade only a few pixels across.
+     */
+    private static final float SWORD_STROKE       = 1f;
+    /** How far the pommel juts past the grip, and how tall that jut is. */
+    private static final float SWORD_POMMEL       = 0.75f;
+    private static final float SWORD_TIP          = 9f;   // above the centre line
+    private static final float SWORD_FOOT         = 6f;   // below it
+
+    private static final float SHIELD_HALF_W      = 5f;
+    private static final float SHIELD_TOP         = 5f;   // flat top, level with the other markers
+    /** Where the straight sides give way to the round bottom. */
+    private static final float SHIELD_SHOULDER    = 1f;
+    private static final float SHIELD_FOOT        = 6f;
     private static final int SUB_CONNECTOR   = 5;
     private static final int CLUSTER_WIDTH   =
         ATTACK_SUB_STEPS * SUB_DIAMOND + (ATTACK_SUB_STEPS - 1) * SUB_CONNECTOR;
@@ -344,15 +434,15 @@ public class PhaseTracker extends JPanel {
 
         // Beveled connector between sub-diamonds (matches main track style)
         for (int i = 0; i < ATTACK_SUB_STEPS - 1; i++) {
-            int x1 = subCx[i]   + SUB_DIAMOND / 2;
-            int x2 = subCx[i+1] - SUB_DIAMOND / 2;
+            int x1 = subCx[i]   + subMarkerHalf(i);
+            int x2 = subCx[i+1] - subMarkerHalf(i + 1);
             if (x2 <= x1) continue;
             g.setColor(CONNECTOR_LO);  g.fillRect(x1, cy - 1, x2 - x1, 1);
             g.setColor(CONNECTOR_MID); g.fillRect(x1, cy,     x2 - x1, 1);
             g.setColor(CONNECTOR_HI);  g.fillRect(x1, cy + 1, x2 - x1, 1);
         }
 
-        // Sub-diamonds
+        // Sub-step markers
         for (int i = 0; i < ATTACK_SUB_STEPS; i++) {
             boolean isSubPast = phasePastAttack || (phaseIsAttack && attackStep > i);
 
@@ -361,11 +451,11 @@ public class PhaseTracker extends JPanel {
             else if (isPrevStop(ATTACK_PHASE_IDX, i))  haloAlpha = 1f - progress;
             haloAlpha = clamp01(haloAlpha);
 
-            if (haloAlpha > 0.01f) drawHalo(g, subCx[i], cy, SUB_GLOW_RADIUS, glow, haloAlpha);
+            if (haloAlpha > 0.01f) drawHalo(g, subCx[i], cy, subGlowRadius(i), glow, haloAlpha);
 
             Color fill   = computeFill(isSubPast, glowFill, haloAlpha);
             Color border = haloAlpha > 0.01f ? lerpColor(STROKE, glow, haloAlpha) : STROKE;
-            drawDiamond(g, subCx[i], cy, SUB_DIAMOND, fill, border, 1.25f);
+            drawSubStepMarker(g, i, subCx[i], cy, fill, border);
         }
 
         // Shared "ATK" label below the cluster
@@ -437,6 +527,151 @@ public class PhaseTracker extends JPanel {
         g.setPaint(old);
     }
 
+    /**
+     * The Attack Preparation marker: a circle sitting where the cluster's first diamond would.
+     *
+     * <p>Takes the same size, stroke width and fill/border colours as its neighbours, so it rides
+     * the cluster's stride and animates through the glow exactly as they do -- only the outline
+     * differs, which is the whole of the signal.
+     *
+     * <p>Drawn under {@link RenderingHints#VALUE_STROKE_PURE}, which is the whole of what makes it
+     * round. Java2D's default is {@code VALUE_STROKE_NORMALIZE}: it nudges a stroked path onto the
+     * pixel grid to keep thin straight lines crisp, and on a curve this small that shove lands
+     * unevenly and comes out visibly lopsided. Mirroring the rendered pixels about both axes puts
+     * numbers on it -- worst-case channel mismatch 84 normalized against 0 pure, i.e. exactly
+     * symmetric. The hint is restored afterwards, so the diamonds drawn after this one in the same
+     * pass keep the crispness normalizing buys them.
+     */
+    private void drawCircle(Graphics2D g, int cx, int cy, int size,
+                            Color fill, Color border, float strokeWidth) {
+        float half = size / 2f;
+        fillAndStrokeExact(g, new Ellipse2D.Float(cx - half, cy - half, size, size),
+                           fill, border, strokeWidth);
+    }
+
+    /**
+     * The damage step's marker: the square that closes the Attack cluster, opposite the circle
+     * that opens it.
+     *
+     * <p>Drawn at {@link #SUB_SQUARE} rather than the diamonds' size -- see that constant -- and
+     * through {@link #fillAndStrokeExact} for the reason {@link #drawCircle} is. Measured the same
+     * way, an even-sided square is off by 155 under the default hint and a odd-sided one by 1; both
+     * are exact under {@code STROKE_PURE}, so the size stays a free choice rather than one
+     * constrained by which parities happen to land on the grid.
+     */
+    private void drawSquare(Graphics2D g, int cx, int cy, int size,
+                            Color fill, Color border, float strokeWidth) {
+        float half = size / 2f;
+        fillAndStrokeExact(g, new Rectangle2D.Float(cx - half, cy - half, size, size),
+                           fill, border, strokeWidth);
+    }
+
+    /**
+     * Draws sub-step {@code step}'s marker in whichever shape the toggles above select, at the
+     * size that shape is drawn at. The single place the mapping from step to shape lives, so
+     * {@link #subMarkerHalf} below can answer the same question for the connectors.
+     */
+    private void drawSubStepMarker(Graphics2D g, int step, int cx, int cy, Color fill, Color border) {
+        if (step == ATTACK_PREP_STEP && PREP_STEP_AS_CIRCLE)
+            drawCircle(g, cx, cy, SUB_CIRCLE, fill, border, SUB_STROKE);
+        else if (step == ATTACK_DECLARE_STEP && DECLARE_STEP_AS_SWORD)
+            // Takes the glow-tinted border like every other marker. It was held at the dark STROKE
+            // for a while, because on the original narrow blade a tinted outline over the pale fill
+            // washed the whole shape into a fat cross. Widening the blade and thinning the sword's
+            // own stroke left enough lit interior for the detail to survive the tint, so the
+            // exception is gone: an active marker whose outline stays black reads as the one thing
+            // on the track that has not lit up.
+            drawSword(g, cx, cy, fill, border, SWORD_STROKE);
+        else if (step == ATTACK_BLOCK_STEP && BLOCK_STEP_AS_SHIELD)
+            drawShield(g, cx, cy, fill, border, SUB_STROKE);
+        else if (step == ATTACK_DAMAGE_STEP && DAMAGE_STEP_AS_SQUARE)
+            drawSquare(g, cx, cy, SUB_SQUARE, fill, border, SUB_STROKE);
+        else
+            drawDiamond(g, cx, cy, SUB_DIAMOND, fill, border, SUB_STROKE);
+    }
+
+    /**
+     * The declare-attackers marker: an upright sword, drawn as an outline the same way every other
+     * marker is, so its fill still carries the past / current / still-to-come state.
+     *
+     * <p>Built around the centre line rather than centred on it. The crossguard straddles the line
+     * so the connector meets the widest part of the shape, which puts the blade above and the grip
+     * below -- the arrangement that makes it read as a sword rather than as a cross. The blade is
+     * the long half and the grip the short one; at equal lengths this is a plus sign.
+     */
+    private void drawSword(Graphics2D g, int cx, int cy, Color fill, Color border, float strokeWidth) {
+        float gh = SWORD_GUARD_THICK, gw = SWORD_GUARD_HALF, b = SWORD_BLADE_HALF;
+        float grip = SWORD_GRIP_HALF, pom = SWORD_POMMEL, foot = cy + SWORD_FOOT;
+        Path2D.Float p = new Path2D.Float();
+        p.moveTo(cx, cy - SWORD_TIP);                       // point
+        p.lineTo(cx + b, cy - SWORD_TIP + 2f);              // shoulder of the point
+        p.lineTo(cx + b, cy - gh);                          // blade down to the guard
+        p.lineTo(cx + gw, cy - gh);                         // guard, right arm
+        p.lineTo(cx + gw, cy + gh);
+        p.lineTo(cx + grip, cy + gh);                       // grip
+        p.lineTo(cx + grip, foot - pom);
+        p.lineTo(cx + grip + pom, foot - pom);              // pommel
+        p.lineTo(cx + grip + pom, foot);
+        p.lineTo(cx - grip - pom, foot);
+        p.lineTo(cx - grip - pom, foot - pom);
+        p.lineTo(cx - grip, foot - pom);
+        p.lineTo(cx - grip, cy + gh);
+        p.lineTo(cx - gw, cy + gh);                         // guard, left arm
+        p.lineTo(cx - gw, cy - gh);
+        p.lineTo(cx - b, cy - gh);
+        p.lineTo(cx - b, cy - SWORD_TIP + 2f);
+        p.closePath();
+        fillAndStrokeExact(g, p, fill, border, strokeWidth);
+    }
+
+    /**
+     * The declare-blockers marker: the square's flat top over the circle's round bottom, which is
+     * the shield the two shapes either side of it already suggest between them.
+     *
+     * <p>Its foot is level with the sword's, so the middle pair of the cluster share a baseline
+     * the circle and square do not reach. The round half is two quadratics rather than a true arc;
+     * across five pixels of fall the difference does not survive rasterizing.
+     */
+    private void drawShield(Graphics2D g, int cx, int cy, Color fill, Color border, float strokeWidth) {
+        float hw = SHIELD_HALF_W, foot = cy + SHIELD_FOOT, shoulder = cy + SHIELD_SHOULDER;
+        Path2D.Float p = new Path2D.Float();
+        p.moveTo(cx - hw, cy - SHIELD_TOP);
+        p.lineTo(cx + hw, cy - SHIELD_TOP);
+        p.lineTo(cx + hw, shoulder);
+        p.quadTo(cx + hw, foot, cx, foot);
+        p.quadTo(cx - hw, foot, cx - hw, shoulder);
+        p.closePath();
+        fillAndStrokeExact(g, p, fill, border, strokeWidth);
+    }
+
+    /**
+     * Radius of the glow behind sub-step {@code i}.
+     *
+     * <p>The sword reaches {@link #SWORD_TIP} above the centre line and {@link #SWORD_FOOT} below
+     * it, half again the height of anything else in the cluster, so the shared radius left its
+     * point and its pommel outside the falloff and the whole marker read dimmer than its
+     * neighbours. Sized to cover it instead.
+     */
+    private int subGlowRadius(int i) {
+        boolean sword = i == ATTACK_DECLARE_STEP && DECLARE_STEP_AS_SWORD;
+        return sword ? SUB_GLOW_RADIUS + 5 : SUB_GLOW_RADIUS;
+    }
+
+    /**
+     * Half the width of sub-step {@code i}'s marker, which is where a connector has to stop.
+     *
+     * <p>Reads the same toggles {@link #drawSubStepMarker} does. The sword, shield and square are
+     * each a different width from the diamond that replaces them, so switching any of them off has
+     * to resize its connector too or the line stops short of, or runs into, what it now meets.
+     */
+    private static int subMarkerHalf(int i) {
+        if (i == ATTACK_PREP_STEP     && PREP_STEP_AS_CIRCLE)   return SUB_CIRCLE / 2;
+        if (i == ATTACK_DECLARE_STEP  && DECLARE_STEP_AS_SWORD) return (int) SWORD_GUARD_HALF;
+        if (i == ATTACK_BLOCK_STEP    && BLOCK_STEP_AS_SHIELD)  return (int) SHIELD_HALF_W;
+        if (i == ATTACK_DAMAGE_STEP   && DAMAGE_STEP_AS_SQUARE) return SUB_SQUARE / 2;
+        return SUB_DIAMOND / 2;
+    }
+
     private void drawDiamond(Graphics2D g, int cx, int cy, int size,
                              Color fill, Color border, float strokeWidth) {
         int half = size / 2;
@@ -447,13 +682,41 @@ public class PhaseTracker extends JPanel {
         p.lineTo(cx - half, cy);
         p.closePath();
 
+        fillAndStroke(g, p, fill, border, strokeWidth);
+    }
+
+    /**
+     * {@link #fillAndStroke} with stroke normalization turned off for the duration.
+     *
+     * <p>Java2D's default, {@code VALUE_STROKE_NORMALIZE}, shoves a stroked path onto the pixel
+     * grid to keep thin straight lines crisp. On the small shapes here that shove lands unevenly
+     * and the result is visibly lopsided -- mirroring the rendered pixels about both axes puts the
+     * worst-case channel mismatch at 84 for the circle and 155 for an even-sided square, against 0
+     * for both under {@code STROKE_PURE}, which is exact symmetry.
+     *
+     * <p>The hint is restored on the way out, so the diamonds drawn after these in the same pass
+     * keep the crispness normalizing buys them. They are asymmetric under it too, by about 150,
+     * but a straight 45-degree edge does not show it the way a curve or a flat side does.
+     */
+    private void fillAndStrokeExact(Graphics2D g, Shape shape,
+                                    Color fill, Color border, float strokeWidth) {
+        Object strokeControl = g.getRenderingHint(RenderingHints.KEY_STROKE_CONTROL);
+        g.setRenderingHint(RenderingHints.KEY_STROKE_CONTROL, RenderingHints.VALUE_STROKE_PURE);
+        fillAndStroke(g, shape, fill, border, strokeWidth);
+        g.setRenderingHint(RenderingHints.KEY_STROKE_CONTROL,
+                strokeControl != null ? strokeControl : RenderingHints.VALUE_STROKE_DEFAULT);
+    }
+
+    /** Paints one marker; a {@code null} fill is the hollow "still to come" state. */
+    private void fillAndStroke(Graphics2D g, Shape shape,
+                               Color fill, Color border, float strokeWidth) {
         if (fill != null) {
             g.setColor(fill);
-            g.fill(p);
+            g.fill(shape);
         }
         g.setStroke(new BasicStroke(strokeWidth));
         g.setColor(border);
-        g.draw(p);
+        g.draw(shape);
     }
 
     private static float clamp01(float v) {
