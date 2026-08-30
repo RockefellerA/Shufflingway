@@ -129,12 +129,21 @@ final class ActionResolverCost {
             ctx.mayPayCostOrElse(fCp, fElement, fCrystals, () -> consequence.accept(ctx));
         };
     }
-    static Consumer<GameContext> tryParsePayCpWhenDoSo(String text, CardData source) {
+    /**
+     * Parses "pay 《…》. When you do so, [followup]." — the payment sentence an auto-ability's
+     * effect text can begin with.
+     *
+     * <p>{@code xValue} reaches the followup, which is where the 《X》 in these texts is spent:
+     * "of cost X" on the eight search printings, and "choose X dull Forwards" on 25-057R Cutter.
+     * The payment itself is not charged here — {@code AutoAbilityTriggers} intercepts these ahead
+     * of {@code parse()} and runs the dialog — so this arm is what names and describes them.
+     */
+    static Consumer<GameContext> tryParsePayCpWhenDoSo(String text, CardData source, int xValue) {
         Matcher m = PAY_CP_WHEN_DO_SO.matcher(text);
         if (!m.find()) return null;
         String costDesc    = m.group("cost").trim();
         String followupText = m.group("followup").trim();
-        Consumer<GameContext> followup = parse(followupText, source);
+        Consumer<GameContext> followup = parse(followupText, source, xValue);
         if (followup == null) return null;
         return ctx -> {
             ctx.logEntry("Effect: Pay " + costDesc + " CP, then: " + followupText);

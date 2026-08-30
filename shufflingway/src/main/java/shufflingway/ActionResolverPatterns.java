@@ -26,7 +26,11 @@ final class ActionResolverPatterns {
      *  [separator] followup"
      * <ul>
      *   <li>Group {@code upto}      — present when "up to" precedes the count</li>
-     *   <li>Group {@code count}     — number of cards to choose</li>
+     *   <li>Group {@code count}     — number of cards to choose, or the literal "X" when the count
+     *                                 is the ability's variable cost ("choose X dull Forwards" —
+     *                                 25-057R Cutter, the corpus's only one). Callers that have an
+     *                                 X value read it from there; callers that do not have to
+     *                                 decline rather than parse the group as a number.</li>
      *   <li>Group {@code condition} — optional: "dull", "damaged", "attacking", "blocking", or "active"</li>
      *   <li>Group {@code element}   — optional element name, e.g. "Fire", "Earth"</li>
      *   <li>Group {@code category}  — optional category filter, e.g. "VII" in "Category VII Forward"</li>
@@ -48,7 +52,7 @@ final class ActionResolverPatterns {
      */
     static final Pattern CHOOSE_CHARACTER_PATTERN = Pattern.compile(
             "(?i)Choose\\s+" +
-                    "(?:(?<anycount>any\\s+number)|(?<upto>up\\s+to\\s+)?(?<count>\\d+))\\s+(?:of\\s+)?" +
+                    "(?:(?<anycount>any\\s+number)|(?<upto>up\\s+to\\s+)?(?<count>\\d+|X))\\s+(?:of\\s+)?" +
                     "(?:(?<condition>dull|damaged|attacking|blocking|active)\\s+)?" +
                     "(?:(?<element>(?:Multi-Element|Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)(?:\\s+or\\s+(?:Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark))*)\\s+)?" +
                     "(?:Category\\s+(?<category>.+?)(?=\\s+(?:cards?|Forwards?|Backups?|Characters?|Monsters?|Summons?))\\s+)?" +
@@ -3518,6 +3522,25 @@ final class ActionResolverPatterns {
     static final Pattern FOLLOWUP_ACTIVATE_AND_NEGATE_DAMAGE = Pattern.compile(
         "(?i)Activate\\s+(?:it|them)\\s+and\\s+negate\\s+all\\s+(?:the\\s+)?damage\\s+dealt\\s+to\\s+(?:it|them)\\.?"
     );
+    /**
+     * Matches "Activate it. It loses all its abilities and also becomes a Forward with N power.
+     * (This effect does not end at the end of the turn.)" — 17-128L Maria, the corpus's only
+     * printing of the three-part promotion.
+     *
+     * <p>Read off the <em>whole</em> followup rather than the primary half, as
+     * {@link #FOLLOWUP_ELEMENT_BECOMES} is: the ". " split leaves "Activate it" as the primary and
+     * strands the sentence carrying the real effect in the secondary, where nothing claims it and
+     * the description reads "Activate + ?". Anchored end to end, with only the permanence reminder
+     * allowed to trail, so a match proves there is no separate secondary to run — and checked
+     * ahead of {@link #FOLLOWUP_ACTIVATE}, whose unanchored pattern is this sentence's prefix.
+     *
+     * <p>Group: {@code power} — the power the chosen card takes on as a Forward.
+     */
+    static final Pattern FOLLOWUP_ACTIVATE_LOSE_ABILITIES_BECOME_FORWARD_PERMANENT = Pattern.compile(
+        "(?i)^Activate\\s+(?:it|them)[.!]\\s+(?:It|They)\\s+loses?\\s+all\\s+(?:its|their)\\s+abilities" +
+        "\\s+and\\s+also\\s+becomes?\\s+a\\s+Forward\\s+with\\s+(?<power>\\d+)\\s+power[.!]?\\s*" +
+        "(?:\\(This\\s+effect\\s+does\\s+not\\s+end\\s+at\\s+the\\s+end\\s+of\\s+the\\s+turn\\.?\\)[.!]?)?\\s*$"
+    );
 
     // ---- Gain-control followup patterns -----------------------------------------------
     /**
@@ -4843,6 +4866,24 @@ final class ActionResolverPatterns {
      */
     static final Pattern SEARCH_EACH_OF_A_DIFFERENT_ELEMENT = Pattern.compile(
         "(?i),?\\s+each\\s+of\\s+a\\s+different\\s+Element\\b"
+    );
+    /**
+     * A two-type search that states the same cost twice, once per type — "1 Forward of cost 1 or
+     * Monster of cost 1" (13-043C Stiltzkin, the only printing that spells it that way; the
+     * Re-069C reprint of the same card says "1 Forward or Monster of cost 1" and already parses).
+     *
+     * <p>Collapsed to the reprint's wording before {@link #SEARCH_DECK_PATTERN} reads the text, for
+     * the reason {@link #SEARCH_WITH_DIFFERENT_NAMES} is lifted off: that pattern carries one cost
+     * clause, after the type union, so the first "of cost N" sat where the union has to be and the
+     * whole search failed to match. Only the equal-cost case is rewritten — two different costs
+     * would mean something the single cost clause cannot express, and the text stays unparsed.
+     *
+     * <p>Groups: {@code first} / {@code second} — the two card types; {@code cost1} / {@code cost2}
+     * — the cost each of them states.
+     */
+    static final Pattern SEARCH_REPEATED_PER_TYPE_COST = Pattern.compile(
+        "(?i)\\b(?<first>Forwards?|Backups?|Monsters?|Summons?|Characters?)\\s+of\\s+cost\\s+(?<cost1>\\d+)" +
+        "\\s+or\\s+(?<second>Forwards?|Backups?|Monsters?|Summons?|Characters?)\\s+of\\s+cost\\s+(?<cost2>\\d+)\\b"
     );
     /**
      * The "their auto-abilities will not trigger" rider that can follow a search or a play —

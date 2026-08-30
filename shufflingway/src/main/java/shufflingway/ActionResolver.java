@@ -1184,7 +1184,7 @@ public class ActionResolver {
         result = tryParsePlaceUpToHandToBottomThenRedraw(effectText);
         if (result != null) return result;
 
-        result = tryParsePayCpWhenDoSo(effectText, source);
+        result = tryParsePayCpWhenDoSo(effectText, source, xValue);
         if (result != null) return result;
 
         result = tryParseDrawDiscardRetriggerIfCardName(effectText, source);
@@ -2050,7 +2050,10 @@ public class ActionResolver {
         if (tryParseDiscardHandThenDraw(effectText)           != null) return "DiscardHandThenDraw";
         if (tryParseDrawThenPlaceHandToBottom(effectText)     != null) return "DrawThenPlaceHandToBottom";
         if (tryParsePlaceUpToHandToBottomThenRedraw(effectText) != null) return "PlaceUpToHandToBottomThenRedraw";
-        if (tryParsePayCpWhenDoSo(effectText, source)         != null) return "PayCpWhenDoSo";
+        // Probed at X = 1, not 0, for the reason AutoAbilityTriggers.dispatchedByTriggers is:
+        // 25-057R Cutter's followup counts its targets in X and declines at zero, and naming it
+        // is a question about the shape of the sentence, not about any particular payment.
+        if (tryParsePayCpWhenDoSo(effectText, source, 1)      != null) return "PayCpWhenDoSo";
         if (tryParseDrawDiscardRetriggerIfCardName(effectText, source) != null) return "DrawDiscardRetriggerIfCardName";
         if (tryParseDrawCards(effectText)                     != null) return "DrawCards";
         if (tryParseYouMayDiscardType(effectText)             != null) return "YouMayDiscardType";
@@ -2352,6 +2355,10 @@ public class ActionResolver {
         if (FOLLOWUP_CANNOT_BECOME_DULL_BY_OPP.matcher(followupText).find())          return "CannotBecomeDullByOpp";
         if (FOLLOWUP_DULL_OR_ACTIVATE.matcher(followupText).find())                   return "DullOrActivate";
         if (FOLLOWUP_DULL_OR_FREEZE.matcher(followupText).find())                     return "DullOrFreeze";
+        // Ahead of the plain Activate name below, whose unanchored pattern is this sentence's
+        // prefix — the same order the choose chain dispatches these two in.
+        if (FOLLOWUP_ACTIVATE_LOSE_ABILITIES_BECOME_FORWARD_PERMANENT.matcher(followupText).matches())
+                                                                                      return "ActivateLoseAbilitiesBecomeForwardPermanent";
         if (FOLLOWUP_ACTIVATE.matcher(followupText).find())                           return "Activate";
         if (FOLLOWUP_ELEMENT_BECOMES.matcher(followupText).matches())                  return "ElementBecomes";
         if (FOLLOWUP_DULL.matcher(followupText).find()
@@ -3022,6 +3029,10 @@ public class ActionResolver {
             // secondary, which described the card as "ElementBecomes + ?" over a reminder.
             if (FOLLOWUP_ELEMENT_BECOMES.matcher(followup).matches())
                 return "ChooseCharacter / ElementBecomes";
+            // Same shape, same reason: 17-128L Maria's promotion is one effect written across two
+            // sentences, and the split described it as "Activate + ?" over the half that matters.
+            if (FOLLOWUP_ACTIVATE_LOSE_ABILITIES_BECOME_FORWARD_PERMANENT.matcher(followup).matches())
+                return "ChooseCharacter / ActivateLoseAbilitiesBecomeForwardPermanent";
             {
                 Matcher youMayPayM = FOLLOWUP_YOU_MAY_PAY_ELEMENT_IF_DO_SO.matcher(followup);
                 if (youMayPayM.matches()) {
@@ -6490,6 +6501,10 @@ public class ActionResolver {
 
         boolean any          = m.group("anycount") != null;
         boolean upTo         = any || m.group("upto") != null;
+        // A count of X is the ability's variable cost, which is only settled once the payment is
+        // made; this spec is derived from the text alone and has no X to substitute, so it declines
+        // rather than guess a number the selection would then enforce.
+        if ("X".equalsIgnoreCase(m.group("count"))) return null;
         int     maxCount     = any ? Integer.MAX_VALUE : Integer.parseInt(m.group("count"));
         String  rawElement   = m.group("element");
         String  element      = rawElement != null && rawElement.contains(" or ")

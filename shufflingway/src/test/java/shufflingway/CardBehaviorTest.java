@@ -41155,5 +41155,299 @@ public class CardBehaviorTest {
 	}
 
 	// =========================================================================================
+	// Maria 17-128L, Stiltzkin 13-043C, Cutter 25-057R and Samurai 16-009C — four
+	// enters-the-field abilities, three of which nothing claimed.
+	//
+	// Each failed for its own reason, and the fourth is here because it did not fail. The report
+	// that listed these four reads a card's extracted auto-abilities, and 16-009C's ability is an
+	// action ability whose *followup* carries a "When it enters the field" clause. The extractor
+	// lifts that clause out as a trigger of its own with the subject "it", which matches no card
+	// name and so fires nowhere; the real ability resolves through the action, condition and all.
+	// The last two tests say so, so that entry does not get wired a second time.
+	// =========================================================================================
+
+	private static final String MARIA_17_128L =
+			"When Maria enters the field, choose up to 1 Backup you control. Activate it. "
+			+ "It loses all its abilities and also becomes a Forward with 8000 power. "
+			+ "(This effect does not end at the end of the turn.)";
+
+	private static final String STILTZKIN_13_043C =
+			"When Stiltzkin enters the field, you may search for 1 Forward of cost 1 or "
+			+ "Monster of cost 1 and add it to your hand.";
+
+	/** The Re-069C reprint of the same card, which states the shared cost once. */
+	private static final String STILTZKIN_RE_069C =
+			"When Stiltzkin enters the field, you may search for 1 Forward or Monster of cost 1 "
+			+ "and add it to your hand.";
+
+	private static final String CUTTER_25_057R =
+			"When Cutter enters the field, you may pay 《X》《X》. When you do so, "
+			+ "choose X dull Forwards. Break them.";
+
+	private static final String SAMURAI_16_009C =
+			"《Dull》, put Samurai into the Break Zone: Choose 1 Fire Forward of cost 4 or less "
+			+ "in your Break Zone. Play it onto the field. When it enters the field, if it is a "
+			+ "Job Samurai or a Card Name Samurai, deal 2000 damage to all the Forwards opponent "
+			+ "controls. You can only use this ability during your turn.";
+
+	private static String firstAutoEffect(String cardText) {
+		return CardData.parseAutoAbilities(cardText).get(0).effectText();
+	}
+
+	// ---- Maria: the promotion ---------------------------------------------------------------
+
+	/** Resolves Maria's trigger against a mocked selection that hands back {@code picks}. */
+	private static GameContext resolveMaria(List<ForwardTarget> picks) {
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.consumePreloadedTargets()).thenReturn(null);
+		when(ctx.selectCharacters(anyInt(), anyBoolean(), anyBoolean(), anyBoolean(), any(), any(),
+				anyInt(), any(), anyInt(), any(), anyBoolean(), anyBoolean(), anyBoolean(),
+				any(), any(), any(), any(), anyBoolean(), any(), anyBoolean()))
+				.thenReturn(new ArrayList<>(picks));
+		Consumer<GameContext> fn = ActionResolver.parse(firstAutoEffect(MARIA_17_128L), null);
+		assertNotNull(fn, "Maria's three-part promotion should parse");
+		fn.accept(ctx);
+		return ctx;
+	}
+
+	@Test
+	void mariaActivatesSilencesAndPromotesTheChosenBackup() {
+		ForwardTarget bkp = new ForwardTarget(true, 2, ForwardTarget.CardZone.BACKUP);
+		GameContext ctx = resolveMaria(List.of(bkp));
+
+		verify(ctx).activateTarget(bkp);
+		verify(ctx).targetLoseAllAbilitiesPermanently(bkp);
+		verify(ctx).makeTargetForwardPermanently(bkp, 8000);
+	}
+
+	@Test
+	void mariasPromotionIsNotTheUntilEndOfTurnKind() {
+		// Both clauses have an end-of-turn sibling that reads the same words; the reminder in
+		// brackets is the whole difference between them.
+		ForwardTarget bkp = new ForwardTarget(true, 0, ForwardTarget.CardZone.BACKUP);
+		GameContext ctx = resolveMaria(List.of(bkp));
+
+		verify(ctx, never()).targetLoseAllAbilitiesUntilEndOfTurn(any());
+		verify(ctx, never()).makeTargetTemporaryForward(any(), anyInt());
+	}
+
+	@Test
+	void mariasSelectionIsBackupsSheControlsAndMayTakeNone() {
+		GameContext ctx = resolveMaria(List.of());
+		// count, upTo, opponentOnly, selfOnly, then the three card-kind flags.
+		verify(ctx).selectCharacters(eq(1), eq(true), eq(false), eq(true), any(), any(),
+				anyInt(), any(), anyInt(), any(),
+				eq(false), eq(true), eq(false),
+				any(), any(), any(), any(), anyBoolean(), any(), anyBoolean());
+		verify(ctx, never()).activateTarget(any());
+		verify(ctx, never()).makeTargetForwardPermanently(any(), anyInt());
+	}
+
+	@Test
+	void mariasPromotionIsNamedForItsWholeSentence() {
+		assertEquals("ChooseCharacter / ActivateLoseAbilitiesBecomeForwardPermanent",
+				ActionResolver.fullDescription(firstAutoEffect(MARIA_17_128L), null),
+				"named off the unsplit followup, so the reminder is not left as a dangling \"+ ?\"");
+	}
+
+	// ---- Maria: what "does not end at the end of the turn" costs the board -------------------
+
+	private static MainWindow mariaBoard() {
+		MainWindow mw = new MainWindow();
+		advanceTo(mw, GameState.Player.P1, GameState.GamePhase.MAIN_1);
+		mw.p1BackupCards[0]  = makePlainBackup("Scholar", "Light", 2);
+		mw.p1BackupStates[0] = CardState.DULL;
+		return mw;
+	}
+
+	@Test
+	void mariasPromotedBackupSurvivesTheEndOfTurnSweep() {
+		MainWindow mw = mariaBoard();
+		CardData scholar = mw.p1BackupCards[0];
+		ForwardTarget t = new ForwardTarget(true, 0, ForwardTarget.CardZone.BACKUP);
+
+		GameContext ctx = mw.buildGameContext(true);
+		ctx.makeTargetForwardPermanently(t, 8000);
+		ctx.targetLoseAllAbilitiesPermanently(t);
+		assertTrue(mw.isP1BackupTemporarilyForward(0));
+		assertEquals(8000, mw.p1BackupForwardPower(0));
+
+		mw.clearBackupForwardState();
+		for (Consumer<GameContext> e : new ArrayList<>(mw.endOfTurnEffects))
+			e.accept(mw.buildGameContext(true));
+
+		assertTrue(mw.isP1BackupTemporarilyForward(0),
+				"\"does not end at the end of the turn\" — the sweep holds this promotion back");
+		assertEquals(8000, mw.p1BackupForwardPower(0));
+		assertTrue(mw.lostAbilitiesCards.contains(scholar), "and so does the silence");
+	}
+
+	@Test
+	void theUntilEndOfTurnPromotionIsStillSweptAway() {
+		// The contrast that gives the test above its meaning: 17-012R Tifa's kind shares the same
+		// map, and the exemption set is the only thing telling the two apart.
+		MainWindow mw = mariaBoard();
+		mw.makeP1BackupTemporaryForward(mw.p1BackupCards[0], 8000);
+		assertTrue(mw.isP1BackupTemporarilyForward(0));
+
+		mw.clearBackupForwardState();
+
+		assertFalse(mw.isP1BackupTemporarilyForward(0));
+	}
+
+	@Test
+	void mariasPromotionEndsWhenTheBackupLeavesTheField() {
+		// A continuous effect lives on the copy, not on the card: neither half may follow it back.
+		MainWindow mw = mariaBoard();
+		CardData scholar = mw.p1BackupCards[0];
+		ForwardTarget t = new ForwardTarget(true, 0, ForwardTarget.CardZone.BACKUP);
+
+		GameContext ctx = mw.buildGameContext(true);
+		ctx.makeTargetForwardPermanently(t, 8000);
+		ctx.targetLoseAllAbilitiesPermanently(t);
+
+		mw.clearPermanentGrants(scholar);
+
+		assertFalse(mw.isP1BackupTemporarilyForward(0));
+		assertFalse(mw.lostAbilitiesCards.contains(scholar));
+	}
+
+	// ---- Stiltzkin: one cost printed twice ---------------------------------------------------
+
+	@Test
+	void stiltzkinSearchesForwardsAndMonstersOfCostOne() {
+		GameContext ctx = mock(GameContext.class);
+		Consumer<GameContext> fn = ActionResolver.parse(firstAutoEffect(STILTZKIN_13_043C), null);
+		assertNotNull(fn, "the repeated per-type cost should not stop the search parsing");
+		fn.accept(ctx);
+
+		verify(ctx).searchDeckForCard(true, false, true, false, 1, null,
+				null, null, null, null, null, null, "hand", 1, false, false);
+	}
+
+	@Test
+	void bothStiltzkinPrintingsSearchTheSameWay() {
+		// The reprint states the shared cost once. Same card, so the same search.
+		GameContext ctx = mock(GameContext.class);
+		ActionResolver.parse(firstAutoEffect(STILTZKIN_RE_069C), null).accept(ctx);
+
+		verify(ctx).searchDeckForCard(true, false, true, false, 1, null,
+				null, null, null, null, null, null, "hand", 1, false, false);
+	}
+
+	@Test
+	void twoDifferentPerTypeCostsAreNotCollapsed() {
+		// The rewrite folds one cost clause into the type union, which can only be right when the
+		// two costs agree. Nothing in the corpus prints them differing; if something ever does, it
+		// has to arrive unparsed rather than as a search for the wrong thing.
+		assertNull(ActionResolver.parse(
+				"search for 1 Forward of cost 2 or Monster of cost 3 and add it to your hand.", null));
+	}
+
+	// ---- Cutter: two CP for every Forward ----------------------------------------------------
+
+	@Test
+	void cuttersDoubledXCostIsPricedAtTwoCpPerForward() {
+		int[] tally = AutoAbilityTriggers.tallyPayRun("《X》《X》");
+		assertNotNull(tally);
+		assertEquals(0, tally[0], "nothing fixed to pay before X starts");
+		assertEquals(2, tally[1], "《X》《X》 is two CP for each 1 of X");
+
+		assertEquals(0, AutoAbilityTriggers.xBoughtBy(1, 0, 2), "1 CP does not reach the first");
+		assertEquals(1, AutoAbilityTriggers.xBoughtBy(2, 0, 2));
+		assertEquals(1, AutoAbilityTriggers.xBoughtBy(3, 0, 2), "the odd CP is overpayment");
+		assertEquals(2, AutoAbilityTriggers.xBoughtBy(4, 0, 2));
+	}
+
+	@Test
+	void aSingleXTokenStillBuysOneUnitPerCp() {
+		// The eight "you may pay 《X》. When you do so, … of cost X" printings, whose X has always
+		// been however much was paid.
+		int[] tally = AutoAbilityTriggers.tallyPayRun("《X》");
+		assertEquals(0, tally[0]);
+		assertEquals(1, tally[1]);
+		assertEquals(3, AutoAbilityTriggers.xBoughtBy(3, 0, 1));
+	}
+
+	@Test
+	void aFixedCostRunPassesThePaidAmountThrough() {
+		int[] tally = AutoAbilityTriggers.tallyPayRun("《2》");
+		assertEquals(2, tally[0]);
+		assertEquals(0, tally[1], "no X in the run");
+		assertEquals(2, AutoAbilityTriggers.xBoughtBy(2, 2, 0));
+	}
+
+	@Test
+	void aCrystalCostRunIsDeclined() {
+		// 《C》 is not CP the payment dialog charges, and the caller falls back to plain parsing.
+		assertNull(AutoAbilityTriggers.tallyPayRun("《C》"));
+	}
+
+	@Test
+	void cuttersTriggerIsRecognisedAndNamed() {
+		CardData cutter = makeForward("Cutter", "Earth", 3, 8000);
+		AutoAbility etf = CardData.parseAutoAbilities(CUTTER_25_057R).get(0);
+		assertTrue(AutoAbilityTriggers.dispatchedByTriggers(etf, cutter),
+				"the payment run is what the triggers dispatch; parse() alone never charges it");
+		assertEquals("PayCpWhenDoSo",
+				ActionResolver.matchedPatternName(etf.effectText(), cutter));
+	}
+
+	@Test
+	void cuttersFollowupBreaksAsManyDullForwardsAsXBought() {
+		ForwardTarget a = new ForwardTarget(false, 0, ForwardTarget.CardZone.FORWARD);
+		ForwardTarget b = new ForwardTarget(false, 1, ForwardTarget.CardZone.FORWARD);
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.consumePreloadedTargets()).thenReturn(null);
+		when(ctx.selectCharacters(anyInt(), anyBoolean(), anyBoolean(), anyBoolean(), any(), any(),
+				anyInt(), any(), anyInt(), any(), anyBoolean(), anyBoolean(), anyBoolean(),
+				any(), any(), any(), any(), anyBoolean(), any(), anyBoolean()))
+				.thenReturn(new ArrayList<>(List.of(a, b)));
+
+		Consumer<GameContext> fn = ActionResolver.parse("choose X dull Forwards. Break them.", null, 2);
+		assertNotNull(fn, "X is the count here, not a cost");
+		fn.accept(ctx);
+
+		verify(ctx).selectCharacters(eq(2), anyBoolean(), anyBoolean(), anyBoolean(),
+				eq("dull"), any(), anyInt(), any(), anyInt(), any(),
+				eq(true), eq(false), eq(false),
+				any(), any(), any(), any(), anyBoolean(), any(), anyBoolean());
+		verify(ctx).breakTarget(a);
+		verify(ctx).breakTarget(b);
+	}
+
+	@Test
+	void nothingPaidForXChoosesNothingRatherThanEveryone() {
+		// A count of X with no X behind it is not a choice anyone makes, and must not fall through
+		// to a selection of zero — or worse, to a parser that reads the sentence some other way.
+		assertNull(ActionResolver.parse("choose X dull Forwards. Break them.", null, 0));
+	}
+
+	// ---- Samurai 16-009C: already wired, through its action ability --------------------------
+
+	@Test
+	void samuraisPlayFromBreakZoneCarriesItsEntersTheFieldCondition() {
+		CardData samurai = makeForward("Samurai", "Fire", 4, 0);
+		String effect = CardData.parseActionAbilities(SAMURAI_16_009C).get(0).effectText();
+		assertNotNull(ActionResolver.parse(effect, samurai));
+		assertEquals("ChooseCharacter / PlayOntoField + IfETF(DealDamageToForwards)",
+				ActionResolver.fullDescription(effect, samurai),
+				"the play and the condition on what it played are one ability");
+	}
+
+	@Test
+	void samuraisExtractedEntersFieldEntryFiresNowhere() {
+		// The extractor lifts the followup's "When it enters the field, …" out as a trigger of its
+		// own with the subject "it". No card is named "it", and the enters-the-field dispatch
+		// matches the subject against a card name, so the entry is inert — which is why a coverage
+		// report calls it unwired while the card itself works.
+		AutoAbility etf = CardData.parseAutoAbilities(SAMURAI_16_009C).get(0);
+		assertEquals("enters the field", etf.trigger());
+		assertEquals("it", etf.triggerCard());
+		assertNotEquals("Samurai", etf.triggerCard(),
+				"the entry cannot match the card it was printed on, so it never fires");
+	}
+
+	// =========================================================================================
 
 }

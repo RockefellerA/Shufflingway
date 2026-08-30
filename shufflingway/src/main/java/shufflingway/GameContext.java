@@ -2835,6 +2835,14 @@ public interface GameContext {
     void targetLoseAllAbilitiesUntilEndOfTurn(ForwardTarget t);
 
     /**
+     * Silences the card at {@code t} for as long as it stays on the field — the outlasts-the-turn
+     * form printed on 17-128L Maria, so nothing is registered for the end-of-turn sweep. Works on
+     * any field zone. The silence ends when the card leaves the field, which is where every
+     * continuous effect on a copy ends; a card returning later comes back with its abilities.
+     */
+    void targetLoseAllAbilitiesPermanently(ForwardTarget t);
+
+    /**
      * Silences the Character at {@code t} for as long as {@code warden} stays on the field —
      * 25-035L Aerith and 20-116R Meliadoul, "As long as [Self] is on the field, it loses all its
      * abilities."
@@ -3585,6 +3593,14 @@ public interface GameContext {
      * Handles targets on either side of the field. No-op if the target is not a Monster zone.
      */
     void makeTargetTemporaryForward(ForwardTarget t, int power);
+
+    /**
+     * Makes the Backup or Monster at {@code t} also a Forward with {@code power} for as long as it
+     * stays on the field — the "(This effect does not end at the end of the turn.)" form printed on
+     * 17-128L Maria, so nothing is registered for the end-of-turn sweep. No-op on a target that is
+     * already a Forward. Handles targets on either side of the field.
+     */
+    void makeTargetForwardPermanently(ForwardTarget t, int power);
 
     /**
      * Makes all Monsters the ability user controls also become Forwards with {@code power}

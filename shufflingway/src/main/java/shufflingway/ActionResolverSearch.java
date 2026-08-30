@@ -944,6 +944,16 @@ final class ActionResolverSearch {
             gate = PickGate.DISTINCT_ELEMENTS;
             text = SEARCH_EACH_OF_A_DIFFERENT_ELEMENT.matcher(text).replaceFirst("");
         }
+        // "Forward of cost 1 or Monster of cost 1" → "Forward or Monster of cost 1", so the type
+        // union and the cost clause each land where SEARCH_DECK_PATTERN expects them. Rewritten
+        // only when the two costs agree — see the pattern.
+        Matcher perTypeCost = SEARCH_REPEATED_PER_TYPE_COST.matcher(text);
+        if (perTypeCost.find() && perTypeCost.group("cost1").equals(perTypeCost.group("cost2"))) {
+            text = text.substring(0, perTypeCost.start())
+                    + perTypeCost.group("first") + " or " + perTypeCost.group("second")
+                    + " of cost " + perTypeCost.group("cost1")
+                    + text.substring(perTypeCost.end());
+        }
         // Lifted off for a different reason: this one has to be in force before the cards it
         // silences reach the field, and the trailing-clause chain runs after the search.
         boolean suppressAutoAbilities = false;

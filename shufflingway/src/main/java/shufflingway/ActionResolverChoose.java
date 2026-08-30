@@ -1299,7 +1299,14 @@ final class ActionResolverChoose {
 
         boolean any          = m.group("anycount") != null;
         boolean upTo         = m.group("upto") != null;
-        int     maxCount     = any ? Integer.MAX_VALUE : Integer.parseInt(m.group("count"));
+        // "choose X dull Forwards" (25-057R Cutter) — X is what the ability's 《X》 cost was paid
+        // for, threaded in as xValue by whoever resolved the payment. A count of X with no value
+        // behind it is not a choice anyone can make, so the text stays unparsed rather than
+        // silently choosing nothing.
+        String  countStr     = m.group("count");
+        if ("X".equalsIgnoreCase(countStr) && xValue <= 0) return null;
+        int     maxCount     = any ? Integer.MAX_VALUE
+                : "X".equalsIgnoreCase(countStr) ? xValue : Integer.parseInt(countStr);
         String  rawElement   = m.group("element");
         String  element      = rawElement != null && rawElement.contains(" or ")
                 ? rawElement.replaceAll("(?i)\\s+or\\s+", "|") : rawElement;
@@ -3187,6 +3194,29 @@ final class ActionResolverChoose {
                 sortedByIdxDesc(ts, true) .forEach(t -> ctx.toggleTargetDullActivate(t));
                 sortedByIdxDesc(ts, false).forEach(t -> ctx.toggleTargetDullActivate(t));
                 if (secondary != null) secondary.accept(ctx);
+            };
+        }
+
+        // --- "Activate it. It loses all its abilities and also becomes a Forward with N power." ---
+        // 17-128L Maria. Read off the whole followup rather than the primary half, so the ". "
+        // split does not strand the sentence that does the work; the pattern is anchored and lets
+        // only the permanence reminder trail, so a match means there is no secondary to run. Must
+        // precede the plain Activate branch below, whose pattern is this sentence's prefix.
+        // Both halves outlast the turn, so nothing is registered for the end-of-turn sweep.
+        Matcher activatePromoteM = FOLLOWUP_ACTIVATE_LOSE_ABILITIES_BECOME_FORWARD_PERMANENT.matcher(followup);
+        if (activatePromoteM.matches()) {
+            final int promotedPower = Integer.parseInt(activatePromoteM.group("power"));
+            return ctx -> {
+                ctx.logChooseHeader(choosePrefix + " — Activate, lose all abilities, become a Forward with "
+                        + promotedPower + " power (does not end at end of turn)");
+                List<ForwardTarget> ts = selectTargets(ctx, maxCount, upTo,
+                        opponentOnly, selfOnly, condition, element, zone, opponentZone,
+                        costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters, jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, fExcludeElem, withoutMulticard);
+                for (ForwardTarget t : ts) {
+                    ctx.activateTarget(t);
+                    ctx.targetLoseAllAbilitiesPermanently(t);
+                    ctx.makeTargetForwardPermanently(t, promotedPower);
+                }
             };
         }
 

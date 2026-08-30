@@ -22,6 +22,7 @@ import java.util.Set;
 import java.util.concurrent.ExecutionException;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
+import java.util.function.IntUnaryOperator;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -1649,11 +1650,20 @@ final class AutoAbilityTriggers {
 		"\\s+as\\s+the\\s+Summons?\\s+you\\s+revealed"
 	);
 
-	/** Matches "pay 《cost》[.] When/If you do so, sub-effect[. The maximum you can pay for 《X》 is N]". */
+	/**
+	 * Matches "pay 《cost》…[.] When/If you do so, sub-effect[. The maximum you can pay for 《X》 is N]".
+	 *
+	 * <p>The cost is a <em>run</em> of tokens, not one: 25-057R Cutter prints 《X》《X》, meaning two
+	 * CP for every 1 it buys of X. Written as a single token the pattern stopped at the first 》,
+	 * found no whitespace before the second 《, and the card went unwired. Group 1 is the whole run
+	 * — {@link #executePayWhenDoSoAutoAbility} tallies it; group 2 is the sub-effect.
+	 */
 	private static final Pattern FA_PAY_WHEN_DO_SO = Pattern.compile(
-		"(?i)^pay\\s+《([^》]+)》[.,]?\\s+(?:When|If)\\s+you\\s+do\\s+so[,.]?\\s+(.+?)(?:[.,]?\\s+The\\s+maximum\\s+you\\s+can\\s+pay\\s+for\\s+《X》\\s+is\\s+\\d+\\.?)?$",
+		"(?i)^pay\\s+((?:《[^》]+》)+)[.,]?\\s+(?:When|If)\\s+you\\s+do\\s+so[,.]?\\s+(.+?)(?:[.,]?\\s+The\\s+maximum\\s+you\\s+can\\s+pay\\s+for\\s+《X》\\s+is\\s+\\d+\\.?)?$",
 		Pattern.DOTALL
 	);
+	/** One 《…》 token of a {@link #FA_PAY_WHEN_DO_SO} cost run. */
+	private static final Pattern FA_COST_TOKEN = Pattern.compile("《([^》]+)》");
 	private static final Pattern FA_MAX_X = Pattern.compile(
 		"(?i)The\\s+maximum\\s+you\\s+can\\s+pay\\s+for\\s+《X》\\s+is\\s+(\\d+)"
 	);
@@ -3507,7 +3517,11 @@ final class AutoAbilityTriggers {
 		Matcher m = FA_REMOVE_COUNTER_WHEN_DO_SO.matcher(text);
 		if (m.find()) return subEffectParses(m.group("sub"), source);
 		m = FA_PAY_WHEN_DO_SO.matcher(text);
-		if (m.find()) return subEffectParses(m.group(2), source);
+		// Probed at X = 1, not 0: a sub-effect whose *count* is the ability's 《X》 ("choose X dull
+		// Forwards" — 25-057R Cutter) declines at zero, because choosing none is not a choice
+		// anyone makes. Any positive value proves the shape is claimed; the real X arrives when
+		// the payment resolves.
+		if (m.find()) return subEffectParses(m.group(2), source, 1);
 		m = FA_REMOVE_FIELD_WHEN_DO_SO.matcher(text);
 		if (m.find()) return subEffectParses(m.group("sub"), source);
 		m = FA_PUT_INTO_BZ_WHEN_DO_SO.matcher(text);
@@ -3542,7 +3556,12 @@ final class AutoAbilityTriggers {
 
 	/** Whether a "when you do so" tail resolves, which is what its executor requires of it. */
 	private static boolean subEffectParses(String sub, CardData source) {
-		return sub != null && ActionResolver.parse(sub.trim(), source) != null;
+		return subEffectParses(sub, source, 0);
+	}
+
+	/** As above, resolving the sub-effect's {@code X} references against {@code xValue}. */
+	private static boolean subEffectParses(String sub, CardData source, int xValue) {
+		return sub != null && ActionResolver.parse(sub.trim(), source, xValue) != null;
 	}
 
 	/**
@@ -4242,32 +4261,63 @@ final class AutoAbilityTriggers {
 		fn.accept(mw.buildGameContext(effectIsP1));
 	}
 
+	/**
+	 * Prices a {@link #FA_PAY_WHEN_DO_SO} cost run as {@code {fixedCp, cpPerUnitOfX}}, or
+	 * {@code null} when it holds a token the payment dialog cannot charge (《C》 for a Crystal).
+	 *
+	 * <p>Every printing but one is a single token, and a lone 《X》 prices at one CP per unit — the
+	 * reading the single-token code had. 25-057R Cutter prints 《X》《X》, two CP for each 1 of X.
+	 * An element token counts as the one CP it is; which element cannot be enforced here, and was
+	 * not before.
+	 */
+	static int[] tallyPayRun(String costRun) {
+		int fixedCp = 0, cpPerUnitOfX = 0;
+		Matcher tok = FA_COST_TOKEN.matcher(costRun);
+		while (tok.find()) {
+			String costToken = tok.group(1).trim();
+			if (costToken.equalsIgnoreCase("X")) { cpPerUnitOfX++; continue; }
+			String lower = costToken.toLowerCase(Locale.ROOT);
+			if (ELEMENT_NAMES.stream().anyMatch(lower::contains)) { fixedCp++; continue; }
+			try { fixedCp += Integer.parseInt(costToken); }
+			catch (NumberFormatException e) { return null; }
+		}
+		return new int[]{ fixedCp, cpPerUnitOfX };
+	}
+
+	/**
+	 * The X that {@code paid} CP buys, given a cost run of {@code fixedCp} plus {@code cpPerUnitOfX}
+	 * for each 1 of X. CP left over after the fixed part and the whole units is overpayment and
+	 * buys nothing. A run with no 《X》 in it passes the amount straight through, which is what the
+	 * sub-effects of the fixed-cost printings are resolved with.
+	 */
+	static int xBoughtBy(int paid, int fixedCp, int cpPerUnitOfX) {
+		if (cpPerUnitOfX == 0) return paid;
+		return Math.max(0, paid - fixedCp) / cpPerUnitOfX;
+	}
+
 	private void executePayWhenDoSoAutoAbility(AutoAbility fa, CardData source, boolean isP1,
 			boolean effectIsP1, Matcher payM) {
-		String costToken = payM.group(1).trim();
+		String costRun   = payM.group(1).trim();
 		String subEffect = payM.group(2).trim().replaceAll("[.!,]+$", "");
 
-		boolean isXCost = costToken.equalsIgnoreCase("X");
-		boolean isElementCost = !isXCost && ELEMENT_NAMES.stream()
-				.anyMatch(e -> costToken.toLowerCase(java.util.Locale.ROOT).contains(e));
-		int fixedCost;
-		if (!isXCost) {
-			if (isElementCost) {
-				fixedCost = 1;
-			} else {
-				try { fixedCost = Integer.parseInt(costToken); }
-				catch (NumberFormatException e) {
-					// Non-numeric, non-X cost token (e.g. 《C》 for crystal) — resolve normally.
-					Consumer<GameContext> effect = ActionResolver.parse(fa.effectText(), source);
-					if (effect != null) { mw.logEntry("[AutoAbility] " + source.name() + " — " + fa.effectText()); effect.accept(mw.buildGameContext(effectIsP1)); }
-					else mw.logEntry("[AutoAbility] Unrecognized effect: " + fa.effectText());
-					return;
-				}
-			}
-		} else { fixedCost = 0; }
+		int[] tally = tallyPayRun(costRun);
+		if (tally == null) {
+			// A token this dialog cannot charge (e.g. 《C》 for crystal) — resolve normally.
+			Consumer<GameContext> effect = ActionResolver.parse(fa.effectText(), source);
+			if (effect != null) { mw.logEntry("[AutoAbility] " + source.name() + " — " + fa.effectText()); effect.accept(mw.buildGameContext(effectIsP1)); }
+			else mw.logEntry("[AutoAbility] Unrecognized effect: " + fa.effectText());
+			return;
+		}
+		final int fixedCost = tally[0];
+		final int xPerUnit  = tally[1];
+		final boolean isXCost = xPerUnit > 0;
 
 		Matcher maxM = FA_MAX_X.matcher(fa.effectText());
-		int maxCp = isXCost ? (maxM.find() ? Integer.parseInt(maxM.group(1)) : Integer.MAX_VALUE) : fixedCost;
+		// "The maximum you can pay for 《X》 is N" bounds X, so the CP ceiling is the fixed part plus
+		// N units of it.
+		int maxCp = isXCost
+				? (maxM.find() ? fixedCost + Integer.parseInt(maxM.group(1)) * xPerUnit : Integer.MAX_VALUE)
+				: fixedCost;
 
 		// For fixed CP costs, check whether the paying player can actually generate enough CP.
 		// effectIsP1 identifies the player who would pay (already accounts for opponentMay).
@@ -4280,7 +4330,7 @@ final class AutoAbilityTriggers {
 				if (bkpCards[i] != null && bkpStates[i] == CardState.ACTIVE) availCp++;
 			availCp += mw.playerHand(effectIsP1).size() * 2;
 			if (availCp < fixedCost) {
-				mw.logEntry("[AutoAbility] " + source.name() + " — cannot afford " + fixedCost + " CP (" + costToken + "), skipping");
+				mw.logEntry("[AutoAbility] " + source.name() + " — cannot afford " + fixedCost + " CP (" + costRun + "), skipping");
 				return;
 			}
 		}
@@ -4305,16 +4355,19 @@ final class AutoAbilityTriggers {
 			mw.logEntry("[AutoAbility] [AI] auto-accepts optional ability");
 		}
 
+		IntUnaryOperator xFromPaid = paid -> xBoughtBy(paid, fixedCost, xPerUnit);
+
 		if (!isP1) {
-			int target = isXCost ? 1 : fixedCost;
+			// The AI buys one unit of X, which is what it has always done for a plain 《X》.
+			int target = isXCost ? fixedCost + xPerUnit : fixedCost;
 			int paid   = aiPayCp(effectIsP1, target);
-			applyPayWhenDoSoEffect(subEffect, source, paid, effectIsP1);
+			applyPayWhenDoSoEffect(subEffect, source, xFromPaid.applyAsInt(paid), effectIsP1);
 			return;
 		}
 
 		String finalSubEffect = subEffect;
 		showAutoAbilityPaymentDialog(source.name(), fixedCost, maxCp, isP1, 0,
-				paid -> applyPayWhenDoSoEffect(finalSubEffect, source, paid, effectIsP1), null);
+				paid -> applyPayWhenDoSoEffect(finalSubEffect, source, xFromPaid.applyAsInt(paid), effectIsP1), null);
 	}
 
 	private void applyPayWhenDoSoEffect(String subEffect, CardData source, int xValue, boolean effectIsP1) {
@@ -4328,7 +4381,12 @@ final class AutoAbilityTriggers {
 		}
 		Consumer<GameContext> effect = ActionResolver.parse(subEffect, source, xValue);
 		if (effect == null) {
-			mw.logEntry("[AutoAbility] Unrecognized 'when you do so' effect: " + subEffect);
+			// A sub-effect measured in X has nothing to do at X = 0, and declines rather than
+			// resolving as an empty one. That is a payment of nothing, not an unread ability.
+			if (xValue == 0 && subEffect.matches("(?i).*\\bX\\b.*"))
+				mw.logEntry("[AutoAbility] " + source.name() + " — nothing paid for 《X》; no effect");
+			else
+				mw.logEntry("[AutoAbility] Unrecognized 'when you do so' effect: " + subEffect);
 			return;
 		}
 		mw.logEntry("[AutoAbility] " + source.name() + " — when you do so: " + subEffect + " (X=" + xValue + ")");

@@ -1924,6 +1924,14 @@ final class GameContextImpl implements GameContext {
 				}
 				logEntry("Effect: " + card.name() + " loses all abilities until end of turn");
 			}
+			@Override public void targetLoseAllAbilitiesPermanently(ForwardTarget t) {
+				CardData card = mw.autoAbilityTriggers.fieldCardData(t);
+				if (card == null) return;
+				// No end-of-turn removal registered, unlike the sibling above: the effect outlasts
+				// the turn. clearPermanentGrants drops it when the card leaves the field.
+				mw.lostAbilitiesCards.add(card);
+				logEntry((t.isP1() ? "" : "[P2] ") + card.name() + " loses all its abilities");
+			}
 			@Override public void opponentCharactersLoseJobsUntilEndOfTurn(boolean inclForwards,
 					boolean inclBackups, boolean inclMonsters) {
 				List<CardData> stripped = new ArrayList<>();
@@ -8731,6 +8739,31 @@ final class GameContextImpl implements GameContext {
 					});
 					mw.refreshP2MonsterSlot(t.idx());
 				}
+			}
+
+			@Override public void makeTargetForwardPermanently(ForwardTarget t, int power) {
+				CardData card = mw.autoAbilityTriggers.fieldCardData(t);
+				if (card == null) return;
+				// No end-of-turn removal registered, unlike makeTargetTemporaryForward above.
+				// Backups live in a map the end-of-turn sweep empties wholesale, so the card is
+				// also enrolled in the exemption set that sweep now honours; Monsters are cleared
+				// entry by entry and need only the missing registration.
+				switch (t.zone()) {
+					case BACKUP -> {
+						(t.isP1() ? mw.p1BackupTempForwardPower : mw.p2BackupTempForwardPower).put(card, power);
+						mw.backupPermanentForwards.add(card);
+						if (t.isP1()) mw.refreshP1BackupSlot(t.idx());
+						else          mw.refreshP2BackupSlot(t.idx());
+					}
+					case MONSTER -> {
+						(t.isP1() ? mw.p1MonsterTempForwardPower : mw.p2MonsterTempForwardPower).put(card, power);
+						if (t.isP1()) mw.refreshP1MonsterSlot(t.idx());
+						else          mw.refreshP2MonsterSlot(t.idx());
+					}
+					default -> { return; }   // already a Forward, or not on the field
+				}
+				logEntry((t.isP1() ? "" : "[P2] ") + card.name()
+						+ " also becomes a Forward with " + power + " power");
 			}
 
 			@Override public void makeAllMonstersTemporaryForwards(int power) {

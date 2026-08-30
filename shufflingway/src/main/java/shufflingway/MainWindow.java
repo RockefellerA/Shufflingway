@@ -452,6 +452,18 @@ public class MainWindow {
 	// State for Backups temporarily acting as Forwards (e.g. 17-012R). Keyed by CardData.
 	final Map<CardData, Integer> p1BackupTempForwardPower = new HashMap<>();
 	final Map<CardData, Integer> p2BackupTempForwardPower = new HashMap<>();
+	/**
+	 * The Backups above whose promotion outlasts the turn — 17-128L Maria's "(This effect does not
+	 * end at the end of the turn.)".
+	 *
+	 * <p>They share the two power maps rather than living in maps of their own, because everything
+	 * that reads a Backup acting as a Forward reads those; what differs is only the sweep. So the
+	 * membership is kept here and {@link #clearBackupForwardState} skips these keys.
+	 *
+	 * <p>Identity, like {@link #lostAbilitiesCards}: {@link CardData} is a record, and two copies of
+	 * one card must not share an entry.
+	 */
+	final Set<CardData> backupPermanentForwards = Collections.newSetFromMap(new IdentityHashMap<>());
 	final Map<CardData, List<ActionAbility>> p1TempGrantedAbilities = new HashMap<>();
 	final Map<CardData, List<ActionAbility>> p2TempGrantedAbilities = new HashMap<>();
 	final Map<CardData, Integer> p1BackupForwardBoost     = new HashMap<>();
@@ -3459,6 +3471,9 @@ public class MainWindow {
 		p1MonsterTempForwardPower.clear();
 		p1MonsterPowerBoost.clear();
 		p1MonsterTempTraits.clear();
+		// Ahead of the sweep, which otherwise holds these keys back: outlasting the turn does not
+		// mean outlasting the game, and this is the zone teardown, not an end of turn.
+		backupPermanentForwards.clear();
 		clearBackupForwardState();
 
 		if (p2MonsterPanel != null) {
@@ -14093,6 +14108,14 @@ public class MainWindow {
 		// A permanent "power becomes N" lives in the same map as the end-of-turn kind, which has
 		// its own removal hook; dropping the key here is what bounds the permanent one.
 		basePowerOverrides.remove(card);
+		// 17-128L Maria's two halves, on the same footing: both are continuous effects on this
+		// copy's stay on the field and end with it, and neither registers an end-of-turn removal
+		// that would otherwise bound them. Dropping the promotion's backing entries too — the
+		// zone-specific paths already do it where they run, and this is the one hook every
+		// departure goes through.
+		backupPermanentForwards.remove(card);
+		p1BackupTempForwardPower.remove(card); p2BackupTempForwardPower.remove(card);
+		lostAbilitiesCards.remove(card);
 	}
 
 	/**
@@ -17471,9 +17494,17 @@ public class MainWindow {
 	/** @see DamageResolver#applyDamageToBackup */
 	void applyDamageToBackup(boolean isP1, int idx, int amount) { damageResolver.applyDamageToBackup(isP1, idx, amount); }
 
-	/** Clears all "Backup acting as Forward" state for both players (end of turn / reset). */
+	/**
+	 * Clears all "Backup acting as Forward" state for both players (end of turn / reset).
+	 *
+	 * <p>The promotions in {@link #backupPermanentForwards} are held back: they outlast the turn and
+	 * end only when the card leaves the field. Everything hung off a promotion — the boost, the
+	 * granted traits and abilities, the damage it took as a Forward — is turn-scoped either way and
+	 * still goes.
+	 */
 	void clearBackupForwardState() {
-		p1BackupTempForwardPower.clear(); p2BackupTempForwardPower.clear();
+		p1BackupTempForwardPower.keySet().removeIf(c -> !backupPermanentForwards.contains(c));
+		p2BackupTempForwardPower.keySet().removeIf(c -> !backupPermanentForwards.contains(c));
 		p1BackupForwardBoost.clear();     p2BackupForwardBoost.clear();
 		p1BackupTempTraits.clear();       p2BackupTempTraits.clear();
 		p1BackupForwardDamage.clear();    p2BackupForwardDamage.clear();
