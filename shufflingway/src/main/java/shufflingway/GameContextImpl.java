@@ -1511,6 +1511,21 @@ final class GameContextImpl implements GameContext {
 			 * <p>The budget is cleared in a finally block, so a dialog the player dismisses cannot
 			 * leave it set for the next selection this context makes.
 			 */
+			/**
+			 * Sets and lifts {@link #excludedTargets} for a caller that runs its own selection —
+			 * the second group of a former/latter choose, which must not offer the cards the first
+			 * group took. Same field, same slot-identity caveat, as
+			 * {@link #selectOppForwardsForTieredDamage}; the difference is only that the two
+			 * selections here are made by the resolver rather than by one method of this class.
+			 */
+			@Override public void setSelectionExclusions(List<ForwardTarget> excluded) {
+				excludedTargets = excluded == null ? List.of() : List.copyOf(excluded);
+			}
+
+			@Override public void clearSelectionExclusions() {
+				excludedTargets = List.of();
+			}
+
 			@Override public List<ForwardTarget> selectForwardsWithTotalCostAtMost(int maxTotalCost) {
 				totalCostBudget = Math.max(0, maxTotalCost);
 				try {
@@ -5848,6 +5863,37 @@ final class GameContextImpl implements GameContext {
 				}
 			}
 
+			@Override public void doubleOneCounterTypeOnTarget(ForwardTarget t) {
+				CardData card = mw.autoAbilityTriggers.fieldCardData(t);
+				if (card == null) { logEntry("doubleOneCounterType — target card not found"); return; }
+				Map<String, Integer> counters = mw.gameState.getCountersMap(card);
+				if (counters.isEmpty()) {
+					logEntry(card.name() + " — no counters to double (fizzle)");
+					return;
+				}
+				String chosen;
+				if (counters.size() == 1) {
+					chosen = counters.keySet().iterator().next();
+				} else {
+					String[] types = counters.keySet().toArray(new String[0]);
+					chosen = selectOption("Select a Counter to double on " + card.name(), types);
+					if (chosen == null) chosen = types[0];
+				}
+				// Doubling is adding the pile to itself, which is what "double all Counters of the
+				// same type" asks for — three become six, not four. Read from the map rather than
+				// assumed to be 1 for exactly that reason.
+				int have = counters.getOrDefault(chosen, 0);
+				if (have <= 0) { logEntry(card.name() + " — no " + chosen + " Counters to double (fizzle)"); return; }
+				mw.gameState.placeCounters(card, chosen, have);
+				logEntry(card.name() + " — doubled " + chosen + " Counters (" + have + " → " + (have * 2)
+						+ ")  [now: " + mw.gameState.getCountersMap(card) + "]");
+				switch (t.zone()) {
+					case BACKUP  -> { if (t.isP1()) mw.refreshP1BackupSlot(t.idx()); else mw.refreshP2BackupSlot(t.idx()); }
+					case MONSTER -> { if (t.isP1()) mw.refreshP1MonsterSlot(t.idx()); else mw.refreshP2MonsterSlot(t.idx()); }
+					default      -> { if (t.isP1()) mw.refreshP1ForwardSlot(t.idx()); else mw.refreshP2ForwardSlot(t.idx()); }
+				}
+			}
+
 
 	// =========================================================================================
 	// Look at / reveal the top of the deck
@@ -8493,6 +8539,20 @@ final class GameContextImpl implements GameContext {
 
 			@Override public boolean ownForwardFormedPartyThisTurn() {
 				return mw.turn(isP1).formedPartyThisTurn;
+			}
+
+			@Override public boolean opponentDiscardedFromHandDueToYourEffectsThisTurn() {
+				// The flag is kept on the causing player's own turn state, which is why this reads
+				// this seat's rather than the opponent's — the same side CostCalculator reads it on
+				// for Cloud of Darkness 14-130H and Mustadio 16-040R.
+				return mw.turn(isP1).causedOpponentDiscardThisTurn;
+			}
+
+			@Override public int forwardsAttackingThisTurnCount() {
+				// Keys are Forwards, so size() counts cards rather than declarations — a Forward
+				// with a second attack is already in the map. The map spans both sides and is
+				// emptied with the rest of the turn state, which is the window the wording names.
+				return mw.attacksMadeThisTurn.size();
 			}
 
 			@Override public int ownFieldCount(String cardType) {

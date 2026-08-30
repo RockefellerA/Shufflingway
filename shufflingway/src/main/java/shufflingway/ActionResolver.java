@@ -347,6 +347,9 @@ public class ActionResolver {
         result = tryParseIfOwnForwardFormedParty(effectText, source, xValue);
         if (result != null) return result;
 
+        result = tryParseIfOppDiscardedThisTurn(effectText, source, xValue);
+        if (result != null) return result;
+
         result = tryParseIfControlAtMost(effectText, source, xValue);
         if (result != null) return result;
 
@@ -2162,6 +2165,7 @@ public class ActionResolver {
         if (tryParseMayGiveSourceControlToOpponent(effectText, source) != null) return "MayGiveSourceControlToOpponent";
         if (tryParseIfSourceUsedSpecialsThisTurn(effectText, source, 0)  != null) return "IfSourceUsedSpecialsThisTurn";
         if (tryParseIfOwnForwardFormedParty(effectText, source, 0)       != null) return "IfOwnForwardFormedParty";
+        if (tryParseIfOppDiscardedThisTurn(effectText, source, 0)        != null) return "IfOppDiscardedThisTurn";
         if (tryParseIfControlAtMost(effectText, source, 0)             != null) return "IfControlAtMost";
         if (tryParseIfCastAtLeast(effectText, source, 0)               != null) return "IfCastAtLeast";
         if (tryParseIfControlCondOtherThan(effectText, source, 0)      != null) return "IfControlCondOtherThan";
@@ -2233,6 +2237,19 @@ public class ActionResolver {
             if (permBoostM.matches()
                     && !CardData.parseAutoAbilities(permBoostM.group("quoted").trim()).isEmpty())
                 return "GainsPowerAndQuotedAbilityPermanent";
+        }
+        // Mirrors the choose chain, where the two-tier attacker gate is read before every plain
+        // action branch: both of its arms end in ordinary followups, so a find() check below would
+        // claim one arm and report it as though it were unconditional. Guarded on both arms having
+        // a parser, exactly as the dispatch is, so text the executor declines goes unnamed here too.
+        {
+            Matcher tieredAtkM = FOLLOWUP_TIERED_ATTACKERS_THIS_TURN.matcher(followupText.trim());
+            if (tieredAtkM.matches()) {
+                String lowTxt  = tieredAtkM.group("base").trim().replaceAll("(?i)\\bthe\\s+chosen\\s+Forward\\b", "it");
+                String highTxt = tieredAtkM.group("upgrade").trim().replaceAll("(?i)\\bthe\\s+chosen\\s+Forward\\b", "it");
+                if (parseTargetAction(lowTxt, 0) != null && parseTargetAction(highTxt, 0) != null)
+                    return "TieredAttackersThisTurn";
+            }
         }
         if (FOLLOWUP_TARGET_CONTROLLER_DISCARDS.matcher(followupText).matches()) return "TargetControllerDiscards";
         if (source != null) {
@@ -2369,10 +2386,12 @@ public class ActionResolver {
                 && AutoAbilityTriggers.FA_OUTGOING_DAMAGE_TO_OPPONENT_SETS_TO
                         .matcher(fuQuoted.group("granted").trim()).matches())
                                                                                       return "GainsDamageToOpponentSetsTo";
-        // Mirrors the choose chain: the counter duplication, then the two named must-block forms
-        // ahead of the unqualified one.
+        // Mirrors the choose chain: the two counter-selection followups, then the two named
+        // must-block forms ahead of the unqualified one.
         if (FOLLOWUP_SELECT_COUNTER_AND_ADD_SAME_TYPE.matcher(followupText.trim()).matches())
                                                                                       return "DuplicateCounter";
+        if (FOLLOWUP_SELECT_COUNTER_AND_DOUBLE_SAME_TYPE.matcher(followupText.trim()).matches())
+                                                                                      return "DoubleCounterType";
         if (FOLLOWUP_GAINS_MUST_BLOCK_NAMED_UNTIL_EOT.matcher(followupText).find())   return "MustBlockNamed";
         if (FOLLOWUP_MUST_BLOCK_NAMED_INLINE.matcher(followupText).find())            return "MustBlockNamed";
         if (FOLLOWUP_MUST_BLOCK.matcher(followupText).find())                         return "MustBlock";
@@ -2670,6 +2689,11 @@ public class ActionResolver {
         // the gate plus what it unlocks, so the report shows both halves.
         if (tryParseIfSourceUsedSpecialsThisTurn(effectText, source, 0) != null)
             return "IfSourceUsedSpecialsThisTurn(" + ifSourceUsedSpecialsInnerDescription(effectText, source) + ")";
+        // Described by the gate plus what it unlocks, for the reason the gate above is: the inner
+        // effect is an ordinary one this chain can already name, and a bare gate name would hide it.
+        Matcher oppDiscM = IF_OPP_DISCARDED_FROM_HAND_THIS_TURN.matcher(effectText.trim());
+        if (oppDiscM.matches() && tryParseIfOppDiscardedThisTurn(effectText, source, 0) != null)
+            return "IfOppDiscardedThisTurn(" + fullDescription(oppDiscM.group("effect").trim(), source) + ")";
         if (tryParseIfCastAtLeast(effectText, source, 0)                != null) return "IfCastAtLeast";
         if (tryParseIfControlCondOtherThan(effectText, source, 0)      != null) return "IfControlCondOtherThan";
         // Must precede ControlGatedInsteadUpgrade, mirroring parse(): the description belongs to
@@ -2947,6 +2971,20 @@ public class ActionResolver {
                     return "ChooseCharacter / YouMayPayElement[" + (innerDesc != null ? innerDesc : "?") + "]";
                 }
             }
+            // Followups that span sentences by design, named off the whole text before the split
+            // below can cut them in half. Mirrors the choose chain, where the branches for these
+            // two match the unsplit followup for the same reason: each is one effect written as two
+            // sentences (Jecht 14-108H's two tiers, Naja Salaheem 14-050R's select-then-double), and
+            // either half alone describes something the card does not do.
+            {
+                Matcher wholeM = FOLLOWUP_TIERED_ATTACKERS_THIS_TURN.matcher(followup.trim());
+                if (wholeM.matches()) {
+                    String wholeName = matchedFollowupName(followup, source);
+                    if (wholeName != null) return "ChooseCharacter / " + wholeName;
+                }
+            }
+            if (FOLLOWUP_SELECT_COUNTER_AND_DOUBLE_SAME_TYPE.matcher(followup.trim()).matches())
+                return "ChooseCharacter / DoubleCounterType";
             // Same quote-aware split parse() uses, so the two cannot disagree about where the
             // primary followup ends when a granted ability is quoted across two sentences.
             int    dotIdx        = sentenceBreakOutsideQuotes(followup);
@@ -3824,6 +3862,18 @@ public class ActionResolver {
                 sortedByIdxDesc(ts, true) .forEach(ctx::freezeTarget);
                 sortedByIdxDesc(ts, false).forEach(ctx::freezeTarget);
             };
+
+        // Break + draw must precede plain break (the draw extends the break text), the same
+        // ordering the return pair below needs and for the same reason.
+        Matcher breakDrawM = FOLLOWUP_BREAK_AND_DRAW.matcher(t);
+        if (breakDrawM.find()) {
+            int draws = Integer.parseInt(breakDrawM.group("draw"));
+            return (ctx, ts) -> {
+                sortedByIdxDesc(ts, true) .forEach(ctx::breakTarget);
+                sortedByIdxDesc(ts, false).forEach(ctx::breakTarget);
+                ctx.drawCards(draws);
+            };
+        }
 
         if (FOLLOWUP_BREAK.matcher(t).find() || FOLLOWUP_BREAK_DEMONSTRATIVE.matcher(t).matches())
             return (ctx, ts) -> {
@@ -4789,6 +4839,29 @@ public class ActionResolver {
                 inner.accept(ctx);
             } else {
                 ctx.logEntry("Effect: no party formed this turn — skipped");
+            }
+        };
+    }
+
+    /**
+     * "If your opponent has discarded a card from their hand due to your Summons or abilities this
+     * turn, [effect]" — Werei 15-023R, read off the end-of-turn trigger its printing carries.
+     *
+     * <p>Shaped exactly like {@link #tryParseIfOwnForwardFormedParty}: one turn fact the engine
+     * already records, asked of the context rather than reconstructed here. The action-ability half
+     * of the same condition (Kazusa 15-026C) is a usability restriction rather than an effect, and
+     * stays where {@code CardData} reads it into {@code requiresOppDiscardedThisTurn}.
+     */
+    private static Consumer<GameContext> tryParseIfOppDiscardedThisTurn(String text, CardData source, int xValue) {
+        Matcher m = IF_OPP_DISCARDED_FROM_HAND_THIS_TURN.matcher(text.trim());
+        if (!m.matches()) return null;
+        Consumer<GameContext> inner = parse(m.group("effect").trim(), source, xValue);
+        if (inner == null) return null;
+        return ctx -> {
+            if (ctx.opponentDiscardedFromHandDueToYourEffectsThisTurn()) {
+                inner.accept(ctx);
+            } else {
+                ctx.logEntry("Effect: opponent discarded nothing to your Summons or abilities this turn — skipped");
             }
         };
     }

@@ -39688,5 +39688,428 @@ public class CardBehaviorTest {
 	}
 
 	// =========================================================================================
+	// 24-052L Belgemine — the two ordinal-Summon triggers.
+	//
+	// "During each turn, when you cast the second Summon you've cast, choose up to 2 Forwards.
+	// Deal them 4000 damage." and "…the third Summon you've cast, choose up to 3 Forwards
+	// opponent controls. Your opponent puts them at the bottom of their owner's deck in any
+	// order."
+	//
+	// The trigger half was already wired: CardData reads the ordinal into a "cast nth summon N"
+	// key and MainWindow.pushSummonOnStack fires it as each Summon is counted. What these cover is
+	// the effect half — in particular the third ability's plural bottom-of-deck wording, which no
+	// followup pattern read, and the multi-target removal underneath it.
+	// =========================================================================================
+
+	private static final String BELGEMINE_24_052L =
+			"Belgemine cannot be chosen by Summons.[[br]]"
+			+ "During each turn, when you cast the second Summon you've cast, choose up to 2 Forwards. "
+			+ "Deal them 4000 damage.[[br]]"
+			+ "During each turn, when you cast the third Summon you've cast, choose up to 3 Forwards "
+			+ "opponent controls. Your opponent puts them at the bottom of their owner's deck in any order.";
+
+	@Test
+	void belgeminesTwoOrdinalSummonTriggersCarryTheCountsTheyName() {
+		List<AutoAbility> autos = CardData.parseAutoAbilities(BELGEMINE_24_052L);
+		assertEquals(2, autos.size(), "the shield is a field ability, not a third trigger");
+		assertEquals(CardData.nthCastTrigger(true, 2), autos.get(0).trigger());
+		assertEquals(CardData.nthCastTrigger(true, 3), autos.get(1).trigger());
+	}
+
+	@Test
+	void belgeminesSecondSummonTriggerDealsFourThousandToBothChosenForwards() {
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.consumePreloadedTargets()).thenReturn(null);
+		ForwardTarget a = new ForwardTarget(false, 0, ForwardTarget.CardZone.FORWARD);
+		ForwardTarget b = new ForwardTarget(false, 1, ForwardTarget.CardZone.FORWARD);
+		when(ctx.selectCharacters(anyInt(), anyBoolean(), anyBoolean(), anyBoolean(), any(), any(),
+				anyInt(), any(), anyInt(), any(), anyBoolean(), anyBoolean(), anyBoolean(),
+				any(), any(), any(), any(), anyBoolean(), any(), anyBoolean()))
+				.thenReturn(new ArrayList<>(List.of(a, b)));
+
+		String effect = CardData.parseAutoAbilities(BELGEMINE_24_052L).get(0).effectText();
+		Consumer<GameContext> parsed = ActionResolver.parse(effect, null);
+		assertNotNull(parsed, effect);
+		parsed.accept(ctx);
+
+		verify(ctx).damageTarget(a, 4000);
+		verify(ctx).damageTarget(b, 4000);
+	}
+
+	@Test
+	void belgeminesThirdSummonTriggerBuriesEveryChosenForwardUnderItsOwnersDeck() {
+		MainWindow mw = new MainWindow();
+		CardData first  = makeForward("Opp First",  "Water", 2, 5000);
+		CardData second = makeForward("Opp Second", "Water", 3, 6000);
+		CardData third  = makeForward("Opp Third",  "Water", 4, 7000);
+		placeP2Forward(mw, first);
+		placeP2Forward(mw, second);
+		placeP2Forward(mw, third);
+
+		GameContext ctx = mw.buildGameContext(true);   // P1 controls Belgemine
+		ctx.preloadTargets(List.of(
+				new ForwardTarget(false, 0, ForwardTarget.CardZone.FORWARD),
+				new ForwardTarget(false, 1, ForwardTarget.CardZone.FORWARD),
+				new ForwardTarget(false, 2, ForwardTarget.CardZone.FORWARD)));
+
+		String effect = CardData.parseAutoAbilities(BELGEMINE_24_052L).get(1).effectText();
+		Consumer<GameContext> parsed = ActionResolver.parse(effect, null);
+		assertNotNull(parsed, effect);
+		parsed.accept(ctx);
+
+		assertTrue(mw.p2ForwardCards.isEmpty(), "all three chosen Forwards should leave the field");
+		// Every one of them, and each exactly once. Walking the selection in index order sent the
+		// second and third picks to whichever cards had slid into their slots, which left one
+		// Forward on the board and buried another twice.
+		List<CardData> deck = new ArrayList<>(mw.gameState.getP2MainDeck());
+		assertEquals(3, deck.size(), "three Forwards buried, no more and no fewer");
+		assertTrue(deck.containsAll(List.of(first, second, third)), "and all three are the ones chosen");
+	}
+
+	@Test
+	void belgeminesThirdSummonTriggerLeavesTheControllersOwnForwardsAlone() {
+		// "Forwards opponent controls" — the selection is one-sided, and the burial follows it.
+		MainWindow mw = new MainWindow();
+		CardData mine  = makeForward("Mine", "Wind", 2, 5000);
+		CardData yours = makeForward("Yours", "Water", 2, 5000);
+		placeP1Forward(mw, mine);
+		placeP2Forward(mw, yours);
+
+		GameContext ctx = mw.buildGameContext(true);
+		ctx.preloadTargets(List.of(new ForwardTarget(false, 0, ForwardTarget.CardZone.FORWARD)));
+
+		ActionResolver.parse(CardData.parseAutoAbilities(BELGEMINE_24_052L).get(1).effectText(), null)
+				.accept(ctx);
+
+		assertEquals(List.of(mine), mw.p1ForwardCards, "P1's own Forward is untouched");
+		assertTrue(mw.p2ForwardCards.isEmpty());
+	}
+
+	// =========================================================================================
+	// 18-115L Melvien — "When Melvien enters the field, choose up to 2 Backups and up to 2 other
+	// Backups. Activate the former and Freeze the latter."
+	//
+	// The former/latter parser already read the two groups and both actions. What it could not do
+	// was keep them apart: "other" was enforced by excluding the first group's *first* pick by
+	// card name, which is the only exclusion the general selection offers. Melvien is the one
+	// printing whose first group can hold two cards, so it is the one where that shows — the
+	// second group could re-take the first group's other member, and a same-named Backup that was
+	// never chosen was barred from it.
+	// =========================================================================================
+
+	private static final String MELVIEN_18_115L =
+			"When Melvien enters the field, choose up to 2 Backups and up to 2 other Backups. "
+			+ "Activate the former and Freeze the latter.";
+
+	/** The two Backup groups a mocked selection hands back, in the order the parser asks for them. */
+	private static GameContext melvienContext(List<ForwardTarget> group1, List<ForwardTarget> group2) {
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.consumePreloadedTargets()).thenReturn(null);
+		when(ctx.selectCharacters(anyInt(), anyBoolean(), anyBoolean(), anyBoolean(), any(), any(),
+				anyInt(), any(), anyInt(), any(), anyBoolean(), anyBoolean(), anyBoolean(),
+				any(), any(), any(), any(), anyBoolean(), any(), anyBoolean()))
+				.thenReturn(new ArrayList<>(group1), new ArrayList<>(group2));
+		return ctx;
+	}
+
+	@Test
+	void melvienActivatesTheFirstGroupAndFreezesTheSecond() {
+		ForwardTarget a = new ForwardTarget(true, 0, ForwardTarget.CardZone.BACKUP);
+		ForwardTarget b = new ForwardTarget(true, 1, ForwardTarget.CardZone.BACKUP);
+		ForwardTarget c = new ForwardTarget(true, 2, ForwardTarget.CardZone.BACKUP);
+		ForwardTarget d = new ForwardTarget(true, 3, ForwardTarget.CardZone.BACKUP);
+		GameContext ctx = melvienContext(List.of(a, b), List.of(c, d));
+
+		String effect = CardData.parseAutoAbilities(MELVIEN_18_115L).get(0).effectText();
+		Consumer<GameContext> parsed = ActionResolver.parse(effect, null);
+		assertNotNull(parsed, effect);
+		parsed.accept(ctx);
+
+		verify(ctx).activateTarget(a);
+		verify(ctx).activateTarget(b);
+		verify(ctx).freezeTarget(c);
+		verify(ctx).freezeTarget(d);
+		verify(ctx, never()).freezeTarget(a);
+		verify(ctx, never()).activateTarget(c);
+	}
+
+	@Test
+	void melvienBarsTheWholeFirstGroupFromTheSecondSelection() {
+		// Both picks, not just the first, and by slot rather than by name — which is what "other"
+		// means. The exclusion is lifted again so it cannot leak into a later selection.
+		ForwardTarget a = new ForwardTarget(true, 0, ForwardTarget.CardZone.BACKUP);
+		ForwardTarget b = new ForwardTarget(true, 1, ForwardTarget.CardZone.BACKUP);
+		ForwardTarget c = new ForwardTarget(true, 2, ForwardTarget.CardZone.BACKUP);
+		GameContext ctx = melvienContext(List.of(a, b), List.of(c));
+
+		ActionResolver.parse(CardData.parseAutoAbilities(MELVIEN_18_115L).get(0).effectText(), null)
+				.accept(ctx);
+
+		ArgumentCaptor<List<ForwardTarget>> excluded = ArgumentCaptor.forClass(List.class);
+		verify(ctx).setSelectionExclusions(excluded.capture());
+		assertEquals(List.of(a, b), excluded.getValue(),
+				"both of the first group's picks are barred from the second");
+		verify(ctx).clearSelectionExclusions();
+	}
+
+	@Test
+	void melvienExcludesNothingWhenTheFirstGroupTakesNothing() {
+		// "Up to 2" may take none, and then there is nothing for "other" to exclude. Setting an
+		// empty exclusion would be harmless but the guard also keeps the clear paired with a set.
+		ForwardTarget c = new ForwardTarget(true, 0, ForwardTarget.CardZone.BACKUP);
+		GameContext ctx = melvienContext(List.of(), List.of(c));
+
+		ActionResolver.parse(CardData.parseAutoAbilities(MELVIEN_18_115L).get(0).effectText(), null)
+				.accept(ctx);
+
+		verify(ctx, never()).setSelectionExclusions(any());
+		verify(ctx, never()).clearSelectionExclusions();
+		verify(ctx).freezeTarget(c);
+	}
+
+	// =========================================================================================
+	// 14-050R Naja Salaheem — "When Naja Salaheem deals damage to your opponent, choose 1
+	// Character. Select 1 Counter placed on it. Double all Counters of the same type as the
+	// selected Counter on that Character."
+	//
+	// The sibling of Gestahlian Empire Cid 11-026H's "place 1 additional Counter of the same
+	// type", and it asks the same question. Two differences carry the wiring: the payoff doubles
+	// the pile rather than adding one to it, and the selection and the payoff are printed as two
+	// sentences where 11-026H joins them with a comma — so the followup has to be read before the
+	// primary/secondary split, not after it.
+	// =========================================================================================
+
+	private static final String NAJA_14_050R =
+			"Naja Salaheem cannot be chosen by your opponent's Summons or abilities.[[br]]   "
+			+ "When Naja Salaheem deals damage to your opponent, choose 1 Character. "
+			+ "Select 1 Counter placed on it. Double all Counters of the same type as the selected "
+			+ "Counter on that Character.";
+
+	/** Naja's trigger effect, resolved against {@code mw} with {@code target} already chosen. */
+	private static void resolveNaja(MainWindow mw, ForwardTarget target) {
+		GameContext ctx = mw.buildGameContext(true);
+		ctx.preloadTargets(List.of(target));
+		String effect = CardData.parseAutoAbilities(NAJA_14_050R).get(0).effectText();
+		Consumer<GameContext> parsed = ActionResolver.parse(effect, null);
+		assertNotNull(parsed, effect);
+		parsed.accept(ctx);
+	}
+
+	@Test
+	void najaSalaheemDoublesTheWholePileOfTheOneCounterTypeOnTheChosenCharacter() {
+		MainWindow mw = new MainWindow();
+		CardData bearer = makeForward("Counter Bearer", "Wind", 3, 7000);
+		placeP1Forward(mw, bearer);
+		mw.gameState.placeCounters(bearer, "Shuriken", 3);
+
+		resolveNaja(mw, new ForwardTarget(true, 0, ForwardTarget.CardZone.FORWARD));
+
+		// Doubled, not incremented: three Shuriken Counters become six. The 11-026H sibling would
+		// have made four, which is the whole difference between the two printings.
+		assertEquals(6, mw.gameState.getCounters(bearer, "Shuriken"));
+	}
+
+	@Test
+	void najaSalaheemLeavesTheOtherCounterTypesAlone() {
+		// "All Counters of the same type as the selected Counter" — one type doubles, the rest do
+		// not. With more than one type on the card the choice goes to the player; the AI seat picks
+		// for itself, so this drives it from P2's side to keep the test headless.
+		MainWindow mw = new MainWindow();
+		CardData bearer = makeForward("Counter Bearer", "Wind", 3, 7000);
+		mw.gameState.getIdentity().put(bearer, false);
+		mw.placeP2CardInForwardZone(bearer);
+		mw.gameState.placeCounters(bearer, "Shuriken", 2);
+		mw.gameState.placeCounters(bearer, "Warp", 3);
+
+		GameContext ctx = mw.buildGameContext(false);
+		ctx.preloadTargets(List.of(new ForwardTarget(false, 0, ForwardTarget.CardZone.FORWARD)));
+		ActionResolver.parse(CardData.parseAutoAbilities(NAJA_14_050R).get(0).effectText(), null)
+				.accept(ctx);
+
+		int shuriken = mw.gameState.getCounters(bearer, "Shuriken");
+		int warp     = mw.gameState.getCounters(bearer, "Warp");
+		assertTrue((shuriken == 4 && warp == 3) || (shuriken == 2 && warp == 6),
+				"exactly one type doubled, and the other kept its count — got Shuriken " + shuriken
+						+ ", Warp " + warp);
+	}
+
+	@Test
+	void najaSalaheemFizzlesOnACharacterCarryingNoCounters() {
+		MainWindow mw = new MainWindow();
+		CardData bare = makeForward("Bare", "Wind", 3, 7000);
+		placeP1Forward(mw, bare);
+
+		resolveNaja(mw, new ForwardTarget(true, 0, ForwardTarget.CardZone.FORWARD));
+
+		assertTrue(mw.gameState.getCountersMap(bare).isEmpty(),
+				"nothing to select means nothing to double");
+		assertEquals(List.of(bare), mw.p1ForwardCards, "and the Character is otherwise untouched");
+	}
+
+	@Test
+	void najaSalaheemsTriggerIsTheDamageToTheOpponentOne() {
+		List<AutoAbility> autos = CardData.parseAutoAbilities(NAJA_14_050R);
+		assertEquals(1, autos.size(), "the shield is a field ability, not a second trigger");
+		assertEquals("deals damage to opponent", autos.get(0).trigger());
+		assertEquals("Naja Salaheem", autos.get(0).triggerCard());
+	}
+
+	// =========================================================================================
+	// 15-023R Werei — "At the end of each of your turns, if your opponent has discarded a card
+	// from their hand due to your Summons or abilities this turn, draw 1 card."
+	//
+	// The end-of-turn trigger already parsed; its effect did not, so the ability resolved to
+	// nothing. The turn fact it asks about is the one the discard sites already record against the
+	// player who caused it — the same flag Kazusa 15-026C's action ability is gated on, read here
+	// as an effect condition rather than a usability restriction.
+	// =========================================================================================
+
+	private static final String WEREI_15_023R =
+			"At the end of each of your turns, if your opponent has discarded a card from their "
+			+ "hand due to your Summons or abilities this turn, draw 1 card.";
+
+	/** Runs Werei's end-of-turn effect for P1, with the caused-discard flag set as given. */
+	private static MainWindow resolveWerei(boolean causedDiscard) {
+		MainWindow mw = new MainWindow();
+		mw.gameState.getP1MainDeck().addLast(makeForward("Drawn", "Wind", 1, 1000));
+		mw.p1Turn.causedOpponentDiscardThisTurn = causedDiscard;
+
+		String effect = CardData.parseAutoAbilities(WEREI_15_023R).get(0).effectText();
+		Consumer<GameContext> parsed = ActionResolver.parse(effect, null);
+		assertNotNull(parsed, effect);
+		parsed.accept(mw.buildGameContext(true));
+		return mw;
+	}
+
+	@Test
+	void wereiDrawsWhenYourEffectsMadeTheOpponentDiscardThisTurn() {
+		assertEquals(1, resolveWerei(true).gameState.getP1Hand().size());
+	}
+
+	@Test
+	void wereiDrawsNothingWhenTheOpponentDiscardedNothingToYou() {
+		MainWindow mw = resolveWerei(false);
+		assertTrue(mw.gameState.getP1Hand().isEmpty(), "the condition is not met, so nothing is drawn");
+		assertEquals(1, mw.gameState.getP1MainDeck().size(), "and the card stays on the deck");
+	}
+
+	@Test
+	void wereisTriggerIsTheEndOfEachOfYourTurnsOne() {
+		List<AutoAbility> autos = CardData.parseAutoAbilities(WEREI_15_023R);
+		assertEquals(1, autos.size());
+		assertEquals("end of your turn", autos.get(0).trigger());
+	}
+
+	// =========================================================================================
+	// 14-108H Jecht — "When Jecht enters the field, choose 1 Forward. If 1 or more Forwards were
+	// attacking this turn, return the chosen Forward to its owner's hand. If 3 or more Forwards
+	// were attacking this turn, break the chosen Forward and draw 1 card instead."
+	//
+	// Two tiers over one selection, and "instead" makes the higher one a replacement rather than
+	// an addition — so exactly one arm runs, or neither. Both arms end in ordinary followups, so
+	// the branch has to be read before every plain return or break matcher and against the unsplit
+	// followup; either half alone reads as an unconditional effect.
+	//
+	// "Forwards were attacking" counts Forwards, not attacks: the engine's per-turn attack map is
+	// keyed by card, so a Forward that attacked twice advances the count once.
+	// =========================================================================================
+
+	private static final String JECHT_14_108H_ENTERS =
+			"When Jecht enters the field, choose 1 Forward. If 1 or more Forwards were attacking "
+			+ "this turn, return the chosen Forward to its owner's hand. If 3 or more Forwards were "
+			+ "attacking this turn, break the chosen Forward and draw 1 card instead.";
+
+	/**
+	 * P1 resolves Jecht's entry against a single P2 Forward, with {@code attackers} distinct
+	 * Forwards already recorded as having attacked this turn.
+	 */
+	private static MainWindow resolveJechtEntry(int attackers) {
+		MainWindow mw = new MainWindow();
+		CardData victim = makeForward("Victim", "Water", 3, 7000);
+		placeP2Forward(mw, victim);
+		mw.gameState.getP1MainDeck().addLast(makeForward("Drawn", "Fire", 1, 1000));
+		for (int i = 0; i < attackers; i++)
+			mw.recordAttackDeclared(makeForward("Attacker " + i, "Fire", 2, 5000));
+
+		GameContext ctx = mw.buildGameContext(true);
+		ctx.preloadTargets(List.of(new ForwardTarget(false, 0, ForwardTarget.CardZone.FORWARD)));
+		String effect = CardData.parseAutoAbilities(JECHT_14_108H_ENTERS).get(0).effectText();
+		Consumer<GameContext> parsed = ActionResolver.parse(effect, null);
+		assertNotNull(parsed, effect);
+		parsed.accept(ctx);
+		return mw;
+	}
+
+	@Test
+	void jechtReturnsTheChosenForwardWhenOneForwardAttackedThisTurn() {
+		MainWindow mw = resolveJechtEntry(1);
+		assertTrue(mw.p2ForwardCards.isEmpty(), "the chosen Forward leaves the field");
+		assertEquals(1, mw.gameState.getP2Hand().size(), "and goes to its owner's hand");
+		assertTrue(mw.gameState.getP2BreakZone().isEmpty(), "the lower tier does not break it");
+		assertTrue(mw.gameState.getP1Hand().isEmpty(), "and the draw belongs to the upper tier only");
+	}
+
+	@Test
+	void jechtStillReturnsTheChosenForwardAtTwoAttackers() {
+		// Two clears the lower threshold and not the upper, so the base arm is still the one.
+		MainWindow mw = resolveJechtEntry(2);
+		assertEquals(1, mw.gameState.getP2Hand().size());
+		assertTrue(mw.gameState.getP2BreakZone().isEmpty());
+	}
+
+	@Test
+	void jechtBreaksAndDrawsInsteadWhenThreeForwardsAttackedThisTurn() {
+		MainWindow mw = resolveJechtEntry(3);
+		assertTrue(mw.p2ForwardCards.isEmpty(), "the chosen Forward leaves the field");
+		// "instead" — the upgrade replaces the return rather than following it, so the Forward is
+		// in the Break Zone and not in its owner's hand.
+		assertEquals(1, mw.gameState.getP2BreakZone().size(), "broken, not bounced");
+		assertTrue(mw.gameState.getP2Hand().isEmpty(), "and it did not also go to hand");
+		assertEquals(1, mw.gameState.getP1Hand().size(), "and Jecht's controller drew the card");
+	}
+
+	@Test
+	void jechtDoesNothingToTheChosenForwardWhenNoForwardAttackedThisTurn() {
+		// The choice is printed ahead of both conditions, so an unmet threshold spends it and does
+		// nothing with it rather than skipping the selection.
+		MainWindow mw = resolveJechtEntry(0);
+		assertEquals(1, mw.p2ForwardCards.size(), "neither threshold is met");
+		assertTrue(mw.gameState.getP2Hand().isEmpty());
+		assertTrue(mw.gameState.getP1Hand().isEmpty(), "and nothing is drawn");
+	}
+
+	@Test
+	void jechtCountsForwardsRatherThanAttackDeclarations() {
+		// One Forward attacking three times is one Forward attacking, so the upper tier stays shut.
+		MainWindow mw = new MainWindow();
+		CardData victim = makeForward("Victim", "Water", 3, 7000);
+		placeP2Forward(mw, victim);
+		mw.gameState.getP1MainDeck().addLast(makeForward("Drawn", "Fire", 1, 1000));
+		CardData busy = makeForward("Busy", "Fire", 2, 5000);
+		mw.recordAttackDeclared(busy);
+		mw.recordAttackDeclared(busy);
+		mw.recordAttackDeclared(busy);
+
+		GameContext ctx = mw.buildGameContext(true);
+		ctx.preloadTargets(List.of(new ForwardTarget(false, 0, ForwardTarget.CardZone.FORWARD)));
+		ActionResolver.parse(CardData.parseAutoAbilities(JECHT_14_108H_ENTERS).get(0).effectText(), null)
+				.accept(ctx);
+
+		assertEquals(1, mw.gameState.getP2Hand().size(), "returned by the lower tier");
+		assertTrue(mw.gameState.getP2BreakZone().isEmpty(), "three declarations are not three Forwards");
+	}
+
+	@Test
+	void breakAndDrawKeepsItsDrawWhenReadAsATargetAction() {
+		// The upgrade arm's shape, on its own. "Break it" is an unanchored matcher, so without the
+		// break-and-draw reading ahead of it the draw was silently dropped.
+		assertEquals("TieredAttackersThisTurn",
+				ActionResolver.matchedFollowupName(
+						"If 1 or more Forwards were attacking this turn, return the chosen Forward to "
+						+ "its owner's hand. If 3 or more Forwards were attacking this turn, break the "
+						+ "chosen Forward and draw 1 card instead.", null));
+	}
+
+	// =========================================================================================
 
 }

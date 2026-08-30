@@ -897,6 +897,28 @@ public interface GameContext {
     List<ForwardTarget> selectTwoOwnBreakZoneForwards(String element, int maxCost1, int maxCost2);
 
     /**
+     * Bars the exact cards at {@code excluded} from the next field selection this context makes,
+     * until {@link #clearSelectionExclusions()} lifts it.
+     *
+     * <p>What "other" means in "choose up to 2 Backups and up to 2 <em>other</em> Backups"
+     * (Melvien 18-115L): a different card, not a different name. The general selection can only
+     * exclude by name, which both under- and over-excludes here — it lets the second pick take the
+     * first group's other member, and it bars a copy that was never chosen. This is the same
+     * slot-identity exclusion the tiered-damage selection makes its successive prompts with.
+     *
+     * <p>Identity is by slot, so it is only sound while nothing leaves the field between the two
+     * selections. Every caller chooses both groups before either group is acted on.
+     *
+     * <p>Always lift it in a {@code finally}: a dialog the player dismisses must not leave the
+     * exclusion set for the next selection this context makes.
+     */
+    void setSelectionExclusions(List<ForwardTarget> excluded);
+
+    /** Lifts whatever {@link #setSelectionExclusions} last set. */
+    void clearSelectionExclusions();
+
+
+    /**
      * Like {@link #playTargetOntoField} but the card enters the field in a dulled state.
      * Only meaningful for Forwards; Backups and Monsters enter normally.
      */
@@ -1057,6 +1079,19 @@ public interface GameContext {
      * active player.
      */
     void duplicateOneCounterOnTarget(ForwardTarget t);
+
+    /**
+     * Doubles every Counter on the character at {@code t} that shares a type the active player
+     * selects — Naja Salaheem 14-050R, "Select 1 Counter placed on it. Double all Counters of the
+     * same type as the selected Counter on that Character."
+     *
+     * <p>Reads the same way {@link #duplicateOneCounterOnTarget} does and fizzles the same way: a
+     * card with no counters has no type to select. One type is chosen silently, several put the
+     * choice to the active player. "All Counters of the same type" is the whole pile of that one
+     * type, so a card carrying three of them ends with six, not four.
+     */
+    void doubleOneCounterTypeOnTarget(ForwardTarget t);
+
 
     /**
      * General "look at the top N cards" effect.  The {@link LookConfig} specifies how
@@ -1526,6 +1561,28 @@ public interface GameContext {
 
     /** Returns {@code true} if a Forward the active player controls formed a party attack this turn. */
     boolean ownForwardFormedPartyThisTurn();
+
+    /**
+     * Whether the opponent has discarded a card from their hand this turn because of a Summon or
+     * an ability the active player controlled — Werei 15-023R's end-of-turn draw, and the same
+     * turn fact Kazusa 15-026C gates an action ability on.
+     *
+     * <p>Reads the flag the discard sites already set, so it covers every route a discard can take
+     * rather than only the ones a parser knows the wording of.
+     */
+    boolean opponentDiscardedFromHandDueToYourEffectsThisTurn();
+
+    /**
+     * How many distinct Forwards have declared an attack this turn, counting both sides and
+     * counting a Forward that attacked twice once — Jecht 14-108H's "if N or more Forwards were
+     * attacking this turn".
+     *
+     * <p>Forwards, not attacks: the wording counts the cards, so an extra declaration by the same
+     * Forward does not advance it. A Forward that has since left the field still counts — it was
+     * attacking this turn either way.
+     */
+    int forwardsAttackingThisTurnCount();
+
 
     /**
      * Whether {@code source} has activated the Special ability named {@code specialName} this turn

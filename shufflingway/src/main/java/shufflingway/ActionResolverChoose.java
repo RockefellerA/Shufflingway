@@ -805,18 +805,29 @@ final class ActionResolverChoose {
                     td1.fwd(), td1.bkp(), td1.mon(),
                     null, null, null, td1.excludeName(), false, null, false);
 
-            String excludeForTs2 = fExcludeFirst && !ts1.isEmpty()
-                    ? getTargetCardName(ctx, ts1.get(0))
-                    : fDesc2Static;
+            // "other" means a different card, not a different name, so the first group's picks are
+            // barred by slot identity. Name exclusion both under- and over-shoots once either group
+            // can hold more than one card: it would let "up to 2 other Backups" (Melvien 18-115L)
+            // take the first group's second member, and it bars a same-named copy that was never
+            // chosen. The name filter stays for the printed "other than [CardName]" wording, which
+            // really is about the name.
+            String excludeForTs2 = fExcludeFirst ? null : fDesc2Static;
+            boolean excludeByIdentity = fExcludeFirst && !ts1.isEmpty();
+            if (excludeByIdentity) ctx.setSelectionExclusions(ts1);
 
             String zone2 = td2.fromBreakZone()
                     ? "in " + (td2.opponentBz() ? "your opponent's" : "your") + " Break Zone" : null;
-            List<ForwardTarget> ts2 = selectTargets(ctx, count2, upTo2,
-                    td2.opponentOnly(), td2.selfOnly(),
-                    td2.condition(), td2.element(), zone2, td2.opponentBz(),
-                    td2.costVal(), td2.costCmp(), -1, null,
-                    td2.fwd(), td2.bkp(), td2.mon(),
-                    null, null, null, excludeForTs2, false, null, false);
+            List<ForwardTarget> ts2;
+            try {
+                ts2 = selectTargets(ctx, count2, upTo2,
+                        td2.opponentOnly(), td2.selfOnly(),
+                        td2.condition(), td2.element(), zone2, td2.opponentBz(),
+                        td2.costVal(), td2.costCmp(), -1, null,
+                        td2.fwd(), td2.bkp(), td2.mon(),
+                        null, null, null, excludeForTs2, false, null, false);
+            } finally {
+                if (excludeByIdentity) ctx.clearSelectionExclusions();
+            }
 
             fFormerAction.accept(ctx, ts1);
             fLatterAction.accept(ctx, ts2);
@@ -2133,6 +2144,50 @@ final class ActionResolverChoose {
                             costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters, jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, fExcludeElem, withoutMulticard);
                     sortedByIdxDesc(ts, true) .forEach(t -> ctx.damageTarget(t, resolveInsteadDamage(ctx, t, insteadCond, baseDmg, altDmg)));
                     sortedByIdxDesc(ts, false).forEach(t -> ctx.damageTarget(t, resolveInsteadDamage(ctx, t, insteadCond, baseDmg, altDmg)));
+                };
+            }
+        }
+
+        // --- Two-tier attacker gate ("If N or more Forwards were attacking this turn, A. If M …, B instead.") ---
+        // Jecht 14-108H. Read before every plain action branch below: both arms end in ordinary
+        // followups ("return the chosen Forward to its owner's hand", "break the chosen Forward and
+        // draw 1 card"), and an unanchored return or break matcher would claim one of them and drop
+        // the thresholds along with the other arm.
+        //
+        // "instead" makes the higher tier a replacement, so the tiers are tested highest-first and
+        // exactly one arm runs — or neither, when even the lower threshold is unmet.
+        //
+        // Matched against the whole followup, like the other branches whose text spans sentences:
+        // the primary/secondary split would cut between the two tiers and hand each one to a chain
+        // that reads it as an unconditional effect. It does not run {@code secondary} for the same
+        // reason — the sentence that would have become the secondary is the upgrade arm.
+        Matcher attackersM = FOLLOWUP_TIERED_ATTACKERS_THIS_TURN.matcher(followup.trim());
+        if (attackersM.matches()) {
+            int lowN  = Integer.parseInt(attackersM.group("n1"));
+            int highN = Integer.parseInt(attackersM.group("n2"));
+            // Both arms spell the target "the chosen Forward"; the action chain reads "it".
+            String lowText  = attackersM.group("base").trim().replaceAll("(?i)\\bthe\\s+chosen\\s+Forward\\b", "it");
+            String highText = attackersM.group("upgrade").trim().replaceAll("(?i)\\bthe\\s+chosen\\s+Forward\\b", "it");
+            BiConsumer<GameContext, List<ForwardTarget>> lowAction  = parseTargetAction(lowText, xValue);
+            BiConsumer<GameContext, List<ForwardTarget>> highAction = parseTargetAction(highText, xValue);
+            if (lowAction != null && highAction != null) {
+                return ctx -> {
+                    // The choice is made before the header for the reason the EX Burst branch below
+                    // gives: naming both readings up front describes the card doing something it is
+                    // not about to do. The count is read before the selection so that a Forward the
+                    // selection itself removes cannot change which arm was earned.
+                    int attackers = ctx.forwardsAttackingThisTurnCount();
+                    String arm = attackers >= highN ? highText : attackers >= lowN ? lowText : null;
+                    ctx.logChooseHeader(choosePrefix + " — " + attackers + " Forward(s) attacked this turn: "
+                            + (arm == null ? "below " + lowN + ", no effect" : arm));
+                    List<ForwardTarget> ts = selectTargets(ctx, maxCount, upTo,
+                            opponentOnly, selfOnly, condition, element, zone, opponentZone,
+                            costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters, jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, fExcludeElem, withoutMulticard);
+                    // The Forward is chosen either way. The card says "choose 1 Forward" outright,
+                    // ahead of both conditions, so an unmet threshold spends the choice and does
+                    // nothing with it rather than skipping it.
+                    if (attackers >= highN)     highAction.accept(ctx, ts);
+                    else if (attackers >= lowN) lowAction.accept(ctx, ts);
                 };
             }
         }
@@ -3734,11 +3789,16 @@ final class ActionResolverChoose {
                 List<ForwardTarget> ts = selectTargets(ctx, maxCount, upTo,
                         opponentOnly, selfOnly, condition, element, zone, opponentZone,
                         costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters, jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, fExcludeElem, withoutMulticard);
-                for (ForwardTarget t : ts) {
-                    if (t.zone() != ForwardTarget.CardZone.FORWARD) continue;
-                    if (t.isP1()) ctx.returnP1ForwardToDeckBottom(t.idx());
-                    else          ctx.returnP2ForwardToDeckBottom(t.idx());
-                }
+                // Highest index first, per side. A ForwardTarget is a slot, and the zone list closes
+                // up behind each removal — walking in selection order sent the second and third
+                // picks of Belgemine 24-052L's "up to 3 Forwards" to whichever cards had slid into
+                // their indices. Every other multi-target branch uses this helper for the reason.
+                sortedByIdxDesc(ts, true)
+                        .filter(t -> t.zone() == ForwardTarget.CardZone.FORWARD)
+                        .forEach(t -> ctx.returnP1ForwardToDeckBottom(t.idx()));
+                sortedByIdxDesc(ts, false)
+                        .filter(t -> t.zone() == ForwardTarget.CardZone.FORWARD)
+                        .forEach(t -> ctx.returnP2ForwardToDeckBottom(t.idx()));
                 if (secondary != null) secondary.accept(ctx);
             };
         }
@@ -4017,6 +4077,27 @@ final class ActionResolverChoose {
                         costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters, jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, fExcludeElem, withoutMulticard);
                 ts.forEach(ctx::duplicateOneCounterOnTarget);
                 if (secondary != null) secondary.accept(ctx);
+            };
+        }
+
+        // --- "Select 1 Counter placed on it. Double all Counters of the same type." ---
+        // Naja Salaheem 14-050R, the sibling of the branch above and asking the same question. Only
+        // the payoff differs: that one adds a counter, this one adds the whole pile of the chosen
+        // type again.
+        //
+        // Matched against the whole followup rather than {@code primaryFollowup}, because Naja
+        // prints the selection and the payoff as two sentences where 11-026H joins them with a
+        // comma. The primary/secondary split cuts between them, leaving a primary that names a
+        // Counter and a secondary that acts on one, neither of which means anything alone. That is
+        // why this branch also does not run {@code secondary} — the text it was carved from is
+        // already being handled here in full.
+        if (FOLLOWUP_SELECT_COUNTER_AND_DOUBLE_SAME_TYPE.matcher(followup.trim()).matches()) {
+            return ctx -> {
+                ctx.logChooseHeader(choosePrefix + " — double 1 type of Counter already on it");
+                List<ForwardTarget> ts = selectTargets(ctx, maxCount, upTo,
+                        opponentOnly, selfOnly, condition, element, zone, opponentZone,
+                        costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters, jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, fExcludeElem, withoutMulticard);
+                ts.forEach(ctx::doubleOneCounterTypeOnTarget);
             };
         }
 

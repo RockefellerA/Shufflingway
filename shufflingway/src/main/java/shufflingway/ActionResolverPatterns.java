@@ -1271,6 +1271,15 @@ final class ActionResolverPatterns {
         "(?i)Break\\s+(?:it|them)"
     );
     /**
+     * Matches "Break it and draw N card(s)." — Jecht 14-108H's upgraded arm.
+     *
+     * <p>Must be read ahead of {@link #FOLLOWUP_BREAK}, which is unanchored: it matches the "Break
+     * it" prefix of this sentence and would silently drop the draw. Group {@code draw} — the count.
+     */
+    static final Pattern FOLLOWUP_BREAK_AND_DRAW = Pattern.compile(
+        "(?i)Break\\s+(?:it|them)\\s+and\\s+draw\\s+(?<draw>\\d+)\\s+cards?[.!]?"
+    );
+    /**
      * Matches "Its/Their Element becomes [Element]." — the chosen-target element change printed on
      * 12-021R Necron, with its permanence reminder optionally trailing.
      *
@@ -2314,9 +2323,19 @@ final class ActionResolverPatterns {
     static final Pattern FOLLOWUP_PUT_TOP_OR_BOTTOM_OF_DECK = Pattern.compile(
         "(?i)(?:Your\\s+opponent\\s+puts?\\s+it|Put\\s+it)\\s+at\\s+the\\s+top\\s+or\\s+bottom\\s+of\\s+its\\s+owner's\\s+deck\\.?"
     );
-    /** Matches "Put it at the bottom of its owner's deck." Also handles "Your opponent puts it…" */
+    /**
+     * Matches "Put it at the bottom of its owner's deck." Also handles "Your opponent puts it...",
+     * the plural "them ... their owner's deck" (Belgemine 24-052L), and a trailing "in any order".
+     *
+     * <p>Singular and plural are kept loose rather than paired: "it" goes with "its" and "them"
+     * with "their" on every printing, so insisting on the agreement would only buy the ability to
+     * reject text no card prints, at the price of two branches to order. "In any order" is matched
+     * and then ignored, the way every other bottom-of-deck wording in this file treats it — the
+     * cards land on the bottom either way, and deck order below the top is hidden.
+     */
     static final Pattern FOLLOWUP_PUT_BOTTOM_OF_DECK = Pattern.compile(
-        "(?i)(?:Your\\s+opponent\\s+puts?\\s+it|Put\\s+it)\\s+at\\s+the\\s+bottom\\s+of\\s+its\\s+owner's\\s+deck\\.?"
+        "(?i)(?:Your\\s+opponent\\s+puts?|Put)\\s+(?:it|them)\\s+at\\s+the\\s+bottom\\s+of\\s+" +
+        "(?:its|their)\\s+owner'?s?'?\\s+deck(?:\\s+in\\s+any\\s+order)?\\.?"
     );
     /** Matches "Put it on top of its owner's deck." Also handles "Your opponent puts it…" */
     static final Pattern FOLLOWUP_PUT_TOP_OF_DECK = Pattern.compile(
@@ -2418,6 +2437,21 @@ final class ActionResolverPatterns {
     static final Pattern FOLLOWUP_SELECT_COUNTER_AND_ADD_SAME_TYPE = Pattern.compile(
         "(?i)^Select\\s+1\\s+Counter\\s+placed\\s+on\\s+it,?\\s+and\\s+place\\s+1\\s+additional\\s+" +
         "Counter\\s+of\\s+the\\s+same\\s+type\\s+as\\s+the\\s+selected\\s+Counter\\s+on\\s+that\\s+" +
+        "(?:Monster|Forward|Backup|Character)[.!]?$"
+    );
+
+    /**
+     * Naja Salaheem 14-050R's followup: "Select 1 Counter placed on it. Double all Counters of the
+     * same type as the selected Counter on that Character."
+     *
+     * <p>The sibling of {@link #FOLLOWUP_SELECT_COUNTER_AND_ADD_SAME_TYPE} and captures nothing for
+     * the same reason: which type is doubled is a decision the card leaves to the player. The two
+     * differ only in how much they add — one more counter there, the pile again here — so they get
+     * separate patterns rather than one with an optional tail.
+     */
+    static final Pattern FOLLOWUP_SELECT_COUNTER_AND_DOUBLE_SAME_TYPE = Pattern.compile(
+        "(?i)^Select\\s+1\\s+Counter\\s+placed\\s+on\\s+it[.,]?\\s+Double\\s+all\\s+Counters\\s+of\\s+the\\s+" +
+        "same\\s+type\\s+as\\s+the\\s+selected\\s+Counter\\s+on\\s+that\\s+" +
         "(?:Monster|Forward|Backup|Character)[.!]?$"
     );
     /** Matches "it must attack this turn if possible". */
@@ -6667,9 +6701,16 @@ final class ActionResolverPatterns {
         // opponent discards 1 card from their hand"), so treating it as a backward reference
         // blocks composition on independent text. A genuine backward "their" is nearly always
         // paired with "them" or "they" ("Return them to their owners' hands"), which are listed.
+        // "the former" / "the latter" name the two groups a preceding "Choose N X and N Y" picked,
+        // and Raubahn 2-093H spells the same pair "the first one" / "the second". They are the
+        // strongest backward reference the corpus prints and were the one class missing here:
+        // Melvien 18-115L's "choose up to 2 Backups and up to 2 other Backups. Activate the former
+        // and Freeze the latter." split cleanly into a selection and an orphaned pair of verbs,
+        // which is exactly the failure this pattern exists to prevent.
         "(?i)\\b(?:it|its|them|they|those|these|this\\s+way|instead" +
         "|that\\s+(?:Forward|Backup|Monster|Character|Summon|card|player)" +
         "|if\\s+you\\s+do(?:\\s+so)?|when\\s+you\\s+do(?:\\s+so)?|by\\s+this\\s+effect" +
+        "|the\\s+(?:former|latter|first|second)\\b" +
         "|the\\s+(?:chosen|revealed|added|removed|discarded|selected))\\b"
     );
     static final Pattern TRAILING_DRAW_SUFFIX = Pattern.compile(
@@ -7663,6 +7704,40 @@ final class ActionResolverPatterns {
     /** Matches "If a Forward you controlled formed a party this turn, &lt;effect&gt;." */
     static final Pattern IF_OWN_FORWARD_FORMED_PARTY = Pattern.compile(
         "(?is)^if\\s+a\\s+Forward\\s+you\\s+controlled\\s+formed\\s+a\\s+party\\s+this\\s+turn,\\s+(?<effect>.+)$"
+    );
+
+    /**
+     * Matches "if your opponent has discarded a card from their hand due to your Summons or
+     * abilities this turn, &lt;effect&gt;" — Werei 15-023R's end-of-turn draw.
+     *
+     * <p>"your" is optional before "Summons": Cloud of Darkness 14-130H prints the same condition
+     * as "due to the Summons or abilities". Both name the same turn fact, which the discard sites
+     * record against the player who caused it.
+     *
+     * <p>Group: {@code effect} — what the condition buys.
+     */
+    static final Pattern IF_OPP_DISCARDED_FROM_HAND_THIS_TURN = Pattern.compile(
+        "(?is)^if\\s+your\\s+opponent\\s+has\\s+discarded\\s+(?:a|1)\\s+card\\s+from\\s+their\\s+hand\\s+" +
+        "due\\s+to\\s+(?:your|the)\\s+Summons?\\s+or\\s+abilit(?:y|ies)\\s+this\\s+turn,\\s+(?<effect>.+)$"
+    );
+
+    /**
+     * Matches Jecht 14-108H's two-tier attacker gate, read as the followup of a "Choose 1 Forward":
+     * "If N or more Forwards were attacking this turn, &lt;base&gt;. If M or more Forwards were
+     * attacking this turn, &lt;upgrade&gt; instead."
+     *
+     * <p>"instead" makes the second tier a replacement rather than an addition, so the two are
+     * checked highest-first and only one runs. Both arms name the target as "the chosen Forward";
+     * the branch rewrites that to "it" before handing each arm to the ordinary target-action chain.
+     *
+     * <p>Groups: {@code n1}/{@code base} — the lower threshold and what it does;
+     * {@code n2}/{@code upgrade} — the higher threshold and what replaces the base at it.
+     */
+    static final Pattern FOLLOWUP_TIERED_ATTACKERS_THIS_TURN = Pattern.compile(
+        "(?is)^If\\s+(?<n1>\\d+)\\s+or\\s+more\\s+Forwards\\s+were\\s+attacking\\s+this\\s+turn,\\s+" +
+        "(?<base>.+?)[.]\\s*" +
+        "If\\s+(?<n2>\\d+)\\s+or\\s+more\\s+Forwards\\s+were\\s+attacking\\s+this\\s+turn,\\s+" +
+        "(?<upgrade>.+?)\\s+instead[.!]?$"
     );
     /**
      * Matches "if you control N or less/fewer [Forwards/Backups/Monsters/Characters], [effect]."
