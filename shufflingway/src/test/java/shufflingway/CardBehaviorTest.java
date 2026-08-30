@@ -35763,11 +35763,16 @@ public class CardBehaviorTest {
 	}
 
 	@Test
-	void theLongerMalboroWordingIsStillNotClaimedOffThisPrefix() {
-		// "…lose all their abilities and 3000 power." shares this text's whole prefix, and is a
-		// different effect. The parser anchors with matches() so it cannot take it.
-		assertNull(ActionResolver.parse(
-				"all the Forwards opponent controls lose all their abilities and 3000 power.", null));
+	void theLongerMalboroWordingIsReadByItsOwnParserRatherThanOffThisPrefix() {
+		// "…lose all their abilities and 3000 power." shares this text's whole prefix and is a
+		// different effect — it strips abilities AND sweeps power. This used to assert that
+		// nothing claimed it, which was true and also why 24-105R Malboro did nothing; what it
+		// locks now is that the ability-only parser still refuses it and the pair-parser takes it.
+		String malboro = "all the Forwards opponent controls lose all their abilities and 3000 power.";
+		assertNull(ActionResolverFieldAbility.tryParseOppFwdsLoseAllAbilitiesEot(malboro),
+				"the ability-only parser anchors with matches(), so the prefix cannot claim it");
+		assertEquals("OppFwdsLoseAllAbilitiesAndPowerEot",
+				ActionResolver.matchedPatternName(malboro, null));
 	}
 
 	// =========================================================================================
@@ -40650,6 +40655,230 @@ public class CardBehaviorTest {
 
 		assertEquals(CardState.DULL, mw.p1ForwardStates.get(0));
 		assertTrue(mw.p1ForwardFrozen.get(0), "Orphan plus four Ice Backups is five Ice Characters");
+	}
+
+
+	// =========================================================================================
+	// Dancer 15-046C, Malboro 24-105R, Chocobo 25-045C and Maquis the Phantasm 17-115R: four
+	// abilities the resolver was not reading, for four different reasons.
+	//
+	// Parsing + board behaviour. Dancer's whole effect sits behind a gate on its own state, which
+	// had no parser. Malboro's parting shot strips abilities and power in one sentence, and the
+	// parser for each half deliberately refuses the other's. Chocobo's printed text has a typo
+	// ("play it to onto the field") that the search pattern's destination list did not admit. And
+	// Maquis' offer and payoff are two sentences about one X, which the choose chain's sentence
+	// split pulled apart.
+	//
+	// Balthier 5-156S is here too, but only as a lock: its reveal already resolved correctly.
+	// =========================================================================================
+
+	private static final String DANCER_15_046C_TEXT =
+			"At the end of each of your turns, if Dancer is dull, deal 2000 damage to all the "
+			+ "Forwards opponent controls.";
+
+	private static final String MALBORO_24_105R_TEXT =
+			"When Malboro is put from the field into the Break Zone, until the end of the turn, "
+			+ "all the Forwards opponent controls lose all their abilities and 3000 power.";
+
+	private static final String CHOCOBO_25_045C_TEXT =
+			"When Chocobo forming a party is put from the field into the Break Zone, you may "
+			+ "search for 1 Card Name Chocobo Character of cost 2 or less and play it to onto the field.";
+
+	private static final String MAQUIS_17_115R_TEXT =
+			"When Maquis the Phantasm enters the field, choose 1 Job Duelhorn in your Break Zone. "
+			+ "You may pay 《X》. If its cost is X, play it onto the field.";
+
+	private static final String BALTHIER_5_156S_TEXT =
+			"When Balthier enters the field, reveal the top 5 cards of your deck. Add 1 Job Sky "
+			+ "Pirate among them to your hand and return the other cards to the bottom of your "
+			+ "deck in any order.";
+
+	/** A card of any type with a Job, whose auto abilities are parsed from {@code text}. */
+	private static CardData makeJobbedAutoCard(String name, String element, String type, String job,
+			int cost, int power, String text) {
+		return new CardData(null, name, element, cost, power, type, false, 0, false, false,
+				Set.of(), 0, List.of(), null, List.of(),
+				List.of(), CardData.parseAutoAbilities(text), List.of(), List.of(), List.of(),
+				List.of(), List.of(), List.of(), List.of(), List.of(),
+				false, false, null, false, false, false, false, false, 1,
+				job, null, null, text);
+	}
+
+	// ---- Dancer: an ability gated on the state of the card printing it ------------------------
+
+	@Test
+	void dancersGateIsReadAsItsOwnStateRatherThanNotAtAll() {
+		CardData dancer = makeAutoAbilityForward("Dancer", "Wind", 7000, DANCER_15_046C_TEXT);
+		String text = dancer.autoAbilities().get(0).effectText();
+		assertEquals("IfSelfIsStateGate", ActionResolver.matchedPatternName(text, dancer));
+		assertEquals("IfSelfIsDull(DealDamageToForwards)",
+				ActionResolver.fullDescription(text, dancer),
+				"the gate is named and the sweep it guards described inside it");
+	}
+
+	@Test
+	void dancerSweepsOnlyWhileItIsDull() {
+		MainWindow mw = new MainWindow();
+		CardData dancer = makeAutoAbilityForward("Dancer", "Wind", 7000, DANCER_15_046C_TEXT);
+		placeP2Forward(mw, dancer);
+		CardData victim = makeForward("Victim", "Fire", 3, 7000);
+		placeP1Forward(mw, victim);
+
+		Consumer<GameContext> effect =
+				ActionResolver.parse(dancer.autoAbilities().get(0).effectText(), dancer);
+		assertNotNull(effect);
+
+		effect.accept(mw.buildGameContext(false));
+		assertEquals(0, mw.p1ForwardDamage.get(0), "an active Dancer deals nothing");
+
+		mw.p2ForwardStates.set(0, CardState.DULL);
+		effect.accept(mw.buildGameContext(false));
+		assertEquals(2000, mw.p1ForwardDamage.get(0), "a dull one sweeps for 2000");
+	}
+
+	@Test
+	void theSelfStateGateRefusesASentenceAboutSomeoneElsesCard() {
+		// "choose 1 Forward. If it is dull, deal it 8000 damage" (10-033L Sephiroth) prints the
+		// same words about the card the sentence just chose. Reading it as a self-gate would test
+		// the ability's own carrier, so the parser insists the name is the source's.
+		CardData other = makeAutoAbilityForward("Someone Else", "Fire", 7000, "");
+		assertNull(ActionResolverGate.tryParseIfSelfIsStateGate(
+				"If Dancer is dull, deal 2000 damage to all the Forwards opponent controls.",
+				other, 0),
+				"the gate only speaks for the card that prints it");
+		assertNull(ActionResolverGate.tryParseIfSelfIsStateGate(
+				"If Dancer is dull, deal 2000 damage to all the Forwards opponent controls.",
+				null, 0),
+				"and needs a source at all");
+	}
+
+	// ---- Malboro: one sentence that strips abilities and power --------------------------------
+
+	@Test
+	void malborosPartingShotStripsAbilitiesAndPowerTogether() {
+		MainWindow mw = new MainWindow();
+		CardData malboro = makeAutoAbilityForward("Malboro", "Water", 0, MALBORO_24_105R_TEXT);
+		CardData victim  = makeForward("Victim", "Fire", 3, 7000);
+		placeP1Forward(mw, victim);
+
+		AutoAbility bzTrigger = malboro.autoAbilities().stream()
+				.filter(fa -> fa.trigger().equals("put into break zone")).findFirst().orElseThrow();
+		Consumer<GameContext> effect = ActionResolver.parse(bzTrigger.effectText(), malboro);
+		assertNotNull(effect, "the sentence used to match nothing at all");
+		effect.accept(mw.buildGameContext(false));
+
+		assertTrue(mw.lostAbilitiesCards.contains(victim), "abilities stripped");
+		assertEquals(4000, mw.effectiveP1ForwardPower(0), "and 3000 power gone with them");
+	}
+
+	@Test
+	void malborosSweepEndsWithTheTurn() {
+		MainWindow mw = new MainWindow();
+		CardData malboro = makeAutoAbilityForward("Malboro", "Water", 0, MALBORO_24_105R_TEXT);
+		CardData victim  = makeForward("Victim", "Fire", 3, 7000);
+		placeP1Forward(mw, victim);
+
+		AutoAbility bzTrigger = malboro.autoAbilities().stream()
+				.filter(fa -> fa.trigger().equals("put into break zone")).findFirst().orElseThrow();
+		ActionResolver.parse(bzTrigger.effectText(), malboro).accept(mw.buildGameContext(false));
+
+		GameContext ctx = mw.buildGameContext(false);
+		for (Consumer<GameContext> eot : List.copyOf(mw.endOfTurnEffects)) eot.accept(ctx);
+
+		assertFalse(mw.lostAbilitiesCards.contains(victim), "\"until the end of the turn\"");
+		// The power half expires by a different route: it lands in the turn-scoped boost list
+		// the turn loop clears at the boundary, which is where every other "until the end of
+		// the turn" power effect puts it, rather than on the endOfTurnEffects queue above.
+		assertEquals(-3000, mw.p1ForwardPowerBoost.get(0),
+				"the sweep is turn-scoped, not permanent");
+	}
+
+	// ---- Chocobo: a printed typo in the destination clause ------------------------------------
+
+	@Test
+	void chocobosSearchSurvivesItsPrintedTypo() {
+		CardData chocobo = makeAutoAbilityForward("Chocobo", "Wind", 3000, CHOCOBO_25_045C_TEXT);
+		String text = chocobo.autoAbilities().get(0).effectText();
+		assertTrue(text.contains("play it to onto the field"), "the typo is in the printed text");
+		assertEquals("SearchDeck", ActionResolver.matchedPatternName(text, chocobo),
+				"the stray \"to\" is the whole of what used to make this unreadable");
+	}
+
+	@Test
+	void theStrayToIsAdmittedOnlyWhereItIsPrinted() {
+		// The optional group cannot reach anything else: without the typo the same text has always
+		// parsed, and no other destination wording gains a "to".
+		assertEquals("SearchDeck", ActionResolver.matchedPatternName(
+				"search for 1 Card Name Chocobo Character of cost 2 or less and play it onto the field.",
+				null));
+	}
+
+	// ---- Maquis: an offer and a payoff that share one X ---------------------------------------
+
+	@Test
+	void maquisOfferAndPayoffAreReadAsOneEffect() {
+		CardData maquis = makeAutoAbilityForward("Maquis the Phantasm", "Water", 7000, MAQUIS_17_115R_TEXT);
+		String text = maquis.autoAbilities().get(0).effectText();
+		assertEquals("ChooseCharacter / MayPayXPlayIfCostIsX",
+				ActionResolver.fullDescription(text, maquis),
+				"split, the offer bought nothing and the play had no X to test");
+	}
+
+	@Test
+	void maquisPlaysTheChosenDuelhornWhenTheAiPaysItsCost() {
+		MainWindow mw = new MainWindow();
+		CardData maquis = makeAutoAbilityForward("Maquis the Phantasm", "Water", 7000, MAQUIS_17_115R_TEXT);
+		CardData buried = makeJobbedAutoCard("Rune Blade", "Water", "Forward", "Duelhorn", 2, 5000, "");
+		mw.gameState.getIdentity().put(buried, false);
+		mw.gameState.getP2BreakZone().add(buried);
+		// Two active Backups cover the 《2》 the AI is asked for.
+		seatP2Backup(mw, 0, makePlainBackup("Bank One", "Water", 1), CardState.ACTIVE);
+		seatP2Backup(mw, 1, makePlainBackup("Bank Two", "Water", 1), CardState.ACTIVE);
+
+		ActionResolver.parse(maquis.autoAbilities().get(0).effectText(), maquis)
+				.accept(mw.buildGameContext(false));
+
+		assertTrue(mw.p2ForwardCards.contains(buried), "the Duelhorn came back for its own cost");
+		assertFalse(mw.gameState.getP2BreakZone().contains(buried));
+	}
+
+	@Test
+	void maquisLeavesTheDuelhornBuriedWhenTheCostCannotBePaid() {
+		MainWindow mw = new MainWindow();
+		CardData maquis = makeAutoAbilityForward("Maquis the Phantasm", "Water", 7000, MAQUIS_17_115R_TEXT);
+		CardData buried = makeJobbedAutoCard("Rune Blade", "Water", "Forward", "Duelhorn", 2, 5000, "");
+		mw.gameState.getIdentity().put(buried, false);
+		mw.gameState.getP2BreakZone().add(buried);
+		// No Backups, so 《2》 is unaffordable and the offer is never made.
+
+		ActionResolver.parse(maquis.autoAbilities().get(0).effectText(), maquis)
+				.accept(mw.buildGameContext(false));
+
+		assertTrue(mw.p2ForwardCards.isEmpty(), "nothing is played for free");
+		assertTrue(mw.gameState.getP2BreakZone().contains(buried));
+	}
+
+	// ---- Balthier: already working, locked so it stays that way -------------------------------
+
+	@Test
+	void balthiersRevealTakesTheSkyPirateAndBottomsTheRest() {
+		MainWindow mw = new MainWindow();
+		CardData pirate = makeJobbedAutoCard("Fran", "Wind", "Forward", "Sky Pirate", 3, 7000, "");
+		CardData[] filler = new CardData[4];
+		for (int i = 0; i < 4; i++)
+			filler[i] = makeJobbedAutoCard("Filler " + i, "Fire", "Forward", "Knight", 2, 5000, "");
+		CardData buried = makeJobbedAutoCard("Buried", "Fire", "Forward", "Knight", 2, 5000, "");
+		stackP2Deck(mw, filler[0], filler[1], pirate, filler[2], filler[3], buried);
+		mw.gameState.getP2Hand().clear();
+
+		CardData balthier = makeAutoAbilityForward("Balthier", "Wind", 7000, BALTHIER_5_156S_TEXT);
+		ActionResolver.parse(balthier.autoAbilities().get(0).effectText(), balthier)
+				.accept(mw.buildGameContext(false));
+
+		assertEquals(List.of(pirate), mw.gameState.getP2Hand(), "only the Job Sky Pirate is taken");
+		assertEquals(1 + 4, mw.gameState.getP2MainDeck().size(),
+				"the four passed-over cards join the untouched sixth at the bottom");
+		assertTrue(mw.gameState.getP2BreakZone().isEmpty(), "a reveal-to-bottom breaks nothing");
 	}
 
 	// =========================================================================================

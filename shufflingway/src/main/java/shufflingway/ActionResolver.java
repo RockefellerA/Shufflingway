@@ -364,6 +364,9 @@ public class ActionResolver {
         result = tryParseIfNDiffElements(effectText, source, xValue);
         if (result != null) return result;
 
+        result = tryParseIfSelfIsStateGate(effectText, source, xValue);
+        if (result != null) return result;
+
         result = tryParseIfControlCondOtherThan(effectText, source, xValue);
         if (result != null) return result;
 
@@ -948,6 +951,11 @@ public class ActionResolver {
         if (result != null) return result;
 
         result = tryParseAllFwdsBlockedOnlyByLowerCostThisTurn(effectText);
+        if (result != null) return result;
+
+        // Must precede tryParseOppFwdsLoseAllAbilitiesEot: that one anchors and so cannot claim
+        // this longer text, but the two read the same opening and the specific one goes first.
+        result = tryParseOppFwdsLoseAllAbilitiesAndPowerEot(effectText);
         if (result != null) return result;
 
         result = tryParseOppFwdsLoseAllAbilitiesEot(effectText);
@@ -1957,6 +1965,7 @@ public class ActionResolver {
         if (tryParseEndOfNextTurnIfCardOnFieldOppLoses(effectText)        != null) return "EndOfNextTurnIfCardOnFieldOppLoses";
         if (tryParseOppFwdsCannotBlockInferiorPower(effectText)           != null) return "OppFwdsCannotBlockInferiorPower";
         if (tryParseAllFwdsBlockedOnlyByLowerCostThisTurn(effectText)    != null) return "AllFwdsBlockedOnlyByLowerCost";
+        if (tryParseOppFwdsLoseAllAbilitiesAndPowerEot(effectText) != null) return "OppFwdsLoseAllAbilitiesAndPowerEot";
         if (tryParseOppFwdsLoseAllAbilitiesEot(effectText)         != null) return "OppFwdsLoseAllAbilitiesEot";
         if (tryParseOppFwdPowerBoostSuppressedThisTurn(effectText) != null) return "OppFwdPowerBoostSuppressedThisTurn";
         if (tryParseOppFwdsLosePowerPerPlayCost(effectText)        != null) return "OppFwdsLosePowerPerPlayCost";
@@ -2183,6 +2192,7 @@ public class ActionResolver {
         if (tryParseIfOppDiscardedThisTurn(effectText, source, 0)        != null) return "IfOppDiscardedThisTurn";
         if (tryParseIfControlAtMost(effectText, source, 0)             != null) return "IfControlAtMost";
         if (tryParseIfCastAtLeast(effectText, source, 0)               != null) return "IfCastAtLeast";
+        if (tryParseIfSelfIsStateGate(effectText, source, 0)           != null) return "IfSelfIsStateGate";
         if (tryParseIfControlCondOtherThan(effectText, source, 0)      != null) return "IfControlCondOtherThan";
         // Reports the gate itself, not the effect behind it. Without an entry here the whole
         // gated sentence falls through to RemoveNamedFromGame, which find()s a name out of the
@@ -2362,6 +2372,9 @@ public class ActionResolver {
         if (FOLLOWUP_REMOVE_FROM_GAME.matcher(followupText).find())                   return "RemoveFromGame";
         if (SECONDARY_PLAY_REMOVED_ONTO_FIELD.matcher(followupText).find())           return "PlayRemovedOntoField";
         if (FOLLOWUP_PLAY_IF_COST_LE_JOB_COUNT.matcher(followupText).matches())       return "PlayIfCostLeJobCount";
+        // Mirrors the Choose chain, where the two-sentence form is read ahead of this one.
+        if (FOLLOWUP_MAY_PAY_X_PLAY_IF_COST_IS_X.matcher(followupText.trim()).matches())
+                                                                                      return "MayPayXPlayIfCostIsX";
         if (FOLLOWUP_PLAY_IF_COST_IS_X.matcher(followupText).matches())               return "PlayIfCostIsX";
         if (FOLLOWUP_RETURN_IF_COST_LE_HAND.matcher(followupText).matches())          return "ReturnIfCostLeHand";
         // Must precede PlayOntoField and AddToHand: this followup ends in the destination they
@@ -2710,6 +2723,17 @@ public class ActionResolver {
         if (oppDiscM.matches() && tryParseIfOppDiscardedThisTurn(effectText, source, 0) != null)
             return "IfOppDiscardedThisTurn(" + fullDescription(oppDiscM.group("effect").trim(), source) + ")";
         if (tryParseIfCastAtLeast(effectText, source, 0)                != null) return "IfCastAtLeast";
+        // Mirrors parse(), where the gate sits ahead of the control gates. Described the way
+        // IfWarpCounters(…) below is: the gate is named and the effect it guards described inside.
+        if (tryParseIfSelfIsStateGate(effectText, source, 0) != null) {
+            Matcher selfState = IF_SELF_IS_STATE_GATE.matcher(effectText.trim());
+            if (!selfState.matches()) return "IfSelfIsStateGate";
+            String innerTxt  = selfState.group("effect").trim();
+            String innerDesc = fullDescription(innerTxt, source);
+            if (innerDesc == null) innerDesc = matchedPatternName(innerTxt, source);
+            return "IfSelfIs" + cap(selfState.group("state")) + "("
+                    + (innerDesc != null ? innerDesc : "?") + ")";
+        }
         if (tryParseIfControlCondOtherThan(effectText, source, 0)      != null) return "IfControlCondOtherThan";
         // Must precede ControlGatedInsteadUpgrade, mirroring parse(): the description belongs to
         // the ChooseCharacter block, which reads the whole followup.
@@ -2940,6 +2964,11 @@ public class ActionResolver {
                             + (dullShieldM.group("incoming") != null
                                     ? "AndShieldAllIncoming" : "AndZeroAllOutgoing");
             }
+            // Read off the whole followup, mirroring the Choose chain: split, the ". " puts the
+            // offer in one half and the play in the other, and 17-115R Maquis the Phantasm was
+            // described as "? + PlayIfCostIsX" — an unread price over a play with no X.
+            if (FOLLOWUP_MAY_PAY_X_PLAY_IF_COST_IS_X.matcher(followup.trim()).matches())
+                return "ChooseCharacter / MayPayXPlayIfCostIsX";
             if (FOLLOWUP_SELECT_JOB_GRANT.matcher(followup).find())
                 return "ChooseCharacter / SelectJobGrant";
             // Both read off the whole followup, mirroring the Choose chain: the ". " split turns
@@ -3221,6 +3250,7 @@ public class ActionResolver {
         if (tryParseEndOfNextTurnIfCardOnFieldOppLoses(effectText)        != null) return "EndOfNextTurnIfCardOnFieldOppLoses";
         if (tryParseOppFwdsCannotBlockInferiorPower(effectText)           != null) return "OppFwdsCannotBlockInferiorPower";
         if (tryParseAllFwdsBlockedOnlyByLowerCostThisTurn(effectText)    != null) return "AllFwdsBlockedOnlyByLowerCost";
+        if (tryParseOppFwdsLoseAllAbilitiesAndPowerEot(effectText) != null) return "OppFwdsLoseAllAbilitiesAndPowerEot";
         if (tryParseOppFwdsLoseAllAbilitiesEot(effectText)         != null) return "OppFwdsLoseAllAbilitiesEot";
         if (tryParseOppFwdPowerBoostSuppressedThisTurn(effectText) != null) return "OppFwdPowerBoostSuppressedThisTurn";
         if (tryParseOppFwdsLosePowerPerPlayCost(effectText)        != null) return "OppFwdsLosePowerPerPlayCost";

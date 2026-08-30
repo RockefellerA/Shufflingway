@@ -165,6 +165,27 @@ final class ActionResolverFieldAbility {
         if (!OPP_FWDS_LOSE_ALL_ABILITIES_EOT.matcher(text).matches()) return null;
         return ctx -> ctx.oppForwardsLoseAllAbilitiesUntilEndOfTurn();
     }
+
+    /**
+     * Parses "[Until the end of the turn,] all the Forwards opponent controls lose all their
+     * abilities and N power[ until the end of the turn]." — 24-105R Malboro's parting shot.
+     *
+     * <p>Two sweeps over the same Forwards, run as one effect because the card prints them as one
+     * sentence. Neither existing parser would take it: the ability-loss sibling above anchors with
+     * {@code matches()} and the mass power sweep wants a number straight after "lose". Malboro had
+     * been costing its controller a Monster for nothing.
+     */
+    static Consumer<GameContext> tryParseOppFwdsLoseAllAbilitiesAndPowerEot(String text) {
+        Matcher m = OPP_FWDS_LOSE_ALL_ABILITIES_AND_POWER_EOT.matcher(text.trim());
+        if (!m.matches()) return null;
+        final int amount = Integer.parseInt(m.group("amount"));
+        return ctx -> {
+            ctx.logEntry("Effect: All Forwards opponent controls lose all abilities and "
+                    + amount + " power until end of turn");
+            ctx.oppForwardsLoseAllAbilitiesUntilEndOfTurn();
+            ctx.applyMassFieldPowerBoost(-amount, true, false, true, false, null, -1, null, null, null);
+        };
+    }
     /** Reads a Forward-ability grant out of a field-ability text, or {@code null} if it is not one. */
     static ForwardAbilityGrant tryParseForwardAbilityGrant(String fieldText) {
         if (fieldText == null) return null;

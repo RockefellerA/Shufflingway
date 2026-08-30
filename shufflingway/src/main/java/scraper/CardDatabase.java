@@ -147,6 +147,7 @@ public class CardDatabase implements AutoCloseable {
                                  .replace("Zackand", "Zack and")
                                  .replace("Chocoboor", "Chocobo or")  // Izana
                                  .replace("Chocoboand", "Chocobo and") // Izana
+                                 .replace("Pirateamong", "Pirate among") // Balthier
                                  .replace("'ability", "' ability") // CoD
                                  .replace("’", "'").replace ("‘", "'")
                                  .replace("　", " ") // U+3000 ideographic space

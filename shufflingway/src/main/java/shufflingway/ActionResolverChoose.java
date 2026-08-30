@@ -3630,6 +3630,31 @@ final class ActionResolverChoose {
             };
         }
 
+        // --- "You may pay 《X》. If its cost is X, play it onto the field." (Maquis 17-115R) ---
+        // Read off the whole followup, ahead of the two branches below that would each see half
+        // of it: the ". " split leaves "You may pay 《X》" — an offer that buys nothing — as the
+        // primary, and the play as a secondary with no X to test against.
+        //
+        // X is the player's to name, and the only X that does anything is the chosen card's own
+        // cost: any other amount pays CP and plays nothing. So the offer is made at that price,
+        // through the same optional-cost primitive every other printed "you may pay" uses.
+        if (FOLLOWUP_MAY_PAY_X_PLAY_IF_COST_IS_X.matcher(followup.trim()).matches()) {
+            return ctx -> {
+                ctx.logChooseHeader(choosePrefix + " — may pay 《X》 to play it when X is its cost");
+                List<ForwardTarget> ts = selectTargets(ctx, maxCount, upTo,
+                        opponentOnly, selfOnly, condition, element, zone, opponentZone,
+                        costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters,
+                        jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, fExcludeElem, withoutMulticard);
+                for (ForwardTarget t : ts) {
+                    CardData chosen = t.isP1() ? ctx.p1BreakZoneCard(t.idx()) : ctx.p2BreakZoneCard(t.idx());
+                    if (chosen == null) continue;
+                    ctx.mayPayCostToEffect(chosen.cost(), null, 0, paid -> paid.playTargetOntoField(t));
+                }
+                // No secondary: this branch has consumed the whole followup, and the split's
+                // second half is the same sentence it already read.
+            };
+        }
+
         // --- "If its cost is X, play it onto the field." (Leo 13-067L) ---
         // Ahead of the generic PlayOntoField handler for the reason the job-count form above is:
         // that one matches with find() and would play the chosen card whatever it cost. X is what

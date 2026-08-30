@@ -21,6 +21,45 @@ final class ActionResolverGate {
 	private ActionResolverGate() {}
 
     /**
+     * Parses "If &lt;Self&gt; is [dull|active|attacking], &lt;effect&gt;" — an ability that only
+     * resolves while the card printing it stands in that state. 15-046C Dancer, whose end-of-turn
+     * sweep is free on a turn it attacked and nothing on a turn it did not.
+     *
+     * <p>Gated on the source's <em>name</em>, and the name has to be the source's own: the same
+     * words appear as a followup about a card the sentence just chose ("choose 1 Forward. If it is
+     * dull, deal it 8000 damage" — 10-033L Sephiroth), and testing the ability's own carrier there
+     * would answer about the wrong card. Anything that is not the source falls through with
+     * {@code null}, exactly as an unreadable condition does.
+     *
+     * <p>The state itself is asked through {@link ControlCondition#forNamedCardState}, the same
+     * question 17-100C Mog's standing boost asks, so the two cannot disagree about what "dull"
+     * means. That reads the field rather than the card object, which is also what makes a Dancer
+     * that has left the field before the trigger resolves correctly do nothing.
+     */
+    static Consumer<GameContext> tryParseIfSelfIsStateGate(String text, CardData source, int xValue) {
+        if (source == null) return null;
+        Matcher m = IF_SELF_IS_STATE_GATE.matcher(text.trim());
+        if (!m.matches()) return null;
+        String name = m.group("name").trim();
+        if (!CardFilters.meetsCardNameFilter(source, name)) return null;
+        ControlCondition cc = ControlCondition.forNamedCardState(name,
+                ControlCondition.NamedCardState.valueOf(
+                        m.group("state").toUpperCase(java.util.Locale.ROOT)));
+        String innerText = m.group("effect").trim();
+        Consumer<GameContext> inner = parse(innerText, source, xValue);
+        if (inner == null) return null;
+        final String stateLabel = m.group("state").toLowerCase(java.util.Locale.ROOT);
+        return ctx -> {
+            if (!ctx.controlConditionMet(cc)) {
+                ctx.logEntry("Effect: " + name + " is not " + stateLabel + " — skipped");
+                return;
+            }
+            ctx.logEntry("Effect: " + name + " is " + stateLabel + " — " + innerText);
+            inner.accept(ctx);
+        };
+    }
+
+    /**
      * Parses "If you [do not] control X, Y" — resolves Y only when the control condition is
      * (un)met at resolution time. Returns {@code null} when the condition or inner effect cannot
      * be parsed so the text falls through to the regular matchers (preserving prior behaviour).

@@ -12476,6 +12476,14 @@ public class MainWindow {
 	 * ability is met.  When {@code cond.opponentControls()} is true, checks the opponent's field.
 	 */
 	boolean controlConditionMet(ControlCondition cond, boolean isP1) {
+		// A named-card-state condition ("If Dancer is dull, …") asks about one card's state rather
+		// than about a pool, and the pool walk below cannot answer it: with no required name and
+		// no minimum count it falls through every filter and reports true for any board at all.
+		// icbConditionsMet has always diverted these before they reach here, so the hole only
+		// showed when 15-046C Dancer's gate became the first caller to hand one straight over —
+		// and it swept the opponent's board on turns Dancer stood active.
+		if (cond.stateCardName() != null)
+			return isNamedCardInState(cond.stateCardName(), cond.namedState(), isP1);
 		// "Neither player controls X" is one condition over the combined board, not two conditions
 		// over two boards, so the pools are merged rather than the sides being checked separately.
 		if (cond.bothFields()) {
@@ -12600,6 +12608,10 @@ public class MainWindow {
 	 */
 	boolean controlConditionMetExcluding(ControlCondition cond, String exceptName, boolean isP1) {
 		if (exceptName.isEmpty()) return controlConditionMet(cond, isP1);
+		// The same guard the unexcluded entry carries, and for the same reason: a state condition
+		// names one card, so there is no pool for the exclusion to be applied to.
+		if (cond.stateCardName() != null)
+			return isNamedCardInState(cond.stateCardName(), cond.namedState(), isP1);
 		List<CardData> fwds = new ArrayList<>(isP1 ? p1ForwardCards : p2ForwardCards);
 		CardData[] srcBkps  = isP1 ? p1BackupCards : p2BackupCards;
 		CardData[] bkps     = Arrays.copyOf(srcBkps, srcBkps.length);

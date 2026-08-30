@@ -1868,6 +1868,20 @@ final class ActionResolverPatterns {
         "(?i)If\\s+its\\s+cost\\s+is\\s+X[,.]\\s+play\\s+it\\s+onto\\s+(?:the\\s+)?field[.!]?"
     );
     /**
+     * Matches "You may pay 《X》. If its cost is X, play it onto the field." — 17-115R Maquis the
+     * Phantasm, read off the <em>whole</em> choose followup rather than either sentence alone.
+     *
+     * <p>Split at the ". ", the first half is an offer to pay for nothing and the second is
+     * {@link #FOLLOWUP_PLAY_IF_COST_IS_X} with no X to compare against: that pattern's own card
+     * (13-067L Leo) gets its X from a variable counter cost paid before the ability resolves,
+     * while here the player names X at resolution by choosing what to pay. So the two sentences
+     * are one effect and have to be matched together.
+     */
+    static final Pattern FOLLOWUP_MAY_PAY_X_PLAY_IF_COST_IS_X = Pattern.compile(
+        "(?i)^You\\s+may\\s+pay\\s+《X》[.!]?\\s+" +
+        "If\\s+its\\s+cost\\s+is\\s+X[,.]\\s+play\\s+it\\s+onto\\s+(?:the\\s+)?field[.!]?$"
+    );
+    /**
      * Matches "If its cost is equal to or less than the number of cards in your hand, return it to its owner's hand."
      * Used by Leviathan (5-139C) EX Burst.
      */
@@ -1944,11 +1958,31 @@ final class ActionResolverPatterns {
      * <p>The possessive is optional on either side of "all": printings say "lose all abilities"
      * (16-106R Andrea Rhodea), "lose all their abilities" (24-105R Malboro) and plain "lose their
      * abilities" (7-119H Halicarnassus) for one and the same effect. Its parser anchors with
-     * matches(), so Malboro's longer "... and 3000 power" is not claimed off this prefix.
+     * matches(), so Malboro's longer "... and 3000 power" is not claimed off this prefix — that
+     * text is a different effect and has its own pattern,
+     * {@link #OPP_FWDS_LOSE_ALL_ABILITIES_AND_POWER_EOT}, read ahead of this one.
      */
     static final Pattern OPP_FWDS_LOSE_ALL_ABILITIES_EOT = Pattern.compile(
         "(?i)All\\s+(?:the\\s+)?Forwards?\\s+(?:(?:your\\s+)?opponent\\s+controls?)\\s+" +
         "lose\\s+(?:all\\s+)?(?:their\\s+)?abilities\\s+until\\s+(?:the\\s+)?end\\s+of\\s+(?:the\\s+)?turn[.!]?"
+    );
+    /**
+     * Matches "[Until the end of the turn,] all the Forwards opponent controls lose all their
+     * abilities and N power[ until the end of the turn]." — 24-105R Malboro.
+     *
+     * <p>Two effects in one sentence, which is why it cannot be composed from the two parsers that
+     * already exist for its halves: {@link #OPP_FWDS_LOSE_ALL_ABILITIES_EOT} anchors with
+     * {@code matches()} and so refuses the longer text (deliberately — see its note), and the mass
+     * power sweep needs "lose N power" with nothing between the verb and the number.
+     *
+     * <p>The duration may be printed at either end; Malboro states it first. Group {@code amount}
+     * is the power lost.
+     */
+    static final Pattern OPP_FWDS_LOSE_ALL_ABILITIES_AND_POWER_EOT = Pattern.compile(
+        "(?i)^\\s*(?:Until\\s+(?:the\\s+)?end\\s+of\\s+(?:the\\s+)?turn,\\s+)?" +
+        "all\\s+(?:the\\s+)?Forwards?\\s+(?:your\\s+)?opponent\\s+controls?\\s+" +
+        "lose\\s+(?:all\\s+)?(?:their\\s+)?abilities\\s+and\\s+(?<amount>\\d+)\\s+power" +
+        "(?:\\s+until\\s+(?:the\\s+)?end\\s+of\\s+(?:the\\s+)?turn)?[.!]?\\s*$"
     );
     /**
      * Matches "All the Forwards opponent controls lose N power for each CP required to play them
@@ -4888,7 +4922,10 @@ final class ActionResolverPatterns {
         "(?<destination>" +
             "add\\s+it\\s+to\\s+your\\s+hand" +
             "|add\\s+them\\s+to\\s+your\\s+hand" +
-            "|play\\s+it\\s+onto\\s+(?:the\\s+)?field(?:\\s+dull)?" +
+            // "play it TO onto the field" — 25-045C Chocobo prints a stray "to", and the
+            // optional group is the whole of what admits it. No other text in the corpus reads
+            // that way, so nothing else can reach this arm through it.
+            "|play\\s+it\\s+(?:to\\s+)?onto\\s+(?:the\\s+)?field(?:\\s+dull)?" +
             "|play\\s+them\\s+onto\\s+(?:the\\s+)?field(?:\\s+dull)?" +
             "|put\\s+it\\s+on\\s+top\\s+of\\s+(?:your|its\\s+owner's)\\s+deck" +
             "|put\\s+it\\s+under\\s+the\\s+top\\s+card\\s+of\\s+(?:your|its\\s+owner's)\\s+deck" +
@@ -8034,6 +8071,25 @@ final class ActionResolverPatterns {
      */
     static final Pattern IF_CONTROL_COND_OTHER_THAN = Pattern.compile(
         "(?is)^if\\s+you\\s+(?<neg>don't\\s+|do\\s+not\\s+)?control\\s+(?<cond>.+?)\\s+other\\s+than\\s+(?<exclude>[^,]+?),\\s+(?<effect>.+)$"
+    );
+    /**
+     * "If &lt;Self&gt; is [dull|active|attacking], &lt;effect&gt;." — a whole triggered ability
+     * gated on the state of the card that prints it. 15-046C Dancer, whose end-of-turn sweep only
+     * fires on a turn it spent dulled.
+     *
+     * <p>Distinct from the field-ability spelling {@code IF_CARD_IS_STATE_BOOST} reads, which is
+     * always "&lt;X&gt; is dull, &lt;target&gt; gains &lt;power/traits&gt;" and becomes a standing
+     * boost. This one guards an arbitrary effect that happens once, so it is a gate rather than a
+     * grant and belongs with the other gates.
+     *
+     * <p>Anchored, and its parser additionally requires {@code name} to be the ability's own
+     * source: "If it is dull, deal it 8000 damage" (10-033L Sephiroth) is a followup about a card
+     * the same sentence chose, and reading it as a self-gate would test the wrong card.
+     *
+     * <p>Groups: {@code name}, {@code state}, {@code effect}.
+     */
+    static final Pattern IF_SELF_IS_STATE_GATE = Pattern.compile(
+        "(?is)^If\\s+(?<name>[^,]+?)\\s+is\\s+(?<state>dull|active|attacking),\\s+(?<effect>.+)$"
     );
     /** Matches "If your opponent controls a(n) [cond] [type], [effect]" — e.g. "a damaged Forward". */
     static final Pattern OPP_CONTROL_CARD_GATE = Pattern.compile(
