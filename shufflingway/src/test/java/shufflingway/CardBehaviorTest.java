@@ -8345,7 +8345,7 @@ public class CardBehaviorTest {
     private static CardData placeLibroarianForP2(MainWindow mw) {
         CardData lib = makeLibroarian();
         mw.gameState.getIdentity().put(lib, false);
-        mw.suppressAutoAbilityForNextCard = true;
+        mw.suppressAutoAbilityForNextCards = 1;
         mw.placeP2CardInForwardZone(lib);
         return lib;
     }
@@ -8402,7 +8402,7 @@ public class CardBehaviorTest {
         CardData p2Lib = placeLibroarianForP2(mw);
         CardData p1Lib = makeLibroarian();
         mw.gameState.getIdentity().put(p1Lib, true);
-        mw.suppressAutoAbilityForNextCard = true;
+        mw.suppressAutoAbilityForNextCards = 1;
         mw.placeCardInForwardZone(p1Lib);
         for (int i = 1; i <= 6; i++) {
             CardData deckCard = makeForward("Deck" + i, "Wind", i, 5000);
@@ -10097,8 +10097,9 @@ public class CardBehaviorTest {
         assertNotNull(fn);
         fn.accept(ctx);
 
-        verify(ctx).searchDeckForCardDistinctNames(true, false, false, false, -1, null,
-                null, null, "IX", null, "Zidane", null, "hand", 2, false, false);
+        verify(ctx).searchDeckForCardWithRiders(true, false, false, false, -1, null,
+                null, null, "IX", null, "Zidane", null, "hand", 2, false, false,
+                PickGate.DISTINCT_NAMES, false);
     }
 
     // The phrase used to be swallowed by the job filter, so Glauca hunted a job called
@@ -10110,8 +10111,9 @@ public class CardBehaviorTest {
                 "search for 2 Job Captain with different names and add them to your hand.", null)
                 .accept(ctx);
 
-        verify(ctx).searchDeckForCardDistinctNames(true, true, true, true, -1, null,
-                null, "Captain", null, null, null, null, "hand", 2, false, false);
+        verify(ctx).searchDeckForCardWithRiders(true, true, true, true, -1, null,
+                null, "Captain", null, null, null, null, "hand", 2, false, false,
+                PickGate.DISTINCT_NAMES, false);
     }
 
     // Without the phrase the search is unconstrained and still goes to the ordinary primitive.
@@ -10122,9 +10124,9 @@ public class CardBehaviorTest {
 
         verify(ctx).searchDeckForCard(true, true, true, true, -1, null,
                 null, "Captain", null, null, null, null, "hand", 2, false, false);
-        verify(ctx, never()).searchDeckForCardDistinctNames(anyBoolean(), anyBoolean(), anyBoolean(),
+        verify(ctx, never()).searchDeckForCardWithRiders(anyBoolean(), anyBoolean(), anyBoolean(),
                 anyBoolean(), anyInt(), any(), any(), any(), any(), any(), any(), any(), any(),
-                anyInt(), anyBoolean(), anyBoolean());
+                anyInt(), anyBoolean(), anyBoolean(), any(), anyBoolean());
     }
 
     // The picker's half of "different names": a name already taken cannot be taken twice.
@@ -14110,7 +14112,7 @@ public class CardBehaviorTest {
 			// Seated without running her enters-the-field sweep: that sweep is damage, and these
 			// tests are about what answers damage — it would fire the very trigger under test
 			// before the test had begun.
-			mw.suppressAutoAbilityForNextCard = true;
+			mw.suppressAutoAbilityForNextCards = 1;
 			placeP2Forward(mw, c);
 		}
 		return mw;
@@ -35849,7 +35851,7 @@ public class CardBehaviorTest {
 		// play later, and nowhere near the card that caused it.
 		MainWindow mw = revenantInBreakZone();
 		mw.buildGameContext(false).playTargetOntoFieldNoAutoAbility(p2BreakZoneTop());
-		assertFalse(mw.suppressAutoAbilityForNextCard, "the flag was consumed, not left armed");
+		assertEquals(0, mw.suppressAutoAbilityForNextCards, "the suppression was consumed, not left armed");
 
 		placeP2Forward(mw, makeAutoAbilityForward("Latecomer", "Earth", 7000,
 				"When Latecomer enters the field, draw 1 card."));
@@ -36824,6 +36826,10 @@ public class CardBehaviorTest {
 	/** Titan on P1's field with {@code powers} seated opposite, one Forward each. */
 	private static MainWindow titanBoard(CardData titan, int... powers) {
 		MainWindow mw = new MainWindow();
+		// Seeded so a point of damage has a card to flip: an empty deck ends the game instead
+		// of filling the Damage Zone, which reads as "the payoff never fired".
+		for (int i = 0; i < 8; i++)
+			mw.gameState.getP2MainDeck().add(makeForward("Deck" + i, "Fire", 1, 1000));
 		placeP1Forward(mw, titan);
 		for (int i = 0; i < powers.length; i++)
 			placeP2Forward(mw, makeForward("Victim " + i, "Fire", 3, powers[i]));
@@ -36898,6 +36904,65 @@ public class CardBehaviorTest {
 				TITAN_ETF, makeForward("Someone Else", "Earth", 7, 9000)));
 		assertNotNull(ActionResolverFieldAbility.tryParseBreakForwardsBelowSelfPower(
 				TITAN_ETF, makeForward("Titan, Lord of Crags", "Earth", 7, 9000)));
+	}
+
+	@Test
+	void titansPayoffLandsOnARealBoardWhenTheSweepReachesFive() {
+		// The mocked pair above proves the parser reads the threshold. This one proves the whole
+		// chain honours it: a real sweep counting real breaks, feeding a real point of damage.
+		CardData titan = makeForward("Titan, Lord of Crags", "Earth", 7, 9000);
+		MainWindow mw = titanBoard(titan, 5000, 5000, 5000, 5000, 5000);
+
+		ActionResolver.parse(TITAN_ETF, titan).accept(mw.buildGameContext(true));
+
+		assertTrue(mw.p2ForwardCards.isEmpty(), "all five were under him");
+		assertEquals(1, mw.gameState.getP2DamageZone().size(),
+				"five is not fewer than five, so the payoff fires");
+	}
+
+	@Test
+	void titansPayoffStaysSilentOnARealBoardOfFour() {
+		CardData titan = makeForward("Titan, Lord of Crags", "Earth", 7, 9000);
+		MainWindow mw = titanBoard(titan, 5000, 5000, 5000, 5000);
+
+		ActionResolver.parse(TITAN_ETF, titan).accept(mw.buildGameContext(true));
+
+		assertTrue(mw.p2ForwardCards.isEmpty(), "all four broke");
+		assertEquals(0, mw.gameState.getP2DamageZone().size(), "but four is under the threshold");
+	}
+
+	@Test
+	void titanCountsBothSidesTowardHisFive() {
+		// "Forwards are put from the field into the Break Zone by this effect" does not say whose.
+		// Three of his own and two of theirs is still five, and the opponent still takes the point.
+		CardData titan = makeForward("Titan, Lord of Crags", "Earth", 7, 9000);
+		MainWindow mw = titanBoard(titan, 5000, 5000);
+		for (int i = 0; i < 3; i++)
+			placeP1Forward(mw, makeForward("Mine " + i, "Earth", 2, 5000));
+
+		ActionResolver.parse(TITAN_ETF, titan).accept(mw.buildGameContext(true));
+
+		assertEquals(List.of("Titan, Lord of Crags"),
+				mw.p1ForwardCards.stream().map(CardData::name).toList(),
+				"his own three went with theirs");
+		assertEquals(1, mw.gameState.getP2DamageZone().size(),
+				"and the tally is of the sweep, not of one side of it");
+	}
+
+	@Test
+	void titanDoesNotCountAForwardTheSweepCouldNotBreak() {
+		// The count is of Forwards actually put into the Break Zone. A fifth that cannot be broken
+		// leaves the sweep at four, and the payoff with it.
+		CardData titan = makeForward("Titan, Lord of Crags", "Earth", 7, 9000);
+		MainWindow mw = titanBoard(titan, 5000, 5000, 5000, 5000);
+		placeP2Forward(mw, makeForwardWithTraits("Unbreakable", "Fire", 5000,
+				Set.of(CardData.Trait.CANNOT_BE_BROKEN)));
+
+		ActionResolver.parse(TITAN_ETF, titan).accept(mw.buildGameContext(true));
+
+		assertEquals(List.of("Unbreakable"), mw.p2ForwardCards.stream().map(CardData::name).toList());
+		assertEquals(0, mw.gameState.getP2DamageZone().size(),
+				"four broke, not five — it counts what it did, not what qualified");
 	}
 
 	// =========================================================================================
@@ -38813,6 +38878,813 @@ public class CardBehaviorTest {
 		assertNull(plain.job());
 		assertEquals("Forward", plain.cardType());
 		assertEquals("Fire", plain.element());
+	}
+
+	// =========================================================================================
+	// 20-008H Kefka — the Break Zone removal family, and the counters it banks.
+	//
+	// "When Kefka enters the field, remove up to 3 Job Warring Triad with different names in your
+	// Break Zone from the game. Then, place 1 Magic Counter on Kefka for each card you removed due
+	// to this ability." and "At the end of each of your turns, you may remove any number of Magic
+	// Counters from Kefka. When you do so, choose up to the same number of Forwards as the Magic
+	// Counters you removed. Deal them 9000 damage."
+	//
+	// The first sentence used to reach ActionResolver.tryParseRemoveNamedFromGame, whose lazy name
+	// group read "up to 3 Job Warring Triad with different names in your Break Zone" as a card
+	// name and then searched the *field* for it. Every one of the twenty-odd printings in this
+	// family removed nothing and logged a warning, and whatever payoff hung off the sentence was
+	// paid out for free. The second sentence did not parse at all.
+	// =========================================================================================
+
+	private static final String KEFKA_ETF =
+			"remove up to 3 Job Warring Triad with different names in your Break Zone from the game. "
+			+ "Then, place 1 Magic Counter on Kefka for each card you removed due to this ability.";
+
+	private static final String KEFKA_EOT =
+			"you may remove any number of Magic Counters from Kefka. When you do so, choose up to "
+			+ "the same number of Forwards as the Magic Counters you removed. Deal them 9000 damage.";
+
+	/** 20-008H, distinct from the 8-cost Dark Kefka the alt-cost section above builds. */
+	private static CardData kefka20008H() { return makeForward("Kefka", "Fire", 4, 8000); }
+
+	/**
+	 * Puts {@code cards} in P2's Break Zone with their owner recorded, as anything that reached it
+	 * in a real game would have. Removing a card from the game reads that owner, so a zone seeded
+	 * by adding straight to the list throws instead of resolving.
+	 */
+	private static void seedP2BreakZone(MainWindow mw, CardData... cards) {
+		for (CardData c : cards) {
+			mw.gameState.getIdentity().put(c, false);
+			mw.gameState.getP2BreakZone().add(c);
+		}
+	}
+
+	/** A Forward carrying a Job, which none of the file-wide factories set. */
+	private static CardData makeJobForward(String name, String element, String job) {
+		return new CardData(null, name, element, 5, 9000, "Forward", false, 0, false, false,
+				Set.of(), 0, List.of(), null, List.of(),
+				List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(),
+				List.of(), List.of(), List.of(),
+				false, false, null, false, false, false, false, false, 1,
+				job, null, null, "");
+	}
+
+	@Test
+	void kefkaBothAbilitiesParseAndReportAParser() {
+		CardData kefka = kefka20008H();
+		assertEquals("RemoveFromBreakZoneFromGame + PlaceCountersPerCardRemoved",
+				ActionResolver.matchedPatternName(KEFKA_ETF, kefka),
+				"the removal and its counter payoff are one parser, because the payoff counts what "
+				+ "that removal did");
+		assertEquals("RemoveAnyCountersThenChooseSameNumber",
+				ActionResolver.matchedPatternName(KEFKA_EOT, kefka));
+		assertNotNull(ActionResolver.parse(KEFKA_ETF, kefka));
+		assertNotNull(ActionResolver.parse(KEFKA_EOT, kefka));
+	}
+
+	@Test
+	void kefkaAsksForUpToThreeWarringTriadWithDifferentNames() {
+		CardData kefka = kefka20008H();
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.removeCardsFromBreakZoneFromGame(anyInt(), anyBoolean(), anyBoolean(), anyBoolean(),
+				any(), anyInt(), any(), anyBoolean(), anyBoolean(), anyBoolean(), anyBoolean(),
+				any(), any(), any(), any())).thenReturn(0);
+
+		ActionResolver.parse(KEFKA_ETF, kefka).accept(ctx);
+
+		// No card type is named, so the filter is the Job and nothing else — every type it admits.
+		verify(ctx).removeCardsFromBreakZoneFromGame(3, true, false, false, null, -1, null,
+				true, true, true, true, "Warring Triad", null, null, PickGate.DISTINCT_NAMES);
+	}
+
+	@Test
+	void kefkaBanksOneMagicCounterPerCardTheSweepActuallyTook() {
+		CardData kefka = kefka20008H();
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.removeCardsFromBreakZoneFromGame(anyInt(), anyBoolean(), anyBoolean(), anyBoolean(),
+				any(), anyInt(), any(), anyBoolean(), anyBoolean(), anyBoolean(), anyBoolean(),
+				any(), any(), any(), any())).thenReturn(2);
+
+		ActionResolver.parse(KEFKA_ETF, kefka).accept(ctx);
+
+		verify(ctx).placeCounters(kefka, "Magic", 2);
+	}
+
+	@Test
+	void andBanksNoneWhenTheSweepTookNothing() {
+		// "For each card you removed" over an empty removal is zero, not one. The old chain paid
+		// the payoff regardless, because the removal it hung off never reported failing.
+		CardData kefka = kefka20008H();
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.removeCardsFromBreakZoneFromGame(anyInt(), anyBoolean(), anyBoolean(), anyBoolean(),
+				any(), anyInt(), any(), anyBoolean(), anyBoolean(), anyBoolean(), anyBoolean(),
+				any(), any(), any(), any())).thenReturn(0);
+
+		ActionResolver.parse(KEFKA_ETF, kefka).accept(ctx);
+
+		verify(ctx, never()).placeCounters(any(), anyString(), anyInt());
+	}
+
+	@Test
+	void kefkasCounterIsNotTheRunningTallyOnTheCard() {
+		// Two resolutions in a row: the second must pay out its own removal, not the pair. A
+		// cumulative "cards removed by this source" reading — the only count GameContext exposes
+		// across resolutions — would hand the second one 3.
+		CardData kefka = kefka20008H();
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.removeCardsFromBreakZoneFromGame(anyInt(), anyBoolean(), anyBoolean(), anyBoolean(),
+				any(), anyInt(), any(), anyBoolean(), anyBoolean(), anyBoolean(), anyBoolean(),
+				any(), any(), any(), any())).thenReturn(2, 1);
+
+		Consumer<GameContext> etf = ActionResolver.parse(KEFKA_ETF, kefka);
+		etf.accept(ctx);
+		etf.accept(ctx);
+
+		InOrder order = inOrder(ctx);
+		order.verify(ctx).placeCounters(kefka, "Magic", 2);
+		order.verify(ctx).placeCounters(kefka, "Magic", 1);
+	}
+
+	@Test
+	void kefkaTakesTheWarringTriadOutOfARealBreakZone() {
+		// Through the CPU's side, which is the branch that resolves a Break Zone selection without
+		// a modal dialog. The zone holds two Demons, so the different-names rule is what decides
+		// whether the third pick is the second Demon or the Goddess.
+		MainWindow mw = new MainWindow();
+		CardData kefka = kefka20008H();
+		mw.gameState.getIdentity().put(kefka, false);
+		mw.placeP2CardInForwardZone(kefka);
+
+		seedP2BreakZone(mw,
+				makeJobForward("The Demon",   "Fire",  "Warring Triad"),
+				makeJobForward("The Demon",   "Fire",  "Warring Triad"),
+				makeJobForward("The Goddess", "Wind",  "Warring Triad"),
+				makeJobForward("The Fiend",   "Water", "Warring Triad"),
+				makeForward("Not Triad", "Fire", 3, 7000));
+		List<CardData> bz = mw.gameState.getP2BreakZone();
+
+		ActionResolver.parse(KEFKA_ETF, kefka).accept(mw.buildGameContext(false));
+
+		List<String> left = bz.stream().map(CardData::name).toList();
+		assertEquals(List.of("The Demon", "Not Triad"), left,
+				"three taken, one of each name; the duplicate Demon and the non-Triad stay");
+		assertEquals(3, mw.gameState.getCounters(kefka, "Magic"),
+				"one Magic Counter for each card that actually went");
+	}
+
+	@Test
+	void andTakesOnlyWhatSharesNoNameWhenTheZoneIsAllOneCard() {
+		// Three copies of one name is one legal pick, not three. "Up to 3" is a ceiling the
+		// different-names rule can hold well under.
+		MainWindow mw = new MainWindow();
+		CardData kefka = kefka20008H();
+		mw.gameState.getIdentity().put(kefka, false);
+		mw.placeP2CardInForwardZone(kefka);
+
+		for (int i = 0; i < 3; i++)
+			seedP2BreakZone(mw, makeJobForward("The Demon", "Fire", "Warring Triad"));
+		List<CardData> bz = mw.gameState.getP2BreakZone();
+
+		ActionResolver.parse(KEFKA_ETF, kefka).accept(mw.buildGameContext(false));
+
+		assertEquals(2, bz.size(), "one Demon went and two stayed");
+		assertEquals(1, mw.gameState.getCounters(kefka, "Magic"));
+	}
+
+	@Test
+	void andLeavesAnEmptyBreakZoneAlone() {
+		MainWindow mw = new MainWindow();
+		CardData kefka = kefka20008H();
+		mw.gameState.getIdentity().put(kefka, false);
+		mw.placeP2CardInForwardZone(kefka);
+
+		ActionResolver.parse(KEFKA_ETF, kefka).accept(mw.buildGameContext(false));
+
+		assertEquals(0, mw.gameState.getCounters(kefka, "Magic"), "nothing removed, nothing banked");
+	}
+
+	@Test
+	void kefkaSpendsTheCountersHeBankedOnHisOwnTurnsEnd() {
+		CardData kefka = kefka20008H();
+		CardData victim = makeForward("Victim", "Ice", 3, 7000);
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.consumePreloadedTargets()).thenReturn(null);
+		when(ctx.getCounters(kefka, "Magic")).thenReturn(3);
+		when(ctx.selectNumber(eq(0), eq(3), anyString())).thenReturn(2);
+		when(ctx.selectCharacters(anyInt(), anyBoolean(), anyBoolean(), anyBoolean(), any(), any(),
+				anyInt(), any(), anyInt(), any(), anyBoolean(), anyBoolean(), anyBoolean(),
+				any(), any(), any(), any(), anyBoolean(), any(), anyBoolean()))
+				.thenReturn(List.of(new ForwardTarget(false, 0, ForwardTarget.CardZone.FORWARD)));
+
+		ActionResolver.parse(KEFKA_EOT, kefka).accept(ctx);
+
+		verify(ctx).removeCounters(kefka, "Magic", 2);
+		// The ceiling handed to the choose chain is the number of counters actually spent, not the
+		// number that were on him.
+		verify(ctx).selectCharacters(eq(2), eq(true), anyBoolean(), anyBoolean(), any(), any(),
+				anyInt(), any(), anyInt(), any(), anyBoolean(), anyBoolean(), anyBoolean(),
+				any(), any(), any(), any(), anyBoolean(), any(), anyBoolean());
+		verify(ctx).damageTarget(any(ForwardTarget.class), eq(9000));
+	}
+
+	@Test
+	void andSpendsNothingWhenHeIsAskedForNone() {
+		// Zero is the "you may" half of the sentence: declining removes no counter, and the payoff
+		// it gates does not happen.
+		CardData kefka = kefka20008H();
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.getCounters(kefka, "Magic")).thenReturn(3);
+		when(ctx.selectNumber(eq(0), eq(3), anyString())).thenReturn(0);
+
+		ActionResolver.parse(KEFKA_EOT, kefka).accept(ctx);
+
+		verify(ctx, never()).removeCounters(any(), anyString(), anyInt());
+		verify(ctx).markEffectFizzled();
+	}
+
+	@Test
+	void andIsNotEvenAskedWithNoCountersOnHim() {
+		CardData kefka = kefka20008H();
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.getCounters(kefka, "Magic")).thenReturn(0);
+
+		ActionResolver.parse(KEFKA_EOT, kefka).accept(ctx);
+
+		verify(ctx, never()).selectNumber(anyInt(), anyInt(), anyString());
+		verify(ctx).markEffectFizzled();
+	}
+
+	@Test
+	void kefkasBurnAnswersOnlyForTheCardThatPrintsIt() {
+		// The counters come off the printing card, so a text naming another card is not this
+		// parser's — the same rule the sibling counter parsers in ActionResolverState follow.
+		assertNull(ActionResolverState.tryParseRemoveAnyCountersThenChooseSameNumber(
+				KEFKA_EOT, makeForward("Someone Else", "Fire", 4, 8000)));
+		assertNotNull(ActionResolverState.tryParseRemoveAnyCountersThenChooseSameNumber(
+				KEFKA_EOT, kefka20008H()));
+	}
+
+	@Test
+	void theBreakZoneRemovalDeclinesWhatItCannotHonour() {
+		CardData probe = makeForward("Probe", "Fire", 4, 8000);
+		// Two filters, one selection: 12-112L Selh'teus and 29-005L Cloud draw a single pick list
+		// from two pools, which the Break Zone selection cannot express. Declined whole rather than
+		// half-honoured — taking Fire Forwards and ignoring the Ice half is not what the card says.
+		assertNull(ActionResolverState.tryParseRemoveFromBreakZoneFromGame(
+				"remove up to 5 Fire Forwards and/or Ice Forwards in your Break Zone from the game.",
+				probe));
+		// A trailing sentence the chain cannot read declines too. 11-138S Sephiroth's alternative
+		// ("or put Sephiroth into the Break Zone") is not a "Then, …" clause, and reporting the
+		// removal alone would quietly drop the choice the card is built around.
+		assertNull(ActionResolverState.tryParseRemoveFromBreakZoneFromGame(
+				"remove 3 cards from your Break Zone from the game or put Sephiroth into the Break Zone.",
+				probe));
+		// But the plain removal, with nothing hanging off it, is read in full.
+		assertNotNull(ActionResolverState.tryParseRemoveFromBreakZoneFromGame(
+				"remove all the Characters in each player's Break Zone from the game.", probe));
+	}
+
+	@Test
+	void theBreakZoneRemovalReadsTheFiltersItsFamilyPrints() {
+		CardData probe = makeForward("Probe", "Fire", 4, 8000);
+		for (String text : List.of(
+				"remove up to 5 Characters of cost 5 or more in your Break Zone from the game.",
+				"remove 2 Job Captain in your Break Zone from the game.",
+				"remove 4 Forwards of cost 4, each of a different Element in your Break Zone from the game.",
+				"remove 1 Card Name G'raha Tia in your Break Zone from the game.",
+				"remove any number of cards in your Break Zone from the game.",
+				"remove all the Characters in your opponent's Break Zone from the game.",
+				"remove 3 Category MBM Characters in your Break Zone from the game.",
+				"remove 10 Fire cards in your Break Zone from the game.",
+				"remove 5 Fire cards from your Break Zone from the game."))
+			assertNotNull(ActionResolverState.tryParseRemoveFromBreakZoneFromGame(text, probe), text);
+	}
+
+	@Test
+	void theWholeZoneWipeStaysWithTheParserThatOwnsIt() {
+		// "Remove all the cards in your opponent's Break Zone from the game" has its own parser and
+		// needs no selection at all. The removal parser sits behind it in every chain, so the
+		// ordering is what keeps a whole-zone wipe out of a picker dialog.
+		CardData probe = makeForward("Probe", "Fire", 4, 8000);
+		assertEquals("RemoveAllOppBzFromGame", ActionResolver.matchedPatternName(
+				"Remove all the cards in your opponent's Break Zone from the game.", probe));
+	}
+
+	// =========================================================================================
+	// PickGate — the "with different names" / "each of a different Element" rider shared by
+	// Kefka's Break Zone selection and Golbez's search.
+	// =========================================================================================
+
+	@Test
+	void distinctNamesRefusesASecondCopyOfANameAndNothingElse() {
+		CardData a1 = makeForward("Alpha", "Fire", 3, 7000);
+		CardData a2 = makeForward("Alpha", "Ice",  3, 7000);
+		CardData b  = makeForward("Beta",  "Fire", 3, 7000);
+
+		assertTrue(PickGate.DISTINCT_NAMES.allows(List.of(), a1));
+		assertFalse(PickGate.DISTINCT_NAMES.allows(List.of(a1), a2), "same name, different element");
+		assertTrue(PickGate.DISTINCT_NAMES.allows(List.of(a1), b), "same element, different name");
+	}
+
+	@Test
+	void distinctElementsSpendsEveryElementAMultiElementCardCarries() {
+		CardData fire     = makeForward("Fire One",  "Fire",      2, 5000);
+		CardData ice      = makeForward("Ice One",   "Ice",       2, 5000);
+		CardData fireIce  = makeForward("Both",      "Fire/Ice",  2, 5000);
+		CardData wind     = makeForward("Wind One",  "Wind",      2, 5000);
+
+		assertFalse(PickGate.DISTINCT_ELEMENTS.allows(List.of(fire), fireIce),
+				"a standing Fire pick blocks a Fire/Ice card");
+		assertFalse(PickGate.DISTINCT_ELEMENTS.allows(List.of(fireIce), ice),
+				"and a standing Fire/Ice pick blocks a later Ice card");
+		assertTrue(PickGate.DISTINCT_ELEMENTS.allows(List.of(fireIce), wind),
+				"an element it does not carry is still free");
+	}
+
+	@Test
+	void aGateReportsHowLargeASelectionItCanActuallyAdmit() {
+		// What a mandatory "select as many as possible" confirms at, and what stops an ungated
+		// auto-pick from taking a whole pool that is not a legal hand.
+		CardData d1 = makeForward("Demon",   "Fire", 5, 9000);
+		CardData d2 = makeForward("Demon",   "Fire", 5, 9000);
+		CardData g  = makeForward("Goddess", "Wind", 5, 9000);
+
+		assertEquals(2, PickGate.DISTINCT_NAMES.maxSelectable(List.of(d1, d2, g), 3));
+		assertEquals(1, PickGate.DISTINCT_NAMES.maxSelectable(List.of(d1, d2, g), 1), "capped");
+		assertEquals(3, PickGate.ANY.maxSelectable(List.of(d1, d2, g), 3));
+	}
+
+	// =========================================================================================
+	// 1-135L Golbez — "you may search for up to 4 Forwards of cost 2, each of a different Element
+	// and play them onto the field. Their auto-abilities will not trigger."
+	//
+	// Two riders, and both were being lost. "each of a different Element" sits where
+	// SEARCH_DECK_PATTERN expects the destination clause, so the ability did not parse at all. And
+	// once it did, "Their auto-abilities will not trigger" was worse than useless: the search
+	// parser hands whatever follows its match to parse(), and a sentence that comes back null is
+	// dropped without a word — four Forwards would arrive firing everything they print.
+	//
+	// The suppression is also the reason MainWindow counts arrivals rather than flagging one. The
+	// old one-shot flag silenced the first card of the four and let the other three off.
+	// =========================================================================================
+
+	private static final String GOLBEZ_LEAVES =
+			"search for up to 4 Forwards of cost 2, each of a different Element and play them onto "
+			+ "the field. Their auto-abilities will not trigger.";
+
+	@Test
+	void golbezParsesWithBothOfHisRiders() {
+		assertEquals("SearchDeck", ActionResolver.matchedPatternName(GOLBEZ_LEAVES, null));
+		GameContext ctx = mock(GameContext.class);
+		ActionResolver.parse(GOLBEZ_LEAVES, null).accept(ctx);
+
+		verify(ctx).searchDeckForCardWithRiders(true, false, false, false, 2, null,
+				null, null, null, null, null, null, "field", 4, false, false,
+				PickGate.DISTINCT_ELEMENTS, true);
+	}
+
+	@Test
+	void andAnOtherwiseIdenticalSearchCarriesNeitherRider() {
+		// The control: without the two phrases the same sentence goes to the plain primitive, so a
+		// future widening that started claiming ordinary searches would show up here.
+		GameContext ctx = mock(GameContext.class);
+		ActionResolver.parse(
+				"search for up to 4 Forwards of cost 2 and play them onto the field.", null)
+				.accept(ctx);
+
+		verify(ctx).searchDeckForCard(true, false, false, false, 2, null,
+				null, null, null, null, null, null, "field", 4, false, false);
+		verify(ctx, never()).searchDeckForCardWithRiders(anyBoolean(), anyBoolean(), anyBoolean(),
+				anyBoolean(), anyInt(), any(), any(), any(), any(), any(), any(), any(), any(),
+				anyInt(), anyBoolean(), anyBoolean(), any(), anyBoolean());
+	}
+
+	@Test
+	void theSilencingRiderIsReadEvenWithoutTheElementRider() {
+		// It is lifted off the text separately, so it has to work on its own — the singular
+		// wording (22-058H, 20-045C) reaches other parsers, but a search could print either.
+		GameContext ctx = mock(GameContext.class);
+		ActionResolver.parse("search for up to 2 Forwards of cost 2 and play them onto the field. "
+				+ "Their auto-abilities will not trigger.", null).accept(ctx);
+
+		verify(ctx).searchDeckForCardWithRiders(true, false, false, false, 2, null,
+				null, null, null, null, null, null, "field", 2, false, false,
+				PickGate.ANY, true);
+	}
+
+	@Test
+	void golbezTakesOneForwardPerElementAndNoMore() {
+		// Through the CPU's side, which resolves a search without a modal picker. The deck holds
+		// five cost-2 Forwards across three Elements, so the ceiling that bites is the Element
+		// rule and not the printed 4.
+		MainWindow mw = new MainWindow();
+		java.util.Deque<CardData> deck = mw.gameState.getP2MainDeck();
+		deck.add(makeForward("Fire A", "Fire",  2, 5000));
+		deck.add(makeForward("Fire B", "Fire",  2, 5000));
+		deck.add(makeForward("Ice A",  "Ice",   2, 5000));
+		deck.add(makeForward("Wind A", "Wind",  2, 5000));
+		deck.add(makeForward("Wind B", "Wind",  2, 5000));
+
+		ActionResolver.parse(GOLBEZ_LEAVES, null).accept(mw.buildGameContext(false));
+
+		List<String> elements = mw.p2ForwardCards.stream().map(CardData::element).sorted().toList();
+		assertEquals(3, elements.size(), "three Elements available, so three Forwards");
+		assertEquals(List.of("Fire", "Ice", "Wind"), elements, "and one of each");
+	}
+
+	@Test
+	void andAMultiElementForwardSpendsBothOfItsElements() {
+		// Fire/Ice and Fire cannot both be taken, whichever the CPU reaches for first: the pair
+		// shares Fire either way round. Two cards on offer, one Forward on the field.
+		MainWindow mw = new MainWindow();
+		java.util.Deque<CardData> deck = mw.gameState.getP2MainDeck();
+		deck.add(makeForward("Both",   "Fire/Ice", 2, 5000));
+		deck.add(makeForward("Fire A", "Fire",     2, 5000));
+
+		ActionResolver.parse(GOLBEZ_LEAVES, null).accept(mw.buildGameContext(false));
+
+		assertEquals(1, mw.p2ForwardCards.size(),
+				"a Fire/Ice card is blocked by a standing Fire pick, and blocks one in its turn");
+	}
+
+	@Test
+	void andWhateverIsTakenSharesNoElementWithTheRest() {
+		// The general rule, over a pool where more than one legal hand exists — which hand the CPU
+		// lands on is its own business, but every one of them has to be element-disjoint.
+		MainWindow mw = new MainWindow();
+		java.util.Deque<CardData> deck = mw.gameState.getP2MainDeck();
+		deck.add(makeForward("Both",   "Fire/Ice", 2, 5000));
+		deck.add(makeForward("Fire A", "Fire",     2, 5000));
+		deck.add(makeForward("Ice A",  "Ice",      2, 5000));
+		deck.add(makeForward("Wind A", "Wind",     2, 5000));
+
+		ActionResolver.parse(GOLBEZ_LEAVES, null).accept(mw.buildGameContext(false));
+
+		List<CardData> played = List.copyOf(mw.p2ForwardCards);
+		assertFalse(played.isEmpty(), "something was taken");
+		for (int i = 0; i < played.size(); i++)
+			for (int j = i + 1; j < played.size(); j++)
+				assertTrue(PickGate.DISTINCT_ELEMENTS.allows(List.of(played.get(i)), played.get(j)),
+						played.get(i).name() + " and " + played.get(j).name() + " share an Element");
+	}
+
+	@Test
+	void andNothingGolbezPlaysFiresItsEnterTheFieldAbility() {
+		// The rider names all of them. A one-shot suppression would let the second and third
+		// arrival off, which on a board of ETF Forwards is most of what the ability does.
+		MainWindow mw = new MainWindow();
+		String etf = "When Watcher enters the field, draw 1 card.";
+		java.util.Deque<CardData> deck = mw.gameState.getP2MainDeck();
+		for (String element : List.of("Fire", "Ice", "Wind"))
+			deck.add(makeAutoAbilityForward("Watcher", element, 5000, etf));
+		// Cost 2, which the factory above does not set — rebuild them at the cost Golbez asks for.
+		deck.clear();
+		for (String element : List.of("Fire", "Ice", "Wind"))
+			deck.add(makeCostTwoAutoForward("Watcher " + element, element, etf));
+		int handBefore = mw.gameState.getP2Hand().size();
+
+		ActionResolver.parse(GOLBEZ_LEAVES, null).accept(mw.buildGameContext(false));
+
+		assertEquals(3, mw.p2ForwardCards.size(), "one Forward of each Element arrived");
+		assertEquals(handBefore, mw.gameState.getP2Hand().size(),
+				"and not one of them drew a card");
+		assertEquals(0, mw.suppressAutoAbilityForNextCards,
+				"the suppression was spent exactly, leaving nothing armed for the next arrival");
+	}
+
+	/** A cost-2 Forward carrying an auto-ability, which Golbez's cost filter is written for. */
+	private static CardData makeCostTwoAutoForward(String name, String element, String text) {
+		return new CardData(null, name, element, 2, 5000, "Forward", false, 0, false, false,
+				Set.of(), 0, List.of(), null, List.of(),
+				List.of(), CardData.parseAutoAbilities(text), List.of(), List.of(), List.of(),
+				List.of(), List.of(), List.of(), List.of(), List.of(),
+				false, false, null, false, false, false, false, false, 1,
+				null, null, null, text);
+	}
+
+	// =========================================================================================
+	// 4-035R Cid Randell — "When your opponent's Forward enters the field, if your opponent
+	// doesn't pay 《1》, dull that Forward."
+	//
+	// Dormant on two counts. The subject writes the possessive in front, and only the suffix
+	// spelling ("a Forward of your opponent") was being reclassified onto the opponent-side
+	// watcher trigger, so this one kept trigger "enters the field" with a subject no card can ever
+	// be named — nothing dispatched it at all. And its effect did not parse: parseTargetAction
+	// reads "dull it and Freeze it" but had no branch for plain dulling, so the gate around it
+	// declined for want of an action.
+	// =========================================================================================
+
+	private static final String CID_RANDELL_TEXT =
+			"When your opponent's Forward enters the field, if your opponent doesn't pay 《1》, "
+			+ "dull that Forward.";
+
+	@Test
+	void cidRandellsTriggerReadsAsAnOpponentSideWatcher() {
+		List<AutoAbility> autos = CardData.parseAutoAbilities(CID_RANDELL_TEXT);
+		assertEquals(1, autos.size());
+		assertEquals("enters opponent's field", autos.get(0).trigger(),
+				"the possessive spelling is the same trigger as \"a Forward of your opponent\"");
+		assertEquals("a Forward", autos.get(0).triggerCard(),
+				"and normalised to the subject the dispatcher matches against");
+	}
+
+	@Test
+	void andTheSuffixSpellingStillReadsTheSameWay() {
+		// The form that already worked, asserted beside the new one so a change to either shows up
+		// as a difference between them rather than as two separate failures.
+		List<AutoAbility> autos = CardData.parseAutoAbilities(
+				"When a Forward of your opponent enters the field, dull it and Freeze it.");
+		assertEquals(1, autos.size());
+		assertEquals("enters opponent's field", autos.get(0).trigger());
+		assertEquals("a Forward", autos.get(0).triggerCard());
+	}
+
+	@Test
+	void cidRandellDullsTheEnteringForwardWhenTheTollGoesUnpaid() {
+		CardData cid = makeForward("Cid Randell", "Ice", 4, 8000);
+		ForwardTarget entering = new ForwardTarget(false, 0, ForwardTarget.CardZone.FORWARD);
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.consumePreloadedTargets()).thenReturn(List.of(entering));
+		// The opponent declining is the primitive running its onNotPaid callback.
+		doAnswer(inv -> { ((Runnable) inv.getArgument(1)).run(); return null; })
+				.when(ctx).opponentMayPayToPreventAction(anyInt(), any());
+
+		ActionResolver.parse(effectOf(CID_RANDELL_TEXT), cid).accept(ctx);
+
+		verify(ctx).opponentMayPayToPreventAction(eq(1), any());
+		verify(ctx).dullTarget(entering);
+	}
+
+	@Test
+	void andLeavesItAloneWhenTheTollIsPaid() {
+		CardData cid = makeForward("Cid Randell", "Ice", 4, 8000);
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.consumePreloadedTargets())
+				.thenReturn(List.of(new ForwardTarget(false, 0, ForwardTarget.CardZone.FORWARD)));
+		// Paying is the primitive never running the callback.
+		doNothing().when(ctx).opponentMayPayToPreventAction(anyInt(), any());
+
+		ActionResolver.parse(effectOf(CID_RANDELL_TEXT), cid).accept(ctx);
+
+		verify(ctx, never()).dullTarget(any());
+	}
+
+	@Test
+	void plainDullingIsNowATargetActionInItsOwnRight() {
+		// The missing branch, exercised directly. "Dull it and Freeze it" already resolved and has
+		// to keep resolving as the pair rather than being claimed by the new plain reading.
+		assertNotNull(ActionResolver.parseTargetAction("dull it.", 0));
+		assertNotNull(ActionResolver.parseTargetAction("dull that Forward.", 0));
+		assertNull(ActionResolver.parseTargetAction("dull that Forward and draw 1 card.", 0),
+				"the demonstrative is only read as a whole sentence");
+
+		GameContext pair = mock(GameContext.class);
+		ForwardTarget t = new ForwardTarget(false, 0, ForwardTarget.CardZone.FORWARD);
+		ActionResolver.parseTargetAction("dull it and Freeze it.", 0).accept(pair, List.of(t));
+		verify(pair).dullAndFreezeTarget(t);
+		verify(pair, never()).dullTarget(t);
+	}
+
+	@Test
+	void aPossessiveSubjectWatcherFiresOnARealBoardWithTheEnteringCardAsItsTarget() {
+		// What the reclassification buys, on a real board. Cid Randell's own toll cannot be
+		// exercised here: opponentMayPayToPreventAction opens a modal payment dialog whichever side
+		// is paying, so a headless run stops there waiting to be dismissed. His trigger is what
+		// changed, so this asserts the trigger — the same possessive subject carrying the
+		// payment-free wording 26-032L Charlotte prints, which reaches dispatch by the same route.
+		String text = "When your opponent's Forward enters the field, dull it and Freeze it.";
+		MainWindow mw = new MainWindow();
+		CardData watcher = new CardData(null, "Watcher", "Ice", 4, 8000, "Forward", false, 0, false, false,
+				Set.of(), 0, List.of(), null, List.of(),
+				List.of(), CardData.parseAutoAbilities(text), List.of(), List.of(),
+				List.of(), List.of(), List.of(), List.of(), List.of(), List.of(),
+				false, false, null, false, false, false, false, false, 1,
+				null, null, null, text);
+		placeP1Forward(mw, watcher);
+
+		CardData arriving = makeForward("Arriving", "Fire", 3, 7000);
+		mw.gameState.getIdentity().put(arriving, false);
+		mw.placeP2CardInForwardZone(arriving);
+
+		assertEquals(1, mw.p2ForwardCards.size());
+		assertEquals(CardState.DULL, mw.p2ForwardStates.get(0),
+				"the watcher fired with the entering Forward preloaded as its target");
+		assertTrue(mw.p2ForwardFrozen.get(0), "and froze it as well");
+	}
+
+	@Test
+	void andAWatcherThisEngineCannotPointAtTheEnteringCardStaysDormant() {
+		// 20-102L Mira reaches the same dispatch now that her possessive subject is reclassified,
+		// but "you may pay 《1》 and discard 1 Monster. When you do so, break that Forward."
+		// parses today as the discard alone. Running it would pay the cost and drop the payoff, so
+		// the dispatcher skips it until the sentence is wired.
+		String miraText = "When an opponent's Forward enters the field, you may pay 《1》 and "
+				+ "discard 1 Monster. When you do so, break that Forward.";
+		List<AutoAbility> autos = CardData.parseAutoAbilities(miraText);
+		assertEquals("enters opponent's field", autos.get(0).trigger(), "reclassified all the same");
+
+		MainWindow mw = new MainWindow();
+		CardData mira = new CardData(null, "Mira", "Wind", 5, 9000, "Forward", false, 0, false, false,
+				Set.of(), 0, List.of(), null, List.of(),
+				List.of(), autos, List.of(), List.of(), List.of(), List.of(), List.of(),
+				List.of(), List.of(), List.of(),
+				false, false, null, false, false, false, false, false, 1,
+				null, null, null, miraText);
+		placeP1Forward(mw, mira);
+		mw.gameState.getP1Hand().add(makeForward("A Monster", "Wind", 2, 5000));
+		int handBefore = mw.gameState.getP1Hand().size();
+
+		CardData arriving = makeForward("Arriving", "Fire", 3, 7000);
+		mw.gameState.getIdentity().put(arriving, false);
+		mw.placeP2CardInForwardZone(arriving);
+
+		assertEquals(handBefore, mw.gameState.getP1Hand().size(), "no card was discarded");
+		assertEquals(1, mw.p2ForwardCards.size(), "and nothing was broken either");
+	}
+
+	@Test
+	void guardiansGatedDullStopsResolvingUnconditionally() {
+		// 24-075C Guardian: "choose up to 2 Forwards. If you control 4 or more Lightning Backups,
+		// dull them." Collateral from the same gap. The "If you control N or more …" branch is
+		// guarded on parseTargetAction being able to read its action, and with no plain-dull branch
+		// that guard failed — so the gate was skipped and the chain fell through to an
+		// unconditional dull, which dulled two Forwards off a board of zero Lightning Backups.
+		String text = "choose up to 2 Forwards. If you control 4 or more Lightning Backups, dull them.";
+		assertEquals("ChooseCharacter / IfSelfControlsNElementTypeAction",
+				ActionResolver.fullDescription(text, null), "the gate is named, not swallowed");
+
+		ForwardTarget t = new ForwardTarget(false, 0, ForwardTarget.CardZone.FORWARD);
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.consumePreloadedTargets()).thenReturn(null);
+		when(ctx.selectCharacters(anyInt(), anyBoolean(), anyBoolean(), anyBoolean(), any(), any(),
+				anyInt(), any(), anyInt(), any(), anyBoolean(), anyBoolean(), anyBoolean(),
+				any(), any(), any(), any(), anyBoolean(), any(), anyBoolean()))
+				.thenReturn(List.of(t));
+		when(ctx.selfFieldCount(eq("Lightning"), anyBoolean(), anyBoolean(), anyBoolean()))
+				.thenReturn(3);
+
+		ActionResolver.parse(text, null).accept(ctx);
+
+		verify(ctx, never()).dullTarget(any());
+	}
+
+	/** The effect half of a printed "When …, [effect]" sentence, as CardData records it. */
+	private static String effectOf(String printedTriggerSentence) {
+		List<AutoAbility> autos = CardData.parseAutoAbilities(printedTriggerSentence);
+		assertEquals(1, autos.size(), printedTriggerSentence);
+		return autos.get(0).effectText();
+	}
+
+	// =========================================================================================
+	// 16-011L Squall — a blocker that leaves the field between the block and the damage.
+	//
+	// "When Squall attacks, deal 4000 damage to all the Forwards opponent controls." and "When
+	// Squall is blocked, deal 4000 damage to all the Forwards opponent controls." Both are his,
+	// and the second one can finish off the very Forward that just blocked him.
+	//
+	// resolveCombat was handed the indices recorded when the block was declared and used them for
+	// everything after. The is-blocked trigger and a full priority round both run in between, and
+	// breaking a Forward compacts its row — so those indices went stale. Reading First Strike off
+	// one threw IndexOutOfBoundsException, which left the Attack Phase stalled on damage
+	// resolution with priority still held and the game unplayable.
+	// =========================================================================================
+
+	private static final String SQUALL_COMBAT_TRIGGERS =
+			"When Squall attacks, deal 4000 damage to all the Forwards opponent controls."
+			+ "[[br]] When Squall is blocked, deal 4000 damage to all the Forwards opponent controls.";
+
+	private static CardData squallWithCombatTriggers() {
+		return new CardData(null, "Squall", "Fire", 4, 8000, "Forward", false, 0, false, false,
+				Set.of(), 0, List.of(), null, List.of(),
+				List.of(), CardData.parseAutoAbilities(SQUALL_COMBAT_TRIGGERS), List.of(), List.of(),
+				List.of(), List.of(), List.of(), List.of(), List.of(), List.of(),
+				false, false, null, false, false, false, false, false, 1,
+				null, null, null, SQUALL_COMBAT_TRIGGERS);
+	}
+
+	@Test
+	void combatSurvivesTheBlockerBeingBrokenBeforeDamage() {
+		MainWindow mw = new MainWindow();
+		CardData squall = squallWithCombatTriggers();
+		placeP1Forward(mw, squall);
+
+		// Barret first, so the blocker sits at index 1 and its index moves when Barret breaks —
+		// which is what turned a crash into the wrong card on the boards where it did not crash.
+		CardData barret = makeForward("Barret", "Fire", 3, 7000);
+		CardData cloud  = makeForward("Cloud",  "Fire", 4, 8000);
+		placeP2Forward(mw, barret);
+		placeP2Forward(mw, cloud);
+
+		// The attack trigger has already landed: 4000 on each, exactly as the reported game had it.
+		mw.p2ForwardDamage.set(0, 4000);
+		mw.p2ForwardDamage.set(1, 4000);
+
+		// Cloud blocks, and the is-blocked trigger breaks both of them before damage resolves.
+		assertDoesNotThrow(() -> {
+			mw.autoAbilityTriggers.triggerAutoAbilitiesForIsBlocked(squall, true);
+			mw.resolveCombat(squall, true, 0, cloud, false, 1);
+		}, "the blocker's index is stale by the time damage resolves");
+
+		assertTrue(mw.p2ForwardCards.isEmpty(), "both of the opponent's Forwards were broken");
+		assertTrue(mw.p1ForwardCards.contains(squall), "and Squall is still standing");
+	}
+
+	@Test
+	void andASurvivingBlockerIsStillTheOneThatFightsAfterTheRowShifts() {
+		// The half a crash guard alone would not catch: the row compacted under the blocker, so the
+		// declared index now names a different card. Combat has to follow the blocker, not the slot.
+		MainWindow mw = new MainWindow();
+		CardData attacker = makeForward("Attacker", "Fire", 3, 5000);
+		placeP1Forward(mw, attacker);
+
+		CardData bystander = makeForward("Bystander", "Ice", 2, 3000);
+		CardData blocker   = makeForward("Blocker",   "Ice", 5, 9000);
+		placeP2Forward(mw, bystander);
+		placeP2Forward(mw, blocker);
+
+		// Something removes the bystander between the block and the damage; the blocker slides from
+		// index 1 to index 0.
+		mw.breakP2Forward(0);
+		assertSame(blocker, mw.p2ForwardCards.get(0));
+
+		mw.resolveCombat(attacker, true, 0, blocker, false, 1);
+
+		assertEquals(5000, mw.p2ForwardDamage.get(0),
+				"the blocker took the attacker's damage, at the index it now occupies");
+		assertFalse(mw.p1ForwardCards.contains(attacker),
+				"and the 9000-power blocker struck back hard enough to break it");
+	}
+
+	@Test
+	void andAnAttackerThatLeavesTheFieldTakesTheBattleWithIt() {
+		MainWindow mw = new MainWindow();
+		CardData attacker = makeForward("Attacker", "Fire", 3, 5000);
+		CardData blocker  = makeForward("Blocker",  "Ice",  3, 5000);
+		placeP1Forward(mw, attacker);
+		placeP2Forward(mw, blocker);
+
+		mw.breakP1Forward(0);
+
+		mw.resolveCombat(attacker, true, 0, blocker, false, 0);
+
+		assertEquals(0, mw.p2ForwardDamage.get(0),
+				"a blocker whose attacker is gone is in no battle and takes nothing");
+	}
+
+	@Test
+	void aBlockerBrokenBeforeDamageSparesThePlayerToo() {
+		// A blocked attacker deals no damage to the player, and that stays true when the blocker
+		// leaves the battle before damage — the attack was blocked either way.
+		MainWindow mw = new MainWindow();
+		CardData attacker = makeForward("Attacker", "Fire", 3, 5000);
+		CardData blocker  = makeForward("Blocker",  "Ice",  3, 5000);
+		placeP1Forward(mw, attacker);
+		placeP2Forward(mw, blocker);
+		for (int i = 0; i < 8; i++)
+			mw.gameState.getP2MainDeck().add(makeForward("Deck" + i, "Fire", 1, 1000));
+
+		mw.breakP2Forward(0);
+		mw.resolveCombat(attacker, true, 0, blocker, false, 0);
+
+		assertEquals(0, mw.gameState.getP2DamageZone().size(), "no point reaches the player");
+	}
+
+	@Test
+	void theFieldLocatorFollowsTheInstanceAndNotTheName() {
+		// CardData is a record, so two copies of one printing are equal to each other. An equality
+		// search would answer for a copy that was never in this battle; combat is about the
+		// instance that was declared. (One player cannot field both copies at once — the
+		// same-name rule sends the second to the Break Zone — so the two are separated by side.)
+		MainWindow mw = new MainWindow();
+		CardData mine   = makeForward("Twin", "Fire", 3, 7000);
+		CardData theirs = makeForward("Twin", "Fire", 3, 7000);
+		CardData spare  = makeForward("Twin", "Fire", 3, 7000);
+		placeP1Forward(mw, mine);
+		placeP2Forward(mw, theirs);
+		assertEquals(mine, theirs, "the premise: equal as records, distinct as instances");
+
+		assertEquals(0, mw.currentFieldTargetOf(theirs, false, -1).idx());
+		assertNull(mw.currentFieldTargetOf(mine, false, -1),
+				"P1's copy is not on P2's field, however equal the two are");
+		assertNull(mw.currentFieldTargetOf(spare, false, -1),
+				"and a copy that was never on the field is not on it");
+	}
+
+	@Test
+	void andReadsAPrimedTopCardAsTheSlotItStandsOn() {
+		// The attacker handed to resolveCombat is the card that acts, which for a primed Forward is
+		// the top card rather than the one in the row. Looking only at the row would report it gone
+		// and skip a battle that is very much happening.
+		MainWindow mw = new MainWindow();
+		CardData under = makeForward("Under", "Fire", 3, 7000);
+		CardData top   = makeForward("Top",   "Fire", 5, 9000);
+		placeP2Forward(mw, under);
+		mw.p2ForwardPrimedTop.set(0, top);
+
+		assertEquals(0, mw.currentFieldTargetOf(top, false, -1).idx(),
+				"the primed top card stands where its slot stands");
+		assertEquals(0, mw.currentFieldTargetOf(under, false, -1).idx(),
+				"and so does the card underneath it");
 	}
 
 	// =========================================================================================

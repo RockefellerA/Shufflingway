@@ -2021,13 +2021,15 @@ final class GameContextImpl implements GameContext {
 						costVal, costCmp, cardNameFilter, jobFilter, categoryFilter, elementFilter, excludeName, excludeElem, destination, count, entersDull, requireWarp);
 			}
 
-			@Override public boolean searchDeckForCardDistinctNames(boolean inclForwards, boolean inclBackups,
+			@Override public boolean searchDeckForCardWithRiders(boolean inclForwards, boolean inclBackups,
 					boolean inclMonsters, boolean inclSummons,
 					int costVal, String costCmp, String cardNameFilter, String jobFilter,
 					String categoryFilter, String elementFilter, String excludeName, String excludeElem,
-					String destination, int count, boolean entersDull, boolean requireWarp) {
-				return mw.searchDeckForCardDistinctNames(isP1, inclForwards, inclBackups, inclMonsters, inclSummons,
-						costVal, costCmp, cardNameFilter, jobFilter, categoryFilter, elementFilter, excludeName, excludeElem, destination, count, entersDull, requireWarp);
+					String destination, int count, boolean entersDull, boolean requireWarp,
+					PickGate gate, boolean suppressAutoAbilities) {
+				return mw.searchDeckForCardWithRiders(isP1, inclForwards, inclBackups, inclMonsters, inclSummons,
+						costVal, costCmp, cardNameFilter, jobFilter, categoryFilter, elementFilter, excludeName,
+						excludeElem, destination, count, entersDull, requireWarp, gate, suppressAutoAbilities);
 			}
 			@Override public boolean searchDeckForNamedCardWithJob(boolean inclForwards, boolean inclBackups,
 					boolean inclMonsters, boolean inclSummons,
@@ -3757,7 +3759,7 @@ final class GameContextImpl implements GameContext {
 				CardData card = hand.remove(handIdx);
 				logEntry((forP1 ? "" : "[P2] ") + card.name() + " played from hand onto field"
 						+ (entersDull ? " (dull)" : "") + (suppressAutoAbility ? " (no ETF auto-ability)" : ""));
-				if (suppressAutoAbility) mw.suppressAutoAbilityForNextCard = true;
+				if (suppressAutoAbility) mw.suppressAutoAbilityForNextCards = 1;
 				if (forP1) {
 					if (card.isBackup()) {
 						mw.placeCardInFirstBackupSlot(card);
@@ -5211,7 +5213,7 @@ final class GameContextImpl implements GameContext {
 				String src = t.isP1() ? "Break Zone" : "opponent's Break Zone";
 				logEntry(card.name() + " played from " + src + " onto field"
 						+ (suppressAutoAbility ? " (no ETF auto-ability)" : ""));
-				if (suppressAutoAbility) mw.suppressAutoAbilityForNextCard = true;
+				if (suppressAutoAbility) mw.suppressAutoAbilityForNextCards = 1;
 				ForwardTarget landed;
 				if (t.isP1()) {
 					if (card.isBackup())       { mw.placeCardInFirstBackupSlot(card); landed = ownBackupTargetOf(true, card); }
@@ -6547,6 +6549,85 @@ final class GameContextImpl implements GameContext {
 					}
 				}
 				logEntry("[Warning] removeNamedCardFromGame: \"" + cardName + "\" not found on field");
+			}
+
+			@Override public int removeCardsFromBreakZoneFromGame(int maxCount, boolean upTo,
+					boolean opponentZone, boolean bothZones, String element, int costVal, String costCmp,
+					boolean forwards, boolean backups, boolean monsters, boolean summons,
+					String jobFilter, String cardNameFilter, String categoryFilter, PickGate gate) {
+				List<ForwardTarget> eligible = eligibleCharactersFromBreakZone(
+						maxCount, upTo, opponentZone, bothZones, null, element, costVal, costCmp,
+						-1, null, forwards, backups, monsters,
+						jobFilter, cardNameFilter, categoryFilter, null, summons, null, false);
+				if (eligible.isEmpty()) {
+					logEntry("Effect: no eligible cards in " + (opponentZone ? "opponent's" : "your")
+							+ " Break Zone to remove from the game");
+					markEffectFizzled();
+					return 0;
+				}
+				List<CardData> p1bz = mw.gameState.getP1BreakZone();
+				List<CardData> p2bz = mw.gameState.getP2BreakZone();
+				// One flat list in eligible order, which is what both the dialog and the gate index
+				// into; a bothZones selection spans two zones and has no single backing list.
+				List<CardData> pool = new ArrayList<>(eligible.size());
+				for (ForwardTarget t : eligible) pool.add((t.isP1() ? p1bz : p2bz).get(t.idx()));
+
+				int cap = Math.min(maxCount, eligible.size());
+				List<ForwardTarget> picks;
+				if (isP1) {
+					// Re-indexed onto pool so one dialog can show cards drawn from either zone, then
+					// mapped back to real zone indices before anything is removed.
+					List<ForwardTarget> reindexed = new ArrayList<>(eligible.size());
+					for (int i = 0; i < eligible.size(); i++)
+						reindexed.add(new ForwardTarget(eligible.get(i).isP1(), i, ForwardTarget.CardZone.BREAK_ZONE));
+					String title = "Choose " + (upTo ? "up to " : "")
+							+ (maxCount == Integer.MAX_VALUE ? "any number of" : String.valueOf(cap))
+							+ (element != null ? " " + element : "")
+							+ (jobFilter != null ? " Job " + jobFilter : "")
+							+ (categoryFilter != null ? " Category " + categoryFilter : "")
+							+ (cardNameFilter != null ? " Card Name " + cardNameFilter : "")
+							+ breakZoneTypeLabel(forwards, backups, monsters, summons, cap)
+							+ formatCostFilterLabel(costVal, costCmp)
+							+ " in " + (opponentZone ? "opponent's" : "your") + " Break Zone to remove from the game";
+					List<ForwardTarget> chosen =
+							mw.showBreakZoneSelectDialog(reindexed, pool, cap, upTo, title, gate);
+					picks = new ArrayList<>(chosen.size());
+					for (ForwardTarget t : chosen) picks.add(eligible.get(t.idx()));
+				} else {
+					// The AI takes the first legal run in zone order. The gate still applies: a hand
+					// it could not legally have chosen is not one the rules let it take.
+					picks = new ArrayList<>();
+					List<CardData> taken = new ArrayList<>();
+					for (int i = 0; i < eligible.size() && taken.size() < cap; i++) {
+						if (!gate.allows(taken, pool.get(i))) continue;
+						taken.add(pool.get(i));
+						picks.add(eligible.get(i));
+					}
+					picks.forEach(t -> logEntry("[AI] removes " + pool.get(eligible.indexOf(t)).name()
+							+ " from the game"));
+				}
+				if (picks.isEmpty()) {
+					logEntry("Effect: no cards removed from the game");
+					markEffectFizzled();
+					return 0;
+				}
+				// Highest index first within each side: removing a card compacts that Break Zone and
+				// would otherwise shift the index every later pick was recorded at.
+				List<ForwardTarget> ordered = new ArrayList<>(picks);
+				ordered.sort((a, b) -> a.isP1() == b.isP1() ? Integer.compare(b.idx(), a.idx())
+						: Boolean.compare(a.isP1(), b.isP1()));
+				int removed = 0;
+				for (ForwardTarget t : ordered) {
+					List<CardData> bz = t.isP1() ? p1bz : p2bz;
+					if (t.idx() >= bz.size()) continue;
+					CardData before = bz.get(t.idx());
+					removeTargetFromGame(t);
+					// The zone shields a card can carry leave it standing, and an untaken card is not
+					// one this effect removed — the count is what went, not what was picked.
+					if (t.idx() >= bz.size() || bz.get(t.idx()) != before) removed++;
+				}
+				if (removed == 0) markEffectFizzled();
+				return removed;
 			}
 
 			@Override public void removeAllOpponentBzFromGame() {

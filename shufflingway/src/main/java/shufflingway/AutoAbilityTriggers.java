@@ -1645,8 +1645,8 @@ final class AutoAbilityTriggers {
 
 	/** @param paidExtraCost whether {@code card}'s optional extra cost was paid when it was cast (threaded to its own "enters the field" trigger only, not to watcher abilities on other cards). */
 	void triggerAutoAbilitiesForEntersField(CardData card, boolean isP1, boolean paidExtraCost) {
-		if (mw.suppressAutoAbilityForNextCard) {
-			mw.suppressAutoAbilityForNextCard = false;
+		if (mw.suppressAutoAbilityForNextCards > 0) {
+			mw.suppressAutoAbilityForNextCards--;
 			// Re-evaluate field boosts even when ETF auto-abilities are suppressed
 			mw.refreshAllForwardSlots();
 			for (int i = 0; i < mw.p2ForwardCards.size(); i++) mw.refreshP2ForwardSlot(i);
@@ -1832,13 +1832,35 @@ final class AutoAbilityTriggers {
 			// "dull it and Freeze it" (26-032L Charlotte) names no target of its own — "it" is the
 			// card that entered. Run it inline with that card preloaded, as the Remedi-style
 			// not-from-hand watchers do; everything else keeps the normal stack path.
-			if (ActionResolver.isTriggeredTargetAction(fa.effectText())) {
+			//
+			// The "if your opponent doesn't pay 《N》, [action]" form (4-035R Cid Randell) is the
+			// same shape and takes the same route: its action is applied to the preloaded target
+			// unless the opponent buys it off.
+			if (ActionResolver.isTriggeredTargetAction(fa.effectText())
+					|| ActionResolver.isIfOppNotPayAction(fa.effectText())) {
 				runWithEnteringCardAsTarget(fa, watcher, watcherIsP1, enteringTarget);
+				continue;
+			}
+			// A watcher that points at the entering card in some other way is left dormant rather
+			// than run on the stack, where it has no target to point at. 20-102L Mira's "you may
+			// pay 《1》 and discard 1 Monster. When you do so, break that Forward." parses today as
+			// the discard alone, so running it would pay the cost and drop the payoff — worse than
+			// not firing. Wiring that sentence is what makes this branch go away.
+			if (REFERS_TO_ENTERING_CARD.matcher(fa.effectText()).find()) {
+				mw.logEntry("[AutoAbility] " + watcher.name()
+						+ " — not wired to act on the entering card; skipped");
 				continue;
 			}
 			executeAutoAbility(fa, watcher, watcherIsP1);
 		}
 	}
+
+	/**
+	 * A watcher sentence pointing at the card that just entered, rather than at something it
+	 * chooses for itself. What such a sentence needs is the entering card preloaded as its target.
+	 */
+	private static final java.util.regex.Pattern REFERS_TO_ENTERING_CARD =
+			java.util.regex.Pattern.compile("(?i)\\bthat\\s+(?:Forward|Character|Backup|Monster)\\b");
 
 	/** Resolves {@code fa} immediately with {@code enteringTarget} preloaded as its target. */
 	private void runWithEnteringCardAsTarget(AutoAbility fa, CardData watcher,

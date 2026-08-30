@@ -2202,6 +2202,34 @@ public interface GameContext {
     void removeAllOpponentBzFromGame();
 
     /**
+     * Chooses cards in a Break Zone matching the given filters, removes them from the game, and
+     * reports how many actually went — "remove up to 3 Job Warring Triad with different names in
+     * your Break Zone from the game" (20-008H Kefka).
+     *
+     * <p>The zone counterpart of the field-only {@link #removeNamedCardFromGame(String)}, which is
+     * what this family used to fall to: that one searches the field for a literal name, so every
+     * one of these sentences reached it with the whole filter phrase as the "name", found nothing,
+     * and logged a warning. A Break Zone card is not on the field and cannot be addressed that way.
+     *
+     * <p>Removing nothing calls {@link #markEffectFizzled()}, so a "When you do so, …" followup on
+     * the same sentence is suppressed rather than paid out for free. That includes a player
+     * declining an "up to" selection, which is a legal answer and not progress.
+     *
+     * <p>Picks are removed highest index first within each side, because removing one card
+     * compacts that zone and would otherwise shift a later pick's index.
+     *
+     * @param maxCount   how many may be taken; {@link Integer#MAX_VALUE} for "all"/"any number"
+     * @param upTo       {@code true} when the count is a ceiling the player may come in under
+     * @param gate       refuses combinations the text rules out — "with different names",
+     *                   "each of a different Element"; {@link PickGate#ANY} when unconstrained
+     * @return how many cards this call put out of the game
+     */
+    int removeCardsFromBreakZoneFromGame(int maxCount, boolean upTo, boolean opponentZone,
+            boolean bothZones, String element, int costVal, String costCmp,
+            boolean forwards, boolean backups, boolean monsters, boolean summons,
+            String jobFilter, String cardNameFilter, String categoryFilter, PickGate gate);
+
+    /**
      * Searches P1 and P2 permanent RFP zones for a card matching {@code cardName} and places
      * the first match onto its owner's forward zone (triggering entering-field abilities).
      */
@@ -2979,17 +3007,22 @@ public interface GameContext {
             String destination, int count, boolean entersDull, boolean requireWarp);
 
     /**
-     * As {@link #searchDeckForCard}, but the cards found must all have <em>different names</em> —
-     * "search for 2 Category IX Forwards with different names" (23-008H Zidane).
+     * As {@link #searchDeckForCard}, with the two riders a multi-card search can print.
      *
-     * <p>The constraint binds the selection, not the pool: every match is still offered, and it is
-     * taking two copies of one name that is illegal.
+     * <p>{@code gate} is the constraint on which cards may be taken <em>together</em> — "with
+     * different names" (23-008H Zidane), "each of a different Element" (1-135L Golbez). It binds
+     * the selection, not the pool: every match is still offered, and it is taking a second card of
+     * a spoken-for name or Element that is illegal.
+     *
+     * <p>{@code suppressAutoAbilities} is "Their auto-abilities will not trigger" — every card this
+     * search puts onto the field arrives silent, not just the first of them.
      */
-    boolean searchDeckForCardDistinctNames(boolean inclForwards, boolean inclBackups,
+    boolean searchDeckForCardWithRiders(boolean inclForwards, boolean inclBackups,
             boolean inclMonsters, boolean inclSummons,
             int costVal, String costCmp, String cardNameFilter, String jobFilter,
             String categoryFilter, String elementFilter, String excludeName, String excludeElem,
-            String destination, int count, boolean entersDull, boolean requireWarp);
+            String destination, int count, boolean entersDull, boolean requireWarp,
+            PickGate gate, boolean suppressAutoAbilities);
 
     /**
      * As {@link #searchDeckForCard}, but requiring the name <em>and</em> the job together —

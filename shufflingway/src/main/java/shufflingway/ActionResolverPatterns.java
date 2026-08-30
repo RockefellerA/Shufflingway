@@ -1067,6 +1067,17 @@ final class ActionResolverPatterns {
     static final Pattern FOLLOWUP_DULL = Pattern.compile(
         "(?i)dulls?\\s+(?:it|them)"
     );
+    /**
+     * Matches "Dull that Forward." — the demonstrative form, 4-035R Cid Randell.
+     *
+     * <p>Anchored and read with {@code matches()}, not {@code find()}: the demonstrative is only
+     * unambiguous when it is the whole sentence. Inside a longer one it can point at a card named
+     * earlier in the same ability rather than at the target already in hand, which is the trap
+     * {@link #FOLLOWUP_BREAK_DEMONSTRATIVE} documents for the break wording.
+     */
+    static final Pattern FOLLOWUP_DULL_DEMONSTRATIVE = Pattern.compile(
+        "(?i)^dull\\s+that\\s+(?:Forward|Character|Backup|Monster)\\s*[.!]?$"
+    );
     /** Matches "freeze it" or "freeze them". */
     static final Pattern FOLLOWUP_FREEZE = Pattern.compile(
         "(?i)freeze\\s+(?:it|them)"
@@ -1445,6 +1456,76 @@ final class ActionResolverPatterns {
     /** Matches "Remove all the cards in your opponent's Break Zone from the game." */
     static final Pattern REMOVE_ALL_OPP_BZ_FROM_GAME = Pattern.compile(
         "(?i)^remove\\s+all\\s+the\\s+cards\\s+in\\s+your\\s+opponent'?s\\s+Break\\s+Zone\\s+from\\s+(?:the\\s+)?game[.!]?\\s*$"
+    );
+    /**
+     * Matches "[you may] remove [N|up to N|all the|any number of] [filters] in/from [whose] Break
+     * Zone from the game" — the effect-position Break Zone removal, 20-008H Kefka's first sentence
+     * and about twenty siblings.
+     *
+     * <p>Anchored at the start and read with {@code lookingAt()} so a trailing sentence stays
+     * available to the caller: the family reaches this both bare and with a "Then, …" or "When you
+     * do so, …" payoff hanging off it.
+     *
+     * <p>The filter phrase is captured whole rather than picked apart here. Spelling out element,
+     * job, category, card-name, type and cost as alternating optional groups in one expression made
+     * a regex that could match the same phrase several ways, and the corpus writes them in more
+     * than one order ("Category MBM Characters", "Fire cards", "Job Warring Triad with different
+     * names"). {@code ActionResolverState.tryParseRemoveFromBreakZoneFromGame} takes the phrase
+     * apart in Java, which can also decline what it does not recognise — the "and/or" texts
+     * (12-112L Selh'teus, 29-005L Cloud, 23-117L Chaos) name two filters and one selection, which
+     * this engine's Break Zone selection cannot express.
+     *
+     * <ul>
+     *   <li>{@code qty}     — "all the", "any number of", "up to N", "N", or absent for one</li>
+     *   <li>{@code filters} — everything between the count and the zone phrase</li>
+     *   <li>{@code zone}    — "your", "the", "your opponent's", "each player's"</li>
+     * </ul>
+     */
+    static final Pattern REMOVE_FROM_BREAK_ZONE_FROM_GAME = Pattern.compile(
+        "(?i)^(?:you\\s+may\\s+)?remove\\s+" +
+        "(?<qty>all\\s+the|all|any\\s+number\\s+of|up\\s+to\\s+\\d+|\\d+)?\\s*" +
+        "(?<filters>.*?)\\s*" +
+        "(?:in|from)\\s+(?<zone>your\\s+opponent'?s|your|the|each\\s+player'?s|either\\s+player'?s)" +
+        "\\s+Break\\s+Zone\\s+from\\s+(?:the\\s+)?game[.!]?"
+    );
+    /**
+     * Matches "[you may] remove any number of [Name] Counters from [Card]. When you do so, choose
+     * [up to] the same number of [noun] as the [Name] Counters you removed. [effect]" — 20-008H
+     * Kefka's end-of-turn burn.
+     *
+     * <p>One expression across both sentences on purpose. The generic
+     * {@code WHEN_YOU_DO_SO_SEQUENCE} split resolves the halves independently, and the second half
+     * is not an effect that can be resolved on its own: "the same number" is however many counters
+     * the first half actually took off, a quantity that only exists inside the one resolution.
+     *
+     * <ul>
+     *   <li>{@code counter} — the Counter's name, e.g. "Magic"</li>
+     *   <li>{@code card}    — the card the counters come off, which has to be the printing card</li>
+     *   <li>{@code noun}    — what the payoff chooses, e.g. "Forwards", "Forwards opponent controls"</li>
+     *   <li>{@code tail}    — what the payoff then does to them, e.g. "Deal them 9000 damage."</li>
+     * </ul>
+     */
+    static final Pattern REMOVE_ANY_COUNTERS_THEN_CHOOSE_SAME_NUMBER = Pattern.compile(
+        "(?i)^(?:you\\s+may\\s+)?remove\\s+any\\s+number\\s+of\\s+(?<counter>[A-Za-z][A-Za-z ]*?)\\s+" +
+        "Counters?\\s+from\\s+(?<card>[^.!]+?)\\s*[.!]\\s*" +
+        "(?:When|If)\\s+you\\s+do\\s+so,?\\s+choose\\s+(?:up\\s+to\\s+)?the\\s+same\\s+number\\s+of\\s+" +
+        "(?<noun>.+?)\\s+as\\s+the\\s+(?<counter2>[A-Za-z][A-Za-z ]*?)\\s+Counters?\\s+you\\s+removed\\s*[.!]\\s*" +
+        "(?<tail>\\S.*)$", Pattern.DOTALL
+    );
+    /**
+     * Matches the counter payoff trailing a Break Zone removal: "Then, place N [Name] Counter(s) on
+     * [Card] for each card you removed due to this ability." — 20-008H Kefka.
+     *
+     * <p>Read by the removal parser itself rather than by the generic "Then, …" chaining, because
+     * the multiplier is how many cards <em>that</em> removal actually put out of the game. Nothing
+     * a later {@code parse()} call produces can see that number: the running tally on the source
+     * card is cumulative across every resolution, so a Kefka who enters the field twice would pay
+     * out the first sweep's cards again on the second.
+     */
+    static final Pattern THEN_PLACE_COUNTERS_PER_CARD_REMOVED = Pattern.compile(
+        "(?i)^[\\s.!]*Then,?\\s+place\\s+(?<amount>\\d+)\\s+(?<counter>[A-Za-z][A-Za-z ]*?)\\s+" +
+        "Counters?\\s+on\\s+(?<oncard>.+?)\\s+for\\s+each\\s+card\\s+you\\s+removed\\s+" +
+        "due\\s+to\\s+this\\s+ability[.!]?\\s*$"
     );
     /**
      * Matches "Remove [CardName] from the game." The {@code the top …} guard keeps deck-top removals
@@ -4564,6 +4645,29 @@ final class ActionResolverPatterns {
      */
     static final Pattern SEARCH_WITH_DIFFERENT_NAMES = Pattern.compile(
         "(?i)\\s+with\\s+different\\s+names\\b"
+    );
+    /**
+     * The "each of a different Element" constraint on a multi-card search — 1-135L Golbez.
+     *
+     * <p>Lifted off before {@link #SEARCH_DECK_PATTERN} reads the text, for exactly the reason
+     * {@link #SEARCH_WITH_DIFFERENT_NAMES} is: the phrase sits between the cost clause and the
+     * destination, where that pattern expects "and play them onto the field", so Golbez did not
+     * parse at all. The leading comma is part of the printed phrase and comes off with it.
+     */
+    static final Pattern SEARCH_EACH_OF_A_DIFFERENT_ELEMENT = Pattern.compile(
+        "(?i),?\\s+each\\s+of\\s+a\\s+different\\s+Element\\b"
+    );
+    /**
+     * The "their auto-abilities will not trigger" rider that can follow a search or a play —
+     * 1-135L Golbez, and in the singular 22-058H Qator Bashtar and 20-045C Botanist.
+     *
+     * <p>Read by the search parser rather than left to the trailing-clause chain, because it has to
+     * take effect <em>before</em> the cards it silences reach the field, and a trailing clause runs
+     * after. Left unread it was silently dropped: the sentence still parsed, and four Forwards
+     * arrived firing everything they print.
+     */
+    static final Pattern AUTO_ABILITIES_WILL_NOT_TRIGGER = Pattern.compile(
+        "(?i)\\s*(?:Their|Its|The)\\s+auto[- ]abilit(?:y|ies)\\s+will\\s+not\\s+trigger[.!]?\\s*"
     );
     static final Pattern SEARCH_DECK_PATTERN = Pattern.compile(
         // "for" is optional: 11-058H Bel Dat is the corpus's only "search 1 …" wording, every other

@@ -2,9 +2,11 @@ package shufflingway;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import static shufflingway.ActionResolver.*;
 import static shufflingway.ActionResolverPatterns.*;
@@ -380,6 +382,246 @@ final class ActionResolverState {
             ctx.removeCounters(source, name, current);
         };
     }
+    /**
+     * Parses "[you may] remove any number of [Name] Counters from [Self]. When you do so, choose
+     * up to the same number of [noun] as the [Name] Counters you removed. [effect]" — 20-008H
+     * Kefka's end-of-turn burn, which spends the Magic Counters his enter-the-field ability banked.
+     *
+     * <p>Resolved by rewriting the payoff with the count the removal actually produced and handing
+     * that to {@code parse()}: "choose up to 2 Forwards. Deal them 9000 damage." is a sentence the
+     * choose chain already reads in full — target selection, the "up to" ceiling, and every noun
+     * the payoff can name. Restating that here would be a second copy of it to keep in step.
+     *
+     * <p>Both halves are parsed together because the second cannot stand alone: "the same number"
+     * is a quantity that exists only inside one resolution, so
+     * {@code ActionResolver.tryParseWhenYouDoSoSequence}'s independent halves cannot express it.
+     * <b>Must precede that parser in every dispatch chain</b> — today it declines this text for want
+     * of a parseable followup, but a later wiring of the payoff sentence on its own would let it
+     * claim Kefka and split the count away from the removal that sets it.
+     *
+     * <p>The template is proved at parse time against a plural and a singular count, so an ability
+     * whose payoff this engine could not actually resolve is reported unparsed rather than wired
+     * and silently doing nothing on the turn it fires.
+     *
+     * <p>Declines a text naming a card other than the one printing it: the counters come off the
+     * printing card, and no corpus wording takes them off another.
+     */
+    static Consumer<GameContext> tryParseRemoveAnyCountersThenChooseSameNumber(String text, CardData source) {
+        if (source == null) return null;
+        Matcher m = REMOVE_ANY_COUNTERS_THEN_CHOOSE_SAME_NUMBER.matcher(text.trim());
+        if (!m.matches()) return null;
+
+        String counter = m.group("counter").trim();
+        if (!m.group("counter2").trim().equalsIgnoreCase(counter)) return null;
+        if (!m.group("card").trim().equalsIgnoreCase(source.name())
+                && !isSelfReference(m.group("card").trim())) return null;
+
+        String noun = m.group("noun").trim();
+        String tail = m.group("tail").trim();
+        // Proved for both a plural and a singular count: the payoff's verb agreement is printed for
+        // the plural ("Deal them"), and a one-counter turn has to resolve too.
+        if (parse(payoffText(2, noun, tail), source) == null) return null;
+        if (parse(payoffText(1, noun, tail), source) == null) return null;
+
+        return ctx -> {
+            int held = ctx.getCounters(source, counter);
+            if (held <= 0) {
+                ctx.logEntry(source.name() + " has no " + counter + " Counter to remove");
+                ctx.markEffectFizzled();
+                return;
+            }
+            int take = ctx.selectNumber(0, held,
+                    "Remove how many " + counter + " Counters from " + source.name() + "?");
+            if (take <= 0) {
+                ctx.logEntry(source.name() + " — no " + counter + " Counter removed");
+                ctx.markEffectFizzled();
+                return;
+            }
+            ctx.removeCounters(source, counter, take);
+            ctx.logEntry(source.name() + " — removed " + take + " " + counter + " Counter(s); "
+                    + "choose up to " + take + " " + noun);
+            Consumer<GameContext> payoff = parse(payoffText(take, noun, tail), source);
+            if (payoff != null) payoff.accept(ctx);
+        };
+    }
+
+    /** The payoff sentence of {@link #tryParseRemoveAnyCountersThenChooseSameNumber} for a count. */
+    private static String payoffText(int count, String noun, String tail) {
+        return "choose up to " + count + " " + noun + ". " + tail;
+    }
+
+    /**
+     * One Break Zone removal's filters, as {@link #tryParseRemoveFromBreakZoneFromGame} reads them
+     * off the captured filter phrase. {@code null} for a phrase this engine cannot express.
+     */
+    private record BzRemovalFilters(String element, int costVal, String costCmp,
+            boolean forwards, boolean backups, boolean monsters, boolean summons,
+            String job, String cardName, String category, PickGate gate) {}
+
+    /** The elements a card can print, as the filter phrases spell them. */
+    private static final String BZ_ELEMENTS = "Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark";
+
+    /**
+     * Takes the filter phrase of a Break Zone removal apart — "Job Warring Triad with different
+     * names", "Characters of cost 5 or more", "Category MBM Characters", "Fire cards".
+     *
+     * <p>Read from the outside in: the riders ("with different names", "of cost N or more") are
+     * lifted off first because they can sit either side of the noun, then the trailing card type,
+     * then a leading element, and whatever is left has to be a single {@code Job}/{@code Category}/
+     * {@code Card Name} filter or nothing at all. Anything else is declined rather than dropped —
+     * a removal that quietly ignores half its filter takes cards the card text protects.
+     *
+     * @return the filters, or {@code null} when the phrase is not one this engine can honour
+     */
+    private static BzRemovalFilters parseBzRemovalFilters(String raw) {
+        String f = raw == null ? "" : raw.trim();
+        // Two filters joined by "and/or" name one selection drawn from two pools, which the Break
+        // Zone selection primitive has no way to express. Declined whole rather than half-honoured.
+        if (f.toLowerCase(Locale.ROOT).contains("and/or")
+                || f.toLowerCase(Locale.ROOT).contains("break zone")) return null;
+
+        PickGate gate = PickGate.ANY;
+        Matcher names = Pattern.compile("(?i),?\\s*with\\s+different\\s+names\\b").matcher(f);
+        if (names.find()) { gate = PickGate.DISTINCT_NAMES; f = names.replaceFirst(" ").trim(); }
+        Matcher elems = Pattern.compile("(?i),?\\s*each\\s+of\\s+a\\s+different\\s+Element\\b").matcher(f);
+        if (elems.find()) {
+            if (gate != PickGate.ANY) return null;   // no printing carries both riders
+            gate = PickGate.DISTINCT_ELEMENTS;
+            f = elems.replaceFirst(" ").trim();
+        }
+
+        int costVal = -1; String costCmp = null;
+        Matcher cost = Pattern.compile("(?i),?\\s*of\\s+cost\\s+(?<cost>\\d+)(?:\\s+or\\s+(?<cmp>more|less))?\\b")
+                .matcher(f);
+        if (cost.find()) {
+            costVal = Integer.parseInt(cost.group("cost"));
+            costCmp = cost.group("cmp") != null ? cost.group("cmp").toLowerCase(Locale.ROOT) : null;
+            f = cost.replaceFirst(" ").trim();
+        }
+        f = f.replaceAll("\\s{2,}", " ").replaceAll("[,\\s]+$", "").trim();
+
+        boolean forwards = false, backups = false, monsters = false, summons = false;
+        Matcher type = Pattern.compile("(?i)\\s*(?<type>Forwards?|Backups?|Monsters?|Summons?|Characters?|cards?)$")
+                .matcher(f);
+        boolean sawType = type.find();
+        if (sawType) {
+            switch (type.group("type").toLowerCase(Locale.ROOT).replaceAll("s$", "")) {
+                case "forward"   -> forwards = true;
+                case "backup"    -> backups  = true;
+                case "monster"   -> monsters = true;
+                case "summon"    -> summons  = true;
+                // A Character is a Forward, a Backup or a Monster; a card is any of those or a Summon.
+                case "character" -> { forwards = true; backups = true; monsters = true; }
+                case "card"      -> { forwards = true; backups = true; monsters = true; summons = true; }
+                default          -> { return null; }
+            }
+            f = f.substring(0, type.start()).trim();
+        }
+
+        String element = null;
+        Matcher el = Pattern.compile("(?i)^(?<el>" + BZ_ELEMENTS + ")\\b").matcher(f);
+        if (el.find()) { element = el.group("el"); f = f.substring(el.end()).trim(); }
+
+        String job = null, cardName = null, category = null;
+        if (!f.isEmpty()) {
+            Matcher jm = Pattern.compile("(?i)^Job\\s+(?<job>.+)$").matcher(f);
+            Matcher cm = Pattern.compile("(?i)^Category\\s+(?<cat>.+)$").matcher(f);
+            Matcher nm = Pattern.compile("(?i)^Card\\s+Name\\s+(?<name>.+)$").matcher(f);
+            if (nm.matches())      cardName = nm.group("name").trim();
+            else if (jm.matches()) job      = jm.group("job").trim();
+            else if (cm.matches()) category = cm.group("cat").trim();
+            else return null;   // an unrecognised filter, not an unfiltered removal
+        }
+        // No noun at all ("remove 3 Job Captain") means every card type the filter admits.
+        if (!sawType) { forwards = true; backups = true; monsters = true; summons = true; }
+        return new BzRemovalFilters(element, costVal, costCmp,
+                forwards, backups, monsters, summons, job, cardName, category, gate);
+    }
+
+    /**
+     * Parses "[you may] remove [N] [filters] in your Break Zone from the game" and the payoff that
+     * can trail it — 20-008H Kefka's "Then, place 1 Magic Counter on Kefka for each card you
+     * removed due to this ability."
+     *
+     * <p>Until this existed the whole family fell through to
+     * {@code ActionResolver.tryParseRemoveNamedFromGame}, whose lazy name group happily read
+     * "up to 3 Job Warring Triad with different names in your Break Zone" as a card name. That
+     * parser searches the <em>field</em> for a literal name, so every one of these removed nothing
+     * and logged a warning, and any "Then, …" or "When you do so, …" payoff hanging off the
+     * sentence was paid out for free.
+     *
+     * <p><b>Must precede {@code tryParseRemoveNamedFromGame} in every dispatch chain</b>, for that
+     * reason. It must also <b>follow {@code tryParseRemoveAllOppBzFromGame}</b>: "remove all the
+     * cards in your opponent's Break Zone from the game" is that parser's, and this one would
+     * otherwise claim it and route a whole-zone wipe through a selection dialog.
+     *
+     * <p>The counter payoff is read here rather than left to the generic "Then, …" chaining because
+     * its multiplier is how many cards <em>this</em> removal put out of the game — see
+     * {@link ActionResolverPatterns#THEN_PLACE_COUNTERS_PER_CARD_REMOVED}. Any other trailing
+     * sentence still goes to {@code appendThenClause}, and a trailing sentence that cannot be
+     * parsed declines the whole ability rather than silently dropping half of it.
+     */
+    static Consumer<GameContext> tryParseRemoveFromBreakZoneFromGame(String text, CardData source) {
+        String trimmed = text.trim();
+        Matcher m = REMOVE_FROM_BREAK_ZONE_FROM_GAME.matcher(trimmed);
+        if (!m.lookingAt()) return null;
+
+        BzRemovalFilters f = parseBzRemovalFilters(m.group("filters"));
+        if (f == null) return null;
+
+        String qty = m.group("qty") == null ? "" : m.group("qty").toLowerCase(Locale.ROOT).replaceAll("\\s+", " ");
+        final int maxCount;
+        final boolean upTo;
+        if (qty.startsWith("all"))                { maxCount = Integer.MAX_VALUE; upTo = false; }
+        else if (qty.startsWith("any number of")) { maxCount = Integer.MAX_VALUE; upTo = true;  }
+        else if (qty.startsWith("up to"))         { maxCount = Integer.parseInt(qty.replaceAll("\\D+", "")); upTo = true; }
+        else if (!qty.isEmpty())                  { maxCount = Integer.parseInt(qty); upTo = false; }
+        else                                      { maxCount = 1; upTo = false; }
+
+        String zone = m.group("zone").toLowerCase(Locale.ROOT).replaceAll("\\s+", " ");
+        boolean opponentZone = zone.startsWith("your opponent");
+        boolean bothZones    = zone.startsWith("each player") || zone.startsWith("either player");
+
+        // Shared between the removal and the payoff that reads it. A single-element holder rather
+        // than a field: the parsed Consumer is a long-lived singleton the engine reuses, so the
+        // count has to be written and read inside one resolution.
+        int[] removed = new int[1];
+        Consumer<GameContext> base = ctx -> removed[0] = ctx.removeCardsFromBreakZoneFromGame(
+                maxCount, upTo, opponentZone, bothZones, f.element(), f.costVal(), f.costCmp(),
+                f.forwards(), f.backups(), f.monsters(), f.summons(),
+                f.job(), f.cardName(), f.category(), f.gate());
+
+        String tail = trimmed.substring(m.end()).trim();
+        if (tail.isEmpty()) return base;
+
+        Matcher payoff = THEN_PLACE_COUNTERS_PER_CARD_REMOVED.matcher(tail);
+        if (payoff.matches()) {
+            if (source == null) return null;
+            String onCard = payoff.group("oncard").trim();
+            if (!onCard.equalsIgnoreCase(source.name()) && !isSelfReference(onCard)) return null;
+            int    per     = Integer.parseInt(payoff.group("amount"));
+            String counter = payoff.group("counter").trim();
+            return base.andThen(ctx -> {
+                int total = per * removed[0];
+                if (total <= 0) {
+                    ctx.logEntry("Effect: no cards removed — no " + counter + " Counter placed on "
+                            + source.name());
+                    return;
+                }
+                ctx.logEntry("Effect: Place " + total + " " + counter + " Counter(s) on "
+                        + source.name() + " (" + per + " per card removed, " + removed[0] + " removed)");
+                ctx.placeCounters(source, counter, total);
+            });
+        }
+        // A trailing sentence this parser cannot account for declines the whole ability. Handing it
+        // to appendThenClause is not safe here: that helper returns the base unchanged when the
+        // tail is not a "Then, …" clause at all, which would drop Sephiroth 11-138S's "or put
+        // Sephiroth into the Break Zone" and the "When you do so, …" payoffs that
+        // tryParseWhenYouDoSoSequence had already declined for want of a parseable followup.
+        if (!TRAILING_THEN_CLAUSE.matcher(tail).matches()) return null;
+        return appendThenClause(base, tail, source);
+    }
+
     static Consumer<GameContext> tryParsePlaceCounters(String text, CardData source) {
         Matcher m = PLACE_COUNTERS.matcher(text);
         if (!m.find()) return null;

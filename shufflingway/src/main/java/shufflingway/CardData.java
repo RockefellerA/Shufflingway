@@ -3229,6 +3229,14 @@ public record CardData(
     );
 
     /**
+     * The leading possessive in an enter-the-field subject — "<b>your opponent's</b> Forward",
+     * "<b>an opponent's</b> Forward". Stripped so the remainder reads as the ordinary "a Forward"
+     * subject the trigger dispatcher matches against.
+     */
+    static final Pattern OPPONENT_POSSESSIVE_SUBJECT = Pattern.compile(
+        "(?i)^(?:the\\s+|an?\\s+|your\\s+)?opponent'?s\\s+"
+    );
+    /**
      * "[a | N or more] Job X [or a Card Name Y] [Forward(s)] [other than Z] you control" — subject
      * of a filtered-forward attack trigger.
      *
@@ -3782,6 +3790,17 @@ public record CardData(
                     && card.toLowerCase(Locale.ROOT).contains("of your opponent")) {
                 trigger = "enters opponent's field";
                 card = card.replaceAll("(?i)\\s+of\\s+your\\s+opponent\\s*$", "").trim();
+            }
+            // The same trigger written with the possessive in front — "your opponent's Forward",
+            // "an opponent's Forward" (4-035R Cid Randell, 20-102L Mira). Left unreclassified these
+            // were dormant outright: the entering card's own pass matches a subject against the
+            // card's name, and no card is named "your opponent's Forward", so nothing ever fired.
+            // Normalised to the article form the subject matcher reads, so "your opponent's
+            // Forward" and "a Forward of your opponent" reach dispatch as the same subject.
+            Matcher oppPoss = OPPONENT_POSSESSIVE_SUBJECT.matcher(card);
+            if (trigger.equals("enters the field") && oppPoss.lookingAt()) {
+                trigger = "enters opponent's field";
+                card = "a " + card.substring(oppPoss.end()).trim();
             }
 
             String  youMayRaw   = m.group("youmay");

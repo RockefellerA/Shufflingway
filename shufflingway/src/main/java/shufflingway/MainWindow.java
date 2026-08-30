@@ -1150,8 +1150,16 @@ public class MainWindow {
 	final TurnFlowGate turnFlowGate       = new TurnFlowGate();
 	/** True while P1 has clicked "Respond" in the stack window and not yet cast or passed. */
 	private boolean p1IsRespondingToStack = false;
-	/** Set to {@code true} before placing a card whose ETF auto-ability should not fire (consumed on first trigger check). */
-	boolean suppressAutoAbilityForNextCard = false;
+	/**
+	 * How many of the next cards to reach the field have their enter-the-field auto-abilities
+	 * suppressed — "Its auto-ability will not trigger" (22-058H Qator Bashtar, 20-045C Botanist),
+	 * "Their auto-abilities will not trigger" (1-135L Golbez).
+	 *
+	 * <p>A count rather than a flag because Golbez plays up to four cards under one such sentence,
+	 * and each of them has to arrive silent. Decremented once per entry, so a run of suppressed
+	 * arrivals cannot leak the suppression onto a card that follows them.
+	 */
+	int suppressAutoAbilityForNextCards = 0;
 
 	/**
 	 * Forwards currently stolen by P1 from P2, mapped to their restoration condition:
@@ -2011,7 +2019,7 @@ public class MainWindow {
 		currentAbilitySource     = null;
 		currentAbilityIsSpecial  = false;
 		lastChosenSelectionCancelled = false;
-		suppressAutoAbilityForNextCard = false;
+		suppressAutoAbilityForNextCards = 0;
 		// Per-game callback/priority state.
 		p1PriorityInP2MainOnDone = null;
 		p1CombatPriorityOnPass   = null;
@@ -5160,32 +5168,43 @@ public class MainWindow {
 	private boolean searchIdentityConjunctive = false;
 
 	/**
-	 * Set while a search must return cards with <em>different names</em> — 23-008H Zidane,
-	 * 18-138S Glauca, 22-067L Nacht. An instance field for the same reason
-	 * {@link #searchIdentityConjunctive} is one: the sixteen-argument search signature and its
-	 * thirty-odd call sites stay as they are.
+	 * The constraint a search puts on which cards may be taken <em>together</em> — "with different
+	 * names" (23-008H Zidane, 18-138S Glauca, 22-067L Nacht), "each of a different Element"
+	 * (1-135L Golbez). An instance field for the same reason {@link #searchIdentityConjunctive} is
+	 * one: the sixteen-argument search signature and its thirty-odd call sites stay as they are.
 	 */
-	private boolean searchDistinctNames = false;
+	private PickGate searchPickGate = PickGate.ANY;
 
 	/**
-	 * Searches with the "different names" constraint applied to the selection: every match is
-	 * still offered, but no two cards taken may share a name.
-	 *
-	 * <p>Cleared in a finally block, so a dialog the player dismisses cannot leave it set for the
-	 * next search.
+	 * Set while every card a search puts onto the field must arrive with its enter-the-field
+	 * auto-ability suppressed — "Their auto-abilities will not trigger" (1-135L Golbez). An
+	 * instance field for the same reason the two above are.
 	 */
-	boolean searchDeckForCardDistinctNames(boolean isP1,
+	private boolean searchSuppressAutoAbilities = false;
+
+	/**
+	 * Searches with a selection constraint and/or the arrivals silenced: every match is still
+	 * offered, but a card that collides with a standing pick cannot be taken, and each card that
+	 * reaches the field does so without firing its enter-the-field ability.
+	 *
+	 * <p>Both fields are cleared in a finally block, so a dialog the player dismisses cannot leave
+	 * either set for the next search.
+	 */
+	boolean searchDeckForCardWithRiders(boolean isP1,
 		boolean inclForwards, boolean inclBackups, boolean inclMonsters, boolean inclSummons,
 		int costVal, String costCmp, String cardNameFilter, String jobFilter,
 		String categoryFilter, String elementFilter, String excludeName, String excludeElem,
-		String destination, int count, boolean entersDull, boolean requireWarp) {
-		searchDistinctNames = true;
+		String destination, int count, boolean entersDull, boolean requireWarp,
+		PickGate gate, boolean suppressAutoAbilities) {
+		searchPickGate = gate == null ? PickGate.ANY : gate;
+		searchSuppressAutoAbilities = suppressAutoAbilities;
 		try {
 			return searchDeckForCard(isP1, inclForwards, inclBackups, inclMonsters, inclSummons,
 				costVal, costCmp, cardNameFilter, jobFilter, categoryFilter, elementFilter,
 				excludeName, excludeElem, destination, count, entersDull, requireWarp);
 		} finally {
-			searchDistinctNames = false;
+			searchPickGate = PickGate.ANY;
+			searchSuppressAutoAbilities = false;
 		}
 	}
 
@@ -5308,17 +5327,15 @@ public class MainWindow {
 				List<CardData> copy = new ArrayList<>(matches);
 				Collections.shuffle(copy);
 				CardData pick = copy.get(0);
-				// "with different names": the AI skips past a name it has already taken.
-				if (searchDistinctNames) {
-					CardData distinct = null;
-					for (CardData c : copy) {
-						boolean dup = false;
-						for (CardData already : chosen)
-							if (already.name().equalsIgnoreCase(c.name())) { dup = true; break; }
-						if (!dup) { distinct = c; break; }
-					}
-					if (distinct == null) break;
-					pick = distinct;
+				// A selection rider ("with different names", "each of a different Element") binds
+				// the AI too: it takes the first card its standing picks still leave legal, and
+				// stops when none do. A hand it could not legally have chosen is not one the rules
+				// let it take.
+				if (searchPickGate != PickGate.ANY) {
+					CardData legal = null;
+					for (CardData c : copy) if (searchPickGate.allows(chosen, c)) { legal = c; break; }
+					if (legal == null) break;
+					pick = legal;
 				}
 				logEntry("[AI] chose " + pick.name());
 				matches.remove(pick);
@@ -5327,7 +5344,7 @@ public class MainWindow {
 			}
 		} else if (count > 1) {
 			List<CardData> picks = cardPickerDialog.pickMultiFromDeckSearch(
-				matches, count, searchDistinctNames);
+				matches, count, searchPickGate);
 			for (CardData pick : picks) {
 				gameState.removeFromP1MainDeck(pick);
 				chosen.add(pick);
@@ -5344,6 +5361,11 @@ public class MainWindow {
 			logEntry("Search: no card selected");
 			return false;
 		}
+		// Charged before the first placement and counted down per arrival, so every card this
+		// search puts onto the field is silent — "Their auto-abilities will not trigger" names all
+		// of them, and a one-shot flag would silence only the first.
+		if (searchSuppressAutoAbilities && "field".equals(destination))
+			suppressAutoAbilityForNextCards = chosen.size();
 		for (CardData card : chosen) {
 			switch (destination) {
 				case "hand" -> {
@@ -5942,6 +5964,42 @@ public class MainWindow {
 		return granted != null && granted.contains(trait);
 	}
 
+	/**
+	 * Where {@code card} stands on {@code isP1}'s field right now, or {@code null} when it is no
+	 * longer on it.
+	 *
+	 * <p>By identity, not by equality: {@code CardData} is a record, so two copies of the same
+	 * printing are equal to one another, and only the instance that was actually declared is the
+	 * one this battle is about. A Forward slot is matched on its primed top card as well as on the
+	 * card underneath, because the top card is the one that acts.
+	 *
+	 * @param preferIdx a slot to check first — the index the caller recorded earlier. Cheap, and it
+	 *                  keeps the answer stable for the overwhelmingly common case where nothing
+	 *                  moved; pass {@code -1} when there is no such hint.
+	 */
+	ForwardTarget currentFieldTargetOf(CardData card, boolean isP1, int preferIdx) {
+		if (card == null) return null;
+		List<CardData> fwds  = isP1 ? p1ForwardCards     : p2ForwardCards;
+		List<CardData> tops  = isP1 ? p1ForwardPrimedTop : p2ForwardPrimedTop;
+		if (preferIdx >= 0 && preferIdx < fwds.size() && forwardSlotHolds(fwds, tops, preferIdx, card))
+			return new ForwardTarget(isP1, preferIdx, ForwardTarget.CardZone.FORWARD);
+		for (int i = 0; i < fwds.size(); i++)
+			if (forwardSlotHolds(fwds, tops, i, card))
+				return new ForwardTarget(isP1, i, ForwardTarget.CardZone.FORWARD);
+		CardData[] bkps = isP1 ? p1BackupCards : p2BackupCards;
+		for (int i = 0; i < bkps.length; i++)
+			if (bkps[i] == card) return new ForwardTarget(isP1, i, ForwardTarget.CardZone.BACKUP);
+		List<CardData> mons = isP1 ? p1MonsterCards : p2MonsterCards;
+		for (int i = 0; i < mons.size(); i++)
+			if (mons.get(i) == card) return new ForwardTarget(isP1, i, ForwardTarget.CardZone.MONSTER);
+		return null;
+	}
+
+	/** Whether Forward slot {@code idx} is {@code card}, either as the slot's card or its primed top. */
+	private static boolean forwardSlotHolds(List<CardData> fwds, List<CardData> tops, int idx, CardData card) {
+		return fwds.get(idx) == card || (idx < tops.size() && tops.get(idx) == card);
+	}
+
 	// -------------------------------------------------------------------------
 	// Combat resolution
 	// -------------------------------------------------------------------------
@@ -5952,8 +6010,8 @@ public class MainWindow {
 	 * First Strike: if one side has it and the other doesn't, that side strikes first;
 	 * if the strike kills the opponent, the survivor takes no damage.
 	 */
-	void resolveCombat(CardData attacker, boolean attackerIsP1, int attackerIdx,
-			CardData blocker, boolean blockerIsP1, int blockerIdx) {
+	void resolveCombat(CardData attacker, boolean attackerIsP1, int declaredAttackerIdx,
+			CardData blocker, boolean blockerIsP1, int declaredBlockerIdx) {
 		if (escapedFromBattle.contains(attacker)) {
 			logEntry(attacker.name() + " escaped from the Battle — combat skipped");
 			return;
@@ -5962,6 +6020,27 @@ public class MainWindow {
 			logEntry(blocker.name() + " escaped from the Battle — combat skipped");
 			return;
 		}
+		// The two indices were recorded when the block was declared, and everything between then
+		// and now can move them: the "when blocked" trigger resolves in between — 16-011L Squall's
+		// deals 4000 to every Forward the opponent controls — and so does a full priority round in
+		// which either player may cast. Breaking a Forward compacts its row, so a stale index either
+		// addresses the wrong card or, once the row is shorter than it was, addresses nothing at
+		// all. That was an IndexOutOfBoundsException out of the First Strike check, which left the
+		// Attack Phase stalled on damage resolution with priority still held.
+		ForwardTarget atkNow = currentFieldTargetOf(attacker, attackerIsP1, declaredAttackerIdx);
+		ForwardTarget blkNow = currentFieldTargetOf(blocker,  blockerIsP1,  declaredBlockerIdx);
+		// A combatant that has left the field is out of the battle, and a blocked attacker deals no
+		// damage to the player, so there is nothing left to resolve either way.
+		if (atkNow == null || atkNow.zone() != ForwardTarget.CardZone.FORWARD) {
+			logEntry(attacker.name() + " left the field before damage — combat skipped");
+			return;
+		}
+		if (blkNow == null || blkNow.zone() != ForwardTarget.CardZone.FORWARD) {
+			logEntry(blocker.name() + " left the field before damage — combat skipped");
+			return;
+		}
+		final int attackerIdx = atkNow.idx();
+		final int blockerIdx  = blkNow.idx();
 
 		boolean attackerFirst = effectiveHasTrait(attackerIsP1, attackerIdx, CardData.Trait.FIRST_STRIKE)
 				&& !effectiveHasTrait(blockerIsP1, blockerIdx, CardData.Trait.FIRST_STRIKE);
@@ -14702,9 +14781,27 @@ public class MainWindow {
 	List<ForwardTarget> showBreakZoneSelectDialog(
 			List<ForwardTarget> eligible, List<CardData> zone,
 			int maxCount, boolean upTo, String title) {
+		return showBreakZoneSelectDialog(eligible, zone, maxCount, upTo, title, PickGate.ANY);
+	}
+
+	/**
+	 * As above, with {@code gate} refusing combinations the card text rules out — "with different
+	 * names", "each of a different Element".
+	 *
+	 * <p>The auto-pick shortcut is conditional on the gate: taking the whole pool without asking is
+	 * only right while the whole pool is a legal selection, and a gate is exactly what can make it
+	 * illegal. When it does, the player picks which subset they spend.
+	 */
+	List<ForwardTarget> showBreakZoneSelectDialog(
+			List<ForwardTarget> eligible, List<CardData> zone,
+			int maxCount, boolean upTo, String title, PickGate gate) {
 		if (eligible.isEmpty()) { logEntry("Choose: no eligible targets in break zone"); return List.of(); }
-		if (!upTo && eligible.size() <= maxCount) return List.copyOf(eligible);
-		return cardPickerDialog.pickFromBreakZone(eligible, zone, maxCount, upTo, title);
+		if (!upTo && eligible.size() <= maxCount) {
+			List<CardData> pool = new ArrayList<>(eligible.size());
+			for (ForwardTarget t : eligible) pool.add(zone.get(t.idx()));
+			if (gate.maxSelectable(pool, maxCount) == eligible.size()) return List.copyOf(eligible);
+		}
+		return cardPickerDialog.pickFromBreakZone(eligible, zone, maxCount, upTo, title, gate);
 	}
 
 	/**
@@ -16822,6 +16919,14 @@ public class MainWindow {
 			boolean blkP1, ForwardTarget.CardZone blkZone, int blkIdx) {
 		CardData attacker = autoAbilityTriggers.fieldCardData(new ForwardTarget(atkP1, atkIdx, atkZone));
 		CardData blocker  = autoAbilityTriggers.fieldCardData(new ForwardTarget(blkP1, blkIdx, blkZone));
+		// The Backup/Monster half of the same staleness resolveCombat guards against: these indices
+		// were recorded at block declaration, and a card that left the field in between leaves the
+		// lookup with nothing to return. Skipped rather than resolved, so the Attack Phase carries
+		// on instead of stalling on a NullPointerException.
+		if (attacker == null || blocker == null) {
+			logEntry("A combatant left the field before damage — combat skipped");
+			return;
+		}
 		int atkPow = fieldForwardPower(atkP1, atkZone, atkIdx);
 		int blkPow = fieldForwardPower(blkP1, blkZone, blkIdx);
 		logEntry((atkP1 ? "" : "[P2] ") + attacker.name() + " (" + atkPow + ") vs "

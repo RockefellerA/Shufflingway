@@ -316,6 +316,12 @@ public class ActionResolver {
         result = tryParseChooseMaySearchRfgThenElse(effectText, source, xValue);
         if (result != null) return result;
 
+        // Must precede tryParseWhenYouDoSoSequence: that parser resolves both halves independently,
+        // and this payoff's "the same number" is however many counters the first half took off — a
+        // quantity that exists only inside the one resolution and cannot survive the split.
+        result = tryParseRemoveAnyCountersThenChooseSameNumber(effectText, source);
+        if (result != null) return result;
+
         result = tryParseWhenYouDoSoSequence(effectText, source, xValue);
         if (result != null) return result;
 
@@ -1034,6 +1040,13 @@ public class ActionResolver {
         result = tryParseRemoveWarpCountersFromNamed(effectText, source);
         if (result != null) return result;
 
+        // Must precede tryParseRemoveNamedFromGame: that parser's lazy name group reads the whole
+        // filter phrase ("up to 3 Job Warring Triad with different names in your Break Zone") as a
+        // card name and then searches the field for it, so the family removed nothing. Must follow
+        // tryParseRemoveAllOppBzFromGame, whose whole-zone wipe this would route through a dialog.
+        result = tryParseRemoveFromBreakZoneFromGame(effectText, source);
+        if (result != null) return result;
+
         result = tryParseRemoveNamedFromGame(effectText, source);
         if (result != null) return result;
 
@@ -1741,6 +1754,10 @@ public class ActionResolver {
         // names itself over a card the choose parser actually resolves.
         if (tryParseChooseMaySearchRfgThenElse(effectText, source, 0) != null)
             return "ChooseCharacter";
+        // Must precede WhenYouDoSo, mirroring parse(): the payoff's count comes from the removal in
+        // the same sentence and cannot survive that parser's split.
+        if (tryParseRemoveAnyCountersThenChooseSameNumber(effectText, source) != null)
+            return "RemoveAnyCountersThenChooseSameNumber";
         if (tryParseWhenYouDoSoSequence(effectText, source, 0) != null) return "WhenYouDoSo";
         if (tryParseSelectNumber(effectText, source)                    != null) return "SelectNumber";
         if (tryParseAllMonstersTemporaryForward(effectText) != null) return "AllMonstersTemporaryForward";
@@ -1957,6 +1974,10 @@ public class ActionResolver {
         // Must precede RemoveNamedFromGame, mirroring parse(): it reads the counter clause as the
         // thing being removed from the game and would answer in this parser's place.
         if (tryParseRemoveWarpCountersFromNamed(effectText, source) != null) return "RemoveWarpCountersFromNamed";
+        // Must precede RemoveNamedFromGame, mirroring parse(): that parser reads this family's whole
+        // filter phrase as a card name.
+        if (tryParseRemoveFromBreakZoneFromGame(effectText, source) != null)
+            return removeFromBreakZonePatternName(effectText);
         if (tryParseRemoveNamedFromGame(effectText, source)   != null) return "RemoveNamedFromGame";
         // Must precede BreakSourceCard, mirroring parse(): the sentence opens with the plain
         // self-break that parser reads.
@@ -2638,6 +2659,9 @@ public class ActionResolver {
         // itself is produced by the ChooseCharacter block further down, which reads the followup.
         if (tryParseChooseMaySearchRfgThenElse(effectText, source, 0) != null)
             return "ChooseCharacter / MaySearchRfgThenElse";
+        // Must precede WhenYouDoSo, mirroring parse() and matchedPatternName().
+        if (tryParseRemoveAnyCountersThenChooseSameNumber(effectText, source) != null)
+            return removeAnyCountersDescription(effectText, source);
         if (tryParseWhenYouDoSoSequence(effectText, source, 0)          != null) return "WhenYouDoSo";
         if (tryParseIfNotPayOrElse(effectText, source, 0)               != null) return "IfNotPayOrElse";
         if (tryParseRemoveTopThenPileThreshold(effectText, source)          != null) return "RemoveTopThenPileThreshold";
@@ -3169,6 +3193,9 @@ public class ActionResolver {
         if (tryParseRevealTopNRfgOneCastableRestBottom(effectText) != null) return "RevealTopNRfgOneCastableRestBottom";
         // Must precede RemoveNamedFromGame, mirroring parse() and matchedPatternName().
         if (tryParseRemoveWarpCountersFromNamed(effectText, source) != null) return "RemoveWarpCountersFromNamed";
+        // Must precede RemoveNamedFromGame, mirroring parse() and matchedPatternName().
+        if (tryParseRemoveFromBreakZoneFromGame(effectText, source) != null)
+            return removeFromBreakZoneDescription(effectText, source);
         if (tryParseRemoveNamedFromGame(effectText, source) != null)        return "RemoveNamedFromGame";
         // Must precede BreakSourceCard, mirroring parse() and matchedPatternName().
         if (tryParseBreakSelfAndBattlePartner(effectText, source) != null)
@@ -3948,6 +3975,17 @@ public class ActionResolver {
                 sortedByIdxDesc(ts, false).forEach(ft -> ctx.damageTarget(ft, damage));
             };
         }
+
+        // Plain dull, last of all. Everything above already answers for the sentences that pair
+        // dulling with something else — "dull it and Freeze it" is read at the top of this method
+        // — so this only ever sees the bare imperative, and putting it here rather than beside its
+        // Freeze sibling is what keeps it from claiming a longer sentence off the "dull it" in its
+        // middle. 4-035R Cid Randell prints the demonstrative form, which is matched whole.
+        if (FOLLOWUP_DULL.matcher(t).find() || FOLLOWUP_DULL_DEMONSTRATIVE.matcher(t).matches())
+            return (ctx, ts) -> {
+                sortedByIdxDesc(ts, true) .forEach(ctx::dullTarget);
+                sortedByIdxDesc(ts, false).forEach(ctx::dullTarget);
+            };
 
         return null;
     }
@@ -5875,6 +5913,46 @@ public class ActionResolver {
         if (!m.matches()) return base;
         Consumer<GameContext> then = parse(m.group("rest").trim(), source);
         return then == null ? null : base.andThen(then);
+    }
+
+    /**
+     * Describes Kefka's counter burn with the payoff's own description, which is what says what the
+     * chosen Forwards are actually dealt. Read at a representative count — the sentence the payoff
+     * chain sees differs from turn to turn only in that number.
+     */
+    private static String removeAnyCountersDescription(String effectText, CardData source) {
+        Matcher m = REMOVE_ANY_COUNTERS_THEN_CHOOSE_SAME_NUMBER.matcher(effectText.trim());
+        if (!m.matches()) return "RemoveAnyCountersThenChooseSameNumber";
+        String inner = fullDescription(
+                "choose up to 2 " + m.group("noun").trim() + ". " + m.group("tail").trim(), source);
+        return "RemoveAnyCountersThenChooseSameNumber"
+                + (inner != null ? " / " + inner : "");
+    }
+
+    /**
+     * Names the Break Zone removal, telling the bare removal apart from the two payoffs that can
+     * trail it — Kefka's counter rider, and any other "Then, …" sentence the chain understands.
+     */
+    private static String removeFromBreakZonePatternName(String effectText) {
+        Matcher m = REMOVE_FROM_BREAK_ZONE_FROM_GAME.matcher(effectText.trim());
+        if (!m.lookingAt()) return "RemoveFromBreakZoneFromGame";
+        String tail = effectText.trim().substring(m.end()).trim();
+        if (tail.isEmpty()) return "RemoveFromBreakZoneFromGame";
+        if (THEN_PLACE_COUNTERS_PER_CARD_REMOVED.matcher(tail).matches())
+            return "RemoveFromBreakZoneFromGame + PlaceCountersPerCardRemoved";
+        return "RemoveFromBreakZoneFromGame + Then";
+    }
+
+    /** {@link #removeFromBreakZonePatternName} with the trailing sentence's own description. */
+    private static String removeFromBreakZoneDescription(String effectText, CardData source) {
+        Matcher m = REMOVE_FROM_BREAK_ZONE_FROM_GAME.matcher(effectText.trim());
+        if (!m.lookingAt()) return "RemoveFromBreakZoneFromGame";
+        String tail = effectText.trim().substring(m.end()).trim();
+        if (tail.isEmpty() || THEN_PLACE_COUNTERS_PER_CARD_REMOVED.matcher(tail).matches())
+            return removeFromBreakZonePatternName(effectText);
+        Matcher then = TRAILING_THEN_CLAUSE.matcher(tail);
+        String inner = then.matches() ? fullDescription(then.group("rest").trim(), source) : null;
+        return "RemoveFromBreakZoneFromGame + " + (inner != null ? inner : "Then");
     }
 
     /**

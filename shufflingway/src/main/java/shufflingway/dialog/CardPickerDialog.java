@@ -20,6 +20,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ExecutionException;
 import java.util.function.Consumer;
+import java.util.function.IntFunction;
 import java.util.function.ToIntFunction;
 import java.util.stream.Collectors;
 
@@ -45,6 +46,7 @@ import static shufflingway.CardFilters.discardTypeKey;
 import shufflingway.FontLoader;
 import shufflingway.ForwardTarget;
 import shufflingway.ImageCache;
+import shufflingway.PickGate;
 import shufflingway.UiScale;
 import shufflingway.graphics.CardAnimation;
 import shufflingway.graphics.TriangleIcon;
@@ -177,19 +179,21 @@ public class CardPickerDialog {
      * clicks Skip.  Confirm is disabled until at least one card is selected.
      */
     public List<CardData> pickMultiFromDeckSearch(List<CardData> matches, int maxCount) {
-        return pickMultiFromDeckSearch(matches, maxCount, false);
+        return pickMultiFromDeckSearch(matches, maxCount, PickGate.ANY);
     }
 
     /**
-     * As above; with {@code distinctNames} no two cards taken may share a name — "search for 2
-     * Category IX Forwards with different names" (23-008H Zidane).
+     * As above; with {@code gate} no two cards taken may collide — "search for 2 Category IX
+     * Forwards with different names" (23-008H Zidane), "up to 4 Forwards of cost 2, each of a
+     * different Element" (1-135L Golbez).
      *
-     * <p>Every match stays on offer and a card whose name is already taken simply will not select,
-     * so the rule reads off the board rather than from a pool quietly filtered before the window
-     * opened — the player still chooses which copy of a name they want.
+     * <p>Every match stays on offer and a card that collides with a standing pick simply will not
+     * select, so the rule reads off the board rather than from a pool quietly filtered before the
+     * window opened — the player still chooses which copy of a name, or which card of an Element,
+     * they want to spend.
      */
     public List<CardData> pickMultiFromDeckSearch(List<CardData> matches, int maxCount,
-            boolean distinctNames) {
+            PickGate gate) {
         JDialog dlg = new JDialog(owner,
                 "Search — choose up to " + maxCount + " cards (" + matches.size() + " found)", true);
         dlg.setResizable(false);
@@ -212,8 +216,7 @@ public class CardPickerDialog {
         Runnable refresh = () -> {
             int n = selected.size();
             hint.setText("Select up to " + maxCount + " card" + (maxCount > 1 ? "s" : "")
-                    + (distinctNames ? ", each with a different name" : "")
-                    + " (" + n + "/" + maxCount + ")");
+                    + gate.hint() + " (" + n + "/" + maxCount + ")");
             confirmBtn.setEnabled(n >= 1);
             for (int i = 0; i < cardLabels.size(); i++) {
                 cardLabels.get(i).setBorder(selected.contains(i)
@@ -262,7 +265,7 @@ public class CardPickerDialog {
                     if (selected.contains(cardIdx)) {
                         selected.remove(Integer.valueOf(cardIdx));
                     } else if (selected.size() < maxCount
-                            && !(distinctNames && nameAlreadySelected(matches, selected, cardIdx))) {
+                            && gateAllows(gate, matches, selected, cardIdx)) {
                         selected.add(cardIdx);
                     }
                     refresh.run();
@@ -327,10 +330,21 @@ public class CardPickerDialog {
 
     /** Whether {@code matches[cardIdx]} shares a name with something already selected. */
     public static boolean nameAlreadySelected(List<CardData> matches, List<Integer> selected, int cardIdx) {
-        String name = matches.get(cardIdx).name();
-        for (int i : selected)
-            if (matches.get(i).name().equalsIgnoreCase(name)) return true;
-        return false;
+        return !gateAllows(PickGate.DISTINCT_NAMES, matches, selected, cardIdx);
+    }
+
+    /**
+     * Whether {@code gate} lets {@code matches[cardIdx]} join what {@code selected} already holds.
+     *
+     * <p>Asked against the live selection rather than a precomputed set, so deselecting a card
+     * frees whatever it was holding and a pick that was refused becomes available again.
+     */
+    public static boolean gateAllows(PickGate gate, List<CardData> matches,
+            List<Integer> selected, int cardIdx) {
+        if (gate == PickGate.ANY) return true;
+        List<CardData> picked = new ArrayList<>(selected.size());
+        for (int i : selected) picked.add(matches.get(i));
+        return gate.allows(picked, matches.get(cardIdx));
     }
 
     /**
@@ -1517,6 +1531,23 @@ public class CardPickerDialog {
     public List<ForwardTarget> pickFromBreakZone(
             List<ForwardTarget> eligible, List<CardData> zone,
             int maxCount, boolean upTo, String title) {
+        return pickFromBreakZone(eligible, zone, maxCount, upTo, title, PickGate.ANY);
+    }
+
+    /**
+     * As above, with {@code gate} refusing combinations the card text rules out — "with different
+     * names", "each of a different Element".
+     *
+     * <p>The gate is a pick-time rule, not a filter: every eligible card stays on offer and one
+     * that would collide with a standing pick simply will not select, so the player still chooses
+     * which copy of a name (or which card of an element) they want to spend.
+     *
+     * <p>A gate can put {@code maxCount} out of reach — four different Elements cannot be found in
+     * a zone holding three — so a mandatory selection confirms at the largest legal size instead.
+     */
+    public List<ForwardTarget> pickFromBreakZone(
+            List<ForwardTarget> eligible, List<CardData> zone,
+            int maxCount, boolean upTo, String title, PickGate gate) {
         JDialog dlg = new JDialog(owner, title, true);
         dlg.setResizable(false);
         dlg.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
@@ -1535,11 +1566,16 @@ public class CardPickerDialog {
         Border normalBorder   = BorderFactory.createLineBorder(new Color(100, 100, 100), 2);
         Border selectedBorder = BorderFactory.createLineBorder(Color.YELLOW, 3);
 
+        List<CardData> pool = new ArrayList<>(eligible.size());
+        for (ForwardTarget t : eligible) pool.add(zone.get(t.idx()));
+        int reachable = gate.maxSelectable(pool, maxCount);
+
         for (int i = 0; i < eligible.size(); i++) {
             ForwardTarget target = eligible.get(i);
             CardData card = zone.get(target.idx());
             JPanel wrapper = buildBreakZoneCardCell(target, card, i, cardLabels, sel,
-                    maxCount, upTo, confirmBtn, normalBorder, selectedBorder);
+                    maxCount, upTo, confirmBtn, normalBorder, selectedBorder,
+                    gate, pool::get, reachable);
             if (!target.isP1()) opponentRow.add(wrapper);
             else                selfRow.add(wrapper);
         }
@@ -1557,7 +1593,7 @@ public class CardPickerDialog {
             south.add(skipBtn);
         }
 
-        JLabel hdr = new JLabel(title, SwingConstants.CENTER);
+        JLabel hdr = new JLabel(title + gate.hint(), SwingConstants.CENTER);
         hdr.setFont(FontLoader.loadPixelFont(11));
         hdr.setBorder(BorderFactory.createEmptyBorder(8, 8, 4, 8));
 
@@ -1605,7 +1641,8 @@ public class CardPickerDialog {
             ForwardTarget target = eligible.get(i);
             CardData card = zone.get(target.idx());
             JPanel wrapper = buildBreakZoneCardCell(target, card, i, cardLabels, sel,
-                    maxCount, upTo, confirmBtn, normalBorder, selectedBorder);
+                    maxCount, upTo, confirmBtn, normalBorder, selectedBorder,
+                    PickGate.ANY, ci -> zone.get(eligible.get(ci).idx()), maxCount);
             if (target.isP1()) { p1Row.add(wrapper); p1Count++; }
             else               { p2Row.add(wrapper); p2Count++; }
         }
@@ -1662,10 +1699,21 @@ public class CardPickerDialog {
      * state and {@code confirmBtn} enablement. {@code cardLabels} is appended in call order,
      * so its index matches {@code fi} (the cell's position in the eligible list).
      */
+    /**
+     * One selectable cell in a break-zone picker.
+     *
+     * @param gate      refuses a pick that collides with the standing selection;
+     *                  {@link PickGate#ANY} for an unconstrained choice
+     * @param cardAt    resolves an eligible-list index to its card, so the gate can be asked about
+     *                  the cards already picked rather than about their indices
+     * @param reachable the largest selection {@code gate} admits from this pool, which is what a
+     *                  mandatory selection confirms at — equal to {@code maxCount} when ungated
+     */
     private JPanel buildBreakZoneCardCell(
             ForwardTarget target, CardData card, int fi,
             List<JLabel> cardLabels, Set<Integer> sel, int maxCount, boolean upTo,
-            JButton confirmBtn, Border normalBorder, Border selectedBorder) {
+            JButton confirmBtn, Border normalBorder, Border selectedBorder,
+            PickGate gate, IntFunction<CardData> cardAt, int reachable) {
 
         JLabel imgLbl = new JLabel("...", SwingConstants.CENTER);
         imgLbl.setPreferredSize(new Dimension(CARD_W, CARD_H));
@@ -1703,10 +1751,17 @@ public class CardPickerDialog {
                     } else if (sel.size() >= maxCount) {
                         return;
                     }
+                    // Asked against what is actually selected, so deselecting a card frees the name
+                    // or element it was holding and a pick that was refused becomes available again.
+                    if (gate != PickGate.ANY) {
+                        List<CardData> picked = new ArrayList<>(sel.size());
+                        for (int si : sel) picked.add(cardAt.apply(si));
+                        if (!gate.allows(picked, card)) return;
+                    }
                     sel.add(fi);
                     imgLbl.setBorder(selectedBorder);
                 }
-                confirmBtn.setEnabled(upTo ? !sel.isEmpty() : sel.size() == maxCount);
+                confirmBtn.setEnabled(upTo ? !sel.isEmpty() : sel.size() == reachable);
             }
         };
         imgLbl.addMouseListener(cardListener);
