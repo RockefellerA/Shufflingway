@@ -214,11 +214,11 @@ class DebugUtility {
 
         JTextField nameField = new JTextField(16);
 
-        List<CardData> rowCards = new ArrayList<>();
+        List<BoardSlot> rows = new ArrayList<>();
         DefaultTableModel model = new DefaultTableModel(new Object[] { "Player", "Name", "Type", "Position" }, 0) {
             @Override public boolean isCellEditable(int row, int col) { return false; }
         };
-        collectBoardRows(rowCards, model);
+        collectBoardRows(rows, model, false);
 
         JTable table = new JTable(model);
         table.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
@@ -228,9 +228,9 @@ class DebugUtility {
         JDialog dialog = new JDialog(mw.frame, "Add/Remove Counters", false);
 
         JButton addBtn = new JButton("Add", plusMinusIcon(true, new Color(0x2e9e46)));
-        addBtn.addActionListener(e -> applyCounterChange(dialog, table, rowCards, nameField, true));
+        addBtn.addActionListener(e -> applyCounterChange(dialog, table, rows, nameField, true));
         JButton removeBtn = new JButton("Remove", plusMinusIcon(false, new Color(0xc0392b)));
-        removeBtn.addActionListener(e -> applyCounterChange(dialog, table, rowCards, nameField, false));
+        removeBtn.addActionListener(e -> applyCounterChange(dialog, table, rows, nameField, false));
 
         JPanel top = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 6));
         top.add(new JLabel("Counter name:"));
@@ -249,31 +249,54 @@ class DebugUtility {
         dialog.setVisible(true);
     }
 
-    /** Rebuilds the counter dialog's table rows from the cards currently on both fields. */
-    private void collectBoardRows(List<CardData> rowCards, DefaultTableModel model) {
-        rowCards.clear();
+    /** Which field zone a debug board row came from, so a change can find the slot again. */
+    private enum FieldZone { BACKUP, FORWARD, MONSTER }
+
+    /**
+     * One row of a debug board table. The card alone is enough for counters, which are keyed by
+     * card, but the ACTIVE/DULL state lives in a list parallel to the zone's card list, so the
+     * zone and index have to be carried too.
+     */
+    private record BoardSlot(boolean isP1, FieldZone zone, int index, CardData card) {}
+
+    /**
+     * Rebuilds a debug dialog's table rows from the cards currently on both fields.
+     * {@code withState} adds the trailing ACTIVE/DULL column the activate/dull dialog shows.
+     */
+    private void collectBoardRows(List<BoardSlot> rows, DefaultTableModel model, boolean withState) {
+        rows.clear();
         model.setRowCount(0);
         for (boolean isP1 : new boolean[] { true, false }) {
             CardData[] backups = isP1 ? mw.p1BackupCards : mw.p2BackupCards;
             for (int i = 0; i < backups.length; i++) {
-                if (backups[i] != null) addBoardRow(rowCards, model, isP1, backups[i], i + 1);
+                if (backups[i] != null) addBoardRow(rows, model, isP1, FieldZone.BACKUP, i, backups[i], withState);
             }
             List<CardData> forwards = isP1 ? mw.p1ForwardCards : mw.p2ForwardCards;
-            for (int i = 0; i < forwards.size(); i++) addBoardRow(rowCards, model, isP1, forwards.get(i), i + 1);
+            for (int i = 0; i < forwards.size(); i++) {
+                addBoardRow(rows, model, isP1, FieldZone.FORWARD, i, forwards.get(i), withState);
+            }
             List<CardData> monsters = isP1 ? mw.p1MonsterCards : mw.p2MonsterCards;
-            for (int i = 0; i < monsters.size(); i++) addBoardRow(rowCards, model, isP1, monsters.get(i), i + 1);
+            for (int i = 0; i < monsters.size(); i++) {
+                addBoardRow(rows, model, isP1, FieldZone.MONSTER, i, monsters.get(i), withState);
+            }
         }
     }
 
-    private void addBoardRow(List<CardData> rowCards, DefaultTableModel model, boolean isP1, CardData card, int position) {
-        rowCards.add(card);
-        model.addRow(new Object[] { isP1 ? "1" : "2", card.name(), card.type(), position });
+    private void addBoardRow(List<BoardSlot> rows, DefaultTableModel model, boolean isP1,
+                             FieldZone zone, int index, CardData card, boolean withState) {
+        BoardSlot slot = new BoardSlot(isP1, zone, index, card);
+        rows.add(slot);
+        // Positions are shown one-based, matching how the slots read on the board.
+        Object[] cells = withState
+                ? new Object[] { isP1 ? "1" : "2", card.name(), card.type(), index + 1, stateLabel(stateOf(slot)) }
+                : new Object[] { isP1 ? "1" : "2", card.name(), card.type(), index + 1 };
+        model.addRow(cells);
     }
 
     /** Applies a single +1/-1 counter change to the selected card and refreshes its field slot. */
-    private void applyCounterChange(JDialog dialog, JTable table, List<CardData> rowCards, JTextField nameField, boolean add) {
+    private void applyCounterChange(JDialog dialog, JTable table, List<BoardSlot> rows, JTextField nameField, boolean add) {
         int row = table.getSelectedRow();
-        if (row < 0 || row >= rowCards.size()) {
+        if (row < 0 || row >= rows.size()) {
             JOptionPane.showMessageDialog(dialog, "Select a card in the table first.", "Debug Counters", JOptionPane.WARNING_MESSAGE);
             return;
         }
@@ -283,7 +306,7 @@ class DebugUtility {
             JOptionPane.showMessageDialog(dialog, "Enter a counter name first.", "Debug Counters", JOptionPane.WARNING_MESSAGE);
             return;
         }
-        CardData card = rowCards.get(row);
+        CardData card = rows.get(row).card();
         if (add) {
             mw.gameState.placeCounters(card, name, 1);
             mw.logEntry("[Debug] Added 1 " + name + " Counter to " + card.name()
@@ -316,6 +339,161 @@ class DebugUtility {
         for (int i = 0; i < mw.p2MonsterCards.size(); i++) {
             if (mw.p2MonsterCards.get(i) == card) { mw.refreshP2MonsterSlot(i); return; }
         }
+    }
+
+    /**
+     * Debug tool: set any card on the field to ACTIVE or DULL directly.
+     *
+     * <p>The state is written straight to the zone's state list rather than going through
+     * {@code dullTarget} / the activation steps, so nothing here fires "when this is dulled" or
+     * "when this is activated" triggers — same reasoning as {@link #setDamageAndCrystals}: a debug
+     * tool used to set up the board a trigger is being tested on must not fire that trigger itself.
+     */
+    void activateDullCards() {
+        if (!mw.gameInProgress()) {
+            JOptionPane.showMessageDialog(mw.frame, "Start a game first.", "Debug Activate/Dull",
+                    JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+
+        List<BoardSlot> rows = new ArrayList<>();
+        DefaultTableModel model = new DefaultTableModel(new Object[] { "Player", "Name", "Type", "Position", "State" }, 0) {
+            @Override public boolean isCellEditable(int row, int col) { return false; }
+        };
+        collectBoardRows(rows, model, true);
+
+        JTable table = new JTable(model);
+        table.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+        JScrollPane scroll = new JScrollPane(table);
+        scroll.setPreferredSize(new Dimension(460, 220));
+
+        JDialog dialog = new JDialog(mw.frame, "Activate/Dull Cards", false);
+
+        JButton activateBtn = new JButton("Activate", arrowIcon(true, new Color(0x2e9e46)));
+        activateBtn.addActionListener(e -> applyStateChange(dialog, table, model, rows, CardState.ACTIVE));
+        JButton dullBtn = new JButton("Dull", arrowIcon(false, new Color(0xc0392b)));
+        dullBtn.addActionListener(e -> applyStateChange(dialog, table, model, rows, CardState.DULL));
+
+        JPanel buttons = new JPanel(new FlowLayout(FlowLayout.CENTER, 10, 6));
+        buttons.add(activateBtn);
+        buttons.add(dullBtn);
+
+        dialog.setLayout(new BorderLayout());
+        dialog.add(scroll, BorderLayout.CENTER);
+        dialog.add(buttons, BorderLayout.SOUTH);
+        dialog.pack();
+        dialog.setLocationRelativeTo(mw.frame);
+        dialog.setVisible(true);
+    }
+
+    /** Sets the selected row's card to {@code state} and refreshes its field slot. */
+    private void applyStateChange(JDialog dialog, JTable table, DefaultTableModel model,
+                                  List<BoardSlot> rows, CardState state) {
+        int row = table.getSelectedRow();
+        if (row < 0 || row >= rows.size()) {
+            JOptionPane.showMessageDialog(dialog, "Select a card in the table first.", "Debug Activate/Dull",
+                    JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+        BoardSlot slot = rows.get(row);
+        // The dialog is modeless, so the board can move underneath it — a Forward broken while it
+        // is open shifts every later index. Writing a state by a stale index would dull the wrong
+        // card, so the row is re-checked against the field and the table rebuilt if it has drifted.
+        if (cardAt(slot) != slot.card()) {
+            collectBoardRows(rows, model, true);
+            JOptionPane.showMessageDialog(dialog, "The board changed — the card list has been refreshed.",
+                    "Debug Activate/Dull", JOptionPane.INFORMATION_MESSAGE);
+            return;
+        }
+        if (stateOf(slot) == state) return; // already there — nothing to log
+        setSlotState(slot, state);
+        model.setValueAt(stateLabel(state), row, 4);
+        mw.logEntry("[Debug] " + (state == CardState.ACTIVE ? "Activated " : "Dulled ") + slot.card().name()
+                + " (" + (slot.isP1() ? "P1" : "P2") + " " + zoneLabel(slot.zone()) + " " + (slot.index() + 1) + ").");
+    }
+
+    /** The card currently occupying {@code slot}'s zone and index, or {@code null} if there is none. */
+    private CardData cardAt(BoardSlot slot) {
+        switch (slot.zone()) {
+            case BACKUP: {
+                CardData[] cards = slot.isP1() ? mw.p1BackupCards : mw.p2BackupCards;
+                return slot.index() < cards.length ? cards[slot.index()] : null;
+            }
+            case FORWARD: {
+                List<CardData> cards = slot.isP1() ? mw.p1ForwardCards : mw.p2ForwardCards;
+                return slot.index() < cards.size() ? cards.get(slot.index()) : null;
+            }
+            default: {
+                List<CardData> cards = slot.isP1() ? mw.p1MonsterCards : mw.p2MonsterCards;
+                return slot.index() < cards.size() ? cards.get(slot.index()) : null;
+            }
+        }
+    }
+
+    /** The ACTIVE/DULL state recorded for {@code slot}, or {@code null} if the slot is gone. */
+    private CardState stateOf(BoardSlot slot) {
+        switch (slot.zone()) {
+            case BACKUP: {
+                CardState[] states = slot.isP1() ? mw.p1BackupStates : mw.p2BackupStates;
+                return slot.index() < states.length ? states[slot.index()] : null;
+            }
+            case FORWARD: {
+                List<CardState> states = slot.isP1() ? mw.p1ForwardStates : mw.p2ForwardStates;
+                return slot.index() < states.size() ? states.get(slot.index()) : null;
+            }
+            default: {
+                List<CardState> states = slot.isP1() ? mw.p1MonsterStates : mw.p2MonsterStates;
+                return slot.index() < states.size() ? states.get(slot.index()) : null;
+            }
+        }
+    }
+
+    /** Writes {@code state} into {@code slot}'s zone and repaints that slot on the board. */
+    private void setSlotState(BoardSlot slot, CardState state) {
+        boolean isP1 = slot.isP1();
+        int idx = slot.index();
+        switch (slot.zone()) {
+            case BACKUP -> {
+                if (isP1) { mw.p1BackupStates[idx] = state; mw.refreshP1BackupSlot(idx); }
+                else      { mw.p2BackupStates[idx] = state; mw.refreshP2BackupSlot(idx); }
+            }
+            case FORWARD -> {
+                if (isP1) { mw.p1ForwardStates.set(idx, state); mw.refreshP1ForwardSlot(idx); }
+                else      { mw.p2ForwardStates.set(idx, state); mw.refreshP2ForwardSlot(idx); }
+            }
+            case MONSTER -> {
+                if (isP1) { mw.p1MonsterStates.set(idx, state); mw.refreshP1MonsterSlot(idx); }
+                else      { mw.p2MonsterStates.set(idx, state); mw.refreshP2MonsterSlot(idx); }
+            }
+        }
+    }
+
+    /** How a state reads in the dialog's State column. */
+    private static String stateLabel(CardState state) {
+        return state == CardState.DULL ? "Dull" : "Active";
+    }
+
+    /** How a field zone is named in the debug log. */
+    private static String zoneLabel(FieldZone zone) {
+        return switch (zone) {
+            case BACKUP  -> "Backup";
+            case FORWARD -> "Forward";
+            case MONSTER -> "Monster";
+        };
+    }
+
+    /** Paints a small solid triangle pointing up (activate) or down (dull) in the given color. */
+    private static Icon arrowIcon(boolean up, Color color) {
+        int sz = 12;
+        BufferedImage img = new BufferedImage(sz, sz, BufferedImage.TYPE_INT_ARGB);
+        Graphics2D g = img.createGraphics();
+        g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+        g.setColor(color);
+        int[] xs = { 1, sz - 1, sz / 2 };
+        int[] ys = up ? new int[] { sz - 2, sz - 2, 1 } : new int[] { 1, 1, sz - 2 };
+        g.fillPolygon(xs, ys, 3);
+        g.dispose();
+        return new ImageIcon(img);
     }
 
     /** Paints a small round-capped {@code +} (or {@code −}) icon in the given color. */

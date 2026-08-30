@@ -14,7 +14,7 @@ import javax.swing.JMenuItem;
 public class DebugMenu extends JMenu {
 
     public DebugMenu(Runnable spawnOnField, Runnable addToHand, Runnable addToBreakZone,
-                     Runnable addRemoveCounters, Runnable setDamageAndCrystals) {
+                     Runnable addRemoveCounters, Runnable activateDullCards, Runnable setDamageAndCrystals) {
         super("Debug");
 
         addItem("Spawn Card on Field…",
@@ -29,6 +29,9 @@ public class DebugMenu extends JMenu {
         addItem("Add/Remove Counters…",
                 "Place named counters on (or remove them from) any card on the field.",
                 addRemoveCounters);
+        addItem("Activate/Dull Cards…",
+                "Set any card on the field to Active or Dull without firing dull/activate triggers.",
+                activateDullCards);
         addItem("Set Damage/Crystals…",
                 "Directly set P1/P2 damage zone and Crystal counts for testing damage-threshold "
                         + "triggers and Crystal costs.",
