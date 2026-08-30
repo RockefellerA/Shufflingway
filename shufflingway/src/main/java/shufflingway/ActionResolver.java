@@ -3875,7 +3875,8 @@ public class ActionResolver {
             };
         }
 
-        if (FOLLOWUP_BREAK.matcher(t).find() || FOLLOWUP_BREAK_DEMONSTRATIVE.matcher(t).matches())
+        if (FOLLOWUP_BREAK.matcher(t).find() || FOLLOWUP_BREAK_DEMONSTRATIVE.matcher(t).matches()
+                || FOLLOWUP_BREAK_CHOSEN.matcher(t).matches())
             return (ctx, ts) -> {
                 sortedByIdxDesc(ts, true) .forEach(ctx::breakTarget);
                 sortedByIdxDesc(ts, false).forEach(ctx::breakTarget);

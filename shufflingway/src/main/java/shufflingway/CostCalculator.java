@@ -721,6 +721,14 @@ class CostCalculator {
 		if (putToBz != null && mw.altPutToBzCandidates(putToBz, true).size() < putToBz.count())
 			return false;
 
+		// Put-into-Break-Zone cost reduction ("you may put 1 active Lightning Backup you control
+		// into the Break Zone"). Unaffordable without the card to hand over, because the reduced
+		// CP this menu item quotes is only owed once the price is paid.
+		CardData.AltPutToBzReduction putToBzReduce = card.altPutToBzReduction();
+		if (putToBzReduce != null
+				&& mw.altPutToBzReductionCandidates(putToBzReduce).size() < putToBzReduce.count())
+			return false;
+
 		// Break Zone removal check
 		List<String> bzReqs = card.altBzRemovals();
 		if (!bzReqs.isEmpty()) {

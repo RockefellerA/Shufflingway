@@ -40110,6 +40110,216 @@ public class CardBehaviorTest {
 						+ "chosen Forward and draw 1 card instead.", null));
 	}
 
+
+	// =========================================================================================
+	// Delita 4-087R, Lulu 7-020C and Kain 9-084H: an optional price paid into the Break Zone.
+	//
+	// Parsing + board behaviour. All three print "you may put ... into the Break Zone. If you do
+	// so, ..." with a qualifier the engine had no slot for, and all three used to lose everything
+	// after the first clause: the two auto abilities parsed as a bare "choose 1 Forward" and did
+	// nothing with it, and Kain's whole cost sentence was dropped, leaving him an 8-CP Forward
+	// with no discount on offer.
+	// =========================================================================================
+
+	private static final String DELITA_4_087R_TEXT =
+			"When Delita enters the field, choose 1 Forward opponent controls. You may put 1 of your "
+			+ "Forwards of the same cost other than Delita into the Break Zone. If you do so, break "
+			+ "the chosen Forward.";
+
+	private static final String LULU_7_020C_TEXT =
+			"When Lulu enters the field, choose 1 Forward. You may put 1 Backup other than Lulu you "
+			+ "control into the Break Zone. If you do so, deal it 7000 damage.";
+
+	private static final String KAIN_9_084H_TEXT =
+			"Before paying the cost to play Kain onto the field, you may put 1 active Lightning Backup "
+			+ "you control into the Break Zone. If you do so, the cost for playing Kain onto the field "
+			+ "is reduced by 5.[[br]] When Kain enters the field, choose 1 Forward opponent controls. "
+			+ "It loses 8000 power until the end of the turn.";
+
+	/** A Forward of a given cost whose auto abilities are parsed from {@code text}. */
+	private static CardData makePricedAutoForward(String name, String element, int cost, int power,
+			String text) {
+		return new CardData(null, name, element, cost, power, "Forward", false, 0, false, false,
+				Set.of(), 0, List.of(), null, List.of(),
+				List.of(), CardData.parseAutoAbilities(text), List.of(), List.of(), List.of(),
+				List.of(), List.of(), List.of(), List.of(), List.of(),
+				false, false, null, false, false, false, false, false, 1,
+				null, null, null, text);
+	}
+
+	/** A Backup of a given cost whose auto abilities are parsed from {@code text}. */
+	private static CardData makePricedAutoBackup(String name, String element, int cost, String text) {
+		return new CardData(null, name, element, cost, 0, "Backup", false, 0, false, false,
+				Set.of(), 0, List.of(), null, List.of(),
+				List.of(), CardData.parseAutoAbilities(text), List.of(), List.of(), List.of(),
+				List.of(), List.of(), List.of(), List.of(), List.of(),
+				false, false, null, false, false, false, false, false, 1,
+				null, null, null, text);
+	}
+
+	/** Seats {@code card} in P2's backup slot {@code slot} without firing its entry trigger. */
+	private static void seatP2Backup(MainWindow mw, int slot, CardData card, CardState state) {
+		mw.gameState.getIdentity().put(card, false);
+		mw.p2BackupCards[slot]  = card;
+		mw.p2BackupStates[slot] = state;
+	}
+
+	@Test
+	void theOptionalBreakZonePriceIsDispatchedRatherThanLeftToTheChooseParser() {
+		// parse() still answers for the opening clause, which is exactly the problem: it reads
+		// "choose 1 Forward opponent controls" and reports success having dropped the price and
+		// the payoff. What makes these cards work is that the dispatcher claims them first.
+		CardData delita = makePricedAutoForward("Delita", "Earth", 3, 7000, DELITA_4_087R_TEXT);
+		AutoAbility fa = delita.autoAbilities().get(0);
+		assertTrue(AutoAbilityTriggers.dispatchedByTriggers(fa, delita),
+				"the whole sentence is resolved by the trigger dispatcher, not by parse()");
+
+		Matcher m = AutoAbilityTriggers.FA_CHOOSE_THEN_MAY_PUT_INTO_BZ.matcher(fa.effectText());
+		assertTrue(m.find());
+		assertEquals("Forward", m.group("tgttype"));
+		assertEquals("opponent controls", m.group("tgtctl"));
+		assertNotNull(m.group("samecost"), "the price has to match the chosen Forward's cost");
+		assertEquals("Delita", m.group("excludename"), "Delita cannot pay her own price");
+		assertNotNull(m.group("ofyour"), "\"1 of your Forwards\" is the ownership clause here");
+		assertEquals("break the chosen Forward.", m.group("sub"));
+	}
+
+	@Test
+	void lulusPriceIsAnOtherThanGroupRatherThanACostMatch() {
+		CardData lulu = makePricedAutoBackup("Lulu", "Fire", 2, LULU_7_020C_TEXT);
+		AutoAbility fa = lulu.autoAbilities().get(0);
+		assertTrue(AutoAbilityTriggers.dispatchedByTriggers(fa, lulu));
+
+		Matcher m = AutoAbilityTriggers.FA_CHOOSE_THEN_MAY_PUT_INTO_BZ.matcher(fa.effectText());
+		assertTrue(m.find());
+		assertNull(m.group("tgtctl"), "\"choose 1 Forward\" reaches either side of the table");
+		assertEquals("Backup", m.group("pricetype"));
+		assertNull(m.group("samecost"), "no cost relation here");
+		assertEquals("Lulu", m.group("excludename"));
+		assertNotNull(m.group("youcontrol"), "the ownership clause is printed after the exclusion");
+		assertEquals("deal it 7000 damage.", m.group("sub"));
+	}
+
+	@Test
+	void breakTheChosenForwardResolvesAgainstAnAlreadyChosenTarget() {
+		// The payoff names the card the ability chose two clauses earlier. "Break it" was the only
+		// wording the target-action vocabulary knew, so Delita's half had nowhere to land.
+		assertNotNull(ActionResolver.parseTargetAction("break the chosen Forward.", 0));
+		assertNotNull(ActionResolver.parseFormerLatterGroupAction("deal it 7000 damage."));
+	}
+
+	@Test
+	void delitaBreaksTheChosenForwardWhenAMatchingCostForwardIsHandedOver() {
+		MainWindow mw = new MainWindow();
+		CardData delita  = makePricedAutoForward("Delita", "Earth", 3, 7000, DELITA_4_087R_TEXT);
+		CardData tribute = makeForward("Tribute", "Earth", 4, 5000);
+		CardData victim  = makeForward("Victim", "Water", 4, 9000);
+		placeP2Forward(mw, delita);
+		placeP2Forward(mw, tribute);
+		placeP1Forward(mw, victim);
+
+		mw.autoAbilityTriggers.triggerAutoAbilitiesForEntersField(delita, false);
+
+		assertTrue(mw.p1ForwardCards.isEmpty(), "the chosen Forward is broken outright");
+		assertTrue(mw.gameState.getP1BreakZone().contains(victim));
+		assertTrue(mw.gameState.getP2BreakZone().contains(tribute), "and the price was paid");
+		assertTrue(mw.p2ForwardCards.contains(delita), "Delita is not the price");
+	}
+
+	@Test
+	void delitaKeepsTheChosenForwardWhenNoForwardOfThatCostCanBeHandedOver() {
+		// "of the same cost" is read against the Forward just chosen, not against Delita. A cost-2
+		// ally cannot buy the break of a cost-4 Forward, and the payoff must not fire on its own.
+		MainWindow mw = new MainWindow();
+		CardData delita = makePricedAutoForward("Delita", "Earth", 3, 7000, DELITA_4_087R_TEXT);
+		CardData cheap  = makeForward("Cheap Ally", "Earth", 2, 3000);
+		CardData victim = makeForward("Victim", "Water", 4, 9000);
+		placeP2Forward(mw, delita);
+		placeP2Forward(mw, cheap);
+		placeP1Forward(mw, victim);
+
+		mw.autoAbilityTriggers.triggerAutoAbilitiesForEntersField(delita, false);
+
+		assertEquals(List.of(victim), mw.p1ForwardCards, "nothing was paid, so nothing breaks");
+		assertTrue(mw.p2ForwardCards.contains(cheap), "and the wrong-cost ally is left alone");
+	}
+
+	@Test
+	void luluDealsSevenThousandToTheChosenForwardOnceABackupIsHandedOver() {
+		MainWindow mw = new MainWindow();
+		CardData lulu     = makePricedAutoBackup("Lulu", "Fire", 2, LULU_7_020C_TEXT);
+		CardData sidekick = makePlainBackup("Sidekick", "Fire", 1);
+		CardData victim   = makeForward("Victim", "Water", 4, 7000);
+		seatP2Backup(mw, 0, lulu, CardState.ACTIVE);
+		seatP2Backup(mw, 1, sidekick, CardState.ACTIVE);
+		placeP1Forward(mw, victim);
+
+		mw.autoAbilityTriggers.triggerAutoAbilitiesForEntersField(lulu, false);
+
+		assertTrue(mw.p1ForwardCards.isEmpty(), "7000 damage on a 7000-power Forward breaks it");
+		assertNull(mw.p2BackupCards[1], "the Backup was the price");
+		assertSame(lulu, mw.p2BackupCards[0], "and Lulu is excluded from paying it");
+	}
+
+	@Test
+	void luluDoesNothingWhenSheIsTheOnlyBackupSheCouldPayWith() {
+		MainWindow mw = new MainWindow();
+		CardData lulu   = makePricedAutoBackup("Lulu", "Fire", 2, LULU_7_020C_TEXT);
+		CardData victim = makeForward("Victim", "Water", 4, 7000);
+		seatP2Backup(mw, 0, lulu, CardState.ACTIVE);
+		placeP1Forward(mw, victim);
+
+		mw.autoAbilityTriggers.triggerAutoAbilitiesForEntersField(lulu, false);
+
+		assertEquals(List.of(victim), mw.p1ForwardCards, "\"other than Lulu\" leaves nothing to pay");
+		assertSame(lulu, mw.p2BackupCards[0]);
+	}
+
+	@Test
+	void kainsPlayCostReductionIsReadAsACostRatherThanDroppedOrAsAnAbility() {
+		CardData kain = makePricedAutoForward("Kain", "Lightning", 8, 9000, KAIN_9_084H_TEXT);
+		CardData.AltPutToBzReduction cost = kain.altPutToBzReduction();
+		assertNotNull(cost, "the cost sentence used to be dropped entirely");
+		assertEquals(1, cost.count());
+		assertTrue(cost.activeOnly(), "a dull Lightning Backup cannot pay this");
+		assertEquals("Lightning", cost.element());
+		assertEquals("Backup", cost.type());
+		assertEquals(List.of("Lightning", "Lightning", "Lightning"), kain.altCpElements(),
+				"cost 8 reduced by 5");
+		assertNull(kain.altPutToBzCost(),
+				"this reduces the cost; Kefka's put-to-BZ cost buys the play outright");
+		assertEquals(1, kain.autoAbilities().size(),
+				"only the enters-the-field sentence is an ability");
+	}
+
+	@Test
+	void kainsReductionOffersOnlyActiveLightningBackups() {
+		MainWindow mw = new MainWindow();
+		CardData kain = makePricedAutoForward("Kain", "Lightning", 8, 9000, KAIN_9_084H_TEXT);
+
+		mw.p1BackupCards[0]  = makePlainBackup("Active Bolt", "Lightning", 2);
+		mw.p1BackupStates[0] = CardState.ACTIVE;
+		mw.p1BackupCards[1]  = makePlainBackup("Dull Bolt", "Lightning", 2);
+		mw.p1BackupStates[1] = CardState.DULL;
+		mw.p1BackupCards[2]  = makePlainBackup("Active Flame", "Fire", 2);
+		mw.p1BackupStates[2] = CardState.ACTIVE;
+
+		assertEquals(
+				List.of(new ForwardTarget(true, 0, ForwardTarget.CardZone.BACKUP)),
+				mw.altPutToBzReductionCandidates(kain.altPutToBzReduction()),
+				"the state and element qualifiers are both part of the price");
+	}
+
+	@Test
+	void theRevealDialogTellsThePlayerWhatItsOwnButtonDoes() {
+		// Snow 18-109C rides the play-onto-field reveal dialog with a different destination. The
+		// buttons already said Remove while the instruction line above them still said Field.
+		assertEquals("\u2192 Remove", RevealTake.RFG_CASTABLE.buttonLabel());
+		assertEquals("remove from the game", RevealTake.RFG_CASTABLE.takeVerb());
+		assertEquals("\u2192 Field", RevealTake.FIELD.buttonLabel());
+		assertEquals("play", RevealTake.FIELD.takeVerb());
+	}
+
 	// =========================================================================================
 
 }

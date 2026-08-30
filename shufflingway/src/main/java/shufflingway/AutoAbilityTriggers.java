@@ -20,6 +20,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ExecutionException;
+import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -215,6 +216,49 @@ final class AutoAbilityTriggers {
 			"(?:When|If)\\s+you\\s+do\\s+so[,.]?\\s+(?<sub>.+?)$",
 			Pattern.DOTALL
 	);
+
+	/**
+	 * Matches "choose 1 &lt;target&gt;. You may put 1 &lt;price&gt; into the Break Zone. If you do
+	 * so, &lt;payoff on the chosen card&gt;." — 4-087R Delita and 7-020C Lulu, the only two
+	 * printings of this shape.
+	 *
+	 * <ul>
+	 *   <li>{@code count}/{@code tgttype}/{@code tgtctl} — the card the ability chooses first.
+	 *       Delita is restricted to "opponent controls"; Lulu's bare "1 Forward" is either side.</li>
+	 *   <li>{@code ofyour}/{@code youcontrol} — the two ways the price says it comes off your own
+	 *       field ("1 of your Forwards", "1 Backup … you control"). One of them must be present;
+	 *       {@link #executeChooseThenMayPutIntoBzAutoAbility} refuses the match otherwise rather
+	 *       than guessing an ownership the text did not state.</li>
+	 *   <li>{@code samecost} — Delita's "of the same cost", read against the <em>chosen</em>
+	 *       Forward rather than against Delita: the sentence has just named one card, and that is
+	 *       the cost the price has to match.</li>
+	 *   <li>{@code excludename} — "other than Delita" / "other than Lulu", the source naming
+	 *       itself so it cannot pay its own price.</li>
+	 *   <li>{@code sub} — the payoff, which acts on the already-chosen card and so is resolved
+	 *       against it rather than selecting for itself.</li>
+	 * </ul>
+	 *
+	 * <p>Dispatched here rather than left to {@link ActionResolver#parse}: the Choose family reads
+	 * the opening "choose 1 Forward …" and stops, silently dropping the price and the payoff, so
+	 * both cards used to resolve as a bare, consequence-free targeting.
+	 */
+	static final Pattern FA_CHOOSE_THEN_MAY_PUT_INTO_BZ =
+			Pattern.compile(
+				"(?i)^choose\\s+(?<count>\\d+)\\s+" +
+				"(?<tgttype>Forwards?|Backups?|Monsters?|Characters?)" +
+				"(?:\\s+(?<tgtctl>(?:your\\s+)?opponent\\s+controls|you\\s+control))?[.,]" +
+				"\\s+You\\s+may\\s+put\\s+(?<price>\\d+)\\s+" +
+				"(?<ofyour>of\\s+your\\s+)?" +
+				"(?:(?<active>active)\\s+)?" +
+				"(?:(?<element>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)\\s+)?" +
+				"(?<pricetype>Forwards?|Backups?|Monsters?|Characters?)" +
+				"(?<samecost>\\s+of\\s+the\\s+same\\s+cost)?" +
+				"(?:\\s+other\\s+than\\s+(?<excludename>[^,.]+?))?" +
+				"(?<youcontrol>\\s+you\\s+control)?" +
+				"\\s+into\\s+the\\s+Break\\s+Zone[.,]\\s+" +
+				"If\\s+you\\s+do\\s+so[,.]?\\s+(?<sub>.+?)$",
+				Pattern.DOTALL
+			);
 
 	/**
 	 * Matches a card's own passive field ability text:
@@ -3466,6 +3510,11 @@ final class AutoAbilityTriggers {
 		if (m.find()) return subEffectParses(m.group("sub"), source);
 		m = FA_PUT_SELF_INTO_BZ_IF_DO_SO.matcher(text);
 		if (m.find()) return subEffectParses(m.group("sub"), source);
+		m = FA_CHOOSE_THEN_MAY_PUT_INTO_BZ.matcher(text);
+		// The payoff acts on the card the ability already chose, so it is resolved against a
+		// target list rather than through parse(), which answers null for "break the chosen
+		// Forward" and would report both printings unimplemented.
+		if (m.find()) return ActionResolver.parseFormerLatterGroupAction(m.group("sub").trim()) != null;
 		// Self-contained: these two resolve entirely inside their executor and consult nothing
 		// further, so matching is the whole of the question.
 		if (FA_REVEAL_SUMMONS_CONDITIONAL.matcher(text).find()) return true;
@@ -3599,6 +3648,13 @@ final class AutoAbilityTriggers {
 		Matcher sbzM = FA_PUT_SELF_INTO_BZ_IF_DO_SO.matcher(fa.effectText());
 		if (sbzM.find()) {
 			executePutSelfIntoBzIfDoSoAutoAbility(fa, source, isP1, effectIsP1, sbzM);
+			return;
+		}
+
+		// Detect "choose 1 <target>. You may put 1 <price> into the Break Zone. If you do so, <payoff>"
+		Matcher cbzM = FA_CHOOSE_THEN_MAY_PUT_INTO_BZ.matcher(fa.effectText());
+		if (cbzM.find()) {
+			executeChooseThenMayPutIntoBzAutoAbility(fa, source, isP1, effectIsP1, cbzM);
 			return;
 		}
 
@@ -3939,6 +3995,118 @@ final class AutoAbilityTriggers {
 		}
 		mw.logEntry("[AutoAbility] " + source.name() + " — if you do so: " + subEffect);
 		effect.accept(mw.buildGameContext(effectIsP1));
+	}
+
+	/**
+	 * "Choose 1 &lt;target&gt;. You may put 1 &lt;price&gt; into the Break Zone. If you do so,
+	 * &lt;payoff&gt;." — 4-087R Delita and 7-020C Lulu.
+	 *
+	 * <p>Three steps in the order the card prints them, which is also the order they depend on each
+	 * other: the target is chosen first and unconditionally (it is not part of the offer, and
+	 * "when chosen by abilities" watchers fire off it either way), the price is then offered, and
+	 * the payoff lands only if the price was paid.
+	 *
+	 * <p>Delita's "of the same cost" is read against the card just chosen, so the price cannot be
+	 * filtered until the choice is made — which is why the offer cannot be hoisted above it.
+	 *
+	 * <p>The chosen card is re-located by identity after the price is paid rather than reusing the
+	 * target picked up front: paying can move slots underneath it, and a stale index would land the
+	 * payoff on whatever slid into that seat.
+	 */
+	private void executeChooseThenMayPutIntoBzAutoAbility(AutoAbility fa, CardData source,
+			boolean isP1, boolean effectIsP1, Matcher m) {
+		String subEffect = m.group("sub").trim();
+		BiConsumer<GameContext, List<ForwardTarget>> payoff =
+				ActionResolver.parseFormerLatterGroupAction(subEffect);
+		if (payoff == null) {
+			mw.logEntry("[AutoAbility] Unrecognized sub-effect: " + subEffect);
+			return;
+		}
+
+		// The price always comes off your own field. Both printings say so, one with "1 of your
+		// Forwards" and one with "1 Backup ... you control"; a text stating neither is not this
+		// effect, and guessing an ownership would let the ability eat the opponent's board.
+		if (m.group("ofyour") == null && m.group("youcontrol") == null) {
+			mw.logEntry("[AutoAbility] " + source.name() + " — price does not say whose field it comes from, skipping");
+			return;
+		}
+
+		int     count        = Integer.parseInt(m.group("count"));
+		String  tgtType      = m.group("tgttype").toLowerCase(java.util.Locale.ROOT);
+		String  tgtCtl       = m.group("tgtctl");
+		boolean tgtOpponent  = tgtCtl != null && tgtCtl.toLowerCase(java.util.Locale.ROOT).contains("opponent");
+		boolean tgtSelf      = tgtCtl != null && !tgtOpponent;
+
+		GameContext ctx = mw.buildGameContext(effectIsP1);
+		List<ForwardTarget> chosen = ctx.selectCharacters(count, false, tgtOpponent, tgtSelf,
+				null, null, -1, null, -1, null,
+				includesRow(tgtType, "forward"), includesRow(tgtType, "backup"), includesRow(tgtType, "monster"),
+				null, null, null, null, false, null, false);
+		if (chosen.isEmpty()) {
+			mw.logEntry("[AutoAbility] " + source.name() + " — nothing to choose, ability does nothing");
+			return;
+		}
+		List<CardData> chosenCards = new ArrayList<>();
+		List<Boolean>  chosenSides = new ArrayList<>();
+		for (ForwardTarget t : chosen) { chosenCards.add(ctx.targetCard(t)); chosenSides.add(t.isP1()); }
+
+		// Delita's "of the same cost" — the cost of the card just chosen, not of Delita.
+		int priceCost = m.group("samecost") != null ? chosenCards.get(0).cost() : -1;
+
+		int     priceCount = Integer.parseInt(m.group("price"));
+		String  priceType  = m.group("pricetype").toLowerCase(java.util.Locale.ROOT);
+		String  condition  = m.group("active") != null ? "active" : null;
+		String  element    = m.group("element") != null ? m.group("element").trim() : null;
+		String  exclude    = m.group("excludename") != null ? m.group("excludename").trim() : null;
+		boolean priceFwd   = includesRow(priceType, "forward");
+		boolean priceBkp   = includesRow(priceType, "backup");
+		boolean priceMon   = includesRow(priceType, "monster");
+
+		// The offer belongs to the ability's controller. Only the local seat is asked; the AI takes
+		// the trade, the same answer every other optional cost in this class gives it.
+		//
+		// Asked before the price is picked rather than after checking that a price exists, which
+		// is the order the sibling executors use: the selection below reports an empty pick as a
+		// skipped payoff, so an accepted offer with nothing to hand over costs nothing.
+		if (effectIsP1) {
+			int choice = mw.showEffectOptionDialog(source.name() + " — " + fa.effectText(),
+					"Auto Ability", new Object[]{"Put into Break Zone", "Decline"});
+			if (choice != 0) {
+				mw.logEntry("[AutoAbility] " + source.name() + " — optional cost declined, payoff skipped");
+				return;
+			}
+		} else {
+			mw.logEntry("[AutoAbility] [AI] auto-accepts optional cost for " + source.name());
+		}
+
+		GameContext priceCtx = mw.buildGameContext(effectIsP1);
+		List<ForwardTarget> price = priceCtx.selectCharacters(priceCount, false, false, true,
+				condition, element, priceCost, null, -1, null,
+				priceFwd, priceBkp, priceMon, null, null, null, exclude, false, null, false);
+		if (price.isEmpty()) {
+			mw.logEntry("[AutoAbility] " + source.name() + " — no card handed over, payoff skipped");
+			return;
+		}
+		GameContext payCtx = mw.buildGameContext(effectIsP1);
+		price.forEach(t -> payCtx.forceTargetToBreakZone(t));
+
+		GameContext payoffCtx = mw.buildGameContext(effectIsP1);
+		List<ForwardTarget> stillThere = new ArrayList<>();
+		for (int k = 0; k < chosenCards.size(); k++) {
+			ForwardTarget slot = findFieldTarget(chosenCards.get(k), chosenSides.get(k));
+			if (slot != null) stillThere.add(slot);
+		}
+		if (stillThere.isEmpty()) {
+			mw.logEntry("[AutoAbility] " + source.name() + " — chosen card has left the field, payoff skipped");
+			return;
+		}
+		mw.logEntry("[AutoAbility] " + source.name() + " — if you do so: " + subEffect);
+		payoff.accept(payoffCtx, stillThere);
+	}
+
+	/** Whether a printed card-type word covers {@code row}; "Character" covers all three. */
+	private static boolean includesRow(String typeLower, String row) {
+		return typeLower.startsWith(row) || typeLower.startsWith("character");
 	}
 
 	private void executeRevealSummonsConditionalAutoAbility(AutoAbility fa, CardData source,

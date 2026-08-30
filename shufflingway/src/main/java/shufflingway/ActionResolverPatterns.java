@@ -1308,6 +1308,22 @@ final class ActionResolverPatterns {
         "(?i)^Break\\s+that\\s+Character\\s*[.!]?$"
     );
     /**
+     * Matches "Break the chosen Forward." — the payoff half of 4-087R Delita, whose sentence
+     * points back at the Forward the same ability chose two clauses earlier rather than at
+     * anything the followup selects for itself.
+     *
+     * <p>Separate from {@link #FOLLOWUP_BREAK_DEMONSTRATIVE} rather than folded into it: that
+     * pattern is deliberately "that Character" only, because admitting the Forward wording there
+     * diverts Breaktouch into the preloaded-target path. "the chosen" carries no such clash —
+     * nothing in the corpus writes Breaktouch that way.
+     *
+     * <p>Anchored for the same reason its neighbour is: it is read with {@code matches()}, so it
+     * can only claim a sentence that is nothing but the break.
+     */
+    static final Pattern FOLLOWUP_BREAK_CHOSEN = Pattern.compile(
+        "(?i)^Break\\s+the\\s+chosen\\s+(?:Character|Forward|Backup|Monster)s?\\s*[.!]?$"
+    );
+    /**
      * Matches "As long as [CardName] is on the field, it loses all its abilities." — the standing
      * silence 25-035L Aerith and 20-116R Meliadoul lay on a Character as they enter.
      *

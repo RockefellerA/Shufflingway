@@ -2041,10 +2041,11 @@ class LookAtDeckDialogs {
         }
 
         JLabel instructions = new JLabel(
-                txt("Click '→ Field' on " + (costBudget >= 0
+                txt("Click '" + take.buttonLabel() + "' on " + (costBudget >= 0
                                 ? "any number of " + typeLabel + "(s) totalling cost "
                                         + costBudget + " or less"
-                                : "up to " + maxPlay + " " + typeLabel + "(s)") + " to play. "
+                                : "up to " + maxPlay + " " + typeLabel + "(s)")
+                        + " to " + take.takeVerb() + ". "
                         + switch (rest) {
                             case HAND       -> "The rest go to your hand.";
                             case BREAK_ZONE -> "The rest go to your Break Zone.";

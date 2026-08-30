@@ -15,27 +15,37 @@ package shufflingway;
  */
 enum RevealTake {
     /** The card enters play. */
-    FIELD("Play up to ", " onto Field", "→ Field", "played onto field"),
+    FIELD("Play up to ", " onto Field", "→ Field", "play", "played onto field"),
     /**
      * The card is removed from the game and registered castable from there — Snow 18-109C, whose
      * "You can cast it at any time you could normally cast it this turn" is the point of the removal.
      */
-    RFG_CASTABLE("Remove ", " from the Game", "→ Remove", "removed from the game");
+    RFG_CASTABLE("Remove ", " from the Game", "→ Remove", "remove from the game", "removed from the game");
 
     private final String titlePrefix;
     private final String titleVerb;
     private final String buttonLabel;
+    private final String takeVerb;
     private final String logVerb;
 
-    RevealTake(String titlePrefix, String titleVerb, String buttonLabel, String logVerb) {
+    RevealTake(String titlePrefix, String titleVerb, String buttonLabel, String takeVerb,
+            String logVerb) {
         this.titlePrefix = titlePrefix;
         this.titleVerb   = titleVerb;
         this.buttonLabel = buttonLabel;
+        this.takeVerb    = takeVerb;
         this.logVerb     = logVerb;
     }
 
     /** The toggle a player clicks to take a card. */
     String buttonLabel() { return buttonLabel; }
+
+    /**
+     * What the dialog's instruction line says the click does: "… to play", "… to remove from the
+     * game". Kept beside {@link #buttonLabel()} because the two are read as one sentence, and the
+     * instruction used to name the field while the button beside it said Remove.
+     */
+    String takeVerb() { return takeVerb; }
 
     /** How the shared log names a taken card: "[name] [logVerb]". */
     String logVerb() { return logVerb; }

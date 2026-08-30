@@ -7613,11 +7613,15 @@ public class MainWindow {
 
 		List<DullForwardCost> altDull = card.altDullCosts();
 		CardData.AltPutToBzCost altBz = card.altPutToBzCost();
+		CardData.AltPutToBzReduction altBzReduce = card.altPutToBzReduction();
 		if (card.altCrystalCost() > 0 || card.altCpCost() > 0 || card.altFieldRemoval() != null
-				|| !altDull.isEmpty() || altBz != null) {
+				|| !altDull.isEmpty() || altBz != null || altBzReduce != null) {
 			int ac = card.altCrystalCost();
 			List<String> altElems = card.altCpElements();
 			CardData.AltFieldRemoval afr = card.altFieldRemoval();
+			String bzReduceStr = altBzReduce == null ? ""
+					: "put " + describeAltPutToBzReduction(altBzReduce) + " to BZ"
+					  + (altBz == null && altDull.isEmpty() && altElems.isEmpty() && afr == null ? "" : " + ");
 			String bzStr = altBz == null ? ""
 					: "put " + describeAltPutToBzCost(altBz) + " to BZ"
 					  + (altDull.isEmpty() && altElems.isEmpty() && afr == null ? "" : " + ");
@@ -7634,7 +7638,8 @@ public class MainWindow {
 					.entrySet().stream().map(en -> (en.getKey().equals("generic") ? en.getValue() + " CP" : en.getValue() + " " + en.getKey() + " CP")).collect(Collectors.joining(" + "));
 			List<String> cond = card.altConditionCardNames();
 			String condStr = cond.isEmpty() ? "" : " [req: " + String.join("/", cond) + "]";
-			String altLabel = "Play (Alt: " + bzStr + dullStr + removalStr + crystalStr + cpStr + condStr + ")";
+			String altLabel = "Play (Alt: " + bzReduceStr + bzStr + dullStr + removalStr + crystalStr
+					+ cpStr + condStr + ")";
 			JMenuItem altItem = new JMenuItem(altLabel);
 			altItem.setEnabled(canPlaySpecialAction && !nameConflict && !lightDarkConflict
 					&& canAffordAltCost(card, handIdx)
@@ -8962,14 +8967,27 @@ public class MainWindow {
 			bzPayment = List.of();
 		}
 
+		// And the same again for the reduction form, which hands a card over to knock CP off the
+		// printed cost rather than to buy the play outright (Kain 9-084H).
+		CardData.AltPutToBzReduction putToBzReduce = card.altPutToBzReduction();
+		final List<ForwardTarget> bzReducePayment;
+		if (putToBzReduce != null) {
+			bzReducePayment = selectAltPutToBzReduction(card, putToBzReduce);
+			if (bzReducePayment == null) return;
+		} else {
+			bzReducePayment = List.of();
+		}
+
 		// Picking the cards is itself the confirmation, so a cost made up entirely of dulling or of
 		// handing cards over goes straight to the play rather than asking again with an empty price.
 		// Kefka 4-080L reaches this with no CP left to pay at all: its sentence buys the play
 		// outright rather than reducing a cost.
-		if (altElemsList.isEmpty() && altC == 0 && (!dullIdxs.isEmpty() || !bzPayment.isEmpty())) {
+		if (altElemsList.isEmpty() && altC == 0
+				&& (!dullIdxs.isEmpty() || !bzPayment.isEmpty() || !bzReducePayment.isEmpty())) {
 			executeAltDull(dullIdxs);
 			executeAltFieldRemoval(removalSlots);
 			executeAltPutToBz(bzPayment);
+			executeAltPutToBz(bzReducePayment);
 			executePlay(card, handIdx, Collections.emptyList(), Collections.emptyList(), Map.of());
 			executeAltFollowup(followupText, card);
 			return;
@@ -8985,6 +9003,7 @@ public class MainWindow {
 			if (altC > 0) { playerSpendCrystals(true, altC); refreshCrystalDisplays(); }
 			executeAltDull(dullIdxs);
 			executeAltFieldRemoval(removalSlots);
+			executeAltPutToBz(bzReducePayment);
 			executePlay(card, handIdx, Collections.emptyList(), Collections.emptyList(), Map.of());
 			executeAltFollowup(followupText, card);
 			return;
@@ -9000,14 +9019,21 @@ public class MainWindow {
 
 		// A reserved Backup is being handed over, so it cannot also be dulled for CP. Hiding it
 		// from the payment dialog is what keeps the deferred removal from letting it be spent twice.
+		//
+		// The reduction form needs the same guard and needs it more: Kain 9-084H asks for an
+		// *active* Lightning Backup, which is exactly a Backup that could otherwise be dulled to
+		// pay the very CP its removal reduced.
 		CardData[]  payBackups = cpPayableBackupCards(true);
 		CardState[] payStates  = playerBackupStates(true);
 		String[]    payUrls    = playerBackupUrls(true);
-		if (!removalSlots.isEmpty()) {
+		List<Integer> reservedBackupSlots = new ArrayList<>(removalSlots);
+		for (ForwardTarget t : bzReducePayment)
+			if (t.zone() == ForwardTarget.CardZone.BACKUP) reservedBackupSlots.add(t.idx());
+		if (!reservedBackupSlots.isEmpty()) {
 			payBackups = payBackups.clone();
 			payStates  = payStates.clone();
 			payUrls    = payUrls.clone();
-			for (int slot : removalSlots) payBackups[slot] = null;
+			for (int slot : reservedBackupSlots) payBackups[slot] = null;
 		}
 
 		new AltCostPaymentDialog(frame, card, handIdx, altCp, genericNeeded, elems, costByElem,
@@ -9018,6 +9044,7 @@ public class MainWindow {
 					if (altC > 0) { playerSpendCrystals(true, altC); refreshCrystalDisplays(); }
 					executeAltDull(dullIdxs);
 					executeAltFieldRemoval(removalSlots);
+					executeAltPutToBz(bzReducePayment);
 					executeAltBzRemovals(bzRemovals);
 					executePlay(card, handIdx, discards, backups, Map.of(), breaks);
 					executeAltFollowup(followupText, card);
@@ -9214,6 +9241,65 @@ public class MainWindow {
 			}
 			logEntry("Alt cost: \"" + name + "\" put into the Break Zone");
 		}
+	}
+
+	/**
+	 * The field cards that may pay {@code cost} — Kain 9-084H's "1 active Lightning Backup you
+	 * control", handed to the Break Zone to knock 5 off Kain's play cost.
+	 *
+	 * <p>Every row the printing permits is walked, not the Backups alone: the type is what the text
+	 * says it is, and a Backup-only lookup would silently answer "unaffordable" the day a Forward
+	 * form is printed.
+	 */
+	List<ForwardTarget> altPutToBzReductionCandidates(CardData.AltPutToBzReduction cost) {
+		String type = cost.type().toLowerCase(Locale.ROOT);
+		boolean fwd = type.startsWith("forward") || type.startsWith("character");
+		boolean bkp = type.startsWith("backup")  || type.startsWith("character");
+		boolean mon = type.startsWith("monster") || type.startsWith("character");
+		List<ForwardTarget> out = new ArrayList<>();
+		if (fwd)
+			for (int i = 0; i < p1ForwardCards.size(); i++)
+				if (altPutToBzReductionMatches(cost, p1ForwardCards.get(i), p1ForwardStates.get(i)))
+					out.add(new ForwardTarget(true, i, ForwardTarget.CardZone.FORWARD));
+		if (mon)
+			for (int i = 0; i < p1MonsterCards.size(); i++)
+				if (altPutToBzReductionMatches(cost, p1MonsterCards.get(i), p1MonsterStates.get(i)))
+					out.add(new ForwardTarget(true, i, ForwardTarget.CardZone.MONSTER));
+		if (bkp)
+			for (int i = 0; i < p1BackupCards.length; i++)
+				if (p1BackupCards[i] != null
+						&& altPutToBzReductionMatches(cost, p1BackupCards[i], p1BackupStates[i]))
+					out.add(new ForwardTarget(true, i, ForwardTarget.CardZone.BACKUP));
+		return out;
+	}
+
+	/** Whether one field card satisfies the element and state filters {@code cost} prints. */
+	private boolean altPutToBzReductionMatches(CardData.AltPutToBzReduction cost, CardData card,
+			CardState state) {
+		if (cost.activeOnly() && state != CardState.ACTIVE) return false;
+		return cost.element() == null || effectiveContainsElement(card, cost.element());
+	}
+
+	/**
+	 * Reserves the cards P1 hands over for a play-cost reduction, or {@code null} when there are
+	 * too few or the player cancels. Reserved rather than paid, on the same terms as its
+	 * neighbours: cancelling the play must leave the board exactly as it was.
+	 */
+	private List<ForwardTarget> selectAltPutToBzReduction(CardData card,
+			CardData.AltPutToBzReduction cost) {
+		List<ForwardTarget> eligible = altPutToBzReductionCandidates(cost);
+		if (eligible.size() < cost.count()) return null;
+		List<ForwardTarget> picks = showForwardSelectDialog(eligible, cost.count(), false,
+				card.name() + " — Alt Cost: put " + describeAltPutToBzReduction(cost)
+				+ " into the Break Zone");
+		if (picks == null || picks.size() < cost.count()) return null;
+		return picks;
+	}
+
+	/** "1 active Lightning Backup", as printed, for a menu label or dialog title. */
+	private static String describeAltPutToBzReduction(CardData.AltPutToBzReduction cost) {
+		return cost.count() + (cost.activeOnly() ? " active " : " ")
+				+ (cost.element() != null ? cost.element() + " " : "") + cost.type();
 	}
 
 	/** "3 Forwards or Monsters", as printed, for a menu label or dialog title. */

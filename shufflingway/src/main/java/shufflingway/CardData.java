@@ -207,6 +207,53 @@ public record CardData(
      * <p>"a total of" is what makes {@code types} one pool rather than a count per type — any three
      * cards across the two rows will do. Group {@code count} is that total.
      */
+    /**
+     * Matches the cost <em>reduction</em> bought by putting one of your own field cards into the
+     * Break Zone: "Before paying the cost to play Kain onto the field, you may put 1 active
+     * Lightning Backup you control into the Break Zone. If you do so, the cost for playing Kain
+     * onto the field is reduced by 5." — Kain 9-084H, the only printing of this shape.
+     *
+     * <p>Not {@link #ALT_COST_PUT_TO_BZ}, which buys the play outright and leaves no CP; this one
+     * reduces the printed cost, so it reports the CP still owed through {@link #altCpElements()}
+     * exactly as {@link #ALT_COST_SUMMON_REMOVE_FIELD} does. The two differ only in where the
+     * handed-over card goes.
+     *
+     * <p>"to play … onto the field" rather than "to cast", which is what keeps this off the
+     * Summon alternate costs above: nothing in the corpus writes a Summon's alternate cost this
+     * way, and nothing else writes a Forward's.
+     */
+    private static final Pattern ALT_COST_PUT_TO_BZ_REDUCE = Pattern.compile(
+        "(?i)Before\\s+paying\\s+the\\s+cost\\s+to\\s+play\\s+.+?\\s+onto\\s+the\\s+field,\\s+" +
+        "you\\s+may\\s+put\\s+(?<count>\\d+)\\s+" +
+        "(?:(?<active>active)\\s+)?" +
+        "(?:(?<element>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)\\s+)?" +
+        "(?<type>Forwards?|Backups?|Monsters?|Characters?)\\s+you\\s+control\\s+" +
+        "into\\s+the\\s+Break\\s+Zone[.,]\\s+" +
+        "If\\s+you\\s+do\\s+so,\\s+the\\s+cost\\s+for\\s+playing\\s+.+?\\s+onto\\s+the\\s+field\\s+" +
+        "is\\s+reduced\\s+by\\s+(?<reduction>\\d+)[.!]?"
+    );
+
+    /**
+     * A field card handed to the Break Zone to reduce this card's play cost: "1 active Lightning
+     * Backup you control". {@code activeOnly} is the state requirement, {@code element} and
+     * {@code type} the printed filters.
+     */
+    public record AltPutToBzReduction(int count, boolean activeOnly, String element, String type) {}
+
+    /**
+     * The field cards this card's play cost reduction hands to the Break Zone, or {@code null}
+     * when it prints none. The reduction itself is reported through {@link #altCpElements()}, the
+     * same way its removal-from-game sibling reports its own.
+     */
+    public AltPutToBzReduction altPutToBzReduction() {
+        Matcher m = ALT_COST_PUT_TO_BZ_REDUCE.matcher(textEn);
+        if (!m.find()) return null;
+        return new AltPutToBzReduction(Integer.parseInt(m.group("count")),
+                m.group("active") != null,
+                m.group("element") != null ? m.group("element").trim() : null,
+                m.group("type").trim());
+    }
+
     private static final Pattern ALT_COST_PUT_TO_BZ = Pattern.compile(
         "(?i)You\\s+can\\s+put\\s+a\\s+total\\s+of\\s+(?<count>\\d+)\\s+" +
         "(?<types>Forwards?(?:\\s+or\\s+Monsters?)?|Monsters?(?:\\s+or\\s+Forwards?)?|Characters?)\\s+" +
@@ -362,6 +409,8 @@ public record CardData(
             return reducedCastCpElements(Integer.parseInt(m.group("reduction")));
         }
         m = ALT_COST_SUMMON_REMOVE_FIELD.matcher(textEn);
+        if (m.find()) return reducedCastCpElements(Integer.parseInt(m.group("reduction")));
+        m = ALT_COST_PUT_TO_BZ_REDUCE.matcher(textEn);
         if (m.find()) return reducedCastCpElements(Integer.parseInt(m.group("reduction")));
         m = ALT_COST_NONSUMMON.matcher(textEn);
         if (m.find()) return List.copyOf(parseCostTokens(m.group("costs"), crystals));
@@ -8178,6 +8227,7 @@ public record CardData(
             if (ALT_COST_NONSUMMON.matcher(seg).find()) continue;
             if (ALT_COST_DULL.matcher(seg).find())      continue;
             if (ALT_COST_PUT_TO_BZ.matcher(seg).find()) continue;
+            if (ALT_COST_PUT_TO_BZ_REDUCE.matcher(seg).find()) continue;
             // "If you cast [card], you may pay 《…》 as an extra cost." — a cast-time option read
             // by {@link #extraCost}, not a field ability. It has no continuous effect of its own;
             // what it does is set the flag a later "if you paid the extra cost" clause reads.
