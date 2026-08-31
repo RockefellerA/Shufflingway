@@ -999,12 +999,11 @@ public class CardBehaviorTest {
 
         GameContext ctx = mock(GameContext.class);
         ForwardTarget t = new ForwardTarget(false, 0, ForwardTarget.CardZone.FORWARD);
-        when(ctx.selectCharacters(
-                anyInt(), anyBoolean(), anyBoolean(), anyBoolean(),
-                any(), any(), anyInt(), any(), anyInt(), any(),
-                anyBoolean(), anyBoolean(), anyBoolean(),
-                any(), any(), any(), any(), anyBoolean(), any(), anyBoolean()
-        )).thenReturn(List.of(t));
+        // "Your opponent selects" hands the pick to the opponent, so the effect asks for it
+        // through the select primitive rather than choosing from their board itself.
+        when(ctx.opponentSelectsOwnCharacters(anyInt(), anyBoolean(), any(), any(),
+                anyInt(), any(), anyBoolean(), anyBoolean(), anyBoolean(), any()))
+                .thenReturn(List.of(t));
 
         Consumer<GameContext> paidFn = ActionResolver.parse(paidText, summoner);
         assertNotNull(paidFn, "paid-branch text should parse: " + paidText);
@@ -2986,7 +2985,7 @@ public class CardBehaviorTest {
 
         verify(ctx).searchDeckForCard(anyBoolean(), anyBoolean(), anyBoolean(), anyBoolean(),
                 anyInt(), any(), any(), any(), any(), any(), any(), any(),
-                eq("hand"), eq(1), eq(false), eq(true));
+                eq("hand"), eq(1), eq(false), eq(CardData.Trait.WARP));
     }
 
     @Test
@@ -3000,7 +2999,7 @@ public class CardBehaviorTest {
 
         mw.searchDeckForCard(false, true, true, true, true,
                 -1, null, null, null, null, null, null, null,
-                "hand", 1, false, true);
+                "hand", 1, false, CardData.Trait.WARP);
 
         assertTrue(mw.gameState.getP2Hand().contains(warped), "the Warp card should have been found");
         assertFalse(mw.gameState.getP2Hand().contains(plain), "the non-Warp card must not match");
@@ -8226,7 +8225,7 @@ public class CardBehaviorTest {
         ArgumentCaptor<String> nameFilter = ArgumentCaptor.forClass(String.class);
         verify(ctx).searchDeckForCard(anyBoolean(), anyBoolean(), anyBoolean(), anyBoolean(),
                 anyInt(), any(), nameFilter.capture(), any(), any(), any(), any(), any(),
-                any(), anyInt(), anyBoolean(), anyBoolean());
+                any(), anyInt(), anyBoolean(), any());
         return nameFilter.getValue();
     }
 
@@ -9602,7 +9601,7 @@ public class CardBehaviorTest {
         ArgumentCaptor<String> cat = ArgumentCaptor.forClass(String.class);
         verify(ctx).searchDeckForCard(anyBoolean(), anyBoolean(), anyBoolean(), anyBoolean(),
                 anyInt(), any(), any(), job.capture(), cat.capture(), any(), any(), any(),
-                any(), anyInt(), anyBoolean(), anyBoolean());
+                any(), anyInt(), anyBoolean(), any());
         return new String[] { job.getValue(), cat.getValue() };
     }
 
@@ -9667,7 +9666,7 @@ public class CardBehaviorTest {
                 makeJobCategoryForward("Stranger", "Knight",           "XIV")));
 
         mw.searchDeckForCard(false, true, false, false, false, -1, null,
-                null, "Warrior of Light", "FFL", null, null, null, "hand", 2, false, false);
+                null, "Warrior of Light", "FFL", null, null, null, "hand", 2, false, null);
 
         List<String> hand = mw.gameState.getP2Hand().stream().map(CardData::name).sorted().toList();
         assertEquals(List.of("Native", "Warrior"), hand,
@@ -9683,7 +9682,7 @@ public class CardBehaviorTest {
                 makeJobCategoryForward("Stranger", null, "XIV")));
 
         mw.searchDeckForCard(false, true, false, false, false, -1, null,
-                null, null, "FFL", null, null, null, "hand", 2, false, false);
+                null, null, "FFL", null, null, null, "hand", 2, false, null);
 
         assertEquals(List.of("Native"),
                 mw.gameState.getP2Hand().stream().map(CardData::name).toList());
@@ -10098,7 +10097,7 @@ public class CardBehaviorTest {
         fn.accept(ctx);
 
         verify(ctx).searchDeckForCardWithRiders(true, false, false, false, -1, null,
-                null, null, "IX", null, "Zidane", null, "hand", 2, false, false,
+                null, null, "IX", null, "Zidane", null, "hand", 2, false, null,
                 PickGate.DISTINCT_NAMES, false);
     }
 
@@ -10112,7 +10111,7 @@ public class CardBehaviorTest {
                 .accept(ctx);
 
         verify(ctx).searchDeckForCardWithRiders(true, true, true, true, -1, null,
-                null, "Captain", null, null, null, null, "hand", 2, false, false,
+                null, "Captain", null, null, null, null, "hand", 2, false, null,
                 PickGate.DISTINCT_NAMES, false);
     }
 
@@ -10123,10 +10122,10 @@ public class CardBehaviorTest {
         ActionResolver.parse("search for 2 Job Captain and add them to your hand.", null).accept(ctx);
 
         verify(ctx).searchDeckForCard(true, true, true, true, -1, null,
-                null, "Captain", null, null, null, null, "hand", 2, false, false);
+                null, "Captain", null, null, null, null, "hand", 2, false, null);
         verify(ctx, never()).searchDeckForCardWithRiders(anyBoolean(), anyBoolean(), anyBoolean(),
                 anyBoolean(), anyInt(), any(), any(), any(), any(), any(), any(), any(), any(),
-                anyInt(), anyBoolean(), anyBoolean(), any(), anyBoolean());
+                anyInt(), anyBoolean(), any(), any(), anyBoolean());
     }
 
     // The picker's half of "different names": a name already taken cannot be taken twice.
@@ -11327,7 +11326,7 @@ public class CardBehaviorTest {
 
 		verify(ctx, never()).searchDeckForCard(anyBoolean(), anyBoolean(), anyBoolean(), anyBoolean(),
 				anyInt(), any(), any(), any(), any(), any(), any(), any(), any(), anyInt(),
-				anyBoolean(), anyBoolean());
+				anyBoolean(), any());
 	}
 
 	@Test
@@ -11346,7 +11345,7 @@ public class CardBehaviorTest {
 
 		verify(ctx).searchDeckForCard(eq(true), anyBoolean(), anyBoolean(), anyBoolean(),
 				anyInt(), any(), any(), any(), eq("XIV"), any(), any(), any(), eq("hand"), eq(1),
-				anyBoolean(), anyBoolean());
+				anyBoolean(), any());
 	}
 
 	// The zone is the ability user's own — the opponent filling theirs must not satisfy it.
@@ -11366,7 +11365,7 @@ public class CardBehaviorTest {
 
 		verify(ctx, never()).searchDeckForCard(anyBoolean(), anyBoolean(), anyBoolean(), anyBoolean(),
 				anyInt(), any(), any(), any(), any(), any(), any(), any(), any(), anyInt(),
-				anyBoolean(), anyBoolean());
+				anyBoolean(), any());
 	}
 
 	// As P2 the same text must read P2's zone, not P1's.
@@ -11386,7 +11385,7 @@ public class CardBehaviorTest {
 
 		verify(ctx, never()).searchDeckForCard(anyBoolean(), anyBoolean(), anyBoolean(), anyBoolean(),
 				anyInt(), any(), any(), any(), any(), any(), any(), any(), any(), anyInt(),
-				anyBoolean(), anyBoolean());
+				anyBoolean(), any());
 	}
 
 	// 28-022L states the same gate with a threshold and a Job restriction, which must reach the count.
@@ -11418,7 +11417,7 @@ public class CardBehaviorTest {
 	private static void verifyNoSearch(GameContext ctx) {
 		verify(ctx, never()).searchDeckForCard(anyBoolean(), anyBoolean(), anyBoolean(), anyBoolean(),
 				anyInt(), any(), any(), any(), any(), any(), any(), any(), any(), anyInt(),
-				anyBoolean(), anyBoolean());
+				anyBoolean(), any());
 	}
 
 	@Test
@@ -11452,7 +11451,7 @@ public class CardBehaviorTest {
 		order.verify(ctx).promptYouMay(any());
 		order.verify(ctx).searchDeckForCard(anyBoolean(), anyBoolean(), anyBoolean(), anyBoolean(),
 				anyInt(), any(), any(), any(), any(), any(), any(), any(), any(), anyInt(),
-				anyBoolean(), anyBoolean());
+				anyBoolean(), any());
 	}
 
 	// A search with no "you may" is mandatory and must not ask.
@@ -11468,7 +11467,7 @@ public class CardBehaviorTest {
 		verify(ctx, never()).promptYouMay(any());
 		verify(ctx).searchDeckForCard(anyBoolean(), anyBoolean(), anyBoolean(), anyBoolean(),
 				anyInt(), any(), any(), any(), eq("XIV"), any(), any(), any(), eq("hand"), eq(1),
-				anyBoolean(), anyBoolean());
+				anyBoolean(), any());
 	}
 
 	// Urianger gates on the RFG zone first: a failed condition must not even offer the search.
@@ -11562,7 +11561,7 @@ public class CardBehaviorTest {
 
 		verify(ctx).searchDeckForCard(anyBoolean(), anyBoolean(), anyBoolean(), anyBoolean(),
 				anyInt(), any(), any(), eq("Standard Unit"), any(), eq("Lightning"),
-				any(), any(), eq("hand"), eq(1), anyBoolean(), anyBoolean());
+				any(), any(), eq("hand"), eq(1), anyBoolean(), any());
 	}
 
 	// A Character with two Elements is each of them, so either satisfies "of the same Element as".
@@ -11572,7 +11571,7 @@ public class CardBehaviorTest {
 
 		verify(ctx).searchDeckForCard(anyBoolean(), anyBoolean(), anyBoolean(), anyBoolean(),
 				anyInt(), any(), any(), any(), any(), eq("Water|Wind"),
-				any(), any(), eq("hand"), eq(1), anyBoolean(), anyBoolean());
+				any(), any(), eq("hand"), eq(1), anyBoolean(), any());
 	}
 
 	// The choose is mandatory but the search is not: declining must leave the deck unsearched,
@@ -11602,7 +11601,7 @@ public class CardBehaviorTest {
 
 		verify(ctx).searchDeckForCard(anyBoolean(), anyBoolean(), anyBoolean(), anyBoolean(),
 				anyInt(), any(), eq("Shantotto"), any(), any(), isNull(),
-				any(), any(), eq("hand"), eq(1), anyBoolean(), anyBoolean());
+				any(), any(), eq("hand"), eq(1), anyBoolean(), any());
 	}
 
 	// Alisaie chooses from the Break Zone, where targetCard() cannot reach — the card has to be
@@ -11614,7 +11613,7 @@ public class CardBehaviorTest {
 
 		verify(ctx).searchDeckForCard(anyBoolean(), anyBoolean(), anyBoolean(), anyBoolean(),
 				anyInt(), any(), eq("Shantotto"), any(), any(), isNull(),
-				any(), any(), eq("hand"), eq(1), anyBoolean(), anyBoolean());
+				any(), any(), eq("hand"), eq(1), anyBoolean(), any());
 	}
 
 	@Test
@@ -17147,7 +17146,7 @@ public class CardBehaviorTest {
 	/** The argument list both halves of this search share — only the cost differs. */
 	private static void verifyMonsterSearchOfCost(GameContext ctx, InOrder order, int cost) {
 		order.verify(ctx).searchDeckForCard(false, false, true, false, cost, null, null, null,
-				null, null, null, null, "field", 1, false, false);
+				null, null, null, null, "field", 1, false, null);
 	}
 
 	@Test
@@ -17164,7 +17163,7 @@ public class CardBehaviorTest {
 		verifyMonsterSearchOfCost(ctx, order, 2);
 		verify(ctx, times(2)).searchDeckForCard(anyBoolean(), anyBoolean(), anyBoolean(), anyBoolean(),
 				anyInt(), any(), any(), any(), any(), any(), any(), any(), any(), anyInt(),
-				anyBoolean(), anyBoolean());
+				anyBoolean(), any());
 	}
 
 	@Test
@@ -17194,7 +17193,7 @@ public class CardBehaviorTest {
 	/** A name half searches every card type, the way the single-pool parser reads a bare name. */
 	private static void verifyNameSearch(GameContext ctx, InOrder order, String cardName) {
 		order.verify(ctx).searchDeckForCard(true, true, true, true, -1, null, cardName, null,
-				null, null, null, null, "field", 1, false, false);
+				null, null, null, null, "field", 1, false, null);
 	}
 
 	@Test
@@ -17218,7 +17217,7 @@ public class CardBehaviorTest {
 		ActionResolver.parse(CHERUKIKI_19_109H_EFFECT, null).accept(ctx);
 		verify(ctx, never()).searchDeckForCard(anyBoolean(), anyBoolean(), anyBoolean(), anyBoolean(),
 				anyInt(), any(), argThat(n -> n != null && n.contains("up to")), any(), any(), any(),
-				any(), any(), any(), anyInt(), anyBoolean(), anyBoolean());
+				any(), any(), any(), anyInt(), anyBoolean(), any());
 	}
 
 	// =========================================================================================
@@ -21621,7 +21620,7 @@ public class CardBehaviorTest {
 
 		verify(ctx).searchDeckForCard(eq(true), eq(false), eq(false), eq(false), eq(-1), isNull(),
 				isNull(), eq("Standard Unit"), eq("FFCC"), isNull(), isNull(), isNull(),
-				eq("hand"), eq(1), eq(false), eq(false));
+				eq("hand"), eq(1), eq(false), isNull());
 	}
 
 	// Dropping "for" must not widen the parser onto anything else. "Research" ends in "search", so
@@ -21635,7 +21634,7 @@ public class CardBehaviorTest {
 		ActionResolver.parse(leon19.autoAbilities().get(0).effectText(), leon19).accept(ctx);
 		verify(ctx).searchDeckForCard(anyBoolean(), anyBoolean(), anyBoolean(), anyBoolean(),
 				anyInt(), isNull(), eq("Maria"), isNull(), isNull(), isNull(), isNull(), isNull(),
-				eq("hand"), eq(1), eq(false), eq(false));
+				eq("hand"), eq(1), eq(false), isNull());
 
 		CardData chadley = makeAutoAbilityForward("Chadley",
 				"When Chadley enters the field, place 2 Research Counters on Chadley.");
@@ -30806,8 +30805,7 @@ public class CardBehaviorTest {
 		when(ctx.searchDeckForCard(
 				anyBoolean(), anyBoolean(), anyBoolean(), anyBoolean(),
 				anyInt(), any(), any(), any(), any(), any(), any(), any(),
-				any(), anyInt(), anyBoolean(), anyBoolean()
-		)).thenReturn(found);
+				any(), anyInt(), anyBoolean(), any())).thenReturn(found);
 	}
 
 	@Test
@@ -30842,7 +30840,7 @@ public class CardBehaviorTest {
 		verify(ctx, never()).searchDeckForCard(
 				anyBoolean(), anyBoolean(), anyBoolean(), anyBoolean(),
 				anyInt(), any(), any(), any(), any(), any(), any(), any(),
-				any(), anyInt(), anyBoolean(), anyBoolean());
+				any(), anyInt(), anyBoolean(), any());
 	}
 
 	/** Accepting but finding nothing is also an "if not" — the deck may simply hold no Dark Forward. */
@@ -30875,7 +30873,7 @@ public class CardBehaviorTest {
 		verify(ctx).searchDeckForCard(
 				inclForwards.capture(), inclBackups.capture(), anyBoolean(), anyBoolean(),
 				anyInt(), any(), any(), any(), any(), elementFilter.capture(), any(), any(),
-				destination.capture(), anyInt(), anyBoolean(), anyBoolean());
+				destination.capture(), anyInt(), anyBoolean(), any());
 		assertEquals("Dark", elementFilter.getValue());
 		assertEquals("removedFromGame", destination.getValue());
 		assertTrue(inclForwards.getValue(), "Forwards only");
@@ -31102,7 +31100,7 @@ public class CardBehaviorTest {
 		verify(ctx).searchDeckForCard(
 				anyBoolean(), anyBoolean(), anyBoolean(), anyBoolean(),
 				anyInt(), any(), nameFilter.capture(), any(), any(), any(), any(), any(),
-				destination.capture(), anyInt(), anyBoolean(), anyBoolean());
+				destination.capture(), anyInt(), anyBoolean(), any());
 		assertEquals("Hecatoncheir", nameFilter.getValue());
 		assertEquals("removedFromGame", destination.getValue());
 	}
@@ -33390,7 +33388,7 @@ public class CardBehaviorTest {
 		ArgumentCaptor<String> dest = ArgumentCaptor.forClass(String.class);
 		verify(ctx).searchDeckForCard(anyBoolean(), anyBoolean(), anyBoolean(), anyBoolean(),
 				eq(3), eq("less"), name.capture(), job.capture(), any(), any(), any(), any(),
-				dest.capture(), anyInt(), anyBoolean(), anyBoolean());
+				dest.capture(), anyInt(), anyBoolean(), any());
 		assertEquals("Chloe|Chocobo", name.getValue(), "both names, and only the names");
 		assertEquals("Chocobo", job.getValue(), "the job in the middle of the list is its own filter");
 		assertEquals("field", dest.getValue(), "\"play it onto the field\", not add to hand");
@@ -33524,9 +33522,9 @@ public class CardBehaviorTest {
 		// filters as alternatives and would fetch any Cecil, or any Paladin.
 		verify(ctx).searchDeckForNamedCardWithJob(anyBoolean(), anyBoolean(), anyBoolean(), anyBoolean(),
 				eq(-1), isNull(), eq("Cecil"), eq("Paladin"),
-				any(), any(), any(), eq("field"), anyInt(), anyBoolean(), anyBoolean());
+				any(), any(), any(), eq("field"), anyInt(), anyBoolean(), any());
 		verify(ctx, never()).searchDeckForCard(anyBoolean(), anyBoolean(), anyBoolean(), anyBoolean(),
-				anyInt(), any(), any(), any(), any(), any(), any(), any(), any(), anyInt(), anyBoolean(), anyBoolean());
+				anyInt(), any(), any(), any(), any(), any(), any(), any(), any(), anyInt(), anyBoolean(), any());
 	}
 
 	@Test
@@ -33534,7 +33532,7 @@ public class CardBehaviorTest {
 		verify(resolveSearch(CECIL_SEARCH_28_032H, 0))
 				.searchDeckForNamedCardWithJob(anyBoolean(), anyBoolean(), anyBoolean(), anyBoolean(),
 						eq(4), eq("less"), eq("Cecil"), eq("Paladin"),
-						any(), any(), any(), eq("field"), anyInt(), anyBoolean(), anyBoolean());
+						any(), any(), any(), eq("field"), anyInt(), anyBoolean(), any());
 	}
 
 	@Test
@@ -33543,7 +33541,7 @@ public class CardBehaviorTest {
 				"search for 1 Card Name Onion Knight with Job Sage and play it onto the field.", 0))
 				.searchDeckForNamedCardWithJob(anyBoolean(), anyBoolean(), anyBoolean(), anyBoolean(),
 						anyInt(), any(), eq("Onion Knight"), eq("Sage"),
-						any(), any(), any(), eq("field"), anyInt(), anyBoolean(), anyBoolean());
+						any(), any(), any(), eq("field"), anyInt(), anyBoolean(), any());
 	}
 
 	@Test
@@ -33551,14 +33549,14 @@ public class CardBehaviorTest {
 		GameContext ctx = resolveSearch(REM_SEARCH_25_051L, 4);
 		verify(ctx).searchDeckForCard(anyBoolean(), anyBoolean(), anyBoolean(), anyBoolean(),
 				eq(4), isNull(), isNull(), eq("Class Zero Cadet"),
-				any(), any(), eq("Rem"), any(), eq("field"), anyInt(), anyBoolean(), anyBoolean());
+				any(), any(), eq("Rem"), any(), eq("field"), anyInt(), anyBoolean(), any());
 	}
 
 	@Test
 	void aCostOfXTracksThePaymentRatherThanBeingFixed() {
 		verify(resolveSearch(REM_SEARCH_25_051L, 7)).searchDeckForCard(
 				anyBoolean(), anyBoolean(), anyBoolean(), anyBoolean(),
-				eq(7), isNull(), any(), any(), any(), any(), any(), any(), any(), anyInt(), anyBoolean(), anyBoolean());
+				eq(7), isNull(), any(), any(), any(), any(), any(), any(), any(), anyInt(), anyBoolean(), any());
 	}
 
 	@Test
@@ -33569,7 +33567,7 @@ public class CardBehaviorTest {
 				"search for 1 Card Name Lightning of cost X or less and play it onto the field.", 6))
 				.searchDeckForCard(anyBoolean(), anyBoolean(), anyBoolean(), anyBoolean(),
 						eq(6), eq("less"), eq("Lightning"), isNull(),
-						any(), any(), any(), any(), eq("field"), anyInt(), anyBoolean(), anyBoolean());
+						any(), any(), any(), any(), eq("field"), anyInt(), anyBoolean(), any());
 	}
 
 	@Test
@@ -33578,12 +33576,12 @@ public class CardBehaviorTest {
 		// though none of those also carries a cost. Same sentence either way.
 		verify(resolveSearch(REM_SEARCH_25_051L, 4)).searchDeckForCard(
 				anyBoolean(), anyBoolean(), anyBoolean(), anyBoolean(),
-				anyInt(), any(), any(), any(), any(), any(), eq("Rem"), any(), any(), anyInt(), anyBoolean(), anyBoolean());
+				anyInt(), any(), any(), any(), any(), any(), eq("Rem"), any(), any(), anyInt(), anyBoolean(), any());
 		verify(resolveSearch(
 				"search for 1 Job Samurai other than Card Name Cyan of cost 3 or less and add it to your hand.", 0))
 				.searchDeckForCard(anyBoolean(), anyBoolean(), anyBoolean(), anyBoolean(),
 						eq(3), eq("less"), any(), eq("Samurai"), any(), any(), eq("Cyan"), any(),
-						any(), anyInt(), anyBoolean(), anyBoolean());
+						any(), anyInt(), anyBoolean(), any());
 	}
 
 	@Test
@@ -39244,7 +39242,7 @@ public class CardBehaviorTest {
 		ActionResolver.parse(GOLBEZ_LEAVES, null).accept(ctx);
 
 		verify(ctx).searchDeckForCardWithRiders(true, false, false, false, 2, null,
-				null, null, null, null, null, null, "field", 4, false, false,
+				null, null, null, null, null, null, "field", 4, false, null,
 				PickGate.DISTINCT_ELEMENTS, true);
 	}
 
@@ -39258,10 +39256,10 @@ public class CardBehaviorTest {
 				.accept(ctx);
 
 		verify(ctx).searchDeckForCard(true, false, false, false, 2, null,
-				null, null, null, null, null, null, "field", 4, false, false);
+				null, null, null, null, null, null, "field", 4, false, null);
 		verify(ctx, never()).searchDeckForCardWithRiders(anyBoolean(), anyBoolean(), anyBoolean(),
 				anyBoolean(), anyInt(), any(), any(), any(), any(), any(), any(), any(), any(),
-				anyInt(), anyBoolean(), anyBoolean(), any(), anyBoolean());
+				anyInt(), anyBoolean(), any(), any(), anyBoolean());
 	}
 
 	@Test
@@ -39273,7 +39271,7 @@ public class CardBehaviorTest {
 				+ "Their auto-abilities will not trigger.", null).accept(ctx);
 
 		verify(ctx).searchDeckForCardWithRiders(true, false, false, false, 2, null,
-				null, null, null, null, null, null, "field", 2, false, false,
+				null, null, null, null, null, null, "field", 2, false, null,
 				PickGate.ANY, true);
 	}
 
@@ -41322,7 +41320,7 @@ public class CardBehaviorTest {
 		fn.accept(ctx);
 
 		verify(ctx).searchDeckForCard(true, false, true, false, 1, null,
-				null, null, null, null, null, null, "hand", 1, false, false);
+				null, null, null, null, null, null, "hand", 1, false, null);
 	}
 
 	@Test
@@ -41332,7 +41330,7 @@ public class CardBehaviorTest {
 		ActionResolver.parse(firstAutoEffect(STILTZKIN_RE_069C), null).accept(ctx);
 
 		verify(ctx).searchDeckForCard(true, false, true, false, 1, null,
-				null, null, null, null, null, null, "hand", 1, false, false);
+				null, null, null, null, null, null, "hand", 1, false, null);
 	}
 
 	@Test
@@ -41446,6 +41444,694 @@ public class CardBehaviorTest {
 		assertEquals("it", etf.triggerCard());
 		assertNotEquals("Samurai", etf.triggerCard(),
 				"the entry cannot match the card it was printed on, so it never fires");
+	}
+
+	// =========================================================================================
+	// Wicked Thunder 28-077R, Lenne 2-142R, Sin 19-106H and White Tiger l'Cie Nimbus 23-035H.
+	//
+	// Four enters-the-field-or-attacks abilities, each of which failed on a different word its
+	// family's pattern had never had to read: a cost clause between "1 Forward" and "they control",
+	// an absent Element on a Summon search, a count stated as a rate against damage taken, and a
+	// keyword other than Warp after "with".
+	//
+	// Lenne also needed its trigger fixed before the effect could matter — see the party section
+	// below, which is about six cards rather than one.
+	// =========================================================================================
+
+	private static final String WICKED_THUNDER_28_077R =
+			"When Wicked Thunder enters the field, each player selects 1 Forward of cost 3 or more "
+			+ "they control. Break them.";
+
+	private static final String LENNE_2_142R =
+			"When Lenne forms a party with Card Name Yuna and attacks, you may search for 1 Summon "
+			+ "and cast it without paying the cost. If you do not cast it, put the Summon into the "
+			+ "Break Zone. If you cast a Summon of cost 5 or more with this ability, put Lenne into "
+			+ "the Break Zone.";
+
+	private static final String SIN_19_106H =
+			"When Sin enters the field due to your cast, your opponent selects 1 Forward or Backup "
+			+ "they control for every 2 points of damage you have received (select as many as "
+			+ "possible). Put them into the Break Zone.";
+
+	private static final String NIMBUS_23_035H =
+			"When White Tiger l'Cie Nimbus enters the field, you may search for 1 Forward with "
+			+ "Brave and add it to your hand.";
+
+	// ---- Wicked Thunder: a threshold on what each side may offer up ---------------------------
+
+	@Test
+	void wickedThunderMakesBothPlayersBreakAForwardOfCostThreeOrMore() {
+		GameContext ctx = mock(GameContext.class);
+		Consumer<GameContext> fn = ActionResolver.parse(firstAutoEffect(WICKED_THUNDER_28_077R), null);
+		assertNotNull(fn, "the cost clause should not stop the each-player break parsing");
+		fn.accept(ctx);
+
+		verify(ctx).eachPlayerSelectForwardAndBreak(3, "more");
+	}
+
+	@Test
+	void theUnqualifiedEachPlayerBreakStillPassesNoThreshold() {
+		// 9-113H Famfrit's wording, which the same pattern has always claimed. Its selection is
+		// unrestricted, and the sentinel is what says so.
+		GameContext ctx = mock(GameContext.class);
+		ActionResolver.parse(
+				"Both players select 1 Forward they control and put it into the Break Zone.", null)
+				.accept(ctx);
+
+		verify(ctx).eachPlayerSelectForwardAndBreak(-1, null);
+	}
+
+	@Test
+	void wickedThundersBreakSentenceIsNotReadAsBreakingEverything() {
+		// "Break them." on its own is the shape that breaks the whole row. It has to be claimed
+		// together with the selection in front of it, or the effect is a board wipe.
+		assertEquals("BothPlayersSelectForwardToBreakZone",
+				ActionResolver.fullDescription(firstAutoEffect(WICKED_THUNDER_28_077R), null));
+	}
+
+	// ---- Wicked Thunder: each side's pool is judged on its own --------------------------------
+
+	private static MainWindow wickedThunderBoard() {
+		MainWindow mw = new MainWindow();
+		advanceTo(mw, GameState.Player.P1, GameState.GamePhase.MAIN_1);
+		return mw;
+	}
+
+	/** Seats {@code cards} as P2 Forwards through the real placement path, so the slots exist. */
+	private static void seatP2Forwards(MainWindow mw, List<CardData> cards) {
+		for (CardData c : cards) {
+			mw.gameState.getIdentity().put(c, false);
+			mw.placeP2CardInForwardZone(c);
+		}
+	}
+
+	@Test
+	void theAiOffersItsCheapestForwardThatClearsTheThreshold() {
+		MainWindow mw = wickedThunderBoard();
+		seatP2Forwards(mw, List.of(
+				makeForward("Cheap",  "Fire", 1, 3000),
+				makeForward("Middle", "Fire", 4, 7000),
+				makeForward("Costly", "Fire", 7, 9000)));
+
+		ActionResolver.parse(firstAutoEffect(WICKED_THUNDER_28_077R), null)
+				.accept(mw.buildGameContext(true));
+
+		// The cheapest Forward on the board is ineligible under "cost 3 or more", so the AI gives
+		// up the cheapest one that qualifies — not the cheapest one it owns.
+		List<String> left = mw.p2ForwardCards.stream().map(CardData::name).toList();
+		assertEquals(List.of("Cheap", "Costly"), left,
+				"the AI parted with Middle, its cheapest Forward of cost 3 or more");
+	}
+
+	@Test
+	void aSideWithNothingOverTheThresholdLosesNothing() {
+		MainWindow mw = wickedThunderBoard();
+		seatP2Forwards(mw, List.of(
+				makeForward("Cheap",   "Fire", 1, 3000),
+				makeForward("Cheaper", "Fire", 2, 2000)));
+
+		ActionResolver.parse(firstAutoEffect(WICKED_THUNDER_28_077R), null)
+				.accept(mw.buildGameContext(true));
+
+		assertEquals(2, mw.p2ForwardCards.size(),
+				"\"of cost 3 or more\" is a filter on the pool, so a board under it offers nothing");
+	}
+
+	// ---- Lenne: the Summon search, and what casting a big one costs her ------------------------
+
+	@Test
+	void lenneSearchesAnySummonAtAll() {
+		GameContext ctx = mock(GameContext.class);
+		CardData lenne = makeForward("Lenne", "Water", 3, 7000);
+		Consumer<GameContext> fn = ActionResolver.parse(firstAutoEffect(LENNE_2_142R), lenne);
+		assertNotNull(fn, "the search names no Element, which is the whole difference from its siblings");
+		fn.accept(ctx);
+
+		verify(ctx).searchAndCastSummonFreeFromDeck(-1, null);
+	}
+
+	@Test
+	void lenneBreaksHerselfForCastingASummonOfCostFiveOrMore() {
+		GameContext ctx = mock(GameContext.class);
+		CardData lenne = makeForward("Lenne", "Water", 3, 7000);
+		when(ctx.searchAndCastSummonFreeFromDeck(anyInt(), any())).thenReturn(5);
+
+		ActionResolver.parse(firstAutoEffect(LENNE_2_142R), lenne).accept(ctx);
+
+		verify(ctx).breakSourceCard(lenne);
+	}
+
+	@Test
+	void lenneSurvivesACheaperSummon() {
+		GameContext ctx = mock(GameContext.class);
+		CardData lenne = makeForward("Lenne", "Water", 3, 7000);
+		when(ctx.searchAndCastSummonFreeFromDeck(anyInt(), any())).thenReturn(4);
+
+		ActionResolver.parse(firstAutoEffect(LENNE_2_142R), lenne).accept(ctx);
+
+		verify(ctx, never()).breakSourceCard(any());
+	}
+
+	@Test
+	void lenneSurvivesWhenTheSummonWasNotCastAtAll() {
+		// The search may find nothing, or the player may send the Summon straight to the Break
+		// Zone. Neither is "you cast a Summon of cost 5 or more with this ability".
+		GameContext ctx = mock(GameContext.class);
+		CardData lenne = makeForward("Lenne", "Water", 3, 7000);
+		when(ctx.searchAndCastSummonFreeFromDeck(anyInt(), any())).thenReturn(-1);
+
+		ActionResolver.parse(firstAutoEffect(LENNE_2_142R), lenne).accept(ctx);
+
+		verify(ctx, never()).breakSourceCard(any());
+	}
+
+	@Test
+	void theSelfBreakRiderIsDroppedWhenItNamesSomeoneElse() {
+		// The rider is only honoured for the card it is printed on. Read off any other name it
+		// would break a card the sentence is not about.
+		GameContext ctx = mock(GameContext.class);
+		CardData notLenne = makeForward("Yuna", "Water", 3, 7000);
+		when(ctx.searchAndCastSummonFreeFromDeck(anyInt(), any())).thenReturn(9);
+
+		ActionResolver.parse(firstAutoEffect(LENNE_2_142R), notLenne).accept(ctx);
+
+		verify(ctx).searchAndCastSummonFreeFromDeck(-1, null);
+		verify(ctx, never()).breakSourceCard(any());
+	}
+
+	@Test
+	void garnetsCostWordingReachesTheSameParser() {
+		// 3-152S prints "with a cost of 2 or less" where its siblings print "of cost 2 or less" —
+		// the same clause, and the reason that printing had gone unread.
+		GameContext ctx = mock(GameContext.class);
+		Consumer<GameContext> fn = ActionResolver.parse(
+				"search for 1 Water Summon with a cost of 2 or less and cast it without paying the "
+				+ "cost. If you do not cast it, put the Summon into the Break Zone.", null);
+		assertNotNull(fn);
+		fn.accept(ctx);
+
+		verify(ctx).searchAndCastSummonFreeFromDeck(2, "Water");
+	}
+
+	// ---- Sin: a count stated as a rate ---------------------------------------------------------
+
+	/** Resolves Sin's trigger against a board where its controller has taken {@code damage}. */
+	private static GameContext resolveSin(int damage) {
+		GameContext ctx = mock(GameContext.class);
+		// selfDamageCount() is a default method on the interface, so a mock intercepts it rather
+		// than running its p1/p2 switch — stubbing the halves it would have read does nothing.
+		when(ctx.selfDamageCount()).thenReturn(damage);
+		when(ctx.opponentSelectsOwnCharacters(anyInt(), anyBoolean(), any(), any(),
+				anyInt(), any(), anyBoolean(), anyBoolean(), anyBoolean(), any()))
+				.thenReturn(new ArrayList<>());
+		Consumer<GameContext> fn = ActionResolver.parse(firstAutoEffect(SIN_19_106H), null);
+		assertNotNull(fn, "the rate clause should not stop the opponent-selects parsing");
+		fn.accept(ctx);
+		return ctx;
+	}
+
+	@Test
+	void sinTakesOneCharacterForEveryTwoDamageItsControllerHasTaken() {
+		verify(resolveSin(6)).opponentSelectsOwnCharacters(eq(3), anyBoolean(), any(), any(),
+				anyInt(), any(), eq(true), eq(true), eq(false), any());
+	}
+
+	@Test
+	void sinRoundsTheRateDown() {
+		// 5 damage is two whole units of "every 2", not two and a half.
+		verify(resolveSin(5)).opponentSelectsOwnCharacters(eq(2), anyBoolean(), any(), any(),
+				anyInt(), any(), anyBoolean(), anyBoolean(), anyBoolean(), any());
+	}
+
+	@Test
+	void sinSelectsNothingBelowTheFirstWholeUnit() {
+		// A count of 0 is not a selection of 0 — asking for one would put an empty picker in front
+		// of the player, and the effect simply does not happen.
+		verify(resolveSin(1), never()).opponentSelectsOwnCharacters(anyInt(), anyBoolean(), any(), any(),
+				anyInt(), any(), anyBoolean(), anyBoolean(), anyBoolean(), any());
+	}
+
+	@Test
+	void sinsSelectionMayConfirmShortOfTheCount() {
+		// "(select as many as possible)" is what admits a board holding fewer than the rate asks
+		// for; without it the picker would refuse to confirm and the effect could not resolve.
+		verify(resolveSin(6)).opponentSelectsOwnCharacters(anyInt(), eq(true), any(), any(),
+				anyInt(), any(), anyBoolean(), anyBoolean(), anyBoolean(), any());
+	}
+
+	@Test
+	void sinPutsWhatWasSelectedIntoTheBreakZone() {
+		ForwardTarget a = new ForwardTarget(false, 1, ForwardTarget.CardZone.FORWARD);
+		ForwardTarget b = new ForwardTarget(false, 0, ForwardTarget.CardZone.BACKUP);
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.selfDamageCount()).thenReturn(4);
+		when(ctx.opponentSelectsOwnCharacters(anyInt(), anyBoolean(), any(), any(),
+				anyInt(), any(), anyBoolean(), anyBoolean(), anyBoolean(), any()))
+				.thenReturn(new ArrayList<>(List.of(a, b)));
+
+		ActionResolver.parse(firstAutoEffect(SIN_19_106H), null).accept(ctx);
+
+		verify(ctx).forceTargetToBreakZone(a);
+		verify(ctx).forceTargetToBreakZone(b);
+	}
+
+	@Test
+	void theSingularPutToBreakZoneFollowupStillReads() {
+		// The plural was added for Sin; the ~40 printings that say "it" must not have moved.
+		GameContext ctx = mock(GameContext.class);
+		ForwardTarget t = new ForwardTarget(false, 0, ForwardTarget.CardZone.FORWARD);
+		when(ctx.opponentSelectsOwnCharacters(anyInt(), anyBoolean(), any(), any(),
+				anyInt(), any(), anyBoolean(), anyBoolean(), anyBoolean(), any()))
+				.thenReturn(new ArrayList<>(List.of(t)));
+
+		ActionResolver.parse(
+				"Your opponent selects 1 Forward they control. Put it into the Break Zone.", null)
+				.accept(ctx);
+
+		verify(ctx).forceTargetToBreakZone(t);
+	}
+
+	// ---- Nimbus: a keyword other than Warp ------------------------------------------------------
+
+	@Test
+	void nimbusSearchesForAForwardCarryingBrave() {
+		GameContext ctx = mock(GameContext.class);
+		Consumer<GameContext> fn = ActionResolver.parse(firstAutoEffect(NIMBUS_23_035H), null);
+		assertNotNull(fn, "\"with Brave\" is the same clause as \"with Warp\", read for a second keyword");
+		fn.accept(ctx);
+
+		verify(ctx).searchDeckForCard(true, false, false, false, -1, null,
+				null, null, null, null, null, null, "hand", 1, false, CardData.Trait.BRAVE);
+	}
+
+	@Test
+	void theWarpSearchesStillAskForWarp() {
+		GameContext ctx = mock(GameContext.class);
+		ActionResolver.parse("search for 1 card with Warp and add it to your hand.", null).accept(ctx);
+
+		verify(ctx).searchDeckForCard(anyBoolean(), anyBoolean(), anyBoolean(), anyBoolean(),
+				anyInt(), any(), any(), any(), any(), any(), any(), any(),
+				eq("hand"), eq(1), eq(false), eq(CardData.Trait.WARP));
+	}
+
+	@Test
+	void aSearchNamingNoKeywordRequiresNone() {
+		GameContext ctx = mock(GameContext.class);
+		ActionResolver.parse("search for 1 Forward and add it to your hand.", null).accept(ctx);
+
+		verify(ctx).searchDeckForCard(anyBoolean(), anyBoolean(), anyBoolean(), anyBoolean(),
+				anyInt(), any(), any(), any(), any(), any(), any(), any(),
+				eq("hand"), eq(1), eq(false), isNull());
+	}
+
+	@Test
+	void theKeywordFilterReadsTheDeckCardsPrinting() {
+		MainWindow mw = new MainWindow();
+		advanceTo(mw, GameState.Player.P1, GameState.GamePhase.MAIN_1);
+		CardData brave = makeForwardWithTraits("Brave One", "Ice", 8000, Set.of(CardData.Trait.BRAVE));
+		CardData plain = makeForward("Plain One", "Ice", 3, 8000);
+		mw.gameState.getP2MainDeck().addAll(List.of(brave, plain));
+
+		// P2's seat is the AI's, which takes the only match without a dialog.
+		mw.searchDeckForCard(false, true, false, false, false, -1, null,
+				null, null, null, null, null, null, "hand", 1, false, CardData.Trait.BRAVE);
+
+		assertEquals(List.of("Brave One"),
+				mw.gameState.getP2Hand().stream().map(CardData::name).toList(),
+				"only the printing that carries the keyword is a match");
+	}
+
+	// =========================================================================================
+	// "When <Self> forms a party with <partner> and attacks" — six cards that fired on any party.
+	//
+	// AUTO_ABILITY_PATTERN's subject group runs up to the trigger word, so for these printings it
+	// swallowed the whole party clause: "Lenne forms a party with Card Name Yuna and". That subject
+	// contains the word "party", which is exactly what marks a subject as *being* the party rather
+	// than naming a member of one, so the filter extraction skipped it and every one of the six
+	// recorded no requirement at all — partner absent, carrier at home, the trigger fired anyway.
+	// =========================================================================================
+
+	private static AutoAbility partyTriggerOf(String cardText) {
+		return CardData.parseAutoAbilities(cardText).stream()
+				.filter(fa -> fa.trigger().equals("party attacks"))
+				.findFirst().orElseThrow();
+	}
+
+	@Test
+	void theCarrierAndItsPartnerAreBothRequired() {
+		AutoAbility fa = partyTriggerOf(LENNE_2_142R);
+		assertEquals("Lenne", fa.triggerCard(),
+				"the subject reverts to the carrier, so the trigger reads like every other one");
+		assertEquals(List.of("Lenne", "Yuna"), fa.partyCardNames());
+	}
+
+	@Test
+	void twoPartnersAreAConjunctionNotAChoice() {
+		// 12-044R Shikaree X wants Y *and* Z on the attack, which is why the filter is a list.
+		AutoAbility fa = partyTriggerOf(
+				"When Shikaree X forms a party with Card Name Shikaree Y and Card Name Shikaree Z "
+				+ "and attacks, Shikaree X deals your opponent 3 points of damage.");
+		assertEquals(List.of("Shikaree X", "Shikaree Y", "Shikaree Z"), fa.partyCardNames());
+	}
+
+	@Test
+	void aCategoryPartnerBecomesACountFilterRatherThanAName() {
+		// 20-034R Terra's partner is named by category, which is what partyMinCount counts.
+		AutoAbility fa = partyTriggerOf(
+				"When Terra forms a party with a Category VI Forward and attacks, you may cast 1 "
+				+ "Summon of cost 4 or less from your hand without paying the cost.");
+		assertEquals("Terra", fa.triggerCard());
+		assertEquals(List.of("Terra"), fa.partyCardNames());
+		assertEquals("VI", fa.partyCategory());
+		assertEquals(1, fa.partyMinCount());
+	}
+
+	@Test
+	void thePlainNamedPartySubjectIsUnchanged() {
+		// "When a Card Name Chocobo you control forms a party and attacks" (9-050C) names a member
+		// of the party rather than the carrier, and goes through the branch it always did.
+		AutoAbility fa = partyTriggerOf(
+				"When a Card Name Chocobo you control forms a party and attacks, draw 1 card.");
+		assertEquals(List.of("Chocobo"), fa.partyCardNames());
+	}
+
+	@Test
+	void everyNameOnTheListMustBeInTheParty() {
+		MainWindow mw = new MainWindow();
+		advanceTo(mw, GameState.Player.P1, GameState.GamePhase.MAIN_1);
+		CardData lenne = makeForward("Lenne", "Water", 3, 7000, List.of());
+		CardData yuna  = makeForward("Yuna",  "Water", 4, 7000, List.of());
+		CardData other = makeForward("Rikku", "Water", 2, 5000, List.of());
+		AutoAbility fa = partyTriggerOf(LENNE_2_142R);
+
+		assertTrue(mw.autoAbilityTriggers.partyAttackMatchesFilter(fa, List.of(lenne, yuna)),
+				"the carrier and the named partner are both attacking");
+		assertFalse(mw.autoAbilityTriggers.partyAttackMatchesFilter(fa, List.of(lenne, other)),
+				"the partner the ability names is not in the party");
+		assertFalse(mw.autoAbilityTriggers.partyAttackMatchesFilter(fa, List.of(yuna, other)),
+				"a carrier sitting at home did not form the party its ability describes");
+	}
+
+	// =========================================================================================
+	// "Your opponent selects N … they control" — some forty printings, resolved as if it read
+	// "choose N … opponent controls".
+	//
+	// Three things were wrong with that, and the card text asks for all three:
+	//
+	//   * The wrong player decided. Comprehensive rule 11.11.5.1 — "the player specified in the
+	//     card text makes the required declaration". The text specifies the opponent, and which of
+	//     their own Characters they can best afford to lose is the whole decision.
+	//   * "Cannot be chosen" was applied. A select is not a choose — the rules say so in as many
+	//     words, once per ability kind (11.3.3, 11.6.5, 11.7.5, 11.8.4, 11.8.9, 11.8.19) — and
+	//     every one of those immunities is printed in terms of being *chosen*. Getting past them
+	//     is what this wording is for, so honouring them against it read the card backwards.
+	//   * The AI could not use any of them. The sweep that acted on the picks filtered to P2's
+	//     side alone, so when P2 controlled the effect — its opponent being P1 — the selection was
+	//     made and then silently dropped, and forty cards did nothing whatsoever in its hands.
+	// =========================================================================================
+
+	private static final String OPP_SELECTS_BREAK =
+			"Your opponent selects 1 Forward they control. Put it into the Break Zone.";
+
+	/** A mocked context whose select primitive hands back {@code picks}. */
+	private static GameContext opponentSelectsContext(List<ForwardTarget> picks) {
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.opponentSelectsOwnCharacters(anyInt(), anyBoolean(), any(), any(),
+				anyInt(), any(), anyBoolean(), anyBoolean(), anyBoolean(), any()))
+				.thenReturn(new ArrayList<>(picks));
+		return ctx;
+	}
+
+	@Test
+	void theOpponentIsTheOneWhoSelects() {
+		ForwardTarget t = new ForwardTarget(false, 0, ForwardTarget.CardZone.FORWARD);
+		GameContext ctx = opponentSelectsContext(List.of(t));
+
+		ActionResolver.parse(OPP_SELECTS_BREAK, null).accept(ctx);
+
+		verify(ctx).opponentSelectsOwnCharacters(eq(1), anyBoolean(), any(), any(),
+				anyInt(), any(), eq(true), eq(false), eq(false), any());
+		verify(ctx, never()).selectCharacters(anyInt(), anyBoolean(), anyBoolean(), anyBoolean(),
+				any(), any(), anyInt(), any(), anyInt(), any(), anyBoolean(), anyBoolean(), anyBoolean(),
+				any(), any(), any(), any(), anyBoolean(), any(), anyBoolean());
+	}
+
+	@Test
+	void aSelectIsActedOnWhicheverSideOfTheBoardItLandsOn() {
+		// The regression that made these forty cards inert for the AI: with P2 controlling the
+		// effect its opponent is P1, so the picks come back on P1's side, and a sweep that only
+		// ever looked at P2's threw them away.
+		ForwardTarget onP1 = new ForwardTarget(true, 0, ForwardTarget.CardZone.FORWARD);
+		GameContext ctx = opponentSelectsContext(List.of(onP1));
+
+		ActionResolver.parse(OPP_SELECTS_BREAK, null).accept(ctx);
+
+		verify(ctx).forceTargetToBreakZone(onP1);
+	}
+
+	@Test
+	void bothSidesOfASplitSelectionAreActedOn() {
+		ForwardTarget onP1 = new ForwardTarget(true,  0, ForwardTarget.CardZone.FORWARD);
+		ForwardTarget onP2 = new ForwardTarget(false, 0, ForwardTarget.CardZone.FORWARD);
+		GameContext ctx = opponentSelectsContext(List.of(onP1, onP2));
+
+		ActionResolver.parse(OPP_SELECTS_BREAK, null).accept(ctx);
+
+		verify(ctx).forceTargetToBreakZone(onP1);
+		verify(ctx).forceTargetToBreakZone(onP2);
+	}
+
+	// ---- The rules distinction, on a real board -----------------------------------------------
+
+	private static CardData shieldedForward(String name, int cost) {
+		String text = name + " cannot be chosen by your opponent's abilities.";
+		return new CardData(null, name, "Fire", cost, 7000, "Forward", false, 0, false, false,
+				Set.of(), 0, List.of(), null, List.of(),
+				List.of(), List.of(), CardData.parseFieldAbilities(text, "Forward"),
+				List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(),
+				false, false, null, false, false, false, false, false, 1, null, null, null, text);
+	}
+
+	@Test
+	void aSelectGetsPastCannotBeChosen() {
+		MainWindow mw = new MainWindow();
+		advanceTo(mw, GameState.Player.P1, GameState.GamePhase.MAIN_1);
+		CardData warded = shieldedForward("Warded", 3);
+		mw.gameState.getIdentity().put(warded, false);
+		mw.placeP2CardInForwardZone(warded);
+
+		// The shield really is in force against a P1 ability — this is the check the choose path
+		// consults, and it says no.
+		assertTrue(mw.isProtectedFromChoice(warded, false, true, false, null),
+				"the Forward is genuinely protected from being chosen by a P1 ability");
+
+		// P1 controls the effect, so the opponent doing the selecting is the AI and the whole
+		// thing resolves without a prompt.
+		ActionResolver.parse(OPP_SELECTS_BREAK, null).accept(mw.buildGameContext(true));
+
+		assertTrue(mw.p2ForwardCards.isEmpty(),
+				"a select is not a choose, so \"cannot be chosen\" does not answer it");
+	}
+
+	@Test
+	void theAiGivesUpTheCheapestCharacterItCanSpare() {
+		MainWindow mw = new MainWindow();
+		advanceTo(mw, GameState.Player.P1, GameState.GamePhase.MAIN_1);
+		seatP2Forwards(mw, List.of(
+				makeForward("Costly",  "Fire", 7, 9000),
+				makeForward("Cheapest", "Fire", 1, 3000),
+				makeForward("Middle",  "Fire", 4, 7000)));
+
+		ActionResolver.parse(OPP_SELECTS_BREAK, null).accept(mw.buildGameContext(true));
+
+		assertEquals(List.of("Costly", "Middle"),
+				mw.p2ForwardCards.stream().map(CardData::name).toList(),
+				"choosing which of your own to lose is a question about what you can spare");
+	}
+
+	@Test
+	void thePrintedFilterStillNarrowsWhatMayBeSelected() {
+		// The filter belongs to the card, not to the immunity machinery: dropping the latter must
+		// not drop the former.
+		MainWindow mw = new MainWindow();
+		advanceTo(mw, GameState.Player.P1, GameState.GamePhase.MAIN_1);
+		seatP2Forwards(mw, List.of(makeForward("Cheap", "Fire", 2, 5000)));
+
+		ActionResolver.parse(
+				"Your opponent selects 1 Forward of cost 5 or more they control. "
+				+ "Put it into the Break Zone.", null)
+				.accept(mw.buildGameContext(true));
+
+		assertEquals(1, mw.p2ForwardCards.size(),
+				"nothing on their board clears the printed threshold, so nothing is selected");
+	}
+
+	@Test
+	void aSelectDoesNotFireTheChosenByOpponentTriggers() {
+		// Those watchers all read "when [this] is chosen by your opponent's Summon or ability".
+		String watchText = "When Watcher is chosen by your opponent's Summons or abilities, draw 1 card.";
+		CardData watcher = new CardData(null, "Watcher", "Fire", 3, 7000, "Forward", false, 0, false, false,
+				Set.of(), 0, List.of(), null, List.of(),
+				List.of(), CardData.parseAutoAbilities(watchText), List.of(),
+				List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(),
+				false, false, null, false, false, false, false, false, 1, null, null, null, watchText);
+		assertEquals("chosen by opponent's summon or ability",
+				watcher.autoAbilities().get(0).trigger(),
+				"the watcher carries the trigger this select must leave alone");
+
+		MainWindow mw = new MainWindow();
+		advanceTo(mw, GameState.Player.P1, GameState.GamePhase.MAIN_1);
+		mw.gameState.initializeDeck(List.of(), List.of(
+				makeForward("P2 Deck A", "Fire", 2, 5000),
+				makeForward("P2 Deck B", "Fire", 2, 5000)));
+		mw.gameState.getP2Hand().clear();
+		mw.gameState.getIdentity().put(watcher, false);
+		mw.placeP2CardInForwardZone(watcher);
+
+		ActionResolver.parse(OPP_SELECTS_BREAK, null).accept(mw.buildGameContext(true));
+
+		assertTrue(mw.p2ForwardCards.isEmpty(), "the select still took it");
+		assertTrue(mw.gameState.getP2Hand().isEmpty(),
+				"but it was selected, not chosen, so the watcher never fired");
+	}
+
+	// =========================================================================================
+	// "Choose N …. Put it into the Break Zone." — a followup the choose chain had no reading for.
+	//
+	// The name chain had an entry for it, so these abilities described themselves as
+	// "ChooseCharacter / PutToBreakZone" and looked implemented in every report. The choose chain
+	// itself had none: FOLLOWUP_PUT_TO_BREAK_ZONE was referenced in exactly two places, the name
+	// chain and tryParseOpponentSelects. So each of these logged a line and stopped, without even
+	// offering a selection — 12-107R Lunafreya, 24-100C Cecil, 3-142H Famed Mimic Gogo, 18-127C
+	// Lilisette, 17-121H Frimelda's quoted grant, and 18-097R Rinoa.
+	//
+	// It is the *forced* removal, not a break: "put into the Break Zone" moves the card whatever it
+	// says about not being broken, which is what separates it from the Break arm beside it.
+	// =========================================================================================
+
+	/** Runs {@code text} against a mock whose selection hands back {@code picks}. */
+	private static GameContext resolveChoose(String text, int xValue, List<ForwardTarget> picks) {
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.consumePreloadedTargets()).thenReturn(null);
+		when(ctx.selectCharacters(anyInt(), anyBoolean(), anyBoolean(), anyBoolean(), any(), any(),
+				anyInt(), any(), anyInt(), any(), anyBoolean(), anyBoolean(), anyBoolean(),
+				any(), any(), any(), any(), anyBoolean(), any(), anyBoolean()))
+				.thenReturn(new ArrayList<>(picks));
+		Consumer<GameContext> fn = ActionResolver.parse(text, null, xValue);
+		assertNotNull(fn, text);
+		fn.accept(ctx);
+		return ctx;
+	}
+
+	@Test
+	void chooseThenPutIntoTheBreakZoneRemovesWhatWasChosen() {
+		ForwardTarget t = new ForwardTarget(false, 0, ForwardTarget.CardZone.FORWARD);
+		GameContext ctx = resolveChoose("Choose 1 Forward. Put it into the Break Zone.", 0, List.of(t));
+
+		verify(ctx).forceTargetToBreakZone(t);
+	}
+
+	@Test
+	void itIsAForcedMoveRatherThanABreak() {
+		// The distinction is the whole reason the two arms are separate: a Forward that cannot be
+		// broken is still put into the Break Zone by this one.
+		ForwardTarget t = new ForwardTarget(false, 0, ForwardTarget.CardZone.FORWARD);
+		GameContext ctx = resolveChoose("Choose 1 Forward. Put it into the Break Zone.", 0, List.of(t));
+
+		verify(ctx, never()).breakTarget(any());
+	}
+
+	@Test
+	void lilisettesPrintedFilterReachesTheSelection() {
+		// 18-127C, the one printing of this shape that narrows what may be chosen.
+		GameContext ctx = resolveChoose(
+				"choose 1 Forward of cost 2 or less opponent controls. Put it into the Break Zone.",
+				0, List.of());
+
+		verify(ctx).selectCharacters(eq(1), anyBoolean(), eq(true), anyBoolean(), any(), any(),
+				eq(2), eq("less"), anyInt(), any(),
+				eq(true), eq(false), eq(false),
+				any(), any(), any(), any(), anyBoolean(), any(), anyBoolean());
+	}
+
+	@Test
+	void bothSidesOfTheBoardAreSweptInDescendingOrder() {
+		// Removing a card closes the zone list up, so the higher index has to go first or the
+		// second removal lands on the survivor that slid into its place.
+		ForwardTarget low  = new ForwardTarget(false, 0, ForwardTarget.CardZone.FORWARD);
+		ForwardTarget high = new ForwardTarget(false, 2, ForwardTarget.CardZone.FORWARD);
+		ForwardTarget mine = new ForwardTarget(true,  1, ForwardTarget.CardZone.FORWARD);
+		GameContext ctx = resolveChoose("Choose 3 Forwards. Put them into the Break Zone.", 0,
+				List.of(low, high, mine));
+
+		InOrder order = inOrder(ctx);
+		order.verify(ctx).forceTargetToBreakZone(mine);
+		order.verify(ctx).forceTargetToBreakZone(high);
+		order.verify(ctx).forceTargetToBreakZone(low);
+	}
+
+	// ---- What the anchored followup deliberately leaves alone -----------------------------------
+
+	@Test
+	void theDelayedFormIsNotTakenAsAnImmediateRemoval() {
+		// 17-109R Cúchulainn: "At the beginning of the next Main Phase 1, put it into the Break
+		// Zone." Those are the same words about a later turn, and it stays unimplemented rather
+		// than resolving now — which would be worse than not resolving at all.
+		ForwardTarget t = new ForwardTarget(false, 0, ForwardTarget.CardZone.FORWARD);
+		GameContext ctx = resolveChoose(
+				"Choose 1 Forward. At the beginning of the next Main Phase 1, put it into the Break Zone.",
+				0, List.of(t));
+
+		verify(ctx, never()).forceTargetToBreakZone(any());
+		verify(ctx, never()).breakTarget(any());
+	}
+
+	@Test
+	void theInsteadFormKeepsItsOwnReading() {
+		// 25-089R Cagnazzo: the Break Zone is the alternative branch of a return-to-hand, already
+		// read as one. The new arm must not claim it off the trailing sentence.
+		ForwardTarget t = new ForwardTarget(false, 0, ForwardTarget.CardZone.FORWARD);
+		GameContext ctx = resolveChoose(
+				"choose 1 Forward opponent controls. Return it to its owner's hand. "
+				+ "If you control a Card Name Golbez, put it into the Break Zone instead.",
+				0, List.of(t));
+
+		verify(ctx).returnP2ForwardToHand(0);
+	}
+
+	// ---- Rinoa: a chosen card's cost measured in X ----------------------------------------------
+
+	@Test
+	void aChooseMayMeasureCostInTheXThatWasPaid() {
+		// 18-097R Rinoa, whose blocker was one step earlier than the followup: "of cost X or less"
+		// never matched the choose header at all, so the sentence reached no followup to begin with.
+		GameContext ctx = resolveChoose(
+				"choose 1 Forward of cost X or less. Put it into the Break Zone.", 3, List.of());
+
+		verify(ctx).selectCharacters(anyInt(), anyBoolean(), anyBoolean(), anyBoolean(), any(), any(),
+				eq(3), eq("less"), anyInt(), any(), anyBoolean(), anyBoolean(), anyBoolean(),
+				any(), any(), any(), any(), anyBoolean(), any(), anyBoolean());
+	}
+
+	@Test
+	void aCostOfZeroIsStillARealFilter() {
+		// Unlike a count of X, which declines at zero because choosing none is not a choice, a cost
+		// of 0 names the cost 0 cards and is a filter like any other.
+		GameContext ctx = resolveChoose(
+				"choose 1 Forward of cost X or less. Put it into the Break Zone.", 0, List.of());
+
+		verify(ctx).selectCharacters(anyInt(), anyBoolean(), anyBoolean(), anyBoolean(), any(), any(),
+				eq(0), eq("less"), anyInt(), any(), anyBoolean(), anyBoolean(), anyBoolean(),
+				any(), any(), any(), any(), anyBoolean(), any(), anyBoolean());
+	}
+
+	@Test
+	void rinoasWholeTriggerIsRecognised() {
+		AutoAbility etf = CardData.parseAutoAbilities(
+				"When Rinoa enters the field, you may pay 《X》. When you do so, "
+				+ "choose 1 Forward of cost X or less. Put it into the Break Zone.").get(0);
+		assertTrue(AutoAbilityTriggers.dispatchedByTriggers(etf, null),
+				"the payment run is what the triggers dispatch, and its sub-effect now resolves");
 	}
 
 	// =========================================================================================

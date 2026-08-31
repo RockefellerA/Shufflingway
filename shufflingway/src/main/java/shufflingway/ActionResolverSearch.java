@@ -269,7 +269,7 @@ final class ActionResolverSearch {
             boolean anyChar = cardName != null || "character".equals(type);
             ctx.searchDeckForCard(anyChar || "forward".equals(type), anyChar || "backup".equals(type),
                     anyChar || "monster".equals(type), cardName != null || "summon".equals(type),
-                    cost, null, cardName, null, null, null, null, null, "field", 1, false, false);
+                    cost, null, cardName, null, null, null, null, null, "field", 1, false, null);
         }
     }
 
@@ -408,16 +408,29 @@ final class ActionResolverSearch {
             ctx.randomRevealHandCastIfSummonFree();
         };
     }
-    static Consumer<GameContext> tryParseSearchAndCastSummonFree(String text) {
+    static Consumer<GameContext> tryParseSearchAndCastSummonFree(String text, CardData source) {
         Matcher m = SEARCH_AND_CAST_SUMMON_FREE_PATTERN.matcher(text.trim());
         if (!m.find()) return null;
         String element = m.group("element");
         String costStr = m.group("cost");
         int maxCost = costStr != null ? Integer.parseInt(costStr) : -1;
+        // "If you cast a Summon of cost N or more with this ability, put [Self] into the Break
+        // Zone." — 2-142R Lenne. Only honoured when the name is this card's own: read off any other
+        // name it would break a card the sentence is not about, so the rider is dropped instead.
+        String selfBreakName = m.group("selfname");
+        final int selfBreakCost = m.group("selfbreakcost") != null
+                && source != null && selfBreakName != null
+                && selfBreakName.trim().equalsIgnoreCase(source.name())
+                ? Integer.parseInt(m.group("selfbreakcost")) : -1;
         return ctx -> {
-            ctx.logEntry("Effect: Search deck for " + element + " Summon"
-                    + (maxCost >= 0 ? " (cost " + maxCost + " or less)" : "") + ", cast for free or Break Zone");
-            ctx.searchAndCastSummonFreeFromDeck(maxCost, element);
+            ctx.logEntry("Effect: Search deck for " + (element != null ? element + " " : "") + "Summon"
+                    + (maxCost >= 0 ? " (cost " + maxCost + " or less)" : "") + ", cast for free or Break Zone"
+                    + (selfBreakCost >= 0 ? " — " + source.name() + " breaks if it cost " + selfBreakCost + " or more" : ""));
+            int castCost = ctx.searchAndCastSummonFreeFromDeck(maxCost, element);
+            if (selfBreakCost >= 0 && castCost >= selfBreakCost) {
+                ctx.logEntry("Effect: cast a Summon of cost " + castCost + " — Break " + source.name());
+                ctx.breakSourceCard(source);
+            }
         };
     }
     /**
@@ -1106,8 +1119,10 @@ final class ActionResolverSearch {
                            : destText.contains("on top")   ? "deckTop"
                            :                                 "underTop";
 
-        // --- Warp trait filter ("card with Warp") ---
-        boolean requireWarp = m.group("withwarp") != null;
+        // --- Keyword filter ("1 card with Warp", "1 Forward with Brave") ---
+        String traitWord = m.group("withtrait");
+        CardData.Trait requireTrait = traitWord == null ? null
+                : CardData.Trait.valueOf(traitWord.trim().replaceAll("\\s+", "_").toUpperCase(Locale.ROOT));
 
         // Build log label
         StringBuilder filterDesc = new StringBuilder();
@@ -1117,7 +1132,7 @@ final class ActionResolverSearch {
         if (elementFilter   != null) filterDesc.append(" [").append(elementsRaw).append("]");
         if (excludeName     != null) filterDesc.append(" [not ").append(excludeName).append("]");
         if (excludeElem     != null) filterDesc.append(" [not ").append(excludeElem).append("]");
-        if (requireWarp     )        filterDesc.append(" [with Warp]");
+        if (requireTrait != null)     filterDesc.append(" [with ").append(requireTrait.displayName()).append("]");
         String typeDesc  = (targets != null && !anyType) ? " " + targets : "";
         String costLabel = CardFilters.formatCostFilterLabel(costVal, costCmp);
 
@@ -1130,7 +1145,7 @@ final class ActionResolverSearch {
         final boolean fwd = inclForwards, bk = inclBackups, mn = inclMonsters, sm = inclSummons;
         final int fCount = count;
         final boolean fDull = entersDull;
-        final boolean fWarp = requireWarp;
+        final CardData.Trait fTrait = requireTrait;
         final boolean fBoth = identityConjunctive;
         final PickGate fGate = gate;
         final boolean fSilent = suppressAutoAbilities;
@@ -1144,13 +1159,13 @@ final class ActionResolverSearch {
                     + " → " + destination + (fDull ? " dull" : ""));
             if (fGate != PickGate.ANY || fSilent) {
                 ctx.searchDeckForCardWithRiders(fwd, bk, mn, sm, fCost, fCostCmp, fName, fJob,
-                        fCat, fElem, fExclude, fExclElem, destination, fCount, fDull, fWarp,
+                        fCat, fElem, fExclude, fExclElem, destination, fCount, fDull, fTrait,
                         fGate, fSilent);
             } else if (fBoth) {
                 ctx.searchDeckForNamedCardWithJob(fwd, bk, mn, sm, fCost, fCostCmp, fName, fJob,
-                        fElem, fExclude, fExclElem, destination, fCount, fDull, fWarp);
+                        fElem, fExclude, fExclElem, destination, fCount, fDull, fTrait);
             } else {
-                ctx.searchDeckForCard(fwd, bk, mn, sm, fCost, fCostCmp, fName, fJob, fCat, fElem, fExclude, fExclElem, destination, fCount, fDull, fWarp);
+                ctx.searchDeckForCard(fwd, bk, mn, sm, fCost, fCostCmp, fName, fJob, fCat, fElem, fExclude, fExclElem, destination, fCount, fDull, fTrait);
             }
             if (secondary != null) secondary.accept(ctx);
         };
@@ -1205,7 +1220,7 @@ final class ActionResolverSearch {
             // Every filter left open but the name: the named card may be of any type.
             boolean removed = ctx.searchDeckForCard(false, false, false, false,
                     -1, null, searchName, null, null, null, null, null,
-                    "removedFromGame", 1, false, false);
+                    "removedFromGame", 1, false, null);
             if (removed) {
                 resolvedPayoff.accept(ctx);
             } else {

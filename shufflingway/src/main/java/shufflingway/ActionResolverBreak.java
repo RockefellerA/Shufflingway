@@ -106,13 +106,20 @@ final class ActionResolverBreak {
             ctx.eachPlayerSalvageFromBreakZone(count, fwds, bkps, mons, smns);
         };
     }
-    /** Parses "Both players select 1 Forward they control and put it into the Break Zone." */
+    /**
+     * Parses "Both players select 1 Forward [of cost N or less/more] they control and put it into
+     * the Break Zone", including the "… they control. Break them." wording of 28-077R Wicked Thunder.
+     */
     static Consumer<GameContext> tryParseBothPlayersSelectForwardToBreakZone(String text) {
         Matcher m = BOTH_PLAYERS_SELECT_FORWARD_TO_BREAK_ZONE.matcher(text);
         if (!m.find()) return null;
+        final int    costVal = m.group("cost") != null ? Integer.parseInt(m.group("cost")) : -1;
+        final String costCmp = m.group("costcmp");
+        String costLabel = costVal < 0 ? "" : " of cost " + costVal + " or " + costCmp;
         return ctx -> {
-            ctx.logEntry("Effect: Both players select 1 Forward they control and put it into the Break Zone");
-            ctx.eachPlayerSelectForwardAndBreak();
+            ctx.logEntry("Effect: Both players select 1 Forward" + costLabel
+                    + " they control and put it into the Break Zone");
+            ctx.eachPlayerSelectForwardAndBreak(costVal, costCmp);
         };
     }
     /** Parses "Each player selects up to N Forwards or Monsters they control (select as many as possible). Put them into the Break Zone." */

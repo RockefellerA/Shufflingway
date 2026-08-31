@@ -2559,6 +2559,34 @@ public record CardData(
     );
 
     /**
+     * Matches the subject of "When &lt;Self&gt; forms a party with &lt;partner&gt; and attacks, …"
+     * as {@code AUTO_ABILITY_PATTERN} hands it over: that pattern's lazy subject group runs up to
+     * the trigger word, so it ends with the "and" that joined the party clause to "attacks".
+     *
+     * <p>Six printings share the shape — 2-142R Lenne, 12-044R Shikaree X, 26-052H Sonon, 7-054L
+     * Chelinka, 9-006H Queen of Eblan, 20-034R Terra. All were reaching the filter extraction with
+     * a subject containing the word "party", which is exactly what marks a subject as <em>being</em>
+     * the party rather than naming a member of one, so none of them recorded a requirement at all
+     * and every one fired on any party its controller attacked with.
+     *
+     * <p>Groups: {@code self} — the carrier, which becomes the trigger's subject; {@code partner} —
+     * everything it must be partied with, still to be split on "and".
+     */
+    private static final Pattern FORMS_PARTY_WITH_SUBJECT = Pattern.compile(
+        "(?i)^(?<self>.+?)\\s+forms?\\s+a\\s+party\\s+with\\s+(?<partner>.+?)\\s+and$"
+    );
+
+    /** One partner term of {@link #FORMS_PARTY_WITH_SUBJECT} naming a category — "a Category VI Forward". */
+    private static final Pattern PARTY_WITH_CATEGORY_PARTNER = Pattern.compile(
+        "(?i)^an?\\s+Category\\s+(?<category>\\S+)(?:\\s+(?:Forwards?|Characters?))?$"
+    );
+
+    /** One partner term of {@link #FORMS_PARTY_WITH_SUBJECT} naming a job — "a Job Dragoon Forward". */
+    private static final Pattern PARTY_WITH_JOB_PARTNER = Pattern.compile(
+        "(?i)^an?\\s+Job\\s+(?<job>.+?)(?:\\s+(?:Forwards?|Characters?))?$"
+    );
+
+    /**
      * Matches a secondary conditional party-size sentence embedded in an effect:
      * "If N or more [Category X | Job Y] Forwards form the party, also [effect]."
      * These are converted into a second party-attack trigger during preprocessing.
@@ -3877,8 +3905,41 @@ public record CardData(
 
             // Extract party-attack filter fields when applicable
             int    partyMinCount = 0;
-            String partyCategory = null, partyJob = null, partyCardName = null;
-            if (trigger.equals("party attacks") && triggerHasParty && !cardIsParty) {
+            String partyCategory = null, partyJob = null;
+            List<String> partyCardNames = List.of();
+            // "When <Self> forms a party with <partner> and attacks" — the subject group runs from
+            // the carrier's name to the "and" the trigger word was split from, so it holds both
+            // halves of the requirement. Read first: the phrase contains "party", which is what
+            // makes cardIsParty true and sends the shape past the branch below unfiltered — Lenne
+            // 2-142R and its five siblings fired on any party at all, partner or no partner.
+            Matcher formsWith = FORMS_PARTY_WITH_SUBJECT.matcher(card);
+            if (trigger.equals("party attacks") && formsWith.matches()) {
+                List<String> required = new ArrayList<>();
+                required.add(formsWith.group("self").trim());
+                // Partners are a conjunction — 12-044R Shikaree X wants Y *and* Z on the attack.
+                for (String part : formsWith.group("partner").split("(?i)\\s+and\\s+")) {
+                    String term = part.trim().replaceAll("(?i)\\s+you\\s+control$", "").trim();
+                    Matcher catM = PARTY_WITH_CATEGORY_PARTNER.matcher(term);
+                    Matcher jobM = PARTY_WITH_JOB_PARTNER.matcher(term);
+                    if (catM.matches()) {
+                        // "a Category VI Forward" (20-034R Terra) — one qualifying member, named
+                        // by category rather than by card, which is what partyMinCount counts.
+                        partyCategory = catM.group("category").trim();
+                        partyMinCount = Math.max(partyMinCount, 1);
+                    } else if (jobM.matches()) {
+                        partyJob      = jobM.group("job").trim();
+                        partyMinCount = Math.max(partyMinCount, 1);
+                    } else {
+                        // The article is optional here, unlike the subject form below: the partner
+                        // is printed bare, "forms a party with Card Name Yuna".
+                        required.add(term.replaceAll("(?i)^(?:an?\\s+)?Card\\s+Name\\s+", "").trim());
+                    }
+                }
+                partyCardNames = List.copyOf(required);
+                // The subject reverts to the carrier alone, so the trigger reads like every other
+                // one on the card and the partner requirement lives in the filter fields.
+                card = formsWith.group("self").trim();
+            } else if (trigger.equals("party attacks") && triggerHasParty && !cardIsParty) {
                 Matcher pf = PARTY_FILTER_PATTERN.matcher(card);
                 if (pf.find()) {
                     partyMinCount = Integer.parseInt(pf.group("count"));
@@ -3894,13 +3955,14 @@ public record CardData(
                     if (jobM.matches()) {
                         partyJob = jobM.group("job").trim();
                     } else {
-                        partyCardName = subject.replaceAll("(?i)^an?\\s+Card\\s+Name\\s+", "").trim();
+                        partyCardNames = List.of(
+                                subject.replaceAll("(?i)^an?\\s+Card\\s+Name\\s+", "").trim());
                     }
                 }
             }
 
             AutoAbility fa = parseAutoAbilityRestrictions(card, trigger, youMay, opponentMay, castOnly, warpOnly,
-                    effect, damageThreshold, partyMinCount, partyCategory, partyJob, partyCardName);
+                    effect, damageThreshold, partyMinCount, partyCategory, partyJob, partyCardNames);
             if (fa != null) result.add(fa);
         }
 
@@ -4136,7 +4198,7 @@ public record CardData(
     private static AutoAbility parseAutoAbilityRestrictions(
             String card, String trigger, boolean youMay, boolean opponentMay, boolean castOnly, boolean warpOnly,
             String effect, int damageThreshold,
-            int partyMinCount, String partyCategory, String partyJob, String partyCardName) {
+            int partyMinCount, String partyCategory, String partyJob, List<String> partyCardNames) {
 
         boolean oncePerTurn = false, yourTurnOnly = false;
         String  rfpConditionCard = "";
@@ -4198,7 +4260,7 @@ public record CardData(
         if (youMay && ActionResolver.isPayOrElseGate(effect)) youMay = false;
         return new AutoAbility(card, trigger, youMay, opponentMay, effect,
                 oncePerTurn, yourTurnOnly, false, rfpConditionCard, bzConditionCard, bzConditionJob, castPaymentMinElements, castOnly, warpOnly, damageThreshold,
-                partyMinCount, partyCategory, partyJob, partyCardName);
+                partyMinCount, partyCategory, partyJob, partyCardNames);
     }
 
     /**

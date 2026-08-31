@@ -557,7 +557,13 @@ public interface GameContext {
      * @param maxCost       cost ceiling; {@code -1} = no restriction
      * @param elementFilter element the Summon must have (e.g. {@code "Fire"}); {@code null} = any
      */
-    void searchAndCastSummonFreeFromDeck(int maxCost, String elementFilter);
+    /**
+     * @return the CP cost of the Summon this search actually cast, or {@code -1} when none was —
+     *         nothing matched, nothing was picked, or the player chose the Break Zone instead.
+     *         2-142R Lenne's rider breaks its own card when the Summon it cast cost 5 or more, and
+     *         that is the only place the cast Summon's cost is still in reach.
+     */
+    int searchAndCastSummonFreeFromDeck(int maxCost, String elementFilter);
 
     // ---- Zone-dispatch single-target effects --------------------------------
 
@@ -609,9 +615,17 @@ public interface GameContext {
     /**
      * Both players each select 1 Forward they control and put it into the Break Zone.
      * P1 picks via dialog; P2 (AI) picks automatically (lowest-cost Forward).
-     * Skips a side that has no Forwards.
+     * Skips a side that has no eligible Forwards.
+     *
+     * <p>The threshold narrows the pool each side picks from, and each side's pool is judged on its
+     * own: 28-077R Wicked Thunder's "1 Forward of cost 3 or more" costs a player nothing when every
+     * Forward they control is cheaper than that, even while the other player loses one.
+     *
+     * @param costVal CP threshold on what may be selected; {@code -1} = no threshold
+     * @param costCmp {@code "less"} or {@code "more"} — both inclusive of {@code costVal};
+     *                ignored when {@code costVal} is {@code -1}
      */
-    void eachPlayerSelectForwardAndBreak();
+    void eachPlayerSelectForwardAndBreak(int costVal, String costCmp);
 
     /**
      * The controller selects 1 Forward they control and puts it into the Break Zone.
@@ -2518,6 +2532,35 @@ public interface GameContext {
             String sourceName);
 
     /**
+     * The ability controller's <em>opponent</em> picks {@code count} of their own Characters and
+     * hands them back for the effect to act on — the "Your opponent selects N … they control"
+     * wording, some forty printings of it.
+     *
+     * <p>Not {@link #selectCharacters} with {@code opponentOnly}, which is the controller picking
+     * from the opponent's board. Three things separate the two, and the card text asks for all
+     * three:
+     * <ul>
+     *   <li><b>Who decides.</b> Comprehensive rule 11.11.5.1 — "the player specified in the card
+     *       text makes the required declaration". The text specifies the opponent, and which of
+     *       their own Characters they can best afford to lose is theirs to weigh.</li>
+     *   <li><b>"Cannot be chosen" does not apply.</b> A select is not a choose (11.3.3, 11.6.5,
+     *       11.7.5, 11.8.4, 11.8.9, 11.8.19), and every one of those immunities is printed in terms
+     *       of being <em>chosen</em>. Getting past them is what this wording is for.</li>
+     *   <li><b>"When … is chosen by your opponent's Summon or ability" does not trigger</b>, for
+     *       the same reason and out of the same rule.</li>
+     * </ul>
+     *
+     * @param count  how many they must pick
+     * @param upTo   whether they may confirm with fewer — the "(select as many as possible)" form,
+     *               where the board may simply not hold that many
+     * @param what   names the selection in both players' prompts, e.g. {@code "1 dull Forward"}
+     * @return the picks, on the opponent's side of the board; empty when nothing was eligible
+     */
+    List<ForwardTarget> opponentSelectsOwnCharacters(int count, boolean upTo, String condition,
+            String element, int costVal, String costCmp,
+            boolean inclForwards, boolean inclBackups, boolean inclMonsters, String what);
+
+    /**
      * Kefka 7-029H: offers the ability controller's <em>opponent</em> the option to discard
      * {@code count} cards from hand, and reports whether they took it. The card reads "your
      * opponent may discard 2 cards. If he/she doesn't, …" — the discard is the opponent's price
@@ -3082,7 +3125,8 @@ public interface GameContext {
      *                       {@code "underTop"} — place second from top of deck,
      *                       {@code "breakZone"} — put into the Break Zone,
      *                       {@code "removedFromGame"} — remove it from the game
-     * @param requireWarp    if {@code true}, restrict results to cards with the Warp trait
+     * @param requireTrait   keyword the card must carry — the "1 Forward <b>with Brave</b>" /
+     *                       "1 card <b>with Warp</b>" phrase; {@code null} = no keyword required
      * @return whether a card was actually found, chosen and moved. False covers all three ways a
      *         search can come up empty — blocked this turn, no match in the deck, or the player
      *         looked and picked nothing — which is what "If you do so, … If not, …" branches on
@@ -3091,7 +3135,7 @@ public interface GameContext {
     boolean searchDeckForCard(boolean inclForwards, boolean inclBackups, boolean inclMonsters, boolean inclSummons,
             int costVal, String costCmp, String cardNameFilter, String jobFilter,
             String categoryFilter, String elementFilter, String excludeName, String excludeElem,
-            String destination, int count, boolean entersDull, boolean requireWarp);
+            String destination, int count, boolean entersDull, CardData.Trait requireTrait);
 
     /**
      * As {@link #searchDeckForCard}, with the two riders a multi-card search can print.
@@ -3108,7 +3152,7 @@ public interface GameContext {
             boolean inclMonsters, boolean inclSummons,
             int costVal, String costCmp, String cardNameFilter, String jobFilter,
             String categoryFilter, String elementFilter, String excludeName, String excludeElem,
-            String destination, int count, boolean entersDull, boolean requireWarp,
+            String destination, int count, boolean entersDull, CardData.Trait requireTrait,
             PickGate gate, boolean suppressAutoAbilities);
 
     /**
@@ -3128,7 +3172,7 @@ public interface GameContext {
             boolean inclMonsters, boolean inclSummons,
             int costVal, String costCmp, String cardNameFilter, String jobFilter,
             String elementFilter, String excludeName, String excludeElem,
-            String destination, int count, boolean entersDull, boolean requireWarp);
+            String destination, int count, boolean entersDull, CardData.Trait requireTrait);
 
     /**
      * Searches the deck for up to 1 card with {@code jobFilter} job and up to 1 card of {@code typeName} type

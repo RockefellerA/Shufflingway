@@ -2437,11 +2437,18 @@ final class AutoAbilityTriggers {
 		mw.showStackWindowIfNeeded();
 	}
 
-	/** Returns true when the party composition satisfies all filter fields of a "party attacks" ability. */
-	private boolean partyAttackMatchesFilter(AutoAbility fa, List<CardData> partyMembers) {
-		if (fa.partyCardName() != null) {
-			boolean found = partyMembers.stream()
-					.anyMatch(m -> meetsCardNameFilter(m, fa.partyCardName()));
+	/**
+	 * Returns true when the party composition satisfies all filter fields of a "party attacks"
+	 * ability. Package-private so the tests can put a composition to it directly — the alternative
+	 * is standing up a whole attack, and the question here is about the filter, not about combat.
+	 */
+	boolean partyAttackMatchesFilter(AutoAbility fa, List<CardData> partyMembers) {
+		// Every listed name has to be in the party, not just one of them: "forms a party with Card
+		// Name Shikaree Y and Card Name Shikaree Z" (12-044R) names two partners, and the carrier's
+		// own name is on the list too — the ability says the carrier forms the party, so a copy
+		// sitting at home while its partners attack is not what triggered.
+		for (String required : fa.partyCardNames()) {
+			boolean found = partyMembers.stream().anyMatch(m -> meetsCardNameFilter(m, required));
 			if (!found) return false;
 		}
 		if (fa.partyMinCount() > 0) {

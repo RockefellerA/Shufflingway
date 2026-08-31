@@ -1232,7 +1232,7 @@ public class ActionResolver {
         result = tryParseCastSummonFromHandFree(effectText, xValue);
         if (result != null) return result;
 
-        result = tryParseSearchAndCastSummonFree(effectText);
+        result = tryParseSearchAndCastSummonFree(effectText, source);
         if (result != null) return result;
 
         result = tryParsePlayAnyNumberFromHand(effectText, source);
@@ -2070,7 +2070,7 @@ public class ActionResolver {
         if (tryParseRandomRevealHandCastIfSummonFree(effectText) != null) return "RandomRevealHandCastIfSummonFree";
         if (tryParseCastSummonFromHandDiscounted(effectText)     != null) return "CastSummonFromHandDiscounted";
         if (tryParseCastSummonFromHandFree(effectText, 0)     != null) return "CastSummonFromHandFree";
-        if (tryParseSearchAndCastSummonFree(effectText)       != null) return "SearchAndCastSummonFree";
+        if (tryParseSearchAndCastSummonFree(effectText, source) != null) return "SearchAndCastSummonFree";
         if (tryParsePlayAnyNumberFromHand(effectText, source) != null) return "PlayAnyNumberFromHand";
         if (tryParseEachPlayerMayPlayFromHand(effectText, source, 0) != null) return "EachPlayerMayPlayFromHand";
         if (tryParsePlayFromHand(effectText, source, 0)       != null) return "PlayFromHand";
@@ -2534,6 +2534,11 @@ public class ActionResolver {
         if (FOLLOWUP_OUTGOING_DMG_BOOST_THIS_TURN.matcher(followupText).find())       return "OutgoingDmgBoostThisTurn";
         if (FOLLOWUP_SHIELD_NONLETHAL.matcher(followupText).find())                   return "ShieldNonLethal";
         if (FOLLOWUP_GAINS_SHIELD_ABILITY_ONLY.matcher(followupText).find())          return "GainsShieldAbilityOnly";
+        // Unanchored on purpose, unlike the choose chain's arm, which takes only a followup that is
+        // this sentence and nothing else (see FOLLOWUP_PUT_TO_BREAK_ZONE_PRIMARY). This one is
+        // asked to name followups that legitimately carry more — 24-106H's paid-extra-cost upgrade,
+        // 15-122L Mog (VI) and 25-089R Cagnazzo's "…instead" branch, 17-121H Frimelda's quoted
+        // grant — and anchoring it dropped all four to an unnamed "?" for no gain.
         if (FOLLOWUP_PUT_TO_BREAK_ZONE.matcher(followupText).find())                  return "PutToBreakZone";
         if (FOLLOWUP_SELECT_NUMBER_REVEAL_BREAK.matcher(followupText).find())         return "SelectNumberRevealBreak";
         if (FOLLOWUP_IF_OPPONENT_CONTROLS_FORWARDS_DAMAGE.matcher(followupText).matches()) return "IfOppControlsForwardsDamage";
@@ -3375,7 +3380,7 @@ public class ActionResolver {
         if (tryParseRandomRevealHandCastIfSummonFree(effectText) != null)   return "RandomRevealHandCastIfSummonFree";
         if (tryParseCastSummonFromHandDiscounted(effectText) != null)       return "CastSummonFromHandDiscounted";
         if (tryParseCastSummonFromHandFree(effectText, 0) != null)          return "CastSummonFromHandFree";
-        if (tryParseSearchAndCastSummonFree(effectText) != null)            return "SearchAndCastSummonFree";
+        if (tryParseSearchAndCastSummonFree(effectText, source) != null)    return "SearchAndCastSummonFree";
         if (tryParsePlayAnyNumberFromHand(effectText, source) != null)      return "PlayAnyNumberFromHand";
         if (tryParseEachPlayerMayPlayFromHand(effectText, source, 0) != null) return "EachPlayerMayPlayFromHand";
         if (tryParsePlayFromHand(effectText, source, 0) != null)            return "PlayFromHand";
@@ -6599,6 +6604,9 @@ public class ActionResolver {
         String  costStr        = m.group("cost");
         String  costListStr    = m.group("costlist");
         String  rawCostCmp     = m.group("costcmp");
+        // As with a count of X above: this spec is derived from the text alone and has no payment
+        // behind it, so a cost of X is a constraint it cannot state rather than one it may guess.
+        if ("X".equalsIgnoreCase(costStr)) return null;
         int     costVal2       = costStr != null ? Integer.parseInt(costStr) : -1;
         String  costCmp;
         if (rawCostCmp != null && rawCostCmp.matches("\\d+")) {

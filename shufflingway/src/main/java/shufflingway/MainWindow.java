@@ -5318,14 +5318,14 @@ public class MainWindow {
 		boolean inclForwards, boolean inclBackups, boolean inclMonsters, boolean inclSummons,
 		int costVal, String costCmp, String cardNameFilter, String jobFilter,
 		String categoryFilter, String elementFilter, String excludeName, String excludeElem,
-		String destination, int count, boolean entersDull, boolean requireWarp,
+		String destination, int count, boolean entersDull, CardData.Trait requireTrait,
 		PickGate gate, boolean suppressAutoAbilities) {
 		searchPickGate = gate == null ? PickGate.ANY : gate;
 		searchSuppressAutoAbilities = suppressAutoAbilities;
 		try {
 			return searchDeckForCard(isP1, inclForwards, inclBackups, inclMonsters, inclSummons,
 				costVal, costCmp, cardNameFilter, jobFilter, categoryFilter, elementFilter,
-				excludeName, excludeElem, destination, count, entersDull, requireWarp);
+				excludeName, excludeElem, destination, count, entersDull, requireTrait);
 		} finally {
 			searchPickGate = PickGate.ANY;
 			searchSuppressAutoAbilities = false;
@@ -5346,12 +5346,12 @@ public class MainWindow {
 			boolean inclMonsters, boolean inclSummons,
 			int costVal, String costCmp, String cardNameFilter, String jobFilter,
 			String elementFilter, String excludeName, String excludeElem,
-			String destination, int count, boolean entersDull, boolean requireWarp) {
+			String destination, int count, boolean entersDull, CardData.Trait requireTrait) {
 		searchIdentityConjunctive = true;
 		try {
 			return searchDeckForCard(isP1, inclForwards, inclBackups, inclMonsters, inclSummons,
 					costVal, costCmp, cardNameFilter, jobFilter, null, elementFilter,
-					excludeName, excludeElem, destination, count, entersDull, requireWarp);
+					excludeName, excludeElem, destination, count, entersDull, requireTrait);
 		} finally {
 			searchIdentityConjunctive = false;
 		}
@@ -5368,7 +5368,7 @@ public class MainWindow {
 			boolean inclMonsters, boolean inclSummons,
 			int costVal, String costCmp, String cardNameFilter, String jobFilter,
 			String categoryFilter, String elementFilter, String excludeName, String excludeElem,
-			String destination, int count, boolean entersDull, boolean requireWarp) {
+			String destination, int count, boolean entersDull, CardData.Trait requireTrait) {
 		if (turn(isP1).cannotSearchThisTurn) {
 			// No search took place, so nothing that watches for one should fire.
 			logEntry("Search blocked — opponent cannot search this turn");
@@ -5381,12 +5381,24 @@ public class MainWindow {
 		try {
 			return searchDeckForCardImpl(isP1, inclForwards, inclBackups, inclMonsters, inclSummons,
 					costVal, costCmp, cardNameFilter, jobFilter, categoryFilter, elementFilter,
-					excludeName, excludeElem, destination, count, entersDull, requireWarp);
+					excludeName, excludeElem, destination, count, entersDull, requireTrait);
 		} finally {
 			// Fires on the act of searching, not on finding something: the deck was looked
 			// through either way, which is the event opponents' abilities react to.
 			autoAbilityTriggers.triggerAutoAbilitiesForSearch(searcher, isP1);
 		}
+	}
+
+	/**
+	 * Whether a card sitting in a deck carries {@code trait}, for the "search for 1 … with
+	 * &lt;Keyword&gt;" filter.
+	 *
+	 * <p>Reads the printing only. Nothing on the field can be granting a trait to a card still in
+	 * the deck, so the effective view has nothing to add here, and Warp is asked its own way
+	 * because it is stored as a value rather than in the trait set.
+	 */
+	private static boolean deckCardHasTrait(CardData c, CardData.Trait trait) {
+		return trait == CardData.Trait.WARP ? c.hasWarp() : c.getTraits().contains(trait);
 	}
 
 	/** @return whether a card was found, chosen, and moved to {@code destination}. */
@@ -5395,7 +5407,7 @@ public class MainWindow {
 			boolean inclMonsters, boolean inclSummons,
 			int costVal, String costCmp, String cardNameFilter, String jobFilter,
 			String categoryFilter, String elementFilter, String excludeName, String excludeElem,
-			String destination, int count, boolean entersDull, boolean requireWarp) {
+			String destination, int count, boolean entersDull, CardData.Trait requireTrait) {
 		Deque<CardData> deck = isP1 ? gameState.getP1MainDeck() : gameState.getP2MainDeck();
 		boolean anyType = !inclForwards && !inclBackups && !inclMonsters && !inclSummons;
 		List<CardData> matches = new ArrayList<>();
@@ -5407,7 +5419,7 @@ public class MainWindow {
 				                 || (inclSummons  && c.isSummon());
 				if (!typeMatch) continue;
 			}
-			if (requireWarp && !c.hasWarp()) continue;
+			if (requireTrait != null && !deckCardHasTrait(c, requireTrait)) continue;
 			if (!meetsCostConstraint(c.cost(), costVal, costCmp)) continue;
 			// Job, Card Name and Category identify a card three different ways. Stated together
 			// they are usually alternatives: "Category FFL Forwards or Job Warrior of Light

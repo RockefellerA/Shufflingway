@@ -1452,7 +1452,11 @@ final class ActionResolverChoose {
         String  costStr      = m.group("cost");
         String  costListStr  = m.group("costlist");
         String  rawCostCmp   = m.group("costcmp");
-        int     costVal      = costStr != null ? Integer.parseInt(costStr) : -1;
+        // "of cost X or less" (18-097R Rinoa) — X is whatever the ability's 《X》 was paid with,
+        // threaded in by whoever resolved that payment. Unlike a count of X, a cost of 0 is a real
+        // filter (there are cost 0 cards), so this does not decline the way the count does.
+        int     costVal      = costStr == null ? -1
+                : "X".equalsIgnoreCase(costStr) ? xValue : Integer.parseInt(costStr);
         // Convert digit-valued costcmp into the "or_…" sentinel understood by meetsCostConstraint.
         // Supports single ("cost N or M") and list ("cost A, B, … or Z") forms.
         String  costCmp;
@@ -1942,7 +1946,7 @@ final class ActionResolverChoose {
                     ctx.logEntry("Chosen: " + picked.name() + " (" + picked.element() + ")");
                     ctx.searchDeckForCard(srchFwd, srchBk, srchMn, srchSm, -1, null,
                             nameFilter, searchJob, searchCat, elemFilter, null, null,
-                            destination, count, false, false);
+                            destination, count, false, null);
                     if (secondary != null) secondary.accept(ctx);
                 };
             }
@@ -2159,7 +2163,7 @@ final class ActionResolverChoose {
                                     "Search for 1 " + searchLabel + " and remove it from the game?")
                             && ctx.searchDeckForCard(wantFwd, wantBkp, wantMon, false,
                                     -1, null, null, null, null, searchElem, null, null,
-                                    "removedFromGame", 1, false, false);
+                                    "removedFromGame", 1, false, null);
                     if (removed) thenAction.accept(ctx, ts);
                     else         elseAction.accept(ctx, ts);
                 };
@@ -3522,6 +3526,26 @@ final class ActionResolverChoose {
                         costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters, jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, fExcludeElem, withoutMulticard);
                 sortedByIdxDesc(ts, true) .forEach(t -> ctx.breakTarget(t));
                 sortedByIdxDesc(ts, false).forEach(t -> ctx.breakTarget(t));
+                if (secondary != null) secondary.accept(ctx);
+            };
+        }
+
+        // --- "Put it into the Break Zone" followup ---
+        // The forced sibling of the Break arm above: "put into the Break Zone" moves the card
+        // regardless of what it says about not being broken, which is why it goes through
+        // forceTargetToBreakZone rather than breakTarget. 12-107R Lunafreya, 24-100C Cecil,
+        // 3-142H Famed Mimic Gogo, 18-127C Lilisette, 18-097R Rinoa and 17-121H Frimelda's quoted
+        // grant all print it, and until this arm existed the chain had no reading for it at all:
+        // every one of them named a target in the log and then fell through to the
+        // followup-not-implemented line without so much as offering a selection.
+        if (FOLLOWUP_PUT_TO_BREAK_ZONE_PRIMARY.matcher(primaryFollowup.trim()).matches()) {
+            return ctx -> {
+                ctx.logChooseHeader(choosePrefix + " — Put into the Break Zone");
+                List<ForwardTarget> ts = selectTargets(ctx, maxCount, upTo,
+                        opponentOnly, selfOnly, condition, element, zone, opponentZone,
+                        costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters, jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, fExcludeElem, withoutMulticard);
+                sortedByIdxDesc(ts, true) .forEach(ctx::forceTargetToBreakZone);
+                sortedByIdxDesc(ts, false).forEach(ctx::forceTargetToBreakZone);
                 if (secondary != null) secondary.accept(ctx);
             };
         }
@@ -5510,20 +5534,46 @@ final class ActionResolverChoose {
         String  followup  = m.group("followup").trim();
         int     costVal   = m.group("cost") != null ? Integer.parseInt(m.group("cost")) : -1;
         String  costCmp   = m.group("costcmp") != null ? m.group("costcmp").toLowerCase() : null;
+        // "1 Forward or Backup they control for every 2 points of damage you have received"
+        // (19-106H Sin) — the count is a rate, and the board it is measured against only exists at
+        // resolution time, so it is read then rather than baked into the parse.
+        final int perDamage = m.group("perdamage") != null ? Integer.parseInt(m.group("perdamage")) : 0;
+        // "(select as many as possible)" says the count is a ceiling the board may not reach, which
+        // is what lets the selection confirm short of it.
+        final boolean asMany = m.group("asmany") != null;
+        final int baseCount = count;
 
-        String prefix = "Opponent selects " + count
+        // Names the selection in both players' prompts, and the effect in the log.
+        String what = count
                 + (condition != null ? " " + condition : "")
                 + (element   != null ? " " + element   : "")
                 + " " + targets
-                + (costVal >= 0 ? " of cost " + costVal + " or " + costCmp : "")
+                + (costVal >= 0 ? " of cost " + costVal + " or " + costCmp : "");
+        String prefix = "Opponent selects " + what
+                + (perDamage > 0 ? " for every " + perDamage + " damage you have received" : "")
                 + " (opponent)";
 
+        // Every arm below hands the pick to the opponent and then acts on both physical sides.
+        //
+        // Both matter. The card names the opponent as the one who selects (comprehensive rule
+        // 11.11.5.1), and which of their own Characters they can spare is theirs to weigh; going
+        // through selectCharacters had the ability's *controller* picking from their opponent's
+        // board, which is a different and strictly better effect. And the single-sided sweep this
+        // replaces filtered to P2's side alone, so whenever the AI controlled one of these — its
+        // opponent being P1 — the selection was made and then dropped, and the ability did nothing
+        // at all.
         if (FOLLOWUP_PUT_TO_BREAK_ZONE.matcher(followup).find()) {
             return ctx -> {
-                ctx.logEntry(prefix + " — Force to Break Zone");
-                List<ForwardTarget> ts = ctx.selectCharacters(count, false, true, false,
-                        condition, element, costVal, costCmp, -1, null,
-                        inclForwards, inclBackups, inclMonsters, null, null, null, null, false, null, false);
+                int n = perDamage > 0 ? baseCount * (ctx.selfDamageCount() / perDamage) : baseCount;
+                ctx.logEntry(prefix + " — Force to Break Zone"
+                        + (perDamage > 0 ? " (" + n + " at " + ctx.selfDamageCount() + " damage)" : ""));
+                // Below the first whole unit of the rate there is nothing to select, and asking for
+                // none would put an empty picker in front of the player.
+                if (n <= 0) return;
+                List<ForwardTarget> ts = ctx.opponentSelectsOwnCharacters(n, asMany,
+                        condition, element, costVal, costCmp,
+                        inclForwards, inclBackups, inclMonsters, what);
+                sortedByIdxDesc(ts, true) .forEach(ctx::forceTargetToBreakZone);
                 sortedByIdxDesc(ts, false).forEach(ctx::forceTargetToBreakZone);
             };
         }
@@ -5531,9 +5581,10 @@ final class ActionResolverChoose {
         if (FOLLOWUP_DULL.matcher(followup).find()) {
             return ctx -> {
                 ctx.logEntry(prefix + " — Dull");
-                List<ForwardTarget> ts = ctx.selectCharacters(count, false, true, false,
-                        condition, element, costVal, costCmp, -1, null,
-                        inclForwards, inclBackups, inclMonsters, null, null, null, null, false, null, false);
+                List<ForwardTarget> ts = ctx.opponentSelectsOwnCharacters(count, asMany,
+                        condition, element, costVal, costCmp,
+                        inclForwards, inclBackups, inclMonsters, what);
+                sortedByIdxDesc(ts, true) .forEach(ctx::dullTarget);
                 sortedByIdxDesc(ts, false).forEach(ctx::dullTarget);
             };
         }
@@ -5541,24 +5592,29 @@ final class ActionResolverChoose {
         if (FOLLOWUP_RETURN_TO_OWNERS_HAND.matcher(followup).find()) {
             return ctx -> {
                 ctx.logEntry(prefix + " — Return to owner's hand");
-                List<ForwardTarget> ts = ctx.selectCharacters(count, false, true, false,
-                        condition, element, costVal, costCmp, -1, null,
-                        inclForwards, inclBackups, inclMonsters, null, null, null, null, false, null, false);
-                sortedByIdxDesc(ts, false).forEach(t -> {
-                    switch (t.zone()) {
-                        case FORWARD -> { if (t.isP1()) ctx.returnP1ForwardToHand(t.idx());
-                                          else          ctx.returnP2ForwardToHand(t.idx()); }
-                        case BACKUP  -> { if (t.isP1()) ctx.returnP1BackupToHand(t.idx());
-                                          else          ctx.returnP2BackupToHand(t.idx()); }
-                        case MONSTER -> { if (t.isP1()) ctx.returnP1MonsterToHand(t.idx());
-                                          else          ctx.returnP2MonsterToHand(t.idx()); }
-                    }
-                });
+                List<ForwardTarget> ts = ctx.opponentSelectsOwnCharacters(count, asMany,
+                        condition, element, costVal, costCmp,
+                        inclForwards, inclBackups, inclMonsters, what);
+                sortedByIdxDesc(ts, true) .forEach(t -> returnSelectedToOwnersHand(ctx, t));
+                sortedByIdxDesc(ts, false).forEach(t -> returnSelectedToOwnersHand(ctx, t));
             };
         }
 
         return ctx -> ctx.logEntry(
                 "[ActionResolver] Opponent selects — followup not yet implemented: " + followup);
+    }
+
+    /** Returns one selected Character to its owner's hand, dispatching by the zone it sits in. */
+    private static void returnSelectedToOwnersHand(GameContext ctx, ForwardTarget t) {
+        switch (t.zone()) {
+            case FORWARD -> { if (t.isP1()) ctx.returnP1ForwardToHand(t.idx());
+                              else          ctx.returnP2ForwardToHand(t.idx()); }
+            case BACKUP  -> { if (t.isP1()) ctx.returnP1BackupToHand(t.idx());
+                              else          ctx.returnP2BackupToHand(t.idx()); }
+            case MONSTER -> { if (t.isP1()) ctx.returnP1MonsterToHand(t.idx());
+                              else          ctx.returnP2MonsterToHand(t.idx()); }
+            default      -> { }
+        }
     }
     static Consumer<GameContext> tryParseChooseForwardsGainAbilityEot(String text) {
         Matcher m = CHOOSE_FORWARDS_GAIN_ABILITY_EOT.matcher(text.trim());

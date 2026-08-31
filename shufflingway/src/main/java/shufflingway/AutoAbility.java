@@ -1,5 +1,7 @@
 package shufflingway;
 
+import java.util.List;
+
 /**
  * A parsed passive "When [card] [trigger], [effect]" ability.
  *
@@ -39,7 +41,9 @@ package shufflingway;
  *   <li>{@code partyMinCount} — party must contain at least this many qualifying members (0 = any party).</li>
  *   <li>{@code partyCategory} — qualifying members must have this category (null = any).</li>
  *   <li>{@code partyJob} — qualifying members must have this job (null = any).</li>
- *   <li>{@code partyCardName} — party must include a member with this exact name (null = any).</li>
+ *   <li>{@code partyCardNames} — every name listed must be somewhere in the party (empty = any).
+ *       A conjunction, not alternatives: 12-044R Shikaree X wants Shikaree Y <em>and</em>
+ *       Shikaree Z, and the printings that name one partner want that one and the carrier.</li>
  * </ul>
  *
  * <p>The {@code triggerCard} field holds:
@@ -92,8 +96,13 @@ public record AutoAbility(
         int     partyMinCount,    // ≥ 1: party must have ≥ N qualifying members; 0 = no requirement
         String  partyCategory,    // non-null: qualifying members must have this category
         String  partyJob,         // non-null: qualifying members must have this job
-        String  partyCardName     // non-null: party must include a member with this exact name
+        List<String> partyCardNames // every name listed must be in the party; empty = no name requirement
 ) {
+    /** Defensive copy, so a caller cannot mutate a filter the dispatch reads on every party attack. */
+    public AutoAbility {
+        partyCardNames = partyCardNames == null ? List.of() : List.copyOf(partyCardNames);
+    }
+
     /**
      * A copy of this ability carrying {@code newEffectText} in place of {@link #effectText()}.
      * Used to restore quoted granted-ability text that was masked out while the card's text was
@@ -103,7 +112,7 @@ public record AutoAbility(
         return new AutoAbility(triggerCard, trigger, youMay, opponentMay, newEffectText,
                 oncePerTurn, yourTurnOnly, opponentTurnOnly, rfpConditionCard, bzConditionCard, bzConditionJob,
                 castPaymentMinElements, castOnly, warpOnly, damageThreshold,
-                partyMinCount, partyCategory, partyJob, partyCardName);
+                partyMinCount, partyCategory, partyJob, partyCardNames);
     }
 
     /**
@@ -116,7 +125,7 @@ public record AutoAbility(
         return oncePerTurn ? this : new AutoAbility(triggerCard, trigger, youMay, opponentMay, effectText,
                 true, yourTurnOnly, opponentTurnOnly, rfpConditionCard, bzConditionCard, bzConditionJob,
                 castPaymentMinElements, castOnly, warpOnly, damageThreshold,
-                partyMinCount, partyCategory, partyJob, partyCardName);
+                partyMinCount, partyCategory, partyJob, partyCardNames);
     }
 
     /**
@@ -130,6 +139,6 @@ public record AutoAbility(
                 : new AutoAbility(triggerCard, trigger, youMay, opponentMay, effectText,
                         oncePerTurn, yourTurnOnly, true, rfpConditionCard, bzConditionCard, bzConditionJob,
                         castPaymentMinElements, castOnly, warpOnly, damageThreshold,
-                        partyMinCount, partyCategory, partyJob, partyCardName);
+                        partyMinCount, partyCategory, partyJob, partyCardNames);
     }
 }

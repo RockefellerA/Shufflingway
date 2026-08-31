@@ -104,6 +104,21 @@ final class GameContextImpl implements GameContext {
 	 */
 	private List<ForwardTarget> excludedTargets = List.of();
 	/**
+	 * Whether the pool about to be gathered is for a <em>select</em> rather than a <em>choose</em>,
+	 * in which case the "cannot be chosen" immunities do not narrow it.
+	 *
+	 * <p>The comprehensive rules draw the line in as many words, once per ability kind — 11.3.3 for
+	 * Summons, 11.6.5 for action abilities, 11.7.5 for special abilities, 11.8.4 / 11.8.9 / 11.8.19
+	 * for auto-abilities: <em>"To 'select' something is not the same as to 'choose' something."</em>
+	 * A card that cannot be chosen by its opponent's abilities is still perfectly selectable by its
+	 * own controller, which is the whole reason the printings that want to get past those shields
+	 * say "your opponent selects 1 Forward they control" instead of "choose 1 Forward".
+	 *
+	 * <p>Set for the length of one call by {@link #opponentSelectsOwnCharacters} and read by
+	 * {@code eligibleCharacters}, an instance field for the same reason the three above are.
+	 */
+	private boolean selectionIsSelectNotChoose = false;
+	/**
 	 * Damage the pick about to be made will be dealt, shown in the selection's title so successive
 	 * prompts of a tiered selection can be told apart, or {@code 0} when the title says nothing.
 	 */
@@ -1109,9 +1124,14 @@ final class GameContextImpl implements GameContext {
 				// Two sets for this resolution, one per side of the field relative to the effect's
 				// controller. Each targeting quadrant iterates a known side, so it consults exactly
 				// one of them and needs no further scope test.
-				final Set<CardData> immuneOwn = mw.currentResolutionIsSummon ? summonImmuneAnyone : abilityImmuneAnyone;
+				//
+				// Both are empty for a select: every one of these immunities is printed "cannot be
+				// chosen", and a select is not a choose. See selectionIsSelectNotChoose.
+				final Set<CardData> immuneOwn = selectionIsSelectNotChoose ? Set.of()
+						: mw.currentResolutionIsSummon ? summonImmuneAnyone : abilityImmuneAnyone;
 				final Set<CardData> immuneOpp = new HashSet<>(immuneOwn);
-				immuneOpp.addAll(mw.currentResolutionIsSummon ? summonImmuneFromOpp : abilityImmuneFromOpp);
+				if (!selectionIsSelectNotChoose)
+					immuneOpp.addAll(mw.currentResolutionIsSummon ? summonImmuneFromOpp : abilityImmuneFromOpp);
 				// "own" = cards belonging to effect controller; "opp" = other player's cards.
 				// isP1 captures the controller's perspective, so the two blocks below must
 				// flip which physical side they iterate when isP1 is false (P2 controls).
@@ -2088,28 +2108,28 @@ final class GameContextImpl implements GameContext {
 					boolean inclMonsters, boolean inclSummons,
 					int costVal, String costCmp, String cardNameFilter, String jobFilter,
 					String categoryFilter, String elementFilter, String excludeName, String excludeElem,
-					String destination, int count, boolean entersDull, boolean requireWarp) {
+					String destination, int count, boolean entersDull, CardData.Trait requireTrait) {
 				return mw.searchDeckForCard(isP1, inclForwards, inclBackups, inclMonsters, inclSummons,
-						costVal, costCmp, cardNameFilter, jobFilter, categoryFilter, elementFilter, excludeName, excludeElem, destination, count, entersDull, requireWarp);
+						costVal, costCmp, cardNameFilter, jobFilter, categoryFilter, elementFilter, excludeName, excludeElem, destination, count, entersDull, requireTrait);
 			}
 
 			@Override public boolean searchDeckForCardWithRiders(boolean inclForwards, boolean inclBackups,
 					boolean inclMonsters, boolean inclSummons,
 					int costVal, String costCmp, String cardNameFilter, String jobFilter,
 					String categoryFilter, String elementFilter, String excludeName, String excludeElem,
-					String destination, int count, boolean entersDull, boolean requireWarp,
+					String destination, int count, boolean entersDull, CardData.Trait requireTrait,
 					PickGate gate, boolean suppressAutoAbilities) {
 				return mw.searchDeckForCardWithRiders(isP1, inclForwards, inclBackups, inclMonsters, inclSummons,
 						costVal, costCmp, cardNameFilter, jobFilter, categoryFilter, elementFilter, excludeName,
-						excludeElem, destination, count, entersDull, requireWarp, gate, suppressAutoAbilities);
+						excludeElem, destination, count, entersDull, requireTrait, gate, suppressAutoAbilities);
 			}
 			@Override public boolean searchDeckForNamedCardWithJob(boolean inclForwards, boolean inclBackups,
 					boolean inclMonsters, boolean inclSummons,
 					int costVal, String costCmp, String cardNameFilter, String jobFilter,
 					String elementFilter, String excludeName, String excludeElem,
-					String destination, int count, boolean entersDull, boolean requireWarp) {
+					String destination, int count, boolean entersDull, CardData.Trait requireTrait) {
 				return mw.searchDeckForNamedCardWithJob(isP1, inclForwards, inclBackups, inclMonsters, inclSummons,
-						costVal, costCmp, cardNameFilter, jobFilter, elementFilter, excludeName, excludeElem, destination, count, entersDull, requireWarp);
+						costVal, costCmp, cardNameFilter, jobFilter, elementFilter, excludeName, excludeElem, destination, count, entersDull, requireTrait);
 			}
 			@Override public void searchDeckJobAndTypeDontShareElements(String jobFilter, String typeName) {
 				mw.searchDeckJobAndTypeDontShareElements(isP1, jobFilter, typeName);
@@ -4117,7 +4137,7 @@ final class GameContextImpl implements GameContext {
 				}
 			}
 
-			@Override public void searchAndCastSummonFreeFromDeck(int maxCost, String elementFilter) {
+			@Override public int searchAndCastSummonFreeFromDeck(int maxCost, String elementFilter) {
 				Deque<CardData> deck = isP1 ? mw.gameState.getP1MainDeck() : mw.gameState.getP2MainDeck();
 				java.util.List<CardData> matches = new java.util.ArrayList<>();
 				for (CardData c : deck) {
@@ -4130,7 +4150,7 @@ final class GameContextImpl implements GameContext {
 					mw.shuffleDeck(isP1);
 					logEntry("Search: no matching " + (elementFilter != null ? elementFilter + " " : "") + "Summon found — effect fizzles");
 					markEffectFizzled();
-					return;
+					return -1;
 				}
 				CardData picked;
 				if (isP1) {
@@ -4144,7 +4164,7 @@ final class GameContextImpl implements GameContext {
 				if (picked == null) {
 					mw.shuffleDeck(isP1);
 					logEntry("Search: no card selected");
-					return;
+					return -1;
 				}
 				if (isP1) mw.gameState.removeFromP1MainDeck(picked);
 				else      deck.remove(picked);
@@ -4168,11 +4188,12 @@ final class GameContextImpl implements GameContext {
 					logEntry((isP1 ? "" : "[P2] ") + "Cast \"" + picked.name() + "\" from deck search for free");
 					mw.showSummonOnStack(picked, isP1);
 					mw.lastCardWasCast = false;
-				} else {
-					if (isP1) { mw.addToBreakZone(picked); mw.refreshP1BreakLabel(); }
-					else       { mw.addToBreakZone(picked); mw.refreshP2BreakLabel(); }
-					logEntry((isP1 ? "" : "[P2] ") + "\"" + picked.name() + "\" put into the Break Zone (chose not to cast)");
+					return picked.cost();
 				}
+				if (isP1) { mw.addToBreakZone(picked); mw.refreshP1BreakLabel(); }
+				else      { mw.addToBreakZone(picked); mw.refreshP2BreakLabel(); }
+				logEntry((isP1 ? "" : "[P2] ") + "\"" + picked.name() + "\" put into the Break Zone (chose not to cast)");
+				return -1;
 			}
 
 
@@ -4300,16 +4321,37 @@ final class GameContextImpl implements GameContext {
 				if (p2Pick != null) damageP2Forward(p2Pick.idx(), amount);
 			}
 
-			@Override public void eachPlayerSelectForwardAndBreak() {
-				ForwardTarget p1Pick = eachPlayerForwardPick(true,
-						"Both players select 1 Forward — choose yours to put in Break Zone",
-						mw::aiPickForwardForBreak);
-				ForwardTarget p2Pick = eachPlayerForwardPick(false,
-						"Both players select 1 Forward — choose yours to put in Break Zone",
-						mw::aiPickForwardForBreak);
+			@Override public void eachPlayerSelectForwardAndBreak(int costVal, String costCmp) {
+				String title = "Both players select 1 Forward"
+						+ (costVal < 0 ? "" : " of cost " + costVal + " or " + costCmp)
+						+ " — choose yours to put in Break Zone";
+				// Both seats are asked before either loses anything, so each choice is made against
+				// the board the effect found — the same reason eachPlayerSelectForwardsBreakRest
+				// collects first and breaks second.
+				ForwardTarget p1Pick = eachPlayerForwardPick(true,  title,
+						() -> aiPickForwardForBreakOfCost(costVal, costCmp), costVal, costCmp);
+				ForwardTarget p2Pick = eachPlayerForwardPick(false, title,
+						() -> aiPickForwardForBreakOfCost(costVal, costCmp), costVal, costCmp);
 
 				if (p1Pick != null) forceTargetToBreakZone(p1Pick);
 				if (p2Pick != null) forceTargetToBreakZone(p2Pick);
+			}
+
+			/**
+			 * The AI's own pick for the effect above: its cheapest Forward that clears the
+			 * threshold, or {@code null} when none does. The unfiltered chooser cannot be reused —
+			 * it answers with the cheapest Forward on the board, which under a "cost N or more"
+			 * threshold is exactly the one that is not eligible.
+			 */
+			private ForwardTarget aiPickForwardForBreakOfCost(int costVal, String costCmp) {
+				if (costVal < 0) return mw.aiPickForwardForBreak();
+				int bestIdx = -1, bestCost = Integer.MAX_VALUE;
+				for (int i = 0; i < mw.p2ForwardCards.size(); i++) {
+					int cost = mw.p2ForwardCards.get(i).cost();
+					if (!CardFilters.meetsCostConstraint(cost, costVal, costCmp)) continue;
+					if (cost < bestCost) { bestCost = cost; bestIdx = i; }
+				}
+				return bestIdx < 0 ? null : new ForwardTarget(false, bestIdx, ForwardTarget.CardZone.FORWARD);
 			}
 
 			@Override public void selectControlledForwardAndBreak() {
@@ -4335,9 +4377,24 @@ final class GameContextImpl implements GameContext {
 			 */
 			private ForwardTarget eachPlayerForwardPick(boolean seatIsP1, String title,
 			                                            Supplier<ForwardTarget> cpuPick) {
-				List<ForwardTarget> eligible = ownForwards(seatIsP1);
+				return eachPlayerForwardPick(seatIsP1, title, cpuPick, -1, null);
+			}
+
+			/**
+			 * @param costVal CP threshold the seat's Forwards must clear to be selectable;
+			 *                {@code -1} = every Forward the seat controls is eligible
+			 */
+			private ForwardTarget eachPlayerForwardPick(boolean seatIsP1, String title,
+			                                            Supplier<ForwardTarget> cpuPick,
+			                                            int costVal, String costCmp) {
+				List<ForwardTarget> eligible = new ArrayList<>(ownForwards(seatIsP1));
+				if (costVal >= 0) {
+					List<CardData> fwds = seatIsP1 ? mw.p1ForwardCards : mw.p2ForwardCards;
+					eligible.removeIf(t -> !CardFilters.meetsCostConstraint(
+							fwds.get(t.idx()).cost(), costVal, costCmp));
+				}
 				if (eligible.isEmpty()) {
-					logEntry((seatIsP1 ? "P1" : "[P2]") + " has no Forwards — skipping selection");
+					logEntry((seatIsP1 ? "P1" : "[P2]") + " has no eligible Forwards — skipping selection");
 					return null;
 				}
 				ForwardTarget pick = mw.selectOwnFieldTarget(seatIsP1, eligible, title,
@@ -4415,6 +4472,45 @@ final class GameContextImpl implements GameContext {
 				logSelectedOwnCard(oppIsP1, pick);
 				forceTargetToBreakZone(pick);
 				return true;
+			}
+
+			@Override public List<ForwardTarget> opponentSelectsOwnCharacters(int count, boolean upTo,
+					String condition, String element, int costVal, String costCmp,
+					boolean inclForwards, boolean inclBackups, boolean inclMonsters, String what) {
+				boolean oppIsP1 = !isP1;
+				// The pool is the opponent's side under the printed filters, gathered as a select
+				// rather than a choose so the "cannot be chosen" shields do not narrow it.
+				List<ForwardTarget> eligible;
+				selectionIsSelectNotChoose = true;
+				try {
+					eligible = eligibleCharacters(count, upTo, true, false, condition, element,
+							costVal, costCmp, -1, null, inclForwards, inclBackups, inclMonsters,
+							null, null, null, null, false, null, false);
+				} finally {
+					selectionIsSelectNotChoose = false;
+				}
+				if (eligible.isEmpty()) {
+					logEntry((oppIsP1 ? "P1" : "[P2]") + " has no eligible Characters to select");
+					return List.of();
+				}
+				// Choosing which of your own Characters to give up is a question about what you can
+				// spare, so the AI answers it as one: the cheapest first, as many as it is made to.
+				Supplier<List<ForwardTarget>> cpuPick = () -> eligible.stream()
+						.sorted(java.util.Comparator.comparingInt(t -> {
+							CardData c = mw.fieldCardDataOrNull(t);
+							return c == null ? Integer.MAX_VALUE : c.cost();
+						}))
+						.limit(count)
+						.toList();
+
+				List<ForwardTarget> picks = mw.selectOwnFieldTargets(oppIsP1, eligible, count, upTo,
+						"Select " + what + " you control",
+						"Waiting for your opponent to select " + what + " they control...",
+						cpuPick);
+				picks.forEach(t -> logSelectedOwnCard(oppIsP1, t));
+				// Deliberately no fireChosenByOpponentTriggers: those watchers all read "when [this]
+				// is chosen by your opponent's Summon or ability", and this was a select.
+				return picks;
 			}
 
 			@Override public boolean opponentMayDiscardCards(int count, String sourceName) {

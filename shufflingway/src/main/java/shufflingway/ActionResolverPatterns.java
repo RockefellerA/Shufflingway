@@ -94,7 +94,11 @@ final class ActionResolverPatterns {
                     "(?:\\s+of\\s+(?:any|an)\\s+Element\\s+(?:except|other\\s+than)\\s+(?<excludeelem>" +
                     "(?:Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)" +
                     "(?:\\s+and\\s+(?:Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark))*))?" +
-                    "(?:\\s+of\\s+cost\\s+(?<cost>\\d+)" +
+                    // "of cost X or less" is the 《X》 the ability was paid with, not a printed
+                    // number — 18-097R Rinoa, the same variable the count group above admits and
+                    // for the same reason. Without it her choose header matched nothing at all,
+                    // so the sentence never reached a followup.
+                    "(?:\\s+of\\s+cost\\s+(?<cost>\\d+|X)" +
                     "(?:,\\s*(?<costlist>\\d+(?:\\s*,\\s*\\d+)*))?" +
                     "(?:\\s+or\\s+(?<costcmp>less|more|higher|\\d+))?)?" +
                     // "with 9000 power or less" (Zodiark 23-016R) is the same constraint that
@@ -4275,12 +4279,22 @@ final class ActionResolverPatterns {
         "Deal\\s+them\\s+(?<amount>\\d+)\\s+damage[.!]?"
     );
     /**
-     * Matches "Both players select 1 Forward they control and put it into the Break Zone."
-     * Used for Famfrit-style EX Burst effects where each side simultaneously sends one Forward to the Break Zone.
+     * Matches "Both players select 1 Forward [of cost N or less/more] they control and put it into
+     * the Break Zone", and the same effect written as two sentences ending "Break them." —
+     * 28-077R Wicked Thunder's "each player selects 1 Forward of cost 3 or more they control.
+     * Break them."
+     *
+     * <p>Both endings are one effect: each side loses a Forward of its own choosing, simultaneously.
+     * Reading the second as a separate "Break them." sentence would leave it with no selection in
+     * front of it, which is the shape the trailing-clause chain resolves as breaking everything.
+     *
+     * <p>Groups: {@code cost} / {@code costcmp} — the optional threshold on what may be picked.
      */
     static final Pattern BOTH_PLAYERS_SELECT_FORWARD_TO_BREAK_ZONE = Pattern.compile(
-        "(?i)(?:Both|Each)\\s+players?\\s+selects?\\s+1\\s+Forward\\s+they\\s+control" +
-        "\\s+and\\s+puts?\\s+it\\s+into\\s+the\\s+Break\\s+Zone[.!]?"
+        "(?i)(?:Both|Each)\\s+players?\\s+selects?\\s+1\\s+Forward" +
+        "(?:\\s+of\\s+cost\\s+(?<cost>\\d+)\\s+or\\s+(?<costcmp>less|more))?" +
+        "\\s+(?:they|he/she)\\s+controls?" +
+        "(?:\\s+and\\s+puts?\\s+it\\s+into\\s+the\\s+Break\\s+Zone|[.!]?\\s+Break\\s+them)[.!]?"
     );
     /**
      * Matches "select 1 [type] of cost N or less other than [name] you control. Put it into the Break Zone."
@@ -4467,8 +4481,16 @@ final class ActionResolverPatterns {
      *   <li>Group {@code targets}   — card type(s)</li>
      *   <li>Group {@code cost}      — optional cost threshold</li>
      *   <li>Group {@code costcmp}   — {@code less} or {@code more}; both are inclusive of {@code cost}</li>
+     *   <li>Group {@code perdamage} — optional "for every N points of damage you have received",
+     *       which multiplies {@code count} at resolution time (19-106H Sin)</li>
+     *   <li>Group {@code asmany}   — present when "(select as many as possible)" follows, the
+     *       parenthetical that admits a board holding fewer than the count asks for</li>
      *   <li>Group {@code followup}  — action applied to the selected card(s)</li>
      * </ul>
+     *
+     * <p>Deliberately does <em>not</em> admit "up to N": that wording belongs to
+     * {@link #OPPONENT_SELECTS_UP_TO_N_BREAK_REST}, where the opponent's picks are the ones that
+     * survive. Requiring a bare count here is what keeps the two apart, and they are opposites.
      */
     static final Pattern OPPONENT_SELECTS_PATTERN = Pattern.compile(
         "(?i)^Your\\s+opponent\\s+selects?\\s+(?<count>\\d+)\\s+" +
@@ -4477,6 +4499,8 @@ final class ActionResolverPatterns {
         "(?<targets>(?:Forwards?|Backups?|Characters?|Monsters?)(?:\\s+(?:and/or|or|and)\\s+(?:Forwards?|Backups?|Characters?|Monsters?))?)" +
         "(?:\\s+of\\s+cost\\s+(?<cost>\\d+)\\s+or\\s+(?<costcmp>less|more))?" +
         "\\s+(?:they|he/she|he|she)\\s+controls?" +
+        "(?:\\s+for\\s+every\\s+(?<perdamage>\\d+)\\s+points?\\s+of\\s+damage\\s+you\\s+have\\s+received)?" +
+        "\\s*(?<asmany>\\(select\\s+as\\s+many\\s+as\\s+possible\\))?" +
         "(?:[.]\\s*|\\s+and\\s+)" +
         "(?<followup>.+)",
         Pattern.DOTALL
@@ -4658,15 +4682,25 @@ final class ActionResolverPatterns {
         "(?:\\s*\\(it\\s+cannot\\s+become\\s+0\\))?[.!]?"
     );
     /**
-     * "Search for 1 [Element] Summon [of cost N or less] and cast it without paying [its|the] cost.
-     * If you do not cast it, put the Summon into the Break Zone."
-     * Groups: {@code element} — element name; {@code cost} — optional numeric cost cap.
+     * "Search for 1 [Element] Summon [of cost N or less | with a cost of N or less] and cast it
+     * without paying [its|the] cost. If you do not cast it, put the Summon into the Break Zone.
+     * [If you cast a Summon of cost M or more with this ability, put [Self] into the Break Zone.]"
+     *
+     * <p>The Element is optional: 2-142R Lenne searches any Summon at all, where the three other
+     * printings of this sentence name one. So is the trailing self-break, which only Lenne prints —
+     * it is read here rather than left to the sentence splitter because it asks about the cost of
+     * the Summon this very search cast, which is knowable only from inside the search.
+     *
+     * <p>Groups: {@code element} — optional element name; {@code cost} — optional numeric cost cap;
+     * {@code selfbreakcost} / {@code selfname} — the threshold and the card the rider breaks.
      */
     static final Pattern SEARCH_AND_CAST_SUMMON_FREE_PATTERN = Pattern.compile(
-        "(?i)search\\s+for\\s+1\\s+(?<element>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)\\s+Summon" +
-        "(?:\\s+of\\s+cost\\s+(?<cost>\\d+)\\s+or\\s+less)?" +
+        "(?i)search\\s+for\\s+1\\s+(?:(?<element>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)\\s+)?Summon" +
+        "(?:\\s+(?:of\\s+cost|with\\s+a\\s+cost\\s+of)\\s+(?<cost>\\d+)\\s+or\\s+less)?" +
         "\\s+and\\s+cast\\s+it\\s+without\\s+paying\\s+(?:its|the)\\s+cost[.!]?" +
-        "(?:\\s+If\\s+you\\s+do\\s+not\\s+cast\\s+it,\\s+put\\s+the\\s+Summon\\s+into\\s+the\\s+Break\\s+Zone[.!]?)?"
+        "(?:\\s+If\\s+you\\s+do\\s+not\\s+cast\\s+it,\\s+put\\s+the\\s+Summon\\s+into\\s+the\\s+Break\\s+Zone[.!]?)?" +
+        "(?:\\s+If\\s+you\\s+cast\\s+a\\s+Summon\\s+of\\s+cost\\s+(?<selfbreakcost>\\d+)\\s+or\\s+more\\s+" +
+        "with\\s+this\\s+ability,\\s+put\\s+(?<selfname>.+?)\\s+into\\s+the\\s+Break\\s+Zone[.!]?)?"
     );
     /**
      * Matches the "each player may" opening of "each player may play 1 … from their hand onto the
@@ -4984,7 +5018,11 @@ final class ActionResolverPatterns {
         "(?:(?<elements>(?:Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)" +
             "(?:\\s+or\\s+(?:Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark))*)\\s+)?" +
         "(?<targets>(?:Forwards?|Backups?|Monsters?|Summons?|Characters?)(?:\\s+or\\s+(?:Forwards?|Backups?|Monsters?|Summons?|Characters?))*|cards?)?\\s*" +
-        "(?<withwarp>with\\s+Warp)?\\s*" +
+        // "with <Keyword>" names a trait the searched card must carry. Warp was the only one for a
+        // long time (21-046C Cid (II), 26-055H Fina) and the group was named for it; 23-035H White
+        // Tiger l'Cie Nimbus searches "1 Forward with Brave", which is the same sentence about a
+        // different keyword. Anything outside this list is left to the type/identity groups.
+        "(?:with\\s+(?<withtrait>Warp|Brave|Haste|First\\s+Strike|Back\\s+Attack))?\\s*" +
         "(?:\\s+other\\s+than\\s+a(?:n)?\\s+(?<excludetype>Forward|Backup|Monster|Summon|Character))?\\s*" +
         // The trailing \s* completes this group's own "of cost" lookahead: without it the space the
         // lookahead stopped in front of was left unconsumed, the cost clause could not start, and
@@ -5087,11 +5125,36 @@ final class ActionResolverPatterns {
         Pattern.CASE_INSENSITIVE | Pattern.DOTALL
     );
     /**
-     * Matches "Put it into the Break Zone" — a forced send that bypasses
+     * Matches "Put it/them into the Break Zone" — a forced send that bypasses
      * "cannot be broken" protections, unlike {@code FOLLOWUP_BREAK}.
+     *
+     * <p>The plural is the same sentence about a selection that took more than one card: 19-106H
+     * Sin's count is a rate against the damage its controller has taken, so its printing says
+     * "them". Read as singular only, that followup matched nothing and the ability resolved as the
+     * unimplemented-followup log line with the selection already made.
      */
     static final Pattern FOLLOWUP_PUT_TO_BREAK_ZONE = Pattern.compile(
-        "(?i)Put\\s+it\\s+into\\s+the\\s+Break\\s+Zone[.!]?"
+        "(?i)Put\\s+(?:it|them)\\s+into\\s+the\\s+Break\\s+Zone[.!]?"
+    );
+    /**
+     * The same sentence, anchored at the start of the followup — what a "Choose N …" hands its
+     * chosen cards straight to the Break Zone with, as opposed to merely mentioning the Break Zone
+     * somewhere later on.
+     *
+     * <p>The anchor is what keeps three other shapes out, all of which say these words and none of
+     * which mean this:
+     * <ul>
+     *   <li>17-109R Cúchulainn — "<b>At the beginning of the next Main Phase 1,</b> put it into the
+     *       Break Zone", which is a delayed break and not this one;</li>
+     *   <li>15-122L Mog (VI) and 25-089R Cagnazzo — "… return it to its owner's hand. If [condition],
+     *       put it into the Break Zone <b>instead</b>", where the Break Zone is the alternative
+     *       branch of a return, already read as one by the branch that handles it;</li>
+     *   <li>27-092H Ultimecia — "You gain control of it. Then, if you don't pay …, put it into the
+     *       Break Zone", where it is the price of not paying.</li>
+     * </ul>
+     */
+    static final Pattern FOLLOWUP_PUT_TO_BREAK_ZONE_PRIMARY = Pattern.compile(
+        "(?i)^Put\\s+(?:it|them)\\s+into\\s+the\\s+Break\\s+Zone[.!]?$"
     );
 
     // =========================================================================================
