@@ -934,6 +934,27 @@ final class ActionResolverHand {
             ctx.lookAtTopDeck(new LookConfig(count, LookConfig.LookAction.ADD_TO_HAND_REST_BOTTOM));
         };
     }
+    /**
+     * Parses "Return each card removed by [Self]'s ability to its owner's hand." — 13-081H
+     * Lightning. Each card goes to whoever owns it, which is what makes this a different effect
+     * from {@link #tryParseAddRemovedBySourceAbilityToHand}: Lightning's pile holds the opponent's
+     * Forwards alongside the user's own Break Zone cards.
+     *
+     * <p>Declines a text naming any card but the ability's own source, so a printing that gives
+     * back another card's pile is left to be read as whatever it actually is.
+     */
+    static Consumer<GameContext> tryParseReturnRemovedBySourceToOwnersHand(String text, CardData source) {
+        if (source == null) return null;
+        Matcher m = RETURN_REMOVED_BY_SOURCE_TO_OWNERS_HAND.matcher(text.trim());
+        if (!m.matches()) return null;
+        String named = m.group("name").trim();
+        if (!named.equalsIgnoreCase(source.name()) && !isSelfReference(named)) return null;
+        return ctx -> {
+            ctx.logEntry("Effect: Return every card removed by " + source.name()
+                    + "'s ability to its owner's hand");
+            ctx.returnCardsRemovedBySourceToOwnersHands(source);
+        };
+    }
     /** Parses the "cards removed by [CardName]'s ability" retrieval wordings. */
     static Consumer<GameContext> tryParseAddRemovedBySourceAbilityToHand(String text, CardData source) {
         if (source == null) return null;

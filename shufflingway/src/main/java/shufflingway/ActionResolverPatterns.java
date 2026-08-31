@@ -779,6 +779,22 @@ final class ActionResolverPatterns {
         "(?i)^Deal\\s+(?:it|them)\\s+(?<amount>\\d+)\\s+damage,?\\s+and\\s+deal\\s+(?<splash>\\d+)\\s+" +
         "damage\\s+to\\s+all\\s+the\\s+other\\s+Forwards\\s+(?:your\\s+)?opponent\\s+controls[.!]?$"
     );
+    /**
+     * The "spare one, hit the rest" followup of an opponent-selects effect: "Deal N damage to all
+     * the other Forwards opponent controls." — 13-080C Marach.
+     *
+     * <p>Sibling of {@link #FOLLOWUP_DAMAGE_AND_SPLASH_OTHER_OPP_FORWARDS} and read the same way,
+     * but the two are not interchangeable: there the chosen Forward is the one that takes the blow
+     * and the splash is a bonus, here the selected Forward is the only one that <em>escapes</em>.
+     * The selection is also made by the opponent rather than by the ability's controller, which is
+     * why this lives with the opponent-selects followups rather than the choose ones.
+     *
+     * <p>Group {@code splash} — dealt to each Forward the opponent did not select.
+     */
+    static final Pattern OPP_SELECTS_SPLASH_OTHER_OPP_FORWARDS = Pattern.compile(
+        "(?i)^Deal\\s+(?<splash>\\d+)\\s+damage\\s+to\\s+all\\s+the\\s+other\\s+Forwards\\s+" +
+        "(?:your\\s+)?opponent\\s+controls[.!]?$"
+    );
     static final Pattern FOLLOWUP_DAMAGE = Pattern.compile(
         "(?i)deal\\s+(?:it|them)(?:\\s+and\\s+(?<also>.+?))?\\s+(?<amount>\\d+)\\s+damage"
     );
@@ -4308,6 +4324,28 @@ final class ActionResolverPatterns {
         "(?i)^[Ss]elect\\s+1\\s+(?<type>Forward|Backup|Monster|Character)\\s+you\\s+control[.!]?\\s+Put\\s+it\\s+into\\s+the\\s+Break\\s+Zone[.!]?$"
     );
     /**
+     * 14-098R Ultimecia: "Select 1 Forward you control. Put it into the Break Zone. When you do so,
+     * choose 1 Forward of the same cost as the Forward you put into the Break Zone. You gain
+     * control of it."
+     *
+     * <p>Read as one sentence rather than assembled from the two halves it is written as, because
+     * the price the second half names is set by the answer to the first: "the same cost as the
+     * Forward you put into the Break Zone" is a number nothing knows until the player has picked.
+     * The whole text is matched with no capture groups — every part of it is fixed, and the one
+     * card that prints it is the only card that could.
+     *
+     * <p>Must precede {@link #SELECT_1_CHARACTER_YOU_CONTROL_TO_BZ}, whose parser anchors at both
+     * ends and so declines this text, and the generic choose chain, which reads the third sentence
+     * on its own under {@code find()} and would let the user take any Forward at all.
+     */
+    static final Pattern SELECT_OWN_FWD_TO_BZ_GAIN_CONTROL_SAME_COST = Pattern.compile(
+        "(?i)^[Ss]elect\\s+1\\s+Forward\\s+you\\s+control[.!]\\s+" +
+        "Put\\s+it\\s+into\\s+the\\s+Break\\s+Zone[.!]\\s+" +
+        "When\\s+you\\s+do\\s+so,\\s+choose\\s+1\\s+Forward\\s+of\\s+the\\s+same\\s+cost\\s+as\\s+" +
+        "the\\s+Forward\\s+you\\s+put\\s+into\\s+the\\s+Break\\s+Zone[.!]\\s+" +
+        "You\\s+gain\\s+control\\s+of\\s+it[.!]?$"
+    );
+    /**
      * Matches "Each player selects up to N Forwards or Monsters he/she/they controls/control
      * (select as many as possible). Put them into the Break Zone."
      * Groups: {@code count} — max per player; {@code targets} — card type(s).
@@ -5015,7 +5053,13 @@ final class ActionResolverPatterns {
         ")?" +
         // Optional Category filter following a Job filter (e.g. "Job Standard Unit Category FFCC")
         "(?:Category\\s+(?<catafterjob>\\S+)\\s+)?" +
-        "(?:(?<elements>(?:Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)" +
+        // "Multi-Element" is a pseudo-element meaning "prints more than one", and reaches the deck
+        // scan as an ordinary element filter — CardData.containsElement resolves it. Admitted only
+        // here and not in preelems, which exists to hold elements stated ahead of a Job or Card
+        // Name filter, a place no printing states this one. Without it 12-066C Vaigali and 19-037R
+        // Wol left "Multi-Element" sitting where the type word was expected and did not parse at
+        // all.
+        "(?:(?<elements>(?:Multi-Element|Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)" +
             "(?:\\s+or\\s+(?:Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark))*)\\s+)?" +
         "(?<targets>(?:Forwards?|Backups?|Monsters?|Summons?|Characters?)(?:\\s+or\\s+(?:Forwards?|Backups?|Monsters?|Summons?|Characters?))*|cards?)?\\s*" +
         // "with <Keyword>" names a trait the searched card must carry. Warp was the only one for a
@@ -5634,13 +5678,26 @@ final class ActionResolverPatterns {
         ")[.!]?"
     );
     /**
-     * Matches "Until the end of the turn, it gains +N power for each point of damage you have received."
-     * Group {@code perunit} = per-damage power amount.
+     * Matches "Until the end of the turn, it gains [Keywords and] +N power for each point of damage
+     * you have received."
+     * <ul>
+     *   <li>Group {@code traits}  — keywords granted alongside the boost; empty when none</li>
+     *   <li>Group {@code perunit} — per-damage power amount</li>
+     * </ul>
      * Must be checked before {@link #FOLLOWUP_POWER_BOOST_UNTIL}, which would match the +N and drop the rest.
+     *
+     * <p>The keywords are read here rather than left to {@link #FOLLOWUP_KEYWORD_GRANT_UNTIL},
+     * which is checked later in the same chain: that one scans with {@code find()} and needs
+     * nothing after the keyword, so a text pairing the two had its whole power clause claimed and
+     * dropped — 23-058C Dark Knight granted Brave and no power at all, and 10-075C Warrior the
+     * same. Warrior repeats the verb ("it gains Brave and it gains +1000 power …"), which is why
+     * the separator admits an optional second "it gains".
      */
     static final Pattern FOLLOWUP_POWER_BOOST_UNTIL_FOR_EACH_SELF_DMG = Pattern.compile(
         "(?i)Until\\s+(?:the\\s+)?end\\s+of\\s+(?:the\\s+)?turn\\s*,\\s+" +
-        "(?:it|they)\\s+gains?\\s+\\+(?<perunit>\\d+)\\s+[Pp]ower\\s+for\\s+each\\s+point\\s+of\\s+damage\\s+you\\s+have\\s+received[.!]?"
+        "(?:it|they)\\s+gains?\\s+" +
+        "(?<traits>(?:(?:Haste|First\\s+Strike|Brave)(?:\\s*,\\s*|\\s+and\\s+)(?:(?:it|they)\\s+gains?\\s+)?)*)" +
+        "\\+(?<perunit>\\d+)\\s+[Pp]ower\\s+for\\s+each\\s+point\\s+of\\s+damage\\s+you\\s+have\\s+received[.!]?"
     );
     static final Pattern FOLLOWUP_POWER_BOOST_UNTIL = Pattern.compile(
         "(?i)Until\\s+(?:the\\s+)?end\\s+of\\s+(?:(?:the|your)\\s+)?turn\\s*,\\s+" +
@@ -6334,6 +6391,34 @@ final class ActionResolverPatterns {
         "(?:\\s+and\\s+(?<keywords>(?:(?:Haste|First\\s+Strike|Brave)(?:,?\\s+(?:and\\s+)?)?)+))?[.!]?"
     );
     /**
+     * Matches "Until end of turn, all [the] [element] [targets] [you control] gain [Keywords and]
+     * +N power for each point of damage you have received." — 23-058C Dark Knight's replacement
+     * clause, the mass twin of {@link #FOLLOWUP_POWER_BOOST_UNTIL_FOR_EACH_SELF_DMG}.
+     *
+     * <p>Separate from {@link #UNTIL_EOT_ALL_FIELD_POWER_BOOST_PATTERN} rather than an option on
+     * it, and read ahead of it, for the reason that one states about its own family: that pattern
+     * ends at the power amount and scans with {@code find()}, so it matched the "+1000 power" here
+     * and dropped the multiplier, handing out a flat 1000 however much damage had been taken. It
+     * also prints its keywords <em>after</em> the amount, where this wording prints them before.
+     * <ul>
+     *   <li>Group {@code element}  — optional element filter</li>
+     *   <li>Group {@code targets}  — the card kinds boosted</li>
+     *   <li>Group {@code control}  — optional side filter</li>
+     *   <li>Group {@code keywords} — keywords granted alongside the boost; empty when none</li>
+     *   <li>Group {@code perunit}  — per-damage power amount</li>
+     * </ul>
+     */
+    static final Pattern UNTIL_EOT_ALL_FIELD_POWER_PER_SELF_DMG_PATTERN = Pattern.compile(
+        "(?i)Until\\s+(?:the\\s+)?end\\s+of\\s+(?:the\\s+)?turn,?\\s+" +
+        "all\\s+(?:the\\s+)?" +
+        "(?:(?<element>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)\\s+)?" +
+        "(?<targets>Forwards?(?:\\s+and\\s+Monsters?)?|Backups?|Characters?)" +
+        "(?:\\s+(?<control>(?:your\\s+)?opponent\\s+controls?|you\\s+control))?" +
+        "\\s+gains?\\s+" +
+        "(?<keywords>(?:(?:Haste|First\\s+Strike|Brave)(?:\\s*,\\s*|\\s+and\\s+))*)" +
+        "\\+?(?<perunit>\\d+)\\s+[Pp]ower\\s+for\\s+each\\s+point\\s+of\\s+damage\\s+you\\s+have\\s+received[.!]?"
+    );
+    /**
      * Matches "Until end of turn, all [the] [targets1] [you control] gain +N power
      * and all [the] [targets2] [opponent controls] lose N power."
      * Groups: {@code targets1}, {@code control1}, {@code amount1},
@@ -6993,8 +7078,19 @@ final class ActionResolverPatterns {
     );
 
     /**
-     * A choose followup that hands the chosen card a quoted ability for the turn:
-     * "Until the end of the turn, it gains "[ability]"." — Behemoth 24-084R.
+     * A choose followup that hands the chosen card a quoted ability for the turn, in either printed
+     * word order: "Until the end of the turn, it gains "[ability]"." (24-084R Behemoth) and
+     * "It gains "[ability]" until the end of the turn." (23-049C Ninja, 25-041C Thief).
+     *
+     * <p>Both {@code pre} and {@code post} are optional so one pattern covers the two orders, but
+     * a match with neither is a <em>permanent</em> grant and a different effect — the branch reading
+     * this must reject that case rather than treat it as this one.
+     *
+     * <p>The quotation may be single-quoted: a card that prints this sentence inside a quoted
+     * option ({@code select 1 of the 2 following actions}) has already spent its double quotes on
+     * the outer level, so 25-041C Thief nests the grant in apostrophes. Group {@code granted}
+     * carries the double-quoted form and {@code gq} the single-quoted one — a named group cannot be
+     * spelled twice, so the branch takes whichever is non-null.
      *
      * <p>Captures the quotation only. Whether the engine can honour what is inside it is the
      * branch's question, not this pattern's: a grant of an ability nothing reads has to keep
@@ -7002,7 +7098,23 @@ final class ActionResolverPatterns {
      * resolving as a silent no-op.
      */
     static final Pattern FOLLOWUP_GAINS_QUOTED_ABILITY_UNTIL_EOT = Pattern.compile(
-        "(?i)Until\\s+the\\s+end\\s+of\\s+the\\s+turn,?\\s+it\\s+gains\\s+\"(?<granted>[^\"]+)\""
+        "(?i)(?<pre>Until\\s+the\\s+end\\s+of\\s+the\\s+turn,?\\s+)?it\\s+gains\\s+" +
+        "(?:\"(?<granted>[^\"]+)\"|'(?<gq>[^']+)')" +
+        "(?<post>\\s+until\\s+the\\s+end\\s+of\\s+the\\s+turn)?"
+    );
+    /**
+     * The mass form of the grant above: "All the Forwards you control gain "[ability]" until the
+     * end of the turn." — 23-049C Ninja's replacement clause.
+     *
+     * <p>Anchored at both ends, unlike the followup twin, because this is a whole effect rather
+     * than the tail of a choose. Read ahead of {@link #ALL_FIELD_QUOTED_PROTECTION_GRANT}, which
+     * matches the same sentence shape but only resolves quotations that are protections — it
+     * declines this one, and the ordering keeps that from being an accident.
+     */
+    static final Pattern ALL_OWN_FORWARDS_GAIN_QUOTED_ABILITY_EOT = Pattern.compile(
+        "(?i)^All\\s+(?:the\\s+)?Forwards\\s+you\\s+control\\s+gain\\s+" +
+        "(?:\"(?<granted>[^\"]+)\"|'(?<gq>[^']+)')" +
+        "\\s+until\\s+the\\s+end\\s+of\\s+the\\s+turn[.!]?$"
     );
 
     /**
@@ -7977,6 +8089,23 @@ final class ActionResolverPatterns {
         "(?i)Choose\\s+1\\s+card\\s+removed\\s+by\\s+(?<name>.+?)'s\\s+ability\\.\\s*" +
         "Put\\s+it\\s+into\\s+the\\s+Break\\s+Zone\\.?"
     );
+    /**
+     * 13-081H Lightning: "Choose up to N Forwards opponent controls or Forwards in your Break Zone.
+     * Remove them from the game."
+     *
+     * <p>One allowance spent across two zones, which the choose chain cannot express: its
+     * {@code zone} group switches a selection between the field and a Break Zone rather than
+     * spanning both, so "up to 2" would have become two separate twos. Read whole here and handed
+     * to {@link GameContext#selectForwardsOppFieldOrOwnBreakZone}, which offers the union.
+     *
+     * <p>Groups: {@code upto} — non-null when the count is a maximum rather than a requirement;
+     * {@code count}.
+     */
+    static final Pattern CHOOSE_OPP_FWDS_OR_OWN_BZ_FWDS_RFG = Pattern.compile(
+        "(?i)^Choose\\s+(?<upto>up\\s+to\\s+)?(?<count>\\d+)\\s+Forwards?\\s+" +
+        "(?:your\\s+)?opponent\\s+controls?\\s+or\\s+Forwards?\\s+in\\s+your\\s+Break\\s+Zone[.!]\\s+" +
+        "Remove\\s+them\\s+from\\s+the\\s+game[.!]?$"
+    );
 
     // =========================================================================================
     // Cost payment and sequencing
@@ -8287,9 +8416,23 @@ final class ActionResolverPatterns {
         "(?:their|his/her|his\\s+or\\s+her)\\s+hands?,\\s*(?<effect>.+)$",
         Pattern.DOTALL
     );
-    /** Matches "if there are N or more different Elements among [type] you control, [effect]." */
+    /**
+     * Matches "if there are [exactly] N [or more] different Elements among [the] [type] you
+     * control, [effect]."
+     *
+     * <p>Both comparators are printed and they do not mean the same thing — 22-111L Raegen wants
+     * three or more, 19-037R Wol wants exactly three and stops qualifying at four — so which one
+     * was written is captured rather than assumed. Group {@code exactly} is non-null for the exact
+     * reading; {@code mine} and {@code minm} carry the count of whichever branch matched, since a
+     * named group cannot be spelled twice in one pattern.
+     *
+     * <p>The optional "the" ahead of the type is 23-047H Tyro's wording ("among the Backups you
+     * control"); every other printing elides it.
+     */
     static final Pattern IF_N_DIFF_ELEMENTS_AMONG = Pattern.compile(
-        "(?is)^if\\s+there\\s+are\\s+(?<min>\\d+)\\s+or\\s+more\\s+different\\s+Elements?\\s+among\\s+" +
+        "(?is)^if\\s+there\\s+are\\s+" +
+        "(?:(?<exactly>exactly)\\s+(?<mine>\\d+)|(?<minm>\\d+)\\s+or\\s+more)" +
+        "\\s+different\\s+Elements?\\s+among\\s+(?:the\\s+)?" +
         "(?<type>Forwards?|Backups?|Characters?|Monsters?)\\s+you\\s+control[,.]?\\s+(?<effect>.+)$"
     );
     /** Matches "If you have cast N or more cards this turn, &lt;effect&gt;". */
@@ -8542,6 +8685,22 @@ final class ActionResolverPatterns {
      * Group {@code all} is set for the "all the cards" form; {@code rest} for the "put the rest into
      * the Break Zone" tail; {@code name} is checked against the ability's own source.
      */
+    /**
+     * "Return each card removed by [Self]'s ability to its owner's hand." — 13-081H Lightning,
+     * whose departure gives back everything its arrival took.
+     *
+     * <p>Must precede {@link #RETURN_NAMED_TO_OWNERS_HAND}, which scans with {@code find()} and has
+     * no idea the phrase in front of "to its owner's hand" is a description rather than a card
+     * name: it read the whole clause as a card called "each card removed by Lightning's ability"
+     * and searched the field for it, logging a warning and returning nothing.
+     *
+     * <p>Group {@code name} — the card whose pile is being given back; its parser requires that to
+     * be the ability's own source.
+     */
+    static final Pattern RETURN_REMOVED_BY_SOURCE_TO_OWNERS_HAND = Pattern.compile(
+        "(?i)^Return\\s+(?:each|all\\s+(?:the\\s+)?)\\s*cards?\\s+removed\\s+by\\s+" +
+        "(?<name>.+?)'s?\\s+abilit(?:y|ies)\\s+to\\s+(?:its|their)\\s+owner(?:'s|s')?\\s+hands?[.!]?$"
+    );
     static final Pattern ADD_REMOVED_BY_SOURCE_ABILITY_TO_HAND = Pattern.compile(
         "(?i)^add\\s+(?:(?<all>all\\s+the)|1|the)\\s+cards?\\s+removed\\s+by\\s+(?<name>.+?)'s?\\s+ability\\s+" +
         "to\\s+your\\s+hand(?<rest>\\s*,?\\s*and\\s+put\\s+the\\s+rest\\s+of\\s+the\\s+cards?\\s+into\\s+" +

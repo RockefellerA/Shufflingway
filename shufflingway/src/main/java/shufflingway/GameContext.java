@@ -641,6 +641,18 @@ public interface GameContext {
     void selectControlledTypeAndBreak(boolean inclForwards, boolean inclBackups, boolean inclMonsters);
 
     /**
+     * 14-098R Ultimecia: the ability user puts one of their own Forwards into the Break Zone, then
+     * chooses a Forward anywhere on the field costing exactly what the one they gave up cost, and
+     * gains control of it permanently.
+     *
+     * <p>One primitive rather than a break followed by a choose, because the price the second half
+     * asks for is only known once the first half has been answered — the cost belongs to the card
+     * the player picked, not to Ultimecia. Nothing happens at all when the user controls no
+     * Forward: the whole ability hangs off "When you do so".
+     */
+    void selectOwnForwardToBzThenGainControlOfSameCost();
+
+    /**
      * Each player selects up to {@code count} Forwards and/or Monsters they control
      * and puts them into the Break Zone.
      * P1 picks via dialog; P2 (AI) picks lowest-cost eligible targets.
@@ -2018,6 +2030,33 @@ public interface GameContext {
     int countRemovedFromGame();
 
     /**
+     * 13-081H Lightning: chooses up to {@code maxCount} Forwards from the union of the opponent's
+     * field and the ability user's own Break Zone, and returns what was picked.
+     *
+     * <p>Two pools in one choice, which is why it cannot be built from {@code selectCharacters} and
+     * {@code selectCharactersFromBreakZone}: the count is shared across both, so "up to 2" may be
+     * spent as two from the field, two from the Break Zone, or one of each. Running the two
+     * selections in sequence would offer two separate allowances instead.
+     *
+     * <p>The field half goes through the ordinary eligibility rules — "cannot be chosen" shields
+     * and the chosen-by-opponent triggers both apply to it — while the Break Zone half answers to
+     * that zone's own protections. Targets come back pointing into the zone each card was picked
+     * from, so a caller acts on them with the zone-dispatching primitives.
+     */
+    List<ForwardTarget> selectForwardsOppFieldOrOwnBreakZone(int maxCount, boolean upTo);
+
+    /**
+     * Returns every card {@code source}'s abilities removed from the game to its owner's hand, and
+     * forgets the pile — 13-081H Lightning's departure giving back what its arrival took.
+     *
+     * <p>The owner's hand, not the ability user's: the pile mixes the opponent's Forwards with the
+     * user's own Break Zone cards, and each goes home to whoever owns it. That is what separates
+     * this from {@link #addCardsRemovedBySourceToHand}, which is written for piles that came off
+     * the user's own deck and puts everything in one hand.
+     */
+    void returnCardsRemovedBySourceToOwnersHands(CardData source);
+
+    /**
      * Dulls all Forwards the opponent controls whose effective power is less than or equal to
      * {@code source}'s current effective power on the field.
      */
@@ -2735,6 +2774,17 @@ public interface GameContext {
      * store. Locates the source by identity on either field; no-op if it isn't on the field.
      */
     void grantSelfCannotBeBlockedByCost(CardData source, int costVal, boolean isMore);
+
+    /**
+     * Gives every Forward the ability user controls "cannot be blocked by a Forward of cost N or
+     * more/less" until the end of the turn — 23-049C Ninja's replacement clause.
+     *
+     * <p>The mass form of {@link #grantSelfCannotBeBlockedByCost}, writing the same per-Forward
+     * store so a granted restriction is read by exactly the rule that reads a printed one. Applies
+     * to the row as it stands: a Forward that arrives later in the turn is not covered, which is
+     * what "all the Forwards you control" means at resolution.
+     */
+    void grantOwnForwardsCannotBeBlockedByCost(int costVal, boolean isMore);
 
     /**
      * Grants {@code source} "cannot be blocked by a Forward of power N or more/less" until the end

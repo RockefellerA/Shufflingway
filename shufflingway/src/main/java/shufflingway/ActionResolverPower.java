@@ -792,6 +792,70 @@ final class ActionResolverPower {
         };
     }
     /**
+     * Parses "All the Forwards you control gain "[ability]" until the end of the turn." — 23-049C
+     * Ninja's replacement clause.
+     *
+     * <p>Deliberately narrow, like the choose followup it is the mass form of: only a quotation the
+     * engine actually reads is claimed, so a grant of anything else keeps falling through the chain
+     * and stays visibly unhandled rather than resolving as a silent no-op. Today that is the
+     * cost-based block restriction and nothing else.
+     */
+    static Consumer<GameContext> tryParseAllOwnForwardsGainQuotedAbilityEot(String text) {
+        Matcher m = ALL_OWN_FORWARDS_GAIN_QUOTED_ABILITY_EOT.matcher(text.trim());
+        if (!m.matches()) return null;
+        String granted = (m.group("granted") != null ? m.group("granted") : m.group("gq")).trim();
+        int[] nb = grantedThisForwardCannotBeBlockedByCost(granted);
+        if (nb == null) return null;
+        final int     cost   = nb[0];
+        final boolean isMore = nb[1] == 1;
+        return ctx -> {
+            ctx.logEntry("Effect: all Forwards you control gain \"" + granted + "\" until end of turn");
+            ctx.grantOwnForwardsCannotBeBlockedByCost(cost, isMore);
+        };
+    }
+    /**
+     * Parses "Until end of turn, all [the] [element] [targets] [you control] gain [Keywords and]
+     * +N power for each point of damage you have received." — 23-058C Dark Knight.
+     *
+     * <p>Must be tried ahead of {@link #tryParseUntilEotAllFieldPowerBoost}, which matches the
+     * "+N power" prefix of this sentence under {@code find()} and would hand out the flat amount
+     * with the multiplier silently dropped.
+     */
+    static Consumer<GameContext> tryParseUntilEotAllFieldPowerPerSelfDamage(String text) {
+        Matcher m = UNTIL_EOT_ALL_FIELD_POWER_PER_SELF_DMG_PATTERN.matcher(text);
+        if (!m.find()) return null;
+
+        String element  = m.group("element");
+        String targets  = m.group("targets");
+        String tgtLower = targets.toLowerCase();
+        boolean inclForwards = tgtLower.contains("forward") || tgtLower.contains("character");
+        boolean inclMonsters = tgtLower.contains("monster") || tgtLower.contains("character");
+
+        String control       = m.group("control");
+        boolean opponentOnly = control != null && !control.toLowerCase().contains("you control");
+        boolean selfOnly     = control != null &&  control.toLowerCase().contains("you control");
+
+        int perUnit = Integer.parseInt(m.group("perunit"));
+        EnumSet<CardData.Trait> traits = parseTraits(m.group("keywords"));
+
+        String elemLabel    = element != null ? element + " " : "";
+        String controlLabel = opponentOnly ? " (opponent)" : selfOnly ? " (yours)" : "";
+        String traitStr     = traits.isEmpty() ? "" : " and " + traitNamesOnly(traits);
+
+        return ctx -> {
+            // The ability user's own damage zone, whichever seat they are in.
+            int damage = ctx.selfDamageCount();
+            int boost  = perUnit * damage;
+            ctx.logEntry("Effect: Until EOT all " + elemLabel + targets + controlLabel
+                    + " +" + perUnit + " power ×" + damage + " damage = +" + boost + " power" + traitStr);
+            ctx.applyMassFieldPowerBoost(boost, inclForwards, inclMonsters,
+                    opponentOnly, selfOnly, element, -1, null, null, null);
+            if (!traits.isEmpty())
+                ctx.applyMassFieldKeywordGrant(traits, inclForwards, inclMonsters,
+                        opponentOnly, selfOnly, element, -1, null, null);
+        };
+    }
+    /**
      * Parses "Until end of turn, all [the] [element] [Category X] [targets] [you control]
      * gain +N power [and Keywords]."
      * Must be tried AFTER {@link #tryParseUntilEotDualPowerShift} to avoid partial matches.

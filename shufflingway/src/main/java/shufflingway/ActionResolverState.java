@@ -122,11 +122,18 @@ final class ActionResolverState {
             }
         };
     }
-    /** Parses "if there are N or more different Elements among [type] you control, [effect]." */
+    /**
+     * Parses "if there are [exactly] N [or more] different Elements among [type] you control,
+     * [effect]."
+     *
+     * <p>The exact reading has an upper bound as well as a lower one: 19-037R Wol asks for three
+     * Elements and a fourth takes the search away again, which is the whole point of the wording.
+     */
     static Consumer<GameContext> tryParseIfNDiffElements(String text, CardData source, int xValue) {
         Matcher m = IF_N_DIFF_ELEMENTS_AMONG.matcher(text.trim());
         if (!m.matches()) return null;
-        int    min     = Integer.parseInt(m.group("min"));
+        boolean exact   = m.group("exactly") != null;
+        int    min     = Integer.parseInt(exact ? m.group("mine") : m.group("minm"));
         String typeRaw = m.group("type").trim();
         String typeLow = typeRaw.toLowerCase(java.util.Locale.ROOT);
         boolean inclFwd = typeLow.startsWith("forward") || typeLow.startsWith("character");
@@ -134,13 +141,14 @@ final class ActionResolverState {
         boolean inclMon = typeLow.startsWith("monster")  || typeLow.startsWith("character");
         Consumer<GameContext> inner = parse(m.group("effect").trim(), source, xValue);
         if (inner == null) return null;
+        String want = (exact ? "exactly " : "") + min;
         return ctx -> {
             int distinct = ctx.selfDistinctElementCount(inclFwd, inclBkp, inclMon);
-            if (distinct >= min) {
+            if (exact ? distinct == min : distinct >= min) {
                 ctx.logEntry("Effect: " + distinct + " distinct element(s) among " + typeRaw + "s — condition met");
                 inner.accept(ctx);
             } else {
-                ctx.logEntry("Effect: only " + distinct + " distinct element(s) among " + typeRaw + "s (need " + min + ") — skipped");
+                ctx.logEntry("Effect: " + distinct + " distinct element(s) among " + typeRaw + "s (need " + want + ") — skipped");
             }
         };
     }

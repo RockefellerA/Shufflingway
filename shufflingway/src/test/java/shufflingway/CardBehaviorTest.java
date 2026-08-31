@@ -42135,5 +42135,595 @@ public class CardBehaviorTest {
 	}
 
 	// =========================================================================================
+	// Effect wiring — 19-037R Wol, 14-098R Ultimecia, 23-058C Dark Knight and 13-081H Lightning.
+	//
+	// Four abilities that had no reading at all between them, plus two that had one and got it
+	// wrong. Grouped because they share the shape the resolver kept getting caught by: a sentence
+	// whose meaning is set by a clause some earlier matcher was happy to stop in front of.
+	// =========================================================================================
+
+	// ---- 19-037R Wol: "exactly N", and Multi-Element as a search filter -------------------------
+
+	private static final String WOL_19_037R_TEXT =
+			"if there are exactly 3 different Elements among Characters you control, "
+			+ "you may search for 1 Multi-Element Forward and add it to your hand.";
+
+	/** Resolves an effect against a mock whose field shows {@code distinctElements} Elements. */
+	private static GameContext resolveWithDistinctElements(String text, int distinctElements) {
+		Consumer<GameContext> fn = ActionResolver.parse(text, null);
+		assertNotNull(fn, "effect should parse");
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.selfDistinctElementCount(anyBoolean(), anyBoolean(), anyBoolean()))
+				.thenReturn(distinctElements);
+		when(ctx.promptYouMay(any())).thenReturn(true);
+		fn.accept(ctx);
+		return ctx;
+	}
+
+	@Test
+	void wolSearchesOnExactlyThreeElements() {
+		GameContext ctx = resolveWithDistinctElements(WOL_19_037R_TEXT, 3);
+		// The element filter reaches the deck scan as the pseudo-element "Multi-Element", which
+		// CardData.containsElement resolves to "prints more than one".
+		verify(ctx).searchDeckForCard(eq(true), eq(false), eq(false), eq(false),
+				anyInt(), any(), any(), any(), any(), eq("Multi-Element"), any(), any(),
+				eq("hand"), eq(1), anyBoolean(), any());
+	}
+
+	@Test
+	void wolDoesNotSearchOnFourElements() {
+		// The whole point of the wording: a fourth Element takes the search away again, where the
+		// "N or more" reading this gate used to have would have kept it.
+		GameContext ctx = resolveWithDistinctElements(WOL_19_037R_TEXT, 4);
+		verify(ctx, never()).searchDeckForCard(anyBoolean(), anyBoolean(), anyBoolean(), anyBoolean(),
+				anyInt(), any(), any(), any(), any(), any(), any(), any(),
+				any(), anyInt(), anyBoolean(), any());
+	}
+
+	@Test
+	void wolDoesNotSearchOnTwoElements() {
+		GameContext ctx = resolveWithDistinctElements(WOL_19_037R_TEXT, 2);
+		verify(ctx, never()).searchDeckForCard(anyBoolean(), anyBoolean(), anyBoolean(), anyBoolean(),
+				anyInt(), any(), any(), any(), any(), any(), any(), any(),
+				any(), anyInt(), anyBoolean(), any());
+	}
+
+	@Test
+	void theOrMoreReadingStillMeansOrMore() {
+		// 22-111L Raegen's comparator, which the same pattern now carries alongside Wol's.
+		GameContext ctx = resolveWithDistinctElements(
+				"if there are 3 or more different Elements among Characters you control, draw 1 card.", 4);
+		verify(ctx).drawCards(1);
+	}
+
+	// ---- 14-098R Ultimecia: give a Forward, take one of the same cost ---------------------------
+
+	private static final String ULTIMECIA_14_098R_TEXT =
+			"select 1 Forward you control. Put it into the Break Zone. When you do so, "
+			+ "choose 1 Forward of the same cost as the Forward you put into the Break Zone. "
+			+ "You gain control of it.";
+
+	@Test
+	void ultimeciaResolvesAsOneExchange() {
+		Consumer<GameContext> fn = ActionResolver.parse(ULTIMECIA_14_098R_TEXT, null);
+		assertNotNull(fn, "Ultimecia's trigger should parse");
+		GameContext ctx = mock(GameContext.class);
+		fn.accept(ctx);
+
+		verify(ctx).selectOwnForwardToBzThenGainControlOfSameCost();
+		// The three sentences are one effect: nothing may run the closing choose on its own, which
+		// is what the generic choose chain would have done with it.
+		verify(ctx, never()).selectCharacters(anyInt(), anyBoolean(), anyBoolean(), anyBoolean(),
+				any(), any(), anyInt(), any(), anyInt(), any(), anyBoolean(), anyBoolean(),
+				anyBoolean(), any(), any(), any(), any(), anyBoolean(), any(), anyBoolean());
+		verify(ctx, never()).selectControlledTypeAndBreak(anyBoolean(), anyBoolean(), anyBoolean());
+	}
+
+	@Test
+	void thePlainSelectToBreakZoneKeepsItsOwnReading() {
+		// The two-sentence printing this one extends must still take the shorter route.
+		Consumer<GameContext> fn = ActionResolver.parse(
+				"select 1 Forward you control. Put it into the Break Zone.", null);
+		assertNotNull(fn);
+		GameContext ctx = mock(GameContext.class);
+		fn.accept(ctx);
+
+		verify(ctx).selectControlledTypeAndBreak(true, false, false);
+		verify(ctx, never()).selectOwnForwardToBzThenGainControlOfSameCost();
+	}
+
+	// ---- 23-058C Dark Knight: keywords in front of a damage-scaled boost ------------------------
+
+	private static final String DARK_KNIGHT_TEXT =
+			"choose 1 Forward. Until the end of the turn, it gains Brave and +1000 power "
+			+ "for each point of damage you have received. If you control 5 or more Backups, "
+			+ "until the end of the turn, all the Forwards you control gain Brave and +1000 power "
+			+ "for each point of damage you have received instead.";
+
+	/** Resolves Dark Knight with {@code damage} in the user's damage zone and the gate as given. */
+	private static GameContext resolveDarkKnight(int damage, boolean fiveBackups) {
+		Consumer<GameContext> fn = ActionResolver.parse(DARK_KNIGHT_TEXT, null);
+		assertNotNull(fn, "Dark Knight's trigger should parse");
+		ForwardTarget chosen = new ForwardTarget(true, 0, ForwardTarget.CardZone.FORWARD);
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.consumePreloadedTargets()).thenReturn(null);
+		when(ctx.selfDamageCount()).thenReturn(damage);
+		when(ctx.controlConditionMet(any())).thenReturn(fiveBackups);
+		when(ctx.selectCharacters(anyInt(), anyBoolean(), anyBoolean(), anyBoolean(), any(), any(),
+				anyInt(), any(), anyInt(), any(), anyBoolean(), anyBoolean(), anyBoolean(),
+				any(), any(), any(), any(), anyBoolean(), any(), anyBoolean()))
+				.thenReturn(new ArrayList<>(List.of(chosen)));
+		fn.accept(ctx);
+		return ctx;
+	}
+
+	@Test
+	void darkKnightGrantsBothBraveAndTheScaledPower() {
+		GameContext ctx = resolveDarkKnight(4, false);
+		// Before this, FOLLOWUP_KEYWORD_GRANT_UNTIL claimed the sentence off "it gains Brave" and
+		// the power clause behind it was dropped entirely.
+		verify(ctx).boostTarget(new ForwardTarget(true, 0, ForwardTarget.CardZone.FORWARD),
+				4000, EnumSet.of(CardData.Trait.BRAVE));
+	}
+
+	@Test
+	void darkKnightScalesOffTheAbilityUsersOwnDamage() {
+		// selfDamageCount, not p1DamageCount: the AI plays this card too.
+		GameContext ctx = resolveDarkKnight(0, false);
+		verify(ctx).selfDamageCount();
+		verify(ctx).boostTarget(any(), eq(0), eq(EnumSet.of(CardData.Trait.BRAVE)));
+	}
+
+	@Test
+	void darkKnightWithFiveBackupsBoostsTheWholeFieldInstead() {
+		GameContext ctx = resolveDarkKnight(3, true);
+		verify(ctx).applyMassFieldPowerBoost(eq(3000), eq(true), eq(false), eq(false), eq(true),
+				any(), anyInt(), any(), any(), any());
+		verify(ctx).applyMassFieldKeywordGrant(eq(EnumSet.of(CardData.Trait.BRAVE)),
+				eq(true), eq(false), eq(false), eq(true), any(), anyInt(), any(), any());
+		// "instead" — one branch or the other, never both.
+		verify(ctx, never()).boostTarget(any(), anyInt(), any());
+	}
+
+	@Test
+	void darkKnightWithoutFiveBackupsLeavesTheRestOfTheFieldAlone() {
+		GameContext ctx = resolveDarkKnight(3, false);
+		verify(ctx, never()).applyMassFieldPowerBoost(anyInt(), anyBoolean(), anyBoolean(),
+				anyBoolean(), anyBoolean(), any(), anyInt(), any(), any(), any());
+	}
+
+	// ---- 13-081H Lightning: one allowance across two zones, given back on the way out -----------
+
+	private static final String LIGHTNING_ETF =
+			"choose up to 2 Forwards opponent controls or Forwards in your Break Zone. "
+			+ "Remove them from the game.";
+	private static final String LIGHTNING_LTF =
+			"return each card removed by Lightning's ability to its owner's hand.";
+
+	@Test
+	void lightningOffersBothPoolsAsOneChoice() {
+		Consumer<GameContext> fn = ActionResolver.parse(LIGHTNING_ETF, null);
+		assertNotNull(fn, "Lightning's arrival should parse");
+		ForwardTarget onField = new ForwardTarget(false, 1, ForwardTarget.CardZone.FORWARD);
+		ForwardTarget inBz    = new ForwardTarget(true, 0, ForwardTarget.CardZone.BREAK_ZONE);
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.selectForwardsOppFieldOrOwnBreakZone(anyInt(), anyBoolean()))
+				.thenReturn(new ArrayList<>(List.of(onField, inBz)));
+		fn.accept(ctx);
+
+		verify(ctx).selectForwardsOppFieldOrOwnBreakZone(2, true);
+		verify(ctx).removeTargetFromGame(onField);
+		verify(ctx).removeTargetFromGame(inBz);
+		// The zone-switching choose route cannot span both pools, so it must not be the one used.
+		verify(ctx, never()).selectCharactersFromBreakZone(anyInt(), anyBoolean(), anyBoolean(),
+				anyBoolean(), any(), any(), anyInt(), any(), anyInt(), any(), anyBoolean(),
+				anyBoolean(), anyBoolean(), any(), any(), any(), any(), anyBoolean(), any(), anyBoolean());
+	}
+
+	@Test
+	void lightningRemovesTheHigherIndexFirst() {
+		// Two picks in one Break Zone: taking the lower index first would slide the higher one
+		// onto a different card.
+		Consumer<GameContext> fn = ActionResolver.parse(LIGHTNING_ETF, null);
+		assertNotNull(fn);
+		ForwardTarget low  = new ForwardTarget(true, 0, ForwardTarget.CardZone.BREAK_ZONE);
+		ForwardTarget high = new ForwardTarget(true, 3, ForwardTarget.CardZone.BREAK_ZONE);
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.selectForwardsOppFieldOrOwnBreakZone(anyInt(), anyBoolean()))
+				.thenReturn(new ArrayList<>(List.of(low, high)));
+		fn.accept(ctx);
+
+		InOrder order = inOrder(ctx);
+		order.verify(ctx).removeTargetFromGame(high);
+		order.verify(ctx).removeTargetFromGame(low);
+	}
+
+	@Test
+	void lightningsDepartureGivesBackItsOwnPile() {
+		CardData lightning = makeForward("Lightning", "Lightning", 7, 9000);
+		Consumer<GameContext> fn = ActionResolver.parse(LIGHTNING_LTF, lightning);
+		assertNotNull(fn, "Lightning's departure should parse");
+		GameContext ctx = mock(GameContext.class);
+		fn.accept(ctx);
+
+		verify(ctx).returnCardsRemovedBySourceToOwnersHands(lightning);
+		// RETURN_NAMED_TO_OWNERS_HAND used to take the whole description for a card name and hunt
+		// the field for a card called "each card removed by Lightning's ability".
+		verify(ctx, never()).returnNamedCardToOwnersHand(any());
+	}
+
+	@Test
+	void aPlainReturnByNameStillGoesTheOldWay() {
+		CardData lightning = makeForward("Lightning", "Lightning", 7, 9000);
+		Consumer<GameContext> fn = ActionResolver.parse("Return Shantotto to its owner's hand.", lightning);
+		assertNotNull(fn);
+		GameContext ctx = mock(GameContext.class);
+		fn.accept(ctx);
+
+		verify(ctx).returnNamedCardToOwnersHand("Shantotto");
+		verify(ctx, never()).returnCardsRemovedBySourceToOwnersHands(any());
+	}
+
+	@Test
+	void anotherCardsRemovedPileIsNotLightningsToGiveBack() {
+		// The parser is self-named: a text naming some other card is not this ability.
+		CardData other = makeForward("Vincent", "Dark", 4, 7000);
+		assertNull(ActionResolverHand.tryParseReturnRemovedBySourceToOwnersHand(LIGHTNING_LTF, other),
+				"a pile belonging to a different card is not this parser's to claim");
+	}
+
+	// ---- 14-098R Ultimecia on a real board ------------------------------------------------------
+
+	@Test
+	void ultimeciaTradesAForwardForOneOfTheSameCost() {
+		// Resolved from P2's seat, where the AI answers both halves and no dialog is shown.
+		MainWindow mw = new MainWindow();
+		CardData give  = makeForward("Give", "Water", 4, 5000);   // P2's own, cost 4
+		CardData prize = makeForward("Prize", "Fire", 4, 8000);   // P1's, cost 4 — the same cost
+		CardData decoy = makeForward("Decoy", "Ice", 6, 9000);    // P1's, cost 6 — the wrong cost
+		mw.gameState.getIdentity().put(give, false);
+		mw.placeP2CardInForwardZone(give);
+		placeP1Forward(mw, prize);
+		placeP1Forward(mw, decoy);
+
+		mw.buildGameContext(false).selectOwnForwardToBzThenGainControlOfSameCost();
+
+		assertEquals(List.of("Prize"), mw.p2ForwardCards.stream().map(CardData::name).toList(),
+				"the Forward given up is gone and the one of matching cost has changed hands");
+		assertEquals(List.of("Decoy"), mw.p1ForwardCards.stream().map(CardData::name).toList(),
+				"the Forward of a different cost was never eligible");
+		assertEquals(List.of("Give"), mw.gameState.getP2BreakZone().stream().map(CardData::name).toList(),
+				"and the price was paid into the Break Zone");
+	}
+
+	@Test
+	void ultimeciaTakesNothingWhenThereIsNothingToGiveUp() {
+		MainWindow mw = new MainWindow();
+		CardData prize = makeForward("Prize", "Fire", 4, 8000);
+		placeP1Forward(mw, prize);
+
+		mw.buildGameContext(false).selectOwnForwardToBzThenGainControlOfSameCost();
+
+		assertEquals(List.of(prize), mw.p1ForwardCards,
+				"the whole ability hangs off \"When you do so\" — no put, no prize");
+		assertTrue(mw.p2ForwardCards.isEmpty());
+	}
+
+	// ---- 13-081H Lightning on a real board -----------------------------------------------------
+
+	@Test
+	void lightningTakesFromBothZonesAndGivesItAllBackOnTheWayOut() {
+		// Resolved from P2's seat so the AI answers the selection; from there the "opponent
+		// controls" half is P1's field and the "your Break Zone" half is P2's.
+		MainWindow mw = new MainWindow();
+		CardData lightning = makeForward("Lightning", "Lightning", 7, 9000);
+		CardData theirs    = makeForward("Theirs", "Ice", 3, 6000);
+		CardData buried    = makeForward("Buried", "Wind", 4, 7000);
+		mw.gameState.getIdentity().put(lightning, false);
+		mw.gameState.getIdentity().put(buried, false);
+		mw.placeP2CardInForwardZone(lightning);
+		placeP1Forward(mw, theirs);
+		mw.gameState.getP2BreakZone().add(buried);
+
+		// The removals are credited to whatever ability is resolving, which is how the departure
+		// half finds them again.
+		mw.currentAbilitySource = lightning;
+		ActionResolver.parse(LIGHTNING_ETF, lightning).accept(mw.buildGameContext(false));
+
+		assertTrue(mw.p1ForwardCards.isEmpty(), "the opponent's Forward was removed from the game");
+		assertTrue(mw.gameState.getP2BreakZone().isEmpty(), "and so was the one in the user's Break Zone");
+		assertEquals(List.of(theirs), mw.gameState.getP1PermanentRfp());
+		assertEquals(List.of(buried), mw.gameState.getP2PermanentRfp());
+
+		ActionResolver.parse(LIGHTNING_LTF, lightning).accept(mw.buildGameContext(false));
+
+		assertEquals(List.of(theirs), mw.gameState.getP1Hand(),
+				"each card goes to its own owner, not to whoever played Lightning");
+		assertEquals(List.of(buried), mw.gameState.getP2Hand());
+		assertTrue(mw.gameState.getP1PermanentRfp().isEmpty());
+		assertTrue(mw.gameState.getP2PermanentRfp().isEmpty());
+	}
+
+	@Test
+	void everyRemovedCardGoesHomeToItsOwnOwner() {
+		MainWindow mw = new MainWindow();
+		CardData lightning = makeForward("Lightning", "Lightning", 7, 9000);
+		CardData mine      = makeForward("Mine", "Fire", 2, 5000);
+		CardData theirs    = makeForward("Theirs", "Ice", 3, 6000);
+		mw.gameState.getIdentity().put(lightning, true);
+		mw.gameState.getIdentity().put(mine, true);
+		mw.gameState.getIdentity().put(theirs, false);
+		mw.gameState.addToPermanentRfp(mine);
+		mw.gameState.addToPermanentRfp(theirs);
+		mw.cardsRemovedBySource.put(lightning, new ArrayList<>(List.of(mine, theirs)));
+
+		mw.buildGameContext(true).returnCardsRemovedBySourceToOwnersHands(lightning);
+
+		assertTrue(mw.gameState.getP1Hand().contains(mine), "the user's own card comes back to them");
+		assertTrue(mw.gameState.getP2Hand().contains(theirs),
+				"the opponent's Forward goes to the opponent, not to whoever played Lightning");
+		assertTrue(mw.gameState.getP1PermanentRfp().isEmpty(), "and neither is still removed");
+		assertTrue(mw.gameState.getP2PermanentRfp().isEmpty());
+		assertFalse(mw.cardsRemovedBySource.containsKey(lightning),
+			"the pile is spent — a second departure has nothing left to give back");
+	}
+
+	@Test
+	void aCardThatLeftTheRemovedZoneIsNotConjuredBack() {
+		MainWindow mw = new MainWindow();
+		CardData lightning = makeForward("Lightning", "Lightning", 7, 9000);
+		CardData gone      = makeForward("Gone", "Fire", 2, 5000);
+		mw.gameState.getIdentity().put(lightning, true);
+		mw.gameState.getIdentity().put(gone, true);
+		// Recorded as removed by Lightning, but something has since taken it out of the RFP zone.
+		mw.cardsRemovedBySource.put(lightning, new ArrayList<>(List.of(gone)));
+
+		mw.buildGameContext(true).returnCardsRemovedBySourceToOwnersHands(lightning);
+
+		assertFalse(mw.gameState.getP1Hand().contains(gone),
+				"only what is still removed from the game comes home");
+	}
+
+	@Test
+	void theUnionPoolHoldsOpponentForwardsAndOwnBreakZoneForwards() {
+		// Resolved from P2's seat, so the AI branch answers and no dialog is shown. From there the
+		// "opponent controls" half is P1's field and the "your Break Zone" half is P2's.
+		MainWindow mw = new MainWindow();
+		CardData theirs   = makeForward("Theirs", "Ice", 3, 6000);      // P1's field — the opponent's
+		CardData ours     = makeForward("Ours", "Fire", 2, 5000);       // P2's field — the user's own
+		CardData buried   = makeForward("Buried", "Wind", 4, 7000);     // P2's Break Zone
+		mw.gameState.getIdentity().put(theirs, true);
+		mw.gameState.getIdentity().put(ours, false);
+		mw.gameState.getIdentity().put(buried, false);
+		placeP1Forward(mw, theirs);
+		mw.placeP2CardInForwardZone(ours);
+		mw.gameState.getP2BreakZone().add(buried);
+
+		List<ForwardTarget> picked =
+				mw.buildGameContext(false).selectForwardsOppFieldOrOwnBreakZone(2, true);
+
+		assertEquals(2, picked.size(),
+				"one allowance of 2 filled from both pools — the user's own Forward is not in either");
+		assertTrue(picked.contains(new ForwardTarget(true, 0, ForwardTarget.CardZone.FORWARD)),
+				"the opponent's field is offered");
+		assertTrue(picked.contains(new ForwardTarget(false, 0, ForwardTarget.CardZone.BREAK_ZONE)),
+				"and so is the ability user's own Break Zone");
+		assertTrue(picked.stream().noneMatch(
+					t -> t.zone() == ForwardTarget.CardZone.FORWARD && !t.isP1()),
+				"but the user's own field is not — the text says the Forwards opponent controls");
+	}
+
+	// =========================================================================================
+	// Effect wiring — 13-080C Marach and 23-049C Ninja.
+	//
+	// Both had a reading that stopped short: each parsed, named itself, and then dropped the
+	// clause that says what actually happens. Marach made no selection at all and dealt no
+	// damage; Ninja chose a Forward and gave it nothing.
+	// =========================================================================================
+
+	// ---- 13-080C Marach: the selection names the Forward that is spared ------------------------
+
+	private static final String MARACH_TEXT =
+			"your opponent selects 1 Forward they control. "
+			+ "Deal 4000 damage to all the other Forwards opponent controls.";
+
+	@Test
+	void marachDamagesEveryForwardTheOpponentDidNotSpare() {
+		MainWindow mw = new MainWindow();
+		CardData spared = makeForward("Spared", "Lightning", 3, 9000);
+		CardData b      = makeForward("B", "Lightning", 3, 9000);
+		CardData c      = makeForward("C", "Lightning", 3, 9000);
+		for (CardData x : List.of(spared, b, c)) mw.gameState.getIdentity().put(x, false);
+		mw.placeP2CardInForwardZone(spared);
+		mw.placeP2CardInForwardZone(b);
+		mw.placeP2CardInForwardZone(c);
+
+		// Resolved from P1's seat, so the opponent making the selection is the AI at P2, which
+		// takes the first of its eligible Forwards.
+		ActionResolver.parse(MARACH_TEXT, null).accept(mw.buildGameContext(true));
+
+		assertEquals(0, mw.p2ForwardDamage.get(0), "the Forward the opponent selected is the one spared");
+		assertEquals(4000, mw.p2ForwardDamage.get(1), "every other Forward they control takes the damage");
+		assertEquals(4000, mw.p2ForwardDamage.get(2));
+	}
+
+	@Test
+	void marachLeavesTheAbilityUsersOwnForwardsAlone() {
+		MainWindow mw = new MainWindow();
+		CardData mine   = makeForward("Mine", "Lightning", 3, 9000);
+		CardData spared = makeForward("Spared", "Lightning", 3, 9000);
+		CardData theirs = makeForward("Theirs", "Lightning", 3, 9000);
+		mw.gameState.getIdentity().put(spared, false);
+		mw.gameState.getIdentity().put(theirs, false);
+		placeP1Forward(mw, mine);
+		mw.placeP2CardInForwardZone(spared);
+		mw.placeP2CardInForwardZone(theirs);
+
+		ActionResolver.parse(MARACH_TEXT, null).accept(mw.buildGameContext(true));
+
+		assertEquals(0, mw.p1ForwardDamage.get(0),
+				"\"all the other Forwards opponent controls\" is one side of the board, not both");
+		assertEquals(4000, mw.p2ForwardDamage.get(1));
+	}
+
+	@Test
+	void marachWithOneOpposingForwardHitsNothing() {
+		// The opponent spares their only Forward, so the complement is empty.
+		MainWindow mw = new MainWindow();
+		CardData only = makeForward("Only", "Lightning", 3, 9000);
+		mw.gameState.getIdentity().put(only, false);
+		mw.placeP2CardInForwardZone(only);
+
+		ActionResolver.parse(MARACH_TEXT, null).accept(mw.buildGameContext(true));
+
+		assertEquals(0, mw.p2ForwardDamage.get(0));
+		assertEquals(1, mw.p2ForwardCards.size(), "and nothing is broken");
+	}
+
+	@Test
+	void marachMakesTheSelectionRatherThanSkippingIt() {
+		// The followup used to fall through to the not-yet-implemented warning, which returned
+		// before the opponent was ever asked.
+		Consumer<GameContext> fn = ActionResolver.parse(MARACH_TEXT, null);
+		assertNotNull(fn);
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.opponentSelectsOwnCharacters(anyInt(), anyBoolean(), any(), any(), anyInt(), any(),
+				anyBoolean(), anyBoolean(), anyBoolean(), any())).thenReturn(new ArrayList<>());
+		fn.accept(ctx);
+
+		verify(ctx).opponentSelectsOwnCharacters(eq(1), anyBoolean(), any(), any(), anyInt(), any(),
+				eq(true), eq(false), eq(false), any());
+	}
+
+	// ---- 23-049C Ninja: a quoted block restriction, granted to one Forward or to all -----------
+
+	private static final String NINJA_TEXT =
+			"choose 1 Forward. It gains \"This Forward cannot be blocked by a Forward of cost 3 or more.\" "
+			+ "until the end of the turn. If you control 5 or more Backups, all the Forwards you control "
+			+ "gain \"This Forward cannot be blocked by a Forward of cost 3 or more.\" until the end of the "
+			+ "turn instead.";
+	private static final String NINJA_MASS_CLAUSE =
+			"all the Forwards you control gain \"This Forward cannot be blocked by a Forward of cost 3 "
+			+ "or more.\" until the end of the turn.";
+
+	@Test
+	void ninjaGrantsTheBlockRestrictionToTheChosenForward() {
+		Consumer<GameContext> fn = ActionResolver.parse(
+				"choose 1 Forward. It gains \"This Forward cannot be blocked by a Forward of cost 3 or more.\" "
+				+ "until the end of the turn.", null);
+		assertNotNull(fn, "the suffix word order should parse");
+		ForwardTarget chosen = new ForwardTarget(true, 2, ForwardTarget.CardZone.FORWARD);
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.consumePreloadedTargets()).thenReturn(null);
+		when(ctx.selectCharacters(anyInt(), anyBoolean(), anyBoolean(), anyBoolean(), any(), any(),
+				anyInt(), any(), anyInt(), any(), anyBoolean(), anyBoolean(), anyBoolean(),
+				any(), any(), any(), any(), anyBoolean(), any(), anyBoolean()))
+				.thenReturn(new ArrayList<>(List.of(chosen)));
+		fn.accept(ctx);
+
+		// Written into the per-Forward this-turn store, the same one a printed "cannot be blocked
+		// by a Forward of cost N or more" is read from.
+		verify(ctx).setP1ForwardCannotBeBlockedByCost(2, 3, true);
+	}
+
+	@Test
+	void theSingleQuotedNestingIsTheSameGrant() {
+		// 25-041C Thief prints this sentence inside a quoted option, so its double quotes are
+		// already spent and the grant is nested in apostrophes.
+		Consumer<GameContext> fn = ActionResolver.parse(
+				"Choose 1 Forward. It gains 'This Forward cannot be blocked by a Forward of cost 4 or more.' "
+				+ "until the end of the turn.", null);
+		assertNotNull(fn);
+		ForwardTarget chosen = new ForwardTarget(false, 0, ForwardTarget.CardZone.FORWARD);
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.consumePreloadedTargets()).thenReturn(null);
+		when(ctx.selectCharacters(anyInt(), anyBoolean(), anyBoolean(), anyBoolean(), any(), any(),
+				anyInt(), any(), anyInt(), any(), anyBoolean(), anyBoolean(), anyBoolean(),
+				any(), any(), any(), any(), anyBoolean(), any(), anyBoolean()))
+				.thenReturn(new ArrayList<>(List.of(chosen)));
+		fn.accept(ctx);
+
+		verify(ctx).setP2ForwardCannotBeBlockedByCost(0, 4, true);
+	}
+
+	@Test
+	void aPermanentQuotedGrantIsNotThisEffect() {
+		// The shared pattern makes both "until the end of the turn" positions optional so one
+		// regex covers the two printed word orders. A match with neither is a permanent grant,
+		// and must not be resolved as a turn-scoped one.
+		Matcher m = ActionResolverPatterns.FOLLOWUP_GAINS_QUOTED_ABILITY_UNTIL_EOT.matcher(
+				"It gains \"This Forward cannot be blocked by a Forward of cost 3 or more.\"");
+		assertTrue(m.find(), "the pattern still matches the sentence");
+		assertNull(ActionResolver.quotedGrantUntilEot(m),
+				"but the reader declines it, so the grant falls through as unhandled");
+	}
+
+	@Test
+	void aGrantNamingSomeOtherCardIsNotThisForwards() {
+		// 11-051C Tsukinowa's self-named printing of the same sentence belongs to the self-grant
+		// path, which resolves it against the card that prints it.
+		assertNull(ActionResolver.grantedThisForwardCannotBeBlockedByCost(
+				"Tsukinowa cannot be blocked by a Forward of cost 5 or more."),
+				"a quotation naming a card is about that card, not about whatever was chosen");
+		assertNotNull(ActionResolver.grantedThisForwardCannotBeBlockedByCost(
+				"This Forward cannot be blocked by a Forward of cost 5 or more."));
+	}
+
+	@Test
+	void ninjaWithFiveBackupsCoversTheWholeRowInstead() {
+		Consumer<GameContext> fn = ActionResolver.parse(NINJA_TEXT, null);
+		assertNotNull(fn, "Ninja's trigger should parse");
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.consumePreloadedTargets()).thenReturn(null);
+		when(ctx.controlConditionMet(any())).thenReturn(true);
+		fn.accept(ctx);
+
+		verify(ctx).grantOwnForwardsCannotBeBlockedByCost(3, true);
+		// "instead" — the single-target branch must not also run.
+		verify(ctx, never()).setP1ForwardCannotBeBlockedByCost(anyInt(), anyInt(), anyBoolean());
+		verify(ctx, never()).setP2ForwardCannotBeBlockedByCost(anyInt(), anyInt(), anyBoolean());
+	}
+
+	@Test
+	void ninjaWithoutFiveBackupsGrantsToOneForwardOnly() {
+		Consumer<GameContext> fn = ActionResolver.parse(NINJA_TEXT, null);
+		assertNotNull(fn);
+		ForwardTarget chosen = new ForwardTarget(true, 0, ForwardTarget.CardZone.FORWARD);
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.consumePreloadedTargets()).thenReturn(null);
+		when(ctx.controlConditionMet(any())).thenReturn(false);
+		when(ctx.selectCharacters(anyInt(), anyBoolean(), anyBoolean(), anyBoolean(), any(), any(),
+				anyInt(), any(), anyInt(), any(), anyBoolean(), anyBoolean(), anyBoolean(),
+				any(), any(), any(), any(), anyBoolean(), any(), anyBoolean()))
+				.thenReturn(new ArrayList<>(List.of(chosen)));
+		fn.accept(ctx);
+
+		verify(ctx).setP1ForwardCannotBeBlockedByCost(0, 3, true);
+		verify(ctx, never()).grantOwnForwardsCannotBeBlockedByCost(anyInt(), anyBoolean());
+	}
+
+	// ---- 23-049C Ninja on a real board ---------------------------------------------------------
+
+	@Test
+	void theGrantedRestrictionIsHonouredByTheBlockRules() {
+		MainWindow mw = new MainWindow();
+		CardData runner = makeForward("Runner", "Wind", 2, 5000);
+		CardData other  = makeForward("Other", "Wind", 2, 5000);
+		placeP1Forward(mw, runner);
+		placeP1Forward(mw, other);
+
+		assertFalse(mw.p1AttackerCostFiltersExclude(runner, 5),
+				"nothing stops a cost 5 blocker before the grant");
+
+		ActionResolver.parse(NINJA_MASS_CLAUSE, null).accept(mw.buildGameContext(true));
+
+		assertTrue(mw.p1AttackerCostFiltersExclude(runner, 5),
+				"a granted restriction is read by the same rule that reads a printed one");
+		assertTrue(mw.p1AttackerCostFiltersExclude(other, 5), "and it covers every Forward in the row");
+		assertFalse(mw.p1AttackerCostFiltersExclude(runner, 2),
+				"a blocker under the threshold is still allowed");
+	}
+
+	// =========================================================================================
 
 }

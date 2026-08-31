@@ -1790,6 +1790,18 @@ final class GameContextImpl implements GameContext {
 				logEntry(source.name() + " gains \"cannot be blocked by a Forward of cost " + costVal
 						+ " or " + (isMore ? "more" : "less") + "\" until end of turn");
 			}
+			@Override public void grantOwnForwardsCannotBeBlockedByCost(int costVal, boolean isMore) {
+				List<CardData> fwds = isP1 ? mw.p1ForwardCards : mw.p2ForwardCards;
+				Map<CardData, int[]> store = isP1 ? mw.p1CannotBeBlockedByCost : mw.p2CannotBeBlockedByCost;
+				if (fwds.isEmpty()) {
+					logEntry((isP1 ? "P1" : "[P2]") + " controls no Forwards — nothing to grant");
+					return;
+				}
+				for (CardData c : fwds) store.put(c, new int[]{costVal, isMore ? 1 : 0});
+				logEntry("All " + fwds.size() + " Forward(s) " + (isP1 ? "P1" : "[P2]")
+						+ " controls gain \"cannot be blocked by a Forward of cost " + costVal
+						+ " or " + (isMore ? "more" : "less") + "\" until end of turn");
+			}
 			@Override public void grantSelfCannotBeBlockedByPower(CardData source, int powerVal, boolean isMore) {
 				if (source == null) return;
 				(isP1 ? mw.p1CannotBeBlockedByPower : mw.p2CannotBeBlockedByPower)
@@ -4370,6 +4382,33 @@ final class GameContextImpl implements GameContext {
 				}
 			}
 
+			@Override public void selectOwnForwardToBzThenGainControlOfSameCost() {
+				List<ForwardTarget> eligible = ownForwards(isP1);
+				if (eligible.isEmpty()) {
+					logEntry((isP1 ? "P1" : "[P2]") + " controls no Forwards — nothing to give up");
+					return;
+				}
+				ForwardTarget pick = mw.selectOwnFieldTarget(isP1, eligible,
+						"Select 1 Forward you control to put into the Break Zone",
+						"Waiting for your opponent to select a Forward to put into the Break Zone...",
+						mw::aiPickForwardForBreak);
+				if (pick == null) return;
+				// Read before the put: afterwards the card is out of the zone the target indexes.
+				CardData given = mw.fieldCardDataOrNull(pick);
+				if (given == null) return;
+				int cost = given.cost();
+				logSelectedOwnCard(isP1, pick);
+				forceTargetToBreakZone(pick);
+				// "When you do so" — the payoff hangs off the put actually having happened, which
+				// it now has. The cost is exact, and the choice spans both fields: the card says
+				// "choose 1 Forward" with no side named, so the user's own Forwards qualify too.
+				logEntry("Effect: choose 1 Forward of cost " + cost + " — you gain control of it");
+				List<ForwardTarget> chosen = selectCharacters(1, false, false, false, null, null,
+						cost, null, -1, null, true, false, false,
+						null, null, null, null, false, null, false);
+				for (ForwardTarget t : chosen) gainControlOfForward(t, "permanent", false);
+			}
+
 			/**
 			 * One seat's half of an "each player selects 1 Forward" effect.  A seat with an empty
 			 * field is skipped rather than asked, and that is derived on both clients from a board
@@ -4615,6 +4654,49 @@ final class GameContextImpl implements GameContext {
 					logSelectedOwnCard(isP1, pick);
 					forceTargetToBreakZone(pick);
 				}
+			}
+
+			@Override
+			public List<ForwardTarget> selectForwardsOppFieldOrOwnBreakZone(int maxCount, boolean upTo) {
+				// Both halves are gathered through the ordinary eligibility builders, so the field
+				// pool honours the "cannot be chosen" sets and the Break Zone pool honours the
+				// shields that zone has of its own.
+				List<ForwardTarget> pool = new ArrayList<>(eligibleCharacters(
+						maxCount, upTo, true, false, null, null, -1, null, -1, null,
+						true, false, false, null, null, null, null, false, null, false));
+				pool.addAll(eligibleCharactersFromBreakZone(
+						maxCount, upTo, false, false, null, null, -1, null, -1, null,
+						true, false, false, null, null, null, null, false, null, false));
+				if (pool.isEmpty()) {
+					logEntry("Choose: no eligible Forwards on opponent's field or in your Break Zone");
+					return List.of();
+				}
+				// A flat card list parallel to the pool: the picker works in card images, and an
+				// index into this list is what it hands back.
+				List<CardData> shown = new ArrayList<>(pool.size());
+				for (ForwardTarget t : pool) shown.add(cardAtTarget(t));
+
+				if (!isP1) {
+					List<ForwardTarget> copy = new ArrayList<>(pool);
+					java.util.Collections.shuffle(copy);
+					List<ForwardTarget> picked =
+							List.copyOf(copy.subList(0, Math.min(maxCount, copy.size())));
+					picked.forEach(t -> logEntry("[AI] chose " + cardAtTarget(t).name()));
+					return fireChosenByOpponentTriggers(picked);
+				}
+				String title = "Choose " + (upTo ? "up to " : "") + maxCount + " Forward"
+						+ (maxCount != 1 ? "s" : "")
+						+ " opponent controls or in your Break Zone";
+				// Re-indexed so each target's idx() addresses `shown`, which is what the dialog
+				// reads; the picks are mapped back to the real zone positions straight after.
+				List<ForwardTarget> reindexed = new ArrayList<>(pool.size());
+				for (int i = 0; i < pool.size(); i++)
+					reindexed.add(new ForwardTarget(pool.get(i).isP1(), i, ForwardTarget.CardZone.BREAK_ZONE));
+				List<ForwardTarget> chosen =
+						mw.showBreakZoneSelectDialog(reindexed, shown, maxCount, upTo, title);
+				List<ForwardTarget> result = new ArrayList<>(chosen.size());
+				for (ForwardTarget t : chosen) result.add(pool.get(t.idx()));
+				return fireChosenByOpponentTriggers(result);
 			}
 
 			@Override public void eachPlayerSalvageFromBreakZone(int count, boolean fwds, boolean bkps,
@@ -5231,6 +5313,33 @@ final class GameContextImpl implements GameContext {
 					}
 					default -> { return null; }
 				}
+			}
+
+			@Override public void returnCardsRemovedBySourceToOwnersHands(CardData source) {
+				List<CardData> removed = source == null ? null : mw.cardsRemovedBySource.remove(source);
+				if (removed == null || removed.isEmpty()) {
+					logEntry((source != null ? source.name() : "Effect")
+							+ " removed nothing from the game — no cards to return");
+					return;
+				}
+				for (CardData c : removed) {
+					// The pile is what this source removed, but a card can have left the RFP zone
+					// since — cast out of it, or called back by something else. Only what is still
+					// there comes home.
+					if (!mw.gameState.removeFromPermanentRfp(c)) {
+						logEntry(c.name() + " is no longer removed from the game — left where it is");
+						continue;
+					}
+					Boolean ownedByP1 = mw.gameState.getIdentity().get(c);
+					boolean toP1 = ownedByP1 == null || ownedByP1;
+					(toP1 ? mw.gameState.getP1Hand() : mw.gameState.getP2Hand()).add(c);
+					logEntry((toP1 ? "" : "[P2] ") + c.name() + " → owner's hand (was removed by "
+							+ source.name() + ")");
+				}
+				mw.refreshP1HandLabel();
+				mw.refreshP2HandCountLabel();
+				mw.refreshP1WarpZoneUI();
+				mw.refreshP2WarpZoneUI();
 			}
 
 			@Override public int cardsRemovedBySourceCount(CardData source) {

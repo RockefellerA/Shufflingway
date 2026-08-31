@@ -592,6 +592,18 @@ public class ActionResolver {
         result = tryParseChooseTwoCostsFromBzPlayBoth(effectText);
         if (result != null) return result;
 
+        // Must precede tryParseChooseCharacter: that chain finds "choose 1 Forward" in the third
+        // sentence and reads it on its own, dropping both the Forward given up and the cost that
+        // pick is supposed to set — the user could take any Forward on the board.
+        result = tryParseSelectOwnFwdToBzGainControlSameCost(effectText);
+        if (result != null) return result;
+
+        // Must precede tryParseChooseCharacter: its zone group switches a selection between the
+        // field and a Break Zone rather than spanning both, so the one shared allowance this text
+        // states cannot survive that route.
+        result = tryParseChooseOppFwdsOrOwnBzFwdsRfg(effectText);
+        if (result != null) return result;
+
         result = tryParseChooseCharacter(effectText, source, xValue);
         if (result != null) return withAiTargetPreference(effectText, result);
 
@@ -780,10 +792,23 @@ public class ActionResolver {
         // two share their whole opening and differ only in what follows "gain", so whichever
         // runs first has to be the one that cannot claim the other's text — this one is anchored
         // whole and requires a quote, the keyword one scans with find().
+        // Must precede tryParseAllFieldQuotedProtectionGrant, which matches this sentence shape
+        // but only resolves a quotation that is a protection. It declines this one, so the
+        // ordering is belt-and-braces rather than load-bearing — but the two read the same text,
+        // and whichever is first should be the one that can answer for it.
+        result = tryParseAllOwnForwardsGainQuotedAbilityEot(effectText);
+        if (result != null) return result;
+
         result = tryParseAllFieldQuotedProtectionGrant(effectText);
         if (result != null) return result;
 
         result = tryParseUntilEotDualPowerShift(effectText);
+        if (result != null) return result;
+
+        // Must precede UntilEotAllFieldPowerBoost: that pattern stops at the power amount and
+        // scans with find(), so it claims this sentence's "+N power" and drops the per-damage
+        // multiplier behind it.
+        result = tryParseUntilEotAllFieldPowerPerSelfDamage(effectText);
         if (result != null) return result;
 
         result = tryParseUntilEotAllFieldPowerBoost(effectText);
@@ -1023,6 +1048,12 @@ public class ActionResolver {
         // other's text: that one ends at "among them", this one is still reading a second
         // alternative there.
         result = tryParseRevealPlayTypeCostOrNamedCostRestBottom(effectText);
+        if (result != null) return result;
+
+        // Must precede tryParseReturnNamedToHand: RETURN_NAMED_TO_OWNERS_HAND scans with find()
+        // and takes the description in front of "to its owner's hand" for a card name, so
+        // 13-081H Lightning's pile was looked for on the field under a name no card has.
+        result = tryParseReturnRemovedBySourceToOwnersHand(effectText, source);
         if (result != null) return result;
 
         result = tryParseReturnNamedToHand(effectText);
@@ -1845,6 +1876,10 @@ public class ActionResolver {
         if (tryParseChooseTieredDamage(effectText) != null) return "ChooseTieredDamage";
         // Mirrors parse(): ahead of ChooseCharacter, which claims the first of the two picks.
         if (tryParseChooseTwoCostsFromBzPlayBoth(effectText) != null) return "ChooseTwoCostsFromBzPlayBoth";
+        // Mirrors parse(): ahead of ChooseCharacter, which claims the third sentence alone.
+        if (tryParseSelectOwnFwdToBzGainControlSameCost(effectText)     != null) return "SelectOwnFwdToBzGainControlSameCost";
+        // Mirrors parse(): ahead of ChooseCharacter, which cannot span the two zones at once.
+        if (tryParseChooseOppFwdsOrOwnBzFwdsRfg(effectText)             != null) return "ChooseOppFwdsOrOwnBzFwdsRfg";
         if (tryParseChooseCharacter(effectText, source, 0)              != null) return "ChooseCharacter";
         if (tryParseIfSelfFwdReceivedDamageDraw(effectText, source)          != null) return "IfSelfFwdReceivedDamageDraw";
         if (tryParseIfRfpCount(effectText, source)               != null) return "IfRfpCount";
@@ -1915,8 +1950,12 @@ public class ActionResolver {
         if (tryParseAllFieldJobPowerBoost(effectText) != null) return "AllFieldJobPowerBoost";
         if (tryParseAllFieldJobKeywordGrant(effectText) != null) return "AllFieldJobKeywordGrant";
         if (tryParseAllFieldKeywordGrant(effectText) != null) return "AllFieldKeywordGrant";
+        // Mirrors parse(): ahead of AllFieldQuotedProtectionGrant, which reads the same sentence.
+        if (tryParseAllOwnForwardsGainQuotedAbilityEot(effectText) != null) return "AllOwnForwardsGainQuotedAbilityEot";
         if (tryParseAllFieldQuotedProtectionGrant(effectText) != null) return "AllFieldQuotedProtectionGrant";
         if (tryParseUntilEotDualPowerShift(effectText) != null) return "UntilEotDualPowerShift";
+        // Must precede UntilEotAllFieldPowerBoost — see the ordering note in parse().
+        if (tryParseUntilEotAllFieldPowerPerSelfDamage(effectText) != null) return "UntilEotAllFieldPowerPerSelfDamage";
         if (tryParseUntilEotAllFieldPowerBoost(effectText) != null) return "UntilEotAllFieldPowerBoost";
         if (tryParseStandalonePowerBoostAndAttackTrigger(effectText, source) != null) return "StandalonePowerBoostAndAttackTrigger";
         if (tryParseStandalonePowerBoostAndCannotBeChosen(effectText, source) != null) return "StandalonePowerBoostAndCannotBeChosen";
@@ -1991,6 +2030,9 @@ public class ActionResolver {
         // Must precede ReturnNamedToHand — see the ordering note in parse().
         if (tryParseRevealPlayElementTypeCostOntoFieldRestBottom(effectText, 0) != null) return "RevealPlayElementTypeCostOntoFieldRestBottom";
         if (tryParseRevealPlayTypeCostOrNamedCostRestBottom(effectText) != null) return "RevealPlayTypeCostOrNamedCostRestBottom";
+        // Must precede ReturnNamedToHand, mirroring parse(): that parser takes the description in
+        // front of "to its owner's hand" for a card name.
+        if (tryParseReturnRemovedBySourceToOwnersHand(effectText, source) != null) return "ReturnRemovedBySourceToOwnersHand";
         if (tryParseReturnNamedToHand(effectText) != null) return "ReturnNamedToHand";
         if (tryParseYouMayRemoveNamedFromGame(effectText, source) != null) return "YouMayRemoveNamedFromGame";
         if (tryParseEndOfOppTurnPlayNamedOntoField(effectText) != null) return "EndOfOppTurnPlayNamedOntoField";
@@ -2065,6 +2107,10 @@ public class ActionResolver {
         // Mirrors parse(), where this gate sits immediately ahead of IfEachPlayerEmptyHand.
         if (tryParseIfAllHaveElement(effectText, source, 0)   != null) return "IfAllHaveElement";
         if (tryParseIfEachPlayerEmptyHand(effectText, source, 0) != null) return "IfEachPlayerEmptyHand";
+        // Mirrors parse(), where this gate follows IfEachPlayerEmptyHand. Missing here, the gated
+        // texts fell through to FieldPowerGrant far below and were named for a passive boost they
+        // are not.
+        if (tryParseIfNDiffElements(effectText, source, 0)    != null) return "IfNDiffElements";
         if (tryParseDealPlayerDamageToOpponent(effectText)    != null) return "DealPlayerDamageToOpponent";
         if (tryParseDealPlayerDamageToSelf(effectText)        != null) return "DealPlayerDamageToSelf";
         if (tryParseRandomRevealHandCastIfSummonFree(effectText) != null) return "RandomRevealHandCastIfSummonFree";
@@ -2315,6 +2361,11 @@ public class ActionResolver {
         // sentence matches on its own.
         if (FOLLOWUP_DAMAGE_AND_SPLASH_OTHER_OPP_FORWARDS.matcher(followupText.trim()).matches())
                                                                                       return "DamageAndSplashOthers";
+        // The opponent-selects twin of the line above, where the selected Forward is the one
+        // spared rather than the one hit. Ahead of the plain damage name for the same reason: the
+        // amount here belongs to the others, and "Damage" would read it as the target's.
+        if (OPP_SELECTS_SPLASH_OTHER_OPP_FORWARDS.matcher(followupText.trim()).matches())
+                                                                                      return "SplashOtherOppForwards";
         if (FOLLOWUP_DAMAGE.matcher(followupText).find())                             return "Damage";
         if (FOLLOWUP_DAMAGE_EXPR.matcher(followupText).find())                        return "DamageExpr";
         if (FOLLOWUP_DIVIDE_DAMAGE_AMONG_CHOSEN.matcher(followupText).find())         return "DivideDamageAmongChosen";
@@ -2432,10 +2483,14 @@ public class ActionResolver {
         // Mirrors the choose chain, including its guard: the grant is only claimed when the quoted
         // ability is one the engine reads, so a quotation nothing implements still reports as "?".
         Matcher fuQuoted = FOLLOWUP_GAINS_QUOTED_ABILITY_UNTIL_EOT.matcher(followupText);
-        if (fuQuoted.find()
-                && AutoAbilityTriggers.FA_OUTGOING_DAMAGE_TO_OPPONENT_SETS_TO
-                        .matcher(fuQuoted.group("granted").trim()).matches())
+        if (fuQuoted.find()) {
+            String fuGrant = quotedGrantUntilEot(fuQuoted);
+            if (fuGrant != null) {
+                if (AutoAbilityTriggers.FA_OUTGOING_DAMAGE_TO_OPPONENT_SETS_TO.matcher(fuGrant).matches())
                                                                                       return "GainsDamageToOpponentSetsTo";
+                if (grantedThisForwardCannotBeBlockedByCost(fuGrant) != null)         return "GainsCannotBeBlockedByCost";
+            }
+        }
         // Mirrors the choose chain: the two counter-selection followups, then the two named
         // must-block forms ahead of the unqualified one.
         if (FOLLOWUP_SELECT_COUNTER_AND_ADD_SAME_TYPE.matcher(followupText.trim()).matches())
@@ -2896,6 +2951,15 @@ public class ActionResolver {
         // describes Xande 10-008L as "ChooseCharacter / ? + PlayOntoField" — one pick, and the
         // filter that decides the other reported as unread.
         if (tryParseChooseTwoCostsFromBzPlayBoth(effectText) != null) return "ChooseTwoCostsFromBzPlayBoth";
+        // Mirrors parse() and matchedPatternName(): ahead of the ChooseCharacter block, which
+        // describes 14-098R Ultimecia's third sentence on its own and reports the two ahead of it
+        // as unread.
+        if (tryParseSelectOwnFwdToBzGainControlSameCost(effectText) != null)
+            return "SelectOwnFwdToBz + GainControlOfSameCost";
+        // Mirrors parse() and matchedPatternName(): ahead of the ChooseCharacter block, which
+        // cannot span the two zones this choice offers at once.
+        if (tryParseChooseOppFwdsOrOwnBzFwdsRfg(effectText) != null)
+            return "ChooseOppFwdsOrOwnBzFwds / RemoveFromGame";
         // Mirrors tryParseChooseCharacter, which strips this trailing delayed trigger and parses
         // the rest as an ordinary choose-and-act. Without the same strip here the clause fell past
         // the choose block's sentence split and was reported as an unread tail — 15-014H Brynhildr
@@ -3230,8 +3294,12 @@ public class ActionResolver {
         if (tryParseAllFieldJobPowerBoost(effectText) != null)              return "AllFieldJobPowerBoost";
         if (tryParseAllFieldJobKeywordGrant(effectText) != null)            return "AllFieldJobKeywordGrant";
         if (tryParseAllFieldKeywordGrant(effectText) != null)               return "AllFieldKeywordGrant";
+        // Mirrors parse() and matchedPatternName(): ahead of AllFieldQuotedProtectionGrant.
+        if (tryParseAllOwnForwardsGainQuotedAbilityEot(effectText) != null) return "AllOwnForwardsGainQuotedAbilityEot";
         if (tryParseAllFieldQuotedProtectionGrant(effectText) != null)      return "AllFieldQuotedProtectionGrant";
         if (tryParseUntilEotDualPowerShift(effectText) != null)            return "UntilEotDualPowerShift";
+        // Must precede UntilEotAllFieldPowerBoost — see the ordering note in parse().
+        if (tryParseUntilEotAllFieldPowerPerSelfDamage(effectText) != null) return "UntilEotAllFieldPowerPerSelfDamage";
         if (tryParseUntilEotAllFieldPowerBoost(effectText) != null)        return "UntilEotAllFieldPowerBoost";
         if (tryParseStandalonePowerBoostAndAttackTrigger(effectText, source) != null) return "StandalonePowerBoostAndAttackTrigger";
         if (tryParseStandalonePowerBoostAndCannotBeChosen(effectText, source) != null) return "StandalonePowerBoostAndCannotBeChosen";
@@ -3306,6 +3374,8 @@ public class ActionResolver {
         // Must precede ReturnNamedToHand — see the ordering note in parse().
         if (tryParseRevealPlayElementTypeCostOntoFieldRestBottom(effectText)     != null) return "RevealPlayElementTypeCostOntoFieldRestBottom";
         if (tryParseRevealPlayTypeCostOrNamedCostRestBottom(effectText)         != null) return "RevealPlayTypeCostOrNamedCostRestBottom";
+        // Must precede ReturnNamedToHand, mirroring parse() and matchedPatternName().
+        if (tryParseReturnRemovedBySourceToOwnersHand(effectText, source) != null) return "ReturnRemovedBySourceToOwnersHand";
         if (tryParseReturnNamedToHand(effectText) != null)                   return "ReturnNamedToHand";
         if (tryParseYouMayRemoveNamedFromGame(effectText, source) != null)   return "YouMayRemoveNamedFromGame";
         if (tryParseEndOfOppTurnPlayNamedOntoField(effectText) != null)     return "EndOfOppTurnPlayNamedOntoField";
@@ -3375,6 +3445,16 @@ public class ActionResolver {
                     + ": " + describeOrName(ahe.group("effect").trim(), source) + ")";
         }
         if (tryParseIfEachPlayerEmptyHand(effectText, source, 0) != null)   return "IfEachPlayerEmptyHand";
+        // Mirrors parse() and matchedPatternName(). Described like the control gates above: the
+        // condition is named, the effect it guards described inside it.
+        if (tryParseIfNDiffElements(effectText, source, 0) != null) {
+            Matcher nde = IF_N_DIFF_ELEMENTS_AMONG.matcher(effectText.trim());
+            if (!nde.matches()) return "IfNDiffElements";
+            boolean exact = nde.group("exactly") != null;
+            return "IfNDiffElements(" + (exact ? "=" : "") + (exact ? nde.group("mine") : nde.group("minm"))
+                    + (exact ? "" : "+") + " among " + nde.group("type").trim()
+                    + ": " + describeOrName(nde.group("effect").trim(), source) + ")";
+        }
         if (tryParseDealPlayerDamageToOpponent(effectText) != null)         return "DealPlayerDamageToOpponent";
         if (tryParseDealPlayerDamageToSelf(effectText) != null)             return "DealPlayerDamageToSelf";
         if (tryParseRandomRevealHandCastIfSummonFree(effectText) != null)   return "RandomRevealHandCastIfSummonFree";
@@ -4587,6 +4667,41 @@ public class ActionResolver {
      * quoted ability isn't a supported self-grant (letting other parsers try). The subject named
      * inside the quotes must be the source card.
      */
+    /**
+     * The ability quoted in an "it gains "…" until the end of the turn" followup, or {@code null}
+     * when {@code m} is not one.
+     *
+     * <p>Answers null for a match carrying neither the leading nor the trailing "until the end of
+     * the turn". That is a <em>permanent</em> grant, a different effect with parsers of its own;
+     * the shared pattern admits it only so one regex can cover the two printed word orders, and
+     * every reader has to rule it out here rather than resolve it as a turn-scoped grant.
+     *
+     * <p>Also picks whichever of the two quote marks the printing used — see
+     * {@link ActionResolverPatterns#FOLLOWUP_GAINS_QUOTED_ABILITY_UNTIL_EOT} for why a card may
+     * have had to nest the grant in apostrophes.
+     */
+    static String quotedGrantUntilEot(Matcher m) {
+        if (m.group("pre") == null && m.group("post") == null) return null;
+        String quoted = m.group("granted") != null ? m.group("granted") : m.group("gq");
+        return quoted == null ? null : quoted.trim();
+    }
+
+    /**
+     * The {@code {costVal, isMore}} of a quoted "This Forward cannot be blocked by a Forward of
+     * cost N or more/less." being granted to a card some effect has just chosen, or {@code null}
+     * for any other quotation.
+     *
+     * <p>The subject has to be the impersonal "this Forward": the grant lands on whatever was
+     * chosen, so a quotation naming a particular card is about that card and not about this one.
+     * A self-named printing of the same sentence is {@code grantedSelfFieldAbilityEffect}'s.
+     */
+    static int[] grantedThisForwardCannotBeBlockedByCost(String quoted) {
+        Matcher m = GRANTED_CANNOT_BE_BLOCKED_BY_COST.matcher(quoted);
+        if (!m.matches() || !m.group("subj").trim().equalsIgnoreCase("This Forward")) return null;
+        return new int[]{Integer.parseInt(m.group("cost")),
+                         "more".equalsIgnoreCase(m.group("cmp")) ? 1 : 0};
+    }
+
     /** The permitted attack count from a matched {@link ActionResolverPatterns#GRANTED_CAN_ATTACK_TWICE}. */
     private static int grantedAttackCount(Matcher m) {
         return m.group("count") != null ? Integer.parseInt(m.group("count")) : 2;

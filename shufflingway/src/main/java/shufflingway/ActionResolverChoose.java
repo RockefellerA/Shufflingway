@@ -4225,8 +4225,9 @@ final class ActionResolverChoose {
         // of anything else falls through the chain and stays visibly unhandled, rather than being
         // accepted and resolving as a no-op.
         Matcher grantQuoted = FOLLOWUP_GAINS_QUOTED_ABILITY_UNTIL_EOT.matcher(primaryFollowup);
-        if (grantQuoted.find()) {
-            String granted = grantQuoted.group("granted").trim();
+        String grantedQuotation = grantQuoted.find() ? quotedGrantUntilEot(grantQuoted) : null;
+        if (grantedQuotation != null) {
+            final String granted = grantedQuotation;
             if (AutoAbilityTriggers.FA_OUTGOING_DAMAGE_TO_OPPONENT_SETS_TO.matcher(granted).matches()) {
                 return ctx -> {
                     ctx.logChooseHeader(choosePrefix + " — gains \"" + granted + "\" this turn");
@@ -4236,6 +4237,30 @@ final class ActionResolverChoose {
                     for (ForwardTarget t : ts) {
                         if (t.zone() != ForwardTarget.CardZone.FORWARD) continue;
                         ctx.grantFieldAbilityUntilEndOfTurn(t, granted);
+                    }
+                    if (secondary != null) secondary.accept(ctx);
+                };
+            }
+            // "This Forward cannot be blocked by a Forward of cost N or more." — 23-049C Ninja and
+            // 25-041C Thief. Written into the per-Forward this-turn block store rather than granted
+            // verbatim, because that is where the printed wording and Arc 5-052H's unquoted one
+            // already live, and p1AttackerCostFiltersExclude reads exactly that store. One
+            // representation per rule keeps a granted restriction from being honoured differently
+            // from a printed one.
+            int[] nbGrant = grantedThisForwardCannotBeBlockedByCost(granted);
+            if (nbGrant != null) {
+                final int     gCost = nbGrant[0];
+                final boolean gMore = nbGrant[1] == 1;
+                return ctx -> {
+                    ctx.logChooseHeader(choosePrefix + " — cannot be blocked by a Forward of cost "
+                            + gCost + " or " + (gMore ? "more" : "less") + " this turn");
+                    List<ForwardTarget> ts = selectTargets(ctx, maxCount, upTo,
+                            opponentOnly, selfOnly, condition, element, zone, opponentZone,
+                            costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters, jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, fExcludeElem, withoutMulticard);
+                    for (ForwardTarget t : ts) {
+                        if (t.zone() != ForwardTarget.CardZone.FORWARD) continue;
+                        if (t.isP1()) ctx.setP1ForwardCannotBeBlockedByCost(t.idx(), gCost, gMore);
+                        else          ctx.setP2ForwardCannotBeBlockedByCost(t.idx(), gCost, gMore);
                     }
                     if (secondary != null) secondary.accept(ctx);
                 };
@@ -4642,17 +4667,20 @@ final class ActionResolverChoose {
         Matcher boostUntilSelfDmgM = FOLLOWUP_POWER_BOOST_UNTIL_FOR_EACH_SELF_DMG.matcher(primaryFollowup);
         if (boostUntilSelfDmgM.find()) {
             int perUnit = Integer.parseInt(boostUntilSelfDmgM.group("perunit"));
+            EnumSet<CardData.Trait> dmgTraits = parseTraits(boostUntilSelfDmgM.group("traits"));
+            String dmgTraitStr = dmgTraits.isEmpty() ? "" : " and " + traitNamesOnly(dmgTraits);
             return ctx -> {
-                int dmgCount = ctx.p1DamageCount();
+                // The ability user's own damage, not P1's — the AI plays these cards too, and
+                // reading the seat rather than the side had it scaling off the wrong damage zone.
+                int dmgCount = ctx.selfDamageCount();
                 int boost    = perUnit * dmgCount;
-                ctx.logChooseHeader(choosePrefix + " — +"+perUnit+" power ×" + dmgCount + " damage = +" + boost + " power until EOT");
+                ctx.logChooseHeader(choosePrefix + " — +"+perUnit+" power ×" + dmgCount + " damage = +" + boost + " power" + dmgTraitStr + " until EOT");
                 List<ForwardTarget> ts = selectTargets(ctx, maxCount, upTo,
                         opponentOnly, selfOnly, condition, element, zone, opponentZone,
                         costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters,
                         jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, fExcludeElem, withoutMulticard);
-                EnumSet<CardData.Trait> noTraits = EnumSet.noneOf(CardData.Trait.class);
-                sortedByIdxDesc(ts, true) .forEach(t -> ctx.boostTarget(t, boost, noTraits));
-                sortedByIdxDesc(ts, false).forEach(t -> ctx.boostTarget(t, boost, noTraits));
+                sortedByIdxDesc(ts, true) .forEach(t -> ctx.boostTarget(t, boost, dmgTraits));
+                sortedByIdxDesc(ts, false).forEach(t -> ctx.boostTarget(t, boost, dmgTraits));
                 if (secondary != null) secondary.accept(ctx);
             };
         }
@@ -5323,6 +5351,44 @@ final class ActionResolverChoose {
         return ctx -> ctx.putCardRemovedBySourceIntoBreakZone(source);
     }
     /** Parses "select 1 [Forward|Backup|Monster|Character] you control. Put it into the Break Zone." */
+    /**
+     * Parses 13-081H Lightning's arrival — see
+     * {@link ActionResolverPatterns#CHOOSE_OPP_FWDS_OR_OWN_BZ_FWDS_RFG} for why the two pools are
+     * offered as one choice rather than assembled from two.
+     *
+     * <p>The removals are credited to the resolving ability by {@code removeTargetFromGame}, which
+     * is what lets Lightning's leaves-the-field half find them again.
+     */
+    static Consumer<GameContext> tryParseChooseOppFwdsOrOwnBzFwdsRfg(String text) {
+        Matcher m = CHOOSE_OPP_FWDS_OR_OWN_BZ_FWDS_RFG.matcher(text.trim());
+        if (!m.matches()) return null;
+        int     count = Integer.parseInt(m.group("count"));
+        boolean upTo  = m.group("upto") != null;
+        return ctx -> {
+            ctx.logEntry("Effect: Choose " + (upTo ? "up to " : "") + count + " Forward(s) "
+                    + "opponent controls or in your Break Zone → Removed From Game");
+            List<ForwardTarget> ts = ctx.selectForwardsOppFieldOrOwnBreakZone(count, upTo);
+            ctx.recordChosenTargets(ts);
+            // Highest index first, so removing one does not shift the next out from under its
+            // target. Per side is enough to separate the two zones here: the field half is always
+            // the opponent's and the Break Zone half always the user's own, so no side holds both.
+            sortedByIdxDesc(ts, true) .forEach(ctx::removeTargetFromGame);
+            sortedByIdxDesc(ts, false).forEach(ctx::removeTargetFromGame);
+        };
+    }
+    /**
+     * Parses 14-098R Ultimecia's give-a-Forward-take-a-Forward exchange — see
+     * {@link ActionResolverPatterns#SELECT_OWN_FWD_TO_BZ_GAIN_CONTROL_SAME_COST} for why the three
+     * sentences are read together rather than one at a time.
+     */
+    static Consumer<GameContext> tryParseSelectOwnFwdToBzGainControlSameCost(String text) {
+        if (!SELECT_OWN_FWD_TO_BZ_GAIN_CONTROL_SAME_COST.matcher(text.trim()).matches()) return null;
+        return ctx -> {
+            ctx.logEntry("Effect: select 1 Forward you control → Break Zone, "
+                    + "then gain control of 1 Forward of the same cost");
+            ctx.selectOwnForwardToBzThenGainControlOfSameCost();
+        };
+    }
     static Consumer<GameContext> tryParseSelectControlledCharacterToBz(String text) {
         Matcher m = SELECT_1_CHARACTER_YOU_CONTROL_TO_BZ.matcher(text.trim());
         if (!m.matches()) return null;
@@ -5597,6 +5663,43 @@ final class ActionResolverChoose {
                         inclForwards, inclBackups, inclMonsters, what);
                 sortedByIdxDesc(ts, true) .forEach(t -> returnSelectedToOwnersHand(ctx, t));
                 sortedByIdxDesc(ts, false).forEach(t -> returnSelectedToOwnersHand(ctx, t));
+            };
+        }
+
+        // "Deal N damage to all the other Forwards opponent controls." — 13-080C Marach, where the
+        // opponent's selection names the one Forward that is spared rather than the one that is
+        // hit. Resolved over the complement of the selection, on the selecting player's side.
+        Matcher splashM = OPP_SELECTS_SPLASH_OTHER_OPP_FORWARDS.matcher(followup);
+        if (splashM.matches()) {
+            int splash = Integer.parseInt(splashM.group("splash"));
+            return ctx -> {
+                ctx.logEntry(prefix + " — deal " + splash + " damage to every other Forward they control");
+                List<ForwardTarget> ts = ctx.opponentSelectsOwnCharacters(count, asMany,
+                        condition, element, costVal, costCmp,
+                        inclForwards, inclBackups, inclMonsters, what);
+                // The row is settled as cards before any damage lands: a blow that breaks one
+                // Forward renumbers every index behind it, so indices resolved up front would slide
+                // onto the wrong cards — or onto the spared one. Same reason
+                // FOLLOWUP_DAMAGE_AND_SPLASH_OTHER_OPP_FORWARDS holds its complement this way.
+                boolean oppIsP1 = !ctx.isP1();
+                List<CardData> spared = new ArrayList<>();
+                for (ForwardTarget t : ts)
+                    if (t.zone() == ForwardTarget.CardZone.FORWARD)
+                        spared.add(t.isP1() ? ctx.p1Forward(t.idx()) : ctx.p2Forward(t.idx()));
+                List<CardData> others = new ArrayList<>();
+                int oppCount = oppIsP1 ? ctx.p1ForwardCount() : ctx.p2ForwardCount();
+                for (int i = 0; i < oppCount; i++) {
+                    CardData c = oppIsP1 ? ctx.p1Forward(i) : ctx.p2Forward(i);
+                    boolean isSpared = false;
+                    for (CardData s : spared) if (s == c) { isSpared = true; break; }
+                    if (!isSpared) others.add(c);
+                }
+                for (CardData other : others) {
+                    int idx = forwardIndexByIdentity(ctx, oppIsP1, other);
+                    if (idx < 0) continue;   // already broken by an earlier blow in this sweep
+                    if (oppIsP1) ctx.damageP1Forward(idx, splash);
+                    else         ctx.damageP2Forward(idx, splash);
+                }
             };
         }
 
