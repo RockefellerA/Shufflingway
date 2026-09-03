@@ -85,6 +85,21 @@ public class PlayerHandFanPanel extends JComponent {
 	private static final Color EDGE   = new Color(255, 255, 255, 60);
 	private static final double SHADOW_OFFSET_FRACTION = 0.018;
 
+	/**
+	 * Resolution the faces are decoded at, as a multiple of the card size.
+	 *
+	 * <p>A card on the field is blitted 1:1 at whole-pixel coordinates, so its face reaches the
+	 * screen exactly as it was decoded. A card in the fan never is: {@link HandFanLayout} tilts it
+	 * and centres it on fractional coordinates, so even the upright middle card of a fan gets
+	 * resampled on the way out. Decoded at card size that is a second resample of an already
+	 * downscaled face, and it reads visibly softer than the same card on the board.
+	 *
+	 * <p>Decoding oversized and letting {@link #paintCard} fold the reduction into the same
+	 * transform that rotates it spends the detail once instead of twice, off a source that still
+	 * has detail left to spend. 2x is enough: the source art is only about 2.3x the card.
+	 */
+	private static final int FACE_SUPERSAMPLE = 2;
+
 	/** Ring drawn around a card you can actually pay for right now. */
 	private static final Color PLAYABLE_GLOW = new Color(30, 144, 255);
 	/** A cost that an effect has brought down, and one an effect has pushed up. */
@@ -239,6 +254,10 @@ public class PlayerHandFanPanel extends JComponent {
 	 */
 	public void setCards(List<String> imageUrls) {
 		cards = java.util.Collections.unmodifiableList(new java.util.ArrayList<>(imageUrls));
+		// Drop faces for cards that have left, so the cache is bounded by the hand rather than by
+		// every card that has ever been in it. At FACE_SUPERSAMPLE a face is four times the pixels
+		// it used to be, which is small per card and not small across a game's worth of them.
+		faces.keySet().retainAll(cards);
 		if (hovered >= cards.size()) hovered = -1;
 		// Cards that kept their index keep their rise, so a hand changing under a raised card does
 		// not drop it; anything new starts seated. The next mouse move re-decides regardless.
@@ -342,7 +361,9 @@ public class PlayerHandFanPanel extends JComponent {
 
 		Graphics2D g = (Graphics2D) g0.create();
 		g.setRenderingHint(RenderingHints.KEY_ANTIALIASING,       RenderingHints.VALUE_ANTIALIAS_ON);
-		g.setRenderingHint(RenderingHints.KEY_INTERPOLATION,      RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+		// Bicubic, not bilinear: this pass is a reduction as well as a rotation, and bilinear's
+		// 2x2 tap undersamples a reduction. See FACE_SUPERSAMPLE.
+		g.setRenderingHint(RenderingHints.KEY_INTERPOLATION,      RenderingHints.VALUE_INTERPOLATION_BICUBIC);
 		g.setRenderingHint(RenderingHints.KEY_RENDERING,          RenderingHints.VALUE_RENDER_QUALITY);
 		g.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING,  RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
 
@@ -372,7 +393,13 @@ public class PlayerHandFanPanel extends JComponent {
 
 		BufferedImage face = face(url);
 		if (face != null) {
-			g.drawImage(face, tx, null);
+			// The face is oversized, so the slot transform carries the reduction down with it:
+			// one resample down and round, not one of each. Read off the image rather than
+			// assuming FACE_SUPERSAMPLE, which face() is free to cap.
+			AffineTransform fx = new AffineTransform(tx);
+			fx.scale(CardAnimation.CARD_W / (double) face.getWidth(),
+					CardAnimation.CARD_H / (double) face.getHeight());
+			g.drawImage(face, fx, null);
 		} else {
 			// Placeholder until the face arrives, so the fan has the right shape from the first paint.
 			g.setColor(Color.DARK_GRAY);
@@ -424,8 +451,16 @@ public class PlayerHandFanPanel extends JComponent {
 		new SwingWorker<BufferedImage, Void>() {
 			@Override protected BufferedImage doInBackground() throws Exception {
 				Image raw = ImageCache.load(url);
-				return raw == null ? null
-						: CardAnimation.toARGB(raw, CardAnimation.CARD_W, CardAnimation.CARD_H);
+				if (raw == null) return null;
+				// Never decode larger than the source art: at a high UI scale the full
+				// supersample would enlarge a 429px scan only to shrink it again, which costs
+				// the memory and returns no detail. A source of unknown width (-1) is not a
+				// case ImageCache produces, but it should not silently disable the supersample.
+				int src = raw.getWidth(null);
+				int cap = src > 0 ? Math.max(CardAnimation.CARD_W, src) : Integer.MAX_VALUE;
+				int w   = Math.min(CardAnimation.CARD_W * FACE_SUPERSAMPLE, cap);
+				int h   = (int) Math.round(w * (double) CardAnimation.CARD_H / CardAnimation.CARD_W);
+				return CardAnimation.toARGB(raw, w, h);
 			}
 			@Override protected void done() {
 				loading.remove(url);

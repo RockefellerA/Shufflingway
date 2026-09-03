@@ -41,6 +41,9 @@ public class HandFanPanel extends JComponent {
 	/** Shadow offset, as a fraction of CARD_W — scales with the cards rather than the screen. */
 	private static final double SHADOW_OFFSET_FRACTION = 0.018;
 
+	/** Matching {@code PlayerHandFanPanel.FACE_SUPERSAMPLE}, so both fans resample the same way. */
+	private static final int BACK_SUPERSAMPLE = 2;
+
 	private final boolean         isP1;
 	private final Supplier<Image> cardback;
 
@@ -115,12 +118,19 @@ public class HandFanPanel extends JComponent {
 		if (back == null) {
 			Image raw = cardback.get();
 			if (raw == null) return;
-			back = CardAnimation.toARGB(raw, CardAnimation.CARD_W, CardAnimation.CARD_H);
+			// Oversized, and scaled back down by the slot transform below — see
+			// PlayerHandFanPanel.FACE_SUPERSAMPLE for why a fanned card wants that and a card on
+			// the field does not. One image for the whole fan, so it is nearly free here.
+			int src = raw.getWidth(null);
+			int cap = src > 0 ? Math.max(CardAnimation.CARD_W, src) : Integer.MAX_VALUE;
+			int bw  = Math.min(CardAnimation.CARD_W * BACK_SUPERSAMPLE, cap);
+			int bh  = (int) Math.round(bw * (double) CardAnimation.CARD_H / CardAnimation.CARD_W);
+			back = CardAnimation.toARGB(raw, bw, bh);
 		}
 
 		Graphics2D g = (Graphics2D) g0.create();
 		g.setRenderingHint(RenderingHints.KEY_ANTIALIASING,   RenderingHints.VALUE_ANTIALIAS_ON);
-		g.setRenderingHint(RenderingHints.KEY_INTERPOLATION,  RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+		g.setRenderingHint(RenderingHints.KEY_INTERPOLATION,  RenderingHints.VALUE_INTERPOLATION_BICUBIC);
 		g.setRenderingHint(RenderingHints.KEY_RENDERING,      RenderingHints.VALUE_RENDER_QUALITY);
 
 		int cw = CardAnimation.CARD_W;
@@ -146,7 +156,9 @@ public class HandFanPanel extends JComponent {
 			g.setColor(SHADOW);
 			g.fill(sx.createTransformedShape(outline));
 
-			g.drawImage(back, tx, null);
+			AffineTransform bx = new AffineTransform(tx);
+			bx.scale(cw / (double) back.getWidth(), ch / (double) back.getHeight());
+			g.drawImage(back, bx, null);
 			g.setColor(EDGE);
 			g.draw(tx.createTransformedShape(outline));
 		}
