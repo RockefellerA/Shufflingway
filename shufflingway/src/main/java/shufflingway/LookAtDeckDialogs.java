@@ -1585,31 +1585,174 @@ class LookAtDeckDialogs {
      */
     void revealAddUpToExcludingNameRestBz(List<CardData> cards, Deque<CardData> deck,
             boolean isP1, int maxAdd, String excludeName) {
+        revealAddUpToRestBz(cards, deck, isP1, maxAdd,
+                c -> !c.name().equalsIgnoreCase(excludeName),
+                "Card Name " + excludeName + " (red) must go to Break Zone.");
+    }
+
+    /**
+     * "Reveal the top N cards of your deck. Add up to M [Category X] [Type] among them to your
+     * hand and put the rest of the cards into the Break Zone." — Nael 9-014L and its family.
+     *
+     * <p>The sibling of {@link #revealAddUpToExcludingNameRestBz}: same take-up-to-M-then-bin-the-
+     * rest shape, but the cards it will let you take are named by what they <em>are</em> rather
+     * than by what they are not. Eligibility comes from {@link #eligibleForReveal}, the same test
+     * the rest-to-bottom arm uses, so a filter means the same thing whichever way the leftovers go.
+     */
+    void revealAddUpToMatchingRestBz(List<CardData> cards, Deque<CardData> deck, boolean isP1,
+            int maxAdd, String categoryFilter, String typeFilter) {
+        revealAddUpToRestBz(cards, deck, isP1, maxAdd,
+                c -> eligibleForReveal(c, null, categoryFilter, null, typeFilter, -1, null, null),
+                restBzFilterNote(categoryFilter, typeFilter));
+    }
+
+    /** The instruction line's description of what may be taken; empty when anything may be. */
+    private static String restBzFilterNote(String categoryFilter, String typeFilter) {
+        if (categoryFilter == null && typeFilter == null) return "";
+        StringBuilder sb = new StringBuilder("Only ");
+        if (categoryFilter != null) sb.append("Category ").append(categoryFilter).append(' ');
+        sb.append(typeFilter != null ? typeFilter + "s" : "cards");
+        return sb.append(" may be taken; anything else (red) goes to the Break Zone.").toString();
+    }
+
+    /**
+     * "Reveal the top N cards of your deck. Add up to M [filtered] among them to your hand. Then
+     * shuffle the other cards and return them to the bottom of your deck." — Bartz 27-110H,
+     * Ace 9-003L.
+     *
+     * <p>What is shuffled is the <em>revealed remainder</em>, not the deck: the cards nobody took
+     * go under the deck in an order neither player knows. That is the point of the wording, and it
+     * is what separates this from the "return the other cards to the bottom of your deck in any
+     * order" forms, where the player picks the order and therefore knows it.
+     *
+     * <p>Eligibility is {@link #shuffledBottomFilter}, not the shared {@link #eligibleForReveal} —
+     * see that method for why this family cannot reuse it.
+     */
+    void revealAddUpToMatchingRestShuffledBottom(List<CardData> cards, Deque<CardData> deck,
+            boolean isP1, int maxAdd, String jobFilter, String categoryFilter, String typeFilter,
+            String excludeName) {
+        revealAddUpTo(cards, deck, isP1, maxAdd,
+                shuffledBottomFilter(jobFilter, categoryFilter, typeFilter, excludeName),
+                shuffledBottomNote(jobFilter, categoryFilter, typeFilter, excludeName),
+                RestGoes.SHUFFLED_BOTTOM);
+    }
+
+    /**
+     * Eligibility for the reveal above: every stated filter must hold, and the excluded name must
+     * not.
+     *
+     * <p>Deliberately not {@link #eligibleForReveal}. That helper ORs its filters and, for a bare
+     * Job or Category with no type, narrows the result to Characters — both of which are
+     * compensation for older patterns that dropped the printed noun. This pattern keeps the noun,
+     * so inheriting either would be wrong: Bartz 27-110H takes "Category V <em>cards</em>", and
+     * under the Character narrowing a Category V Summon would have been unselectable.
+     */
+    private static Predicate<CardData> shuffledBottomFilter(String jobFilter, String categoryFilter,
+            String typeFilter, String excludeName) {
+        return c -> (jobFilter      == null || CardFilters.meetsJobFilter(c, jobFilter))
+                 && (categoryFilter == null || CardFilters.meetsCategoryFilter(c, categoryFilter))
+                 && (typeFilter     == null || meetsRevealTypeFilter(c, typeFilter))
+                 && (excludeName    == null || !c.name().equalsIgnoreCase(excludeName));
+    }
+
+    private static String shuffledBottomNote(String jobFilter, String categoryFilter,
+            String typeFilter, String excludeName) {
+        StringBuilder sb = new StringBuilder();
+        if (jobFilter != null || categoryFilter != null || typeFilter != null) {
+            sb.append("Only ");
+            if (jobFilter      != null) sb.append("Job ").append(jobFilter).append(" ");
+            if (categoryFilter != null) sb.append("Category ").append(categoryFilter).append(" ");
+            sb.append(typeFilter != null ? typeFilter + "s" : "cards").append(" may be taken. ");
+        }
+        if (excludeName != null) sb.append("Card Name ").append(excludeName).append(" may not. ");
+        return sb.append("The rest are shuffled and go under your deck.").toString();
+    }
+
+    /** Where the cards a reveal did not take end up. */
+    private enum RestGoes { BREAK_ZONE, SHUFFLED_BOTTOM }
+
+    /** Shared body: take up to {@code maxAdd} cards {@code eligible} accepts, route what is left. */
+    private void revealAddUpToRestBz(List<CardData> cards, Deque<CardData> deck, boolean isP1,
+            int maxAdd, Predicate<CardData> eligible, String note) {
+        revealAddUpTo(cards, deck, isP1, maxAdd, eligible, note, RestGoes.BREAK_ZONE);
+    }
+
+    private void revealAddUpTo(List<CardData> cards, Deque<CardData> deck, boolean isP1,
+            int maxAdd, Predicate<CardData> eligible, String note, RestGoes goes) {
         resolveReveal(cards, deck, isP1,
-                () -> askRevealAddUpToExcludingNameRestBz(cards, maxAdd, excludeName),
-                () -> cpuRevealAddUpToExcludingNameRestBz(cards, maxAdd, excludeName),
+                () -> askRevealAddUpToRestBz(cards, maxAdd, eligible, note, goes),
+                () -> cpuRevealAddUpToRestBz(cards, maxAdd, eligible, goes),
                 null);
+    }
+
+    /**
+     * Packs a taken/left-over split into the answer, sending the leftovers where {@code goes} says.
+     *
+     * <p>A shuffle happens <b>here</b>, while the answer is being built, and never while it is
+     * being applied. The answer travels as indices, so shuffling at this point puts one agreed
+     * order on the wire; shuffling at apply time would have each client roll its own and the two
+     * decks would silently diverge.
+     */
+    private static DeckLookDecision splitDecision(List<CardData> cards, List<CardData> taken,
+            RestGoes goes) {
+        List<CardData> rest = new ArrayList<>();
+        for (CardData c : cards) if (!holdsIdentity(taken, c)) rest.add(c);
+        List<Integer> restIdx = new ArrayList<>(peekIndices(cards, rest));
+        if (goes == RestGoes.BREAK_ZONE)
+            return new DeckLookDecision(peekIndices(cards, taken), restIdx, List.of(), List.of());
+        java.util.Collections.shuffle(restIdx);
+        return new DeckLookDecision(peekIndices(cards, taken), List.of(), List.of(), restIdx);
     }
 
     /** The AI's answer: the most expensive cards it is allowed, the rest to the Break Zone. */
     static DeckLookDecision cpuRevealAddUpToExcludingNameRestBz(List<CardData> cards,
             int maxAdd, String excludeName) {
+        return cpuRevealAddUpToRestBz(cards, maxAdd, c -> !c.name().equalsIgnoreCase(excludeName));
+    }
+
+    /** As above, for a reveal whose take is restricted by category and/or type rather than name. */
+    static DeckLookDecision cpuRevealAddUpToMatchingRestBz(List<CardData> cards, int maxAdd,
+            String categoryFilter, String typeFilter) {
+        return cpuRevealAddUpToRestBz(cards, maxAdd,
+                c -> eligibleForReveal(c, null, categoryFilter, null, typeFilter, -1, null, null),
+                RestGoes.BREAK_ZONE);
+    }
+
+    /** As above, for the reveals whose leftovers are shuffled under the deck instead. */
+    static DeckLookDecision cpuRevealAddUpToMatchingRestShuffledBottom(List<CardData> cards,
+            int maxAdd, String jobFilter, String categoryFilter, String typeFilter,
+            String excludeName) {
+        return cpuRevealAddUpToRestBz(cards, maxAdd,
+                shuffledBottomFilter(jobFilter, categoryFilter, typeFilter, excludeName),
+                RestGoes.SHUFFLED_BOTTOM);
+    }
+
+    private static DeckLookDecision cpuRevealAddUpToRestBz(List<CardData> cards, int maxAdd,
+            Predicate<CardData> test) {
+        return cpuRevealAddUpToRestBz(cards, maxAdd, test, RestGoes.BREAK_ZONE);
+    }
+
+    /** Shared body for all of them: the dearest cards {@code test} allows, the rest per {@code goes}. */
+    private static DeckLookDecision cpuRevealAddUpToRestBz(List<CardData> cards, int maxAdd,
+            Predicate<CardData> test, RestGoes goes) {
         List<Integer> eligible = new ArrayList<>();
         for (int i = 0; i < cards.size(); i++)
-            if (!cards.get(i).name().equalsIgnoreCase(excludeName)) eligible.add(i);
+            if (test.test(cards.get(i))) eligible.add(i);
         eligible.sort(java.util.Comparator.comparingInt((Integer i) -> cards.get(i).cost()).reversed());
 
         List<Integer> toHand = new ArrayList<>(eligible.subList(0, Math.min(maxAdd, eligible.size())));
-        List<Integer> toBreak = new ArrayList<>();
-        for (int i = 0; i < cards.size(); i++) if (!toHand.contains(i)) toBreak.add(i);
-        return new DeckLookDecision(toHand, toBreak, List.of(), List.of());
+        List<CardData> taken = new ArrayList<>();
+        for (int i : toHand) taken.add(cards.get(i));
+        return splitDecision(cards, taken, goes);
     }
 
-    private DeckLookDecision askRevealAddUpToExcludingNameRestBz(List<CardData> cards,
-            int maxAdd, String excludeName) {
+    private DeckLookDecision askRevealAddUpToRestBz(List<CardData> cards,
+            int maxAdd, Predicate<CardData> eligible, String note, RestGoes goes) {
         int n = cards.size();
         JDialog dlg = new JDialog(frame,
-                "Reveal — Add to Hand (up to " + maxAdd + "), Rest to Break Zone", true);
+                "Reveal — Add to Hand (up to " + maxAdd + "), "
+                + (goes == RestGoes.BREAK_ZONE ? "Rest to Break Zone"
+                                               : "Rest Shuffled Under Your Deck"), true);
         dlg.setResizable(false);
         dlg.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
 
@@ -1626,7 +1769,7 @@ class LookAtDeckDialogs {
             int count = handSel.size();
             for (int j = 0; j < n; j++) {
                 CardData c = cards.get(j);
-                boolean excluded = c.name().equalsIgnoreCase(excludeName);
+                boolean excluded = !eligible.test(c);
                 boolean inHand = holdsIdentity(handSel, c);
                 handBtns[j].setEnabled(!excluded && (inHand || count < maxAdd));
             }
@@ -1635,7 +1778,7 @@ class LookAtDeckDialogs {
         Runnable refreshBorders = () -> {
             for (int j = 0; j < n; j++) {
                 CardData c = cards.get(j);
-                boolean excluded = c.name().equalsIgnoreCase(excludeName);
+                boolean excluded = !eligible.test(c);
                 if (holdsIdentity(handSel, c))
                     cardLabels[j].setBorder(BorderFactory.createLineBorder(new Color(0, 200, 80), 3));
                 else if (excluded)
@@ -1697,8 +1840,8 @@ class LookAtDeckDialogs {
         }
 
         JLabel instructions = new JLabel(
-                txt("Toggle '→ Hand' to add cards (up to " + maxAdd
-                        + "). Card Name " + excludeName + " (red) must go to Break Zone."),
+                txt("Toggle '→ Hand' to add cards (up to " + maxAdd + ")."
+                        + (note.isEmpty() ? "" : " " + note)),
                 SwingConstants.CENTER);
         instructions.setFont(FontLoader.loadPixelFont(9));
         confirmBtn.addActionListener(ae -> { hideZoom(); dlg.dispose(); });
@@ -1716,10 +1859,7 @@ class LookAtDeckDialogs {
         dlg.setLocationRelativeTo(frame);
         dlg.setVisible(true);
 
-        List<CardData> broken = new ArrayList<>();
-        for (CardData c : cards) if (!holdsIdentity(handSel, c)) broken.add(c);
-        return new DeckLookDecision(peekIndices(cards, handSel), peekIndices(cards, broken),
-                List.of(), List.of());
+        return splitDecision(cards, handSel, goes);
     }
 
     /**

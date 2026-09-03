@@ -9547,6 +9547,18 @@ public record CardData(
     private static final Pattern SELF_COND_N_OR_MORE_CATEGORY_BZ_AND_RFP = Pattern.compile(
         "(?i)^you\\s+have\\s+a\\s+total\\s+of\\s+(?<n>\\d+)\\s+or\\s+more\\s+Category\\s+(?<cat>\\S+)\\s+cards\\s+in\\s+your\\s+Break\\s+Zone\\s+and/or\\s+Category\\s+\\S+\\s+cards\\s+you\\s+own\\s+removed\\s+from\\s+the\\s+game$"
     );
+    /**
+     * "any Card Name X you own are removed from the game" — Sephiroth 29-087L. Plural "are",
+     * because the subject is "any ... Sephiroth", but the condition is still a yes/no: the text
+     * asks whether any copy is out there, not how many. Singular "is" is accepted too — nothing
+     * but the corpus decides which the next printing uses.
+     *
+     * <p>Shares "removed from the game" with {@link #SELF_COND_N_OR_MORE_CATEGORY_BZ_AND_RFP},
+     * but the two cannot collide: that one is anchored on "you have a total of N or more".
+     */
+    private static final Pattern SELF_COND_NAME_IN_RFP = Pattern.compile(
+        "(?i)^any\\s+Card\\s+Name\\s+(?<name>.+?)\\s+you\\s+own\\s+(?:are|is)\\s+removed\\s+from\\s+the\\s+game$"
+    );
     private static final Pattern SELF_COND_OWN_ELEMENT_OR_CATEGORY_BROKEN = Pattern.compile(
         "(?i)^a\\s+(?<element>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)\\s+Characters?\\s+or\\s+Category\\s+(?<cat>\\S+)\\s+Characters?\\s+you\\s+controlled\\s+has\\s+been\\s+put\\s+from\\s+the\\s+field\\s+into\\s+the\\s+Break\\s+Zone\\s+this\\s+turn$"
     );
@@ -9907,6 +9919,14 @@ public record CardData(
                         mod = new SelfCostModifier(amount, minCost, isIncrease,
                                 SelfCostModifier.ScalingType.IF_N_OR_MORE_CATEGORY_IN_BZ_AND_RFP,
                                 cm.group("n").trim(), cm.group("cat").trim());
+                    }
+                }
+                if (mod == null) {
+                    cm = SELF_COND_NAME_IN_RFP.matcher(condRaw.trim());
+                    if (cm.find()) {
+                        mod = new SelfCostModifier(amount, minCost, isIncrease,
+                                SelfCostModifier.ScalingType.IF_NAME_IN_RFP,
+                                cm.group("name").trim(), null);
                     }
                 }
                 if (mod == null) {

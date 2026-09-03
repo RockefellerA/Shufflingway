@@ -256,9 +256,42 @@ public class GameState {
     // Permanent Removed-From-Game zone (Primed top cards, etc.)
     // -------------------------------------------------------------------------
 
+    /**
+     * Whether {@code card} is owned by P1, for a caller that has no better answer of its own.
+     *
+     * <p>{@link #identity} is written when a deck is dealt, so every card that reached play by the
+     * ordinary route is in it. One that is not used to be fatal here: {@code identity.get(card)}
+     * returns {@code null} and unboxing it inside a ternary throws, which stranded the card
+     * mid-move — already gone from the zone it was leaving, never filed in the one it was headed
+     * for, and still drawn on the board. An unknown owner answers P1 instead, which keeps the move
+     * whole; {@link #addToPermanentRfp(CardData, boolean)} lets a caller that knows better say so.
+     */
+    private boolean ownedByP1(CardData card)
+    {
+        return identity.getOrDefault(card, Boolean.TRUE);
+    }
+
     public void addToPermanentRfp(CardData card)
     {
-        (identity.get(card) ? p1PermanentRfp : p2PermanentRfp).add(card);
+        (ownedByP1(card) ? p1PermanentRfp : p2PermanentRfp).add(card);
+    }
+
+    /**
+     * Files {@code card} in its owner's removed-from-game zone, with {@code fallbackOwnerIsP1} used
+     * only when the card has no recorded owner.
+     *
+     * <p>The recorded owner always wins, because a card can be removed from a field that is not its
+     * owner's — control changes hands, ownership does not — and the zone is kept by owner. The
+     * fallback is for the card the map has never heard of, where the side doing the removing is a
+     * better guess than a fixed default. Such a card is adopted into the map on the way through, so
+     * that whatever moves it next agrees with where this call put it.
+     */
+    public void addToPermanentRfp(CardData card, boolean fallbackOwnerIsP1)
+    {
+        Boolean known = identity.get(card);
+        boolean isP1  = known != null ? known : fallbackOwnerIsP1;
+        if (known == null) identity.put(card, isP1);
+        (isP1 ? p1PermanentRfp : p2PermanentRfp).add(card);
     }
 
     /**
@@ -283,8 +316,14 @@ public class GameState {
 
     public boolean removeFromPermanentRfp(CardData card)
     {
-        List<CardData> zone = identity.get(card) ? p1PermanentRfp : p2PermanentRfp;
+        // Its owner's zone first, then the other one. The second look costs nothing and covers a
+        // card filed under a fallback owner by an earlier call that did not know better either.
+        return removeFromRfpZone(ownedByP1(card) ? p1PermanentRfp : p2PermanentRfp, card)
+            || removeFromRfpZone(ownedByP1(card) ? p2PermanentRfp : p1PermanentRfp, card);
+    }
 
+    private boolean removeFromRfpZone(List<CardData> zone, CardData card)
+    {
         for (int i = 0; i < zone.size(); i++) {
             if(zone.get(i) == card) {
                 zone.remove(i);

@@ -17998,7 +17998,8 @@ public class MainWindow {
 		return (isP1 ? p1ForwardCards : p2ForwardCards).size();
 	}
 
-	private boolean hasAttackableForward() {
+	/** Package-private so the phase-continuation rule can be asserted directly. */
+	boolean hasAttackableForward() {
 		// The declaration cap is asked first: with none left there is no attacker to find, whatever
 		// the rows hold. This is the gate for both the phase-entry skip and the between-attacks
 		// continue, so The Night Dancer 17-078R closes the phase at zero Backups rather than
@@ -18007,7 +18008,13 @@ public class MainWindow {
 		int turn = gameState.getTurnNumber();
 		for (int i = 0; i < p1ForwardStates.size(); i++) {
 			CardData fwd = p1ForwardCards.get(i);
+			// hasAttackRemaining as well as ACTIVE, to stay in step with isForwardSelectable.
+			// Dulling on attack is what normally takes a Forward out of this loop, and Brave does
+			// not dull: without the count a Brave attacker stayed eligible here for the rest of the
+			// phase while being unclickable there, so the phase never closed itself and the only
+			// way out was Skip.
 			if (p1ForwardStates.get(i) == CardState.ACTIVE
+					&& hasAttackRemaining(effectiveP1Forward(i))
 					&& !p1CannotAttack.contains(fwd)
 					&& !p1CannotAttackPersistent.contains(fwd)
 					&& !Boolean.TRUE.equals(p1ForwardFrozen.get(i))

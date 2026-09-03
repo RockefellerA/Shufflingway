@@ -1021,6 +1021,18 @@ public class ActionResolver {
         result = tryParseRevealTopNAddUpToExcludingNameRestBz(effectText);
         if (result != null) return result;
 
+        // Ahead of the plain bottom-of-deck reveals below, which would otherwise claim this text
+        // and let the player order the leftovers that the card says to shuffle.
+        result = tryParseRevealTopNAddUpToMatchingRestShuffledBottom(effectText);
+        if (result != null) return result;
+
+        // Ahead of every "rest to the bottom" reveal below: those end on "return the other cards
+        // to the bottom of your deck", this one on "put the rest into the Break Zone", so the two
+        // never compete — but it must stay ahead of parse()'s compound-sentence fallback, which
+        // used to split this text and read the second sentence as a return-a-named-card.
+        result = tryParseRevealTopNAddUpToMatchingRestBz(effectText);
+        if (result != null) return result;
+
         result = tryParseRevealTopNTypeToHand(effectText);
         if (result != null) return result;
 
@@ -2022,6 +2034,8 @@ public class ActionResolver {
         if (tryParseOpponentHandRfp(effectText)               != null) return "OpponentHandRfp";
         if (tryParseRevealTopNAddOnePerTypeRestBz(effectText) != null) return "RevealTopNAddOnePerTypeRestBz";
         if (tryParseRevealTopNAddUpToExcludingNameRestBz(effectText) != null) return "RevealTopNAddUpToExcludingNameRestBz";
+        if (tryParseRevealTopNAddUpToMatchingRestShuffledBottom(effectText) != null) return "RevealTopNAddUpToMatchingRestShuffledBottom";
+        if (tryParseRevealTopNAddUpToMatchingRestBz(effectText) != null) return "RevealTopNAddUpToMatchingRestBz";
         if (tryParseRevealTopNTypeToHand(effectText) != null) return "RevealTopNTypeToHand";
         if (tryParseRevealTopNCategoryToHand(effectText) != null) return "RevealTopNCategoryToHand";
         if (tryParseRevealTopNJobOrNameToHand(effectText) != null) return "RevealTopNJobOrNameToHand";
@@ -3366,6 +3380,8 @@ public class ActionResolver {
         if (tryParseOpponentHandRfp(effectText) != null)                   return "OpponentHandRfp";
         if (tryParseRevealTopNAddOnePerTypeRestBz(effectText) != null)         return "RevealTopNAddOnePerTypeRestBz";
         if (tryParseRevealTopNAddUpToExcludingNameRestBz(effectText) != null)  return "RevealTopNAddUpToExcludingNameRestBz";
+        if (tryParseRevealTopNAddUpToMatchingRestShuffledBottom(effectText) != null) return "RevealTopNAddUpToMatchingRestShuffledBottom";
+        if (tryParseRevealTopNAddUpToMatchingRestBz(effectText) != null)       return "RevealTopNAddUpToMatchingRestBz";
         if (tryParseRevealTopNTypeToHand(effectText)       != null)           return "RevealTopNTypeToHand";
         if (tryParseRevealTopNCategoryToHand(effectText)   != null)          return "RevealTopNCategoryToHand";
         if (tryParseRevealTopNJobOrNameToHand(effectText)  != null)          return "RevealTopNJobOrNameToHand";

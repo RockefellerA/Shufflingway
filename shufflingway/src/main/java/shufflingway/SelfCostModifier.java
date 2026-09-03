@@ -186,6 +186,16 @@ public record SelfCostModifier(
          */
         IF_N_OR_MORE_CATEGORY_IN_BZ_AND_RFP,
         /**
+         * Flat delta (×1) if any card named {@code param1} the controller <em>owns</em> is
+         * removed from the game (Sephiroth 29-087L). Ownership, not control, is what the text asks
+         * about, and the removed-from-game zone is already kept per owner — so this reads the
+         * controller's own half of it and never the opponent's.
+         *
+         * <p>"If <em>any</em>" is a yes/no however many are there: one removed copy and four pay
+         * the same discount. Distinct from {@link #EACH_NAME_IN_BZ}, which does scale per copy.
+         */
+        IF_NAME_IN_RFP,
+        /**
          * Scales by field cards the controller controls of type {@code param2}
          * ("Forward", "Backup", "Character") whose printed cost is ≥ {@code Integer.parseInt(param1)}.
          */

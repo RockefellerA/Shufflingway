@@ -3966,6 +3966,34 @@ public interface GameContext {
     void revealTopAddUpToExcludingNameRestBz(int reveal, int maxAdd, String excludeName);
 
     /**
+     * "Reveal the top {@code reveal} cards of your deck. Add up to {@code maxAdd}
+     * [Category {@code categoryFilter}] [{@code typeFilter}] among them to your hand and put the
+     * rest of the cards into the Break Zone." — Nael 9-014L, Zenos 14-015R and their family.
+     *
+     * <p>The positive counterpart of {@link #revealTopAddUpToExcludingNameRestBz}: same shape, but
+     * what may be taken is stated rather than excepted. Either filter may be {@code null}, and with
+     * both null every revealed card may be taken.
+     */
+    void revealTopAddUpToMatchingRestBz(int reveal, int maxAdd, String categoryFilter,
+            String typeFilter);
+
+    /**
+     * "Reveal the top {@code reveal} cards of your deck. Add up to {@code maxAdd} [filtered] among
+     * them to your hand. Then shuffle the other cards and return them to the bottom of your deck."
+     * — Bartz 27-110H, Ace 9-003L.
+     *
+     * <p>The shuffle is of the <b>revealed remainder</b>, not of the deck. What the player did not
+     * take goes under the deck in an order nobody knows, which is the difference between this and
+     * the "return the other cards to the bottom of your deck in any order" endings, where the
+     * player orders them and therefore does know.
+     *
+     * @param excludeName a card name that may <em>not</em> be taken, or {@code null} — Ace 9-003L
+     *                    may not take another Ace, the only exclusion this family prints.
+     */
+    void revealTopAddUpToMatchingRestShuffledBottom(int reveal, int maxAdd, String jobFilter,
+            String categoryFilter, String typeFilter, String excludeName);
+
+    /**
      * Reveals the top {@code reveal} cards of the player's deck and takes up to one of each card
      * type in {@code types} to hand — "Add 1 Forward, 1 Backup, and 1 Summon among them to your
      * hand" (10-138S Ramza). Every revealed card not taken goes to the Break Zone.

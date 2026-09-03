@@ -538,10 +538,12 @@ final class ActionResolverSearch {
         Matcher m = REVEAL_TOP_N_CATEGORY_TO_HAND.matcher(s.isEmpty() ? text : s);
         if (!m.find()) return null;
         int n = Integer.parseInt(m.group("n"));
+        int max = Integer.parseInt(m.group("max"));
         String cat = m.group("cat");
         return ctx -> {
-            ctx.logEntry("Effect: Reveal top " + n + " — add 1 Category " + cat + " to hand, rest to bottom");
-            ctx.revealTopAddUpToMatchingRestBottom(n, 1, null, cat, null, null);
+            ctx.logEntry("Effect: Reveal top " + n + " — add up to " + max + " Category " + cat
+                    + " to hand, rest to bottom");
+            ctx.revealTopAddUpToMatchingRestBottom(n, max, null, cat, null, null);
         };
     }
     /**
@@ -621,6 +623,56 @@ final class ActionResolverSearch {
             ctx.logEntry("Effect: Reveal top " + n + " — add up to " + max + " " + normElement
                     + (typeFilter != null ? " " + typeFilter : " card") + "(s) to hand, rest to bottom");
             ctx.revealTopAddUpToMatchingRestBottom(n, max, null, null, null, typeFilter, -1, normElement);
+        };
+    }
+    /**
+     * Parses "Reveal the top N cards of your deck. Add up to M [filtered] among them to your hand.
+     * Then shuffle the other cards and return them to the bottom of your deck." — Bartz 27-110H,
+     * Ace 9-003L.
+     *
+     * <p>The leftovers are randomised rather than ordered by the player; see
+     * {@link GameContext#revealTopAddUpToMatchingRestShuffledBottom}.
+     */
+    static Consumer<GameContext> tryParseRevealTopNAddUpToMatchingRestShuffledBottom(String text) {
+        Matcher m = REVEAL_TOP_N_ADD_UP_TO_MATCHING_REST_SHUFFLED_BOTTOM.matcher(text.trim());
+        if (!m.matches()) return null;
+        int n   = Integer.parseInt(m.group("n"));
+        int max = Integer.parseInt(m.group("max"));
+        String cat     = m.group("cat");
+        String job     = m.group("job");
+        String exclude = m.group("exclude");
+        String typeRaw = m.group("type");
+        String type    = typeRaw != null ? cap(typeRaw.replaceAll("(?i)s$", "")) : null;
+        String what = (job != null ? "Job " + job + " " : "")
+                + (cat != null ? "Category " + cat + " " : "")
+                + (type != null ? type : "card")
+                + (exclude != null ? " (excl. Card Name " + exclude + ")" : "");
+        return ctx -> {
+            ctx.logEntry("Effect: Reveal top " + n + " — add up to " + max + " " + what
+                    + " to hand, shuffle the rest under the deck");
+            ctx.revealTopAddUpToMatchingRestShuffledBottom(n, max, job, cat, type, exclude);
+        };
+    }
+    /**
+     * Parses "Reveal the top N cards of your deck. Add up to M [Category X] [Type] among them to
+     * your hand and put the rest of the cards into the Break Zone." — Nael 9-014L and family.
+     *
+     * <p>A plural type is singularised for the filter ("Forwards" is a count, "Forward" is what a
+     * card is), and a bare "cards" leaves the filter null so everything revealed may be taken.
+     */
+    static Consumer<GameContext> tryParseRevealTopNAddUpToMatchingRestBz(String text) {
+        Matcher m = REVEAL_TOP_N_ADD_UP_TO_MATCHING_REST_BZ.matcher(text.trim());
+        if (!m.matches()) return null;
+        int n   = Integer.parseInt(m.group("n"));
+        int max = Integer.parseInt(m.group("max"));
+        String cat     = m.group("cat");
+        String typeRaw = m.group("type");
+        String type    = typeRaw != null ? cap(typeRaw.replaceAll("(?i)s$", "")) : null;
+        String what = (cat != null ? "Category " + cat + " " : "") + (type != null ? type : "card");
+        return ctx -> {
+            ctx.logEntry("Effect: Reveal top " + n + " — add up to " + max + " " + what
+                    + "(s) to hand, rest to Break Zone");
+            ctx.revealTopAddUpToMatchingRestBz(n, max, cat, type);
         };
     }
     static Consumer<GameContext> tryParseRevealTopNAddUpToExcludingNameRestBz(String text) {

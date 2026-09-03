@@ -2334,6 +2334,7 @@ final class GameContextImpl implements GameContext {
 				while (bz.size() > before)
 					mw.gameState.addToPermanentRfp(bz.remove(bz.size() - 1));
 				mw.refreshP2BreakLabel();
+				mw.refreshP2WarpZoneUI();
 			}
 
 			/**
@@ -5238,9 +5239,31 @@ final class GameContextImpl implements GameContext {
 						CardState[] states = t.isP1() ? mw.p1BackupStates : mw.p2BackupStates;
 						if (i >= cards.length || cards[i] == null) return;
 						logEntry((t.isP1() ? "" : "[P2] ") + cards[i].name() + " → Removed From Game");
-						mw.gameState.addToPermanentRfp(cards[i]);
+						mw.gameState.addToPermanentRfp(cards[i], t.isP1());
 						cards[i] = null; states[i] = CardState.ACTIVE;
-						if (t.isP1()) mw.refreshP1BackupSlot(i); else mw.refreshP2BackupSlot(i);
+						// The url, not the card, is what refreshP1BackupSlot reads to decide the
+						// slot is empty. Clearing only the card left the url set, so the refresh
+						// redrew the card that had just left from the image cache — gone from every
+						// rule that reads the row, still painted on the board. The frozen flag is
+						// per slot too, and would have tinted whatever landed there next. Every
+						// other way a Backup leaves the field clears all three; so does this now.
+						if (t.isP1()) {
+							mw.p1BackupUrls[i]   = null;
+							mw.p1BackupFrozen[i] = false;
+							if (mw.p1BackupLabels[i] != null) {
+								mw.p1BackupLabels[i].setIcon(null); mw.p1BackupLabels[i].setText(null);
+							}
+							mw.refreshP1BackupSlot(i);
+							mw.refreshP1WarpZoneUI();
+						} else {
+							mw.p2BackupUrls[i]   = null;
+							mw.p2BackupFrozen[i] = false;
+							if (mw.p2BackupLabels[i] != null) {
+								mw.p2BackupLabels[i].setIcon(null); mw.p2BackupLabels[i].setText(null);
+							}
+							mw.refreshP2BackupSlot(i);
+							mw.refreshP2WarpZoneUI();
+						}
 					}
 					case MONSTER -> {
 						int i = t.idx();
@@ -5248,7 +5271,7 @@ final class GameContextImpl implements GameContext {
 						if (i >= cards.size()) return;
 						CardData c = cards.get(i);
 						logEntry((t.isP1() ? "" : "[P2] ") + c.name() + " → Removed From Game");
-						mw.gameState.addToPermanentRfp(c);
+						mw.gameState.addToPermanentRfp(c, t.isP1());
 						cards.remove(i);
 						(t.isP1() ? mw.p1MonsterStates : mw.p2MonsterStates).remove(i);
 						(t.isP1() ? mw.p1MonsterFrozen : mw.p2MonsterFrozen).remove(i);
@@ -5257,6 +5280,8 @@ final class GameContextImpl implements GameContext {
 						JLabel lbl = (t.isP1() ? mw.p1MonsterLabels : mw.p2MonsterLabels).remove(i);
 						JPanel panel = t.isP1() ? mw.p1MonsterPanel : mw.p2MonsterPanel;
 						panel.remove(lbl); panel.revalidate(); panel.repaint();
+						// The zone label is redrawn from the RFG list, and nothing else here does it.
+						if (t.isP1()) mw.refreshP1WarpZoneUI(); else mw.refreshP2WarpZoneUI();
 					}
 					case BREAK_ZONE -> {
 						int i = t.idx();
@@ -5266,7 +5291,7 @@ final class GameContextImpl implements GameContext {
 						mw.lastRemovedFromGameCardCost  = c.cost();
 						mw.lastRemovedFromGameCardPower = c.power();
 						logEntry((t.isP1() ? "" : "[P2] ") + c.name() + " → Removed From Game (from Break Zone)");
-						mw.gameState.addToPermanentRfp(c);
+						mw.gameState.addToPermanentRfp(c, t.isP1());
 						if (t.isP1()) { mw.refreshP1BreakLabel(); mw.refreshP1WarpZoneUI(); }
 						else          { mw.refreshP2BreakLabel(); mw.refreshP2WarpZoneUI(); }
 					}
@@ -9370,6 +9395,32 @@ final class GameContextImpl implements GameContext {
 				logEntry("Reveal top " + n + " card(s): " +
 						peeked.stream().map(CardData::name).collect(Collectors.joining(", ")));
 				mw.lookDialogs().revealAddUpToExcludingNameRestBz(peeked, deck, isP1, maxAdd, excludeName);
+			}
+
+			@Override public void revealTopAddUpToMatchingRestBz(int reveal, int maxAdd,
+					String categoryFilter, String typeFilter) {
+				Deque<CardData> deck = isP1 ? mw.gameState.getP1MainDeck() : mw.gameState.getP2MainDeck();
+				int n = Math.min(reveal, deck.size());
+				if (n == 0) { logEntry("Reveal top: deck is empty."); return; }
+				List<CardData> peeked = new ArrayList<>();
+				for (CardData c : deck) { peeked.add(c); if (peeked.size() >= n) break; }
+				logEntry("Reveal top " + n + " card(s): " +
+						peeked.stream().map(CardData::name).collect(Collectors.joining(", ")));
+				mw.lookDialogs().revealAddUpToMatchingRestBz(peeked, deck, isP1, maxAdd,
+						categoryFilter, typeFilter);
+			}
+
+			@Override public void revealTopAddUpToMatchingRestShuffledBottom(int reveal, int maxAdd,
+					String jobFilter, String categoryFilter, String typeFilter, String excludeName) {
+				Deque<CardData> deck = isP1 ? mw.gameState.getP1MainDeck() : mw.gameState.getP2MainDeck();
+				int n = Math.min(reveal, deck.size());
+				if (n == 0) { logEntry("Reveal top: deck is empty."); return; }
+				List<CardData> peeked = new ArrayList<>();
+				for (CardData c : deck) { peeked.add(c); if (peeked.size() >= n) break; }
+				logEntry("Reveal top " + n + " card(s): " +
+						peeked.stream().map(CardData::name).collect(Collectors.joining(", ")));
+				mw.lookDialogs().revealAddUpToMatchingRestShuffledBottom(peeked, deck, isP1, maxAdd,
+						jobFilter, categoryFilter, typeFilter, excludeName);
 			}
 
 			@Override public void revealTopAddOnePerTypeToHandRestBz(int reveal, List<String> types) {

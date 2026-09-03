@@ -42725,5 +42725,464 @@ public class CardBehaviorTest {
 	}
 
 	// =========================================================================================
+	// 29-087L Sephiroth — a self-cost reduction conditioned on the removed-from-game zone
+	//
+	// "If any Card Name Sephiroth you own are removed from the game, the cost required to cast
+	// Sephiroth is reduced by 3." The zone it reads is the one the card's own ETF ability feeds
+	// ("choose 1 Character you control. Remove it from the game"), so a board that has already
+	// played one copy casts the next for 2 instead of 5.
+	//
+	// Two things separate it from the self-cost conditions already wired. It asks about ownership
+	// rather than control — a removed card is in nobody's field — and "if any" is a yes/no: a
+	// second removed copy pays no further discount. Both are what the tests below pin down.
+	// =========================================================================================
+
+	private static final String SEPHIROTH_29_087L_COST =
+			"If any Card Name Sephiroth you own are removed from the game, "
+			+ "the cost required to cast Sephiroth is reduced by 3.";
+
+	/** Sephiroth as printed: cost 5, with her self-cost modifier parsed from her text. */
+	private static CardData makeSephiroth() {
+		return new CardData(null, "Sephiroth", "Lightning", 5, 9000, "Forward", false, 0, false, false,
+				Set.of(), 0, List.of(), null, List.of(),
+				List.of(), List.of(), CardData.parseFieldAbilities(SEPHIROTH_29_087L_COST, "Forward"),
+				List.of(), List.of(), List.of(), List.of(),
+				CardData.parseSelfCostModifiers(SEPHIROTH_29_087L_COST),
+				List.of(), List.of(),
+				false, false, null, false, false, false, false, false, 1,
+				null, null, null, SEPHIROTH_29_087L_COST);
+	}
+
+	@Test
+	void sephirothRfgConditionParsesAsAFlatNameLookup() {
+		List<SelfCostModifier> mods = CardData.parseSelfCostModifiers(SEPHIROTH_29_087L_COST);
+
+		assertEquals(1, mods.size(), "the sentence is one self-cost modifier");
+		SelfCostModifier mod = mods.get(0);
+		assertEquals(SelfCostModifier.ScalingType.IF_NAME_IN_RFP, mod.scalingType());
+		assertEquals("Sephiroth", mod.param1());
+		assertEquals(3, mod.amountPerUnit());
+		assertFalse(mod.isIncrease());
+		assertEquals(0, mod.minCost(), "no \"it cannot become 0\" rider is printed");
+	}
+
+	@Test
+	void sephirothCostsHerPrintedCostWithNothingRemoved() {
+		MainWindow mw = new MainWindow();
+		assertEquals(5, mw.effectiveCastCost(makeSephiroth()));
+	}
+
+	@Test
+	void sephirothCostsThreeLessWithACopyRemovedFromTheGame() {
+		MainWindow mw = new MainWindow();
+		CardData removed = makeForward("Sephiroth", "Lightning", 5, 9000);
+		mw.gameState.getIdentity().put(removed, true);   // owned by P1
+		mw.gameState.addToPermanentRfp(removed);
+
+		assertEquals(2, mw.effectiveCastCost(makeSephiroth()));
+	}
+
+	@Test
+	void aSecondRemovedCopyDiscountsNoFurther() {
+		// "If any" is a yes/no, not a count — the distinction from an EACH_NAME_IN_BZ style scale.
+		MainWindow mw = new MainWindow();
+		for (int i = 0; i < 3; i++) {
+			CardData removed = makeForward("Sephiroth", "Lightning", 5, 9000);
+			mw.gameState.getIdentity().put(removed, true);
+			mw.gameState.addToPermanentRfp(removed);
+		}
+
+		assertEquals(2, mw.effectiveCastCost(makeSephiroth()), "still one discount, not three");
+	}
+
+	@Test
+	void someOtherCardRemovedFromTheGameIsNotSephiroth() {
+		MainWindow mw = new MainWindow();
+		CardData removed = makeForward("Cloud", "Lightning", 5, 9000);
+		mw.gameState.getIdentity().put(removed, true);
+		mw.gameState.addToPermanentRfp(removed);
+
+		assertEquals(5, mw.effectiveCastCost(makeSephiroth()));
+	}
+
+	@Test
+	void aSephirothTheOpponentOwnsDoesNotDiscountYours() {
+		// The text says "you own". The removed-from-game zone is split by owner, so reading the
+		// wrong half here would hand the discount to whichever player did not pay for it.
+		MainWindow mw = new MainWindow();
+		CardData removed = makeForward("Sephiroth", "Lightning", 5, 9000);
+		mw.gameState.getIdentity().put(removed, false);  // owned by P2
+		mw.gameState.addToPermanentRfp(removed);
+
+		assertEquals(5, mw.effectiveCastCost(makeSephiroth()));
+	}
+
+	@Test
+	void aSephirothInTheBreakZoneIsNotRemovedFromTheGame() {
+		// The neighbouring condition (Astrius 24-091L) reads Break Zone *and* RFG together; this
+		// one reads RFG alone, and the Break Zone must not stand in for it.
+		MainWindow mw = new MainWindow();
+		mw.gameState.getP1BreakZone().add(makeForward("Sephiroth", "Lightning", 5, 9000));
+
+		assertEquals(5, mw.effectiveCastCost(makeSephiroth()));
+	}
+
+	// =========================================================================================
+	// 9-014L Nael and family — "add up to M among them, rest to the Break Zone"
+	//
+	// Seven printings share this sentence, and none of them worked. The reveal/add family had a
+	// pattern for every "return the other cards to the bottom of your deck" ending and, for the
+	// Break-Zone ending, only the two special cases: "add 1 [Element|Category] card" and "add up
+	// to M cards other than Card Name X". The plain "add up to M [Category X] [Type]" fell past
+	// all of them into parse()'s compound-sentence fallback, which split on the full stop and read
+	// "Add up to 2 Forwards among them to your hand" as a request to return a card *named* "up to
+	// 2 Forwards among them" — logged in playtesting as
+	//   [Warning] returnNamedCardToYourHand: "up to 2 Forwards among them" not found
+	// so the cards were revealed and then nothing happened to them.
+	// =========================================================================================
+
+	private static final String NAEL_9_014L_ETF =
+			"reveal the top 3 cards of your deck. Add up to 2 Forwards among them to your hand "
+			+ "and put the rest of the cards into the Break Zone.";
+	private static final String ZENOS_14_015R_ETF =
+			"reveal the top 5 cards of your deck. Add up to 2 Category XIV Forwards among them to "
+			+ "your hand and put the rest of the cards into the Break Zone.";
+	private static final String MEIA_19_121H_ETF =
+			"reveal the top 5 cards of your deck. Add up to 2 Category MOBIUS cards among them to "
+			+ "your hand and put the rest of the cards into the Break Zone.";
+
+	@Test
+	void naelRevealAddsUpToTwoForwardsAndBinsTheRest() {
+		Consumer<GameContext> fn = ActionResolver.parse(NAEL_9_014L_ETF, null);
+		assertNotNull(fn, "Nael's enter-the-field reveal should parse");
+		GameContext ctx = mock(GameContext.class);
+		fn.accept(ctx);
+
+		verify(ctx).revealTopAddUpToMatchingRestBz(3, 2, null, "Forward");
+		// The bug: the second sentence used to be claimed as a return-a-named-card.
+		verify(ctx, never()).returnNamedCardToYourHand(anyString());
+	}
+
+	@Test
+	void naelIsAttributedToItsOwnParserRatherThanTheNamedReturn() {
+		assertEquals("RevealTopNAddUpToMatchingRestBz",
+				ActionResolver.matchedPatternName(NAEL_9_014L_ETF, null),
+				"it used to report ReturnNamedToHand, which is what the warning came from");
+	}
+
+	@Test
+	void aCategoryAndATypeAreBothCarriedThrough() {
+		GameContext ctx = mock(GameContext.class);
+		ActionResolver.parse(ZENOS_14_015R_ETF, null).accept(ctx);
+		verify(ctx).revealTopAddUpToMatchingRestBz(5, 2, "XIV", "Forward");
+	}
+
+	@Test
+	void aCategoryWithoutATypeLeavesTheTypeFilterOpen() {
+		// "Category MOBIUS cards" restricts the category and nothing else — a Summon qualifies.
+		GameContext ctx = mock(GameContext.class);
+		ActionResolver.parse(MEIA_19_121H_ETF, null).accept(ctx);
+		verify(ctx).revealTopAddUpToMatchingRestBz(5, 2, "MOBIUS", null);
+	}
+
+	@Test
+	void theRestToBottomSiblingIsNotClaimedByTheBreakZoneParser() {
+		// The two endings are what tell these apart; claiming the wrong one would send the
+		// leftovers to the wrong zone silently.
+		String toBottom = "reveal the top 5 cards of your deck. Add 2 Forwards among them to your "
+				+ "hand and return the other cards to the bottom of your deck in any order.";
+		assertNotEquals("RevealTopNAddUpToMatchingRestBz",
+				ActionResolver.matchedPatternName(toBottom, null));
+	}
+
+	@Test
+	void theAiTakesOnlyTheTypeTheRevealNames() {
+		// Same eligibility test as the rest-to-bottom arm, so a filter means one thing throughout.
+		List<CardData> cards = List.of(
+				makeForward("Dear Forward", "Fire", 6, 9000),
+				makeSummon("Costly Summon", "Fire", 7, ""),
+				makeForward("Cheap Forward", "Fire", 1, 5000));
+		DeckLookDecision d = LookAtDeckDialogs.cpuRevealAddUpToMatchingRestBz(cards, 2, null, "Forward");
+
+		assertEquals(List.of(0, 2), d.toHand(), "both Forwards, dearest first — never the Summon");
+		assertEquals(List.of(1), d.toBreak(), "the Summon is what the Break Zone gets");
+		assertTrue(d.toBottom().isEmpty(), "this reveal has no bottom-of-deck destination");
+	}
+
+	@Test
+	void theAiTakesNothingWhenNothingRevealedQualifies() {
+		List<CardData> cards = List.of(
+				makeSummon("Summon A", "Fire", 4, ""),
+				makeSummon("Summon B", "Fire", 2, ""));
+		DeckLookDecision d = LookAtDeckDialogs.cpuRevealAddUpToMatchingRestBz(cards, 2, null, "Forward");
+
+		assertTrue(d.toHand().isEmpty(), "a reveal that turns up no Forward adds no Forward");
+		assertEquals(List.of(0, 1), d.toBreak(), "and everything revealed still leaves the deck");
+	}
+
+	// =========================================================================================
+	// Two playtest reports, both about a card that had left the board in one sense but not another
+	//
+	//   * A Brave attacker held the Attack Phase open after spending its declaration. Brave does
+	//     not dull, and hasAttackableForward asked only whether a Forward was ACTIVE, while
+	//     isForwardSelectable — what decides if you can actually click one — also asked whether it
+	//     had an attack left. The phase kept asking for an attacker that could not be chosen.
+	//
+	//   * A Backup removed from the game as a cost stayed drawn on the field and never reached the
+	//     RFG zone, yet stopped answering for CP. GameState.addToPermanentRfp routed by the owner
+	//     map and unboxed a null for a card that map had never heard of, so it threw between
+	//     clearing the slot and filing the card — leaving it in neither place.
+	// =========================================================================================
+
+	@Test
+	void aSpentBraveAttackerNoLongerHoldsTheAttackPhaseOpen() {
+		MainWindow mw = new MainWindow();
+		CardData brave = makeForwardWithTraits("Brave One", "Fire", 9000,
+				Set.of(CardData.Trait.BRAVE, CardData.Trait.HASTE));
+		mw.placeCardInForwardZone(brave);
+		mw.gameState.getIdentity().put(brave, true);
+
+		assertTrue(mw.hasAttackableForward(), "Haste makes it attackable the turn it lands");
+
+		mw.executeP1Attack(List.of(0));
+
+		assertEquals(CardState.ACTIVE, mw.p1ForwardStates.get(0), "Brave does not dull on attack");
+		assertFalse(mw.hasAttackRemaining(brave), "and its one declaration is spent");
+		assertFalse(mw.hasAttackableForward(),
+				"so the phase has nothing left to offer and must close rather than ask for another");
+	}
+
+	@Test
+	void anUnspentBraveAttackerStillHoldsThePhaseOpen() {
+		// The other side of the same rule: the fix must not close the phase on a Forward that can
+		// still declare.
+		MainWindow mw = new MainWindow();
+		CardData brave = makeForwardWithTraits("Brave One", "Fire", 9000,
+				Set.of(CardData.Trait.BRAVE, CardData.Trait.HASTE));
+		mw.placeCardInForwardZone(brave);
+		mw.gameState.getIdentity().put(brave, true);
+
+		mw.executeP1Attack(List.of(0));
+		mw.buildGameContext(true).grantMaxAttacksUntilEndOfTurn(brave, 2);
+
+		assertTrue(mw.hasAttackableForward(),
+				"a second declaration is available, so the phase still has an attacker to offer");
+	}
+
+	@Test
+	void aFieldCardWithNoRecordedOwnerStillLeavesTheFieldWhenRemoved() {
+		// Never registered in the owner map — which used to make removing it throw, stranding it.
+		MainWindow mw = new MainWindow();
+		CardData orphan = makePlainBackup("Red Mage", "Fire", 2);
+		mw.p1BackupCards[0] = orphan;
+
+		mw.buildGameContext(true).removeTargetFromGame(
+				new ForwardTarget(true, 0, ForwardTarget.CardZone.BACKUP));
+
+		assertNull(mw.p1BackupCards[0], "the slot it occupied is cleared");
+		assertEquals(List.of(orphan), mw.gameState.getP1PermanentRfp(),
+				"and it is filed with the side that removed it rather than lost between the two");
+	}
+
+	@Test
+	void aRecordedOwnerStillBeatsTheSideDoingTheRemoving() {
+		// Control changes hands and ownership does not, so a borrowed Backup removed from P1's
+		// field belongs in P2's zone. The fallback is only for a card with no owner on record.
+		MainWindow mw = new MainWindow();
+		CardData borrowed = makePlainBackup("Borrowed Mage", "Fire", 2);
+		mw.gameState.getIdentity().put(borrowed, false);
+		mw.p1BackupCards[0] = borrowed;
+
+		mw.buildGameContext(true).removeTargetFromGame(
+				new ForwardTarget(true, 0, ForwardTarget.CardZone.BACKUP));
+
+		assertTrue(mw.gameState.getP1PermanentRfp().isEmpty(), "not the controller's zone");
+		assertEquals(List.of(borrowed), mw.gameState.getP2PermanentRfp(), "its owner's");
+	}
+
+	@Test
+	void anUnownedRemovedCardCanStillBeCalledBack() {
+		// The lookup half of the same map. A card filed under the fallback has to be findable
+		// again, or anything that returns cards from the RFG zone would quietly leave it there.
+		MainWindow mw = new MainWindow();
+		CardData orphan = makePlainBackup("Red Mage", "Fire", 2);
+		mw.p1BackupCards[0] = orphan;
+		mw.buildGameContext(true).removeTargetFromGame(
+				new ForwardTarget(true, 0, ForwardTarget.CardZone.BACKUP));
+
+		assertTrue(mw.gameState.removeFromPermanentRfp(orphan), "found where it was filed");
+		assertTrue(mw.gameState.getP1PermanentRfp().isEmpty());
+	}
+
+	// =========================================================================================
+	// Removing a Backup from the game as a cost — Nael 9-014L, reported from playtesting as
+	// "targeted Red Mage but it's still visibly on the field, and it isn't showing in the RFP
+	// zone ... it's not showing during CP payments and Nael's ability doesn't see an eligible
+	// backup."
+	//
+	// All four halves of that are one bug. refreshP1BackupSlot decides a slot is empty by asking
+	// whether its *url* is null, not its card; removeTargetFromGame cleared only the card, so the
+	// row stopped answering for CP and for targeting while the slot happily redrew the departed
+	// card from the image cache. And the RFG label is painted from the zone list by
+	// refreshWarpZoneUI, which the Backup and Monster branches never called.
+	// =========================================================================================
+
+	@Test
+	void aBackupRemovedFromTheGameLeavesNothingBehindInItsSlot() {
+		MainWindow mw = new MainWindow();
+		CardData redMage = makePlainBackup("Red Mage", "Fire", 2);
+		mw.gameState.getIdentity().put(redMage, true);
+		mw.p1BackupCards[0] = redMage;
+		mw.p1BackupUrls[0]  = "http://example.invalid/red-mage.jpg";
+
+		mw.buildGameContext(true).removeTargetFromGame(
+				new ForwardTarget(true, 0, ForwardTarget.CardZone.BACKUP));
+
+		assertNull(mw.p1BackupCards[0], "gone from the row every rule reads");
+		assertNull(mw.p1BackupUrls[0],
+				"and from the url the slot repaints itself from — a stale url redrew the card "
+				+ "that had just been removed from the game");
+		assertEquals(List.of(redMage), mw.gameState.getP1PermanentRfp(), "and it is out of the game");
+	}
+
+	@Test
+	void theSlotDoesNotCarryAFrozenFlagOverToTheNextBackup() {
+		// p1BackupFrozen is indexed by slot, not by card, so leaving it set tints whatever lands
+		// in that slot next. The break path clears it; this one used not to.
+		MainWindow mw = new MainWindow();
+		CardData frozen = makePlainBackup("Frozen Mage", "Fire", 2);
+		mw.gameState.getIdentity().put(frozen, true);
+		mw.p1BackupCards[0]  = frozen;
+		mw.p1BackupUrls[0]   = "http://example.invalid/frozen.jpg";
+		mw.p1BackupFrozen[0] = true;
+
+		mw.buildGameContext(true).removeTargetFromGame(
+				new ForwardTarget(true, 0, ForwardTarget.CardZone.BACKUP));
+
+		assertFalse(mw.p1BackupFrozen[0], "the slot is clean for whoever occupies it next");
+	}
+
+	// =========================================================================================
+	// 27-110H Bartz and 9-003L Ace — "Then shuffle the other cards and return them to the bottom"
+	//
+	// The same take-up-to-M shape as Nael's family, with a tail that matters: the cards nobody
+	// took are shuffled *among themselves* and go under the deck in an order neither player knows.
+	// That is not the "return the other cards to the bottom of your deck in any order" ending,
+	// where the player arranges them and therefore does know — same cards, same destination,
+	// different information — so it gets its own pattern and its own executor rather than being
+	// folded into the existing bottom-of-deck reveals.
+	//
+	// Both had been falling through to parse()'s compound-sentence fallback and reporting as
+	// ReturnNamedToHand, the same way Nael did.
+	// =========================================================================================
+
+	private static final String BARTZ_27_110H_ETF =
+			"reveal the top 7 cards of your deck. Add up to 2 Category V cards among them to your "
+			+ "hand. Then shuffle the other cards and return them to the bottom of your deck.";
+	private static final String ACE_9_003L_ETF =
+			"reveal the top 7 cards of your deck. Add up to 2 Job Class Zero Cadet other than Card "
+			+ "Name Ace among them to your hand. Then, shuffle the other cards revealed and return "
+			+ "them to the bottom of your deck.";
+
+	@Test
+	void bartzTakesUpToTwoOfACategoryAndShufflesTheRestUnderTheDeck() {
+		Consumer<GameContext> fn = ActionResolver.parse(BARTZ_27_110H_ETF, null);
+		assertNotNull(fn, "Bartz's enter-the-field reveal should parse");
+		GameContext ctx = mock(GameContext.class);
+		fn.accept(ctx);
+
+		verify(ctx).revealTopAddUpToMatchingRestShuffledBottom(7, 2, null, "V", null, null);
+		verify(ctx, never()).returnNamedCardToYourHand(anyString());
+	}
+
+	@Test
+	void aceCarriesItsJobFilterAndItsSelfExclusion() {
+		// "Job Class Zero Cadet other than Card Name Ace" — the Job group is lazy so that the
+		// exclusion splits off at the right word rather than being swallowed into the Job name.
+		GameContext ctx = mock(GameContext.class);
+		ActionResolver.parse(ACE_9_003L_ETF, null).accept(ctx);
+
+		verify(ctx).revealTopAddUpToMatchingRestShuffledBottom(
+				7, 2, "Class Zero Cadet", null, null, "Ace");
+	}
+
+	@Test
+	void bothAreAttributedToTheShuffledBottomParser() {
+		assertEquals("RevealTopNAddUpToMatchingRestShuffledBottom",
+				ActionResolver.matchedPatternName(BARTZ_27_110H_ETF, null));
+		assertEquals("RevealTopNAddUpToMatchingRestShuffledBottom",
+				ActionResolver.matchedPatternName(ACE_9_003L_ETF, null));
+	}
+
+	@Test
+	void theShuffledTailIsNotConfusedWithTheOrderedOne() {
+		// The player orders the leftovers in this one, so it must keep its own parser.
+		String ordered = "reveal the top 5 cards of your deck. Add up to 2 Forwards among them to "
+				+ "your hand and return the other cards to the bottom of your deck in any order.";
+		assertNotEquals("RevealTopNAddUpToMatchingRestShuffledBottom",
+				ActionResolver.matchedPatternName(ordered, null));
+	}
+
+	@Test
+	void theLeftoversGoUnderTheDeckRatherThanIntoTheBreakZone() {
+		List<CardData> revealed = List.of(
+				makeForward("Cadet A", "Fire", 5, 8000),
+				makeForward("Cadet B", "Fire", 2, 5000),
+				makeForward("Cadet C", "Fire", 3, 6000));
+		DeckLookDecision d = LookAtDeckDialogs.cpuRevealAddUpToMatchingRestShuffledBottom(
+				revealed, 1, null, null, null, null);
+
+		assertEquals(List.of(0), d.toHand(), "the dearest card it is allowed");
+		assertTrue(d.toBreak().isEmpty(), "nothing is binned by this effect");
+		assertTrue(d.toTop().isEmpty(), "and nothing goes back on top");
+		assertEquals(Set.of(1, 2), Set.copyOf(d.toBottom()), "the rest go under the deck");
+	}
+
+	@Test
+	void aCategoryFilterDoesNotSilentlyExcludeSummons() {
+		// Bartz says "Category V cards", not "Category V Characters". The shared reveal helper
+		// narrows a bare Category to Characters — correct for the patterns that drop the printed
+		// noun, wrong here, and it would have made a Category V Summon unselectable.
+		CardData summon = makeSummon("Category V Summon", "Wind", 3, "");
+		DeckLookDecision d = LookAtDeckDialogs.cpuRevealAddUpToMatchingRestShuffledBottom(
+				List.of(summon), 1, null, null, null, null);
+
+		assertEquals(List.of(0), d.toHand(), "a Summon is a card and may be taken");
+	}
+
+	@Test
+	void anExcludedNameIsNeverTakenAndStillGoesUnderTheDeck() {
+		List<CardData> revealed = List.of(
+				makeForward("Ace", "Fire", 9, 9000),      // dearest, but excluded by name
+				makeForward("Cadet", "Fire", 2, 5000));
+		DeckLookDecision d = LookAtDeckDialogs.cpuRevealAddUpToMatchingRestShuffledBottom(
+				revealed, 2, null, null, null, "Ace");
+
+		assertEquals(List.of(1), d.toHand(), "only the card that is not an Ace");
+		assertEquals(List.of(0), d.toBottom(), "and the Ace still leaves the reveal");
+	}
+
+	@Test
+	void theLeftoversAreActuallyShuffledRatherThanKeptInRevealOrder() {
+		// The contract is that nobody knows the resulting order, so the only honest assertion is
+		// that the order varies. Five leftovers give 120 arrangements; 200 draws landing on one
+		// arrangement every time would be beyond coincidence, so a single order here means the
+		// shuffle is not happening at all.
+		List<CardData> revealed = List.of(
+				makeForward("A", "Fire", 1, 1000), makeForward("B", "Fire", 1, 1000),
+				makeForward("C", "Fire", 1, 1000), makeForward("D", "Fire", 1, 1000),
+				makeForward("E", "Fire", 1, 1000));
+		Set<List<Integer>> seen = new java.util.HashSet<>();
+		for (int i = 0; i < 200; i++) {
+			DeckLookDecision d = LookAtDeckDialogs.cpuRevealAddUpToMatchingRestShuffledBottom(
+					revealed, 0, null, null, null, null);
+			assertEquals(Set.of(0, 1, 2, 3, 4), Set.copyOf(d.toBottom()),
+					"every revealed card goes under the deck exactly once, however it is ordered");
+			seen.add(d.toBottom());
+		}
+		assertTrue(seen.size() > 1, "the leftovers are shuffled, not returned in reveal order");
+	}
+
+	// =========================================================================================
 
 }

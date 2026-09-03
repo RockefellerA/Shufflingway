@@ -460,6 +460,13 @@ class CostCalculator {
 				long rfpCount = rfp.stream().filter(hasCat).count();
 				yield (bzCount + rfpCount) >= n ? 1 : 0;
 			}
+		case IF_NAME_IN_RFP -> {
+				String name = mod.param1();
+				// Ownership, not control: the removed-from-game zone is kept per owner, so the
+				// controller's own half is exactly what "you own ... removed from the game" means.
+				List<CardData> rfp = isP1 ? mw.gameState.getP1PermanentRfp() : mw.gameState.getP2PermanentRfp();
+				yield rfp.stream().anyMatch(c -> name.equalsIgnoreCase(c.name())) ? 1 : 0;
+			}
 		case IF_OWN_ELEMENT_OR_CATEGORY_BROKEN_THIS_TURN -> {
 				String elem = mod.param1();
 				String cat  = mod.param2();

@@ -3232,7 +3232,9 @@ final class ActionResolverPatterns {
      */
     static final Pattern REVEAL_TOP_N_CATEGORY_TO_HAND = Pattern.compile(
         "(?i)^\\s*(?:you\\s+may\\s+)?reveal\\s+the\\s+top\\s+(?<n>\\d+)\\s+cards?\\s+of\\s+your\\s+deck[.!]?\\s+" +
-        "Add\\s+1\\s+Category\\s+(?<cat>\\S+)(?:\\s+(?:Forward|Backup|Character|Monster|card))?\\s+among\\s+them\\s+to\\s+your\\s+hand\\s+" +
+        // Same widening as its typed sibling, plus a real count: Meia 19-121H and Despachiaire
+        // 28-067C print "Add up to 2 Category X cards", which the hardcoded 1 could not match.
+        "Add\\s+(?:up\\s+to\\s+)?(?<max>\\d+)\\s+Category\\s+(?<cat>\\S+)(?:\\s+(?:Forwards?|Backups?|Characters?|Monsters?|cards?))?\\s+among\\s+them\\s+to\\s+your\\s+hand\\s+" +
         "and\\s+return\\s+the\\s+other\\s+cards?\\s+to\\s+the\\s+bottom\\s+of\\s+(?:your|the)\\s+deck(?:\\s+in\\s+any\\s+order)?[.!]?\\s*$"
     );
     /**
@@ -3250,7 +3252,11 @@ final class ActionResolverPatterns {
      */
     static final Pattern REVEAL_TOP_N_TYPE_TO_HAND = Pattern.compile(
         "(?i)^\\s*(?:you\\s+may\\s+)?reveal\\s+the\\s+top\\s+(?<n>\\d+)\\s+cards?\\s+of\\s+your\\s+deck[.!]?\\s+" +
-        "Add\\s+(?<max>\\d+)\\s+" +
+        // "up to" is optional because the executor treats the count as a ceiling either way:
+        // revealTopAddUpToMatchingRestBottom has always been an "up to". Without it the printed
+        // "Add up to 2 Forwards ..." forms fell past every reveal parser into the compound-
+        // sentence fallback, which read their second sentence as a return-a-named-card.
+        "Add\\s+(?:up\\s+to\\s+)?(?<max>\\d+)\\s+" +
         "(?:(?<type>Forwards?|Backups?|Monsters?|Characters?|Summons?)" +
             "(?:\\s+of\\s+cost\\s+(?<cost>\\d+)\\s+or\\s+less)?" +
         "|(?<anycard>cards?)\\s+of\\s+cost\\s+(?<anycost>\\d+)\\s+or\\s+less)" +
@@ -3308,6 +3314,68 @@ final class ActionResolverPatterns {
         "Add\\s+up\\s+to\\s+(?<max>\\d+)\\s+cards?\\s+other\\s+than\\s+Card\\s+Name\\s+(?<name>.+?)\\s+" +
         "among\\s+them\\s+to\\s+your\\s+hand,?\\s+" +
         "and\\s+put\\s+the\\s+rest\\s+of\\s+the\\s+cards?\\s+into\\s+the\\s+Break\\s+Zone[.!]?\\s*$"
+    );
+    /**
+     * Matches "Reveal the top N cards of your deck. Add up to M [Job J|Category C] [Type]
+     * [other than Card Name X] among them to your hand. Then[,] shuffle the other cards [revealed]
+     * and return them to the bottom of your deck." — Bartz 27-110H, Ace 9-003L.
+     *
+     * <p>The tail is what makes this its own pattern rather than a widening of
+     * {@link #REVEAL_TOP_N_TYPE_TO_HAND}: "shuffle the other cards" randomises the leftovers before
+     * they go under the deck, where "return the other cards to the bottom of your deck in any
+     * order" lets the player choose that order. Same cards, same destination, different
+     * information — so they cannot share an executor.
+     *
+     * <p>The Job group is lazy and the exclusion optional, which is what lets Ace's
+     * "Job Class Zero Cadet other than Card Name Ace" split at the right word: the shortest Job
+     * that still leaves "other than Card Name ..." to match is the correct one.
+     * <ul>
+     *   <li>Group {@code n}       — number of cards revealed</li>
+     *   <li>Group {@code max}     — the "up to" ceiling on what may be taken</li>
+     *   <li>Group {@code cat}     — Category filter, or null</li>
+     *   <li>Group {@code job}     — Job filter, or null</li>
+     *   <li>Group {@code type}    — card-type filter, or null for a bare "cards"</li>
+     *   <li>Group {@code exclude} — a Card Name that may not be taken, or null</li>
+     * </ul>
+     */
+    static final Pattern REVEAL_TOP_N_ADD_UP_TO_MATCHING_REST_SHUFFLED_BOTTOM = Pattern.compile(
+        "(?i)^\\s*(?:you\\s+may\\s+)?reveal\\s+the\\s+top\\s+(?<n>\\d+)\\s+cards?\\s+of\\s+your\\s+deck[.!]?\\s+" +
+        "Add\\s+up\\s+to\\s+(?<max>\\d+)\\s+" +
+        "(?:Category\\s+(?<cat>\\S+)\\s+|Job\\s+(?<job>.+?)\\s+)?" +
+        "(?:(?<type>Forwards?|Backups?|Monsters?|Characters?|Summons?)\\s+|cards?\\s+)?" +
+        "(?:other\\s+than\\s+Card\\s+Name\\s+(?<exclude>.+?)\\s+)?" +
+        "among\\s+them\\s+to\\s+your\\s+hand[.!]?\\s+" +
+        "Then,?\\s+shuffle\\s+the\\s+other\\s+cards?(?:\\s+revealed)?\\s+and\\s+" +
+        "return\\s+them\\s+to\\s+the\\s+bottom\\s+of\\s+your\\s+deck[.!]?\\s*$"
+    );
+    /**
+     * Matches "Reveal the top N cards of your deck. Add up to M [Category X] [Type] among them to
+     * your hand and put the rest of the cards into the Break Zone." — Nael 9-014L (bare type),
+     * Zenos 14-015R (category and type), Meia 19-121H (category alone).
+     *
+     * <p>The rest-to-Break-Zone counterpart of {@link #REVEAL_TOP_N_TYPE_TO_HAND}, whose leftovers
+     * go to the bottom of the deck instead. Before it existed the whole family fell through to
+     * parse()'s compound-sentence fallback, which split the text on the full stop and read
+     * "Add up to 2 Forwards among them to your hand" as a request to return a card <em>named</em>
+     * "up to 2 Forwards among them" — so the reveal happened and nothing was ever added.
+     *
+     * <p>Order against {@link #REVEAL_TOP_N_ADD_UP_TO_EXCLUDING_NAME_REST_BZ} does not matter: that
+     * one requires "other than Card Name X" between the count and "among them", which this
+     * pattern's {@code cards?} arm cannot match, so the two are disjoint either way round.
+     * <ul>
+     *   <li>Group {@code n}    — number of cards revealed</li>
+     *   <li>Group {@code max}  — the "up to" ceiling on what may be taken</li>
+     *   <li>Group {@code cat}  — optional Category filter</li>
+     *   <li>Group {@code type} — optional card-type filter; absent for a bare "cards"</li>
+     * </ul>
+     */
+    static final Pattern REVEAL_TOP_N_ADD_UP_TO_MATCHING_REST_BZ = Pattern.compile(
+        "(?i)^\\s*(?:you\\s+may\\s+)?reveal\\s+the\\s+top\\s+(?<n>\\d+)\\s+cards?\\s+of\\s+your\\s+deck[.!]?\\s+" +
+        "Add\\s+up\\s+to\\s+(?<max>\\d+)\\s+" +
+        "(?:Category\\s+(?<cat>\\S+)\\s+)?" +
+        "(?:(?<type>Forwards?|Backups?|Monsters?|Characters?|Summons?)|cards?)\\s+" +
+        "among\\s+them\\s+to\\s+your\\s+hand,?\\s+and\\s+" +
+        "put\\s+the\\s+rest\\s+(?:of\\s+the\\s+cards?\\s+)?into\\s+the\\s+Break\\s+Zone[.!]?\\s*$"
     );
     /**
      * Matches "Reveal the top N cards of your deck. Add 1 [Type], 1 [Type], and 1 [Type] among
