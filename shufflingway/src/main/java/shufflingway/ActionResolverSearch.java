@@ -360,8 +360,9 @@ final class ActionResolverSearch {
         String normType = Character.toUpperCase(typeRaw.charAt(0)) + typeRaw.substring(1).toLowerCase();
         String costStr  = m.group("cost");
         int maxCost     = "X".equalsIgnoreCase(costStr) ? xValue : Integer.parseInt(costStr);
-        RevealRest rest = m.group("resthand") != null ? RevealRest.HAND
-                        : m.group("restbz")   != null ? RevealRest.BREAK_ZONE
+        RevealRest rest = m.group("resthand")    != null ? RevealRest.HAND
+                        : m.group("restbz")      != null ? RevealRest.BREAK_ZONE
+                        : m.group("restshuffle") != null ? RevealRest.SHUFFLED_BOTTOM
                         : RevealRest.BOTTOM;
         return ctx -> ctx.revealTopNPlayUpToElementTypeCostOntoField(n, max, element, normType, maxCost, rest);
     }
@@ -633,6 +634,43 @@ final class ActionResolverSearch {
      * <p>The leftovers are randomised rather than ordered by the player; see
      * {@link GameContext#revealTopAddUpToMatchingRestShuffledBottom}.
      */
+    /**
+     * Parses Chaos Advent 27-006R's "Reveal the top N cards of your deck. Play up to M Category C
+     * [Type] among them onto the field. Then, shuffle the other cards revealed and return them to
+     * the bottom of your deck. The [Type]'s Element becomes E and it gains Job J."
+     */
+    static Consumer<GameContext> tryParseRevealPlayCategoryTypeRestShuffledBottomGrantElementJob(String text) {
+        Matcher m = REVEAL_PLAY_CATEGORY_TYPE_REST_SHUFFLED_BOTTOM_GRANT_ELEMENT_JOB.matcher(text.trim());
+        if (!m.matches()) return null;
+        int n    = Integer.parseInt(m.group("n"));
+        int max  = Integer.parseInt(m.group("max"));
+        String cat     = m.group("cat");
+        String type    = cap(m.group("type"));
+        String element = cap(m.group("element"));
+        String job     = m.group("job").trim();
+        return ctx -> {
+            ctx.logEntry("Effect: Reveal top " + n + " — play up to " + max + " Category " + cat
+                    + " " + type + ", shuffle the rest under the deck; it becomes " + element
+                    + " and gains Job " + job);
+            ctx.revealTopNPlayCategoryTypeRestShuffledBottomGrantElementJob(n, max, cat, type, element, job);
+        };
+    }
+    /**
+     * Parses Setzer 29-103H's "Reveal the top N cards of your deck. Remove 1 card with Warp among
+     * them from the game and place M Warp Counter(s) on it. Then shuffle the other cards and
+     * return them to the bottom of your deck."
+     */
+    static Consumer<GameContext> tryParseRevealTopNRemoveWarpCardPlaceCountersRestShuffledBottom(String text) {
+        Matcher m = REVEAL_TOP_N_REMOVE_WARP_CARD_PLACE_COUNTERS_REST_SHUFFLED_BOTTOM.matcher(text.trim());
+        if (!m.matches()) return null;
+        int n        = Integer.parseInt(m.group("n"));
+        int counters = Integer.parseInt(m.group("counters"));
+        return ctx -> {
+            ctx.logEntry("Effect: Reveal top " + n + " — remove 1 card with Warp from the game with "
+                    + counters + " Warp Counter(s), shuffle the rest under the deck");
+            ctx.revealTopNRemoveWarpCardPlaceCountersRestShuffledBottom(n, counters);
+        };
+    }
     static Consumer<GameContext> tryParseRevealTopNAddUpToMatchingRestShuffledBottom(String text) {
         Matcher m = REVEAL_TOP_N_ADD_UP_TO_MATCHING_REST_SHUFFLED_BOTTOM.matcher(text.trim());
         if (!m.matches()) return null;

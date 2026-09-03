@@ -1681,6 +1681,31 @@ final class ActionResolverPatterns {
         Pattern.DOTALL
     );
     /**
+     * "[you may] put N [type] you control into the Break Zone. If you do so, [effect]" — Ardyn
+     * 20-001R, whose whole enter-the-field ability hangs off a price the player may decline.
+     *
+     * <p>The sibling of {@link #YOU_MAY_PUT_SELF_TO_BZ_WHEN_DO_SO}, which spends the source card
+     * itself. This one spends other cards the player controls, so it needs a count and a type
+     * where that one needed only a name — and "If you do so" rather than "When you do so", the
+     * wording this shape is printed with.
+     *
+     * <p>The leading "you may" is <b>optional</b> because the auto-ability parser has already eaten
+     * it by the time an effect reaches here: it records the choice as {@link AutoAbility#youMay()}
+     * and hands on the text from "put". Accepting both spellings keeps the pattern usable from
+     * either side of that strip.
+     *
+     * <p>Group {@code effect} is handed back to {@link ActionResolver#parse}, so whatever the card
+     * buys is supported exactly as far as it would be on its own. Ardyn's is a flip-until-play
+     * that already parsed; only the price in front of it did not.
+     */
+    static final Pattern PUT_OWN_TYPE_TO_BZ_IF_DO_SO = Pattern.compile(
+        "(?i)^(?:you\\s+may\\s+)?put\\s+(?<count>\\d+)\\s+" +
+        "(?<type>Forwards?|Backups?|Monsters?|Characters?)\\s+you\\s+control\\s+" +
+        "into\\s+the\\s+Break\\s+Zone[.!]?\\s+" +
+        "If\\s+you\\s+do\\s+so,\\s+(?<effect>.+)$",
+        Pattern.DOTALL
+    );
+    /**
      * Matches "If your opponent doesn't control [any] Forwards, put [CardName] into the Break Zone."
      * Group {@code name} — the card name that goes to the Break Zone (must equal source name).
      */
@@ -2434,8 +2459,18 @@ final class ActionResolverPatterns {
         "(?<type>Forward|Backup|Monster|Character)s?\\s+of\\s+cost\\s+(?<cost>\\d+|X)\\s+or\\s+less\\s+" +
         "among\\s+them\\s+onto\\s+(?:the\\s+)?field[,.]?\\s+" +
         "(?:" +
-            "(?:Then,?\\s+shuffle\\s+the\\s+other\\s+cards?\\s+revealed\\s+and\\s+return\\s+them|" +
-            "and\\s+return\\s+the\\s+other\\s+cards?)\\s+to\\s+the\\s+bottom\\s+of\\s+(?:your|the)\\s+deck" +
+            // Split from the ordered ending below rather than sharing its branch: this one
+            // randomises the leftovers and that one lets the player arrange them, so they cannot
+            // resolve to the same RevealRest. No corpus card exercised the difference until Vaan
+            // 10-133S parsed, which is why one branch used to serve both.
+            "(?<restshuffle>Then,?\\s+shuffle\\s+the\\s+other\\s+cards?(?:\\s+revealed)?\\s+and" +
+            "\\s+return\\s+them\\s+to\\s+the\\s+bottom\\s+of\\s+(?:your|the)\\s+deck" +
+            // Tolerated but not meaningful: no printed card says both "shuffle" and "in any
+            // order", and if one ever does the shuffle wins — a randomised pile has no order for
+            // the player to set.
+            "(?:\\s+in\\s+any\\s+order)?)" +
+        "|" +
+            "and\\s+return\\s+the\\s+other\\s+cards?\\s+to\\s+the\\s+bottom\\s+of\\s+(?:your|the)\\s+deck" +
             "(?:\\s+in\\s+any\\s+order)?" +
         "|" +
             "(?<resthand>and\\s+add\\s+the\\s+other\\s+cards?\\s+to\\s+your\\s+hand)" +
@@ -3338,6 +3373,62 @@ final class ActionResolverPatterns {
      *   <li>Group {@code exclude} — a Card Name that may not be taken, or null</li>
      * </ul>
      */
+    /**
+     * Matches "Reveal the top N cards of your deck. Remove 1 card with Warp among them from the
+     * game and place M Warp Counter(s) on it. Then shuffle the other cards and return them to the
+     * bottom of your deck." — Setzer 29-103H.
+     *
+     * <p>The counter count is captured rather than assumed: the card places one, but the number is
+     * the only thing about this sentence that could reasonably differ on a reprint.
+     */
+    /**
+     * "&lt;effect&gt; If you have received N points of damage or more, perform this action twice
+     * instead." — Vaan 10-133S.
+     *
+     * <p>A repeat rider rather than a variant effect: the sentence before it is the action, and
+     * past the threshold it simply happens again. Group {@code base} is handed back to
+     * {@link ActionResolver#parse}, so the rider costs nothing to support for any effect that
+     * already parses on its own.
+     *
+     * <p>{@code base} is lazy and the rider is anchored to the end, so the split lands on the
+     * last sentence rather than swallowing one that merely mentions damage.
+     */
+    /**
+     * Matches "Reveal the top N cards of your deck. Play up to M Category C [Type] among them onto
+     * the field. Then, shuffle the other cards revealed and return them to the bottom of your deck.
+     * The [Type]'s Element becomes E and it gains Job J. (This effect does not end at the end of
+     * the turn.)" — Chaos Advent 27-006R.
+     *
+     * <p>Kept whole rather than split at the full stops. The last sentence is about the card the
+     * second one played — "The Forward's" has no referent without it — so a parser that took the
+     * reveal alone would drop the grant, and one that took the grant alone would not know which
+     * Forward it meant.
+     *
+     * <p>The parenthetical is what makes the grant permanent, and it is required: the same sentence
+     * without it would be an until-end-of-turn grant and a different effect.
+     */
+    static final Pattern REVEAL_PLAY_CATEGORY_TYPE_REST_SHUFFLED_BOTTOM_GRANT_ELEMENT_JOB = Pattern.compile(
+        "(?i)^\\s*reveal\\s+the\\s+top\\s+(?<n>\\d+)\\s+cards?\\s+of\\s+your\\s+deck[.!]?\\s+" +
+        "Play\\s+(?:up\\s+to\\s+)?(?<max>\\d+)\\s+Category\\s+(?<cat>\\S+)\\s+" +
+        "(?<type>Forward|Backup|Monster|Character)s?\\s+among\\s+them\\s+onto\\s+(?:the)?\\s*field[.!]?\\s+" +
+        "Then,?\\s+shuffle\\s+the\\s+other\\s+cards?(?:\\s+revealed)?\\s+and" +
+        "\\s+return\\s+them\\s+to\\s+the\\s+bottom\\s+of\\s+your\\s+deck[.!]?\\s+" +
+        "The\\s+\\S+'?s?\\s+Element\\s+becomes\\s+(?<element>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)" +
+        "\\s+and\\s+it\\s+gains\\s+Job\\s+(?<job>.+?)[.!]?\\s*" +
+        "\\(This\\s+effect\\s+does\\s+not\\s+end\\s+at\\s+the\\s+end\\s+of\\s+the\\s+turn[.!]?\\)[.!]?\\s*$"
+    );
+    static final Pattern PERFORM_THIS_ACTION_TWICE_AT_DAMAGE = Pattern.compile(
+        "(?i)^(?<base>.+?)\\s*If\\s+you\\s+have\\s+received\\s+(?<dmg>\\d+)\\s+points?\\s+of" +
+        "\\s+damage\\s+or\\s+more,\\s+perform\\s+this\\s+action\\s+twice\\s+instead[.!]?\\s*$",
+        Pattern.DOTALL
+    );
+    static final Pattern REVEAL_TOP_N_REMOVE_WARP_CARD_PLACE_COUNTERS_REST_SHUFFLED_BOTTOM = Pattern.compile(
+        "(?i)^\\s*reveal\\s+the\\s+top\\s+(?<n>\\d+)\\s+cards?\\s+of\\s+your\\s+deck[.!]?\\s+" +
+        "Remove\\s+1\\s+card\\s+with\\s+Warp\\s+among\\s+them\\s+from\\s+the\\s+game\\s+and\\s+" +
+        "place\\s+(?<counters>\\d+)\\s+Warp\\s+Counters?\\s+on\\s+it[.!]?\\s+" +
+        "Then,?\\s+shuffle\\s+the\\s+other\\s+cards?(?:\\s+revealed)?\\s+and\\s+" +
+        "return\\s+them\\s+to\\s+the\\s+bottom\\s+of\\s+your\\s+deck[.!]?\\s*$"
+    );
     static final Pattern REVEAL_TOP_N_ADD_UP_TO_MATCHING_REST_SHUFFLED_BOTTOM = Pattern.compile(
         "(?i)^\\s*(?:you\\s+may\\s+)?reveal\\s+the\\s+top\\s+(?<n>\\d+)\\s+cards?\\s+of\\s+your\\s+deck[.!]?\\s+" +
         "Add\\s+up\\s+to\\s+(?<max>\\d+)\\s+" +

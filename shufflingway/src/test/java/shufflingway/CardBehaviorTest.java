@@ -9560,7 +9560,10 @@ public class CardBehaviorTest {
     }
 
     // "Then, shuffle the other cards revealed and return them to the bottom" — the third tail in
-    // this family, and still a bottom-of-deck one.
+    // this family. Still a bottom-of-deck one, which is what this test was written to pin, but no
+    // longer the same constant: BOTTOM is the destination whose dialog lets the player arrange the
+    // leftovers, and a shuffled pile has no order to arrange. The two shared BOTTOM until Vaan
+    // 10-133S became the first card to reach this branch and made the difference observable.
     @Test
     void theShuffleThenBottomTailIsStillBottom() {
         GameContext ctx = mock(GameContext.class);
@@ -9568,7 +9571,8 @@ public class CardBehaviorTest {
                 "reveal the top 5 cards of your deck. Play 1 Forward of cost 3 or less among them "
                 + "onto the field. Then, shuffle the other cards revealed and return them to the "
                 + "bottom of your deck in any order.", null).accept(ctx);
-        verify(ctx).revealTopNPlayUpToElementTypeCostOntoField(5, 1, null, "Forward", 3, RevealRest.BOTTOM);
+        verify(ctx).revealTopNPlayUpToElementTypeCostOntoField(
+                5, 1, null, "Forward", 3, RevealRest.SHUFFLED_BOTTOM);
     }
 
     // A genuine "Add <card name> to your hand" must still be read as one.
@@ -43181,6 +43185,201 @@ public class CardBehaviorTest {
 			seen.add(d.toBottom());
 		}
 		assertTrue(seen.size() > 1, "the leftovers are shuffled, not returned in reveal order");
+	}
+
+	// =========================================================================================
+	// The four remaining "Then, shuffle the other cards" cards
+	//
+	// Each pairs that tail with a different second mechanic, which is why they needed four pieces
+	// of work rather than one: an optional price paid in your own board (Ardyn), a removal that
+	// places a Warp Counter (Setzer), a permanent Element/Job grant on the card just played
+	// (Chaos Advent), and a repeat of the whole action past a damage threshold (Vaan).
+	//
+	// All four had been unparsed or claimed by a fallback. Wiring Vaan also made the reveal-and-play
+	// family's conflated tail matter for the first time: it read "shuffle the other cards" and
+	// "return the other cards ... in any order" through one branch, which would have let the player
+	// arrange leftovers the card says to shuffle.
+	// =========================================================================================
+
+	private static final String ARDYN_20_001R_ETF =
+			"put 2 Backups you control into the Break Zone. If you do so, turn over one card at a "
+			+ "time from the top of your deck until 2 Characters other than Card Name Ardyn are "
+			+ "revealed. Play them onto the field. Then, shuffle the other cards revealed and "
+			+ "return them to the bottom of your deck.";
+	private static final String SETZER_29_103H_ETF =
+			"reveal the top 7 cards of your deck. Remove 1 card with Warp among them from the game "
+			+ "and place 1 Warp Counter on it. Then shuffle the other cards and return them to the "
+			+ "bottom of your deck.";
+	private static final String CHAOS_ADVENT_27_006R =
+			"reveal the top 7 cards of your deck. Play up to 1 Category SOPFFO Forward among them "
+			+ "onto the field. Then, shuffle the other cards revealed and return them to the bottom "
+			+ "of your deck. The Forward's Element becomes Dark and it gains Job Chaos. (This "
+			+ "effect does not end at the end of the turn.)";
+	private static final String VAAN_10_133S_ETF =
+			"reveal the top 5 cards of your deck. Play 1 Forward of cost 3 or less among them onto "
+			+ "the field. Then, shuffle the other cards revealed and return them to the bottom of "
+			+ "your deck. If you have received 5 points of damage or more, perform this action "
+			+ "twice instead.";
+
+	@Test
+	void ardynBuysItsRevealWithTwoBackups() {
+		GameContext ctx = mock(GameContext.class);
+		Consumer<GameContext> fn = ActionResolver.parse(ARDYN_20_001R_ETF, null);
+		assertNotNull(fn, "Ardyn's enter-the-field ability should parse");
+		fn.accept(ctx);
+
+		verify(ctx).putOwnTypeToBzThenDoSo(eq(2), eq("Backup"), any());
+		assertEquals("PutOwnTypeToBzIfDoSo",
+				ActionResolver.matchedPatternName(ARDYN_20_001R_ETF, null));
+	}
+
+	@Test
+	void ardynsPriceIsPaidWithoutAskingTwice() {
+		// The printed "you may" is the auto-ability's youMay flag, and the trigger has already put
+		// that question to the player. With exactly the required number of Backups there is nothing
+		// left to choose, so this resolves with no dialog at all — which is what makes it testable.
+		MainWindow mw = new MainWindow();
+		CardData a = makePlainBackup("Backup A", "Dark", 2);
+		CardData b = makePlainBackup("Backup B", "Dark", 3);
+		mw.gameState.getIdentity().put(a, true);
+		mw.gameState.getIdentity().put(b, true);
+		mw.p1BackupCards[0] = a;
+		mw.p1BackupCards[1] = b;
+
+		boolean[] ran = { false };
+		mw.buildGameContext(true).putOwnTypeToBzThenDoSo(2, "Backup", c -> ran[0] = true);
+
+		assertNull(mw.p1BackupCards[0], "both Backups are spent");
+		assertNull(mw.p1BackupCards[1]);
+		assertTrue(ran[0], "and what they bought resolves");
+	}
+
+	@Test
+	void ardynBuysNothingWhenThePriceCannotBeMet() {
+		MainWindow mw = new MainWindow();
+		CardData only = makePlainBackup("Lonely Backup", "Dark", 2);
+		mw.gameState.getIdentity().put(only, true);
+		mw.p1BackupCards[0] = only;
+
+		boolean[] ran = { false };
+		mw.buildGameContext(true).putOwnTypeToBzThenDoSo(2, "Backup", c -> ran[0] = true);
+
+		assertEquals(only, mw.p1BackupCards[0], "a partial payment buys nothing, so nothing is spent");
+		assertFalse(ran[0], "and the effect does not resolve");
+	}
+
+	@Test
+	void setzerRemovesAWarpCardAndPlacesACounterOnIt() {
+		GameContext ctx = mock(GameContext.class);
+		ActionResolver.parse(SETZER_29_103H_ETF, null).accept(ctx);
+
+		verify(ctx).revealTopNRemoveWarpCardPlaceCountersRestShuffledBottom(7, 1);
+		assertEquals("RevealTopNRemoveWarpCardPlaceCountersRestShuffledBottom",
+				ActionResolver.matchedPatternName(SETZER_29_103H_ETF, null));
+	}
+
+	/** A Forward that prints Warp N — what "a card with Warp" means to this reveal. */
+	private static CardData makeWarpForward(String name, String element, int cost, int warpValue) {
+		return new CardData(null, name, element, cost, 8000, "Forward", false, 0, false, false,
+				Set.of(), warpValue, List.of(), null, List.of(),
+				List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(),
+				List.of(), List.of(), List.of(),
+				false, false, null, false, false, false, false, false, 1,
+				null, null, null, "");
+	}
+
+	@Test
+	void setzersPickLandsInTheWarpZoneWithOneCounter() {
+		// A Warp Counter is what the Warp zone *is* — it ticks down and the card becomes castable
+		// when it runs out — so the removed card belongs there rather than in the plain
+		// removed-from-game pile. Resolved from P2's seat so the AI answers and no dialog opens.
+		MainWindow mw = new MainWindow();
+		CardData warped = makeWarpForward("Warper", "Wind", 5, 3);
+		CardData plain  = makeForward("Plain", "Wind", 2, 5000);
+		mw.gameState.getIdentity().put(warped, false);
+		mw.gameState.getIdentity().put(plain, false);
+		mw.gameState.getP2MainDeck().addLast(warped);
+		mw.gameState.getP2MainDeck().addLast(plain);
+
+		mw.buildGameContext(false).revealTopNRemoveWarpCardPlaceCountersRestShuffledBottom(2, 1);
+
+		assertEquals(1, mw.gameState.getP2WarpZone().size(), "the card with Warp is taken");
+		assertEquals(warped, mw.gameState.getP2WarpZone().get(0).card);
+		assertEquals(1, mw.gameState.getP2WarpZone().get(0).counters,
+				"one counter, as the ability says — not the card's printed Warp 3");
+		assertTrue(mw.gameState.getP1WarpZone().isEmpty(), "and none of it touches the other seat");
+	}
+
+	@Test
+	void setzerTakesNothingWhenNothingRevealedHasWarp() {
+		MainWindow mw = new MainWindow();
+		CardData plain = makeForward("Plain", "Wind", 2, 5000);
+		mw.gameState.getIdentity().put(plain, false);
+		mw.gameState.getP2MainDeck().addLast(plain);
+
+		mw.buildGameContext(false).revealTopNRemoveWarpCardPlaceCountersRestShuffledBottom(1, 1);
+
+		assertTrue(mw.gameState.getP2WarpZone().isEmpty(),
+				"a card without Warp is not \"a card with Warp\"");
+	}
+
+	@Test
+	void chaosAdventCarriesItsCategoryAndItsPermanentGrant() {
+		GameContext ctx = mock(GameContext.class);
+		ActionResolver.parse(CHAOS_ADVENT_27_006R, null).accept(ctx);
+
+		verify(ctx).revealTopNPlayCategoryTypeRestShuffledBottomGrantElementJob(
+				7, 1, "SOPFFO", "Forward", "Dark", "Chaos");
+		assertEquals("RevealPlayCategoryTypeRestShuffledBottomGrantElementJob",
+				ActionResolver.matchedPatternName(CHAOS_ADVENT_27_006R, null));
+	}
+
+	@Test
+	void vaanPerformsItsActionOnceBelowTheDamageThreshold() {
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.ownDamageCount()).thenReturn(4);
+		ActionResolver.parse(VAAN_10_133S_ETF, null).accept(ctx);
+
+		verify(ctx, times(1)).revealTopNPlayUpToElementTypeCostOntoField(
+				5, 1, null, "Forward", 3, RevealRest.SHUFFLED_BOTTOM);
+	}
+
+	@Test
+	void vaanPerformsItTwiceAtFiveDamage() {
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.ownDamageCount()).thenReturn(5);
+		ActionResolver.parse(VAAN_10_133S_ETF, null).accept(ctx);
+
+		verify(ctx, times(2)).revealTopNPlayUpToElementTypeCostOntoField(
+				5, 1, null, "Forward", 3, RevealRest.SHUFFLED_BOTTOM);
+	}
+
+	@Test
+	void vaansLeftoversAreShuffledRatherThanArrangedByThePlayer() {
+		// The reveal-and-play family read "shuffle the other cards" and "return the other cards to
+		// the bottom in any order" through one branch, so both arrived as RevealRest.BOTTOM — the
+		// destination whose dialog lets the player set the order. Vaan is the first card to make
+		// that difference reachable.
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.ownDamageCount()).thenReturn(0);
+		ActionResolver.parse(VAAN_10_133S_ETF, null).accept(ctx);
+
+		verify(ctx, never()).revealTopNPlayUpToElementTypeCostOntoField(
+				anyInt(), anyInt(), any(), any(), anyInt(), eq(RevealRest.BOTTOM));
+	}
+
+	@Test
+	void theOrderedTailStillReachesTheOrderedDestination() {
+		// The other half of that split: a card that really does let the player arrange the
+		// leftovers must keep doing so.
+		String ordered = "reveal the top 5 cards of your deck. Play 1 Forward of cost 3 or less "
+				+ "among them onto the field and return the other cards to the bottom of your deck "
+				+ "in any order.";
+		GameContext ctx = mock(GameContext.class);
+		ActionResolver.parse(ordered, null).accept(ctx);
+
+		verify(ctx).revealTopNPlayUpToElementTypeCostOntoField(
+				5, 1, null, "Forward", 3, RevealRest.BOTTOM);
 	}
 
 	// =========================================================================================

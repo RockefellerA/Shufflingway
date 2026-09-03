@@ -1021,6 +1021,16 @@ public class ActionResolver {
         result = tryParseRevealTopNAddUpToExcludingNameRestBz(effectText);
         if (result != null) return result;
 
+        // Ahead of the plain reveal-and-play parsers: they would match this text's first two
+        // sentences and drop the Element/Job grant that the last one hangs on the played card.
+        result = tryParseRevealPlayCategoryTypeRestShuffledBottomGrantElementJob(effectText);
+        if (result != null) return result;
+
+        // Ahead of the remove-from-game parsers, whose lazy name group reads "1 card with Warp
+        // among them" as a card name and claims the whole sentence.
+        result = tryParseRevealTopNRemoveWarpCardPlaceCountersRestShuffledBottom(effectText);
+        if (result != null) return result;
+
         // Ahead of the plain bottom-of-deck reveals below, which would otherwise claim this text
         // and let the player order the leftovers that the card says to shuffle.
         result = tryParseRevealTopNAddUpToMatchingRestShuffledBottom(effectText);
@@ -1119,6 +1129,14 @@ public class ActionResolver {
         if (result != null) return result;
 
         result = tryParseBreaksAfterCombatNoDamage(effectText, source);
+        if (result != null) return result;
+
+        // Ahead of everything the base sentence could match on its own: the rider is the last
+        // sentence, and a parser that claimed the text without it would drop the repeat silently.
+        result = tryParsePerformThisActionTwiceAtDamage(effectText, source);
+        if (result != null) return result;
+
+        result = tryParsePutOwnTypeToBzIfDoSo(effectText, source);
         if (result != null) return result;
 
         result = tryParseYouMayPutSelfToBZWhenDoSo(effectText, source);
@@ -2034,6 +2052,8 @@ public class ActionResolver {
         if (tryParseOpponentHandRfp(effectText)               != null) return "OpponentHandRfp";
         if (tryParseRevealTopNAddOnePerTypeRestBz(effectText) != null) return "RevealTopNAddOnePerTypeRestBz";
         if (tryParseRevealTopNAddUpToExcludingNameRestBz(effectText) != null) return "RevealTopNAddUpToExcludingNameRestBz";
+        if (tryParseRevealPlayCategoryTypeRestShuffledBottomGrantElementJob(effectText) != null) return "RevealPlayCategoryTypeRestShuffledBottomGrantElementJob";
+        if (tryParseRevealTopNRemoveWarpCardPlaceCountersRestShuffledBottom(effectText) != null) return "RevealTopNRemoveWarpCardPlaceCountersRestShuffledBottom";
         if (tryParseRevealTopNAddUpToMatchingRestShuffledBottom(effectText) != null) return "RevealTopNAddUpToMatchingRestShuffledBottom";
         if (tryParseRevealTopNAddUpToMatchingRestBz(effectText) != null) return "RevealTopNAddUpToMatchingRestBz";
         if (tryParseRevealTopNTypeToHand(effectText) != null) return "RevealTopNTypeToHand";
@@ -2068,6 +2088,8 @@ public class ActionResolver {
         if (tryParseBreakSourceCard(effectText, source)        != null) return "BreakSourceCard";
         if (tryParsePutSourceIntoBreakZone(effectText, source) != null) return "PutSourceIntoBreakZone";
         if (tryParseBreaksAfterCombatNoDamage(effectText, source) != null) return "BreaksAfterCombatNoDamage";
+        if (tryParsePerformThisActionTwiceAtDamage(effectText, source) != null) return "PerformThisActionTwiceAtDamage";
+        if (tryParsePutOwnTypeToBzIfDoSo(effectText, source)   != null) return "PutOwnTypeToBzIfDoSo";
         if (tryParseYouMayPutSelfToBZWhenDoSo(effectText, source)    != null) return "YouMayPutSelfToBZWhenDoSo";
         if (tryParseIfOppNoForwardsPutToBreakZone(effectText, source)          != null) return "IfOppNoForwardsPutToBreakZone";
         if (tryParseIfEitherPlayerNoForwardsPutSourceToBz(effectText, source)  != null) return "IfEitherPlayerNoForwardsPutSourceToBz";
@@ -2276,6 +2298,8 @@ public class ActionResolver {
         if (tryParseDrawDiscardIfMultiElement(effectText) != null) return "DrawDiscardIfMultiElement";
         if (tryParseConditionalOpponentHand(effectText, source, 0)     != null) return "ConditionalOpponentHand";
         if (tryParseConditionalOpponentHandMin(effectText, source, 0) != null) return "ConditionalOpponentHandMin";
+        if (tryParsePerformThisActionTwiceAtDamage(effectText, source) != null) return "PerformThisActionTwiceAtDamage";
+        if (tryParsePutOwnTypeToBzIfDoSo(effectText, source)   != null) return "PutOwnTypeToBzIfDoSo";
         if (tryParseYouMayPutSelfToBZWhenDoSo(effectText, source)    != null) return "YouMayPutSelfToBZWhenDoSo";
         if (SELECT_FOLLOWING_ACTIONS_DETECT.matcher(effectText).find())        return "SelectFollowingActions";
         if (CardData.HAS_ALL_ELEMENTS_PATTERN.matcher(effectText.trim()).matches()) return "HasAllElements";
@@ -3380,6 +3404,8 @@ public class ActionResolver {
         if (tryParseOpponentHandRfp(effectText) != null)                   return "OpponentHandRfp";
         if (tryParseRevealTopNAddOnePerTypeRestBz(effectText) != null)         return "RevealTopNAddOnePerTypeRestBz";
         if (tryParseRevealTopNAddUpToExcludingNameRestBz(effectText) != null)  return "RevealTopNAddUpToExcludingNameRestBz";
+        if (tryParseRevealPlayCategoryTypeRestShuffledBottomGrantElementJob(effectText) != null) return "RevealPlayCategoryTypeRestShuffledBottomGrantElementJob";
+        if (tryParseRevealTopNRemoveWarpCardPlaceCountersRestShuffledBottom(effectText) != null) return "RevealTopNRemoveWarpCardPlaceCountersRestShuffledBottom";
         if (tryParseRevealTopNAddUpToMatchingRestShuffledBottom(effectText) != null) return "RevealTopNAddUpToMatchingRestShuffledBottom";
         if (tryParseRevealTopNAddUpToMatchingRestBz(effectText) != null)       return "RevealTopNAddUpToMatchingRestBz";
         if (tryParseRevealTopNTypeToHand(effectText)       != null)           return "RevealTopNTypeToHand";
@@ -3409,6 +3435,8 @@ public class ActionResolver {
             return "BreakSelfAndBattlePartner";
         if (tryParseBreakSourceCard(effectText, source)        != null)     return "BreakSourceCard";
         if (tryParsePutSourceIntoBreakZone(effectText, source) != null)     return "PutSourceIntoBreakZone";
+        if (tryParsePerformThisActionTwiceAtDamage(effectText, source) != null) return "PerformThisActionTwiceAtDamage";
+        if (tryParsePutOwnTypeToBzIfDoSo(effectText, source)   != null) return "PutOwnTypeToBzIfDoSo";
         if (tryParseYouMayPutSelfToBZWhenDoSo(effectText, source)    != null) return "YouMayPutSelfToBZWhenDoSo";
         if (tryParseIfOppNoForwardsPutToBreakZone(effectText, source)          != null) return "IfOppNoForwardsPutToBreakZone";
         if (tryParseIfEitherPlayerNoForwardsPutSourceToBz(effectText, source)  != null) return "IfEitherPlayerNoForwardsPutSourceToBz";
@@ -3602,6 +3630,8 @@ public class ActionResolver {
         if (tryParseMayGiveSourceControlToOpponent(effectText, source) != null) return "MayGiveSourceControlToOpponent";
         if (tryParseConditionalOpponentHand(effectText, source, 0)    != null) return "ConditionalOpponentHand";
         if (tryParseConditionalOpponentHandMin(effectText, source, 0) != null) return "ConditionalOpponentHandMin";
+        if (tryParsePerformThisActionTwiceAtDamage(effectText, source) != null) return "PerformThisActionTwiceAtDamage";
+        if (tryParsePutOwnTypeToBzIfDoSo(effectText, source)   != null) return "PutOwnTypeToBzIfDoSo";
         if (tryParseYouMayPutSelfToBZWhenDoSo(effectText, source)    != null) return "YouMayPutSelfToBZWhenDoSo";
         if (SELECT_FOLLOWING_ACTIONS_DETECT.matcher(effectText).find())    return "SelectFollowingActions";
         if (CardData.HAS_ALL_ELEMENTS_PATTERN.matcher(effectText.trim()).matches()) return "HasAllElements";
@@ -5202,6 +5232,46 @@ public class ActionResolver {
      */
     static boolean isSelfReference(String name) {
         return name.matches("(?i)this\\s+(?:Forward|Backup|Monster|Character|card)");
+    }
+
+    /**
+     * Parses "you may put N [type] you control into the Break Zone. If you do so, [effect]" —
+     * Ardyn 20-001R.
+     *
+     * <p>Returns {@code null} when the bought effect does not itself parse, so a card whose price
+     * is understood but whose payoff is not stays unclaimed rather than silently charging the
+     * player for nothing.
+     */
+    /**
+     * Parses "&lt;effect&gt; If you have received N points of damage or more, perform this action
+     * twice instead." — Vaan 10-133S.
+     *
+     * <p>Past the threshold the base effect runs twice, and below it once. "Instead" replaces the
+     * single performance with a double one, so the base is never skipped either way.
+     */
+    private static Consumer<GameContext> tryParsePerformThisActionTwiceAtDamage(String text, CardData source) {
+        Matcher m = PERFORM_THIS_ACTION_TWICE_AT_DAMAGE.matcher(text.trim());
+        if (!m.matches()) return null;
+        int threshold = Integer.parseInt(m.group("dmg"));
+        String baseText = m.group("base").trim();
+        Consumer<GameContext> base = parse(baseText, source);
+        if (base == null) return null;
+        return ctx -> {
+            int times = ctx.ownDamageCount() >= threshold ? 2 : 1;
+            if (times == 2) ctx.logEntry("Effect: " + threshold
+                    + "+ damage received — performing this action twice");
+            for (int i = 0; i < times; i++) base.accept(ctx);
+        };
+    }
+
+    private static Consumer<GameContext> tryParsePutOwnTypeToBzIfDoSo(String text, CardData source) {
+        Matcher m = PUT_OWN_TYPE_TO_BZ_IF_DO_SO.matcher(text.trim());
+        if (!m.matches()) return null;
+        int count   = Integer.parseInt(m.group("count"));
+        String type = cap(m.group("type").replaceAll("(?i)s$", ""));
+        Consumer<GameContext> followup = parse(m.group("effect").trim(), source);
+        if (followup == null) return null;
+        return ctx -> ctx.putOwnTypeToBzThenDoSo(count, type, followup);
     }
 
     private static Consumer<GameContext> tryParseYouMayPutSelfToBZWhenDoSo(String text, CardData source) {

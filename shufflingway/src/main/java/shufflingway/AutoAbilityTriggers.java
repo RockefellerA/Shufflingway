@@ -5272,6 +5272,32 @@ final class AutoAbilityTriggers {
 		return true;
 	}
 
+	/**
+	 * Every field card of {@code type} the given player controls — "N Backups you control", with
+	 * no filter beyond the type. "Character" means Forwards and Backups, the way it does elsewhere.
+	 */
+	List<ForwardTarget> ownFieldCardsOfType(String type, boolean isP1) {
+		List<ForwardTarget> result = new ArrayList<>();
+		String t = type == null ? "" : type.replaceAll("(?i)s$", "");
+		boolean wantsCharacter = t.equalsIgnoreCase("Character");
+		if (wantsCharacter || t.equalsIgnoreCase("Forward")) {
+			List<CardData> fwds = mw.playerForwardCards(isP1);
+			for (int i = 0; i < fwds.size(); i++)
+				result.add(new ForwardTarget(isP1, i, ForwardTarget.CardZone.FORWARD));
+		}
+		if (wantsCharacter || t.equalsIgnoreCase("Backup")) {
+			CardData[] bkps = mw.playerBackupCards(isP1);
+			for (int i = 0; i < bkps.length; i++)
+				if (bkps[i] != null) result.add(new ForwardTarget(isP1, i, ForwardTarget.CardZone.BACKUP));
+		}
+		if (t.equalsIgnoreCase("Monster")) {
+			List<CardData> mons = mw.playerMonsterCards(isP1);
+			for (int i = 0; i < mons.size(); i++)
+				result.add(new ForwardTarget(isP1, i, ForwardTarget.CardZone.MONSTER));
+		}
+		return result;
+	}
+
 	private List<ForwardTarget> eligibleBzFieldCards(BreakZoneCost bz, boolean isP1) {
 		List<ForwardTarget> result = new ArrayList<>();
 		List<CardData> fwds = mw.playerForwardCards(isP1);

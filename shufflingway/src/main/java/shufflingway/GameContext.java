@@ -830,6 +830,23 @@ public interface GameContext {
     /** Breaks the target (sends to the owning player's Break Zone). */
     void breakTarget(ForwardTarget t);
 
+    /**
+     * "[You may] put {@code count} [{@code type}] you control into the Break Zone. If you do so,
+     * {@code whenDoSo}." — Ardyn 20-001R.
+     *
+     * <p>A price paid in the player's own board, with everything the ability does hanging off it.
+     * Nothing happens at all unless the full count is available: a partial payment buys nothing,
+     * so a board with too few cards declines rather than spending what it has for no effect.
+     *
+     * <p><b>Does not ask whether to pay.</b> The "you may" on the printed card is the auto-ability's
+     * {@link AutoAbility#youMay()} flag, and the trigger has already put that question to the
+     * controller before the effect resolves. Asking again here would make one printed "may" into
+     * two prompts. What is still the player's to decide is <em>which</em> cards go, and that is
+     * what this asks.
+     */
+    void putOwnTypeToBzThenDoSo(int count, String type,
+            java.util.function.Consumer<GameContext> whenDoSo);
+
     /** Removes the target from the game permanently (not to the Break Zone). */
     void removeTargetFromGame(ForwardTarget t);
 
@@ -3992,6 +4009,44 @@ public interface GameContext {
      */
     void revealTopAddUpToMatchingRestShuffledBottom(int reveal, int maxAdd, String jobFilter,
             String categoryFilter, String typeFilter, String excludeName);
+
+    /**
+     * "Reveal the top {@code reveal} cards of your deck. Remove 1 card with Warp among them from
+     * the game and place {@code counters} Warp Counter(s) on it. Then shuffle the other cards and
+     * return them to the bottom of your deck." — Setzer 29-103H.
+     *
+     * <p>The removed card goes to the Warp zone rather than the plain removed-from-game pile,
+     * because a Warp Counter is what that zone is: it ticks down each turn and the card becomes
+     * castable when it runs out. Setzer places one counter, not the card's printed Warp value —
+     * the point of the ability is that it arrives a turn away whatever it would normally cost.
+     */
+    void revealTopNRemoveWarpCardPlaceCountersRestShuffledBottom(int reveal, int counters);
+
+    /**
+     * Points of damage the player resolving this effect has received.
+     *
+     * <p>The seat-relative form of {@link #p1DamageCount()} / {@link #p2DamageCount()}, for effects
+     * printed as "you have received" — which read the controller's damage whichever seat resolves
+     * them, and would otherwise have to know which one they were.
+     */
+    int ownDamageCount();
+
+    /**
+     * "Reveal the top {@code reveal} cards of your deck. Play up to {@code maxPlay} Category
+     * {@code category} {@code type} among them onto the field. Then, shuffle the other cards
+     * revealed and return them to the bottom of your deck. The {@code type}'s Element becomes
+     * {@code element} and it gains Job {@code job}." — Chaos Advent 27-006R.
+     *
+     * <p>One method rather than a reveal followed by a grant, because the grant is about the card
+     * this reveal played and nothing else names it. Both halves are permanent, as the card's
+     * "(This effect does not end at the end of the turn.)" says, and both are applied to the played
+     * instance rather than by name — two copies of one card must not both be caught.
+     *
+     * <p>Play nothing and nothing is granted: the reveal may turn up no eligible card at all, and
+     * "up to" allows declining one that it does.
+     */
+    void revealTopNPlayCategoryTypeRestShuffledBottomGrantElementJob(int reveal, int maxPlay,
+            String category, String type, String element, String job);
 
     /**
      * Reveals the top {@code reveal} cards of the player's deck and takes up to one of each card

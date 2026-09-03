@@ -7611,6 +7611,35 @@ final class GameContextImpl implements GameContext {
 				ifDiscarded.accept(this);
 			}
 
+			@Override public void putOwnTypeToBzThenDoSo(int count, String type,
+					java.util.function.Consumer<GameContext> whenDoSo) {
+				List<ForwardTarget> eligible = mw.autoAbilityTriggers.ownFieldCardsOfType(type, isP1);
+				if (eligible.size() < count) {
+					logEntry("[Effect] Not enough " + type + "s to put into the Break Zone — nothing happens");
+					return;
+				}
+				List<ForwardTarget> picks;
+				if (eligible.size() == count) {
+					picks = eligible;                       // no choice to make
+				} else if (!isP1) {
+					// The AI already accepted the ability; what is left is which cards to spend, and
+					// the cheapest are the ones it wants back least.
+					List<ForwardTarget> byCost = new ArrayList<>(eligible);
+					byCost.sort(java.util.Comparator.comparingInt(
+							t -> { CardData c = cardAtTarget(t); return c == null ? 0 : c.cost(); }));
+					picks = new ArrayList<>(byCost.subList(0, count));
+				} else {
+					picks = mw.showForwardSelectDialog(eligible, count, false,
+							"Put " + count + " " + type + "(s) into the Break Zone");
+				}
+				if (picks == null || picks.size() < count) {
+					logEntry("[Effect] Break Zone cost cancelled — nothing happens");
+					return;
+				}
+				mw.applyTargetsHighestIndexFirst(picks, this::breakTarget);
+				whenDoSo.accept(this);
+			}
+
 			@Override public void mayBreakSourceWhenDoSo(CardData source, java.util.function.Consumer<GameContext> whenDoSo) {
 				if (!isP1) { logEntry("[P2 AI] Passes on optional break of " + source.name()); return; }
 				String title = (mw.currentAbilitySource != null ? mw.currentAbilitySource.name() : source.name());
@@ -8563,6 +8592,7 @@ final class GameContextImpl implements GameContext {
 				return active;
 			}
 
+			@Override public int ownDamageCount() { return isP1 ? p1DamageCount() : p2DamageCount(); }
 			@Override public int p1DamageCount() { return mw.gameState.getP1DamageZone().size(); }
 			@Override public int p2DamageCount() { return mw.gameState.getP2DamageZone().size(); }
 
@@ -9421,6 +9451,50 @@ final class GameContextImpl implements GameContext {
 						peeked.stream().map(CardData::name).collect(Collectors.joining(", ")));
 				mw.lookDialogs().revealAddUpToMatchingRestShuffledBottom(peeked, deck, isP1, maxAdd,
 						jobFilter, categoryFilter, typeFilter, excludeName);
+			}
+
+			@Override public void revealTopNPlayCategoryTypeRestShuffledBottomGrantElementJob(
+					int reveal, int maxPlay, String category, String type, String element, String job) {
+				Deque<CardData> deck = isP1 ? mw.gameState.getP1MainDeck() : mw.gameState.getP2MainDeck();
+				int n = Math.min(reveal, deck.size());
+				if (n == 0) { logEntry("Reveal top: deck is empty."); return; }
+				List<CardData> peeked = new ArrayList<>();
+				for (CardData c : deck) { peeked.add(c); if (peeked.size() >= n) break; }
+				logEntry("Reveal top " + n + " card(s): " +
+						peeked.stream().map(CardData::name).collect(Collectors.joining(", ")));
+				Consumer<CardData> place = revealPlacement();
+				mw.lookDialogs().revealPlayCategoryTypeRestShuffledBottom(peeked, deck, isP1, maxPlay,
+						category, type, card -> {
+					place.accept(card);
+					// Keyed by instance, not by name: the same two maps the by-name grants write,
+					// reached directly because this effect already holds the card it played.
+					if (element != null) mw.elementOverrideMap.put(card, element);
+					if (job     != null) mw.permanentExtraJobMap.put(card, job);
+					logEntry(card.name() + " — Element becomes " + element
+							+ " and it gains Job [" + job + "] (does not end at end of turn)");
+					mw.refreshAllForwardSlots();
+				});
+			}
+
+			@Override public void revealTopNRemoveWarpCardPlaceCountersRestShuffledBottom(
+					int reveal, int counters) {
+				Deque<CardData> deck = isP1 ? mw.gameState.getP1MainDeck() : mw.gameState.getP2MainDeck();
+				int n = Math.min(reveal, deck.size());
+				if (n == 0) { logEntry("Reveal top: deck is empty."); return; }
+				List<CardData> peeked = new ArrayList<>();
+				for (CardData c : deck) { peeked.add(c); if (peeked.size() >= n) break; }
+				logEntry("Reveal top " + n + " card(s): " +
+						peeked.stream().map(CardData::name).collect(Collectors.joining(", ")));
+				mw.lookDialogs().revealRemoveWarpCardRestShuffledBottom(peeked, deck, isP1, card -> {
+					// Into the Warp zone with the counter the ability places, not the card's own
+					// Warp value. Deliberately without firing the warp-placed triggers: those
+					// belong to a card *played* via Warp, and this one was removed by an ability.
+					if (isP1) mw.gameState.addToP1WarpZone(card, counters);
+					else      mw.gameState.addToP2WarpZone(card, counters);
+					logEntry((isP1 ? "" : "[P2] ") + card.name() + " → Removed From Game with "
+							+ counters + " Warp Counter" + (counters == 1 ? "" : "s"));
+					if (isP1) mw.refreshP1WarpZoneUI(); else mw.refreshP2WarpZoneUI();
+				});
 			}
 
 			@Override public void revealTopAddOnePerTypeToHandRestBz(int reveal, List<String> types) {

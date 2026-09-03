@@ -2145,6 +2145,39 @@ class LookAtDeckDialogs {
                 RevealRest.BOTTOM, takeCard, RevealTake.RFG_CASTABLE);
     }
 
+    /**
+     * "Reveal the top N cards of your deck. Play up to M Category C [Type] among them onto the
+     * field. Then, shuffle the other cards revealed and return them to the bottom of your deck."
+     * — Chaos Advent 27-006R.
+     *
+     * <p>What the played card then becomes is {@code playOntoField}'s business, not this class's:
+     * Chaos Advent's Element and Job grant rides on the same consumer that puts it into play.
+     */
+    void revealPlayCategoryTypeRestShuffledBottom(List<CardData> cards, Deque<CardData> deck,
+            boolean isP1, int maxPlay, String category, String type,
+            Consumer<CardData> playOntoField) {
+        String typeLabel = "Category " + category + " " + type;
+        Predicate<CardData> eligible = c -> CardFilters.meetsCategoryFilter(c, category)
+                && meetsRevealTypeFilter(c, type);
+        resolveRevealPlayOntoField(cards, deck, isP1, maxPlay, typeLabel, eligible,
+                RevealRest.SHUFFLED_BOTTOM, playOntoField, RevealTake.FIELD);
+    }
+
+    /**
+     * "Reveal the top N cards of your deck. Remove 1 card with Warp among them from the game and
+     * place 1 Warp Counter on it. Then shuffle the other cards and return them to the bottom of
+     * your deck." — Setzer 29-103H.
+     *
+     * <p>"A card with Warp" is one that prints a Warp value; what the counter placed on it is
+     * worth is the card's business, and {@code takeCard} is what puts it there.
+     */
+    void revealRemoveWarpCardRestShuffledBottom(List<CardData> cards, Deque<CardData> deck,
+            boolean isP1, Consumer<CardData> takeCard) {
+        resolveRevealPlayOntoField(cards, deck, isP1, 1, "card with Warp",
+                c -> c.warpValue() > 0, RevealRest.SHUFFLED_BOTTOM, takeCard,
+                RevealTake.RFG_WARP_COUNTER);
+    }
+
     /** Routes the choice these three effects share to whoever is sitting in the seat. */
     private void resolveRevealPlayOntoField(List<CardData> cards, Deque<CardData> deck,
             boolean isP1, int maxPlay, String typeLabel, Predicate<CardData> eligible,
@@ -2220,13 +2253,24 @@ class LookAtDeckDialogs {
         return arrangeRest(leftover, toField, rest);
     }
 
-    /** The one arrangement both seats build: the played cards, and the leftovers in their pile. */
+    /**
+     * The one arrangement both seats build: the played cards, and the leftovers in their pile.
+     *
+     * <p>A shuffled bottom is randomised here, as the answer is built, for the same reason
+     * {@link #splitDecision} does it: the answer travels as indices, so one agreed order goes on
+     * the wire. Randomising at apply time would have the two clients disagree about the deck.
+     */
     private static DeckLookDecision arrangeRest(List<Integer> leftover, List<Integer> toField,
             RevealRest rest) {
         return switch (rest) {
             case HAND       -> new DeckLookDecision(leftover, List.of(), List.of(), List.of(), toField);
             case BREAK_ZONE -> new DeckLookDecision(List.of(), leftover, List.of(), List.of(), toField);
             case BOTTOM     -> new DeckLookDecision(List.of(), List.of(), List.of(), leftover, toField);
+            case SHUFFLED_BOTTOM -> {
+                List<Integer> shuffled = new ArrayList<>(leftover);
+                java.util.Collections.shuffle(shuffled);
+                yield new DeckLookDecision(List.of(), List.of(), List.of(), shuffled, toField);
+            }
         };
     }
 
@@ -2299,6 +2343,9 @@ class LookAtDeckDialogs {
                 @Override public void mousePressed(MouseEvent e) {
                     CardData c = order.get(idx);
                     if (holdsIdentity(fieldSel, c)) return;
+                    // Nothing to arrange when the leftovers are shuffled — offering the swap would
+                    // invite the player to set an order that arrangeRest then throws away.
+                    if (rest == RevealRest.SHUFFLED_BOTTOM) return;
                     if (selectedForSwap[0] == -1) {
                         selectedForSwap[0] = idx;
                     } else if (selectedForSwap[0] == idx) {
@@ -2368,6 +2415,7 @@ class LookAtDeckDialogs {
                             case HAND       -> "The rest go to your hand.";
                             case BREAK_ZONE -> "The rest go to your Break Zone.";
                             case BOTTOM     -> "Swap the rest to set bottom-of-deck order (left = first).";
+                            case SHUFFLED_BOTTOM -> "The rest are shuffled and go under your deck.";
                         }),
                 SwingConstants.CENTER);
         instructions.setFont(FontLoader.loadPixelFont(9));

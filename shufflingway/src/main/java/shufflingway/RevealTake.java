@@ -20,7 +20,14 @@ enum RevealTake {
      * The card is removed from the game and registered castable from there — Snow 18-109C, whose
      * "You can cast it at any time you could normally cast it this turn" is the point of the removal.
      */
-    RFG_CASTABLE("Remove ", " from the Game", "→ Remove", "remove from the game", "removed from the game");
+    RFG_CASTABLE("Remove ", " from the Game", "→ Remove", "remove from the game", "removed from the game"),
+    /**
+     * The card is removed from the game with a Warp Counter placed on it — Setzer 29-103H. It
+     * lands in the Warp zone and ticks down from there like any warped card, so what the player is
+     * told names the counter as well as the removal.
+     */
+    RFG_WARP_COUNTER("Remove ", " from the Game (Warp Counter)", "→ Remove",
+            "remove from the game with a Warp Counter", "removed from the game with a Warp Counter");
 
     private final String titlePrefix;
     private final String titleVerb;
@@ -57,6 +64,7 @@ enum RevealTake {
                     case HAND       -> ", Rest to Hand";
                     case BREAK_ZONE -> ", Rest to Break Zone";
                     case BOTTOM     -> ", Rest to Bottom";
+                    case SHUFFLED_BOTTOM -> ", Rest Shuffled Under Deck";
                 };
     }
 }
