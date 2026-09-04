@@ -3962,14 +3962,21 @@ final class ActionResolverPatterns {
     // ---- Cannot-be-chosen followup patterns -----------------------------------------
     /**
      * "It/They gains 'This Forward/Character cannot be chosen by your opponent's [Summons/abilities].'
-     * until the end of the turn."  The grant form is semantically identical to a direct EOT shield.
+     * until [the end of the turn | the beginning of your next turn]."  The grant form is
+     * semantically identical to a direct shield of the same duration.
      * Checked first so the simpler cannot-be-chosen patterns do not match inside the quoted text.
      * Group {@code scope} captures the scope string.
+     *
+     * <p>Group {@code nextTurn} is non-null for the longer duration — 14-126C Aerith, the corpus's
+     * only card granting this in quoted form. The difference is not cosmetic: an end-of-turn shield
+     * granted on your own turn expires before the opponent has a turn in which to choose anything,
+     * so reading Aerith's as end-of-turn would make the option she offers do nothing at all.
      */
     static final Pattern FOLLOWUP_GAINS_CANNOT_BE_CHOSEN = Pattern.compile(
         "(?i)(?:it|they)\\s+gains?\\s+['\"]This\\s+(?:Forward|Character)\\s+cannot\\s+be\\s+chosen" +
         "\\s+by\\s+your\\s+opponent's\\s+(?<scope>Summons?(?:\\s+or\\s+abilities)?|abilities)\\.?['\"]" +
-        "\\s+until\\s+(?:the\\s+)?end\\s+of\\s+(?:the\\s+)?turn\\.?"
+        "\\s+until\\s+(?:(?:the\\s+)?end\\s+of\\s+(?:the\\s+)?turn" +
+        "|(?<nextTurn>the\\s+beginning\\s+of\\s+your\\s+next\\s+turn))\\.?"
     );
 
     // =========================================================================================
@@ -7252,14 +7259,28 @@ final class ActionResolverPatterns {
      * the card is — not something to infer from its absence.
      *
      * <p>Anchored end to end, and the name is checked against the printing card by
-     * {@link ActionResolverState#tryParseSelfBecomeForwardPermanently}. That is what keeps it off
-     * the 7-xxx cycle (7-070R Zaghnal and five siblings), which prints the same sentence behind an
-     * "if [Self] is not a Forward," guard and a longer reminder — a different trigger shape that is
-     * still unwired, and better left visibly so than half-claimed here.
+     * {@link ActionResolverState#tryParseSelfBecomeForwardPermanently}.
+     *
+     * <p>The set-7 cycle — 7-006R Varuna, 7-026R Gremlin, 7-050R Condor, 7-070R Zaghnal, 7-098R
+     * Flanborg and 7-111R Geosgaeno — prints the same promotion with two additions, both optional
+     * here. It guards the sentence with "if [Self] is not a Forward," and it extends the reminder
+     * with "This ability will not trigger if [Self] is a Forward." Those say the same thing twice:
+     * the promotion is a one-way door, and the ability is spent once through it. The guard is
+     * enforced at resolution rather than read off the text, so the two are one rule and not two.
+     *
+     * <p>{@code traits} carries the keywords some of the cycle grants alongside the power — Varuna's
+     * Brave. A member granting a quoted ability instead (Gremlin, Condor, Flanborg, Geosgaeno) does
+     * not match, and stays visibly unwired rather than being promoted with its payload dropped.
+     *
+     * <p>Condor also stacks a second gate ("if you control 5 or more Backups and if …"), which the
+     * single-clause guard here declines. It is the only member that does.
      */
     static final Pattern SELF_BECOME_FORWARD_PERMANENT = Pattern.compile(
-        "(?i)^\\s*(?<name>[^.,]+?)\\s+also\\s+becomes?\\s+a\\s+Forward\\s+with\\s+(?<power>\\d+)\\s+power[.!]?\\s*" +
-        "\\(This\\s+effect\\s+does\\s+not\\s+end\\s+at\\s+the\\s+end\\s+of\\s+the\\s+turn\\.?\\)\\s*$"
+        "(?i)^\\s*(?:if\\s+(?<guard>[^.,]+?)\\s+is\\s+not\\s+a\\s+Forward,\\s+)?" +
+        "(?<name>[^.,]+?)\\s+also\\s+becomes?\\s+a\\s+Forward\\s+with\\s+(?<power>\\d+)\\s+power" +
+        "(?<traits>(?:\\s+and\\s+(?:Haste|First\\s+Strike|Brave))+)?[.!]?\\s*" +
+        "\\(This\\s+effect\\s+does\\s+not\\s+end\\s+at\\s+the\\s+end\\s+of\\s+the\\s+turn\\.?" +
+        "(?:\\s*This\\s+ability\\s+will\\s+not\\s+trigger\\s+if\\s+[^.]+?\\s+is\\s+a\\s+Forward\\.?)?\\)\\s*$"
     );
 
     /**

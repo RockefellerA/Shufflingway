@@ -1,6 +1,7 @@
 package shufflingway;
 
 import java.util.ArrayList;
+import java.util.EnumSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.function.BiConsumer;
@@ -783,11 +784,17 @@ final class ActionResolverState {
         Matcher m = SELF_BECOME_FORWARD_PERMANENT.matcher(text.trim());
         if (!m.matches()) return null;
         if (!m.group("name").trim().equalsIgnoreCase(source.name())) return null;
+        // The set-7 cycle names itself twice, once in the guard and once as the subject. Both have
+        // to be this card: a guard reading some other card would be a condition this cannot answer.
+        String guard = m.group("guard");
+        if (guard != null && !guard.trim().equalsIgnoreCase(source.name())) return null;
         final int power = Integer.parseInt(m.group("power"));
+        final EnumSet<CardData.Trait> traits = parseTraits(m.group("traits"));
         return ctx -> {
             ctx.logEntry("Effect: " + source.name() + " also becomes a Forward with " + power
-                    + " power (does not end at end of turn)");
-            ctx.makeSourceForwardPermanently(source, power);
+                    + " power" + (traits.isEmpty() ? "" : " and " + traitNamesOnly(traits))
+                    + " (does not end at end of turn)");
+            ctx.makeSourceForwardPermanently(source, power, traits);
         };
     }
 

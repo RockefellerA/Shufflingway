@@ -3321,13 +3321,19 @@ final class ActionResolverChoose {
             boolean chosenAbilities = chosenBoth  || (gcM == null && FOLLOWUP_CANNOT_BE_CHOSEN_ABILITIES.matcher(fp).find());
             if (chosenSummons || chosenAbilities) {
                 final boolean bs = chosenSummons, ba = chosenAbilities;
+                // Aerith 14-126C's longer duration, which only the quoted form prints. An
+                // end-of-turn shield laid on your own turn expires before the opponent gets a turn
+                // to choose in, so the two are not interchangeable.
+                final boolean untilNextTurn = gcM != null && gcM.group("nextTurn") != null;
                 return ctx -> {
                     ctx.logChooseHeader(choosePrefix + " — Cannot be chosen by opponent's"
-                            + (bs && ba ? " Summons or abilities" : bs ? " Summons" : " abilities"));
+                            + (bs && ba ? " Summons or abilities" : bs ? " Summons" : " abilities")
+                            + (untilNextTurn ? " until the beginning of your next turn" : ""));
                     List<ForwardTarget> ts = selectTargets(ctx, maxCount, upTo,
                             opponentOnly, selfOnly, condition, element, zone, opponentZone,
                             costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters, jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, fExcludeElem, withoutMulticard);
-                    ts.forEach(t -> ctx.shieldCannotBeChosen(t, bs, ba));
+                    ts.forEach(t -> { if (untilNextTurn) ctx.shieldCannotBeChosenUntilYourNextTurn(t, bs, ba);
+                                      else               ctx.shieldCannotBeChosen(t, bs, ba); });
                     if (secondary != null) secondary.accept(ctx);
                 };
             }

@@ -90,6 +90,8 @@ class TurnPhases {
 		// The phase the one-shot skips were charged for has now been through every P2 card, so
 		// they are spent — whether or not the card they held was dull enough to be asked.
 		mw.consumeActivePhaseSkips(false);
+		// "Until the beginning of your next turn" -- this is that beginning, for P2's cards.
+		mw.clearNextTurnChoiceShields(false);
 
 		// Pass 2: remove freeze — card state is unchanged, only the frozen flag is cleared
 		for (int i = 0; i < mw.p2BackupStates.length; i++) {
@@ -169,6 +171,8 @@ class TurnPhases {
 		}
 		// Spent here for the same reason as in runP2ActivePhase.
 		mw.consumeActivePhaseSkips(true);
+		// Lifted here for the same reason as in runP2ActivePhase.
+		mw.clearNextTurnChoiceShields(true);
 
 		// Pass 2: remove freeze — card state is unchanged, only the frozen flag is cleared
 		for (int i = 0; i < mw.p1BackupStates.length; i++) {

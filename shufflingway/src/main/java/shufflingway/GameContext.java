@@ -1402,6 +1402,18 @@ public interface GameContext {
     void shieldCannotBeChosen(ForwardTarget t, boolean bySummons, boolean byAbilities);
 
     /**
+     * As above, but the shield outlasts this turn and is lifted at the beginning of the granting
+     * player's next turn — 14-126C Aerith's second option.
+     *
+     * <p>A different lifetime, not a longer one of the same kind, and the distinction is the whole
+     * point of the wording. {@link #shieldCannotBeChosen} is swept with the rest of the turn's
+     * state, so a shield granted on your own turn is gone before your opponent has a turn in which
+     * to choose anything — which would make Aerith's option do nothing whatsoever. This one covers
+     * exactly the window the opponent could act in.
+     */
+    void shieldCannotBeChosenUntilYourNextTurn(ForwardTarget t, boolean bySummons, boolean byAbilities);
+
+    /**
      * Applies "cannot be chosen" protection to every Forward the active player controls.
      */
     void shieldAllOwnForwardsCannotBeChosen(boolean bySummons, boolean byAbilities);
@@ -3860,7 +3872,21 @@ public interface GameContext {
      * not one a choice picked: it is found in the resolving player's own rows, so an opposing copy
      * of the same Monster is untouched. No-op if it is already a Forward or has left the field.
      */
-    void makeSourceForwardPermanently(CardData source, int power);
+    default void makeSourceForwardPermanently(CardData source, int power) {
+        makeSourceForwardPermanently(source, power, EnumSet.noneOf(CardData.Trait.class));
+    }
+
+    /**
+     * As above, also granting {@code traits} permanently — 7-006R Varuna's "…with 8000 power and
+     * Brave."
+     *
+     * <p>No-op when {@code source} is already a Forward, which is the set-7 cycle's own guard
+     * ("This ability will not trigger if Varuna is a Forward") rather than an implementation
+     * detail: those abilities fire on a recurring event, so without it Varuna would re-promote
+     * every time a Forward of yours got through. Enforced here rather than read off the text
+     * because "is a Forward" is a fact about the board, not about the sentence.
+     */
+    void makeSourceForwardPermanently(CardData source, int power, EnumSet<CardData.Trait> traits);
 
     /**
      * Makes all Monsters the ability user controls also become Forwards with {@code power}

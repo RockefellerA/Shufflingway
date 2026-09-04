@@ -835,6 +835,18 @@ final class GameContextImpl implements GameContext {
 						(bySummons && byAbilities ? " Summons or abilities" : bySummons ? " Summons" : " abilities"));
 			}
 
+			@Override public void shieldCannotBeChosenUntilYourNextTurn(
+					ForwardTarget t, boolean bySummons, boolean byAbilities) {
+				CardData card = mw.autoAbilityTriggers.fieldCardData(t);
+				if (card == null) return;
+				if (bySummons)   mw.cannotBeChosenBySummonsUntilNextTurn.add(card);
+				if (byAbilities) mw.cannotBeChosenByAbilitiesUntilNextTurn.add(card);
+				logEntry("Effect: " + card.name() + " cannot be chosen by your opponent's"
+						+ (bySummons && byAbilities ? " Summons or abilities"
+								: bySummons ? " Summons" : " abilities")
+						+ " until the beginning of your next turn");
+			}
+
 			@Override public void shieldNamedCardCannotBeChosen(String name, boolean bySummons, boolean byAbilities) {
 				List<CardData> fwds = isP1 ? mw.p1ForwardCards : mw.p2ForwardCards;
 				for (CardData c : fwds) {
@@ -9344,25 +9356,48 @@ final class GameContextImpl implements GameContext {
 						+ " also becomes a Forward with " + power + " power");
 			}
 
-			@Override public void makeSourceForwardPermanently(CardData source, int power) {
+			@Override public void makeSourceForwardPermanently(
+					CardData source, int power, EnumSet<CardData.Trait> traits) {
 				if (source == null) return;
 				// Located on the resolving player's own side, by identity: the ability names the
 				// card that printed it, so an opposing copy of the same Monster is a different card.
 				int idx = (isP1 ? mw.p1MonsterCards : mw.p2MonsterCards).indexOf(source);
 				if (idx >= 0) {
-					makeTargetForwardPermanently(
-							new ForwardTarget(isP1, idx, ForwardTarget.CardZone.MONSTER), power);
+					promoteIfNotAlreadyForward(
+							new ForwardTarget(isP1, idx, ForwardTarget.CardZone.MONSTER),
+							source, power, traits,
+							isP1 ? mw.isP1MonsterTemporarilyForward(idx) : mw.isP2MonsterTemporarilyForward(idx));
 					return;
 				}
 				CardData[] backups = isP1 ? mw.p1BackupCards : mw.p2BackupCards;
 				for (int i = 0; i < backups.length; i++) {
 					if (backups[i] != source) continue;
-					makeTargetForwardPermanently(
-							new ForwardTarget(isP1, i, ForwardTarget.CardZone.BACKUP), power);
+					promoteIfNotAlreadyForward(
+							new ForwardTarget(isP1, i, ForwardTarget.CardZone.BACKUP),
+							source, power, traits,
+							isP1 ? mw.isP1BackupTemporarilyForward(i) : mw.isP2BackupTemporarilyForward(i));
 					return;
 				}
-				// Already a Forward, or gone from the field before the option resolved.
+				// Already a Forward in its own right, or gone from the field before this resolved.
 				logEntry(source.name() + " is not a Backup or Monster on the field — nothing becomes a Forward");
+			}
+
+			/**
+			 * The promotion, unless the card is standing as a Forward already.
+			 *
+			 * <p>The guard is the set-7 cycle's, and it has to be asked of the promotion state
+			 * rather than of the row: a Monster that has already been promoted is still in the
+			 * Monster row, so "is it on this row" answers yes and would let the ability fire again
+			 * on every later trigger.
+			 */
+			private void promoteIfNotAlreadyForward(ForwardTarget t, CardData source, int power,
+					EnumSet<CardData.Trait> traits, boolean alreadyForward) {
+				if (alreadyForward) {
+					logEntry(source.name() + " is already a Forward — nothing to promote");
+					return;
+				}
+				makeTargetForwardPermanently(t, power);
+				if (!traits.isEmpty()) boostTargetPermanently(t, 0, traits);
 			}
 
 			@Override public void makeAllMonstersTemporaryForwards(int power) {

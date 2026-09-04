@@ -1111,6 +1111,37 @@ public class MainWindow {
 	 * player, so neither may choose the card.
 	 */
 	final Set<CardData> cannotBeChosenByAbilitiesAnyone = new HashSet<>();
+	/**
+	 * Forwards shielded from the opponent's Summons / abilities until the beginning of their
+	 * controller's next turn -- 14-126C Aerith's second option, the only printing of that duration
+	 * in quoted-grant form.
+	 *
+	 * <p>Separate stores rather than a longer lease on the turn-scoped sets above, because the two
+	 * are swept at different moments: those go with the rest of the turn's state, these are cleared
+	 * at the start of the shielded side's own next turn by {@link #clearNextTurnChoiceShields}. A
+	 * shield granted on your turn and swept at the end of it would never once be consulted -- the
+	 * only player it stops is the opponent, and their turn has not happened yet.
+	 */
+	final Set<CardData> cannotBeChosenBySummonsUntilNextTurn   = Collections.newSetFromMap(new IdentityHashMap<>());
+	/** The abilities half of {@link #cannotBeChosenBySummonsUntilNextTurn}. */
+	final Set<CardData> cannotBeChosenByAbilitiesUntilNextTurn = Collections.newSetFromMap(new IdentityHashMap<>());
+
+	/**
+	 * Lifts the until-next-turn choice shields held by {@code isP1}'s field cards, called as that
+	 * side's turn begins -- "until the beginning of your next turn", read literally.
+	 *
+	 * <p>Only that side's cards: the duration is the granting player's, and both printings grant it
+	 * to a Forward they control.
+	 */
+	void clearNextTurnChoiceShields(boolean isP1) {
+		if (cannotBeChosenBySummonsUntilNextTurn.isEmpty()
+				&& cannotBeChosenByAbilitiesUntilNextTurn.isEmpty()) return;
+		for (CardData c : fieldCards(isP1)) {
+			cannotBeChosenBySummonsUntilNextTurn.remove(c);
+			cannotBeChosenByAbilitiesUntilNextTurn.remove(c);
+		}
+	}
+
 	/** Maps a card to an element: that card cannot be chosen by Summons/abilities of that element this turn. */
 	final Map<CardData, String> cannotBeChosenByElement = new HashMap<>();
 	/** Maps a card to an element: damage dealt to that card by Summons/abilities of that element becomes 0 this turn. */
@@ -2221,6 +2252,8 @@ public class MainWindow {
 		cardsRemovedBySource.clear();
 		cannotBeChosenBySummons.clear();
 		cannotBeChosenByAbilities.clear();
+		cannotBeChosenBySummonsUntilNextTurn.clear();
+		cannotBeChosenByAbilitiesUntilNextTurn.clear();
 		cannotBeChosenBySummonsAnyone.clear();
 		cannotBeChosenByAbilitiesAnyone.clear();
 		cannotBeChosenByElement.clear();
@@ -12479,6 +12512,10 @@ public class MainWindow {
 		// property of the card's own text and lasts as long as it is on the field.
 		if (ActionResolver.hasCannotBeChosenByOppFieldAbility(c, bySummon)) return true;
 		if ((bySummon ? cannotBeChosenBySummons : cannotBeChosenByAbilities).contains(c)) return true;
+		// Aerith 14-126C's longer lease, read beside the turn-scoped store rather than folded into
+		// it: same answer, different sweep.
+		if ((bySummon ? cannotBeChosenBySummonsUntilNextTurn
+		              : cannotBeChosenByAbilitiesUntilNextTurn).contains(c)) return true;
 		if ((bySummon ? permanentCannotBeChosenBySummons : permanentCannotBeChosenByAbilities).contains(c)) return true;
 		return icbGrantsImmunity(c.name(), sideIsP1, bySummon, true, chooserSource);
 	}
