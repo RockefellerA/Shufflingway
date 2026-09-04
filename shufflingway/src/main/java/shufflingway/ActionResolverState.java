@@ -763,6 +763,24 @@ final class ActionResolverState {
     }
 
     /**
+     * Parses "[Self] (will|does) not activate during your next Active Phase." — the self-imposed
+     * cost nine printings attach to an oversized effect. See
+     * {@link ActionResolverPatterns#SELF_SKIP_NEXT_ACTIVE_PHASE} for the roster.
+     *
+     * <p>Self-named and checked by equality against the printing card, which is what makes the
+     * effect land on the right copy: two Kains on the board are two cards, and only the one whose
+     * ability was used sits out the phase. No corpus wording puts this sentence on anything but the
+     * card that prints it, so a text naming another card is declined rather than guessed at.
+     */
+    static Consumer<GameContext> tryParseSelfSkipNextActivePhase(String text, CardData source) {
+        if (source == null) return null;
+        Matcher m = SELF_SKIP_NEXT_ACTIVE_PHASE.matcher(text.trim());
+        if (!m.matches()) return null;
+        if (!m.group("name").trim().equalsIgnoreCase(source.name())) return null;
+        return ctx -> ctx.sourceSkipsNextActivePhase(source);
+    }
+
+    /**
      * A bare followup action whose target is the card that fired the trigger, not one the player
      * chooses — 26-032L Charlotte, "When a Character enters your opponent's field, dull it and
      * Freeze it."

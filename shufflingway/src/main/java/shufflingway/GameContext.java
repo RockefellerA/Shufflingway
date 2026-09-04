@@ -152,6 +152,24 @@ public interface GameContext {
             String excludeElement, boolean withoutMulticard);
 
     /**
+     * Lets the resolving player pick from the union of two independent target descriptions —
+     * Gnash 7-057R's "choose 1 Forward of cost 1 opponent controls or 1 Monster of cost 2 or less
+     * opponent controls".
+     *
+     * <p>Cannot be expressed as one {@link #selectCharacters} call: its filters are a conjunction
+     * narrowing a single pool, and this offers two pools whose card type and cost ceiling travel
+     * together. Each spec is resolved through the same eligibility rules a lone
+     * {@code selectCharacters} would apply, so the "cannot be chosen" shields on either half hold.
+     *
+     * <p>How many to pick and whether the count is a ceiling are read from {@code first}; the
+     * second spec contributes only its filters. A card answering both descriptions is offered once.
+     *
+     * <p>Picking none is a legal answer, and returns an empty list — as it is when nothing on
+     * either description is on the board.
+     */
+    List<ForwardTarget> selectCharactersEitherSpec(TargetSpec first, TargetSpec second, String title);
+
+    /**
      * Lets the resolving player pick any number of Forwards whose printed costs sum to at most
      * {@code maxTotalCost}, and returns them — Vincent 2-077L's Death Penalty.
      *
@@ -3042,6 +3060,18 @@ public interface GameContext {
      * through it.
      */
     void targetDoesNotActivateWhileWardenOnField(ForwardTarget t, CardData warden);
+
+    /**
+     * Holds {@code source} out of its controller's next Active Phase -- "[Self] will not activate
+     * during your next Active Phase", the price Kain 1-127H, Barret 20-016R, Lorenzo 17-084C and
+     * six other printings pay for an oversized effect.
+     *
+     * <p>The one-shot beside {@link #targetDoesNotActivateWhileWardenOnField}'s lock: it names the
+     * card that printed it rather than one a choice picked, and it is spent by the phase it is
+     * charged for rather than lasting while something stands. One phase, once -- a card that pays
+     * the price twice before that phase arrives still only sits out one.
+     */
+    void sourceSkipsNextActivePhase(CardData source);
 
     /**
      * Finds the source card on its owner's forward zone and returns it to the bottom of

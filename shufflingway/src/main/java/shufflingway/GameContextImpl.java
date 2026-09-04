@@ -1569,6 +1569,37 @@ final class GameContextImpl implements GameContext {
 				excludedTargets = List.of();
 			}
 
+			@Override public List<ForwardTarget> selectCharactersEitherSpec(
+					TargetSpec first, TargetSpec second, String title) {
+				// Both halves go through the ordinary eligibility builder, so each honours the
+				// "cannot be chosen" sets, the must-be-chosen taunt narrowing and every other rule
+				// a lone selectCharacters would apply to it.
+				List<ForwardTarget> pool = new ArrayList<>(eligibleCharacters(first));
+				for (ForwardTarget t : eligibleCharacters(second))
+					if (!pool.contains(t)) pool.add(t);   // a card answering both is offered once
+				if (pool.isEmpty()) {
+					logEntry("Choose: nothing on the board answers either description");
+					return List.of();
+				}
+				int     maxCount = first.maxCount();
+				boolean upTo     = first.upTo();
+				if (!isP1) {
+					// The AI's pick, on the same reasoning selectCharacters uses for a break: the
+					// dearest board presence the choice reaches is the one worth removing. Both
+					// descriptions this shape is printed with name the opponent's cards, so there
+					// is no side preference left to express.
+					List<ForwardTarget> byCostDesc = new ArrayList<>(pool);
+					byCostDesc.sort(Comparator.comparingInt(
+							(ForwardTarget t) -> cardAtTarget(t).cost()).reversed());
+					List<ForwardTarget> picked =
+							List.copyOf(byCostDesc.subList(0, Math.min(maxCount, byCostDesc.size())));
+					picked.forEach(t -> logEntry("[AI] chose " + cardAtTarget(t).name()));
+					return fireChosenByOpponentTriggers(picked);
+				}
+				return fireChosenByOpponentTriggers(
+						mw.showForwardSelectDialog(pool, maxCount, upTo, title));
+			}
+
 			@Override public List<ForwardTarget> selectForwardsWithTotalCostAtMost(int maxTotalCost) {
 				totalCostBudget = Math.max(0, maxTotalCost);
 				try {
@@ -2017,6 +2048,12 @@ final class GameContextImpl implements GameContext {
 				mw.nonActivatingWhileWardenOnField.put(card, warden);
 				logEntry("Effect: " + card.name() + " does not activate during its controller's"
 						+ " Active Phase while " + warden.name() + " is on the field");
+			}
+
+			@Override public void sourceSkipsNextActivePhase(CardData source) {
+				if (source == null) return;
+				mw.skipNextActivePhaseFor(source);
+				logEntry("Effect: " + source.name() + " will not activate during your next Active Phase");
 			}
 
 			@Override public boolean wasElementCpPaid(String element) {

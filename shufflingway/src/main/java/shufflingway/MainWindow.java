@@ -810,20 +810,61 @@ public class MainWindow {
 	final Map<CardData, CardData> nonActivatingWhileWardenOnField = new IdentityHashMap<>();
 
 	/**
-	 * Whether {@code card} is held out of the Active Phase by a warden that is still on the field.
+	 * Cards that will sit out one Active Phase -- "[Self] will not activate during your next Active
+	 * Phase", the price nine printings pay for an oversized effect (Kain 1-127H's free Break, Barret
+	 * 20-016R's 10000 damage, Lorenzo 17-084C's doubled attack).
 	 *
-	 * <p>The entry is dropped as soon as it is found stale, so a warden that has left cannot lock
-	 * anything again by coming back later -- the two are different cards once the first has left.
-	 * Mirrors {@code silencedByWardenOnField} in both the staleness rule and the empty-map guard.
+	 * <p>A one-shot rather than a lock, so unlike {@link #nonActivatingWhileWardenOnField} it is
+	 * spent rather than queried: {@link #consumeActivePhaseSkips} clears a side's entries once that
+	 * side's Active Phase has been through them. Spending it there, not inside
+	 * {@link #blockedFromActivating}, is what makes the skip cost exactly one phase whatever state
+	 * the card is in when the phase arrives -- a card that is already active, or frozen, is never
+	 * asked the question, and consuming on the asking would carry the skip forward to a later phase
+	 * that the text never charged for.
+	 *
+	 * <p>"Your next Active Phase" is the controller's, and every printing spends the effect on its
+	 * own turn, so the flag naturally survives the opponent's turn in between with no bookkeeping:
+	 * the opponent's Active Phase only ever consumes the opponent's cards.
+	 *
+	 * <p>Identity, not name: one copy of Kain paying the price leaves its twin free.
+	 */
+	final Set<CardData> skipNextActivePhase = Collections.newSetFromMap(new IdentityHashMap<>());
+
+	/**
+	 * Whether {@code card} is held out of the Active Phase -- by a warden that is still on the
+	 * field, or by a one-shot skip it has not yet spent.
+	 *
+	 * <p>The warden entry is dropped as soon as it is found stale, so a warden that has left cannot
+	 * lock anything again by coming back later -- the two are different cards once the first has
+	 * left. Mirrors {@code silencedByWardenOnField} in both the staleness rule and the empty-map
+	 * guard.
 	 */
 	boolean blockedFromActivating(CardData card) {
-		if (nonActivatingWhileWardenOnField.isEmpty() || card == null) return false;
+		if (card == null) return false;
+		if (skipNextActivePhase.contains(card)) return true;
+		if (nonActivatingWhileWardenOnField.isEmpty()) return false;
 		CardData warden = nonActivatingWhileWardenOnField.get(card);
 		if (warden == null) return false;
 		if (identityIndexOf(fieldCards(true), warden) >= 0
 				|| identityIndexOf(fieldCards(false), warden) >= 0) return true;
 		nonActivatingWhileWardenOnField.remove(card);
 		return false;
+	}
+
+	/** Records that {@code card} sits out its controller's next Active Phase. */
+	void skipNextActivePhaseFor(CardData card) {
+		if (card != null) skipNextActivePhase.add(card);
+	}
+
+	/**
+	 * Spends the one-shot Active Phase skips held by {@code isP1}'s field cards, called once that
+	 * side's Active Phase has finished walking them.
+	 *
+	 * <p>Only that side's cards, so the phase that pays the debt is the one the text names.
+	 */
+	void consumeActivePhaseSkips(boolean isP1) {
+		if (skipNextActivePhase.isEmpty()) return;
+		for (CardData c : fieldCards(isP1)) skipNextActivePhase.remove(c);
 	}
 
 	/**
@@ -2228,6 +2269,7 @@ public class MainWindow {
 		lostAbilitiesCards.clear();
 		abilitiesStrippedWhileWardenOnField.clear();
 		nonActivatingWhileWardenOnField.clear();
+		skipNextActivePhase.clear();
 		wardenHeldGrants.clear();
 		exBurstSuppressingSources.clear();
 		playerDamageSource = null;
@@ -14269,8 +14311,10 @@ public class MainWindow {
 		// the grant it describes.
 		wardenHeldGrants.removeIf(g -> g.grantee() == card);
 		// Same reasoning as the line above: the lock describes a card that is no longer on a
-		// field to be activated, so the record has nothing left to hold.
+		// field to be activated, so the record has nothing left to hold. The one-shot skip goes
+		// with it — a card that comes back is a new one, and owes nothing the old one had run up.
 		nonActivatingWhileWardenOnField.remove(card);
+		skipNextActivePhase.remove(card);
 		grantedAutoAbilities.remove(card);
 		permanentMaxAttacks.remove(card);
 		permanentPowerBoost.remove(card);

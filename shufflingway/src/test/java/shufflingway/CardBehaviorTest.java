@@ -43803,6 +43803,27 @@ public class CardBehaviorTest {
 		assertEquals(0, mw.buildGameContext(false).revealAnyNumberFromHandDistinctElements());
 	}
 
+	// ---- and the same reading in the report --------------------------------------------------
+	//
+	// The choose chain knew the two sentences were one effect; the naming chains did not, and
+	// applied their ordinary sentence split. That described the pair as a reveal that does nothing
+	// ("?") followed by a flat "Damage" that counts nothing — the misreading the parse-side guard
+	// exists to prevent, mirrored back into the report as though it had happened.
+
+	@Test
+	void aceIsDescribedAsOneEffectNotTwoHalves() {
+		assertEquals("ChooseCharacter / RevealHandDamagePerElement",
+				ActionResolver.fullDescription(ACE_16_002H, null),
+				"split, the report reads as a flat 3000 with the multiplier dropped");
+	}
+
+	@Test
+	void aPlainDamageFollowupIsStillNamedPlainly() {
+		// The guard is keyed to the reveal sentence, so an ordinary "Deal it N damage" is untouched.
+		assertEquals("ChooseCharacter / Damage",
+				ActionResolver.fullDescription("choose 1 Forward. Deal it 3000 damage.", null));
+	}
+
 	// =========================================================================================
 	// 14-115L Shinryu: "At the beginning of Main Phase 1 during each of your turns, reveal the top
 	// card of opponent's deck. If it is a Forward, all the Forwards opponent controls lose 7000
@@ -45270,12 +45291,19 @@ public class CardBehaviorTest {
 		//
 		// None of them is an instruction to activate anything. Read as one they resolved as an
 		// activate aimed at a card named "during your next Active Phase" -- inert only because no
-		// card is so named. They are a real and separate effect, still unimplemented, and now
-		// visibly so rather than reported as working.
+		// card is so named. They are a real and separate effect, and the "next Active Phase" half
+		// is now wired as one (see tryParseSelfSkipNextActivePhase and its section below); the
+		// standing field-ability half remains unimplemented, and visibly so.
+		//
+		// Passed a null source both sentences still go unclaimed: the skip is self-named, and with
+		// nothing to check the name against there is no card to charge.
 		assertNull(ActionResolver.parse(
 				"Sazh will not activate during your next Active Phase.", null));
 		assertNull(ActionResolver.parse(
 				"Larkeicus does not activate during your Active Phase.", null));
+		assertNull(ActionResolver.parse(
+				"Larkeicus does not activate during your Active Phase.",
+				makeForwardWithText("Larkeicus", "Ice", 4, 8000, "")));
 	}
 
 	@Test
@@ -45286,6 +45314,338 @@ public class CardBehaviorTest {
 						"choose 1 Backup. As long as Sephiroth is on the field, it does not "
 						+ "activate during its controller's Active Phase.", vincent),
 				"the warden has to be the ability's own printing");
+	}
+
+	// =========================================================================================
+	// Lorenzo 17-084C: "When Lorenzo attacks, Lorenzo will not activate during your next Active
+	// Phase."  (Effect wiring and board behaviour.)
+	//
+	// The self-imposed price nine printings attach to an oversized effect, and the sibling of the
+	// warden-held lock in the section above -- but a one-shot rather than a standing effect, so it
+	// is spent by the phase it is charged for rather than queried against a card still standing.
+	//
+	// Seven of the nine print it as the tail sentence of an action ability, where it arrives as a
+	// secondary clause: Kain 1-127H and Magitek Armor 15-099C buy a free Break with it, Barret
+	// 20-016R 10000 damage, Sazh 1-013H and Ram 21-078C a cheap ability, Adelle 23-040L a mass
+	// activate. Only Lorenzo and Jack 3-111H carry it alone, on an attack trigger, and Jack writes
+	// "does not" where the rest write "will not".
+	//
+	// The skip is spent in the Active Phase whether or not the card it holds was dull enough to be
+	// asked. Consuming it on the asking instead would let a card that happened to be active carry
+	// the debt forward to a later phase the text never charged for.
+	// =========================================================================================
+
+	private static final String LORENZO_17_084C =
+			"Lorenzo will not activate during your next Active Phase.";
+
+	@Test
+	void lorenzoChargesTheSkipToHimself() {
+		CardData lorenzo = makeForwardWithText("Lorenzo", "Earth", 3, 7000, "");
+		GameContext ctx = mock(GameContext.class);
+		ActionResolver.parse(LORENZO_17_084C, lorenzo).accept(ctx);
+
+		verify(ctx).sourceSkipsNextActivePhase(lorenzo);
+	}
+
+	@Test
+	void jacksDoesNotWordingReachesTheSameEffect() {
+		CardData jack = makeForwardWithText("Jack", "Lightning", 3, 7000, "");
+		GameContext ctx = mock(GameContext.class);
+		ActionResolver.parse("Jack does not activate during your next Active Phase.", jack)
+				.accept(ctx);
+
+		verify(ctx).sourceSkipsNextActivePhase(jack);
+	}
+
+	@Test
+	void aSkipNamingSomeOtherCardIsDeclined() {
+		// No corpus wording puts this sentence on anything but the card that prints it, so a text
+		// naming another card is turned down rather than guessed at.
+		CardData lorenzo = makeForwardWithText("Lorenzo", "Earth", 3, 7000, "");
+		assertNull(ActionResolver.parse(
+				"Sephiroth will not activate during your next Active Phase.", lorenzo));
+	}
+
+	@Test
+	void lorenzoIsAttributedToTheSkip() {
+		CardData lorenzo = makeForwardWithText("Lorenzo", "Earth", 3, 7000, "");
+		assertEquals("SelfSkipNextActivePhase",
+				ActionResolver.matchedPatternName(LORENZO_17_084C, lorenzo));
+		assertEquals("SelfSkipNextActivePhase",
+				ActionResolver.fullDescription(LORENZO_17_084C, lorenzo));
+	}
+
+	@Test
+	void theTailSentenceFormsNoLongerReportAsUnread() {
+		// Kain and the six others print it after the effect it pays for, where it lands in the
+		// secondary slot. Both halves are named now; the whole sentence used to describe as "+ ?".
+		CardData kain = makeForwardWithText("Kain", "Lightning", 3, 8000, "");
+		assertEquals("ChooseCharacter / Break + SelfSkipNextActivePhase",
+				ActionResolver.fullDescription(
+						"Choose 1 Forward. Break it. Kain will not activate during your next "
+						+ "Active Phase.", kain));
+	}
+
+	@Test
+	void theSkippedForwardStaysDullThroughItsOwnActivePhase() {
+		MainWindow mw = new MainWindow();
+		CardData lorenzo = makeForward("Lorenzo", "Earth", 3, 7000);
+		CardData ally    = makeForward("Ally", "Earth", 3, 7000);
+		placeP1Forward(mw, lorenzo);
+		placeP1Forward(mw, ally);
+		mw.p1ForwardStates.set(0, CardState.DULL);
+		mw.p1ForwardStates.set(1, CardState.DULL);
+
+		mw.buildGameContext(true).sourceSkipsNextActivePhase(lorenzo);
+		mw.turnPhases().runP1TurnStart();
+
+		assertEquals(CardState.DULL,   mw.p1ForwardStates.get(0), "Lorenzo sits the phase out");
+		assertEquals(CardState.ACTIVE, mw.p1ForwardStates.get(1), "his neighbour does not");
+	}
+
+	@Test
+	void theSkipIsSpentByTheOnePhaseAndNoMore() {
+		MainWindow mw = new MainWindow();
+		CardData lorenzo = makeForward("Lorenzo", "Earth", 3, 7000);
+		placeP1Forward(mw, lorenzo);
+		mw.p1ForwardStates.set(0, CardState.DULL);
+
+		mw.buildGameContext(true).sourceSkipsNextActivePhase(lorenzo);
+		mw.turnPhases().runP1TurnStart();
+		assertEquals(CardState.DULL, mw.p1ForwardStates.get(0));
+		assertFalse(mw.blockedFromActivating(lorenzo), "the debt was paid by that phase");
+
+		mw.p1ForwardStates.set(0, CardState.DULL);
+		mw.turnPhases().runP1TurnStart();
+		assertEquals(CardState.ACTIVE, mw.p1ForwardStates.get(0),
+				"one phase, once — the next one activates him as normal");
+	}
+
+	@Test
+	void theOpponentsActivePhaseDoesNotSpendTheSkip() {
+		// "Your next Active Phase" is the controller's. Every printing pays on its own turn, so the
+		// flag has to survive the opponent's turn in between untouched.
+		MainWindow mw = new MainWindow();
+		CardData lorenzo = makeForward("Lorenzo", "Earth", 3, 7000);
+		placeP1Forward(mw, lorenzo);
+
+		mw.buildGameContext(true).sourceSkipsNextActivePhase(lorenzo);
+		mw.turnPhases().runP2ActivePhase();
+
+		assertTrue(mw.blockedFromActivating(lorenzo),
+				"P2's Active Phase spends P2's skips, not P1's");
+	}
+
+	@Test
+	void aSkipHeldByOneCopyLeavesItsTwinFree() {
+		MainWindow mw = new MainWindow();
+		CardData paid = makeForward("Lorenzo", "Earth", 3, 7000);
+		CardData twin = makeForward("Lorenzo", "Earth", 3, 7000);
+		placeP1Forward(mw, paid);
+		placeP1Forward(mw, twin);
+
+		mw.buildGameContext(true).sourceSkipsNextActivePhase(paid);
+
+		assertTrue(mw.blockedFromActivating(paid));
+		assertFalse(mw.blockedFromActivating(twin), "identity, not name");
+	}
+
+	@Test
+	void aSkipDiesWithTheCardThatOwedIt() {
+		// A card that comes back is a new card, and owes nothing the old one ran up.
+		MainWindow mw = new MainWindow();
+		CardData lorenzo = makeForward("Lorenzo", "Earth", 3, 7000);
+		placeP1Forward(mw, lorenzo);
+
+		mw.buildGameContext(true).sourceSkipsNextActivePhase(lorenzo);
+		assertTrue(mw.blockedFromActivating(lorenzo));
+
+		mw.clearPermanentGrants(lorenzo);
+		assertFalse(mw.blockedFromActivating(lorenzo));
+	}
+
+	// =========================================================================================
+	// Princess Sarah 11-128H: "When Princess Sarah enters the field, name 1 Element. Princess
+	// Sarah becomes that Element. (This effect does not end at the end of the turn.)"  (Parsing.)
+	//
+	// The effect was already implemented, for Kam'lanaut 5-148H, and already permanent. Only the
+	// house style differed: Kam'lanaut writes "select", puts the reminder inside the sentence and
+	// its period outside; Sarah writes "name", closes the sentence first and puts the period
+	// inside the parentheses. Neither variation says anything about what the effect does, so the
+	// one pattern spans both rather than being copied per style.
+	//
+	// It matters to her second ability, which reads the element back: "《Dull》: All the Forwards of
+	// the same Element as Princess Sarah you control gain +1000 power until the end of the turn."
+	// =========================================================================================
+
+	private static final String PRINCESS_SARAH_11_128H =
+			"name 1 Element. Princess Sarah becomes that Element. "
+			+ "(This effect does not end at the end of the turn.)";
+
+	@Test
+	void princessSarahNamesAnElementAndBecomesIt() {
+		CardData sarah = makeForwardWithText("Princess Sarah", "Light", 1, 0, "");
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.selectElement(anyString())).thenReturn("Fire");
+		ActionResolver.parse(PRINCESS_SARAH_11_128H, sarah).accept(ctx);
+
+		verify(ctx).setCardElement("Princess Sarah", "Fire");
+	}
+
+	@Test
+	void decliningTheChoiceChangesNothing() {
+		CardData sarah = makeForwardWithText("Princess Sarah", "Light", 1, 0, "");
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.selectElement(anyString())).thenReturn(null);
+		ActionResolver.parse(PRINCESS_SARAH_11_128H, sarah).accept(ctx);
+
+		verify(ctx, never()).setCardElement(anyString(), anyString());
+	}
+
+	@Test
+	void kamlanautsWordingIsUnchanged() {
+		CardData kam = makeForwardWithText("Kam'lanaut", "Dark", 5, 9000, "");
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.selectElement(anyString())).thenReturn("Ice");
+		ActionResolver.parse(
+				"select 1 Element. Kam'lanaut becomes that Element "
+				+ "(this effect does not end at the end of the turn).", kam).accept(ctx);
+
+		verify(ctx).setCardElement("Kam'lanaut", "Ice");
+	}
+
+	@Test
+	void bothPrintingsAreAttributedToTheOneName() {
+		CardData sarah = makeForwardWithText("Princess Sarah", "Light", 1, 0, "");
+		assertEquals("ElementChange", ActionResolver.matchedPatternName(PRINCESS_SARAH_11_128H, sarah));
+		assertEquals("ElementChange", ActionResolver.fullDescription(PRINCESS_SARAH_11_128H, sarah));
+	}
+
+	@Test
+	void anElementChangeNamingSomeOtherCardIsDeclined() {
+		CardData sarah = makeForwardWithText("Princess Sarah", "Light", 1, 0, "");
+		assertNull(ActionResolver.parse(
+				"name 1 Element. Sephiroth becomes that Element.", sarah));
+	}
+
+	@Test
+	void theNewElementOutlastsTheTurn() {
+		// The parenthetical is not decoration: the override goes into the store with no end-of-turn
+		// hook behind it, which is what makes it permanent.
+		MainWindow mw = new MainWindow();
+		CardData sarah = makeForward("Princess Sarah", "Light", 1, 0);
+		placeP1Forward(mw, sarah);
+
+		GameContext ctx = mw.buildGameContext(true);
+		ctx.setCardElement("Princess Sarah", "Fire");
+		assertEquals("Fire", mw.effectiveElement(sarah));
+
+		for (Consumer<GameContext> eot : List.copyOf(mw.endOfTurnEffects)) eot.accept(ctx);
+		assertEquals("Fire", mw.effectiveElement(sarah), "nothing was scheduled to take it back");
+	}
+
+	// =========================================================================================
+	// Gnash 7-057R: "When Gnash enters the field, choose 1 Forward of cost 1 opponent controls or
+	// 1 Monster of cost 2 or less opponent controls. Break it."  (Effect wiring and board
+	// behaviour.)
+	//
+	// The corpus's only choice offered over two alternative target descriptions rather than one
+	// description covering both, and there was nowhere in the choose chain to put it: every filter
+	// that chain carries is a conjunction narrowing a single pool, so it read the first half and
+	// offered a prompt the Monster could never appear on.
+	//
+	// Each half becomes a TargetSpec and selectCharactersEitherSpec offers their union, which
+	// keeps both halves inside the ordinary eligibility rules -- the "cannot be chosen" shields on
+	// either description hold, and a card answering both is offered once.
+	// =========================================================================================
+
+	private static final String GNASH_7_057R =
+			"choose 1 Forward of cost 1 opponent controls or 1 Monster of cost 2 or less "
+			+ "opponent controls. Break it.";
+
+	@Test
+	void gnashOffersBothDescriptionsAtOnce() {
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.selectCharactersEitherSpec(any(), any(), anyString()))
+				.thenReturn(new ArrayList<>(List.of(fwd(false, 0))));
+
+		ActionResolver.parse(GNASH_7_057R, null).accept(ctx);
+
+		ArgumentCaptor<TargetSpec> specs = ArgumentCaptor.forClass(TargetSpec.class);
+		verify(ctx).selectCharactersEitherSpec(specs.capture(), specs.capture(), anyString());
+		TargetSpec first = specs.getAllValues().get(0), second = specs.getAllValues().get(1);
+
+		// Forwards of exactly cost 1 -- a null comparator is what makes the cost an equality.
+		assertTrue(first.inclForwards());
+		assertFalse(first.inclMonsters());
+		assertEquals(1, first.costVal());
+		assertNull(first.costCmp());
+		// Monsters of cost 2 or less.
+		assertTrue(second.inclMonsters());
+		assertFalse(second.inclForwards());
+		assertEquals(2, second.costVal());
+		assertEquals("less", second.costCmp());
+		// One pick, from the opponent's side, on both halves.
+		assertEquals(1, first.maxCount());
+		assertTrue(first.opponentOnly());
+		assertTrue(second.opponentOnly());
+
+		verify(ctx).breakTarget(fwd(false, 0));
+	}
+
+	@Test
+	void gnashIsAttributedToTheAlternativeReading() {
+		assertEquals("ChooseEitherCostSpecBreak",
+				ActionResolver.matchedPatternName(GNASH_7_057R, null));
+		assertEquals("ChooseEitherCostSpecBreak",
+				ActionResolver.fullDescription(GNASH_7_057R, null));
+	}
+
+	@Test
+	void anOrdinarySingleDescriptionChooseIsUntouched() {
+		assertEquals("ChooseCharacter / Break", ActionResolver.fullDescription(
+				"choose 1 Forward of cost 1 opponent controls. Break it.", null));
+	}
+
+	@Test
+	void theUnionSpansBothDescriptionsAndExcludesTheRest() {
+		// Built from P2's side, so "opponent controls" means P1's row -- which is what lets the
+		// selection resolve without a dialog, through the AI's own pick.
+		MainWindow mw = new MainWindow();
+		CardData cheapFwd = makeForward("Cheap Forward", "Wind", 1, 5000);
+		CardData dearFwd  = makeForward("Dear Forward",  "Wind", 3, 8000);
+		placeP1Forward(mw, cheapFwd);
+		placeP1Forward(mw, dearFwd);
+		CardData smallMonster = makeMonsterWithText("Small Monster", "Wind", "");
+		mw.gameState.getIdentity().put(smallMonster, true);
+		mw.placeCardInMonsterZone(smallMonster);
+
+		List<ForwardTarget> picked = mw.buildGameContext(false).selectCharactersEitherSpec(
+				oppSpec(true, false, 1, null), oppSpec(false, true, 2, "less"),
+				"Choose 1 Forward of cost 1 or Monster of cost 2 or less (opponent)");
+
+		// makeMonsterWithText builds a cost-2 Monster, so the union is the cost-1 Forward and it.
+		// The AI takes the dearest of the two; the cost-3 Forward was never on the list.
+		assertEquals(1, picked.size());
+		assertEquals(smallMonster, mw.p1MonsterCards.get(picked.get(0).idx()));
+		assertEquals(ForwardTarget.CardZone.MONSTER, picked.get(0).zone());
+	}
+
+	@Test
+	void theUnionIsEmptyWhenNeitherDescriptionIsAnswered() {
+		MainWindow mw = new MainWindow();
+		placeP1Forward(mw, makeForward("Dear Forward", "Wind", 3, 8000));
+
+		assertTrue(mw.buildGameContext(false).selectCharactersEitherSpec(
+				oppSpec(true, false, 1, null), oppSpec(false, true, 2, "less"), "Choose 1")
+				.isEmpty(), "a cost-3 Forward answers neither description");
+	}
+
+	/** One opponent-only, single-pick half of Gnash's choice. */
+	private static TargetSpec oppSpec(boolean forwards, boolean monsters, int cost, String cmp) {
+		return new TargetSpec(1, false, true, false, null, null, cost, cmp, -1, null,
+				forwards, false, monsters, null, null, null, null, false, null, false,
+				null, false, false);
 	}
 
 	// =========================================================================================

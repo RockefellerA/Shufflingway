@@ -87,6 +87,9 @@ class TurnPhases {
 				mw.refreshP2MonsterSlot(i);
 			}
 		}
+		// The phase the one-shot skips were charged for has now been through every P2 card, so
+		// they are spent — whether or not the card they held was dull enough to be asked.
+		mw.consumeActivePhaseSkips(false);
 
 		// Pass 2: remove freeze — card state is unchanged, only the frozen flag is cleared
 		for (int i = 0; i < mw.p2BackupStates.length; i++) {
@@ -164,6 +167,8 @@ class TurnPhases {
 				mw.p1MonsterStates.set(i, CardState.ACTIVE); mw.animateActivateMonster(i); activated++;
 			}
 		}
+		// Spent here for the same reason as in runP2ActivePhase.
+		mw.consumeActivePhaseSkips(true);
 
 		// Pass 2: remove freeze — card state is unchanged, only the frozen flag is cleared
 		for (int i = 0; i < mw.p1BackupStates.length; i++) {

@@ -68,6 +68,50 @@ final class ActionResolverBreak {
         };
     }
     /**
+     * Gnash 7-057R: "Choose 1 Forward of cost 1 opponent controls or 1 Monster of cost 2 or less
+     * opponent controls. Break it."
+     *
+     * <p>Two alternative descriptions of one target, which the choose chain has no way to say — its
+     * filters narrow a single pool by conjunction. Each half becomes a {@link TargetSpec} and
+     * {@link GameContext#selectCharactersEitherSpec} offers their union, so both halves keep every
+     * eligibility rule an ordinary choose would apply and the player picks once from one prompt.
+     *
+     * <p>Only the one break, so no index-descending sort is needed: that guard exists to stop one
+     * removal shifting the row index of another still waiting, and there is never another.
+     */
+    static Consumer<GameContext> tryParseChooseEitherCostSpecBreak(String text) {
+        Matcher m = CHOOSE_EITHER_COST_SPEC_BREAK.matcher(text.trim());
+        if (!m.matches()) return null;
+        TargetSpec first  = costSpec(m.group("noun1"), m.group("cost1"), m.group("cmp1"));
+        TargetSpec second = costSpec(m.group("noun2"), m.group("cost2"), m.group("cmp2"));
+        String label = describeCostHalf(m.group("noun1"), m.group("cost1"), m.group("cmp1"))
+                + " or " + describeCostHalf(m.group("noun2"), m.group("cost2"), m.group("cmp2"));
+        return ctx -> {
+            ctx.logEntry("Effect: Choose 1 " + label + " opponent controls — break it");
+            List<ForwardTarget> ts = ctx.selectCharactersEitherSpec(first, second,
+                    "Choose 1 " + label + " (opponent)");
+            ctx.recordChosenTargets(ts);
+            ts.forEach(ctx::breakTarget);
+        };
+    }
+
+    /** One half of {@link #tryParseChooseEitherCostSpecBreak}'s choice, as an opponent-only spec. */
+    private static TargetSpec costSpec(String noun, String cost, String cmp) {
+        String n = noun.toLowerCase(java.util.Locale.ROOT);
+        boolean character = n.startsWith("character");
+        return new TargetSpec(1, false, true, false, null, null,
+                Integer.parseInt(cost), cmp == null ? null : cmp.toLowerCase(java.util.Locale.ROOT),
+                -1, null,
+                character || n.startsWith("forward"), character || n.startsWith("backup"),
+                character || n.startsWith("monster"),
+                null, null, null, null, false, null, false, null, false, false);
+    }
+
+    /** "Forward of cost 1" / "Monster of cost 2 or less", for the prompt and the log. */
+    private static String describeCostHalf(String noun, String cost, String cmp) {
+        return noun + " of cost " + cost + (cmp == null ? "" : " or " + cmp);
+    }
+    /**
      * Kefka 15-071H's Crystal ability. The whole three-sentence text resolves through one
      * primitive, because the two decisions it describes belong to different players and have to be
      * put to them in order — see {@link GameContext#divideOpponentForwardsIntoGroups}.

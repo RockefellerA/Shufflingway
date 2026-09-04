@@ -3220,16 +3220,23 @@ final class ActionResolverPatterns {
     // Naming an element, job or category
     // =========================================================================================
     /**
-     * "Select 1 Element. &lt;CardName&gt; becomes that Element[ (this effect does not end at the
-     * end of the turn)]." Group {@code name} is the card whose element changes; the
+     * "(Select|Name) 1 Element. &lt;CardName&gt; becomes that Element[ (this effect does not end at
+     * the end of the turn)]." Group {@code name} is the card whose element changes; the
      * trailing parenthetical, when present, marks this as a permanent override.  Used by
      * {@link #tryParseElementChange}, which also checks {@code source.name()} matches
      * {@code name} so this parser cannot fire on an unrelated card.
+     *
+     * <p>Both printings of the effect are one rule with two house styles, and the pattern spans
+     * the difference rather than being copied per style: Kam'lanaut 5-148H writes "select", puts
+     * the parenthetical inside the sentence and its period outside; Princess Sarah 11-128H writes
+     * "name", closes the sentence first and puts the period inside the parentheses. Neither
+     * variation says anything about what the effect does, so neither gets its own parser.
      */
     static final Pattern ELEMENT_CHANGE_PATTERN = Pattern.compile(
-        "(?i)^\\s*select\\s+1\\s+Element\\.\\s+" +
+        "(?i)^\\s*(?:select|name)\\s+1\\s+Element\\.\\s+" +
         "(?<name>[A-Z][A-Za-z''\\-\\s()]+?)\\s+becomes\\s+that\\s+Element" +
-        "(?:\\s*\\(this\\s+effect\\s+does\\s+not\\s+end\\s+at\\s+the\\s+end\\s+of\\s+the\\s+turn\\))?\\s*\\.?\\s*$"
+        "(?:\\s*\\.?\\s*\\(this\\s+effect\\s+does\\s+not\\s+end\\s+at\\s+the\\s+end\\s+of\\s+the\\s+turn\\.?\\))?" +
+        "\\s*\\.?\\s*$"
     );
     /**
      * Matches "The [optional filter] Forwards you control can form a party with [anything]
@@ -4549,6 +4556,27 @@ final class ActionResolverPatterns {
         // controller's Active Phase" for a card name -- an activate aimed at the very card
         // the sentence locks down.
         "(?i)(?<!\\bnot )Activate\\s+(?!(?:it|them|all)\\b)(?<card>[A-Za-z][^.]+?)\\.?\\s*$"
+    );
+    /**
+     * Matches "[CardName] (will|does) not activate during your next Active Phase." — the price nine
+     * printings pay for an oversized effect: Kain 1-127H's and Magitek Armor 15-099C's free Break,
+     * Barret 20-016R's 10000 damage, Sazh 1-013H's and Ram 21-078C's cheap ability, Adelle 23-040L's
+     * mass activate, Gigas 6-070C's borrowed attack trigger, and the two attack triggers that carry
+     * it alone — Lorenzo 17-084C and Jack 3-111H, who writes "does not" where the rest write
+     * "will not".
+     *
+     * <p>Anchored at both ends, and checked against {@code source.name()} by
+     * {@link #tryParseSelfSkipNextActivePhase}. Seven of the nine print it as the tail sentence of
+     * an action ability, where it reaches the parser as a secondary clause on its own; anchoring is
+     * what keeps it from also being found inside the sentence it follows.
+     *
+     * <p>Distinct from {@link #FOLLOWUP_DOES_NOT_ACTIVATE_WHILE_NAMED_ON_FIELD}, which is a standing
+     * lock on a card a choice picked, held while its warden stands. This one is one phase, once, and
+     * always on the card that printed it.
+     */
+    static final Pattern SELF_SKIP_NEXT_ACTIVE_PHASE = Pattern.compile(
+        "(?i)^\\s*(?<name>[A-Za-z][^.]*?)\\s+(?:will|does)\\s+not\\s+activate\\s+during\\s+" +
+        "your\\s+next\\s+Active\\s+Phase[.!]?\\s*$"
     );
     /** Matches "[name] can attack once more this turn." */
     static final Pattern ATTACK_ONCE_MORE = Pattern.compile(
@@ -5872,6 +5900,28 @@ final class ActionResolverPatterns {
     static final Pattern CHOOSE_FORWARDS_TOTAL_COST_BREAK = Pattern.compile(
         "(?i)^Choose\\s+as\\s+many\\s+Forwards\\s+as\\s+you\\s+want\\s+with\\s+a\\s+total\\s+cost\\s+of\\s+"
         + "(?<max>\\d+)\\s+or\\s+less[.!]?\\s*Break\\s+them[.!]?$");
+    /**
+     * Gnash 7-057R: "Choose 1 Forward of cost 1 opponent controls or 1 Monster of cost 2 or less
+     * opponent controls. Break it."
+     *
+     * <p>The corpus's only choice offered over two <em>alternative</em> target descriptions rather
+     * than one description covering both. That is why it gets a pattern of its own instead of a
+     * widening of the choose chain: every filter that chain carries is a conjunction narrowing a
+     * single pool, and there is nowhere in it to say "either of these two pools" — a card type and a
+     * cost ceiling that travel together, and a different pair beside them.
+     *
+     * <p>Groups {@code noun1}/{@code cost1}/{@code cmp1} and the {@code 2} suffixed trio describe
+     * the two halves. Both halves are written out in full on the card, "opponent controls" and all,
+     * and the pattern requires that rather than letting one half inherit from the other: a second
+     * printing that dropped it would be describing a different choice.
+     */
+    static final Pattern CHOOSE_EITHER_COST_SPEC_BREAK = Pattern.compile(
+        "(?i)^\\s*Choose\\s+1\\s+(?<noun1>Forward|Backup|Monster|Character)\\s+of\\s+cost\\s+" +
+        "(?<cost1>\\d+)(?:\\s+or\\s+(?<cmp1>less|more))?\\s+(?:your\\s+)?opponent\\s+controls\\s+" +
+        "or\\s+1\\s+(?<noun2>Forward|Backup|Monster|Character)\\s+of\\s+cost\\s+" +
+        "(?<cost2>\\d+)(?:\\s+or\\s+(?<cmp2>less|more))?\\s+(?:your\\s+)?opponent\\s+controls[.!]?\\s+" +
+        "Break\\s+it[.!]?\\s*$"
+    );
     /**
      * Kefka 15-071H: "Divide all the Forwards opponent controls into N groups (You can make a group
      * of 0 Forwards). Your opponent selects 1 group among them. Put all the Forwards of the other

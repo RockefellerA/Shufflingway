@@ -579,6 +579,12 @@ public class ActionResolver {
         result = tryParseChooseForwardsTotalCostBreak(effectText);
         if (result != null) return result;
 
+        // Must precede tryParseChooseCharacter: that chain reads one target description per choose,
+        // so it takes the first half of Gnash 7-057R's "or" and breaks a cost-1 Forward while the
+        // Monster the other half offered was never on the prompt.
+        result = tryParseChooseEitherCostSpecBreak(effectText);
+        if (result != null) return result;
+
         // Must precede tryParseChooseCharacter for a related reason: that chain makes the whole
         // selection in one dialog and hands its followup an unordered set, with nothing to say
         // which pick takes which of the three amounts. It claimed this text and then found no
@@ -1445,6 +1451,9 @@ public class ActionResolver {
         result = tryParsePlaySourceOntoField(effectText, source);
         if (result != null) return result;
 
+        result = tryParseSelfSkipNextActivePhase(effectText, source);
+        if (result != null) return result;
+
         result = tryParseActivateNamedCard(effectText);
         if (result != null) return result;
 
@@ -1942,6 +1951,9 @@ public class ActionResolver {
         // Mirrors parse(): ahead of ChooseCharacter, which reads the budget clause as an
         // unbounded choose.
         if (tryParseChooseForwardsTotalCostBreak(effectText) != null) return "ChooseForwardsTotalCostBreak";
+        // Mirrors parse(): ahead of ChooseCharacter, which reads only the first of the two
+        // alternative target descriptions.
+        if (tryParseChooseEitherCostSpecBreak(effectText) != null) return "ChooseEitherCostSpecBreak";
         // Mirrors parse(): ahead of ChooseCharacter, which claims the text and then has no
         // followup branch for the per-pick amounts.
         if (tryParseChooseTieredDamage(effectText) != null) return "ChooseTieredDamage";
@@ -2246,6 +2258,7 @@ public class ActionResolver {
         // parse() ("...search for 1 Forward ... and play it onto the field"). Naming off the loose
         // form moved 9 abilities onto this name and away from the one that actually runs them.
         if (isBarePlaySourceOntoField(effectText, source))              return "PlaySourceOntoField";
+        if (tryParseSelfSkipNextActivePhase(effectText, source) != null) return "SelfSkipNextActivePhase";
         if (tryParseActivateNamedCard(effectText)               != null) return "ActivateNamedCard";
         if (tryParseAttackOnceMore(effectText)                  != null) return "AttackOnceMore";
         if (tryParseOpponentCannotSearchThisTurn(effectText)    != null) return "OpponentCannotSearch";
@@ -2460,6 +2473,12 @@ public class ActionResolver {
         // amount here belongs to the others, and "Damage" would read it as the target's.
         if (OPP_SELECTS_SPLASH_OTHER_OPP_FORWARDS.matcher(followupText.trim()).matches())
                                                                                       return "SplashOtherOppForwards";
+        // Mirrors the choose chain, and ahead of the plain damage name for the same reason given
+        // there: this sentence pair contains a "Deal it 3000 damage" that FOLLOWUP_DAMAGE finds,
+        // which would report Ace 16-002H as dealing a flat 3000 and drop the per-Element multiplier
+        // the reveal exists to produce.
+        if (FOLLOWUP_REVEAL_HAND_DAMAGE_PER_ELEMENT.matcher(followupText).find())
+                                                                                      return "RevealHandDamagePerElement";
         if (FOLLOWUP_DAMAGE.matcher(followupText).find())                             return "Damage";
         if (FOLLOWUP_DAMAGE_EXPR.matcher(followupText).find())                        return "DamageExpr";
         if (FOLLOWUP_DIVIDE_DAMAGE_AMONG_CHOSEN.matcher(followupText).find())         return "DivideDamageAmongChosen";
@@ -3043,6 +3062,9 @@ public class ActionResolver {
         }
         // Mirrors parse() and matchedPatternName(): must precede the ChooseCharacter block.
         if (tryParseChooseForwardsTotalCostBreak(effectText) != null) return "ChooseForwardsTotalCostBreak";
+        // Same: ahead of the ChooseCharacter block, which reads only the first of the two
+        // alternative target descriptions.
+        if (tryParseChooseEitherCostSpecBreak(effectText) != null) return "ChooseEitherCostSpecBreak";
         // Same, and the amounts go in the description: they are the whole of what this parser
         // decides, and the ChooseCharacter block below would report the followup as "?".
         if (tryParseChooseTieredDamage(effectText) != null) {
@@ -3234,6 +3256,10 @@ public class ActionResolver {
             // Same quote-aware split parse() uses, so the two cannot disagree about where the
             // primary followup ends when a granted ability is quoted across two sentences.
             int    dotIdx        = sentenceBreakOutsideQuotes(followup);
+            // And the same exception the choose chain makes to it: Ace 16-002H's reveal and the
+            // damage it multiplies are one effect over two sentences, so splitting them describes
+            // a reveal that does nothing followed by a flat damage that counts nothing.
+            if (FOLLOWUP_REVEAL_HAND_DAMAGE_PER_ELEMENT.matcher(followup).find()) dotIdx = -1;
             String primaryPart   = dotIdx >= 0 ? followup.substring(0, dotIdx).trim() : followup;
             String secondaryRaw  = dotIdx >= 0 ? followup.substring(dotIdx + 2).trim() : null;
             String secondaryTxt  = secondaryRaw != null ? stripRestrictionSentences(secondaryRaw) : null;
@@ -3357,6 +3383,8 @@ public class ActionResolver {
         if (tryParseIfSelfFwdReceivedDamageDraw(effectText, source)            != null) return "IfSelfFwdReceivedDamageDraw";
         if (tryParseIfRfpCount(effectText, source)                     != null) return "IfRfpCount";
         if (tryParseIfSelfRfgCount(effectText, source)                 != null) return "IfSelfRfgCount";
+        // Mirrors parse() and matchedPatternName(), where this sits at the same position.
+        if (tryParseElementChange(effectText, source)                  != null) return "ElementChange";
         // Must precede AllFieldEffect — see the ordering note in parse().
         if (tryParseEndOfOppTurnDelayedEffect(effectText, source) != null) {
             Matcher delayed = AT_END_OF_OPP_TURN_DELAY_PREFIX.matcher(effectText.trim());
@@ -3639,6 +3667,7 @@ public class ActionResolver {
         // See the matching guard in matchedPatternName(): the anchored helper, not the find()-based
         // parser, so this cannot claim a clause sitting inside a longer ability.
         if (isBarePlaySourceOntoField(effectText, source))                  return "PlaySourceOntoField";
+        if (tryParseSelfSkipNextActivePhase(effectText, source) != null)    return "SelfSkipNextActivePhase";
         if (tryParseActivateNamedCard(effectText) != null)                  return "ActivateNamedCard";
         if (tryParseAttackOnceMore(effectText) != null)                     return "AttackOnceMore";
         if (tryParseOpponentCannotSearchThisTurn(effectText) != null)       return "OpponentCannotSearch";
