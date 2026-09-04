@@ -31,6 +31,15 @@ class ComputerPlayer implements OpponentController {
 	}
 
 	private static final int PAUSE_MS = 500;
+
+	/**
+	 * Hand size at which P2 spends its main phase playing cards rather than activating abilities.
+	 *
+	 * <p>Five is the end-phase hand limit: from here up, a card held past the end of the turn is a
+	 * card discarded, so the board is where it is worth more than any ability effect the same CP
+	 * would buy.
+	 */
+	private static final int HAND_PLAY_PREFERRED_AT = 5;
 	private boolean cancelled = false;
 
 	/** Permanently stops this ComputerPlayer; all pending and future steps become no-ops. */
@@ -173,6 +182,21 @@ class ComputerPlayer implements OpponentController {
 		// in your Break Zone" effect) before normal hand plays — the discount makes it
 		// strictly better value than discarding-for-CP from a fresh hand cast.
 		if (tryP2BzPlay()) { step(() -> doMainPhase(onDone)); return; }
+
+		// With a full hand, a card on the board beats anything an ability would buy: the hand is
+		// about to cost cards at the end-phase limit of five, and the CP an ability spends is CP
+		// the play needed. So while P2 holds five or more and has something it can cast, the
+		// ability sweep is skipped and the play is made instead.
+		//
+		// Conditional on a play actually being available. A hand of five unaffordable cards is not
+		// a reason to do nothing at all, and skipping the sweep outright would leave P2 passing
+		// with abilities it could have used.
+		P2Plan fullHandPlay = p2PrefersHandPlayOverAbilities() ? findPlayPlan() : null;
+		if (fullHandPlay != null) {
+			executeP2HandPlay(fullHandPlay);
+			step(() -> doMainPhase(onDone));
+			return;
+		}
 
 		// Try action abilities before committing to a hand play or passing. The resume is built
 		// from onDone, not from the continuation below: an activation restarts the main phase, and
@@ -451,6 +475,16 @@ class ComputerPlayer implements OpponentController {
 
 
 	// ── Helpers ──────────────────────────────────────────────────────────
+
+	/**
+	 * Whether P2 would rather spend this main phase playing a card than activating an ability.
+	 *
+	 * <p>True from {@link #HAND_PLAY_PREFERRED_AT} cards in hand up. The caller still has to find
+	 * a play it can afford — this says which it prefers, not that one exists.
+	 */
+	boolean p2PrefersHandPlayOverAbilities() {
+		return mw.gameState.getP2Hand().size() >= HAND_PLAY_PREFERRED_AT;
+	}
 
 	private boolean p2ForwardCanAttack(int idx) {
 		CardData fwd = mw.p2ForwardCards.get(idx);
@@ -1643,6 +1677,9 @@ class ComputerPlayer implements OpponentController {
 			// a card outright (no matching-element card in hand) or grant a boost with no relevant
 			// combat to use it in (e.g. no Haste to attack with the turn it enters the field).
 			if (ActionResolver.discardConditionalElementBranches(ability.effectText()) != null) continue;
+			// A self-boost with nothing to show for it — a keyword the source already carries, or
+			// a boost no block on the board would turn.
+			if (p2ShouldHoldSelfBoost(ability, card)) continue;
 			// A card-for-damage trade that breaks nothing is worth holding for a later board.
 			if (p2ShouldHoldDamageAbility(ability)) continue;
 			// Activating an already-active source changes nothing, and can now loop forever.
@@ -1771,6 +1808,104 @@ class ComputerPlayer implements OpponentController {
 	 */
 	boolean p2ShouldHoldActivateSelf(ActionAbility ability, CardData source, CardState state) {
 		return state == CardState.ACTIVE && effectActivatesSelf(ability.effectText(), source);
+	}
+
+	/**
+	 * True when P2 should hold a self-boost ability — "[self] gains +N power / First Strike / Haste
+	 * until the end of the turn" — rather than pay for it. Two reasons, both from watching Firion
+	 * 1-022R buy First Strike over and over until its CP ran out:
+	 *
+	 * <ul>
+	 *   <li><b>The grant is already standing.</b> A keyword the source carries changes nothing when
+	 *       it is granted again, and these abilities carry a CP cost and no once-per-turn limit, so
+	 *       nothing else stopped the AI buying the same keyword on every pass through the main
+	 *       phase. Asked of the <em>effective</em> traits, so a keyword the card prints or is being
+	 *       granted from elsewhere counts as standing too.</li>
+	 *   <li><b>Nothing on the board would turn on it.</b> Power and First Strike are bought to
+	 *       carry a Forward through a block, so they are worth CP only while some Forward P1 could
+	 *       block with would break this one as it stands and would not once the boost is up.
+	 *       Haste and Brave are not weighed this way: what they buy is the attack itself, not
+	 *       surviving it, and the first clause already stops them being bought twice.</li>
+	 * </ul>
+	 *
+	 * <p>Only asked of a Forward P2 controls. A Backup or Monster carrying one of these has no
+	 * combat to spend it in, and the first clause holds it after a single use either way.
+	 */
+	boolean p2ShouldHoldSelfBoost(ActionAbility ability, CardData card) {
+		ActionResolver.SelfBoost boost = ActionResolver.selfBoostGrant(ability.effectText(), card);
+		if (boost == null) return false;
+		int idx = mw.p2ForwardCards.indexOf(card);
+		if (idx < 0) return !boost.traits().isEmpty();   // off the Forward row, one use is all there is
+		boolean newTrait = false;
+		for (CardData.Trait t : boost.traits())
+			if (!mw.effectiveP2HasTrait(idx, t)) { newTrait = true; break; }
+		if (boost.power() == 0 && !newTrait) return true;
+		boolean grantsFirstStrike = boost.traits().contains(CardData.Trait.FIRST_STRIKE);
+		if (boost.power() == 0 && !grantsFirstStrike) return false;   // Haste or Brave, not yet held
+		return !p2BoostSavesAnAttacker(idx, boost.power(), grantsFirstStrike);
+	}
+
+	/**
+	 * Whether adding {@code addedPower} and, optionally, First Strike would carry P2's Forward at
+	 * {@code idx} through a block it would not survive as it stands.
+	 *
+	 * <p>Measured against every Forward P1 could block with, one at a time: the boost is worth
+	 * paying for as soon as it turns one of those blocks, since P1 chooses the blocker and the AI
+	 * cannot know which. Damage already on either Forward counts — a blow that was survivable on
+	 * a fresh Forward is lethal on a damaged one, which is exactly when the boost earns its cost.
+	 *
+	 * <p>A Forward that cannot attack is never saved by this: the block it would survive is one it
+	 * will not be in.
+	 */
+	private boolean p2BoostSavesAnAttacker(int idx, int addedPower, boolean addsFirstStrike) {
+		if (!p2ForwardCanAttack(idx)) return false;
+		int attackerPower = mw.effectiveP2ForwardPower(idx);
+		int attackerDamage = mw.p2ForwardDamage.get(idx);
+		boolean firstStrikeNow = mw.effectiveP2HasTrait(idx, CardData.Trait.FIRST_STRIKE);
+		for (int i = 0; i < mw.p1ForwardCards.size(); i++) {
+			if (!p1CouldBlockWith(i)) continue;
+			int blockerPower  = mw.effectiveP1ForwardPower(i);
+			int blockerDamage = mw.p1ForwardDamage.get(i);
+			boolean survivesNow = survivesBlock(attackerPower, attackerDamage, firstStrikeNow,
+					blockerPower, blockerDamage);
+			boolean survivesBoosted = survivesBlock(attackerPower + addedPower, attackerDamage,
+					firstStrikeNow || addsFirstStrike, blockerPower, blockerDamage);
+			if (!survivesNow && survivesBoosted) return true;
+		}
+		return false;
+	}
+
+	/**
+	 * Whether an attacker of {@code attackerPower} already carrying {@code attackerDamage} comes
+	 * out of a block by a Forward of {@code blockerPower} still on the field.
+	 *
+	 * <p>Two ways to survive: break the blocker before it strikes back, which is what First Strike
+	 * buys and needs only enough power to finish it; or outlast its blow, which needs the
+	 * attacker's remaining power to exceed what the blocker deals.
+	 */
+	private static boolean survivesBlock(int attackerPower, int attackerDamage, boolean firstStrike,
+			int blockerPower, int blockerDamage) {
+		if (firstStrike && blockerDamage + attackerPower >= blockerPower) return true;
+		return attackerDamage + blockerPower < attackerPower;
+	}
+
+	/**
+	 * Whether P1's Forward at {@code idx} could block an attack P2 has not declared yet.
+	 *
+	 * <p>Deliberately not {@code MainWindow}'s block-legality check, which answers about the block
+	 * in front of it and returns false while no attack is waiting on one. This is the prospective
+	 * question the main phase can ask: the standing restrictions only, with everything that
+	 * depends on which Forward is attacking left to the real check when the attack is made.
+	 */
+	private boolean p1CouldBlockWith(int idx) {
+		CardData blocker = mw.p1ForwardCards.get(idx);
+		if (blocker == null) return false;
+		if (mw.p1ForwardStates.get(idx) != CardState.ACTIVE) return false;
+		if (mw.p1ForwardFrozen.get(idx)) return false;
+		if (mw.p1CannotBlock.contains(blocker) || mw.p1CannotBlockPersistent.contains(blocker)) return false;
+		if (blocker.cannotBlockAtAll() || blocker.cannotAttackOrBlock()) return false;
+		if (mw.blockBarredByFieldCostLock(blocker)) return false;
+		return !mw.isFieldAbilityCannotAttackOrBlock(blocker, true);
 	}
 
 	/**

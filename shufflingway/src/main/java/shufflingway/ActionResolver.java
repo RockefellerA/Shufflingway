@@ -6550,6 +6550,43 @@ public class ActionResolver {
         return subject.equalsIgnoreCase(source.name());
     }
 
+    /**
+     * What a self-boost action ability would hand its own source: the power it adds and the
+     * keywords it grants. Both word orders are read — "[self] gains … until the end of the turn"
+     * and the "Until the end of the turn, [self] gains …" inversion.
+     *
+     * @param power  the power added, {@code 0} when the text grants keywords only
+     * @param traits the keywords granted; empty when the text is a plain power boost
+     */
+    record SelfBoost(int power, EnumSet<CardData.Trait> traits) {}
+
+    /**
+     * Reads {@code text} as a self-boost and reports what it would grant, or {@code null} when it
+     * is not one. Wider than {@link #isTempSelfPowerBoostEffect}, which answers only whether the
+     * text <em>is</em> such a boost: the CPU has to weigh the grant against the board before
+     * paying for it, and cannot do that without knowing its size.
+     *
+     * <p>The match must span the whole sentence. Both patterns scan with {@code find()}, and a
+     * boost that is one clause of a longer effect is not something the caller may judge on the
+     * boost alone.
+     */
+    static SelfBoost selfBoostGrant(String text, CardData source) {
+        if (text == null || source == null) return null;
+        String trimmed = text.trim();
+        Matcher pre = SELF_BOOST_EOT_PREFIX.matcher(trimmed);
+        if (pre.matches() && pre.group("subject").trim().equalsIgnoreCase(source.name()))
+            return new SelfBoost(boostAmount(pre.group("amount")), parseTraits(pre.group("traits")));
+        Matcher m = SELF_POWER_BOOST.matcher(trimmed);
+        if (!m.find() || m.start() != 0 || m.end() != trimmed.length()) return null;
+        if (!m.group("selfsubject").trim().equalsIgnoreCase(source.name())) return null;
+        return new SelfBoost(boostAmount(m.group("selfamount")), parseTraits(m.group("selftraits")));
+    }
+
+    /** The optional numeric group of a self-boost pattern, or {@code 0} when it granted no power. */
+    private static int boostAmount(String group) {
+        return group == null ? 0 : Integer.parseInt(group);
+    }
+
     /** Returns true when {@code text} is a "gain 《C》 for each CP paid as X" effect. */
     static boolean isGainCrystalPerX(String text) {
         return GAIN_CRYSTAL_PER_X.matcher(text).find();

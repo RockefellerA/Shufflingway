@@ -44233,5 +44233,217 @@ public class CardBehaviorTest {
 	}
 
 	// =========================================================================================
+	// 1-022R Firion's four abilities, and what the CPU does with them. Board behaviour.
+	//
+	// Watched in a game: Firion bought "Firion gains First Strike until the end of the turn."
+	// again and again until his CP ran out. Nothing stopped him — the ability has a CP cost, no
+	// once-per-turn limit, and every existing hold rule is about spending a card or a target, not
+	// about buying something already standing.
+	//
+	// Three rules now decide it. A keyword the source already carries is never bought again; power
+	// and First Strike are bought only when they carry the Forward through a block it would
+	// otherwise die to; and a hand of five or more is spent on the board before any ability, since
+	// the fifth card up is one the end phase would discard anyway.
+	// =========================================================================================
+
+	private static final String FIRION_1_022R =
+			"《1》: Firion gains First Strike until the end of the turn.[[br]]"
+			+ "《1》: Firion gains Brave until the end of the turn.[[br]]"
+			+ "《2》: Choose 1 Forward. Deal it 1000 damage.[[br]]"
+			+ "《2》: Firion gains +1000 power until the end of the turn.";
+
+	/** Seats Firion on P2's Forward row, ready to attack, and returns him. */
+	private static CardData seatFirionReadyToAttack(MainWindow mw) {
+		CardData firion = makeTraitCard("Firion", "Fire", "Forward", FIRION_1_022R);
+		mw.gameState.getIdentity().put(firion, false);
+		mw.placeP2CardInForwardZone(firion);
+		// A fresh game is on turn 0, so an earlier turn is a negative one — what matters is only
+		// that it is not this one, which is what bars a Forward from attacking the turn it arrives.
+		mw.p2ForwardPlayedOnTurn.set(0, -1);
+		return firion;
+	}
+
+	/** The ability of {@code firion} whose effect text contains {@code fragment}. */
+	private static ActionAbility firionAbility(CardData firion, String fragment) {
+		return firion.actionAbilities().stream()
+				.filter(a -> a.effectText().contains(fragment))
+				.findFirst().orElseThrow(() -> new AssertionError("no ability matching " + fragment));
+	}
+
+	@Test
+	void firionsFourAbilitiesAreReadAsThreeSelfBoostsAndADamageEffect() {
+		CardData firion = makeTraitCard("Firion", "Fire", "Forward", FIRION_1_022R);
+		assertEquals(4, firion.actionAbilities().size());
+
+		ActionResolver.SelfBoost fs = ActionResolver.selfBoostGrant(
+				firionAbility(firion, "First Strike").effectText(), firion);
+		assertNotNull(fs);
+		assertEquals(0, fs.power());
+		assertEquals(EnumSet.of(CardData.Trait.FIRST_STRIKE), fs.traits());
+
+		ActionResolver.SelfBoost pump = ActionResolver.selfBoostGrant(
+				firionAbility(firion, "+1000 power").effectText(), firion);
+		assertNotNull(pump);
+		assertEquals(1000, pump.power());
+		assertTrue(pump.traits().isEmpty());
+
+		assertNull(ActionResolver.selfBoostGrant(
+				firionAbility(firion, "Deal it 1000 damage").effectText(), firion),
+				"a damage effect is not a self-boost and is judged by the damage rules");
+	}
+
+	@Test
+	void firionBuysFirstStrikeOnceAndNeverAgain() {
+		MainWindow mw = new MainWindow();
+		ComputerPlayer cpu = new ComputerPlayer(mw);
+		CardData firion = seatFirionReadyToAttack(mw);
+		// A blocker of equal power: without First Strike the trade breaks both, with it Firion
+		// finishes the blocker before it strikes back.
+		placeP1Forward(mw, makeForward("Blocker", "Ice", 3, 7000));
+		ActionAbility firstStrike = firionAbility(firion, "First Strike");
+
+		assertFalse(cpu.p2ShouldHoldSelfBoost(firstStrike, firion),
+				"the grant turns that block, so it is worth its CP");
+
+		mw.p2ForwardTempTraits.get(0).add(CardData.Trait.FIRST_STRIKE);
+
+		assertTrue(cpu.p2ShouldHoldSelfBoost(firstStrike, firion),
+				"buying a keyword already standing changes nothing — this is the loop");
+	}
+
+	@Test
+	void andNeverBuysAKeywordHeWasPrintedWith() {
+		MainWindow mw = new MainWindow();
+		ComputerPlayer cpu = new ComputerPlayer(mw);
+		CardData firion = makeTraitCard("Firion", "Fire", "Forward",
+				"First Strike[[br]]《1》: Firion gains First Strike until the end of the turn.");
+		assertTrue(firion.hasTrait(CardData.Trait.FIRST_STRIKE), "printed, not granted");
+		mw.gameState.getIdentity().put(firion, false);
+		mw.placeP2CardInForwardZone(firion);
+		mw.p2ForwardPlayedOnTurn.set(0, -1);
+		placeP1Forward(mw, makeForward("Blocker", "Ice", 3, 7000));
+
+		assertTrue(cpu.p2ShouldHoldSelfBoost(firion.actionAbilities().get(0), firion));
+	}
+
+	@Test
+	void thePowerBoostIsBoughtOnlyWhenItTurnsABlock() {
+		MainWindow mw = new MainWindow();
+		ComputerPlayer cpu = new ComputerPlayer(mw);
+		CardData firion = seatFirionReadyToAttack(mw);
+		ActionAbility pump = firionAbility(firion, "+1000 power");
+
+		// 7000 into 7000: the blocker's blow is lethal, and +1000 makes it survivable.
+		placeP1Forward(mw, makeForward("Even", "Ice", 3, 7000));
+		assertFalse(cpu.p2ShouldHoldSelfBoost(pump, firion));
+
+		// The same blocker at 9000 is past what 1000 can reach, so the CP buys nothing.
+		mw.p1ForwardPowerBoost.set(0, 2000);
+		assertTrue(cpu.p2ShouldHoldSelfBoost(pump, firion));
+	}
+
+	@Test
+	void aBlockFirionAlreadyWalksThroughBuysNothingEither() {
+		MainWindow mw = new MainWindow();
+		ComputerPlayer cpu = new ComputerPlayer(mw);
+		CardData firion = seatFirionReadyToAttack(mw);
+		placeP1Forward(mw, makeForward("Weak", "Ice", 1, 3000));
+
+		assertTrue(cpu.p2ShouldHoldSelfBoost(firionAbility(firion, "+1000 power"), firion),
+				"3000 was never going to break a 7000 Forward");
+		assertTrue(cpu.p2ShouldHoldSelfBoost(firionAbility(firion, "First Strike"), firion));
+	}
+
+	@Test
+	void anEmptyBoardOppositeBuysNothingAtAll() {
+		MainWindow mw = new MainWindow();
+		ComputerPlayer cpu = new ComputerPlayer(mw);
+		CardData firion = seatFirionReadyToAttack(mw);
+
+		assertTrue(cpu.p2ShouldHoldSelfBoost(firionAbility(firion, "First Strike"), firion),
+				"no blocker to survive, so nothing to survive it with");
+		assertTrue(cpu.p2ShouldHoldSelfBoost(firionAbility(firion, "+1000 power"), firion));
+	}
+
+	@Test
+	void aDullBlockerIsNotABlockTheBoostHasToTurn() {
+		MainWindow mw = new MainWindow();
+		ComputerPlayer cpu = new ComputerPlayer(mw);
+		CardData firion = seatFirionReadyToAttack(mw);
+		placeP1Forward(mw, makeForward("Even", "Ice", 3, 7000));
+		mw.p1ForwardStates.set(0, CardState.DULL);
+
+		assertTrue(cpu.p2ShouldHoldSelfBoost(firionAbility(firion, "+1000 power"), firion),
+				"a dull Forward cannot block, so it threatens nothing");
+	}
+
+	@Test
+	void aFirionWhoCannotAttackHoldsHisTricks() {
+		// The block the boost would carry him through is one he will not be in.
+		MainWindow mw = new MainWindow();
+		ComputerPlayer cpu = new ComputerPlayer(mw);
+		CardData firion = seatFirionReadyToAttack(mw);
+		placeP1Forward(mw, makeForward("Even", "Ice", 3, 7000));
+		mw.p2ForwardStates.set(0, CardState.DULL);
+
+		assertTrue(cpu.p2ShouldHoldSelfBoost(firionAbility(firion, "First Strike"), firion));
+		assertTrue(cpu.p2ShouldHoldSelfBoost(firionAbility(firion, "+1000 power"), firion));
+	}
+
+	@Test
+	void damageAlreadyOnTheAttackerIsPartOfTheSum() {
+		// 7000 into a 5000 blocker is survivable outright — until 3000 of damage is already on
+		// Firion, and then the blocker's blow finishes him and the boost is worth buying.
+		MainWindow mw = new MainWindow();
+		ComputerPlayer cpu = new ComputerPlayer(mw);
+		CardData firion = seatFirionReadyToAttack(mw);
+		placeP1Forward(mw, makeForward("Middling", "Ice", 3, 5000));
+		ActionAbility pump = firionAbility(firion, "+1000 power");
+
+		assertTrue(cpu.p2ShouldHoldSelfBoost(pump, firion), "undamaged, he walks through it");
+
+		mw.p2ForwardDamage.set(0, 2000);
+		assertFalse(cpu.p2ShouldHoldSelfBoost(pump, firion),
+				"2000 already on him plus a 5000 blow reaches 7000, but not the boosted 8000");
+	}
+
+	@Test
+	void braveIsBoughtOnceWithoutBeingWeighedAgainstABlock() {
+		// What Brave buys is staying active through the attack, not surviving the block, so the
+		// combat test does not apply to it — only the once rule does.
+		MainWindow mw = new MainWindow();
+		ComputerPlayer cpu = new ComputerPlayer(mw);
+		CardData firion = seatFirionReadyToAttack(mw);
+		ActionAbility brave = firionAbility(firion, "Brave");
+
+		assertFalse(cpu.p2ShouldHoldSelfBoost(brave, firion), "empty board opposite, and still worth it");
+
+		mw.p2ForwardTempTraits.get(0).add(CardData.Trait.BRAVE);
+		assertTrue(cpu.p2ShouldHoldSelfBoost(brave, firion), "but only the once");
+	}
+
+	@Test
+	void anAbilityThatIsNotASelfBoostIsLeftToTheOtherRules() {
+		MainWindow mw = new MainWindow();
+		ComputerPlayer cpu = new ComputerPlayer(mw);
+		CardData firion = seatFirionReadyToAttack(mw);
+
+		assertFalse(cpu.p2ShouldHoldSelfBoost(firionAbility(firion, "Deal it 1000 damage"), firion),
+				"the damage rules decide this one, and this guard must not pre-empt them");
+	}
+
+	@Test
+	void aFullHandIsSpentOnTheBoardBeforeAnyAbility() {
+		MainWindow mw = new MainWindow();
+		ComputerPlayer cpu = new ComputerPlayer(mw);
+		for (int i = 1; i <= 4; i++) mw.gameState.getP2Hand().add(makeForward("Card" + i, "Fire", 2, 5000));
+		assertFalse(cpu.p2PrefersHandPlayOverAbilities(), "four cards is under the end-phase limit");
+
+		mw.gameState.getP2Hand().add(makeForward("Card5", "Fire", 2, 5000));
+		assertTrue(cpu.p2PrefersHandPlayOverAbilities(),
+				"the fifth card up is one the end phase would discard, so the board is worth more");
+	}
+
+	// =========================================================================================
 
 }
