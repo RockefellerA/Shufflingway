@@ -3851,6 +3851,18 @@ public interface GameContext {
     void makeTargetForwardPermanently(ForwardTarget t, int power);
 
     /**
+     * Makes {@code source} — the card printing the ability — also a Forward with {@code power} for
+     * as long as it stays on the field, the "(This effect does not end at the end of the turn.)"
+     * form the set-12 Monster cycle offers as the first of its two options.
+     *
+     * <p>The self-scoped twin of {@link #makeTargetForwardPermanently}, and the permanent twin of
+     * {@link #makeMonsterTemporaryForward}. Kept separate from the target form because the card is
+     * not one a choice picked: it is found in the resolving player's own rows, so an opposing copy
+     * of the same Monster is untouched. No-op if it is already a Forward or has left the field.
+     */
+    void makeSourceForwardPermanently(CardData source, int power);
+
+    /**
      * Makes all Monsters the ability user controls also become Forwards with {@code power}
      * until end of turn.
      */
@@ -4205,6 +4217,17 @@ public interface GameContext {
      * <p>A multi-Element card contributes every Element it prints, and revealing nothing answers 0.
      */
     int revealAnyNumberFromHandDistinctElements();
+
+    /**
+     * Reveals the top card of the opponent's deck and returns its printed cost, or {@code -1} when
+     * their deck is empty — 12-042C Cactuar, the corpus's only effect that reads a cost off the
+     * opponent's top card.
+     *
+     * <p>The cost twin of {@link #revealOpponentTopCardIsType}, and like it the card stays where it
+     * is: a reveal is public information, not a move. {@code -1} rather than 0 for an empty deck,
+     * because 0 is a cost a real card can have and Cactuar's low arm would deal damage for it.
+     */
+    int revealOpponentTopCardCost();
 
     /**
      * Reveals the top card of the opponent's deck and answers whether it is of {@code type}.

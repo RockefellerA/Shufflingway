@@ -763,6 +763,35 @@ final class ActionResolverState {
     }
 
     /**
+     * Parses "[Self] also becomes a Forward with N power. (This effect does not end at the end of
+     * the turn.)" — the first of the two options the set-12 Monster cycle offers as it enters:
+     * 12-006C Ogre, 12-036C Mimic, 12-042C Cactuar, 12-064C Objet d'Art, 12-086C Behemoth and
+     * 12-094C Captain, each choosing between becoming a Forward for good and cashing itself in.
+     *
+     * <p>The permanent twin of {@code tryParseBecomeForwardUntilEot}, and self-named for the same
+     * reason every option in that construct is: the sentence is printed inside a quotation with no
+     * pronoun in it, so the only card it can mean is the one that printed it.
+     *
+     * <p>The reminder that makes it permanent is printed <em>outside</em> that quotation, and
+     * reaches this parser only because {@link ActionResolver#selectFollowingOptions} appends it to
+     * the option it follows. Without that the sentence is indistinguishable from the turn-scoped
+     * form, and this parser declines it — which is the right answer to a text that no longer says
+     * which of the two it is.
+     */
+    static Consumer<GameContext> tryParseSelfBecomeForwardPermanently(String text, CardData source) {
+        if (source == null) return null;
+        Matcher m = SELF_BECOME_FORWARD_PERMANENT.matcher(text.trim());
+        if (!m.matches()) return null;
+        if (!m.group("name").trim().equalsIgnoreCase(source.name())) return null;
+        final int power = Integer.parseInt(m.group("power"));
+        return ctx -> {
+            ctx.logEntry("Effect: " + source.name() + " also becomes a Forward with " + power
+                    + " power (does not end at end of turn)");
+            ctx.makeSourceForwardPermanently(source, power);
+        };
+    }
+
+    /**
      * Parses "[Self] (will|does) not activate during your next Active Phase." — the self-imposed
      * cost nine printings attach to an oversized effect. See
      * {@link ActionResolverPatterns#SELF_SKIP_NEXT_ACTIVE_PHASE} for the roster.

@@ -218,9 +218,7 @@ final class ActionResolverChoose {
             dmgUpgThreshold = 0; dmgUpgUpTo = false; dmgUpgSelect = 0;
         }
 
-        Matcher qm = SELECT_FOLLOWING_QUOTED_ACTION.matcher(actionsRaw);
-        List<String> actions = new ArrayList<>();
-        while (qm.find()) actions.add(qm.group(1).trim());
+        List<String> actions = selectFollowingOptions(actionsRaw);
         if (actions.isEmpty()) return null;
 
         return ctx -> {
@@ -1186,6 +1184,61 @@ final class ActionResolverChoose {
         };
     }
 
+    /**
+     * "If it is &lt;filter&gt;, it also gains &lt;payload&gt;." — the second sentence of a choose
+     * followup, gated on what the chosen card <em>is</em>. 6-004C Kiros, and see
+     * {@link ActionResolverPatterns#SECONDARY_CHOSEN_CARD_GATED_GRANT_ALSO} for the other four
+     * printings and why they decline.
+     *
+     * <p>Tested per target rather than once for the selection, which is what makes the gate mean
+     * what it says: "it" is each chosen card, so on a text choosing several only the ones matching
+     * the filter are granted. Every printing chooses one, so nothing in the corpus can tell the
+     * difference today — but resolving it once for the whole list would be reading the sentence as
+     * the board-state gate beside it, which it is not.
+     *
+     * <p>The card is read through {@code targetCard} at resolution, not captured at selection: the
+     * primary sentence resolves in between, and on this family it is a power boost that can move
+     * nothing — but a target's slot is only guaranteed current when it is read.
+     */
+    static Consumer<GameContext> secondaryChosenCardGatedGrantAlso(String secondaryText) {
+        Matcher m = SECONDARY_CHOSEN_CARD_GATED_GRANT_ALSO.matcher(secondaryText.trim());
+        if (!m.matches()) return null;
+        Predicate<CardData> gate = parseRevealCondition(m.group("cond").trim());
+        if (gate == null) return null;
+        final String payload = m.group("payload").trim();
+        BiConsumer<GameContext, List<ForwardTarget>> action = parseTargetAction("it gains " + payload, 0);
+        if (action == null) return null;
+        final String condLabel = m.group("cond").trim();
+        return ctx -> {
+            List<ForwardTarget> chosen = ctx.lastChosenTargets();
+            if (chosen.isEmpty()) {
+                ctx.logEntry("Effect: nothing was chosen — the " + condLabel + " grant is skipped");
+                return;
+            }
+            List<ForwardTarget> matching = new ArrayList<>();
+            for (ForwardTarget t : chosen) {
+                CardData card = ctx.targetCard(t);
+                if (card != null && gate.test(card)) matching.add(t);
+            }
+            if (matching.isEmpty()) {
+                ctx.logEntry("Effect: the chosen card is not a " + condLabel
+                        + " — it gains no " + payload);
+                return;
+            }
+            ctx.logEntry("Effect: the chosen card is a " + condLabel + " — it also gains " + payload);
+            action.accept(ctx, matching);
+        };
+    }
+
+    /** The name {@link #secondaryChosenCardGatedGrantAlso} reports, or {@code null} if it declines. */
+    static String secondaryChosenCardGatedGrantAlsoName(String secondaryText, CardData source) {
+        Matcher m = SECONDARY_CHOSEN_CARD_GATED_GRANT_ALSO.matcher(secondaryText.trim());
+        if (!m.matches() || secondaryChosenCardGatedGrantAlso(secondaryText) == null) return null;
+        String payloadName = matchedFollowupName("it gains " + m.group("payload").trim(), source);
+        return "IfChosenCard(" + m.group("cond").trim() + ": "
+                + (payloadName != null ? payloadName : "?") + ")";
+    }
+
     /** The name {@link #secondaryConditionGatedActionAlso} reports, or {@code null} if it declines. */
     static String secondaryConditionGatedActionAlsoName(String secondaryText, CardData source) {
         Matcher m = SECONDARY_CONDITION_GATED_ACTION_ALSO.matcher(secondaryText.trim());
@@ -1533,6 +1586,10 @@ final class ActionResolverChoose {
             // the next sentence spends, so on its own it does nothing and the damage has nothing
             // to count. Kept whole for the branch that reads the pair.
             if (FOLLOWUP_REVEAL_HAND_DAMAGE_PER_ELEMENT.matcher(followup).find()) dotSpaceIdx = -1;
+            // Cactuar 12-042C's is the same shape over three sentences: a reveal that produces only
+            // a number, and two arms that spend it. Split, the first arm is lost and the second
+            // reads as an unconditional 10000.
+            if (FOLLOWUP_OPP_REVEAL_TOP_COST_BRANCH_DAMAGE.matcher(followup).find()) dotSpaceIdx = -1;
             if (dotSpaceIdx >= 0) {
                 primaryFollowup = followup.substring(0, dotSpaceIdx).trim();
                 String stripped = stripRestrictionSentences(followup.substring(dotSpaceIdx + 2).trim());
@@ -1565,6 +1622,9 @@ final class ActionResolverChoose {
                         // secondary below scans with find() and would take its verb out of this
                         // sentence and apply it with the condition dropped.
                         Consumer<GameContext> alsoGated = secondaryConditionGatedActionAlso(secondaryText);
+                        // "If it is <filter>, it also gains <payload>." — the same hazard and the
+                        // same remedy, with the gate on the chosen card rather than the board.
+                        if (alsoGated == null) alsoGated = secondaryChosenCardGatedGrantAlso(secondaryText);
                         // Special case: "That Forward's controller discards N card(s) from their hand."
                         // The discarder depends on the chosen target's controller, which is read back
                         // from GameContext.lastChosenTargets() (populated by selectTargets).
@@ -2937,6 +2997,41 @@ final class ActionResolverChoose {
                     if (t.isP1()) ctx.dealDamageToSelf(controllerDmg);
                     else          ctx.dealDamageToOpponent(controllerDmg);
                 }
+                if (secondary != null) secondary.accept(ctx);
+            };
+        }
+
+        // --- Opponent reveals their top card; the chosen Forward takes an amount its cost picks ---
+        // Ahead of the plain damage followup below for the reason its neighbour is: that matcher is
+        // unanchored and finds the last "deal it 10000 damage" in this sentence run, dealing the
+        // high arm unconditionally with no reveal in front of it.
+        Matcher oppRevealM = FOLLOWUP_OPP_REVEAL_TOP_COST_BRANCH_DAMAGE.matcher(primaryFollowup);
+        if (oppRevealM.find()) {
+            final int lowCost    = Integer.parseInt(oppRevealM.group("lowCost"));
+            final int lowDamage  = Integer.parseInt(oppRevealM.group("lowDamage"));
+            final int highCost   = Integer.parseInt(oppRevealM.group("highCost"));
+            final int highDamage = Integer.parseInt(oppRevealM.group("highDamage"));
+            return ctx -> {
+                List<ForwardTarget> ts = selectTargets(ctx, maxCount, upTo,
+                        opponentOnly, selfOnly, condition, element, zone, opponentZone,
+                        costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters,
+                        jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons,
+                        fExcludeElem, withoutMulticard);
+                // The reveal follows the choice, as the sentences are printed, and is skipped
+                // entirely when nothing was chosen: there is nothing for the number to be spent on.
+                if (ts.isEmpty()) { if (secondary != null) secondary.accept(ctx); return; }
+                int cost = ctx.revealOpponentTopCardCost();
+                int damage = cost < 0 ? 0
+                        : cost <= lowCost  ? lowDamage
+                        : cost >= highCost ? highDamage
+                        : 0;   // a cost in the gap between the two arms is named by neither
+                if (damage <= 0) {
+                    ctx.logChooseHeader(choosePrefix + " — the revealed cost matches neither arm, no damage");
+                    if (secondary != null) secondary.accept(ctx);
+                    return;
+                }
+                ctx.logChooseHeader(choosePrefix + " — revealed cost " + cost + ", dealing " + damage + " damage");
+                for (ForwardTarget t : ts) ctx.damageTarget(t, damage);
                 if (secondary != null) secondary.accept(ctx);
             };
         }

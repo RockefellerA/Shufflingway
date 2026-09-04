@@ -4590,9 +4590,7 @@ final class AutoAbilityTriggers {
 		String excludeElem = m.group("excludeelem");
 		String actionsRaw  = m.group("actions");
 
-		List<String> actions = new ArrayList<>();
-		Matcher qm = ActionResolverPatterns.SELECT_FOLLOWING_QUOTED_ACTION.matcher(actionsRaw);
-		while (qm.find()) actions.add(qm.group(1).trim());
+		List<String> actions = ActionResolver.selectFollowingOptions(actionsRaw);
 		if (actions.isEmpty()) {
 			mw.logEntry("[AutoAbility] " + source.name() + " — no actions found in dynamic select");
 			return;

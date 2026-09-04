@@ -3053,6 +3053,21 @@ public record CardData(
      * without that the options are lost and the ability parses to nothing. The run is bounded by
      * {@code [^"\[]} so it can never cross a quote or a {@code [[br]]} and swallow a neighbouring
      * ability.
+     *
+     * <p>Unquoted text can also sit <em>between</em> two options, so each repetition opens with the
+     * same {@code [^"\[]} run to absorb whatever precedes its {@code [[br]]}. The whole set-12
+     * Monster cycle — 12-006C Ogre, 12-036C Mimic, 12-042C Cactuar, 12-064C Objet d'Art, 12-086C
+     * Behemoth and 12-094C Captain — prints "(This effect does not end at the end of the turn.)"
+     * after the closing quote of its first option, qualifying that option from outside the
+     * quotation. Without the run the repetition stopped there and the second option was dropped in
+     * silence: the ability still parsed, still offered a choice, and the choice had one arm.
+     *
+     * <p>The run leads each repetition rather than trailing it, which is not cosmetic. Trailing, it
+     * is greedy over the whitespace before the next {@code [[br]]}, and the separator collapse
+     * below then has nothing left to turn into the space between two options — 11-118L Celes and
+     * 14-116H Machérie came out with their options run together as {@code "A.""B."}. Leading, the
+     * run can only ever cover the gap between one option's closing quote and the next
+     * {@code [[br]]}, which is exactly what it is for.
      */
     private static final Pattern SELECT_ACTIONS_JOINER = Pattern.compile(
         "(?i)((?:[^.!?]*,\\s+)?select\\s+" +
@@ -3060,7 +3075,7 @@ public record CardData(
           "(?:up\\s+to\\s+)?\\d+\\s+of\\s+the\\s+\\d+\\s+following\\s+actions?" +  // "select N of the M following actions"
           "|the\\s+following\\s+actions?[^.!?]*" +                                   // "select the following actions..."
         ")" +
-        "[.!]?)([^\"\\[]*?(?:\\s*\\[\\[br\\]\\]\\s*\"[^\"]+\")+)",
+        "[.!]?)([^\"\\[]*?(?:[^\"\\[]*\\[\\[br\\]\\]\\s*\"[^\"]+\")+)",
         Pattern.DOTALL
     );
 

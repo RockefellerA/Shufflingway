@@ -8862,6 +8862,19 @@ final class GameContextImpl implements GameContext {
 				return matches;
 			}
 
+			@Override public int revealOpponentTopCardCost() {
+				Deque<CardData> deck = isP1 ? mw.gameState.getP2MainDeck() : mw.gameState.getP1MainDeck();
+				CardData top = deck.peekFirst();
+				if (top == null) {
+					logEntry("Reveal opponent's top card: their deck is empty");
+					return -1;
+				}
+				// Named in the shared log, as the type-reading twin above does: the reveal is public
+				// and the card stays on top either way.
+				logEntry("Revealed opponent's top card: " + top.name() + " (cost " + top.cost() + ")");
+				return top.cost();
+			}
+
 			@Override public int revealAnyNumberFromHandDistinctElements() {
 				List<CardData> hand = isP1 ? mw.gameState.getP1Hand() : mw.gameState.getP2Hand();
 				if (hand.isEmpty()) { logEntry("Reveal from hand: hand is empty — 0 Elements"); return 0; }
@@ -9329,6 +9342,27 @@ final class GameContextImpl implements GameContext {
 				}
 				logEntry((t.isP1() ? "" : "[P2] ") + card.name()
 						+ " also becomes a Forward with " + power + " power");
+			}
+
+			@Override public void makeSourceForwardPermanently(CardData source, int power) {
+				if (source == null) return;
+				// Located on the resolving player's own side, by identity: the ability names the
+				// card that printed it, so an opposing copy of the same Monster is a different card.
+				int idx = (isP1 ? mw.p1MonsterCards : mw.p2MonsterCards).indexOf(source);
+				if (idx >= 0) {
+					makeTargetForwardPermanently(
+							new ForwardTarget(isP1, idx, ForwardTarget.CardZone.MONSTER), power);
+					return;
+				}
+				CardData[] backups = isP1 ? mw.p1BackupCards : mw.p2BackupCards;
+				for (int i = 0; i < backups.length; i++) {
+					if (backups[i] != source) continue;
+					makeTargetForwardPermanently(
+							new ForwardTarget(isP1, i, ForwardTarget.CardZone.BACKUP), power);
+					return;
+				}
+				// Already a Forward, or gone from the field before the option resolved.
+				logEntry(source.name() + " is not a Backup or Monster on the field — nothing becomes a Forward");
 			}
 
 			@Override public void makeAllMonstersTemporaryForwards(int power) {

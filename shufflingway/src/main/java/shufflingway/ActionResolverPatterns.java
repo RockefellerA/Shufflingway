@@ -6461,6 +6461,39 @@ final class ActionResolverPatterns {
     );
 
     /**
+     * "If it is [a] &lt;filter&gt;, [until the end of the turn,] it also gains &lt;payload&gt;." — a
+     * choose followup's second sentence, adding a further grant to the card the first sentence
+     * chose, gated on <em>what that card is</em>.
+     *
+     * <p>The sibling of {@link #SECONDARY_CONDITION_GATED_ACTION_ALSO} and easily confused with it,
+     * but the gate asks a different question. That one asks about the board — what you control,
+     * what you have cast — and so is answered once for the whole selection. This one asks about the
+     * chosen card itself, so it is answered per target: choose two, and only the ones matching the
+     * filter get the extra.
+     *
+     * <p>Five printings, and the payload is what separates the one that resolves from the four that
+     * do not. 6-004C Kiros grants keywords ("Haste, First Strike and Brave"), which the target
+     * action vocabulary reads. 15-004C Edgar, 25-061R Scarmiglione and 9-075R Yang grant a quoted
+     * ability, and 9-017C Belias gates on damage received rather than on the card — all four are
+     * matched here and then declined for want of a payload this engine enforces, which is the rule
+     * the choose chain's quoted-grant branches already follow: better visibly unhandled than
+     * resolved as a no-op.
+     *
+     * <p>Yang's word order puts the duration first, so the optional prefix is admitted; it costs
+     * nothing and the sentence means the same either way.
+     *
+     * <p>Groups: {@code cond} — the filter, in the wording {@link ActionResolver#parseRevealCondition}
+     * reads; {@code payload} — what is gained, validated by handing "it gains &lt;payload&gt;" to
+     * {@code parseTargetAction}.
+     */
+    static final Pattern SECONDARY_CHOSEN_CARD_GATED_GRANT_ALSO = Pattern.compile(
+        "(?i)^If\\s+it\\s+is\\s+(?<cond>.+?),\\s+" +
+        "(?:until\\s+the\\s+end\\s+of\\s+the\\s+turn,\\s+)?" +
+        "it\\s+also\\s+gains\\s+(?<payload>.+?)[.!]?$",
+        Pattern.DOTALL
+    );
+
+    /**
      * The "you have cast Card Name X this turn" wording of
      * {@link #SECONDARY_CONDITION_GATED_ACTION_ALSO}'s condition — 1-043H Snow's gate. Read first
      * because it is not a control condition at all: it asks what was cast, not what is on the
@@ -7193,8 +7226,65 @@ final class ActionResolverPatterns {
         + "(?<total>\\d+)\\s+following\\s+actions?[.!]?\\s*(?<actions>.+)$",
         Pattern.DOTALL
     );
-    /** Extracts the individual quoted action strings from the {@code actions} capture group. */
-    static final Pattern SELECT_FOLLOWING_QUOTED_ACTION = Pattern.compile("\"([^\"]+)\"");
+    /**
+     * Extracts the individual quoted action strings from the {@code actions} capture group.
+     *
+     * <p>Group 2 catches a permanence reminder printed <em>outside</em> the quotation, which the
+     * set-12 Monster cycle (12-006C Ogre and its five siblings) uses to mark its first option as
+     * outlasting the turn. It belongs to the option it follows, so callers append it: without that
+     * the option reads "Ogre also becomes a Forward with 8000 power." with nothing to say whether
+     * that is until end of turn or for good, and the two are different cards.
+     */
+    static final Pattern SELECT_FOLLOWING_QUOTED_ACTION = Pattern.compile(
+        "\"([^\"]+)\"" +
+        "(?:\\s*(\\(This\\s+effect\\s+does\\s+not\\s+end\\s+at\\s+the\\s+end\\s+of\\s+the\\s+turn\\.?\\)))?",
+        Pattern.CASE_INSENSITIVE
+    );
+
+    /**
+     * "[CardName] also becomes a Forward with N power. (This effect does not end at the end of the
+     * turn.)" — the permanent twin of {@link #BECOME_FORWARD_UNTIL_EOT_PATTERN}, and the first of
+     * the two options the set-12 Monster cycle offers as it enters: 12-006C Ogre, 12-036C Mimic,
+     * 12-042C Cactuar, 12-064C Objet d'Art, 12-086C Behemoth and 12-094C Captain.
+     *
+     * <p>The reminder is required, not optional. It is the only thing separating this from the
+     * turn-scoped form, and a Monster that becomes a Forward for good is a permanent change to what
+     * the card is — not something to infer from its absence.
+     *
+     * <p>Anchored end to end, and the name is checked against the printing card by
+     * {@link ActionResolverState#tryParseSelfBecomeForwardPermanently}. That is what keeps it off
+     * the 7-xxx cycle (7-070R Zaghnal and five siblings), which prints the same sentence behind an
+     * "if [Self] is not a Forward," guard and a longer reminder — a different trigger shape that is
+     * still unwired, and better left visibly so than half-claimed here.
+     */
+    static final Pattern SELF_BECOME_FORWARD_PERMANENT = Pattern.compile(
+        "(?i)^\\s*(?<name>[^.,]+?)\\s+also\\s+becomes?\\s+a\\s+Forward\\s+with\\s+(?<power>\\d+)\\s+power[.!]?\\s*" +
+        "\\(This\\s+effect\\s+does\\s+not\\s+end\\s+at\\s+the\\s+end\\s+of\\s+the\\s+turn\\.?\\)\\s*$"
+    );
+
+    /**
+     * "Your opponent reveals the top card of their deck. If the revealed card's cost is N or less,
+     * deal it D1 damage. If the revealed card's cost is M or more, deal it D2 damage." — the payoff
+     * of 12-042C Cactuar's second option, and the corpus's only reveal of the <em>opponent's</em>
+     * top card that reads its cost.
+     *
+     * <p>Read as one followup rather than three sentences because the reveal produces nothing but
+     * the number the two branches spend, and neither branch means anything without it. Split, the
+     * last sentence alone matched the plain damage followup and Cactuar dealt a flat 10000
+     * unconditionally — the worst kind of wrong, since it looked like it worked.
+     *
+     * <p>Groups: {@code lowCost}/{@code lowDamage} for the "or less" arm, {@code highCost}/
+     * {@code highDamage} for the "or more" arm. The two thresholds are captured separately rather
+     * than assumed adjacent: nothing in the wording makes them so, and a printing that left a gap
+     * would deal nothing in it, which is what the text would then say.
+     */
+    static final Pattern FOLLOWUP_OPP_REVEAL_TOP_COST_BRANCH_DAMAGE = Pattern.compile(
+        "(?i)Your\\s+opponent\\s+reveals\\s+the\\s+top\\s+card\\s+of\\s+(?:their|his/her)\\s+deck[.!]?\\s+" +
+        "If\\s+the\\s+revealed\\s+card'?s\\s+cost\\s+is\\s+(?<lowCost>\\d+)\\s+or\\s+less,\\s+" +
+        "deal\\s+it\\s+(?<lowDamage>\\d+)\\s+damage[.!]?\\s+" +
+        "If\\s+the\\s+revealed\\s+card'?s\\s+cost\\s+is\\s+(?<highCost>\\d+)\\s+or\\s+more,\\s+" +
+        "deal\\s+it\\s+(?<highDamage>\\d+)\\s+damage[.!]?"
+    );
     /**
      * The surcharge rider on a modal choice: "If you selected N actions, the cost required to cast
      * [Self] is increased by 《C》《C》." — Bahamut SIN 28-087H, the only card that prices its

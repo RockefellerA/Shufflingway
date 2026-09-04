@@ -45649,5 +45649,405 @@ public class CardBehaviorTest {
 	}
 
 	// =========================================================================================
+	// 18-139S Noctis, second half: "…The Forward that entered the field deals damage equal to its
+	// power to the chosen Forward."  (Parsing.)
+	//
+	// The section above wired the effect and it has resolved correctly since. Only the name was
+	// missing, so the card reported as "ChooseCharacter / ?" — indistinguishable from a followup
+	// that was being dropped, which is exactly what the report is read to rule out.
+	//
+	// The damage carries no number: its amount is the arriving Forward's power, which is why the
+	// plain damage matcher never claimed it and why nothing else did either.
+	// =========================================================================================
+
+	@Test
+	void noctisFollowupIsNamedRatherThanReportedAsUnread() {
+		assertEquals("ChooseCharacter / EnteredForwardPowerDamageToChosen",
+				ActionResolver.fullDescription(NOCTIS_18_139S, null));
+	}
+
+	@Test
+	void aNumberedDamageFollowupIsUnaffected() {
+		assertEquals("ChooseCharacter / Damage",
+				ActionResolver.fullDescription("choose 1 Forward. Deal it 7000 damage.", null));
+	}
+
+	// =========================================================================================
+	// 6-004C Kiros: "When Kiros enters the field, choose 1 Forward you control other than Kiros.
+	// It gains +2000 power until the end of the turn. If it is a Category VIII Forward, it also
+	// gains Haste, First Strike and Brave until the end of the turn."  (Effect wiring.)
+	//
+	// The choose and the power boost parsed; the second sentence was dropped whole, so a Category
+	// VIII Forward got its +2000 and none of the three keywords.
+	//
+	// The gate is on the chosen card, not on the board — which is what separates this from the
+	// "If <you control X>, <action> it also" secondary beside it, and why it is tested per target
+	// rather than once for the selection.
+	//
+	// It also turned up a hole in the shared target-action vocabulary: parseTargetAction knew
+	// "+N power and Haste" but not "Haste" alone, so every construct routing a payload through it
+	// declined a keyword-only grant the choose chain would have resolved one level up.
+	// =========================================================================================
+
+	private static final String KIROS_6_004C =
+			"choose 1 Forward you control other than Kiros. It gains +2000 power until the end of "
+			+ "the turn. If it is a Category VIII Forward, it also gains Haste, First Strike and "
+			+ "Brave until the end of the turn.";
+
+	/** A Forward carrying one category, for the gate to read. */
+	private static CardData makeCategoryCardForward(String name, String category, int power) {
+		return new CardData(null, name, "Fire", 3, power, "Forward", false, 0, false, false,
+				Set.of(), 0, List.of(), null, List.of(),
+				List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(),
+				false, false, null, false, false, false, false, false, 1,
+				null, category, null, "");
+	}
+
+	@Test
+	void kirosBoostsAndThenGrantsTheThreeKeywords() {
+		CardData kiros = makeForwardWithText("Kiros", "Fire", 2, 7000, "");
+		GameContext ctx = mock(GameContext.class);
+		ForwardTarget chosen = fwd(true, 0);
+		when(ctx.consumePreloadedTargets()).thenReturn(List.of(chosen));
+		when(ctx.lastChosenTargets()).thenReturn(List.of(chosen));
+		when(ctx.targetCard(chosen)).thenReturn(makeCategoryCardForward("Laguna", "VIII", 7000));
+
+		ActionResolver.parse(KIROS_6_004C, kiros).accept(ctx);
+
+		verify(ctx).boostTarget(chosen, 2000, EnumSet.noneOf(CardData.Trait.class));
+		verify(ctx).boostTarget(chosen, 0, EnumSet.of(
+				CardData.Trait.HASTE, CardData.Trait.FIRST_STRIKE, CardData.Trait.BRAVE));
+	}
+
+	@Test
+	void aForwardOutsideTheCategoryGetsThePowerAndNothingElse() {
+		CardData kiros = makeForwardWithText("Kiros", "Fire", 2, 7000, "");
+		GameContext ctx = mock(GameContext.class);
+		ForwardTarget chosen = fwd(true, 0);
+		when(ctx.consumePreloadedTargets()).thenReturn(List.of(chosen));
+		when(ctx.lastChosenTargets()).thenReturn(List.of(chosen));
+		when(ctx.targetCard(chosen)).thenReturn(makeCategoryCardForward("Bystander", "VII", 7000));
+
+		ActionResolver.parse(KIROS_6_004C, kiros).accept(ctx);
+
+		verify(ctx).boostTarget(chosen, 2000, EnumSet.noneOf(CardData.Trait.class));
+		verify(ctx, never()).boostTarget(eq(chosen), eq(0), any());
+	}
+
+	@Test
+	void theGateIsAskedOfEachChosenCardSeparately() {
+		// Every printing of this shape chooses one, so nothing in the corpus can tell the
+		// difference — but resolving it once for the whole list would be reading the sentence as
+		// the board-state gate beside it, which asks a different question entirely.
+		CardData kiros = makeForwardWithText("Kiros", "Fire", 2, 7000, "");
+		GameContext ctx = mock(GameContext.class);
+		ForwardTarget inCat = fwd(true, 0), outOfCat = fwd(true, 1);
+		when(ctx.consumePreloadedTargets()).thenReturn(List.of(inCat, outOfCat));
+		when(ctx.lastChosenTargets()).thenReturn(List.of(inCat, outOfCat));
+		when(ctx.targetCard(inCat)).thenReturn(makeCategoryCardForward("Laguna", "VIII", 7000));
+		when(ctx.targetCard(outOfCat)).thenReturn(makeCategoryCardForward("Bystander", "VII", 7000));
+
+		ActionResolver.parse(KIROS_6_004C, kiros).accept(ctx);
+
+		EnumSet<CardData.Trait> all = EnumSet.of(
+				CardData.Trait.HASTE, CardData.Trait.FIRST_STRIKE, CardData.Trait.BRAVE);
+		verify(ctx).boostTarget(inCat, 0, all);
+		verify(ctx, never()).boostTarget(outOfCat, 0, all);
+	}
+
+	@Test
+	void kirosIsAttributedToBothHalves() {
+		CardData kiros = makeForwardWithText("Kiros", "Fire", 2, 7000, "");
+		assertEquals("ChooseCharacter / PowerBoost + IfChosenCard(a Category VIII Forward: KeywordGrant)",
+				ActionResolver.fullDescription(KIROS_6_004C, kiros));
+	}
+
+	@Test
+	void aGrantOfSomethingUnreadableIsDeclinedRatherThanHalfApplied() {
+		// 15-004C Edgar and 25-061R Scarmiglione print the same sentence with a quoted ability as
+		// the payload. The gate is understood and the payload is not, so this handler stands aside
+		// rather than granting a card the engine would not enforce — the rule the choose chain's
+		// other quoted-grant branches follow.
+		assertNull(ActionResolverChoose.secondaryChosenCardGatedGrantAlso(
+				"If it is a Category VI Forward, it also gains \"When this Forward attacks, it "
+				+ "flumphs the widget.\" until the end of the turn."));
+	}
+
+	@Test
+	void theKeywordOnlyGrantIsNowInTheSharedVocabulary() {
+		// The hole this filled, exercised directly: a payload of keywords with no power amount.
+		GameContext ctx = mock(GameContext.class);
+		ForwardTarget t = fwd(true, 0);
+		ActionResolver.parseTargetAction("it gains Haste until the end of the turn", 0)
+				.accept(ctx, List.of(t));
+
+		verify(ctx).boostTarget(t, 0, EnumSet.of(CardData.Trait.HASTE));
+	}
+
+	@Test
+	void marilithsHasteIsNowActuallyGated() {
+		// 21-015R Marilith: "choose up to 2 Forwards. If you control 7 or more Fire Characters,
+		// they gain Haste until the end of the turn."
+		//
+		// Found by the characterization diff, not by looking for it. The gated-action branch is
+		// guarded on parseTargetAction understanding its payload, and a keyword-only grant was
+		// exactly what it did not understand — so the guard declined, the text fell through to the
+		// unconditional keyword grant, and Marilith handed out Haste whatever the board looked
+		// like. Filling the vocabulary hole let the guard pass and the condition take effect.
+		String marilith = "choose up to 2 Forwards. If you control 7 or more Fire Characters, "
+				+ "they gain Haste until the end of the turn.";
+		ForwardTarget chosen = fwd(true, 0);
+
+		GameContext enough = mock(GameContext.class);
+		when(enough.consumePreloadedTargets()).thenReturn(List.of(chosen));
+		when(enough.selfFieldCount(eq("Fire"), anyBoolean(), anyBoolean(), anyBoolean())).thenReturn(7);
+		ActionResolver.parse(marilith, null).accept(enough);
+		verify(enough).boostTarget(chosen, 0, EnumSet.of(CardData.Trait.HASTE));
+
+		GameContext tooFew = mock(GameContext.class);
+		when(tooFew.consumePreloadedTargets()).thenReturn(List.of(chosen));
+		when(tooFew.selfFieldCount(eq("Fire"), anyBoolean(), anyBoolean(), anyBoolean())).thenReturn(6);
+		ActionResolver.parse(marilith, null).accept(tooFew);
+		verify(tooFew, never()).boostTarget(any(), anyInt(), any());
+	}
+
+	@Test
+	void theCombinedPowerAndKeywordFormStillGoesToThePowerArm() {
+		// The new arm sits below the power arms, so a sentence carrying both is unaffected.
+		GameContext ctx = mock(GameContext.class);
+		ForwardTarget t = fwd(true, 0);
+		ActionResolver.parseTargetAction("it gains +1000 power and Haste until the end of the turn", 0)
+				.accept(ctx, List.of(t));
+
+		verify(ctx).boostTarget(t, 1000, EnumSet.of(CardData.Trait.HASTE));
+	}
+
+	// =========================================================================================
+	// 12-042C Cactuar: "When Cactuar enters the field, select 1 of the 2 following actions.
+	// 'Cactuar also becomes a Forward with 4000 power.' (This effect does not end at the end of the
+	// turn.) 'Put Cactuar into the Break Zone. When you do so, choose 1 Forward. Your opponent
+	// reveals the top card of their deck. If the revealed card's cost is 3 or less, deal it 1000
+	// damage. If the revealed card's cost is 4 or more, deal it 10000 damage.'"
+	//  (Parsing, effect wiring and board behaviour.)
+	//
+	// Three faults stacked, and the first hid the other two. The [[br]] joiner that gathers a
+	// modal ability's quoted options stopped at the parenthetical between them, so the second
+	// option never reached the resolver at all: the ability parsed, offered a choice, and the
+	// choice had one arm. The whole set-12 Monster cycle is built this way — 12-006C Ogre, 12-036C
+	// Mimic, 12-064C Objet d'Art, 12-086C Behemoth and 12-094C Captain — so all six were losing
+	// their sacrifice option in silence.
+	//
+	// Then the parenthetical itself, which sits outside the quotation and is the only thing saying
+	// the promotion outlasts the turn. It is now appended to the option it follows, so one string
+	// carries the whole sentence and every reader of the construct agrees on what the option is.
+	//
+	// Then Cactuar's own payoff, which is the corpus's only reveal of the opponent's top card that
+	// reads its cost. Its three sentences are one effect: split, the last of them is a bare "deal
+	// it 10000 damage" that the plain damage followup claims, dealing the high arm every time with
+	// no reveal in front of it.
+	// =========================================================================================
+
+	private static final String CACTUAR_12_042C =
+			"When Cactuar enters the field, select 1 of the 2 following actions.[[br]]   "
+			+ "\"Cactuar also becomes a Forward with 4000 power.\" (This effect does not end at the "
+			+ "end of the turn.)[[br]]   \"Put Cactuar into the Break Zone. When you do so, choose 1 "
+			+ "Forward. Your opponent reveals the top card of their deck. If the revealed card's "
+			+ "cost is 3 or less, deal it 1000 damage. If the revealed card's cost is 4 or more, "
+			+ "deal it 10000 damage.\"";
+
+	private static final String CACTUAR_REVEAL_PAYOFF =
+			"choose 1 Forward. Your opponent reveals the top card of their deck. If the revealed "
+			+ "card's cost is 3 or less, deal it 1000 damage. If the revealed card's cost is 4 or "
+			+ "more, deal it 10000 damage.";
+
+	@Test
+	void bothOfCactuarsOptionsSurviveTheJoin() {
+		List<AutoAbility> autos = CardData.parseAutoAbilities(CACTUAR_12_042C);
+		assertEquals(1, autos.size());
+		String effect = autos.get(0).effectText();
+		assertTrue(effect.contains("Cactuar also becomes a Forward"), "the first option");
+		assertTrue(effect.contains("Put Cactuar into the Break Zone"),
+				"and the second, which the parenthetical between them used to cut off");
+	}
+
+	@Test
+	void thePermanenceReminderTravelsWithTheOptionItQualifies() {
+		List<String> options = ActionResolver.selectFollowingOptions(
+				"\"Cactuar also becomes a Forward with 4000 power.\" (This effect does not end at "
+				+ "the end of the turn.) \"Put Cactuar into the Break Zone.\"");
+
+		assertEquals(2, options.size());
+		assertTrue(options.get(0).endsWith("(This effect does not end at the end of the turn.)"),
+				"the reminder belongs to the option it follows");
+		assertFalse(options.get(1).contains("does not end"), "and not to the one after it");
+	}
+
+	@Test
+	void cactuarDescribesBothOptions() {
+		CardData cactuar = makeMonsterWithText("Cactuar", "Wind", "");
+		List<AutoAbility> autos = CardData.parseAutoAbilities(CACTUAR_12_042C);
+		assertEquals("SelectFollowingActions(1 of 2: SelfBecomeForwardPermanent | WhenYouDoSo)",
+				ActionResolver.fullDescription(autos.get(0).effectText(), cactuar));
+	}
+
+	// ---- option 1: the permanent promotion ---------------------------------------------------
+
+	@Test
+	void cactuarsFirstOptionPromotesItPermanently() {
+		CardData cactuar = makeMonsterWithText("Cactuar", "Wind", "");
+		GameContext ctx = mock(GameContext.class);
+		ActionResolver.parse(
+				"Cactuar also becomes a Forward with 4000 power. "
+				+ "(This effect does not end at the end of the turn.)", cactuar).accept(ctx);
+
+		verify(ctx).makeSourceForwardPermanently(cactuar, 4000);
+	}
+
+	@Test
+	void withoutTheReminderTheSentenceIsNotClaimedAsPermanent() {
+		// The reminder is the only thing separating this from the turn-scoped form, so its absence
+		// is not an invitation to guess.
+		CardData cactuar = makeMonsterWithText("Cactuar", "Wind", "");
+		assertNull(ActionResolver.matchedPatternName(
+				"Cactuar also becomes a Forward with 4000 power.", cactuar));
+	}
+
+	@Test
+	void thePromotionNamingAnotherCardIsDeclined() {
+		CardData cactuar = makeMonsterWithText("Cactuar", "Wind", "");
+		assertNull(ActionResolver.parse(
+				"Behemoth also becomes a Forward with 9000 power. "
+				+ "(This effect does not end at the end of the turn.)", cactuar));
+	}
+
+	@Test
+	void theUntilEndOfTurnPromotionIsUntouched() {
+		CardData gigas = makeMonsterWithText("Gigas", "Lightning", "");
+		assertEquals("BecomeForwardUntilEot", ActionResolver.matchedPatternName(
+				"Until the end of the turn, Gigas also becomes a Forward with 9000 power.", gigas));
+	}
+
+	@Test
+	void thePromotedMonsterSurvivesTheEndOfTurnSweep() {
+		MainWindow mw = new MainWindow();
+		CardData cactuar = makeMonsterWithText("Cactuar", "Wind", "");
+		mw.gameState.getIdentity().put(cactuar, true);
+		mw.placeCardInMonsterZone(cactuar);
+
+		GameContext ctx = mw.buildGameContext(true);
+		ctx.makeSourceForwardPermanently(cactuar, 4000);
+		assertEquals(4000, mw.p1MonsterTempForwardPower.get(cactuar));
+
+		for (Consumer<GameContext> e : List.copyOf(mw.endOfTurnEffects)) e.accept(ctx);
+
+		assertEquals(4000, mw.p1MonsterTempForwardPower.get(cactuar),
+				"\"does not end at the end of the turn\" — nothing was registered to take it back");
+	}
+
+	@Test
+	void thePromotionFindsOnlyTheResolvingPlayersOwnCopy() {
+		MainWindow mw = new MainWindow();
+		CardData mine   = makeMonsterWithText("Cactuar", "Wind", "");
+		CardData theirs = makeMonsterWithText("Cactuar", "Wind", "");
+		mw.gameState.getIdentity().put(mine, true);
+		mw.placeCardInMonsterZone(mine);
+		mw.gameState.getIdentity().put(theirs, false);
+		mw.p2MonsterCards.add(theirs);
+		mw.p2MonsterStates.add(CardState.ACTIVE);
+		mw.p2MonsterFrozen.add(false);
+
+		mw.buildGameContext(true).makeSourceForwardPermanently(mine, 4000);
+
+		assertEquals(4000, mw.p1MonsterTempForwardPower.get(mine));
+		assertNull(mw.p2MonsterTempForwardPower.get(theirs), "the opposing copy is a different card");
+	}
+
+	// ---- option 2: the opponent's top card picks the amount -----------------------------------
+
+	@Test
+	void aCheapRevealedCardDealsTheLowAmount() {
+		GameContext ctx = mock(GameContext.class);
+		ForwardTarget chosen = fwd(false, 0);
+		when(ctx.consumePreloadedTargets()).thenReturn(List.of(chosen));
+		when(ctx.revealOpponentTopCardCost()).thenReturn(2);
+
+		ActionResolver.parse(CACTUAR_REVEAL_PAYOFF, null).accept(ctx);
+
+		verify(ctx).damageTarget(chosen, 1000);
+	}
+
+	@Test
+	void anExpensiveRevealedCardDealsTheHighAmount() {
+		GameContext ctx = mock(GameContext.class);
+		ForwardTarget chosen = fwd(false, 0);
+		when(ctx.consumePreloadedTargets()).thenReturn(List.of(chosen));
+		when(ctx.revealOpponentTopCardCost()).thenReturn(7);
+
+		ActionResolver.parse(CACTUAR_REVEAL_PAYOFF, null).accept(ctx);
+
+		verify(ctx).damageTarget(chosen, 10000);
+	}
+
+	@Test
+	void theBoundariesBelongToTheArmsThatNameThem() {
+		// "3 or less" and "4 or more" — the two arms meet with no gap, and each end is inclusive.
+		for (int[] pair : new int[][]{{3, 1000}, {4, 10000}}) {
+			GameContext ctx = mock(GameContext.class);
+			ForwardTarget chosen = fwd(false, 0);
+			when(ctx.consumePreloadedTargets()).thenReturn(List.of(chosen));
+			when(ctx.revealOpponentTopCardCost()).thenReturn(pair[0]);
+
+			ActionResolver.parse(CACTUAR_REVEAL_PAYOFF, null).accept(ctx);
+
+			verify(ctx).damageTarget(chosen, pair[1]);
+		}
+	}
+
+	@Test
+	void anEmptyOpponentDeckDealsNothing() {
+		// -1, not 0: a real card can cost 0, and the low arm would have paid out for it.
+		GameContext ctx = mock(GameContext.class);
+		ForwardTarget chosen = fwd(false, 0);
+		when(ctx.consumePreloadedTargets()).thenReturn(List.of(chosen));
+		when(ctx.revealOpponentTopCardCost()).thenReturn(-1);
+
+		ActionResolver.parse(CACTUAR_REVEAL_PAYOFF, null).accept(ctx);
+
+		verify(ctx, never()).damageTarget(any(), anyInt());
+	}
+
+	@Test
+	void nothingChosenMeansNoReveal() {
+		// The reveal follows the choice, as the sentences are printed. With no Forward to hit there
+		// is nothing for the number to be spent on, and the opponent's top card stays private.
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.consumePreloadedTargets()).thenReturn(List.of());
+
+		ActionResolver.parse(CACTUAR_REVEAL_PAYOFF, null).accept(ctx);
+
+		verify(ctx, never()).revealOpponentTopCardCost();
+		verify(ctx, never()).damageTarget(any(), anyInt());
+	}
+
+	@Test
+	void theThreeSentencesAreNamedAsOneEffect() {
+		assertEquals("ChooseCharacter / OppRevealTopCostBranchDamage",
+				ActionResolver.fullDescription(CACTUAR_REVEAL_PAYOFF, null),
+				"split, the report reads as a flat 10000 with the reveal dropped");
+	}
+
+	@Test
+	void theRevealReadsTheOpponentsDeckAndLeavesTheCardOnIt() {
+		MainWindow mw = new MainWindow();
+		CardData top = makeForward("Their Top Card", "Fire", 5, 8000);
+		mw.gameState.getP2MainDeck().addFirst(top);
+		int before = mw.gameState.getP2MainDeck().size();
+
+		assertEquals(5, mw.buildGameContext(true).revealOpponentTopCardCost());
+		assertEquals(before, mw.gameState.getP2MainDeck().size(), "a reveal is not a draw");
+		assertSame(top, mw.gameState.getP2MainDeck().peekFirst());
+	}
+
+	// =========================================================================================
 
 }

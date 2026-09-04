@@ -1454,6 +1454,12 @@ public class ActionResolver {
         result = tryParseSelfSkipNextActivePhase(effectText, source);
         if (result != null) return result;
 
+        // Must precede tryParseBecomeForwardUntilEot, which reads with find() and is blind to the
+        // permanence reminder: it claimed the sentence and registered an end-of-turn revert, so a
+        // Monster that should have stayed a Forward went back to being a Monster that night.
+        result = tryParseSelfBecomeForwardPermanently(effectText, source);
+        if (result != null) return result;
+
         result = tryParseActivateNamedCard(effectText);
         if (result != null) return result;
 
@@ -2259,6 +2265,8 @@ public class ActionResolver {
         // form moved 9 abilities onto this name and away from the one that actually runs them.
         if (isBarePlaySourceOntoField(effectText, source))              return "PlaySourceOntoField";
         if (tryParseSelfSkipNextActivePhase(effectText, source) != null) return "SelfSkipNextActivePhase";
+        // Mirrors parse(): ahead of BecomeForwardUntilEot, which cannot see the reminder.
+        if (tryParseSelfBecomeForwardPermanently(effectText, source) != null) return "SelfBecomeForwardPermanent";
         if (tryParseActivateNamedCard(effectText)               != null) return "ActivateNamedCard";
         if (tryParseAttackOnceMore(effectText)                  != null) return "AttackOnceMore";
         if (tryParseOpponentCannotSearchThisTurn(effectText)    != null) return "OpponentCannotSearch";
@@ -2479,6 +2487,16 @@ public class ActionResolver {
         // the reveal exists to produce.
         if (FOLLOWUP_REVEAL_HAND_DAMAGE_PER_ELEMENT.matcher(followupText).find())
                                                                                       return "RevealHandDamagePerElement";
+        // Cactuar 12-042C, and ahead of the plain damage name for the same reason: the last of its
+        // three sentences is a "deal it 10000 damage" that FOLLOWUP_DAMAGE finds on its own.
+        if (FOLLOWUP_OPP_REVEAL_TOP_COST_BRANCH_DAMAGE.matcher(followupText).find())
+                                                                                      return "OppRevealTopCostBranchDamage";
+        // Noctis 18-139S, whose damage carries no number at all — its amount is the arriving
+        // Forward's power. The choose chain has resolved this correctly since it was wired; only
+        // the name was missing, which reported the card as "ChooseCharacter / ?" as though the
+        // damage were being dropped.
+        if (FOLLOWUP_ENTERED_FORWARD_POWER_DAMAGE_TO_CHOSEN.matcher(followupText).find())
+                                                                                      return "EnteredForwardPowerDamageToChosen";
         if (FOLLOWUP_DAMAGE.matcher(followupText).find())                             return "Damage";
         if (FOLLOWUP_DAMAGE_EXPR.matcher(followupText).find())                        return "DamageExpr";
         if (FOLLOWUP_DIVIDE_DAMAGE_AMONG_CHOSEN.matcher(followupText).find())         return "DivideDamageAmongChosen";
@@ -3260,6 +3278,8 @@ public class ActionResolver {
             // damage it multiplies are one effect over two sentences, so splitting them describes
             // a reveal that does nothing followed by a flat damage that counts nothing.
             if (FOLLOWUP_REVEAL_HAND_DAMAGE_PER_ELEMENT.matcher(followup).find()) dotIdx = -1;
+            // And Cactuar 12-042C's three-sentence twin, for the same reason.
+            if (FOLLOWUP_OPP_REVEAL_TOP_COST_BRANCH_DAMAGE.matcher(followup).find()) dotIdx = -1;
             String primaryPart   = dotIdx >= 0 ? followup.substring(0, dotIdx).trim() : followup;
             String secondaryRaw  = dotIdx >= 0 ? followup.substring(dotIdx + 2).trim() : null;
             String secondaryTxt  = secondaryRaw != null ? stripRestrictionSentences(secondaryRaw) : null;
@@ -3304,6 +3324,11 @@ public class ActionResolver {
             // Freeze over a card that only freezes while it controls Shiva's caster.
             if (secondaryDesc == null && secondaryTxt != null && !secondaryTxt.isEmpty())
                 secondaryDesc = secondaryConditionGatedActionAlsoName(secondaryTxt, source);
+            // Mirrors the choose chain, where this is tried immediately after its board-state
+            // sibling above and for the same reason: the find() fallbacks below would take the
+            // grant out of this sentence and report it as unconditional.
+            if (secondaryDesc == null && secondaryTxt != null && !secondaryTxt.isEmpty())
+                secondaryDesc = secondaryChosenCardGatedGrantAlsoName(secondaryTxt, source);
             // Mirrors the choose chain, where this is tried ahead of the general parse: the
             // sentence reads as a bare conditional on its own and no chain entry claims it.
             if (secondaryDesc == null && secondaryTxt != null && !secondaryTxt.isEmpty()
@@ -3668,6 +3693,8 @@ public class ActionResolver {
         // parser, so this cannot claim a clause sitting inside a longer ability.
         if (isBarePlaySourceOntoField(effectText, source))                  return "PlaySourceOntoField";
         if (tryParseSelfSkipNextActivePhase(effectText, source) != null)    return "SelfSkipNextActivePhase";
+        // Mirrors parse() and matchedPatternName(), at the same position and for the same reason.
+        if (tryParseSelfBecomeForwardPermanently(effectText, source) != null) return "SelfBecomeForwardPermanent";
         if (tryParseActivateNamedCard(effectText) != null)                  return "ActivateNamedCard";
         if (tryParseAttackOnceMore(effectText) != null)                     return "AttackOnceMore";
         if (tryParseOpponentCannotSearchThisTurn(effectText) != null)       return "OpponentCannotSearch";
@@ -3767,6 +3794,29 @@ public class ActionResolver {
     }
 
     /**
+     * The quoted options of a "select N of the M following actions" ability, each carrying any
+     * permanence reminder printed after its closing quote.
+     *
+     * <p>Shared by all three readers of that construct — this class's description, the choose
+     * chain's parse and {@code AutoAbilityTriggers}'s executor — because they must agree on what an
+     * option <em>is</em>. They had three copies of the same two-line loop, and the reminder the
+     * set-12 Monster cycle prints outside its first quotation had to reach all three or the option
+     * would be described one way and resolved another.
+     */
+    static List<String> selectFollowingOptions(String actionsRaw) {
+        List<String> out = new ArrayList<>();
+        Matcher q = SELECT_FOLLOWING_QUOTED_ACTION.matcher(actionsRaw);
+        while (q.find()) {
+            String option = q.group(1).trim();
+            // Appended inside the option rather than noted beside it, so every reader goes on
+            // handling an option as one string and the ordinary chain sees the whole sentence.
+            if (q.group(2) != null) option = option + " " + q.group(2).trim();
+            out.add(option);
+        }
+        return out;
+    }
+
+    /**
      * Describes a modal "select N of the M following actions" ability by enumerating its options,
      * e.g. {@code SelectFollowingActions(1 of 3: ChooseCharacter / Dull | DrawCards | ?)}.
      *
@@ -3781,9 +3831,8 @@ public class ActionResolver {
         if (!m.find()) return "SelectFollowingActions";
 
         List<String> options = new ArrayList<>();
-        Matcher q = SELECT_FOLLOWING_QUOTED_ACTION.matcher(m.group("actions"));
-        while (q.find()) {
-            String desc = fullDescription(q.group(1).trim(), source);
+        for (String option : selectFollowingOptions(m.group("actions"))) {
+            String desc = fullDescription(option, source);
             options.add(desc != null && !desc.isBlank() ? desc : "?");
         }
         if (options.isEmpty()) return "SelectFollowingActions";
@@ -4400,6 +4449,25 @@ public class ActionResolver {
             return (ctx, ts) -> {
                 sortedByIdxDesc(ts, true) .forEach(ft -> ctx.boostTarget(ft, boost, gained));
                 sortedByIdxDesc(ts, false).forEach(ft -> ctx.boostTarget(ft, boost, gained));
+            };
+        }
+
+        // Keyword-only grant, after every power arm above. The choose chain has read this as a
+        // primary followup for as long as it has existed, but the shared target-action vocabulary
+        // never learned it, so any construct routing through here — a gated secondary, a tiered
+        // arm — declined a sentence the chain one level up would have resolved.
+        //
+        // Below the power arms on purpose, mirroring that chain: "it gains +1000 power and Haste"
+        // belongs to FOLLOWUP_POWER_BOOST, which carries the traits along with the amount. This
+        // pattern cannot claim that text anyway — it wants the traits immediately after "gains" —
+        // but the order is what keeps the two from ever being asked in the wrong sequence.
+        Matcher keywordM = FOLLOWUP_KEYWORD_GRANT.matcher(t);
+        if (keywordM.find()) {
+            final EnumSet<CardData.Trait> granted = parseTraits(keywordM.group(1));
+            // Zero power with traits, the idiom the choose chain's own keyword branch uses.
+            return (ctx, ts) -> {
+                sortedByIdxDesc(ts, true) .forEach(ft -> ctx.boostTarget(ft, 0, granted));
+                sortedByIdxDesc(ts, false).forEach(ft -> ctx.boostTarget(ft, 0, granted));
             };
         }
 
