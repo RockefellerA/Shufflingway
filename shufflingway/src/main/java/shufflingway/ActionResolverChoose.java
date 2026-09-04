@@ -119,6 +119,17 @@ final class ActionResolverChoose {
     }
 
     /**
+     * Whether an "As long as [X] is on the field, it does not activate ..." sentence names the
+     * ability's own source. Shared by the primary-followup branch and the secondary one, which
+     * carry the same guard for the same reason its two warden siblings do: a sentence naming some
+     * other card is left unclaimed rather than silently locking down the wrong thing.
+     */
+    private static boolean doesNotActivateNamesSource(String text, CardData source) {
+        Matcher m = FOLLOWUP_DOES_NOT_ACTIVATE_WHILE_NAMED_ON_FIELD.matcher(text.trim());
+        return m.matches() && m.group("name").trim().equalsIgnoreCase(source.name());
+    }
+
+    /**
      * Parses "[if cond,] Select N of the M following actions. "a" "b" ...".
      * Returns an effect that asks the player to choose {@code select} of the quoted
      * sub-actions (via {@link GameContext#chooseActions}), then re-parses and applies
@@ -1588,6 +1599,14 @@ final class ActionResolverChoose {
                             // line and the played card's ETF trigger fires anyway — which for
                             // 22-058H Qator Bashtar is the whole of what the sentence forbids.
                             secondary = null;
+                        } else if (source != null
+                                && FOLLOWUP_DOES_NOT_ACTIVATE_WHILE_NAMED_ON_FIELD.matcher(secondaryText.trim()).matches()
+                                && doesNotActivateNamesSource(secondaryText, source)) {
+                            // Unei 5-027R prints the same standing lock Vincent 16-024H does, but
+                            // behind a "Dull it." -- so it arrives here rather than as the primary
+                            // followup, and "it" is the Forward the primary just chose.
+                            secondary = ctx -> ctx.lastChosenTargets()
+                                    .forEach(t -> ctx.targetDoesNotActivateWhileWardenOnField(t, source));
                         } else if (FOLLOWUP_IF_PUT_TO_BZ_THIS_TURN_RFG_INSTEAD.matcher(secondaryText).find()) {
                             secondary = ctx -> ctx.lastChosenTargets().forEach(ctx::markTargetRfgInsteadOfBzThisTurn);
                         } else if (source != null
@@ -3660,6 +3679,25 @@ final class ActionResolverChoose {
         // --- Lose all abilities for as long as the source stays on the field ---
         // Ahead of the until-end-of-turn branch below, which reads the same "loses all its
         // abilities" phrase; see the note on the pattern.
+        // --- "As long as [Self] is on the field, it does not activate during its controller's
+        //      Active Phase." (Vincent 16-024H, Unei 5-027R) ---
+        // Ahead of every activate branch: ACTIVATE_NAMED_CARD reads with find() and takes the
+        // "activate" out of the middle of this sentence, which is how Unei's tail was reported as
+        // ActivateNamedCard. Carries the source check its two warden siblings carry, so a sentence
+        // naming some other card is left unclaimed rather than silently locking the wrong thing.
+        if (source != null && doesNotActivateNamesSource(primaryFollowup, source)) {
+            return ctx -> {
+                ctx.logChooseHeader(choosePrefix + " — does not activate while " + source.name()
+                        + " is on the field");
+                List<ForwardTarget> ts = selectTargets(ctx, maxCount, upTo,
+                        opponentOnly, selfOnly, condition, element, zone, opponentZone,
+                        costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters,
+                        jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, fExcludeElem, withoutMulticard);
+                ts.forEach(t -> ctx.targetDoesNotActivateWhileWardenOnField(t, source));
+                if (secondary != null) secondary.accept(ctx);
+            };
+        }
+
         Matcher silenceM = FOLLOWUP_LOSES_ABILITIES_WHILE_NAMED_ON_FIELD.matcher(primaryFollowup.trim());
         if (source != null && silenceM.matches()
                 && silenceM.group("name").trim().equalsIgnoreCase(source.name())) {

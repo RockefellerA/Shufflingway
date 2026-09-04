@@ -2008,6 +2008,17 @@ final class GameContextImpl implements GameContext {
 				logEntry("Effect: " + card.name() + " loses all abilities while "
 						+ warden.name() + " is on the field");
 			}
+
+			@Override public void targetDoesNotActivateWhileWardenOnField(ForwardTarget t, CardData warden) {
+				// fieldCardData, not targetCard: the chosen card is a Backup on Vincent 16-024H and a
+				// Forward on Unei 5-027R, and only this accessor answers for every row.
+				CardData card = mw.autoAbilityTriggers.fieldCardData(t);
+				if (card == null || warden == null) return;
+				mw.nonActivatingWhileWardenOnField.put(card, warden);
+				logEntry("Effect: " + card.name() + " does not activate during its controller's"
+						+ " Active Phase while " + warden.name() + " is on the field");
+			}
+
 			@Override public boolean wasElementCpPaid(String element) {
 				return element != null && mw.lastCastPaymentElements.stream()
 						.anyMatch(e -> e.equalsIgnoreCase(element));
@@ -8284,6 +8295,23 @@ final class GameContextImpl implements GameContext {
 				}
 			}
 
+			/**
+			 * The job-OR-name test these mass grants share: a card qualifies by matching either
+			 * filter that is actually stated.
+			 *
+			 * <p>Its own method because the inline form was wrong when only a name was given.
+			 * {@code meetsJobFilterEffective} answers true for a null filter -- "any Job, or none",
+			 * which is right when the job is the only filter and disastrous as the left half of an
+			 * OR: it short-circuited the name test away, so "The Card Name Ceodore Forward and Card
+			 * Name Cecil Forward you control gain +1000 power" (Rosa 16-063R) boosted every Forward
+			 * on the field. A null filter contributes nothing here rather than matching everything.
+			 */
+			private boolean matchesJobOrCardName(CardData c, String jobFilter, String cardNameFilter) {
+				if (jobFilter == null && cardNameFilter == null) return true;
+				return (jobFilter != null && mw.meetsJobFilterEffective(c, jobFilter))
+						|| (cardNameFilter != null && CardFilters.meetsCardNameFilter(c, cardNameFilter));
+			}
+
 			@Override public void applyMassFieldJobCardNamePowerBoost(int amount, boolean inclForwards, boolean inclMonsters,
 					boolean opponentOnly, boolean selfOnly, String jobFilter, String cardNameFilter) {
 				boolean touchP1 = isP1 ? !opponentOnly : !selfOnly;
@@ -8294,7 +8322,7 @@ final class GameContextImpl implements GameContext {
 					if (inclForwards) {
 						for (int i = 0; i < mw.p1ForwardCards.size(); i++) {
 							CardData c = p1Forward(i);
-							if (!mw.meetsJobFilterEffective(c, jobFilter) && (cardNameFilter == null || !CardFilters.meetsCardNameFilter(c, cardNameFilter))) continue;
+							if (!matchesJobOrCardName(c, jobFilter, cardNameFilter)) continue;
 							if (p1JobBoostSuppressed) { logEntry(c.name() + " — power boost suppressed"); continue; }
 							mw.p1ForwardPowerBoost.set(i, mw.p1ForwardPowerBoost.get(i) + amount);
 							logEntry(c.name() + " gains +" + amount + " power until end of turn");
@@ -8304,7 +8332,7 @@ final class GameContextImpl implements GameContext {
 					if (inclMonsters) {
 						for (int i = 0; i < mw.p1MonsterCards.size(); i++) {
 							CardData c = mw.p1MonsterCards.get(i);
-							if (!mw.meetsJobFilterEffective(c, jobFilter) && (cardNameFilter == null || !CardFilters.meetsCardNameFilter(c, cardNameFilter))) continue;
+							if (!matchesJobOrCardName(c, jobFilter, cardNameFilter)) continue;
 							logEntry(c.name() + " gains +" + amount + " power until end of turn");
 						}
 					}
@@ -8313,7 +8341,7 @@ final class GameContextImpl implements GameContext {
 					if (inclForwards) {
 						for (int i = 0; i < mw.p2ForwardCards.size(); i++) {
 							CardData c = mw.p2ForwardCards.get(i);
-							if (!mw.meetsJobFilterEffective(c, jobFilter) && (cardNameFilter == null || !CardFilters.meetsCardNameFilter(c, cardNameFilter))) continue;
+							if (!matchesJobOrCardName(c, jobFilter, cardNameFilter)) continue;
 							if (p2JobBoostSuppressed) { logEntry("[P2] " + c.name() + " — power boost suppressed"); continue; }
 							mw.p2ForwardPowerBoost.set(i, mw.p2ForwardPowerBoost.get(i) + amount);
 							logEntry("[P2] " + c.name() + " gains +" + amount + " power until end of turn");
@@ -8323,7 +8351,7 @@ final class GameContextImpl implements GameContext {
 					if (inclMonsters) {
 						for (int i = 0; i < mw.p2MonsterCards.size(); i++) {
 							CardData c = mw.p2MonsterCards.get(i);
-							if (!mw.meetsJobFilterEffective(c, jobFilter) && (cardNameFilter == null || !CardFilters.meetsCardNameFilter(c, cardNameFilter))) continue;
+							if (!matchesJobOrCardName(c, jobFilter, cardNameFilter)) continue;
 							logEntry("[P2] " + c.name() + " gains +" + amount + " power until end of turn");
 						}
 					}
@@ -8382,6 +8410,53 @@ final class GameContextImpl implements GameContext {
 						mw.refreshP2ForwardSlot(i);
 					}
 				}
+			}
+
+			@Override public void applyMassFieldJobCardNameKeywordGrant(EnumSet<CardData.Trait> traits,
+					boolean inclForwards, boolean inclMonsters,
+					boolean opponentOnly, boolean selfOnly,
+					String jobFilter, String cardNameFilter) {
+				boolean touchP1 = isP1 ? !opponentOnly : !selfOnly;
+				boolean touchP2 = isP1 ? !selfOnly     : !opponentOnly;
+				if (touchP1 && inclForwards) {
+					for (int i = 0; i < mw.p1ForwardCards.size(); i++) {
+						CardData c = p1Forward(i);
+						if (!matchesJobOrCardName(c, jobFilter, cardNameFilter)) continue;
+						mw.p1ForwardTempTraits.get(i).addAll(traits);
+						logEntry(c.name() + " gains " + traits + " until end of turn");
+						mw.refreshP1ForwardSlot(i);
+					}
+				}
+				if (touchP2 && inclForwards) {
+					for (int i = 0; i < mw.p2ForwardCards.size(); i++) {
+						CardData c = mw.p2ForwardCards.get(i);
+						if (!matchesJobOrCardName(c, jobFilter, cardNameFilter)) continue;
+						mw.p2ForwardTempTraits.get(i).addAll(traits);
+						logEntry("[P2] " + c.name() + " gains " + traits + " until end of turn");
+						mw.refreshP2ForwardSlot(i);
+					}
+				}
+			}
+
+			@Override public void applyMassFieldJobCardNameMaxAttacks(int maxAttacks,
+					boolean opponentOnly, boolean selfOnly,
+					String jobFilter, String cardNameFilter) {
+				boolean touchP1 = isP1 ? !opponentOnly : !selfOnly;
+				boolean touchP2 = isP1 ? !selfOnly     : !opponentOnly;
+				// Routed through the single-card grant rather than writing the map directly, so the
+				// end-of-turn revocation it registers is the one that already works.
+				if (touchP1)
+					for (int i = 0; i < mw.p1ForwardCards.size(); i++) {
+						CardData c = p1Forward(i);
+						if (matchesJobOrCardName(c, jobFilter, cardNameFilter))
+							grantMaxAttacksUntilEndOfTurn(c, maxAttacks);
+					}
+				if (touchP2)
+					for (int i = 0; i < mw.p2ForwardCards.size(); i++) {
+						CardData c = mw.p2ForwardCards.get(i);
+						if (matchesJobOrCardName(c, jobFilter, cardNameFilter))
+							grantMaxAttacksUntilEndOfTurn(c, maxAttacks);
+					}
 			}
 
 			@Override public void applyMassFieldJobKeywordGrant(EnumSet<CardData.Trait> traits,

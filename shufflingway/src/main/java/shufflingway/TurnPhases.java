@@ -63,14 +63,16 @@ class TurnPhases {
 		// Pass 1: activate DULL cards; frozen cards are skipped
 		for (int i = 0; i < mw.p2BackupStates.length; i++) {
 			if (mw.p2BackupCards[i] == null) continue;
-			if (mw.p2BackupStates[i] == CardState.DULL && !mw.p2BackupFrozen[i]) {
+			if (mw.p2BackupStates[i] == CardState.DULL && !mw.p2BackupFrozen[i]
+					&& !mw.blockedFromActivating(mw.p2BackupCards[i])) {
 				mw.p2BackupStates[i] = CardState.ACTIVE;  mw.animateDullP2Backup(i, false); activated++;
 			}
 		}
 		for (int i = 0; i < mw.p2ForwardStates.size(); i++) {
 			mw.p2ForwardDamage.set(i, 0);
 			CardState fs = mw.p2ForwardStates.get(i);
-			if (fs == CardState.DULL && !mw.p2ForwardFrozen.get(i)) {
+			if (fs == CardState.DULL && !mw.p2ForwardFrozen.get(i)
+					&& !mw.blockedFromActivating(mw.p2ForwardCards.get(i))) {
 				mw.p2ForwardStates.set(i, CardState.ACTIVE); mw.animateActivateP2Forward(i); activated++;
 			} else {
 				mw.refreshP2ForwardSlot(i);
@@ -78,7 +80,8 @@ class TurnPhases {
 		}
 		for (int i = 0; i < mw.p2MonsterStates.size(); i++) {
 			CardState ms = mw.p2MonsterStates.get(i);
-			if (ms == CardState.DULL && !mw.p2MonsterFrozen.get(i)) {
+			if (ms == CardState.DULL && !mw.p2MonsterFrozen.get(i)
+					&& !mw.blockedFromActivating(mw.p2MonsterCards.get(i))) {
 				mw.p2MonsterStates.set(i, CardState.ACTIVE); mw.animateActivateP2Monster(i); activated++;
 			} else {
 				mw.refreshP2MonsterSlot(i);
@@ -142,20 +145,22 @@ class TurnPhases {
 
 		// Pass 1: activate DULL cards; frozen cards are skipped
 		for (int i = 0; i < mw.p1BackupStates.length; i++) {
-			if (mw.p1BackupStates[i] == CardState.DULL && !mw.p1BackupFrozen[i]) {
+			if (mw.p1BackupStates[i] == CardState.DULL && !mw.p1BackupFrozen[i]
+					&& !mw.blockedFromActivating(mw.p1BackupCards[i])) {
 				mw.p1BackupStates[i] = CardState.ACTIVE; mw.animateDullBackup(i, false); activated++;
 			}
 		}
 		for (int i = 0; i < mw.p1ForwardStates.size(); i++) {
 			CardState fs = mw.p1ForwardStates.get(i);
-			if (fs == CardState.DULL && !mw.p1ForwardFrozen.get(i)) {
+			if (fs == CardState.DULL && !mw.p1ForwardFrozen.get(i)
+					&& !mw.blockedFromActivating(mw.p1ForwardCards.get(i))) {
 				mw.p1ForwardStates.set(i, CardState.ACTIVE); mw.animateActivateForward(i); activated++;
 			}
 		}
 		for (int i = 0; i < mw.p1MonsterCards.size(); i++) {
 			CardState fs = mw.p1MonsterStates.get(i);
 			if (mw.p1MonsterFrozen.get(i)) continue;
-			if (fs == CardState.DULL) {
+			if (fs == CardState.DULL && !mw.blockedFromActivating(mw.p1MonsterCards.get(i))) {
 				mw.p1MonsterStates.set(i, CardState.ACTIVE); mw.animateActivateMonster(i); activated++;
 			}
 		}

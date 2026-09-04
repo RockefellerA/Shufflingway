@@ -45000,5 +45000,294 @@ public class CardBehaviorTest {
 	}
 
 	// =========================================================================================
+	// Zargabaath 2-034R: "When Zargabaath enters the field, you may play a Forward of any Element
+	// except Ice and of cost 3 or less from your hand onto the field."  (Effect wiring.)
+	//
+	// The play-from-hand pattern already carried an Element-exclusion group, already wired through
+	// to the executor — and it had never once fired. All three printings that state an exclusion
+	// are worded "play **a** Forward", and the pattern demanded the numeral "1".
+	//
+	// Shelke 2-035H and Ghis 2-126R are the other two, and came with it.
+	// =========================================================================================
+
+	private static final String ZARGABAATH_2_034R =
+			"play a Forward of any Element except Ice and of cost 3 or less from your hand onto the field.";
+
+	@Test
+	void zargabaathPlaysAForwardOfAnyElementButIce() {
+		Consumer<GameContext> fn = ActionResolver.parse(ZARGABAATH_2_034R, null);
+		assertNotNull(fn, "the indefinite article has to parse");
+		GameContext ctx = mock(GameContext.class);
+		fn.accept(ctx);
+
+		// Forwards only, cost 3 or less, and "Ice" as the exclusion rather than as a filter.
+		verify(ctx).playCharacterFromHand(true, false, false, 3, "less", -1,
+				null, null, null, null, null, false, "Ice", false, null);
+	}
+
+	@Test
+	void ghisExcludesWaterOnTheSameReading() {
+		GameContext ctx = mock(GameContext.class);
+		ActionResolver.parse(
+				"play a Forward of any Element except Water and of cost 3 or less from your hand "
+				+ "onto the field.", null).accept(ctx);
+
+		verify(ctx).playCharacterFromHand(true, false, false, 3, "less", -1,
+				null, null, null, null, null, false, "Water", false, null);
+	}
+
+	@Test
+	void theNumeralFormIsUnchanged() {
+		GameContext ctx = mock(GameContext.class);
+		ActionResolver.parse(
+				"Play 1 Ice Forward of cost 3 or less from your hand onto the field.", null).accept(ctx);
+
+		verify(ctx).playCharacterFromHand(true, false, false, 3, "less", -1,
+				null, null, null, "Ice", null, false, null, false, null);
+	}
+
+	@Test
+	void zargabaathIsAttributedToPlayFromHand() {
+		assertEquals("PlayFromHand", ActionResolver.matchedPatternName(ZARGABAATH_2_034R, null));
+	}
+
+	// =========================================================================================
+	// Tenzen 24-115R: "When Tenzen enters the field, until the end of the turn, all the Job
+	// Samurai Forwards and Card Name Samurai Forwards you control gain +3000 power, Brave and
+	// 'This Forward can attack twice in the same turn.'"  (Effect wiring.)
+	//
+	// Three payloads on one filtered set. Neither neighbour could carry it: the job-or-name power
+	// boost stops at the power, and the mass keyword grant reads only a Job — so splitting the
+	// sentence between them would have handed each half a different set of Forwards.
+	//
+	// The quoted grant cannot go through grantedSelfFieldAbilityEffect either, which checks the
+	// quoted subject against the source's own name. Here the subject is "This Forward" — every
+	// card in the set at once, and Tenzen is not necessarily one of them.
+	// =========================================================================================
+
+	private static final String TENZEN_24_115R =
+			"until the end of the turn, all the Job Samurai Forwards and Card Name Samurai Forwards "
+			+ "you control gain +3000 power, Brave and \"This Forward can attack twice in the same turn.\"";
+
+	@Test
+	void tenzenAppliesAllThreePayloadsToTheOneSet() {
+		GameContext ctx = mock(GameContext.class);
+		ActionResolver.parse(TENZEN_24_115R, null).accept(ctx);
+
+		// Same job-or-name pair to all three, so all three reach the same Forwards.
+		verify(ctx).applyMassFieldJobCardNamePowerBoost(3000, true, false, false, true, "Samurai", "Samurai");
+		verify(ctx).applyMassFieldJobCardNameKeywordGrant(
+				EnumSet.of(CardData.Trait.BRAVE), true, false, false, true, "Samurai", "Samurai");
+		verify(ctx).applyMassFieldJobCardNameMaxAttacks(2, false, true, "Samurai", "Samurai");
+	}
+
+	@Test
+	void tenzenIsAttributedToTheThreePayloadReading() {
+		assertEquals("UntilEotAllJobCardNameGainPowerTraitsAbility",
+				ActionResolver.matchedPatternName(TENZEN_24_115R, null),
+				"a plain power-boost name would mean two of the three payloads were being dropped");
+	}
+
+	@Test
+	void anUnreadableGrantDeclinesTheWholeSentence() {
+		// Better unclaimed than resolved with its third payload silently missing.
+		assertNull(ActionResolver.parse(
+				"until the end of the turn, all the Job Samurai Forwards and Card Name Samurai "
+				+ "Forwards you control gain +3000 power, Brave and \"This Forward flumphs the "
+				+ "widget.\"", null));
+	}
+
+	@Test
+	void theNarrowerJobOnlyBoostStillClaimsItsOwnText() {
+		assertEquals("AllFieldJobPowerBoost", ActionResolver.matchedPatternName(
+				"All the Job Warrior Forwards you control gain +3000 power until the end of the turn.",
+				null));
+	}
+
+	// ---- the job-or-name filter itself -------------------------------------------------------
+
+	@Test
+	void aNameOnlyMassBoostNoLongerBoostsEveryForward() {
+		// Rosa 16-063R: "The Card Name Ceodore Forward and Card Name Cecil Forward you control gain
+		// +1000 power." A null Job filter answers "any Job, or none", which is right when the Job
+		// is the only filter and was disastrous as the left half of an OR — it short-circuited the
+		// name test away and every Forward on the field got the boost.
+		MainWindow mw = new MainWindow();
+		placeP1Forward(mw, makeForward("Cecil", "Ice", 3, 7000));
+		placeP1Forward(mw, makeForward("Bystander", "Fire", 3, 7000));
+
+		mw.buildGameContext(true).applyMassFieldJobCardNamePowerBoost(
+				1000, true, false, false, true, null, "Ceodore|Cecil");
+
+		assertEquals(8000, mw.effectiveP1ForwardPower(0), "the named Forward is boosted");
+		assertEquals(7000, mw.effectiveP1ForwardPower(1), "and the one nobody named is not");
+	}
+
+	@Test
+	void aJobOnlyMassBoostIsUnaffectedByTheFix() {
+		MainWindow mw = new MainWindow();
+		placeP1Forward(mw, makeJobForwardWithAutos("Samurai Guy", "Fire", 7000, "Samurai", ""));
+		placeP1Forward(mw, makeJobForwardWithAutos("Monk Guy", "Fire", 7000, "Monk", ""));
+
+		mw.buildGameContext(true).applyMassFieldJobCardNamePowerBoost(
+				1000, true, false, false, true, "Samurai", null);
+
+		assertEquals(8000, mw.effectiveP1ForwardPower(0));
+		assertEquals(7000, mw.effectiveP1ForwardPower(1));
+	}
+
+	// =========================================================================================
+	// Vincent 16-024H: "When Vincent enters the field, choose 1 Backup. As long as Vincent is on
+	// the field, it does not activate during its controller's Active Phase."  (Effect wiring and
+	// board behaviour.)
+	//
+	// There was no non-activation mechanism at all — the Active Phase activated every dull card
+	// that was not frozen, full stop. So this needed the gate as well as the wiring.
+	//
+	// Warden-held, like Aerith 25-035L's standing silence: bounded by the card that made it still
+	// being on the field, so it is a live query rather than anything scheduled. Unei 5-027R prints
+	// the same sentence behind a "Dull it.", which puts it in the secondary slot instead.
+	//
+	// Note whose phase is meant. "Its controller's" is the chosen card's controller, not the
+	// warden's, so a lock laid across the board bites on the opponent's own turn.
+	// =========================================================================================
+
+	private static final String VINCENT_16_024H =
+			"choose 1 Backup. As long as Vincent is on the field, it does not activate during its "
+			+ "controller's Active Phase.";
+
+	@Test
+	void vincentIsAttributedToTheStandingLock() {
+		CardData vincent = makeForwardWithText("Vincent", "Ice", 3, 7000, "");
+		assertEquals("ChooseCharacter / DoesNotActivateWhileSourceOnField",
+				ActionResolver.fullDescription(VINCENT_16_024H, vincent));
+	}
+
+	@Test
+	void theLockedBackupStaysDullThroughItsControllersActivePhase() {
+		MainWindow mw = new MainWindow();
+		CardData vincent = makeForward("Vincent", "Ice", 3, 7000);
+		placeP1Forward(mw, vincent);
+		CardData backup = makePlainBackup("Locked", "Ice", 2);
+		mw.p1BackupCards[0] = backup;
+		mw.p1BackupStates[0] = CardState.DULL;
+		mw.gameState.getIdentity().put(backup, true);
+
+		mw.buildGameContext(true).targetDoesNotActivateWhileWardenOnField(
+				new ForwardTarget(true, 0, ForwardTarget.CardZone.BACKUP), vincent);
+		mw.turnPhases().runP1TurnStart();
+
+		assertEquals(CardState.DULL, mw.p1BackupStates[0],
+				"the lock holds it out of the Active Phase");
+	}
+
+	@Test
+	void anUnlockedBackupBesideItStillActivates() {
+		MainWindow mw = new MainWindow();
+		CardData vincent = makeForward("Vincent", "Ice", 3, 7000);
+		placeP1Forward(mw, vincent);
+		CardData locked = makePlainBackup("Locked", "Ice", 2);
+		CardData free   = makePlainBackup("Free", "Ice", 2);
+		mw.p1BackupCards[0] = locked;
+		mw.p1BackupCards[1] = free;
+		mw.p1BackupStates[0] = CardState.DULL;
+		mw.p1BackupStates[1] = CardState.DULL;
+
+		mw.buildGameContext(true).targetDoesNotActivateWhileWardenOnField(
+				new ForwardTarget(true, 0, ForwardTarget.CardZone.BACKUP), vincent);
+		mw.turnPhases().runP1TurnStart();
+
+		assertEquals(CardState.DULL,   mw.p1BackupStates[0]);
+		assertEquals(CardState.ACTIVE, mw.p1BackupStates[1], "the lock is on one card, not the row");
+	}
+
+	@Test
+	void theLockLiftsWhenTheWardenLeavesTheField() {
+		MainWindow mw = new MainWindow();
+		CardData vincent = makeForward("Vincent", "Ice", 3, 7000);
+		placeP1Forward(mw, vincent);
+		CardData backup = makePlainBackup("Locked", "Ice", 2);
+		mw.p1BackupCards[0] = backup;
+		mw.p1BackupStates[0] = CardState.DULL;
+
+		mw.buildGameContext(true).targetDoesNotActivateWhileWardenOnField(
+				new ForwardTarget(true, 0, ForwardTarget.CardZone.BACKUP), vincent);
+		assertTrue(mw.blockedFromActivating(backup), "held while Vincent stands");
+
+		mw.p1ForwardCards.remove(vincent);
+		assertFalse(mw.blockedFromActivating(backup),
+				"and released the moment he is gone — it is a live query, not a timer");
+	}
+
+	@Test
+	void aWardenThatComesBackDoesNotLockAgain() {
+		// The entry is dropped as soon as it is found stale, so the returning card is a different
+		// card and holds nothing. Mirrors the standing-silence rule beside it.
+		MainWindow mw = new MainWindow();
+		CardData vincent = makeForward("Vincent", "Ice", 3, 7000);
+		placeP1Forward(mw, vincent);
+		CardData backup = makePlainBackup("Locked", "Ice", 2);
+		mw.p1BackupCards[0] = backup;
+
+		mw.buildGameContext(true).targetDoesNotActivateWhileWardenOnField(
+				new ForwardTarget(true, 0, ForwardTarget.CardZone.BACKUP), vincent);
+		mw.p1ForwardCards.remove(vincent);
+		assertFalse(mw.blockedFromActivating(backup));
+
+		// Seated again by hand rather than through placeP1Forward: the removal above takes the card
+		// off the list without touching the parallel state rows, which is this file's idiom for
+		// staging a departure, and re-placing properly would push those rows out of step.
+		mw.p1ForwardCards.add(vincent);
+		assertFalse(mw.blockedFromActivating(backup), "the pairing was forgotten when it went stale");
+	}
+
+	@Test
+	void uneisCopyOfTheSentenceReachesTheSameLock() {
+		// 5-027R prints it behind a "Dull it.", so it arrives as the secondary rather than the
+		// primary followup — and was being read as ActivateNamedCard, an activate aimed at the
+		// very Forward the sentence locks down.
+		CardData unei = makeForwardWithText("Unei", "Wind", 3, 5000, "");
+		assertEquals("ChooseCharacter / Dull + DoesNotActivateWhileSourceOnField",
+				ActionResolver.fullDescription(
+						"choose 1 Forward opponent controls. Dull it. As long as Unei is on the "
+						+ "field, it does not activate during its controller's Active Phase.", unei));
+	}
+
+	@Test
+	void aRealActivateInstructionIsStillRead() {
+		// The guard is a negative lookbehind on "not ", so an ordinary activate is untouched.
+		assertEquals("ActivateNamedCard",
+				ActionResolver.matchedPatternName("Activate Cloud.", null));
+	}
+
+	@Test
+	void theSelfDenialSentencesAreNoLongerReadAsAnActivate() {
+		// The lookbehind turned up a whole family the activate parser had been claiming: "Sazh will
+		// not activate during your next Active Phase" (1-013H, and Kain 1-127H, Magitek Armor
+		// 15-099C, Barret 20-016R, Ram 21-078C, Adelle 23-040L, Lorenzo 17-084C, Jack 3-111H), plus
+		// the standing "X does not activate during your Active Phase" field abilities (Larkeicus
+		// 13-014R and six more).
+		//
+		// None of them is an instruction to activate anything. Read as one they resolved as an
+		// activate aimed at a card named "during your next Active Phase" -- inert only because no
+		// card is so named. They are a real and separate effect, still unimplemented, and now
+		// visibly so rather than reported as working.
+		assertNull(ActionResolver.parse(
+				"Sazh will not activate during your next Active Phase.", null));
+		assertNull(ActionResolver.parse(
+				"Larkeicus does not activate during your Active Phase.", null));
+	}
+
+	@Test
+	void aLockNamingSomeOtherCardIsNotClaimed() {
+		CardData vincent = makeForwardWithText("Vincent", "Ice", 3, 7000, "");
+		assertNotEquals("ChooseCharacter / DoesNotActivateWhileSourceOnField",
+				ActionResolver.fullDescription(
+						"choose 1 Backup. As long as Sephiroth is on the field, it does not "
+						+ "activate during its controller's Active Phase.", vincent),
+				"the warden has to be the ability's own printing");
+	}
+
+	// =========================================================================================
 
 }

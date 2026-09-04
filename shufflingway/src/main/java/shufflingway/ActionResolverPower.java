@@ -700,6 +700,70 @@ final class ActionResolverPower {
         };
     }
     /**
+     * Parses "Until the end of the turn, all the Job X Forwards and Card Name Y Forwards you
+     * control gain +N power, [Keywords] and "[granted ability]"." -- Tenzen 24-115R.
+     *
+     * <p>One filtered set, three payloads, applied in the order printed. The set is selected by
+     * Job <em>or</em> card name, so the three primitives are handed the same pair of filters and
+     * reach the same Forwards; splitting the sentence across the existing power and keyword
+     * parsers would have given each half a different set, because only one of them reads a name.
+     *
+     * <p>The quoted grant is narrowed to the attack permission and its subject to the generic
+     * "This Forward". A mass grant cannot use {@code grantedSelfFieldAbilityEffect}, which checks
+     * the quoted subject against the source's own name -- here the subject is every card in the
+     * set, and Tenzen is not necessarily one of them. Any other quotation declines the whole
+     * sentence rather than resolving two payloads of three.
+     */
+    static Consumer<GameContext> tryParseUntilEotAllJobCardNameGainPowerTraitsAbility(String text) {
+        Matcher m = UNTIL_EOT_ALL_JOB_CARDNAME_GAIN_POWER_TRAITS_ABILITY.matcher(text.trim());
+        if (!m.matches()) return null;
+
+        String job      = m.group("job").trim();
+        String cardName = m.group("cardname").trim();
+        String targets  = m.group("targets").toLowerCase(Locale.ROOT);
+        boolean inclForwards = targets.contains("forward") || targets.contains("character");
+        boolean inclMonsters = targets.contains("character");
+
+        String control = m.group("control");
+        boolean opponentOnly = !control.toLowerCase(Locale.ROOT).contains("you control");
+        boolean selfOnly     =  control.toLowerCase(Locale.ROOT).contains("you control");
+
+        int amount = Integer.parseInt(m.group("amount"));
+        EnumSet<CardData.Trait> traits = parseTraits(m.group("keywords"));
+
+        // The granted clause, if any. "This Forward" is the mass form's subject -- the sentence is
+        // addressed to every card in the set at once, so there is no name to check it against.
+        int maxAttacks = 0;
+        String granted = m.group("granted");
+        if (granted != null) {
+            Matcher at = GRANTED_CAN_ATTACK_TWICE.matcher(granted.trim());
+            if (!at.matches()) return null;
+            String subj = at.group("subj").trim();
+            if (!subj.equalsIgnoreCase("This Forward") && !subj.equalsIgnoreCase("This Character"))
+                return null;
+            maxAttacks = at.group("count") != null ? Integer.parseInt(at.group("count")) : 2;
+        }
+        final int fMaxAttacks = maxAttacks;
+
+        String traitLabel = traits.isEmpty() ? "" : " and " + traitNamesOnly(traits);
+        String atkLabel   = fMaxAttacks > 0 ? " and may attack " + fMaxAttacks + " times" : "";
+        String logMsg = "All Job " + job + " and Card Name " + cardName + " "
+                + (opponentOnly ? "(opponent)" : "(yours)") + " +" + amount + " power"
+                + traitLabel + atkLabel + " until end of turn";
+
+        return ctx -> {
+            ctx.logEntry("Effect: " + logMsg);
+            ctx.applyMassFieldJobCardNamePowerBoost(amount, inclForwards, inclMonsters,
+                    opponentOnly, selfOnly, job, cardName);
+            if (!traits.isEmpty())
+                ctx.applyMassFieldJobCardNameKeywordGrant(traits, inclForwards, inclMonsters,
+                        opponentOnly, selfOnly, job, cardName);
+            if (fMaxAttacks > 0)
+                ctx.applyMassFieldJobCardNameMaxAttacks(fMaxAttacks,
+                        opponentOnly, selfOnly, job, cardName);
+        };
+    }
+    /**
      * Parses "All Job X and Card Name Y [you control | opponent controls] gain +N power
      * until end of turn." — matches cards that have Job X OR are Card Name Y.
      */

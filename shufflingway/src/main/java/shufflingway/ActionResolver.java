@@ -782,6 +782,13 @@ public class ActionResolver {
         result = tryParseAllFieldPowerBoost(effectText);
         if (result != null) return result;
 
+        // Must precede every power parser below it. Tenzen 24-115R states three payloads on one
+        // filtered set, and each of those reads with find(): the job-or-name boost would claim
+        // the "+3000 power" and drop the Brave and the attack permission, and the mass keyword
+        // grant would then never see the sentence at all.
+        result = tryParseUntilEotAllJobCardNameGainPowerTraitsAbility(effectText);
+        if (result != null) return result;
+
         result = tryParseAllFieldJobCardNamePowerBoost(effectText);
         if (result != null) return result;
 
@@ -2011,6 +2018,7 @@ public class ActionResolver {
         if (tryParseAllOppForwardsLoseTraitsEot(effectText) != null) return "AllOppForwardsLoseTraitsEot";
         if (tryParseRevealOpponentTopBranchOnType(effectText) != null) return "RevealOpponentTopBranchOnType";
         if (tryParseAllFieldPowerBoost(effectText) != null) return "AllFieldPowerBoost";
+        if (tryParseUntilEotAllJobCardNameGainPowerTraitsAbility(effectText) != null) return "UntilEotAllJobCardNameGainPowerTraitsAbility";
         if (tryParseAllFieldJobCardNamePowerBoost(effectText) != null) return "AllFieldJobCardNamePowerBoost";
         if (tryParseTwoCardNamesPowerBoost(effectText) != null) return "TwoCardNamesPowerBoost";
         if (tryParseAllFieldJobPowerBoost(effectText) != null) return "AllFieldJobPowerBoost";
@@ -2521,6 +2529,14 @@ public class ActionResolver {
         // one, and carries the same source check — the branch there only fires when the card named
         // is the ability's own printing, so naming it without that would report an effect parse
         // declines.
+        // Mirrors the choose chain, and ahead of the activate branch for the reason stated there:
+        // ACTIVATE_NAMED_CARD finds the "activate" inside this sentence and would name it
+        // ActivateNamedCard, which is what it used to report for Unei 5-027R.
+        if (source != null) {
+            Matcher noActM = FOLLOWUP_DOES_NOT_ACTIVATE_WHILE_NAMED_ON_FIELD.matcher(followupText.trim());
+            if (noActM.matches() && noActM.group("name").trim().equalsIgnoreCase(source.name()))
+                return "DoesNotActivateWhileSourceOnField";
+        }
         if (source != null) {
             Matcher wardenM = FOLLOWUP_LOSES_ABILITIES_WHILE_NAMED_ON_FIELD.matcher(followupText.trim());
             if (wardenM.matches() && wardenM.group("name").trim().equalsIgnoreCase(source.name()))
@@ -3384,6 +3400,7 @@ public class ActionResolver {
         }
         if (tryParseAllForwardsSameElementAsNamedPowerBoost(effectText) != null) return "AllForwardsSameElementAsNamedPowerBoost";
         if (tryParsePartyForwardsPowerBoost(effectText) != null)            return "PartyForwardsPowerBoost";
+        if (tryParseUntilEotAllJobCardNameGainPowerTraitsAbility(effectText) != null) return "UntilEotAllJobCardNameGainPowerTraitsAbility";
         if (tryParseAllFieldJobCardNamePowerBoost(effectText) != null)       return "AllFieldJobCardNamePowerBoost";
         if (tryParseTwoCardNamesPowerBoost(effectText) != null)             return "TwoCardNamesPowerBoost";
         if (tryParseAllFieldJobPowerBoost(effectText) != null)              return "AllFieldJobPowerBoost";

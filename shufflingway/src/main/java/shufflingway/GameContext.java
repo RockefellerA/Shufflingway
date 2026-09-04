@@ -3028,6 +3028,22 @@ public interface GameContext {
     void targetLoseAllAbilitiesWhileWardenOnField(ForwardTarget t, CardData warden);
 
     /**
+     * Holds {@code t} out of its controller's Active Phase for as long as {@code warden} is on the
+     * field -- Vincent 16-024H's "choose 1 Backup. As long as Vincent is on the field, it does not
+     * activate during its controller's Active Phase", and Unei 5-027R's identical sentence.
+     *
+     * <p>The third warden-held effect, beside
+     * {@link #targetLoseAllAbilitiesWhileWardenOnField} and
+     * {@link #boostTargetWhileWardenOnField}, and bounded the same way: not a duration in turns but
+     * a live query against the warden still standing.
+     *
+     * <p>Note the phase is the <em>chosen</em> card's controller's, not the warden's. A lock laid
+     * on an opponent's Backup bites at the start of the opponent's turn, and the card stays dull
+     * through it.
+     */
+    void targetDoesNotActivateWhileWardenOnField(ForwardTarget t, CardData warden);
+
+    /**
      * Finds the source card on its owner's forward zone and returns it to the bottom of
      * its owner's deck.  Calls {@link #markEffectFizzled()} if the card is not found.
      */
@@ -3642,6 +3658,32 @@ public interface GameContext {
             boolean inclForwards, boolean inclMonsters,
             boolean opponentOnly, boolean selfOnly,
             String jobFilter);
+
+    /**
+     * Grants {@code traits} until end of turn to every matching Forward (and Monster when
+     * {@code inclMonsters}) that matches {@code jobFilter} OR {@code cardNameFilter} -- the same
+     * job-or-name pairing {@link #applyMassFieldJobCardNamePowerBoost} selects on, so a printing
+     * that boosts and grants in one sentence reaches the same set twice.
+     *
+     * <p>Both filters are bar-separated (see {@link CardFilters}); a null one contributes nothing
+     * rather than matching everything.
+     */
+    void applyMassFieldJobCardNameKeywordGrant(java.util.EnumSet<CardData.Trait> traits,
+            boolean inclForwards, boolean inclMonsters,
+            boolean opponentOnly, boolean selfOnly,
+            String jobFilter, String cardNameFilter);
+
+    /**
+     * Grants "can attack {@code maxAttacks} times in the same turn" until end of turn to every
+     * Forward matching {@code jobFilter} OR {@code cardNameFilter} -- the mass form of
+     * {@link #grantMaxAttacksUntilEndOfTurn}, and Tenzen 24-115R's third payload.
+     *
+     * <p>Forwards only, with no {@code inclMonsters} switch: attacking is something only a Forward
+     * does, so a Monster in the matched set has nothing to be granted.
+     */
+    void applyMassFieldJobCardNameMaxAttacks(int maxAttacks,
+            boolean opponentOnly, boolean selfOnly,
+            String jobFilter, String cardNameFilter);
 
     /**
      * Returns all {@link FieldAbility} instances currently active — that is, belonging to

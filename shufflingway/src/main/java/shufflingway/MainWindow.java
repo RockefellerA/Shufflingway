@@ -791,6 +791,42 @@ public class MainWindow {
 	final Map<CardData, CardData> abilitiesStrippedWhileWardenOnField = new IdentityHashMap<>();
 
 	/**
+	 * Cards held out of their controller's Active Phase for as long as the warden that chose them
+	 * stands -- Vincent 16-024H's "choose 1 Backup. As long as Vincent is on the field, it does not
+	 * activate during its controller's Active Phase", and Unei 5-027R's identical sentence.
+	 *
+	 * <p>The warden-held sibling of {@link #abilitiesStrippedWhileWardenOnField}, and read the same
+	 * way: a live query rather than a scheduled cleanup, because the effect lasts exactly as long
+	 * as the card that made it stays on the field and nothing announces that departure to a timer.
+	 *
+	 * <p>Identity on both sides. The warden is the printing that resolved the trigger, so an
+	 * opposing Vincent of the same name neither sustains the lock nor ends it; and the grantee is
+	 * one copy of a Backup whose twin across the board is not under it.
+	 *
+	 * <p>Note whose phase is meant: "its controller's" is the grantee's controller, not the
+	 * warden's, so a lock laid on an opponent's Backup bites on the opponent's turn. Since the
+	 * query is asked while activating that card's own side, the distinction needs no parameter.
+	 */
+	final Map<CardData, CardData> nonActivatingWhileWardenOnField = new IdentityHashMap<>();
+
+	/**
+	 * Whether {@code card} is held out of the Active Phase by a warden that is still on the field.
+	 *
+	 * <p>The entry is dropped as soon as it is found stale, so a warden that has left cannot lock
+	 * anything again by coming back later -- the two are different cards once the first has left.
+	 * Mirrors {@code silencedByWardenOnField} in both the staleness rule and the empty-map guard.
+	 */
+	boolean blockedFromActivating(CardData card) {
+		if (nonActivatingWhileWardenOnField.isEmpty() || card == null) return false;
+		CardData warden = nonActivatingWhileWardenOnField.get(card);
+		if (warden == null) return false;
+		if (identityIndexOf(fieldCards(true), warden) >= 0
+				|| identityIndexOf(fieldCards(false), warden) >= 0) return true;
+		nonActivatingWhileWardenOnField.remove(card);
+		return false;
+	}
+
+	/**
 	 * One grant made "As long as [warden] is on the field, it gains ..." -- 16-066R Heretical
 	 * Knight Garland and 15-125R Lunafreya -- recorded as what it actually added on top of what the
 	 * grantee already had.
@@ -2191,6 +2227,7 @@ public class MainWindow {
 		activeCostReductions.clear();
 		lostAbilitiesCards.clear();
 		abilitiesStrippedWhileWardenOnField.clear();
+		nonActivatingWhileWardenOnField.clear();
 		wardenHeldGrants.clear();
 		exBurstSuppressingSources.clear();
 		playerDamageSource = null;
@@ -14231,6 +14268,9 @@ public class MainWindow {
 		// nothing left to withdraw; dropping the record here is what keeps the list from outliving
 		// the grant it describes.
 		wardenHeldGrants.removeIf(g -> g.grantee() == card);
+		// Same reasoning as the line above: the lock describes a card that is no longer on a
+		// field to be activated, so the record has nothing left to hold.
+		nonActivatingWhileWardenOnField.remove(card);
 		grantedAutoAbilities.remove(card);
 		permanentMaxAttacks.remove(card);
 		permanentPowerBoost.remove(card);

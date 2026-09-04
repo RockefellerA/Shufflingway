@@ -1451,6 +1451,29 @@ final class ActionResolverPatterns {
         "(?:it|they)\\s+loses?\\s+all\\s+(?:its|their)\\s+abilities[.!]?$"
     );
     /**
+     * Matches "As long as [CardName] is on the field, it does not activate during its controller's
+     * Active Phase." -- the standing lock Vincent 16-024H lays on a Backup as he enters, and Unei
+     * 5-027R on a Forward.
+     *
+     * <p>The third of the warden-held followups, beside
+     * {@link #FOLLOWUP_LOSES_ABILITIES_WHILE_NAMED_ON_FIELD} and the gains twin, and bounded the
+     * same way: not a duration in turns but a live query against the warden still standing.
+     *
+     * <p>Must be checked ahead of the plain activate branch. {@link #ACTIVATE_NAMED_CARD} scans
+     * with find() and reads the word "activate" out of the middle of this sentence, taking
+     * "during its controller's Active Phase" for a card name -- which is how Unei's tail was
+     * being reported as ActivateNamedCard, an effect that would have activated the very card the
+     * sentence locks down if any card were ever so named.
+     *
+     * <p>"its controller's" is the chosen card's controller, not the warden's: a lock laid on an
+     * opponent's Backup bites on the opponent's turn.
+     */
+    static final Pattern FOLLOWUP_DOES_NOT_ACTIVATE_WHILE_NAMED_ON_FIELD = Pattern.compile(
+        "(?i)^As\\s+long\\s+as\\s+(?<name>.+?)\\s+is\\s+on\\s+the\\s+field,\\s+" +
+        "(?:it|they)\\s+(?:does|do)\\s+not\\s+activate\\s+during\\s+" +
+        "(?:its|their)\\s+controller'?s?\\s+Active\\s+Phase[.!]?$"
+    );
+    /**
      * Matches "As long as [CardName] is on the field, it gains +N power[ and [keywords]][ and
      * "This Forward cannot be chosen by your opponent's [scope]."]." -- the standing buff 16-066R
      * Heretical Knight Garland and 15-125R Lunafreya lay on a Forward as they enter, and the
@@ -4520,7 +4543,12 @@ final class ActionResolverPatterns {
      * which are handled separately.
      */
     static final Pattern ACTIVATE_NAMED_CARD = Pattern.compile(
-        "(?i)Activate\\s+(?!(?:it|them|all)\\b)(?<card>[A-Za-z][^.]+?)\\.?\\s*$"
+        // The lookbehind is what keeps "it does not activate during its controller's Active
+        // Phase" (Vincent 16-024H, Unei 5-027R) out: read case-insensitively and with
+        // find(), the bare verb matched inside that sentence and took "during its
+        // controller's Active Phase" for a card name -- an activate aimed at the very card
+        // the sentence locks down.
+        "(?i)(?<!\\bnot )Activate\\s+(?!(?:it|them|all)\\b)(?<card>[A-Za-z][^.]+?)\\.?\\s*$"
     );
     /** Matches "[name] can attack once more this turn." */
     static final Pattern ATTACK_ONCE_MORE = Pattern.compile(
@@ -5151,7 +5179,12 @@ final class ActionResolverPatterns {
         "(?i)each\\s+player\\s+may\\s+(?=play\\b)"
     );
     static final Pattern PLAY_FROM_HAND_PATTERN = Pattern.compile(
-        "(?i)Play\\s+1\\s+" +
+        // "a Forward" as well as "1 Forward". The article is not a stylistic variant to be
+        // tolerated -- it is the whole reason the excludeelem group below had never once
+        // fired: all three printings that state an Element exclusion (Zargabaath 2-034R,
+        // Shelke 2-035H, Ghis 2-126R) are worded "play a Forward of any Element except X",
+        // so the group was written, wired through to the executor, and unreachable.
+        "(?i)Play\\s+(?:1|an?)\\s+" +
         // Element(s) before any filter (e.g. "Ice" in "Play 1 Ice Forward")
         "(?:(?<preelems>(?:Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)" +
             "(?:\\s+or\\s+(?:Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark))*)\\s+)?" +
@@ -6707,6 +6740,40 @@ final class ActionResolverPatterns {
         "(?<verb>gains?|loses?)\\s+\\+?(?<amount>\\d+)\\s+[Pp]ower" +
         "\\s+until\\s+(?:the\\s+)?end\\s+of\\s+(?:the\\s+)?turn[.!]?"
     );
+    /**
+     * Matches "Until the end of the turn, all the Job X Forwards and Card Name Y Forwards you
+     * control gain +N power, [Keywords] and "[granted ability]"." -- Tenzen 24-115R.
+     *
+     * <p>Three payloads on one filtered set, which is what separates it from every neighbour:
+     * {@link #ALL_FIELD_JOB_CARDNAME_POWER_BOOST_PATTERN} reads the same job-or-name pairing but
+     * stops at the power, and {@link #ALL_FIELD_JOB_KEYWORD_GRANT_PATTERN} reads keywords but only
+     * off a Job. Splitting Tenzen across the two would have applied each half to a different set.
+     *
+     * <p>The "and" between the two filters is a disjunction, not a conjunction -- a Forward
+     * qualifies by Job <em>or</em> by name, which is how every printing in this family reads and
+     * what {@code applyMassFieldJobCardNamePowerBoost} already implements.
+     *
+     * <p>{@code granted} is captured but not spelled out here, and the parser refuses a quotation
+     * the engine cannot actually apply. An unreadable grant then leaves the whole sentence
+     * unclaimed and visibly unhandled, rather than resolving with its third payload dropped.
+     *
+     * <p>Groups: {@code job}, {@code cardname}, {@code targets}, {@code control}, {@code amount},
+     * {@code keywords} (optional), {@code granted} (optional).
+     */
+    static final Pattern UNTIL_EOT_ALL_JOB_CARDNAME_GAIN_POWER_TRAITS_ABILITY = Pattern.compile(
+        "(?i)^Until\\s+(?:the\\s+)?end\\s+of\\s+(?:the\\s+)?turn,\\s+" +
+        "all\\s+(?:the\\s+)?Job\\s+(?<job>[A-Za-z][A-Za-z\\s'\\-]*?)\\s+" +
+        "(?<targets>Forwards?|Characters?)\\s+and\\s+" +
+        "Card\\s+Name\\s+(?<cardname>[A-Za-z][A-Za-z\\s'\\-]*?)\\s+" +
+        "(?:Forwards?|Characters?)\\s+" +
+        "(?<control>(?:your\\s+)?opponent\\s+controls?|you\\s+control)\\s+" +
+        "gains?\\s+\\+?(?<amount>\\d+)\\s+[Pp]ower" +
+        "(?:,\\s*(?<keywords>(?:Haste|First\\s+Strike|Brave)" +
+            "(?:,?\\s+(?:and\\s+)?(?:Haste|First\\s+Strike|Brave))*))?" +
+        "(?:\\s+and\\s+\"(?<granted>[^\"]+)\")?" +
+        "\\s*[.!]?\\s*$"
+    );
+
     /**
      * Matches "[The] Card Name X [Forward] and Card Name Y [Forward] [you control | opponent controls]
      * gain +N power until [the] end of [the] turn."
