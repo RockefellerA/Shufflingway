@@ -606,13 +606,17 @@ final class ActionResolverSearch {
         if (!m.find()) return null;
         int n = Integer.parseInt(m.group("n"));
         int max = Integer.parseInt(m.group("max"));
-        String normElement = cap(m.group("element"));
+        // The element clause is a list ("Fire, Earth or Water"), and the filters downstream
+        // read a bar-separated one, so the joiner is all that changes between the
+        // single-element printings and Arc 18-035R's three.
+        String normElement = elementListFilter(m.group("element"));
+        String elementLabel = normElement.replace("|", "/");
         String cat = m.group("cat");
         if (cat != null) {
             // "Add M [Element] or Category [X] card" — element and category are alternatives.
             // The element is a disjunct (orElementFilter), not an AND-gate — "Water OR Category X".
             return ctx -> {
-                ctx.logEntry("Effect: Reveal top " + n + " — add up to " + max + " " + normElement
+                ctx.logEntry("Effect: Reveal top " + n + " — add up to " + max + " " + elementLabel
                         + " or Category " + cat + " to hand, rest to bottom");
                 ctx.revealTopAddUpToMatchingRestBottom(n, max, null, cat, null, null, -1, null, normElement);
             };
@@ -621,7 +625,7 @@ final class ActionResolverSearch {
         String typeFilter = typeRaw != null ? cap(typeRaw.replaceAll("(?i)s$", "")) : null;
         // "Add M [Element] [Type]" — the element is an AND-gate on the type (e.g. "Fire Forward").
         return ctx -> {
-            ctx.logEntry("Effect: Reveal top " + n + " — add up to " + max + " " + normElement
+            ctx.logEntry("Effect: Reveal top " + n + " — add up to " + max + " " + elementLabel
                     + (typeFilter != null ? " " + typeFilter : " card") + "(s) to hand, rest to bottom");
             ctx.revealTopAddUpToMatchingRestBottom(n, max, null, null, null, typeFilter, -1, normElement);
         };
@@ -744,6 +748,40 @@ final class ActionResolverSearch {
             ctx.logEntry("Effect: Reveal top " + n + " — add up to " + max
                     + " (excl. Card Name " + name + ") to hand, rest to Break Zone");
             ctx.revealTopAddUpToExcludingNameRestBz(n, max, name);
+        };
+    }
+    /**
+     * Parses "Reveal the top N cards of your deck. Add up to 1 [Element] card and up to 1 [Element]
+     * card among them to your hand and [return the other cards to the bottom of your deck in any
+     * order | put the rest of the cards into the Break Zone]." -- Shantotto 14-067H, Terra 27-014H,
+     * Cindy 27-063H.
+     *
+     * <p>One allowance per printed Element rather than one count over an Element list: revealing
+     * two Wind cards and no Earth one takes a single card, not two. Terra and Cindy each print a
+     * second allowance naming two Elements ("up to 1 Wind or Lightning card"), which is an
+     * alternation <em>inside</em> one allowance -- so the list is a conjunction of disjunctions,
+     * and both levels have to survive to the executor.
+     *
+     * <p>Returns {@code null} when fewer than two allowances survive. The pattern requires two, so
+     * this cannot fire; it keeps the parser honest about what it needs, as its per-type sibling
+     * below does.
+     */
+    static Consumer<GameContext> tryParseRevealTopNAddPerElementQuota(String text) {
+        Matcher m = REVEAL_TOP_N_ADD_PER_ELEMENT_QUOTA.matcher(text.trim());
+        if (!m.matches()) return null;
+        int n = Integer.parseInt(m.group("n"));
+        boolean restToBz = m.group("bz") != null;
+        List<RevealQuota> quotas = new ArrayList<>();
+        Matcher q = REVEAL_ONE_PER_ELEMENT_QUOTA.matcher(m.group("quotas"));
+        while (q.find())
+            quotas.add(new RevealQuota(Integer.parseInt(q.group("count")),
+                    elementListFilter(q.group("elems"))));
+        if (quotas.size() < 2) return null;
+        String desc = RevealQuota.describeAll(quotas);
+        return ctx -> {
+            ctx.logEntry("Effect: Reveal top " + n + " — add " + desc + " to hand, rest to "
+                    + (restToBz ? "Break Zone" : "bottom"));
+            ctx.revealTopAddPerElementQuota(n, quotas, restToBz);
         };
     }
     /**

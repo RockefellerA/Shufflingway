@@ -594,9 +594,11 @@ class ComputerPlayer implements OpponentController {
 		}
 		fieldCands.sort((a, b) -> hand.get(b).cost() - hand.get(a).cost());
 
-		// Summons — highest cost first; skip when cast-prohibited by a field ability
+		// Summons — highest cost first; skip while Summon casting is banned outright, by a field
+		// ability or for the turn. The per-card check below asks the same question again, so this
+		// is only the short-circuit; dropping it would cost the plan, not its correctness.
 		List<Integer> summonCands = new ArrayList<>();
-		if (!mw.summonCastingProhibited()) {
+		if (!mw.summonCastingBanned(false)) {
 			boolean p1HasAutoAbilityOnStack = mw.gameState.getStack().stream()
 					.anyMatch(e -> e.isAutoAbility() && e.isP1());
 			for (int i = 0; i < hand.size(); i++) {
@@ -1733,7 +1735,7 @@ class ComputerPlayer implements OpponentController {
 	 * discarded); it prevents burning the ability when no chain could ever fire.
 	 */
 	private boolean p2CanStartAffordableDoublecastChain(CardData source) {
-		if (mw.summonCastingProhibited()) return false;
+		if (mw.summonCastingBanned(false)) return false;
 		List<CardData> hand = mw.gameState.getP2Hand();
 		// Reserve the copy that will pay the 《S》 discard cost. Read through the shared rule rather
 		// than matched on the name here: a primed Forward answers to its primer's name too, and a

@@ -27492,10 +27492,13 @@ public class CardBehaviorTest {
 
 	@Test
 	void theNarrowerSummonOnlyBanIsNotReadAsThisOne() {
-		assertNull(ActionResolver.parse(
-				"During this turn, your opponent cannot cast Summons.",
-				makeForward("Probe", "Dark", 4, 9000)),
-				"18-106H bans one card type and is unimplemented; reading it here would ban everything");
+		// 18-106H bans one card type and has a gate of its own; reading it here would ban
+		// everything. The two are asserted apart in Sol's own section.
+		MainWindow mw = new MainWindow();
+		resolveAsP2(mw, "During this turn, your opponent cannot cast Summons.",
+				makeForward("Probe", "Dark", 4, 9000));
+
+		assertFalse(mw.p1CastLimitReached(), "the Summon ban must not reach the total-ban gate");
 	}
 
 	// =========================================================================================
@@ -44443,6 +44446,557 @@ public class CardBehaviorTest {
 		mw.gameState.getP2Hand().add(makeForward("Card5", "Fire", 2, 5000));
 		assertTrue(cpu.p2PrefersHandPlayOverAbilities(),
 				"the fifth card up is one the end phase would discard, so the board is worth more");
+	}
+
+	// =========================================================================================
+	// Arc 18-035R: "When Arc enters the field, reveal the top 5 cards of your deck. Add 1 Fire,
+	// Earth or Water card among them to your hand and return the other cards to the bottom of
+	// your deck in any order."  (Effect wiring.)
+	//
+	// The reveal-and-take pattern read one Element and one only, so a card naming three matched
+	// nothing and the whole ability went unparsed. The element gate downstream has always taken a
+	// bar-separated list, so what was missing was only the joiner.
+	//
+	// The list must stay an alternation. "Add up to 1 Wind card and up to 1 Earth card"
+	// (Shantotto 14-067H) is one allowance per Element, a different effect this must not claim.
+	// =========================================================================================
+
+	private static final String ARC_18_035R =
+			"reveal the top 5 cards of your deck. Add 1 Fire, Earth or Water card among them to "
+			+ "your hand and return the other cards to the bottom of your deck in any order.";
+
+	@Test
+	void arcTakesACardOfAnyOfTheThreeElementsNamed() {
+		Consumer<GameContext> fn = ActionResolver.parse(ARC_18_035R, null);
+		assertNotNull(fn, "the three-Element list has to parse");
+		GameContext ctx = mock(GameContext.class);
+		fn.accept(ctx);
+
+		// Bar-separated, and as the AND-gate elementFilter rather than the orElementFilter disjunct:
+		// with every other filter null the disjunction admits everything, so the Elements are what
+		// selects.
+		verify(ctx).revealTopAddUpToMatchingRestBottom(5, 1, null, null, null, null, -1, "Fire|Earth|Water");
+	}
+
+	@Test
+	void theSingleElementPrintingsAreUnchanged() {
+		Consumer<GameContext> fn = ActionResolver.parse(
+				"Reveal the top 3 cards of your deck. Add 1 Fire Forward among them to your hand "
+				+ "and return the other cards to the bottom of your deck in any order.", null);
+		assertNotNull(fn);
+		GameContext ctx = mock(GameContext.class);
+		fn.accept(ctx);
+
+		verify(ctx).revealTopAddUpToMatchingRestBottom(3, 1, null, null, null, "Forward", -1, "Fire");
+	}
+
+	@Test
+	void aPerElementQuotaIsNotReadAsAnAlternation() {
+		// Shantotto 14-067H: two separate allowances, not one card qualifying on either Element.
+		// Claiming it here would let a player take two Wind cards and no Earth one.
+		//
+		// It is not asserted unparsed, because it is not: the compound-sentence fallback already
+		// misreads its second sentence as a return-a-named-card and has done all along. That is a
+		// separate, pre-existing gap; what this pins is that widening the Element list did not
+		// make it worse by handing the text to the reveal.
+		assertNotEquals("RevealTopNElementToHand", ActionResolver.matchedPatternName(
+				"Reveal the top 5 cards of your deck. Add up to 1 Wind card and up to 1 Earth card "
+				+ "among them to your hand and return the other cards to the bottom of your deck "
+				+ "in any order.", null),
+				"a per-Element quota is a different effect and must not reach this pattern");
+	}
+
+	@Test
+	void arcIsAttributedToTheElementReveal() {
+		assertEquals("RevealTopNElementToHand", ActionResolver.matchedPatternName(ARC_18_035R, null));
+	}
+
+	// =========================================================================================
+	// Dyne 25-064C: "When Dyne enters the field, choose 1 Forward opponent controls. If you
+	// control 5 or more Backups, Dyne and the chosen Forward deal damage equal to their
+	// respective power to the other."  (Effect wiring.)
+	//
+	// The exchange itself was already wired for the eleven ungated printings (Jecht 22-009H,
+	// Prishe 17-074L, Roche 29-076H and the rest). Dyne is the one that gates it on a Backup
+	// count, and the gate had to go inside the followup pattern rather than ahead of it: the
+	// source-name group is lazy, so left alone it swallowed "If you control 5 or more Backups,
+	// Dyne", failed the name check, and the followup went unclaimed — a card that chose a Forward
+	// and then did nothing to it.
+	//
+	// The choice is not gated, only the damage. A legal target must still be chosen, which is
+	// what "when chosen by your opponent's abilities" watchers on the other side react to.
+	// =========================================================================================
+
+	private static final String DYNE_25_064C =
+			"choose 1 Forward opponent controls. If you control 5 or more Backups, Dyne and the "
+			+ "chosen Forward deal damage equal to their respective power to the other.";
+
+	/** Drives Dyne with {@code backups} Backups on his controller's field. */
+	private static GameContext runDyneWithBackups(int backups) {
+		CardData dyne = makeForwardWithText("Dyne", "Earth", 5, 9000, DYNE_25_064C);
+		ForwardTarget chosen = new ForwardTarget(false, 0, ForwardTarget.CardZone.FORWARD);
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.consumePreloadedTargets()).thenReturn(List.of(chosen));
+		when(ctx.countSelfFieldCards(false, true, false, null, null)).thenReturn(backups);
+		when(ctx.fieldForwardPowerByName("Dyne")).thenReturn(9000);
+		when(ctx.effectiveTargetPower(any())).thenReturn(7000);
+		Consumer<GameContext> fn = ActionResolver.parse(DYNE_25_064C, dyne);
+		assertNotNull(fn, "must parse: " + DYNE_25_064C);
+		fn.accept(ctx);
+		return ctx;
+	}
+
+	@Test
+	void dyneTradesBlowsOnFiveBackups() {
+		GameContext ctx = runDyneWithBackups(5);
+		verify(ctx).damageTarget(any(), eq(9000));                  // Dyne's power, onto the Forward
+		verify(ctx).damageFieldForwardByName(eq("Dyne"), eq(7000)); // and the Forward's, back onto Dyne
+	}
+
+	@Test
+	void dyneTradesNoBlowsOnFour() {
+		GameContext ctx = runDyneWithBackups(4);
+		verify(ctx, never()).damageTarget(any(), anyInt());
+		verify(ctx, never()).damageFieldForwardByName(anyString(), anyInt());
+	}
+
+	@Test
+	void theForwardIsStillChosenWhenTheGateIsUnmet() {
+		GameContext ctx = runDyneWithBackups(0);
+		// The selection is what the preloaded-target stub answers, so the ability asking for it at
+		// all is the observable part: a gate hoisted above the choice would never have asked.
+		verify(ctx).consumePreloadedTargets();
+	}
+
+	@Test
+	void theUngatedPrintingsStillTradeUnconditionally() {
+		// Jecht 22-009H, and the ten beside him. Backups: none.
+		CardData jecht = makeForwardWithText("Jecht", "Fire", 5, 9000, "");
+		String effect = "choose 1 Forward opponent controls. Jecht and the chosen Forward deal "
+				+ "damage equal to their respective power to the other.";
+		ForwardTarget chosen = new ForwardTarget(false, 0, ForwardTarget.CardZone.FORWARD);
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.consumePreloadedTargets()).thenReturn(List.of(chosen));
+		when(ctx.countSelfFieldCards(anyBoolean(), anyBoolean(), anyBoolean(), any(), any())).thenReturn(0);
+		when(ctx.fieldForwardPowerByName("Jecht")).thenReturn(9000);
+		when(ctx.effectiveTargetPower(any())).thenReturn(5000);
+
+		ActionResolver.parse(effect, jecht).accept(ctx);
+
+		verify(ctx).damageTarget(chosen, 9000);
+		verify(ctx).damageFieldForwardByName("Jecht", 5000);
+	}
+
+	@Test
+	void dyneIsAttributedToTheGatedExchange() {
+		CardData dyne = makeForwardWithText("Dyne", "Earth", 5, 9000, DYNE_25_064C);
+		assertEquals("ChooseCharacter / MutualPowerDamageIfBackups",
+				ActionResolver.fullDescription(DYNE_25_064C, dyne),
+				"a bare MutualPowerDamage would not say the exchange is conditional at all");
+	}
+
+	// =========================================================================================
+	// Mira 4-137L: "When a Monster you control is put from the field into the Break Zone, you may
+	// dull Mira if it is active. If you do so, search for a Monster with the same name and add it
+	// to your hand."  (Effect wiring.)
+	//
+	// Two halves, neither of which existed. The cost is a self-dull gated on being active — the
+	// same shape as the self-break family, so it is dispatched beside it rather than through
+	// parse(), which cannot pay a cost. Yuna 1-214S is the other printing and came with it.
+	//
+	// The payoff names no card: "the same name" is the Monster whose departure fired the trigger,
+	// so it joins the two effects that already read that card (Lunafreya 8-132L, Gogo 24-022H).
+	// Only the name is copied off it — the type stays the one the sentence prints.
+	// =========================================================================================
+
+	private static final String MIRA_4_137L =
+			"dull Mira if it is active. If you do so, search for a Monster with the same name and "
+			+ "add it to your hand.";
+
+	@Test
+	void mirasPayoffSearchesOnTheBrokenCardsNameForTheTypeItPrints() {
+		Consumer<GameContext> fn = ActionResolver.parse(
+				"search for a Monster with the same name and add it to your hand.", null);
+		assertNotNull(fn, "the payoff has to parse on its own — the executor runs it through parse()");
+		GameContext ctx = mock(GameContext.class);
+		fn.accept(ctx);
+
+		// Monsters only: a Monster's departure fetches a Monster, not anything sharing its name.
+		verify(ctx).searchDeckMatchingTriggeringBrokenCardName(false, false, true, false, "hand", 1);
+	}
+
+	@Test
+	void thePayoffIsNotReadAsAPlainMonsterSearch() {
+		assertEquals("SearchMatchingBrokenCard", ActionResolver.matchedPatternName(
+				"search for a Monster with the same name and add it to your hand.", null),
+				"SearchDeck here would drop the name — the one thing the sentence is about");
+	}
+
+	@Test
+	void magicPotsCostPaidVersionIsLeftAlone() {
+		// 4-094R Magic Pot spells the source out because there the Break Zone card is an action
+		// ability's cost, not a trigger's event: no trigger is resolving, so this effect would
+		// find no card and quietly fetch nothing.
+		assertNull(ActionResolver.parse(
+				"Search for 1 Forward with the same name as the Forward you put into the Break "
+				+ "Zone and play it onto the field.", null),
+				"the cost-paid wording must not reach the trigger-card search");
+	}
+
+	@Test
+	void theChosenCardSearchesAreNotClaimedByTheTriggerCardOne() {
+		// Relm 12-106R, Alisaie 23-078C and Chaos 27-052H all search on the name of a card the
+		// player has just chosen, which the choose chain resolves for itself. Nothing in either
+		// sentence says which card "the same name" points at -- only the article differs, and it
+		// is what this parser is held to.
+		assertNull(ActionResolver.parse(
+				"Search for 1 Character with the same name and add it to your hand.", null),
+				"the numeral form belongs to the chosen-card family");
+
+		CardData chaos = makeForwardWithText("Chaos, Walker of the Wheel", "Dark", 6, 10000, "");
+		String chaosEffect = "Choose 1 Character without 《Multicard》 you control. Remove it "
+				+ "from the game. Search for 1 Character with the same name and add it to your hand.";
+		assertEquals("ChooseCharacter / RemoveFromGame + SearchMatchingChosen",
+				ActionResolver.fullDescription(chaosEffect, chaos),
+				"the tail must still reach the chosen-card search, not the trigger-card one");
+	}
+
+	@Test
+	void miraAndYunaAreBothDispatchedByTheSelfDullExecutor() {
+		CardData mira = makeForwardWithText("Mira", "Water", 2, 5000,
+				"When a Monster you control is put from the field into the Break Zone, you may "
+				+ "dull Mira if it is active. If you do so, search for a Monster with the same "
+				+ "name and add it to your hand.");
+		AutoAbility miraFa = mira.autoAbilities().get(0);
+		assertEquals(MIRA_4_137L, miraFa.effectText());
+		assertTrue(AutoAbilityTriggers.dispatchedByTriggers(miraFa, mira),
+				"parse() cannot pay the dull, so the reports have to be told the executor claims it");
+
+		CardData yuna = makeForwardWithText("Yuna", "Water", 3, 7000,
+				"When you cast a Summon, you may dull Yuna if it is active. If you do so, draw 1 "
+				+ "card. This effect will trigger only once per turn.");
+		AutoAbility yunaFa = yuna.autoAbilities().get(0);
+		assertTrue(AutoAbilityTriggers.dispatchedByTriggers(yunaFa, yuna),
+				"1-214S is the other printing of the shape and rides along");
+	}
+
+	@Test
+	void aSelfDullWhoseSubEffectIsUnknownIsNotClaimed() {
+		// The predicate mirrors what the executor requires: an unparseable payoff means the
+		// executor would pay the dull and drop it, so the reports must not call it working.
+		CardData probe = makeForwardWithText("Probe", "Water", 2, 5000,
+				"When you cast a Summon, you may dull Probe if it is active. If you do so, "
+				+ "flumph the widget.");
+		assertFalse(AutoAbilityTriggers.dispatchedByTriggers(probe.autoAbilities().get(0), probe));
+	}
+
+	// =========================================================================================
+	// Sol (FFBE) 18-106H: "At the beginning of the Attack Phase during each player's turn, select
+	// 1 of the 3 following actions. If you have received 5 points of damage or more, select up to
+	// 3 of the 3 following actions instead."  (Effect wiring and board behaviour.)
+	//
+	// Two gaps. The count upgrade was gated on a Backup/Character count or on the opponent's hand
+	// size, never on damage taken — which is the largest of the three families (eight cards).
+	//
+	// And the third option, "During this turn, your opponent cannot cast Summons", was left
+	// unimplemented on purpose: the only nearby effect was Vayne 28-117H's total ban, and reading
+	// this as that one would have barred every card. It needs its own gate because the total ban
+	// is answered without a card in hand and a type ban cannot be.
+	// =========================================================================================
+
+	private static final String SOL_18_106H =
+			"select 1 of the 3 following actions. If you have received 5 points of damage or more, "
+			+ "select up to 3 of the 3 following actions instead. "
+			+ "\"Until the end of the turn, all the Forwards you control gain +1000 power and Brave.\" "
+			+ "\"All the Forwards opponent controls lose 2000 power until the end of the turn.\" "
+			+ "\"During this turn, your opponent cannot cast Summons.\"";
+
+	private static final String SOL_SUMMON_BAN = "During this turn, your opponent cannot cast Summons.";
+
+	/** Runs Sol's modal ability with {@code damage} points taken; returns {select count, upTo}. */
+	private static int[] runSolWithDamage(int damage) {
+		CardData sol = makeForwardWithText("Sol (FFBE)", "Dark", 3, 9000, "");
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.selfDamageCount()).thenReturn(damage);
+		when(ctx.chooseActions(any(), any(), anyInt(), anyBoolean())).thenReturn(List.of());
+		ActionResolver.parse(SOL_18_106H, sol).accept(ctx);
+
+		ArgumentCaptor<Integer> count = ArgumentCaptor.forClass(Integer.class);
+		ArgumentCaptor<Boolean> upTo  = ArgumentCaptor.forClass(Boolean.class);
+		verify(ctx).chooseActions(any(), any(), count.capture(), upTo.capture());
+		return new int[]{count.getValue(), upTo.getValue() ? 1 : 0};
+	}
+
+	@Test
+	void solOffersOneActionBelowFiveDamage() {
+		assertArrayEquals(new int[]{1, 0}, runSolWithDamage(4),
+				"under the threshold it is the printed \"select 1\", and not an \"up to\"");
+	}
+
+	@Test
+	void solOffersUpToThreeAtFiveDamage() {
+		assertArrayEquals(new int[]{3, 1}, runSolWithDamage(5), "\"or more\" starts at five");
+		assertArrayEquals(new int[]{3, 1}, runSolWithDamage(7), "and does not stop above it");
+	}
+
+	@Test
+	void ultimeciasThresholdWithoutOrMoreReadsTheSameWay() {
+		// 7-133S prints "If you have received 6 points of damage" and means at least six, the way
+		// every damage threshold in the game does.
+		CardData ultimecia = makeForwardWithText("Ultimecia", "Dark", 5, 9000, "");
+		String text = "select 1 of the 3 following actions. If you have received 6 points of "
+				+ "damage, select up to 2 of the 3 following actions instead. "
+				+ "\"Draw 1 card.\" \"Draw 2 cards.\" \"Draw 3 cards.\"";
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.selfDamageCount()).thenReturn(6);
+		when(ctx.chooseActions(any(), any(), anyInt(), anyBoolean())).thenReturn(List.of());
+		ActionResolver.parse(text, ultimecia).accept(ctx);
+
+		verify(ctx).chooseActions(any(), any(), eq(2), eq(true));
+	}
+
+	@Test
+	void solsThirdActionBansTheOpponentsSummonsAndNothingElse() {
+		MainWindow mw = new MainWindow();
+		CardData summon = makeSummon("Shiva", "Ice", 3, "");
+		assertFalse(mw.summonCastBlocked(summon, true), "nothing bars P1 to begin with");
+
+		resolveAsP2(mw, SOL_SUMMON_BAN, makeForward("Sol (FFBE)", "Dark", 3, 9000));
+
+		assertTrue(mw.summonCastBlocked(summon, true), "the ban binds the resolving player's opponent");
+		assertFalse(mw.summonCastBlocked(summon, false), "and only them");
+		assertFalse(mw.p1CastLimitReached(), "Characters are untouched — this bans one card type");
+	}
+
+	@Test
+	void everyCastRouteAsksTheSameQuestion() {
+		// The Playable Cards dialog (Break Zone and removed-from-game borrowed casts) used to
+		// open-code the field-ability prohibition on its own, so a turn ban added beside it would
+		// have bound the hand and not that menu. Both now read one method.
+		MainWindow mw = new MainWindow();
+		assertFalse(mw.summonCastingBanned(true), "nothing bars P1 to begin with");
+
+		resolveAsP2(mw, SOL_SUMMON_BAN, makeForward("Sol (FFBE)", "Dark", 3, 9000));
+
+		assertTrue(mw.summonCastingBanned(true));
+		assertFalse(mw.summonCastingBanned(false), "and only the opponent");
+	}
+
+	@Test
+	void theSummonBanEndsWithTheTurn() {
+		MainWindow mw = new MainWindow();
+		resolveAsP2(mw, SOL_SUMMON_BAN, makeForward("Sol (FFBE)", "Dark", 3, 9000));
+
+		mw.turnPhases().runP2EndOfTurnCleanup();
+
+		assertFalse(mw.summonCastBlocked(makeSummon("Shiva", "Ice", 3, ""), true),
+				"\"during this turn\" ends when the turn does");
+	}
+
+	@Test
+	void theTotalBanAndTheSummonBanStayApart() {
+		CardData probe = makeForward("Probe", "Dark", 4, 9000);
+		assertEquals("OpponentCannotCastSummons",
+				ActionResolver.matchedPatternName(SOL_SUMMON_BAN, probe));
+		assertEquals("OpponentCannotCastAnyCards", ActionResolver.matchedPatternName(
+				"During this turn, your opponent cannot cast any cards.", probe));
+	}
+
+	// =========================================================================================
+	// Shantotto 14-067H, Terra 27-014H, Cindy 27-063H: "Reveal the top N cards of your deck. Add
+	// up to 1 [Element] card and up to 1 [Element] card among them to your hand and [return the
+	// other cards to the bottom | put the rest into the Break Zone]."  (Effect wiring and board
+	// behaviour.)
+	//
+	// All three fell to parse()'s compound-sentence fallback, which read the second sentence as a
+	// request to return a card NAMED "up to 1 Wind card and up to 1 Earth card among them" and
+	// looked for it on the field. The reveal never happened, nothing was ever added, and the
+	// effect reported success — the same fallback bug the rest-to-Break-Zone family was written
+	// to close, still open for this shape.
+	//
+	// One allowance per Element, not one count over an Element list: reveal two Wind cards and no
+	// Earth one and you take a single card. And because Elements are not mutually exclusive the
+	// way card types are, a Wind/Earth multicard fills either allowance but spends only one —
+	// which is what makes eligibility a matching question rather than a per-card test.
+	// =========================================================================================
+
+	private static final String SHANTOTTO_14_067H =
+			"reveal the top 5 cards of your deck. Add up to 1 Wind card and up to 1 Earth card "
+			+ "among them to your hand and return the other cards to the bottom of your deck in "
+			+ "any order.";
+	private static final String TERRA_27_014H =
+			"reveal the top 2 cards of your deck. Add up to 1 Fire card and up to 1 Wind or "
+			+ "Lightning card among them to your hand and put the rest of the cards into the "
+			+ "Break Zone.";
+
+	@Test
+	void theQuotaRevealsParseAsThemselvesRatherThanAsAFieldLookup() {
+		assertEquals("RevealTopNAddPerElementQuota",
+				ActionResolver.matchedPatternName(SHANTOTTO_14_067H, null),
+				"ReturnNamedToHand meant the reveal was being dropped entirely");
+		assertEquals("RevealTopNAddPerElementQuota",
+				ActionResolver.matchedPatternName(TERRA_27_014H, null));
+	}
+
+	@Test
+	void shantottoSendsTwoSingleElementQuotasToTheBottomArm() {
+		GameContext ctx = mock(GameContext.class);
+		ActionResolver.parse(SHANTOTTO_14_067H, null).accept(ctx);
+
+		verify(ctx).revealTopAddPerElementQuota(5,
+				List.of(new RevealQuota(1, "Wind"), new RevealQuota(1, "Earth")), false);
+	}
+
+	@Test
+	void terraKeepsTheAlternationInsideTheSecondQuota() {
+		// "up to 1 Wind or Lightning card" is one allowance either Element fills — a disjunction
+		// inside a quota, where the list of quotas is a conjunction. Both levels have to survive.
+		GameContext ctx = mock(GameContext.class);
+		ActionResolver.parse(TERRA_27_014H, null).accept(ctx);
+
+		verify(ctx).revealTopAddPerElementQuota(2,
+				List.of(new RevealQuota(1, "Fire"), new RevealQuota(1, "Wind|Lightning")), true);
+	}
+
+	@Test
+	void theFlatElementRevealStillClaimsItsOwnTexts() {
+		// Arc 18-035R's "Add 1 Fire, Earth or Water card" is one allowance any of the three fills.
+		// The quota parser sits ahead of it in the chain and must not have taken it.
+		assertEquals("RevealTopNElementToHand", ActionResolver.matchedPatternName(
+				"reveal the top 5 cards of your deck. Add 1 Fire, Earth or Water card among them "
+				+ "to your hand and return the other cards to the bottom of your deck in any "
+				+ "order.", null));
+	}
+
+	// ---- the matching rule: a card fills at most one allowance --------------------------------
+
+	private static final List<RevealQuota> WIND_AND_EARTH =
+			List.of(new RevealQuota(1, "Wind"), new RevealQuota(1, "Earth"));
+
+	@Test
+	void aSecondCardOfASpentElementIsRefused() {
+		CardData wind1 = makeForward("Wind One", "Wind", 3, 5000);
+		CardData wind2 = makeForward("Wind Two", "Wind", 4, 7000);
+
+		assertTrue(LookAtDeckDialogs.quotasAdmit(List.of(), wind1, WIND_AND_EARTH));
+		assertFalse(LookAtDeckDialogs.quotasAdmit(List.of(wind1), wind2, WIND_AND_EARTH),
+				"the one Wind allowance is spent, though the card itself qualifies");
+	}
+
+	@Test
+	void aMulticardFillsEitherAllowanceButOnlyOne() {
+		CardData both = makeForward("Wind Earth", "Wind/Earth", 4, 7000);
+		CardData wind = makeForward("Wind One", "Wind", 3, 5000);
+
+		assertTrue(LookAtDeckDialogs.quotasAdmit(List.of(), both, WIND_AND_EARTH));
+		assertTrue(LookAtDeckDialogs.quotasAdmit(List.of(both), wind, WIND_AND_EARTH),
+				"the multicard moves to the Earth allowance so the Wind one is free");
+		assertFalse(LookAtDeckDialogs.quotasAdmit(List.of(both, wind),
+				makeForward("Wind Three", "Wind", 2, 3000), WIND_AND_EARTH),
+				"but both allowances are now spent between them");
+	}
+
+	@Test
+	void twoMulticardsCannotBothSitInOneAllowance() {
+		// Each fills both allowances, so two of them are legal and three are not — which a
+		// per-card eligibility test would never have noticed.
+		CardData a = makeForward("Both A", "Wind/Earth", 4, 7000);
+		CardData b = makeForward("Both B", "Wind/Earth", 3, 5000);
+		CardData c = makeForward("Both C", "Wind/Earth", 2, 3000);
+
+		assertTrue(LookAtDeckDialogs.quotasAdmit(List.of(a), b, WIND_AND_EARTH));
+		assertFalse(LookAtDeckDialogs.quotasAdmit(List.of(a, b), c, WIND_AND_EARTH));
+	}
+
+	@Test
+	void aCardMatchingNoAllowanceIsRefused() {
+		assertFalse(LookAtDeckDialogs.quotasAdmit(List.of(),
+				makeForward("Icy", "Ice", 3, 5000), WIND_AND_EARTH));
+	}
+
+	// ---- the AI's answer ---------------------------------------------------------------------
+
+	@Test
+	void theAiTakesTheDearestCardPerAllowance() {
+		List<CardData> revealed = List.of(
+				makeForward("Cheap Wind", "Wind", 1, 3000),
+				makeForward("Dear Wind", "Wind", 5, 9000),
+				makeForward("An Earth", "Earth", 3, 5000),
+				makeForward("An Ice", "Ice", 6, 9000));
+
+		DeckLookDecision d = LookAtDeckDialogs.cpuRevealAddPerQuotaRestBz(revealed, WIND_AND_EARTH);
+
+		assertEquals(List.of(1, 2), d.toHand(), "the dearer Wind and the only Earth");
+		assertEquals(List.of(0, 3), d.toBreak(),
+				"the spare Wind and the Ice, which no allowance accepts however dear it is");
+	}
+
+	@Test
+	void theAiDoesNotStrandItselfBySpendingAnAllowanceACheaperCardNeeded() {
+		// The dearest card fills both allowances. Taking it must not cost the Earth card its seat:
+		// the greedy is exact here because the legal hauls form a matroid, so the multicard is
+		// re-seated rather than blocking.
+		CardData both  = makeForward("Dear Both", "Wind/Earth", 9, 9000);
+		CardData earth = makeForward("An Earth", "Earth", 2, 5000);
+
+		DeckLookDecision d = LookAtDeckDialogs.cpuRevealAddPerQuotaRestBz(
+				List.of(both, earth), WIND_AND_EARTH);
+
+		assertEquals(List.of(0, 1), d.toHand(), "both are taken — one Wind seat, one Earth seat");
+		assertTrue(d.toBreak().isEmpty());
+	}
+
+	@Test
+	void theBottomArmSendsLeftoversUnderTheDeckRatherThanToTheBreakZone() {
+		List<CardData> revealed = List.of(
+				makeForward("A Wind", "Wind", 3, 5000),
+				makeForward("An Ice", "Ice", 3, 5000));
+
+		DeckLookDecision d = LookAtDeckDialogs.cpuRevealAddPerQuotaRestBottom(revealed, WIND_AND_EARTH);
+
+		assertEquals(List.of(0), d.toHand());
+		assertEquals(List.of(1), d.toBottom(), "Shantotto returns them to the deck");
+		assertTrue(d.toBreak().isEmpty(), "and breaks nothing");
+	}
+
+	// ---- end to end against a real deck ------------------------------------------------------
+
+	@Test
+	void shantottoFillsHandFromTheRealDeckAndBuriesTheRest() {
+		MainWindow mw = new MainWindow();
+		CardData wind   = makeForward("A Wind", "Wind", 4, 7000);
+		CardData earth  = makeForward("An Earth", "Earth", 3, 5000);
+		CardData spare  = makeForward("Spare Wind", "Wind", 1, 3000);
+		CardData ice    = makeForward("An Ice", "Ice", 2, 5000);
+		CardData buried = makeForward("Buried", "Fire", 2, 5000);
+		stackP2Deck(mw, wind, earth, spare, ice, buried);
+		mw.gameState.getP2Hand().clear();
+
+		ActionResolver.parse(SHANTOTTO_14_067H, null).accept(mw.buildGameContext(false));
+
+		assertEquals(List.of(wind, earth), mw.gameState.getP2Hand(),
+				"one card per allowance; the second Wind does not fill the Earth one");
+		assertTrue(mw.gameState.getP2BreakZone().isEmpty(), "Shantotto breaks nothing");
+		assertTrue(List.copyOf(mw.gameState.getP2MainDeck()).containsAll(List.of(spare, ice)),
+				"the cards nobody took go back under the deck");
+	}
+
+	@Test
+	void terraFillsHandFromTheRealDeckAndBreaksTheRest() {
+		MainWindow mw = new MainWindow();
+		CardData fire = makeForward("A Fire", "Fire", 4, 7000);
+		CardData ice  = makeForward("An Ice", "Ice", 3, 5000);
+		CardData buried = makeForward("Buried", "Fire", 2, 5000);
+		stackP2Deck(mw, fire, ice, buried);
+		mw.gameState.getP2Hand().clear();
+
+		ActionResolver.parse(TERRA_27_014H, null).accept(mw.buildGameContext(false));
+
+		assertEquals(List.of(fire), mw.gameState.getP2Hand(),
+				"the Ice card fills neither the Fire nor the Wind-or-Lightning allowance");
+		assertEquals(List.of(ice), mw.gameState.getP2BreakZone());
+		assertEquals(List.of(buried), List.copyOf(mw.gameState.getP2MainDeck()),
+				"only the top 2 were revealed");
 	}
 
 	// =========================================================================================

@@ -188,6 +188,25 @@ final class ActionResolverChoose {
             handUpgThreshold = 0; handUpgUpTo = false; handUpgSelect = 0;
         }
 
+        // Detect a damage-received upgrade:
+        // "If you have received N points of damage or more, select [up to] M ... instead."
+        final boolean hasDmgUpgrade;
+        final int     dmgUpgThreshold;
+        final boolean dmgUpgUpTo;
+        final int     dmgUpgSelect;
+
+        Matcher dmgUpM = SELECT_FOLLOWING_ACTIONS_DAMAGE_UPGRADE.matcher(actionsRaw);
+        if (dmgUpM.find()) {
+            hasDmgUpgrade   = true;
+            dmgUpgThreshold = Integer.parseInt(dmgUpM.group("dmgCount"));
+            dmgUpgUpTo      = dmgUpM.group("dmgUpTo") != null;
+            dmgUpgSelect    = Integer.parseInt(dmgUpM.group("dmgSelect"));
+            actionsRaw      = actionsRaw.substring(dmgUpM.end());
+        } else {
+            hasDmgUpgrade   = false;
+            dmgUpgThreshold = 0; dmgUpgUpTo = false; dmgUpgSelect = 0;
+        }
+
         Matcher qm = SELECT_FOLLOWING_QUOTED_ACTION.matcher(actionsRaw);
         List<String> actions = new ArrayList<>();
         while (qm.find()) actions.add(qm.group(1).trim());
@@ -212,6 +231,13 @@ final class ActionResolverChoose {
             if (hasHandUpgrade && ctx.opponentHandSize() <= handUpgThreshold) {
                 effSelect = handUpgSelect;
                 effUpTo   = handUpgUpTo;
+            }
+            // The damage a card prints is always its own controller's, so it is the resolving
+            // player's count that is read -- not the opponent's, whose damage these upgrades never
+            // mention.
+            if (hasDmgUpgrade && ctx.selfDamageCount() >= dmgUpgThreshold) {
+                effSelect = dmgUpgSelect;
+                effUpTo   = dmgUpgUpTo;
             }
             List<String> chosen = ctx.chooseActions(source, actions, effSelect, effUpTo);
             if (chosen == null || chosen.isEmpty()) {
@@ -2977,11 +3003,23 @@ final class ActionResolverChoose {
             Matcher mutM = FOLLOWUP_MUTUAL_POWER_DAMAGE.matcher(primaryFollowup);
             if (mutM.find() && mutM.group("srcname").trim().equalsIgnoreCase(source.name())) {
                 String srcName = source.name();
+                // "If you control 5 or more Backups, ..." (Dyne 25-064C). The choice is not gated
+                // -- a legal target must still be chosen -- so the count is read after selection
+                // and only the exchange is withheld, which is where the printed wording puts it.
+                int bkpThresh = mutM.group("bkpthresh") != null
+                        ? Integer.parseInt(mutM.group("bkpthresh")) : 0;
                 return ctx -> {
                     List<ForwardTarget> ts = selectTargets(ctx, maxCount, upTo,
                             opponentOnly, selfOnly, condition, element, zone, opponentZone,
                             costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters, jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, fExcludeElem, withoutMulticard);
                     if (ts.isEmpty()) { if (secondary != null) secondary.accept(ctx); return; }
+                    if (bkpThresh > 0
+                            && ctx.countSelfFieldCards(false, true, false, null, null) < bkpThresh) {
+                        ctx.logChooseHeader(choosePrefix + " — fewer than " + bkpThresh
+                                + " Backups; no damage is dealt");
+                        if (secondary != null) secondary.accept(ctx);
+                        return;
+                    }
                     int srcPower = Math.max(0, ctx.fieldForwardPowerByName(srcName));
                     for (ForwardTarget t : ts) {
                         int tgtPower = Math.max(0, ctx.effectiveTargetPower(t));

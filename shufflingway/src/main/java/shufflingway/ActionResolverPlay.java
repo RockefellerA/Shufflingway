@@ -7,6 +7,7 @@ import static shufflingway.ActionResolver.*;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Locale;
 import java.util.function.Consumer;
 import java.util.function.Predicate;
 import java.util.regex.Matcher;
@@ -221,6 +222,21 @@ final class ActionResolverPlay {
         return GameContext::setOpponentCannotCastThisTurn;
     }
     /**
+     * Parses "During this turn, your opponent cannot cast Summons." — Sol (FFBE) 18-106H's third
+     * modal action.
+     *
+     * <p>The narrow twin of the parser above, and turn-scoped for a different reason than either
+     * neighbour. Vayne's total ban outlives the card that states it; Sol stays on the field, but
+     * says this from a beginning-of-Attack-Phase trigger and only on the turns the option is
+     * taken — so it is an event's aftermath, not something the field can be read for. That is what
+     * separates it from 15-021R General Leo's "Players cannot cast Summons.", which is a field
+     * ability and lasts exactly as long as Leo does.
+     */
+    static Consumer<GameContext> tryParseOpponentCannotCastSummonsThisTurn(String text) {
+        if (!OPPONENT_CANNOT_CAST_SUMMONS_THIS_TURN.matcher(text.trim()).matches()) return null;
+        return GameContext::setOpponentCannotCastSummonsThisTurn;
+    }
+    /**
      * Parses "Choose 1 [Element] Summon in your Break Zone. You can cast it at any time
      * you could normally cast it this turn. The cost required to cast it is reduced by N."
      * At resolution: shows a chooser, moves the picked Summon BZ→hand, and registers a
@@ -301,6 +317,30 @@ final class ActionResolverPlay {
     static Consumer<GameContext> tryParseAddBrokenCardToHand(String text) {
         if (!ADD_TRIGGERING_BROKEN_CARD_TO_HAND.matcher(text.trim()).matches()) return null;
         return GameContext::addTriggeringBrokenCardToHand;
+    }
+    /**
+     * Parses "Search for a Monster with the same name and add it to your hand" -- Mira 4-137L. The
+     * third of the trigger-card parsers, and the name comes from the same place the other two get
+     * their card: the event that fired the trigger this effect hangs off.
+     *
+     * <p>Only the name is copied off that card. The type stays the one the sentence prints, so a
+     * Monster's departure still fetches a Monster and not just anything sharing its name.
+     */
+    static Consumer<GameContext> tryParseSearchMatchingBrokenCard(String text) {
+        Matcher m = SEARCH_MATCHING_TRIGGERING_BROKEN_CARD.matcher(text.trim());
+        if (!m.matches()) return null;
+        String type = m.group("type").toLowerCase(Locale.ROOT);
+        boolean anyType = type.equals("card");
+        boolean fwd = anyType || type.equals("forward") || type.equals("character");
+        boolean bkp = anyType || type.equals("backup")  || type.equals("character");
+        boolean mon = anyType || type.equals("monster") || type.equals("character");
+        boolean smn = anyType || type.equals("summon");
+        String destination = m.group("destination").toLowerCase(Locale.ROOT).contains("hand")
+                ? "hand" : "field";
+        return ctx -> {
+            ctx.logEntry("Effect: Search for a " + type + " with the same name -> " + destination);
+            ctx.searchDeckMatchingTriggeringBrokenCardName(fwd, bkp, mon, smn, destination, 1);
+        };
     }
     /**
      * Parses "Play [name] onto [the] field [dull]" for break-zone-origin abilities where

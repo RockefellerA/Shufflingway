@@ -288,6 +288,7 @@ class TurnPhases {
 		mw.p1Turn.attackDeclarationLimit = Integer.MAX_VALUE;       mw.p1Turn.attackDeclarationsThisTurn = 0;
 		mw.p1Turn.cannotSearchThisTurn = false; mw.p2Turn.cannotSearchThisTurn = false;
 		mw.p1Turn.cannotCastThisTurn = false;   mw.p2Turn.cannotCastThisTurn = false;
+		mw.p1Turn.cannotCastSummonsThisTurn = false; mw.p2Turn.cannotCastSummonsThisTurn = false;
 		mw.p1Turn.oppFieldEntryBecomesRfg = false; mw.p2Turn.oppFieldEntryBecomesRfg = false;
 		// Aged rather than cleared: 19-101R Leviathan's cast ban runs "until the end of the next
 		// turn", so it has to survive this boundary and expire at the following one.

@@ -5702,6 +5702,24 @@ final class GameContextImpl implements GameContext {
 				addTargetToHand(new ForwardTarget(isP1(), idx, ForwardTarget.CardZone.BREAK_ZONE));
 			}
 
+			@Override public void searchDeckMatchingTriggeringBrokenCardName(boolean inclForwards,
+					boolean inclBackups, boolean inclMonsters, boolean inclSummons,
+					String destination, int count) {
+				CardData broken = mw.triggeringBrokenCard;
+				if (broken == null) {
+					logEntry("No card was placed in the Break Zone by this trigger");
+					markEffectFizzled();
+					return;
+				}
+				// Only the name travels, so the card is not looked up in the Break Zone the way its
+				// two siblings look theirs up: it may have been moved on again by now, and the name
+				// it lent this search is no less true for that.
+				logEntry("Searching for a card named " + broken.name());
+				searchDeckForCard(inclForwards, inclBackups, inclMonsters, inclSummons,
+						-1, null, broken.name(), null, null, null, null, null,
+						destination, count, false, null);
+			}
+
 
 			@Override public void addTargetToHand(ForwardTarget t) {
 				List<CardData> bz = t.isP1() ? mw.gameState.getP1BreakZone() : mw.gameState.getP2BreakZone();
@@ -7213,6 +7231,14 @@ final class GameContextImpl implements GameContext {
 				logEntry("Effect: Opponent cannot cast any cards this turn");
 				// The hand's playability highlighting is computed once and cached; without this the
 				// cards stay lit and clickable until something else happens to refresh them.
+				mw.refreshHandCardStates();
+			}
+
+			@Override public void setOpponentCannotCastSummonsThisTurn() {
+				mw.turn(!isP1).cannotCastSummonsThisTurn = true;
+				logEntry("Effect: Opponent cannot cast Summons this turn");
+				// Refreshed for the reason the total ban refreshes: the highlighting is cached, and
+				// a Summon left lit is a Summon the player can still click.
 				mw.refreshHandCardStates();
 			}
 
@@ -9673,6 +9699,18 @@ final class GameContextImpl implements GameContext {
 				logEntry("Reveal top " + n + " card(s): " +
 						peeked.stream().map(CardData::name).collect(Collectors.joining(", ")));
 				mw.lookDialogs().revealAddOnePerTypeToHandRestBz(peeked, deck, isP1, types);
+			}
+
+			@Override public void revealTopAddPerElementQuota(int reveal, List<RevealQuota> quotas,
+					boolean restToBreakZone) {
+				Deque<CardData> deck = isP1 ? mw.gameState.getP1MainDeck() : mw.gameState.getP2MainDeck();
+				int n = Math.min(reveal, deck.size());
+				if (n == 0) { logEntry("Reveal top: deck is empty."); return; }
+				List<CardData> peeked = new ArrayList<>();
+				for (CardData c : deck) { peeked.add(c); if (peeked.size() >= n) break; }
+				logEntry("Reveal top " + n + " card(s): " +
+						peeked.stream().map(CardData::name).collect(Collectors.joining(", ")));
+				mw.lookDialogs().revealAddPerElementQuota(peeked, deck, isP1, quotas, restToBreakZone);
 			}
 
 			@Override public void flipUntilCharactersPlayOntoFieldRestShuffleBottom(int count,

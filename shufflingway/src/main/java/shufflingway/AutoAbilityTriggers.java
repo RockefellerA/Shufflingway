@@ -209,6 +209,23 @@ final class AutoAbilityTriggers {
 			);
 
 	/**
+	 * Matches "dull [CardName] if it is active. If/When you do so, [sub-effect]" -- Yuna 1-214S and
+	 * Mira 4-137L, the corpus's two printings.
+	 *
+	 * <p>A self-dull cost, in the same family as {@link #FA_PUT_SELF_INTO_BZ_IF_DO_SO}: the source
+	 * pays with its own state and the payoff follows only if it could. "if it is active" is not a
+	 * separate clause to parse but the whole of what makes the cost payable, so it is required
+	 * here rather than optional -- a text that dulls unconditionally is a different sentence.
+	 *
+	 * <p>Groups: {@code cardname} (checked against the source at execution time), {@code sub}.
+	 */
+	static final Pattern FA_DULL_SELF_IF_DO_SO = Pattern.compile(
+			"(?i)^dull\\s+(?<cardname>.+?)\\s+if\\s+it\\s+is\\s+active[.,]?\\s+" +
+			"(?:When|If)\\s+you\\s+do\\s+so[,.]?\\s+(?<sub>.+?)$",
+			Pattern.DOTALL
+	);
+
+	/**
 	 * Matches "put [CardName] into the Break Zone. If/When you do so, [sub-effect]"
 	 * where [CardName] is the source card itself (self-break with conditional follow-up).
 	 * Distinct from {@link #FA_PUT_INTO_BZ_WHEN_DO_SO} which requires a numeric count and "you control".
@@ -3552,6 +3569,8 @@ final class AutoAbilityTriggers {
 		if (m.find()) return subEffectParses(m.group("sub"), source);
 		m = FA_PUT_INTO_BZ_WHEN_DO_SO.matcher(text);
 		if (m.find()) return subEffectParses(m.group("sub"), source);
+		m = FA_DULL_SELF_IF_DO_SO.matcher(text);
+		if (m.find()) return subEffectParses(m.group("sub"), source);
 		m = FA_PUT_SELF_INTO_BZ_IF_DO_SO.matcher(text);
 		if (m.find()) return subEffectParses(m.group("sub"), source);
 		m = FA_CHOOSE_THEN_MAY_PUT_INTO_BZ.matcher(text);
@@ -3588,6 +3607,69 @@ final class AutoAbilityTriggers {
 	/** As above, resolving the sub-effect's {@code X} references against {@code xValue}. */
 	private static boolean subEffectParses(String sub, CardData source, int xValue) {
 		return sub != null && ActionResolver.parse(sub.trim(), source, xValue) != null;
+	}
+
+	/**
+	 * "dull [CardName] if it is active. If you do so, [sub-effect]" -- Yuna 1-214S, Mira 4-137L.
+	 *
+	 * <p>The self-dull twin of {@link #executePutSelfIntoBzIfDoSoAutoAbility}, and it reads its
+	 * clauses the same way: a printed "you may" is the declinable part (the parser has already
+	 * lifted it into {@code youMay}/{@code opponentMay}), while "if you do so" only gates the
+	 * payoff on a cost that has by then been paid.
+	 *
+	 * <p>"if it is active" is checked before the offer rather than after it. A dull source cannot
+	 * pay, so there is nothing to decline, and prompting anyway would put a choice in front of a
+	 * player who has none -- Yuna's trigger fires on every Summon cast and would ask every time.
+	 *
+	 * <p>The sub-effect resolves after the dull, so an effect that reads the board sees the cost
+	 * already paid. Mira's payoff reads the trigger's own card instead
+	 * ({@link GameContext#searchDeckMatchingTriggeringBrokenCardName}), which
+	 * {@code executeAutoAbilityImpl} has standing for the whole of this call.
+	 */
+	private void executeDullSelfIfDoSoAutoAbility(AutoAbility fa, CardData source,
+			boolean isP1, boolean effectIsP1, Matcher m) {
+		String cardName  = m.group("cardname").trim();
+		String subEffect = m.group("sub").trim();
+
+		if (!CardFilters.meetsCardNameFilter(source, cardName)) {
+			mw.logEntry("[AutoAbility] " + source.name() + " — self-dull: '" + cardName
+					+ "' does not match source, skipping");
+			return;
+		}
+
+		// Located by identity, as the self-break sibling locates its own: the text names the card
+		// but it is this copy of it that is paying.
+		ForwardTarget slot = mw.findFieldSlot(source, isP1);
+		if (slot == null) {
+			mw.logEntry("[AutoAbility] " + source.name() + " — no longer on field, sub-effect skipped");
+			return;
+		}
+		if (mw.fieldTargetState(slot) != CardState.ACTIVE) {
+			mw.logEntry("[AutoAbility] " + source.name() + " — already dull, sub-effect skipped");
+			return;
+		}
+
+		Consumer<GameContext> effect = ActionResolver.parse(subEffect, source);
+		if (effect == null) {
+			mw.logEntry("[AutoAbility] Unrecognized sub-effect: " + subEffect);
+			return;
+		}
+
+		boolean p1GetsDialog = (fa.youMay() && isP1) || (fa.opponentMay() && !isP1);
+		if (p1GetsDialog) {
+			int choice = mw.showEffectOptionDialog(source.name() + " — " + fa.effectText(),
+					"Auto Ability", new Object[]{"Dull " + source.name(), "Decline"});
+			if (choice != 0) {
+				mw.logEntry("[AutoAbility] " + source.name() + " — self-dull declined");
+				return;
+			}
+		} else if (fa.youMay() || fa.opponentMay()) {
+			mw.logEntry("[AutoAbility] [AI] auto-accepts self-dull for " + source.name());
+		}
+
+		mw.buildGameContext(isP1).dullTarget(slot);
+		mw.logEntry("[AutoAbility] " + source.name() + " — if you do so: " + subEffect);
+		effect.accept(mw.buildGameContext(effectIsP1));
 	}
 
 	/**
@@ -3690,6 +3772,13 @@ final class AutoAbilityTriggers {
 		Matcher bzM = FA_PUT_INTO_BZ_WHEN_DO_SO.matcher(fa.effectText());
 		if (bzM.find()) {
 			executePutIntoBzWhenDoSoAutoAbility(fa, source, isP1, effectIsP1, bzM);
+			return;
+		}
+
+		// Detect "dull [CardName] if it is active. If/When you do so, [effect]" (self-dull)
+		Matcher dullM = FA_DULL_SELF_IF_DO_SO.matcher(fa.effectText());
+		if (dullM.find()) {
+			executeDullSelfIfDoSoAutoAbility(fa, source, isP1, effectIsP1, dullM);
 			return;
 		}
 

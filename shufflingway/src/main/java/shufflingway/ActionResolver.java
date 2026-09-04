@@ -1024,6 +1024,12 @@ public class ActionResolver {
         result = tryParseOpponentHandRfp(effectText);
         if (result != null) return result;
 
+        // Beside its per-type sibling, and both must precede the flat reveals below: those
+        // read a count over one filter and would take "up to 1 Wind card and up to 1 Earth
+        // card" for a single allowance, letting a player take two cards of one Element.
+        result = tryParseRevealTopNAddPerElementQuota(effectText);
+        if (result != null) return result;
+
         result = tryParseRevealTopNAddOnePerTypeRestBz(effectText);
         if (result != null) return result;
 
@@ -1397,6 +1403,13 @@ public class ActionResolver {
         result = tryParseSearchNamedRfgThenIfDoSo(effectText, source);
         if (result != null) return result;
 
+        // Must precede tryParseSearchDeck. Its pattern find()s the filters it recognises and
+        // ignores what it does not, so "search for a Monster with the same name and add it to
+        // your hand" reads there as a plain search for any Monster -- the name, the one thing
+        // the sentence is about, dropped. Mira 4-137L is the only printing.
+        result = tryParseSearchMatchingBrokenCard(effectText);
+        if (result != null) return result;
+
         result = tryParseSearchDeck(effectText, source, xValue);
         if (result != null) return result;
 
@@ -1438,6 +1451,9 @@ public class ActionResolver {
         if (result != null) return result;
 
         result = tryParseOpponentCannotCastAnyCardsThisTurn(effectText);
+        if (result != null) return result;
+
+        result = tryParseOpponentCannotCastSummonsThisTurn(effectText);
         if (result != null) return result;
 
         result = tryParseRemoveFromBattle(effectText);
@@ -2070,6 +2086,7 @@ public class ActionResolver {
         if (tryParseOpponentRandomHandRfp(effectText)            != null) return "OpponentRandomHandRfp";
         if (tryParseOpponentRandomHandToBottomDeck(effectText)   != null) return "OpponentRandomHandToBottomDeck";
         if (tryParseOpponentHandRfp(effectText)               != null) return "OpponentHandRfp";
+        if (tryParseRevealTopNAddPerElementQuota(effectText) != null) return "RevealTopNAddPerElementQuota";
         if (tryParseRevealTopNAddOnePerTypeRestBz(effectText) != null) return "RevealTopNAddOnePerTypeRestBz";
         if (tryParseRevealTopNAddUpToExcludingNameRestBz(effectText) != null) return "RevealTopNAddUpToExcludingNameRestBz";
         if (tryParseRevealPlayCategoryTypeRestShuffledBottomGrantElementJob(effectText) != null) return "RevealPlayCategoryTypeRestShuffledBottomGrantElementJob";
@@ -2210,6 +2227,7 @@ public class ActionResolver {
         // Must precede SearchDeck, mirroring parse(): that parser names the search alone and
         // leaves the "If you do so, ..." payoff out of the report.
         if (tryParseSearchNamedRfgThenIfDoSo(effectText, source) != null) return "SearchNamedRfgThenIfDoSo";
+        if (tryParseSearchMatchingBrokenCard(effectText) != null) return "SearchMatchingBrokenCard";
         if (tryParseSearchDeck(effectText, source, 0)                      != null) return "SearchDeck";
         if (tryParsePlayAllByNameFromBreakZone(effectText)      != null) return "PlayAllByNameFromBreakZone";
         if (tryParsePlaySourceFromBreakZone(effectText, source) != null) return "PlaySourceFromBreakZone";
@@ -2224,6 +2242,7 @@ public class ActionResolver {
         if (tryParseAttackOnceMore(effectText)                  != null) return "AttackOnceMore";
         if (tryParseOpponentCannotSearchThisTurn(effectText)    != null) return "OpponentCannotSearch";
         if (tryParseOpponentCannotCastAnyCardsThisTurn(effectText) != null) return "OpponentCannotCastAnyCards";
+        if (tryParseOpponentCannotCastSummonsThisTurn(effectText) != null) return "OpponentCannotCastSummons";
         if (tryParseRemoveFromBattle(effectText)                != null) return "RemoveFromBattle";
         if (tryParseChooseSummonFromBzToHandWithCostReduction(effectText) != null) return "ChooseSummonFromBzToHandWithCostReduction";
         if (tryParseChooseNSummonsBzPickOneHandRestRfg(effectText)        != null) return "ChooseNSummonsBzPickOneHandRestRfg";
@@ -2405,7 +2424,12 @@ public class ActionResolver {
         if (FOLLOWUP_TARGET_CONTROLLER_DISCARDS.matcher(followupText).matches()) return "TargetControllerDiscards";
         if (source != null) {
             Matcher mutM = FOLLOWUP_MUTUAL_POWER_DAMAGE.matcher(followupText);
-            if (mutM.find() && mutM.group("srcname").trim().equalsIgnoreCase(source.name())) return "MutualPowerDamage";
+            if (mutM.find() && mutM.group("srcname").trim().equalsIgnoreCase(source.name()))
+                // Named apart when the exchange is gated on a Backup count (Dyne 25-064C), because
+                // the two behave differently on the same board and the reports are read to tell
+                // which effect a card actually got.
+                return mutM.group("bkpthresh") != null
+                        ? "MutualPowerDamageIfBackups" : "MutualPowerDamage";
         }
         // The sibling wording, where neither Forward is named because both were just chosen
         // ("Each Forward deals damage equal to its power to the other" — 19-062R Nacht and family).
@@ -3435,6 +3459,7 @@ public class ActionResolver {
         if (tryParseOpponentRandomHandRfp(effectText) != null)              return "OpponentRandomHandRfp";
         if (tryParseOpponentRandomHandToBottomDeck(effectText) != null)     return "OpponentRandomHandToBottomDeck";
         if (tryParseOpponentHandRfp(effectText) != null)                   return "OpponentHandRfp";
+        if (tryParseRevealTopNAddPerElementQuota(effectText) != null) return "RevealTopNAddPerElementQuota";
         if (tryParseRevealTopNAddOnePerTypeRestBz(effectText) != null)         return "RevealTopNAddOnePerTypeRestBz";
         if (tryParseRevealTopNAddUpToExcludingNameRestBz(effectText) != null)  return "RevealTopNAddUpToExcludingNameRestBz";
         if (tryParseRevealPlayCategoryTypeRestShuffledBottomGrantElementJob(effectText) != null) return "RevealPlayCategoryTypeRestShuffledBottomGrantElementJob";
@@ -3588,6 +3613,7 @@ public class ActionResolver {
         // Must precede SearchDeck, mirroring parse(): that parser names the search alone and
         // leaves the "If you do so, ..." payoff out of the report.
         if (tryParseSearchNamedRfgThenIfDoSo(effectText, source) != null) return "SearchNamedRfgThenIfDoSo";
+        if (tryParseSearchMatchingBrokenCard(effectText) != null) return "SearchMatchingBrokenCard";
         if (tryParseSearchDeck(effectText, source, 0) != null)              return "SearchDeck";
         if (tryParsePlayAllByNameFromBreakZone(effectText) != null)         return "PlayAllByNameFromBreakZone";
         if (tryParsePlaySourceFromBreakZone(effectText, source) != null)    return "PlaySourceFromBreakZone";
@@ -3600,6 +3626,7 @@ public class ActionResolver {
         if (tryParseAttackOnceMore(effectText) != null)                     return "AttackOnceMore";
         if (tryParseOpponentCannotSearchThisTurn(effectText) != null)       return "OpponentCannotSearch";
         if (tryParseOpponentCannotCastAnyCardsThisTurn(effectText) != null) return "OpponentCannotCastAnyCards";
+        if (tryParseOpponentCannotCastSummonsThisTurn(effectText) != null) return "OpponentCannotCastSummons";
         if (tryParseExtraTurnThenLose(effectText) != null)                  return "ExtraTurnThenLose";
         if (tryParseGainCrystalPerX(effectText, 0) != null)                 return "GainCrystalPerX";
         // Mirrors parse(); see the matching guard in matchedPatternNameOn().
@@ -6235,6 +6262,24 @@ public class ActionResolver {
     static String cap(String s) {
         if (s == null || s.isEmpty()) return s;
         return Character.toUpperCase(s.charAt(0)) + s.substring(1).toLowerCase();
+    }
+
+    /**
+     * Normalises an element clause -- one name, or a list such as "Fire, Earth or Water" -- into
+     * the bar-separated form {@link CardFilters#meetsElementFilter} reads.
+     *
+     * <p>Each term goes through {@link #cap} for the reason a single element always has: the card
+     * text's capitalisation is not guaranteed and the filter compares against canonical names.
+     */
+    static String elementListFilter(String clause) {
+        if (clause == null) return null;
+        StringBuilder sb = new StringBuilder();
+        for (String e : clause.split("(?i)\\s*,\\s*|\\s+or\\s+")) {
+            if (e.isBlank()) continue;
+            if (sb.length() > 0) sb.append('|');
+            sb.append(cap(e.trim()));
+        }
+        return sb.length() > 0 ? sb.toString() : null;
     }
 
     /** Appends {@code term} ("Job X" or "Card Name X") to the appropriate pipe-separated list. */

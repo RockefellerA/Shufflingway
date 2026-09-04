@@ -988,6 +988,24 @@ public interface GameContext {
      */
     void addTriggeringBrokenCardToHand();
 
+    /**
+     * Searches the resolving player's deck for a card sharing the name of the card whose departure
+     * fired the "put into the Break Zone" trigger now resolving, and sends it to
+     * {@code destination} -- Mira 4-137L's "search for a Monster with the same name and add it to
+     * your hand".
+     *
+     * <p>The third of the trigger-card family, and it takes no target for the reason the other two
+     * do not: the name is supplied by the event, not by the text and not by a choice. What it
+     * copies off that card is only the name -- the type filter is the one the sentence prints, so
+     * "a Monster with the same name" still fetches a Monster.
+     *
+     * <p>Does nothing when no such trigger is resolving. Unlike its siblings it does not care
+     * whether the card is still in the Break Zone: the search reads a name, and the card that
+     * supplied it has already done its part by the time this runs.
+     */
+    void searchDeckMatchingTriggeringBrokenCardName(boolean inclForwards, boolean inclBackups,
+            boolean inclMonsters, boolean inclSummons, String destination, int count);
+
 
     /**
      * Moves the target (chosen from either Break Zone) to the resolving player's hand — P1's on a
@@ -2429,6 +2447,18 @@ public interface GameContext {
      * field left to read it off.
      */
     void setOpponentCannotCastThisTurn();
+
+    /**
+     * Bars the resolving player's opponent from casting Summons for the rest of the turn -- Sol
+     * (FFBE) 18-106H's third modal action.
+     *
+     * <p>The narrow sibling of {@link #setOpponentCannotCastThisTurn}, and turn-scoped for a
+     * different reason: Sol stays on the field while the ban runs, but the ban is stated by a
+     * beginning-of-Attack-Phase trigger and lasts the turn, so it is an event's aftermath rather
+     * than a property of the card. Reading it off the field would keep it alive on the turns the
+     * option was not taken.
+     */
+    void setOpponentCannotCastSummonsThisTurn();
 
     /**
      * Arms Alhanalem 18-018R for the rest of the turn: any Character that would enter the field
@@ -4143,6 +4173,24 @@ public interface GameContext {
      * the list arrives as printed rather than as a set.
      */
     void revealTopAddOnePerTypeToHandRestBz(int reveal, java.util.List<String> types);
+
+    /**
+     * Reveals the top {@code reveal} cards and lets the player take cards against several separate
+     * per-Element allowances -- "Add up to 1 Wind card and up to 1 Earth card among them to your
+     * hand" (Shantotto 14-067H, Terra 27-014H, Cindy 27-063H). What is not taken goes to the Break
+     * Zone when {@code restToBreakZone}, and otherwise to the bottom of the deck in an order the
+     * player chooses.
+     *
+     * <p>The Element sibling of {@link #revealTopAddOnePerTypeToHandRestBz}, and it needs its own
+     * method for a reason that one does not have to think about: card types are mutually exclusive,
+     * so each revealed card answers to at most one quota, while a Wind/Earth multicard answers to
+     * two of Shantotto's and may still be taken only once. See {@link RevealQuota}.
+     *
+     * <p>Distinct from passing a bar-separated element filter with a count of 2, which would let a
+     * player take two Wind cards -- the thing these printings are worded to prevent.
+     */
+    void revealTopAddPerElementQuota(int reveal, java.util.List<RevealQuota> quotas,
+            boolean restToBreakZone);
 
     /**
      * Turns cards over from the top of the deck one at a time until {@code count} cards matching

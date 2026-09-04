@@ -990,10 +990,18 @@ final class ActionResolverPatterns {
      * <ul>
      *   <li>{@code srcname} — the card name on the left side of "and the chosen Forward"; verified
      *       against the ability's source card at match time.</li>
+     *   <li>{@code bkpthresh} — the Backup count the exchange is gated on, or null when it is
+     *       unconditional. Dyne 25-064C is the corpus's only gated printing.</li>
      * </ul>
+     *
+     * <p>The gate sits ahead of {@code srcname} rather than being spliced in by the caller
+     * because {@code srcname} is lazy: left to itself it swallows the whole "If you control 5 or
+     * more Backups, Dyne" clause, fails the source-name check, and the followup goes unclaimed.
+     * The choice is still made when the gate is false — only the damage is withheld.
      */
     static final Pattern FOLLOWUP_MUTUAL_POWER_DAMAGE = Pattern.compile(
-        "(?i)(?<srcname>.+?)\\s+and\\s+the\\s+chosen\\s+Forward\\s+deal\\s+damage\\s+equal\\s+to\\s+their\\s+respective\\s+power\\s+to\\s+the\\s+other[.!]?"
+        "(?i)(?:If\\s+you\\s+control\\s+(?<bkpthresh>\\d+)\\s+or\\s+more\\s+Backups?,\\s*)?" +
+        "(?<srcname>.+?)\\s+and\\s+the\\s+chosen\\s+Forward\\s+deal\\s+damage\\s+equal\\s+to\\s+their\\s+respective\\s+power\\s+to\\s+the\\s+other[.!]?"
     );
     /**
      * Matches "Reveal the top card of opponent's deck. If it is a [Type], &lt;then&gt;. If it is
@@ -1979,6 +1987,43 @@ final class ActionResolverPatterns {
      * <p>No name and no choice: the definite article points back at the trigger's own event, which
      * is why the effect takes no target and reads {@code MainWindow.triggeringBrokenCard} instead.
      */
+    /**
+     * "Search for a [Type] with the same name and add it to your hand" -- Mira 4-137L's payoff,
+     * where the name is the one the trigger just supplied: the Monster whose arrival in the Break
+     * Zone fired the ability.
+     *
+     * <p>The third member of the trigger-card family beside
+     * {@link #PLAY_BROKEN_CARD_ONTO_FIELD_DULL} and {@link #ADD_TRIGGERING_BROKEN_CARD_TO_HAND},
+     * and read the same way: nothing is named and nothing is chosen, so the effect takes no target
+     * and resolves against the trigger now running.
+     *
+     * <p>Deliberately refuses the "as the [Type] you put into the Break Zone" tail. Magic Pot
+     * 4-094R spells the source out that way because there the Break Zone card is part of an
+     * <em>action ability's cost</em>, not a trigger's event -- no trigger is resolving when it
+     * runs, so this effect would find no card and quietly fetch nothing.
+     *
+     * <p>Takes the indefinite article only, never a numeral, and that is what separates it from
+     * the chosen-card family: Mira alone prints "search for <b>a</b> Monster with the same name",
+     * while 12-106R Relm, 23-078C Alisaie and 27-052H Chaos all print "search for <b>1</b>
+     * Character with the same name" and mean the card the player has just chosen. Nothing in
+     * either sentence says which card "the same name" points at -- only the context does, and
+     * {@code parse()} has none -- so the article is the whole of the available signal. It
+     * separates the corpus cleanly; a printing that broke the correspondence would need the
+     * distinction made where the context is instead.
+     *
+     * <p>Anchored end to end and matched with {@code matches()}, for the reason
+     * {@link #ADD_TRIGGERING_BROKEN_CARD_TO_HAND} is: under {@code find()} it would claim the tail
+     * of those abilities whatever the article said.
+     *
+     * <p>Groups: {@code type} (the card type searched for), {@code destination}.
+     */
+    static final Pattern SEARCH_MATCHING_TRIGGERING_BROKEN_CARD = Pattern.compile(
+        "(?i)^search\\s+for\\s+an?\\s+" +
+        "(?<type>Forward|Backup|Monster|Character|Summon|card)s?\\s+" +
+        "with\\s+the\\s+same\\s+name\\s+and\\s+" +
+        "(?<destination>add\\s+it\\s+to\\s+your\\s+hand" +
+        "|play\\s+it\\s+onto\\s+(?:the\\s+)?field)[.!]?$"
+    );
     static final Pattern PLAY_BROKEN_CARD_ONTO_FIELD_DULL = Pattern.compile(
         "(?i)^Play\\s+the\\s+(?:Forward|Backup|Monster|Character|card)\\s+placed\\s+in\\s+the\\s+" +
         "Break\\s+Zone\\s+onto\\s+(?:the\\s+)?field\\s+dull[.!]?$"
@@ -3405,10 +3450,19 @@ final class ActionResolverPatterns {
      * the element OR belongs to the category).
      * Groups: {@code n} (reveal count), {@code max} (max to add), {@code element} (element name),
      * {@code type} (card type; only in the plain form), {@code cat} (category; only in the "or Category" form).
+     *
+     * <p>{@code element} is a list, not a single name: Arc 18-035R prints "Add 1 Fire, Earth or
+     * Water card", a card that qualifies on any one of the three. The parser splits the list and
+     * hands the terms down bar-separated, which is what the element gate already reads.
+     *
+     * <p>The list is an <em>alternation</em>, never a quota. "Add up to 1 Wind card and up to 1
+     * Earth card" (Shantotto 14-067H) grants one allowance per element, a different effect that
+     * this pattern must not claim -- which is why the joiner accepts only "," and "or".
      */
     static final Pattern REVEAL_TOP_N_ELEMENT_TO_HAND = Pattern.compile(
         "(?i)^\\s*(?:you\\s+may\\s+)?reveal\\s+the\\s+top\\s+(?<n>\\d+)\\s+cards?\\s+of\\s+your\\s+deck[.!]?\\s+" +
-        "Add\\s+(?<max>\\d+)\\s+(?<element>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark|Multi-Element)\\s+" +
+        "Add\\s+(?<max>\\d+)\\s+(?<element>(?:Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark|Multi-Element)(?:\\s*,\\s*(?:Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark|Multi-Element))*" +
+            "(?:\\s+or\\s+(?:Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark|Multi-Element))?)\\s+" +
         "(?:" +
             "or\\s+Category\\s+(?<cat>\\S+)(?:\\s+(?:Forward|Backup|Character|Monster|card)s?)?" +
             "|" +
@@ -3569,6 +3623,44 @@ final class ActionResolverPatterns {
     /** One "1 [Type]" quota inside {@link #REVEAL_TOP_N_ADD_ONE_PER_TYPE_REST_BZ}'s list. */
     static final Pattern REVEAL_ONE_PER_TYPE_QUOTA = Pattern.compile(
         "(?i)1\\s+(?<type>Forward|Backup|Monster|Summon)"
+    );
+    /**
+     * Matches "Reveal the top N cards of your deck. Add up to M [Element] card and up to M
+     * [Element] card among them to your hand and [return the other cards to the bottom of your
+     * deck in any order | put the rest of the cards into the Break Zone]." -- Shantotto 14-067H,
+     * Terra 27-014H, Cindy 27-063H.
+     *
+     * <p>A quota per Element, the way {@link #REVEAL_TOP_N_ADD_ONE_PER_TYPE_REST_BZ} is a quota per
+     * card type: reveal two Wind cards and no Earth one and you take a single card, not two. That
+     * is what separates it from {@link #REVEAL_TOP_N_ELEMENT_TO_HAND}, whose Element list is one
+     * allowance any of the named Elements fills.
+     *
+     * <p>Both destinations sit in one pattern because the take is identical and only the leftovers
+     * differ; group {@code bz} says which. Splitting them would have been two patterns whose
+     * quota-list halves had to stay in step.
+     *
+     * <p>Before this existed the whole family fell through to parse()'s compound-sentence
+     * fallback, which read "Add up to 1 Wind card and up to 1 Earth card among them to your hand"
+     * as a request to return a card <b>named</b> "up to 1 Wind card and up to 1 Earth card among
+     * them" -- so the reveal never happened, nothing was ever added, and the effect reported
+     * success. The same fallback bug the rest-to-Break-Zone family was written to close.
+     *
+     * <p>Group {@code quotas} holds the whole list; the parser splits it with
+     * {@link #REVEAL_ONE_PER_ELEMENT_QUOTA}, which keeps the pattern from naming a fixed number
+     * of allowances.
+     */
+    static final Pattern REVEAL_TOP_N_ADD_PER_ELEMENT_QUOTA = Pattern.compile(
+        "(?i)^\\s*(?:you\\s+may\\s+)?reveal\\s+the\\s+top\\s+(?<n>\\d+)\\s+cards?\\s+of\\s+your\\s+deck[.!]?\\s+" +
+        "Add\\s+(?<quotas>up\\s+to\\s+\\d+\\s+(?:Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)(?:\\s+or\\s+(?:Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark))*\\s+cards?(?:\\s+and\\s+up\\s+to\\s+\\d+\\s+(?:Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)(?:\\s+or\\s+(?:Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark))*\\s+cards?)+)\\s+" +
+        "among\\s+them\\s+to\\s+your\\s+hand,?\\s+and\\s+" +
+        "(?:return\\s+the\\s+other\\s+cards?\\s+to\\s+the\\s+bottom\\s+of\\s+(?:your|the)\\s+deck(?:\\s+in\\s+any\\s+order)?" +
+        "|(?<bz>put\\s+the\\s+rest\\s+(?:of\\s+the\\s+cards?\\s+)?into\\s+the\\s+Break\\s+Zone))" +
+        "[.!]?\\s*$"
+    );
+
+    /** One "up to N [Element(s)] card" allowance inside {@link #REVEAL_TOP_N_ADD_PER_ELEMENT_QUOTA}'s list. */
+    static final Pattern REVEAL_ONE_PER_ELEMENT_QUOTA = Pattern.compile(
+        "(?i)up\\s+to\\s+(?<count>\\d+)\\s+(?<elems>(?:Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)(?:\\s+or\\s+(?:Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark))*)\\s+cards?"
     );
     /**
      * Matches "Reveal the top N cards of your deck. Add M [Type] among them to your hand or
@@ -4446,12 +4538,24 @@ final class ActionResolverPatterns {
      * corpus's only total cast prohibition.
      *
      * <p>"any cards" is required rather than optional, which is what keeps this off the narrower
-     * printing beside it: 18-106H's "During this turn, your opponent cannot cast Summons." bans one
-     * card type and is a different, unimplemented effect. Reading it as this one would ban
-     * everything, so it stays visibly unhandled instead.
+     * printing beside it: {@link #OPPONENT_CANNOT_CAST_SUMMONS_THIS_TURN} bans one card type, is
+     * answered by a different gate, and would ban everything if this pattern claimed it.
      */
     static final Pattern OPPONENT_CANNOT_CAST_ANY_CARDS_THIS_TURN = Pattern.compile(
         "(?i)^During\\s+this\\s+turn,?\\s+your\\s+opponent\\s+cannot\\s+cast\\s+any\\s+cards\\s*[.!]?$"
+    );
+    /**
+     * "During this turn, your opponent cannot cast Summons." — Sol (FFBE) 18-106H's third modal
+     * action, and the corpus's only one-card-type cast prohibition.
+     *
+     * <p>Distinct from {@link #OPPONENT_CANNOT_CAST_ANY_CARDS_THIS_TURN} at both ends. There the
+     * ban is total and is answered by the cast-limit gate, which is asked without a card; here it
+     * is a type ban, so it can only be answered where a card is in hand —
+     * {@code MainWindow.summonCastBlocked}, beside "Players cannot cast Summons." (15-021R General
+     * Leo), which bans the same card type for both players and for as long as its card stands.
+     */
+    static final Pattern OPPONENT_CANNOT_CAST_SUMMONS_THIS_TURN = Pattern.compile(
+        "(?i)^During\\s+this\\s+turn,?\\s+your\\s+opponent\\s+cannot\\s+cast\\s+Summons\\s*[.!]?$"
     );
     /** Splits "and Card Name" within an activate target list. */
     static final Pattern ACTIVATE_AND_CARD_NAME_SPLIT = Pattern.compile(
@@ -7002,6 +7106,27 @@ final class ActionResolverPatterns {
         "(?:(?<condElement>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)\\s+)?" +
         "(?<condType>Forwards?|Backups?|Monsters?|Characters?|Summons?),\\s+" +
         "select\\s+(?<condUpTo>up\\s+to\\s+)?(?<condSelect>\\d+)\\s+of\\s+the\\s+\\d+\\s+" +
+        "following\\s+actions?\\s+instead[.!]?\\s*",
+        Pattern.DOTALL
+    );
+    /**
+     * Matches an inline conditional upgrade gated on the damage the ability's own controller has
+     * taken, appearing before the quoted actions: "If you have received N points of damage[ or
+     * more], select [up to] M of the K following actions instead."
+     *
+     * <p>The largest of the three upgrade families — Celes 11-118L, Aldore Emperor 13-122H,
+     * Yuna 16-134S, Sol (FFBE) 18-106H, Snovlinka 27-112H, Ultimecia 7-133S, Dark Fina 8-042L and
+     * Meia 9-095L.
+     *
+     * <p>"or more" is optional and changes nothing: Ultimecia prints "If you have received 6
+     * points of damage" and means at least six, the way every damage threshold in the game does.
+     *
+     * <p>Groups: {@code dmgCount}, {@code dmgUpTo} (optional), {@code dmgSelect}.
+     */
+    static final Pattern SELECT_FOLLOWING_ACTIONS_DAMAGE_UPGRADE = Pattern.compile(
+        "(?i)^If\\s+you\\s+have\\s+received\\s+(?<dmgCount>\\d+)\\s+points?\\s+of\\s+damage" +
+        "(?:\\s+or\\s+more)?,\\s+" +
+        "select\\s+(?<dmgUpTo>up\\s+to\\s+)?(?<dmgSelect>\\d+)\\s+of\\s+the\\s+\\d+\\s+" +
         "following\\s+actions?\\s+instead[.!]?\\s*",
         Pattern.DOTALL
     );

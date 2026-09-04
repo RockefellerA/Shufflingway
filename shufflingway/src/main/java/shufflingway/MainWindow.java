@@ -2175,9 +2175,13 @@ public class MainWindow {
 		p2Turn.partyAnyElementThisTurn = false;
 		lastCardWasCast   = false;
 		lastCardWarpedIn  = false;
-		triggeringBrokenCard = null;
-		triggeringBrokenCard = null;
-		triggeringBrokenCard = null;
+		// The three transient trigger-event fields, which are declared together and belong
+		// together here. Each is already set and restored in a finally around its own
+		// resolution, so none of them can outlive one -- this is the belt to that brace, and
+		// for two of them it was a copy of the first field's line rather than their own.
+		triggeringBrokenCard  = null;
+		triggeringEnteredCard = null;
+		lastDealtDamageAmount = 0;
 
 		gameState.reset();
 		endOfTurnEffects.clear();
@@ -3016,7 +3020,7 @@ public class MainWindow {
 			boolean nameConflict  = isCharacter && !cd.multicard() && hasCharacterNameOnField(cd.name()) && !isMultiNameExceptionActive(cd.name(), true);
 			boolean ldConflict    = isCharacter && isLightDarkConflict(cd);
 			boolean noSlot        = cd.isBackup() && !hasAvailableBackupSlot();
-			boolean summonBlocked = cd.isSummon() && summonCastingProhibited();
+			boolean summonBlocked = cd.isSummon() && summonCastingBanned(true);
 			boolean noTarget      = !summonBlocked && !summonHasCastTarget(cd, true);
 			final boolean legal   = !nameConflict && !ldConflict && !noSlot && !summonBlocked && !noTarget && !p1CastLimitReached();
 			final String reason   = nameConflict ? "Name conflict" : ldConflict ? "Light/Dark"
@@ -3374,6 +3378,7 @@ public class MainWindow {
                                 p1Turn.attackDeclarationLimit = Integer.MAX_VALUE;       p1Turn.attackDeclarationsThisTurn = 0;
                                 p1Turn.cannotSearchThisTurn = false; p2Turn.cannotSearchThisTurn = false;
                                 p1Turn.cannotCastThisTurn = false;   p2Turn.cannotCastThisTurn = false;
+                                p1Turn.cannotCastSummonsThisTurn = false; p2Turn.cannotCastSummonsThisTurn = false;
                                 p1Turn.oppFieldEntryBecomesRfg = false; p2Turn.oppFieldEntryBecomesRfg = false;
                                 // attacksMadeThisTurn was just emptied, so the exhausted-attacker
                                 // glow comes off with it.
@@ -8632,8 +8637,9 @@ public class MainWindow {
 	}
 
 	/**
-	 * The two gates a Summon passes that no other card type does: the field-wide "Players cannot
-	 * cast Summons." prohibition, and having something to choose. Non-Summons are never blocked.
+	 * The three gates a Summon passes that no other card type does: the field-wide "Players cannot
+	 * cast Summons." prohibition, this player's turn-scoped Summon ban (Sol (FFBE) 18-106H), and
+	 * having something to choose. Non-Summons are never blocked.
 	 *
 	 * <p>One method because every cast route has to ask both — the hand menu's Play item and each
 	 * of its alternative-cost siblings, the Break Zone's borrowed casts, and the AI's planner. They
@@ -8643,7 +8649,21 @@ public class MainWindow {
 	 */
 	boolean summonCastBlocked(CardData card, boolean isP1) {
 		return card != null && card.isSummon()
-				&& (summonCastingProhibited() || !summonHasCastTarget(card, isP1));
+				&& (summonCastingBanned(isP1) || !summonHasCastTarget(card, isP1));
+	}
+
+	/**
+	 * Whether {@code isP1} may not cast a Summon at all right now, for either of the two reasons
+	 * the game gives: the field-wide "Players cannot cast Summons." (15-021R General Leo), which
+	 * binds both seats for as long as its card stands, and this player's own turn-scoped ban
+	 * (Sol (FFBE) 18-106H), which binds one seat until the turn ends.
+	 *
+	 * <p>Its own method because the two are asked together at every cast route and separating them
+	 * is how a route ends up enforcing one and not the other -- the duplication
+	 * {@link #summonCastBlocked} above already exists to prevent.
+	 */
+	boolean summonCastingBanned(boolean isP1) {
+		return summonCastingProhibited() || turn(isP1).cannotCastSummonsThisTurn;
 	}
 
 	private boolean playerHasCastForwardsFromBz(boolean isP1) {

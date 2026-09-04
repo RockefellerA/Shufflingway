@@ -154,6 +154,18 @@ class PlayerTurnState {
 	boolean cannotCastThisTurn = false;
 
 	/**
+	 * True while this player may not cast Summons for the rest of the turn -- Sol (FFBE) 18-106H's
+	 * "during this turn, your opponent cannot cast Summons".
+	 *
+	 * <p>The narrow twin of {@link #cannotCastThisTurn}, and separate from it because the two do
+	 * not nest cleanly at the reading end: the total ban is answered by the cast-limit gate, which
+	 * knows no card, while a type ban has to be asked about one. Read by
+	 * {@code MainWindow.summonCastBlocked}, alongside the field-ability prohibition that bans
+	 * Summons for both players.
+	 */
+	boolean cannotCastSummonsThisTurn = false;
+
+	/**
 	 * Alhanalem 18-018R: while set, any Character entering the field because of a Summon or ability
 	 * belonging to <em>this player's opponent</em> is removed from the game instead of arriving.
 	 *

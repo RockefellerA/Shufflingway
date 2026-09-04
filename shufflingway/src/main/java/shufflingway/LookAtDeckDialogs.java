@@ -1316,7 +1316,8 @@ class LookAtDeckDialogs {
             boolean mandatoryAll) {
         resolveReveal(cards, deck, isP1,
                 () -> askRevealAddUpToMatchingRestBottom(cards, maxAdd, jobFilter, categoryFilter,
-                        cardNameFilter, typeFilter, maxCost, elementFilter, orElementFilter, mandatoryAll),
+                        cardNameFilter, typeFilter, maxCost, elementFilter, orElementFilter,
+                        mandatoryAll, null),
                 () -> cpuRevealAddUpToMatchingRestBottom(cards, maxAdd, jobFilter, categoryFilter,
                         cardNameFilter, typeFilter, maxCost, elementFilter, orElementFilter, mandatoryAll),
                 null);
@@ -1403,10 +1404,16 @@ class LookAtDeckDialogs {
         return new DeckLookDecision(toHand, List.of(), List.of(), toBottom);
     }
 
+    /**
+     * @param quotas when non-null, the selection rule instead of {@code maxAdd} and the filters:
+     *     several separate allowances rather than one count over one filter. See
+     *     {@link RevealQuota}. The two rules are alternatives; no printing states both, and none
+     *     combines quotas with {@code mandatoryAll}.
+     */
     private DeckLookDecision askRevealAddUpToMatchingRestBottom(List<CardData> cards,
             int maxAdd, String jobFilter, String categoryFilter, String cardNameFilter,
             String typeFilter, int maxCost, String elementFilter, String orElementFilter,
-            boolean mandatoryAll) {
+            boolean mandatoryAll, List<RevealQuota> quotas) {
         int n = cards.size();
         JDialog dlg = new JDialog(frame, "Reveal — Add to Hand, Rest to Bottom", true);
         dlg.setResizable(false);
@@ -1442,9 +1449,15 @@ class LookAtDeckDialogs {
             int count = handSel.size();
             for (int j = 0; j < n; j++) {
                 CardData c = order.get(j);
+                boolean inHand = holdsIdentity(handSel, c);
+                if (quotas != null) {
+                    // Under quotas the question is about the haul, not the card: a second Wind card
+                    // is refused because the one Wind allowance is spent, though the card qualifies.
+                    handBtns[j].setEnabled(inHand || quotasAdmit(handSel, c, quotas));
+                    continue;
+                }
                 boolean eligible = eligibleForReveal(c, jobFilter, categoryFilter, cardNameFilter,
                         typeFilter, maxCost, elementFilter, orElementFilter);
-                boolean inHand = holdsIdentity(handSel, c);
                 handBtns[j].setEnabled(!mandatoryAll && eligible && (inHand || count < maxAdd));
             }
         };
@@ -1548,7 +1561,10 @@ class LookAtDeckDialogs {
         if (orElementFilter != null) filterDesc = orElementFilter + " or " + filterDesc;
         if (maxCost >= 0) filterDesc += " of cost " + maxCost + " or less";
         JLabel instructions = new JLabel(
-                txt(mandatoryAll
+                txt(quotas != null
+                        ? "Toggle '→ Hand' to add " + RevealQuota.describeAll(quotas)
+                                + ". Swap the rest to order (left = first at bottom)."
+                        : mandatoryAll
                         ? "All " + filterDesc + " go to your hand. Swap the rest to order "
                                 + "(left = first at bottom)."
                         : "Toggle '→ Hand' on " + filterDesc + " (up to " + maxAdd
@@ -1680,7 +1696,7 @@ class LookAtDeckDialogs {
     private void revealAddUpTo(List<CardData> cards, Deque<CardData> deck, boolean isP1,
             int maxAdd, Predicate<CardData> eligible, String note, RestGoes goes) {
         resolveReveal(cards, deck, isP1,
-                () -> askRevealAddUpToRestBz(cards, maxAdd, eligible, note, goes),
+                () -> askRevealAddUpToRestBz(cards, maxAdd, eligible, note, goes, null),
                 () -> cpuRevealAddUpToRestBz(cards, maxAdd, eligible, goes),
                 null);
     }
@@ -1746,11 +1762,19 @@ class LookAtDeckDialogs {
         return splitDecision(cards, taken, goes);
     }
 
+    /**
+     * @param quotas when non-null, the selection rule instead of {@code maxAdd}/{@code eligible}:
+     *     several separate allowances rather than one count over one filter, so a card taken
+     *     against one of them does not close the others. See {@link RevealQuota}. The two rules are
+     *     alternatives and no printing states both.
+     */
     private DeckLookDecision askRevealAddUpToRestBz(List<CardData> cards,
-            int maxAdd, Predicate<CardData> eligible, String note, RestGoes goes) {
+            int maxAdd, Predicate<CardData> eligible, String note, RestGoes goes,
+            List<RevealQuota> quotas) {
         int n = cards.size();
         JDialog dlg = new JDialog(frame,
-                "Reveal — Add to Hand (up to " + maxAdd + "), "
+                "Reveal — Add to Hand ("
+                + (quotas != null ? RevealQuota.describeAll(quotas) : "up to " + maxAdd) + "), "
                 + (goes == RestGoes.BREAK_ZONE ? "Rest to Break Zone"
                                                : "Rest Shuffled Under Your Deck"), true);
         dlg.setResizable(false);
@@ -1769,9 +1793,12 @@ class LookAtDeckDialogs {
             int count = handSel.size();
             for (int j = 0; j < n; j++) {
                 CardData c = cards.get(j);
-                boolean excluded = !eligible.test(c);
                 boolean inHand = holdsIdentity(handSel, c);
-                handBtns[j].setEnabled(!excluded && (inHand || count < maxAdd));
+                // Under quotas the question is about the haul, not the card: a second Wind card is
+                // refused because the one Wind allowance is spent, even though the card qualifies.
+                handBtns[j].setEnabled(quotas != null
+                        ? inHand || quotasAdmit(handSel, c, quotas)
+                        : eligible.test(c) && (inHand || count < maxAdd));
             }
         };
 
@@ -2032,6 +2059,135 @@ class LookAtDeckDialogs {
         for (CardData c : cards) if (!holdsIdentity(handSel, c)) broken.add(c);
         return new DeckLookDecision(peekIndices(cards, handSel), peekIndices(cards, broken),
                 List.of(), List.of());
+    }
+
+    // ---------------------------------------------------------------- per-Element quotas
+
+    /**
+     * "Reveal the top N cards of your deck. Add up to 1 [Element] card and up to 1 [Element] card
+     * among them to your hand, and [put the rest into the Break Zone | return the other cards to
+     * the bottom of your deck in any order]." — Shantotto 14-067H, Terra 27-014H, Cindy 27-063H.
+     *
+     * <p>Routes to whichever of the two reveal dialogs matches the destination, handing each the
+     * quota list in place of its usual count-and-filter rule: only the selection differs between
+     * these and their flat-filter siblings, and the leftovers behave exactly as they do there —
+     * which for the bottom-of-deck arm means the player still orders them.
+     */
+    void revealAddPerElementQuota(List<CardData> cards, Deque<CardData> deck, boolean isP1,
+            List<RevealQuota> quotas, boolean restToBreakZone) {
+        if (restToBreakZone) {
+            resolveReveal(cards, deck, isP1,
+                    () -> askRevealAddUpToRestBz(cards, 0, c -> false, "", RestGoes.BREAK_ZONE, quotas),
+                    () -> cpuRevealAddPerQuotaRestBz(cards, quotas),
+                    null);
+        } else {
+            resolveReveal(cards, deck, isP1,
+                    () -> askRevealAddUpToMatchingRestBottom(cards, 0, null, null, null, null, -1,
+                            null, null, false, quotas),
+                    () -> cpuRevealAddPerQuotaRestBottom(cards, quotas),
+                    null);
+        }
+    }
+
+    /**
+     * Whether {@code taken} plus {@code candidate} is a legal haul under {@code quotas} — that is,
+     * whether every card in it can be charged to a distinct allowance it fills.
+     *
+     * <p>Not a per-card test, because Elements are not mutually exclusive the way card types are.
+     * Shantotto 14-067H offers "up to 1 Wind card and up to 1 Earth card"; a Wind/Earth multicard
+     * fills either one but spends only one. Ask each card in isolation and two such cards look
+     * legal when only one may be taken, so the question has to be put about the haul as a whole.
+     *
+     * <p>Settled by augmenting paths — the standard bipartite matching, cards on one side and
+     * allowance <em>slots</em> on the other (a quota of 2 contributing two slots). The haul is
+     * legal exactly when every card can be matched. The corpus never exceeds three cards and two
+     * allowances, so the cost of this is irrelevant and its being obviously right is not.
+     */
+    static boolean quotasAdmit(List<CardData> taken, CardData candidate, List<RevealQuota> quotas) {
+        List<CardData> haul = new ArrayList<>(taken);
+        if (candidate != null) haul.add(candidate);
+        if (haul.size() > RevealQuota.totalCount(quotas)) return false;
+
+        // Slot i belongs to the quota named here, so a quota of 2 offers two interchangeable slots.
+        List<RevealQuota> slots = new ArrayList<>();
+        for (RevealQuota q : quotas) for (int i = 0; i < q.count(); i++) slots.add(q);
+
+        int[] slotOwner = new int[slots.size()];
+        java.util.Arrays.fill(slotOwner, -1);
+        for (int card = 0; card < haul.size(); card++)
+            if (!assignToSlot(card, haul, slots, slotOwner, new boolean[slots.size()])) return false;
+        return true;
+    }
+
+    /**
+     * One augmenting step: seat {@code card} in some slot it fills, displacing an earlier card only
+     * where that card can be re-seated elsewhere. {@code seen} keeps the walk from revisiting a
+     * slot within this step, which is what makes it terminate.
+     */
+    private static boolean assignToSlot(int card, List<CardData> haul, List<RevealQuota> slots,
+            int[] slotOwner, boolean[] seen) {
+        for (int s = 0; s < slots.size(); s++) {
+            if (seen[s] || !slots.get(s).accepts(haul.get(card))) continue;
+            seen[s] = true;
+            if (slotOwner[s] < 0 || assignToSlot(slotOwner[s], haul, slots, slotOwner, seen)) {
+                slotOwner[s] = card;
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * The AI's answer to a per-quota reveal: the dearest cards the allowances can be made to cover,
+     * everything else where {@code goes} says.
+     *
+     * <p>Greedy by descending cost, keeping a card only while the haul stays legal. That is optimal
+     * and not merely reasonable: what {@link #quotasAdmit} accepts is the independent sets of a
+     * transversal matroid, and greedy by weight is exact on a matroid. So the AI takes the most
+     * expensive legal haul, never painting itself into a corner by spending an allowance a later
+     * card needed.
+     *
+     * <p>Package-private and pure, so it can be asserted on without a window — the same reason its
+     * siblings in this class are.
+     */
+    static DeckLookDecision cpuRevealAddPerQuotaRestBz(List<CardData> cards,
+            List<RevealQuota> quotas) {
+        return cpuRevealAddPerQuota(cards, quotas, RestGoes.BREAK_ZONE);
+    }
+
+    /** Shared body; {@code goes} is private, so the two destinations get their own entry points. */
+    private static DeckLookDecision cpuRevealAddPerQuota(List<CardData> cards,
+            List<RevealQuota> quotas, RestGoes goes) {
+        List<Integer> byCost = new ArrayList<>();
+        for (int i = 0; i < cards.size(); i++) byCost.add(i);
+        byCost.sort(java.util.Comparator.comparingInt((Integer i) -> cards.get(i).cost()).reversed());
+
+        List<CardData> taken = new ArrayList<>();
+        List<Integer>  toHand = new ArrayList<>();
+        for (int i : byCost) {
+            if (!quotasAdmit(taken, cards.get(i), quotas)) continue;
+            taken.add(cards.get(i));
+            toHand.add(i);
+        }
+        // Restored to reveal order: the answer travels as indices and the two clients must build
+        // the same list, and cost order is not the order anyone saw the cards in.
+        java.util.Collections.sort(toHand);
+        List<CardData> takenInOrder = new ArrayList<>();
+        for (int i : toHand) takenInOrder.add(cards.get(i));
+        return splitDecision(cards, takenInOrder, goes);
+    }
+
+    /**
+     * The AI's answer when the leftovers go to the <em>bottom of the deck</em> in a chosen order
+     * rather than to the Break Zone — Shantotto 14-067H against Terra 27-014H and Cindy 27-063H.
+     *
+     * <p>Same take, different destination. The leftovers keep the order they were revealed in,
+     * which is the AI's standing answer to "in any order" everywhere else in this class.
+     */
+    static DeckLookDecision cpuRevealAddPerQuotaRestBottom(List<CardData> cards,
+            List<RevealQuota> quotas) {
+        DeckLookDecision taken = cpuRevealAddPerQuotaRestBz(cards, quotas);
+        return new DeckLookDecision(taken.toHand(), List.of(), List.of(), taken.toBreak());
     }
 
     /** Which of {@code types} {@code c} answers to, or {@code null} when it answers to none. */
