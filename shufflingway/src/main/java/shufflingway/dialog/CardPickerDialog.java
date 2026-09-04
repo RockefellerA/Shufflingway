@@ -194,6 +194,20 @@ public class CardPickerDialog {
      */
     public List<CardData> pickMultiFromDeckSearch(List<CardData> matches, int maxCount,
             PickGate gate) {
+        return pickMultiFromDeckSearch(matches, maxCount, gate, -1);
+    }
+
+    /**
+     * As above; with {@code maxTotalCost} the picks must also fit one shared allowance — "up to
+     * 3 Category FFTA2 Forwards with a total cost of 6 or less" (29-057L Luso). Pass {@code -1}
+     * for the searches that name no such cap.
+     *
+     * <p>Enforced the way the gate is, and for the same reason: every match stays on offer, and a
+     * card the remaining budget cannot cover simply will not select. The hint carries what is left
+     * to spend, because a budget the player cannot see is one they can only discover by clicking.
+     */
+    public List<CardData> pickMultiFromDeckSearch(List<CardData> matches, int maxCount,
+            PickGate gate, int maxTotalCost) {
         JDialog dlg = new JDialog(owner,
                 "Search — choose up to " + maxCount + " cards (" + matches.size() + " found)", true);
         dlg.setResizable(false);
@@ -216,7 +230,12 @@ public class CardPickerDialog {
         Runnable refresh = () -> {
             int n = selected.size();
             hint.setText("Select up to " + maxCount + " card" + (maxCount > 1 ? "s" : "")
-                    + gate.hint() + " (" + n + "/" + maxCount + ")");
+                    + gate.hint()
+                    + (maxTotalCost >= 0
+                            ? ", total cost " + maxTotalCost + " or less ("
+                                    + (maxTotalCost - spentCost(matches, selected)) + " left)"
+                            : "")
+                    + " (" + n + "/" + maxCount + ")");
             confirmBtn.setEnabled(n >= 1);
             for (int i = 0; i < cardLabels.size(); i++) {
                 cardLabels.get(i).setBorder(selected.contains(i)
@@ -265,7 +284,8 @@ public class CardPickerDialog {
                     if (selected.contains(cardIdx)) {
                         selected.remove(Integer.valueOf(cardIdx));
                     } else if (selected.size() < maxCount
-                            && gateAllows(gate, matches, selected, cardIdx)) {
+                            && gateAllows(gate, matches, selected, cardIdx)
+                            && budgetAllows(maxTotalCost, matches, selected, cardIdx)) {
                         selected.add(cardIdx);
                     }
                     refresh.run();
@@ -326,6 +346,26 @@ public class CardPickerDialog {
         dlg.setVisible(true);
 
         return confirmed[0] ? selected.stream().map(matches::get).collect(Collectors.toList()) : List.of();
+    }
+
+    /** The printed cost already committed by {@code selected}. */
+    private static int spentCost(List<CardData> matches, List<Integer> selected) {
+        int spent = 0;
+        for (int i : selected) spent += matches.get(i).cost();
+        return spent;
+    }
+
+    /**
+     * Whether a shared cost allowance still covers {@code matches[cardIdx]} on top of what
+     * {@code selected} has already spent. {@code maxTotalCost < 0} means no allowance was set.
+     *
+     * <p>Asked against the live selection for the same reason {@link #gateAllows} is: deselecting
+     * a card gives its cost back, and a pick that was out of reach becomes available again.
+     */
+    private static boolean budgetAllows(int maxTotalCost, List<CardData> matches,
+            List<Integer> selected, int cardIdx) {
+        if (maxTotalCost < 0) return true;
+        return spentCost(matches, selected) + matches.get(cardIdx).cost() <= maxTotalCost;
     }
 
     /** Whether {@code matches[cardIdx]} shares a name with something already selected. */

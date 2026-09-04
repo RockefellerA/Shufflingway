@@ -5631,6 +5631,35 @@ final class ActionResolverChoose {
     }
 
     /**
+     * Parses "Your opponent selects N [type] in their Break Zone. Your opponent adds it to their
+     * hand." — 12-069H Borghen, whose own trip to the Break Zone hands the other player a card
+     * back out of theirs.
+     *
+     * <p>The pool is the opponent's Break Zone rather than their board, and the card ends up in
+     * their hand, so nothing about this passes through
+     * {@link #tryParseOpponentSelects}: only the "your opponent selects" wording is shared.
+     */
+    static Consumer<GameContext> tryParseOpponentSelectsFromOwnBzToHand(String text) {
+        Matcher m = OPPONENT_SELECTS_FROM_OWN_BZ_TO_HAND.matcher(text.trim());
+        if (!m.matches()) return null;
+        int    count    = Integer.parseInt(m.group("count"));
+        String targets  = m.group("targets");
+        String tgtLower = targets.toLowerCase(java.util.Locale.ROOT);
+        // "cards" names no type at all, which the search side spells as every box ticked.
+        boolean anyType = tgtLower.startsWith("card");
+        boolean inclForwards = anyType || tgtLower.contains("forward") || tgtLower.contains("character");
+        boolean inclBackups  = anyType || tgtLower.contains("backup")  || tgtLower.contains("character");
+        boolean inclMonsters = anyType || tgtLower.contains("monster") || tgtLower.contains("character");
+        boolean inclSummons  = anyType || tgtLower.contains("summon");
+        String what = count + " " + targets;
+        return ctx -> {
+            ctx.logEntry("Effect: Opponent selects " + what + " in their Break Zone → their hand");
+            ctx.opponentSelectsOwnBreakZoneCardsToHand(count, inclForwards, inclBackups,
+                    inclMonsters, inclSummons, what);
+        };
+    }
+
+    /**
      * Parses "Your opponent selects N [condition] [type] [of cost C or less/more] they control
      * [sep] followup". Supported followups: "Put it into the Break Zone" and "dull/dulls it".
      */

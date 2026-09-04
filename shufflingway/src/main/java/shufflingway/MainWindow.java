@@ -424,6 +424,18 @@ public class MainWindow {
 	final Set<CardData> p1CannotBlockPersistent  = Collections.newSetFromMap(new IdentityHashMap<>());
 	final Set<CardData> p2CannotBlockPersistent  = Collections.newSetFromMap(new IdentityHashMap<>());
 	/**
+	 * Characters holding a "cannot be broken" grant that runs "until the end of your opponent's
+	 * turn" — 29-058R Ardyn, the one printing that says it.
+	 *
+	 * <p>Not {@link #p1ForwardTempTraits}, which is emptied by the end phase of the turn the grant
+	 * was made on: this one has to survive that boundary and expire at the <em>next</em> one, so
+	 * each side's set is cleared by the other side's end-of-turn cleanup. The mirror image of the
+	 * persistent restrictions above, which are set on the opponent's turn and cleared on the
+	 * owner's.
+	 */
+	final Set<CardData> p1CannotBeBrokenUntilOppTurnEnd = Collections.newSetFromMap(new IdentityHashMap<>());
+	final Set<CardData> p2CannotBeBrokenUntilOppTurnEnd = Collections.newSetFromMap(new IdentityHashMap<>());
+	/**
 	 * Attackers that cannot be blocked this turn, and attackers that cannot be blocked by a
 	 * Character whose cost matches the filter {@code {costVal, 1=isMore/0=isLess}}.
 	 *
@@ -3329,6 +3341,9 @@ public class MainWindow {
                                 p1CannotAttack.clear();                 p2CannotAttack.clear();
                                 p1MustAttack.clear();                   p2MustAttack.clear();
                                 p1CannotAttackPersistent.clear();       p1CannotBlockPersistent.clear();
+                                // Cleared on the opposite side to the persistent pair above: P2's
+                                // grant was made to outlast this turn, which was their opponent's.
+                                p2CannotBeBrokenUntilOppTurnEnd.clear();
                                 cannotUseActionAbilitiesThisTurn.clear();
                                 attacksMadeThisTurn.clear();            extraAttacksThisTurn.clear();
                                 grantedFieldAbilities.clear();          grantedMaxAttacks.clear();
@@ -4931,6 +4946,8 @@ public class MainWindow {
 		p1MustAttack.remove(departing);             p2MustAttack.remove(departing);
 		p1CannotAttackPersistent.remove(departing); p2CannotAttackPersistent.remove(departing);
 		p1CannotBlockPersistent.remove(departing);  p2CannotBlockPersistent.remove(departing);
+		p1CannotBeBrokenUntilOppTurnEnd.remove(departing);
+		p2CannotBeBrokenUntilOppTurnEnd.remove(departing);
 		p1CannotBeBlocked.remove(departing);        p2CannotBeBlocked.remove(departing);
 		p1CannotBeBlockedByCost.remove(departing);  p2CannotBeBlockedByCost.remove(departing);
 		p1CannotBeBlockedByPower.remove(departing); p2CannotBeBlockedByPower.remove(departing);
@@ -5322,6 +5339,17 @@ public class MainWindow {
 	private boolean searchSuppressAutoAbilities = false;
 
 	/**
+	 * The allowance a search may spend across its picks together — "up to 3 Category FFTA2
+	 * Forwards with a total cost of 6 or less" (29-057L Luso) — or {@code -1} when the search
+	 * names no such cap. An instance field for the same reason the three above are.
+	 *
+	 * <p>A ceiling on the sum, not on any one card: the pool is exactly what the printed filters
+	 * admit, and it is the <em>combination</em> a pick would make that the budget can refuse.
+	 * That is the same shape as {@link PickGate}, which is why it is enforced in the same places.
+	 */
+	private int searchTotalCostBudget = -1;
+
+	/**
 	 * Searches with a selection constraint and/or the arrivals silenced: every match is still
 	 * offered, but a card that collides with a standing pick cannot be taken, and each card that
 	 * reaches the field does so without firing its enter-the-field ability.
@@ -5334,9 +5362,10 @@ public class MainWindow {
 		int costVal, String costCmp, String cardNameFilter, String jobFilter,
 		String categoryFilter, String elementFilter, String excludeName, String excludeElem,
 		String destination, int count, boolean entersDull, CardData.Trait requireTrait,
-		PickGate gate, boolean suppressAutoAbilities) {
+		PickGate gate, boolean suppressAutoAbilities, int maxTotalCost) {
 		searchPickGate = gate == null ? PickGate.ANY : gate;
 		searchSuppressAutoAbilities = suppressAutoAbilities;
+		searchTotalCostBudget = maxTotalCost;
 		try {
 			return searchDeckForCard(isP1, inclForwards, inclBackups, inclMonsters, inclSummons,
 				costVal, costCmp, cardNameFilter, jobFilter, categoryFilter, elementFilter,
@@ -5344,6 +5373,7 @@ public class MainWindow {
 		} finally {
 			searchPickGate = PickGate.ANY;
 			searchSuppressAutoAbilities = false;
+			searchTotalCostBudget = -1;
 		}
 	}
 
@@ -5473,6 +5503,7 @@ public class MainWindow {
 			return false;
 		}
 		List<CardData> chosen = new ArrayList<>();
+		int spent = 0;
 		if (!isP1) {
 			for (int i = 0; i < count && !matches.isEmpty(); i++) {
 				List<CardData> copy = new ArrayList<>(matches);
@@ -5488,6 +5519,20 @@ public class MainWindow {
 					if (legal == null) break;
 					pick = legal;
 				}
+				// A shared allowance binds it the same way, and is spent to buy board rather than
+				// count: the dearest card still inside the remaining budget, since the effect
+				// plays what it finds onto the field.
+				if (searchTotalCostBudget >= 0) {
+					CardData best = null;
+					for (CardData c : copy) {
+						if (searchPickGate != PickGate.ANY && !searchPickGate.allows(chosen, c)) continue;
+						if (spent + c.cost() > searchTotalCostBudget) continue;
+						if (best == null || c.cost() > best.cost()) best = c;
+					}
+					if (best == null) break;
+					pick = best;
+					spent += pick.cost();
+				}
 				logEntry("[AI] chose " + pick.name());
 				matches.remove(pick);
 				deck.remove(pick);
@@ -5495,7 +5540,7 @@ public class MainWindow {
 			}
 		} else if (count > 1) {
 			List<CardData> picks = cardPickerDialog.pickMultiFromDeckSearch(
-				matches, count, searchPickGate);
+				matches, count, searchPickGate, searchTotalCostBudget);
 			for (CardData pick : picks) {
 				gameState.removeFromP1MainDeck(pick);
 				chosen.add(pick);
@@ -6022,6 +6067,7 @@ public class MainWindow {
 		if (lostAbilitiesCards.contains(card)) return false;
 		boolean granted = p1ForwardTempTraits.get(idx).contains(trait)
 		           || permanentTraits.getOrDefault(card, NO_TRAITS).contains(trait)
+		           || (trait == CardData.Trait.CANNOT_BE_BROKEN && p1CannotBeBrokenUntilOppTurnEnd.contains(card))
 		           || fieldGrantCalculator.computeConditionalTraitsForTarget(card, true).contains(trait);
 		boolean has = card.hasTrait(trait) || (granted && !cannotGain(card, trait));
 		return has && !(trait == CardData.Trait.HASTE && fieldGrantCalculator.isHasteSuppressedFor(true));
@@ -6033,6 +6079,7 @@ public class MainWindow {
 		if (lostAbilitiesCards.contains(card)) return false;
 		boolean granted = p2ForwardTempTraits.get(idx).contains(trait)
 		           || permanentTraits.getOrDefault(card, NO_TRAITS).contains(trait)
+		           || (trait == CardData.Trait.CANNOT_BE_BROKEN && p2CannotBeBrokenUntilOppTurnEnd.contains(card))
 		           || fieldGrantCalculator.computeConditionalTraitsForTarget(card, false).contains(trait);
 		boolean has = card.hasTrait(trait) || (granted && !cannotGain(card, trait));
 		return has && !(trait == CardData.Trait.HASTE && fieldGrantCalculator.isHasteSuppressedFor(false));
@@ -7228,6 +7275,46 @@ public class MainWindow {
 					ForwardTarget t = ForwardTarget.fromChoiceCode(code);
 					return t != null && eligible.contains(t);
 				}), "no such card of theirs is eligible here"));
+		List<ForwardTarget> out = new ArrayList<>(answer.size());
+		for (int code : answer) {
+			ForwardTarget t = ForwardTarget.fromChoiceCode(code);
+			if (t != null) out.add(t);
+		}
+		return out;
+	}
+
+	/**
+	 * The Break Zone form of {@link #selectOwnFieldTargets}: the player at seat
+	 * {@code chooserIsP1} picks up to {@code count} cards out of their own Break Zone, all of
+	 * which {@code eligible} indexes into {@code zone}.
+	 *
+	 * <p>Carried on the wire as {@link ChoiceKind#OWN_FIELD_CARD}, which is not a misnomer so much
+	 * as a wider reading of it: what that kind describes is a pick the sender made on their own
+	 * side of the table, and a {@link ForwardTarget} already names the zone it sits in, so a
+	 * Break Zone pick packs and flips exactly as a Forward one does. A kind of its own would buy
+	 * nothing the code that reads it does not already have.
+	 *
+	 * @param zone       the Break Zone the eligible targets index into — the chooser's own
+	 * @param title      names the choice for the player making it
+	 * @param waitPrompt names it for the player waiting on it
+	 * @param cpuPick    the AI's answer; may return an empty list to take nothing
+	 */
+	List<ForwardTarget> selectOwnBreakZoneTargets(boolean chooserIsP1, List<ForwardTarget> eligible,
+	                                              List<CardData> zone, int count,
+	                                              String title, String waitPrompt,
+	                                              Supplier<List<ForwardTarget>> cpuPick) {
+		if (eligible.isEmpty()) return List.of();
+		List<Integer> answer = decide(PlayerChoice.by(chooserIsP1, ChoiceKind.OWN_FIELD_CARD)
+				.prompting(waitPrompt)
+				.locally(() -> showBreakZoneSelectDialog(eligible, zone, count, false, title)
+						.stream().map(ForwardTarget::choiceCode).toList())
+				.byCpu(() -> cpuPick.get().stream().map(ForwardTarget::choiceCode).toList())
+				// The chooser packed their own side; from here that side is the opponent's.
+				.arrivingAs(ForwardTarget::flipChoiceSide)
+				.legalWhen(codes -> codes.size() <= count && codes.stream().allMatch(code -> {
+					ForwardTarget t = ForwardTarget.fromChoiceCode(code);
+					return t != null && eligible.contains(t);
+				}), "no such card of theirs is in that Break Zone"));
 		List<ForwardTarget> out = new ArrayList<>(answer.size());
 		for (int code : answer) {
 			ForwardTarget t = ForwardTarget.fromChoiceCode(code);

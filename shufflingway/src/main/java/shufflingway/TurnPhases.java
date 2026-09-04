@@ -257,6 +257,9 @@ class TurnPhases {
 		mw.p1CannotAttack.clear();                 mw.p2CannotAttack.clear();
 		mw.p1MustAttack.clear();                   mw.p2MustAttack.clear();
 		mw.p2CannotAttackPersistent.clear();       mw.p2CannotBlockPersistent.clear();
+		// The far side of the pair above: P1's "until the end of your opponent's turn" shield was
+		// granted to outlast P1's own end phase, and this is the boundary it expires at.
+		mw.p1CannotBeBrokenUntilOppTurnEnd.clear();
 		mw.cannotUseActionAbilitiesThisTurn.clear();
 		mw.attacksMadeThisTurn.clear();            mw.extraAttacksThisTurn.clear();
 		mw.p1TempAttackTriggers.clear();           mw.p2TempAttackTriggers.clear();

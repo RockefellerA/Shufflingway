@@ -1509,6 +1509,13 @@ public interface GameContext {
     /** Registers that the named source card (found on own field) cannot be broken this turn. */
     void shieldSourceForward(CardData source);
 
+    /**
+     * As {@link #shieldSourceForward}, but the shield lasts "until the end of your opponent's
+     * turn" — 29-058R Ardyn, whose grant has to outlive the end phase that clears every other
+     * until-end-of-turn grant and expire at the following one instead.
+     */
+    void shieldSourceForwardUntilOpponentTurnEnd(CardData source);
+
     /** Registers that all own Forwards cannot be broken this turn. */
     void shieldAllOwnForwards();
 
@@ -2214,6 +2221,16 @@ public interface GameContext {
     void forceOpponentRandomDiscard(int count);
 
     /**
+     * Both players randomly discard {@code count} cards, and each player who turned up a
+     * Category {@code category} card among their own then draws {@code draw} — 11-035R Setzer.
+     *
+     * <p>One method rather than two calls of {@link #forceOpponentRandomDiscard} and its
+     * self-discard sibling because the payoff is decided by what each roll produced, and neither
+     * of those reports back what it took.
+     */
+    void eachPlayerRandomDiscardThenCategoryDraw(int count, String category, int draw);
+
+    /**
      * Randomly removes {@code count} cards from the ability-user's opponent's hand and
      * places them in the permanent RFP zone.  Neither player chooses — selected at random.
      */
@@ -2615,6 +2632,20 @@ public interface GameContext {
     List<ForwardTarget> opponentSelectsOwnCharacters(int count, boolean upTo, String condition,
             String element, int costVal, String costCmp,
             boolean inclForwards, boolean inclBackups, boolean inclMonsters, String what);
+
+    /**
+     * The ability controller's <em>opponent</em> picks {@code count} cards out of their own Break
+     * Zone and adds them to their own hand — 12-069H Borghen.
+     *
+     * <p>The Break Zone counterpart of {@link #opponentSelectsOwnCharacters}, and it is a select
+     * for the same reasons: the card names the opponent as the one who decides, and what they can
+     * best use back is theirs to weigh. Nothing here is chosen, so no "cannot be chosen" shield
+     * and no chosen-by-opponent watcher has anything to say about it.
+     *
+     * @param what names the selection in both players' prompts, e.g. {@code "1 Forward"}
+     */
+    void opponentSelectsOwnBreakZoneCardsToHand(int count, boolean inclForwards, boolean inclBackups,
+            boolean inclMonsters, boolean inclSummons, String what);
 
     /**
      * Kefka 7-029H: offers the ability controller's <em>opponent</em> the option to discard
@@ -3214,13 +3245,17 @@ public interface GameContext {
      *
      * <p>{@code suppressAutoAbilities} is "Their auto-abilities will not trigger" — every card this
      * search puts onto the field arrives silent, not just the first of them.
+     *
+     * <p>{@code maxTotalCost} is "with a total cost of N or less" (29-057L Luso), an allowance
+     * spent across the picks together rather than a filter on any one of them; {@code -1} for the
+     * searches that name no such cap. Distinct from {@code costVal}, which narrows the pool.
      */
     boolean searchDeckForCardWithRiders(boolean inclForwards, boolean inclBackups,
             boolean inclMonsters, boolean inclSummons,
             int costVal, String costCmp, String cardNameFilter, String jobFilter,
             String categoryFilter, String elementFilter, String excludeName, String excludeElem,
             String destination, int count, boolean entersDull, CardData.Trait requireTrait,
-            PickGate gate, boolean suppressAutoAbilities);
+            PickGate gate, boolean suppressAutoAbilities, int maxTotalCost);
 
     /**
      * As {@link #searchDeckForCard}, but requiring the name <em>and</em> the job together —

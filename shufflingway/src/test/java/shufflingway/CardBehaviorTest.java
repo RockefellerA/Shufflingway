@@ -10102,7 +10102,7 @@ public class CardBehaviorTest {
 
         verify(ctx).searchDeckForCardWithRiders(true, false, false, false, -1, null,
                 null, null, "IX", null, "Zidane", null, "hand", 2, false, null,
-                PickGate.DISTINCT_NAMES, false);
+                PickGate.DISTINCT_NAMES, false, -1);
     }
 
     // The phrase used to be swallowed by the job filter, so Glauca hunted a job called
@@ -10116,7 +10116,7 @@ public class CardBehaviorTest {
 
         verify(ctx).searchDeckForCardWithRiders(true, true, true, true, -1, null,
                 null, "Captain", null, null, null, null, "hand", 2, false, null,
-                PickGate.DISTINCT_NAMES, false);
+                PickGate.DISTINCT_NAMES, false, -1);
     }
 
     // Without the phrase the search is unconstrained and still goes to the ordinary primitive.
@@ -10129,7 +10129,7 @@ public class CardBehaviorTest {
                 null, "Captain", null, null, null, null, "hand", 2, false, null);
         verify(ctx, never()).searchDeckForCardWithRiders(anyBoolean(), anyBoolean(), anyBoolean(),
                 anyBoolean(), anyInt(), any(), any(), any(), any(), any(), any(), any(), any(),
-                anyInt(), anyBoolean(), any(), any(), anyBoolean());
+                anyInt(), anyBoolean(), any(), any(), anyBoolean(), anyInt());
     }
 
     // The picker's half of "different names": a name already taken cannot be taken twice.
@@ -39247,7 +39247,7 @@ public class CardBehaviorTest {
 
 		verify(ctx).searchDeckForCardWithRiders(true, false, false, false, 2, null,
 				null, null, null, null, null, null, "field", 4, false, null,
-				PickGate.DISTINCT_ELEMENTS, true);
+				PickGate.DISTINCT_ELEMENTS, true, -1);
 	}
 
 	@Test
@@ -39263,7 +39263,7 @@ public class CardBehaviorTest {
 				null, null, null, null, null, null, "field", 4, false, null);
 		verify(ctx, never()).searchDeckForCardWithRiders(anyBoolean(), anyBoolean(), anyBoolean(),
 				anyBoolean(), anyInt(), any(), any(), any(), any(), any(), any(), any(), any(),
-				anyInt(), anyBoolean(), any(), any(), anyBoolean());
+				anyInt(), anyBoolean(), any(), any(), anyBoolean(), anyInt());
 	}
 
 	@Test
@@ -39276,7 +39276,7 @@ public class CardBehaviorTest {
 
 		verify(ctx).searchDeckForCardWithRiders(true, false, false, false, 2, null,
 				null, null, null, null, null, null, "field", 2, false, null,
-				PickGate.ANY, true);
+				PickGate.ANY, true, -1);
 	}
 
 	@Test
@@ -43881,6 +43881,355 @@ public class CardBehaviorTest {
 		// Nothing to reveal is not a Forward, so Shinryu draws rather than doing nothing at all.
 		MainWindow mw = new MainWindow();
 		assertFalse(mw.buildGameContext(true).revealOpponentTopCardIsType("Forward"));
+	}
+
+	// =========================================================================================
+	// 29-058R Ardyn: "When Ardyn enters the field due to your cast, Ardyn gains 'Ardyn cannot be
+	// broken.' until the end of your opponent's turn."  Board behaviour.
+	//
+	// The one printing whose self-shield outlasts the turn it was made on. Every other "cannot be
+	// broken" grant lands in the per-slot temp traits, which the end phase empties; this one has
+	// to survive that boundary and expire at the next, so it is held in its own set and each
+	// side's is cleared by the <em>other</em> side's end-of-turn cleanup.
+	// =========================================================================================
+
+	private static final String ARDYN_29_058R_SHIELD =
+			"Ardyn gains \"Ardyn cannot be broken.\" until the end of your opponent's turn.";
+
+	@Test
+	void ardynsShieldIsReadAsASelfShieldRatherThanLeftUnparsed() {
+		assertEquals("StandaloneShieldCannotBeBroken",
+				ActionResolver.matchedPatternName(ARDYN_29_058R_SHIELD,
+						makeForward("Ardyn", "Dark", 6, 9000)));
+	}
+
+	@Test
+	void ardynCannotBeBrokenOnceTheShieldIsUp() {
+		MainWindow mw = new MainWindow();
+		CardData ardyn = makeForward("Ardyn", "Dark", 6, 9000);
+		placeP1Forward(mw, ardyn);
+
+		ActionResolver.parse(ARDYN_29_058R_SHIELD, ardyn).accept(mw.buildGameContext(true));
+
+		int idx = mw.p1ForwardCards.indexOf(ardyn);
+		assertTrue(mw.effectiveP1HasTrait(idx, CardData.Trait.CANNOT_BE_BROKEN));
+	}
+
+	@Test
+	void theShieldOutlivesTheEndPhaseOfTheTurnItWasMadeOn() {
+		// What separates it from every other until-end-of-turn grant: emptying the temp traits,
+		// which is what P1's own end phase does, must leave this one standing.
+		MainWindow mw = new MainWindow();
+		CardData ardyn = makeForward("Ardyn", "Dark", 6, 9000);
+		placeP1Forward(mw, ardyn);
+		ActionResolver.parse(ARDYN_29_058R_SHIELD, ardyn).accept(mw.buildGameContext(true));
+
+		mw.p1ForwardTempTraits.forEach(EnumSet::clear);
+
+		int idx = mw.p1ForwardCards.indexOf(ardyn);
+		assertTrue(mw.effectiveP1HasTrait(idx, CardData.Trait.CANNOT_BE_BROKEN),
+				"the grant is not held in the per-slot temp traits");
+	}
+
+	@Test
+	void andExpiresAtTheEndOfTheOpponentsTurn() {
+		MainWindow mw = new MainWindow();
+		CardData ardyn = makeForward("Ardyn", "Dark", 6, 9000);
+		placeP1Forward(mw, ardyn);
+		ActionResolver.parse(ARDYN_29_058R_SHIELD, ardyn).accept(mw.buildGameContext(true));
+
+		mw.turnPhases().runP2EndOfTurnCleanup();
+
+		int idx = mw.p1ForwardCards.indexOf(ardyn);
+		assertFalse(mw.effectiveP1HasTrait(idx, CardData.Trait.CANNOT_BE_BROKEN),
+				"P2's end phase is the boundary the printed duration names");
+	}
+
+	@Test
+	void aShieldedArdynSurvivesAnEffectThatWouldBreakHim() {
+		MainWindow mw = new MainWindow();
+		CardData ardyn = makeForward("Ardyn", "Dark", 6, 9000);
+		placeP1Forward(mw, ardyn);
+		GameContext ctx = mw.buildGameContext(true);
+		ActionResolver.parse(ARDYN_29_058R_SHIELD, ardyn).accept(ctx);
+
+		ctx.breakTarget(fwd(true, mw.p1ForwardCards.indexOf(ardyn)));
+
+		assertTrue(mw.p1ForwardCards.contains(ardyn), "the break is refused while the shield holds");
+	}
+
+	@Test
+	void andLosesTheShieldIfHeLeavesTheFieldAndComesBack() {
+		// Instance keying is only honest if leaving the field drops it: the rules treat a card
+		// changing zones as a new object, and the same CardData is what comes back.
+		MainWindow mw = new MainWindow();
+		CardData ardyn = makeForward("Ardyn", "Dark", 6, 9000);
+		placeP1Forward(mw, ardyn);
+		ActionResolver.parse(ARDYN_29_058R_SHIELD, ardyn).accept(mw.buildGameContext(true));
+
+		mw.clearCombatRestrictionsFor(ardyn);
+		placeP1Forward(mw, ardyn);
+
+		int idx = mw.p1ForwardCards.indexOf(ardyn);
+		assertFalse(mw.effectiveP1HasTrait(idx, CardData.Trait.CANNOT_BE_BROKEN));
+	}
+
+	// =========================================================================================
+	// 11-048C Thief: "When Thief enters the field, if the cost to play Thief was paid with CP of
+	// 2 or more different Elements, draw 1 card."  Parsing.
+	//
+	// The condition already had machinery — CardData strips it into
+	// AutoAbility.castPaymentMinElements and AutoAbilityTriggers gates the effect on it — but the
+	// stripper only knew "the cost to cast". The 11-xxx printings word it as playing the card
+	// onto the field, so the clause stayed in the effect text, where nothing parses it, and the
+	// ability was reported unrecognised rather than gated.
+	// =========================================================================================
+
+	private static final String THIEF_11_048C =
+			"When Thief enters the field, if the cost to play Thief was paid with CP of 2 or more "
+			+ "different Elements, draw 1 card.";
+
+	@Test
+	void thiefsPlayWordingIsLiftedIntoTheCastPaymentGate() {
+		List<AutoAbility> abilities = CardData.parseAutoAbilities(THIEF_11_048C);
+		assertEquals(1, abilities.size());
+		AutoAbility fa = abilities.get(0);
+		assertEquals(2, fa.castPaymentMinElements(), "the condition becomes the gate, not effect text");
+		assertEquals("draw 1 card.", fa.effectText());
+		assertEquals("DrawCards", ActionResolver.matchedPatternName(fa.effectText(), null));
+	}
+
+	@Test
+	void theCastWordingOfTheSameConditionStillReads() {
+		// The wording the stripper always accepted, kept as a control on the widening.
+		AutoAbility fa = CardData.parseAutoAbilities(
+				"When Selkie enters the field, if the cost to cast Selkie was paid with CP of 3 or "
+				+ "more different Elements, draw 1 card.").get(0);
+		assertEquals(3, fa.castPaymentMinElements());
+		assertEquals("draw 1 card.", fa.effectText());
+	}
+
+	// =========================================================================================
+	// 12-069H Borghen: "When Borghen is put from the field into the Break Zone, your opponent
+	// selects 1 Forward in their Break Zone. Your opponent adds it to their hand."  Effect wiring.
+	//
+	// The opponent-selects family's Break Zone member, and the only one that gives rather than
+	// takes: the pool is the opponent's Break Zone rather than their board, and the card ends up
+	// in their hand. OPPONENT_SELECTS_PATTERN requires "they control" and so could not reach it.
+	// =========================================================================================
+
+	private static final String BORGHEN_12_069H =
+			"your opponent selects 1 Forward in their Break Zone. Your opponent adds it to their hand.";
+
+	@Test
+	void borghensGiftGoesToTheBreakZoneSelectPrimitive() {
+		GameContext ctx = mock(GameContext.class);
+		Consumer<GameContext> fn = ActionResolver.parse(BORGHEN_12_069H, null);
+		assertNotNull(fn, "Borghen's break trigger should parse");
+		fn.accept(ctx);
+
+		verify(ctx).opponentSelectsOwnBreakZoneCardsToHand(1, true, false, false, false, "1 Forward");
+	}
+
+	@Test
+	void andIsNamedApartFromTheBoardScopedOpponentSelects() {
+		assertEquals("OpponentSelectsFromOwnBzToHand",
+				ActionResolver.matchedPatternName(BORGHEN_12_069H, null));
+		assertEquals("Your opponent selects 1 Forward in their Break Zone and adds it to their hand",
+				ActionResolver.fullDescription(BORGHEN_12_069H, null));
+	}
+
+	@Test
+	void theOpponentTakesTheDearestForwardTheirBreakZoneHolds() {
+		// P1 controls Borghen, so the selecting seat is P2 — the AI, which answers a question about
+		// what it can best use back by taking the most board presence on offer.
+		MainWindow mw = new MainWindow();
+		CardData cheap = makeForward("Cheap", "Fire", 1, 3000);
+		CardData dear  = makeForward("Dear",  "Fire", 5, 9000);
+		mw.gameState.getP2BreakZone().add(cheap);
+		mw.gameState.getP2BreakZone().add(dear);
+		mw.gameState.getIdentity().put(cheap, false);
+		mw.gameState.getIdentity().put(dear,  false);
+
+		ActionResolver.parse(BORGHEN_12_069H, null).accept(mw.buildGameContext(true));
+
+		assertEquals(List.of(dear), mw.gameState.getP2Hand(), "the pick reaches their hand");
+		assertEquals(List.of(cheap), mw.gameState.getP2BreakZone(), "and leaves their Break Zone");
+	}
+
+	@Test
+	void aBreakZoneWithNoForwardInItGivesNothing() {
+		MainWindow mw = new MainWindow();
+		CardData summon = makeSummon("Nothing Doing", "Fire", 2, "");
+		mw.gameState.getP2BreakZone().add(summon);
+		mw.gameState.getIdentity().put(summon, false);
+
+		ActionResolver.parse(BORGHEN_12_069H, null).accept(mw.buildGameContext(true));
+
+		assertTrue(mw.gameState.getP2Hand().isEmpty(), "a Summon is not a Forward");
+		assertEquals(1, mw.gameState.getP2BreakZone().size());
+	}
+
+	// =========================================================================================
+	// 11-035R Setzer: "When Setzer enters the field, each player randomly discards 1 card from
+	// their hand. Then, any player who discards a Category VI card, draws 1 card."
+	// Effect wiring plus board behaviour.
+	//
+	// Symmetric, and the payoff is settled per player against that player's own discard, so it
+	// cannot be composed from the self- and opponent-discard parsers: the two rolls are
+	// independent and either, both or neither may earn its draw.
+	// =========================================================================================
+
+	private static final String SETZER_11_035R =
+			"each player randomly discards 1 card from their hand. Then, any player who discards a "
+			+ "Category VI card, draws 1 card.";
+
+	@Test
+	void setzerHitsBothHandsAndPaysPerPlayer() {
+		GameContext ctx = mock(GameContext.class);
+		Consumer<GameContext> fn = ActionResolver.parse(SETZER_11_035R, null);
+		assertNotNull(fn, "Setzer's enter-the-field ability should parse");
+		fn.accept(ctx);
+
+		verify(ctx).eachPlayerRandomDiscardThenCategoryDraw(1, "VI", 1);
+	}
+
+	@Test
+	void onlyThePlayerWhoDiscardedTheCategoryCardDraws() {
+		// One card in each hand makes the roll forced, so what each player loses is settled and
+		// only the payoff is under test.
+		MainWindow mw = new MainWindow();
+		CardData p1Card = makeCategoryForward("Locke", "Fire", "VI");
+		CardData p2Card = makeCategoryForward("Vaan",  "Wind", "XII");
+		mw.gameState.getP1Hand().add(p1Card);
+		mw.gameState.getP2Hand().add(p2Card);
+		mw.gameState.getIdentity().put(p1Card, true);
+		mw.gameState.getIdentity().put(p2Card, false);
+		CardData p1Draw = makeForward("P1 Draw", "Fire", 2, 5000);
+		CardData p2Draw = makeForward("P2 Draw", "Wind", 2, 5000);
+		mw.gameState.getP1MainDeck().add(p1Draw);
+		mw.gameState.getP2MainDeck().add(p2Draw);
+
+		ActionResolver.parse(SETZER_11_035R, null).accept(mw.buildGameContext(true));
+
+		assertEquals(List.of(p1Draw), mw.gameState.getP1Hand(),
+				"P1 discarded a Category VI card, so P1 draws");
+		assertTrue(mw.gameState.getP2Hand().isEmpty(),
+				"P2 discarded a Category XII card and draws nothing");
+		assertTrue(mw.gameState.getP1BreakZone().contains(p1Card));
+		assertTrue(mw.gameState.getP2BreakZone().contains(p2Card));
+	}
+
+	@Test
+	void andBothDrawWhenBothTurnOneUp() {
+		MainWindow mw = new MainWindow();
+		CardData p1Card = makeCategoryForward("Locke", "Fire", "VI");
+		CardData p2Card = makeCategoryForward("Celes", "Ice",  "VI");
+		mw.gameState.getP1Hand().add(p1Card);
+		mw.gameState.getP2Hand().add(p2Card);
+		mw.gameState.getIdentity().put(p1Card, true);
+		mw.gameState.getIdentity().put(p2Card, false);
+		mw.gameState.getP1MainDeck().add(makeForward("P1 Draw", "Fire", 2, 5000));
+		mw.gameState.getP2MainDeck().add(makeForward("P2 Draw", "Wind", 2, 5000));
+
+		ActionResolver.parse(SETZER_11_035R, null).accept(mw.buildGameContext(true));
+
+		assertEquals(1, mw.gameState.getP1Hand().size());
+		assertEquals(1, mw.gameState.getP2Hand().size());
+	}
+
+	@Test
+	void anEmptyHandDiscardsNothingAndEarnsNothing() {
+		MainWindow mw = new MainWindow();
+		CardData p2Card = makeCategoryForward("Celes", "Ice", "VI");
+		mw.gameState.getP2Hand().add(p2Card);
+		mw.gameState.getIdentity().put(p2Card, false);
+		mw.gameState.getP1MainDeck().add(makeForward("P1 Draw", "Fire", 2, 5000));
+		mw.gameState.getP2MainDeck().add(makeForward("P2 Draw", "Wind", 2, 5000));
+
+		ActionResolver.parse(SETZER_11_035R, null).accept(mw.buildGameContext(true));
+
+		assertTrue(mw.gameState.getP1Hand().isEmpty(), "nothing to discard, so nothing to be paid for");
+		assertEquals(1, mw.gameState.getP2Hand().size(), "P2 lost a Category VI card and drew");
+	}
+
+	// =========================================================================================
+	// 29-057L Luso: "When Luso enters the field, you may search for up to 3 Category FFTA2
+	// Forwards with a total cost of 6 or less and play them onto the field."
+	//
+	// "With a total cost of N or less" is an allowance spent across the picks together, not a
+	// filter on any one of them — a different thing from the search pattern's own "of cost N or
+	// less". It is lifted off the text ahead of SEARCH_DECK_PATTERN, as its two sibling riders
+	// are, because it sits where that pattern expects the destination clause; without that the
+	// whole search failed to parse rather than parsing without the cap.
+	// =========================================================================================
+
+	private static final String LUSO_29_057L =
+			"search for up to 3 Category FFTA2 Forwards with a total cost of 6 or less and play "
+			+ "them onto the field.";
+
+	@Test
+	void lusosBudgetReachesTheSearchAsARiderAndTheFiltersAreUnchanged() {
+		GameContext ctx = mock(GameContext.class);
+		Consumer<GameContext> fn = ActionResolver.parse(LUSO_29_057L, null);
+		assertNotNull(fn, "Luso's search should parse with the budget lifted off");
+		fn.accept(ctx);
+
+		verify(ctx).searchDeckForCardWithRiders(true, false, false, false, -1, null,
+				null, null, "FFTA2", null, null, null, "field", 3, false, null,
+				PickGate.ANY, false, 6);
+	}
+
+	@Test
+	void anOtherwiseIdenticalSearchCarriesNoBudget() {
+		// The control: without the phrase the same sentence goes to the plain primitive, so a
+		// widening that started claiming ordinary searches would show up here.
+		GameContext ctx = mock(GameContext.class);
+		ActionResolver.parse(
+				"search for up to 3 Category FFTA2 Forwards and play them onto the field.", null)
+				.accept(ctx);
+
+		verify(ctx).searchDeckForCard(true, false, false, false, -1, null,
+				null, null, "FFTA2", null, null, null, "field", 3, false, null);
+		verify(ctx, never()).searchDeckForCardWithRiders(anyBoolean(), anyBoolean(), anyBoolean(),
+				anyBoolean(), anyInt(), any(), any(), any(), any(), any(), any(), any(), any(),
+				anyInt(), anyBoolean(), any(), any(), anyBoolean(), anyInt());
+	}
+
+	@Test
+	void theBudgetIsSpentAcrossThePicksRatherThanPerCard() {
+		// P2's side, which resolves a search without a modal picker. Four cost-3 Forwards are all
+		// individually affordable and the count allows three, so only the shared allowance can
+		// stop it at two.
+		MainWindow mw = new MainWindow();
+		for (int i = 1; i <= 4; i++) {
+			CardData c = makeCategoryForward("FFTA2 " + i, "Wind", "FFTA2");
+			mw.gameState.getIdentity().put(c, false);
+			mw.gameState.getP2MainDeck().add(c);
+		}
+
+		ActionResolver.parse(LUSO_29_057L, null).accept(mw.buildGameContext(false));
+
+		assertEquals(2, mw.p2ForwardCards.size(), "6 covers two cost-3 Forwards and no more");
+		int spent = mw.p2ForwardCards.stream().mapToInt(CardData::cost).sum();
+		assertTrue(spent <= 6, "the picks together stay inside the allowance, spent " + spent);
+	}
+
+	@Test
+	void andACardTheAllowanceCannotCoverIsNotTakenAtAll() {
+		MainWindow mw = new MainWindow();
+		CardData tooDear = new CardData(null, "Too Dear", "Wind", 7, 9000, "Forward", false, 0,
+				false, false, Set.of(), 0, List.of(), null, List.of(),
+				List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(),
+				List.of(), List.of(), List.of(),
+				false, false, null, false, false, false, false, false, 1,
+				null, "FFTA2", null, "");
+		mw.gameState.getIdentity().put(tooDear, false);
+		mw.gameState.getP2MainDeck().add(tooDear);
+
+		ActionResolver.parse(LUSO_29_057L, null).accept(mw.buildGameContext(false));
+
+		assertTrue(mw.p2ForwardCards.isEmpty(), "a cost-7 Forward never fits an allowance of 6");
 	}
 
 	// =========================================================================================

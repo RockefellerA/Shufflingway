@@ -1178,6 +1178,9 @@ public class ActionResolver {
         result = tryParseDamageZoneSwap(effectText);
         if (result != null) return result;
 
+        result = tryParseEachPlayerRandomDiscardThenCategoryDraw(effectText);
+        if (result != null) return result;
+
         result = tryParseOpponentDrawThenRandomDiscard(effectText);
         if (result != null) return result;
 
@@ -1326,6 +1329,12 @@ public class ActionResolver {
         // Must precede OpponentSelects, which claims the same text and drops both the option and the
         // block restriction — see OPP_SELECTS_MAY_BREAK_ELSE_SELF_CANNOT_BLOCK.
         result = tryParseOppSelectsMayBreakElseSelfCannotBlock(effectText, source);
+        if (result != null) return result;
+
+        // Ahead of the board-scoped OpponentSelects, which the Break Zone form shares a prefix
+        // with. That one requires "they control" and so cannot claim this text today; the order
+        // is what keeps a later widening of it from doing so.
+        result = tryParseOpponentSelectsFromOwnBzToHand(effectText);
         if (result != null) return result;
 
         result = tryParseOpponentSelects(effectText);
@@ -2115,6 +2124,8 @@ public class ActionResolver {
             Matcher m = DAMAGE_ZONE_SWAP_PATTERN.matcher(effectText.trim());
             return m.matches() && m.group("draw") != null ? "DamageZoneSwap + DrawCards" : "DamageZoneSwap";
         }
+        if (tryParseEachPlayerRandomDiscardThenCategoryDraw(effectText) != null)
+            return "EachPlayerRandomDiscardThenCategoryDraw";
         if (tryParseOpponentDrawThenRandomDiscard(effectText)  != null) return "OpponentDrawThenRandomDiscard";
         if (tryParseOpponentDraw(effectText)                   != null) return "OpponentDraw";
         if (tryParseOpponentRandomDiscard(effectText)         != null) return "OpponentRandomDiscard";
@@ -2176,6 +2187,8 @@ public class ActionResolver {
         if (tryParseTurnPlayerBreaksOrTakesDamage(effectText, source) != null) return "TurnPlayerBreaksOrTakesDamage";
         if (tryParseOppSelectsMayBreakElseSelfCannotBlock(effectText, source) != null)
             return "OppSelectsMayBreakElseSelfCannotBlock";
+        // Mirrors parse(): ahead of OpponentSelects, whose prefix it shares.
+        if (tryParseOpponentSelectsFromOwnBzToHand(effectText) != null) return "OpponentSelectsFromOwnBzToHand";
         if (tryParseOpponentSelects(effectText)               != null) return "OpponentSelects";
         if (tryParseBzFwdToHandOppFwdToBzByDamage(effectText)  != null) return "BzFwdToHandOppFwdToBzByDamage";
         if (tryParseOpponentPutsForwardToBreakZone(effectText) != null) return "OpponentPutsForwardToBreakZone";
@@ -3471,6 +3484,12 @@ public class ActionResolver {
             Matcher m = DAMAGE_ZONE_SWAP_PATTERN.matcher(effectText.trim());
             return m.matches() && m.group("draw") != null ? "DamageZoneSwap + DrawCards" : "DamageZoneSwap";
         }
+        if (tryParseEachPlayerRandomDiscardThenCategoryDraw(effectText) != null) {
+            Matcher m = EACH_PLAYER_RANDOM_DISCARD_THEN_CATEGORY_DRAW.matcher(effectText.trim());
+            m.matches();
+            return "Each player randomly discards " + m.group("count") + "; a Category "
+                    + m.group("category") + " discard draws that player " + m.group("draw");
+        }
         if (tryParseOpponentDrawThenRandomDiscard(effectText) != null)      return "OpponentDrawThenRandomDiscard";
         if (tryParseOpponentDraw(effectText) != null)                       return "OpponentDraw";
         if (tryParseOpponentRandomDiscard(effectText) != null)              return "OpponentRandomDiscard";
@@ -3534,6 +3553,13 @@ public class ActionResolver {
         if (tryParseOppSelectsMayBreakElseSelfCannotBlock(effectText, source) != null)
             return "Your opponent may put 1 Character they control into the Break Zone; if they do, "
                     + source.name() + " cannot block this turn";
+
+        // Mirrors parse(): ahead of OpponentSelects, whose prefix it shares.
+        Matcher bzSelM = OPPONENT_SELECTS_FROM_OWN_BZ_TO_HAND.matcher(effectText.trim());
+        if (bzSelM.matches())
+            return "Your opponent selects " + bzSelM.group("count") + " " + bzSelM.group("targets")
+                    + " in their Break Zone and adds "
+                    + ("1".equals(bzSelM.group("count")) ? "it" : "them") + " to their hand";
 
         Matcher opSelM = OPPONENT_SELECTS_PATTERN.matcher(effectText);
         if (opSelM.find()) {

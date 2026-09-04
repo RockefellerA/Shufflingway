@@ -3971,6 +3971,19 @@ final class ActionResolverPatterns {
         "(?i)(?<subject>.+?)\\s+gains?\\s+['\"][^'\"]*?cannot\\s+be\\s+broken\\.?['\"]" +
         "\\s+until\\s+(?:the\\s+)?end\\s+of\\s+(?:the\\s+)?turn\\.?"
     );
+    /**
+     * Standalone: "[CardName] gains '[...] cannot be broken.' until the end of your opponent's
+     * turn." — 29-058R Ardyn, the one printing whose self-shield outlasts the turn it was made on.
+     *
+     * <p>Its own pattern rather than a widened {@link #STANDALONE_SELF_SHIELD_CANNOT_BE_BROKEN}:
+     * the two expire at different boundaries, so the parser has to be able to tell them apart.
+     * Neither shadows the other — that one's duration clause stops at "end of the turn" and
+     * cannot reach across "your opponent's".
+     */
+    static final Pattern STANDALONE_SELF_SHIELD_CANNOT_BE_BROKEN_OPP_TURN = Pattern.compile(
+        "(?i)(?<subject>.+?)\\s+gains?\\s+['\"][^'\"]*?cannot\\s+be\\s+broken\\.?['\"]" +
+        "\\s+until\\s+(?:the\\s+)?end\\s+of\\s+your\\s+opponent's\\s+turn\\.?"
+    );
     /** Standalone: "[CardName] cannot be broken this turn." — bare form without 'gains' quoting. */
     static final Pattern STANDALONE_SELF_SHIELD_CANNOT_BE_BROKEN_SIMPLE = Pattern.compile(
         "(?i)(?<subject>.+?)\\s+cannot\\s+be\\s+broken\\s+this\\s+turn\\.?"
@@ -4744,6 +4757,26 @@ final class ActionResolverPatterns {
     static final Pattern OPPONENT_DRAW_THEN_RANDOM_DISCARD = Pattern.compile(
         "(?i)Your\\s+opponent\\s+draws?\\s+(\\d+)\\s+cards?[,.]?\\s+then\\s+randomly\\s+discards?\\s+(\\d+)\\s+cards?[.!]?"
     );
+    /**
+     * 11-035R Setzer: "Each player randomly discards 1 card from their hand. Then, any player who
+     * discards a Category VI card, draws 1 card."
+     *
+     * <p>Both players are hit and both may be paid, so neither the opponent-discard family above
+     * nor the self-discard one can express it: the payoff is per player and settled by what that
+     * player's own roll turned up.
+     * <ul>
+     *   <li>Group {@code count}    — cards each player discards</li>
+     *   <li>Group {@code category} — the category a discarded card must carry to earn the draw</li>
+     *   <li>Group {@code draw}     — cards that player then draws</li>
+     * </ul>
+     */
+    static final Pattern EACH_PLAYER_RANDOM_DISCARD_THEN_CATEGORY_DRAW = Pattern.compile(
+        "(?i)^Each\\s+player\\s+randomly\\s+discards?\\s+(?<count>\\d+)\\s+cards?" +
+        "(?:\\s+from\\s+(?:their|his\\s*/\\s*her|his|her)\\s+hand)?[.!]\\s*" +
+        "Then,?\\s+any\\s+player\\s+who\\s+discard(?:s|ed)?\\s+a\\s+" +
+        "Category\\s+(?<category>[^\\s,]+)\\s+card,?\\s+draws?\\s+(?<draw>\\d+)\\s+cards?[.!]?\\s*$",
+        Pattern.DOTALL
+    );
     /** Matches "Your opponent draws N card(s)." — simple opponent draw with no followup. */
     static final Pattern OPPONENT_DRAW = Pattern.compile(
         "(?i)Your\\s+opponent\\s+draws?\\s+(\\d+)\\s+cards?[.!]?$"
@@ -4812,6 +4845,28 @@ final class ActionResolverPatterns {
         "(?<targets>Forwards?|Backups?|Monsters?|Characters?)\\s+" +
         "(?:they|he\\s*/\\s*she|he|she)\\s+controls?\\s+into\\s+the\\s+Break\\s+Zone,\\s+" +
         "(?<card>.+?)\\s+deals\\s+that\\s+player\\s+(?<amount>\\d+)\\s+points?\\s+of\\s+damage[.!]?$",
+        Pattern.DOTALL
+    );
+    /**
+     * 12-069H Borghen: "Your opponent selects 1 Forward in their Break Zone. Your opponent adds it
+     * to their hand."
+     *
+     * <p>The opponent-selects family's Break Zone member, and the only one whose pool is not the
+     * board: {@link #OPPONENT_SELECTS_PATTERN} requires "they control" and so cannot reach it.
+     * Both halves of the sentence name the opponent — they pick, and the card goes to
+     * <em>their</em> hand — which is what makes this a gift rather than the removal the rest of
+     * the family is.
+     * <ul>
+     *   <li>Group {@code count}   — how many they select</li>
+     *   <li>Group {@code targets} — the card type(s) they may select from</li>
+     * </ul>
+     */
+    static final Pattern OPPONENT_SELECTS_FROM_OWN_BZ_TO_HAND = Pattern.compile(
+        "(?i)^Your\\s+opponent\\s+selects?\\s+(?<count>\\d+)\\s+" +
+        "(?<targets>Forwards?|Backups?|Monsters?|Characters?|Summons?|cards?)\\s+" +
+        "in\\s+(?:their|his\\s*/\\s*her|his|her)\\s+Break\\s+Zone[.!]\\s*" +
+        "(?:Your\\s+opponent|They|He\\s*/\\s*She|He|She)\\s+adds?\\s+(?:it|them)\\s+" +
+        "to\\s+(?:their|his\\s*/\\s*her|his|her)\\s+hand[.!]?\\s*$",
         Pattern.DOTALL
     );
     static final Pattern OPP_SELECTS_MAY_BREAK_ELSE_SELF_CANNOT_BLOCK = Pattern.compile(
@@ -5166,6 +5221,21 @@ final class ActionResolverPatterns {
      */
     static final Pattern SEARCH_WITH_DIFFERENT_NAMES = Pattern.compile(
         "(?i)\\s+with\\s+different\\s+names\\b"
+    );
+    /**
+     * The "with a total cost of N or less" constraint on a multi-card search — 29-057L Luso.
+     *
+     * <p>Lifted off ahead of {@link #SEARCH_DECK_PATTERN} for the reason its two siblings above
+     * are: the phrase sits between the filter and "and play them onto the field", where that
+     * pattern expects the destination, so the whole search failed to parse rather than parsing
+     * without the cap.
+     *
+     * <p>Not the same thing as that pattern's own cost clause. "Of cost 2 or less" is a
+     * per-card filter and narrows the pool; this is an allowance spent across the picks
+     * together, and every card the filter admits stays on offer until the budget cannot cover it.
+     */
+    static final Pattern SEARCH_WITH_TOTAL_COST = Pattern.compile(
+        "(?i)\\s+with\\s+a\\s+total\\s+cost\\s+of\\s+(?<totalcost>\\d+)\\s+or\\s+less\\b"
     );
     /**
      * The "each of a different Element" constraint on a multi-card search — 1-135L Golbez.

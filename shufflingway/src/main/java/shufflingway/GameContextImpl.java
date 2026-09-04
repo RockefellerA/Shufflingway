@@ -762,6 +762,19 @@ final class GameContextImpl implements GameContext {
 				}
 			}
 
+			@Override public void shieldSourceForwardUntilOpponentTurnEnd(CardData source) {
+				List<CardData> fwds = isP1 ? mw.p1ForwardCards : mw.p2ForwardCards;
+				for (CardData c : fwds) {
+					if (!c.name().equalsIgnoreCase(source.name())) continue;
+					// Keyed by the instance on the field rather than by row, so the shield follows
+					// the card across a row reshuffle the way every other outlasting grant does.
+					(isP1 ? mw.p1CannotBeBrokenUntilOppTurnEnd : mw.p2CannotBeBrokenUntilOppTurnEnd).add(c);
+					logEntry((isP1 ? "" : "[P2] ") + c.name()
+							+ " cannot be broken until the end of your opponent's turn");
+					return;
+				}
+			}
+
 			@Override public void shieldAllOwnForwards() {
 				List<CardData> fwds = isP1 ? mw.p1ForwardCards : mw.p2ForwardCards;
 				List<EnumSet<CardData.Trait>> tempList =
@@ -2130,10 +2143,11 @@ final class GameContextImpl implements GameContext {
 					int costVal, String costCmp, String cardNameFilter, String jobFilter,
 					String categoryFilter, String elementFilter, String excludeName, String excludeElem,
 					String destination, int count, boolean entersDull, CardData.Trait requireTrait,
-					PickGate gate, boolean suppressAutoAbilities) {
+					PickGate gate, boolean suppressAutoAbilities, int maxTotalCost) {
 				return mw.searchDeckForCardWithRiders(isP1, inclForwards, inclBackups, inclMonsters, inclSummons,
 						costVal, costCmp, cardNameFilter, jobFilter, categoryFilter, elementFilter, excludeName,
-						excludeElem, destination, count, entersDull, requireTrait, gate, suppressAutoAbilities);
+						excludeElem, destination, count, entersDull, requireTrait, gate, suppressAutoAbilities,
+						maxTotalCost);
 			}
 			@Override public boolean searchDeckForNamedCardWithJob(boolean inclForwards, boolean inclBackups,
 					boolean inclMonsters, boolean inclSummons,
@@ -4553,6 +4567,54 @@ final class GameContextImpl implements GameContext {
 				return picks;
 			}
 
+			@Override public void opponentSelectsOwnBreakZoneCardsToHand(int count,
+					boolean inclForwards, boolean inclBackups, boolean inclMonsters,
+					boolean inclSummons, String what) {
+				boolean oppIsP1 = !isP1;
+				List<CardData> bz = oppIsP1 ? mw.gameState.getP1BreakZone() : mw.gameState.getP2BreakZone();
+				List<ForwardTarget> eligible = new ArrayList<>();
+				for (int i = 0; i < bz.size(); i++) {
+					CardData c = bz.get(i);
+					boolean typeMatch = (inclForwards && c.isForward())
+					                 || (inclBackups  && c.isBackup())
+					                 || (inclMonsters && (c.isMonster() || c.alsoCountsAsMonster()))
+					                 || (inclSummons  && c.isSummon());
+					if (!typeMatch) continue;
+					eligible.add(new ForwardTarget(oppIsP1, i, ForwardTarget.CardZone.BREAK_ZONE));
+				}
+				if (eligible.isEmpty()) {
+					logEntry((oppIsP1 ? "P1" : "[P2]") + " has no eligible card in their Break Zone");
+					return;
+				}
+				// Taking a card back is a gain, so the AI answers it as one — the dearest body its
+				// Break Zone holds, which is the most board presence per card drawn.
+				Supplier<List<ForwardTarget>> cpuPick = () -> eligible.stream()
+						.sorted(java.util.Comparator.comparingInt(
+								(ForwardTarget t) -> bz.get(t.idx()).cost()).reversed())
+						.limit(count)
+						.toList();
+				List<ForwardTarget> picks = mw.selectOwnBreakZoneTargets(oppIsP1, eligible, bz, count,
+						"Select " + what + " in your Break Zone to add to your hand",
+						"Waiting for your opponent to select " + what + " in their Break Zone...",
+						cpuPick);
+				if (picks.isEmpty()) return;
+				// Highest index first: every removal shifts the entries behind it, and the picks
+				// were recorded against the zone as it stood before any of them were taken.
+				List<Integer> idxs = new ArrayList<>();
+				for (ForwardTarget t : picks) idxs.add(t.idx());
+				idxs.sort(java.util.Comparator.reverseOrder());
+				List<CardData> hand = oppIsP1 ? mw.gameState.getP1Hand() : mw.gameState.getP2Hand();
+				for (int i : idxs) {
+					if (i < 0 || i >= bz.size()) continue;
+					CardData card = bz.remove(i);
+					hand.add(card);
+					logEntry(card.name() + " → " + (oppIsP1 ? "P1" : "P2") + " hand from Break Zone");
+				}
+				if (oppIsP1) { mw.refreshP1BreakLabel(); mw.refreshP1HandLabel(); }
+				else         { mw.refreshP2BreakLabel(); mw.refreshP2HandCountLabel(); }
+				mw.notifyCardsAddedToHandFromBreakZone(oppIsP1);
+			}
+
 			@Override public boolean opponentMayDiscardCards(int count, String sourceName) {
 				boolean oppIsP1 = !isP1;
 				List<CardData> oppHand = oppIsP1 ? mw.gameState.getP1Hand() : mw.gameState.getP2Hand();
@@ -6556,6 +6618,51 @@ final class GameContextImpl implements GameContext {
 				}
 				if (victimIsP1) { mw.refreshP1HandLabel();      mw.refreshP1BreakLabel(); }
 				else            { mw.refreshP2HandCountLabel(); mw.refreshP2BreakLabel(); }
+			}
+
+			@Override public void eachPlayerRandomDiscardThenCategoryDraw(int count,
+					String category, int draw) {
+				// The controller first, then their opponent. "Each player" leaves the order to the
+				// rules, and the resolving player acting first is the order every other two-sided
+				// effect here uses; nothing either roll does can change what the other may take.
+				boolean earnedSelf = randomDiscardEarnsCategory(isP1, count, category);
+				boolean earnedOpp  = randomDiscardEarnsCategory(!isP1, count, category);
+				if (earnedSelf) {
+					logEntry((isP1 ? "" : "[P2] ") + "Discarded a Category " + category
+							+ " card — draws " + draw);
+					mw.drawCardsForPlayer(isP1, draw);
+				}
+				if (earnedOpp) {
+					logEntry((isP1 ? "[P2] " : "") + "Discarded a Category " + category
+							+ " card — draws " + draw);
+					mw.drawCardsForPlayer(!isP1, draw);
+				}
+			}
+
+			/**
+			 * Randomly discards {@code count} cards from {@code victimIsP1}'s hand and reports
+			 * whether any of them carried {@code category}.
+			 *
+			 * <p>The roll goes through {@link #randomPicks} on the controller's client, as every
+			 * random discard does, so both clients discard the same cards and reach the same
+			 * answer here rather than each drawing their own conclusion.
+			 */
+			private boolean randomDiscardEarnsCategory(boolean victimIsP1, int count, String category) {
+				List<CardData> hand = victimIsP1 ? mw.gameState.getP1Hand() : mw.gameState.getP2Hand();
+				boolean earned = false;
+				for (int idx : randomPicks(count, hand.size(), "a random discard")) {
+					CardData d = mw.playerBreakFromHand(victimIsP1, idx);
+					if (d == null) continue;
+					logEntry("[" + (victimIsP1 ? "P1" : "P2") + "] Randomly discards " + d.name());
+					(victimIsP1 ? mw.p1Turn : mw.p2Turn).discardedByEffectThisTurn = true;
+					// The seat that caused it is the ability's controller, whichever hand this is:
+					// their own discard is still theirs to have caused.
+					(isP1 ? mw.p1Turn : mw.p2Turn).causedOpponentDiscardThisTurn |= victimIsP1 != isP1;
+					if (CardFilters.meetsCategoryFilter(d, category)) earned = true;
+				}
+				if (victimIsP1) { mw.refreshP1HandLabel();      mw.refreshP1BreakLabel(); }
+				else            { mw.refreshP2HandCountLabel(); mw.refreshP2BreakLabel(); }
+				return earned;
 			}
 
 			@Override public void drawCardsForOpponent(int count) {

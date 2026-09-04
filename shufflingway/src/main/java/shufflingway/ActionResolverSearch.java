@@ -1068,6 +1068,15 @@ final class ActionResolverSearch {
             gate = PickGate.DISTINCT_ELEMENTS;
             text = SEARCH_EACH_OF_A_DIFFERENT_ELEMENT.matcher(text).replaceFirst("");
         }
+        // Lifted off for the same reason as the two riders above: the phrase sits where
+        // SEARCH_DECK_PATTERN expects the destination clause, so the whole search failed to parse
+        // rather than parsing without the cap.
+        int maxTotalCost = -1;
+        Matcher totalCost = SEARCH_WITH_TOTAL_COST.matcher(text);
+        if (totalCost.find()) {
+            maxTotalCost = Integer.parseInt(totalCost.group("totalcost"));
+            text = text.substring(0, totalCost.start()) + text.substring(totalCost.end());
+        }
         // "Forward of cost 1 or Monster of cost 1" → "Forward or Monster of cost 1", so the type
         // union and the cost clause each land where SEARCH_DECK_PATTERN expects them. Rewritten
         // only when the two costs agree — see the pattern.
@@ -1260,18 +1269,20 @@ final class ActionResolverSearch {
         final boolean fBoth = identityConjunctive;
         final PickGate fGate = gate;
         final boolean fSilent = suppressAutoAbilities;
+        final int fTotalCost = maxTotalCost;
         final int fCost = costVal;
         final String fCostCmp = costCmp;
         Consumer<GameContext> search = ctx -> {
             ctx.logEntry("Effect: Search deck for " + fCount + filterDesc + typeDesc + costLabel
                     + (fBoth ? " [name and job together]" : "")
                     + (fGate != PickGate.ANY ? " [" + fGate.hint().replaceAll("^,\\s*", "") + "]" : "")
+                    + (fTotalCost >= 0 ? " [total cost " + fTotalCost + " or less]" : "")
                     + (fSilent ? " [no auto-abilities]" : "")
                     + " → " + destination + (fDull ? " dull" : ""));
-            if (fGate != PickGate.ANY || fSilent) {
+            if (fGate != PickGate.ANY || fSilent || fTotalCost >= 0) {
                 ctx.searchDeckForCardWithRiders(fwd, bk, mn, sm, fCost, fCostCmp, fName, fJob,
                         fCat, fElem, fExclude, fExclElem, destination, fCount, fDull, fTrait,
-                        fGate, fSilent);
+                        fGate, fSilent, fTotalCost);
             } else if (fBoth) {
                 ctx.searchDeckForNamedCardWithJob(fwd, bk, mn, sm, fCost, fCostCmp, fName, fJob,
                         fElem, fExclude, fExclElem, destination, fCount, fDull, fTrait);

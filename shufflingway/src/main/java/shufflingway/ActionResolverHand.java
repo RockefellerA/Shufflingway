@@ -552,6 +552,26 @@ final class ActionResolverHand {
             ctx.forceOpponentRandomDiscard(count);
         };
     }
+    /**
+     * Parses "Each player randomly discards N cards from their hand. Then, any player who
+     * discards a Category X card, draws M cards." — 11-035R Setzer.
+     *
+     * <p>Symmetric, and the payoff is settled per player against that player's own discard, so it
+     * cannot be composed out of the self- and opponent-discard parsers either side of it: the two
+     * rolls are independent and either, both or neither may earn its draw.
+     */
+    static Consumer<GameContext> tryParseEachPlayerRandomDiscardThenCategoryDraw(String text) {
+        Matcher m = EACH_PLAYER_RANDOM_DISCARD_THEN_CATEGORY_DRAW.matcher(text.trim());
+        if (!m.matches()) return null;
+        int    count    = Integer.parseInt(m.group("count"));
+        String category = m.group("category").trim();
+        int    draw     = Integer.parseInt(m.group("draw"));
+        return ctx -> {
+            ctx.logEntry("Effect: Each player randomly discards " + count + " card(s) — a Category "
+                    + category + " discard draws that player " + draw + " card(s)");
+            ctx.eachPlayerRandomDiscardThenCategoryDraw(count, category, draw);
+        };
+    }
     /** Parses "Your opponent draws N card(s), then randomly discards M card(s)" as a standalone effect. */
     static Consumer<GameContext> tryParseOpponentDrawThenRandomDiscard(String text) {
         Matcher m = OPPONENT_DRAW_THEN_RANDOM_DISCARD.matcher(text);

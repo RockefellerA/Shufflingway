@@ -3381,9 +3381,15 @@ public record CardData(
      * Matches a prefix condition requiring the card's cast cost to have been paid with CP from
      * N or more different element types:
      * "if the cost to cast X was paid with CP of N or more different Elements, "
+     *
+     * <p>"play" as well as "cast", for the same reason
+     * {@link ActionResolverPatterns#CAST_PAYMENT_ELEMENTS_GATE} admits both: the 11-xxx printings
+     * (11-048C Thief) word the condition as playing the card onto the field, and it is the same
+     * condition. Without it the clause stayed in the effect text, where nothing parses it, and
+     * the ability was reported unrecognised rather than gated.
      */
     private static final Pattern FA_CAST_PAYMENT_ELEMENTS = Pattern.compile(
-        "(?i)^if\\s+the\\s+cost\\s+to\\s+cast\\s+[^,]+?\\s+was\\s+paid\\s+with\\s+CP\\s+of\\s+(?<n>\\d+)\\s+or\\s+more\\s+different\\s+Elements,?\\s+"
+        "(?i)^if\\s+the\\s+cost\\s+to\\s+(?:play|cast)\\s+[^,]+?\\s+was\\s+paid\\s+with\\s+CP\\s+of\\s+(?<n>\\d+)\\s+or\\s+more\\s+different\\s+Elements,?\\s+"
     );
 
     /**

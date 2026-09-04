@@ -77,6 +77,8 @@ final class ActionResolverRestriction {
      *   <li>"[CardName] gains '[...] cannot be broken by opposing Summons or abilities that
      *       don't deal damage.' until the end of the turn." — self-shield vs non-damage breaks</li>
      *   <li>"All [the] Forwards you control gain '[...] cannot be broken.' until end of turn." — all own</li>
+     *   <li>"[CardName] gains '[...] cannot be broken.' until the end of your opponent's turn."
+     *       — the same self-shield over a longer duration (29-058R Ardyn)</li>
      * </ul>
      */
     static Consumer<GameContext> tryParseStandaloneShieldCannotBeBroken(
@@ -102,6 +104,17 @@ final class ActionResolverRestriction {
                         return;
                     }
                 }
+            };
+        }
+        // The longer duration first. It cannot be reached by falling through the two below —
+        // neither of their duration clauses matches "until the end of your opponent's turn" — but
+        // asking for it here keeps the reading of the sentence in one place, and a widening of
+        // either of those cannot quietly shorten Ardyn's shield to the current turn.
+        Matcher opp = STANDALONE_SELF_SHIELD_CANNOT_BE_BROKEN_OPP_TURN.matcher(text);
+        if (opp.find() && opp.group("subject").trim().equalsIgnoreCase(source.name())) {
+            return ctx -> {
+                ctx.logEntry(source.name() + " cannot be broken until the end of your opponent's turn");
+                ctx.shieldSourceForwardUntilOpponentTurnEnd(source);
             };
         }
         Matcher m = STANDALONE_SELF_SHIELD_CANNOT_BE_BROKEN.matcher(text);
