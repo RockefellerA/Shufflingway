@@ -429,6 +429,77 @@ public class HandPickDialog {
     }
 
     // -------------------------------------------------------------------------
+    // Reveal any number of cards from hand (the cards stay in hand)
+    // -------------------------------------------------------------------------
+
+    /**
+     * Shows a dialog for P1 to reveal any number of cards from their hand, and returns which.
+     *
+     * <p>Nothing moves: revealing shows the cards to both players and leaves them where they are.
+     * That is the whole difference from {@link #showPlaceToBottom}, whose selection is a set of
+     * cards being spent — so this one cannot reuse it however alike the two look, and confirming
+     * with nothing selected is always allowed because "any number" includes none.
+     *
+     * @return the indices revealed, in hand order; empty when the player revealed nothing
+     */
+    public static List<Integer> showRevealAnyNumber(JFrame owner, List<CardData> hand, String purpose,
+                                                    Consumer<String> onZoom, Runnable onZoomHide) {
+        JDialog dlg = new JDialog(owner, "Reveal Any Number of Cards", true);
+        dlg.setResizable(false);
+        dlg.setDefaultCloseOperation(JDialog.DO_NOTHING_ON_CLOSE);
+
+        Set<Integer> selected = new HashSet<>();
+
+        JLabel statusLabel = new JLabel(purpose, SwingConstants.CENTER);
+        statusLabel.setFont(FontLoader.loadPixelFont(10));
+
+        List<JLabel> cardLabels = new ArrayList<>();
+        JPanel cardsPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 8));
+
+        JButton confirmBtn = new JButton("Reveal");
+        confirmBtn.setFont(FontLoader.loadPixelFont(11));
+
+        Runnable refresh = () -> {
+            statusLabel.setText(purpose + "  (" + selected.size() + " selected)");
+            for (int i = 0; i < cardLabels.size(); i++) {
+                cardLabels.get(i).setBorder(BorderFactory.createLineBorder(
+                        selected.contains(i) ? Color.BLUE : Color.LIGHT_GRAY,
+                        selected.contains(i) ? 3 : 1));
+            }
+        };
+
+        buildCardGrid(hand, hand.size(), cardsPanel, cardLabels, selected, hand.size(),
+                refresh, onZoom, onZoomHide);
+
+        List<Integer> revealed = new ArrayList<>();
+        confirmBtn.addActionListener(ae -> {
+            onZoomHide.run();
+            revealed.addAll(new java.util.TreeSet<>(selected));
+            dlg.dispose();
+        });
+
+        JScrollPane scrollPane = new JScrollPane(cardsPanel,
+                JScrollPane.VERTICAL_SCROLLBAR_NEVER,
+                JScrollPane.HORIZONTAL_SCROLLBAR_AS_NEEDED);
+        scrollPane.setPreferredSize(new Dimension(
+                Math.min(hand.size() * (CARD_W + 16) + 16, 900),
+                CARD_H + 60));
+
+        JPanel south = new JPanel(new BorderLayout());
+        south.add(statusLabel, BorderLayout.CENTER);
+        south.add(confirmBtn,  BorderLayout.EAST);
+        south.setBorder(BorderFactory.createEmptyBorder(0, 8, 8, 8));
+
+        dlg.getContentPane().setLayout(new BorderLayout(0, 4));
+        dlg.getContentPane().add(scrollPane, BorderLayout.CENTER);
+        dlg.getContentPane().add(south,      BorderLayout.SOUTH);
+        dlg.pack();
+        dlg.setLocationRelativeTo(owner);
+        dlg.setVisible(true);
+        return revealed;
+    }
+
+    // -------------------------------------------------------------------------
     // Remove N cards from hand to the RFP zone
     // -------------------------------------------------------------------------
 

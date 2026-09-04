@@ -688,6 +688,9 @@ public class ActionResolver {
 
         // Anchored, so it only claims an ability that is nothing but the action; the target is
         // the triggering card, preloaded by AutoAbilityTriggers.
+        result = tryParseTriggeredDamageInsteadIfEnteredUnpaid(effectText);
+        if (result != null) return result;
+
         result = tryParseTriggeredTargetAction(effectText, xValue);
         if (result != null) return result;
 
@@ -762,6 +765,12 @@ public class ActionResolver {
         if (result != null) return result;
 
         result = tryParsePartyForwardsPowerBoost(effectText);
+        if (result != null) return result;
+
+        // Ahead of every mass-power parser: this text carries "all the Forwards opponent controls
+        // lose 7000 power" inside a branch, and those matchers are unanchored — AllFieldPowerBoost
+        // claimed it and applied the loss with the reveal and the condition never read.
+        result = tryParseRevealOpponentTopBranchOnType(effectText);
         if (result != null) return result;
 
         // Must precede tryParseAllFieldPowerBoost only for tidiness -- that pattern needs a power
@@ -1944,6 +1953,7 @@ public class ActionResolver {
         if (tryParseCancelAbilityOnStack(effectText)           != null) return "CancelAbilityOnStack";
         if (tryParseCancelChosenTargetUnlessPay(effectText)    != null) return "CancelChosenTargetUnlessPay";
         if (tryParseCancelChosenTargetUnlessDiscard(effectText) != null) return "CancelChosenTargetUnlessDiscard";
+        if (tryParseTriggeredDamageInsteadIfEnteredUnpaid(effectText) != null) return "TriggeredDamageInsteadIfEnteredUnpaid";
         if (tryParseTriggeredTargetAction(effectText, 0)      != null) return "TriggeredTargetAction";
         if (tryParseCancelChosenTargetBare(effectText)         != null) return "CancelChosenTargetBare";
         if (tryParseCancelTriggeringSummon(effectText)         != null) return "CancelTriggeringSummon";
@@ -1974,6 +1984,7 @@ public class ActionResolver {
         if (tryParseAllForwardsSameElementAsNamedPowerBoost(effectText) != null) return "AllForwardsSameElementAsNamedPowerBoost";
         if (tryParsePartyForwardsPowerBoost(effectText) != null) return "PartyForwardsPowerBoost";
         if (tryParseAllOppForwardsLoseTraitsEot(effectText) != null) return "AllOppForwardsLoseTraitsEot";
+        if (tryParseRevealOpponentTopBranchOnType(effectText) != null) return "RevealOpponentTopBranchOnType";
         if (tryParseAllFieldPowerBoost(effectText) != null) return "AllFieldPowerBoost";
         if (tryParseAllFieldJobCardNamePowerBoost(effectText) != null) return "AllFieldJobCardNamePowerBoost";
         if (tryParseTwoCardNamesPowerBoost(effectText) != null) return "TwoCardNamesPowerBoost";
@@ -2684,6 +2695,11 @@ public class ActionResolver {
                 return gate + describeOrName(altTxt, source) + " | else "
                         + describeOrName(baseTxt, source) + ")";
             }
+            // A base that is not an effect on its own is described the way the parser runs it:
+            // as one sentence inside the gate. Describing the halves separately here reported two
+            // "?"s, because neither "choose 1 Forward" nor a bare "break it" names anything alone.
+            if (parse(baseTxt, source, 0) == null)
+                return gate + describeOrName(baseTxt + " " + tailTxt, source) + ")";
             // Same normalisation the parser applied, so the report names the clause that ran.
             return describeOrName(baseTxt, source) + " + " + gate
                     + describeOrName(gateTailText(tailTxt, source, 0), source) + ")";
@@ -3268,6 +3284,7 @@ public class ActionResolver {
         if (tryParseCancelStackEntryUnlessPay(effectText)     != null) return "CancelStackEntryUnlessPay";
         if (tryParseCancelChosenTargetUnlessPay(effectText)   != null) return "CancelChosenTargetUnlessPay";
         if (tryParseCancelChosenTargetUnlessDiscard(effectText) != null) return "CancelChosenTargetUnlessDiscard";
+        if (tryParseTriggeredDamageInsteadIfEnteredUnpaid(effectText) != null) return "TriggeredDamageInsteadIfEnteredUnpaid";
         if (tryParseTriggeredTargetAction(effectText, 0)      != null) return "TriggeredTargetAction";
         if (tryParseCancelChosenTargetBare(effectText)         != null) return "CancelChosenTargetBare";
         if (tryParseCancelTriggeringSummon(effectText)         != null) return "CancelTriggeringSummon";
@@ -3305,6 +3322,9 @@ public class ActionResolver {
             return FIELD_OPPONENT_DEBUFF_PASSIVE.matcher(trimmed).matches()
                     ? "FieldOpponentPowerDebuff" : "FieldPowerGrant";
         }
+        // Mirrors parse(): ahead of the mass power reader below, which finds the power loss
+        // inside this text's first branch and describes the whole ability as that sweep.
+        if (tryParseRevealOpponentTopBranchOnType(effectText) != null) return "RevealOpponentTopBranchOnType";
         // Mirrors parse() and matchedPatternName(): kept beside the mass power effect it shares a
         // board with, though the pattern below needs a power figure and could not claim it.
         if (tryParseAllOppForwardsLoseTraitsEot(effectText) != null) return "AllOppForwardsLoseTraitsEot";
@@ -4263,6 +4283,24 @@ public class ActionResolver {
                         : baseDmg * units;
                 sortedByIdxDesc(ts, true) .forEach(ft -> ctx.damageTarget(ft, damage));
                 sortedByIdxDesc(ts, false).forEach(ft -> ctx.damageTarget(ft, damage));
+            };
+        }
+
+        // "It gains +N power [and Haste/First Strike/Brave] until the end of the turn" — the
+        // triggered-target form of a grant this engine already applies everywhere else. Reached
+        // by 8-097H Jake through TRIGGERED_TARGET_ACTION_BARE's demonstrative arm, which rewrites
+        // "that Forward" to "It" so this one arm serves both spellings.
+        //
+        // Below the damage arms deliberately: several of those sentences end in a power grant of
+        // their own ("deal it N damage. It gains ..."), and this pattern is unanchored, so reading
+        // it earlier would claim the tail and drop the damage.
+        Matcher gainM = FOLLOWUP_POWER_BOOST.matcher(t);
+        if (gainM.find()) {
+            final int boost = Integer.parseInt(gainM.group(1));
+            final EnumSet<CardData.Trait> gained = parseTraits(gainM.group(2));
+            return (ctx, ts) -> {
+                sortedByIdxDesc(ts, true) .forEach(ft -> ctx.boostTarget(ft, boost, gained));
+                sortedByIdxDesc(ts, false).forEach(ft -> ctx.boostTarget(ft, boost, gained));
             };
         }
 
@@ -5473,6 +5511,15 @@ public class ActionResolver {
      */
     static boolean isTriggeredTargetAction(String text) {
         return tryParseTriggeredTargetAction(text, 0) != null;
+    }
+
+    /**
+     * True for Cid (FFBE) 10-052L's "deal it N damage. If the Forward entered play without paying
+     * for its CP cost, deal it M damage instead." — another whole effect about the card that fired
+     * the trigger, and so another that needs it preloaded.
+     */
+    static boolean isEnteredUnpaidDamage(String text) {
+        return tryParseTriggeredDamageInsteadIfEnteredUnpaid(text) != null;
     }
 
     /**

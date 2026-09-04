@@ -656,6 +656,27 @@ final class ActionResolverSearch {
         };
     }
     /**
+     * Parses Shinryu 14-115L's "Reveal the top card of opponent's deck. If it is a Forward, all the
+     * Forwards opponent controls lose 7000 power until the end of the turn. If it is not a Forward,
+     * draw 2 cards."
+     *
+     * <p>Returns {@code null} unless both branches parse and both name the same type — a text
+     * asking about two different types is two conditions, not one either/or.
+     */
+    static Consumer<GameContext> tryParseRevealOpponentTopBranchOnType(String text) {
+        Matcher m = REVEAL_OPPONENT_TOP_BRANCH_ON_TYPE.matcher(text.trim());
+        if (!m.matches()) return null;
+        String type = cap(m.group("type"));
+        if (!type.equalsIgnoreCase(m.group("type2"))) return null;
+        Consumer<GameContext> thenFn = parse(m.group("then").trim(), null);
+        Consumer<GameContext> elseFn = parse(m.group("otherwise").trim(), null);
+        if (thenFn == null || elseFn == null) return null;
+        return ctx -> {
+            if (ctx.revealOpponentTopCardIsType(type)) thenFn.accept(ctx);
+            else                                       elseFn.accept(ctx);
+        };
+    }
+    /**
      * Parses Setzer 29-103H's "Reveal the top N cards of your deck. Remove 1 card with Warp among
      * them from the game and place M Warp Counter(s) on it. Then shuffle the other cards and
      * return them to the bottom of your deck."

@@ -239,7 +239,36 @@ final class ActionResolverGate {
         String  tailText = m.group("tail").trim();
 
         Consumer<GameContext> baseFn = parse(baseText, source, xValue);
-        if (baseFn == null) return null;
+        if (baseFn == null) {
+            // A base that is not an effect on its own is not half of two effects — it is one
+            // sentence the condition sits inside. "Choose 1 Forward." parses as nothing, because
+            // choosing with no payoff does nothing; the payoff is the tail.
+            //
+            // Reattaching the tail and gating the pair is what stops that payoff firing whatever
+            // was paid. Ten abilities print this shape (14-055C Lezaford, 19-013C Lilty, 19-067C
+            // Monk and their siblings) and every one fell through to the Choose family, whose
+            // followup matchers are unanchored: they found "break it" and "deal it 8000 damage"
+            // *inside* the conditional clause and ran them with the condition never read.
+            //
+            // The choose is gated along with its payoff, where the printed sentence chooses first
+            // and checks after. That difference is visible only to a "when chosen" trigger on a
+            // Forward that was going to be spared anyway — far smaller than breaking a Forward
+            // whose condition was never met.
+            Consumer<GameContext> wholeFn = parse(baseText + " " + tailText, source, xValue);
+            if (wholeFn == null) return null;
+            String gateLabel = "cast paid with CP of " + required + " or "
+                    + (atLeast ? "more" : "less") + " different Element(s)";
+            return ctx -> {
+                int paid = ctx.castPaymentDistinctElements();
+                if (atLeast ? paid >= required : paid <= required) {
+                    ctx.logEntry("Effect: " + gateLabel + " (paid " + paid + ") — condition met");
+                    wholeFn.accept(ctx);
+                } else {
+                    ctx.logEntry("Effect: " + gateLabel + " — paid " + paid
+                            + ", condition not met — skipped");
+                }
+            };
+        }
 
         String label = "cast paid with CP of " + required + " or "
                 + (atLeast ? "more" : "less") + " different Element(s)";

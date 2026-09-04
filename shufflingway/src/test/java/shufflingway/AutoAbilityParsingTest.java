@@ -135,17 +135,40 @@ public class AutoAbilityParsingTest {
                 rs.getString("category_1"), rs.getString("category_2"), textEn);
     }
 
+    /**
+     * One card's entry in the report: the text as stored, then what each ability parsed to.
+     *
+     * <p>The card line is {@link CardData#textEn()} verbatim. It used to be rebuilt from the parsed
+     * pieces — "When " + triggerCard + the trigger rendered back into prose + the effect — which
+     * read as card text but was not. The rebuild round-trips through the normalised trigger, so
+     * Cid (FFBE) 10-052L's stored "When a Forward <b>of your opponent enters the field</b>" came
+     * back out as "When a Forward <b>enters your opponent's field</b>": same ruling, different
+     * words. Anyone comparing the report against the database — or quoting it, as a reader
+     * reasonably would — was comparing against a paraphrase.
+     *
+     * <p>Nothing is lost by printing the stored text: the restrictions the rebuild existed to
+     * restore ({@code oncePerTurn} and its siblings, lifted off the effect by
+     * {@link CardData#parseAutoAbilities}) are all present in the stored sentence already.
+     */
     private static String formatCardExample(String name, List<AutoAbility> abilities, CardData source) {
         StringBuilder sb = new StringBuilder();
         sb.append("  Card: ").append(name).append('\n');
+        sb.append("  Text: ").append(storedTextOneLine(source)).append('\n');
         for (AutoAbility fa : abilities) {
             String desc = ActionResolver.fullDescription(fa.effectText(), source);
             sb.append("  [").append(abilityStatus(fa, source)).append("] ")
-              .append(autoAbilityText(fa, source)).append('\n');
+              .append(fa.effectText()).append('\n');
             sb.append("       [").append(fa.trigger()).append("] ")
               .append(desc != null ? desc : "(none)").append('\n');
         }
         return sb.toString();
+    }
+
+    /** The stored card text on one line, with the source's line breaks shown as a separator. */
+    private static String storedTextOneLine(CardData source) {
+        String t = source.textEn();
+        if (t == null) return "(no stored text)";
+        return t.replace("[[br]]", " / ").replaceAll("\\s{2,}", " ").trim();
     }
 
     /**
@@ -184,120 +207,6 @@ public class AutoAbilityParsingTest {
     static boolean isAutoAbilityRecognized(AutoAbility fa, CardData source) {
         return AutoAbilityTriggers.dispatchedByTriggers(fa, source)
                 || ActionResolver.parse(fa.effectText(), source) != null;
-    }
-
-    /** Reconstructs the original trigger line for display. */
-    private static String autoAbilityText(AutoAbility fa, CardData source) {
-        StringBuilder sb = new StringBuilder();
-        // The one firing restriction the card states ahead of its trigger rather than after its
-        // effect, so it is restored ahead of it here and the trigger lead-in loses its capital.
-        if (fa.opponentTurnOnly()) sb.append("During your opponent's turn, ");
-        String phaseTrigger = phaseTriggerDisplayText(fa.trigger());
-        if (phaseTrigger != null && fa.triggerCard().isEmpty()) {
-            sb.append(phaseTrigger).append(", ");
-        } else {
-            sb.append(fa.opponentTurnOnly() ? "when " : "When ");
-            String trigger = triggerDisplayText(fa.trigger());
-            if (fa.warpOnly() && trigger.equals("enters the field"))
-                trigger = "enters the field due to Warp";
-            else if (fa.castOnly() && trigger.equals("enters the field"))
-                trigger = "enters the field due to your cast";
-            // "primed into" is stored from the primer's side — triggerCard is the card that primes
-            // in, and the target is the card that owns the ability. Naming the target restores the
-            // printed wording, "When Barnabas (XVI) primes into Odin (XVI), …".
-            else if (fa.trigger().equals("primed into"))
-                trigger = "primes into " + source.name();
-            sb.append(fa.triggerCard()).append(' ').append(trigger).append(", ");
-        }
-        if (fa.castPaymentMinElements() > 0)
-            sb.append("if the cost to cast ").append(source.name()).append(" was paid with CP of ")
-              .append(fa.castPaymentMinElements()).append(" or more different Elements, ");
-        if (fa.youMay())       sb.append("you may ");
-        else if (fa.opponentMay()) sb.append("your opponent may ");
-        sb.append(fa.effectText()).append(restrictionText(fa)).append(dmgTag(fa.damageThreshold()));
-        return sb.toString();
-    }
-
-    /**
-     * The trailing firing restrictions {@link CardData#parseAutoAbilities} lifts off the effect
-     * text, restored as the sentences the card prints them as. Without them the report shows an
-     * ability shorn of its own limits — Mira 11-122H's once-per-turn search reads as an
-     * unconditional one, which is a different card.
-     *
-     * <p>The Break Zone condition is printed two ways — the trailing "This effect will trigger only
-     * if [card] is in the Break Zone." and the leading "If you have a Card Name [card] … in your
-     * Break Zone," — and {@link AutoAbility} keeps only the card, not which form it came from. Both
-     * are rendered in the trailing form; the restriction is the same either way.
-     */
-    private static String restrictionText(AutoAbility fa) {
-        StringBuilder sb = new StringBuilder();
-        if (fa.yourTurnOnly() || fa.oncePerTurn()) {
-            sb.append(". This effect will trigger only");
-            if (fa.yourTurnOnly())                     sb.append(" during your turn");
-            if (fa.yourTurnOnly() && fa.oncePerTurn()) sb.append(" and only");
-            if (fa.oncePerTurn())                      sb.append(" once per turn");
-            sb.append('.');
-        }
-        if (!fa.rfpConditionCard().isEmpty())
-            sb.append(". This effect will trigger only if ").append(fa.rfpConditionCard())
-              .append(" is removed from the game.");
-        if (!fa.bzConditionCard().isEmpty())
-            sb.append(". This effect will trigger only if ").append(fa.bzConditionCard())
-              .append(fa.bzConditionJob().isEmpty() ? "" : " with Job " + fa.bzConditionJob())
-              .append(" is in the Break Zone.");
-        return sb.toString();
-    }
-
-    /**
-     * Maps a canonical global (card-less) phase/time trigger key back to its original,
-     * grammatically correct lead-in phrase. Returns {@code null} for ordinary card-relative
-     * triggers, which use the "When [card] [trigger]" form instead.
-     */
-    private static String phaseTriggerDisplayText(String trigger) {
-        return switch (trigger) {
-            case "beginning of attack phase"           -> "At the beginning of the Attack Phase during each of your turns";
-            case "beginning of attack phase each turn" -> "At the beginning of the Attack Phase during each player's turn";
-            case "end of your turn"                     -> "At the end of each of your turns";
-            case "beginning of main phase 1"            -> "At the beginning of your Main Phase 1";
-            case "beginning of main phase 2"            -> "At the beginning of your Main Phase 2";
-            case "beginning of main phase 1 each turn"  -> "Each turn, at the beginning of Main Phase 1";
-            case "beginning of opponent's main phase 1" -> "At the beginning of your opponent's Main Phase 1";
-            case "end of opponent's turn"                -> "At the end of your opponent's turn";
-            case "end of each player's turn"             -> "At the end of each player's turn";
-            default                                      -> null;
-        };
-    }
-
-    /** Maps a canonical trigger key back to a human-readable trigger phrase. */
-    private static String triggerDisplayText(String trigger) {
-        return switch (trigger) {
-            case "attacks"                                  -> "attacks";
-            case "attacks or blocks"                        -> "attacks or blocks";
-            case "blocks"                                   -> "blocks";
-            case "is blocked"                               -> "is blocked";
-            case "blocks or is blocked"                     -> "blocks or is blocked";
-            case "enters the field"                         -> "enters the field";
-            case "enters your field"                        -> "enters your field";
-            case "enters your field not from hand"          -> "enters your field other than from your hand";
-            case "enters the field or attacks"              -> "enters the field or attacks";
-            case "enters the field or put into break zone"  -> "enters the field or is put from the field into the Break Zone";
-            case "put into break zone"                      -> "is put from the field into the Break Zone";
-            case "other forward attacks"                    -> "attacks";
-            case "filtered forward attacks"                 -> "attacks";
-            case "party attacks"                            -> "forms a party and attacks";
-            case "chosen by opponent's summon"              -> "is chosen by your opponent's Summon or ability";
-            case "cast summon"                              -> "casts a Summon";
-            case "damage zone"                              -> "is put into the Damage Zone";
-            case "leaves the field"                         -> "leaves the field";
-            case "warp placed"                              -> "Warp is placed in the field";
-            case "deals damage to opponent"                 -> "deals damage to your opponent";
-            case "deals damage to forward"                  -> "deals damage to a Forward";
-            case "you receive damage"                       -> "you receive damage";
-            case "either player receives damage"            -> "either player receives damage";
-            case "enters opponent's field"                  -> "enters your opponent's field";
-            case "attack"                                   -> "attacks";
-            default                                         -> trigger;
-        };
     }
 
     private static String dmgTag(int threshold) {

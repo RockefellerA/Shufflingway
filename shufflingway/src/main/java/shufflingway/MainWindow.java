@@ -1298,6 +1298,21 @@ public class MainWindow {
 	 * while one is resolving cannot leave its own amount behind for the outer one to read.
 	 */
 	int lastDealtDamageAmount = 0;
+	/**
+	 * The card whose arrival on the field is firing the watcher currently resolving, or {@code null}
+	 * outside one. Held here for the reason {@link #triggeringBrokenCard} is: the effect reads it
+	 * through a {@code Consumer} that has no room for a second card, and Noctis 18-139S needs both
+	 * the arriving Forward <em>and</em> the one its ability chooses.
+	 *
+	 * <p>Distinct from the preloaded-target route the pronoun effects use. That route hands the
+	 * entering card over <em>as</em> the target, which is right for "dull it and Freeze it" and
+	 * wrong here — the target of Noctis's sentence is the Forward the player picks, and the
+	 * arriving one is only the source of the damage.
+	 *
+	 * <p>Set and restored around each dispatch, so a nested arrival cannot leave its own card
+	 * behind for the outer one to read.
+	 */
+	CardData triggeringEnteredCard = null;
 	/** True while a card is being placed as a direct result of being cast from hand; gates castOnly field abilities. */
 	boolean lastCardWasCast = false;
 	/** True while a card is entering the field via Warp resolution; gates warpOnly field abilities. */

@@ -4032,6 +4032,56 @@ public interface GameContext {
     int ownDamageCount();
 
     /**
+     * Whether the card whose arrival is being resolved reached the field without paying CP for it.
+     *
+     * <p>Answered from the same signal the engine's "enters ... not from hand" triggers already
+     * use: a card placed as a direct result of being cast from hand paid for itself, and one put
+     * onto the field by an effect did not. Cid (FFBE) 10-052L is the card that asks.
+     *
+     * <p>The one case it does not separate is a card <em>cast</em> from hand without paying — Leo
+     * 16-126R, Mind Flayer 15-120H and Nanaa Mihgo 22-048H can each do that to a Forward. Those
+     * read as paid here. Distinguishing them would need a second flag threaded through all two
+     * dozen writers of the first, where one missed site is a silently wrong answer; the engine
+     * draws the line in this one place, and this question is answered consistently with it.
+     */
+    boolean triggeringCardEnteredWithoutPayingCost();
+
+    /**
+     * The current power of the card whose arrival fired the watcher being resolved, or {@code 0}
+     * when there is none or it has already left the field.
+     *
+     * <p>Read by "the Forward that entered the field deals damage equal to its power" — Noctis
+     * 18-139S — where the arriving card is the source of the damage and the target is chosen
+     * separately. Effective power, not printed: a Forward that arrived under a buff hits for what
+     * it is worth when the ability resolves.
+     */
+    int triggeringEnteredCardPower();
+
+    /**
+     * Asks the resolving player to reveal any number of cards from their hand, and answers how many
+     * <em>different Elements</em> were among them.
+     *
+     * <p>Nothing leaves the hand — revealing shows the cards and puts them back. Ace 16-002H is the
+     * card: it deals 3000 for each Element revealed, so the count is the whole point and the cards
+     * themselves need not travel any further than the log.
+     *
+     * <p>A multi-Element card contributes every Element it prints, and revealing nothing answers 0.
+     */
+    int revealAnyNumberFromHandDistinctElements();
+
+    /**
+     * Reveals the top card of the opponent's deck and answers whether it is of {@code type}.
+     *
+     * <p>The card is shown and left where it is — revealing moves nothing, so the opponent's next
+     * draw is the card both players have just seen. An empty deck reveals nothing and answers
+     * {@code false}, which sends Shinryu 14-115L down its "is not a Forward" branch.
+     *
+     * @param type one of {@code "Forward"}, {@code "Backup"}, {@code "Monster"}, {@code "Summon"}
+     *             or {@code "Character"} (Forwards, Backups and Monsters together)
+     */
+    boolean revealOpponentTopCardIsType(String type);
+
+    /**
      * "Reveal the top {@code reveal} cards of your deck. Play up to {@code maxPlay} Category
      * {@code category} {@code type} among them onto the field. Then, shuffle the other cards
      * revealed and return them to the bottom of your deck. The {@code type}'s Element becomes

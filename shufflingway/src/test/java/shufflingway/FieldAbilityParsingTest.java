@@ -451,6 +451,7 @@ public class FieldAbilityParsingTest {
     private static String formatCardExample(String name, List<FieldAbility> abilities, CardData source) {
         StringBuilder sb = new StringBuilder();
         sb.append("  Card: ").append(name).append('\n');
+        sb.append("  Text: ").append(storedTextOneLine(source)).append('\n');
         String typeEn = source.type();
         for (FieldAbility fa : abilities) {
             boolean ok   = isFieldAbilityRecognized(fa, source, typeEn);
@@ -460,6 +461,17 @@ public class FieldAbilityParsingTest {
             sb.append("       ").append(desc != null ? desc : "(none)").append('\n');
         }
         return sb.toString();
+    }
+
+    /**
+     * The stored card text on one line, so a report line can be checked against the database
+     * it came from. Printed verbatim apart from the line-break marker: an effect text shown
+     * here is a slice of this, never a rewording of it.
+     */
+    private static String storedTextOneLine(CardData source) {
+        String t = source.textEn();
+        if (t == null) return "(no stored text)";
+        return t.replace("[[br]]", " / ").replaceAll("\\s{2,}", " ").trim();
     }
 
     /**

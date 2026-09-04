@@ -995,6 +995,52 @@ final class ActionResolverPatterns {
     static final Pattern FOLLOWUP_MUTUAL_POWER_DAMAGE = Pattern.compile(
         "(?i)(?<srcname>.+?)\\s+and\\s+the\\s+chosen\\s+Forward\\s+deal\\s+damage\\s+equal\\s+to\\s+their\\s+respective\\s+power\\s+to\\s+the\\s+other[.!]?"
     );
+    /**
+     * Matches "Reveal the top card of opponent's deck. If it is a [Type], &lt;then&gt;. If it is
+     * not a [Type], &lt;otherwise&gt;." — Shinryu 14-115L.
+     *
+     * <p>Read whole, and read <em>early</em>. Both branches are ordinary effects that parse on
+     * their own, and the first of them is a mass power loss — so left to the general chain this
+     * text was claimed by {@code AllFieldPowerBoost}, which found "all the Forwards opponent
+     * controls lose 7000 power" in the middle of it and applied that unconditionally, dropping the
+     * reveal, the condition and the draw with it.
+     *
+     * <p>The two type words are captured separately so the pattern can require they agree: a card
+     * asking about a Forward and then about a Backup would be two conditions, not one branch.
+     */
+    static final Pattern REVEAL_OPPONENT_TOP_BRANCH_ON_TYPE = Pattern.compile(
+        "(?is)^\\s*reveal\\s+the\\s+top\\s+card\\s+of\\s+(?:your\\s+)?opponent'?s?\\s+deck[.!]?\\s+" +
+        "If\\s+it\\s+is\\s+an?\\s+(?<type>Forward|Backup|Monster|Summon|Character),\\s+" +
+        "(?<then>.+?)[.!]\\s+" +
+        "If\\s+it\\s+is\\s+not\\s+an?\\s+(?<type2>Forward|Backup|Monster|Summon|Character),\\s+" +
+        "(?<otherwise>.+?)[.!]?\\s*$"
+    );
+    /**
+     * Matches "Reveal any number of cards from your hand. Deal it N damage for each different
+     * Element among the revealed cards." — Ace 16-002H, the payoff of a choose.
+     *
+     * <p>The reveal is part of the payoff rather than a cost: nothing leaves the hand, and the only
+     * thing it produces is the multiplier. Read as one followup for that reason — splitting it
+     * would leave a "deal it N damage for each ..." with no idea what it was counting.
+     */
+    static final Pattern FOLLOWUP_REVEAL_HAND_DAMAGE_PER_ELEMENT = Pattern.compile(
+        "(?i)Reveal\\s+any\\s+number\\s+of\\s+cards\\s+from\\s+your\\s+hand[.!]?\\s+" +
+        "Deal\\s+it\\s+(?<amount>\\d+)\\s+damage\\s+for\\s+each\\s+different\\s+Element\\s+" +
+        "among\\s+the\\s+revealed\\s+cards[.!]?"
+    );
+    /**
+     * Matches "The Forward that entered the field deals damage equal to its power to the chosen
+     * Forward." — Noctis 18-139S, the payoff of a watcher on someone else's arrival.
+     *
+     * <p>Two cards in one sentence, and neither is a pronoun: the source is the Forward that fired
+     * the trigger and the target is the one the same ability chose. That is what separates it from
+     * {@link #FOLLOWUP_MUTUAL_POWER_DAMAGE}, whose source is the card printing the ability, and
+     * from the pronoun followups, whose source is nothing at all.
+     */
+    static final Pattern FOLLOWUP_ENTERED_FORWARD_POWER_DAMAGE_TO_CHOSEN = Pattern.compile(
+        "(?i)The\\s+Forward\\s+that\\s+entered\\s+the\\s+field\\s+deals\\s+damage\\s+" +
+        "equal\\s+to\\s+its\\s+power\\s+to\\s+the\\s+chosen\\s+Forward[.!]?"
+    );
     /** Matches "Each Forward deals damage equal to its power to the other." (used in choose-one-each contexts). */
     static final Pattern FOLLOWUP_EACH_FORWARD_MUTUAL_POWER_DAMAGE = Pattern.compile(
         "(?i)Each\\s+Forward\\s+deals\\s+damage\\s+equal\\s+to\\s+its\\s+power\\s+to\\s+the\\s+other[.!]?"
@@ -1170,9 +1216,43 @@ final class ActionResolverPatterns {
      * anchors on both this pattern and {@link #FOLLOWUP_BREAK_DEMONSTRATIVE} keep those out, and
      * the Forward wording stays out entirely because it is Breaktouch's.
      */
+    /**
+     * "Deal it N damage. If the Forward entered play without paying for its CP cost, deal it M
+     * damage instead." — Cid (FFBE) 10-052L, whose whole ability watches the opponent's arrivals.
+     *
+     * <p>Both sentences are about the card that fired the trigger, so this is read whole rather
+     * than as a base plus a rider: "it" and "the Forward" are the same card, and there is no
+     * earlier clause for either to point back at.
+     */
+    static final Pattern TRIGGERED_DAMAGE_INSTEAD_IF_ENTERED_UNPAID = Pattern.compile(
+        "(?i)^deal\\s+it\\s+(?<base>\\d+)\\s+damage[.!]?\\s+" +
+        "If\\s+the\\s+(?:Forward|Character|Backup|Monster)\\s+entered\\s+play\\s+" +
+        "without\\s+paying\\s+for\\s+its\\s+CP\\s+cost,\\s+" +
+        "deal\\s+it\\s+(?<alt>\\d+)\\s+damage\\s+instead[.!]?\\s*$"
+    );
     static final Pattern TRIGGERED_TARGET_ACTION_BARE = Pattern.compile(
         "(?i)^(?:dull\\s+it\\s+and\\s+freeze\\s+it|dull\\s+and\\s+freeze\\s+it" +
-        "|break\\s+that\\s+Character)\\s*[.!]?$"
+        "|break\\s+that\\s+Character" +
+        // "that Forward gains +N power [and Haste/...] until the end of the turn" — 8-097H Jake.
+        // The demonstrative form only: "it gains ..." is the Choose family's followup wording and
+        // belongs to a card an earlier clause picked, not to the one that fired the trigger.
+        // Jake is the only card printing this as a whole effect (14-038H Lugae prints the same
+        // words behind an "If you do so," and so is never a bare sentence).
+        "|that\\s+(?:Forward|Backup|Monster|Character)\\s+gains\\s+\\+\\d+\\s+power" +
+        "(?:\\s*,?\\s*(?:and\\s+)?(?:Haste|First\\s+Strike|Brave))*" +
+        "\\s+until\\s+the\\s+end\\s+of\\s+the\\s+turn)\\s*[.!]?$"
+    );
+
+    /**
+     * The demonstrative subject of a triggered-target sentence — "that Forward", "that Character".
+     *
+     * <p>Rewritten to "It" before {@link ActionResolver#parseTargetAction} sees the sentence, so
+     * the whole Choose-followup vocabulary applies unchanged. The two say the same thing about the
+     * same card; only the trigger's sentence has to name the type because there is no earlier
+     * clause for a pronoun to point back at.
+     */
+    static final Pattern TRIGGERED_TARGET_DEMONSTRATIVE_SUBJECT = Pattern.compile(
+        "(?i)^that\\s+(?:Forward|Backup|Monster|Character)\\s+"
     );
     /** Matches "Dull it/them and deal it/them N damage". Group {@code amount} is the damage value. */
     static final Pattern FOLLOWUP_DULL_AND_DAMAGE = Pattern.compile(
@@ -8425,7 +8505,10 @@ final class ActionResolverPatterns {
      * printing of this family, so only one split point exists.
      */
     static final Pattern CAST_PAYMENT_ELEMENTS_GATE = Pattern.compile(
-        "(?is)^(?<base>.+?[.!])\\s+If\\s+the\\s+cost\\s+to\\s+cast\\s+(?<card>[^,]+?)\\s+was\\s+paid\\s+" +
+        // "play" as well as "cast": the 11-xxx printings (11-005C Black Mage Soldier,
+        // 11-038C Fencer, 11-080C Monk) word it as playing onto the field, and the
+        // condition is the same one. Its "exactly N" sibling has always accepted both.
+        "(?is)^(?<base>.+?[.!])\\s+If\\s+the\\s+cost\\s+to\\s+(?:play|cast)\\s+(?<card>[^,]+?)\\s+was\\s+paid\\s+" +
         "with\\s+CP\\s+of\\s+(?<count>\\d+)\\s+or\\s+(?<cmp>more|less)\\s+different\\s+Elements,\\s+" +
         "(?<tail>.+?)\\s*$"
     );

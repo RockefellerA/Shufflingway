@@ -8593,6 +8593,65 @@ final class GameContextImpl implements GameContext {
 			}
 
 			@Override public int ownDamageCount() { return isP1 ? p1DamageCount() : p2DamageCount(); }
+			@Override public boolean triggeringCardEnteredWithoutPayingCost() { return !mw.lastCardWasCast; }
+
+			@Override public boolean revealOpponentTopCardIsType(String type) {
+				Deque<CardData> deck = isP1 ? mw.gameState.getP2MainDeck() : mw.gameState.getP1MainDeck();
+				CardData top = deck.peekFirst();
+				if (top == null) {
+					logEntry("Reveal opponent's top card: their deck is empty");
+					return false;
+				}
+				// Named in the shared log: a reveal is public, and the card stays on top either way.
+				boolean matches = switch (type.toLowerCase(java.util.Locale.ROOT)) {
+					case "forward"   -> top.isForward();
+					case "backup"    -> top.isBackup();
+					case "monster"   -> top.isMonster();
+					case "summon"    -> top.isSummon();
+					case "character" -> top.isForward() || top.isBackup() || top.isMonster();
+					default          -> false;
+				};
+				logEntry("Revealed opponent's top card: " + top.name() + " (" + top.type() + ") — "
+						+ (matches ? "is" : "is not") + " a " + type);
+				return matches;
+			}
+
+			@Override public int revealAnyNumberFromHandDistinctElements() {
+				List<CardData> hand = isP1 ? mw.gameState.getP1Hand() : mw.gameState.getP2Hand();
+				if (hand.isEmpty()) { logEntry("Reveal from hand: hand is empty — 0 Elements"); return 0; }
+				List<CardData> shown = new ArrayList<>();
+				if (isP1) {
+					List<Integer> picked = shufflingway.dialog.HandPickDialog.showRevealAnyNumber(
+							mw.frame, hand, "Reveal any number of cards from your hand.",
+							mw::showZoomAt, mw::hideZoom);
+					for (int i : picked) if (i >= 0 && i < hand.size()) shown.add(hand.get(i));
+				} else {
+					// The AI reveals everything: nothing is spent by revealing, and every extra
+					// Element can only raise the payoff.
+					shown.addAll(hand);
+				}
+				Set<String> elements = new java.util.LinkedHashSet<>();
+				for (CardData c : shown)
+					for (String e : c.element().split("/")) {
+						String t = e.trim();
+						if (!t.isEmpty()) elements.add(t.toLowerCase(java.util.Locale.ROOT));
+					}
+				logEntry((isP1 ? "" : "[P2] ") + "Revealed " + shown.size() + " card(s) from hand: "
+						+ (shown.isEmpty() ? "(none)"
+								: shown.stream().map(CardData::name).collect(Collectors.joining(", ")))
+						+ " — " + elements.size() + " different Element(s)");
+				return elements.size();
+			}
+
+			@Override public int triggeringEnteredCardPower() {
+				CardData entered = mw.triggeringEnteredCard;
+				if (entered == null) return 0;
+				int idx = mw.p1ForwardCards.indexOf(entered);
+				if (idx >= 0) return Math.max(0, mw.effectiveP1ForwardPower(idx));
+				idx = mw.p2ForwardCards.indexOf(entered);
+				if (idx >= 0) return Math.max(0, mw.effectiveP2ForwardPower(idx));
+				return 0;   // already gone from the field — nothing left to deal its power
+			}
 			@Override public int p1DamageCount() { return mw.gameState.getP1DamageZone().size(); }
 			@Override public int p2DamageCount() { return mw.gameState.getP2DamageZone().size(); }
 

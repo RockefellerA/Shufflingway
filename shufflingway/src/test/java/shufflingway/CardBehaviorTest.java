@@ -43383,5 +43383,506 @@ public class CardBehaviorTest {
 	}
 
 	// =========================================================================================
+	// 8-097H Jake: "When a Forward other than Jake enters your field, that Forward gains +4000
+	// power until the end of the turn."
+	//
+	// The trigger parsed; the effect did not. "That Forward" names no target of its own — it means
+	// the card that just arrived — and the machinery for that already existed, but only on the
+	// "enters opponent's field" side (26-032L Charlotte's "dull it and Freeze it"). The your-field
+	// watchers went straight to the stack, where there is no target to point at.
+	//
+	// Two gaps, then: the your-field path had to preload the entering card the way its opposite
+	// number does, and parseTargetAction — the builder the triggered-target route uses — had no
+	// power-grant arm at all. It lives in parseFormerLatterGroupAction, a different family.
+	// =========================================================================================
+
+	private static final String JAKE_8_097H_GRANT =
+			"that Forward gains +4000 power until the end of the turn.";
+
+	@Test
+	void jakesGrantIsReadAsAnActionOnTheCardThatEntered() {
+		assertEquals("TriggeredTargetAction",
+				ActionResolver.matchedPatternName(JAKE_8_097H_GRANT, null));
+		assertTrue(ActionResolver.isTriggeredTargetAction(JAKE_8_097H_GRANT),
+				"the trigger side reads this flag to decide whether to preload the entering card");
+	}
+
+	@Test
+	void aForwardArrivingUnderJakeGetsTheBoost() {
+		MainWindow mw = new MainWindow();
+		CardData jake = makeAutoAbilityForward("Jake", "Wind", 7000,
+				"When a Forward other than Jake enters your field, " + JAKE_8_097H_GRANT);
+		placeP1Forward(mw, jake);
+
+		// Placing the card is what fires the trigger — placeCardInForwardZone routes through
+		// fieldEntryAnimator.fireEntersField — so driving it a second time by hand would apply the
+		// grant twice.
+		CardData arrival = makeForward("Newcomer", "Wind", 2, 5000);
+		placeP1Forward(mw, arrival);
+
+		int idx = mw.p1ForwardCards.indexOf(arrival);
+		assertEquals(9000, mw.effectiveP1ForwardPower(idx),
+				"5000 printed plus Jake's +4000 for the turn");
+	}
+
+	@Test
+	void jakeDoesNotBoostHimself() {
+		// "other than Jake" — the subject filter is the trigger's, and it must still hold when the
+		// entering card is the watcher itself.
+		MainWindow mw = new MainWindow();
+		CardData jake = makeAutoAbilityForward("Jake", "Wind", 7000,
+				"When a Forward other than Jake enters your field, " + JAKE_8_097H_GRANT);
+		placeP1Forward(mw, jake);   // his own arrival fires the watcher, and must not match it
+
+		int idx = mw.p1ForwardCards.indexOf(jake);
+		assertEquals(7000, mw.effectiveP1ForwardPower(idx), "Jake's own arrival grants nothing");
+	}
+
+	@Test
+	void theDemonstrativeGrantDoesNotClaimALongerSentence() {
+		// 14-038H Lugae prints the same words behind an "If you do so," — its "that Forward" points
+		// at a card the earlier clause established, so the anchored gate must not take it.
+		String lugae = "you may remove Lugae from the game. If you do so, that Forward gains "
+				+ "+2000 power and Brave. (This effect does not end at the end of the turn.)";
+		assertFalse(ActionResolver.isTriggeredTargetAction(lugae),
+				"only a bare sentence names the card that fired the trigger");
+	}
+
+	// =========================================================================================
+	// 10-052L Cid (FFBE): "When a Forward of your opponent enters the field, deal it 2000 damage.
+	// If the Forward entered play without paying for its CP cost, deal it 9000 damage instead."
+	//
+	// Both sentences are about the card that fired the trigger, so the effect is read whole — "it"
+	// and "the Forward" are the same card, and neither has an earlier clause to point back at. The
+	// trigger side already knew how to preload an entering card for the opponent's-field watchers;
+	// this needed admitting to that list and a query for how the card arrived.
+	//
+	// That query is answered from lastCardWasCast, the same signal the engine's "enters ... not
+	// from hand" triggers use. It does not separate a Forward *cast* from hand without paying —
+	// see GameContext.triggeringCardEnteredWithoutPayingCost for why that line is drawn here.
+	// =========================================================================================
+
+	private static final String CID_FFBE_10_052L =
+			"deal it 2000 damage. If the Forward entered play without paying for its CP cost, "
+			+ "deal it 9000 damage instead.";
+
+	@Test
+	void cidsPunishmentIsReadAsOneEffectOnTheArrivingForward() {
+		assertEquals("TriggeredDamageInsteadIfEnteredUnpaid",
+				ActionResolver.matchedPatternName(CID_FFBE_10_052L, null));
+		assertTrue(ActionResolver.isEnteredUnpaidDamage(CID_FFBE_10_052L),
+				"the watcher dispatch reads this to decide whether to preload the entering card");
+	}
+
+	@Test
+	void aCastForwardTakesTheSmallerHit() {
+		GameContext ctx = mock(GameContext.class);
+		ForwardTarget arriving = new ForwardTarget(false, 0, ForwardTarget.CardZone.FORWARD);
+		when(ctx.consumePreloadedTargets()).thenReturn(List.of(arriving));
+		when(ctx.triggeringCardEnteredWithoutPayingCost()).thenReturn(false);
+
+		ActionResolver.parse(CID_FFBE_10_052L, null).accept(ctx);
+
+		verify(ctx).damageTarget(arriving, 2000);
+		verify(ctx, never()).damageTarget(arriving, 9000);
+	}
+
+	@Test
+	void aForwardPutOntoTheFieldForFreeTakesNineThousand() {
+		GameContext ctx = mock(GameContext.class);
+		ForwardTarget arriving = new ForwardTarget(false, 0, ForwardTarget.CardZone.FORWARD);
+		when(ctx.consumePreloadedTargets()).thenReturn(List.of(arriving));
+		when(ctx.triggeringCardEnteredWithoutPayingCost()).thenReturn(true);
+
+		ActionResolver.parse(CID_FFBE_10_052L, null).accept(ctx);
+
+		verify(ctx).damageTarget(arriving, 9000);
+		verify(ctx, never()).damageTarget(arriving, 2000);
+	}
+
+	@Test
+	void cidDoesNothingWithoutATriggeringCard() {
+		// The effect names no target of its own, so with nothing preloaded there is nothing to hit
+		// — it must not fall back to asking the player to choose one.
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.consumePreloadedTargets()).thenReturn(null);
+
+		ActionResolver.parse(CID_FFBE_10_052L, null).accept(ctx);
+
+		verify(ctx, never()).damageTarget(any(), anyInt());
+	}
+
+	@Test
+	void cidHitsAForwardTheOpponentPlaysOntoTheField() {
+		// End to end: Cid watches P2's side from P1's field, and a Forward that arrives without
+		// being cast takes the larger hit.
+		MainWindow mw = new MainWindow();
+		CardData cid = makeAutoAbilityForward("Cid (FFBE)", "Wind", 8000,
+				"When a Forward of your opponent enters the field, " + CID_FFBE_10_052L);
+		placeP1Forward(mw, cid);
+
+		// Power well above the hit, so the assertion can read the damage rather than an empty row:
+		// a 9000-power Forward would break on arrival and leave the field before it could be asked.
+		CardData arrival = makeForward("Cheated In", "Fire", 7, 12000);
+		mw.gameState.getIdentity().put(arrival, false);
+		mw.lastCardWasCast = false;          // put onto the field by an effect, not cast
+		mw.placeP2CardInForwardZone(arrival);
+
+		int idx = mw.p2ForwardCards.indexOf(arrival);
+		assertEquals(9000, mw.p2ForwardDamage.get(idx),
+				"a Forward that paid no CP takes 9000, not 2000");
+	}
+
+	// =========================================================================================
+	// 19-067C Monk, and the cast-payment condition it shares with nine other abilities
+	//
+	// "Choose 1 Forward opponent controls. If the cost to cast Monk was paid with CP of 3 or more
+	// different Elements, Monk and the chosen Forward deal damage equal to their respective power
+	// to the other."
+	//
+	// Wiring Monk turned up a live bug in the nine cards printing the same shape. The gate that
+	// reads this condition splits the text into a base and a conditional tail and parses each; for
+	// these the base is a bare "choose 1 Forward", which parses as nothing — choosing with no
+	// payoff does nothing — so the gate declined and the text fell through to the Choose family.
+	// Its followup matchers are unanchored, so they found "break it" and "deal it 8000 damage"
+	// *inside* the conditional clause and ran them with the condition never read.
+	//
+	// Lezaford broke the Forward it chose whatever CP had been spent; Lilty dealt its 8000 the
+	// same way. Both are covered below, because a fix that only satisfied Monk would leave them.
+	// =========================================================================================
+
+	private static final String MONK_19_067C =
+			"choose 1 Forward opponent controls. If the cost to cast Monk was paid with CP of 3 or "
+			+ "more different Elements, Monk and the chosen Forward deal damage equal to their "
+			+ "respective power to the other.";
+	private static final String LEZAFORD_14_055C =
+			"choose 1 Forward. If the cost to cast Lezaford was paid with CP of 3 or more different "
+			+ "Elements, break it.";
+	private static final String BLACK_MAGE_SOLDIER_11_005C =
+			"choose 1 Forward opponent controls. If the cost to play Black Mage Soldier was paid "
+			+ "with CP of 2 or more different Elements, deal it 5000 damage.";
+
+	/** Drives one of these abilities with {@code paid} distinct Elements spent on the caster. */
+	private static GameContext runWithCastPayment(String cardName, String effect, int paid) {
+		CardData self = makeForwardWithText(cardName, "Earth", 3, 7000, effect);
+		ForwardTarget chosen = new ForwardTarget(false, 0, ForwardTarget.CardZone.FORWARD);
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.consumePreloadedTargets()).thenReturn(List.of(chosen));
+		when(ctx.castPaymentDistinctElements()).thenReturn(paid);
+		when(ctx.castPaymentDistinctElementsFor(any())).thenReturn(paid);
+		when(ctx.fieldForwardPowerByName(anyString())).thenReturn(7000);
+		when(ctx.effectiveTargetPower(any())).thenReturn(5000);
+		Consumer<GameContext> fn = ActionResolver.parse(effect, self);
+		assertNotNull(fn, "must parse: " + effect);
+		fn.accept(ctx);
+		return ctx;
+	}
+
+	@Test
+	void monkTradesBlowsOnlyWhenThreeElementsPaid() {
+		GameContext met = runWithCastPayment("Monk", MONK_19_067C, 3);
+		verify(met).damageTarget(any(), eq(7000));                  // Monk's power, onto the Forward
+		verify(met).damageFieldForwardByName(eq("Monk"), eq(5000)); // and the Forward's, back onto Monk
+	}
+
+	@Test
+	void monkTradesNoBlowsBelowThreeElements() {
+		GameContext unmet = runWithCastPayment("Monk", MONK_19_067C, 2);
+		verify(unmet, never()).damageTarget(any(), anyInt());
+		verify(unmet, never()).damageFieldForwardByName(anyString(), anyInt());
+	}
+
+	@Test
+	void monkIsAttributedToTheGateRatherThanTheBareChoose() {
+		CardData monk = makeForwardWithText("Monk", "Earth", 3, 7000, MONK_19_067C);
+		assertEquals("CastPaymentElementsGate", ActionResolver.matchedPatternName(MONK_19_067C, monk),
+				"ChooseCharacter meant the condition was never being read");
+	}
+
+	@Test
+	void lezafordBreaksNothingWhenTheConditionIsUnmet() {
+		// The bug in its plainest form: this used to break the chosen Forward regardless.
+		GameContext unmet = runWithCastPayment("Lezaford", LEZAFORD_14_055C, 1);
+		verify(unmet, never()).breakTarget(any());
+	}
+
+	@Test
+	void lezafordStillBreaksWhenItIsMet() {
+		GameContext met = runWithCastPayment("Lezaford", LEZAFORD_14_055C, 3);
+		verify(met).breakTarget(any());
+	}
+
+	@Test
+	void theConditionIsReadFromThePlayWordingToo() {
+		// The 11-xxx printings say "the cost to play", which the gate did not accept — so those
+		// three kept firing unconditionally even after the split was fixed.
+		GameContext unmet = runWithCastPayment("Black Mage Soldier", BLACK_MAGE_SOLDIER_11_005C, 1);
+		verify(unmet, never()).damageTarget(any(), anyInt());
+
+		GameContext met = runWithCastPayment("Black Mage Soldier", BLACK_MAGE_SOLDIER_11_005C, 2);
+		verify(met).damageTarget(any(), eq(5000));
+	}
+
+	// =========================================================================================
+	// 18-139S Noctis: "When a Wind or Earth Forward other than Noctis enters your field, choose 1
+	// Forward opponent controls. The Forward that entered the field deals damage equal to its power
+	// to the chosen Forward. This effect will trigger only once per turn."
+	//
+	// The trigger, its subject filter and the once-per-turn restriction all parsed already; the
+	// effect chose a Forward and then did nothing, because no followup matched the sentence.
+	//
+	// It is the first effect needing *two* cards at once — the Forward that arrived is the source
+	// of the damage, and the target is one the same ability chooses. The existing preloaded-target
+	// route cannot supply both: it hands the arriving card over *as* the target, which is right for
+	// "dull it and Freeze it" and would make Noctis hit the wrong Forward. So the arriving card is
+	// held on MainWindow for the resolution, the way triggeringBrokenCard already is.
+	// =========================================================================================
+
+	private static final String NOCTIS_18_139S =
+			"choose 1 Forward opponent controls. The Forward that entered the field deals damage "
+			+ "equal to its power to the chosen Forward";
+
+	@Test
+	void noctisDealsTheArrivingForwardsPowerToTheChosenOne() {
+		GameContext ctx = mock(GameContext.class);
+		ForwardTarget chosen = new ForwardTarget(false, 0, ForwardTarget.CardZone.FORWARD);
+		when(ctx.consumePreloadedTargets()).thenReturn(List.of(chosen));
+		when(ctx.triggeringEnteredCardPower()).thenReturn(8000);
+
+		Consumer<GameContext> fn = ActionResolver.parse(NOCTIS_18_139S, null);
+		assertNotNull(fn, "Noctis's watcher effect should parse");
+		fn.accept(ctx);
+
+		verify(ctx).damageTarget(chosen, 8000);
+	}
+
+	@Test
+	void noctisDealsNothingWhenTheArrivingForwardHasGone() {
+		// The arriving Forward can leave before the ability resolves; its power is then 0, and
+		// nothing should be dealt in its name.
+		GameContext ctx = mock(GameContext.class);
+		ForwardTarget chosen = new ForwardTarget(false, 0, ForwardTarget.CardZone.FORWARD);
+		when(ctx.consumePreloadedTargets()).thenReturn(List.of(chosen));
+		when(ctx.triggeringEnteredCardPower()).thenReturn(0);
+
+		ActionResolver.parse(NOCTIS_18_139S, null).accept(ctx);
+
+		verify(ctx).damageTarget(chosen, 0);
+	}
+
+	@Test
+	void theArrivingForwardsPowerIsReadOffTheBoard() {
+		// The half worth exercising against a real board: triggeringEnteredCardPower resolves the
+		// arriving card to its slot and reports its *effective* power.
+		//
+		// The choose is preloaded rather than driven through placement, the way every other
+		// choose-based test here does it — a watcher firing on placement puts the question to a
+		// seat that has no dialog in a test, and the selection would come back empty.
+		MainWindow mw = new MainWindow();
+		CardData noctis = makeAutoAbilityForward("Noctis", "Wind", 9000,
+				"When a Wind or Earth Forward other than Noctis enters your field, "
+				+ NOCTIS_18_139S + ".");
+		placeP1Forward(mw, noctis);
+
+		CardData arrival = makeForward("Arriving", "Wind", 4, 7000);
+		placeP1Forward(mw, arrival);
+		CardData victim = makeForward("Victim", "Fire", 6, 12000);
+		placeP2Forward(mw, victim);
+
+		mw.triggeringEnteredCard = arrival;    // what the watcher dispatch sets for the resolution
+		GameContext ctx = mw.buildGameContext(true);
+		ctx.preloadTargets(List.of(new ForwardTarget(false,
+				mw.p2ForwardCards.indexOf(victim), ForwardTarget.CardZone.FORWARD)));
+		ActionResolver.parse(NOCTIS_18_139S, noctis).accept(ctx);
+
+		assertEquals(7000, mw.p2ForwardDamage.get(mw.p2ForwardCards.indexOf(victim)),
+				"the chosen Forward takes the arriving Forward's power");
+		assertEquals(0, mw.p1ForwardDamage.get(mw.p1ForwardCards.indexOf(arrival)),
+				"and the arriving Forward takes nothing — it is the source, not the target");
+	}
+
+	@Test
+	void aBuffOnTheArrivingForwardIsCountedInTheDamage() {
+		// Effective power, not printed: the number dealt is what the Forward is worth when the
+		// ability resolves.
+		MainWindow mw = new MainWindow();
+		CardData arrival = makeForward("Arriving", "Wind", 4, 7000);
+		placeP1Forward(mw, arrival);
+		CardData victim = makeForward("Victim", "Fire", 6, 20000);
+		placeP2Forward(mw, victim);
+
+		int arrivalIdx = mw.p1ForwardCards.indexOf(arrival);
+		mw.p1ForwardPowerBoost.set(arrivalIdx, 3000);
+
+		mw.triggeringEnteredCard = arrival;
+		GameContext ctx = mw.buildGameContext(true);
+		ctx.preloadTargets(List.of(new ForwardTarget(false,
+				mw.p2ForwardCards.indexOf(victim), ForwardTarget.CardZone.FORWARD)));
+		ActionResolver.parse(NOCTIS_18_139S, null).accept(ctx);
+
+		assertEquals(10000, mw.p2ForwardDamage.get(mw.p2ForwardCards.indexOf(victim)),
+				"7000 printed plus the 3000 it is carrying");
+	}
+
+	// =========================================================================================
+	// 16-002H Ace: "When Ace enters the field, choose 1 Forward. Reveal any number of cards from
+	// your hand. Deal it 3000 damage for each different Element among the revealed cards."
+	//
+	// The reveal is part of the payoff, not a cost — nothing leaves the hand, and the only thing it
+	// produces is the multiplier. Read as one followup for that reason: split, the second sentence
+	// would be a "deal it 3000 damage for each different Element" with nothing to count.
+	//
+	// Before this the choose parsed and the rest was dropped, so Ace chose a Forward and dealt it
+	// nothing at all.
+	// =========================================================================================
+
+	private static final String ACE_16_002H =
+			"choose 1 Forward. Reveal any number of cards from your hand. Deal it 3000 damage for "
+			+ "each different Element among the revealed cards.";
+
+	@Test
+	void aceScalesItsDamageByTheElementsRevealed() {
+		GameContext ctx = mock(GameContext.class);
+		ForwardTarget chosen = new ForwardTarget(false, 0, ForwardTarget.CardZone.FORWARD);
+		when(ctx.consumePreloadedTargets()).thenReturn(List.of(chosen));
+		when(ctx.revealAnyNumberFromHandDistinctElements()).thenReturn(3);
+
+		Consumer<GameContext> fn = ActionResolver.parse(ACE_16_002H, null);
+		assertNotNull(fn, "Ace's enter-the-field ability should parse");
+		fn.accept(ctx);
+
+		verify(ctx).damageTarget(chosen, 9000);
+	}
+
+	@Test
+	void aceDealsNothingWhenNothingIsRevealed() {
+		// "Any number" includes none, and none is zero Elements — the Forward is still chosen.
+		GameContext ctx = mock(GameContext.class);
+		ForwardTarget chosen = new ForwardTarget(false, 0, ForwardTarget.CardZone.FORWARD);
+		when(ctx.consumePreloadedTargets()).thenReturn(List.of(chosen));
+		when(ctx.revealAnyNumberFromHandDistinctElements()).thenReturn(0);
+
+		ActionResolver.parse(ACE_16_002H, null).accept(ctx);
+
+		verify(ctx).damageTarget(chosen, 0);
+	}
+
+	@Test
+	void aceDoesNotAskForARevealWithNothingChosen() {
+		// The reveal follows the choice, as the sentences are printed. With no Forward to hit there
+		// is nothing to reveal for, and the player must not be asked to show their hand for nothing.
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.consumePreloadedTargets()).thenReturn(List.of());
+
+		ActionResolver.parse(ACE_16_002H, null).accept(ctx);
+
+		verify(ctx, never()).revealAnyNumberFromHandDistinctElements();
+		verify(ctx, never()).damageTarget(any(), anyInt());
+	}
+
+	@Test
+	void aMultiElementRevealCountsEachOfItsElements() {
+		// The count is of Elements, not cards: one Fire/Ice card is two Elements, and two Fire
+		// cards are one. Exercised against a real hand rather than a stubbed count.
+		MainWindow mw = new MainWindow();
+		mw.gameState.getP2Hand().add(makeForward("Split Card", "Fire/Ice", 3, 5000));
+		mw.gameState.getP2Hand().add(makeForward("Plain Fire",  "Fire",     2, 5000));
+
+		// P2's seat reveals its whole hand, so the count comes off real cards.
+		assertEquals(2, mw.buildGameContext(false).revealAnyNumberFromHandDistinctElements(),
+				"Fire, Ice — the second Fire card adds no new Element");
+	}
+
+	@Test
+	void anEmptyHandRevealsNoElements() {
+		MainWindow mw = new MainWindow();
+		assertEquals(0, mw.buildGameContext(false).revealAnyNumberFromHandDistinctElements());
+	}
+
+	// =========================================================================================
+	// 14-115L Shinryu: "At the beginning of Main Phase 1 during each of your turns, reveal the top
+	// card of opponent's deck. If it is a Forward, all the Forwards opponent controls lose 7000
+	// power until the end of the turn. If it is not a Forward, draw 2 cards."
+	//
+	// The worst of the six, because it already "worked": AllFieldPowerBoost is read with find(),
+	// so it caught "all the Forwards opponent controls lose 7000 power" in the middle of the
+	// sentence and applied it every upkeep — no reveal, no condition, and the draw-2 branch gone.
+	// Both halves of the card were wrong at once: the power loss fired when it should not have,
+	// and the draw never fired at all.
+	//
+	// So this parser has to sit ahead of the mass-power readers in all three chains, which is the
+	// ordering hazard CLAUDE.md warns about: a general pattern read with find() ahead of a specific
+	// one silently claims text belonging to the specific one.
+	// =========================================================================================
+
+	private static final String SHINRYU_14_115L =
+			"reveal the top card of opponent's deck. If it is a Forward, all the Forwards opponent "
+			+ "controls lose 7000 power until the end of the turn. If it is not a Forward, draw 2 cards.";
+
+	@Test
+	void shinryuIsNoLongerReadAsAPlainPowerSweep() {
+		assertEquals("RevealOpponentTopBranchOnType",
+				ActionResolver.matchedPatternName(SHINRYU_14_115L, null),
+				"AllFieldPowerBoost meant the reveal and both conditions were being skipped");
+	}
+
+	@Test
+	void aForwardOnTopCostsTheOpponentSevenThousand() {
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.revealOpponentTopCardIsType("Forward")).thenReturn(true);
+
+		Consumer<GameContext> fn = ActionResolver.parse(SHINRYU_14_115L, null);
+		assertNotNull(fn, "Shinryu's upkeep ability should parse");
+		fn.accept(ctx);
+
+		verify(ctx).applyMassFieldPowerBoost(eq(-7000), anyBoolean(), anyBoolean(),
+				anyBoolean(), anyBoolean(), any(), anyInt(), any(), any(), any());
+		verify(ctx, never()).drawCards(anyInt());
+	}
+
+	@Test
+	void anythingElseOnTopDrawsTwoInstead() {
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.revealOpponentTopCardIsType("Forward")).thenReturn(false);
+
+		ActionResolver.parse(SHINRYU_14_115L, null).accept(ctx);
+
+		verify(ctx).drawCards(2);
+		verify(ctx, never()).applyMassFieldPowerBoost(anyInt(), anyBoolean(), anyBoolean(),
+				anyBoolean(), anyBoolean(), any(), anyInt(), any(), any(), any());
+	}
+
+	@Test
+	void theRevealReadsTheOpponentsTopCardAndLeavesItThere() {
+		// Revealing moves nothing: the card both players just saw is still the opponent's next draw.
+		MainWindow mw = new MainWindow();
+		CardData top = makeForward("Top Card", "Fire", 3, 7000);
+		mw.gameState.getIdentity().put(top, false);
+		mw.gameState.getP2MainDeck().addFirst(top);
+
+		GameContext ctx = mw.buildGameContext(true);
+		assertTrue(ctx.revealOpponentTopCardIsType("Forward"), "a Forward is a Forward");
+		assertEquals(top, mw.gameState.getP2MainDeck().peekFirst(),
+				"and it is still on top afterwards");
+	}
+
+	@Test
+	void aSummonOnTopIsNotAForward() {
+		MainWindow mw = new MainWindow();
+		CardData top = makeSummon("Top Summon", "Fire", 3, "");
+		mw.gameState.getIdentity().put(top, false);
+		mw.gameState.getP2MainDeck().addFirst(top);
+
+		assertFalse(mw.buildGameContext(true).revealOpponentTopCardIsType("Forward"));
+	}
+
+	@Test
+	void anEmptyOpponentDeckTakesTheNotBranch() {
+		// Nothing to reveal is not a Forward, so Shinryu draws rather than doing nothing at all.
+		MainWindow mw = new MainWindow();
+		assertFalse(mw.buildGameContext(true).revealOpponentTopCardIsType("Forward"));
+	}
+
+	// =========================================================================================
 
 }

@@ -1841,7 +1841,24 @@ final class AutoAbilityTriggers {
 		for (AutoAbility fa : mw.effectiveAutoAbilities(watcher)) {
 			if (!fa.trigger().equals("enters your field")) continue;
 			if (!matchesEntersFieldSubject(fa.triggerCard(), enteringCard, watcher)) continue;
-			executeAutoAbility(fa, watcher, enteringIsP1);
+			// "that Forward gains +4000 power until the end of the turn" (8-097H Jake) names no
+			// target of its own — it means the card that just arrived. Run it inline with that card
+			// preloaded, exactly as the "enters opponent's field" watchers already do for their own
+			// pronoun forms; everything else keeps the normal stack path.
+			if (ActionResolver.isTriggeredTargetAction(fa.effectText())) {
+				runWithEnteringCardAsTarget(fa, watcher, enteringIsP1,
+						enteringCardTarget(enteringCard, enteringIsP1));
+				continue;
+			}
+			// The arriving card stands as the trigger's subject for the whole resolution, so an
+			// effect can name it alongside a target of its own — Noctis 18-139S.
+			CardData previousEntered = mw.triggeringEnteredCard;
+			mw.triggeringEnteredCard = enteringCard;
+			try {
+				executeAutoAbility(fa, watcher, enteringIsP1);
+			} finally {
+				mw.triggeringEnteredCard = previousEntered;
+			}
 		}
 	}
 
@@ -1891,7 +1908,8 @@ final class AutoAbilityTriggers {
 			// same shape and takes the same route: its action is applied to the preloaded target
 			// unless the opponent buys it off.
 			if (ActionResolver.isTriggeredTargetAction(fa.effectText())
-					|| ActionResolver.isIfOppNotPayAction(fa.effectText())) {
+					|| ActionResolver.isIfOppNotPayAction(fa.effectText())
+					|| ActionResolver.isEnteredUnpaidDamage(fa.effectText())) {
 				runWithEnteringCardAsTarget(fa, watcher, watcherIsP1, enteringTarget);
 				continue;
 			}

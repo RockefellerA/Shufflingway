@@ -1491,6 +1491,11 @@ final class ActionResolverChoose {
         final Consumer<GameContext> secondary;
         {
             int dotSpaceIdx = sentenceBreakOutsideQuotes(followup);
+            // A few followups are one effect spread over two sentences, and splitting them leaves
+            // both halves meaningless: Ace 16-002H's reveal exists only to produce the multiplier
+            // the next sentence spends, so on its own it does nothing and the damage has nothing
+            // to count. Kept whole for the branch that reads the pair.
+            if (FOLLOWUP_REVEAL_HAND_DAMAGE_PER_ELEMENT.matcher(followup).find()) dotSpaceIdx = -1;
             if (dotSpaceIdx >= 0) {
                 primaryFollowup = followup.substring(0, dotSpaceIdx).trim();
                 String stripped = stripRestrictionSentences(followup.substring(dotSpaceIdx + 2).trim());
@@ -2891,6 +2896,31 @@ final class ActionResolverChoose {
             };
         }
 
+        // --- Reveal any number from hand; the chosen Forward takes N per Element revealed ---
+        // Ahead of the plain damage followup below: that matcher is unanchored and finds the
+        // "Deal it 3000 damage" inside this sentence, dealing a flat 3000 and dropping the
+        // per-Element multiplier the reveal exists to produce.
+        Matcher revElemM = FOLLOWUP_REVEAL_HAND_DAMAGE_PER_ELEMENT.matcher(primaryFollowup);
+        if (revElemM.find()) {
+            final int per = Integer.parseInt(revElemM.group("amount"));
+            return ctx -> {
+                List<ForwardTarget> ts = selectTargets(ctx, maxCount, upTo,
+                        opponentOnly, selfOnly, condition, element, zone, opponentZone,
+                        costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters,
+                        jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons,
+                        fExcludeElem, withoutMulticard);
+                // The reveal follows the choice, as the sentences are printed: the player picks a
+                // Forward and only then decides how much of their hand to show for it.
+                if (ts.isEmpty()) { if (secondary != null) secondary.accept(ctx); return; }
+                int elements = ctx.revealAnyNumberFromHandDistinctElements();
+                int damage   = per * elements;
+                ctx.logChooseHeader(choosePrefix + " — " + elements + " Element(s) revealed, dealing "
+                        + damage + " damage");
+                for (ForwardTarget t : ts) ctx.damageTarget(t, damage);
+                if (secondary != null) secondary.accept(ctx);
+            };
+        }
+
         // --- Damage followup (fixed amount) ---
         Matcher dmgM = FOLLOWUP_DAMAGE.matcher(strippedPrimaryFollowup);
         if (dmgM.find()) {
@@ -2920,6 +2950,25 @@ final class ActionResolverChoose {
                 };
                 if (followupIsOptional && !ts.isEmpty()) ctx.playerMayDoEffect("Deal it " + damage + " damage?", doDamage);
                 else if (!followupIsOptional) doDamage.accept(ctx);
+            };
+        }
+
+        // --- The Forward that fired the trigger damages the chosen one, for its own power ---
+        if (FOLLOWUP_ENTERED_FORWARD_POWER_DAMAGE_TO_CHOSEN.matcher(primaryFollowup).find()) {
+            return ctx -> {
+                // Read before the selection: choosing cannot change the arriving Forward's power,
+                // and reading it first keeps the logged number the one that is dealt.
+                int power = ctx.triggeringEnteredCardPower();
+                List<ForwardTarget> ts = selectTargets(ctx, maxCount, upTo,
+                        opponentOnly, selfOnly, condition, element, zone, opponentZone,
+                        costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters,
+                        jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons,
+                        fExcludeElem, withoutMulticard);
+                if (ts.isEmpty()) { if (secondary != null) secondary.accept(ctx); return; }
+                ctx.logChooseHeader(choosePrefix + " — the arriving Forward deals " + power
+                        + " damage (its power)");
+                for (ForwardTarget t : ts) ctx.damageTarget(t, power);
+                if (secondary != null) secondary.accept(ctx);
             };
         }
 

@@ -795,11 +795,41 @@ final class ActionResolverState {
         };
     }
 
+    /**
+     * Parses "Deal it N damage. If the Forward entered play without paying for its CP cost, deal it
+     * M damage instead." — Cid (FFBE) 10-052L.
+     *
+     * <p>Like {@link #tryParseTriggeredTargetAction} it acts on the card the trigger preloaded;
+     * unlike it, the amount depends on how that card arrived rather than on the sentence alone.
+     */
+    static Consumer<GameContext> tryParseTriggeredDamageInsteadIfEnteredUnpaid(String text) {
+        Matcher m = TRIGGERED_DAMAGE_INSTEAD_IF_ENTERED_UNPAID.matcher(text.trim());
+        if (!m.matches()) return null;
+        final int base = Integer.parseInt(m.group("base"));
+        final int alt  = Integer.parseInt(m.group("alt"));
+        return ctx -> {
+            List<ForwardTarget> ts = ctx.consumePreloadedTargets();
+            if (ts == null || ts.isEmpty()) {
+                ctx.logEntry("Triggered damage: no preloaded target — skipped");
+                return;
+            }
+            boolean unpaid = ctx.triggeringCardEnteredWithoutPayingCost();
+            int damage = unpaid ? alt : base;
+            ctx.logEntry("Effect: the arriving Forward " + (unpaid ? "paid no CP" : "was cast")
+                    + " — dealing it " + damage + " damage");
+            for (ForwardTarget t : ts) ctx.damageTarget(t, damage);
+        };
+    }
+
     static Consumer<GameContext> tryParseTriggeredTargetAction(String text, int xValue) {
         String t = text.trim();
         if (!TRIGGERED_TARGET_ACTION_BARE.matcher(t).matches()) return null;
 
-        BiConsumer<GameContext, List<ForwardTarget>> action = parseTargetAction(t, xValue);
+        // "That Forward gains ..." and "It gains ..." are one sentence about one card; only the
+        // trigger form has to name the type, having no earlier clause to point back at. Rewritten
+        // so the followup vocabulary reads it without a demonstrative arm of its own.
+        String action_t = TRIGGERED_TARGET_DEMONSTRATIVE_SUBJECT.matcher(t).replaceFirst("It ");
+        BiConsumer<GameContext, List<ForwardTarget>> action = parseTargetAction(action_t, xValue);
         if (action == null) return null;
 
         return ctx -> {
