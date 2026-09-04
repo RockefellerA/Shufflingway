@@ -45,7 +45,7 @@ public class AutoAbilityParsingTest {
         try (Connection conn = DriverManager.getConnection("jdbc:sqlite:" + dbFile.getAbsolutePath());
              Statement  stmt = conn.createStatement();
              ResultSet  rs   = stmt.executeQuery(
-                     "SELECT name_en, element, cost, power, type_en, ex_burst, multicard, " +
+                     "SELECT serial, name_en, element, cost, power, type_en, ex_burst, multicard, " +
                      "limit_break, lb_cost, image_url, text_en, job_en, category_1, category_2 " +
                      "FROM cards ORDER BY serial")) {
 
@@ -63,7 +63,7 @@ public class AutoAbilityParsingTest {
                 for (AutoAbility fa : abilities)
                     if ("OK".equals(abilityStatus(fa, source))) parsed++;
 
-                String example = formatCardExample(source.name(), abilities, source);
+                String example = formatCardExample(rs.getString("serial"), abilities, source);
                 if (parsed == abilities.size()) {
                     fullyParsed++;
                     reservoirAdd(examplesFully, example, fullyParsed, rng);
@@ -135,9 +135,17 @@ public class AutoAbilityParsingTest {
                 rs.getString("category_1"), rs.getString("category_2"), textEn);
     }
 
-    private static String formatCardExample(String name, List<AutoAbility> abilities, CardData source) {
+    /**
+     * One card's abilities as the report prints them, led by its serial.
+     *
+     * <p>The serial, not just the name: these blocks are the report's whole purpose — they get
+     * copied out of the console when a card is picked up for wiring — and a name alone does not
+     * identify a printing. Fifteen cards are called Ace, nine Princess Sarah, and the one being
+     * looked at has to be found again in the database before any work can start on it.
+     */
+    private static String formatCardExample(String serial, List<AutoAbility> abilities, CardData source) {
         StringBuilder sb = new StringBuilder();
-        sb.append("  Card: ").append(name).append('\n');
+        sb.append("  Card: ").append(serial).append("  ").append(source.name()).append('\n');
         for (AutoAbility fa : abilities) {
             String desc = ActionResolver.fullDescription(fa.effectText(), source);
             sb.append("  [").append(abilityStatus(fa, source)).append("] ")

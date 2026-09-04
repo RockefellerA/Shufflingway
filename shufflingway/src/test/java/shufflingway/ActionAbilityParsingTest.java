@@ -37,7 +37,7 @@ public class ActionAbilityParsingTest {
         try (Connection conn = DriverManager.getConnection("jdbc:sqlite:" + dbFile.getAbsolutePath());
              Statement  stmt = conn.createStatement();
              ResultSet  rs   = stmt.executeQuery(
-                     "SELECT name_en, element, cost, power, type_en, ex_burst, multicard, " +
+                     "SELECT serial, name_en, element, cost, power, type_en, ex_burst, multicard, " +
                      "limit_break, lb_cost, image_url, text_en, job_en, category_1, category_2 " +
                      "FROM cards ORDER BY serial")) {
 
@@ -103,13 +103,13 @@ public class ActionAbilityParsingTest {
 
                 if (parsed == abilities.size() && !hasPartialDesc) {
                     fullyParsed++;
-                    reservoirAdd(examplesFully, formatExample(source.name(), abilities, source), fullyParsed, rng);
+                    reservoirAdd(examplesFully, formatExample(rs.getString("serial"), abilities, source), fullyParsed, rng);
                 } else if (parsed > 0 || hasPartialDesc) {
                     partiallyParsed++;
-                    reservoirAdd(examplesPartial, formatExample(source.name(), abilities, source), partiallyParsed, rng);
+                    reservoirAdd(examplesPartial, formatExample(rs.getString("serial"), abilities, source), partiallyParsed, rng);
                 } else {
                     noneParsed++;
-                    reservoirAdd(examplesNone, formatExample(source.name(), abilities, source), noneParsed, rng);
+                    reservoirAdd(examplesNone, formatExample(rs.getString("serial"), abilities, source), noneParsed, rng);
                 }
             }
         }
@@ -128,9 +128,10 @@ public class ActionAbilityParsingTest {
         printExamples("Unrecognized",     examplesNone);
     }
 
-    private static String formatExample(String name, List<ActionAbility> abilities, CardData source) {
+    /** One card's abilities as the report prints them, led by its serial — see AutoAbilityParsingTest. */
+    private static String formatExample(String serial, List<ActionAbility> abilities, CardData source) {
         StringBuilder sb = new StringBuilder();
-        sb.append("  Card: ").append(name).append('\n');
+        sb.append("  Card: ").append(serial).append("  ").append(source.name()).append('\n');
         for (ActionAbility ab : abilities) {
             String desc = ActionResolver.fullDescription(ab.effectText(), source);
             sb.append("  [").append(abilityStatus(ab, source)).append("] ")

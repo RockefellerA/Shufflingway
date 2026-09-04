@@ -49,7 +49,7 @@ public class FieldAbilityParsingTest {
         try (Connection conn = DriverManager.getConnection("jdbc:sqlite:" + dbFile.getAbsolutePath());
              Statement  stmt = conn.createStatement();
              ResultSet  rs   = stmt.executeQuery(
-                     "SELECT name_en, element, cost, power, type_en, ex_burst, multicard, " +
+                     "SELECT serial, name_en, element, cost, power, type_en, ex_burst, multicard, " +
                      "limit_break, lb_cost, image_url, text_en, job_en, category_1, category_2 " +
                      "FROM cards ORDER BY serial")) {
 
@@ -70,7 +70,7 @@ public class FieldAbilityParsingTest {
                 for (FieldAbility fa : abilities)
                     if (isFieldAbilityRecognized(fa, source, typeEn)) parsed++;
 
-                String example = formatCardExample(source.name(), abilities, source);
+                String example = formatCardExample(rs.getString("serial"), abilities, source);
                 if (parsed == abilities.size()) {
                     fullyParsed++;
                     reservoirAdd(examplesFully, example, fullyParsed, rng, SAMPLE_SIZE);
@@ -448,9 +448,10 @@ public class FieldAbilityParsingTest {
                 rs.getString("category_1"), rs.getString("category_2"), textEn);
     }
 
-    private static String formatCardExample(String name, List<FieldAbility> abilities, CardData source) {
+    /** One card's abilities as the report prints them, led by its serial — see AutoAbilityParsingTest. */
+    private static String formatCardExample(String serial, List<FieldAbility> abilities, CardData source) {
         StringBuilder sb = new StringBuilder();
-        sb.append("  Card: ").append(name).append('\n');
+        sb.append("  Card: ").append(serial).append("  ").append(source.name()).append('\n');
         String typeEn = source.type();
         for (FieldAbility fa : abilities) {
             boolean ok   = isFieldAbilityRecognized(fa, source, typeEn);

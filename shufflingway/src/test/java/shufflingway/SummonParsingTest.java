@@ -34,7 +34,7 @@ public class SummonParsingTest {
         try (Connection conn = DriverManager.getConnection("jdbc:sqlite:" + dbFile.getAbsolutePath());
              Statement  stmt = conn.createStatement();
              ResultSet  rs   = stmt.executeQuery(
-                     "SELECT name_en, element, cost, power, type_en, ex_burst, multicard, " +
+                     "SELECT serial, name_en, element, cost, power, type_en, ex_burst, multicard, " +
                      "limit_break, lb_cost, image_url, text_en, job_en, category_1, category_2 " +
                      "FROM cards WHERE type_en = 'Summon' ORDER BY serial")) {
 
@@ -107,13 +107,13 @@ public class SummonParsingTest {
 
                 if (parsed && !partial) {
                     fullyParsed++;
-                    reservoirAdd(examplesFully, formatExample(source, effectText, desc), fullyParsed, rng);
+                    reservoirAdd(examplesFully, formatExample(rs.getString("serial"), source, effectText, desc), fullyParsed, rng);
                 } else if (parsed || partial) {
                     partiallyParsed++;
-                    reservoirAdd(examplesPartial, formatExample(source, effectText, desc), partiallyParsed, rng);
+                    reservoirAdd(examplesPartial, formatExample(rs.getString("serial"), source, effectText, desc), partiallyParsed, rng);
                 } else {
                     noneParsed++;
-                    reservoirAdd(examplesNone, formatExample(source, effectText, desc), noneParsed, rng);
+                    reservoirAdd(examplesNone, formatExample(rs.getString("serial"), source, effectText, desc), noneParsed, rng);
                 }
             }
         }
@@ -140,9 +140,9 @@ public class SummonParsingTest {
      * restored on its own line rather than back into the effect text, which has to stay exactly
      * what the resolver was handed.
      */
-    private static String formatExample(CardData source, String effectText, String desc) {
+    private static String formatExample(String serial, CardData source, String effectText, String desc) {
         ExtraCost ec = source.extraCost();
-        return "  Card: " + source.name() + "\n" +
+        return "  Card: " + serial + "  " + source.name() + "\n" +
                (ec != null ? "  Extra cost: " + ec.description() + "\n" : "") +
                "  Effect: " + effectText + "\n" +
                "  Desc:   " + desc + "\n";
