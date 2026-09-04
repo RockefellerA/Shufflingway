@@ -42,6 +42,7 @@ import javax.swing.SwingUtilities;
 import javax.swing.SwingWorker;
 import javax.swing.Timer;
 
+import shufflingway.dialog.NameSelectionDialogs;
 import shufflingway.net.ChoiceKind;
 
 import static shufflingway.CardFilters.formatCostFilterLabel;

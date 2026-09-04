@@ -18,6 +18,7 @@ import org.json.JSONObject;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
+import shufflingway.dialog.NameSelectionDialogs;
 import shufflingway.graphics.CardAnimation;
 import org.mockito.InOrder;
 
@@ -6655,7 +6656,7 @@ public class CardBehaviorTest {
         CardData titania = makeTitania();
         mw.gameState.getP2Hand().add(titania);
         // Enough CP that affordability is never what blocks the plan.
-        for (String e : ActionResolverPatterns.ELEMENT_NAMES) mw.gameState.addP2Cp(e, 10);
+        for (String e : Elements.ALL) mw.gameState.addP2Cp(e, 10);
 
         ComputerPlayer cpu = new ComputerPlayer(mw);
         assertFalse(cpu.hasLegalHandCast(),

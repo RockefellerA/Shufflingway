@@ -892,7 +892,7 @@ class ComputerPlayer implements OpponentController {
 			List<Integer> outBackups, Map<Integer, String> outBackupElems,
 			List<Integer> outDiscards, Map<Integer, String> outDiscardElems) {
 		int total = 0;
-		for (String e : ActionResolverPatterns.ELEMENT_NAMES) total += mw.gameState.getP2CpForElement(e);
+		for (String e : Elements.ALL) total += mw.gameState.getP2CpForElement(e);
 		if (total >= cost) return true;
 
 		CardData[] payable = p2CpBackups();

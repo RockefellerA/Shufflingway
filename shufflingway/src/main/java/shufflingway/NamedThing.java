@@ -1,5 +1,7 @@
 package shufflingway;
 
+import shufflingway.dialog.NameSelectionDialogs;
+
 import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Consumer;
@@ -34,13 +36,13 @@ record NamedThing(Vocabulary vocabulary, String value) {
 		/**
 		 * Every value in this vocabulary, in the one order both clients agree on.
 		 *
-		 * <p>Sorted at the source: {@code ELEMENT_NAMES} is a fixed array and the two database
+		 * <p>Sorted at the source: {@link Elements#ALL} is a fixed list and the two database
 		 * lists are built through a {@code TreeSet}, so none of this depends on what order SQLite
 		 * felt like returning rows in.
 		 */
 		List<String> values(Consumer<String> log) {
 			return switch (this) {
-				case ELEMENT  -> List.of(ActionResolverPatterns.ELEMENT_NAMES);
+				case ELEMENT  -> Elements.ALL;
 				case JOB      -> NameSelectionDialogs.jobNames(log);
 				case CATEGORY -> NameSelectionDialogs.categoryNames(log);
 			};

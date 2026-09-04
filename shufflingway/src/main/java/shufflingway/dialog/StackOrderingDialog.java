@@ -1,4 +1,4 @@
-package shufflingway;
+package shufflingway.dialog;
 
 import java.awt.BorderLayout;
 import java.awt.Color;
@@ -26,6 +26,11 @@ import javax.swing.SwingConstants;
 import javax.swing.SwingWorker;
 import javax.swing.TransferHandler;
 
+import shufflingway.AutoAbility;
+import shufflingway.CardData;
+import shufflingway.FontLoader;
+import shufflingway.ImageCache;
+import shufflingway.UiScale;
 import shufflingway.graphics.CardAnimation;
 
 /**
@@ -37,7 +42,7 @@ import shufflingway.graphics.CardAnimation;
  * first). A synchronized list below shows the resolution order (top of stack
  * first) and updates live as cards are dragged.</p>
  */
-final class StackOrderingDialog {
+public final class StackOrderingDialog {
 
 	/**
 	 * Lightweight view-model: one ability + its source card + controller + extra-cost-paid state,
@@ -48,11 +53,11 @@ final class StackOrderingDialog {
 	 * break causing another inside the same batch — and each has to resolve against the card that
 	 * fired it. {@code null} for every trigger whose effect never refers back to one.
 	 */
-	record Item(AutoAbility ability, CardData source, boolean controllerIsP1, boolean paidExtraCost,
+	public record Item(AutoAbility ability, CardData source, boolean controllerIsP1, boolean paidExtraCost,
 			CardData triggerCard) {
 
 		/** The common case: a trigger whose effect refers to no card but its own source. */
-		Item(AutoAbility ability, CardData source, boolean controllerIsP1, boolean paidExtraCost) {
+		public Item(AutoAbility ability, CardData source, boolean controllerIsP1, boolean paidExtraCost) {
 			this(ability, source, controllerIsP1, paidExtraCost, null);
 		}
 
@@ -76,7 +81,7 @@ final class StackOrderingDialog {
 	 * @param items   abilities to order; must have size &gt;= 2
 	 * @return the same items in the order the player chose (top of stack first)
 	 */
-	static List<Item> show(java.awt.Frame owner, String header, List<Item> items) {
+	public static List<Item> show(java.awt.Frame owner, String header, List<Item> items) {
 		JDialog dialog = new JDialog(owner, "Stack Ordering", true);
 		dialog.setDefaultCloseOperation(JDialog.DO_NOTHING_ON_CLOSE);
 

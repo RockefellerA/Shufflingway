@@ -3163,8 +3163,6 @@ final class ActionResolverPatterns {
         "(?<name>[A-Z][A-Za-z''\\-\\s()]+?)\\s+becomes\\s+that\\s+Element" +
         "(?:\\s*\\(this\\s+effect\\s+does\\s+not\\s+end\\s+at\\s+the\\s+end\\s+of\\s+the\\s+turn\\))?\\s*\\.?\\s*$"
     );
-    /** All eight FFTCG element names, in standard order. */
-    static final String[] ELEMENT_NAMES = {"Fire", "Ice", "Wind", "Earth", "Lightning", "Water", "Light", "Dark"};
     /**
      * Matches "The [optional filter] Forwards you control can form a party with [anything]
      * Forwards of any Element this turn." — turn-scoped party-element-wildcard grant.

@@ -1,4 +1,4 @@
-package shufflingway;
+package shufflingway.dialog;
 
 import java.awt.BorderLayout;
 import java.awt.Component;
@@ -36,11 +36,16 @@ import javax.swing.event.DocumentListener;
 
 import scraper.CardDatabase;
 
+import shufflingway.CardData;
+import shufflingway.Elements;
+import shufflingway.FontLoader;
+import shufflingway.UiScale;
+
 /**
  * Static factory methods for the "Name an Element", "Name a Job", and "Name an Element and Job" dialogs.
  * All dialogs are modal, have no cancel path, and require a confirmed selection to close.
  */
-class NameSelectionDialogs {
+public class NameSelectionDialogs {
 
     /**
      * Shows the element-selection dialog (interactive) or picks randomly for the AI.
@@ -50,17 +55,17 @@ class NameSelectionDialogs {
      * @param interactive true = show dialog for a human player
      * @param log         receives log messages
      */
-    static String selectElement(JFrame frame, String prompt, boolean interactive, Consumer<String> log) {
+    public static String selectElement(JFrame frame, String prompt, boolean interactive, Consumer<String> log) {
         return selectElement(frame, prompt, Collections.emptySet(), interactive, log);
     }
 
-    static String selectElement(JFrame frame, String prompt, Set<String> excluded,
+    public static String selectElement(JFrame frame, String prompt, Set<String> excluded,
                                 boolean interactive, Consumer<String> log) {
         if (!interactive) {
             List<String> available = new ArrayList<>();
-            for (String e : ActionResolverPatterns.ELEMENT_NAMES)
+            for (String e : Elements.ALL)
                 if (excluded.stream().noneMatch(e::equalsIgnoreCase)) available.add(e);
-            if (available.isEmpty()) available = List.of(ActionResolverPatterns.ELEMENT_NAMES);
+            if (available.isEmpty()) available = Elements.ALL;
             String picked = available.get((int) (Math.random() * available.size()));
             log.accept("[AI] selected Element: " + picked);
             return picked;
@@ -76,7 +81,7 @@ class NameSelectionDialogs {
      * @param interactive      true = show dialog for a human player
      * @param log              receives log messages
      */
-    static String selectJob(JFrame frame, List<String> fieldJobCandidates,
+    public static String selectJob(JFrame frame, List<String> fieldJobCandidates,
                             boolean interactive, Consumer<String> log) {
         List<String> allJobs = loadJobs(log);
         if (allJobs.isEmpty()) return null;
@@ -98,13 +103,13 @@ class NameSelectionDialogs {
      * @param interactive true = show dialog for a human player
      * @param log         receives log messages
      */
-    static String[] selectElementAndJob(JFrame frame, String prompt, Set<String> excluded,
+    public static String[] selectElementAndJob(JFrame frame, String prompt, Set<String> excluded,
                                         boolean interactive, Consumer<String> log) {
         if (!interactive) {
             List<String> available = new ArrayList<>();
-            for (String e : ActionResolverPatterns.ELEMENT_NAMES)
+            for (String e : Elements.ALL)
                 if (excluded.stream().noneMatch(e::equalsIgnoreCase)) available.add(e);
-            if (available.isEmpty()) available = List.of(ActionResolverPatterns.ELEMENT_NAMES);
+            if (available.isEmpty()) available = Elements.ALL;
             String elem = available.get((int) (Math.random() * available.size()));
             List<String> jobs = loadJobs(log);
             String job = jobs.isEmpty() ? "Warrior" : jobs.get((int) (Math.random() * jobs.size()));
@@ -119,7 +124,7 @@ class NameSelectionDialogs {
     /**
      * Like {@link #selectElementAndJob(JFrame, String, Set, boolean, Consumer)} with no element exclusions.
      */
-    static String[] selectElementAndJob(JFrame frame, String prompt,
+    public static String[] selectElementAndJob(JFrame frame, String prompt,
                                         boolean interactive, Consumer<String> log) {
         return selectElementAndJob(frame, prompt, Collections.emptySet(), interactive, log);
     }
@@ -128,10 +133,10 @@ class NameSelectionDialogs {
      * Shows the job-or-element toggle dialog (interactive) or picks randomly for the AI.
      * Returns {@code {"job", value}} or {@code {"element", value}}.
      */
-    static String[] selectJobOrElement(JFrame frame, String prompt, boolean interactive, Consumer<String> log) {
+    public static String[] selectJobOrElement(JFrame frame, String prompt, boolean interactive, Consumer<String> log) {
         if (!interactive) {
             if (Math.random() < 0.5) {
-                String elem = ActionResolverPatterns.ELEMENT_NAMES[(int) (Math.random() * ActionResolverPatterns.ELEMENT_NAMES.length)];
+                String elem = Elements.ALL.get((int) (Math.random() * Elements.ALL.size()));
                 log.accept("[AI] named Element: " + elem);
                 return new String[]{"element", elem};
             } else {
@@ -150,7 +155,7 @@ class NameSelectionDialogs {
      * Shows the job-or-category toggle dialog (interactive) or picks randomly for the AI.
      * Returns {@code {"job", value}} or {@code {"category", value}}.
      */
-    static String[] selectJobOrCategory(JFrame frame, String prompt, boolean interactive, Consumer<String> log) {
+    public static String[] selectJobOrCategory(JFrame frame, String prompt, boolean interactive, Consumer<String> log) {
         if (!interactive) {
             List<String> jobs = loadJobs(log);
             List<String> cats = loadCategories(log);
@@ -174,7 +179,7 @@ class NameSelectionDialogs {
      * Collects the distinct job names from a set of field cards, splitting multi-job strings
      * (e.g. "Warrior/Rebel") into their components.
      */
-    static List<String> collectFieldJobs(List<CardData> fwds, CardData[] bkps, List<CardData> mons) {
+    public static List<String> collectFieldJobs(List<CardData> fwds, CardData[] bkps, List<CardData> mons) {
         TreeSet<String> out = new TreeSet<>();
         for (CardData c : fwds) splitJobs(c.job(), out);
         for (CardData c : bkps) if (c != null) splitJobs(c.job(), out);
@@ -183,7 +188,7 @@ class NameSelectionDialogs {
     }
 
     /** The distinct Jobs among {@code cards}, splitting multi-job strings into their components. */
-    static List<String> collectJobs(List<CardData> cards) {
+    public static List<String> collectJobs(List<CardData> cards) {
         TreeSet<String> out = new TreeSet<>();
         for (CardData c : cards) if (c != null) splitJobs(c.job(), out);
         return new ArrayList<>(out);
@@ -211,7 +216,7 @@ class NameSelectionDialogs {
      *   <li>nothing, which leaves the caller to fall back on the whole vocabulary.</li>
      * </ol>
      */
-    static List<String> jobsToNameAgainstOpponent(List<String> opponentField, List<String> ownField,
+    public static List<String> jobsToNameAgainstOpponent(List<String> opponentField, List<String> ownField,
                                                   List<String> opponentBreakZone) {
         List<String> unshared = new ArrayList<>(opponentField);
         unshared.removeAll(ownField);
@@ -230,10 +235,10 @@ class NameSelectionDialogs {
      *
      * @see NamedThing
      */
-    static List<String> jobNames(Consumer<String> log) { return loadJobs(log); }
+    public static List<String> jobNames(Consumer<String> log) { return loadJobs(log); }
 
     /** Every Category in the card database, sorted. @see NamedThing */
-    static List<String> categoryNames(Consumer<String> log) { return loadCategories(log); }
+    public static List<String> categoryNames(Consumer<String> log) { return loadCategories(log); }
 
     private static List<String> loadJobs(Consumer<String> log) {
         try {
@@ -272,7 +277,7 @@ class NameSelectionDialogs {
         dialog.setDefaultCloseOperation(JDialog.DO_NOTHING_ON_CLOSE);
 
         DefaultListModel<String> listModel = new DefaultListModel<>();
-        for (String e : ActionResolverPatterns.ELEMENT_NAMES)
+        for (String e : Elements.ALL)
             if (excluded.stream().noneMatch(e::equalsIgnoreCase)) listModel.addElement(e);
         JList<String> elemList = new JList<>(listModel);
         elemList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
@@ -368,7 +373,7 @@ class NameSelectionDialogs {
     private static String[] showElementAndJobDialog(JFrame frame, String prompt, List<String> jobs,
                                                     Set<String> excluded) {
         List<String> available = new ArrayList<>();
-        for (String e : ActionResolverPatterns.ELEMENT_NAMES)
+        for (String e : Elements.ALL)
             if (excluded.stream().noneMatch(e::equalsIgnoreCase)) available.add(e);
         String[] elemItems = new String[available.size() + 1];
         elemItems[0] = "— Element —";
@@ -485,7 +490,7 @@ class NameSelectionDialogs {
 
         // --- Element panel (right) ---
         DefaultListModel<String> elemModel = new DefaultListModel<>();
-        for (String e : ActionResolverPatterns.ELEMENT_NAMES) elemModel.addElement(e);
+        for (String e : Elements.ALL) elemModel.addElement(e);
         JList<String> elemList = new JList<>(elemModel);
         elemList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
         elemList.setSelectedIndex(0);

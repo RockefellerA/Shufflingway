@@ -41,6 +41,7 @@ import javax.swing.SwingConstants;
 import javax.swing.SwingWorker;
 import javax.swing.Timer;
 
+import shufflingway.dialog.StackOrderingDialog;
 import shufflingway.graphics.CardSlideAnimator;
 import static shufflingway.graphics.CardAnimation.CARD_H;
 import static shufflingway.graphics.CardAnimation.CARD_W;
@@ -2003,7 +2004,7 @@ final class AutoAbilityTriggers {
 		List<String> out = new ArrayList<>(parts.length);
 		for (String part : parts) {
 			String name = null;
-			for (String e : ActionResolverPatterns.ELEMENT_NAMES)
+			for (String e : Elements.ALL)
 				if (e.equalsIgnoreCase(part.trim())) { name = e; break; }
 			if (name == null) return null;
 			out.add(name);

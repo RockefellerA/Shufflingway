@@ -158,8 +158,11 @@ public class SidePanelResizeTest {
 		JFrame frame = (JFrame) ff.get(mw);
 		JPanel side = panelField(mw, "sidePanel");
 		try {
-			SwingUtilities.invokeAndWait(() -> { frame.setVisible(true); frame.validate(); });
-			assertTrue(side.getWidth() > 0, "the panel should have a width once the frame is shown");
+			// Realized, not shown. Layout runs once the component tree has native peers, and
+			// addNotify() creates those without ever mapping a window on screen — setVisible(true)
+			// popped the whole application up in the middle of every full test run.
+			SwingUtilities.invokeAndWait(() -> { frame.addNotify(); frame.validate(); });
+			assertTrue(side.getWidth() > 0, "the panel should have a width once the frame is laid out");
 
 			boolean dockedRight = "right".equals(AppSettings.getSidePanelSide());
 			SwingUtilities.invokeAndWait(() -> {

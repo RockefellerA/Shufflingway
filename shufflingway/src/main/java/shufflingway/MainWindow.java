@@ -10594,16 +10594,16 @@ public class MainWindow {
 
 		if (freeCast) {
 			// "without paying the cost" — clear any CP generated for payment and spend nothing.
-			for (String e : ActionResolverPatterns.ELEMENT_NAMES) gameState.clearP2Cp(e);
+			for (String e : Elements.ALL) gameState.clearP2Cp(e);
 		} else if (anyElement) {
 			// Cost may be paid using CP of any Element — drain across all elements, no per-element minimum.
 			int remaining = reducedCost;
-			for (String e : ActionResolverPatterns.ELEMENT_NAMES) {
+			for (String e : Elements.ALL) {
 				if (remaining <= 0) break;
 				int toSpend = Math.min(remaining, gameState.getP2CpForElement(e));
 				if (toSpend > 0) { gameState.spendP2Cp(e, toSpend); remaining -= toSpend; }
 			}
-			for (String e : ActionResolverPatterns.ELEMENT_NAMES) gameState.clearP2Cp(e);
+			for (String e : Elements.ALL) gameState.clearP2Cp(e);
 		} else {
 			// Pay reducedCost: per-element minimum first if multi-element, then drain CP.
 			int remaining = reducedCost;
