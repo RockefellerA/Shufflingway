@@ -46674,5 +46674,217 @@ public class CardBehaviorTest {
 	}
 
 	// =========================================================================================
+	// 29-005L Cloud — "you may remove 3 Fire cards in your Break Zone and/or Category VII cards in
+	// your Break Zone from the game. When you do so, search for 1 Fire Forward of cost 2 or less
+	// and of power 5000 or less, and play it onto the field."
+	//
+	// Three separate things were wrong, and each sent a half of the ability somewhere else:
+	//
+	//   * The "and/or" removal was declined outright — the filters are a conjunction, so honouring
+	//     the phrase through the single-filter removal would have asked for cards that are Fire
+	//     *and* Category VII. The sentence then fell to tryParseRemoveNamedFromGame, which looked
+	//     on the field for a card literally named "3 Fire cards in your Break Zone and/or Category
+	//     VII cards" and logged a warning.
+	//   * "of power 5000 or less" was not a clause the search pattern knew.
+	//   * Nor was the comma in "…or less, and play it onto the field" — on its own enough to fail
+	//     the whole match.
+	//
+	// Either search failure dropped the sentence through to playAllByNameFromOwnBreakZoneDull,
+	// which replayed *Cloud itself* out of the Break Zone instead of searching the deck. That is
+	// the most damaging of the three, and the reason the power and comma cases are pinned
+	// separately below rather than only through the whole ability.
+	// =========================================================================================
+
+	private static final String CLOUD_29_005L_ETF =
+			"remove 3 Fire cards in your Break Zone and/or Category VII cards in your Break Zone "
+			+ "from the game. When you do so, search for 1 Fire Forward of cost 2 or less and of "
+			+ "power 5000 or less, and play it onto the field.";
+
+	private static CardData makeCloud29005L() {
+		return new CardData(null, "Cloud", "Fire", 4, 8000, "Forward", false, 0, false, false,
+				Set.of(), 0, List.of(), null, List.of(),
+				List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(),
+				List.of(), List.of(), List.of(),
+				false, false, null, false, false, false, false, false, 1,
+				"Warrior", "VII", null, "");
+	}
+
+	@Test
+	void cloudRemovesFromTheUnionOfBothDescriptionsWithOneSharedCount() {
+		Consumer<GameContext> fn = ActionResolver.parse(CLOUD_29_005L_ETF, makeCloud29005L());
+		assertNotNull(fn);
+
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.effectMadeProgress()).thenReturn(true);
+		when(ctx.removeCardsFromBreakZoneFromGameEitherSpec(any(), any(), anyInt(), anyBoolean(), anyString()))
+				.thenReturn(3);
+		ArgumentCaptor<TargetSpec> a = ArgumentCaptor.forClass(TargetSpec.class);
+		ArgumentCaptor<TargetSpec> b = ArgumentCaptor.forClass(TargetSpec.class);
+
+		fn.accept(ctx);
+
+		verify(ctx).removeCardsFromBreakZoneFromGameEitherSpec(
+				a.capture(), b.capture(), eq(3), eq(false), anyString());
+		// One selection over two pools: Fire cards, and Category VII cards.
+		assertEquals("Fire", a.getValue().element());
+		assertNull(a.getValue().categoryFilter(), "the Fire half carries no category requirement");
+		assertEquals("VII", b.getValue().categoryFilter());
+		assertNull(b.getValue().element(), "the Category half carries no element requirement");
+		// "cards" is every type, and the count is shared rather than per-pool.
+		assertTrue(a.getValue().inclForwards() && a.getValue().inclBackups()
+				&& a.getValue().inclMonsters() && a.getValue().inclSummons());
+		assertEquals(3, a.getValue().maxCount());
+		assertEquals(3, b.getValue().maxCount());
+		// And it must not have reached the field-scoped named removal that used to claim it.
+		verify(ctx, never()).removeNamedCardFromGame(anyString());
+	}
+
+	@Test
+	void cloudSearchesWithBothTheCostAndThePowerThreshold() {
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.effectMadeProgress()).thenReturn(true);
+		when(ctx.removeCardsFromBreakZoneFromGameEitherSpec(any(), any(), anyInt(), anyBoolean(), anyString()))
+				.thenReturn(3);
+
+		ActionResolver.parse(CLOUD_29_005L_ETF, makeCloud29005L()).accept(ctx);
+
+		verify(ctx).searchDeckForCardWithPower(eq(true), eq(false), eq(false), eq(false),
+				eq(2), eq("less"), eq(5000), eq("less"),
+				isNull(), isNull(), isNull(), eq("Fire"), isNull(), isNull(),
+				eq("field"), eq(1), eq(false), isNull());
+		// The mis-parse this replaced replayed Cloud out of the Break Zone instead of searching.
+		verify(ctx, never()).playAllByNameFromOwnBreakZoneDull(anyString(), anyBoolean());
+	}
+
+	@Test
+	void cloudSearchesOnlyIfTheRemovalActuallyHappened() {
+		// "When you do so" — a removal that took nothing pays out nothing.
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.removeCardsFromBreakZoneFromGameEitherSpec(any(), any(), anyInt(), anyBoolean(), anyString()))
+				.thenReturn(0);
+		when(ctx.effectMadeProgress()).thenReturn(false);
+
+		ActionResolver.parse(CLOUD_29_005L_ETF, makeCloud29005L()).accept(ctx);
+
+		verify(ctx, never()).searchDeckForCardWithPower(anyBoolean(), anyBoolean(), anyBoolean(),
+				anyBoolean(), anyInt(), any(), anyInt(), any(), any(), any(), any(), any(), any(),
+				any(), any(), anyInt(), anyBoolean(), any());
+	}
+
+	@Test
+	void cloudsRemovalIsOptional() {
+		// "you may" is lifted into the AutoAbility rather than left in the effect text, which is
+		// what makes the prompt the trigger dispatcher's job.
+		String full = "When Cloud enters the field, you may " + CLOUD_29_005L_ETF;
+		List<AutoAbility> autos = CardData.parseAutoAbilities(full);
+		assertEquals(1, autos.size());
+		assertTrue(autos.get(0).youMay(), "the removal is optional");
+		assertEquals("enters the field", autos.get(0).trigger());
+	}
+
+	@Test
+	void theSiblingUnionRemovalReadsItsOwnTwoPools() {
+		// 23-117L Chaos, the only other printing of the shape: "Job Chaos and/or Monsters".
+		// Its halves are a Job filter and a bare type, which the Fire/Category pair does not cover.
+		CardData chaos = makeForward("Chaos", "Dark", 4, 9000);
+		Consumer<GameContext> fn = ActionResolver.parse(
+				"remove 5 Job Chaos in your Break Zone and/or Monsters in your Break Zone from the game.",
+				chaos);
+		assertNotNull(fn);
+
+		GameContext ctx = mock(GameContext.class);
+		ArgumentCaptor<TargetSpec> a = ArgumentCaptor.forClass(TargetSpec.class);
+		ArgumentCaptor<TargetSpec> b = ArgumentCaptor.forClass(TargetSpec.class);
+		fn.accept(ctx);
+
+		verify(ctx).removeCardsFromBreakZoneFromGameEitherSpec(
+				a.capture(), b.capture(), eq(5), eq(false), anyString());
+		assertEquals("Chaos", a.getValue().jobFilter());
+		assertTrue(b.getValue().inclMonsters(), "the second half is Monsters");
+		assertFalse(b.getValue().inclForwards(), "and only Monsters");
+	}
+
+	@Test
+	void aJoinedPhraseWithAnUnreadableHalfIsStillDeclined() {
+		// The blanket decline became a split, and the split must not become a way in for a phrase
+		// neither half can be read: a removal that ignores part of its filter takes cards the card
+		// text protects. "of the highest cost" is not a filter this engine expresses.
+		//
+		// Asserted against the removal parser rather than parse(), which has fallbacks below this
+		// one and will hand back something for almost any sentence — the question here is only
+		// whether *this* parser declines.
+		assertNull(ActionResolverState.tryParseRemoveFromBreakZoneFromGame(
+				"remove 3 Fire cards in your Break Zone and/or cards of the highest cost among them "
+				+ "in your Break Zone from the game.", makeCloud29005L()),
+				"a half nothing can read declines the whole removal");
+		// The readable pair still parses, so the guard above is not simply refusing everything.
+		assertNotNull(ActionResolverState.tryParseRemoveFromBreakZoneFromGame(
+				"remove 3 Fire cards in your Break Zone and/or Category VII cards in your Break Zone "
+				+ "from the game.", makeCloud29005L()));
+	}
+
+	@Test
+	void theSearchPatternToleratesTheCommaBeforeItsDestination() {
+		// The comma alone used to fail the whole match, with no power clause involved.
+		GameContext ctx = mock(GameContext.class);
+		ActionResolver.parse("Search for 1 Fire Forward of cost 2 or less, and play it onto the field.",
+				null).accept(ctx);
+
+		verify(ctx).searchDeckForCard(eq(true), eq(false), eq(false), eq(false),
+				eq(2), eq("less"), isNull(), isNull(), isNull(), eq("Fire"), isNull(), isNull(),
+				eq("field"), eq(1), eq(false), isNull());
+	}
+
+	@Test
+	void aSearchWithNoPowerClauseStillTakesTheOrdinaryRoute() {
+		// The power-aware call is reserved for texts that state a threshold; everything else must
+		// keep going through the search it went through before.
+		GameContext ctx = mock(GameContext.class);
+		ActionResolver.parse("Search for 1 Fire Forward and play it onto the field.", null).accept(ctx);
+
+		verify(ctx).searchDeckForCard(anyBoolean(), anyBoolean(), anyBoolean(), anyBoolean(),
+				anyInt(), any(), any(), any(), any(), any(), any(), any(), any(), anyInt(),
+				anyBoolean(), any());
+		verify(ctx, never()).searchDeckForCardWithPower(anyBoolean(), anyBoolean(), anyBoolean(),
+				anyBoolean(), anyInt(), any(), anyInt(), any(), any(), any(), any(), any(), any(),
+				any(), any(), anyInt(), anyBoolean(), any());
+	}
+
+	@Test
+	void theDeckSearchPowerThresholdFiltersOnPrintedPower() {
+		// Against a real deck, on the AI side to avoid the modal picker a P1 search opens.
+		MainWindow mw = new MainWindow();
+		CardData tooBig = makeForward("Big One",   "Fire", 2, 7000);
+		CardData justOk = makeForward("Small One", "Fire", 2, 5000);
+		mw.gameState.getP2MainDeck().add(tooBig);
+		mw.gameState.getP2MainDeck().add(justOk);
+
+		mw.searchDeckForCardWithPower(false, true, false, false, false,
+				2, "less", 5000, "less", null, null, null, "Fire", null, null,
+				"hand", 1, false, null);
+
+		assertTrue(mw.gameState.getP2Hand().contains(justOk), "5000 is \"5000 or less\"");
+		assertFalse(mw.gameState.getP2Hand().contains(tooBig), "7000 is over the threshold");
+	}
+
+	@Test
+	void theSearchPowerThresholdDoesNotLeakIntoTheNextSearch() {
+		// The threshold is a rider on a shared field, cleared in a finally. A search that follows
+		// one carrying a threshold must see the whole deck again.
+		MainWindow mw = new MainWindow();
+		CardData big = makeForward("Big One", "Fire", 2, 7000);
+		mw.gameState.getP2MainDeck().add(big);
+
+		mw.searchDeckForCardWithPower(false, true, false, false, false,
+				-1, null, 5000, "less", null, null, null, "Fire", null, null,
+				"hand", 1, false, null);
+		assertFalse(mw.gameState.getP2Hand().contains(big), "filtered out by the threshold");
+
+		mw.searchDeckForCard(false, true, false, false, false, -1, null,
+				null, null, null, "Fire", null, null, "hand", 1, false, null);
+		assertTrue(mw.gameState.getP2Hand().contains(big), "the next search sees it again");
+	}
+
+	// =========================================================================================
 
 }

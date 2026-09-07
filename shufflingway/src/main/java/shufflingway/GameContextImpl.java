@@ -2224,6 +2224,18 @@ final class GameContextImpl implements GameContext {
 						costVal, costCmp, cardNameFilter, jobFilter, categoryFilter, elementFilter, excludeName, excludeElem, destination, count, entersDull, requireTrait);
 			}
 
+			@Override public boolean searchDeckForCardWithPower(boolean inclForwards, boolean inclBackups,
+					boolean inclMonsters, boolean inclSummons,
+					int costVal, String costCmp, int powerVal, String powerCmp,
+					String cardNameFilter, String jobFilter, String categoryFilter,
+					String elementFilter, String excludeName, String excludeElem,
+					String destination, int count, boolean entersDull, CardData.Trait requireTrait) {
+				return mw.searchDeckForCardWithPower(isP1, inclForwards, inclBackups, inclMonsters,
+						inclSummons, costVal, costCmp, powerVal, powerCmp, cardNameFilter, jobFilter,
+						categoryFilter, elementFilter, excludeName, excludeElem, destination, count,
+						entersDull, requireTrait);
+			}
+
 			@Override public boolean searchDeckForCardWithRiders(boolean inclForwards, boolean inclBackups,
 					boolean inclMonsters, boolean inclSummons,
 					int costVal, String costCmp, String cardNameFilter, String jobFilter,
@@ -7108,6 +7120,30 @@ final class GameContextImpl implements GameContext {
 						maxCount, upTo, opponentZone, bothZones, null, element, costVal, costCmp,
 						-1, null, forwards, backups, monsters,
 						jobFilter, cardNameFilter, categoryFilter, null, summons, null, false);
+				String title = "Choose " + (upTo ? "up to " : "")
+						+ (maxCount == Integer.MAX_VALUE ? "any number of" : String.valueOf(Math.min(maxCount, eligible.size())))
+						+ (element != null ? " " + element : "")
+						+ (jobFilter != null ? " Job " + jobFilter : "")
+						+ (categoryFilter != null ? " Category " + categoryFilter : "")
+						+ (cardNameFilter != null ? " Card Name " + cardNameFilter : "")
+						+ breakZoneTypeLabel(forwards, backups, monsters, summons, Math.min(maxCount, eligible.size()))
+						+ formatCostFilterLabel(costVal, costCmp)
+						+ " in " + (opponentZone ? "opponent's" : "your") + " Break Zone to remove from the game";
+				return removeChosenFromBreakZone(eligible, maxCount, upTo, opponentZone, title, gate);
+			}
+
+			/**
+			 * Removes up to {@code maxCount} of {@code eligible} from the game, prompting P1 with
+			 * {@code title} and letting the AI take the first legal run.
+			 *
+			 * <p>Split out of {@link #removeCardsFromBreakZoneFromGame} so the union-pool variant
+			 * beside it can reuse every part of a removal that is not the building of the pool —
+			 * the dialog, the gate, the highest-index-first ordering and the "what actually went"
+			 * accounting are all identical whether the pool came from one filter or two.
+			 */
+			private int removeChosenFromBreakZone(List<ForwardTarget> eligible, int maxCount,
+					boolean upTo, boolean opponentZone, String title, PickGate gate) {
+				if (gate == null) gate = PickGate.ANY;
 				if (eligible.isEmpty()) {
 					logEntry("Effect: no eligible cards in " + (opponentZone ? "opponent's" : "your")
 							+ " Break Zone to remove from the game");
@@ -7129,15 +7165,6 @@ final class GameContextImpl implements GameContext {
 					List<ForwardTarget> reindexed = new ArrayList<>(eligible.size());
 					for (int i = 0; i < eligible.size(); i++)
 						reindexed.add(new ForwardTarget(eligible.get(i).isP1(), i, ForwardTarget.CardZone.BREAK_ZONE));
-					String title = "Choose " + (upTo ? "up to " : "")
-							+ (maxCount == Integer.MAX_VALUE ? "any number of" : String.valueOf(cap))
-							+ (element != null ? " " + element : "")
-							+ (jobFilter != null ? " Job " + jobFilter : "")
-							+ (categoryFilter != null ? " Category " + categoryFilter : "")
-							+ (cardNameFilter != null ? " Card Name " + cardNameFilter : "")
-							+ breakZoneTypeLabel(forwards, backups, monsters, summons, cap)
-							+ formatCostFilterLabel(costVal, costCmp)
-							+ " in " + (opponentZone ? "opponent's" : "your") + " Break Zone to remove from the game";
 					List<ForwardTarget> chosen =
 							mw.showBreakZoneSelectDialog(reindexed, pool, cap, upTo, title, gate);
 					picks = new ArrayList<>(chosen.size());
@@ -7177,6 +7204,18 @@ final class GameContextImpl implements GameContext {
 				}
 				if (removed == 0) markEffectFizzled();
 				return removed;
+			}
+
+			@Override public int removeCardsFromBreakZoneFromGameEitherSpec(
+					TargetSpec first, TargetSpec second, int maxCount, boolean upTo, String title) {
+				// Both halves go through the ordinary Break Zone eligibility builder, so each
+				// honours the zone shields and every other rule a lone removal would apply to it —
+				// the same reasoning selectCharactersEitherSpec takes on the field.
+				List<ForwardTarget> pool = new ArrayList<>(eligibleCharactersFromBreakZone(first));
+				for (ForwardTarget t : eligibleCharactersFromBreakZone(second))
+					if (!pool.contains(t)) pool.add(t);   // a card answering both is offered once
+				return removeChosenFromBreakZone(pool, maxCount, upTo, first.opponentZone(),
+						title, PickGate.ANY);
 			}
 
 			@Override public void removeAllOpponentBzFromGame() {

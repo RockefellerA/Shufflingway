@@ -484,8 +484,10 @@ final class ActionResolverState {
      */
     private static BzRemovalFilters parseBzRemovalFilters(String raw) {
         String f = raw == null ? "" : raw.trim();
-        // Two filters joined by "and/or" name one selection drawn from two pools, which the Break
-        // Zone selection primitive has no way to express. Declined whole rather than half-honoured.
+        // One half of an "and/or" phrase reaches here already split, so neither marker should
+        // still be present. A phrase that carries one anyway is a shape the splitter did not
+        // recognise, and is declined whole rather than half-honoured — a removal that quietly
+        // ignores part of its filter takes cards the card text protects.
         if (f.toLowerCase(Locale.ROOT).contains("and/or")
                 || f.toLowerCase(Locale.ROOT).contains("break zone")) return null;
 
@@ -570,13 +572,50 @@ final class ActionResolverState {
      * sentence still goes to {@code appendThenClause}, and a trailing sentence that cannot be
      * parsed declines the whole ability rather than silently dropping half of it.
      */
+    /**
+     * Splits the filter phrase of an "and/or" removal into its two descriptions — "Fire cards in
+     * your Break Zone and/or Category VII cards" into "Fire cards" and "Category VII cards".
+     *
+     * <p>The zone words sit <em>inside</em> the captured phrase because
+     * {@link ActionResolverPatterns#REMOVE_FROM_BREAK_ZONE_FROM_GAME} anchors on the last of them,
+     * so the first half carries its own "in your Break Zone" and the second does not.
+     */
+    private static final Pattern BZ_REMOVAL_AND_OR = Pattern.compile(
+        "(?i)^(?<a>.+?)\\s+in\\s+(?:your|the)\\s+Break\\s+Zone\\s+and/or\\s+(?<b>.+)$");
+
+    /** One half of an "and/or" removal, as the Break Zone eligibility builder wants it. */
+    private static TargetSpec bzUnionSpec(BzRemovalFilters f, int maxCount, boolean upTo,
+            boolean opponentZone, boolean bothZones) {
+        return new TargetSpec(maxCount, upTo, false, false, null, f.element(),
+                f.costVal(), f.costCmp(), -1, null,
+                f.forwards(), f.backups(), f.monsters(),
+                f.job(), f.cardName(), f.category(), null, f.summons(), null, false,
+                "break", opponentZone, bothZones);
+    }
+
     static Consumer<GameContext> tryParseRemoveFromBreakZoneFromGame(String text, CardData source) {
         String trimmed = text.trim();
         Matcher m = REMOVE_FROM_BREAK_ZONE_FROM_GAME.matcher(trimmed);
         if (!m.lookingAt()) return null;
 
-        BzRemovalFilters f = parseBzRemovalFilters(m.group("filters"));
-        if (f == null) return null;
+        // "remove N <A> in your Break Zone and/or <B> in your Break Zone from the game" — one
+        // selection over two pools with a shared count (29-005L Cloud, 23-117L Chaos). Read first,
+        // because the single-filter parser below declines the joined phrase outright: its element,
+        // Job and Category filters are a conjunction, so honouring the phrase through it would ask
+        // for cards answering *both* descriptions, a strictly smaller pool.
+        BzRemovalFilters unionA = null, unionB = null;
+        Matcher split = BZ_REMOVAL_AND_OR.matcher(m.group("filters").trim());
+        if (split.matches()) {
+            unionA = parseBzRemovalFilters(split.group("a"));
+            unionB = parseBzRemovalFilters(split.group("b"));
+            if (unionA == null || unionB == null) return null;   // half-read is not read
+            // Neither half may carry a selection rider: the gate binds a selection, and this one
+            // spans two pools. No printing states one here.
+            if (unionA.gate() != PickGate.ANY || unionB.gate() != PickGate.ANY) return null;
+        }
+
+        BzRemovalFilters f = unionA != null ? null : parseBzRemovalFilters(m.group("filters"));
+        if (f == null && unionA == null) return null;
 
         String qty = m.group("qty") == null ? "" : m.group("qty").toLowerCase(Locale.ROOT).replaceAll("\\s+", " ");
         final int maxCount;
@@ -595,10 +634,21 @@ final class ActionResolverState {
         // than a field: the parsed Consumer is a long-lived singleton the engine reuses, so the
         // count has to be written and read inside one resolution.
         int[] removed = new int[1];
-        Consumer<GameContext> base = ctx -> removed[0] = ctx.removeCardsFromBreakZoneFromGame(
-                maxCount, upTo, opponentZone, bothZones, f.element(), f.costVal(), f.costCmp(),
-                f.forwards(), f.backups(), f.monsters(), f.summons(),
-                f.job(), f.cardName(), f.category(), f.gate());
+        final Consumer<GameContext> base;
+        if (unionA != null) {
+            TargetSpec specA = bzUnionSpec(unionA, maxCount, upTo, opponentZone, bothZones);
+            TargetSpec specB = bzUnionSpec(unionB, maxCount, upTo, opponentZone, bothZones);
+            String label = "Choose " + (upTo ? "up to " : "") + maxCount + " card(s) in "
+                    + (opponentZone ? "opponent's" : "your") + " Break Zone to remove from the game ("
+                    + split.group("a").trim() + " and/or " + split.group("b").trim() + ")";
+            base = ctx -> removed[0] = ctx.removeCardsFromBreakZoneFromGameEitherSpec(
+                    specA, specB, maxCount, upTo, label);
+        } else {
+            base = ctx -> removed[0] = ctx.removeCardsFromBreakZoneFromGame(
+                    maxCount, upTo, opponentZone, bothZones, f.element(), f.costVal(), f.costCmp(),
+                    f.forwards(), f.backups(), f.monsters(), f.summons(),
+                    f.job(), f.cardName(), f.category(), f.gate());
+        }
 
         String tail = trimmed.substring(m.end()).trim();
         if (tail.isEmpty()) return base;

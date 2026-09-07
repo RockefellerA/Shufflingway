@@ -5651,7 +5651,17 @@ final class ActionResolverPatterns {
         // other than Light and".
         "(?:\\s+other\\s+than\\s+(?<excludeelem>(?:Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)" +
             "(?:\\s+(?:and|or)\\s+(?:Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark))*))?\\s*" +
-        "and\\s+" +
+        // "and of power N or less" — 29-005L Cloud, the corpus's only search with a power
+        // threshold. Sits behind the cost clause because that is the printed order ("of cost 2 or
+        // less and of power 5000 or less"), and its leading "and" is optional so a power-only
+        // wording would read too. Without this the clause was left over where the destination was
+        // expected, the whole pattern failed, and the sentence fell through to a parser that
+        // replayed the source card out of the Break Zone instead of searching at all.
+        "(?:(?:and\\s+)?of\\s+power\\s+(?<power>\\d+)(?:\\s+or\\s+(?<powercmp>less|more))?\\s*)?" +
+        // The comma before the destination clause. 29-005L prints "…of power 5000 or less, and
+        // play it onto the field"; every earlier text ran straight into the "and", so a bare comma
+        // was enough on its own to fail the whole match.
+        ",?\\s*and\\s+" +
         "(?<destination>" +
             "add\\s+it\\s+to\\s+your\\s+hand" +
             "|add\\s+them\\s+to\\s+your\\s+hand" +

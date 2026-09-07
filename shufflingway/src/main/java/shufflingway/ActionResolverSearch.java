@@ -1264,6 +1264,11 @@ final class ActionResolverSearch {
         String costCmp = (costCmpRaw != null && costCmpRaw.matches("\\d+"))
                 ? "or_" + costCmpRaw : costCmpRaw;
 
+        // --- Power filter ("of power 5000 or less", 29-005L Cloud) ---
+        String powerStr = m.group("power");
+        int    powerVal = powerStr == null ? -1 : Integer.parseInt(powerStr);
+        String powerCmp = m.group("powercmp");
+
         // --- Count ---
         String countStr = m.group("count");
         int count = (countStr != null) ? Integer.parseInt(countStr) : 1;
@@ -1292,7 +1297,9 @@ final class ActionResolverSearch {
         if (excludeElem     != null) filterDesc.append(" [not ").append(excludeElem).append("]");
         if (requireTrait != null)     filterDesc.append(" [with ").append(requireTrait.displayName()).append("]");
         String typeDesc  = (targets != null && !anyType) ? " " + targets : "";
-        String costLabel = CardFilters.formatCostFilterLabel(costVal, costCmp);
+        String costLabel = CardFilters.formatCostFilterLabel(costVal, costCmp)
+                + (powerVal >= 0 ? " of power " + powerVal
+                        + (powerCmp != null ? " or " + powerCmp : "") : "");
 
         // Secondary effect: text following this search clause (e.g. ". Gain 《C》.")
         String afterSearch = text.substring(m.end()).trim().replaceAll("^[.!,]+\\s*", "").trim();
@@ -1310,6 +1317,8 @@ final class ActionResolverSearch {
         final int fTotalCost = maxTotalCost;
         final int fCost = costVal;
         final String fCostCmp = costCmp;
+        final int fPower = powerVal;
+        final String fPowerCmp = powerCmp;
         Consumer<GameContext> search = ctx -> {
             ctx.logEntry("Effect: Search deck for " + fCount + filterDesc + typeDesc + costLabel
                     + (fBoth ? " [name and job together]" : "")
@@ -1321,6 +1330,9 @@ final class ActionResolverSearch {
                 ctx.searchDeckForCardWithRiders(fwd, bk, mn, sm, fCost, fCostCmp, fName, fJob,
                         fCat, fElem, fExclude, fExclElem, destination, fCount, fDull, fTrait,
                         fGate, fSilent, fTotalCost);
+            } else if (fPower >= 0) {
+                ctx.searchDeckForCardWithPower(fwd, bk, mn, sm, fCost, fCostCmp, fPower, fPowerCmp,
+                        fName, fJob, fCat, fElem, fExclude, fExclElem, destination, fCount, fDull, fTrait);
             } else if (fBoth) {
                 ctx.searchDeckForNamedCardWithJob(fwd, bk, mn, sm, fCost, fCostCmp, fName, fJob,
                         fElem, fExclude, fExclElem, destination, fCount, fDull, fTrait);

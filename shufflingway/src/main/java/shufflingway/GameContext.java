@@ -2487,6 +2487,30 @@ public interface GameContext {
             String jobFilter, String cardNameFilter, String categoryFilter, PickGate gate);
 
     /**
+     * Removes up to {@code maxCount} cards from the Break Zone, drawn from the union of two
+     * descriptions — the "remove N &lt;A&gt; in your Break Zone <b>and/or</b> &lt;B&gt; in your
+     * Break Zone from the game" shape (29-005L Cloud, 23-117L Chaos).
+     *
+     * <p>One selection over two pools, not two selections: the count is shared, so Cloud's 3 may
+     * be any mix of Fire cards and Category VII cards. A card answering both descriptions is
+     * offered once.
+     *
+     * <p>{@link #removeCardsFromBreakZoneFromGame} cannot express this — its element, Job and
+     * Category filters are a conjunction, so asking it for "Fire cards or Category VII cards"
+     * gets Fire cards that are <em>also</em> Category VII, a strictly smaller pool that on most
+     * boards is empty. That is why the filter parser declined the wording outright rather than
+     * half-honouring it, and why this exists.
+     *
+     * @param first  the first description; its {@code opponentZone} decides whose Break Zone the
+     *               prompt names, and both halves are expected to name the same one
+     * @param second the second description
+     * @param title  the prompt shown to the choosing player
+     * @return how many cards this call actually put out of the game
+     */
+    int removeCardsFromBreakZoneFromGameEitherSpec(TargetSpec first, TargetSpec second,
+            int maxCount, boolean upTo, String title);
+
+    /**
      * Searches P1 and P2 permanent RFP zones for a card matching {@code cardName} and places
      * the first match onto its owner's forward zone (triggering entering-field abilities).
      */
@@ -3423,6 +3447,22 @@ public interface GameContext {
      *
      * @return whether a card was found, chosen and moved, as {@link #searchDeckForCard} does
      */
+    /**
+     * As {@link #searchDeckForCard}, with a power threshold as well as a cost one — "search for
+     * 1 Fire Forward of cost 2 or less <b>and of power 5000 or less</b>" (29-005L Cloud).
+     *
+     * <p>Reads the printed power: a card in the deck is not on the field, so nothing is boosting
+     * it. Pass {@code powerVal} {@code -1} for no threshold.
+     *
+     * @param powerCmp {@code "less"} or {@code "more"} — both inclusive of {@code powerVal}
+     */
+    boolean searchDeckForCardWithPower(boolean inclForwards, boolean inclBackups,
+            boolean inclMonsters, boolean inclSummons,
+            int costVal, String costCmp, int powerVal, String powerCmp,
+            String cardNameFilter, String jobFilter, String categoryFilter,
+            String elementFilter, String excludeName, String excludeElem,
+            String destination, int count, boolean entersDull, CardData.Trait requireTrait);
+
     boolean searchDeckForNamedCardWithJob(boolean inclForwards, boolean inclBackups,
             boolean inclMonsters, boolean inclSummons,
             int costVal, String costCmp, String cardNameFilter, String jobFilter,

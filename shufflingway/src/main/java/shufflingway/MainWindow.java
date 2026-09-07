@@ -5476,6 +5476,19 @@ public class MainWindow {
 	 * admit, and it is the <em>combination</em> a pick would make that the budget can refuse.
 	 * That is the same shape as {@link PickGate}, which is why it is enforced in the same places.
 	 */
+
+	/**
+	 * Power threshold a searched card must meet — "search for 1 Fire Forward of cost 2 or less and
+	 * <b>of power 5000 or less</b>" (29-005L Cloud). {@code -1} for the searches that name none.
+	 *
+	 * <p>An instance field for the same reason {@link #searchIdentityConjunctive} is: it rides
+	 * along with an ordinary search rather than widening the signature every other caller passes,
+	 * and there are twelve of those. Set and cleared by
+	 * {@link #searchDeckForCardWithPower}, which is the only way in.
+	 */
+	private int searchPowerVal = -1;
+	/** {@code "less"} or {@code "more"} — both inclusive; meaningless when {@link #searchPowerVal} is -1. */
+	private String searchPowerCmp = null;
 	private int searchTotalCostBudget = -1;
 
 	/**
@@ -5515,6 +5528,34 @@ public class MainWindow {
 	 * the destination handling all stay in one place. Cleared in a finally block, so a dialog the
 	 * player dismisses cannot leave it set for the next search.
 	 */
+	/**
+	 * Searches with a power threshold on top of the ordinary filters — 29-005L Cloud's "1 Fire
+	 * Forward of cost 2 or less and of power 5000 or less".
+	 *
+	 * <p>Built like {@link #searchDeckForNamedCardWithJob}: the rider is set, the ordinary search
+	 * runs, and the rider is cleared in a finally, so the search-blocked check, the searched-the-deck
+	 * triggers and the destination handling all stay in one place and a dismissed dialog cannot
+	 * leave the threshold set for the next search.
+	 */
+	boolean searchDeckForCardWithPower(boolean isP1,
+			boolean inclForwards, boolean inclBackups,
+			boolean inclMonsters, boolean inclSummons,
+			int costVal, String costCmp, int powerVal, String powerCmp,
+			String cardNameFilter, String jobFilter, String categoryFilter,
+			String elementFilter, String excludeName, String excludeElem,
+			String destination, int count, boolean entersDull, CardData.Trait requireTrait) {
+		searchPowerVal = powerVal;
+		searchPowerCmp = powerCmp;
+		try {
+			return searchDeckForCard(isP1, inclForwards, inclBackups, inclMonsters, inclSummons,
+					costVal, costCmp, cardNameFilter, jobFilter, categoryFilter, elementFilter,
+					excludeName, excludeElem, destination, count, entersDull, requireTrait);
+		} finally {
+			searchPowerVal = -1;
+			searchPowerCmp = null;
+		}
+	}
+
 	boolean searchDeckForNamedCardWithJob(boolean isP1,
 			boolean inclForwards, boolean inclBackups,
 			boolean inclMonsters, boolean inclSummons,
@@ -5595,6 +5636,9 @@ public class MainWindow {
 			}
 			if (requireTrait != null && !deckCardHasTrait(c, requireTrait)) continue;
 			if (!meetsCostConstraint(c.cost(), costVal, costCmp)) continue;
+			// The printed power, like the printed cost beside it: nothing on the field can be
+			// boosting a card that is still in the deck.
+			if (!CardFilters.meetsPowerConstraint(c.power(), searchPowerVal, searchPowerCmp)) continue;
 			// Job, Card Name and Category identify a card three different ways. Stated together
 			// they are usually alternatives: "Category FFL Forwards or Job Warrior of Light
 			// Forwards" (12-099R Sarah) wants either. Alone, each is a plain requirement.
