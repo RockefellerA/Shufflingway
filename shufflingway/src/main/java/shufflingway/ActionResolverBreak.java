@@ -279,6 +279,50 @@ final class ActionResolverBreak {
             ctx.breakSourceCard(source);
         };
     }
+    /**
+     * Parses "&lt;effect&gt; or put &lt;Self&gt; into the Break Zone." — 11-138S Sephiroth's
+     * end-of-turn upkeep, the only printing.
+     *
+     * <p>Before this parser existed the sentence fell through to
+     * {@code tryParseRemoveNamedFromGame}, which read "3 cards from your Break Zone" as the name
+     * of a card on the field and logged {@code removeNamedCardFromGame: "3 cards from your Break
+     * Zone" not found on field}. Neither branch ever ran: the upkeep was free and Sephiroth never
+     * left play.
+     *
+     * <p>The alternative is offered through {@link GameContext#chooseActions}, and the fallback is
+     * driven by the effect-progress flag rather than by asking in advance whether the alternative
+     * can be met: a player who picks it and turns out not to have the cards has still not met the
+     * upkeep, and the card goes. That keeps the branch general — it reads whatever the alternative
+     * reports about itself instead of knowing that this one happens to be a Break Zone removal.
+     */
+    static Consumer<GameContext> tryParseEffectOrPutSelfToBreakZone(String text, CardData source) {
+        if (source == null) return null;   // the pattern is keyed to the source card's own name
+        Matcher m = EFFECT_OR_PUT_SELF_TO_BZ.matcher(text.trim());
+        if (!m.find()) return null;
+        if (!m.group("name").trim().equalsIgnoreCase(source.name())) return null;
+
+        String altText = m.group("alt").trim();
+        Consumer<GameContext> alt = parse(altText.endsWith(".") ? altText : altText + ".", source);
+        if (alt == null) return null;
+
+        // The two options as the player sees them, and the labels chooseActions returns.
+        String altLabel = altText.endsWith(".") ? altText : altText + ".";
+        String putLabel = "Put " + source.name() + " into the Break Zone.";
+        return ctx -> {
+            List<String> picked = ctx.chooseActions(source, List.of(altLabel, putLabel), 1, false);
+            if (picked != null && !picked.isEmpty() && picked.get(0).equalsIgnoreCase(altLabel)) {
+                ctx.resetEffectProgress();
+                alt.accept(ctx);
+                if (ctx.effectMadeProgress()) return;
+                ctx.logEntry(source.name() + " — the alternative could not be met");
+            }
+            // Reuses the same primitive as tryParsePutSourceIntoBreakZone, which likewise reads
+            // the printed "put into the Break Zone" as a break.
+            ctx.logEntry("Effect: Break " + source.name());
+            ctx.breakSourceCard(source);
+        };
+    }
+
     static Consumer<GameContext> tryParseIfOppNoForwardsPutToBreakZone(String text, CardData source) {
         if (source == null) return null;
         Matcher m = IF_OPP_NO_FORWARDS_PUT_TO_BREAK_ZONE.matcher(text.trim());
@@ -338,6 +382,118 @@ final class ActionResolverBreak {
             }
         };
     }
+    /**
+     * The subject of a "put from the field into the Break Zone this turn" gate, read off the
+     * match once at parse time: how many cards the gate wants, of what type, and whose.
+     *
+     * <p>{@code type} is the filter {@link GameContext#countP1PutFromFieldToBzThisTurn} takes, so
+     * {@code null} there means "any Character" — which is what the printed "a Character" asks for.
+     * {@code scope} is {@code null} when the card names no controller at all.
+     */
+    private record PutToBzGate(int threshold, String type, String scope) {
+
+        /** Reads the shared subject groups off a matched gate pattern. */
+        static PutToBzGate of(Matcher m) {
+            int threshold = m.group("count") != null ? Integer.parseInt(m.group("count")) : 1;
+            String rawType = m.group("type").toLowerCase();
+            // "Character" spans all three field rows, so it becomes the null type filter; the
+            // named types narrow to themselves.
+            String type = rawType.startsWith("character") ? null
+                    : rawType.startsWith("forward") ? "Forward"
+                    : rawType.startsWith("backup")  ? "Backup"
+                    : "Monster";
+            return new PutToBzGate(threshold, type, m.group("scope"));
+        }
+
+        /**
+         * Whether the gate is satisfied, logging why not when it is not.
+         *
+         * <p>The scope is what decides which Break Zone is counted, and the printed wording is
+         * deliberate in all three directions: "you controlled" is the ability user's own losses,
+         * "opponent controlled" is theirs, and no scope at all — 15-100R Ragelise's "if a Forward
+         * has been put from the field into the Break Zone this turn" — means either player's,
+         * because the card names no controller.
+         */
+        boolean met(GameContext ctx) {
+            int actual = scope == null ? ctx.countEitherPutFromFieldToBzThisTurn(type)
+                    : "opponent".equalsIgnoreCase(scope) ? ctx.countOpponentPutFromFieldToBzThisTurn(type)
+                    : ctx.countSelfPutFromFieldToBzThisTurn(type);
+            if (actual >= threshold) return true;
+            ctx.logEntry("Condition not met: need " + threshold + "+ "
+                    + (scope == null ? "" : scope.toLowerCase() + "-controlled ")
+                    + (type == null ? "Character" : type)
+                    + " put from the field into the Break Zone this turn, have " + actual);
+            return false;
+        }
+    }
+
+    /**
+     * Parses "If &lt;N or more&gt; &lt;type&gt; [you|opponent] controlled put from the field into
+     * the Break Zone this turn, &lt;effect&gt;" — a gate wrapping an arbitrary effect.
+     *
+     * <p>Must be dispatched ahead of the inner-effect parsers, for the reason spelled out at its
+     * call site in {@link ActionResolver#parse}: they match with {@code find()}, so any of them
+     * would claim the gated tail and run it unconditionally. That is exactly what happened to all
+     * three of these cards before this parser existed — 24-024R Shiva (XVI) discarded a card at
+     * the end of every one of its controller's turns, and 15-035H Setzer and 15-100R Ragelise
+     * gained 《C》 unconditionally.
+     */
+    static Consumer<GameContext> tryParseIfPutFromFieldToBzThisTurn(String text, CardData source) {
+        Matcher m = IF_PUT_FROM_FIELD_TO_BZ_THIS_TURN_INNER.matcher(text.trim());
+        if (!m.find()) return null;
+        Consumer<GameContext> innerEffect = parse(m.group("inner").trim(), source);
+        if (innerEffect == null) return null;
+        PutToBzGate gate = PutToBzGate.of(m);
+        return ctx -> {
+            if (gate.met(ctx)) innerEffect.accept(ctx);
+        };
+    }
+
+    /**
+     * Parses the replacement form of the same gate — "&lt;base&gt;. If &lt;gate&gt;, &lt;alt&gt;
+     * instead." (22-060H Ghido).
+     *
+     * <p>Unlike its sibling above this one failed closed rather than open: the whole compound
+     * parsed as the base effect alone, so Ghido always placed 1 Knowledge Counter and the
+     * 3-counter branch was unreachable. Both halves have to parse for the pair to be claimed, so a
+     * compound whose "instead" half is not yet supported still falls through to the base effect
+     * rather than being swallowed and silently reduced to nothing.
+     */
+    static Consumer<GameContext> tryParseIfPutFromFieldToBzThisTurnInstead(String text, CardData source) {
+        Matcher m = PUT_FROM_FIELD_TO_BZ_THIS_TURN_INSTEAD.matcher(text.trim());
+        if (!m.find()) return null;
+        Consumer<GameContext> baseEffect = parse(m.group("base").trim(), source);
+        Consumer<GameContext> altEffect  = parse(m.group("alt").trim(), source);
+        if (baseEffect == null || altEffect == null) return null;
+        PutToBzGate gate = PutToBzGate.of(m);
+        return ctx -> {
+            if (gate.met(ctx)) altEffect.accept(ctx);
+            else baseEffect.accept(ctx);
+        };
+    }
+
+    /**
+     * Parses the mid-sentence form of the gate — "&lt;lead&gt;. If &lt;gate&gt;, &lt;tail&gt;."
+     * (16-021C Rain).
+     *
+     * <p>The two halves are rejoined rather than parsed separately: the tail's "it" names what the
+     * lead chose, so only the combined sentence is something {@link ActionResolver#parse} can
+     * make sense of. The gate then wraps the pair, which also decides the question the printed
+     * text leaves open — whether the choice still happens when the condition fails. It does not,
+     * and nothing observable turns on it, since choosing a target and then doing nothing to it is
+     * the same board either way.
+     */
+    static Consumer<GameContext> tryParseIfPutFromFieldToBzThisTurnMidGate(String text, CardData source) {
+        Matcher m = PUT_FROM_FIELD_TO_BZ_THIS_TURN_MIDGATE.matcher(text.trim());
+        if (!m.find()) return null;
+        Consumer<GameContext> effect = parse(m.group("lead").trim() + " " + m.group("tail").trim(), source);
+        if (effect == null) return null;
+        PutToBzGate gate = PutToBzGate.of(m);
+        return ctx -> {
+            if (gate.met(ctx)) effect.accept(ctx);
+        };
+    }
+
     static Consumer<GameContext> tryParseOpponentPutsForwardToBreakZone(String text) {
         Matcher m = OPPONENT_PUTS_FORWARD_TO_BREAK_ZONE_PATTERN.matcher(text);
         if (!m.find()) return null;

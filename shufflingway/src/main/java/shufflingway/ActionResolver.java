@@ -604,6 +604,32 @@ public class ActionResolver {
         result = tryParseSelectOwnFwdToBzGainControlSameCost(effectText);
         if (result != null) return result;
 
+        // The three "put from the field into the Break Zone this turn" gate forms. Each wraps an
+        // arbitrary effect, and every parser below matches with find(), so any of them would claim
+        // the gated effect and run it unconditionally — which is what all five cards carrying this
+        // wording used to do. 24-024R Shiva (XVI) discarded at the end of every one of its
+        // controller's turns, 15-035H Setzer and 15-100R Ragelise gained 《C》 unconditionally,
+        // 22-060H Ghido lost its 3-counter branch to tryParsePlaceCounters claiming the base
+        // sentence, and 16-021C Rain dealt its 9000 damage ungated.
+        //
+        // They sit this high — above tryParseChooseCharacter rather than beside the RFG gate far
+        // below, which is otherwise their closest relative — because the gated effect may itself
+        // be a choose, and that parser is dispatched at the top of this chain. Rain is exactly
+        // that case; a leading-gate card whose effect is a choose would be the same bug again.
+        //
+        // Order within the three is load bearing. The "instead" and mid-sentence forms both open
+        // with a plain effect that the leading form cannot see past, so the leading form must not
+        // be given first refusal on them; and "instead" precedes the mid-sentence form because the
+        // latter's lead-clause shape also matches Ghido's text.
+        result = tryParseIfPutFromFieldToBzThisTurnInstead(effectText, source);
+        if (result != null) return result;
+
+        result = tryParseIfPutFromFieldToBzThisTurn(effectText, source);
+        if (result != null) return result;
+
+        result = tryParseIfPutFromFieldToBzThisTurnMidGate(effectText, source);
+        if (result != null) return result;
+
         // Must precede tryParseChooseCharacter: its zone group switches a selection between the
         // field and a Break Zone rather than spanning both, so the one shared allowance this text
         // states cannot survive that route.
@@ -1139,6 +1165,13 @@ public class ActionResolver {
         // filter phrase ("up to 3 Job Warring Triad with different names in your Break Zone") as a
         // card name and then searches the field for it, so the family removed nothing. Must follow
         // tryParseRemoveAllOppBzFromGame, whose whole-zone wipe this would route through a dialog.
+        // Must precede tryParseRemoveFromBreakZoneFromGame and tryParseRemoveNamedFromGame: this
+        // is an either-or whose first branch is a Break Zone removal, and both of those match with
+        // find(). tryParseRemoveNamedFromGame is the one that used to claim 11-138S Sephiroth,
+        // reading "3 cards from your Break Zone" as a card name to look for on the field.
+        result = tryParseEffectOrPutSelfToBreakZone(effectText, source);
+        if (result != null) return result;
+
         result = tryParseRemoveFromBreakZoneFromGame(effectText, source);
         if (result != null) return result;
 
@@ -1969,6 +2002,12 @@ public class ActionResolver {
         if (tryParseSelectOwnFwdToBzGainControlSameCost(effectText)     != null) return "SelectOwnFwdToBzGainControlSameCost";
         // Mirrors parse(): ahead of ChooseCharacter, which cannot span the two zones at once.
         if (tryParseChooseOppFwdsOrOwnBzFwdsRfg(effectText)             != null) return "ChooseOppFwdsOrOwnBzFwdsRfg";
+        // Mirrors parse(): ahead of ChooseCharacter, because the gated effect may itself be a
+        // choose (16-021C Rain), and in parse()'s order — the two compound forms before the
+        // leading one, which cannot see past their opening clause.
+        if (tryParseIfPutFromFieldToBzThisTurnInstead(effectText, source) != null) return "IfPutFromFieldToBzThisTurnInstead";
+        if (tryParseIfPutFromFieldToBzThisTurn(effectText, source)        != null) return "IfPutFromFieldToBzThisTurn";
+        if (tryParseIfPutFromFieldToBzThisTurnMidGate(effectText, source) != null) return "IfPutFromFieldToBzThisTurnMidGate";
         if (tryParseChooseCharacter(effectText, source, 0)              != null) return "ChooseCharacter";
         if (tryParseIfSelfFwdReceivedDamageDraw(effectText, source)          != null) return "IfSelfFwdReceivedDamageDraw";
         if (tryParseIfRfpCount(effectText, source)               != null) return "IfRfpCount";
@@ -2141,6 +2180,7 @@ public class ActionResolver {
         if (tryParseRemoveWarpCountersFromNamed(effectText, source) != null) return "RemoveWarpCountersFromNamed";
         // Must precede RemoveNamedFromGame, mirroring parse(): that parser reads this family's whole
         // filter phrase as a card name.
+        if (tryParseEffectOrPutSelfToBreakZone(effectText, source) != null) return "EffectOrPutSelfToBreakZone";
         if (tryParseRemoveFromBreakZoneFromGame(effectText, source) != null)
             return removeFromBreakZonePatternName(effectText);
         if (tryParseRemoveNamedFromGame(effectText, source)   != null) return "RemoveNamedFromGame";
@@ -2760,6 +2800,16 @@ public class ActionResolver {
         return name != null ? name : "?";
     }
 
+    /**
+     * {@link #fullDescription} of {@code text}, or {@code "?"} when nothing describes it — the
+     * same marker the choose block uses for a followup it could not read, so a gate whose inner
+     * effect is unsupported reads as a gate over an unknown rather than as an unparsed card.
+     */
+    private static String descOrUnread(String text, CardData source) {
+        String d = fullDescription(text.trim(), source);
+        return d != null ? d : "?";
+    }
+
     public static String fullDescription(String effectText, CardData source) {
         // Through the shared helper rather than a second copy of its regex: the two had already
         // drifted, and this one still ate the plural in a clause opening "EX Bursts of cards …".
@@ -3093,6 +3143,30 @@ public class ActionResolver {
             while (tiers.find())
                 amounts.append(amounts.length() == 0 ? "" : "/").append(tiers.group("amount"));
             return "ChooseTieredDamage(" + amounts + ")";
+        }
+        // Mirrors parse() and matchedPatternName(): ahead of the ChooseCharacter block, because the
+        // gated effect may itself be a choose — 16-021C Rain, which the block would otherwise
+        // describe as a flat "ChooseCharacter / Damage" with its condition reported as read.
+        //
+        // Each carries its gated effect's own description rather than stopping at the gate name,
+        // so the report still says what the card does when the condition holds; that inner text is
+        // the whole payload, and a bare "IfPutFromFieldToBzThisTurn" would hide it.
+        if (tryParseIfPutFromFieldToBzThisTurnInstead(effectText, source) != null) {
+            Matcher insteadM = PUT_FROM_FIELD_TO_BZ_THIS_TURN_INSTEAD.matcher(effectText.trim());
+            if (insteadM.find())
+                return "IfPutFromFieldToBzThisTurn(" + descOrUnread(insteadM.group("base"), source)
+                        + " else " + descOrUnread(insteadM.group("alt"), source) + ")";
+        }
+        if (tryParseIfPutFromFieldToBzThisTurn(effectText, source) != null) {
+            Matcher gateM = IF_PUT_FROM_FIELD_TO_BZ_THIS_TURN_INNER.matcher(effectText.trim());
+            if (gateM.find())
+                return "IfPutFromFieldToBzThisTurn / " + descOrUnread(gateM.group("inner"), source);
+        }
+        if (tryParseIfPutFromFieldToBzThisTurnMidGate(effectText, source) != null) {
+            Matcher midM = PUT_FROM_FIELD_TO_BZ_THIS_TURN_MIDGATE.matcher(effectText.trim());
+            if (midM.find())
+                return "IfPutFromFieldToBzThisTurn / "
+                        + descOrUnread(midM.group("lead").trim() + " " + midM.group("tail").trim(), source);
         }
         // Mirrors parse() and matchedPatternName(): must precede the ChooseCharacter block, which
         // describes Xande 10-008L as "ChooseCharacter / ? + PlayOntoField" — one pick, and the
@@ -3555,6 +3629,12 @@ public class ActionResolver {
         // Must precede RemoveNamedFromGame, mirroring parse() and matchedPatternName().
         if (tryParseRemoveWarpCountersFromNamed(effectText, source) != null) return "RemoveWarpCountersFromNamed";
         // Must precede RemoveNamedFromGame, mirroring parse() and matchedPatternName().
+        if (tryParseEffectOrPutSelfToBreakZone(effectText, source) != null) {
+            Matcher upkeepM = EFFECT_OR_PUT_SELF_TO_BZ.matcher(effectText.trim());
+            if (upkeepM.find())
+                return "EffectOrPutSelfToBreakZone(" + descOrUnread(upkeepM.group("alt"), source)
+                        + " else PutSourceIntoBreakZone)";
+        }
         if (tryParseRemoveFromBreakZoneFromGame(effectText, source) != null)
             return removeFromBreakZoneDescription(effectText, source);
         if (tryParseRemoveNamedFromGame(effectText, source) != null)        return "RemoveNamedFromGame";

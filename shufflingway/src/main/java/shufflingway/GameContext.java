@@ -1914,6 +1914,57 @@ public interface GameContext {
     int countP2RfgCards(String cardNameFilter, String jobFilter);
 
     /**
+     * Counts the cards P1 had put <em>from the field</em> into their Break Zone during this turn,
+     * narrowed to {@code type}.
+     *
+     * <p>Answered against {@code PlayerTurnState.putToBzFromFieldThisTurn}, which is recorded at
+     * the one point every field-to-Break-Zone route converges on — so a card the RFG replacement
+     * effects divert never counts, because it never arrived — and is cleared at both turn
+     * boundaries, so it means "this turn" literally. That is what separates it from the older
+     * {@code forwardPutToBZThisTurn} flag beside it, which is cleared only at the start of its own
+     * player's turn and so spans the opponent's turn on purpose, for Nox Suzaku's play restriction.
+     *
+     * <p>Keyed by the owner of the Break Zone rather than by who controlled the card on the field.
+     * The two differ only for a stolen Character, which is the same approximation the set itself
+     * already makes everywhere else it is read.
+     *
+     * @param type {@code "Forward"} to count Forwards only, or {@code null} for any Character
+     *             (Forward, Backup or Monster) — a Summon never reaches the field, so it cannot
+     *             match either way
+     */
+    int countP1PutFromFieldToBzThisTurn(String type);
+
+    /** P2's side of {@link #countP1PutFromFieldToBzThisTurn(String)}. */
+    int countP2PutFromFieldToBzThisTurn(String type);
+
+    /**
+     * The ability user's own side of {@link #countP1PutFromFieldToBzThisTurn(String)} — what
+     * "a Forward you controlled has been put from the field into the Break Zone this turn"
+     * (15-035H Setzer, 16-021C Rain, 22-060H Ghido) asks about.
+     */
+    default int countSelfPutFromFieldToBzThisTurn(String type) {
+        return isP1() ? countP1PutFromFieldToBzThisTurn(type) : countP2PutFromFieldToBzThisTurn(type);
+    }
+
+    /**
+     * The opposing side of {@link #countP1PutFromFieldToBzThisTurn(String)} — what "2 or more
+     * Forwards opponent controlled were put from the field into the Break Zone this turn"
+     * (24-024R Shiva (XVI)) asks about.
+     */
+    default int countOpponentPutFromFieldToBzThisTurn(String type) {
+        return isP1() ? countP2PutFromFieldToBzThisTurn(type) : countP1PutFromFieldToBzThisTurn(type);
+    }
+
+    /**
+     * Both sides of {@link #countP1PutFromFieldToBzThisTurn(String)} combined — what an unscoped
+     * "if a Forward has been put from the field into the Break Zone this turn" (15-100R Ragelise)
+     * asks about, where the printed text names no controller at all.
+     */
+    default int countEitherPutFromFieldToBzThisTurn(String type) {
+        return countP1PutFromFieldToBzThisTurn(type) + countP2PutFromFieldToBzThisTurn(type);
+    }
+
+    /**
      * Counts the cards the ability user owns that are removed from the game — their own RFP zone
      * only.  Routes to P1 or P2 based on {@link #isP1()}, which is what separates it from
      * {@link #countRemovedFromGame()}: card text saying "<em>your</em> cards have been removed

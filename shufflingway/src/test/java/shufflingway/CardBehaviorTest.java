@@ -46049,5 +46049,315 @@ public class CardBehaviorTest {
 	}
 
 	// =========================================================================================
+	// The "put from the field into the Break Zone this turn" gate family — 24-024R Shiva (XVI),
+	// 15-035H Setzer, 15-100R Ragelise, 22-060H Ghido and 16-021C Rain.
+	//
+	// Every one of these states a condition and then an effect, and before the gate parsers existed
+	// each of the five lost its condition entirely: the effect parsers match with find(), so they
+	// claimed the gated tail out of the middle of the sentence and ran it unconditionally. Four
+	// failed open — Shiva discarded a card at the end of every one of its controller's turns
+	// whatever the opponent had lost — and Ghido failed closed, always placing 1 counter with its
+	// 3-counter branch unreachable.
+	//
+	// So each card is tested on both sides of its threshold. A test that only asserts the effect
+	// fires when the condition holds would have passed against the broken code.
+	// =========================================================================================
+
+	/** A mocked context whose put-to-Break-Zone counts are {@code self} and {@code opp}. */
+	private static GameContext gateCtx(int self, int opp) {
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.isP1()).thenReturn(true);
+		when(ctx.countP1PutFromFieldToBzThisTurn(any())).thenReturn(self);
+		when(ctx.countP2PutFromFieldToBzThisTurn(any())).thenReturn(opp);
+		// The parsers call the routing defaults, and Mockito mocks default methods too — stubbing
+		// only the P1/P2 pair above leaves them returning 0 and every gate closed.
+		when(ctx.countSelfPutFromFieldToBzThisTurn(any())).thenReturn(self);
+		when(ctx.countOpponentPutFromFieldToBzThisTurn(any())).thenReturn(opp);
+		when(ctx.countEitherPutFromFieldToBzThisTurn(any())).thenReturn(self + opp);
+		when(ctx.consumePreloadedTargets()).thenReturn(null);
+		return ctx;
+	}
+
+	private static final String SHIVA_XVI_END_OF_TURN =
+			"if 2 or more Forwards opponent controlled were put from the field into the Break Zone "
+			+ "this turn, your opponent discards 1 card.";
+
+	@Test
+	void shivaXviDiscardsOnlyOnceTwoOpposingForwardsHaveGone() {
+		Consumer<GameContext> fn = ActionResolver.parse(SHIVA_XVI_END_OF_TURN, null);
+		assertNotNull(fn);
+
+		GameContext none = gateCtx(0, 0);
+		fn.accept(none);
+		verify(none, never()).forceOpponentDiscard(anyInt());
+
+		// One short of the threshold is the case the bug hid: "2 or more" is not "any".
+		GameContext one = gateCtx(0, 1);
+		fn.accept(one);
+		verify(one, never()).forceOpponentDiscard(anyInt());
+
+		GameContext two = gateCtx(0, 2);
+		fn.accept(two);
+		verify(two).forceOpponentDiscard(1);
+	}
+
+	@Test
+	void shivaXviCountsOnlyTheOpponentsLosses() {
+		// Shiva's own controller breaking three of their own Forwards must not feed a gate worded
+		// "Forwards opponent controlled".
+		GameContext ctx = gateCtx(3, 0);
+		ActionResolver.parse(SHIVA_XVI_END_OF_TURN, null).accept(ctx);
+		verify(ctx, never()).forceOpponentDiscard(anyInt());
+	}
+
+	@Test
+	void shivaXviBreaksUpToTwoDullForwardsOnEntryAndOnBeingPrimedInto() {
+		String text = "When Shiva (XVI) enters the field or when Jill primes into Shiva (XVI), "
+				+ "choose up to 2 dull Forwards. Break them.[[br]]"
+				+ "At the end of each of your turns, if 2 or more Forwards opponent controlled "
+				+ "were put from the field into the Break Zone this turn, your opponent discards 1 card.";
+		List<AutoAbility> autos = CardData.parseAutoAbilities(text);
+
+		assertTrue(autos.stream().anyMatch(a -> "enters the field".equals(a.trigger())),
+				"the ETF half of the shared trigger");
+		assertTrue(autos.stream().anyMatch(a -> "primed into".equals(a.trigger())
+						&& "Jill".equals(a.triggerCard())),
+				"the priming half, naming Jill as the primer");
+
+		// The choice is capped at 2, optional, and restricted to dull Forwards.
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.consumePreloadedTargets()).thenReturn(null);
+		when(ctx.selectCharacters(anyInt(), anyBoolean(), anyBoolean(), anyBoolean(),
+				any(), any(), anyInt(), any(), anyInt(), any(),
+				anyBoolean(), anyBoolean(), anyBoolean(),
+				any(), any(), any(), any(), anyBoolean(), any(), anyBoolean())).thenReturn(List.of());
+		ActionResolver.parse("choose up to 2 dull Forwards. Break them.", null).accept(ctx);
+		verify(ctx).selectCharacters(eq(2), eq(true), anyBoolean(), anyBoolean(),
+				eq("dull"), any(), anyInt(), any(), anyInt(), any(),
+				anyBoolean(), anyBoolean(), anyBoolean(),
+				any(), any(), any(), any(), anyBoolean(), any(), anyBoolean());
+	}
+
+	@Test
+	void setzerGainsCrystalOnlyAfterLosingOneOfHisOwnForwards() {
+		String text = "if a Forward you controlled has been put from the field into the "
+				+ "Break Zone this turn, gain 《C》.";
+		Consumer<GameContext> fn = ActionResolver.parse(text, null);
+		assertNotNull(fn);
+
+		// "you controlled" — the opponent losing five Forwards satisfies nothing.
+		GameContext theirs = gateCtx(0, 5);
+		fn.accept(theirs);
+		verify(theirs, never()).gainCrystal(anyInt());
+
+		GameContext mine = gateCtx(1, 0);
+		fn.accept(mine);
+		verify(mine).gainCrystal(1);
+	}
+
+	@Test
+	void rageliseGainsCrystalForEitherPlayersLoss() {
+		// Ragelise names no controller, so either side's Forward satisfies it — the one card in
+		// the family whose gate is unscoped, and the reason the scope group is allowed to be absent.
+		String text = "if a Forward has been put from the field into the Break Zone this turn, gain 《C》.";
+		Consumer<GameContext> fn = ActionResolver.parse(text, null);
+		assertNotNull(fn);
+
+		GameContext none = gateCtx(0, 0);
+		fn.accept(none);
+		verify(none, never()).gainCrystal(anyInt());
+
+		GameContext theirs = gateCtx(0, 1);
+		fn.accept(theirs);
+		verify(theirs).gainCrystal(1);
+
+		GameContext mine = gateCtx(1, 0);
+		fn.accept(mine);
+		verify(mine).gainCrystal(1);
+	}
+
+	@Test
+	void ghidoPlacesThreeCountersInsteadOfOneAfterLosingACharacter() {
+		CardData ghido = makeForward("Ghido", "Earth", 2, 7000);
+		String text = "place 1 Knowledge Counter on Ghido. If a Character you controlled has been "
+				+ "put from the field into the Break Zone this turn, place 3 Knowledge Counters "
+				+ "on Ghido instead.";
+		Consumer<GameContext> fn = ActionResolver.parse(text, ghido);
+		assertNotNull(fn);
+
+		// The base branch — the only one that used to be reachable.
+		GameContext none = gateCtx(0, 0);
+		fn.accept(none);
+		verify(none).placeCounters(any(), eq("Knowledge"), eq(1));
+		verify(none, never()).placeCounters(any(), anyString(), eq(3));
+
+		// "a Character", not "a Forward": a Backup leaving satisfies it too, which is why the
+		// gate passes a null type filter rather than "Forward".
+		GameContext lost = gateCtx(1, 0);
+		fn.accept(lost);
+		verify(lost).placeCounters(any(), eq("Knowledge"), eq(3));
+		verify(lost, never()).placeCounters(any(), anyString(), eq(1));
+	}
+
+	@Test
+	void rainDealsItsDamageOnlyAfterLosingOneOfYourOwnForwards() {
+		String text = "choose 1 Forward opponent controls. If a Forward you controlled has been "
+				+ "put from the field into the Break Zone this turn, deal it 9000 damage.";
+		Consumer<GameContext> fn = ActionResolver.parse(text, null);
+		assertNotNull(fn);
+
+		ForwardTarget t = new ForwardTarget(false, 0, ForwardTarget.CardZone.FORWARD);
+		GameContext none = gateCtx(0, 0);
+		when(none.selectCharacters(anyInt(), anyBoolean(), anyBoolean(), anyBoolean(),
+				any(), any(), anyInt(), any(), anyInt(), any(),
+				anyBoolean(), anyBoolean(), anyBoolean(),
+				any(), any(), any(), any(), anyBoolean(), any(), anyBoolean())).thenReturn(List.of(t));
+		fn.accept(none);
+		verify(none, never()).damageTarget(any(), anyInt());
+
+		GameContext lost = gateCtx(1, 0);
+		when(lost.selectCharacters(anyInt(), anyBoolean(), anyBoolean(), anyBoolean(),
+				any(), any(), anyInt(), any(), anyInt(), any(),
+				anyBoolean(), anyBoolean(), anyBoolean(),
+				any(), any(), any(), any(), anyBoolean(), any(), anyBoolean())).thenReturn(List.of(t));
+		fn.accept(lost);
+		verify(lost).damageTarget(t, 9000);
+	}
+
+	@Test
+	void allThreeGateFormsAreNamedByTheirOwnParser() {
+		// The three dispatch chains have to agree, and the name is what says which parser won.
+		// If one of these comes back as OpponentDiscard / GainCrystal / PlaceCounters /
+		// ChooseCharacter again, an effect parser has taken the sentence back and the gate is
+		// being dropped exactly as it was before.
+		assertEquals("IfPutFromFieldToBzThisTurn",
+				ActionResolver.matchedPatternName(SHIVA_XVI_END_OF_TURN, null));
+		assertEquals("IfPutFromFieldToBzThisTurn",
+				ActionResolver.matchedPatternName(
+						"if a Forward you controlled has been put from the field into the "
+						+ "Break Zone this turn, gain 《C》.", null));
+		assertEquals("IfPutFromFieldToBzThisTurnInstead",
+				ActionResolver.matchedPatternName(
+						"place 1 Knowledge Counter on Ghido. If a Character you controlled has been "
+						+ "put from the field into the Break Zone this turn, place 3 Knowledge "
+						+ "Counters on Ghido instead.", makeForward("Ghido", "Earth", 2, 7000)));
+		assertEquals("IfPutFromFieldToBzThisTurnMidGate",
+				ActionResolver.matchedPatternName(
+						"choose 1 Forward opponent controls. If a Forward you controlled has been "
+						+ "put from the field into the Break Zone this turn, deal it 9000 damage.", null));
+	}
+
+	// =========================================================================================
+	// Keyword traits printed behind "[[br]] " — 3-099R / B-035 Angeal Penance and 13 others.
+	//
+	// The four keyword patterns each demanded the keyword butt straight up against the [[br]]
+	// separator, and a good deal of the printed corpus puts a space there. Angeal Penance reads
+	// "…in all situations. [[br]] Haste[[br]] When…" and so had no Haste at all: it could not
+	// attack the turn it arrived, which is the whole of what the card is for.
+	// =========================================================================================
+
+	private static final String ANGEAL_PENANCE_TEXT =
+			"Angeal Penance is also Card Name Angeal in all situations. [[br]] Haste[[br]] "
+			+ "When Angeal Penance deals damage to your opponent, choose 1 damaged Forward. Break it.";
+
+	@Test
+	void angealPenanceHasHasteDespiteTheSpaceAfterTheSeparator() {
+		assertTrue(CardData.parseTraits(ANGEAL_PENANCE_TEXT, "Angeal Penance")
+						.contains(CardData.Trait.HASTE),
+				"Haste sits behind \"[[br]] \" with a space, which used to match nothing");
+	}
+
+	@Test
+	void aKeywordStillNeedsItsOwnLine() {
+		// The widening is whitespace only. A keyword buried mid-sentence must not be picked up,
+		// or every card that merely mentions Haste in its rules text would gain it.
+		assertFalse(CardData.parseTraits(
+						"When Cloud attacks, he gains Haste until the end of the turn.", "Cloud")
+					.contains(CardData.Trait.HASTE),
+				"a keyword named inside a sentence is not a keyword the card has");
+	}
+
+	@Test
+	void theOtherKeywordsToleratedTheSameSpacing() {
+		assertTrue(CardData.parseTraits("Something. [[br]] Brave[[br]] More.", "X")
+				.contains(CardData.Trait.BRAVE));
+		assertTrue(CardData.parseTraits("Something. [[br]]  First Strike[[br]] More.", "X")
+				.contains(CardData.Trait.FIRST_STRIKE));
+		assertTrue(CardData.parseTraits("Something. [[br]] Back Attack[[br]] More.", "X")
+				.contains(CardData.Trait.BACK_ATTACK));
+	}
+
+	// =========================================================================================
+	// 11-138S Sephiroth's end-of-turn upkeep: "remove 3 cards from your Break Zone from the game
+	// or put Sephiroth into the Break Zone."
+	//
+	// This used to reach tryParseRemoveNamedFromGame, which read "3 cards from your Break Zone"
+	// as the name of a card to find on the field and logged a warning when it could not. Neither
+	// branch ran, so the upkeep cost nothing and Sephiroth never left play.
+	// =========================================================================================
+
+	private static final String SEPHIROTH_UPKEEP =
+			"remove 3 cards from your Break Zone from the game or put Sephiroth into the Break Zone.";
+
+	@Test
+	void sephirothUpkeepIsNamedAsAChoiceNotAsANamedRemoval() {
+		assertEquals("EffectOrPutSelfToBreakZone",
+				ActionResolver.matchedPatternName(SEPHIROTH_UPKEEP,
+						makeForward("Sephiroth", "Lightning", 3, 8000)),
+				"RemoveNamedFromGame here is the bug: it treats the count phrase as a card name");
+	}
+
+	@Test
+	void sephirothRemovesThreeWhenThatBranchIsTakenAndSurvives() {
+		CardData seph = makeForward("Sephiroth", "Lightning", 3, 8000);
+		Consumer<GameContext> fn = ActionResolver.parse(SEPHIROTH_UPKEEP, seph);
+		assertNotNull(fn);
+
+		GameContext ctx = mock(GameContext.class);
+		// The player picks the alternative, and it succeeds.
+		when(ctx.chooseActions(any(), anyList(), anyInt(), anyBoolean()))
+				.thenAnswer(inv -> List.of(inv.<List<String>>getArgument(1).get(0)));
+		when(ctx.effectMadeProgress()).thenReturn(true);
+
+		fn.accept(ctx);
+
+		verify(ctx).removeCardsFromBreakZoneFromGame(eq(3), anyBoolean(), anyBoolean(), anyBoolean(),
+				any(), anyInt(), any(), anyBoolean(), anyBoolean(), anyBoolean(), anyBoolean(),
+				any(), any(), any(), any());
+		verify(ctx, never()).breakSourceCard(any());
+	}
+
+	@Test
+	void sephirothGoesToTheBreakZoneWhenThatBranchIsTaken() {
+		CardData seph = makeForward("Sephiroth", "Lightning", 3, 8000);
+		GameContext ctx = mock(GameContext.class);
+		// The player picks the second option.
+		when(ctx.chooseActions(any(), anyList(), anyInt(), anyBoolean()))
+				.thenAnswer(inv -> List.of(inv.<List<String>>getArgument(1).get(1)));
+
+		ActionResolver.parse(SEPHIROTH_UPKEEP, seph).accept(ctx);
+
+		verify(ctx).breakSourceCard(seph);
+		verify(ctx, never()).removeCardsFromBreakZoneFromGame(anyInt(), anyBoolean(), anyBoolean(),
+				anyBoolean(), any(), anyInt(), any(), anyBoolean(), anyBoolean(), anyBoolean(),
+				anyBoolean(), any(), any(), any(), any());
+	}
+
+	@Test
+	void sephirothStillGoesWhenTheAlternativeCannotBeMet() {
+		// Picking the removal with too few cards in the Break Zone is not a way out of the upkeep:
+		// the removal fizzles, and the card goes anyway.
+		CardData seph = makeForward("Sephiroth", "Lightning", 3, 8000);
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.chooseActions(any(), anyList(), anyInt(), anyBoolean()))
+				.thenAnswer(inv -> List.of(inv.<List<String>>getArgument(1).get(0)));
+		when(ctx.effectMadeProgress()).thenReturn(false);
+
+		ActionResolver.parse(SEPHIROTH_UPKEEP, seph).accept(ctx);
+
+		verify(ctx).breakSourceCard(seph);
+	}
+
+	// =========================================================================================
 
 }

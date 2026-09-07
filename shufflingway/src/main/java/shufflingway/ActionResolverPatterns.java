@@ -3099,6 +3099,88 @@ final class ActionResolverPatterns {
         "(?:have\\s+been\\s+|are\\s+|is\\s+)?removed\\s+from\\s+the\\s+game,\\s+(?<inner>.+)",
         Pattern.DOTALL
     );
+
+    /**
+     * The subject of a "put from the field into the Break Zone this turn" gate, without the
+     * leading "If" or the trailing comma — shared by the two gate patterns below so the leading
+     * and the "instead" forms cannot drift apart.
+     *
+     * <p>Groups: {@code count} — the threshold, absent when the text says "a"/"an" (which means
+     * 1); {@code type} — the card type asked about; {@code scope} — "you" or "opponent", absent
+     * when the printed text names no controller at all (15-100R Ragelise).
+     */
+    private static final String PUT_FROM_FIELD_TO_BZ_GATE_SUBJECT =
+        "(?:(?<count>\\d+)\\s+or\\s+more|an?)\\s+" +
+        "(?<type>Forwards?|Characters?|Backups?|Monsters?)\\s+" +
+        "(?:(?<scope>you|opponent)\\s+controlled\\s+)?" +
+        "(?:has\\s+been\\s+|have\\s+been\\s+|was\\s+|were\\s+|is\\s+|are\\s+)?" +
+        "put\\s+from\\s+the\\s+field\\s+into\\s+the\\s+Break\\s+Zone\\s+this\\s+turn";
+
+    /**
+     * Matches a leading "If &lt;subject&gt; put from the field into the Break Zone this turn,
+     * &lt;effect&gt;" gate, where the subject is {@link #PUT_FROM_FIELD_TO_BZ_GATE_SUBJECT}:
+     * <ul>
+     *   <li>"if 2 or more Forwards opponent controlled were put … , your opponent discards 1 card."
+     *       (24-024R Shiva (XVI))</li>
+     *   <li>"if a Forward you controlled has been put … , gain 《C》." (15-035H Setzer)</li>
+     *   <li>"if a Forward has been put … , gain 《C》." (15-100R Ragelise)</li>
+     * </ul>
+     * Group {@code inner} is the gated effect, dispatched back through {@link ActionResolver#parse}.
+     */
+    static final Pattern IF_PUT_FROM_FIELD_TO_BZ_THIS_TURN_INNER = Pattern.compile(
+        "(?i)^If\\s+" + PUT_FROM_FIELD_TO_BZ_GATE_SUBJECT + ",\\s+(?<inner>.+)",
+        Pattern.DOTALL
+    );
+
+    /**
+     * Matches the replacement form of the same gate — a plain effect, then the gate, then what
+     * happens "instead": "Place 1 Knowledge Counter on Ghido. If a Character you controlled has
+     * been put from the field into the Break Zone this turn, place 3 Knowledge Counters on Ghido
+     * instead." (22-060H Ghido, the only printing).
+     *
+     * <p>Groups {@code base} and {@code alt} are the two effects, each dispatched back through
+     * {@link ActionResolver#parse}; the gate's own groups are as above.
+     */
+    static final Pattern PUT_FROM_FIELD_TO_BZ_THIS_TURN_INSTEAD = Pattern.compile(
+        "(?i)^(?<base>.+?)[.!]\\s+If\\s+" + PUT_FROM_FIELD_TO_BZ_GATE_SUBJECT +
+        ",\\s+(?<alt>.+?)\\s+instead[.!]?\\s*$",
+        Pattern.DOTALL
+    );
+
+    /**
+     * Matches the mid-sentence form of the same gate — a lead clause that sets a target, then the
+     * gate, then what is done to it: "choose 1 Forward opponent controls. If a Forward you
+     * controlled has been put from the field into the Break Zone this turn, deal it 9000 damage."
+     * (16-021C Rain, the only printing).
+     *
+     * <p>Groups {@code lead} and {@code tail} are rejoined and dispatched as one effect, because
+     * the tail's "it" refers to what the lead chose and only the combined sentence carries that
+     * link. Distinguished from {@link #PUT_FROM_FIELD_TO_BZ_THIS_TURN_INSTEAD} by the absence of
+     * a trailing "instead", and that one is tried first so it cannot be claimed here.
+     */
+    static final Pattern PUT_FROM_FIELD_TO_BZ_THIS_TURN_MIDGATE = Pattern.compile(
+        "(?i)^(?<lead>.+?[.!])\\s+If\\s+" + PUT_FROM_FIELD_TO_BZ_GATE_SUBJECT +
+        ",\\s+(?<tail>.+)$",
+        Pattern.DOTALL
+    );
+
+    /**
+     * Matches "&lt;effect&gt; or put &lt;Self&gt; into the Break Zone" — an upkeep the card's
+     * controller either meets or loses the card for: "remove 3 cards from your Break Zone from
+     * the game or put Sephiroth into the Break Zone" (11-138S Sephiroth, the only printing).
+     *
+     * <p>Group {@code alt} is the effect offered as the alternative and is dispatched back
+     * through {@link ActionResolver#parse}; {@code name} must be the source card's own name,
+     * which is what makes this an upkeep rather than an ordinary either-or.
+     *
+     * <p>The non-greedy {@code alt} takes the earliest "or" that still lets the tail match, and
+     * the tail is anchored to the end, so an alternative containing its own "or" ("8000 power or
+     * less") is not cut short.
+     */
+    static final Pattern EFFECT_OR_PUT_SELF_TO_BZ = Pattern.compile(
+        "(?i)^(?<alt>.+?)\\s+or\\s+put\\s+(?<name>[^,.]+?)\\s+into\\s+the\\s+Break\\s+Zone[.!]?\\s*$",
+        Pattern.DOTALL
+    );
     /**
      * "At the beginning of your Main Phase 1[ each turn etc.], &lt;effect&gt;"
      * Group {@code inner} captures the effect text after the trigger comma.  Modeled on

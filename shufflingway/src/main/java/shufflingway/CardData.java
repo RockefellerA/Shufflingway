@@ -1143,24 +1143,36 @@ public record CardData(
         return after.replaceAll("\\s+", " ").trim();
     }
 
+    /**
+     * The line separator a keyword can sit behind: a {@code [[br]]} and any whitespace after it.
+     *
+     * <p>The whitespace is the point. These four patterns each used to demand the keyword butt
+     * straight up against the {@code [[br]]}, and the printed corpus is not that tidy — 3-099R
+     * Angeal Penance reads "…in all situations. [[br]] Haste[[br]] When…", with a space, and so
+     * lost its Haste entirely. 34 printings across Haste, Brave and First Strike were dropping a
+     * keyword this way; every one of them is a Forward that could not attack the turn it arrived,
+     * or could be blocked as if it had no Brave.
+     */
+    private static final String KEYWORD_LINE_START = "\\[\\[br\\]\\]\\s*";
+
     // Haste: start with [[br]] or (This descriptor, middle [[br]]…[[br]], or paired with other keywords
     private static final Pattern HASTE_PATTERN = Pattern.compile(
-        "(?i)(?:^Haste\\s*(?:\\[\\[br\\]\\]|\\(This)|\\[\\[br\\]\\]Haste\\b|Haste\\s+First\\s+Strike)"
+        "(?i)(?:^Haste\\s*(?:\\[\\[br\\]\\]|\\(This)|" + KEYWORD_LINE_START + "Haste\\b|Haste\\s+First\\s+Strike)"
     );
 
     // Brave: start with [[br]] or (Attacking descriptor, after any [[br]], or paired with other keywords
     private static final Pattern BRAVE_PATTERN = Pattern.compile(
-        "(?i)(?:^Brave\\s*(?:\\[\\[br\\]\\]|\\(Attacking)|\\[\\[br\\]\\]Brave\\b|Brave\\s*\\[\\[br\\]\\]|First\\s+Strike\\s+Brave|Haste\\s+Brave)"
+        "(?i)(?:^Brave\\s*(?:\\[\\[br\\]\\]|\\(Attacking)|" + KEYWORD_LINE_START + "Brave\\b|Brave\\s*\\[\\[br\\]\\]|First\\s+Strike\\s+Brave|Haste\\s+Brave)"
     );
 
     // First Strike: start of card with (If, [[br]], after any [[br]], or paired with Haste/Brave
     private static final Pattern FIRST_STRIKE_PATTERN = Pattern.compile(
-        "(?i)(?:^First\\s+Strike\\s*(?:\\(If|\\[\\[br\\]\\])|\\[\\[br\\]\\]First\\s+Strike\\b|Haste\\s+First\\s+Strike|First\\s+Strike\\s+Brave)"
+        "(?i)(?:^First\\s+Strike\\s*(?:\\(If|\\[\\[br\\]\\])|" + KEYWORD_LINE_START + "First\\s+Strike\\b|Haste\\s+First\\s+Strike|First\\s+Strike\\s+Brave)"
     );
 
     // Back Attack: at the start of card text or after a [[br]] separator (card data uses [[br]], not <p>).
     private static final Pattern BACK_ATTACK_PATTERN = Pattern.compile(
-        "(?i)(?:^Back\\s+Attack\\b|\\[\\[br\\]\\]Back\\s+Attack\\b)"
+        "(?i)(?:^Back\\s+Attack\\b|" + KEYWORD_LINE_START + "Back\\s+Attack\\b)"
     );
 
     private static final Pattern WARP_PATTERN = Pattern.compile(
