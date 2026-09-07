@@ -768,6 +768,20 @@ public interface GameContext {
     int castPaymentDistinctElementsFor(CardData card);
 
     /**
+     * How many cards were discarded from hand for CP to pay for {@code card}'s own arrival —
+     * 26-073C Dyne's "Deal it 4000 damage for each card you discarded to cast Dyne".
+     *
+     * <p>Cards, not CP: a discard produces 2 CP, and the text counts the cards.
+     *
+     * <p>Owner-checked by identity for the same reason
+     * {@link #castPaymentDistinctElementsFor(CardData)} is — the seat-wide record is the last
+     * payment made and nothing clears it when a card arrives some other way, so a Dyne put onto
+     * the field by an effect would otherwise bill the opponent for discards that paid for a
+     * different card entirely. Returns {@code 0} for a card that was not the one paid for.
+     */
+    int cardsDiscardedToCast(CardData card);
+
+    /**
      * Whether {@code card}'s own arrival was paid for entirely with CP of {@code element} — the
      * "only paid with [Element] CP" gate (7-029H Kefka, 7-046R Vata and their siblings).
      *

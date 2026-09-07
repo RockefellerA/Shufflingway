@@ -4338,6 +4338,11 @@ final class GameContextImpl implements GameContext {
 				return card != null && mw.lastCastPaymentCard == card
 						? mw.lastCastPaymentElements.size() : 0;
 			}
+			@Override public int cardsDiscardedToCast(CardData card) {
+				// Identity on the payer, like castPaymentDistinctElementsFor above.
+				return card != null && mw.lastCastPaymentCard == card
+						? mw.lastCastPaymentDiscardCount : 0;
+			}
 			@Override public boolean castPaymentWasOnlyElement(CardData card, String element) {
 				// Identity on the payer, like castPaymentDistinctElementsFor: a card that reached
 				// the field without being paid for must not inherit the previous cast's payment.

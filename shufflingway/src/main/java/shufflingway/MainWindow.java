@@ -1390,6 +1390,17 @@ public class MainWindow {
 	CardData lastCastPaymentCard = null;
 	/** Actual source-card element types used during payment (not mapped to the played card's element). */
 	final Set<String> lastCastActualPaymentElements = new HashSet<>();
+	/**
+	 * How many cards were discarded from hand for CP to pay for {@link #lastCastPaymentCard} —
+	 * 26-073C Dyne's "for each card you discarded to cast Dyne".
+	 *
+	 * <p>The count of discards, not the CP they produced: a discard is worth 2 CP, and the card
+	 * asks about cards. Owner-checked through {@link #lastCastPaymentCard} at the reading end for
+	 * the reason spelled out on that field — nothing clears this when a card reaches the field
+	 * without being paid for, so a Dyne put onto the field by an effect must not inherit the
+	 * discards that paid for something else.
+	 */
+	int lastCastPaymentDiscardCount = 0;
 	/** True if the most recently cast card was paid entirely by dulling Backups (no hand discards). */
 	boolean lastCastWasPaidByBackupsOnly = false;
 	/**
@@ -3597,6 +3608,7 @@ public class MainWindow {
 		Arrays.fill(p1BackupPlayedOnTurn, 0);
 		Arrays.fill(p1BackupFrozen, false);
 		lastCastPaymentDistinctElements = 0;
+		lastCastPaymentDiscardCount = 0;
 		lastCastPaymentElements.clear();
 		lastCastPaymentCard = null;
 		lastCastPaymentBackups.clear();
@@ -10432,6 +10444,7 @@ public class MainWindow {
 		execCpAccum.keySet().stream().filter(e -> !e.isEmpty()).forEach(lastCastPaymentElements::add);
 		lastCastPaymentCard = card;
 		lastCastWasPaidByBackupsOnly = discardIndices.isEmpty() && !backupDullIndices.isEmpty();
+		lastCastPaymentDiscardCount  = discardIndices.size();
 		if (isP1) { gameState.removeFromHand(cardHandIdx);   refreshP1HandLabel(); }
 		else      { gameState.removeP2FromHand(cardHandIdx); refreshP2HandCountLabel(); }
 		activeCostReductions.removeIf(m -> m.consumeOnUse() && m.matches(card));
@@ -10603,6 +10616,7 @@ public class MainWindow {
 		execCpAccum.keySet().stream().filter(e -> !e.isEmpty()).forEach(lastCastPaymentElements::add);
 		lastCastPaymentCard = card;
 		lastCastWasPaidByBackupsOnly = discardIndices.isEmpty() && !backupDullIndices.isEmpty();
+		lastCastPaymentDiscardCount  = discardIndices.size();
 
 		// Remove the borrowed card from its source zone (by identity — duplicate-named copies may exist).
 		PlayableEntry borrowEntry = bzPlayableP1.get(card);

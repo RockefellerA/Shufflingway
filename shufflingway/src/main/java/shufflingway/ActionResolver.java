@@ -2507,6 +2507,10 @@ public class ActionResolver {
         // Must precede the plain FOLLOWUP_DAMAGE check below, which would claim it with find().
         if (FOLLOWUP_EACH_FORWARD_MUTUAL_POWER_DAMAGE.matcher(followupText).find())
             return "EachForwardMutualPowerDamage";
+        // Mirrors the choose chain: ahead of DamageForEach, which reads the flat N and reports
+        // the multiplier as though it were not there (26-073C Dyne).
+        if (FOLLOWUP_DAMAGE_FOR_EACH_DISCARDED_TO_CAST.matcher(followupText).find())
+                                                                                      return "DamageForEachDiscardedToCast";
         if (FOLLOWUP_DAMAGE_FOR_EACH_COUNTER.matcher(followupText).find())             return "DamageForEachCounter";
         if (FOLLOWUP_DAMAGE_FOR_EACH.matcher(followupText).find())                    return "DamageForEach";
         if (FOLLOWUP_DULL_AND_DAMAGE.matcher(followupText).find())                   return "DullAndDamage";

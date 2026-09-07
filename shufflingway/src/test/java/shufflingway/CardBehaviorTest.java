@@ -46561,5 +46561,118 @@ public class CardBehaviorTest {
 	}
 
 	// =========================================================================================
+	// 26-073C Dyne — "choose 1 Forward. Deal it 4000 damage for each card you discarded to cast
+	// Dyne." The only printing that scales a payoff off the cards pitched for CP to pay for it.
+	//
+	// FOLLOWUP_DAMAGE_FOR_EACH matches with find(), so it claimed the flat "4000 damage" out of
+	// the front of the sentence and the multiplier was dropped: Dyne dealt 4000 whether you had
+	// pitched nothing or four cards.
+	//
+	// The count is owner-checked through lastCastPaymentCard, because the seat-wide payment record
+	// is simply the last payment made and nothing clears it when a card reaches the field some
+	// other way. A Dyne put onto the field by an effect must deal nothing, not bill the opponent
+	// for whatever the previous cast discarded.
+	// =========================================================================================
+
+	private static final String DYNE_26_073C_ETF =
+			"choose 1 Forward. Deal it 4000 damage for each card you discarded to cast Dyne.";
+
+	/** A mocked context reporting {@code discards} cards pitched to cast {@code payer}. */
+	private static GameContext dyneCtx(CardData payer, int discards, ForwardTarget target) {
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.cardsDiscardedToCast(payer)).thenReturn(discards);
+		when(ctx.consumePreloadedTargets()).thenReturn(null);
+		when(ctx.selectCharacters(anyInt(), anyBoolean(), anyBoolean(), anyBoolean(),
+				any(), any(), anyInt(), any(), anyInt(), any(),
+				anyBoolean(), anyBoolean(), anyBoolean(),
+				any(), any(), any(), any(), anyBoolean(), any(), anyBoolean()))
+			.thenReturn(List.of(target));
+		return ctx;
+	}
+
+	@Test
+	void dyneScalesItsDamageByTheCardsDiscardedToCastIt() {
+		CardData dyne = makeForward("Dyne", "Earth", 6, 9000);
+		Consumer<GameContext> fn = ActionResolver.parse(DYNE_26_073C_ETF, dyne);
+		assertNotNull(fn);
+		ForwardTarget t = new ForwardTarget(false, 0, ForwardTarget.CardZone.FORWARD);
+
+		GameContext one = dyneCtx(dyne, 1, t);
+		fn.accept(one);
+		verify(one).damageTarget(t, 4000);
+
+		// Three discards is 12000, not the flat 4000 the old reading gave for every payment.
+		GameContext three = dyneCtx(dyne, 3, t);
+		fn.accept(three);
+		verify(three).damageTarget(t, 12000);
+	}
+
+	@Test
+	void dyneDealsNothingWhenNoCardsWereDiscarded() {
+		// Paid entirely from Backups: the multiplier is 0, so there is no damage and no target to
+		// pick. The old reading dealt a flat 4000 here, which is the most visible half of the bug.
+		CardData dyne = makeForward("Dyne", "Earth", 6, 9000);
+		ForwardTarget t = new ForwardTarget(false, 0, ForwardTarget.CardZone.FORWARD);
+		GameContext ctx = dyneCtx(dyne, 0, t);
+
+		ActionResolver.parse(DYNE_26_073C_ETF, dyne).accept(ctx);
+
+		verify(ctx, never()).damageTarget(any(), anyInt());
+		verify(ctx).markEffectFizzled();
+	}
+
+	@Test
+	void aDyneThatWasNeverPaidForDealsNothing() {
+		// The owner check, at the real context boundary rather than against a mock: CardData is a
+		// record, so two copies of one printing are equal, and a mock would match a stub for either
+		// against the other. The production check is ==, which is the point — a Dyne put onto the
+		// field by an effect must read 0 rather than inherit the discards that paid for the copy
+		// cast a moment earlier.
+		MainWindow mw = new MainWindow();
+		CardData paidFor  = makeForward("Dyne", "Earth", 6, 9000);
+		CardData arrived  = makeForward("Dyne", "Earth", 6, 9000);
+		assertEquals(paidFor, arrived, "the two copies are equal, so only identity can separate them");
+		assertNotSame(paidFor, arrived);
+
+		mw.lastCastPaymentCard = paidFor;
+		mw.lastCastPaymentDiscardCount = 3;
+
+		GameContext ctx = mw.buildGameContext(true);
+		assertEquals(3, ctx.cardsDiscardedToCast(paidFor), "the copy actually paid for");
+		assertEquals(0, ctx.cardsDiscardedToCast(arrived),
+				"an equal copy that reached the field some other way is billed nothing");
+	}
+
+	@Test
+	void dyneIsNamedForItsMultiplierNotAsFlatDamage() {
+		assertEquals("ChooseCharacter / DamageForEachDiscardedToCast",
+				ActionResolver.fullDescription(DYNE_26_073C_ETF, makeForward("Dyne", "Earth", 6, 9000)),
+				"\"ChooseCharacter / Damage\" here is the bug: the multiplier reads as unread");
+	}
+
+	@Test
+	void theDiscardCountIsCardsNotTheCpTheyProduced() {
+		// A discard is worth 2 CP; the card counts cards. Recorded straight off the discard list,
+		// so two discards paying 4 CP is a multiplier of 2.
+		MainWindow mw = new MainWindow();
+		mw.lastCastPaymentCard = makeForward("Dyne", "Earth", 6, 9000);
+		mw.lastCastPaymentDiscardCount = 2;
+
+		assertEquals(2, mw.buildGameContext(true).cardsDiscardedToCast(mw.lastCastPaymentCard));
+	}
+
+	@Test
+	void theDiscardCountIsOwnerCheckedAtTheContextBoundary() {
+		MainWindow mw = new MainWindow();
+		mw.lastCastPaymentCard = makeForward("Something Else", "Fire", 3, 7000);
+		mw.lastCastPaymentDiscardCount = 4;
+
+		GameContext ctx = mw.buildGameContext(true);
+		assertEquals(0, ctx.cardsDiscardedToCast(makeForward("Dyne", "Earth", 6, 9000)),
+				"a card that was not the one paid for reads 0");
+		assertEquals(0, ctx.cardsDiscardedToCast(null), "and null is not a payer either");
+	}
+
+	// =========================================================================================
 
 }

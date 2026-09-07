@@ -2637,6 +2637,35 @@ final class ActionResolverChoose {
             };
         }
 
+        // --- "Deal it N damage for each card you discarded to cast [Self]." (26-073C Dyne) ---
+        // Must be checked before FOLLOWUP_DAMAGE_FOR_EACH, which matches the flat N and drops the
+        // multiplier. Needs the source card: the count is owner-checked, so an effect that puts
+        // Dyne onto the field without paying for it deals nothing rather than billing the
+        // opponent for whatever the previous cast discarded.
+        Matcher dmgPerDiscardM = FOLLOWUP_DAMAGE_FOR_EACH_DISCARDED_TO_CAST.matcher(primaryFollowup);
+        if (dmgPerDiscardM.find() && source != null) {
+            int perUnit = Integer.parseInt(dmgPerDiscardM.group("perunit"));
+            return ctx -> {
+                int discards = ctx.cardsDiscardedToCast(source);
+                int damage   = perUnit * discards;
+                ctx.logChooseHeader(choosePrefix + " - " + perUnit + " damage x" + discards
+                        + " card(s) discarded to cast " + source.name() + " = " + damage + " damage");
+                if (damage <= 0) {
+                    ctx.logEntry("No cards were discarded to cast " + source.name()
+                            + " - no damage to deal");
+                    ctx.markEffectFizzled();
+                    return;
+                }
+                List<ForwardTarget> ts = selectTargets(ctx, maxCount, upTo,
+                        opponentOnly, selfOnly, condition, element, zone, opponentZone,
+                        costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters,
+                        jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, fExcludeElem, withoutMulticard);
+                sortedByIdxDesc(ts, true) .forEach(t -> ctx.damageTarget(t, damage));
+                sortedByIdxDesc(ts, false).forEach(t -> ctx.damageTarget(t, damage));
+                if (secondary != null) secondary.accept(ctx);
+            };
+        }
+
         // --- "Deal it N damage for each [Name] Counter placed on [card]." (counter-scaled xValue) ---
         // Must be checked before FOLLOWUP_DAMAGE_FOR_EACH, which would match on the flat N and drop the for-each.
         Matcher dmgForEachCounterM = FOLLOWUP_DAMAGE_FOR_EACH_COUNTER.matcher(primaryFollowup);

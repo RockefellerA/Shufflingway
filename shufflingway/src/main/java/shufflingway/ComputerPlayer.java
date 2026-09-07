@@ -163,6 +163,9 @@ class ComputerPlayer implements OpponentController {
 			// cast would let a "CP only produced by Backups" gate pass on a payment that had none.
 			mw.lastCastPaymentBackups.clear();
 			mw.lastCastWasPaidByBackupsOnly = false;
+			// Nor did it discard anything, and a stale count would scale a "for each card you
+			// discarded" payoff off the human's previous cast.
+			mw.lastCastPaymentDiscardCount = 0;
 			mw.lastCardWasCast = true;
 			mw.noteCardCast(card, false);
 			if (card.isSummon()) { mw.p2Turn.summonCastThisTurn = true; mw.noteDoublecastSummonCast(false, card); }
@@ -260,6 +263,7 @@ class ComputerPlayer implements OpponentController {
 		// previous cast's record must not be left standing for a Backup-source gate to read.
 		mw.lastCastPaymentBackups.clear();
 		mw.lastCastWasPaidByBackupsOnly = false;
+		mw.lastCastPaymentDiscardCount = 0;
 
 		mw.logEntry("[P2] Plays " + toPlay.name()
 				+ (freeCast && mw.p2DoublecastFreeSummons ? " (free — Doublecast)" : ""));

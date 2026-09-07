@@ -6241,6 +6241,19 @@ final class ActionResolverPatterns {
         Pattern.DOTALL
     );
     /**
+     * Matches "Deal it N damage for each card you discarded to cast [Self]." — 26-073C Dyne, the
+     * only printing. Group {@code perunit} is the damage per discarded card.
+     *
+     * <p>Must be checked before {@link #FOLLOWUP_DAMAGE_FOR_EACH}, whose {@code base} group would
+     * match the flat N and drop the multiplier, which is what left Dyne dealing a flat 4000
+     * however many cards had been pitched for it.
+     */
+    static final Pattern FOLLOWUP_DAMAGE_FOR_EACH_DISCARDED_TO_CAST = Pattern.compile(
+        "(?i)Deal\\s+(?:it|them)\\s+(?<perunit>\\d+)\\s+damage\\s+" +
+        "for\\s+each\\s+card\\s+you\\s+discarded\\s+to\\s+(?:cast|play)\\s+.+?[.!]?$",
+        Pattern.DOTALL
+    );
+    /**
      * Matches "it gains +N power for each [Job (name)] / Job name [Type] you control until end of turn"
      * in both word orders (until-prefix or until-suffix).
      * Groups: {@code amount}/{@code amount2} = per-unit amount; {@code jobb}/{@code jobb2} = bracket job name;
