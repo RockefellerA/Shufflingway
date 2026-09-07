@@ -304,16 +304,21 @@ class CostCalculator {
 		case EACH_ELEMENT_TYPE_CONTROLLED -> {
 				String elem = mod.param1();
 				String type = mod.param2() == null ? "Forward" : mod.param2();
-				long fwdCount = 0, bkpCount = 0, monCount = 0;
-				if ("Forward".equalsIgnoreCase(type) || "Character".equalsIgnoreCase(type))
-					fwdCount = fwds.stream().filter(f -> elem.equalsIgnoreCase(f.element())).count();
-				if ("Backup".equalsIgnoreCase(type) || "Character".equalsIgnoreCase(type))
-					bkpCount = Arrays.stream(bkps).filter(b -> b != null && elem.equalsIgnoreCase(b.element())).count();
-				if ("Monster".equalsIgnoreCase(type)) {
+				// "Character" is all three field rows, Monsters included — 22-009H Jecht's "for
+				// each Fire Character you control". The Monster row used to be reached only by a
+				// literal "Monster", so every one of the nine printings that says "Character" here
+				// counted Forwards and Backups and quietly skipped Monsters.
+				boolean anyCharacter = "Character".equalsIgnoreCase(type);
+				long count = 0;
+				if (anyCharacter || "Forward".equalsIgnoreCase(type))
+					count += fwds.stream().filter(f -> mw.effectiveContainsElement(f, elem)).count();
+				if (anyCharacter || "Backup".equalsIgnoreCase(type))
+					count += Arrays.stream(bkps).filter(b -> mw.effectiveContainsElement(b, elem)).count();
+				if (anyCharacter || "Monster".equalsIgnoreCase(type)) {
 					List<CardData> mons = isP1 ? mw.p1MonsterCards : mw.p2MonsterCards;
-					monCount = mons.stream().filter(mn -> elem.equalsIgnoreCase(mn.element())).count();
+					count += mons.stream().filter(mn -> mw.effectiveContainsElement(mn, elem)).count();
 				}
-				yield (int) (fwdCount + bkpCount + monCount);
+				yield (int) count;
 			}
 		case IF_N_OR_MORE_FORWARDS_LEFT_FIELD_THIS_TURN -> {
 				int n = Integer.parseInt(mod.param1());

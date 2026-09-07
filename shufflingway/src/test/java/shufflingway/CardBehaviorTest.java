@@ -46442,5 +46442,124 @@ public class CardBehaviorTest {
 	}
 
 	// =========================================================================================
+	// 22-009H Jecht — "reduced by 1 for each Fire Character you control"
+	//
+	// "Character" is all three field rows. The reader reached the Monster row only on a literal
+	// "Monster", so every one of the nine printings that scales on "[Element] Character" counted
+	// Forwards and Backups and skipped Monsters outright.
+	//
+	// The same three lines matched elements by string equality against the printed value, which is
+	// "Fire/Ice" on a multi-element card — so none of the 145 multi-element printings counted for
+	// their own elements either. Both are fixed by going through effectiveContainsElement, which
+	// is what every other element-filtered count in the engine already uses.
+	// =========================================================================================
+
+	private static final String JECHT_22_009H_COST =
+			"The cost required to cast Jecht is reduced by 1 for each Fire Character you control.";
+
+	/** Jecht as printed: Fire, cost 6, carrying the self-cost modifier off that sentence. */
+	private static CardData makeJecht() {
+		return new CardData(null, "Jecht", "Fire", 6, 9000, "Forward", false, 0, false, false,
+				Set.of(), 0, List.of(), null, List.of(),
+				List.of(), List.of(), CardData.parseFieldAbilities(JECHT_22_009H_COST, "Forward"),
+				List.of(), List.of(), List.of(), List.of(),
+				CardData.parseSelfCostModifiers(JECHT_22_009H_COST),
+				List.of(), List.of(),
+				false, false, null, false, false, false, false, false, 1,
+				null, null, null, JECHT_22_009H_COST);
+	}
+
+	private static CardData plainMonster(String name, String element) {
+		return new CardData(null, name, element, 2, 3000, "Monster", false, 0, false, false,
+				Set.of(), 0, List.of(), null, List.of(),
+				List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(),
+				List.of(), List.of(), List.of(),
+				false, false, null, false, false, false, false, false, 1,
+				null, null, null, "");
+	}
+
+	@Test
+	void jechtCostsHisPrintedCostOnAnEmptyBoard() {
+		MainWindow mw = new MainWindow();
+		assertEquals(6, mw.effectiveCastCost(makeJecht()));
+	}
+
+	@Test
+	void jechtCountsFireMonstersAsCharacters() {
+		// The reported bug: a Fire Monster is a Fire Character and must discount.
+		MainWindow mw = new MainWindow();
+		mw.placeCardInMonsterZone(plainMonster("Bomb", "Fire"));
+
+		assertEquals(5, mw.effectiveCastCost(makeJecht()));
+	}
+
+	@Test
+	void jechtCountsAllThreeRowsTogether() {
+		MainWindow mw = new MainWindow();
+		mw.placeCardInForwardZone(makeForward("Fire Fwd", "Fire", 3, 7000));
+		mw.p1BackupCards[0] = makeForward("Fire Bkp", "Fire", 2, 0);
+		mw.placeCardInMonsterZone(plainMonster("Fire Mon", "Fire"));
+
+		assertEquals(3, mw.effectiveCastCost(makeJecht()), "one off per row, Monster included");
+	}
+
+	@Test
+	void jechtIgnoresMonstersOfAnotherElement() {
+		MainWindow mw = new MainWindow();
+		mw.placeCardInMonsterZone(plainMonster("Ice Bomb", "Ice"));
+
+		assertEquals(6, mw.effectiveCastCost(makeJecht()));
+	}
+
+	@Test
+	void jechtIgnoresMonstersTheOpponentControls() {
+		// "you control" — the opponent's board is not Jecht's discount.
+		MainWindow mw = new MainWindow();
+		mw.placeP2CardInMonsterZone(plainMonster("Their Bomb", "Fire"));
+
+		assertEquals(6, mw.effectiveCastCost(makeJecht()));
+	}
+
+	@Test
+	void aMultiElementCharacterCountsForEachOfItsElements() {
+		// The second defect on the same lines: the element was compared by string equality against
+		// the printed value, so "Fire/Ice" was never "Fire". 145 printings are multi-element.
+		MainWindow mw = new MainWindow();
+		mw.placeCardInForwardZone(makeForward("Fire/Ice Fwd", "Fire/Ice", 3, 7000));
+
+		assertEquals(5, mw.effectiveCastCost(makeJecht()));
+	}
+
+	@Test
+	void aMultiElementMonsterCountsToo() {
+		MainWindow mw = new MainWindow();
+		mw.placeCardInMonsterZone(plainMonster("Fire/Wind Mon", "Fire/Wind"));
+
+		assertEquals(5, mw.effectiveCastCost(makeJecht()));
+	}
+
+	@Test
+	void aBackupScalingStillReadsOnlyBackups() {
+		// The Forward/Backup/Monster forms must stay narrow — widening "Character" must not have
+		// widened them. 8-003C Ifrit's wording, checked against a board with one of each row.
+		String ifrit = "The cost required to cast Ifrit is reduced by 1 for each Fire Backup you control.";
+		CardData card = new CardData(null, "Ifrit", "Fire", 5, 8000, "Forward", false, 0, false, false,
+				Set.of(), 0, List.of(), null, List.of(),
+				List.of(), List.of(), CardData.parseFieldAbilities(ifrit, "Forward"),
+				List.of(), List.of(), List.of(), List.of(),
+				CardData.parseSelfCostModifiers(ifrit),
+				List.of(), List.of(),
+				false, false, null, false, false, false, false, false, 1,
+				null, null, null, ifrit);
+
+		MainWindow mw = new MainWindow();
+		mw.placeCardInForwardZone(makeForward("Fire Fwd", "Fire", 3, 7000));
+		mw.placeCardInMonsterZone(plainMonster("Fire Mon", "Fire"));
+		mw.p1BackupCards[0] = makeForward("Fire Bkp", "Fire", 2, 0);
+
+		assertEquals(4, mw.effectiveCastCost(card), "only the Backup counts, not the other two rows");
+	}
+
+	// =========================================================================================
 
 }
