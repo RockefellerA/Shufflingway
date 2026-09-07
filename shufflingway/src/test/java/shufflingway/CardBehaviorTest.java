@@ -42835,6 +42835,89 @@ public class CardBehaviorTest {
 		assertEquals(5, mw.effectiveCastCost(makeSephiroth()));
 	}
 
+	@Test
+	void aWarpedSephirothIsRemovedFromTheGameToo() {
+		// Warp removes the card from the game and puts counters on it saying when it comes back —
+		// it is in the removed-from-game zone the whole time it is warped. The cost reader used to
+		// look only at the permanent half of that zone, so a warped Sephiroth bought no discount.
+		//
+		// 29-087L itself has no Warp (it prints Haste and First Strike), but 20-097C Sephiroth is
+		// "Warp 3 -- 《Lightning》", so a warped Sephiroth is an ordinary board state to arrive at
+		// across printings — and "Card Name Sephiroth you own" spans all of them.
+		MainWindow mw = new MainWindow();
+		CardData warped = makeForward("Sephiroth", "Lightning", 5, 9000);
+		mw.gameState.getIdentity().put(warped, true);    // owned by P1
+		mw.gameState.addToP1WarpZone(warped, 2);
+
+		assertEquals(2, mw.effectiveCastCost(makeSephiroth()));
+	}
+
+	@Test
+	void aWarpedSephirothTheOpponentOwnsStillDoesNotDiscountYours() {
+		// The Warp half is filed by owner just as the permanent half is, so "you own" has to keep
+		// holding once the Warp zone is being read as well.
+		MainWindow mw = new MainWindow();
+		CardData warped = makeForward("Sephiroth", "Lightning", 5, 9000);
+		mw.gameState.getIdentity().put(warped, false);   // owned by P2
+		mw.gameState.addToP2WarpZone(warped, 2);
+
+		assertEquals(5, mw.effectiveCastCost(makeSephiroth()));
+	}
+
+	@Test
+	void aWarpedCopyAndAPermanentlyRemovedOneStillDiscountOnlyOnce() {
+		// "If any" stays a yes/no across both halves of the zone.
+		MainWindow mw = new MainWindow();
+		CardData warped = makeForward("Sephiroth", "Lightning", 5, 9000);
+		CardData gone   = makeForward("Sephiroth", "Lightning", 5, 9000);
+		mw.gameState.getIdentity().put(warped, true);
+		mw.gameState.getIdentity().put(gone, true);
+		mw.gameState.addToP1WarpZone(warped, 2);
+		mw.gameState.addToPermanentRfp(gone);
+
+		assertEquals(2, mw.effectiveCastCost(makeSephiroth()), "one discount, not two");
+	}
+
+	@Test
+	void theCombinedRemovedFromGameViewCarriesBothHalves() {
+		// The shared accessor the cost reader now goes through, checked directly: both halves,
+		// owner-scoped, and the opponent's zone untouched by either.
+		MainWindow mw = new MainWindow();
+		CardData warped = makeForward("Warped", "Ice", 2, 5000);
+		CardData gone   = makeForward("Gone", "Fire", 3, 6000);
+		CardData theirs = makeForward("Theirs", "Wind", 4, 7000);
+		mw.gameState.getIdentity().put(warped, true);
+		mw.gameState.getIdentity().put(gone, true);
+		mw.gameState.getIdentity().put(theirs, false);
+		mw.gameState.addToP1WarpZone(warped, 3);
+		mw.gameState.addToPermanentRfp(gone);
+		mw.gameState.addToPermanentRfp(theirs);
+
+		List<CardData> mine = mw.gameState.getP1RemovedFromGame();
+		assertEquals(2, mine.size());
+		assertTrue(mine.contains(warped), "the warped card is removed from the game");
+		assertTrue(mine.contains(gone));
+		assertFalse(mine.contains(theirs), "the opponent's removed card is in their half");
+		assertEquals(List.of(theirs), mw.gameState.getP2RemovedFromGame());
+	}
+
+	@Test
+	void takingACardBackOutOfTheZoneStillIgnoresTheWarpZone() {
+		// The retrieval effects deliberately did not change with the count readers: lifting a card
+		// out of the Warp zone would strand its counters and rob it of the return that is the whole
+		// point of having been warped. Only the permanent half is offered.
+		MainWindow mw = new MainWindow();
+		CardData warped = makeForward("Sephiroth", "Lightning", 5, 9000);
+		mw.gameState.getIdentity().put(warped, true);
+		mw.gameState.addToP1WarpZone(warped, 2);
+
+		mw.buildGameContext(true).chooseNamedFromOwnRfgToHand("Sephiroth");
+
+		assertFalse(mw.gameState.getP1Hand().contains(warped),
+				"a warped card is not retrievable as an ordinary removed-from-game card");
+		assertEquals(1, mw.gameState.getP1WarpZone().size(), "and it is still warped");
+	}
+
 	// =========================================================================================
 	// 9-014L Nael and family — "add up to M among them, rest to the Break Zone"
 	//

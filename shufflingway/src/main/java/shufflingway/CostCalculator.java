@@ -456,7 +456,7 @@ class CostCalculator {
 				Predicate<CardData> hasCat = c ->
 						cat.equalsIgnoreCase(c.category1()) || cat.equalsIgnoreCase(c.category2());
 				long bzCount  = bz.stream().filter(hasCat).count();
-				List<CardData> rfp = isP1 ? mw.gameState.getP1PermanentRfp() : mw.gameState.getP2PermanentRfp();
+				List<CardData> rfp = isP1 ? mw.gameState.getP1RemovedFromGame() : mw.gameState.getP2RemovedFromGame();
 				long rfpCount = rfp.stream().filter(hasCat).count();
 				yield (bzCount + rfpCount) >= n ? 1 : 0;
 			}
@@ -464,7 +464,10 @@ class CostCalculator {
 				String name = mod.param1();
 				// Ownership, not control: the removed-from-game zone is kept per owner, so the
 				// controller's own half is exactly what "you own ... removed from the game" means.
-				List<CardData> rfp = isP1 ? mw.gameState.getP1PermanentRfp() : mw.gameState.getP2PermanentRfp();
+				// Warp zone included — a warped copy is removed from the game just as a permanently
+				// removed one is, and 29-087L Sephiroth's own Warp is the ordinary way a Sephiroth
+				// gets there.
+				List<CardData> rfp = isP1 ? mw.gameState.getP1RemovedFromGame() : mw.gameState.getP2RemovedFromGame();
 				yield rfp.stream().anyMatch(c -> name.equalsIgnoreCase(c.name())) ? 1 : 0;
 			}
 		case IF_OWN_ELEMENT_OR_CATEGORY_BROKEN_THIS_TURN -> {
@@ -574,7 +577,7 @@ class CostCalculator {
 
 		if (cr.minBZAndRfpSummons() > 0) {
 			long bzSummons  = bz.stream().filter(CardData::isSummon).count();
-			long rfpSummons = (isP1 ? mw.gameState.getP1PermanentRfp() : mw.gameState.getP2PermanentRfp())
+			long rfpSummons = (isP1 ? mw.gameState.getP1RemovedFromGame() : mw.gameState.getP2RemovedFromGame())
 					.stream().filter(CardData::isSummon).count();
 			if (bzSummons + rfpSummons < cr.minBZAndRfpSummons()) return false;
 		}

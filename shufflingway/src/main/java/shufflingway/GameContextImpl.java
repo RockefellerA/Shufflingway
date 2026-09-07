@@ -6520,7 +6520,7 @@ final class GameContextImpl implements GameContext {
 			@Override public int lastRemovedFromGameCardCost()  { return mw.lastRemovedFromGameCardCost; }
 			@Override public int lastRemovedFromGameCardPower() { return mw.lastRemovedFromGameCardPower; }
 			@Override public int countRemovedFromGame() {
-				return mw.gameState.getP1PermanentRfp().size() + mw.gameState.getP2PermanentRfp().size();
+				return mw.gameState.getP1RemovedFromGame().size() + mw.gameState.getP2RemovedFromGame().size();
 			}
 
 
@@ -9055,7 +9055,7 @@ final class GameContextImpl implements GameContext {
 
 			@Override public int countP1RfgCards(String cardNameFilter, String jobFilter) {
 				int count = 0;
-				for (CardData c : mw.gameState.getP1PermanentRfp()) {
+				for (CardData c : mw.gameState.getP1RemovedFromGame()) {
 					if (!meetsCardNameFilter(c, cardNameFilter)) continue;
 					if (!CardFilters.meetsJobFilter(c, jobFilter)) continue;
 					count++;
@@ -9065,7 +9065,7 @@ final class GameContextImpl implements GameContext {
 
 			@Override public int countP2RfgCards(String cardNameFilter, String jobFilter) {
 				int count = 0;
-				for (CardData c : mw.gameState.getP2PermanentRfp()) {
+				for (CardData c : mw.gameState.getP2RemovedFromGame()) {
 					if (!meetsCardNameFilter(c, cardNameFilter)) continue;
 					if (!CardFilters.meetsJobFilter(c, jobFilter)) continue;
 					count++;

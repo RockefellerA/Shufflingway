@@ -345,6 +345,46 @@ public class GameState {
         return Collections.unmodifiableList(p2PermanentRfp);
     }
 
+    /**
+     * Every card P1 owns that is removed from the game — the permanent zone <em>plus</em> the
+     * Warp zone.
+     *
+     * <p>A warped card is removed from the game; it merely has counters on it saying when it
+     * comes back. So every effect that asks whether something "is removed from the game", or
+     * counts what is, has to see both halves. {@code AutoAbilityTriggers} already read them
+     * together for its {@code rfpConditionCard} check; the cost-side and count-side readers did
+     * not, which is what left 29-087L Sephiroth's discount blind to a warped Sephiroth.
+     *
+     * <p>Both halves are keyed by owner: a card is warped out of its owner's own hand, and the
+     * permanent zone is filed by {@code ownedByP1}. That is what makes this the right answer to
+     * "cards <em>you own</em> removed from the game".
+     *
+     * <p>Read-only, and a copy rather than a view — callers only ever scan it, and building it
+     * per call keeps it from going stale as either half changes.
+     *
+     * <p>Not for the effects that <em>take</em> a card back out of the removed-from-game zone
+     * ({@code chooseNamedFromOwnRfgToHand}, {@code playNamedFromRfpOntoField} and the rest).
+     * Those still read {@link #getP1PermanentRfp()} alone on purpose: lifting a card out of the
+     * Warp zone this way would strand its Warp counters and rob it of the return that is the
+     * whole point of having been warped.
+     */
+    public List<CardData> getP1RemovedFromGame() {
+        return removedFromGame(p1PermanentRfp, p1WarpZone);
+    }
+
+    /** P2's side of {@link #getP1RemovedFromGame()}. */
+    public List<CardData> getP2RemovedFromGame() {
+        return removedFromGame(p2PermanentRfp, p2WarpZone);
+    }
+
+    /** The permanent zone and the Warp zone of one player, as one read-only list. */
+    private static List<CardData> removedFromGame(List<CardData> permanent, List<WarpEntry> warp) {
+        List<CardData> all = new ArrayList<>(permanent.size() + warp.size());
+        all.addAll(permanent);
+        for (WarpEntry e : warp) all.add(e.card);
+        return Collections.unmodifiableList(all);
+    }
+
     // -------------------------------------------------------------------------
     // Deck search
     // -------------------------------------------------------------------------
