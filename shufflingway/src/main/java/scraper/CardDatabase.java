@@ -58,7 +58,6 @@ public class CardDatabase implements AutoCloseable {
                     ex_burst     INTEGER NOT NULL DEFAULT 0,
                     multicard    INTEGER NOT NULL DEFAULT 0,
                     text_en      TEXT,
-                    thumb_name   TEXT,
                     image_url    TEXT,
                     image_data   BLOB,
                     limit_break  INTEGER NOT NULL DEFAULT 0,
@@ -73,6 +72,8 @@ public class CardDatabase implements AutoCloseable {
             try { s.execute("ALTER TABLE cards ADD COLUMN image_data BLOB"); } catch (SQLException ignored) {}
             try { s.execute("ALTER TABLE cards ADD COLUMN limit_break INTEGER NOT NULL DEFAULT 0"); } catch (SQLException ignored) {}
             try { s.execute("ALTER TABLE cards ADD COLUMN lb_cost INTEGER"); } catch (SQLException ignored) {}
+            // Removing this column, we have the full image url, thumb_name isn't needed.
+            try { s.execute("ALTER TABLE cards DROP COLUMN thumb_name"); } catch (SQLException ignored) {}
 
             // Migration: drop the obsolete set_number column (always evaluated to "1" because
             // the whole API is scraped in one pass) and its index.
@@ -100,9 +101,9 @@ public class CardDatabase implements AutoCloseable {
                 INSERT INTO cards (
                     serial, name_en, type_en, element, cost, power, rarity,
                     job_en, category_1, category_2, ex_burst, multicard,
-                    text_en, thumb_name, image_url,
+                    text_en, image_url,
                     limit_break, lb_cost
-                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 ON CONFLICT(serial) DO UPDATE SET
                     name_en     = excluded.name_en,
                     type_en     = excluded.type_en,
@@ -116,7 +117,6 @@ public class CardDatabase implements AutoCloseable {
                     ex_burst    = excluded.ex_burst,
                     multicard   = excluded.multicard,
                     text_en     = excluded.text_en,
-                    thumb_name  = excluded.thumb_name,
                     image_url   = excluded.image_url,
                     limit_break = excluded.limit_break,
                     lb_cost     = excluded.lb_cost
@@ -176,12 +176,11 @@ public class CardDatabase implements AutoCloseable {
                                 // reads as the next ability's header and truncates the effect at parse time.
                                 .replaceAll("\\[\\[s\\]\\]\\s*([^\\[]+?)\\s*\\[\\[/\\]\\](?!\\s*《)", "$1");
             ps.setString(13, textEn);
-            ps.setString(14, card.thumbName);
-            ps.setString(15, card.imageUrl);
-            ps.setInt   (16, computeLimitBreak(textEn));
+            ps.setString(14, card.imageUrl);
+            ps.setInt   (15, computeLimitBreak(textEn));
             Integer lbCost = computeLbCost(textEn);
-            if (lbCost != null) ps.setInt (17, lbCost);
-            else                ps.setNull(17, Types.INTEGER);
+            if (lbCost != null) ps.setInt (16, lbCost);
+            else                ps.setNull(16, Types.INTEGER);
             ps.executeUpdate();
         }
     }
@@ -226,8 +225,8 @@ public class CardDatabase implements AutoCloseable {
 
     /**
      * Returns a SHA-256 hex digest of all gameplay-relevant card columns, ordered by serial.
-     * Display-only columns (image_data, image_url, thumb_name) are excluded so that
-     * differing image cache states don't cause a false mismatch.
+     * Display-only columns (image_data, image_url) are excluded so that differing image cache
+     * states don't cause a false mismatch.
      */
     public String computeCardChecksum() throws SQLException {
         String sql = """
@@ -362,7 +361,6 @@ public class CardDatabase implements AutoCloseable {
         c.exBurst   = rs.getInt("ex_burst")   == 1;
         c.multicard = rs.getInt("multicard")  == 1;
         c.textEn    = rs.getString("text_en");
-        c.thumbName = rs.getString("thumb_name");
         c.imageUrl  = rs.getString("image_url");
         return c;
     }

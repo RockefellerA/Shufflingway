@@ -32,7 +32,7 @@ public class ScrapeRunner {
             CardScraper scraper = new CardScraper();
             System.out.println(scraper.fetchRawFirstCard(TEST_SET));
         } catch (IOException | InterruptedException e) {
-            System.err.println("FAIL – could not fetch raw card:");
+            System.err.println("FAIL - could not fetch raw card:");
             e.printStackTrace();
             return;
         }
@@ -45,13 +45,13 @@ public class ScrapeRunner {
             CardScraper scraper = new CardScraper();
             cards = scraper.scrapeOnePage(TEST_SET);
         } catch (IOException | InterruptedException e) {
-            System.err.println("FAIL – API request threw an exception:");
+            System.err.println("FAIL - API request threw an exception:");
             e.printStackTrace();
             return;
         }
 
         if (cards.isEmpty()) {
-            System.err.println("FAIL – API returned 0 cards. Check the request body in CardScraper.");
+            System.err.println("FAIL - API returned 0 cards. Check the request body in CardScraper.");
             return;
         }
         System.out.println("  OK  – received " + cards.size() + " cards\n");
@@ -59,7 +59,7 @@ public class ScrapeRunner {
         // ── Sanity check: warn if serials are empty (field name mismatch) ─────
         long blankSerials = cards.stream().filter(c -> c.serial == null || c.serial.isBlank()).count();
         if (blankSerials > 0) {
-            System.err.printf("WARN – %d / %d cards have a blank serial. " +
+            System.err.printf("WARN - %d / %d cards have a blank serial. " +
                     "The 'Serial' field name in CardScraper.parseCard() is probably wrong — " +
                     "check the raw JSON printed in step [0] above.%n%n", blankSerials, cards.size());
         }
@@ -87,13 +87,13 @@ public class ScrapeRunner {
                 if (db.getCard(serial) != null) readBack++;
             }
             if (readBack != savedSerials.size()) {
-                System.err.printf("FAIL – wrote %d cards but read back %d%n",
+                System.err.printf("FAIL - wrote %d cards but read back %d%n",
                         savedSerials.size(), readBack);
                 return;
             }
-            System.out.println("  OK  – " + readBack + " cards round-tripped correctly\n");
+            System.out.println("  OK  - " + readBack + " cards round-tripped correctly\n");
         } catch (SQLException e) {
-            System.err.println("FAIL – database error:");
+            System.err.println("FAIL - database error:");
             e.printStackTrace();
             return;
         }
@@ -105,15 +105,15 @@ public class ScrapeRunner {
                 .orElse(null);
 
         if (sample == null) {
-            System.out.println("[4] SKIP – no imageUrl found on any card (check ThumbName field mapping)");
+            System.out.println("[4] SKIP - no imageUrl found on any card (check images.full field mapping)");
         } else {
             System.out.println("[4] Downloading image for " + sample.serial + ": " + sample.imageUrl);
             try {
                 CardScraper scraper = new CardScraper();
                 byte[] img = scraper.downloadImage(sample.imageUrl);
-                System.out.printf("  OK  – downloaded %,d bytes%n%n", img.length);
+                System.out.printf("  OK  - downloaded %,d bytes%n%n", img.length);
             } catch (IOException | InterruptedException e) {
-                System.err.println("FAIL – image download error:");
+                System.err.println("FAIL - image download error:");
                 e.printStackTrace();
                 return;
             }

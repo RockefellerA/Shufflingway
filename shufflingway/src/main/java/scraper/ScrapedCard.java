@@ -19,7 +19,6 @@ public class ScrapedCard {
     public boolean exBurst;
     public boolean multicard;
     public String textEn;       // card ability text
-    public String thumbName;    // image filename, e.g. "1-001H_eg.jpg"
     public String imageUrl;     // full CDN URL
 
     @Override

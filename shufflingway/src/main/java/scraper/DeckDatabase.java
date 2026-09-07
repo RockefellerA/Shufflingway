@@ -59,7 +59,6 @@ public class DeckDatabase implements AutoCloseable {
                     ex_burst     INTEGER NOT NULL DEFAULT 0,
                     multicard    INTEGER NOT NULL DEFAULT 0,
                     text_en      TEXT,
-                    thumb_name   TEXT,
                     image_url    TEXT,
                     image_data   BLOB,
                     limit_break  INTEGER NOT NULL DEFAULT 0,
@@ -69,6 +68,8 @@ public class DeckDatabase implements AutoCloseable {
             try { s.execute("ALTER TABLE cards ADD COLUMN image_data BLOB"); } catch (SQLException ignored) {}
             try { s.execute("ALTER TABLE cards ADD COLUMN limit_break INTEGER NOT NULL DEFAULT 0"); } catch (SQLException ignored) {}
             try { s.execute("ALTER TABLE cards ADD COLUMN lb_cost INTEGER"); } catch (SQLException ignored) {}
+            // Removes this column since it went unused
+            try { s.execute("ALTER TABLE cards DROP COLUMN thumb_name"); } catch (SQLException ignored) {}
             s.execute("""
                 CREATE TABLE IF NOT EXISTS decks (
                     id         INTEGER PRIMARY KEY AUTOINCREMENT,

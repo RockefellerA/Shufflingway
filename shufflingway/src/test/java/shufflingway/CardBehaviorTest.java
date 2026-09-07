@@ -45983,7 +45983,44 @@ public class CardBehaviorTest {
 				"Cactuar also becomes a Forward with 4000 power. "
 				+ "(This effect does not end at the end of the turn.)", cactuar).accept(ctx);
 
-		verify(ctx).makeSourceForwardPermanently(cactuar, 4000);
+		// The three-argument form, which is the only one the resolver calls. Verifying the
+		// two-argument convenience beside it passes on a real context — that one delegates — but
+		// not on a mock, where the two are separate methods and only the one actually called is
+		// recorded. Cactuar grants no keyword, so the trait set is empty rather than absent.
+		verify(ctx).makeSourceForwardPermanently(cactuar, 4000,
+				EnumSet.noneOf(CardData.Trait.class));
+	}
+
+	@Test
+	void varunaCarriesItsKeywordThroughTheSamePromotion() {
+		// 7-006R Varuna promotes itself "with 8000 power and Brave", and the keyword is the whole
+		// reason the promotion takes a trait set at all. Nothing pinned it, which is how the
+		// Cactuar assertion above was able to go stale against the widened call without anything
+		// failing that pointed at the traits.
+		CardData varuna = makeMonsterWithText("Varuna", "Water", "");
+		GameContext ctx = mock(GameContext.class);
+		ActionResolver.parse(
+				"if Varuna is not a Forward, Varuna also becomes a Forward with 8000 power and Brave. "
+				+ "(This effect does not end at the end of the turn. "
+				+ "This ability will not trigger if Varuna is a Forward.)", varuna).accept(ctx);
+
+		verify(ctx).makeSourceForwardPermanently(varuna, 8000,
+				EnumSet.of(CardData.Trait.BRAVE));
+	}
+
+	@Test
+	void zaghnalPromotesWithNoKeywordAtAll() {
+		// The sibling printing without a keyword, so the trait set is read rather than assumed:
+		// a parser that always handed back Brave would pass the Varuna test above on its own.
+		CardData zaghnal = makeMonsterWithText("Zaghnal", "Earth", "");
+		GameContext ctx = mock(GameContext.class);
+		ActionResolver.parse(
+				"if Zaghnal is not a Forward, Zaghnal also becomes a Forward with 9000 power. "
+				+ "(This effect does not end at the end of the turn. "
+				+ "This ability will not trigger if Zaghnal is a Forward.)", zaghnal).accept(ctx);
+
+		verify(ctx).makeSourceForwardPermanently(zaghnal, 9000,
+				EnumSet.noneOf(CardData.Trait.class));
 	}
 
 	@Test

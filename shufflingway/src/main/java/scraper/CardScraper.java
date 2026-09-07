@@ -278,17 +278,13 @@ public class CardScraper {
             catch (NumberFormatException ignored) {}
         }
 
-        // image URLs come from images.full[0] and images.thumbs[0]
+        // The image URL comes from images.full[0]. images.thumbs is deliberately not read:
+        // the thumbnail filename it carries was stored and never used by anything downstream.
         JSONObject images = j.optJSONObject("images");
         if (images != null) {
             JSONArray full = images.optJSONArray("full");
             if (full != null && !full.isEmpty()) {
                 c.imageUrl = full.optString(0);
-            }
-            JSONArray thumbs = images.optJSONArray("thumbs");
-            if (thumbs != null && !thumbs.isEmpty()) {
-                String thumbUrl = thumbs.optString(0);
-                c.thumbName = thumbUrl.substring(thumbUrl.lastIndexOf('/') + 1);
             }
         }
 
