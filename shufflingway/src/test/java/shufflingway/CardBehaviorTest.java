@@ -37664,7 +37664,9 @@ public class CardBehaviorTest {
 
 	@Test
 	void andTheDelayedClauseIsNamedRatherThanReportedUnread() {
-		assertEquals("ChooseCharacter / Damage + DrawOnFieldToBz(1)",
+		// The mark carries an arbitrary effect rather than a card count, so the delayed half names
+		// what it will do. A draw is one payload among several now, not the only one.
+		assertEquals("ChooseCharacter / Damage + OnFieldToBz(DrawCards)",
 				ActionResolver.fullDescription(BRYNHILDR_SUMMON, null));
 	}
 
@@ -46920,6 +46922,205 @@ public class CardBehaviorTest {
 		mw.searchDeckForCard(false, true, false, false, false, -1, null,
 				null, null, null, "Fire", null, null, "hand", 1, false, null);
 		assertTrue(mw.gameState.getP2Hand().contains(big), "the next search sees it again");
+	}
+
+	// =========================================================================================
+	// "When it is put from the field into the Break Zone this turn, <effect>" — the delayed
+	// consequence six printings hang off a card they have just chosen.
+	//
+	// Two separate faults, one on top of the other:
+	//
+	//   * AUTO_ABILITY_PATTERN's effect capture stopped at the next "When … " trigger header, and
+	//     this clause looks like one — subject "it", verb "is put". So every auto ability carrying
+	//     it was truncated in front of the clause and the whole consequence was discarded. Ritz
+	//     20-062R lost its draw, 1-192S Cid Raines its discard, 1-211S Rygdea its dull, 20-130L
+	//     Zenos its two-way choice. A negative lookahead fixes that, and is safe because every
+	//     printing of the tail has subject "it"/"they" — no card uses it as a standing trigger.
+	//   * Un-truncating alone made three of them worse rather than better: the delayed machinery
+	//     only ever understood "draw N", so the other consequences were appended as ordinary
+	//     secondary effects and fired immediately, on resolution, instead of when the marked
+	//     Forward died. Zenos additionally collapsed to its first option, losing the Haste one.
+	//
+	// So the mark now carries an arbitrary effect rather than a card count, and the draw rides the
+	// same path as the rest. The tests below pin the arming, the payload, and the firing.
+	// =========================================================================================
+
+	private static final String RITZ_20_062R_ETF =
+			"choose 1 Forward opponent controls. Deal it 3000 damage. When it is put from the field "
+			+ "into the Break Zone this turn, draw 1 card.";
+
+	/** Runs an effect against a mock that hands back one opposing Forward, and returns the mock. */
+	private static GameContext runChoosing(String text, CardData source) {
+		GameContext ctx = mock(GameContext.class);
+		ForwardTarget t = new ForwardTarget(false, 0, ForwardTarget.CardZone.FORWARD);
+		when(ctx.consumePreloadedTargets()).thenReturn(null);
+		when(ctx.selectCharacters(anyInt(), anyBoolean(), anyBoolean(), anyBoolean(),
+				any(), any(), anyInt(), any(), anyInt(), any(),
+				anyBoolean(), anyBoolean(), anyBoolean(),
+				any(), any(), any(), any(), anyBoolean(), any(), anyBoolean())).thenReturn(List.of(t));
+		Consumer<GameContext> fn = ActionResolver.parse(text, source);
+		assertNotNull(fn, "the ability must parse");
+		fn.accept(ctx);
+		return ctx;
+	}
+
+	@Test
+	void ritzKeepsItsDelayedClauseThroughTheAutoAbilitySplit() {
+		// The truncation was upstream of the resolver: the clause never reached it at all.
+		List<AutoAbility> autos = CardData.parseAutoAbilities(
+				"When Ritz enters the field, choose 1 Forward opponent controls. Deal it 3000 damage. "
+				+ "When it is put from the field into the Break Zone this turn, draw 1 card.");
+		assertEquals(1, autos.size(), "one ability, not two — the clause is not a second trigger");
+		assertTrue(autos.get(0).effectText().contains("draw 1 card"),
+				"the delayed clause survives the effect capture");
+	}
+
+	@Test
+	void ritzArmsItsDrawRatherThanDrawingOnResolution() {
+		GameContext ctx = runChoosing(RITZ_20_062R_ETF, makeForward("Ritz", "Wind", 1, 3000));
+
+		ArgumentCaptor<GameContext.DelayedBzEffect> armed =
+				ArgumentCaptor.forClass(GameContext.DelayedBzEffect.class);
+		verify(ctx).armEffectOnFieldToBzMark(armed.capture());
+		assertEquals("DrawCards", armed.getValue().label());
+		// The damage still happens now; only the draw waits.
+		verify(ctx).damageTarget(any(), eq(3000));
+		verify(ctx, never()).drawCards(anyInt());
+	}
+
+	@Test
+	void theMarkIsArmedBeforeThePrimaryThatMayBreakTheTarget() {
+		// Order is the whole point: a lethal primary must not consume the target before anything
+		// is watching it.
+		GameContext ctx = runChoosing(RITZ_20_062R_ETF, makeForward("Ritz", "Wind", 1, 3000));
+		InOrder order = inOrder(ctx);
+		order.verify(ctx).armEffectOnFieldToBzMark(any());
+		order.verify(ctx).damageTarget(any(), anyInt());
+	}
+
+	@Test
+	void theOtherPayloadsAreDelayedRatherThanImmediate() {
+		// Each of these used to fire on resolution once the truncation was lifted, which is the
+		// regression this whole mechanism exists to prevent.
+		GameContext cid = runChoosing(
+				"choose 1 dull Forward opponent controls. Deal it 4000 damage. When it is put from "
+				+ "the field into the Break Zone this turn, your opponent discards 1 card from his/her hand.",
+				makeForward("Cid Raines", "Ice", 2, 5000));
+		verify(cid, never()).forceOpponentDiscard(anyInt());
+
+		GameContext rygdea = runChoosing(
+				"choose 1 active Forward. Deal it 3000 damage. When it is put from the field into "
+				+ "the Break Zone this turn, choose 1 Forward opponent controls. Dull it.",
+				makeForward("Rygdea", "Lightning", 2, 5000));
+		verify(rygdea, never()).dullTarget(any());
+
+		GameContext harlequin = runChoosing(
+				"Choose 1 Job Manikin you control. It gains +2000 power until the end of the turn. "
+				+ "When it is put from the field into the Break Zone this turn, break all the "
+				+ "Card Name Phantasmal Harlequin you control.",
+				makeForward("Phantasmal Harlequin", "Earth", 2, 0));
+		// This one was never truncated — it is an action ability — but it was firing immediately
+		// all the same, breaking every Harlequin the moment the boost resolved.
+		verify(harlequin).armEffectOnFieldToBzMark(any());
+	}
+
+	@Test
+	void zenosKeepsBothOfItsDelayedOptions() {
+		// The immediate reading collapsed this to its first option and lost the Haste one.
+		GameContext ctx = runChoosing(
+				"choose 1 Forward of cost 3 or less. Break it. When it is put from the field into "
+				+ "the Break Zone this turn, select 1 of the 2 following actions. "
+				+ "\"Your opponent discards 1 card.\" \"Zenos gains Haste until the end of the turn.\"",
+				makeForward("Zenos", "Dark", 4, 9000));
+
+		ArgumentCaptor<GameContext.DelayedBzEffect> armed =
+				ArgumentCaptor.forClass(GameContext.DelayedBzEffect.class);
+		verify(ctx).armEffectOnFieldToBzMark(armed.capture());
+		assertTrue(armed.getValue().label().contains("1 of 2"), armed.getValue().label());
+		verify(ctx, never()).forceOpponentDiscard(anyInt());
+	}
+
+	@Test
+	void theDelayedEffectFiresWhenTheMarkedForwardReachesTheBreakZone() {
+		// End to end on a real board: mark, then send the Forward to the Break Zone.
+		MainWindow mw = new MainWindow();
+		CardData victim = makeForward("Victim", "Fire", 3, 7000);
+		mw.gameState.getIdentity().put(victim, false);
+		mw.placeP2CardInForwardZone(victim);
+		for (int i = 0; i < 5; i++) mw.gameState.getP1MainDeck().add(makeForward("Deck " + i, "Wind", 1, 1000));
+		int handBefore = mw.gameState.getP1Hand().size();
+
+		GameContext ctx = mw.buildGameContext(true);
+		ctx.markTargetEffectOnFieldToBzThisTurn(
+				new ForwardTarget(false, 0, ForwardTarget.CardZone.FORWARD),
+				new GameContext.DelayedBzEffect("draw 1", c -> c.drawCards(1)));
+
+		mw.breakP2Forward(0);
+
+		assertEquals(handBefore + 1, mw.gameState.getP1Hand().size(),
+				"the mark's owner drew when the marked Forward was put into the Break Zone");
+	}
+
+	@Test
+	void anUnmarkedForwardReachingTheBreakZoneFiresNothing() {
+		MainWindow mw = new MainWindow();
+		CardData bystander = makeForward("Bystander", "Fire", 3, 7000);
+		// addToBreakZone reads the owner straight out of the identity map and unboxes it, so a
+		// card fielded in a test without one never reaches the trigger under test.
+		mw.gameState.getIdentity().put(bystander, false);
+		mw.placeP2CardInForwardZone(bystander);
+		for (int i = 0; i < 5; i++) mw.gameState.getP1MainDeck().add(makeForward("Deck " + i, "Wind", 1, 1000));
+		int handBefore = mw.gameState.getP1Hand().size();
+
+		mw.breakP2Forward(0);
+
+		assertEquals(handBefore, mw.gameState.getP1Hand().size());
+	}
+
+	@Test
+	void bahamutsDelayedPingIsGatedOnTheOpponentsDamageCount() {
+		// 29-013H's delayed half carries its own condition — "if your opponent has received 5
+		// points of damage or less" — and it was being dropped by the same find() hazard as the
+		// gates elsewhere: the ping fired whatever the opponent's damage count.
+		String delayed = "if your opponent has received 5 points of damage or less, "
+				+ "Bahamut deals your opponent 1 point of damage.";
+		CardData bahamut = makeSummon("Bahamut", "Fire", 6, "");
+		Consumer<GameContext> fn = ActionResolver.parse(delayed, bahamut);
+		assertNotNull(fn);
+
+		GameContext healthy = mock(GameContext.class);
+		when(healthy.opponentDamageCount()).thenReturn(5);
+		fn.accept(healthy);
+		verify(healthy).dealDamageToOpponent(1);
+
+		// A ceiling, not a floor: past it the payoff stops rather than starts.
+		GameContext hurt = mock(GameContext.class);
+		when(hurt.opponentDamageCount()).thenReturn(6);
+		fn.accept(hurt);
+		verify(hurt, never()).dealDamageToOpponent(anyInt());
+	}
+
+	@Test
+	void theMarkIsSpentOnceAndDoesNotSurviveTheCard() {
+		// A card can only leave the field for the Break Zone once, and the mark is consumed on the
+		// way through — a second arrival of an equal card must not re-fire it.
+		MainWindow mw = new MainWindow();
+		CardData victim = makeForward("Victim", "Fire", 3, 7000);
+		mw.gameState.getIdentity().put(victim, false);
+		mw.placeP2CardInForwardZone(victim);
+		for (int i = 0; i < 5; i++) mw.gameState.getP1MainDeck().add(makeForward("Deck " + i, "Wind", 1, 1000));
+
+		mw.buildGameContext(true).markTargetEffectOnFieldToBzThisTurn(
+				new ForwardTarget(false, 0, ForwardTarget.CardZone.FORWARD),
+				new GameContext.DelayedBzEffect("draw 1", c -> c.drawCards(1)));
+		mw.breakP2Forward(0);
+		int afterFirst = mw.gameState.getP1Hand().size();
+
+		// Put the same card object back on the field and break it again.
+		mw.placeP2CardInForwardZone(victim);
+		mw.breakP2Forward(0);
+
+		assertEquals(afterFirst, mw.gameState.getP1Hand().size(), "the mark was spent");
 	}
 
 	// =========================================================================================

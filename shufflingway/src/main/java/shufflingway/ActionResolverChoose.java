@@ -1131,18 +1131,33 @@ final class ActionResolverChoose {
     // Choose Character: entry point and shared helpers
     // =========================================================================================
     static Consumer<GameContext> tryParseChooseCharacter(String text, CardData source, int xValue) {
-        Matcher bzDrawM = CHOOSE_THEN_WHEN_PUT_TO_BZ_DRAW.matcher(text.trim());
-        if (bzDrawM.matches()) {
-            int drawCount = Integer.parseInt(bzDrawM.group("count"));
-            Consumer<GameContext> inner = tryParseChooseCharacterInner(bzDrawM.group("head").trim(), source, xValue);
-            if (inner == null) return null;
-            return ctx -> {
-                ctx.armDrawOnFieldToBzMark(drawCount);
-                inner.accept(ctx);
-                ctx.consumeDrawOnFieldToBzMark();   // clear if the effect never selected a target
-            };
+        Matcher bzEffectM = CHOOSE_THEN_WHEN_PUT_TO_BZ_EFFECT.matcher(text.trim());
+        if (bzEffectM.matches()) {
+            String delayedText = bzEffectM.group("delayed").trim();
+            // Both halves have to be readable for the pair to be claimed. A delayed clause this
+            // engine cannot express falls through to the ordinary parser, which reads the head and
+            // reports the tail as unread — visibly wrong, rather than silently running the
+            // consequence the moment the ability resolves.
+            Consumer<GameContext> delayed = parse(delayedText, source);
+            Consumer<GameContext> inner   = delayed == null ? null
+                    : tryParseChooseCharacterInner(bzEffectM.group("head").trim(), source, xValue);
+            if (inner != null) {
+                GameContext.DelayedBzEffect armed =
+                        new GameContext.DelayedBzEffect(describeDelayed(delayedText, source), delayed);
+                return ctx -> {
+                    ctx.armEffectOnFieldToBzMark(armed);
+                    inner.accept(ctx);
+                    ctx.consumeEffectOnFieldToBzMark();   // clear if the effect never chose a target
+                };
+            }
         }
         return tryParseChooseCharacterInner(text, source, xValue);
+    }
+
+    /** The log label for a delayed clause: its description when there is one, else the text. */
+    private static String describeDelayed(String delayedText, CardData source) {
+        String d = fullDescription(delayedText, source);
+        return d != null ? d : delayedText;
     }
     /**
      * "If &lt;condition&gt;, &lt;action&gt; it/them/this Forward also." — a choose followup's

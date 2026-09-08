@@ -621,6 +621,12 @@ public class ActionResolver {
         // with a plain effect that the leading form cannot see past, so the leading form must not
         // be given first refusal on them; and "instead" precedes the mid-sentence form because the
         // latter's lead-clause shape also matches Ghido's text.
+        // The same shape as the three gates above and dispatched with them: a ceiling on the
+        // opponent's damage wrapping an arbitrary effect (29-013H Bahamut), which the effect
+        // parsers below would otherwise claim out of the middle of the sentence and run ungated.
+        result = tryParseIfOpponentDamageAtMost(effectText, source);
+        if (result != null) return result;
+
         result = tryParseIfPutFromFieldToBzThisTurnInstead(effectText, source);
         if (result != null) return result;
 
@@ -2005,6 +2011,7 @@ public class ActionResolver {
         // Mirrors parse(): ahead of ChooseCharacter, because the gated effect may itself be a
         // choose (16-021C Rain), and in parse()'s order — the two compound forms before the
         // leading one, which cannot see past their opening clause.
+        if (tryParseIfOpponentDamageAtMost(effectText, source) != null) return "IfOpponentDamageAtMost";
         if (tryParseIfPutFromFieldToBzThisTurnInstead(effectText, source) != null) return "IfPutFromFieldToBzThisTurnInstead";
         if (tryParseIfPutFromFieldToBzThisTurn(effectText, source)        != null) return "IfPutFromFieldToBzThisTurn";
         if (tryParseIfPutFromFieldToBzThisTurnMidGate(effectText, source) != null) return "IfPutFromFieldToBzThisTurnMidGate";
@@ -3155,6 +3162,7 @@ public class ActionResolver {
         // Each carries its gated effect's own description rather than stopping at the gate name,
         // so the report still says what the card does when the condition holds; that inner text is
         // the whole payload, and a bare "IfPutFromFieldToBzThisTurn" would hide it.
+        if (tryParseIfOpponentDamageAtMost(effectText, source) != null) return "IfOpponentDamageAtMost";
         if (tryParseIfPutFromFieldToBzThisTurnInstead(effectText, source) != null) {
             Matcher insteadM = PUT_FROM_FIELD_TO_BZ_THIS_TURN_INSTEAD.matcher(effectText.trim());
             if (insteadM.find())
@@ -3189,11 +3197,16 @@ public class ActionResolver {
         // the rest as an ordinary choose-and-act. Without the same strip here the clause fell past
         // the choose block's sentence split and was reported as an unread tail — 15-014H Brynhildr
         // read as "ChooseCharacter / Damage + ?" while its draw had been arming all along.
-        Matcher bzDrawM = CHOOSE_THEN_WHEN_PUT_TO_BZ_DRAW.matcher(effectText.trim());
-        if (bzDrawM.matches() && tryParseChooseCharacter(effectText, source, 0) != null) {
-            String headDesc = fullDescription(bzDrawM.group("head").trim(), source);
+        Matcher bzEffectM = CHOOSE_THEN_WHEN_PUT_TO_BZ_EFFECT.matcher(effectText.trim());
+        if (bzEffectM.matches() && tryParseChooseCharacter(effectText, source, 0) != null) {
+            String headDesc    = fullDescription(bzEffectM.group("head").trim(), source);
+            String delayedDesc = fullDescription(bzEffectM.group("delayed").trim(), source);
+            // The delayed half carries its own description, so the report says what the mark will
+            // do rather than only that there is one. Both halves parse or the pair is not claimed,
+            // so a null here means the description chain is behind the parse chain, not that the
+            // clause was dropped.
             return (headDesc != null ? headDesc : "ChooseCharacter")
-                    + " + DrawOnFieldToBz(" + bzDrawM.group("count") + ")";
+                    + " + OnFieldToBz(" + (delayedDesc != null ? delayedDesc : "?") + ")";
         }
         Matcher chooseM = CHOOSE_CHARACTER_PATTERN.matcher(escapedEffectText);
         if (chooseM.find()) {
@@ -7307,8 +7320,8 @@ public class ActionResolver {
      * a primary that breaks the target outright.
      */
     private static List<ForwardTarget> applyArmedMarks(GameContext ctx, List<ForwardTarget> targets) {
-        int bzDraw = ctx.consumeDrawOnFieldToBzMark();
-        if (bzDraw > 0) targets.forEach(t -> ctx.markTargetDrawOnFieldToBzThisTurn(t, bzDraw));
+        GameContext.DelayedBzEffect armed = ctx.consumeEffectOnFieldToBzMark();
+        if (armed != null) targets.forEach(t -> ctx.markTargetEffectOnFieldToBzThisTurn(t, armed));
         return targets;
     }
 }

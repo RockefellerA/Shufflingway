@@ -428,6 +428,30 @@ final class ActionResolverBreak {
     }
 
     /**
+     * Parses "If your opponent has received N points of damage or less, &lt;effect&gt;" —
+     * 29-013H Bahamut.
+     *
+     * <p>A ceiling, not a floor: it pays out while the opponent is still healthy and stops once
+     * they are far enough down, which is the opposite shape to every other damage gate in the
+     * corpus and the reason it needs reading rather than assuming.
+     */
+    static Consumer<GameContext> tryParseIfOpponentDamageAtMost(String text, CardData source) {
+        Matcher m = IF_OPPONENT_DAMAGE_AT_MOST_INNER.matcher(text.trim());
+        if (!m.find()) return null;
+        int max = Integer.parseInt(m.group("count"));
+        Consumer<GameContext> innerEffect = parse(m.group("inner").trim(), source);
+        if (innerEffect == null) return null;
+        return ctx -> {
+            int received = ctx.opponentDamageCount();
+            if (received <= max) innerEffect.accept(ctx);
+            else ctx.logEntry("Condition not met: opponent has received " + received
+                    + " points of damage, needs " + max + " or less");
+        };
+    }
+
+    /**
+     * Parses "If &lt;N or more&gt; &lt;type&gt; [you|opponent] controlled put from the field into
+    /**
      * Parses "If &lt;N or more&gt; &lt;type&gt; [you|opponent] controlled put from the field into
      * the Break Zone this turn, &lt;effect&gt;" — a gate wrapping an arbitrary effect.
      *

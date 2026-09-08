@@ -3133,6 +3133,21 @@ final class ActionResolverPatterns {
     );
 
     /**
+     * Matches "If your opponent has received N points of damage or less, &lt;effect&gt;" —
+     * 29-013H Bahamut's delayed payoff, the only printing that states this ceiling.
+     *
+     * <p>The "or more" twin of this condition is read elsewhere, by
+     * {@code DamageInsteadCondition}, which serves one specific family and is not a gate over an
+     * arbitrary effect. This is: without it the gated tail was claimed by the effect parsers with
+     * find() and Bahamut pinged the opponent whatever their damage count.
+     */
+    static final Pattern IF_OPPONENT_DAMAGE_AT_MOST_INNER = Pattern.compile(
+        "(?i)^If\\s+your\\s+opponent\\s+has\\s+received\\s+(?<count>\\d+)\\s+points?\\s+of\\s+" +
+        "damage\\s+or\\s+less,\\s+(?<inner>.+)",
+        Pattern.DOTALL
+    );
+
+    /**
      * Matches the replacement form of the same gate — a plain effect, then the gate, then what
      * happens "instead": "Place 1 Knowledge Counter on Ghido. If a Character you controlled has
      * been put from the field into the Break Zone this turn, place 3 Knowledge Counters on Ghido
@@ -4162,18 +4177,25 @@ final class ActionResolverPatterns {
         "remove\\s+(?:it|them)\\s+from\\s+the\\s+game\\s+instead\\.?"
     );
     /**
-     * "&lt;choose + primary&gt;. When it is put from the field into the Break Zone this turn, draw
-     * N card(s)." (Brynhildr 15-014H, Ritz 20-062R) — a delayed trigger placed on the chosen
-     * target, firing for the player who resolved the ability whenever that Forward later leaves
-     * the field for the Break Zone, by combat or by any effect.
+     * "&lt;choose + primary&gt;. When it is put from the field into the Break Zone this turn,
+     * &lt;effect&gt;." — a delayed trigger placed on the chosen target, firing for the player who
+     * resolved the ability whenever that Forward later leaves the field for the Break Zone, by
+     * combat or by any effect.
+     *
+     * <p>The whole family: 15-014H Brynhildr and 20-062R Ritz draw, 1-192S Cid Raines makes the
+     * opponent discard, 1-211S Rygdea dulls a Forward, 20-130L Zenos offers a choice of two, and
+     * 2-092C Phantasmal Harlequin breaks every copy of itself. The delayed half was a draw and
+     * nothing else until this was widened, which is why four of those six ran their consequence
+     * immediately or lost it altogether.
      *
      * <p>{@code head} is greedy so it runs up to the <em>last</em> occurrence of the trigger
      * clause, keeping the whole "Choose … . &lt;primary&gt;." prefix intact for the normal parser.
-     * Groups: {@code head} — the choose-and-act text; {@code count} — cards drawn.
+     * Groups: {@code head} — the choose-and-act text; {@code delayed} — what happens when the
+     * marked card goes, dispatched back through {@link ActionResolver#parse}.
      */
-    static final Pattern CHOOSE_THEN_WHEN_PUT_TO_BZ_DRAW = Pattern.compile(
+    static final Pattern CHOOSE_THEN_WHEN_PUT_TO_BZ_EFFECT = Pattern.compile(
         "(?is)^(?<head>.+)\\s+When\\s+(?:it|they)\\s+(?:is|are)\\s+put\\s+from\\s+the\\s+field\\s+" +
-        "into\\s+the\\s+Break\\s+Zone\\s+this\\s+turn,\\s+draw\\s+(?<count>\\d+)\\s+cards?[.!]?$"
+        "into\\s+the\\s+Break\\s+Zone\\s+this\\s+turn,\\s+(?<delayed>.+?)[.!]?$"
     );
     /** Standalone: "[CardName] gains '[...] cannot be broken.' until end of turn." */
     static final Pattern STANDALONE_SELF_SHIELD_CANNOT_BE_BROKEN = Pattern.compile(

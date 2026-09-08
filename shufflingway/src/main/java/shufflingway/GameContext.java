@@ -1542,7 +1542,7 @@ public interface GameContext {
      * regardless of what later breaks it. Does not fire if the card is removed from the game
      * instead of reaching the Break Zone.
      */
-    void markTargetDrawOnFieldToBzThisTurn(ForwardTarget t, int count);
+    void markTargetEffectOnFieldToBzThisTurn(ForwardTarget t, DelayedBzEffect armed);
 
     /**
      * Marks the Forward at {@code t} so that when it leaves the field this turn, {@code source} is
@@ -1557,13 +1557,24 @@ public interface GameContext {
     void markTargetPutSourceToBzOnLeaveThisTurn(ForwardTarget t, CardData source);
 
     /**
-     * Arms {@link #markTargetDrawOnFieldToBzThisTurn} to be applied to the next set of targets
-     * chosen through this context, so the mark lands between choosing a target and acting on it.
+     * A delayed "when it is put from the field into the Break Zone this turn, …" effect, waiting to
+     * be attached to whatever the current selection chooses. {@code label} is what the log says
+     * when it fires.
      */
-    void armDrawOnFieldToBzMark(int count);
+    record DelayedBzEffect(String label, Consumer<GameContext> effect) {}
 
-    /** Returns and clears the count armed by {@link #armDrawOnFieldToBzMark}; {@code 0} when none. */
-    int consumeDrawOnFieldToBzMark();
+    /**
+     * Arms {@link #markTargetEffectOnFieldToBzThisTurn} to be applied to the next set of targets
+     * chosen through this context, so the mark lands between choosing a target and acting on it.
+     *
+     * <p>That order is the whole point: the mark has to be on the Forward before the primary
+     * effect that may break it outright, or a lethal primary would consume the target before
+     * anything was watching it.
+     */
+    void armEffectOnFieldToBzMark(DelayedBzEffect armed);
+
+    /** Returns and clears whatever {@link #armEffectOnFieldToBzMark} armed; {@code null} when none. */
+    DelayedBzEffect consumeEffectOnFieldToBzMark();
 
     /** Finds {@code source} on the field by name and dulls it. No-op if not found. */
     void dullSourceForward(CardData source);

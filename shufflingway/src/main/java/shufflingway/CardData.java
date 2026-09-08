@@ -2991,7 +2991,22 @@ public record CardData(
         // Effect ends at: a [[br]], the next "When …" trigger, a card's own 《cost》: special-ability
         // marker, or end of text. The (?<!\") guard keeps a 《cost》: that sits INSIDE a quoted granted
         // ability (e.g. Machinist's "《Dull》: …", Medusa's "《5》: …") from prematurely ending the effect.
-        "(?=\\s*\\[\\[br\\]\\]|\\s*When\\s+[^,]+?\\s+(?:forms?\\s+a\\s+party\\s+and\\s+attacks?|attacks?|blocks?|enters?|leaves?|is\\s+(?:put|removed|blocked|dealt)|(?:is|are)\\s+(?:added|priming)|deals?|uses?|becomes?|searches?|discards?|gains?)|\\s*(?<!\")(?:《[^》]+》)+\\s*:|\\s*$)",
+        //
+        // The negative lookahead after "When" is what keeps a delayed consequence from reading as
+        // the next trigger header. "When it is put from the field into the Break Zone this turn, …"
+        // satisfies the "is put" arm below with subject "it", so the effect capture used to stop
+        // dead in front of it and the whole clause was discarded — 20-062R Ritz lost its draw,
+        // 1-192S Cid Raines its discard, 1-211S Rygdea its dull and 20-130L Zenos its two-way
+        // choice, each silently.
+        //
+        // Safe because the two readings never overlap in the corpus: every printing of this tail
+        // has subject "it"/"they" and is a consequence attached to a card the sentence just chose,
+        // and no card uses it as a standing trigger — a standing one names a subject ("a Forward
+        // you control"), which this lookahead does not match.
+        "(?=\\s*\\[\\[br\\]\\]" +
+        "|\\s*When\\s+(?!(?:it|they)\\s+(?:is|are)\\s+put\\s+from\\s+the\\s+field\\s+into\\s+the\\s+Break\\s+Zone\\s+this\\s+turn\\b)" +
+            "[^,]+?\\s+(?:forms?\\s+a\\s+party\\s+and\\s+attacks?|attacks?|blocks?|enters?|leaves?|is\\s+(?:put|removed|blocked|dealt)|(?:is|are)\\s+(?:added|priming)|deals?|uses?|becomes?|searches?|discards?|gains?)" +
+        "|\\s*(?<!\")(?:《[^》]+》)+\\s*:|\\s*$)",
         Pattern.DOTALL
     );
 

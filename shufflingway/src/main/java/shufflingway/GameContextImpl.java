@@ -77,8 +77,11 @@ final class GameContextImpl implements GameContext {
 	private final boolean exBurst;
 	private List<ForwardTarget> lastChosenTargets = List.of();
 	private List<ForwardTarget> preloadedTargets  = null;
-	/** Pending "draw N when it leaves the field for the Break Zone" mark, applied at target selection. */
-	private int armedBzDrawMark = 0;
+	/**
+	 * Pending "when it is put from the field into the Break Zone this turn, …" mark, applied at
+	 * target selection so it lands before the primary effect that may break the target.
+	 */
+	private GameContext.DelayedBzEffect armedBzEffectMark = null;
 	/**
 	 * Damage the selection about to be made will be dealt, or {@code 0} when the effect deals none.
 	 * Set by {@link ActionResolver#preSelectTargets} and read only by the AI's auto-selection branch
@@ -730,24 +733,24 @@ final class GameContextImpl implements GameContext {
 						+ " — if put from the field into the Break Zone this turn, removed from the game instead");
 			}
 
-			@Override public void armDrawOnFieldToBzMark(int count) { armedBzDrawMark = count; }
+			@Override public void armEffectOnFieldToBzMark(DelayedBzEffect armed) { armedBzEffectMark = armed; }
 
-			@Override public int consumeDrawOnFieldToBzMark() {
-				int c = armedBzDrawMark; armedBzDrawMark = 0; return c;
+			@Override public DelayedBzEffect consumeEffectOnFieldToBzMark() {
+				DelayedBzEffect a = armedBzEffectMark; armedBzEffectMark = null; return a;
 			}
 
-			@Override public void markTargetDrawOnFieldToBzThisTurn(ForwardTarget t, int count) {
+			@Override public void markTargetEffectOnFieldToBzThisTurn(ForwardTarget t, DelayedBzEffect armed) {
 				if (t.zone() != ForwardTarget.CardZone.FORWARD) return;
 				CardData c = mw.autoAbilityTriggers.fieldCardData(t);
 				if (c == null) return;
-				// isP1, not t.isP1(): the draw belongs to whoever resolved the ability, while the
+				// isP1, not t.isP1(): the payoff belongs to whoever resolved the ability, while the
 				// marked Forward is usually the opponent's.
-				mw.drawOnFieldToBzThisTurn
+				mw.effectOnFieldToBzThisTurn
 						.computeIfAbsent(c, k -> new ArrayList<>())
-						.add(new MainWindow.PendingBzDraw(isP1, count));
+						.add(new MainWindow.PendingBzEffect(isP1, armed.label(), armed.effect()));
 				logEntry((t.isP1() ? "" : "[P2] ") + c.name()
 						+ " — when put from the field into the Break Zone this turn, "
-						+ (isP1 ? "P1" : "P2") + " draws " + count);
+						+ (isP1 ? "P1" : "P2") + ": " + armed.label());
 			}
 
 			@Override public void markTargetPutSourceToBzOnLeaveThisTurn(ForwardTarget t, CardData source) {

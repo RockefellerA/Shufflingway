@@ -1161,14 +1161,24 @@ public class MainWindow {
 	 * object and carries none of the old damage.
 	 */
 	final Map<CardData, Set<CardData>> damagedBySourcesThisTurn = new IdentityHashMap<>();
-	/** One pending "draw when the marked card leaves the field for the Break Zone" trigger. */
-	record PendingBzDraw(boolean drawerIsP1, int count) {}
 	/**
-	 * Cards marked (by a targeted ability) to make a player draw when they are put from the field
-	 * into the Break Zone this turn — Brynhildr 15-014H. Keyed by card because the mark rides the
-	 * specific card instance, and holding a list keeps two marks on the same card from cancelling.
+	 * One pending "when the marked card is put from the field into the Break Zone this turn, do
+	 * this" trigger.
+	 *
+	 * <p>{@code ownerIsP1} is who resolved the ability, not who controls the marked card — the two
+	 * are usually opponents, and the payoff belongs to the resolver. {@code label} is what the log
+	 * says when it fires. {@code effect} is resolved against a context built for the owner, so an
+	 * "your opponent discards" inside it means the owner's opponent.
 	 */
-	final Map<CardData, List<PendingBzDraw>> drawOnFieldToBzThisTurn = new HashMap<>();
+	record PendingBzEffect(boolean ownerIsP1, String label, Consumer<GameContext> effect) {}
+	/**
+	 * Cards marked (by a targeted ability) to fire a delayed effect when they are put from the
+	 * field into the Break Zone this turn — 15-014H Brynhildr and 20-062R Ritz draw, 1-192S Cid
+	 * Raines makes the opponent discard, 1-211S Rygdea dulls a Forward, 20-130L Zenos offers a
+	 * choice of two. Keyed by card because the mark rides the specific card instance, and holding a
+	 * list keeps two marks on the same card from cancelling.
+	 */
+	final Map<CardData, List<PendingBzEffect>> effectOnFieldToBzThisTurn = new HashMap<>();
 	/**
 	 * Cards marked so that when they leave the field this turn, the cards listed against them are
 	 * put into the Break Zone — 7-055R Chocobo, which lends a Forward +3000 power and follows it
@@ -3491,7 +3501,7 @@ public class MainWindow {
                                 perCardIncomingDmgMultiplierMap.clear();
                                 p1Turn.forwardIncomingDmgMult = 1;      p2Turn.forwardIncomingDmgMult = 1;
                                 p1Turn.abilityOutgoingDmgMult = 1;      p2Turn.abilityOutgoingDmgMult = 1;
-                                cannotBeChosenBySummons.clear();  cannotBeChosenByAbilities.clear();  cannotBeChosenBySummonsAnyone.clear();  cannotBeChosenByAbilitiesAnyone.clear();  cannotBeChosenByElement.clear();  nullifyElementDamageMap.clear();  nullifyElementDamageAbilityOnlyMap.clear();  rfgInsteadOfBzThisTurn.clear();  drawOnFieldToBzThisTurn.clear();  putIntoBzWhenLeavesFieldThisTurn.clear();  damageZeroedSourcesThisTurn.clear();  damagedBySourcesThisTurn.clear();
+                                cannotBeChosenBySummons.clear();  cannotBeChosenByAbilities.clear();  cannotBeChosenBySummonsAnyone.clear();  cannotBeChosenByAbilitiesAnyone.clear();  cannotBeChosenByElement.clear();  nullifyElementDamageMap.clear();  nullifyElementDamageAbilityOnlyMap.clear();  rfgInsteadOfBzThisTurn.clear();  effectOnFieldToBzThisTurn.clear();  putIntoBzWhenLeavesFieldThisTurn.clear();  damageZeroedSourcesThisTurn.clear();  damagedBySourcesThisTurn.clear();
                                 breaktouchBattleSet.clear();   breakWhenDealtDamageSet.clear();
                                 p1Turn.nonLethalProtection = false;    p2Turn.nonLethalProtection = false;
                                 p1Turn.dmgReductionDisabled = false;   p2Turn.dmgReductionDisabled = false;
@@ -8229,23 +8239,27 @@ public class MainWindow {
 		}
 		if (player1) refreshP1BreakLabel(); else refreshP2BreakLabel();
 		syncBzForwardPlayables(player1);
-		if (fromField) fireFieldToBzDrawTriggers(card);
+		if (fromField) fireFieldToBzEffectTriggers(card);
 	}
 
 	/**
-	 * Resolves any "When it is put from the field into the Break Zone this turn, draw N card(s)"
-	 * marks on {@code card} (Brynhildr 15-014H). Called once the card has actually reached the
-	 * Break Zone, so the RFG redirects earlier in {@link #addToBreakZone} pre-empt the trigger —
-	 * a card removed from the game was never put into the Break Zone. The mark is consumed on the
-	 * way through: the card can only leave the field for the Break Zone once.
+	 * Resolves any "When it is put from the field into the Break Zone this turn, &lt;effect&gt;"
+	 * marks on {@code card}. Called once the card has actually reached the Break Zone, so the RFG
+	 * redirects earlier in {@link #addToBreakZone} pre-empt the trigger — a card removed from the
+	 * game was never put into the Break Zone. The mark is consumed on the way through: the card can
+	 * only leave the field for the Break Zone once.
+	 *
+	 * <p>Each effect resolves against a context built for the player who armed it, which is what
+	 * makes "your opponent discards 1 card" (1-192S Cid Raines) mean the resolver's opponent rather
+	 * than the marked Forward's.
 	 */
-	private void fireFieldToBzDrawTriggers(CardData card) {
-		List<PendingBzDraw> pending = drawOnFieldToBzThisTurn.remove(card);
+	private void fireFieldToBzEffectTriggers(CardData card) {
+		List<PendingBzEffect> pending = effectOnFieldToBzThisTurn.remove(card);
 		if (pending == null) return;
-		for (PendingBzDraw p : pending) {
-			logEntry((p.drawerIsP1() ? "" : "[P2] ") + card.name()
-					+ " was put from the field into the Break Zone — draw " + p.count());
-			drawCardsForPlayer(p.drawerIsP1(), p.count());
+		for (PendingBzEffect p : pending) {
+			logEntry((p.ownerIsP1() ? "" : "[P2] ") + card.name()
+					+ " was put from the field into the Break Zone — " + p.label());
+			p.effect().accept(buildGameContext(p.ownerIsP1()));
 		}
 	}
 
