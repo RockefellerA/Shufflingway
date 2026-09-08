@@ -7659,20 +7659,23 @@ final class GameContextImpl implements GameContext {
 				}, null);
 			}
 
-			@Override public void mayPayElementCpToEffect(String element, java.util.function.Consumer<GameContext> onPay) {
+			@Override public void mayPayElementCpToEffect(String element, int count,
+					java.util.function.Consumer<GameContext> onPay) {
+				final int need = Math.max(1, count);
+				String cost = "《" + element + "》".repeat(need);
 				if (!isP1) {
-					logEntry("[P2 AI] Pays 《" + element + "》 for optional effect");
-					mw.autoAbilityTriggers.showAutoAbilityPaymentDialog("", 1, 1, isP1, 0, paid -> {
-						if (paid >= 1) { logEntry("[P2 AI] Paid 《" + element + "》 — applying effect"); onPay.accept(this); }
+					logEntry("[P2 AI] Pays " + cost + " for optional effect");
+					mw.autoAbilityTriggers.showAutoAbilityPaymentDialog("", need, need, isP1, 0, paid -> {
+						if (paid >= need) { logEntry("[P2 AI] Paid " + cost + " — applying effect"); onPay.accept(this); }
 					}, null);
 					return;
 				}
 				String src    = mw.currentAbilitySource != null ? mw.currentAbilitySource.name() : "Ability";
-				String label  = "Pay 《" + element + "》?";
+				String label  = "Pay " + cost + "?";
 				int choice = mw.showEffectOptionDialog(src + " — " + label, "Optional Cost", new Object[]{"Pay", "Pass"});
-				if (choice != 0) { logEntry("Optional pay: declined 《" + element + "》"); return; }
-				mw.autoAbilityTriggers.showAutoAbilityPaymentDialog(src, 1, 1, isP1, 0, paid -> {
-					if (paid >= 1) { logEntry("Optional pay: paid 《" + element + "》 — applying effect"); onPay.accept(this); }
+				if (choice != 0) { logEntry("Optional pay: declined " + cost); return; }
+				mw.autoAbilityTriggers.showAutoAbilityPaymentDialog(src, need, need, isP1, 0, paid -> {
+					if (paid >= need) { logEntry("Optional pay: paid " + cost + " — applying effect"); onPay.accept(this); }
 				}, null);
 			}
 
@@ -8111,6 +8114,7 @@ final class GameContextImpl implements GameContext {
 								case ACTIVATE       -> { if (mw.p1ForwardStates.get(i) == CardState.DULL) mw.lastMassActivateCount++;
 								                         mw.p1ForwardStates.set(i, CardState.ACTIVE); mw.refreshP1ForwardSlot(i); }
 								case RETURN_TO_HAND -> returnP1ForwardToHand(i);
+								case REMOVE_FROM_GAME -> removeTargetFromGame(new ForwardTarget(true, i, ForwardTarget.CardZone.FORWARD));
 							}
 						}
 					}
@@ -8139,6 +8143,7 @@ final class GameContextImpl implements GameContext {
 								case ACTIVATE       -> { if (mw.p1BackupStates[i] == CardState.DULL) mw.lastMassActivateCount++;
 								                         mw.p1BackupStates[i] = CardState.ACTIVE; logEntry(c.name() + " is activated");       mw.refreshP1BackupSlot(i); }
 								case RETURN_TO_HAND -> returnP1BackupToHand(i);
+								case REMOVE_FROM_GAME -> removeTargetFromGame(new ForwardTarget(true, i, ForwardTarget.CardZone.BACKUP));
 							}
 						}
 					}
@@ -8173,6 +8178,7 @@ final class GameContextImpl implements GameContext {
 								case ACTIVATE       -> { if (mw.p1MonsterStates.get(i) == CardState.DULL) mw.lastMassActivateCount++;
 								                         mw.p1MonsterStates.set(i, CardState.ACTIVE); logEntry(c.name() + " is activated");       mw.refreshP1MonsterSlot(i); }
 								case RETURN_TO_HAND -> returnP1MonsterToHand(i);
+								case REMOVE_FROM_GAME -> removeTargetFromGame(new ForwardTarget(true, i, ForwardTarget.CardZone.MONSTER));
 							}
 						}
 					}
@@ -8197,6 +8203,7 @@ final class GameContextImpl implements GameContext {
 								case ACTIVATE       -> { if (mw.p2ForwardStates.get(i) == CardState.DULL) mw.lastMassActivateCount++;
 								                         mw.p2ForwardStates.set(i, CardState.ACTIVE); mw.refreshP2ForwardSlot(i); }
 								case RETURN_TO_HAND -> returnP2ForwardToHand(i);
+								case REMOVE_FROM_GAME -> removeTargetFromGame(new ForwardTarget(false, i, ForwardTarget.CardZone.FORWARD));
 							}
 						}
 					}
@@ -8225,6 +8232,7 @@ final class GameContextImpl implements GameContext {
 								case ACTIVATE       -> { if (mw.p2BackupStates[i] == CardState.DULL) mw.lastMassActivateCount++;
 								                         mw.p2BackupStates[i] = CardState.ACTIVE; logEntry("[P2] " + c.name() + " is activated");       mw.refreshP2BackupSlot(i); }
 								case RETURN_TO_HAND -> returnP2BackupToHand(i);
+								case REMOVE_FROM_GAME -> removeTargetFromGame(new ForwardTarget(false, i, ForwardTarget.CardZone.BACKUP));
 							}
 						}
 					}
@@ -8257,6 +8265,7 @@ final class GameContextImpl implements GameContext {
 								case ACTIVATE       -> { if (mw.p2MonsterStates.get(i) == CardState.DULL) mw.lastMassActivateCount++;
 								                         mw.p2MonsterStates.set(i, CardState.ACTIVE); logEntry("[P2] " + c.name() + " is activated");       mw.refreshP2MonsterSlot(i); }
 								case RETURN_TO_HAND -> returnP2MonsterToHand(i);
+								case REMOVE_FROM_GAME -> removeTargetFromGame(new ForwardTarget(false, i, ForwardTarget.CardZone.MONSTER));
 							}
 						}
 					}

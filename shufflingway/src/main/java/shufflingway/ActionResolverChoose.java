@@ -1988,17 +1988,22 @@ final class ActionResolverChoose {
             Matcher youMayPayM = FOLLOWUP_YOU_MAY_PAY_ELEMENT_IF_DO_SO.matcher(followup);
             if (youMayPayM.matches()) {
                 String cpElem    = youMayPayM.group("element").trim();
+                // One for the first token plus one per repeat — 7-067L Galuf's 《Earth》《Earth》.
+                String repeatRaw = youMayPayM.group("repeat");
+                int    cpCount   = 1 + (int) (repeatRaw == null ? 0
+                        : repeatRaw.chars().filter(ch -> ch == '《').count());
                 String cpEffText = youMayPayM.group("effect").trim();
                 BiConsumer<GameContext, List<ForwardTarget>> cpAction =
                         parseTargetAction(cpEffText, xValue);
                 if (cpAction != null) {
                     return ctx -> {
-                        ctx.logChooseHeader(choosePrefix + " — You may pay 《" + cpElem + "》; if so: " + cpEffText);
+                        ctx.logChooseHeader(choosePrefix + " — You may pay 《" + cpElem + "》"
+                                + (cpCount > 1 ? " ×" + cpCount : "") + "; if so: " + cpEffText);
                         List<ForwardTarget> ts = selectTargets(ctx, maxCount, upTo,
                                 opponentOnly, selfOnly, condition, element, zone, opponentZone,
                                 costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters,
                                 jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, fExcludeElem, withoutMulticard);
-                        ctx.mayPayElementCpToEffect(cpElem, ctx2 -> cpAction.accept(ctx2, ts));
+                        ctx.mayPayElementCpToEffect(cpElem, cpCount, ctx2 -> cpAction.accept(ctx2, ts));
                     };
                 }
             }
@@ -3105,6 +3110,58 @@ final class ActionResolverChoose {
             };
         }
 
+        // --- "Remove them, and all the <types> opponent controls from the game." (21-074L) ---
+        // Ahead of the plain remove-from-game followup, which matches the bracketing "Remove them
+        // … from the game" with find() and silently drops the sweep.
+        Matcher rfgSweepM = FOLLOWUP_REMOVE_FROM_GAME_AND_SWEEP.matcher(strippedPrimaryFollowup);
+        if (rfgSweepM.matches()) {
+            String sweep = rfgSweepM.group("sweep").toLowerCase();
+            boolean sweepFwd = sweep.contains("forward") || sweep.contains("character");
+            boolean sweepBkp = sweep.contains("backup")  || sweep.contains("character");
+            boolean sweepMon = sweep.contains("monster") || sweep.contains("character");
+            return ctx -> {
+                ctx.logChooseHeader(choosePrefix + " — Remove from the game, and all "
+                        + rfgSweepM.group("sweep") + " opponent controls");
+                List<ForwardTarget> ts = selectTargets(ctx, maxCount, upTo,
+                        opponentOnly, selfOnly, condition, element, zone, opponentZone,
+                        costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters,
+                        jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, fExcludeElem, withoutMulticard);
+                // The chosen cards first: the sweep is scoped to the opponent's side, so it cannot
+                // reach them, and taking them first keeps their indices valid.
+                sortedByIdxDesc(ts, true) .forEach(ctx::removeTargetFromGame);
+                sortedByIdxDesc(ts, false).forEach(ctx::removeTargetFromGame);
+                ctx.applyMassFieldEffect(GameContext.MassAction.REMOVE_FROM_GAME,
+                        sweepFwd, sweepBkp, sweepMon, true, false,
+                        null, -1, null, -1, null, null, EnumSet.noneOf(CardData.Trait.class), null);
+                if (secondary != null) secondary.accept(ctx);
+            };
+        }
+
+        // --- "Deal it the same amount of damage" (23-077H Azul) ---
+        // --- "Deal it the same amount of damage" (23-077H Azul) ---
+        // Ahead of the fixed-amount branch below, which cannot read a number out of this wording
+        // and so left the followup unclaimed.
+        if (FOLLOWUP_DAMAGE_SAME_AMOUNT.matcher(strippedPrimaryFollowup).matches()) {
+            final int sameAmount = xValue;
+            return ctx -> {
+                if (sameAmount <= 0) {
+                    ctx.logEntry(choosePrefix + " — no damage instance to mirror, nothing dealt");
+                    ctx.markEffectFizzled();
+                    return;
+                }
+                ctx.logChooseHeader(choosePrefix + " — Deal the same amount of damage ("
+                        + sameAmount + ")");
+                List<ForwardTarget> ts = selectTargets(ctx, maxCount, upTo,
+                        opponentOnly, selfOnly, condition, element, zone, opponentZone,
+                        costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters,
+                        jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, fExcludeElem, withoutMulticard);
+                sortedByIdxDesc(ts, true) .forEach(t -> ctx.damageTarget(t, sameAmount));
+                sortedByIdxDesc(ts, false).forEach(t -> ctx.damageTarget(t, sameAmount));
+                if (secondary != null) secondary.accept(ctx);
+            };
+        }
+
+        // --- Damage followup (fixed amount) ---
         // --- Damage followup (fixed amount) ---
         Matcher dmgM = FOLLOWUP_DAMAGE.matcher(strippedPrimaryFollowup);
         if (dmgM.find()) {

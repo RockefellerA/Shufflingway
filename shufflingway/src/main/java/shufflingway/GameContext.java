@@ -2738,7 +2738,13 @@ public interface GameContext {
      * Offers the player the option to pay 1 CP of {@code element} to apply an optional effect.
      * Skips the offer if the player has no way to pay. Calls {@code onPay} if the player accepts.
      */
-    void mayPayElementCpToEffect(String element, java.util.function.Consumer<GameContext> onPay);
+    void mayPayElementCpToEffect(String element, int count,
+            java.util.function.Consumer<GameContext> onPay);
+
+    /** {@link #mayPayElementCpToEffect} for a cost naming a single CP of {@code element}. */
+    default void mayPayElementCpToEffect(String element, java.util.function.Consumer<GameContext> onPay) {
+        mayPayElementCpToEffect(element, 1, onPay);
+    }
 
     /**
      * Offers the ability controller's <em>opponent</em> the chance to pay {@code cost} CP in full to
@@ -3657,7 +3663,13 @@ public interface GameContext {
     // ---- Mass field effects -------------------------------------------------
 
     /** Action verbs for mass field effects. */
-    enum MassAction { BREAK, DULL, FREEZE, DULL_AND_FREEZE, ACTIVATE, RETURN_TO_HAND }
+    enum MassAction { BREAK, DULL, FREEZE, DULL_AND_FREEZE, ACTIVATE, RETURN_TO_HAND,
+        /**
+         * Removes each swept card from the game — 21-074L Neo Exdeath's "and all the Forwards and
+         * Monsters opponent controls". Goes through the ordinary targeted removal, so the
+         * leave-the-field shields hold against it exactly as they do against a single one.
+         */
+        REMOVE_FROM_GAME }
 
     /**
      * Applies {@code action} to every field card that matches all filters.

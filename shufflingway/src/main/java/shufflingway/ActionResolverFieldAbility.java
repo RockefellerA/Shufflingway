@@ -409,6 +409,10 @@ final class ActionResolverFieldAbility {
             case DULL_AND_FREEZE -> "Dull & Freeze";
             case ACTIVATE        -> "Activate";
             case RETURN_TO_HAND  -> "Return to hand";
+            // Reachable only through the choose chain's sweep followup (21-074L Neo Exdeath), not
+            // through this parser's own action words — the label is here because the switch is
+            // exhaustive over the enum, which is what made the compiler point at this line.
+            case REMOVE_FROM_GAME -> "Remove from the game";
         };
         String tgtLabel     = targets != null ? targets : (job != null ? "Job " + job : category != null ? "Cat " + category : "all");
         String costLabel    = costVal >= 0

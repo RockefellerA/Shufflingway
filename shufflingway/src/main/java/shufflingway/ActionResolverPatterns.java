@@ -795,6 +795,21 @@ final class ActionResolverPatterns {
         "(?i)^Deal\\s+(?<splash>\\d+)\\s+damage\\s+to\\s+all\\s+the\\s+other\\s+Forwards\\s+" +
         "(?:your\\s+)?opponent\\s+controls[.!]?$"
     );
+    /**
+     * "Deal it/them the same amount of damage." — 23-077H Azul's retaliation, the choose-a-target
+     * twin of Shantotto 4-083L's board sweep.
+     *
+     * <p>"The same amount" is the size of the damage instance that fired the "is dealt damage"
+     * trigger. The text never states it; only the event knows, and it reaches the effect as the
+     * entry's {@code xValue}. An entry carrying nothing there deals no damage rather than guessing.
+     *
+     * <p>Must be checked before {@link #FOLLOWUP_DAMAGE}, whose amount group needs a number and so
+     * simply fails here — leaving the followup unread, which is what left Azul as
+     * "ChooseCharacter / ?".
+     */
+    static final Pattern FOLLOWUP_DAMAGE_SAME_AMOUNT = Pattern.compile(
+        "(?i)^Deal\\s+(?:it|them)\\s+the\\s+same\\s+amount\\s+of\\s+damage[.!]?\\s*$"
+    );
     static final Pattern FOLLOWUP_DAMAGE = Pattern.compile(
         "(?i)deal\\s+(?:it|them)(?:\\s+and\\s+(?<also>.+?))?\\s+(?<amount>\\d+)\\s+damage"
     );
@@ -1528,6 +1543,26 @@ final class ActionResolverPatterns {
     /** Matches "Remove it/them from the game". */
     static final Pattern FOLLOWUP_REMOVE_FROM_GAME = Pattern.compile(
         "(?i)Remove\\s+(?:it|them)\\s+from\\s+(?:the\\s+)?game"
+    );
+
+    /**
+     * "Remove them, and all the Forwards and Monsters opponent controls from the game." —
+     * 21-074L Neo Exdeath, the only printing that removes what it chose <em>and</em> a whole side
+     * of the board in one sentence.
+     *
+     * <p>Group {@code sweep} is the second pool, read for its card types. Must be checked before
+     * {@link #FOLLOWUP_REMOVE_FROM_GAME}, which is read with find() and matches the "Remove them
+     * … from the game" that brackets the whole clause — taking the chosen Backups and dropping
+     * the sweep, which is the half that decides the game.
+     *
+     * <p>The comma after "them" is why {@link #FOLLOWUP_REMOVE_FROM_GAME_AND_NAMED} does not
+     * already cover this: that one joins a named card with a bare "and".
+     */
+    static final Pattern FOLLOWUP_REMOVE_FROM_GAME_AND_SWEEP = Pattern.compile(
+        "(?i)^Remove\\s+(?:it|them),?\\s+and\\s+all\\s+(?:the\\s+)?" +
+        "(?<sweep>(?:Forwards?|Backups?|Monsters?|Characters?)" +
+        "(?:\\s+and\\s+(?:Forwards?|Backups?|Monsters?|Characters?))*)\\s+" +
+        "opponent\\s+controls\\s+from\\s+(?:the\\s+)?game[.!]?\\s*$"
     );
 
     // =========================================================================================
@@ -7770,12 +7805,22 @@ final class ActionResolverPatterns {
         Pattern.DOTALL
     );
     /**
-     * Matches "You may pay 《Element》. If you do so, [effect]." — an optional CP payment followed
-     * by a conditional target action, used as the followup inside {@link #tryParseChooseCharacter}.
-     * Groups: {@code element} — the element name (e.g. "Ice"); {@code effect} — the conditional action text.
+     * Matches "You may pay 《Element》[《Element》…]. If you do so, [effect]." — an optional CP
+     * payment followed by a conditional target action, used as the followup inside
+     * {@link #tryParseChooseCharacter}.
+     *
+     * <p>The run may repeat one element: 7-067L Galuf prints 《Earth》《Earth》, and matching only a
+     * single token left the whole gate unread, so the compulsion behind it was picked up as an
+     * ordinary secondary and applied without anyone paying for it. Group {@code repeat} holds the
+     * extra tokens, counted by the handler; a run naming two <em>different</em> elements is not
+     * matched, because the payment charges one element at a time.
+     *
+     * <p>Groups: {@code element} — the element name (e.g. "Ice"); {@code repeat} — any further
+     * copies of it; {@code effect} — the conditional action text.
      */
     static final Pattern FOLLOWUP_YOU_MAY_PAY_ELEMENT_IF_DO_SO = Pattern.compile(
-        "(?i)^You\\s+may\\s+pay\\s+《(?<element>[^》]+)》[.!]?\\s+If\\s+you\\s+do\\s+so[,.]?\\s+(?<effect>.+)$",
+        "(?i)^You\\s+may\\s+pay\\s+《(?<element>[^》]+)》(?<repeat>(?:\\s*《\\k<element>》)*)[.!]?\\s+" +
+        "If\\s+you\\s+do\\s+so[,.]?\\s+(?<effect>.+)$",
         Pattern.DOTALL
     );
     /**

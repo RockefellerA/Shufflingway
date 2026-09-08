@@ -27712,11 +27712,15 @@ public class CardBehaviorTest {
 	}
 
 	@Test
-	void theSameFollowupWithoutTheExclusionKeepsItsQuestionMark() {
-		// 23-077H Azul prints the echo off "is dealt damage" and without the exclusion, which is
-		// a shape nothing resolves. Naming it would say the engine reads an effect it does not:
-		// the "?" is what tells the coverage report the followup is still open.
-		assertEquals("ChooseCharacter / ?",
+	void theSameFollowupWithoutTheExclusionIsNowResolvedInTheChooseChain() {
+		// 23-077H Azul prints the echo off "is dealt damage" and without the exclusion. That used
+		// to resolve to nothing and the "?" was the signal; the choose chain now reads it, taking
+		// the amount off the entry's xValue the way the excluded form takes it off the trigger.
+		//
+		// The two stay separate on purpose: the excluded form above is dispatched by
+		// AutoAbilityTriggers and resolved by DamageResolver, and is named off the whole sentence
+		// because the exclusion is what identifies it. This one is an ordinary choose followup.
+		assertEquals("ChooseCharacter / DamageSameAmountDealt",
 				ActionResolver.fullDescription(
 						"choose up to 1 Forward opponent controls. Deal it the same amount of damage.",
 						makeAutoAbilityForward("Azul", "")));
@@ -47121,6 +47125,127 @@ public class CardBehaviorTest {
 		mw.breakP2Forward(0);
 
 		assertEquals(afterFirst, mw.gameState.getP1Hand().size(), "the mark was spent");
+	}
+
+	// =========================================================================================
+	// Three followups that had no reader — 23-077H Azul, 21-074L Neo Exdeath, 7-067L Galuf.
+	//
+	// Each was reported as "ChooseCharacter / ?", and the "?" was doing real work: it said the
+	// engine chose a target and then did nothing with it. Galuf's was the dangerous one — the
+	// compulsion behind its optional cost was picked up as an ordinary secondary and applied
+	// without anyone paying for it.
+	// =========================================================================================
+
+	/** Runs a choose-and-act against a mock that offers one opposing Forward. */
+	private static GameContext runChoose(String text, CardData source, int xValue) {
+		GameContext ctx = mock(GameContext.class);
+		ForwardTarget t = new ForwardTarget(false, 0, ForwardTarget.CardZone.FORWARD);
+		when(ctx.consumePreloadedTargets()).thenReturn(null);
+		when(ctx.selectCharacters(anyInt(), anyBoolean(), anyBoolean(), anyBoolean(),
+				any(), any(), anyInt(), any(), anyInt(), any(),
+				anyBoolean(), anyBoolean(), anyBoolean(),
+				any(), any(), any(), any(), anyBoolean(), any(), anyBoolean())).thenReturn(List.of(t));
+		Consumer<GameContext> fn = ActionResolver.parse(text, source, xValue);
+		assertNotNull(fn, "the ability must parse");
+		fn.accept(ctx);
+		return ctx;
+	}
+
+	private static final String AZUL_23_077H_ECHO =
+			"choose up to 1 Forward opponent controls. Deal it the same amount of damage.";
+
+	@Test
+	void azulEchoesTheDamageItWasDealt() {
+		// "The same amount" is not in the text — it is the size of the damage instance that fired
+		// the trigger, which the dispatcher puts on the stack entry as its xValue.
+		GameContext ctx = runChoose(AZUL_23_077H_ECHO, makeForward("Azul", "Lightning", 4, 8000), 7000);
+		verify(ctx).damageTarget(any(), eq(7000));
+	}
+
+	@Test
+	void azulEchoesNothingWithNoDamageInstanceBehindIt() {
+		// An entry carrying nothing there deals no damage rather than guessing at one.
+		GameContext ctx = runChoose(AZUL_23_077H_ECHO, makeForward("Azul", "Lightning", 4, 8000), 0);
+		verify(ctx, never()).damageTarget(any(), anyInt());
+		verify(ctx).markEffectFizzled();
+	}
+
+	@Test
+	void theExcludedEchoStillBelongsToItsOwnDispatchPath() {
+		// 27-007H Gulool Ja Ja prints the same followup with "other than that Forward", and that
+		// one is dispatched by AutoAbilityTriggers and resolved by DamageResolver rather than by
+		// the choose chain. Naming it off the whole sentence is what keeps the two apart.
+		assertEquals("ChooseCharacter / DamageSameAmount",
+				ActionResolver.fullDescription(
+						"choose 1 Forward opponent controls other than that Forward. "
+						+ "Deal it the same amount of damage.",
+						makeAutoAbilityForward("Gulool Ja Ja", GULOOL_JA_JA_TEXT)));
+	}
+
+	@Test
+	void neoExdeathRemovesWhatItChoseAndSweepsTheOpposingBoard() {
+		GameContext ctx = runChoose(
+				"choose 2 Backups you control. Remove them, and all the Forwards and Monsters "
+				+ "opponent controls from the game.",
+				makeForward("Neo Exdeath", "Earth", 8, 10000), 0);
+
+		verify(ctx).removeTargetFromGame(any());
+		// The sweep is opponent-scoped and covers Forwards and Monsters but not Backups: the text
+		// names two rows, and taking the third would clear a board half the card never mentions.
+		verify(ctx).applyMassFieldEffect(eq(GameContext.MassAction.REMOVE_FROM_GAME),
+				eq(true), eq(false), eq(true), eq(true), eq(false),
+				isNull(), eq(-1), isNull(), eq(-1), isNull(), isNull(), any(), isNull());
+	}
+
+	@Test
+	void galufsCompulsionSitsBehindItsOptionalCost() {
+		// The bug: the pay clause read as unclaimed and the compulsion behind it was applied as a
+		// free secondary. Nothing may reach the target until the cost is actually paid.
+		CardData galuf = makeForward("Galuf", "Earth", 5, 9000);
+		GameContext ctx = runChoose(
+				"choose 1 Forward. You may pay  《Earth》《Earth》. If you do so, it must block Galuf "
+				+ "this turn if possible.", galuf, 0);
+
+		verify(ctx).mayPayElementCpToEffect(eq("Earth"), eq(2), any());
+		// Not granted directly: it is inside the onPay callback, which the mock never runs.
+		verify(ctx, never()).grantFieldAbilityUntilEndOfTurn(any(), anyString());
+	}
+
+	@Test
+	void galufChargesForBothEarthNotOne() {
+		// The run is two 《Earth》, and matching only the first token is what left the whole gate
+		// unread. A count of 1 here would sell the compulsion at half price.
+		ArgumentCaptor<Integer> count = ArgumentCaptor.forClass(Integer.class);
+		GameContext ctx = runChoose(
+				"choose 1 Forward. You may pay 《Earth》《Earth》. If you do so, it must block Galuf "
+				+ "this turn if possible.", makeForward("Galuf", "Earth", 5, 9000), 0);
+		verify(ctx).mayPayElementCpToEffect(eq("Earth"), count.capture(), any());
+		assertEquals(2, count.getValue());
+	}
+
+	@Test
+	void aSingleElementPayGateIsUnchanged() {
+		// 3-030L Kuja's 《Ice》 — the shape that already worked, which the widened run must not
+		// have disturbed. It was one of ten cards a first attempt at Galuf quietly took over.
+		GameContext ctx = runChoose(
+				"choose 1 Forward. You may pay 《Ice》. If you do so, Freeze it.",
+				makeForward("Kuja", "Ice", 3, 7000), 0);
+		verify(ctx).mayPayElementCpToEffect(eq("Ice"), eq(1), any());
+	}
+
+	@Test
+	void aPayRunNamingTwoDifferentElementsIsNotChargedForOneOfThem() {
+		// The run has to be one element repeated: the payment charges one element at a time, so a
+		// mixed run must not be read as a cost of whichever token came first.
+		//
+		// Asserted on the payment rather than on the followup name — the trailing "Freeze it" is
+		// claimed by the freeze followup whatever the gate does, so a name assertion here would
+		// pass or fail for reasons that have nothing to do with the cost.
+		GameContext ctx = runChoose(
+				"choose 1 Forward. You may pay 《Fire》《Ice》. If you do so, Freeze it.",
+				makeForward("Nobody", "Fire", 3, 7000), 0);
+		verify(ctx, never()).mayPayElementCpToEffect(any(), anyInt(), any());
+		verify(ctx, never()).mayPayElementCpToEffect(any(), any());
 	}
 
 	// =========================================================================================

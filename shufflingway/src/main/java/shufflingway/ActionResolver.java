@@ -2518,6 +2518,14 @@ public class ActionResolver {
         // the multiplier as though it were not there (26-073C Dyne).
         if (FOLLOWUP_DAMAGE_FOR_EACH_DISCARDED_TO_CAST.matcher(followupText).find())
                                                                                       return "DamageForEachDiscardedToCast";
+        // Mirrors the choose chain: ahead of the fixed-amount damage name, which this wording
+        // does not satisfy — the amount is the damage instance that fired the trigger.
+        // Mirrors the choose chain: ahead of the plain RemoveFromGame name, whose pattern is a
+        // suffix of this one and reports the sweep as though it were not there.
+        if (FOLLOWUP_REMOVE_FROM_GAME_AND_SWEEP.matcher(followupText.trim()).matches())
+                                                                                      return "RemoveFromGameAndSweepOpponent";
+        if (FOLLOWUP_DAMAGE_SAME_AMOUNT.matcher(followupText.trim()).matches())
+                                                                                      return "DamageSameAmountDealt";
         if (FOLLOWUP_DAMAGE_FOR_EACH_COUNTER.matcher(followupText).find())             return "DamageForEachCounter";
         if (FOLLOWUP_DAMAGE_FOR_EACH.matcher(followupText).find())                    return "DamageForEach";
         if (FOLLOWUP_DULL_AND_DAMAGE.matcher(followupText).find())                   return "DullAndDamage";
@@ -4386,6 +4394,20 @@ public class ActionResolver {
                 sortedByIdxDesc(ts, false).forEach(ctx::breakTarget);
             };
 
+        // "It must block [name] this turn if possible." — what 7-067L Galuf's optional
+        // 《Earth》《Earth》 buys. Its own grant rather than a shared one: the compulsion names the
+        // attacker, so it binds the chosen Forward against Galuf and not against every attacker.
+        Matcher mustBlockNamedM = FOLLOWUP_MUST_BLOCK_NAMED_INLINE.matcher(t);
+        if (mustBlockNamedM.matches()) {
+            String granted = "This Forward must block " + mustBlockNamedM.group("cardname").trim()
+                    + " if possible.";
+            return (ctx, ts) -> {
+                for (ForwardTarget x : ts) {
+                    if (x.zone() != ForwardTarget.CardZone.FORWARD) continue;
+                    ctx.grantFieldAbilityUntilEndOfTurn(x, granted);
+                }
+            };
+        }
         if (FOLLOWUP_ACTIVATE.matcher(t).find())
             return (ctx, ts) -> {
                 sortedByIdxDesc(ts, true) .forEach(ctx::activateTarget);
@@ -5301,7 +5323,12 @@ public class ActionResolver {
             else if (tok.matches("\\d+"))       cp += Integer.parseInt(tok);
             else if (tok.equalsIgnoreCase("X")) return null;
             else if (element == null)           element = tok;
-            else if (element.equalsIgnoreCase(tok)) return null;  // 《Wind》《Wind》 — two of one element
+            // 《Wind》《Wind》 — two of one element. Declined here on purpose: this tally feeds the
+            // top-level "you may pay …" parser, which is dispatched ahead of the choose chain, and
+            // admitting the run let it claim ten cards whose own followups read them better. The
+            // repeated-element run 7-067L Galuf prints is read where it belongs, by
+            // FOLLOWUP_YOU_MAY_PAY_ELEMENT_IF_DO_SO inside the choose followup chain.
+            else if (element.equalsIgnoreCase(tok)) return null;
             else                                return null;      // mixed elements
         }
         // Elements and generic CP together (《Fire》《1》) would need a compound payment the
