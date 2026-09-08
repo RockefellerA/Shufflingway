@@ -961,6 +961,22 @@ public interface GameContext {
     ForwardTarget playTargetOntoFieldNoAutoAbility(ForwardTarget t);
 
     /**
+     * Plays a Break Zone card onto the <em>resolving player's</em> field, whichever Break Zone it
+     * came from — "Choose 1 Monster in your opponent's Break Zone. Play it onto your field."
+     * (19-127L Relm; 22-048H Nanaa Mihgo for a Forward of cost 2 or less).
+     *
+     * <p>The distinction from {@link #playTargetOntoField} is the side it lands on. That one puts
+     * the card back on the field belonging to the Break Zone it came out of, which is right for
+     * salvaging your own and exactly wrong here: it would hand the opponent their Monster back.
+     *
+     * <p>Ownership is deliberately left alone. Control is which row the card sits in, and the
+     * owner is what decides whose Break Zone it goes to when it later leaves the field — so a
+     * Monster taken this way is yours to use and theirs to get back once it breaks, which is what
+     * the rules say and what the identity map already models.
+     */
+    ForwardTarget playTargetOntoOwnField(ForwardTarget t);
+
+    /**
      * Asks for two distinct Forwards of {@code element} in the ability user's own Break Zone, the
      * first costing at most {@code maxCost1} and the second at most {@code maxCost2}. Returns both
      * targets in choice order, or an empty list if either choice could not be made.

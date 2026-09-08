@@ -4089,6 +4089,25 @@ final class ActionResolverChoose {
             };
         }
 
+        // --- "Play it onto your field." (19-127L Relm, 22-048H Nanaa Mihgo) ---
+        // Ahead of the plain play-onto-field branch below, which cannot read this wording. The
+        // card comes out of the opponent's Break Zone and lands on ours, so it goes through the
+        // own-field primitive rather than the one that returns a card to the side it came from.
+        if (FOLLOWUP_PLAY_ONTO_OWN_FIELD.matcher(primaryFollowup.trim()).matches()) {
+            return ctx -> {
+                ctx.logChooseHeader(choosePrefix + " — Play it onto your field");
+                List<ForwardTarget> ts = selectTargets(ctx, maxCount, upTo,
+                        opponentOnly, selfOnly, condition, element, zone, opponentZone,
+                        costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters,
+                        jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, fExcludeElem, withoutMulticard);
+                // Highest index first: each play removes a card from the Break Zone and compacts
+                // it, which would otherwise shift every later pick's index.
+                sortedByIdxDesc(ts, true) .forEach(ctx::playTargetOntoOwnField);
+                sortedByIdxDesc(ts, false).forEach(ctx::playTargetOntoOwnField);
+                if (secondary != null) secondary.accept(ctx);
+            };
+        }
+
         if (FOLLOWUP_PLAY_ONTO_FIELD.matcher(primaryFollowup).find()) {
             // "Its auto-ability will not trigger." qualifies the play rather than following it, so
             // it is read here and not run as a secondary — see the guard that nulls it out above.

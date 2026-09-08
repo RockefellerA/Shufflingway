@@ -2652,6 +2652,8 @@ public class ActionResolver {
         // scan for, and both use find(), so either would claim it and report a search of the deck
         // as an action taken on the chosen target.
         if (FOLLOWUP_SEARCH_MATCHING_CHOSEN.matcher(followupText).matches())          return "SearchMatchingChosen";
+        // Mirrors the choose chain: ahead of PlayOntoField, which this wording does not satisfy.
+        if (FOLLOWUP_PLAY_ONTO_OWN_FIELD.matcher(followupText.trim()).matches())      return "PlayOntoOwnField";
         if (FOLLOWUP_PLAY_ONTO_FIELD.matcher(followupText).find())                    return "PlayOntoField";
         if (FOLLOWUP_ADD_TO_HAND.matcher(followupText).find())                        return "AddToHand";
         if (FOLLOWUP_RETURN_AND_NAMED_TO_OWNERS_HAND.matcher(followupText).find())    return "ReturnAndNamedToOwnersHand";

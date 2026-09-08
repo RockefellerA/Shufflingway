@@ -2030,6 +2030,26 @@ final class ActionResolverPatterns {
         "(?i)Play\\s+(?:it|them)\\s+onto\\s+(?:the\\s+)?field"
     );
 
+    /**
+     * Matches "Play it/them onto <b>your</b> field" — 19-127L Relm and 22-048H Nanaa Mihgo, both
+     * of which take the card out of the <em>opponent's</em> Break Zone, so the side it lands on is
+     * the whole point of the wording.
+     *
+     * <p>Checked ahead of {@link #FOLLOWUP_PLAY_ONTO_FIELD}. The two cannot actually overlap —
+     * that one needs "onto [the] field" with nothing between — which is exactly why this wording
+     * matched nothing at all and both cards reported an unread followup.
+     *
+     * <p>Anchored end to end, and read with {@code matches()} rather than {@code find()}. Other
+     * printings put a condition in front of the same phrase — 7-087R Exdeath's "if its cost is
+     * equal to or less than the number of Backups you control", 11-129H Chaos's "you may pay
+     * 《X》 … if its cost is X" — and a find() claimed the play out of the middle of those
+     * sentences and ran it ungated, which is strictly stronger than printed. Those keep their
+     * unread marker until someone reads the condition too.
+     */
+    static final Pattern FOLLOWUP_PLAY_ONTO_OWN_FIELD = Pattern.compile(
+        "(?i)^Play\\s+(?:it|them)\\s+onto\\s+your\\s+field[.!]?\\s*$"
+    );
+
     // =========================================================================================
     // Play onto the field; add to hand
     // =========================================================================================

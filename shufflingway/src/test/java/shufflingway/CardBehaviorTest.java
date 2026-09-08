@@ -47249,5 +47249,116 @@ public class CardBehaviorTest {
 	}
 
 	// =========================================================================================
+	// "Choose 1 X in your opponent's Break Zone. Play it onto your field." — 19-127L Relm (a
+	// Monster) and 22-048H Nanaa Mihgo (a Forward of cost 2 or less).
+	//
+	// The followup matched nothing: FOLLOWUP_PLAY_ONTO_FIELD wants "onto [the] field" with nothing
+	// between, and "onto your field" has a word there. Both cards chose a target and then did
+	// nothing with it.
+	//
+	// The side it lands on is the whole point of the wording, and it is what separates this from
+	// the ordinary salvage play: that one returns the card to the field belonging to the Break Zone
+	// it came out of, which here would hand the opponent their own Monster back.
+	// =========================================================================================
+
+	private static final String RELM_19_127L_STEAL =
+			"Choose 1 Monster in your opponent's Break Zone. Play it onto your field.";
+
+	@Test
+	void relmTakesTheMonsterOntoHerOwnField() {
+		MainWindow mw = new MainWindow();
+		CardData theirMonster = plainMonster("Cactuar", "Wind");
+		mw.gameState.getIdentity().put(theirMonster, false);   // owned by P2
+		mw.gameState.getP2BreakZone().add(theirMonster);
+
+		GameContext ctx = mw.buildGameContext(true);
+		ctx.preloadTargets(List.of(new ForwardTarget(false, 0, ForwardTarget.CardZone.BREAK_ZONE)));
+		ActionResolver.parse(RELM_19_127L_STEAL, makeForward("Relm", "Water", 2, 5000)).accept(ctx);
+
+		assertTrue(mw.p1MonsterCards.contains(theirMonster), "it lands on the resolving player's field");
+		assertFalse(mw.p2MonsterCards.contains(theirMonster), "and not back on its owner's");
+		assertTrue(mw.gameState.getP2BreakZone().isEmpty(), "it left the Break Zone it came from");
+	}
+
+	@Test
+	void theStolenCardIsStillOwnedByTheOpponent() {
+		// Control is which row it sits in; ownership is what decides whose Break Zone it returns to
+		// when it later leaves the field. Taking the card must not rewrite that — otherwise it
+		// would break into the wrong player's Break Zone for the rest of the game.
+		MainWindow mw = new MainWindow();
+		CardData theirMonster = plainMonster("Cactuar", "Wind");
+		mw.gameState.getIdentity().put(theirMonster, false);
+		mw.gameState.getP2BreakZone().add(theirMonster);
+
+		GameContext ctx = mw.buildGameContext(true);
+		ctx.preloadTargets(List.of(new ForwardTarget(false, 0, ForwardTarget.CardZone.BREAK_ZONE)));
+		ActionResolver.parse(RELM_19_127L_STEAL, makeForward("Relm", "Water", 2, 5000)).accept(ctx);
+
+		assertEquals(Boolean.FALSE, mw.gameState.getIdentity().get(theirMonster),
+				"still the opponent's card, on our side of the table");
+	}
+
+	@Test
+	void nanaaMihgoTakesAForwardTheSameWay() {
+		// The sibling printing, whose pool is a Forward of cost 2 or less rather than a Monster —
+		// the same followup, so wiring one wired both.
+		MainWindow mw = new MainWindow();
+		CardData theirForward = makeForward("Cheap One", "Fire", 2, 3000);
+		mw.gameState.getIdentity().put(theirForward, false);
+		mw.gameState.getP2BreakZone().add(theirForward);
+
+		GameContext ctx = mw.buildGameContext(true);
+		ctx.preloadTargets(List.of(new ForwardTarget(false, 0, ForwardTarget.CardZone.BREAK_ZONE)));
+		ActionResolver.parse(
+				"Choose 1 Forward of cost 2 or less in your opponent's Break Zone. Play it onto your field.",
+				makeForward("Nanaa Mihgo", "Wind", 4, 7000)).accept(ctx);
+
+		assertTrue(mw.p1ForwardCards.contains(theirForward), "onto the resolving player's Forward row");
+		assertTrue(mw.gameState.getP2BreakZone().isEmpty());
+	}
+
+	@Test
+	void theOrdinarySalvagePlayStillReturnsToItsOwnSide() {
+		// The existing "Play it onto the field" wording must keep putting the card back on the side
+		// whose Break Zone it came from — widening that would quietly turn every salvage into a
+		// steal.
+		MainWindow mw = new MainWindow();
+		CardData mine = makeForward("Mine", "Fire", 2, 3000);
+		mw.gameState.getIdentity().put(mine, true);
+		mw.gameState.getP1BreakZone().add(mine);
+
+		GameContext ctx = mw.buildGameContext(true);
+		ctx.playTargetOntoField(new ForwardTarget(true, 0, ForwardTarget.CardZone.BREAK_ZONE));
+
+		assertTrue(mw.p1ForwardCards.contains(mine));
+	}
+
+	@Test
+	void aConditionInFrontOfThePhraseIsNotClaimed() {
+		// The followup is anchored end to end on purpose. Other printings put a condition before
+		// the same phrase — 7-087R Exdeath's "if its cost is equal to or less than the number of
+		// Backups you control" — and a find() claimed the play out of the middle of the sentence
+		// and ran it ungated, which is strictly stronger than the card. Better an unread marker
+		// than a Forward that arrives whatever it costs.
+		assertEquals("ChooseCharacter / ?",
+				ActionResolver.fullDescription(
+						"choose 1 Forward from either player's Break Zone. If its cost is equal to "
+						+ "or less than the number of Backups you control, play it onto your field.",
+						makeForward("Exdeath", "Lightning", 6, 0)));
+	}
+
+	@Test
+	void bothPrintingsAreNamedForTheSideTheyPlayOnto() {
+		assertEquals("ChooseCharacter / PlayOntoOwnField",
+				ActionResolver.fullDescription(RELM_19_127L_STEAL,
+						makeForward("Relm", "Water", 2, 5000)));
+		assertEquals("ChooseCharacter / PlayOntoOwnField",
+				ActionResolver.fullDescription(
+						"Choose 1 Forward of cost 2 or less in your opponent's Break Zone. "
+						+ "Play it onto your field.",
+						makeForward("Nanaa Mihgo", "Wind", 4, 7000)));
+	}
+
+	// =========================================================================================
 
 }

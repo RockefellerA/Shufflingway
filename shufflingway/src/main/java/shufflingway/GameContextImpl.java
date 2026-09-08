@@ -5655,11 +5655,15 @@ final class GameContextImpl implements GameContext {
 	// Playing targets onto the field; Break Zone moves
 	// =========================================================================================
 			@Override public ForwardTarget playTargetOntoField(ForwardTarget t) {
-				return playFromBreakZone(t, false);
+				return playFromBreakZone(t, false, false);
 			}
 
 			@Override public ForwardTarget playTargetOntoFieldNoAutoAbility(ForwardTarget t) {
-				return playFromBreakZone(t, true);
+				return playFromBreakZone(t, true, false);
+			}
+
+			@Override public ForwardTarget playTargetOntoOwnField(ForwardTarget t) {
+				return playFromBreakZone(t, false, true);
 			}
 
 			/**
@@ -5669,7 +5673,8 @@ final class GameContextImpl implements GameContext {
 			 *                            play that turns out to be prohibited would leave the flag
 			 *                            standing for whatever card entered next.
 			 */
-			private ForwardTarget playFromBreakZone(ForwardTarget t, boolean suppressAutoAbility) {
+			private ForwardTarget playFromBreakZone(ForwardTarget t, boolean suppressAutoAbility,
+					boolean ontoOwnField) {
 				List<CardData> bz = t.isP1() ? mw.gameState.getP1BreakZone() : mw.gameState.getP2BreakZone();
 				if (t.idx() >= bz.size()) return null;
 				// "You cannot play X due to Summons or abilities." — checked before the card leaves
@@ -5680,12 +5685,16 @@ final class GameContextImpl implements GameContext {
 					return null;
 				}
 				CardData card = bz.remove(t.idx());
-				String src = t.isP1() ? "Break Zone" : "opponent's Break Zone";
-				logEntry(card.name() + " played from " + src + " onto field"
+				String src = t.isP1() == isP1 ? "Break Zone" : "opponent's Break Zone";
+				// Which side the card lands on: normally the one whose Break Zone it came from,
+				// but "onto your field" puts it on the resolving player's instead.
+				boolean landsOnP1 = ontoOwnField ? isP1 : t.isP1();
+				logEntry(card.name() + " played from " + src + " onto "
+						+ (ontoOwnField && t.isP1() != isP1 ? "your field" : "field")
 						+ (suppressAutoAbility ? " (no ETF auto-ability)" : ""));
 				if (suppressAutoAbility) mw.suppressAutoAbilityForNextCards = 1;
 				ForwardTarget landed;
-				if (t.isP1()) {
+				if (landsOnP1) {
 					if (card.isBackup())       { mw.placeCardInFirstBackupSlot(card); landed = ownBackupTargetOf(true, card); }
 					else if (card.isMonster()) { mw.placeCardInMonsterZone(card);     landed = new ForwardTarget(true, mw.p1MonsterCards.size() - 1, ForwardTarget.CardZone.MONSTER); }
 					else                       { mw.placeCardInForwardZone(card);     landed = new ForwardTarget(true, mw.p1ForwardCards.size() - 1, ForwardTarget.CardZone.FORWARD); }
