@@ -435,6 +435,60 @@ final class ActionResolverSearch {
         };
     }
     /**
+     * Parses 23-124L Eiko's "You may search for 1 Summon and remove it from the game. You can cast
+     * it without paying the cost this turn."
+     *
+     * <p>Sibling of {@link #tryParseSearchAndCastSummonFree} and the reason both exist: that one
+     * casts the Summon there and then, this one hands the player a permission they may spend at any
+     * point in the turn. Only the destination clause tells them apart, so both are anchored.
+     *
+     * <p>The "you may" is asked before the search rather than being read off a declined pick.
+     * Searching a deck is a public event other abilities react to, so a player who declines has to
+     * be seen not to have searched — the same reason {@link GameContext#promptYouMay} exists.
+     */
+    static Consumer<GameContext> tryParseSearchSummonRfgFreeCastThisTurn(String text) {
+        Matcher m = SEARCH_SUMMON_RFG_FREE_CAST_THIS_TURN.matcher(text.trim());
+        if (!m.matches()) return null;
+        final boolean optional = m.group("may") != null;
+        final String  element  = m.group("element");
+        final String  costStr  = m.group("cost");
+        final int     maxCost  = costStr != null ? Integer.parseInt(costStr) : -1;
+        final String  label    = (element != null ? element + " " : "") + "Summon"
+                + (maxCost >= 0 ? " of cost " + maxCost + " or less" : "");
+        return ctx -> {
+            if (optional && !ctx.promptYouMay("Search for 1 " + label
+                    + " and remove it from the game?")) {
+                ctx.logEntry("Effect: declined to search");
+                return;
+            }
+            ctx.logEntry("Effect: Search deck for 1 " + label
+                    + ", remove it from the game — castable free this turn");
+            ctx.searchSummonRfgFreeCastThisTurn(maxCost, element);
+        };
+    }
+    /**
+     * Parses 22-110L Citra's payoff, "search for 1 Summon of cost 3 or less and remove it from the
+     * game. Then, cast it without paying the cost."
+     *
+     * <p>The instruction form of {@link #tryParseSearchSummonRfgFreeCastThisTurn}: same search,
+     * same removal, but the cast happens now instead of being on offer for the turn. Anchored for
+     * the reason that one is — the two texts differ only in their last clause.
+     */
+    static Consumer<GameContext> tryParseSearchSummonRfgThenCastFree(String text) {
+        Matcher m = SEARCH_SUMMON_RFG_THEN_CAST_FREE.matcher(text.trim());
+        if (!m.matches()) return null;
+        final String element = m.group("element");
+        final String costStr = m.group("cost");
+        final int    maxCost = costStr != null ? Integer.parseInt(costStr) : -1;
+        final String label   = (element != null ? element + " " : "") + "Summon"
+                + (maxCost >= 0 ? " of cost " + maxCost + " or less" : "");
+        return ctx -> {
+            ctx.logEntry("Effect: Search deck for 1 " + label
+                    + ", remove it from the game, then cast it for free");
+            ctx.searchSummonRfgThenCastFree(maxCost, element);
+        };
+    }
+    /**
      * Parses "Your opponent reveals N cards from their hand. Select 1 card among them.
      * Your opponent discards this card." (14-035C Don Corneo)
      *

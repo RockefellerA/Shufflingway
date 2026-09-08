@@ -5520,6 +5520,20 @@ public class MainWindow {
 	private int searchTotalCostBudget = -1;
 
 	/**
+	 * Collects the cards a search actually moved, for the callers that have to do something more
+	 * with the card than put it somewhere — 23-124L Eiko's "search for 1 Summon and remove it from
+	 * the game. <b>You can cast it</b> without paying the cost this turn", where the permission is
+	 * granted to that one card and nothing else names it.
+	 *
+	 * <p>A rider on an ordinary search for the same reason {@link #searchPowerVal} is one: the
+	 * search-blocked check, the searched-the-deck triggers and the destination handling all stay in
+	 * the one place, and the twenty-odd callers that do not care keep the signature they have.
+	 * {@code null} whenever nobody is collecting — set and cleared by
+	 * {@link #searchDeckCollecting}, which is the only way in.
+	 */
+	private List<CardData> searchMovedSink = null;
+
+	/**
 	 * Searches with a selection constraint and/or the arrivals silenced: every match is still
 	 * offered, but a card that collides with a standing pick cannot be taken, and each card that
 	 * reaches the field does so without firing its enter-the-field ability.
@@ -5544,6 +5558,79 @@ public class MainWindow {
 			searchPickGate = PickGate.ANY;
 			searchSuppressAutoAbilities = false;
 			searchTotalCostBudget = -1;
+		}
+	}
+
+	/**
+	 * Runs {@code search} with {@link #searchMovedSink} collecting, and returns the cards it moved.
+	 * Empty when the search was blocked, matched nothing, or the player looked and took nothing —
+	 * the three ways {@code searchDeckForCard} comes back false, none of which a caller acting on
+	 * the card can tell apart or needs to.
+	 *
+	 * <p>Cleared in a finally block, so a dialog the player dismisses cannot leave the sink set for
+	 * the next search.
+	 */
+	List<CardData> searchDeckCollecting(java.util.function.BooleanSupplier search) {
+		List<CardData> moved = new ArrayList<>();
+		searchMovedSink = moved;
+		try {
+			search.getAsBoolean();
+		} finally {
+			searchMovedSink = null;
+		}
+		return moved;
+	}
+
+	/**
+	 * 23-124L Eiko: "search for 1 Summon and remove it from the game. You can cast it without
+	 * paying the cost this turn."
+	 *
+	 * <p>The Summon is registered against the removed-from-game zone it now sits in, free and for
+	 * this turn only. Not {@code rfgAfterUse}: it is already out of the game, and casting it is
+	 * what puts it into the Break Zone — the opposite of the Krile/Nanaa clause, which keeps a
+	 * Summon out of the Break Zone it would otherwise return to.
+	 *
+	 * @param maxCost CP cost ceiling on the search, or {@code -1} for none
+	 * @param element the Element the search is narrowed to, or {@code null} for any
+	 */
+	void searchSummonRfgFreeCastThisTurn(boolean isP1, int maxCost, String element) {
+		List<CardData> moved = searchDeckCollecting(() -> searchDeckForCard(isP1,
+				false, false, false, true, maxCost, maxCost >= 0 ? "less" : null,
+				null, null, null, element, null, null, "removedFromGame", 1, false, null));
+		for (CardData card : moved) {
+			registerBorrowedPlayable(isP1, card,
+					new PlayableEntry(PlayableEntry.SourceZone.RFP, 0, false, true, false, true));
+			logEntry((isP1 ? "" : "[P2] ") + card.name()
+					+ " removed from the game — castable this turn without paying the cost");
+		}
+	}
+
+	/**
+	 * 22-110L Citra's payoff: "search for 1 Summon and remove it from the game. Then, cast it
+	 * without paying the cost."
+	 *
+	 * <p>Same search as {@link #searchSummonRfgFreeCastThisTurn} and the same removal; what differs
+	 * is that the cast happens now rather than being offered for the rest of the turn. The Summon
+	 * comes back out of the removed-from-game zone to be cast, and resolves into the Break Zone like
+	 * any other — nothing here prints the clause that would keep it out of one.
+	 *
+	 * @param maxCost CP cost ceiling on the search, or {@code -1} for none
+	 * @param element the Element the search is narrowed to, or {@code null} for any
+	 */
+	void searchSummonRfgThenCastFree(boolean isP1, int maxCost, String element) {
+		List<CardData> moved = searchDeckCollecting(() -> searchDeckForCard(isP1,
+				false, false, false, true, maxCost, maxCost >= 0 ? "less" : null,
+				null, null, null, element, null, null, "removedFromGame", 1, false, null));
+		for (CardData card : moved) {
+			gameState.removeFromPermanentRfp(card);
+			if (isP1) refreshP1WarpZoneUI(); else refreshP2WarpZoneUI();
+			turn(isP1).summonCastThisTurn = true;
+			noteCardCast(card, isP1);
+			noteDoublecastSummonCast(isP1, card);
+			lastCardWasCast = true;
+			logEntry((isP1 ? "" : "[P2] ") + "Cast \"" + card.name() + "\" for free");
+			showSummonOnStack(card, isP1);
+			lastCardWasCast = false;
 		}
 	}
 
@@ -5763,6 +5850,10 @@ public class MainWindow {
 		// of them, and a one-shot flag would silence only the first.
 		if (searchSuppressAutoAbilities && "field".equals(destination))
 			suppressAutoAbilityForNextCards = chosen.size();
+		// Recorded here rather than at each destination: every branch below moves exactly the cards
+		// in "chosen", and a caller asking what the search produced wants them whichever zone they
+		// went to.
+		if (searchMovedSink != null) searchMovedSink.addAll(chosen);
 		for (CardData card : chosen) {
 			switch (destination) {
 				case "hand" -> {
@@ -7504,18 +7595,53 @@ public class MainWindow {
 	                                              List<CardData> zone, int count,
 	                                              String title, String waitPrompt,
 	                                              Supplier<List<ForwardTarget>> cpuPick) {
+		return selectBreakZoneTargets(chooserIsP1, eligible, zone, count, PickGate.ANY,
+				title, waitPrompt, cpuPick);
+	}
+
+	/**
+	 * As above, with {@code gate} refusing combinations the card text rules out — "each with a
+	 * different cost" (13-110H Unei) — and with no requirement that {@code zone} be the chooser's
+	 * own.
+	 *
+	 * <p>The zone's owner and the chooser come apart when a card puts a decision about one player's
+	 * Break Zone to the other player: Unei has the ability's controller choose 2 Summons out of
+	 * their own Break Zone and then has the <em>opponent</em> pick which of those two they keep
+	 * back. Nothing in the wire format cares. A {@link ForwardTarget} names the side it sits on, so
+	 * the flip on arrival is about whose client packed the answer, not about whose zone it points
+	 * into, and the same code carries both halves.
+	 *
+	 * <p>Those two halves travel in opposite directions, which is what keeps them apart under the
+	 * one-question-at-a-time rule even though both are {@link ChoiceKind#OWN_FIELD_CARD} — each
+	 * client sends exactly one of them and waits for the other, as
+	 * {@link ChoiceKind#REVEAL_MAY_PLAY} already does.
+	 */
+	List<ForwardTarget> selectBreakZoneTargets(boolean chooserIsP1, List<ForwardTarget> eligible,
+	                                           List<CardData> zone, int count, PickGate gate,
+	                                           String title, String waitPrompt,
+	                                           Supplier<List<ForwardTarget>> cpuPick) {
 		if (eligible.isEmpty()) return List.of();
 		List<Integer> answer = decide(PlayerChoice.by(chooserIsP1, ChoiceKind.OWN_FIELD_CARD)
 				.prompting(waitPrompt)
-				.locally(() -> showBreakZoneSelectDialog(eligible, zone, count, false, title)
+				.locally(() -> showBreakZoneSelectDialog(eligible, zone, count, false, title, gate)
 						.stream().map(ForwardTarget::choiceCode).toList())
 				.byCpu(() -> cpuPick.get().stream().map(ForwardTarget::choiceCode).toList())
 				// The chooser packed their own side; from here that side is the opponent's.
 				.arrivingAs(ForwardTarget::flipChoiceSide)
-				.legalWhen(codes -> codes.size() <= count && codes.stream().allMatch(code -> {
-					ForwardTarget t = ForwardTarget.fromChoiceCode(code);
-					return t != null && eligible.contains(t);
-				}), "no such card of theirs is in that Break Zone"));
+				// Membership, size, and the gate: a remote answer is the one thing that can reach
+				// this without having gone through the dialog that enforces all three.
+				.legalWhen(codes -> {
+					if (codes.size() > count) return false;
+					List<CardData> taken = new ArrayList<>(codes.size());
+					for (int code : codes) {
+						ForwardTarget t = ForwardTarget.fromChoiceCode(code);
+						if (t == null || !eligible.contains(t)) return false;
+						CardData c = zone.get(t.idx());
+						if (!gate.allows(taken, c)) return false;
+						taken.add(c);
+					}
+					return true;
+				}, "no such card of theirs is in that Break Zone"));
 		List<ForwardTarget> out = new ArrayList<>(answer.size());
 		for (int code : answer) {
 			ForwardTarget t = ForwardTarget.fromChoiceCode(code);

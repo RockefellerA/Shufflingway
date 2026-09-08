@@ -274,6 +274,14 @@ public class ActionResolver {
         result = tryParseCancelAnyNumberAbilitiesOnStack(effectText);
         if (result != null) return result;
 
+        // Must precede tryParseIndependentSentences for the same reason once more: the condition
+        // in the third sentence asks about the removal in the first two, and nothing the splitter
+        // reads as a backward reference ties them together -- so it resolved the payoff on its own
+        // and 22-111L Raegen played a free Forward onto the field however many Elements he had
+        // actually removed.
+        result = tryParseChooseBzCardsRfgElementGate(effectText, source, xValue);
+        if (result != null) return result;
+
         // Same reason, generalised: whichever sentence a pattern happens to match claims the whole
         // ability and the rest is discarded. Where every sentence stands alone, resolve them all.
         // Must stay ahead of the effect patterns for the same reason tryParseTrailingDraw does.
@@ -295,6 +303,12 @@ public class ActionResolver {
         if (result != null) return result;
 
         result = tryParseChooseSummonInBzMaxCostFreeCastRfg(effectText);
+        if (result != null) return result;
+
+        // Must precede the ChooseCharacter family, for the reason the whole cluster sits here: its
+        // opening sentence is a plain Break Zone choose, and read on its own the opponent's half of
+        // the decision is dropped and the tail becomes a bare "remove from the game".
+        result = tryParseChooseSummonsDiffCostOppSelectsOther(effectText);
         if (result != null) return result;
 
         result = tryParseSelectFollowingActions(effectText, source);
@@ -1369,6 +1383,15 @@ public class ActionResolver {
         result = tryParseSearchAndCastSummonFree(effectText, source);
         if (result != null) return result;
 
+        // Must precede tryParseSearchDeck: that parser resolves the search alone and leaves the
+        // "You can cast it … this turn" permission behind, which is the searched Summon removed
+        // from the game with nothing to show for it.
+        result = tryParseSearchSummonRfgFreeCastThisTurn(effectText);
+        if (result != null) return result;
+
+        result = tryParseSearchSummonRfgThenCastFree(effectText);
+        if (result != null) return result;
+
         result = tryParsePlayAnyNumberFromHand(effectText, source);
         if (result != null) return result;
 
@@ -1908,6 +1931,10 @@ public class ActionResolver {
         if (tryParseOppRfgWholeHandFaceDown(effectText) != null) return "OppRfgWholeHandFaceDown";
         // Mirrors parse(): claimed whole, ahead of the splitter that would report it in halves.
         if (cancelAnyNumberFilter(effectText) != null) return "CancelAnyNumberAbilitiesOnStack";
+        // Mirrors parse(): claimed whole, ahead of the splitter that would report it in thirds and
+        // name it after the payoff alone — the half that runs unconditionally when the gate is lost.
+        if (tryParseChooseBzCardsRfgElementGate(effectText, source, 0) != null)
+            return "ChooseBzCardsRfgElementGate";
         if (tryParseIndependentSentences(effectText, source, 0) != null) {
             String composed = composeOverSentences(effectText, s -> matchedPatternName(s, source));
             if (composed != null) return composed;
@@ -1921,6 +1948,7 @@ public class ActionResolver {
         if (tryParseChooseSummonsFromBzCastable(effectText)             != null) return "ChooseSummonsFromBzCastable";
         if (tryParseArmNextSummonRecast(effectText) != null) return "ArmNextSummonRecast";
         if (tryParseChooseSummonInBzMaxCostFreeCastRfg(effectText)      != null) return "ChooseSummonInBzMaxCostFreeCastRfg";
+        if (tryParseChooseSummonsDiffCostOppSelectsOther(effectText)    != null) return "ChooseSummonsDiffCostOppSelectsOther";
         // Mirrors parse(), where this is the 5th call site. It must precede the ChooseCharacter
         // family: a modal "select 1 of the 3 following actions" carries its options as quoted text,
         // and those match the general choose/search patterns, so left to the late
@@ -2269,6 +2297,8 @@ public class ActionResolver {
         if (tryParseCastSummonFromHandDiscounted(effectText)     != null) return "CastSummonFromHandDiscounted";
         if (tryParseCastSummonFromHandFree(effectText, 0)     != null) return "CastSummonFromHandFree";
         if (tryParseSearchAndCastSummonFree(effectText, source) != null) return "SearchAndCastSummonFree";
+        if (tryParseSearchSummonRfgFreeCastThisTurn(effectText) != null) return "SearchSummonRfgFreeCastThisTurn";
+        if (tryParseSearchSummonRfgThenCastFree(effectText)     != null) return "SearchSummonRfgThenCastFree";
         if (tryParsePlayAnyNumberFromHand(effectText, source) != null) return "PlayAnyNumberFromHand";
         if (tryParseEachPlayerMayPlayFromHand(effectText, source, 0) != null) return "EachPlayerMayPlayFromHand";
         if (tryParsePlayFromHand(effectText, source, 0)       != null) return "PlayFromHand";
@@ -2968,6 +2998,11 @@ public class ActionResolver {
         if (tryParseOppRfgWholeHandFaceDown(effectText) != null) return "OppRfgWholeHandFaceDown";
         // Mirrors parse(); see the matching guard in matchedPatternNameOn().
         if (cancelAnyNumberFilter(effectText) != null) return "CancelAnyNumberAbilitiesOnStack";
+        // Mirrors parse(); see the matching guard in matchedPatternNameOn(). The payoff is described
+        // in brackets, as SelectFollowingActions describes its options: the gate is the ability, but
+        // which effect it guards is the thing a reader wants to see.
+        if (tryParseChooseBzCardsRfgElementGate(effectText, source, 0) != null)
+            return chooseBzCardsRfgElementGateDescription(effectText, source);
         if (tryParseIndependentSentences(effectText, source, 0) != null) {
             String composed = composeOverSentences(effectText, s -> fullDescription(s, source));
             if (composed != null) return composed;
@@ -2981,6 +3016,7 @@ public class ActionResolver {
         if (tryParseChooseSummonsFromBzCastable(effectText)          != null) return "ChooseSummonsFromBzCastable";
         if (tryParseArmNextSummonRecast(effectText) != null) return "ArmNextSummonRecast";
         if (tryParseChooseSummonInBzMaxCostFreeCastRfg(effectText)   != null) return "ChooseSummonInBzMaxCostFreeCastRfg";
+        if (tryParseChooseSummonsDiffCostOppSelectsOther(effectText) != null) return "ChooseSummonsDiffCostOppSelectsOther";
         // See the matching guard in matchedPatternName(): ahead of the choose/search families so a
         // modal ability is described as the choice it is, not as one of its quoted options.
         if (tryParseSelectFollowingActions(effectText, source)       != null)
@@ -3752,6 +3788,8 @@ public class ActionResolver {
         if (tryParseCastSummonFromHandDiscounted(effectText) != null)       return "CastSummonFromHandDiscounted";
         if (tryParseCastSummonFromHandFree(effectText, 0) != null)          return "CastSummonFromHandFree";
         if (tryParseSearchAndCastSummonFree(effectText, source) != null)    return "SearchAndCastSummonFree";
+        if (tryParseSearchSummonRfgFreeCastThisTurn(effectText) != null)    return "SearchSummonRfgFreeCastThisTurn";
+        if (tryParseSearchSummonRfgThenCastFree(effectText)     != null)    return "SearchSummonRfgThenCastFree";
         if (tryParsePlayAnyNumberFromHand(effectText, source) != null)      return "PlayAnyNumberFromHand";
         if (tryParseEachPlayerMayPlayFromHand(effectText, source, 0) != null) return "EachPlayerMayPlayFromHand";
         if (tryParsePlayFromHand(effectText, source, 0) != null)            return "PlayFromHand";
@@ -3953,6 +3991,24 @@ public class ActionResolver {
         String upTo = m.group("upTo") != null ? "up to " : "";
         return "SelectFollowingActions(" + upTo + m.group("select") + " of " + m.group("total")
                 + ": " + String.join(" | ", options) + ")";
+    }
+
+    /**
+     * "ChooseBzCardsRfgElementGate(all one Element: &lt;payoff&gt;)" — the gate named alongside the
+     * effect it guards, the way {@link #selectFollowingActionsDescription} names its options.
+     *
+     * <p>The payoff always has a description here: the parser refuses the ability outright when the
+     * payoff does not parse, so this is only ever reached with one that does.
+     */
+    private static String chooseBzCardsRfgElementGateDescription(String text, CardData source) {
+        Matcher m = CHOOSE_BZ_CARDS_RFG_ELEMENT_GATE.matcher(text.trim());
+        if (!m.matches()) return "ChooseBzCardsRfgElementGate";
+        String cond = m.group("same") != null
+                ? "all one Element"
+                : m.group("distinct") + "+ Elements";
+        String payoff = fullDescription(m.group("payoff"), source);
+        return "ChooseBzCardsRfgElementGate(" + m.group("count") + ", " + cond + ": "
+                + (payoff != null && !payoff.isBlank() ? payoff : "?") + ")";
     }
 
     private static String revealTopDeckDescription(String text, CardData source) {

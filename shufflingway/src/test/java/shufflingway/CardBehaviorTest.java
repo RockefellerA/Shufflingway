@@ -47476,5 +47476,354 @@ public class CardBehaviorTest {
 	}
 
 	// =========================================================================================
+	// 13-110H Unei and 23-124L Eiko — two more ways into the free-cast borrowing family.
+	//
+	// Both end where Krile, Terra and Nanaa Mihgo end: a Summon the ability user may cast this
+	// turn without paying for it. They differ in how the Summon is picked, and that is where the
+	// new machinery is.
+	//
+	// Unei is the only card in the corpus that hands the choice to two players — the controller
+	// puts two Summons up and the opponent takes one away, so what the controller is really
+	// choosing is which pair they are willing to be talked down to. That makes the opponent's half
+	// a SELECT (rule 11.11.5.1), which is not subject to "cannot be chosen", where the
+	// controller's half one sentence earlier is an ordinary choose and is.
+	//
+	// Eiko's Summon comes out of the deck rather than a Break Zone, which is why the registration
+	// needs to know which card the search actually moved — the permission names it and nothing
+	// else in the text does.
+	// =========================================================================================
+
+	private static final String UNEI_13_110H =
+			"Choose 2 Summons, each with a different cost in your Break Zone. Your opponent "
+			+ "selects 1 Summon among them. You may cast the other Summon without paying the cost. "
+			+ "If you cast it, remove that Summon from the game after use instead of putting it in "
+			+ "the Break Zone.";
+
+	private static final String EIKO_23_124L =
+			"search for 1 Summon and remove it from the game. You can cast it without paying the "
+			+ "cost this turn.";
+
+	@Test
+	void uneiIsReadAsOneTwoPlayerDecisionRatherThanAPlainBreakZoneChoose() {
+		// It parsed before this was wired — as ChooseCharacter, with the opponent's half dropped
+		// and the tail read as a bare "remove from the game". That is the failure mode the whole
+		// sentence-spanning pattern exists to stop: a partial match here is strictly stronger than
+		// the printed card, since it never gives the opponent their say.
+		assertEquals("ChooseSummonsDiffCostOppSelectsOther",
+				ActionResolver.matchedPatternName(UNEI_13_110H, makeForward("Unei", "Ice", 5, 8000)));
+	}
+
+	@Test
+	void uneiRoutesToTheTwoSidedPrimitiveCarryingItsCount() {
+		GameContext ctx = mock(GameContext.class);
+		ActionResolver.parse(UNEI_13_110H, makeForward("Unei", "Ice", 5, 8000)).accept(ctx);
+		verify(ctx).chooseSummonsDiffCostOpponentSelectsOtherFreeCastRfg(2);
+	}
+
+	@Test
+	void uneiLeavesTheSummonTheOpponentPassedOverCastableForFree() {
+		MainWindow mw = new MainWindow();
+		CardData cheap = makeSummon("Cheap", "Ice", 2, "");
+		CardData dear  = makeSummon("Dear",  "Ice", 5, "");
+		mw.gameState.getIdentity().put(cheap, true);
+		mw.gameState.getIdentity().put(dear,  true);
+		mw.gameState.getP1BreakZone().add(cheap);
+		mw.gameState.getP1BreakZone().add(dear);
+
+		mw.buildGameContext(true).chooseSummonsDiffCostOpponentSelectsOtherFreeCastRfg(2);
+
+		// The AI opponent removes the option worth most, which leaves the cheaper one.
+		assertTrue(mw.bzPlayableP1.containsKey(cheap), "the Summon left over is castable");
+		assertFalse(mw.bzPlayableP1.containsKey(dear), "the one the opponent selected is not");
+		assertTrue(mw.bzPlayableP1.get(cheap).freeCast());
+		assertTrue(mw.bzPlayableP1.get(cheap).rfgAfterUse(), "removed from the game after use");
+		assertTrue(mw.bzPlayableP1.get(cheap).expiresThisTurn());
+		// Neither moves: the card removes the Summon "after use", not on choosing.
+		assertTrue(mw.gameState.getP1BreakZone().containsAll(List.of(cheap, dear)));
+	}
+
+	@Test
+	void uneiOffersOnlyWhatTheBreakZoneCanActuallyFieldAtDistinctCosts() {
+		// One Summon is all there is to put up, so the opponent takes it and there is no "other".
+		MainWindow mw = new MainWindow();
+		CardData only = makeSummon("Only", "Ice", 3, "");
+		mw.gameState.getIdentity().put(only, true);
+		mw.gameState.getP1BreakZone().add(only);
+
+		mw.buildGameContext(true).chooseSummonsDiffCostOpponentSelectsOtherFreeCastRfg(2);
+
+		assertTrue(mw.bzPlayableP1.isEmpty(), "nothing survives a one-card offer");
+		assertTrue(mw.gameState.getP1BreakZone().contains(only));
+	}
+
+	@Test
+	void uneiIsNotClaimedWhenTheOpponentsHalfIsMissing() {
+		// Anchored end to end: without the select, the text is a different card and must fall
+		// through rather than be resolved as Unei minus her drawback.
+		assertNotEquals("ChooseSummonsDiffCostOppSelectsOther",
+				ActionResolver.matchedPatternName(
+						"Choose 2 Summons, each with a different cost in your Break Zone. You may "
+						+ "cast the other Summon without paying the cost.",
+						makeForward("Unei", "Ice", 5, 8000)));
+	}
+
+	@Test
+	void distinctCostsRefusesASecondPickOfTheSameCost() {
+		CardData two      = makeSummon("Two",      "Ice", 2, "");
+		CardData alsoTwo  = makeSummon("Also Two", "Fire", 2, "");
+		CardData five     = makeSummon("Five",     "Ice", 5, "");
+		assertFalse(PickGate.DISTINCT_COSTS.allows(List.of(two), alsoTwo));
+		assertTrue(PickGate.DISTINCT_COSTS.allows(List.of(two), five));
+		assertEquals(1, PickGate.DISTINCT_COSTS.maxSelectable(List.of(two, alsoTwo), 2),
+				"a zone holding one cost can only field one pick");
+	}
+
+	@Test
+	void eikoIsNamedRatherThanReportedUnread() {
+		assertEquals("SearchSummonRfgFreeCastThisTurn",
+				ActionResolver.matchedPatternName(EIKO_23_124L, makeForward("Eiko", "Earth", 6, 9000)));
+	}
+
+	@Test
+	void eikoRoutesToTheSearchAndRegisterPrimitiveWithNoFilters() {
+		GameContext ctx = mock(GameContext.class);
+		ActionResolver.parse(EIKO_23_124L, makeForward("Eiko", "Earth", 6, 9000)).accept(ctx);
+		verify(ctx).searchSummonRfgFreeCastThisTurn(-1, null);
+	}
+
+	@Test
+	void eikoRegistersTheSummonTheSearchActuallyMoved() {
+		MainWindow mw = new MainWindow();
+		CardData summon  = makeSummon("Fetched", "Earth", 4, "");
+		CardData decoy   = makeForward("Not a Summon", "Earth", 3, 5000);
+		mw.gameState.getIdentity().put(summon, false);
+		mw.gameState.getIdentity().put(decoy,  false);
+		mw.gameState.getP2MainDeck().add(summon);
+		mw.gameState.getP2MainDeck().add(decoy);
+
+		mw.buildGameContext(false).searchSummonRfgFreeCastThisTurn(-1, null);
+
+		assertFalse(mw.gameState.getP2MainDeck().contains(summon), "it left the deck");
+		assertTrue(mw.gameState.getP2RemovedFromGame().contains(summon), "and was removed from the game");
+		assertTrue(mw.bzPlayableP2.containsKey(summon));
+		assertTrue(mw.bzPlayableP2.get(summon).freeCast());
+		assertTrue(mw.bzPlayableP2.get(summon).expiresThisTurn(), "\"this turn\"");
+		// Not rfgAfterUse: it is already out of the game, and casting it is what puts it into the
+		// Break Zone. The Krile/Nanaa clause exists to keep a Summon out of one.
+		assertFalse(mw.bzPlayableP2.get(summon).rfgAfterUse());
+		assertTrue(mw.gameState.getP2MainDeck().contains(decoy), "the search reads Summons only");
+	}
+
+	@Test
+	void eikoRegistersNothingWhenTheDeckHoldsNoSummon() {
+		MainWindow mw = new MainWindow();
+		CardData decoy = makeForward("Not a Summon", "Earth", 3, 5000);
+		mw.gameState.getIdentity().put(decoy, false);
+		mw.gameState.getP2MainDeck().add(decoy);
+
+		mw.buildGameContext(false).searchSummonRfgFreeCastThisTurn(-1, null);
+
+		assertTrue(mw.bzPlayableP2.isEmpty(), "a search that finds nothing grants nothing");
+	}
+
+	@Test
+	void theSearchSiblingsStayApartOnTheirDestinationClause() {
+		// 2-142R Lenne casts it there and then; Eiko hands over a permission for the turn. Only
+		// the last clause separates the two texts, so both patterns are anchored.
+		assertEquals("SearchAndCastSummonFree",
+				ActionResolver.matchedPatternName(
+						"search for 1 Summon and cast it without paying the cost. If you do not "
+						+ "cast it, put the Summon into the Break Zone.",
+						makeForward("Lenne", "Water", 3, 5000)));
+		assertNotEquals("SearchSummonRfgFreeCastThisTurn",
+				ActionResolver.matchedPatternName(
+						"search for 1 Summon and remove it from the game.",
+						makeForward("Eiko", "Earth", 6, 9000)));
+	}
+
+	// =========================================================================================
+	// 22-110L Citra and 22-111L Raegen — "Choose N cards in your Break Zone. Remove them from the
+	// game. If <something about the Elements of what went>, <payoff>."
+	//
+	// One sentence shape, two printings, and both were coming apart at the full stops. Left to the
+	// sentence splitter the removal resolved on its own and the payoff was claimed by the generic
+	// chain with nothing in front of it — Raegen played a free Forward onto the field whatever he
+	// had removed, which is strictly stronger than the card, and Citra's cast was dropped entirely
+	// while her search was read as a second removal of the cards she had already taken.
+	//
+	// The condition reads what was actually removed, not what was asked for, which is why it
+	// cannot be a filter on the choice: the player picks freely and finds out afterwards whether
+	// they built the set the card wanted.
+	// =========================================================================================
+
+	private static final String CITRA_22_110L =
+			"Choose 5 cards in your Break Zone. Remove them from the game. If all the cards removed "
+			+ "by this effect are of the same Element, search for 1 Summon of cost 3 or less and "
+			+ "remove it from the game. Then, cast it without paying the cost.";
+
+	private static final String RAEGEN_22_111L =
+			"Choose 4 cards in your Break Zone. Remove them from the game. If there are 4 or more "
+			+ "different Elements among cards removed by this effect, search for 1 Forward of cost "
+			+ "4 or less other than Multi-Element and play it onto the field.";
+
+	/** Runs {@code text} against a context whose Break Zone removal answers with {@code removed}. */
+	private static GameContext runBzGate(String text, CardData source, List<CardData> removed) {
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.chooseCardsInOwnBzRemoveFromGame(anyInt())).thenReturn(removed);
+		ActionResolver.parse(text, source).accept(ctx);
+		return ctx;
+	}
+
+	@Test
+	void bothPrintingsAreReadAsOneGatedAbilityRatherThanThreeSentences() {
+		assertEquals("ChooseBzCardsRfgElementGate",
+				ActionResolver.matchedPatternName(CITRA_22_110L, makeForward("Citra", "Light", 3, 7000)));
+		assertEquals("ChooseBzCardsRfgElementGate",
+				ActionResolver.matchedPatternName(RAEGEN_22_111L, makeForward("Raegen", "Dark", 6, 9000)));
+	}
+
+	@Test
+	void theGateNamesThePayoffItGuards() {
+		assertEquals("ChooseBzCardsRfgElementGate(5, all one Element: SearchSummonRfgThenCastFree)",
+				ActionResolver.fullDescription(CITRA_22_110L, makeForward("Citra", "Light", 3, 7000)));
+		assertEquals("ChooseBzCardsRfgElementGate(4, 4+ Elements: SearchDeck)",
+				ActionResolver.fullDescription(RAEGEN_22_111L, makeForward("Raegen", "Dark", 6, 9000)));
+	}
+
+	@Test
+	void citraSearchesOnlyWhenEveryRemovedCardSharesAnElement() {
+		CardData citra = makeForward("Citra", "Light", 3, 7000);
+		verify(runBzGate(CITRA_22_110L, citra, List.of(
+						makeSummon("A", "Light", 1, ""), makeSummon("B", "Light", 2, ""),
+						makeSummon("C", "Light", 3, ""), makeSummon("D", "Light", 4, ""),
+						makeSummon("E", "Light", 5, ""))))
+				.searchSummonRfgThenCastFree(3, null);
+
+		verify(runBzGate(CITRA_22_110L, citra, List.of(
+						makeSummon("A", "Light", 1, ""), makeSummon("B", "Fire", 2, ""))),
+				never()).searchSummonRfgThenCastFree(anyInt(), any());
+	}
+
+	@Test
+	void aMultiElementCardIsOfEveryElementItPrints() {
+		// "Of the same Element" is shared, not equal: a Fire/Ice card and a Fire card are both of
+		// Fire. Read as equality this removal would fail the condition, which is not what a
+		// Multi-Element card means.
+		CardData citra = makeForward("Citra", "Light", 3, 7000);
+		verify(runBzGate(CITRA_22_110L, citra, List.of(
+						makeSummon("Mono", "Fire", 1, ""), makeSummon("Multi", "Fire/Ice", 2, ""))))
+				.searchSummonRfgThenCastFree(3, null);
+
+		// ...and two Multi-Element cards sharing nothing still fail it.
+		verify(runBzGate(CITRA_22_110L, citra, List.of(
+						makeSummon("One", "Fire/Ice", 1, ""), makeSummon("Two", "Wind/Earth", 2, ""))),
+				never()).searchSummonRfgThenCastFree(anyInt(), any());
+	}
+
+	@Test
+	void raegenCountsElementsAcrossWhatWasRemoved() {
+		CardData raegen = makeForward("Raegen", "Dark", 6, 9000);
+		// Four cards, four Elements — the threshold is met exactly.
+		verify(runBzGate(RAEGEN_22_111L, raegen, List.of(
+						makeSummon("A", "Fire", 1, ""),  makeSummon("B", "Ice", 2, ""),
+						makeSummon("C", "Wind", 3, ""),  makeSummon("D", "Earth", 4, ""))))
+				.searchDeckForCard(eq(true), eq(false), eq(false), eq(false),
+						eq(4), eq("less"), any(), any(), any(), any(), any(), eq("Multi-Element"),
+						eq("field"), eq(1), eq(false), any());
+
+		// Four cards but only three Elements — one short.
+		verify(runBzGate(RAEGEN_22_111L, raegen, List.of(
+						makeSummon("A", "Fire", 1, ""),  makeSummon("B", "Ice", 2, ""),
+						makeSummon("C", "Wind", 3, ""),  makeSummon("D", "Wind", 4, ""))),
+				never()).searchDeckForCard(anyBoolean(), anyBoolean(), anyBoolean(), anyBoolean(),
+						anyInt(), any(), any(), any(), any(), any(), any(), any(),
+						any(), anyInt(), anyBoolean(), any());
+	}
+
+	@Test
+	void aRemovalThatTookNothingNeverPaysOut() {
+		// "All the cards removed by this effect are of the same Element" is vacuously true over an
+		// empty removal, which is plainly not what the card means — an empty Break Zone must not
+		// hand Citra a free Summon.
+		CardData citra = makeForward("Citra", "Light", 3, 7000);
+		verify(runBzGate(CITRA_22_110L, citra, List.of()), never())
+				.searchSummonRfgThenCastFree(anyInt(), any());
+	}
+
+	@Test
+	void raegensPayoffSearchesRatherThanReplayingRaegenHimself() {
+		// The payoff parses on its own, and used to parse *wrongly*: "other than Multi-Element" was
+		// not in the search pattern's exclusion group, so the sentence fell past it to a matcher
+		// that read the bare "play it onto the field" as playing the source card.
+		assertEquals("SearchDeck",
+				ActionResolver.matchedPatternName(
+						"search for 1 Forward of cost 4 or less other than Multi-Element and play "
+						+ "it onto the field",
+						makeForward("Raegen", "Dark", 6, 9000)));
+	}
+
+	@Test
+	void citrasPayoffCastsNowWhereEikosOffersAPermission() {
+		assertEquals("SearchSummonRfgThenCastFree",
+				ActionResolver.matchedPatternName(
+						"search for 1 Summon of cost 3 or less and remove it from the game. Then, "
+						+ "cast it without paying the cost.",
+						makeForward("Citra", "Light", 3, 7000)));
+		assertEquals("SearchSummonRfgFreeCastThisTurn",
+				ActionResolver.matchedPatternName(EIKO_23_124L, makeForward("Eiko", "Earth", 6, 9000)));
+	}
+
+	@Test
+	void theGateIsRefusedOutrightWhenItsPayoffCannotBeRead() {
+		// Fail closed: a gate whose payoff is dropped looks like it worked, where an ability
+		// reported unread is a gap somebody is looking at. The parser is asked directly because
+		// declining hands the text back to the chain, which still has its own reading of the
+		// opening sentence — what must not happen is this parser claiming it.
+		String unreadablePayoff =
+				"Choose 5 cards in your Break Zone. Remove them from the game. If all the cards "
+				+ "removed by this effect are of the same Element, wibble the frobnitz.";
+		CardData citra = makeForward("Citra", "Light", 3, 7000);
+		assertNull(ActionResolverBreak.tryParseChooseBzCardsRfgElementGate(unreadablePayoff, citra, 0));
+		assertNotEquals("ChooseBzCardsRfgElementGate",
+				ActionResolver.matchedPatternName(unreadablePayoff, citra));
+	}
+
+	@Test
+	void theRemovalReportsWhatActuallyWentRatherThanWhatWasPicked() {
+		MainWindow mw = new MainWindow();
+		List<CardData> bz = mw.gameState.getP2BreakZone();
+		CardData a = makeSummon("A", "Fire", 1, "");
+		CardData b = makeSummon("B", "Ice",  2, "");
+		for (CardData c : List.of(a, b)) { mw.gameState.getIdentity().put(c, false); bz.add(c); }
+
+		// The AI takes the first legal run, which on a two-card zone is both of them.
+		List<CardData> removed = mw.buildGameContext(false).chooseCardsInOwnBzRemoveFromGame(4);
+
+		assertEquals(2, removed.size(), "a zone holding 2 gives up 2, not 4");
+		assertTrue(removed.containsAll(List.of(a, b)));
+		assertTrue(bz.isEmpty());
+		assertTrue(mw.gameState.getP2RemovedFromGame().containsAll(List.of(a, b)));
+	}
+
+	@Test
+	void citrasSearchedSummonIsRemovedFromTheGameAndThenCast() {
+		MainWindow mw = new MainWindow();
+		CardData summon = makeSummon("Fetched", "Light", 2, "");
+		CardData tooDear = makeSummon("Too Dear", "Light", 9, "");
+		mw.gameState.getIdentity().put(summon,  false);
+		mw.gameState.getIdentity().put(tooDear, false);
+		mw.gameState.getP2MainDeck().add(summon);
+		mw.gameState.getP2MainDeck().add(tooDear);
+
+		mw.buildGameContext(false).searchSummonRfgThenCastFree(3, null);
+
+		assertFalse(mw.gameState.getP2MainDeck().contains(summon), "it left the deck");
+		assertFalse(mw.gameState.getP2RemovedFromGame().contains(summon),
+				"and came back out of the RFG zone to be cast");
+		assertTrue(mw.p2Turn.summonCastThisTurn, "the cast is real, not a permission");
+		assertTrue(mw.gameState.getP2MainDeck().contains(tooDear), "the cost ceiling is honoured");
+	}
+
+	// =========================================================================================
 
 }

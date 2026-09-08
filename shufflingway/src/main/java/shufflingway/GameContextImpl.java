@@ -7141,7 +7141,20 @@ final class GameContextImpl implements GameContext {
 						+ breakZoneTypeLabel(forwards, backups, monsters, summons, Math.min(maxCount, eligible.size()))
 						+ formatCostFilterLabel(costVal, costCmp)
 						+ " in " + (opponentZone ? "opponent's" : "your") + " Break Zone to remove from the game";
-				return removeChosenFromBreakZone(eligible, maxCount, upTo, opponentZone, title, gate);
+				return removeChosenFromBreakZone(eligible, maxCount, upTo, opponentZone, title, gate).size();
+			}
+
+			@Override public List<CardData> chooseCardsInOwnBzRemoveFromGame(int count) {
+				// Every type admitted and no filter: "N cards in your Break Zone" restricts nothing
+				// but the zone and the number.
+				List<ForwardTarget> eligible = eligibleCharactersFromBreakZone(
+						count, false, false, false, null, null, -1, null,
+						-1, null, true, true, true,
+						null, null, null, null, true, null, false);
+				return removeChosenFromBreakZone(eligible, count, false, false,
+						"Choose " + Math.min(count, eligible.size())
+								+ " cards in your Break Zone to remove from the game",
+						PickGate.ANY);
 			}
 
 			/**
@@ -7152,15 +7165,21 @@ final class GameContextImpl implements GameContext {
 			 * beside it can reuse every part of a removal that is not the building of the pool —
 			 * the dialog, the gate, the highest-index-first ordering and the "what actually went"
 			 * accounting are all identical whether the pool came from one filter or two.
+			 *
+			 * <p>Returns the cards it removed rather than a count. Most callers want only the size,
+			 * but the identities are what the removal itself already had to work out — a card left
+			 * standing by a zone shield is not one this effect removed — and 22-110L Citra's
+			 * "if all the cards removed by this effect are of the same Element" cannot be answered
+			 * from a number.
 			 */
-			private int removeChosenFromBreakZone(List<ForwardTarget> eligible, int maxCount,
+			private List<CardData> removeChosenFromBreakZone(List<ForwardTarget> eligible, int maxCount,
 					boolean upTo, boolean opponentZone, String title, PickGate gate) {
 				if (gate == null) gate = PickGate.ANY;
 				if (eligible.isEmpty()) {
 					logEntry("Effect: no eligible cards in " + (opponentZone ? "opponent's" : "your")
 							+ " Break Zone to remove from the game");
 					markEffectFizzled();
-					return 0;
+					return List.of();
 				}
 				List<CardData> p1bz = mw.gameState.getP1BreakZone();
 				List<CardData> p2bz = mw.gameState.getP2BreakZone();
@@ -7197,24 +7216,24 @@ final class GameContextImpl implements GameContext {
 				if (picks.isEmpty()) {
 					logEntry("Effect: no cards removed from the game");
 					markEffectFizzled();
-					return 0;
+					return List.of();
 				}
 				// Highest index first within each side: removing a card compacts that Break Zone and
 				// would otherwise shift the index every later pick was recorded at.
 				List<ForwardTarget> ordered = new ArrayList<>(picks);
 				ordered.sort((a, b) -> a.isP1() == b.isP1() ? Integer.compare(b.idx(), a.idx())
 						: Boolean.compare(a.isP1(), b.isP1()));
-				int removed = 0;
+				List<CardData> removed = new ArrayList<>(ordered.size());
 				for (ForwardTarget t : ordered) {
 					List<CardData> bz = t.isP1() ? p1bz : p2bz;
 					if (t.idx() >= bz.size()) continue;
 					CardData before = bz.get(t.idx());
 					removeTargetFromGame(t);
 					// The zone shields a card can carry leave it standing, and an untaken card is not
-					// one this effect removed — the count is what went, not what was picked.
-					if (t.idx() >= bz.size() || bz.get(t.idx()) != before) removed++;
+					// one this effect removed — what is reported is what went, not what was picked.
+					if (t.idx() >= bz.size() || bz.get(t.idx()) != before) removed.add(before);
 				}
-				if (removed == 0) markEffectFizzled();
+				if (removed.isEmpty()) markEffectFizzled();
 				return removed;
 			}
 
@@ -7227,7 +7246,7 @@ final class GameContextImpl implements GameContext {
 				for (ForwardTarget t : eligibleCharactersFromBreakZone(second))
 					if (!pool.contains(t)) pool.add(t);   // a card answering both is offered once
 				return removeChosenFromBreakZone(pool, maxCount, upTo, first.opponentZone(),
-						title, PickGate.ANY);
+						title, PickGate.ANY).size();
 			}
 
 			@Override public void removeAllOpponentBzFromGame() {
@@ -8940,6 +8959,86 @@ final class GameContextImpl implements GameContext {
 				logEntry((isP1 ? "" : "[P2] ") + picked.name()
 						+ " in " + zoneLabel + " is castable this turn (free) — removed from game after use");
 				if (readP1Bz) mw.refreshP1BreakLabel(); else mw.refreshP2BreakLabel();
+			}
+
+			@Override public void chooseSummonsDiffCostOpponentSelectsOtherFreeCastRfg(int count) {
+				List<CardData> bz = isP1 ? mw.gameState.getP1BreakZone() : mw.gameState.getP2BreakZone();
+				List<ForwardTarget> eligible = new ArrayList<>();
+				for (int i = 0; i < bz.size(); i++)
+					if (bz.get(i).isSummon())
+						eligible.add(new ForwardTarget(isP1, i, ForwardTarget.CardZone.BREAK_ZONE));
+				if (eligible.isEmpty()) {
+					logEntry((isP1 ? "" : "[P2] ") + "No Summon in Break Zone — effect fizzles");
+					return;
+				}
+				// The AI names the dearest Summons it can, one per cost — the offer it would rather
+				// have either half of, since the opponent is about to take the better one away.
+				Supplier<List<ForwardTarget>> cpuChoose = () -> {
+					List<ForwardTarget> byCostDesc = eligible.stream()
+							.sorted(java.util.Comparator.comparingInt(
+									(ForwardTarget t) -> bz.get(t.idx()).cost()).reversed())
+							.toList();
+					List<ForwardTarget> out = new ArrayList<>();
+					List<CardData> taken = new ArrayList<>();
+					for (ForwardTarget t : byCostDesc) {
+						if (out.size() >= count) break;
+						CardData c = bz.get(t.idx());
+						if (!PickGate.DISTINCT_COSTS.allows(taken, c)) continue;
+						out.add(t);
+						taken.add(c);
+					}
+					return out;
+				};
+				List<ForwardTarget> chosen = mw.selectBreakZoneTargets(isP1, eligible, bz, count,
+						PickGate.DISTINCT_COSTS,
+						"Choose " + count + " Summons in your Break Zone",
+						"Waiting for your opponent to choose " + count + " Summons in their Break Zone...",
+						cpuChoose);
+				if (chosen.isEmpty()) {
+					logEntry((isP1 ? "" : "[P2] ") + "No Summon chosen — effect fizzles");
+					return;
+				}
+				StringBuilder named = new StringBuilder();
+				for (ForwardTarget t : chosen) {
+					if (named.length() > 0) named.append(", ");
+					named.append(bz.get(t.idx()).name());
+				}
+				logEntry((isP1 ? "" : "[P2] ") + "Chose " + named + " — opponent selects 1 of them");
+				// The opponent takes the dearest on offer: they are removing an option, so the one
+				// worth most is the one worth denying.
+				Supplier<List<ForwardTarget>> cpuSelect = () -> List.of(chosen.stream()
+						.max(java.util.Comparator.comparingInt(t -> bz.get(t.idx()).cost()))
+						.orElse(chosen.get(0)));
+				List<ForwardTarget> denied = mw.selectBreakZoneTargets(!isP1, chosen, bz, 1,
+						PickGate.ANY,
+						"Select 1 Summon among them — your opponent may cast the other",
+						"Waiting for your opponent to select 1 of the Summons...",
+						cpuSelect);
+				// No answer leaves nothing selected, and every Summon on offer is then "the other".
+				// Reading it the other way — treating an unanswered select as denying them all —
+				// would give the opponent a better outcome than the choice they declined to make.
+				ForwardTarget kept = denied.isEmpty() ? null : denied.get(0);
+				if (kept != null)
+					logEntry("Opponent selected " + bz.get(kept.idx()).name());
+				boolean any = false;
+				for (ForwardTarget t : chosen) {
+					if (kept != null && t.idx() == kept.idx()) continue;
+					CardData summon = bz.get(t.idx());
+					mw.registerBorrowedPlayable(isP1, summon, new PlayableEntry(
+							PlayableEntry.SourceZone.BREAK_ZONE, 0, false, true, true, true));
+					logEntry((isP1 ? "" : "[P2] ") + summon.name()
+							+ " is castable this turn (free) — removed from game after use");
+					any = true;
+				}
+				if (!any) logEntry("No Summon left over — nothing becomes castable");
+			}
+
+			@Override public void searchSummonRfgFreeCastThisTurn(int maxCost, String element) {
+				mw.searchSummonRfgFreeCastThisTurn(isP1, maxCost, element);
+			}
+
+			@Override public void searchSummonRfgThenCastFree(int maxCost, String element) {
+				mw.searchSummonRfgThenCastFree(isP1, maxCost, element);
 			}
 
 

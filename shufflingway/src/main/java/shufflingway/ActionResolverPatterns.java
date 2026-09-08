@@ -5726,7 +5726,13 @@ final class ActionResolverPatterns {
         // only "or" was accepted, so 7-114H Sarah (FFL)'s Job group backtracked across the
         // exclusion and searched for a job called "Warrior of Light Forward of cost 4 or less
         // other than Light and".
-        "(?:\\s+other\\s+than\\s+(?<excludeelem>(?:Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)" +
+        // "Multi-Element" is admitted here as well as in the positive filter above, and for the same
+        // reason: CardData.containsElement resolves the pseudo-element, so the deck scan's ordinary
+        // exclusion does the right thing once the pattern lets the phrase through. 22-111L Raegen is
+        // the corpus's only search that states it, and without this his "search for 1 Forward of
+        // cost 4 or less other than Multi-Element and play it onto the field" fell past this pattern
+        // to a matcher that read the bare "play it onto the field" as playing Raegen himself.
+        "(?:\\s+other\\s+than\\s+(?<excludeelem>(?:Multi-Element|Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)" +
             "(?:\\s+(?:and|or)\\s+(?:Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark))*))?\\s*" +
         // "and of power N or less" — 29-005L Cloud, the corpus's only search with a power
         // threshold. Sits behind the cost clause because that is the printed order ("of cost 2 or
@@ -8549,6 +8555,104 @@ final class ActionResolverPatterns {
         "(?:If\\s+you\\s+cast\\s+it,\\s+)?" +
         "[Rr]emove\\s+that\\s+Summon\\s+from\\s+the\\s+game\\s+after\\s+use\\s+instead\\s+of\\s+" +
         "putting\\s+it\\s+in\\s+the\\s+Break\\s+Zone[.!]?"
+    );
+    /**
+     * 13-110H Unei: "Choose N Summons, each with a different cost, in your Break Zone. Your opponent
+     * selects 1 Summon among them. You may cast the other Summon without paying the cost. If you
+     * cast it, remove that Summon from the game after use instead of putting it in the Break Zone."
+     *
+     * <p>Matched as one whole rather than four sentences because it is one decision made by two
+     * players, the same reason Kefka 15-071H's divide-and-select is: the choose only means anything
+     * alongside the selection that answers it, and the permission only means anything alongside
+     * both. Split, its first sentence reaches the generic choose chain, where "choose 2 Summons …
+     * in your Break Zone" is a plain Break Zone choose and the opponent's half is dropped — which
+     * is how this ability was being reported as {@code ChooseCharacter} with the tail read as a
+     * bare "remove from the game".
+     *
+     * <p>Anchored end to end. Every clause here has a generic reading elsewhere in the chain, so a
+     * partial match is exactly the failure the anchoring is for.
+     *
+     * <p>Group {@code count} — how many Summons the ability user puts up.
+     */
+    static final Pattern CHOOSE_SUMMONS_DIFF_COST_OPP_SELECTS_OTHER_FREE_CAST = Pattern.compile(
+        "(?is)^\\s*Choose\\s+(?<count>\\d+)\\s+Summons,?\\s+each\\s+with\\s+a\\s+different\\s+cost,?\\s+" +
+        "in\\s+your\\s+Break\\s+Zone[.!]?\\s+" +
+        "Your\\s+opponent\\s+selects\\s+1\\s+Summon\\s+among\\s+them[.!]?\\s+" +
+        "You\\s+may\\s+cast\\s+the\\s+other\\s+Summon\\s+without\\s+paying\\s+the\\s+cost[.!]?\\s+" +
+        "(?:If\\s+you\\s+cast\\s+it,\\s+)?" +
+        "[Rr]emove\\s+that\\s+Summon\\s+from\\s+the\\s+game\\s+after\\s+use\\s+instead\\s+of\\s+" +
+        "putting\\s+it\\s+in(?:to)?\\s+the\\s+Break\\s+Zone[.!]?\\s*$"
+    );
+    /**
+     * 23-124L Eiko: "[You may ]search for 1 [Element] Summon [of cost N or less] and remove it from
+     * the game. You can cast it without paying the cost this turn."
+     *
+     * <p>Read as one sentence pair because the permission names the card the search just found, and
+     * nothing else in the text says which card that is. Left to the sentence splitter the search
+     * resolves alone through {@code tryParseSearchDeck} — a Summon removed from the game and no way
+     * to cast it, which is the whole card thrown away and the strictly weaker half kept.
+     *
+     * <p>Anchored end to end, and the optional "You may" is inside the anchor rather than left to
+     * {@link #YOU_MAY_IMMEDIATELY_BEFORE}: the search and the permission are one effect here, so
+     * there is no earlier clause a stray "you may" could belong to.
+     *
+     * <p>Groups: {@code may} — present when the search is optional; {@code element} — optional
+     * Element filter; {@code cost} — optional cost ceiling.
+     */
+    static final Pattern SEARCH_SUMMON_RFG_FREE_CAST_THIS_TURN = Pattern.compile(
+        "(?is)^\\s*(?<may>You\\s+may\\s+)?search\\s+for\\s+1\\s+" +
+        "(?:(?<element>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)\\s+)?Summon" +
+        "(?:\\s+(?:of\\s+cost|with\\s+a\\s+cost\\s+of)\\s+(?<cost>\\d+)\\s+or\\s+less)?" +
+        "\\s+and\\s+remove\\s+it\\s+from\\s+the\\s+game[.!]?\\s+" +
+        "You\\s+can\\s+cast\\s+it\\s+without\\s+paying\\s+(?:its|the)\\s+cost\\s+this\\s+turn[.!]?\\s*$"
+    );
+    /**
+     * 22-110L Citra's payoff: "search for 1 [Element] Summon [of cost N or less] and remove it from
+     * the game. Then, cast it without paying the cost."
+     *
+     * <p>One clause away from {@link #SEARCH_SUMMON_RFG_FREE_CAST_THIS_TURN} — Eiko's "You can cast
+     * it … this turn" is a permission, this is an instruction — which is why both are anchored end
+     * to end rather than sharing a pattern with an optional tail.
+     *
+     * <p>Not routed through {@link #SEARCH_DECK_PATTERN}: that pattern's destination alternation
+     * has no "remove it from the game" arm, and adding one would hand it the half-dozen printings
+     * that already have dedicated parsers for the sentence that follows their removal.
+     *
+     * <p>Groups: {@code element} — optional Element filter; {@code cost} — optional cost ceiling.
+     */
+    static final Pattern SEARCH_SUMMON_RFG_THEN_CAST_FREE = Pattern.compile(
+        "(?is)^\\s*search\\s+for\\s+1\\s+" +
+        "(?:(?<element>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)\\s+)?Summon" +
+        "(?:\\s+(?:of\\s+cost|with\\s+a\\s+cost\\s+of)\\s+(?<cost>\\d+)\\s+or\\s+less)?" +
+        "\\s+and\\s+remove\\s+it\\s+from\\s+the\\s+game[.!]?\\s+" +
+        "Then,?\\s+cast\\s+it\\s+without\\s+paying\\s+(?:its|the)\\s+cost[.!]?\\s*$"
+    );
+    /**
+     * 22-110L Citra and 22-111L Raegen: "Choose N cards in your Break Zone. Remove them from the
+     * game. If &lt;something about the Elements of what was removed&gt;, &lt;payoff&gt;."
+     *
+     * <p>Matched as one whole because the condition asks about the removal in front of it and the
+     * payoff is worth nothing without the condition. Split at the full stops, the two printings
+     * came apart the same way and to the same effect: the choose-and-remove resolved on its own and
+     * the payoff was claimed by the generic chain <em>ungated</em> — Raegen played a free Forward
+     * onto the field whatever he had removed, which is strictly stronger than the card.
+     *
+     * <p>Both conditions are read off the cards this effect actually removed, which is why they
+     * cannot be phrased as a filter on the choice: the player picks freely and finds out
+     * afterwards whether they built the set the card wanted.
+     *
+     * <p>Groups: {@code count} — how many cards go; exactly one of {@code same} ("all … of the same
+     * Element") and {@code distinct} ("N or more different Elements"); {@code payoff} — the guarded
+     * effect, parsed on its own through the ordinary chain.
+     */
+    static final Pattern CHOOSE_BZ_CARDS_RFG_ELEMENT_GATE = Pattern.compile(
+        "(?is)^\\s*Choose\\s+(?<count>\\d+)\\s+cards?\\s+in\\s+your\\s+Break\\s+Zone[.!]?\\s+" +
+        "Remove\\s+them\\s+from\\s+the\\s+game[.!]?\\s+" +
+        "If\\s+(?:all\\s+the\\s+cards\\s+removed\\s+by\\s+this\\s+effect\\s+are\\s+of\\s+the\\s+" +
+                "(?<same>same)\\s+Element" +
+            "|there\\s+are\\s+(?<distinct>\\d+)\\s+or\\s+more\\s+different\\s+Elements\\s+among\\s+" +
+                "(?:the\\s+)?cards\\s+removed\\s+by\\s+this\\s+effect" +
+        "),\\s*(?<payoff>\\S.*?)\\s*$"
     );
     /**
      * "Choose 1 Forward with N power or less and up to 1 Forward in your opponent's Break Zone.

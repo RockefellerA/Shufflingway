@@ -2514,6 +2514,26 @@ public interface GameContext {
             String jobFilter, String cardNameFilter, String categoryFilter, PickGate gate);
 
     /**
+     * "Choose {@code count} cards in your Break Zone. Remove them from the game." — the unfiltered
+     * form, reporting the cards it actually took rather than how many (22-110L Citra, 22-111L
+     * Raegen).
+     *
+     * <p>Both printings follow it with a condition about <em>what</em> was removed — "if all the
+     * cards removed by this effect are of the same Element", "if there are 4 or more different
+     * Elements among cards removed by this effect" — which the count
+     * {@link #removeCardsFromBreakZoneFromGame} returns cannot answer. The removal is otherwise
+     * identical, shields and ordering included: it is the same code with the identities kept.
+     *
+     * <p>A Break Zone holding fewer than {@code count} cards gives up what it has, and the
+     * condition is then read over that smaller set — which is what the printed wording says, since
+     * it asks about the cards this effect removed and not about {@code count} of them.
+     *
+     * @return the cards this call put out of the game, in the order they were taken; empty when
+     *         nothing was removed, in which case the effect has also been marked fizzled
+     */
+    List<CardData> chooseCardsInOwnBzRemoveFromGame(int count);
+
+    /**
      * Removes up to {@code maxCount} cards from the Break Zone, drawn from the union of two
      * descriptions — the "remove N &lt;A&gt; in your Break Zone <b>and/or</b> &lt;B&gt; in your
      * Break Zone from the game" shape (29-005L Cloud, 23-117L Chaos).
@@ -3986,6 +4006,66 @@ public interface GameContext {
      */
     void chooseSummonInBzByMaxCostFreeCastRfgAfterUse(int maxCost,
             java.util.Set<String> excludedElements, boolean opponentZone);
+
+    /**
+     * 13-110H Unei: "Choose {@code count} Summons, each with a different cost, in your Break Zone.
+     * Your opponent selects 1 Summon among them. You may cast the other Summon without paying the
+     * cost. If you cast it, remove that Summon from the game after use instead of putting it in the
+     * Break Zone."
+     *
+     * <p>Two players decide, which is the whole shape of the card and why it is not
+     * {@link #chooseSummonInBzByMaxCostFreeCastRfgAfterUse} with a count: the ability user names
+     * the field of play and the opponent takes the piece of it they least want spent, so the user
+     * is choosing which two Summons they are willing to be talked down to.
+     *
+     * <p>What the opponent does is a <em>select</em>, not a choose — the card names them as the one
+     * deciding — so no "cannot be chosen" shield and no chosen-by-opponent watcher has anything to
+     * say about it, as with {@link #opponentSelectsOwnCharacters}. What the ability user does one
+     * sentence earlier is an ordinary choose and is subject to both.
+     *
+     * <p>The Summons that survive the selection stay in the Break Zone until cast, and are
+     * registered free and RFG-after-use for this turn only. A Break Zone that cannot field
+     * {@code count} Summons of distinct costs offers as many as it can: with one, the opponent
+     * takes it and nothing is left over; with none, the ability fizzles.
+     */
+    void chooseSummonsDiffCostOpponentSelectsOtherFreeCastRfg(int count);
+
+    /**
+     * 23-124L Eiko: "You may search for 1 Summon and remove it from the game. You can cast it
+     * without paying the cost this turn."
+     *
+     * <p>The searched Summon is registered as castable out of the removed-from-game zone, free and
+     * for this turn only. It is <em>not</em> RFG-after-use: casting it is what finally puts it into
+     * the Break Zone, where the Krile/Nanaa clause exists to keep a Summon out of one.
+     *
+     * <p>Runs as an ordinary deck search — a card the opponent has blocked search on finds nothing,
+     * and the searched-the-deck triggers fire either way — so nothing is registered when the search
+     * comes up empty or the player takes nothing.
+     *
+     * @param maxCost CP cost ceiling on the search, or {@code -1} for none
+     * @param element the Element the search is narrowed to, or {@code null} for any
+     */
+    void searchSummonRfgFreeCastThisTurn(int maxCost, String element);
+
+    /**
+     * 22-110L Citra's payoff: "search for 1 [Element] Summon [of cost N or less] and remove it from
+     * the game. Then, cast it without paying the cost."
+     *
+     * <p>The immediate sibling of {@link #searchSummonRfgFreeCastThisTurn}, and the difference is
+     * the whole of what the two clauses say: Eiko hands over a permission the player may spend at
+     * any point in the turn, Citra casts it here and now. Neither is
+     * {@link #searchAndCastSummonFreeFromDeck}, which offers the player the Break Zone as an
+     * alternative to casting; Citra's cast is not optional.
+     *
+     * <p>The removal is real and comes first, so a Summon the player never gets to cast — the
+     * search found nothing, or the cast was cancelled — is out of the game rather than back in the
+     * deck. Once cast, the Summon resolves into the Break Zone like any other: nothing here prints
+     * the "remove it from the game after use" clause that would keep it out of one.
+     *
+     * @param maxCost CP cost ceiling on the search, or {@code -1} for none
+     * @param element the Element the search is narrowed to, or {@code null} for any
+     */
+    void searchSummonRfgThenCastFree(int maxCost, String element);
 
     /**
      * Arms 19-127L Relm's second option: "During this turn, if your next Summon of cost

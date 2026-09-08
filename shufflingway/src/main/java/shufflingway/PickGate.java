@@ -32,7 +32,16 @@ public enum PickGate {
 	 * its elements is spoken for — Fire/Ice blocks a later Fire pick and a later Ice pick alike, and
 	 * a standing Fire pick blocks it.
 	 */
-	DISTINCT_ELEMENTS;
+	DISTINCT_ELEMENTS,
+
+	/**
+	 * No two picks may share a printed cost — "choose 2 Summons, <em>each with a different
+	 * cost</em>, in your Break Zone" (13-110H Unei).
+	 *
+	 * <p>The printed cost, not an effective one: the cards this reads are in a Break Zone, where
+	 * nothing is discounting anything.
+	 */
+	DISTINCT_COSTS;
 
 	/** Whether {@code candidate} may join a selection that already holds {@code picked}. */
 	public boolean allows(List<CardData> picked, CardData candidate) {
@@ -47,6 +56,11 @@ public enum PickGate {
 			case DISTINCT_ELEMENTS -> {
 				for (CardData c : picked)
 					if (c != null && sharesAnyElement(c, candidate)) return false;
+				return true;
+			}
+			case DISTINCT_COSTS -> {
+				for (CardData c : picked)
+					if (c != null && c.cost() == candidate.cost()) return false;
 				return true;
 			}
 		}
@@ -73,13 +87,15 @@ public enum PickGate {
 			case ANY              -> "";
 			case DISTINCT_NAMES   -> ", each with a different name";
 			case DISTINCT_ELEMENTS-> ", each of a different Element";
+			case DISTINCT_COSTS   -> ", each with a different cost";
 		};
 	}
 
 	/**
 	 * The largest selection this gate can admit from {@code pool}, which is what an "up to N"
-	 * selection can actually reach. Greedy in pool order, which is exact for both constraints
-	 * here: names partition the pool, and the element case is only ever asked about small pools.
+	 * selection can actually reach. Greedy in pool order, which is exact for the constraints
+	 * here: names and costs each partition the pool, and the element case is only ever asked
+	 * about small pools.
 	 */
 	public int maxSelectable(List<CardData> pool, int cap) {
 		List<CardData> taken = new ArrayList<>();

@@ -346,6 +346,27 @@ final class ActionResolverCost {
             ctx.chooseSummonInBzByMaxCostFreeCastRfgAfterUse(maxCost, excluded, opponentZone);
         };
     }
+    /**
+     * Parses 13-110H Unei's "Choose N Summons, each with a different cost, in your Break Zone. Your
+     * opponent selects 1 Summon among them. You may cast the other Summon without paying the cost.
+     * If you cast it, remove that Summon from the game after use instead of putting it in the Break
+     * Zone."
+     *
+     * <p>{@code matches()}, not {@code find()}: the sibling above is a fragment matcher because its
+     * printings differ only in optional clauses, but every clause here reads as something else on
+     * its own, so a partial match would resolve the ability user's half of a two-player decision
+     * and drop the opponent's.
+     */
+    static Consumer<GameContext> tryParseChooseSummonsDiffCostOppSelectsOther(String text) {
+        Matcher m = CHOOSE_SUMMONS_DIFF_COST_OPP_SELECTS_OTHER_FREE_CAST.matcher(text.trim());
+        if (!m.matches()) return null;
+        final int count = Integer.parseInt(m.group("count"));
+        return ctx -> {
+            ctx.logEntry("Effect: Choose " + count + " Summons of different costs in your BZ —"
+                    + " opponent selects 1, cast the other free (RFG after use)");
+            ctx.chooseSummonsDiffCostOpponentSelectsOtherFreeCastRfg(count);
+        };
+    }
     static Consumer<GameContext> tryParseCostReductionThisTurn(String text) {
         Matcher m = COST_REDUCTION_THIS_TURN.matcher(text);
         if (!m.find()) return null;

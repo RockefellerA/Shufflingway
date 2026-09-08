@@ -5,6 +5,7 @@ import static shufflingway.ActionResolverPatterns.*;
 import static shufflingway.ActionResolver.*;
 
 import java.util.List;
+import java.util.Set;
 import java.util.function.Consumer;
 import java.util.regex.Matcher;
 
@@ -131,6 +132,77 @@ final class ActionResolverBreak {
                     + " groups — they keep 1, the rest go to the Break Zone");
             ctx.divideOpponentForwardsIntoGroups(groups);
         };
+    }
+    /**
+     * Parses "Choose N cards in your Break Zone. Remove them from the game. If &lt;condition on the
+     * Elements of what was removed&gt;, &lt;payoff&gt;." — 22-110L Citra and 22-111L Raegen.
+     *
+     * <p>Must precede {@code tryParseIndependentSentences} for the reason the parser above does,
+     * and the cost of not doing so is on the record for both printings: the removal resolved on its
+     * own and the payoff was claimed ungated, so Raegen searched out a Forward and played it onto
+     * the field however many Elements he had actually removed.
+     *
+     * <p>The payoff goes back through {@link ActionResolver#parse} rather than being enumerated
+     * here — it is an ordinary effect that happens to be behind a gate, and Raegen's already parsed
+     * before this existed. If it does not parse, neither does the whole ability: a gate reported
+     * without the thing it guards is a card nobody can play, but a gate whose payoff is dropped
+     * looks like it worked.
+     */
+    static Consumer<GameContext> tryParseChooseBzCardsRfgElementGate(String text, CardData source,
+            int xValue) {
+        Matcher m = CHOOSE_BZ_CARDS_RFG_ELEMENT_GATE.matcher(text.trim());
+        if (!m.matches()) return null;
+        final int count = Integer.parseInt(m.group("count"));
+        final boolean allSameElement = m.group("same") != null;
+        final int minDistinct = m.group("distinct") != null
+                ? Integer.parseInt(m.group("distinct")) : -1;
+        final String payoffText = m.group("payoff");
+        final Consumer<GameContext> payoff = parse(payoffText, source, xValue);
+        if (payoff == null) return null;
+        final String condLabel = allSameElement
+                ? "all of one Element"
+                : minDistinct + "+ different Elements";
+        return ctx -> {
+            ctx.logEntry("Effect: Remove " + count + " chosen cards in your Break Zone from the"
+                    + " game — if " + condLabel + ", \"" + payoffText + "\"");
+            List<CardData> removed = ctx.chooseCardsInOwnBzRemoveFromGame(count);
+            // A mock context answers null, and an effect that removed nothing has no set for the
+            // condition to be about — "all the cards removed by this effect are of the same
+            // Element" is vacuously true over an empty removal, which is not what the card means.
+            if (removed == null || removed.isEmpty()) return;
+            boolean met = allSameElement
+                    ? sharedElement(removed) != null
+                    : distinctElements(removed) >= minDistinct;
+            if (!met) {
+                ctx.logEntry("Effect: condition not met (" + condLabel + ") — no further effect");
+                return;
+            }
+            payoff.accept(ctx);
+        };
+    }
+
+    /**
+     * An Element every one of {@code cards} carries, or {@code null} when they share none — the
+     * "are of the same Element" test.
+     *
+     * <p>Shared rather than equal, because a Multi-Element card is of every Element it prints: a
+     * Fire/Ice card and a Fire card are all of the same Element, namely Fire. For the mono-Element
+     * cards that make up most of a Break Zone this is plain equality.
+     */
+    private static String sharedElement(List<CardData> cards) {
+        for (String e : PickGate.elementsOf(cards.get(0))) {
+            boolean all = true;
+            for (CardData c : cards) if (!c.containsElement(e)) { all = false; break; }
+            if (all) return e;
+        }
+        return null;
+    }
+
+    /** How many Elements appear across {@code cards}, counting each Element of a Multi-Element card. */
+    private static int distinctElements(List<CardData> cards) {
+        Set<String> seen = new java.util.HashSet<>();
+        for (CardData c : cards) seen.addAll(PickGate.elementsOf(c));
+        return seen.size();
     }
     /** Parses "Each player selects N [type](s) from their Break Zone and adds it/them to their hand." */
     static Consumer<GameContext> tryParseEachPlayerSalvageFromBreakZone(String text) {
