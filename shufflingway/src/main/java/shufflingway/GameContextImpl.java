@@ -8898,9 +8898,23 @@ final class GameContextImpl implements GameContext {
 				}
 			}
 
+			@Override public void armNextOwnSummonRecast(int maxCost) {
+				mw.turn(isP1).summonRecastArmedMaxCost = maxCost;
+				logEntry((isP1 ? "" : "[P2] ") + "Next Summon of cost " + maxCost
+						+ " or less cast from hand: removed from the game instead of the Break Zone,"
+						+ " then castable again free");
+			}
+
 			@Override public void chooseSummonInBzByMaxCostFreeCastRfgAfterUse(int maxCost,
-					Set<String> excludedElements) {
-				List<CardData> bz = isP1 ? mw.gameState.getP1BreakZone() : mw.gameState.getP2BreakZone();
+					Set<String> excludedElements, boolean opponentZone) {
+				// Kalmia 18-090R shields a player's whole Break Zone from the other player's
+				// effects — checked only when reaching across, never against your own zone.
+				if (opponentZone && mw.bzCardsProtectedFromOppChoice(!isP1)) {
+					logEntry("Opponent's Break Zone cannot be chosen from — effect fizzles");
+					return;
+				}
+				boolean readP1Bz = opponentZone != isP1;
+				List<CardData> bz = readP1Bz ? mw.gameState.getP1BreakZone() : mw.gameState.getP2BreakZone();
 				List<CardData> candidates = new ArrayList<>();
 				for (CardData c : bz) {
 					if (!c.isSummon() || c.cost() > maxCost) continue;
@@ -8910,19 +8924,22 @@ final class GameContextImpl implements GameContext {
 					if (excluded) continue;
 					candidates.add(c);
 				}
+				String zoneLabel = opponentZone ? "opponent's Break Zone" : "Break Zone";
 				if (candidates.isEmpty()) {
-					logEntry((isP1 ? "" : "[P2] ") + "No Summon of cost ≤ " + maxCost + " in Break Zone — effect fizzles");
+					logEntry((isP1 ? "" : "[P2] ") + "No Summon of cost ≤ " + maxCost + " in "
+							+ zoneLabel + " — effect fizzles");
 					return;
 				}
 				CardData picked = isP1
-						? mw.chooseCardFromBzDialog(candidates, "Choose a Summon of cost ≤ " + maxCost)
+						? mw.chooseCardFromBzDialog(candidates,
+								"Choose a Summon of cost ≤ " + maxCost + " in " + zoneLabel)
 						: candidates.get(0);
 				if (picked == null) return;
 				PlayableEntry entry = new PlayableEntry(PlayableEntry.SourceZone.BREAK_ZONE, 0, false, true, true, true);
 				mw.registerBorrowedPlayable(isP1, picked, entry);
 				logEntry((isP1 ? "" : "[P2] ") + picked.name()
-						+ " in Break Zone is castable this turn (free) — removed from game after use");
-				if (isP1) mw.refreshP1BreakLabel(); else mw.refreshP2BreakLabel();
+						+ " in " + zoneLabel + " is castable this turn (free) — removed from game after use");
+				if (readP1Bz) mw.refreshP1BreakLabel(); else mw.refreshP2BreakLabel();
 			}
 
 

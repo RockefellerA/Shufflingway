@@ -8503,21 +8503,49 @@ final class ActionResolverPatterns {
         "(?<rfg>.*)$"
     );
     /**
-     * "Choose 1 Summon of cost N or less [other than &lt;Element&gt; or &lt;Element&gt;] in your
-     * Break Zone. Cast it without paying the cost. [If you cast it,] remove that Summon from the
-     * game after use instead of putting it in the Break Zone." — 9-103R Iedolas, 29-033L Terra.
+     * "Choose 1 Summon of cost N or less [other than &lt;Element&gt; or &lt;Element&gt;] in
+     * your[ opponent's] Break Zone. Cast it [as though you owned it] without paying the cost.
+     * [If you cast it,] remove that Summon from the game after use instead of putting it in the
+     * Break Zone." — 9-103R Iedolas and 29-033L Terra from their own zone, 22-048H Nanaa Mihgo
+     * from the opponent's.
      *
-     * <p>Two optional pieces separate the printings: Terra's Element exclusion, and the "If you
-     * cast it," hedging the removal. The hedge changes nothing at resolution — the removal has
-     * something to act on only if the Summon was cast — so it is matched and discarded rather
-     * than given a branch of its own.
+     * <p>Three optional pieces separate the printings: Terra's Element exclusion, the "If you cast
+     * it," hedging the removal, and Nanaa's "as though you owned it". The hedge changes nothing at
+     * resolution — the removal has something to act on only if the Summon was cast — and neither
+     * does the ownership clause, which is what borrowing a card already means here; both are
+     * matched and discarded rather than given branches of their own.
+     *
+     * <p>Group {@code zone} is the one that does change behaviour: it decides which Break Zone is
+     * offered, and a Summon taken from the opponent's is theirs to lose.
+     *
+     * <p>Anchored to the start of the effect. Admitting the opponent's zone put this wording
+     * inside 22-048H Nanaa Mihgo's own quoted options, and unanchored it claimed her whole
+     * select-1-of-2 ability out from under {@code SelectFollowingActions} — the parser runs
+     * earlier in the chain. Each option is parsed on its own once the selection has been made,
+     * and reaches this pattern then, at the start of its own text.
      */
+    /**
+     * "During this turn, if your next Summon of cost N or less cast from your hand is put into the
+     * Break Zone, remove it from the game instead. Then, cast it again without paying the cost."
+     * — 19-127L Relm's second option, the only printing of this shape.
+     *
+     * <p>A replacement armed against a cast that has not happened yet, which is what separates it
+     * from every other member of the "remove that Summon from the game after use" family: those
+     * name a card already sitting in a Break Zone.
+     */
+    static final Pattern ARM_NEXT_SUMMON_RECAST = Pattern.compile(
+        "(?is)^\\s*During\\s+this\\s+turn,\\s+if\\s+your\\s+next\\s+Summon\\s+of\\s+cost\\s+" +
+        "(?<cost>\\d+)\\s+or\\s+less\\s+cast\\s+from\\s+your\\s+hand\\s+is\\s+put\\s+into\\s+the\\s+" +
+        "Break\\s+Zone,\\s+remove\\s+it\\s+from\\s+the\\s+game\\s+instead[.!]?\\s+" +
+        "Then,?\\s+cast\\s+it\\s+again\\s+without\\s+paying\\s+the\\s+cost[.!]?\\s*$"
+    );
+
     static final Pattern CHOOSE_SUMMON_IN_BZ_MAX_COST_FREE_CAST_RFG = Pattern.compile(
-        "(?is)Choose\\s+1\\s+Summon\\s+of\\s+cost\\s+(?<cost>\\d+)\\s+or\\s+less\\s+" +
+        "(?is)^\\s*Choose\\s+1\\s+Summon\\s+of\\s+cost\\s+(?<cost>\\d+)\\s+or\\s+less\\s+" +
         "(?:other\\s+than\\s+(?<exclude>(?:Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)" +
         "(?:\\s+(?:or|and)\\s+(?:Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark))*)\\s+)?" +
-        "in\\s+your\\s+Break\\s+Zone[.!]?\\s+" +
-        "Cast\\s+it\\s+without\\s+paying\\s+the\\s+cost[.!]?\\s+" +
+        "in\\s+(?<zone>your\\s+opponent'?s|your)\\s+Break\\s+Zone[.!]?\\s+" +
+        "Cast\\s+it\\s+(?:as\\s+though\\s+you\\s+owned\\s+it\\s+)?without\\s+paying\\s+the\\s+cost[.!]?\\s+" +
         "(?:If\\s+you\\s+cast\\s+it,\\s+)?" +
         "[Rr]emove\\s+that\\s+Summon\\s+from\\s+the\\s+game\\s+after\\s+use\\s+instead\\s+of\\s+" +
         "putting\\s+it\\s+in\\s+the\\s+Break\\s+Zone[.!]?"

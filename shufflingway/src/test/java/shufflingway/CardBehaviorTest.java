@@ -31640,7 +31640,9 @@ public class CardBehaviorTest {
 		assertNotNull(fn, "Terra's Break Zone cast should parse");
 		fn.accept(ctx);
 
-		verify(ctx).chooseSummonInBzByMaxCostFreeCastRfgAfterUse(eq(5), excluded.capture());
+		// The third argument is the zone, added when 22-048H Nanaa Mihgo taught this family to
+		// reach across the table. Terra reads her own Break Zone, so it is false.
+		verify(ctx).chooseSummonInBzByMaxCostFreeCastRfgAfterUse(eq(5), excluded.capture(), eq(false));
 		assertEquals(Set.of("Light", "Dark"), excluded.getValue());
 	}
 
@@ -31657,7 +31659,7 @@ public class CardBehaviorTest {
 				+ "Remove that Summon from the game after use instead of putting it in the Break Zone.",
 				makeForward("Iedolas", "Lightning", 3, 0)).accept(ctx);
 
-		verify(ctx).chooseSummonInBzByMaxCostFreeCastRfgAfterUse(eq(4), excluded.capture());
+		verify(ctx).chooseSummonInBzByMaxCostFreeCastRfgAfterUse(eq(4), excluded.capture(), eq(false));
 		assertTrue(excluded.getValue().isEmpty());
 	}
 
@@ -47357,6 +47359,120 @@ public class CardBehaviorTest {
 						"Choose 1 Forward of cost 2 or less in your opponent's Break Zone. "
 						+ "Play it onto your field.",
 						makeForward("Nanaa Mihgo", "Wind", 4, 7000)));
+	}
+
+	// =========================================================================================
+	// The second options of 19-127L Relm and 22-048H Nanaa Mihgo.
+	//
+	// Nanaa's is the existing "choose a Summon in a Break Zone, cast it free, remove it from the
+	// game after use" family, pointed at the opponent's Break Zone instead of her own. The
+	// PlayableEntry javadoc already named her — the borrowing machinery was built with this card
+	// in mind and only the selection side was missing.
+	//
+	// Relm's is a replacement armed against a cast that has not happened yet, which is what makes
+	// it the only member of that family needing new state: everything else names a card already
+	// sitting in a Break Zone.
+	// =========================================================================================
+
+	private static final String RELM_19_127L_RECAST =
+			"During this turn, if your next Summon of cost 4 or less cast from your hand is put "
+			+ "into the Break Zone, remove it from the game instead. Then, cast it again without "
+			+ "paying the cost.";
+
+	private static final String NANAA_22_048H_BORROW =
+			"Choose 1 Summon of cost 3 or less in your opponent's Break Zone. Cast it as though you "
+			+ "owned it without paying the cost. If you cast it, remove that Summon from the game "
+			+ "after use instead of putting it in the Break Zone.";
+
+	@Test
+	void nanaaBorrowsFromTheOpponentsBreakZoneRatherThanHerOwn() {
+		GameContext ctx = mock(GameContext.class);
+		ActionResolver.parse(NANAA_22_048H_BORROW, makeForward("Nanaa Mihgo", "Wind", 4, 7000)).accept(ctx);
+
+		// The zone flag is the whole difference from 9-103R Iedolas and 29-033L Terra.
+		verify(ctx).chooseSummonInBzByMaxCostFreeCastRfgAfterUse(eq(3), any(), eq(true));
+	}
+
+	@Test
+	void theOwnBreakZoneSiblingsStillReadTheirOwnZone() {
+		// Widening the pattern to admit "your opponent's" must not have flipped the printings that
+		// say "your".
+		GameContext iedolas = mock(GameContext.class);
+		ActionResolver.parse(
+				"Choose 1 Summon of cost 4 or less in your Break Zone. Cast it without paying the "
+				+ "cost. Remove that Summon from the game after use instead of putting it in the "
+				+ "Break Zone.", makeForward("Iedolas", "Water", 4, 0)).accept(iedolas);
+		verify(iedolas).chooseSummonInBzByMaxCostFreeCastRfgAfterUse(eq(4), any(), eq(false));
+	}
+
+	@Test
+	void nanaaPicksTheSummonOutOfTheOpponentsBreakZoneAndLeavesItThere() {
+		// The card removes it "after use", not on choosing, so it stays where it is until cast.
+		MainWindow mw = new MainWindow();
+		CardData theirSummon = makeSummon("Their Summon", "Fire", 3, "");
+		mw.gameState.getIdentity().put(theirSummon, false);
+		mw.gameState.getP2BreakZone().add(theirSummon);
+
+		mw.buildGameContext(true)
+				.chooseSummonInBzByMaxCostFreeCastRfgAfterUse(3, Set.of(), true);
+
+		assertTrue(mw.gameState.getP2BreakZone().contains(theirSummon),
+				"still in the opponent's Break Zone until it is actually cast");
+		assertTrue(mw.bzPlayableP1.containsKey(theirSummon), "but registered as castable by P1");
+		assertTrue(mw.bzPlayableP1.get(theirSummon).freeCast());
+		assertTrue(mw.bzPlayableP1.get(theirSummon).rfgAfterUse());
+	}
+
+	@Test
+	void relmArmsTheNextSummonRatherThanActingImmediately() {
+		MainWindow mw = new MainWindow();
+		ActionResolver.parse(RELM_19_127L_RECAST, makeForward("Relm", "Water", 2, 5000))
+				.accept(mw.buildGameContext(true));
+
+		assertEquals(4, mw.p1Turn.summonRecastArmedMaxCost);
+		assertEquals(0, mw.p2Turn.summonRecastArmedMaxCost, "the opponent is not armed");
+	}
+
+	@Test
+	void theArmedMarkerIsAOneShotAndRespectsTheCostCeiling() {
+		MainWindow mw = new MainWindow();
+		mw.p1Turn.summonRecastArmedMaxCost = 4;
+
+		// Too expensive: the marker is untouched and waits for a cheaper one.
+		CardData big = makeSummon("Big", "Fire", 5, "");
+		mw.armSummonRecastIfWatched(big, true);
+		assertEquals(4, mw.p1Turn.summonRecastArmedMaxCost);
+		assertFalse(mw.rfgAfterUseSummons.contains(big));
+
+		// The first matching Summon consumes it...
+		CardData first = makeSummon("First", "Fire", 4, "");
+		mw.armSummonRecastIfWatched(first, true);
+		assertEquals(0, mw.p1Turn.summonRecastArmedMaxCost, "consumed — \"your next Summon\"");
+		assertTrue(mw.rfgAfterUseSummons.contains(first));
+		assertTrue(mw.recastFreeAfterRfgSummons.contains(first));
+
+		// ...and a second one that turn is unaffected.
+		CardData second = makeSummon("Second", "Fire", 2, "");
+		mw.armSummonRecastIfWatched(second, true);
+		assertFalse(mw.rfgAfterUseSummons.contains(second));
+	}
+
+	@Test
+	void aNonSummonNeverConsumesTheMarker() {
+		MainWindow mw = new MainWindow();
+		mw.p1Turn.summonRecastArmedMaxCost = 4;
+		mw.armSummonRecastIfWatched(makeForward("A Forward", "Fire", 2, 3000), true);
+		assertEquals(4, mw.p1Turn.summonRecastArmedMaxCost, "it watches Summons only");
+	}
+
+	@Test
+	void bothSecondOptionsAreNamedRatherThanReportedUnread() {
+		assertEquals("SelectFollowingActions(1 of 2: ChooseCharacter / PlayOntoOwnField | ArmNextSummonRecast)",
+				ActionResolver.fullDescription(
+						"select 1 of the 2 following actions. "
+						+ "\"Choose 1 Monster in your opponent's Break Zone. Play it onto your field.\" "
+						+ "\"" + RELM_19_127L_RECAST + "\"",
+						makeForward("Relm", "Water", 2, 5000)));
 	}
 
 	// =========================================================================================

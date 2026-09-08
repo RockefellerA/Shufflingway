@@ -61,6 +61,16 @@ class PlayerTurnState {
 	boolean forwardPutToBZThisTurn = false;
 
 	/**
+	 * Cost ceiling of the next Summon this player casts from hand that 19-127L Relm's second
+	 * option is watching for, or {@code 0} when nothing is armed.
+	 *
+	 * <p>"Your next Summon of cost 4 or less cast from your hand" — a one-shot the first matching
+	 * cast consumes, so a second Summon that turn is unaffected. Cleared at both turn boundaries,
+	 * because the card says "during this turn" and means the turn it was played on.
+	 */
+	int summonRecastArmedMaxCost = 0;
+
+	/**
 	 * The cards put into this player's Break Zone <em>from the field</em> during the current turn —
 	 * what "1 Forward put in your Break Zone from the field during this turn" chooses among (Rydia
 	 * 17-083C, Maenad 25-032C, Muraga Fennes 14-073R, Regis 12-122L).

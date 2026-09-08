@@ -3969,7 +3969,34 @@ public interface GameContext {
      * As above, but skipping Summons of an excluded Element — 29-033L Terra's "of cost 5 or less
      * other than Light or Dark in your Break Zone". An empty set excludes nothing.
      */
-    void chooseSummonInBzByMaxCostFreeCastRfgAfterUse(int maxCost, java.util.Set<String> excludedElements);
+    default void chooseSummonInBzByMaxCostFreeCastRfgAfterUse(int maxCost,
+            java.util.Set<String> excludedElements) {
+        chooseSummonInBzByMaxCostFreeCastRfgAfterUse(maxCost, excludedElements, false);
+    }
+
+    /**
+     * As above, but able to read the <em>opponent's</em> Break Zone — 22-048H Nanaa Mihgo's
+     * "Choose 1 Summon of cost 3 or less in your opponent's Break Zone. Cast it as though you
+     * owned it without paying the cost."
+     *
+     * <p>The Summon stays where it is until cast, because the card removes it "after use" rather
+     * than on choosing. The Break Zone shield that protects a zone from the other player's choices
+     * (18-090R Kalmia) applies when the zone is the opponent's, exactly as it does everywhere else
+     * a card reaches across the table.
+     */
+    void chooseSummonInBzByMaxCostFreeCastRfgAfterUse(int maxCost,
+            java.util.Set<String> excludedElements, boolean opponentZone);
+
+    /**
+     * Arms 19-127L Relm's second option: "During this turn, if your next Summon of cost
+     * {@code maxCost} or less cast from your hand is put into the Break Zone, remove it from the
+     * game instead. Then, cast it again without paying the cost."
+     *
+     * <p>A one-shot watching the ability user's own casts, consumed by the first Summon that
+     * matches, and dropped at the end of the turn whether or not it ever fired. Nothing happens at
+     * the moment it is armed — the payoff is entirely in what the next matching cast does.
+     */
+    void armNextOwnSummonRecast(int maxCost);
 
     /**
      * Returns {@code true} if the most recent card cast by the ability user

@@ -43,6 +43,8 @@ class TurnPhases {
 		mw.p2Turn.formedPartyThisTurn = false;
 		mw.p2Turn.forwardsLeftFieldThisTurn = 0;
 		mw.p2Turn.forwardPutToBZThisTurn = false;
+		mw.p1Turn.summonRecastArmedMaxCost = 0;
+		mw.p2Turn.summonRecastArmedMaxCost = 0;
 		// Both sides, at both turn boundaries: "during this turn" ends when the turn does, whoever
 		// owns the Break Zone. See PlayerTurnState.putToBzFromFieldThisTurn.
 		mw.p1Turn.putToBzFromFieldThisTurn.clear();
@@ -131,6 +133,8 @@ class TurnPhases {
 		mw.p2Turn.partyAnyElementThisTurn = false;
 		mw.p1Turn.forwardsLeftFieldThisTurn = 0;
 		mw.p1Turn.forwardPutToBZThisTurn = false;
+		mw.p1Turn.summonRecastArmedMaxCost = 0;
+		mw.p2Turn.summonRecastArmedMaxCost = 0;
 		// Both sides, as at the other turn boundary above.
 		mw.p1Turn.putToBzFromFieldThisTurn.clear();
 		mw.p2Turn.putToBzFromFieldThisTurn.clear();

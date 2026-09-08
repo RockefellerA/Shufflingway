@@ -5,6 +5,7 @@ import static shufflingway.ActionResolverPatterns.*;
 import static shufflingway.ActionResolver.*;
 
 import java.util.List;
+import java.util.Locale;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 import java.util.regex.Matcher;
@@ -314,17 +315,35 @@ final class ActionResolverCost {
             ctx.gainCrystal(xValue);
         };
     }
+    /**
+     * Parses 19-127L Relm's "During this turn, if your next Summon of cost N or less cast from
+     * your hand is put into the Break Zone, remove it from the game instead. Then, cast it again
+     * without paying the cost."
+     */
+    static Consumer<GameContext> tryParseArmNextSummonRecast(String text) {
+        Matcher m = ARM_NEXT_SUMMON_RECAST.matcher(text);
+        if (!m.matches()) return null;
+        final int maxCost = Integer.parseInt(m.group("cost"));
+        return ctx -> {
+            ctx.logEntry("Effect: Arm next Summon (cost ≤ " + maxCost
+                    + ") cast from hand — RFG instead of Break Zone, then free recast");
+            ctx.armNextOwnSummonRecast(maxCost);
+        };
+    }
     static Consumer<GameContext> tryParseChooseSummonInBzMaxCostFreeCastRfg(String text) {
         Matcher m = CHOOSE_SUMMON_IN_BZ_MAX_COST_FREE_CAST_RFG.matcher(text);
         if (!m.find()) return null;
         final int maxCost = Integer.parseInt(m.group("cost"));
         final java.util.Set<String> excluded = m.group("exclude") != null
                 ? parseExcludeElements(m.group("exclude")) : java.util.Set.of();
+        // 22-048H Nanaa Mihgo borrows out of the opponent's Break Zone; the rest read their own.
+        final boolean opponentZone = m.group("zone") != null
+                && m.group("zone").toLowerCase(Locale.ROOT).contains("opponent");
         String excludeLabel = excluded.isEmpty() ? "" : " other than " + excluded;
         return ctx -> {
-            ctx.logEntry("Effect: Choose Summon (cost ≤ " + maxCost + excludeLabel
-                    + ") from BZ — cast free, RFG after use");
-            ctx.chooseSummonInBzByMaxCostFreeCastRfgAfterUse(maxCost, excluded);
+            ctx.logEntry("Effect: Choose Summon (cost ≤ " + maxCost + excludeLabel + ") from "
+                    + (opponentZone ? "opponent's BZ" : "BZ") + " — cast free, RFG after use");
+            ctx.chooseSummonInBzByMaxCostFreeCastRfgAfterUse(maxCost, excluded, opponentZone);
         };
     }
     static Consumer<GameContext> tryParseCostReductionThisTurn(String text) {

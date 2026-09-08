@@ -1085,6 +1085,15 @@ public class MainWindow {
 	 */
 	final Set<CardData> rfgAfterUseSummons = Collections.newSetFromMap(new IdentityHashMap<>());
 	/**
+	 * Summons that, once removed from the game after use, are owed a free recast — 19-127L Relm's
+	 * "remove it from the game instead. Then, cast it again without paying the cost."
+	 *
+	 * <p>Separate from {@link #rfgAfterUseSummons} because that set has other members who are owed
+	 * nothing afterwards (12-061L Krile, 22-048H Nanaa Mihgo): the removal and the recast are two
+	 * different promises and only Relm makes both.
+	 */
+	final Set<CardData> recastFreeAfterRfgSummons = Collections.newSetFromMap(new IdentityHashMap<>());
+	/**
 	 * Summons free-cast from hand under a "return to hand after use" clause.
 	 * After resolving, the Summon returns to its caster's hand instead of the Break Zone.
 	 */
@@ -2337,6 +2346,7 @@ public class MainWindow {
 		bzSelfCastFaP1.clear();
 		bzSelfCastFaP2.clear();
 		rfgAfterUseSummons.clear();
+		recastFreeAfterRfgSummons.clear();
 		returnToHandAfterUseSummons.clear();
 		if (opponent != null) opponent.cancel();
 		opponent = createOpponent();
@@ -4003,7 +4013,15 @@ public class MainWindow {
 						.anyMatch(a -> a.breakZoneOnly() != null && autoAbilityTriggers.canActivateBzAbility(a, card, true));
 			}
 			public boolean hasBzPlay(CardData card) {
-				return isP1 && bzPlayableP1.containsKey(card)
+				// Deliberately not gated on the zone being P1's own. A borrowed registration is
+				// keyed by card identity and only ever holds cards P1 was actually granted, so
+				// dropping that guard adds exactly one case: a Summon P1 may cast out of the
+				// opponent's Break Zone (22-048H Nanaa Mihgo). Without it the registration was
+				// made and then unreachable, because the opponent's zone opens with isP1 false.
+				//
+				// The ability path above stays own-zone only — you may cast a card you were lent,
+				// not use the Break Zone abilities of cards you were not.
+				return bzPlayableP1.containsKey(card)
 						&& bzPlayableP1.get(card).source() == PlayableEntry.SourceZone.BREAK_ZONE
 						&& !summonCastBlocked(card, true)
 						&& !p1CastLimitReached();
@@ -10503,6 +10521,10 @@ public class MainWindow {
 		lastCastPaymentCard = card;
 		lastCastWasPaidByBackupsOnly = discardIndices.isEmpty() && !backupDullIndices.isEmpty();
 		lastCastPaymentDiscardCount  = discardIndices.size();
+		// 19-127L Relm's second option watches for "your next Summon of cost 4 or less cast from
+		// your hand". This is that cast: executePlay is the from-hand path, and the marker is
+		// consumed here so the *next* Summon after this one is not also caught.
+		armSummonRecastIfWatched(card, isP1);
 		if (isP1) { gameState.removeFromHand(cardHandIdx);   refreshP1HandLabel(); }
 		else      { gameState.removeP2FromHand(cardHandIdx); refreshP2HandCountLabel(); }
 		activeCostReductions.removeIf(m -> m.consumeOnUse() && m.matches(card));
@@ -10732,6 +10754,25 @@ public class MainWindow {
 	 * cards may live in either player's Break Zone (Krile/Shantotto draw from "either" Break Zone).
 	 * Returns a human-readable source label for logging.
 	 */
+	/**
+	 * Consumes {@link PlayerTurnState#summonRecastArmedMaxCost} if {@code card} is the Summon it
+	 * was armed for, marking it to be removed from the game after use and recast for free.
+	 *
+	 * <p>The mark is set at cast time rather than at resolution because the ceiling is a property
+	 * of the cast — "of cost 4 or less cast from your hand" — and the card's cost is what it was
+	 * when it was played.
+	 */
+	void armSummonRecastIfWatched(CardData card, boolean isP1) {
+		PlayerTurnState turn = turn(isP1);
+		if (turn.summonRecastArmedMaxCost <= 0) return;
+		if (!card.isSummon() || card.cost() > turn.summonRecastArmedMaxCost) return;
+		turn.summonRecastArmedMaxCost = 0;   // one-shot: "your next Summon"
+		rfgAfterUseSummons.add(card);
+		recastFreeAfterRfgSummons.add(card);
+		logEntry((isP1 ? "" : "[P2] ") + card.name()
+				+ " — will be removed from the game instead of the Break Zone, then castable again free");
+	}
+
 	private String removeBorrowedSourceCard(CardData card, PlayableEntry entry) {
 		if (entry != null && entry.source() == PlayableEntry.SourceZone.RFP) {
 			if (gameState.removeFromPermanentRfp(card))
@@ -11350,6 +11391,18 @@ public class MainWindow {
 						refreshP2WarpZoneUI();
 					}
 					logEntry("\"" + entry.source().name() + "\" → Removed From Game (after use)");
+					// 19-127L Relm: "Then, cast it again without paying the cost." Registered as a
+					// free borrowed play out of the RFG zone rather than pushed straight back onto
+					// the stack — the whole "cast it without paying the cost" family is modelled
+					// that way (9-103R Iedolas, 29-033L Terra, 22-048H Nanaa Mihgo), and it also
+					// keeps a Summon from re-entering the stack while its own resolution is still
+					// unwinding.
+					if (recastFreeAfterRfgSummons.remove(entry.source())) {
+						registerBorrowedPlayable(entry.isP1(), entry.source(), new PlayableEntry(
+								PlayableEntry.SourceZone.RFP, 0, false, true, false, true));
+						logEntry("\"" + entry.source().name()
+								+ "\" may be cast again this turn without paying the cost");
+					}
 				} else {
 					addToBreakZone(entry.source());
 					logEntry("\"" + entry.source().name() + "\" → Break Zone");

@@ -291,6 +291,9 @@ public class ActionResolver {
         result = tryParseChooseSummonsFromBzCastable(effectText);
         if (result != null) return result;
 
+        result = tryParseArmNextSummonRecast(effectText);
+        if (result != null) return result;
+
         result = tryParseChooseSummonInBzMaxCostFreeCastRfg(effectText);
         if (result != null) return result;
 
@@ -1916,6 +1919,7 @@ public class ActionResolver {
         if (tryParseOppRfpTopDeckCastable(effectText)                   != null) return "OppRfpTopDeckCastable";
         if (tryParseChooseFromOppBzCastable(effectText)                 != null) return "ChooseFromOppBzCastable";
         if (tryParseChooseSummonsFromBzCastable(effectText)             != null) return "ChooseSummonsFromBzCastable";
+        if (tryParseArmNextSummonRecast(effectText) != null) return "ArmNextSummonRecast";
         if (tryParseChooseSummonInBzMaxCostFreeCastRfg(effectText)      != null) return "ChooseSummonInBzMaxCostFreeCastRfg";
         // Mirrors parse(), where this is the 5th call site. It must precede the ChooseCharacter
         // family: a modal "select 1 of the 3 following actions" carries its options as quoted text,
@@ -2326,6 +2330,7 @@ public class ActionResolver {
         if (tryParseChooseWarpCardRemoveCounter(effectText)               != null) return "ChooseWarpCardRemoveCounter";
         if (tryParseChooseWarpCardMayRemoveCounter(effectText)            != null) return "ChooseWarpCardMayRemoveCounter";
         if (tryParseChooseSummonInBzCastable(effectText)              != null) return "ChooseSummonInBzCastable";
+        if (tryParseArmNextSummonRecast(effectText) != null) return "ArmNextSummonRecast";
         if (tryParseChooseSummonInBzMaxCostFreeCastRfg(effectText)    != null) return "ChooseSummonInBzMaxCostFreeCastRfg";
         if (tryParseCostReductionThisTurn(effectText)                 != null) return "CostReductionThisTurn";
         if (tryParsePlayCostReductionThisTurn(effectText)        != null) return "PlayCostReductionThisTurn";
@@ -2974,6 +2979,7 @@ public class ActionResolver {
         if (tryParseOppRfpTopDeckCastable(effectText)                != null) return "OppRfpTopDeckCastable";
         if (tryParseChooseFromOppBzCastable(effectText)              != null) return "ChooseFromOppBzCastable";
         if (tryParseChooseSummonsFromBzCastable(effectText)          != null) return "ChooseSummonsFromBzCastable";
+        if (tryParseArmNextSummonRecast(effectText) != null) return "ArmNextSummonRecast";
         if (tryParseChooseSummonInBzMaxCostFreeCastRfg(effectText)   != null) return "ChooseSummonInBzMaxCostFreeCastRfg";
         // See the matching guard in matchedPatternName(): ahead of the choose/search families so a
         // modal ability is described as the choice it is, not as one of its quoted options.
