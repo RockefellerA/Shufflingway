@@ -7498,6 +7498,23 @@ final class GameContextImpl implements GameContext {
 				}
 			}
 
+			@Override public int mayDiscardAnyNumberFromHand(int aiCap) {
+				if (isP1)
+					return mw.showForcedDiscardDialog(mw.gameState.getP1Hand().size(), false, true);
+				List<CardData> hand = mw.gameState.getP2Hand();
+				int take = Math.min(Math.max(aiCap, 0), hand.size());
+				for (int i = 0; i < take; i++) {
+					CardData d = mw.playerBreakFromHand(false, MainWindow.pickWorstHandCard0(hand));
+					if (d == null) continue;
+					logEntry("[P2] Discards " + d.name());
+					mw.p2Turn.discardedByEffectThisTurn = true;
+					mw.lastDiscardedCardName = d.name();
+					mw.lastDiscardedCard = d;
+				}
+				if (take > 0) { mw.refreshP2HandCountLabel(); mw.refreshP2BreakLabel(); }
+				return take;
+			}
+
 			@Override public void selfDiscardByType(String cardType) {
 				if (!discardOneFromHandByType(cardType)) markEffectFizzled();
 			}

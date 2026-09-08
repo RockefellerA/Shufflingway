@@ -1303,16 +1303,25 @@ final class ActionResolverPatterns {
         "\\s+the\\s+other\\.?$"
     );
     /**
-     * Matches "Break [Self] as well as the Forward that blocks or is blocked by [Self]." —
-     * 2-114C Ninja, which trades itself for whatever it is in Battle with.
+     * Matches the two printings that trade the source card for whatever it is in Battle with:
+     * "Break [Self] as well as the Forward that blocks or is blocked by [Self]." (2-114C Ninja)
+     * and "break [Self] and any Forwards that are blocked by [Self]." (17-068R Duke Snakeheart).
+     *
+     * <p>One pattern because one thing happens. Ninja's is an action ability usable from either
+     * side of a Battle, so it names both roles; Duke Snakeheart's fires off "When Duke Snakeheart
+     * blocks", where he can only ever be the blocker, so it names the one role he can be in. Either
+     * way the Forward meant is the one the Battle pairs him with, which is what
+     * {@link GameContext#combatBattlePartnerOf} answers.
      *
      * <p>Both names are captured so the parser can check them against the source: the sentence
      * only means the source card, and reading it off a text naming something else would break the
      * wrong pair.
      */
     static final Pattern BREAK_SELF_AND_BATTLE_PARTNER = Pattern.compile(
-        "(?i)^Break\\s+(?<name>.+?)\\s+as\\s+well\\s+as\\s+the\\s+Forward\\s+that\\s+" +
-        "blocks\\s+or\\s+is\\s+blocked\\s+by\\s+(?<name2>.+?)[.!]?$"
+        "(?i)^Break\\s+(?<name>.+?)\\s+" +
+        "(?:as\\s+well\\s+as\\s+the\\s+Forward\\s+that\\s+blocks\\s+or\\s+is\\s+blocked\\s+by" +
+        "|and\\s+any\\s+Forwards?\\s+that\\s+(?:is|are)\\s+blocked\\s+by)" +
+        "\\s+(?<name2>.+?)[.!]?$"
     );
     /**
      * Matches "Until the end of the turn, all the Forwards opponent controls lose &lt;traits&gt;." —
@@ -1735,6 +1744,26 @@ final class ActionResolverPatterns {
         "Counters?\\s+from\\s+(?<card>[^.!]+?)\\s*[.!]\\s*" +
         "(?:When|If)\\s+you\\s+do\\s+so,?\\s+choose\\s+(?:up\\s+to\\s+)?the\\s+same\\s+number\\s+of\\s+" +
         "(?<noun>.+?)\\s+as\\s+the\\s+(?<counter2>[A-Za-z][A-Za-z ]*?)\\s+Counters?\\s+you\\s+removed\\s*[.!]\\s*" +
+        "(?<tail>\\S.*)$", Pattern.DOTALL
+    );
+    /**
+     * Matches "[you may] discard any number of cards. When you do so, choose [up to] the same
+     * number of [noun] as the discarded cards. [effect]" — 28-071H Yang.
+     *
+     * <p>The discard sibling of {@link #REMOVE_ANY_COUNTERS_THEN_CHOOSE_SAME_NUMBER}, and one
+     * expression across both sentences for the same reason: "the same number" is however many
+     * cards the player actually gave up, a quantity that exists only inside the one resolution, so
+     * the generic {@code WHEN_YOU_DO_SO_SEQUENCE} split cannot express it.
+     *
+     * <ul>
+     *   <li>{@code noun} — what the payoff chooses, e.g. "Forwards opponent controls"</li>
+     *   <li>{@code tail} — what the payoff then does to them, e.g. "Deal them 9000 damage."</li>
+     * </ul>
+     */
+    static final Pattern DISCARD_ANY_NUMBER_THEN_CHOOSE_SAME_NUMBER = Pattern.compile(
+        "(?i)^(?:you\\s+may\\s+)?discard\\s+any\\s+number\\s+of\\s+cards\\s*[.!]\\s*" +
+        "(?:When|If)\\s+you\\s+do\\s+so,?\\s+choose\\s+(?:up\\s+to\\s+)?the\\s+same\\s+number\\s+of\\s+" +
+        "(?<noun>.+?)\\s+as\\s+the\\s+discarded\\s+cards\\s*[.!]\\s*" +
         "(?<tail>\\S.*)$", Pattern.DOTALL
     );
     /**

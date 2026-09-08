@@ -31341,6 +31341,50 @@ public class CardBehaviorTest {
 		verify(ctx, never()).breakTarget(any());
 	}
 
+	// --- Duke Snakeheart 17-068R ----------------------------------------------------------
+	//
+	// The same trade, printed as a "when this blocks" auto ability rather than an action one, and
+	// worded for the one role it can be in: Ninja may be activated from either side of a Battle
+	// and names both, Duke Snakeheart only ever blocks. The Forward meant is the same Forward
+	// either way, which is why one pattern reads both and no second primitive was needed.
+
+	private static final String DUKE_SNAKEHEART_EFFECT =
+			"break Duke Snakeheart and any Forwards that are blocked by Duke Snakeheart.";
+
+	@Test
+	void dukeSnakeheartBreaksItselfAndTheForwardItBlocks() {
+		CardData duke = makeForward("Duke Snakeheart", "Earth", 2, 3000);
+		ForwardTarget attacker = new ForwardTarget(false, 1, ForwardTarget.CardZone.FORWARD);
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.combatBattlePartnerOf("Duke Snakeheart")).thenReturn(attacker);
+
+		Consumer<GameContext> fn = ActionResolver.parse(DUKE_SNAKEHEART_EFFECT, duke);
+		assertNotNull(fn, "Duke Snakeheart should parse");
+		fn.accept(ctx);
+
+		InOrder order = inOrder(ctx);
+		order.verify(ctx).breakTarget(attacker);
+		order.verify(ctx).breakSourceCard(duke);
+	}
+
+	@Test
+	void dukeSnakeheartIsNamedRatherThanReportedUnread() {
+		assertEquals("BreakSelfAndBattlePartner",
+				ActionResolver.matchedPatternName(DUKE_SNAKEHEART_EFFECT,
+						makeForward("Duke Snakeheart", "Earth", 2, 3000)));
+	}
+
+	@Test
+	void bothHalvesOfTheSentenceMustNameTheSourceCard() {
+		// The guard that keeps this pattern off a text describing somebody else's Battle. Widening
+		// it to a second wording widened what could reach that guard, so both printings are checked.
+		CardData duke = makeForward("Duke Snakeheart", "Earth", 2, 3000);
+		assertNull(ActionResolver.parse(
+				"break Duke Snakeheart and any Forwards that are blocked by Gilgamesh.", duke));
+		assertNull(ActionResolver.parse(
+				"Break Gilgamesh as well as the Forward that blocks or is blocked by Gilgamesh.", duke));
+	}
+
 	// --- Amidatelion 15-022C --------------------------------------------------------------
 
 	private static final String AMIDATELION_EFFECT =
@@ -39141,6 +39185,132 @@ public class CardBehaviorTest {
 				KEFKA_EOT, makeForward("Someone Else", "Fire", 4, 8000)));
 		assertNotNull(ActionResolverState.tryParseRemoveAnyCountersThenChooseSameNumber(
 				KEFKA_EOT, kefka20008H()));
+	}
+
+	// --- Yang 28-071H, the discard spelling of the same shape ------------------------------
+	//
+	// Kefka spends counters, Yang spends cards out of hand, and both then choose "up to the same
+	// number" of Forwards and burn them for 9000. The quantity exists only inside the one
+	// resolution either way, which is why neither can go through the generic "When you do so"
+	// split, and why the payoff is rewritten with the count and handed back to parse() rather than
+	// having target selection restated in the parser.
+
+	private static final String YANG_28_071H =
+			"discard any number of cards. When you do so, choose up to the same number of Forwards "
+			+ "opponent controls as the discarded cards. Deal them 9000 damage.";
+
+	private static CardData yang28071H() { return makeForward("Yang", "Earth", 3, 8000); }
+
+	@Test
+	void yangIsReadWholeRatherThanSplitAtWhenYouDoSo() {
+		assertEquals("DiscardAnyNumberThenChooseSameNumber",
+				ActionResolver.matchedPatternName(YANG_28_071H, yang28071H()));
+		assertEquals("DiscardAnyNumberThenChooseSameNumber / ChooseCharacter / Damage",
+				ActionResolver.fullDescription(YANG_28_071H, yang28071H()));
+	}
+
+	@Test
+	void yangSizesTheChoiceByHowManyCardsActuallyWent() {
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.consumePreloadedTargets()).thenReturn(null);
+		when(ctx.opponentForwardCount()).thenReturn(3);
+		when(ctx.mayDiscardAnyNumberFromHand(anyInt())).thenReturn(2);
+		when(ctx.selectCharacters(anyInt(), anyBoolean(), anyBoolean(), anyBoolean(), any(), any(),
+				anyInt(), any(), anyInt(), any(), anyBoolean(), anyBoolean(), anyBoolean(),
+				any(), any(), any(), any(), anyBoolean(), any(), anyBoolean()))
+				.thenReturn(List.of(new ForwardTarget(false, 0, ForwardTarget.CardZone.FORWARD)));
+
+		ActionResolver.parse(YANG_28_071H, yang28071H()).accept(ctx);
+
+		// The ceiling is what was discarded, not what was held or what the board offers, and the
+		// choice reaches only across the table — "Forwards opponent controls".
+		verify(ctx).selectCharacters(eq(2), eq(true), eq(true), anyBoolean(), any(), any(),
+				anyInt(), any(), anyInt(), any(), anyBoolean(), anyBoolean(), anyBoolean(),
+				any(), any(), any(), any(), anyBoolean(), any(), anyBoolean());
+		verify(ctx).damageTarget(any(ForwardTarget.class), eq(9000));
+	}
+
+	@Test
+	void theAiIsOfferedOnlyAsManyDiscardsAsThePayoffCanSpend() {
+		// Every discard past the opponent's last Forward buys nothing, and the AI cannot see that
+		// from inside the discard. Left to selectNumber's take-the-maximum convention it would
+		// empty its hand for one target.
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.opponentForwardCount()).thenReturn(1);
+		when(ctx.mayDiscardAnyNumberFromHand(anyInt())).thenReturn(0);
+
+		ActionResolver.parse(YANG_28_071H, yang28071H()).accept(ctx);
+
+		verify(ctx).mayDiscardAnyNumberFromHand(1);
+	}
+
+	@Test
+	void yangDoesNothingWhenNoCardIsGivenUp() {
+		// "Any number" includes none, and "When you do so" then has nothing to hang off.
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.opponentForwardCount()).thenReturn(3);
+		when(ctx.mayDiscardAnyNumberFromHand(anyInt())).thenReturn(0);
+
+		ActionResolver.parse(YANG_28_071H, yang28071H()).accept(ctx);
+
+		verify(ctx, never()).selectCharacters(anyInt(), anyBoolean(), anyBoolean(), anyBoolean(),
+				any(), any(), anyInt(), any(), anyInt(), any(), anyBoolean(), anyBoolean(),
+				anyBoolean(), any(), any(), any(), any(), anyBoolean(), any(), anyBoolean());
+		verify(ctx, never()).damageTarget(any(ForwardTarget.class), anyInt());
+		verify(ctx).markEffectFizzled();
+	}
+
+	@Test
+	void yangDeclinesAPayoffTheChainCannotRead() {
+		// Proved at parse time, and for both counts: an ability wired on a payoff that cannot
+		// resolve does nothing on the turn it fires, where one reported unparsed is a visible gap.
+		//
+		// What this catches is a payoff the choose chain will not take at all. It does not catch a
+		// readable choice with an unreadable verb after it — that chain matches with find() and
+		// drops the tail, so "choose up to 2 Forwards opponent controls. Wibble the frobnitz."
+		// parses as a bare choice. Kefka's counter sibling has the same hole, and closing it means
+		// changing what the choose chain claims rather than what these two parsers accept.
+		assertNull(ActionResolverHand.tryParseDiscardAnyNumberThenChooseSameNumber(
+				"discard any number of cards. When you do so, choose up to the same number of "
+				+ "frobnitzes as the discarded cards. Deal them 9000 damage.",
+				yang28071H()));
+		assertNotNull(ActionResolverHand.tryParseDiscardAnyNumberThenChooseSameNumber(
+				YANG_28_071H, yang28071H()));
+	}
+
+	@Test
+	void theAiDiscardsItsWorstCardsUpToTheCapAndReportsWhatWent() {
+		MainWindow mw = new MainWindow();
+		List<CardData> hand = mw.gameState.getP2Hand();
+		for (CardData c : List.of(makeForward("A", "Earth", 1, 1000),
+				makeForward("B", "Earth", 2, 2000), makeForward("C", "Earth", 3, 3000))) {
+			mw.gameState.getIdentity().put(c, false);
+			hand.add(c);
+		}
+
+		assertEquals(2, mw.buildGameContext(false).mayDiscardAnyNumberFromHand(2));
+		assertEquals(1, hand.size(), "two left the hand");
+		assertEquals(2, mw.gameState.getP2BreakZone().size());
+		assertTrue(mw.p2Turn.discardedByEffectThisTurn);
+	}
+
+	@Test
+	void theCapIsHeldToTheHandTheAiActuallyHas() {
+		MainWindow mw = new MainWindow();
+		CardData only = makeForward("Only", "Earth", 1, 1000);
+		mw.gameState.getIdentity().put(only, false);
+		mw.gameState.getP2Hand().add(only);
+
+		// A board of five Forwards does not conjure five cards to spend.
+		assertEquals(1, mw.buildGameContext(false).mayDiscardAnyNumberFromHand(5));
+		assertTrue(mw.gameState.getP2Hand().isEmpty());
+	}
+
+	@Test
+	void anEmptyHandDiscardsNothingAndSaysSo() {
+		MainWindow mw = new MainWindow();
+		assertEquals(0, mw.buildGameContext(false).mayDiscardAnyNumberFromHand(3));
+		assertFalse(mw.p2Turn.discardedByEffectThisTurn);
 	}
 
 	@Test

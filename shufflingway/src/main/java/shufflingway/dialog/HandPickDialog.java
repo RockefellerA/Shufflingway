@@ -103,13 +103,31 @@ public class HandPickDialog {
     public static void showForcedDiscard(JFrame owner, List<CardData> hand, int mustDiscard,
                                           Consumer<String> onZoom, Runnable onZoomHide,
                                           Consumer<List<Integer>> onConfirm) {
-        JDialog dlg = new JDialog(owner, "Discard " + mustDiscard + " Card(s)", true);
+        showForcedDiscard(owner, hand, mustDiscard, false, onZoom, onZoomHide, onConfirm);
+    }
+
+    /**
+     * As above, with {@code upTo} letting the player confirm having selected fewer than
+     * {@code mustDiscard} — including none at all, which is what "discard any number of cards"
+     * (28-071H Yang) permits.
+     *
+     * <p>The same flag {@link #showPlaceToBottom} carries, and it does the same two things here:
+     * the confirm button starts enabled rather than waiting for a full selection, and the status
+     * line counts what is selected instead of what is still owed.
+     */
+    public static void showForcedDiscard(JFrame owner, List<CardData> hand, int mustDiscard,
+                                          boolean upTo,
+                                          Consumer<String> onZoom, Runnable onZoomHide,
+                                          Consumer<List<Integer>> onConfirm) {
+        JDialog dlg = new JDialog(owner,
+                "Discard " + (upTo ? "up to " : "") + mustDiscard + " Card(s)", true);
         dlg.setResizable(false);
         dlg.setDefaultCloseOperation(JDialog.DO_NOTHING_ON_CLOSE);
 
         Set<Integer> selected = new HashSet<>();
 
-        JLabel statusLabel = new JLabel("Select " + mustDiscard + " card(s) to discard.", SwingConstants.CENTER);
+        JLabel statusLabel = new JLabel("Select " + (upTo ? "up to " : "") + mustDiscard
+                + " card(s) to discard.", SwingConstants.CENTER);
         statusLabel.setFont(FontLoader.loadPixelFont(10));
 
         List<JLabel> cardLabels = new ArrayList<>();
@@ -117,14 +135,15 @@ public class HandPickDialog {
 
         JButton confirmBtn = new JButton("Discard");
         confirmBtn.setFont(FontLoader.loadPixelFont(11));
-        confirmBtn.setEnabled(false);
+        confirmBtn.setEnabled(upTo);   // "any number" allows confirming with nothing selected
 
         Runnable refresh = () -> {
             int remaining = mustDiscard - selected.size();
-            statusLabel.setText(remaining > 0
+            statusLabel.setText(remaining > 0 && !upTo
                     ? "Select " + remaining + " more card(s) to discard."
-                    : "Ready — click Discard to confirm.");
-            confirmBtn.setEnabled(selected.size() == mustDiscard);
+                    : "Ready — click Discard to confirm"
+                        + (upTo ? " (" + selected.size() + " selected)." : "."));
+            confirmBtn.setEnabled(upTo || selected.size() == mustDiscard);
             for (int i = 0; i < cardLabels.size(); i++) {
                 cardLabels.get(i).setBorder(BorderFactory.createLineBorder(
                         selected.contains(i) ? Color.RED : Color.LIGHT_GRAY,

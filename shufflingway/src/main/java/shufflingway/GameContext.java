@@ -2681,6 +2681,25 @@ public interface GameContext {
     void selfDiscard(int count);
 
     /**
+     * "Discard any number of cards." — offers the ability user their whole hand and answers how
+     * many they actually gave up (28-071H Yang, the corpus's only printing).
+     *
+     * <p>Not {@link #selfDiscard(int)} with a count: that one is told how many must go and reports
+     * nothing back, and here the number is the player's to pick and is the whole input to what
+     * happens next. Zero is a legal answer — "any number" includes none — and callers whose next
+     * clause reads "When you do so, …" should treat it as declining.
+     *
+     * <p>{@code aiCap} is how many the AI should spend, which the caller works out from what its
+     * payoff can actually use: the AI cannot see past this call to know that a sixth discard buys
+     * nothing when the opponent controls five Forwards, and left to
+     * {@link #selectNumber}'s take-the-maximum convention it would empty its hand for one target.
+     * P1 is never held to it — the card lets a human discard as much of their hand as they like.
+     *
+     * @return how many cards left the hand; 0 when the player declined or held nothing
+     */
+    int mayDiscardAnyNumberFromHand(int aiCap);
+
+    /**
      * Prompts the active player to choose {@code count} card(s) from their hand and place
      * them at the bottom of their deck. The AI places its worst cards automatically.
      */

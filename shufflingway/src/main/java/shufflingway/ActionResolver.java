@@ -339,6 +339,11 @@ public class ActionResolver {
         result = tryParseRemoveAnyCountersThenChooseSameNumber(effectText, source);
         if (result != null) return result;
 
+        // Beside the parser above and here for the same reason: 28-071H Yang's "the same number" is
+        // however many cards the discard actually took, which the split cannot carry across.
+        result = tryParseDiscardAnyNumberThenChooseSameNumber(effectText, source);
+        if (result != null) return result;
+
         result = tryParseWhenYouDoSoSequence(effectText, source, xValue);
         if (result != null) return result;
 
@@ -1970,6 +1975,9 @@ public class ActionResolver {
         // the same sentence and cannot survive that parser's split.
         if (tryParseRemoveAnyCountersThenChooseSameNumber(effectText, source) != null)
             return "RemoveAnyCountersThenChooseSameNumber";
+        // Beside it, and ahead of WhenYouDoSo for the same reason.
+        if (tryParseDiscardAnyNumberThenChooseSameNumber(effectText, source) != null)
+            return "DiscardAnyNumberThenChooseSameNumber";
         if (tryParseWhenYouDoSoSequence(effectText, source, 0) != null) return "WhenYouDoSo";
         if (tryParseSelectNumber(effectText, source)                    != null) return "SelectNumber";
         if (tryParseAllMonstersTemporaryForward(effectText) != null) return "AllMonstersTemporaryForward";
@@ -3048,6 +3056,8 @@ public class ActionResolver {
         // Must precede WhenYouDoSo, mirroring parse() and matchedPatternName().
         if (tryParseRemoveAnyCountersThenChooseSameNumber(effectText, source) != null)
             return removeAnyCountersDescription(effectText, source);
+        if (tryParseDiscardAnyNumberThenChooseSameNumber(effectText, source) != null)
+            return discardAnyNumberDescription(effectText, source);
         if (tryParseWhenYouDoSoSequence(effectText, source, 0)          != null) return "WhenYouDoSo";
         if (tryParseIfNotPayOrElse(effectText, source, 0)               != null) return "IfNotPayOrElse";
         if (tryParseRemoveTopThenPileThreshold(effectText, source)          != null) return "RemoveTopThenPileThreshold";
@@ -6734,6 +6744,16 @@ public class ActionResolver {
         String inner = fullDescription(
                 "choose up to 2 " + m.group("noun").trim() + ". " + m.group("tail").trim(), source);
         return "RemoveAnyCountersThenChooseSameNumber"
+                + (inner != null ? " / " + inner : "");
+    }
+
+    /** The discard sibling of {@link #removeAnyCountersDescription}, described the same way. */
+    private static String discardAnyNumberDescription(String effectText, CardData source) {
+        Matcher m = DISCARD_ANY_NUMBER_THEN_CHOOSE_SAME_NUMBER.matcher(effectText.trim());
+        if (!m.matches()) return "DiscardAnyNumberThenChooseSameNumber";
+        String inner = fullDescription(
+                "choose up to 2 " + m.group("noun").trim() + ". " + m.group("tail").trim(), source);
+        return "DiscardAnyNumberThenChooseSameNumber"
                 + (inner != null ? " / " + inner : "");
     }
 

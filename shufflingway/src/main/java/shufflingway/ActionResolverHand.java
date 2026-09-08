@@ -1071,4 +1071,55 @@ final class ActionResolverHand {
             ctx.chooseNamedFromOwnRfgToHand(cardName);
         };
     }
+
+    /**
+     * Parses "[you may] discard any number of cards. When you do so, choose up to the same number
+     * of [noun] as the discarded cards. [effect]" — 28-071H Yang.
+     *
+     * <p>The discard sibling of {@code tryParseRemoveAnyCountersThenChooseSameNumber} and resolved
+     * the same way: the payoff is rewritten with the count the discard actually produced and handed
+     * to {@code parse()}, because "choose up to 2 Forwards opponent controls. Deal them 9000
+     * damage." is a sentence the choose chain already reads in full. Restating target selection and
+     * the "up to" ceiling here would be a second copy of that to keep in step.
+     *
+     * <p>Both halves are parsed together because the second cannot stand alone: "the same number"
+     * exists only inside one resolution. <b>Must precede {@code tryParseWhenYouDoSoSequence} in
+     * every dispatch chain</b> — that parser splits on "When you do so" and would separate the
+     * count from the discard that sets it.
+     *
+     * <p>The template is proved at parse time against a plural and a singular count, so an ability
+     * whose payoff this engine could not resolve is reported unparsed rather than wired and
+     * silently doing nothing on the turn it fires.
+     */
+    static Consumer<GameContext> tryParseDiscardAnyNumberThenChooseSameNumber(String text,
+            CardData source) {
+        Matcher m = DISCARD_ANY_NUMBER_THEN_CHOOSE_SAME_NUMBER.matcher(text.trim());
+        if (!m.matches()) return null;
+        String noun = m.group("noun").trim();
+        String tail = m.group("tail").trim();
+        // Proved for both a plural and a singular count: the payoff's verb agreement is printed for
+        // the plural ("Deal them"), and a one-card discard has to resolve too.
+        if (parse(discardPayoffText(2, noun, tail), source) == null) return null;
+        if (parse(discardPayoffText(1, noun, tail), source) == null) return null;
+
+        return ctx -> {
+            // What the payoff can actually use is the ceiling the AI spends to: every discard past
+            // the opponent's last Forward buys it nothing. A human is offered their whole hand.
+            int discarded = ctx.mayDiscardAnyNumberFromHand(ctx.opponentForwardCount());
+            if (discarded <= 0) {
+                ctx.logEntry("Effect: no cards discarded — no further effect");
+                ctx.markEffectFizzled();
+                return;
+            }
+            ctx.logEntry("Effect: discarded " + discarded + " card(s); choose up to "
+                    + discarded + " " + noun);
+            Consumer<GameContext> payoff = parse(discardPayoffText(discarded, noun, tail), source);
+            if (payoff != null) payoff.accept(ctx);
+        };
+    }
+
+    /** The payoff sentence of {@link #tryParseDiscardAnyNumberThenChooseSameNumber} for a count. */
+    private static String discardPayoffText(int count, String noun, String tail) {
+        return "choose up to " + count + " " + noun + ". " + tail;
+    }
 }

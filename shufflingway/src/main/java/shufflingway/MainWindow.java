@@ -7259,10 +7259,22 @@ public class MainWindow {
 	 * Called when P2 activates a "Your opponent discards N cards" ability.
 	 */
 	void showForcedDiscardDialog(int count, boolean forcedByOpponent) {
+		showForcedDiscardDialog(count, forcedByOpponent, false);
+	}
+
+	/**
+	 * As above, with {@code upTo} letting P1 confirm having chosen fewer than {@code count} — the
+	 * "discard any number of cards" wording (28-071H Yang), where the caller passes hand size as
+	 * the ceiling and taking none is a legal answer.
+	 *
+	 * @return how many cards were actually discarded, for effects that pay out per card
+	 */
+	int showForcedDiscardDialog(int count, boolean forcedByOpponent, boolean upTo) {
 		List<CardData> hand = gameState.getP1Hand();
 		int mustDiscard = Math.min(count, hand.size());
-		if (mustDiscard == 0) return;
-		HandPickDialog.showForcedDiscard(frame, hand, mustDiscard, this::showZoomAt, this::hideZoom, selected -> {
+		if (mustDiscard == 0) return 0;
+		int[] discarded = { 0 };
+		HandPickDialog.showForcedDiscard(frame, hand, mustDiscard, upTo, this::showZoomAt, this::hideZoom, selected -> {
 			selected.sort(Collections.reverseOrder());
 			for (int di : selected) {
 				CardData d = playerBreakFromHand(true, di);
@@ -7273,9 +7285,11 @@ public class MainWindow {
 				}
 			}
 			if (!selected.isEmpty()) p1Turn.discardedByEffectThisTurn = true;
+			discarded[0] = selected.size();
 			refreshP1HandLabel();
 			refreshP1BreakLabel();
 		});
+		return discarded[0];
 	}
 
 	/**
@@ -17584,8 +17598,13 @@ public class MainWindow {
 				if (blk != null) {
 					CardData blocker = autoAbilityTriggers.fieldCardData(blk);
 					logEntry("[P2] " + blocker.name() + " blocks!");
-					autoAbilityTriggers.triggerAutoAbilitiesForBlock(blocker, false);
+					// The pairing is recorded before the trigger, not after: a "when this blocks"
+					// ability may ask what it is in Battle with (17-068R Duke Snakeheart breaks it),
+					// and combatBattlePartnerOf reads exactly these two fields. P1's own block site
+					// has always set them first; these three had not, so the ability ran against a
+					// Battle the engine did not yet believe in.
 					if (blk.zone() == ForwardTarget.CardZone.FORWARD) { p2BlockingIdx = blk.idx(); p2BlockedByAttacker = attacker; }
+					autoAbilityTriggers.triggerAutoAbilitiesForBlock(blocker, false);
 					autoAbilityTriggers.triggerAutoAbilitiesForIsBlocked(attacker, true);
 					combatPriorityRound(true, null, () -> {
 						setAttackSubStep(3);
@@ -17973,8 +17992,9 @@ public class MainWindow {
 				if (blk != null) {
 					CardData blocker = autoAbilityTriggers.fieldCardData(blk);
 					logEntry("[P2] " + blocker.name() + " blocks!");
-					autoAbilityTriggers.triggerAutoAbilitiesForBlock(blocker, false);
+					// Recorded before the trigger — see the Monster-attacker site above.
 					if (blk.zone() == ForwardTarget.CardZone.FORWARD) { p2BlockingIdx = blk.idx(); p2BlockedByAttacker = attacker; }
+					autoAbilityTriggers.triggerAutoAbilitiesForBlock(blocker, false);
 					autoAbilityTriggers.triggerAutoAbilitiesForIsBlocked(attacker, true);
 					combatPriorityRound(true, null, () -> {
 						setAttackSubStep(3);
@@ -18092,8 +18112,9 @@ public class MainWindow {
 					if (blk != null) {
 						CardData blocker = autoAbilityTriggers.fieldCardData(blk);
 						logEntry("[P2] " + blocker.name() + " blocks!");
-						autoAbilityTriggers.triggerAutoAbilitiesForBlock(blocker, false);
+						// Recorded before the trigger — see the Monster-attacker site above.
 						if (blk.zone() == ForwardTarget.CardZone.FORWARD) { p2BlockingIdx = blk.idx(); p2BlockedByAttacker = attacker; }
+						autoAbilityTriggers.triggerAutoAbilitiesForBlock(blocker, false);
 						autoAbilityTriggers.triggerAutoAbilitiesForIsBlocked(attacker, true);
 						// Second round: both players may respond to the block before damage.
 						combatPriorityRound(true, null, () -> {
