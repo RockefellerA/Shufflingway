@@ -31706,6 +31706,150 @@ public class CardBehaviorTest {
 		verify(ctx, never()).discardCardOfTypeFromHandThenIfDidSo(any(), any());
 	}
 
+	// =========================================================================================
+	// Imaginary Brawler 3-005C: "When Imaginary Brawler attacks, choose 1 Forward of the highest
+	// cost opponent controls. It cannot block this turn."
+	//
+	// The corpus's only superlative selector — "of the highest cost" names no number, so there was
+	// nothing for the choose chain's cost filter to hold and the whole sentence went unread. It is
+	// resolved as a sentinel rather than a new selection path: the parser puts "highest" in the
+	// costCmp slot beside the "or_…" sentinel already there for multi-value costs, and
+	// selectTargets swaps it for the board's actual ceiling before anyone downstream looks. Every
+	// existing followup — CannotBlock here — keeps working unchanged as a result.
+	//
+	// Resolving it is also what keeps it safe. meetsCostConstraint short-circuits to true on a
+	// negative cost value, so a sentinel that reached the filter unresolved would have offered
+	// every Forward on the board rather than the dearest.
+	// =========================================================================================
+
+	private static final String BRAWLER_EFFECT =
+			"choose 1 Forward of the highest cost opponent controls. It cannot block this turn.";
+
+	@Test
+	void brawlerFiltersOnTheCeilingReadOffTheBoard() {
+		GameContext ctx = contextChoosing(List.of(new ForwardTarget(false, 0, ForwardTarget.CardZone.FORWARD)));
+		when(ctx.highestFieldCost(anyBoolean(), anyBoolean(), anyBoolean(), anyBoolean(), anyBoolean()))
+				.thenReturn(5);
+
+		Consumer<GameContext> fn = ActionResolver.parse(BRAWLER_EFFECT, makeForward("Imaginary Brawler", "Fire", 3, 7000));
+		assertNotNull(fn, "Imaginary Brawler should parse");
+		fn.accept(ctx);
+
+		// The board's ceiling arrives as an ordinary exact-cost filter: cost == 5, no comparison.
+		verify(ctx).selectCharacters(eq(1), eq(false), eq(true), eq(false), any(), any(),
+				eq(5), isNull(), anyInt(), any(), anyBoolean(), anyBoolean(), anyBoolean(),
+				any(), any(), any(), any(), anyBoolean(), any(), anyBoolean());
+		verify(ctx).setP2ForwardCannotBlock(0);
+	}
+
+	@Test
+	void brawlerReadsTheCeilingFromTheOpponentsSideOnly() {
+		GameContext ctx = contextChoosing(List.of(new ForwardTarget(false, 0, ForwardTarget.CardZone.FORWARD)));
+		when(ctx.highestFieldCost(anyBoolean(), anyBoolean(), anyBoolean(), anyBoolean(), anyBoolean()))
+				.thenReturn(4);
+
+		ActionResolver.parse(BRAWLER_EFFECT, makeForward("Imaginary Brawler", "Fire", 3, 7000)).accept(ctx);
+
+		// opponentOnly, and Forwards only — "1 Forward opponent controls" says both.
+		verify(ctx).highestFieldCost(true, false, true, false, false);
+	}
+
+	/** No Forwards to read a ceiling from means no selection at all, rather than a free choice. */
+	@Test
+	void brawlerChoosesNothingOnAnEmptyBoard() {
+		GameContext ctx = contextChoosing(List.of(new ForwardTarget(false, 0, ForwardTarget.CardZone.FORWARD)));
+		when(ctx.highestFieldCost(anyBoolean(), anyBoolean(), anyBoolean(), anyBoolean(), anyBoolean()))
+				.thenReturn(-1);
+
+		ActionResolver.parse(BRAWLER_EFFECT, makeForward("Imaginary Brawler", "Fire", 3, 7000)).accept(ctx);
+
+		verify(ctx, never()).selectCharacters(anyInt(), anyBoolean(), anyBoolean(), anyBoolean(),
+				any(), any(), anyInt(), any(), anyInt(), any(), anyBoolean(), anyBoolean(), anyBoolean(),
+				any(), any(), any(), any(), anyBoolean(), any(), anyBoolean());
+		verify(ctx, never()).setP2ForwardCannotBlock(anyInt());
+	}
+
+	/** A plain "choose 1 Forward" must not pick up a cost filter it never printed. */
+	@Test
+	void anOrdinaryChooseIsUnaffectedByTheSuperlativeClause() {
+		GameContext ctx = contextChoosing(List.of(new ForwardTarget(false, 0, ForwardTarget.CardZone.FORWARD)));
+
+		ActionResolver.parse("choose 1 Forward opponent controls. It cannot block this turn.",
+				makeForward("Someone", "Fire", 3, 7000)).accept(ctx);
+
+		verify(ctx, never()).highestFieldCost(anyBoolean(), anyBoolean(), anyBoolean(), anyBoolean(), anyBoolean());
+		verify(ctx).selectCharacters(eq(1), eq(false), eq(true), eq(false), any(), any(),
+				eq(-1), isNull(), anyInt(), any(), anyBoolean(), anyBoolean(), anyBoolean(),
+				any(), any(), any(), any(), anyBoolean(), any(), anyBoolean());
+	}
+
+	// --- highestFieldCost against a real board ---------------------------------------------
+
+	@Test
+	void theCeilingIsTheDearestForwardTheOpponentControls() {
+		MainWindow mw = new MainWindow();
+		placeP1Forward(mw, makeForward("Mine", "Fire", 9, 7000));     // the ability user's own
+		placeP2Forward(mw, makeForward("Cheap", "Water", 2, 7000));
+		placeP2Forward(mw, makeForward("Dear", "Water", 6, 7000));
+
+		assertEquals(6, mw.buildGameContext(true).highestFieldCost(true, false, true, false, false),
+				"the cost-9 Forward is the ability user's own, so it is not the opponent's ceiling");
+	}
+
+	@Test
+	void theCeilingIgnoresTypesTheChooseDidNotAskFor() {
+		MainWindow mw = new MainWindow();
+		mw.placeP2CardInFirstBackupSlot(makeForward("Pricey Backup", "Water", 8, 0));
+		placeP2Forward(mw, makeForward("Forward", "Water", 3, 7000));
+
+		GameContext ctx = mw.buildGameContext(true);
+		assertEquals(3, ctx.highestFieldCost(true, false, true, false, false),
+				"Forwards only, so the cost-8 Backup does not raise the ceiling");
+		assertEquals(8, ctx.highestFieldCost(true, false, true, true, false),
+				"and it does once Backups are asked for");
+	}
+
+	@Test
+	void theCeilingIsMinusOneWhenThereIsNothingToRead() {
+		MainWindow mw = new MainWindow();
+
+		assertEquals(-1, mw.buildGameContext(true).highestFieldCost(true, false, true, false, false),
+				"there is no highest cost among no cards");
+	}
+
+	// =========================================================================================
+	// SOLDIER Candidate 25-063C: "When SOLDIER Candidate attacks, all the Card Name SOLDIER
+	// Candidate Forwards you control gain +1000 power until the end of the turn."
+	//
+	// The Card Name twin of the Job-filtered mass boost. Both feed one primitive that takes the
+	// two filters as a disjunction and ignores a null one, so this needed the pattern and parser
+	// that spell the name half and nothing underneath them.
+	// =========================================================================================
+
+	@Test
+	void soldierCandidateBoostsItsOwnCopiesOnly() {
+		GameContext ctx = mock(GameContext.class);
+
+		Consumer<GameContext> fn = ActionResolver.parse(
+				"all the Card Name SOLDIER Candidate Forwards you control gain +1000 power "
+				+ "until the end of the turn.", null);
+		assertNotNull(fn, "SOLDIER Candidate should parse");
+		fn.accept(ctx);
+
+		// Null job, name filled: the disjunction then selects on the name alone.
+		verify(ctx).applyMassFieldJobCardNamePowerBoost(1000, true, false, false, true, null, "SOLDIER Candidate");
+	}
+
+	@Test
+	void theCardNameBoostStillReadsItsControlAndVerb() {
+		GameContext ctx = mock(GameContext.class);
+
+		ActionResolver.parse("All the Card Name Shadow Forwards opponent controls lose 2000 power "
+				+ "until the end of the turn.", null).accept(ctx);
+
+		verify(ctx).applyMassFieldJobCardNamePowerBoost(-2000, true, false, true, false, null, "Shadow");
+	}
+
 	// --- Madeen 29-116H -------------------------------------------------------------------
 
 	private static final String MADEEN_EFFECT =

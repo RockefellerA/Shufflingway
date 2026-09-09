@@ -101,6 +101,13 @@ final class ActionResolverPatterns {
                     "(?:\\s+of\\s+cost\\s+(?<cost>\\d+|X)" +
                     "(?:,\\s*(?<costlist>\\d+(?:\\s*,\\s*\\d+)*))?" +
                     "(?:\\s+or\\s+(?<costcmp>less|more|higher|\\d+))?)?" +
+                    // "of the highest cost" (3-005C Imaginary Brawler) — a ceiling read off the
+                    // board as the ability resolves rather than a printed number, so it carries no
+                    // cost value at all. Its own clause rather than an arm of the one above: the
+                    // words run in the other order ("of the highest cost", not "of cost the
+                    // highest"), and what it yields is a sentinel the selection layer must resolve
+                    // rather than a filter that can be applied as it stands.
+                    "(?:\\s+of\\s+the\\s+(?<costsuper>highest)\\s+cost)?" +
                     // "with 9000 power or less" (Zodiark 23-016R) is the same constraint that
                     // "of power 9000 or less" states the other way round. Only the "of" spelling
                     // was here, so that card's opening choice matched nothing at all: the clause
@@ -7272,6 +7279,27 @@ final class ActionResolverPatterns {
      */
     static final Pattern ALL_FIELD_JOB_POWER_BOOST_PATTERN = Pattern.compile(
         "(?i)All\\s+(?:the\\s+)?Job\\s+(?<job>[A-Za-z][A-Za-z\\s''\\-]*?)\\s+" +
+        "(?<targets>Forwards?(?:\\s+and\\s+Monsters?)?|Backups?|Characters?)" +
+        "(?:\\s+(?<control>(?:your\\s+)?opponent\\s+controls?|you\\s+control))?" +
+        "\\s+(?<verb>gains?|loses?)\\s+\\+?(?<amount>\\d+)\\s+[Pp]ower" +
+        "\\s+until\\s+(?:the\\s+)?end\\s+of\\s+(?:the\\s+)?turn[.!]?"
+    );
+    /**
+     * Matches "All [the] Card Name X Forwards/Backups/Characters [you control | opponent controls]
+     * gain +N power until [the] end of [the] turn." — 25-063C SOLDIER Candidate, who pumps his own
+     * copies.
+     * Groups: {@code cardname}, {@code targets}, {@code control}, {@code verb}, {@code amount}.
+     *
+     * <p>The Card Name twin of {@link #ALL_FIELD_JOB_POWER_BOOST_PATTERN}, kept as its own pattern
+     * rather than an optional arm on that one so neither can reach the other's filter. Both feed
+     * {@code applyMassFieldJobCardNamePowerBoost}, which takes the two filters as a disjunction and
+     * ignores a null one — so each spells only the half it prints.
+     *
+     * <p>The name class admits digits and parentheses that the Job class does not: card names carry
+     * them ("Moogle (XIV)") and Jobs do not.
+     */
+    static final Pattern ALL_FIELD_CARDNAME_POWER_BOOST_PATTERN = Pattern.compile(
+        "(?i)All\\s+(?:the\\s+)?Card\\s+Name\\s+(?<cardname>[A-Za-z][A-Za-z0-9\\s''\\-()]*?)\\s+" +
         "(?<targets>Forwards?(?:\\s+and\\s+Monsters?)?|Backups?|Characters?)" +
         "(?:\\s+(?<control>(?:your\\s+)?opponent\\s+controls?|you\\s+control))?" +
         "\\s+(?<verb>gains?|loses?)\\s+\\+?(?<amount>\\d+)\\s+[Pp]ower" +

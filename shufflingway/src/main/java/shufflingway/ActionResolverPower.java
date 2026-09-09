@@ -822,6 +822,47 @@ final class ActionResolverPower {
         };
     }
     /**
+     * Parses "All [the] Card Name X Forwards [you control] gain +N power until end of turn."
+     * — 25-063C SOLDIER Candidate.
+     *
+     * <p>The Card Name twin of {@link #tryParseAllFieldJobPowerBoost} below, and the same shape
+     * throughout: only which of the two filters is filled differs, and
+     * {@code applyMassFieldJobCardNamePowerBoost} reads them as a disjunction where a null one
+     * contributes nothing.
+     */
+    static Consumer<GameContext> tryParseAllFieldCardNamePowerBoost(String text) {
+        Matcher m = ALL_FIELD_CARDNAME_POWER_BOOST_PATTERN.matcher(text);
+        if (!m.find()) return null;
+
+        String cardName = m.group("cardname").trim();
+        String targets  = m.group("targets");
+        String tgtLower = targets.toLowerCase();
+        boolean inclForwards = tgtLower.contains("forward") || tgtLower.contains("character");
+        boolean inclMonsters = tgtLower.contains("monster") || tgtLower.contains("character");
+
+        String control       = m.group("control");
+        boolean opponentOnly = control != null && !control.toLowerCase().contains("you control");
+        boolean selfOnly     = control != null &&  control.toLowerCase().contains("you control");
+
+        boolean isLose = m.group("verb").toLowerCase().startsWith("lose");
+        int amount = Integer.parseInt(m.group("amount")) * (isLose ? -1 : 1);
+
+        String controlLabel = opponentOnly ? " (opponent)" : selfOnly ? " (yours)" : "";
+        String change       = isLose ? "-" + Math.abs(amount) : "+" + amount;
+        String logMsg       = "All Card Name " + cardName + " " + targets + controlLabel
+                + " " + change + " power until end of turn";
+
+        String trailingRaw = text.substring(m.end()).trim().replaceAll("^[.!,]+\\s*", "").trim();
+        Consumer<GameContext> secondary = trailingRaw.isEmpty() ? null : parse(trailingRaw, null);
+
+        return ctx -> {
+            ctx.logEntry("Effect: " + logMsg);
+            ctx.applyMassFieldJobCardNamePowerBoost(amount, inclForwards, inclMonsters,
+                    opponentOnly, selfOnly, null, cardName);
+            if (secondary != null) secondary.accept(ctx);
+        };
+    }
+    /**
      * Parses "All [the] Job X Forwards [you control] gain +N power until end of turn."
      */
     static Consumer<GameContext> tryParseAllFieldJobPowerBoost(String text) {

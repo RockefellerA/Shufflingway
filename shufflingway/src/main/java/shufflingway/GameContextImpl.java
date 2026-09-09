@@ -8541,6 +8541,26 @@ final class GameContextImpl implements GameContext {
 						|| (cardNameFilter != null && CardFilters.meetsCardNameFilter(c, cardNameFilter));
 			}
 
+			@Override public int highestFieldCost(boolean opponentOnly, boolean selfOnly,
+					boolean inclForwards, boolean inclBackups, boolean inclMonsters) {
+				// The same two lines every mass sweep on this class opens with, so "opponent" here
+				// means the ability user's opponent whichever seat is resolving.
+				boolean touchP1 = isP1 ? !opponentOnly : !selfOnly;
+				boolean touchP2 = isP1 ? !selfOnly     : !opponentOnly;
+				int highest = -1;
+				if (touchP1) {
+					if (inclForwards) for (CardData c : mw.p1ForwardCards) if (c != null) highest = Math.max(highest, c.cost());
+					if (inclBackups)  for (CardData c : mw.p1BackupCards)  if (c != null) highest = Math.max(highest, c.cost());
+					if (inclMonsters) for (CardData c : mw.p1MonsterCards) if (c != null) highest = Math.max(highest, c.cost());
+				}
+				if (touchP2) {
+					if (inclForwards) for (CardData c : mw.p2ForwardCards) if (c != null) highest = Math.max(highest, c.cost());
+					if (inclBackups)  for (CardData c : mw.p2BackupCards)  if (c != null) highest = Math.max(highest, c.cost());
+					if (inclMonsters) for (CardData c : mw.p2MonsterCards) if (c != null) highest = Math.max(highest, c.cost());
+				}
+				return highest;
+			}
+
 			@Override public void applyMassFieldJobCardNamePowerBoost(int amount, boolean inclForwards, boolean inclMonsters,
 					boolean opponentOnly, boolean selfOnly, String jobFilter, String cardNameFilter) {
 				boolean touchP1 = isP1 ? !opponentOnly : !selfOnly;

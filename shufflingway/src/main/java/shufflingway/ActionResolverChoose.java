@@ -1557,15 +1557,23 @@ final class ActionResolverChoose {
         String  costStr      = m.group("cost");
         String  costListStr  = m.group("costlist");
         String  rawCostCmp   = m.group("costcmp");
+        // "of the highest cost" (3-005C Imaginary Brawler) carries no number of its own: the
+        // ceiling is read off the board by selectTargets, which is the only route this sentinel
+        // travels — every direct selectCharacters call in the family hardcodes its cost filter.
+        boolean costSuper    = m.group("costsuper") != null;
         // "of cost X or less" (18-097R Rinoa) — X is whatever the ability's 《X》 was paid with,
         // threaded in by whoever resolved that payment. Unlike a count of X, a cost of 0 is a real
         // filter (there are cost 0 cards), so this does not decline the way the count does.
-        int     costVal      = costStr == null ? -1
+        int     costVal      = costSuper || costStr == null ? -1
                 : "X".equalsIgnoreCase(costStr) ? xValue : Integer.parseInt(costStr);
         // Convert digit-valued costcmp into the "or_…" sentinel understood by meetsCostConstraint.
         // Supports single ("cost N or M") and list ("cost A, B, … or Z") forms.
+        // Assigned exactly once on every path, here and above: both are captured by the lambdas
+        // below and so have to stay effectively final.
         String  costCmp;
-        if (rawCostCmp != null && rawCostCmp.matches("\\d+")) {
+        if (costSuper) {
+            costCmp = COST_SUPERLATIVE_HIGHEST;
+        } else if (rawCostCmp != null && rawCostCmp.matches("\\d+")) {
             String tail = costListStr != null
                     ? costListStr.replaceAll("\\s+", "") + "," + rawCostCmp
                     : rawCostCmp;

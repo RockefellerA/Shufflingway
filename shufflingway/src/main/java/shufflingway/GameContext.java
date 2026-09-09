@@ -3912,6 +3912,27 @@ public interface GameContext {
             boolean opponentOnly, boolean selfOnly);
 
     /**
+     * The highest CP cost among the field cards the given side controls, or {@code -1} when there
+     * are none — the ceiling behind "1 Forward of the highest cost opponent controls"
+     * (3-005C Imaginary Brawler).
+     *
+     * <p>Read at resolution, because that is when the card is read: a superlative names whatever
+     * happens to be dearest as the ability resolves, and a Forward that arrives or leaves before
+     * then changes the answer. The selection layer turns the number into an ordinary exact-cost
+     * filter, so nothing downstream has to know a superlative was involved.
+     *
+     * <p>Ties are not broken here and must not be: two Forwards of equal highest cost are both
+     * eligible and the choice between them belongs to whoever is choosing.
+     *
+     * <p>Scoped by side and card type only. The one printing filters on nothing else, and a future
+     * card that pairs the superlative with, say, an Element would read its ceiling off a card that
+     * the Element then excludes — leaving nothing eligible and the effect doing nothing, which is
+     * the safe direction to be wrong in, but is why this takes the type flags rather than assuming.
+     */
+    int highestFieldCost(boolean opponentOnly, boolean selfOnly,
+            boolean inclForwards, boolean inclBackups, boolean inclMonsters);
+
+    /**
      * Applies a power boost until end of turn to all Forwards (and Monsters when
      * {@code inclMonsters} is true) that match {@code jobFilter} OR {@code cardNameFilter}.
      * Both filters use bar-separated OR semantics (see {@link CardFilters}).

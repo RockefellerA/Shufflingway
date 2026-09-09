@@ -864,6 +864,11 @@ public class ActionResolver {
         result = tryParseAllFieldJobPowerBoost(effectText);
         if (result != null) return result;
 
+        // Beside its Job twin, and after it: the two name disjoint filters, so neither can take
+        // the other's text and this position is for reading order rather than precedence.
+        result = tryParseAllFieldCardNamePowerBoost(effectText);
+        if (result != null) return result;
+
         result = tryParseAllFieldJobKeywordGrant(effectText);
         if (result != null) return result;
 
@@ -2157,6 +2162,7 @@ public class ActionResolver {
         if (tryParseAllFieldJobCardNamePowerBoost(effectText) != null) return "AllFieldJobCardNamePowerBoost";
         if (tryParseTwoCardNamesPowerBoost(effectText) != null) return "TwoCardNamesPowerBoost";
         if (tryParseAllFieldJobPowerBoost(effectText) != null) return "AllFieldJobPowerBoost";
+        if (tryParseAllFieldCardNamePowerBoost(effectText) != null) return "AllFieldCardNamePowerBoost";
         if (tryParseAllFieldJobKeywordGrant(effectText) != null) return "AllFieldJobKeywordGrant";
         if (tryParseAllFieldKeywordGrant(effectText) != null) return "AllFieldKeywordGrant";
         // Mirrors parse(): ahead of AllFieldQuotedProtectionGrant, which reads the same sentence.
@@ -3665,6 +3671,7 @@ public class ActionResolver {
         if (tryParseAllFieldJobCardNamePowerBoost(effectText) != null)       return "AllFieldJobCardNamePowerBoost";
         if (tryParseTwoCardNamesPowerBoost(effectText) != null)             return "TwoCardNamesPowerBoost";
         if (tryParseAllFieldJobPowerBoost(effectText) != null)              return "AllFieldJobPowerBoost";
+        if (tryParseAllFieldCardNamePowerBoost(effectText) != null)         return "AllFieldCardNamePowerBoost";
         if (tryParseAllFieldJobKeywordGrant(effectText) != null)            return "AllFieldJobKeywordGrant";
         if (tryParseAllFieldKeywordGrant(effectText) != null)               return "AllFieldKeywordGrant";
         // Mirrors parse() and matchedPatternName(): ahead of AllFieldQuotedProtectionGrant.
@@ -7477,6 +7484,14 @@ public class ActionResolver {
                 && OPENING_CHOICE_FROM_DAMAGE_ZONE.matcher(stripExBurstPrefix(summonEffect).trim()).find();
     }
 
+    /**
+     * The {@code costCmp} sentinel meaning "whatever the dearest card on the board costs", left
+     * for {@link #selectTargets} to resolve — the shape {@code "or_…"} already uses in this slot
+     * for a multi-value cost, and for the same reason: the selection layer takes one cost value
+     * and one comparison, so anything it cannot compute itself has to arrive spelled in them.
+     */
+    static final String COST_SUPERLATIVE_HIGHEST = "highest";
+
     static List<ForwardTarget> selectTargets(GameContext ctx,
             int maxCount, boolean upTo, boolean opponentOnly, boolean selfOnly,
             String condition, String element, String zone, boolean opponentZone,
@@ -7500,6 +7515,23 @@ public class ActionResolver {
         if (preloaded != null) {
             ctx.recordChosenTargets(preloaded);
             return applyArmedMarks(ctx, preloaded);
+        }
+        // "of the highest cost" arrives as a sentinel because the ceiling is not printed — it is
+        // whatever is dearest on the board as this resolves. Read it now and hand the selection
+        // layer an ordinary exact-cost filter, so every caller below stays unaware of it.
+        //
+        // Resolving here rather than at parse time is what makes it correct, and resolving it at
+        // all is what makes it safe: meetsCostConstraint short-circuits to true on a negative cost
+        // value, so a sentinel that reached the filter unresolved would offer every Forward on the
+        // board instead of the dearest one. An empty board leaves -1, and returning nothing then
+        // is right — there is no highest cost among no cards.
+        if (COST_SUPERLATIVE_HIGHEST.equals(costCmp)) {
+            costVal = ctx.highestFieldCost(opponentOnly, selfOnly, inclForwards, inclBackups, inclMonsters);
+            costCmp = null;
+            if (costVal < 0) {
+                ctx.recordChosenTargets(List.of());
+                return List.of();
+            }
         }
         List<ForwardTarget> result = zone != null
                 ? ctx.selectCharactersFromBreakZone(maxCount, upTo, opponentZone, bothZones, condition, element,
