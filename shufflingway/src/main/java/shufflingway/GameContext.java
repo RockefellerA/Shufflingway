@@ -2697,6 +2697,11 @@ public interface GameContext {
      * their Break Zone.  No CP is generated.
      * When P1 is the ability user, a selection dialog is shown.
      * When P2 is the ability user, the AI discards automatically (worst cards first).
+     *
+     * <p>Marks the effect fizzled when fewer than {@code count} cards were discarded, so a
+     * following "If you do so, …" reads an impossible discard as nothing having happened. The
+     * filtered forms — {@link #selfDiscardByType}, {@link #selfDiscardByJob} and
+     * {@link #selfDiscardByElement} — have always done this; this one is simply the last to.
      */
     void selfDiscard(int count);
 
@@ -2765,6 +2770,23 @@ public interface GameContext {
      * spelled by the sentence that follows rather than by an {@code ifDiscarded} argument.
      */
     void mayDiscardCardOfTypeFromHand(String cardType);
+
+    /**
+     * Discards exactly 1 card matching {@code cardType} from the ability user's hand and runs
+     * {@code ifDiscarded} only when one actually went to the Break Zone — "Discard 1 card from
+     * your hand. If you do so, deal it 5000 damage." (11-007R Zack).
+     *
+     * <p>The mandatory sibling of {@link #mayDiscardCardOfTypeFromHandOrElse}: no offer is put to
+     * the player, because the printing does not word one. The player still picks which card, and
+     * an empty hand is the only way out — which is exactly what "If you do so" is there to cover,
+     * so it is the sole reason {@code ifDiscarded} is skipped.
+     *
+     * <p>Marks the effect fizzled when nothing was discarded, as
+     * {@link #mayDiscardCardOfTypeFromHand} does: there is no second branch here for a following
+     * clause to read, so a failed discard has to read as nothing having happened.
+     */
+    void discardCardOfTypeFromHandThenIfDidSo(String cardType,
+            java.util.function.Consumer<GameContext> ifDiscarded);
 
     /**
      * Prompts the ability user to discard 1 card with Job {@code jobName} from their hand.

@@ -7512,20 +7512,35 @@ final class GameContextImpl implements GameContext {
 				mw.drawCardsForPlayer(isP1, count);
 			}
 
+			// Fizzles when it could not discard everything it was told to, which is what every
+			// filtered sibling here already does — selfDiscardByType, …ByJob and …ByElement all
+			// mark the effect fizzled on an empty-handed discard, and only this unfiltered form
+			// did not. That left "discard 1 card from your hand. If you do so, draw 2 cards."
+			// (16-015H Morrow) drawing on an empty hand: effectProgress starts true and nothing
+			// here ever cleared it, so the "if you do so" gate was open however the discard went.
+			//
+			// Short of the count is treated as not having done it. No printing tells anyone to
+			// discard more than 1 under an "if you do so", so this reading and "discarded none"
+			// agree everywhere in the corpus; it is the sentence, not a card, that decides it.
 			@Override public void selfDiscard(int count) {
+				int discarded;
 				if (isP1) {
-					mw.showForcedDiscardDialog(count, false);
+					// The 3-argument form for its return: the dialog is modal, so the count is
+					// final by the time it comes back. upTo=false — this is an instruction.
+					discarded = mw.showForcedDiscardDialog(count, false, false);
 				} else {
+					discarded = 0;
 					List<CardData> hand = mw.gameState.getP2Hand();
 					int actual = Math.min(count, hand.size());
 					for (int i = 0; i < actual; i++) {
 						int idx = MainWindow.pickWorstHandCard0(hand);
 						CardData d = mw.playerBreakFromHand(false,idx);
-						if (d != null) { logEntry("[P2] Discards " + d.name()); mw.p2Turn.discardedByEffectThisTurn = true; mw.lastDiscardedCardName = d.name(); mw.lastDiscardedCard = d; }
+						if (d != null) { logEntry("[P2] Discards " + d.name()); mw.p2Turn.discardedByEffectThisTurn = true; mw.lastDiscardedCardName = d.name(); mw.lastDiscardedCard = d; discarded++; }
 					}
 					mw.refreshP2HandCountLabel();
 					mw.refreshP2BreakLabel();
 				}
+				if (discarded < count) markEffectFizzled();
 			}
 
 			@Override public int mayDiscardAnyNumberFromHand(int aiCap) {
@@ -7560,6 +7575,15 @@ final class GameContextImpl implements GameContext {
 
 			@Override public void mayDiscardCardOfTypeFromHand(String cardType) {
 				if (!offerDiscardOfType(cardType)) markEffectFizzled();
+			}
+
+			@Override public void discardCardOfTypeFromHandThenIfDidSo(String cardType,
+					java.util.function.Consumer<GameContext> ifDiscarded) {
+				// Straight to the picker, skipping offerDiscardOfType's "Discard / Pass" prompt:
+				// this printing gives no such choice. Everything below that — what counts as a
+				// discard, and what the AI throws away — is the shared helper's, unchanged.
+				if (discardOneFromHandByType(cardType)) ifDiscarded.accept(this);
+				else                                    markEffectFizzled();
 			}
 
 			/**

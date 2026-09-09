@@ -3420,6 +3420,12 @@ public class ActionResolver {
                 return "ChooseCharacter / DamageSelfPowerDoubledIfSummonDiscard";
             if (FOLLOWUP_MAY_DISCARD_NAMED_DEAL_DAMAGE.matcher(followup).matches())
                 return "ChooseCharacter / MayDiscardNamedDealDamage";
+            // Beside it, and read off the whole followup for the same reason: after the ". " split
+            // the discard reaches the generic chain alone and the payoff becomes a targetless
+            // "deal it", which is how Zack described as "? + Damage" — half the sentence named and
+            // the condition in front of it gone.
+            if (FOLLOWUP_DISCARD_DEAL_DAMAGE.matcher(followup).matches())
+                return "ChooseCharacter / DiscardDealDamage";
             // Read off the whole followup, mirroring the parser: split, its first sentence is
             // described as a plain RemoveFromGame over the chosen Forwards.
             if (FOLLOWUP_MAY_SEARCH_RFG_THEN_ELSE.matcher(followup).matches())

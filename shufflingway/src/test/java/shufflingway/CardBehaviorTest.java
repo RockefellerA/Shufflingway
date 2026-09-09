@@ -31613,6 +31613,99 @@ public class CardBehaviorTest {
 		verify(ctx, never()).mayDiscardCardNameFromHandOrElse(any(), any(), any());
 	}
 
+	// --- Zack 11-007R ---------------------------------------------------------------------
+
+	// "At the end of each of your turns, choose 1 Forward opponent controls. Discard 1 card from
+	// your hand. If you do so, deal it 5000 damage."
+	//
+	// Bahamut Fury's sentence with the "you may" taken off, which makes it a different effect
+	// rather than a variant spelling: the discard is an instruction, so the only way out of it is
+	// an empty hand, and that is all "If you do so" is guarding. It reached no followup branch at
+	// all before this, so the ability did nothing — the coverage report's "? + Damage" was the
+	// description of a card that logged "followup not yet implemented" twice and stopped.
+
+	private static final String ZACK_EFFECT =
+			"choose 1 Forward opponent controls. Discard 1 card from your hand. "
+			+ "If you do so, deal it 5000 damage.";
+
+	/** Answers the mandatory discard as having happened ({@code true}) or been impossible. */
+	private static void answerMandatoryDiscard(GameContext ctx, boolean discarded) {
+		doAnswer(inv -> {
+			if (discarded) inv.<Consumer<GameContext>>getArgument(1).accept(ctx);
+			return null;
+		}).when(ctx).discardCardOfTypeFromHandThenIfDidSo(any(), any());
+	}
+
+	@Test
+	void zackDealsFiveThousandWhenTheDiscardHappens() {
+		ForwardTarget t = new ForwardTarget(false, 0, ForwardTarget.CardZone.FORWARD);
+		GameContext ctx = contextChoosing(List.of(t));
+		answerMandatoryDiscard(ctx, true);
+
+		Consumer<GameContext> fn = ActionResolver.parse(ZACK_EFFECT, makeForward("Zack", "Fire", 1, 7000));
+		assertNotNull(fn, "Zack should parse");
+		fn.accept(ctx);
+
+		verify(ctx).damageTarget(t, 5000);
+	}
+
+	@Test
+	void zackDealsNoDamageWhenNothingCouldBeDiscarded() {
+		ForwardTarget t = new ForwardTarget(false, 0, ForwardTarget.CardZone.FORWARD);
+		GameContext ctx = contextChoosing(List.of(t));
+		answerMandatoryDiscard(ctx, false);
+
+		ActionResolver.parse(ZACK_EFFECT, makeForward("Zack", "Fire", 1, 7000)).accept(ctx);
+
+		verify(ctx, never()).damageTarget(any(), anyInt());
+	}
+
+	/**
+	 * The discard is not an offer, so it must not go through the route that puts a "Discard /
+	 * Pass" prompt to the player — taking Bahamut Fury's path would hand Zack a decline his
+	 * printing does not give, and route the damage through an "if not" branch he has none of.
+	 */
+	@Test
+	void zacksDiscardIsMandatoryRatherThanAnOffer() {
+		GameContext ctx = contextChoosing(List.of(new ForwardTarget(false, 0, ForwardTarget.CardZone.FORWARD)));
+		ArgumentCaptor<String> type = ArgumentCaptor.forClass(String.class);
+		answerMandatoryDiscard(ctx, true);
+
+		ActionResolver.parse(ZACK_EFFECT, makeForward("Zack", "Fire", 1, 7000)).accept(ctx);
+
+		verify(ctx).discardCardOfTypeFromHandThenIfDidSo(type.capture(), any());
+		assertEquals("card", type.getValue(), "the CardFilters vocabulary for 'any card'");
+		verify(ctx, never()).mayDiscardCardOfTypeFromHandOrElse(any(), any(), any());
+		verify(ctx, never()).mayDiscardCardOfTypeFromHand(any());
+	}
+
+	/**
+	 * An empty board costs no card. The choose is printed first, so nothing to choose ends the
+	 * ability there — and since this discard cannot be declined, demanding it anyway would pay a
+	 * card into an effect that has already fizzled.
+	 */
+	@Test
+	void zackDemandsNoDiscardWhenThereIsNothingToChoose() {
+		GameContext ctx = contextChoosing(List.of());
+
+		ActionResolver.parse(ZACK_EFFECT, makeForward("Zack", "Fire", 1, 7000)).accept(ctx);
+
+		verify(ctx, never()).discardCardOfTypeFromHandThenIfDidSo(any(), any());
+		verify(ctx, never()).damageTarget(any(), anyInt());
+	}
+
+	/** The "you may" sibling still takes the offer route, and neither branch claims the other. */
+	@Test
+	void bahamutFuryIsUnaffectedByZacksBranch() {
+		GameContext ctx = contextChoosing(List.of(new ForwardTarget(false, 0, ForwardTarget.CardZone.FORWARD)));
+		answerAnyDiscard(ctx, true);
+
+		ActionResolver.parse(BAHAMUT_FURY_EFFECT, makeForward("Bahamut Fury", "Fire", 6, 0)).accept(ctx);
+
+		verify(ctx).mayDiscardCardOfTypeFromHandOrElse(any(), any(), any());
+		verify(ctx, never()).discardCardOfTypeFromHandThenIfDidSo(any(), any());
+	}
+
 	// --- Madeen 29-116H -------------------------------------------------------------------
 
 	private static final String MADEEN_EFFECT =
@@ -35797,6 +35890,85 @@ public class CardBehaviorTest {
 
         verify(ctx).selfDiscardByJob("Black Mage");
         verify(ctx, never()).mayDiscardCardOfJobFromHand(any());
+    }
+
+    // -----------------------------------------------------------------------------------------
+    // Morrow 16-015H: "When Morrow forms a party and attacks, discard 1 card from your hand. If
+    // you do so, draw 2 cards."
+    //
+    // The unfiltered discard was the one member of this family that never fizzled. effectProgress
+    // starts true and only markEffectFizzled() clears it, so tryParseWhenYouDoSoSequence's gate
+    // was open however the discard went — Morrow drew 2 off an empty hand, having discarded
+    // nothing. Its three filtered siblings had been closing this from the start.
+    // -----------------------------------------------------------------------------------------
+
+    @Test
+    void anImpossibleUnfilteredDiscardFizzlesTheEffect() {
+        MainWindow mw = new MainWindow();   // P2 side: no dialog, and an empty hand
+        GameContext ctx = mw.buildGameContext(false);
+        ctx.resetEffectProgress();
+        ctx.selfDiscard(1);
+
+        assertFalse(ctx.effectMadeProgress(),
+                "nothing was discarded, so Morrow's \"if you do so\" half is off");
+    }
+
+    @Test
+    void aDiscardThatHappensLeavesTheEffectLive() {
+        MainWindow mw = new MainWindow();
+        mw.gameState.getP2Hand().add(makeForward("Anything", "Fire", 2, 5000));
+        GameContext ctx = mw.buildGameContext(false);
+        ctx.resetEffectProgress();
+        ctx.selfDiscard(1);
+
+        assertTrue(ctx.effectMadeProgress(), "the card went to the Break Zone, so the payoff runs");
+        assertEquals(0, mw.gameState.getP2Hand().size());
+    }
+
+    /**
+     * Short of the count is not "doing so". No printing pairs a multi-card discard with an "if you
+     * do so", so this and "discarded nothing" agree on every card in the corpus — the sentence is
+     * what decides it, not a card.
+     */
+    @Test
+    void aPartialDiscardDoesNotCountAsHavingDoneIt() {
+        MainWindow mw = new MainWindow();
+        mw.gameState.getP2Hand().add(makeForward("Only One", "Fire", 2, 5000));
+        GameContext ctx = mw.buildGameContext(false);
+        ctx.resetEffectProgress();
+        ctx.selfDiscard(2);
+
+        assertEquals(0, mw.gameState.getP2Hand().size(), "it still discards as much as it can");
+        assertFalse(ctx.effectMadeProgress(), "but 1 of 2 is not what the card said to do");
+    }
+
+    /** End to end: the parsed ability, not just the primitive underneath it. */
+    @Test
+    void morrowDrawsNothingWhenHisHandIsEmpty() {
+        MainWindow mw = new MainWindow();
+        for (int i = 0; i < 5; i++) mw.gameState.getP2MainDeck().add(makeForward("Deck" + i, "Fire", 2, 5000));
+        GameContext ctx = mw.buildGameContext(false);
+
+        Consumer<GameContext> fn = ActionResolver.parse(
+                "discard 1 card from your hand. If you do so, draw 2 cards.", null);
+        assertNotNull(fn, "Morrow should parse");
+        fn.accept(ctx);
+
+        assertEquals(0, mw.gameState.getP2Hand().size(), "no discard was possible, so no draw");
+        assertEquals(5, mw.gameState.getP2MainDeck().size(), "the deck is untouched");
+    }
+
+    @Test
+    void morrowDrawsTwoWhenHeCanPayTheDiscard() {
+        MainWindow mw = new MainWindow();
+        mw.gameState.getP2Hand().add(makeForward("Pitch", "Fire", 2, 5000));
+        for (int i = 0; i < 5; i++) mw.gameState.getP2MainDeck().add(makeForward("Deck" + i, "Fire", 2, 5000));
+        GameContext ctx = mw.buildGameContext(false);
+
+        ActionResolver.parse("discard 1 card from your hand. If you do so, draw 2 cards.", null).accept(ctx);
+
+        assertEquals(2, mw.gameState.getP2Hand().size(), "one pitched, two drawn");
+        assertEquals(3, mw.gameState.getP2MainDeck().size());
     }
 
     @Test

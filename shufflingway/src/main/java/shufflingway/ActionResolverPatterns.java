@@ -906,6 +906,26 @@ final class ActionResolverPatterns {
         "(?:\\s+If\\s+not,\\s+deal\\s+it\\s+(?<elseamount>\\d+)\\s+damage\\.?)?$"
     );
     /**
+     * Matches "Discard 1 [card | &lt;type&gt;] from your hand. If you do so, deal it N damage."
+     * as a choose followup — 11-007R Zack.
+     * Groups: {@code cardtype}, {@code amount}.
+     *
+     * <p>The imperative sibling of {@link #FOLLOWUP_MAY_DISCARD_NAMED_DEAL_DAMAGE}, and a separate
+     * pattern rather than an optional "you may" on that one because the two are different effects:
+     * without "you may" the discard is an instruction, carried out whenever the player can, and
+     * "If you do so" covers only being unable to. Folding them together would have handed Zack the
+     * decline that his printing does not offer.
+     *
+     * <p>Anchored at {@code ^discard}, so it cannot take the tail of the "You may discard …"
+     * spelling; the two are mutually exclusive and their call order does not matter.
+     */
+    static final Pattern FOLLOWUP_DISCARD_DEAL_DAMAGE = Pattern.compile(
+        "(?i)^discard\\s+1\\s+" +
+        "(?<cardtype>card|Forwards?|Backups?|Monsters?|Characters?|Summons?)" +
+        "\\s+from\\s+your\\s+hand\\.\\s+" +
+        "If\\s+you\\s+do\\s+so,\\s+deal\\s+it\\s+(?<amount>\\d+)\\s+damage\\.?$"
+    );
+    /**
      * Matches "If its/their power has become 0 or less by the previous effect, draw N card(s)." —
      * the payoff clause on 10-110C Cúchulainn, whose power reduction scales with the caster's hand.
      *

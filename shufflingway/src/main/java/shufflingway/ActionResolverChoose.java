@@ -2233,6 +2233,34 @@ final class ActionResolverChoose {
             };
         }
 
+        // --- "Discard 1 card from your hand. If you do so, deal it N damage." (11-007R Zack) ---
+        // Read off the full followup like the branch above, and beside it because they are the
+        // same sentence with and without "you may". Neither can claim the other's text — that one
+        // is anchored at "you may", this one at "discard" — so the order between them is free.
+        Matcher discardDealM = FOLLOWUP_DISCARD_DEAL_DAMAGE.matcher(followup);
+        if (discardDealM.matches()) {
+            String discardType = discardDealM.group("cardtype")
+                    .toLowerCase(Locale.ROOT).replaceAll("s$", "");
+            int    damage      = Integer.parseInt(discardDealM.group("amount"));
+            return ctx -> {
+                ctx.logChooseHeader(choosePrefix + " — discard 1 " + discardType
+                        + ", if so deal " + damage + " damage");
+                List<ForwardTarget> ts = selectTargets(ctx, maxCount, upTo,
+                        opponentOnly, selfOnly, condition, element, zone, opponentZone,
+                        costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters,
+                        jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, fExcludeElem, withoutMulticard);
+                // No target, no discard. The choose comes first in the printed order, so a board
+                // with nothing to choose ends the ability there — and unlike the "you may"
+                // spelling this discard cannot be declined, so demanding it here would cost a
+                // card for an effect that has already fizzled.
+                if (ts.isEmpty()) return;
+                ctx.discardCardOfTypeFromHandThenIfDidSo(discardType, ctx2 -> {
+                    sortedByIdxDesc(ts, true) .forEach(t -> ctx2.damageTarget(t, damage));
+                    sortedByIdxDesc(ts, false).forEach(t -> ctx2.damageTarget(t, damage));
+                });
+            };
+        }
+
         // --- "You may discard 1 [type]" with the payoff in the next sentence (7-040C Yunalesca) ---
         // Must follow the branch above, which reads the whole followup while this one reads only
         // its first sentence: checked first, this claimed 1-190S Bahamut Fury's opening clause
