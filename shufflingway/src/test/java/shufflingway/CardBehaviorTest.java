@@ -9799,7 +9799,7 @@ public class CardBehaviorTest {
         fn.accept(ctx);
         // Both elements, in the order printed, and the type they share.
         verify(ctx).revealTopNPlayUpToElementTypeCostOntoField(
-                5, 1, List.of("Wind", "Earth"), "Character", 5, "less", RevealRest.BOTTOM);
+                5, 1, List.of("Wind", "Earth"), "Character", 5, "less", false, RevealRest.BOTTOM);
     }
 
     @Test
@@ -9819,14 +9819,14 @@ public class CardBehaviorTest {
                 + "cost 2 or less among them onto the field and return the other cards to the "
                 + "bottom of your deck in any order.", null).accept(one);
         verify(one).revealTopNPlayUpToElementTypeCostOntoField(
-                5, 1, List.of("Wind"), "Forward", 2, "less", RevealRest.BOTTOM);
+                5, 1, List.of("Wind"), "Forward", 2, "less", false, RevealRest.BOTTOM);
 
         GameContext none = mock(GameContext.class);
         ActionResolver.parse("Reveal the top 5 cards of your deck. Play up to 1 Forward of cost 2 "
                 + "or less among them onto the field and return the other cards to the bottom of "
                 + "your deck in any order.", null).accept(none);
         verify(none).revealTopNPlayUpToElementTypeCostOntoField(
-                5, 1, List.of(), "Forward", 2, "less", RevealRest.BOTTOM);
+                5, 1, List.of(), "Forward", 2, "less", false, RevealRest.BOTTOM);
     }
 
     @Test
@@ -9858,7 +9858,7 @@ public class CardBehaviorTest {
         Consumer<GameContext> fn = ActionResolver.parse(BARTZ_EFFECT, null);
         assertNotNull(fn, "the reveal-and-play must not be swallowed by the trailing 'add … to your hand'");
         fn.accept(ctx);
-        verify(ctx).revealTopNPlayUpToElementTypeCostOntoField(2, 1, List.of(), "Character", 3, "less", RevealRest.HAND);
+        verify(ctx).revealTopNPlayUpToElementTypeCostOntoField(2, 1, List.of(), "Character", 3, "less", false, RevealRest.HAND);
         verify(ctx, never()).returnNamedCardToYourHand(any());
     }
 
@@ -9880,7 +9880,7 @@ public class CardBehaviorTest {
                 "reveal the top 5 cards of your deck. Play 1 Forward of cost 2 or less among them "
                 + "onto the field and return the other cards to the bottom of your deck in any order.",
                 null).accept(ctx);
-        verify(ctx).revealTopNPlayUpToElementTypeCostOntoField(5, 1, List.of(), "Forward", 2, "less", RevealRest.BOTTOM);
+        verify(ctx).revealTopNPlayUpToElementTypeCostOntoField(5, 1, List.of(), "Forward", 2, "less", true, RevealRest.BOTTOM);
     }
 
     // -----------------------------------------------------------------------------------------
@@ -9906,7 +9906,7 @@ public class CardBehaviorTest {
                 + "onto the field and return the other cards to the bottom of your deck in any order.",
                 null).accept(ctx);
         // Null costCmp is the exact filter; "less" would be the ceiling.
-        verify(ctx).revealTopNPlayUpToElementTypeCostOntoField(5, 1, List.of(), "Forward", 4, null, RevealRest.BOTTOM);
+        verify(ctx).revealTopNPlayUpToElementTypeCostOntoField(5, 1, List.of(), "Forward", 4, null, true, RevealRest.BOTTOM);
     }
 
     @Test
@@ -9916,7 +9916,7 @@ public class CardBehaviorTest {
                 "reveal the top 5 cards of your deck. Play up to 2 Characters of cost 3 among them "
                 + "onto the field and return the other cards to the bottom of your deck in any order.",
                 null).accept(ctx);
-        verify(ctx).revealTopNPlayUpToElementTypeCostOntoField(5, 2, List.of(), "Character", 3, null, RevealRest.BOTTOM);
+        verify(ctx).revealTopNPlayUpToElementTypeCostOntoField(5, 2, List.of(), "Character", 3, null, false, RevealRest.BOTTOM);
     }
 
     /**
@@ -9930,7 +9930,7 @@ public class CardBehaviorTest {
         exact.gameState.getP2MainDeck().add(makeForward("Three", "Earth", 3, 7000));
         exact.gameState.getP2MainDeck().add(makeForward("Two", "Earth", 2, 7000));
         exact.buildGameContext(false).revealTopNPlayUpToElementTypeCostOntoField(
-                2, 1, List.of(), "Forward", 4, null, RevealRest.BOTTOM);
+                2, 1, List.of(), "Forward", 4, null, false, RevealRest.BOTTOM);
 
         assertEquals(0, exact.p2ForwardCards.size(),
                 "neither revealed card costs 4, so Kirin's filter plays nothing");
@@ -9939,7 +9939,7 @@ public class CardBehaviorTest {
         ceiling.gameState.getP2MainDeck().add(makeForward("Three", "Earth", 3, 7000));
         ceiling.gameState.getP2MainDeck().add(makeForward("Two", "Earth", 2, 7000));
         ceiling.buildGameContext(false).revealTopNPlayUpToElementTypeCostOntoField(
-                2, 1, List.of(), "Forward", 4, "less", RevealRest.BOTTOM);
+                2, 1, List.of(), "Forward", 4, "less", false, RevealRest.BOTTOM);
 
         assertEquals(1, ceiling.p2ForwardCards.size(),
                 "the same board under \"or less\" plays the dearest card that fits");
@@ -9952,10 +9952,96 @@ public class CardBehaviorTest {
         mw.gameState.getP2MainDeck().add(makeForward("Four", "Earth", 4, 7000));
         mw.gameState.getP2MainDeck().add(makeForward("Two", "Earth", 2, 7000));
         mw.buildGameContext(false).revealTopNPlayUpToElementTypeCostOntoField(
-                2, 1, List.of(), "Forward", 4, null, RevealRest.BOTTOM);
+                2, 1, List.of(), "Forward", 4, null, false, RevealRest.BOTTOM);
 
         assertEquals(1, mw.p2ForwardCards.size());
         assertEquals("Four", mw.p2ForwardCards.get(0).name(), "the cost-4 card, and not the cost-2 one");
+    }
+
+    // -----------------------------------------------------------------------------------------
+    // The printed "up to", and what it is worth.
+    //
+    // "Play 1 Forward … among them" is an instruction; "Play up to 1 Forward …" is an offer. The
+    // patterns used to match the words and throw them away, so both arrived as the same cap and a
+    // human could decline a play their card demanded. 13 printings say it the mandatory way and 10
+    // say "up to", against one — 10-065L Warrior of Light — that is optional in words instead
+    // ("as many as you want"), which is why the flag is read off the "up to" group and not off
+    // whether a count was printed.
+    //
+    // Only the human seat needed telling. cpuRevealPlayOntoField already fills to the cap, so the
+    // AI satisfies either reading without knowing which one it is under.
+    // -----------------------------------------------------------------------------------------
+
+    @Test
+    void aPrintedUpToMakesTheRevealPlayOptional() {
+        GameContext ctx = mock(GameContext.class);
+        ActionResolver.parse(
+                "reveal the top 5 cards of your deck. Play up to 1 Forward of cost 2 or less among "
+                + "them onto the field and return the other cards to the bottom of your deck in any order.",
+                null).accept(ctx);
+        verify(ctx).revealTopNPlayUpToElementTypeCostOntoField(
+                5, 1, List.of(), "Forward", 2, "less", false, RevealRest.BOTTOM);
+    }
+
+    @Test
+    void theSameSentenceWithoutUpToIsMandatory() {
+        GameContext ctx = mock(GameContext.class);
+        ActionResolver.parse(
+                "reveal the top 5 cards of your deck. Play 1 Forward of cost 2 or less among "
+                + "them onto the field and return the other cards to the bottom of your deck in any order.",
+                null).accept(ctx);
+        verify(ctx).revealTopNPlayUpToElementTypeCostOntoField(
+                5, 1, List.of(), "Forward", 2, "less", true, RevealRest.BOTTOM);
+    }
+
+    /** Luso 14-093H against Ultimecia B-016 — the same distinction on the type-only sibling. */
+    @Test
+    void theTypeOnlySiblingReadsUpTooTheSameWay() {
+        GameContext mandatory = mock(GameContext.class);
+        ActionResolver.parse("reveal the top 5 cards of your deck. Play 1 Forward among them onto "
+                + "the field and return the other cards to the bottom of your deck in any order.",
+                null).accept(mandatory);
+        verify(mandatory).revealTopNPlayUpToTypeOntoFieldRestBottom(5, 1, "Forward", null, true);
+
+        GameContext optional = mock(GameContext.class);
+        ActionResolver.parse("reveal the top 2 cards of your deck. Play up to 1 Forward among them onto "
+                + "the field and return the other cards to the bottom of your deck in any order.",
+                null).accept(optional);
+        verify(optional).revealTopNPlayUpToTypeOntoFieldRestBottom(2, 1, "Forward", null, false);
+    }
+
+    /**
+     * 10-065L Warrior of Light prints no "up to" but says "as many as you want", so it must stay
+     * optional. It reaches a different parser, which is what keeps the group-based reading honest.
+     */
+    @Test
+    void asManyAsYouWantIsNotMandatoryDespiteHavingNoUpTo() {
+        GameContext ctx = mock(GameContext.class);
+        ActionResolver.parse(
+                "reveal the top 5 cards of your deck. Play as many Job Standard Unit Forwards as "
+                + "you want with a total cost of 5 or less among them onto the field and return "
+                + "the other cards to the bottom of your deck in any order.", null).accept(ctx);
+
+        // Its own primitive, which carries no mandatory flag at all — the dialog passes false.
+        verify(ctx).revealTopNPlayUpToJobTypeWithTotalCostOntoFieldRestBottom(
+                5, Integer.MAX_VALUE, "Standard Unit", "Forward", 5);
+    }
+
+    /** The AI fills to the cap either way, so the flag changes nothing for that seat. */
+    @Test
+    void theAiPlaysToTheCapUnderEitherReading() {
+        MainWindow mandatory = new MainWindow();
+        mandatory.gameState.getP2MainDeck().add(makeForward("A", "Earth", 2, 7000));
+        mandatory.buildGameContext(false).revealTopNPlayUpToElementTypeCostOntoField(
+                1, 1, List.of(), "Forward", 2, "less", true, RevealRest.BOTTOM);
+
+        MainWindow optional = new MainWindow();
+        optional.gameState.getP2MainDeck().add(makeForward("A", "Earth", 2, 7000));
+        optional.buildGameContext(false).revealTopNPlayUpToElementTypeCostOntoField(
+                1, 1, List.of(), "Forward", 2, "less", false, RevealRest.BOTTOM);
+
+        assertEquals(1, mandatory.p2ForwardCards.size());
+        assertEquals(1, optional.p2ForwardCards.size(), "the AI was already taking it either way");
     }
 
     // "Then, shuffle the other cards revealed and return them to the bottom" — the third tail in
@@ -9971,7 +10057,7 @@ public class CardBehaviorTest {
                 + "onto the field. Then, shuffle the other cards revealed and return them to the "
                 + "bottom of your deck in any order.", null).accept(ctx);
         verify(ctx).revealTopNPlayUpToElementTypeCostOntoField(
-                5, 1, List.of(), "Forward", 3, "less", RevealRest.SHUFFLED_BOTTOM);
+                5, 1, List.of(), "Forward", 3, "less", true, RevealRest.SHUFFLED_BOTTOM);
     }
 
     // A genuine "Add <card name> to your hand" must still be read as one.
@@ -17798,7 +17884,7 @@ public class CardBehaviorTest {
 		GameContext ctx = mock(GameContext.class);
 		fn.accept(ctx);
 		verify(ctx).revealTopNPlayUpToElementTypeCostOntoField(
-				3, 1, List.of(), "Forward", 4, "less", RevealRest.BREAK_ZONE);
+				3, 1, List.of(), "Forward", 4, "less", false, RevealRest.BREAK_ZONE);
 	}
 
 	@Test
@@ -44931,7 +45017,7 @@ public class CardBehaviorTest {
 		ActionResolver.parse(VAAN_10_133S_ETF, null).accept(ctx);
 
 		verify(ctx, times(1)).revealTopNPlayUpToElementTypeCostOntoField(
-				5, 1, List.of(), "Forward", 3, "less", RevealRest.SHUFFLED_BOTTOM);
+				5, 1, List.of(), "Forward", 3, "less", true, RevealRest.SHUFFLED_BOTTOM);
 	}
 
 	@Test
@@ -44941,7 +45027,7 @@ public class CardBehaviorTest {
 		ActionResolver.parse(VAAN_10_133S_ETF, null).accept(ctx);
 
 		verify(ctx, times(2)).revealTopNPlayUpToElementTypeCostOntoField(
-				5, 1, List.of(), "Forward", 3, "less", RevealRest.SHUFFLED_BOTTOM);
+				5, 1, List.of(), "Forward", 3, "less", true, RevealRest.SHUFFLED_BOTTOM);
 	}
 
 	@Test
@@ -44955,7 +45041,7 @@ public class CardBehaviorTest {
 		ActionResolver.parse(VAAN_10_133S_ETF, null).accept(ctx);
 
 		verify(ctx, never()).revealTopNPlayUpToElementTypeCostOntoField(
-				anyInt(), anyInt(), any(), any(), anyInt(), any(), eq(RevealRest.BOTTOM));
+				anyInt(), anyInt(), any(), any(), anyInt(), any(), anyBoolean(), eq(RevealRest.BOTTOM));
 	}
 
 	@Test
@@ -44969,7 +45055,7 @@ public class CardBehaviorTest {
 		ActionResolver.parse(ordered, null).accept(ctx);
 
 		verify(ctx).revealTopNPlayUpToElementTypeCostOntoField(
-				5, 1, List.of(), "Forward", 3, "less", RevealRest.BOTTOM);
+				5, 1, List.of(), "Forward", 3, "less", true, RevealRest.BOTTOM);
 	}
 
 	// =========================================================================================

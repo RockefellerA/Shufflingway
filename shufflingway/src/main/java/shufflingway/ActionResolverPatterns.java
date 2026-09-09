@@ -2779,7 +2779,10 @@ final class ActionResolverPatterns {
      */
     static final Pattern REVEAL_PLAY_TYPE_ONTO_FIELD_REST_BOTTOM = Pattern.compile(
         "(?i)reveal\\s+the\\s+top\\s+(?<n>\\d+)\\s+cards?\\s+of\\s+your\\s+deck[.!]?\\s+" +
-        "Play\\s+(?:up\\s+to\\s+)?(?<max>\\d+)\\s+" +
+        // {@code upto} is captured, not just tolerated: "Play 1 Forward" is an instruction and
+        // "Play up to 1 Forward" is an offer, and the printed words are the only thing telling
+        // them apart. Dropping the group let a player decline a play their card demanded.
+        "Play\\s+(?<upto>up\\s+to\\s+)?(?<max>\\d+)\\s+" +
         "(?:Category\\s+(?<category>\\S+)\\s+)?" +
         "(?<type>Forward|Backup|Monster|Character)s?\\s+" +
         "among\\s+them\\s+onto\\s+(?:the\\s+)?field\\s+" +
@@ -2809,7 +2812,9 @@ final class ActionResolverPatterns {
      */
     static final Pattern REVEAL_PLAY_ELEMENT_TYPE_COST_ONTO_FIELD_REST_BOTTOM = Pattern.compile(
         "(?i)^\\s*reveal\\s+the\\s+top\\s+(?<n>\\d+)\\s+cards?\\s+of\\s+your\\s+deck[.!]?\\s+" +
-        "Play\\s+(?:up\\s+to\\s+)?(?<max>\\d+)\\s+" +
+        // Captured for the same reason as its sibling above: the absent "up to" is what makes
+        // 16-070L Kirin's "Play 1 Forward of cost 4" a thing she has to do.
+        "Play\\s+(?<upto>up\\s+to\\s+)?(?<max>\\d+)\\s+" +
         "(?:(?<element>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)\\s+)?" +
         "(?:(?<type2>Forward|Backup|Monster|Character)s?\\s+or\\s+" +
             "(?<element2>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)\\s+)?" +

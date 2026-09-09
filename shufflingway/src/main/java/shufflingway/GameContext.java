@@ -3348,7 +3348,8 @@ public interface GameContext {
      * ("Forward", "Backup", "Monster", or "Character") onto the field for free;
      * all remaining cards go to the bottom of the deck in any order.
      */
-    void revealTopNPlayUpToTypeOntoFieldRestBottom(int reveal, int maxPlay, String typeFilter, String categoryFilter);
+    void revealTopNPlayUpToTypeOntoFieldRestBottom(int reveal, int maxPlay, String typeFilter,
+            String categoryFilter, boolean mustPlay);
 
     /**
      * Reveals the top {@code reveal} cards of the active player's deck. The player plays up to
@@ -3366,7 +3367,7 @@ public interface GameContext {
             int reveal, int maxPlay, String job, String typeFilter, int totalCost);
 
     default void revealTopNPlayUpToTypeOntoFieldRestBottom(int reveal, int maxPlay, String typeFilter) {
-        revealTopNPlayUpToTypeOntoFieldRestBottom(reveal, maxPlay, typeFilter, null);
+        revealTopNPlayUpToTypeOntoFieldRestBottom(reveal, maxPlay, typeFilter, null, false);
     }
 
     /**
@@ -3379,7 +3380,7 @@ public interface GameContext {
      * a mock. Left in step with its delegate rather than trusted.
      */
     default void revealTopNPlayUpToElementTypeCostOntoFieldRestBottom(int reveal, int maxPlay, List<String> elements, String typeFilter, int costVal, String costCmp) {
-        revealTopNPlayUpToElementTypeCostOntoField(reveal, maxPlay, elements, typeFilter, costVal, costCmp, RevealRest.BOTTOM);
+        revealTopNPlayUpToElementTypeCostOntoField(reveal, maxPlay, elements, typeFilter, costVal, costCmp, false, RevealRest.BOTTOM);
     }
 
     /**
@@ -3400,7 +3401,7 @@ public interface GameContext {
      * either play something cheaper than the card allows.
      */
     void revealTopNPlayUpToElementTypeCostOntoField(int reveal, int maxPlay, List<String> elements,
-            String typeFilter, int costVal, String costCmp, RevealRest rest);
+            String typeFilter, int costVal, String costCmp, boolean mustPlay, RevealRest rest);
 
     /**
      * Reveals the top {@code reveal} cards. The player may play up to {@code maxPlay} cards

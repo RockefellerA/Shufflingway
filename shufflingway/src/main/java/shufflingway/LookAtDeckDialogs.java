@@ -2204,12 +2204,13 @@ class LookAtDeckDialogs {
      * Clicking two non-selected cards swaps their bottom-of-deck order.
      */
     void revealPlayTypeOntoFieldRestBottom(List<CardData> cards, Deque<CardData> deck,
-            boolean isP1, int maxPlay, String typeFilter, String categoryFilter, Consumer<CardData> playOntoField) {
+            boolean isP1, int maxPlay, String typeFilter, String categoryFilter,
+            boolean mustPlay, Consumer<CardData> playOntoField) {
         String typeLabel = (categoryFilter != null ? "Category " + categoryFilter + " " : "") + typeFilter;
         Predicate<CardData> eligible = c ->
                 meetsRevealTypeFilter(c, typeFilter) && CardFilters.meetsCategoryFilter(c, categoryFilter);
         resolveRevealPlayOntoField(cards, deck, isP1, maxPlay, typeLabel, eligible,
-                RevealRest.BOTTOM, playOntoField);
+                RevealRest.BOTTOM, playOntoField, RevealTake.FIELD, mustPlay);
     }
 
     /**
@@ -2223,7 +2224,7 @@ class LookAtDeckDialogs {
      */
     void revealPlayElementTypeCostOntoField(List<CardData> cards, Deque<CardData> deck,
             boolean isP1, int maxPlay, List<String> elements, String typeFilter,
-            int costVal, String costCmp,
+            int costVal, String costCmp, boolean mustPlay,
             RevealRest rest, Consumer<CardData> playOntoField) {
         String typeLabel = (elements.isEmpty() ? "" : String.join(" or ", elements) + " ") + typeFilter
                 + CardFilters.formatCostFilterLabel(costVal, costCmp);
@@ -2232,7 +2233,7 @@ class LookAtDeckDialogs {
                 && (elements.isEmpty() || elements.stream().anyMatch(c::containsElement))
                 && CardFilters.meetsCostConstraint(c.cost(), costVal, costCmp);
         resolveRevealPlayOntoField(cards, deck, isP1, maxPlay, typeLabel, eligible,
-                rest, playOntoField);
+                rest, playOntoField, mustPlay);
     }
 
     /**
@@ -2247,8 +2248,9 @@ class LookAtDeckDialogs {
         Predicate<CardData> eligible = c ->
                 (CardFilters.meetsCardNameFilter(c, cardName) || CardFilters.meetsJobFilter(c, job))
                 && (maxCost < 0 || c.cost() <= maxCost);
+        // 14-031R Good King Moggle Mog XII prints "up to 1", the only card here.
         resolveRevealPlayOntoField(cards, deck, isP1, maxPlay, typeLabel, eligible,
-                RevealRest.BOTTOM, playOntoField);
+                RevealRest.BOTTOM, playOntoField, false);
     }
 
     /**
@@ -2266,8 +2268,10 @@ class LookAtDeckDialogs {
         String typeLabel = "Job " + job + " " + typeFilter;
         Predicate<CardData> eligible = c ->
                 meetsRevealTypeFilter(c, typeFilter) && CardFilters.meetsJobFilter(c, job);
+        // Both printings are optional: Curilla's "up to 2" and Warrior of Light 10-065L's
+        // "as many as you want", which says so in words rather than with "up to".
         resolveRevealPlayOntoField(cards, deck, isP1, maxPlay, totalCost, typeLabel,
-                eligible, RevealRest.BOTTOM, playOntoField, RevealTake.FIELD);
+                eligible, RevealRest.BOTTOM, playOntoField, RevealTake.FIELD, false);
     }
 
     /**
@@ -2290,8 +2294,9 @@ class LookAtDeckDialogs {
                         && c.cost() <= typeMaxCost
                         && !(excludeMultiElement && c.containsElement("Multi-Element")))
                 || (CardFilters.meetsCardNameFilter(c, cardName) && c.cost() <= nameMaxCost);
+        // Syldra 29-101H prints "Play 1 …", so the pick is owed once either branch is met.
         resolveRevealPlayOntoField(cards, deck, isP1, 1, typeLabel, eligible,
-                RevealRest.BOTTOM, playOntoField);
+                RevealRest.BOTTOM, playOntoField, true);
     }
 
     /**
@@ -2309,8 +2314,10 @@ class LookAtDeckDialogs {
             boolean isP1, String categoryFilter, Consumer<CardData> takeCard) {
         String typeLabel = (categoryFilter != null ? "Category " + categoryFilter + " " : "") + "card";
         Predicate<CardData> eligible = c -> CardFilters.meetsCategoryFilter(c, categoryFilter);
+        // Not a play onto the field, so it keeps the behaviour it had; see the note on
+        // resolveRevealPlayOntoField about which reveals this gate covers.
         resolveRevealPlayOntoField(cards, deck, isP1, 1, typeLabel, eligible,
-                RevealRest.BOTTOM, takeCard, RevealTake.RFG_CASTABLE);
+                RevealRest.BOTTOM, takeCard, RevealTake.RFG_CASTABLE, false);
     }
 
     /**
@@ -2327,8 +2334,9 @@ class LookAtDeckDialogs {
         String typeLabel = "Category " + category + " " + type;
         Predicate<CardData> eligible = c -> CardFilters.meetsCategoryFilter(c, category)
                 && meetsRevealTypeFilter(c, type);
+        // Chaos Advent 27-006R prints "up to 1".
         resolveRevealPlayOntoField(cards, deck, isP1, maxPlay, typeLabel, eligible,
-                RevealRest.SHUFFLED_BOTTOM, playOntoField, RevealTake.FIELD);
+                RevealRest.SHUFFLED_BOTTOM, playOntoField, RevealTake.FIELD, false);
     }
 
     /**
@@ -2343,15 +2351,15 @@ class LookAtDeckDialogs {
             boolean isP1, Consumer<CardData> takeCard) {
         resolveRevealPlayOntoField(cards, deck, isP1, 1, "card with Warp",
                 c -> c.warpValue() > 0, RevealRest.SHUFFLED_BOTTOM, takeCard,
-                RevealTake.RFG_WARP_COUNTER);
+                RevealTake.RFG_WARP_COUNTER, false);
     }
 
     /** Routes the choice these three effects share to whoever is sitting in the seat. */
     private void resolveRevealPlayOntoField(List<CardData> cards, Deque<CardData> deck,
             boolean isP1, int maxPlay, String typeLabel, Predicate<CardData> eligible,
-            RevealRest rest, Consumer<CardData> playOntoField) {
+            RevealRest rest, Consumer<CardData> playOntoField, boolean mustPlay) {
         resolveRevealPlayOntoField(cards, deck, isP1, maxPlay, typeLabel, eligible, rest,
-                playOntoField, RevealTake.FIELD);
+                playOntoField, RevealTake.FIELD, mustPlay);
     }
 
     /**
@@ -2361,9 +2369,9 @@ class LookAtDeckDialogs {
      */
     private void resolveRevealPlayOntoField(List<CardData> cards, Deque<CardData> deck,
             boolean isP1, int maxPlay, String typeLabel, Predicate<CardData> eligible,
-            RevealRest rest, Consumer<CardData> takeCard, RevealTake take) {
+            RevealRest rest, Consumer<CardData> takeCard, RevealTake take, boolean mustPlay) {
         resolveRevealPlayOntoField(cards, deck, isP1, maxPlay, -1, typeLabel, eligible, rest,
-                takeCard, take);
+                takeCard, take, mustPlay);
     }
 
     /**
@@ -2373,12 +2381,18 @@ class LookAtDeckDialogs {
      *
      * <p>{@code costBudget} of {@code -1} means no budget, which is every other caller.
      */
+    /**
+     * {@code mustPlay} is the printed "up to" — or rather its absence. "Play 1 Forward … among
+     * them" is an instruction, so the player has to take it if the reveal turned one up, while
+     * "Play up to 1" leaves taking none a legal answer. Only the human seat needs telling: the AI
+     * below already fills to the cap, so it satisfies either reading without knowing which it is.
+     */
     private void resolveRevealPlayOntoField(List<CardData> cards, Deque<CardData> deck,
             boolean isP1, int maxPlay, int costBudget, String typeLabel,
             Predicate<CardData> eligible, RevealRest rest, Consumer<CardData> takeCard,
-            RevealTake take) {
+            RevealTake take, boolean mustPlay) {
         resolveReveal(cards, deck, isP1,
-                () -> askRevealPlayOntoField(cards, maxPlay, costBudget, typeLabel, eligible, rest, take),
+                () -> askRevealPlayOntoField(cards, maxPlay, costBudget, typeLabel, eligible, rest, take, mustPlay),
                 () -> cpuRevealPlayOntoField(cards, maxPlay, costBudget, eligible, rest),
                 takeCard, take);
     }
@@ -2449,7 +2463,7 @@ class LookAtDeckDialogs {
      */
     private DeckLookDecision askRevealPlayOntoField(List<CardData> cards,
             int maxPlay, int costBudget, String typeLabel, Predicate<CardData> eligible,
-            RevealRest rest, RevealTake take) {
+            RevealRest rest, RevealTake take, boolean mustPlay) {
         int n = cards.size();
         JDialog dlg = new JDialog(frame, take.title(maxPlay, typeLabel, rest), true);
         dlg.setResizable(false);
@@ -2486,6 +2500,20 @@ class LookAtDeckDialogs {
                 boolean fitsBudget = costBudget < 0 || spent + c.cost() <= costBudget;
                 fieldBtns[j].setEnabled(eligible.test(c)
                         && (inField || (count < maxPlay && fitsBudget)));
+            }
+            // "Play 1 Forward …" is an instruction, not an offer, so Confirm stays shut while the
+            // player could still add a card they are obliged to play. Read off the buttons rather
+            // than off a count: whatever closes the last one — the maxPlay cap, a cost budget, or
+            // simply nothing else eligible being revealed — is exactly the point at which the
+            // player has done as much as they are able, which is all a mandatory play asks. That
+            // also makes the gate impossible to soft-lock.
+            if (mustPlay) {
+                boolean canAddMore = false;
+                for (int j = 0; j < n; j++)
+                    if (!holdsIdentity(fieldSel, order.get(j)) && fieldBtns[j].isEnabled()) canAddMore = true;
+                confirmBtn.setEnabled(!canAddMore);
+                confirmBtn.setToolTipText(canAddMore
+                        ? "You must play " + typeLabel + " revealed by this effect." : null);
             }
         };
 
@@ -2899,6 +2927,15 @@ class LookAtDeckDialogs {
                 boolean chosen = chosenToPlay[0] == c;
                 fieldBtns[j].setEnabled(eligible.test(c) && (chosen || chosenToPlay[0] == null));
             }
+            // Every card reaching this dialog prints "Play 1 Card Name X …" with no "up to"
+            // (15-109R Ultros, 13-097C Viking), so the pick is owed whenever the reveal turned a
+            // copy up. Same gate as the shared dialog, read off the buttons for the same reason.
+            boolean canAddMore = false;
+            for (int j = 0; j < n; j++)
+                if (chosenToPlay[0] != order.get(j) && fieldBtns[j].isEnabled()) canAddMore = true;
+            confirmBtn.setEnabled(!canAddMore);
+            confirmBtn.setToolTipText(canAddMore
+                    ? "You must play " + cardName + " revealed by this effect." : null);
         };
 
         Runnable refreshBorders = () -> {

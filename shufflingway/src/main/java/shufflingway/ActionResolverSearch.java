@@ -340,7 +340,10 @@ final class ActionResolverSearch {
         String normType = Character.toUpperCase(typeRaw.charAt(0))
                 + typeRaw.substring(1).toLowerCase();
         String category = m.group("category");
-        return ctx -> ctx.revealTopNPlayUpToTypeOntoFieldRestBottom(n, max, normType, category);
+        // No printed "up to" means the play is owed — 14-093H Luso against B-016 Ultimecia,
+        // the same sentence with and without it.
+        boolean mustPlay = m.group("upto") == null;
+        return ctx -> ctx.revealTopNPlayUpToTypeOntoFieldRestBottom(n, max, normType, category, mustPlay);
     }
     static Consumer<GameContext> tryParseRevealElementCardFromHandIfSoDraw(String text) {
         Matcher m = REVEAL_ELEMENT_CARD_FROM_HAND_IF_SO_DRAW.matcher(text.trim());
@@ -383,7 +386,9 @@ final class ActionResolverSearch {
                         : m.group("restbz")      != null ? RevealRest.BREAK_ZONE
                         : m.group("restshuffle") != null ? RevealRest.SHUFFLED_BOTTOM
                         : RevealRest.BOTTOM;
-        return ctx -> ctx.revealTopNPlayUpToElementTypeCostOntoField(n, max, elements, normType, costVal, costCmp, rest);
+        // As above: 16-070L Kirin says "Play 1", 21-121L Warrior of Light says "up to 2".
+        boolean mustPlay = m.group("upto") == null;
+        return ctx -> ctx.revealTopNPlayUpToElementTypeCostOntoField(n, max, elements, normType, costVal, costCmp, mustPlay, rest);
     }
     /**
      * Parses Syldra 29-101H's "Reveal the top N cards of your deck. Play 1 [Type] of cost C or less
