@@ -3371,15 +3371,15 @@ public interface GameContext {
 
     /**
      * Reveals the top {@code reveal} cards. The player may play up to {@code maxPlay} cards
-     * matching {@code elements}, {@code typeFilter}, and cost &le; {@code maxCost}
-     * (if &ge; 0) onto the field for free. The remaining cards go to the bottom of the deck in any order.
+     * matching {@code elements}, {@code typeFilter}, and the {@code costVal}/{@code costCmp} cost
+     * filter onto the field for free. The remaining cards go to the bottom of the deck in any order.
      *
      * <p><b>Unused.</b> Nothing calls this convenience, and a Mockito mock cannot see through it to
      * the method below, so a test that named it would pass against a real context and fail against
      * a mock. Left in step with its delegate rather than trusted.
      */
-    default void revealTopNPlayUpToElementTypeCostOntoFieldRestBottom(int reveal, int maxPlay, List<String> elements, String typeFilter, int maxCost) {
-        revealTopNPlayUpToElementTypeCostOntoField(reveal, maxPlay, elements, typeFilter, maxCost, RevealRest.BOTTOM);
+    default void revealTopNPlayUpToElementTypeCostOntoFieldRestBottom(int reveal, int maxPlay, List<String> elements, String typeFilter, int costVal, String costCmp) {
+        revealTopNPlayUpToElementTypeCostOntoField(reveal, maxPlay, elements, typeFilter, costVal, costCmp, RevealRest.BOTTOM);
     }
 
     /**
@@ -3391,9 +3391,16 @@ public interface GameContext {
      * set because it is rendered back to the player as the picker's label, and it is kept in the
      * order the card prints — Prishe 14-128H's "Wind Character or Earth Character" is the only
      * printing here that names two.
+     *
+     * <p>The cost filter is the {@code costVal}/{@code costCmp} pair the rest of the engine uses
+     * (see {@code CardFilters.meetsCostConstraint}), not a bare ceiling: {@code "less"} reads "of
+     * cost N or less" and a null {@code costCmp} reads an exact "of cost N" — 16-070L Kirin's
+     * "Play 1 Forward of cost 4" and 21-121L Warrior of Light's "up to 2 Characters of cost 3",
+     * the only two printings here that name a cost without "or less". A ceiling would have let
+     * either play something cheaper than the card allows.
      */
     void revealTopNPlayUpToElementTypeCostOntoField(int reveal, int maxPlay, List<String> elements,
-            String typeFilter, int maxCost, RevealRest rest);
+            String typeFilter, int costVal, String costCmp, RevealRest rest);
 
     /**
      * Reveals the top {@code reveal} cards. The player may play up to {@code maxPlay} cards

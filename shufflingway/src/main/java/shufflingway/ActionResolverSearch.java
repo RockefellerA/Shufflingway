@@ -373,12 +373,17 @@ final class ActionResolverSearch {
         for (String raw : new String[] { m.group("element"), m.group("element2") })
             if (raw != null) elements.add(Character.toUpperCase(raw.charAt(0)) + raw.substring(1).toLowerCase());
         String costStr  = m.group("cost");
-        int maxCost     = "X".equalsIgnoreCase(costStr) ? xValue : Integer.parseInt(costStr);
+        int costVal     = "X".equalsIgnoreCase(costStr) ? xValue : Integer.parseInt(costStr);
+        // "of cost 4" and "of cost 4 or less" are different filters, and the printed "or less" is
+        // the only thing separating them — 16-070L Kirin and 21-121L Warrior of Light name a cost
+        // exactly. Reading the absent "or less" as a ceiling would let either play a cheaper card
+        // than the printing allows, which is the wrong direction to be wrong in.
+        String costCmp  = m.group("costless") != null ? "less" : null;
         RevealRest rest = m.group("resthand")    != null ? RevealRest.HAND
                         : m.group("restbz")      != null ? RevealRest.BREAK_ZONE
                         : m.group("restshuffle") != null ? RevealRest.SHUFFLED_BOTTOM
                         : RevealRest.BOTTOM;
-        return ctx -> ctx.revealTopNPlayUpToElementTypeCostOntoField(n, max, elements, normType, maxCost, rest);
+        return ctx -> ctx.revealTopNPlayUpToElementTypeCostOntoField(n, max, elements, normType, costVal, costCmp, rest);
     }
     /**
      * Parses Syldra 29-101H's "Reveal the top N cards of your deck. Play 1 [Type] of cost C or less

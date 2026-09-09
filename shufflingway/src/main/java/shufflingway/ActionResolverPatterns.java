@@ -2813,7 +2813,12 @@ final class ActionResolverPatterns {
         "(?:(?<element>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)\\s+)?" +
         "(?:(?<type2>Forward|Backup|Monster|Character)s?\\s+or\\s+" +
             "(?<element2>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)\\s+)?" +
-        "(?<type>Forward|Backup|Monster|Character)s?\\s+of\\s+cost\\s+(?<cost>\\d+|X)\\s+or\\s+less\\s+" +
+        // "or less" is optional because two printings state a cost and stop — 16-070L Kirin's
+        // "Play 1 Forward of cost 4" and 21-121L Warrior of Light's "up to 2 Characters of cost 3".
+        // Group {@code costless} is what tells them apart, and the caller must read it: without it
+        // both would be taken as ceilings and could play something cheaper than the card allows.
+        "(?<type>Forward|Backup|Monster|Character)s?\\s+of\\s+cost\\s+(?<cost>\\d+|X)" +
+        "(?<costless>\\s+or\\s+less)?\\s+" +
         "among\\s+them\\s+onto\\s+(?:the\\s+)?field[,.]?\\s+" +
         "(?:" +
             // Split from the ordered ending below rather than sharing its branch: this one

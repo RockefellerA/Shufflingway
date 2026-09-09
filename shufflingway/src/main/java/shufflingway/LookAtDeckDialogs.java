@@ -2222,14 +2222,15 @@ class LookAtDeckDialogs {
      * over an ordered list rather than a set.
      */
     void revealPlayElementTypeCostOntoField(List<CardData> cards, Deque<CardData> deck,
-            boolean isP1, int maxPlay, List<String> elements, String typeFilter, int maxCost,
+            boolean isP1, int maxPlay, List<String> elements, String typeFilter,
+            int costVal, String costCmp,
             RevealRest rest, Consumer<CardData> playOntoField) {
         String typeLabel = (elements.isEmpty() ? "" : String.join(" or ", elements) + " ") + typeFilter
-                + (maxCost >= 0 ? " of cost " + maxCost + " or less" : "");
+                + CardFilters.formatCostFilterLabel(costVal, costCmp);
         Predicate<CardData> eligible = c ->
                 meetsRevealTypeFilter(c, typeFilter)
                 && (elements.isEmpty() || elements.stream().anyMatch(c::containsElement))
-                && (maxCost < 0 || c.cost() <= maxCost);
+                && CardFilters.meetsCostConstraint(c.cost(), costVal, costCmp);
         resolveRevealPlayOntoField(cards, deck, isP1, maxPlay, typeLabel, eligible,
                 rest, playOntoField);
     }
