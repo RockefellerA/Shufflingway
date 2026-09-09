@@ -2212,14 +2212,23 @@ class LookAtDeckDialogs {
                 RevealRest.BOTTOM, playOntoField);
     }
 
+    /**
+     * {@code elements} is the element filter, empty meaning "any element". A card satisfies it by
+     * carrying any one of them, so a Multi-Element card matching either half of Prishe 14-128H's
+     * "Wind Character or Earth Character" qualifies once — the reading {@code containsElement}
+     * already gives the single-element printings.
+     *
+     * <p>The list is joined in its printed order to label the picker, which is why the caller hands
+     * over an ordered list rather than a set.
+     */
     void revealPlayElementTypeCostOntoField(List<CardData> cards, Deque<CardData> deck,
-            boolean isP1, int maxPlay, String element, String typeFilter, int maxCost,
+            boolean isP1, int maxPlay, List<String> elements, String typeFilter, int maxCost,
             RevealRest rest, Consumer<CardData> playOntoField) {
-        String typeLabel = (element != null ? element + " " : "") + typeFilter
+        String typeLabel = (elements.isEmpty() ? "" : String.join(" or ", elements) + " ") + typeFilter
                 + (maxCost >= 0 ? " of cost " + maxCost + " or less" : "");
         Predicate<CardData> eligible = c ->
                 meetsRevealTypeFilter(c, typeFilter)
-                && (element == null || c.containsElement(element))
+                && (elements.isEmpty() || elements.stream().anyMatch(c::containsElement))
                 && (maxCost < 0 || c.cost() <= maxCost);
         resolveRevealPlayOntoField(cards, deck, isP1, maxPlay, typeLabel, eligible,
                 rest, playOntoField);

@@ -10273,7 +10273,7 @@ final class GameContextImpl implements GameContext {
 						typeFilter, categoryFilter, playOntoField);
 			}
 
-			@Override public void revealTopNPlayUpToElementTypeCostOntoField(int reveal, int maxPlay, String element, String typeFilter, int maxCost, RevealRest rest) {
+			@Override public void revealTopNPlayUpToElementTypeCostOntoField(int reveal, int maxPlay, List<String> elements, String typeFilter, int maxCost, RevealRest rest) {
 				Deque<CardData> deck = isP1 ? mw.gameState.getP1MainDeck() : mw.gameState.getP2MainDeck();
 				int n = Math.min(reveal, deck.size());
 				if (n == 0) { logEntry("Reveal top: deck is empty."); return; }
@@ -10283,7 +10283,7 @@ final class GameContextImpl implements GameContext {
 						peeked.stream().map(CardData::name).collect(Collectors.joining(", ")));
 				Consumer<CardData> playOntoField = revealPlacement();
 				mw.lookDialogs().revealPlayElementTypeCostOntoField(peeked, deck, isP1, maxPlay,
-						element, typeFilter, maxCost, rest, playOntoField);
+						elements, typeFilter, maxCost, rest, playOntoField);
 			}
 
 			@Override public void revealTopNPlayUpToNamedOrJobWithMaxCostOntoFieldRestBottom(

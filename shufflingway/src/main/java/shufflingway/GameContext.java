@@ -3346,19 +3346,28 @@ public interface GameContext {
 
     /**
      * Reveals the top {@code reveal} cards. The player may play up to {@code maxPlay} cards
-     * matching {@code element} (if non-null), {@code typeFilter}, and cost &le; {@code maxCost}
+     * matching {@code elements}, {@code typeFilter}, and cost &le; {@code maxCost}
      * (if &ge; 0) onto the field for free. The remaining cards go to the bottom of the deck in any order.
+     *
+     * <p><b>Unused.</b> Nothing calls this convenience, and a Mockito mock cannot see through it to
+     * the method below, so a test that named it would pass against a real context and fail against
+     * a mock. Left in step with its delegate rather than trusted.
      */
-    default void revealTopNPlayUpToElementTypeCostOntoFieldRestBottom(int reveal, int maxPlay, String element, String typeFilter, int maxCost) {
-        revealTopNPlayUpToElementTypeCostOntoField(reveal, maxPlay, element, typeFilter, maxCost, RevealRest.BOTTOM);
+    default void revealTopNPlayUpToElementTypeCostOntoFieldRestBottom(int reveal, int maxPlay, List<String> elements, String typeFilter, int maxCost) {
+        revealTopNPlayUpToElementTypeCostOntoField(reveal, maxPlay, elements, typeFilter, maxCost, RevealRest.BOTTOM);
     }
 
     /**
      * As above, but {@code rest} decides where the revealed cards that were not played go.
      * Keeping it a parameter rather than a second effect keeps the reveal, the play and the
      * disposal in one interaction, which is what the card describes.
+     *
+     * <p>{@code elements} is the element filter, empty meaning "any element". A list rather than a
+     * set because it is rendered back to the player as the picker's label, and it is kept in the
+     * order the card prints — Prishe 14-128H's "Wind Character or Earth Character" is the only
+     * printing here that names two.
      */
-    void revealTopNPlayUpToElementTypeCostOntoField(int reveal, int maxPlay, String element,
+    void revealTopNPlayUpToElementTypeCostOntoField(int reveal, int maxPlay, List<String> elements,
             String typeFilter, int maxCost, RevealRest rest);
 
     /**

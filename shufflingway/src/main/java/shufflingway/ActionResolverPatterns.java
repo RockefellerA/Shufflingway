@@ -2729,11 +2729,21 @@ final class ActionResolverPatterns {
      * <p>The remainder goes to the bottom of the deck on every card in this family except 26-053L
      * Bartz, which adds it to hand instead — a strictly better outcome, so the two cannot share a
      * destination. Group {@code resthand} is non-null for the hand form and null for the rest.
+     *
+     * <p>The element filter admits a second alternative, spelled by repeating the type —
+     * "Play up to 1 Wind Character or Earth Character of cost 5 or less" (14-128H Prishe, the only
+     * printing in this family with two). Groups {@code element2} and {@code type2} carry it, and
+     * the caller requires {@code type2} to equal {@code type}: no printing crosses types here, and
+     * declining an unseen "Wind Forward or Earth Backup" is better than guessing which type the
+     * cost ceiling belongs to. The optional run needs "&lt;Type&gt; or &lt;Element&gt;" to match, a
+     * sequence the single-element wording never contains, so it cannot claim one of those.
      */
     static final Pattern REVEAL_PLAY_ELEMENT_TYPE_COST_ONTO_FIELD_REST_BOTTOM = Pattern.compile(
         "(?i)^\\s*reveal\\s+the\\s+top\\s+(?<n>\\d+)\\s+cards?\\s+of\\s+your\\s+deck[.!]?\\s+" +
         "Play\\s+(?:up\\s+to\\s+)?(?<max>\\d+)\\s+" +
         "(?:(?<element>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)\\s+)?" +
+        "(?:(?<type2>Forward|Backup|Monster|Character)s?\\s+or\\s+" +
+            "(?<element2>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)\\s+)?" +
         "(?<type>Forward|Backup|Monster|Character)s?\\s+of\\s+cost\\s+(?<cost>\\d+|X)\\s+or\\s+less\\s+" +
         "among\\s+them\\s+onto\\s+(?:the\\s+)?field[,.]?\\s+" +
         "(?:" +

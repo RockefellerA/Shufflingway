@@ -1100,6 +1100,57 @@ public class CardBehaviorTest {
         assertEquals(plain, ActionResolver.stripExtraCostClause(plain));
     }
 
+    @Test
+    void theCoverageReportStopsCallingSummonerUnimplemented() {
+        // Summoner works — the two tests above put a Forward in the Break Zone through the real
+        // dispatch — but the reports called it unparsed, because they ask parse() of the printed
+        // text and this card's printed text is a conditional parse() declines on purpose.
+        // dispatchedByTriggers is the exclusion that exists for exactly this, and it had no arm
+        // for the extra-cost rewrite the executor performs before it asks parse() anything.
+        CardData summoner = summoner27064C();
+        AutoAbility etf = summoner.autoAbilities().get(0);
+
+        assertNull(ActionResolver.parse(etf.effectText(), summoner),
+                "the printed text is still, correctly, unreadable");
+        assertTrue(AutoAbilityTriggers.dispatchedByTriggers(etf, summoner),
+                "but the branch that actually resolves is recognised, so the reports say so");
+        assertTrue(AutoAbilityParsingTest.isAutoAbilityRecognized(etf, summoner));
+    }
+
+    @Test
+    void theExtraCostArmChecksThePayoffRatherThanMatchingTheWording() {
+        // The property that keeps the arm honest: it claims an ability only when the branch that
+        // will actually resolve parses, so a card whose payoff is unimplemented keeps reporting as
+        // the gap it is. An arm that claimed the shape on sight would hide every one of them.
+        //
+        // The payoff here is invented — no printing carries it — because the corpus has none left:
+        // Prishe 14-128H was the last extra-cost ability whose payoff did not parse, and she does
+        // now (see prisheRevealsAndPlaysFromEitherOfTwoElements).
+        CardData probe = makeExtraCostBackup("Probe", "Wind",
+                "If you cast Probe, you may pay 《Wind》《2》 as an extra cost.[[br]]"
+                + "When Probe enters the field, if you paid the extra cost, do something no "
+                + "printed card has ever asked for.");
+        AutoAbility etf = probe.autoAbilities().get(0);
+
+        assertNull(ActionResolver.parse(ActionResolver.applyExtraCostPaid(etf.effectText()), probe),
+                "the paid branch is what is unimplemented");
+        assertFalse(AutoAbilityTriggers.dispatchedByTriggers(etf, probe));
+        assertFalse(AutoAbilityParsingTest.isAutoAbilityRecognized(etf, probe));
+    }
+
+    @Test
+    void theExtraCostArmNeverDisclaimsACardTheOrdinaryCheckRecognises() {
+        // Samurai's shape has an unconditional lead-in, so parse() claims its printed text and the
+        // new arm must not get in the way. Phrased as a bare `return parse(paid) != null` it would
+        // have answered false here and short-circuited the rest of dispatchedByTriggers.
+        CardData samurai = makeExtraCostBackup("Samurai", "Fire",
+                "If you cast Samurai, you may pay 《Fire》《2》 as an extra cost.[[br]]"
+                + "When Samurai enters the field, choose 1 Forward of cost 6 or more. "
+                + "If you paid the extra cost, break it.");
+        AutoAbility etf = samurai.autoAbilities().get(0);
+        assertTrue(AutoAbilityParsingTest.isAutoAbilityRecognized(etf, samurai));
+    }
+
     // =========================================================================================
     // Yuffie: regression test for a bug where activating a "Choose any number of [targets]..."
     // action ability (e.g. "Doom of the Living": "Choose any number of Forwards. Divide 24000
@@ -9710,6 +9761,84 @@ public class CardBehaviorTest {
     }
 
     // =========================================================================================
+    // Prishe 14-128H: "When Prishe enters the field, if you paid the extra cost, reveal the top 5
+    // cards of your deck. Play up to 1 Wind Character or Earth Character of cost 5 or less among
+    // them onto the field and return the other cards to the bottom of your deck in any order."
+    //
+    // The whole ability sat behind the extra cost like Summoner 27-064C's, so the printed text is
+    // unreadable by design and only the paid rewrite is worth asking about. That rewrite is an
+    // ordinary member of the reveal-and-play family — the one difference being a second element.
+    // REVEAL_PLAY_ELEMENT_TYPE_COST_ONTO_FIELD_REST_BOTTOM allowed exactly one, so the sentence
+    // fell through the whole chain and Prishe's payoff did nothing.
+    //
+    // The filter became a List rather than a Set on purpose: it is joined back into the picker's
+    // label, so it has to keep the order the card prints it in.
+    // =========================================================================================
+
+    private static final String PRISHE_14_128H =
+            "If you cast Prishe, you may pay an extra 《Wind》《Earth》《1》.[[br]]   "
+            + "When Prishe enters the field, if you paid the extra cost, reveal the top 5 cards of "
+            + "your deck. Play up to 1 Wind Character or Earth Character of cost 5 or less among "
+            + "them onto the field and return the other cards to the bottom of your deck in any "
+            + "order.[[br]]   Damage 3 -- Prishe gains +1000 power and Brave.";
+
+    @Test
+    void prisheRevealsAndPlaysFromEitherOfTwoElements() {
+        CardData prishe = makeExtraCostBackup("Prishe", "Wind", PRISHE_14_128H);
+        AutoAbility etf = prishe.autoAbilities().stream()
+                .filter(a -> a.trigger().equals("enters the field")).findFirst().orElseThrow();
+
+        assertNull(ActionResolver.parse(etf.effectText(), prishe),
+                "the printed text stays conditional, as every extra-cost ability's does");
+
+        String paid = ActionResolver.applyExtraCostPaid(etf.effectText());
+        Consumer<GameContext> fn = ActionResolver.parse(paid, prishe);
+        assertNotNull(fn, "the branch that resolves is an ordinary reveal-and-play");
+
+        GameContext ctx = mock(GameContext.class);
+        fn.accept(ctx);
+        // Both elements, in the order printed, and the type they share.
+        verify(ctx).revealTopNPlayUpToElementTypeCostOntoField(
+                5, 1, List.of("Wind", "Earth"), "Character", 5, RevealRest.BOTTOM);
+    }
+
+    @Test
+    void prisheIsReportedAsImplemented() {
+        CardData prishe = makeExtraCostBackup("Prishe", "Wind", PRISHE_14_128H);
+        AutoAbility etf = prishe.autoAbilities().stream()
+                .filter(a -> a.trigger().equals("enters the field")).findFirst().orElseThrow();
+        assertTrue(AutoAbilityParsingTest.isAutoAbilityRecognized(etf, prishe));
+    }
+
+    @Test
+    void aSingleElementRevealPlayIsUnchangedByTheSecondAlternative() {
+        // The widening must not disturb the printings that name one element, or none at all. The
+        // optional run needs "<Type> or <Element>" to match, which neither wording contains.
+        GameContext one = mock(GameContext.class);
+        ActionResolver.parse("Reveal the top 5 cards of your deck. Play up to 1 Wind Forward of "
+                + "cost 2 or less among them onto the field and return the other cards to the "
+                + "bottom of your deck in any order.", null).accept(one);
+        verify(one).revealTopNPlayUpToElementTypeCostOntoField(
+                5, 1, List.of("Wind"), "Forward", 2, RevealRest.BOTTOM);
+
+        GameContext none = mock(GameContext.class);
+        ActionResolver.parse("Reveal the top 5 cards of your deck. Play up to 1 Forward of cost 2 "
+                + "or less among them onto the field and return the other cards to the bottom of "
+                + "your deck in any order.", null).accept(none);
+        verify(none).revealTopNPlayUpToElementTypeCostOntoField(
+                5, 1, List.of(), "Forward", 2, RevealRest.BOTTOM);
+    }
+
+    @Test
+    void aTwoElementFilterAcrossDifferentTypesIsDeclinedRatherThanGuessed() {
+        // No printing crosses types, and the sentence carries one cost ceiling with no way to say
+        // which half it binds to. Declining leaves it visibly unread instead of quietly picking.
+        assertNull(ActionResolver.parse("Reveal the top 5 cards of your deck. Play up to 1 Wind "
+                + "Forward or Earth Backup of cost 5 or less among them onto the field and return "
+                + "the other cards to the bottom of your deck in any order.", null));
+    }
+
+    // =========================================================================================
     // Bartz 26-053L: "reveal the top 2 cards of your deck. Play up to 1 Character of cost 3 or
     // less among them onto the field and add the other cards to your hand."
     //
@@ -9729,7 +9858,7 @@ public class CardBehaviorTest {
         Consumer<GameContext> fn = ActionResolver.parse(BARTZ_EFFECT, null);
         assertNotNull(fn, "the reveal-and-play must not be swallowed by the trailing 'add … to your hand'");
         fn.accept(ctx);
-        verify(ctx).revealTopNPlayUpToElementTypeCostOntoField(2, 1, null, "Character", 3, RevealRest.HAND);
+        verify(ctx).revealTopNPlayUpToElementTypeCostOntoField(2, 1, List.of(), "Character", 3, RevealRest.HAND);
         verify(ctx, never()).returnNamedCardToYourHand(any());
     }
 
@@ -9751,7 +9880,7 @@ public class CardBehaviorTest {
                 "reveal the top 5 cards of your deck. Play 1 Forward of cost 2 or less among them "
                 + "onto the field and return the other cards to the bottom of your deck in any order.",
                 null).accept(ctx);
-        verify(ctx).revealTopNPlayUpToElementTypeCostOntoField(5, 1, null, "Forward", 2, RevealRest.BOTTOM);
+        verify(ctx).revealTopNPlayUpToElementTypeCostOntoField(5, 1, List.of(), "Forward", 2, RevealRest.BOTTOM);
     }
 
     // "Then, shuffle the other cards revealed and return them to the bottom" — the third tail in
@@ -9767,7 +9896,7 @@ public class CardBehaviorTest {
                 + "onto the field. Then, shuffle the other cards revealed and return them to the "
                 + "bottom of your deck in any order.", null).accept(ctx);
         verify(ctx).revealTopNPlayUpToElementTypeCostOntoField(
-                5, 1, null, "Forward", 3, RevealRest.SHUFFLED_BOTTOM);
+                5, 1, List.of(), "Forward", 3, RevealRest.SHUFFLED_BOTTOM);
     }
 
     // A genuine "Add <card name> to your hand" must still be read as one.
@@ -17594,7 +17723,7 @@ public class CardBehaviorTest {
 		GameContext ctx = mock(GameContext.class);
 		fn.accept(ctx);
 		verify(ctx).revealTopNPlayUpToElementTypeCostOntoField(
-				3, 1, null, "Forward", 4, RevealRest.BREAK_ZONE);
+				3, 1, List.of(), "Forward", 4, RevealRest.BREAK_ZONE);
 	}
 
 	@Test
@@ -43956,7 +44085,7 @@ public class CardBehaviorTest {
 		ActionResolver.parse(VAAN_10_133S_ETF, null).accept(ctx);
 
 		verify(ctx, times(1)).revealTopNPlayUpToElementTypeCostOntoField(
-				5, 1, null, "Forward", 3, RevealRest.SHUFFLED_BOTTOM);
+				5, 1, List.of(), "Forward", 3, RevealRest.SHUFFLED_BOTTOM);
 	}
 
 	@Test
@@ -43966,7 +44095,7 @@ public class CardBehaviorTest {
 		ActionResolver.parse(VAAN_10_133S_ETF, null).accept(ctx);
 
 		verify(ctx, times(2)).revealTopNPlayUpToElementTypeCostOntoField(
-				5, 1, null, "Forward", 3, RevealRest.SHUFFLED_BOTTOM);
+				5, 1, List.of(), "Forward", 3, RevealRest.SHUFFLED_BOTTOM);
 	}
 
 	@Test
@@ -43994,7 +44123,7 @@ public class CardBehaviorTest {
 		ActionResolver.parse(ordered, null).accept(ctx);
 
 		verify(ctx).revealTopNPlayUpToElementTypeCostOntoField(
-				5, 1, null, "Forward", 3, RevealRest.BOTTOM);
+				5, 1, List.of(), "Forward", 3, RevealRest.BOTTOM);
 	}
 
 	// =========================================================================================

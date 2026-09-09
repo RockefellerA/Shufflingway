@@ -354,17 +354,24 @@ final class ActionResolverSearch {
         if (!m.matches()) return null;
         int n           = Integer.parseInt(m.group("n"));
         int max         = Integer.parseInt(m.group("max"));
-        String elementRaw = m.group("element");
-        String element    = elementRaw != null ? Character.toUpperCase(elementRaw.charAt(0)) + elementRaw.substring(1).toLowerCase() : null;
         String typeRaw  = m.group("type");
         String normType = Character.toUpperCase(typeRaw.charAt(0)) + typeRaw.substring(1).toLowerCase();
+        // The second alternative repeats the type ("Wind Character or Earth Character"), so a text
+        // that changes it is saying something this parser cannot express — which type the single
+        // cost ceiling applies to. Declined rather than guessed; no printing does it today.
+        String type2Raw = m.group("type2");
+        if (type2Raw != null && !type2Raw.equalsIgnoreCase(typeRaw)) return null;
+        // In printed order: the list is rendered back to the player as the picker's label.
+        List<String> elements = new ArrayList<>();
+        for (String raw : new String[] { m.group("element"), m.group("element2") })
+            if (raw != null) elements.add(Character.toUpperCase(raw.charAt(0)) + raw.substring(1).toLowerCase());
         String costStr  = m.group("cost");
         int maxCost     = "X".equalsIgnoreCase(costStr) ? xValue : Integer.parseInt(costStr);
         RevealRest rest = m.group("resthand")    != null ? RevealRest.HAND
                         : m.group("restbz")      != null ? RevealRest.BREAK_ZONE
                         : m.group("restshuffle") != null ? RevealRest.SHUFFLED_BOTTOM
                         : RevealRest.BOTTOM;
-        return ctx -> ctx.revealTopNPlayUpToElementTypeCostOntoField(n, max, element, normType, maxCost, rest);
+        return ctx -> ctx.revealTopNPlayUpToElementTypeCostOntoField(n, max, elements, normType, maxCost, rest);
     }
     /**
      * Parses Syldra 29-101H's "Reveal the top N cards of your deck. Play 1 [Type] of cost C or less

@@ -3635,6 +3635,23 @@ final class AutoAbilityTriggers {
 		// further, so matching is the whole of the question.
 		if (FA_REVEAL_SUMMONS_CONDITIONAL.matcher(text).find()) return true;
 		if (FA_REVEAL_SUMMONS_SAME_NUMBER.matcher(text).find()) return true;
+		// "If you paid the extra cost, …". executeAutoAbilityImpl rewrites the effect into the
+		// branch that was actually taken before it asks parse() anything, so the printed text is
+		// the wrong thing to ask about — parse() declines it on purpose, because reading it loosely
+		// would fire the payoff whether or not the cost was paid.
+		//
+		// Only the paid branch is checked. The unpaid one is either an unconditional lead-in, in
+		// which case the ordinary parse() check on the printed text has already claimed the card
+		// and this arm never decides anything (Samurai 27-009C and its four siblings), or nothing
+		// at all — Summoner 27-064C's whole ability sits behind the condition, and the executor
+		// answers a blank rewrite with "extra cost not paid, no effect", which is implemented
+		// behaviour rather than a gap.
+		//
+		// Phrased to only ever claim, never disclaim: unlike the arms above, parse() on the printed
+		// text is not known to be null here, so returning this comparison directly would let a card
+		// the ordinary check recognises be reported as unimplemented.
+		String paidBranch = ActionResolver.applyExtraCostPaid(text);
+		if (!paidBranch.equals(text) && ActionResolver.parse(paidBranch, source) != null) return true;
 		// Dispatched by DamageResolver rather than by this class, but for the same reason and with
 		// the same consequence for the reports: Gulool Ja Ja 27-007H's echo names the damaged card
 		// and the amount it took, neither of which is in the text, so it is resolved where the
