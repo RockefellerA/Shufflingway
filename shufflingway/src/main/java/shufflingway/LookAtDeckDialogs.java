@@ -2314,10 +2314,13 @@ class LookAtDeckDialogs {
             boolean isP1, String categoryFilter, Consumer<CardData> takeCard) {
         String typeLabel = (categoryFilter != null ? "Category " + categoryFilter + " " : "") + "card";
         Predicate<CardData> eligible = c -> CardFilters.meetsCategoryFilter(c, categoryFilter);
-        // Not a play onto the field, so it keeps the behaviour it had; see the note on
-        // resolveRevealPlayOntoField about which reveals this gate covers.
+        // "Remove 1 [Category X] card among them from the game" — an instruction, so the take is
+        // owed once the reveal turns up something that satisfies it. 18-109C Snow, 20-004C Warrior
+        // of Light and 22-052H Helena Leonis all print it that way, and the pattern behind this
+        // admits no "up to" arm at all, so a future optional printing would go unparsed rather
+        // than arrive here mislabelled.
         resolveRevealPlayOntoField(cards, deck, isP1, 1, typeLabel, eligible,
-                RevealRest.BOTTOM, takeCard, RevealTake.RFG_CASTABLE, false);
+                RevealRest.BOTTOM, takeCard, RevealTake.RFG_CASTABLE, true);
     }
 
     /**
@@ -2349,9 +2352,11 @@ class LookAtDeckDialogs {
      */
     void revealRemoveWarpCardRestShuffledBottom(List<CardData> cards, Deque<CardData> deck,
             boolean isP1, Consumer<CardData> takeCard) {
+        // 29-103H Setzer's "Remove 1 card with Warp among them from the game", likewise an
+        // instruction and likewise the only wording its pattern accepts.
         resolveRevealPlayOntoField(cards, deck, isP1, 1, "card with Warp",
                 c -> c.warpValue() > 0, RevealRest.SHUFFLED_BOTTOM, takeCard,
-                RevealTake.RFG_WARP_COUNTER, false);
+                RevealTake.RFG_WARP_COUNTER, true);
     }
 
     /** Routes the choice these three effects share to whoever is sitting in the seat. */
@@ -2461,6 +2466,23 @@ class LookAtDeckDialogs {
      *             player's to set, so the swap controls only matter for {@link RevealRest#BOTTOM};
      *             cards going to hand or the Break Zone have no order to choose.
      */
+    /**
+     * Whether a revealed card the player has not taken is still on offer, given what they have
+     * taken already: it has to match the filter, leave room under {@code maxPlay}, and fit in
+     * whatever is left of {@code costBudget} ({@code -1} for no budget).
+     *
+     * <p>One rule, read twice. The dialog enables each card's toggle by it, and a mandatory reveal
+     * keeps Confirm shut while any card still answers yes — so the two cannot disagree and strand
+     * a player who is required to take something with nothing left to click. Static and separate
+     * only because the dialog it lives in is modal and cannot be exercised by a test.
+     */
+    static boolean revealTakeStillOffered(CardData c, int taken, int spent, int maxPlay,
+            int costBudget, Predicate<CardData> eligible) {
+        return eligible.test(c)
+                && taken < maxPlay
+                && (costBudget < 0 || spent + c.cost() <= costBudget);
+    }
+
     private DeckLookDecision askRevealPlayOntoField(List<CardData> cards,
             int maxPlay, int costBudget, String typeLabel, Predicate<CardData> eligible,
             RevealRest rest, RevealTake take, boolean mustPlay) {
@@ -2494,12 +2516,11 @@ class LookAtDeckDialogs {
             for (int j = 0; j < n; j++) {
                 CardData c = order.get(j);
                 boolean inField = holdsIdentity(fieldSel, c);
-                // A budget caps the sum of the picks, so what closes a card off is the room
-                // left rather than the count. An already-picked card stays enabled either
-                // way, or a full selection could never be undone.
-                boolean fitsBudget = costBudget < 0 || spent + c.cost() <= costBudget;
-                fieldBtns[j].setEnabled(eligible.test(c)
-                        && (inField || (count < maxPlay && fitsBudget)));
+                // An already-picked card stays enabled whatever the room left, or a full
+                // selection could never be undone.
+                fieldBtns[j].setEnabled(inField
+                        ? eligible.test(c)
+                        : revealTakeStillOffered(c, count, spent, maxPlay, costBudget, eligible));
             }
             // "Play 1 Forward …" is an instruction, not an offer, so Confirm stays shut while the
             // player could still add a card they are obliged to play. Read off the buttons rather
@@ -2512,8 +2533,12 @@ class LookAtDeckDialogs {
                 for (int j = 0; j < n; j++)
                     if (!holdsIdentity(fieldSel, order.get(j)) && fieldBtns[j].isEnabled()) canAddMore = true;
                 confirmBtn.setEnabled(!canAddMore);
+                // The verb comes from the take, not from the word "play": this dialog also serves
+                // "Remove 1 … from the game", where telling the player to play something would
+                // name an action the card never mentions.
                 confirmBtn.setToolTipText(canAddMore
-                        ? "You must play " + typeLabel + " revealed by this effect." : null);
+                        ? "You must " + take.takeVerb() + " " + typeLabel + " revealed by this effect."
+                        : null);
             }
         };
 

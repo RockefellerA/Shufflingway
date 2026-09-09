@@ -10027,6 +10027,91 @@ public class CardBehaviorTest {
                 5, Integer.MAX_VALUE, "Standard Unit", "Forward", 5);
     }
 
+    // -----------------------------------------------------------------------------------------
+    // The rule the mandatory gate is built on, lifted out of the modal dialog so it can be run.
+    //
+    // The dialog enables each card's toggle by revealTakeStillOffered and, when the reveal is
+    // mandatory, keeps Confirm shut while any untaken card still answers yes. Sharing the one rule
+    // is what makes the gate impossible to strand: Confirm can only be shut while something is
+    // clickable, because it is the same question in both places.
+    // -----------------------------------------------------------------------------------------
+
+    @Test
+    void aRevealedCardIsOnOfferWhileTheFilterAndTheCapAllowIt() {
+        CardData c = makeForward("Three", "Earth", 3, 7000);
+
+        assertTrue(LookAtDeckDialogs.revealTakeStillOffered(c, 0, 0, 1, -1, x -> true));
+        assertFalse(LookAtDeckDialogs.revealTakeStillOffered(c, 0, 0, 1, -1, x -> false),
+                "the filter refuses it");
+        assertFalse(LookAtDeckDialogs.revealTakeStillOffered(c, 1, 0, 1, -1, x -> true),
+                "the cap is already met");
+    }
+
+    @Test
+    void aBudgetClosesTheOfferBeforeTheCapDoes() {
+        CardData three = makeForward("Three", "Earth", 3, 7000);
+
+        assertTrue(LookAtDeckDialogs.revealTakeStillOffered(three, 1, 1, 9, 4, x -> true),
+                "1 spent of 4 leaves room for a cost-3 card");
+        assertFalse(LookAtDeckDialogs.revealTakeStillOffered(three, 1, 2, 9, 4, x -> true),
+                "2 spent of 4 does not, though the count cap is nowhere near");
+    }
+
+    // -----------------------------------------------------------------------------------------
+    // The take siblings — "Remove 1 [Category X] card among them from the game" (18-109C Snow,
+    // 20-004C Warrior of Light, 22-052H Helena Leonis) and Setzer 29-103H's Warp removal.
+    //
+    // Instructions like their play siblings, and mandatory for the same reason. Neither pattern
+    // carries an "up to" arm at all, so the dialog is told so outright rather than reading a group
+    // that could never be filled — and an optional printing, if one ever appears, goes unparsed
+    // instead of arriving here mislabelled as mandatory.
+    // -----------------------------------------------------------------------------------------
+
+    /**
+     * The guard behind hardcoding the flag: these two dialogs are told "mandatory" outright, which
+     * is only safe while the patterns that reach them cannot match an optional wording. Asserted on
+     * the patterns rather than on {@code parse()}, because an "up to" sentence does not go unread —
+     * the coarser RemoveNamedFromGame claims it on a fragment, dropping the reveal. That is a
+     * pre-existing hazard for a card that does not exist; what matters here is only that such a
+     * sentence never arrives at these dialogs labelled mandatory.
+     */
+    @Test
+    void theRemoveFromGameRevealPatternAdmitsNoOptionalWording() {
+        // Snow 18-109C as printed — the trailing "You can cast it …" is part of what this pattern
+        // matches, not a restriction stripped ahead of it.
+        String printed = "reveal the top 2 cards of your deck. Remove 1 Category XIII card among "
+                + "them from the game and return the other cards to the bottom of your deck in any order. "
+                + "You can cast it at any time you could normally cast it this turn.";
+        assertTrue(ActionResolverPatterns.REVEAL_TOP_N_RFG_ONE_CASTABLE_REST_BOTTOM
+                .matcher(printed).matches(), "the printed wording matches");
+        assertFalse(ActionResolverPatterns.REVEAL_TOP_N_RFG_ONE_CASTABLE_REST_BOTTOM
+                .matcher(printed.replace("Remove 1 Category", "Remove up to 1 Category")).matches(),
+                "an 'up to' wording must not reach a dialog hardcoded to demand the take");
+    }
+
+    @Test
+    void theWarpRemovalRevealPatternAdmitsNoOptionalWording() {
+        String printed = "reveal the top 7 cards of your deck. Remove 1 card with Warp among them "
+                + "from the game and place 1 Warp Counter on it. Then shuffle the other cards and "
+                + "return them to the bottom of your deck.";
+        assertTrue(ActionResolverPatterns.REVEAL_TOP_N_REMOVE_WARP_CARD_PLACE_COUNTERS_REST_SHUFFLED_BOTTOM
+                .matcher(printed).matches(), "Setzer 29-103H as printed");
+        assertFalse(ActionResolverPatterns.REVEAL_TOP_N_REMOVE_WARP_CARD_PLACE_COUNTERS_REST_SHUFFLED_BOTTOM
+                .matcher(printed.replace("Remove 1 card", "Remove up to 1 card")).matches(),
+                "same guard for Setzer's sibling");
+    }
+
+    /** The AI seat takes the removal either way; the gate only ever concerned the human one. */
+    @Test
+    void theAiStillRemovesTheWarpCardItIsOffered() {
+        MainWindow mw = new MainWindow();
+        mw.gameState.getP2MainDeck().add(makeForwardWithWarp("Warped", "Earth", 3, 7000, 2));
+        mw.buildGameContext(false).revealTopNRemoveWarpCardPlaceCountersRestShuffledBottom(1, 1);
+
+        assertEquals(0, mw.gameState.getP2MainDeck().size(),
+                "the only revealed card was removed rather than put back");
+    }
+
     /** The AI fills to the cap either way, so the flag changes nothing for that seat. */
     @Test
     void theAiPlaysToTheCapUnderEitherReading() {
