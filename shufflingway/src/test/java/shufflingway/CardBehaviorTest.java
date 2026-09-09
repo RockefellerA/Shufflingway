@@ -36128,8 +36128,222 @@ public class CardBehaviorTest {
         // A find() on a loose pattern would take a flat 4000 out of it; this one is anchored.
         CardData yuffie = makeForward("Yuffie", "Wind", 2, 4000);
         assertNotEquals("DamageBlockingForward", ActionResolver.matchedPatternName(
+                YUFFIE_25_049C_PAYOFF, yuffie));
+    }
+
+    // =========================================================================================
+    // Yuffie 25-049C: "When Yuffie is blocked, deal 4000 damage for each Shuriken Counter placed
+    // on Yuffie to the blocking Forward. Then, remove all Shuriken Counters from Yuffie."
+    //
+    // This reported as parsed and was worse than unparsed. REMOVE_ALL_COUNTERS is unanchored and
+    // matched with find(), so it took its clause out of the sentence's tail and claimed the whole
+    // ability — Yuffie removed every Shuriken Counter her attack trigger had banked and dealt no
+    // damage at all. The reports counted her as working the entire time, because a card that
+    // parses is not looked at again.
+    //
+    // Claimed whole or not at all, and read through the same blocker lookup as Ninja 2-013C's
+    // flat-damage sibling. The count is taken at resolution — the xValue channel the other
+    // "damage for each Counter" printings use (14-013C Koboldroid Yang, 14-028C Goblin) is filled
+    // when an *action* ability is activated, and this is an auto ability with no such step.
+    // =========================================================================================
+
+    private static final String YUFFIE_25_049C_PAYOFF =
+            "deal 4000 damage for each Shuriken Counter placed on Yuffie to the blocking Forward. "
+            + "Then, remove all Shuriken Counters from Yuffie.";
+
+    /** Yuffie blocked by a P2 Forward, holding {@code counters} Shuriken Counters. */
+    private static MainWindow blockedYuffieBoard(CardData yuffie, CardData blocker, int counters) {
+        MainWindow mw = new MainWindow();
+        placeP1Forward(mw, yuffie);
+        placeP2Forward(mw, blocker);
+        mw.gameState.getIdentity().put(blocker, false);
+        mw.gameState.placeCounters(yuffie, "Shuriken", counters);
+        mw.p2BlockingIdx       = 0;
+        mw.p2BlockedByAttacker = yuffie;
+        return mw;
+    }
+
+    @Test
+    void yuffieNoLongerReportsAsABareCounterWipe() {
+        CardData yuffie = makeForward("Yuffie", "Wind", 2, 4000);
+        assertEquals("DamageBlockingForwardPerCounterThenClear",
+                ActionResolver.matchedPatternName(YUFFIE_25_049C_PAYOFF, yuffie),
+                "RemoveAllCounters used to win this by finding its clause in the tail");
+    }
+
+    @Test
+    void yuffieSpendsHerCountersOnDamageBeforeClearingThem() {
+        CardData yuffie  = makeForward("Yuffie", "Wind", 2, 4000);
+        CardData blocker = makeForward("Blocker", "Ice", 5, 9000);
+        MainWindow mw = blockedYuffieBoard(yuffie, blocker, 2);
+
+        ActionResolver.parse(YUFFIE_25_049C_PAYOFF, yuffie).accept(mw.buildGameContext(true));
+
+        // 4000 x 2 counters. Read before the clear-down, which is the whole ordering question:
+        // counted first, spent, then removed.
+        assertEquals(8000, mw.p2ForwardDamage.get(0), "two counters are worth 8000, not 4000");
+        assertEquals(0, mw.gameState.getCounters(yuffie, "Shuriken"), "and the counters are spent");
+    }
+
+    @Test
+    void yuffieBreaksABlockerHerBankedCountersOutscale() {
+        CardData yuffie  = makeForward("Yuffie", "Wind", 2, 4000);
+        CardData blocker = makeForward("Blocker", "Ice", 5, 9000);
+        MainWindow mw = blockedYuffieBoard(yuffie, blocker, 3);
+
+        ActionResolver.parse(YUFFIE_25_049C_PAYOFF, yuffie).accept(mw.buildGameContext(true));
+
+        assertTrue(mw.p2ForwardCards.isEmpty(), "12000 is lethal to a 9000-power blocker");
+        assertTrue(mw.gameState.getP2BreakZone().contains(blocker));
+    }
+
+    @Test
+    void yuffieWithNoCountersDealsNothingRatherThanWipingSilently() {
+        // The state the old reading made permanent: nothing to scale off. It must now be visible as
+        // "no damage", not as a counter wipe that looked like the ability had worked.
+        CardData yuffie  = makeForward("Yuffie", "Wind", 2, 4000);
+        CardData blocker = makeForward("Blocker", "Ice", 5, 9000);
+        MainWindow mw = blockedYuffieBoard(yuffie, blocker, 0);
+
+        ActionResolver.parse(YUFFIE_25_049C_PAYOFF, yuffie).accept(mw.buildGameContext(true));
+
+        assertEquals(0, mw.p2ForwardDamage.get(0));
+        assertTrue(mw.p2ForwardCards.contains(blocker));
+    }
+
+    @Test
+    void theCompoundIsDeclinedWhenItsTwoHalvesDisagree() {
+        // Both halves name a counter and a card, and they have to be the same counter on the same
+        // card. Scaling off one and clearing another is not something this can express, so the
+        // parser declines rather than half-applying it.
+        //
+        // Asked of the parser, not of parse(): the chain behind it still ends at the unanchored
+        // REMOVE_ALL_COUNTERS, which would find its clause in either tail and claim the sentence as
+        // a bare counter wipe. That is precisely the reading this parser is ordered ahead of for
+        // the printing that exists, and these two synthetic texts show it is ordering rather than
+        // luck that keeps Yuffie away from it.
+        CardData yuffie = makeForward("Yuffie", "Wind", 2, 4000);
+        assertNull(ActionResolverDamage.tryParseDamageBlockingForwardPerCounterThenClear(
                 "deal 4000 damage for each Shuriken Counter placed on Yuffie to the blocking "
-                + "Forward. Then, remove all Shuriken Counters from Yuffie.", yuffie));
+                + "Forward. Then, remove all Magic Counters from Yuffie.", yuffie),
+                "different counter in each half");
+        assertNull(ActionResolverDamage.tryParseDamageBlockingForwardPerCounterThenClear(
+                "deal 4000 damage for each Shuriken Counter placed on Yuffie to the blocking "
+                + "Forward. Then, remove all Shuriken Counters from Wakka.", yuffie),
+                "the clear-down names a card that is not the source");
+    }
+
+    @Test
+    void theFlatBlockingForwardDamageSiblingIsUnaffected() {
+        // The two live next to each other in the chain; neither may claim the other's sentence.
+        CardData ninja = makeForward("Ninja", "Fire", 2, 5000);
+        assertEquals("DamageBlockingForward",
+                ActionResolver.matchedPatternName("deal the blocking Forward 2000 damage.", ninja));
+    }
+
+    // =========================================================================================
+    // Omega 14-117L: "At the end of each player's turn, if there is no Weapon Counter placed on
+    // Omega, place 1 Weapon Counter on Omega. If 1 or more Weapon Counters are placed on Omega,
+    // Omega deals your opponent 1 point of damage and remove all Weapon Counters from Omega
+    // instead."
+    //
+    // Two exclusive branches, and only the first was reachable. tryParsePlaceCounters matches with
+    // find(), so it located "place 1 Weapon Counter on Omega" inside the alternation and claimed
+    // the whole ability — Omega banked a counter at the end of every turn and never converted one
+    // into damage. Reported as parsed the entire time, so nothing looked at it again.
+    //
+    // Neither branch needed new machinery: both go back through parse(), which already reads
+    // PlaceCounters, DealPlayerDamageToOpponent and RemoveAllCounters. What was missing was a gate
+    // above them that sees the alternation whole.
+    //
+    // The second branch is itself two clauses, and that is its own trap: "Omega deals your opponent
+    // 1 point of damage and remove all Weapon Counters from Omega" parses, on its own, as nothing
+    // but the removal. A whole-text answer is not evidence the whole text was read, which is why
+    // the run is split and both halves must resolve.
+    // =========================================================================================
+
+    private static final String OMEGA_14_117L_CYCLE =
+            "if there is no Weapon Counter placed on Omega, place 1 Weapon Counter on Omega. "
+            + "If 1 or more Weapon Counters are placed on Omega, Omega deals your opponent 1 point "
+            + "of damage and remove all Weapon Counters from Omega instead.";
+
+    @Test
+    void omegaReadsBothBranchesRatherThanOnlyTheReachableOne() {
+        CardData omega = makeForward("Omega", "Dark", 5, 9000);
+        assertEquals("CounterAbsentElsePresentGate",
+                ActionResolver.matchedPatternName(OMEGA_14_117L_CYCLE, omega),
+                "PlaceCounters used to win this by finding the first branch's effect");
+        assertEquals("IfNoCounter(Weapon: PlaceCounters | 1+: DealPlayerDamageToOpponent + RemoveAllCounters)",
+                ActionResolver.fullDescription(OMEGA_14_117L_CYCLE, omega),
+                "and the report now names the branch that was being dropped");
+    }
+
+    @Test
+    void omegaBanksACounterWhenItHasNone() {
+        MainWindow mw = new MainWindow();
+        CardData omega = makeForward("Omega", "Dark", 5, 9000);
+        placeP1Forward(mw, omega);
+
+        ActionResolver.parse(OMEGA_14_117L_CYCLE, omega).accept(mw.buildGameContext(true));
+
+        assertEquals(1, mw.gameState.getCounters(omega, "Weapon"));
+        assertEquals(0, mw.gameState.getP2DamageZone().size(), "the empty branch deals nothing");
+    }
+
+    @Test
+    void omegaSpendsItsCountersOnDamageOnceItHasAny() {
+        MainWindow mw = new MainWindow();
+        CardData omega = makeForward("Omega", "Dark", 5, 9000);
+        placeP1Forward(mw, omega);
+        mw.gameState.initializeP2MainDeck(
+                List.of(makeForward("P2 Deck", "Ice", 2, 5000), makeForward("P2 Deck 2", "Ice", 2, 5000)),
+                new Random());
+        mw.gameState.placeCounters(omega, "Weapon", 2);
+
+        ActionResolver.parse(OMEGA_14_117L_CYCLE, omega).accept(mw.buildGameContext(true));
+
+        // Both halves of the "instead" branch: the damage that was being dropped, and the clear-down
+        // that was all the old reading ever did.
+        assertEquals(1, mw.gameState.getP2DamageZone().size(), "1 point of damage to the opponent");
+        assertEquals(0, mw.gameState.getCounters(omega, "Weapon"), "and the counters are spent");
+    }
+
+    @Test
+    void theTwoBranchGateRequiresItsFourNamesToAgree() {
+        // The counter and the card are named twice each. A gate counting one counter and a payoff
+        // spending another is not something this can express, so it is declined rather than guessed.
+        CardData omega = makeForward("Omega", "Dark", 5, 9000);
+        assertNull(ActionResolverState.tryParseCounterAbsentElsePresentGate(
+                "if there is no Weapon Counter placed on Omega, place 1 Weapon Counter on Omega. "
+                + "If 1 or more Barrier Counters are placed on Omega, Omega deals your opponent 1 "
+                + "point of damage and remove all Barrier Counters from Omega instead.", omega, 0),
+                "the two branches count different counters");
+        assertNull(ActionResolverState.tryParseCounterAbsentElsePresentGate(
+                "if there is no Weapon Counter placed on Shinryu, place 1 Weapon Counter on "
+                + "Shinryu. If 1 or more Weapon Counters are placed on Shinryu, Shinryu deals your "
+                + "opponent 1 point of damage and remove all Weapon Counters from Shinryu instead.", omega, 0),
+                "the gate names a card that is not the source");
+    }
+
+    @Test
+    void aBranchWithAnUnreadableClauseSinksTheWholeGate() {
+        // Both branches must resolve or neither is claimed. Half a gate is what the old reading
+        // was, and it is worse than leaving the ability visibly unread.
+        CardData omega = makeForward("Omega", "Dark", 5, 9000);
+        assertNull(ActionResolverState.tryParseCounterAbsentElsePresentGate(
+                "if there is no Weapon Counter placed on Omega, place 1 Weapon Counter on Omega. "
+                + "If 1 or more Weapon Counters are placed on Omega, Omega does something no "
+                + "printed card has ever asked for and remove all Weapon Counters from Omega "
+                + "instead.", omega, 0));
+    }
+
+    @Test
+    void theSingleBranchCounterGateIsUnaffected() {
+        // Number 24 20-036H's one-sentence gate keeps its own parser; the two-branch form sits
+        // above it in the chain and must not claim it.
+        CardData n24 = makeForward("Number 24", "Ice", 3, 7000);
+        assertEquals("CountersOnSelfGate", ActionResolver.matchedPatternName(
+                "if 3 or more Barrier Counters are placed on Number 24, dull Number 24.", n24));
     }
 
     // =========================================================================================

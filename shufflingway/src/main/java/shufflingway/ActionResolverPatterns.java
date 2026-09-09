@@ -1940,6 +1940,30 @@ final class ActionResolverPatterns {
     static final Pattern DAMAGE_BLOCKING_FORWARD = Pattern.compile(
         "(?i)^deal\\s+the\\s+blocking\\s+Forward\\s+(?<amount>\\d+)\\s+damage[.!]?$"
     );
+    /**
+     * Matches 25-049C Yuffie's "deal N damage for each [Name] Counter placed on [Self] to the
+     * blocking Forward. Then, remove all [Name] Counters from [Self]." — the counter-scaled twin of
+     * {@link #DAMAGE_BLOCKING_FORWARD}, and the corpus's only printing of either half.
+     * Groups: {@code perunit}, {@code counterName}, {@code counterTarget}, {@code removeName},
+     * {@code removeTarget}.
+     *
+     * <p>Both halves are in one pattern, and it is anchored end to end, because they have to be
+     * understood together or not at all. Left to the general chain the sentence was claimed by
+     * {@link #REMOVE_ALL_COUNTERS}, which is unanchored and found its clause in the tail — so
+     * Yuffie wiped the counters her attack trigger had banked and dealt nothing. The damage is the
+     * point of the ability and the removal is its price; reading only the price is strictly worse
+     * than leaving the whole thing unread.
+     *
+     * <p>The counter name and the card appear twice over, and the caller requires both pairs to
+     * agree: a sentence that scaled off one counter and cleared another would be something this
+     * cannot express.
+     */
+    static final Pattern DAMAGE_BLOCKING_FORWARD_PER_COUNTER_THEN_CLEAR = Pattern.compile(
+        "(?i)^deal\\s+(?<perunit>\\d+)\\s+damage\\s+for\\s+each\\s+(?<counterName>.+?)\\s+Counters?\\s+" +
+        "placed\\s+on\\s+(?<counterTarget>.+?)\\s+to\\s+the\\s+blocking\\s+Forward[.!]\\s+" +
+        "Then,?\\s+remove\\s+all\\s+(?<removeName>.+?)\\s+Counters?\\s+from\\s+(?<removeTarget>[^.!,]+?)[.!]?$",
+        Pattern.DOTALL
+    );
     /** Matches "Break the Forward that blocks [Name][.!]?" — group {@code name}. */
     static final Pattern BREAK_FORWARD_THAT_BLOCKS_CARD = Pattern.compile(
         "(?i)^Break\\s+the\\s+Forward\\s+that\\s+blocks?\\s+(?<name>[^.!]+?)[.!]?$"
@@ -3597,6 +3621,32 @@ final class ActionResolverPatterns {
     static final Pattern COUNTERS_ON_SELF_GATE = Pattern.compile(
         "(?i)^if\\s+(?<count>\\d+)\\s+or\\s+more\\s+(?<counter>.+?)\\s+Counters?\\s+" +
         "(?:are|is)\\s+placed\\s+on\\s+(?<name>.+?),\\s*(?<inner>.+)$"
+    );
+    /**
+     * Matches Omega 14-117L's two-branch counter gate: "if there is no [X] Counter placed on
+     * [Self], &lt;absent effect&gt;. If N or more [X] Counters are placed on [Self], &lt;present
+     * effect&gt; instead." Groups: {@code counter}/{@code counter2}, {@code name}/{@code name2},
+     * {@code absent}, {@code count}, {@code present}.
+     *
+     * <p>One pattern for both sentences because they are one decision: the branches are exclusive
+     * and the second says "instead" of the first. {@link #COUNTERS_ON_SELF_GATE} reads the second
+     * sentence alone and declines anything with a sentence break in it, which is what kept it off
+     * this text — correctly, since half of an alternation is not the alternation.
+     *
+     * <p>Left to the general chain the whole thing was claimed by {@code tryParsePlaceCounters},
+     * which matches with {@code find()} and saw only the first branch's effect. Omega banked a
+     * Weapon Counter at the end of every turn and never once spent it.
+     *
+     * <p>The counter and the card are named four times over and the caller requires all four to
+     * agree; a gate that counted one counter and a payoff that spent another is not something this
+     * can express.
+     */
+    static final Pattern COUNTER_ABSENT_ELSE_PRESENT_GATE = Pattern.compile(
+        "(?i)^if\\s+there\\s+(?:is|are)\\s+no\\s+(?<counter>.+?)\\s+Counters?\\s+" +
+        "placed\\s+on\\s+(?<name>.+?),\\s*(?<absent>.+?)[.!]\\s+" +
+        "If\\s+(?<count>\\d+)\\s+or\\s+more\\s+(?<counter2>.+?)\\s+Counters?\\s+" +
+        "(?:are|is)\\s+placed\\s+on\\s+(?<name2>.+?),\\s*(?<present>.+?)\\s+instead[.!]?$",
+        Pattern.DOTALL
     );
 
     /**

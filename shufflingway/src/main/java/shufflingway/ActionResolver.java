@@ -1258,6 +1258,12 @@ public class ActionResolver {
         result = tryParseDamageBlockingForward(effectText, source);
         if (result != null) return result;
 
+        // Must precede tryParseRemoveAllCounters, whose pattern is unanchored and finds its clause
+        // in this sentence's tail — which claimed Yuffie 25-049C and threw away the counters
+        // without ever dealing the damage they were banked for.
+        result = tryParseDamageBlockingForwardPerCounterThenClear(effectText, source);
+        if (result != null) return result;
+
         result = tryParseBreakForwardThatBlocksCard(effectText);
         if (result != null) return result;
 
@@ -1601,6 +1607,14 @@ public class ActionResolver {
         if (result != null) return result;
 
         result = tryParseGainCrystalIfOpponentHas(effectText);
+        if (result != null) return result;
+
+        // Must precede every counter parser below. Omega 14-117L's two branches are each an
+        // ordinary counter or damage effect, so tryParsePlaceCounters — read with find() — claimed
+        // the whole alternation on the strength of the first branch and Omega never spent a
+        // Weapon Counter. A gate goes above the parsers that read its inner effects, the way the
+        // Break-Zone gates near the top of this chain do.
+        result = tryParseCounterAbsentElsePresentGate(effectText, source, xValue);
         if (result != null) return result;
 
         // Must precede tryParsePlaceCounters: that parser is read with find() and reads
@@ -2265,6 +2279,8 @@ public class ActionResolver {
         if (tryParsePutSourceOnTopOfDeck(effectText, source)   != null) return "PutSourceOnTopOfDeck";
         if (tryParseBreakBlockingForward(effectText)           != null) return "BreakBlockingForward";
         if (tryParseDamageBlockingForward(effectText, source)  != null) return "DamageBlockingForward";
+        if (tryParseDamageBlockingForwardPerCounterThenClear(effectText, source) != null)
+                                                                        return "DamageBlockingForwardPerCounterThenClear";
         if (tryParseBreakForwardThatBlocksCard(effectText)     != null) return "BreakForwardThatBlocksCard";
         if (tryParseChooseExBurstFromDamageZone(effectText)    != null) return "ChooseExBurstFromDamageZone";
         if (tryParseExBurstSuppression(effectText)             != null) return "ExBurstSuppression";
@@ -2409,6 +2425,10 @@ public class ActionResolver {
         }
         if (tryParseGainCrystal(effectText)                      != null) return "GainCrystal";
         if (tryParseGainCrystalIfOpponentHas(effectText)         != null) return "GainCrystalIfOpponentHas";
+        // Mirrors parse(): the two-branch counter gate is read ahead of every counter parser,
+        // any of which would otherwise name it after the one branch it can see.
+        if (tryParseCounterAbsentElsePresentGate(effectText, source, 0) != null)
+                                                                        return "CounterAbsentElsePresentGate";
         // Mirrors parse(): ahead of PlaceCounters, which reads "each Job Apprentice Mage you
         // control" as the card name the counters are placed on.
         if (tryParsePlaceCountersOnEachJob(effectText)           != null) return "PlaceCountersOnEachJob";
@@ -3761,6 +3781,8 @@ public class ActionResolver {
         if (tryParsePutSourceOnTopOfDeck(effectText, source)   != null)     return "PutSourceOnTopOfDeck";
         if (tryParseBreakBlockingForward(effectText)           != null)     return "BreakBlockingForward";
         if (tryParseDamageBlockingForward(effectText, source)  != null)     return "DamageBlockingForward";
+        if (tryParseDamageBlockingForwardPerCounterThenClear(effectText, source) != null)
+                                                                            return "DamageBlockingForwardPerCounterThenClear";
         if (tryParseBreakForwardThatBlocksCard(effectText)     != null)     return "BreakForwardThatBlocksCard";
         if (tryParseChooseExBurstFromDamageZone(effectText)    != null)     return "ChooseExBurstFromDamageZone";
         if (tryParseExBurstSuppression(effectText)             != null)     return "ExBurstSuppression";
@@ -3903,6 +3925,21 @@ public class ActionResolver {
         }
         if (tryParseGainCrystal(effectText)        != null)                  return "GainCrystal";
         if (tryParseGainCrystalIfOpponentHas(effectText) != null)            return "GainCrystalIfOpponentHas";
+        // Mirrors parse(); see the matching guard in matchedPatternName(). Both branches are
+        // described, and the "instead" branch clause by clause — describing that run as one would
+        // reproduce, in the report, the same partial reading the parser refuses to make.
+        if (tryParseCounterAbsentElsePresentGate(effectText, source, 0) != null) {
+            Matcher cg = COUNTER_ABSENT_ELSE_PRESENT_GATE.matcher(effectText.trim());
+            if (!cg.matches()) return "CounterAbsentElsePresentGate";
+            StringBuilder present = new StringBuilder();
+            for (String clause : cg.group("present").trim().split("(?i)\\s+and\\s+")) {
+                if (present.length() > 0) present.append(" + ");
+                present.append(describeOrName(clause.trim() + ".", source));
+            }
+            return "IfNoCounter(" + cg.group("counter").trim() + ": "
+                    + describeOrName(cg.group("absent").trim() + ".", source)
+                    + " | " + cg.group("count") + "+: " + present + ")";
+        }
         // Mirrors parse(); see the matching guard in matchedPatternName().
         if (tryParsePlaceCountersOnEachJob(effectText) != null)              return "PlaceCountersOnEachJob";
         if (tryParsePlaceCountersForEach(effectText, source) != null)        return "PlaceCountersForEach";

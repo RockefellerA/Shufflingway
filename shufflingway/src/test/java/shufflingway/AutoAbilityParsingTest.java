@@ -17,7 +17,7 @@ public class AutoAbilityParsingTest {
      * reason {@code FieldAbilityParsingTest} names its own: the number appears in both halves of
      * the reservoir sampler, and the two drifting apart silently biases the sample.
      */
-    private static final int SAMPLE_SIZE = 4;
+    private static final int SAMPLE_SIZE = 5;
 
     // -------------------------------------------------------------------------
     // Per-card coverage (mirrors reportCardParsingCoverage in CardParsingTest)

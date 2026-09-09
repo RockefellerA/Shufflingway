@@ -321,6 +321,75 @@ final class ActionResolverState {
         };
     }
 
+    /**
+     * Parses Omega 14-117L's "if there is no [X] Counter placed on [Self], [effect]. If N or more
+     * [X] Counters are placed on [Self], [effect] instead." — the two-branch form of
+     * {@link #tryParseCountersOnSelfGate}, and the corpus's only printing of it.
+     *
+     * <p>Each branch's effect goes back through {@code parse()}, so the gate adds no understanding
+     * of what the branches do: Omega's are the ordinary place-counters, deal-player-damage and
+     * remove-all-counters parsers. Both must resolve or neither is claimed — a gate that fired only
+     * its reachable half is what this ability was already doing.
+     */
+    static Consumer<GameContext> tryParseCounterAbsentElsePresentGate(String text, CardData source, int xValue) {
+        if (source == null) return null;
+        Matcher m = COUNTER_ABSENT_ELSE_PRESENT_GATE.matcher(text.trim());
+        if (!m.matches()) return null;
+        String counter = m.group("counter").trim();
+        if (!counter.equalsIgnoreCase(m.group("counter2").trim()))       return null;
+        if (!source.name().equalsIgnoreCase(m.group("name").trim()))     return null;
+        if (!source.name().equalsIgnoreCase(m.group("name2").trim()))    return null;
+
+        Consumer<GameContext> absent  = parse(m.group("absent").trim(), source, xValue);
+        Consumer<GameContext> present = parseAndJoinedClauses(m.group("present").trim(), source, xValue);
+        if (absent == null || present == null) return null;
+        int required = Integer.parseInt(m.group("count"));
+        return ctx -> {
+            int held = ctx.getCounters(source, counter);
+            if (held <= 0) {
+                ctx.logEntry("Effect: no " + counter + " Counter on " + source.name());
+                absent.accept(ctx);
+            } else if (held >= required) {
+                ctx.logEntry("Effect: " + held + " " + counter + " Counter(s) on " + source.name());
+                present.accept(ctx);
+            }
+        };
+    }
+    /**
+     * Parses an "&lt;effect&gt; and &lt;effect&gt;" run into one consumer that performs both in
+     * order, or {@code null} when any clause is unreadable.
+     *
+     * <p>A clause run cannot be handed to {@code parse()} whole. Every parser below matches with
+     * {@code find()}, so one of them locates its own clause inside the run and claims the sentence
+     * while silently dropping the rest — "Omega deals your opponent 1 point of damage and remove
+     * all Weapon Counters from Omega" parses, today, as nothing but the counter removal. A
+     * whole-text answer is therefore not evidence the whole text was understood, which is why
+     * there is no fall back to one when a split fails.
+     *
+     * <p>Text with no " and " in it is a single clause and goes straight to {@code parse()}. Where
+     * there is one, the first split whose halves both resolve wins; a run that cannot be divided
+     * that way is left unread.
+     */
+    private static final Pattern AND_JOINER = Pattern.compile("(?i)\\s+and\\s+");
+
+    private static Consumer<GameContext> parseAndJoinedClauses(String text, CardData source, int xValue) {
+        Matcher and = AND_JOINER.matcher(text);
+        boolean joined = false;
+        while (and.find()) {
+            joined = true;
+            Consumer<GameContext> head = parse(text.substring(0, and.start()).trim() + ".", source, xValue);
+            if (head == null) continue;
+            Consumer<GameContext> tail = parseAndJoinedClauses(text.substring(and.end()).trim(), source, xValue);
+            if (tail == null) continue;
+            return ctx -> { head.accept(ctx); tail.accept(ctx); };
+        }
+        // A run that says "and" but cannot be divided into clauses that both resolve is left
+        // unread. Falling back to parse() on the whole run here would reinstate exactly the
+        // partial-claim this method exists to avoid.
+        if (joined) return null;
+        return parse(text.endsWith(".") ? text : text + ".", source, xValue);
+    }
+
     static Consumer<GameContext> tryParseNamedJobReference(String text, CardData source, int xValue) {
         if (source == null) return null;
         if (!NAMED_JOB_REFERENCE.matcher(text).find()) return null;

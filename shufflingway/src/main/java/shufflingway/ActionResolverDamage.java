@@ -8,6 +8,7 @@ import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.function.Consumer;
+import java.util.function.ToIntFunction;
 import java.util.regex.Matcher;
 
 /**
@@ -522,12 +523,57 @@ final class ActionResolverDamage {
         if (!m.matches()) return null;
         return damageCombatBlockerOf(source.name(), Integer.parseInt(m.group("amount")));
     }
+    /**
+     * Parses 25-049C Yuffie's "deal N damage for each [Name] Counter placed on Yuffie to the
+     * blocking Forward. Then, remove all [Name] Counters from Yuffie." — the counter-scaled
+     * relative of {@link #tryParseDamageBlockingForward}, resolved through the same blocker lookup.
+     *
+     * <p>The count is read at resolution rather than carried in as an {@code xValue}: that channel
+     * belongs to action abilities, which name a {@code counterScaleName} when they are activated,
+     * and this is an auto ability with no such step. Reading it here is also what makes the order
+     * inside the effect right — the counters are counted, spent on damage, and only then cleared.
+     *
+     * <p>Both halves must agree about which counter on which card, or the sentence is declined:
+     * see {@link ActionResolverPatterns#DAMAGE_BLOCKING_FORWARD_PER_COUNTER_THEN_CLEAR} for why it
+     * is claimed whole or not at all.
+     */
+    static Consumer<GameContext> tryParseDamageBlockingForwardPerCounterThenClear(String text, CardData source) {
+        if (source == null) return null;
+        Matcher m = DAMAGE_BLOCKING_FORWARD_PER_COUNTER_THEN_CLEAR.matcher(text.trim());
+        if (!m.matches()) return null;
+        String counterName = m.group("counterName").trim();
+        if (!counterName.equalsIgnoreCase(m.group("removeName").trim())) return null;
+        if (!source.name().equalsIgnoreCase(m.group("counterTarget").trim())) return null;
+        if (!source.name().equalsIgnoreCase(m.group("removeTarget").trim()))  return null;
+        int perUnit = Integer.parseInt(m.group("perunit"));
+        Consumer<GameContext> damage = damageCombatBlockerOf(source.name(),
+                ctx -> perUnit * Math.max(0, ctx.getCounters(source, counterName)));
+        return ctx -> {
+            damage.accept(ctx);
+            int held = ctx.getCounters(source, counterName);
+            if (held > 0) ctx.removeCounters(source, counterName, held);
+        };
+    }
     /** Deals {@code damage} to whichever Forward is currently blocking {@code attackerName}. */
     private static Consumer<GameContext> damageCombatBlockerOf(String attackerName, int damage) {
+        return damageCombatBlockerOf(attackerName, ctx -> damage);
+    }
+    /**
+     * As above, with the amount worked out when the effect resolves rather than when it is parsed —
+     * Yuffie's damage scales off a counter that is still being added to while the attack is
+     * declared, so the number is not knowable at parse time.
+     */
+    private static Consumer<GameContext> damageCombatBlockerOf(String attackerName,
+            ToIntFunction<GameContext> amount) {
         return ctx -> {
+            int damage = amount.applyAsInt(ctx);
             int blockerIdx = ctx.combatBlockerIdxForAttacker(attackerName, ctx.isP1());
             if (blockerIdx < 0) {
                 ctx.logEntry("Effect: Deal " + damage + " damage to blocker of " + attackerName + " — no blocker");
+                return;
+            }
+            if (damage <= 0) {
+                ctx.logEntry("Effect: Deal 0 damage to Forward blocking " + attackerName + " — nothing to scale off");
                 return;
             }
             ctx.logEntry("Effect: Deal " + damage + " damage to Forward blocking " + attackerName);
