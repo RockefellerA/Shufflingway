@@ -891,6 +891,26 @@ public interface GameContext {
     void removeTopCardsOfDeckFromGame(int count, CardData source);
 
     /**
+     * As above, and then registers each removed card as castable by the ability user out of the
+     * removed-from-game zone until the end of the turn — "Remove the top 2 cards of your deck from
+     * the game. You can cast them at any time you could normally cast them this turn." (29-008L
+     * Zidane, 18-030H Physalis; 25-034L Lenne and 17-040C Mog (XIII-2) with one card).
+     *
+     * <p>The permission is the point of the removal, and without it these four cards spent deck
+     * cards for nothing. The cards stay where they are until cast, exactly as with every other
+     * {@link PlayableEntry} registration.
+     *
+     * @param costReduction CP subtracted from each card's printed cost; {@code 0} for the three
+     *                      printings that name no discount
+     * @param floorAtOne    Mog's "(it cannot become 0)" — the discount is trimmed per card so the
+     *                      cost stops at 1 rather than reaching 0. Applied at registration, where
+     *                      the card and so its printed cost are already known, which is why
+     *                      {@link PlayableEntry} needs no floor of its own
+     */
+    void removeTopCardsOfDeckFromGameCastableThisTurn(int count, CardData source,
+            int costReduction, boolean floorAtOne);
+
+    /**
      * Moves up to {@code count} of the cards {@code source} removed from the game into the ability
      * user's hand — "cards removed by the previous effect" (Libroarian 8-084R). P1 picks which when
      * there is a choice; the AI takes the costliest.
@@ -2847,11 +2867,16 @@ public interface GameContext {
      * @param count  how many they must pick
      * @param upTo   whether they may confirm with fewer — the "(select as many as possible)" form,
      *               where the board may simply not hold that many
+     * @param excludeElement Elements the selection may <em>not</em> include — "1 Forward other than
+     *               Light or Dark they control" (16-129L Chaos); {@code null} for no exclusion.
+     *               Narrows what may be offered rather than what the effect then does: a board of
+     *               nothing but excluded Forwards offers nothing, which is not the same as the
+     *               opponent handing one over and the effect declining to act on it
      * @param what   names the selection in both players' prompts, e.g. {@code "1 dull Forward"}
      * @return the picks, on the opponent's side of the board; empty when nothing was eligible
      */
     List<ForwardTarget> opponentSelectsOwnCharacters(int count, boolean upTo, String condition,
-            String element, int costVal, String costCmp,
+            String element, String excludeElement, int costVal, String costCmp,
             boolean inclForwards, boolean inclBackups, boolean inclMonsters, String what);
 
     /**

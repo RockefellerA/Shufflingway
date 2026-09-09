@@ -1942,6 +1942,40 @@ final class ActionResolverPatterns {
     static final Pattern REMOVE_TOP_OF_DECK_FROM_GAME = Pattern.compile(
         "(?i)Remove\\s+the\\s+top\\s+(?:(?<count>\\d+)\\s+cards?|card)\\s+of\\s+your\\s+deck\\s+from\\s+(?:the\\s+)?game\\.?"
     );
+    /**
+     * Matches "Remove the top [N cards|card] of your deck from the game. You can cast [it|them] [at
+     * any time you could normally cast [it|them]] this turn. [The cost required to cast it is
+     * reduced by M (it cannot become 0).]" — 29-008L Zidane and 18-030H Physalis (2 cards),
+     * 25-034L Lenne (1), 17-040C Mog (XIII-2) (1, with the discount).
+     *
+     * <p>The removal and the permission are one effect. {@link #REMOVE_TOP_OF_DECK_FROM_GAME}
+     * matches with {@code find()} and stops at the first full stop, so all four printings removed
+     * their cards and then dropped the only sentence that makes the removal worth anything — the
+     * cards went to the removed-from-game zone and could never be cast.
+     *
+     * <p>Anchored at the start but <em>not</em> at the end, which is the exception the fail-closed
+     * rule allows for: 18-030H Physalis carries "You can only use this ability during your turn and
+     * only once per turn" on the same string, and {@code parse()} — unlike
+     * {@code matchedPatternName()} — is handed that restriction rather than a stripped text. Of the
+     * four printings none states anything else after the clauses read here, so nothing is dropped
+     * by tolerating a tail.
+     *
+     * <p>The sentence terminators after the permission and the discount are optional because
+     * {@code fullDescription} strips trailing punctuation along with the use-restriction sentences
+     * it removes, so the text that chain sees ends a character short of the one {@code parse()}
+     * gets. Requiring them dropped this pattern's description back to the bare removal it replaces.
+     *
+     * <p>Groups: {@code count} (absent means 1), {@code reduction} and {@code floor} — the latter
+     * present for Mog's "(it cannot become 0)".
+     */
+    static final Pattern REMOVE_TOP_OF_DECK_RFG_CASTABLE_THIS_TURN = Pattern.compile(
+        "(?i)^\\s*Remove\\s+the\\s+top\\s+(?:(?<count>\\d+)\\s+cards?|card)\\s+of\\s+your\\s+deck\\s+" +
+        "from\\s+(?:the\\s+)?game[.!]\\s+" +
+        "You\\s+can\\s+cast\\s+(?:it|them)\\s+" +
+        "(?:at\\s+any\\s+time\\s+you\\s+could\\s+normally\\s+cast\\s+(?:it|them)\\s+)?this\\s+turn[.!]?" +
+        "(?:\\s+The\\s+cost\\s+required\\s+to\\s+cast\\s+(?:it|them)\\s+is\\s+reduced\\s+by\\s+" +
+        "(?<reduction>\\d+)\\s*(?<floor>\\(it\\s+cannot\\s+become\\s+0\\))?[.!]?)?"
+    );
 
     // =========================================================================================
     // Reveal the top of the deck: remove, damage, play
@@ -5144,6 +5178,7 @@ final class ActionResolverPatterns {
      *   <li>Group {@code targets}   — card type(s)</li>
      *   <li>Group {@code cost}      — optional cost threshold</li>
      *   <li>Group {@code costcmp}   — {@code less} or {@code more}; both are inclusive of {@code cost}</li>
+     *   <li>Group {@code excludeelem} — optional "other than &lt;Element&gt;[ or &lt;Element&gt;]"</li>
      *   <li>Group {@code perdamage} — optional "for every N points of damage you have received",
      *       which multiplies {@code count} at resolution time (19-106H Sin)</li>
      *   <li>Group {@code asmany}   — present when "(select as many as possible)" follows, the
@@ -5161,6 +5196,12 @@ final class ActionResolverPatterns {
         "(?:(?<element>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)\\s+)?" +
         "(?<targets>(?:Forwards?|Backups?|Characters?|Monsters?)(?:\\s+(?:and/or|or|and)\\s+(?:Forwards?|Backups?|Characters?|Monsters?))?)" +
         "(?:\\s+of\\s+cost\\s+(?<cost>\\d+)\\s+or\\s+(?<costcmp>less|more))?" +
+        // "other than Light or Dark" — 16-129L Chaos, the only printing in this family to exclude
+        // an Element. It narrows what the opponent may offer rather than what the effect then does,
+        // so it has to reach the selection: filtering the picks afterwards would let them hand over
+        // a Forward the card says they cannot, and leave the effect with nothing.
+        "(?:\\s+other\\s+than\\s+(?<excludeelem>(?:Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)" +
+            "(?:\\s+(?:and|or)\\s+(?:Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark))*))?" +
         "\\s+(?:they|he/she|he|she)\\s+controls?" +
         "(?:\\s+for\\s+every\\s+(?<perdamage>\\d+)\\s+points?\\s+of\\s+damage\\s+you\\s+have\\s+received)?" +
         "\\s*(?<asmany>\\(select\\s+as\\s+many\\s+as\\s+possible\\))?" +
@@ -8691,6 +8732,29 @@ final class ActionResolverPatterns {
         "(?i)Choose\\s+1\\s+Forward\\s+with\\s+(?<power>\\d+)\\s+power\\s+or\\s+less" +
         "\\s+and\\s+up\\s+to\\s+1\\s+Forward\\s+in\\s+your\\s+opponent(?:'s)?\\s+Break\\s+Zone[.!]?\\s+" +
         "Remove\\s+them\\s+from\\s+(?:the\\s+)?game[.!]?"
+    );
+    /**
+     * Matches "Choose up to 1 [type] in your Break Zone and up to 1 [type] in your Break Zone.
+     * Add them to your hand." — 17-071R Dorando.
+     *
+     * <p>Two allowances, not one shared pool: "up to 1 Forward <b>and</b> up to 1 Backup" is a
+     * Forward's worth and a Backup's worth, and the choose chain has nowhere to say that. Its zone
+     * group switches a selection between the field and a Break Zone rather than spanning two pools
+     * inside one — the same limit that keeps {@code tryParseChooseOppFwdsOrOwnBzFwdsRfg} off it —
+     * so the chain read the first allowance, left the second as an unread followup and added only
+     * the Forward.
+     *
+     * <p>Both halves state "in your Break Zone" in full, and the pattern requires that rather than
+     * letting the second inherit from the first: a printing that named a different zone for the
+     * second half would be describing a different choice.
+     *
+     * <p>Groups: {@code type1}, {@code type2} — the two card types, in printed order.
+     */
+    static final Pattern CHOOSE_UP_TO_1_EACH_IN_OWN_BZ_TO_HAND = Pattern.compile(
+        "(?is)^\\s*Choose\\s+up\\s+to\\s+1\\s+(?<type1>Forward|Backup|Monster)\\s+" +
+        "in\\s+your\\s+Break\\s+Zone\\s+and\\s+up\\s+to\\s+1\\s+(?<type2>Forward|Backup|Monster)\\s+" +
+        "in\\s+your\\s+Break\\s+Zone[.!]?\\s+" +
+        "Add\\s+them\\s+to\\s+your\\s+hand[.!]?\\s*$"
     );
     /** Matches "Take 1 more turn after this one. At the end of that turn, you lose the game." */
     static final Pattern EXTRA_TURN_THEN_LOSE = Pattern.compile(

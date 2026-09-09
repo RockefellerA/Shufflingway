@@ -5975,6 +5975,9 @@ final class ActionResolverChoose {
         String  followup  = m.group("followup").trim();
         int     costVal   = m.group("cost") != null ? Integer.parseInt(m.group("cost")) : -1;
         String  costCmp   = m.group("costcmp") != null ? m.group("costcmp").toLowerCase() : null;
+        // "other than Light or Dark" (16-129L Chaos) — carried into the selection, not applied to
+        // its result: the opponent must not be offered a Forward the card puts out of reach.
+        String  excludeElem = m.group("excludeelem") != null ? m.group("excludeelem").trim() : null;
         // "1 Forward or Backup they control for every 2 points of damage you have received"
         // (19-106H Sin) — the count is a rate, and the board it is measured against only exists at
         // resolution time, so it is read then rather than baked into the parse.
@@ -5989,7 +5992,8 @@ final class ActionResolverChoose {
                 + (condition != null ? " " + condition : "")
                 + (element   != null ? " " + element   : "")
                 + " " + targets
-                + (costVal >= 0 ? " of cost " + costVal + " or " + costCmp : "");
+                + (costVal >= 0 ? " of cost " + costVal + " or " + costCmp : "")
+                + (excludeElem != null ? " other than " + excludeElem : "");
         String prefix = "Opponent selects " + what
                 + (perDamage > 0 ? " for every " + perDamage + " damage you have received" : "")
                 + " (opponent)";
@@ -6012,7 +6016,7 @@ final class ActionResolverChoose {
                 // none would put an empty picker in front of the player.
                 if (n <= 0) return;
                 List<ForwardTarget> ts = ctx.opponentSelectsOwnCharacters(n, asMany,
-                        condition, element, costVal, costCmp,
+                        condition, element, excludeElem, costVal, costCmp,
                         inclForwards, inclBackups, inclMonsters, what);
                 sortedByIdxDesc(ts, true) .forEach(ctx::forceTargetToBreakZone);
                 sortedByIdxDesc(ts, false).forEach(ctx::forceTargetToBreakZone);
@@ -6023,7 +6027,7 @@ final class ActionResolverChoose {
             return ctx -> {
                 ctx.logEntry(prefix + " — Dull");
                 List<ForwardTarget> ts = ctx.opponentSelectsOwnCharacters(count, asMany,
-                        condition, element, costVal, costCmp,
+                        condition, element, excludeElem, costVal, costCmp,
                         inclForwards, inclBackups, inclMonsters, what);
                 sortedByIdxDesc(ts, true) .forEach(ctx::dullTarget);
                 sortedByIdxDesc(ts, false).forEach(ctx::dullTarget);
@@ -6034,10 +6038,40 @@ final class ActionResolverChoose {
             return ctx -> {
                 ctx.logEntry(prefix + " — Return to owner's hand");
                 List<ForwardTarget> ts = ctx.opponentSelectsOwnCharacters(count, asMany,
-                        condition, element, costVal, costCmp,
+                        condition, element, excludeElem, costVal, costCmp,
                         inclForwards, inclBackups, inclMonsters, what);
                 sortedByIdxDesc(ts, true) .forEach(t -> returnSelectedToOwnersHand(ctx, t));
                 sortedByIdxDesc(ts, false).forEach(t -> returnSelectedToOwnersHand(ctx, t));
+            };
+        }
+
+        // "You gain control of it." — 16-129L Chaos, the only printing that has the opponent hand
+        // over a Forward rather than lose it. Checked ahead of the end-of-turn form for the reason
+        // the choose chain checks them in that order: "gain control of it" is a prefix of "gain
+        // control of it until the end of the turn", so the unqualified pattern would claim both and
+        // keep a card the card says is only borrowed.
+        if (!FOLLOWUP_GAIN_CONTROL_EOT.matcher(followup).find()
+                && FOLLOWUP_GAIN_CONTROL.matcher(followup).find()) {
+            return ctx -> {
+                ctx.logEntry(prefix + " — You gain control");
+                List<ForwardTarget> ts = ctx.opponentSelectsOwnCharacters(count, asMany,
+                        condition, element, excludeElem, costVal, costCmp,
+                        inclForwards, inclBackups, inclMonsters, what);
+                // Highest index first: taking a Forward off its owner's row compacts that row, and
+                // a second pick's index was recorded against the row as it stood before the first.
+                sortedByIdxDesc(ts, true) .forEach(t -> ctx.gainControlOfForward(t, "permanent", false));
+                sortedByIdxDesc(ts, false).forEach(t -> ctx.gainControlOfForward(t, "permanent", false));
+            };
+        }
+
+        if (FOLLOWUP_GAIN_CONTROL_EOT.matcher(followup).find()) {
+            return ctx -> {
+                ctx.logEntry(prefix + " — You gain control until end of turn");
+                List<ForwardTarget> ts = ctx.opponentSelectsOwnCharacters(count, asMany,
+                        condition, element, excludeElem, costVal, costCmp,
+                        inclForwards, inclBackups, inclMonsters, what);
+                sortedByIdxDesc(ts, true) .forEach(t -> ctx.gainControlOfForward(t, "endOfTurn", false));
+                sortedByIdxDesc(ts, false).forEach(t -> ctx.gainControlOfForward(t, "endOfTurn", false));
             };
         }
 
@@ -6050,7 +6084,7 @@ final class ActionResolverChoose {
             return ctx -> {
                 ctx.logEntry(prefix + " — deal " + splash + " damage to every other Forward they control");
                 List<ForwardTarget> ts = ctx.opponentSelectsOwnCharacters(count, asMany,
-                        condition, element, costVal, costCmp,
+                        condition, element, excludeElem, costVal, costCmp,
                         inclForwards, inclBackups, inclMonsters, what);
                 // The row is settled as cards before any damage lands: a blow that breaks one
                 // Forward renumbers every index behind it, so indices resolved up front would slide

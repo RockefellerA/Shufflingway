@@ -10735,7 +10735,7 @@ public class MainWindow {
 
 		lastCardWasCast = true;
 		if (card.isBackup()) {
-			if (isP1) placeCardInFirstBackupSlot(card); else placeP2CardInFirstBackupSlot(card);
+			if (isP1) placeCardInFirstBackupSlot(card, paidExtraCost); else placeP2CardInFirstBackupSlot(card);
 		} else if (card.isForward()) {
 			if (isP1) placeCardInForwardZone(card, paidExtraCost); else placeP2CardInForwardZone(card);
 		} else if (card.isMonster()) {
@@ -10863,6 +10863,10 @@ public class MainWindow {
 			refreshHandCardStates();
 		}
 		logEntry("Played \"" + card.name() + "\" from " + sourceLabel);
+		// "When you cast a card removed from the game" (29-008L Zidane). The zone the card came
+		// out of is what the trigger names, so it is asked here where that is still known — a
+		// borrowed cast out of a Break Zone reaches the same code and is not this event.
+		if (fromRfg) autoAbilityTriggers.triggerAutoAbilitiesForCastRemovedCard(true);
 
 		// Summons cast under a "remove from the game after use" clause go to the owner's RFP zone
 		// instead of the Break Zone once they resolve (Krile 12-061L, Nanaa Mihgo 22-048H).
@@ -11026,6 +11030,8 @@ public class MainWindow {
 		noteCardCast(card, false);
 		if (card.isSummon()) { p2Turn.summonCastThisTurn = true; noteDoublecastSummonCast(false, card); }
 		logEntry("[P2] Played \"" + card.name() + "\" from " + sourceLabel);
+		// P2's side of the same event — see the note on P1's cast path.
+		if (fromRfg) autoAbilityTriggers.triggerAutoAbilitiesForCastRemovedCard(false);
 
 		// Borrowed casts are NOT cast from hand: leave lastCardWasCast false so "due to your cast"
 		// (castOnly) abilities are skipped and "enters other than from your hand" abilities fire.
@@ -11762,6 +11768,22 @@ public class MainWindow {
 
 	/** Places a card into the first empty P1 backup slot and renders it. */
 	void placeCardInFirstBackupSlot(CardData card) {
+		placeCardInFirstBackupSlot(card, false);
+	}
+
+	/**
+	 * As above, carrying whether the card's optional extra cost was paid when it was cast, so its
+	 * "enters the field" auto-ability can read it.
+	 *
+	 * <p>The Forward path has always threaded this; the Backup path passed a hard {@code false},
+	 * which made every "If you cast [Backup], you may pay 《X》《N》 as an extra cost … When it
+	 * enters the field, [something] if you paid the extra cost" printing dead. The payment itself
+	 * was offered and taken — {@code showExtraCostPlayDialog} admits any CP_FIXED cost whatever the
+	 * card type — and then had nowhere to arrive.
+	 *
+	 * @param paidExtraCost whether the optional extra cost was paid when casting {@code card}
+	 */
+	void placeCardInFirstBackupSlot(CardData card, boolean paidExtraCost) {
 		if (fieldEntryBecomesRfg(card, true)) return;
 		// A card arriving on the field is a new object: it has taken no damage and dealt none.
 		forgetDamageRecordFor(card);
@@ -11773,7 +11795,7 @@ public class MainWindow {
 			p1BackupStates[i]        = CardState.DULL;
 			p1BackupPlayedOnTurn[i]  = gameState.getTurnNumber();
 			refreshP1BackupSlot(i);
-			fieldEntryAnimator.fireEntersField(card, true, false);
+			fieldEntryAnimator.fireEntersField(card, true, paidExtraCost);
 			syncBzForwardPlayables(true);
 			sendToBreakZoneByUniquenessRule(card, true);
 			break;

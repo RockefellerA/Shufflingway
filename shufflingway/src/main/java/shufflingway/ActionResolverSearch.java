@@ -1080,6 +1080,30 @@ final class ActionResolverSearch {
             ctx.revealTopNRemoveOneFromGameCastableThisTurnRestBottom(reveal, category, reduction);
         };
     }
+    /**
+     * Parses "Remove the top [N cards|card] of your deck from the game. You can cast [it|them] …
+     * this turn. [The cost required to cast it is reduced by M (it cannot become 0).]" —
+     * 29-008L Zidane, 18-030H Physalis, 25-034L Lenne, 17-040C Mog (XIII-2).
+     *
+     * <p><b>Must precede {@link #tryParseRemoveTopOfDeckFromGame}</b>, which matches with
+     * {@code find()} and stops at the first full stop: it claimed all four printings off their
+     * opening sentence and dropped the permission that is the whole point of the removal, leaving
+     * cards in the removed-from-game zone that could never be cast.
+     */
+    static Consumer<GameContext> tryParseRemoveTopOfDeckRfgCastableThisTurn(String text, CardData source) {
+        Matcher m = REMOVE_TOP_OF_DECK_RFG_CASTABLE_THIS_TURN.matcher(text.trim());
+        if (!m.lookingAt()) return null;
+        String countStr = m.group("count");
+        final int count = countStr != null ? Integer.parseInt(countStr) : 1;
+        final int reduction = m.group("reduction") != null ? Integer.parseInt(m.group("reduction")) : 0;
+        final boolean floorAtOne = m.group("floor") != null;
+        return ctx -> {
+            ctx.logEntry("Effect: Remove top " + count + " card(s) of deck from game — castable"
+                    + " this turn" + (reduction > 0 ? " (cost -" + reduction
+                    + (floorAtOne ? ", not below 1" : "") + ")" : ""));
+            ctx.removeTopCardsOfDeckFromGameCastableThisTurn(count, source, reduction, floorAtOne);
+        };
+    }
     static Consumer<GameContext> tryParseRemoveTopOfDeckFromGame(String text, CardData source) {
         Matcher m = REMOVE_TOP_OF_DECK_FROM_GAME.matcher(text);
         if (!m.find()) return null;

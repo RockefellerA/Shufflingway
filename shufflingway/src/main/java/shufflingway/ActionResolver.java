@@ -664,6 +664,12 @@ public class ActionResolver {
         result = tryParseChooseOppFwdsOrOwnBzFwdsRfg(effectText);
         if (result != null) return result;
 
+        // Must precede tryParseChooseCharacter for a neighbouring reason: 17-071R Dorando states
+        // two allowances over one zone ("up to 1 Forward and up to 1 Backup"), and that chain reads
+        // a single pool — it took the Forward and left the Backup as an unread followup.
+        result = tryParseChooseUpTo1EachInOwnBzToHand(effectText);
+        if (result != null) return result;
+
         result = tryParseChooseCharacter(effectText, source, xValue);
         if (result != null) return withAiTargetPreference(effectText, result);
 
@@ -1653,6 +1659,12 @@ public class ActionResolver {
         result = tryParseLookTopDeckPeek(effectText);
         if (result != null) return result;
 
+        // Must precede tryParseRemoveTopOfDeckFromGame: that one matches with find() and stops at
+        // the first full stop, so it claimed these printings off their opening sentence and dropped
+        // the "You can cast them this turn" permission the removal exists to grant.
+        result = tryParseRemoveTopOfDeckRfgCastableThisTurn(effectText, source);
+        if (result != null) return result;
+
         result = tryParseRemoveTopOfDeckFromGame(effectText, source);
         if (result != null) return result;
 
@@ -2048,6 +2060,8 @@ public class ActionResolver {
         if (tryParseSelectOwnFwdToBzGainControlSameCost(effectText)     != null) return "SelectOwnFwdToBzGainControlSameCost";
         // Mirrors parse(): ahead of ChooseCharacter, which cannot span the two zones at once.
         if (tryParseChooseOppFwdsOrOwnBzFwdsRfg(effectText)             != null) return "ChooseOppFwdsOrOwnBzFwdsRfg";
+        // Mirrors parse(): ahead of ChooseCharacter, which reads one allowance where this states two.
+        if (tryParseChooseUpTo1EachInOwnBzToHand(effectText)            != null) return "ChooseUpTo1EachInOwnBzToHand";
         // Mirrors parse(): ahead of ChooseCharacter, because the gated effect may itself be a
         // choose (16-021C Rain), and in parse()'s order — the two compound forms before the
         // leading one, which cannot see past their opening clause.
@@ -2414,6 +2428,9 @@ public class ActionResolver {
         if (tryParseLookTopDeckCastSummonFreeRestBottom(effectText, 0)       != null) return "LookTopDeckCastSummonFreeRestBottom";
         if (tryParseLookTopDeckPeek(effectText)                              != null) return "LookTopDeckPeek";
         if (tryParseAddRemovedByPreviousEffectToHand(effectText, source)    != null) return "AddRemovedByPreviousEffectToHand";
+        // Mirrors parse(): ahead of the bare removal, which claims this text off its first sentence.
+        if (tryParseRemoveTopOfDeckRfgCastableThisTurn(effectText, source) != null)
+            return "RemoveTopOfDeckRfgCastableThisTurn";
         if (tryParseRemoveTopOfDeckFromGame(effectText, source)             != null) return "RemoveTopOfDeckFromGame";
         if (tryParseRevealPlayNamedWithMaxCostRestBottom(effectText)         != null) return "RevealPlayNamedWithMaxCostRestBottom";
         if (tryParseRevealPlayAsManyJobTypeTotalCostRestBottom(effectText)   != null) return "RevealPlayAsManyJobTypeTotalCost";
@@ -3255,6 +3272,10 @@ public class ActionResolver {
         // cannot span the two zones this choice offers at once.
         if (tryParseChooseOppFwdsOrOwnBzFwdsRfg(effectText) != null)
             return "ChooseOppFwdsOrOwnBzFwds / RemoveFromGame";
+        // Mirrors parse() and matchedPatternName(): ahead of the ChooseCharacter block, which reads
+        // one allowance where this states two.
+        if (tryParseChooseUpTo1EachInOwnBzToHand(effectText) != null)
+            return "ChooseUpTo1EachInOwnBz / AddToHand";
         // Mirrors tryParseChooseCharacter, which strips this trailing delayed trigger and parses
         // the rest as an ordinary choose-and-act. Without the same strip here the clause fell past
         // the choose block's sentence split and was reported as an unread tail — 15-014H Brynhildr
@@ -3901,6 +3922,9 @@ public class ActionResolver {
         if (tryParseLookTopDeckCastSummonFreeRestBottom(effectText, 0)       != null) return "LookTopDeckCastSummonFreeRestBottom";
         if (tryParseLookTopDeckPeek(effectText)                              != null) return "LookTopDeckPeek";
         if (tryParseAddRemovedByPreviousEffectToHand(effectText, source)    != null) return "AddRemovedByPreviousEffectToHand";
+        // Mirrors parse(): ahead of the bare removal, which claims this text off its first sentence.
+        if (tryParseRemoveTopOfDeckRfgCastableThisTurn(effectText, source) != null)
+            return "RemoveTopOfDeckRfgCastableThisTurn";
         if (tryParseRemoveTopOfDeckFromGame(effectText, source)             != null) return "RemoveTopOfDeckFromGame";
         if (tryParseRevealPlayNamedWithMaxCostRestBottom(effectText)           != null) return "RevealPlayNamedWithMaxCostRestBottom";
         if (tryParseRevealPlayAsManyJobTypeTotalCostRestBottom(effectText)     != null) return "RevealPlayAsManyJobTypeTotalCost";

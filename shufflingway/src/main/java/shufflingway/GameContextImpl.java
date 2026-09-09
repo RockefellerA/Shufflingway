@@ -4635,7 +4635,7 @@ final class GameContextImpl implements GameContext {
 			}
 
 			@Override public List<ForwardTarget> opponentSelectsOwnCharacters(int count, boolean upTo,
-					String condition, String element, int costVal, String costCmp,
+					String condition, String element, String excludeElement, int costVal, String costCmp,
 					boolean inclForwards, boolean inclBackups, boolean inclMonsters, String what) {
 				boolean oppIsP1 = !isP1;
 				// The pool is the opponent's side under the printed filters, gathered as a select
@@ -4645,7 +4645,7 @@ final class GameContextImpl implements GameContext {
 				try {
 					eligible = eligibleCharacters(count, upTo, true, false, condition, element,
 							costVal, costCmp, -1, null, inclForwards, inclBackups, inclMonsters,
-							null, null, null, null, false, null, false);
+							null, null, null, null, false, excludeElement, false);
 				} finally {
 					selectionIsSelectNotChoose = false;
 				}
@@ -5478,6 +5478,30 @@ final class GameContextImpl implements GameContext {
 					if (source != null)
 						mw.cardsRemovedBySource.computeIfAbsent(source, k -> new ArrayList<>()).add(c);
 					logEntry(c.name() + " → Removed From Game (top of deck)");
+				}
+				if (isP1) { mw.refreshP1DeckLabel(); mw.refreshP1WarpZoneUI(); }
+				else      { mw.refreshP2DeckLabel(); mw.refreshP2WarpZoneUI(); }
+			}
+
+			@Override public void removeTopCardsOfDeckFromGameCastableThisTurn(int count,
+					CardData source, int costReduction, boolean floorAtOne) {
+				Deque<CardData> deck = isP1 ? mw.gameState.getP1MainDeck() : mw.gameState.getP2MainDeck();
+				for (int i = 0; i < count && !deck.isEmpty(); i++) {
+					CardData c = deck.pollFirst();
+					mw.gameState.addToPermanentRfp(c);
+					if (source != null)
+						mw.cardsRemovedBySource.computeIfAbsent(source, k -> new ArrayList<>()).add(c);
+					// "It cannot become 0" is a floor on the price, and the card whose price it is
+					// is known right here — so the discount is trimmed to what this card can take
+					// rather than teaching PlayableEntry a rule only one printing states.
+					int reduction = floorAtOne
+							? Math.max(0, Math.min(costReduction, c.cost() - 1))
+							: costReduction;
+					mw.registerBorrowedPlayable(isP1, c, new PlayableEntry(
+							PlayableEntry.SourceZone.RFP, reduction, false, false, false, true));
+					logEntry((isP1 ? "" : "[P2] ") + c.name()
+							+ " → Removed From Game (top of deck) — castable this turn"
+							+ (reduction > 0 ? " (cost -" + reduction + ")" : ""));
 				}
 				if (isP1) { mw.refreshP1DeckLabel(); mw.refreshP1WarpZoneUI(); }
 				else      { mw.refreshP2DeckLabel(); mw.refreshP2WarpZoneUI(); }

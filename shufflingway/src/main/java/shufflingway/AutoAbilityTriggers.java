@@ -2804,6 +2804,20 @@ final class AutoAbilityTriggers {
 	}
 
 	/**
+	 * Fires "When you cast a card removed from the game, …" — 29-008L Zidane, the corpus's only
+	 * printing, and one whose other ability is what stocks the zone it watches.
+	 *
+	 * <p>Only the caster's own field is walked: the printing says "you", so the event and the
+	 * ability watching it belong to the same player. Every route out of the removed-from-game zone
+	 * goes through the borrowed-cast path, which is where this is called from — a card cast out of
+	 * a Break Zone or off the top of a deck reaches the same code and is deliberately not this
+	 * event, because the zone is what the trigger names.
+	 */
+	void triggerAutoAbilitiesForCastRemovedCard(boolean casterIsP1) {
+		withBatch(() -> collectEventTriggers("cast removed card", casterIsP1));
+	}
+
+	/**
 	 * Fires the ordinal cast triggers for the card {@code isP1} has just cast — "During each turn,
 	 * when you cast the second card you've cast, …" (Shikaree G 15-051C, Atomos 16-043H) and
 	 * Rosa 14-057H's "…this turn" spelling of the same trigger.
@@ -3824,9 +3838,30 @@ final class AutoAbilityTriggers {
 			return;
 		}
 
-		// Verify the effect is parseable before putting it on the stack.
-		if (ActionResolver.parse(fa.effectText(), source) == null) {
-			mw.logEntry("[AutoAbility] Unrecognized effect: " + fa.effectText());
+		// The text this ability will actually resolve, which is not always the text it prints: an
+		// "If you paid the extra cost, …" clause is rewritten into the branch that was taken. Worked
+		// out once here and reused at the push below, so the gate asks the same question resolution
+		// will answer.
+		String resolvedText = paidExtraCost
+				? ActionResolver.applyExtraCostPaid(fa.effectText())
+				: ActionResolver.stripExtraCostClause(fa.effectText());
+
+		// Nothing left after stripping means the whole ability was the condition and the condition
+		// was not met — 27-064C Summoner, the only printing with no unconditional lead-in in front
+		// of its clause. Not a parse failure, so it is not reported as one.
+		if (resolvedText.isBlank()) {
+			mw.logEntry("[AutoAbility] " + source.name() + " — extra cost not paid, no effect");
+			return;
+		}
+
+		// Verify the effect is parseable before putting it on the stack. Asked of the resolved text
+		// rather than the printed text: Summoner's prints as "if you paid the extra cost, your
+		// opponent selects …", which parse() declines on purpose — it cannot know whether the cost
+		// was paid, and reading the conditional loosely would fire the effect either way. Checking
+		// the raw text here rejected the ability before the rewrite that makes it readable ever ran,
+		// so it never reached the Stack however the cost was paid.
+		if (ActionResolver.parse(resolvedText, source) == null) {
+			mw.logEntry("[AutoAbility] Unrecognized effect: " + resolvedText);
 			return;
 		}
 
@@ -3891,9 +3926,7 @@ final class AutoAbilityTriggers {
 		// The depth is taken first so any "when this is chosen" trigger the selection fires lands
 		// above this entry and resolves before it (see GameState.insertStack).
 		int depth = mw.gameState.stackSize();
-		String effectText = paidExtraCost
-				? ActionResolver.applyExtraCostPaid(fa.effectText())
-				: ActionResolver.stripExtraCostClause(fa.effectText());
+		String effectText = resolvedText;
 		// The size of the damage instance that fired an "is dealt damage" trigger travels as the
 		// entry's xValue, which is what that field means: the number this activation supplied, not
 		// one the text names. Shantotto 4-083L's "deal the same amount of damage" is the effect

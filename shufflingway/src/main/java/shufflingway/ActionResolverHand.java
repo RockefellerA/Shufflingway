@@ -4,7 +4,9 @@ import static shufflingway.ActionResolverPatterns.*;
 
 import static shufflingway.ActionResolver.*;
 
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.function.Consumer;
 import java.util.regex.Matcher;
 
@@ -1070,6 +1072,45 @@ final class ActionResolverHand {
             ctx.logEntry("Effect: Select 1 Card Name " + cardName + " removed from the game → hand");
             ctx.chooseNamedFromOwnRfgToHand(cardName);
         };
+    }
+
+    /**
+     * Parses "Choose up to 1 [type] in your Break Zone and up to 1 [type] in your Break Zone. Add
+     * them to your hand." — 17-071R Dorando.
+     *
+     * <p>Two selections, one per allowance, in the order the card prints them, and then one action
+     * over both — the shape {@code tryParseChooseFwdPowerLeAndOptOppBzFwdRfp} already uses for the
+     * other two-pool printing. <b>Must precede {@code tryParseChooseCharacter}</b>: that chain
+     * takes the first allowance and leaves the second as an unread followup, so Dorando handed back
+     * the Forward and never offered the Backup.
+     *
+     * <p>Both picks index the same Break Zone, so they are applied highest index first: taking the
+     * first card out compacts the zone and would otherwise shift the index the second was recorded
+     * at.
+     */
+    static Consumer<GameContext> tryParseChooseUpTo1EachInOwnBzToHand(String text) {
+        Matcher m = CHOOSE_UP_TO_1_EACH_IN_OWN_BZ_TO_HAND.matcher(text.trim());
+        if (!m.matches()) return null;
+        String type1 = m.group("type1");
+        String type2 = m.group("type2");
+        return ctx -> {
+            ctx.logEntry("Effect: Choose up to 1 " + type1 + " and up to 1 " + type2
+                    + " in your Break Zone — add them to your hand");
+            List<ForwardTarget> picks = new ArrayList<>();
+            picks.addAll(selectBreakZoneCardOfType(ctx, type1));
+            picks.addAll(selectBreakZoneCardOfType(ctx, type2));
+            sortedByIdxDesc(picks, true) .forEach(ctx::addTargetToHand);
+            sortedByIdxDesc(picks, false).forEach(ctx::addTargetToHand);
+        };
+    }
+
+    /** One "up to 1 &lt;type&gt; in your Break Zone" allowance of the selection above. */
+    private static List<ForwardTarget> selectBreakZoneCardOfType(GameContext ctx, String type) {
+        String t = type.toLowerCase(Locale.ROOT);
+        return selectTargets(ctx, 1, true, false, false, null, null, "in your Break Zone", false,
+                -1, null, -1, null,
+                t.startsWith("forward"), t.startsWith("backup"), t.startsWith("monster"),
+                null, null, null, null, false, null, false);
     }
 
     /**

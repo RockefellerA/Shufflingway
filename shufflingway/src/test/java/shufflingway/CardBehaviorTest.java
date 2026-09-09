@@ -1003,7 +1003,7 @@ public class CardBehaviorTest {
         // "Your opponent selects" hands the pick to the opponent, so the effect asks for it
         // through the select primitive rather than choosing from their board itself.
         when(ctx.opponentSelectsOwnCharacters(anyInt(), anyBoolean(), any(), any(),
-                anyInt(), any(), anyBoolean(), anyBoolean(), anyBoolean(), any()))
+                any(), anyInt(), any(), anyBoolean(), anyBoolean(), anyBoolean(), any()))
                 .thenReturn(List.of(t));
 
         Consumer<GameContext> paidFn = ActionResolver.parse(paidText, summoner);
@@ -1014,6 +1014,89 @@ public class CardBehaviorTest {
         // Not-paid: the whole ability was the condition, so stripping it leaves nothing at all.
         String notPaidText = ActionResolver.stripExtraCostClause(rawEffect);
         assertTrue(notPaidText.isBlank(), "not-paid text should be empty: [" + notPaidText + "]");
+    }
+
+    // The text half above has been right all along. What was missing is the delivery: every
+    // printing of this shape in set 27 is a *Backup*, and the Backup entry path passed a hard
+    // `false` where the Forward path threads the flag. The payment was offered and taken — the
+    // play menu admits any CP_FIXED extra cost whatever the card type — and then had nowhere to
+    // arrive, so all six of those abilities were dead: Summoner did nothing at all, and Samurai,
+    // Bard, Red Mage, Machinist and Chemist did their unconditional lead-in and never the payoff.
+
+    /** A Backup carrying an extra cost and the auto abilities parsed from {@code textEn}. */
+    private static CardData makeExtraCostBackup(String name, String element, String textEn) {
+        return new CardData(null, name, element, 1, 0, "Backup", false, 0, false, false,
+                Set.of(), 0, List.of(), null, List.of(),
+                List.of(), CardData.parseAutoAbilities(textEn), List.of(), List.of(), List.of(),
+                List.of(), List.of(), List.of(), List.of(), List.of(),
+                false, false, null, false, false, false, false, false, 1,
+                null, null, null, textEn);
+    }
+
+    private static CardData summoner27064C() {
+        return makeExtraCostBackup("Summoner", "Earth",
+                "If you cast Summoner, you may pay 《Water》《3》 as an extra cost.[[br]]"
+                + "When Summoner enters the field, if you paid the extra cost, your opponent "
+                + "selects 1 Forward they control. Put it into the Break Zone.");
+    }
+
+    /** A board with a single Forward on P2's side, which is what Summoner's ability takes. */
+    private static MainWindow summonerBoard() {
+        MainWindow mw = new MainWindow();
+        placeP2Forward(mw, makeForward("Victim", "Fire", 3, 7000));
+        return mw;
+    }
+
+    @Test
+    void aBackupCarriesItsPaidExtraCostToItsEnterTheFieldTrigger() {
+        MainWindow mw = summonerBoard();
+        CardData summoner = summoner27064C();
+        mw.gameState.getIdentity().put(summoner, true);
+
+        mw.placeCardInFirstBackupSlot(summoner, true);
+
+        assertTrue(mw.p2ForwardCards.isEmpty(), "the opponent gave up their only Forward");
+        assertEquals(1, mw.gameState.getP2BreakZone().size());
+        assertEquals("Victim", mw.gameState.getP2BreakZone().get(0).name());
+    }
+
+    @Test
+    void andTheWholeAbilityIsDroppedWhenTheCostWentUnpaid() {
+        // The no-argument overload is every other route onto the field — played by an effect,
+        // returned from a zone — none of which pays an extra cost. Summoner's whole ability sits
+        // behind the condition, so there is nothing left to do at all.
+        MainWindow mw = summonerBoard();
+        CardData summoner = summoner27064C();
+        mw.gameState.getIdentity().put(summoner, true);
+
+        mw.placeCardInFirstBackupSlot(summoner);
+
+        assertEquals(1, mw.p2ForwardCards.size(), "no condition met, nothing happens");
+        assertTrue(mw.gameState.getP2BreakZone().isEmpty());
+    }
+
+    @Test
+    void theStackGateReadsTheTextThatWillResolveNotTheTextThatIsPrinted() {
+        // The second half of why Summoner was dead. The gate in front of the Stack parsed the
+        // printed text, which for this card is "if you paid the extra cost, …" — a conditional
+        // parse() declines on purpose, since it cannot know whether the cost was paid. So the
+        // ability was rejected before the rewrite that makes it readable ever ran, and no value of
+        // the flag above could have saved it.
+        String raw = "if you paid the extra cost, your opponent selects 1 Forward they control. "
+                + "Put it into the Break Zone.";
+        assertNull(ActionResolver.parse(raw, summoner27064C()),
+                "the printed text stays unreadable — reading it loosely would fire it either way");
+        assertNotNull(ActionResolver.parse(ActionResolver.applyExtraCostPaid(raw), summoner27064C()),
+                "the text that actually resolves is the one the gate now asks about");
+    }
+
+    @Test
+    void anAbilityWithNoExtraCostClauseIsUnaffectedByThatGate() {
+        // Both rewrites are no-ops on text that never mentions an extra cost, so widening the gate
+        // to the resolved text changed nothing for the rest of the corpus.
+        String plain = "choose 1 Forward. Deal it 7000 damage.";
+        assertEquals(plain, ActionResolver.applyExtraCostPaid(plain));
+        assertEquals(plain, ActionResolver.stripExtraCostClause(plain));
     }
 
     // =========================================================================================
@@ -41828,7 +41911,7 @@ public class CardBehaviorTest {
 		// than running its p1/p2 switch — stubbing the halves it would have read does nothing.
 		when(ctx.selfDamageCount()).thenReturn(damage);
 		when(ctx.opponentSelectsOwnCharacters(anyInt(), anyBoolean(), any(), any(),
-				anyInt(), any(), anyBoolean(), anyBoolean(), anyBoolean(), any()))
+				any(), anyInt(), any(), anyBoolean(), anyBoolean(), anyBoolean(), any()))
 				.thenReturn(new ArrayList<>());
 		Consumer<GameContext> fn = ActionResolver.parse(firstAutoEffect(SIN_19_106H), null);
 		assertNotNull(fn, "the rate clause should not stop the opponent-selects parsing");
@@ -41839,14 +41922,14 @@ public class CardBehaviorTest {
 	@Test
 	void sinTakesOneCharacterForEveryTwoDamageItsControllerHasTaken() {
 		verify(resolveSin(6)).opponentSelectsOwnCharacters(eq(3), anyBoolean(), any(), any(),
-				anyInt(), any(), eq(true), eq(true), eq(false), any());
+				any(), anyInt(), any(), eq(true), eq(true), eq(false), any());
 	}
 
 	@Test
 	void sinRoundsTheRateDown() {
 		// 5 damage is two whole units of "every 2", not two and a half.
 		verify(resolveSin(5)).opponentSelectsOwnCharacters(eq(2), anyBoolean(), any(), any(),
-				anyInt(), any(), anyBoolean(), anyBoolean(), anyBoolean(), any());
+				any(), anyInt(), any(), anyBoolean(), anyBoolean(), anyBoolean(), any());
 	}
 
 	@Test
@@ -41854,7 +41937,7 @@ public class CardBehaviorTest {
 		// A count of 0 is not a selection of 0 — asking for one would put an empty picker in front
 		// of the player, and the effect simply does not happen.
 		verify(resolveSin(1), never()).opponentSelectsOwnCharacters(anyInt(), anyBoolean(), any(), any(),
-				anyInt(), any(), anyBoolean(), anyBoolean(), anyBoolean(), any());
+				any(), anyInt(), any(), anyBoolean(), anyBoolean(), anyBoolean(), any());
 	}
 
 	@Test
@@ -41862,7 +41945,7 @@ public class CardBehaviorTest {
 		// "(select as many as possible)" is what admits a board holding fewer than the rate asks
 		// for; without it the picker would refuse to confirm and the effect could not resolve.
 		verify(resolveSin(6)).opponentSelectsOwnCharacters(anyInt(), eq(true), any(), any(),
-				anyInt(), any(), anyBoolean(), anyBoolean(), anyBoolean(), any());
+				any(), anyInt(), any(), anyBoolean(), anyBoolean(), anyBoolean(), any());
 	}
 
 	@Test
@@ -41872,7 +41955,7 @@ public class CardBehaviorTest {
 		GameContext ctx = mock(GameContext.class);
 		when(ctx.selfDamageCount()).thenReturn(4);
 		when(ctx.opponentSelectsOwnCharacters(anyInt(), anyBoolean(), any(), any(),
-				anyInt(), any(), anyBoolean(), anyBoolean(), anyBoolean(), any()))
+				any(), anyInt(), any(), anyBoolean(), anyBoolean(), anyBoolean(), any()))
 				.thenReturn(new ArrayList<>(List.of(a, b)));
 
 		ActionResolver.parse(firstAutoEffect(SIN_19_106H), null).accept(ctx);
@@ -41887,7 +41970,7 @@ public class CardBehaviorTest {
 		GameContext ctx = mock(GameContext.class);
 		ForwardTarget t = new ForwardTarget(false, 0, ForwardTarget.CardZone.FORWARD);
 		when(ctx.opponentSelectsOwnCharacters(anyInt(), anyBoolean(), any(), any(),
-				anyInt(), any(), anyBoolean(), anyBoolean(), anyBoolean(), any()))
+				any(), anyInt(), any(), anyBoolean(), anyBoolean(), anyBoolean(), any()))
 				.thenReturn(new ArrayList<>(List.of(t)));
 
 		ActionResolver.parse(
@@ -42043,7 +42126,7 @@ public class CardBehaviorTest {
 	private static GameContext opponentSelectsContext(List<ForwardTarget> picks) {
 		GameContext ctx = mock(GameContext.class);
 		when(ctx.opponentSelectsOwnCharacters(anyInt(), anyBoolean(), any(), any(),
-				anyInt(), any(), anyBoolean(), anyBoolean(), anyBoolean(), any()))
+				any(), anyInt(), any(), anyBoolean(), anyBoolean(), anyBoolean(), any()))
 				.thenReturn(new ArrayList<>(picks));
 		return ctx;
 	}
@@ -42056,7 +42139,7 @@ public class CardBehaviorTest {
 		ActionResolver.parse(OPP_SELECTS_BREAK, null).accept(ctx);
 
 		verify(ctx).opponentSelectsOwnCharacters(eq(1), anyBoolean(), any(), any(),
-				anyInt(), any(), eq(true), eq(false), eq(false), any());
+				any(), anyInt(), any(), eq(true), eq(false), eq(false), any());
 		verify(ctx, never()).selectCharacters(anyInt(), anyBoolean(), anyBoolean(), anyBoolean(),
 				any(), any(), anyInt(), any(), anyInt(), any(), anyBoolean(), anyBoolean(), anyBoolean(),
 				any(), any(), any(), any(), anyBoolean(), any(), anyBoolean());
@@ -42773,11 +42856,11 @@ public class CardBehaviorTest {
 		Consumer<GameContext> fn = ActionResolver.parse(MARACH_TEXT, null);
 		assertNotNull(fn);
 		GameContext ctx = mock(GameContext.class);
-		when(ctx.opponentSelectsOwnCharacters(anyInt(), anyBoolean(), any(), any(), anyInt(), any(),
+		when(ctx.opponentSelectsOwnCharacters(anyInt(), anyBoolean(), any(), any(), any(), anyInt(), any(),
 				anyBoolean(), anyBoolean(), anyBoolean(), any())).thenReturn(new ArrayList<>());
 		fn.accept(ctx);
 
-		verify(ctx).opponentSelectsOwnCharacters(eq(1), anyBoolean(), any(), any(), anyInt(), any(),
+		verify(ctx).opponentSelectsOwnCharacters(eq(1), anyBoolean(), any(), any(), any(), anyInt(), any(),
 				eq(true), eq(false), eq(false), any());
 	}
 
@@ -47992,6 +48075,408 @@ public class CardBehaviorTest {
 				"and came back out of the RFG zone to be cast");
 		assertTrue(mw.p2Turn.summonCastThisTurn, "the cast is real, not a permission");
 		assertTrue(mw.gameState.getP2MainDeck().contains(tooDear), "the cost ceiling is honoured");
+	}
+
+	// =========================================================================================
+	// 17-071R Dorando — two allowances over one Break Zone.
+	//
+	// "Choose up to 1 Forward in your Break Zone and up to 1 Backup in your Break Zone" is a
+	// Forward's worth and a Backup's worth, not one pick from a pool holding both. The choose
+	// chain reads a single pool, so it took the Forward, left "and up to 1 Backup in your Break
+	// Zone" as an unread followup, and handed back half of what the card prints — which is why it
+	// showed as "ChooseCharacter / ? + AddToHand" rather than as unparsed.
+	//
+	// Two selections in printed order, then one action over both, is the shape
+	// tryParseChooseFwdPowerLeAndOptOppBzFwdRfp already uses for the corpus's other two-pool
+	// printing.
+	// =========================================================================================
+
+	private static final String DORANDO_17_071R =
+			"choose up to 1 Forward in your Break Zone and up to 1 Backup in your Break Zone. "
+			+ "Add them to your hand.";
+
+	@Test
+	void dorandoIsReadAsTwoAllowancesRatherThanOne() {
+		CardData dorando = makeForward("Dorando", "Earth", 3, 7000);
+		assertEquals("ChooseUpTo1EachInOwnBzToHand",
+				ActionResolver.matchedPatternName(DORANDO_17_071R, dorando));
+		assertEquals("ChooseUpTo1EachInOwnBz / AddToHand",
+				ActionResolver.fullDescription(DORANDO_17_071R, dorando));
+	}
+
+	@Test
+	void dorandoAsksTheBreakZoneTwice_onceForEachType() {
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.consumePreloadedTargets()).thenReturn(null);
+		ForwardTarget fwd = new ForwardTarget(true, 0, ForwardTarget.CardZone.BREAK_ZONE);
+		ForwardTarget bkp = new ForwardTarget(true, 3, ForwardTarget.CardZone.BREAK_ZONE);
+		when(ctx.selectCharactersFromBreakZone(anyInt(), anyBoolean(), anyBoolean(), anyBoolean(),
+				any(), any(), anyInt(), any(), anyInt(), any(),
+				eq(true), eq(false), eq(false),
+				any(), any(), any(), any(), anyBoolean(), any(), anyBoolean()))
+				.thenReturn(new ArrayList<>(List.of(fwd)));
+		when(ctx.selectCharactersFromBreakZone(anyInt(), anyBoolean(), anyBoolean(), anyBoolean(),
+				any(), any(), anyInt(), any(), anyInt(), any(),
+				eq(false), eq(true), eq(false),
+				any(), any(), any(), any(), anyBoolean(), any(), anyBoolean()))
+				.thenReturn(new ArrayList<>(List.of(bkp)));
+
+		ActionResolver.parse(DORANDO_17_071R, makeForward("Dorando", "Earth", 3, 7000)).accept(ctx);
+
+		// One allowance each, both "up to" — taking neither is a legal answer to both halves.
+		verify(ctx).selectCharactersFromBreakZone(eq(1), eq(true), eq(false), anyBoolean(),
+				any(), any(), anyInt(), any(), anyInt(), any(), eq(true), eq(false), eq(false),
+				any(), any(), any(), any(), anyBoolean(), any(), anyBoolean());
+		verify(ctx).selectCharactersFromBreakZone(eq(1), eq(true), eq(false), anyBoolean(),
+				any(), any(), anyInt(), any(), anyInt(), any(), eq(false), eq(true), eq(false),
+				any(), any(), any(), any(), anyBoolean(), any(), anyBoolean());
+		verify(ctx).addTargetToHand(fwd);
+		verify(ctx).addTargetToHand(bkp);
+	}
+
+	@Test
+	void dorandoTakesTheHigherIndexFirst() {
+		// Both picks index the same Break Zone, so taking the low one out first would shift the
+		// index the high one was recorded at and hand back the wrong card.
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.consumePreloadedTargets()).thenReturn(null);
+		ForwardTarget low  = new ForwardTarget(true, 1, ForwardTarget.CardZone.BREAK_ZONE);
+		ForwardTarget high = new ForwardTarget(true, 4, ForwardTarget.CardZone.BREAK_ZONE);
+		when(ctx.selectCharactersFromBreakZone(anyInt(), anyBoolean(), anyBoolean(), anyBoolean(),
+				any(), any(), anyInt(), any(), anyInt(), any(),
+				eq(true), eq(false), eq(false),
+				any(), any(), any(), any(), anyBoolean(), any(), anyBoolean()))
+				.thenReturn(new ArrayList<>(List.of(low)));
+		when(ctx.selectCharactersFromBreakZone(anyInt(), anyBoolean(), anyBoolean(), anyBoolean(),
+				any(), any(), anyInt(), any(), anyInt(), any(),
+				eq(false), eq(true), eq(false),
+				any(), any(), any(), any(), anyBoolean(), any(), anyBoolean()))
+				.thenReturn(new ArrayList<>(List.of(high)));
+
+		ActionResolver.parse(DORANDO_17_071R, makeForward("Dorando", "Earth", 3, 7000)).accept(ctx);
+
+		InOrder order = inOrder(ctx);
+		order.verify(ctx).addTargetToHand(high);
+		order.verify(ctx).addTargetToHand(low);
+	}
+
+	@Test
+	void dorandoTakesNothingWhenTheBreakZoneOffersNothing() {
+		// "Up to" on both halves: an empty Break Zone is not a failure, it is no cards.
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.consumePreloadedTargets()).thenReturn(null);
+		when(ctx.selectCharactersFromBreakZone(anyInt(), anyBoolean(), anyBoolean(), anyBoolean(),
+				any(), any(), anyInt(), any(), anyInt(), any(), anyBoolean(), anyBoolean(),
+				anyBoolean(), any(), any(), any(), any(), anyBoolean(), any(), anyBoolean()))
+				.thenReturn(new ArrayList<>());
+
+		ActionResolver.parse(DORANDO_17_071R, makeForward("Dorando", "Earth", 3, 7000)).accept(ctx);
+
+		verify(ctx, never()).addTargetToHand(any());
+	}
+
+	@Test
+	void aSingleAllowanceStillReachesTheOrdinaryChooseChain() {
+		// The new pattern is anchored end to end, so either half on its own is left where it was.
+		assertEquals("ChooseCharacter",
+				ActionResolver.matchedPatternName(
+						"choose up to 1 Forward in your Break Zone. Add it to your hand.",
+						makeForward("Dorando", "Earth", 3, 7000)));
+	}
+
+	// =========================================================================================
+	// 29-008L Zidane, and the three other printings that remove the top of their own deck.
+	//
+	// Both halves of the card were broken, in opposite ways.
+	//
+	// The removal — "Remove the top 2 cards of your deck from the game. You can cast them at any
+	// time you could normally cast them this turn." — was claimed by REMOVE_TOP_OF_DECK_FROM_GAME,
+	// which matches with find() and stops at the first full stop. All four printings spent deck
+	// cards and dropped the only sentence that makes the removal worth anything: the cards reached
+	// the removed-from-game zone and could never be cast.
+	//
+	// The other ability — "When you cast a card removed from the game, …" — was not extracted at
+	// all. AUTO_ABILITY_PATTERN's trigger list is closed, that phrase was not on it, and a card
+	// text that matches no trigger yields no AutoAbility, so the ability simply did not exist.
+	// =========================================================================================
+
+	private static final String ZIDANE_29_008L_TEXT =
+			"When you cast a card removed from the game, choose 1 Forward opponent controls. "
+			+ "Deal it 5000 damage.[[br]]When Zidane enters the field or attacks, remove the top 2 "
+			+ "cards of your deck from the game. You can cast them at any time you could normally "
+			+ "cast them this turn.";
+
+	private static final String ZIDANE_29_008L_REMOVAL =
+			"remove the top 2 cards of your deck from the game. You can cast them at any time you "
+			+ "could normally cast them this turn.";
+
+	private static final String MOG_17_040C_REMOVAL =
+			"remove the top card of your deck from the game. You can cast it this turn. "
+			+ "The cost required to cast it is reduced by 2 (it cannot become 0).";
+
+	@Test
+	void theRemovalAndThePermissionAreReadAsOneEffect() {
+		CardData zidane = makeForward("Zidane", "Fire", 2, 7000);
+		assertEquals("RemoveTopOfDeckRfgCastableThisTurn",
+				ActionResolver.matchedPatternName(ZIDANE_29_008L_REMOVAL, zidane));
+		assertEquals("RemoveTopOfDeckRfgCastableThisTurn",
+				ActionResolver.fullDescription(ZIDANE_29_008L_REMOVAL, zidane),
+				"named the same way by both chains — fullDescription trims the trailing full stop "
+				+ "along with the restriction sentences it strips, which the pattern allows for");
+	}
+
+	@Test
+	void theBareRemovalWithNoPermissionIsLeftWhereItWas() {
+		// Anchored at the start and requiring the permission clause, so the printings that only
+		// remove still reach the parser they always did.
+		assertEquals("RemoveTopOfDeckFromGame",
+				ActionResolver.matchedPatternName("Remove the top 3 cards of your deck from the game.",
+						makeForward("Someone", "Fire", 2, 7000)));
+	}
+
+	@Test
+	void zidaneRemovesTwoAndAsksForNoDiscount() {
+		GameContext ctx = mock(GameContext.class);
+		CardData zidane = makeForward("Zidane", "Fire", 2, 7000);
+		ActionResolver.parse(ZIDANE_29_008L_REMOVAL, zidane).accept(ctx);
+		verify(ctx).removeTopCardsOfDeckFromGameCastableThisTurn(2, zidane, 0, false);
+	}
+
+	@Test
+	void mogCarriesItsDiscountAndItsFloor() {
+		GameContext ctx = mock(GameContext.class);
+		CardData mog = makeForward("Mog (XIII-2)", "Ice", 3, 0);
+		ActionResolver.parse(MOG_17_040C_REMOVAL, mog).accept(ctx);
+		verify(ctx).removeTopCardsOfDeckFromGameCastableThisTurn(1, mog, 2, true);
+	}
+
+	@Test
+	void theRemovedCardsBecomeCastableFromTheRemovedFromGameZone() {
+		MainWindow mw = new MainWindow();
+		CardData top    = makeForward("Top", "Fire", 3, 5000);
+		CardData second = makeForward("Second", "Fire", 4, 6000);
+		CardData buried = makeForward("Buried", "Fire", 5, 7000);
+		for (CardData c : List.of(top, second, buried)) {
+			mw.gameState.getIdentity().put(c, false);
+			mw.gameState.getP2MainDeck().add(c);
+		}
+
+		mw.buildGameContext(false)
+				.removeTopCardsOfDeckFromGameCastableThisTurn(2, null, 0, false);
+
+		assertTrue(mw.gameState.getP2RemovedFromGame().containsAll(List.of(top, second)));
+		assertTrue(mw.bzPlayableP2.containsKey(top), "and castable — this is what was dropped");
+		assertTrue(mw.bzPlayableP2.containsKey(second));
+		assertTrue(mw.bzPlayableP2.get(top).expiresThisTurn(), "\"this turn\"");
+		assertFalse(mw.bzPlayableP2.get(top).freeCast(), "castable, not free");
+		assertEquals(3, mw.bzPlayableP2.get(top).effectiveCost(top), "no discount on this printing");
+		assertTrue(mw.gameState.getP2MainDeck().contains(buried), "only the top 2 went");
+	}
+
+	@Test
+	void mogsDiscountStopsAtOneRatherThanReachingZero() {
+		// "(It cannot become 0)" is a floor on the price, applied against the card's own cost at
+		// registration — which is why PlayableEntry needs no floor of its own.
+		MainWindow mw = new MainWindow();
+		CardData cheap = makeForward("Cheap", "Ice", 1, 1000);
+		mw.gameState.getIdentity().put(cheap, false);
+		mw.gameState.getP2MainDeck().add(cheap);
+
+		mw.buildGameContext(false).removeTopCardsOfDeckFromGameCastableThisTurn(1, null, 2, true);
+
+		assertEquals(1, mw.bzPlayableP2.get(cheap).effectiveCost(cheap),
+				"a cost-1 card still costs 1, not nothing");
+	}
+
+	@Test
+	void andTakesTheWholeDiscountWhenThereIsRoomForIt() {
+		MainWindow mw = new MainWindow();
+		CardData dear = makeForward("Dear", "Ice", 5, 9000);
+		mw.gameState.getIdentity().put(dear, false);
+		mw.gameState.getP2MainDeck().add(dear);
+
+		mw.buildGameContext(false).removeTopCardsOfDeckFromGameCastableThisTurn(1, null, 2, true);
+
+		assertEquals(3, mw.bzPlayableP2.get(dear).effectiveCost(dear));
+	}
+
+	@Test
+	void zidanesOtherAbilityIsExtractedAtAll() {
+		// It was not: a card text matching no trigger in AUTO_ABILITY_PATTERN yields no
+		// AutoAbility, so this half of the card had no existence to debug.
+		List<AutoAbility> autos = CardData.parseAutoAbilities(ZIDANE_29_008L_TEXT);
+		assertEquals(2, autos.size(), "both halves of the card");
+		assertTrue(autos.stream().anyMatch(a -> a.trigger().equals("cast removed card")),
+				"the cast-a-removed-card watcher");
+		assertTrue(autos.stream().anyMatch(a -> a.trigger().equals("enters the field or attacks")));
+	}
+
+	@Test
+	void castingOutOfTheRemovedFromGameZoneFiresTheWatcher() {
+		MainWindow mw = new MainWindow();
+		CardData zidane = makeJobForwardWithAutos("Zidane", "Fire", 7000, null, ZIDANE_29_008L_TEXT);
+		placeP2Forward(mw, zidane);
+		CardData borrowed = makeForward("Borrowed", "Fire", 1, 1000);
+		mw.gameState.getIdentity().put(borrowed, false);
+		mw.gameState.addToPermanentRfp(borrowed);
+		PlayableEntry entry =
+				new PlayableEntry(PlayableEntry.SourceZone.RFP, 0, false, true, false, true);
+		mw.registerBorrowedPlayable(false, borrowed, entry);
+
+		mw.executePlayFromBzP2(borrowed, entry, 0, List.of(), Map.of(), List.of(), Map.of());
+
+		assertTrue(castRemovedWatcherFired(mw, zidane), "the watcher fired");
+	}
+
+	/** Whether {@code watcher}'s "cast removed card" ability is waiting on the Stack. */
+	private static boolean castRemovedWatcherFired(MainWindow mw, CardData watcher) {
+		return mw.gameState.getStack().stream().anyMatch(e -> e.source() == watcher
+				&& e.autoAbility() != null
+				&& e.autoAbility().trigger().equals("cast removed card"));
+	}
+
+	@Test
+	void butCastingOutOfABreakZoneDoesNot() {
+		// The zone is what the trigger names, and a borrowed cast out of a Break Zone reaches the
+		// same code — which is why the event is raised where the source zone is still known.
+		MainWindow mw = new MainWindow();
+		CardData zidane = makeJobForwardWithAutos("Zidane", "Fire", 7000, null, ZIDANE_29_008L_TEXT);
+		placeP2Forward(mw, zidane);
+		CardData borrowed = makeForward("Borrowed", "Fire", 1, 1000);
+		mw.gameState.getIdentity().put(borrowed, false);
+		mw.gameState.getP2BreakZone().add(borrowed);
+		PlayableEntry entry =
+				new PlayableEntry(PlayableEntry.SourceZone.BREAK_ZONE, 0, false, true, false, true);
+		mw.registerBorrowedPlayable(false, borrowed, entry);
+
+		mw.executePlayFromBzP2(borrowed, entry, 0, List.of(), Map.of(), List.of(), Map.of());
+
+		assertFalse(castRemovedWatcherFired(mw, zidane),
+				"a Break Zone is not the removed-from-game zone");
+	}
+
+	// =========================================================================================
+	// Re-179L/16-129L Chaos — "your opponent selects 1 Forward other than Light or Dark they
+	// control. You gain control of it."
+	//
+	// Two gaps, and the card sat between them. OPPONENT_SELECTS_PATTERN had no way to say "other
+	// than <Element>", so the whole sentence failed to match — Chaos is the only printing in the
+	// family that excludes one. And the family's followup arms cover break-zone, dull and
+	// return-to-hand, with everything else falling to a logging no-op; gaining control was not
+	// among them, so even once the selection read, the effect would have done nothing.
+	//
+	// The exclusion belongs to the *selection*, not to what happens afterwards: a Forward the card
+	// puts out of reach must never be offered, because the opponent handing one over and the effect
+	// then declining to act on it is a different card — one that can be answered by controlling
+	// nothing but Light and Dark.
+	// =========================================================================================
+
+	private static final String CHAOS_16_129L =
+			"your opponent selects 1 Forward other than Light or Dark they control. "
+			+ "You gain control of it.";
+
+	private static CardData chaos16129L() { return makeForward("Chaos", "Dark", 11, 11000); }
+
+	@Test
+	void chaosIsReadAsAnOpponentSelectionRatherThanLeftUnparsed() {
+		assertEquals("OpponentSelects",
+				ActionResolver.matchedPatternName(CHAOS_16_129L, chaos16129L()));
+		assertNotNull(ActionResolver.parse(CHAOS_16_129L, chaos16129L()));
+	}
+
+	@Test
+	void theExclusionReachesTheSelectionItself() {
+		GameContext ctx = mock(GameContext.class);
+		ForwardTarget picked = new ForwardTarget(false, 0, ForwardTarget.CardZone.FORWARD);
+		when(ctx.opponentSelectsOwnCharacters(anyInt(), anyBoolean(), any(), any(), any(),
+				anyInt(), any(), anyBoolean(), anyBoolean(), anyBoolean(), any()))
+				.thenReturn(new ArrayList<>(List.of(picked)));
+
+		ActionResolver.parse(CHAOS_16_129L, chaos16129L()).accept(ctx);
+
+		verify(ctx).opponentSelectsOwnCharacters(eq(1), anyBoolean(), any(), any(),
+				eq("Light or Dark"), anyInt(), any(),
+				eq(true), eq(false), eq(false), any());
+		verify(ctx).gainControlOfForward(picked, "permanent", false);
+	}
+
+	@Test
+	void aSelectionWithNoExclusionStillPassesNone() {
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.opponentSelectsOwnCharacters(anyInt(), anyBoolean(), any(), any(), any(),
+				anyInt(), any(), anyBoolean(), anyBoolean(), anyBoolean(), any()))
+				.thenReturn(new ArrayList<>());
+
+		ActionResolver.parse("your opponent selects 1 Forward they control. Put it into the Break Zone.",
+				chaos16129L()).accept(ctx);
+
+		verify(ctx).opponentSelectsOwnCharacters(eq(1), anyBoolean(), any(), any(),
+				isNull(), anyInt(), any(), eq(true), eq(false), eq(false), any());
+	}
+
+	@Test
+	void theBorrowedFormIsToldApartFromTheKeptOne() {
+		// "Gain control of it" is a prefix of "gain control of it until the end of the turn", so the
+		// unqualified arm is checked second — otherwise Chaos's wording would claim both and a
+		// borrowed Forward would never go home.
+		GameContext ctx = mock(GameContext.class);
+		ForwardTarget picked = new ForwardTarget(false, 0, ForwardTarget.CardZone.FORWARD);
+		when(ctx.opponentSelectsOwnCharacters(anyInt(), anyBoolean(), any(), any(), any(),
+				anyInt(), any(), anyBoolean(), anyBoolean(), anyBoolean(), any()))
+				.thenReturn(new ArrayList<>(List.of(picked)));
+
+		ActionResolver.parse("your opponent selects 1 Forward they control. "
+				+ "You gain control of it until the end of the turn.", chaos16129L()).accept(ctx);
+
+		verify(ctx).gainControlOfForward(picked, "endOfTurn", false);
+		verify(ctx, never()).gainControlOfForward(any(), eq("permanent"), anyBoolean());
+	}
+
+	@Test
+	void chaosTakesAForwardTheExclusionAllows() {
+		MainWindow mw = new MainWindow();
+		CardData fire  = makeForward("Fire Forward", "Fire", 2, 5000);
+		CardData light = makeForward("Light Forward", "Light", 1, 3000);
+		placeP2Forward(mw, fire);
+		placeP2Forward(mw, light);
+
+		ActionResolver.parse(CHAOS_16_129L, chaos16129L()).accept(mw.buildGameContext(true));
+
+		assertTrue(mw.p1ForwardCards.contains(fire), "changed sides");
+		assertFalse(mw.p2ForwardCards.contains(fire));
+		assertTrue(mw.p2ForwardCards.contains(light),
+				"the Light Forward was never on offer, cheap as it is");
+	}
+
+	@Test
+	void andTakesNothingFromABoardOfNothingButLightAndDark() {
+		MainWindow mw = new MainWindow();
+		CardData light = makeForward("Light Forward", "Light", 1, 3000);
+		CardData dark  = makeForward("Dark Forward",  "Dark",  2, 5000);
+		placeP2Forward(mw, light);
+		placeP2Forward(mw, dark);
+
+		ActionResolver.parse(CHAOS_16_129L, chaos16129L()).accept(mw.buildGameContext(true));
+
+		assertTrue(mw.p1ForwardCards.isEmpty(), "nothing was eligible to be handed over");
+		assertEquals(2, mw.p2ForwardCards.size());
+	}
+
+	@Test
+	void aMultiElementForwardCarryingAnExcludedElementIsExcludedByIt() {
+		// A Light/Fire Forward is a Light Forward, so "other than Light or Dark" puts it out of
+		// reach the same way a mono-Light one is.
+		MainWindow mw = new MainWindow();
+		CardData multi = makeForward("Light/Fire Forward", "Light/Fire", 1, 3000);
+		CardData fire  = makeForward("Fire Forward", "Fire", 5, 9000);
+		placeP2Forward(mw, multi);
+		placeP2Forward(mw, fire);
+
+		ActionResolver.parse(CHAOS_16_129L, chaos16129L()).accept(mw.buildGameContext(true));
+
+		assertTrue(mw.p1ForwardCards.contains(fire),
+				"the dearer Fire Forward, because the cheap one was not eligible");
+		assertTrue(mw.p2ForwardCards.contains(multi));
 	}
 
 	// =========================================================================================

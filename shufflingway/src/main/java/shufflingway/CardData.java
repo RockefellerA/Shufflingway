@@ -2958,6 +2958,9 @@ public record CardData(
             "|is\\s+put\\s+(?:from\\s+the\\s+field\\s+)?into\\s+the\\s+Break\\s+Zone" +
                 "(?:\\s+(?:on|during)\\s+the\\s+same\\s+turn)?" +
             "|casts?\\s+a\\s+Summon" +
+            // "casts a card removed from the game" — 29-008L Zidane, whose other ability is what
+            // puts the cards there. Player-scoped like the Summon arm above: the subject is "you".
+            "|casts?\\s+a\\s+card\\s+removed\\s+from\\s+the\\s+game" +
             "|is\\s+put\\s+into\\s+(?:your\\s+)?Damage\\s+Zone" +
             "|is\\s+removed\\s+from\\s+the\\s+game\\s+due\\s+to\\s+Warp" +
             "|deals?\\s+damage\\s+to\\s+your\\s+opponent" +
@@ -3860,6 +3863,11 @@ public record CardData(
             // "break zone", and "due to your Summons or abilities" contains "summon".
             else if (triggerRaw.contains("added to your opponent's hand"))                                  trigger = "opponent salvages from break zone";
             else if (triggerRaw.contains("discard") && triggerRaw.contains("due to your"))                  trigger = discardByEffectTrigger(triggerRaw);
+            // "casts a card removed from the game" — 29-008L Zidane. Read before the branches below
+            // for the reason its neighbours are: nothing else in the chain claims it today, but it
+            // is a cast trigger and belongs beside the Summon one rather than after the fall-through
+            // that would silently classify it as "enters the field".
+            else if (triggerRaw.contains("cast") && triggerRaw.contains("removed from the game"))           trigger = "cast removed card";
             // "a Forward damaged by Galuf is put from the field into the Break Zone on the same
             // turn" — the same event as the plain break-zone trigger below, qualified by who dealt
             // the damage. Told apart by the subject rather than by the "same turn" tail: the tail
@@ -4342,6 +4350,7 @@ public record CardData(
         if (r.equals("is blocked"))                                 return "is blocked";
         if (r.contains("block"))                                    return "blocks";
         if (r.contains("break zone"))                               return "put into break zone";
+        if (r.contains("cast") && r.contains("removed from the game")) return "cast removed card";
         if (r.contains("summon"))                                   return castSummonTrigger(subject);
         if (r.contains("damage zone"))                              return "damage zone";
         if (r.contains("leaves"))                                   return "leaves the field";
