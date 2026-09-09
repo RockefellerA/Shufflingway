@@ -5303,6 +5303,16 @@ public class ActionResolver {
             final String granted = quoted;
             return ctx -> ctx.grantSelfFieldAbilityPermanently(source, granted);
         }
+        // The incoming-damage counterpart: "If [Self] is dealt damage <clause>, <modifier> instead."
+        // Ifrit (XVI) 29-001R / 26-003R is handed the "less than his own power → 0" form by his
+        // priming payoff, the permanent twin of the grant Sarah (MOBIUS) 16-115H makes for the turn.
+        // Granted verbatim, and DamageResolver reads it off the effective view exactly as a printed
+        // one. Checked last of the damage clauses: this pattern is the broad one of the family.
+        Matcher inc = AutoAbilityTriggers.FA_DAMAGE_MODIFIER.matcher(quoted);
+        if (inc.matches() && inc.group("card").trim().equalsIgnoreCase(source.name())) {
+            final String granted = quoted;
+            return ctx -> ctx.grantSelfFieldAbilityPermanently(source, granted);
+        }
         // "[Self] cannot be chosen by your opponent's Summons/abilities." (Young Excenmille
         // 23-100L). Not granted as field-ability text: the targeting rules read dedicated sets
         // rather than scanning abilities, so this routes to the permanent shield primitive.

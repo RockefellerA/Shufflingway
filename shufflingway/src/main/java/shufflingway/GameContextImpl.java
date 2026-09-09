@@ -1722,6 +1722,12 @@ final class GameContextImpl implements GameContext {
 				if (mw.currentResolutionIsSummon && !oppForwardsChosen.isEmpty())
 					mw.autoAbilityTriggers.triggerAutoAbilitiesForChosenByOpponentSummon(
 							!isP1, oppForwardsChosen);
+				// The ability-only complement, on the same side of the line the damage shields draw:
+				// a Summon's effect is not an ability, so a resolving Summon fires the broad
+				// trigger above and this one not at all.
+				if (!mw.currentResolutionIsSummon && !oppCharactersChosen.isEmpty())
+					mw.autoAbilityTriggers.triggerAutoAbilitiesForChosenByOpponentAbility(
+							!isP1, oppCharactersChosen);
 				if (!oppCharactersChosen.isEmpty()) {
 					mw.lastChosenSelectionCancelled = false;
 					mw.autoAbilityTriggers.triggerAutoAbilitiesForChosenByOpponentSummonOrAbility(

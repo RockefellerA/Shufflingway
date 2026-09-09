@@ -2423,7 +2423,10 @@ final class AutoAbilityTriggers {
 			for (AutoAbility fa : mw.effectiveAutoAbilities(card)) {
 				if (!fa.triggerCard().equalsIgnoreCase(card.name())) continue;
 				String t = fa.trigger();
-				if (t.equals("is blocked") || t.equals("blocks or is blocked"))
+				// The combat half of Ifrit (XVI) 26-003R's compound trigger; its other half is
+				// fired by triggerAutoAbilitiesForChosenByOpponentAbility.
+				if (t.equals("is blocked") || t.equals("blocks or is blocked")
+						|| t.equals("is blocked or chosen by opponent's ability"))
 					executeAutoAbility(fa, card, isP1);
 			}
 		});
@@ -2854,7 +2857,7 @@ final class AutoAbilityTriggers {
 	 * @param chosen the Forwards actually selected, all on {@code chosenSideIsP1}'s side
 	 */
 	void triggerAutoAbilitiesForChosenByOpponentSummon(boolean chosenSideIsP1, List<CardData> chosen) {
-		triggerChosenByOpponentEvent("chosen by opponent's summon", chosenSideIsP1, chosen);
+		triggerChosenByOpponentEvent(chosenSideIsP1, chosen, "chosen by opponent's summon");
 	}
 
 	/**
@@ -2867,7 +2870,24 @@ final class AutoAbilityTriggers {
 	 */
 	void triggerAutoAbilitiesForChosenByOpponentSummonOrAbility(boolean chosenSideIsP1,
 			List<CardData> chosen) {
-		triggerChosenByOpponentEvent("chosen by opponent's summon or ability", chosenSideIsP1, chosen);
+		triggerChosenByOpponentEvent(chosenSideIsP1, chosen, "chosen by opponent's summon or ability");
+	}
+
+	/**
+	 * Fires the ability-only chosen-by triggers on {@code chosenSideIsP1}'s side — called when that
+	 * player's Character was selected by the opponent's action or auto ability, and <em>not</em>
+	 * when a Summon selected it. A Summon's effect is not an ability, the line
+	 * {@link DamageResolver#applyDamageModifierMatch} already draws for the damage shields worded
+	 * the same way.
+	 *
+	 * <p>Two triggers, because Ifrit (XVI) 26-003R prints this event joined to being blocked and is
+	 * carried as one compound trigger; this is the half of it that watches targeting.
+	 *
+	 * @param chosen the Characters actually selected, all on {@code chosenSideIsP1}'s side
+	 */
+	void triggerAutoAbilitiesForChosenByOpponentAbility(boolean chosenSideIsP1, List<CardData> chosen) {
+		triggerChosenByOpponentEvent(chosenSideIsP1, chosen,
+				"chosen by opponent's ability", "is blocked or chosen by opponent's ability");
 	}
 
 	/**
@@ -2881,26 +2901,45 @@ final class AutoAbilityTriggers {
 	 * a matching card was chosen. Dispatching field-wide regardless of subject made every
 	 * self-naming card fire on any friendly Character being targeted.
 	 */
-	private void triggerChosenByOpponentEvent(String triggerType, boolean isP1, List<CardData> chosen) {
+	private void triggerChosenByOpponentEvent(boolean isP1, List<CardData> chosen,
+			String... triggerTypes) {
 		if (chosen.isEmpty()) return;
-		withBatch(() -> {
-			List<CardData> fwds = new ArrayList<>(isP1 ? mw.p1ForwardCards : mw.p2ForwardCards);
-			CardData[]     bkps = isP1 ? mw.p1BackupCards : mw.p2BackupCards;
-			List<CardData> mons = new ArrayList<>(isP1 ? mw.p1MonsterCards : mw.p2MonsterCards);
-			for (CardData c : fwds) fireChosenByOpponentTriggers(c, isP1, triggerType, chosen);
-			for (CardData c : bkps) if (c != null) fireChosenByOpponentTriggers(c, isP1, triggerType, chosen);
-			for (CardData c : mons) fireChosenByOpponentTriggers(c, isP1, triggerType, chosen);
-		});
+		Set<String> types = Set.of(triggerTypes);
+		// Held for the whole walk, batch drain included, so executeAutoAbilityImpl can tell that a
+		// compound trigger is firing on its chosen-by half and must resolve inline — see the
+		// inline-resolution guard there. withBatch dispatches what it collects before returning,
+		// so the flag is still up when each ability actually runs.
+		boolean outer = resolvingChosenBySelection;
+		resolvingChosenBySelection = true;
+		try {
+			withBatch(() -> {
+				List<CardData> fwds = new ArrayList<>(isP1 ? mw.p1ForwardCards : mw.p2ForwardCards);
+				CardData[]     bkps = isP1 ? mw.p1BackupCards : mw.p2BackupCards;
+				List<CardData> mons = new ArrayList<>(isP1 ? mw.p1MonsterCards : mw.p2MonsterCards);
+				for (CardData c : fwds) fireChosenByOpponentTriggers(c, isP1, types, chosen);
+				for (CardData c : bkps) if (c != null) fireChosenByOpponentTriggers(c, isP1, types, chosen);
+				for (CardData c : mons) fireChosenByOpponentTriggers(c, isP1, types, chosen);
+			});
+		} finally {
+			resolvingChosenBySelection = outer;
+		}
 		mw.showStackWindowIfNeeded();
 	}
 
-	private void fireChosenByOpponentTriggers(CardData watcher, boolean isP1, String triggerType,
+	private void fireChosenByOpponentTriggers(CardData watcher, boolean isP1, Set<String> triggerTypes,
 			List<CardData> chosen) {
 		for (AutoAbility fa : mw.effectiveAutoAbilities(watcher))
-			if (fa.trigger().equals(triggerType)
+			if (triggerTypes.contains(fa.trigger())
 					&& matchesChosenSubject(fa.triggerCard(), watcher, chosen))
 				executeAutoAbility(fa, watcher, isP1);
 	}
+
+	/**
+	 * True while a chosen-by-opponent walk is running, including the batch drain that resolves what
+	 * it collected. Read only by the inline-resolution guard in {@link #executeAutoAbilityImpl},
+	 * which needs to know <em>which event</em> fired a trigger that watches two of them.
+	 */
+	private boolean resolvingChosenBySelection;
 
 	/** "1 or more Forwards you control" — the count prefix, stripped before splitting on " or ". */
 	private static final Pattern CHOSEN_SUBJECT_COUNT = Pattern.compile("(?i)^\\d+\\s+or\\s+more\\s+");
@@ -3912,7 +3951,13 @@ final class AutoAbilityTriggers {
 		// chooser and inverts the order: a cancel becomes a no-op, and Emet-Selch (12-024H) is dealt
 		// its lethal damage and broken before the removal that should have made that damage fizzle
 		// ever runs. Resolving here reproduces the rules order in every path the selection can take.
-		if (fa.trigger().startsWith("chosen by opponent's summon")) {
+		//
+		// The compound trigger Ifrit (XVI) 26-003R carries watches two events, and only one of them
+		// is a selection in progress: fired by being blocked it is an ordinary combat trigger and
+		// belongs on the Stack, so the flag — not the trigger name — is what decides.
+		if (fa.trigger().startsWith("chosen by opponent's")
+				|| (resolvingChosenBySelection
+						&& fa.trigger().equals("is blocked or chosen by opponent's ability"))) {
 			Consumer<GameContext> effect = ActionResolver.parse(fa.effectText(), source);
 			mw.logEntry("[AutoAbility] " + source.name() + " — " + fa.effectText());
 			effect.accept(mw.buildGameContext(effectIsP1));

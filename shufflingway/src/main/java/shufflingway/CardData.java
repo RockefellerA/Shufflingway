@@ -2932,6 +2932,13 @@ public record CardData(
             // "forms a party and attacks" must precede plain "attacks" to be preferred
             "forms?\\s+a\\s+party\\s+and\\s+attacks?" +
             "|attacks?(?:\\s+or\\s+blocks?)?" +
+            // "is blocked or chosen by your opponent's ability" — 26-003R / 29-001R Ifrit (XVI),
+            // the corpus's only printing that joins a combat trigger to a targeting one. Must
+            // precede the two block arms below: "is blocked" satisfies the prefix, then fails on
+            // the comma this pattern requires next, and the whole sentence goes unread rather than
+            // reading wrong. Kept as one compound trigger, the way "blocks or is blocked" and
+            // "enters the field or attacks" are, and fired from both events.
+            "|(?:is|are)\\s+blocked\\s+or\\s+chosen\\s+by\\s+your\\s+opponent's\\s+abilit(?:y|ies)" +
             "|blocks?(?:\\s+or\\s+is\\s+blocked)?" +
             "|is\\s+blocked" +
             // "enters the field or is put from the field into the Break Zone" must precede both
@@ -2969,6 +2976,12 @@ public record CardData(
             "|is\\s+dealt\\s+damage" +
             "|receives?\\s+a\\s+point\\s+of\\s+damage" +
             "|(?:is|are)\\s+chosen\\s+by\\s+your\\s+opponent's\\s+Summons?(?:\\s+or\\s+abilit(?:y|ies))?" +
+            // The ability-only complement of the arm above — 20-117L Yuna, 24-090L Leon,
+            // 26-039H Star Sibyl, 27-021C Ilmatalle and the clause Ilmatalle grants its Warriors.
+            // No ordering constraint against its sibling, which requires a literal "Summon" the
+            // texts this reads do not have; a Summon is not an ability, so the two are disjoint
+            // and normalise to different triggers.
+            "|(?:is|are)\\s+chosen\\s+by\\s+your\\s+opponent's\\s+abilit(?:y|ies)" +
             "|uses?\\s+an\\s+EX\\s+Burst" +
             "|becomes?\\s+dull" +
             // "is priming" — the act of paying a Priming cost, watched by 24-109R Dion,
@@ -3855,6 +3868,11 @@ public record CardData(
                     && card.toLowerCase(Locale.ROOT).matches("\\d+\\s+or\\s+more\\s+forwards?\\s+you\\s+control"))
                                                                                                              trigger = "attack";
             else if (triggerRaw.contains("attack"))                                                         trigger = "attacks";
+            // Ifrit (XVI) 26-003R / 29-001R. Must precede all three block branches: the middle one
+            // is satisfied by any raw trigger containing both "block" and "is blocked", which this
+            // one does, and it would file a targeting trigger as a purely combat one — losing the
+            // chosen-by half outright.
+            else if (triggerRaw.contains("is blocked") && triggerRaw.contains("chosen"))       trigger = "is blocked or chosen by opponent's ability";
             else if (triggerRaw.equals("is blocked"))                                                       trigger = "is blocked";
             else if (triggerRaw.contains("block") && triggerRaw.contains("is blocked"))                    trigger = "blocks or is blocked";
             else if (triggerRaw.contains("block"))                                                          trigger = "blocks";
@@ -3878,6 +3896,11 @@ public record CardData(
             else if (triggerRaw.contains("break zone")
                     && DAMAGED_BY_BZ_SUBJECT.matcher(card).matches())                               trigger = "damaged card put into break zone";
             else if (triggerRaw.contains("break zone"))                                                     trigger = "put into break zone";
+            // "chosen by your opponent's ability" with no Summon named. Must precede the branch
+            // below, which is satisfied by "chosen" + "abilit" alone and would widen these five
+            // printings to fire on Summons too — strictly stronger than what they print.
+            else if (triggerRaw.contains("chosen") && triggerRaw.contains("abilit")
+                    && !triggerRaw.contains("summon"))                                                      trigger = "chosen by opponent's ability";
             else if (triggerRaw.contains("chosen") && triggerRaw.contains("abilit"))                        trigger = "chosen by opponent's summon or ability";
             else if (triggerRaw.contains("chosen"))                                                         trigger = "chosen by opponent's summon";
             else if (triggerRaw.contains("summon"))                                                         trigger = castSummonTrigger(card);
@@ -4185,13 +4208,15 @@ public record CardData(
         while (dcm.find()) {
             String effect = SUMMON_MARKUP.matcher(dcm.group("effect").trim()).replaceAll("").trim();
             if (effect.isEmpty()) continue;
-            // "Summon or ability" and the ability-only printing both dispatch through the broader
-            // trigger — there is no ability-only dispatch, and the Summon-only one would miss the
-            // ability half outright. Only a text naming Summons alone takes the narrow trigger.
+            // Each of the three chooser clauses takes the trigger that says what it says. The
+            // ability-only printing (The Fiend 20-114L) used to be widened to the "Summon or
+            // ability" trigger, because there was no ability-only dispatch and the Summon-only one
+            // would have missed the ability half outright — so it fired on Summons the card does
+            // not mention. Now that the dispatch exists it reads as printed.
             String by      = dcm.group("by").toLowerCase(Locale.ROOT);
-            String trigger = by.contains("abilit")
-                    ? "chosen by opponent's summon or ability"
-                    : "chosen by opponent's summon";
+            String trigger = !by.contains("abilit")     ? "chosen by opponent's summon"
+                           : !by.contains("summon")     ? "chosen by opponent's ability"
+                           :                              "chosen by opponent's summon or ability";
             AutoAbility aa = parseAutoAbilityRestrictions(dcm.group("card").trim(), trigger,
                     false, false, false, false, effect, damageThresholdOf(dcm));
             // "for the first time in that turn" is the per-turn limit stated in the trigger clause;

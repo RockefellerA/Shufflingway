@@ -36,17 +36,24 @@ final class ActionResolverFieldAbility {
         if (!m.group("subject").trim().equalsIgnoreCase(source.name())) return null;
         return grantedSelfFieldAbilityEffect(m.group("quoted").trim(), source);
     }
+    /**
+     * The subject is the source itself, so the clauses go through
+     * {@link ActionResolver#permanentGrantForSelfClause} rather than the narrower
+     * {@link ActionResolver#permanentGrantForClause} it delegates to: a self-grant can hand over a
+     * readable field ability as well as a trigger-bearing auto ability, which is what Ifrit (XVI)
+     * 29-001R / 26-003R's priming payoff does with its damage shield.
+     */
     static Consumer<GameContext> tryParseGainsQuotedAbilitiesPermanent(String text, CardData source) {
         if (source == null) return null;
         Matcher m = GAINS_QUOTED_ABILITIES_PERMANENT.matcher(text.trim());
         if (!m.matches()) return null;
         if (!m.group("subject").trim().equalsIgnoreCase(source.name())) return null;
 
-        Consumer<GameContext> first = permanentGrantForClause(m.group("q1").trim(), source);
+        Consumer<GameContext> first = permanentGrantForSelfClause(m.group("q1").trim(), source);
         if (first == null) return null;
         String second = m.group("q2");
         if (second == null) return first;
-        Consumer<GameContext> rest = permanentGrantForClause(second.trim(), source);
+        Consumer<GameContext> rest = permanentGrantForSelfClause(second.trim(), source);
         // Both halves or neither — a half-applied grant is worse than an unrecognised one.
         if (rest == null) return null;
         return ctx -> { first.accept(ctx); rest.accept(ctx); };

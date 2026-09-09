@@ -9,6 +9,7 @@ import java.util.EnumSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Random;
 import java.util.Set;
 import java.util.function.Consumer;
 import java.util.function.Predicate;
@@ -7071,6 +7072,116 @@ public class CardBehaviorTest {
     }
 
     // =========================================================================================
+    // Ifrit (XVI) 29-001R / 26-003R: "When Clive primes into Ifrit (XVI), Ifrit (XVI) gains "If
+    // Ifrit (XVI) is dealt damage less than Ifrit (XVI)'s power, the damage becomes 0 instead."
+    // (This effect does not end at the end of the turn.)"
+    //
+    // The Odin (XVI) sibling above grants a trigger-bearing auto ability, and that is all
+    // GainsQuotedAbilitiesPermanent could route: it went through permanentGrantForClause, whose
+    // two arms are the attack permission and a complete "When …, …" ability. Ifrit's clause is
+    // neither — it is a passive damage modifier, of exactly the kind permanentGrantForSelfClause's
+    // sibling grantedSelfFieldAbilityEffect already granted verbatim for the turn. Pointing the
+    // self-subject parser at the self-clause helper (which delegates to the narrow one first, so
+    // Odin is unaffected) and giving that helper the incoming-damage arm its end-of-turn twin has
+    // is the whole fix.
+    //
+    // No new primitive on either side: FA_DAMAGE_MODIFIER's "less than <name>'s power" branch is
+    // written for this printing by name, and DamageResolver reads it off effectiveFieldAbilities,
+    // which permanentFieldAbilities is already part of.
+    // =========================================================================================
+
+    private static final String IFRIT_XVI_TEXT =
+            "When Ifrit (XVI) is blocked or chosen by your opponent's ability, Ifrit (XVI) deals "
+            + "your opponent 1 point of damage.[[br]]When Clive primes into Ifrit (XVI), "
+            + "Ifrit (XVI) gains \"If Ifrit (XVI) is dealt damage less than Ifrit (XVI)'s power, "
+            + "the damage becomes 0 instead.\" (This effect does not end at the end of the turn.)";
+
+    private static final String IFRIT_XVI_SHIELD_CLAUSE =
+            "If Ifrit (XVI) is dealt damage less than Ifrit (XVI)'s power, the damage becomes 0 instead.";
+
+    /** Ifrit as printed — Fire, cost 6, 10000 power, both abilities parsed from his own text. */
+    private static CardData makeIfritXvi() {
+        return makeForwardWithText("Ifrit (XVI)", "Fire", 6, 10000, IFRIT_XVI_TEXT);
+    }
+
+    /** The priming payoff, picked off Ifrit's text by its trigger rather than by position. */
+    private static AutoAbility ifritsPrimingPayoff(CardData ifrit) {
+        return ifrit.autoAbilities().stream()
+                .filter(a -> a.trigger().equals("primed into")).findFirst().orElseThrow();
+    }
+
+    @Test
+    void ifritsPrimingPayoffGrantsItsShieldPermanently() {
+        CardData ifrit = makeIfritXvi();
+        AutoAbility payoff = ifritsPrimingPayoff(ifrit);
+        assertEquals("Clive", payoff.triggerCard(),
+                "the trigger watches the primer, which is what dispatch matches on");
+
+        assertEquals("GainsQuotedAbilitiesPermanent",
+                ActionResolver.matchedPatternName(payoff.effectText(), ifrit));
+
+        GameContext ctx = mock(GameContext.class);
+        ActionResolver.parse(payoff.effectText(), ifrit).accept(ctx);
+        // Granted verbatim, and permanently — the parenthetical is the point of the ability.
+        verify(ctx).grantSelfFieldAbilityPermanently(ifrit, IFRIT_XVI_SHIELD_CLAUSE);
+    }
+
+    @Test
+    void ifritsGrantedShieldZeroesDamageBelowHisPower() {
+        MainWindow mw = new MainWindow();
+        CardData ifrit = makeIfritXvi();
+        mw.placeCardInForwardZone(ifrit);
+
+        mw.buildGameContext(true).damageP1Forward(0, 9000);
+        assertEquals(9000, mw.p1ForwardDamage.get(0), "unprimed, the damage lands");
+
+        mw.p1ForwardDamage.set(0, 0);
+        ActionResolver.parse(ifritsPrimingPayoff(ifrit).effectText(), ifrit)
+                .accept(mw.buildGameContext(true));
+
+        mw.buildGameContext(true).damageP1Forward(0, 9000);
+        assertEquals(0, mw.p1ForwardDamage.get(0),
+                "9000 is less than his 10000 power, so the granted clause zeroes it");
+    }
+
+    @Test
+    void ifritsGrantedShieldStillLetsLethalDamageThrough() {
+        MainWindow mw = new MainWindow();
+        CardData ifrit = makeIfritXvi();
+        mw.placeCardInForwardZone(ifrit);
+        mw.gameState.getIdentity().put(ifrit, true);   // lethal damage breaks him, which reads it
+        ActionResolver.parse(ifritsPrimingPayoff(ifrit).effectText(), ifrit)
+                .accept(mw.buildGameContext(true));
+
+        // 10000 equals his power, so "less than" does not cover it and he breaks.
+        mw.buildGameContext(true).damageP1Forward(0, 10000);
+        assertTrue(mw.p1ForwardCards.isEmpty(),
+                "\"less than his power\" — damage equal to it is not covered");
+        assertTrue(mw.gameState.getP1BreakZone().contains(ifrit));
+    }
+
+    @Test
+    void ifritsShieldOutlastsTheTurnButNotTheField() {
+        MainWindow mw = new MainWindow();
+        CardData ifrit = makeIfritXvi();
+        mw.placeCardInForwardZone(ifrit);
+        mw.gameState.getIdentity().put(ifrit, true);
+        ActionResolver.parse(ifritsPrimingPayoff(ifrit).effectText(), ifrit)
+                .accept(mw.buildGameContext(true));
+
+        // The end-of-turn sweep empties the turn-scoped grant store; this one is not in it.
+        mw.grantedFieldAbilities.clear();
+        mw.buildGameContext(true).damageP1Forward(0, 9000);
+        assertEquals(0, mw.p1ForwardDamage.get(0), "the shield survives the end-of-turn clear-down");
+
+        // Leaving the field does end it: what comes back is a new object owed nothing.
+        mw.breakP1Forward(0);
+        assertTrue(mw.effectiveFieldAbilities(ifrit).stream()
+                .noneMatch(fa -> fa.effectText().equals(IFRIT_XVI_SHIELD_CLAUSE)),
+                "a Character that leaves the field loses what was granted to it");
+    }
+
+    // =========================================================================================
     // Jed 24-096R: "When Jed attacks, you may pay 《C》. If you do so, draw 1 card."  The optional
     // cost had no standalone parser — only a variant that applies after a "Choose 1 …" primary —
     // so the whole effect went unresolved. Cards whose payoff happened to be a search or a
@@ -12026,6 +12137,158 @@ public class CardBehaviorTest {
 
 		assertEquals(1, mw.gameState.getP1Hand().size(),
 				"a filter subject is satisfied by any matching Forward, not just the watcher itself");
+	}
+
+	// =========================================================================================
+	// "When [subject] is chosen by your opponent's ability, …" — the ability-only chosen-by family:
+	// 20-117L Yuna, 24-090L Leon, 26-039H Star Sibyl, 27-021C Ilmatalle, and 26-003R / 29-001R
+	// Ifrit (XVI), who joins it to being blocked in one sentence.
+	//
+	// None of the five produced an AutoAbility at all. AUTO_ABILITY_PATTERN's only chosen-by arm
+	// requires a literal "Summon" ("…by your opponent's Summons or abilities"), and there was no
+	// arm for Ifrit's compound either — "is blocked" satisfies the prefix and then fails on the
+	// comma, so the sentence went unread. That is fail-closed and therefore invisible: CardProbe
+	// and the characterization corpus both enumerate parsed ability objects, so text that dies at
+	// trigger extraction has no record to report `parse=false` against.
+	//
+	// Two traps in the normalizer, both of which would have read these cards as stronger than they
+	// print:
+	//   - "chosen" + "abilit" already mapped to "chosen by opponent's summon or ability", which
+	//     would have fired these on Summons. A Summon's effect is not an ability — the same line
+	//     DamageResolver draws for the damage shields worded this way.
+	//   - Ifrit's raw trigger contains both "block" and "is blocked", so the "blocks or is blocked"
+	//     branch claimed it and the chosen-by half vanished.
+	//
+	// The dispatch needed no new walk: triggerChosenByOpponentEvent already matches subjects by
+	// identity or filter. It only needed the ability-only entry point and the Summon guard at the
+	// firing site.
+	// =========================================================================================
+
+	private static final String IFRIT_XVI_PING =
+			"When Ifrit (XVI) is blocked or chosen by your opponent's ability, "
+			+ "Ifrit (XVI) deals your opponent 1 point of damage.";
+	private static final String STAR_SIBYL_TEXT =
+			"When a Forward you control is chosen by your opponent's ability, your opponent "
+			+ "discards 1 card. This effect will trigger only once per turn.";
+	private static final String LEON_DEFECTS =
+			"When Leon is chosen by your opponent's ability, your opponent gains control of Leon.";
+
+	/**
+	 * A board with <em>both</em> main decks stocked. Player damage draws the top card of the damaged
+	 * player's deck into their damage zone and no-ops on an empty one, so P2 needs a real deck —
+	 * and two of the ways to give it one do not leave cards in it. {@code initializeDeck}'s second
+	 * argument is P1's Limit Break deck rather than P2's anything, and {@code initializeP2Deck}
+	 * draws a five-card opening hand off the top of what it loads.
+	 */
+	private static MainWindow chosenByBoard() {
+		MainWindow mw = new MainWindow();
+		mw.gameState.initializeDeck(
+				List.of(makeForward("P1 Deck", "Fire", 2, 5000), makeForward("P1 Deck 2", "Fire", 2, 5000)),
+				List.of());
+		mw.gameState.initializeP2MainDeck(
+				List.of(makeForward("P2 Deck", "Ice", 2, 5000), makeForward("P2 Deck 2", "Ice", 2, 5000)),
+				new Random());
+		return mw;
+	}
+
+	@Test
+	void abilityOnlyChosenByTriggersAreNotWidenedToSummons() {
+		// The whole point of the new canonical trigger: these cards say "ability", not "Summon".
+		for (String text : List.of(STAR_SIBYL_TEXT, LEON_DEFECTS,
+				"When Ilmatalle is chosen by your opponent's ability, your opponent discards 1 card.")) {
+			AutoAbility aa = CardData.parseAutoAbilities(text).get(0);
+			assertEquals("chosen by opponent's ability", aa.trigger(), text);
+		}
+		// The Summon-naming sibling is untouched and still takes the broad trigger.
+		assertEquals("chosen by opponent's summon or ability",
+				CardData.parseAutoAbilities(EMET_SELCH_TEXT).get(0).trigger());
+	}
+
+	@Test
+	void ifritsCompoundTriggerKeepsBothHalves() {
+		AutoAbility aa = CardData.parseAutoAbilities(IFRIT_XVI_PING).get(0);
+		assertEquals("is blocked or chosen by opponent's ability", aa.trigger(),
+				"filed as \"blocks or is blocked\", the chosen-by half would be lost silently");
+		assertEquals("Ifrit (XVI)", aa.triggerCard());
+		assertNotNull(ActionResolver.parse(aa.effectText(), makeIfritXvi()), "and the ping resolves");
+	}
+
+	@Test
+	void theFiendsAbilityOnlyPrintingIsNoLongerWidened() {
+		// 20-114L The Fiend states the per-turn limit up front, so it comes through the
+		// "During each turn, when … for the first time in that turn" pass rather than the general
+		// one. That pass deliberately widened an ability-only text to the Summon-or-ability
+		// trigger, because no ability-only dispatch existed to send it to.
+		//
+		// The golden file cannot catch this: it records the effect's parse, and only the *trigger*
+		// changed.
+		String text = "During each turn, when The Fiend is chosen by your opponent's ability for "
+				+ "the first time in that turn, cancel its effect.";
+		AutoAbility aa = CardData.parseAutoAbilities(text).get(0);
+		assertEquals("chosen by opponent's ability", aa.trigger());
+		assertTrue(aa.oncePerTurn(), "\"for the first time in that turn\" is still the per-turn limit");
+	}
+
+	@Test
+	void ifritPingsWhenBlockedAndWhenChosenByAnAbility() {
+		MainWindow mw = chosenByBoard();
+		CardData ifrit = makeAutoAbilityForward("Ifrit (XVI)", "Fire", 10000, IFRIT_XVI_PING);
+		placeP1Forward(mw, ifrit);
+
+		// Fired by being blocked, the compound trigger takes the ordinary combat route: it is pushed
+		// to the Stack, and a P1 entry auto-resolves there because the CPU holds priority.
+		mw.autoAbilityTriggers.triggerAutoAbilitiesForIsBlocked(ifrit, true);
+		assertEquals(1, mw.gameState.getP2DamageZone().size(), "the combat half of the trigger");
+
+		// Fired by the selection, the same ability resolves inline instead — the chooser is already
+		// resolving, so stacking would invert the rules order the chosen-by family exists to keep.
+		mw.autoAbilityTriggers.triggerAutoAbilitiesForChosenByOpponentAbility(true, List.of(ifrit));
+		assertEquals(2, mw.gameState.getP2DamageZone().size(), "the targeting half of the trigger");
+	}
+
+	@Test
+	void ifritDoesNotPingWhenChosenByASummon() {
+		MainWindow mw = chosenByBoard();
+		CardData ifrit = makeAutoAbilityForward("Ifrit (XVI)", "Fire", 10000, IFRIT_XVI_PING);
+		placeP1Forward(mw, ifrit);
+
+		// A Summon's effect is not an ability, so the broad walk must leave this card alone.
+		mw.autoAbilityTriggers.triggerAutoAbilitiesForChosenByOpponentSummonOrAbility(true, List.of(ifrit));
+		mw.autoAbilityTriggers.triggerAutoAbilitiesForChosenByOpponentSummon(true, List.of(ifrit));
+
+		assertEquals(0, mw.gameState.getP2DamageZone().size(),
+				"Ifrit prints \"ability\" — a Summon choosing him is not that event");
+	}
+
+	@Test
+	void starSibylWatchesEveryFriendlyForwardButOnlyOncePerTurn() {
+		MainWindow mw = chosenByBoard();
+		CardData sibyl = makeAutoAbilityForward("Star Sibyl", "Ice", 5000, STAR_SIBYL_TEXT);
+		CardData ally  = makeForward("Ally", "Ice", 3, 7000);
+		placeP1Forward(mw, sibyl);
+		placeP1Forward(mw, ally);
+		mw.gameState.getP2Hand().clear();
+		mw.gameState.getP2Hand().add(makeForward("Held", "Ice", 2, 5000));
+		mw.gameState.getP2Hand().add(makeForward("Held 2", "Ice", 2, 5000));
+
+		// "a Forward you control" is a filter, so another Forward being chosen satisfies it.
+		mw.autoAbilityTriggers.triggerAutoAbilitiesForChosenByOpponentAbility(true, List.of(ally));
+		assertEquals(1, mw.gameState.getP2Hand().size(), "the filter subject fires on the ally");
+
+		mw.autoAbilityTriggers.triggerAutoAbilitiesForChosenByOpponentAbility(true, List.of(ally));
+		assertEquals(1, mw.gameState.getP2Hand().size(), "and only once in the turn");
+	}
+
+	@Test
+	void leonChangesSidesWhenAnOpponentsAbilityChoosesHim() {
+		MainWindow mw = chosenByBoard();
+		CardData leon = makeAutoAbilityForward("Leon", "Lightning", 3000, LEON_DEFECTS);
+		placeP1Forward(mw, leon);
+
+		mw.autoAbilityTriggers.triggerAutoAbilitiesForChosenByOpponentAbility(true, List.of(leon));
+
+		assertFalse(mw.p1ForwardCards.contains(leon), "Leon leaves his controller's field");
+		assertTrue(mw.p2ForwardCards.contains(leon), "and arrives on the opponent's");
 	}
 
 	// =========================================================================================
@@ -19984,8 +20247,12 @@ public class CardBehaviorTest {
 		assertEquals(1, autos.size(), "only the chosen-by half is claimed");
 		assertEquals("The Fiend", autos.get(0).triggerCard());
 		assertEquals(3, autos.get(0).damageThreshold(), "the Damage 3 gate survives");
-		assertEquals("chosen by opponent's summon or ability", autos.get(0).trigger(),
-				"an ability-only printing rides the broad trigger — there is no ability-only dispatch");
+		// This used to assert the broad "summon or ability" trigger, because there was no
+		// ability-only dispatch to send an ability-only printing to. Now there is, so The Fiend
+		// reads as printed and no longer fires on a Summon it does not mention — see
+		// abilityOnlyChosenByTriggersAreNotWidenedToSummons.
+		assertEquals("chosen by opponent's ability", autos.get(0).trigger(),
+				"the printing names abilities alone, and a Summon's effect is not an ability");
 	}
 
 	@Test
