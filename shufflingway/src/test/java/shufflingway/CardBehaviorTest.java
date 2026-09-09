@@ -28257,6 +28257,160 @@ public class CardBehaviorTest {
 	}
 
 	// =========================================================================================
+	// Curilla 22-097L: "When Curilla enters the field, reveal the top 5 cards of your deck. Play
+	// up to 2 Job Knight with a total cost of 4 or less among them onto the field and return the
+	// other cards to the bottom of your deck in any order."
+	//
+	// Warrior of Light's sentence with both caps printed instead of one, so it reads through the
+	// same parser and the same primitive rather than a second copy of either. Two things about
+	// the wording are what needed widening: the quantifier ("up to 2" beside "as many ... as you
+	// want"), and the missing type noun — Curilla says "Job Knight" and stops, where every
+	// sibling in this family names a Forward or a Backup.
+	//
+	// The absent noun is read as "Character". Playing onto the field is what settles it: that is
+	// where Forwards, Backups and Monsters go and where a Summon cannot, so "Character" is the
+	// narrowest filter faithful to the printed card. Reading it as no filter at all would be the
+	// strictly stronger effect, which is the failure this corpus keeps having.
+	// =========================================================================================
+
+	private static final String CURILLA_TEXT =
+			"If a Job Knight Forward other than Curilla you control is dealt damage less than its "
+			+ "power, the damage becomes 0 instead.[[br]]When Curilla enters the field, reveal the "
+			+ "top 5 cards of your deck. Play up to 2 Job Knight with a total cost of 4 or less "
+			+ "among them onto the field and return the other cards to the bottom of your deck in "
+			+ "any order.";
+
+	@Test
+	void curillaRevealPlaysUpToTwoKnightsInsideACostBudget() {
+		String effectText = CardData.parseAutoAbilities(CURILLA_TEXT).get(0).effectText();
+
+		Consumer<GameContext> fn = ActionResolver.parse(effectText, null);
+		assertNotNull(fn, "Expected \"" + effectText + "\" to parse");
+
+		GameContext ctx = mock(GameContext.class);
+		fn.accept(ctx);
+
+		verify(ctx).revealTopNPlayUpToJobTypeWithTotalCostOntoFieldRestBottom(5, 2, "Knight", "Character", 4);
+	}
+
+	@Test
+	void warriorOfLightStillReachesTheSamePrimitiveUncapped() {
+		String effectText =
+				"reveal the top 5 cards of your deck. Play as many Job Standard Unit Forwards as "
+				+ "you want with a total cost of 5 or less among them onto the field and return "
+				+ "the other cards to the bottom of your deck in any order.";
+
+		Consumer<GameContext> fn = ActionResolver.parse(effectText, null);
+		assertNotNull(fn, "Expected \"" + effectText + "\" to parse");
+
+		GameContext ctx = mock(GameContext.class);
+		fn.accept(ctx);
+
+		// The type noun is still read where the card prints one, and "as many as you want" is the
+		// absence of a count rather than a count of its own.
+		verify(ctx).revealTopNPlayUpToJobTypeWithTotalCostOntoFieldRestBottom(
+				5, Integer.MAX_VALUE, "Standard Unit", "Forward", 5);
+	}
+
+	@Test
+	void curillasCountCapBindsWhereTheBudgetAloneWouldNot() {
+		List<CardData> revealed = List.of(
+				makeForward("One", "Water", 1, 7000),
+				makeForward("Another", "Water", 1, 7000),
+				makeForward("Two", "Water", 2, 7000));
+		DeckLookDecision d = LookAtDeckDialogs.cpuRevealPlayOntoField(revealed, 2, 4,
+				c -> true, RevealRest.BOTTOM);
+
+		assertEquals(List.of(2, 0), d.toField(),
+				"all three cost 4 together and would fit the budget; 'up to 2' is what stops the third");
+	}
+
+	@Test
+	void curillasBudgetStillBindsInsideTheCountCap() {
+		List<CardData> revealed = List.of(
+				makeForward("Three", "Water", 3, 7000),
+				makeForward("AlsoThree", "Water", 3, 7000));
+		DeckLookDecision d = LookAtDeckDialogs.cpuRevealPlayOntoField(revealed, 2, 4,
+				c -> true, RevealRest.BOTTOM);
+
+		assertEquals(List.of(0), d.toField(),
+				"two cards are allowed by count, but 3 + 3 overruns the budget of 4");
+	}
+
+	// -----------------------------------------------------------------------------------------
+	// Curilla 22-097L's other half: "If a Job Knight Forward other than Curilla you control is
+	// dealt damage less than its power, the damage becomes 0 instead."
+	//
+	// A continuous field ability, so it never reaches ActionResolver.parse() — the field-wide
+	// scan in DamageResolver reads it off the board at damage time instead, and a probe reporting
+	// parse=false for it says nothing either way. FA_FIELD_DAMAGE_MODIFIER already carried every
+	// clause this sentence uses: the Job arm, the "other than <name>" self-exclusion, the "less
+	// than its power" source clause and the "becomes 0" outcome. These pin that it is really
+	// assembled, since nothing else in the corpus combines all four.
+	// -----------------------------------------------------------------------------------------
+
+	private static final String CURILLA_FIELD_TEXT =
+			"If a Job Knight Forward other than Curilla you control is dealt damage less than its "
+			+ "power, the damage becomes 0 instead.";
+
+	/** A Forward carrying both a Job and the field abilities parsed from {@code text}. */
+	private static CardData makeJobFieldAbilityForward(String name, String element, String job, String text) {
+		return new CardData(null, name, element, 3, 7000, "Forward", false, 0, false, false,
+				Set.of(), 0, List.of(), null, List.of(),
+				List.of(), List.of(), CardData.parseFieldAbilities(text, "Forward"),
+				List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(),
+				false, false, null, false, false, false, false, false, 1,
+				job, null, null, text);
+	}
+
+	/** Curilla herself, a fellow Knight, and a Forward of another Job to hold the filter honest. */
+	private static MainWindow curillaBoard() {
+		MainWindow mw = new MainWindow();
+		placeP1Forward(mw, makeJobFieldAbilityForward("Curilla", "Water", "Knight", CURILLA_FIELD_TEXT));
+		placeP1Forward(mw, makeJobCard("Rosa", "Water", "Forward", "Knight"));
+		placeP1Forward(mw, makeJobCard("Bystander", "Water", "Forward", "Thief"));
+		return mw;
+	}
+
+	@Test
+	void curillaNullifiesNonLethalDamageToAFellowKnight() {
+		MainWindow mw = curillaBoard();
+
+		assertEquals(0, mw.damageResolver.applyFieldWideDamageModifiers(
+				5000, mw.p1ForwardCards.get(1), true, ForwardTarget.CardZone.FORWARD, 1, false),
+				"5000 is less than the Knight's 7000 power, so it becomes 0");
+	}
+
+	@Test
+	void curillaLetsLethalDamageThrough() {
+		MainWindow mw = curillaBoard();
+
+		// "less than its power" is the whole condition: damage that would break the Forward is
+		// outside it, which is what keeps this a shield rather than an immunity.
+		assertEquals(7000, mw.damageResolver.applyFieldWideDamageModifiers(
+				7000, mw.p1ForwardCards.get(1), true, ForwardTarget.CardZone.FORWARD, 1, false),
+				"damage equal to power is not less than it");
+	}
+
+	@Test
+	void curillaDoesNotShieldHerself() {
+		MainWindow mw = curillaBoard();
+
+		assertEquals(5000, mw.damageResolver.applyFieldWideDamageModifiers(
+				5000, mw.p1ForwardCards.get(0), true, ForwardTarget.CardZone.FORWARD, 0, false),
+				"'other than Curilla' excludes the printing card from her own protection");
+	}
+
+	@Test
+	void curillaShieldsKnightsOnly() {
+		MainWindow mw = curillaBoard();
+
+		assertEquals(5000, mw.damageResolver.applyFieldWideDamageModifiers(
+				5000, mw.p1ForwardCards.get(2), true, ForwardTarget.CardZone.FORWARD, 2, false),
+				"a Thief is no Knight");
+	}
+
+	// =========================================================================================
 	// Noctis 20-078H: "When Noctis is put from the field into the Break Zone, you may put 1
 	// Character you control into the Break Zone. When you do so, play Noctis from the Break Zone
 	// onto the field dull. Noctis gains +2000 power. (This effect does not end at the end of the

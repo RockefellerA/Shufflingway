@@ -1691,7 +1691,7 @@ public class ActionResolver {
         result = tryParseRevealPlayNamedWithMaxCostRestBottom(effectText);
         if (result != null) return result;
 
-        result = tryParseRevealPlayAsManyJobTypeTotalCostRestBottom(effectText);
+        result = tryParseRevealPlayJobTypeTotalCostRestBottom(effectText);
         if (result != null) return result;
 
         result = tryParseRevealPlayNamedOrJobMaxCostRestBottom(effectText);
@@ -2457,7 +2457,7 @@ public class ActionResolver {
             return "RemoveTopOfDeckRfgCastableThisTurn";
         if (tryParseRemoveTopOfDeckFromGame(effectText, source)             != null) return "RemoveTopOfDeckFromGame";
         if (tryParseRevealPlayNamedWithMaxCostRestBottom(effectText)         != null) return "RevealPlayNamedWithMaxCostRestBottom";
-        if (tryParseRevealPlayAsManyJobTypeTotalCostRestBottom(effectText)   != null) return "RevealPlayAsManyJobTypeTotalCost";
+        if (tryParseRevealPlayJobTypeTotalCostRestBottom(effectText)        != null) return "RevealPlayJobTypeTotalCost";
         if (tryParseRevealPlayNamedOrJobMaxCostRestBottom(effectText)        != null) return "RevealPlayNamedOrJobMaxCostRestBottom";
         // Mirrors parse(), where this is read ahead of tryParsePlaySourceOntoField rather than
         // beside its own family; the position here only has to keep it off its two siblings,
@@ -3973,7 +3973,7 @@ public class ActionResolver {
             return "RemoveTopOfDeckRfgCastableThisTurn";
         if (tryParseRemoveTopOfDeckFromGame(effectText, source)             != null) return "RemoveTopOfDeckFromGame";
         if (tryParseRevealPlayNamedWithMaxCostRestBottom(effectText)           != null) return "RevealPlayNamedWithMaxCostRestBottom";
-        if (tryParseRevealPlayAsManyJobTypeTotalCostRestBottom(effectText)     != null) return "RevealPlayAsManyJobTypeTotalCost";
+        if (tryParseRevealPlayJobTypeTotalCostRestBottom(effectText)          != null) return "RevealPlayJobTypeTotalCost";
         if (tryParseRevealPlayNamedOrJobMaxCostRestBottom(effectText)          != null) return "RevealPlayNamedOrJobMaxCostRestBottom";
         // Mirrors parse() and matchedPatternName(); see the note there about its real position.
         if (tryParseFlipUntilCharactersPlayOntoFieldRestShuffleBottom(effectText) != null) return "FlipUntilCharactersPlayOntoFieldRestShuffleBottom";

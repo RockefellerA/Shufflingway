@@ -3329,16 +3329,19 @@ public interface GameContext {
     void revealTopNPlayUpToTypeOntoFieldRestBottom(int reveal, int maxPlay, String typeFilter, String categoryFilter);
 
     /**
-     * Reveals the top {@code reveal} cards of the active player's deck. The player plays any number
-     * of Job {@code job} {@code typeFilter}s among them onto the field for free, so long as their
-     * costs add up to {@code totalCost} or less; the rest go to the bottom of the deck in any order.
-     * — Warrior of Light 10-065L.
+     * Reveals the top {@code reveal} cards of the active player's deck. The player plays up to
+     * {@code maxPlay} Job {@code job} {@code typeFilter}s among them onto the field for free, so
+     * long as their costs add up to {@code totalCost} or less; the rest go to the bottom of the
+     * deck in any order. — Warrior of Light 10-065L and Curilla 22-097L.
      *
-     * <p>The budget is the cap, not a count: the sibling above limits how many cards are played,
-     * this limits what they add up to.
+     * <p>The only member of this family to carry both caps. The sibling above limits how many
+     * cards are played, the budget limits what they add up to, and these two cards sit either
+     * side of that: Warrior of Light passes {@link Integer#MAX_VALUE} for the count and lets the
+     * budget do all the work, while Curilla prints both ("up to 2 ... with a total cost of 4 or
+     * less") and needs each of them enforced.
      */
-    void revealTopNPlayAnyJobTypeWithTotalCostOntoFieldRestBottom(
-            int reveal, String job, String typeFilter, int totalCost);
+    void revealTopNPlayUpToJobTypeWithTotalCostOntoFieldRestBottom(
+            int reveal, int maxPlay, String job, String typeFilter, int totalCost);
 
     default void revealTopNPlayUpToTypeOntoFieldRestBottom(int reveal, int maxPlay, String typeFilter) {
         revealTopNPlayUpToTypeOntoFieldRestBottom(reveal, maxPlay, typeFilter, null);

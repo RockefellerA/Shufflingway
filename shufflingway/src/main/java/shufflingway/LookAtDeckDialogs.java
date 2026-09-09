@@ -2251,19 +2251,21 @@ class LookAtDeckDialogs {
     }
 
     /**
-     * "Play as many Job {@code job} {@code typeFilter}s as you want with a total cost of
+     * "Play up to {@code maxPlay} Job {@code job} {@code typeFilter}s with a total cost of
      * {@code totalCost} or less among them onto the field; rest to the bottom of the deck in any
-     * order." — Warrior of Light 10-065L.
+     * order." — Warrior of Light 10-065L and Curilla 22-097L.
      *
-     * <p>The only member of this family capped by a budget rather than a count, so the count cap is
-     * left wide open and {@code costBudget} does the work.
+     * <p>The only member of this family carrying a budget as well as a count. Warrior of Light
+     * prints no count ("as many as you want") and passes {@link Integer#MAX_VALUE}, leaving
+     * {@code totalCost} to do all the work; Curilla prints both and both bind.
      */
-    void revealPlayAnyJobTypeTotalCostOntoFieldRestBottom(List<CardData> cards, Deque<CardData> deck,
-            boolean isP1, String job, String typeFilter, int totalCost, Consumer<CardData> playOntoField) {
+    void revealPlayUpToJobTypeTotalCostOntoFieldRestBottom(List<CardData> cards, Deque<CardData> deck,
+            boolean isP1, int maxPlay, String job, String typeFilter, int totalCost,
+            Consumer<CardData> playOntoField) {
         String typeLabel = "Job " + job + " " + typeFilter;
         Predicate<CardData> eligible = c ->
                 meetsRevealTypeFilter(c, typeFilter) && CardFilters.meetsJobFilter(c, job);
-        resolveRevealPlayOntoField(cards, deck, isP1, Integer.MAX_VALUE, totalCost, typeLabel,
+        resolveRevealPlayOntoField(cards, deck, isP1, maxPlay, totalCost, typeLabel,
                 eligible, RevealRest.BOTTOM, playOntoField, RevealTake.FIELD);
     }
 

@@ -4011,18 +4011,27 @@ final class ActionResolverPatterns {
      * </ul>
      */
     /**
-     * "Reveal the top N cards of your deck. Play as many Job [J] [Type]s as you want with a total
-     * cost of [C] or less among them onto the field and return the other cards to the bottom of
-     * your deck in any order." — Warrior of Light 10-065L.
+     * "Reveal the top N cards of your deck. Play as many Job [J] [Type]s as you want — or up to
+     * [M] Job [J] [[Type]] — with a total cost of [C] or less among them onto the field and return
+     * the other cards to the bottom of your deck in any order." — Warrior of Light 10-065L and
+     * Curilla 22-097L.
      *
      * <p>The budgeted member of the reveal-and-play family: every sibling caps how many cards are
-     * played, this caps what they cost together.
-     * Groups: {@code n}, {@code job}, {@code type}, {@code totalcost}.
+     * played, this caps what they cost together. Curilla caps both at once, so {@code max} is
+     * optional — absent for Warrior of Light's uncapped "as many ... as you want".
+     *
+     * <p>{@code type} is optional too, because Curilla prints no type noun ("Play up to 2 Job
+     * Knight"). The quantifier and the trailing "as you want" are separately optional rather than
+     * one alternation, since Java forbids reusing a group name across two branches; the anchored
+     * {@code matches()} is what keeps that looseness from claiming anything else.
+     * Groups: {@code n}, {@code max} (optional), {@code job}, {@code type} (optional),
+     * {@code totalcost}.
      */
-    static final Pattern REVEAL_PLAY_AS_MANY_JOB_TYPE_TOTAL_COST_REST_BOTTOM = Pattern.compile(
+    static final Pattern REVEAL_PLAY_JOB_TYPE_TOTAL_COST_REST_BOTTOM = Pattern.compile(
         "(?i)^\\s*reveal\\s+the\\s+top\\s+(?<n>\\d+)\\s+cards?\\s+of\\s+your\\s+deck[.!]?\\s+" +
-        "Play\\s+as\\s+many\\s+Job\\s+(?<job>.+?)\\s+(?<type>Forward|Backup|Monster|Character)s?\\s+" +
-        "as\\s+you\\s+want\\s+with\\s+a\\s+total\\s+cost\\s+of\\s+(?<totalcost>\\d+)\\s+or\\s+less\\s+" +
+        "Play\\s+(?:as\\s+many|up\\s+to\\s+(?<max>\\d+))\\s+Job\\s+(?<job>.+?)" +
+        "(?:\\s+(?<type>Forward|Backup|Monster|Character)s?)?(?:\\s+as\\s+you\\s+want)?\\s+" +
+        "with\\s+a\\s+total\\s+cost\\s+of\\s+(?<totalcost>\\d+)\\s+or\\s+less\\s+" +
         "among\\s+them\\s+onto\\s+(?:the\\s+)?field,?\\s+" +
         "and\\s+return\\s+the\\s+other\\s+cards?\\s+to\\s+the\\s+bottom\\s+of\\s+(?:your|the)\\s+deck" +
         "(?:\\s+in\\s+any\\s+order)?[.!]?\\s*$"
