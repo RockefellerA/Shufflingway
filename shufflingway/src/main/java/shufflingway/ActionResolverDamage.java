@@ -501,13 +501,36 @@ final class ActionResolverDamage {
         if (!m.find()) return null;
         int    damage = Integer.parseInt(m.group("amount"));
         String name   = m.group("name").trim();
+        return damageCombatBlockerOf(name, damage);
+    }
+    /**
+     * Parses 2-013C Ninja's "deal the blocking Forward 2000 damage." — the damage twin of
+     * "break the blocking Forward" (6-088L Estinien), fired by the same "is blocked" trigger.
+     *
+     * <p>The sentence names no attacker because the card <em>is</em> the attacker: "the blocking
+     * Forward" is whoever blocked this source. That makes it the same question
+     * {@link #tryParseDamageToCombatBlocker} answers for the printings that state the name
+     * outright, so it resolves through the same lookup with the source standing in — the two
+     * wordings cannot end up disagreeing about who the blocker is, and no new primitive is needed.
+     *
+     * <p>Distinct from "Choose 1 blocking Forward. Deal it N damage." (21-029R Squall), where there
+     * may be several blockers and the player picks.
+     */
+    static Consumer<GameContext> tryParseDamageBlockingForward(String text, CardData source) {
+        if (source == null) return null;
+        Matcher m = DAMAGE_BLOCKING_FORWARD.matcher(text.trim());
+        if (!m.matches()) return null;
+        return damageCombatBlockerOf(source.name(), Integer.parseInt(m.group("amount")));
+    }
+    /** Deals {@code damage} to whichever Forward is currently blocking {@code attackerName}. */
+    private static Consumer<GameContext> damageCombatBlockerOf(String attackerName, int damage) {
         return ctx -> {
-            int blockerIdx = ctx.combatBlockerIdxForAttacker(name, ctx.isP1());
+            int blockerIdx = ctx.combatBlockerIdxForAttacker(attackerName, ctx.isP1());
             if (blockerIdx < 0) {
-                ctx.logEntry("Effect: Deal " + damage + " damage to blocker of " + name + " — no blocker");
+                ctx.logEntry("Effect: Deal " + damage + " damage to blocker of " + attackerName + " — no blocker");
                 return;
             }
-            ctx.logEntry("Effect: Deal " + damage + " damage to Forward blocking " + name);
+            ctx.logEntry("Effect: Deal " + damage + " damage to Forward blocking " + attackerName);
             if (ctx.isP1()) ctx.damageP2Forward(blockerIdx, damage);
             else            ctx.damageP1Forward(blockerIdx, damage);
         };

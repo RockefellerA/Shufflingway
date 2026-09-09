@@ -36046,6 +36046,93 @@ public class CardBehaviorTest {
     }
 
     // =========================================================================================
+    // Ninja 2-013C: "When Ninja is blocked, deal the blocking Forward 2000 damage."
+    //
+    // The break half of this family was wired (6-088L Estinien's "break the blocking Forward"),
+    // the damage half was not. "The blocking Forward" is not a choice — it is whoever blocked this
+    // attack, which only the block event knows — so it is not a member of the "Choose 1 blocking
+    // Forward. Deal it N damage." family (21-029R Squall) that the resolver already had.
+    //
+    // No new primitive: the sentence names no attacker because the card *is* the attacker, so it
+    // asks the same question DAMAGE_TO_COMBAT_BLOCKER already answers for the printings that name
+    // one ("Deal N damage to the Forward that blocks [Name]"). Both wordings now go through one
+    // lookup, so they cannot disagree about who the blocker is.
+    // =========================================================================================
+
+    private static final String NINJA_2_013C_PING = "deal the blocking Forward 2000 damage.";
+
+    /** Ninja on P1's row, blocked by a P2 Forward — the state a declared block leaves behind. */
+    private static MainWindow blockedNinjaBoard(CardData ninja, CardData blocker) {
+        MainWindow mw = new MainWindow();
+        placeP1Forward(mw, ninja);
+        placeP2Forward(mw, blocker);
+        // Set between "Blocker Declared" and resolveCombat, which is exactly the window an
+        // is-blocked trigger fires in.
+        mw.p2BlockingIdx      = 0;
+        mw.p2BlockedByAttacker = ninja;
+        return mw;
+    }
+
+    @Test
+    void ninjaParsesAsTheDamageTwinOfTheBreakSibling() {
+        CardData ninja = makeForward("Ninja", "Fire", 2, 5000);
+        assertEquals("DamageBlockingForward", ActionResolver.matchedPatternName(NINJA_2_013C_PING, ninja));
+        assertEquals("BreakBlockingForward",
+                ActionResolver.matchedPatternName("break the blocking Forward.", ninja),
+                "and the sibling it was modelled on is unchanged");
+    }
+
+    @Test
+    void ninjaDamagesWhicheverForwardBlockedHim() {
+        CardData ninja   = makeForward("Ninja", "Fire", 2, 5000);
+        CardData blocker = makeForward("Blocker", "Ice", 3, 7000);
+        MainWindow mw = blockedNinjaBoard(ninja, blocker);
+
+        ActionResolver.parse(NINJA_2_013C_PING, ninja).accept(mw.buildGameContext(true));
+
+        assertEquals(2000, mw.p2ForwardDamage.get(0), "the blocker takes the 2000");
+        assertTrue(mw.p2ForwardCards.contains(blocker), "7000 power survives it");
+    }
+
+    @Test
+    void ninjaBreaksABlockerTheDamageIsLethalTo() {
+        CardData ninja   = makeForward("Ninja", "Fire", 2, 5000);
+        CardData blocker = makeForward("Chip", "Ice", 1, 2000);
+        MainWindow mw = blockedNinjaBoard(ninja, blocker);
+        mw.gameState.getIdentity().put(blocker, false);
+
+        ActionResolver.parse(NINJA_2_013C_PING, ninja).accept(mw.buildGameContext(true));
+
+        assertTrue(mw.p2ForwardCards.isEmpty(), "2000 is lethal to a 2000-power blocker");
+        assertTrue(mw.gameState.getP2BreakZone().contains(blocker));
+    }
+
+    @Test
+    void ninjaDoesNothingWhenTheAttackWentUnblocked() {
+        // The trigger cannot fire unblocked, but the effect must no-op rather than pick a victim
+        // if it is ever resolved without a blocker on record.
+        CardData ninja = makeForward("Ninja", "Fire", 2, 5000);
+        MainWindow mw = new MainWindow();
+        placeP1Forward(mw, ninja);
+        placeP2Forward(mw, makeForward("Bystander", "Ice", 3, 7000));
+
+        ActionResolver.parse(NINJA_2_013C_PING, ninja).accept(mw.buildGameContext(true));
+
+        assertEquals(0, mw.p2ForwardDamage.get(0), "nobody blocked, so nobody is the blocking Forward");
+    }
+
+    @Test
+    void theBlockingForwardDamagePatternDoesNotClaimTheScalingWording() {
+        // Yuffie 25-049C ends her sentence with the same phrase but scales the damage by a counter
+        // ("deal 4000 damage for each Shuriken Counter placed on Yuffie to the blocking Forward").
+        // A find() on a loose pattern would take a flat 4000 out of it; this one is anchored.
+        CardData yuffie = makeForward("Yuffie", "Wind", 2, 4000);
+        assertNotEquals("DamageBlockingForward", ActionResolver.matchedPatternName(
+                "deal 4000 damage for each Shuriken Counter placed on Yuffie to the blocking "
+                + "Forward. Then, remove all Shuriken Counters from Yuffie.", yuffie));
+    }
+
+    // =========================================================================================
 
     // =========================================================================================
     // Malboro 4-142R — the "or is blocked" half of a granted trigger

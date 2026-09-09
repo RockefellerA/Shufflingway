@@ -1922,6 +1922,24 @@ final class ActionResolverPatterns {
     static final Pattern BREAK_BLOCKING_FORWARD = Pattern.compile(
         "(?i)^break\\s+the\\s+blocking\\s+Forward[.!]?$"
     );
+    /**
+     * Matches "deal the blocking Forward N damage[.!]?" — 2-013C Ninja, the damage twin of
+     * {@link #BREAK_BLOCKING_FORWARD} and fired by the same "is blocked" trigger. Group
+     * {@code amount}.
+     *
+     * <p>"The blocking Forward" is not a choice: it is the one Forward that blocked this attack,
+     * which only the block event knows. That is why this is a distinct pattern rather than a member
+     * of the "Choose 1 blocking Forward. Deal it N damage." family (21-029R Squall), where the
+     * player picks among several.
+     *
+     * <p>Fully anchored and matched with {@code matches()}: Yuffie 25-049C prints a longer sentence
+     * ending in the same phrase ("deal 4000 damage for each Shuriken Counter … to the blocking
+     * Forward"), and a {@code find()} on a loose pattern would take a fixed amount out of a
+     * scaling one.
+     */
+    static final Pattern DAMAGE_BLOCKING_FORWARD = Pattern.compile(
+        "(?i)^deal\\s+the\\s+blocking\\s+Forward\\s+(?<amount>\\d+)\\s+damage[.!]?$"
+    );
     /** Matches "Break the Forward that blocks [Name][.!]?" — group {@code name}. */
     static final Pattern BREAK_FORWARD_THAT_BLOCKS_CARD = Pattern.compile(
         "(?i)^Break\\s+the\\s+Forward\\s+that\\s+blocks?\\s+(?<name>[^.!]+?)[.!]?$"

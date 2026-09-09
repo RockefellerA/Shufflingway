@@ -1255,6 +1255,9 @@ public class ActionResolver {
         result = tryParseBreakBlockingForward(effectText);
         if (result != null) return result;
 
+        result = tryParseDamageBlockingForward(effectText, source);
+        if (result != null) return result;
+
         result = tryParseBreakForwardThatBlocksCard(effectText);
         if (result != null) return result;
 
@@ -2261,6 +2264,7 @@ public class ActionResolver {
         if (tryParsePutSourceToBottomOfDeck(effectText, source) != null) return "PutSourceToBottomOfDeck";
         if (tryParsePutSourceOnTopOfDeck(effectText, source)   != null) return "PutSourceOnTopOfDeck";
         if (tryParseBreakBlockingForward(effectText)           != null) return "BreakBlockingForward";
+        if (tryParseDamageBlockingForward(effectText, source)  != null) return "DamageBlockingForward";
         if (tryParseBreakForwardThatBlocksCard(effectText)     != null) return "BreakForwardThatBlocksCard";
         if (tryParseChooseExBurstFromDamageZone(effectText)    != null) return "ChooseExBurstFromDamageZone";
         if (tryParseExBurstSuppression(effectText)             != null) return "ExBurstSuppression";
@@ -3756,6 +3760,7 @@ public class ActionResolver {
         if (tryParsePutSourceToBottomOfDeck(effectText, source) != null)   return "PutSourceToBottomOfDeck";
         if (tryParsePutSourceOnTopOfDeck(effectText, source)   != null)     return "PutSourceOnTopOfDeck";
         if (tryParseBreakBlockingForward(effectText)           != null)     return "BreakBlockingForward";
+        if (tryParseDamageBlockingForward(effectText, source)  != null)     return "DamageBlockingForward";
         if (tryParseBreakForwardThatBlocksCard(effectText)     != null)     return "BreakForwardThatBlocksCard";
         if (tryParseChooseExBurstFromDamageZone(effectText)    != null)     return "ChooseExBurstFromDamageZone";
         if (tryParseExBurstSuppression(effectText)             != null)     return "ExBurstSuppression";
