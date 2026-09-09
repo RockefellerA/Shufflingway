@@ -140,6 +140,7 @@ public class CardDatabase implements AutoCloseable {
                                  .replace("<br />", "[[br]]")
                                  .replaceAll("(?i)</?p>", "")
                                  .replace("&amp;", "&")
+                                 .replace("&nbsp;", " ")
                                  .replace("First Srike", "First Strike")
                                  .replace("orCard", "or Card")
                                  .replace("ofYang", "of Yang")

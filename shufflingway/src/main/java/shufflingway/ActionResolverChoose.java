@@ -6086,24 +6086,8 @@ final class ActionResolverChoose {
                 List<ForwardTarget> ts = ctx.opponentSelectsOwnCharacters(count, asMany,
                         condition, element, excludeElem, costVal, costCmp,
                         inclForwards, inclBackups, inclMonsters, what);
-                // The row is settled as cards before any damage lands: a blow that breaks one
-                // Forward renumbers every index behind it, so indices resolved up front would slide
-                // onto the wrong cards — or onto the spared one. Same reason
-                // FOLLOWUP_DAMAGE_AND_SPLASH_OTHER_OPP_FORWARDS holds its complement this way.
                 boolean oppIsP1 = !ctx.isP1();
-                List<CardData> spared = new ArrayList<>();
-                for (ForwardTarget t : ts)
-                    if (t.zone() == ForwardTarget.CardZone.FORWARD)
-                        spared.add(t.isP1() ? ctx.p1Forward(t.idx()) : ctx.p2Forward(t.idx()));
-                List<CardData> others = new ArrayList<>();
-                int oppCount = oppIsP1 ? ctx.p1ForwardCount() : ctx.p2ForwardCount();
-                for (int i = 0; i < oppCount; i++) {
-                    CardData c = oppIsP1 ? ctx.p1Forward(i) : ctx.p2Forward(i);
-                    boolean isSpared = false;
-                    for (CardData s : spared) if (s == c) { isSpared = true; break; }
-                    if (!isSpared) others.add(c);
-                }
-                for (CardData other : others) {
+                for (CardData other : otherOpponentForwards(ctx, ts)) {
                     int idx = forwardIndexByIdentity(ctx, oppIsP1, other);
                     if (idx < 0) continue;   // already broken by an earlier blow in this sweep
                     if (oppIsP1) ctx.damageP1Forward(idx, splash);
@@ -6112,8 +6096,61 @@ final class ActionResolverChoose {
             };
         }
 
+        // "Dull and Freeze all the other Forwards opponent controls." — 18-033R Yuna, the same
+        // complement as the splash above with a different verb. Before this she was claimed by
+        // tryParseAllFieldEffect, six hundred lines earlier in the chain, off her second sentence:
+        // no selection was made, nothing was spared, and the sweep reached both sides of the board.
+        if (OPP_SELECTS_DULL_FREEZE_OTHER_OPP_FORWARDS.matcher(followup).matches()) {
+            return ctx -> {
+                ctx.logEntry(prefix + " — Dull and Freeze every other Forward they control");
+                List<ForwardTarget> ts = ctx.opponentSelectsOwnCharacters(count, asMany,
+                        condition, element, excludeElem, costVal, costCmp,
+                        inclForwards, inclBackups, inclMonsters, what);
+                boolean oppIsP1 = !ctx.isP1();
+                for (CardData other : otherOpponentForwards(ctx, ts)) {
+                    int idx = forwardIndexByIdentity(ctx, oppIsP1, other);
+                    if (idx < 0) continue;
+                    ctx.dullAndFreezeTarget(
+                            new ForwardTarget(oppIsP1, idx, ForwardTarget.CardZone.FORWARD));
+                }
+            };
+        }
+
+        // No corpus text reaches this today. It stays a claiming no-op rather than a null return on
+        // purpose: returning null would hand the text back to the chain, and the parsers below this
+        // one match with find() over a sentence that has already had its selection made. That is
+        // precisely how 18-033R Yuna came to be swept by tryParseAllFieldEffect — an unhandled
+        // followup doing nothing is a smaller wrong than a later parser doing something stronger
+        // than the card. The gap is not silent either way: the description chain has no name for a
+        // followup with no arm, so such an ability reads "OpponentSelects / ?" in the golden file.
         return ctx -> ctx.logEntry(
                 "[ActionResolver] Opponent selects — followup not yet implemented: " + followup);
+    }
+
+    /**
+     * The Forwards on the opponent's row that {@code spared} does not name — "all the other
+     * Forwards opponent controls", where the opponent's own selection says which one is left alone.
+     *
+     * <p>Held as cards rather than indices, and settled before the effect touches anything: an
+     * effect that breaks one Forward renumbers every index behind it, so indices resolved up front
+     * would slide onto the wrong cards — or onto the spared one. Callers look each card's index up
+     * again as they reach it, and skip one that has since gone.
+     */
+    private static List<CardData> otherOpponentForwards(GameContext ctx, List<ForwardTarget> spared) {
+        boolean oppIsP1 = !ctx.isP1();
+        List<CardData> kept = new ArrayList<>();
+        for (ForwardTarget t : spared)
+            if (t.zone() == ForwardTarget.CardZone.FORWARD)
+                kept.add(t.isP1() ? ctx.p1Forward(t.idx()) : ctx.p2Forward(t.idx()));
+        List<CardData> others = new ArrayList<>();
+        int oppCount = oppIsP1 ? ctx.p1ForwardCount() : ctx.p2ForwardCount();
+        for (int i = 0; i < oppCount; i++) {
+            CardData c = oppIsP1 ? ctx.p1Forward(i) : ctx.p2Forward(i);
+            boolean isSpared = false;
+            for (CardData s : kept) if (s == c) { isSpared = true; break; }
+            if (!isSpared) others.add(c);
+        }
+        return others;
     }
 
     /** Returns one selected Character to its owner's hand, dispatching by the zone it sits in. */

@@ -796,6 +796,18 @@ final class ActionResolverPatterns {
         "(?:your\\s+)?opponent\\s+controls[.!]?$"
     );
     /**
+     * "Dull and Freeze all the other Forwards opponent controls." — 18-033R Yuna, the sibling of
+     * {@link #OPP_SELECTS_SPLASH_OTHER_OPP_FORWARDS} with a different verb on the same complement.
+     *
+     * <p>Both follow an opponent's selection that names the one Forward left alone, which is why
+     * neither can be read as a field sweep:
+     * {@link #ALL_FIELD_EFFECT_PATTERN} refuses "all the other …" for exactly this reason.
+     */
+    static final Pattern OPP_SELECTS_DULL_FREEZE_OTHER_OPP_FORWARDS = Pattern.compile(
+        "(?i)^Dull\\s+and\\s+Freeze\\s+all\\s+the\\s+other\\s+Forwards\\s+" +
+        "(?:your\\s+)?opponent\\s+controls[.!]?$"
+    );
+    /**
      * "Deal it/them the same amount of damage." — 23-077H Azul's retaliation, the choose-a-target
      * twin of Shantotto 4-083L's board sweep.
      *
@@ -6975,7 +6987,17 @@ final class ActionResolverPatterns {
      */
     static final Pattern ALL_FIELD_EFFECT_PATTERN = Pattern.compile(
         "(?i)(?<action>Break|Activate|dull\\s+and\\s+freeze|dull|freeze)\\s+" +
-        "all\\s+(?:the\\s+)?" +
+        // "all the OTHER Forwards opponent controls" is never a sweep of its own: in all four
+        // printings that word points back at a card an earlier sentence chose or had the opponent
+        // select, and the effect is the complement of that pick. Every filter group below is
+        // optional, so without this guard the pattern matched the bare "Dull and Freeze all the "
+        // under find() with no target type and no side — 18-033R Yuna dulled and froze every
+        // Forward on the table, her controller's included and the spared one with them, instead of
+        // letting her opponent keep the one they selected.
+        //
+        // The guard sits in front of the optional "the", not behind it. Behind it, find() simply
+        // declined to consume "the", read "all " followed by nothing, and matched anyway.
+        "all\\s+(?!(?:the\\s+)?other\\b)(?:the\\s+)?" +
         "(?:(?<element>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)\\s+)?" +
         "(?:Category\\s+(?<category>\\S+)\\s+)?" +
         "(?:Job\\s+(?<job>.+?)(?=\\s+(?:Forwards?|Backups?|Characters?|you\\b|opponent\\b)|\\s*[.!]?$))?" +

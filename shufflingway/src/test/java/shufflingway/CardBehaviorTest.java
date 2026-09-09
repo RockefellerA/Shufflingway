@@ -48480,5 +48480,85 @@ public class CardBehaviorTest {
 	}
 
 	// =========================================================================================
+	// 18-033R Yuna — the one card that was falling through the opponent-selects followups.
+	//
+	// Chasing Chaos turned up a trailing "followup not yet implemented" no-op on that parser, and
+	// exactly one corpus ability whose followup had no arm. It never actually reached the no-op:
+	// tryParseAllFieldEffect, six hundred lines earlier in the chain, claimed Yuna off her second
+	// sentence — so no selection was made, nothing was spared, and the sweep reached both sides of
+	// the board rather than the opponent's.
+	//
+	// The cause was in ALL_FIELD_EFFECT_PATTERN, not in the ordering: every filter group after
+	// "all the" is optional, so under find() the pattern matched the bare "Dull and Freeze all "
+	// with no target type and no side. "All the other X" is never a sweep of its own — in all four
+	// printings that word points back at a card the same ability chose or had the opponent select.
+	// =========================================================================================
+
+	private static final String YUNA_18_033R =
+			"your opponent selects 1 Forward they control. "
+			+ "Dull and Freeze all the other Forwards opponent controls.";
+
+	private static CardData yuna18033R() { return makeForward("Yuna", "Ice", 3, 7000); }
+
+	@Test
+	void yunaIsReadAsASelectionRatherThanABoardWideSweep() {
+		assertEquals("OpponentSelects",
+				ActionResolver.matchedPatternName(YUNA_18_033R, yuna18033R()));
+		assertEquals("OpponentSelects / DullFreezeOtherOppForwards",
+				ActionResolver.fullDescription(YUNA_18_033R, yuna18033R()));
+	}
+
+	@Test
+	void aGenuineFieldSweepStillReadsAsOne() {
+		// The guard refuses "all the other …" and nothing else: a sweep that names no back-reference
+		// is still a sweep.
+		assertEquals("AllFieldEffect",
+				ActionResolver.matchedPatternName(
+						"Dull and Freeze all the Forwards opponent controls.", yuna18033R()));
+		assertEquals("AllFieldEffect",
+				ActionResolver.matchedPatternName("Break all the Forwards.", yuna18033R()));
+	}
+
+	@Test
+	void yunaSparesTheSelectedForwardAndTakesTheRest() {
+		MainWindow mw = new MainWindow();
+		CardData spared = makeForward("Cheap",  "Fire", 1, 3000);
+		CardData other1 = makeForward("Middle", "Fire", 2, 5000);
+		CardData other2 = makeForward("Dear",   "Fire", 3, 7000);
+		placeP2Forward(mw, spared);
+		placeP2Forward(mw, other1);
+		placeP2Forward(mw, other2);
+		CardData mine = makeForward("Mine", "Ice", 2, 5000);
+		mw.gameState.getIdentity().put(mine, true);
+		mw.placeCardInForwardZone(mine);
+
+		ActionResolver.parse(YUNA_18_033R, yuna18033R()).accept(mw.buildGameContext(true));
+
+		// The AI gives up what it can best spare, which is its cheapest — and that is the one the
+		// card leaves alone.
+		assertEquals(CardState.ACTIVE, mw.p2ForwardStates.get(0), "the selected Forward is spared");
+		assertFalse(mw.p2ForwardFrozen.get(0));
+		assertEquals(CardState.DULL, mw.p2ForwardStates.get(1));
+		assertTrue(mw.p2ForwardFrozen.get(1));
+		assertEquals(CardState.DULL, mw.p2ForwardStates.get(2));
+		assertTrue(mw.p2ForwardFrozen.get(2));
+		// The old reading swept both sides of the table.
+		assertEquals(CardState.ACTIVE, mw.p1ForwardStates.get(0), "the caster's own row is untouched");
+		assertFalse(mw.p1ForwardFrozen.get(0));
+	}
+
+	@Test
+	void yunaDoesNothingToALoneForwardBecauseItIsTheOneSpared() {
+		MainWindow mw = new MainWindow();
+		CardData only = makeForward("Only", "Fire", 2, 5000);
+		placeP2Forward(mw, only);
+
+		ActionResolver.parse(YUNA_18_033R, yuna18033R()).accept(mw.buildGameContext(true));
+
+		assertEquals(CardState.ACTIVE, mw.p2ForwardStates.get(0));
+		assertFalse(mw.p2ForwardFrozen.get(0));
+	}
+
+	// =========================================================================================
 
 }

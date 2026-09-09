@@ -2600,6 +2600,10 @@ public class ActionResolver {
         // amount here belongs to the others, and "Damage" would read it as the target's.
         if (OPP_SELECTS_SPLASH_OTHER_OPP_FORWARDS.matcher(followupText.trim()).matches())
                                                                                       return "SplashOtherOppForwards";
+        // 18-033R Yuna, the same complement with a different verb. Ahead of the plain dull/freeze
+        // names, which would read the sweep as landing on the selected Forward rather than sparing it.
+        if (OPP_SELECTS_DULL_FREEZE_OTHER_OPP_FORWARDS.matcher(followupText.trim()).matches())
+                                                                                      return "DullFreezeOtherOppForwards";
         // Mirrors the choose chain, and ahead of the plain damage name for the same reason given
         // there: this sentence pair contains a "Deal it 3000 damage" that FOLLOWUP_DAMAGE finds,
         // which would report Ace 16-002H as dealing a flat 3000 and drop the per-Element multiplier
