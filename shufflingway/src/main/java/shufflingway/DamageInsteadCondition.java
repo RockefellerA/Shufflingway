@@ -13,6 +13,7 @@ public sealed interface DamageInsteadCondition
                 DamageInsteadCondition.OpponentDamageAtLeast,
                 DamageInsteadCondition.OpponentHandAtMost,
                 DamageInsteadCondition.YouCastAtLeast,
+                DamageInsteadCondition.YouCastCardNamed,
                 DamageInsteadCondition.OpponentHasMoreForwards,
                 DamageInsteadCondition.IsExBurst {
 
@@ -42,6 +43,16 @@ public sealed interface DamageInsteadCondition
 
     /** "If you have cast N or more cards this turn" */
     record YouCastAtLeast(int min) implements DamageInsteadCondition {}
+
+    /**
+     * "If you have cast Card Name [X] this turn" — Sazh 1-013H's Brynhildr bonus, the one
+     * printing of this family whose condition names a card rather than counting them.
+     *
+     * <p>One cast is enough, unlike the "other than [Self]" wording elsewhere in the resolver
+     * where the source's own cast is one of the ones counted: the card named here is never the
+     * card asking.
+     */
+    record YouCastCardNamed(String name) implements DamageInsteadCondition {}
 
     /** "If the number of Forwards your opponent controls is greater than the number of Forwards you control" */
     record OpponentHasMoreForwards() implements DamageInsteadCondition {}

@@ -130,6 +130,42 @@ final class ActionResolverChoose {
     }
 
     /**
+     * Whether "As long as it is on the field, [X] does not activate during your Active Phase."
+     * names the ability's own source -- Reeve 16-104R's inverted lock, where the printing is what
+     * gets held and the warden is whatever the primary played.
+     *
+     * <p>The same guard the two warden siblings carry, and asked by the effect side and the
+     * description side alike, so a sentence the effect declines cannot be reported as one it read.
+     */
+    static boolean selfNotActivateWhilePlayedStandsNamesSource(String text, CardData source) {
+        if (text == null || source == null || source.name() == null) return false;
+        Matcher m = SECONDARY_SELF_NOT_ACTIVATE_WHILE_PLAYED_ON_FIELD.matcher(text.trim());
+        return m.matches() && m.group("name").trim().equalsIgnoreCase(source.name());
+    }
+
+    /**
+     * Plays one Break Zone pick onto the field, appending the card to {@code landed} when it got
+     * there and {@code trackLanded} asked for it.
+     *
+     * <p>The card is read out of the Break Zone before the play and the play's own return value
+     * says whether it happened, which together are the only way to name what is now on the field:
+     * the returned {@code ForwardTarget} is an index into a row the play just changed, and the
+     * pick's index points at a Break Zone slot the play emptied.
+     *
+     * <p>{@code zone} being null means the pick was never a Break Zone row, so there is nothing to
+     * read and nothing is tracked.
+     */
+    private static void playOneFromBreakZone(GameContext ctx, ForwardTarget t, String zone,
+            boolean noAutoAbility, boolean trackLanded, List<CardData> landed) {
+        CardData moving = trackLanded && zone != null
+                ? (t.isP1() ? ctx.p1BreakZoneCard(t.idx()) : ctx.p2BreakZoneCard(t.idx()))
+                : null;
+        ForwardTarget placed = noAutoAbility ? ctx.playTargetOntoFieldNoAutoAbility(t)
+                                             : ctx.playTargetOntoField(t);
+        if (moving != null && placed != null) landed.add(moving);
+    }
+
+    /**
      * Parses "[if cond,] Select N of the M following actions. "a" "b" ...".
      * Returns an effect that asks the player to choose {@code select} of the quoted
      * sub-actions (via {@link GameContext#chooseActions}), then re-parses and applies
@@ -1682,6 +1718,17 @@ final class ActionResolverChoose {
                             // line and the played card's ETF trigger fires anyway — which for
                             // 22-058H Qator Bashtar is the whole of what the sentence forbids.
                             secondary = null;
+                        } else if (selfNotActivateWhilePlayedStandsNamesSource(secondaryText, source)
+                                && FOLLOWUP_PLAY_ONTO_FIELD.matcher(primaryFollowup).find()) {
+                            // Reeve 16-104R. Also not an effect of its own from here: "it" is the
+                            // card the primary played, and the secondary slot is handed
+                            // lastChosenTargets(), which by now names Break Zone rows that play has
+                            // emptied. The PlayOntoField branch below arms it off the card it moved.
+                            //
+                            // Nulled only when the primary is that play. Behind any other primary
+                            // there is no card for "it" to mean, so the sentence falls through to
+                            // the generic parse and reports unread rather than vanishing.
+                            secondary = null;
                         } else if (source != null
                                 && FOLLOWUP_DOES_NOT_ACTIVATE_WHILE_NAMED_ON_FIELD.matcher(secondaryText.trim()).matches()
                                 && doesNotActivateNamesSource(secondaryText, source)) {
@@ -2433,7 +2480,14 @@ final class ActionResolverChoose {
             int    altDmg    = Integer.parseInt(insteadM.group("alt"));
             String condText  = insteadM.group("cond").trim();
             DamageInsteadCondition insteadCond = parseDamageInsteadCondition(condText);
-            if (insteadCond != null) {
+            // Sazh 1-013H's price, printed on each arm and charged once. Absorbed here rather than
+            // left to the split -- this branch claims the whole followup, so a skip it swallowed
+            // and did not charge would be silently dropped. It has to name the printing card:
+            // matched but unnamed, the branch is declined and the text falls through unread.
+            boolean skipNamesSource = damageInsteadSkipNamesSource(insteadM, source);
+            boolean chargesSkip = skipNamesSource
+                    && (insteadM.group("skipbefore") != null || insteadM.group("skipafter") != null);
+            if (insteadCond != null && skipNamesSource) {
                 return ctx -> {
                     ctx.logChooseHeader(choosePrefix + " — Deal " + baseDmg + "/" + altDmg + " damage (if " + condText + ")");
                     List<ForwardTarget> ts = selectTargets(ctx, maxCount, upTo,
@@ -2441,6 +2495,7 @@ final class ActionResolverChoose {
                             costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters, jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, fExcludeElem, withoutMulticard);
                     sortedByIdxDesc(ts, true) .forEach(t -> ctx.damageTarget(t, resolveInsteadDamage(ctx, t, insteadCond, baseDmg, altDmg)));
                     sortedByIdxDesc(ts, false).forEach(t -> ctx.damageTarget(t, resolveInsteadDamage(ctx, t, insteadCond, baseDmg, altDmg)));
+                    if (chargesSkip) ctx.sourceSkipsNextActivePhase(source);
                 };
             }
         }
@@ -4149,6 +4204,12 @@ final class ActionResolverChoose {
             // it is read here and not run as a secondary — see the guard that nulls it out above.
             final boolean noAutoAbility = secondaryText != null
                     && ITS_AUTO_ABILITY_WILL_NOT_TRIGGER.matcher(secondaryText).matches();
+            // Reeve 16-104R's "As long as it is on the field, Reeve does not activate during your
+            // Active Phase." — read here for the same reason, and nulled out of the secondary slot
+            // by the same guard: "it" is the card this play is about to move, and only this branch
+            // still has it.
+            final boolean lockSelfWhilePlayedStands =
+                    selfNotActivateWhilePlayedStandsNamesSource(secondaryText, source);
             // Check for "When it enters the field, if it is [cond], [inner]" conditional secondary.
             // Peek at the chosen card's data before playing so we can evaluate the condition after.
             final Predicate<CardData> etfCond;
@@ -4184,14 +4245,21 @@ final class ActionResolverChoose {
                         if (c != null) chosenCards.add(c);
                     }
                 }
-                sortedByIdxDesc(ts, true) .forEach(t -> {
-                    if (noAutoAbility) ctx.playTargetOntoFieldNoAutoAbility(t);
-                    else               ctx.playTargetOntoField(t);
-                });
-                sortedByIdxDesc(ts, false).forEach(t -> {
-                    if (noAutoAbility) ctx.playTargetOntoFieldNoAutoAbility(t);
-                    else               ctx.playTargetOntoField(t);
-                });
+                // What actually reached the field, in play order. Collected only for the lock that
+                // needs it, so the ordinary play costs one empty list.
+                List<CardData> landedCards = new ArrayList<>();
+                sortedByIdxDesc(ts, true) .forEach(t ->
+                        playOneFromBreakZone(ctx, t, zone, noAutoAbility,
+                                lockSelfWhilePlayedStands, landedCards));
+                sortedByIdxDesc(ts, false).forEach(t ->
+                        playOneFromBreakZone(ctx, t, zone, noAutoAbility,
+                                lockSelfWhilePlayedStands, landedCards));
+                // Armed off the card that landed, not the one that was picked: a play the board
+                // refused leaves it in the Break Zone, and "as long as it is on the field" is false
+                // of a card that never got there. The sentence says "it", singular, and its one
+                // printing picks one -- so the first is the warden.
+                if (lockSelfWhilePlayedStands && !landedCards.isEmpty())
+                    ctx.sourceDoesNotActivateWhileWardenOnField(source, landedCards.get(0));
                 if (etfCond != null && etfInner != null) {
                     boolean anyMatched = chosenCards.stream().anyMatch(etfCond);
                     if (anyMatched) {

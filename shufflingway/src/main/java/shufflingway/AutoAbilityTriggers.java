@@ -985,6 +985,72 @@ final class AutoAbilityTriggers {
 		return false;
 	}
 
+	/**
+	 * "[Self] does not activate during your Active Phase." — the standing self-lock printed by
+	 * Larkeicus 13-014R, Broden 25-098R, Alys the Ensorceled 17-118R, Ryid 5-023C, Unei 5-027R and
+	 * Ghido 3-131H, who writes "the Active Phase" where the rest write "your".
+	 *
+	 * <p>A passive read off the card, not an instruction: nothing resolves it, {@code MainWindow
+	 * .blockedFromActivating} asks it of every card the Active Phase walks. That makes it the
+	 * permanent member of the family whose other two are held elsewhere — the warden-held lock in
+	 * {@code MainWindow.nonActivatingWhileWardenOnField}, laid on a card a choice picked, and the
+	 * one-shot {@code skipNextActivePhase}, spent by the phase it is charged for.
+	 *
+	 * <p>It gates the Active Phase only. Four of the six print an activate of their own — Ghido's
+	 * 《Water》, Ryid's break-zone trigger — and those still turn the card back over.
+	 *
+	 * <p>Anchored end to end and name-checked against the carrier by {@link #hasSelfNeverActivates},
+	 * which is what keeps the three apart: "your <em>next</em> Active Phase" fails the alternation,
+	 * and both "As long as …" wordings — Vincent 16-024H's lock on someone else's card and Reeve
+	 * 16-104R's lock on his own, held while a borrowed Forward stands — leave their prefix in
+	 * {@code name} and fail the name check. Reeve is a real effect this does not implement; failing
+	 * closed leaves him visibly unread rather than silently locked forever.
+	 */
+	static final Pattern FA_SELF_NEVER_ACTIVATES = Pattern.compile(
+		"(?i)^(?<name>.+?)\\s+does\\s+not\\s+activate\\s+during\\s+(?:your|the)\\s+" +
+		"Active\\s+Phase[.!]?$"
+	);
+
+	/**
+	 * "If you don't control any Forwards, [Self] does not activate during your Active Phase." —
+	 * Aria (III) 10-108R, the one printing of {@link #FA_SELF_NEVER_ACTIVATES} that names a
+	 * condition, and the price her 《Dull》 power pump pays for costing 1.
+	 *
+	 * <p>Checked ahead of the unconditional pattern, which would otherwise take the whole sentence
+	 * with the condition swallowed into {@code name} — where the name check turns it down, so the
+	 * order is what makes her readable rather than what keeps her safe.
+	 *
+	 * <p>"You" is Aria's controller, so the query is asked of that side's Forwards; and it is asked
+	 * live, because a Forward breaking mid-phase is exactly when the answer changes.
+	 */
+	static final Pattern FA_SELF_NEVER_ACTIVATES_WITHOUT_FORWARDS = Pattern.compile(
+		"(?i)^If\\s+you\\s+don'?t\\s+control\\s+any\\s+Forwards,\\s+(?<name>.+?)\\s+does\\s+not\\s+" +
+		"activate\\s+during\\s+your\\s+Active\\s+Phase[.!]?$"
+	);
+
+	/** Returns true if {@code card} prints the unconditional standing "does not activate" lock. */
+	static boolean hasSelfNeverActivates(CardData card) {
+		return namesSelf(card, FA_SELF_NEVER_ACTIVATES);
+	}
+
+	/** Returns true if {@code card} prints Aria (III) 10-108R's Forward-less arm of that lock. */
+	static boolean hasSelfNeverActivatesWithoutForwards(CardData card) {
+		return namesSelf(card, FA_SELF_NEVER_ACTIVATES_WITHOUT_FORWARDS);
+	}
+
+	/**
+	 * Whether any of {@code card}'s field abilities matches {@code p} end to end with its
+	 * {@code name} group naming {@code card} itself.
+	 */
+	private static boolean namesSelf(CardData card, Pattern p) {
+		if (card == null || card.name() == null) return false;
+		for (FieldAbility fa : card.fieldAbilities()) {
+			Matcher m = p.matcher(fa.effectText().trim());
+			if (m.matches() && m.group("name").trim().equalsIgnoreCase(card.name())) return true;
+		}
+		return false;
+	}
+
 	/** "If a card is put into your Break Zone in any situation, remove it from the game instead." */
 	static final Pattern FA_BZ_TO_RFG_ANY_SITUATION = Pattern.compile(
 		"(?i)^If\\s+a\\s+card\\s+is\\s+put\\s+into\\s+your\\s+Break\\s+Zone\\s+in\\s+any\\s+situation,\\s+remove\\s+it\\s+from\\s+the\\s+game\\s+instead[.!]?$"

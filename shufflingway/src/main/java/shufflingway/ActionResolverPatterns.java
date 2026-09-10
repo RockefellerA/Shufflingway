@@ -981,9 +981,31 @@ final class ActionResolverPatterns {
     /**
      * Matches "Deal it/them N damage. If &lt;condition&gt;, deal it/them M damage instead."
      * Groups: {@code base}, {@code cond}, {@code alt}.
+     *
+     * <p>Sazh 1-013H is the corpus's one printing that does not write those two sentences back to
+     * back: he charges "Sazh will not activate during your next Active Phase" to each arm, so the
+     * skip stands between them and again after the second, and he spells the upgraded target "that
+     * Forward" where the other fifty-odd write "it". Both are admitted here rather than left to the
+     * sentence split, which cut between the arms and handed the parser a 2000-damage effect with
+     * the Brynhildr bonus reported as an unread tail.
+     *
+     * <p>The two skip clauses are optional groups, so every other printing matches exactly the text
+     * it did before; they carry a name for the reader to check against the printing card, because
+     * the skip is only ever charged to the card that prints it. One skip is charged whichever arm
+     * runs — the card prints it twice because it prints the price on both arms, not because paying
+     * it twice means anything.
+     *
+     * <p>Groups: {@code base}, {@code cond}, {@code alt}, and {@code skipbefore} / {@code skipafter}
+     * for the names on the two skip clauses.
      */
     static final Pattern FOLLOWUP_DAMAGE_INSTEAD = Pattern.compile(
-        "(?i)deal\\s+(?:it|them)\\s+(?<base>\\d+)\\s+damage\\.\\s+If\\s+(?<cond>.+?),\\s+deal\\s+(?:it|them)\\s+(?<alt>\\d+)\\s+damage\\s+instead\\.?"
+        "(?i)deal\\s+(?:it|them)\\s+(?<base>\\d+)\\s+damage\\.\\s+" +
+        "(?:(?<skipbefore>[A-Za-z][^.]*?)\\s+(?:will|does)\\s+not\\s+activate\\s+during\\s+" +
+        "your\\s+next\\s+Active\\s+Phase\\.\\s+)?" +
+        "If\\s+(?<cond>.+?),\\s+deal\\s+(?:it|them|that\\s+(?:Forward|Character|Backup|Monster))\\s+" +
+        "(?<alt>\\d+)\\s+damage\\s+instead\\.?" +
+        "(?:\\s+(?<skipafter>[A-Za-z][^.]*?)\\s+(?:will|does)\\s+not\\s+activate\\s+during\\s+" +
+        "your\\s+next\\s+Active\\s+Phase[.!]?)?"
     );
     /**
      * Matches any "P. If [name] results from an EX Burst, A instead." followup.
@@ -1535,6 +1557,28 @@ final class ActionResolverPatterns {
         "(?i)^As\\s+long\\s+as\\s+(?<name>.+?)\\s+is\\s+on\\s+the\\s+field,\\s+" +
         "(?:it|they)\\s+(?:does|do)\\s+not\\s+activate\\s+during\\s+" +
         "(?:its|their)\\s+controller'?s?\\s+Active\\s+Phase[.!]?$"
+    );
+    /**
+     * Matches "As long as it is on the field, [CardName] does not activate during your Active
+     * Phase." -- Reeve 16-104R, the corpus's one printing of the warden relation inverted.
+     *
+     * <p>Vincent 16-024H and Unei 5-027R lock a card a choice picked and stand as its warden
+     * themselves; Reeve locks <em>himself</em>, and the warden is the Forward he just played out of
+     * his Break Zone. Same pairing, same live query, the two arguments the other way round -- which
+     * is why {@link #FOLLOWUP_DOES_NOT_ACTIVATE_WHILE_NAMED_ON_FIELD} cannot serve: it reads the
+     * name in the "As long as" clause as the warden, and here that clause says only "it".
+     *
+     * <p>What "it" refers to is the card the primary played, so the sentence means nothing apart
+     * from that primary. It is not run as an ordinary secondary for that reason -- the secondary
+     * slot is handed {@code lastChosenTargets()}, which by then names Break Zone rows the play has
+     * already emptied. The PlayOntoField branch arms it instead, off the card it moved.
+     *
+     * <p>Anchored end to end, and {@code name} is checked against the printing card: the sentence
+     * names the card it locks, and a card's own name in its own text means that card.
+     */
+    static final Pattern SECONDARY_SELF_NOT_ACTIVATE_WHILE_PLAYED_ON_FIELD = Pattern.compile(
+        "(?i)^As\\s+long\\s+as\\s+it\\s+is\\s+on\\s+the\\s+field,\\s+(?<name>.+?)\\s+does\\s+not\\s+" +
+        "activate\\s+during\\s+your\\s+Active\\s+Phase[.!]?$"
     );
     /**
      * Matches "As long as [CardName] is on the field, it gains +N power[ and [keywords]][ and

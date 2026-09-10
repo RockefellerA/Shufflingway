@@ -2096,6 +2096,17 @@ final class GameContextImpl implements GameContext {
 						+ " Active Phase while " + warden.name() + " is on the field");
 			}
 
+			@Override public void sourceDoesNotActivateWhileWardenOnField(CardData source, CardData warden) {
+				// No field lookup on either side: both cards are already in hand -- the source is the
+				// printing that resolved the trigger, and the warden is the instance the play moved
+				// out of the Break Zone. The same map the target-side lock writes, keyed the same
+				// way, so blockedFromActivating and its staleness rule serve this with no change.
+				if (source == null || warden == null) return;
+				mw.nonActivatingWhileWardenOnField.put(source, warden);
+				logEntry("Effect: " + source.name() + " does not activate during your Active Phase"
+						+ " while " + warden.name() + " is on the field");
+			}
+
 			@Override public void sourceSkipsNextActivePhase(CardData source) {
 				if (source == null) return;
 				mw.skipNextActivePhaseFor(source);

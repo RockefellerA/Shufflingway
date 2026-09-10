@@ -136,6 +136,17 @@ public class FieldAbilityParsingTest {
         // cannot claim recognition for text the engine would reject.
         if (AutoAbilityTriggers.FA_SELF_CAST_LIMIT.matcher(fa.effectText().trim()).matches()) return true;
         if (AutoAbilityTriggers.FA_BOTH_CAST_LIMIT.matcher(fa.effectText().trim()).matches()) return true;
+        // Larkeicus 13-014R, Broden 25-098R, Alys the Ensorceled 17-118R, Ryid 5-023C, Unei 5-027R,
+        // Ghido 3-131H, and Aria (III) 10-108R on her condition. Read per Active Phase by
+        // MainWindow.blockedFromActivating, which name-checks the sentence against its carrier —
+        // so the has* call is asked here too, and Reeve 16-104R's "As long as it is on the field"
+        // twin stays unclaimed on both sides rather than being reported as this one.
+        if (AutoAbilityTriggers.hasSelfNeverActivates(source)
+                && AutoAbilityTriggers.FA_SELF_NEVER_ACTIVATES
+                        .matcher(fa.effectText().trim()).matches()) return true;
+        if (AutoAbilityTriggers.hasSelfNeverActivatesWithoutForwards(source)
+                && AutoAbilityTriggers.FA_SELF_NEVER_ACTIVATES_WITHOUT_FORWARDS
+                        .matcher(fa.effectText().trim()).matches()) return true;
         if (AutoAbilityTriggers.FA_BZ_TO_RFG_ANY_SITUATION.matcher(fa.effectText()).find()) return true;
         if (AutoAbilityTriggers.FA_CHARACTER_FIELD_TO_BZ_MAY_RFG.matcher(fa.effectText()).find()) return true;
         if (AutoAbilityTriggers.FA_OPP_DAMAGED_FORWARD_FIELD_TO_BZ_RFG.matcher(fa.effectText()).find()) return true;
@@ -635,6 +646,14 @@ public class FieldAbilityParsingTest {
             return "SelfCastLimit[2 per turn]";
         if (AutoAbilityTriggers.FA_BOTH_CAST_LIMIT.matcher(fa.effectText().trim()).matches())
             return "BothCastLimit[2 per turn]";
+        if (AutoAbilityTriggers.hasSelfNeverActivates(source)
+                && AutoAbilityTriggers.FA_SELF_NEVER_ACTIVATES
+                        .matcher(fa.effectText().trim()).matches())
+            return "SelfNeverActivates";
+        if (AutoAbilityTriggers.hasSelfNeverActivatesWithoutForwards(source)
+                && AutoAbilityTriggers.FA_SELF_NEVER_ACTIVATES_WITHOUT_FORWARDS
+                        .matcher(fa.effectText().trim()).matches())
+            return "SelfNeverActivates[while you control no Forwards]";
         if (AutoAbilityTriggers.FA_BZ_TO_RFG_ANY_SITUATION.matcher(fa.effectText()).find())
             return "BzToRfgAnySituation";
         if (AutoAbilityTriggers.FA_CHARACTER_FIELD_TO_BZ_MAY_RFG.matcher(fa.effectText()).find())

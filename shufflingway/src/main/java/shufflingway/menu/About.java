@@ -51,10 +51,11 @@ public class About extends JDialog {
 		{
 			JPanel buttonPane = new JPanel();
 			buttonPane.setLayout(new FlowLayout(FlowLayout.RIGHT));
-			JLabel lblNewLabel = new JLabel("<html><div style='text-align: center;'>Author: Andrew Rockefeller © 2023<br/>" +
-			"Pixel NES font by Neale Davidson<br/><br/>" +
+			JLabel lblNewLabel = new JLabel("<html><div style='text-align: center;'>Author: Andrew Rockefeller © 2023-2026<br/>" +
+			"Pixel NES font by Neale Davidson<br/>" +
+			"Non-API card images sourced from materiahunter.com<br/><br/>" +
 			"Version: " + UpdateChecker.currentVersion() + "<br/><br/>" +
-			"This is an unofficial fan tool — it is not affiliated with Square Enix.</div></html>");
+			"This is an unofficial fan tool — it is not affiliated with Square Enix or Hobby Japan.</div></html>");
 			lblNewLabel.setHorizontalAlignment(SwingConstants.CENTER);
 			getContentPane().add(lblNewLabel, BorderLayout.CENTER);
 		}

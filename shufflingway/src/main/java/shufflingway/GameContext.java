@@ -3282,6 +3282,27 @@ public interface GameContext {
     void targetDoesNotActivateWhileWardenOnField(ForwardTarget t, CardData warden);
 
     /**
+     * Holds {@code source} out of its own controller's Active Phase for as long as {@code warden}
+     * is on the field -- Reeve 16-104R, "choose 1 Forward of cost 2 or less in your Break Zone.
+     * Play it onto the field. As long as it is on the field, Reeve does not activate during your
+     * Active Phase."
+     *
+     * <p>{@link #targetDoesNotActivateWhileWardenOnField} with the two cards swapped: there the
+     * ability's own printing is the warden and the lock lands on a card a choice picked, here the
+     * printing is what gets locked and the warden is the Forward it brought back. One pairing
+     * serves both, so this is the same live query and the same release the moment {@code warden}
+     * leaves -- Reeve is free again as soon as the Forward he paid for is gone.
+     *
+     * <p>{@code warden} is matched by identity. The card played out of the Break Zone is the
+     * instance that lands on the field, so the pairing survives the move; another printing of the
+     * same name is a different card and neither sustains the lock nor ends it.
+     *
+     * <p>Armed only when the play actually happened. A play the board refused leaves the card in
+     * the Break Zone, and "as long as it is on the field" is false of a card that never reached it.
+     */
+    void sourceDoesNotActivateWhileWardenOnField(CardData source, CardData warden);
+
+    /**
      * Holds {@code source} out of its controller's next Active Phase -- "[Self] will not activate
      * during your next Active Phase", the price Kain 1-127H, Barret 20-016R, Lorenzo 17-084C and
      * six other printings pay for an oversized effect.

@@ -3369,8 +3369,11 @@ public class ActionResolver {
             // Check damage-instead on the full followup before the ". " split eats the condition clause.
             // This mirrors what tryParseChooseAndFollowup does.
             Matcher insteadM = FOLLOWUP_DAMAGE_INSTEAD.matcher(followup);
-            if (insteadM.find() && parseDamageInsteadCondition(insteadM.group("cond").trim()) != null)
-                return "ChooseCharacter / DamageInstead";
+            if (insteadM.find() && parseDamageInsteadCondition(insteadM.group("cond").trim()) != null
+                    && damageInsteadSkipNamesSource(insteadM, source))
+                return "ChooseCharacter / DamageInstead"
+                        + (insteadM.group("skipbefore") != null || insteadM.group("skipafter") != null
+                                ? " + SelfSkipNextActivePhase" : "");
             // The divide-damage sibling of the check above, read off the whole followup for the
             // same reason: the ". " split puts the alternate amount in the secondary, which
             // described 17-014R Bahamut's larger divide as an unread tail over a card whose
@@ -3522,6 +3525,14 @@ public class ActionResolver {
                 followupName = "PlayOntoFieldNoAutoAbility";
                 secondaryTxt = null;
             }
+            // Reeve 16-104R. Also read by the play branch rather than run after it, but unlike the
+            // auto-ability qualifier it is a lasting effect of its own, so it is named as the second
+            // clause it is instead of being folded into the play's name. Guarded on the same primary
+            // the choose chain guards on: behind anything else the sentence goes unread there, and
+            // must report unread here.
+            if ("PlayOntoField".equals(followupName) && secondaryDesc == null
+                    && ActionResolverChoose.selfNotActivateWhilePlayedStandsNamesSource(secondaryTxt, source))
+                secondaryDesc = "SelfDoesNotActivateWhilePlayedOnField";
             if ("PlayOntoField".equals(followupName) && secondaryTxt != null && !secondaryTxt.isEmpty()) {
                 Matcher etfM = FOLLOWUP_PLAY_ONTO_FIELD_WHEN_ENTERS_CONDITIONAL.matcher(secondaryTxt);
                 if (etfM.matches() && parseRevealCondition(etfM.group("cond").trim()) != null) {
@@ -4315,6 +4326,27 @@ public class ActionResolver {
         return condM.find() && parseDamageInsteadCondition(condM.group("cond").trim()) != null;
     }
 
+    /**
+     * Whether the optional "[Self] will not activate during your next Active Phase" clauses a
+     * {@link ActionResolverPatterns#FOLLOWUP_DAMAGE_INSTEAD} match absorbed name {@code source}.
+     *
+     * <p>Vacuously true when the match carried neither clause, which is every printing but Sazh
+     * 1-013H — the check costs those nothing and the branch reads as it did.
+     *
+     * <p>Every clause present has to name the card, and a null {@code source} fails: the skip is
+     * only ever charged to the printing that prints it, so with nothing to check the name against
+     * there is no card to charge. Both the effect and the description ask this, so a text the
+     * effect declines cannot be reported as one it read.
+     */
+    static boolean damageInsteadSkipNamesSource(Matcher m, CardData source) {
+        String before = m.group("skipbefore");
+        String after  = m.group("skipafter");
+        if (before == null && after == null) return true;
+        if (source == null || source.name() == null) return false;
+        if (before != null && !before.trim().equalsIgnoreCase(source.name())) return false;
+        return after == null || after.trim().equalsIgnoreCase(source.name());
+    }
+
     static DamageInsteadCondition parseDamageInsteadCondition(String cond) {
         String s = cond.trim();
 
@@ -4353,6 +4385,15 @@ public class ActionResolver {
                 .compile("(?i)you have cast (\\d+) or more cards this turn").matcher(s);
         if (castM.find())
             return new DamageInsteadCondition.YouCastAtLeast(Integer.parseInt(castM.group(1)));
+
+        // A named card cast this turn: "you have cast Card Name X this turn" — Sazh 1-013H. Read
+        // through the gate pattern 1-043H Snow's "Freeze it also" already uses, so the two spellings
+        // of one question stay one reading, and anchored end to end by it: "cast Card Name X" is a
+        // prefix of the counting wording above and of "other than X this turn", and a find() here
+        // would take either for this.
+        Matcher castNamedM = ALSO_GATE_CAST_NAMED_THIS_TURN.matcher(s);
+        if (castNamedM.matches())
+            return new DamageInsteadCondition.YouCastCardNamed(castNamedM.group("name").trim());
 
         // Forward count comparison
         if (s.equalsIgnoreCase("the number of Forwards your opponent controls is greater than the number of Forwards you control"))
@@ -4798,6 +4839,8 @@ public class ActionResolver {
                 ctx.opponentHandSize() <= max;
             case DamageInsteadCondition.YouCastAtLeast(int min) ->
                 ctx.selfCardsCastThisTurn() >= min;
+            case DamageInsteadCondition.YouCastCardNamed(String name) ->
+                ctx.countCardsNamedCastThisTurn(name) > 0;
             case DamageInsteadCondition.OpponentHasMoreForwards() ->
                 ctx.opponentForwardCount() > ctx.selfForwardCount();
             case DamageInsteadCondition.IsExBurst() ->

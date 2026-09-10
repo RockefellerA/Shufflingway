@@ -47048,12 +47048,15 @@ public class CardBehaviorTest {
 		//
 		// None of them is an instruction to activate anything. Read as one they resolved as an
 		// activate aimed at a card named "during your next Active Phase" -- inert only because no
-		// card is so named. They are a real and separate effect, and the "next Active Phase" half
-		// is now wired as one (see tryParseSelfSkipNextActivePhase and its section below); the
-		// standing field-ability half remains unimplemented, and visibly so.
+		// card is so named. Both halves are now wired as what they are: the "next Active Phase"
+		// one-shot by tryParseSelfSkipNextActivePhase, and the standing field ability by
+		// AutoAbilityTriggers.hasSelfNeverActivates, read off the card rather than resolved (see
+		// the Larkeicus section below).
 		//
-		// Passed a null source both sentences still go unclaimed: the skip is self-named, and with
-		// nothing to check the name against there is no card to charge.
+		// Both stay out of ActionResolver, which is why the assertions below still hold: a passive
+		// is not an effect, and nothing in the resolver should claim one. Passed a null source they
+		// go unclaimed for the further reason that both are self-named, and with nothing to check
+		// the name against there is no card to charge.
 		assertNull(ActionResolver.parse(
 				"Sazh will not activate during your next Active Phase.", null));
 		assertNull(ActionResolver.parse(
@@ -47071,6 +47074,296 @@ public class CardBehaviorTest {
 						"choose 1 Backup. As long as Sephiroth is on the field, it does not "
 						+ "activate during its controller's Active Phase.", vincent),
 				"the warden has to be the ability's own printing");
+	}
+
+	// =========================================================================================
+	// Larkeicus 13-014R: "Larkeicus does not activate during your Active Phase."  (Field-ability
+	// passive and board behaviour.)
+	//
+	// The third and simplest member of the non-activation family, and the one that is not an effect
+	// at all: nothing resolves it and nothing records it, so AutoAbilityTriggers.hasSelfNeverActivates
+	// reads it off the card and blockedFromActivating asks per phase. Seven printings -- Larkeicus,
+	// Broden 25-098R, Alys the Ensorceled 17-118R, Ryid 5-023C, Unei 5-027R, Ghido 3-131H, who
+	// writes "the Active Phase" where the rest write "your", and Aria (III) 10-108R, who is held
+	// only while her controller has no Forwards.
+	//
+	// All seven had been reported unparsed, and before the "not activate" lookbehind landed they
+	// were worse than that: read as an instruction to activate a card named "during your Active
+	// Phase", which is the exact opposite of what they say.
+	//
+	// It gates the Active Phase and nothing else. Four of the seven print an activate of their own
+	// -- Ghido's 《Water》, Ryid's break-zone trigger -- and those still turn the card back over.
+	// =========================================================================================
+
+	@Test
+	void larkeicusHoldsHimselfOutOfHisOwnActivePhase() {
+		MainWindow mw = new MainWindow();
+		CardData larkeicus = makeFieldAbilityCard("Larkeicus", "Fire", "Backup",
+				"Larkeicus does not activate during your Active Phase.");
+		mw.p1BackupCards[0] = larkeicus;
+		mw.p1BackupStates[0] = CardState.DULL;
+		mw.turnPhases().runP1TurnStart();
+
+		assertEquals(CardState.DULL, mw.p1BackupStates[0],
+				"his own text holds him out of the phase");
+	}
+
+	@Test
+	void aBackupBesideHimStillActivates() {
+		MainWindow mw = new MainWindow();
+		mw.p1BackupCards[0] = makeFieldAbilityCard("Larkeicus", "Fire", "Backup",
+				"Larkeicus does not activate during your Active Phase.");
+		mw.p1BackupCards[1] = makePlainBackup("Free", "Ice", 2);
+		mw.p1BackupStates[0] = CardState.DULL;
+		mw.p1BackupStates[1] = CardState.DULL;
+		mw.turnPhases().runP1TurnStart();
+
+		assertEquals(CardState.DULL,   mw.p1BackupStates[0]);
+		assertEquals(CardState.ACTIVE, mw.p1BackupStates[1], "the lock is the card, not the row");
+	}
+
+	@Test
+	void bothCopiesAreLockedByTheirOwnText() {
+		// Nothing is recorded against a copy, so a second printing is held for the reason the first
+		// is -- it prints the sentence. The warden-held lock beside it works the other way round,
+		// and that difference is the whole distinction between the two.
+		MainWindow mw = new MainWindow();
+		String text = "Larkeicus does not activate during your Active Phase.";
+		mw.p1BackupCards[0] = makeFieldAbilityCard("Larkeicus", "Fire", "Backup", text);
+		mw.p1BackupCards[1] = makeFieldAbilityCard("Larkeicus", "Fire", "Backup", text);
+		mw.p1BackupStates[0] = CardState.DULL;
+		mw.p1BackupStates[1] = CardState.DULL;
+		mw.turnPhases().runP1TurnStart();
+
+		assertEquals(CardState.DULL, mw.p1BackupStates[0]);
+		assertEquals(CardState.DULL, mw.p1BackupStates[1]);
+	}
+
+	@Test
+	void ghidosTheActivePhaseSpellingReachesTheSameLock() {
+		CardData ghido = makeFieldAbilityCard("Ghido", "Water", "Backup",
+				"Ghido does not activate during the Active Phase.");
+		assertTrue(AutoAbilityTriggers.hasSelfNeverActivates(ghido),
+				"\"the Active Phase\" is the same sentence as \"your Active Phase\"");
+	}
+
+	@Test
+	void ariaIsHeldOnlyWhileHerControllerHasNoForwards() {
+		CardData aria = makeFieldAbilityCard("Aria (III)", "Water", "Backup",
+				"If you don't control any Forwards, Aria (III) does not activate during your "
+				+ "Active Phase.");
+		assertFalse(AutoAbilityTriggers.hasSelfNeverActivates(aria),
+				"her condition is not swallowed into the unconditional arm");
+
+		MainWindow mw = new MainWindow();
+		mw.p1BackupCards[0] = aria;
+		assertTrue(mw.blockedFromActivating(aria), "no Forwards, so she is held");
+
+		placeP1Forward(mw, makeForward("Onion Knight", "Water", 2, 5000));
+		assertFalse(mw.blockedFromActivating(aria),
+				"and released the moment one lands -- asked live, not once");
+	}
+
+	@Test
+	void theConditionIsAskedOfHerOwnSide() {
+		// "You" is Aria's controller. A Forward across the table is not one she controls, and
+		// reading the board rather than her side of it would let the opponent free her.
+		MainWindow mw = new MainWindow();
+		CardData aria = makeFieldAbilityCard("Aria (III)", "Water", "Backup",
+				"If you don't control any Forwards, Aria (III) does not activate during your "
+				+ "Active Phase.");
+		mw.p1BackupCards[0] = aria;
+		placeP2Forward(mw, makeForward("Kefka", "Fire", 3, 7000));
+
+		assertTrue(mw.blockedFromActivating(aria));
+	}
+
+	@Test
+	void aSentenceNamingAnotherCardIsNotClaimed() {
+		CardData broden = makeFieldAbilityCard("Broden", "Water", "Backup",
+				"Larkeicus does not activate during your Active Phase.");
+		assertFalse(AutoAbilityTriggers.hasSelfNeverActivates(broden),
+				"a card's own name in its own text means that card");
+	}
+
+	@Test
+	void theTwoAsLongAsWordingsAreLeftAlone() {
+		// Vincent 16-024H locks a card a choice picked, and Reeve 16-104R locks himself only while
+		// a Forward he played from the Break Zone stands. Both spell it "As long as ...", which the
+		// end-to-end anchor leaves in the name capture -- so both fail the name check rather than
+		// being read as a lock with no end to it. Reeve is a gap; a visible one beats a wrong one.
+		CardData reeve = makeFieldAbilityCard("Reeve", "Lightning", "Backup",
+				"As long as it is on the field, Reeve does not activate during your Active Phase.");
+		assertFalse(AutoAbilityTriggers.hasSelfNeverActivates(reeve));
+
+		CardData vincent = makeFieldAbilityCard("Vincent", "Ice", "Forward",
+				"As long as Vincent is on the field, it does not activate during its controller's "
+				+ "Active Phase.");
+		assertFalse(AutoAbilityTriggers.hasSelfNeverActivates(vincent));
+	}
+
+	@Test
+	void theOneShotSkipWordingIsNotReadAsTheStandingLock() {
+		// "Your next Active Phase" is one phase, once. The alternation admits "your Active Phase"
+		// and "the Active Phase" only, so the nine printings that pay the one-shot price keep it.
+		CardData lorenzo = makeFieldAbilityCard("Lorenzo", "Earth", "Forward",
+				"Lorenzo will not activate during your next Active Phase.");
+		assertFalse(AutoAbilityTriggers.hasSelfNeverActivates(lorenzo));
+
+		CardData jack = makeFieldAbilityCard("Jack", "Lightning", "Forward",
+				"Jack does not activate during your next Active Phase.");
+		assertFalse(AutoAbilityTriggers.hasSelfNeverActivates(jack),
+				"Jack writes \"does not\" where the rest write \"will not\", and still means once");
+	}
+
+	// =========================================================================================
+	// Reeve 16-104R: "When Reeve enters the field, choose 1 Forward of cost 2 or less in your Break
+	// Zone. Play it onto the field. As long as it is on the field, Reeve does not activate during
+	// your Active Phase."  (Effect wiring and board behaviour.)
+	//
+	// The warden relation inverted, and the corpus's only printing of it. Vincent 16-024H and Unei
+	// 5-027R lock a card a choice picked and stand as its warden themselves; Reeve locks himself,
+	// and the warden is the Forward he just bought back out of his own Break Zone. Same pairing,
+	// same map, the two arguments the other way round -- so blockedFromActivating and its staleness
+	// rule serve this with no change, and Reeve is free the moment the Forward is gone.
+	//
+	// It is not run as an ordinary secondary. "It" is the card the primary played, and the secondary
+	// slot is handed lastChosenTargets(), which by then names Break Zone rows that play has emptied
+	// -- so the PlayOntoField branch arms it off the card it moved, and the sentence is nulled out
+	// of the secondary slot the way "Its auto-ability will not trigger." already was.
+	// =========================================================================================
+
+	private static final String REEVE_16_104R =
+			"choose 1 Forward of cost 2 or less in your Break Zone. Play it onto the field. "
+			+ "As long as it is on the field, Reeve does not activate during your Active Phase.";
+
+	@Test
+	void reeveIsAttributedToBothHalvesOfWhatHeDoes() {
+		CardData reeve = makePlainBackup("Reeve", "Lightning", 3);
+		assertEquals("ChooseCharacter / PlayOntoField + SelfDoesNotActivateWhilePlayedOnField",
+				ActionResolver.fullDescription(REEVE_16_104R, reeve));
+	}
+
+	@Test
+	void theLockIsArmedOnTheCardThePlayMoved() {
+		CardData reeve   = makePlainBackup("Reeve", "Lightning", 3);
+		CardData forward = makeForward("Bought Back", "Lightning", 2, 5000);
+		ForwardTarget pick = new ForwardTarget(true, 0, ForwardTarget.CardZone.BREAK_ZONE);
+
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.consumePreloadedTargets()).thenReturn(List.of(pick));
+		when(ctx.p1BreakZoneCard(0)).thenReturn(forward);
+		when(ctx.playTargetOntoField(pick))
+				.thenReturn(new ForwardTarget(true, 0, ForwardTarget.CardZone.FORWARD));
+		ActionResolver.parse(REEVE_16_104R, reeve).accept(ctx);
+
+		verify(ctx).sourceDoesNotActivateWhileWardenOnField(reeve, forward);
+	}
+
+	@Test
+	void aPlayTheBoardRefusedArmsNothing() {
+		// "As long as it is on the field" is false of a card that never reached it. The play's own
+		// return value is what says so -- a refused play leaves the card in the Break Zone.
+		CardData reeve   = makePlainBackup("Reeve", "Lightning", 3);
+		CardData forward = makeForward("Bought Back", "Lightning", 2, 5000);
+		ForwardTarget pick = new ForwardTarget(true, 0, ForwardTarget.CardZone.BREAK_ZONE);
+
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.consumePreloadedTargets()).thenReturn(List.of(pick));
+		when(ctx.p1BreakZoneCard(0)).thenReturn(forward);
+		when(ctx.playTargetOntoField(pick)).thenReturn(null);
+		ActionResolver.parse(REEVE_16_104R, reeve).accept(ctx);
+
+		verify(ctx, never()).sourceDoesNotActivateWhileWardenOnField(any(), any());
+	}
+
+	@Test
+	void reeveStaysDullThroughHisOwnActivePhaseWhileTheForwardStands() {
+		MainWindow mw = new MainWindow();
+		CardData reeve   = makePlainBackup("Reeve", "Lightning", 3);
+		CardData forward = makeForward("Bought Back", "Lightning", 2, 5000);
+		mw.p1BackupCards[0] = reeve;
+		mw.p1BackupStates[0] = CardState.DULL;
+		placeP1Forward(mw, forward);
+
+		mw.buildGameContext(true).sourceDoesNotActivateWhileWardenOnField(reeve, forward);
+		mw.turnPhases().runP1TurnStart();
+
+		assertEquals(CardState.DULL, mw.p1BackupStates[0],
+				"the Forward he paid for holds him out of the phase");
+	}
+
+	@Test
+	void reeveIsFreedWhenTheForwardLeaves() {
+		MainWindow mw = new MainWindow();
+		CardData reeve   = makePlainBackup("Reeve", "Lightning", 3);
+		CardData forward = makeForward("Bought Back", "Lightning", 2, 5000);
+		mw.p1BackupCards[0] = reeve;
+		placeP1Forward(mw, forward);
+
+		mw.buildGameContext(true).sourceDoesNotActivateWhileWardenOnField(reeve, forward);
+		assertTrue(mw.blockedFromActivating(reeve), "held while it stands");
+
+		mw.p1ForwardCards.remove(forward);
+		assertFalse(mw.blockedFromActivating(reeve),
+				"and released the moment it is gone — a live query, not a timer");
+	}
+
+	@Test
+	void aTwinOfTheWardenDoesNotSustainTheLock() {
+		// Identity on the warden side, as everywhere in this family. Another printing of the same
+		// name is a different card and neither holds Reeve nor frees him.
+		MainWindow mw = new MainWindow();
+		CardData reeve   = makePlainBackup("Reeve", "Lightning", 3);
+		CardData forward = makeForward("Bought Back", "Lightning", 2, 5000);
+		CardData twin    = makeForward("Bought Back", "Lightning", 2, 5000);
+		mw.p1BackupCards[0] = reeve;
+		placeP1Forward(mw, forward);
+		placeP1Forward(mw, twin);
+
+		mw.buildGameContext(true).sourceDoesNotActivateWhileWardenOnField(reeve, forward);
+		mw.p1ForwardCards.remove(forward);
+
+		assertFalse(mw.blockedFromActivating(reeve), "the twin is not the card he bought back");
+	}
+
+	@Test
+	void aBackupBesideReeveStillActivates() {
+		MainWindow mw = new MainWindow();
+		CardData reeve   = makePlainBackup("Reeve", "Lightning", 3);
+		CardData forward = makeForward("Bought Back", "Lightning", 2, 5000);
+		mw.p1BackupCards[0] = reeve;
+		mw.p1BackupCards[1] = makePlainBackup("Free", "Lightning", 2);
+		mw.p1BackupStates[0] = CardState.DULL;
+		mw.p1BackupStates[1] = CardState.DULL;
+		placeP1Forward(mw, forward);
+
+		mw.buildGameContext(true).sourceDoesNotActivateWhileWardenOnField(reeve, forward);
+		mw.turnPhases().runP1TurnStart();
+
+		assertEquals(CardState.DULL,   mw.p1BackupStates[0]);
+		assertEquals(CardState.ACTIVE, mw.p1BackupStates[1]);
+	}
+
+	@Test
+	void aLockNamingSomeOtherCardIsTurnedDown() {
+		CardData reeve = makePlainBackup("Reeve", "Lightning", 3);
+		assertNotEquals("ChooseCharacter / PlayOntoField + SelfDoesNotActivateWhilePlayedOnField",
+				ActionResolver.fullDescription(
+						REEVE_16_104R.replace("Reeve does not", "Sephiroth does not"), reeve),
+				"the sentence names the card it locks, and that has to be this printing");
+	}
+
+	@Test
+	void theSentenceIsOnlyReadBehindThePlayItDependsOn() {
+		// "It" is whatever the play moved. Behind any other primary there is no such card, so the
+		// sentence is left to the generic parse and reports unread rather than quietly vanishing --
+		// the secondary slot is nulled for the play alone.
+		CardData reeve = makePlainBackup("Reeve", "Lightning", 3);
+		assertEquals("ChooseCharacter / Break + ?",
+				ActionResolver.fullDescription(
+						"choose 1 Forward. Break it. As long as it is on the field, Reeve does not "
+						+ "activate during your Active Phase.", reeve));
 	}
 
 	// =========================================================================================
@@ -47219,6 +47512,107 @@ public class CardBehaviorTest {
 
 		mw.clearPermanentGrants(lorenzo);
 		assertFalse(mw.blockedFromActivating(lorenzo));
+	}
+
+	// =========================================================================================
+	// Sazh 1-013H: "《Dull》: Choose 1 Forward. Deal it 2000 damage. Sazh will not activate during
+	// your next Active Phase. If you have cast Card Name Brynhildr this turn, deal that Forward
+	// 4000 damage instead. Sazh will not activate during your next Active Phase."
+	//
+	// Fifty-odd printings write "Deal it N damage. If <cond>, deal it M damage instead." as two
+	// sentences back to back, and the damage-instead branch reads them off the whole followup for
+	// exactly that reason -- the split would drop the condition. Sazh charges the skip to each arm,
+	// so his two sentences are not adjacent, and he spells the upgraded target "that Forward".
+	//
+	// Read by the split he became partly unreadable: the base damage resolved, the two skips
+	// resolved, and the Brynhildr upgrade in between reported as an unread tail. So the skip
+	// clauses are admitted into the pattern as optional groups and charged by the branch that
+	// swallowed them -- once, whichever arm ran, because the card prints the price on both arms
+	// rather than charging it twice.
+	//
+	// His condition is the family's only one that names a card instead of counting them; it is read
+	// through the same gate 1-043H Snow's "Freeze it also" uses.
+	// =========================================================================================
+
+	private static final String SAZH_1_013H =
+			"Choose 1 Forward. Deal it 2000 damage. Sazh will not activate during your next Active "
+			+ "Phase. If you have cast Card Name Brynhildr this turn, deal that Forward 4000 damage "
+			+ "instead. Sazh will not activate during your next Active Phase.";
+
+	@Test
+	void sazhIsAttributedToBothHalvesOfWhatHeDoes() {
+		CardData sazh = makeForwardWithText("Sazh", "Fire", 3, 0, "");
+		assertEquals("ChooseCharacter / DamageInstead + SelfSkipNextActivePhase",
+				ActionResolver.fullDescription(SAZH_1_013H, sazh));
+	}
+
+	@Test
+	void theBrynhildrConditionIsRead() {
+		assertEquals(new DamageInsteadCondition.YouCastCardNamed("Brynhildr"),
+				ActionResolver.parseDamageInsteadCondition(
+						"you have cast Card Name Brynhildr this turn"));
+	}
+
+	@Test
+	void oneCastOfTheNamedCardIsEnough() {
+		// The counting wording elsewhere in the resolver asks for more than one because the source's
+		// own cast is one of the ones counted. Nothing casts Sazh here -- the card named is never
+		// the card asking -- so one is the whole condition.
+		DamageInsteadCondition cond = new DamageInsteadCondition.YouCastCardNamed("Brynhildr");
+
+		GameContext none = mock(GameContext.class);
+		when(none.countCardsNamedCastThisTurn("Brynhildr")).thenReturn(0);
+		assertFalse(ActionResolver.insteadConditionMet(none, cond));
+
+		GameContext one = mock(GameContext.class);
+		when(one.countCardsNamedCastThisTurn("Brynhildr")).thenReturn(1);
+		assertTrue(ActionResolver.insteadConditionMet(one, cond));
+	}
+
+	@Test
+	void theUpgradedAmountIsTakenWhenBrynhildrWasCast() {
+		DamageInsteadCondition cond = new DamageInsteadCondition.YouCastCardNamed("Brynhildr");
+		ForwardTarget t = new ForwardTarget(false, 0, ForwardTarget.CardZone.FORWARD);
+
+		GameContext none = mock(GameContext.class);
+		when(none.countCardsNamedCastThisTurn("Brynhildr")).thenReturn(0);
+		assertEquals(2000, ActionResolver.resolveInsteadDamage(none, t, cond, 2000, 4000));
+
+		GameContext cast = mock(GameContext.class);
+		when(cast.countCardsNamedCastThisTurn("Brynhildr")).thenReturn(1);
+		assertEquals(4000, ActionResolver.resolveInsteadDamage(cast, t, cond, 2000, 4000));
+	}
+
+	@Test
+	void theSkipIsStillChargedByTheBranchThatSwallowedIt() {
+		// The branch claims the whole followup, so a skip it absorbed and did not charge would be
+		// gone. Charged once, on the arm that ran and on the arm that did not.
+		CardData sazh = makeForwardWithText("Sazh", "Fire", 3, 0, "");
+		GameContext ctx = mock(GameContext.class);
+		ActionResolver.parse(SAZH_1_013H, sazh).accept(ctx);
+
+		verify(ctx).sourceSkipsNextActivePhase(sazh);
+	}
+
+	@Test
+	void aSkipClauseNamingAnotherCardIsDeclined() {
+		// The skip is only ever charged to the card that prints it. Rather than charge it to the
+		// wrong card or drop it silently, the branch stands down and the text falls through.
+		CardData sazh = makeForwardWithText("Sazh", "Fire", 3, 0, "");
+		assertNotEquals("ChooseCharacter / DamageInstead + SelfSkipNextActivePhase",
+				ActionResolver.fullDescription(
+						SAZH_1_013H.replace("Sazh will not", "Kefka will not"), sazh));
+	}
+
+	@Test
+	void theAdjacentFormIsUnchanged() {
+		// The skip clauses are optional groups, so every other printing of the family matches the
+		// text it always did -- and describes without a skip it never had.
+		CardData sabin = makeForwardWithText("Sabin", "Fire", 2, 7000, "");
+		assertEquals("ChooseCharacter / DamageInstead",
+				ActionResolver.fullDescription(
+						"choose 1 Forward. Deal it 2000 damage. If you control Card Name Edgar, "
+						+ "deal it 4000 damage instead.", sabin));
 	}
 
 	// =========================================================================================

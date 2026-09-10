@@ -831,8 +831,8 @@ public class MainWindow {
 	final Set<CardData> skipNextActivePhase = Collections.newSetFromMap(new IdentityHashMap<>());
 
 	/**
-	 * Whether {@code card} is held out of the Active Phase -- by a warden that is still on the
-	 * field, or by a one-shot skip it has not yet spent.
+	 * Whether {@code card} is held out of the Active Phase -- by its own printed text, by a warden
+	 * that is still on the field, or by a one-shot skip it has not yet spent.
 	 *
 	 * <p>The warden entry is dropped as soon as it is found stale, so a warden that has left cannot
 	 * lock anything again by coming back later -- the two are different cards once the first has
@@ -842,12 +842,35 @@ public class MainWindow {
 	boolean blockedFromActivating(CardData card) {
 		if (card == null) return false;
 		if (skipNextActivePhase.contains(card)) return true;
+		if (selfHeldOutOfActivePhase(card)) return true;
 		if (nonActivatingWhileWardenOnField.isEmpty()) return false;
 		CardData warden = nonActivatingWhileWardenOnField.get(card);
 		if (warden == null) return false;
 		if (identityIndexOf(fieldCards(true), warden) >= 0
 				|| identityIndexOf(fieldCards(false), warden) >= 0) return true;
 		nonActivatingWhileWardenOnField.remove(card);
+		return false;
+	}
+
+	/**
+	 * Whether {@code card}'s own printed text holds it out of the Active Phase -- Larkeicus
+	 * 13-014R, Broden 25-098R, Alys the Ensorceled 17-118R, Ryid 5-023C, Unei 5-027R and Ghido
+	 * 3-131H unconditionally, Aria (III) 10-108R only while her controller has no Forwards.
+	 *
+	 * <p>Not state, so nothing arms it and nothing has to clean it up: it is the card, and it holds
+	 * for as long as the card is on the field. That also makes it the arm that survives a copy --
+	 * a second Larkeicus is locked because it prints the sentence, not because anything was
+	 * recorded against the first.
+	 *
+	 * <p>Aria's condition is asked of her own side, found by identity rather than passed in, and
+	 * asked at the moment the phase reaches her: a Forward that broke earlier in the turn has
+	 * already changed the answer.
+	 */
+	private boolean selfHeldOutOfActivePhase(CardData card) {
+		if (AutoAbilityTriggers.hasSelfNeverActivates(card)) return true;
+		if (!AutoAbilityTriggers.hasSelfNeverActivatesWithoutForwards(card)) return false;
+		if (identityIndexOf(fieldCards(true), card) >= 0)  return p1ForwardCards.isEmpty();
+		if (identityIndexOf(fieldCards(false), card) >= 0) return p2ForwardCards.isEmpty();
 		return false;
 	}
 

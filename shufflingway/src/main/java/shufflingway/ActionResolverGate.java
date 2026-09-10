@@ -370,7 +370,8 @@ final class ActionResolverGate {
         // The damage-instead family reads this condition where it is printed, inside the followup,
         // and picks the amount as it damages. Leaving those cards on it keeps one route per shape.
         Matcher dmgInstead = FOLLOWUP_DAMAGE_INSTEAD.matcher(trimmed);
-        if (dmgInstead.find() && parseDamageInsteadCondition(dmgInstead.group("cond").trim()) != null)
+        if (dmgInstead.find() && parseDamageInsteadCondition(dmgInstead.group("cond").trim()) != null
+                && damageInsteadSkipNamesSource(dmgInstead, source))
             return null;
 
         int    required = Integer.parseInt(m.group("count"));
