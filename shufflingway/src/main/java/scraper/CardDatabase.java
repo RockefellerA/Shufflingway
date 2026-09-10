@@ -201,6 +201,22 @@ public class CardDatabase implements AutoCloseable {
         }
     }
 
+    /**
+     * Saves the hand-authored cards that the official API does not return, in a single
+     * transaction. The card data is edited in {@code resources/non_api_cards.json} — see
+     * {@link NonApiCards} — rather than in code.
+     *
+     * <p>Run last in the ETL: these rows upsert on serial, so they win over anything the API
+     * sweep produced for the same printing.
+     *
+     * @return the number of cards saved
+     */
+    public int saveNonApiCards() throws SQLException {
+        List<ScrapedCard> cards = NonApiCards.load();
+        saveCards(cards);
+        return cards.size();
+    }
+
     /** Stores raw image bytes for a card identified by its serial. */
     public void saveImageData(String serial, byte[] imageData) throws SQLException {
         try (PreparedStatement ps = conn.prepareStatement(

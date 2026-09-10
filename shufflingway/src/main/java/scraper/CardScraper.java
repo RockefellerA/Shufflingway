@@ -278,8 +278,7 @@ public class CardScraper {
             catch (NumberFormatException ignored) {}
         }
 
-        // The image URL comes from images.full[0]. images.thumbs is deliberately not read:
-        // the thumbnail filename it carries was stored and never used by anything downstream.
+        // The image URL comes from images.full[0]
         JSONObject images = j.optJSONObject("images");
         if (images != null) {
             JSONArray full = images.optJSONArray("full");
@@ -302,6 +301,10 @@ public class CardScraper {
             System.out.printf("Applied %d reprint text upgrade(s)%n", upgraded);
             int corrected = db.applyMulticardCorrections();
             System.out.printf("Applied %d multicard correction(s)%n", corrected);
+            // Cards the API does not carry — promos, starter exclusives — from
+            // resources/non_api_cards.json. Last, so these upsert over the API sweep.
+            int nonApi = db.saveNonApiCards();
+            System.out.printf("Saved %d non-API card(s)%n", nonApi);
         } catch (SQLException e) {
             System.err.println("FAIL - database error:");
             e.printStackTrace();

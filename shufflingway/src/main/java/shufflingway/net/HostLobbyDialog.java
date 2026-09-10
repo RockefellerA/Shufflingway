@@ -193,6 +193,7 @@ public class HostLobbyDialog extends JDialog {
             }
             if (!localChecksum.equals(remoteChecksum)) {
                 return "Card database mismatch — re-sync card data and try again";
+                // TODO: Consider a cardCount variable (e.g. "host has 4262 cards, you have 4261)
             }
 
             conn.send(GameAction.of(ActionType.HELLO, new JSONObject()
