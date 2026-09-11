@@ -40,6 +40,27 @@ class ComputerPlayer implements OpponentController {
 	 * would buy.
 	 */
 	private static final int HAND_PLAY_PREFERRED_AT = 5;
+
+	/**
+	 * How many LB cards P2 will play in one turn. A placeholder, and deliberately a cheap one.
+	 *
+	 * <p>P2 looks at its LB deck first and unconditionally, so with no cap it plays LB cards until
+	 * it can no longer raise the CP — dulling every Backup and emptying its hand into a row of
+	 * them before considering anything it drew. That is not a judgement it is making; it is the
+	 * absence of one, and it only became visible when the LB path started producing plays at all.
+	 *
+	 * <p>One per turn is a stopgap that keeps the rest of the turn intact, not a strategy. A real
+	 * heuristic would weigh an LB card against what the same Backups and discards would buy from
+	 * hand, and against holding the LB deck for a turn when the board actually needs it — neither
+	 * of which this asks. The cap is not a rule: the human is not limited, and nothing in
+	 * {@link PlayerTurnState} records it, because it belongs to this planner rather than to the
+	 * game.
+	 */
+	private static final int MAX_LB_PLAYS_PER_TURN = 1;
+
+	/** LB cards played so far this turn; cleared by {@link #resetTurnAllowances()}. */
+	int lbPlaysThisTurn = 0;
+
 	private boolean cancelled = false;
 
 	/** Permanently stops this ComputerPlayer; all pending and future steps become no-ops. */
@@ -65,9 +86,23 @@ class ComputerPlayer implements OpponentController {
 		t.start();
 	}
 
+	/**
+	 * Clears the allowances this planner gives itself for one turn — currently just the LB play
+	 * count. One controller lasts the whole game, so these are cleared here rather than by a fresh
+	 * instance, and both Main Phases share {@code doMainPhase}, so an allowance spans the turn
+	 * rather than the phase.
+	 *
+	 * <p>Separate from {@link #runTurn()} so it can be read, and asserted on, without starting a
+	 * turn's worth of scheduled work.
+	 */
+	void resetTurnAllowances() {
+		lbPlaysThisTurn = 0;
+	}
+
 	/** Entry point: called when P2's ACTIVE phase begins. */
 	@Override
 	public void runTurn() {
+		resetTurnAllowances();
 		step(this::doActivePhase);
 	}
 
@@ -143,37 +178,17 @@ class ComputerPlayer implements OpponentController {
 		if (mw.gameState.isP1GameOver()) return;
 
 		// Try LB plays first
-		int[] lbPlan = findLbPlayPlan();
+		// One implementation of the LB play, shared with the human's dialog and with a networked
+		// opponent's replay. This block used to be a third copy of it, keeping its own payment
+		// record by hand and drifting: it never set lastCastPaymentDistinctElements, so a "CP of N
+		// or more different Elements" gate read whatever the previous cast had left there.
+		P2LbPlan lbPlan = findLbPlayPlan();
 		if (lbPlan != null) {
-			int castIdx = lbPlan[0];
-			CardData card = mw.gameState.getP2LbDeck().get(castIdx);
-			mw.p2SpentLbIndices.add(castIdx);
-			for (int i = 1; i < lbPlan.length; i++) mw.p2SpentLbIndices.add(lbPlan[i]);
-			String element = card.elements()[0];
-			mw.gameState.spendP2Cp(element, Math.min(card.cost(), mw.gameState.getP2CpForElement(element)));
-			mw.refreshP2LimitButton();
+			CardData card = mw.gameState.getP2LbDeck().get(lbPlan.castIdx());
 			mw.logEntry("[P2] Plays LB \"" + card.name() + "\"");
-			mw.lastCastPaymentElements.clear();
-			mw.lastCastActualPaymentElements.clear();
-			mw.lastCastPaymentElements.add(element);
-			mw.lastCastActualPaymentElements.add(element);
-			mw.lastCastPaymentCard = card;
-			// The AI pays out of a CP pool rather than by dulling named Backups, so no Backup
-			// produced this CP. Cleared rather than left alone: a stale record from an earlier
-			// cast would let a "CP only produced by Backups" gate pass on a payment that had none.
-			mw.lastCastPaymentBackups.clear();
-			mw.lastCastWasPaidByBackupsOnly = false;
-			// Nor did it discard anything, and a stale count would scale a "for each card you
-			// discarded" payoff off the human's previous cast.
-			mw.lastCastPaymentDiscardCount = 0;
-			mw.lastCardWasCast = true;
-			mw.noteCardCast(card, false);
-			if (card.isSummon()) { mw.p2Turn.summonCastThisTurn = true; mw.noteDoublecastSummonCast(false, card); }
-			if (card.isForward())      mw.placeP2CardInForwardZone(card);
-			else if (card.isBackup())  mw.placeP2CardInFirstBackupSlot(card);
-			else if (card.isMonster()) mw.placeP2CardInMonsterZone(card);
-			else if (card.isSummon())  mw.showSummonOnStack(card, false);
-			mw.lastCardWasCast = false;
+			lbPlaysThisTurn++;
+			mw.executeLbPlay(false, card, lbPlan.castIdx(), Set.copyOf(lbPlan.payment()),
+					lbPlan.discardIndices(), lbPlan.dullBackups(), Map.of());
 			step(() -> doMainPhase(onDone));
 			return;
 		}
@@ -514,7 +529,41 @@ class ComputerPlayer implements OpponentController {
 	 *         ascending), or {@code null} if nothing is playable.
 	 */
 	/** Returns [castIdx, payment…] if any unspent LB card is affordable, else null. */
-	private int[] findLbPlayPlan() {
+	/**
+	 * P2's chosen LB play: which card to play, which face-down LB cards to turn face up paying its
+	 * LB cost, and the Backups and hand cards that raise its CP cost.
+	 */
+	record P2LbPlan(int castIdx, List<Integer> payment,
+			List<Integer> dullBackups, List<Integer> discardIndices) {}
+
+	/**
+	 * P2's LB play, or null when nothing in the LB deck can be played.
+	 *
+	 * <p>The CP cost is raised the way every other P2 play raises one — through
+	 * {@link #p2PlanPayment}, which dulls Backups and discards for CP. It used to be tested
+	 * against banked CP alone:
+	 *
+	 * <pre>if (mw.gameState.getP2CpForElement(element) &lt; card.cost()) continue;</pre>
+	 *
+	 * <p>which no LB card could ever pass. P2 banks no standing CP — it generates CP only while
+	 * paying for a play it has already chosen, and spends and clears it in the same step — so the
+	 * pool is empty every time, and this is the first thing the main phase looks at. That, and not
+	 * anything about the LB deck, is why P2 never played an LB card.
+	 *
+	 * <p>Printed cost rather than an effective one, which is what {@link #findPlayPlan} passes for
+	 * a hand cast too. P2 ignoring its own cost reductions is a standing simplification of this
+	 * planner; making the LB path alone honour them would make P2 play LB cards under discounts it
+	 * would not use on anything else.
+	 */
+	P2LbPlan findLbPlayPlan() {
+		// This planner's own allowance, not a rule — see MAX_LB_PLAYS_PER_TURN. Asked before any
+		// of the rules below, because once it is spent none of them can change the answer.
+		if (lbPlaysThisTurn >= MAX_LB_PLAYS_PER_TURN) return null;
+		// An LB card is cast, so a cast limit binds it — "you can only cast 2 cards per turn", and
+		// the effects that forbid casting outright. Checked here as findPlayPlan checks it for a
+		// hand cast. It was missing while no LB play could happen at all; it matters now that one
+		// can.
+		if (mw.p2CastLimitReached()) return null;
 		List<CardData> lbDeck = mw.gameState.getP2LbDeck();
 		boolean p2HasLD = mw.hasLightOrDarkOnField(false);
 		for (int i = 0; i < lbDeck.size(); i++) {
@@ -525,20 +574,24 @@ class ComputerPlayer implements OpponentController {
 			if (card.isLightOrDark() && p2HasLD) continue;
 			if (card.isBackup() && !mw.p2HasAvailableBackupSlot()) continue;
 			if (!mw.castRestrictionMet(card, false)) continue;
-			// Count unspent LB cards available as payment (excluding this card)
+			// Face-down LB cards available to pay the LB cost, this one excluded.
 			List<Integer> available = new ArrayList<>();
 			for (int j = 0; j < lbDeck.size(); j++) {
 				if (j != i && !mw.p2SpentLbIndices.contains(j)) available.add(j);
 			}
 			if (available.size() < card.lbCost()) continue;
-			// Check CP
-			String element = card.elements()[0];
-			if (mw.gameState.getP2CpForElement(element) < card.cost()) continue;
-			// Build result: [castIdx, payment…]
-			int[] result = new int[1 + card.lbCost()];
-			result[0] = i;
-			for (int k = 0; k < card.lbCost(); k++) result[k + 1] = available.get(k);
-			return result;
+
+			List<Integer>        backups      = new ArrayList<>();
+			Map<Integer, String> backupElems  = new LinkedHashMap<>();
+			List<Integer>        discards     = new ArrayList<>();
+			Map<Integer, String> discardElems = new LinkedHashMap<>();
+			// No hand index to exclude: an LB card is played out of the LB deck, so every card in
+			// hand is available to be discarded for CP.
+			if (!p2PlanPayment(card, card.cost(), -1, backups, backupElems, discards, discardElems))
+				continue;
+
+			return new P2LbPlan(i, List.copyOf(available.subList(0, card.lbCost())),
+					List.copyOf(backups), List.copyOf(discards));
 		}
 		return null;
 	}

@@ -5095,6 +5095,180 @@ public class CardBehaviorTest {
         assertEquals("Dark", discardElems.get(1), "off-color CP deposits into the cast element bucket");
     }
 
+    // =========================================================================================
+    // P2's LB play: why it never made one.
+    //
+    // The planner tested the CP cost against banked CP alone —
+    //   if (mw.gameState.getP2CpForElement(element) < card.cost()) continue;
+    // — which no LB card could pass. P2 banks no standing CP: it generates CP only while paying
+    // for a play it has already chosen, and spends and clears it in the same step. The LB deck is
+    // the first thing the main phase looks at, so the pool is empty every time it asks. Nothing
+    // about the LB deck was wrong; the affordability test was asking a question whose answer was
+    // structurally always no.
+    //
+    // It now raises the cost through p2PlanPayment, the same assembler every other P2 play uses,
+    // and the play itself runs through the shared executeLbPlay rather than a third hand-written
+    // copy of the rule.
+    // =========================================================================================
+
+    /** An LB-deck Forward: {@code isLb} set, with an LB cost in face-down cards. */
+    private static CardData lbForward(String name, String element, int cost, int lbCost) {
+        return new CardData(null, name, element, cost, 7000, "Forward", true, lbCost, false, false,
+                Set.of(), 0, List.of(), null, List.of(),
+                List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(),
+                List.of(), List.of(), List.of(),
+                false, false, null, false, false, false, false, false, 1,
+                null, null, null, "");
+    }
+
+    /** P2 holding a 3-card LB deck, with {@code handFiller} cards to discard for CP. */
+    private static MainWindow p2WithLbDeck(int handFiller) {
+        MainWindow mw = new MainWindow();
+        mw.gameState.getP2LbDeck().add(lbForward("Limit Cast", "Fire", 2, 1));
+        mw.gameState.getP2LbDeck().add(lbForward("Limit Pay A", "Fire", 5, 2));
+        mw.gameState.getP2LbDeck().add(lbForward("Limit Pay B", "Fire", 5, 2));
+        for (int i = 0; i < handFiller; i++)
+            mw.gameState.getP2Hand().add(makeForward("Filler " + i, "Fire", 3, 7000));
+        return mw;
+    }
+
+    @Test
+    void p2RaisesTheCpForAnLbCardRatherThanWaitingForAPoolItNeverFills() {
+        // The regression this closes: P2 holds no banked CP, which is its normal state, and one
+        // discardable card. That is enough to pay a cost-2 LB card, and used to be enough for
+        // nothing at all.
+        MainWindow mw = p2WithLbDeck(1);
+        assertEquals(0, mw.gameState.getP2CpForElement("Fire"), "P2 banks no standing CP");
+
+        ComputerPlayer.P2LbPlan plan = new ComputerPlayer(mw).findLbPlayPlan();
+
+        assertNotNull(plan, "a discard covers the cost, so there is a play here");
+        assertEquals(0, plan.castIdx());
+        assertEquals(List.of(1), plan.payment(), "one face-down card pays the LB cost of 1");
+        assertEquals(List.of(0), plan.discardIndices());
+    }
+
+    // -----------------------------------------------------------------------------------------
+    // The human's side of the same rule. The LB dialog decided what a player could cast out of
+    // their LB deck without asking the cast-limit gate — so on a turn Vayne 28-117H said they
+    // could not cast at all, the LB deck was still open. The hand menu had always asked.
+    // -----------------------------------------------------------------------------------------
+
+    @Test
+    void anLbCardCannotBeCastOnATurnThePlayerCannotCastAtAll() {
+        MainWindow mw = new MainWindow();
+        CardData lb = lbForward("Limit Cast", "Fire", 2, 1);
+        assertFalse(mw.lbCastBlocked(lb), "nothing stands in its way yet");
+
+        mw.p1Turn.cannotCastThisTurn = true;
+
+        assertTrue(mw.lbCastBlocked(lb), "an LB card is cast, so an outright ban binds it");
+    }
+
+    @Test
+    void aPerTurnCastLimitClosesTheWholeLbDeckNotOneCard() {
+        // "You can only cast up to 2 cards per turn" is a limit on the player, so once it bites it
+        // blocks every card in the LB deck — including one with no name or Element conflict of
+        // its own.
+        MainWindow mw = new MainWindow();
+        mw.placeCardInForwardZone(makeFieldAbilityForward("Warden",
+                "You can only cast up to 2 cards per turn."));
+        CardData lb = lbForward("Unconflicted", "Fire", 2, 1);
+        assertFalse(mw.lbCastBlocked(lb), "under the limit, still castable");
+
+        mw.p1Turn.cardsCastThisTurn = 2;
+
+        assertTrue(mw.lbCastBlocked(lb));
+    }
+
+    @Test
+    void theLbDeckStillBlocksWhatItAlwaysBlocked() {
+        // The cast limit is an addition, not a replacement: a duplicate name on the field is
+        // still a block, with no limit in force.
+        MainWindow mw = new MainWindow();
+        mw.placeCardInForwardZone(makeForward("Twin", "Fire", 2, 7000));
+
+        assertTrue(mw.lbCastBlocked(lbForward("Twin", "Fire", 2, 1)),
+                "a second copy of a name already on the field cannot be cast");
+        assertFalse(mw.lbCastBlocked(lbForward("Someone Else", "Fire", 2, 1)));
+    }
+
+    @Test
+    void p2MakesNoLbPlayItCannotRaiseTheCostFor() {
+        MainWindow mw = p2WithLbDeck(0);   // no hand, no Backups, no CP
+
+        assertNull(new ComputerPlayer(mw).findLbPlayPlan());
+    }
+
+    @Test
+    void p2NeedsAFaceDownCardForEveryPointOfLbCost() {
+        // "Limit Pay A" costs 2 face-down cards. With its two deck-mates spent there is one left,
+        // and the cheaper card ahead of it is spent too, so nothing is playable.
+        MainWindow mw = p2WithLbDeck(4);
+        mw.p2SpentLbIndices.add(0);
+        mw.p2SpentLbIndices.add(2);
+
+        assertNull(new ComputerPlayer(mw).findLbPlayPlan(),
+                "one face-down card left cannot pay an LB cost of 2");
+    }
+
+    @Test
+    void p2PlaysOneLbCardPerTurnAndThenLeavesTheDeckAlone() {
+        // A placeholder allowance, not a rule. Without it P2 plays LB cards until it cannot raise
+        // the CP — the LB deck is the first thing the main phase looks at — and spends the whole
+        // turn's Backups and hand on them before considering anything it drew.
+        MainWindow mw = p2WithLbDeck(4);
+        ComputerPlayer cpu = new ComputerPlayer(mw);
+        assertNotNull(cpu.findLbPlayPlan(), "the first LB play of the turn is available");
+
+        cpu.lbPlaysThisTurn = 1;
+
+        assertNull(cpu.findLbPlayPlan(),
+                "and the second is not, though nothing about the board has changed");
+    }
+
+    @Test
+    void theLbAllowanceComesBackForTheNextTurn() {
+        MainWindow mw = p2WithLbDeck(4);
+        ComputerPlayer cpu = new ComputerPlayer(mw);
+        cpu.lbPlaysThisTurn = 1;
+        assertNull(cpu.findLbPlayPlan());
+
+        cpu.resetTurnAllowances();
+
+        assertNotNull(cpu.findLbPlayPlan(),
+                "one controller lasts the whole game, so the allowance has to be cleared per turn");
+    }
+
+    @Test
+    void p2WillNotPlayAnLbCardPastACastLimit() {
+        // An LB card is cast, so "you cannot cast cards this turn" binds it. The planner never
+        // asked, which was invisible while it never produced a play at all.
+        MainWindow mw = p2WithLbDeck(1);
+        mw.p2Turn.cannotCastThisTurn = true;
+
+        assertNull(new ComputerPlayer(mw).findLbPlayPlan());
+    }
+
+    @Test
+    void p2sLbPlayLeavesTheSameRecordAHumansDoes() {
+        // It runs the shared executor now, so the payment record is the one executeLbPlay writes
+        // rather than a hand-kept copy that never set lastCastPaymentDistinctElements.
+        MainWindow mw = p2WithLbDeck(1);
+        ComputerPlayer.P2LbPlan plan = new ComputerPlayer(mw).findLbPlayPlan();
+        CardData card = mw.gameState.getP2LbDeck().get(plan.castIdx());
+
+        mw.executeLbPlay(false, card, plan.castIdx(), Set.copyOf(plan.payment()),
+                plan.discardIndices(), plan.dullBackups(), Map.of());
+
+        assertEquals("Limit Cast", mw.p2ForwardCards.get(0).name());
+        assertEquals(Set.of(0, 1), mw.p2SpentLbIndices);
+        assertEquals(1, mw.turn(false).cardsCastThisTurn);
+        assertSame(card, mw.lastCastPaymentCard);
+        assertEquals(1, mw.lastCastPaymentDistinctElements,
+                "the record the old copy never wrote");
+    }
+
     @Test
     void p2PlannerOffColorDiscardsCannotSatisfyPerElementMinimums() {
         MainWindow mw = new MainWindow();

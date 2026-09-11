@@ -7262,15 +7262,31 @@ public class MainWindow {
 		menu.show(invoker, e.getX(), e.getY());
 	}
 
+	/**
+	 * Whether P1 may not cast {@code card} out of their LB deck right now — the LB deck's side of
+	 * the legality the hand menu applies before offering a cast.
+	 *
+	 * <p>Named and lifted out of {@link #showLbDialog}'s callback so the rule can be read and
+	 * tested without opening a modal dialog.
+	 *
+	 * <p>The cast limit is here because an LB card is <em>cast</em>: "you can only cast 2 cards per
+	 * turn" binds it, as does Vayne 28-117H's outright ban. Every other cast path consults that
+	 * gate — {@code cannotCastThisTurn}'s own javadoc says so — and the LB deck was the one that
+	 * did not, which let a player cast out of it on a turn they could not cast at all.
+	 * {@code ComputerPlayer.findLbPlayPlan} had the same hole on the other side of the table.
+	 */
+	boolean lbCastBlocked(CardData card) {
+		return p1CastLimitReached()
+				|| !castRestrictionMet(card)
+				|| ((card.isForward() || card.isBackup() || card.isMonster())
+					&& ((!card.multicard() && hasCharacterNameOnField(card.name()) && !isMultiNameExceptionActive(card.name(), true))
+						|| isLightDarkConflict(card)));
+	}
+
 	private void showLbDialog() {
 		LbDialog.show(frame, gameState.getP1LbDeck(), new LbDialog.Callbacks() {
 			public boolean isSpent(int idx) { return spentLbIndices.contains(idx); }
-			public boolean isNameBlocked(CardData card) {
-				return !castRestrictionMet(card)
-						|| ((card.isForward() || card.isBackup() || card.isMonster())
-							&& ((!card.multicard() && hasCharacterNameOnField(card.name()) && !isMultiNameExceptionActive(card.name(), true))
-								|| isLightDarkConflict(card)));
-			}
+			public boolean isCastBlocked(CardData card) { return lbCastBlocked(card); }
 			public int effectiveCastCost(CardData card) { return MainWindow.this.effectiveCastCost(card); }
 			public void onConfirm(CardData cast, int castIdx, Set<Integer> paymentSet) {
 				if (MainWindow.this.effectiveCastCost(cast) <= 0) {
@@ -11825,37 +11841,107 @@ public class MainWindow {
 		spent.add(lbIdx);
 		spent.addAll(paymentIndices);
 
-		Map<String, Integer> lbCpAccum = new LinkedHashMap<>();
-		for (int bi : backupDullIndices) {
+		Map<String, Integer> execCostByElem = new LinkedHashMap<>();
+		if (!isLD) for (String e : elems) execCostByElem.put(e, 1);
+		Map<String, Integer> execCpAccum = new LinkedHashMap<>();
+		lastCastActualPaymentElements.clear();
+		lastCastPaymentBackups.clear();
+
+		// Backups: fewest element matches first, so a Backup that can only pay one of a
+		// multi-element cost is spent on it before a flexible one is.
+		List<Integer> sortedBackups = new ArrayList<>(backupDullIndices);
+		if (!isLD) sortedBackups.sort(Comparator.comparingInt(s ->
+				(int) Arrays.stream(elems)
+						.filter(e -> effectiveContainsElement(backupCards[s], e)).count()));
+		for (int bi : sortedBackups) {
+			lastCastPaymentBackups.add(backupCards[bi]);
 			backupStates[bi] = CardState.DULL;
 			if (isP1) animateDullBackup(bi, true); else animateDullP2Backup(bi, true);
-			String cpElem = isLD ? backupCards[bi].elements()[0] : contributingElement(backupCards[bi], elems);
+			String cpElem = isLD ? backupCards[bi].elements()[0]
+					: contributingElement(backupCards[bi], elems, execCpAccum, execCostByElem);
 			addCp(isP1, cpElem, 1);
-			lbCpAccum.merge(cpElem, 1, Integer::sum);
+			execCpAccum.merge(cpElem, 1, Integer::sum);
+			String actualElem = backupCards[bi].elements()[0];
+			if (!actualElem.isEmpty()) lastCastActualPaymentElements.add(actualElem);
 		}
-		breakBackupsForCp(isP1, backupBreaks).forEach((e, n) -> lbCpAccum.merge(e, n, Integer::sum));
+
+		// Break-for-CP payments (Sherlotta 8-053H), after the dull step so a Backup paying both
+		// ways is still on the field for it, and before the cost so its CP is banked.
+		breakBackupsForCp(isP1, backupBreaks).forEach((e, n) -> execCpAccum.merge(e, n, Integer::sum));
+
+		List<Integer> assignOrder = new ArrayList<>(discardIndices);
+		if (!isLD) assignOrder.sort(Comparator.comparingInt(i ->
+				(int) Arrays.stream(elems)
+						.filter(e -> hand.get(i).containsElement(e)).count()));
+		Map<Integer, String> cpAssignments = new LinkedHashMap<>();
+		for (int i : assignOrder) {
+			CardData d = hand.get(i);
+			String cpElem = isLD ? d.elements()[0]
+					: contributingElement(d, elems, execCpAccum, execCostByElem);
+			cpAssignments.put(i, cpElem);
+			execCpAccum.merge(cpElem, 2, Integer::sum);
+			String actualElem = d.elements()[0];
+			if (!actualElem.isEmpty()) lastCastActualPaymentElements.add(actualElem);
+		}
 		List<Integer> discardRemovalOrder = new ArrayList<>(discardIndices);
 		discardRemovalOrder.sort(Collections.reverseOrder());
 		for (int di : discardRemovalOrder) {
-			CardData discarded = hand.get(di);
-			String cpElem = isLD ? discarded.elements()[0] : contributingElement(discarded, elems);
-			addCp(isP1, cpElem, 2);
-			lbCpAccum.merge(cpElem, 2, Integer::sum);
+			addCp(isP1, cpAssignments.get(di), 2);
 			playerBreakFromHand(isP1, di);
 		}
-		Set<String> lbCpToClear = new java.util.LinkedHashSet<>(Arrays.asList(elems));
-		lbCpToClear.addAll(lbCpAccum.keySet());
-		for (String e : lbCpToClear) {
+		Set<String> cpToClear = new java.util.LinkedHashSet<>(Arrays.asList(elems));
+		cpToClear.addAll(execCpAccum.keySet());
+		for (String e : cpToClear) {
 			spendCp(isP1, e, cpForElement(isP1, e));
 			clearCp(isP1, e);
 		}
+
+		// The payment record every "what was this paid with" ability reads. An LB cast is a cast,
+		// so it leaves the same record a cast from hand does — without this it left whatever the
+		// previous cast had written, and a "CP of N or more different Elements" gate answered for
+		// the wrong payment entirely.
+		//
+		// The cards turned face up in the LB deck are not part of it. They are a resource this
+		// cast spends, not CP it was paid with, and nothing asks after them.
+		lastCastPaymentDistinctElements = (int) execCpAccum.keySet().stream()
+				.filter(e -> !e.isEmpty()).distinct().count();
+		lastCastPaymentElements.clear();
+		execCpAccum.keySet().stream().filter(e -> !e.isEmpty()).forEach(lastCastPaymentElements::add);
+		lastCastPaymentCard = card;
+		lastCastWasPaidByBackupsOnly = discardIndices.isEmpty() && !backupDullIndices.isEmpty();
+		lastCastPaymentDiscardCount  = discardIndices.size();
+
+		// Deliberately no armSummonRecastIfWatched: 19-127L Relm watches "your next Summon of cost
+		// 4 or less cast from your hand", and this is the LB deck. executePlayFromBzP1 leaves it
+		// alone for the same reason.
+		activeCostReductions.removeIf(m -> m.consumeOnUse() && m.matches(card));
+		PlayerTurnState playerTurn = turn(isP1);
+		noteCardCast(card, isP1);
+		if (card.isSummon()) {
+			playerTurn.summonCastThisTurn = true;
+			noteDoublecastSummonCast(isP1, card);
+			if (isP1) refreshHandCardStates();
+		}
+
+		// An LB card is cast, so "enters the field due to your cast" fires — which is what this
+		// flag gates. It also gates, inversely, "enters your field other than from your hand", and
+		// an LB cast is both a cast and not from hand: one boolean cannot say both. Every card in
+		// the corpus reading either trigger names its own carrier and none of them is an LB card,
+		// so an LB cast can reach neither and the conflation is unobservable here. Set to the
+		// reading that is right about the cast, which is also what ComputerPlayer's LB play has
+		// always used. Restored afterwards, as the other two executors restore it.
+		lastCardWasCast = true;
 		if (card.isBackup()) {
 			if (isP1) placeCardInFirstBackupSlot(card); else placeP2CardInFirstBackupSlot(card);
 		} else if (card.isForward()) {
 			if (isP1) placeCardInForwardZone(card); else placeP2CardInForwardZone(card);
 		} else if (card.isMonster()) {
 			if (isP1) placeCardInMonsterZone(card); else placeP2CardInMonsterZone(card);
+		} else if (card.isSummon()) {
+			showSummonOnStack(card, isP1);
 		}
+		lastCardWasCast = false;
+
 		if (isP1) {
 			refreshP1HandLabel();
 			refreshP1BreakLabel();

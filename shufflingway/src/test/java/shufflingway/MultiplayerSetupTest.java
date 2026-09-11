@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.ArrayList;
@@ -1108,6 +1109,121 @@ class MultiplayerSetupTest {
         assertNotEquals(before, hostDigest(seats[0]));
         assertNotEquals(hostDigest(seats[0]), joinerDigest(seats[1]),
                 "and the two seats must now disagree");
+    }
+
+    // -----------------------------------------------------------------------------------------
+    // An LB cast is a cast, and now leaves the record of one.
+    //
+    // executeLbPlay used to skip the bookkeeping executePlay does: no noteCardCast, so an LB card
+    // never counted toward "if you have cast N or more cards this turn"; no lastCastPayment*, so
+    // the "what was this paid with" family answered off whatever the previous cast had written;
+    // and lastCardWasCast was left wherever it lay, rather than being true for the one moment the
+    // card reaches the field.
+    //
+    // Two things stay deliberately unlike executePlay, both because the LB deck is not a hand:
+    // armSummonRecastIfWatched is not called (19-127L Relm watches a Summon "cast from your
+    // hand"), and the cards turned face up to pay are not part of the payment record — they are a
+    // resource spent, not CP the cast was paid with.
+    // -----------------------------------------------------------------------------------------
+
+    @Test
+    void anLbCastCountsTowardTheCardsCastThisTurn() {
+        MainWindow mw = new MainWindow();
+        seatLbDeck(mw, false);
+        assertEquals(0, mw.turn(false).cardsCastThisTurn);
+
+        mw.executeLbPlay(false, mw.gameState.getP2LbDeck().get(0), 0, Set.of(1),
+                List.of(), List.of(), Map.of());
+
+        assertEquals(1, mw.turn(false).cardsCastThisTurn,
+                "an LB card is cast, so it counts like any other cast");
+        assertTrue(mw.turn(false).castNamesThisTurn.contains("cast me"),
+                "and by name, for the abilities that ask which card was cast");
+    }
+
+    @Test
+    void anLbCastRecordsWhatPaidForIt() {
+        MainWindow mw = new MainWindow();
+        seatLbDeck(mw, false);
+        CardData cast = mw.gameState.getP2LbDeck().get(0);
+
+        mw.executeLbPlay(false, cast, 0, Set.of(1), List.of(0, 1), List.of(), Map.of());
+
+        assertSame(cast, mw.lastCastPaymentCard);
+        assertEquals(Set.of("Fire"), mw.lastCastPaymentElements);
+        assertEquals(1, mw.lastCastPaymentDistinctElements);
+        assertEquals(2, mw.lastCastPaymentDiscardCount);
+        assertFalse(mw.lastCastWasPaidByBackupsOnly, "it was paid by discarding, not by Backups");
+        assertTrue(mw.lastCastPaymentBackups.isEmpty());
+    }
+
+    @Test
+    void anLbCastOverwritesTheRecordLeftByAnEarlierCast() {
+        // The bug this closes: with no record of its own, an LB cast left the previous cast's
+        // standing, and a "what was this paid with" gate answered for the wrong payment.
+        MainWindow mw = new MainWindow();
+        seatLbDeck(mw, false);
+        List<CardData> hand = mw.gameState.getP2Hand();
+        hand.add(backup("Ice Cast", "Ice", 1));
+        hand.add(backup("Ice Pay", "Ice", 3));
+
+        mw.executePlay(false, hand.get(2), 2, List.of(3), List.of(), Map.of());
+        assertEquals("Ice Cast", mw.lastCastPaymentCard.name());
+
+        mw.executeLbPlay(false, mw.gameState.getP2LbDeck().get(0), 0, Set.of(1),
+                List.of(0, 1), List.of(), Map.of());
+
+        assertEquals("Cast Me", mw.lastCastPaymentCard.name(),
+                "the LB cast is the last cast, and the record has to say so");
+        assertEquals(Set.of("Fire"), mw.lastCastPaymentElements,
+                "and carry its own Elements, not the Ice ones before it");
+    }
+
+    @Test
+    void theLbCardsTurnedFaceUpAreNotPartOfThePaymentRecord() {
+        // They are a resource this cast spends, not CP it was paid with — a free LB cast paid for
+        // entirely by turning cards face up was paid with nothing, and says so.
+        MainWindow mw = new MainWindow();
+        seatLbDeck(mw, false);
+
+        mw.executeLbPlay(false, mw.gameState.getP2LbDeck().get(0), 0, Set.of(1, 2),
+                List.of(), List.of(), Map.of());
+
+        assertEquals(Set.of(), mw.lastCastPaymentElements);
+        assertEquals(0, mw.lastCastPaymentDistinctElements);
+        assertEquals(0, mw.lastCastPaymentDiscardCount);
+    }
+
+    @Test
+    void theCastFlagIsLoweredAgainOnceTheCardHasLanded() {
+        // True for the one moment the card reaches the field, so "enters the field due to your
+        // cast" fires, and false afterwards so the next arrival by some other route is not read
+        // as a cast.
+        MainWindow mw = new MainWindow();
+        seatLbDeck(mw, false);
+
+        mw.executeLbPlay(false, mw.gameState.getP2LbDeck().get(0), 0, Set.of(1),
+                List.of(), List.of(), Map.of());
+
+        assertFalse(mw.lastCardWasCast);
+    }
+
+    @Test
+    void bothSeatsRecordTheSameCastBookkeeping() {
+        MainWindow p1Seat = new MainWindow();
+        MainWindow p2Seat = new MainWindow();
+        seatLbDeck(p1Seat, true);
+        seatLbDeck(p2Seat, false);
+
+        p1Seat.executeLbPlay(true,  p1Seat.gameState.getP1LbDeck().get(0), 0, Set.of(1),
+                List.of(0, 1), List.of(), Map.of());
+        p2Seat.executeLbPlay(false, p2Seat.gameState.getP2LbDeck().get(0), 0, Set.of(1),
+                List.of(0, 1), List.of(), Map.of());
+
+        assertEquals(p1Seat.turn(true).cardsCastThisTurn, p2Seat.turn(false).cardsCastThisTurn);
+        assertEquals(p1Seat.lastCastPaymentElements, p2Seat.lastCastPaymentElements);
+        assertEquals(p1Seat.lastCastPaymentDistinctElements, p2Seat.lastCastPaymentDistinctElements);
+        assertEquals(p1Seat.lastCastPaymentDiscardCount, p2Seat.lastCastPaymentDiscardCount);
     }
 
     @Test

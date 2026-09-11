@@ -43,8 +43,15 @@ public class LbDialog {
 
     public interface Callbacks {
         boolean isSpent(int idx);
-        /** Returns true when the card is blocked by a uniqueness / LD / cast-restriction rule. */
-        boolean isNameBlocked(CardData card);
+        /**
+         * Returns true when this card cannot be cast right now — a uniqueness, Light/Dark or
+         * cast-restriction rule, or a cast limit that stops the player casting anything at all.
+         *
+         * <p>Asked only of a card being considered as the <em>cast</em>, never of one being picked
+         * as payment: paying with a face-down card turns it face up where it sits and is not a
+         * cast, so none of these rules bear on it.
+         */
+        boolean isCastBlocked(CardData card);
         int effectiveCastCost(CardData card);
         void onConfirm(CardData cast, int castIdx, Set<Integer> paymentSet);
         void onZoom(String url);
@@ -84,7 +91,7 @@ public class LbDialog {
                 boolean casting       = (castingIdx[0] == i);
                 boolean payment       = paymentSet.contains(i);
                 boolean inPaymentMode = castingIdx[0] >= 0;
-                boolean nameBlocked   = !inPaymentMode && !spent && cb.isNameBlocked(lcd);
+                boolean castBlocked   = !inPaymentMode && !spent && cb.isCastBlocked(lcd);
 
                 if (casting) {
                     lbl.setBorder(CardAnimation.createCardGlowBorder(new Color(255, 200, 0)));
@@ -92,13 +99,13 @@ public class LbDialog {
                     lbl.setBorder(CardAnimation.createCardGlowBorder(Color.CYAN));
                 } else if (spent) {
                     lbl.setBorder(BorderFactory.createLineBorder(new Color(60, 60, 60), 1));
-                } else if (nameBlocked) {
+                } else if (castBlocked) {
                     lbl.setBorder(CardAnimation.createCardGlowBorder(Color.RED));
                 } else {
                     lbl.setBorder(BorderFactory.createLineBorder(
                             inPaymentMode ? Color.GRAY : Color.LIGHT_GRAY, 1));
                 }
-                boolean canInteract = !spent && !nameBlocked && !casting
+                boolean canInteract = !spent && !castBlocked && !casting
                         && (castingIdx[0] < 0 || !paymentSet.contains(i) || payment);
                 lbl.setCursor(canInteract
                         ? Cursor.getPredefinedCursor(Cursor.HAND_CURSOR) : Cursor.getDefaultCursor());
@@ -153,8 +160,8 @@ public class LbDialog {
                 @Override public void mouseExited(MouseEvent e) { cb.onZoomHide(); }
                 @Override public void mousePressed(MouseEvent e) {
                     if (cb.isSpent(idx)) return;
-                    boolean nameBlocked = castingIdx[0] < 0 && cb.isNameBlocked(cd);
-                    if (nameBlocked) return;
+                    boolean castBlocked = castingIdx[0] < 0 && cb.isCastBlocked(cd);
+                    if (castBlocked) return;
 
                     if (castingIdx[0] < 0) {
                         castingIdx[0] = idx;
