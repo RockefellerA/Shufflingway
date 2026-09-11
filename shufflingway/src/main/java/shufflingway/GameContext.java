@@ -3111,6 +3111,18 @@ public interface GameContext {
     void grantSelfCannotBeBlockedByPower(CardData source, int powerVal, boolean isMore);
 
     /**
+     * Grants {@code source} "cannot be blocked by a Forward with a power greater than its own"
+     * until the end of the turn — Deathgaze 5-063H, who hands it to himself along with the Forward
+     * body it restricts.
+     *
+     * <p>The relative twin of {@link #grantSelfCannotBeBlockedByPower}: no threshold is recorded,
+     * because the threshold is the attacker's own effective power at the moment the block is
+     * declared. A pump on the attacker widens the restriction and a pump on the blocker beats it,
+     * which is the interaction the printed version (Lann 1-027H) is read for too.
+     */
+    void grantSelfCannotBeBlockedByHigherPower(CardData source);
+
+    /**
      * Grants {@code source} "[Self] cannot block." until end of turn (a temporarily-granted field
      * ability), reusing the per-Forward this-turn block-restriction set that
      * {@link #setP1ForwardCannotBlock(int)} writes. Locates the source by identity on either
@@ -3220,6 +3232,21 @@ public interface GameContext {
      * untouched, so a caller can decline to claim an effect it could not actually apply.
      */
     boolean grantSelfAutoAbilityPermanently(CardData source, String abilityText);
+
+    /**
+     * Grants {@code source} the auto ability written in {@code abilityText} until the end of the
+     * turn — the turn-scoped twin of {@link #grantSelfAutoAbilityPermanently}, and what the
+     * become-a-Forward abilities hand over along with the body: Tonberry 19-097C's "When Tonberry
+     * deals damage to a Forward, break it.", and both of The Mandragoras 25-048R's clauses.
+     *
+     * <p>Written into the same store the permanent form uses, so the trigger dispatcher sees a
+     * granted ability exactly as it sees a printed one and needs no notion of how long it lasts.
+     * What differs is only the withdrawal, which is scheduled for the end of the turn.
+     *
+     * <p>Returns {@code false} when the text parses into no auto ability, leaving the card
+     * untouched — a caller can then decline rather than claim a grant that would sit inert.
+     */
+    boolean grantSelfAutoAbilityUntilEndOfTurn(CardData source, String abilityText);
 
     /**
      * Grants {@code source} "can attack {@code maxAttacks} times in the same turn" for as long as it

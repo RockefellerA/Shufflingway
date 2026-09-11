@@ -1229,28 +1229,58 @@ final class AutoAbilityTriggers {
 	);
 
 	/**
-	 * "During your opponent's turn, the Forwards opponent controls cannot use action abilities."
-	 * (Sin 14-045H.)
+	 * "[During your opponent's turn, ]the Forwards opponent controls cannot use action abilities."
+	 * — Sin 14-045H with the turn clause, Charlotte 27-128S without it.
 	 *
 	 * <p>Both clauses name the same player, and it is not the carrier's controller: the lock lands
-	 * on the opposing player's Forwards, and only while that player is the one taking the turn.
-	 * Off their turn they act normally, which is what makes this narrower than a blanket lock —
-	 * it shuts down responses to the carrier's own attacks, not the opponent's whole game.
+	 * on the opposing player's Forwards. Sin adds that it bites only while that player is the one
+	 * taking the turn, which shuts down responses to the carrier's own attacks rather than the
+	 * opponent's whole game; Charlotte's holds on every turn, so an opposing Forward's action
+	 * ability is dead for as long as she stands.
+	 *
+	 * <p>Group {@code turngate} is present only for Sin's printing, and
+	 * {@link #oppForwardsActionAbilityLock} is what turns it into the window each one means. Left
+	 * as one pattern rather than two because the lock and its scoping are identical and only the
+	 * window differs — and reading it as a group is what keeps a missing clause from silently
+	 * inheriting the other card's timing.
 	 *
 	 * <p>Action abilities only. Under rule 6-1-1 a Special Ability is its own kind of ability
 	 * rather than a form of action ability, so it is not caught here; nor are auto or field
 	 * abilities, which nobody "uses".
 	 */
 	static final Pattern FA_OPP_FORWARDS_CANNOT_USE_ACTION_ABILITIES = Pattern.compile(
-		"(?i)^During\\s+your\\s+opponent.?s\\s+turn,\\s+the\\s+Forwards?\\s+" +
+		"(?i)^(?<turngate>During\\s+your\\s+opponent.?s\\s+turn,\\s+)?the\\s+Forwards?\\s+" +
 		"(?:your\\s+)?opponent\\s+controls?\\s+cannot\\s+use\\s+action\\s+abilit(?:y|ies)[.!]?$"
 	);
 
-	/** Returns true if {@code card} locks the opposing player's Forwards out of action abilities. */
-	static boolean hasOppForwardsActionAbilityLock(CardData card) {
-		for (FieldAbility fa : card.fieldAbilities())
-			if (FA_OPP_FORWARDS_CANNOT_USE_ACTION_ABILITIES.matcher(fa.effectText().trim()).matches()) return true;
-		return false;
+	/** When an opposing-Forwards action-ability lock bites. */
+	enum ActionAbilityLockWindow {
+		/** The card prints no such lock. */
+		NONE,
+		/** Sin 14-045H: only while the locked player is the one taking the turn. */
+		LOCKED_PLAYERS_TURN,
+		/** Charlotte 27-128S: on every turn, for as long as the carrier is on the field. */
+		ALWAYS
+	}
+
+	/**
+	 * The window in which {@code card} locks the opposing player's Forwards out of action
+	 * abilities, or {@link ActionAbilityLockWindow#NONE} when it prints no such ability.
+	 *
+	 * <p>A card printing both would be bound by the wider of the two, so {@code ALWAYS} returns as
+	 * soon as it is found. No printing does, but the alternative — first match wins — would make
+	 * the answer depend on the order the abilities happen to be listed in.
+	 */
+	static ActionAbilityLockWindow oppForwardsActionAbilityLock(CardData card) {
+		if (card == null) return ActionAbilityLockWindow.NONE;
+		ActionAbilityLockWindow found = ActionAbilityLockWindow.NONE;
+		for (FieldAbility fa : card.fieldAbilities()) {
+			Matcher m = FA_OPP_FORWARDS_CANNOT_USE_ACTION_ABILITIES.matcher(fa.effectText().trim());
+			if (!m.matches()) continue;
+			if (m.group("turngate") == null) return ActionAbilityLockWindow.ALWAYS;
+			found = ActionAbilityLockWindow.LOCKED_PLAYERS_TURN;
+		}
+		return found;
 	}
 
 	/**

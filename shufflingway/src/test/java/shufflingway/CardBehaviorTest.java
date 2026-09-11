@@ -19806,12 +19806,17 @@ public class CardBehaviorTest {
 
 	// =========================================================================================
 	// Sin 14-045H — "During your opponent's turn, the Forwards opponent controls cannot use
-	// action abilities."
+	// action abilities." — and Charlotte 27-128S, who prints it with no turn clause.
 	//
 	// Doubly scoped, and both halves point at the same player — the one who does NOT control Sin.
 	// It binds that player's Forwards, and only while the turn is theirs, which is what makes it
 	// a tax on responding to Sin's controller rather than a blanket lock. Enforced in
 	// canActivateAbility, the single gate the ability menu and the AI both pass through.
+	//
+	// Charlotte drops the turn clause and keeps everything else, so the two are one pattern with
+	// the clause captured as a group rather than two patterns. Reading it as a group is the point:
+	// matched as an optional literal and thrown away, Charlotte would have silently inherited Sin's
+	// timing and gone quiet on half the turns she is supposed to bind.
 	//
 	// Action abilities only: under rule 6-1-1 a Special Ability is its own kind of ability, not a
 	// form of action ability.
@@ -19910,6 +19915,105 @@ public class CardBehaviorTest {
 		assertFalse(mw.forwardActionAbilitiesLockedFor(true));
 		assertTrue(mw.canActivateAbility(user.actionAbilities().get(0), false,
 				CardState.ACTIVE, 0, user, true));
+	}
+
+	private static final String CHARLOTTE_27_128S_LOCK =
+			"The Forwards opponent controls cannot use action abilities.";
+
+	@Test
+	void theTwoPrintingsAreToldApartByTheirTurnClause() {
+		assertEquals(AutoAbilityTriggers.ActionAbilityLockWindow.LOCKED_PLAYERS_TURN,
+				AutoAbilityTriggers.oppForwardsActionAbilityLock(
+						makeFieldAbilityCard("Sin", "Wind", "Backup", SIN_14_045H_LOCK)));
+		assertEquals(AutoAbilityTriggers.ActionAbilityLockWindow.ALWAYS,
+				AutoAbilityTriggers.oppForwardsActionAbilityLock(
+						makeFieldAbilityCard("Charlotte", "Water", "Forward", CHARLOTTE_27_128S_LOCK)));
+		assertEquals(AutoAbilityTriggers.ActionAbilityLockWindow.NONE,
+				AutoAbilityTriggers.oppForwardsActionAbilityLock(
+						makeFieldAbilityCard("Nobody", "Water", "Forward", "")));
+	}
+
+	/** P2 fields Charlotte; P1 fields a Forward with an ordinary action ability. Returns that Forward. */
+	private static CardData charlotteFacingAnAbilityUser(MainWindow mw, GameState.Player whoseTurn) {
+		advanceTo(mw, whoseTurn, GameState.GamePhase.MAIN_1);
+		mw.placeP2CardInFirstBackupSlot(
+				makeFieldAbilityCard("Charlotte", "Water", "Backup", CHARLOTTE_27_128S_LOCK));
+		CardData user = makeForward("Vaan", "Wind", 3, 7000,
+				CardData.parseActionAbilities(PLAIN_ACTION_ABILITY));
+		placeP1Forward(mw, user);
+		return user;
+	}
+
+	@Test
+	void charlottesLockHoldsOnTheLockedPlayersTurn() {
+		MainWindow mw = new MainWindow();
+		CardData user = charlotteFacingAnAbilityUser(mw, GameState.Player.P1);
+
+		assertTrue(mw.forwardActionAbilitiesLockedFor(true));
+		assertFalse(mw.canActivateAbility(user.actionAbilities().get(0), false,
+				CardState.ACTIVE, 0, user, true));
+	}
+
+	@Test
+	void charlottesLockAlsoHoldsOnHerOwnControllersTurn() {
+		// The whole of what she adds to Sin. Read with Sin's turn gate she would go quiet here, and
+		// an opposing Forward could answer her controller's turn freely.
+		MainWindow mw = new MainWindow();
+		CardData user = charlotteFacingAnAbilityUser(mw, GameState.Player.P2);
+
+		assertTrue(mw.forwardActionAbilitiesLockedFor(true),
+				"no turn clause — the lock does not lift");
+		assertFalse(mw.canActivateAbility(user.actionAbilities().get(0), false,
+				CardState.ACTIVE, 0, user, true));
+	}
+
+	@Test
+	void charlotteDoesNotLockHerOwnControllersForwards() {
+		// The side scoping is the half she shares with Sin, and dropping the turn clause does not
+		// touch it: the text binds the opponent's Forwards whatever turn it is.
+		MainWindow mw = new MainWindow();
+		advanceTo(mw, GameState.Player.P1, GameState.GamePhase.MAIN_1);
+		mw.placeP2CardInFirstBackupSlot(
+				makeFieldAbilityCard("Charlotte", "Water", "Backup", CHARLOTTE_27_128S_LOCK));
+		CardData ally = makeForward("Ally", "Water", 3, 7000,
+				CardData.parseActionAbilities(PLAIN_ACTION_ABILITY));
+		placeP2Forward(mw, ally);
+
+		assertFalse(mw.forwardActionAbilitiesLockedFor(false));
+		assertTrue(mw.canActivateAbility(ally.actionAbilities().get(0), false,
+				CardState.ACTIVE, 0, ally, false));
+	}
+
+	@Test
+	void charlotteLocksTheRowOnATurnSinAloneWouldLeaveOpen() {
+		// The turn test is per card rather than an early return over the board. Asked once for the
+		// whole field, Sin's "not this turn" would have answered for Charlotte too.
+		MainWindow mw = new MainWindow();
+		CardData user = sinFacingAnAbilityUser(mw, GameState.Player.P2);
+		assertFalse(mw.forwardActionAbilitiesLockedFor(true), "Sin alone is off duty");
+
+		mw.placeP2CardInFirstBackupSlot(
+				makeFieldAbilityCard("Charlotte", "Water", "Backup", CHARLOTTE_27_128S_LOCK));
+		assertTrue(mw.forwardActionAbilitiesLockedFor(true), "Charlotte is not");
+		assertFalse(mw.canActivateAbility(user.actionAbilities().get(0), false,
+				CardState.ACTIVE, 0, user, true));
+	}
+
+	@Test
+	void charlottesLockSparesSpecialAbilitiesToo() {
+		MainWindow mw = new MainWindow();
+		advanceTo(mw, GameState.Player.P1, GameState.GamePhase.MAIN_1);
+		mw.placeP2CardInFirstBackupSlot(
+				makeFieldAbilityCard("Charlotte", "Water", "Backup", CHARLOTTE_27_128S_LOCK));
+		CardData bartz = makeForward("Bartz", "Wind", 3, 7000, CardData.parseActionAbilities(
+				"[[s]]Spellblade[[/]] 《S》: Choose 1 Forward. Deal it 5000 damage."));
+		placeP1Forward(mw, bartz);
+		mw.gameState.getP1Hand().add(makeForward("Bartz", "Wind", 3, 7000));
+
+		assertTrue(mw.forwardActionAbilitiesLockedFor(true), "the lock is up");
+		assertTrue(mw.canActivateAbility(bartz.actionAbilities().get(0), false,
+				CardState.ACTIVE, 0, bartz, true),
+				"rule 6-1-1 exempts a Special Ability from hers as from Sin's");
 	}
 
 	// =========================================================================================
@@ -21174,6 +21278,520 @@ public class CardBehaviorTest {
 
 		assertEquals(3, mw.gameState.peekStack().xValue(),
 				"nothing is reachable, so the full range stays open rather than the cost being blocked");
+	}
+
+	// =========================================================================================
+	// The Scions of the Seventh Dawn PR-150 — "The Scions of the Seventh Dawn cannot be chosen by
+	// Summons or abilities."  (Field-ability passive and the choice gate.)
+	//
+	// The unqualified member of a family of 25 that is otherwise printed "by your OPPONENT'S Summons
+	// or abilities". Naming no player, it binds whoever is choosing — its own controller included —
+	// so it seeds the symmetric shields rather than the opponent-scoped ones.
+	//
+	// That is the card, not a technicality. It cannot attack or block and only has to stay on the
+	// field until ten Job Scions are out, so a body nobody can point anything at is the whole point;
+	// read as the opponent-scoped sentence, its controller would gain the ability to bounce or
+	// sacrifice it out of the way.
+	//
+	// The negative lookahead is what keeps the two apart, and the assertions below check it from
+	// both sides: this one has to reach its own controller, and the 25 must not.
+	// =========================================================================================
+
+	private static final String SCIONS_PR_150 =
+			"The Scions of the Seventh Dawn cannot be chosen by Summons or abilities.";
+
+	@Test
+	void theScionsAreShieldedFromEitherPlayer() {
+		CardData scions = makeFieldAbilityCard("The Scions of the Seventh Dawn", "Light", "Forward",
+				SCIONS_PR_150);
+		assertTrue(ActionResolver.hasCannotBeChosenByAnyFieldAbility(scions, true),  "by Summons");
+		assertTrue(ActionResolver.hasCannotBeChosenByAnyFieldAbility(scions, false), "by abilities");
+
+		MainWindow mw = new MainWindow();
+		placeP1Forward(mw, scions);
+		for (boolean bySummon : new boolean[]{true, false}) {
+			assertTrue(mw.isProtectedFromChoice(scions, true, false, bySummon, null),
+					"the opponent cannot choose it");
+			assertTrue(mw.isProtectedFromChoice(scions, true, true, bySummon, null),
+					"and neither can its own controller — no player is named");
+		}
+	}
+
+	@Test
+	void theOpponentScopedPrintingsStillLetTheirControllerChoose() {
+		// Terra 1-046H is the printing that omits "your", so she is the one a lookahead written
+		// against "your opponent's" alone would have mistaken for the unqualified form.
+		CardData terra = makeFieldAbilityCard("Terra", "Ice", "Forward",
+				"Terra cannot be chosen by opponent's Summons.");
+		assertFalse(ActionResolver.hasCannotBeChosenByAnyFieldAbility(terra, true),
+				"\"opponent's\" is still a player named, with or without \"your\"");
+		assertTrue(ActionResolver.hasCannotBeChosenByOppFieldAbility(terra, true));
+
+		MainWindow mw = new MainWindow();
+		placeP1Forward(mw, terra);
+		assertTrue(mw.isProtectedFromChoice(terra, true, false, true, null));
+		assertFalse(mw.isProtectedFromChoice(terra, true, true, true, null),
+				"her own controller may still choose her");
+	}
+
+	@Test
+	void theQualifiedWordingsAreNotClaimedAsUnqualified() {
+		// Both continue past the keyword with a qualifier that narrows the immunity. Anchored end to
+		// end, neither reaches this reader — Bartz has his own, Jack Garland stays visibly unread.
+		CardData bartz = makeFieldAbilityCard("Bartz", "Wind", "Forward",
+				"Bartz cannot be chosen by your opponent's Summons or abilities that share its Element.");
+		assertFalse(ActionResolver.hasCannotBeChosenByAnyFieldAbility(bartz, true));
+
+		CardData garland = makeFieldAbilityCard("Jack Garland", "Dark", "Forward",
+				"Jack Garland cannot be chosen by your opponent's abilities of Characters with the named Job.");
+		assertFalse(ActionResolver.hasCannotBeChosenByAnyFieldAbility(garland, false));
+	}
+
+	@Test
+	void theShieldHasToNameItsOwnCarrier() {
+		CardData impostor = makeFieldAbilityCard("Y'shtola", "Light", "Forward", SCIONS_PR_150);
+		assertFalse(ActionResolver.hasCannotBeChosenByAnyFieldAbility(impostor, true),
+				"a card's own name in its own text means that card");
+	}
+
+	// =========================================================================================
+	// Flowering Cactoid 28-068R — "《0》: Until the end of the turn, Flowering Cactoid also becomes a
+	// Forward with 6000 power and "Flowering Cactoid cannot be chosen by Summons or abilities.""
+	//
+	// PR-150's sentence again, handed over for a turn instead of printed. The rider was being
+	// dropped in silence: BECOME_FORWARD_UNTIL_EOT_PATTERN ends at the power and scans with find(),
+	// so everything after it fell off and the card resolved as a bare promotion.
+	//
+	// That is a weaker card than the printed one rather than a stronger one, which decides what to
+	// do about a rider this engine cannot read: the promotion still stands. Losing the body an
+	// ability exists to grant costs the player more than losing its rider, and the description says
+	// which happened either way.
+	//
+	// The clause itself is not interpreted at the promotion. It goes to grantedSelfFieldAbilityEffect
+	// — the dispatcher the two other until-the-turn-ends self-grants already use — so the vocabulary
+	// stays in one place and a wording it learns is read here too.
+	// =========================================================================================
+
+	private static final String CACTOID_28_068R =
+			"Until the end of the turn, Flowering Cactoid also becomes a Forward with 6000 power "
+			+ "and \"Flowering Cactoid cannot be chosen by Summons or abilities.\" "
+			+ "You can only use this ability once per turn.";
+
+	@Test
+	void cactoidIsAttributedToBothHalvesOfWhatItDoes() {
+		CardData cactoid = makeMonsterWithText("Flowering Cactoid", "Earth", CACTOID_28_068R);
+		assertEquals("BecomeForwardUntilEot + SelfCannotBeChosenByAnyone",
+				ActionResolver.fullDescription(CACTOID_28_068R, cactoid));
+	}
+
+	@Test
+	void theShieldIsHandedToTheBodyThePromotionJustMade() {
+		// Order matters as documented rather than as an accident: the clause is about a Forward that
+		// does not exist until the promotion runs.
+		CardData cactoid = makeMonsterWithText("Flowering Cactoid", "Earth", CACTOID_28_068R);
+		GameContext ctx = mock(GameContext.class);
+		ActionResolver.parse(CACTOID_28_068R, cactoid).accept(ctx);
+
+		InOrder order = inOrder(ctx);
+		order.verify(ctx).makeMonsterTemporaryForward(cactoid, 6000);
+		order.verify(ctx).shieldSelfCannotBeChosenByAnySummonOrAbility(cactoid);
+	}
+
+	@Test
+	void theGrantedShieldBindsEitherPlayerJustAsThePrintedOneDoes() {
+		MainWindow mw = new MainWindow();
+		CardData cactoid = makeMonsterWithText("Flowering Cactoid", "Earth", CACTOID_28_068R);
+		mw.placeCardInMonsterZone(cactoid);
+		ActionResolver.parse(CACTOID_28_068R, cactoid).accept(mw.buildGameContext(true));
+
+		for (boolean bySummon : new boolean[]{true, false}) {
+			assertTrue(mw.isProtectedFromChoice(cactoid, true, false, bySummon, null),
+					"the opponent cannot choose it");
+			assertTrue(mw.isProtectedFromChoice(cactoid, true, true, bySummon, null),
+					"and neither can its own controller — no player is named");
+		}
+	}
+
+	@Test
+	void aRiderNamingAnotherCardIsNotApplied() {
+		CardData cactoid = makeMonsterWithText("Flowering Cactoid", "Earth", CACTOID_28_068R);
+		String text = CACTOID_28_068R.replace("\"Flowering Cactoid cannot", "\"Sephiroth cannot");
+		GameContext ctx = mock(GameContext.class);
+		ActionResolver.parse(text, cactoid).accept(ctx);
+
+		verify(ctx).makeMonsterTemporaryForward(cactoid, 6000);
+		verify(ctx, never()).shieldSelfCannotBeChosenByAnySummonOrAbility(any());
+	}
+
+	@Test
+	void theOpponentScopedWordingIsNotTakenForTheSymmetricOne() {
+		// The granted path has to keep the two scopes apart exactly as the printed one does. Read as
+		// the symmetric shield, this would stop its own controller choosing the card as well.
+		CardData cactoid = makeMonsterWithText("Flowering Cactoid", "Earth", CACTOID_28_068R);
+		String text = CACTOID_28_068R.replace("chosen by Summons",
+				"chosen by your opponent's Summons");
+		assertNull(ActionResolver.becomeForwardRiderGrant(text, cactoid));
+	}
+
+	@Test
+	void thePromotionStandsWhenTheRiderCannotBeRead() {
+		// Ozma 5-124H's clause has no reader yet. The body is the point of the ability, so it is
+		// granted anyway — and the description names no rider, which is what leaves the gap visible.
+		String ozmaText = "Until the end of the turn, Ozma also becomes a Forward with 8000 power "
+				+ "and \"If Ozma is dealt damage by a Dark card, the damage becomes 0 instead.\" "
+				+ "You can only use this ability once per turn.";
+		CardData ozma = makeMonsterWithText("Ozma", "Water", ozmaText);
+		GameContext ctx = mock(GameContext.class);
+		ActionResolver.parse(ozmaText, ozma).accept(ctx);
+
+		verify(ctx).makeMonsterTemporaryForward(ozma, 8000);
+		verify(ctx, never()).shieldSelfCannotBeChosenByAnySummonOrAbility(any());
+		assertEquals("BecomeForwardUntilEot", ActionResolver.fullDescription(ozmaText, ozma));
+	}
+
+	@Test
+	void aTriggerBearingBranchKeepsItsOwnRider() {
+		// The three branches above the fallback read their rider themselves and return there, so the
+		// rider path must not claim it a second time. 4-142R Malboro quotes a power sweep inside a
+		// block trigger, and naming it here described him as performing the sweep himself.
+		String text = "Until the end of the turn, Malboro also becomes a Forward with 6000 power "
+				+ "and \"When Malboro blocks or is blocked, all the Forwards opponent controls "
+				+ "lose 2000 power until the end of the turn.\" "
+				+ "You can only use this ability once per turn.";
+		CardData malboro = makeMonsterWithText("Malboro", "Water", text);
+		assertNull(ActionResolver.becomeForwardRiderGrant(text, malboro));
+		assertEquals("BecomeForwardUntilEot", ActionResolver.fullDescription(text, malboro));
+	}
+
+	// -- The rest of the rider family -------------------------------------------------------
+	// Everything below shares Flowering Cactoid's plumbing and differs only in the clause. Five
+	// printings had a rider dropped in silence; each needed its own reader, and two of those
+	// readers already existed for the printed twin of the same sentence.
+
+	@Test
+	void koboldroidYinsBlockRestrictionIsGranted() {
+		// The reader existed; the granted pattern was written narrower than the printed one it
+		// mirrors and missed the plural. "Of cost 3 or more" is the printed default either way.
+		String text = "Until the end of the turn, Koboldroid Yin also becomes a Forward with 3000 "
+				+ "power and \"Koboldroid Yin cannot be blocked by Forwards of cost 3 or more.\" "
+				+ "You can only use this ability once per turn.";
+		CardData yin = makeMonsterWithText("Koboldroid Yin", "Wind", text);
+		GameContext ctx = mock(GameContext.class);
+		ActionResolver.parse(text, yin).accept(ctx);
+
+		verify(ctx).makeMonsterTemporaryForward(yin, 3000);
+		verify(ctx).grantSelfCannotBeBlockedByCost(yin, 3, true);
+	}
+
+	@Test
+	void anAbsentComparatorStillMeansOrMore() {
+		// The comparator became optional to match the printed reader, so the call sites test for
+		// "less" rather than for "more" — read the other way a bare threshold inverts the shield.
+		int[] parsed = ActionResolver.grantedThisForwardCannotBeBlockedByCost(
+				"This Forward cannot be blocked by a Forward of cost 3.");
+		assertArrayEquals(new int[]{3, 1}, parsed);
+	}
+
+	private static final String DEATHGAZE_5_063H =
+			"Until the end of the turn, Deathgaze also becomes a Forward with 7000 power and "
+			+ "\"Deathgaze cannot be blocked by a Forward with a power greater than Deathgaze's.\" "
+			+ "You can only use this ability once per turn.";
+
+	@Test
+	void deathgazesRelativeBlockRestrictionIsGranted() {
+		CardData deathgaze = makeMonsterWithText("Deathgaze", "Wind", DEATHGAZE_5_063H);
+		GameContext ctx = mock(GameContext.class);
+		ActionResolver.parse(DEATHGAZE_5_063H, deathgaze).accept(ctx);
+
+		verify(ctx).makeMonsterTemporaryForward(deathgaze, 7000);
+		verify(ctx).grantSelfCannotBeBlockedByHigherPower(deathgaze);
+	}
+
+	@Test
+	void theGrantedRestrictionReadsLikeLannsPrintedOne() {
+		// Lann 1-027H prints the same sentence and it is read straight off the record, so the block
+		// rule now asks both stores. A granted copy has to bite exactly as a printed one does.
+		MainWindow mw = new MainWindow();
+		CardData deathgaze = makeMonsterWithText("Deathgaze", "Wind", DEATHGAZE_5_063H);
+		placeP2Forward(mw, deathgaze);
+		assertFalse(mw.carriesHigherPowerBlockShield(deathgaze, false), "nothing granted yet");
+
+		mw.buildGameContext(false).grantSelfCannotBeBlockedByHigherPower(deathgaze);
+		assertTrue(mw.carriesHigherPowerBlockShield(deathgaze, false));
+	}
+
+	@Test
+	void theGrantedRestrictionIsScopedToItsOwnSideAndTurn() {
+		MainWindow mw = new MainWindow();
+		CardData deathgaze = makeMonsterWithText("Deathgaze", "Wind", DEATHGAZE_5_063H);
+		placeP2Forward(mw, deathgaze);
+		mw.buildGameContext(false).grantSelfCannotBeBlockedByHigherPower(deathgaze);
+
+		assertFalse(mw.carriesHigherPowerBlockShield(deathgaze, true),
+				"the grant was made on P2's side, and the sets are per side");
+
+		mw.p2CannotBeBlockedByHigherPower.clear();   // the turn boundary does this
+		assertFalse(mw.carriesHigherPowerBlockShield(deathgaze, false), "and it is a turn effect");
+	}
+
+	@Test
+	void theGrantedRestrictionDiesWithTheCard() {
+		MainWindow mw = new MainWindow();
+		CardData deathgaze = makeMonsterWithText("Deathgaze", "Wind", DEATHGAZE_5_063H);
+		placeP2Forward(mw, deathgaze);
+		mw.buildGameContext(false).grantSelfCannotBeBlockedByHigherPower(deathgaze);
+
+		mw.clearCombatRestrictionsFor(deathgaze);
+		assertFalse(mw.carriesHigherPowerBlockShield(deathgaze, false),
+				"cleared on departure with the rest of the combat restrictions");
+	}
+
+	private static final String TONBERRY_19_097C =
+			"Until the end of the turn, Tonberry also becomes a Forward with 2000 power and "
+			+ "\"When Tonberry deals damage to a Forward, break it.\" "
+			+ "You can only use this ability once per turn.";
+
+	@Test
+	void tonberrysTriggerIsGrantedForTheTurn() {
+		CardData tonberry = makeMonsterWithText("Tonberry", "Water", TONBERRY_19_097C);
+		GameContext ctx = mock(GameContext.class);
+		ActionResolver.parse(TONBERRY_19_097C, tonberry).accept(ctx);
+
+		verify(ctx).makeMonsterTemporaryForward(tonberry, 2000);
+		verify(ctx).grantSelfAutoAbilityUntilEndOfTurn(tonberry,
+				"When Tonberry deals damage to a Forward, break it.");
+	}
+
+	@Test
+	void theGrantedBreaktouchStaysOnTheDamagePath() {
+		// "break it." deliberately does not parse: "it" is the card the damage event just hit, which
+		// only that event knows, and DamageResolver keys its Breaktouch path off exactly that. The
+		// clause is handed over whole and resolves there, so the grant needs no reader of its own —
+		// teaching parse() to read the sentence would divert Breaktouch instead of helping it.
+		CardData tonberry = makeMonsterWithText("Tonberry", "Water", TONBERRY_19_097C);
+		assertNull(ActionResolver.parse("break it.", tonberry),
+				"the bare pronoun form stays out — see TRIGGERED_TARGET_ACTION_BARE");
+		assertFalse(ActionResolver.isTriggeredTargetAction("break it."));
+
+		// Which is why the description names it rather than reporting the "?" parse() honestly
+		// returns: the card is not missing a reader, it is on a different path.
+		assertEquals("BecomeForwardUntilEot + SelfAutoAbility(Breaktouch)",
+				ActionResolver.fullDescription(TONBERRY_19_097C, tonberry));
+	}
+
+	@Test
+	void aGrantedBreaktouchActuallyBreaks() {
+		// The last link, and the one that made the grant worth anything: the Breaktouch walk read
+		// the printed abilities alone, so a Tonberry that had just handed itself the trigger dealt
+		// its damage and broke nothing.
+		MainWindow mw = new MainWindow();
+		CardData tonberry = makeMonsterWithText("Tonberry", "Water", TONBERRY_19_097C);
+		placeP1Forward(mw, tonberry);
+		CardData victim = makeForward("Victim", "Fire", 2, 5000);
+		placeP2Forward(mw, victim);
+
+		assertFalse(mw.damageResolver.fireBreaktouchForDamage(tonberry, true, false, 0, 2000),
+				"nothing granted yet, and Tonberry prints no Breaktouch of its own");
+
+		mw.buildGameContext(true).grantSelfAutoAbilityUntilEndOfTurn(tonberry,
+				"When Tonberry deals damage to a Forward, break it.");
+		assertTrue(mw.damageResolver.fireBreaktouchForDamage(tonberry, true, false, 0, 2000),
+				"the granted trigger is read off the effective list, like the attack and block walks");
+	}
+
+	@Test
+	void theGrantedTriggerIsWithdrawnAtEndOfTurn() {
+		MainWindow mw = new MainWindow();
+		CardData tonberry = makeMonsterWithText("Tonberry", "Water", TONBERRY_19_097C);
+		placeP1Forward(mw, tonberry);
+		mw.buildGameContext(true).grantSelfAutoAbilityUntilEndOfTurn(tonberry,
+				"When Tonberry deals damage to a Forward, break it.");
+		assertEquals(1, mw.effectiveAutoAbilities(tonberry).size());
+
+		mw.fireEndOfTurnEffects(true);
+		assertTrue(mw.effectiveAutoAbilities(tonberry).isEmpty(),
+				"granted until the end of the turn, and withdrawn by it");
+	}
+
+	private static final String MANDRAGORAS_25_048R =
+			"Until the end of the turn, The Mandragoras also becomes a Forward with 5000 power, "
+			+ "\"When The Mandragoras deals damage to a Forward, break it.\" and \"When The "
+			+ "Mandragoras is put from the field into the Break Zone, choose 1 Forward opponent "
+			+ "controls. Break it.\" You can only use this ability once per turn.";
+
+	@Test
+	void bothOfTheMandragorasClausesAreGranted() {
+		CardData mandragoras = makeMonsterWithText("The Mandragoras", "Wind", MANDRAGORAS_25_048R);
+		GameContext ctx = mock(GameContext.class);
+		ActionResolver.parse(MANDRAGORAS_25_048R, mandragoras).accept(ctx);
+
+		verify(ctx).makeMonsterTemporaryForward(mandragoras, 5000);
+		verify(ctx).grantSelfAutoAbilityUntilEndOfTurn(mandragoras,
+				"When The Mandragoras deals damage to a Forward, break it.");
+		verify(ctx).grantSelfAutoAbilityUntilEndOfTurn(mandragoras,
+				"When The Mandragoras is put from the field into the Break Zone, choose 1 Forward "
+				+ "opponent controls. Break it.");
+	}
+
+	@Test
+	void theClauseRunIsCapturedWholeRatherThanByItsLastRound() {
+		// A named group written around the repetition, not as the repetition — the other way it
+		// keeps only its final round, and the pair silently became whichever clause came second.
+		assertEquals(2, ActionResolver.becomeForwardRiderClauses(MANDRAGORAS_25_048R).size());
+	}
+
+	@Test
+	void neitherClauseIsAppliedIfEitherIsUnreadable() {
+		// All or nothing: a printing that hands over two clauses means both, and applying the half
+		// this engine happens to read is a card it never printed.
+		String text = MANDRAGORAS_25_048R.replace(
+				"When The Mandragoras deals damage to a Forward, break it.",
+				"The Mandragoras does something no reader covers.");
+		CardData mandragoras = makeMonsterWithText("The Mandragoras", "Wind", text);
+		assertNull(ActionResolver.becomeForwardRiderGrant(text, mandragoras));
+	}
+
+	@Test
+	void melusinesCancelTriggerIsGranted() {
+		String text = "Until the end of the turn, Melusine also becomes a Forward with 7000 power "
+				+ "and \"When Melusine is chosen by your opponent's Summons or abilities, if your "
+				+ "opponent doesn't discard 1 card, cancel its effect.\" "
+				+ "You can only use this ability once per turn.";
+		CardData melusine = makeMonsterWithText("Melusine", "Lightning", text);
+		GameContext ctx = mock(GameContext.class);
+		ActionResolver.parse(text, melusine).accept(ctx);
+
+		verify(ctx).makeMonsterTemporaryForward(melusine, 7000);
+		verify(ctx).grantSelfAutoAbilityUntilEndOfTurn(eq(melusine), contains("cancel its effect"));
+	}
+
+	@Test
+	void yktSixtyThreeNoLongerBreaksRegardlessOfTheHand() {
+		// Not one of the riders, but the same find() hazard one row over, and the rider work made
+		// it visible: the break arm scanned, took "break it" out of the middle of the condition and
+		// applied it whatever the opponent held — strictly stronger than the printed card.
+		CardData ykt = makeMonsterWithText("YKT-63", "Ice",
+				"When YKT-63 enters the field, choose 1 Forward. Dull it and Freeze it. "
+				+ "If your opponent has 1 card or less in their hand, break it instead.");
+		String effect = "choose 1 Forward. Dull it and Freeze it. If your opponent has 1 card or "
+				+ "less in their hand, break it instead.";
+		ForwardTarget chosen = new ForwardTarget(false, 0, ForwardTarget.CardZone.FORWARD);
+
+		GameContext full = mock(GameContext.class);
+		when(full.consumePreloadedTargets()).thenReturn(List.of(chosen));
+		when(full.lastChosenTargets()).thenReturn(List.of(chosen));
+		when(full.opponentHandSize()).thenReturn(5);
+		ActionResolver.parse(effect, ykt).accept(full);
+		verify(full, never()).breakTarget(any());
+
+		GameContext empty = mock(GameContext.class);
+		when(empty.consumePreloadedTargets()).thenReturn(List.of(chosen));
+		when(empty.lastChosenTargets()).thenReturn(List.of(chosen));
+		when(empty.opponentHandSize()).thenReturn(1);
+		ActionResolver.parse(effect, ykt).accept(empty);
+		verify(empty).breakTarget(chosen);
+	}
+
+	@Test
+	void aPromotionWithNoRiderIsUnchanged() {
+		// The overwhelming majority of the family. The rider lookup has to be a no-op for them.
+		String text = "Until the end of the turn, Hell House also becomes a Forward with 7000 power. "
+				+ "You can only use this ability once per turn.";
+		CardData hellHouse = makeMonsterWithText("Hell House", "Earth", text);
+		assertNull(ActionResolver.becomeForwardRiderGrant(text, hellHouse));
+		assertEquals("BecomeForwardUntilEot", ActionResolver.fullDescription(text, hellHouse));
+	}
+
+	// =========================================================================================
+	// Charlotte 27-128S — "The Forwards you control cannot be chosen by your opponent's Summons of
+	// cost 1."  (Party shield, narrowed by what the source cost.)
+	//
+	// The party-wide shield already existed, stored as an IfControlBoost with a target filter and no
+	// conditions, and it already knew how to narrow by the SOURCE: Aerith 3-050L shields only against
+	// "your opponent's Backup abilities". Charlotte narrows the same slot by cost instead, so the
+	// mechanism is one more field on that record and one more clause in admitsChooserSource.
+	//
+	// Exactly cost 1, not "cost 1 or less". The sentence names a number with no comparator, and a
+	// range would shield the party from the cost-2 and cost-3 Summons she was priced against.
+	// =========================================================================================
+
+	private static final String CHARLOTTE_27_128S_SHIELD =
+			"The Forwards you control cannot be chosen by your opponent's Summons of cost 1.";
+
+	@Test
+	void charlottesShieldRecordsTheCostItNames() {
+		List<IfControlBoost> boosts = CardData.parseIfControlBoosts(CHARLOTTE_27_128S_SHIELD, "Forward");
+		assertEquals(1, boosts.size());
+		IfControlBoost icb = boosts.get(0);
+		assertEquals(1, icb.chosenImmunitySourceCost());
+		assertTrue(icb.cannotBeChosenBySummons());
+		assertFalse(icb.cannotBeChosenByAbilities(), "she names Summons alone");
+		assertTrue(icb.chosenImmunityOpponentOnly(), "\"your opponent's\" — her own side may choose");
+	}
+
+	@Test
+	void onlyASummonOfThatCostIsTurnedAway() {
+		IfControlBoost icb = CardData.parseIfControlBoosts(CHARLOTTE_27_128S_SHIELD, "Forward").get(0);
+		assertFalse(icb.admitsChooserSource(makeSummon("Bigger", "Fire", 2, "")),
+				"a cost-2 Summon is not the one she names");
+		assertTrue(icb.admitsChooserSource(makeSummon("Chocobo", "Fire", 1, "")));
+	}
+
+	@Test
+	void charlotteShieldsTheWholeRowRatherThanHerself() {
+		MainWindow mw = new MainWindow();
+		CardData charlotte = makeIcbCard("Charlotte", "Water", "Forward",
+				CHARLOTTE_27_128S_SHIELD);
+		CardData ally = makeForward("Ally", "Water", 2, 5000);
+		placeP1Forward(mw, charlotte);
+		placeP1Forward(mw, ally);
+		CardData cheapSummon = makeSummon("Chocobo", "Fire", 1, "");
+
+		assertTrue(mw.isProtectedFromChoice(ally, true, false, true, cheapSummon),
+				"\"the Forwards you control\" is the row, not the carrier");
+		assertTrue(mw.isProtectedFromChoice(charlotte, true, false, true, cheapSummon));
+	}
+
+	@Test
+	void aDearerSummonStillReachesThem() {
+		MainWindow mw = new MainWindow();
+		CardData charlotte = makeIcbCard("Charlotte", "Water", "Forward",
+				CHARLOTTE_27_128S_SHIELD);
+		CardData ally = makeForward("Ally", "Water", 2, 5000);
+		placeP1Forward(mw, charlotte);
+		placeP1Forward(mw, ally);
+
+		assertFalse(mw.isProtectedFromChoice(ally, true, false, true, makeSummon("Ifrit", "Fire", 2, "")),
+				"cost 2 is outside what she names");
+	}
+
+	@Test
+	void charlottesShieldIsOpponentScopedAndSummonOnly() {
+		MainWindow mw = new MainWindow();
+		CardData charlotte = makeIcbCard("Charlotte", "Water", "Forward",
+				CHARLOTTE_27_128S_SHIELD);
+		CardData ally = makeForward("Ally", "Water", 2, 5000);
+		placeP1Forward(mw, charlotte);
+		placeP1Forward(mw, ally);
+		CardData cheapSummon = makeSummon("Chocobo", "Fire", 1, "");
+
+		assertFalse(mw.isProtectedFromChoice(ally, true, true, true, cheapSummon),
+				"her own controller's cost-1 Summon may still choose");
+		assertFalse(mw.isProtectedFromChoice(ally, true, false, false, makeForward("Vaan", "Fire", 1, 5000)),
+				"and she says nothing about abilities, whatever they cost");
+	}
+
+	@Test
+	void aerithsSourceTypeNarrowingIsUnchanged() {
+		// The two narrowings share a slot on the record and are read in one pass, so the printing
+		// that was already using it is worth checking beside the one that just joined.
+		IfControlBoost icb = CardData.parseIfControlBoosts(
+				"The Forwards you control cannot be chosen by your opponent's Backup abilities.",
+				"Backup").get(0);
+		assertEquals("Backup", icb.chosenImmunitySourceType());
+		assertEquals(0, icb.chosenImmunitySourceCost(), "she narrows by type, not by cost");
+		assertTrue(icb.admitsChooserSource(makePlainBackup("Scholar", "Wind", 2)));
+		assertFalse(icb.admitsChooserSource(makeForward("Vaan", "Wind", 2, 7000)));
 	}
 
 	// =========================================================================================

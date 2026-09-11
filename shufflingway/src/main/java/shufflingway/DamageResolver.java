@@ -1146,8 +1146,12 @@ class DamageResolver {
 		CardData damaged = mw.fieldCombatant(damagedIsP1, damagedZone, damagedIdx);
 		if (damaged == null) return false;
 
-		// Case 1: source card itself has "deals damage to forward" auto-ability
-		for (AutoAbility fa : source.autoAbilities()) {
+		// Case 1: source card itself has "deals damage to forward" auto-ability.
+		// The effective list, not the printed one: Tonberry 19-097C and The Mandragoras 25-048R hand
+		// themselves this very trigger along with the Forward body that does the damaging, and read
+		// off the printed abilities alone a granted Breaktouch never fired. Mirrors the attack and
+		// block walks in AutoAbilityTriggers, which have read the effective list all along.
+		for (AutoAbility fa : mw.effectiveAutoAbilities(source)) {
 			if (!fa.trigger().equals("deals damage to forward")) continue;
 			if (!fa.triggerCard().equalsIgnoreCase(source.name())) continue;
 			// Not every trigger of this shape is Breaktouch. 4-039R Rogue dulls and Freezes the

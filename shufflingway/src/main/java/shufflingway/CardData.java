@@ -4705,7 +4705,12 @@ public record CardData(
         // because it narrows what may choose rather than what kind of effect chooses: a Summon
         // has no card type to match and is excluded by the scope alone.
         "(?<sourcetype>Forward|Backup|Monster|Character)?\\s*" +
-        "(?<scope>Summons?\\s+or\\s+abilities|Summons?|abilities)\\s*[.!]?\\s*$"
+        "(?<scope>Summons?\\s+or\\s+abilities|Summons?|abilities)" +
+        // What the source cost, when the printing names it — "your opponent's Summons of cost 1"
+        // (Charlotte 27-128S). A number with no comparator, so it means exactly that cost; the
+        // group is optional and every other printing leaves it unset and covers any cost.
+        "(?:\\s+of\\s+cost\\s+(?<sourcecost>\\d+))?" +
+        "\\s*[.!]?\\s*$"
     );
 
     /**
@@ -5558,6 +5563,11 @@ public record CardData(
             // type; every other printing names no type and covers any source.
             String sourceType = m.group("sourcetype");
             if (sourceType != null) shield = shield.withChosenImmunitySourceType(sourceType.trim());
+            // "Summons of cost 1" narrows it by what the source cost instead — Charlotte 27-128S.
+            // The two narrowings are independent and no printing carries both, but they compose.
+            String sourceCost = m.group("sourcecost");
+            if (sourceCost != null)
+                shield = shield.withChosenImmunitySourceCost(Integer.parseInt(sourceCost));
             result.add(shield);
         }
 

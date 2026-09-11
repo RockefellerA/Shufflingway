@@ -3325,6 +3325,23 @@ public class ActionResolver {
             return (headDesc != null ? headDesc : "ChooseCharacter")
                     + " + OnFieldToBz(" + (delayedDesc != null ? delayedDesc : "?") + ")";
         }
+        // Mirrors parse(), where this sits far above the power-boost readers and the choose chain
+        // alike. It has to be above both: the boost pattern is read with find() and 4-142R Malboro
+        // quotes one inside the ability it grants itself, and the choose pattern below is read the
+        // same way — 25-048R The Mandragoras quotes "choose 1 Forward opponent controls. Break it."
+        // inside one of its two granted clauses and was described as "ChooseCharacter / Break", a
+        // choice it never makes, with no mention of either grant. Named here for every printing of
+        // the family, as parse() resolves it.
+        //
+        // The rider is named beside it when the promotion's own branch applied one, so a printing
+        // whose quoted clause is honoured says so and one whose clause was dropped reads as the
+        // bare promotion it resolves to. The three trigger-bearing branches name nothing extra —
+        // their rider is the reason they exist and is already covered by the parser name.
+        if (tryParseBecomeForwardUntilEot(effectText, source) != null) {
+            Consumer<GameContext> rider = becomeForwardRiderGrant(effectText, source);
+            return "BecomeForwardUntilEot"
+                    + (rider != null ? " + " + becomeForwardRiderName(effectText, source) : "");
+        }
         Matcher chooseM = CHOOSE_CHARACTER_PATTERN.matcher(escapedEffectText);
         if (chooseM.find()) {
             String followup      = restorePeriodInName(chooseM.group("followup").trim(), source);
@@ -3659,12 +3676,6 @@ public class ActionResolver {
         // Mirrors parse() and matchedPatternName(): kept beside the mass power effect it shares a
         // board with, though the pattern below needs a power figure and could not claim it.
         if (tryParseAllOppForwardsLoseTraitsEot(effectText) != null) return "AllOppForwardsLoseTraitsEot";
-        // Mirrors parse(), where this sits far above the power-boost readers below. It has to: the
-        // boost pattern is read with find() and 4-142R Malboro quotes one inside the ability it
-        // grants itself, so left in its old place further down this chain the card was described as
-        // "AllFieldPowerBoost + ?" — a sweep it does not perform, and no mention of the grant that
-        // is the whole ability. Named here for every printing of the family, as parse() resolves it.
-        if (tryParseBecomeForwardUntilEot(effectText, source) != null) return "BecomeForwardUntilEot";
         {
             Matcher bm = ALL_FIELD_POWER_BOOST_PATTERN.matcher(effectText);
             if (bm.find()) {
@@ -5268,8 +5279,24 @@ public class ActionResolver {
     static int[] grantedThisForwardCannotBeBlockedByCost(String quoted) {
         Matcher m = GRANTED_CANNOT_BE_BLOCKED_BY_COST.matcher(quoted);
         if (!m.matches() || !m.group("subj").trim().equalsIgnoreCase("This Forward")) return null;
+        // Tested for "less", not for "more": the comparator is optional and an absent one means
+        // "or more", the same default the printed reader applies.
         return new int[]{Integer.parseInt(m.group("cost")),
-                         "more".equalsIgnoreCase(m.group("cmp")) ? 1 : 0};
+                         "less".equalsIgnoreCase(m.group("cmp")) ? 0 : 1};
+    }
+
+    /**
+     * Whether the back-reference in "…a power greater than {@code ref}" points at {@code name}
+     * itself, the one reading that makes the restriction relative to its own carrier.
+     *
+     * <p>The same test {@code CardData.parseCannotBeBlockedByHigherPower} applies to the printed
+     * sentence, widened only by the two impersonal pronouns a granted clause can carry. A sentence
+     * measuring against some other card's power is a different restriction and is declined.
+     */
+    private static boolean higherPowerRefIsSelf(String ref, String name) {
+        return ref.equalsIgnoreCase("his") || ref.equalsIgnoreCase("hers")
+                || ref.equalsIgnoreCase("its") || ref.equalsIgnoreCase("theirs")
+                || ref.equalsIgnoreCase(name + "'s");
     }
 
     /** The permitted attack count from a matched {@link ActionResolverPatterns#GRANTED_CAN_ATTACK_TWICE}. */
@@ -5287,7 +5314,7 @@ public class ActionResolver {
         Matcher nb = GRANTED_CANNOT_BE_BLOCKED_BY_COST.matcher(quoted);
         if (nb.matches() && nb.group("subj").trim().equalsIgnoreCase(source.name())) {
             int cost = Integer.parseInt(nb.group("cost"));
-            boolean more = "more".equalsIgnoreCase(nb.group("cmp"));
+            boolean more = !"less".equalsIgnoreCase(nb.group("cmp"));   // absent = "or more"
             return ctx -> ctx.grantSelfCannotBeBlockedByCost(source, cost, more);
         }
         // Both are anchored on their own noun, so the order between them is free; kept adjacent
@@ -5298,6 +5325,15 @@ public class ActionResolver {
             boolean more = !"less".equalsIgnoreCase(np.group("cmp"));   // default "or more"
             return ctx -> ctx.grantSelfCannotBeBlockedByPower(source, power, more);
         }
+        // The relative twin of the two above, whose threshold is the attacker's own power rather
+        // than a number in the sentence. Read after both: those two are anchored on "of cost N" and
+        // "of power N", which this wording carries neither of, so the order is for the reader.
+        // The back-reference has to name the card, exactly as the printed reader requires — a
+        // sentence measuring against some other card's power is a different restriction.
+        Matcher hp = GRANTED_CANNOT_BE_BLOCKED_BY_HIGHER_POWER.matcher(quoted);
+        if (hp.matches() && hp.group("subj").trim().equalsIgnoreCase(source.name())
+                && higherPowerRefIsSelf(hp.group("ref").trim(), source.name()))
+            return ctx -> ctx.grantSelfCannotBeBlockedByHigherPower(source);
         // Must follow GRANTED_CANNOT_BE_BLOCKED_BY_COST: both are anchored, but a "cannot be
         // blocked by …" text would only reach here on a wording that one does not cover, and
         // "cannot block" must not claim it.
@@ -5330,6 +5366,36 @@ public class ActionResolver {
         if (inc.matches() && inc.group("card").trim().equalsIgnoreCase(source.name())) {
             final String granted = quoted;
             return ctx -> ctx.grantSelfFieldAbilityUntilEndOfTurn(source, granted);
+        }
+        // "[Self] cannot be chosen by Summons or abilities." — Flowering Cactoid 28-068R, handed to
+        // itself for the turn along with a Forward body. Not granted as field-ability text: the
+        // targeting rules read dedicated sets rather than scanning abilities, which is the same
+        // reason permanentGrantForSelfClause routes Young Excenmille 23-100L to a shield primitive.
+        //
+        // No player is named, so it is the symmetric shield rather than the opponent-scoped one —
+        // the same one 2-065L Balthier's Fires of War seeds. Checked after the damage clauses and
+        // anchored end to end, so neither the opponent-scoped sentence nor a qualified wording
+        // ("…that share its Element") can reach it.
+        Matcher cbcAny = FA_SELF_CANNOT_BE_CHOSEN_BY_ANY.matcher(quoted.trim());
+        if (cbcAny.matches() && cbcAny.group("name").trim().equalsIgnoreCase(source.name())
+                && cbcAny.group("scope").toLowerCase(Locale.ROOT).contains("summon")
+                && cbcAny.group("scope").toLowerCase(Locale.ROOT).contains("abilit"))
+            return ctx -> {
+                ctx.logEntry(source.name() + " cannot be chosen by any Summon or ability this turn");
+                ctx.shieldSelfCannotBeChosenByAnySummonOrAbility(source);
+            };
+        // A trigger-bearing clause, granted whole for the turn — Tonberry 19-097C's "When Tonberry
+        // deals damage to a Forward, break it." and both of The Mandragoras 25-048R's. The
+        // turn-scoped mirror of permanentGrantForClause's arm, and gated the same way:
+        // parseAutoAbilities is the authority on whether the sentence is an auto ability at all.
+        //
+        // Read last of everything here, because it is the broad arm — every anchored clause above
+        // is a specific sentence this one must not reach first. The grant declines if the text
+        // yields no ability, so an unreadable clause falls through rather than resolving as a
+        // no-op the description would then claim.
+        if (!CardData.parseAutoAbilities(quoted).isEmpty()) {
+            final String granted = quoted;
+            return ctx -> ctx.grantSelfAutoAbilityUntilEndOfTurn(source, granted);
         }
         return null;
     }
@@ -6650,6 +6716,29 @@ public class ActionResolver {
     }
 
     /**
+     * Whether {@code card} prints "[Self] cannot be chosen by Summons/abilities." with no player
+     * named, as a standing field ability covering {@code bySummon} — The Scions of the Seventh Dawn
+     * PR-150.
+     *
+     * <p>The unqualified twin of {@link #hasCannotBeChosenByOppFieldAbility}, and read the same way
+     * per choice rather than applied once. The scope word answers the same half-question; what
+     * differs is who is bound, so this seeds the symmetric shields and that one the opponent-scoped
+     * ones. Naming no player, it stops the card's own controller choosing it too.
+     *
+     * <p>Self-named and checked by equality, like the rest of the family.
+     */
+    static boolean hasCannotBeChosenByAnyFieldAbility(CardData card, boolean bySummon) {
+        if (card == null) return false;
+        for (FieldAbility fa : card.fieldAbilities()) {
+            Matcher m = FA_SELF_CANNOT_BE_CHOSEN_BY_ANY.matcher(fa.effectText().trim());
+            if (!m.matches() || !m.group("name").trim().equalsIgnoreCase(card.name())) continue;
+            String scope = m.group("scope").toLowerCase(Locale.ROOT);
+            if (bySummon ? scope.contains("summon") : scope.contains("abilit")) return true;
+        }
+        return false;
+    }
+
+    /**
      * Returns {@code true} if the card has a field ability of the form
      * "[CardName] cannot be chosen by Summons or abilities that share its Element."
      * Immunity is evaluated dynamically against the resolving card's element.
@@ -7027,11 +7116,123 @@ public class ActionResolver {
         if (!m.find()) return null;
         int power = Integer.parseInt(m.group("power"));
         boolean breakAtEot = AT_END_OF_TURN_BREAK_SOURCE.matcher(text).find();
+        // The quoted clause several of these hand over along with the body. Read last, so the three
+        // trigger-bearing branches above keep the riders they already own; null when the printing
+        // carries none, or carries one this engine cannot apply.
+        Consumer<GameContext> rider = becomeForwardRiderGrant(text, source);
         return ctx -> {
             ctx.logEntry(source.name() + " becomes a Forward with " + power + " power until end of turn");
             ctx.makeMonsterTemporaryForward(source, power);
+            if (rider != null) rider.accept(ctx);
             if (breakAtEot) ctx.breakSourceAtEndOfTurn(source);
         };
+    }
+
+    /**
+     * The grant a "becomes a Forward with N power and "&lt;clause&gt;"" text hands its own source,
+     * or {@code null} when it carries no quoted clause or one no reader covers.
+     *
+     * <p>Applied after the promotion, because the clause describes the Forward the promotion just
+     * made: 28-068R Flowering Cactoid's shield and 4-057R Koboldroid Yin's block restriction are
+     * both about a body that does not exist until then.
+     */
+    static Consumer<GameContext> becomeForwardRiderGrant(String text, CardData source) {
+        if (source == null || becomeForwardRiderOwnedByTriggerBranch(text)) return null;
+        List<String> clauses = becomeForwardRiderClauses(text);
+        if (clauses.isEmpty()) return null;
+        List<Consumer<GameContext>> grants = new ArrayList<>();
+        for (String clause : clauses) {
+            Consumer<GameContext> grant = grantedSelfFieldAbilityEffect(clause, source);
+            // All or nothing. A printing that hands over two clauses means both, and applying the
+            // half this engine happens to read is a card it never printed.
+            if (grant == null) return null;
+            grants.add(grant);
+        }
+        return ctx -> grants.forEach(g -> g.accept(ctx));
+    }
+
+    /**
+     * Whether one of {@code tryParseBecomeForwardUntilEot}'s three trigger-bearing branches already
+     * owns this text's quoted clause — the attack trigger, the block trigger, or the Break Zone
+     * action.
+     *
+     * <p>Asked by the rider path so the two cannot both claim it. Those branches return before the
+     * fallback is reached, so a rider grant here would be a second route to an effect one of them
+     * already applies; and the description, which asks the same question through the same method,
+     * would name it twice. 4-142R Malboro quotes a power sweep inside a block trigger and was
+     * described as performing the sweep itself.
+     *
+     * <p>A text one of them matches but declines (its inner effect unreadable) keeps the bare
+     * promotion it resolves to today, rather than falling through to a route that reads the clause
+     * differently.
+     */
+    private static boolean becomeForwardRiderOwnedByTriggerBranch(String text) {
+        return BECOME_FORWARD_AND_ATTACK_TRIGGER.matcher(text).find()
+            || BECOME_FORWARD_AND_BLOCK_TRIGGER.matcher(text).find()
+            || BECOME_FORWARD_AND_BZ_ACTION.matcher(text).find();
+    }
+
+    /** The quoted clauses a become-a-Forward text hands its own source, in printed order. */
+    static List<String> becomeForwardRiderClauses(String text) {
+        Matcher q = BECOME_FORWARD_AND_QUOTED_CLAUSE.matcher(text);
+        if (!q.find()) return List.of();
+        List<String> out = new ArrayList<>();
+        Matcher c = QUOTED_CLAUSE.matcher(q.group("tail"));
+        while (c.find()) out.add(c.group(1).trim());
+        return out;
+    }
+
+    /**
+     * A name for the rider {@link #becomeForwardRiderGrant} applied, for the description chain.
+     *
+     * <p>Asked only after that method has returned a grant, so every arm here has a counterpart
+     * there and the two cannot disagree about whether a clause was read — the fallback name is for
+     * a clause the dispatcher understood and this list has not been told about, which reads as a
+     * gap in the description rather than a claim about the effect.
+     */
+    private static String becomeForwardRiderName(String text, CardData source) {
+        List<String> clauses = becomeForwardRiderClauses(text);
+        if (clauses.isEmpty()) return "?";
+        return clauses.stream().map(c -> becomeForwardOneRiderName(c, source))
+                .collect(java.util.stream.Collectors.joining(" + "));
+    }
+
+    /** The name for one clause of a rider run. */
+    private static String becomeForwardOneRiderName(String quoted, CardData source) {
+        if (FA_SELF_CANNOT_BE_CHOSEN_BY_ANY.matcher(quoted).matches())
+            return "SelfCannotBeChosenByAnyone";
+        if (GRANTED_CANNOT_BE_BLOCKED_BY_COST.matcher(quoted).matches())
+            return "SelfCannotBeBlockedByCost";
+        if (GRANTED_CANNOT_BE_BLOCKED_BY_POWER.matcher(quoted).matches())
+            return "SelfCannotBeBlockedByPower";
+        if (GRANTED_CANNOT_BE_BLOCKED_BY_HIGHER_POWER.matcher(quoted).matches())
+            return "SelfCannotBeBlockedByHigherPower";
+        if (GRANTED_CANNOT_BLOCK.matcher(quoted).matches())          return "SelfCannotBlock";
+        if (GRANTED_CAN_ATTACK_TWICE.matcher(quoted).matches())      return "SelfCanAttackTwice";
+        if (exBurstSuppressionMaxCost(quoted, source.name()) != null) return "SelfExBurstSuppression";
+        if (AutoAbilityTriggers.FA_OUTGOING_DAMAGE_DOUBLER.matcher(quoted).matches())
+            return "SelfOutgoingDamageDoubler";
+        if (AutoAbilityTriggers.FA_OUTGOING_DAMAGE_TO_OPPONENT_SETS_TO.matcher(quoted).matches())
+            return "SelfOutgoingDamageToOpponentSetsTo";
+        if (AutoAbilityTriggers.FA_DAMAGE_MODIFIER.matcher(quoted).matches())
+            return "SelfDamageModifier";
+        // The broad arm, named after what the granted sentence does rather than after the grant:
+        // an auto ability handed over whole is only as good as the effect inside it, so the
+        // description carries that name and reports "?" when the effect has no reader.
+        if (!CardData.parseAutoAbilities(quoted).isEmpty()) {
+            AutoAbility granted = CardData.parseAutoAbilities(quoted).get(0);
+            // Breaktouch's "break it." is the one granted effect parse() is meant to decline —
+            // "it" is the card the damage event just hit, and DamageResolver resolves it off that
+            // event. Named here so the two printings that grant it do not read as a gap.
+            if ("deals damage to forward".equals(granted.trigger())
+                    && AutoAbilityTriggers.FA_BREAKTOUCH_BREAK_IT
+                            .matcher(granted.effectText().trim()).matches())
+                return "SelfAutoAbility(Breaktouch)";
+            String inner = fullDescription(granted.effectText(), source);
+            if (inner == null) inner = matchedPatternName(granted.effectText(), source);
+            return "SelfAutoAbility(" + (inner != null ? inner : "?") + ")";
+        }
+        return "?";
     }
 
     /** Returns {@code true} when {@code text} is an "until EOT, becomes a Forward" action-ability effect. */

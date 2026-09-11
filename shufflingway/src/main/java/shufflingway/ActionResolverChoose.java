@@ -130,6 +130,45 @@ final class ActionResolverChoose {
     }
 
     /**
+     * "If your opponent has [no | N cards or less] in their hand, &lt;action&gt; it [instead]." as a
+     * choose <em>secondary</em> — the action lands on the cards the primary chose, and only when the
+     * hand condition holds.
+     *
+     * <p>The same sentence {@code ActionResolverHand.tryParseConditionalOpponentHand} reads as a
+     * whole ability, with the one difference that decides where each belongs: there the inner
+     * effect names its own target, here "it" is what the earlier clause picked. Routing a secondary
+     * through that one would hand the action a target list nobody filled.
+     *
+     * <p>"Instead" is dropped rather than honoured. It replaces what the primary already did, and
+     * by the time a secondary runs that has happened — but every printing of this shape ends in a
+     * break, and a Forward dulled and then broken is in the same place as one only broken.
+     *
+     * <p>Returns {@code null} unless the action is one the followup vocabulary reads, so an
+     * unsupported wording falls through to the arms below rather than resolving as a bare
+     * condition that does nothing.
+     */
+    static Consumer<GameContext> secondaryConditionalOpponentHandAction(String secondaryText) {
+        if (secondaryText == null) return null;
+        Matcher m = OPPONENT_HAND_CONDITION_PATTERN.matcher(secondaryText.trim());
+        if (!m.matches()) return null;
+        String nStr      = m.group("n");
+        int    threshold = nStr != null ? Integer.parseInt(nStr) : 0;
+        String innerText = m.group("effect").trim();
+        BiConsumer<GameContext, List<ForwardTarget>> action = parseTargetAction(innerText, 0);
+        if (action == null) return null;
+        return ctx -> {
+            int hs = ctx.opponentHandSize();
+            boolean met = nStr != null ? hs <= threshold : hs == 0;
+            if (!met) {
+                ctx.logEntry("[Hand condition] opponent has " + hs + " card(s) — not met");
+                return;
+            }
+            ctx.logEntry("[Hand condition] opponent has " + hs + " card(s) — " + innerText);
+            action.accept(ctx, ctx.lastChosenTargets());
+        };
+    }
+
+    /**
      * Whether "As long as it is on the field, [X] does not activate during your Active Phase."
      * names the ability's own source -- Reeve 16-104R's inverted lock, where the printing is what
      * gets held and the warden is whatever the primary played.
@@ -1699,6 +1738,12 @@ final class ActionResolverChoose {
                                     else                        ctx.forceOpponentDiscard(discardCount);
                                 }
                             };
+                        } else if (secondaryConditionalOpponentHandAction(secondaryText) != null) {
+                            // Must precede the break arm below, which scans with find(): it was
+                            // taking "break it" out of the middle of this sentence and breaking the
+                            // chosen Forward whatever the opponent held. 16-035C YKT-63 and 9-026C
+                            // Cid Aulstyne both print the condition, and both were ignoring it.
+                            secondary = secondaryConditionalOpponentHandAction(secondaryText);
                         } else if (FOLLOWUP_BREAK.matcher(secondaryText).find()) {
                             // "Break it." as a secondary applies to the same targets chosen for the primary.
                             secondary = ctx -> {

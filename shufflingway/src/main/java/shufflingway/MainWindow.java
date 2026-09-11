@@ -453,6 +453,22 @@ public class MainWindow {
 	// effective power, which moves during the block.
 	final Map<CardData, int[]>   p1CannotBeBlockedByPower = new IdentityHashMap<>();
 	final Map<CardData, int[]>   p2CannotBeBlockedByPower = new IdentityHashMap<>();
+	/**
+	 * The relative twin of the two maps above, granted for the turn — Deathgaze 5-063H, who hands
+	 * himself "cannot be blocked by a Forward with a power greater than Deathgaze's" along with the
+	 * body that gets blocked.
+	 *
+	 * <p>A set rather than a map, because the threshold is not a number the sentence carries: it is
+	 * the attacker's own effective power, read at the moment the block is declared. That is what
+	 * separates it from {@code p1CannotBeBlockedByPower}'s absolute threshold — a pump given to the
+	 * attacker widens this restriction, and a pump given to the blocker beats it.
+	 *
+	 * <p>Lann 1-027H prints the same sentence, read straight off the record by
+	 * {@link CardData#cannotBeBlockedByHigherPower}. The block rule asks both, so a granted copy
+	 * bites exactly as a printed one does.
+	 */
+	final Set<CardData> p1CannotBeBlockedByHigherPower = Collections.newSetFromMap(new IdentityHashMap<>());
+	final Set<CardData> p2CannotBeBlockedByHigherPower = Collections.newSetFromMap(new IdentityHashMap<>());
 	final boolean[]       p1BackupFrozen       = new boolean[5];
 	final boolean[]       p2BackupFrozen       = new boolean[5];
 	final List<Boolean>   p1MonsterFrozen      = new ArrayList<>();
@@ -3506,6 +3522,7 @@ public class MainWindow {
                                 p1CannotBeBlocked.clear();              p2CannotBeBlocked.clear();
                                 p1CannotBeBlockedByCost.clear();        p2CannotBeBlockedByCost.clear();
                                 p1CannotBeBlockedByPower.clear();       p2CannotBeBlockedByPower.clear();
+                                p1CannotBeBlockedByHigherPower.clear(); p2CannotBeBlockedByHigherPower.clear();
                                 p1CannotBlock.clear();                  p2CannotBlock.clear();
                                 p1MustBlock.clear();                    p2MustBlock.clear();
                                 p1CannotAttack.clear();                 p2CannotAttack.clear();
@@ -5131,6 +5148,8 @@ public class MainWindow {
 		p1CannotBeBlocked.remove(departing);        p2CannotBeBlocked.remove(departing);
 		p1CannotBeBlockedByCost.remove(departing);  p2CannotBeBlockedByCost.remove(departing);
 		p1CannotBeBlockedByPower.remove(departing); p2CannotBeBlockedByPower.remove(departing);
+		p1CannotBeBlockedByHigherPower.remove(departing);
+		p2CannotBeBlockedByHigherPower.remove(departing);
 		cannotUseActionAbilitiesThisTurn.remove(departing);
 	}
 
@@ -9308,23 +9327,36 @@ public class MainWindow {
 	/**
 	 * Returns {@code true} when {@code isP1}'s Forwards may not use action abilities right now —
 	 * Sin 14-045H, "During your opponent's turn, the Forwards opponent controls cannot use action
-	 * abilities."
+	 * abilities.", and Charlotte 27-128S, who prints the same lock with no turn clause.
 	 *
-	 * <p>The lock is doubly scoped and both halves point at the same player, the one who does
-	 * <em>not</em> control Sin: it binds that player's Forwards, and only while the turn is
-	 * theirs. Sin's own controller is never affected, and neither player is affected on Sin's
-	 * controller's turn.
+	 * <p>The side scoping is the same for both, and points at the player who does <em>not</em>
+	 * control the card: it binds that player's Forwards, never the carrier's controller's. What
+	 * differs is the window. Sin's bites only while the turn belongs to the locked player, so
+	 * neither side is bound on Sin's controller's turn; Charlotte's bites on every turn.
+	 *
+	 * <p>The turn test is therefore per card rather than an early return over the whole board — one
+	 * Charlotte locks the row on a turn Sin alone would leave open.
 	 */
 	boolean forwardActionAbilitiesLockedFor(boolean isP1) {
 		GameState.Player self = isP1 ? GameState.Player.P1 : GameState.Player.P2;
-		if (gameState.getCurrentPlayer() != self) return false;
+		boolean lockedPlayersTurn = gameState.getCurrentPlayer() == self;
 		List<CardData> fwds = isP1 ? p2ForwardCards : p1ForwardCards;
 		CardData[]     bkps = isP1 ? p2BackupCards  : p1BackupCards;
 		List<CardData> mons = isP1 ? p2MonsterCards : p1MonsterCards;
-		for (CardData c : fwds) if (!lostAbilitiesCards.contains(c) && AutoAbilityTriggers.hasOppForwardsActionAbilityLock(c)) return true;
-		for (CardData c : bkps) if (c != null && !lostAbilitiesCards.contains(c) && AutoAbilityTriggers.hasOppForwardsActionAbilityLock(c)) return true;
-		for (CardData c : mons) if (!lostAbilitiesCards.contains(c) && AutoAbilityTriggers.hasOppForwardsActionAbilityLock(c)) return true;
+		for (CardData c : fwds) if (forwardActionLockBites(c, lockedPlayersTurn)) return true;
+		for (CardData c : bkps) if (c != null && forwardActionLockBites(c, lockedPlayersTurn)) return true;
+		for (CardData c : mons) if (forwardActionLockBites(c, lockedPlayersTurn)) return true;
 		return false;
+	}
+
+	/** Whether {@code c}'s opposing-Forwards action-ability lock is in force right now. */
+	private boolean forwardActionLockBites(CardData c, boolean lockedPlayersTurn) {
+		if (lostAbilitiesCards.contains(c)) return false;
+		return switch (AutoAbilityTriggers.oppForwardsActionAbilityLock(c)) {
+			case ALWAYS              -> true;
+			case LOCKED_PLAYERS_TURN -> lockedPlayersTurn;
+			case NONE                -> false;
+		};
 	}
 
 	/**
@@ -12801,6 +12833,10 @@ public class MainWindow {
 		if (bySummon && cannotBeChosenBySummonsAnyone.contains(c)) return true;
 		if (!bySummon && cannotBeChosenByAbilitiesAnyone.contains(c)) return true;
 		if (bySummon && ActionResolver.hasCannotBeChosenByAnySummonFieldAbility(c)) return true;
+		// The Scions of the Seventh Dawn PR-150, printed with no player named. Read here rather
+		// than in the opponent-scoped block below for exactly that reason: it binds its own
+		// controller too, which is what the card is for.
+		if (ActionResolver.hasCannotBeChosenByAnyFieldAbility(c, bySummon)) return true;
 		String immuneElem = cannotBeChosenByElement.get(c);
 		if (immuneElem != null && chooserElems.contains(immuneElem)) return true;
 		// The printed twin of the turn-scoped shield above (Royal Ripeness 5-007H): a literal
@@ -16767,10 +16803,24 @@ public class MainWindow {
 		int blockerPower = fieldForwardPower(true, blockerZone, blockerIdx);
 		for (ForwardTarget t : pendingP2AttackerTargets()) {
 			CardData attacker = pendingAttackerCard(t);
-			if (attacker != null && attacker.cannotBeBlockedByHigherPower()
+			if (attacker != null && carriesHigherPowerBlockShield(attacker, false)
 					&& blockerPower > fieldForwardPower(false, t.zone(), t.idx())) return true;
 		}
 		return false;
+	}
+
+	/**
+	 * Whether {@code attacker}, on {@code isP1}'s side, carries the "cannot be blocked by a Forward
+	 * with a power greater than its own" restriction — printed on the card (Lann 1-027H) or granted
+	 * for the turn (Deathgaze 5-063H).
+	 *
+	 * <p>Both are asked because the restriction is the same rule either way; only where it comes
+	 * from differs, and the block rule has no business knowing which.
+	 */
+	boolean carriesHigherPowerBlockShield(CardData attacker, boolean isP1) {
+		if (attacker == null) return false;
+		if (attacker.cannotBeBlockedByHigherPower()) return true;
+		return (isP1 ? p1CannotBeBlockedByHigherPower : p2CannotBeBlockedByHigherPower).contains(attacker);
 	}
 
 	/**

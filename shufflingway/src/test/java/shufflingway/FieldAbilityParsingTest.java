@@ -243,10 +243,19 @@ public class FieldAbilityParsingTest {
         // selectCharacters' immunity sets, against the resolving card's Elements.
         if (namesItself(ActionResolverPatterns.STANDALONE_NAMED_CANNOT_BE_CHOSEN_BY_ELEMENT,
                 fa, source)) return true;
-        // Sin 14-045H. Read by canActivateAbility, which is the single gate both the menu and the
-        // AI go through, so the lock cannot be reached around.
+        // Sin 14-045H on the opponent's own turn, Charlotte 27-128S on every turn. Read by
+        // canActivateAbility, which is the single gate both the menu and the AI go through, so the
+        // lock cannot be reached around.
         if (AutoAbilityTriggers.FA_OPP_FORWARDS_CANNOT_USE_ACTION_ABILITIES
                 .matcher(fa.effectText().trim()).matches()) return true;
+        // The Scions of the Seventh Dawn PR-150. Read per choice by MainWindow.isProtectedFromChoice
+        // and by the sets GameContextImpl.selectCharacters builds; name-checked against the carrier
+        // by both, so the has* call is asked here too.
+        if (ActionResolver.hasCannotBeChosenByAnyFieldAbility(source, true)
+                || ActionResolver.hasCannotBeChosenByAnyFieldAbility(source, false)) {
+            if (ActionResolverPatterns.FA_SELF_CANNOT_BE_CHOSEN_BY_ANY
+                    .matcher(fa.effectText().trim()).matches()) return true;
+        }
         // The Emperor 2-147L. Read by canActivateAbility alongside Sin's narrower lock, and matched
         // the same way its AutoAbilityTriggers.hasOppCharacterAbilityLock counterpart matches it.
         if (AutoAbilityTriggers.FA_OPP_CHARACTERS_CANNOT_USE_ABILITIES
@@ -883,9 +892,18 @@ public class FieldAbilityParsingTest {
                 && ActionResolverPatterns.STANDALONE_NAMED_CANNOT_BE_CHOSEN_BY_ELEMENT
                         .matcher(fa.effectText()).find())
             return "CannotBeChosenByElement[" + immuneElem + "]";
-        if (AutoAbilityTriggers.FA_OPP_FORWARDS_CANNOT_USE_ACTION_ABILITIES
-                .matcher(fa.effectText().trim()).matches())
-            return "OppForwardsCannotUseActionAbilities[their turn]";
+        Matcher fwdLockM = AutoAbilityTriggers.FA_OPP_FORWARDS_CANNOT_USE_ACTION_ABILITIES
+                .matcher(fa.effectText().trim());
+        if (fwdLockM.matches())
+            return "OppForwardsCannotUseActionAbilities["
+                    + (fwdLockM.group("turngate") != null ? "their turn" : "always") + "]";
+        if (ActionResolver.hasCannotBeChosenByAnyFieldAbility(source, true)
+                || ActionResolver.hasCannotBeChosenByAnyFieldAbility(source, false)) {
+            Matcher anyM = ActionResolverPatterns.FA_SELF_CANNOT_BE_CHOSEN_BY_ANY
+                    .matcher(fa.effectText().trim());
+            if (anyM.matches())
+                return "CannotBeChosenByAnyone[" + anyM.group("scope").toLowerCase() + "]";
+        }
         if (AutoAbilityTriggers.FA_OPP_CHARACTERS_CANNOT_USE_ABILITIES
                 .matcher(fa.effectText().trim()).matches())
             return "OppCharactersCannotUseAbilities[special+action, always]";

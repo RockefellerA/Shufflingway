@@ -270,6 +270,7 @@ class TurnPhases {
 		mw.p1CannotBeBlocked.clear();              mw.p2CannotBeBlocked.clear();
 		mw.p1CannotBeBlockedByCost.clear();        mw.p2CannotBeBlockedByCost.clear();
 		mw.p1CannotBeBlockedByPower.clear();       mw.p2CannotBeBlockedByPower.clear();
+		mw.p1CannotBeBlockedByHigherPower.clear(); mw.p2CannotBeBlockedByHigherPower.clear();
 		mw.p1CannotBlock.clear();                  mw.p2CannotBlock.clear();
 		mw.p1MustBlock.clear();                    mw.p2MustBlock.clear();
 		mw.p1CannotAttack.clear();                 mw.p2CannotAttack.clear();

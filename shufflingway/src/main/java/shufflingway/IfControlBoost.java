@@ -43,7 +43,8 @@ public record IfControlBoost(
         boolean   chosenImmunityOpponentOnly, // true = the cannotBeChosen* immunities apply only to the target's opponent ("cannot be chosen by your opponent's ..."); false = to either player
         int       minOwnHandSize,             // 0 = unused; >0 = condition requires own hand size to be >= this value
         int       minDifferentElementBackups, // 0 = unused; >0 = condition requires this many DISTINCT Elements among controlled Backups
-        String    chosenImmunitySourceType  // null = any source; else the card type whose abilities the immunity covers ("Backup")
+        String    chosenImmunitySourceType, // null = any source; else the card type whose abilities the immunity covers ("Backup")
+        int       chosenImmunitySourceCost  // 0 = any cost; >0 = the immunity covers only sources of exactly this cost ("Summons of cost 1")
 ) {
     public IfControlBoost {
         conditions    = List.copyOf(conditions);
@@ -71,7 +72,7 @@ public record IfControlBoost(
                 specialText, cannotBeChosenBySummons, cannotBeChosenByAbilities, cannotBeBlocked,
                 cannotBeBlockedByCost, minRemovedFromGame, minDamageReceived, instead,
                 maxOpponentHandSize, minOpponentForwards, maxOwnHandSize, allBackupsDifferentElements,
-                chosenImmunityOpponentOnly, minOwnHandSize, minDifferentElementBackups, null);
+                chosenImmunityOpponentOnly, minOwnHandSize, minDifferentElementBackups, null, 0);
     }
 
     /**
@@ -88,7 +89,29 @@ public record IfControlBoost(
                 cannotBeChosenByAbilities, cannotBeBlocked, cannotBeBlockedByCost,
                 minRemovedFromGame, minDamageReceived, instead, maxOpponentHandSize,
                 minOpponentForwards, maxOwnHandSize, allBackupsDifferentElements,
-                chosenImmunityOpponentOnly, minOwnHandSize, minDifferentElementBackups, cardType);
+                chosenImmunityOpponentOnly, minOwnHandSize, minDifferentElementBackups, cardType,
+                chosenImmunitySourceCost);
+    }
+
+    /**
+     * A copy whose chosen-immunity covers only sources of exactly {@code cost} — Charlotte 27-128S,
+     * "The Forwards you control cannot be chosen by your opponent's Summons of cost 1", the only
+     * printing in the corpus to narrow the immunity by what the source cost.
+     *
+     * <p>Exactly that cost, not "or less": the sentence names a number with no comparator, and a
+     * range would shield the party from the cost-2 and cost-3 Summons the card was priced against.
+     *
+     * <p>The cost read is the printed one. A discount is paid at cast time and changes nothing
+     * about what the card is, and by the time a Summon is choosing targets its cost is spent.
+     */
+    public IfControlBoost withChosenImmunitySourceCost(int cost) {
+        return new IfControlBoost(conditions, exceptCardName, targetCardName, targetFilter,
+                powerBonus, grantedTraits, specialText, cannotBeChosenBySummons,
+                cannotBeChosenByAbilities, cannotBeBlocked, cannotBeBlockedByCost,
+                minRemovedFromGame, minDamageReceived, instead, maxOpponentHandSize,
+                minOpponentForwards, maxOwnHandSize, allBackupsDifferentElements,
+                chosenImmunityOpponentOnly, minOwnHandSize, minDifferentElementBackups,
+                chosenImmunitySourceType, cost);
     }
 
     /**
@@ -100,8 +123,11 @@ public record IfControlBoost(
      * reason: refusing it would silently narrow every existing grant.
      */
     public boolean admitsChooserSource(CardData chooserSource) {
-        if (chosenImmunitySourceType == null) return true;
+        if (chosenImmunitySourceType == null && chosenImmunitySourceCost == 0) return true;
         if (chooserSource == null) return true;
+        if (chosenImmunitySourceCost > 0 && chooserSource.cost() != chosenImmunitySourceCost)
+            return false;
+        if (chosenImmunitySourceType == null) return true;
         return switch (chosenImmunitySourceType.toLowerCase(java.util.Locale.ROOT)) {
             case "backup"    -> chooserSource.isBackup();
             case "forward"   -> chooserSource.isForward();
@@ -239,7 +265,8 @@ public record IfControlBoost(
                 cannotBeChosenByAbilities, cannotBeBlocked, cannotBeBlockedByCost,
                 minRemovedFromGame, minDamageReceived, instead, maxOpponentHandSize,
                 minOpponentForwards, maxOwnHandSize, allBackupsDifferentElements, true,
-                minOwnHandSize, minDifferentElementBackups, chosenImmunitySourceType);
+                minOwnHandSize, minDifferentElementBackups, chosenImmunitySourceType,
+                chosenImmunitySourceCost);
     }
 
     /**
@@ -253,17 +280,26 @@ public record IfControlBoost(
                 cannotBeChosenByAbilities, cannotBeBlocked, cannotBeBlockedByCost,
                 minRemovedFromGame, minDamageReceived, instead, maxOpponentHandSize,
                 minOpponentForwards, maxOwnHandSize, allBackupsDifferentElements,
-                chosenImmunityOpponentOnly, n, minDifferentElementBackups, chosenImmunitySourceType);
+                chosenImmunityOpponentOnly, n, minDifferentElementBackups, chosenImmunitySourceType,
+                chosenImmunitySourceCost);
     }
 
-    /** A copy gated on {@code n} distinct Elements among the controller's Backups (Kefka 3-079H). */
+    /**
+     * A copy gated on {@code n} distinct Elements among the controller's Backups (Kefka 3-079H).
+     *
+     * <p>Goes through the canonical constructor like its siblings rather than the compatibility
+     * one, which defaults the two source narrowings away: no printing carries this condition and a
+     * narrowed immunity at once, but a wither that drops fields it was not asked about is a trap
+     * for the one that eventually does.
+     */
     public IfControlBoost withMinDifferentElementBackups(int n) {
         return new IfControlBoost(conditions, exceptCardName, targetCardName, targetFilter,
                 powerBonus, grantedTraits, specialText, cannotBeChosenBySummons,
                 cannotBeChosenByAbilities, cannotBeBlocked, cannotBeBlockedByCost,
                 minRemovedFromGame, minDamageReceived, instead, maxOpponentHandSize,
                 minOpponentForwards, maxOwnHandSize, allBackupsDifferentElements,
-                chosenImmunityOpponentOnly, minOwnHandSize, n);
+                chosenImmunityOpponentOnly, minOwnHandSize, n, chosenImmunitySourceType,
+                chosenImmunitySourceCost);
     }
 
     @Override
@@ -290,7 +326,12 @@ public record IfControlBoost(
         if (cannotBeChosenByAbilities) sb.append(" NCA");
         if ((cannotBeChosenBySummons || cannotBeChosenByAbilities) && chosenImmunityOpponentOnly)
             sb.append("(opp)");
-        if (chosenImmunitySourceType != null) sb.append("[from:").append(chosenImmunitySourceType).append(']');
+        if (chosenImmunitySourceType != null || chosenImmunitySourceCost > 0) {
+            sb.append("[from:")
+              .append(chosenImmunitySourceType != null ? chosenImmunitySourceType : "any");
+            if (chosenImmunitySourceCost > 0) sb.append(" cost").append(chosenImmunitySourceCost);
+            sb.append(']');
+        }
         if (cannotBeBlocked)           sb.append(" unblockable");
         if (cannotBeBlockedByCost != null)
             sb.append(" not-blocked-cost").append(cannotBeBlockedByCost[0])

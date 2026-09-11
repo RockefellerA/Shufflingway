@@ -4702,6 +4702,31 @@ final class ActionResolverPatterns {
         "(?<scope>Summons?\\s+or\\s+abilities|Summons?|abilities)\\s*[.!]?$"
     );
     /**
+     * "[Self] cannot be chosen by Summons or abilities." — the same standing shield with no player
+     * named, so it binds whoever is choosing, the card's own controller included. The Scions of the
+     * Seventh Dawn PR-150, the corpus's one field-ability printing of it.
+     *
+     * <p>Which is the whole point of the card: it cannot attack or block and only has to survive
+     * until ten Job Scions are out, so an untargetable body its own side also cannot move is
+     * exactly what it wants. Reading it as the opponent-scoped shield would be a real difference,
+     * not a technicality — its controller would gain the ability to bounce or sacrifice it.
+     *
+     * <p>{@link #STANDALONE_NAMED_CANNOT_BE_CHOSEN_ANY_SUMMON} is the Summon-only member of the
+     * same unqualified family and cannot serve here: its trailing lookahead requires the sentence
+     * to end at "Summons", which is what stops it swallowing every longer text sharing that prefix.
+     * This one is anchored end to end instead, so the two qualified wordings that continue past the
+     * keyword — Bartz 18-047H's "…that share its Element" and Jack Garland 27-111L's "…of
+     * Characters with the named Job" — cannot reach it either.
+     *
+     * <p>The negative lookahead is what keeps the two scopes apart: without it this would also
+     * claim all 25 printings of the opponent-scoped sentence above and hand each of them a shield
+     * against their own controller.
+     */
+    static final Pattern FA_SELF_CANNOT_BE_CHOSEN_BY_ANY = Pattern.compile(
+        "(?i)^(?<name>.+?)\\s+cannot\\s+be\\s+chosen\\s+by\\s+(?!(?:your\\s+)?opponent'?s?\\b)" +
+        "(?<scope>Summons?\\s+or\\s+abilities|Summons?|abilities)\\s*[.!]?$"
+    );
+    /**
      * "[CardName] cannot be chosen by Summons [during this turn]." — no "your opponent's" qualifier,
      * meaning the protection applies to Summons from either player.
      * Only matches when {@code cardName} equals the {@code source} card's name.
@@ -8992,6 +9017,42 @@ final class ActionResolverPatterns {
         "(?i)^Until\\s+the\\s+end\\s+of\\s+the\\s+turn,\\s+.+?\\s+also\\s+becomes?\\s+a\\s+Forward\\s+with\\s+(?<power>\\d+)\\s+power"
     );
     /**
+     * The rider a Monster is handed along with its Forward body: "…also becomes a Forward with N
+     * power and "&lt;clause&gt;"." — Flowering Cactoid 28-068R's targeting shield, Koboldroid Yin
+     * 4-057R's and Deathgaze 5-063H's block restrictions, Ozma 5-124H's damage nullifier.
+     *
+     * <p>{@link #BECOME_FORWARD_UNTIL_EOT_PATTERN} ends at the power and scans with {@code find()},
+     * so every one of these read as a bare promotion and the quoted half was dropped in silence.
+     * That is a weaker card than the printed one rather than a stronger one, which is why the
+     * promotion still stands when the clause cannot be read — losing the rider costs less than
+     * losing the body the ability exists to grant.
+     *
+     * <p>The clause itself is not interpreted here. It is handed to
+     * {@link ActionResolver#grantedSelfFieldAbilityEffect}, the same dispatcher the two other
+     * until-the-turn-ends self-grants use, so a wording that one learns to read is read here too
+     * and the vocabulary stays in one place.
+     *
+     * <p>{@code tail} is the whole run of clauses, not one: 25-048R The Mandragoras hands over two,
+     * joined by a comma ("…5000 power, "…" and "…""). A repeated group keeps only its last match,
+     * so the run is captured whole and split by {@link ActionResolver#becomeForwardRiderGrant},
+     * which requires every clause in it to be readable before applying any — one of a pair applied
+     * and the other lost is worse than reading neither.
+     *
+     * <p>Each clause must follow its separator immediately. A printing that puts a keyword in the
+     * run ("…7000 power, Haste and "…"") matches nothing here and keeps the bare promotion, which
+     * is the same fail-open the rest of this family takes.
+     */
+    static final Pattern BECOME_FORWARD_AND_QUOTED_CLAUSE = Pattern.compile(
+        "(?i)also\\s+becomes?\\s+a\\s+Forward\\s+with\\s+\\d+\\s+power" +
+        // The group wraps the repetition; it must not BE the repetition. Written
+        // "(?<tail>…)+" the capture keeps only its last round, which quietly reduced The
+        // Mandragoras' pair to whichever clause came second.
+        "(?<tail>(?:(?:\\s*,|\\s+and)\\s+\"[^\"]+\")+)",
+        Pattern.DOTALL
+    );
+    /** One quoted clause inside a {@link #BECOME_FORWARD_AND_QUOTED_CLAUSE} run. */
+    static final Pattern QUOTED_CLAUSE = Pattern.compile("\"([^\"]+)\"");
+    /**
      * Extended form: "…becomes a Forward with N power and "Put [name] into the Break Zone: [effect]"."
      * Groups: {@code power}, {@code bzName}, {@code bzEffect}.
      */
@@ -9180,8 +9241,20 @@ final class ActionResolverPatterns {
         "(?i)^(?<subj>.+?)\\s+can\\s+attack\\s+(?:twice|(?<count>\\d+)\\s+times)\\s+" +
         "(?:in\\s+the\\s+same\\s+turn|per\\s+turn)[.!]?$");
     /** A quoted "[Self] cannot be blocked by a Forward of cost N or more/less." field ability being granted. */
+    /**
+     * <p>Brought into line with {@code CardData.FIELD_CANNOT_BE_BLOCKED_BY_COST}, the printed reader
+     * it mirrors: the article and the plural are both optional, and so is the comparator. Written
+     * narrower than its twin it missed 4-057R Koboldroid Yin's "by Forwards of cost 3 or more" —
+     * the same restriction in the plural — and the become-a-Forward branch that hands it over
+     * dropped the clause in silence.
+     *
+     * <p>An absent comparator means "or more", as it does on the printed side. Read the other way
+     * a bare threshold would invert the restriction, so the call sites test for {@code less} rather
+     * than for {@code more}.
+     */
     static final Pattern GRANTED_CANNOT_BE_BLOCKED_BY_COST = Pattern.compile(
-        "(?i)^(?<subj>.+?)\\s+cannot\\s+be\\s+blocked\\s+by\\s+a\\s+Forward\\s+of\\s+cost\\s+(?<cost>\\d+)\\s+or\\s+(?<cmp>more|less)[.!]?$");
+        "(?i)^(?<subj>.+?)\\s+cannot\\s+be\\s+blocked\\s+by\\s+(?:a\\s+)?Forwards?\\s+of\\s+cost\\s+" +
+        "(?<cost>\\d+)(?:\\s+or\\s+(?<cmp>more|less))?[.!]?$");
     /**
      * A quoted "[Self] cannot be blocked by a Forward of power N or more/less." field ability being
      * granted — Iris 12-117R, whose second modal option hands itself the sentence Ark Angel MR
@@ -9198,6 +9271,21 @@ final class ActionResolverPatterns {
      * <p>Anchored, so it cannot be reached by the "cannot be blocked" wordings above: "be blocked"
      * never leaves the subject group ending immediately before "cannot block".
      */
+    /**
+     * A quoted "[Self] cannot be blocked by a Forward with a power greater than [its own]." being
+     * granted — Deathgaze 5-063H, who hands it to himself with the Forward body it restricts.
+     *
+     * <p>The relative twin of {@link #GRANTED_CANNOT_BE_BLOCKED_BY_POWER}, and mirrors
+     * {@code CardData.FIELD_CANNOT_BE_BLOCKED_BY_HIGHER_POWER}, which reads Lann 1-027H's printed
+     * copy — including its back-reference group, since the sentence names the card either by
+     * pronoun ("greater than his") or by possessive ("greater than Deathgaze's").
+     *
+     * <p>Checked ahead of {@link #GRANTED_CANNOT_BLOCK}, which anchors on "cannot block" and so
+     * cannot reach a "cannot be blocked" sentence — the order is for the reader, not the matcher.
+     */
+    static final Pattern GRANTED_CANNOT_BE_BLOCKED_BY_HIGHER_POWER = Pattern.compile(
+        "(?i)^(?<subj>.+?)\\s+cannot\\s+be\\s+blocked\\s+by\\s+a\\s+Forward\\s+with\\s+a\\s+power" +
+        "\\s+greater\\s+than\\s+(?<ref>his|hers|its|theirs|\\S.*?'s)[.!]?$");
     static final Pattern GRANTED_CANNOT_BLOCK = Pattern.compile(
         "(?i)^(?<subj>.+?)\\s+cannot\\s+block[.!]?$");
     /**

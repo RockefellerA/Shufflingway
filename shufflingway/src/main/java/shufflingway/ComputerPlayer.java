@@ -1181,7 +1181,9 @@ class ComputerPlayer implements OpponentController {
 			// this is the same check on the side where the AI is the one declining to block.
 			if (mw.attackerConditionallyUnblockable(p1AttackerCard, true)) return null;
 			p1AttackerFieldPower  = mw.fieldForwardPower(true, attacker.zone(), attacker.idx());
-			p1AttackerHigherPower = p1AttackerCard.cannotBeBlockedByHigherPower();
+			// Printed or granted alike — Lann 1-027H prints it, Deathgaze 5-063H hands it to
+			// himself for the turn, and the AI has to decline the block either way.
+			p1AttackerHigherPower = mw.carriesHigherPowerBlockShield(p1AttackerCard, true);
 			if (p1AttackerHigherPower) p1AttackerPower = p1AttackerFieldPower;
 		}
 

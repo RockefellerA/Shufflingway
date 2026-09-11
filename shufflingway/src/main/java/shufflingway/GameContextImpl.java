@@ -1147,6 +1147,10 @@ final class GameContextImpl implements GameContext {
 						zone.addAll(p1side ? mw.p1MonsterCards : mw.p2MonsterCards);
 						for (CardData c : zone) {
 							if (ActionResolver.hasCannotBeChosenByAnySummonFieldAbility(c)) sumTmp.add(c);
+							// PR-150 The Scions of the Seventh Dawn, printed with no player named.
+							// Seeds the symmetric sets, so its own controller cannot choose it either.
+							if (ActionResolver.hasCannotBeChosenByAnyFieldAbility(c, true))  sumTmp.add(c);
+							if (ActionResolver.hasCannotBeChosenByAnyFieldAbility(c, false)) ablTmp.add(c);
 							// The opponent-scoped printing (Terra 1-046H, Seiryu 16-049R). Seeds the
 							// opponent-scoped sets, so the card's own controller can still choose it.
 							if (ActionResolver.hasCannotBeChosenByOppFieldAbility(c, true))  sumOpp.add(c);
@@ -1900,6 +1904,12 @@ final class GameContextImpl implements GameContext {
 				logEntry(source.name() + " gains \"cannot be blocked by a Forward of power " + powerVal
 						+ " or " + (isMore ? "more" : "less") + "\" until end of turn");
 			}
+			@Override public void grantSelfCannotBeBlockedByHigherPower(CardData source) {
+				if (source == null) return;
+				(isP1 ? mw.p1CannotBeBlockedByHigherPower : mw.p2CannotBeBlockedByHigherPower).add(source);
+				logEntry(source.name() + " gains \"cannot be blocked by a Forward with a power"
+						+ " greater than its own\" until end of turn");
+			}
 			@Override public void grantSelfCannotBlockUntilEndOfTurn(CardData source) {
 				boolean applied = false;
 				for (int i = 0; i < mw.p1ForwardCards.size() && !applied; i++)
@@ -1920,6 +1930,22 @@ final class GameContextImpl implements GameContext {
 				if (granted.isEmpty()) return false;
 				mw.grantedAutoAbilities.computeIfAbsent(source, k -> new ArrayList<>()).addAll(granted);
 				logEntry(source.name() + " gains \"" + abilityText + "\" (does not end at end of turn)");
+				return true;
+			}
+			@Override public boolean grantSelfAutoAbilityUntilEndOfTurn(CardData source, String abilityText) {
+				List<AutoAbility> granted = CardData.parseAutoAbilities(abilityText);
+				if (granted.isEmpty()) return false;
+				mw.grantedAutoAbilities.computeIfAbsent(source, k -> new ArrayList<>()).addAll(granted);
+				// Withdrawn by identity on the entries this call added, not by clearing the card's
+				// list: a second grant to the same card in the same turn, or one that outlasts the
+				// turn, has to survive this one expiring. Mirrors grantSelfFieldAbilityUntilEndOfTurn.
+				mw.endOfTurnEffects.add(ctx -> {
+					List<AutoAbility> list = mw.grantedAutoAbilities.get(source);
+					if (list == null) return;
+					for (AutoAbility a : granted) list.remove(a);
+					if (list.isEmpty()) mw.grantedAutoAbilities.remove(source);
+				});
+				logEntry(source.name() + " gains \"" + abilityText + "\" until end of turn");
 				return true;
 			}
 			@Override public void grantMaxAttacksPermanently(CardData source, int maxAttacks) {
