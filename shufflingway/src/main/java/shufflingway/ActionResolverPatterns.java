@@ -5417,6 +5417,24 @@ final class ActionResolverPatterns {
         "Category\\s+(?<category>[^\\s,]+)\\s+card,?\\s+draws?\\s+(?<draw>\\d+)\\s+cards?[.!]?\\s*$",
         Pattern.DOTALL
     );
+    /**
+     * "Skip your opponent's &lt;phase&gt; in their next turn." — 16-037R Babus names both Main
+     * Phases, 6-127L Hraesvelgr the Attack Phase, and those are the whole family.
+     *
+     * <p>Anchored at the front but not the back, because both printings put the clause first in an
+     * option that continues with a second sentence — Hraesvelgr's goes on "Remove the top 5 cards
+     * of your deck from the game.", which has a reader of its own and was resolving <em>instead</em>
+     * of this while the skip went unread. The caller hands the remainder back to {@code parse} and
+     * requires both halves, so an option is only claimed when the whole of it is understood.
+     *
+     * <p>Group {@code phases} carries the named phases verbatim for the caller to read; splitting
+     * the two Main Phases here would lose which of them a future single-phase printing meant.
+     */
+    static final Pattern SKIP_OPPONENT_PHASES_NEXT_TURN = Pattern.compile(
+        "(?i)^Skip\\s+your\\s+opponent'?s?\\s+(?<phases>(?:Main\\s+Phase\\s+[12]|Attack\\s+Phase)" +
+        "(?:\\s+and\\s+(?:Main\\s+Phase\\s+[12]|Attack\\s+Phase))*)\\s+in\\s+(?:their|his/her|his|her)\\s+next\\s+turn[.!]?\\s*"
+    );
+
     /** Matches "Your opponent draws N card(s)." — simple opponent draw with no followup. */
     static final Pattern OPPONENT_DRAW = Pattern.compile(
         "(?i)Your\\s+opponent\\s+draws?\\s+(\\d+)\\s+cards?[.!]?$"
@@ -5436,15 +5454,69 @@ final class ActionResolverPatterns {
      *       which multiplies {@code count} at resolution time (19-106H Sin)</li>
      *   <li>Group {@code asmany}   — present when "(select as many as possible)" follows, the
      *       parenthetical that admits a board holding fewer than the count asks for</li>
+     *   <li>Group {@code upto}      — present when the count is a ceiling ("up to N"), which lets
+     *       the opponent hand over fewer than it names even on a board that could fill it</li>
      *   <li>Group {@code followup}  — action applied to the selected card(s)</li>
      * </ul>
      *
-     * <p>Deliberately does <em>not</em> admit "up to N": that wording belongs to
-     * {@link #OPPONENT_SELECTS_UP_TO_N_BREAK_REST}, where the opponent's picks are the ones that
-     * survive. Requiring a bare count here is what keeps the two apart, and they are opposites.
+     * <p>"Up to N" is admitted, but only behind a lookahead, because the same opening belongs to a
+     * family with the opposite meaning: {@link #OPP_SELECTS_UP_TO_N_FORWARDS_BREAK_REST}, where the
+     * opponent's picks are the ones that <em>survive</em> and the sweep takes everything else
+     * (25-092C Cloud of Darkness). Both say "your opponent selects up to 2 Forwards they control";
+     * what separates them is the sentence after it, so that is what the guard reads — a followup
+     * putting "all … other than the selected" into the Break Zone is not this pattern's. Getting
+     * this wrong does not fail safe: it breaks exactly the Forwards the card says are spared.
+     *
+     * <p>The guard is a backstop rather than the primary defence. That parser is dispatched well
+     * ahead of this one in all three chains, and the ordering is what actually decides the case;
+     * the lookahead is here so a future reordering cannot silently invert a board sweep.
+     *
+     * <p>A bare count is untouched by the lookahead — it applies only when "up to" is present — so
+     * every printing this pattern already read is matched exactly as before.
      */
+    /**
+     * "Your opponent selects up to 2 Forwards they control and up to 1 Backup they control (select
+     * as many as possible). Put them into the Break Zone." — 27-101L Sin, the only printing in the
+     * corpus asking for two selections of different types, each with a count of its own.
+     *
+     * <p>Kept apart from {@link #OPPONENT_SELECTS_PATTERN} rather than folded into it, because that
+     * pattern carries exactly one count and one type set. Its separator alternative admits " and ",
+     * so the three other printings that say "selects 1 Character they control <b>and</b> dulls it"
+     * are already handled there — that "and" joins a <em>verb</em>, not a second selection, and the
+     * two readings need different shapes. Read ahead of it, so the half-reading cannot win.
+     *
+     * <p>Both counts are read before anything resolves. The card is one selection, so a Forward
+     * broken before the Backup is picked would change the board the second pick is made from.
+     */
+    static final Pattern OPPONENT_SELECTS_TWO_TYPES = Pattern.compile(
+        "(?i)^Your\\s+opponent\\s+selects?\\s+" +
+        "(?<upto1>up\\s+to\\s+)?(?<count1>\\d+)\\s+(?<type1>Forwards?|Backups?|Monsters?|Characters?)\\s+" +
+        "(?:they|he/she|he|she)\\s+controls?\\s+and\\s+" +
+        "(?<upto2>up\\s+to\\s+)?(?<count2>\\d+)\\s+(?<type2>Forwards?|Backups?|Monsters?|Characters?)\\s+" +
+        "(?:they|he/she|he|she)\\s+controls?" +
+        "\\s*(?<asmany>\\(select\\s+as\\s+many\\s+as\\s+possible\\))?" +
+        "[.]\\s*(?<followup>.+)",
+        Pattern.DOTALL
+    );
+    /**
+     * A <em>second</em> selection clause riding in {@link #OPPONENT_SELECTS_PATTERN}'s followup —
+     * 27-101L Sin's "up to 2 Forwards they control <b>and up to 1 Backup they control</b> (select as
+     * many as possible). Put them into the Break Zone."
+     *
+     * <p>Two selections of different types and different sizes is a shape that pattern cannot
+     * express: it reads the first, the "and" hands the rest to the followup, and the Break Zone arm
+     * finds the final sentence there and resolves — having quietly dropped the Backup. Detecting it
+     * is what lets the parser decline instead, leaving the card visibly unread rather than half
+     * done.
+     */
+    static final Pattern OPPONENT_SELECTS_TRAILING_SELECTION = Pattern.compile(
+        "(?i)^up\\s+to\\s+\\d+\\s+(?:Forwards?|Backups?|Characters?|Monsters?)\\s+" +
+        "(?:they|he/she|he|she)\\s+controls?"
+    );
     static final Pattern OPPONENT_SELECTS_PATTERN = Pattern.compile(
-        "(?i)^Your\\s+opponent\\s+selects?\\s+(?<count>\\d+)\\s+" +
+        "(?i)^Your\\s+opponent\\s+selects?\\s+" +
+        "(?:(?<upto>up\\s+to\\s+)(?!.*other\\s+than\\s+the\\s+selected))?" +
+        "(?<count>\\d+)\\s+" +
         "(?:(?<condition>dull|damaged|attacking|blocking|active)\\s+)?" +
         "(?:(?<element>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)\\s+)?" +
         "(?<targets>(?:Forwards?|Backups?|Characters?|Monsters?)(?:\\s+(?:and/or|or|and)\\s+(?:Forwards?|Backups?|Characters?|Monsters?))?)" +
@@ -7762,16 +7834,24 @@ final class ActionResolverPatterns {
      */
     static final Pattern SELECT_FOLLOWING_ACTIONS_DETECT = Pattern.compile(
         "(?i)^(?:" +
-        "(?:if\\s+[^,]+,\\s+)?select\\s+(?:up\\s+to\\s+)?\\d+\\s+of\\s+the\\s+\\d+\\s+following\\s+actions?" +
+        "(?:if\\s+[^,]+,\\s+)?(?:your\\s+opponent\\s+)?selects?\\s+(?:up\\s+to\\s+)?\\d+\\s+of\\s+the\\s+\\d+\\s+following\\s+actions?" +
         "|select\\s+the\\s+following\\s+actions?\\s+from\\s+top\\s+to\\s+bottom\\b" +
         ")"
     );
     /**
      * Captures the components of "[if cond,] select [up to] N of the M following actions. "a" "b" ..."
      * so the action-ability parse chain can resolve it as a modal choice.
+     *
+     * <p>{@code opp} is set when the printing hands the choice to the other player — "your opponent
+     * selects 2 of the 4 following actions" (16-037R Babus, 29-080C Chaos). Only the <em>chooser</em>
+     * moves: the options themselves are still written from the controller's seat, so a chosen option
+     * reading "your opponent discards 2 cards" still discards from the same hand it always did. The
+     * verb is inflected for that subject, which is why it is {@code selects?} rather than
+     * {@code select} — see {@code CardData.SELECT_ACTIONS_JOINER}, which has to admit the same two
+     * spellings a step earlier or the options never reach this pattern at all.
      */
     static final Pattern SELECT_FOLLOWING_ACTIONS = Pattern.compile(
-        "(?i)^(?:if\\s+[^,]+,\\s+)?select\\s+(?<upTo>up\\s+to\\s+)?(?<select>\\d+)\\s+of\\s+the\\s+"
+        "(?i)^(?:if\\s+[^,]+,\\s+)?(?<opp>your\\s+opponent\\s+)?selects?\\s+(?<upTo>up\\s+to\\s+)?(?<select>\\d+)\\s+of\\s+the\\s+"
         + "(?<total>\\d+)\\s+following\\s+actions?[.!]?\\s*(?<actions>.+)$",
         Pattern.DOTALL
     );

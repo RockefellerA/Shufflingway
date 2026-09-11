@@ -52079,4 +52079,406 @@ public class CardBehaviorTest {
 
 	// =========================================================================================
 
+	// =========================================================================================
+	// Babus 16-037R / Chaos 29-080C: "your opponent selects N of the M following actions."
+	//
+	// Two defects, one behind the other. The options never reached the resolver at all: the
+	// joiner that pulls the quoted options up onto the header line matched "select", and these
+	// two printings inflect the verb for their subject — "your opponent selects". The ability
+	// therefore arrived as a bare header with nothing after it, which is what showed up as no
+	// options being printed.
+	//
+	// Joining them exposed the second: with the options attached but the header still unread,
+	// the modal parser declined and a find()-based reader took an option out of the middle of
+	// the run and resolved it on its own — Babus freezing every Character unconditionally,
+	// Chaos discarding three. Strictly worse than the unparsed state it replaced, so the header
+	// had to be taught the inflected form in the same change rather than after it.
+	//
+	// Who selects is the substance. The options are written from the controller's seat, so they
+	// resolve in the controller's context exactly as a "select"-headed card's would; only the
+	// seat picking among them moves.
+	// =========================================================================================
+
+	private static final String BABUS_16_037R =
+			"your opponent selects 2 of the 4 following actions. "
+			+ "\"Skip your opponent's Main Phase 1 and Main Phase 2 in their next turn.\" "
+			+ "\"Freeze all the Characters opponent controls.\" "
+			+ "\"Your opponent selects 1 Forward they control. Put it into the Break Zone.\" "
+			+ "\"Your opponent discards 2 cards from their hand.\"";
+
+	private static final String BABUS_16_037R_PRINTED =
+			"When Babus enters the field, your opponent selects 2 of the 4 following actions.[[br]]"
+			+ "   \"Skip your opponent's Main Phase 1 and Main Phase 2 in their next turn.\"[[br]]"
+			+ "   \"Freeze all the Characters opponent controls.\"[[br]]"
+			+ "   \"Your opponent selects 1 Forward they control. Put it into the Break Zone.\"[[br]]"
+			+ "   \"Your opponent discards 2 cards from their hand.\"";
+
+	@Test
+	void babussOptionsSurviveTheJoinOntoTheHeader() {
+		// The reported defect: the auto ability came through carrying only its header, so there
+		// were no options to print.
+		List<AutoAbility> autos = CardData.parseAutoAbilities(BABUS_16_037R_PRINTED);
+		assertEquals(1, autos.size());
+		AutoAbility etb = autos.get(0);
+		assertEquals("enters the field", etb.trigger());
+
+		for (String option : List.of("Skip your opponent's Main Phase 1",
+				"Freeze all the Characters opponent controls.",
+				"Put it into the Break Zone.",
+				"Your opponent discards 2 cards from their hand.")) {
+			assertTrue(etb.effectText().contains(option),
+					"option missing from the joined effect text: " + option);
+		}
+	}
+
+	@Test
+	void babusOffersTheChoiceToTheOpponent() {
+		CardData babus = makeForwardWithText("Babus", "Ice", 6, 1000, "");
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.chooseActionsByOpponent(any(), any(), anyInt(), anyBoolean())).thenReturn(List.of());
+
+		Consumer<GameContext> fn = ActionResolver.parse(BABUS_16_037R, babus);
+		assertNotNull(fn, "the modal header has to be read, or an option gets claimed on its own");
+		fn.accept(ctx);
+
+		verify(ctx).chooseActionsByOpponent(any(), any(), eq(2), eq(false));
+		verify(ctx, never()).chooseActions(any(), any(), anyInt(), anyBoolean());
+	}
+
+	@Test
+	void allFourOfBabussOptionsAreOffered() {
+		CardData babus = makeForwardWithText("Babus", "Ice", 6, 1000, "");
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.chooseActionsByOpponent(any(), any(), anyInt(), anyBoolean())).thenReturn(List.of());
+		ActionResolver.parse(BABUS_16_037R, babus).accept(ctx);
+
+		ArgumentCaptor<List<String>> offered = ArgumentCaptor.forClass(List.class);
+		verify(ctx).chooseActionsByOpponent(any(), offered.capture(), anyInt(), anyBoolean());
+		assertEquals(4, offered.getValue().size(), "2 of 4 means four were on the table");
+	}
+
+	@Test
+	void babusDoesNotResolveAnOptionOnItsOwn() {
+		// The regression the header fix exists for: with the options joined but the header unread,
+		// "Freeze all the Characters opponent controls." was taken out of the middle of the run and
+		// applied unconditionally, skipping the choice entirely.
+		CardData babus = makeForwardWithText("Babus", "Ice", 6, 1000, "");
+		assertEquals("SelectFollowingActions",
+				ActionResolver.matchedPatternName(BABUS_16_037R, babus),
+				"the modal reader has to win, not one of the options");
+
+		// Read as "which parser won": all four options accounted for means the run was claimed
+		// whole. A description naming one effect would be the bug this test is here for. Asserted
+		// on the description rather than with a never() on the freeze primitive, because that one
+		// has a default convenience beside it and a never() naming the wrong arity passes for
+		// reasons that have nothing to do with the card.
+		assertEquals("SelectFollowingActions(2 of 4: SkipOpponentPhasesNextTurn | AllFieldEffect "
+						+ "| OpponentSelects / PutToBreakZone | OpponentDiscard)",
+				ActionResolver.fullDescription(BABUS_16_037R, babus));
+	}
+
+	@Test
+	void aChosenOptionStillResolvesFromTheControllersSeat() {
+		// Only the chooser moves. "Your opponent discards 2 cards" is the controller's opponent
+		// whichever player picked it, so the effect runs in the same context it always did.
+		CardData babus = makeForwardWithText("Babus", "Ice", 6, 1000, "");
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.chooseActionsByOpponent(any(), any(), anyInt(), anyBoolean()))
+				.thenReturn(List.of("Your opponent discards 2 cards from their hand."));
+
+		ActionResolver.parse(BABUS_16_037R, babus).accept(ctx);
+
+		verify(ctx).forceOpponentDiscard(2);
+	}
+
+	@Test
+	void aPlainSelectHeaderStillAsksItsOwnController() {
+		// The other half of the guard: widening the verb must not hand every modal card's choice
+		// to the opponent. Lenna 26-120L prints the ordinary header and mentions "your opponent"
+		// only inside an option.
+		CardData lenna = makeForwardWithText("Lenna", "Water", 4, 7000, "");
+		String text = "select 1 of the 2 following actions. "
+				+ "\"Your opponent selects 1 Forward they control. Put it into the Break Zone.\" "
+				+ "\"Search for 1 Job Warrior of Light and add it to your hand.\"";
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.chooseActions(any(), any(), anyInt(), anyBoolean())).thenReturn(List.of());
+
+		ActionResolver.parse(text, lenna).accept(ctx);
+
+		verify(ctx).chooseActions(any(), any(), eq(1), eq(false));
+		verify(ctx, never()).chooseActionsByOpponent(any(), any(), anyInt(), anyBoolean());
+	}
+
+	// =========================================================================================
+
+	// =========================================================================================
+	// The two options Babus 16-037R and Chaos 29-080C were offering as "?"
+	//
+	// Chaos's was a wording the opponent-selects family already had machinery for, behind a
+	// documented exclusion: "up to N" was reserved for OPP_SELECTS_UP_TO_N_FORWARDS_BREAK_REST,
+	// where the picks are the ones that SURVIVE and the sweep takes the rest. Both families open
+	// identically and mean opposite things, so the guard reads the sentence after — a followup
+	// putting "all … other than the selected" into the Break Zone is the other family's.
+	//
+	// Babus's needed a mechanism: nothing in the engine could skip a phase. The mark is per
+	// player rather than per card (no card carries the debt, so breaking one cannot shed it) and
+	// is spent as the phase it names is reached, which costs exactly one phase on one turn.
+	//
+	// 6-127L Hraesvelgr came with it, and was the more urgent half: its option reads "Skip your
+	// opponent's Attack Phase in their next turn. Remove the top 5 cards of your deck from the
+	// game.", and the removal's find() was claiming the whole option off that second sentence
+	// while the skip went unread. It resolved, so nothing looked wrong.
+	// =========================================================================================
+
+	private static final String BABUS_SKIP_OPTION =
+			"Skip your opponent's Main Phase 1 and Main Phase 2 in their next turn.";
+
+	private static final String HRAESVELGR_SKIP_OPTION =
+			"Skip your opponent's Attack Phase in their next turn. "
+			+ "Remove the top 5 cards of your deck from the game.";
+
+	private static final String CHAOS_BREAK_OPTION =
+			"Your opponent selects up to 2 Forwards they control (select as many as possible). "
+			+ "Put them into the Break Zone.";
+
+	@Test
+	void babussOptionTakesBothMainPhasesAndLeavesTheAttackPhase() {
+		GameContext ctx = mock(GameContext.class);
+		Consumer<GameContext> fn = ActionResolver.parse(BABUS_SKIP_OPTION, null);
+		assertNotNull(fn);
+		fn.accept(ctx);
+
+		verify(ctx).skipOpponentMainPhasesNextTurn();
+		verify(ctx, never()).skipOpponentAttackPhaseNextTurn();
+	}
+
+	@Test
+	void hraesvelgrsOptionResolvesBothOfItsHalves() {
+		// The half that was being dropped, and the half that was hiding it.
+		GameContext ctx = mock(GameContext.class);
+		Consumer<GameContext> fn = ActionResolver.parse(HRAESVELGR_SKIP_OPTION, null);
+		assertNotNull(fn);
+		fn.accept(ctx);
+
+		verify(ctx).skipOpponentAttackPhaseNextTurn();
+		verify(ctx, never()).skipOpponentMainPhasesNextTurn();
+		assertEquals("SkipOpponentPhasesNextTurn + RemoveTopOfDeckFromGame",
+				ActionResolver.matchedPatternName(HRAESVELGR_SKIP_OPTION, null),
+				"both halves named, so neither can go missing unnoticed");
+	}
+
+	@Test
+	void aSkipOptionWithAnUnreadableTailIsDeclinedByThisParser() {
+		// This parser claims an option only when all of it is understood, which is what keeps
+		// Hraesvelgr's two halves together.
+		//
+		// Asserted against the parser rather than against parse(): the chain has a compound-sentence
+		// fallback well below this point that splits on the full stop and resolves the first
+		// sentence alone, so the whole text does come back with a consumer. That hole is older and
+		// wider than this card — it is why the option had to be claimed here, as one unit, rather
+		// than left to the chain to assemble.
+		assertNull(ActionResolverState.tryParseSkipOpponentPhasesNextTurn(
+				"Skip your opponent's Attack Phase in their next turn. Blorp the wibbling gnomes.", null),
+				"the tail has to parse before either half is claimed");
+		assertNotNull(ActionResolverState.tryParseSkipOpponentPhasesNextTurn(
+				HRAESVELGR_SKIP_OPTION, null),
+				"and a tail that does parse is claimed together with the skip");
+	}
+
+	@Test
+	void aSingleNamedMainPhaseIsLeftUnread() {
+		// The primitive is the pair; no printing names one, and rounding a narrower effect up to a
+		// wider one would be worse than reporting the gap.
+		assertNull(ActionResolver.parse(
+				"Skip your opponent's Main Phase 1 in their next turn.", null));
+	}
+
+	@Test
+	void chaossOptionBreaksTheForwardsTheOpponentPicks() {
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.opponentSelectsOwnCharacters(anyInt(), anyBoolean(), any(), any(), any(),
+				anyInt(), any(), anyBoolean(), anyBoolean(), anyBoolean(), any()))
+				.thenReturn(new ArrayList<>(List.of(fwd(false, 0))));
+
+		Consumer<GameContext> fn = ActionResolver.parse(CHAOS_BREAK_OPTION, null);
+		assertNotNull(fn);
+		fn.accept(ctx);
+
+		verify(ctx).forceTargetToBreakZone(fwd(false, 0));
+		// "Up to" means the pick may confirm short even on a board that could fill it — the same
+		// latitude "(select as many as possible)" gives, which this printing also prints.
+		verify(ctx).opponentSelectsOwnCharacters(eq(2), eq(true), any(), any(), any(),
+				anyInt(), any(), anyBoolean(), anyBoolean(), anyBoolean(), any());
+	}
+
+	@Test
+	void cloudOfDarknessStillSparesWhatItsOpponentPicks() {
+		// The opposite family, sharing Chaos's opening word for word. Getting these two confused
+		// breaks exactly the Forwards the card says survive.
+		String cod = "your opponent selects up to 2 Forwards they control. Then, put all the "
+				+ "Forwards opponent controls other than the selected Forwards into the Break Zone.";
+		assertEquals("OppSelectsUpToNForwardsBreakRest",
+				ActionResolver.matchedPatternName(cod, null));
+
+		GameContext ctx = mock(GameContext.class);
+		ActionResolver.parse(cod, null).accept(ctx);
+		verify(ctx).opponentSelectsUpToNForwardsBreakRest(2);
+		verify(ctx, never()).forceTargetToBreakZone(any());
+	}
+
+	@Test
+	void aCompoundOpponentSelectionIsLeftUnreadRatherThanHalfRead() {
+		// 27-101L Sin asks for up to 2 Forwards AND up to 1 Backup. The pattern carries one type
+		// and one count, so claiming this would break the Forwards and forget the Backup.
+		assertNull(ActionResolverChoose.tryParseOpponentSelects(
+				"Your opponent selects up to 2 Forwards they control and up to 1 Backup they "
+				+ "control (select as many as possible). Put them into the Break Zone."));
+	}
+
+	@Test
+	void aPhaseSkipIsSpentByTheFirstPhaseThatAsks() {
+		MainWindow mw = new MainWindow();
+		mw.addPhaseSkip(false, GameState.GamePhase.MAIN_1);
+		mw.addPhaseSkip(false, GameState.GamePhase.MAIN_2);
+
+		assertFalse(mw.consumePhaseSkip(true, GameState.GamePhase.MAIN_1),
+				"the mark was laid on P2, and P1's turn must not spend it");
+		assertTrue(mw.consumePhaseSkip(false, GameState.GamePhase.MAIN_1));
+		assertFalse(mw.consumePhaseSkip(false, GameState.GamePhase.MAIN_1),
+				"one phase on one turn — asking twice does not skip twice");
+		assertTrue(mw.consumePhaseSkip(false, GameState.GamePhase.MAIN_2),
+				"the other Main Phase is a mark of its own");
+		assertFalse(mw.consumePhaseSkip(false, GameState.GamePhase.ATTACK),
+				"Babus leaves the Attack Phase alone");
+	}
+
+	@Test
+	void theSkipIsLaidOnTheResolvingPlayersOpponent() {
+		for (boolean isP1 : new boolean[]{true, false}) {
+			MainWindow mw = new MainWindow();
+			mw.buildGameContext(isP1).skipOpponentMainPhasesNextTurn();
+			assertTrue(mw.skipPhasesNextTurn(!isP1).contains(GameState.GamePhase.MAIN_1),
+					"the opponent of whoever resolved it sits the phase out");
+			assertTrue(mw.skipPhasesNextTurn(isP1).isEmpty(),
+					"and the resolving player's own turn is untouched");
+		}
+	}
+
+	// =========================================================================================
+
+	// =========================================================================================
+	// Sin 27-101L: "remove 15 cards in your Break Zone from the game. If you do so, your opponent
+	// selects up to 2 Forwards they control and up to 1 Backup they control (select as many as
+	// possible). Put them into the Break Zone."
+	//
+	// The only printing asking for two selections of different types, each with its own count —
+	// a shape OPPONENT_SELECTS_PATTERN cannot carry, having one count and one type set. Left to
+	// it, the "and" joining the two halves is read as the separator before its followup: the
+	// Forwards resolve, and the Backup rides along in the followup text where the Break Zone arm
+	// finds the final sentence and never acts on it.
+	//
+	// What that actually looked like was worse than a half-done effect. With the payoff unread,
+	// the "If you do so" wrapper declined — it requires both halves — and the card fell through
+	// to a find() parser that claimed its opening sentence alone, so Sin removed 15 cards from
+	// the Break Zone and did nothing else. The cost was paid and the payoff was silent.
+	//
+	// The "and" in "selects 1 active Character they control and dulls it" (11-030C Chronos,
+	// 8-026L Garland (IX), 5-129C Schrodinger) joins a verb, not a second selection. Those stay
+	// with the single-selection parser, which is why the two shapes are read apart.
+	// =========================================================================================
+
+	private static final String SIN_27_101L_PAYOFF =
+			"Your opponent selects up to 2 Forwards they control and up to 1 Backup they control "
+			+ "(select as many as possible). Put them into the Break Zone.";
+
+	private static final String SIN_27_101L =
+			"remove 15 cards in your Break Zone from the game. If you do so, " + SIN_27_101L_PAYOFF;
+
+	/** A mock answering the Forward selection first and the Backup selection second. */
+	private static GameContext mockTwoTypeSelection(List<ForwardTarget> first, List<ForwardTarget> second) {
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.opponentSelectsOwnCharacters(anyInt(), anyBoolean(), any(), any(), any(),
+				anyInt(), any(), anyBoolean(), anyBoolean(), anyBoolean(), any()))
+				.thenReturn(new ArrayList<>(first), new ArrayList<>(second));
+		return ctx;
+	}
+
+	@Test
+	void sinBreaksTheBackupAsWellAsTheForwards() {
+		// The half that was being dropped.
+		GameContext ctx = mockTwoTypeSelection(List.of(fwd(false, 1), fwd(false, 0)),
+				List.of(bkp(false, 2)));
+
+		Consumer<GameContext> fn = ActionResolver.parse(SIN_27_101L_PAYOFF, null);
+		assertNotNull(fn);
+		fn.accept(ctx);
+
+		verify(ctx).forceTargetToBreakZone(fwd(false, 1));
+		verify(ctx).forceTargetToBreakZone(fwd(false, 0));
+		verify(ctx).forceTargetToBreakZone(bkp(false, 2));
+	}
+
+	@Test
+	void sinAsksForBothCountsBeforeBreakingAnything() {
+		// One selection, resolved as one: a Forward already in the Break Zone would change the
+		// board the Backup is picked from.
+		GameContext ctx = mockTwoTypeSelection(List.of(fwd(false, 0)), List.of(bkp(false, 0)));
+		ActionResolver.parse(SIN_27_101L_PAYOFF, null).accept(ctx);
+
+		InOrder order = inOrder(ctx);
+		order.verify(ctx, times(2)).opponentSelectsOwnCharacters(anyInt(), anyBoolean(), any(),
+				any(), any(), anyInt(), any(), anyBoolean(), anyBoolean(), anyBoolean(), any());
+		order.verify(ctx, atLeastOnce()).forceTargetToBreakZone(any());
+	}
+
+	@Test
+	void sinsTwoSelectionsCarryTheirOwnCountsAndRows() {
+		GameContext ctx = mockTwoTypeSelection(List.of(), List.of());
+		ActionResolver.parse(SIN_27_101L_PAYOFF, null).accept(ctx);
+
+		// Up to 2, Forward row only.
+		verify(ctx).opponentSelectsOwnCharacters(eq(2), eq(true), any(), any(), any(), anyInt(),
+				any(), eq(true), eq(false), eq(false), any());
+		// Up to 1, Backup row only.
+		verify(ctx).opponentSelectsOwnCharacters(eq(1), eq(true), any(), any(), any(), anyInt(),
+				any(), eq(false), eq(true), eq(false), any());
+	}
+
+	@Test
+	void sinsPayoffOnlyFollowsARemovalThatHappened() {
+		// The wrapper this restores: with the payoff unreadable it declined, and the card fell
+		// through to a parser that took the opening sentence and left the payoff unspoken.
+		assertEquals("WhenYouDoSo", ActionResolver.matchedPatternName(SIN_27_101L, null),
+				"both halves read, so the removal and its payoff travel together");
+
+		GameContext ctx = mockTwoTypeSelection(List.of(fwd(false, 0)), List.of());
+		when(ctx.effectMadeProgress()).thenReturn(false);
+		ActionResolver.parse(SIN_27_101L, null).accept(ctx);
+		verify(ctx, never()).forceTargetToBreakZone(any());
+	}
+
+	@Test
+	void aVerbJoinedByAndIsStillOneSelection() {
+		// The shape the two-type reader must not claim: "and" before a verb, not before a count.
+		for (String text : List.of(
+				"Your opponent selects 1 active Character they control and dulls it.",
+				"your opponent selects 1 Forward he/she controls and return it to its owner's hand.")) {
+			assertNull(ActionResolverChoose.tryParseOpponentSelectsTwoTypes(text),
+					"one selection, not two: " + text);
+			assertNotNull(ActionResolverChoose.tryParseOpponentSelects(text),
+					"and it stays with the parser that has always read it: " + text);
+		}
+	}
+
+	@Test
+	void aTwoTypeSelectionWithAnUnreadFollowupIsDeclined() {
+		// Only the Break Zone followup is printed. Anything else would have the opponent hand over
+		// cards the effect then does nothing with, which is worse than reporting the gap.
+		assertNull(ActionResolverChoose.tryParseOpponentSelectsTwoTypes(
+				"Your opponent selects up to 2 Forwards they control and up to 1 Backup they "
+				+ "control (select as many as possible). Blorp the wibbling gnomes."));
+	}
+
+	// =========================================================================================
+
 }

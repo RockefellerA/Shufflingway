@@ -1452,6 +1452,11 @@ public class ActionResolver {
         result = tryParseOpponentSelectsFromOwnBzToHand(effectText);
         if (result != null) return result;
 
+        // Ahead of OpponentSelects, which reads the first of the two selections and lets the second
+        // ride along in its followup — resolving 27-101L Sin's Forwards and forgetting its Backup.
+        result = tryParseOpponentSelectsTwoTypes(effectText);
+        if (result != null) return result;
+
         result = tryParseOpponentSelects(effectText);
         if (result != null) return result;
 
@@ -1705,6 +1710,12 @@ public class ActionResolver {
         // the first full stop, so it claimed these printings off their opening sentence and dropped
         // the "You can cast them this turn" permission the removal exists to grant.
         result = tryParseRemoveTopOfDeckRfgCastableThisTurn(effectText, source);
+        if (result != null) return result;
+
+        // Ahead of tryParseRemoveTopOfDeckFromGame for that same reason: 6-127L Hraesvelgr's option
+        // opens with the phase skip and ends with a removal, and the removal's find() claimed the
+        // option off the tail alone, resolving with the skip silently dropped.
+        result = tryParseSkipOpponentPhasesNextTurn(effectText, source);
         if (result != null) return result;
 
         result = tryParseRemoveTopOfDeckFromGame(effectText, source);
@@ -2382,6 +2393,9 @@ public class ActionResolver {
             return "OppSelectsMayBreakElseSelfCannotBlock";
         // Mirrors parse(): ahead of OpponentSelects, whose prefix it shares.
         if (tryParseOpponentSelectsFromOwnBzToHand(effectText) != null) return "OpponentSelectsFromOwnBzToHand";
+        // Mirrors parse(): ahead of OpponentSelects, whose half-reading of 27-101L Sin this
+        // replaces.
+        if (tryParseOpponentSelectsTwoTypes(effectText)       != null) return "OpponentSelectsTwoTypes";
         if (tryParseOpponentSelects(effectText)               != null) return "OpponentSelects";
         if (tryParseBzFwdToHandOppFwdToBzByDamage(effectText)  != null) return "BzFwdToHandOppFwdToBzByDamage";
         if (tryParseOpponentPutsForwardToBreakZone(effectText) != null) return "OpponentPutsForwardToBreakZone";
@@ -2486,6 +2500,13 @@ public class ActionResolver {
         // Mirrors parse(): ahead of the bare removal, which claims this text off its first sentence.
         if (tryParseRemoveTopOfDeckRfgCastableThisTurn(effectText, source) != null)
             return "RemoveTopOfDeckRfgCastableThisTurn";
+        // Mirrors parse(): ahead of the removal, whose find() would otherwise name this off
+        // Hraesvelgr 6-127L's tail sentence alone.
+        if (tryParseSkipOpponentPhasesNextTurn(effectText, source)          != null) {
+            String tail = skipOpponentPhasesTail(effectText, source);
+            return tail == null ? "SkipOpponentPhasesNextTurn"
+                                : "SkipOpponentPhasesNextTurn + " + tail;
+        }
         if (tryParseRemoveTopOfDeckFromGame(effectText, source)             != null) return "RemoveTopOfDeckFromGame";
         if (tryParseRevealPlayNamedWithMaxCostRestBottom(effectText)         != null) return "RevealPlayNamedWithMaxCostRestBottom";
         if (tryParseRevealPlayJobTypeTotalCostRestBottom(effectText)        != null) return "RevealPlayJobTypeTotalCost";
@@ -3957,6 +3978,10 @@ public class ActionResolver {
                     + " in their Break Zone and adds "
                     + ("1".equals(bzSelM.group("count")) ? "it" : "them") + " to their hand";
 
+        // Mirrors parse(): ahead of OpponentSelects, which reads only the first of the two
+        // selections 27-101L Sin asks for.
+        if (tryParseOpponentSelectsTwoTypes(effectText) != null) return "OpponentSelectsTwoTypes";
+
         Matcher opSelM = OPPONENT_SELECTS_PATTERN.matcher(effectText);
         if (opSelM.find()) {
             String followup     = opSelM.group("followup").trim();
@@ -4063,6 +4088,13 @@ public class ActionResolver {
         // Mirrors parse(): ahead of the bare removal, which claims this text off its first sentence.
         if (tryParseRemoveTopOfDeckRfgCastableThisTurn(effectText, source) != null)
             return "RemoveTopOfDeckRfgCastableThisTurn";
+        // Mirrors parse(): ahead of the removal, whose find() would otherwise name this off
+        // Hraesvelgr 6-127L's tail sentence alone.
+        if (tryParseSkipOpponentPhasesNextTurn(effectText, source)          != null) {
+            String tail = skipOpponentPhasesTail(effectText, source);
+            return tail == null ? "SkipOpponentPhasesNextTurn"
+                                : "SkipOpponentPhasesNextTurn + " + tail;
+        }
         if (tryParseRemoveTopOfDeckFromGame(effectText, source)             != null) return "RemoveTopOfDeckFromGame";
         if (tryParseRevealPlayNamedWithMaxCostRestBottom(effectText)           != null) return "RevealPlayNamedWithMaxCostRestBottom";
         if (tryParseRevealPlayJobTypeTotalCostRestBottom(effectText)          != null) return "RevealPlayJobTypeTotalCost";

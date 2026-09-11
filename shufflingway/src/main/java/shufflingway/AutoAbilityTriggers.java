@@ -1718,7 +1718,7 @@ final class AutoAbilityTriggers {
 	 */
 	private static final Pattern FA_SELECT_FOLLOWING_ACTIONS =
 		Pattern.compile(
-			"(?i)^(?:if\\s+(?<condition>[^,]+),\\s+)?select\\s+(?<upTo>up\\s+to\\s+)?" +
+			"(?i)^(?:if\\s+(?<condition>[^,]+),\\s+)?(?<opp>your\\s+opponent\\s+)?selects?\\s+(?<upTo>up\\s+to\\s+)?" +
 			"(?<select>\\d+)\\s+of\\s+the\\s+(?<total>\\d+)\\s+following\\s+actions?[.!]?\\s*" +
 			"(?<actions>.+)$",
 			Pattern.DOTALL

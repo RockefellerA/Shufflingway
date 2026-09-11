@@ -2171,7 +2171,23 @@ public interface GameContext {
      */
     java.util.List<String> chooseActions(CardData source, java.util.List<String> actions,
             int selectCount, boolean upTo);
-  
+
+    /**
+     * The other player's version of {@link #chooseActions} — for "your opponent selects N of the M
+     * following actions" (16-037R Babus, 29-080C Chaos), where the card decides <em>what</em> may
+     * happen and the opponent decides <em>which</em> of it does.
+     *
+     * <p>Only the seat making the choice moves. The chosen texts are handed back to the same caller
+     * and resolved in the same context as always, because the options are written from the
+     * controller's side: "your opponent discards 2 cards" means the same hand whoever picked it.
+     *
+     * <p>Kept as its own method rather than a flag on {@link #chooseActions} so that the many tests
+     * stubbing the four-argument form keep describing the case they were written for, and an
+     * opponent-selects card cannot quietly satisfy one of them.
+     */
+    java.util.List<String> chooseActionsByOpponent(CardData source, java.util.List<String> actions,
+            int selectCount, boolean upTo);
+
   /**
      * Returns the printed power of the Forward most recently discarded as part of resolving the
      * current ability (e.g. Kolka's "you may discard 1 Forward. When you do so … the discarded
@@ -3416,6 +3432,28 @@ public interface GameContext {
      * the price twice before that phase arrives still only sits out one.
      */
     void sourceSkipsNextActivePhase(CardData source);
+
+    /**
+     * Makes the ability user's opponent sit out both Main Phases on their next turn — 16-037R
+     * Babus, one of the four actions it offers.
+     *
+     * <p>Their Attack Phase is untouched: the card names the two Main Phases, so a Forward that can
+     * attack still may. What is lost is the chance to cast, play a Backup, or use an ability at the
+     * points in the turn where that is allowed.
+     *
+     * <p>A mark rather than an immediate effect. It is spent as each named phase is reached on that
+     * turn, so it costs exactly one turn whoever holds priority in between.
+     */
+    void skipOpponentMainPhasesNextTurn();
+
+    /**
+     * Makes the ability user's opponent sit out their Attack Phase on their next turn — 6-127L
+     * Hraesvelgr, the first of the three actions it offers. The Main Phases are untouched, so the
+     * turn is still theirs to build on; they simply cannot attack in it.
+     *
+     * <p>Marked and spent exactly as {@link #skipOpponentMainPhasesNextTurn} is.
+     */
+    void skipOpponentAttackPhaseNextTurn();
 
     /**
      * Finds the source card on its owner's forward zone and returns it to the bottom of

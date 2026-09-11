@@ -847,6 +847,47 @@ public class MainWindow {
 	final Set<CardData> skipNextActivePhase = Collections.newSetFromMap(new IdentityHashMap<>());
 
 	/**
+	 * Phases a side must sit out on its next turn -- "Skip your opponent's Main Phase 1 and Main
+	 * Phase 2 in their next turn." (16-037R Babus) and "Skip your opponent's Attack Phase in their
+	 * next turn." (6-127L Hraesvelgr), the only two printings.
+	 *
+	 * <p>Per player rather than per card, which is what separates it from
+	 * {@link #skipNextActivePhase} beside it: nothing on the field carries the debt, so it cannot be
+	 * shed by breaking a card, and it is owed by whoever the text named whatever they control when
+	 * the turn arrives.
+	 *
+	 * <p>Spent, not queried -- {@link #consumePhaseSkip} removes the entry as the phase it names is
+	 * reached, so a mark costs exactly one phase on one turn. Both printings are played on the
+	 * setter's turn and name the opponent, whose turn comes first, so the mark is consumed before
+	 * its owner could set another and no bookkeeping across turns is needed.
+	 *
+	 * <p>ACTIVE and DRAW are never entered here. Both are mandatory in the rules, and neither
+	 * printing names them.
+	 */
+	final EnumSet<GameState.GamePhase> p1SkipPhasesNextTurn = EnumSet.noneOf(GameState.GamePhase.class);
+	/** P2's half of {@link #p1SkipPhasesNextTurn}. */
+	final EnumSet<GameState.GamePhase> p2SkipPhasesNextTurn = EnumSet.noneOf(GameState.GamePhase.class);
+
+	/** The phase-skip marks owed by {@code isP1}. */
+	EnumSet<GameState.GamePhase> skipPhasesNextTurn(boolean isP1) {
+		return isP1 ? p1SkipPhasesNextTurn : p2SkipPhasesNextTurn;
+	}
+
+	/** Records that {@code isP1} sits out {@code phase} on their next turn. */
+	void addPhaseSkip(boolean isP1, GameState.GamePhase phase) {
+		skipPhasesNextTurn(isP1).add(phase);
+		logEntry((isP1 ? "P1" : "P2") + " will skip " + phase.displayName + " next turn");
+	}
+
+	/**
+	 * Whether {@code isP1} must sit out {@code phase} now, spending the mark if so. Asked once as
+	 * each phase is entered, by both the button-driven flow and the AI's.
+	 */
+	boolean consumePhaseSkip(boolean isP1, GameState.GamePhase phase) {
+		return skipPhasesNextTurn(isP1).remove(phase);
+	}
+
+	/**
 	 * Whether {@code card} is held out of the Active Phase -- by its own printed text, by a warden
 	 * that is still on the field, or by a one-shot skip it has not yet spent.
 	 *
@@ -3405,6 +3446,13 @@ public class MainWindow {
                             advanceLocalPhase();   // DRAW → MAIN_1
                             refreshPhaseTracker();
                             logEntry("Main Phase 1");
+                            // Before the phase's own triggers and its Warp processing, for the
+                            // reason given at the Main Phase 2 check (16-037R Babus).
+                            if (consumePhaseSkip(true, GameState.GamePhase.MAIN_1)) {
+                                logEntry("Main Phase 1 skipped");
+                                onNextPhase();
+                                return;
+                            }
                             processWarpCounters(true);
                             if (!pendingMainPhase1Effects.isEmpty()) {
                                 List<Consumer<GameContext>> pending = new ArrayList<>(pendingMainPhase1Effects);
@@ -3427,6 +3475,13 @@ public class MainWindow {
                             offerPhasePriority(() -> {
                                 advanceLocalPhase();   // MAIN_1 → ATTACK
                                 logEntry("Attack Phase");
+                                // Before the phase's own triggers, for the reason given at the
+                                // Main Phase 2 check (6-127L Hraesvelgr).
+                                if (consumePhaseSkip(true, GameState.GamePhase.ATTACK)) {
+                                    logEntry("Attack Phase skipped");
+                                    onNextPhase();
+                                    return;
+                                }
                                 autoAbilityTriggers.triggerAutoAbilitiesForBeginningOfAttackPhase(true);
                                 autoAbilityTriggers.triggerAutoAbilitiesForBeginningOfAttackPhaseEachTurn(true);
                                 autoAbilityTriggers.triggerAutoAbilitiesForBeginningOfOppAttackPhase(true);
@@ -3486,6 +3541,13 @@ public class MainWindow {
                             // with it — on both boards, since the same phase ended for both.
                             refreshCombatGlows();
                             logEntry("Main Phase 2");
+                            // Asked before the phase's own triggers, because a phase that is skipped
+                            // is not a phase that began (16-037R Babus).
+                            if (consumePhaseSkip(true, GameState.GamePhase.MAIN_2)) {
+                                logEntry("Main Phase 2 skipped");
+                                onNextPhase();
+                                return;
+                            }
                             autoAbilityTriggers.triggerAutoAbilitiesForBeginningOfMainPhase2(true);
                             syncBzForwardPlayables(true);
 			}

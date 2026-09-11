@@ -24,6 +24,56 @@ final class ActionResolverState {
 	private ActionResolverState() {}
 
     /**
+     * "Skip your opponent's &lt;phases&gt; in their next turn." — 16-037R Babus (both Main Phases)
+     * and 6-127L Hraesvelgr (the Attack Phase), each printing it as the head of one selectable
+     * option.
+     *
+     * <p>Both options carry a second sentence, and the tail has to parse before either half is
+     * claimed. That is not caution for its own sake: Hraesvelgr's tail, "Remove the top 5 cards of
+     * your deck from the game.", has a reader of its own that was claiming the whole option through
+     * {@code find()} and resolving with the skip dropped in silence. Requiring both halves means an
+     * option is claimed only when all of it is understood, and reported unread otherwise.
+     *
+     * <p>Returns {@code null} for a text naming just one Main Phase. No printing does, and the
+     * primitive behind this is the pair, so the alternative to declining would be rounding a
+     * narrower effect up to a wider one.
+     */
+    static Consumer<GameContext> tryParseSkipOpponentPhasesNextTurn(String text, CardData source) {
+        if (text == null) return null;
+        String trimmed = text.trim();
+        Matcher m = SKIP_OPPONENT_PHASES_NEXT_TURN.matcher(trimmed);
+        if (!m.find()) return null;
+
+        String  phases     = m.group("phases").toLowerCase(Locale.ROOT);
+        boolean skipMains  = phases.contains("main phase");
+        boolean skipAttack = phases.contains("attack phase");
+        if (skipMains && !(phases.contains("main phase 1") && phases.contains("main phase 2")))
+            return null;
+
+        String rest = trimmed.substring(m.end()).trim();
+        final Consumer<GameContext> tail = rest.isEmpty() ? null : parse(rest, source);
+        if (!rest.isEmpty() && tail == null) return null;
+
+        final boolean mains  = skipMains;
+        final boolean attack = skipAttack;
+        return ctx -> {
+            if (mains)  ctx.skipOpponentMainPhasesNextTurn();
+            if (attack) ctx.skipOpponentAttackPhaseNextTurn();
+            if (tail != null) tail.accept(ctx);
+        };
+    }
+
+    /** The trailing sentence of a phase-skip option, or {@code null} when there is none. */
+    static String skipOpponentPhasesTail(String text, CardData source) {
+        if (text == null) return null;
+        String trimmed = text.trim();
+        Matcher m = SKIP_OPPONENT_PHASES_NEXT_TURN.matcher(trimmed);
+        if (!m.find()) return null;
+        String rest = trimmed.substring(m.end()).trim();
+        return rest.isEmpty() ? null : matchedPatternName(rest, source);
+    }
+
+    /**
      * Parses Alhanalem 18-018R's "During this turn, if a Character enters the field by your
      * opponent's Summons or abilities, remove it from the game instead."
      *

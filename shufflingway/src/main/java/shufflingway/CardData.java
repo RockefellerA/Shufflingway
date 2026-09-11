@@ -3113,7 +3113,7 @@ public record CardData(
      * {@code [[br]]}, which is exactly what it is for.
      */
     private static final Pattern SELECT_ACTIONS_JOINER = Pattern.compile(
-        "(?i)((?:[^.!?]*,\\s+)?select\\s+" +
+        "(?i)((?:[^.!?]*,\\s+)?selects?\\s+" +
         "(?:" +
           "(?:up\\s+to\\s+)?\\d+\\s+of\\s+the\\s+\\d+\\s+following\\s+actions?" +  // "select N of the M following actions"
           "|the\\s+following\\s+actions?[^.!?]*" +                                   // "select the following actions..."

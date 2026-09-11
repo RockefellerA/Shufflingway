@@ -2160,6 +2160,13 @@ final class GameContextImpl implements GameContext {
 				mw.skipNextActivePhaseFor(source);
 				logEntry("Effect: " + source.name() + " will not activate during your next Active Phase");
 			}
+			@Override public void skipOpponentMainPhasesNextTurn() {
+				mw.addPhaseSkip(!isP1, GameState.GamePhase.MAIN_1);
+				mw.addPhaseSkip(!isP1, GameState.GamePhase.MAIN_2);
+			}
+			@Override public void skipOpponentAttackPhaseNextTurn() {
+				mw.addPhaseSkip(!isP1, GameState.GamePhase.ATTACK);
+			}
 
 			@Override public boolean wasElementCpPaid(String element) {
 				return element != null && mw.lastCastPaymentElements.stream()
@@ -6812,6 +6819,21 @@ final class GameContextImpl implements GameContext {
 				ordered.addAll(rest);
 				int take = Math.min(selectCount, ordered.size());
 				return new ArrayList<>(ordered.subList(0, take));
+			}
+
+			@Override public List<String> chooseActionsByOpponent(CardData source,
+					List<String> actions, int selectCount, boolean upTo) {
+				// The chooser is the other seat, so the human gets the dialog when the resolving
+				// player is the AI — the mirror of the test above, not a copy of it.
+				if (!isP1) return mw.autoAbilityTriggers.showSelectActionsDialog(source, actions, selectCount, upTo);
+				// Printed order, deliberately: the preference the sibling above applies was written
+				// for a player choosing effects to inflict, and here every option is aimed at the
+				// chooser instead. Picking well under those terms means weighing damage to oneself,
+				// which this AI has no notion of; taking them in order is at least predictable and
+				// never pretends to a judgement it is not making.
+				mw.logEntry("[AI] " + source.name() + " — selecting " + Math.min(selectCount, actions.size())
+						+ " action(s) in printed order");
+				return new ArrayList<>(actions.subList(0, Math.min(selectCount, actions.size())));
 			}
 
 

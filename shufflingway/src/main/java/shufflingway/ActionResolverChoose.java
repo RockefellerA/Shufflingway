@@ -217,6 +217,10 @@ final class ActionResolverChoose {
 
         final boolean baseUpTo      = m.group("upTo") != null;
         final int     baseSelect    = Integer.parseInt(m.group("select"));
+        // "Your opponent selects N of the M following actions" — 16-037R Babus, 29-080C Chaos. Only
+        // the chooser changes; the options stay in the resolving player's context, because they are
+        // written from that seat ("your opponent discards 2 cards" is the same hand either way).
+        final boolean oppSelects    = m.group("opp") != null;
         String actionsRaw = m.group("actions");
 
         // "If you selected N actions, the cost required to cast [Self] is increased by 《C》《C》."
@@ -324,7 +328,9 @@ final class ActionResolverChoose {
                 effSelect = dmgUpgSelect;
                 effUpTo   = dmgUpgUpTo;
             }
-            List<String> chosen = ctx.chooseActions(source, actions, effSelect, effUpTo);
+            List<String> chosen = oppSelects
+                    ? ctx.chooseActionsByOpponent(source, actions, effSelect, effUpTo)
+                    : ctx.chooseActions(source, actions, effSelect, effUpTo);
             if (chosen == null || chosen.isEmpty()) {
                 ctx.logEntry("Select actions — none chosen");
                 return;
@@ -334,7 +340,8 @@ final class ActionResolverChoose {
                 if (effect == null) {
                     ctx.logEntry("Select actions — unrecognized: " + actionText);
                 } else {
-                    ctx.logEntry((ctx.isP1() ? "Selected: " : "AI selected ") + actionText);
+                    ctx.logEntry((ctx.isP1() != oppSelects ? "Selected: " : "AI selected ")
+                            + actionText);
                     effect.accept(ctx);
                 }
             }
@@ -6211,6 +6218,60 @@ final class ActionResolverChoose {
     }
 
     /**
+     * Parses "Your opponent selects [up to] N &lt;type&gt; they control and [up to] M &lt;type&gt;
+     * they control [(select as many as possible)]. &lt;followup&gt;" — 27-101L Sin.
+     *
+     * <p>Two selections, resolved as one. Both are made before either is acted on, because the card
+     * is a single selection and a Forward already in the Break Zone would change the board the
+     * Backup is picked from.
+     *
+     * <p>Only the Break Zone followup is claimed, that being the only one printed. Any other
+     * followup leaves the text unread rather than selecting and then doing nothing with the picks —
+     * and unread is what {@link #tryParseOpponentSelects} would otherwise make of it by reading the
+     * first half and letting the second ride along in its followup, which is the state this parser
+     * was added to replace.
+     */
+    static Consumer<GameContext> tryParseOpponentSelectsTwoTypes(String text) {
+        if (text == null) return null;
+        Matcher m = OPPONENT_SELECTS_TWO_TYPES.matcher(text.trim());
+        if (!m.find()) return null;
+        if (!FOLLOWUP_PUT_TO_BREAK_ZONE.matcher(m.group("followup").trim()).find()) return null;
+
+        final int     c1     = Integer.parseInt(m.group("count1"));
+        final int     c2     = Integer.parseInt(m.group("count2"));
+        // "Up to" and "(select as many as possible)" both say the count is a ceiling rather than a
+        // quota; Sin prints them together, and the parenthetical governs the sentence, so it
+        // loosens both halves.
+        final boolean anyShort = m.group("asmany") != null;
+        final boolean upTo1  = m.group("upto1") != null || anyShort;
+        final boolean upTo2  = m.group("upto2") != null || anyShort;
+        final String  t1     = m.group("type1"), t2 = m.group("type2");
+        final String  what1  = (m.group("upto1") != null ? "up to " : "") + c1 + " " + t1;
+        final String  what2  = (m.group("upto2") != null ? "up to " : "") + c2 + " " + t2;
+
+        return ctx -> {
+            ctx.logEntry("Effect: Opponent selects " + what1 + " and " + what2
+                    + " (opponent) — Force to Break Zone");
+            List<ForwardTarget> picks = new ArrayList<>(
+                    opponentSelectsOfType(ctx, c1, upTo1, t1, what1));
+            picks.addAll(opponentSelectsOfType(ctx, c2, upTo2, t2, what2));
+            sortedByIdxDesc(picks, true) .forEach(ctx::forceTargetToBreakZone);
+            sortedByIdxDesc(picks, false).forEach(ctx::forceTargetToBreakZone);
+        };
+    }
+
+    /** One half of {@link #tryParseOpponentSelectsTwoTypes}'s selection, filtered to {@code type}. */
+    private static List<ForwardTarget> opponentSelectsOfType(GameContext ctx, int count,
+            boolean upTo, String type, String what) {
+        String lower = type.toLowerCase(Locale.ROOT);
+        boolean anyType = lower.startsWith("character");
+        return ctx.opponentSelectsOwnCharacters(count, upTo, null, null, null, -1, null,
+                anyType || lower.startsWith("forward"),
+                anyType || lower.startsWith("backup"),
+                anyType || lower.startsWith("monster"), what);
+    }
+
+    /**
      * Parses "Your opponent selects N [condition] [type] [of cost C or less/more] they control
      * [sep] followup". Supported followups: "Put it into the Break Zone" and "dull/dulls it".
      */
@@ -6237,12 +6298,20 @@ final class ActionResolverChoose {
         // resolution time, so it is read then rather than baked into the parse.
         final int perDamage = m.group("perdamage") != null ? Integer.parseInt(m.group("perdamage")) : 0;
         // "(select as many as possible)" says the count is a ceiling the board may not reach, which
-        // is what lets the selection confirm short of it.
-        final boolean asMany = m.group("asmany") != null;
+        // is what lets the selection confirm short of it. "Up to N" says the same thing about the
+        // player's willingness rather than the board's supply, and the selection honours both the
+        // same way — so either spelling alone is enough to let a pick confirm short. 29-080C Chaos
+        // prints both at once.
+        final boolean upToCount = m.group("upto") != null;
+        // A compound selection — two types, two counts — is not something the groups above can
+        // carry, and claiming it would resolve the first half and drop the second (27-101L Sin).
+        // Tested only on the "up to" form, so every printing this parser already read is untouched.
+        if (upToCount && OPPONENT_SELECTS_TRAILING_SELECTION.matcher(followup).find()) return null;
+        final boolean asMany = m.group("asmany") != null || upToCount;
         final int baseCount = count;
 
         // Names the selection in both players' prompts, and the effect in the log.
-        String what = count
+        String what = (upToCount ? "up to " : "") + count
                 + (condition != null ? " " + condition : "")
                 + (element   != null ? " " + element   : "")
                 + " " + targets

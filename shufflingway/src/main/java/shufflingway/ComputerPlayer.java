@@ -128,48 +128,77 @@ class ComputerPlayer implements OpponentController {
 		mw.gameState.advancePhase(); // DRAW → MAIN_1
 		mw.refreshPhaseTracker();
 		mw.logEntry("[P2] Main Phase 1");
+		// Asked before the phase's own triggers, because a phase that is skipped is not a phase
+		// that began. The AI's half of the check the button-driven flow makes (16-037R Babus).
+		if (mw.consumePhaseSkip(false, GameState.GamePhase.MAIN_1)) {
+			mw.logEntry("[P2] Main Phase 1 skipped");
+			step(this::enterP2AttackPhase);
+			return;
+		}
 		mw.processWarpCounters(false);
 		mw.autoAbilityTriggers.triggerAutoAbilitiesForBeginningOfMainPhase1(false);
 		mw.autoAbilityTriggers.triggerAutoAbilitiesForBeginningOfMainPhase1EachTurn();
 		mw.autoAbilityTriggers.triggerAutoAbilitiesForBeginningOfOppMainPhase1(true);
-		step(() -> doMainPhase(() -> {
-			mw.gameState.advancePhase(); // MAIN_1 → ATTACK
-			mw.refreshPhaseTracker();
-			boolean canAttack = false;
-			for (int i = 0; i < mw.p2ForwardStates.size(); i++) {
-				if (p2ForwardCanAttack(i)) { canAttack = true; break; }
+		step(() -> doMainPhase(this::enterP2AttackPhase));
+	}
+
+	/**
+	 * MAIN_1 → ATTACK for P2, and everything that follows from it.
+	 *
+	 * <p>Named rather than inlined as it once was, because two callers reach it now: the ordinary
+	 * end of Main Phase 1, and a Main Phase 1 the opponent has taken away (16-037R Babus), which
+	 * has to arrive here without having played the phase it skipped.
+	 */
+	private void enterP2AttackPhase() {
+		mw.gameState.advancePhase(); // MAIN_1 → ATTACK
+		mw.refreshPhaseTracker();
+		// Before the phase's own triggers, for the reason given at the Main Phase 1 check above
+		// (6-127L Hraesvelgr).
+		if (mw.consumePhaseSkip(false, GameState.GamePhase.ATTACK)) {
+			mw.logEntry("[P2] Attack Phase skipped");
+			enterP2MainPhase2();
+			return;
+		}
+		boolean canAttack = false;
+		for (int i = 0; i < mw.p2ForwardStates.size(); i++) {
+			if (p2ForwardCanAttack(i)) { canAttack = true; break; }
+		}
+		if (!canAttack) {
+			for (int i = 0; i < mw.p2MonsterStates.size(); i++) {
+				if (mw.p2MonsterCanAttackAsForward(i)) { canAttack = true; break; }
 			}
-			if (!canAttack) {
-				for (int i = 0; i < mw.p2MonsterStates.size(); i++) {
-					if (mw.p2MonsterCanAttackAsForward(i)) { canAttack = true; break; }
-				}
-			}
-			if (!canAttack) {
-				mw.logEntry("[P2] Attack Phase — No attackers, skipping");
-				mw.gameState.advancePhase(); // ATTACK → MAIN_2
-				mw.refreshPhaseTracker();
-				mw.refreshCombatGlows();   // attack phase over — the exhausted mark comes off
-				mw.logEntry("[P2] Main Phase 2");
-				mw.autoAbilityTriggers.triggerAutoAbilitiesForBeginningOfMainPhase2(false);
-				step(() -> doMainPhase(this::doEndPhase));
-			} else {
-				mw.logEntry("[P2] Attack Phase");
-				mw.autoAbilityTriggers.triggerAutoAbilitiesForBeginningOfAttackPhase(false);
-				mw.autoAbilityTriggers.triggerAutoAbilitiesForBeginningOfAttackPhaseEachTurn(false);
-				mw.autoAbilityTriggers.triggerAutoAbilitiesForBeginningOfOppAttackPhase(false);
-				mw.refreshAllP2ForwardSlots();
-				// Attack Preparation: P2 (turn player) has acted, so P1 holds priority before P2
-				// may declare an attacker.
-				mw.offerP1AttackPrepPriority(() -> step(() -> doAttackPhase(() -> {
-					mw.gameState.advancePhase(); // ATTACK → MAIN_2
-					mw.refreshPhaseTracker();
-					mw.refreshCombatGlows();   // attack phase over — the exhausted mark comes off
-					mw.logEntry("[P2] Main Phase 2");
-					mw.autoAbilityTriggers.triggerAutoAbilitiesForBeginningOfMainPhase2(false);
-					step(() -> doMainPhase(this::doEndPhase));
-				})));
-			}
-		}));
+		}
+		if (!canAttack) {
+			mw.logEntry("[P2] Attack Phase — No attackers, skipping");
+			enterP2MainPhase2();
+		} else {
+			mw.logEntry("[P2] Attack Phase");
+			mw.autoAbilityTriggers.triggerAutoAbilitiesForBeginningOfAttackPhase(false);
+			mw.autoAbilityTriggers.triggerAutoAbilitiesForBeginningOfAttackPhaseEachTurn(false);
+			mw.autoAbilityTriggers.triggerAutoAbilitiesForBeginningOfOppAttackPhase(false);
+			mw.refreshAllP2ForwardSlots();
+			// Attack Preparation: P2 (turn player) has acted, so P1 holds priority before P2
+			// may declare an attacker.
+			mw.offerP1AttackPrepPriority(() -> step(() -> doAttackPhase(this::enterP2MainPhase2)));
+		}
+	}
+
+	/**
+	 * ATTACK → MAIN_2 for P2. One copy of what the two attack outcomes each used to spell out, so
+	 * the skip check added for 16-037R Babus is made once and cannot drift between them.
+	 */
+	private void enterP2MainPhase2() {
+		mw.gameState.advancePhase(); // ATTACK → MAIN_2
+		mw.refreshPhaseTracker();
+		mw.refreshCombatGlows();   // attack phase over — the exhausted mark comes off
+		mw.logEntry("[P2] Main Phase 2");
+		if (mw.consumePhaseSkip(false, GameState.GamePhase.MAIN_2)) {
+			mw.logEntry("[P2] Main Phase 2 skipped");
+			step(this::doEndPhase);
+			return;
+		}
+		mw.autoAbilityTriggers.triggerAutoAbilitiesForBeginningOfMainPhase2(false);
+		step(() -> doMainPhase(this::doEndPhase));
 	}
 
 	// ── Main Phase (shared for Main 1 and Main 2) ────────────────────────
