@@ -208,6 +208,52 @@
     },
     {
       "_note": "Promo printing; the API returns only PR-001 through PR-003.",
+      "serial": "PR-109",
+      "name": "Yuna",
+      "type": "Forward",
+      "element": "Water",
+      "cost": 3,
+      "power": 7000,
+      "rarity": "PR",
+      "job": "Summoner",
+      "category1": "DFF",
+      "category2": "X",
+      "exBurst": false,
+      "multicard": false,
+      "text": [
+        "Remove 4 cards in the Break Zone from the game : Choose 1 Forward.",
+        "It loses 2000 power until the end of the turn.",
+        "[[br]]",
+        "《Dull》: Choose 1 Forward.",
+        "Until the end of the turn, it loses 2000 power for each Forward you control."
+      ],
+      "imageUrl": "https://storage.googleapis.com/materiahunter-prod.appspot.com/images/cards/fftcg/en/PR/PR-109.jpg"
+    },
+    {
+      "_note": "Promo printing; the API returns only PR-001 through PR-003.",
+      "serial": "PR-110",
+      "name": "Lightning",
+      "type": "Forward",
+      "element": "Light",
+      "cost": 4,
+      "power": 9000,
+      "rarity": "PR",
+      "job": "Savior",
+      "category1": "XIII",
+      "exBurst": true,
+      "multicard": false,
+      "text": [
+        "[[ex]]EX BURST[[/]] When Lightning attacks, choose 1 Forward other than Lightning.",
+        "You may return it to its owner's hand.",
+        "[[br]]",
+        "《0》, put the top 2 cards of your deck into the Break Zone: Choose 1 Forward.",
+        "Dull it or activate it.",
+        "You can only use this ability once per turn."
+      ],
+      "imageUrl": "https://storage.googleapis.com/materiahunter-prod.appspot.com/images/cards/fftcg/en/PR/PR-110.jpg"
+    },
+    {
+      "_note": "Promo printing; the API returns only PR-001 through PR-003.",
       "serial": "PR-150",
       "name": "The Scions of the Seventh Dawn",
       "type": "Forward",

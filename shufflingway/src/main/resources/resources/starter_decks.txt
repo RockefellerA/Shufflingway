@@ -454,7 +454,7 @@
 3 6-102R
 3 6-038R
 
-[*Anniversary 2022 (Fire/Water)]
+[Anniversary 2022 (Fire/Water)]
 3 PR-108
 3 11-011R
 2 8-006L
