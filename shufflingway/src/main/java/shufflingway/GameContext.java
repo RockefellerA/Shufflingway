@@ -1047,6 +1047,42 @@ public interface GameContext {
     void playTriggeringBrokenCardOntoFieldDull();
 
     /**
+     * "Play 1 face down Card Name &lt;name&gt; from your LB deck onto the field dull" — 23-118H
+     * Ardyn, the corpus's one ability that reaches into its own LB deck for a card rather than
+     * casting one. Returns whether a card was played.
+     *
+     * <p>Face down is this engine's "not spent": an LB deck index is face up once it has been cast
+     * or spent paying for a cast, and that set is what the LIMIT counter and the LB viewer read.
+     * Playing a card from there marks its index spent the same way a cast does — the card is on the
+     * field, not in the deck, and {@code FieldGrantCalculator} already discounts an LB card standing
+     * on the field from the face-up tally.
+     *
+     * <p>Nothing is paid. The ability says "play", not "cast", so no CP is spent and no LB cards
+     * are turned face up as payment — the turn-up that follows it is a separate sentence and a
+     * separate primitive, {@link #turnOneFaceDownLbCardFaceUp()}.
+     *
+     * <p>Which copy is played is not a decision: every face-down card the name matches is the same
+     * printing, so the lowest matching index is taken. That keeps two clients in step without a
+     * question crossing between them.
+     */
+    boolean playFaceDownLbCardOntoFieldDull(String cardName);
+
+    /**
+     * "Turn 1 face down card in your LB deck face up" — the second half of 23-118H Ardyn, and the
+     * price of the first. Returns whether a card was turned.
+     *
+     * <p>The player chooses which, because they know their own LB deck and turning a card face up
+     * is what makes it unplayable — so it is a real decision and crosses the wire as
+     * {@link shufflingway.net.ChoiceKind#LB_DECK_CARD}.
+     *
+     * <p>Returns {@code false} rather than blocking when the deck holds no face-down card. Ardyn's
+     * two sentences are joined by "If you do so", which gates the turn-up on the play and not the
+     * other way about: the official FAQ confirms the play happens even with nothing left to turn
+     * up. A caller must not read this answer as permission for the first half.
+     */
+    boolean turnOneFaceDownLbCardFaceUp();
+
+    /**
      * Adds the card whose departure fired the "put into the Break Zone" trigger now resolving to the
      * resolving player's hand — Gogo 24-022H's "add it to your hand".
      *

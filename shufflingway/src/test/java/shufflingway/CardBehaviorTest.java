@@ -51457,5 +51457,167 @@ public class CardBehaviorTest {
 	}
 
 	// =========================================================================================
+	// 23-118H Ardyn: "When Ardyn is put from the field into the Break Zone, you may play 1 face
+	// down Card Name Ardyn from your LB deck onto the field dull. If you do so, turn 1 face down
+	// card in your LB deck face up."  (Parsing, effect wiring and board behaviour.)
+	//
+	// The only ability in the corpus that reaches into an LB deck for a card rather than casting
+	// one, so both halves needed primitives of their own. "Face down" is this engine's unspent: an
+	// LB index is face up once cast or spent paying for a cast, and that set is what the LIMIT
+	// counter, the LB viewer and FieldGrantCalculator's face-up tally all read.
+	//
+	// Two things the wording invites and the rules deny. The turn-up is not a cost — the official
+	// FAQ says Ardyn plays from the LB deck even with no face-down card left to turn up — so the
+	// play's answer gates the turn-up and never the reverse. And the card Ardyn just played is
+	// spent by then, so it is not a candidate to turn face up: a lone Ardyn plays itself out and
+	// turns nothing.
+	// =========================================================================================
+
+	private static final String ARDYN_23_118H =
+			"play 1 face down Card Name Ardyn from your LB deck onto the field dull. "
+			+ "If you do so, turn 1 face down card in your LB deck face up.";
+
+	/** Builds a MainWindow with {@code lbCards} as P2's LB deck, all face down. */
+	private static MainWindow withP2LbDeck(CardData... lbCards) {
+		MainWindow mw = new MainWindow();
+		mw.gameState.getP2LbDeck().addAll(List.of(lbCards));
+		return mw;
+	}
+
+	private static CardData ardynLbCard() {
+		return makeForward("Ardyn", "Fire", 6, 9000);
+	}
+
+	@Test
+	void ardynPlaysFromTheLbDeckAndThenPaysWithATurnUp() {
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.promptYouMay(anyString())).thenReturn(true);
+		when(ctx.playFaceDownLbCardOntoFieldDull("Ardyn")).thenReturn(true);
+
+		ActionResolver.parse(ARDYN_23_118H, null).accept(ctx);
+
+		verify(ctx).playFaceDownLbCardOntoFieldDull("Ardyn");
+		verify(ctx).turnOneFaceDownLbCardFaceUp();
+	}
+
+	@Test
+	void decliningArdynTouchesTheLbDeckNotAtAll() {
+		// Asked before anything happens, and a decline has to leave no trace: a card arriving on
+		// the field is an event other abilities watch.
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.promptYouMay(anyString())).thenReturn(false);
+
+		ActionResolver.parse(ARDYN_23_118H, null).accept(ctx);
+
+		verify(ctx, never()).playFaceDownLbCardOntoFieldDull(anyString());
+		verify(ctx, never()).turnOneFaceDownLbCardFaceUp();
+	}
+
+	@Test
+	void nothingIsTurnedFaceUpWhenNoArdynWasThereToPlay() {
+		// "If you do so" — the turn-up hangs off the play having happened, so an LB deck with no
+		// face down Ardyn in it costs the player nothing.
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.promptYouMay(anyString())).thenReturn(true);
+		when(ctx.playFaceDownLbCardOntoFieldDull("Ardyn")).thenReturn(false);
+
+		ActionResolver.parse(ARDYN_23_118H, null).accept(ctx);
+
+		verify(ctx, never()).turnOneFaceDownLbCardFaceUp();
+	}
+
+	@Test
+	void playingFromTheLbDeckSpendsThatIndexAndLandsTheCardDull() {
+		CardData ardyn = ardynLbCard();
+		MainWindow mw = withP2LbDeck(ardyn, makeForward("Filler", "Ice", 2, 5000));
+
+		assertTrue(mw.buildGameContext(false).playFaceDownLbCardOntoFieldDull("Ardyn"));
+
+		assertEquals(1, mw.p2ForwardCards.size());
+		assertSame(ardyn, mw.p2ForwardCards.get(0));
+		assertEquals(CardState.DULL, mw.p2ForwardStates.get(0), "it arrives dull, as printed");
+		assertTrue(mw.p2SpentLbIndices.contains(0), "the copy it played is no longer face down");
+		assertFalse(mw.p2SpentLbIndices.contains(1), "and nothing else was spent by the play alone");
+	}
+
+	@Test
+	void theTurnUpTakesACardOtherThanTheOneJustPlayed() {
+		MainWindow mw = withP2LbDeck(ardynLbCard(), makeForward("Filler", "Ice", 2, 5000));
+		GameContext ctx = mw.buildGameContext(false);
+
+		assertTrue(ctx.playFaceDownLbCardOntoFieldDull("Ardyn"));
+		assertTrue(ctx.turnOneFaceDownLbCardFaceUp());
+
+		assertEquals(Set.of(0, 1), mw.p2SpentLbIndices);
+		assertEquals(1, mw.p2ForwardCards.size(), "the turn-up puts nothing on the field");
+	}
+
+	@Test
+	void aLoneArdynStillPlaysWithNothingLeftToTurnFaceUp() {
+		// The FAQ case. Ardyn is the only card in the LB deck, so by the time the turn-up is asked
+		// there is no face down card at all — and the play stands regardless.
+		CardData ardyn = ardynLbCard();
+		MainWindow mw = withP2LbDeck(ardyn);
+		GameContext ctx = mw.buildGameContext(false);
+
+		assertTrue(ctx.playFaceDownLbCardOntoFieldDull("Ardyn"));
+		assertFalse(ctx.turnOneFaceDownLbCardFaceUp(), "nothing left to turn face up");
+
+		assertSame(ardyn, mw.p2ForwardCards.get(0), "and the play is not taken back");
+		assertEquals(Set.of(0), mw.p2SpentLbIndices);
+	}
+
+	@Test
+	void aFaceUpCopyIsNotEligibleAndTheFaceDownOneIsTaken() {
+		CardData spentArdyn = ardynLbCard();
+		CardData faceDown   = ardynLbCard();
+		MainWindow mw = withP2LbDeck(spentArdyn, faceDown);
+		mw.p2SpentLbIndices.add(0);
+
+		assertTrue(mw.buildGameContext(false).playFaceDownLbCardOntoFieldDull("Ardyn"));
+
+		assertSame(faceDown, mw.p2ForwardCards.get(0));
+		assertEquals(Set.of(0, 1), mw.p2SpentLbIndices);
+	}
+
+	@Test
+	void anLbDeckWithoutTheNamedCardPlaysNothing() {
+		MainWindow mw = withP2LbDeck(makeForward("Filler", "Ice", 2, 5000));
+
+		assertFalse(mw.buildGameContext(false).playFaceDownLbCardOntoFieldDull("Ardyn"));
+
+		assertTrue(mw.p2ForwardCards.isEmpty());
+		assertTrue(mw.p2SpentLbIndices.isEmpty());
+	}
+
+	@Test
+	void ardynsPrintedTextReachesThatParserAsAPutIntoBreakZoneTrigger() {
+		// The seam between the card and the parser: the printed sentence has to arrive at the
+		// dispatcher as a break-zone trigger on Ardyn itself, with the "you may" lifted off — which
+		// is what leaves the effect body for ActionResolver to claim, and why the offer is put by
+		// the parser rather than by the trigger layer.
+		List<AutoAbility> autos = CardData.parseAutoAbilities(
+				"When Ardyn is put from the field into the Break Zone, you may play 1 face down "
+				+ "Card Name Ardyn from your LB deck onto the field dull. If you do so, turn 1 face "
+				+ "down card in your LB deck face up.");
+		assertEquals(1, autos.size());
+
+		AutoAbility auto = autos.get(0);
+		assertEquals("put into break zone", auto.trigger());
+		assertEquals("Ardyn", auto.triggerCard());
+		assertTrue(auto.youMay(), "the offer is printed, and is lifted off the effect text");
+		assertNotNull(ActionResolver.parse(auto.effectText(), null),
+				"and what is left is what this parser reads");
+	}
+
+	@Test
+	void ardynIsNamedRatherThanReadAsTheSourceReturningFromTheBreakZone() {
+		// The find()-based play-onto-field parser sits just below this one and would take "play …
+		// onto the field" out of the middle of the sentence.
+		assertEquals("PlayFaceDownLbCardOntoFieldDull",
+				ActionResolver.matchedPatternName(ARDYN_23_118H, null));
+	}
+
+	// =========================================================================================
 
 }

@@ -3795,7 +3795,7 @@ public class MainWindow {
 	// P1 LB deck interaction
 	// -------------------------------------------------------------------------
 
-	private void refreshP1LimitLabel() {
+	void refreshP1LimitLabel() {
 		int total    = gameState.getP1LbDeck().size();
 		int playable = total - spentLbIndices.size();
 		if (total == 0) {
@@ -4100,6 +4100,14 @@ public class MainWindow {
 
 	CardData chooseCardFromBzDialog(List<CardData> candidates, String title) {
 		return BreakZoneDialog.choose(frame, candidates, title, this::showZoomAt, this::hideZoom);
+	}
+
+	/**
+	 * Asks P1 which face-down LB card to turn face up, returning its index in {@code lbDeck}.
+	 * 23-118H Ardyn is the one ability that asks; {@code faceDown} is the pool of legal picks.
+	 */
+	Integer chooseFaceDownLbCardDialog(List<CardData> lbDeck, List<Integer> faceDown) {
+		return LbDialog.chooseFaceDown(frame, lbDeck, faceDown, this::showZoomAt, this::hideZoom);
 	}
 
 

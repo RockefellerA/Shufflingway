@@ -1537,6 +1537,13 @@ public class ActionResolver {
         result = tryParsePlayBrokenCardOntoFieldDull(effectText);
         if (result != null) return result;
 
+        // Must precede tryParsePlaySourceOntoField for the reason its neighbour above does, and
+        // one more: that parser find()s "play … onto the field" out of this sentence's middle and
+        // would resolve Ardyn 23-118H's LB-deck copy as the source card returning from a Break
+        // Zone it is not in — dropping the LB deck, the face-down pick and the turn-up with it.
+        result = tryParsePlayFaceDownLbCardOntoFieldDull(effectText);
+        if (result != null) return result;
+
         result = tryParseAddBrokenCardToHand(effectText);
         if (result != null) return result;
 
@@ -2398,6 +2405,8 @@ public class ActionResolver {
         if (tryParsePlayAllByNameFromBreakZone(effectText)      != null) return "PlayAllByNameFromBreakZone";
         if (tryParsePlaySourceFromBreakZone(effectText, source) != null) return "PlaySourceFromBreakZone";
         if (tryParsePlayBrokenCardOntoFieldDull(effectText) != null) return "PlayBrokenCardOntoFieldDull";
+        // Mirrors parse(), at the same position and for the same reason.
+        if (tryParsePlayFaceDownLbCardOntoFieldDull(effectText) != null) return "PlayFaceDownLbCardOntoFieldDull";
         if (tryParseAddBrokenCardToHand(effectText) != null) return "AddBrokenCardToHand";
         // Reads the anchored helper, not tryParsePlaySourceOntoField itself: that parser matches
         // with find(), so it reports a hit from the middle of texts an earlier parser claims in
@@ -3962,6 +3971,8 @@ public class ActionResolver {
         if (tryParsePlayAllByNameFromBreakZone(effectText) != null)         return "PlayAllByNameFromBreakZone";
         if (tryParsePlaySourceFromBreakZone(effectText, source) != null)    return "PlaySourceFromBreakZone";
         if (tryParsePlayBrokenCardOntoFieldDull(effectText) != null) return "PlayBrokenCardOntoFieldDull";
+        // Mirrors parse() and matchedPatternName(), at the same position and for the same reason.
+        if (tryParsePlayFaceDownLbCardOntoFieldDull(effectText) != null) return "PlayFaceDownLbCardOntoFieldDull";
         if (tryParseAddBrokenCardToHand(effectText) != null) return "AddBrokenCardToHand";
         // See the matching guard in matchedPatternName(): the anchored helper, not the find()-based
         // parser, so this cannot claim a clause sitting inside a longer ability.

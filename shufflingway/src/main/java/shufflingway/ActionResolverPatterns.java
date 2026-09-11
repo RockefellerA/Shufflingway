@@ -2295,6 +2295,28 @@ final class ActionResolverPatterns {
         "Break\\s+Zone\\s+onto\\s+(?:the\\s+)?field\\s+dull[.!]?$"
     );
     /**
+     * "Play 1 face down Card Name &lt;name&gt; from your LB deck onto the field dull. If you do so,
+     * turn 1 face down card in your LB deck face up." — 23-118H Ardyn, the corpus's only ability
+     * that reaches into its own LB deck. Groups {@code name} and {@code turnup}.
+     *
+     * <p>Anchored end to end and read whole, because the two sentences are one effect: the turn-up
+     * is what the play costs, and a pattern that stopped at the full stop would leave a second
+     * sentence for a find()-based parser to claim on its own terms. {@code turnup} is optional and
+     * captured rather than assumed, so a printing that plays without the price — none today —
+     * resolves as what it says instead of paying one it never named.
+     *
+     * <p>"Face down" is the LB deck's own word for unspent. The ability reaches a zone nothing else
+     * in the resolver touches, so both halves go through purpose-built primitives:
+     * {@link GameContext#playFaceDownLbCardOntoFieldDull} and
+     * {@link GameContext#turnOneFaceDownLbCardFaceUp}.
+     */
+    static final Pattern PLAY_FACE_DOWN_LB_CARD_ONTO_FIELD_DULL = Pattern.compile(
+        "(?is)^Play\\s+1\\s+face\\s+down\\s+Card\\s+Name\\s+(?<name>.+?)\\s+from\\s+your\\s+" +
+        "LB\\s+deck\\s+onto\\s+(?:the\\s+)?field\\s+dull[.!]" +
+        "(?<turnup>\\s+If\\s+you\\s+do\\s+so,\\s+turn\\s+1\\s+face\\s+down\\s+card\\s+in\\s+your\\s+" +
+        "LB\\s+deck\\s+face\\s+up[.!]?)?\\s*$"
+    );
+    /**
      * "Add it to your hand." standing alone as a whole effect — Gogo 24-022H, whose "it" is the
      * Category VI Forward whose arrival in the Break Zone fired the trigger this effect hangs off.
      *

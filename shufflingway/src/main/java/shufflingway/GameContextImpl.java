@@ -5922,6 +5922,91 @@ final class GameContextImpl implements GameContext {
 				playTargetOntoFieldDull(new ForwardTarget(isP1(), idx, ForwardTarget.CardZone.FORWARD));
 			}
 
+			@Override public boolean playFaceDownLbCardOntoFieldDull(String cardName) {
+				List<CardData> lbDeck = isP1 ? mw.gameState.getP1LbDeck() : mw.gameState.getP2LbDeck();
+				Set<Integer>   spent  = isP1 ? mw.spentLbIndices          : mw.p2SpentLbIndices;
+				int idx = -1;
+				for (int i = 0; i < lbDeck.size(); i++) {
+					if (spent.contains(i)) continue;
+					if (!meetsCardNameFilter(lbDeck.get(i), cardName)) continue;
+					idx = i;
+					break;
+				}
+				if (idx < 0) {
+					logEntry("No face down " + cardName + " in " + (isP1 ? "P1" : "P2") + "'s LB deck");
+					markEffectFizzled();
+					return false;
+				}
+				CardData card = lbDeck.get(idx);
+				if (card.playByEffectProhibited(false)) {
+					logEntry(card.name() + " cannot be played onto the field by an ability");
+					markEffectFizzled();
+					return false;
+				}
+				// Spent before placing: the card is leaving the deck either way, and the LIMIT
+				// counter and the viewer both read this set. FieldGrantCalculator subtracts LB
+				// cards standing on the field from its face-up tally, so marking it here does not
+				// make it count as one of the face-up cards a "for each face up" ability reads.
+				spent.add(idx);
+				logEntry(card.name() + " played from " + (isP1 ? "P1" : "P2") + "'s LB deck onto field (dull)");
+				if (isP1) {
+					mw.placeCardInForwardZone(card);
+					int newIdx = mw.p1ForwardCards.size() - 1;
+					if (newIdx >= 0 && mw.p1ForwardCards.get(newIdx) == card) {
+						mw.p1ForwardStates.set(newIdx, CardState.DULL);
+						mw.refreshP1ForwardSlot(newIdx);
+					}
+					mw.refreshP1LimitLabel();
+				} else {
+					mw.placeP2CardInForwardZone(card);
+					int newIdx = mw.p2ForwardCards.size() - 1;
+					if (newIdx >= 0 && mw.p2ForwardCards.get(newIdx) == card) {
+						mw.p2ForwardStates.set(newIdx, CardState.DULL);
+						mw.refreshP2ForwardSlot(newIdx);
+					}
+					mw.refreshP2LimitButton();
+				}
+				return true;
+			}
+
+			@Override public boolean turnOneFaceDownLbCardFaceUp() {
+				List<CardData> lbDeck = isP1 ? mw.gameState.getP1LbDeck() : mw.gameState.getP2LbDeck();
+				Set<Integer>   spent  = isP1 ? mw.spentLbIndices          : mw.p2SpentLbIndices;
+				List<Integer> faceDown = new ArrayList<>();
+				for (int i = 0; i < lbDeck.size(); i++) if (!spent.contains(i)) faceDown.add(i);
+				if (faceDown.isEmpty()) {
+					// Not a fizzle to report against the ability: Ardyn's play half has already
+					// happened and the FAQ is explicit that it happens whether or not this half
+					// can. Logged, because a player watching the LIMIT counter not move is owed
+					// the reason.
+					logEntry("No face down cards left in " + (isP1 ? "P1" : "P2")
+							+ "'s LB deck — nothing to turn face up");
+					return false;
+				}
+				List<Integer> answer = mw.decide(PlayerChoice.by(isP1, ChoiceKind.LB_DECK_CARD)
+						.prompting("Waiting for your opponent to turn an LB card face up...")
+						.locally(() -> {
+							Integer picked = mw.chooseFaceDownLbCardDialog(lbDeck, faceDown);
+							return picked == null ? List.of() : List.of(picked);
+						})
+						// The AI turns up the first card it has left. Which one costs it least is a
+						// judgement about a deck it does not plan around, and any face-down index is
+						// a legal answer.
+						.byCpu(() -> List.of(faceDown.get(0)))
+						.legalWhen(a -> a.size() == 1 && faceDown.contains(a.get(0)),
+								"only a face down card in that LB deck can be turned face up"));
+				if (answer.isEmpty()) {
+					logEntry((isP1 ? "P1" : "P2") + " turned no LB card face up");
+					return false;
+				}
+				int idx = answer.get(0);
+				spent.add(idx);
+				logEntry(lbDeck.get(idx).name() + " turned face up in "
+						+ (isP1 ? "P1" : "P2") + "'s LB deck");
+				if (isP1) mw.refreshP1LimitLabel(); else mw.refreshP2LimitButton();
+				return true;
+			}
+
 			@Override public void addTriggeringBrokenCardToHand() {
 				CardData broken = mw.triggeringBrokenCard;
 				if (broken == null) {

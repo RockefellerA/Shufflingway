@@ -20,6 +20,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ExecutionException;
+import java.util.function.Consumer;
 
 import javax.swing.BorderFactory;
 import javax.swing.ImageIcon;
@@ -248,5 +249,99 @@ public class LbDialog {
         dlg.pack();
         dlg.setLocationRelativeTo(owner);
         dlg.setVisible(true);
+    }
+
+    /**
+     * Asks the player which face-down LB card to turn face up, and returns its index in
+     * {@code lbDeck}. 23-118H Ardyn is the one ability that asks.
+     *
+     * <p>Indices rather than cards, because an LB deck routinely holds several copies of a name and
+     * turning one face up has to name which. {@code faceDown} is the pool of legal picks — the
+     * caller has already excluded what is spent, including the card Ardyn has just played out of
+     * the deck.
+     *
+     * <p>There is no decline. The turn-up is mandatory once the play it follows has happened, so
+     * closing the window takes the first candidate rather than skipping the effect — the same
+     * arrangement {@code BreakZoneDialog.choose} makes for the same reason.
+     */
+    public static Integer chooseFaceDown(JFrame owner, List<CardData> lbDeck, List<Integer> faceDown,
+            Consumer<String> onZoom, Runnable onZoomHide) {
+        if (faceDown.isEmpty()) return null;
+        if (faceDown.size() == 1) return faceDown.get(0);
+
+        JDialog dlg = new JDialog(owner, "Turn 1 face down LB card face up", true);
+        dlg.setResizable(false);
+        dlg.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
+
+        int[] picked = { faceDown.get(0) };
+
+        JPanel cardsPanel = new JPanel(new GridLayout(0, 4, 8, 8));
+        cardsPanel.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
+
+        for (int deckIdx : faceDown) {
+            final int      idx = deckIdx;
+            final CardData cd  = lbDeck.get(deckIdx);
+
+            JPanel cardWrapper = new JPanel(new BorderLayout(0, 4));
+            cardWrapper.setBackground(cardsPanel.getBackground());
+
+            JLabel lbl = new JLabel("...", SwingConstants.CENTER);
+            lbl.setPreferredSize(new Dimension(CARD_W, CARD_H));
+            lbl.setMinimumSize(new Dimension(CARD_W, CARD_H));
+            lbl.setOpaque(true);
+            lbl.setBackground(Color.DARK_GRAY);
+            lbl.setBorder(BorderFactory.createLineBorder(Color.LIGHT_GRAY, 1));
+            lbl.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+            lbl.addMouseListener(new MouseAdapter() {
+                @Override public void mouseEntered(MouseEvent e) {
+                    if (lbl.getIcon() != null) onZoom.accept(cd.imageUrl());
+                }
+                @Override public void mouseExited(MouseEvent e) { onZoomHide.run(); }
+                @Override public void mousePressed(MouseEvent e) {
+                    picked[0] = idx;
+                    onZoomHide.run();
+                    dlg.dispose();
+                }
+            });
+
+            new SwingWorker<ImageIcon, Void>() {
+                @Override protected ImageIcon doInBackground() throws Exception {
+                    Image img = ImageCache.load(cd.imageUrl());
+                    if (img == null) return null;
+                    BufferedImage buf = new BufferedImage(CARD_W, CARD_H, BufferedImage.TYPE_INT_ARGB);
+                    Graphics2D g2 = buf.createGraphics();
+                    g2.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+                    g2.drawImage(img, 0, 0, CARD_W, CARD_H, null);
+                    g2.dispose();
+                    return new ImageIcon(buf);
+                }
+                @Override protected void done() {
+                    try {
+                        ImageIcon icon = get();
+                        if (icon != null) { lbl.setIcon(icon); lbl.setText(null); }
+                    } catch (InterruptedException | ExecutionException ignored) {}
+                }
+            }.execute();
+
+            JLabel nameLabel = new JLabel(cd.name(), SwingConstants.CENTER);
+            nameLabel.setFont(FontLoader.loadPixelFont(9));
+            nameLabel.setPreferredSize(new Dimension(CARD_W, 18));
+
+            cardWrapper.add(lbl,       BorderLayout.CENTER);
+            cardWrapper.add(nameLabel, BorderLayout.SOUTH);
+            cardsPanel.add(cardWrapper);
+        }
+
+        JLabel hint = new JLabel("Click a card to turn it face up", SwingConstants.CENTER);
+        hint.setFont(FontLoader.loadPixelFont(10));
+        hint.setBorder(BorderFactory.createEmptyBorder(0, 8, 8, 8));
+
+        dlg.getContentPane().setLayout(new BorderLayout(0, 4));
+        dlg.getContentPane().add(cardsPanel, BorderLayout.CENTER);
+        dlg.getContentPane().add(hint,       BorderLayout.SOUTH);
+        dlg.pack();
+        dlg.setLocationRelativeTo(owner);
+        dlg.setVisible(true);
+        return picked[0];
     }
 }

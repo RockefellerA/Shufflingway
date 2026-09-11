@@ -72,6 +72,21 @@ public enum ChoiceKind {
 	MAY,
 
 	/**
+	 * Which card in the sender's own LB deck they picked — a position in that deck. 23-118H Ardyn's
+	 * "turn 1 face down card in your LB deck face up" is the one effect that asks.
+	 *
+	 * <p>No flip, for the reason hand indices need none: both clients load the same LB deck in the
+	 * same order at setup ({@code initializeP2LbDeck} preserves it, and it is never shuffled), so
+	 * position <em>n</em> is the same card on both. The deck is the sender's own either way — one
+	 * client holds it as P1's and the other as P2's, and the index means the same thing in both.
+	 *
+	 * <p>What the answer changes is which card is face up, which is public: the LB viewer renders
+	 * spent cards face up to either player. So the choice has to cross even though the zone it
+	 * indexes is otherwise hidden.
+	 */
+	LB_DECK_CARD,
+
+	/**
 	 * Whether the sender triggered the EX Burst on a card that just reached their hand:
 	 * {@code [1]} for triggered, {@code [0]} for declined.
 	 *

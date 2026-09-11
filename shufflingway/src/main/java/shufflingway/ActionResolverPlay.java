@@ -410,4 +410,37 @@ final class ActionResolverPlay {
             ctx.addPendingMainPhase1Effect(later -> later.playNamedFromHoldingZoneOntoField(name));
         };
     }
+
+    /**
+     * 23-118H Ardyn: "you may play 1 face down Card Name Ardyn from your LB deck onto the field
+     * dull. If you do so, turn 1 face down card in your LB deck face up."
+     *
+     * <p>The offer is made here rather than by the trigger layer. A printed "you may" on a
+     * triggered ability is lifted into {@code AutoAbility.youMay()}, but only the dispatcher's
+     * hand-written executors read that flag — the generic path hands the stripped text straight to
+     * {@link ActionResolver#parse}, so an effect reached that way has to put its own question. Asked
+     * before anything happens, which is the rule {@link GameContext#promptYouMay} exists to keep:
+     * a card leaving the LB deck for the field is an event other abilities watch, and a player who
+     * declines has to be seen not to have played it.
+     *
+     * <p>The turn-up is gated on the play having happened, which is what "If you do so" says — but
+     * <em>only</em> on that. It is not a cost the play is contingent on, and the official FAQ is
+     * explicit: Ardyn plays from the LB deck even when no face-down card is left to turn up. So the
+     * play's answer gates the turn-up and the turn-up's answer gates nothing, which is why one is
+     * read and the other is not.
+     */
+    static Consumer<GameContext> tryParsePlayFaceDownLbCardOntoFieldDull(String text) {
+        Matcher m = PLAY_FACE_DOWN_LB_CARD_ONTO_FIELD_DULL.matcher(text.trim());
+        if (!m.matches()) return null;
+        final String  name      = m.group("name").trim();
+        final boolean turnsUp   = m.group("turnup") != null;
+        return ctx -> {
+            if (!ctx.promptYouMay("Play 1 face down " + name + " from your LB deck onto the field dull?")) {
+                ctx.logEntry("Effect: declined playing " + name + " from the LB deck");
+                return;
+            }
+            if (!ctx.playFaceDownLbCardOntoFieldDull(name)) return;
+            if (turnsUp) ctx.turnOneFaceDownLbCardFaceUp();
+        };
+    }
 }
