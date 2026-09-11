@@ -27653,13 +27653,13 @@ public class CardBehaviorTest {
 		assertEquals(1, ability.removeFromGameCosts().size(), "the RFG half survives the split");
 	}
 
-	// The uncounted branch must not swallow a generic phrase and invent a card name out of it.
-	// 17-103R Yugiri's "Discard a total of 2 Job Ninja or Card Name Ninja" is not a card called
-	// "a total of 2 Job Ninja …"; it goes unread, which is what it did before.
+	// The uncounted branch must not swallow a generic phrase and invent a card name out of it: a
+	// cost filtered in a way the counted forms cannot express has to stay unread, because a name
+	// conjured from the sentence matches no card and leaves the ability permanently unusable.
 	@Test
 	void aGenericUncountedDiscardPhraseIsNotMistakenForACardName() {
 		ActionAbility ability = CardData.parseActionAbilities(
-				"Discard a total of 2 Job Ninja or Card Name Ninja: Draw 1 card.").get(0);
+				"Discard cards equal to the number of Forwards you control: Draw 1 card.").get(0);
 		assertTrue(ability.discardCosts().isEmpty(),
 				"unread is the right answer here — a name conjured from this would be unpayable");
 	}
@@ -27681,6 +27681,371 @@ public class CardBehaviorTest {
 				"《Dull》, discard 1 Water card: Draw 1 card.");
 		assertTrue(mw.buildAbilityMenuLabel(ashe.actionAbilities().get(0))
 				.contains("discard 1 Water card"));
+	}
+
+	// Four cards filter a discard by Job, and the cost pattern knew nothing about Jobs, so all four
+	// parsed to no discard cost: 5-152S Serah, 21-048L Princess Sarah, 21-053L Balthier and
+	// 17-103R Yugiri each offered their ability for the CP alone and discarded nothing.
+	@Test
+	void aJobFilteredDiscardCostParses() {
+		DiscardCost dc = CardData.parseActionAbilities(
+				"Discard 1 Job Moogle: Draw 1 card.").get(0).discardCosts().get(0);
+		assertEquals(1, dc.count());
+		assertEquals("Moogle", dc.job());
+		assertNull(dc.cardName(), "a Job filter is not a name filter");
+		assertFalse(dc.jobOrName());
+	}
+
+	/** A multi-word Job has to survive the capture whole — 21-053L pays with a Job Sky Pirate. */
+	@Test
+	void aMultiWordJobFilteredDiscardCostKeepsTheWholeJobName() {
+		assertEquals("Sky Pirate", CardData.parseActionAbilities(
+				"Discard 1 Job Sky Pirate: Draw 1 card.").get(0).discardCosts().get(0).job());
+	}
+
+	@Test
+	void aJobFilteredDiscardCostIsOnlyPayableByThatJob() {
+		MainWindow mw = new MainWindow();
+		DiscardCost dc = CardData.parseActionAbilities(
+				"Discard 1 Job Moogle: Draw 1 card.").get(0).discardCosts().get(0);
+		mw.gameState.getP2Hand().add(makeJobCard("Soldier", "Fire", "Forward", "Soldier"));
+		assertFalse(mw.autoAbilityTriggers.discardCostSatisfied(dc, false),
+				"a hand with no Moogle in it cannot pay a Moogle");
+		mw.gameState.getP2Hand().add(makeJobCard("Stiltzkin", "Ice", "Forward", "Moogle"));
+		assertEquals(List.of(1), mw.autoAbilityTriggers.discardCostPayerIdxs(dc,
+				mw.gameState.getP2Hand(), Set.of()), "only the Moogle may pay it");
+		assertTrue(mw.autoAbilityTriggers.discardCostSatisfied(dc, false));
+	}
+
+	// 17-103R Yugiri: "Discard a total of 2 Job Ninja or Card Name Ninja". Two things the counted
+	// forms could not express — the "a total of" prefix ahead of the count, and a filter that is a
+	// union of Job and name rather than the usual intersection.
+	private static final String YUGIRI_NINJA_TITHE =
+			"Discard a total of 2 Job Ninja or Card Name Ninja: "
+			+ "Choose 1 Forward of cost 4 or less. Break it.";
+
+	@Test
+	void yugirisDiscardCostReadsAsAUnionOfJobAndName() {
+		DiscardCost dc = CardData.parseActionAbilities(YUGIRI_NINJA_TITHE).get(0)
+				.discardCosts().get(0);
+		assertEquals(2, dc.count(), "'a total of 2' is still a count of 2");
+		assertEquals("Ninja", dc.job());
+		assertEquals("Ninja", dc.cardName());
+		assertTrue(dc.jobOrName(), "either half qualifies a card, so this must not be an AND");
+	}
+
+	@Test
+	void yugirisDiscardCostAcceptsEitherHalfOfTheUnion() {
+		MainWindow mw = new MainWindow();
+		DiscardCost dc = CardData.parseActionAbilities(YUGIRI_NINJA_TITHE).get(0)
+				.discardCosts().get(0);
+		// Job Ninja under another name, a card actually called Ninja, and neither.
+		mw.gameState.getP2Hand().add(makeJobCard("Yugiri", "Lightning", "Forward", "Ninja"));
+		mw.gameState.getP2Hand().add(makeJobCard("Ninja", "Wind", "Forward", "Thief"));
+		mw.gameState.getP2Hand().add(makeJobCard("Soldier", "Fire", "Forward", "Soldier"));
+		assertEquals(List.of(0, 1), mw.autoAbilityTriggers.discardCostPayerIdxs(dc,
+				mw.gameState.getP2Hand(), Set.of()),
+				"both halves of the union pay; read as an AND neither card would have");
+		assertTrue(mw.autoAbilityTriggers.discardCostSatisfied(dc, false));
+	}
+
+	@Test
+	void yugirisDiscardCostNeedsTwoOfThemAndNotJustOne() {
+		MainWindow mw = new MainWindow();
+		DiscardCost dc = CardData.parseActionAbilities(YUGIRI_NINJA_TITHE).get(0)
+				.discardCosts().get(0);
+		mw.gameState.getP2Hand().add(makeJobCard("Yugiri", "Lightning", "Forward", "Ninja"));
+		mw.gameState.getP2Hand().add(makeJobCard("Soldier", "Fire", "Forward", "Soldier"));
+		assertFalse(mw.autoAbilityTriggers.discardCostSatisfied(dc, false),
+				"one Ninja is not a total of 2");
+	}
+
+	@Test
+	void theActionMenuNamesBothHalvesOfAJobOrNameDiscardCost() {
+		MainWindow mw = new MainWindow();
+		CardData yugiri = makeCostedTraitCard("Yugiri", "Lightning", "Forward", 3,
+				YUGIRI_NINJA_TITHE);
+		assertTrue(mw.buildAbilityMenuLabel(yugiri.actionAbilities().get(0))
+				.contains("discard 2 Job Ninja or Name Ninja"));
+	}
+
+	@Test
+	void theActionMenuNamesTheJobOnAJobFilteredDiscardCost() {
+		MainWindow mw = new MainWindow();
+		CardData serah = makeCostedTraitCard("Serah", "Ice", "Forward", 5,
+				"Discard 1 Job Moogle: Draw 1 card.");
+		assertTrue(mw.buildAbilityMenuLabel(serah.actionAbilities().get(0))
+				.contains("discard 1 Job Moogle"));
+	}
+
+	// Counter and dull-other costs never reached the action menu label either. 89 abilities carry
+	// one, and most have no CP cost at all, so they rendered as "[0] → <effect>" — an ability that
+	// costs dulling five Characters advertising itself as free.
+	@Test
+	void theActionMenuShowsACounterCost() {
+		MainWindow mw = new MainWindow();
+		CardData edge = makeCostedTraitCard("Edge", "Wind", "Forward", 3,
+				"Remove 1 Shuriken Counter from Edge: Choose 1 Forward. Deal it 3000 damage.");
+		assertTrue(mw.buildAbilityMenuLabel(edge.actionAbilities().get(0))
+				.startsWith("[remove 1 Shuriken Ctr]"),
+				"the holder is the source card, so naming it again would be noise");
+	}
+
+	/** 12-109L Lenna's is the "remove X" form — the amount is chosen at activation. */
+	@Test
+	void theActionMenuShowsAVariableCounterCostAsX() {
+		MainWindow mw = new MainWindow();
+		CardData lenna = makeCostedTraitCard("Lenna", "Water", "Forward", 4,
+				"《Dull》, remove X Arise Counters from Lenna: "
+				+ "Choose 1 Forward in your Break Zone. If its cost is X, play it onto the field.");
+		assertTrue(mw.buildAbilityMenuLabel(lenna.actionAbilities().get(0))
+				.startsWith("[Dull, remove X Arise Ctr]"));
+	}
+
+	/** 20-028R Cissnei spends a counter off someone else, so the holder has to be named. */
+	@Test
+	void theActionMenuNamesACounterHolderThatIsNotTheSource() {
+		MainWindow mw = new MainWindow();
+		CardData cissnei = makeCostedTraitCard("Cissnei", "Fire", "Forward", 3,
+				"《Dull》, remove 1 Shuriken Counter from a Character you control: "
+				+ "Choose 1 Character. Dull it and Freeze it.");
+		assertTrue(mw.buildAbilityMenuLabel(cissnei.actionAbilities().get(0))
+				.contains("remove 1 Shuriken Ctr from a Character you control"));
+	}
+
+	@Test
+	void theActionMenuShowsADullOtherCardsCost() {
+		MainWindow mw = new MainWindow();
+		CardData sakura = makeCostedTraitCard("Sakura", "Lightning", "Forward", 5,
+				"Dull 5 active Lightning Backups: Choose 1 Forward. Break it.");
+		assertTrue(mw.buildAbilityMenuLabel(sakura.actionAbilities().get(0))
+				.startsWith("[dull 5 active Lightning "),
+				"an ability that dulls five Characters must not read as free");
+	}
+
+	/**
+	 * 12-107R Lunafreya prints the same filter at two prices. Her effects differ, so the entries
+	 * were never confusable — but with the cost missing, both read "[0]" and nothing said the
+	 * Break costs four Forwards where the power boost costs one.
+	 */
+	@Test
+	void lunafreyasTwoAbilitiesShowTheirDifferentPrices() {
+		MainWindow mw = new MainWindow();
+		CardData luna = makeCostedTraitCard("Lunafreya", "Wind", "Forward", 4,
+				"Dull 1 active Category XV Forward: "
+				+ "Lunafreya gains +2000 power until the end of the turn.[[br]]   "
+				+ "Dull 4 active Category XV Forwards: Choose 1 Forward. Put it into the Break Zone.");
+		List<ActionAbility> abilities = luna.actionAbilities();
+		assertEquals(2, abilities.size());
+		String one  = mw.buildAbilityMenuLabel(abilities.get(0));
+		String four = mw.buildAbilityMenuLabel(abilities.get(1));
+		assertTrue(one.startsWith("[dull 1 active Cat.XV Forward]"), one);
+		assertTrue(four.startsWith("[dull 4 active Cat.XV Forwards]"), four);
+		assertNotEquals(one, four, "the two prices must not render the same");
+	}
+
+	/** 17-057H Penelo's cost unions a Job with a name and then bars one card by name. */
+	@Test
+	void theActionMenuShowsBothTheUnionAndTheExclusionOnADullCost() {
+		MainWindow mw = new MainWindow();
+		CardData penelo = makeCostedTraitCard("Penelo", "Wind", "Forward", 3,
+				"Dull 1 active Job Dancer or Card Name Dancer other than Penelo: "
+				+ "Choose 1 Forward. Its power becomes 4000 until the end of the turn.");
+		assertEquals("[dull 1 active Job Dancer or Name Dancer except Penelo]",
+				mw.buildAbilityMenuLabel(penelo.actionAbilities().get(0)).split(" → ")[0]);
+	}
+
+	/** 29-005L Cloud pays with either of two named Forwards, and both belong in the label. */
+	@Test
+	void theActionMenuShowsBothNamesOnATwoNameDullCost() {
+		MainWindow mw = new MainWindow();
+		CardData cloud = makeCostedTraitCard("Cloud", "Fire", "Forward", 5,
+				"[[s]]Power Cleave/Spell Blade[[/]] 《S》《Dull》, dull 1 active Card Name Tifa or "
+				+ "Card Name Aerith: Choose 2 Forwards. Break them.");
+		assertTrue(mw.buildAbilityMenuLabel(cloud.actionAbilities().get(0))
+				.contains("dull 1 active Tifa/Aerith"));
+	}
+
+	// 8-096L Sakura: "Dull 5 active Lightning Backups". The cost parser folded a Backups-only
+	// phrase into cardType "Character" — a superset of Forwards — so the cost could be paid by
+	// dulling Forwards, which the card never offers. It is the only card in the corpus whose dull
+	// cost names Backups; "Forwards or Backups" (5-024H Luneth and friends) stays "Character".
+	private static final String SAKURA_DULL_BACKUPS =
+			"Dull 5 active Lightning Backups: Choose 1 Forward. Break it.";
+
+	@Test
+	void aBackupsOnlyDullCostIsNotWidenedToEveryCharacter() {
+		DullForwardCost dfc = CardData.parseActionAbilities(SAKURA_DULL_BACKUPS).get(0)
+				.dullForwardCosts().get(0);
+		assertEquals(5, dfc.count());
+		assertEquals("Lightning", dfc.element());
+		assertEquals("Backup", dfc.cardType(), "\"Character\" here would admit Forwards");
+	}
+
+	@Test
+	void aForwardsOrBackupsDullCostStaysEveryCharacter() {
+		assertEquals("Character", CardData.parseActionAbilities(
+				"Dull a total of 3 active Fire Forwards or Fire Backups: Choose 1 Forward. "
+				+ "Deal it 2000 damage.").get(0).dullForwardCosts().get(0).cardType());
+	}
+
+	@Test
+	void aBackupsOnlyDullCostCannotBePaidWithForwards() {
+		MainWindow mw = new MainWindow();
+		DullForwardCost dfc = CardData.parseActionAbilities(SAKURA_DULL_BACKUPS).get(0)
+				.dullForwardCosts().get(0);
+		for (int i = 0; i < 5; i++)
+			placeP2Forward(mw, makeJobCard("Zidane" + i, "Lightning", "Forward", "Thief"));
+		assertFalse(mw.autoAbilityTriggers.dullForwardCostSatisfied(dfc, false),
+				"five active Lightning Forwards pay nothing towards a Backups cost");
+	}
+
+	@Test
+	void aBackupsOnlyDullCostIsPaidWithBackups() {
+		MainWindow mw = new MainWindow();
+		DullForwardCost dfc = CardData.parseActionAbilities(SAKURA_DULL_BACKUPS).get(0)
+				.dullForwardCosts().get(0);
+		for (int i = 0; i < 4; i++)
+			placeP2Backup(mw, i, makeJobCard("Scholar" + i, "Lightning", "Backup", "Scholar"));
+		assertFalse(mw.autoAbilityTriggers.dullForwardCostSatisfied(dfc, false), "four is not five");
+		placeP2Backup(mw, 4, makeJobCard("Scholar4", "Lightning", "Backup", "Scholar"));
+		assertTrue(mw.autoAbilityTriggers.dullForwardCostSatisfied(dfc, false));
+	}
+
+	/** The element filter still binds — Backups of the wrong Element pay nothing. */
+	@Test
+	void aBackupsOnlyDullCostStillHonoursItsElementFilter() {
+		MainWindow mw = new MainWindow();
+		DullForwardCost dfc = CardData.parseActionAbilities(SAKURA_DULL_BACKUPS).get(0)
+				.dullForwardCosts().get(0);
+		for (int i = 0; i < 5; i++)
+			placeP2Backup(mw, i, makeJobCard("Scholar" + i, "Fire", "Backup", "Scholar"));
+		assertFalse(mw.autoAbilityTriggers.dullForwardCostSatisfied(dfc, false));
+	}
+
+	@Test
+	void theActionMenuNamesTheBackupZoneOnSakurasCost() {
+		MainWindow mw = new MainWindow();
+		CardData sakura = makeCostedTraitCard("Sakura", "Lightning", "Forward", 5,
+				SAKURA_DULL_BACKUPS);
+		assertTrue(mw.buildAbilityMenuLabel(sakura.actionAbilities().get(0))
+				.startsWith("[dull 5 active Lightning Backups]"));
+	}
+
+	// 7-128H Yuri is the only card in the corpus with either of the two set-wide terms below: his
+	// picks must share an Element with one another, and dulling Yuri himself may stand in for one
+	// of them. The item pattern's end-of-item lookahead refused the whole phrase, so his cost
+	// parsed to nothing at all and the ability was a free, repeatable choice of four effects.
+	private static final String YURI_DULL_BACKUPS =
+			"Dull a total of 3 active Backups of the same Element or 2 active Backups of the same "
+			+ "Element and Yuri: Draw 2 cards.";
+
+	@Test
+	void yurisTwoBundleDullCostParses() {
+		List<DullForwardCost> costs = CardData.parseActionAbilities(YURI_DULL_BACKUPS).get(0)
+				.dullForwardCosts();
+		assertEquals(1, costs.size(), "the two bundles are one cost with the source covering one");
+		DullForwardCost dfc = costs.get(0);
+		assertEquals(3, dfc.count());
+		assertEquals("Backup", dfc.cardType());
+		assertNull(dfc.element(), "\"the same Element\" names no particular Element");
+		assertTrue(dfc.sameElement());
+		assertTrue(dfc.sourceReplacesOne());
+	}
+
+	/** An alternative asking for some other number is a different bargain, and goes unread. */
+	@Test
+	void aSelfCoversOneAlternativeIsRejectedWhenItIsNotOneFewer() {
+		DullForwardCost dfc = CardData.parseActionAbilities(
+				"Dull a total of 3 active Backups of the same Element or 1 active Backup of the "
+				+ "same Element and Yuri: Draw 2 cards.").get(0).dullForwardCosts().get(0);
+		assertFalse(dfc.sourceReplacesOne(),
+				"guessing at this would price the ability wrong in one direction or the other");
+	}
+
+	@Test
+	void yurisCostIsNotPaidByBackupsOfScatteredElements() {
+		MainWindow mw = new MainWindow();
+		CardData yuri = makeJobCard("Yuri", "Light", "Forward", "Lay Crystal User");
+		placeP2Forward(mw, yuri);
+		DullForwardCost dfc = CardData.parseActionAbilities(YURI_DULL_BACKUPS).get(0)
+				.dullForwardCosts().get(0);
+		// Three Backups, three Elements: no Element runs through the set, so with Yuri covering
+		// one there is still no pair to go with him.
+		placeP2Backup(mw, 0, makeJobCard("Sage", "Fire", "Backup", "Sage"));
+		placeP2Backup(mw, 1, makeJobCard("Scholar", "Ice", "Backup", "Scholar"));
+		placeP2Backup(mw, 2, makeJobCard("Mage", "Wind", "Backup", "Mage"));
+		assertFalse(mw.autoAbilityTriggers.dullForwardCostSatisfied(dfc, false, yuri),
+				"three Backups of three Elements pay nothing towards a same-Element cost");
+	}
+
+	@Test
+	void yurisCostIsPaidByThreeBackupsOfOneElement() {
+		MainWindow mw = new MainWindow();
+		CardData yuri = makeJobCard("Yuri", "Light", "Forward", "Lay Crystal User");
+		placeP2Forward(mw, yuri);
+		DullForwardCost dfc = CardData.parseActionAbilities(YURI_DULL_BACKUPS).get(0)
+				.dullForwardCosts().get(0);
+		for (int i = 0; i < 3; i++)
+			placeP2Backup(mw, i, makeJobCard("Sage" + i, "Fire", "Backup", "Sage"));
+		assertTrue(mw.autoAbilityTriggers.dullForwardCostSatisfied(dfc, false, yuri));
+	}
+
+	/** The second bundle: two of one Element plus Yuri, who is exempt from the Element rule. */
+	@Test
+	void yurisCostIsPaidByTwoBackupsPlusYuriHimself() {
+		MainWindow mw = new MainWindow();
+		CardData yuri = makeJobCard("Yuri", "Light", "Forward", "Lay Crystal User");
+		placeP2Forward(mw, yuri);
+		DullForwardCost dfc = CardData.parseActionAbilities(YURI_DULL_BACKUPS).get(0)
+				.dullForwardCosts().get(0);
+		for (int i = 0; i < 2; i++)
+			placeP2Backup(mw, i, makeJobCard("Sage" + i, "Fire", "Backup", "Sage"));
+		assertTrue(mw.autoAbilityTriggers.dullForwardCostSatisfied(dfc, false, yuri),
+				"two Fire Backups and Yuri is the printed second bundle");
+		// One Backup is a bundle short either way.
+		MainWindow lean = new MainWindow();
+		CardData yuri2 = makeJobCard("Yuri", "Light", "Forward", "Lay Crystal User");
+		placeP2Forward(lean, yuri2);
+		placeP2Backup(lean, 0, makeJobCard("Sage", "Fire", "Backup", "Sage"));
+		assertFalse(lean.autoAbilityTriggers.dullForwardCostSatisfied(dfc, false, yuri2));
+	}
+
+	/** Without Yuri on the field to dull, only the three-Backup bundle is left. */
+	@Test
+	void yurisCostCannotUseTheSelfBundleWhenTheSourceIsAlreadyDull() {
+		MainWindow mw = new MainWindow();
+		CardData yuri = makeJobCard("Yuri", "Light", "Forward", "Lay Crystal User");
+		placeP2Forward(mw, yuri);
+		mw.p2ForwardStates.set(mw.p2ForwardCards.indexOf(yuri), CardState.DULL);
+		DullForwardCost dfc = CardData.parseActionAbilities(YURI_DULL_BACKUPS).get(0)
+				.dullForwardCosts().get(0);
+		for (int i = 0; i < 2; i++)
+			placeP2Backup(mw, i, makeJobCard("Sage" + i, "Fire", "Backup", "Sage"));
+		assertFalse(mw.autoAbilityTriggers.dullForwardCostSatisfied(dfc, false, yuri),
+				"a dull Yuri cannot be dulled again to cover the third card");
+	}
+
+	@Test
+	void theActionMenuNamesYurisTwoSetWideTerms() {
+		MainWindow mw = new MainWindow();
+		CardData yuri = makeCostedTraitCard("Yuri", "Light", "Forward", 4, YURI_DULL_BACKUPS);
+		assertEquals("[dull 3 active Backups (same Elem.), self may cover 1]",
+				mw.buildAbilityMenuLabel(yuri.actionAbilities().get(0)).split(" → ")[0]);
+	}
+
+	/** The "own Job X to BZ" restriction was emitted by two identical lines, so it printed twice. */
+	@Test
+	void aJobToBreakZoneRestrictionIsPrintedOnlyOnce() {
+		MainWindow mw = new MainWindow();
+		CardData barret = makeCostedTraitCard("Barret", "Fire", "Forward", 5,
+				"Dull active Barret: Choose 1 Forward opponent controls. Break it. You can only use "
+				+ "this ability if a Job AVALANCHE Operative you controlled has been put from the "
+				+ "field into the Break Zone this turn.");
+		String label = mw.buildAbilityMenuLabel(barret.actionAbilities().get(0));
+		int first = label.indexOf("own Job ");
+		assertTrue(first >= 0, label);
+		assertEquals(-1, label.indexOf("own Job ", first + 1), "printed twice: " + label);
 	}
 
 	@Test

@@ -2144,7 +2144,15 @@ public record CardData(
         "|Job\\s+(?<job>[A-Za-z][A-Za-z''\\s\\-]*?)(?:\\s+(?:Forwards?|Backups?|Monsters?|(?<jobchar>Characters?)))?(?:\\s+(?:and/)?or\\s+Card\\s+Name\\s+(?<joborcardname>.+?))?(?:\\s+other\\s+than\\s+(?<jobexcept>[^:,]+?))?" + DULL_ITEM_END +
         "|(?<elem>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)?\\s*" +
         "(?:Forwards?(?<orbackup>\\s+or\\s+(?:Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)?\\s*Backups?)?" + // Forwards [or Backups]
-        "|(?<sameelembackup>Backups?(?:\\s+of\\s+the\\s+same\\s+Element)?)" + // Backups [of same element] — e.g. Yuri
+        // Backups, optionally constrained to one shared Element, optionally offering the source as
+        // a stand-in for one of them. 7-128H Yuri prints both at once — "3 active Backups of the
+        // same Element or 2 active Backups of the same Element and Yuri" — and the item-end
+        // lookahead below refused the whole phrase, so his cost parsed to nothing and the ability
+        // was free. The alternative's own count is captured so the parse can check it really is
+        // one fewer; anything else is a shape this does not understand and is left unread.
+        "|(?<sameelembackup>Backups?(?<samelem>\\s+of\\s+the\\s+same\\s+Element)?)" +
+        "(?:\\s+or\\s+(?<altcount>\\d+)\\s*(?:active|dull|damaged)?\\s*Backups?\\s+of\\s+the\\s+same" +
+        "\\s+Element\\s+and\\s+(?<altself>[A-Za-z][A-Za-z''\\-]*(?:\\s+[A-Za-z][A-Za-z''\\-]*)*?))?" +
         "|(?<stdchar>Characters?)))" +
         // The exclusion the cost group also carries, re-read here because this pattern parses the
         // raw cost text on its own. Lazy Job/Card Name captures give it up rather than swallowing
@@ -2172,15 +2180,28 @@ public record CardData(
      *
      * <p>That branch is deliberately narrow — it requires a capitalised opening letter (matched
      * case-sensitively, hence the {@code (?-i:…)}) and must run to the end of the cost phrase — so
-     * that a cost naming cards generically falls through to the counted forms or goes unread
-     * rather than being mistaken for a card called "a total of 2 Job Ninja …" (17-103R Yugiri).
+     * that a cost naming cards generically falls through to the counted forms rather than being
+     * mistaken for a card name.
+     *
+     * <p>The Job branches are the other thing the counted forms were missing. Four cards filter a
+     * discard by Job — 5-152S "Discard 1 Job Moogle", 21-048L Princess, 21-053L Sky Pirate, and
+     * 17-103R Yugiri's "Discard a total of 2 Job Ninja or Card Name Ninja" — and none of them
+     * parsed, so all four abilities offered themselves for their CP alone and discarded nothing.
+     * Yugiri's is a union of the two filters rather than an intersection, which is why it is read
+     * into {@link DiscardCost#jobOrName()} and matched before the plain Job branch.
      */
     private static final Pattern DISCARD_COST_PATTERN = Pattern.compile(
         "(?i)(?:,\\s*)?discard\\s+" +
         "(?:" +
-            "(?<count>\\d+)\\s+" +
+            "(?:a\\s+total\\s+of\\s+)?(?<count>\\d+)\\s+" +                    // "a total of 2 …"
             "(?:" +
+                // Must precede the plain Job branch below, whose ".+" would otherwise take
+                // "Ninja or Card Name Ninja" for a Job nobody has.
+                "Job\\s+(?<jobOr>.+?)\\s+or\\s+Card\\s+Name\\s+(?<cnameOr>.+)" + // "Job Ninja or Card Name Ninja"
+            "|" +
                 "Card\\s+Name\\s+(?<cardname>.+)"    +                        // "Card Name X"
+            "|" +
+                "Job\\s+(?<job>.+)"                  +                        // "Job Moogle"
             "|" +
                 "Category\\s+(?<category>\\S+)\\s+(?<typecat>Characters?|Forwards?|Backups?|Monsters?|Summons?)" + // "Category VI Characters"
             "|" +
@@ -2494,7 +2515,11 @@ public record CardData(
         String countRaw  = m.group("count");
         int    count     = countRaw != null ? Integer.parseInt(countRaw) : 1;   // bare-name form discards exactly 1
         String bareName  = m.group("bareName");
-        String cardName  = bareName != null ? bareName : m.group("cardname");
+        String jobOrRaw  = m.group("jobOr");                                    // "Job X or Card Name Y"
+        boolean jobOrName = jobOrRaw != null;
+        String cardName  = bareName  != null ? bareName
+                         : jobOrName ? m.group("cnameOr") : m.group("cardname");
+        String job       = jobOrName ? jobOrRaw : m.group("job");
         String category  = m.group("category");
         String typeCat   = m.group("typecat");
         String element   = m.group("element");
@@ -2506,8 +2531,10 @@ public record CardData(
 
         if (cardName != null) cardName = cardName.trim();
         if (category != null) category = category.trim();
+        if (job      != null) job      = job.trim();
 
-        return List.of(new DiscardCost(count, cardName, element, finalType, category, different != null));
+        return List.of(new DiscardCost(
+                count, cardName, element, finalType, category, job, jobOrName, different != null));
     }
 
     /** Strips a trailing "s" from plural type names (e.g. "Summons" → "Summon"). */
@@ -8633,9 +8660,11 @@ public record CardData(
                         String category  = contM.group("category");
                         String jobOrName = contM.group("joborcardname") != null
                                          ? contM.group("joborcardname") : contM.group("cardorname");
-                        boolean inclBkps = contM.group("orbackup") != null || contM.group("sameelembackup") != null;
+                        // Same split as the main loop below: "Forwards or Backups" is every
+                        // Character, a bare "Backups" is Backups only.
+                        boolean bkpsOnly = contM.group("sameelembackup") != null;
                         boolean isChar   = contM.group("catchar") != null || contM.group("jobchar") != null
-                                        || contM.group("stdchar") != null || inclBkps;
+                                        || contM.group("stdchar") != null || contM.group("orbackup") != null;
                         String except = contM.group("except") != null
                                 ? contM.group("except") : contM.group("jobexcept");
                         costs.add(new DullForwardCost(count,
@@ -8644,7 +8673,7 @@ public record CardData(
                                 cardName != null ? cardName.trim()                 : null,
                                 job      != null ? job.trim()                      : null,
                                 category != null ? category.trim()                 : null,
-                                isChar           ? "Character"                     : null,
+                                isChar ? "Character" : bkpsOnly ? "Backup"         : null,
                                 jobOrName != null ? stripTrailingType(jobOrName)   : null,
                                 except   != null ? except.trim()                   : null));
                     }
@@ -8663,12 +8692,21 @@ public record CardData(
             String category    = m.group("category");
             String jobOrName   = m.group("joborcardname") != null
                                ? m.group("joborcardname") : m.group("cardorname");
-            // "Forwards or Backups" and plain "Backups [of the same Element]" forms include non-Forward characters
-            boolean inclBackups = m.group("orbackup") != null || m.group("sameelembackup") != null;
+            // "Forwards or Backups" widens to every Character; "Backups [of the same Element]"
+            // narrows to Backups alone. Both used to report "Character", which reads as a
+            // superset of Forwards — so 8-096L Sakura's "Dull 5 active Lightning Backups" could be
+            // paid by dulling Forwards, a cost the card does not offer.
+            boolean backupsOnly = m.group("sameelembackup") != null;
             boolean isChar     = m.group("catchar") != null
                               || m.group("jobchar") != null
                               || m.group("stdchar") != null
-                              || inclBackups;
+                              || m.group("orbackup") != null;
+            boolean sameElem   = m.group("samelem") != null;
+            // The "or N … and <self>" alternative only reads as "the source pays for one" when it
+            // asks for exactly one card fewer. A different count is some other bargain, and
+            // guessing at it would price the ability wrong in whichever direction the guess fell.
+            boolean selfPaysOne = m.group("altcount") != null
+                               && Integer.parseInt(m.group("altcount")) == count - 1;
             // Whichever branch carried the exclusion — the Job branch has its own group, for
             // the reason that pattern documents.
             String except      = m.group("except") != null ? m.group("except") : m.group("jobexcept");
@@ -8678,9 +8716,10 @@ public record CardData(
                     cardName  != null ? cardName.trim()             : null,
                     job       != null ? job.trim()                  : null,
                     category  != null ? category.trim()             : null,
-                    isChar            ? "Character"                 : null,
+                    isChar ? "Character" : backupsOnly ? "Backup"   : null,
                     jobOrName != null ? stripTrailingType(jobOrName) : null,
-                    except    != null ? except.trim()               : null));
+                    except    != null ? except.trim()               : null,
+                    sameElem, selfPaysOne));
         }
         return costs.isEmpty() ? List.of() : List.copyOf(costs);
     }

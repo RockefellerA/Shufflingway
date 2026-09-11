@@ -18,10 +18,29 @@ package shufflingway;
  * @param orCardName non-null → card also matches if its name equals this (used with job for "Job X and/or Card Name Y")
  * @param exceptCardName non-null → a card of that name may not be dulled for this cost
  *     ("other than Steiner"); the exclusion is by name, so a second copy is barred too
+ * @param sameElement true → the cards dulled for this cost must all share an Element with one
+ *     another ("3 active Backups of the same Element", 7-128H Yuri). Unlike {@link #element} this
+ *     names no particular Element, only that one Element must run through the whole set — so it
+ *     constrains the set rather than the card, the way {@link DiscardCost#eachDifferentType()}
+ *     does, and belongs to whoever assembles the set rather than to a per-card filter.
+ * @param sourceReplacesOne true → dulling the ability's own source may stand in for one of the
+ *     {@code count} cards. This is how 7-128H Yuri's "or" reads: "3 active Backups of the same
+ *     Element <em>or</em> 2 active Backups of the same Element and Yuri" is the same cost with the
+ *     source paying for one of the three, and the source is exempt from {@code sameElement} because
+ *     the printed alternative asks it of the Backups only.
  */
 public record DullForwardCost(int count, String condition, String element, String cardName,
                                String job, String category, String cardType, String orCardName,
-                               String exceptCardName) {
+                               String exceptCardName, boolean sameElement,
+                               boolean sourceReplacesOne) {
+
+    /** Compat constructor for the 9-arg form; defaults the two set-wide flags to off. */
+    public DullForwardCost(int count, String condition, String element, String cardName,
+                           String job, String category, String cardType, String orCardName,
+                           String exceptCardName) {
+        this(count, condition, element, cardName, job, category, cardType, orCardName,
+                exceptCardName, false, false);
+    }
 
     /** Compat constructor for the 8-arg form; defaults {@code exceptCardName} to none. */
     public DullForwardCost(int count, String condition, String element, String cardName,

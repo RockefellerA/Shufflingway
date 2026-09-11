@@ -1422,7 +1422,8 @@ class ComputerPlayer implements OpponentController {
 				DiscardCost dc = ability.discardCosts().get(0);
 				// Must be a plain "discard 1 card" cost — no filter, since either element could pay it.
 				if (dc.count() != 1 || dc.cardName() != null || dc.element() != null
-						|| dc.cardType() != null || dc.category() != null) continue;
+						|| dc.cardType() != null || dc.category() != null
+						|| dc.job() != null) continue;
 				List<ActionResolver.DiscardElementBranch> branches =
 						ActionResolver.discardConditionalElementBranches(ability.effectText());
 				if (branches == null) continue;

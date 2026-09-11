@@ -10079,6 +10079,41 @@ public class MainWindow {
 		}
 	}
 
+	/**
+	 * "3 active Fire Character", "1 active Porom", "2 active Job Dancer or Name Dancer" — an
+	 * action ability's dull-other-cards cost, for the action menu label.
+	 *
+	 * <p>Separate from {@link #describeAltDullClause} on purpose, though they read the same shape.
+	 * That one describes an <em>alternate casting</em> cost, which only ever filters by element,
+	 * category and Job; these also name a specific card, union a Job with a name, exclude a name,
+	 * and widen past Forwards to any Character. Borrowing it would have dropped exactly those
+	 * fields, which is the failure this method exists to fix rather than repeat.
+	 */
+	private static String describeAbilityDullCost(DullForwardCost dfc) {
+		StringBuilder sb = new StringBuilder().append(dfc.count()).append(' ')
+				.append(dfc.condition() != null ? dfc.condition() : "active").append(' ');
+		String type = (dfc.cardType() != null ? dfc.cardType() : "Forward")
+				+ (dfc.count() == 1 ? "" : "s");
+		if (dfc.cardName() != null)
+			sb.append(dfc.cardName())
+			  .append(dfc.orCardName() != null ? "/" + dfc.orCardName() : "");
+		else if (dfc.job() != null)
+			sb.append("Job ").append(dfc.job())
+			  .append(dfc.orCardName() != null ? " or Name " + dfc.orCardName() : "");
+		else if (dfc.category() != null)
+			sb.append("Cat.").append(dfc.category()).append(' ').append(type);
+		else if (dfc.element() != null)
+			sb.append(dfc.element()).append(' ').append(type);
+		else
+			sb.append(type);
+		if (dfc.exceptCardName() != null) sb.append(" except ").append(dfc.exceptCardName());
+		// 7-128H Yuri's two set-wide terms. Both change what the cost actually asks for, so a label
+		// that named neither would be back to under-reporting the price.
+		if (dfc.sameElement())       sb.append(" (same Elem.)");
+		if (dfc.sourceReplacesOne()) sb.append(", self may cover 1");
+		return sb.toString();
+	}
+
 	/** "1 active Fire Job Class Zero Cadet Forward", as printed, for a menu label or dialog title. */
 	private static String describeAltDullClause(DullForwardCost dfc) {
 		StringBuilder sb = new StringBuilder().append(dfc.count()).append(" active ");
@@ -12358,7 +12393,12 @@ public class MainWindow {
 		for (DiscardCost dc : ability.discardCosts()) {
 			if (!firstCost) cost.append(", ");
 			cost.append("discard ");
-			if (dc.cardName() != null) cost.append(dc.cardName());
+			if (dc.jobOrName())
+				cost.append(dc.count()).append(" Job ").append(dc.job())
+					.append(" or Name ").append(dc.cardName());
+			else if (dc.job() != null)
+				cost.append(dc.count()).append(" Job ").append(dc.job());
+			else if (dc.cardName() != null) cost.append(dc.cardName());
 			else {
 				cost.append(dc.count());
 				if (dc.category() != null) cost.append(" Cat.").append(dc.category());
@@ -12366,6 +12406,28 @@ public class MainWindow {
 				cost.append(' ').append(dc.cardType() != null ? dc.cardType() : "card");
 				if (dc.eachDifferentType()) cost.append(" (diff. types)");
 			}
+			firstCost = false;
+		}
+		// Counter and dull-other costs were the last two the label stayed silent about. 89 abilities
+		// carry one, and most of them have no CP cost at all, so they advertised themselves as
+		// "[0] → <effect>" — 8-096L Sakura offered a free Break that actually costs dulling five
+		// active Lightning Backups, and 12-107R Lunafreya's two abilities gave no sign that the
+		// second costs four times the first.
+		for (CounterCost cc : ability.counterCosts()) {
+			if (!firstCost) cost.append(", ");
+			cost.append("remove ").append(cc.variable() ? "X" : cc.count())
+				.append(' ').append(cc.counterName()).append(" Ctr");
+			// The holder is almost always the source card, where naming it again is noise. A
+			// descriptive holder ("a Character you control") is not, and reads lowercase — a
+			// cosmetic guess, so a wrong one costs a wordier label and never a rules error.
+			if (cc.cardName() != null && !cc.cardName().isEmpty()
+					&& Character.isLowerCase(cc.cardName().charAt(0)))
+				cost.append(" from ").append(cc.cardName());
+			firstCost = false;
+		}
+		for (DullForwardCost dfc : ability.dullForwardCosts()) {
+			if (!firstCost) cost.append(", ");
+			cost.append("dull ").append(describeAbilityDullCost(dfc));
 			firstCost = false;
 		}
 		sb.append("[").append(firstCost ? "0" : cost).append("] → ");
@@ -12393,7 +12455,7 @@ public class MainWindow {
 		if (ability.requiresNamedCardTookDamageThisTurn() != null)  { if (!firstRestrict) restrict.append(", "); restrict.append(ability.requiresNamedCardTookDamageThisTurn()).append(" took dmg");  firstRestrict = false; }
 		if (ability.requiresSelfReceivedDamageThisTurn())           { if (!firstRestrict) restrict.append(", "); restrict.append("self rcvd dmg"); firstRestrict = false; }
 		if (ability.requiresForwardPutToBZThisTurn())               { if (!firstRestrict) restrict.append(", "); restrict.append("own fwd to BZ"); firstRestrict = false; }
-		if (ability.requiresJobPutToBZThisTurn() != null)           { if (!firstRestrict) restrict.append(", "); restrict.append("own Job ").append(ability.requiresJobPutToBZThisTurn()).append(" to BZ"); firstRestrict = false; }
+		// One line, not two: the duplicate printed 15-133S Barret's restriction twice.
 		if (ability.requiresJobPutToBZThisTurn() != null)           { if (!firstRestrict) restrict.append(", "); restrict.append("own Job ").append(ability.requiresJobPutToBZThisTurn()).append(" to BZ"); firstRestrict = false; }
 		if (ability.blockerForAttacker() != null)                   { if (!firstRestrict) restrict.append(", "); restrict.append("blks ").append(ability.blockerForAttacker()); firstRestrict = false; }
 		if (ability.requiresOwnWarpCard())                         { if (!firstRestrict) restrict.append(", "); restrict.append("needs Warp card");  firstRestrict = false; }
@@ -13412,7 +13474,7 @@ public class MainWindow {
 		for (CounterCost cc : ability.counterCosts())
 			if (!autoAbilityTriggers.counterCostSatisfied(cc, source)) return false;
 		for (DullForwardCost dfc : ability.dullForwardCosts())
-			if (!autoAbilityTriggers.dullForwardCostSatisfied(dfc, isP1)) return false;
+			if (!autoAbilityTriggers.dullForwardCostSatisfied(dfc, isP1, source)) return false;
 		for (DiscardCost dc : ability.discardCosts())
 			if (!autoAbilityTriggers.discardCostSatisfied(dc, isP1)) return false;
 		return canAffordAbilityCost(ability, isP1);

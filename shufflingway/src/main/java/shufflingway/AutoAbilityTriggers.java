@@ -13,8 +13,10 @@ import java.awt.event.MouseEvent;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -5306,7 +5308,7 @@ final class AutoAbilityTriggers {
 		for (CounterCost cc : ability.counterCosts())
 			if (!counterCostSatisfied(cc, source)) return false;
 		for (DullForwardCost dfc : ability.dullForwardCosts())
-			if (!dullForwardCostSatisfied(dfc, isP1)) return false;
+			if (!dullForwardCostSatisfied(dfc, isP1, source)) return false;
 		return mw.canAffordAbilityCost(ability, isP1);
 	}
 
@@ -5483,26 +5485,175 @@ final class AutoAbilityTriggers {
 		return mw.gameState.getCounters(source, cc.counterName()) >= required;
 	}
 
+	/**
+	 * Which zones may pay a dull cost. {@code null}/"Forward" is the Forward row, "Character"
+	 * every field card, and "Backup" the Backup row alone — 8-096L Sakura's "Dull 5 active
+	 * Lightning Backups", which reported "Character" until the parser learned to tell the two
+	 * apart and so accepted Forwards for a cost that never offered them.
+	 *
+	 * <p>Paired with {@link #dullCostWantsBackups}, and read by both the availability check and the
+	 * payment: an ability offered on a pool the payment then refuses is an ability that cannot be
+	 * used, so the two have to ask the same question.
+	 */
+	private static boolean dullCostWantsForwards(DullForwardCost dfc) {
+		String t = dfc.cardType();
+		return t == null || "Forward".equalsIgnoreCase(t) || "Character".equalsIgnoreCase(t);
+	}
+
+	/** Whether a Backup may pay {@code dfc} — see {@link #dullCostWantsForwards}. */
+	private static boolean dullCostWantsBackups(DullForwardCost dfc) {
+		String t = dfc.cardType();
+		return "Backup".equalsIgnoreCase(t) || "Character".equalsIgnoreCase(t);
+	}
+
+	/** Overload for callers with no source card in hand; the source can then never stand in. */
 	boolean dullForwardCostSatisfied(DullForwardCost dfc, boolean isP1) {
-		boolean anyChar = "Character".equalsIgnoreCase(dfc.cardType());
+		return dullForwardCostSatisfied(dfc, isP1, null);
+	}
+
+	boolean dullForwardCostSatisfied(DullForwardCost dfc, boolean isP1, CardData source) {
+		List<CardData> payers = dullCostPayerPool(dfc, isP1);
+		// 7-128H Yuri may dull himself in place of one of the cards asked for, so the pool needs
+		// one fewer from the field. The source is exempt from the same-Element rule: the printed
+		// alternative asks it of the Backups, not of him.
+		int needed = dfc.count();
+		if (dfc.sourceReplacesOne() && activeFieldSlotOf(source, isP1) != null) needed--;
+		if (needed <= 0) return true;
+		if (!dfc.sameElement()) return payers.size() >= needed;
+
+		// One Element has to run through the whole set, so the pool is only as deep as its best
+		// Element — six Backups across six Elements pay for nothing.
+		return largestSameElementGroup(payers) >= needed;
+	}
+
+	/** Every active card that matches {@code dfc} and sits in a zone the cost accepts. */
+	private List<CardData> dullCostPayerPool(DullForwardCost dfc, boolean isP1) {
 		List<CardData>  fwds    = isP1 ? mw.p1ForwardCards  : mw.p2ForwardCards;
 		List<CardState> fwdSt   = isP1 ? mw.p1ForwardStates : mw.p2ForwardStates;
 		List<CardData>  mons    = isP1 ? mw.p1MonsterCards  : mw.p2MonsterCards;
 		CardData[]      bkps    = isP1 ? mw.p1BackupCards   : mw.p2BackupCards;
 		CardState[]     bkpSt   = isP1 ? mw.p1BackupStates  : mw.p2BackupStates;
-		int eligible = 0;
-		for (int i = 0; i < fwds.size(); i++) {
-			if (fwdSt.get(i) != CardState.ACTIVE) continue;
-			if (!dullForwardCostMatches(dfc, fwds.get(i))) continue;
-			eligible++;
+		List<CardData> pool = new ArrayList<>();
+		if (dullCostWantsForwards(dfc)) {
+			for (int i = 0; i < fwds.size(); i++)
+				if (fwdSt.get(i) == CardState.ACTIVE && dullForwardCostMatches(dfc, fwds.get(i)))
+					pool.add(fwds.get(i));
 		}
-		if (anyChar) {
+		if (dullCostWantsBackups(dfc)) {
 			for (int i = 0; i < bkps.length; i++)
-				if (bkps[i] != null && bkpSt[i] == CardState.ACTIVE && dullForwardCostMatches(dfc, bkps[i])) eligible++;
-			for (CardData mon : mons)
-				if (dullForwardCostMatches(dfc, mon)) eligible++;
+				if (bkps[i] != null && bkpSt[i] == CardState.ACTIVE && dullForwardCostMatches(dfc, bkps[i]))
+					pool.add(bkps[i]);
 		}
-		return eligible >= dfc.count();
+		if ("Character".equalsIgnoreCase(dfc.cardType())) {
+			for (CardData mon : mons)
+				if (dullForwardCostMatches(dfc, mon)) pool.add(mon);
+		}
+		return pool;
+	}
+
+	/**
+	 * The cards to dull for {@code dfc}, or {@code null} when the board cannot pay or P1 backed
+	 * out. {@code targets} is every field card that matches the cost's per-card filters.
+	 *
+	 * <p>Most costs are a plain counted pick out of that pool. 7-128H Yuri is not: his picks must
+	 * share an Element <em>with one another</em>, and dulling Yuri himself may stand in for one of
+	 * them. A constraint between picks is not something one counted dialog can express, so P1
+	 * takes them one at a time and the pool narrows to the Elements still in play after each.
+	 */
+	private List<ForwardTarget> selectDullCostTargets(DullForwardCost dfc, List<ForwardTarget> targets,
+			Map<ForwardTarget, CardData> cardOf, CardData source, boolean isP1) {
+		ForwardTarget sourceTarget = dfc.sourceReplacesOne() ? activeFieldSlotOf(source, isP1) : null;
+		if (!dfc.sameElement() && sourceTarget == null) {
+			if (isP1) {
+				List<ForwardTarget> picks = mw.showForwardSelectDialog(targets, dfc.count(), false, "Dull Cost");
+				return picks.size() < dfc.count() ? null : picks;
+			}
+			return targets.size() < dfc.count() ? null
+					: new ArrayList<>(targets.subList(0, dfc.count()));
+		}
+		if (!isP1) return planP2DullCostTargets(dfc, targets, cardOf, sourceTarget);
+
+		List<ForwardTarget> chosen = new ArrayList<>();
+		Set<String> shared = null;            // null until the first field pick fixes the Elements
+		for (int n = 0; n < dfc.count(); n++) {
+			List<ForwardTarget> step = new ArrayList<>();
+			for (ForwardTarget t : targets) {
+				if (chosen.contains(t)) continue;
+				if (shared != null && Collections.disjoint(shared, mw.effectiveElements(cardOf.get(t))))
+					continue;
+				step.add(t);
+			}
+			// The source is offered alongside, and is exempt from the shared-Element rule: the
+			// printed alternative asks that of the Backups, not of Yuri.
+			if (sourceTarget != null && !chosen.contains(sourceTarget)) step.add(sourceTarget);
+			if (step.isEmpty()) return null;
+			List<ForwardTarget> pick = mw.showForwardSelectDialog(step, 1, false, "Dull Cost");
+			if (pick.isEmpty()) return null;
+			ForwardTarget t = pick.get(0);
+			chosen.add(t);
+			if (t.equals(sourceTarget)) continue;
+			List<String> elems = mw.effectiveElements(cardOf.get(t));
+			if (shared == null) shared = new LinkedHashSet<>(elems);
+			else shared.retainAll(elems);
+		}
+		return chosen;
+	}
+
+	/**
+	 * P2's version: take the deepest single-Element group outright, and fall back on dulling the
+	 * source only when the field is one card short of paying on its own.
+	 */
+	private List<ForwardTarget> planP2DullCostTargets(DullForwardCost dfc, List<ForwardTarget> targets,
+			Map<ForwardTarget, CardData> cardOf, ForwardTarget sourceTarget) {
+		List<ForwardTarget> group = dfc.sameElement()
+				? deepestSameElementGroup(targets, cardOf) : targets;
+		if (group.size() >= dfc.count()) return new ArrayList<>(group.subList(0, dfc.count()));
+		if (sourceTarget != null && group.size() >= dfc.count() - 1) {
+			List<ForwardTarget> out = new ArrayList<>(group.subList(0, dfc.count() - 1));
+			out.add(sourceTarget);
+			return out;
+		}
+		return null;
+	}
+
+	/** The largest set of {@code targets} sharing one Element, as targets rather than a count. */
+	private List<ForwardTarget> deepestSameElementGroup(List<ForwardTarget> targets,
+			Map<ForwardTarget, CardData> cardOf) {
+		Map<String, List<ForwardTarget>> byElement = new LinkedHashMap<>();
+		for (ForwardTarget t : targets)
+			for (String e : mw.effectiveElements(cardOf.get(t)))
+				byElement.computeIfAbsent(e, k -> new ArrayList<>()).add(t);
+		return byElement.values().stream()
+				.max(Comparator.comparingInt(List::size)).orElse(List.of());
+	}
+
+	/** The field slot {@code source} occupies while active, or {@code null} if it cannot be dulled. */
+	private ForwardTarget activeFieldSlotOf(CardData source, boolean isP1) {
+		if (source == null) return null;
+		List<CardData>  fwds  = isP1 ? mw.p1ForwardCards  : mw.p2ForwardCards;
+		List<CardState> fwdSt = isP1 ? mw.p1ForwardStates : mw.p2ForwardStates;
+		for (int i = 0; i < fwds.size(); i++)
+			if (fwds.get(i) == source && fwdSt.get(i) == CardState.ACTIVE)
+				return new ForwardTarget(isP1, i, ForwardTarget.CardZone.FORWARD);
+		CardData[]  bkps  = isP1 ? mw.p1BackupCards  : mw.p2BackupCards;
+		CardState[] bkpSt = isP1 ? mw.p1BackupStates : mw.p2BackupStates;
+		for (int i = 0; i < bkps.length; i++)
+			if (bkps[i] == source && bkpSt[i] == CardState.ACTIVE)
+				return new ForwardTarget(isP1, i, ForwardTarget.CardZone.BACKUP);
+		return null;
+	}
+
+	/**
+	 * The size of the largest subset of {@code pool} sharing one Element. A multi-element card
+	 * counts towards every Element it carries, which is what lets it join whichever group the
+	 * player is assembling.
+	 */
+	private int largestSameElementGroup(List<CardData> pool) {
+		Map<String, Integer> byElement = new LinkedHashMap<>();
+		for (CardData c : pool)
+			for (String e : mw.effectiveElements(c))
+				byElement.merge(e, 1, Integer::sum);
+		return byElement.values().stream().mapToInt(Integer::intValue).max().orElse(0);
 	}
 
 	boolean discardCostSatisfied(DiscardCost dc, boolean isP1) {
@@ -6390,33 +6541,35 @@ final class AutoAbilityTriggers {
 		// ability that resolves off the trigger cannot disturb a payment still in progress.
 		List<CardData> dulledPayingCost = new ArrayList<>();
 		for (DullForwardCost dfc : ability.dullForwardCosts()) {
-			boolean anyChar = "Character".equalsIgnoreCase(dfc.cardType());
 			List<CardData>  fwds  = isP1 ? mw.p1ForwardCards  : mw.p2ForwardCards;
 			List<CardState> fwdSt = isP1 ? mw.p1ForwardStates : mw.p2ForwardStates;
 			CardData[]      bkps  = isP1 ? mw.p1BackupCards   : mw.p2BackupCards;
 			CardState[]     bkpSt = isP1 ? mw.p1BackupStates  : mw.p2BackupStates;
 			List<ForwardTarget> targets = new ArrayList<>();
-			for (int i = 0; i < fwds.size(); i++) {
-				if (fwdSt.get(i) != CardState.ACTIVE) continue;
-				if (!dullForwardCostMatches(dfc, fwds.get(i))) continue;
-				targets.add(new ForwardTarget(isP1, i, ForwardTarget.CardZone.FORWARD));
+			Map<ForwardTarget, CardData> cardOf = new LinkedHashMap<>();
+			if (dullCostWantsForwards(dfc)) {
+				for (int i = 0; i < fwds.size(); i++) {
+					if (fwdSt.get(i) != CardState.ACTIVE) continue;
+					if (!dullForwardCostMatches(dfc, fwds.get(i))) continue;
+					ForwardTarget t = new ForwardTarget(isP1, i, ForwardTarget.CardZone.FORWARD);
+					targets.add(t);
+					cardOf.put(t, fwds.get(i));
+				}
 			}
-			if (anyChar) {
+			if (dullCostWantsBackups(dfc)) {
 				for (int i = 0; i < bkps.length; i++) {
 					if (bkps[i] == null || bkpSt[i] != CardState.ACTIVE) continue;
 					if (!dullForwardCostMatches(dfc, bkps[i])) continue;
-					targets.add(new ForwardTarget(isP1, i, ForwardTarget.CardZone.BACKUP));
+					ForwardTarget t = new ForwardTarget(isP1, i, ForwardTarget.CardZone.BACKUP);
+					targets.add(t);
+					cardOf.put(t, bkps[i]);
 				}
 			}
-			if (targets.isEmpty()) { mw.logEntry("No eligible active card for Dull cost."); continue; }
-			List<ForwardTarget> picks;
-			if (isP1) {
-				picks = mw.showForwardSelectDialog(targets, dfc.count(), false, "Dull Cost");
-				if (picks.size() < dfc.count()) continue;
-			} else {
-				picks = new ArrayList<>(targets.subList(0, Math.min(dfc.count(), targets.size())));
-				if (picks.size() < dfc.count()) continue;
+			if (targets.isEmpty() && !dfc.sourceReplacesOne()) {
+				mw.logEntry("No eligible active card for Dull cost."); continue;
 			}
+			List<ForwardTarget> picks = selectDullCostTargets(dfc, targets, cardOf, source, isP1);
+			if (picks == null || picks.size() < dfc.count()) continue;
 			for (ForwardTarget pick : picks) {
 				if (pick.zone() == ForwardTarget.CardZone.BACKUP) {
 					int bi = pick.idx();

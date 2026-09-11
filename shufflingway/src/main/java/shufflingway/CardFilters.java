@@ -197,7 +197,15 @@ public final class CardFilters {
      * than a card and so belongs to whoever assembles the set.
      */
     public static boolean meetsDiscardCost(CardData c, DiscardCost dc) {
-        if (dc.cardName() != null && !meetsCardNameFilter(c, dc.cardName())) return false;
+        // "Job Ninja or Card Name Ninja" (17-103R Yugiri) is a union of the two name filters, not
+        // an intersection — a card satisfying either one may pay. Mirrors
+        // CostReductionModifier.matches, which reads the same phrase off a cast.
+        if (dc.jobOrName()) {
+            if (!meetsJobFilter(c, dc.job()) && !meetsCardNameFilter(c, dc.cardName())) return false;
+        } else {
+            if (dc.cardName() != null && !meetsCardNameFilter(c, dc.cardName())) return false;
+            if (dc.job()      != null && !meetsJobFilter(c, dc.job()))           return false;
+        }
         if (dc.element()  != null && !c.containsElement(dc.element()))       return false;
         if (dc.cardType() != null && !matchesDiscardType(c, dc.cardType()))  return false;
         if (dc.category() != null && !meetsCategoryFilter(c, dc.category())) return false;
