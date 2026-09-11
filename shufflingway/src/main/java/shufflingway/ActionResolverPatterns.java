@@ -10168,6 +10168,29 @@ final class ActionResolverPatterns {
         "If\\s+the\\s+discarded\\s+card\\s+is\\s+a\\s+Multi-Element\\s+card,\\s+" +
         "draw\\s+(?<d2>\\d+)\\s+cards?,\\s+then\\s+discard\\s+(?<x2>\\d+)\\s+cards?\\s+from\\s+your\\s+hand[.!]?$");
     /**
+     * Matches the two-branch Category conditional on an <em>effect</em> discard:
+     * "discard N card(s) from your hand. If the discarded card is [not] a Category X card, [effA].
+     * If the discarded card is [not] a Category X card, [effB]." (11-121C Porom).
+     *
+     * <p>Unlike {@link #DISCARD_CONDITIONAL_ELEMENT}, the discard the branches read is part of this
+     * same ability rather than its cost, so the pattern has to claim the discard too — left to the
+     * sentence splitter, the opening sentence resolved alone as a plain discard and both branches
+     * were dropped in silence.
+     *
+     * <p>Anchored end to end and matched whole: the branches are the point of the ability, and half
+     * of it read on its own is a strictly different card. The parser additionally requires the two
+     * branches to name the same Category and to disagree on the negation, so a text that only looks
+     * like this shape falls through unread rather than resolving to a coin flip.
+     *
+     * <p>Groups: {@code count}, {@code neg1}/{@code cat1}/{@code eff1}, {@code neg2}/{@code cat2}/{@code eff2}.
+     */
+    static final Pattern DISCARD_CONDITIONAL_CATEGORY_BRANCHES = Pattern.compile(
+        "(?is)^discard\\s+(?<count>\\d+)\\s+cards?\\s+from\\s+your\\s+hand\\.\\s+" +
+        "If\\s+the\\s+discarded\\s+card\\s+is\\s+(?<neg1>not\\s+)?an?\\s+Category\\s+(?<cat1>\\S+)\\s+card\\s*,\\s*" +
+        "(?<eff1>.+?)\\.\\s+" +
+        "If\\s+the\\s+discarded\\s+card\\s+is\\s+(?<neg2>not\\s+)?an?\\s+Category\\s+(?<cat2>\\S+)\\s+card\\s*,\\s*" +
+        "(?<eff2>.+?)[.!]?\\s*$");
+    /**
      * Matches "[Name] breaks after the attack or the block and doesn't deal any damage."
      * (Vincent 2-078R) — the source deals no damage for the rest of the battle and is broken once
      * that battle ends. Group {@code name} is checked against the ability's own source.

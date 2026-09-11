@@ -2014,6 +2014,64 @@ public class CardBehaviorTest {
         verify(ctx, never()).boostSourceForward(eq(prishe), eq(4000), any());
     }
 
+    // Porom 11-121C: "discard 1 card from your hand. If the discarded card is not a Category IV
+    // card, draw 1 card. If the discarded card is a Category IV card, draw 2 cards then discard 1
+    // card from your hand." Both branches used to be dropped by the sentence-splitting fallback,
+    // which resolved the opening discard on its own and reported the ability handled.
+    private static final String POROM_CATEGORY_BRANCHES =
+            "discard 1 card from your hand. If the discarded card is not a Category IV card, draw 1 "
+            + "card. If the discarded card is a Category IV card, draw 2 cards then discard 1 card "
+            + "from your hand.";
+
+    @Test
+    void poromDiscardCategoryBranchTakesMatchingBranch() {
+        Consumer<GameContext> fn = ActionResolver.parse(POROM_CATEGORY_BRANCHES, null);
+        assertNotNull(fn, "Porom's two-branch Category discard conditional should parse");
+        GameContext ctx = mock(GameContext.class);
+        when(ctx.lastDiscardedCardIsCategory("IV")).thenReturn(true);
+        fn.accept(ctx);
+        verify(ctx).drawCards(2);
+        verify(ctx, never()).drawCards(1);
+        // Once for the ability's own discard, once for the discard the matching branch adds.
+        verify(ctx, times(2)).selfDiscard(1);
+    }
+
+    @Test
+    void poromDiscardCategoryBranchTakesNonMatchingBranch() {
+        Consumer<GameContext> fn = ActionResolver.parse(POROM_CATEGORY_BRANCHES, null);
+        assertNotNull(fn);
+        GameContext ctx = mock(GameContext.class);
+        when(ctx.lastDiscardedCardIsCategory("IV")).thenReturn(false);
+        fn.accept(ctx);
+        verify(ctx).drawCards(1);
+        verify(ctx, never()).drawCards(2);
+        verify(ctx, times(1)).selfDiscard(1);
+    }
+
+    @Test
+    void poromDiscardCategoryBranchReportsItsName() {
+        assertEquals("DiscardConditionalCategoryBranches",
+                ActionResolver.matchedPatternName(POROM_CATEGORY_BRANCHES, null));
+    }
+
+    // The branches have to agree on the Category and disagree on the negation, or the parser is
+    // not reading a two-way branch and must not claim the text. (What it falls through to is the
+    // sentence-splitting fallback, which takes the opening discard alone — the pre-existing
+    // behaviour, and not something these texts should be promoted out of by a guess.)
+    @Test
+    void discardCategoryBranchesRejectedWhenCategoriesDiffer() {
+        assertNotEquals("DiscardConditionalCategoryBranches", ActionResolver.matchedPatternName(
+                "discard 1 card from your hand. If the discarded card is not a Category IV card, "
+                + "draw 1 card. If the discarded card is a Category VII card, draw 2 cards.", null));
+    }
+
+    @Test
+    void discardCategoryBranchesRejectedWhenBothBranchesAgreeOnNegation() {
+        assertNotEquals("DiscardConditionalCategoryBranches", ActionResolver.matchedPatternName(
+                "discard 1 card from your hand. If the discarded card is a Category IV card, "
+                + "draw 1 card. If the discarded card is a Category IV card, draw 2 cards.", null));
+    }
+
     // Gogo (15-028H) "Mimic": replay a special ability used this turn, without paying its cost.
     private static final String GOGO_TEXT =
             "When a Forward or Monster you control uses an action ability, Gogo uses the same action "
@@ -27550,6 +27608,79 @@ public class CardBehaviorTest {
 		assertEquals(3, mw.autoAbilityTriggers.discardCostPayerIdxs(dc,
 				mw.gameState.getP2Hand(), Set.of()).size(),
 				"an unconstrained cost is happy with three of a kind");
+	}
+
+	// 18-003C Machinist and the 28 other Backups that pay an ability by discarding themselves print
+	// the cost without a count — "《Fire》, discard Machinist:", not "discard 1 Card Name Machinist".
+	// The cost pattern required the count, so the phrase parsed to no discard cost at all: the
+	// ability stayed usable, paid for its element alone, and left Machinist sitting in hand.
+	private static final String MACHINIST_SELF_DISCARD =
+			"《Fire》, discard Machinist: Draw 1 card. "
+			+ "You can only use this ability if Machinist is in your hand.";
+
+	@Test
+	void anUncountedSelfDiscardCostParsesAsOneCardOfThatName() {
+		ActionAbility ability = CardData.parseActionAbilities(MACHINIST_SELF_DISCARD).get(0);
+		assertEquals(List.of("Fire"), ability.cpCost());
+		assertEquals(1, ability.discardCosts().size(), "the discard is a cost, not part of the effect");
+		DiscardCost dc = ability.discardCosts().get(0);
+		assertEquals(1, dc.count(), "an uncounted discard is exactly one card");
+		assertEquals("Machinist", dc.cardName());
+	}
+
+	@Test
+	void anUncountedSelfDiscardCostIsOnlyPayableWithThatCardInHand() {
+		MainWindow mw = new MainWindow();
+		DiscardCost dc = CardData.parseActionAbilities(MACHINIST_SELF_DISCARD).get(0)
+				.discardCosts().get(0);
+		fillP2Hand(mw, "Black Mage", "Backup", "Thief", "Backup");
+		assertFalse(mw.autoAbilityTriggers.discardCostSatisfied(dc, false),
+				"no Machinist in hand, so there is nothing to pay with");
+		fillP2Hand(mw, "Machinist", "Backup");
+		assertTrue(mw.autoAbilityTriggers.discardCostSatisfied(dc, false));
+		assertEquals(List.of(2), mw.autoAbilityTriggers.discardCostPayerIdxs(dc,
+				mw.gameState.getP2Hand(), Set.of()), "and only the Machinist may pay it");
+	}
+
+	// 11-021C Red Cap prints the same uncounted discard alongside a remove-from-game cost. The two
+	// have to split at the comma: a discard phrase that ran on to the end would claim both.
+	@Test
+	void anUncountedSelfDiscardSplitsFromARemoveFromGameCost() {
+		ActionAbility ability = CardData.parseActionAbilities(
+				"《Fire》, discard Red Cap, remove 1 Backup from the game: "
+				+ "Choose 1 Forward. Deal it 4000 damage.").get(0);
+		assertEquals("Red Cap", ability.discardCosts().get(0).cardName());
+		assertEquals(1, ability.removeFromGameCosts().size(), "the RFG half survives the split");
+	}
+
+	// The uncounted branch must not swallow a generic phrase and invent a card name out of it.
+	// 17-103R Yugiri's "Discard a total of 2 Job Ninja or Card Name Ninja" is not a card called
+	// "a total of 2 Job Ninja …"; it goes unread, which is what it did before.
+	@Test
+	void aGenericUncountedDiscardPhraseIsNotMistakenForACardName() {
+		ActionAbility ability = CardData.parseActionAbilities(
+				"Discard a total of 2 Job Ninja or Card Name Ninja: Draw 1 card.").get(0);
+		assertTrue(ability.discardCosts().isEmpty(),
+				"unread is the right answer here — a name conjured from this would be unpayable");
+	}
+
+	@Test
+	void theActionMenuShowsWhatADiscardCostTakes() {
+		MainWindow mw = new MainWindow();
+		CardData machinist = makeCostedTraitCard("Machinist", "Fire", "Backup", 1,
+				MACHINIST_SELF_DISCARD);
+		String label = mw.buildAbilityMenuLabel(machinist.actionAbilities().get(0));
+		assertTrue(label.contains("[Fire, discard Machinist]"),
+				"the discard was priced and paid but never shown, so the ability read as free: " + label);
+	}
+
+	@Test
+	void theActionMenuNamesTheFilterOnAGenericDiscardCost() {
+		MainWindow mw = new MainWindow();
+		CardData ashe = makeCostedTraitCard("Ashe", "Fire", "Backup", 3,
+				"《Dull》, discard 1 Water card: Draw 1 card.");
+		assertTrue(mw.buildAbilityMenuLabel(ashe.actionAbilities().get(0))
+				.contains("discard 1 Water card"));
 	}
 
 	@Test

@@ -2161,18 +2161,37 @@ public record CardData(
         "(?i)Choose\\s+\\d+\\s+(?:Forward|Character)s?\\s+blocking\\s+"
     );
 
+    /**
+     * A "discard …" Action Ability cost phrase.
+     *
+     * <p>The counted forms all share a leading {@code discard N}. The last alternative covers the
+     * uncounted one the 29 self-discard Backups print — "《Fire》, discard Machinist:" (18-003C) —
+     * where the count is implicitly 1 and the filter is a bare card name rather than a
+     * "Card Name X" phrase. Without it the whole cost parsed to no cost at all: the ability stayed
+     * usable, paid for the element alone, and left the card it was supposed to discard in hand.
+     *
+     * <p>That branch is deliberately narrow — it requires a capitalised opening letter (matched
+     * case-sensitively, hence the {@code (?-i:…)}) and must run to the end of the cost phrase — so
+     * that a cost naming cards generically falls through to the counted forms or goes unread
+     * rather than being mistaken for a card called "a total of 2 Job Ninja …" (17-103R Yugiri).
+     */
     private static final Pattern DISCARD_COST_PATTERN = Pattern.compile(
-        "(?i)(?:,\\s*)?discard\\s+(?<count>\\d+)\\s+" +
+        "(?i)(?:,\\s*)?discard\\s+" +
         "(?:" +
-            "Card\\s+Name\\s+(?<cardname>.+)"    +                        // "Card Name X"
+            "(?<count>\\d+)\\s+" +
+            "(?:" +
+                "Card\\s+Name\\s+(?<cardname>.+)"    +                        // "Card Name X"
+            "|" +
+                "Category\\s+(?<category>\\S+)\\s+(?<typecat>Characters?|Forwards?|Backups?|Monsters?|Summons?)" + // "Category VI Characters"
+            "|" +
+                "(?<element>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)\\s+cards?" + // "Water card"
+            "|" +
+                "(?<type>Summons?|Forwards?|Backups?|Monsters?|Characters?)" + // type only
+            "|" +
+                "cards?(?<different>,\\s*each\\s+of\\s+a\\s+different\\s+card\\s+type)?" + // "card(s)"
+            ")" +
         "|" +
-            "Category\\s+(?<category>\\S+)\\s+(?<typecat>Characters?|Forwards?|Backups?|Monsters?|Summons?)" + // "Category VI Characters"
-        "|" +
-            "(?<element>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)\\s+cards?" + // "Water card"
-        "|" +
-            "(?<type>Summons?|Forwards?|Backups?|Monsters?|Characters?)" + // type only
-        "|" +
-            "cards?(?<different>,\\s*each\\s+of\\s+a\\s+different\\s+card\\s+type)?" + // "card(s)"
+            "(?<bareName>(?-i:[A-Z])[^,:]*?)\\s*$" +                          // "discard Machinist"
         ")"
     );
 
@@ -2472,8 +2491,10 @@ public record CardData(
         Matcher m = DISCARD_COST_PATTERN.matcher(raw.trim());
         if (!m.find()) return List.of();
 
-        int    count     = Integer.parseInt(m.group("count"));
-        String cardName  = m.group("cardname");
+        String countRaw  = m.group("count");
+        int    count     = countRaw != null ? Integer.parseInt(countRaw) : 1;   // bare-name form discards exactly 1
+        String bareName  = m.group("bareName");
+        String cardName  = bareName != null ? bareName : m.group("cardname");
         String category  = m.group("category");
         String typeCat   = m.group("typecat");
         String element   = m.group("element");

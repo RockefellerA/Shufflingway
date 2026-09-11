@@ -384,6 +384,45 @@ final class ActionResolverHand {
             ctx.selfDiscard(count);
         };
     }
+    /**
+     * Parses the two-branch Category conditional on an effect discard (11-121C Porom):
+     * "discard N card(s) from your hand. If the discarded card is [not] a Category X card, [effA].
+     * If the discarded card is [not] a Category X card, [effB]."
+     *
+     * <p>Both branches must name the same Category and exactly one of them must be the negated
+     * form, and both effects must themselves resolve. Anything else returns {@code null} and the
+     * ability stays unread: a half-understood version of this text would discard and then pick a
+     * branch on a condition nobody checked.
+     */
+    static Consumer<GameContext> tryParseDiscardConditionalCategoryBranches(
+            String text, CardData source, int xValue) {
+        Matcher m = DISCARD_CONDITIONAL_CATEGORY_BRANCHES.matcher(text.trim());
+        if (!m.matches()) return null;
+
+        String cat = m.group("cat1").trim();
+        if (!cat.equalsIgnoreCase(m.group("cat2").trim())) return null;
+        boolean neg1 = m.group("neg1") != null;
+        boolean neg2 = m.group("neg2") != null;
+        if (neg1 == neg2) return null;
+
+        // Normalise to (matching branch, non-matching branch) so the runtime reads one way round.
+        Consumer<GameContext> onMatch    = parse((neg1 ? m.group("eff2") : m.group("eff1")).trim(), source, xValue);
+        Consumer<GameContext> onNoMatch  = parse((neg1 ? m.group("eff1") : m.group("eff2")).trim(), source, xValue);
+        if (onMatch == null || onNoMatch == null) return null;
+
+        int count = Integer.parseInt(m.group("count"));
+        return ctx -> {
+            ctx.logEntry("Effect: Discard " + count + " card(s), then branch on Category " + cat);
+            ctx.selfDiscard(count);
+            if (ctx.lastDiscardedCardIsCategory(cat)) {
+                ctx.logEntry("Discard conditional: discarded a Category " + cat + " card");
+                onMatch.accept(ctx);
+            } else {
+                ctx.logEntry("Discard conditional: discarded card is not Category " + cat);
+                onNoMatch.accept(ctx);
+            }
+        };
+    }
     /** Parses "Your opponent discards N card(s) [from his/her/their hand]" as a standalone effect. */
     static Consumer<GameContext> tryParseNameCardTypeOpponentDiscardDrawIfMatch(String text) {
         if (!NAME_CARD_TYPE_OPP_DISCARD_DRAW_IF_MATCH.matcher(text).find()) return null;

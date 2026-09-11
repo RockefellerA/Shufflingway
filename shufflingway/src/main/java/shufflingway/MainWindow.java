@@ -12352,6 +12352,22 @@ public class MainWindow {
 			}
 			firstCost = false;
 		}
+		// Discard costs were priced and paid but never shown here, so an ability whose only cost
+		// beyond its CP was a discard read as free in the menu — 18-003C Machinist offered itself
+		// as "[Fire] → Draw 1 card" with no sign that it eats itself to do it.
+		for (DiscardCost dc : ability.discardCosts()) {
+			if (!firstCost) cost.append(", ");
+			cost.append("discard ");
+			if (dc.cardName() != null) cost.append(dc.cardName());
+			else {
+				cost.append(dc.count());
+				if (dc.category() != null) cost.append(" Cat.").append(dc.category());
+				if (dc.element()  != null) cost.append(' ').append(dc.element());
+				cost.append(' ').append(dc.cardType() != null ? dc.cardType() : "card");
+				if (dc.eachDifferentType()) cost.append(" (diff. types)");
+			}
+			firstCost = false;
+		}
 		sb.append("[").append(firstCost ? "0" : cost).append("] → ");
 
 		// --- Restriction section (right of →, before effect) ---

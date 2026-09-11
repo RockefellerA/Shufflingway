@@ -1387,6 +1387,12 @@ public class ActionResolver {
         result = tryParseDiscardHand(effectText);
         if (result != null) return result;
 
+        // Must precede tryParseDiscardNCards, and the sentence-splitting fallback below it: this
+        // text opens with a plain "discard 1 card from your hand." that resolves on its own, so
+        // whichever of those saw it first claimed the ability and dropped both Category branches.
+        result = tryParseDiscardConditionalCategoryBranches(effectText, source, xValue);
+        if (result != null) return result;
+
         result = tryParseDiscardNCards(effectText);
         if (result != null) return result;
 
@@ -2361,6 +2367,9 @@ public class ActionResolver {
         if (tryParseYouMayDiscardType(effectText)             != null) return "YouMayDiscardType";
         if (tryParseMayRevealElementFromHand(effectText)      != null) return "MayRevealElementFromHand";
         if (tryParseDiscardHand(effectText)                   != null) return "DiscardHand";
+        // Mirrors parse(): ahead of DiscardNCards, which claims this text's opening sentence.
+        if (tryParseDiscardConditionalCategoryBranches(effectText, source, 0) != null)
+            return "DiscardConditionalCategoryBranches";
         if (tryParseDiscardNCards(effectText)                 != null) return "DiscardNCards";
         if (tryParseDiscardJobFromHand(effectText)            != null) return "DiscardJobFromHand";
         if (tryParseDiscardThenDraw(effectText)               != null) return "DiscardThenDraw";
@@ -3931,6 +3940,9 @@ public class ActionResolver {
         if (tryParseYouMayDiscardType(effectText) != null)                  return "YouMayDiscardType";
         if (tryParseMayRevealElementFromHand(effectText) != null)           return "MayRevealElementFromHand";
         if (tryParseDiscardHand(effectText) != null)                        return "DiscardHand";
+        // Mirrors parse(): ahead of DiscardNCards, which claims this text's opening sentence.
+        if (tryParseDiscardConditionalCategoryBranches(effectText, source, 0) != null)
+            return "DiscardConditionalCategoryBranches";
         if (tryParseDiscardNCards(effectText) != null)                      return "DiscardNCards";
         if (tryParseDiscardJobFromHand(effectText) != null)                 return "DiscardJobFromHand";
         if (tryParseDiscardThenDraw(effectText) != null)                    return "DiscardThenDraw";

@@ -2268,6 +2268,14 @@ public interface GameContext {
     boolean lastDiscardedCardIsMultiElement();
 
     /**
+     * Returns {@code true} when the card most recently discarded by an effect (not a cost) in the
+     * current ability chain belongs to Category {@code category} (either of its two category
+     * slots). Used by "If the discarded card is a Category X card, …" conditionals attached to a
+     * discard effect — 11-121C Porom, whose draw depends on whether what she discarded was FFIV.
+     */
+    boolean lastDiscardedCardIsCategory(String category);
+
+    /**
      * Returns the CP cost of the Forward most recently removed from the game by a
      * "remove it from the game" effect in the current ability chain.
      * Returns {@code 0} if no Forward has been removed yet.
