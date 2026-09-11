@@ -48765,6 +48765,212 @@ public class CardBehaviorTest {
 	}
 
 	// =========================================================================================
+	// The "If you control N or more …" followup gate, widened past the Element it used to read.
+	//
+	// 28-088H Balthier: "When Balthier attacks, choose 1 Forward. If you control 5 or more
+	// Category MBM Characters, it gains Haste until the end of the turn."  (Effect wiring.)
+	//
+	// The same defect the Marilith test above records, one qualifier over: the gate pattern took
+	// an Element between "N or more" and the type word and nothing else, so a Category or a Job
+	// there made the whole sentence unreadable to it. Every followup parser below it scans with
+	// find(), so each of them reached past the condition and took the verb on its own — Balthier
+	// granted Haste on every attack, 23-037R Lightning dulled every turn, 8-143S Cloud broke on
+	// arrival and 22-092C Agrias bounced, all unconditionally. 41 abilities in all.
+	//
+	// The qualifier now reads Element, "Category X", "Job Y", "Card Name Z", the "and/or" union of
+	// a Job and a Card Name, a second Element over the same type word, and a trailing "other than
+	// <name>". An absent type word means Characters, which is what "2 or more Job Knight" states.
+	// The union and the exclusion go through countSelfFieldCards the way its own javadoc
+	// prescribes — three counts and an overlap subtraction — because that method ANDs its job and
+	// card-name filters on purpose, and handing it a union as one filter would match nobody and
+	// leave the gate permanently shut.
+	//
+	// What the counts still cannot express gives up the whole sentence rather than falling through
+	// to those find() parsers, which is the one thing that must not happen here: an ability that
+	// reports "?" is a known gap, one that quietly drops its condition is not.
+	// =========================================================================================
+
+	/** "Choose 1 Forward. <gate>, <action>." — the shape every test in this section parses. */
+	private static String gatedChoose(String gateAndAction) {
+		return "choose 1 Forward. " + gateAndAction;
+	}
+
+	@Test
+	void balthiersHasteIsGatedOnTheCategoryCount() {
+		String text = gatedChoose("If you control 5 or more Category MBM Characters, "
+				+ "it gains Haste until the end of the turn.");
+		ForwardTarget chosen = fwd(true, 0);
+
+		GameContext enough = mock(GameContext.class);
+		when(enough.consumePreloadedTargets()).thenReturn(List.of(chosen));
+		when(enough.countSelfFieldCards(true, true, true, null, null, "MBM", null)).thenReturn(5);
+		ActionResolver.parse(text, null).accept(enough);
+		verify(enough).boostTarget(chosen, 0, EnumSet.of(CardData.Trait.HASTE));
+
+		GameContext tooFew = mock(GameContext.class);
+		when(tooFew.consumePreloadedTargets()).thenReturn(List.of(chosen));
+		when(tooFew.countSelfFieldCards(true, true, true, null, null, "MBM", null)).thenReturn(4);
+		ActionResolver.parse(text, null).accept(tooFew);
+		verify(tooFew, never()).boostTarget(any(), anyInt(), any());
+	}
+
+	@Test
+	void aJobGateWithNoTypeWordCountsEveryCharacter() {
+		// 22-092C Agrias prints "2 or more Job Knight" with no type after it. Job is a Character
+		// attribute, so the pool is Forwards, Backups and Monsters alike — all three booleans set.
+		String text = gatedChoose("If you control 2 or more Job Knight, break it.");
+		ForwardTarget chosen = fwd(false, 1);
+
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.consumePreloadedTargets()).thenReturn(List.of(chosen));
+		when(ctx.countSelfFieldCards(true, true, true, "Knight", null, null, null)).thenReturn(2);
+		ActionResolver.parse(text, null).accept(ctx);
+
+		verify(ctx).breakTarget(chosen);
+	}
+
+	@Test
+	void aMultiWordJobNameStopsAtTheTypeWordRatherThanSwallowingIt() {
+		// 3-151S Queen: "2 or more Job Class Zero Cadet Forwards". The Job is three words and the
+		// type is the fourth, with nothing but position to tell them apart — read greedily the
+		// filter becomes "Class Zero Cadet Forwards" and matches nobody, so the gate never opens.
+		String text = gatedChoose("If you control 2 or more Job Class Zero Cadet Forwards, dull it.");
+		ForwardTarget chosen = fwd(false, 0);
+
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.consumePreloadedTargets()).thenReturn(List.of(chosen));
+		when(ctx.countSelfFieldCards(true, false, false, "Class Zero Cadet", null, null, null))
+				.thenReturn(2);
+		ActionResolver.parse(text, null).accept(ctx);
+
+		verify(ctx).dullTarget(chosen);
+	}
+
+	@Test
+	void theJobAndCardNameUnionIsCountedByInclusionExclusion() {
+		// 22-094C Vaan: "3 or more Job Pirate and/or Card Name Viking" — a union, counted as
+		// |Job| + |Name| - |both|. Two Pirates and two Vikings with one card in both is three.
+		String text = gatedChoose("If you control 3 or more Job Pirate and/or Card Name Viking, "
+				+ "it loses 8000 power until the end of the turn.");
+		ForwardTarget chosen = fwd(false, 0);
+
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.consumePreloadedTargets()).thenReturn(List.of(chosen));
+		when(ctx.countSelfFieldCards(true, true, true, "Pirate", null,     null, null)).thenReturn(2);
+		when(ctx.countSelfFieldCards(true, true, true, null,     "Viking", null, null)).thenReturn(2);
+		when(ctx.countSelfFieldCards(true, true, true, "Pirate", "Viking", null, null)).thenReturn(1);
+		ActionResolver.parse(text, null).accept(ctx);
+
+		verify(ctx).reduceTarget(chosen, 8000, EnumSet.noneOf(CardData.Trait.class));
+	}
+
+	@Test
+	void theUnionDoesNotDoubleCountACardThatIsBothJobAndName() {
+		// The same board with the overlap term dropped would read four and open a gate that wants
+		// three of four distinct cards; counted properly it is three, so one fewer of each closes it.
+		String text = gatedChoose("If you control 3 or more Job Pirate and/or Card Name Viking, "
+				+ "it loses 8000 power until the end of the turn.");
+		ForwardTarget chosen = fwd(false, 0);
+
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.consumePreloadedTargets()).thenReturn(List.of(chosen));
+		when(ctx.countSelfFieldCards(true, true, true, "Pirate", null,     null, null)).thenReturn(2);
+		when(ctx.countSelfFieldCards(true, true, true, null,     "Viking", null, null)).thenReturn(2);
+		when(ctx.countSelfFieldCards(true, true, true, "Pirate", "Viking", null, null)).thenReturn(2);
+		ActionResolver.parse(text, null).accept(ctx);
+
+		verify(ctx, never()).reduceTarget(any(), anyInt(), any());
+	}
+
+	@Test
+	void anOtherThanExclusionSubtractsTheNamedCardFromThePool() {
+		// 6-083H Y'shtola: "5 or more Job Scion of the Seventh Dawn other than Y'shtola". Six
+		// Scions of which one is Y'shtola is five, and the gate opens; take one away and it does not.
+		String text = gatedChoose("If you control 5 or more Job Scion of the Seventh Dawn "
+				+ "other than Y'shtola, deal it 8000 damage.");
+		ForwardTarget chosen = fwd(false, 0);
+
+		GameContext enough = mock(GameContext.class);
+		when(enough.consumePreloadedTargets()).thenReturn(List.of(chosen));
+		when(enough.countSelfFieldCards(true, true, true, "Scion of the Seventh Dawn", null, null, null))
+				.thenReturn(6);
+		when(enough.countSelfFieldCards(true, true, true, "Scion of the Seventh Dawn", "Y'shtola", null, null))
+				.thenReturn(1);
+		ActionResolver.parse(text, null).accept(enough);
+		verify(enough).damageTarget(chosen, 8000);
+
+		GameContext tooFew = mock(GameContext.class);
+		when(tooFew.consumePreloadedTargets()).thenReturn(List.of(chosen));
+		when(tooFew.countSelfFieldCards(true, true, true, "Scion of the Seventh Dawn", null, null, null))
+				.thenReturn(5);
+		when(tooFew.countSelfFieldCards(true, true, true, "Scion of the Seventh Dawn", "Y'shtola", null, null))
+				.thenReturn(1);
+		ActionResolver.parse(text, null).accept(tooFew);
+		verify(tooFew, never()).damageTarget(any(), anyInt());
+	}
+
+	@Test
+	void aCardNameGateCountsByNameAlone() {
+		// 3-001C Red Mage: "4 or more Card Name Red Mage" — no Job, no Category, no type word.
+		String text = gatedChoose("If you control 4 or more Card Name Red Mage, deal it 8000 damage.");
+		ForwardTarget chosen = fwd(false, 0);
+
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.consumePreloadedTargets()).thenReturn(List.of(chosen));
+		when(ctx.countSelfFieldCards(true, true, true, null, "Red Mage", null, null)).thenReturn(4);
+		ActionResolver.parse(text, null).accept(ctx);
+
+		verify(ctx).damageTarget(chosen, 8000);
+	}
+
+	@Test
+	void aSecondElementJoinsTheFirstAsOneBarSeparatedFilter() {
+		// 27-114R Robel-Akbel: "5 or more Fire Backups and/or Earth Backups". Asked as two counts
+		// this would double-count a Fire/Earth Backup; asked as one "Fire|Earth" filter it cannot,
+		// because effectiveContainsElement answers per card rather than per Element.
+		String text = "choose 1 Character. If you control 5 or more Fire Backups and/or Earth "
+				+ "Backups, break it.";
+		ForwardTarget chosen = fwd(false, 0);
+
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.consumePreloadedTargets()).thenReturn(List.of(chosen));
+		when(ctx.selfFieldCount("Fire|Earth", false, true, false)).thenReturn(5);
+		ActionResolver.parse(text, null).accept(ctx);
+
+		verify(ctx).breakTarget(chosen);
+	}
+
+	@Test
+	void aGateNoCountCanExpressGivesUpTheWholeSentence() {
+		// 3-079H Kefka's "3 or more different Element Backups" is a shape none of the field counts
+		// name. Falling through would hand "break it" to the unconditional break handler, which is
+		// strictly stronger than the printed card — so the text is left unread instead.
+		String text = gatedChoose("If you control 3 or more different Element Backups, break it.");
+
+		assertNull(ActionResolver.parse(text, null));
+	}
+
+	@Test
+	void theGateIsNamedRatherThanTheVerbItGuards() {
+		// The description is the only place the condition is visible to a reader, and it was
+		// reporting the bare verb — "ChooseCharacter / Break" for a break that is conditional.
+		assertEquals("ChooseCharacter / IfSelfControlsNElementTypeAction",
+				ActionResolver.fullDescription(
+						gatedChoose("If you control 4 or more Category VII Forwards, break it."), null));
+		assertEquals("ChooseCharacter / IfSelfControlsNElementTypeDamage",
+				ActionResolver.fullDescription(
+						gatedChoose("If you control 4 or more Category IX Characters, deal it 7000 damage."), null));
+	}
+
+	@Test
+	void anUngatedFollowupIsUnaffectedByTheWiderQualifier() {
+		// The qualifier now ends at a required comma, so a sentence whose words merely resemble it
+		// cannot be claimed with the leftovers swept into the action.
+		assertEquals("ChooseCharacter / Break",
+				ActionResolver.fullDescription(gatedChoose("Break it."), null));
+	}
+
+	// =========================================================================================
 	// 12-042C Cactuar: "When Cactuar enters the field, select 1 of the 2 following actions.
 	// 'Cactuar also becomes a Forward with 4000 power.' (This effect does not end at the end of the
 	// turn.) 'Put Cactuar into the Break Zone. When you do so, choose 1 Forward. Your opponent

@@ -587,6 +587,19 @@ public class ActionResolver {
         result = tryParseChooseThenEndOfOppTurnAction(effectText, source, xValue);
         if (result != null) return result;
 
+        // Must precede tryParseChooseTwoJointAction, which reads one filter per descriptor and so
+        // loses the "in your Break Zone" that Xande 10-008L states once for both — it would take
+        // the first Fire Forward off the field. Both were out of its reach until parseTargetAction
+        // learned "play them onto the field" and "add them to your hand", at which point the joint
+        // parser's guard (it needs a readable action) stopped holding them back.
+        result = tryParseChooseTwoCostsFromBzPlayBoth(effectText);
+        if (result != null) return result;
+
+        // Same, for 17-071R Dorando: the bespoke parser is the one that has been reading it, and
+        // its two allowances over one zone are what it was written for.
+        result = tryParseChooseUpTo1EachInOwnBzToHand(effectText);
+        if (result != null) return result;
+
         // Must precede tryParseChooseCharacter: that parser matches the first of the two choose
         // clauses alone and applies the effect to it, silently dropping the second (19-114L Cloud
         // broke a Forward of cost 4 or less and never one of cost 5 or more). Placed here, after
@@ -613,11 +626,6 @@ public class ActionResolver {
         // followup branch for the wording, so Palom's Meteor logged "followup not yet implemented"
         // and dealt nothing at all.
         result = tryParseChooseTieredDamage(effectText);
-        if (result != null) return result;
-
-        // Must precede tryParseChooseCharacter: that chain reads one filter per sentence, so it
-        // claimed Xande 10-008L's first pick and left the second's cost with nothing to attach to.
-        result = tryParseChooseTwoCostsFromBzPlayBoth(effectText);
         if (result != null) return result;
 
         // Must precede tryParseChooseCharacter: that chain finds "choose 1 Forward" in the third
@@ -662,12 +670,6 @@ public class ActionResolver {
         // field and a Break Zone rather than spanning both, so the one shared allowance this text
         // states cannot survive that route.
         result = tryParseChooseOppFwdsOrOwnBzFwdsRfg(effectText);
-        if (result != null) return result;
-
-        // Must precede tryParseChooseCharacter for a neighbouring reason: 17-071R Dorando states
-        // two allowances over one zone ("up to 1 Forward and up to 1 Backup"), and that chain reads
-        // a single pool — it took the Forward and left the Backup as an unread followup.
-        result = tryParseChooseUpTo1EachInOwnBzToHand(effectText);
         if (result != null) return result;
 
         result = tryParseChooseCharacter(effectText, source, xValue);
@@ -2070,6 +2072,10 @@ public class ActionResolver {
         // answer for a text they win in parse(), where they are called ~80 call sites earlier.
         // Their own naming gap ("Choose 1 Forward and 1 Backup. Break them." still reports
         // ChooseCharacter) is separate, outstanding Phase 2 work.
+        // Mirrors parse(): both of these read a Break-Zone scope the joint parser splits across
+        // its two descriptors and loses, so they are asked first.
+        if (tryParseChooseTwoCostsFromBzPlayBoth(effectText) != null) return "ChooseTwoCostsFromBzPlayBoth";
+        if (tryParseChooseUpTo1EachInOwnBzToHand(effectText) != null) return "ChooseUpTo1EachInOwnBzToHand";
         if (tryParseChooseThreeMixedTypes(effectText, source) == null
                 && tryParseChooseTwoMixedTypes(effectText, source) == null
                 && tryParseChooseTwoJointAction(effectText, source) != null)
@@ -2083,14 +2089,10 @@ public class ActionResolver {
         // Mirrors parse(): ahead of ChooseCharacter, which claims the text and then has no
         // followup branch for the per-pick amounts.
         if (tryParseChooseTieredDamage(effectText) != null) return "ChooseTieredDamage";
-        // Mirrors parse(): ahead of ChooseCharacter, which claims the first of the two picks.
-        if (tryParseChooseTwoCostsFromBzPlayBoth(effectText) != null) return "ChooseTwoCostsFromBzPlayBoth";
         // Mirrors parse(): ahead of ChooseCharacter, which claims the third sentence alone.
         if (tryParseSelectOwnFwdToBzGainControlSameCost(effectText)     != null) return "SelectOwnFwdToBzGainControlSameCost";
         // Mirrors parse(): ahead of ChooseCharacter, which cannot span the two zones at once.
         if (tryParseChooseOppFwdsOrOwnBzFwdsRfg(effectText)             != null) return "ChooseOppFwdsOrOwnBzFwdsRfg";
-        // Mirrors parse(): ahead of ChooseCharacter, which reads one allowance where this states two.
-        if (tryParseChooseUpTo1EachInOwnBzToHand(effectText)            != null) return "ChooseUpTo1EachInOwnBzToHand";
         // Mirrors parse(): ahead of ChooseCharacter, because the gated effect may itself be a
         // choose (16-021C Rain), and in parse()'s order — the two compound forms before the
         // leading one, which cannot see past their opening clause.
@@ -2659,6 +2661,15 @@ public class ActionResolver {
         // damage were being dropped.
         if (FOLLOWUP_ENTERED_FORWARD_POWER_DAMAGE_TO_CHOSEN.matcher(followupText).find())
                                                                                       return "EnteredForwardPowerDamageToChosen";
+        // The "If you control N or more …, deal it X damage" gate, ahead of the plain damage name
+        // for the reason its three neighbours above are: that one finds "deal it 8000 damage" in
+        // the middle of this sentence and reports the card as dealing a flat 8000, with the
+        // condition nowhere in the description. The choose chain has dispatched this correctly
+        // since it was wired — 3-001C Red Mage and 6-083H Y'shtola read as unconditional here and
+        // only here.
+        Matcher selfCondDamageM = FOLLOWUP_IF_SELF_CONTROLS_N_ELEMENT_TYPE_DAMAGE.matcher(followupText);
+        if (selfCondDamageM.matches() && selfControlsGate(selfCondDamageM) != null)
+                                                                                      return "IfSelfControlsNElementTypeDamage";
         if (FOLLOWUP_DAMAGE.matcher(followupText).find())                             return "Damage";
         if (FOLLOWUP_DAMAGE_EXPR.matcher(followupText).find())                        return "DamageExpr";
         if (FOLLOWUP_DIVIDE_DAMAGE_AMONG_CHOSEN.matcher(followupText).find())         return "DivideDamageAmongChosen";
@@ -2669,7 +2680,8 @@ public class ActionResolver {
         // action is not a recognised target action still fall through to their own handler.
         Matcher selfCondActionM = FOLLOWUP_IF_SELF_CONTROLS_N_ELEMENT_TYPE_ACTION.matcher(followupText);
         if (selfCondActionM.matches()
-                && parseTargetAction(selfCondActionM.group("action").trim(), 0) != null)
+                && parseTargetAction(selfCondActionM.group("action").trim(), 0) != null
+                && selfControlsGate(selfCondActionM) != null)
             return "IfSelfControlsNElementTypeAction";
         if (FOLLOWUP_ACTIVATE_AND_NEGATE_DAMAGE.matcher(followupText).find())          return "ActivateAndNegateDamage";
         if (FOLLOWUP_NEGATE_DAMAGE.matcher(followupText).find())                      return "NegateDamage";
@@ -2900,7 +2912,8 @@ public class ActionResolver {
         if (FOLLOWUP_PUT_TO_BREAK_ZONE.matcher(followupText).find())                  return "PutToBreakZone";
         if (FOLLOWUP_SELECT_NUMBER_REVEAL_BREAK.matcher(followupText).find())         return "SelectNumberRevealBreak";
         if (FOLLOWUP_IF_OPPONENT_CONTROLS_FORWARDS_DAMAGE.matcher(followupText).matches()) return "IfOppControlsForwardsDamage";
-        if (FOLLOWUP_IF_SELF_CONTROLS_N_ELEMENT_TYPE_DAMAGE.matcher(followupText).matches()) return "IfSelfControlsNElementTypeDamage";
+        // The self-controls damage gate is named far above, ahead of the plain "Damage" arm that
+        // would otherwise find its damage clause and drop the condition.
         if (FOLLOWUP_REVEAL_TOP_N_DAMAGE_PER_CP_ADD_ALL_TO_HAND.matcher(followupText).find()) return "RevealTopNDamagePerCpAddAllToHand";
         if (FOLLOWUP_REVEAL_TOP_N_JOB_DEAL_DMG_PLACE_BOTTOM.matcher(followupText).find())    return "RevealTopNJobDealDmgPlaceBottom";
         return null;
@@ -3253,6 +3266,11 @@ public class ActionResolver {
         // describes this as "ChooseCharacter / ? + IfControl(…: ?)".
         if (tryParseChooseTwoBzFwdPlayIfControl(effectText, source) != null)
             return "ChooseTwoBzFwdPlayIfControl";
+        // Mirrors parse() and matchedPatternName(): both read a Break-Zone scope the joint parser
+        // splits across its two descriptors and loses, so they are asked ahead of it.
+        if (tryParseChooseTwoCostsFromBzPlayBoth(effectText) != null) return "ChooseTwoCostsFromBzPlayBoth";
+        if (tryParseChooseUpTo1EachInOwnBzToHand(effectText) != null)
+            return "ChooseUpTo1EachInOwnBz / AddToHand";
         // Mirrors parse() and matchedPatternName(): must precede the ChooseCharacter block, which
         // describes only the first of the two choose clauses.
         if (tryParseChooseTwoJointAction(effectText, source) != null) {
@@ -3302,10 +3320,6 @@ public class ActionResolver {
                 return "IfPutFromFieldToBzThisTurn / "
                         + descOrUnread(midM.group("lead").trim() + " " + midM.group("tail").trim(), source);
         }
-        // Mirrors parse() and matchedPatternName(): must precede the ChooseCharacter block, which
-        // describes Xande 10-008L as "ChooseCharacter / ? + PlayOntoField" — one pick, and the
-        // filter that decides the other reported as unread.
-        if (tryParseChooseTwoCostsFromBzPlayBoth(effectText) != null) return "ChooseTwoCostsFromBzPlayBoth";
         // Mirrors parse() and matchedPatternName(): ahead of the ChooseCharacter block, which
         // describes 14-098R Ultimecia's third sentence on its own and reports the two ahead of it
         // as unread.
@@ -3315,10 +3329,6 @@ public class ActionResolver {
         // cannot span the two zones this choice offers at once.
         if (tryParseChooseOppFwdsOrOwnBzFwdsRfg(effectText) != null)
             return "ChooseOppFwdsOrOwnBzFwds / RemoveFromGame";
-        // Mirrors parse() and matchedPatternName(): ahead of the ChooseCharacter block, which reads
-        // one allowance where this states two.
-        if (tryParseChooseUpTo1EachInOwnBzToHand(effectText) != null)
-            return "ChooseUpTo1EachInOwnBz / AddToHand";
         // Mirrors tryParseChooseCharacter, which strips this trailing delayed trigger and parses
         // the rest as an ordinary choose-and-act. Without the same strip here the clause fell past
         // the choose block's sentence split and was reported as an unread tail — 15-014H Brynhildr
@@ -4821,7 +4831,149 @@ public class ActionResolver {
                 sortedByIdxDesc(ts, false).forEach(ctx::dullTarget);
             };
 
+        // Five verbs the choose chain reads for itself further down, added here so a gate can be
+        // put in front of them: without them, "If you control 4 or more Job Warrior of Light
+        // Forwards, remove it from the game" (10-128L Refia) has no readable action, and the
+        // sentence falls through to the ungated handler — the defect the gate exists to fix.
+        // Anchored end to end, so they claim a clause only when it is the whole clause.
+        Matcher rfgM = TARGET_ACTION_REMOVE_FROM_GAME.matcher(t);
+        if (rfgM.matches()) {
+            String drawStr = rfgM.group("draw");
+            final int draw = drawStr != null ? Integer.parseInt(drawStr) : 0;
+            return (ctx, ts) -> {
+                sortedByIdxDesc(ts, true) .forEach(ctx::removeTargetFromGame);
+                sortedByIdxDesc(ts, false).forEach(ctx::removeTargetFromGame);
+                if (draw > 0) ctx.drawCards(draw);
+            };
+        }
+
+        if (TARGET_ACTION_ADD_TO_HAND.matcher(t).matches())
+            return (ctx, ts) -> {
+                sortedByIdxDesc(ts, true) .forEach(ctx::addTargetToHand);
+                sortedByIdxDesc(ts, false).forEach(ctx::addTargetToHand);
+            };
+
+        // Both deck placements are scoped to the field, as their choose-chain twins are: a card
+        // already in a Break Zone has no field slot to be returned from.
+        if (TARGET_ACTION_PUT_BOTTOM_OF_OWNERS_DECK.matcher(t).matches())
+            return (ctx, ts) -> {
+                sortedByIdxDesc(ts, true)
+                        .filter(x -> x.zone() == ForwardTarget.CardZone.FORWARD)
+                        .forEach(x -> ctx.returnP1ForwardToDeckBottom(x.idx()));
+                sortedByIdxDesc(ts, false)
+                        .filter(x -> x.zone() == ForwardTarget.CardZone.FORWARD)
+                        .forEach(x -> ctx.returnP2ForwardToDeckBottom(x.idx()));
+            };
+
+        if (TARGET_ACTION_PUT_TOP_OF_OWNERS_DECK.matcher(t).matches())
+            return (ctx, ts) -> {
+                sortedByIdxDesc(ts, true)
+                        .filter(x -> x.zone() == ForwardTarget.CardZone.FORWARD)
+                        .forEach(x -> ctx.returnP1ForwardToDeckTop(x.idx()));
+                sortedByIdxDesc(ts, false)
+                        .filter(x -> x.zone() == ForwardTarget.CardZone.FORWARD)
+                        .forEach(x -> ctx.returnP2ForwardToDeckTop(x.idx()));
+            };
+
+        if (TARGET_ACTION_PLAY_ONTO_FIELD.matcher(t).matches())
+            return (ctx, ts) -> {
+                sortedByIdxDesc(ts, true) .forEach(ctx::playTargetOntoField);
+                sortedByIdxDesc(ts, false).forEach(ctx::playTargetOntoField);
+            };
+
         return null;
+    }
+
+    /**
+     * Reads the {@linkplain ActionResolverPatterns#SELF_CONTROLS_QUALIFIER "N or more …"}
+     * qualifier of an {@code IF_SELF_CONTROLS} gate into the condition it states, or returns
+     * {@code null} when the qualifier names a pool the counting primitives cannot express.
+     *
+     * <p>Shared by both gate branches of the choose chain and by {@code followupName}, so all
+     * three agree on which gates are readable: a name reported for a gate the dispatch declines
+     * would describe a condition the card never applies.
+     *
+     * <p>An absent type word means Characters — "2 or more Job Knight" (22-092C Agrias) counts
+     * Forwards, Backups and Monsters alike, Job being a Character attribute. "Summons" stays the
+     * empty pool it has always been here: Summons are never on the field to be counted.
+     *
+     * <p>"Job X and/or Card Name Y" (8-106C Dragoon, 22-094C Bikke) is a union, and
+     * {@code countSelfFieldCards} ANDs those two filters on purpose — so it is counted the way
+     * that method's own javadoc prescribes, by asking three times and subtracting the overlap.
+     * "… other than &lt;name&gt;" (6-083H Y'shtola) subtracts the named card from the pool the
+     * same way. The one combination declined is both at once, which no printing spells and whose
+     * overlap term is not one of these counts.
+     */
+    static Predicate<GameContext> selfControlsGate(Matcher m) {
+        final String category = groupOrNull(m, "category");
+        final String job      = groupOrNull(m, "job");
+        final String cardName = groupOrNull(m, "cardname");
+        final String exclude  = groupOrNull(m, "excl");
+        final String typeRaw  = groupOrNull(m, "type");
+        final String element2 = groupOrNull(m, "element2");
+        String elementRaw     = groupOrNull(m, "element");
+        // A second Element joins the first as one bar-separated filter, which every field count
+        // here resolves through effectiveContainsElement — so a card carrying both is counted once.
+        final String element  = element2 == null ? elementRaw
+                              : elementRaw == null ? element2 : elementRaw + "|" + element2;
+
+        // An Element with no type word names nothing countable ("2 or more Fire, …"), so it is
+        // declined rather than guessed at. The three name filters carry their own pool.
+        if (typeRaw == null && job == null && category == null && cardName == null) return null;
+        if (exclude != null && cardName != null) return null;
+
+        String type = typeRaw == null ? "character" : typeRaw.toLowerCase(Locale.ROOT);
+        final boolean inclFwd = type.startsWith("forward") || type.startsWith("character");
+        final boolean inclBkp = type.startsWith("backup")  || type.startsWith("character");
+        final boolean inclMon = type.startsWith("monster") || type.startsWith("character");
+
+        final int minCount = Integer.parseInt(m.group("count"));
+        // The Element-or-type-only form keeps its original primitive. selfFieldCount and
+        // countSelfFieldCards agree on the answer, but they are different methods to a Mockito
+        // mock, and the tests that stub this gate name the one that was here first.
+        if (job == null && category == null && cardName == null && exclude == null)
+            return ctx -> ctx.selfFieldCount(element, inclFwd, inclBkp, inclMon) >= minCount;
+
+        return ctx -> {
+            int n;
+            if (job != null && cardName != null)
+                n = ctx.countSelfFieldCards(inclFwd, inclBkp, inclMon, job,  null,     category, element)
+                  + ctx.countSelfFieldCards(inclFwd, inclBkp, inclMon, null, cardName, category, element)
+                  - ctx.countSelfFieldCards(inclFwd, inclBkp, inclMon, job,  cardName, category, element);
+            else
+                n = ctx.countSelfFieldCards(inclFwd, inclBkp, inclMon, job, cardName, category, element);
+            if (exclude != null)
+                n -= ctx.countSelfFieldCards(inclFwd, inclBkp, inclMon, job, exclude, category, element);
+            return n >= minCount;
+        };
+    }
+
+    /** Renders the same qualifier for the log header and the characterization description. */
+    static String selfControlsGateLabel(Matcher m) {
+        StringBuilder sb = new StringBuilder("If you control ≥").append(m.group("count")).append(' ');
+        String element  = groupOrNull(m, "element");
+        String element2 = groupOrNull(m, "element2");
+        if (element2 != null) element = element == null ? element2 : element + "/" + element2;
+        String category = groupOrNull(m, "category");
+        String job      = groupOrNull(m, "job");
+        String cardName = groupOrNull(m, "cardname");
+        String type     = groupOrNull(m, "type");
+        String exclude  = groupOrNull(m, "excl");
+        if (element  != null) sb.append(element).append(' ');
+        if (category != null) sb.append("Category ").append(category).append(' ');
+        if (job      != null) sb.append("Job ").append(job).append(cardName != null ? " and/or " : " ");
+        if (cardName != null) sb.append("Card Name ").append(cardName).append(' ');
+        sb.append(type != null ? type : "Characters");
+        if (exclude != null) sb.append(" other than ").append(exclude);
+        return sb.toString();
+    }
+
+    /** Trimmed group value, or {@code null} when the group did not participate or is blank. */
+    private static String groupOrNull(Matcher m, String name) {
+        String g = m.group(name);
+        if (g == null) return null;
+        g = g.trim();
+        return g.isEmpty() ? null : g;
     }
 
     static int resolveInsteadDamage(GameContext ctx, ForwardTarget t,

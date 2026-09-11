@@ -3013,29 +3013,23 @@ final class ActionResolverChoose {
         // --- "If you control N or more [Element] [Type], deal it X damage" followup ---
         Matcher selfFieldCondM = FOLLOWUP_IF_SELF_CONTROLS_N_ELEMENT_TYPE_DAMAGE.matcher(primaryFollowup);
         if (selfFieldCondM.matches()) {
-            int    minCount    = Integer.parseInt(selfFieldCondM.group("count"));
-            int    damage      = Integer.parseInt(selfFieldCondM.group("amount"));
-            String condElement  = selfFieldCondM.group("element");  // null if absent
-            String condTypeRaw  = selfFieldCondM.group("type");
-            String condType     = condTypeRaw.toLowerCase();
-            boolean cFwd = condType.startsWith("forward") || condType.startsWith("character");
-            boolean cBkp = condType.startsWith("backup")  || condType.startsWith("character");
-            boolean cMon = condType.startsWith("monster")  || condType.startsWith("character");
-            return ctx -> {
-                String label = "If you control ≥" + minCount + " "
-                        + (condElement != null ? condElement + " " : "")
-                        + condTypeRaw + ", deal " + damage + " damage";
-                ctx.logChooseHeader(choosePrefix + " — " + label);
-                List<ForwardTarget> ts = selectTargets(ctx, maxCount, upTo,
-                        opponentOnly, selfOnly, condition, element, zone, opponentZone,
-                        costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters,
-                        jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, fExcludeElem, withoutMulticard);
-                if (ctx.selfFieldCount(condElement, cFwd, cBkp, cMon) >= minCount) {
-                    sortedByIdxDesc(ts, true) .forEach(t -> ctx.damageTarget(t, damage));
-                    sortedByIdxDesc(ts, false).forEach(t -> ctx.damageTarget(t, damage));
-                }
-                if (secondary != null) secondary.accept(ctx);
-            };
+            Predicate<GameContext> dmgGate = selfControlsGate(selfFieldCondM);
+            if (dmgGate != null) {
+                final int    damage = Integer.parseInt(selfFieldCondM.group("amount"));
+                final String label  = selfControlsGateLabel(selfFieldCondM) + ", deal " + damage + " damage";
+                return ctx -> {
+                    ctx.logChooseHeader(choosePrefix + " — " + label);
+                    List<ForwardTarget> ts = selectTargets(ctx, maxCount, upTo,
+                            opponentOnly, selfOnly, condition, element, zone, opponentZone,
+                            costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters,
+                            jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, fExcludeElem, withoutMulticard);
+                    if (dmgGate.test(ctx)) {
+                        sortedByIdxDesc(ts, true) .forEach(t -> ctx.damageTarget(t, damage));
+                        sortedByIdxDesc(ts, false).forEach(t -> ctx.damageTarget(t, damage));
+                    }
+                    if (secondary != null) secondary.accept(ctx);
+                };
+            }
         }
 
         // --- "If you control N or more [Element] [Type], <action> it/them" followup ---
@@ -3046,24 +3040,19 @@ final class ActionResolverChoose {
             String actionText = selfFieldActionM.group("action").trim();
             BiConsumer<GameContext, List<ForwardTarget>> condAction =
                     parseTargetAction(actionText, xValue);
-            if (condAction != null) {
-                int    minCount    = Integer.parseInt(selfFieldActionM.group("count"));
-                String condElement = selfFieldActionM.group("element");  // null if absent
-                String condTypeRaw = selfFieldActionM.group("type");
-                String condType    = condTypeRaw.toLowerCase();
-                boolean cFwd = condType.startsWith("forward") || condType.startsWith("character");
-                boolean cBkp = condType.startsWith("backup")  || condType.startsWith("character");
-                boolean cMon = condType.startsWith("monster") || condType.startsWith("character");
+            // Both halves have to be understood before either is claimed: the gate's pool and the
+            // action it gates. A readable gate over an unreadable action, or the reverse, leaves
+            // the sentence to the guard below rather than applying the half that did parse.
+            Predicate<GameContext> gate = selfControlsGate(selfFieldActionM);
+            if (condAction != null && gate != null) {
+                final String label = selfControlsGateLabel(selfFieldActionM) + ", " + actionText;
                 return ctx -> {
-                    String label = "If you control ≥" + minCount + " "
-                            + (condElement != null ? condElement + " " : "")
-                            + condTypeRaw + ", " + actionText;
                     ctx.logChooseHeader(choosePrefix + " — " + label);
                     List<ForwardTarget> ts = selectTargets(ctx, maxCount, upTo,
                             opponentOnly, selfOnly, condition, element, zone, opponentZone,
                             costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters,
                             jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, fExcludeElem, withoutMulticard);
-                    if (ctx.selfFieldCount(condElement, cFwd, cBkp, cMon) >= minCount)
+                    if (gate.test(ctx))
                         condAction.accept(ctx, ts);
                     else
                         ctx.logEntry("Condition not met — " + actionText + " skipped");
@@ -3071,6 +3060,25 @@ final class ActionResolverChoose {
                 };
             }
         }
+
+        // Fail closed on any "If you control N or more …" followup neither branch above could
+        // read. Everything below scans primaryFollowup with find(), so letting one through does
+        // not leave it unhandled — it hands the gated verb to a handler that applies it with no
+        // condition in front of it, which is strictly stronger than the printed card. That is the
+        // defect this pair of branches exists to fix, and it is not an acceptable fallback; the
+        // three cast-payment gates above give up the whole text for the same reason.
+        //
+        // What still reaches here is a qualifier the counts cannot express — 27-114R's "5 or more
+        // Fire Backups and/or Earth Backups" (an Element union, where the overlap term would need
+        // a two-Element count) and 3-079H's "3 or more different Element Backups" — or an action
+        // no parser reads. An ability that reports "?" is the honest answer for both.
+        //
+        // 25-064C Dyne is the one shape allowed past: its mutual-power exchange reads this gate
+        // for itself further down the chain, because the source-name check that identifies it has
+        // to sit inside the same pattern as the gate.
+        if (FOLLOWUP_IF_SELF_CONTROLS_GATE.matcher(primaryFollowup).find()
+                && !FOLLOWUP_MUTUAL_POWER_DAMAGE.matcher(primaryFollowup).find())
+            return null;
 
         // --- Split effect: [action A] the first [type] … and [action B] the other ---
         Matcher foM = FOLLOWUP_FIRST_AND_OTHER.matcher(primaryFollowup);

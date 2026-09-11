@@ -9163,21 +9163,60 @@ final class ActionResolverPatterns {
         "(?i)^If\\s+your\\s+opponent\\s+controls\\s+(?<count>\\d+)\\s+or\\s+more\\s+Forwards?,\\s+" +
         "deal\\s+(?:it|them)\\s+(?<amount>\\d+)\\s+damage[.!]?$"
     );
+    /** The card-type words a "you control N or more …" qualifier can end with. */
+    private static final String SELF_CONTROLS_TYPES = "Forwards?|Backups?|Monsters?|Characters?|Summons?";
     /**
-     * Matches "If you control N or more [Element] [Type], deal it/them X damage[.!]?"
-     * as a choose-character followup.
-     * <ul>
-     *   <li>{@code count}   — minimum number of own field cards required</li>
-     *   <li>{@code element} — optional element filter (e.g. "Fire"); absent = any</li>
-     *   <li>{@code type}    — card type: Forward(s), Backup(s), Monster(s), Character(s), Summon(s)</li>
-     *   <li>{@code amount}  — damage to deal when the condition is met</li>
-     * </ul>
+     * Where a Job, Category or Card Name phrase inside that qualifier stops: at a type word, at
+     * the "and/or Card Name" that joins it to a second pool, at an "other than" exclusion, or at
+     * the comma that ends the qualifier. Without it a lazy name group runs to the comma and takes
+     * the type word with it ("Job Class Zero Cadet Forwards"), and a greedy one takes the effect.
+     */
+    private static final String SELF_CONTROLS_PHRASE_END =
+        "(?=\\s+(?:" + SELF_CONTROLS_TYPES + ")\\b" +
+        "|\\s+(?:and/)?or\\s+Card\\s+Name\\b" +
+        "|\\s+other\\s+than\\b" +
+        "|\\s*,)";
+    /**
+     * The qualifier shared by the two "If you control N or more …" followup gates below:
+     * an optional Element, an optional "Category X", an optional "Job Y" — optionally united
+     * with "and/or Card Name Z" — an optional type word, and an optional "other than &lt;name&gt;"
+     * exclusion. Groups {@code count}, {@code element}, {@code category}, {@code job},
+     * {@code cardname}, {@code type}, {@code excl}.
+     *
+     * <p>Every part but the count is optional because the printings vary: "5 or more Category MBM
+     * Characters" (28-088H Balthier) names a Category and a type, "2 or more Job Knight" (22-092C
+     * Agrias) names a Job and no type, "4 or more Card Name Red Mage" (3-001C) names neither.
+     * Reading what survives — and declining what the counting primitives cannot express — is
+     * {@link ActionResolver#selfControlsGate}'s job, not the pattern's.
+     */
+    private static final String SELF_CONTROLS_QUALIFIER =
+        "(?<count>\\d+)\\s+or\\s+more\\s+" +
+        "(?:(?<element>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)\\s+)?" +
+        "(?:Category\\s+(?<category>Crystal\\s+Hunt|\\S+)" + SELF_CONTROLS_PHRASE_END + "\\s*)?" +
+        "(?:Job\\s+(?<job>.+?)" + SELF_CONTROLS_PHRASE_END + "\\s*)?" +
+        "(?:(?:and/)?or\\s+)?" +
+        "(?:Card\\s+Name\\s+(?<cardname>.+?)" + SELF_CONTROLS_PHRASE_END + "\\s*)?" +
+        "(?:(?<type>" + SELF_CONTROLS_TYPES + ")\\s*)?" +
+        // "5 or more Fire Backups and/or Earth Backups" (27-114R) — a second Element over the same
+        // type word. Read as one pool rather than two counts: the filter becomes "Fire|Earth",
+        // which effectiveContainsElement already takes, so a Fire/Earth Backup is counted once.
+        "(?:(?:and/)?or\\s+(?<element2>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)\\s+" +
+            "(?:" + SELF_CONTROLS_TYPES + ")\\s*)?" +
+        "(?:other\\s+than\\s+(?<excl>[^,]+?)\\s*)?";
+    /**
+     * Matches "If you control N or more &lt;qualifier&gt;, deal it/them X damage[.!]?"
+     * as a choose-character followup, where the qualifier is
+     * {@linkplain #SELF_CONTROLS_QUALIFIER the shared one} — so the Category, Job and Card Name
+     * spellings count here exactly as they do in the general
+     * {@link #FOLLOWUP_IF_SELF_CONTROLS_N_ELEMENT_TYPE_ACTION} form. Group {@code amount} is the
+     * damage dealt when the condition holds.
+     *
+     * <p>This branch exists because {@code parseTargetAction} does not read plain damage, so the
+     * general form cannot cover "deal it 9000 damage" (26-063R Azeyma, 25-066L Cloud, 21-011H).
      */
     static final Pattern FOLLOWUP_IF_SELF_CONTROLS_N_ELEMENT_TYPE_DAMAGE = Pattern.compile(
-        "(?i)^If\\s+you\\s+control\\s+(?<count>\\d+)\\s+or\\s+more\\s+" +
-        "(?:(?<element>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)\\s+)?" +
-        "(?<type>Forwards?|Backups?|Monsters?|Characters?|Summons?),?\\s+" +
-        "deal\\s+(?:it|them)\\s+(?<amount>\\d+)\\s+damage[.!]?$"
+        "(?i)^If\\s+you\\s+control\\s+" + SELF_CONTROLS_QUALIFIER +
+        ",?\\s*deal\\s+(?:it|them)\\s+(?<amount>\\d+)\\s+damage[.!]?$"
     );
     /**
      * The general form of {@link #FOLLOWUP_IF_SELF_CONTROLS_N_ELEMENT_TYPE_DAMAGE}: the same
@@ -9187,12 +9226,79 @@ final class ActionResolverPatterns {
      * choosing: the targets are picked either way.
      * <p>{@code action} is handed to {@link #parseTargetAction}, so this only takes effect for
      * actions that machinery recognises; anything else falls through to the handlers below.
+     *
+     * <p>The qualifier also takes a Category or a Job in place of — or ahead of — the Element:
+     * "5 or more Category MBM Characters" (28-088H Balthier), "2 or more Job Knight" (22-092C
+     * Agrias). Those spell the same gate and were the pattern's blind spot: it read only an
+     * Element there, so the sentence fell through to the plain action handlers below, which
+     * {@code find()} their verb and ran the action with no condition at all. Balthier granted
+     * Haste unconditionally; 23-037R Lightning dulled, 8-143S Cloud broke and 22-092C Agrias
+     * bounced on the same mechanism.
+     *
+     * <p>The type word is optional once a Category or Job is present, because "2 or more Job
+     * Knight" prints no type — and Job is a Character attribute, so absent means Characters.
+     * The comma before {@code action} is <em>required</em>, which is what keeps the now-optional
+     * type from letting the qualifier end mid-phrase: "3 or more Characters of cost 2 or less,
+     * General Leo gains +2000 power" and "5 or more Fire Backups and/or Earth Backups, break it"
+     * both used to match with the leftover words swept into {@code action}, where a find()-based
+     * handler picked the verb back out of them.
+     *
+     * <p>The qualifier is {@linkplain #SELF_CONTROLS_QUALIFIER the shared one}; reading it is
+     * {@link ActionResolver#selfControlsGate}'s job, not the pattern's.
      */
     static final Pattern FOLLOWUP_IF_SELF_CONTROLS_N_ELEMENT_TYPE_ACTION = Pattern.compile(
-        "(?i)^If\\s+you\\s+control\\s+(?<count>\\d+)\\s+or\\s+more\\s+" +
-        "(?:(?<element>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)\\s+)?" +
-        "(?<type>Forwards?|Backups?|Monsters?|Characters?|Summons?),?\\s+" +
-        "(?<action>.+?)[.!]?$"
+        "(?i)^If\\s+you\\s+control\\s+" + SELF_CONTROLS_QUALIFIER +
+        ",\\s*(?<action>.+?)[.!]?$"
+    );
+    /**
+     * The bare "If you control N or more …" opening, with no interest in what follows it.
+     *
+     * <p>Used as a fail-closed stop, not as a parser: a followup that opens this way and reached
+     * neither {@link #FOLLOWUP_IF_SELF_CONTROLS_N_ELEMENT_TYPE_DAMAGE} nor
+     * {@link #FOLLOWUP_IF_SELF_CONTROLS_N_ELEMENT_TYPE_ACTION} must not carry on down the plain
+     * action handlers, every one of which finds its verb with {@code find()} and would apply the
+     * action with the condition dropped.
+     */
+    static final Pattern FOLLOWUP_IF_SELF_CONTROLS_GATE = Pattern.compile(
+        "(?i)^\\s*If\\s+you\\s+control\\s+\\d+\\s+or\\s+more\\b"
+    );
+    // =========================================================================================
+    // Whole-sentence forms of four followup verbs, for parseTargetAction
+    // =========================================================================================
+    // The choose chain reads these four with find(), which is right there: they arrive as one
+    // clause of a longer followup. parseTargetAction is handed a gate's <action> group, which is
+    // a complete clause already, and its other callers hand it arbitrary text — so these are
+    // anchored end to end. An unanchored copy here could take "remove it from the game" out of a
+    // longer sentence for a caller that had no business claiming it, which is the same fail-open
+    // move the gate above exists to stop.
+    /** "Remove it/them from the game[, and draw N cards]." — the draw is 19-116C Paine's. */
+    static final Pattern TARGET_ACTION_REMOVE_FROM_GAME = Pattern.compile(
+        "(?i)^remove\\s+(?:it|them)\\s+from\\s+(?:the\\s+)?game" +
+        "(?:\\s+and\\s+draw\\s+(?<draw>\\d+)\\s+cards?)?[.!]?$"
+    );
+    /** "Add it/them to your hand." — 24-124H The Ur-Dragon King. */
+    static final Pattern TARGET_ACTION_ADD_TO_HAND = Pattern.compile(
+        "(?i)^add\\s+(?:it|them)\\s+to\\s+your\\s+hand[.!]?$"
+    );
+    /** "Put it/them at the bottom of its/their owner's deck." — 17-108C Andoria. */
+    static final Pattern TARGET_ACTION_PUT_BOTTOM_OF_OWNERS_DECK = Pattern.compile(
+        "(?i)^put\\s+(?:it|them)\\s+at\\s+the\\s+bottom\\s+of\\s+(?:its|their)\\s+owner'?s?'?\\s+deck" +
+        "(?:\\s+in\\s+any\\s+order)?[.!]?$"
+    );
+    /** "Put it/them on top of its/their owner's deck." — 21-106H Jed. */
+    static final Pattern TARGET_ACTION_PUT_TOP_OF_OWNERS_DECK = Pattern.compile(
+        "(?i)^put\\s+(?:it|them)\\s+on\\s+top\\s+of\\s+(?:its|their)\\s+owner'?s?'?\\s+deck[.!]?$"
+    );
+    /**
+     * "Play it/them onto the field." — 21-093L Xande and 22-101C Paladin, both reviving from their
+     * own Break Zone behind a "If you control N or more …" gate.
+     *
+     * <p>Deliberately not the dull variant, nor the "…onto the field instead" that 26-099C prints:
+     * those carry a second effect the plain play would drop, and the choose chain reads them for
+     * itself further down.
+     */
+    static final Pattern TARGET_ACTION_PLAY_ONTO_FIELD = Pattern.compile(
+        "(?i)^play\\s+(?:it|them)\\s+onto\\s+the\\s+field[.!]?$"
     );
     /**
      * Followup wordings that only help the chosen target — power and keyword grants, and
