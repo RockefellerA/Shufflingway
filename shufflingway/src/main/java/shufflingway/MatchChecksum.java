@@ -3,8 +3,11 @@ package shufflingway;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.List;
+import java.util.Set;
 
 /**
  * Hashes the parts of a networked game that both clients must agree on, so a divergence is
@@ -104,6 +107,15 @@ final class MatchChecksum {
 			  .append('|').append(c == null ? "-" : String.valueOf(backupState[i]))
 			  .append('\n');
 		}
+		// Which LB cards are face up, not the deck's contents — those never change and are already
+		// digested at the opening deal. A card played out of the LB deck stays in the list and is
+		// marked here instead, so without this a divergent payment is invisible: the two clients
+		// would show identical LB decks while disagreeing about what is left to play from them.
+		// Sorted, because the set's own iteration order is not something two clients need to share.
+		Set<Integer> spent = isP1Seat ? mw.spentLbIndices : mw.p2SpentLbIndices;
+		List<Integer> faceUp = new ArrayList<>(spent);
+		Collections.sort(faceUp);
+		sb.append(label).append("LbFaceUp").append(faceUp).append('\n');
 	}
 
 	/**

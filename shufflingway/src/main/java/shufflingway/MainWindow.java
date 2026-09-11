@@ -7274,10 +7274,9 @@ public class MainWindow {
 			public int effectiveCastCost(CardData card) { return MainWindow.this.effectiveCastCost(card); }
 			public void onConfirm(CardData cast, int castIdx, Set<Integer> paymentSet) {
 				if (MainWindow.this.effectiveCastCost(cast) <= 0) {
-					spentLbIndices.add(castIdx);
-					spentLbIndices.addAll(paymentSet);
 					logEntry("Cast LB \"" + cast.name() + "\"");
-					executeLbPlay(cast, Collections.emptyList(), Collections.emptyList());
+					executeLbPlay(cast, castIdx, paymentSet,
+							Collections.emptyList(), Collections.emptyList(), Map.of());
 				} else {
 					showLbCpPaymentDialog(cast, castIdx, new HashSet<>(paymentSet));
 				}
@@ -11768,65 +11767,104 @@ public class MainWindow {
 				this::showZoomAt, this::hideZoom,
 				lightDarkDiscardGrants(true),
 				(discards, backups, breaks) -> {
-					spentLbIndices.add(lbCastIdx);
-					spentLbIndices.addAll(pendingLbPayment);
 					logEntry("Cast LB \"" + card.name() + "\"");
-					executeLbPlay(card, discards, backups, breaks);
+					executeLbPlay(card, lbCastIdx, pendingLbPayment, discards, backups, breaks);
 				}, breakForCpBackupSlots(true))
 			.show();
 	}
 
 
 	/**
-	 * Executes an LB cast: dulls selected backups, discards payment hand cards,
-	 * spends CP, and places the card — without removing it from hand.
+	 * P1's side of an LB play: runs the shared executor and sends the play to a networked
+	 * opponent, the same pairing {@link #executePlay(CardData, int, List, List, Map, Map)} makes
+	 * for a cast from hand.
 	 */
-	private void executeLbPlay(CardData card, List<Integer> discardIndices,
-			List<Integer> backupDullIndices) {
-		executeLbPlay(card, discardIndices, backupDullIndices, Map.of());
+	private void executeLbPlay(CardData card, int lbIdx, Set<Integer> paymentIndices,
+			List<Integer> discardIndices, List<Integer> backupDullIndices,
+			Map<Integer, String> backupBreaks) {
+		executeLbPlay(true, card, lbIdx, paymentIndices, discardIndices, backupDullIndices, backupBreaks);
+		sendToOpponent(RemoteOpponent.lbPlayAction(card, lbIdx, paymentIndices, discardIndices,
+				backupDullIndices, backupBreaks));
 	}
 
 	/**
-	 * @param backupBreaks Backups put into the Break Zone for CP as part of this payment, slot to
-	 *                     the Element each produces (Sherlotta 8-053H)
+	 * Executes an LB play: turns the played card and the cards paying for it face up in the LB
+	 * deck, dulls selected Backups, discards payment hand cards, spends CP, and places the card.
+	 * Nothing leaves a hand — an LB card is played out of the LB deck, not out of hand.
+	 *
+	 * <p>Parameterised by player so a networked opponent's LB play runs this exact code against
+	 * P2's zones, for the reason {@link #executePlay(boolean, CardData, int, List, List, Map)}
+	 * gives: a hand-written mirror would be two implementations of one rule, and the moment they
+	 * drifted the two clients would disagree about the board. Every input is an index or a slot,
+	 * so the same arguments produce the same result on both clients.
+	 *
+	 * <p>Marking the LB deck face up happens here rather than in the callers, which is where it
+	 * used to sit. Two callers each doing it was survivable while there was only one seat; three —
+	 * the dialog, the CP payment dialog and a remote play — is how the LIMIT counter ends up
+	 * disagreeing across a table.
+	 *
+	 * <p>{@code discardIndices} is copied before being reordered. The caller still holds the list
+	 * it passed and the wire action is built from it afterwards, so mutating it here would send
+	 * the other client a different payment order than the one just spent.
+	 *
+	 * @param lbIdx          the LB deck index of the card being played
+	 * @param paymentIndices LB deck indices turned face up to pay for it
+	 * @param backupBreaks   Backups put into the Break Zone for CP as part of this payment, slot to
+	 *                       the Element each produces (Sherlotta 8-053H)
 	 */
-	private void executeLbPlay(CardData card, List<Integer> discardIndices,
-			List<Integer> backupDullIndices, Map<Integer, String> backupBreaks) {
+	void executeLbPlay(boolean isP1, CardData card, int lbIdx, Set<Integer> paymentIndices,
+			List<Integer> discardIndices, List<Integer> backupDullIndices,
+			Map<Integer, String> backupBreaks) {
 		String[] elems = card.elements();
 		boolean  isLD  = card.isLightOrDark();
+		CardData[]     backupCards  = isP1 ? p1BackupCards  : p2BackupCards;
+		CardState[]    backupStates = isP1 ? p1BackupStates : p2BackupStates;
+		List<CardData> hand         = isP1 ? gameState.getP1Hand() : gameState.getP2Hand();
+		Set<Integer>   spent        = isP1 ? spentLbIndices : p2SpentLbIndices;
+
+		spent.add(lbIdx);
+		spent.addAll(paymentIndices);
+
 		Map<String, Integer> lbCpAccum = new LinkedHashMap<>();
 		for (int bi : backupDullIndices) {
-			p1BackupStates[bi] = CardState.DULL;
-			animateDullBackup(bi, true);
-			String cpElem = isLD ? p1BackupCards[bi].elements()[0] : contributingElement(p1BackupCards[bi], elems);
-			gameState.addP1Cp(cpElem, 1);
+			backupStates[bi] = CardState.DULL;
+			if (isP1) animateDullBackup(bi, true); else animateDullP2Backup(bi, true);
+			String cpElem = isLD ? backupCards[bi].elements()[0] : contributingElement(backupCards[bi], elems);
+			addCp(isP1, cpElem, 1);
 			lbCpAccum.merge(cpElem, 1, Integer::sum);
 		}
-		breakBackupsForCp(true, backupBreaks).forEach((e, n) -> lbCpAccum.merge(e, n, Integer::sum));
-		discardIndices.sort(Collections.reverseOrder());
-		for (int di : discardIndices) {
-			CardData discarded = gameState.getP1Hand().get(di);
+		breakBackupsForCp(isP1, backupBreaks).forEach((e, n) -> lbCpAccum.merge(e, n, Integer::sum));
+		List<Integer> discardRemovalOrder = new ArrayList<>(discardIndices);
+		discardRemovalOrder.sort(Collections.reverseOrder());
+		for (int di : discardRemovalOrder) {
+			CardData discarded = hand.get(di);
 			String cpElem = isLD ? discarded.elements()[0] : contributingElement(discarded, elems);
-			gameState.addP1Cp(cpElem, 2);
+			addCp(isP1, cpElem, 2);
 			lbCpAccum.merge(cpElem, 2, Integer::sum);
-			playerBreakFromHand(true,di);
+			playerBreakFromHand(isP1, di);
 		}
 		Set<String> lbCpToClear = new java.util.LinkedHashSet<>(Arrays.asList(elems));
 		lbCpToClear.addAll(lbCpAccum.keySet());
 		for (String e : lbCpToClear) {
-			gameState.spendP1Cp(e, gameState.getP1CpForElement(e));
-			gameState.clearP1Cp(e);
+			spendCp(isP1, e, cpForElement(isP1, e));
+			clearCp(isP1, e);
 		}
 		if (card.isBackup()) {
-			placeCardInFirstBackupSlot(card);
+			if (isP1) placeCardInFirstBackupSlot(card); else placeP2CardInFirstBackupSlot(card);
 		} else if (card.isForward()) {
-			placeCardInForwardZone(card);
+			if (isP1) placeCardInForwardZone(card); else placeP2CardInForwardZone(card);
 		} else if (card.isMonster()) {
-			placeCardInMonsterZone(card);
+			if (isP1) placeCardInMonsterZone(card); else placeP2CardInMonsterZone(card);
 		}
-		refreshP1HandLabel();
-		refreshP1BreakLabel();
-		refreshP1LimitLabel();
+		if (isP1) {
+			refreshP1HandLabel();
+			refreshP1BreakLabel();
+			refreshP1LimitLabel();
+		} else {
+			refreshP2HandCountLabel();
+			refreshP2BreakLabel();
+			refreshP2LimitButton();
+		}
 	}
 
 	/** Places a card into the first empty P1 backup slot and renders it. */

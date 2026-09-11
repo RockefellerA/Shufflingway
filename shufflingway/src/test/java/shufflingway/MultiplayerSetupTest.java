@@ -978,4 +978,146 @@ class MultiplayerSetupTest {
                 "the battle number is in the digest, so a checksum cannot be matched against the "
                 + "wrong battle and pass");
     }
+
+    // =========================================================================================
+    // LB plays across the wire.
+    //
+    // A card played out of the LB deck never replicated at all: there was no action type for it,
+    // and the confirm path ran the play locally and sent nothing. One client watched a Forward
+    // appear on a board the other had never put it on.
+    //
+    // Two things make it its own action rather than a PLAY_CARD. Nothing leaves a hand — the card
+    // played and the cards paying for it are turned face up where they sit — and the payment is a
+    // second set of indices into the same deck. Both index the sender's own LB deck, which the two
+    // clients load in the same order at setup and never shuffle, so neither flips on arrival.
+    // =========================================================================================
+
+    private static CardData lbForward(String name, String element, int cost) {
+        return new CardData(null, name, element, cost, 7000, "Forward", false, 0, false, false,
+                Set.of(), 0, List.of(), null, List.of(),
+                List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(),
+                List.of(), List.of(), List.of(),
+                false, false, null, false, false, false, false, false, 1,
+                null, null, null, "");
+    }
+
+    /** Seats one LB deck of three Fire Forwards, plus two hand cards to pay with. */
+    private static void seatLbDeck(MainWindow mw, boolean isP1) {
+        List<CardData> lb = isP1 ? mw.gameState.getP1LbDeck() : mw.gameState.getP2LbDeck();
+        lb.add(lbForward("Cast Me", "Fire", 2));
+        lb.add(lbForward("Pay With Me", "Fire", 3));
+        lb.add(lbForward("Untouched", "Fire", 4));
+        List<CardData> hand = isP1 ? mw.gameState.getP1Hand() : mw.gameState.getP2Hand();
+        hand.add(backup("Discard A", "Fire", 3));
+        hand.add(backup("Discard B", "Fire", 3));
+    }
+
+    @Test
+    void anLbPlayCostsTheSameInEitherSeat() {
+        MainWindow p1Seat = new MainWindow();
+        MainWindow p2Seat = new MainWindow();
+        seatLbDeck(p1Seat, true);
+        seatLbDeck(p2Seat, false);
+
+        p1Seat.executeLbPlay(true,  p1Seat.gameState.getP1LbDeck().get(0), 0, Set.of(1),
+                List.of(0, 1), List.of(), Map.of());
+        p2Seat.executeLbPlay(false, p2Seat.gameState.getP2LbDeck().get(0), 0, Set.of(1),
+                List.of(0, 1), List.of(), Map.of());
+
+        assertEquals("Cast Me", p1Seat.p1ForwardCards.get(0).name());
+        assertEquals(p1Seat.p1ForwardCards.get(0).name(), p2Seat.p2ForwardCards.get(0).name(),
+                "the played card must land in the same zone on both boards");
+        assertEquals(p1Seat.spentLbIndices, p2Seat.p2SpentLbIndices,
+                "and the same LB cards must be face up afterwards");
+        assertEquals(names(p1Seat.gameState.getP1BreakZone()), names(p2Seat.gameState.getP2BreakZone()),
+                "the payment reaches the Break Zone in the same order");
+        assertEquals(0, p1Seat.gameState.getP1CpForElement("Fire"),
+                "CP generated for payment is cleared once the cost is paid");
+        assertEquals(p1Seat.gameState.getP1CpForElement("Fire"),
+                     p2Seat.gameState.getP2CpForElement("Fire"));
+    }
+
+    @Test
+    void anLbPlayTurnsThePlayedCardAndItsPaymentFaceUpAndNothingElse() {
+        MainWindow mw = new MainWindow();
+        seatLbDeck(mw, false);
+
+        mw.executeLbPlay(false, mw.gameState.getP2LbDeck().get(0), 0, Set.of(1),
+                List.of(), List.of(), Map.of());
+
+        assertEquals(Set.of(0, 1), mw.p2SpentLbIndices,
+                "the card played and the card paying for it, and not the third");
+        assertEquals(3, mw.gameState.getP2LbDeck().size(),
+                "a played LB card stays in the deck list and is marked face up, which is what the "
+                + "LIMIT counter and the viewer read");
+    }
+
+    @Test
+    void anLbPlayLeavesTheCallersPaymentListUnreordered() {
+        // The wire action is built from the same list after the play runs, so a sort in place here
+        // would send the other client a different payment order than the one just spent.
+        MainWindow mw = new MainWindow();
+        seatLbDeck(mw, false);
+        List<Integer> discards = new ArrayList<>(List.of(0, 1));
+
+        mw.executeLbPlay(false, mw.gameState.getP2LbDeck().get(0), 0, Set.of(),
+                discards, List.of(), Map.of());
+
+        assertEquals(List.of(0, 1), discards);
+    }
+
+    @Test
+    void theLbPlayActionCarriesItsDeckIndexAndPayment() {
+        JSONObject payload = RemoteOpponent.lbPlayAction(
+                lbForward("Cast Me", "Fire", 2), 4, Set.of(2, 0),
+                List.of(1), List.of(3), Map.of(2, "Ice")).payload();
+
+        assertEquals(4, payload.getInt("lbIdx"));
+        assertEquals("Cast Me", payload.getString("card"));
+        assertEquals(List.of(0, 2), intList(payload.getJSONArray("payment")),
+                "the payment set is ordered before it is sent — a set's own iteration order is not "
+                + "something two clients agree on, and an unstable payload is a checksum that "
+                + "fails for no reason");
+        assertEquals(List.of(1), intList(payload.getJSONArray("discards")));
+        assertEquals(List.of(3), intList(payload.getJSONArray("backups")));
+        assertEquals("Ice", payload.getJSONObject("backupBreaks").getString("2"));
+    }
+
+    @Test
+    void anLbPlayWithNoPaymentStillCarriesAnEmptyPaymentList() {
+        // A free LB cast sends no payment, and the receiver has to read that as "paid nothing"
+        // rather than as a key it can skip.
+        JSONObject payload = RemoteOpponent.lbPlayAction(
+                lbForward("Free", "Fire", 0), 0, Set.of(), List.of(), List.of(), Map.of()).payload();
+
+        assertEquals(List.of(), intList(payload.getJSONArray("payment")));
+        assertEquals(ActionType.LB_PLAY, RemoteOpponent.lbPlayAction(
+                lbForward("Free", "Fire", 0), 0, Set.of(), List.of(), List.of(), Map.of()).type());
+    }
+
+    @Test
+    void theChecksumNoticesAnLbPaymentOnlyOneSeatSpent() {
+        // The LB deck's contents never change when a card is played out of it, so without the
+        // face-up set in the digest two clients would agree on identical LB decks while
+        // disagreeing about what is left to play from them.
+        MainWindow[] seats = mirroredSeats();
+        String before = hostDigest(seats[0]);
+
+        seats[0].spentLbIndices.add(2);
+
+        assertNotEquals(before, hostDigest(seats[0]));
+        assertNotEquals(hostDigest(seats[0]), joinerDigest(seats[1]),
+                "and the two seats must now disagree");
+    }
+
+    @Test
+    void theFaceUpSetDigestsByContentRatherThanByInsertionOrder() {
+        // Two clients reach the same face-up set by different routes — one paid with 1 then 2, the
+        // other replayed them sorted — and a HashSet's iteration order is not theirs to share.
+        MainWindow[] seats = mirroredSeats();
+        seats[0].spentLbIndices.addAll(List.of(2, 0, 1));
+        seats[1].p2SpentLbIndices.addAll(List.of(0, 1, 2));
+
+        assertEquals(hostDigest(seats[0]), joinerDigest(seats[1]));
+    }
 }

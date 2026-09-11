@@ -1,10 +1,13 @@
 package shufflingway;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.EnumMap;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.function.Consumer;
 
 import javax.swing.JDialog;
@@ -107,6 +110,7 @@ class RemoteOpponent implements OpponentController {
 			case MULLIGAN       -> applyMulligan(action.payload());
 			case ADVANCE_PHASE  -> applyPhaseAdvance(action.payload());
 			case PLAY_CARD      -> applyPlayCard(action.payload());
+			case LB_PLAY        -> applyLbPlay(action.payload());
 			case DISCARD_HAND   -> applyDiscard(action.payload());
 			case ATTACK         -> applyAttack(action.payload());
 			case BLOCK          -> applyBlock(action.payload());
@@ -196,6 +200,62 @@ class RemoteOpponent implements OpponentController {
 		mw.executePlay(false, card, handIdx,
 				indices(payload, "discards"), indices(payload, "backups"), overrides,
 				summonTargets, targetsAreReplayed, breaks);
+	}
+
+	/**
+	 * The opponent played a card out of their LB deck. That deck lives here as P2's, in the order
+	 * both clients loaded at setup and never shuffle, so the index identifies the same card — and
+	 * it is checked against the name they sent before anything is spent, the same guard a cast from
+	 * hand gets and for the same reason.
+	 *
+	 * <p>Every index is checked for being face down here too. A payment naming a card this client
+	 * already holds face up means the two LIMIT counters have drifted apart, which is worth
+	 * reporting as a desync rather than papering over by spending it twice.
+	 */
+	private void applyLbPlay(JSONObject payload) {
+		List<CardData> lbDeck = mw.gameState.getP2LbDeck();
+		int lbIdx = payload.optInt("lbIdx", -1);
+		if (lbIdx < 0 || lbIdx >= lbDeck.size()) {
+			mw.reportDesync("opponent played LB card " + lbIdx + ", but their LB deck holds "
+					+ lbDeck.size() + " cards here");
+			return;
+		}
+		CardData card     = lbDeck.get(lbIdx);
+		String   expected = payload.optString("card", "");
+		if (!card.name().equals(expected)) {
+			mw.reportDesync("opponent played \"" + expected + "\" from LB slot " + lbIdx
+					+ ", which holds \"" + card.name() + "\" here");
+			return;
+		}
+		if (mw.p2SpentLbIndices.contains(lbIdx)) {
+			mw.reportDesync("opponent played LB card " + lbIdx
+					+ ", which is already face up on this client");
+			return;
+		}
+
+		Set<Integer> payment = new LinkedHashSet<>(indices(payload, "payment"));
+		for (int idx : payment) {
+			if (idx < 0 || idx >= lbDeck.size()) {
+				mw.reportDesync("opponent paid with LB card " + idx + ", but their LB deck holds "
+						+ lbDeck.size() + " cards here");
+				return;
+			}
+			if (idx == lbIdx || mw.p2SpentLbIndices.contains(idx)) {
+				mw.reportDesync("opponent paid with LB card " + idx
+						+ ", which is not face down on this client");
+				return;
+			}
+		}
+
+		Map<Integer, String> breaks = new LinkedHashMap<>();
+		JSONObject rawBreaks = payload.optJSONObject("backupBreaks");
+		if (rawBreaks != null)
+			for (String key : rawBreaks.keySet())
+				breaks.put(Integer.valueOf(key), rawBreaks.getString(key));
+
+		mw.logEntry("[P2] Cast LB \"" + card.name() + "\"");
+		mw.executeLbPlay(false, card, lbIdx, payment,
+				indices(payload, "discards"), indices(payload, "backups"), breaks);
 	}
 
 	/**
@@ -623,6 +683,35 @@ class RemoteOpponent implements OpponentController {
 				// belongs to the caster and travels with the play. Always present, so the receiver
 				// can tell "chose nothing" from an older client that never chose at all.
 				.put("summonTargets", targets));
+	}
+
+	/**
+	 * Builds an LB_PLAY for a card the local player is playing out of their LB deck.
+	 *
+	 * <p>Everything travels as an index, as it does for a cast from hand — but the LB deck is
+	 * indexed twice over here, once for the card played and once for each card turned face up to
+	 * pay for it. Both address the sender's own LB deck, which this client holds as P1's and the
+	 * receiver as P2's in the same order, so neither flips.
+	 *
+	 * <p>The payment set is ordered before it is sent. It arrives as a {@code Set}, whose iteration
+	 * order is its own business, and a payload that lists the same payment differently on two runs
+	 * is a checksum that fails for no reason.
+	 */
+	static GameAction lbPlayAction(CardData card, int lbIdx, Set<Integer> paymentIndices,
+	                               List<Integer> discards, List<Integer> backupDulls,
+	                               Map<Integer, String> backupBreaks) {
+		JSONObject breaks = new JSONObject();
+		if (backupBreaks != null)
+			backupBreaks.forEach((slot, element) -> breaks.put(String.valueOf(slot), element));
+		List<Integer> payment = new ArrayList<>(paymentIndices);
+		Collections.sort(payment);
+		return GameAction.of(ActionType.LB_PLAY, new JSONObject()
+				.put("lbIdx", lbIdx)
+				.put("card", card.name())
+				.put("payment", new JSONArray(payment))
+				.put("discards", new JSONArray(discards))
+				.put("backups", new JSONArray(backupDulls))
+				.put("backupBreaks", breaks));
 	}
 
 	/**

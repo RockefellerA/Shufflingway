@@ -26,6 +26,14 @@ public enum ActionType {
     PLAY_CARD,      // payload: { "handIdx": n, "card": "...", "discards": [idx, ...],
                     //            "backups": [slot, ...], "backupElements": { "slot": "Fire" } }
                     //   Indices address zones both clients hold in the same order.
+    LB_PLAY,        // payload: { "lbIdx": n, "card": "...", "payment": [lbIdx, ...],
+                    //            "discards": [idx, ...], "backups": [slot, ...],
+                    //            "backupBreaks": { "slot": "Fire" } }
+                    //   A card played out of the sender's LB deck. "lbIdx" and "payment" index
+                    //   that deck, which both clients load in the same order at setup and never
+                    //   shuffle, so they need no flip — the same reason hand and slot indices do
+                    //   not. Separate from PLAY_CARD because nothing leaves a hand: the played
+                    //   card and the cards paying for it are turned face up where they sit.
     DISCARD_HAND,   // payload: { "indices": [idx, ...] } — a discard with no CP, e.g. the
                     //   end-phase trim to five. Replicated because it renumbers the hand.
     ATTACK,         // payload: { "zone": "FORWARD"|"MONSTER"|"BACKUP", "indices": [n, ...],
