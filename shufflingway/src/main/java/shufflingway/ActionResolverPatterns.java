@@ -2652,8 +2652,19 @@ final class ActionResolverPatterns {
      * replayed from the wrong zone. Read only from the search parser, whose own gate keeps it off
      * every text but this family's.
      */
+    /**
+     * "Return [Self] (onto|to) the field [dull]." — Vanille 1-093H's search payoff, and the clause
+     * Calbrena 5-079H grants herself for the turn.
+     *
+     * <p>Both prepositions, because the two printings of the sentence disagree about it and mean no
+     * different: Vanille writes "onto the field dull", Calbrena "to the field dull". Written for
+     * Vanille alone the pattern missed the other by one word.
+     *
+     * <p>Name-checked against the carrier by its readers. Group {@code dull} is present only when
+     * the card comes back dull.
+     */
     static final Pattern RETURN_SOURCE_ONTO_FIELD = Pattern.compile(
-        "(?i)^Return\\s+(?<name>.+?)\\s+onto\\s+(?:the\\s+)?field(?:\\s+(?<dull>dull))?[.!]?$"
+        "(?i)^Return\\s+(?<name>.+?)\\s+(?:on)?to\\s+(?:the\\s+)?field(?:\\s+(?<dull>dull))?[.!]?$"
     );
     /**
      * The anchored form of {@link #PLAY_SOURCE_ONTO_FIELD_PATTERN}: the clause is the whole

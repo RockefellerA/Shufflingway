@@ -1506,6 +1506,13 @@ public class ActionResolver {
         result = tryParseSearchNamedRfgThenIfDoSo(effectText, source);
         if (result != null) return result;
 
+        // "Return [Self] to the field dull." on its own — Calbrena 5-079H's granted leaves-field
+        // trigger, where the sentence arrives with no search in front of it. Anchored end to end
+        // and self-named, so it cannot reach Vanille 1-093H's, which is the tail of a longer text
+        // and is read by the parser above as part of it.
+        result = ActionResolverSearch.tryParseReturnSourceOntoField(effectText, source);
+        if (result != null) return result;
+
         // Must precede tryParseSearchDeck. Its pattern find()s the filters it recognises and
         // ignores what it does not, so "search for a Monster with the same name and add it to
         // your hand" reads there as a plain search for any Monster -- the name, the one thing
@@ -2382,6 +2389,8 @@ public class ActionResolver {
         // Must precede SearchDeck, mirroring parse(): that parser names the search alone and
         // leaves the "If you do so, ..." payoff out of the report.
         if (tryParseSearchNamedRfgThenIfDoSo(effectText, source) != null) return "SearchNamedRfgThenIfDoSo";
+        if (ActionResolverSearch.tryParseReturnSourceOntoField(effectText, source) != null)
+            return "ReturnSourceOntoField";
         if (tryParseSearchMatchingBrokenCard(effectText) != null) return "SearchMatchingBrokenCard";
         if (tryParseSearchDeck(effectText, source, 0)                      != null) return "SearchDeck";
         if (tryParsePlayAllByNameFromBreakZone(effectText)      != null) return "PlayAllByNameFromBreakZone";
@@ -3931,6 +3940,8 @@ public class ActionResolver {
         // Must precede SearchDeck, mirroring parse(): that parser names the search alone and
         // leaves the "If you do so, ..." payoff out of the report.
         if (tryParseSearchNamedRfgThenIfDoSo(effectText, source) != null) return "SearchNamedRfgThenIfDoSo";
+        if (ActionResolverSearch.tryParseReturnSourceOntoField(effectText, source) != null)
+            return "ReturnSourceOntoField";
         if (tryParseSearchMatchingBrokenCard(effectText) != null) return "SearchMatchingBrokenCard";
         if (tryParseSearchDeck(effectText, source, 0) != null)              return "SearchDeck";
         if (tryParsePlayAllByNameFromBreakZone(effectText) != null)         return "PlayAllByNameFromBreakZone";

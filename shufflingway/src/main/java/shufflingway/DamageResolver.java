@@ -60,6 +60,22 @@ class DamageResolver {
 		return sourceIsP1 != targetIsP1;
 	}
 
+	/**
+	 * The card that is dealing the damage being resolved, whichever route it came by — the
+	 * resolving Summon, the ability's source, or the Forward on the other side of the battle.
+	 *
+	 * <p>Nothing new is threaded through to answer this: {@code currentBattleAttacker} is already
+	 * set around both combat call sites so the incoming-damage readers can inspect the opposing
+	 * Forward, and the two ability-side fields have always been there.
+	 *
+	 * <p>{@code null} when the source is unknown, which a caller must read as "cannot tell" rather
+	 * than as "not the card I am asking about".
+	 */
+	private CardData damageSourceCard(boolean fromAbility) {
+		if (!fromAbility) return mw.currentBattleAttacker;
+		return mw.currentResolutionIsSummon ? mw.currentSummonSource : mw.currentAbilitySource;
+	}
+
 	private boolean abilityDamageUnreducibleByField(boolean targetIsP1, boolean fromAbility) {
 		if (!fromAbility || mw.currentResolutionIsSummon) return false;
 		if (mw.currentAbilitySource == null || mw.currentAbilitySourceIsP1 == targetIsP1) return false;
@@ -494,9 +510,18 @@ class DamageResolver {
 			if (ownTurn == turnScope.toLowerCase().contains("opponent")) return amount;
 		}
 		String src = fam.group("sourceclause");
+		String srcElement = fam.group("srcelement");
 		boolean applies;
 		if (src == null || src.isBlank()) {
 			applies = true;
+		} else if (srcElement != null) {
+			// Ozma 5-124H. The clause names what the damage came from rather than how it came, so
+			// unlike every other arm here it is not confined to one route: a Dark Forward's battle
+			// damage counts as much as a Dark Summon's. Elements are read through effectiveElements,
+			// so a card whose Element an effect has changed is judged on what it is now.
+			CardData dealer = damageSourceCard(fromAbility);
+			applies = dealer != null && mw.effectiveElements(dealer).stream()
+					.anyMatch(e -> e.equalsIgnoreCase(srcElement));
 		} else {
 			String srcN = src.trim().toLowerCase();
 			if (srcN.startsWith("less than") && srcN.endsWith("power")) {

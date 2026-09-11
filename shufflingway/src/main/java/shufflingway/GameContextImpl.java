@@ -2348,6 +2348,48 @@ final class GameContextImpl implements GameContext {
 				if (isP1) mw.refreshP1BreakLabel(); else mw.refreshP2BreakLabel();
 			}
 
+			@Override public void returnSourceFromBreakZoneToField(CardData source, boolean dull) {
+				if (source == null) return;
+				List<CardData> bz = isP1 ? mw.gameState.getP1BreakZone() : mw.gameState.getP2BreakZone();
+				// Identity, not name: the trigger names the copy that just left the field, and a
+				// twin already in the Break Zone is a different card that stays where it is.
+				int at = -1;
+				for (int i = bz.size() - 1; i >= 0 && at < 0; i--) if (bz.get(i) == source) at = i;
+				if (at < 0) return;
+				CardData card = bz.remove(at);
+				logEntry(card.name() + " returned from Break Zone → field" + (dull ? " dull" : ""));
+				if (card.isBackup()) {
+					if (isP1) mw.placeCardInFirstBackupSlot(card); else mw.placeP2CardInFirstBackupSlot(card);
+					if (dull) {
+						CardData[] slots = isP1 ? mw.p1BackupCards : mw.p2BackupCards;
+						CardState[] sts  = isP1 ? mw.p1BackupStates : mw.p2BackupStates;
+						for (int i = 0; i < slots.length; i++)
+							if (slots[i] == card) { sts[i] = CardState.DULL; break; }
+					}
+				} else if (card.isMonster()) {
+					if (isP1) mw.placeCardInMonsterZone(card); else mw.placeP2CardInMonsterZone(card);
+					if (dull) {
+						List<CardState> sts = isP1 ? mw.p1MonsterStates : mw.p2MonsterStates;
+						int idx = (isP1 ? mw.p1MonsterCards : mw.p2MonsterCards).size() - 1;
+						if (idx >= 0 && idx < sts.size()) {
+							sts.set(idx, CardState.DULL);
+							if (isP1) mw.refreshP1MonsterSlot(idx); else mw.refreshP2MonsterSlot(idx);
+						}
+					}
+				} else {
+					if (isP1) mw.placeCardInForwardZone(card); else mw.placeP2CardInForwardZone(card);
+					if (dull) {
+						List<CardState> sts = isP1 ? mw.p1ForwardStates : mw.p2ForwardStates;
+						int idx = (isP1 ? mw.p1ForwardCards : mw.p2ForwardCards).size() - 1;
+						if (idx >= 0 && idx < sts.size()) {
+							sts.set(idx, CardState.DULL);
+							if (isP1) mw.refreshP1ForwardSlot(idx); else mw.refreshP2ForwardSlot(idx);
+						}
+					}
+				}
+				if (isP1) mw.refreshP1BreakLabel(); else mw.refreshP2BreakLabel();
+			}
+
 
 	// =========================================================================================
 	// Returning Backups and Monsters

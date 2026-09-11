@@ -21435,18 +21435,20 @@ public class CardBehaviorTest {
 
 	@Test
 	void thePromotionStandsWhenTheRiderCannotBeRead() {
-		// Ozma 5-124H's clause has no reader yet. The body is the point of the ability, so it is
-		// granted anyway — and the description names no rider, which is what leaves the gap visible.
-		String ozmaText = "Until the end of the turn, Ozma also becomes a Forward with 8000 power "
-				+ "and \"If Ozma is dealt damage by a Dark card, the damage becomes 0 instead.\" "
+		// Every rider the corpus prints is read now, so the unreadable case is shown with an
+		// invented clause — the rule it pins is about shape, not about any one card. The body is
+		// the point of the ability and is granted anyway; the description names no rider, which is
+		// what would leave a future gap visible instead of silent.
+		String text = "Until the end of the turn, Gizamaluke also becomes a Forward with 8000 power "
+				+ "and \"Gizamaluke does something no reader covers.\" "
 				+ "You can only use this ability once per turn.";
-		CardData ozma = makeMonsterWithText("Ozma", "Water", ozmaText);
+		CardData giza = makeMonsterWithText("Gizamaluke", "Water", text);
 		GameContext ctx = mock(GameContext.class);
-		ActionResolver.parse(ozmaText, ozma).accept(ctx);
+		ActionResolver.parse(text, giza).accept(ctx);
 
-		verify(ctx).makeMonsterTemporaryForward(ozma, 8000);
-		verify(ctx, never()).shieldSelfCannotBeChosenByAnySummonOrAbility(any());
-		assertEquals("BecomeForwardUntilEot", ActionResolver.fullDescription(ozmaText, ozma));
+		verify(ctx).makeMonsterTemporaryForward(giza, 8000);
+		assertNull(ActionResolver.becomeForwardRiderGrant(text, giza));
+		assertEquals("BecomeForwardUntilEot", ActionResolver.fullDescription(text, giza));
 	}
 
 	@Test
@@ -21700,6 +21702,173 @@ public class CardBehaviorTest {
 		CardData hellHouse = makeMonsterWithText("Hell House", "Earth", text);
 		assertNull(ActionResolver.becomeForwardRiderGrant(text, hellHouse));
 		assertEquals("BecomeForwardUntilEot", ActionResolver.fullDescription(text, hellHouse));
+	}
+
+	// -- Calbrena 5-079H: "return Calbrena to the field dull." -------------------------------
+	// The machinery was there for Vanille 1-093H's "return Vanille ONTO the field dull", and the
+	// pattern was written for that one word. Two other printings say "to": Calbrena, and Cloud
+	// 8-006L, whose "If you do so, return Cloud to the field dull" was being dropped off the end of
+	// a removal that reported as fully read.
+	//
+	// The return is by identity now rather than by name. The by-name sweep it used to share with
+	// Vanille returns every copy in the Break Zone, and all three sentences are leaves-field
+	// triggers that mean the one card that just died.
+
+	private static final String CALBRENA_5_079H =
+			"Until the end of the turn, Calbrena also becomes a Forward with 7000 power and "
+			+ "\"When Calbrena is put from the field into the Break Zone, return Calbrena to the "
+			+ "field dull.\" You can only use this ability once per turn.";
+
+	@Test
+	void calbrenaIsAttributedToBothHalves() {
+		CardData calbrena = makeMonsterWithText("Calbrena", "Earth", CALBRENA_5_079H);
+		assertEquals("BecomeForwardUntilEot + SelfAutoAbility(ReturnSourceOntoField)",
+				ActionResolver.fullDescription(CALBRENA_5_079H, calbrena));
+	}
+
+	@Test
+	void theReturnClauseReadsOnItsOwn() {
+		// It arrives as a whole effect text, with no search in front of it — which is why it needed
+		// a top-level entry rather than staying a private payoff of the search parser.
+		CardData calbrena = makeMonsterWithText("Calbrena", "Earth", CALBRENA_5_079H);
+		GameContext ctx = mock(GameContext.class);
+		ActionResolver.parse("return Calbrena to the field dull.", calbrena).accept(ctx);
+
+		verify(ctx).returnSourceFromBreakZoneToField(calbrena, true);
+	}
+
+	@Test
+	void bothPrepositionsReachTheSameReading() {
+		CardData vanille = makeForwardWithText("Vanille", "Earth", 4, 7000, "");
+		assertNotNull(ActionResolverSearch.tryParseReturnSourceOntoField(
+				"return Vanille onto the field dull.", vanille));
+		assertNotNull(ActionResolverSearch.tryParseReturnSourceOntoField(
+				"return Vanille to the field dull.", vanille));
+	}
+
+	@Test
+	void theReturnHasToNameItsOwnCarrier() {
+		CardData calbrena = makeMonsterWithText("Calbrena", "Earth", CALBRENA_5_079H);
+		assertNull(ActionResolverSearch.tryParseReturnSourceOntoField(
+				"return Sephiroth to the field dull.", calbrena));
+	}
+
+	@Test
+	void calbrenaComesBackDullOnTheRowSheBelongsTo() {
+		MainWindow mw = new MainWindow();
+		CardData calbrena = makeMonsterWithText("Calbrena", "Earth", CALBRENA_5_079H);
+		mw.gameState.getP1BreakZone().add(calbrena);
+
+		mw.buildGameContext(true).returnSourceFromBreakZoneToField(calbrena, true);
+
+		assertFalse(mw.gameState.getP1BreakZone().contains(calbrena), "she left the Break Zone");
+		assertEquals(1, mw.p1MonsterCards.size(), "and came back the Monster she is");
+		assertSame(calbrena, mw.p1MonsterCards.get(0));
+		assertEquals(CardState.DULL, mw.p1MonsterStates.get(0), "dull, as the sentence says");
+	}
+
+	@Test
+	void aTwinInTheBreakZoneStaysThere() {
+		// By identity. The by-name sweep this replaced would have returned both.
+		MainWindow mw = new MainWindow();
+		CardData died = makeMonsterWithText("Calbrena", "Earth", CALBRENA_5_079H);
+		CardData twin = makeMonsterWithText("Calbrena", "Earth", CALBRENA_5_079H);
+		mw.gameState.getP1BreakZone().add(twin);
+		mw.gameState.getP1BreakZone().add(died);
+
+		mw.buildGameContext(true).returnSourceFromBreakZoneToField(died, true);
+
+		assertEquals(1, mw.p1MonsterCards.size());
+		assertSame(died, mw.p1MonsterCards.get(0));
+		assertTrue(mw.gameState.getP1BreakZone().contains(twin), "the twin is a different card");
+	}
+
+	@Test
+	void aCardNoLongerInTheBreakZoneIsANoOp() {
+		MainWindow mw = new MainWindow();
+		CardData calbrena = makeMonsterWithText("Calbrena", "Earth", CALBRENA_5_079H);
+
+		mw.buildGameContext(true).returnSourceFromBreakZoneToField(calbrena, true);
+		assertTrue(mw.p1MonsterCards.isEmpty(), "something else had already moved her on");
+	}
+
+	// -- Ozma 5-124H: "If Ozma is dealt damage by a Dark card, the damage becomes 0 instead." ----
+	// The one printing in the damage-modifier family whose source clause names an ELEMENT rather
+	// than a kind of effect. Every other arm answers "what sort of thing dealt this" and so confines
+	// the shield to one route; this one answers "what colour was it", which leaves every route in —
+	// a Dark Forward's battle damage counts as much as a Dark Summon's.
+	//
+	// Nothing had to be threaded through for the battle case. currentBattleAttacker is already set
+	// around both combat call sites so the incoming-damage readers can inspect the opposing Forward.
+
+	private static final String OZMA_5_124H_CLAUSE =
+			"If Ozma is dealt damage by a Dark card, the damage becomes 0 instead.";
+
+	@Test
+	void ozmaIsAttributedToBothHalves() {
+		String text = "Until the end of the turn, Ozma also becomes a Forward with 8000 power and "
+				+ "\"" + OZMA_5_124H_CLAUSE + "\" You can only use this ability once per turn.";
+		CardData ozma = makeMonsterWithText("Ozma", "Water", text);
+		assertEquals("BecomeForwardUntilEot + SelfDamageModifier",
+				ActionResolver.fullDescription(text, ozma));
+	}
+
+	/** Ozma on P1's Forward row carrying the shield, with a P2 Forward of {@code element} opposite. */
+	private static MainWindow ozmaFacing(String element) {
+		MainWindow mw = new MainWindow();
+		placeP1Forward(mw, makeFieldAbilityCard("Ozma", "Water", "Forward", OZMA_5_124H_CLAUSE));
+		placeP2Forward(mw, makeForward("Dealer", element, 3, 7000));
+		return mw;
+	}
+
+	@Test
+	void aDarkForwardsBattleDamageBecomesZero() {
+		MainWindow mw = ozmaFacing("Dark");
+		mw.currentBattleAttacker = mw.p2ForwardCards.get(0);
+
+		assertEquals(0, mw.modifyIncomingDamage(true, ForwardTarget.CardZone.FORWARD, 0, 7000,
+				false, false), "battle damage is in scope — the clause names the card, not the route");
+	}
+
+	@Test
+	void aFireForwardsBattleDamageIsUntouched() {
+		MainWindow mw = ozmaFacing("Fire");
+		mw.currentBattleAttacker = mw.p2ForwardCards.get(0);
+
+		assertEquals(7000, mw.modifyIncomingDamage(true, ForwardTarget.CardZone.FORWARD, 0, 7000,
+				false, false));
+	}
+
+	@Test
+	void aDarkAbilitysDamageBecomesZeroToo() {
+		MainWindow mw = ozmaFacing("Dark");
+		mw.currentAbilitySource = mw.p2ForwardCards.get(0);
+		mw.currentAbilitySourceIsP1 = false;
+		mw.currentResolutionIsSummon = false;
+
+		assertEquals(0, mw.modifyIncomingDamage(true, ForwardTarget.CardZone.FORWARD, 0, 4000,
+				true, false));
+	}
+
+	@Test
+	void aDarkSummonsDamageBecomesZeroToo() {
+		MainWindow mw = ozmaFacing("Fire");
+		mw.currentSummonSource = makeSummon("Bahamut", "Dark", 5, "");
+		mw.currentResolutionIsSummon = true;
+
+		assertEquals(0, mw.modifyIncomingDamage(true, ForwardTarget.CardZone.FORWARD, 0, 9000,
+				true, false), "the Summon is the dealer, not the Forward standing opposite");
+	}
+
+	@Test
+	void anUnknownDealerLeavesTheDamageAlone() {
+		// Null is "cannot tell", not "not Dark". Zeroing on an unknown source would shield Ozma
+		// from everything the engine happens not to attribute.
+		MainWindow mw = ozmaFacing("Dark");
+		mw.currentBattleAttacker = null;
+
+		assertEquals(7000, mw.modifyIncomingDamage(true, ForwardTarget.CardZone.FORWARD, 0, 7000,
+				false, false));
 	}
 
 	// =========================================================================================
@@ -32813,14 +32982,18 @@ public class CardBehaviorTest {
 
 	@Test
 	void vanilleReturnsHerselfDullWhenHecatoncheirIsFound() {
+		// By identity, not by name. The by-name sweep this used to call returns every copy in the
+		// Break Zone, and the sentence is a leaves-field trigger about the one that just died —
+		// two Vanilles down there and she was bringing both back.
 		GameContext ctx = mock(GameContext.class);
 		stubSearch(ctx, true);
+		CardData vanille = makeForward("Vanille", "Light", 2, 5000);
 
-		Consumer<GameContext> fn = ActionResolver.parse(VANILLE_EFFECT, makeForward("Vanille", "Light", 2, 5000));
+		Consumer<GameContext> fn = ActionResolver.parse(VANILLE_EFFECT, vanille);
 		assertNotNull(fn, "Vanille should parse");
 		fn.accept(ctx);
 
-		verify(ctx).playAllByNameFromOwnBreakZoneDull("Vanille", true);
+		verify(ctx).returnSourceFromBreakZoneToField(vanille, true);
 	}
 
 	/** The search is mandatory but can come up empty — that is exactly what "if you do so" gates on. */
@@ -32831,7 +33004,7 @@ public class CardBehaviorTest {
 
 		ActionResolver.parse(VANILLE_EFFECT, makeForward("Vanille", "Light", 2, 5000)).accept(ctx);
 
-		verify(ctx, never()).playAllByNameFromOwnBreakZoneDull(any(), anyBoolean());
+		verify(ctx, never()).returnSourceFromBreakZoneToField(any(), anyBoolean());
 	}
 
 	@Test

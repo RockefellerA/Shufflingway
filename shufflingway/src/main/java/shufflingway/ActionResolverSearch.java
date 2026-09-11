@@ -1485,7 +1485,7 @@ final class ActionResolverSearch {
         String effectText = m.group("effect").trim();
 
         Consumer<GameContext> payoff = parse(effectText, source);
-        if (payoff == null) payoff = returnSourceOntoFieldPayoff(effectText, source);
+        if (payoff == null) payoff = tryParseReturnSourceOntoField(effectText, source);
         if (payoff == null) return null;
 
         final Consumer<GameContext> resolvedPayoff = payoff;
@@ -1503,9 +1503,19 @@ final class ActionResolverSearch {
         };
     }
 
-    /** "Return [source] onto the field [dull]" - plays the source back out of its Break Zone. */
-    private static Consumer<GameContext> returnSourceOntoFieldPayoff(String text, CardData source) {
-        if (source == null) return null;
+    /**
+     * "Return [source] (onto|to) the field [dull]" — plays the source back out of its Break Zone.
+     *
+     * <p>Vanille 1-093H's payoff, and now a top-level parse of its own: Calbrena 5-079H grants
+     * herself the same sentence as a leaves-field trigger, where it arrives as a whole effect text
+     * with no search in front of it. Reached from {@code parse()} as well as from the search
+     * parser, so the one reading serves both.
+     *
+     * <p>Self-named and checked by equality. No corpus wording returns some other card this way,
+     * and one that did would mean a card this reader cannot find.
+     */
+    static Consumer<GameContext> tryParseReturnSourceOntoField(String text, CardData source) {
+        if (source == null || source.name() == null) return null;
         Matcher m = RETURN_SOURCE_ONTO_FIELD.matcher(text.trim());
         if (!m.matches()) return null;
         String name = m.group("name").trim();
@@ -1513,7 +1523,9 @@ final class ActionResolverSearch {
         boolean dull = m.group("dull") != null;
         return ctx -> {
             ctx.logEntry("Effect: Return " + name + " from Break Zone -> field" + (dull ? " dull" : ""));
-            ctx.playAllByNameFromOwnBreakZoneDull(name, dull);
+            // By identity. Vanille's search payoff used the by-name sweep, which returned every
+            // copy in the Break Zone; both printings mean the one card the sentence is about.
+            ctx.returnSourceFromBreakZoneToField(source, dull);
         };
     }
 }

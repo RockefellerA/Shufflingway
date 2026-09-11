@@ -3681,6 +3681,25 @@ public interface GameContext {
      */
     void playAllByNameFromOwnBreakZoneDull(String cardName, boolean dull);
 
+    /**
+     * Moves {@code source} itself out of the active player's Break Zone and back onto the field,
+     * entering dull if {@code dull} is true — Calbrena 5-079H, "When Calbrena is put from the field
+     * into the Break Zone, return Calbrena to the field dull."
+     *
+     * <p>By identity, which is the whole difference from
+     * {@link #playAllByNameFromOwnBreakZoneDull}: the sentence is a leaves-field trigger and means
+     * the copy that just died, so a second one already sitting in the Break Zone stays there. That
+     * one answers a different question — "every card of this name" — and returning the pile would
+     * be strictly more than the card prints.
+     *
+     * <p>Dull is honoured on whatever row the card lands on. Calbrena is a Monster that spent the
+     * turn as a Forward, and comes back the Monster it is.
+     *
+     * <p>A no-op when {@code source} is not in that Break Zone — the trigger can fire for a card
+     * some other effect has already moved on.
+     */
+    void returnSourceFromBreakZoneToField(CardData source, boolean dull);
+
     /** Removes P1's backup at {@code idx} from the field and adds it to P1's hand. */
     void returnP1BackupToHand(int idx);
 

@@ -367,6 +367,13 @@ final class AutoAbilityTriggers {
 			// Ahead of the Summon and ability branches, which would otherwise never see it —
 			// they are the narrower readings and "Character" names the source, not the effect.
 			"|\\s+(?:by|from)\\s+a\\s+Character" +
+			// "by a Dark card" — Ozma 5-124H, the one printing that names the source's ELEMENT
+			// rather than the kind of effect. Every other arm here answers "what sort of thing
+			// dealt this", and the answer decides which routes are in scope; this one answers
+			// "what colour was it", which leaves every route in scope, battle damage included.
+			// Its own group so the reader does not have to re-parse the clause it matched.
+			"|\\s+(?:by|from)\\s+an?\\s+(?<srcelement>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)" +
+			"\\s+card" +
 			"|\\s+other\\s+than\\s+battle\\s+damage" +
 			"|\\s+(?:by|from)\\s+(?:your\\s+opponent's\\s+)?(?:a\\s+)?Summons?(?:\\s+or\\s+(?:an?\\s+)?abilit(?:y|ies))?" +
 			// Must precede the bare ability branch below, which stops at "abilities" and would
