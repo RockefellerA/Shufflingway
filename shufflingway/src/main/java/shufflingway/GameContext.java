@@ -1804,6 +1804,25 @@ public interface GameContext {
      */
     int selfDistinctElementCount(boolean inclForwards, boolean inclBackups, boolean inclMonsters);
 
+    /**
+     * Returns the count of distinct elements among every card in P1's Break Zone, whatever its
+     * type. Multi-element cards contribute each of their elements, as on the field.
+     *
+     * <p>Built for 14-023L Gilgamesh (FFBE), whose whole design is the spread of Elements it has
+     * lost rather than the number of cards: "If you have 5 or more different Elements among cards
+     * in your Break Zone, dull it and Freeze it." No type filter, because the printing takes none
+     * — a Summon in the Break Zone is as much an Element seen as a Forward is.
+     */
+    int p1BreakZoneDistinctElementCount();
+
+    /** The opponent-side twin of {@link #p1BreakZoneDistinctElementCount()}. */
+    int p2BreakZoneDistinctElementCount();
+
+    /** Routes to P1 or P2 based on {@link #isP1()}. */
+    default int selfBreakZoneDistinctElementCount() {
+        return isP1() ? p1BreakZoneDistinctElementCount() : p2BreakZoneDistinctElementCount();
+    }
+
     /** Returns {@code true} if this ability is resolving as the result of an EX Burst. */
     boolean isExBurst();
 

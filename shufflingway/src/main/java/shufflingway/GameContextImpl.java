@@ -194,6 +194,23 @@ final class GameContextImpl implements GameContext {
 	}
 
 	/**
+	 * How many distinct Elements are represented among the cards in one Break Zone.
+	 *
+	 * <p>Split on "/" so a Fire/Ice card counts as both, which is the same reading
+	 * {@code selfDistinctElementCount} gives the field. Printed elements rather than effective
+	 * ones: nothing on the board reaches into a Break Zone to change a card's Element, so the two
+	 * are the same answer and the printed one needs no board to ask.
+	 */
+	private static int breakZoneDistinctElementCount(List<CardData> breakZone) {
+		Set<String> elems = new HashSet<>();
+		for (CardData c : breakZone) {
+			if (c == null) continue;
+			for (String e : c.element().split("/")) elems.add(e);
+		}
+		return elems.size();
+	}
+
+	/**
 	 * Counts the cards one player had put <em>from the field</em> into their Break Zone this turn,
 	 * narrowed to {@code type}. Backs {@link GameContext#countP1PutFromFieldToBzThisTurn} and its
 	 * P2 twin; see that javadoc for what the underlying set does and does not promise.
@@ -9656,6 +9673,14 @@ final class GameContextImpl implements GameContext {
 				if (inclBackups)  for (CardData c : bkps) { if (c != null) for (String e : c.element().split("/")) elems.add(e); }
 				if (inclMonsters) for (CardData c : mons) for (String e : c.element().split("/")) elems.add(e);
 				return elems.size();
+			}
+
+			@Override public int p1BreakZoneDistinctElementCount() {
+				return breakZoneDistinctElementCount(mw.gameState.getP1BreakZone());
+			}
+
+			@Override public int p2BreakZoneDistinctElementCount() {
+				return breakZoneDistinctElementCount(mw.gameState.getP2BreakZone());
 			}
 
 			@Override public boolean isExBurst() { return exBurst; }

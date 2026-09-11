@@ -3061,17 +3061,45 @@ final class ActionResolverChoose {
             }
         }
 
-        // Fail closed on any "If you control N or more …" followup neither branch above could
-        // read. Everything below scans primaryFollowup with find(), so letting one through does
-        // not leave it unhandled — it hands the gated verb to a handler that applies it with no
-        // condition in front of it, which is strictly stronger than the printed card. That is the
-        // defect this pair of branches exists to fix, and it is not an acceptable fallback; the
-        // three cast-payment gates above give up the whole text for the same reason.
+        // --- "If there are/you have N different Elements among <pool>, <action> it/them" followup ---
+        // The same gate counted by Element spread rather than by card, and here for the same
+        // reason its sibling is: the plain action handlers below scan with find() and would take
+        // the verb out of the middle of this sentence. 23-047H Tyro was adding the chosen card to
+        // hand and 14-023L Gilgamesh dulling and freezing, both regardless of the spread.
+        Matcher distinctElemM = FOLLOWUP_IF_DISTINCT_ELEMENTS_ACTION.matcher(primaryFollowup);
+        if (distinctElemM.matches()) {
+            String distinctActionText = distinctElemM.group("action").trim();
+            BiConsumer<GameContext, List<ForwardTarget>> distinctAction =
+                    parseTargetAction(distinctActionText, xValue);
+            if (distinctAction != null) {
+                Predicate<GameContext> distinctGate = distinctElementsGate(distinctElemM);
+                final String label = distinctElementsGateLabel(distinctElemM) + ", " + distinctActionText;
+                return ctx -> {
+                    ctx.logChooseHeader(choosePrefix + " — " + label);
+                    List<ForwardTarget> ts = selectTargets(ctx, maxCount, upTo,
+                            opponentOnly, selfOnly, condition, element, zone, opponentZone,
+                            costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters,
+                            jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, fExcludeElem, withoutMulticard);
+                    if (distinctGate.test(ctx))
+                        distinctAction.accept(ctx, ts);
+                    else
+                        ctx.logEntry("Condition not met — " + distinctActionText + " skipped");
+                    if (secondary != null) secondary.accept(ctx);
+                };
+            }
+        }
+
+        // Fail closed on any "If you control N or more …" or "If there are N different Elements …"
+        // followup none of the branches above could read. Everything below scans primaryFollowup
+        // with find(), so letting one through does not leave it unhandled — it hands the gated
+        // verb to a handler that applies it with no condition in front of it, which is strictly
+        // stronger than the printed card. That is the defect those branches exist to fix, and it
+        // is not an acceptable fallback; the three cast-payment gates above give up the whole text
+        // for the same reason.
         //
-        // What still reaches here is a qualifier the counts cannot express — 27-114R's "5 or more
-        // Fire Backups and/or Earth Backups" (an Element union, where the overlap term would need
-        // a two-Element count) and 3-079H's "3 or more different Element Backups" — or an action
-        // no parser reads. An ability that reports "?" is the honest answer for both.
+        // No printing reaches here today: every gate in the corpus is readable and every action
+        // they guard is in parseTargetAction's vocabulary. The stop is for the next wording, which
+        // will otherwise arrive as an ability that quietly does more than it says.
         //
         // 25-064C Dyne is the one shape allowed past: its mutual-power exchange reads this gate
         // for itself further down the chain, because the source-name check that identifies it has

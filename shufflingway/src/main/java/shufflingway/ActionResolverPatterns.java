@@ -9251,16 +9251,43 @@ final class ActionResolverPatterns {
         ",\\s*(?<action>.+?)[.!]?$"
     );
     /**
-     * The bare "If you control N or more …" opening, with no interest in what follows it.
+     * The distinct-Element sibling of {@link #FOLLOWUP_IF_SELF_CONTROLS_N_ELEMENT_TYPE_ACTION}:
+     * a gate on how many Elements a pool spans rather than how many cards it holds.
      *
-     * <p>Used as a fail-closed stop, not as a parser: a followup that opens this way and reached
-     * neither {@link #FOLLOWUP_IF_SELF_CONTROLS_N_ELEMENT_TYPE_DAMAGE} nor
-     * {@link #FOLLOWUP_IF_SELF_CONTROLS_N_ELEMENT_TYPE_ACTION} must not carry on down the plain
-     * action handlers, every one of which finds its verb with {@code find()} and would apply the
-     * action with the condition dropped.
+     * <p>Two printings, one in each pool the wording reaches. 23-047H Tyro counts the field —
+     * "If there are exactly 3 different Elements among the Backups you control, add it to your
+     * hand" — and 14-023L Gilgamesh (FFBE) counts a Break Zone: "If you have 5 or more different
+     * Elements among cards in your Break Zone, dull it and Freeze it." Both were being claimed by
+     * the plain followup handlers, which find their verb anywhere in the sentence, so Tyro added
+     * the card and Gilgamesh dulled and froze whatever the spread actually was.
+     *
+     * <p>Group {@code bz} is non-null for the Break Zone reading, where no type word is printed
+     * and none is meant — a Summon in the Break Zone is as much an Element seen as a Forward is.
+     *
+     * <p>{@code exactly} decides the comparator, and the two readings are not interchangeable:
+     * Tyro asks for three and a fourth Element takes the effect away again, which is the whole
+     * point of that wording. {@code mine} and {@code minm} carry the count of whichever branch
+     * matched, a named group not being spellable twice in one pattern — the same arrangement
+     * {@link #IF_N_DIFF_ELEMENTS_AMONG} makes for the standalone form of this condition.
+     */
+    static final Pattern FOLLOWUP_IF_DISTINCT_ELEMENTS_ACTION = Pattern.compile(
+        "(?i)^If\\s+(?:there\\s+are|you\\s+have)\\s+" +
+        "(?:(?<exactly>exactly)\\s+(?<mine>\\d+)|(?<minm>\\d+)\\s+or\\s+more)" +
+        "\\s+different\\s+Elements?\\s+among\\s+" +
+        "(?:(?<bz>cards\\s+in\\s+your\\s+Break\\s+Zone)" +
+        "|(?:the\\s+)?(?<type>Forwards?|Backups?|Monsters?|Characters?)\\s+you\\s+control)" +
+        ",\\s*(?<action>.+?)[.!]?$"
+    );
+    /**
+     * The bare openings of the two gates above, with no interest in what follows them.
+     *
+     * <p>Used as a fail-closed stop, not as a parser: a followup that opens this way and was
+     * claimed by neither must not carry on down the plain action handlers, every one of which
+     * finds its verb with {@code find()} and would apply the action with the condition dropped.
      */
     static final Pattern FOLLOWUP_IF_SELF_CONTROLS_GATE = Pattern.compile(
-        "(?i)^\\s*If\\s+you\\s+control\\s+\\d+\\s+or\\s+more\\b"
+        "(?i)^\\s*If\\s+(?:you\\s+control\\s+\\d+\\s+or\\s+more" +
+        "|(?:there\\s+are|you\\s+have)\\s+(?:exactly\\s+)?\\d+(?:\\s+or\\s+more)?\\s+different\\s+Elements?)\\b"
     );
     // =========================================================================================
     // Whole-sentence forms of four followup verbs, for parseTargetAction

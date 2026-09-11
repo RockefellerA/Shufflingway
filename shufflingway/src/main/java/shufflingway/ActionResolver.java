@@ -2683,6 +2683,11 @@ public class ActionResolver {
                 && parseTargetAction(selfCondActionM.group("action").trim(), 0) != null
                 && selfControlsGate(selfCondActionM) != null)
             return "IfSelfControlsNElementTypeAction";
+        // Its distinct-Element sibling, here for the same reason and guarded the same way.
+        Matcher distinctElemM = FOLLOWUP_IF_DISTINCT_ELEMENTS_ACTION.matcher(followupText);
+        if (distinctElemM.matches()
+                && parseTargetAction(distinctElemM.group("action").trim(), 0) != null)
+            return "IfDistinctElementsAction";
         if (FOLLOWUP_ACTIVATE_AND_NEGATE_DAMAGE.matcher(followupText).find())          return "ActivateAndNegateDamage";
         if (FOLLOWUP_NEGATE_DAMAGE.matcher(followupText).find())                      return "NegateDamage";
         if (FOLLOWUP_GAIN_CONTROL_WHILE_CARD.matcher(followupText).find())            return "GainControlWhileCard";
@@ -4946,6 +4951,44 @@ public class ActionResolver {
                 n -= ctx.countSelfFieldCards(inclFwd, inclBkp, inclMon, job, exclude, category, element);
             return n >= minCount;
         };
+    }
+
+    /**
+     * The distinct-Element counterpart of {@link #selfControlsGate}: reads a
+     * {@link ActionResolverPatterns#FOLLOWUP_IF_DISTINCT_ELEMENTS_ACTION} match into the condition
+     * it states.
+     *
+     * <p>Never returns {@code null} — the pattern admits only the two pools that have a count
+     * behind them, so anything it matches can be answered. The signature keeps the shape of its
+     * sibling so both dispatch branches read alike.
+     *
+     * <p>"Exactly" is not "or more" and the difference is the point of the wording: 23-047H Tyro
+     * asks for three Elements among its Backups and a fourth takes the effect away again.
+     */
+    static Predicate<GameContext> distinctElementsGate(Matcher m) {
+        final boolean exact = m.group("exactly") != null;
+        final int     want  = Integer.parseInt(exact ? m.group("mine") : m.group("minm"));
+        if (m.group("bz") != null)
+            return ctx -> compareDistinct(ctx.selfBreakZoneDistinctElementCount(), exact, want);
+
+        String type = m.group("type").toLowerCase(Locale.ROOT);
+        final boolean inclFwd = type.startsWith("forward") || type.startsWith("character");
+        final boolean inclBkp = type.startsWith("backup")  || type.startsWith("character");
+        final boolean inclMon = type.startsWith("monster") || type.startsWith("character");
+        return ctx -> compareDistinct(ctx.selfDistinctElementCount(inclFwd, inclBkp, inclMon), exact, want);
+    }
+
+    private static boolean compareDistinct(int have, boolean exact, int want) {
+        return exact ? have == want : have >= want;
+    }
+
+    /** Renders that condition for the log header and the characterization description. */
+    static String distinctElementsGateLabel(Matcher m) {
+        boolean exact = m.group("exactly") != null;
+        String  want  = exact ? m.group("mine") : m.group("minm");
+        String  pool  = m.group("bz") != null ? "cards in your Break Zone"
+                                              : m.group("type") + " you control";
+        return "If " + (exact ? "exactly " : "≥") + want + " different Elements among " + pool;
     }
 
     /** Renders the same qualifier for the log header and the characterization description. */
