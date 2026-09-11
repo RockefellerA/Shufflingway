@@ -48970,6 +48970,99 @@ public class CardBehaviorTest {
 				ActionResolver.fullDescription(gatedChoose("Break it."), null));
 	}
 
+	// -----------------------------------------------------------------------------------------
+	// The same gate counted by Element spread rather than by card: "If there are N different
+	// Elements among <type> you control" and "If you have N or more different Elements among cards
+	// in your Break Zone".
+	//
+	// Three printings, all of them dropping the condition the same way — the followup handlers
+	// below found their verb inside the sentence and ran it. 23-047H Tyro added the chosen card to
+	// hand, 14-023L Gilgamesh (FFBE) dulled and froze, 29-057L Luso granted Haste, none of them
+	// looking at a spread at all. The standalone spelling of this condition has been read since
+	// 19-037R Wol was wired; only the followup position was missing.
+	// -----------------------------------------------------------------------------------------
+
+	@Test
+	void tyrosAddToHandIsGatedOnTheBackupElementSpread() {
+		String text = "choose 1 card in your Break Zone. If there are exactly 3 different Elements "
+				+ "among the Backups you control, add it to your hand.";
+		ForwardTarget chosen = fwd(true, 0);
+
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.consumePreloadedTargets()).thenReturn(List.of(chosen));
+		when(ctx.selfDistinctElementCount(false, true, false)).thenReturn(3);
+		ActionResolver.parse(text, null).accept(ctx);
+
+		verify(ctx).addTargetToHand(chosen);
+	}
+
+	@Test
+	void tyrosExactCountIsAnUpperBoundAsWellAsALower() {
+		// "Exactly 3" is the whole point of the wording — a fourth Element takes the card back.
+		String text = "choose 1 card in your Break Zone. If there are exactly 3 different Elements "
+				+ "among the Backups you control, add it to your hand.";
+		ForwardTarget chosen = fwd(true, 0);
+
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.consumePreloadedTargets()).thenReturn(List.of(chosen));
+		when(ctx.selfDistinctElementCount(false, true, false)).thenReturn(4);
+		ActionResolver.parse(text, null).accept(ctx);
+
+		verify(ctx, never()).addTargetToHand(any());
+	}
+
+	@Test
+	void gilgameshCountsTheBreakZoneSpreadRatherThanTheField() {
+		// 14-023L Gilgamesh (FFBE): the pool is a Break Zone and carries no type word, because the
+		// printing takes none — a Summon there is as much an Element seen as a Forward is.
+		String text = "choose 1 Character. If you have 5 or more different Elements among cards in "
+				+ "your Break Zone, dull it and Freeze it.";
+		ForwardTarget chosen = fwd(false, 0);
+
+		GameContext enough = mock(GameContext.class);
+		when(enough.consumePreloadedTargets()).thenReturn(List.of(chosen));
+		when(enough.selfBreakZoneDistinctElementCount()).thenReturn(5);
+		ActionResolver.parse(text, null).accept(enough);
+		verify(enough).dullAndFreezeTarget(chosen);
+
+		GameContext tooFew = mock(GameContext.class);
+		when(tooFew.consumePreloadedTargets()).thenReturn(List.of(chosen));
+		when(tooFew.selfBreakZoneDistinctElementCount()).thenReturn(4);
+		ActionResolver.parse(text, null).accept(tooFew);
+		verify(tooFew, never()).dullAndFreezeTarget(any());
+	}
+
+	@Test
+	void lusosHasteIsGatedOnTheCharacterElementSpread() {
+		// 29-057L Luso, the Balthier shape one condition over: a keyword grant behind a spread.
+		String text = "choose 1 Category FFTA2 Forward. If there are 4 or more different Elements "
+				+ "among Characters you control, it gains Haste until the end of the turn.";
+		ForwardTarget chosen = fwd(true, 0);
+
+		GameContext enough = mock(GameContext.class);
+		when(enough.consumePreloadedTargets()).thenReturn(List.of(chosen));
+		when(enough.selfDistinctElementCount(true, true, true)).thenReturn(4);
+		ActionResolver.parse(text, null).accept(enough);
+		verify(enough).boostTarget(chosen, 0, EnumSet.of(CardData.Trait.HASTE));
+
+		GameContext tooFew = mock(GameContext.class);
+		when(tooFew.consumePreloadedTargets()).thenReturn(List.of(chosen));
+		when(tooFew.selfDistinctElementCount(true, true, true)).thenReturn(3);
+		ActionResolver.parse(text, null).accept(tooFew);
+		verify(tooFew, never()).boostTarget(any(), anyInt(), any());
+	}
+
+	@Test
+	void theStandaloneSpellingOfTheSpreadConditionIsUntouched() {
+		// 19-037R Wol states the same condition as a whole effect rather than as a followup, and
+		// keeps the parser that has been reading it — the two are anchored differently and neither
+		// can claim the other's text.
+		assertEquals("IfNDiffElements",
+				ActionResolver.matchedPatternName(
+						"if there are exactly 3 different Elements among Characters you control, "
+						+ "draw 1 card.", null));
+	}
+
 	// =========================================================================================
 	// 12-042C Cactuar: "When Cactuar enters the field, select 1 of the 2 following actions.
 	// 'Cactuar also becomes a Forward with 4000 power.' (This effect does not end at the end of the
