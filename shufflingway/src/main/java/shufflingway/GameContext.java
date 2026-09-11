@@ -3235,6 +3235,27 @@ public interface GameContext {
     void grantAutoAbilityPermanently(ForwardTarget target, String abilityText);
 
     /**
+     * Hands the card at {@code target} the auto ability written in {@code abilityText} until the end
+     * of the turn — the target-facing twin of {@link #grantSelfAutoAbilityUntilEndOfTurn}, for the
+     * "Choose 1 Forward. It gains "…" until the end of the turn." wording (Ninja 12-013C, whose
+     * grant is "When this Forward attacks, choose 1 Forward. Deal it 5000 damage.", and Ninja
+     * 27-104C's "When this Forward deals damage to your opponent, draw 1 card.").
+     *
+     * <p>The quotation is stored parsed, not verbatim, so the trigger dispatcher sees the granted
+     * ability exactly as it sees a printed one; the self-reference it spells "this Forward" is
+     * resolved against the holder by the dispatch sites, not by this call. As with the permanent
+     * twin, the ability belongs to the grantee's controller, so a trigger inside it fires on
+     * <em>their</em> turns rather than the granting player's.
+     *
+     * <p>An empty target slot is a no-op, and so is a quotation that parses into no auto ability —
+     * callers gate on that ahead of time rather than letting an inert grant be claimed. {@code
+     * target} is expected to name a live field position, which is what the selection this follows
+     * hands over; like every sibling primitive reading a row by index, it does not survive one that
+     * has gone out of range.
+     */
+    void grantAutoAbilityUntilEndOfTurn(ForwardTarget target, String abilityText);
+
+    /**
      * Adds {@code amount} power and optionally grants {@code traits} to the card at {@code target}
      * for as long as it stays on the field — the target-facing twin of
      * {@link #boostSourceForwardPermanently}, used by the "It gains +N power and "…" (This effect

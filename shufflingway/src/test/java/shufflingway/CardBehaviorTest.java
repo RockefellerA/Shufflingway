@@ -51794,4 +51794,289 @@ public class CardBehaviorTest {
 
 	// =========================================================================================
 
+	// =========================================================================================
+	// Ninja 12-013C / 27-104C: "Choose 1 Forward. It gains \"<auto ability>\" until the end of
+	// the turn."
+	//
+	// Effect wiring + board behaviour. Both are the turn-scoped twin of Lich 21-079R's permanent
+	// grant, and neither had a reader: 27-104C fell off the end of the followup chain as
+	// "followup not yet implemented", and 12-013C was caught by the multi-sentence quoted-grant
+	// guard, which is what kept the damage followup from taking "Deal it 5000 damage" out of the
+	// middle of the quotation and having the Ninja deal it.
+	//
+	// The grant is handed over parsed, so the trigger dispatcher reads it as it reads a printed
+	// ability. That is also where 27-104C's half needed work: the "deals damage to opponent"
+	// dispatch matched its subject by card name only, so a quotation saying "this Forward" — the
+	// only way a granted ability can name its holder — landed and then sat inert.
+	// =========================================================================================
+
+	private static final String NINJA_12_013C =
+			"Choose 1 Forward. It gains \"When this Forward attacks, choose 1 Forward. "
+			+ "Deal it 5000 damage.\" until the end of the turn.";
+
+	private static final String NINJA_12_013C_GRANT =
+			"When this Forward attacks, choose 1 Forward. Deal it 5000 damage.";
+
+	private static final String NINJA_27_104C =
+			"Choose 1 Forward. It gains \"When this Forward deals damage to your opponent, "
+			+ "draw 1 card.\" until the end of the turn.";
+
+	private static final String NINJA_27_104C_GRANT =
+			"When this Forward deals damage to your opponent, draw 1 card.";
+
+	/** A board with cards left in P1's deck and an empty hand, so a draw is observable. */
+	private static MainWindow stockedBoard() {
+		MainWindow mw = new MainWindow();
+		mw.gameState.initializeDeck(List.of(
+				makeForward("Deck Card A", "Fire", 2, 5000),
+				makeForward("Deck Card B", "Fire", 2, 5000)), List.of());
+		mw.gameState.getP1Hand().clear();
+		return mw;
+	}
+
+	/** A mock that answers one chosen Forward, the way the Vallaide grant beside this one is driven. */
+	private static GameContext mockChoosing(ForwardTarget chosen) {
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.consumePreloadedTargets()).thenReturn(null);
+		when(ctx.selectCharacters(anyInt(), anyBoolean(), anyBoolean(), anyBoolean(), any(), any(),
+				anyInt(), any(), anyInt(), any(), anyBoolean(), anyBoolean(), anyBoolean(),
+				any(), any(), any(), any(), anyBoolean(), any(), anyBoolean()))
+				.thenReturn(new ArrayList<>(List.of(chosen)));
+		return ctx;
+	}
+
+	@Test
+	void ninjaHandsTheChosenForwardTheQuotedAttackTrigger() {
+		GameContext ctx = mockChoosing(fwd(true, 0));
+
+		Consumer<GameContext> fn = ActionResolver.parse(NINJA_12_013C, null);
+		assertNotNull(fn);
+		fn.accept(ctx);
+
+		verify(ctx).grantAutoAbilityUntilEndOfTurn(fwd(true, 0), NINJA_12_013C_GRANT);
+	}
+
+	@Test
+	void ninjaDoesNotDealTheDamagePrintedInsideTheQuotation() {
+		// The regression this card is here for. "Deal it 5000 damage." is the granted trigger's
+		// payload, owed to whatever that Forward later attacks — not to the Forward being chosen
+		// now, and not at cast time.
+		GameContext ctx = mockChoosing(fwd(true, 0));
+		ActionResolver.parse(NINJA_12_013C, null).accept(ctx);
+
+		verify(ctx, never()).damageTarget(any(), anyInt());
+		verify(ctx, never()).damageTargetUnreduced(any(), anyInt());
+	}
+
+	@Test
+	void ninjaHandsTheChosenForwardTheQuotedDamageTrigger() {
+		GameContext ctx = mockChoosing(fwd(true, 0));
+
+		Consumer<GameContext> fn = ActionResolver.parse(NINJA_27_104C, null);
+		assertNotNull(fn);
+		fn.accept(ctx);
+
+		verify(ctx).grantAutoAbilityUntilEndOfTurn(fwd(true, 0), NINJA_27_104C_GRANT);
+		verify(ctx, never()).drawCards(anyInt());
+	}
+
+	@Test
+	void bothNinjaGrantsAreNamedRatherThanReportedAsUnread() {
+		assertEquals("ChooseCharacter / GainsQuotedAutoAbilityUntilEot",
+				ActionResolver.fullDescription(NINJA_12_013C, null));
+		assertEquals("ChooseCharacter / GainsQuotedAutoAbilityUntilEot",
+				ActionResolver.fullDescription(NINJA_27_104C, null));
+	}
+
+	@Test
+	void aGrantedDamageToOpponentTriggerFiresForItsHolder() {
+		// The last link, and the one the grant was worth nothing without: the dispatch matched its
+		// subject by card name, and a granted ability never names the card holding it.
+		MainWindow mw = stockedBoard();
+		CardData holder = makeForward("Shadow", "Fire", 3, 7000);
+		placeP1Forward(mw, holder);
+
+		mw.autoAbilityTriggers.triggerAutoAbilitiesForDealsDamageToOpponent(holder, true);
+		assertEquals(0, mw.gameState.getP1Hand().size(), "nothing granted yet, and Shadow prints nothing");
+
+		mw.buildGameContext(true).grantAutoAbilityUntilEndOfTurn(fwd(true, 0), NINJA_27_104C_GRANT);
+		mw.autoAbilityTriggers.triggerAutoAbilitiesForDealsDamageToOpponent(holder, true);
+		assertEquals(1, mw.gameState.getP1Hand().size(),
+				"the granted trigger is read off the effective list, like the attack walk");
+	}
+
+	@Test
+	void theGrantedTriggerStaysWithTheChosenForwardAlone() {
+		// "this Forward" is the only way a granted ability can name its holder, and the dispatch now
+		// accepts it. The risk that comes with that is a self-reference matching every Forward on
+		// the side, so the neighbour has to stay silent.
+		MainWindow mw = stockedBoard();
+		CardData grantee   = makeForward("Shadow", "Fire", 3, 7000);
+		CardData bystander = makeForward("Edge", "Water", 3, 7000);
+		placeP1Forward(mw, grantee);
+		placeP1Forward(mw, bystander);
+
+		mw.buildGameContext(true).grantAutoAbilityUntilEndOfTurn(fwd(true, 0), NINJA_27_104C_GRANT);
+		assertSame(grantee, mw.p1ForwardCards.get(0), "the grant landed on the Forward chosen");
+
+		mw.autoAbilityTriggers.triggerAutoAbilitiesForDealsDamageToOpponent(bystander, true);
+		assertEquals(0, mw.gameState.getP1Hand().size(), "the neighbour was not the one chosen");
+		mw.autoAbilityTriggers.triggerAutoAbilitiesForDealsDamageToOpponent(grantee, true);
+		assertEquals(1, mw.gameState.getP1Hand().size());
+	}
+
+	@Test
+	void theNinjaGrantsAreWithdrawnAtEndOfTurn() {
+		MainWindow mw = new MainWindow();
+		CardData holder = makeForward("Shadow", "Fire", 3, 7000);
+		placeP1Forward(mw, holder);
+		mw.buildGameContext(true).grantAutoAbilityUntilEndOfTurn(fwd(true, 0), NINJA_12_013C_GRANT);
+		assertEquals(1, mw.effectiveAutoAbilities(holder).size());
+
+		mw.fireEndOfTurnEffects(true);
+		assertTrue(mw.effectiveAutoAbilities(holder).isEmpty(),
+				"granted until the end of the turn, and withdrawn by it");
+	}
+
+	@Test
+	void theGrantDeclinesAnEmptyBackupSlot() {
+		// The reachable empty target: the Backup row is an array with holes in it, unlike the two
+		// list-backed rows. Nothing printed grants an auto ability to a Backup, so this only has to
+		// decline rather than resolve.
+		MainWindow mw = new MainWindow();
+		mw.buildGameContext(true).grantAutoAbilityUntilEndOfTurn(
+				new ForwardTarget(true, 0, ForwardTarget.CardZone.BACKUP), NINJA_12_013C_GRANT);
+		assertTrue(mw.grantedAutoAbilities.isEmpty(), "nothing to grant to, and nothing recorded");
+	}
+
+	@Test
+	void vallaideKeepsItsOwnBranchAheadOfTheGeneralGrant() {
+		// Vallaide's quotation parses as an auto ability too, so the general branch would claim it
+		// anywhere earlier in the chain — and it is represented as a rule, not as granted text.
+		GameContext ctx = mockChoosing(fwd(false, 0));
+		ActionResolver.parse(VALLAIDE_22_020R_ABILITY, null).accept(ctx);
+
+		verify(ctx).grantBreakWhenDealtDamage(fwd(false, 0));
+		verify(ctx, never()).grantAutoAbilityUntilEndOfTurn(any(), any());
+	}
+
+	// =========================================================================================
+
+	// =========================================================================================
+	// PR-150 The Scions of the Seventh Dawn: "At the beginning of Main Phase 1 during each of
+	// your turns, if you control 10 or more Job Scion of the Seventh Dawn, your opponent loses
+	// the game."
+	//
+	// Effect wiring + board behaviour. Three of the four parts were already here — the Main
+	// Phase 1 trigger, the control gate that counts a Job, and causeOpponentToLose() (Sin
+	// 7-130L's payoff). The gap was the bare sentence "Your opponent loses the game.", which no
+	// parser read, so the gate could not resolve its own payoff and the whole ability reported
+	// unparsed.
+	//
+	// The clause is read anchored. Sin prints it too, behind a schedule and a condition, and a
+	// reader that took it out of the middle of that sentence would end the game on resolution
+	// rather than at the end of the next turn — the most expensive possible version of the
+	// find() hazard, since the effect skipped past is the game itself.
+	// =========================================================================================
+
+	private static final String SCIONS_PR_150_GATE =
+			"if you control 10 or more Job Scion of the Seventh Dawn, your opponent loses the game.";
+
+	private static final String SIN_7_130L =
+			"At the end of your next turn, if Sin is on the field, your opponent loses the game.";
+
+	@Test
+	void theBareLossClauseIsRead() {
+		GameContext ctx = mock(GameContext.class);
+		Consumer<GameContext> fn = ActionResolver.parse("your opponent loses the game.", null);
+		assertNotNull(fn, "the clause PR-150's gate has to resolve to");
+		fn.accept(ctx);
+
+		verify(ctx).causeOpponentToLose();
+	}
+
+	@Test
+	void theScionsAbilityResolvesOnlyWhenTenAreControlled() {
+		for (boolean met : new boolean[] { true, false }) {
+			GameContext ctx = mock(GameContext.class);
+			when(ctx.controlConditionMet(any())).thenReturn(met);
+
+			Consumer<GameContext> fn = ActionResolver.parse(SCIONS_PR_150_GATE, null);
+			assertNotNull(fn);
+			fn.accept(ctx);
+
+			verify(ctx, met ? times(1) : never()).causeOpponentToLose();
+		}
+	}
+
+	@Test
+	void theScionsGateIsDescribedWithBothHalvesRead() {
+		// A "?" on either side would mean the gate resolved something it had not read; the whole
+		// point of this wiring is that the count and the payoff are both understood.
+		assertEquals("IfControl(10+ Scion of the Seventh Dawn: OpponentLosesTheGame)",
+				ActionResolver.fullDescription(SCIONS_PR_150_GATE, null));
+	}
+
+	@Test
+	void sinsScheduledLossIsNotClaimedByTheBareClause() {
+		// The regression the anchor exists for. Sin's loss is owed at the end of the next turn and
+		// only if Sin is still standing; read off the bare clause it would land immediately.
+		assertEquals("EndOfNextTurnIfCardOnFieldOppLoses",
+				ActionResolver.matchedPatternName(SIN_7_130L, null));
+
+		GameContext ctx = mock(GameContext.class);
+		ActionResolver.parse(SIN_7_130L, null).accept(ctx);
+		verify(ctx, never()).causeOpponentToLose();
+		verify(ctx).scheduleAtEndOfControllerNextTurn(any());
+	}
+
+	/** A Job Scion of the Seventh Dawn Character, of the given type and name. */
+	private static CardData scion(String name, String type) {
+		return makeJobCard(name, "Light", type, "Scion of the Seventh Dawn");
+	}
+
+	private static final String SCIONS_PR_150_AUTO =
+			"At the beginning of Main Phase 1 during each of your turns, if you control 10 or "
+			+ "more Job Scion of the Seventh Dawn, your opponent loses the game.";
+
+	/**
+	 * P1's board holding PR-150 plus {@code others} more Job Scion Characters, for {@code others}
+	 * + 1 in total — the printing counts toward its own condition.
+	 *
+	 * <p>Spread across both rows rather than piled into one, so the count is exercised over the
+	 * Forward list and the Backup array together — which is what the gate walks. The Backup row is
+	 * the one with a size: five slots, matching the rule that caps Backups but not Forwards. They
+	 * are differently named because the same-name rule would break a second copy of one card, and
+	 * the Job is what this gate counts anyway.
+	 */
+	private static MainWindow boardWithScions(int others) {
+		MainWindow mw = new MainWindow();
+		for (int i = 0; i < others; i++) {
+			if (i < 4) placeP1Forward(mw, scion("Scion F" + i, "Forward"));
+			else       mw.p1BackupCards[i - 4] = scion("Scion B" + i, "Backup");
+		}
+		placeP1Forward(mw, makeJobForwardWithAutos("The Scions of the Seventh Dawn", "Light", 1000,
+				"Scion of the Seventh Dawn", SCIONS_PR_150_AUTO));
+		return mw;
+	}
+
+	@Test
+	void tenScionsOnTheBoardEndTheGameAtMainPhaseOne() {
+		MainWindow mw = boardWithScions(9);
+
+		assertFalse(mw.gameState.isP1GameOver(), "nothing has fired yet");
+		mw.autoAbilityTriggers.triggerAutoAbilitiesForBeginningOfMainPhase1(true);
+		assertTrue(mw.gameState.isP1GameOver(), "10 Scions standing at Main Phase 1");
+	}
+
+	@Test
+	void nineScionsLeaveTheGameRunning() {
+		MainWindow mw = boardWithScions(8);
+
+		mw.autoAbilityTriggers.triggerAutoAbilitiesForBeginningOfMainPhase1(true);
+		assertFalse(mw.gameState.isP1GameOver(), "one short of ten, and the game goes on");
+	}
+
+	// =========================================================================================
+
 }

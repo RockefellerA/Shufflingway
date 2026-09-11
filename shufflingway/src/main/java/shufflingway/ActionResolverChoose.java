@@ -12,6 +12,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
+import java.util.function.Function;
 import java.util.function.Predicate;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -1998,6 +1999,23 @@ final class ActionResolverChoose {
                             if (secondary != null) secondary.accept(ctx);
                         };
                     }
+                }
+                // Turn-scoped grant of an auto ability — 12-013C Ninja's "When this Forward attacks,
+                // choose 1 Forward. Deal it 5000 damage.", the wording this block was written to
+                // stop the damage followup claiming a clause out of. It has to be settled here
+                // rather than at the general branch near the end of the chain, because reaching
+                // that branch means passing every find() check in between, and the sentence inside
+                // the quotation is exactly what they would take.
+                Matcher eotM = FOLLOWUP_GAINS_QUOTED_ABILITY_UNTIL_EOT.matcher(primaryFollowup.trim());
+                String eotGrant = eotM.find() ? quotedGrantUntilEot(eotM) : null;
+                // Same guard the permanent branch applies: a quotation parseAutoAbilities does not
+                // recognise would be granted inert, so it declines to the warning below instead.
+                if (eotGrant != null && !CardData.parseAutoAbilities(eotGrant).isEmpty()) {
+                    final String granted = eotGrant;
+                    return grantAutoAbilityUntilEotEffect(choosePrefix, granted, secondary,
+                            ctx -> selectTargets(ctx, maxCount, upTo,
+                                    opponentOnly, selfOnly, condition, element, zone, opponentZone,
+                                    costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters, jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, fExcludeElem, withoutMulticard));
                 }
                 final String unhandled = primaryFollowup;
                 Consumer<GameContext> warn = ctx -> ctx.logEntry(
@@ -5817,10 +5835,61 @@ final class ActionResolverChoose {
             };
         }
 
+        // --- "It gains "<auto ability>" until the end of the turn." — the general case ---------
+        // 27-104C Ninja ("When this Forward deals damage to your opponent, draw 1 card."). Handed
+        // to the trigger dispatcher parsed, so a granted trigger fires on exactly the events a
+        // printed one would; the "this Forward" self-reference is resolved against the holder by
+        // the dispatch sites.
+        //
+        // Deliberately last. Several quotations that do parse as auto abilities have dedicated
+        // branches above that represent them as a rule rather than as granted text — 22-020R
+        // Vallaide's "When this Forward is dealt damage, break this Forward." is one, and it
+        // parses here too, so anywhere earlier this branch would quietly take it off
+        // grantBreakWhenDealtDamage. Sitting behind every one of them, it can only claim what
+        // would otherwise have reached the warning below.
+        //
+        // The multi-sentence twin of this branch is up in the quoted-grants section, which has to
+        // settle those before the find() checks in between reach inside the quotation.
+        Matcher autoGrantM = FOLLOWUP_GAINS_QUOTED_ABILITY_UNTIL_EOT.matcher(primaryFollowup);
+        String autoGrant = autoGrantM.find() ? quotedGrantUntilEot(autoGrantM) : null;
+        if (autoGrant != null && !CardData.parseAutoAbilities(autoGrant).isEmpty()) {
+            final String granted = autoGrant;
+            return grantAutoAbilityUntilEotEffect(choosePrefix, granted, secondary,
+                    ctx -> selectTargets(ctx, maxCount, upTo,
+                            opponentOnly, selfOnly, condition, element, zone, opponentZone,
+                            costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters, jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, fExcludeElem, withoutMulticard));
+        }
+
         // Recognised "Choose" header but followup not yet implemented
         Consumer<GameContext> warnEffect = ctx -> ctx.logEntry(
                 "[ActionResolver] Choose effect — followup not yet implemented: " + followup);
         return secondary == null ? warnEffect : warnEffect.andThen(secondary);
+    }
+
+    /**
+     * The effect behind "Choose 1 Forward. It gains "&lt;auto ability&gt;" until the end of the turn."
+     *
+     * <p>Shared by the two branches that claim that wording — the multi-sentence one in the
+     * quoted-grants section and the general one at the end of the followup chain. They sit far
+     * apart because their precedence arguments differ, but what they then do is the same effect,
+     * and it is written once here so the two cannot drift.
+     *
+     * <p>{@code select} supplies the branch's own target selection; the row check is here rather
+     * than in the primitive because "it gains" on these printings always means a Forward, and a
+     * Backup that slipped through a widened filter should be skipped rather than handed a trigger
+     * nothing on its row would fire.
+     */
+    private static Consumer<GameContext> grantAutoAbilityUntilEotEffect(
+            String choosePrefix, String granted, Consumer<GameContext> secondary,
+            Function<GameContext, List<ForwardTarget>> select) {
+        return ctx -> {
+            ctx.logChooseHeader(choosePrefix + " — gains \"" + granted + "\" until end of turn");
+            for (ForwardTarget t : select.apply(ctx)) {
+                if (t.zone() != ForwardTarget.CardZone.FORWARD) continue;
+                ctx.grantAutoAbilityUntilEndOfTurn(t, granted);
+            }
+            if (secondary != null) secondary.accept(ctx);
+        };
     }
 
     // =========================================================================================

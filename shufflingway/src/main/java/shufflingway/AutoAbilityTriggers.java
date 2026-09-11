@@ -2282,10 +2282,21 @@ final class AutoAbilityTriggers {
 		}
 	}
 
+	/** "this Forward" and friends — a self-reference spelled without the card's name. */
+	private static final Pattern DAMAGE_TO_OPPONENT_SUBJECT_SELF =
+			Pattern.compile("(?i)^this\\s+(?:forward|backup|monster|character)$");
+
 	void triggerAutoAbilitiesForDealsDamageToOpponent(CardData attacker, boolean attackerIsP1) {
 		withBatch(() -> {
 			for (AutoAbility fa : mw.effectiveAutoAbilities(attacker)) {
-				if (!fa.triggerCard().equalsIgnoreCase(attacker.name())) continue;
+				// The same self-reference triggerAutoAbilitiesForAttack accepts, and for the same
+				// reason: a granted ability spells its subject "this Forward" rather than naming a
+				// card, so the name test alone drops it. Ninja 27-104C hands out "When this Forward
+				// deals damage to your opponent, draw 1 card."; without this the grant landed and
+				// then sat inert. No further identity check is needed — effectiveAutoAbilities has
+				// already scoped this list to the attacking card.
+				if (!fa.triggerCard().equalsIgnoreCase(attacker.name())
+						&& !DAMAGE_TO_OPPONENT_SUBJECT_SELF.matcher(fa.triggerCard().trim()).matches()) continue;
 				if (fa.trigger().equals("deals damage to opponent")) executeAutoAbility(fa, attacker, attackerIsP1);
 			}
 		});

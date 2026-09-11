@@ -1061,6 +1061,10 @@ public class ActionResolver {
         result = tryParseEndOfNextTurnIfCardOnFieldOppLoses(effectText);
         if (result != null) return result;
 
+        // Behind the scheduled form above, which prints this same clause as its tail.
+        result = tryParseOpponentLosesTheGame(effectText);
+        if (result != null) return result;
+
         result = tryParseOppFwdsCannotBlockInferiorPower(effectText);
         if (result != null) return result;
 
@@ -2236,6 +2240,7 @@ public class ActionResolver {
         if (tryParseAllForwardsCannotBlock(effectText)                    != null) return "AllForwardsCannotBlock";
         if (tryParseForwardsOfCostCannotBlock(effectText)                 != null) return "ForwardsOfCostCannotBlock";
         if (tryParseEndOfNextTurnIfCardOnFieldOppLoses(effectText)        != null) return "EndOfNextTurnIfCardOnFieldOppLoses";
+        if (tryParseOpponentLosesTheGame(effectText)                      != null) return "OpponentLosesTheGame";
         if (tryParseOppFwdsCannotBlockInferiorPower(effectText)           != null) return "OppFwdsCannotBlockInferiorPower";
         if (tryParseAllFwdsBlockedOnlyByLowerCostThisTurn(effectText)    != null) return "AllFwdsBlockedOnlyByLowerCost";
         if (tryParseOppFwdsLoseAllAbilitiesAndPowerEot(effectText) != null) return "OppFwdsLoseAllAbilitiesAndPowerEot";
@@ -2568,6 +2573,10 @@ public class ActionResolver {
                         PERMANENCE_REMINDER.matcher(permM.group("quoted").trim())
                                 .replaceFirst("").trim()).isEmpty())
                     return "GainsQuotedAbilityPermanent";
+                Matcher eotM = FOLLOWUP_GAINS_QUOTED_ABILITY_UNTIL_EOT.matcher(followupText.trim());
+                String eotGrant = eotM.find() ? quotedGrantUntilEot(eotM) : null;
+                if (eotGrant != null && !CardData.parseAutoAbilities(eotGrant).isEmpty())
+                    return "GainsQuotedAutoAbilityUntilEot";
                 return null;
             }
         }
@@ -2930,6 +2939,16 @@ public class ActionResolver {
         // would otherwise find its damage clause and drop the condition.
         if (FOLLOWUP_REVEAL_TOP_N_DAMAGE_PER_CP_ADD_ALL_TO_HAND.matcher(followupText).find()) return "RevealTopNDamagePerCpAddAllToHand";
         if (FOLLOWUP_REVEAL_TOP_N_JOB_DEAL_DMG_PLACE_BOTTOM.matcher(followupText).find())    return "RevealTopNJobDealDmgPlaceBottom";
+        // Mirrors the choose chain's general quoted-auto-ability grant, including its position:
+        // last, so the dedicated branches that represent a particular quotation as a rule rather
+        // than as granted text — Vallaide 22-020R's, whose sentence parses here too — keep the
+        // names they already report.
+        {
+            Matcher autoGrantM = FOLLOWUP_GAINS_QUOTED_ABILITY_UNTIL_EOT.matcher(followupText);
+            String autoGrant = autoGrantM.find() ? quotedGrantUntilEot(autoGrantM) : null;
+            if (autoGrant != null && !CardData.parseAutoAbilities(autoGrant).isEmpty())
+                return "GainsQuotedAutoAbilityUntilEot";
+        }
         return null;
     }
 
@@ -3782,6 +3801,7 @@ public class ActionResolver {
         if (tryParseAllForwardsCannotBlock(effectText)                    != null) return "AllForwardsCannotBlock";
         if (tryParseForwardsOfCostCannotBlock(effectText)                 != null) return "ForwardsOfCostCannotBlock";
         if (tryParseEndOfNextTurnIfCardOnFieldOppLoses(effectText)        != null) return "EndOfNextTurnIfCardOnFieldOppLoses";
+        if (tryParseOpponentLosesTheGame(effectText)                      != null) return "OpponentLosesTheGame";
         if (tryParseOppFwdsCannotBlockInferiorPower(effectText)           != null) return "OppFwdsCannotBlockInferiorPower";
         if (tryParseAllFwdsBlockedOnlyByLowerCostThisTurn(effectText)    != null) return "AllFwdsBlockedOnlyByLowerCost";
         if (tryParseOppFwdsLoseAllAbilitiesAndPowerEot(effectText) != null) return "OppFwdsLoseAllAbilitiesAndPowerEot";
@@ -5797,6 +5817,24 @@ public class ActionResolver {
                     innerCtx.logEntry(cardName + " is NOT on the field — Sin condition not met");
                 }
             });
+        };
+    }
+
+    /**
+     * "Your opponent loses the game." standing on its own — PR-150 The Scions of the Seventh Dawn,
+     * whose Main Phase 1 trigger reaches this through the control gate counting its Job. The gate
+     * and the trigger were both already here; this clause was the only unread part of the ability.
+     *
+     * <p>Anchored with {@code matches()}, and called after
+     * {@link #tryParseEndOfNextTurnIfCardOnFieldOppLoses} — see
+     * {@link ActionResolverPatterns#OPPONENT_LOSES_THE_GAME} for why reading this clause out of
+     * the middle of Sin's scheduled, conditional version would be worse than not reading it.
+     */
+    private static Consumer<GameContext> tryParseOpponentLosesTheGame(String text) {
+        if (text == null || !OPPONENT_LOSES_THE_GAME.matcher(text.trim()).matches()) return null;
+        return ctx -> {
+            ctx.logEntry("Effect: opponent loses the game");
+            ctx.causeOpponentToLose();
         };
     }
 

@@ -555,7 +555,7 @@
 3 12-088C
 2 10-090C
 
-[*Starter Set 2025 Vol. 1 (Water/Fire)]
+[Starter Set 2025 Vol. 1 (Water/Fire)]
 3 27-122S
 3 27-123S
 3 27-128S
@@ -579,7 +579,7 @@
 3 3-143C
 3 1-170C
 
-[*Starter Set 2025 Vol. 2 (Earth/Lightning)]
+[Starter Set 2025 Vol. 2 (Earth/Lightning)]
 3 27-124S
 3 27-125S
 3 27-126S

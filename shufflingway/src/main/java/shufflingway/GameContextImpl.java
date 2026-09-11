@@ -1990,6 +1990,11 @@ final class GameContextImpl implements GameContext {
 				if (card == null) return;
 				grantSelfAutoAbilityPermanently(card, abilityText);
 			}
+			@Override public void grantAutoAbilityUntilEndOfTurn(ForwardTarget target, String abilityText) {
+				CardData card = mw.autoAbilityTriggers.fieldCardData(target);
+				if (card == null) return;
+				grantSelfAutoAbilityUntilEndOfTurn(card, abilityText);
+			}
 			@Override public void boostTargetWhileWardenOnField(ForwardTarget target, CardData warden,
 					int amount, EnumSet<CardData.Trait> traits,
 					boolean shieldFromSummons, boolean shieldFromAbilities) {

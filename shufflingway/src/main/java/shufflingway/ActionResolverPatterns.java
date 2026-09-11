@@ -2464,6 +2464,21 @@ final class ActionResolverPatterns {
         "your\\s+opponent\\s+loses\\s+the\\s+game[.!]?"
     );
     /**
+     * Matches the bare "Your opponent loses the game." — not a whole ability anywhere in the
+     * corpus, but the payoff PR-150 The Scions of the Seventh Dawn reaches through the control
+     * gate that counts its Job.
+     *
+     * <p>Anchored at both ends, which is what keeps it off the only other printing of the clause:
+     * Sin 7-130L and B-011 carry it inside "At the end of your next turn, if Sin is on the field,
+     * your opponent loses the game.", where the loss is both scheduled and conditional. A reader
+     * that took it out of the middle of that sentence would end the game on resolution instead —
+     * the failure mode this file's header warns about, and an unusually expensive one here, since
+     * the effect it would skip past is the whole game.
+     */
+    static final Pattern OPPONENT_LOSES_THE_GAME = Pattern.compile(
+        "(?i)^Your\\s+opponent\\s+loses\\s+the\\s+game[.!]?$"
+    );
+    /**
      * Matches "All the Forwards opponent controls lose all abilities until the end of the turn."
      *
      * <p>The possessive is optional on either side of "all": printings say "lose all abilities"
