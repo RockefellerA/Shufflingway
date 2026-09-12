@@ -174,17 +174,24 @@ final class ActionResolverHand {
         };
     }
     /**
-     * Parses "place up to N cards from your hand at the bottom of your deck in any order. Then, draw
-     * the same number of cards as were returned to your deck." Returning nothing is a legal choice,
-     * in which case no cards are drawn.
+     * Parses "place [up to N | any number of] cards from your hand at the bottom of your deck in
+     * any order. Then, draw the same number of cards [as were returned to your deck]." — 8-047C
+     * Waltrill and 3-122C Artemicion. Returning nothing is a legal choice on both, in which case
+     * no cards are drawn.
+     *
+     * <p>"Any number" is passed as {@link Integer#MAX_VALUE} rather than as the hand size read at
+     * parse time: the parsed Consumer is a long-lived singleton the engine reuses, so a count
+     * captured now would be a different hand's by the time it resolves. Both sides of
+     * {@code placeUpToFromHandToBottomOfDeck} clamp with {@code Math.min(max, hand.size())}, so
+     * the sentinel resolves to "all of it" at the only moment that can be answered correctly.
      */
     static Consumer<GameContext> tryParsePlaceUpToHandToBottomThenRedraw(String text) {
         Matcher m = PLACE_UP_TO_HAND_TO_BOTTOM_THEN_REDRAW.matcher(text);
         if (!m.find()) return null;
-        int max = Integer.parseInt(m.group("max"));
+        final int max = m.group("max") != null ? Integer.parseInt(m.group("max")) : Integer.MAX_VALUE;
+        final String cap = max == Integer.MAX_VALUE ? "any number of" : "up to " + max;
         return ctx -> {
-            ctx.logEntry("Effect: Place up to " + max
-                    + " card(s) at bottom of deck, then draw that many");
+            ctx.logEntry("Effect: Place " + cap + " card(s) at bottom of deck, then draw that many");
             int placed = ctx.placeUpToFromHandToBottomOfDeck(max);
             if (placed > 0) ctx.drawCards(placed);
             else            ctx.logEntry("Effect: No cards returned — no cards drawn");

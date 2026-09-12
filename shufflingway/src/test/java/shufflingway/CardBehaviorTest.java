@@ -45232,6 +45232,154 @@ public class CardBehaviorTest {
 
 
 	// =========================================================================================
+	// Artemicion 3-122C and Penelo 17-057H: two abilities whose machinery was already built.
+	//
+	// Parsing + board behaviour. Neither needed a primitive. Artemicion prints 8-047C Waltrill's
+	// cycle with the cap taken off — "any number" rather than "up to 2", and the short spelling of
+	// the redraw clause — so the parser that has run Waltrill all along just could not read the two
+	// wordings. Penelo prints the board-scaled sweep that eleven cards share, with the multiplier
+	// swapped from what is on the field to what has been cast this turn.
+	//
+	// Both are widenings of a shared pattern, so both sections below check the sibling that was
+	// already passing through it: the cost of widening one of these is claiming a neighbour.
+	// =========================================================================================
+
+	private static final String ARTEMICION_3_122C_ETB =
+			"place any number of cards from your hand at the bottom of your deck in any order. "
+			+ "Then, draw the same number of cards.";
+
+	private static final String PENELO_17_057H_ETB =
+			"deal 1000 damage for each card you have cast this turn to all the Forwards "
+			+ "opponent controls.";
+
+	@Test
+	void artemicionsUncappedCycleReadsAsTheSameEffectWaltrillPrints() {
+		assertEquals("PlaceUpToHandToBottomThenRedraw",
+				ActionResolver.matchedPatternName(ARTEMICION_3_122C_ETB, null));
+	}
+
+	@Test
+	void artemicionsAnyNumberIsUnboundedRatherThanACount() {
+		// "Any number" has no printed cap, and the hand it would be read against is not the hand
+		// that will be there when the ability resolves — so the sentinel is passed through and
+		// both sides of the primitive clamp it with Math.min(max, hand.size()).
+		Consumer<GameContext> fn = ActionResolver.parse(ARTEMICION_3_122C_ETB, null);
+		assertNotNull(fn);
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.placeUpToFromHandToBottomOfDeck(Integer.MAX_VALUE)).thenReturn(3);
+
+		fn.accept(ctx);
+
+		verify(ctx).placeUpToFromHandToBottomOfDeck(Integer.MAX_VALUE);
+		verify(ctx).drawCards(3);
+	}
+
+	@Test
+	void artemicionDrawsNothingWhenNothingIsReturned() {
+		// Returning none is a legal choice on the uncapped form exactly as it is on Waltrill's.
+		Consumer<GameContext> fn = ActionResolver.parse(ARTEMICION_3_122C_ETB, null);
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.placeUpToFromHandToBottomOfDeck(anyInt())).thenReturn(0);
+
+		fn.accept(ctx);
+
+		verify(ctx, never()).drawCards(anyInt());
+	}
+
+	@Test
+	void waltrillsCappedCycleStillPassesItsPrintedCap() {
+		// The sibling that shares the widened pattern: his 2 must not become "any number".
+		Consumer<GameContext> fn = ActionResolver.parse(
+				"place up to 2 cards from your hand at the bottom of your deck in any order. "
+				+ "Then, draw the same number of cards as were returned to your deck.", null);
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.placeUpToFromHandToBottomOfDeck(2)).thenReturn(2);
+
+		fn.accept(ctx);
+
+		verify(ctx).placeUpToFromHandToBottomOfDeck(2);
+		verify(ctx).drawCards(2);
+	}
+
+	@Test
+	void penelosSweepIsReadAsScaledByTheTurnsCasts() {
+		CardData penelo = makeAutoAbilityForward("Penelo", "Wind", 5000,
+				"At the end of each of your turns, " + PENELO_17_057H_ETB);
+		assertEquals("DealDamageToForwardsForEach",
+				ActionResolver.fullDescription(penelo.autoAbilities().get(0).effectText(), penelo));
+	}
+
+	/** P1 has cast {@code casts} cards this turn and faces two opposing Forwards. */
+	private static MainWindow peneloBoard(int casts) {
+		MainWindow mw = new MainWindow();
+		placeP2Forward(mw, makeForward("Theirs A", "Fire", 3, 7000));
+		placeP2Forward(mw, makeForward("Theirs B", "Fire", 2, 5000));
+		placeP1Forward(mw, makeForward("Mine", "Wind", 2, 5000));
+		mw.turn(true).cardsCastThisTurn = casts;
+		return mw;
+	}
+
+	private static void runPenelo(MainWindow mw) {
+		ActionResolver.parse(PENELO_17_057H_ETB, null).accept(mw.buildGameContext(true));
+	}
+
+	@Test
+	void peneloHitsEveryOpposingForwardForTheScaledAmount() {
+		MainWindow mw = peneloBoard(3);
+
+		runPenelo(mw);
+
+		assertEquals(3000, mw.p2ForwardDamage.get(0), "1000 per card cast, three cast");
+		assertEquals(3000, mw.p2ForwardDamage.get(1), "the sweep is every Forward, not one");
+		assertEquals(0, mw.p1ForwardDamage.get(0), "\"opponent controls\" spares her own side");
+	}
+
+	@Test
+	void peneloDoesNothingOnATurnWithNoCasts() {
+		// The multiplier is zero far more often than a board count is, so the zero case is the
+		// normal one rather than an edge: a turn spent attacking casts nothing.
+		MainWindow mw = peneloBoard(0);
+
+		runPenelo(mw);
+
+		assertEquals(0, mw.p2ForwardDamage.get(0));
+		assertEquals(0, mw.p2ForwardDamage.get(1));
+	}
+
+	@Test
+	void theCastCountIsReadWhenTheAbilityResolvesNotWhenItIsParsed() {
+		// One parsed Consumer, two turns. A count captured at parse time would burn the first
+		// turn's number into every later one.
+		Consumer<GameContext> fn = ActionResolver.parse(PENELO_17_057H_ETB, null);
+
+		MainWindow first = peneloBoard(1);
+		fn.accept(first.buildGameContext(true));
+		assertEquals(1000, first.p2ForwardDamage.get(0));
+
+		MainWindow second = peneloBoard(4);
+		fn.accept(second.buildGameContext(true));
+		assertEquals(4000, second.p2ForwardDamage.get(0), "the same Consumer, a different turn");
+	}
+
+	@Test
+	void theBoardScaledSiblingsAreUnchangedByTheCastArm() {
+		// The eleven printings that scale by the field have to keep counting the field. Cyan
+		// 11-003R reaches a neighbouring pattern; this one goes through the widened one itself.
+		MainWindow mw = new MainWindow();
+		placeP1Forward(mw, makeForward("Ally A", "Wind", 2, 5000));
+		placeP1Forward(mw, makeForward("Ally B", "Wind", 2, 5000));
+		placeP2Forward(mw, makeForward("Theirs", "Fire", 3, 7000));
+		mw.turn(true).cardsCastThisTurn = 7;   // must be ignored by a board-count printing
+
+		ActionResolver.parse("Deal 1000 damage for each Wind Forward you control to all the "
+				+ "Forwards opponent controls.", null).accept(mw.buildGameContext(true));
+
+		assertEquals(2000, mw.p2ForwardDamage.get(0),
+				"two Wind Forwards, not seven casts — the arms must not cross");
+	}
+
+
+	// =========================================================================================
 	// Dancer 15-046C, Malboro 24-105R, Chocobo 25-045C and Maquis the Phantasm 17-115R: four
 	// abilities the resolver was not reading, for four different reasons.
 	//

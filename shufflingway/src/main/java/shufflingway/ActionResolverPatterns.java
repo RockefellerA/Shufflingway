@@ -8501,15 +8501,25 @@ final class ActionResolverPatterns {
         "(?i)Draw\\s+(\\d+)\\s+cards?[,.]?\\s+then\\s+place\\s+(\\d+)\\s+cards?\\s+from\\s+your\\s+hand\\s+at\\s+the\\s+bottom\\s+of\\s+your\\s+deck[.!]?"
     );
     /**
-     * Matches "place up to N cards from your hand at the bottom of your deck [in any order]. Then,
-     * draw the same number of cards as were returned to your deck." (Waltrill 8-047C) — the redraw
-     * is sized by how many cards the player actually returned, which may be none.
-     * Group {@code max} = the cap on cards returned.
+     * Matches "place [up to N | any number of] cards from your hand at the bottom of your deck
+     * [in any order]. Then, draw the same number of cards [as were returned to your deck]." —
+     * 8-047C Waltrill, who caps it at 2, and 3-122C Artemicion, who does not cap it at all. The
+     * redraw is sized by how many cards the player actually returned, which may be none.
+     *
+     * <p>Two printings, two spellings of each half, and the halves vary independently: Waltrill
+     * writes the cap and the long redraw clause, Artemicion writes neither. Both are admitted
+     * rather than given separate patterns because it is one effect — return some of your hand,
+     * refill by that many — and the count is the only thing that differs.
+     *
+     * <p>Group {@code max} carries the cap and is null on the uncapped form, where {@code any} is
+     * non-null instead; the parser reads "any number" as a cap of {@link Integer#MAX_VALUE},
+     * which both sides of {@code placeUpToFromHandToBottomOfDeck} already clamp to the hand size.
      */
     static final Pattern PLACE_UP_TO_HAND_TO_BOTTOM_THEN_REDRAW = Pattern.compile(
-        "(?i)place\\s+up\\s+to\\s+(?<max>\\d+)\\s+cards?\\s+from\\s+your\\s+hand\\s+at\\s+the\\s+bottom\\s+" +
+        "(?i)place\\s+(?:up\\s+to\\s+(?<max>\\d+)|(?<any>any\\s+number\\s+of))\\s+cards?\\s+" +
+        "from\\s+your\\s+hand\\s+at\\s+the\\s+bottom\\s+" +
         "of\\s+your\\s+deck(?:\\s+in\\s+any\\s+order)?[.,]?\\s+Then[,.]?\\s+draw\\s+the\\s+same\\s+number\\s+" +
-        "of\\s+cards?\\s+as\\s+(?:were|was)\\s+returned\\s+to\\s+your\\s+deck[.!]?"
+        "of\\s+cards?(?:\\s+as\\s+(?:were|was)\\s+returned\\s+to\\s+your\\s+deck)?[.!]?"
     );
 
     // =========================================================================================
@@ -8887,22 +8897,36 @@ final class ActionResolverPatterns {
         "\\s+(?<amount>\\d+)\\s+damage[.!]?"
     );
     /**
-     * Matches: "Deal X damage for each [Element]? [Category Y]? Type you control to all [the] Forwards [opponent controls]"
+     * Matches: "Deal X damage for each &lt;multiplier&gt; to all [the] Forwards [opponent controls]",
+     * where the multiplier is either a board count — "[Element]? [Category Y]? Type you control" —
+     * or 17-057H Penelo's "card you have cast this turn".
      * <ul>
      *   <li>Group {@code base}      — base damage per matching card</li>
+     *   <li>Group {@code cast}      — present when the multiplier is the turn's cast count, in
+     *       which case every board-count group below is null</li>
      *   <li>Group {@code element}   — optional element filter ("Wind", "Fire", etc.)</li>
      *   <li>Group {@code category}  — optional category filter</li>
      *   <li>Group {@code chartype}  — Forwards/Backups/Monsters/Characters</li>
      *   <li>Group {@code condition} — optional "damaged"/"dull"/etc. target filter</li>
      *   <li>Group {@code opponent}  — present when "opponent controls" appears</li>
      * </ul>
+     *
+     * <p>The cast arm is an alternative to the whole board-count run rather than a filter within
+     * it, because it answers a different question: what a player has done this turn, not what
+     * stands on the field. Everything after "to all" is shared, which is the reason it lives here
+     * rather than in a pattern of its own — the target scope, the state filter and the
+     * cannot-be-reduced rider are identical, and Penelo would otherwise need a copy of all three.
      */
     static final Pattern DEAL_DAMAGE_TO_FORWARDS_FOR_EACH = Pattern.compile(
         "(?i)Deal\\s+(?<base>\\d+)\\s+damage\\s+for\\s+each\\s+" +
-        "(?:(?<element>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)\\s+)?" +
-        "(?:Category\\s+(?<category>\\S+)\\s+)?" +
-        "(?<chartype>Forwards?|Characters?|Backups?|Monsters?)\\s+" +
-        "(?:(?<oppcount>(?:your\\s+)?opponent\\s+controls)|you\\s+control)" +
+        "(?:" +
+            "(?<cast>card\\s+you\\s+have\\s+cast\\s+this\\s+turn)" +
+        "|" +
+            "(?:(?<element>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)\\s+)?" +
+            "(?:Category\\s+(?<category>\\S+)\\s+)?" +
+            "(?<chartype>Forwards?|Characters?|Backups?|Monsters?)\\s+" +
+            "(?:(?<oppcount>(?:your\\s+)?opponent\\s+controls)|you\\s+control)" +
+        ")" +
         "\\s+to\\s+all(?:\\s+the)?\\s+" +
         "(?:(?<condition>damaged|dull|attacking|blocking|active)\\s+)?" +
         "Forwards?" +

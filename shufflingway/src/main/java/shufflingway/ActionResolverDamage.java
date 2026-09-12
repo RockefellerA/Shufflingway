@@ -249,19 +249,27 @@ final class ActionResolverDamage {
         boolean countOpp     = m.group("oppcount") != null;
         boolean opponentOnly = m.group("opponent") != null;
         boolean unreduced    = CANNOT_BE_REDUCED_PATTERN.matcher(text).find();
+        // 17-057H Penelo scales by what was cast this turn rather than by what is on the field, so
+        // the board-count groups are all null on her arm — every read of charType below has to sit
+        // behind this flag.
+        boolean byCast       = m.group("cast") != null;
 
-        boolean fwd = charType.matches("(?i)Forwards?|Characters?");
-        boolean bkp = charType.matches("(?i)Backups?|Characters?");
-        boolean mon = charType.matches("(?i)Monsters?|Characters?");
+        boolean fwd = !byCast && charType.matches("(?i)Forwards?|Characters?");
+        boolean bkp = !byCast && charType.matches("(?i)Backups?|Characters?");
+        boolean mon = !byCast && charType.matches("(?i)Monsters?|Characters?");
         String elementFilter = element != null ? element.toLowerCase(java.util.Locale.ROOT) : null;
 
         return ctx -> {
-            int n = countOpp
+            // Read at resolution, not at parse: the parsed Consumer is reused for every
+            // activation, and the count is a different turn's by the next one.
+            int n = byCast ? ctx.selfCardsCastThisTurn()
+                    : countOpp
                     ? ctx.countOppFieldCards(fwd, bkp, mon, null, null, category, elementFilter)
                     : ctx.countSelfFieldCards(fwd, bkp, mon, null, null, category, elementFilter);
             int damage = baseDmg * n;
             String controller = countOpp ? "opponent controls" : "you control";
-            String multLabel = (element != null ? element + " " : "")
+            String multLabel = byCast ? "card(s) cast this turn"
+                    : (element != null ? element + " " : "")
                     + (category != null ? "Category " + category + " " : "")
                     + charType + " " + controller;
             String condLabel = condition != null ? (condition + " ") : "";
