@@ -10734,7 +10734,7 @@ final class GameContextImpl implements GameContext {
 				logEntry("Effect: " + source.name() + " not found on field or in the Break Zone — fizzle");
 			}
 
-			@Override public void revealTopNPlayUpToTypeOntoFieldRestBottom(int reveal, int maxPlay, String typeFilter, String categoryFilter, boolean mustPlay) {
+			@Override public void revealTopNPlayUpToTypeOntoFieldRestBottom(int reveal, int maxPlay, String typeFilter, String categoryFilter, String jobFilter, boolean mustPlay) {
 				Deque<CardData> deck = isP1 ? mw.gameState.getP1MainDeck() : mw.gameState.getP2MainDeck();
 				int n = Math.min(reveal, deck.size());
 				if (n == 0) { logEntry("Reveal top: deck is empty."); return; }
@@ -10744,7 +10744,7 @@ final class GameContextImpl implements GameContext {
 						peeked.stream().map(CardData::name).collect(Collectors.joining(", ")));
 				Consumer<CardData> playOntoField = revealPlacement();
 				mw.lookDialogs().revealPlayTypeOntoFieldRestBottom(peeked, deck, isP1, maxPlay,
-						typeFilter, categoryFilter, mustPlay, playOntoField);
+						typeFilter, categoryFilter, jobFilter, mustPlay, playOntoField);
 			}
 
 			@Override public void revealTopNPlayUpToElementTypeCostOntoField(int reveal, int maxPlay, List<String> elements, String typeFilter, int costVal, String costCmp, boolean mustPlay, RevealRest rest) {

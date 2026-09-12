@@ -3019,6 +3019,7 @@ public class ActionResolver {
         // would otherwise find its damage clause and drop the condition.
         if (FOLLOWUP_REVEAL_TOP_N_DAMAGE_PER_CP_ADD_ALL_TO_HAND.matcher(followupText).find()) return "RevealTopNDamagePerCpAddAllToHand";
         if (FOLLOWUP_REVEAL_TOP_N_JOB_DEAL_DMG_PLACE_BOTTOM.matcher(followupText).find())    return "RevealTopNJobDealDmgPlaceBottom";
+        if (FOLLOWUP_REVEAL_TOP_N_SHUFFLE_BOTTOM_IF_JOB_DAMAGE.matcher(followupText).find()) return "RevealTopNShuffleBottomIfJobDamage";
         // Mirrors the choose chain's general quoted-auto-ability grant, including its position:
         // last, so the dedicated branches that represent a particular quotation as a rule rather
         // than as granted text — Vallaide 22-020R's, whose sentence parses here too — keep the
@@ -3632,6 +3633,11 @@ public class ActionResolver {
                 return "ChooseCharacter / RfpIfSameTypeDraw";
             if (FOLLOWUP_REVEAL_TOP_N_JOB_DEAL_DMG_PLACE_BOTTOM.matcher(followup).find())
                 return "ChooseCharacter / RevealTopNJobDealDmgPlaceBottom";
+            // Mirrors the choose parser, where this is read off the whole followup beside the
+            // branch above: the ". " split described 9-004C Ace as "? + Damage", naming a burn
+            // that is owed only when the reveal turns one up.
+            if (FOLLOWUP_REVEAL_TOP_N_SHUFFLE_BOTTOM_IF_JOB_DAMAGE.matcher(followup).find())
+                return "ChooseCharacter / RevealTopNShuffleBottomIfJobDamage";
             // Read off the whole followup, as parse() does — the ". " split below would otherwise
             // separate the reveal from the cost test that consumes it, describing 7-065H Vanille
             // as "? + Break" and losing the condition on the break.

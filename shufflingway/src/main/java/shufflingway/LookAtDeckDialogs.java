@@ -2204,11 +2204,15 @@ class LookAtDeckDialogs {
      * Clicking two non-selected cards swaps their bottom-of-deck order.
      */
     void revealPlayTypeOntoFieldRestBottom(List<CardData> cards, Deque<CardData> deck,
-            boolean isP1, int maxPlay, String typeFilter, String categoryFilter,
+            boolean isP1, int maxPlay, String typeFilter, String categoryFilter, String jobFilter,
             boolean mustPlay, Consumer<CardData> playOntoField) {
-        String typeLabel = (categoryFilter != null ? "Category " + categoryFilter + " " : "") + typeFilter;
+        // The label reads in the order the cards print their filters: "Category FFTA2 Character",
+        // "Job Dawn Warrior Character".
+        String typeLabel = (categoryFilter != null ? "Category " + categoryFilter + " " : "")
+                + (jobFilter != null ? "Job " + jobFilter + " " : "") + typeFilter;
         Predicate<CardData> eligible = c ->
-                meetsRevealTypeFilter(c, typeFilter) && CardFilters.meetsCategoryFilter(c, categoryFilter);
+                meetsRevealTypeFilter(c, typeFilter) && CardFilters.meetsCategoryFilter(c, categoryFilter)
+                && CardFilters.meetsJobFilter(c, jobFilter);
         resolveRevealPlayOntoField(cards, deck, isP1, maxPlay, typeLabel, eligible,
                 RevealRest.BOTTOM, playOntoField, RevealTake.FIELD, mustPlay);
     }

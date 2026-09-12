@@ -2855,6 +2855,37 @@ final class ActionResolverChoose {
             };
         }
 
+        // --- "Reveal the top N cards of your deck. Shuffle the revealed cards and return them to the bottom of your deck. If you have a Job [Job] among them, deal it M damage." ---
+        // 9-004C Ace. The flat twin of the branch above, and read off the whole followup for the
+        // same reason: split at ". ", his reveal becomes an unreadable primary and his condition
+        // lands in a secondary whose damage arms scan with find(), which reported a burn he only
+        // owes when the reveal earns it.
+        Matcher revealJobFlatM = FOLLOWUP_REVEAL_TOP_N_SHUFFLE_BOTTOM_IF_JOB_DAMAGE.matcher(followup);
+        if (revealJobFlatM.find()) {
+            int    revealCount = Integer.parseInt(revealJobFlatM.group("n"));
+            String revealJob   = revealJobFlatM.group("job").trim();
+            int    damage      = Integer.parseInt(revealJobFlatM.group("dmg"));
+            return ctx -> {
+                List<ForwardTarget> ts = selectTargets(ctx, maxCount, upTo,
+                        opponentOnly, selfOnly, condition, element, zone, opponentZone,
+                        costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters,
+                        jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, fExcludeElem, withoutMulticard);
+                // The reveal happens whether or not a target was picked: it is an instruction of
+                // its own, and the deck is disturbed either way. Only the damage is conditional.
+                int matchCount = ctx.revealTopNCountJobPlaceAllAtBottom(revealCount, revealJob);
+                if (ts.isEmpty() || matchCount == 0) {
+                    ctx.logChooseHeader(choosePrefix + " — no Job " + revealJob + " revealed, no damage");
+                    return;
+                }
+                // Flat, not scaled: "if you have a Job X among them" is satisfied once however
+                // many turned up, which is what separates this from the per-match branch above.
+                ctx.logChooseHeader(choosePrefix + " — Job " + revealJob + " revealed, deal "
+                        + damage + " damage");
+                sortedByIdxDesc(ts, true) .forEach(t -> ctx.damageTarget(t, damage));
+                sortedByIdxDesc(ts, false).forEach(t -> ctx.damageTarget(t, damage));
+            };
+        }
+
         // --- "Reveal the top N cards of your deck. Add 1 card among them to your hand and return the other cards to the bottom of your deck in any order. If you added a Forward to your hand, deal the chosen Forward damage equal to the power of the added Forward." ---
         // Read off the whole followup: the amount is the added card's power, so the reveal and the
         // burn are one clause and the ". " split would leave the burn pointing at nothing. This is

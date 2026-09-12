@@ -10236,13 +10236,13 @@ public class CardBehaviorTest {
         ActionResolver.parse("reveal the top 5 cards of your deck. Play 1 Forward among them onto "
                 + "the field and return the other cards to the bottom of your deck in any order.",
                 null).accept(mandatory);
-        verify(mandatory).revealTopNPlayUpToTypeOntoFieldRestBottom(5, 1, "Forward", null, true);
+        verify(mandatory).revealTopNPlayUpToTypeOntoFieldRestBottom(5, 1, "Forward", null, null, true);
 
         GameContext optional = mock(GameContext.class);
         ActionResolver.parse("reveal the top 2 cards of your deck. Play up to 1 Forward among them onto "
                 + "the field and return the other cards to the bottom of your deck in any order.",
                 null).accept(optional);
-        verify(optional).revealTopNPlayUpToTypeOntoFieldRestBottom(2, 1, "Forward", null, false);
+        verify(optional).revealTopNPlayUpToTypeOntoFieldRestBottom(2, 1, "Forward", null, null, false);
     }
 
     /**
@@ -44946,6 +44946,288 @@ public class CardBehaviorTest {
 		soleAutoEffect(minerva).accept(ctx);
 
 		verify(ctx).opponentCharactersLoseAllAbilitiesUntilEndOfTurn(true, true, true, Set.of());
+	}
+
+
+	// =========================================================================================
+	// Leo 13-067L: the half of a card that stocks the other half.
+	//
+	// Parsing + board behaviour. Both primitives this needs were already here — placeCounters()
+	// and a field count that takes a Category — and so was the parser: "place N [Name] Counters on
+	// [Self] for each [Type] you control" has read 12-109L Lenna's Backups all along. What it could
+	// not read was a filter in front of the type. Leo counts Category FFCC Characters, "Category
+	// FFCC" met no slot, the required "for each" separator never lined up again, and the sentence
+	// went unread.
+	//
+	// That left Leo's action ability — "《1》《Dull》, remove X Kingdom Counters from Leo: choose 1
+	// Forward … If its cost is X, play it onto the field" — parsing correctly and unusable, because
+	// its variable counter cost needs at least one counter to spend and nothing ever placed one.
+	// The last test here is that end of it: the pile the auto builds is the pile the cost reads.
+	//
+	// The multiplier clause is now spelled exactly as REMOVE_WARP_COUNTERS_FROM_NAMED spells it.
+	// The two sentences ask the same board question and differ only in which way the counters move.
+	// =========================================================================================
+
+	/** Leo's printed text, both halves: the auto that stocks the pile and the ability that spends it. */
+	private static final String LEO_13_067L_TEXT =
+			"When Leo enters the field, place 1 Kingdom Counter on Leo for each Category FFCC "
+			+ "Character you control.[[br]] 《1》《Dull》, remove X Kingdom "
+			+ "Counters from Leo: Choose 1 Forward other than Card Name Leo, Light or Dark in your "
+			+ "Break Zone. If its cost is X, play it onto the field. You can only use this ability "
+			+ "during your turn and only once per turn.";
+
+	private static final String LENNA_12_109L_TEXT =
+			"When Lenna enters the field, place 1 Arise Counter on Lenna for each Backup you control.";
+
+	/** A Forward of {@code category} with both its ability lists parsed from {@code text}. */
+	private static CardData makeCategoryAutoForward(String name, String category, String text) {
+		return new CardData(null, name, "Earth", 1, 3000, "Forward", false, 0, false, false,
+				Set.of(), 0, List.of(), null, List.of(),
+				CardData.parseActionAbilities(text), CardData.parseAutoAbilities(text),
+				List.of(), List.of(), List.of(),
+				List.of(), List.of(), List.of(), List.of(), List.of(),
+				false, false, null, false, false, false, false, false, 1,
+				null, category, null, text);
+	}
+
+	/** A plain Backup or Monster carrying one category, for the multiplier to count. */
+	private static CardData makeCategoryCard(String name, String category, String type) {
+		return new CardData(null, name, "Earth", 2, 3000, type, false, 0, false, false,
+				Set.of(), 0, List.of(), null, List.of(),
+				List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(),
+				List.of(), List.of(), List.of(),
+				false, false, null, false, false, false, false, false, 1,
+				null, category, null, "");
+	}
+
+	@Test
+	void leosCounterStockingIsReadRatherThanDroppedOnTheCategory() {
+		CardData leo = makeCategoryAutoForward("Leo", "FFCC", LEO_13_067L_TEXT);
+		assertEquals("PlaceCountersForEach",
+				ActionResolver.fullDescription(leo.autoAbilities().get(0).effectText(), leo));
+	}
+
+	@Test
+	void lennasBareTypeMultiplierStillReadsTheSameWay() {
+		// The widened clause left every filter optional, so the printing that had no filter has to
+		// count exactly what it counted before.
+		MainWindow mw = new MainWindow();
+		mw.p1BackupCards[0] = makePlainBackup("Backup A", "Light", 2);
+		mw.p1BackupCards[1] = makePlainBackup("Backup B", "Light", 2);
+		CardData lenna = makeAutoAbilityForward("Lenna", "Light", 5000, LENNA_12_109L_TEXT);
+
+		placeP1Forward(mw, lenna);
+
+		assertEquals(2, mw.gameState.getCounters(lenna, "Arise"),
+				"two Backups, two Arise Counters — Lenna herself is not one");
+	}
+
+	/**
+	 * The board Leo arrives onto — everything else seated first, because he counts what is already
+	 * there. {@code placeP1Forward} fires his entry trigger for real, which is why these tests do
+	 * not invoke the effect by hand: doing both would stock the pile twice.
+	 */
+	private static MainWindow leoBoard(int ffccBackups, int ffccMonsters, int otherForwards) {
+		MainWindow mw = new MainWindow();
+		for (int i = 0; i < ffccBackups; i++)
+			mw.p1BackupCards[i] = makeCategoryCard("FFCC Backup " + i, "FFCC", "Backup");
+		for (int i = 0; i < ffccMonsters; i++) {
+			CardData mon = makeCategoryCard("FFCC Monster " + i, "FFCC", "Monster");
+			mw.gameState.getIdentity().put(mon, true);
+			mw.p1MonsterCards.add(mon);
+			mw.p1MonsterStates.add(CardState.ACTIVE);
+			mw.p1MonsterFrozen.add(false);
+		}
+		for (int i = 0; i < otherForwards; i++)
+			placeP1Forward(mw, makeCategoryCardForward("Outsider " + i, "XIII", 7000));
+		return mw;
+	}
+
+	/** Plays Leo onto {@code mw}'s P1 field and returns the pile his arrival stocked. */
+	private static int playLeoOnto(MainWindow mw) {
+		CardData leo = makeCategoryAutoForward("Leo", "FFCC", LEO_13_067L_TEXT);
+		placeP1Forward(mw, leo);
+		return mw.gameState.getCounters(leo, "Kingdom");
+	}
+
+	@Test
+	void leoCountsHimselfAmongTheCategoryHeIsIn() {
+		// He is on the field by the time the entry trigger resolves, and he is Category FFCC, so
+		// an empty board still stocks one counter. Getting this wrong would leave him unusable on
+		// exactly the board he is most often played onto.
+		assertEquals(1, playLeoOnto(leoBoard(0, 0, 0)));
+	}
+
+	@Test
+	void leoCountsCategoryCharactersInEveryZone() {
+		// "Character" is all three rows. Counting Forwards alone would have found only Leo.
+		assertEquals(4, playLeoOnto(leoBoard(2, 1, 0)), "Leo plus two Backups plus one Monster");
+	}
+
+	@Test
+	void leoDoesNotCountCharactersOutsideHisCategory() {
+		assertEquals(1, playLeoOnto(leoBoard(0, 0, 3)),
+				"three Category XIII Forwards are still not Category FFCC ones");
+	}
+
+	@Test
+	void theStockedCountersAreWhatLeosActionAbilityCanThenSpend() {
+		// The point of the card, and the reason the gap was worth closing: his ability carries a
+		// variable counter cost, which needs something on the pile to be offered at all. Before
+		// this it was permanently unusable — parsed, named, and dead.
+		MainWindow mw = leoBoard(2, 0, 0);
+		CardData leo = makeCategoryAutoForward("Leo", "FFCC", LEO_13_067L_TEXT);
+		ActionAbility ability = leo.actionAbilities().get(0);
+		assertFalse(ability.counterCosts().isEmpty(), "the cost is a counter cost");
+		assertTrue(ability.counterCosts().get(0).variable(), "and its amount is X");
+		assertFalse(mw.autoAbilityTriggers.counterCostSatisfied(ability.counterCosts().get(0), leo),
+				"before he arrives there is nothing to remove");
+
+		placeP1Forward(mw, leo);
+
+		assertEquals(3, mw.gameState.getCounters(leo, "Kingdom"));
+		assertTrue(mw.autoAbilityTriggers.counterCostSatisfied(ability.counterCosts().get(0), leo),
+				"the auto stocks exactly the pile the action ability spends");
+	}
+
+
+	// =========================================================================================
+	// Kelger 7-049H and Ace 9-004C: two reveal-the-top-5 abilities, missing two different things.
+	//
+	// Parsing + board behaviour. Kelger needed one slot. The reveal-and-play family has read
+	// "Play [up to] M [Category X] [Type] among them" for a dozen printings, but its filter run had
+	// no place for a Job, and Kelger prints "Play 1 Job Dawn Warrior among them" — a Job and no card
+	// type at all. Both had to become optional, which is why the parser now declines when all three
+	// filters are absent: without that guard a bare "Play 1 among them" would read as "play
+	// anything".
+	//
+	// Ace needed a branch. His three sentences are one effect, and the choose chain's ". " split
+	// pulled them apart: the reveal became an unreadable primary and "If you have a Job Class Zero
+	// Cadet among them, deal it 7000 damage" landed in a secondary whose damage arms scan with
+	// find(). He described as "ChooseCharacter / ? + Damage" — a name claiming a burn the card only
+	// owes when the reveal earns it. The fix is the one his scaling sibling already uses: match the
+	// whole followup before the split can reach it.
+	// =========================================================================================
+
+	private static final String KELGER_7_049H_TEXT =
+			"When Kelger enters the field, reveal the top 5 cards of your deck. Play 1 Job Dawn "
+			+ "Warrior among them onto the field and return the other cards to the bottom of your "
+			+ "deck in any order.";
+
+	private static final String ACE_9_004C_TEXT =
+			"When Ace enters the field, choose 1 Forward opponent controls. Reveal the top 5 cards "
+			+ "of your deck. Shuffle the revealed cards and return them to the bottom of your deck. "
+			+ "If you have a Job Class Zero Cadet among them, deal it 7000 damage.";
+
+	@Test
+	void kelgersJobFilterReachesThePlayPicker() {
+		CardData kelger = makeAutoAbilityForward("Kelger", "Wind", 9000, KELGER_7_049H_TEXT);
+		GameContext ctx = mock(GameContext.class);
+
+		soleAutoEffect(kelger).accept(ctx);
+
+		// "Character" is the type, because he names none: the Job is doing all the filtering.
+		// "Dawn Warrior" and not "Dawn" — the lazy Job group has to expand past the first word
+		// once the optional type slot declines to match "Warrior".
+		verify(ctx).revealTopNPlayUpToTypeOntoFieldRestBottom(5, 1, "Character", null,
+				"Dawn Warrior", true);
+	}
+
+	@Test
+	void kelgersPlayIsOwedRatherThanOffered() {
+		// He prints "Play 1", not "Play up to 1" — the distinction the upto group exists for. The
+		// mandatory flag is the last argument above; this states it as its own claim so a change
+		// to it fails with the reason rather than as an argument mismatch.
+		CardData kelger = makeAutoAbilityForward("Kelger", "Wind", 9000, KELGER_7_049H_TEXT);
+		GameContext ctx = mock(GameContext.class);
+
+		soleAutoEffect(kelger).accept(ctx);
+
+		verify(ctx).revealTopNPlayUpToTypeOntoFieldRestBottom(anyInt(), anyInt(), any(), any(),
+				any(), eq(true));
+	}
+
+	@Test
+	void theRevealPlayFilterRunStillDeclinesWhenNothingIsFiltered() {
+		// The guard that pays for making the type noun optional. Every filter absent means the
+		// sentence says nothing about what may be played, and reading it as "anything" would be
+		// strictly stronger than any card prints.
+		assertNull(ActionResolver.parse("reveal the top 5 cards of your deck. Play 1 among them "
+				+ "onto the field and return the other cards to the bottom of your deck in any order.",
+				null));
+	}
+
+	@Test
+	void theCategoryOnlySiblingIsUnchangedByTheNewJobSlot() {
+		// 14-093H Luso, who names a Category and a type and no Job.
+		GameContext ctx = mock(GameContext.class);
+		ActionResolver.parse("Reveal the top 5 cards of your deck. Play 1 Category FFTA2 Character "
+				+ "among them onto the field and return the other cards to the bottom of your deck "
+				+ "in any order.", null).accept(ctx);
+
+		verify(ctx).revealTopNPlayUpToTypeOntoFieldRestBottom(5, 1, "Character", "FFTA2", null, true);
+	}
+
+	@Test
+	void acesRevealIsReadAsOneEffectRatherThanSplitApart() {
+		CardData ace = makeAutoAbilityBackupNamed("Ace", "Fire", 2, ACE_9_004C_TEXT);
+		assertEquals("ChooseCharacter / RevealTopNShuffleBottomIfJobDamage",
+				ActionResolver.fullDescription(ace.autoAbilities().get(0).effectText(), ace));
+	}
+
+	/** Ace's ability against a mock that reveals {@code matches} Job Class Zero Cadets. */
+	private static GameContext aceContext(int matches, ForwardTarget chosen) {
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.consumePreloadedTargets()).thenReturn(null);
+		when(ctx.selectCharacters(anyInt(), anyBoolean(), anyBoolean(), anyBoolean(), any(), any(),
+				anyInt(), any(), anyInt(), any(), anyBoolean(), anyBoolean(), anyBoolean(),
+				any(), any(), any(), any(), anyBoolean(), any(), anyBoolean()))
+			.thenReturn(new ArrayList<>(List.of(chosen)));
+		when(ctx.revealTopNCountJobPlaceAllAtBottom(anyInt(), any())).thenReturn(matches);
+		return ctx;
+	}
+
+	@Test
+	void aceBurnsTheChosenForwardOnlyWhenTheRevealTurnsUpACadet() {
+		ForwardTarget victim = fwd(false, 0);
+		CardData ace = makeAutoAbilityBackupNamed("Ace", "Fire", 2, ACE_9_004C_TEXT);
+
+		GameContext hit = aceContext(1, victim);
+		soleAutoEffect(ace).accept(hit);
+		verify(hit).revealTopNCountJobPlaceAllAtBottom(5, "Class Zero Cadet");
+		verify(hit).damageTarget(victim, 7000);
+	}
+
+	@Test
+	void aceDealsNoDamageWhenNoCadetIsRevealed() {
+		// The condition, which is the half a find() damage arm would have dropped. It never got
+		// that far before this: measured against the previous revision, Ace chose his target and
+		// then did nothing at all — no reveal, no shuffle, no damage — while the description
+		// advertised "? + Damage". The name overstating the behaviour is its own hazard, since it
+		// reads as a wired card in every report that lists one.
+		ForwardTarget victim = fwd(false, 0);
+		CardData ace = makeAutoAbilityBackupNamed("Ace", "Fire", 2, ACE_9_004C_TEXT);
+
+		GameContext miss = aceContext(0, victim);
+		soleAutoEffect(ace).accept(miss);
+
+		verify(miss).revealTopNCountJobPlaceAllAtBottom(5, "Class Zero Cadet");
+		verify(miss, never()).damageTarget(any(), anyInt());
+	}
+
+	@Test
+	void acesRevealHappensEvenWhenTheBurnDoesNot() {
+		// The reveal is an instruction of its own, not a rider on the damage: the deck is disturbed
+		// whatever the cards turn out to be, and a flat 7000 is owed once rather than per match.
+		ForwardTarget victim = fwd(false, 0);
+		CardData ace = makeAutoAbilityBackupNamed("Ace", "Fire", 2, ACE_9_004C_TEXT);
+
+		GameContext many = aceContext(3, victim);
+		soleAutoEffect(ace).accept(many);
+
+		verify(many).revealTopNCountJobPlaceAllAtBottom(5, "Class Zero Cadet");
+		verify(many).damageTarget(victim, 7000);
+		verify(many, never()).damageTarget(victim, 21000);
 	}
 
 

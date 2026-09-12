@@ -2245,6 +2245,33 @@ final class ActionResolverPatterns {
         "(?:\\s+in\\s+any\\s+order)?[.!]?"
     );
     /**
+     * Matches the compound followup "Reveal the top N cards of your deck. Shuffle the revealed
+     * cards and return them to the bottom of your deck. If you have a Job [Job] among them, deal
+     * it M damage." — 9-004C Ace, the corpus's only printing.
+     *
+     * <p>The flat twin of {@link #FOLLOWUP_REVEAL_TOP_N_JOB_DEAL_DMG_PLACE_BOTTOM} above: that one
+     * pays M <em>per</em> match and this one pays M once if there is at least one, so the two
+     * cannot share a branch even though they ask the deck the same question. The disposal is also
+     * printed in the other position — before the condition here, after it there — which is the
+     * other reason this needs a pattern of its own rather than an optional arm of that one.
+     *
+     * <p>Read off the <em>whole</em> followup, like its sibling. Ace's sentence is one effect
+     * spread over three, and the choose chain's ". " split pulls it apart: the reveal becomes an
+     * unreadable primary and the condition is left in a secondary where the damage arms scan with
+     * {@code find()}. He reported "ChooseCharacter / ? + Damage" — a description claiming a burn
+     * the card only owes when the reveal earns it.
+     *
+     * <p>Groups: {@code n} — cards revealed; {@code job} — the Job looked for; {@code dmg} — the
+     * damage dealt to the already-chosen Forward when at least one is found.
+     */
+    static final Pattern FOLLOWUP_REVEAL_TOP_N_SHUFFLE_BOTTOM_IF_JOB_DAMAGE = Pattern.compile(
+        "(?i)Reveal\\s+the\\s+top\\s+(?<n>\\d+)\\s+cards?\\s+of\\s+your\\s+deck[.!]?\\s+" +
+        "Shuffle\\s+the\\s+revealed\\s+cards?\\s+and\\s+return\\s+them\\s+to\\s+the\\s+bottom\\s+" +
+        "of\\s+(?:your|the)\\s+deck[.!]?\\s+" +
+        "If\\s+you\\s+have\\s+(?:an?\\s+)?(?:Job\\s+)?(?<job>.+?)\\s+among\\s+them,?\\s+" +
+        "deal\\s+it\\s+(?<dmg>\\d+)\\s+damage[.!]?"
+    );
+    /**
      * Matches the compound followup "Reveal the top N cards of your deck. Add 1 card among them
      * to your hand and return the other cards to the bottom of your deck in any order. If you
      * added a Forward to your hand, deal the chosen Forward damage equal to the power of the
@@ -2965,13 +2992,25 @@ final class ActionResolverPatterns {
         "(?:\\s+in\\s+any\\s+order)?[.!]?"
     );
     /**
-     * Matches "Reveal the top N cards of your deck. Play up to M [Type] among them onto the field
-     * and return the other cards to the bottom of your deck in any order."
+     * Matches "Reveal the top N cards of your deck. Play up to M [Category X] [Job Y] [Type] among
+     * them onto the field and return the other cards to the bottom of your deck in any order."
      * <ul>
-     *   <li>{@code n}    — number of cards to reveal</li>
-     *   <li>{@code max}  — maximum cards to play onto the field ("up to M")</li>
-     *   <li>{@code type} — card type filter: Forward, Backup, Monster, or Character</li>
+     *   <li>{@code n}        — number of cards to reveal</li>
+     *   <li>{@code max}      — maximum cards to play onto the field ("up to M")</li>
+     *   <li>{@code category} — optional category filter — 14-093H Luso's "Category FFTA2"</li>
+     *   <li>{@code job}      — optional Job filter — 7-049H Kelger's "Job Dawn Warrior"</li>
+     *   <li>{@code type}     — card type filter: Forward, Backup, Monster, or Character</li>
      * </ul>
+     *
+     * <p>The type noun is optional, because a Job can stand in for it: Kelger prints "Play 1 Job
+     * Dawn Warrior among them" and names no card type at all. Every filter being optional would
+     * let a bare "Play 1 among them" match, so the parser declines unless at least one is present —
+     * the guard has to live there rather than here, since a regex that required "one of three
+     * optional groups" would have to spell out every combination.
+     *
+     * <p>The Job group is lazy and bounded by what follows it, which is what lets a multi-word Job
+     * work: "Dawn Warrior" is reached by expanding past "Dawn" once the optional type slot declines
+     * to match "Warrior".
      */
     static final Pattern REVEAL_PLAY_TYPE_ONTO_FIELD_REST_BOTTOM = Pattern.compile(
         "(?i)reveal\\s+the\\s+top\\s+(?<n>\\d+)\\s+cards?\\s+of\\s+your\\s+deck[.!]?\\s+" +
@@ -2980,7 +3019,8 @@ final class ActionResolverPatterns {
         // them apart. Dropping the group let a player decline a play their card demanded.
         "Play\\s+(?<upto>up\\s+to\\s+)?(?<max>\\d+)\\s+" +
         "(?:Category\\s+(?<category>\\S+)\\s+)?" +
-        "(?<type>Forward|Backup|Monster|Character)s?\\s+" +
+        "(?:Job\\s+(?<job>.+?)\\s+)?" +
+        "(?:(?<type>Forward|Backup|Monster|Character)s?\\s+)?" +
         "among\\s+them\\s+onto\\s+(?:the\\s+)?field\\s+" +
         "and\\s+return\\s+the\\s+other\\s+cards?\\s+to\\s+the\\s+bottom\\s+of\\s+(?:your|the)\\s+deck" +
         "(?:\\s+in\\s+any\\s+order)?[.!]?$"
@@ -8280,12 +8320,27 @@ final class ActionResolverPatterns {
         "(?i)Remove\\s+all\\s+(?<name>.+?)\\s+Counters?\\s+from\\s+(?<target>[^.!,]+)\\s*[.!]?"
     );
     /**
-     * Matches "Place N [Name] Counter(s) on [CardName] for each [Type] you control."
-     * Groups: {@code count}, {@code name}, {@code target}, {@code type}.
+     * Matches "Place N [Name] Counter(s) on [CardName] for each [Element] [Category X] [Job Y]
+     * [Type] you control." — 12-109L Lenna, who counts Backups, and 13-067L Leo, who counts
+     * Category FFCC Characters.
+     *
+     * <p>The multiplier clause is the same one {@link #REMOVE_WARP_COUNTERS_FROM_NAMED} below
+     * already reads, and is spelled the same way here on purpose: the two sentences scale by the
+     * identical board question and differ only in which direction the counters move. This one had
+     * only the bare type, so Leo's "Category FFCC" met no slot, the required "for each" separator
+     * never lined up again, and the whole sentence went unread — the counters his action ability
+     * spends were never placed.
+     *
+     * <p>Groups: {@code count}, {@code name}, {@code target}, and the multiplier's optional
+     * {@code element}, {@code category} and {@code job} alongside the required {@code type}.
      */
     static final Pattern PLACE_COUNTERS_FOR_EACH = Pattern.compile(
         "(?i)^[Pp]lace\\s+(?<count>\\d+)\\s+(?<name>.+?)\\s+Counters?\\s+on\\s+(?<target>.+?)" +
-        "\\s+for\\s+each\\s+(?<type>Forwards?|Backups?|Monsters?|Characters?)\\s+you\\s+control[.!]?$"
+        "\\s+for\\s+each\\s+" +
+        "(?:(?<element>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)\\s+)?" +
+        "(?:Category\\s+(?<category>\\S+)\\s+)?" +
+        "(?:Job\\s+(?<job>.+?)\\s+)?" +
+        "(?<type>Forwards?|Backups?|Monsters?|Characters?)\\s+you\\s+control[.!]?$"
     );
     /**
      * Matches "Remove N Warp Counter(s) from [CardName][ for each [Element] [Category X]

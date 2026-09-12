@@ -337,13 +337,20 @@ final class ActionResolverSearch {
         int n      = Integer.parseInt(m.group("n"));
         int max    = Integer.parseInt(m.group("max"));
         String typeRaw  = m.group("type");
-        String normType = Character.toUpperCase(typeRaw.charAt(0))
-                + typeRaw.substring(1).toLowerCase();
         String category = m.group("category");
+        String job      = m.group("job") != null ? m.group("job").trim() : null;
+        // Every filter in the pattern is optional so that a Job can stand in for the card type
+        // (7-049H Kelger's "Play 1 Job Dawn Warrior among them"). Declining when all three are
+        // absent is what stops a bare "Play 1 among them" from reading as "play anything".
+        if (typeRaw == null && category == null && job == null) return null;
+        // "Character" is the widest pool the reveal picker has, so it is what a sentence naming a
+        // Job and no type means: Kelger takes the Dawn Warrior whatever card type it is printed as.
+        String normType = typeRaw == null ? "Character"
+                : Character.toUpperCase(typeRaw.charAt(0)) + typeRaw.substring(1).toLowerCase();
         // No printed "up to" means the play is owed — 14-093H Luso against B-016 Ultimecia,
         // the same sentence with and without it.
         boolean mustPlay = m.group("upto") == null;
-        return ctx -> ctx.revealTopNPlayUpToTypeOntoFieldRestBottom(n, max, normType, category, mustPlay);
+        return ctx -> ctx.revealTopNPlayUpToTypeOntoFieldRestBottom(n, max, normType, category, job, mustPlay);
     }
     static Consumer<GameContext> tryParseRevealElementCardFromHandIfSoDraw(String text) {
         Matcher m = REVEAL_ELEMENT_CARD_FROM_HAND_IF_SO_DRAW.matcher(text.trim());

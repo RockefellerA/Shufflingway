@@ -3629,11 +3629,16 @@ public interface GameContext {
     /**
      * Reveals the top {@code reveal} cards of the active player's deck.
      * The player plays up to {@code maxPlay} cards matching {@code typeFilter}
-     * ("Forward", "Backup", "Monster", or "Character") onto the field for free;
-     * all remaining cards go to the bottom of the deck in any order.
+     * ("Forward", "Backup", "Monster", or "Character") and the optional {@code categoryFilter}
+     * and {@code jobFilter} onto the field for free; all remaining cards go to the bottom of the
+     * deck in any order.
+     *
+     * <p>{@code jobFilter} carries 7-049H Kelger's "Play 1 Job Dawn Warrior among them", which
+     * names a Job and no card type at all — the parser passes "Character" for the type there, the
+     * widest pool, so the Job does the filtering on its own. Bar-separated for OR, as elsewhere.
      */
     void revealTopNPlayUpToTypeOntoFieldRestBottom(int reveal, int maxPlay, String typeFilter,
-            String categoryFilter, boolean mustPlay);
+            String categoryFilter, String jobFilter, boolean mustPlay);
 
     /**
      * Reveals the top {@code reveal} cards of the active player's deck. The player plays up to
@@ -3650,8 +3655,13 @@ public interface GameContext {
     void revealTopNPlayUpToJobTypeWithTotalCostOntoFieldRestBottom(
             int reveal, int maxPlay, String job, String typeFilter, int totalCost);
 
+    /**
+     * <p><b>Unused.</b> Nothing calls this convenience, and a Mockito mock cannot see through it to
+     * the method above, so a test that named it would pass against a real context and fail against
+     * a mock. Left in step with its delegate rather than trusted.
+     */
     default void revealTopNPlayUpToTypeOntoFieldRestBottom(int reveal, int maxPlay, String typeFilter) {
-        revealTopNPlayUpToTypeOntoFieldRestBottom(reveal, maxPlay, typeFilter, null, false);
+        revealTopNPlayUpToTypeOntoFieldRestBottom(reveal, maxPlay, typeFilter, null, null, false);
     }
 
     /**

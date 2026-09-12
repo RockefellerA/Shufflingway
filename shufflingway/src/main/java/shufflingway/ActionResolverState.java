@@ -893,6 +893,18 @@ final class ActionResolverState {
             ctx.placeCountersOnOwnJobCards(name, count, job);
         };
     }
+    /**
+     * Parses "Place N [Name] Counter(s) on [Self] for each [Element] [Category X] [Job Y] [Type]
+     * you control." — 12-109L Lenna's Arise Counters per Backup, and 13-067L Leo's Kingdom
+     * Counters per Category FFCC Character.
+     *
+     * <p>Counts through {@code countSelfFieldCards} rather than {@code ownFieldCount}, which is
+     * what lets the filters mean anything: the latter takes a card type and nothing else. With
+     * every filter absent the two ask the same question, so Lenna counts exactly what she did.
+     *
+     * <p>Requires the counters to land on the printing card, as the sibling counter parsers here
+     * do — every printing names itself, and the pile the ability later spends is its own.
+     */
     static Consumer<GameContext> tryParsePlaceCountersForEach(String text, CardData source) {
         Matcher m = PLACE_COUNTERS_FOR_EACH.matcher(text.trim());
         if (!m.matches()) return null;
@@ -901,12 +913,22 @@ final class ActionResolverState {
         String target     = m.group("target").trim();
         if (source == null || !source.name().equalsIgnoreCase(target)) return null;
         String typeRaw    = m.group("type");
-        String cardType   = Character.toUpperCase(typeRaw.charAt(0))
-                + typeRaw.substring(1).toLowerCase().replaceAll("s$", "");
+        String element    = m.group("element");
+        String category   = m.group("category");
+        String job        = m.group("job") != null ? m.group("job").trim() : null;
+        String tgtLower   = typeRaw.toLowerCase();
+        boolean inclForwards = tgtLower.startsWith("forward") || tgtLower.startsWith("character");
+        boolean inclBackups  = tgtLower.startsWith("backup")  || tgtLower.startsWith("character");
+        boolean inclMonsters = tgtLower.startsWith("monster") || tgtLower.startsWith("character");
+        String label = (element != null ? element + " " : "")
+                + (category != null ? "Category " + category + " " : "")
+                + (job != null ? "Job " + job + " " : "") + typeRaw;
         return ctx -> {
-            int total = baseCount * ctx.ownFieldCount(cardType);
-            ctx.logEntry("Effect: Place " + baseCount + " " + name + " Counter(s) per " + cardType
-                    + " you control (" + total + " total) on " + source.name());
+            int units = ctx.countSelfFieldCards(inclForwards, inclBackups, inclMonsters,
+                    job, null, category, element);
+            int total = baseCount * units;
+            ctx.logEntry("Effect: Place " + baseCount + " " + name + " Counter(s) per " + label
+                    + " you control (" + units + " → " + total + ") on " + source.name());
             if (total > 0) ctx.placeCounters(source, name, total);
         };
     }
