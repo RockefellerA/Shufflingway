@@ -53974,6 +53974,44 @@ public class CardBehaviorTest {
 		assertEquals(0, countLogLinesContaining(mw, "for CP"));
 	}
 
+	@Test
+	void anOrdinaryHandCastLogsTheBackupsThatPaidForIt() {
+		// executePlay is P1's own cast and a networked opponent's, and it wrote nothing at all —
+		// the same gap the LB path had, on the path most casts actually take.
+		CardData cast = makeForward("Quistis", "Fire", 2, 7000);
+		MainWindow mw = castPayingWithBackups(cast,
+				makeCategoryBackup("Cissnei", "Fire", null),
+				makeCategoryBackup("Vayne", "Fire", null));
+
+		assertTrue(mw.gameLogText().contains("Dulls Cissnei and Vayne for CP"), mw.gameLogText());
+		assertEquals(1, countLogLinesContaining(mw, "for CP"));
+	}
+
+	@Test
+	void anOrdinaryHandCastLogsTheCardsDiscardedForIt() {
+		CardData cast = makeForward("Quistis", "Fire", 2, 7000);
+		MainWindow mw = new MainWindow();
+		mw.gameState.getP1Hand().add(cast);
+		mw.gameState.getP1Hand().add(makeForward("Cissnei", "Fire", 2, 5000));
+		mw.gameState.getP1Hand().add(makeForward("Vayne", "Fire", 3, 8000));
+		mw.executePlay(true, cast, 0, List.of(1, 2), List.of(), Map.of(), null, false);
+
+		// Named in the order they are spent — highest hand index first, so the removals do not
+		// shift the indices still to come. The AI path has always written them that way.
+		assertTrue(mw.gameLogText().contains("Discards Vayne and Cissnei for CP"), mw.gameLogText());
+		assertEquals(1, countLogLinesContaining(mw, "for CP"));
+	}
+
+	@Test
+	void theCastLogsWhatPaidForItBeforeTheCardItBought() {
+		CardData cast = makeForward("Quistis", "Fire", 2, 7000);
+		MainWindow mw = castPayingWithBackups(cast, makeCategoryBackup("Cissnei", "Fire", null));
+
+		String log = mw.gameLogText();
+		assertTrue(log.indexOf("for CP") < log.indexOf("Played \"Quistis\""),
+				"the payment reads above the play it bought:\n" + log);
+	}
+
 	/** How many lines of {@code mw}'s game log contain {@code needle}. */
 	private static int countLogLinesContaining(MainWindow mw, String needle) {
 		int n = 0;
