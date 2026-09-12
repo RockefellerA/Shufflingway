@@ -3686,15 +3686,35 @@ public record CardData(
     }
 
     /**
-     * An action ability's cost marker: one or more {@code 《…》} tokens then a colon, not preceded
-     * by a quotation mark.
+     * An action ability's cost marker: one or more {@code 《…》} tokens, optionally followed by
+     * further cost clauses, then a colon — not preceded by a quotation mark.
      *
-     * <p>The same shape {@link #AUTO_ABILITY_PATTERN} already uses to decide where an auto
-     * ability's effect ends, quote guard included — a {@code 《5》:} inside a granted ability
-     * (Medusa's petrification removal) is not this card's own cost.
+     * <p>Built on the shape {@link #AUTO_ABILITY_PATTERN} uses to decide where an auto ability's
+     * effect ends, quote guard included — a {@code 《5》:} inside a granted ability (Medusa's
+     * petrification removal) is not this card's own cost.
+     *
+     * <p><b>The colon is not always adjacent to the tokens.</b> 592 printings spell a cost the
+     * tokens alone cannot carry, and requiring adjacency missed every one of them:
+     * <ul>
+     *   <li><b>A comma-led clause</b> — "《Dull》, put Samurai into the Break Zone:" (590 of them).
+     *       It may itself contain {@code 《…》} tokens, which is why the clause admits them rather
+     *       than stopping at the first one: Magic Pot 4-094R pays "put Magic Pot and 1 Forward
+     *       without 《Multicard》 into the Break Zone".</li>
+     *   <li><b>A parenthetical reminder</b> — Penelo 15-115H's "《5》 (This cost is reduced by 1 for
+     *       each Job Sky Pirate other than Penelo you control.):". Matched as its own optional
+     *       group because it is the one form that contains a full stop; the comma-led clause
+     *       excludes sentence punctuation so it cannot run past the cost it belongs to, and no
+     *       printing in the corpus needs it to.</li>
+     * </ul>
+     *
+     * <p>Samurai 16-009C is what this cost: its "When it enters the field, if it is a Job Samurai
+     * …, deal 2000 damage to all the Forwards opponent controls" describes the Forward the ability
+     * plays out of the Break Zone, and with the cost unrecognised it also registered as a standing
+     * auto ability on the Backup itself — one that reported {@code parse=false} and so read as a
+     * coverage gap rather than as the duplicate it was.
      */
     private static final Pattern ACTION_ABILITY_COST_MARKER =
-            Pattern.compile("(?<!\")(?:《[^》]+》)+\s*:");
+            Pattern.compile("(?<!\")(?:《[^》]+》)+(?:\\s*\\([^)]*\\))?(?:,[^.!:\"]*)?\\s*:");
 
     /**
      * {@code text} with each {@code [[br]]} segment truncated at its action-ability cost marker.

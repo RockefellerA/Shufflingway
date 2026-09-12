@@ -37268,6 +37268,28 @@ public class CardBehaviorTest {
 	}
 
 	@Test
+	void aCostClauseMayItselfCarryCostTokens() {
+		// Magic Pot 4-094R: "《Earth》《Dull》, put Magic Pot and 1 Forward without 《Multicard》 into
+		// the Break Zone:". The trailing clause holds a 《…》 token of its own, so a marker that
+		// stopped at the first token it met would cut the cost in half.
+		String text = "《Earth》《Dull》, put Magic Pot and 1 Forward without 《Multicard》 into the "
+				+ "Break Zone: Search for 1 Forward with the same name as the Forward you put into "
+				+ "the Break Zone and play it onto the field.";
+		assertTrue(CardData.parseAutoAbilities(text).isEmpty());
+		assertEquals(1, CardData.parseActionAbilities(text).size());
+	}
+
+	@Test
+	void aParentheticalCostReminderDoesNotHideTheColon() {
+		// Penelo 15-115H prints "《5》 (This cost is reduced by 1 ….):" — the one cost form that
+		// contains a full stop, which is why it is matched as its own group rather than by the
+		// comma-led clause.
+		String text = "《5》 (This cost is reduced by 1 for each Job Sky Pirate other than Penelo "
+				+ "you control.): Play Penelo onto the field. When Penelo enters the field, draw 1 card.";
+		assertTrue(CardData.parseAutoAbilities(text).isEmpty());
+	}
+
+	@Test
 	void ardynComesBackFromTheBreakZoneAndThenHurtsYou() {
 		CardData ardyn = makeForwardWithText("Ardyn", "Dark", 4, 8000, ARDYN_26_122H);
 		Consumer<GameContext> fn = ActionResolver.parse(ardynBreakZoneAbility().effectText(), ardyn);
@@ -45387,16 +45409,25 @@ public class CardBehaviorTest {
 	}
 
 	@Test
-	void samuraisExtractedEntersFieldEntryFiresNowhere() {
-		// The extractor lifts the followup's "When it enters the field, …" out as a trigger of its
-		// own with the subject "it". No card is named "it", and the enters-the-field dispatch
-		// matches the subject against a card name, so the entry is inert — which is why a coverage
-		// report calls it unwired while the card itself works.
-		AutoAbility etf = CardData.parseAutoAbilities(SAMURAI_16_009C).get(0);
-		assertEquals("enters the field", etf.trigger());
-		assertEquals("it", etf.triggerCard());
-		assertNotEquals("Samurai", etf.triggerCard(),
-				"the entry cannot match the card it was printed on, so it never fires");
+	void samuraiPrintsNoStandingEntersTheFieldAbility() {
+		// The extractor used to lift the followup's "When it enters the field, …" out as a trigger
+		// of its own, because the cost marker required the colon to sit against the 《Dull》 token
+		// and this one is three clauses past it. The entry was inert — its subject was "it", and
+		// the dispatch matches that against a card name — but an inert entry is still an ability
+		// reporting parse=false, which is why a coverage report called this card unwired while the
+		// card itself worked. Recognising the cost removes the entry rather than the symptom.
+		assertTrue(CardData.parseAutoAbilities(SAMURAI_16_009C).isEmpty());
+	}
+
+	@Test
+	void samuraisConditionalDamageStaysWithTheAbilityThatPlaysTheForward() {
+		// Truncation ends the cost at the colon and keeps everything after it, so the trigger
+		// sentence stays where it was printed — on the ability that plays the Forward, which is
+		// what "it" refers to.
+		List<ActionAbility> abilities = CardData.parseActionAbilities(SAMURAI_16_009C);
+		assertEquals(1, abilities.size());
+		assertTrue(abilities.get(0).effectText().contains("When it enters the field"),
+				"the trigger sentence is the ability's, and must not be truncated away with the cost");
 	}
 
 	// =========================================================================================
@@ -45425,6 +45456,13 @@ public class CardBehaviorTest {
 			"When Sin enters the field due to your cast, your opponent selects 1 Forward or Backup "
 			+ "they control for every 2 points of damage you have received (select as many as "
 			+ "possible). Put them into the Break Zone.";
+
+	private static final String BHUNIVELZE_24_033L =
+			"When Bhunivelze enters the field, you may put any number of Forwards and/or Monsters "
+			+ "you control into the Break Zone. When you do so, your opponent selects 1 Forward "
+			+ "they control for each Character you put into the Break Zone by this effect (select "
+			+ "as many as possible). Put them into the Break Zone. Your opponent discards 1 card "
+			+ "for each Character you put into the Break Zone by this effect.";
 
 	private static final String NIMBUS_23_035H =
 			"When White Tiger l'Cie Nimbus enters the field, you may search for 1 Forward with "
@@ -45662,6 +45700,78 @@ public class CardBehaviorTest {
 				.accept(ctx);
 
 		verify(ctx).forceTargetToBreakZone(t);
+	}
+
+	// ---- Bhunivelze: one count driving three clauses --------------------------------------------
+
+	/** Resolves Bhunivelze's trigger against a sacrifice of {@code put} Characters. */
+	private static GameContext resolveBhunivelze(int put, List<ForwardTarget> selected) {
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.putAnyNumberOfOwnCharactersToBz(anyBoolean(), anyBoolean(), anyBoolean(), any()))
+				.thenReturn(put);
+		when(ctx.opponentSelectsOwnCharacters(anyInt(), anyBoolean(), any(), any(),
+				any(), anyInt(), any(), anyBoolean(), anyBoolean(), anyBoolean(), any()))
+				.thenReturn(new ArrayList<>(selected));
+		Consumer<GameContext> fn = ActionResolver.parse(firstAutoEffect(BHUNIVELZE_24_033L), null);
+		assertNotNull(fn);
+		fn.accept(ctx);
+		return ctx;
+	}
+
+	@Test
+	void bhunivelzeIsNotAFlatOpponentDiscard() {
+		// The trailing sentence alone is a clean OPPONENT_DISCARD match under find(), and claiming
+		// it there dropped the sacrifice, the opponent's Forwards and both "for each" scalings —
+		// a board-emptying Legend resolving as "your opponent discards 1 card".
+		assertEquals("PutAnyNumberToBzOppSelectsAndDiscards",
+				ActionResolver.matchedPatternName(firstAutoEffect(BHUNIVELZE_24_033L), null));
+	}
+
+	@Test
+	void bhunivelzeOffersForwardsAndMonstersButNotBackups() {
+		verify(resolveBhunivelze(2, List.of()))
+				.putAnyNumberOfOwnCharactersToBz(eq(true), eq(false), eq(true), any());
+	}
+
+	@Test
+	void bhunivelzeTakesOneOpponentForwardPerCharacterSacrificed() {
+		verify(resolveBhunivelze(3, List.of())).opponentSelectsOwnCharacters(eq(3), anyBoolean(),
+				any(), any(), any(), anyInt(), any(), eq(true), eq(false), eq(false), any());
+	}
+
+	@Test
+	void bhunivelzeDiscardsOneCardPerCharacterSacrificed() {
+		verify(resolveBhunivelze(3, List.of())).forceOpponentDiscard(3);
+	}
+
+	@Test
+	void bhunivelzesSelectionMayConfirmShortOfTheCount() {
+		// "(select as many as possible)" — an opponent holding fewer Forwards than were sacrificed
+		// hands over all of them rather than the picker refusing to confirm.
+		verify(resolveBhunivelze(4, List.of())).opponentSelectsOwnCharacters(anyInt(), eq(true),
+				any(), any(), any(), anyInt(), any(), anyBoolean(), anyBoolean(), anyBoolean(), any());
+	}
+
+	@Test
+	void bhunivelzePutsWhatTheOpponentSelectedIntoTheBreakZone() {
+		ForwardTarget a = new ForwardTarget(false, 1, ForwardTarget.CardZone.FORWARD);
+		ForwardTarget b = new ForwardTarget(false, 0, ForwardTarget.CardZone.FORWARD);
+		GameContext ctx = resolveBhunivelze(2, List.of(a, b));
+
+		verify(ctx).forceTargetToBreakZone(a);
+		verify(ctx).forceTargetToBreakZone(b);
+	}
+
+	@Test
+	void bhunivelzeDoesNothingWhenNothingWasSacrificed() {
+		// "When you do so" gates both halves on the sacrifice happening. A count of 0 is also how
+		// a controller declines after the trigger's "you may" has already been accepted, and
+		// asking the opponent to select 0 Forwards would put an empty picker in front of them.
+		GameContext ctx = resolveBhunivelze(0, List.of());
+
+		verify(ctx, never()).opponentSelectsOwnCharacters(anyInt(), anyBoolean(), any(), any(),
+				any(), anyInt(), any(), anyBoolean(), anyBoolean(), anyBoolean(), any());
+		verify(ctx, never()).forceOpponentDiscard(anyInt());
 	}
 
 	// ---- Nimbus: a keyword other than Warp ------------------------------------------------------
@@ -53783,6 +53893,92 @@ public class CardBehaviorTest {
 		assertNull(ActionResolverChoose.tryParseOpponentSelectsTwoTypes(
 				"Your opponent selects up to 2 Forwards they control and up to 1 Backup they "
 				+ "control (select as many as possible). Blorp the wibbling gnomes."));
+	}
+
+	// =========================================================================================
+	// The CP payment log.
+	//
+	// A payment used to write one line per card, so a three-Backup cast pushed the play it paid
+	// for off the visible end of the log. One line per kind instead — and the LB cast path, which
+	// dulled and discarded without writing anything at all, now writes them too.
+	// =========================================================================================
+
+	@Test
+	void aListOfOneNameIsJustTheName() {
+		assertEquals("Cissnei", ActionResolver.joinOxford(List.of("Cissnei")));
+	}
+
+	@Test
+	void twoNamesAreJoinedWithAndAndNoComma() {
+		assertEquals("Cissnei and Vayne", ActionResolver.joinOxford(List.of("Cissnei", "Vayne")));
+	}
+
+	@Test
+	void threeOrMoreNamesTakeTheSerialComma() {
+		assertEquals("Cissnei, Vayne, and Quistis",
+				ActionResolver.joinOxford(List.of("Cissnei", "Vayne", "Quistis")));
+		assertEquals("A, B, C, and D", ActionResolver.joinOxford(List.of("A", "B", "C", "D")));
+	}
+
+	@Test
+	void anEmptyListJoinsToNothing() {
+		assertEquals("", ActionResolver.joinOxford(List.of()));
+	}
+
+	@Test
+	void theTraitSuffixStillReadsTheWayItDid() {
+		// boostLogSuffix was rewritten onto the shared joiner; its output must not have moved.
+		assertEquals(" — Gain +1000 power, Haste, and First Strike until end of turn",
+				ActionResolver.boostLogSuffix(1000,
+						EnumSet.of(CardData.Trait.HASTE, CardData.Trait.FIRST_STRIKE)));
+		assertEquals(" — Gain +2000 power and Brave until end of turn",
+				ActionResolver.boostLogSuffix(2000, EnumSet.of(CardData.Trait.BRAVE)));
+	}
+
+	@Test
+	void severalDiscardsForCpShareOneLogLine() {
+		MainWindow mw = new MainWindow();
+		mw.logCpPayment(false, List.of(), List.of("Cissnei", "Vayne"));
+
+		assertTrue(mw.gameLogText().contains("[P2] Discards Cissnei and Vayne for CP"),
+				mw.gameLogText());
+		assertEquals(1, countLogLinesContaining(mw, "for CP"), "one line, not one per card");
+	}
+
+	@Test
+	void dullsAndDiscardsDoNotShareALine() {
+		// Separate rules — a dull yields 1 CP and a discard 2 — so a reader checking that a payment
+		// added up has to be able to tell which cards did which.
+		MainWindow mw = new MainWindow();
+		mw.logCpPayment(true, List.of("Ramuh", "Shiva"), List.of("Cissnei"));
+
+		assertTrue(mw.gameLogText().contains("Dulls Ramuh and Shiva for CP"), mw.gameLogText());
+		assertTrue(mw.gameLogText().contains("Discards Cissnei for CP"), mw.gameLogText());
+		assertEquals(2, countLogLinesContaining(mw, "for CP"));
+	}
+
+	@Test
+	void p1sPaymentCarriesNoPlayerPrefix() {
+		MainWindow mw = new MainWindow();
+		mw.logCpPayment(true, List.of("Ramuh"), List.of());
+
+		assertTrue(mw.gameLogText().contains("Dulls Ramuh for CP"), mw.gameLogText());
+		assertFalse(mw.gameLogText().contains("[P2]"), "that prefix is the opponent's");
+	}
+
+	@Test
+	void aPaymentThatSpentNothingWritesNothing() {
+		MainWindow mw = new MainWindow();
+		mw.logCpPayment(false, List.of(), List.of());
+
+		assertEquals(0, countLogLinesContaining(mw, "for CP"));
+	}
+
+	/** How many lines of {@code mw}'s game log contain {@code needle}. */
+	private static int countLogLinesContaining(MainWindow mw, String needle) {
+		int n = 0;
+		for (String line : mw.gameLogText().split("\n")) if (line.contains(needle)) n++;
+		return n;
 	}
 
 	// =========================================================================================

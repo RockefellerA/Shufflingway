@@ -1995,6 +1995,34 @@ final class ActionResolverPatterns {
         Pattern.DOTALL
     );
     /**
+     * Matches Bhunivelze 24-033L end to end: an "any number" sacrifice whose size is then the
+     * scaling term for both halves of what follows — the opponent hands over that many Forwards
+     * and discards that many cards.
+     *
+     * <p>The count is variable, so this is not {@link #PUT_OWN_TYPE_TO_BZ_IF_DO_SO} with a wider
+     * quantifier: that one buys a fixed-price effect and tells it nothing, while here every later
+     * clause reads the price back.
+     *
+     * <p><b>Anchored deliberately, and the only printing of this wording in the corpus.</b> Under
+     * {@code find()} the trailing sentence alone is a clean {@link #OPPONENT_DISCARD} match, which
+     * is exactly what claimed this card before: the sacrifice, the opponent's selection and both
+     * "for each" terms all dropped, and a board-emptying Legend resolved as a flat "your opponent
+     * discards 1 card". Both "for each" clauses must be read for the count to mean anything, so
+     * nothing here is worth matching in part.
+     */
+    static final Pattern PUT_ANY_NUMBER_TO_BZ_OPP_SELECTS_AND_DISCARDS = Pattern.compile(
+        "(?i)^(?:you\\s+may\\s+)?put\\s+any\\s+number\\s+of\\s+" +
+        "(?<types>Forwards?\\s+and/or\\s+Monsters?|Forwards?|Monsters?|Characters?)\\s+" +
+        "you\\s+control\\s+into\\s+the\\s+Break\\s+Zone[.!]?\\s+" +
+        "When\\s+you\\s+do\\s+so,\\s+your\\s+opponent\\s+selects\\s+1\\s+Forward\\s+" +
+        "they\\s+control\\s+for\\s+each\\s+Character\\s+you\\s+put\\s+into\\s+the\\s+" +
+        "Break\\s+Zone\\s+by\\s+this\\s+effect\\s*\\(select\\s+as\\s+many\\s+as\\s+possible\\)[.!]?\\s+" +
+        "Put\\s+them\\s+into\\s+the\\s+Break\\s+Zone[.!]?\\s+" +
+        "Your\\s+opponent\\s+discards\\s+1\\s+card\\s+for\\s+each\\s+Character\\s+you\\s+put\\s+" +
+        "into\\s+the\\s+Break\\s+Zone\\s+by\\s+this\\s+effect[.!]?$",
+        Pattern.DOTALL
+    );
+    /**
      * Matches "If your opponent doesn't control [any] Forwards, put [CardName] into the Break Zone."
      * Group {@code name} — the card name that goes to the Break Zone (must equal source name).
      */

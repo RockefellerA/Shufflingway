@@ -1262,6 +1262,12 @@ public class ActionResolver {
         result = tryParsePutOwnTypeToBzIfDoSo(effectText, source);
         if (result != null) return result;
 
+        // Must precede tryParseOpponentDiscard: Bhunivelze 24-033L ends in a sentence that is a
+        // clean OPPONENT_DISCARD match under find(), and losing the race there drops the whole
+        // sacrifice and both "for each" scalings. Anchored end to end, so it claims nothing else.
+        result = tryParsePutAnyNumberToBzOppSelectsAndDiscards(effectText);
+        if (result != null) return result;
+
         result = tryParseYouMayPutSelfToBZWhenDoSo(effectText, source);
         if (result != null) return result;
 
@@ -2346,6 +2352,7 @@ public class ActionResolver {
         if (tryParseBreaksAfterCombatNoDamage(effectText, source) != null) return "BreaksAfterCombatNoDamage";
         if (tryParsePerformThisActionTwiceAtDamage(effectText, source) != null) return "PerformThisActionTwiceAtDamage";
         if (tryParsePutOwnTypeToBzIfDoSo(effectText, source)   != null) return "PutOwnTypeToBzIfDoSo";
+        if (tryParsePutAnyNumberToBzOppSelectsAndDiscards(effectText) != null) return "PutAnyNumberToBzOppSelectsAndDiscards";
         if (tryParseYouMayPutSelfToBZWhenDoSo(effectText, source)    != null) return "YouMayPutSelfToBZWhenDoSo";
         if (tryParseIfOppNoForwardsPutToBreakZone(effectText, source)          != null) return "IfOppNoForwardsPutToBreakZone";
         if (tryParseIfEitherPlayerNoForwardsPutSourceToBz(effectText, source)  != null) return "IfEitherPlayerNoForwardsPutSourceToBz";
@@ -2598,6 +2605,7 @@ public class ActionResolver {
         if (tryParseConditionalOpponentHandMin(effectText, source, 0) != null) return "ConditionalOpponentHandMin";
         if (tryParsePerformThisActionTwiceAtDamage(effectText, source) != null) return "PerformThisActionTwiceAtDamage";
         if (tryParsePutOwnTypeToBzIfDoSo(effectText, source)   != null) return "PutOwnTypeToBzIfDoSo";
+        if (tryParsePutAnyNumberToBzOppSelectsAndDiscards(effectText) != null) return "PutAnyNumberToBzOppSelectsAndDiscards";
         if (tryParseYouMayPutSelfToBZWhenDoSo(effectText, source)    != null) return "YouMayPutSelfToBZWhenDoSo";
         if (SELECT_FOLLOWING_ACTIONS_DETECT.matcher(effectText).find())        return "SelectFollowingActions";
         if (CardData.HAS_ALL_ELEMENTS_PATTERN.matcher(effectText.trim()).matches()) return "HasAllElements";
@@ -3963,6 +3971,7 @@ public class ActionResolver {
         if (tryParsePutSourceIntoBreakZone(effectText, source) != null)     return "PutSourceIntoBreakZone";
         if (tryParsePerformThisActionTwiceAtDamage(effectText, source) != null) return "PerformThisActionTwiceAtDamage";
         if (tryParsePutOwnTypeToBzIfDoSo(effectText, source)   != null) return "PutOwnTypeToBzIfDoSo";
+        if (tryParsePutAnyNumberToBzOppSelectsAndDiscards(effectText) != null) return "PutAnyNumberToBzOppSelectsAndDiscards";
         if (tryParseYouMayPutSelfToBZWhenDoSo(effectText, source)    != null) return "YouMayPutSelfToBZWhenDoSo";
         if (tryParseIfOppNoForwardsPutToBreakZone(effectText, source)          != null) return "IfOppNoForwardsPutToBreakZone";
         if (tryParseIfEitherPlayerNoForwardsPutSourceToBz(effectText, source)  != null) return "IfEitherPlayerNoForwardsPutSourceToBz";
@@ -4227,6 +4236,7 @@ public class ActionResolver {
         if (tryParseConditionalOpponentHandMin(effectText, source, 0) != null) return "ConditionalOpponentHandMin";
         if (tryParsePerformThisActionTwiceAtDamage(effectText, source) != null) return "PerformThisActionTwiceAtDamage";
         if (tryParsePutOwnTypeToBzIfDoSo(effectText, source)   != null) return "PutOwnTypeToBzIfDoSo";
+        if (tryParsePutAnyNumberToBzOppSelectsAndDiscards(effectText) != null) return "PutAnyNumberToBzOppSelectsAndDiscards";
         if (tryParseYouMayPutSelfToBZWhenDoSo(effectText, source)    != null) return "YouMayPutSelfToBZWhenDoSo";
         if (SELECT_FOLLOWING_ACTIONS_DETECT.matcher(effectText).find())    return "SelectFollowingActions";
         if (CardData.HAS_ALL_ELEMENTS_PATTERN.matcher(effectText.trim()).matches()) return "HasAllElements";
@@ -5431,14 +5441,12 @@ public class ActionResolver {
         return ((damage + count * 1000 - 1) / (count * 1000)) * 1000;
     }
 
-    /** Builds a log suffix like " — Gain +1000 power, Haste, and First Strike until end of turn". */
-    static String boostLogSuffix(int amount, EnumSet<CardData.Trait> traits) {
-        List<String> parts = new ArrayList<>();
-        if (amount != 0)                                  parts.add("+" + amount + " power");
-        if (traits.contains(CardData.Trait.HASTE))        parts.add("Haste");
-        if (traits.contains(CardData.Trait.FIRST_STRIKE)) parts.add("First Strike");
-        if (traits.contains(CardData.Trait.BRAVE))        parts.add("Brave");
-        StringBuilder sb = new StringBuilder(" — Gain ");
+    /**
+     * Joins {@code parts} the way the log writes a list of cards: {@code "X"}, {@code "X and Y"},
+     * {@code "X, Y, and Z"} — serial comma from three items up, nothing at all for none.
+     */
+    static String joinOxford(List<String> parts) {
+        StringBuilder sb = new StringBuilder();
         for (int i = 0; i < parts.size(); i++) {
             if (i > 0) {
                 if (parts.size() == 2)            sb.append(" and ");
@@ -5447,8 +5455,17 @@ public class ActionResolver {
             }
             sb.append(parts.get(i));
         }
-        sb.append(" until end of turn");
         return sb.toString();
+    }
+
+    /** Builds a log suffix like " — Gain +1000 power, Haste, and First Strike until end of turn". */
+    static String boostLogSuffix(int amount, EnumSet<CardData.Trait> traits) {
+        List<String> parts = new ArrayList<>();
+        if (amount != 0)                                  parts.add("+" + amount + " power");
+        if (traits.contains(CardData.Trait.HASTE))        parts.add("Haste");
+        if (traits.contains(CardData.Trait.FIRST_STRIKE)) parts.add("First Strike");
+        if (traits.contains(CardData.Trait.BRAVE))        parts.add("Brave");
+        return " — Gain " + joinOxford(parts) + " until end of turn";
     }
 
     /**
@@ -6258,6 +6275,48 @@ public class ActionResolver {
         Consumer<GameContext> followup = parse(m.group("effect").trim(), source);
         if (followup == null) return null;
         return ctx -> ctx.putOwnTypeToBzThenDoSo(count, type, followup);
+    }
+
+    /**
+     * Parses "put any number of Forwards and/or Monsters you control into the Break Zone. When you
+     * do so, your opponent selects 1 Forward they control for each Character you put into the Break
+     * Zone by this effect (select as many as possible). Put them into the Break Zone. Your opponent
+     * discards 1 card for each Character you put into the Break Zone by this effect." —
+     * Bhunivelze 24-033L.
+     *
+     * <p>One count drives all three clauses: what the player spends is what the opponent loses and
+     * what the opponent discards. "When you do so" gates both halves on the sacrifice actually
+     * happening, so a player who puts nothing in gets no effect at all — which is also how a
+     * controller declines once the trigger's "you may" has already been accepted.
+     *
+     * <p>The opponent's half is a <em>select</em>, not a choose: the card names them as the one who
+     * decides, so "cannot be chosen" does not shield their Forwards and no "when chosen by your
+     * opponent's ability" watcher fires. "(select as many as possible)" is the {@code upTo} form —
+     * a board holding fewer Forwards than the count hands over all of them rather than nothing.
+     */
+    private static Consumer<GameContext> tryParsePutAnyNumberToBzOppSelectsAndDiscards(String text) {
+        Matcher m = PUT_ANY_NUMBER_TO_BZ_OPP_SELECTS_AND_DISCARDS.matcher(text.trim());
+        if (!m.matches()) return null;
+        String types = m.group("types").toLowerCase();
+        boolean characters   = types.startsWith("character");
+        boolean inclForwards = characters || types.startsWith("forward");
+        boolean inclMonsters = characters || types.contains("monster");
+        boolean inclBackups  = characters;
+        String what = cap(m.group("types"));
+        return ctx -> {
+            int n = ctx.putAnyNumberOfOwnCharactersToBz(inclForwards, inclBackups, inclMonsters, what);
+            // "When you do so" — no sacrifice, no effect. Also keeps an empty picker off the
+            // opponent's screen, which is what asking them to select 0 Forwards would do.
+            if (n <= 0) return;
+            String pick = n + " Forward" + (n == 1 ? "" : "s");
+            ctx.logEntry("Effect: Opponent selects " + pick + " they control → Break Zone");
+            List<ForwardTarget> ts = ctx.opponentSelectsOwnCharacters(n, true, null, null, null,
+                    -1, null, true, false, false, pick);
+            sortedByIdxDesc(ts, true) .forEach(ctx::forceTargetToBreakZone);
+            sortedByIdxDesc(ts, false).forEach(ctx::forceTargetToBreakZone);
+            ctx.logEntry("Effect: Opponent discards " + n + " card(s)");
+            ctx.forceOpponentDiscard(n);
+        };
     }
 
     private static Consumer<GameContext> tryParseYouMayPutSelfToBZWhenDoSo(String text, CardData source) {

@@ -879,6 +879,28 @@ public interface GameContext {
     void putOwnTypeToBzThenDoSo(int count, String type,
             java.util.function.Consumer<GameContext> whenDoSo);
 
+    /**
+     * "Put any number of [Characters] you control into the Break Zone" and answers how many
+     * actually went — Bhunivelze 24-033L, where that count is the ability's whole scaling term:
+     * the opponent then loses that many Forwards and discards that many cards.
+     *
+     * <p>The counted sibling of {@link #putOwnTypeToBzThenDoSo}, which pays a fixed price and
+     * tells the effect nothing. Here the price <em>is</em> the argument to everything downstream,
+     * so a short payment is not a failed purchase the way it is there: every count from zero
+     * upwards is a legal choice, and zero is how a player who has already accepted the trigger's
+     * "you may" still ends up doing nothing.
+     *
+     * <p>Puts into the Break Zone rather than breaking, which is what the printed wording asks
+     * for — a put is not a break, so "cannot be broken" does not stop one and no "when this is
+     * broken" ability triggers off it.
+     *
+     * @param what names the sacrifice in the picker's title and the log, e.g.
+     *             {@code "Forwards and/or Monsters"}
+     * @return how many Characters were actually put into the Break Zone
+     */
+    int putAnyNumberOfOwnCharactersToBz(boolean inclForwards, boolean inclBackups,
+            boolean inclMonsters, String what);
+
     /** Removes the target from the game permanently (not to the Break Zone). */
     void removeTargetFromGame(ForwardTarget t);
 

@@ -6392,17 +6392,20 @@ final class AutoAbilityTriggers {
 
 		CardData[]  bkpCards  = mw.playerBackupCards(isP1);
 		CardState[] bkpStates = mw.playerBackupStates(isP1);
+		// Logged for the same reason the cast path logs it (payP2CostViaBackupsAndDiscards):
+		// without it an ability's CP payment is invisible, and a CPU that paid from the wrong slot
+		// reads exactly like a CPU that paid from the right one. Collected and written as one line
+		// rather than one per Backup, which is what MainWindow.logCpPayment is for.
+		List<String> dulledForCp = new ArrayList<>();
 		for (int bi : backupDullIndices) {
 			bkpStates[bi] = CardState.DULL;
 			mw.playerDullBackupSlot(isP1, bi);
 			String cpElem = matchesAnyElement(bkpCards[bi], elems)
 					? contributingElement(bkpCards[bi], elems) : (elems.length > 0 ? elems[0] : "");
 			if (!cpElem.isEmpty()) mw.playerAddCp(isP1, cpElem, 1);
-			// Logged for the same reason the cast path logs it (payP2CostViaBackupsAndDiscards):
-			// without it an ability's CP payment is invisible, and a CPU that paid from the wrong
-			// slot reads exactly like a CPU that paid from the right one.
-			mw.logEntry((isP1 ? "" : "[P2] ") + "Dulls " + bkpCards[bi].name() + " for CP");
+			dulledForCp.add(bkpCards[bi].name());
 		}
+		mw.logCpPayment(isP1, dulledForCp, List.of());
 		// Break-for-CP payments (Sherlotta 8-053H), after the dull step so a Backup paying both
 		// ways is still on the field for it. Its Element joins the clear set below, so CP this cost
 		// did not need is not left in the bank.

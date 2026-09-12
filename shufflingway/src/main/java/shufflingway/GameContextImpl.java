@@ -8330,6 +8330,62 @@ final class GameContextImpl implements GameContext {
 				whenDoSo.accept(this);
 			}
 
+			@Override public int putAnyNumberOfOwnCharactersToBz(boolean inclForwards,
+					boolean inclBackups, boolean inclMonsters, String what) {
+				List<ForwardTarget> eligible = new ArrayList<>();
+				if (inclForwards) {
+					List<CardData> fwds = mw.playerForwardCards(isP1);
+					for (int i = 0; i < fwds.size(); i++)
+						eligible.add(new ForwardTarget(isP1, i, ForwardTarget.CardZone.FORWARD));
+				}
+				if (inclBackups) {
+					CardData[] bkps = mw.playerBackupCards(isP1);
+					for (int i = 0; i < bkps.length; i++)
+						if (bkps[i] != null)
+							eligible.add(new ForwardTarget(isP1, i, ForwardTarget.CardZone.BACKUP));
+				}
+				if (inclMonsters) {
+					List<CardData> mons = mw.playerMonsterCards(isP1);
+					for (int i = 0; i < mons.size(); i++)
+						eligible.add(new ForwardTarget(isP1, i, ForwardTarget.CardZone.MONSTER));
+				}
+				if (eligible.isEmpty()) {
+					logEntry("[Effect] No " + what + " to put into the Break Zone");
+					return 0;
+				}
+
+				List<ForwardTarget> picks;
+				if (isP1) {
+					// upTo, with the whole eligible board as the ceiling: "any number" spans none
+					// through all of them, so unlike a counted selection this must never auto-pick
+					// — a board that happens to be small is still the player's choice to spend.
+					picks = mw.showForwardSelectDialog(eligible, eligible.size(), true,
+							"Put any number of " + what + " into the Break Zone");
+				} else {
+					// The AI has already accepted the trigger's "you may"; what is left is how many
+					// to spend. Past the opponent's Forward count the selection half buys nothing
+					// — they have no more to hand over — so each further Character trades itself
+					// for a single discard, which is not a trade worth making. Cheapest first, for
+					// the reason putOwnTypeToBzThenDoSo spends cheapest first.
+					List<ForwardTarget> byCost = new ArrayList<>(eligible);
+					CardData src = mw.currentAbilitySource;
+					// The carrier is itself eligible, and it has just arrived: spending the card
+					// that bought the effect to pay for the effect is never what the AI wants.
+					if (src != null) byCost.removeIf(t -> cardAtTarget(t) == src);
+					byCost.sort(Comparator.comparingInt(
+							t -> { CardData c = cardAtTarget(t); return c == null ? 0 : c.cost(); }));
+					int cap = Math.min(byCost.size(), mw.playerForwardCards(!isP1).size());
+					picks = new ArrayList<>(byCost.subList(0, Math.max(0, cap)));
+				}
+				if (picks == null || picks.isEmpty()) {
+					logEntry("[Effect] Nothing put into the Break Zone");
+					return 0;
+				}
+				logEntry("[Effect] Puts " + picks.size() + " " + what + " into the Break Zone");
+				mw.applyTargetsHighestIndexFirst(picks, this::forceTargetToBreakZone);
+				return picks.size();
+			}
+
 			@Override public void mayBreakSourceWhenDoSo(CardData source, java.util.function.Consumer<GameContext> whenDoSo) {
 				if (!isP1) { logEntry("[P2 AI] Passes on optional break of " + source.name()); return; }
 				String title = (mw.currentAbilitySource != null ? mw.currentAbilitySource.name() : source.name());

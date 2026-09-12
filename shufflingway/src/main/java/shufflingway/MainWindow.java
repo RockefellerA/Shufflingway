@@ -3683,6 +3683,11 @@ public class MainWindow {
 	}
 
 	/** Appends a timestamped entry to the game log. */
+	/** The game log's current contents, for tests that assert on what a play wrote. */
+	String gameLogText() {
+		return gameLog == null ? "" : gameLog.getText();
+	}
+
 	void logEntry(String text) {
 		if (gameLog == null) return;
 		String time = java.time.LocalTime.now()
@@ -10822,6 +10827,12 @@ public class MainWindow {
 		lastCastActualPaymentElements.clear();
 		lastCastPaymentBackups.clear();
 
+		// What this cast was paid with, gathered for the log. Both loops below spend in an order
+		// chosen to settle Elements rather than the order the player picked in, so the names are
+		// collected as they are spent and written once each list is complete.
+		List<String> dulledForCp = new ArrayList<>();
+		List<String> discardedForCp = new ArrayList<>();
+
 		// Backups: sort by fewest element matches first for optimal assignment.
 		List<Integer> sortedBackups = new ArrayList<>(backupDullIndices);
 		if (!isLD) sortedBackups.sort(Comparator.comparingInt(s ->
@@ -10841,6 +10852,7 @@ public class MainWindow {
 			}
 			addCp(isP1, cpElem, 1);
 			execCpAccum.merge(cpElem, 1, Integer::sum);
+			dulledForCp.add(backupCards[bi].name());
 			String actualElem = backupElementOverrides.containsKey(bi)
 					? backupElementOverrides.get(bi) : backupCards[bi].elements()[0];
 			if (!actualElem.isEmpty()) lastCastActualPaymentElements.add(actualElem);
@@ -10869,10 +10881,14 @@ public class MainWindow {
 		List<Integer> discardRemovalOrder = new ArrayList<>(discardIndices);
 		discardRemovalOrder.sort(Collections.reverseOrder());
 		for (int di : discardRemovalOrder) {
+			discardedForCp.add(hand.get(di).name());
 			addCp(isP1, cpAssignments.get(di), 2);
 			playerBreakFromHand(isP1, di);
 			if (di < cardHandIdx) cardHandIdx--;
 		}
+		// Logged here, ahead of the card actually being placed, so the payment reads above the
+		// play it bought — the order the AI path (payP2CostViaBackupsAndDiscards) already wrote.
+		logCpPayment(isP1, dulledForCp, discardedForCp);
 		// Clear all CP generated during payment — includes off-element CP from L/D card discards
 		// (e.g. discarding Fire Ifrits to pay for a Light card generates Fire CP that must be cleared)
 		Set<String> cpToClear = new java.util.LinkedHashSet<>(Arrays.asList(elems));
@@ -11171,13 +11187,15 @@ public class MainWindow {
 			Map<Integer, String> backupElementAssignments,
 			List<Integer> discardIndices,
 			Map<Integer, String> discardElementAssignments) {
+		List<String> dulled = new ArrayList<>();
 		for (int bi : dullBackupIndices) {
 			p2BackupStates[bi] = CardState.DULL;
 			animateDullP2Backup(bi, true);
 			String cpElem = backupElementAssignments.get(bi);
 			gameState.addP2Cp(cpElem, 1);
-			logEntry("[P2] Dulls " + p2BackupCards[bi].name() + " for CP");
+			dulled.add(p2BackupCards[bi].name());
 		}
+		List<String> discarded = new ArrayList<>();
 		List<Integer> sorted = new ArrayList<>(discardIndices);
 		sorted.sort(Collections.reverseOrder());
 		for (int di : sorted) {
@@ -11185,10 +11203,30 @@ public class MainWindow {
 			String cpElem = discardElementAssignments.get(di);
 			playerBreakFromHand(false, di);
 			gameState.addP2Cp(cpElem, 2);
-			logEntry("[P2] Discards " + d.name() + " for CP");
+			discarded.add(d.name());
 		}
+		logCpPayment(false, dulled, discarded);
 		refreshP2BreakLabel();
 		refreshP2HandCountLabel();
+	}
+
+	/**
+	 * Writes one log line per kind of CP payment: the Backups dulled, then the cards discarded.
+	 *
+	 * <p>One line each rather than one per card. A three-Backup payment wrote three lines that
+	 * differed only in a name, pushing the play they paid for off the visible end of the log —
+	 * which is the line a reader is actually looking for. Kinds stay on separate lines because
+	 * they are separate rules: a dull yields 1 CP and a discard 2, and a reader checking that a
+	 * payment added up has to be able to tell which cards did which.
+	 *
+	 * <p>Either list may be empty, and an empty one writes nothing at all.
+	 */
+	void logCpPayment(boolean isP1, List<String> dulledNames, List<String> discardedNames) {
+		String who = isP1 ? "" : "[P2] ";
+		if (!dulledNames.isEmpty())
+			logEntry(who + "Dulls " + ActionResolver.joinOxford(dulledNames) + " for CP");
+		if (!discardedNames.isEmpty())
+			logEntry(who + "Discards " + ActionResolver.joinOxford(discardedNames) + " for CP");
 	}
 
 	/**
@@ -12003,6 +12041,11 @@ public class MainWindow {
 		if (!isLD) sortedBackups.sort(Comparator.comparingInt(s ->
 				(int) Arrays.stream(elems)
 						.filter(e -> effectiveContainsElement(backupCards[s], e)).count()));
+		// What the LB cast was paid with, gathered for the log. Both loops below spend in an order
+		// chosen to settle Elements rather than the order the player picked in, so the names are
+		// collected as they are spent and written once each list is complete.
+		List<String> lbDulled = new ArrayList<>();
+		List<String> lbDiscarded = new ArrayList<>();
 		for (int bi : sortedBackups) {
 			lastCastPaymentBackups.add(backupCards[bi]);
 			backupStates[bi] = CardState.DULL;
@@ -12011,6 +12054,7 @@ public class MainWindow {
 					: contributingElement(backupCards[bi], elems, execCpAccum, execCostByElem);
 			addCp(isP1, cpElem, 1);
 			execCpAccum.merge(cpElem, 1, Integer::sum);
+			lbDulled.add(backupCards[bi].name());
 			String actualElem = backupCards[bi].elements()[0];
 			if (!actualElem.isEmpty()) lastCastActualPaymentElements.add(actualElem);
 		}
@@ -12036,9 +12080,14 @@ public class MainWindow {
 		List<Integer> discardRemovalOrder = new ArrayList<>(discardIndices);
 		discardRemovalOrder.sort(Collections.reverseOrder());
 		for (int di : discardRemovalOrder) {
+			lbDiscarded.add(hand.get(di).name());
 			addCp(isP1, cpAssignments.get(di), 2);
 			playerBreakFromHand(isP1, di);
 		}
+		// An LB cast is a cast, and its CP payment is logged like one. Without this the log jumped
+		// from "Cast LB" straight to the arrival, and a Backup that had quietly dulled to pay for
+		// it read as a Backup that dulled for no reason at all.
+		logCpPayment(isP1, lbDulled, lbDiscarded);
 		Set<String> cpToClear = new java.util.LinkedHashSet<>(Arrays.asList(elems));
 		cpToClear.addAll(execCpAccum.keySet());
 		for (String e : cpToClear) {
