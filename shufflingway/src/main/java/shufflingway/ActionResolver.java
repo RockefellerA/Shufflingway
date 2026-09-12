@@ -2786,6 +2786,21 @@ public class ActionResolver {
         if (distinctElemM.matches()
                 && parseTargetAction(distinctElemM.group("action").trim(), 0) != null)
             return "IfDistinctElementsAction";
+        // The per-target cost gate, a third sibling of the two above and placed with them for the
+        // identical reason: the plain Break, return and deck checks further down scan with find()
+        // and were naming all eleven printings of this gate as unconditional. Guarded on
+        // parseTargetAction as the dispatch is, so a payoff that vocabulary cannot read falls
+        // through to its own handler rather than being reported as gated here.
+        Matcher costLeActM = FOLLOWUP_COST_LE_FIELD_COUNT_ACTION.matcher(followupText.trim());
+        if (costLeActM.matches() && parseTargetAction(costLeActM.group("payoff").trim(), 0) != null
+                && !ActionResolverChoose.costGateUnreadable(costLeActM)) {
+            // Named by what the payoff resolves to, not by echoing its printed words. 28-080C
+            // Gurdy prints "break it and Gurdy" and the target-action vocabulary reads only the
+            // first half of that, so quoting the text would advertise a second break that does not
+            // happen — the description overstating the behaviour, which is its own hazard.
+            String payoffName = matchedFollowupName(costLeActM.group("payoff").trim(), source);
+            return "CostLeFieldCount(" + (payoffName != null ? payoffName : "?") + ")";
+        }
         if (FOLLOWUP_ACTIVATE_AND_NEGATE_DAMAGE.matcher(followupText).find())          return "ActivateAndNegateDamage";
         if (FOLLOWUP_NEGATE_DAMAGE.matcher(followupText).find())                      return "NegateDamage";
         if (FOLLOWUP_GAIN_CONTROL_WHILE_CARD.matcher(followupText).find())            return "GainControlWhileCard";
@@ -2861,6 +2876,10 @@ public class ActionResolver {
         if (FOLLOWUP_REMOVE_FROM_GAME.matcher(followupText).find())                   return "RemoveFromGame";
         if (SECONDARY_PLAY_REMOVED_ONTO_FIELD.matcher(followupText).find())           return "PlayRemovedOntoField";
         if (FOLLOWUP_PLAY_IF_COST_LE_JOB_COUNT.matcher(followupText).matches())       return "PlayIfCostLeJobCount";
+        // Reached only by the "onto your field" wording: everything else this could match is
+        // claimed by the general cost gate above, exactly as it is in the choose parser.
+        if (FOLLOWUP_PLAY_IF_COST_LE_FIELD_COUNT.matcher(followupText.trim()).matches())
+                                                                                      return "PlayIfCostLeFieldCount";
         // Mirrors the Choose chain, where the two-sentence form is read ahead of this one.
         if (FOLLOWUP_MAY_PAY_X_PLAY_IF_COST_IS_X.matcher(followupText.trim()).matches())
                                                                                       return "MayPayXPlayIfCostIsX";
@@ -3003,6 +3022,7 @@ public class ActionResolver {
         if (FOLLOWUP_SHIELD_NEXT_DMG_REDUCTION.matcher(followupText).find())          return "ShieldNextDmgReduction";
         if (FOLLOWUP_DEBUFF_INCOMING_DMG_INCREASE.matcher(followupText).find())       return "DebuffIncomingDmgIncrease";
         if (FOLLOWUP_DOUBLE_NEXT_OUTGOING.matcher(followupText).find())               return "DoubleNextOutgoingDamage";
+        if (FOLLOWUP_DOUBLE_INCOMING_DAMAGE_THIS_TURN.matcher(followupText).find())    return "DoubleIncomingDamageThisTurn";
         if (FOLLOWUP_SHIELD_NEXT_OUTGOING_ZERO.matcher(followupText).find())          return "ShieldNextOutgoingZero";
         if (FOLLOWUP_OUTGOING_DMG_BOOST_THIS_TURN.matcher(followupText).find())       return "OutgoingDmgBoostThisTurn";
         if (FOLLOWUP_SHIELD_NONLETHAL.matcher(followupText).find())                   return "ShieldNonLethal";
@@ -4868,6 +4888,39 @@ public class ActionResolver {
                 sortedByIdxDesc(ts, false).forEach(ctx::putBreakZoneTargetOnBottomOfDeck);
             };
 
+        // The two owner's-deck disposals, mirroring their own followup branches in
+        // ActionResolverChoose. They live here as well so the cost gate below them —
+        // "If its cost is equal to or less than the number of X you control, <payoff>" — can reach
+        // them: 21-102L Gau's payoff is the bottom form and 19-118L Yuna's the top-or-bottom one,
+        // and without these two the gate could read neither and both cards kept resolving ungated.
+        //
+        // Read ahead of the plain bottom form, which its text contains.
+        if (FOLLOWUP_PUT_TOP_OR_BOTTOM_OF_DECK.matcher(t).find())
+            return (ctx, ts) -> {
+                for (ForwardTarget x : ts) {
+                    if (x.zone() != ForwardTarget.CardZone.FORWARD) continue;
+                    if (x.isP1()) {
+                        if (ctx.askTopOrBottom(ctx.p1Forward(x.idx()).name())) ctx.returnP1ForwardToDeckTop(x.idx());
+                        else                                                  ctx.returnP1ForwardToDeckBottom(x.idx());
+                    } else {
+                        if (ctx.askTopOrBottom(ctx.p2Forward(x.idx()).name())) ctx.returnP2ForwardToDeckTop(x.idx());
+                        else                                                  ctx.returnP2ForwardToDeckBottom(x.idx());
+                    }
+                }
+            };
+
+        if (FOLLOWUP_PUT_BOTTOM_OF_DECK.matcher(t).find())
+            return (ctx, ts) -> {
+                // Highest index first, per side: a ForwardTarget is a slot and the zone list closes
+                // up behind each removal, exactly as the followup branch this mirrors notes.
+                sortedByIdxDesc(ts, true)
+                        .filter(x -> x.zone() == ForwardTarget.CardZone.FORWARD)
+                        .forEach(x -> ctx.returnP1ForwardToDeckBottom(x.idx()));
+                sortedByIdxDesc(ts, false)
+                        .filter(x -> x.zone() == ForwardTarget.CardZone.FORWARD)
+                        .forEach(x -> ctx.returnP2ForwardToDeckBottom(x.idx()));
+            };
+
         // Power reduce — both word orders
         Matcher reduceM = FOLLOWUP_POWER_REDUCE.matcher(t);
         if (reduceM.find()) {
@@ -6212,14 +6265,26 @@ public class ActionResolver {
         };
     }
 
-    /** Parses "Remove [CardName] from the game." — removes a named card from the field. */
+    /**
+     * Parses "Remove [CardName] from the game." — removes a named card from the field, or from
+     * wherever it now stands when the card it names is the one whose ability is resolving.
+     *
+     * <p>That second case is the whole of the difference and it is not a rare one: a card removing
+     * <em>itself</em> is most often doing so from a "when this is put from the field into the Break
+     * Zone" trigger, which resolves after the move. The field-only lookup found nothing there and
+     * logged a warning, and because effect progress defaults to true the "When you do so, …" payoff
+     * hanging off it ran anyway — 13-138S The Oracle of Light revived a Scion while the Oracle
+     * itself sat in the Break Zone, un-removed.
+     */
     private static Consumer<GameContext> tryParseRemoveNamedFromGame(String text, CardData source) {
         Matcher m = REMOVE_NAMED_FROM_GAME.matcher(text);
         if (!m.find()) return null;
         String named = m.group("named").trim();
+        final boolean isSelf = source != null && named.equalsIgnoreCase(source.name());
         return ctx -> {
             ctx.logEntry("Effect: Remove " + named + " from the game");
-            ctx.removeNamedCardFromGame(named);
+            if (isSelf) ctx.removeSourceCardFromGame(source);
+            else        ctx.removeNamedCardFromGame(named);
         };
     }
 
@@ -6240,7 +6305,9 @@ public class ActionResolver {
                 return;
             }
             ctx.logEntry("Effect: Remove " + name + " from the game");
-            ctx.removeNamedCardFromGame(name);
+            // Always the source: this parser declines unless the printed name is the carrier's,
+            // so the Break-Zone-aware removal is the only correct one here.
+            ctx.removeSourceCardFromGame(source);
         };
     }
 

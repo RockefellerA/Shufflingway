@@ -2438,6 +2438,81 @@ final class ActionResolverPatterns {
         "Job\\s+(?<job>.+?)\\s+you\\s+control[,.]\\s+play\\s+it\\s+onto\\s+(?:the\\s+)?field[.!]?"
     );
     /**
+     * The card-type sibling of {@link #FOLLOWUP_PLAY_IF_COST_LE_JOB_COUNT}: "If its cost is equal
+     * to or less than the number of [Element] [Category X] &lt;Type&gt; you control, play it onto
+     * [the|your] field." — 24-053H Minwu and 7-087R Exdeath, who both count Backups.
+     *
+     * <p>Read <b>after</b> the Job pattern above, and that order is load-bearing. A "Job X Forwards
+     * you control" phrase (5-163S Urianger) satisfies both readings, and the Job one is the more
+     * specific: letting this claim it would drop the Job and count every Forward on the board.
+     *
+     * <p>Carries no Job group of its own for the same reason, and that absence is also what keeps
+     * 12-124L Thancred out. His "the number of Water Forwards and/or Water Backups you control"
+     * is a union this cannot express; with only fixed alternatives here and no lazy group to
+     * backtrack into, the phrase fails at " and/or" and he stays unread rather than being counted
+     * as Forwards alone.
+     *
+     * <p>Group {@code own} is the field played onto: "your" on Exdeath, who chooses from
+     * <em>either</em> player's Break Zone and so needs the card to arrive on his own side, against
+     * "the" on Minwu, who only ever reaches his own Break Zone and for whom the two coincide.
+     *
+     * <p>Groups: {@code element}, {@code category} — optional filters; {@code type} — required;
+     * {@code own} — "your", "the", or absent.
+     */
+    static final Pattern FOLLOWUP_PLAY_IF_COST_LE_FIELD_COUNT = Pattern.compile(
+        "(?i)^If\\s+its\\s+cost\\s+is\\s+equal\\s+to\\s+or\\s+less\\s+than\\s+the\\s+number\\s+of\\s+" +
+        "(?:(?<element>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)\\s+)?" +
+        "(?:Category\\s+(?<category>\\S+)\\s+)?" +
+        "(?<type>Forwards?|Backups?|Monsters?|Characters?)" +
+        "\\s+you\\s+control[,.]\\s+play\\s+it\\s+onto\\s+(?<own>your|the)?\\s*field[.!]?$"
+    );
+    /**
+     * The general form of the cost gate: "If its cost is equal to or less than the number of
+     * &lt;count phrase&gt;, &lt;payoff&gt;." — where the payoff is anything the shared target-action
+     * vocabulary can apply to the card the choose already picked.
+     *
+     * <p>Eleven abilities across nine cards print this and <em>every one of them was resolving
+     * ungated</em>: the payoff arms in the choose chain scan with {@code find()}, so each took its
+     * verb out of the middle of the sentence and ran it with the cost condition dropped. 21-090R
+     * Cloud, 22-078C Sice, 25-078H Seven, 28-095L Lumina, 29-077C Aranea and 12-124L Thancred all
+     * broke a Forward of any cost; 11-107C Izayoi bounced one; 21-102L Gau and 19-118L Yuna decked
+     * one. This is read ahead of all of them, which is the whole point of it.
+     *
+     * <p>The count phrase admits one optional Element, one optional Category and a required type,
+     * plus the "and/or" union of two types that 12-124L Thancred prints ("Water Forwards and/or
+     * Water Backups"). A union of <em>different</em> Elements is refused rather than guessed: the
+     * second element is captured so the parser can compare the two and decline when they differ,
+     * because a single {@code countSelfFieldCards} call carries one element filter and answering
+     * with either half would be a wrong number rather than a missing one.
+     *
+     * <p>The payoff is left open and validated by handing it to {@code parseTargetAction}, the same
+     * way {@link #SECONDARY_CONDITION_GATED_ACTION_ALSO} does — the vocabulary of what a followup
+     * can do to an already-chosen card lives there, and listing it twice would date. A payoff that
+     * vocabulary cannot read makes the whole gate decline, so the text falls through unread rather
+     * than running the half of it that was understood.
+     *
+     * <p>Groups: {@code element}/{@code category}/{@code type} and the union's {@code element2}/
+     * {@code type2}; {@code payoff} — the verb phrase.
+     */
+    static final Pattern FOLLOWUP_COST_LE_FIELD_COUNT_ACTION = Pattern.compile(
+        // Every optional group owns its own *leading* whitespace rather than a trailing one. With
+        // the space on the trailing side, an absent type left two separators to match where the
+        // text has one, so the commonest phrase in the family — a Job with no card type after it,
+        // "the number of Job Class Zero Cadet you control" — silently failed while the same phrase
+        // with a type ("Job Scion of the Seventh Dawn Forwards") matched. It also lets "\\s+" absorb
+        // the stray double space 21-090R Cloud prints after its Category.
+        "(?i)^If\\s+its\\s+cost\\s+is\\s+equal\\s+to\\s+or\\s+less\\s+than\\s+the\\s+number\\s+of" +
+        "(?:\\s+(?<element>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark))?" +
+        "(?:\\s+Category\\s+(?<category>\\S+))?" +
+        "(?:\\s+Job\\s+(?<job>.+?))?" +
+        "(?:\\s+(?<type>Forwards?|Backups?|Monsters?|Characters?))?" +
+        "(?:\\s+and/or" +
+            "(?:\\s+(?<element2>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark))?" +
+            "\\s+(?<type2>Forwards?|Backups?|Monsters?|Characters?)" +
+        ")?" +
+        "\\s+you\\s+control,\\s+(?<payoff>.+?)[.!]?$"
+    );
+    /**
      * Matches "If its cost is X, play it onto the field." — Leo 13-067L, where X is the number of
      * Kingdom Counters the activation removed. An exact match on the cost, not a ceiling, which is
      * what separates it from {@link #FOLLOWUP_PLAY_IF_COST_LE_JOB_COUNT} beside it.
@@ -4419,6 +4494,24 @@ final class ActionResolverPatterns {
     static final Pattern FOLLOWUP_DOUBLE_NEXT_OUTGOING = Pattern.compile(
         "(?i)During\\s+this\\s+turn,\\s+the\\s+next\\s+damage\\s+it\\s+deals\\s+to\\s+a\\s+Forward\\s+" +
         "becomes\\s+double\\s+the\\s+damage\\s+instead[.!]?"
+    );
+    /**
+     * Matches "During this turn, if it is dealt damage, double the damage instead." — the followup
+     * form of {@link #CHOOSE_FORWARD_DOUBLE_INCOMING_THIS_TURN}, read from the choose chain once
+     * the target has already been selected. 13-059H Scarmiglione.
+     *
+     * <p>The incoming mirror of {@link #FOLLOWUP_DOUBLE_NEXT_OUTGOING} above, and it exists for the
+     * same reason that one does: the whole-text pattern spells its own choose clause and sits
+     * behind {@code tryParseChooseCharacter} in {@code parse()}, so nothing in the corpus reaches
+     * it. This is the form that runs.
+     *
+     * <p>Distinct from its outgoing twin on the verb — "if it <em>is dealt</em> damage" against
+     * "the next damage it <em>deals</em>" — so the two cannot claim one another's text under
+     * {@code find()}, and the order they are read in does not matter.
+     */
+    static final Pattern FOLLOWUP_DOUBLE_INCOMING_DAMAGE_THIS_TURN = Pattern.compile(
+        "(?i)During\\s+this\\s+turn,\\s+if\\s+it\\s+is\\s+dealt\\s+damage,\\s+" +
+        "double\\s+the\\s+damage\\s+instead[.!]?"
     );
     /** Matches "If it deals damage to a Forward [opponent controls] this turn, the damage increases by N instead." */
     static final Pattern FOLLOWUP_OUTGOING_DMG_BOOST_THIS_TURN = Pattern.compile(
@@ -6801,6 +6894,15 @@ final class ActionResolverPatterns {
     );
     /**
      * Matches "Choose 1 Forward. During this turn, if it is dealt damage, double the damage instead."
+     *
+     * <p>Unreachable against the current corpus, exactly as its outgoing twin
+     * {@link #CHOOSE_FORWARD_DOUBLE_NEXT_OUTGOING} is: {@code tryParseChooseCharacter} is called
+     * ahead of this parser in {@code parse()} and claims every text this could match, so 13-059H
+     * Scarmiglione — the corpus's only printing — is served by
+     * {@link #FOLLOWUP_DOUBLE_INCOMING_DAMAGE_THIS_TURN} in the choose chain instead. He reported
+     * "ChooseCharacter / ?" until that followup existed: the machinery here was built for him and
+     * never reached. Kept rather than deleted for the reason the twin is, that the golden file can
+     * only show that nothing reaches it today.
      */
     static final Pattern CHOOSE_FORWARD_DOUBLE_INCOMING_THIS_TURN = Pattern.compile(
         "(?i)Choose\\s+1\\s+Forward[.,]?\\s+During\\s+this\\s+turn,\\s+if\\s+it\\s+is\\s+dealt\\s+damage,\\s+double\\s+the\\s+damage\\s+instead[.!]?"

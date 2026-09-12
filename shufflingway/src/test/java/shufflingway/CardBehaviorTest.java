@@ -8801,7 +8801,12 @@ public class CardBehaviorTest {
         assertNotNull(fn);
         GameContext ctx = mock(GameContext.class);
         fn.accept(ctx);
-        verify(ctx).removeNamedCardFromGame("Lightning");
+        // The self-referential removal goes through the source-aware route, which searches the
+        // field first and matches on identity. She is standing when this resolves, so the card
+        // that goes is the same one either way — but with two Lightnings out, a name scan had no
+        // way to say which, and this does.
+        verify(ctx).removeSourceCardFromGame(lightning);
+        verify(ctx, never()).removeNamedCardFromGame(any());
         // The return is queued, not immediate, and must not go through the Break Zone route.
         verify(ctx, never()).playAllByNameFromOwnBreakZoneDull(any(), anyBoolean());
         ArgumentCaptor<Consumer<GameContext>> delayed = ArgumentCaptor.forClass(Consumer.class);
@@ -45380,6 +45385,447 @@ public class CardBehaviorTest {
 
 
 	// =========================================================================================
+	// Scarmiglione 13-059H and Exdeath 7-087R: two choose followups, and a third card fixed on
+	// the way past.
+	//
+	// Parsing + board behaviour. Scarmiglione's primitive, pattern and parser all existed —
+	// doubleForwardIncomingDamageThisTurn, CHOOSE_FORWARD_DOUBLE_INCOMING_THIS_TURN and the
+	// tryParse that calls it — and none of it could ever run: tryParseChooseCharacter is dispatched
+	// 300 lines earlier and claims every text that whole-text pattern could match. He is the only
+	// printing of the wording, so the parser written for him was dead on arrival. The fix is the
+	// one his outgoing twin 9-078C Rinok already uses: the same effect as a choose *followup*,
+	// which also gets him the selection path the standalone parser skipped — preloaded targets,
+	// recordChosenTargets, and the armed Break-Zone marks.
+	//
+	// Exdeath prints the cost gate that 13-134S Y'shtola prints, counting a card type where she
+	// counts a Job, and playing onto "your field" where every sibling says "the field". The type
+	// form had no pattern. 24-053H Minwu prints the same gate and was reached by a find()
+	// PlayOntoField arm that took "play it onto the field" off the end of his sentence and dropped
+	// the cost condition — so he was playing a Forward of any cost at all. One branch fixes both,
+	// from opposite directions: Exdeath did nothing, Minwu did too much.
+	// =========================================================================================
+
+	private static final String SCARMIGLIONE_13_059H_ETB =
+			"choose 1 Forward. During this turn, if it is dealt damage, double the damage instead.";
+
+	private static final String EXDEATH_7_087R_ETB =
+			"choose 1 Forward from either player's Break Zone. If its cost is equal to or less "
+			+ "than the number of Backups you control, play it onto your field.";
+
+	private static final String MINWU_24_053H_ETB =
+			"choose 1 Category II Forward other than Card Name Minwu in your Break Zone. If its "
+			+ "cost is equal to or less than the number of Backups you control, play it onto the field.";
+
+	@Test
+	void scarmiglionesDoublerIsReadAsAFollowupRatherThanLeftUnnamed() {
+		assertEquals("ChooseCharacter / DoubleIncomingDamageThisTurn",
+				ActionResolver.fullDescription(SCARMIGLIONE_13_059H_ETB, null));
+	}
+
+	@Test
+	void scarmiglioneDoublesIncomingDamageOnTheForwardHeChose() {
+		GameContext ctx = mock(GameContext.class);
+		ForwardTarget chosen = fwd(true, 0);
+		when(ctx.consumePreloadedTargets()).thenReturn(null);
+		when(ctx.selectCharacters(anyInt(), anyBoolean(), anyBoolean(), anyBoolean(), any(), any(),
+				anyInt(), any(), anyInt(), any(), anyBoolean(), anyBoolean(), anyBoolean(),
+				any(), any(), any(), any(), anyBoolean(), any(), anyBoolean()))
+			.thenReturn(new ArrayList<>(List.of(chosen)));
+
+		ActionResolver.parse(SCARMIGLIONE_13_059H_ETB, null).accept(ctx);
+
+		verify(ctx).doubleForwardIncomingDamageThisTurn(chosen);
+	}
+
+	@Test
+	void scarmiglioneGoesThroughTheSharedSelectionPath() {
+		// The reason this is a followup and not a hoist of the standalone parser, which called
+		// selectCharacters directly: preloaded targets are how the AI and the network layer hand a
+		// choice over, and a parser that never consumes them silently re-prompts.
+		GameContext ctx = mock(GameContext.class);
+		ForwardTarget preloaded = fwd(false, 1);
+		when(ctx.consumePreloadedTargets()).thenReturn(List.of(preloaded));
+
+		ActionResolver.parse(SCARMIGLIONE_13_059H_ETB, null).accept(ctx);
+
+		verify(ctx).doubleForwardIncomingDamageThisTurn(preloaded);
+		verify(ctx, never()).selectCharacters(anyInt(), anyBoolean(), anyBoolean(), anyBoolean(),
+				any(), any(), anyInt(), any(), anyInt(), any(), anyBoolean(), anyBoolean(),
+				anyBoolean(), any(), any(), any(), any(), anyBoolean(), any(), anyBoolean());
+	}
+
+	@Test
+	void theOutgoingDoublerIsUntouchedByTheIncomingOne() {
+		// 9-078C Rinok. The two are told apart by the verb — "if it is dealt damage" against "the
+		// next damage it deals" — so neither can take the other's sentence under find().
+		assertEquals("ChooseCharacter / DoubleNextOutgoingDamage",
+				ActionResolver.fullDescription("Choose 1 Job Headhunter. During this turn, the next "
+				+ "damage it deals to a Forward becomes double the damage instead. You can only use "
+				+ "this ability once per turn.", null));
+	}
+
+	@Test
+	void exdeathAndMinwuBothReadTheirCostGateNow() {
+		// Minwu's "onto the field" is a payoff the shared target-action vocabulary reads, so he
+		// goes through the general gate. Exdeath's "onto your field" is not, so he keeps the
+		// branch written for that wording. Different readings, same guarantee.
+		assertEquals("ChooseCharacter / PlayIfCostLeFieldCount",
+				ActionResolver.fullDescription(EXDEATH_7_087R_ETB, null));
+		assertEquals("ChooseCharacter / CostLeFieldCount(PlayOntoField)",
+				ActionResolver.fullDescription(MINWU_24_053H_ETB, null));
+	}
+
+	@Test
+	void aJobCountedGateCountsTheJobAndNotTheWholeBoard() {
+		// 5-163S Urianger, "Job Scion of the Seventh Dawn Forwards you control". This used to
+		// assert the older PlayIfCostLeJobCount name; the general gate reads it now, and what
+		// actually matters is unchanged and is what is asserted here — that the Job reaches the
+		// count. Dropping it would count every Forward on the board and open the gate far wider
+		// than the card does.
+		GameContext ctx = mock(GameContext.class);
+		ForwardTarget t = new ForwardTarget(true, 0, ForwardTarget.CardZone.BREAK_ZONE);
+		when(ctx.consumePreloadedTargets()).thenReturn(List.of(t));
+		when(ctx.p1BreakZoneCard(0)).thenReturn(makeForward("Salvage", "Lightning", 1, 3000));
+		when(ctx.countSelfFieldCards(anyBoolean(), anyBoolean(), anyBoolean(), any(), any(), any(), any()))
+			.thenReturn(2);
+
+		ActionResolver.parse("Choose 1 Forward in your Break Zone. If its cost is equal to or less "
+				+ "than the number of Job Scion of the Seventh Dawn Forwards you control, play it "
+				+ "onto the field.", null).accept(ctx);
+
+		verify(ctx).countSelfFieldCards(anyBoolean(), anyBoolean(), anyBoolean(),
+				eq("Scion of the Seventh Dawn"), any(), any(), any());
+		verify(ctx).playTargetOntoField(t);
+	}
+
+	/** Stubs a Break-Zone choice of {@code chosen} whose card is {@code card}, with {@code backups} Backups out. */
+	private static GameContext costGateContext(ForwardTarget chosen, CardData card, int backups) {
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.consumePreloadedTargets()).thenReturn(null);
+		when(ctx.selectCharactersFromBreakZone(anyInt(), anyBoolean(), anyBoolean(), anyBoolean(),
+				any(), any(), anyInt(), any(), anyInt(), any(), anyBoolean(), anyBoolean(),
+				anyBoolean(), any(), any(), any(), any(), anyBoolean(), any(), anyBoolean()))
+			.thenReturn(new ArrayList<>(List.of(chosen)));
+		when(ctx.countSelfFieldCards(anyBoolean(), anyBoolean(), anyBoolean(), any(), any(), any(), any()))
+			.thenReturn(backups);
+		if (chosen.isP1()) when(ctx.p1BreakZoneCard(chosen.idx())).thenReturn(card);
+		else               when(ctx.p2BreakZoneCard(chosen.idx())).thenReturn(card);
+		return ctx;
+	}
+
+	@Test
+	void exdeathPlaysOntoHisOwnFieldFromEitherBreakZone() {
+		// "Onto your field" is not decoration: he reaches across the table, so a card taken from
+		// the opponent's Break Zone has to arrive on his side rather than back on its owner's.
+		ForwardTarget theirs = new ForwardTarget(false, 0, ForwardTarget.CardZone.BREAK_ZONE);
+		GameContext ctx = costGateContext(theirs, makeForward("Cheap", "Wind", 2, 5000), 3);
+
+		ActionResolver.parse(EXDEATH_7_087R_ETB, null).accept(ctx);
+
+		verify(ctx).playTargetOntoOwnField(theirs);
+		verify(ctx, never()).playTargetOntoField(any());
+	}
+
+	@Test
+	void exdeathDeclinesAForwardDearerThanHisBackupCount() {
+		ForwardTarget theirs = new ForwardTarget(false, 0, ForwardTarget.CardZone.BREAK_ZONE);
+		GameContext ctx = costGateContext(theirs, makeForward("Pricey", "Wind", 5, 9000), 3);
+
+		ActionResolver.parse(EXDEATH_7_087R_ETB, null).accept(ctx);
+
+		verify(ctx, never()).playTargetOntoOwnField(any());
+		verify(ctx, never()).playTargetOntoField(any());
+	}
+
+	@Test
+	void theGateIsAtMostRatherThanUnder() {
+		// "Equal to or less than": cost 3 against 3 Backups plays.
+		ForwardTarget mine = new ForwardTarget(true, 0, ForwardTarget.CardZone.BREAK_ZONE);
+		GameContext ctx = costGateContext(mine, makeForward("Exact", "Wind", 3, 7000), 3);
+
+		ActionResolver.parse(EXDEATH_7_087R_ETB, null).accept(ctx);
+
+		verify(ctx).playTargetOntoOwnField(mine);
+	}
+
+	@Test
+	void minwuNoLongerPlaysAForwardOfAnyCost() {
+		// He was reported as a plain PlayOntoField, which is what he was doing: a find() arm took
+		// "play it onto the field" off the end of the sentence and left the cost gate behind.
+		ForwardTarget mine = new ForwardTarget(true, 0, ForwardTarget.CardZone.BREAK_ZONE);
+		GameContext ctx = costGateContext(mine, makeForward("Pricey", "Wind", 7, 9000), 2);
+
+		ActionResolver.parse(MINWU_24_053H_ETB, null).accept(ctx);
+
+		verify(ctx, never()).playTargetOntoField(any());
+		verify(ctx, never()).playTargetOntoOwnField(any());
+	}
+
+	@Test
+	void minwuPlaysOntoTheFieldRatherThanNamingASide() {
+		// He only ever reaches his own Break Zone, so "the field" and "your field" coincide for
+		// him — but the branch still has to pick the method his wording names.
+		ForwardTarget mine = new ForwardTarget(true, 0, ForwardTarget.CardZone.BREAK_ZONE);
+		GameContext ctx = costGateContext(mine, makeForward("Cheap", "Wind", 1, 3000), 2);
+
+		ActionResolver.parse(MINWU_24_053H_ETB, null).accept(ctx);
+
+		verify(ctx).playTargetOntoField(mine);
+		verify(ctx, never()).playTargetOntoOwnField(any());
+	}
+
+	@Test
+	void theUnionCountingWordingIsStillRefused() {
+		// 12-124L Thancred counts "Water Forwards and/or Water Backups" — a union this branch
+		// cannot express. It carries no lazy group to backtrack into, so the phrase fails at
+		// "and/or" and this pattern does not claim it.
+		//
+		// He is still misread: the find() PlayOntoField arm that has always had him reports him
+		// ungated, exactly as it reported Minwu. That is a pre-existing gap this change does not
+		// close and must not paper over — counting his union as Forwards alone would be a wrong
+		// number rather than a missing one. What this asserts is only that the new branch keeps
+		// its hands off him.
+		assertNotEquals("PlayIfCostLeFieldCount", ActionResolver.matchedFollowupName(
+				"If its cost is equal to or less than the number of Water Forwards and/or Water "
+				+ "Backups you control, play it onto the field.", null));
+	}
+
+
+	// ---- The cost gate as a family: eleven abilities, every one of them resolving ungated ------
+	//
+	// The three the brief named — 12-124L Thancred, 21-102L Gau, 19-118L Yuna — turned out to be a
+	// cluster. "If its cost is equal to or less than the number of X you control, <payoff>" is
+	// printed by nine cards, and the payoff arms in the choose chain all scan with find(), so every
+	// one of them took its verb out of the middle of the sentence and ran it with the cost
+	// condition dropped. Six broke a Forward of any cost, one bounced one, two decked one.
+	//
+	// One branch now reads the whole shape: the count phrase, and the payoff through the shared
+	// target-action vocabulary. It is tested per target rather than once for the selection, because
+	// the gate asks about the card that was chosen and not about the board.
+
+	/** A mock whose chosen Break-Zone card is {@code card} and whose gate count is {@code count}. */
+	private static GameContext gateCtx(ForwardTarget t, CardData card, int count) {
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.consumePreloadedTargets()).thenReturn(List.of(t));
+		if (t.zone() == ForwardTarget.CardZone.BREAK_ZONE) {
+			if (t.isP1()) when(ctx.p1BreakZoneCard(t.idx())).thenReturn(card);
+			else          when(ctx.p2BreakZoneCard(t.idx())).thenReturn(card);
+		} else {
+			when(ctx.targetCard(t)).thenReturn(card);
+		}
+		when(ctx.countSelfFieldCards(anyBoolean(), anyBoolean(), anyBoolean(), any(), any(), any(), any()))
+			.thenReturn(count);
+		return ctx;
+	}
+
+	private static final String CLOUD_21_090R_ETB =
+			"choose 1 Forward opponent controls. If its cost is equal to or less than the number "
+			+ "of Category WOFF  Characters you control, break it.";
+
+	@Test
+	void cloudBreaksOnlyWithinHisCategoryCount() {
+		ForwardTarget victim = fwd(false, 0);
+
+		GameContext under = gateCtx(victim, makeForward("Small", "Fire", 2, 5000), 3);
+		ActionResolver.parse(CLOUD_21_090R_ETB, null).accept(under);
+		verify(under).breakTarget(victim);
+
+		GameContext over = gateCtx(victim, makeForward("Big", "Fire", 9, 9000), 3);
+		ActionResolver.parse(CLOUD_21_090R_ETB, null).accept(over);
+		verify(over, never()).breakTarget(any());
+	}
+
+	@Test
+	void cloudsDoubleSpacedCategoryIsStillRead() {
+		// His printed text has two spaces after "Category WOFF". Every optional group in the
+		// pattern owns its leading whitespace as "\\s+", which absorbs it.
+		assertEquals("ChooseCharacter / CostLeFieldCount(Break)",
+				ActionResolver.fullDescription(CLOUD_21_090R_ETB, null));
+	}
+
+	@Test
+	void thancredsUnionCountsBothTypesRatherThanOne() {
+		// "Water Forwards and/or Water Backups you control" — one count over two rows. Both halves
+		// name the same Element, which is what lets a single query answer it.
+		ForwardTarget victim = fwd(false, 0);
+		GameContext ctx = gateCtx(victim, makeForward("Mid", "Fire", 4, 7000), 4);
+
+		ActionResolver.parse("choose 1 active Forward opponent controls. If its cost is equal to "
+				+ "or less than the number of Lightning Forwards and/or Lightning Backups you "
+				+ "control, break it.", null).accept(ctx);
+
+		verify(ctx).countSelfFieldCards(eq(true), eq(true), eq(false), any(), any(), any(), eq("Lightning"));
+		verify(ctx).breakTarget(victim);
+	}
+
+	@Test
+	void gauAndYunaDeckTheForwardOnlyInsideTheirBudget() {
+		String gau = "choose 1 Forward opponent controls. If its cost is equal to or less than "
+				+ "the number of Monsters you control, put it at the bottom of its owner's deck.";
+		ForwardTarget victim = fwd(false, 0);
+
+		GameContext within = gateCtx(victim, makeForward("Small", "Fire", 1, 3000), 2);
+		ActionResolver.parse(gau, null).accept(within);
+		verify(within).returnP2ForwardToDeckBottom(0);
+
+		GameContext beyond = gateCtx(victim, makeForward("Big", "Fire", 8, 9000), 2);
+		ActionResolver.parse(gau, null).accept(beyond);
+		verify(beyond, never()).returnP2ForwardToDeckBottom(anyInt());
+
+		String yuna = "choose 1 Forward opponent controls. If its cost is equal to or less than "
+				+ "the number of Category X Characters you control, put it at the top or bottom "
+				+ "of its owner's deck.";
+		GameContext over = gateCtx(victim, makeForward("Big", "Fire", 8, 9000), 2);
+		ActionResolver.parse(yuna, null).accept(over);
+		verify(over, never()).returnP2ForwardToDeckBottom(anyInt());
+		verify(over, never()).returnP2ForwardToDeckTop(anyInt());
+	}
+
+	@Test
+	void aJobCountWithNoCardTypeIsRead() {
+		// 22-078C Sice, "the number of Job Class Zero Cadet you control" — the commonest phrase in
+		// the family, and the one the first spelling of this pattern silently failed on because an
+		// absent type left two whitespace separators to match where the text has one.
+		ForwardTarget victim = fwd(true, 0);
+		GameContext ctx = gateCtx(victim, makeForward("Small", "Fire", 1, 3000), 2);
+
+		ActionResolver.parse("choose 1 Forward. If its cost is equal to or less than the number "
+				+ "of Job Class Zero Cadet you control, break it.", null).accept(ctx);
+
+		verify(ctx).countSelfFieldCards(eq(true), eq(true), eq(true),
+				eq("Class Zero Cadet"), any(), any(), any());
+		verify(ctx).breakTarget(victim);
+	}
+
+	@Test
+	void aCostTheGateCannotReadDoesNotOpenIt() {
+		// targetCard answers for the three field rows and returns null for a Break Zone row, so a
+		// gate reading the cost through it alone would have waved every Break-Zone card through
+		// untested — the exact fail-open this branch exists to close. Unreadable means skipped.
+		ForwardTarget t = new ForwardTarget(true, 0, ForwardTarget.CardZone.BREAK_ZONE);
+		GameContext ctx = gateCtx(t, null, 5);
+
+		ActionResolver.parse("choose 1 Forward in your Break Zone. If its cost is equal to or less "
+				+ "than the number of Backups you control, play it onto the field.", null).accept(ctx);
+
+		verify(ctx, never()).playTargetOntoField(any());
+	}
+
+	@Test
+	void aJobOrCardNameUnionIsRefusedRatherThanGuessed() {
+		// 11-107C Izayoi counts "Job Ninja or Card Name Ninja you control". The lazy Job group
+		// would take the whole phrase and hand over a Job named "Ninja or Card Name Ninja", which
+		// matches nobody — gating his bounce to never instead of leaving it ungated. A wrong
+		// number is worse than a missing one, so the gate declines and he stays visibly unread.
+		String name = ActionResolver.matchedFollowupName(
+				"If its cost is equal to or less than the number of Job Ninja or Card Name Ninja "
+				+ "you control, return it to its owner's hand.", null);
+		assertFalse(name != null && name.startsWith("CostLeFieldCount"),
+				"a union this branch cannot count must not be claimed as if it could");
+	}
+
+
+	// ---- Removing yourself from the game, from the Break Zone you are already in ---------------
+	//
+	// Found in playtesting on 13-138S The Oracle of Light, which logged
+	//   [Warning] removeNamedCardFromGame: "The Oracle of Light" not found on field
+	// "When [Self] is put from the field into the Break Zone, you may remove [Self] from the game"
+	// resolves after the card has arrived in the Break Zone, and the lookup only ever searched the
+	// field. Nine cards print that sentence.
+	//
+	// The warning was the visible half. The damaging half was quieter: effect progress defaults to
+	// true and a failed lookup never cleared it, so the "When you do so" payoff was paid out for a
+	// cost that had not been met — the Oracle revived a Scion and then stayed in the Break Zone,
+	// available to be revived itself later.
+
+	private static final String ORACLE_13_138S_TEXT =
+			"When The Oracle of Light is put from the field into the Break Zone, you may remove "
+			+ "The Oracle of Light from the game. When you do so, choose 1 Job Scion of the Seventh "
+			+ "Dawn in your Break Zone. Play it onto the field dull.";
+
+	@Test
+	void aCardRemovesItselfFromTheBreakZoneItIsAlreadyIn() {
+		MainWindow mw = new MainWindow();
+		CardData oracle = makeAutoAbilityForward("The Oracle of Light", "Light", 5000, ORACLE_13_138S_TEXT);
+		mw.gameState.getIdentity().put(oracle, true);
+		mw.gameState.getP1BreakZone().add(oracle);
+
+		mw.buildGameContext(true).removeSourceCardFromGame(oracle);
+
+		assertFalse(mw.gameState.getP1BreakZone().contains(oracle), "it leaves the Break Zone");
+		assertTrue(mw.gameState.getP1PermanentRfp().contains(oracle), "and arrives in the RFG zone");
+	}
+
+	@Test
+	void theFieldIsStillSearchedFirst() {
+		// The same sentence is printed on cards whose trigger fires while they are standing, so
+		// the field has to keep winning when the card is on it.
+		MainWindow mw = new MainWindow();
+		CardData standing = makeForward("Angeal", "Light", 3, 7000);
+		placeP1Forward(mw, standing);
+
+		mw.buildGameContext(true).removeSourceCardFromGame(standing);
+
+		assertFalse(mw.p1ForwardCards.contains(standing));
+		assertTrue(mw.gameState.getP1PermanentRfp().contains(standing));
+	}
+
+	@Test
+	void theRightCopyGoesWhenTwoAreInPlay() {
+		// CardData is a record, so a second copy of the same printing is equals() to this one. The
+		// removal matches on identity for that reason: a name scan would take whichever copy it
+		// met first, which on this board is the wrong one.
+		MainWindow mw = new MainWindow();
+		CardData older = makeForward("Ultros", "Water", 2, 5000);
+		CardData justDied = makeForward("Ultros", "Water", 2, 5000);
+		mw.gameState.getIdentity().put(older, true);
+		mw.gameState.getIdentity().put(justDied, true);
+		mw.gameState.getP1BreakZone().add(older);
+		mw.gameState.getP1BreakZone().add(justDied);
+
+		mw.buildGameContext(true).removeSourceCardFromGame(justDied);
+
+		assertSame(older, mw.gameState.getP1BreakZone().get(0), "the earlier copy stays put");
+		assertEquals(1, mw.gameState.getP1BreakZone().size());
+		assertSame(justDied, mw.gameState.getP1PermanentRfp().get(0));
+	}
+
+	@Test
+	void aRemovalThatCannotHappenSuppressesThePayoffItPaysFor() {
+		// The quiet half of the bug. "You may remove X from the game. When you do so, <payoff>"
+		// is a cost and its purchase; a cost that could not be paid must not buy anything. Progress
+		// defaults to true, so the not-found path has to clear it explicitly.
+		MainWindow mw = new MainWindow();
+		CardData absent = makeForward("Nowhere", "Light", 3, 7000);
+		mw.gameState.getIdentity().put(absent, true);
+
+		GameContext ctx = mw.buildGameContext(true);
+		ctx.resetEffectProgress();
+		ctx.removeSourceCardFromGame(absent);
+
+		assertFalse(ctx.effectMadeProgress(), "nothing was removed, so nothing was bought");
+	}
+
+	@Test
+	void theOracleRemovesItselfWhenItsTriggerResolves() {
+		// End to end through the parser, which is where the playtest hit it: the ability is a
+		// "you may <cost>. When you do so, <payoff>" sequence and the cost half is what failed.
+		MainWindow mw = new MainWindow();
+		CardData oracle = makeAutoAbilityForward("The Oracle of Light", "Light", 5000, ORACLE_13_138S_TEXT);
+		mw.gameState.getIdentity().put(oracle, true);
+		mw.gameState.getP1BreakZone().add(oracle);
+
+		Consumer<GameContext> effect = ActionResolver.parse(
+				oracle.autoAbilities().get(0).effectText(), oracle);
+		assertNotNull(effect);
+		effect.accept(mw.buildGameContext(true));
+
+		assertTrue(mw.gameState.getP1PermanentRfp().contains(oracle),
+				"the Oracle used to stay in the Break Zone and log a warning instead");
+	}
+
+
+	// =========================================================================================
 	// Dancer 15-046C, Malboro 24-105R, Chocobo 25-045C and Maquis the Phantasm 17-115R: four
 	// abilities the resolver was not reading, for four different reasons.
 	//
@@ -52824,13 +53270,19 @@ public class CardBehaviorTest {
 	}
 
 	@Test
-	void aConditionInFrontOfThePhraseIsNotClaimed() {
+	void aConditionInFrontOfThePhraseIsNotClaimedUngated() {
 		// The followup is anchored end to end on purpose. Other printings put a condition before
 		// the same phrase — 7-087R Exdeath's "if its cost is equal to or less than the number of
 		// Backups you control" — and a find() claimed the play out of the middle of the sentence
-		// and ran it ungated, which is strictly stronger than the card. Better an unread marker
-		// than a Forward that arrives whatever it costs.
-		assertEquals("ChooseCharacter / ?",
+		// and ran it ungated, which is strictly stronger than the card.
+		//
+		// This used to assert "ChooseCharacter / ?", the unread marker that was the right answer
+		// while nothing could read the gate: better an unread card than a Forward that arrives
+		// whatever it costs. The gate is wired now, so the standard the test was holding — that
+		// the play never runs ungated — is met by reading it rather than by refusing it. What must
+		// never come back is the bare "PlayOntoField" this card reported before the marker went in;
+		// see exdeathDeclinesAForwardDearerThanHisBackupCount for the behavioural half.
+		assertEquals("ChooseCharacter / PlayIfCostLeFieldCount",
 				ActionResolver.fullDescription(
 						"choose 1 Forward from either player's Break Zone. If its cost is equal to "
 						+ "or less than the number of Backups you control, play it onto your field.",

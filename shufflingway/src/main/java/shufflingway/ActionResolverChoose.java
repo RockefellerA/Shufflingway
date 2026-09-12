@@ -1237,6 +1237,53 @@ final class ActionResolverChoose {
         return tryParseChooseCharacterInner(text, source, xValue);
     }
 
+    /**
+     * Whether a {@link ActionResolverPatterns#FOLLOWUP_COST_LE_FIELD_COUNT_ACTION} match names a
+     * pool this engine can actually count. Shared by the choose parser and both naming chains so
+     * the three cannot drift on which printings they claim.
+     *
+     * <p>Three ways a match is refused, each because answering it would be a wrong number rather
+     * than a missing one:
+     * <ul>
+     *   <li>no filter at all — "the number of you control" says nothing about what is counted;</li>
+     *   <li>an "and/or" union across two different Elements — one
+     *       {@code countSelfFieldCards} call carries one Element filter, so either half would be
+     *       the wrong answer;</li>
+     *   <li>a Job phrase that is really a union — 11-107C Izayoi's "Job Ninja or Card Name Ninja".
+     *       The lazy Job group will happily swallow the whole phrase and hand it over as a Job
+     *       named "Ninja or Card Name Ninja", which matches nobody and would silently gate his
+     *       bounce to never. Counting a union needs inclusion-exclusion over three queries, which
+     *       this branch does not do, so he is left to fall through unread.</li>
+     * </ul>
+     */
+    static boolean costGateUnreadable(Matcher m) {
+        String element  = m.group("element");
+        String element2 = m.group("element2");
+        String category = m.group("category");
+        String job      = m.group("job");
+        String type     = m.group("type");
+        if (element == null && category == null && job == null && type == null) return true;
+        if (m.group("type2") != null && element2 != null
+                && !element2.equalsIgnoreCase(String.valueOf(element))) return true;
+        if (job != null && job.matches("(?i).*(\\bor\\b|Card\\s+Name).*")) return true;
+        return false;
+    }
+
+    /**
+     * The card a chosen {@link ForwardTarget} names, across every zone a choose can reach.
+     *
+     * <p>{@code GameContext.targetCard} answers for the three field rows and returns {@code null}
+     * for a Break Zone row, which is the one that matters here: the cost gates that use this
+     * choose from a Break Zone as often as from the field, and a null read there would have let
+     * every one of those cards through the gate untested.
+     */
+    private static CardData chosenTargetCard(GameContext ctx, ForwardTarget t) {
+        if (t == null) return null;
+        if (t.zone() == ForwardTarget.CardZone.BREAK_ZONE)
+            return t.isP1() ? ctx.p1BreakZoneCard(t.idx()) : ctx.p2BreakZoneCard(t.idx());
+        return ctx.targetCard(t);
+    }
+
     /** The log label for a delayed clause: its description when there is one, else the text. */
     private static String describeDelayed(String delayedText, CardData source) {
         String d = fullDescription(delayedText, source);
@@ -3189,6 +3236,80 @@ final class ActionResolverChoose {
             }
         }
 
+        // --- "If its cost ≤ the number of <count phrase> you control, <action> it" followup ---
+        // Here for the same reason as its two neighbours, and it was costing more than either: the
+        // plain action handlers below scan with find(), so every one of the eleven abilities
+        // printing this gate was taking its verb out of the middle of the sentence and running it
+        // with the cost condition dropped. 21-090R Cloud, 22-078C Sice, 25-078H Seven, 28-095L
+        // Lumina, 29-077C Aranea and 12-124L Thancred each broke a Forward of any cost at all.
+        //
+        // Unlike those two, this gate asks about the card that was chosen rather than about the
+        // board, so it is tested per target: choose several and only the ones inside the budget
+        // are acted on. No printing chooses more than one today, so nothing in the corpus can tell
+        // the difference — but resolving it once for the whole list would be reading it as the
+        // board-state gate above, which it is not.
+        Matcher costLeActionM = FOLLOWUP_COST_LE_FIELD_COUNT_ACTION.matcher(primaryFollowup.trim());
+        if (costLeActionM.matches()) {
+            String gateElement  = costLeActionM.group("element");
+            String gateCategory = costLeActionM.group("category");
+            String gateJob      = costLeActionM.group("job") != null
+                    ? costLeActionM.group("job").trim() : null;
+            String gateType     = costLeActionM.group("type");
+            String gateType2    = costLeActionM.group("type2");
+            String payoffText   = costLeActionM.group("payoff").trim();
+            BiConsumer<GameContext, List<ForwardTarget>> payoff = parseTargetAction(payoffText, xValue);
+            // Both halves understood before either is claimed, as the branch above requires: a
+            // readable count over an unreadable payoff leaves the sentence unread rather than
+            // applying the part that parsed. This is what keeps "play it onto your field" (7-087R
+            // Exdeath) falling through to its own branch further down, and what keeps a payoff
+            // nobody has taught this vocabulary from resolving as a silent no-op.
+            if (payoff != null && !costGateUnreadable(costLeActionM)) {
+                // No type noun means the Job or Category is carrying the filter on its own, and
+                // the widest pool is what those phrases mean — 22-078C Sice counts every Job Class
+                // Zero Cadet she controls, whatever card type each is printed as.
+                String tLc  = gateType  != null ? gateType.toLowerCase(Locale.ROOT)  : "character";
+                String t2Lc = gateType2 != null ? gateType2.toLowerCase(Locale.ROOT) : "";
+                boolean gFwd = tLc.startsWith("forward") || tLc.startsWith("character")
+                        || t2Lc.startsWith("forward") || t2Lc.startsWith("character");
+                boolean gBkp = tLc.startsWith("backup")  || tLc.startsWith("character")
+                        || t2Lc.startsWith("backup")  || t2Lc.startsWith("character");
+                boolean gMon = tLc.startsWith("monster") || tLc.startsWith("character")
+                        || t2Lc.startsWith("monster") || t2Lc.startsWith("character");
+                final String countLabel = (gateElement != null ? gateElement + " " : "")
+                        + (gateCategory != null ? "Category " + gateCategory + " " : "")
+                        + (gateJob != null ? "Job " + gateJob + " " : "")
+                        + (gateType != null ? gateType : "Characters")
+                        + (gateType2 != null ? " and/or " + gateType2 : "");
+                return ctx -> {
+                    ctx.logChooseHeader(choosePrefix + " — " + payoffText
+                            + " if cost ≤ count of " + countLabel + " you control");
+                    List<ForwardTarget> ts = selectTargets(ctx, maxCount, upTo,
+                            opponentOnly, selfOnly, condition, element, zone, opponentZone,
+                            costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters,
+                            jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, fExcludeElem, withoutMulticard);
+                    int allowed = ctx.countSelfFieldCards(gFwd, gBkp, gMon,
+                            gateJob, null, gateCategory, gateElement);
+                    List<ForwardTarget> within = new ArrayList<>();
+                    for (ForwardTarget t : ts) {
+                        CardData card = chosenTargetCard(ctx, t);
+                        if (card == null) {
+                            // Skipped, not admitted. A gate that cannot read the cost it is testing
+                            // has no business letting the payoff through — that is the fail-open
+                            // this whole branch exists to close.
+                            ctx.logEntry("Effect: cannot read the chosen card's cost — "
+                                    + payoffText + " skipped");
+                            continue;
+                        }
+                        if (card.cost() <= allowed) within.add(t);
+                        else ctx.logEntry("Effect: " + card.name() + " costs " + card.cost()
+                                + ", only " + allowed + " " + countLabel + " controlled — " + payoffText + " skipped");
+                    }
+                    if (!within.isEmpty()) payoff.accept(ctx, within);
+                    if (secondary != null) secondary.accept(ctx);
+                };
+            }
+        }
+
         // --- "If there are/you have N different Elements among <pool>, <action> it/them" followup ---
         // The same gate counted by Element spread rather than by card, and here for the same
         // reason its sibling is: the plain action handlers below scan with find() and would take
@@ -4351,6 +4472,54 @@ final class ActionResolverChoose {
                     CardData card = t.isP1() ? ctx.p1BreakZoneCard(t.idx()) : ctx.p2BreakZoneCard(t.idx());
                     if (card != null && card.cost() <= jobCount) ctx.playTargetOntoField(t);
                 }
+            };
+        }
+
+        // --- "If its cost ≤ the number of [Element] [Category X] <Type> you control, play it onto [the|your] field." ---
+        // 24-053H Minwu and 7-087R Exdeath. Must follow the Job branch above: a "Job X Forwards you
+        // control" phrase satisfies both, and reading it here would drop the Job and count the
+        // whole board. Both cards needed this for opposite reasons — Exdeath reported "?" and did
+        // nothing, while Minwu's condition was being taken off the end of his sentence by a find()
+        // PlayOntoField arm below, so he played a Forward of any cost at all.
+        Matcher costLeFieldM = FOLLOWUP_PLAY_IF_COST_LE_FIELD_COUNT.matcher(primaryFollowup.trim());
+        if (costLeFieldM.matches()) {
+            String  condElement  = costLeFieldM.group("element");
+            String  condCategory = costLeFieldM.group("category");
+            String  condTypeRaw  = costLeFieldM.group("type");
+            String  condTypeLc   = condTypeRaw.toLowerCase(Locale.ROOT);
+            boolean condFwd = condTypeLc.startsWith("forward")  || condTypeLc.startsWith("character");
+            boolean condBkp = condTypeLc.startsWith("backup")   || condTypeLc.startsWith("character");
+            boolean condMon = condTypeLc.startsWith("monster")  || condTypeLc.startsWith("character");
+            // "your field" is not decoration: Exdeath chooses from either player's Break Zone, so a
+            // card taken from across the table has to arrive on the resolving player's side rather
+            // than back on its owner's. Minwu says "the field" and only ever reaches his own Break
+            // Zone, where the two are the same placement.
+            boolean ontoOwnField = "your".equalsIgnoreCase(String.valueOf(costLeFieldM.group("own")));
+            String  countLabel   = (condElement != null ? condElement + " " : "")
+                    + (condCategory != null ? "Category " + condCategory + " " : "") + condTypeRaw;
+            return ctx -> {
+                ctx.logChooseHeader(choosePrefix + " — Play onto " + (ontoOwnField ? "your" : "the")
+                        + " field if cost ≤ count of " + countLabel + " you control");
+                List<ForwardTarget> ts = selectTargets(ctx, maxCount, upTo,
+                        opponentOnly, selfOnly, condition, element, zone, opponentZone,
+                        costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters,
+                        jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, fExcludeElem, withoutMulticard);
+                int allowed = ctx.countSelfFieldCards(condFwd, condBkp, condMon,
+                        null, null, condCategory, condElement);
+                for (boolean side : new boolean[] { true, false }) {
+                    for (ForwardTarget t : sortedByIdxDesc(ts, side).collect(java.util.stream.Collectors.toList())) {
+                        CardData card = t.isP1() ? ctx.p1BreakZoneCard(t.idx()) : ctx.p2BreakZoneCard(t.idx());
+                        if (card == null) continue;
+                        if (card.cost() > allowed) {
+                            ctx.logEntry("Effect: " + card.name() + " costs " + card.cost()
+                                    + ", only " + allowed + " " + countLabel + " controlled — not played");
+                            continue;
+                        }
+                        if (ontoOwnField) ctx.playTargetOntoOwnField(t);
+                        else              ctx.playTargetOntoField(t);
+                    }
+                }
+                if (secondary != null) secondary.accept(ctx);
             };
         }
 
@@ -5748,6 +5917,21 @@ final class ActionResolverChoose {
                         opponentOnly, selfOnly, condition, element, zone, opponentZone,
                         costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters, jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, fExcludeElem, withoutMulticard);
                 ts.forEach(t -> ctx.debuffIncomingDamageIncrease(t, amount));
+                if (secondary != null) secondary.accept(ctx);
+            };
+        }
+
+        // --- Incoming damage doubled this turn followup (13-059H Scarmiglione) ---
+        // The mirror of the branch below. Order against it is free rather than load-bearing: one
+        // reads "if it is dealt damage" and the other "the next damage it deals", so neither can
+        // take the other's sentence under find().
+        if (FOLLOWUP_DOUBLE_INCOMING_DAMAGE_THIS_TURN.matcher(primaryFollowup).find()) {
+            return ctx -> {
+                ctx.logChooseHeader(choosePrefix + " — incoming damage doubled this turn");
+                List<ForwardTarget> ts = selectTargets(ctx, maxCount, upTo,
+                        opponentOnly, selfOnly, condition, element, zone, opponentZone,
+                        costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters, jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, fExcludeElem, withoutMulticard);
+                ts.forEach(ctx::doubleForwardIncomingDamageThisTurn);
                 if (secondary != null) secondary.accept(ctx);
             };
         }

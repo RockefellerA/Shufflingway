@@ -7459,6 +7459,56 @@ final class GameContextImpl implements GameContext {
 				logEntry("[Warning] removeNamedCardFromGame: \"" + cardName + "\" not found on field");
 			}
 
+			@Override public void removeSourceCardFromGame(CardData source) {
+				if (source == null) { markEffectFizzled(); return; }
+				// Field first, by identity. Each zone delegates to the removal that already knows
+				// how to tear that row down and refresh it.
+				for (int i = 0; i < mw.p1ForwardCards.size(); i++)
+					if (mw.p1ForwardCards.get(i) == source) { removeP1ForwardFromGame(i); return; }
+				for (int i = 0; i < mw.p2ForwardCards.size(); i++)
+					if (mw.p2ForwardCards.get(i) == source) { removeP2ForwardFromGame(i); return; }
+				for (int i = 0; i < mw.p1MonsterCards.size(); i++)
+					if (mw.p1MonsterCards.get(i) == source) {
+						removeTargetFromGame(new ForwardTarget(true, i, ForwardTarget.CardZone.MONSTER)); return;
+					}
+				for (int i = 0; i < mw.p2MonsterCards.size(); i++)
+					if (mw.p2MonsterCards.get(i) == source) {
+						removeTargetFromGame(new ForwardTarget(false, i, ForwardTarget.CardZone.MONSTER)); return;
+					}
+				for (int i = 0; i < mw.p1BackupCards.length; i++)
+					if (mw.p1BackupCards[i] == source) {
+						logEntry(source.name() + " → Removed From Game");
+						mw.gameState.addToPermanentRfp(source);
+						mw.p1BackupCards[i] = null; mw.p1BackupStates[i] = CardState.ACTIVE;
+						mw.refreshP1BackupSlot(i); mw.refreshP1WarpZoneUI(); return;
+					}
+				for (int i = 0; i < mw.p2BackupCards.length; i++)
+					if (mw.p2BackupCards[i] == source) {
+						logEntry("[P2] " + source.name() + " → Removed From Game");
+						mw.gameState.addToPermanentRfp(source);
+						mw.p2BackupCards[i] = null; mw.p2BackupStates[i] = CardState.ACTIVE;
+						mw.refreshP2BackupSlot(i); return;
+					}
+				// Then the Break Zones — where a "when put from the field into the Break Zone"
+				// trigger always finds its own card, because the move happens before the trigger
+				// resolves.
+				for (boolean p1Side : new boolean[] { true, false }) {
+					List<CardData> bz = p1Side ? mw.gameState.getP1BreakZone() : mw.gameState.getP2BreakZone();
+					for (int i = 0; i < bz.size(); i++) {
+						if (bz.get(i) != source) continue;
+						bz.remove(i);
+						mw.gameState.addToPermanentRfp(source);
+						logEntry((p1Side ? "" : "[P2] ") + source.name()
+								+ " → Removed From Game (from Break Zone)");
+						if (p1Side) { mw.refreshP1BreakLabel(); } else { mw.refreshP2BreakLabel(); }
+						return;
+					}
+				}
+				logEntry("[Warning] removeSourceCardFromGame: \"" + source.name()
+						+ "\" is neither on the field nor in a Break Zone");
+				markEffectFizzled();
+			}
+
 			@Override public int removeCardsFromBreakZoneFromGame(int maxCount, boolean upTo,
 					boolean opponentZone, boolean bothZones, String element, int costVal, String costCmp,
 					boolean forwards, boolean backups, boolean monsters, boolean summons,

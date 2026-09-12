@@ -2653,6 +2653,30 @@ public interface GameContext {
     void removeNamedCardFromGame(String cardName);
 
     /**
+     * Removes {@code source} — the card whose ability is resolving — from the game, wherever it
+     * currently is: the field first, then either Break Zone.
+     *
+     * <p>The Break Zone half is what the field-only {@link #removeNamedCardFromGame(String)} cannot
+     * do, and nine cards need it. "When [Self] is put from the field into the Break Zone, you may
+     * remove [Self] from the game" resolves <em>after</em> the card has arrived in the Break Zone,
+     * so a field scan finds nothing and logs a warning — 13-138S The Oracle of Light, 14-101R
+     * Ultros, 16-067L Aerith, 18-115L Melvien, 23-006R Soulcage, 25-035L Aerith, 26-065L Vanille
+     * and 28-060R Angeal all read that way. The field is still searched first because the same
+     * sentence is printed on cards whose trigger fires while they are standing.
+     *
+     * <p>Matched by <em>identity</em>, not by name: {@code CardData} is a record, so a second copy
+     * of the same printing is {@code equals()} to this one, and a name scan would happily remove
+     * the wrong Ultros — the one still in the Break Zone from an earlier turn rather than the one
+     * that just died.
+     *
+     * <p>Calls {@link #markEffectFizzled()} when the card is nowhere to be found, so a
+     * "When you do so, …" payoff hanging off the removal is suppressed rather than paid out for a
+     * cost that was never met. That is the half the warning used to hide: progress defaults to
+     * true, so the Oracle's revive fired while the Oracle itself stayed in the Break Zone.
+     */
+    void removeSourceCardFromGame(CardData source);
+
+    /**
      * Removes all cards currently in the opponent's Break Zone from the game permanently.
      */
     void removeAllOpponentBzFromGame();
