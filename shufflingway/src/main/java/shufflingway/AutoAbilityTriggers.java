@@ -5274,6 +5274,7 @@ final class AutoAbilityTriggers {
 			if (!rfthCostSatisfied(rth, isP1)) return false;
 		for (CounterCost cc : ability.counterCosts())
 			if (!counterCostSatisfied(cc, source)) return false;
+		if (!mw.abilityHasActivationTarget(ability, source, isP1)) return false;
 		return mw.canAffordAbilityCost(ability, isP1);
 	}
 
@@ -5309,6 +5310,11 @@ final class AutoAbilityTriggers {
 			if (!counterCostSatisfied(cc, source)) return false;
 		for (DullForwardCost dfc : ability.dullForwardCosts())
 			if (!dullForwardCostSatisfied(dfc, isP1, source)) return false;
+		// An ability used from the Break Zone is an action ability like any other, so rule 11.6.5
+		// binds it too: Undead Princess 19-052C's "Choose 1 Earth Forward." cannot be used while
+		// no Earth Forward is on the board, and removing her from the game to find that out is
+		// exactly the cost the rule exists to stop being paid.
+		if (!mw.abilityHasActivationTarget(ability, source, isP1)) return false;
 		return mw.canAffordAbilityCost(ability, isP1);
 	}
 
@@ -6640,8 +6646,11 @@ final class AutoAbilityTriggers {
 		mw.gameState.insertStack(depth,
 				new StackEntry(source, ability, isP1, xValue, preTargets, revealedPower));
 		mw.showStackWindow();
-		mw.refreshP1HandLabel();
-		mw.refreshP1BreakLabel();
+		// The payer's zones. Every cost above spends from one seat's hand and files into one seat's
+		// Break Zone, and repainting P1's regardless left P2's activations invisible until the next
+		// thing that happened to touch them.
+		if (isP1) { mw.refreshP1HandLabel();      mw.refreshP1BreakLabel(); }
+		else      { mw.refreshP2HandCountLabel(); mw.refreshP2BreakLabel(); }
 		return true;
 	}
 
@@ -6649,11 +6658,22 @@ final class AutoAbilityTriggers {
 	 * Moves {@code c} to the permanent RFP zone as an ability cost and records the instance in
 	 * {@link MainWindow#lastRfgCostCards} so "you can cast [X] removed by this ability's cost"
 	 * followups (Sephiroth) can find it.
+	 *
+	 * <p>{@code payerIsP1} is only the fallback owner: the zone is kept by owner, and a card that
+	 * reached play the ordinary way is already in the identity map, which wins. It matters for a
+	 * card the map has never heard of, where the old single-argument call filed it under P1 by
+	 * default — so an ability P2 paid for put the card in the player's removed zone.
+	 *
+	 * <p>The label is refreshed here rather than by the callers because every route into the RFP
+	 * zone is one of them, and the zone is on screen without being asked for: a removal none of
+	 * them repainted left the card visibly still wherever it came from.
 	 */
-	private void removeCardAsCost(CardData c) {
-		mw.gameState.addToPermanentRfp(c);
+	private void removeCardAsCost(CardData c, boolean payerIsP1) {
+		mw.gameState.addToPermanentRfp(c, payerIsP1);
 		mw.lastRfgCostCards.add(c);
 		mw.logEntry(c.name() + " → Removed From Game (cost)");
+		mw.refreshP1WarpZoneUI();
+		mw.refreshP2WarpZoneUI();
 	}
 
 	private void executeRemoveFromGameCost(RemoveFromGameCost rfg, boolean isP1) {
@@ -6661,7 +6681,7 @@ final class AutoAbilityTriggers {
 			case "DECK" -> {
 				java.util.Deque<CardData> deck = isP1 ? mw.gameState.getP1MainDeck() : mw.gameState.getP2MainDeck();
 				for (int i = 0; i < rfg.count() && !deck.isEmpty(); i++) {
-					removeCardAsCost(deck.pollFirst());
+					removeCardAsCost(deck.pollFirst(), isP1);
 				}
 				if (isP1) mw.refreshP1DeckLabel(); else mw.refreshP2DeckLabel();
 			}
@@ -6675,7 +6695,7 @@ final class AutoAbilityTriggers {
 						// Named card — auto-select
 						CardData c = hand.get(eligible.get(0));
 						hand.remove((int) eligible.get(0));
-						removeCardAsCost(c);
+						removeCardAsCost(c, isP1);
 					} else {
 						String[] options = eligible.stream()
 								.map(i -> hand.get(i).name() + " (Cost: " + hand.get(i).cost() + ")")
@@ -6690,10 +6710,10 @@ final class AutoAbilityTriggers {
 						int handIdx = eligible.get(listIdx);
 						CardData c = hand.get(handIdx);
 						hand.remove(handIdx);
-						removeCardAsCost(c);
+						removeCardAsCost(c, isP1);
 					}
 				}
-				mw.refreshP1HandLabel();
+				if (isP1) mw.refreshP1HandLabel(); else mw.refreshP2HandCountLabel();
 			}
 			case "BREAK_ZONE" -> {
 				List<CardData> bz = isP1 ? mw.gameState.getP1BreakZone() : mw.gameState.getP2BreakZone();
@@ -6701,14 +6721,14 @@ final class AutoAbilityTriggers {
 					// Remove all matching cards
 					List<Integer> eligible = eligibleRfgBzIndices(rfg, isP1);
 					for (int i = eligible.size() - 1; i >= 0; i--) {
-						removeCardAsCost(bz.remove((int) eligible.get(i)));
+						removeCardAsCost(bz.remove((int) eligible.get(i)), isP1);
 					}
 				} else {
 					for (int pick = 0; pick < rfg.count(); pick++) {
 						List<Integer> eligible = eligibleRfgBzIndices(rfg, isP1);
 						if (eligible.isEmpty()) { mw.logEntry("No eligible Break Zone card for remove-from-game cost."); break; }
 						if (eligible.size() == 1 && rfg.cardName() != null) {
-							removeCardAsCost(bz.remove((int) eligible.get(0)));
+							removeCardAsCost(bz.remove((int) eligible.get(0)), isP1);
 						} else {
 							String[] options = eligible.stream().map(i -> bz.get(i).name()).toArray(String[]::new);
 							String label = "Remove from game (Break Zone)" + (rfg.count() > 1 ? " (" + (pick + 1) + "/" + rfg.count() + ")" : "");
@@ -6719,11 +6739,13 @@ final class AutoAbilityTriggers {
 							int listIdx = java.util.Arrays.asList(options).indexOf(choice);
 							if (listIdx < 0) break;
 							int bzIdx = eligible.get(listIdx);
-							removeCardAsCost(bz.remove(bzIdx));
+							removeCardAsCost(bz.remove(bzIdx), isP1);
 						}
 					}
 				}
-				mw.refreshP1BreakLabel();
+				// The payer's zone, not P1's: an ability P2 used from its own Break Zone left the
+				// card it had just removed still showing on top of that pile.
+				if (isP1) mw.refreshP1BreakLabel(); else mw.refreshP2BreakLabel();
 			}
 			default -> {
 				// FIELD

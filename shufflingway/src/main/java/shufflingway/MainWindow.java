@@ -9083,7 +9083,7 @@ public class MainWindow {
 		if (ActionResolver.mandatoryCastNeedsOwnDamageZoneCard(effect))
 			return !(isP1 ? gameState.getP1DamageZone() : gameState.getP2DamageZone()).isEmpty();
 
-		TargetSpec spec = ActionResolver.mandatoryCastTargetSpec(effect, card);
+		TargetSpec spec = ActionResolver.mandatoryChoiceTargetSpec(effect, card);
 		if (spec == null) return true;
 		boolean  savedIsSummon = currentResolutionIsSummon;
 		CardData savedSource   = currentSummonSource;
@@ -9101,6 +9101,59 @@ public class MainWindow {
 			currentSummonSource       = savedSource;
 			currentSummonSourceIsP1   = savedSourceP1;
 		}
+	}
+
+	/**
+	 * Every Character {@code isP1} could choose for {@code spec} if {@code ability} opened its
+	 * prompt right now — {@link GameContextImpl#eligibleCharacters} or its Break Zone twin, asked
+	 * from outside any resolution.
+	 *
+	 * <p>The ability half of what {@link #summonHasCastTarget} does inline, and it saves and
+	 * restores the same way and for the same reason: the "cannot be chosen" sets read whose effect
+	 * is choosing off the resolution fields, and both callers ask from menu paint or from the AI's
+	 * planning, neither of them inside a resolution.
+	 */
+	List<ForwardTarget> eligibleAbilityChoiceTargets(TargetSpec spec, ActionAbility ability,
+			CardData source, boolean isP1) {
+		boolean  savedIsSummon  = currentResolutionIsSummon;
+		CardData savedSource    = currentAbilitySource;
+		boolean  savedSourceP1  = currentAbilitySourceIsP1;
+		boolean  savedIsSpecial = currentAbilityIsSpecial;
+		currentResolutionIsSummon = false;
+		currentAbilitySource      = source;
+		currentAbilitySourceIsP1  = isP1;
+		currentAbilityIsSpecial   = ability.isSpecial();
+		try {
+			GameContextImpl ctx = new GameContextImpl(this, isP1, false);
+			return spec.zone() != null
+					? ctx.eligibleCharactersFromBreakZone(spec)
+					: ctx.eligibleCharacters(spec);
+		} finally {
+			currentResolutionIsSummon = savedIsSummon;
+			currentAbilitySource      = savedSource;
+			currentAbilitySourceIsP1  = savedSourceP1;
+			currentAbilityIsSpecial   = savedIsSpecial;
+		}
+	}
+
+	/**
+	 * Whether {@code isP1} could choose everything {@code ability} opens by demanding — rule 11.6.5
+	 * for an action ability and 11.7.5 for a special one, both of them the sentence
+	 * {@link #summonHasCastTarget} already enforces for a Summon: it "needs a legal target to
+	 * choose, or the player cannot use it".
+	 *
+	 * <p>Only the opening choice, and only a mandatory one, exactly as the Summon rule reads it —
+	 * see {@link ActionResolver#mandatoryChoiceTargetSpec}, which decides that for both. An
+	 * auto-ability is deliberately not asked: it is triggered rather than used, and rule 11.8.19
+	 * cancels it at resolution instead of refusing it up front.
+	 *
+	 * <p>Anything the choice names that {@code mandatoryChoiceTargetSpec} cannot decode leaves the
+	 * ability usable rather than refused. Reading a card only partly is a reason to claim less, not
+	 * to invent a restriction it does not print.
+	 */
+	boolean abilityHasActivationTarget(ActionAbility ability, CardData source, boolean isP1) {
+		TargetSpec spec = ActionResolver.mandatoryChoiceTargetSpec(ability.effectText(), source);
+		return spec == null || !eligibleAbilityChoiceTargets(spec, ability, source, isP1).isEmpty();
 	}
 
 	/**
@@ -13325,6 +13378,10 @@ public class MainWindow {
 		if (redirect != null
 				&& gameState.getStack().stream().noneMatch(redirectEligibility(redirect, source, isP1)))
 			return false;
+		// And the general form of both: an ability that opens by demanding a choice needs a legal
+		// target for it, or it cannot be used at all (11.6.5). The two gates above are the cases
+		// that rule reaches through the Stack rather than the board, and predate it.
+		if (!abilityHasActivationTarget(ability, source, isP1)) return false;
 		if (ability.mainPhaseOnly()) {
 			GameState.Player activePlayer = isP1 ? GameState.Player.P1 : GameState.Player.P2;
 			if (gameState.getCurrentPlayer() != activePlayer) return false;

@@ -7790,6 +7790,12 @@ public class ActionResolver {
         // abilities alike — so it is the one place that can tell the context what the cards it is
         // about to pick are in for. Ignored unless the picker is the AI.
         ctx.setAiDamageTargetHint(chooseTargetDamageAmount(effectText));
+        // The other half of what the cards are in for, and it has to be said here rather than left
+        // to {@link #withAiTargetPreference}: that wrapper sets the flag as the effect *resolves*,
+        // which for an ability is long after this selection has already been made — an ability
+        // chooses as it is activated. Undead Princess 19-052C is what the gap looks like from the
+        // other seat: the AI paid a Forward to hand her "+4000 power" to the player she was aimed at.
+        ctx.setAiPrefersOwnTargets(chooseEffectBenefitsTarget(effectText));
         return ctx.selectCharacters(spec.maxCount(), spec.upTo(), spec.opponentOnly(), spec.selfOnly(),
                 spec.condition(), spec.element(), spec.costVal(), spec.costCmp(), spec.powerVal(),
                 spec.powerCmp(), spec.inclForwards(), spec.inclBackups(), spec.inclMonsters(),
@@ -7951,20 +7957,26 @@ public class ActionResolver {
     }
 
     /**
-     * The targets a Summon has to be able to choose for its cast to be legal, or {@code null} when
-     * its text demands none.
+     * The targets an effect has to be able to choose for the player to be allowed to use it, or
+     * {@code null} when its text demands none.
      *
-     * <p>A Summon that opens "Choose 1 Forward." cannot be cast while no Forward can be chosen —
-     * unlike a Character, whose auto-abilities are free to enter and find nothing to fire at. Only
-     * a mandatory opening choice counts, which is what {@link #OPENING_MANDATORY_CHOICE} says and
-     * why this leans on it rather than on {@link #targetSpec} alone:
+     * <p>One method for two card kinds because the rules state it twice in the same words: a
+     * Summon "needs a legal target to choose, or the player cannot play it" (11.3.3), and an
+     * action or special ability "needs a legal target to choose, or the player cannot use it"
+     * (11.6.5, 11.7.5). So a Summon opening "Choose 1 Forward." cannot be cast while no Forward
+     * can be chosen, and an ability opening the same way cannot be activated. An auto-ability is
+     * not held to it here — it triggers on an event rather than being used, and rule 11.8.19
+     * cancels it at resolution instead.
+     *
+     * <p>Only a mandatory opening choice counts, which is what {@link #OPENING_MANDATORY_CHOICE}
+     * says and why this leans on it rather than on {@link #targetSpec} alone:
      *
      * <ul>
      *   <li>"Choose up to 2 Forwards" demands nothing — choosing none is a legal choice.
      *   <li>"Select 1 of the 2 following actions" picks a mode, not a target; its quoted actions
-     *       do their own choosing when the Summon resolves, so the cast stands either way.
+     *       do their own choosing when the effect resolves, so the use stands either way.
      *   <li>A "Choose" buried inside a granted ability ("gains \"When this Forward attacks, choose
-     *       1 Forward…\"") belongs to that ability, not to this cast. The pattern is anchored, so
+     *       1 Forward…\"") belongs to that ability, not to this one. The pattern is anchored, so
      *       neither of the last two reaches {@code targetSpec} here.
      * </ul>
      *
@@ -7976,9 +7988,9 @@ public class ActionResolver {
      * own {@code null}. Choices answered by the Stack or the Damage Zone are read by
      * {@link #mandatoryCastStackChoice} and {@link #mandatoryCastNeedsOwnDamageZoneCard}.
      */
-    public static TargetSpec mandatoryCastTargetSpec(String summonEffect, CardData source) {
-        if (summonEffect == null) return null;
-        String text = stripExBurstPrefix(summonEffect).trim();
+    public static TargetSpec mandatoryChoiceTargetSpec(String effectText, CardData source) {
+        if (effectText == null) return null;
+        String text = stripExBurstPrefix(effectText).trim();
         if (!OPENING_MANDATORY_CHOICE.matcher(text).find()) return null;
         TargetSpec spec = targetSpec(text, source);
         return spec == null || spec.upTo() ? null : spec;
@@ -7988,7 +8000,7 @@ public class ActionResolver {
      * The Stack entries a Summon has to be able to choose for its cast to be legal, or
      * {@code null} when its opening choice does not name one.
      *
-     * <p>The Stack half of {@link #mandatoryCastTargetSpec}: "Choose 1 auto-ability. Cancel its
+     * <p>The Stack half of {@link #mandatoryChoiceTargetSpec}: "Choose 1 auto-ability. Cancel its
      * effect." is as unanswerable with an empty Stack as "Choose 1 Forward." is with an empty
      * board. {@link ActionResolverPatterns#CHOOSE_CHARACTER_PATTERN} cannot read these at all —
      * its list of things a choice can name is card kinds, and an ability waiting to resolve is

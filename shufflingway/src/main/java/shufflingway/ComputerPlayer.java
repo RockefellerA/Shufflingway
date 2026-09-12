@@ -1584,6 +1584,9 @@ class ComputerPlayer implements OpponentController {
 				// Mirror of the above for the other side: an ability that can only choose a Forward P2
 				// controls does nothing while P2 has none, so paying its cost is pure waste.
 				if (ActionResolver.targetsOnlyOwnForwards(ability.effectText()) && !p2HasAnyForward()) continue;
+				// And the other direction: a pure buff with nothing of P2's own to land on would
+				// only make one of P1's Characters bigger.
+				if (buffWouldOnlyHelpP1(ability, card)) continue;
 				// A shield against the opponent's own Summons/abilities (Krile (XIV) 6-071H) gains
 				// nothing when it resolves — it only pays off while their effect is already on the
 				// stack, and P2 passes priority rather than responding.
@@ -1729,6 +1732,9 @@ class ComputerPlayer implements OpponentController {
 			// Mirror of the above for the other side: an ability that can only choose a Forward P2
 			// controls does nothing while P2 has none, so paying its cost is pure waste.
 			if (ActionResolver.targetsOnlyOwnForwards(ability.effectText()) && !p2HasAnyForward()) continue;
+			// And the other direction: a pure buff with nothing of P2's own to land on — once the
+			// cost has taken the source off the field — would only make one of P1's bigger.
+			if (buffWouldOnlyHelpP1(ability, card)) continue;
 			// A shield against the opponent's own Summons/abilities (Krile (XIV) 6-071H) gains
 			// nothing when it resolves — it only pays off while their effect is already on the
 			// stack, and P2 passes priority rather than responding. Same reasoning as the
@@ -2111,6 +2117,49 @@ class ComputerPlayer implements OpponentController {
 		if (t.contains("you control") || t.contains("forward you")) return false;
 		// Damage to a chosen forward / character (single-target or quantity-qualified)
 		return t.contains("deal") && (t.contains("forward") || t.contains("character") || t.contains(" it "));
+	}
+
+	/**
+	 * True when {@code ability}'s "choose" only benefits what it picks and P2 will control nothing
+	 * for it to pick — so every Character left to aim at is P1's, and paying the cost buys the
+	 * opponent a bigger Forward.
+	 *
+	 * <p>The mirror of {@link #abilityHarmsChosenTarget}, which skips a harmful ability while P1
+	 * has no Forward on the same reasoning. This half has to look past the cost as well, because
+	 * the Forward that makes the ability look worth using can be the one the cost spends: Undead
+	 * Princess 19-052C prints "Put Undead Princess into the Break Zone: Choose 1 Forward. It gains
+	 * +4000 power until the end of the turn.", and when she is P2's last Forward the choice is made
+	 * after she is already gone.
+	 *
+	 * <p>An opponent-only choice is left alone: a buff that names the opponent's cards is pointed
+	 * there on purpose, and nothing here is a better judge of the printing than the printing.
+	 */
+	boolean buffWouldOnlyHelpP1(ActionAbility ability, CardData source) {
+		if (!ActionResolver.chooseEffectBenefitsTarget(ability.effectText())) return false;
+		TargetSpec spec = ActionResolver.targetSpec(ability.effectText(), source);
+		if (spec == null || spec.zone() != null || spec.opponentOnly()) return false;
+		boolean sourceIsSpent = costSpendsSource(ability, source);
+		for (ForwardTarget t : mw.eligibleAbilityChoiceTargets(spec, ability, source, false)) {
+			if (t.isP1()) continue;
+			if (sourceIsSpent && mw.fieldCardDataOrNull(t) == source) continue;
+			return false;
+		}
+		return true;
+	}
+
+	/**
+	 * Whether {@code ability}'s cost takes {@code source} itself off the field — the "Put [self]
+	 * into the Break Zone:" and "Remove [self] from the game:" shape. Only the costs that name a
+	 * card are read: a type-based cost ("put 2 Earth Backups into the Break Zone") is answered by
+	 * whichever cards the payment planner picks, and guessing at that here would be a second
+	 * planner to keep in step with the first.
+	 */
+	private static boolean costSpendsSource(ActionAbility ability, CardData source) {
+		for (BreakZoneCost bz : ability.breakZoneCosts())
+			if (source.name().equalsIgnoreCase(bz.name())) return true;
+		for (RemoveFromGameCost rfg : ability.removeFromGameCosts())
+			if ("FIELD".equals(rfg.zone()) && source.name().equalsIgnoreCase(rfg.cardName())) return true;
+		return false;
 	}
 
 	/**

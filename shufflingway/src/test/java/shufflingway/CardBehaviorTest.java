@@ -3229,6 +3229,9 @@ public class CardBehaviorTest {
         MainWindow mw = new MainWindow();
         CardData source = makeForward("Source", "Fire", 1, 5000);
         mw.placeCardInForwardZone(source);
+        // The restriction is what this test is about, so the ability has to be able to choose:
+        // "Choose 1 Forward opponent controls" is unusable against an empty board either way.
+        placeP2Forward(mw, makeForward("Victim", "Fire", 3, 7000));
 
         assertFalse(mw.canActivateAbility(ability, false, CardState.ACTIVE, 0, source, true),
                 "must not be usable when no Job AVALANCHE Operative has broken this turn");
@@ -15320,6 +15323,9 @@ public class CardBehaviorTest {
 		MainWindow mw = new MainWindow();
 		CardData refia = makeRefia();
 		placeP1Forward(mw, refia);
+		// Her ability chooses a Forward the opponent controls, so one has to be there for the dull
+		// cost to be the thing under test.
+		placeP2Forward(mw, makeForward("Victim", "Fire", 3, 7000));
 		ActionAbility ab = refia.actionAbilities().get(0);
 
 		for (int i = 0; i < 2; i++)
@@ -20114,6 +20120,8 @@ public class CardBehaviorTest {
 		CardData backup = makeForward("Scholar", "Wind", 2, 0,
 				CardData.parseActionAbilities(PLAIN_ACTION_ABILITY));
 		mw.placeCardInFirstBackupSlot(backup);
+		// Something for its "Choose 1 Forward" to aim at — Sin's lock is what this test is about.
+		placeP2Forward(mw, makeForward("Victim", "Fire", 3, 7000));
 
 		assertTrue(mw.forwardActionAbilitiesLockedFor(true), "the lock is up");
 		assertFalse(mw.isFieldForward(backup, true), "but a Backup is not a Forward");
@@ -36326,7 +36334,7 @@ public class CardBehaviorTest {
 		MainWindow mw = new MainWindow();
 		CardData alexander = makeSummon("Alexander", "Wind", 6, ALEXANDER_TWO_ACTIONS);
 
-		assertNull(ActionResolver.mandatoryCastTargetSpec(alexander.summonEffect(), alexander),
+		assertNull(ActionResolver.mandatoryChoiceTargetSpec(alexander.summonEffect(), alexander),
 				"the quoted actions choose when the Summon resolves; the cast selects among them");
 		assertFalse(mw.summonCastBlocked(alexander, true));
 	}
@@ -36336,7 +36344,7 @@ public class CardBehaviorTest {
 		MainWindow mw = new MainWindow();
 		CardData leviathan = makeSummon("Leviathan", "Water", 3, LEVIATHAN_FROM_BREAK_ZONE);
 
-		TargetSpec spec = ActionResolver.mandatoryCastTargetSpec(leviathan.summonEffect(), leviathan);
+		TargetSpec spec = ActionResolver.mandatoryChoiceTargetSpec(leviathan.summonEffect(), leviathan);
 		assertNotNull(spec);
 		assertEquals("in your Break Zone", spec.zone(),
 				"which card is picked waits for resolution, since the zone moves;"
@@ -36483,7 +36491,7 @@ public class CardBehaviorTest {
 		MainWindow mw = new MainWindow();
 		CardData zodiark = makeSummon("Zodiark", "Dark", 5, ZODIARK_POWER_CEILING);
 
-		TargetSpec spec = ActionResolver.mandatoryCastTargetSpec(zodiark.summonEffect(), zodiark);
+		TargetSpec spec = ActionResolver.mandatoryChoiceTargetSpec(zodiark.summonEffect(), zodiark);
 		assertNotNull(spec, "only the \"of power N\" spelling was readable, so this matched nothing at all");
 		assertEquals(9000, spec.powerVal());
 		assertEquals("less", spec.powerCmp());
@@ -36605,6 +36613,127 @@ public class CardBehaviorTest {
 
 		mw.gameState.getP1DamageZone().add(makeForward("Dmg", "Fire", 1, 1000));
 		assertTrue(mw.autoAbilityTriggers.canActivateBzAbility(a, ardyn, true));
+	}
+
+	// =========================================================================================
+	// Undead Princess 19-052C: "Put Undead Princess into the Break Zone: Choose 1 Forward. It gains
+	// +4000 power until the end of the turn.[[br]] Remove Undead Princess in the Break Zone from the
+	// game: Choose 1 Earth Forward. It gains +2000 power until the end of the turn. You can only use
+	// this ability during your Main Phase and if Undead Princess is in the Break Zone."
+	//
+	// Activation legality + AI targeting. Found in playtesting, where the CPU played her, broke her
+	// on the spot to hand the *player's* Forward +4000 power, and then removed her from the game for
+	// a +2000 there was no Earth Forward anywhere to receive.
+	//
+	// Three separate faults, one card:
+	//   * Rule 11.6.5 ("an action ability needs a legal target to choose, or the player cannot use
+	//     it") was enforced for Summons only — summonHasCastTarget — so the Break Zone ability could
+	//     be paid for with nothing to aim it at.
+	//   * An ability chooses as it is *activated*, so the "this is a buff, aim it at your own board"
+	//     flag that withAiTargetPreference sets at resolution time arrived after the pick was made.
+	//   * Nothing stopped the AI paying for a buff whose only remaining target was the opponent's —
+	//     which is what she becomes the moment her own cost takes her off the field.
+	// =========================================================================================
+
+	private static final String UNDEAD_PRINCESS_19_052C =
+			"Put Undead Princess into the Break Zone: Choose 1 Forward. It gains +4000 power until "
+			+ "the end of the turn.[[br]]   Remove Undead Princess in the Break Zone from the game: "
+			+ "Choose 1 Earth Forward. It gains +2000 power until the end of the turn. You can only "
+			+ "use this ability during your Main Phase and if Undead Princess is in the Break Zone.[[br]]";
+
+	private static CardData undeadPrincess() {
+		return makeForwardWithText("Undead Princess", "Earth", 1, 2000, UNDEAD_PRINCESS_19_052C);
+	}
+
+	/** Her two action abilities: [0] the self-break +4000, [1] the Break Zone remove-from-game +2000. */
+	private static List<ActionAbility> undeadPrincessAbilities() {
+		List<ActionAbility> abilities = undeadPrincess().actionAbilities();
+		assertEquals(2, abilities.size(), "both halves of the card have to parse for the rest to mean anything");
+		assertNull(abilities.get(0).breakZoneOnly(), "the first is used from the field");
+		assertNotNull(abilities.get(1).breakZoneOnly(), "the second names itself, so it is a BZ ability");
+		return abilities;
+	}
+
+	@Test
+	void theBreakZoneAbilityNeedsAnEarthForwardToAimAt() {
+		MainWindow mw = new MainWindow();
+		advanceTo(mw, GameState.Player.P2, GameState.GamePhase.MAIN_1);
+		CardData    princess = undeadPrincess();
+		ActionAbility bz     = undeadPrincessAbilities().get(1);
+		mw.gameState.getIdentity().put(princess, false);
+		mw.gameState.getP2BreakZone().add(princess);
+
+		assertFalse(mw.autoAbilityTriggers.canActivateBzAbility(bz, princess, false),
+				"an empty board answers \"Choose 1 Earth Forward\" with nothing");
+
+		placeP1Forward(mw, makeForward("Vayne", "Wind", 4, 8000));
+		assertFalse(mw.autoAbilityTriggers.canActivateBzAbility(bz, princess, false),
+				"a Wind Forward is not an Earth one");
+
+		placeP1Forward(mw, makeForward("Golem", "Earth", 3, 7000));
+		assertTrue(mw.autoAbilityTriggers.canActivateBzAbility(bz, princess, false),
+				"the rule is about a legal target existing, not about whose it is");
+	}
+
+	@Test
+	void anAbilityWithSomethingToChooseIsStillUsable() {
+		// The gate has to refuse only the unanswerable choice: her field ability chooses any
+		// Forward, and she is one herself, so it stays usable on an otherwise empty board.
+		MainWindow mw = new MainWindow();
+		advanceTo(mw, GameState.Player.P2, GameState.GamePhase.MAIN_1);
+		CardData      princess = undeadPrincess();
+		ActionAbility field    = undeadPrincessAbilities().get(0);
+		placeP2Forward(mw, princess);
+
+		assertTrue(mw.canActivateAbility(field, false, CardState.ACTIVE,
+				mw.gameState.getTurnNumber(), princess, false));
+	}
+
+	@Test
+	void aPureBuffAimsTheAiAtItsOwnBoardAsItIsActivated() {
+		// The pick is made here, at activation, which is why the preference has to be set here too.
+		MainWindow mw = new MainWindow();
+		CardData   princess = undeadPrincess();
+		CardData   ally     = makeForward("Golem", "Earth", 3, 7000);
+		placeP1Forward(mw, makeForward("Vayne", "Wind", 4, 8000));
+		placeP2Forward(mw, ally);
+
+		List<ForwardTarget> picked = ActionResolver.preSelectTargets(
+				undeadPrincessAbilities().get(0).effectText(), princess, 0, mw.buildGameContext(false));
+
+		assertNotNull(picked);
+		assertEquals(1, picked.size());
+		assertFalse(picked.get(0).isP1(), "+4000 power belongs on the AI's own Forward");
+		assertSame(ally, mw.fieldCardDataOrNull(picked.get(0)));
+	}
+
+	@Test
+	void theAiWillNotSacrificeHerToBuffTheOpponent() {
+		MainWindow mw = new MainWindow();
+		CardData   princess = undeadPrincess();
+		ActionAbility field = undeadPrincessAbilities().get(0);
+		placeP1Forward(mw, makeForward("Vayne", "Wind", 4, 8000));
+		placeP2Forward(mw, princess);
+
+		assertTrue(new ComputerPlayer(mw).buffWouldOnlyHelpP1(field, princess),
+				"her own cost breaks her, so the only Forward left to choose is P1's");
+
+		placeP2Forward(mw, makeForward("Golem", "Earth", 3, 7000));
+		assertFalse(new ComputerPlayer(mw).buffWouldOnlyHelpP1(field, princess),
+				"with a second Forward of its own the AI has somewhere worth putting it");
+	}
+
+	@Test
+	void aHarmfulChooseIsLeftToTheGateThatAlreadyJudgesIt() {
+		// The buff gate must not claim a removal: pointing one at P1's board is the whole idea.
+		MainWindow mw = new MainWindow();
+		CardData   source = makeForwardWithText("Shiva", "Ice", 3, 7000,
+				"Put Shiva into the Break Zone: Choose 1 Forward. Break it.");
+		placeP1Forward(mw, makeForward("Vayne", "Wind", 4, 8000));
+		placeP2Forward(mw, source);
+
+		assertFalse(new ComputerPlayer(mw).buffWouldOnlyHelpP1(
+				source.actionAbilities().get(0), source));
 	}
 
 	// =========================================================================================
