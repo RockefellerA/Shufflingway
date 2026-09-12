@@ -1328,6 +1328,59 @@ final class ActionResolverChoose {
         };
     }
 
+    /**
+     * "If N [or more] &lt;nouns&gt; are removed from the game by this effect, &lt;effect&gt;." as the
+     * secondary of a choose whose primary removes what it picked — Irvine 21-081L, "choose up to 2
+     * cards in your opponent's Break Zone. Remove them from the game. If 2 Characters are removed
+     * from the game by this effect, until the end of the turn, Irvine gains +2000 power, Haste and
+     * First Strike."
+     *
+     * <p>{@code removedByEffect} is the two-slot tally the removal branch fills in before this
+     * runs: cards at 0, Characters at 1. It has to come from there rather than from
+     * {@code lastChosenTargets()}, which by the time a secondary runs names Break Zone rows the
+     * removal has already emptied — and rather than from the selection, which is what was
+     * <em>picked</em> and not what went.
+     *
+     * <p>Declines without a source: the tally is a before-and-after of what the engine credited to
+     * one card, so with nothing to credit against there is no count to gate on, and a gate that
+     * cannot read its own condition must not run the payoff anyway.
+     */
+    static Consumer<GameContext> secondaryIfNRemovedFromGame(
+            String secondaryText, CardData source, int[] removedByEffect) {
+        if (source == null) return null;
+        Matcher m = IF_N_REMOVED_BY_THIS_EFFECT.matcher(secondaryText.trim());
+        if (!m.matches()) return null;
+        boolean characters = m.group("noun").toLowerCase(Locale.ROOT).startsWith("character");
+        int     required   = Integer.parseInt(m.group("count"));
+        boolean orMore     = m.group("ormore") != null;
+        Consumer<GameContext> payoff = parse(m.group("effect").trim(), source);
+        if (payoff == null) return null;
+        return ctx -> {
+            int took = removedByEffect[characters ? 1 : 0];
+            String noun = characters ? " Character(s)" : " card(s)";
+            if (orMore ? took < required : took != required) {
+                ctx.logEntry("Effect: " + took + noun + " removed, " + required
+                        + (orMore ? " or more" : "") + " needed — skipped");
+                return;
+            }
+            ctx.logEntry("Effect: " + took + noun + " removed from the game by this effect");
+            payoff.accept(ctx);
+        };
+    }
+
+    /** The name {@link #secondaryIfNRemovedFromGame} reports, or {@code null} if it declines. */
+    static String secondaryIfNRemovedFromGameName(String secondaryText, CardData source) {
+        Matcher m = IF_N_REMOVED_BY_THIS_EFFECT.matcher(secondaryText.trim());
+        if (!m.matches() || secondaryIfNRemovedFromGame(secondaryText, source, new int[2]) == null)
+            return null;
+        String payoffText = m.group("effect").trim();
+        String payoffName = fullDescription(payoffText, source);
+        if (payoffName == null) payoffName = matchedPatternName(payoffText, source);
+        return "IfRemoved(" + m.group("count") + (m.group("ormore") != null ? "+" : "")
+                + (m.group("noun").toLowerCase(Locale.ROOT).startsWith("character") ? " Characters" : " cards")
+                + ": " + (payoffName != null ? payoffName : "?") + ")";
+    }
+
     /** The name {@link #secondaryChosenCardGatedGrantAlso} reports, or {@code null} if it declines. */
     static String secondaryChosenCardGatedGrantAlsoName(String secondaryText, CardData source) {
         Matcher m = SECONDARY_CHOSEN_CARD_GATED_GRANT_ALSO.matcher(secondaryText.trim());
@@ -1685,6 +1738,12 @@ final class ActionResolverChoose {
         final String primaryFollowup;
         final String secondaryText;
         final Consumer<GameContext> secondary;
+        // What a remove-from-game primary actually took, filled in by that branch before the
+        // secondary runs and read by the one secondary that asks: cards at 0, Characters at 1.
+        // A single-element holder for the same reason tryParseRemoveFromBreakZoneFromGame uses one
+        // — the parsed Consumer is a long-lived singleton the engine reuses, so the count has to be
+        // written and read inside one resolution.
+        final int[] removedByEffect = new int[2];
         {
             int dotSpaceIdx = sentenceBreakOutsideQuotes(followup);
             // A few followups are one effect spread over two sentences, and splitting them leaves
@@ -1731,6 +1790,19 @@ final class ActionResolverChoose {
                         // "If it is <filter>, it also gains <payload>." — the same hazard and the
                         // same remedy, with the gate on the chosen card rather than the board.
                         if (alsoGated == null) alsoGated = secondaryChosenCardGatedGrantAlso(secondaryText);
+                        // "If N <nouns> are removed from the game by this effect, <effect>." —
+                        // Irvine 21-081L, read here with the two above and for the same reason. The
+                        // arms below scan with find(), and one was taking "+2000 power, Haste and
+                        // First Strike" out of the middle of this sentence and handing it over with
+                        // the count dropped — so he got it whatever his removal had taken.
+                        if (alsoGated == null)
+                            alsoGated = secondaryIfNRemovedFromGame(secondaryText, source, removedByEffect);
+                        // A count this cannot answer declines the whole ability rather than letting
+                        // an arm below claim the payoff: being unable to read a condition is not
+                        // permission to ignore it.
+                        if (alsoGated == null
+                                && IF_N_REMOVED_BY_THIS_EFFECT.matcher(secondaryText.trim()).matches())
+                            return null;
                         // Special case: "That Forward's controller discards N card(s) from their hand."
                         // The discarder depends on the chosen target's controller, which is read back
                         // from GameContext.lastChosenTargets() (populated by selectTargets).
@@ -4209,8 +4281,16 @@ final class ActionResolverChoose {
                 List<ForwardTarget> ts = selectTargets(ctx, maxCount, upTo,
                         opponentOnly, selfOnly, condition, element, zone, opponentZone, bothZones,
                         costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters, jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, fExcludeElem, withoutMulticard);
+                // Before and after, so what a "removed from the game by this effect" secondary
+                // reads is what actually went and not what was picked: a Break Zone shield can
+                // refuse one of these removals, and the tally behind the counts is cumulative over
+                // the source's whole game rather than per resolution.
+                int beforeCards = ctx.cardsRemovedBySourceCount(source);
+                int beforeChars = ctx.charactersRemovedBySourceCount(source);
                 sortedByIdxDesc(ts, true) .forEach(t -> ctx.removeTargetFromGame(t));
                 sortedByIdxDesc(ts, false).forEach(t -> ctx.removeTargetFromGame(t));
+                removedByEffect[0] = ctx.cardsRemovedBySourceCount(source)      - beforeCards;
+                removedByEffect[1] = ctx.charactersRemovedBySourceCount(source) - beforeChars;
                 if (secondary != null) secondary.accept(ctx);
             };
         }

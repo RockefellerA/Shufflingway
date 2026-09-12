@@ -1859,6 +1859,29 @@ final class ActionResolverPatterns {
      * card is cumulative across every resolution, so a Kefka who enters the field twice would pay
      * out the first sweep's cards again on the second.
      */
+    /**
+     * "If N [or more] &lt;noun&gt; are removed from the game by this effect, &lt;effect&gt;." — the
+     * other payoff that can trail a Break Zone removal, and the one that asks how much the removal
+     * in front of it actually took. Ingrid 18-088R: "If 5 or more cards are removed from the game
+     * by this effect, draw 1 card."
+     *
+     * <p>The count is the sentence's whole point, so it is read rather than assumed: without it
+     * the tail is a bare "draw 1 card" that the chain will happily claim on its own and run
+     * unconditionally, which is the failure this family keeps producing.
+     *
+     * <p>{@code noun} is captured but not honoured by every reader. Irvine 21-081L prints the same
+     * sentence over a count of <em>Characters</em> rather than cards, and the removal primitive
+     * reports how many cards it took and not what they were — so a reader with only that number
+     * declines the Character form instead of answering it with the wrong one.
+     *
+     * <p>Groups: {@code count}, {@code ormore} (present only for "or more"), {@code noun},
+     * {@code effect}.
+     */
+    static final Pattern IF_N_REMOVED_BY_THIS_EFFECT = Pattern.compile(
+        "(?i)^[\\s.!]*If\\s+(?<count>\\d+)(?<ormore>\\s+or\\s+more)?\\s+(?<noun>cards?|Characters?)\\s+" +
+        "(?:is|are)\\s+removed\\s+from\\s+the\\s+game\\s+by\\s+this\\s+effect,\\s*(?<effect>.+)$",
+        Pattern.DOTALL
+    );
     static final Pattern THEN_PLACE_COUNTERS_PER_CARD_REMOVED = Pattern.compile(
         "(?i)^[\\s.!]*Then,?\\s+place\\s+(?<amount>\\d+)\\s+(?<counter>[A-Za-z][A-Za-z ]*?)\\s+" +
         "Counters?\\s+on\\s+(?<oncard>.+?)\\s+for\\s+each\\s+card\\s+you\\s+removed\\s+" +
@@ -1869,9 +1892,17 @@ final class ActionResolverPatterns {
      * ("Remove the top 4 cards of your deck from the game", Libroarian 8-084R) out: this pattern is
      * loose enough to read that phrase as a card name and would otherwise claim it first, quietly
      * removing nothing.
+     *
+     * <p>The {@code all} guard is the third of the same kind, against the sweeps. "Remove all the
+     * Forwards from the game" (Shantotto 1-107L) describes a board rather than naming a card, and
+     * this pattern read it as one: it searched the field for a card called "all the Forwards",
+     * found none, and logged {@code [Warning] … not found on field} — a parse that reported success
+     * and did nothing at all. The sweeps have their own anchored reader now
+     * ({@link #REMOVE_ALL_FIELD_FROM_GAME}), placed ahead of this pattern in {@code parse()}; the
+     * guard is what stops this one claiming any future printing of the shape back off it.
      */
     static final Pattern REMOVE_NAMED_FROM_GAME = Pattern.compile(
-        "(?i)Remove\\s+(?!(?:it|them)\\b)(?!the\\s+top\\b)(?<named>.+?)\\s+from\\s+(?:the\\s+)?game[.!]?"
+        "(?i)Remove\\s+(?!(?:it|them)\\b)(?!the\\s+top\\b)(?!all\\b)(?<named>.+?)\\s+from\\s+(?:the\\s+)?game[.!]?"
     );
     /** Matches "You may remove [CardName] from the game." — optional self-RFP. */
     static final Pattern YOU_MAY_REMOVE_NAMED_FROM_GAME = Pattern.compile(
@@ -2702,6 +2733,21 @@ final class ActionResolverPatterns {
      */
     static final Pattern RETURN_SOURCE_ONTO_FIELD = Pattern.compile(
         "(?i)^Return\\s+(?<name>.+?)\\s+(?:on)?to\\s+(?:the\\s+)?field(?:\\s+(?<dull>dull))?[.!]?$"
+    );
+    /**
+     * "Play [Self] from your Break Zone onto your opponent's field." — Kain 13-073H, the corpus's
+     * only card that hands itself to the other player this way.
+     *
+     * <p>The far-side twin of {@link #RETURN_SOURCE_ONTO_FIELD}, and kept apart from it rather
+     * than folded in as an optional tail: that pattern ends at "field", so an optional
+     * "onto your opponent's field" tail would have to be threaded through a reader whose whole
+     * contract is "back where it came from". Which side the card lands on is the effect.
+     *
+     * <p>Name-checked against the carrier by its reader. Group {@code name}.
+     */
+    static final Pattern PLAY_SOURCE_FROM_BZ_ONTO_OPP_FIELD = Pattern.compile(
+        "(?i)^Play\\s+(?<name>.+?)\\s+from\\s+your\\s+Break\\s+Zone\\s+onto\\s+" +
+        "your\\s+opponent's\\s+field[.!]?$"
     );
     /**
      * The anchored form of {@link #PLAY_SOURCE_ONTO_FIELD_PATTERN}: the clause is the whole
@@ -3750,6 +3796,26 @@ final class ActionResolverPatterns {
     static final Pattern COUNTERS_ON_SELF_GATE = Pattern.compile(
         "(?i)^if\\s+(?<count>\\d+)\\s+or\\s+more\\s+(?<counter>.+?)\\s+Counters?\\s+" +
         "(?:are|is)\\s+placed\\s+on\\s+(?<name>.+?),\\s*(?<inner>.+)$"
+    );
+    /**
+     * Matches "if a [X] Counter is placed on [Self], [effect]" — the article form of
+     * {@link #COUNTERS_ON_SELF_GATE}, which reads only the counted "if N or more". One counter is
+     * what "a" asks for, so the two are the same question at different thresholds and neither can
+     * match the other's wording.
+     *
+     * <p>Kain 13-073H is the printing this was written for. Four other cards print the sentence as
+     * a <em>field</em> ability, where it is a standing condition rather than a one-shot — Llednar
+     * 13-108L, The Emperor 17-130L, Number 24 20-036H and, inside a granted ability, Medusa
+     * 22-034H. Nothing in an effect text says which kind of ability it came from, so what keeps
+     * this gate off them is its reader requiring the inner clause to parse: all four inners are
+     * "cannot be broken" or a quoted grant, none of which the chain reads.
+     *
+     * <p>Groups: {@code counter}, {@code name}, {@code inner}.
+     */
+    static final Pattern COUNTER_PRESENT_ON_SELF_GATE = Pattern.compile(
+        "(?i)^if\\s+an?\\s+(?<counter>.+?)\\s+Counter\\s+is\\s+placed\\s+on\\s+(?<name>.+?)," +
+        "\\s*(?<inner>.+)$",
+        Pattern.DOTALL
     );
     /**
      * Matches Omega 14-117L's two-branch counter gate: "if there is no [X] Counter placed on
@@ -7298,6 +7364,70 @@ final class ActionResolverPatterns {
      *   <li>Group {@code control}     — optional: "opponent controls" or "you control"</li>
      * </ul>
      */
+    /**
+     * G'raha Tia 27-044L: "reveal the top N cards of your deck. Return them to the bottom of your
+     * deck in any order. If there were A or more different Elements among the revealed cards,
+     * &lt;first&gt;. If there were B or more, also &lt;second&gt;. If there were C or more, also
+     * &lt;third&gt;."
+     *
+     * <p>All five sentences in one pattern because they are one effect: the reveal produces a
+     * number, and every sentence after it is a threshold on that number. Split up, each tier is a
+     * bare clause with nothing to test — which is exactly what {@code parse()} did with them when
+     * this text had no reader, claiming a tier out of the middle under {@code find()} and running
+     * it with no threshold in front of it.
+     *
+     * <p>The two later tiers are optional so a printing that states fewer still reads, and their
+     * effects say "also": the tiers are cumulative, not exclusive, so meeting the highest pays out
+     * all three. Groups: {@code reveal}; {@code t1}/{@code e1}, {@code t2}/{@code e2},
+     * {@code t3}/{@code e3}.
+     */
+    static final Pattern REVEAL_TOP_N_TIERED_BY_DISTINCT_ELEMENTS = Pattern.compile(
+        "(?i)^reveal\\s+the\\s+top\\s+(?<reveal>\\d+)\\s+cards?\\s+of\\s+your\\s+deck[.!]\\s*" +
+        "Return\\s+them\\s+to\\s+the\\s+bottom\\s+of\\s+your\\s+deck\\s+in\\s+any\\s+order[.!]\\s*" +
+        "If\\s+there\\s+were\\s+(?<t1>\\d+)\\s+or\\s+more\\s+different\\s+Elements\\s+among\\s+" +
+        "the\\s+revealed\\s+cards,\\s*(?<e1>[^.!]+)[.!]\\s*" +
+        "(?:If\\s+there\\s+were\\s+(?<t2>\\d+)\\s+or\\s+more,\\s*also\\s+(?<e2>[^.!]+)[.!]\\s*)?" +
+        "(?:If\\s+there\\s+were\\s+(?<t3>\\d+)\\s+or\\s+more,\\s*also\\s+(?<e3>[^.!]+)[.!]\\s*)?$",
+        Pattern.DOTALL
+    );
+    /**
+     * "Remove all [the] &lt;types&gt; [on the field] [&lt;control&gt;] [other than &lt;name&gt;]
+     * [and all cards in &lt;whose&gt; Break Zone] from the game." — the total sweeps, which
+     * {@link #ALL_FIELD_EFFECT_PATTERN} cannot read: its action word is the first thing on the
+     * line, and these say what they do in two pieces with every filter in between.
+     *
+     * <p>Anchored end to end, unlike its neighbour, and that is the point. The whole family was
+     * being claimed by {@link #REMOVE_NAMED_FROM_GAME} under {@code find()}, which read the filter
+     * phrase as a card name, looked for a card called "all the Forwards" on the field and removed
+     * nothing — a parse that reported success and did nothing at all. A sweep that takes the board
+     * is the last effect that should be read out of the middle of a sentence.
+     *
+     * <p>Covers Shantotto 1-107L and 22-118H, Exdeath 3-100L's Grand Cross, and the third tier of
+     * G'raha Tia 27-044L. Groups: {@code targets}, {@code control}, {@code exclude}, {@code bz}
+     * — the last present only when the sentence also empties a Break Zone, {@code "the"} meaning
+     * both of them.
+     */
+    static final Pattern REMOVE_ALL_FIELD_FROM_GAME = Pattern.compile(
+        "(?i)^Remove\\s+all\\s+(?:the\\s+)?" +
+        "(?<targets>Forwards?(?:\\s+and\\s+Monsters?)?|Backups?|Monsters?|Characters?)" +
+        "(?:\\s+on\\s+the\\s+field)?" +
+        "(?:\\s+(?<control>(?:your\\s+)?opponent\\s+controls?|you\\s+control))?" +
+        "(?:\\s+other\\s+than\\s+(?<exclude>[^.!]+?))?" +
+        "(?:\\s+and\\s+all\\s+(?:the\\s+)?cards\\s+in\\s+(?<bz>your\\s+opponent's|the)\\s+Break\\s+Zone)?" +
+        "\\s+from\\s+the\\s+game[.!]?$"
+    );
+    /**
+     * "Name 1 card type. Remove all the cards of named card type in your opponent's Break Zone
+     * from the game." — Baron Guardsman 17-072H, the corpus's one printing.
+     *
+     * <p>Both sentences in one pattern because the second cannot be read without the first: "named
+     * card type" refers to an answer nothing else in the chain holds. Reached through the optional
+     * cost parser, which strips the "you may pay 《Earth》. When you do so," in front of it.
+     */
+    static final Pattern NAME_CARD_TYPE_REMOVE_OPP_BZ_FROM_GAME = Pattern.compile(
+        "(?i)^name\\s+1\\s+card\\s+type[.!]\\s*Remove\\s+all\\s+(?:the\\s+)?cards\\s+of\\s+" +
+        "named\\s+card\\s+type\\s+in\\s+your\\s+opponent's\\s+Break\\s+Zone\\s+from\\s+the\\s+game[.!]?$"
+    );
     static final Pattern ALL_FIELD_EFFECT_PATTERN = Pattern.compile(
         "(?i)(?<action>Break|Activate|dull\\s+and\\s+freeze|dull|freeze)\\s+" +
         // "all the OTHER Forwards opponent controls" is never a sweep of its own: in all four

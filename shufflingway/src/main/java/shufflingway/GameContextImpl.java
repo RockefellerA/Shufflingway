@@ -13,6 +13,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.Deque;
 import java.util.EnumSet;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -2416,6 +2417,23 @@ final class GameContextImpl implements GameContext {
 						}
 					}
 				}
+				if (isP1) mw.refreshP1BreakLabel(); else mw.refreshP2BreakLabel();
+			}
+
+			@Override public void playSourceFromBreakZoneOntoOpponentField(CardData source) {
+				if (source == null) return;
+				List<CardData> bz = isP1 ? mw.gameState.getP1BreakZone() : mw.gameState.getP2BreakZone();
+				// Identity, as in the sibling above: the trigger names the copy that just left the
+				// field, not every card of that name sitting in the zone.
+				int at = -1;
+				for (int i = bz.size() - 1; i >= 0 && at < 0; i--) if (bz.get(i) == source) at = i;
+				if (at < 0) return;
+				CardData card = bz.remove(at);
+				logEntry(card.name() + " played from Break Zone → opponent's field");
+				boolean toP1 = !isP1;
+				if (card.isBackup())       { if (toP1) mw.placeCardInFirstBackupSlot(card); else mw.placeP2CardInFirstBackupSlot(card); }
+				else if (card.isMonster()) { if (toP1) mw.placeCardInMonsterZone(card);     else mw.placeP2CardInMonsterZone(card); }
+				else                       { if (toP1) mw.placeCardInForwardZone(card);     else mw.placeP2CardInForwardZone(card); }
 				if (isP1) mw.refreshP1BreakLabel(); else mw.refreshP2BreakLabel();
 			}
 
@@ -5678,6 +5696,15 @@ final class GameContextImpl implements GameContext {
 				return removed == null ? 0 : removed.size();
 			}
 
+			@Override public int charactersRemovedBySourceCount(CardData source) {
+				List<CardData> removed = source == null ? null : mw.cardsRemovedBySource.get(source);
+				if (removed == null) return 0;
+				int n = 0;
+				for (CardData c : removed)
+					if (c.isForward() || c.isBackup() || c.isMonster()) n++;
+				return n;
+			}
+
 			@Override public void putCardsRemovedBySourceIntoBreakZone(CardData source) {
 				List<CardData> removed = source == null ? null : mw.cardsRemovedBySource.remove(source);
 				if (removed == null || removed.isEmpty()) return;
@@ -5776,6 +5803,25 @@ final class GameContextImpl implements GameContext {
 				for (CardData c : revealed) { deck.addLast(c); logEntry(c.name() + " → bottom of deck"); }
 				if (isP1) mw.refreshP1DeckLabel(); else mw.refreshP2DeckLabel();
 				return matchCount;
+			}
+
+			@Override public int revealTopNCountDistinctElementsPlaceAllAtBottom(int n) {
+				Deque<CardData> deck = isP1 ? mw.gameState.getP1MainDeck() : mw.gameState.getP2MainDeck();
+				int take = Math.min(n, deck.size());
+				if (take == 0) { logEntry("Deck is empty — no cards revealed"); return 0; }
+				List<CardData> revealed = new ArrayList<>();
+				for (int i = 0; i < take; i++) revealed.add(deck.pollFirst());
+				Set<String> elements = new HashSet<>();
+				for (CardData c : revealed) elements.addAll(PickGate.elementsOf(c));
+				String prefix = isP1 ? "" : "[P2] ";
+				logEntry(prefix + "Reveal top " + take + " card(s): "
+						+ revealed.stream().map(CardData::name).collect(Collectors.joining(", "))
+						+ " (" + elements.size() + " different Element(s): "
+						+ String.join(", ", new java.util.TreeSet<>(elements)) + ")");
+				java.util.Collections.shuffle(revealed);
+				for (CardData c : revealed) { deck.addLast(c); logEntry(c.name() + " → bottom of deck"); }
+				if (isP1) mw.refreshP1DeckLabel(); else mw.refreshP2DeckLabel();
+				return elements.size();
 			}
 
 			@Override public void shuffleDeck() {
@@ -6414,6 +6460,15 @@ final class GameContextImpl implements GameContext {
 
 			@Override public int getCounters(CardData card, String counterName) {
 				return mw.gameState.getCounters(card, counterName);
+			}
+
+			@Override public int lastKnownCounters(CardData card, String counterName) {
+				if (card == null) return 0;
+				// On the field, the live pile is the answer and the snapshot is a previous stay's.
+				// Off it, the live pile has been swept and the snapshot is all there is.
+				return mw.fieldSideOf(card) != null
+						? mw.gameState.getCounters(card, counterName)
+						: mw.gameState.getCountersWhenLeftField(card, counterName);
 			}
 
 			@Override public void placeCountersOnOwnJobCards(String counterName, int count, String jobFilter) {
@@ -7502,6 +7557,61 @@ final class GameContextImpl implements GameContext {
 				else      { mw.refreshP1BreakLabel(); mw.refreshP1WarpZoneUI(); }
 			}
 
+			@Override public void removeAllBreakZonesFromGame() {
+				emptyBreakZoneIntoRfg(mw.gameState.getP1BreakZone(), true,  null);
+				emptyBreakZoneIntoRfg(mw.gameState.getP2BreakZone(), false, null);
+			}
+
+			@Override public void nameCardTypeRemoveAllOfTypeFromOppBzFromGame() {
+				final String[] TYPES = {"Forward", "Backup", "Monster", "Summon"};
+				String namedType;
+				if (isP1) {
+					Object sel = javax.swing.JOptionPane.showInputDialog(mw.frame,
+							"Name 1 card type:", "Name a Card Type",
+							javax.swing.JOptionPane.QUESTION_MESSAGE, null, TYPES, TYPES[0]);
+					if (sel == null) { logEntry("Ability cancelled"); return; }
+					namedType = (String) sel;
+				} else {
+					// The type that takes the most out of the zone it is aimed at, which is the
+					// whole of what this naming decides — unlike Setzer 17-030H's, which is a guess
+					// at a hidden hand and so picks from what the AI can see there instead.
+					namedType = mostCommonCardType(mw.gameState.getP1BreakZone());
+				}
+				logEntry((isP1 ? "" : "[P2] ") + "Names card type: " + namedType);
+				emptyBreakZoneIntoRfg(isP1 ? mw.gameState.getP2BreakZone() : mw.gameState.getP1BreakZone(),
+						!isP1, namedType);
+			}
+
+			/**
+			 * Moves every card of {@code type} (all of them when {@code type} is null) out of
+			 * {@code bz} and into its owner's removed-from-game zone, newest first so the removal
+			 * cannot shift an index it has yet to reach.
+			 */
+			private void emptyBreakZoneIntoRfg(List<CardData> bz, boolean zoneIsP1, String type) {
+				int removed = 0;
+				for (int i = bz.size() - 1; i >= 0; i--) {
+					CardData card = bz.get(i);
+					if (type != null && !type.equalsIgnoreCase(card.type())) continue;
+					bz.remove(i);
+					logEntry((zoneIsP1 ? "" : "[P2] ") + card.name() + " (Break Zone) → Removed From Game");
+					mw.gameState.addToPermanentRfp(card, zoneIsP1);
+					removed++;
+				}
+				if (removed == 0) logEntry("Nothing in that Break Zone to remove");
+				if (zoneIsP1) { mw.refreshP1BreakLabel(); mw.refreshP1WarpZoneUI(); }
+				else          { mw.refreshP2BreakLabel(); mw.refreshP2WarpZoneUI(); }
+			}
+
+			/** The card type most represented in {@code cards}, or "Forward" when there are none. */
+			private String mostCommonCardType(List<CardData> cards) {
+				Map<String, Integer> freq = new HashMap<>();
+				for (CardData c : cards) freq.merge(c.type(), 1, Integer::sum);
+				return freq.entrySet().stream()
+						.max(Map.Entry.comparingByValue())
+						.map(Map.Entry::getKey)
+						.orElse("Forward");
+			}
+
 			@Override public void playNamedFromRfpOntoField(String cardName) {
 				for (CardData card : mw.gameState.getP1PermanentRfp()) {
 					if (card.name().equalsIgnoreCase(cardName)) {
@@ -8399,7 +8509,7 @@ final class GameContextImpl implements GameContext {
 					boolean opponentOnly, boolean selfOnly,
 					String element, int costVal, String costCmp, int excludeCostVal,
 					String job, String category, EnumSet<CardData.Trait> traitFilter,
-					String counterFilter) {
+					String counterFilter, String excludeName) {
 				boolean touchP1 = isP1 ? !opponentOnly : !selfOnly;
 				boolean touchP2 = isP1 ? !selfOnly     : !opponentOnly;
 				// Reset for every action, not just ACTIVATE, so a later sweep of any kind cannot
@@ -8414,6 +8524,7 @@ final class GameContextImpl implements GameContext {
 							if (!meetsCostConstraint(c.cost(), costVal, costCmp)) continue;
 							if (excludeCostVal >= 0 && c.cost() == excludeCostVal) continue;
 							if (counterFilter != null && mw.gameState.getCounters(c, counterFilter) <= 0) continue;
+							if (excludeName != null && excludeName.equalsIgnoreCase(c.name())) continue;
 							if (!mw.meetsJobFilterEffective(c, job)) continue;
 							if (!meetsCategoryFilter(c, category)) continue;
 							if (!forwardHasAnyTrait(true, i, traitFilter)) continue;
@@ -8437,6 +8548,7 @@ final class GameContextImpl implements GameContext {
 							if (!meetsCostConstraint(c.cost(), costVal, costCmp)) continue;
 							if (excludeCostVal >= 0 && c.cost() == excludeCostVal) continue;
 							if (counterFilter != null && mw.gameState.getCounters(c, counterFilter) <= 0) continue;
+							if (excludeName != null && excludeName.equalsIgnoreCase(c.name())) continue;
 							if (!mw.meetsJobFilterEffective(c, job)) continue;
 							if (!meetsCategoryFilter(c, category)) continue;
 							switch (action) {
@@ -8465,6 +8577,7 @@ final class GameContextImpl implements GameContext {
 							if (!meetsCostConstraint(c.cost(), costVal, costCmp)) continue;
 							if (excludeCostVal >= 0 && c.cost() == excludeCostVal) continue;
 							if (counterFilter != null && mw.gameState.getCounters(c, counterFilter) <= 0) continue;
+							if (excludeName != null && excludeName.equalsIgnoreCase(c.name())) continue;
 							if (!mw.meetsJobFilterEffective(c, job)) continue;
 							if (!meetsCategoryFilter(c, category)) continue;
 							switch (action) {
@@ -8503,6 +8616,7 @@ final class GameContextImpl implements GameContext {
 							if (!meetsCostConstraint(c.cost(), costVal, costCmp)) continue;
 							if (excludeCostVal >= 0 && c.cost() == excludeCostVal) continue;
 							if (counterFilter != null && mw.gameState.getCounters(c, counterFilter) <= 0) continue;
+							if (excludeName != null && excludeName.equalsIgnoreCase(c.name())) continue;
 							if (!mw.meetsJobFilterEffective(c, job)) continue;
 							if (!meetsCategoryFilter(c, category)) continue;
 							if (!forwardHasAnyTrait(false, i, traitFilter)) continue;
@@ -8526,6 +8640,7 @@ final class GameContextImpl implements GameContext {
 							if (!meetsCostConstraint(c.cost(), costVal, costCmp)) continue;
 							if (excludeCostVal >= 0 && c.cost() == excludeCostVal) continue;
 							if (counterFilter != null && mw.gameState.getCounters(c, counterFilter) <= 0) continue;
+							if (excludeName != null && excludeName.equalsIgnoreCase(c.name())) continue;
 							if (!mw.meetsJobFilterEffective(c, job)) continue;
 							if (!meetsCategoryFilter(c, category)) continue;
 							switch (action) {
@@ -8554,6 +8669,7 @@ final class GameContextImpl implements GameContext {
 							if (!meetsCostConstraint(c.cost(), costVal, costCmp)) continue;
 							if (excludeCostVal >= 0 && c.cost() == excludeCostVal) continue;
 							if (counterFilter != null && mw.gameState.getCounters(c, counterFilter) <= 0) continue;
+							if (excludeName != null && excludeName.equalsIgnoreCase(c.name())) continue;
 							switch (action) {
 								case BREAK -> {
 									logEntry("[P2] " + c.name() + " is broken");

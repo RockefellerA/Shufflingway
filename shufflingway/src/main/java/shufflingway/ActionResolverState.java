@@ -372,6 +372,41 @@ final class ActionResolverState {
     }
 
     /**
+     * Parses "if a [X] Counter is placed on [Self], [effect]" — Kain 13-073H, whose Brainwashing
+     * Counter decides whether his death hands him to the other player.
+     *
+     * <p>The article form of {@link #tryParseCountersOnSelfGate}: "a" is a threshold of one, and
+     * the two patterns cannot match each other's wording. What is different is which counter query
+     * it asks. Kain's sentence is a put-into-the-Break-Zone trigger, so by the time it resolves the
+     * counter it asks about has been swept along with the rest of his stay on the field — it has to
+     * read {@link GameContext#lastKnownCounters}, which answers for the card as it left.
+     *
+     * <p>Requiring the inner clause to parse is what keeps this off the four cards that print the
+     * same sentence as a standing field ability; see {@link ActionResolverPatterns#COUNTER_PRESENT_ON_SELF_GATE}.
+     */
+    static Consumer<GameContext> tryParseCounterPresentOnSelfGate(String text, CardData source, int xValue) {
+        if (source == null) return null;
+        Matcher m = COUNTER_PRESENT_ON_SELF_GATE.matcher(text.trim());
+        if (!m.matches()) return null;
+        if (!m.group("name").trim().equalsIgnoreCase(source.name())) return null;
+        // One sentence only, as the counted gate requires for the same reason: a text that goes on
+        // to say something further is a shape this gate cannot see the whole of.
+        if (ActionResolverChoose.sentenceBreakOutsideQuotes(m.group("inner").trim()) >= 0) return null;
+        String counter = m.group("counter").trim();
+        Consumer<GameContext> inner = parse(m.group("inner").trim(), source, xValue);
+        if (inner == null) return null;
+        return ctx -> {
+            int held = ctx.lastKnownCounters(source, counter);
+            if (held <= 0) {
+                ctx.logEntry("Effect: no " + counter + " Counter on " + source.name() + " — skipped");
+                return;
+            }
+            ctx.logEntry("Effect: " + held + " " + counter + " Counter(s) on " + source.name());
+            inner.accept(ctx);
+        };
+    }
+
+    /**
      * Parses Omega 14-117L's "if there is no [X] Counter placed on [Self], [effect]. If N or more
      * [X] Counters are placed on [Self], [effect] instead." — the two-branch form of
      * {@link #tryParseCountersOnSelfGate}, and the corpus's only printing of it.
@@ -789,6 +824,32 @@ final class ActionResolverState {
                 ctx.logEntry("Effect: Place " + total + " " + counter + " Counter(s) on "
                         + source.name() + " (" + per + " per card removed, " + removed[0] + " removed)");
                 ctx.placeCounters(source, counter, total);
+            });
+        }
+        // "If N [or more] cards are removed from the game by this effect, [effect]" — Ingrid
+        // 18-088R. The number it asks about is the one `removed` is holding, which is the whole
+        // reason this payoff belongs to this parser rather than to a sentence after it: split off,
+        // the tail is a bare "draw 1 card" that the chain claims on its own and runs whatever the
+        // removal took. Before this it fell to parse()'s compound-sentence fallback, which ran the
+        // removal and dropped the condition and the draw together.
+        Matcher counted = IF_N_REMOVED_BY_THIS_EFFECT.matcher(tail);
+        if (counted.matches()) {
+            // Only a threshold on cards can be answered. The primitive reports how many cards it
+            // took and not what they were, so Irvine 21-081L's count of Characters is declined
+            // rather than answered with a number that is not the one he asks for.
+            if (!counted.group("noun").toLowerCase(Locale.ROOT).startsWith("card")) return null;
+            int     required = Integer.parseInt(counted.group("count"));
+            boolean orMore   = counted.group("ormore") != null;
+            Consumer<GameContext> bonus = parse(counted.group("effect").trim(), source);
+            if (bonus == null) return null;
+            return base.andThen(ctx -> {
+                if (orMore ? removed[0] < required : removed[0] != required) {
+                    ctx.logEntry("Effect: " + removed[0] + " card(s) removed, " + required
+                            + (orMore ? " or more" : "") + " needed — skipped");
+                    return;
+                }
+                ctx.logEntry("Effect: " + removed[0] + " card(s) removed by this effect");
+                bonus.accept(ctx);
             });
         }
         // A trailing sentence this parser cannot account for declines the whole ability. Handing it

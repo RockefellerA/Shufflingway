@@ -22032,6 +22032,687 @@ public class CardBehaviorTest {
 		assertTrue(mw.p1MonsterCards.isEmpty(), "something else had already moved her on");
 	}
 
+	// =========================================================================================
+	// Kain 13-073H: "Haste[[br]] When Kain enters the field from your hand, place 1 Brainwashing
+	// Counter on Kain.[[br]] When Kain is put from the field into the Break Zone, if a Brainwashing
+	// Counter is placed on Kain, play Kain from your Break Zone onto your opponent's field."
+	//
+	// Trigger reading + effect wiring. Neither half worked, and the first is why: "enters the field
+	// from your hand" was not a trigger the auto-ability pattern knew. It matched the head of the
+	// phrase as plain "enters the field", then failed on the comma it expects next, so the whole
+	// sentence was dropped — Kain had one auto-ability instead of two, and no Brainwashing Counter
+	// was ever placed for the second to ask about.
+	//
+	// The second half then needed three things. The gate is the article form of the counted counter
+	// gate ("if a X Counter", not "if N or more"). The payoff is the far-side twin of Calbrena's
+	// return above — the same by-identity move out of the Break Zone, onto the other player's field.
+	// And the counter it asks about is gone by the time it resolves: counters are swept when a card
+	// leaves the field, which happens before any put-into-the-Break-Zone trigger resolves, so the
+	// gate has to read the card as it left. That is the rules' last known information, and Kain is
+	// the corpus's only printing that needs it.
+	// =========================================================================================
+
+	private static final String KAIN_13_073H =
+			"Haste[[br]]   When Kain enters the field from your hand, place 1 Brainwashing Counter "
+			+ "on Kain.[[br]]   When Kain is put from the field into the Break Zone, if a "
+			+ "Brainwashing Counter is placed on Kain, play Kain from your Break Zone onto your "
+			+ "opponent's field.";
+
+	private static CardData kain() {
+		return makeForwardWithText("Kain", "Lightning", 2, 9000, KAIN_13_073H);
+	}
+
+	/** His Break Zone trigger's effect text — the gate and its payoff. */
+	private static String kainBzEffect() {
+		return kain().autoAbilities().get(1).effectText();
+	}
+
+	@Test
+	void kainReadsBothOfHisAutoAbilitiesNowThatTheTriggerIsKnown() {
+		List<AutoAbility> autos = kain().autoAbilities();
+		assertEquals(2, autos.size(), "the from-hand sentence used to be dropped whole");
+		assertEquals("enters the field from hand", autos.get(0).trigger());
+		assertEquals("put into break zone",        autos.get(1).trigger());
+	}
+
+	@Test
+	void theFromHandTriggerIsNotConfusedWithItsOwnExclusion() {
+		// "other than from your hand" contains "from your hand", so the two readings compete and
+		// the wrong winner would fire on exactly the entries the card excludes.
+		CardData other = makeForwardWithText("Sice", "Dark", 3, 7000,
+				"When Sice enters your field other than from your hand, draw 1 card.");
+		assertEquals("enters your field not from hand", other.autoAbilities().get(0).trigger());
+	}
+
+	@Test
+	void kainsBreakZoneTriggerIsAttributedToBothHalves() {
+		assertEquals("IfSelfCounters(1+ Brainwashing: PlaySourceFromBzOntoOppField)",
+				ActionResolver.fullDescription(kainBzEffect(), kain()));
+	}
+
+	@Test
+	void theGateRunsItsPayoffOnlyWhileTheCounterIsThere() {
+		for (int held : new int[] { 0, 1 }) {
+			CardData kain = kain();
+			GameContext ctx = mock(GameContext.class);
+			when(ctx.lastKnownCounters(kain, "Brainwashing")).thenReturn(held);
+
+			ActionResolver.parse(kainBzEffect(), kain).accept(ctx);
+
+			if (held > 0) verify(ctx).playSourceFromBreakZoneOntoOpponentField(kain);
+			else          verify(ctx, never()).playSourceFromBreakZoneOntoOpponentField(any());
+		}
+	}
+
+	@Test
+	void theGateAsksForTheCounterAsItLeftTheFieldNotAsItIsNow() {
+		// The distinction the whole card turns on: getCounters is truthfully 0 by the time this
+		// resolves, because leaving the field swept the pile.
+		CardData kain = kain();
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.getCounters(any(), any())).thenReturn(5);
+		when(ctx.lastKnownCounters(kain, "Brainwashing")).thenReturn(0);
+
+		ActionResolver.parse(kainBzEffect(), kain).accept(ctx);
+
+		verify(ctx, never()).playSourceFromBreakZoneOntoOpponentField(any());
+	}
+
+	@Test
+	void theGateHasToNameItsOwnCarrier() {
+		assertNull(ActionResolverState.tryParseCounterPresentOnSelfGate(
+				"if a Brainwashing Counter is placed on Cecil, play Kain from your Break Zone "
+				+ "onto your opponent's field.", kain(), 0));
+	}
+
+	@Test
+	void theGateIsNotClaimedWhenItsInnerClauseIsUnread() {
+		// What keeps it off the four cards that print the same sentence as a standing field
+		// ability. Llednar 13-108L is one: "cannot be broken" is not something the chain reads,
+		// and claiming the gate around it would turn a continuous condition into a one-shot.
+		CardData llednar = makeForwardWithText("Llednar", "Fire", 3, 7000, "");
+		assertNull(ActionResolverState.tryParseCounterPresentOnSelfGate(
+				"If a Fortune Counter is placed on Llednar, Llednar cannot be broken.", llednar, 0));
+	}
+
+	@Test
+	void theCountedAndTheArticleGateDoNotOverlap() {
+		CardData kain = kain();
+		assertNull(ActionResolverState.tryParseCountersOnSelfGate(
+				"if a Brainwashing Counter is placed on Kain, place 1 Brainwashing Counter on Kain.",
+				kain, 0), "\"a\" is not a count this one reads");
+		assertNull(ActionResolverState.tryParseCounterPresentOnSelfGate(
+				"if 3 or more Brainwashing Counters are placed on Kain, place 1 Brainwashing "
+				+ "Counter on Kain.", kain, 0), "and \"N or more\" is not an article");
+	}
+
+	@Test
+	void breakingHimWithTheCounterHandsHimToTheOpponent() {
+		// The whole card, end to end: he enters, carries a Brainwashing Counter, dies, and the
+		// trigger reads the counter he left with to put him on the other side of the table.
+		MainWindow mw = new MainWindow();
+		CardData kain = kain();
+		placeP1Forward(mw, kain);
+		mw.gameState.placeCounters(kain, "Brainwashing", 1);
+
+		mw.putP1ForwardIntoBreakZone(0);
+
+		assertTrue(mw.p1ForwardCards.isEmpty());
+		assertFalse(mw.gameState.getP1BreakZone().contains(kain), "he did not stay in the Break Zone");
+		assertEquals(1, mw.p2ForwardCards.size(), "he is the opponent's problem now");
+		assertSame(kain, mw.p2ForwardCards.get(0));
+	}
+
+	@Test
+	void withoutTheCounterHeJustDies() {
+		MainWindow mw = new MainWindow();
+		CardData kain = kain();
+		placeP1Forward(mw, kain);
+
+		mw.putP1ForwardIntoBreakZone(0);
+
+		assertTrue(mw.p2ForwardCards.isEmpty(), "no counter, no handover");
+		assertTrue(mw.gameState.getP1BreakZone().contains(kain));
+	}
+
+	@Test
+	void theCounterSurvivesADepartureAsLastKnownInformation() {
+		// The mechanism the gate rests on, on a card with no abilities of its own so that nothing
+		// moves it on before the state can be read.
+		MainWindow mw = new MainWindow();
+		CardData golem = makeForward("Golem", "Earth", 3, 7000);
+		placeP1Forward(mw, golem);
+		mw.gameState.placeCounters(golem, "Brainwashing", 1);
+
+		mw.putP1ForwardIntoBreakZone(0);
+
+		assertEquals(0, mw.gameState.getCounters(golem, "Brainwashing"),
+				"leaving the field sweeps the pile, which is why the gate cannot read it");
+		assertEquals(1, mw.buildGameContext(true).lastKnownCounters(golem, "Brainwashing"),
+				"but what he left with is still answerable");
+	}
+
+	@Test
+	void aLaterStayWithoutTheCounterAnswersForItself() {
+		// The snapshot is written on every departure, empty pile included. Left only on the
+		// departures that had counters, a card replayed clean and broken again would still be
+		// answering for the counter it carried two stays ago — which for Kain is a handover that
+		// bounces him back and forth forever.
+		MainWindow mw = new MainWindow();
+		CardData golem = makeForward("Golem", "Earth", 3, 7000);
+		placeP1Forward(mw, golem);
+		mw.gameState.placeCounters(golem, "Brainwashing", 1);
+		mw.putP1ForwardIntoBreakZone(0);
+
+		placeP1Forward(mw, golem);
+		mw.putP1ForwardIntoBreakZone(0);
+
+		assertEquals(0, mw.buildGameContext(true).lastKnownCounters(golem, "Brainwashing"));
+	}
+
+	@Test
+	void aCardOnTheFieldIsReadLiveRatherThanFromTheSnapshot() {
+		MainWindow mw = new MainWindow();
+		CardData golem = makeForward("Golem", "Earth", 3, 7000);
+		placeP1Forward(mw, golem);
+		mw.gameState.placeCounters(golem, "Brainwashing", 1);
+		mw.putP1ForwardIntoBreakZone(0);
+		placeP1Forward(mw, golem);
+
+		assertEquals(0, mw.buildGameContext(true).lastKnownCounters(golem, "Brainwashing"),
+				"it is standing on the field with no counter; the old stay must not answer for it");
+	}
+
+	@Test
+	void theBrainwashedKainLandsOnTheOtherPlayersField() {
+		MainWindow mw = new MainWindow();
+		CardData kain = kain();
+		mw.gameState.getIdentity().put(kain, true);
+		mw.gameState.getP1BreakZone().add(kain);
+
+		mw.buildGameContext(true).playSourceFromBreakZoneOntoOpponentField(kain);
+
+		assertFalse(mw.gameState.getP1BreakZone().contains(kain), "he left his owner's Break Zone");
+		assertTrue(mw.p1ForwardCards.isEmpty(), "and not back onto the field he came from");
+		assertEquals(1, mw.p2ForwardCards.size());
+		assertSame(kain, mw.p2ForwardCards.get(0));
+	}
+
+	@Test
+	void heIsMovedByIdentitySoATwinStaysPut() {
+		MainWindow mw = new MainWindow();
+		CardData died = kain();
+		CardData twin = kain();
+		mw.gameState.getP1BreakZone().add(twin);
+		mw.gameState.getP1BreakZone().add(died);
+
+		mw.buildGameContext(true).playSourceFromBreakZoneOntoOpponentField(died);
+
+		assertEquals(1, mw.p2ForwardCards.size());
+		assertSame(died, mw.p2ForwardCards.get(0));
+		assertTrue(mw.gameState.getP1BreakZone().contains(twin), "the twin is a different card");
+	}
+
+	@Test
+	void aKainAlreadyMovedOnIsANoOp() {
+		MainWindow mw = new MainWindow();
+		mw.buildGameContext(true).playSourceFromBreakZoneOntoOpponentField(kain());
+		assertTrue(mw.p2ForwardCards.isEmpty(), "something else had already moved him");
+	}
+
+	@Test
+	void theOtherPrintingOfThisTriggerIsReadToo() {
+		// G'raha Tia 27-044L shares the trigger. For one session he was deliberately held unread,
+		// because the chain claimed a tier out of the middle of his effect and ran it ungated; he
+		// has his own section further down now. This is the trigger half of him, which is Kain's.
+		CardData graha = makeForwardWithText("G'raha Tia", "Wind", 5, 9000,
+				"When G'raha Tia enters the field from your hand, reveal the top 5 cards of your "
+				+ "deck. Return them to the bottom of your deck in any order. If there were 3 or "
+				+ "more different Elements among the revealed cards, draw 2 cards.");
+		assertEquals(1, graha.autoAbilities().size());
+		assertEquals("enters the field from hand", graha.autoAbilities().get(0).trigger());
+	}
+
+	// =========================================================================================
+	// The "Remove all … from the game" sweeps: Shantotto 1-107L and 22-118H, Exdeath 3-100L's
+	// Grand Cross, Baron Guardsman 17-072H.
+	//
+	// All four reported as parsed and did nothing. REMOVE_NAMED_FROM_GAME matches with find() and
+	// has a lazy name group, so "remove all the Forwards from the game" was read as a removal of a
+	// card *named* "all the Forwards" — searched for on the field, not found, and logged as
+	// [Warning] … not found on field. The quiet kind of wrong: nothing reported it as a gap, so
+	// nothing was looking for it.
+	//
+	// They have an anchored reader now, placed ahead of that one, and the pattern carries the
+	// third guard of the kind it already had for "it/them" and "the top" so it cannot take the
+	// shape back. The field halves go through the same applyMassFieldEffect as the Break and Dull
+	// sweeps, which is what gives them the leave-the-field shields a card-name removal never had.
+	// =========================================================================================
+
+	private static final String SHANTOTTO_1_107L_SWEEP = "remove all the Forwards from the game.";
+	private static final String SHANTOTTO_22_118H_SWEEP =
+			"remove all the Forwards and Monsters other than Shantotto from the game.";
+	private static final String GRAND_CROSS_3_100L =
+			"Remove all Characters on the field other than Exdeath and all cards in the Break Zone "
+			+ "from the game.";
+	private static final String BARON_GUARDSMAN_17_072H_SWEEP =
+			"name 1 card type. Remove all the cards of named card type in your opponent's Break "
+			+ "Zone from the game.";
+
+	@Test
+	void theSweepsNoLongerReadAsACardNameRemoval() {
+		for (String text : List.of(SHANTOTTO_1_107L_SWEEP, SHANTOTTO_22_118H_SWEEP, GRAND_CROSS_3_100L)) {
+			assertEquals("RemoveAllFieldFromGame", ActionResolver.matchedPatternName(text, null), text);
+		}
+		assertEquals("NameCardTypeRemoveOppBzFromGame",
+				ActionResolver.matchedPatternName(BARON_GUARDSMAN_17_072H_SWEEP, null));
+	}
+
+	@Test
+	void aSweepIsNotClaimedOutOfTheMiddleOfALongerSentence() {
+		// The anchoring, which is what separates the new reader from the one it took these off.
+		assertNull(ActionResolverFieldAbility.tryParseRemoveAllFieldFromGame(
+				"Draw 1 card. Then, remove all the Forwards from the game. Then, draw 1 card."));
+	}
+
+	@Test
+	void shantottoTakesEveryForwardOnTheTable() {
+		MainWindow mw = new MainWindow();
+		CardData mine  = makeForward("Vaan",  "Wind",  3, 7000);
+		CardData yours = makeForward("Vayne", "Wind",  4, 8000);
+		CardData backup = makeForward("Scholar", "Wind", 2, 0);
+		placeP1Forward(mw, mine);
+		placeP2Forward(mw, yours);
+		mw.placeCardInFirstBackupSlot(backup);
+
+		ActionResolver.parse(SHANTOTTO_1_107L_SWEEP, null).accept(mw.buildGameContext(true));
+
+		assertTrue(mw.p1ForwardCards.isEmpty());
+		assertTrue(mw.p2ForwardCards.isEmpty());
+		assertSame(backup, mw.p1BackupCards[0], "the sentence says Forwards, and a Backup is not one");
+	}
+
+	@Test
+	void theSweepSparesTheCardItNames() {
+		MainWindow mw = new MainWindow();
+		CardData shantotto = makeForward("Shantotto", "Earth", 4, 9000);
+		CardData other     = makeForward("Vaan",      "Wind",  3, 7000);
+		placeP1Forward(mw, shantotto);
+		placeP1Forward(mw, other);
+
+		ActionResolver.parse(SHANTOTTO_22_118H_SWEEP, null).accept(mw.buildGameContext(true));
+
+		assertEquals(1, mw.p1ForwardCards.size(), "\"other than Shantotto\" is the whole point");
+		assertSame(shantotto, mw.p1ForwardCards.get(0));
+	}
+
+	@Test
+	void grandCrossTakesTheFieldAndBothBreakZones() {
+		MainWindow mw = new MainWindow();
+		CardData exdeath = makeForward("Exdeath", "Lightning", 5, 9000);
+		CardData theirs  = makeForward("Vayne",   "Wind",      4, 8000);
+		CardData myBkp   = makeForward("Scholar", "Wind",      2, 0);
+		placeP1Forward(mw, exdeath);
+		placeP2Forward(mw, theirs);
+		mw.placeCardInFirstBackupSlot(myBkp);
+		mw.gameState.getP1BreakZone().add(makeForward("Dead1", "Fire", 1, 1000));
+		mw.gameState.getP2BreakZone().add(makeForward("Dead2", "Fire", 1, 1000));
+
+		ActionResolver.parse(GRAND_CROSS_3_100L, null).accept(mw.buildGameContext(true));
+
+		assertEquals(1, mw.p1ForwardCards.size(), "only Exdeath is left standing");
+		assertSame(exdeath, mw.p1ForwardCards.get(0));
+		assertTrue(mw.p2ForwardCards.isEmpty());
+		assertNull(mw.p1BackupCards[0], "\"Characters\" is Forwards, Backups and Monsters alike");
+		assertTrue(mw.gameState.getP1BreakZone().isEmpty(), "\"the Break Zone\" names no owner");
+		assertTrue(mw.gameState.getP2BreakZone().isEmpty());
+	}
+
+	@Test
+	void baronGuardsmanEmptiesOneCardTypeOutOfTheOpponentsBreakZone() {
+		// Resolved for P2 so the naming takes the AI's branch and no dialog opens. It names the
+		// type that takes the most out of the zone it is aimed at, which here is Forward.
+		MainWindow mw = new MainWindow();
+		CardData fwd1   = makeForward("Dead1", "Fire", 1, 1000);
+		CardData fwd2   = makeForward("Dead2", "Fire", 1, 1000);
+		CardData summon = makeSummon("Ifrit", "Fire", 2, "Choose 1 Forward. Deal it 7000 damage.");
+		mw.gameState.getP1BreakZone().add(fwd1);
+		mw.gameState.getP1BreakZone().add(fwd2);
+		mw.gameState.getP1BreakZone().add(summon);
+
+		ActionResolver.parse(BARON_GUARDSMAN_17_072H_SWEEP, null).accept(mw.buildGameContext(false));
+
+		assertEquals(List.of(summon), mw.gameState.getP1BreakZone(),
+				"the two Forwards went; the Summon is not the named type");
+	}
+
+	@Test
+	void anEmptyBoardIsASweepThatDoesNothingRatherThanAFailure() {
+		MainWindow mw = new MainWindow();
+		ActionResolver.parse(GRAND_CROSS_3_100L, null).accept(mw.buildGameContext(true));
+		assertTrue(mw.p1ForwardCards.isEmpty());
+	}
+
+	// =========================================================================================
+	// G'raha Tia 27-044L: "When G'raha Tia enters the field from your hand, reveal the top 5 cards
+	// of your deck. Return them to the bottom of your deck in any order. If there were 3 or more
+	// different Elements among the revealed cards, draw 2 cards. If there were 5 or more, also
+	// during this turn, the cost required to cast your next card is reduced by 4. If there were 8
+	// or more, also remove all the Characters opponent controls and all cards in your opponent's
+	// Break Zone from the game."
+	//
+	// Five sentences that are one effect: the reveal produces a number and everything after it is a
+	// threshold on that number. With no reader for the whole, parse() did not decline it — the
+	// parsers below match with find(), so one claimed a tier out of the middle and ran it with no
+	// threshold in front of it. He handed out a flat 4 CP discount on any reveal at all.
+	//
+	// Each tier still goes back through parse(), so this adds no understanding of what they do; it
+	// adds the number they are thresholds on, which only the reveal knows. Every stated tier has to
+	// parse or none of it is claimed — a tier nobody reads is one that would be silently skipped or
+	// silently always run, and leaving the ability honestly unread beats both.
+	// =========================================================================================
+
+	private static final String GRAHA_TIA_27_044L_EFFECT =
+			"reveal the top 5 cards of your deck. Return them to the bottom of your deck in any "
+			+ "order. If there were 3 or more different Elements among the revealed cards, draw 2 "
+			+ "cards. If there were 5 or more, also during this turn, the cost required to cast "
+			+ "your next card is reduced by 4. If there were 8 or more, also remove all the "
+			+ "Characters opponent controls and all cards in your opponent's Break Zone from the "
+			+ "game.";
+
+	@Test
+	void grahaTiaIsReadAsOneEffectWithThreeTiers() {
+		assertEquals("RevealTopNTieredByDistinctElements",
+				ActionResolver.matchedPatternName(GRAHA_TIA_27_044L_EFFECT, null));
+		assertEquals("RevealTop5Elements(3+: DrawCards | 5+: CostReductionThisTurn "
+				+ "| 8+: RemoveAllFieldFromGame)",
+				ActionResolver.fullDescription(GRAHA_TIA_27_044L_EFFECT, null));
+	}
+
+	@Test
+	void eachTierFiresOnlyOnceItsThresholdIsMet() {
+		for (int seen : new int[] { 2, 3, 5, 8 }) {
+			GameContext ctx = mock(GameContext.class);
+			when(ctx.revealTopNCountDistinctElementsPlaceAllAtBottom(5)).thenReturn(seen);
+
+			ActionResolver.parse(GRAHA_TIA_27_044L_EFFECT, null).accept(ctx);
+
+			verify(ctx, times(seen >= 3 ? 1 : 0)).drawCards(2);
+			verify(ctx, times(seen >= 5 ? 1 : 0)).applyNextCastCostReduction(any());
+			verify(ctx, times(seen >= 8 ? 1 : 0)).removeAllOpponentBzFromGame();
+		}
+	}
+
+	@Test
+	void theTiersAreCumulativeSoTheTopOnePaysOutAllThree() {
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.revealTopNCountDistinctElementsPlaceAllAtBottom(5)).thenReturn(8);
+
+		ActionResolver.parse(GRAHA_TIA_27_044L_EFFECT, null).accept(ctx);
+
+		// "also" — not "instead". Meeting 8 means meeting 3 and 5 as well.
+		verify(ctx).drawCards(2);
+		verify(ctx).applyNextCastCostReduction(any());
+		verify(ctx).removeAllOpponentBzFromGame();
+	}
+
+	@Test
+	void aTierTheChainCannotReadCostsTheWholeAbilityItsClaim() {
+		// Fail closed, and the reason the parser exists: claiming a compound whose tiers are only
+		// partly understood is how a payoff ends up running with no threshold in front of it.
+		assertNull(ActionResolverSearch.tryParseRevealTopNTieredByDistinctElements(
+				"reveal the top 5 cards of your deck. Return them to the bottom of your deck in any "
+				+ "order. If there were 3 or more different Elements among the revealed cards, "
+				+ "do something no parser in this engine has ever heard of.", null, 0));
+	}
+
+	@Test
+	void hisAbilityFiresFromHandAndNotFromTheBreakZone() {
+		CardData graha = makeForwardWithText("G'raha Tia", "Wind", 5, 9000,
+				"When G'raha Tia enters the field from your hand, " + GRAHA_TIA_27_044L_EFFECT);
+		assertEquals(1, graha.autoAbilities().size());
+		assertEquals("enters the field from hand", graha.autoAbilities().get(0).trigger());
+	}
+
+	@Test
+	void theRevealCountsEachElementOfAMulticardOnce() {
+		MainWindow mw = new MainWindow();
+		// Two cards, three Elements between them: the count is of Elements, not of cards, and a
+		// second Fire card must not raise it.
+		mw.gameState.getP1MainDeck().addFirst(makeForward("Wind One",  "Wind",  2, 5000));
+		mw.gameState.getP1MainDeck().addFirst(makeForward("Fire Two",  "Fire",  2, 5000));
+		mw.gameState.getP1MainDeck().addFirst(makeForward("Fire One",  "Fire",  2, 5000));
+
+		assertEquals(2, mw.buildGameContext(true).revealTopNCountDistinctElementsPlaceAllAtBottom(3));
+	}
+
+	@Test
+	void theRevealedCardsGoUnderTheDeckRatherThanAway() {
+		MainWindow mw = new MainWindow();
+		for (int i = 0; i < 4; i++)
+			mw.gameState.getP1MainDeck().addLast(makeForward("Card" + i, "Fire", 2, 5000));
+		int before = mw.gameState.getP1MainDeck().size();
+
+		mw.buildGameContext(true).revealTopNCountDistinctElementsPlaceAllAtBottom(3);
+
+		assertEquals(before, mw.gameState.getP1MainDeck().size(), "nothing is lost by looking");
+	}
+
+	@Test
+	void anEmptyDeckRevealsNothingAndMeetsNoThreshold() {
+		MainWindow mw = new MainWindow();
+		assertEquals(0, mw.buildGameContext(true).revealTopNCountDistinctElementsPlaceAllAtBottom(5));
+	}
+
+	// =========================================================================================
+	// Ingrid 18-088R: "When Ingrid is put from the field into the Break Zone, remove all the
+	// Characters in your opponent's Break Zone from the game. If 5 or more cards are removed from
+	// the game by this effect, draw 1 card."
+	//
+	// The removal parser already keeps the count its primitive returns — it was built that way for
+	// Kefka 20-008H's "place 1 Magic Counter for each card you removed" — but it knew only that one
+	// trailing payoff, and declined anything else. So Ingrid fell past it to parse()'s
+	// compound-sentence fallback, which ran the removal and dropped the condition and the draw
+	// together. Reading the tail here is what puts the draw back on the number it asks about:
+	// split off into a sentence of its own it is a bare "draw 1 card" that the chain claims and
+	// runs however much the removal actually took.
+	//
+	// Irvine 21-081L prints the same sentence over a count of Characters rather than cards. The
+	// primitive reports how many cards it took and not what they were, so that form is declined
+	// rather than answered with the wrong number — he reaches the board by another route and is
+	// still wrong there, which is a separate job.
+	// =========================================================================================
+
+	private static final String INGRID_18_088R_EFFECT =
+			"remove all the Characters in your opponent's Break Zone from the game. If 5 or more "
+			+ "cards are removed from the game by this effect, draw 1 card.";
+
+	/** Stubs the Break Zone removal to report {@code removed} cards taken. */
+	private static GameContext ctxRemoving(int removed) {
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.removeCardsFromBreakZoneFromGame(anyInt(), anyBoolean(), anyBoolean(), anyBoolean(),
+				any(), anyInt(), any(), anyBoolean(), anyBoolean(), anyBoolean(), anyBoolean(),
+				any(), any(), any(), any())).thenReturn(removed);
+		return ctx;
+	}
+
+	@Test
+	void ingridIsAttributedToBothHalves() {
+		assertEquals("RemoveFromBreakZoneFromGame + IfNRemoved",
+				ActionResolver.matchedPatternName(INGRID_18_088R_EFFECT, null));
+		assertEquals("RemoveFromBreakZoneFromGame + IfRemoved(5+: DrawCards)",
+				ActionResolver.fullDescription(INGRID_18_088R_EFFECT, null));
+	}
+
+	@Test
+	void ingridDrawsOnlyOnceTheRemovalHasTakenEnough() {
+		for (int removed : new int[] { 0, 4, 5, 9 }) {
+			GameContext ctx = ctxRemoving(removed);
+
+			ActionResolver.parse(INGRID_18_088R_EFFECT, null).accept(ctx);
+
+			verify(ctx, times(removed >= 5 ? 1 : 0)).drawCards(1);
+		}
+	}
+
+	@Test
+	void theRemovalStillHappensWhenTheDrawDoesNot() {
+		// The condition gates the payoff, not the sweep in front of it.
+		GameContext ctx = ctxRemoving(2);
+
+		ActionResolver.parse(INGRID_18_088R_EFFECT, null).accept(ctx);
+
+		verify(ctx).removeCardsFromBreakZoneFromGame(anyInt(), anyBoolean(), anyBoolean(),
+				anyBoolean(), any(), anyInt(), any(), anyBoolean(), anyBoolean(), anyBoolean(),
+				anyBoolean(), any(), any(), any(), any());
+		verify(ctx, never()).drawCards(anyInt());
+	}
+
+	@Test
+	void aCountOfCharactersIsDeclinedRatherThanAnsweredWithACountOfCards() {
+		// Irvine 21-081L's form. The primitive counts cards, so answering this would be answering
+		// a different question — and a buff handed out on the wrong number is the failure this
+		// whole family keeps producing.
+		assertNull(ActionResolverState.tryParseRemoveFromBreakZoneFromGame(
+				"remove all the Characters in your opponent's Break Zone from the game. If 2 "
+				+ "Characters are removed from the game by this effect, draw 1 card.", null));
+	}
+
+	@Test
+	void anExactCountIsNotReadAsAThreshold() {
+		// "If 5 cards are removed" and "If 5 or more cards are removed" are different sentences;
+		// only the second is a floor.
+		String exact = "remove all the Characters in your opponent's Break Zone from the game. "
+				+ "If 5 cards are removed from the game by this effect, draw 1 card.";
+		GameContext over = ctxRemoving(9);
+		ActionResolver.parse(exact, null).accept(over);
+		verify(over, never()).drawCards(anyInt());
+
+		GameContext on = ctxRemoving(5);
+		ActionResolver.parse(exact, null).accept(on);
+		verify(on).drawCards(1);
+	}
+
+	@Test
+	void kefkasTrailingPayoffStillWinsItsOwnSentence() {
+		// The two payoffs sit side by side in one parser; neither may claim the other's text.
+		CardData kefka = makeForwardWithText("Kefka", "Fire", 4, 8000, "");
+		assertEquals("RemoveFromBreakZoneFromGame + PlaceCountersPerCardRemoved",
+				ActionResolver.matchedPatternName(
+						"remove up to 3 Job Warring Triad with different names in your Break Zone "
+						+ "from the game. Then, place 1 Magic Counter on Kefka for each card you "
+						+ "removed due to this ability.", kefka));
+	}
+
+	@Test
+	void aTrailingSentenceNobodyReadsStillDeclinesTheWholeAbility() {
+		assertNull(ActionResolverState.tryParseRemoveFromBreakZoneFromGame(
+				"remove all the Characters in your opponent's Break Zone from the game. If 5 or "
+				+ "more cards are removed from the game by this effect, do something no parser in "
+				+ "this engine has ever heard of.", null));
+	}
+
+	// =========================================================================================
+	// Irvine 21-081L: "When Irvine enters the field or attacks, choose up to 2 cards in your
+	// opponent's Break Zone. Remove them from the game. If 2 Characters are removed from the game
+	// by this effect, until the end of the turn, Irvine gains +2000 power, Haste and First Strike."
+	//
+	// The same sentence Ingrid 18-088R prints, reached by the other route: hers trails a Break Zone
+	// removal, his trails a choose. It was a live bug rather than a gap — the choose chain's
+	// secondary arms scan with find(), and one took "+2000 power, Haste and First Strike" out of
+	// the middle of the sentence and handed it over with the count dropped. Irvine got the buff
+	// whether he removed two Characters, one, or none at all.
+	//
+	// The count has to be what the removal actually took. It cannot come from the selection, which
+	// is what was picked rather than what went — a Break Zone shield (Lenna 18-100L, Ultimecia
+	// 22-073L, Terra 23-011L) can refuse one — and it cannot come from lastChosenTargets(), which
+	// by the time a secondary runs names Break Zone rows the removal has emptied. So it is a
+	// before-and-after of what the engine credited to Irvine, narrowed to Characters: a Summon in
+	// a Break Zone is a card and not a Character, and his sentence counts Characters.
+	// =========================================================================================
+
+	private static final String IRVINE_21_081L_EFFECT =
+			"choose up to 2 cards in your opponent's Break Zone. Remove them from the game. If 2 "
+			+ "Characters are removed from the game by this effect, until the end of the turn, "
+			+ "Irvine gains +2000 power, Haste and First Strike.";
+
+	private static CardData irvine() {
+		return makeForwardWithText("Irvine", "Lightning", 3, 7000, "");
+	}
+
+	@Test
+	void irvinesBuffIsAttributedToTheCountItIsGatedOn() {
+		assertEquals("ChooseCharacter / RemoveFromGame + IfRemoved(2 Characters: StandalonePowerBoostUntil)",
+				ActionResolver.fullDescription(IRVINE_21_081L_EFFECT, irvine()));
+	}
+
+	@Test
+	void irvineGetsTheBuffOnlyWhenTwoCharactersActuallyWent() {
+		for (int took : new int[] { 0, 1, 2 }) {
+			CardData    irvine = irvine();
+			GameContext ctx    = mock(GameContext.class);
+			// Before, then after: the tally behind the count is cumulative over the whole game,
+			// so the effect reads the difference rather than the total.
+			when(ctx.cardsRemovedBySourceCount(irvine)).thenReturn(0, took);
+			when(ctx.charactersRemovedBySourceCount(irvine)).thenReturn(0, took);
+
+			ActionResolver.parse(IRVINE_21_081L_EFFECT, irvine).accept(ctx);
+
+			verify(ctx, times(took == 2 ? 1 : 0))
+					.boostSourceForward(any(), anyInt(), any());
+		}
+	}
+
+	@Test
+	void theCountIsOfTheRemovalItselfAndNotOfAnEarlierOne() {
+		// A tally already standing from a previous resolution must not pay this one out: Irvine
+		// triggers on entering the field *and* on attacking, so the second firing always finds the
+		// first firing's cards still credited to him.
+		CardData    irvine = irvine();
+		GameContext ctx    = mock(GameContext.class);
+		when(ctx.cardsRemovedBySourceCount(irvine)).thenReturn(2, 2);
+		when(ctx.charactersRemovedBySourceCount(irvine)).thenReturn(2, 2);
+
+		ActionResolver.parse(IRVINE_21_081L_EFFECT, irvine).accept(ctx);
+
+		verify(ctx, never()).boostSourceForward(any(), anyInt(), any());
+	}
+
+	@Test
+	void aSummonInTheBreakZoneIsACardAndNotACharacter() {
+		MainWindow mw = new MainWindow();
+		CardData irvine = irvine();
+		CardData fwd    = makeForward("Dead", "Fire", 1, 1000);
+		CardData summon = makeSummon("Ifrit", "Fire", 2, "Choose 1 Forward. Deal it 7000 damage.");
+		mw.currentAbilitySource = irvine;
+		mw.gameState.getP1BreakZone().add(fwd);
+		mw.gameState.getP1BreakZone().add(summon);
+		GameContext ctx = mw.buildGameContext(false);
+
+		ctx.removeTargetFromGame(new ForwardTarget(true, 1, ForwardTarget.CardZone.BREAK_ZONE));
+		ctx.removeTargetFromGame(new ForwardTarget(true, 0, ForwardTarget.CardZone.BREAK_ZONE));
+
+		assertEquals(2, ctx.cardsRemovedBySourceCount(irvine), "both cards left the game");
+		assertEquals(1, ctx.charactersRemovedBySourceCount(irvine), "only one of them was a Character");
+	}
+
+	@Test
+	void aPayoffTheChainCannotReadDeclinesTheWholeAbility() {
+		// Fail closed, and the reason this branch exists at all: if the condition cannot be read,
+		// an arm below would claim the payoff out of the sentence and run it ungated.
+		assertNull(ActionResolver.parse(
+				"choose up to 2 cards in your opponent's Break Zone. Remove them from the game. "
+				+ "If 2 Characters are removed from the game by this effect, do something no parser "
+				+ "in this engine has ever heard of.", irvine()));
+	}
+
+	@Test
+	void theGateDeclinesWithoutASourceToCreditTheRemovalTo() {
+		assertNull(ActionResolverChoose.secondaryIfNRemovedFromGame(
+				"If 2 Characters are removed from the game by this effect, draw 1 card.",
+				null, new int[2]));
+	}
+
 	// -- Ozma 5-124H: "If Ozma is dealt damage by a Dark card, the damage becomes 0 instead." ----
 	// The one printing in the damage-modifier family whose source clause names an ELEMENT rather
 	// than a kind of effect. Every other arm answers "what sort of thing dealt this" and so confines

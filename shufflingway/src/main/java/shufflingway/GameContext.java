@@ -923,6 +923,23 @@ public interface GameContext {
     int cardsRemovedBySourceCount(CardData source);
 
     /**
+     * {@link #cardsRemovedBySourceCount} narrowed to Characters — Forwards, Backups and Monsters,
+     * which is what the word means; a Summon in a Break Zone is a card and not a Character.
+     *
+     * <p>Read as a before-and-after around a removal, which is the only way to ask "how many
+     * Characters did <em>this</em> effect remove": the tally behind both counts is cumulative over
+     * the source's whole game, since wordings like "cards removed by Anima's ability" call them
+     * back long afterwards. Irvine 21-081L is the card that asks — "If 2 Characters are removed
+     * from the game by this effect".
+     *
+     * <p>What was <em>credited</em> rather than what was chosen, which is the point of asking the
+     * engine instead of counting the selection: a Break Zone shield (Lenna 18-100L, Ultimecia
+     * 22-073L, Terra 23-011L) can refuse a removal, and a payoff counting the cards it picked
+     * rather than the cards that went would pay out on a removal that never happened.
+     */
+    int charactersRemovedBySourceCount(CardData source);
+
+    /**
      * Puts every card {@code source} still has removed from the game into its owner's Break Zone —
      * "put the rest of the cards into the Break Zone" (Cloud of Darkness 10-140S).
      */
@@ -952,6 +969,22 @@ public interface GameContext {
      * Returns the count of cards that matched the job.
      */
     int revealTopNCountJobPlaceAllAtBottom(int n, String job);
+
+    /**
+     * Reveals the top {@code n} cards of the active player's deck, counts how many <em>different</em>
+     * Elements appear across them, then places all of them at the bottom of the deck. Returns that
+     * count — G'raha Tia 27-044L, whose three payoffs are tiers of it.
+     *
+     * <p>The Element twin of {@link #revealTopNCountJobPlaceAllAtBottom}, and it counts the way the
+     * rest of the engine does: a Multi-Element card contributes each of its Elements, as in
+     * {@link #p1BreakZoneDistinctElementCount()}.
+     *
+     * <p>"In any order" is the printed wording for the return, and like its Job sibling this
+     * shuffles rather than asking. The cards go under a deck that will not be drawn to the bottom
+     * in any reachable game, so the order is a decision with no consequence to weigh — and putting
+     * a five-card ordering prompt in front of the player for one would be worse than answering it.
+     */
+    int revealTopNCountDistinctElementsPlaceAllAtBottom(int n);
 
     /** Shuffles the active player's deck. */
     void shuffleDeck();
@@ -1215,6 +1248,23 @@ public interface GameContext {
 
     /** Returns the number of counters named {@code counterName} currently on {@code card}. */
     int getCounters(CardData card, String counterName);
+
+    /**
+     * {@link #getCounters} for a card that may already have left the field: the live pile while it
+     * stands on the field, and what it carried as it left once it does not.
+     *
+     * <p>Counters are a property of a card's stay on the field and are swept the moment it leaves,
+     * which is before any "when this is put into the Break Zone" ability resolves. An ability that
+     * triggers on the departure and then asks about the departed card is asking about it as it
+     * stood on the field — the rules' last known information — so it has to ask this rather than
+     * {@link #getCounters}, which by then truthfully answers zero.
+     *
+     * <p>Kain 13-073H is the corpus's one printing that needs it: "When Kain is put from the field
+     * into the Break Zone, if a Brainwashing Counter is placed on Kain, play Kain from your Break
+     * Zone onto your opponent's field." Every other counter question in the corpus is asked of a
+     * card still standing, and those keep reading {@link #getCounters}.
+     */
+    int lastKnownCounters(CardData card, String counterName);
 
     /** Removes up to {@code count} counters named {@code counterName} from {@code card} (no-op if fewer are present). */
     void removeCounters(CardData card, String counterName, int count);
@@ -2585,6 +2635,27 @@ public interface GameContext {
     void removeAllOpponentBzFromGame();
 
     /**
+     * Removes every card in <em>both</em> Break Zones from the game permanently — the unqualified
+     * "all cards in the Break Zone" of Exdeath 3-100L's Grand Cross, which names no owner because
+     * it means the lot.
+     *
+     * <p>Its own method rather than a flag on {@link #removeAllOpponentBzFromGame}, which is named
+     * for the zone it empties and is called by parsers that mean exactly that one.
+     */
+    void removeAllBreakZonesFromGame();
+
+    /**
+     * Has the resolving player name a card type, then removes every card of that type from the
+     * opponent's Break Zone — Baron Guardsman 17-072H, the corpus's one printing.
+     *
+     * <p>One primitive for both halves because the naming is not an effect on its own: nothing
+     * else reads the named type, and splitting it would need somewhere to keep the answer between
+     * two parsers. {@link #nameCardTypeOpponentDiscardDrawIfMatch} is the same shape for the same
+     * reason.
+     */
+    void nameCardTypeRemoveAllOfTypeFromOppBzFromGame();
+
+    /**
      * Chooses cards in a Break Zone matching the given filters, removes them from the game, and
      * reports how many actually went — "remove up to 3 Job Warring Triad with different names in
      * your Break Zone from the game" (20-008H Kefka).
@@ -3822,6 +3893,25 @@ public interface GameContext {
      */
     void returnSourceFromBreakZoneToField(CardData source, boolean dull);
 
+    /**
+     * Moves {@code source} itself out of the active player's Break Zone and onto the <em>other</em>
+     * player's field — Kain 13-073H, "play Kain from your Break Zone onto your opponent's field".
+     *
+     * <p>The side is the only difference from {@link #returnSourceFromBreakZoneToField}, and it is
+     * a separate method rather than a flag on that one because widening a primitive's signature
+     * silently rots every mock-based test that named the old arity. Everything else is shared: the
+     * card is found by identity, so a twin already in the Break Zone stays there, and it is a no-op
+     * when the trigger fires for a copy something else has already moved on.
+     *
+     * <p>Ownership does not move with control. The card goes to its opponent's row to be used by
+     * them, and the identity map still calls it the original owner's — so when it leaves that field
+     * it goes back to the Break Zone it came out of, which is what the rules say.
+     *
+     * <p>It is a play, so the card enters the field and its enters-the-field abilities fire. Kain's
+     * own is gated on entering from hand and correctly stays quiet.
+     */
+    void playSourceFromBreakZoneOntoOpponentField(CardData source);
+
     /** Removes P1's backup at {@code idx} from the field and adds it to P1's hand. */
     void returnP1BackupToHand(int idx);
 
@@ -4025,12 +4115,36 @@ public interface GameContext {
      * {@code counterFilter} ("break all the Forwards opponent controls with a Doom Counter on
      * them" — 20-057L The Goddess).  {@code null} applies no counter restriction.
      */
+    default void applyMassFieldEffect(MassAction action,
+            boolean forwards, boolean backups, boolean monsters,
+            boolean opponentOnly, boolean selfOnly,
+            String element, int costVal, String costCmp, int excludeCostVal,
+            String job, String category, java.util.EnumSet<CardData.Trait> traitFilter,
+            String counterFilter) {
+        applyMassFieldEffect(action, forwards, backups, monsters, opponentOnly, selfOnly,
+                element, costVal, costCmp, excludeCostVal, job, category, traitFilter,
+                counterFilter, null);
+    }
+
+    /**
+     * Same as above but sparing every card named {@code excludeName} — the "other than [Self]"
+     * the total sweeps carry so they do not take their own source with them: Shantotto 22-118H's
+     * "remove all the Forwards and Monsters other than Shantotto from the game" and Exdeath
+     * 3-100L's Grand Cross. {@code null} spares nothing.
+     *
+     * <p>By name, like every other {@code excludeName} in this interface, and that is wider than
+     * the printed sentence strictly means: a card referring to itself by name means <em>that</em>
+     * copy, so an opponent's card of the same name is spared too. The unique-name rule keeps this
+     * to one card per side, and both printings are Legends that a player would rarely be facing a
+     * mirror of — the narrower reading would need the source's identity threaded through the whole
+     * filter chain for a case the corpus does not contain.
+     */
     void applyMassFieldEffect(MassAction action,
             boolean forwards, boolean backups, boolean monsters,
             boolean opponentOnly, boolean selfOnly,
             String element, int costVal, String costCmp, int excludeCostVal,
             String job, String category, java.util.EnumSet<CardData.Trait> traitFilter,
-            String counterFilter);
+            String counterFilter, String excludeName);
 
     /**
      * How many dull cards the most recent {@link #applyMassFieldEffect} with

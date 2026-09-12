@@ -188,6 +188,13 @@ public class ActionResolver {
         result = tryParseCastPaymentElementsGate(effectText, source, xValue);
         if (result != null) return result;
 
+        // Here for the same reason as the gate above, and it is the same failure: the thresholds
+        // are the last three sentences, so every parser below matched a tier under find() and ran
+        // it ungated — G'raha Tia 27-044L handed out a flat 4 CP discount on any reveal at all.
+        // Anchored with matches() over the whole text, so it claims nothing else.
+        result = ActionResolverSearch.tryParseRevealTopNTieredByDistinctElements(effectText, source, xValue);
+        if (result != null) return result;
+
         // The same trailing shape with a different condition, and here for the same reason: the
         // gate is the last sentence, so every parser below matched the base under find(), claimed
         // the whole ability and dropped it. 12-039C Alexander drew one card on any turn.
@@ -1220,6 +1227,16 @@ public class ActionResolver {
         result = tryParseRemoveFromBreakZoneFromGame(effectText, source);
         if (result != null) return result;
 
+        // Both must precede tryParseRemoveNamedFromGame, which used to claim every one of these
+        // sentences: its name group is lazy and matched with find(), so "all the Forwards" was read
+        // as a card name, searched for on the field, and not found. Both of these are anchored, so
+        // neither can take anything out of the middle of a longer text in turn.
+        result = ActionResolverFieldAbility.tryParseRemoveAllFieldFromGame(effectText);
+        if (result != null) return result;
+
+        result = ActionResolverFieldAbility.tryParseNameCardTypeRemoveOppBzFromGame(effectText);
+        if (result != null) return result;
+
         result = tryParseRemoveNamedFromGame(effectText, source);
         if (result != null) return result;
 
@@ -1530,6 +1547,11 @@ public class ActionResolver {
         result = ActionResolverSearch.tryParseReturnSourceOntoField(effectText, source);
         if (result != null) return result;
 
+        // Its far-side twin, beside it: both are anchored and self-named, so neither can reach the
+        // other's wording and the order between them decides nothing.
+        result = ActionResolverSearch.tryParsePlaySourceFromBzOntoOppField(effectText, source);
+        if (result != null) return result;
+
         // Must precede tryParseSearchDeck. Its pattern find()s the filters it recognises and
         // ignores what it does not, so "search for a Monster with the same name and add it to
         // your hand" reads there as a plain search for any Monster -- the name, the one thing
@@ -1674,6 +1696,11 @@ public class ActionResolver {
         // Reraise gate carries a "Then, if there are none left" tail this one cannot see. What is
         // left for it is the counters nothing else claims — Number 24 20-036H's Barrier.
         result = tryParseCountersOnSelfGate(effectText, source, xValue);
+        if (result != null) return result;
+
+        // Beside it, and last for the same reason: the article form of the same gate. The two
+        // patterns are exclusive, so their order relative to each other decides nothing.
+        result = tryParseCounterPresentOnSelfGate(effectText, source, xValue);
         if (result != null) return result;
 
         result = tryParseLookTopDeckOptionallyBreak(effectText);
@@ -1970,6 +1997,8 @@ public class ActionResolver {
         // 16-125C's conditional half off the end of the sentence carrying the condition.
         if (tryParseCastPaymentElementsGate(effectText, source, 0) != null)
             return "CastPaymentElementsGate";
+        if (ActionResolverSearch.tryParseRevealTopNTieredByDistinctElements(effectText, source, 0) != null)
+            return "RevealTopNTieredByDistinctElements";
         if (tryParseCastCountGate(effectText, source, 0) != null)
             return "CastCountGate";
         if (tryParseCastPaymentElementsNotIncludedGate(effectText, source, 0) != null)
@@ -2305,6 +2334,8 @@ public class ActionResolver {
         if (tryParseEffectOrPutSelfToBreakZone(effectText, source) != null) return "EffectOrPutSelfToBreakZone";
         if (tryParseRemoveFromBreakZoneFromGame(effectText, source) != null)
             return removeFromBreakZonePatternName(effectText);
+        if (ActionResolverFieldAbility.tryParseRemoveAllFieldFromGame(effectText) != null) return "RemoveAllFieldFromGame";
+        if (ActionResolverFieldAbility.tryParseNameCardTypeRemoveOppBzFromGame(effectText) != null) return "NameCardTypeRemoveOppBzFromGame";
         if (tryParseRemoveNamedFromGame(effectText, source)   != null) return "RemoveNamedFromGame";
         // Must precede BreakSourceCard, mirroring parse(): the sentence opens with the plain
         // self-break that parser reads.
@@ -2428,6 +2459,8 @@ public class ActionResolver {
         if (tryParseSearchNamedRfgThenIfDoSo(effectText, source) != null) return "SearchNamedRfgThenIfDoSo";
         if (ActionResolverSearch.tryParseReturnSourceOntoField(effectText, source) != null)
             return "ReturnSourceOntoField";
+        if (ActionResolverSearch.tryParsePlaySourceFromBzOntoOppField(effectText, source) != null)
+            return "PlaySourceFromBzOntoOppField";
         if (tryParseSearchMatchingBrokenCard(effectText) != null) return "SearchMatchingBrokenCard";
         if (tryParseSearchDeck(effectText, source, 0)                      != null) return "SearchDeck";
         if (tryParsePlayAllByNameFromBreakZone(effectText)      != null) return "PlayAllByNameFromBreakZone";
@@ -2554,6 +2587,7 @@ public class ActionResolver {
         // Mirrors parse(): the generic counter gate is read after every counter that has a parser
         // of its own, so it names only what those leave.
         if (tryParseCountersOnSelfGate(effectText, source, 0) != null) return "CountersOnSelfGate";
+        if (tryParseCounterPresentOnSelfGate(effectText, source, 0) != null) return "CounterPresentOnSelfGate";
         if (tryParseIfOppControlsNOrMoreCondTypeGate(effectText, source, 0) != null) return "IfOppControlsNOrMoreCondType";
         if (tryParseDiscardConditionalElement(effectText, source, 0)   != null) return "DiscardConditionalElement";
         if (tryParseDiscardConditionalElementSingle(effectText, source, 0) != null) return "DiscardConditionalElementSingle";
@@ -3016,6 +3050,31 @@ public class ActionResolver {
         effectText = stripExBurstPrefix(effectText);
         effectText = effectText.replaceFirst("(?i)^Then,?\\s+", "").trim();
         effectText = effectText.replaceFirst("(?i)^also\\s+", "").trim();
+        // Mirrors parse() and matchedPatternName(). Each tier is described inside the threshold it
+        // is gated on, the way the control gates below describe what they guard.
+        //
+        // Ahead of the restriction strip below, which every other entry in this method sits behind:
+        // this pattern is anchored over the whole text, and the strip rewrites G'raha Tia 27-044L's
+        // — "also during this turn, …" answers one of the restriction patterns — so by the time the
+        // strip has run there is nothing left for an end-to-end match to hold on to. parse() does no
+        // such strip, so reading the text as given is also what keeps this naming the parser that
+        // actually ran.
+        if (ActionResolverSearch.tryParseRevealTopNTieredByDistinctElements(effectText, source, 0) != null) {
+            Matcher rt = REVEAL_TOP_N_TIERED_BY_DISTINCT_ELEMENTS.matcher(effectText.trim());
+            if (!rt.matches()) return "RevealTopNTieredByDistinctElements";
+            StringBuilder sb = new StringBuilder("RevealTop" + rt.group("reveal") + "Elements(");
+            String sep = "";
+            for (String[] tier : new String[][] {
+                    { rt.group("t1"), rt.group("e1") },
+                    { rt.group("t2"), rt.group("e2") },
+                    { rt.group("t3"), rt.group("e3") } }) {
+                if (tier[0] == null) continue;
+                sb.append(sep).append(tier[0]).append("+: ")
+                  .append(describeOrName(tier[1].trim(), source));
+                sep = " | ";
+            }
+            return sb.append(")").toString();
+        }
         // Strip trailing use-restriction sentences so they don't short-circuit before effect patterns match
         String noRestriction = stripRestrictionSentences(effectText);
         if (!noRestriction.isEmpty()) effectText = noRestriction;
@@ -3243,6 +3302,12 @@ public class ActionResolver {
             if (!cg.matches()) return "CountersOnSelfGate";
             return "IfSelfCounters(" + cg.group("count") + "+ " + cg.group("counter").trim() + ": "
                     + describeOrName(cg.group("inner").trim(), source) + ")";
+        }
+        if (tryParseCounterPresentOnSelfGate(effectText, source, 0) != null) {
+            Matcher cp = COUNTER_PRESENT_ON_SELF_GATE.matcher(effectText.trim());
+            if (!cp.matches()) return "CounterPresentOnSelfGate";
+            return "IfSelfCounters(1+ " + cp.group("counter").trim() + ": "
+                    + describeOrName(cp.group("inner").trim(), source) + ")";
         }
         if (tryParseControlConditionGate(effectText, source, 0)        != null) {
             Matcher ccg = CONTROL_CONDITION_GATE.matcher(effectText.trim());
@@ -3653,6 +3718,11 @@ public class ActionResolver {
             // grant out of this sentence and report it as unconditional.
             if (secondaryDesc == null && secondaryTxt != null && !secondaryTxt.isEmpty())
                 secondaryDesc = secondaryChosenCardGatedGrantAlsoName(secondaryTxt, source);
+            // Mirrors the choose chain, where this is read with the two above and for the same
+            // reason: left to the fallbacks below, Irvine 21-081L's payoff was described as an
+            // unconditional power boost, which is exactly how it was running.
+            if (secondaryDesc == null && secondaryTxt != null && !secondaryTxt.isEmpty())
+                secondaryDesc = secondaryIfNRemovedFromGameName(secondaryTxt, source);
             // Mirrors the choose chain, where this is tried ahead of the general parse: the
             // sentence reads as a bare conditional on its own and no chain entry claims it.
             if (secondaryDesc == null && secondaryTxt != null && !secondaryTxt.isEmpty()
@@ -3883,6 +3953,8 @@ public class ActionResolver {
         }
         if (tryParseRemoveFromBreakZoneFromGame(effectText, source) != null)
             return removeFromBreakZoneDescription(effectText, source);
+        if (ActionResolverFieldAbility.tryParseRemoveAllFieldFromGame(effectText) != null) return "RemoveAllFieldFromGame";
+        if (ActionResolverFieldAbility.tryParseNameCardTypeRemoveOppBzFromGame(effectText) != null) return "NameCardTypeRemoveOppBzFromGame";
         if (tryParseRemoveNamedFromGame(effectText, source) != null)        return "RemoveNamedFromGame";
         // Must precede BreakSourceCard, mirroring parse() and matchedPatternName().
         if (tryParseBreakSelfAndBattlePartner(effectText, source) != null)
@@ -3936,6 +4008,14 @@ public class ActionResolver {
         if (tryParseDiscardHandThenDraw(effectText) != null)                return "DiscardHandThenDraw";
         if (tryParseDrawDiscardRetriggerIfCardName(effectText, source) != null) return "DrawDiscardRetriggerIfCardName";
         if (tryParsePlaceUpToHandToBottomThenRedraw(effectText) != null)    return "PlaceUpToHandToBottomThenRedraw";
+        // Mirrors parse() and matchedPatternName(), and probed at X = 1 for the reason given there.
+        // The cost is a payment, not an effect, so what is worth reporting is what it buys —
+        // Shantotto 22-118H's five Earth buy a board sweep, and this line is what says so.
+        if (tryParsePayCpWhenDoSo(effectText, source, 1) != null) {
+            Matcher pc = PAY_CP_WHEN_DO_SO.matcher(effectText);
+            if (!pc.find()) return "PayCpWhenDoSo";
+            return "PayCp(" + describeOrName(pc.group("followup").trim(), source) + ")";
+        }
         if (tryParseDrawCards(effectText) != null)                          return "DrawCards";
         if (tryParseYouMayDiscardType(effectText) != null)                  return "YouMayDiscardType";
         if (tryParseMayRevealElementFromHand(effectText) != null)           return "MayRevealElementFromHand";
@@ -4023,6 +4103,8 @@ public class ActionResolver {
         if (tryParseSearchNamedRfgThenIfDoSo(effectText, source) != null) return "SearchNamedRfgThenIfDoSo";
         if (ActionResolverSearch.tryParseReturnSourceOntoField(effectText, source) != null)
             return "ReturnSourceOntoField";
+        if (ActionResolverSearch.tryParsePlaySourceFromBzOntoOppField(effectText, source) != null)
+            return "PlaySourceFromBzOntoOppField";
         if (tryParseSearchMatchingBrokenCard(effectText) != null) return "SearchMatchingBrokenCard";
         if (tryParseSearchDeck(effectText, source, 0) != null)              return "SearchDeck";
         if (tryParsePlayAllByNameFromBreakZone(effectText) != null)         return "PlayAllByNameFromBreakZone";
@@ -7292,6 +7374,8 @@ public class ActionResolver {
         if (tail.isEmpty()) return "RemoveFromBreakZoneFromGame";
         if (THEN_PLACE_COUNTERS_PER_CARD_REMOVED.matcher(tail).matches())
             return "RemoveFromBreakZoneFromGame + PlaceCountersPerCardRemoved";
+        if (IF_N_REMOVED_BY_THIS_EFFECT.matcher(tail).matches())
+            return "RemoveFromBreakZoneFromGame + IfNRemoved";
         return "RemoveFromBreakZoneFromGame + Then";
     }
 
@@ -7302,6 +7386,11 @@ public class ActionResolver {
         String tail = effectText.trim().substring(m.end()).trim();
         if (tail.isEmpty() || THEN_PLACE_COUNTERS_PER_CARD_REMOVED.matcher(tail).matches())
             return removeFromBreakZonePatternName(effectText);
+        Matcher counted = IF_N_REMOVED_BY_THIS_EFFECT.matcher(tail);
+        if (counted.matches())
+            return "RemoveFromBreakZoneFromGame + IfRemoved(" + counted.group("count")
+                    + (counted.group("ormore") != null ? "+" : "") + ": "
+                    + describeOrName(counted.group("effect").trim(), source) + ")";
         Matcher then = TRAILING_THEN_CLAUSE.matcher(tail);
         String inner = then.matches() ? fullDescription(then.group("rest").trim(), source) : null;
         return "RemoveFromBreakZoneFromGame + " + (inner != null ? inner : "Then");

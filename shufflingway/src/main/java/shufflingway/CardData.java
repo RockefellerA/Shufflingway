@@ -2994,6 +2994,11 @@ public record CardData(
             "|enters?\\s+the\\s+field\\s+or\\s+is\\s+put\\s+(?:from\\s+the\\s+field\\s+)?into\\s+the\\s+Break\\s+Zone" +
             // "enters the field or attacks" must precede plain "enters the field"
             "|enters?\\s+the\\s+field\\s+or\\s+attacks?" +
+            // "enters the field from your hand" — Kain 13-073H and G'raha Tia 27-044L. Must precede
+            // plain "enters the field", which would otherwise match the head of it and then fail on
+            // the comma this alternation's caller requires next, leaving the whole sentence unread:
+            // both cards had no auto-ability at all rather than one with a too-wide trigger.
+            "|enters?\\s+the\\s+field\\s+from\\s+your\\s+hand" +
             "|enters?\\s+the\\s+field(?:\\s+due\\s+to\\s+(?:your\\s+cast|Warp))?" +
             // "enters your field other than from your hand" must precede plain "enters your field"
             "|enters?\\s+your\\s+field\\s+other\\s+than\\s+from\\s+your\\s+hand" +
@@ -3904,6 +3909,9 @@ public record CardData(
             else if (triggerRaw.contains("enter") && triggerRaw.contains("attack"))                        trigger = "enters the field or attacks";
             else if (triggerRaw.contains("enter") && triggerRaw.contains("opponent") && triggerRaw.contains("other than from")) trigger = "enters opponent's field not from hand";
             else if (triggerRaw.contains("enter") && triggerRaw.contains("other than from your hand"))     trigger = "enters your field not from hand";
+            // Must follow the branch above: "other than from your hand" contains "from your hand"
+            // too, and this one would claim the exclusion and fire on exactly the entries it excludes.
+            else if (triggerRaw.contains("enter") && triggerRaw.contains("from your hand"))               trigger = "enters the field from hand";
             else if (triggerRaw.contains("enter") && triggerRaw.contains("opponent") && triggerRaw.contains("field")) trigger = "enters opponent's field";
             else if (triggerRaw.contains("enter") && triggerRaw.contains("your field"))                            trigger = "enters your field";
             else if (triggerRaw.contains("attack")

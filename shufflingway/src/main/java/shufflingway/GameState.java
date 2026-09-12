@@ -53,8 +53,47 @@ public class GameState {
         return removed;
     }
 
-    /** Removes all counters from {@code card} (called when it leaves the field). */
-    public void clearCounters(CardData card) { cardCounters.remove(card); }
+    /**
+     * What {@code card} had on it the last time it left the field, kept by identity for the same
+     * reason {@link #cardCounters} is. Written by {@link #clearCounters} and read by
+     * {@link #getLastKnownCounters}.
+     */
+    private final java.util.IdentityHashMap<CardData, Map<String, Integer>> countersWhenLeftField =
+            new java.util.IdentityHashMap<>();
+
+    /**
+     * Removes all counters from {@code card} (called when it leaves the field), keeping a copy of
+     * what was on it for {@link #getLastKnownCounters}.
+     *
+     * <p>The copy is written on every departure, empty pile included. An ability that asks about a
+     * card already gone reads the state of its <em>last</em> stay on the field and nothing older —
+     * a Kain 13-073H replayed without a Brainwashing Counter and broken again must not still be
+     * answering for the counter he carried two stays ago.
+     */
+    public void clearCounters(CardData card) {
+        Map<String, Integer> had = cardCounters.remove(card);
+        countersWhenLeftField.put(card,
+                had == null ? Map.of() : java.util.Map.copyOf(had));
+    }
+
+    /**
+     * How many counters named {@code name} {@code card} had on it as it last left the field.
+     *
+     * <p>The rules' "last known information": an ability that triggers on a card leaving the field
+     * and then asks about that card is asking about the card as it stood there, since everything
+     * about its stay is gone by the time the ability resolves. Kain 13-073H's "When Kain is put
+     * from the field into the Break Zone, if a Brainwashing Counter is placed on Kain" is the
+     * corpus's one printing that needs it — every other counter question is asked of a card still
+     * on the field, which is why {@link #getCounters} is what the rest of the engine reads.
+     *
+     * <p>Only ever the right answer for a card that is <em>not</em> on the field: one standing
+     * there now has live counters, and this would answer for a previous stay. The caller that
+     * picks between the two is {@code GameContextImpl.lastKnownCounters}.
+     */
+    public int getCountersWhenLeftField(CardData card, String name) {
+        Map<String, Integer> had = countersWhenLeftField.get(card);
+        return had == null ? 0 : had.getOrDefault(name, 0);
+    }
 
     /** Returns an unmodifiable view of all counter entries for {@code card}. */
     public Map<String, Integer> getCountersMap(CardData card) {

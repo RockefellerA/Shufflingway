@@ -1840,6 +1840,13 @@ final class AutoAbilityTriggers {
 					if (!fa.trigger().contains("enter")) continue;
 					// "enters your field other than from your hand" — skip when played normally from hand
 					if (fa.trigger().equals("enters your field not from hand") && mw.lastCardWasCast) continue;
+					// And its inverse, "enters the field from your hand" (Kain 13-073H, G'raha Tia
+					// 27-044L), read off the same signal. That signal is really "cast from hand", so
+					// a card *played* from hand without being cast — Leo 16-126R, Mind Flayer
+					// 15-120H, Nanaa Mihgo 22-048H can each do it — reads as not from hand here.
+					// The engine draws that line in one place on purpose; see
+					// GameContext.triggeringCardEnteredWithoutPayingCost, which answers the same way.
+					if (fa.trigger().equals("enters the field from hand") && !mw.lastCardWasCast) continue;
 					executeAutoAbility(fa, card, isP1, paidExtraCost);
 				}
 				// Watcher dispatch: "When a <Type> enters your field, ..." abilities live on other field cards

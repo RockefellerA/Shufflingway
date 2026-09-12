@@ -1528,4 +1528,78 @@ final class ActionResolverSearch {
             ctx.returnSourceFromBreakZoneToField(source, dull);
         };
     }
+
+    /**
+     * Parses G'raha Tia 27-044L's tiered reveal: "reveal the top N cards of your deck. Return them
+     * to the bottom of your deck in any order. If there were A or more different Elements among the
+     * revealed cards, &lt;first&gt;. If there were B or more, also &lt;second&gt;. If there were C or
+     * more, also &lt;third&gt;."
+     *
+     * <p>Each tier's effect goes back through {@code parse()}, so this adds no understanding of what
+     * they do — his are the ordinary draw, cost-reduction and board-sweep parsers. What it adds is
+     * the number they are all thresholds on, which only the reveal knows.
+     *
+     * <p><b>Every stated tier must parse or none of it is claimed.</b> That is the whole reason this
+     * exists: with no reader for the compound, {@code parse()} did not decline it — the parsers below
+     * match with {@code find()}, so one claimed a tier out of the middle and ran it with no threshold
+     * in front of it, handing out a 4 CP discount on any reveal at all. A tier this cannot read is a
+     * tier that would be silently skipped or silently always run, and neither is worth having over
+     * leaving the ability honestly unread.
+     *
+     * <p>The tiers are judged independently rather than as a ladder. They are printed ascending and
+     * cumulative — "also" — so meeting the top one pays out all three, but nothing here assumes the
+     * order, since a printing that broke it would otherwise silently lose a tier.
+     */
+    static Consumer<GameContext> tryParseRevealTopNTieredByDistinctElements(
+            String text, CardData source, int xValue) {
+        Matcher m = REVEAL_TOP_N_TIERED_BY_DISTINCT_ELEMENTS.matcher(text.trim());
+        if (!m.matches()) return null;
+        int reveal = Integer.parseInt(m.group("reveal"));
+
+        List<Integer>               thresholds = new ArrayList<>();
+        List<Consumer<GameContext>> effects    = new ArrayList<>();
+        List<String>                labels     = new ArrayList<>();
+        for (String[] tier : new String[][] {
+                { m.group("t1"), m.group("e1") },
+                { m.group("t2"), m.group("e2") },
+                { m.group("t3"), m.group("e3") } }) {
+            if (tier[0] == null) continue;
+            String label = tier[1].trim();
+            Consumer<GameContext> fn = parse(label, source, xValue);
+            if (fn == null) return null;
+            thresholds.add(Integer.parseInt(tier[0]));
+            effects.add(fn);
+            labels.add(label);
+        }
+        if (thresholds.isEmpty()) return null;
+
+        return ctx -> {
+            int seen = ctx.revealTopNCountDistinctElementsPlaceAllAtBottom(reveal);
+            ctx.logEntry("Effect: " + seen + " different Element(s) among the revealed cards");
+            for (int i = 0; i < thresholds.size(); i++) {
+                if (seen < thresholds.get(i)) continue;
+                ctx.logEntry("Effect: " + thresholds.get(i) + "+ Elements — " + labels.get(i));
+                effects.get(i).accept(ctx);
+            }
+        };
+    }
+
+    /**
+     * "Play [source] from your Break Zone onto your opponent's field." — Kain 13-073H's payoff for
+     * dying with a Brainwashing Counter on him.
+     *
+     * <p>The far-side sibling of {@link #tryParseReturnSourceOntoField}, read the same way: the
+     * name is checked against the carrier, and the move is by identity, so the copy the sentence is
+     * about is the one that goes and a twin already in the Break Zone stays.
+     */
+    static Consumer<GameContext> tryParsePlaySourceFromBzOntoOppField(String text, CardData source) {
+        if (source == null || source.name() == null) return null;
+        Matcher m = PLAY_SOURCE_FROM_BZ_ONTO_OPP_FIELD.matcher(text.trim());
+        if (!m.matches()) return null;
+        if (!m.group("name").trim().equalsIgnoreCase(source.name())) return null;
+        return ctx -> {
+            ctx.logEntry("Effect: Play " + source.name() + " from Break Zone -> opponent's field");
+            ctx.playSourceFromBreakZoneOntoOpponentField(source);
+        };
+    }
 }

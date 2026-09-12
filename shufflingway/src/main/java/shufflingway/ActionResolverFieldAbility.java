@@ -353,6 +353,64 @@ final class ActionResolverFieldAbility {
     }
 
     /**
+     * Parses "Remove all [the] &lt;types&gt; [on the field] [&lt;control&gt;] [other than &lt;name&gt;]
+     * [and all cards in &lt;whose&gt; Break Zone] from the game."
+     *
+     * <p>The sweep goes through the same {@code applyMassFieldEffect} the Break and Dull sweeps
+     * use, with {@link GameContext.MassAction#REMOVE_FROM_GAME} — so the leave-the-field shields
+     * hold against it exactly as they do against a single removal, which is what the rules say and
+     * what {@code find()}-claiming it as a card-name removal never gave it.
+     *
+     * <p>The Break Zone half, where a printing has one, runs after the field half. That is the
+     * printed order, and it matters: the field sweep puts its cards out of the game rather than
+     * into a Break Zone, so nothing it touches can arrive in time to be swept twice — but a reader
+     * coming to this later should not have to work that out from the code.
+     */
+    static Consumer<GameContext> tryParseRemoveAllFieldFromGame(String text) {
+        Matcher m = REMOVE_ALL_FIELD_FROM_GAME.matcher(text.trim());
+        if (!m.matches()) return null;
+
+        String  tgtLower     = m.group("targets").toLowerCase();
+        boolean inclForwards = tgtLower.contains("forward") || tgtLower.contains("character");
+        boolean inclBackups  = tgtLower.contains("character");
+        boolean inclMonsters = tgtLower.contains("monster")  || tgtLower.contains("character");
+
+        String  control      = m.group("control");
+        boolean opponentOnly = control != null && !control.toLowerCase().contains("you control");
+        boolean selfOnly     = control != null &&  control.toLowerCase().contains("you control");
+        String  excludeName  = m.group("exclude") != null ? m.group("exclude").trim() : null;
+        String  bz           = m.group("bz");
+        boolean bzOpponentOnly = bz != null && bz.toLowerCase().contains("opponent");
+
+        return ctx -> {
+            ctx.logEntry("Effect: Remove all " + m.group("targets")
+                    + (control != null ? " " + control : "")
+                    + (excludeName != null ? " other than " + excludeName : "")
+                    + " from the game");
+            ctx.applyMassFieldEffect(GameContext.MassAction.REMOVE_FROM_GAME,
+                    inclForwards, inclBackups, inclMonsters, opponentOnly, selfOnly,
+                    null, -1, null, -1, null, null,
+                    EnumSet.noneOf(CardData.Trait.class), null, excludeName);
+            if (bz == null) return;
+            if (bzOpponentOnly) ctx.removeAllOpponentBzFromGame();
+            else                ctx.removeAllBreakZonesFromGame();
+        };
+    }
+
+    /**
+     * Parses Baron Guardsman 17-072H's "name 1 card type. Remove all the cards of named card type
+     * in your opponent's Break Zone from the game." Both sentences are one decision, so they are
+     * one primitive; see {@link GameContext#nameCardTypeRemoveAllOfTypeFromOppBzFromGame}.
+     */
+    static Consumer<GameContext> tryParseNameCardTypeRemoveOppBzFromGame(String text) {
+        if (!NAME_CARD_TYPE_REMOVE_OPP_BZ_FROM_GAME.matcher(text.trim()).matches()) return null;
+        return ctx -> {
+            ctx.logEntry("Effect: Name 1 card type, remove all of it from opponent's Break Zone");
+            ctx.nameCardTypeRemoveAllOfTypeFromOppBzFromGame();
+        };
+    }
+
+    /**
      * Parses "[action] all [the] [element] [targets] [of cost X] [control]".
      *
      * <p>Supported actions: Break, dull, freeze, dull and freeze, Activate.
