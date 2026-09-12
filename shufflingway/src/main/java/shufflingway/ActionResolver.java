@@ -1086,6 +1086,12 @@ public class ActionResolver {
         result = tryParseOppFwdsLoseAllAbilitiesEot(effectText);
         if (result != null) return result;
 
+        // The Character-wide sibling of the two above. Order against them is free rather than
+        // load-bearing — all three anchor, and a sentence naming Forwards cannot match the one
+        // naming Characters — but it belongs beside them so the family stays readable.
+        result = tryParseOppCharactersLoseAllAbilitiesEot(effectText);
+        if (result != null) return result;
+
         result = tryParseOppFwdPowerBoostSuppressedThisTurn(effectText);
         if (result != null) return result;
 
@@ -2297,6 +2303,8 @@ public class ActionResolver {
         if (tryParseAllFwdsBlockedOnlyByLowerCostThisTurn(effectText)    != null) return "AllFwdsBlockedOnlyByLowerCost";
         if (tryParseOppFwdsLoseAllAbilitiesAndPowerEot(effectText) != null) return "OppFwdsLoseAllAbilitiesAndPowerEot";
         if (tryParseOppFwdsLoseAllAbilitiesEot(effectText)         != null) return "OppFwdsLoseAllAbilitiesEot";
+        // Mirrors parse(), where this sits beside the two above for the same reason.
+        if (tryParseOppCharactersLoseAllAbilitiesEot(effectText)   != null) return "OppCharactersLoseAllAbilitiesEot";
         if (tryParseOppFwdPowerBoostSuppressedThisTurn(effectText) != null) return "OppFwdPowerBoostSuppressedThisTurn";
         if (tryParseOppFwdsLosePowerPerPlayCost(effectText)        != null) return "OppFwdsLosePowerPerPlayCost";
         if (tryParseStandaloneGainsCannotBeBlocked(effectText, source) != null) return "StandaloneGainsCannotBeBlocked";
@@ -3914,6 +3922,8 @@ public class ActionResolver {
         if (tryParseAllFwdsBlockedOnlyByLowerCostThisTurn(effectText)    != null) return "AllFwdsBlockedOnlyByLowerCost";
         if (tryParseOppFwdsLoseAllAbilitiesAndPowerEot(effectText) != null) return "OppFwdsLoseAllAbilitiesAndPowerEot";
         if (tryParseOppFwdsLoseAllAbilitiesEot(effectText)         != null) return "OppFwdsLoseAllAbilitiesEot";
+        // Mirrors parse(), where this sits beside the two above for the same reason.
+        if (tryParseOppCharactersLoseAllAbilitiesEot(effectText)   != null) return "OppCharactersLoseAllAbilitiesEot";
         if (tryParseOppFwdPowerBoostSuppressedThisTurn(effectText) != null) return "OppFwdPowerBoostSuppressedThisTurn";
         if (tryParseOppFwdsLosePowerPerPlayCost(effectText)        != null) return "OppFwdsLosePowerPerPlayCost";
         if (tryParseStandaloneGainsCannotBeBlocked(effectText, source) != null) return "StandaloneGainsCannotBeBlocked";

@@ -4,8 +4,11 @@ import static shufflingway.ActionResolverPatterns.*;
 
 import static shufflingway.ActionResolver.*;
 
+import java.util.Collections;
 import java.util.EnumSet;
+import java.util.LinkedHashSet;
 import java.util.Locale;
+import java.util.Set;
 import java.util.function.Consumer;
 import java.util.regex.Matcher;
 
@@ -171,6 +174,36 @@ final class ActionResolverFieldAbility {
     static Consumer<GameContext> tryParseOppFwdsLoseAllAbilitiesEot(String text) {
         if (!OPP_FWDS_LOSE_ALL_ABILITIES_EOT.matcher(text).matches()) return null;
         return ctx -> ctx.oppForwardsLoseAllAbilitiesUntilEndOfTurn();
+    }
+
+    /**
+     * Parses "All [the] Characters [other than &lt;Elements&gt;] opponent controls lose all their
+     * abilities until the end of the turn." — 2-138L Yuna's attack trigger, and the same sweep
+     * unfiltered on 22-027R Shiva.
+     *
+     * <p>Sweeps all three field zones, which is what "Characters" means: the Forward-only sibling
+     * above left Yuna's opponent their Backups and Monsters, so her ability was worth considerably
+     * less than it prints. Anchored end to end like that sibling, and for the same reason — a sweep
+     * of the whole board is the last effect that should be read out of the middle of a sentence.
+     *
+     * <p>The spared Elements are split here rather than in the context so the parse happens once
+     * per printing instead of once per resolution; the set is fixed at parse time and never
+     * written again, which is what lets the returned Consumer be reused.
+     */
+    static Consumer<GameContext> tryParseOppCharactersLoseAllAbilitiesEot(String text) {
+        Matcher m = OPP_CHARACTERS_LOSE_ALL_ABILITIES_EOT.matcher(text.trim());
+        if (!m.matches()) return null;
+        Set<String> excluded = new LinkedHashSet<>();
+        if (m.group("excludeelems") != null)
+            for (String e : m.group("excludeelems").split("(?i)\\s+(?:and|or)\\s+"))
+                excluded.add(e.trim());
+        final Set<String> spared = Collections.unmodifiableSet(excluded);
+        return ctx -> {
+            ctx.logEntry("Effect: All Characters opponent controls"
+                    + (spared.isEmpty() ? "" : " other than " + String.join(" and ", spared))
+                    + " lose all their abilities until end of turn");
+            ctx.opponentCharactersLoseAllAbilitiesUntilEndOfTurn(true, true, true, spared);
+        };
     }
 
     /**

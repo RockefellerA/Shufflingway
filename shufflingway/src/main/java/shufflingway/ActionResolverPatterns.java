@@ -2552,6 +2552,36 @@ final class ActionResolverPatterns {
         "lose\\s+(?:all\\s+)?(?:their\\s+)?abilities\\s+until\\s+(?:the\\s+)?end\\s+of\\s+(?:the\\s+)?turn[.!]?"
     );
     /**
+     * Matches "All [the] Characters [other than &lt;Elements&gt;] opponent controls lose all their
+     * abilities until the end of the turn." — 2-138L Yuna, whose sweep spares Light and Dark, and
+     * 22-027R Shiva, who prints it with nothing spared.
+     *
+     * <p>The Character sibling of {@link #OPP_FWDS_LOSE_ALL_ABILITIES_EOT} rather than a widening
+     * of it, because the two sweep different boards: that one silences Forwards, this one every
+     * zone the opponent has. Keeping them apart also keeps the noun honest — a text saying
+     * "Forwards" must not reach a parser that silences Backups too.
+     *
+     * <p>Only the printed word order is admitted: the exclusion sits between the noun and the
+     * control clause, which is where both printings put it. The choose grammar accepts the mirror
+     * order as well, but it has printings that need it and this family has none, and a slot with
+     * no card behind it is a slot nothing is checking.
+     *
+     * <p>"Lightning" precedes "Light" in the Element alternation, as everywhere else in this file:
+     * the other order matches the first five letters of "Lightning" and reads it as Light.
+     *
+     * <p>Group {@code excludeelems} — the spared Elements, joined by "and" or "or"; absent when
+     * the sentence spares none.
+     */
+    static final Pattern OPP_CHARACTERS_LOSE_ALL_ABILITIES_EOT = Pattern.compile(
+        "(?i)^All\\s+(?:the\\s+)?Characters?" +
+        "(?:\\s+other\\s+than\\s+(?<excludeelems>" +
+        "(?:Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)" +
+        "(?:\\s+(?:and|or)\\s+(?:Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark))*))?" +
+        "\\s+(?:your\\s+)?opponent\\s+controls?\\s+" +
+        "lose\\s+(?:all\\s+)?(?:their\\s+)?abilities\\s+" +
+        "until\\s+(?:the\\s+)?end\\s+of\\s+(?:the\\s+)?turn[.!]?$"
+    );
+    /**
      * Matches "[Until the end of the turn,] all the Forwards opponent controls lose all their
      * abilities and N power[ until the end of the turn]." — 24-105R Malboro.
      *
@@ -4701,11 +4731,31 @@ final class ActionResolverPatterns {
         "(?i)Dull\\s+(?<subject>.+?)\\.\\s+.+?\\s+gains?\\s+['\"][^'\"]*?cannot\\s+be\\s+broken\\.?['\"]" +
         "\\s+until\\s+(?:the\\s+)?end\\s+of\\s+(?:the\\s+)?turn\\.?"
     );
-    /** Standalone: "All [the] Forwards you control gain '[...] cannot be broken.' until end of turn." */
+    /**
+     * Standalone: every Forward its controller has gets a cannot-be-broken shield for the turn,
+     * in either of the two wordings printed for that one effect.
+     *
+     * <p>The quoted-grant arm — "All the Forwards you control gain 'This Forward cannot be broken.'
+     * until the end of the turn." — is 12-122L Regis and 16-127L Warrior of Light. 5-022C Parivir
+     * prints the same sweep flat: no quoted ability to hand out, and the duration stated as "this
+     * turn" at the end rather than as "until the end of the turn". Both arms mean the shield the
+     * parser already applies with {@code shieldAllOwnForwards()}, so the second is a wording and
+     * not a mechanism.
+     *
+     * <p>The flat arm ends on sentence punctuation or end of input; the quoted arm does not need
+     * to, because its own duration clause terminates it. Scanning with {@code find()}, an open
+     * tail there would read a narrower printed restriction — "... cannot be broken this turn by
+     * opposing Summons" — as an unqualified shield, which is stronger than the card. No printing
+     * says that today; the arm is written so that one could not be misread if it did.
+     *
+     * <p>Not extended to "all the Forwards <em>opponent</em> controls": no card prints it, and the
+     * primitive behind this parser only ever shields the resolving player's side.
+     */
     static final Pattern STANDALONE_ALL_FORWARDS_SHIELD_CANNOT_BE_BROKEN = Pattern.compile(
-        "(?i)All\\s+(?:the\\s+)?Forwards?\\s+you\\s+control\\s+gains?\\s+" +
-        "['\"][^'\"]*?cannot\\s+be\\s+broken\\.?['\"]" +
-        "\\s+until\\s+(?:the\\s+)?end\\s+of\\s+(?:the\\s+)?turn\\.?"
+        "(?i)All\\s+(?:the\\s+)?Forwards?\\s+you\\s+control\\s+" +
+        "(?:gains?\\s+['\"][^'\"]*?cannot\\s+be\\s+broken\\.?['\"]" +
+        "\\s+until\\s+(?:the\\s+)?end\\s+of\\s+(?:the\\s+)?turn\\.?" +
+        "|cannot\\s+be\\s+broken\\s+this\\s+turn(?:[.!]|$))"
     );
 
     // =========================================================================================
@@ -5209,8 +5259,25 @@ final class ActionResolverPatterns {
     // =========================================================================================
     // Each-player and opponent-directed effects
     // =========================================================================================
+    /**
+     * Matches "Your opponent [also] discards N card(s) [from his/her/their hand]". Group 1 = N.
+     *
+     * <p>"also" is admitted because it is pure connective: it marks the discard as a second effect
+     * alongside one the sentence before already applied, and says nothing about the discard itself.
+     * 24-020C Ulmia is the only printing of it in the corpus — "choose 1 Character. Freeze it. If
+     * you control a Category XI Forward, your opponent also discards 1 card." — where the word sat
+     * between an otherwise ordinary control gate and an otherwise ordinary discard and left the
+     * whole second sentence unread.
+     *
+     * <p>Safe to widen despite scanning with {@code find()} because both parsers that read the
+     * conditional wording are dispatched ahead of {@code tryParseOpponentDiscard}: the choose chain
+     * at the top of {@code parse()} claims Ulmia's ability whole, and {@code CONTROL_CONDITION_GATE}
+     * claims her second sentence with its gate intact. Neither ordering is incidental — dropping
+     * below either would turn this into an unconditional discard that ignores the Category XI
+     * requirement.
+     */
     static final Pattern OPPONENT_DISCARD = Pattern.compile(
-        "(?i)Your\\s+opponent\\s+discards?\\s+(\\d+)\\s+cards?" +
+        "(?i)Your\\s+opponent\\s+(?:also\\s+)?discards?\\s+(\\d+)\\s+cards?" +
         "(?:\\s+from\\s+(?:his/her|his|her|their)\\s+hand)?[.!]?"
     );
     /** Matches "Each player discards N card(s) [from his/her/their hand]". Group {@code count} = N. */

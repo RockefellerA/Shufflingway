@@ -172,6 +172,22 @@ final class GameContextImpl implements GameContext {
 	}
 
 	/**
+	 * True if {@code card} carries any of {@code excludedElements} and so is left alone by a sweep
+	 * printed as "other than &lt;Elements&gt;" — 2-138L Yuna's "other than Light and Dark".
+	 *
+	 * <p>Any, not all: a multi-Element printing has every Element it names, so a Light/Fire
+	 * Character is a Light Character and Yuna spares it. Reading the exclusion the other way would
+	 * silence exactly the cards the word "other" is there to protect.
+	 */
+	private static boolean sparedByElement(CardData card, Set<String> excludedElements) {
+		if (card == null || excludedElements == null || excludedElements.isEmpty()) return false;
+		for (String e : card.elements())
+			for (String excluded : excludedElements)
+				if (e.trim().equalsIgnoreCase(excluded)) return true;
+		return false;
+	}
+
+	/**
 	 * Counts the cards in {@code breakZone} whose printed type is one of the enabled ones and that
 	 * pass the optional element and cost-ceiling filters. Backs both
 	 * {@link GameContext#countP1BreakZoneCardsByType} and {@link GameContext#countP1BreakZoneMatching}.
@@ -2086,6 +2102,28 @@ final class GameContextImpl implements GameContext {
 					}
 				}
 				logEntry("Effect: All opponent Forwards lose all abilities until end of turn");
+			}
+			@Override public void opponentCharactersLoseAllAbilitiesUntilEndOfTurn(
+					boolean inclForwards, boolean inclBackups, boolean inclMonsters,
+					Set<String> excludedElements) {
+				List<CardData> swept = new ArrayList<>();
+				if (inclForwards) swept.addAll(isP1 ? mw.p2ForwardCards : mw.p1ForwardCards);
+				if (inclMonsters) swept.addAll(isP1 ? mw.p2MonsterCards : mw.p1MonsterCards);
+				if (inclBackups)
+					for (CardData c : (isP1 ? mw.p2BackupCards : mw.p1BackupCards))
+						if (c != null) swept.add(c);
+				int silenced = 0;
+				for (CardData c : swept) {
+					if (sparedByElement(c, excludedElements)) {
+						logEntry(c.name() + " is spared — its Element is excluded");
+						continue;
+					}
+					silenced++;
+					if (!mw.lostAbilitiesCards.add(c)) continue;
+					mw.endOfTurnEffects.add(ctx -> mw.lostAbilitiesCards.remove(c));
+					logEntry(c.name() + " loses all its abilities until end of turn");
+				}
+				if (silenced == 0) logEntry("No opposing Characters to silence");
 			}
 			@Override public void targetLoseAllAbilitiesUntilEndOfTurn(ForwardTarget t) {
 				List<CardData> fwds = t.isP1() ? mw.p1ForwardCards : mw.p2ForwardCards;

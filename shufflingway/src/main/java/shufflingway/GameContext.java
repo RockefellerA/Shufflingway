@@ -2,6 +2,7 @@ package shufflingway;
 
 import java.util.EnumSet;
 import java.util.List;
+import java.util.Set;
 import java.util.function.Consumer;
 import java.util.function.Predicate;
 
@@ -3459,6 +3460,26 @@ public interface GameContext {
 
     /** Causes all opponent Forwards to lose all abilities until end of turn. */
     void oppForwardsLoseAllAbilitiesUntilEndOfTurn();
+
+    /**
+     * Silences every Character the opponent controls in the named zones until the end of the turn,
+     * skipping any card carrying one of {@code excludedElements} — 2-138L Yuna, "all Characters
+     * other than Light and Dark opponent controls lose all their abilities until the end of the
+     * turn", and 22-027R Shiva, which prints the same sweep with nothing excluded.
+     *
+     * <p>Not a widening of {@link #oppForwardsLoseAllAbilitiesUntilEndOfTurn} above, which stays as
+     * it is: that one is named by several parsers and by mock-based tests, and changing its arity
+     * would break every one of them while buying nothing — a Forward-only sweep is still what those
+     * cards print.
+     *
+     * <p>A card is skipped when <em>any</em> of its Elements is excluded, which is what "other than
+     * Light and Dark" means against a multi-Element printing: a Light/Fire Character is a Light
+     * Character, so Yuna leaves it alone.
+     *
+     * @param excludedElements Element names to spare, matched case-insensitively; empty sweeps all
+     */
+    void opponentCharactersLoseAllAbilitiesUntilEndOfTurn(boolean inclForwards, boolean inclBackups,
+            boolean inclMonsters, Set<String> excludedElements);
 
     /** Causes the chosen target Forward to lose all abilities until end of turn. */
     void targetLoseAllAbilitiesUntilEndOfTurn(ForwardTarget t);

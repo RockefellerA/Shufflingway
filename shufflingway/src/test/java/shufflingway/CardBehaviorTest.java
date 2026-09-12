@@ -44632,6 +44632,324 @@ public class CardBehaviorTest {
 
 
 	// =========================================================================================
+	// Ulmia 24-020C: the same shape as the three above, with the "also" pointing somewhere else.
+	//
+	// Parsing + board behaviour. Laguna, Snow and Orphan all say "<verb> it also" — a second
+	// action on the card the primary sentence already chose, which is what
+	// SECONDARY_CONDITION_GATED_ACTION_ALSO reads and why that parser rebuilds the clause as
+	// "<verb> it" before handing it to the target-action vocabulary. Ulmia's second sentence is
+	// gated the same way but its payoff is aimed at a player, not at the frozen Character, so
+	// that parser declines it — correctly, and it should keep declining it.
+	//
+	// Nothing else was missing. The control gate and the opponent discard are both ordinary
+	// parsers the chain has had all along; the sentence was unread because "also" sat between
+	// them, inside OPPONENT_DISCARD's span. Ulmia is the corpus' only printing of a player-
+	// directed "also", so admitting it there costs one optional group.
+	// =========================================================================================
+
+	private static final String ULMIA_24_020C_TEXT =
+			"When Ulmia enters the field, choose 1 Character. Freeze it. "
+			+ "If you control a Category XI Forward, your opponent also discards 1 card.";
+
+	@Test
+	void ulmiasDiscardIsReadRatherThanStoppingAtTheFreeze() {
+		// "+ ?" here was the whole second sentence going unread — the freeze resolved and the
+		// discard silently did not.
+		CardData ulmia = makeAutoAbilityBackupNamed("Ulmia", "Ice", 3, ULMIA_24_020C_TEXT);
+		assertEquals("ChooseCharacter / Freeze + IfControl(1+ XI Forward: OpponentDiscard)",
+				ActionResolver.fullDescription(ulmia.autoAbilities().get(0).effectText(), ulmia));
+	}
+
+	@Test
+	void theSecondaryAlsoParserStillDeclinesAPlayerDirectedAlso() {
+		// The guard on the family Laguna, Snow and Orphan belong to. Its clause has to act on the
+		// chosen card; Ulmia's acts on a player, and rebuilding hers as "discards 1 card it"
+		// must not produce a target action. If this ever starts returning non-null, her discard
+		// is being applied to the frozen Character.
+		assertNull(ActionResolverChoose.secondaryConditionGatedActionAlso(
+				"If you control a Category XI Forward, your opponent also discards 1 card."));
+	}
+
+	/**
+	 * Ulmia on P1's Backup row with one P2 Forward to freeze and two cards in P2's hand.
+	 * P1 resolves rather than P2 so the forced discard runs through the AI's own picker instead
+	 * of the modal dialog the human side opens.
+	 */
+	private static MainWindow ulmiaBoard(boolean withCategoryXiForward) {
+		MainWindow mw = new MainWindow();
+		CardData ulmia = makeAutoAbilityBackupNamed("Ulmia", "Ice", 3, ULMIA_24_020C_TEXT);
+		mw.gameState.getIdentity().put(ulmia, true);
+		mw.p1BackupCards[0]  = ulmia;
+		mw.p1BackupStates[0] = CardState.ACTIVE;
+		if (withCategoryXiForward)
+			placeP1Forward(mw, makeCategoryCardForward("Prishe", "XI", 7000));
+		placeP2Forward(mw, makeForward("Victim", "Fire", 3, 7000));
+		mw.gameState.getP2Hand().add(makeForward("Held", "Ice", 2, 5000));
+		mw.gameState.getP2Hand().add(makeForward("Held 2", "Ice", 2, 5000));
+		return mw;
+	}
+
+	/** Resolves Ulmia's entry trigger for P1 against P2's only Forward. */
+	private static void runUlmia(MainWindow mw) {
+		GameContext ctx = mw.buildGameContext(true);
+		ctx.preloadTargets(List.of(new ForwardTarget(false, 0, ForwardTarget.CardZone.FORWARD)));
+		soleAutoEffect(mw.p1BackupCards[0]).accept(ctx);
+	}
+
+	@Test
+	void ulmiaFreezesAndTakesACardWhileSheControlsACategoryXiForward() {
+		MainWindow mw = ulmiaBoard(true);
+
+		runUlmia(mw);
+
+		assertTrue(mw.p2ForwardFrozen.get(0), "the Freeze is unconditional");
+		assertEquals(1, mw.gameState.getP2Hand().size(),
+				"\"your opponent also discards 1 card\" used to be dropped whole");
+	}
+
+	@Test
+	void ulmiaStillFreezesWithoutTheCategoryButTakesNothing() {
+		MainWindow mw = ulmiaBoard(false);
+
+		runUlmia(mw);
+
+		assertTrue(mw.p2ForwardFrozen.get(0), "the Freeze does not sit behind the gate");
+		assertEquals(2, mw.gameState.getP2Hand().size(),
+				"the discard does, and a Fire Forward is not a Category XI one");
+	}
+
+
+	// =========================================================================================
+	// Parivir 5-022C and Yuna 2-138L: two board-wide effects the resolver was not reading at all.
+	//
+	// Parsing + board behaviour. Parivir needed nothing but a wording: 12-122L Regis and 16-127L
+	// Warrior of Light print the same shield as a quoted-ability grant, and the parser behind them
+	// already calls shieldAllOwnForwards(). Parivir states it flat — no quoted ability, and "this
+	// turn" where the others say "until the end of the turn" — so the pattern missed it.
+	//
+	// Yuna needed a sweep that did not exist. The engine could silence every opposing *Forward*,
+	// which is what the Forward-only sibling of her sentence does, but she names Characters: left
+	// on that primitive she would leave her opponent every Backup and Monster they control. Her
+	// Element exclusion had nowhere to go either.
+	// =========================================================================================
+
+	private static final String PARIVIR_5_022C_TEXT =
+			"When Parivir enters the field, all the Forwards you control cannot be broken this turn.";
+
+	private static final String YUNA_2_138L_TEXT =
+			"When Yuna attacks, all Characters other than Light and Dark opponent controls lose "
+			+ "all their abilities until the end of the turn.";
+
+	@Test
+	void parivirsFlatWordingReadsAsTheShieldTheQuotedOnesGrant() {
+		CardData parivir = makeAutoAbilityBackupNamed("Parivir", "Fire", 3, PARIVIR_5_022C_TEXT);
+		assertEquals("StandaloneShieldCannotBeBroken",
+				ActionResolver.fullDescription(parivir.autoAbilities().get(0).effectText(), parivir));
+	}
+
+	@Test
+	void parivirShieldsOnlyItsOwnSide() {
+		MainWindow mw = new MainWindow();
+		CardData parivir = makeAutoAbilityBackupNamed("Parivir", "Fire", 3, PARIVIR_5_022C_TEXT);
+		mw.gameState.getIdentity().put(parivir, true);
+		mw.p1BackupCards[0]  = parivir;
+		mw.p1BackupStates[0] = CardState.ACTIVE;
+		placeP1Forward(mw, makeForward("Ally", "Fire", 3, 7000));
+		placeP1Forward(mw, makeForward("Ally 2", "Fire", 2, 5000));
+		placeP2Forward(mw, makeForward("Theirs", "Ice", 3, 7000));
+
+		soleAutoEffect(parivir).accept(mw.buildGameContext(true));
+
+		assertTrue(mw.effectiveP1HasTrait(0, CardData.Trait.CANNOT_BE_BROKEN));
+		assertTrue(mw.effectiveP1HasTrait(1, CardData.Trait.CANNOT_BE_BROKEN),
+				"\"all the Forwards you control\" is every one of them, not the first");
+		assertFalse(mw.effectiveP2HasTrait(0, CardData.Trait.CANNOT_BE_BROKEN),
+				"\"you control\" stops at the table's edge");
+	}
+
+	@Test
+	void theFlatShieldWordingWillNotClaimANarrowerRestriction() {
+		// The flat arm ends on sentence punctuation precisely so that this cannot match. Scanning
+		// with find(), an open tail would read a qualified restriction as a blanket shield — which
+		// is stronger than any card prints. No printing says this today; the guard is what keeps
+		// one from being misread if it ever does.
+		assertFalse(ActionResolverPatterns.STANDALONE_ALL_FORWARDS_SHIELD_CANNOT_BE_BROKEN
+				.matcher("All the Forwards you control cannot be broken this turn by opposing Summons.")
+				.find());
+	}
+
+	@Test
+	void yunasSweepIsReadAsCoveringCharactersRatherThanForwards() {
+		CardData yuna = makeAutoAbilityForward("Yuna", "Water", 7000, YUNA_2_138L_TEXT);
+		assertEquals("OppCharactersLoseAllAbilitiesEot",
+				ActionResolver.fullDescription(yuna.autoAbilities().get(0).effectText(), yuna));
+	}
+
+	@Test
+	void theForwardOnlySweepStillAnswersForItsOwnWording() {
+		// The two are siblings, not a replacement: a sentence that says Forwards must not reach a
+		// parser that silences Backups and Monsters as well.
+		CardData any = makeForward("Source", "Water", 3, 7000);
+		assertEquals("OppFwdsLoseAllAbilitiesEot", ActionResolver.fullDescription(
+				"All the Forwards opponent controls lose all their abilities until the end of the turn.",
+				any));
+	}
+
+	/** P2 fields one Character of each zone, in the Elements the caller names. */
+	private static MainWindow yunaBoard(String fwdElement, String backupElement, String monsterElement) {
+		MainWindow mw = new MainWindow();
+		placeP1Forward(mw, makeAutoAbilityForward("Yuna", "Water", 7000, YUNA_2_138L_TEXT));
+		placeP2Forward(mw, makeForward("Their Forward", fwdElement, 3, 7000));
+		seatP2Backup(mw, 0, makePlainBackup("Their Backup", backupElement, 2), CardState.ACTIVE);
+		CardData monster = makeMonsterWithText("Their Monster", monsterElement, "");
+		mw.gameState.getIdentity().put(monster, false);
+		mw.p2MonsterCards.add(monster);
+		mw.p2MonsterStates.add(CardState.ACTIVE);
+		mw.p2MonsterFrozen.add(false);
+		return mw;
+	}
+
+	private static void runYuna(MainWindow mw) {
+		soleAutoEffect(mw.p1ForwardCards.get(0)).accept(mw.buildGameContext(true));
+	}
+
+	@Test
+	void yunaSilencesEveryZoneHerOpponentControls() {
+		MainWindow mw = yunaBoard("Fire", "Water", "Ice");
+
+		runYuna(mw);
+
+		assertTrue(mw.lostAbilitiesCards.contains(mw.p2ForwardCards.get(0)));
+		assertTrue(mw.lostAbilitiesCards.contains(mw.p2BackupCards[0]),
+				"\"Characters\" reaches the Backup row; the Forward-only sweep left it alone");
+		assertTrue(mw.lostAbilitiesCards.contains(mw.p2MonsterCards.get(0)),
+				"and the Monster zone with it");
+		assertFalse(mw.lostAbilitiesCards.contains(mw.p1ForwardCards.get(0)),
+				"Yuna does not silence herself");
+	}
+
+	@Test
+	void yunaSparesLightAndDarkInEveryZone() {
+		MainWindow mw = yunaBoard("Light", "Dark", "Light");
+
+		runYuna(mw);
+
+		assertTrue(mw.lostAbilitiesCards.isEmpty(),
+				"\"other than Light and Dark\" is the whole point of her sweep");
+	}
+
+	@Test
+	void aMultiElementCharacterCountsAsEachElementItPrints() {
+		// A Light/Fire Character is a Light Character, so "other than Light and Dark" spares it.
+		// Reading the exclusion as needing every Element to match would silence exactly the cards
+		// the word "other" is there to protect.
+		MainWindow mw = yunaBoard("Light/Fire", "Fire", "Fire");
+
+		runYuna(mw);
+
+		assertFalse(mw.lostAbilitiesCards.contains(mw.p2ForwardCards.get(0)),
+				"one excluded Element is enough to spare the card");
+		assertTrue(mw.lostAbilitiesCards.contains(mw.p2BackupCards[0]),
+				"the mono-Fire cards around it are still swept");
+	}
+
+	@Test
+	void theExclusionListReadsLightningAsLightningAndNotAsLight() {
+		// "Lightning" opens with the five letters of "Light". The Element alternation puts the
+		// longer name first for exactly this reason, here as everywhere else in the pattern file.
+		MainWindow mw = new MainWindow();
+		CardData source = makeForward("Source", "Water", 3, 7000);
+		placeP2Forward(mw, makeForward("Lightning One", "Lightning", 3, 7000));
+		placeP2Forward(mw, makeForward("Light One", "Light", 3, 7000));
+
+		Consumer<GameContext> effect = ActionResolver.parse("All Characters other than Lightning "
+				+ "opponent controls lose all their abilities until the end of the turn.", source);
+		assertNotNull(effect);
+		effect.accept(mw.buildGameContext(true));
+
+		assertFalse(mw.lostAbilitiesCards.contains(mw.p2ForwardCards.get(0)),
+				"the Lightning Character is the one excluded");
+		assertTrue(mw.lostAbilitiesCards.contains(mw.p2ForwardCards.get(1)),
+				"the Light Character is not, and must still be silenced");
+	}
+
+	@Test
+	void theSilenceIsLiftedAtEndOfTurn() {
+		MainWindow mw = yunaBoard("Fire", "Fire", "Fire");
+		runYuna(mw);
+		assertEquals(3, mw.lostAbilitiesCards.size());
+
+		for (Consumer<GameContext> eot : new ArrayList<>(mw.endOfTurnEffects))
+			eot.accept(mw.buildGameContext(true));
+
+		assertTrue(mw.lostAbilitiesCards.isEmpty(), "\"until the end of the turn\" has to end");
+	}
+
+	@Test
+	void yunaAsksForEveryZoneAndNamesExactlyTheElementsSheSpares() {
+		CardData yuna = makeAutoAbilityForward("Yuna", "Water", 7000, YUNA_2_138L_TEXT);
+		GameContext ctx = mock(GameContext.class);
+
+		soleAutoEffect(yuna).accept(ctx);
+
+		verify(ctx).opponentCharactersLoseAllAbilitiesUntilEndOfTurn(
+				true, true, true, Set.of("Light", "Dark"));
+	}
+
+	// ---- The two printings the same sweep turned out to unblock ------------------------------
+	//
+	// Neither was in the brief, and both were found by the characterization diff rather than by
+	// reading the corpus: they print the same Character-wide sweep and were losing it the same
+	// way. Locked here because their behaviour changed, and a behaviour change nobody is testing
+	// is one nobody will notice going away.
+
+	private static final String SHIVA_22_027R_TEXT =
+			"All the Characters opponent controls lose all their abilities until the end of the "
+			+ "turn. If the CP paid to cast Shiva was only produced by Backups, also draw 1 card.";
+
+	private static final String MINERVA_3_146H_TEXT =
+			"At the beginning of your Main Phase 1, select 1 of the 3 following actions. "
+			+ "\"All the Forwards you control gain +3000 power until the end of the turn.\" "
+			+ "\"All Characters opponent controls lose their abilities until the end of the turn.\" "
+			+ "\"Draw 1 card.\"";
+
+	@Test
+	void shivasSweepRunsRatherThanOnlyTheDrawBehindIt() {
+		// Her text parsed before this, which is what made the gap easy to miss: the second
+		// sentence's conditional draw was read and reported, and the sweep in front of it — the
+		// whole reason to cast her — was dropped.
+		MainWindow mw = new MainWindow();
+		CardData shiva = makeSummon("Shiva", "Ice", 3, SHIVA_22_027R_TEXT);
+		placeP2Forward(mw, makeForward("Their Forward", "Fire", 3, 7000));
+		seatP2Backup(mw, 0, makePlainBackup("Their Backup", "Fire", 2), CardState.ACTIVE);
+
+		Consumer<GameContext> effect = ActionResolver.parse(SHIVA_22_027R_TEXT, shiva);
+		assertNotNull(effect);
+		effect.accept(mw.buildGameContext(true));
+
+		assertTrue(mw.lostAbilitiesCards.contains(mw.p2ForwardCards.get(0)));
+		assertTrue(mw.lostAbilitiesCards.contains(mw.p2BackupCards[0]),
+				"nothing is spared — she prints no Element exclusion");
+	}
+
+	@Test
+	void minervasMiddleOptionSweepsInsteadOfDoingNothing() {
+		// "lose their abilities", with neither "all" nor a possessive before it — the third
+		// spelling of the same clause, and the reason the pattern admits both words optionally.
+		CardData minerva = makeAutoAbilityForward("Minerva", "Earth", 8000, MINERVA_3_146H_TEXT);
+		GameContext ctx = mock(GameContext.class);
+		// The middle of the three, picked off the list the parser actually offers so this test
+		// says "the second printed option" rather than restating the sentence.
+		when(ctx.chooseActions(any(), any(), anyInt(), anyBoolean()))
+				.thenAnswer(inv -> List.of(((List<?>) inv.getArgument(1)).get(1).toString()));
+
+		soleAutoEffect(minerva).accept(ctx);
+
+		verify(ctx).opponentCharactersLoseAllAbilitiesUntilEndOfTurn(true, true, true, Set.of());
+	}
+
+
+	// =========================================================================================
 	// Dancer 15-046C, Malboro 24-105R, Chocobo 25-045C and Maquis the Phantasm 17-115R: four
 	// abilities the resolver was not reading, for four different reasons.
 	//
