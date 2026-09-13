@@ -2976,7 +2976,7 @@ public class CardBehaviorTest {
         fn.accept(ctx);
 
         // element "Water" is a disjunct (orElementFilter, last arg), NOT the AND-gate elementFilter.
-        verify(ctx).revealTopAddUpToMatchingRestBottom(3, 1, null, "X", null, null, -1, null, "Water");
+        verify(ctx).revealTopAddUpToMatchingRestBottom(3, 1, null, "X", null, null, -1, null, "Water", true);
     }
 
     private static CardData makeWakka() {
@@ -3000,7 +3000,7 @@ public class CardBehaviorTest {
         assertNotNull(fn, "Expected EX Burst text to parse: " + ex);
         GameContext ctx = mock(GameContext.class);
         fn.accept(ctx);
-        verify(ctx).revealTopAddUpToMatchingRestBottom(3, 1, null, "X", null, null, -1, null, "Water");
+        verify(ctx).revealTopAddUpToMatchingRestBottom(3, 1, null, "X", null, null, -1, null, "Water", true);
     }
 
     // =========================================================================================
@@ -10789,7 +10789,8 @@ public class CardBehaviorTest {
                 + "them to your hand and return the other cards to the bottom of your deck in any "
                 + "order.", null).accept(ctx);
 
-        verify(ctx).revealTopAddUpToMatchingRestBottom(3, 1, "Chocobo", null, "Chocobo", null);
+        verify(ctx).revealTopAddUpToMatchingRestBottom(3, 1, "Chocobo", null, "Chocobo", null,
+                -1, null, null, true);
     }
 
     @Test
@@ -12085,7 +12086,7 @@ public class CardBehaviorTest {
 		fn.accept(ctx);
 
 		// No type/job/category/name filter — cost alone selects. reveal 5, add up to 1, cost <= 2.
-		verify(ctx).revealTopAddUpToMatchingRestBottom(5, 1, null, null, null, null, 2);
+		verify(ctx).revealTopAddUpToMatchingRestBottom(5, 1, null, null, null, null, 2, null, null, true);
 	}
 
 	// The typed forms keep their filter — the untyped arm must not swallow them.
@@ -12097,7 +12098,8 @@ public class CardBehaviorTest {
 				+ "to your hand and return the other cards to the bottom of your deck in any order.", null);
 		assertNotNull(fn);
 		fn.accept(ctx);
-		verify(ctx).revealTopAddUpToMatchingRestBottom(5, 1, null, null, null, "Character", 2);
+		verify(ctx).revealTopAddUpToMatchingRestBottom(5, 1, null, null, null, "Character", 2,
+				null, null, true);
 	}
 
 	// A bare "Add 1 card among them" restricts nothing and belongs to the later, more general
@@ -49831,7 +49833,8 @@ public class CardBehaviorTest {
 		// Bar-separated, and as the AND-gate elementFilter rather than the orElementFilter disjunct:
 		// with every other filter null the disjunction admits everything, so the Elements are what
 		// selects.
-		verify(ctx).revealTopAddUpToMatchingRestBottom(5, 1, null, null, null, null, -1, "Fire|Earth|Water");
+		verify(ctx).revealTopAddUpToMatchingRestBottom(5, 1, null, null, null, null, -1,
+				"Fire|Earth|Water", null, true);
 	}
 
 	@Test
@@ -49843,7 +49846,8 @@ public class CardBehaviorTest {
 		GameContext ctx = mock(GameContext.class);
 		fn.accept(ctx);
 
-		verify(ctx).revealTopAddUpToMatchingRestBottom(3, 1, null, null, null, "Forward", -1, "Fire");
+		verify(ctx).revealTopAddUpToMatchingRestBottom(3, 1, null, null, null, "Forward", -1,
+				"Fire", null, true);
 	}
 
 	@Test
@@ -55528,6 +55532,187 @@ public class CardBehaviorTest {
 			assertTrue(CardData.parseFieldPowerGrants(text, "Forward").isEmpty(),
 					"not a power grant: " + text);
 		}
+	}
+
+	// =========================================================================================
+	// "Add 1 X among them to your hand" is an instruction; "Add up to 1 X" is an offer.
+	//
+	// The reveal-add patterns collapsed both into one count group, on the reasoning that the
+	// executor treats the count as a ceiling either way. True of the ceiling, but the ceiling is
+	// not the whole instruction, and the dialog's Confirm was unconditionally enabled — so every
+	// mandatory printing could be confirmed with nothing taken and the add simply skipped. 113 of
+	// the family's printings are mandatory against 19 genuinely optional.
+	//
+	// The distinction now rides to the dialog as mustAdd, which gates Confirm through the same
+	// revealTakeStillOffered rule that drives the card toggles — one rule in both places, so a
+	// reveal that turns up no match cannot strand the player.
+	// =========================================================================================
+
+	/** The take-into-hand call the reveal dialogs are driven by, with {@code mustAdd} last. */
+	private static void verifyRevealAdd(GameContext ctx, int reveal, int maxAdd, String job,
+			String cat, String name, String type, int maxCost, String element, String orElement,
+			boolean mustAdd) {
+		verify(ctx).revealTopAddUpToMatchingRestBottom(reveal, maxAdd, job, cat, name, type,
+				maxCost, element, orElement, mustAdd);
+	}
+
+	private static GameContext runReveal(String text) {
+		GameContext ctx = mock(GameContext.class);
+		Consumer<GameContext> fn = ActionResolver.parse(text, null);
+		assertNotNull(fn, "should parse: " + text);
+		fn.accept(ctx);
+		return ctx;
+	}
+
+	@Test
+	void aBareAddCountIsMandatoryAcrossTheRevealAddPatterns() {
+		// One printing per pattern, each spelling the count bare.
+		verifyRevealAdd(runReveal(                                    // 20-042L Locke
+				"reveal the top 4 cards of your deck. Add 1 Category VI Character among them to your "
+				+ "hand and return the other cards to the bottom of your deck in any order."),
+				4, 1, null, "VI", null, null, -1, null, null, true);
+		verifyRevealAdd(runReveal(                                    // 14-086R Heidegger
+				"Reveal the top 5 cards of your deck. Add 1 Forward among them to your hand and "
+				+ "return the other cards to the bottom of your deck in any order."),
+				5, 1, null, null, null, "Forward", -1, null, null, true);
+		verifyRevealAdd(runReveal(                                    // 13-018C Quistis
+				"reveal the top 4 cards of your deck. Add 1 Ice card among them to your hand and "
+				+ "return the other cards to the bottom of your deck in any order."),
+				4, 1, null, null, null, null, -1, "Ice", null, true);
+		verifyRevealAdd(runReveal(                                    // 23-099C Urianger
+				"reveal the top 4 cards of your deck. Add 1 Job Scion of the Seventh Dawn among them "
+				+ "to your hand and return the other cards to the bottom of your deck in any order."),
+				4, 1, "Scion of the Seventh Dawn", null, null, null, -1, null, null, true);
+	}
+
+	/**
+	 * The two patterns that print both wordings are the ones that must read the group rather than
+	 * hardcode: the other two have no "up to" arm at all, so there is nothing to read.
+	 */
+	@Test
+	void anExplicitUpToStaysDeclinable() {
+		verifyRevealAdd(runReveal(                                    // 19-121H Meia
+				"reveal the top 5 cards of your deck. Add up to 2 Category MOBIUS cards among them to "
+				+ "your hand and return the other cards to the bottom of your deck in any order."),
+				5, 2, null, "MOBIUS", null, null, -1, null, null, false);
+		verifyRevealAdd(runReveal(
+				"Reveal the top 5 cards of your deck. Add up to 2 Forwards among them to your hand "
+				+ "and return the other cards to the bottom of your deck in any order."),
+				5, 2, null, null, null, "Forward", -1, null, null, false);
+	}
+
+	@Test
+	void theTwoWordingsDifferOnlyInTheFlag() {
+		// Same reveal, same cap, same filter — the flag is the entire difference, which is what
+		// makes losing it so quiet a bug.
+		String mandatory = "reveal the top 4 cards of your deck. Add 1 Category VI Character among "
+				+ "them to your hand and return the other cards to the bottom of your deck in any order.";
+		verifyRevealAdd(runReveal(mandatory), 4, 1, null, "VI", null, null, -1, null, null, true);
+		verifyRevealAdd(runReveal(mandatory.replace("Add 1", "Add up to 1")),
+				4, 1, null, "VI", null, null, -1, null, null, false);
+	}
+
+	/**
+	 * "Add all …" stays on its own primitive. It is mandatory in a stronger sense — there is no cap
+	 * and so nothing to choose — and routing it through the capped one would have let the player
+	 * take a single match and stop.
+	 */
+	@Test
+	void addAllKeepsItsOwnForcedPrimitive() {
+		GameContext ctx = runReveal(                                  // 9-051R Fat Chocobo
+				"reveal the top 5 cards of your deck. Add all Card Name Chocobo among them to your "
+				+ "hand and return the other cards to the bottom of your deck in any order.");
+		verify(ctx).revealTopAddAllMatchingRestBottom(5, null, null, "Chocobo", null);
+		verify(ctx, never()).revealTopAddUpToMatchingRestBottom(anyInt(), anyInt(), any(), any(),
+				any(), any(), anyInt(), any(), any(), anyBoolean());
+	}
+
+	/**
+	 * The gate reads the same rule the toggles do. A card that does not qualify is never offered,
+	 * so a reveal that turns up no match leaves nothing enabled and Confirm open — which is what
+	 * keeps a mandatory add from stranding a player who cannot satisfy it.
+	 */
+	@Test
+	void theOfferedRuleIsWhatBothTheTogglesAndTheGateRead() {
+		CardData fwd = makeForward("Vaan", "Wind", 2, 5000);
+		Predicate<CardData> anyCard = c -> true;
+		Predicate<CardData> nothing = c -> false;
+
+		assertTrue(LookAtDeckDialogs.revealTakeStillOffered(fwd, 0, 0, 1, -1, anyCard),
+				"nothing taken yet and the card qualifies");
+		assertFalse(LookAtDeckDialogs.revealTakeStillOffered(fwd, 1, 0, 1, -1, anyCard),
+				"the cap is spent, so the gate opens");
+		assertFalse(LookAtDeckDialogs.revealTakeStillOffered(fwd, 0, 0, 1, -1, nothing),
+				"nothing revealed qualifies — a mandatory add must not strand the player");
+	}
+
+	// =========================================================================================
+	// The peek catch-all, which was not a catch-all but a swallow.
+	//
+	// LOOK_TOP_DECK_PEEK's javadoc has always said "with no further action clause"; the regex never
+	// enforced it, and the parser is dispatched last, so under find() it matched the opening
+	// sentence of any look-at-top text and discarded the rest. The ability then resolved as a peek
+	// that does nothing. It won eight abilities that way and not one was a bare peek — 16-094C
+	// Palmer's add, 16-126R Leo's and 9-077L Rydia's free casts, 12-095R Keiss' two-deck look.
+	//
+	// Anchoring it is the fail-open repair: an ability that reports unparsed is a known gap, while
+	// one that silently eats a free cast is a bug nobody is looking for.
+	// =========================================================================================
+
+	@Test
+	void thePeekParserDeclinesATextThatSaysMoreThanPeek() {
+		for (String text : List.of(
+				"Look at the top 4 cards of your deck. Add 2 cards among them to your hand and put "
+						+ "the rest of the cards into the Break Zone.",
+				"look at the top 5 cards of your deck. Cast 1 card among them without paying the cost "
+						+ "and return the other cards to the bottom of your deck in any order.",
+				"look at the top card of your deck and your opponent's deck. Put them on the top or "
+						+ "bottom of the respective decks.")) {
+			assertNull(ActionResolverSearch.tryParseLookTopDeckPeek(text),
+					"a peek must not swallow the clause after it: " + text);
+		}
+	}
+
+	@Test
+	void aBarePeekStillParses() {
+		assertNotNull(ActionResolverSearch.tryParseLookTopDeckPeek(
+				"Look at the top 3 cards of your deck."));
+		assertNotNull(ActionResolverSearch.tryParseLookTopDeckPeek(
+				"Look at the top card of your deck."));
+		// 5-154S Yeul. A usage restriction is not a second effect, so the anchor must not reject it
+		// — which is why the parser strips restrictions before matching rather than after.
+		assertNotNull(ActionResolverSearch.tryParseLookTopDeckPeek(
+				"Look at the top card of your deck. You can only use this ability once per turn."),
+				"a usage restriction is not an action clause");
+	}
+
+	/**
+	 * 21-043C Viera, the one card the anchoring would otherwise have turned into a fresh gap: its
+	 * "put the other to the bottom" is the two-card spelling of "return the other cards to the
+	 * bottom in any order" — one leftover, so nothing to order.
+	 */
+	@Test
+	void theTwoCardSpellingOfReturnTheRestNowParses() {
+		GameContext ctx = mock(GameContext.class);
+		Consumer<GameContext> fn = ActionResolver.parse(
+				"look at the top 2 cards of your deck. Add 1 card among them to your hand and put "
+				+ "the other to the bottom of your deck.", null);
+		assertNotNull(fn, "used to fall through to the peek catch-all, which dropped the add");
+		fn.accept(ctx);
+
+		verify(ctx).lookAtTopDeck(new LookConfig(
+				2, LookConfig.LookAction.ADD_TO_HAND_REST_BOTTOM, null, null, false));
+	}
+
+	@Test
+	void theOriginalSpellingIsUnaffected() {
+		GameContext ctx = mock(GameContext.class);
+		ActionResolver.parse(
+				"look at the top 3 cards of your deck. Add 1 card among them to your hand and return "
+				+ "the other cards to the bottom of your deck in any order.", null).accept(ctx);
+
+		verify(ctx).lookAtTopDeck(new LookConfig(
+				3, LookConfig.LookAction.ADD_TO_HAND_REST_BOTTOM, null, null, false));
 	}
 
 	// =========================================================================================

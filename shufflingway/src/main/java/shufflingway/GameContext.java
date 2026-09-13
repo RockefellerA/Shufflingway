@@ -4859,9 +4859,32 @@ public interface GameContext {
      * eligible if it contains that element <em>or</em> matches any other filter (e.g. "Water or
      * Category X card"). Both are bar-separated; pass {@code null} to disable.
      */
+    default void revealTopAddUpToMatchingRestBottom(int reveal, int maxAdd,
+            String jobFilter, String categoryFilter, String cardNameFilter, String typeFilter, int maxCost,
+            String elementFilter, String orElementFilter) {
+        revealTopAddUpToMatchingRestBottom(reveal, maxAdd, jobFilter, categoryFilter, cardNameFilter,
+                typeFilter, maxCost, elementFilter, orElementFilter, false);
+    }
+
+    /**
+     * As above, but with {@code mustAdd} the take is an instruction rather than an offer: the
+     * player still chooses <em>which</em> of the revealed cards to take, and may take fewer than
+     * {@code maxAdd} only because fewer qualify, but cannot decline one that does.
+     *
+     * <p>"Add 1 Category VI Character among them to your hand" is not the same sentence as "Add
+     * <em>up to</em> 1", and the two were reaching this method indistinguishable — the count has
+     * always been read as a ceiling, which is right, but the ceiling is not the whole instruction.
+     * 109 printings across the reveal-add family say the first and 19 say the second; every one of
+     * the 109 could be declined outright.
+     *
+     * <p>Distinct from {@link #revealTopAddAllMatchingRestBottom}, which is mandatory in a stronger
+     * sense: there the take is settled before the dialog opens, because every match goes to hand
+     * and there is nothing to choose. Here the cap still binds, so which cards to take is a real
+     * decision and only declining is refused.
+     */
     void revealTopAddUpToMatchingRestBottom(int reveal, int maxAdd,
             String jobFilter, String categoryFilter, String cardNameFilter, String typeFilter, int maxCost,
-            String elementFilter, String orElementFilter);
+            String elementFilter, String orElementFilter, boolean mustAdd);
 
     /** Convenience overload without the disjunct element filter (passes {@code null}). */
     default void revealTopAddUpToMatchingRestBottom(int reveal, int maxAdd,

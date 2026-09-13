@@ -1314,10 +1314,29 @@ class LookAtDeckDialogs {
             boolean isP1, int maxAdd, String jobFilter, String categoryFilter, String cardNameFilter,
             String typeFilter, int maxCost, String elementFilter, String orElementFilter,
             boolean mandatoryAll) {
+        revealAddUpToMatchingRestBottom(cards, deck, isP1, maxAdd, jobFilter, categoryFilter,
+                cardNameFilter, typeFilter, maxCost, elementFilter, orElementFilter,
+                mandatoryAll, false);
+    }
+
+    /**
+     * As above; {@code mustAdd} makes the take an instruction rather than an offer — the player
+     * chooses which cards to take but cannot confirm while one they qualify for is still on the
+     * table. "Add 1 Forward among them to your hand" reads that way; only "Add <b>up to</b> 1"
+     * is declinable.
+     *
+     * <p>Separate from {@code mandatoryAll}, and the two never combine. That one settles the take
+     * before the window opens — every match is already in hand and locked — because "add all"
+     * leaves nothing to decide. This one leaves the decision and closes only the exit.
+     */
+    void revealAddUpToMatchingRestBottom(List<CardData> cards, Deque<CardData> deck,
+            boolean isP1, int maxAdd, String jobFilter, String categoryFilter, String cardNameFilter,
+            String typeFilter, int maxCost, String elementFilter, String orElementFilter,
+            boolean mandatoryAll, boolean mustAdd) {
         resolveReveal(cards, deck, isP1,
                 () -> askRevealAddUpToMatchingRestBottom(cards, maxAdd, jobFilter, categoryFilter,
                         cardNameFilter, typeFilter, maxCost, elementFilter, orElementFilter,
-                        mandatoryAll, null),
+                        mandatoryAll, null, mustAdd),
                 () -> cpuRevealAddUpToMatchingRestBottom(cards, maxAdd, jobFilter, categoryFilter,
                         cardNameFilter, typeFilter, maxCost, elementFilter, orElementFilter, mandatoryAll),
                 null);
@@ -1413,7 +1432,7 @@ class LookAtDeckDialogs {
     private DeckLookDecision askRevealAddUpToMatchingRestBottom(List<CardData> cards,
             int maxAdd, String jobFilter, String categoryFilter, String cardNameFilter,
             String typeFilter, int maxCost, String elementFilter, String orElementFilter,
-            boolean mandatoryAll, List<RevealQuota> quotas) {
+            boolean mandatoryAll, List<RevealQuota> quotas, boolean mustAdd) {
         int n = cards.size();
         JDialog dlg = new JDialog(frame, "Reveal — Add to Hand, Rest to Bottom", true);
         dlg.setResizable(false);
@@ -1445,6 +1464,9 @@ class LookAtDeckDialogs {
 
         JToggleButton[] handBtns = new JToggleButton[n];
 
+        Predicate<CardData> addEligible = c -> eligibleForReveal(c, jobFilter, categoryFilter,
+                cardNameFilter, typeFilter, maxCost, elementFilter, orElementFilter);
+
         Runnable refreshHandButtons = () -> {
             int count = handSel.size();
             for (int j = 0; j < n; j++) {
@@ -1456,9 +1478,27 @@ class LookAtDeckDialogs {
                     handBtns[j].setEnabled(inHand || quotasAdmit(handSel, c, quotas));
                     continue;
                 }
-                boolean eligible = eligibleForReveal(c, jobFilter, categoryFilter, cardNameFilter,
-                        typeFilter, maxCost, elementFilter, orElementFilter);
-                handBtns[j].setEnabled(!mandatoryAll && eligible && (inHand || count < maxAdd));
+                // An already-picked card stays enabled whatever room is left, or a full selection
+                // could never be undone. The same rule the Confirm gate below reads, and the same
+                // one askRevealPlayOntoField uses — no cost budget applies to a take into hand.
+                handBtns[j].setEnabled(!mandatoryAll && (inHand
+                        ? addEligible.test(c)
+                        : revealTakeStillOffered(c, count, 0, maxAdd, -1, addEligible)));
+            }
+            // "Add 1 Forward among them to your hand" is an instruction, not an offer, so Confirm
+            // stays shut while the player could still take a card they are obliged to take. Read
+            // off the buttons rather than off a count, exactly as the play/remove gate is: whatever
+            // closed the last one — the maxAdd cap or simply nothing else qualifying among the
+            // revealed cards — is the point at which the player has done all the card asks, which
+            // is what makes the gate impossible to soft-lock on a reveal that turns up no match.
+            if (mustAdd && quotas == null) {
+                boolean canAddMore = false;
+                for (int j = 0; j < n; j++)
+                    if (!holdsIdentity(handSel, order.get(j)) && handBtns[j].isEnabled()) canAddMore = true;
+                confirmBtn.setEnabled(!canAddMore);
+                confirmBtn.setToolTipText(canAddMore
+                        ? "You must add a revealed card to your hand for this effect."
+                        : null);
             }
         };
 
@@ -2083,7 +2123,7 @@ class LookAtDeckDialogs {
         } else {
             resolveReveal(cards, deck, isP1,
                     () -> askRevealAddUpToMatchingRestBottom(cards, 0, null, null, null, null, -1,
-                            null, null, false, quotas),
+                            null, null, false, quotas, false),
                     () -> cpuRevealAddPerQuotaRestBottom(cards, quotas),
                     null);
         }

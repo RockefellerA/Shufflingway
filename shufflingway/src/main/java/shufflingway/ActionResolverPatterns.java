@@ -4095,7 +4095,11 @@ final class ActionResolverPatterns {
         "(?i)^\\s*(?:you\\s+may\\s+)?reveal\\s+the\\s+top\\s+(?<n>\\d+)\\s+cards?\\s+of\\s+your\\s+deck[.!]?\\s+" +
         // Same widening as its typed sibling, plus a real count: Meia 19-121H and Despachiaire
         // 28-067C print "Add up to 2 Category X cards", which the hardcoded 1 could not match.
-        "Add\\s+(?:up\\s+to\\s+)?(?<max>\\d+)\\s+Category\\s+(?<cat>\\S+)(?:\\s+(?:Forwards?|Backups?|Characters?|Monsters?|cards?))?\\s+among\\s+them\\s+to\\s+your\\s+hand\\s+" +
+        //
+        // Captured rather than discarded: "up to" is the whole difference between an offer the
+        // player may decline and an instruction they must carry out, and the dialog needs to know
+        // which it is. 23 printings here say "Add N" and 2 say "Add up to N".
+        "Add\\s+(?<upto>up\\s+to\\s+)?(?<max>\\d+)\\s+Category\\s+(?<cat>\\S+)(?:\\s+(?:Forwards?|Backups?|Characters?|Monsters?|cards?))?\\s+among\\s+them\\s+to\\s+your\\s+hand\\s+" +
         "and\\s+return\\s+the\\s+other\\s+cards?\\s+to\\s+the\\s+bottom\\s+of\\s+(?:your|the)\\s+deck(?:\\s+in\\s+any\\s+order)?[.!]?\\s*$"
     );
     /**
@@ -4113,11 +4117,14 @@ final class ActionResolverPatterns {
      */
     static final Pattern REVEAL_TOP_N_TYPE_TO_HAND = Pattern.compile(
         "(?i)^\\s*(?:you\\s+may\\s+)?reveal\\s+the\\s+top\\s+(?<n>\\d+)\\s+cards?\\s+of\\s+your\\s+deck[.!]?\\s+" +
-        // "up to" is optional because the executor treats the count as a ceiling either way:
-        // revealTopAddUpToMatchingRestBottom has always been an "up to". Without it the printed
-        // "Add up to 2 Forwards ..." forms fell past every reveal parser into the compound-
-        // sentence fallback, which read their second sentence as a return-a-named-card.
-        "Add\\s+(?:up\\s+to\\s+)?(?<max>\\d+)\\s+" +
+        // "up to" is optional in the wording and captured in {@code upto}. It used to be discarded,
+        // on the reasoning that revealTopAddUpToMatchingRestBottom treats the count as a ceiling
+        // either way — true of the ceiling, but it threw away the only thing distinguishing an
+        // offer from an instruction, and the dialog then let 18 printings here decline a take the
+        // card obliges. Without the optional arm at all the printed "Add up to 2 Forwards ..."
+        // forms fell past every reveal parser into the compound-sentence fallback, which read
+        // their second sentence as a return-a-named-card.
+        "Add\\s+(?<upto>up\\s+to\\s+)?(?<max>\\d+)\\s+" +
         "(?:(?<type>Forwards?|Backups?|Monsters?|Characters?|Summons?)" +
             "(?:\\s+of\\s+cost\\s+(?<cost>\\d+)\\s+or\\s+less)?" +
         "|(?<anycard>cards?)\\s+of\\s+cost\\s+(?<anycost>\\d+)\\s+or\\s+less)" +
@@ -8088,7 +8095,12 @@ final class ActionResolverPatterns {
     static final Pattern LOOK_TOP_DECK_ADD_TO_HAND_REST_BOTTOM = Pattern.compile(
         "(?i)(?<verb>Look\\s+at|Reveal)\\s+the\\s+top\\s+(?<count>\\d+)\\s+cards?\\s+of\\s+your\\s+deck[.!]?\\s*" +
         "Add\\s+1\\s+card\\s+among\\s+them\\s+to\\s+your\\s+hand\\s+and\\s+" +
-        "return\\s+the\\s+other\\s+cards?\\s+to\\s+the\\s+bottom\\s+of\\s+your\\s+deck\\s+in\\s+any\\s+order[.!]?"
+        // "put the other to the bottom" is the same effect as "return the other cards to the bottom
+        // … in any order", printed for a two-card look where there is only one leftover and so
+        // nothing to order (21-043C Viera). Without this arm Viera fell through to the peek
+        // catch-all, which took the opening sentence and dropped the add entirely.
+        "(?:return|put)\\s+the\\s+others?\\s+(?:cards?\\s+)?to\\s+the\\s+bottom\\s+of\\s+your\\s+deck" +
+        "(?:\\s+in\\s+any\\s+order)?[.!]?"
     );
     /**
      * Matches Lunafreya 23-129H's rider on the clause above: "If the card added to your hand has
@@ -8166,14 +8178,28 @@ final class ActionResolverPatterns {
         "the\\s+others?\\s+to\\s+the\\s+bottom\\s+of\\s+your\\s+deck[.!]?"
     );
     /**
-     * Catch-all: matches any bare "Look at the top [N cards / card] of your deck" with no
-     * further action clause — treated as a pure peek (card stays on top, player just sees it).
+     * Catch-all: matches a bare "Look at the top [N cards / card] of your deck" with no further
+     * action clause — a pure peek, where the card stays on top and the player just sees it.
      * <ul>
      *   <li>Group {@code count} — number of cards, or absent for the singular "top card" form</li>
      * </ul>
+     *
+     * <p>Anchored end to end, which the javadoc always claimed and the regex never enforced. Under
+     * {@code find()} this was the last parser in a long chain and it matched the opening sentence
+     * of <em>any</em> look-at-top text, so whatever followed was discarded and the ability resolved
+     * as a peek that does nothing. It won eight abilities that way and not one of them was a bare
+     * peek: 16-094C Palmer's "Add 2 cards among them to your hand and put the rest into the Break
+     * Zone", 21-043C Viera's and 21-109C Astrologian's adds, 16-126R Leo's and 9-077L Rydia's free
+     * casts, and 12-095R Keiss' two-deck look all simply did not happen.
+     *
+     * <p>Declining them reports them unparsed, which is the honest answer — a peek that silently
+     * eats a free cast is a bug nobody is looking for. 5-154S Yeul is the one printing that really
+     * is a bare peek; its trailing "You can only use this ability once per turn" is a usage
+     * restriction rather than an effect, and {@code tryParseLookTopDeckPeek} strips it before
+     * matching so the anchor does not reject it.
      */
     static final Pattern LOOK_TOP_DECK_PEEK = Pattern.compile(
-        "(?i)Look\\s+at\\s+the\\s+top\\s+(?:(?<count>\\d+)\\s+cards?|card)\\s+of\\s+your\\s+deck[.!]?"
+        "(?i)^\\s*Look\\s+at\\s+the\\s+top\\s+(?:(?<count>\\d+)\\s+cards?|card)\\s+of\\s+your\\s+deck[.!]?\\s*$"
     );
     /**
      * Matches "Look at the top X cards of your deck. Reveal 1 Summon of cost X or less among

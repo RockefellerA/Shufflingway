@@ -626,10 +626,12 @@ final class ActionResolverSearch {
         int n = Integer.parseInt(m.group("n"));
         int max = Integer.parseInt(m.group("max"));
         String cat = m.group("cat");
+        // "Add up to 2 Category X cards" is an offer; "Add 1 Category VI Character" is not.
+        boolean mustAdd = m.group("upto") == null;
         return ctx -> {
-            ctx.logEntry("Effect: Reveal top " + n + " — add up to " + max + " Category " + cat
-                    + " to hand, rest to bottom");
-            ctx.revealTopAddUpToMatchingRestBottom(n, max, null, cat, null, null);
+            ctx.logEntry("Effect: Reveal top " + n + " — add " + (mustAdd ? "" : "up to ") + max
+                    + " Category " + cat + " to hand, rest to bottom");
+            ctx.revealTopAddUpToMatchingRestBottom(n, max, null, cat, null, null, -1, null, null, mustAdd);
         };
     }
     /**
@@ -662,7 +664,11 @@ final class ActionResolverSearch {
         return ctx -> {
             ctx.logEntry("Effect: Reveal top " + n + " — add " + desc + " to hand, rest to bottom");
             if (all) ctx.revealTopAddAllMatchingRestBottom(n, jobFilter, null, cardNameFilter, null);
-            else     ctx.revealTopAddUpToMatchingRestBottom(n, 1, jobFilter, null, cardNameFilter, null);
+            // Mandatory unconditionally, not off a group: this pattern spells the singular arm as a
+            // bare "1" with no "up to" alternative, so there is nothing to read — the same reason
+            // the two remove families hardcode it.
+            else     ctx.revealTopAddUpToMatchingRestBottom(n, 1, jobFilter, null, cardNameFilter,
+                    null, -1, null, null, true);
         };
     }
     static Consumer<GameContext> tryParseRevealTopNTypeToHand(String text) {
@@ -678,11 +684,13 @@ final class ActionResolverSearch {
         String typeFilter = anyCard ? null : m.group("type").replaceAll("(?i)s$", "");
         String costRaw = anyCard ? m.group("anycost") : m.group("cost");
         int maxCost = costRaw != null ? Integer.parseInt(costRaw) : -1;
+        boolean mustAdd = m.group("upto") == null;
         return ctx -> {
-            ctx.logEntry("Effect: Reveal top " + n + " — add up to " + max + " "
+            ctx.logEntry("Effect: Reveal top " + n + " — add " + (mustAdd ? "" : "up to ") + max + " "
                     + (typeFilter != null ? typeFilter : "card")
                     + (maxCost >= 0 ? " of cost " + maxCost + " or less" : "") + " to hand, rest to bottom");
-            ctx.revealTopAddUpToMatchingRestBottom(n, max, null, null, null, typeFilter, maxCost);
+            ctx.revealTopAddUpToMatchingRestBottom(n, max, null, null, null, typeFilter, maxCost,
+                    null, null, mustAdd);
         };
     }
     static Consumer<GameContext> tryParseRevealTopNElementToHand(String text) {
@@ -697,22 +705,27 @@ final class ActionResolverSearch {
         String normElement = elementListFilter(m.group("element"));
         String elementLabel = normElement.replace("|", "/");
         String cat = m.group("cat");
+        // Mandatory unconditionally in both arms below, and not read off a group: like the
+        // Job-or-Name pattern, this one has no "up to" alternative to read — every element
+        // printing in the corpus spells the count bare.
         if (cat != null) {
             // "Add M [Element] or Category [X] card" — element and category are alternatives.
             // The element is a disjunct (orElementFilter), not an AND-gate — "Water OR Category X".
             return ctx -> {
-                ctx.logEntry("Effect: Reveal top " + n + " — add up to " + max + " " + elementLabel
+                ctx.logEntry("Effect: Reveal top " + n + " — add " + max + " " + elementLabel
                         + " or Category " + cat + " to hand, rest to bottom");
-                ctx.revealTopAddUpToMatchingRestBottom(n, max, null, cat, null, null, -1, null, normElement);
+                ctx.revealTopAddUpToMatchingRestBottom(n, max, null, cat, null, null, -1, null,
+                        normElement, true);
             };
         }
         String typeRaw = m.group("type");
         String typeFilter = typeRaw != null ? cap(typeRaw.replaceAll("(?i)s$", "")) : null;
         // "Add M [Element] [Type]" — the element is an AND-gate on the type (e.g. "Fire Forward").
         return ctx -> {
-            ctx.logEntry("Effect: Reveal top " + n + " — add up to " + max + " " + elementLabel
+            ctx.logEntry("Effect: Reveal top " + n + " — add " + max + " " + elementLabel
                     + (typeFilter != null ? " " + typeFilter : " card") + "(s) to hand, rest to bottom");
-            ctx.revealTopAddUpToMatchingRestBottom(n, max, null, null, null, typeFilter, -1, normElement);
+            ctx.revealTopAddUpToMatchingRestBottom(n, max, null, null, null, typeFilter, -1,
+                    normElement, null, true);
         };
     }
     /**
@@ -1053,8 +1066,11 @@ final class ActionResolverSearch {
         };
     }
     static Consumer<GameContext> tryParseLookTopDeckPeek(String text) {
-        Matcher m = LOOK_TOP_DECK_PEEK.matcher(text);
-        if (!m.find()) return null;
+        // Stripped first because the pattern is anchored: 5-154S Yeul prints "You can only use this
+        // ability once per turn" after the peek, and a usage restriction is not a second effect.
+        String s = stripRestrictionSentences(text);
+        Matcher m = LOOK_TOP_DECK_PEEK.matcher(s.isEmpty() ? text : s);
+        if (!m.matches()) return null;
         String countStr = m.group("count");
         int count = (countStr != null) ? Integer.parseInt(countStr) : 1;
         return ctx -> {

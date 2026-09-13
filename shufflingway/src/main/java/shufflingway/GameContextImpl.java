@@ -10542,7 +10542,7 @@ final class GameContextImpl implements GameContext {
 
 			@Override public void revealTopAddUpToMatchingRestBottom(int reveal, int maxAdd,
 					String jobFilter, String categoryFilter, String cardNameFilter, String typeFilter, int maxCost,
-					String elementFilter, String orElementFilter) {
+					String elementFilter, String orElementFilter, boolean mustAdd) {
 				Deque<CardData> deck = isP1 ? mw.gameState.getP1MainDeck() : mw.gameState.getP2MainDeck();
 				int n = Math.min(reveal, deck.size());
 				if (n == 0) { logEntry("Reveal top: deck is empty."); return; }
@@ -10552,7 +10552,7 @@ final class GameContextImpl implements GameContext {
 						peeked.stream().map(CardData::name).collect(Collectors.joining(", ")));
 				mw.lookDialogs().revealAddUpToMatchingRestBottom(peeked, deck, isP1, maxAdd,
 						jobFilter, categoryFilter, cardNameFilter, typeFilter, maxCost,
-						elementFilter, orElementFilter);
+						elementFilter, orElementFilter, false, mustAdd);
 			}
 
 			@Override public void revealTopNRemoveOneFromGameCastableThisTurnRestBottom(
