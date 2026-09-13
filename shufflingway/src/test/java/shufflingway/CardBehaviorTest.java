@@ -56137,4 +56137,118 @@ public class CardBehaviorTest {
 
 	// =========================================================================================
 
+	// =========================================================================================
+	// Board behaviour — Aerith PR-157: "The Characters you control cannot be returned to their
+	// owner's hand by your opponent's Summons or abilities." plus an enters-the-field reveal.
+	//
+	// Both halves parse against machinery that already existed, so what is worth pinning is not
+	// that they parse but that they mean the right thing: the protection is Character-wide rather
+	// than Forward-only, and one-sided — it stops the opponent's effects, not its controller's own.
+	// =========================================================================================
+
+	private static final String AERITH_PR_157_TEXT =
+			"The Characters you control cannot be returned to their owner's hand by your opponent's "
+			+ "Summons or abilities. [[br]] When Aerith enters the field, reveal the top 3 cards of "
+			+ "your deck. Play 1 Backup of cost 2 or less among them onto the field and return the "
+			+ "other cards to the bottom of your deck in any order.";
+
+	/** Aerith, with her field ability parsed off the printed text. */
+	private static CardData makeAerith() {
+		return makeFieldAbilityCard("Aerith", "Light", "Forward", AERITH_PR_157_TEXT);
+	}
+
+	@Test
+	void aerithsRevealNamesEveryFilterThePrintingDoes() {
+		AutoAbility etf = makeAutoAbilityForward("Aerith", AERITH_PR_157_TEXT).autoAbilities().get(0);
+		assertEquals("enters the field", etf.trigger());
+
+		GameContext ctx = mock(GameContext.class);
+		ActionResolver.parse(etf.effectText(), null).accept(ctx);
+
+		// mustPlay is true: the printing says "Play 1", not "Play up to 1", so the play is owed
+		// whenever one of the three qualifies.
+		verify(ctx).revealTopNPlayUpToElementTypeCostOntoField(
+				3, 1, List.of(), "Backup", 2, "less", true, RevealRest.BOTTOM);
+	}
+
+	@Test
+	void aerithStopsTheOpponentReturningAForwardYouControl() {
+		MainWindow mw = new MainWindow();
+		placeP1Forward(mw, makeAerith());
+		CardData ally = makeForward("Ally", "Light", 3, 7000);
+		placeP1Forward(mw, ally);
+
+		mw.buildGameContext(false).returnP1ForwardToHand(1);
+
+		assertEquals(List.of(mw.p1ForwardCards.get(0), ally), mw.p1ForwardCards,
+				"P2's ability cannot bounce a Character P1 controls");
+		assertFalse(mw.gameState.getP1Hand().contains(ally), "and it did not reach the hand");
+	}
+
+	/** "your opponent's Summons or abilities" — the controller's own effects are untouched. */
+	@Test
+	void aerithDoesNotStopYouReturningYourOwnForward() {
+		MainWindow mw = new MainWindow();
+		placeP1Forward(mw, makeAerith());
+		CardData ally = makeForward("Ally", "Light", 3, 7000);
+		placeP1Forward(mw, ally);
+
+		mw.buildGameContext(true).returnP1ForwardToHand(1);
+
+		assertFalse(mw.p1ForwardCards.contains(ally), "P1's own ability returns it normally");
+		assertTrue(mw.gameState.getP1Hand().contains(ally), "and it lands in P1's hand");
+	}
+
+	/** "The Characters you control" — Backups and Monsters, not just the Forward row. */
+	@Test
+	void aerithProtectsBackupsAndMonstersToo() {
+		MainWindow mw = new MainWindow();
+		placeP1Forward(mw, makeAerith());
+		CardData scholar = makeForward("Scholar", "Light", 2, 0);
+		mw.gameState.getIdentity().put(scholar, true);
+		mw.placeCardInFirstBackupSlot(scholar);
+
+		mw.buildGameContext(false).returnP1BackupToHand(0);
+
+		assertEquals(scholar, mw.p1BackupCards[0], "a Backup is a Character the protection covers");
+	}
+
+	/**
+	 * The control for the two tests above. Both assert that something did <em>not</em> happen, which
+	 * is the shape that passes for the wrong reason if the opponent's return is inert to begin with
+	 * — so this pins that the very same calls do move both cards once Aerith is off the field.
+	 */
+	@Test
+	void withoutAerithTheOpponentReturnsBothFreely() {
+		MainWindow mw = new MainWindow();
+		CardData ally = makeForward("Ally", "Light", 3, 7000);
+		placeP1Forward(mw, ally);
+		CardData scholar = makeForward("Scholar", "Light", 2, 0);
+		mw.gameState.getIdentity().put(scholar, true);
+		mw.placeCardInFirstBackupSlot(scholar);
+
+		mw.buildGameContext(false).returnP1ForwardToHand(0);
+		mw.buildGameContext(false).returnP1BackupToHand(0);
+
+		assertFalse(mw.p1ForwardCards.contains(ally), "the Forward bounces with no protector out");
+		assertNull(mw.p1BackupCards[0], "and so does the Backup");
+		assertTrue(mw.gameState.getP1Hand().containsAll(List.of(ally, scholar)),
+				"both reached P1's hand, so the protected cases above were real refusals");
+	}
+
+	@Test
+	void aerithDoesNotProtectTheOpponentsCharacters() {
+		MainWindow mw = new MainWindow();
+		placeP1Forward(mw, makeAerith());
+		CardData theirs = makeForward("Theirs", "Fire", 3, 7000);
+		placeP2Forward(mw, theirs);
+
+		mw.buildGameContext(true).returnP2ForwardToHand(0);
+
+		assertFalse(mw.p2ForwardCards.contains(theirs),
+				"\"you control\" is Aerith's controller, so P2's Forward is still bounceable");
+	}
+
+	// =========================================================================================
+
 }
