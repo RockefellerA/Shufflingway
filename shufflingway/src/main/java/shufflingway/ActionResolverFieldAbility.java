@@ -294,6 +294,56 @@ final class ActionResolverFieldAbility {
         };
     }
     /**
+     * Parses "&lt;base&gt;. If &lt;condition&gt;, &lt;upgrade&gt; instead." — a whole effect and the
+     * whole effect that replaces it. 16-140S Sin, 17-048C Thief, 17-111C Chemist.
+     *
+     * <p>Replaces, never appends. All three were claimed by an ordinary {@code find()} parser off
+     * the base sentence, which discarded the replacement outright — Sin broke its own controller's
+     * Forwards at 6 damage where the card says it should spare them. The tempting repair, letting
+     * the chain run the trailing sentence too, is strictly worse: that sentence parses on its own
+     * only by dropping the condition in front of it, so the upgrade would land unconditionally
+     * <em>on top of</em> the base.
+     *
+     * <p>Declines unless every part is understood — the condition, the base and the replacement.
+     * That is what keeps it off the two much larger families sharing this wording. A replacement
+     * pointing back at a chosen target ("deal it 8000 damage instead") does not parse standalone,
+     * and a modal one ("select up to 2 of the 3 following actions instead") is resolved by
+     * {@code AutoAbilityTriggers} rather than by a {@code Consumer}; both fail a check here and are
+     * left to the parsers that already read them correctly.
+     *
+     * <p>The two target-state conditions are refused explicitly. {@link
+     * ActionResolver#insteadConditionMet} throws on them by contract — they need a
+     * {@link ForwardTarget} — and this parser has no target to offer.
+     */
+    static Consumer<GameContext> tryParseEffectThenConditionalInstead(String text, CardData source, int xValue) {
+        Matcher m = EFFECT_THEN_CONDITIONAL_INSTEAD.matcher(text.trim());
+        if (!m.matches()) return null;
+
+        DamageInsteadCondition cond = parseDamageInsteadCondition(m.group("cond").trim());
+        if (cond == null) return null;
+        // "If you control …" is the older {@code tryParseControlGatedInsteadUpgrade}'s family, and
+        // that parser sits four hundred lines earlier in parse(). Claiming those texts here would
+        // have no effect on what runs and would still change what the name chain reports, which is
+        // exactly the drift between the two chains this repo keeps having to reconcile. It carries
+        // its own guard for 16-122R Marche's elided noun, so that case stays refused either way.
+        if (cond instanceof DamageInsteadCondition.YouControl) return null;
+        if (cond instanceof DamageInsteadCondition.TargetIsActive
+                || cond instanceof DamageInsteadCondition.TargetIsMultiElement) return null;
+
+        String baseText    = m.group("base").trim();
+        String upgradeText = m.group("upgrade").trim();
+        Consumer<GameContext> base    = parse(baseText, source, xValue);
+        Consumer<GameContext> upgrade = parse(upgradeText, source, xValue);
+        if (base == null || upgrade == null) return null;
+
+        return ctx -> {
+            boolean met = insteadConditionMet(ctx, cond);
+            ctx.logEntry("Effect: " + (met ? upgradeText + " (instead)" : baseText));
+            (met ? upgrade : base).accept(ctx);
+        };
+    }
+
+    /**
      * Parses "Place N [Name] Counter(s) on all [the] Forwards [opponent controls|you control]."
      * (20-057L The Goddess.)
      */

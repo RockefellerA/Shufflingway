@@ -139,6 +139,22 @@ final class ActionResolverSearch {
             ctx.selectFromOpponentHandAndDiscard(count, filter, filterDesc);
         };
     }
+    /**
+     * Parses the one-sentence phrasing of {@link #tryParseRevealSelectHandDiscard} — "your opponent
+     * reveals their hand, and you select 1 card for your opponent to discard from their hand"
+     * (16-022R Erwin, 23-020C Red Mage). No restriction group: both printings expose the whole hand
+     * and let the ability user pick anything from it, which is what a null filter means here.
+     */
+    static Consumer<GameContext> tryParseRevealHandAndSelectDiscard(String text) {
+        Matcher m = REVEAL_HAND_AND_SELECT_DISCARD.matcher(text.trim());
+        if (!m.matches()) return null;
+        int count = Integer.parseInt(m.group("count"));
+        return ctx -> {
+            ctx.logEntry("Effect: Opponent reveals hand — select " + count + " card(s) to discard");
+            ctx.selectFromOpponentHandAndDiscard(count, null, "card");
+        };
+    }
+
     /** Parses "Opponent reveals hand. You may select 1 → opponent discards it and draws 1." */
     static Consumer<GameContext> tryParseRevealHandOptPickDiscardOppDraw(String text) {
         if (!REVEAL_HAND_OPT_PICK_DISCARD_OPP_DRAW.matcher(text).find()) return null;

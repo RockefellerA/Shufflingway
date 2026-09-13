@@ -108,6 +108,42 @@ final class ActionResolverGate {
             }
         };
     }
+    /**
+     * Parses "if you control N or more &lt;noun&gt;, &lt;base&gt;. If you control M or more,
+     * &lt;upgrade&gt; instead." — 16-122R Marche, where the second threshold counts the same noun
+     * the first one named and does not repeat it.
+     *
+     * <p>Exactly one branch runs, and the high threshold is tested first: at five or more FFTA
+     * Characters Marche draws two, at three or four he draws one, and below three he draws nothing.
+     * Neither clause is a gate on the other — they are two readings of one board.
+     *
+     * <p>Must precede both {@link #tryParseControlConditionGate} and
+     * {@link #tryParseControlGatedInsteadUpgrade}. The first claims the opening gate and hands the
+     * rest to a parser that reads the base sentence and drops the replacement; the second refuses
+     * the elided count by design, having no way to recover the noun from where it sits.
+     */
+    static Consumer<GameContext> tryParseControlGatedElidedInstead(String text, CardData source, int xValue) {
+        Matcher m = CONTROL_GATED_ELIDED_INSTEAD.matcher(text.trim());
+        if (!m.matches()) return null;
+        String noun = m.group("noun").trim();
+        ControlCondition low  = CardData.parseControlCondition(m.group("basecount") + " or more " + noun);
+        ControlCondition high = CardData.parseControlCondition(m.group("upcount")   + " or more " + noun);
+        if (low == null || high == null) return null;
+        Consumer<GameContext> baseFn = parse(m.group("base").trim(),    source, xValue);
+        Consumer<GameContext> upFn   = parse(m.group("upgrade").trim(), source, xValue);
+        if (baseFn == null || upFn == null) return null;
+        return ctx -> {
+            if (ctx.controlConditionMet(high)) {
+                ctx.logEntry("Effect: you control " + high + " — replacement effect applies instead");
+                upFn.accept(ctx);
+            } else if (ctx.controlConditionMet(low)) {
+                baseFn.accept(ctx);
+            } else {
+                ctx.logEntry("Effect: control condition not met — skipped");
+            }
+        };
+    }
+
     static Consumer<GameContext> tryParseControlConditionGate(String text, CardData source, int xValue) {
         Matcher m = CONTROL_CONDITION_GATE.matcher(text.trim());
         if (!m.matches()) return null;

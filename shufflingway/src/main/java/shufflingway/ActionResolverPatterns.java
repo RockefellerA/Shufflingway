@@ -1494,6 +1494,34 @@ final class ActionResolverPatterns {
         "(?:\\(This\\s+effect\\s+does\\s+not\\s+end\\s+at\\s+the\\s+end\\s+of\\s+the\\s+turn\\.?\\)[.!]?)?\\s*$"
     );
     /**
+     * Matches a whole effect followed by a conditional replacement of it — "&lt;base&gt;. If
+     * &lt;condition&gt;, &lt;upgrade&gt; instead." — where both halves are self-contained effects.
+     *
+     * <p>16-140S Sin, 17-048C Thief and 17-111C Chemist. Each was claimed by an ordinary
+     * {@code find()} parser off the base sentence alone, which discarded the replacement: Sin broke
+     * its own controller's Forwards at 6 damage, where the card says it should spare them.
+     *
+     * <p>Anchored end to end and read with {@code matches()}, and the condition group stops at the
+     * first comma, so the pattern cannot reach across a sentence boundary into a neighbouring
+     * ability. The base group is reluctant, so it ends at the <em>first</em> "If …, … instead"
+     * rather than the last.
+     *
+     * <p>The upgrade must be a whole effect, which is what
+     * {@link ActionResolver#tryParseEffectThenConditionalInstead} enforces by requiring it to parse
+     * on its own. That is the guard that keeps this pattern off the much larger family whose
+     * replacement clause points back at a chosen target ("deal it 8000 damage instead" — 17-018C
+     * Mystic Knight and friends, already read by the Choose chain's own instead arm) and off the
+     * modal "select up to 2 of the 3 following actions instead" family, whose replacement is
+     * resolved by {@code AutoAbilityTriggers} rather than by a {@code Consumer}.
+     */
+    static final Pattern EFFECT_THEN_CONDITIONAL_INSTEAD = Pattern.compile(
+        "(?i)^(?<base>.+?)[.!]\\s+If\\s+(?<cond>[^,]+),\\s*(?<upgrade>.+?)\\s+instead[.!]?\\s*$",
+        Pattern.DOTALL
+    );
+
+
+
+    /**
      * Matches a whole-sentence "Freeze it." — the one bare target action that means two different
      * cards depending on where it sits.
      *
@@ -1758,6 +1786,23 @@ final class ActionResolverPatterns {
         "(?:\\s+other\\s+than\\s+an?\\s+(?<excl>Forward|Backup|Monster|Summon))?[.!]\\s+" +
         "Your\\s+opponent\\s+discards?\\s+(?:this|that|the\\s+selected)\\s+cards?[.!]?"
     );
+    /**
+     * The one-sentence phrasing of {@link #REVEAL_SELECT_HAND_DISCARD} — "your opponent reveals
+     * their hand, and you select 1 card for your opponent to discard from their hand" (16-022R
+     * Erwin, 23-020C Red Mage). Same effect, same primitive; only the punctuation differs, so it
+     * gets a sibling pattern rather than a widening of that one's rigid three-sentence shape.
+     *
+     * <p>Anchored end to end. Under {@code find()} the opening clause alone is what
+     * {@code OPPONENT_REVEAL_HAND_PATTERN} claims, and that reading resolves the reveal and drops
+     * the discard — which is how both cards came to have a replacement clause that would have been
+     * weaker than the base clause it replaced.
+     */
+    static final Pattern REVEAL_HAND_AND_SELECT_DISCARD = Pattern.compile(
+        "(?i)^your\\s+opponent\\s+reveals?\\s+(?:his/her|his|her|their)\\s+hand,\\s+and\\s+" +
+        "you\\s+select\\s+(?<count>\\d+)\\s+cards?\\s+for\\s+your\\s+opponent\\s+to\\s+discard" +
+        "(?:\\s+from\\s+(?:his/her|his|her|their)\\s+hand)?[.!]?\\s*$"
+    );
+
     /**
      * Matches "Your opponent reveals their hand. You may select 1 card from their hand.
      * If you do so, your opponent discards it and draws 1 card."
@@ -5999,7 +6044,6 @@ final class ActionResolverPatterns {
         "(?i)Put\\s+the\\s+top\\s+(?:(?<count>\\d+)\\s+cards?|card)\\s+" +
         "of\\s+your\\s+deck\\s+into\\s+the\\s+Break\\s+Zone"
     );
-
     // =========================================================================================
     // Casting and playing from hand
     // =========================================================================================
@@ -10377,6 +10421,29 @@ final class ActionResolverPatterns {
         "you\\s+control\\s+have\\s+(?<element>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)(?:\\s+Element)?,\\s+" +
         "(?<effect>.+)$"
     );
+    /**
+     * Matches a gated effect whose replacement raises the same count against the same, unrepeated
+     * noun — "if you control 3 or more Category FFTA Characters, draw 1 card. If you control 5 or
+     * more, draw 2 cards instead." (16-122R Marche, the corpus's only printing).
+     *
+     * <p>The second clause elides its noun because the first supplied it. Read apart, the two are
+     * unreadable: {@code CardData.parseControlCondition} takes the bare "5 or more" for five or
+     * more cards of any kind, a strictly easier condition than the card prints, which is why
+     * {@code tryParseControlGatedInsteadUpgrade} refuses a count-only condition outright. Matching
+     * both clauses in one pattern is what makes the noun recoverable — it is captured once and
+     * applied to both thresholds.
+     * <ul>
+     *   <li>{@code basecount} / {@code upcount} — the two thresholds, low then high</li>
+     *   <li>{@code noun} — the filter both thresholds count, printed only on the first</li>
+     *   <li>{@code base} / {@code upgrade} — the effect at each threshold</li>
+     * </ul>
+     */
+    static final Pattern CONTROL_GATED_ELIDED_INSTEAD = Pattern.compile(
+        "(?is)^if\\s+you\\s+control\\s+(?<basecount>\\d+)\\s+or\\s+more\\s+(?<noun>[^,]+?),\\s+" +
+        "(?<base>.+?)[.!]\\s+If\\s+you\\s+control\\s+(?<upcount>\\d+)\\s+or\\s+more,\\s+" +
+        "(?<upgrade>.+?)\\s+instead[.!]?\\s*$"
+    );
+
     /** Matches a leading "If you [do not] control &lt;condition&gt;, &lt;effect&gt;" gate. */
     static final Pattern CONTROL_CONDITION_GATE = Pattern.compile(
         "(?is)^if\\s+you\\s+(?<neg>do\\s+not\\s+|don't\\s+)?control\\s+(?<cond>.+?),\\s+(?<effect>.+)$"

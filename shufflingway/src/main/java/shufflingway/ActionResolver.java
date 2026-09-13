@@ -399,6 +399,12 @@ public class ActionResolver {
         result = tryParseIfControlCondOtherThan(effectText, source, xValue);
         if (result != null) return result;
 
+        // Must precede tryParseControlConditionGate: that one claims the opening gate and hands the
+        // rest to a parser that reads the base sentence and drops the "If you control M or more,
+        // … instead" behind it — 16-122R Marche never drew his second card.
+        result = tryParseControlGatedElidedInstead(effectText, source, xValue);
+        if (result != null) return result;
+
         result = tryParseControlConditionGate(effectText, source, xValue);
         if (result != null) return result;
 
@@ -828,6 +834,15 @@ public class ActionResolver {
         // dropping it, so this is the only parser that reads 14-062L's sweep and the payoff
         // counting what it broke.
         result = tryParseBreakForwardsBelowSelfPower(effectText, source);
+        if (result != null) return result;
+
+        // Must precede tryParseAllFieldEffect, and every other find() parser below it: those claim
+        // the base sentence on its own and discard the "If …, … instead" that replaces it. 16-140S
+        // Sin is the one that showed it — AllFieldEffect read her opening sweep and dropped the
+        // clause sparing her controller's own Forwards at 6 damage. Safe this early because the
+        // pattern is anchored end to end and the parser declines unless the condition and both
+        // halves are separately understood.
+        result = tryParseEffectThenConditionalInstead(effectText, source, xValue);
         if (result != null) return result;
 
         result = tryParseAllFieldEffect(effectText);
@@ -1516,6 +1531,13 @@ public class ActionResolver {
         // Must precede tryParseOpponentRevealHand: both open with "Your opponent reveals ...",
         // and the whole-hand parser would claim this text's opening clause under find().
         result = tryParseOpponentRevealNSelectOneDiscard(effectText);
+        if (result != null) return result;
+
+        // Must precede tryParseOpponentRevealHand for the same reason as the line above: this one
+        // spells the whole effect as a single comma-joined sentence, whose opening clause is
+        // exactly what the whole-hand parser find()s — resolving the reveal and dropping the
+        // discard that is the point of the ability.
+        result = tryParseRevealHandAndSelectDiscard(effectText);
         if (result != null) return result;
 
         result = tryParseOpponentRevealHand(effectText);
@@ -2240,6 +2262,9 @@ public class ActionResolver {
         // Mirrors parse(): read ahead of the general sweep, which declines this text.
         if (tryParseBreakForwardsBelowSelfPower(effectText, source) != null)
             return "BreakForwardsBelowSelfPower";
+        // Mirrors parse(): ahead of AllFieldEffect, which would otherwise name the ability after
+        // the base sentence alone and hide the replacement clause from the golden file.
+        if (tryParseEffectThenConditionalInstead(effectText, source, 0) != null) return "ConditionalInstead";
         if (tryParseAllFieldEffect(effectText)                != null) return "AllFieldEffect";
         if (tryParseFieldPowerGrantPassive(effectText, source) != null) {
             String trimmed = effectText.trim();
@@ -2415,6 +2440,12 @@ public class ActionResolver {
         if (tryParseChooseWarpCardFromBzToHand(effectText)     != null) return "ChooseWarpCardFromBzToHand";
         if (tryParseEachPlayerDraw(effectText)                 != null) return "EachPlayerDraw";
         if (tryParseNameCardTypeOpponentDiscardDrawIfMatch(effectText) != null) return "NameCardTypeOpponentDiscardDrawIfMatch";
+        // Must precede OpponentDiscard, mirroring parse(), where this parser sits four hundred
+        // lines ahead of it. Placed after it, the name chain reported the base clause of a
+        // "<base>. If you control X, <upgrade> instead." ability while parse() ran the whole
+        // gate — 16-022R Erwin and 23-020C Red Mage, which reached this shape the moment their
+        // replacement clause gained a parser of its own.
+        if (tryParseControlGatedInsteadUpgrade(effectText, source, 0) != null) return "ControlGatedInsteadUpgrade";
         if (tryParseOpponentDiscard(effectText)               != null) return "OpponentDiscard";
         if (tryParseDiscardHandThenDraw(effectText)           != null) return "DiscardHandThenDraw";
         if (tryParseDrawThenPlaceHandToBottom(effectText)     != null) return "DrawThenPlaceHandToBottom";
@@ -2455,8 +2486,10 @@ public class ActionResolver {
         // Checked ahead of OpponentSelects: an "…, X instead." upgrade wraps a base clause the
         // OpponentSelects matcher would otherwise claim on its own, dropping the replacement.
         // Must precede ControlGatedInsteadUpgrade, mirroring parse().
+        // Mirrors parse(), where it sits ahead of the plain control gate. Nothing else in this
+        // chain names 16-122R Marche's shape, so it read as an unnamed ability.
+        if (tryParseControlGatedElidedInstead(effectText, source, 0) != null) return "ControlGatedElidedInstead";
         if (tryParseChooseGatedBoostInstead(effectText, source, 0) != null) return "ChooseCharacter";
-        if (tryParseControlGatedInsteadUpgrade(effectText, source, 0) != null) return "ControlGatedInsteadUpgrade";
         // Mirrors parse(): ahead of OpponentSelects, which would otherwise claim it.
         if (tryParseTurnPlayerBreaksOrTakesDamage(effectText, source) != null) return "TurnPlayerBreaksOrTakesDamage";
         if (tryParseOppSelectsMayBreakElseSelfCannotBlock(effectText, source) != null)
@@ -2474,6 +2507,9 @@ public class ActionResolver {
         if (tryParseSelfMill(effectText)                      != null) return "SelfMill";
         // Must precede OpponentRevealHand — see the ordering note in parse().
         if (tryParseOpponentRevealNSelectOneDiscard(effectText) != null) return "OpponentRevealNSelectOneDiscard";
+        // Mirrors parse(): ahead of OpponentRevealHand, whose find() takes this text's
+        // opening clause and names the ability after half of itself.
+        if (tryParseRevealHandAndSelectDiscard(effectText)     != null) return "RevealHandAndSelectDiscard";
         if (tryParseOpponentRevealHand(effectText)            != null) return "OpponentRevealHand";
         if (tryParseEachPlayerRevealCharacterMayPlay(effectText)      != null) return "EachPlayerRevealMayPlay";
         if (tryParseEachPlayerMaySearchForwardMinPower(effectText)     != null) return "EachPlayerMaySearchForwardMinPower";
@@ -3364,6 +3400,18 @@ public class ActionResolver {
             return "IfSelfCounters(1+ " + cp.group("counter").trim() + ": "
                     + describeOrName(cp.group("inner").trim(), source) + ")";
         }
+        // Mirrors parse(): ahead of the plain control gate, which describes only the base half and
+        // leaves the replacement clause out of the golden file entirely.
+        {
+            Matcher em = CONTROL_GATED_ELIDED_INSTEAD.matcher(effectText.trim());
+            if (em.matches() && tryParseControlGatedElidedInstead(effectText, source, 0) != null) {
+                String noun = em.group("noun").trim();
+                return "IfControl(" + em.group("basecount") + "+ " + noun + ": "
+                        + describeOrName(em.group("base").trim(), source)
+                        + " / " + em.group("upcount") + "+: "
+                        + describeOrName(em.group("upgrade").trim(), source) + ")";
+            }
+        }
         if (tryParseControlConditionGate(effectText, source, 0)        != null) {
             Matcher ccg = CONTROL_CONDITION_GATE.matcher(effectText.trim());
             if (!ccg.matches()) return "ControlConditionGate";
@@ -3876,6 +3924,22 @@ public class ActionResolver {
         // Mirrors parse(); see the matching guard in matchedPatternNameOn().
         if (tryParseBreakForwardsBelowSelfPower(effectText, source) != null)
             return "BreakForwardsBelowSelfPower";
+        // Mirrors parse(): ahead of AllFieldEffect, which would otherwise describe the ability as
+        // its base sweep and leave the replacement clause invisible in the golden file. The
+        // condition is named as well as the two halves, because 17-048C Thief and 17-111C Chemist
+        // replace an effect with the same-named one at a different size — "OpponentMill else
+        // OpponentMill" alone would not move if a threshold changed.
+        {
+            Matcher im = EFFECT_THEN_CONDITIONAL_INSTEAD.matcher(effectText.trim());
+            if (im.matches() && tryParseEffectThenConditionalInstead(effectText, source, 0) != null) {
+                String baseDesc = fullDescription(im.group("base").trim(), source);
+                String upDesc   = fullDescription(im.group("upgrade").trim(), source);
+                DamageInsteadCondition c = parseDamageInsteadCondition(im.group("cond").trim());
+                return "ConditionalInstead(" + (baseDesc != null ? baseDesc : "?")
+                        + " / if " + c.getClass().getSimpleName() + ": "
+                        + (upDesc != null ? upDesc : "?") + ")";
+            }
+        }
         if (tryParseAllFieldEffect(effectText) != null)                     return "AllFieldEffect";
         if (tryParseFieldPowerGrantPassive(effectText, source) != null) {
             String trimmed = effectText.trim();
@@ -4151,6 +4215,8 @@ public class ActionResolver {
         // Must precede OpponentRevealHand — see the ordering note in parse().
         if (tryParseOpponentRevealNSelectOneDiscard(effectText) != null)
             return "Opponent reveals cards from their hand; you select 1 for them to discard";
+        // Mirrors parse(); see the note in matchedPatternNameOn().
+        if (tryParseRevealHandAndSelectDiscard(effectText) != null)         return "RevealHandAndSelectDiscard";
         if (tryParseOpponentRevealHand(effectText) != null)                 return "OpponentRevealHand";
         if (tryParseEachPlayerRevealCharacterMayPlay(effectText) != null)   return "EachPlayerRevealMayPlay";
         if (tryParseEachPlayerMaySearchForwardMinPower(effectText) != null) return "EachPlayerMaySearchForwardMinPower";
@@ -4623,9 +4689,13 @@ public class ActionResolver {
         if (s.equalsIgnoreCase("you have a Summon in your Break Zone"))
             return new DamageInsteadCondition.YouHaveSummonInBreakZone();
 
-        // Self damage count: "you have received N points of damage or more"
+        // Self damage count: "you have received N points of damage[ or more]". The tail is optional
+        // because 16-140S Sin prints the bare form, and it means the same thing: damage is never
+        // removed, and a seventh point ends the game, so "6 points" and "6 or more" name one state.
+        // Nothing below this line reads the bare wording, so admitting it only turns a declined
+        // condition into a read one.
         Matcher selfDmgM = Pattern
-                .compile("(?i)you have received (\\d+) points? of damage or more").matcher(s);
+                .compile("(?i)you have received (\\d+) points? of damage(?: or more)?").matcher(s);
         if (selfDmgM.find())
             return new DamageInsteadCondition.YouReceivedDamageAtLeast(Integer.parseInt(selfDmgM.group(1)));
 

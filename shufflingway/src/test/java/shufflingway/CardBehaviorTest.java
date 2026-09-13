@@ -56251,4 +56251,153 @@ public class CardBehaviorTest {
 
 	// =========================================================================================
 
+	// =========================================================================================
+	// Effect wiring — "<base>. If <condition>, <upgrade> instead." (ConditionalInstead)
+	//
+	// Five printings, each of which was claimed by an ordinary find() parser off the base sentence
+	// and had its replacement discarded: 16-140S Sin, 17-048C Thief, 17-111C Chemist, 11-113R
+	// Famfrit (FFTA), 23-088L Serah. Sin is the one that shows what that costs — she broke her own
+	// controller's Forwards at 6 damage, where the card says she should spare them.
+	//
+	// The parser replaces; it never appends. The tempting repair — letting the chain also run the
+	// trailing sentence — is strictly worse, because that sentence parses alone only by dropping
+	// the condition in front of it, so the upgrade would land on top of the base rather than in
+	// place of it.
+	//
+	// It declines unless the condition and both halves are separately understood. That is what
+	// keeps it off the two larger families sharing this wording — replacements pointing back at a
+	// chosen target ("deal it 8000 damage instead") and modal ones ("select up to 2 of the 3
+	// following actions instead") — and off the two traps the corpus sprang during the build, each
+	// of which has a test below.
+	// =========================================================================================
+
+	private static final String THIEF_17_048C =
+			"Your opponent puts the top 2 cards of their deck into the Break Zone. "
+			+ "If you have received a point of damage this turn, your opponent puts the top 4 cards "
+			+ "of their deck into the Break Zone instead.";
+
+	@Test
+	void thiefMillsTwoUndamagedAndFourAfterTakingDamage() {
+		GameContext calm = mock(GameContext.class);
+		when(calm.selfReceivedDamageThisTurn()).thenReturn(false);
+		ActionResolver.parse(THIEF_17_048C, null).accept(calm);
+		verify(calm).opponentMillCards(2);
+		verify(calm, never()).opponentMillCards(4);
+
+		GameContext hurt = mock(GameContext.class);
+		when(hurt.selfReceivedDamageThisTurn()).thenReturn(true);
+		ActionResolver.parse(THIEF_17_048C, null).accept(hurt);
+		verify(hurt).opponentMillCards(4);
+		verify(hurt, never()).opponentMillCards(2);
+	}
+
+	/** The replacement replaces. Running both halves would mill 6, which no printing says. */
+	@Test
+	void theUpgradeReplacesTheBaseRatherThanAddingToIt() {
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.selfReceivedDamageThisTurn()).thenReturn(true);
+		ActionResolver.parse(THIEF_17_048C, null).accept(ctx);
+		verify(ctx, times(1)).opponentMillCards(anyInt());
+	}
+
+	@Test
+	void sinsSweepNarrowsToTheOpponentsRowAtSixDamage() {
+		assertEquals("ConditionalInstead", ActionResolver.matchedPatternName(
+				"break all the Forwards other than Sin. If you have received 6 points of damage, "
+				+ "break all the Forwards opponent controls instead.",
+				makeForward("Sin", "Dark", 9, 11000)),
+				"the clause sparing her controller's own Forwards used to be discarded");
+	}
+
+	/**
+	 * 16-122R Marche's "If you control 5 or more" borrows its noun from the clause before it
+	 * ("3 or more Category FFTA Characters"). The control parser reads the bare count as five or
+	 * more cards of any kind, so honouring it would fire the upgrade far more often than printed.
+	 */
+	@Test
+	void anEllipticalControlConditionIsRefusedRatherThanGuessed() {
+		assertEquals("DrawCards", ActionResolver.matchedPatternName(
+				"draw 1 card. If you control 5 or more, draw 2 cards instead.", null),
+				"refused here, so it keeps its old reading as the base draw alone");
+	}
+
+	private static final String MARCHE_16_122R =
+			"if you control 3 or more Category FFTA Characters, draw 1 card. "
+			+ "If you control 5 or more, draw 2 cards instead.";
+
+	/**
+	 * 16-122R Marche's second threshold counts the noun the first one named and does not repeat it.
+	 * Read apart the clauses are unreadable — the bare "5 or more" parses as five or more cards of
+	 * any kind — so both are matched in one pattern and the noun is applied to both counts.
+	 *
+	 * <p>Three bands, not two: the base clause is itself gated, so below the low threshold the
+	 * ability does nothing at all.
+	 */
+	@Test
+	void marcheDrawsOneAtThreeAndTwoAtFiveAndNothingBelow() {
+		// { Characters controlled, times drawCards(1) runs, times drawCards(2) runs }
+		for (int[] band : new int[][] { {2, 0, 0}, {3, 1, 0}, {5, 0, 1} }) {
+			GameContext ctx = mock(GameContext.class);
+			// Low threshold met from 3, high from 5.
+			when(ctx.controlConditionMet(any())).thenAnswer(inv -> {
+				ControlCondition cc = inv.getArgument(0);
+				return band[0] >= cc.minCount();
+			});
+			Consumer<GameContext> fn = ActionResolver.parse(MARCHE_16_122R, null);
+			assertNotNull(fn, "both clauses are read as one ability");
+			fn.accept(ctx);
+			verify(ctx, times(band[1])).drawCards(1);
+			verify(ctx, times(band[2])).drawCards(2);
+		}
+	}
+
+	@Test
+	void marchesTwoThresholdsCountTheSameNoun() {
+		assertEquals("IfControl(3+ Category FFTA Characters: DrawCards / 5+: DrawCards)",
+				ActionResolver.fullDescription(MARCHE_16_122R, null),
+				"the elided noun is carried across to the second threshold");
+	}
+
+	private static final String ERWIN_16_022R =
+			"your opponent discards 1 card from their hand. If you control 4 or more "
+			+ "Job Morze's Soiree Member, your opponent reveals their hand, and you select 1 "
+			+ "card for your opponent to discard from their hand instead.";
+
+	/**
+	 * 16-022R Erwin and 23-020C Red Mage belong to the older {@code ControlGatedInsteadUpgrade},
+	 * not to this parser — their condition is a control condition, and that parser sits four
+	 * hundred lines earlier in {@code parse()}. What kept their replacement from resolving was its
+	 * own half: "your opponent reveals their hand, and you select 1 card for your opponent to
+	 * discard" had no parser of its own, so the reveal was all that ran and the discard was lost.
+	 *
+	 * <p>Both branches are asserted, because the failure this guards against is not a missing
+	 * upgrade but an upgrade that quietly does less than the base it replaced.
+	 */
+	@Test
+	void erwinsUpgradeExposesTheHandAndStillTakesACard() {
+		GameContext below = mock(GameContext.class);
+		when(below.controlConditionMet(any())).thenReturn(false);
+		ActionResolver.parse(ERWIN_16_022R, null).accept(below);
+		verify(below).forceOpponentDiscard(1);
+		verify(below, never()).selectFromOpponentHandAndDiscard(anyInt(), any(), anyString());
+
+		GameContext met = mock(GameContext.class);
+		when(met.controlConditionMet(any())).thenReturn(true);
+		ActionResolver.parse(ERWIN_16_022R, null).accept(met);
+		verify(met).selectFromOpponentHandAndDiscard(eq(1), isNull(), anyString());
+		verify(met, never()).forceOpponentDiscard(anyInt());
+	}
+
+	/** The clause on its own, which had no parser and so resolved as a bare reveal. */
+	@Test
+	void theRevealAndSelectClauseIsReadAsOneEffect() {
+		assertEquals("RevealHandAndSelectDiscard", ActionResolver.matchedPatternName(
+				"your opponent reveals their hand, and you select 1 card for your opponent "
+				+ "to discard from their hand.", null),
+				"reading it as OpponentRevealHand dropped the discard that is the point of it");
+	}
+
+	// =========================================================================================
+
+
 }
