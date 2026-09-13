@@ -555,7 +555,7 @@
 3 12-088C
 2 10-090C
 
-[*Anniversary 2024 (Ice/Lightning)]
+[Anniversary 2024 (Ice/Lightning)]
 3 PR-157
 3 PR-156
 3 PR-155

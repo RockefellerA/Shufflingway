@@ -6111,6 +6111,18 @@ public class ActionResolver {
     private static Consumer<GameContext> tryParseWhenYouDoSoSequence(String text, CardData source, int xValue) {
         Matcher m = WHEN_YOU_DO_SO_SEQUENCE.matcher(text);
         if (!m.find()) return null;
+        // A bare "Freeze it." payoff is the Choose family's wording, pointing back at the Forward
+        // the primary clause chose — 3-030L Kuja's "choose 1 Forward. You may pay 《Ice》. If you do
+        // so, Freeze it.". Claiming the sequence here would split that sentence and resolve the
+        // primary half alone, losing the pay gate that gives the freeze its price; declining leaves
+        // the whole text to the Choose chain, which reads the full followup in one piece.
+        //
+        // Scoped to this one wording rather than to every bare target action. The trigger form of
+        // these words (13-109R Hope, whose whole ability is "Freeze it.") is a single sentence and
+        // never reaches this parser, while "dull it and Freeze it" and "break that Character" are
+        // resolved here today and do mean the preloaded card — 7-040C Yunalesca and 5-130R
+        // Tonberry both break if this declines for them.
+        if (FOLLOWUP_FREEZE_BARE.matcher(m.group("followup").trim()).matches()) return null;
         Consumer<GameContext> primary  = parse(m.group("primary").trim(),  source, xValue);
         Consumer<GameContext> followup = parse(m.group("followup").trim(), source, xValue);
         if (primary == null || followup == null) return null;

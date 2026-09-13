@@ -3455,12 +3455,133 @@ final class AutoAbilityTriggers {
 	 * card's name are executed.
 	 */
 	void triggerAutoAbilitiesForBecomesDull(CardData card, boolean isP1) {
+		withBatch(() -> collectBecomesDullTriggers(card, isP1));
+		mw.showStackWindowIfNeeded();
+	}
+
+	/**
+	 * The self-naming half of the dull event, split out of
+	 * {@link #triggerAutoAbilitiesForBecomesDull} so
+	 * {@link #triggerAutoAbilitiesForBecomesDullByEffect} can gather it and the watcher half inside
+	 * a single {@link #withBatch} — they are simultaneous triggers on one event, and two batches
+	 * would ask their controller to order them in two separate dialogs.
+	 */
+	private void collectBecomesDullTriggers(CardData card, boolean isP1) {
+		for (AutoAbility fa : mw.effectiveAutoAbilities(card)) {
+			if (!fa.trigger().equals("becomes dull")) continue;
+			if (!fa.triggerCard().equalsIgnoreCase(card.name())) continue;
+			executeAutoAbility(fa, card, isP1);
+		}
+	}
+
+	/**
+	 * The dull event as caused by a Summon or an ability, rather than by an attack declaration or a
+	 * 《Dull》 cost payment. Fires the self-naming "becomes dull" abilities on {@code dulled} exactly
+	 * as {@link #triggerAutoAbilitiesForBecomesDull} does, and additionally the watcher printings —
+	 * "When an active Forward opponent controls becomes dull due to your Summon or ability, …"
+	 * (PR-156 Zack) — which live on the causing player's field and react to some other card dulling.
+	 *
+	 * <p>Only the two {@code GameContext} dull primitives call this. The other ten call sites are
+	 * attack declarations, 《Dull》 costs and damage-negation costs, and a cost is not an ability
+	 * effect, so the watcher must not see them. Mass sweeps need no separate wiring: the Forward
+	 * arms of {@code applyMassFieldEffect} route through those same two primitives.
+	 *
+	 * <p>The "active" in the printed subject needs no check of its own — both primitives return
+	 * early on a card that is already dull, so only an ACTIVE→DULL transition reaches this.
+	 *
+	 * @param dulledIsP1 the side the dulled Forward is on
+	 * @param causerIsP1 the side whose Summon or ability caused it, and so whose field is walked
+	 *     for watchers — "due to <em>your</em> Summon or ability"
+	 */
+	void triggerAutoAbilitiesForBecomesDullByEffect(CardData dulled, boolean dulledIsP1, boolean causerIsP1) {
+		if (dulled == null) return;
+		ForwardTarget dulledTarget = findFieldTarget(dulled, dulledIsP1);
 		withBatch(() -> {
-			for (AutoAbility fa : mw.effectiveAutoAbilities(card)) {
-				if (!fa.trigger().equals("becomes dull")) continue;
-				if (!fa.triggerCard().equalsIgnoreCase(card.name())) continue;
-				executeAutoAbility(fa, card, isP1);
-			}
+			collectBecomesDullTriggers(dulled, dulledIsP1);
+			for (CardData watcher : fieldCards(causerIsP1))
+				for (AutoAbility fa : mw.effectiveAutoAbilities(watcher)) {
+					if (!fa.trigger().equals("becomes dull by effect")) continue;
+					if (!matchesStateChangeSubject(fa.triggerCard(), dulled, dulledIsP1, watcher, causerIsP1))
+						continue;
+					// Hope 13-109R prints "Freeze it." and nothing else: the whole effect is about
+					// the card that just dulled, so it is resolved inline with that card preloaded
+					// as its target. Zack and Reno choose targets of their own and must not be
+					// preloaded — handing them one would aim their choice for them.
+					if (ActionResolver.isTriggeredTargetAction(fa.effectText())) {
+						if (dulledTarget == null) {
+							mw.logEntry("[AutoAbility] " + watcher.name()
+									+ " — the dulled card has left the field; skipped");
+							continue;
+						}
+						runWithPreloadedTarget(fa, watcher, causerIsP1, dulledTarget);
+						continue;
+					}
+					executeAutoAbility(fa, watcher, causerIsP1);
+				}
+		});
+		mw.showStackWindowIfNeeded();
+	}
+
+	/** The side clause closing a state-change watcher's subject, and what it demands of the card. */
+	private static final Pattern STATE_CHANGE_SUBJECT_SIDE =
+			Pattern.compile("(?i)\\s+(?<side>(?:your\\s+)?opponent\\s+controls|you\\s+control)$");
+
+	/** The state qualifier opening it — "an active Forward …", "a dull Character …" — article and all. */
+	private static final Pattern STATE_CHANGE_SUBJECT_STATE =
+			Pattern.compile("(?i)^(?:an?\\s+)?(?:active|dull)\\s+");
+
+	/**
+	 * True when {@code changed} satisfies the subject of a "becomes dull / becomes active by effect"
+	 * watcher carried by {@code watcher}.
+	 *
+	 * <p>The side clause is read rather than assumed. Zack's "a Forward opponent controls" and
+	 * Hope's "a Character you control" are the printings today, and the caller already knows the
+	 * watcher sits on the causing side, so it would be tempting to hard-code the relation — but the
+	 * two cards demand opposite ones, and Hope carries both at once. A subject with no side clause
+	 * is left unconstrained, matching either.
+	 *
+	 * <p>The opening state qualifier is dropped rather than checked. It says which transition the
+	 * card has to have made ("an <em>active</em> Forward becomes dull"), and every caller has
+	 * already established that by comparing the state before and after, so re-reading it here would
+	 * only be a second chance to get it wrong.
+	 */
+	private boolean matchesStateChangeSubject(String subject, CardData changed, boolean changedIsP1,
+			CardData watcher, boolean watcherIsP1) {
+		if (subject == null || subject.isBlank()) return false;
+		String part = subject.trim();
+		Matcher side = STATE_CHANGE_SUBJECT_SIDE.matcher(part);
+		if (side.find()) {
+			boolean wantsOpponent = !side.group("side").toLowerCase(Locale.ROOT).startsWith("you ");
+			if (wantsOpponent != (changedIsP1 != watcherIsP1)) return false;
+			part = part.substring(0, side.start()).trim();
+		}
+		part = STATE_CHANGE_SUBJECT_STATE.matcher(part).replaceFirst("a ").trim();
+		return matchesSingleSubject(part, changed, watcher);
+	}
+
+	/**
+	 * The mirror of {@link #triggerAutoAbilitiesForBecomesDullByEffect} — "When a dull Character you
+	 * control becomes active due to your Summons or abilities, …" (13-109R Hope, the corpus's only
+	 * printing, which carries this and the dull watcher as its two halves).
+	 *
+	 * <p>Hooked at {@code activateTarget}, the single primitive every effect-driven activation goes
+	 * through, Backups and Monsters included. Unlike the dull primitives it has no already-in-state
+	 * guard of its own, so the caller establishes the DULL→ACTIVE transition and only then calls
+	 * this: activating an already-active card is not something "becomes active" describes.
+	 *
+	 * @param causerIsP1 the side whose Summon or ability caused it — "due to <em>your</em> …"
+	 */
+	void triggerAutoAbilitiesForBecomesActiveByEffect(CardData activated, boolean activatedIsP1,
+			boolean causerIsP1) {
+		if (activated == null) return;
+		withBatch(() -> {
+			for (CardData watcher : fieldCards(causerIsP1))
+				for (AutoAbility fa : mw.effectiveAutoAbilities(watcher)) {
+					if (!fa.trigger().equals("becomes active by effect")) continue;
+					if (!matchesStateChangeSubject(fa.triggerCard(), activated, activatedIsP1,
+							watcher, causerIsP1)) continue;
+					executeAutoAbility(fa, watcher, causerIsP1);
+				}
 		});
 		mw.showStackWindowIfNeeded();
 	}

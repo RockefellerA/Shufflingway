@@ -273,6 +273,74 @@
         "At the beginning of Main Phase 1 during each of your turns, if you control 10 or more Job Scion of the Seventh Dawn, your opponent loses the game."
       ],
       "imageUrl": "https://storage.googleapis.com/materiahunter-prod.appspot.com/images/cards/fftcg/en/PR/PR-150.jpg"
+    },
+    {
+      "_note": "Promo printing; the API returns only PR-001 through PR-003.",
+      "serial": "PR-155",
+      "name": "Laguna",
+      "type": "Forward",
+      "element": "Ice",
+      "cost": 3,
+      "power": 7000,
+      "rarity": "PR",
+      "job": "Marksman",
+      "category1": "VIII",
+      "exBurst": false,
+      "multicard": false,
+      "text": [
+        "Warp 2 -- 《Ice》[[br]]",
+        "When Laguna enters the field, choose 1 Character.",
+        "Dull it and Freeze it.",
+        "[[br]]",
+        "When Laguna enters the field due to Warp, choose 1 Forward.",
+        "If it is dull, deal it 8000 damage."
+      ],
+      "imageUrl": "https://storage.googleapis.com/materiahunter-prod.appspot.com/images/cards/fftcg/en/PR/PR-155.jpg"
+    },
+    {
+      "_note": "Promo printing; the API returns only PR-001 through PR-003.",
+      "serial": "PR-156",
+      "name": "Zack",
+      "type": "Forward",
+      "element": "Lightning",
+      "cost": 4,
+      "power": 7000,
+      "rarity": "PR",
+      "job": "SOLDIER",
+      "category1": "VII",
+      "exBurst": false,
+      "multicard": false,
+      "text": [
+        "Haste",
+        "[[br]]",
+        "When Zack attacks, choose 1 Forward opponent controls.",
+        "Dull it.",
+        "[[br]]",
+        "When an active Forward opponent controls becomes dull due to your Summon or ability, choose 1 Forward opponent controls.",
+        "Deal it 5000 damage."
+      ],
+      "imageUrl": "https://storage.googleapis.com/materiahunter-prod.appspot.com/images/cards/fftcg/en/PR/PR-156.jpg"
+    },
+    {
+      "_note": "Promo printing; the API returns only PR-001 through PR-003.",
+      "serial": "PR-157",
+      "name": "Aerith",
+      "type": "Forward",
+      "element": "Light",
+      "cost": 2,
+      "power": 3000,
+      "rarity": "PR",
+      "job": "Ancient",
+      "category1": "VII",
+      "exBurst": false,
+      "multicard": false,
+      "text": [
+        "The Characters you control cannot be returned to their owner's hand by your opponent's Summons or abilities.",
+        "[[br]]",
+        "When Aerith enters the field, reveal the top 3 cards of your deck.",
+        "Play 1 Backup of cost 2 or less among them onto the field and return the other cards to the bottom of your deck in any order."
+      ],
+      "imageUrl": "https://storage.googleapis.com/materiahunter-prod.appspot.com/images/cards/fftcg/en/PR/PR-157.jpg"
     }
   ]
 }

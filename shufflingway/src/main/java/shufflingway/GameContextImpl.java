@@ -1846,7 +1846,9 @@ final class GameContextImpl implements GameContext {
 				mw.p1ForwardStates.set(idx, CardState.DULL);
 				logEntry(c.name() + " is dulled");
 				mw.animateDullForward(idx, null);
-				mw.autoAbilityTriggers.triggerAutoAbilitiesForBecomesDull(c, true);
+				// By-effect, not by cost: this primitive is only reached from a Summon or an
+				// ability, so the watcher printings see it and the attack/cost paths do not.
+				mw.autoAbilityTriggers.triggerAutoAbilitiesForBecomesDullByEffect(c, true, isP1);
 			}
 
 			@Override public void dullP2Forward(int idx) {
@@ -1866,7 +1868,8 @@ final class GameContextImpl implements GameContext {
 				mw.p2ForwardStates.set(idx, CardState.DULL);
 				logEntry("[P2] " + c.name() + " is dulled");
 				mw.animateDullP2Forward(idx, null);
-				mw.autoAbilityTriggers.triggerAutoAbilitiesForBecomesDull(c, false);
+				// The mirror of dullP1Forward's call — see there.
+				mw.autoAbilityTriggers.triggerAutoAbilitiesForBecomesDullByEffect(c, false, isP1);
 			}
 
 			@Override public void freezeP1Forward(int idx) {
@@ -5346,6 +5349,21 @@ final class GameContextImpl implements GameContext {
 	// Target-addressed state changes and breaks
 	// =========================================================================================
 			@Override public void activateTarget(ForwardTarget t) {
+				// Read before the switch, so "becomes active" fires only on a card that was dull.
+				// This primitive has no already-active guard of its own — activating an active card
+				// is a no-op the rest of the engine relies on — so the transition is established
+				// here rather than by the arms below.
+				CardState before = targetState(t);
+				activateTargetState(t);
+				if (before == CardState.DULL) {
+					CardData activated = cardAtTarget(t);
+					if (activated != null)
+						mw.autoAbilityTriggers.triggerAutoAbilitiesForBecomesActiveByEffect(
+								activated, t.isP1(), isP1);
+				}
+			}
+
+			private void activateTargetState(ForwardTarget t) {
 				switch (t.zone()) {
 					case FORWARD -> {
 						int i = t.idx();
@@ -5366,6 +5384,13 @@ final class GameContextImpl implements GameContext {
 			}
 
 			@Override public void dullTarget(ForwardTarget t) {
+				// Read before the switch for the Backup and Monster rows. The Forward arm delegates
+				// to dullP1Forward/dullP2Forward, which fire their own becomes-dull triggers because
+				// the rest of the engine calls them directly; the other two rows have no such
+				// primitive and set the state inline, so their transition is fired below. Without
+				// it 13-109R Hope's "an active Character opponent controls becomes dull" watched
+				// only Forwards, which is not what "Character" says.
+				CardState beforeDull = targetState(t);
 				switch (t.zone()) {
 					case FORWARD -> { if (t.isP1()) dullP1Forward(t.idx()); else dullP2Forward(t.idx()); }
 					case BACKUP  -> {
@@ -5379,10 +5404,17 @@ final class GameContextImpl implements GameContext {
 						else          { if (i < mw.p2MonsterCards.size()) { mw.p2MonsterStates.set(i, CardState.DULL); logEntry("[P2] " + mw.p2MonsterCards.get(i).name() + " is dulled"); mw.refreshP2MonsterSlot(i); } }
 					}
 				}
+				if (t.zone() != ForwardTarget.CardZone.FORWARD && beforeDull == CardState.ACTIVE) {
+					CardData dulled = cardAtTarget(t);
+					if (dulled != null)
+						mw.autoAbilityTriggers.triggerAutoAbilitiesForBecomesDullByEffect(
+								dulled, t.isP1(), isP1);
+				}
 			}
 
-			@Override public void toggleTargetDullActivate(ForwardTarget t) {
-				CardState state = switch (t.zone()) {
+			/** The dull/active state of whatever sits at {@code t}, or {@code null} if nothing does. */
+			private CardState targetState(ForwardTarget t) {
+				return switch (t.zone()) {
 					case FORWARD -> t.isP1()
 							? (t.idx() < mw.p1ForwardStates.size() ? mw.p1ForwardStates.get(t.idx()) : null)
 							: (t.idx() < mw.p2ForwardStates.size() ? mw.p2ForwardStates.get(t.idx()) : null);
@@ -5394,6 +5426,10 @@ final class GameContextImpl implements GameContext {
 							: (t.idx() < mw.p2MonsterStates.size() ? mw.p2MonsterStates.get(t.idx()) : null);
 					default -> null;
 				};
+			}
+
+			@Override public void toggleTargetDullActivate(ForwardTarget t) {
+				CardState state = targetState(t);
 				if (state == null) return;
 				if (state == CardState.DULL) activateTarget(t);
 				else                         dullTarget(t);
@@ -8698,8 +8734,11 @@ final class GameContextImpl implements GameContext {
 								case DULL           -> dullP1Forward(i);
 								case FREEZE         -> freezeP1Forward(i);
 								case DULL_AND_FREEZE -> { dullP1Forward(i); freezeP1Forward(i); }
+								// Delegated for the reason the Backup and Monster arms below are, and
+								// the count is taken first because activateTarget leaves nothing
+								// behind to distinguish a card it woke from one already active.
 								case ACTIVATE       -> { if (mw.p1ForwardStates.get(i) == CardState.DULL) mw.lastMassActivateCount++;
-								                         mw.p1ForwardStates.set(i, CardState.ACTIVE); mw.refreshP1ForwardSlot(i); }
+								                         activateTarget(new ForwardTarget(true, i, ForwardTarget.CardZone.FORWARD)); }
 								case RETURN_TO_HAND -> returnP1ForwardToHand(i);
 								case REMOVE_FROM_GAME -> removeTargetFromGame(new ForwardTarget(true, i, ForwardTarget.CardZone.FORWARD));
 							}
@@ -8716,6 +8755,12 @@ final class GameContextImpl implements GameContext {
 							if (excludeName != null && excludeName.equalsIgnoreCase(c.name())) continue;
 							if (!mw.meetsJobFilterEffective(c, job)) continue;
 							if (!meetsCategoryFilter(c, category)) continue;
+							// The state-change actions delegate to the single-target primitives
+							// rather than repeating their bodies. Those are where the becomes-dull
+							// and becomes-active watchers hang, so a sweep that set the state here
+							// was invisible to 13-109R Hope; the Forward arm above has always
+							// delegated, which is why only these two rows were dark.
+							ForwardTarget slot = new ForwardTarget(true, i, ForwardTarget.CardZone.BACKUP);
 							switch (action) {
 								case BREAK -> {
 									logEntry(c.name() + " is broken");
@@ -8725,13 +8770,13 @@ final class GameContextImpl implements GameContext {
 									mw.refreshP1BackupSlot(i);
 									mw.refreshP1BreakLabel();
 								}
-								case DULL           -> { mw.p1BackupStates[i] = CardState.DULL;   logEntry(c.name() + " is dulled");          mw.refreshP1BackupSlot(i); }
-								case FREEZE         -> { mw.p1BackupFrozen[i] = true;              logEntry(c.name() + " is frozen");          mw.refreshP1BackupSlot(i); }
-								case DULL_AND_FREEZE -> { mw.p1BackupStates[i] = CardState.DULL; mw.p1BackupFrozen[i] = true; logEntry(c.name() + " is dulled & frozen"); mw.refreshP1BackupSlot(i); }
+								case DULL           -> dullTarget(slot);
+								case FREEZE         -> freezeTarget(slot);
+								case DULL_AND_FREEZE -> { dullTarget(slot); freezeTarget(slot); }
 								case ACTIVATE       -> { if (mw.p1BackupStates[i] == CardState.DULL) mw.lastMassActivateCount++;
-								                         mw.p1BackupStates[i] = CardState.ACTIVE; logEntry(c.name() + " is activated");       mw.refreshP1BackupSlot(i); }
+								                         activateTarget(slot); }
 								case RETURN_TO_HAND -> returnP1BackupToHand(i);
-								case REMOVE_FROM_GAME -> removeTargetFromGame(new ForwardTarget(true, i, ForwardTarget.CardZone.BACKUP));
+								case REMOVE_FROM_GAME -> removeTargetFromGame(slot);
 							}
 						}
 					}
@@ -8745,6 +8790,7 @@ final class GameContextImpl implements GameContext {
 							if (excludeName != null && excludeName.equalsIgnoreCase(c.name())) continue;
 							if (!mw.meetsJobFilterEffective(c, job)) continue;
 							if (!meetsCategoryFilter(c, category)) continue;
+							ForwardTarget slot = new ForwardTarget(true, i, ForwardTarget.CardZone.MONSTER);
 							switch (action) {
 								case BREAK -> {
 									logEntry(c.name() + " is broken");
@@ -8761,13 +8807,13 @@ final class GameContextImpl implements GameContext {
 									mw.p1MonsterPanel.repaint();
 									mw.refreshP1BreakLabel();
 								}
-								case DULL           -> { mw.p1MonsterStates.set(i, CardState.DULL);   logEntry(c.name() + " is dulled");          mw.refreshP1MonsterSlot(i); }
-								case FREEZE         -> { mw.p1MonsterFrozen.set(i, true);              logEntry(c.name() + " is frozen");          mw.refreshP1MonsterSlot(i); }
-								case DULL_AND_FREEZE -> { mw.p1MonsterStates.set(i, CardState.DULL); mw.p1MonsterFrozen.set(i, true); logEntry(c.name() + " is dulled & frozen"); mw.refreshP1MonsterSlot(i); }
+								case DULL           -> dullTarget(slot);
+								case FREEZE         -> freezeTarget(slot);
+								case DULL_AND_FREEZE -> { dullTarget(slot); freezeTarget(slot); }
 								case ACTIVATE       -> { if (mw.p1MonsterStates.get(i) == CardState.DULL) mw.lastMassActivateCount++;
-								                         mw.p1MonsterStates.set(i, CardState.ACTIVE); logEntry(c.name() + " is activated");       mw.refreshP1MonsterSlot(i); }
+								                         activateTarget(slot); }
 								case RETURN_TO_HAND -> returnP1MonsterToHand(i);
-								case REMOVE_FROM_GAME -> removeTargetFromGame(new ForwardTarget(true, i, ForwardTarget.CardZone.MONSTER));
+								case REMOVE_FROM_GAME -> removeTargetFromGame(slot);
 							}
 						}
 					}
@@ -8791,7 +8837,7 @@ final class GameContextImpl implements GameContext {
 								case FREEZE         -> freezeP2Forward(i);
 								case DULL_AND_FREEZE -> { dullP2Forward(i); freezeP2Forward(i); }
 								case ACTIVATE       -> { if (mw.p2ForwardStates.get(i) == CardState.DULL) mw.lastMassActivateCount++;
-								                         mw.p2ForwardStates.set(i, CardState.ACTIVE); mw.refreshP2ForwardSlot(i); }
+								                         activateTarget(new ForwardTarget(false, i, ForwardTarget.CardZone.FORWARD)); }
 								case RETURN_TO_HAND -> returnP2ForwardToHand(i);
 								case REMOVE_FROM_GAME -> removeTargetFromGame(new ForwardTarget(false, i, ForwardTarget.CardZone.FORWARD));
 							}
@@ -8808,6 +8854,7 @@ final class GameContextImpl implements GameContext {
 							if (excludeName != null && excludeName.equalsIgnoreCase(c.name())) continue;
 							if (!mw.meetsJobFilterEffective(c, job)) continue;
 							if (!meetsCategoryFilter(c, category)) continue;
+							ForwardTarget slot = new ForwardTarget(false, i, ForwardTarget.CardZone.BACKUP);
 							switch (action) {
 								case BREAK -> {
 									logEntry("[P2] " + c.name() + " is broken");
@@ -8817,13 +8864,13 @@ final class GameContextImpl implements GameContext {
 									mw.refreshP2BackupSlot(i);
 									mw.refreshP2BreakLabel();
 								}
-								case DULL           -> { mw.p2BackupStates[i] = CardState.DULL;   logEntry("[P2] " + c.name() + " is dulled");          mw.refreshP2BackupSlot(i); }
-								case FREEZE         -> { mw.p2BackupFrozen[i] = true;              logEntry("[P2] " + c.name() + " is frozen");          mw.refreshP2BackupSlot(i); }
-								case DULL_AND_FREEZE -> { mw.p2BackupStates[i] = CardState.DULL; mw.p2BackupFrozen[i] = true; logEntry("[P2] " + c.name() + " is dulled & frozen"); mw.refreshP2BackupSlot(i); }
+								case DULL           -> dullTarget(slot);
+								case FREEZE         -> freezeTarget(slot);
+								case DULL_AND_FREEZE -> { dullTarget(slot); freezeTarget(slot); }
 								case ACTIVATE       -> { if (mw.p2BackupStates[i] == CardState.DULL) mw.lastMassActivateCount++;
-								                         mw.p2BackupStates[i] = CardState.ACTIVE; logEntry("[P2] " + c.name() + " is activated");       mw.refreshP2BackupSlot(i); }
+								                         activateTarget(slot); }
 								case RETURN_TO_HAND -> returnP2BackupToHand(i);
-								case REMOVE_FROM_GAME -> removeTargetFromGame(new ForwardTarget(false, i, ForwardTarget.CardZone.BACKUP));
+								case REMOVE_FROM_GAME -> removeTargetFromGame(slot);
 							}
 						}
 					}
@@ -8835,6 +8882,7 @@ final class GameContextImpl implements GameContext {
 							if (excludeCostVal >= 0 && c.cost() == excludeCostVal) continue;
 							if (counterFilter != null && mw.gameState.getCounters(c, counterFilter) <= 0) continue;
 							if (excludeName != null && excludeName.equalsIgnoreCase(c.name())) continue;
+							ForwardTarget slot = new ForwardTarget(false, i, ForwardTarget.CardZone.MONSTER);
 							switch (action) {
 								case BREAK -> {
 									logEntry("[P2] " + c.name() + " is broken");
@@ -8851,13 +8899,13 @@ final class GameContextImpl implements GameContext {
 									mw.p2MonsterPanel.repaint();
 									mw.refreshP2BreakLabel();
 								}
-								case DULL           -> { mw.p2MonsterStates.set(i, CardState.DULL);   logEntry("[P2] " + c.name() + " is dulled");          mw.refreshP2MonsterSlot(i); }
-								case FREEZE         -> { mw.p2MonsterFrozen.set(i, true);              logEntry("[P2] " + c.name() + " is frozen");          mw.refreshP2MonsterSlot(i); }
-								case DULL_AND_FREEZE -> { mw.p2MonsterStates.set(i, CardState.DULL); mw.p2MonsterFrozen.set(i, true); logEntry("[P2] " + c.name() + " is dulled & frozen"); mw.refreshP2MonsterSlot(i); }
+								case DULL           -> dullTarget(slot);
+								case FREEZE         -> freezeTarget(slot);
+								case DULL_AND_FREEZE -> { dullTarget(slot); freezeTarget(slot); }
 								case ACTIVATE       -> { if (mw.p2MonsterStates.get(i) == CardState.DULL) mw.lastMassActivateCount++;
-								                         mw.p2MonsterStates.set(i, CardState.ACTIVE); logEntry("[P2] " + c.name() + " is activated");       mw.refreshP2MonsterSlot(i); }
+								                         activateTarget(slot); }
 								case RETURN_TO_HAND -> returnP2MonsterToHand(i);
-								case REMOVE_FROM_GAME -> removeTargetFromGame(new ForwardTarget(false, i, ForwardTarget.CardZone.MONSTER));
+								case REMOVE_FROM_GAME -> removeTargetFromGame(slot);
 							}
 						}
 					}

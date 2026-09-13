@@ -1316,6 +1316,11 @@ final class ActionResolverPatterns {
     );
     static final Pattern TRIGGERED_TARGET_ACTION_BARE = Pattern.compile(
         "(?i)^(?:dull\\s+it\\s+and\\s+freeze\\s+it|dull\\s+and\\s+freeze\\s+it" +
+        // "Freeze it." alone — 13-109R Hope, whose trigger already dulled the card, so only the
+        // freeze is left to print. Order against its two neighbours does not matter: the whole
+        // alternation is anchored and read with matches(), so "dull it and freeze it" cannot be
+        // claimed by this shorter arm the way it could under find().
+        "|freeze\\s+it" +
         "|break\\s+that\\s+Character" +
         // "that Forward gains +N power [and Haste/...] until the end of the turn" — 8-097H Jake.
         // The demonstrative form only: "it gains ..." is the Choose family's followup wording and
@@ -1487,6 +1492,19 @@ final class ActionResolverPatterns {
         "(?i)^(?:Its|Their)\\s+Elements?\\s+becomes?\\s+" +
         "(?<element>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)[.!]?\\s*" +
         "(?:\\(This\\s+effect\\s+does\\s+not\\s+end\\s+at\\s+the\\s+end\\s+of\\s+the\\s+turn\\.?\\)[.!]?)?\\s*$"
+    );
+    /**
+     * Matches a whole-sentence "Freeze it." — the one bare target action that means two different
+     * cards depending on where it sits.
+     *
+     * <p>As a trigger's whole effect it is 13-109R Hope's, naming the card the trigger just dulled,
+     * and {@link #TRIGGERED_TARGET_ACTION_BARE} admits it for that. As the payoff of a "If you do
+     * so," sequence it is 3-030L Kuja's, naming the Forward the same ability chose two clauses
+     * earlier. {@link ActionResolver#tryParseWhenYouDoSoSequence} reads this to decline the second
+     * reading rather than split Kuja's sentence.
+     */
+    static final Pattern FOLLOWUP_FREEZE_BARE = Pattern.compile(
+        "(?i)^Freeze\\s+it\\s*[.!]?$"
     );
     /**
      * Matches "Break that Character." — the demonstrative form, 5-130R Tonberry.

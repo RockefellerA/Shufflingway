@@ -3036,6 +3036,15 @@ public record CardData(
             // and normalise to different triggers.
             "|(?:is|are)\\s+chosen\\s+by\\s+your\\s+opponent's\\s+abilit(?:y|ies)" +
             "|uses?\\s+an\\s+EX\\s+Burst" +
+            // "becomes dull due to your Summon or ability" — PR-156 Zack, the watcher form of the
+            // arm below. Must precede it: this pattern requires a comma straight after the trigger,
+            // and plain "becomes dull" matches the head of this text and then fails on " due", so
+            // the whole sentence went unread and Zack had no third ability at all.
+            "|becomes?\\s+dull\\s+due\\s+to\\s+your\\s+Summons?\\s+or\\s+abilit(?:y|ies)" +
+            // The mirror of the arm above, and Hope's other half. No plain "becomes active" arm
+            // sits beside it: nothing in the corpus watches an activation that was not caused by
+            // its own controller's effect, so widening to the bare form would invent a trigger.
+            "|becomes?\\s+active\\s+due\\s+to\\s+your\\s+Summons?\\s+or\\s+abilit(?:y|ies)" +
             "|becomes?\\s+dull" +
             // "is priming" — the act of paying a Priming cost, watched by 24-109R Dion,
             // 24-113R Barnabas (XVI), 26-021C Anabella, 26-084H Vivian and 29-085R Cidolfus.
@@ -3957,6 +3966,16 @@ public record CardData(
             // "break zone", and "due to your Summons or abilities" contains "summon".
             else if (triggerRaw.contains("added to your opponent's hand"))                                  trigger = "opponent salvages from break zone";
             else if (triggerRaw.contains("discard") && triggerRaw.contains("due to your"))                  trigger = discardByEffectTrigger(triggerRaw);
+            // "becomes dull due to your Summon or ability" — PR-156 Zack. Must precede the "summon"
+            // branch below for the same reason its two neighbours do: "due to your Summon or
+            // ability" contains "summon", and that branch would file this as a cast-a-Summon
+            // trigger, firing Zack on his controller's own Summon casts instead of on the dull.
+            // The plain "dull" branch further down stays the self-trigger ("When Ra-la becomes
+            // dull"); this one is a watcher, and the two dispatch differently.
+            else if (triggerRaw.contains("dull") && triggerRaw.contains("due to your"))                     trigger = "becomes dull by effect";
+            // Its mirror, and under the same ordering constraint for the same reason — 13-109R
+            // Hope carries both, one per [[br]] segment.
+            else if (triggerRaw.contains("active") && triggerRaw.contains("due to your"))                   trigger = "becomes active by effect";
             // "casts a card removed from the game" — 29-008L Zidane. Read before the branches below
             // for the reason its neighbours are: nothing else in the chain claims it today, but it
             // is a cast trigger and belongs beside the Summon one rather than after the fall-through

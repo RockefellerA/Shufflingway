@@ -55857,4 +55857,284 @@ public class CardBehaviorTest {
 
 	// =========================================================================================
 
+	// =========================================================================================
+	// Board behaviour — Zack PR-156: "When an active Forward opponent controls becomes dull due to
+	// your Summon or ability, choose 1 Forward opponent controls. Deal it 5000 damage."
+	//
+	// The watcher form of the dull trigger, where every other printing is the self form ("When
+	// Ra-la becomes dull"). Three things had to be true for it to fire at all, and each has a test
+	// here because each failed in a different direction:
+	//
+	//   * classification — "due to your Summon or ability" contains "summon", so the trigger chain
+	//     filed it as a cast-a-Summon trigger unless the dull branch was placed ahead of that one;
+	//   * cause — dulling to declare an attack or to pay a 《Dull》 cost is not an ability effect,
+	//     and only the two GameContext primitives route here;
+	//   * side — the subject's "opponent controls" is read rather than assumed from the fact that
+	//     the watcher sits on the causing player's field.
+	// =========================================================================================
+
+	private static final String ZACK_TEXT =
+			"Haste[[br]]   When Zack attacks, choose 1 Forward opponent controls. Dull it.[[br]]   "
+			+ "When an active Forward opponent controls becomes dull due to your Summon or ability, "
+			+ "choose 1 Forward opponent controls. Deal it 5000 damage.";
+
+	/**
+	 * A watcher carrying Zack's trigger over an effect that needs no target dialog, so a test can
+	 * assert the trigger was <em>reached</em> without driving a choice. What it does when it gets
+	 * there is the resolver's business and is covered against a mock elsewhere.
+	 */
+	private static CardData makeDullWatcher(String subject) {
+		return makeAutoAbilityForward("Watcher",
+				"When " + subject + " becomes dull due to your Summon or ability, activate Watcher.");
+	}
+
+	/** P1 has a dull watcher; P2 has one plain active Forward for an effect to dull. */
+	private static MainWindow dullWatcherSetUp(String subject) {
+		MainWindow mw = new MainWindow();
+		placeP1Forward(mw, makeDullWatcher(subject));
+		mw.p1ForwardStates.set(0, CardState.DULL);
+		placeP2Forward(mw, makeForward("Victim", "Fire", 3, 7000));
+		return mw;
+	}
+
+	@Test
+	void zacksDullTriggerIsNotFiledAsASummonTrigger() {
+		CardData zack = makeAutoAbilityForward("Zack", ZACK_TEXT);
+
+		List<AutoAbility> autos = zack.autoAbilities();
+		assertEquals(2, autos.size(), "both triggers are read; the dull one used to go missing entirely");
+		AutoAbility dull = autos.get(1);
+		assertEquals("becomes dull by effect", dull.trigger(),
+				"\"due to your Summon or ability\" must not be claimed by the summon branch");
+		assertEquals("an active Forward opponent controls", dull.triggerCard(),
+				"the subject is kept whole — the side clause is read at dispatch");
+		assertNotNull(ActionResolver.parse(dull.effectText(), zack), "and its effect still resolves");
+	}
+
+	@Test
+	void yourAbilityDullingAnOpponentsForwardFiresTheWatcher() {
+		MainWindow mw = dullWatcherSetUp("an active Forward opponent controls");
+
+		mw.buildGameContext(true).dullP2Forward(0);
+
+		assertEquals(CardState.ACTIVE, mw.p1ForwardStates.get(0),
+				"P1's ability dulled an opponent's active Forward — the watcher fires");
+	}
+
+	@Test
+	void dullingToAttackOrToPayACostDoesNotFireTheWatcher() {
+		MainWindow mw = dullWatcherSetUp("an active Forward opponent controls");
+		CardData victim = mw.p2ForwardCards.get(0);
+		mw.p2ForwardStates.set(0, CardState.DULL);
+
+		// The entry point every attack declaration and 《Dull》 cost uses.
+		mw.autoAbilityTriggers.triggerAutoAbilitiesForBecomesDull(victim, false);
+
+		assertEquals(CardState.DULL, mw.p1ForwardStates.get(0),
+				"a cost is not a Summon or an ability, so the watcher must not see it");
+	}
+
+	@Test
+	void anAlreadyDullForwardDoesNotBecomeDullAgain() {
+		MainWindow mw = dullWatcherSetUp("an active Forward opponent controls");
+		mw.p2ForwardStates.set(0, CardState.DULL);
+
+		mw.buildGameContext(true).dullP2Forward(0);
+
+		assertEquals(CardState.DULL, mw.p1ForwardStates.get(0),
+				"the printed \"active\" is carried by the primitive's already-dull guard");
+	}
+
+	@Test
+	void theWatcherDoesNotFireOnYourOwnForwardBecomingDull() {
+		MainWindow mw = dullWatcherSetUp("an active Forward opponent controls");
+		placeP1Forward(mw, makeForward("Ally", "Fire", 3, 7000));
+
+		mw.buildGameContext(true).dullP1Forward(1);
+
+		assertEquals(CardState.DULL, mw.p1ForwardStates.get(0),
+				"\"opponent controls\" excludes a Forward its own controller dulled");
+	}
+
+	/**
+	 * Hope 13-109R prints "Freeze it." as her whole effect — the trigger already dulled the card,
+	 * so only the freeze is left to say. She is the other half of this trigger family: Zack and
+	 * Reno choose targets of their own, Hope points back at the one that dulled.
+	 */
+	@Test
+	void hopeFreezesTheForwardHerControllersAbilityDulled() {
+		MainWindow mw = new MainWindow();
+		placeP1Forward(mw, makeAutoAbilityForward("Hope", "When an active Character opponent "
+				+ "controls becomes dull due to your Summons or abilities, Freeze it."));
+		placeP2Forward(mw, makeForward("Victim", "Fire", 3, 7000));
+
+		mw.buildGameContext(true).dullP2Forward(0);
+
+		assertEquals(CardState.DULL, mw.p2ForwardStates.get(0), "the ability dulled it");
+		assertTrue(mw.p2ForwardFrozen.get(0), "and \"Freeze it.\" found the card the trigger dulled");
+	}
+
+	/**
+	 * The gate that decides whether the dulled card is preloaded as the effect's target. Preloading
+	 * unconditionally would hand Zack a target instead of letting him choose one.
+	 */
+	@Test
+	void onlyAnEffectWhollyAboutTheDulledCardIsPreloaded() {
+		assertTrue(ActionResolver.isTriggeredTargetAction("Freeze it."),
+				"Hope's whole effect is about the card that dulled");
+		assertFalse(ActionResolver.isTriggeredTargetAction(
+				"choose 1 Forward opponent controls. Deal it 5000 damage."),
+				"Zack names his own target and must reach the ordinary dispatch");
+	}
+
+	private static final String HOPE_13_109R_TEXT =
+			"When an active Character opponent controls becomes dull due to your Summons or "
+			+ "abilities, Freeze it.[[br]]   When a dull Character you control becomes active due to "
+			+ "your Summons or abilities, choose up to 2 Characters you control. Activate them. "
+			+ "This effect will trigger only once per turn.";
+
+	/** Hope prints both halves of the family, one per segment, and neither used to be read. */
+	@Test
+	void hopeCarriesBothHalvesOfTheStateChangeFamily() {
+		List<AutoAbility> autos = makeAutoAbilityForward("Hope", HOPE_13_109R_TEXT).autoAbilities();
+
+		assertEquals(2, autos.size(), "one watcher per segment");
+		assertEquals("becomes dull by effect", autos.get(0).trigger());
+		assertEquals("becomes active by effect", autos.get(1).trigger());
+		assertEquals("a dull Character you control", autos.get(1).triggerCard());
+		assertTrue(autos.get(1).oncePerTurn(),
+				"the trailing restriction sentence is lifted out rather than left in the effect");
+		assertNotNull(ActionResolver.parse(autos.get(1).effectText(), null),
+				"and what is left of the effect resolves");
+	}
+
+	/** P1 has a dull watcher for the activate half, plus a dull Ally for an effect to activate. */
+	private static MainWindow activateWatcherSetUp() {
+		MainWindow mw = new MainWindow();
+		placeP1Forward(mw, makeAutoAbilityForward("Watcher", "When a dull Character you control "
+				+ "becomes active due to your Summons or abilities, activate Watcher."));
+		mw.p1ForwardStates.set(0, CardState.DULL);
+		placeP1Forward(mw, makeForward("Ally", "Fire", 3, 7000));
+		mw.p1ForwardStates.set(1, CardState.DULL);
+		return mw;
+	}
+
+	@Test
+	void yourAbilityActivatingYourOwnDullCharacterFiresTheWatcher() {
+		MainWindow mw = activateWatcherSetUp();
+
+		mw.buildGameContext(true).activateTarget(fwd(true, 1));
+
+		assertEquals(CardState.ACTIVE, mw.p1ForwardStates.get(0),
+				"a dull Character P1 controls became active by P1's own ability");
+	}
+
+	@Test
+	void activatingAnAlreadyActiveCharacterFiresNothing() {
+		MainWindow mw = activateWatcherSetUp();
+		mw.p1ForwardStates.set(1, CardState.ACTIVE);
+
+		mw.buildGameContext(true).activateTarget(fwd(true, 1));
+
+		assertEquals(CardState.DULL, mw.p1ForwardStates.get(0),
+				"\"becomes active\" needs a transition; this primitive has no guard of its own");
+	}
+
+	@Test
+	void theActivateWatcherIgnoresTheOpponentsCharacters() {
+		MainWindow mw = activateWatcherSetUp();
+		placeP2Forward(mw, makeForward("Theirs", "Fire", 3, 7000));
+		mw.p2ForwardStates.set(0, CardState.DULL);
+
+		mw.buildGameContext(true).activateTarget(fwd(false, 0));
+
+		assertEquals(CardState.DULL, mw.p1ForwardStates.get(0),
+				"the subject reads \"you control\"");
+	}
+
+	/**
+	 * The dull half is Character-scoped too. The Forward row reaches its triggers through
+	 * dullP1Forward/dullP2Forward; the Backup and Monster rows set their state inline in
+	 * {@code dullTarget} and had no route to them at all.
+	 */
+	@Test
+	void anOpponentsDullBackupFiresTheDullWatcher() {
+		MainWindow mw = new MainWindow();
+		placeP1Forward(mw, makeDullWatcher("an active Character opponent controls"));
+		mw.p1ForwardStates.set(0, CardState.DULL);
+		CardData scholar = makeForward("Scholar", "Fire", 2, 0);
+		mw.gameState.getIdentity().put(scholar, false);
+		mw.placeP2CardInFirstBackupSlot(scholar);
+		mw.p2BackupStates[0] = CardState.ACTIVE;
+
+		mw.buildGameContext(true).dullTarget(
+				new ForwardTarget(false, 0, ForwardTarget.CardZone.BACKUP));
+
+		assertEquals(CardState.DULL, mw.p2BackupStates[0], "the Backup dulled");
+		assertEquals(CardState.ACTIVE, mw.p1ForwardStates.get(0),
+				"and a Backup is a Character, so the watcher saw it");
+	}
+
+	/**
+	 * The same events reached through a mass sweep rather than a single-target effect. The sweep's
+	 * Backup and Monster arms used to set the state themselves, so a "dull all the Backups your
+	 * opponent controls" was invisible to the watchers that a one-card dull woke.
+	 */
+	@Test
+	void aMassDullOfBackupsReachesTheDullWatcher() {
+		MainWindow mw = new MainWindow();
+		placeP1Forward(mw, makeDullWatcher("an active Character opponent controls"));
+		mw.p1ForwardStates.set(0, CardState.DULL);
+		CardData scholar = makeForward("Scholar", "Fire", 2, 0);
+		mw.gameState.getIdentity().put(scholar, false);
+		mw.placeP2CardInFirstBackupSlot(scholar);
+		mw.p2BackupStates[0] = CardState.ACTIVE;
+
+		mw.buildGameContext(true).applyMassFieldEffect(GameContext.MassAction.DULL,
+				false, true, false, true, false, null, -1, null, -1, null, null);
+
+		assertEquals(CardState.DULL, mw.p2BackupStates[0], "the sweep dulled it");
+		assertEquals(CardState.ACTIVE, mw.p1ForwardStates.get(0),
+				"and the sweep now goes through the same primitive a single-target dull does");
+	}
+
+	@Test
+	void aMassActivateReachesTheActivateWatcher() {
+		MainWindow mw = activateWatcherSetUp();
+
+		mw.buildGameContext(true).applyMassFieldEffect(GameContext.MassAction.ACTIVATE,
+				true, false, false, false, true, null, -1, null, -1, null, null);
+
+		assertEquals(CardState.ACTIVE, mw.p1ForwardStates.get(1), "Ally woke");
+		assertEquals(CardState.ACTIVE, mw.p1ForwardStates.get(0),
+				"and the watcher saw it, having been woken by its own trigger");
+	}
+
+	/** "Character", not "Forward" — activateTarget is one primitive across all three rows. */
+	@Test
+	void aDullBackupBecomingActiveFiresTheWatcherToo() {
+		MainWindow mw = activateWatcherSetUp();
+		mw.placeCardInFirstBackupSlot(makeForward("Scholar", "Fire", 2, 0));
+		mw.p1BackupStates[0] = CardState.DULL;
+
+		mw.buildGameContext(true).activateTarget(
+				new ForwardTarget(true, 0, ForwardTarget.CardZone.BACKUP));
+
+		assertEquals(CardState.ACTIVE, mw.p1ForwardStates.get(0),
+				"a Backup is a Character, and the same primitive activates it");
+	}
+
+	@Test
+	void aYouControlSubjectReadsTheOtherWay() {
+		MainWindow mw = dullWatcherSetUp("an active Forward you control");
+		placeP1Forward(mw, makeForward("Ally", "Fire", 3, 7000));
+
+		mw.buildGameContext(true).dullP1Forward(1);
+
+		assertEquals(CardState.ACTIVE, mw.p1ForwardStates.get(0),
+				"the side clause is read from the subject, not assumed from where the watcher sits");
+	}
+
+	// =========================================================================================
+
 }
