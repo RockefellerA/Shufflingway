@@ -17,6 +17,7 @@ import java.util.regex.Matcher;
 
 import org.json.JSONObject;
 import org.junit.jupiter.api.Test;
+import org.mockito.Answers;
 import org.mockito.ArgumentCaptor;
 
 import shufflingway.dialog.NameSelectionDialogs;
@@ -56399,5 +56400,74 @@ public class CardBehaviorTest {
 
 	// =========================================================================================
 
+	// =========================================================================================
+	// Effect wiring — 14-101R Ultros: "you may remove Ultros from the game. If you do so, put the
+	// top 5 cards of your deck into the Break Zone. Then, select 1 Card Name Ultros in your Break
+	// Zone and play it onto the field."
+	//
+	// Two halves, both of which had to be fixed. SELF_MILL_PATTERN is unanchored on purpose — the
+	// wording appears mid-sentence in a good many abilities — so it claimed the mill and discarded
+	// the sentence the mill exists to set up. And that sentence had no parser of its own, so an
+	// earlier attempt which only stopped the mill claiming it achieved nothing visible except that
+	// the partial-parse detector stopped reporting the card.
+	//
+	// The golden file cannot see any of this: both halves sit behind a "When you do so" gate, so
+	// parse outcome, pattern name and description are unchanged throughout. Only the calls move.
+	// =========================================================================================
+
+	private static final String ULTROS_14_101R_PAYOFF =
+			"put the top 5 cards of your deck into the Break Zone. Then, select 1 Card Name Ultros "
+			+ "in your Break Zone and play it onto the field.";
+
+	/**
+	 * Every call the parsed effect makes on a recording context, log chatter aside.
+	 *
+	 * <p>Booleans answer "yes". A gated payoff is invisible to a context that answers "no" to
+	 * everything — the branch behind the gate never runs, so its calls never appear and the half
+	 * being tested looks identical whether it is wired or not. That is the same blind spot the
+	 * partial-parse detector carried until it began asking both ways.
+	 */
+	private static List<String> callsMadeBy(String text) {
+		GameContext ctx = mock(GameContext.class, inv ->
+				inv.getMethod().getReturnType() == boolean.class
+						? Boolean.TRUE
+						: Answers.RETURNS_DEFAULTS.answer(inv));
+		Consumer<GameContext> fn = ActionResolver.parse(text, null);
+		assertNotNull(fn, "the text must parse for its calls to mean anything");
+		fn.accept(ctx);
+		return mockingDetails(ctx).getInvocations().stream()
+				.map(i -> i.getMethod().getName())
+				.filter(n -> !n.equals("logEntry") && !n.equals("logChooseHeader"))
+				.toList();
+	}
+
+	@Test
+	void ultrosLooksForHimselfInTheBreakZoneAfterMilling() {
+		List<String> both     = callsMadeBy(ULTROS_14_101R_PAYOFF);
+		List<String> millOnly = callsMadeBy("put the top 5 cards of your deck into the Break Zone.");
+
+		assertEquals(List.of("millCards"), millOnly, "the mill alone is exactly one call");
+		assertTrue(both.contains("millCards"), "the mill still happens");
+		assertTrue(both.size() > millOnly.size(),
+				"the \"Then, …\" half must contribute calls of its own; it used to contribute none");
+	}
+
+	/** The selection is by card name, across every row a name can be printed on. */
+	@Test
+	void theBreakZoneSelectionIsNamedAndPlaysWhatItFinds() {
+		String tail = "select 1 Card Name Ultros in your Break Zone and play it onto the field.";
+		assertEquals("SelectNamedFromBzPlay", ActionResolver.matchedPatternName(tail, null));
+		assertFalse(callsMadeBy(tail).isEmpty(),
+				"it resolves to real calls, not a parse that does nothing");
+	}
+
+	/** The mill guard is on the continuation, so a mill standing alone is untouched. */
+	@Test
+	void aSelfMillWithNoContinuationStillReadsAsOne() {
+		assertEquals("SelfMill", ActionResolver.matchedPatternName(
+				"Put the top 3 cards of your deck into the Break Zone.", null));
+	}
+
+	// =========================================================================================
 
 }

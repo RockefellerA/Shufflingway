@@ -3998,6 +3998,38 @@ final class ActionResolverPatterns {
     );
 
     /**
+     * Matches "select 1 Card Name X in your Break Zone and play it onto the field." — the payoff
+     * half of 14-101R Ultros, who mills five cards looking for another copy of himself.
+     *
+     * <p>Anchored and read with {@code matches()}: the sentence is the second half of a pair, and
+     * under {@code find()} it would be claimed out of the middle of the longer text whose first
+     * half puts the cards there for it to find.
+     */
+    static final Pattern SELECT_NAMED_FROM_BZ_PLAY = Pattern.compile(
+        "(?i)^(?:select|choose)\\s+(?<count>\\d+)\\s+Card\\s+Name\\s+(?<name>.+?)\\s+in\\s+your\\s+" +
+        "Break\\s+Zone\\s+and\\s+play\\s+(?:it|them)\\s+onto\\s+the\\s+field[.!]?\\s*$"
+    );
+
+    /**
+     * A "Then, …" sentence following a self-mill — 14-101R Ultros, "put the top 5 cards of your
+     * deck into the Break Zone. Then, select 1 Card Name Ultros in your Break Zone and play it onto
+     * the field."
+     *
+     * <p>{@link #SELF_MILL_PATTERN} is deliberately unanchored, the wording appearing mid-sentence
+     * in a good many abilities, so on this text it claimed the mill and discarded what the mill was
+     * for. Read by {@code tryParseSelfMill} to decline, which leaves the text to the
+     * compound-sentence fallback where the two halves compose in order.
+     *
+     * <p>Only worth declining because the second half now resolves. An earlier attempt at this
+     * guard was reverted: the tail had no parser then, so the fallback composed the mill with a
+     * consumer that did nothing, and the only visible effect was that the partial-parse detector
+     * stopped reporting a card that still did not work.
+     */
+    static final Pattern SELF_MILL_THEN_CONTINUATION = Pattern.compile(
+        "(?i)of\\s+your\\s+deck\\s+into\\s+the\\s+Break\\s+Zone[.!]\\s+Then\\b"
+    );
+
+    /**
      * Matches "choose up to N [Element] [type] of cost X and up to M [Element] [type] of cost Y in
      * your Break Zone. Play them onto the field." — Xande 10-008L, the only printing that makes two
      * cost-specific picks out of one Break Zone in a single sentence.

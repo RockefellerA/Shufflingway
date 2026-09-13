@@ -36,6 +36,31 @@ final class ActionResolverPlay {
      * <p>The two picks cannot collide anyway, since a card cannot cost both 1 and 3, so neither
      * selection has to exclude the other's.
      */
+    /**
+     * Parses "select 1 Card Name X in your Break Zone and play it onto the field." — 14-101R
+     * Ultros, whose whole ability is to mill five cards and then bring back another copy of
+     * himself out of whatever landed there.
+     *
+     * <p>The selection is by card name across all three rows, since a name can be printed on any
+     * card type and the sentence names none. Picks are played highest index first, as the Break
+     * Zone compacts behind each one.
+     */
+    static Consumer<GameContext> tryParseSelectNamedFromBzPlay(String text) {
+        Matcher m = SELECT_NAMED_FROM_BZ_PLAY.matcher(text.trim());
+        if (!m.matches()) return null;
+        int    count = Integer.parseInt(m.group("count"));
+        String name  = m.group("name").trim();
+        return ctx -> {
+            ctx.logEntry("Effect: Select " + count + " " + name
+                    + " in your Break Zone — play onto the field");
+            selectTargets(ctx, count, false, false, false, null, null, "your Break Zone", false,
+                    -1, null, -1, null, true, true, true, null, name, null, null, false, null, false)
+                    .stream()
+                    .sorted(Comparator.comparingInt(ForwardTarget::idx).reversed())
+                    .forEach(ctx::playTargetOntoField);
+        };
+    }
+
     static Consumer<GameContext> tryParseChooseTwoCostsFromBzPlayBoth(String text) {
         Matcher m = CHOOSE_TWO_COSTS_FROM_BZ_PLAY_BOTH.matcher(text);
         if (!m.find()) return null;

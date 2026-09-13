@@ -605,6 +605,9 @@ public class ActionResolver {
         // the first Fire Forward off the field. Both were out of its reach until parseTargetAction
         // learned "play them onto the field" and "add them to your hand", at which point the joint
         // parser's guard (it needs a readable action) stopped holding them back.
+        result = tryParseSelectNamedFromBzPlay(effectText);
+        if (result != null) return result;
+
         result = tryParseChooseTwoCostsFromBzPlayBoth(effectText);
         if (result != null) return result;
 
@@ -1890,7 +1893,10 @@ public class ActionResolver {
         if (sentences.length > 1) {
             List<Consumer<GameContext>> consumers = new ArrayList<>();
             for (String s : sentences) {
-                String trimmed = s.trim().replaceAll("(?i)^Then\\s+", "");
+                // "Then" and "Then," are the same connective. The comma form was left in place and
+                // then failed to parse, which would have kept 14-101R Ultros's second half unread
+                // even once the mill stopped claiming it.
+                String trimmed = s.trim().replaceAll("(?i)^Then\\b[,\\s]+", "");
                 // A bare "Break it." reached here is the followup of a Choose in an earlier
                 // sentence (7-057R Gnash, 2-099L Edea), not an action on a trigger's preloaded
                 // target. Resolving it standalone would act on nothing while making the whole
@@ -2180,6 +2186,7 @@ public class ActionResolver {
         // ChooseCharacter) is separate, outstanding Phase 2 work.
         // Mirrors parse(): both of these read a Break-Zone scope the joint parser splits across
         // its two descriptors and loses, so they are asked first.
+        if (tryParseSelectNamedFromBzPlay(effectText) != null) return "SelectNamedFromBzPlay";
         if (tryParseChooseTwoCostsFromBzPlayBoth(effectText) != null) return "ChooseTwoCostsFromBzPlayBoth";
         if (tryParseChooseUpTo1EachInOwnBzToHand(effectText) != null) return "ChooseUpTo1EachInOwnBzToHand";
         if (tryParseChooseThreeMixedTypes(effectText, source) == null
@@ -3499,6 +3506,7 @@ public class ActionResolver {
             return "ChooseTwoBzFwdPlayIfControl";
         // Mirrors parse() and matchedPatternName(): both read a Break-Zone scope the joint parser
         // splits across its two descriptors and loses, so they are asked ahead of it.
+        if (tryParseSelectNamedFromBzPlay(effectText) != null) return "SelectNamedFromBzPlay";
         if (tryParseChooseTwoCostsFromBzPlayBoth(effectText) != null) return "ChooseTwoCostsFromBzPlayBoth";
         if (tryParseChooseUpTo1EachInOwnBzToHand(effectText) != null)
             return "ChooseUpTo1EachInOwnBz / AddToHand";
@@ -6887,6 +6895,9 @@ public class ActionResolver {
     private static Consumer<GameContext> tryParseSelfMill(String text) {
         Matcher m = SELF_MILL_PATTERN.matcher(text);
         if (!m.find()) return null;
+        // The mill is only the first half of a "…. Then, <effect>." pair — see the pattern's note.
+        // Declining sends the text on to the compound-sentence fallback, which composes both.
+        if (SELF_MILL_THEN_CONTINUATION.matcher(text).find()) return null;
 
         String countStr = m.group("count");
         int    mill     = countStr != null ? Integer.parseInt(countStr) : 1;
