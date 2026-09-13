@@ -1378,7 +1378,29 @@ public interface GameContext {
      * @param count   how many cards from the top to look at
      * @param maxCost cost ceiling for eligible Summons; {@code -1} = no restriction
      */
-    void lookAtTopDeckCastSummonFreeRestBottom(int count, int maxCost);
+    default void lookAtTopDeckCastSummonFreeRestBottom(int count, int maxCost) {
+        lookAtTopDeckCastFreeRestBottom(count, maxCost, null, true, false);
+    }
+
+    /**
+     * The general form the three printings of this effect need between them.
+     *
+     * <p>9-077L Rydia's two abilities restrict the Summon differently — her action ability by cost,
+     * her enters-the-field ability by Element ("other than Light and Dark") — and 16-126R Leo casts
+     * a card of <em>any</em> type with no restriction at all and lets the player order what is
+     * left instead of shuffling it. The three differ only in these parameters, so they share the
+     * one implementation rather than each getting a primitive that repeats the deck handling.
+     *
+     * @param count          how many cards from the top to look at
+     * @param maxCost        cost ceiling for eligible cards; {@code -1} = no restriction
+     * @param excludeElement bar-separated Elements that may <em>not</em> be cast; {@code null} = none
+     * @param summonsOnly    {@code true} restricts the cast to Summons, as every printing but Leo's does
+     * @param orderRest      {@code true} lets the player order the leftovers to the bottom ("in any
+     *                       order"); {@code false} shuffles them first, which is what the printings
+     *                       saying "shuffle the other cards" ask for
+     */
+    void lookAtTopDeckCastFreeRestBottom(int count, int maxCost, String excludeElement,
+            boolean summonsOnly, boolean orderRest);
 
     /**
      * Reduces the target's power by {@code amount} and temporarily removes {@code traits}

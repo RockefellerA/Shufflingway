@@ -1733,6 +1733,11 @@ public class ActionResolver {
         result = tryParseLookTopDeckAddToHandOneToBreakRestBottom(effectText);
         if (result != null) return result;
 
+        // Beside its Break-Zone sibling: the same two picks over different destinations, and
+        // anchored, so neither can claim the other's sentence.
+        result = tryParseLookTopDeckAddToHandOneToBottomRestTop(effectText);
+        if (result != null) return result;
+
         result = tryParseLookTopDeckAddToHandRestBreak(effectText);
         if (result != null) return result;
 
@@ -1746,6 +1751,16 @@ public class ActionResolver {
         if (result != null) return result;
 
         result = tryParseLookTopDeckCastSummonFreeRestBottom(effectText, xValue);
+        if (result != null) return result;
+
+        // Beside its Summon sibling, which it does not overlap: that one requires the word
+        // "Summon" and a restriction on it, this one requires "Cast 1 card" and is anchored.
+        result = tryParseLookTopDeckCastAnyFreeRestBottomOrdered(effectText);
+        if (result != null) return result;
+
+        // Must precede tryParseLookTopDeckPeek: Keiss opens "Look at the top card of your deck
+        // and your opponent's deck", whose first half the peek reader would otherwise claim.
+        result = tryParseLookTopBothDecksTopOrBottom(effectText);
         if (result != null) return result;
 
         result = tryParseLookTopDeckPeek(effectText);
@@ -2543,6 +2558,7 @@ public class ActionResolver {
         if (tryParseLookSelfFieldScaleAddToHandRestBottom(effectText)   != null) return "LookSelfFieldScaleAddToHandRestBottom";
         if (tryParseLookTopDeckAddToHandRestBottom(effectText)          != null) return lookAddToHandRestBottomPatternName(effectText);
         if (tryParseLookTopDeckAddToHandOneToBreakRestBottom(effectText) != null) return "LookTopDeckAddToHandOneToBreakRestBottom";
+        if (tryParseLookTopDeckAddToHandOneToBottomRestTop(effectText) != null) return "LookTopDeckAddToHandOneToBottomRestTop";
         if (tryParseLookTopDeckAddToHandRestBreak(effectText)           != null) return "LookTopDeckAddToHandRestBreak";
         if (tryParseLookTopDeckTopOrBottom(effectText, source)          != null) {
             String then = trailingThenText(effectText, LOOK_TOP_DECK_TOP_OR_BOTTOM);
@@ -2552,6 +2568,8 @@ public class ActionResolver {
         if (tryParseLookTopDeckReturnTopOrdered(effectText)             != null) return "LookTopDeckReturnTopOrdered";
         if (tryParseLookTopDeckPickOneTopRestBottom(effectText)              != null) return "LookTopDeckPickOneTopRestBottom";
         if (tryParseLookTopDeckCastSummonFreeRestBottom(effectText, 0)       != null) return "LookTopDeckCastSummonFreeRestBottom";
+        if (tryParseLookTopDeckCastAnyFreeRestBottomOrdered(effectText)      != null) return "LookTopDeckCastAnyFreeRestBottomOrdered";
+        if (tryParseLookTopBothDecksTopOrBottom(effectText)                  != null) return "LookTopBothDecksTopOrBottom";
         if (tryParseLookTopDeckPeek(effectText)                              != null) return "LookTopDeckPeek";
         if (tryParseAddRemovedByPreviousEffectToHand(effectText, source)    != null) return "AddRemovedByPreviousEffectToHand";
         // Mirrors parse(): ahead of the bare removal, which claims this text off its first sentence.
@@ -4213,6 +4231,7 @@ public class ActionResolver {
         if (tryParseLookSelfFieldScaleAddToHandRestBottom(effectText)   != null) return "LookSelfFieldScaleAddToHandRestBottom";
         if (tryParseLookTopDeckAddToHandRestBottom(effectText)          != null) return lookAddToHandRestBottomPatternName(effectText);
         if (tryParseLookTopDeckAddToHandOneToBreakRestBottom(effectText) != null) return "LookTopDeckAddToHandOneToBreakRestBottom";
+        if (tryParseLookTopDeckAddToHandOneToBottomRestTop(effectText) != null) return "LookTopDeckAddToHandOneToBottomRestTop";
         if (tryParseLookTopDeckAddToHandRestBreak(effectText)           != null) return "LookTopDeckAddToHandRestBreak";
         if (tryParseLookTopDeckTopOrBottom(effectText, source)          != null) {
             String then = trailingThenText(effectText, LOOK_TOP_DECK_TOP_OR_BOTTOM);
@@ -4222,6 +4241,8 @@ public class ActionResolver {
         if (tryParseLookTopDeckReturnTopOrdered(effectText)             != null) return "LookTopDeckReturnTopOrdered";
         if (tryParseLookTopDeckPickOneTopRestBottom(effectText)              != null) return "LookTopDeckPickOneTopRestBottom";
         if (tryParseLookTopDeckCastSummonFreeRestBottom(effectText, 0)       != null) return "LookTopDeckCastSummonFreeRestBottom";
+        if (tryParseLookTopDeckCastAnyFreeRestBottomOrdered(effectText)      != null) return "LookTopDeckCastAnyFreeRestBottomOrdered";
+        if (tryParseLookTopBothDecksTopOrBottom(effectText)                  != null) return "LookTopBothDecksTopOrBottom";
         if (tryParseLookTopDeckPeek(effectText)                              != null) return "LookTopDeckPeek";
         if (tryParseAddRemovedByPreviousEffectToHand(effectText, source)    != null) return "AddRemovedByPreviousEffectToHand";
         // Mirrors parse(): ahead of the bare removal, which claims this text off its first sentence.

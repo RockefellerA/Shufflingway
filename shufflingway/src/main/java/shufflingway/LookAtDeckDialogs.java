@@ -148,7 +148,12 @@ class LookAtDeckDialogs {
      *                and the AI is not waiting for anything
      */
     CardData show(LookConfig config, boolean isP1, boolean p2IsCpu) {
-        Deque<CardData> deck = isP1 ? gameState.getP1MainDeck() : gameState.getP2MainDeck();
+        // Whose deck is looked at, which is not always whose seat is deciding: Keiss 12-095R looks
+        // at the opponent's deck and its controller still makes the choice. Everything downstream
+        // already takes the deck as an argument, so pointing it across the table changes nothing
+        // else — the arrangement is still indices into the cards that were peeked.
+        boolean lookAtP1Deck = config.opponentDeck() != isP1;
+        Deque<CardData> deck = lookAtP1Deck ? gameState.getP1MainDeck() : gameState.getP2MainDeck();
         int n = Math.min(config.count(), deck.size());
         if (n == 0) { log("Look at top: deck is empty."); return null; }
 
@@ -183,7 +188,14 @@ class LookAtDeckDialogs {
         // Nothing usable came back — a remote answer already reported as a desync, or a seat that
         // declined. Leaving the cards on top is the one outcome that changes nothing.
         if (decision == null) decision = DeckLookDecision.keepOnTop(n);
-        return applyDeckLook(decision, peeked, deck, isP1, namesArePublic, config.action(), null);
+        CardData taken = applyDeckLook(decision, peeked, deck, isP1, namesArePublic,
+                config.action(), null);
+        // applyDeckLook refreshes the decider's own deck label, which is the looked-at one in every
+        // case but this: a look across the table put its cards back into the other player's deck.
+        if (config.opponentDeck()) {
+            if (lookAtP1Deck) cb.refreshP1Deck().run(); else cb.refreshP2Deck().run();
+        }
+        return taken;
     }
 
     /**
@@ -199,6 +211,7 @@ class LookAtDeckDialogs {
             case RETURN_TOP_ORDERED -> showReturnTopOrdered(peeked);
             case ADD_TO_HAND_REST_BOTTOM              -> showAddToHandRestBottom(peeked);
             case ADD_TO_HAND_ONE_TO_BREAK_REST_BOTTOM -> showAddToHandOneToBreakRestBottom(peeked);
+            case ADD_TO_HAND_ONE_TO_BOTTOM_REST_TOP   -> showAddToHandSlotted(peeked, config.action());
             case ADD_TO_HAND_REST_BREAK               -> showAddToHandRestBreak(peeked, config);
             case TOP_OR_BOTTOM_ORDERED                -> showTopOrBottom(peeked, !p2IsCpu);
             case PICK_ONE_TOP_REST_BOTTOM             -> showPickOneTopRestBottom(peeked);
@@ -230,17 +243,23 @@ class LookAtDeckDialogs {
                     new DeckLookDecision(List.of(0), n > 1 ? List.of(1) : List.of(),
                             List.of(), range(2, n));
 
+            // Topmost to hand, the next to the bottom, the remainder back on top — the same
+            // take-the-top default the other add actions use, over Astrologian's destinations.
+            case ADD_TO_HAND_ONE_TO_BOTTOM_REST_TOP ->
+                    new DeckLookDecision(List.of(0), List.of(), range(2, n),
+                            n > 1 ? List.of(1) : List.of());
+
             case ADD_TO_HAND_REST_BREAK -> {
-                // The topmost card the ability qualifies, not simply the topmost — a filtered
+                // The topmost cards the ability qualifies, not simply the topmost — a filtered
                 // effect ("Add 1 Category VII card among them") may not reach the first one, and
-                // may not reach any of them.
-                int keep = -1;
-                for (int i = 0; i < n && keep < 0; i++)
-                    if (config.eligibleForHand(peeked.get(i))) keep = i;
+                // may not reach any of them. Takes handCount of them (16-094C Palmer takes 2),
+                // stopping early when too few qualify rather than padding with ineligible cards.
+                List<Integer> keep = new ArrayList<>();
+                for (int i = 0; i < n && keep.size() < config.handCount(); i++)
+                    if (config.eligibleForHand(peeked.get(i))) keep.add(i);
                 List<Integer> broken = new ArrayList<>();
-                for (int i = 0; i < n; i++) if (i != keep) broken.add(i);
-                yield new DeckLookDecision(keep < 0 ? List.of() : List.of(keep), broken,
-                        List.of(), List.of());
+                for (int i = 0; i < n; i++) if (!keep.contains(i)) broken.add(i);
+                yield new DeckLookDecision(keep, broken, List.of(), List.of());
             }
         };
     }
@@ -704,12 +723,25 @@ class LookAtDeckDialogs {
 
     /** @return the arrangement chosen; {@code toHand} may be empty if the player placed none there */
     private DeckLookDecision showAddToHandOneToBreakRestBottom(List<CardData> cards) {
+        return showAddToHandSlotted(cards, LookConfig.LookAction.ADD_TO_HAND_ONE_TO_BREAK_REST_BOTTOM);
+    }
+
+    /**
+     * The slot-assignment look: one card to hand, one to a second named destination, and whatever
+     * is left to a third. Two printings share the layout and differ only in where the cards go —
+     * 27-058R Karaha-Baruha sends the second to the Break Zone and the rest to the bottom, 21-109C
+     * Astrologian sends the second to the bottom and the rest back on top — so the destinations are
+     * read off {@code action} rather than the dialog being written twice.
+     */
+    private DeckLookDecision showAddToHandSlotted(List<CardData> cards, LookConfig.LookAction action) {
+        boolean toTopRest = action == LookConfig.LookAction.ADD_TO_HAND_ONE_TO_BOTTOM_REST_TOP;
         int n = cards.size();
-        // dest slot 0 = Hand, slot 1 = Break Zone, slots 2..n-1 = Deck Bottom (left = placed first = deeper)
+        // dest slot 0 = Hand, slot 1 = the second destination, slots 2..n-1 = the remainder
+        // (left = placed first = deeper, for the bottom-of-deck case).
         String[] destLabels = new String[n];
         destLabels[0] = "Hand";
-        if (n > 1) destLabels[1] = "Break Zone";
-        for (int i = 2; i < n; i++) destLabels[i] = "Deck Bottom";
+        if (n > 1) destLabels[1] = toTopRest ? "Deck Bottom" : "Break Zone";
+        for (int i = 2; i < n; i++) destLabels[i] = toTopRest ? "Deck Top" : "Deck Bottom";
 
         CardData[] destCards = new CardData[n];
         boolean[]  placed    = new boolean[n];
@@ -873,14 +905,18 @@ class LookAtDeckDialogs {
         int ui = 0;
         for (int s = 0; s < n; s++) if (destCards[s] == null && ui < unplaced.size()) destCards[s] = unplaced.get(ui++);
 
-        CardData handCard  = destCards[0];
-        CardData breakCard = n > 1 ? destCards[1] : null;
-        List<CardData> bottom = new ArrayList<>();
-        for (int i = 2; i < n; i++) if (destCards[i] != null) bottom.add(destCards[i]);
-        return new DeckLookDecision(
-                handCard  == null ? List.of() : List.of(peekIndexOf(cards, handCard)),
-                breakCard == null ? List.of() : List.of(peekIndexOf(cards, breakCard)),
-                List.of(), peekIndices(cards, bottom));
+        CardData handCard   = destCards[0];
+        CardData secondCard = n > 1 ? destCards[1] : null;
+        List<CardData> rest = new ArrayList<>();
+        for (int i = 2; i < n; i++) if (destCards[i] != null) rest.add(destCards[i]);
+        List<Integer> handIdx   = handCard   == null ? List.of() : List.of(peekIndexOf(cards, handCard));
+        List<Integer> secondIdx = secondCard == null ? List.of() : List.of(peekIndexOf(cards, secondCard));
+        List<Integer> restIdx   = peekIndices(cards, rest);
+        // Astrologian's second slot is the bottom and its remainder the top; Karaha-Baruha's are
+        // the Break Zone and the bottom. Same two picks, different columns of the decision.
+        return toTopRest
+                ? new DeckLookDecision(handIdx, List.of(), restIdx, secondIdx)
+                : new DeckLookDecision(handIdx, secondIdx, List.of(), restIdx);
     }
 
     /**
@@ -913,7 +949,14 @@ class LookAtDeckDialogs {
         dlg.setResizable(false);
         dlg.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
 
-        int[] handLblIdx = { -1 };
+        // How many go to hand, and how many the revealed cards can actually supply — a 2-card add
+        // off a 4-card look that turned up one eligible card takes the one, which is also what
+        // stops the gate below from demanding a second that does not exist.
+        int eligibleCount = 0;
+        for (boolean b : eligible) if (b) eligibleCount++;
+        final int wanted = Math.min(Math.max(1, config.handCount()), eligibleCount);
+
+        List<Integer> handIdxs = new ArrayList<>();
         JLabel[] cardLabels = new JLabel[n];
         JButton confirmBtn = new JButton("Confirm");
         confirmBtn.setFont(FontLoader.loadPixelFont(11));
@@ -940,18 +983,21 @@ class LookAtDeckDialogs {
             handBtns[i] = handBtn;
             handBtn.addItemListener(ie -> {
                 if (ie.getStateChange() == java.awt.event.ItemEvent.SELECTED) {
-                    for (int j = 0; j < n; j++) if (j != idx && handBtns[j].isSelected()) handBtns[j].setSelected(false);
-                    handLblIdx[0] = idx;
-                    for (int j = 0; j < n; j++)
-                        cardLabels[j].setBorder(BorderFactory.createLineBorder(
-                                j == idx ? new Color(0, 200, 80) : new Color(160, 110, 220),
-                                j == idx ? 3 : 1));
-                    confirmBtn.setEnabled(true);
+                    if (!handIdxs.contains(idx)) handIdxs.add(idx);
+                    // Oldest pick gives way once the allowance is spent, so a player who changes
+                    // their mind on the last card does not have to clear the selection first.
+                    while (handIdxs.size() > wanted) handBtns[handIdxs.remove(0)].setSelected(false);
                 } else {
-                    handLblIdx[0] = -1;
-                    for (JLabel l : cardLabels) l.setBorder(BorderFactory.createLineBorder(new Color(160, 110, 220), 1));
-                    confirmBtn.setEnabled(false);
+                    handIdxs.remove(Integer.valueOf(idx));
                 }
+                for (int j = 0; j < n; j++)
+                    cardLabels[j].setBorder(BorderFactory.createLineBorder(
+                            handIdxs.contains(j) ? new Color(0, 200, 80) : new Color(160, 110, 220),
+                            handIdxs.contains(j) ? 3 : 1));
+                // The add is an instruction, so Confirm waits until the player has taken as many
+                // as the card gives them — "as many as they are able", which is what `wanted`
+                // already accounts for when too few qualify.
+                confirmBtn.setEnabled(handIdxs.size() == wanted);
             });
 
             JPanel wrapper = new JPanel(new BorderLayout(0, 2));
@@ -961,11 +1007,11 @@ class LookAtDeckDialogs {
             cardsPanel.add(wrapper);
         }
 
+        String pick = wanted == 1 ? "a" + (filterLabel == null ? "" : " " + filterLabel) + " card"
+                : wanted + (filterLabel == null ? "" : " " + filterLabel) + " cards";
         JLabel instructions = new JLabel(
-                txt(filterLabel == null
-                        ? "Click '→ Hand' to choose a card. The rest go to the Break Zone."
-                        : "Click '→ Hand' to choose a " + filterLabel
-                          + " card. The rest go to the Break Zone."), SwingConstants.CENTER);
+                txt("Click '→ Hand' to choose " + pick + ". The rest go to the Break Zone."),
+                SwingConstants.CENTER);
         instructions.setFont(FontLoader.loadPixelFont(9));
         confirmBtn.addActionListener(ae -> { hideZoom(); dlg.dispose(); });
 
@@ -982,13 +1028,14 @@ class LookAtDeckDialogs {
         dlg.setLocationRelativeTo(frame);
         dlg.setVisible(true);
 
-        // Closing the dialog without choosing still takes a card — but it has to be one the
-        // ability allows, so the fallback is the first eligible card rather than the first card.
-        int hi = handLblIdx[0];
-        if (hi < 0) for (int i = 0; i < n && hi < 0; i++) if (eligible[i]) hi = i;
+        // Closing the dialog without choosing still takes the cards — but they have to be ones the
+        // ability allows, so the fallback fills from the eligible cards rather than from the front.
+        List<Integer> hand = new ArrayList<>(handIdxs);
+        for (int i = 0; i < n && hand.size() < wanted; i++)
+            if (eligible[i] && !hand.contains(i)) hand.add(i);
         List<Integer> broken = new ArrayList<>();
-        for (int i = 0; i < n; i++) if (i != hi) broken.add(i);
-        return new DeckLookDecision(List.of(hi), broken, List.of(), List.of());
+        for (int i = 0; i < n; i++) if (!hand.contains(i)) broken.add(i);
+        return new DeckLookDecision(hand, broken, List.of(), List.of());
     }
 
     /**

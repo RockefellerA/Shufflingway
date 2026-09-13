@@ -8126,6 +8126,25 @@ final class ActionResolverPatterns {
         "return\\s+the\\s+other\\s+cards?\\s+to\\s+the\\s+bottom\\s+of\\s+your\\s+deck\\s+in\\s+any\\s+order[.!]?"
     );
     /**
+     * Matches "Look at the top N cards of your deck. Add 1 card among them to your hand and put 1
+     * card at the bottom of your deck, then put the remaining card on top of your deck." —
+     * 21-109C Astrologian, the corpus's one printing.
+     *
+     * <p>The same two picks as {@link #LOOK_TOP_DECK_ADD_TO_HAND_ONE_TO_BREAK_REST_BOTTOM} over
+     * different destinations: the second card goes to the bottom rather than the Break Zone, and
+     * what is left goes back on <em>top</em> rather than under. Anchored end to end, because the
+     * three destinations are one arrangement and reading two of them would put a card somewhere
+     * the card never says.
+     *
+     * Group: {@code count} — how many cards are looked at.
+     */
+    static final Pattern LOOK_TOP_DECK_ADD_TO_HAND_ONE_TO_BOTTOM_REST_TOP = Pattern.compile(
+        "(?i)^\\s*Look\\s+at\\s+the\\s+top\\s+(?<count>\\d+)\\s+cards?\\s+of\\s+your\\s+deck[.!]?\\s*" +
+        "Add\\s+1\\s+card\\s+among\\s+them\\s+to\\s+your\\s+hand\\s+and\\s+" +
+        "put\\s+1\\s+card\\s+at\\s+the\\s+bottom\\s+of\\s+your\\s+deck[,.]?\\s*" +
+        "then\\s+put\\s+the\\s+remaining\\s+cards?\\s+on\\s+top\\s+of\\s+your\\s+deck[.!]?\\s*$"
+    );
+    /**
      * Matches "Look at / Reveal the top N cards of your deck. Add 1 [Element|Category X] card
      * among them to your hand and put the rest of the cards into the Break Zone."
      * <ul>
@@ -8140,8 +8159,11 @@ final class ActionResolverPatterns {
      */
     static final Pattern LOOK_TOP_DECK_ADD_TO_HAND_REST_BREAK = Pattern.compile(
         "(?i)(?<verb>Look\\s+at|Reveal)\\s+the\\s+top\\s+(?<count>\\d+)\\s+cards?\\s+of\\s+your\\s+deck[.!]?\\s*" +
-        "Add\\s+1\\s+(?:(?<element>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)\\s+" +
-        "|Category\\s+(?<category>.+?)\\s+)?card\\s+among\\s+them\\s+to\\s+your\\s+hand[,]?\\s+and\\s+" +
+        // The count is read rather than fixed at 1: 16-094C Palmer prints "Add 2 cards", and with
+        // "1" hardcoded the whole sentence fell through to the peek catch-all, which took the
+        // opening clause and dropped the add and the Break Zone half with it.
+        "Add\\s+(?<hand>\\d+)\\s+(?:(?<element>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)\\s+" +
+        "|Category\\s+(?<category>.+?)\\s+)?cards?\\s+among\\s+them\\s+to\\s+your\\s+hand[,]?\\s+and\\s+" +
         "put\\s+the\\s+rest\\s+(?:of\\s+the\\s+cards?\\s+)?into\\s+the\\s+Break\\s+Zone[.!]?"
     );
     /**
@@ -8202,18 +8224,63 @@ final class ActionResolverPatterns {
         "(?i)^\\s*Look\\s+at\\s+the\\s+top\\s+(?:(?<count>\\d+)\\s+cards?|card)\\s+of\\s+your\\s+deck[.!]?\\s*$"
     );
     /**
-     * Matches "Look at the top X cards of your deck. Reveal 1 Summon of cost X or less among
-     * them and cast it without paying the cost. Then, shuffle the other cards and return them
-     * to the bottom of your deck."
+     * Matches "Look at the top card of your deck and your opponent's deck. Put them on the top or
+     * bottom of the respective decks." — 12-095R Keiss, the corpus's one printing and the only
+     * effect that looks at both decks at once.
+     *
+     * <p>Anchored end to end. "Respective" is the whole sentence: each card goes back to the deck
+     * it came from, and a pattern that read only the first half would have the controller
+     * rearranging one deck with the other card unaccounted for.
+     */
+    static final Pattern LOOK_TOP_BOTH_DECKS_TOP_OR_BOTTOM = Pattern.compile(
+        "(?i)^\\s*Look\\s+at\\s+the\\s+top\\s+card\\s+of\\s+your\\s+deck\\s+and\\s+" +
+        "(?:your\\s+)?opponent's\\s+deck[.!]?\\s*" +
+        "Put\\s+them\\s+on\\s+the\\s+top\\s+or\\s+bottom\\s+of\\s+the\\s+respective\\s+decks?[.!]?\\s*$"
+    );
+    /**
+     * Matches "Look at the top X cards of your deck. Reveal 1 Summon [of cost X or less | other
+     * than &lt;Elements&gt;] among them and cast it without paying the cost. Then, shuffle the
+     * other cards and return them to the bottom of your deck."
+     *
+     * <p>The two restrictions are alternatives, and one of them must be present: 9-077L Rydia's
+     * enters-the-field ability names Elements where her action ability names a cost cap
+     * ("Reveal 1 Summon other than Light and Dark among them"). With only the cost arm her auto
+     * fell through to the peek catch-all, which took the opening sentence and dropped the free
+     * cast. Requiring one of the two keeps an unrestricted "Reveal 1 Summon among them" — which
+     * no printing spells — from being claimed here with no filter at all.
+     *
      * Groups: {@code count} — card count (numeric or {@code X});
-     *         {@code cost}  — cost cap (numeric or {@code X}).
+     *         {@code cost}  — cost cap (numeric or {@code X}), absent on the Element arm;
+     *         {@code exclelem} — the excluded Element list, absent on the cost arm.
      */
     static final Pattern LOOK_TOP_DECK_CAST_SUMMON_FREE_REST_BOTTOM = Pattern.compile(
         "(?i)Look\\s+at\\s+the\\s+top\\s+(?<count>\\d+|X)\\s+cards?\\s+of\\s+your\\s+deck[.!]?\\s+" +
-        "Reveal\\s+1\\s+Summon\\s+of\\s+cost\\s+(?<cost>\\d+|X)\\s+or\\s+less\\s+among\\s+them\\s+" +
+        "Reveal\\s+1\\s+Summon\\s+(?:of\\s+cost\\s+(?<cost>\\d+|X)\\s+or\\s+less" +
+            "|other\\s+than\\s+(?<exclelem>(?:Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)" +
+            "(?:\\s*(?:,|and|or)\\s*(?:Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark))*))" +
+        "\\s+among\\s+them\\s+" +
         "and\\s+cast\\s+it\\s+without\\s+paying\\s+(?:its|the)\\s+cost[.!]?\\s+" +
         "(?:Then,?\\s+)?shuffle\\s+the\\s+other\\s+cards?\\s+and\\s+return\\s+them\\s+" +
         "to\\s+the\\s+bottom\\s+of\\s+(?:your|the)\\s+deck[.!]?"
+    );
+    /**
+     * Matches "Look at the top N cards of your deck. Cast 1 card among them without paying the
+     * cost and return the other cards to the bottom of your deck in any order." — 16-126R Leo,
+     * the corpus's one printing.
+     *
+     * <p>Its own pattern rather than an arm of the Summon reader above, because all three of its
+     * moving parts differ: it casts a <em>card</em> of any type rather than a Summon, it carries
+     * no restriction on what may be cast, and its leftovers are ordered by the player rather than
+     * shuffled. Folding it in would have meant making the Summon requirement optional, which is
+     * the one thing holding that pattern to the printings it was built for.
+     *
+     * Group: {@code count} — how many cards are looked at.
+     */
+    static final Pattern LOOK_TOP_DECK_CAST_ANY_FREE_REST_BOTTOM_ORDERED = Pattern.compile(
+        "(?i)^\\s*Look\\s+at\\s+the\\s+top\\s+(?<count>\\d+)\\s+cards?\\s+of\\s+your\\s+deck[.!]?\\s+" +
+        "Cast\\s+1\\s+card\\s+among\\s+them\\s+without\\s+paying\\s+(?:its|the)\\s+cost\\s+and\\s+" +
+        "return\\s+the\\s+other\\s+cards?\\s+to\\s+the\\s+bottom\\s+of\\s+(?:your|the)\\s+deck" +
+        "(?:\\s+in\\s+any\\s+order)?[.!]?\\s*$"
     );
     /**
      * "Reveal the top card of your deck. Break all Forwards opponent controls with the same cost

@@ -6745,7 +6745,8 @@ final class GameContextImpl implements GameContext {
 				if (isP1) mw.showStackWindow(); else mw.showStackWindowIfNeeded();
 			}
 
-			@Override public void lookAtTopDeckCastSummonFreeRestBottom(int count, int maxCost) {
+			@Override public void lookAtTopDeckCastFreeRestBottom(int count, int maxCost,
+					String excludeElement, boolean summonsOnly, boolean orderRest) {
 				Deque<CardData> deck = isP1 ? mw.gameState.getP1MainDeck() : mw.gameState.getP2MainDeck();
 				int n = Math.min(count, deck.size());
 				if (n == 0) { logEntry("Look at top: deck is empty."); return; }
@@ -6754,15 +6755,27 @@ final class GameContextImpl implements GameContext {
 				logEntry("Look at top " + n + " card(s): " +
 						peeked.stream().map(CardData::name).collect(Collectors.joining(", ")));
 
+				// What the printing says may be cast, in the words it says it, so the chooser title
+				// and the "nothing eligible" log both read as the card does.
+				String what = (summonsOnly ? "Summon" : "card")
+						+ (maxCost >= 0 ? " (cost " + maxCost + " or less)" : "")
+						+ (excludeElement != null
+								? " (not " + excludeElement.replace("|", "/") + ")" : "");
 				List<CardData> eligible = peeked.stream()
-						.filter(c -> c.isSummon() && (maxCost < 0 || c.cost() <= maxCost))
+						.filter(c -> !summonsOnly || c.isSummon())
+						.filter(c -> maxCost < 0 || c.cost() <= maxCost)
+						// An excluded Element disqualifies a multi-element card that merely contains
+						// it: "other than Light and Dark" is about what the card is, and a
+						// Light/Fire Summon is a Light one.
+						.filter(c -> excludeElement == null
+								|| !CardFilters.meetsElementFilter(c, excludeElement))
 						.collect(Collectors.toList());
 
 				CardData picked = null;
 				if (eligible.isEmpty()) {
-					logEntry("No eligible Summon (cost " + maxCost + " or less) among top " + n + " card(s)");
+					logEntry("No eligible " + what + " among top " + n + " card(s)");
 				} else if (isP1) {
-					String title = "Cast 1 Summon (cost " + maxCost + " or less) from top " + n + " for free";
+					String title = "Cast 1 " + what + " from top " + n + " for free";
 					int listIdx = mw.showCardImageChooser(eligible, title, false);
 					if (listIdx >= 0) picked = eligible.get(listIdx);
 				} else {
@@ -6786,10 +6799,18 @@ final class GameContextImpl implements GameContext {
 
 				List<CardData> rest = new ArrayList<>(peeked);
 				if (picked != null) rest.remove(picked);
-				java.util.Collections.shuffle(rest);
-				for (CardData c : rest) {
-					deck.addLast(c);
-					logEntry(c.name() + " → bottom of deck");
+				if (orderRest && !rest.isEmpty()) {
+					// "in any order" is the player's choice, not a shuffle. The reveal dialog
+					// already does exactly this arrangement with nothing to take, so it is reused
+					// with a take allowance of 0 rather than given a dialog of its own.
+					mw.lookDialogs().revealAddUpToMatchingRestBottom(rest, deck, isP1, 0,
+							null, null, null, null, -1, null, null);
+				} else {
+					java.util.Collections.shuffle(rest);
+					for (CardData c : rest) {
+						deck.addLast(c);
+						logEntry(c.name() + " → bottom of deck");
+					}
 				}
 				if (isP1) mw.refreshP1DeckLabel(); else mw.refreshP2DeckLabel();
 			}

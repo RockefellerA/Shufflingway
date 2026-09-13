@@ -1012,6 +1012,21 @@ final class ActionResolverSearch {
             ctx.lookAtTopDeck(new LookConfig(count, LookConfig.LookAction.ADD_TO_HAND_ONE_TO_BREAK_REST_BOTTOM));
         };
     }
+    /**
+     * Parses 21-109C Astrologian's "Add 1 card among them to your hand and put 1 card at the bottom
+     * of your deck, then put the remaining card on top of your deck."
+     */
+    static Consumer<GameContext> tryParseLookTopDeckAddToHandOneToBottomRestTop(String text) {
+        Matcher m = LOOK_TOP_DECK_ADD_TO_HAND_ONE_TO_BOTTOM_REST_TOP.matcher(text.trim());
+        if (!m.matches()) return null;
+        int count = Integer.parseInt(m.group("count"));
+        return ctx -> {
+            ctx.logEntry("Effect: Look at top " + count
+                    + " card(s) — add 1 to hand, 1 to the bottom, the rest back on top");
+            ctx.lookAtTopDeck(new LookConfig(
+                    count, LookConfig.LookAction.ADD_TO_HAND_ONE_TO_BOTTOM_REST_TOP));
+        };
+    }
     static Consumer<GameContext> tryParseLookTopDeckAddToHandRestBreak(String text) {
         Matcher m = LOOK_TOP_DECK_ADD_TO_HAND_REST_BREAK.matcher(text);
         if (!m.find()) return null;
@@ -1019,13 +1034,15 @@ final class ActionResolverSearch {
         String  element  = m.group("element");
         String  category = m.group("category");
         boolean reveal   = isRevealWording(m.group("verb"));
+        int     handCount = Integer.parseInt(m.group("hand"));
         LookConfig config = new LookConfig(
-                count, LookConfig.LookAction.ADD_TO_HAND_REST_BREAK, element, category, reveal);
+                count, LookConfig.LookAction.ADD_TO_HAND_REST_BREAK, element, category, reveal,
+                handCount);
         String label = config.handFilterLabel();
         String filterLabel = label != null ? " (" + label + ")" : "";
         return ctx -> {
             ctx.logEntry("Effect: " + (reveal ? "Reveal" : "Look at") + " top " + count
-                    + " card(s) — add 1" + filterLabel + " to hand, rest to Break Zone");
+                    + " card(s) — add " + handCount + filterLabel + " to hand, rest to Break Zone");
             ctx.lookAtTopDeck(config);
         };
     }
@@ -1065,6 +1082,27 @@ final class ActionResolverSearch {
             ctx.lookAtTopDeck(new LookConfig(count, LookConfig.LookAction.PICK_ONE_TOP_REST_BOTTOM));
         };
     }
+    /**
+     * Parses 12-095R Keiss' "Look at the top card of your deck and your opponent's deck. Put them
+     * on the top or bottom of the respective decks."
+     *
+     * <p>Resolved as two ordinary top-or-bottom looks rather than one two-deck effect. "Respective"
+     * means each card returns to its own deck, so there is nothing about the pair that has to be
+     * decided together — and one deck at a time is what the look machinery, and the arrangement it
+     * sends over the wire, are built around. The controller decides both; the second look is simply
+     * pointed at the other side of the table.
+     */
+    static Consumer<GameContext> tryParseLookTopBothDecksTopOrBottom(String text) {
+        if (!LOOK_TOP_BOTH_DECKS_TOP_OR_BOTTOM.matcher(text.trim()).matches()) return null;
+        return ctx -> {
+            ctx.logEntry("Effect: Look at the top card of both decks — each goes back on top or at "
+                    + "the bottom of its own deck");
+            ctx.lookAtTopDeck(new LookConfig(1, LookConfig.LookAction.BOTTOM_OR_KEEP,
+                    null, null, false, 1, false));
+            ctx.lookAtTopDeck(new LookConfig(1, LookConfig.LookAction.BOTTOM_OR_KEEP,
+                    null, null, false, 1, true));
+        };
+    }
     static Consumer<GameContext> tryParseLookTopDeckPeek(String text) {
         // Stripped first because the pattern is anchored: 5-154S Yeul prints "You can only use this
         // ability once per turn" after the peek, and a usage restriction is not a second effect.
@@ -1091,10 +1129,39 @@ final class ActionResolverSearch {
         String countStr = m.group("count");
         String costStr  = m.group("cost");
         final int count   = countStr.equalsIgnoreCase("X") ? xValue : Integer.parseInt(countStr);
-        final int maxCost = costStr.equalsIgnoreCase("X")  ? xValue : Integer.parseInt(costStr);
+        // Exactly one of the two restrictions is present — the pattern requires it — so a null cost
+        // means the Element arm matched and vice versa.
+        final int maxCost = costStr == null ? -1
+                : costStr.equalsIgnoreCase("X") ? xValue : Integer.parseInt(costStr);
+        // "other than Light and Dark" lists two Elements a card is disqualified by, so the "and"
+        // is the same list separator the shared helper reads as "or" — normalised here rather than
+        // in elementListFilter, where an "and" between Elements does not always mean a list.
+        final String exclElem = m.group("exclelem") != null
+                ? elementListFilter(m.group("exclelem").replaceAll("(?i)\\s+and\\s+", " or ")) : null;
+        String what = "1 Summon " + (exclElem != null
+                ? "(not " + exclElem.replace("|", "/") + ")" : "(cost " + maxCost + " or less)");
         return ctx -> {
-            ctx.logEntry("Effect: Look at top " + count + " card(s) — reveal/cast 1 Summon (cost " + maxCost + " or less) for free, shuffle rest to bottom");
-            ctx.lookAtTopDeckCastSummonFreeRestBottom(count, maxCost);
+            ctx.logEntry("Effect: Look at top " + count + " card(s) — reveal/cast " + what
+                    + " for free, shuffle rest to bottom");
+            ctx.lookAtTopDeckCastFreeRestBottom(count, maxCost, exclElem, true, false);
+        };
+    }
+    /**
+     * Parses "Look at the top N cards of your deck. Cast 1 card among them without paying the cost
+     * and return the other cards to the bottom of your deck in any order." — 16-126R Leo.
+     *
+     * <p>Unrestricted and untyped, unlike every other printing of the free cast, and its leftovers
+     * are ordered by the player rather than shuffled — the three differences the shared primitive
+     * takes as parameters.
+     */
+    static Consumer<GameContext> tryParseLookTopDeckCastAnyFreeRestBottomOrdered(String text) {
+        Matcher m = LOOK_TOP_DECK_CAST_ANY_FREE_REST_BOTTOM_ORDERED.matcher(text.trim());
+        if (!m.matches()) return null;
+        final int count = Integer.parseInt(m.group("count"));
+        return ctx -> {
+            ctx.logEntry("Effect: Look at top " + count
+                    + " card(s) — cast 1 card for free, return the rest to the bottom in any order");
+            ctx.lookAtTopDeckCastFreeRestBottom(count, -1, null, false, true);
         };
     }
     /**

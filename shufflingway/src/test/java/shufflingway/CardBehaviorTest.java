@@ -55716,5 +55716,145 @@ public class CardBehaviorTest {
 	}
 
 	// =========================================================================================
+	// The five abilities the peek catch-all had been swallowing.
+	//
+	// Anchoring LOOK_TOP_DECK_PEEK stopped it claiming them, but four still reached it through
+	// parse()'s compound-sentence fallback, which offers the opening sentence on its own — and
+	// "Look at the top N cards of your deck." really is a bare peek. The fix is not a guard but a
+	// reader: give each printing a parser that claims the whole sentence, so the fallback never
+	// gets the chance to offer half of it.
+	//
+	//   16-094C Palmer      add 2 (not 1) to hand, rest to Break Zone
+	//   16-126R Leo         cast 1 card of any type free, leftovers ordered rather than shuffled
+	//   9-077L  Rydia       Summon restricted by Element instead of by cost
+	//   21-109C Astrologian 1 to hand, 1 to the bottom, the remainder back on top
+	//   12-095R Keiss       the top card of both decks, each back to its own
+	// =========================================================================================
+
+	@Test
+	void palmerTakesTwoCardsNotOne() {
+		GameContext ctx = mock(GameContext.class);
+		Consumer<GameContext> fn = ActionResolver.parse(
+				"Look at the top 4 cards of your deck. Add 2 cards among them to your hand and put "
+				+ "the rest of the cards into the Break Zone.", null);
+		assertNotNull(fn);
+		fn.accept(ctx);
+
+		ArgumentCaptor<LookConfig> cfg = ArgumentCaptor.forClass(LookConfig.class);
+		verify(ctx).lookAtTopDeck(cfg.capture());
+		assertEquals(LookConfig.LookAction.ADD_TO_HAND_REST_BREAK, cfg.getValue().action());
+		assertEquals(4, cfg.getValue().count());
+		assertEquals(2, cfg.getValue().handCount(), "the printed count, not a hardcoded 1");
+	}
+
+	@Test
+	void theOneCardPrintingsKeepAHandCountOfOne() {
+		GameContext ctx = mock(GameContext.class);
+		ActionResolver.parse(
+				"Reveal the top 2 cards of your deck. Add 1 Fire card among them to your hand and "
+				+ "put the rest of the cards into the Break Zone.", null).accept(ctx);
+
+		ArgumentCaptor<LookConfig> cfg = ArgumentCaptor.forClass(LookConfig.class);
+		verify(ctx).lookAtTopDeck(cfg.capture());
+		assertEquals(1, cfg.getValue().handCount());
+		assertEquals("Fire", cfg.getValue().handFilterLabel(), "the filter still applies");
+	}
+
+	@Test
+	void leoCastsAnyCardAndOrdersWhatIsLeft() {
+		GameContext ctx = mock(GameContext.class);
+		Consumer<GameContext> fn = ActionResolver.parse(
+				"look at the top 5 cards of your deck. Cast 1 card among them without paying the "
+				+ "cost and return the other cards to the bottom of your deck in any order.", null);
+		assertNotNull(fn, "used to be eaten by the peek catch-all");
+		fn.accept(ctx);
+
+		// No cost cap, no Element exclusion, not Summons-only, and ordered rather than shuffled —
+		// "in any order" is the player's arrangement, which is the whole of the last argument.
+		verify(ctx).lookAtTopDeckCastFreeRestBottom(5, -1, null, false, true);
+	}
+
+	@Test
+	void rydiasEntryRestrictsTheSummonByElement() {
+		GameContext ctx = mock(GameContext.class);
+		Consumer<GameContext> fn = ActionResolver.parse(
+				"look at the top 5 cards of your deck. Reveal 1 Summon other than Light and Dark "
+				+ "among them and cast it without paying the cost. Then, shuffle the other cards "
+				+ "and return them to the bottom of your deck.", null);
+		assertNotNull(fn);
+		fn.accept(ctx);
+
+		verify(ctx).lookAtTopDeckCastFreeRestBottom(5, -1, "Light|Dark", true, false);
+	}
+
+	@Test
+	void rydiasActionAbilityStillRestrictsByCost() {
+		// The cost arm and the Element arm are alternatives on one pattern; adding the second must
+		// not have disturbed the first, which is the printing that already worked.
+		GameContext ctx = mock(GameContext.class);
+		ActionResolver.parse(
+				"Look at the top 4 cards of your deck. Reveal 1 Summon of cost 3 or less among them "
+				+ "and cast it without paying the cost. Then, shuffle the other cards and return "
+				+ "them to the bottom of your deck.", null).accept(ctx);
+
+		verify(ctx).lookAtTopDeckCastFreeRestBottom(4, 3, null, true, false);
+	}
+
+	@Test
+	void anUnrestrictedRevealOfASummonIsNotClaimed() {
+		// One of the two restrictions must be present. Without that requirement the pattern would
+		// read a sentence no printing spells, and would read it with no filter at all.
+		assertNull(ActionResolverSearch.tryParseLookTopDeckCastSummonFreeRestBottom(
+				"Look at the top 4 cards of your deck. Reveal 1 Summon among them and cast it "
+				+ "without paying the cost. Then, shuffle the other cards and return them to the "
+				+ "bottom of your deck.", 0));
+	}
+
+	@Test
+	void astrologianSplitsTheLookThreeWays() {
+		GameContext ctx = mock(GameContext.class);
+		Consumer<GameContext> fn = ActionResolver.parse(
+				"look at the top 3 cards of your deck. Add 1 card among them to your hand and put 1 "
+				+ "card at the bottom of your deck, then put the remaining card on top of your deck.",
+				null);
+		assertNotNull(fn);
+		fn.accept(ctx);
+
+		verify(ctx).lookAtTopDeck(new LookConfig(
+				3, LookConfig.LookAction.ADD_TO_HAND_ONE_TO_BOTTOM_REST_TOP));
+	}
+
+	@Test
+	void keissLooksAtBothDecksAndReturnsEachToItsOwn() {
+		GameContext ctx = mock(GameContext.class);
+		Consumer<GameContext> fn = ActionResolver.parse(
+				"look at the top card of your deck and your opponent's deck. Put them on the top or "
+				+ "bottom of the respective decks.", null);
+		assertNotNull(fn, "the only effect in the corpus that looks at both decks");
+		fn.accept(ctx);
+
+		ArgumentCaptor<LookConfig> cfg = ArgumentCaptor.forClass(LookConfig.class);
+		verify(ctx, times(2)).lookAtTopDeck(cfg.capture());
+		List<LookConfig> looks = cfg.getAllValues();
+		assertFalse(looks.get(0).opponentDeck(), "own deck first, as the sentence reads");
+		assertTrue(looks.get(1).opponentDeck(), "then across the table");
+		for (LookConfig l : looks) {
+			assertEquals(1, l.count());
+			assertEquals(LookConfig.LookAction.BOTTOM_OR_KEEP, l.action());
+		}
+	}
+
+	/** Every other look stays on the controller's own deck — the flag is Keiss' alone. */
+	@Test
+	void anOrdinaryLookStaysOnItsOwnDeck() {
+		GameContext ctx = mock(GameContext.class);
+		ActionResolver.parse("Look at the top 3 cards of your deck.", null).accept(ctx);
+
+		ArgumentCaptor<LookConfig> cfg = ArgumentCaptor.forClass(LookConfig.class);
+		verify(ctx).lookAtTopDeck(cfg.capture());
+		assertFalse(cfg.getValue().opponentDeck());
+	}
+
+	// =========================================================================================
 
 }

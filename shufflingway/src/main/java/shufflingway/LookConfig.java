@@ -16,7 +16,23 @@ package shufflingway;
  *                       opponent is the one looking
  */
 public record LookConfig(int count, LookConfig.LookAction action, String elementFilter,
-                         String categoryFilter, boolean reveal) {
+                         String categoryFilter, boolean reveal, int handCount,
+                         boolean opponentDeck) {
+
+    /**
+     * The look with every option at its default: one card to hand, the controller's own deck.
+     *
+     * <p>{@code opponentDeck} points the look at the other player's deck while leaving the
+     * <em>decision</em> with the controller, which is the split 12-095R Keiss needs: "look at the
+     * top card of your deck and your opponent's deck. Put them on the top or bottom of the
+     * respective decks." Keiss is two ordinary looks, the second aimed across the table, rather
+     * than one effect that spans both — the arrangement machinery works over one deck at a time
+     * and there is nothing about the pair that has to be decided together.
+     */
+    public LookConfig(int count, LookAction action, String elementFilter, String categoryFilter,
+            boolean reveal, int handCount) {
+        this(count, action, elementFilter, categoryFilter, reveal, handCount, false);
+    }
 
     /** Convenience constructor for a private "look at" with no filter on the hand-add. */
     public LookConfig(int count, LookAction action) { this(count, action, null, null, false); }
@@ -24,6 +40,18 @@ public record LookConfig(int count, LookConfig.LookAction action, String element
     /** Convenience constructor for a private "look at" with an element filter on the hand-add. */
     public LookConfig(int count, LookAction action, String elementFilter) {
         this(count, action, elementFilter, null, false);
+    }
+
+    /**
+     * The shape every printing but one has: a single card goes to hand.
+     *
+     * <p>{@code handCount} exists for 16-094C Palmer alone — "Add <b>2</b> cards among them to your
+     * hand and put the rest of the cards into the Break Zone". Every other printing in the family
+     * takes exactly one, so the count defaults here rather than being spelled at 29 call sites.
+     */
+    public LookConfig(int count, LookAction action, String elementFilter, String categoryFilter,
+            boolean reveal) {
+        this(count, action, elementFilter, categoryFilter, reveal, 1);
     }
 
     /**
@@ -72,6 +100,16 @@ public record LookConfig(int count, LookConfig.LookAction action, String element
          * the Break Zone, then orders the remaining cards to the bottom of the deck.
          */
         ADD_TO_HAND_ONE_TO_BREAK_REST_BOTTOM,
+
+        /**
+         * View N cards; the player picks 1 to add to their hand and 1 to put at the bottom of the
+         * deck, and what is left goes back on top — 21-109C Astrologian, the one printing, which
+         * looks at exactly 3 and so leaves exactly one on top.
+         *
+         * <p>The same slot-assignment dialog as
+         * {@link #ADD_TO_HAND_ONE_TO_BREAK_REST_BOTTOM}; only the destinations differ.
+         */
+        ADD_TO_HAND_ONE_TO_BOTTOM_REST_TOP,
 
         /**
          * View N cards; the player drags each card to either a "Top of Deck" zone
