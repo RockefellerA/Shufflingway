@@ -610,17 +610,60 @@ final class ActionResolverPower {
     /**
      * Recognises passive field grants applied by the engine via {@link CardData#fieldPowerGrants()};
      * returns a no-op lambda so that {@link #parse} does not report these as unrecognised.
+     *
+     * <p>The five literal patterns came first and are kept because two of them (the Break-Zone and
+     * distinct-element conditionals) are gates rather than grants, so no grant is parsed off them.
+     * Everything else is answered by asking {@link CardData#parseFieldPowerGrants} — the parser
+     * that actually builds the grants the engine applies — rather than by a sixth regex.
+     *
+     * <p>Reimplementing that parser here is what had gone wrong: the literals covered a handful of
+     * the shapes it reads, so 74 field abilities across 72 wordings were reported unparsed while
+     * working correctly in play, which reads as a wiring gap to anyone triaging by probe output.
+     * 21-062H Ash's "The Forwards with Brave other than Ash you control gain +3000 power" was one.
+     * Delegating means the guard cannot drift from the grants again.
+     *
+     * <p>What makes delegation safe is the two gates, not the delegation: see
+     * {@link ActionResolverPatterns#PASSIVE_GRANT_DISQUALIFYING_DURATION}. Handed a bare sentence
+     * that parser accepts until-end-of-turn texts, and this guard is dispatched ahead of every
+     * mass-boost parser, so an ungated version would silently no-op several real one-turn effects.
+     *
+     * <p>A claim here asserts only that the sentence <em>is</em> a passive grant, not that the
+     * carrier really applies it: 10-065L Warrior of Light and 15-087C Aranea print theirs behind a
+     * "Damage N -- " gate that {@code parseFieldPowerGrants} does not strip on the unquoted form,
+     * so both carry no grant and neither boost applies. Today's literal patterns already claim
+     * those two, so this keeps that blind spot rather than widening it; closing it belongs in
+     * {@code parseFieldPowerGrants}, which already has {@code withMinDamageThreshold} for the job.
      */
-    static Consumer<GameContext> tryParseFieldPowerGrantPassive(String text) {
+    static Consumer<GameContext> tryParseFieldPowerGrantPassive(String text, CardData source) {
         String trimmed = text.trim();
         if (FIELD_GRANT_BARE_PASSIVE.matcher(trimmed).matches()
                 || FIELD_GRANT_JOB_CAT_PASSIVE.matcher(trimmed).matches()
                 || FIELD_OPPONENT_DEBUFF_PASSIVE.matcher(trimmed).matches()
                 || FIELD_GRANT_BZ_COND_PASSIVE.matcher(trimmed).find()
-                || FIELD_GRANT_DIFF_ELEM_COND_PASSIVE.matcher(trimmed).find()) {
+                || FIELD_GRANT_DIFF_ELEM_COND_PASSIVE.matcher(trimmed).find()
+                || !passiveFieldGrantsFor(trimmed, source).isEmpty()) {
             return ctx -> { /* passive field grant — applied via fieldPowerGrants() */ };
         }
         return null;
+    }
+
+    /**
+     * The grants {@link CardData#parseFieldPowerGrants} reads off {@code text}, or an empty list
+     * when the text is not a passive grant at all. Shared by the guard above and the two name
+     * chains, so all three agree on what counts as one.
+     *
+     * <p>{@code source} supplies the card type — the parser declines Summons outright — and the
+     * carrier's name, which is how the "[Self] gains "&lt;grant&gt;"" form verifies that the
+     * subject really is the card handing itself the ability. Both are optional: a null source is
+     * the permissive reading the name chains fall back on, and the duration and trigger gates do
+     * the safety work either way.
+     */
+    static List<FieldPowerGrant> passiveFieldGrantsFor(String text, CardData source) {
+        if (PASSIVE_GRANT_DISQUALIFYING_DURATION.matcher(text).find()) return List.of();
+        if (PASSIVE_GRANT_DISQUALIFYING_TRIGGER.matcher(text).find()) return List.of();
+        String type = source != null ? source.type() : "Forward";
+        String name = source != null ? source.name() : null;
+        return CardData.parseFieldPowerGrants(text, type, name);
     }
     /**
      * Parses "all Forwards in that party gain/lose +N power until end of turn." — the party-attack
@@ -638,7 +681,8 @@ final class ActionResolverPower {
         };
     }
     /**
-     * Parses "All [the] [element] [targets] [of cost N] [control] gain +N power until end of turn."
+     * Parses "All [the] [element] [targets] [with Keyword[ or Keyword]] [of cost N] [control]
+     * gain +N power until end of turn."
      */
     static Consumer<GameContext> tryParseAllFieldPowerBoost(String text) {
         Matcher m = ALL_FIELD_POWER_BOOST_PATTERN.matcher(text);
@@ -650,6 +694,13 @@ final class ActionResolverPower {
         String tgtLower = targets.toLowerCase();
         boolean inclForwards = tgtLower.contains("forward") || tgtLower.contains("character");
         boolean inclMonsters = tgtLower.contains("monster") || tgtLower.contains("character");
+
+        String traitStr = m.group("trait");
+        EnumSet<CardData.Trait> traitFilter = parseTraits(traitStr);
+        // A keyword filter over a set that includes Monsters would be honoured on the Forward half
+        // and ignored on the other, boosting Monsters the sentence does not name. No printing
+        // combines the two, so decline the sentence outright rather than over-apply half of it.
+        if (!traitFilter.isEmpty() && inclMonsters) return null;
 
         String costStr = m.group("cost");
         String costCmp = m.group("costcmp");
@@ -669,17 +720,19 @@ final class ActionResolverPower {
         String change       = isLose ? "-" + Math.abs(amount) : "+" + amount;
         String excludeName = m.group("excludename") != null ? m.group("excludename").trim() : null;
         String excludeLabel = excludeName != null ? " other than " + excludeName : "";
+        String traitLabel = traitStr != null ? " with " + traitStr.trim() : "";
 
         String trailingRaw = text.substring(m.end()).trim().replaceAll("^[.!,]+\\s*", "").trim();
         Consumer<GameContext> secondary = trailingRaw.isEmpty() ? null : parse(trailingRaw, null);
 
-        String logMsg = "All " + elemLabel + catLabel + targets + costLabel + excludeLabel + controlLabel
-                + " " + change + " power until end of turn";
+        String logMsg = "All " + elemLabel + catLabel + targets + traitLabel + costLabel + excludeLabel
+                + controlLabel + " " + change + " power until end of turn";
 
         return ctx -> {
             ctx.logEntry("Effect: " + logMsg);
             ctx.applyMassFieldPowerBoost(amount, inclForwards, inclMonsters,
-                    opponentOnly, selfOnly, element, costVal, costCmp, category, excludeName);
+                    opponentOnly, selfOnly, element, costVal, costCmp, category, excludeName,
+                    traitFilter);
             if (secondary != null) secondary.accept(ctx);
         };
     }

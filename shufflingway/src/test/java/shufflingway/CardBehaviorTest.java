@@ -33646,7 +33646,7 @@ public class CardBehaviorTest {
 		fn.accept(ctx);
 
 		verify(ctx).applyMassFieldPowerBoost(1000, true, false, false, true,
-				null, -1, null, null, "Reddas");
+				null, -1, null, null, "Reddas", EnumSet.noneOf(CardData.Trait.class));
 	}
 
 	/**
@@ -36354,7 +36354,8 @@ public class CardBehaviorTest {
 		verify(ctx).reduceTarget(eq(t), eq(8000), any());
 		// "all the Forwards opponent controls also lose 2000 power" — the "also" sits between
 		// subject and verb, which is where the clause used to stop parsing.
-		verify(ctx).applyMassFieldPowerBoost(-2000, true, false, true, false, null, -1, null, null, null);
+		verify(ctx).applyMassFieldPowerBoost(-2000, true, false, true, false, null, -1, null, null, null,
+				EnumSet.noneOf(CardData.Trait.class));
 	}
 
 	@Test
@@ -36380,10 +36381,11 @@ public class CardBehaviorTest {
 		// The unconditional draw belongs to the base half and lands either way.
 		verify(resolveCastPaymentSummon("Chocobo Chick (VII)", CHOCOBO_CHICK_16_046C, 2, t)).drawCards(1);
 		verify(resolveCastPaymentSummon("Chocobo Chick (VII)", CHOCOBO_CHICK_16_046C, 3, t))
-				.applyMassFieldPowerBoost(2000, true, false, false, true, null, -1, null, null, null);
+				.applyMassFieldPowerBoost(2000, true, false, false, true, null, -1, null, null, null,
+						EnumSet.noneOf(CardData.Trait.class));
 		verify(resolveCastPaymentSummon("Chocobo Chick (VII)", CHOCOBO_CHICK_16_046C, 2, t), never())
 				.applyMassFieldPowerBoost(anyInt(), anyBoolean(), anyBoolean(), anyBoolean(),
-						anyBoolean(), any(), anyInt(), any(), any(), any());
+						anyBoolean(), any(), anyInt(), any(), any(), any(), any());
 	}
 
 	@Test
@@ -36430,7 +36432,8 @@ public class CardBehaviorTest {
 	void carbuncleAlwaysBoostsAndDrawsOnlyOnAnAllEarthBench() {
 		verify(resolveCarbuncle(true)).drawCards(1);
 		GameContext mixed = resolveCarbuncle(false);
-		verify(mixed).applyMassFieldPowerBoost(2000, true, false, false, true, null, -1, null, null, null);
+		verify(mixed).applyMassFieldPowerBoost(2000, true, false, false, true, null, -1, null, null, null,
+				EnumSet.noneOf(CardData.Trait.class));
 		verify(mixed, never()).drawCards(anyInt());
 	}
 
@@ -49193,7 +49196,7 @@ public class CardBehaviorTest {
 		fn.accept(ctx);
 
 		verify(ctx).applyMassFieldPowerBoost(eq(-7000), anyBoolean(), anyBoolean(),
-				anyBoolean(), anyBoolean(), any(), anyInt(), any(), any(), any());
+				anyBoolean(), anyBoolean(), any(), anyInt(), any(), any(), any(), any());
 		verify(ctx, never()).drawCards(anyInt());
 	}
 
@@ -55217,6 +55220,314 @@ public class CardBehaviorTest {
 		int n = 0;
 		for (String line : mw.gameLogText().split("\n")) if (line.contains(needle)) n++;
 		return n;
+	}
+
+	// =========================================================================================
+	// Kain 23-003C: "When Kain attacks, all the Forwards with Haste or First Strike you control
+	// gain +2000 power until the end of the turn."
+	//
+	// The mass-boost pattern had no keyword clause, so the sentence went unread entirely. Adding
+	// one is what the mass break/dull/freeze sweep already carries; the interesting half is that
+	// the filter has to be read off the board rather than off the printing, because Kain's own
+	// second ability and every other keyword grant put Forwards in and out of the set mid-turn.
+	// =========================================================================================
+
+	private static final String KAIN_23_003C_ATTACK =
+			"all the Forwards with Haste or First Strike you control gain +2000 power "
+			+ "until the end of the turn.";
+
+	@Test
+	void kainsAttackBoostReadsBothKeywordsOffTheSentence() {
+		GameContext ctx = quietContext();
+		Consumer<GameContext> fn = ActionResolver.parse(KAIN_23_003C_ATTACK, null);
+		assertNotNull(fn, "Kain's attack trigger should parse");
+		fn.accept(ctx);
+
+		verify(ctx).applyMassFieldPowerBoost(2000, true, false, false, true, null, -1, null, null, null,
+				EnumSet.of(CardData.Trait.HASTE, CardData.Trait.FIRST_STRIKE));
+	}
+
+	@Test
+	void kainsBoostSkipsTheForwardsWithNeitherKeyword() {
+		MainWindow mw = new MainWindow();
+		placeP1Forward(mw, makeTraitForward("Kain", "Fire", 4, 8000, CardData.Trait.HASTE));
+		placeP1Forward(mw, makeTraitForward("Cecil", "Fire", 3, 7000, CardData.Trait.FIRST_STRIKE));
+		placeP1Forward(mw, makeForward("Rosa", "Fire", 2, 5000));
+
+		ActionResolver.parse(KAIN_23_003C_ATTACK, null).accept(mw.buildGameContext(true));
+
+		assertEquals(2000, mw.p1ForwardPowerBoost.get(0), "Haste is in the set");
+		assertEquals(2000, mw.p1ForwardPowerBoost.get(1), "First Strike is in the set");
+		assertEquals(0, mw.p1ForwardPowerBoost.get(2), "Rosa has neither and is not boosted");
+	}
+
+	@Test
+	void aKeywordGainedEarlierInTheTurnPutsAForwardInKainsSet() {
+		// The point of reading the board: a Forward given Haste this turn is a Forward with Haste,
+		// and a printed keyword that was removed is not one.
+		MainWindow mw = new MainWindow();
+		placeP1Forward(mw, makeForward("Rosa", "Fire", 2, 5000));
+		placeP1Forward(mw, makeTraitForward("Cecil", "Fire", 3, 7000, CardData.Trait.FIRST_STRIKE));
+		mw.p1ForwardTempTraits.get(0).add(CardData.Trait.HASTE);
+		mw.p1ForwardRemovedTraits.get(1).add(CardData.Trait.FIRST_STRIKE);
+
+		ActionResolver.parse(KAIN_23_003C_ATTACK, null).accept(mw.buildGameContext(true));
+
+		assertEquals(2000, mw.p1ForwardPowerBoost.get(0), "granted Haste counts");
+		assertEquals(0, mw.p1ForwardPowerBoost.get(1), "a removed First Strike does not");
+	}
+
+	@Test
+	void kainDoesNotBoostTheOpponentsHastyForwards() {
+		MainWindow mw = new MainWindow();
+		placeP1Forward(mw, makeTraitForward("Kain", "Fire", 4, 8000, CardData.Trait.HASTE));
+		placeP2Forward(mw, makeTraitForward("Golbez", "Dark", 5, 9000, CardData.Trait.HASTE));
+
+		ActionResolver.parse(KAIN_23_003C_ATTACK, null).accept(mw.buildGameContext(true));
+
+		assertEquals(2000, mw.p1ForwardPowerBoost.get(0));
+		assertEquals(0, mw.p2ForwardPowerBoost.get(0), "\"you control\" is one side of the table");
+	}
+
+	/**
+	 * The keyword clause is optional, so the sentences the pattern already read must read
+	 * identically — the filter is only consulted when the text spells one.
+	 */
+	@Test
+	void theMassBoostWithoutAKeywordClauseStillTakesEveryForward() {
+		MainWindow mw = new MainWindow();
+		placeP1Forward(mw, makeForward("Rosa", "Fire", 2, 5000));
+		placeP1Forward(mw, makeTraitForward("Kain", "Fire", 4, 8000, CardData.Trait.HASTE));
+
+		ActionResolver.parse(
+				"all the Forwards you control gain +2000 power until the end of the turn.", null)
+				.accept(mw.buildGameContext(true));
+
+		assertEquals(2000, mw.p1ForwardPowerBoost.get(0));
+		assertEquals(2000, mw.p1ForwardPowerBoost.get(1));
+	}
+
+	/**
+	 * A keyword filter over a set that includes Monsters would apply to the Forward half and be
+	 * ignored on the other, so the sentence is declined rather than half-honoured. No printing
+	 * combines the two; this pins the choice so a later widening has to make it deliberately.
+	 */
+	@Test
+	void aKeywordFilterOverCharactersIsDeclinedRatherThanHalfApplied() {
+		assertNull(ActionResolver.parse(
+				"all the Characters with Haste you control gain +2000 power until the end of the turn.",
+				null));
+		assertNull(ActionResolver.parse(
+				"all the Forwards and Monsters with Brave you control gain +2000 power "
+				+ "until the end of the turn.", null));
+	}
+
+	// =========================================================================================
+	// The passive-grant guard, and the two gates that make it safe.
+	//
+	// tryParseFieldPowerGrantPassive claims a text so parse() does not report an always-on grant
+	// as unread; the grant itself is applied from CardData.fieldPowerGrants(). It used to answer
+	// out of five literal patterns covering a fraction of the shapes that parser reads, so 74
+	// field abilities over 72 wordings reported unparsed while working in play. It now asks that
+	// parser directly.
+	//
+	// The hazard is that the guard is dispatched ahead of every mass-boost parser, and
+	// parseFieldPowerGrants -- handed a bare sentence rather than whole card text, which is the
+	// only way it is ever called in anger -- accepts until-end-of-turn texts as grants. Ungated,
+	// the guard would no-op Pelna's, Llyud's and Zenos' one-turn boosts. The tests below are those
+	// gates; without them the failure is silent, since a no-op consumer still reports as parsed.
+	// =========================================================================================
+
+	@Test
+	void aFilteredPassiveGrantIsNoLongerReportedUnread() {
+		// 21-062H Ash. Wired the whole time via fieldPowerGrants(); only the resolver disagreed.
+		String ash = "The Forwards with Brave other than Ash you control gain +3000 power.";
+		assertNotNull(ActionResolver.parse(ash, null), "an always-on grant is not a gap");
+		assertEquals("FieldPowerGrant", ActionResolver.matchedPatternName(ash, null));
+	}
+
+	@Test
+	void theGuardAgreesWithTheParserThatBuildsTheGrants() {
+		// The point of delegating: the guard cannot drift from CardData again. Any text that
+		// yields a grant and states neither a duration nor a trigger has to be claimed.
+		for (String text : List.of(
+				"The Lightning Forwards you control gain +1000 power.",
+				"The Card Name Vincent you control gains +1000 power and Brave.",
+				"The Category MOBIUS Forwards other than Wol you control gain +2000 power.",
+				"The Job Dragoon and Card Name Dragoon Forwards other than Kain you control gain +1000 power.",
+				"The Forwards of cost 2 or less you control gain +1000 power.")) {
+			assertFalse(CardData.parseFieldPowerGrants(text, "Forward").isEmpty(),
+					"precondition — CardData reads this as a grant: " + text);
+			assertEquals("FieldPowerGrant", ActionResolver.matchedPatternName(text, null),
+					"the guard must agree with it: " + text);
+		}
+	}
+
+	/**
+	 * The duration gate. Each of these yields a grant when {@code parseFieldPowerGrants} is handed
+	 * it alone, and each is really a one-turn effect belonging to a parser further down the chain —
+	 * so the guard has to decline all three and leave them to it.
+	 */
+	@Test
+	void theGuardDeclinesAOneTurnBoostRatherThanNoOpItsEffect() {
+		assertEquals("AllFieldPowerBoost", ActionResolver.matchedPatternName(
+				"All the Category XV Forwards you control gain +2000 power until the end of the turn.",
+				null), "15-098C Pelna's action ability");
+		assertEquals("AllFieldJobPowerBoost", ActionResolver.matchedPatternName(
+				"all the Job Warrior Forwards you control gain +3000 power until the end of the turn.",
+				null), "15-059C Llyud's attack trigger");
+		assertEquals("AllFieldKeywordGrant", ActionResolver.matchedPatternName(
+				"all the Category XIV Forwards you control gain Haste until the end of the turn.",
+				null), "14-015R Zenos' trigger");
+	}
+
+	@Test
+	void aDeclinedOneTurnBoostStillRunsItsEffect() {
+		// The gate is only worth anything if what it hands on actually resolves — a no-op consumer
+		// reports as parsed just as a real one does, which is why this asserts the call and not
+		// merely the name.
+		GameContext ctx = quietContext();
+		Consumer<GameContext> fn = ActionResolver.parse(
+				"All the Category XV Forwards you control gain +2000 power until the end of the turn.",
+				null);
+		assertNotNull(fn);
+		fn.accept(ctx);
+
+		verify(ctx).applyMassFieldPowerBoost(2000, true, false, false, true, null, -1, null, "XV", null,
+				EnumSet.noneOf(CardData.Trait.class));
+	}
+
+	/**
+	 * The trigger gate. A grant-shaped sentence carrying an event happens once when the event does,
+	 * and a text whose first sentence is a grant and whose second is a trigger is not a grant at
+	 * all — claiming either would drop the half the guard cannot see.
+	 */
+	@Test
+	void theGuardDeclinesAGrantShapedSentenceThatCarriesATrigger() {
+		assertNull(ActionResolverPower.tryParseFieldPowerGrantPassive(
+				"When Wol deals damage to your opponent, the Category MOBIUS Forwards you control "
+				+ "gain +2000 power.", null),
+				"an event makes it an auto-ability, not an always-on grant");
+		assertNull(ActionResolverPower.tryParseFieldPowerGrantPassive(
+				"The Category MOBIUS Forwards other than Wol you control gain +2000 power. "
+				+ "When Wol deals damage to your opponent, draw 1 card.", null),
+				"the second sentence is not the guard's to swallow");
+	}
+
+	@Test
+	void theOpponentSideDebuffKeepsItsOwnName() {
+		assertEquals("FieldOpponentPowerDebuff", ActionResolver.matchedPatternName(
+				"The Forwards opponent controls lose 2000 power.", null));
+	}
+
+	// =========================================================================================
+	// "Damage N -- <unquoted passive grant>" — 10-065L Warrior of Light, 14-004C Warrior of Light's
+	// second grant, 15-087C Aranea.
+	//
+	// Every pattern in parseFieldPowerGrants is anchored on "^The ", and that method reads raw
+	// [[br]] segments rather than the ones parseFieldAbilities has stripped — so the damage gate
+	// sat in front of the anchor and hid the grant behind it. All three cards carried no grant for
+	// the gated half and the boost never applied at any damage total.
+	//
+	// The quoted twin ("Damage 6 -- Aranea gains "…"") was already read, which is what made this
+	// hard to see: the mechanism and FieldPowerGrant.withMinDamageThreshold both existed, only the
+	// unquoted wording had no way in. Neither the golden file nor the field-ability coverage test
+	// could see it either, because both ask about the STRIPPED text, which matches on its own.
+	// =========================================================================================
+
+	/** A Forward whose own field ability grants power — the shape all three printings have. */
+	private static CardData makeForwardWithPowerGrant(String name, String element, int power,
+			String job, String text) {
+		return new CardData(null, name, element, 3, power, "Forward", false, 0, false, false,
+				Set.of(), 0, List.of(), null, List.of(),
+				List.of(), List.of(), CardData.parseFieldAbilities(text, "Forward"), List.of(),
+				CardData.parseFieldPowerGrants(text, "Forward"),
+				List.of(), List.of(), List.of(), List.of(), List.of(),
+				false, false, null, false, false, false, false, false, 1,
+				job, null, null, text);
+	}
+
+	private static final String ARANEA_15_087C_GATED =
+			"Damage 3 -- The Job Dragoon Forwards you control gain +2000 power.";
+
+	@Test
+	void theDamageGatedGrantIsReadAtAll() {
+		List<FieldPowerGrant> grants = CardData.parseFieldPowerGrants(ARANEA_15_087C_GATED, "Forward");
+		assertEquals(1, grants.size(), "the gate used to hide the grant behind it entirely");
+		assertEquals(2000, grants.get(0).powerBonus());
+		assertEquals("Dragoon", grants.get(0).jobFilter());
+		assertEquals(3, grants.get(0).minDamageThreshold(), "the gate becomes the grant's threshold");
+	}
+
+	@Test
+	void theGatedGrantWaitsForTheDamageAndThenApplies() {
+		MainWindow mw = new MainWindow();
+		placeP1Forward(mw, makeForwardWithPowerGrant("Aranea", "Lightning", 7000, "Dragoon",
+				ARANEA_15_087C_GATED));
+		assertEquals(7000, mw.effectiveP1ForwardPower(0), "no damage taken yet");
+
+		for (int i = 0; i < 2; i++)
+			mw.gameState.getP1DamageZone().add(makeForward("Damage " + i, "Fire", 1, 1000));
+		assertEquals(7000, mw.effectiveP1ForwardPower(0), "2 damage is short of the gate");
+
+		mw.gameState.getP1DamageZone().add(makeForward("Damage 2", "Fire", 1, 1000));
+		assertEquals(9000, mw.effectiveP1ForwardPower(0), "at 3 damage the grant turns on");
+	}
+
+	@Test
+	void theGatedGrantStillRespectsItsOwnJobFilter() {
+		// The gate is a condition on the grant, not a replacement for its filter — a threshold that
+		// was honoured while the filter was dropped would buff the whole board.
+		MainWindow mw = new MainWindow();
+		placeP1Forward(mw, makeForwardWithPowerGrant("Aranea", "Lightning", 7000, "Dragoon",
+				ARANEA_15_087C_GATED));
+		placeP1Forward(mw, makeJobCard("Vaan", "Wind", "Forward", "Sky Pirate"));
+		for (int i = 0; i < 3; i++)
+			mw.gameState.getP1DamageZone().add(makeForward("Damage " + i, "Fire", 1, 1000));
+
+		assertEquals(9000, mw.effectiveP1ForwardPower(0), "Aranea is a Dragoon herself");
+		assertEquals(7000, mw.effectiveP1ForwardPower(1), "a Sky Pirate is not in the filter");
+	}
+
+	/**
+	 * 14-004C prints an ungated grant and a gated one on the same card. It was the partial case:
+	 * the +1000 applied all along and the +2000 never did, so the card looked like it worked.
+	 */
+	@Test
+	void aCardPrintingBothAGatedAndAnUngatedGrantKeepsBoth() {
+		String text = "The Job Standard Unit Forwards you control gain +1000 power.[[br]]"
+				+ "Damage 3 -- The Job Standard Unit Forwards you control gain +2000 power.";
+		List<FieldPowerGrant> grants = CardData.parseFieldPowerGrants(text, "Forward");
+		assertEquals(2, grants.size(), "both halves are grants");
+		assertEquals(0, grants.get(0).minDamageThreshold(), "the first is unconditional");
+		assertEquals(3, grants.get(1).minDamageThreshold(), "the second waits for damage");
+
+		MainWindow mw = new MainWindow();
+		placeP1Forward(mw, makeForwardWithPowerGrant("Warrior of Light", "Light", 8000,
+				"Standard Unit", text));
+		assertEquals(9000, mw.effectiveP1ForwardPower(0), "+1000 with no damage");
+		for (int i = 0; i < 3; i++)
+			mw.gameState.getP1DamageZone().add(makeForward("Damage " + i, "Fire", 1, 1000));
+		assertEquals(11000, mw.effectiveP1ForwardPower(0), "both grants stack at 3 damage");
+	}
+
+	/**
+	 * The prefix is also printed in front of abilities that are none of this parser's business, so
+	 * the branch falls through instead of consuming the segment when the remainder is not a grant.
+	 * Claiming these would have been worse than missing them: a power grant would be invented from
+	 * a cost ability.
+	 */
+	@Test
+	void aDamageGatedAbilityThatIsNotAGrantIsLeftAlone() {
+		for (String text : List.of(
+				"Damage 5 -- The cost required for your opponent to cast cards other than a Backup "
+						+ "is increased by 1.",
+				"Damage 5 -- The Backups you control can produce CP of any Element.",
+				"Damage 3 -- The cost required to cast your Summons is reduced by 1 "
+						+ "(it cannot become 0).")) {
+			assertTrue(CardData.parseFieldPowerGrants(text, "Forward").isEmpty(),
+					"not a power grant: " + text);
+		}
 	}
 
 	// =========================================================================================

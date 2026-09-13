@@ -833,7 +833,7 @@ public class ActionResolver {
         result = tryParseAllFieldEffect(effectText);
         if (result != null) return result;
 
-        result = tryParseFieldPowerGrantPassive(effectText);
+        result = tryParseFieldPowerGrantPassive(effectText, source);
         if (result != null) return result;
 
         result = tryParseAllForwardsSameElementAsNamedPowerBoost(effectText);
@@ -2226,7 +2226,7 @@ public class ActionResolver {
         if (tryParseBreakForwardsBelowSelfPower(effectText, source) != null)
             return "BreakForwardsBelowSelfPower";
         if (tryParseAllFieldEffect(effectText)                != null) return "AllFieldEffect";
-        if (tryParseFieldPowerGrantPassive(effectText)        != null) {
+        if (tryParseFieldPowerGrantPassive(effectText, source) != null) {
             String trimmed = effectText.trim();
             return FIELD_OPPONENT_DEBUFF_PASSIVE.matcher(trimmed).matches()
                     ? "FieldOpponentPowerDebuff" : "FieldPowerGrant";
@@ -3859,7 +3859,7 @@ public class ActionResolver {
         if (tryParseBreakForwardsBelowSelfPower(effectText, source) != null)
             return "BreakForwardsBelowSelfPower";
         if (tryParseAllFieldEffect(effectText) != null)                     return "AllFieldEffect";
-        if (tryParseFieldPowerGrantPassive(effectText) != null) {
+        if (tryParseFieldPowerGrantPassive(effectText, source) != null) {
             String trimmed = effectText.trim();
             return FIELD_OPPONENT_DEBUFF_PASSIVE.matcher(trimmed).matches()
                     ? "FieldOpponentPowerDebuff" : "FieldPowerGrant";

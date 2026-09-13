@@ -5864,6 +5864,31 @@ public record CardData(
     );
 
     /**
+     * Matches "Damage N -- &lt;anything&gt;" — the damage gate in front of a passive grant that is
+     * <em>not</em> quoted and not handed to the carrier itself, which is the half
+     * {@link #SELF_GAINS_QUOTED_FIELD_ABILITY} does not cover: "Damage 5 -- The Job Standard Unit
+     * Forwards you control gain +5000 power." (10-065L Warrior of Light, 14-004C Warrior of Light's
+     * second grant, 15-087C Aranea).
+     *
+     * <p>Every grant pattern in {@link #parseFieldPowerGrants} is anchored on {@code ^The }, and
+     * that method reads raw {@code [[br]]} segments rather than the stripped ones
+     * {@link #parseFieldAbilities} produces — so the gate sat in front of the anchor and none of
+     * them could see the grant behind it. All three cards carried no grant at all and their boosts
+     * never applied.
+     *
+     * <p>{@code inner} is deliberately unanchored: the recursion is the filter. Re-entering the
+     * remainder returns grants only if it really is one, and the caller keeps the segment for the
+     * ordinary patterns when nothing comes back, so this cannot swallow the gated cost and
+     * CP-production abilities that share the prefix (18-105H Ultimecia, 24-044H Zidane,
+     * 28-098H Garnet). Recursing also means the gate applies to whatever the remainder turns out to
+     * be, instead of threading a threshold argument through every pattern below.
+     */
+    static final Pattern DAMAGE_GATED_FIELD_GRANT = Pattern.compile(
+        "(?i)^Damage\\s+(?<threshold>\\d+)\\s+--\\s+(?<inner>.+)$",
+        Pattern.DOTALL
+    );
+
+    /**
      * The field ability {@code effectText} hands {@code cardName} in quotes, or {@code null} when it
      * is not a self-granted quoted ability. The "Damage N -- " gate the wrapper may carry is not
      * returned: callers reading a {@link FieldAbility} already have it in
@@ -6383,6 +6408,27 @@ public record CardData(
                 for (FieldPowerGrant inner : parseFieldPowerGrants(selfQuotedM.group("inner"), cardType, cardName))
                     result.add(inner.withMinDamageThreshold(threshold));
                 continue;
+            }
+
+            // "Damage N -- The [filter] Forwards you control gain +N power." — the same gate over an
+            // unquoted grant, which the branch above does not reach. Read after it so a quoted
+            // self-grant is still claimed there, and before the "^The " patterns, which cannot see
+            // past the gate.
+            //
+            // Falls through rather than continuing when the remainder is not a grant: the prefix is
+            // also printed in front of cost and CP-production abilities that are none of this
+            // parser's business, and swallowing the segment would stop the patterns below from
+            // having their ordinary look at it.
+            Matcher dmgGatedM = DAMAGE_GATED_FIELD_GRANT.matcher(seg);
+            if (dmgGatedM.matches()) {
+                List<FieldPowerGrant> gated =
+                        parseFieldPowerGrants(dmgGatedM.group("inner"), cardType, cardName);
+                if (!gated.isEmpty()) {
+                    int threshold = Integer.parseInt(dmgGatedM.group("threshold"));
+                    for (FieldPowerGrant inner : gated)
+                        result.add(inner.withMinDamageThreshold(threshold));
+                    continue;
+                }
             }
 
             if (FIELD_POWER_CANNOT_BE_DECREASED.matcher(seg).matches()) {

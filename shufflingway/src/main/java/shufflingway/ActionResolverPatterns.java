@@ -7725,6 +7725,7 @@ final class ActionResolverPatterns {
      * <ul>
      *   <li>Group {@code element}  — optional element name</li>
      *   <li>Group {@code targets}  — "Forwards", "Forwards and Monsters", etc.</li>
+     *   <li>Group {@code trait}    — optional keyword filter, "with Haste or First Strike"</li>
      *   <li>Group {@code cost}     — optional CP cost value</li>
      *   <li>Group {@code costcmp}  — optional comparison: "less" or "more"</li>
      *   <li>Group {@code control}  — optional: "opponent controls" or "you control"</li>
@@ -7739,6 +7740,14 @@ final class ActionResolverPatterns {
         "(?:(?<element>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)\\s+)?" +
         "(?:Category\\s+(?<category>\\S+)\\s+)?" +
         "(?<targets>Forwards?(?:\\s+and\\s+Monsters?)?|Backups?|Characters?)" +
+        // Keyword filter, spelled and positioned exactly as ALL_FIELD_EFFECT_PATTERN's: ahead of
+        // the cost and side clauses, because that is where 23-003C Kain prints it ("all the
+        // Forwards with Haste or First Strike you control"). Without it the regex had no way past
+        // "with", so the whole sentence went unread rather than half-read — but leaving it out is
+        // not safe in general either: the clause names a narrower set than the sentence's subject,
+        // and a pattern that ended at "Forwards" would have swept the lot under find().
+        "(?:\\s+with\\s+(?<trait>(?:Haste|First\\s+Strike|Brave)" +
+            "(?:\\s*(?:,\\s*(?:or\\s+)?|\\s+or\\s+)(?:Haste|First\\s+Strike|Brave))*))?" +
         "(?:\\s+of\\s+cost\\s+(?<cost>\\d+)(?:\\s+or\\s+(?<costcmp>less|more))?)?" +
         "(?:\\s+other\\s+than\\s+(?<excludename>.+?))?" +
         "(?:\\s+(?<control>(?:your\\s+)?opponent\\s+controls?|you\\s+control))?" +
@@ -10633,6 +10642,31 @@ final class ActionResolverPatterns {
     /** Matches "discard N cards" at the start of an effect text (may have more text after). */
     static final Pattern DISCARD_N_CARDS_PREFIX = Pattern.compile(
         "(?i)^discard\\s+(?<count>\\d+)\\s+cards?[.!]?(?:\\s|$)"
+    );
+    /**
+     * A duration clause. Disqualifies a text from the passive-grant guard: a passive grant is
+     * always-on and never states one, so a sentence that does belongs to a mass-boost parser
+     * further down the chain.
+     *
+     * <p>This is the gate that makes {@link ActionResolverPower#tryParseFieldPowerGrantPassive}
+     * safe to answer out of {@link CardData#parseFieldPowerGrants}. Handed a bare sentence, that
+     * parser accepts "All the Category XV Forwards you control gain +2000 power until the end of
+     * the turn" as a grant — harmless where it is called, on whole card text, because segmentation
+     * never offers it that sentence alone, but the guard offers it exactly that. Without this gate
+     * the guard sits ahead of {@code tryParseAllFieldPowerBoost} and would claim 15-098C Pelna's
+     * one-turn boost, 15-059C Llyud's and 14-015R Zenos' too, turning each into a no-op.
+     */
+    static final Pattern PASSIVE_GRANT_DISQUALIFYING_DURATION = Pattern.compile(
+        "(?i)until\\s+(?:the\\s+)?end\\s+of\\s+(?:the\\s+)?(?:turn|your\\s+turn)"
+    );
+    /**
+     * A trigger clause, disqualifying for the same reason as
+     * {@link #PASSIVE_GRANT_DISQUALIFYING_DURATION}: an effect that happens on an event is an
+     * auto-ability that runs once, not a grant that is continuously true. Also keeps the guard off
+     * a multi-sentence text whose first sentence is a grant and whose second is a trigger.
+     */
+    static final Pattern PASSIVE_GRANT_DISQUALIFYING_TRIGGER = Pattern.compile(
+        "(?i)\\b(?:when|whenever)\\b|\\bat\\s+the\\s+(?:beginning|end)\\s+of\\b"
     );
     /** "The [targets] you control gain +N power." — companion to CardData's bare-grant pattern. */
     static final Pattern FIELD_GRANT_BARE_PASSIVE = Pattern.compile(

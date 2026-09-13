@@ -8852,7 +8852,8 @@ final class GameContextImpl implements GameContext {
 			@Override
 			public void applyMassFieldPowerBoost(int amount, boolean inclForwards, boolean inclMonsters,
 					boolean opponentOnly, boolean selfOnly,
-					String element, int costVal, String costCmp, String category, String excludeName) {
+					String element, int costVal, String costCmp, String category, String excludeName,
+					EnumSet<CardData.Trait> traitFilter) {
 				boolean touchP1 = isP1 ? !opponentOnly : !selfOnly;
 				boolean touchP2 = isP1 ? !selfOnly     : !opponentOnly;
 				boolean p1BoostSuppressed = inclForwards && amount > 0 && (mw.oppForwardPowerBoostSuppressedFor(true) || (isP1 && mw.oppForwardSelfBoostSuppressedFor(true)));
@@ -8865,6 +8866,7 @@ final class GameContextImpl implements GameContext {
 							if (!meetsCostConstraint(c.cost(), costVal, costCmp)) continue;
 							if (!CardFilters.meetsCategoryFilter(c, category)) continue;
 							if (excludeName != null && CardFilters.meetsCardNameFilter(c, excludeName)) continue;
+							if (!forwardHasAnyTrait(true, i, traitFilter)) continue;
 							if (p1BoostSuppressed) { logEntry(c.name() + " — power boost suppressed"); continue; }
 							if (amount < 0 && !isP1
 									&& mw.effectiveP1HasTrait(i, CardData.Trait.POWER_CANNOT_BE_DECREASED_BY_OPP)) {
@@ -8895,6 +8897,7 @@ final class GameContextImpl implements GameContext {
 							if (!meetsCostConstraint(c.cost(), costVal, costCmp)) continue;
 							if (!CardFilters.meetsCategoryFilter(c, category)) continue;
 							if (excludeName != null && CardFilters.meetsCardNameFilter(c, excludeName)) continue;
+							if (!forwardHasAnyTrait(false, i, traitFilter)) continue;
 							if (p2BoostSuppressed) { logEntry("[P2] " + c.name() + " — power boost suppressed"); continue; }
 							if (amount < 0 && isP1
 									&& mw.effectiveP2HasTrait(i, CardData.Trait.POWER_CANNOT_BE_DECREASED_BY_OPP)) {

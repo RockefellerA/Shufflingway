@@ -4267,9 +4267,33 @@ public interface GameContext {
      * @param costCmp       {@code "less"}, {@code "more"}, or {@code null} for exact
      * @param excludeName   optional card name to exclude; {@code null} = no exclusion
      */
+    default void applyMassFieldPowerBoost(int amount, boolean inclForwards, boolean inclMonsters,
+            boolean opponentOnly, boolean selfOnly,
+            String element, int costVal, String costCmp, String category, String excludeName) {
+        applyMassFieldPowerBoost(amount, inclForwards, inclMonsters, opponentOnly, selfOnly,
+                element, costVal, costCmp, category, excludeName,
+                EnumSet.noneOf(CardData.Trait.class));
+    }
+
+    /**
+     * Same as above but only boosting Forwards that carry at least one keyword in
+     * {@code traitFilter} — "all the Forwards with Haste or First Strike you control gain +2000
+     * power until the end of the turn" (23-003C Kain). An empty set applies no filter.
+     *
+     * <p>Read off the board rather than the printing — granted keywords count and removed ones do
+     * not, the same way {@link #applyMassFieldEffect}'s trait filter reads them. A filter on the
+     * printed keywords alone would disagree with the board the player is looking at, and keyword
+     * grants are common enough that the disagreement would be the normal case, not the corner one.
+     *
+     * <p>Forwards only, the same restriction {@link #applyMassFieldEffect} states for its own
+     * trait filter: the Monster half of this sweep has no keyword to test. No printing combines
+     * the two — {@code tryParseAllFieldPowerBoost} declines a trait filter over a set that
+     * includes Monsters rather than applying it to one half of the sweep and not the other.
+     */
     void applyMassFieldPowerBoost(int amount, boolean inclForwards, boolean inclMonsters,
             boolean opponentOnly, boolean selfOnly,
-            String element, int costVal, String costCmp, String category, String excludeName);
+            String element, int costVal, String costCmp, String category, String excludeName,
+            EnumSet<CardData.Trait> traitFilter);
 
     /**
      * Adds {@code amount} power until end of turn to every Forward in the party that most
