@@ -339,11 +339,16 @@ final class ActionResolverCost {
         // 22-048H Nanaa Mihgo borrows out of the opponent's Break Zone; the rest read their own.
         final boolean opponentZone = m.group("zone") != null
                 && m.group("zone").toLowerCase(Locale.ROOT).contains("opponent");
+        // 11-093H Man in Black names an Element up front; every other printing takes any Summon.
+        final String elementFilter = m.group("element");
         String excludeLabel = excluded.isEmpty() ? "" : " other than " + excluded;
+        String elementLabel = elementFilter != null ? " " + elementFilter : "";
         return ctx -> {
-            ctx.logEntry("Effect: Choose Summon (cost ≤ " + maxCost + excludeLabel + ") from "
+            ctx.logEntry("Effect: Choose" + elementLabel + " Summon (cost ≤ " + maxCost
+                    + excludeLabel + ") from "
                     + (opponentZone ? "opponent's BZ" : "BZ") + " — cast free, RFG after use");
-            ctx.chooseSummonInBzByMaxCostFreeCastRfgAfterUse(maxCost, excluded, opponentZone);
+            ctx.chooseSummonInBzByMaxCostFreeCastRfgAfterUse(maxCost, excluded, opponentZone,
+                    elementFilter);
         };
     }
     /**

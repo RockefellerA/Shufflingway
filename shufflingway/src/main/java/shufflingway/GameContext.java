@@ -4564,8 +4564,22 @@ public interface GameContext {
      * (18-090R Kalmia) applies when the zone is the opponent's, exactly as it does everywhere else
      * a card reaches across the table.
      */
+    default void chooseSummonInBzByMaxCostFreeCastRfgAfterUse(int maxCost,
+            java.util.Set<String> excludedElements, boolean opponentZone) {
+        chooseSummonInBzByMaxCostFreeCastRfgAfterUse(maxCost, excludedElements, opponentZone, null);
+    }
+
+    /**
+     * As above, but restricted to a single Element — 11-093H Man in Black's "Choose 1 Lightning
+     * Summon of cost 3 or less in your Break Zone". {@code null} admits every Element.
+     *
+     * <p>The positive counterpart of {@code excludedElements}, and read the same way: a
+     * Multi-Element Summon qualifies on any one of its Elements. Passing both is legal and means
+     * both — no printing does, but neither filter is expressed in terms of the other, so nothing
+     * needs to decide which wins.
+     */
     void chooseSummonInBzByMaxCostFreeCastRfgAfterUse(int maxCost,
-            java.util.Set<String> excludedElements, boolean opponentZone);
+            java.util.Set<String> excludedElements, boolean opponentZone, String elementFilter);
 
     /**
      * 13-110H Unei: "Choose {@code count} Summons, each with a different cost, in your Break Zone.

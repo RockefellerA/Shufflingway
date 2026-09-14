@@ -1452,6 +1452,25 @@ final class ActionResolverPatterns {
         "until\\s+(?:the\\s+)?end\\s+of\\s+(?:the\\s+)?turn\\s+instead[.!]?$"
     );
     /**
+     * Matches "It loses N power until the end of the turn. If there are M or more &lt;filter&gt; in
+     * your Break Zone, it loses K power until the end of the turn instead." — 22-075H Edea, the
+     * Break-Zone-count sibling of {@link #FOLLOWUP_POWER_BOOST_CONTROL_GATED_INSTEAD}.
+     *
+     * <p>Read off the whole followup for that pattern's reason, and "instead" is load bearing the
+     * same way: one figure or the other, never both. Split, the upgrade lands in the secondary
+     * chain where the plain power-reduce arm {@code find()}s "it loses 8000 power" out of the
+     * middle of it and applies that on top of the base, with the count nowhere.
+     *
+     * <p>The filter is handed to {@link ActionResolverGate#breakZoneCounterFor}, so this and
+     * {@link #BREAK_ZONE_COUNT_GATE} cannot disagree about what a phrase counts.
+     */
+    static final Pattern FOLLOWUP_POWER_REDUCE_BZ_COUNT_GATED_INSTEAD = Pattern.compile(
+        "(?is)^It\\s+loses\\s+(?<base>\\d+)\\s+power\\s+until\\s+(?:the\\s+)?end\\s+of\\s+(?:the\\s+)?turn[.!]?\\s+" +
+        "If\\s+(?:there\\s+are|you\\s+have)\\s+(?<count>\\d+)\\s+or\\s+more\\s+(?<filter>.+?)\\s+" +
+        "in\\s+your\\s+Break\\s+Zone,\\s+it\\s+loses\\s+(?<alt>\\d+)\\s+power\\s+" +
+        "until\\s+(?:the\\s+)?end\\s+of\\s+(?:the\\s+)?turn\\s+instead[.!]?$"
+    );
+    /**
      * Matches "Deal it damage equal to [Self]'s power. If you discarded a Summon to pay this
      * ability's cost, deal it double the damage of the power of [Self] instead." — 29-107C Seer
      * (FFTA2), whose 《Dull》, discard 1 card cost pays double when the discard was a Summon.
@@ -9647,28 +9666,6 @@ final class ActionResolverPatterns {
         "(?<rfg>.*)$"
     );
     /**
-     * "Choose 1 Summon of cost N or less [other than &lt;Element&gt; or &lt;Element&gt;] in
-     * your[ opponent's] Break Zone. Cast it [as though you owned it] without paying the cost.
-     * [If you cast it,] remove that Summon from the game after use instead of putting it in the
-     * Break Zone." — 9-103R Iedolas and 29-033L Terra from their own zone, 22-048H Nanaa Mihgo
-     * from the opponent's.
-     *
-     * <p>Three optional pieces separate the printings: Terra's Element exclusion, the "If you cast
-     * it," hedging the removal, and Nanaa's "as though you owned it". The hedge changes nothing at
-     * resolution — the removal has something to act on only if the Summon was cast — and neither
-     * does the ownership clause, which is what borrowing a card already means here; both are
-     * matched and discarded rather than given branches of their own.
-     *
-     * <p>Group {@code zone} is the one that does change behaviour: it decides which Break Zone is
-     * offered, and a Summon taken from the opponent's is theirs to lose.
-     *
-     * <p>Anchored to the start of the effect. Admitting the opponent's zone put this wording
-     * inside 22-048H Nanaa Mihgo's own quoted options, and unanchored it claimed her whole
-     * select-1-of-2 ability out from under {@code SelectFollowingActions} — the parser runs
-     * earlier in the chain. Each option is parsed on its own once the selection has been made,
-     * and reaches this pattern then, at the start of its own text.
-     */
-    /**
      * "During this turn, if your next Summon of cost N or less cast from your hand is put into the
      * Break Zone, remove it from the game instead. Then, cast it again without paying the cost."
      * — 19-127L Relm's second option, the only printing of this shape.
@@ -9684,13 +9681,48 @@ final class ActionResolverPatterns {
         "Then,?\\s+cast\\s+it\\s+again\\s+without\\s+paying\\s+the\\s+cost[.!]?\\s*$"
     );
 
+    /**
+     * "Choose 1 [&lt;Element&gt;] Summon of cost N or less [other than &lt;Element&gt; or
+     * &lt;Element&gt;] in your[ opponent's] Break Zone. [You may ]cast it [as though you owned it]
+     * without paying the cost. [If you cast it,|If you do so,] remove that Summon from the game
+     * after use instead of putting it in the Break Zone." — 9-103R Iedolas and 29-033L Terra from
+     * their own zone, 22-048H Nanaa Mihgo from the opponent's, 19-057L Kefka and 11-093H Man in
+     * Black with the permissive wording.
+     *
+     * <p>Four optional pieces separate the printings, and only two of them mean anything. Terra's
+     * Element exclusion and Man in Black's positive Element filter each narrow what may be picked.
+     * The "If you cast it," / "If you do so," hedge on the removal does not — the removal has
+     * something to act on only if the Summon was cast — and neither does Nanaa's "as though you
+     * owned it", which is what borrowing a card already means here; those two are matched and
+     * discarded rather than given branches of their own.
+     *
+     * <p>"You may cast it" is likewise matched and discarded, because the primitive this dispatches
+     * to registers the Summon as castable rather than casting it. Every printing in the family is
+     * an offer the player may decline, so the two that spell it out ask for nothing the other three
+     * do not. Without it Kefka and Man in Black fell out of this pattern entirely and were split at
+     * "If you …" by the generic when-you-do-so sequence, which resolved the choose with no cast
+     * registered and handed the removal sentence to the remove-a-named-card parser — hunting the
+     * field for a card literally called "that Summon".
+     *
+     * <p>Group {@code zone} is the other one that changes behaviour: it decides which Break Zone is
+     * offered, and a Summon taken from the opponent's is theirs to lose.
+     *
+     * <p>Anchored to the start of the effect. Admitting the opponent's zone put this wording
+     * inside 22-048H Nanaa Mihgo's own quoted options, and unanchored it claimed her whole
+     * select-1-of-2 ability out from under {@code SelectFollowingActions} — the parser runs
+     * earlier in the chain. Each option is parsed on its own once the selection has been made,
+     * and reaches this pattern then, at the start of its own text.
+     */
     static final Pattern CHOOSE_SUMMON_IN_BZ_MAX_COST_FREE_CAST_RFG = Pattern.compile(
-        "(?is)^\\s*Choose\\s+1\\s+Summon\\s+of\\s+cost\\s+(?<cost>\\d+)\\s+or\\s+less\\s+" +
+        "(?is)^\\s*Choose\\s+1\\s+" +
+        "(?:(?<element>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)\\s+)?" +
+        "Summon\\s+of\\s+cost\\s+(?<cost>\\d+)\\s+or\\s+less\\s+" +
         "(?:other\\s+than\\s+(?<exclude>(?:Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)" +
         "(?:\\s+(?:or|and)\\s+(?:Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark))*)\\s+)?" +
         "in\\s+(?<zone>your\\s+opponent'?s|your)\\s+Break\\s+Zone[.!]?\\s+" +
-        "Cast\\s+it\\s+(?:as\\s+though\\s+you\\s+owned\\s+it\\s+)?without\\s+paying\\s+the\\s+cost[.!]?\\s+" +
-        "(?:If\\s+you\\s+cast\\s+it,\\s+)?" +
+        "(?:You\\s+may\\s+)?Cast\\s+it\\s+(?:as\\s+though\\s+you\\s+owned\\s+it\\s+)?" +
+        "without\\s+paying\\s+the\\s+cost[.!]?\\s+" +
+        "(?:If\\s+you\\s+(?:cast\\s+it|do\\s+so),\\s+)?" +
         "[Rr]emove\\s+that\\s+Summon\\s+from\\s+the\\s+game\\s+after\\s+use\\s+instead\\s+of\\s+" +
         "putting\\s+it\\s+in\\s+the\\s+Break\\s+Zone[.!]?"
     );
@@ -11033,9 +11065,55 @@ final class ActionResolverPatterns {
         "(?i)^The\\s+(?:Forwards?(?:\\s+and\\s+Monsters?)?|Backups?|Monsters?|Characters?)\\s+" +
         "(?:your\\s+)?opponent\\s+controls?\\s+loses?\\s+\\d+\\s+power[.!]?$"
     );
-    /** "If there are N or more cards in your Break Zone, ..." or "If you have N or more Job X ... in your Break Zone, ..." */
+    /**
+     * "If there are N or more cards in your Break Zone, &lt;grant&gt;" or "If you have N or more
+     * Job X … in your Break Zone, &lt;grant&gt;" — a passive grant behind a Break Zone count.
+     *
+     * <p>The payoff must actually be a grant, and that half of the pattern is the whole point of
+     * it. The condition alone used to be the entire pattern, which made this a prefix test: every
+     * sentence opening this way was claimed as a passive field grant and
+     * {@link ActionResolverPower#tryParseFieldPowerGrantPassive} resolves those to a
+     * <em>no-op</em>, on the understanding that the engine applies them out of
+     * {@code fieldPowerGrants()} instead. A sentence whose payoff is not a grant has nothing there
+     * to apply, so it simply never happened: 12-029L The Emperor's opponent never discarded and
+     * 13-120H Doga's free cast was never offered, both while reporting as parsed.
+     *
+     * <p>This is the hazard the fail-open note in CLAUDE.md describes, in its most expensive form —
+     * a {@code find()} pattern that reads a condition, ignores what it governs, and answers for it
+     * anyway. The grant verbs are listed rather than left open for the same reason: an unanchored
+     * {@code .*} tail would put the prefix test straight back.
+     */
     static final Pattern FIELD_GRANT_BZ_COND_PASSIVE = Pattern.compile(
         "(?i)^If\\s+(?:there\\s+are|you\\s+have)\\s+\\d+\\s+or\\s+more\\s+.+?\\s+in\\s+your\\s+Break\\s+Zone,"
+        + ".*\\bgains?\\s+(?:\\+\\d+\\s+power|Haste|Brave|First\\s+Strike|\")"
+    );
+    /**
+     * "If you have N or more &lt;filter&gt; in your Break Zone, &lt;effect&gt;" — a Break Zone count
+     * gating an ordinary effect rather than a passive grant. 12-029L The Emperor's discard and
+     * 13-120H Doga's free cast are the corpus's two.
+     *
+     * <p>Dispatched immediately after {@link #FIELD_GRANT_BZ_COND_PASSIVE}'s guard, which reads the
+     * same opening: a grant behind this condition is applied out of {@code fieldPowerGrants()} and
+     * must keep its own handling, so the grants are claimed first and only the rest reach here.
+     *
+     * <p>Read with {@code matches()} and both halves required, because the alternative is not a
+     * missing effect but a stronger one: each payoff has a parser of its own further down the chain
+     * that {@code find()}s its verb, so a gate this cannot read means the payoff runs with no
+     * condition in front of it at all.
+     *
+     * <p>Groups: {@code count}, {@code filter} — what is being counted, read by
+     * {@link ActionResolverGate#tryParseBreakZoneCountGate}; {@code effect} — what it gates.
+     */
+    static final Pattern BREAK_ZONE_COUNT_GATE = Pattern.compile(
+        "(?is)^\\s*If\\s+(?:there\\s+are|you\\s+have)\\s+(?<count>\\d+)\\s+or\\s+more\\s+" +
+        "(?<filter>.+?)\\s+in\\s+your\\s+Break\\s+Zone,\\s*(?<effect>.+?)\\s*$"
+    );
+    /** The three filter shapes {@link #BREAK_ZONE_COUNT_GATE} counts by; anything else declines. */
+    static final Pattern BZ_GATE_FILTER_CARD_NAME = Pattern.compile("(?i)^Card\\s+Name\\s+(?<name>.+)$");
+    static final Pattern BZ_GATE_FILTER_JOB       = Pattern.compile("(?i)^Job\\s+(?<job>.+)$");
+    static final Pattern BZ_GATE_FILTER_TYPE      = Pattern.compile(
+        "(?i)^(?:(?<elem>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)\\s+)?" +
+        "(?<type>Forwards?|Backups?|Monsters?|Summons?|Characters?|cards?)$"
     );
     /** "If there are N or more different Elements among [type] you control, [grant]." */
     static final Pattern FIELD_GRANT_DIFF_ELEM_COND_PASSIVE = Pattern.compile(

@@ -6,7 +6,9 @@ import static shufflingway.ActionResolver.*;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.function.Consumer;
+import java.util.function.ToIntFunction;
 import java.util.regex.Matcher;
 
 /**
@@ -169,6 +171,89 @@ final class ActionResolverGate {
             effect = effect.substring(item.end()).trim();
         }
         return new String[] { cond.toString(), effect };
+    }
+
+    /**
+     * Parses "If you have N or more &lt;filter&gt; in your Break Zone, &lt;effect&gt;" — see
+     * {@link ActionResolverPatterns#BREAK_ZONE_COUNT_GATE} for why this exists and where it sits.
+     *
+     * <p>The filter vocabulary is deliberately closed: a Card Name, a Job, or a card type with an
+     * optional Element. Anything else declines the whole ability, because a filter read wrongly is
+     * a count answered wrongly, and this gate's whole job is to stop a payoff running unconditioned.
+     */
+    /**
+     * A count over the ability user's own Break Zone for one printed filter phrase — "Card Name
+     * The Emperor", "Job Weapon", "Summons", "Fire Forwards", "cards" — or {@code null} when the
+     * phrase is not one of those.
+     *
+     * <p>Shared by {@link #tryParseBreakZoneCountGate} and by the Choose chain's Break-Zone-gated
+     * "instead" arm, so the two cannot drift on what a filter counts. A null answer is the signal
+     * to decline: see {@link #breakZoneCountGateUnreadable}.
+     */
+    static ToIntFunction<GameContext> breakZoneCounterFor(String filter) {
+        Matcher nameM = BZ_GATE_FILTER_CARD_NAME.matcher(filter);
+        if (nameM.matches()) {
+            final String name = nameM.group("name").trim();
+            return ctx -> ctx.countSelfBreakZoneCards(name, null);
+        }
+        Matcher jobM = BZ_GATE_FILTER_JOB.matcher(filter);
+        if (jobM.matches()) {
+            final String job = jobM.group("job").trim();
+            return ctx -> ctx.countSelfBreakZoneCards(null, job);
+        }
+        Matcher typeM = BZ_GATE_FILTER_TYPE.matcher(filter);
+        if (typeM.matches()) {
+            final String elem = typeM.group("elem");
+            String t = typeM.group("type").toLowerCase(Locale.ROOT);
+            final boolean fwds = t.startsWith("forward") || t.startsWith("character") || t.startsWith("card");
+            final boolean bkps = t.startsWith("backup")  || t.startsWith("character") || t.startsWith("card");
+            final boolean mons = t.startsWith("monster") || t.startsWith("character") || t.startsWith("card");
+            // A Summon is in no sense a Character, but it is a card — so it joins the unfiltered
+            // count and stays out of the Character one.
+            final boolean summons = t.startsWith("summon") || t.startsWith("card");
+            return ctx -> ctx.countSelfBreakZoneMatching(fwds, bkps, mons, summons, elem, -1);
+        }
+        return null;
+    }
+
+    static Consumer<GameContext> tryParseBreakZoneCountGate(String text, CardData source, int xValue) {
+        Matcher m = BREAK_ZONE_COUNT_GATE.matcher(text.trim());
+        if (!m.matches()) return null;
+
+        final int threshold = Integer.parseInt(m.group("count"));
+        String filter = m.group("filter").trim();
+        ToIntFunction<GameContext> counter = breakZoneCounterFor(filter);
+        if (counter == null) return null;
+
+        Consumer<GameContext> inner = parse(m.group("effect").trim(), source, xValue);
+        if (inner == null) return null;
+
+        final String label = threshold + "+ " + filter + " in your Break Zone";
+        return ctx -> {
+            int have = counter.applyAsInt(ctx);
+            if (have >= threshold) {
+                ctx.logEntry("Effect: " + label + " (" + have + ") — condition met");
+                inner.accept(ctx);
+            } else {
+                ctx.logEntry("Effect: " + label + " (" + have + ") — not met, skipped");
+            }
+        };
+    }
+
+    /**
+     * True when {@code text} opens with a Break Zone count gate that
+     * {@link #tryParseBreakZoneCountGate} could not read — an unknown filter, or a payoff no
+     * parser claims.
+     *
+     * <p>Declining is not enough on its own, which is what the test for it turned up: let the text
+     * fall through and the payoff's own parser finds its verb further down the chain and runs it
+     * with no condition in front of it. So the dispatch treats this as a hard stop and leaves the
+     * whole ability unparsed. Being unable to read a condition is not permission to ignore it, and
+     * an ability reporting "?" is a known gap where a silently unconditional one is not.
+     */
+    static boolean breakZoneCountGateUnreadable(String text, CardData source, int xValue) {
+        return BREAK_ZONE_COUNT_GATE.matcher(text.trim()).matches()
+                && tryParseBreakZoneCountGate(text, source, xValue) == null;
     }
 
     static Consumer<GameContext> tryParseControlConditionGate(String text, CardData source, int xValue) {

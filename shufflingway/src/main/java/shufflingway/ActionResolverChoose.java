@@ -14,6 +14,7 @@ import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Predicate;
+import java.util.function.ToIntFunction;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -2413,6 +2414,38 @@ final class ActionResolverChoose {
                             + (upgraded ? " (you control " + cc + ")" : ""));
                     sortedByIdxDesc(ts, true) .forEach(t -> ctx.boostTarget(t, boost, noTraits));
                     sortedByIdxDesc(ts, false).forEach(t -> ctx.boostTarget(t, boost, noTraits));
+                };
+            }
+        }
+
+        // --- "It loses N power ... If there are M or more <filter> in your Break Zone, it loses
+        //      K power ... instead." (22-075H Edea) ---
+        // The Break-Zone sibling of the branch above, here for the same reason and read the same
+        // way. Must precede the plain power-reduce arm below, which scans with find(): it was
+        // taking "it loses 8000 power" out of the middle of the upgrade sentence and applying it
+        // on top of the base with the count nowhere.
+        Matcher reduceBzM = FOLLOWUP_POWER_REDUCE_BZ_COUNT_GATED_INSTEAD.matcher(followup.trim());
+        if (reduceBzM.matches()) {
+            ToIntFunction<GameContext> bzCount =
+                    ActionResolverGate.breakZoneCounterFor(reduceBzM.group("filter").trim());
+            if (bzCount != null) {
+                final int threshold   = Integer.parseInt(reduceBzM.group("count"));
+                final int baseReduce  = Integer.parseInt(reduceBzM.group("base"));
+                final int altReduce   = Integer.parseInt(reduceBzM.group("alt"));
+                final String bzLabel  = reduceBzM.group("filter").trim();
+                EnumSet<CardData.Trait> noTraits = EnumSet.noneOf(CardData.Trait.class);
+                return ctx -> {
+                    List<ForwardTarget> ts = selectTargets(ctx, maxCount, upTo,
+                            opponentOnly, selfOnly, condition, element, zone, opponentZone,
+                            costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters,
+                            jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, fExcludeElem, withoutMulticard);
+                    int have = bzCount.applyAsInt(ctx);
+                    boolean upgraded = have >= threshold;
+                    int reduction = upgraded ? altReduce : baseReduce;
+                    ctx.logChooseHeader(choosePrefix + " -" + reduction + " power until EOT"
+                            + (upgraded ? " (" + have + " " + bzLabel + " in your Break Zone)" : ""));
+                    sortedByIdxDesc(ts, true) .forEach(t -> ctx.reduceTarget(t, reduction, noTraits));
+                    sortedByIdxDesc(ts, false).forEach(t -> ctx.reduceTarget(t, reduction, noTraits));
                 };
             }
         }

@@ -9585,7 +9585,7 @@ final class GameContextImpl implements GameContext {
 			}
 
 			@Override public void chooseSummonInBzByMaxCostFreeCastRfgAfterUse(int maxCost,
-					Set<String> excludedElements, boolean opponentZone) {
+					Set<String> excludedElements, boolean opponentZone, String elementFilter) {
 				// Kalmia 18-090R shields a player's whole Break Zone from the other player's
 				// effects — checked only when reaching across, never against your own zone.
 				if (opponentZone && mw.bzCardsProtectedFromOppChoice(!isP1)) {
@@ -9597,21 +9597,24 @@ final class GameContextImpl implements GameContext {
 				List<CardData> candidates = new ArrayList<>();
 				for (CardData c : bz) {
 					if (!c.isSummon() || c.cost() > maxCost) continue;
-					// A Multi-Element Summon carrying an excluded Element is excluded by it.
+					// A Multi-Element Summon qualifies on any one of its Elements, and is excluded
+					// by any one of them — the positive and negative filters read it the same way.
+					if (elementFilter != null && !c.containsElement(elementFilter)) continue;
 					boolean excluded = false;
 					for (String e : excludedElements) if (c.containsElement(e)) { excluded = true; break; }
 					if (excluded) continue;
 					candidates.add(c);
 				}
+				String elemLabel = elementFilter != null ? elementFilter + " " : "";
 				String zoneLabel = opponentZone ? "opponent's Break Zone" : "Break Zone";
 				if (candidates.isEmpty()) {
-					logEntry((isP1 ? "" : "[P2] ") + "No Summon of cost ≤ " + maxCost + " in "
-							+ zoneLabel + " — effect fizzles");
+					logEntry((isP1 ? "" : "[P2] ") + "No " + elemLabel + "Summon of cost ≤ " + maxCost
+							+ " in " + zoneLabel + " — effect fizzles");
 					return;
 				}
 				CardData picked = isP1
 						? mw.chooseCardFromBzDialog(candidates,
-								"Choose a Summon of cost ≤ " + maxCost + " in " + zoneLabel)
+								"Choose a " + elemLabel + "Summon of cost ≤ " + maxCost + " in " + zoneLabel)
 						: candidates.get(0);
 				if (picked == null) return;
 				PlayableEntry entry = new PlayableEntry(PlayableEntry.SourceZone.BREAK_ZONE, 0, false, true, true, true);

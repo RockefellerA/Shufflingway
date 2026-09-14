@@ -35366,8 +35366,204 @@ public class CardBehaviorTest {
 
 		// The third argument is the zone, added when 22-048H Nanaa Mihgo taught this family to
 		// reach across the table. Terra reads her own Break Zone, so it is false.
-		verify(ctx).chooseSummonInBzByMaxCostFreeCastRfgAfterUse(eq(5), excluded.capture(), eq(false));
+		verify(ctx).chooseSummonInBzByMaxCostFreeCastRfgAfterUse(eq(5), excluded.capture(), eq(false), isNull());
 		assertEquals(Set.of("Light", "Dark"), excluded.getValue());
+	}
+
+	private static final String EMPEROR_12_029L =
+			"if you have 2 or more Card Name The Emperor in your Break Zone, your opponent "
+			+ "discards 1 card from their hand.";
+	private static final String DOGA_13_120H =
+			"if you have 9 or more Summons in your Break Zone, you may cast 1 Summon from your "
+			+ "hand without paying the cost.";
+
+	// 12-029L The Emperor. The passive-grant guard used to claim every sentence opening "If you
+	// have N or more … in your Break Zone," on the strength of the condition alone, and resolves
+	// what it claims to a no-op — so this discard reported as parsed and never happened.
+	@Test
+	void theEmperorDiscardsOnlyWhenTheBreakZoneConditionHolds() {
+		GameContext met = mock(GameContext.class);
+		when(met.countSelfBreakZoneCards("The Emperor", null)).thenReturn(2);
+
+		Consumer<GameContext> fn = ActionResolver.parse(EMPEROR_12_029L, null);
+		assertNotNull(fn);
+		fn.accept(met);
+		verify(met).forceOpponentDiscard(1);
+	}
+
+	// And the other half, which is what the narrowing alone would have got wrong: dropping the
+	// guard without adding the gate leaves the payoff to a find() parser that runs it every time.
+	@Test
+	void theEmperorDiscardsNothingBelowTheThreshold() {
+		GameContext unmet = mock(GameContext.class);
+		when(unmet.countSelfBreakZoneCards("The Emperor", null)).thenReturn(1);
+
+		ActionResolver.parse(EMPEROR_12_029L, null).accept(unmet);
+		verify(unmet, never()).forceOpponentDiscard(anyInt());
+	}
+
+	// 13-120H Doga is the same bug with a type filter rather than a card name. Summons are counted
+	// as cards, never as Characters.
+	@Test
+	void dogaOffersTheFreeCastOnlyOnNineSummons() {
+		GameContext met = mock(GameContext.class);
+		when(met.countSelfBreakZoneMatching(false, false, false, true, null, -1)).thenReturn(9);
+		ActionResolver.parse(DOGA_13_120H, null).accept(met);
+		verify(met).castSummonFromHandFree(anyInt(), anyBoolean(), any());
+
+		GameContext unmet = mock(GameContext.class);
+		when(unmet.countSelfBreakZoneMatching(false, false, false, true, null, -1)).thenReturn(8);
+		ActionResolver.parse(DOGA_13_120H, null).accept(unmet);
+		verify(unmet, never()).castSummonFromHandFree(anyInt(), anyBoolean(), any());
+	}
+
+	// The description names the gate and what it guards, so a regression that drops the condition
+	// again shows up in the golden file rather than only at the table.
+	@Test
+	void theBreakZoneGateNamesTheEffectItGuards() {
+		assertEquals("IfBreakZoneCount(OpponentDiscard)",
+				ActionResolver.fullDescription(EMPEROR_12_029L, null));
+		assertEquals("IfBreakZoneCount(CastSummonFromHandFree)",
+				ActionResolver.fullDescription(DOGA_13_120H, null));
+	}
+
+	// A genuine passive grant behind the same condition keeps its own handling — it is applied out
+	// of fieldPowerGrants(), so the guard must still claim it ahead of this gate.
+	@Test
+	void aRealGrantBehindTheSameConditionIsStillAFieldPowerGrant() {
+		assertEquals("FieldPowerGrant", ActionResolver.matchedPatternName(
+				"If you have 2 or more Lightning Summons in your Break Zone, "
+				+ "Ramuh, Lord of Levin gains Haste.",
+				makeForward("Ramuh, Lord of Levin", "Lightning", 5, 9000)));
+		assertEquals("FieldPowerGrant", ActionResolver.matchedPatternName(
+				"If there are 10 or more cards in your Break Zone, the Job Disciplinary Committee "
+				+ "Member Forwards you control gain +2000 power and First Strike.",
+				makeForward("Fujin", "Lightning", 2, 5000)));
+	}
+
+	private static final String EDEA_22_075H =
+			"Choose 1 Forward. It loses 4000 power until the end of the turn. If there are 10 or "
+			+ "more cards in your Break Zone, it loses 8000 power until the end of the turn instead.";
+
+	// 22-075H Edea. "Instead" is one figure or the other, never both — and the upgrade's figure was
+	// being found in the middle of the sentence by the plain reduce arm, so it had to be read off
+	// the whole followup like its control-gated sibling 4-090R Biggs.
+	@Test
+	void edeaReducesByTheBaseFigureBelowTenCardsInTheBreakZone() {
+		ForwardTarget theirs = new ForwardTarget(false, 0, ForwardTarget.CardZone.FORWARD);
+		GameContext ctx = ctxChoosing(List.of(theirs));
+		when(ctx.countSelfBreakZoneMatching(true, true, true, true, null, -1)).thenReturn(9);
+
+		Consumer<GameContext> fn = ActionResolver.parse(EDEA_22_075H, null);
+		assertNotNull(fn);
+		fn.accept(ctx);
+
+		verify(ctx).reduceTarget(theirs, 4000, EnumSet.noneOf(CardData.Trait.class));
+		verify(ctx, never()).reduceTarget(any(), eq(8000), any());
+	}
+
+	@Test
+	void edeaReducesByTheUpgradedFigureAtTenCardsAndNotBoth() {
+		ForwardTarget theirs = new ForwardTarget(false, 0, ForwardTarget.CardZone.FORWARD);
+		GameContext ctx = ctxChoosing(List.of(theirs));
+		when(ctx.countSelfBreakZoneMatching(true, true, true, true, null, -1)).thenReturn(10);
+
+		ActionResolver.parse(EDEA_22_075H, null).accept(ctx);
+
+		verify(ctx).reduceTarget(theirs, 8000, EnumSet.noneOf(CardData.Trait.class));
+		verify(ctx, never()).reduceTarget(any(), eq(4000), any());
+	}
+
+	// Its control-gated sibling keeps its own reading — the two branches are anchored end to end.
+	@Test
+	void biggsControlGatedInsteadIsUnaffected() {
+		assertEquals("ChooseCharacter / PowerBoostControlGatedInstead",
+				ActionResolver.fullDescription(
+						"Choose 1 Job AVALANCHE Operative. It gains +1000 power until the end of "
+						+ "the turn. If you control Card Name Wedge, it gains +2000 power until "
+						+ "the end of the turn instead.", null));
+	}
+
+	// A filter the gate cannot read declines the whole ability rather than letting the payoff run
+	// unconditioned — the failure this gate exists to prevent.
+	@Test
+	void theBreakZoneGateDeclinesAFilterItCannotCount() {
+		assertNull(ActionResolver.parse(
+				"if you have 2 or more cards of the same name as a Chocobo in your Break Zone, "
+				+ "your opponent discards 1 card from their hand.", null));
+	}
+
+	private static final String KEFKA_19_057L =
+			"choose 1 Summon of cost 4 or less in your Break Zone. You may cast it without paying "
+			+ "the cost. If you cast it, remove that Summon from the game after use instead of "
+			+ "putting it in the Break Zone.";
+	private static final String MAN_IN_BLACK_11_093H =
+			"choose 1 Lightning Summon of cost 3 or less in your Break Zone. You may cast it "
+			+ "without paying the cost. If you do so, remove that Summon from the game after use "
+			+ "instead of putting it in the Break Zone.";
+
+	// 19-057L Kefka prints "You may cast it", which used to drop it out of this pattern entirely.
+	// The generic when-you-do-so split then claimed the text, resolved the choose with no cast
+	// registered, and sent the removal sentence to the remove-a-named-card parser.
+	@Test
+	void kefkaMakesTheChosenBreakZoneSummonCastable() {
+		GameContext ctx = mock(GameContext.class);
+
+		Consumer<GameContext> fn = ActionResolver.parse(KEFKA_19_057L,
+				makeForward("Kefka", "Earth", 5, 9000));
+		assertNotNull(fn);
+		fn.accept(ctx);
+
+		verify(ctx).chooseSummonInBzByMaxCostFreeCastRfgAfterUse(eq(4), any(), eq(false), isNull());
+		// The stray removal the split used to produce, hunting a card called "that Summon".
+		verify(ctx, never()).removeNamedCardFromGame(any());
+	}
+
+	// 11-093H Man in Black is the same wording with an Element named up front — the one piece of
+	// this family's filter that had no home before. It was resolving as a bare choose.
+	@Test
+	void manInBlackRestrictsTheBorrowedSummonToItsElement() {
+		GameContext ctx = mock(GameContext.class);
+
+		ActionResolver.parse(MAN_IN_BLACK_11_093H,
+				makeForward("Man in Black", "Lightning", 5, 9000)).accept(ctx);
+
+		verify(ctx).chooseSummonInBzByMaxCostFreeCastRfgAfterUse(eq(3), any(), eq(false),
+				eq("Lightning"));
+		verify(ctx, never()).removeNamedCardFromGame(any());
+	}
+
+	@Test
+	void bothPermissiveWordingsReadAsTheBorrowedCastFamily() {
+		assertEquals("ChooseSummonInBzMaxCostFreeCastRfg",
+				ActionResolver.fullDescription(KEFKA_19_057L, null));
+		assertEquals("ChooseSummonInBzMaxCostFreeCastRfg",
+				ActionResolver.fullDescription(MAN_IN_BLACK_11_093H, null));
+	}
+
+	// The Element filter actually narrows the Break Zone, rather than only reaching the primitive.
+	@Test
+	void theElementFilterPicksOnlyMatchingSummonsOutOfTheBreakZone() {
+		MainWindow mw = new MainWindow();
+		CardData lightning = makeSummon("Ramuh", "Lightning", 3, "");
+		CardData fire      = makeSummon("Ifrit", "Fire", 3, "");
+		for (CardData c : List.of(lightning, fire)) {
+			mw.gameState.getIdentity().put(c, true);
+			mw.gameState.getP1BreakZone().add(c);
+		}
+
+		// P2's seat picks automatically, so the filter is what decides — and P2 reads its own zone,
+		// which is why the cards go in on the side the context is not built for.
+		mw.gameState.getIdentity().put(lightning, false);
+		mw.gameState.getIdentity().put(fire, false);
+		mw.gameState.getP1BreakZone().clear();
+		mw.gameState.getP2BreakZone().addAll(List.of(fire, lightning));
+
+		mw.buildGameContext(false)
+				.chooseSummonInBzByMaxCostFreeCastRfgAfterUse(3, Set.of(), false, "Lightning");
+
+		assertTrue(mw.bzPlayableP2.containsKey(lightning), "the Lightning Summon is the only pick");
+		assertFalse(mw.bzPlayableP2.containsKey(fire), "the Fire Summon is filtered out");
 	}
 
 	/** 9-103R Iedolas prints the same ability with no exclusion and must keep excluding nothing. */
@@ -35383,7 +35579,7 @@ public class CardBehaviorTest {
 				+ "Remove that Summon from the game after use instead of putting it in the Break Zone.",
 				makeForward("Iedolas", "Lightning", 3, 0)).accept(ctx);
 
-		verify(ctx).chooseSummonInBzByMaxCostFreeCastRfgAfterUse(eq(4), excluded.capture(), eq(false));
+		verify(ctx).chooseSummonInBzByMaxCostFreeCastRfgAfterUse(eq(4), excluded.capture(), eq(false), isNull());
 		assertTrue(excluded.getValue().isEmpty());
 	}
 
@@ -53744,7 +53940,7 @@ public class CardBehaviorTest {
 		ActionResolver.parse(NANAA_22_048H_BORROW, makeForward("Nanaa Mihgo", "Wind", 4, 7000)).accept(ctx);
 
 		// The zone flag is the whole difference from 9-103R Iedolas and 29-033L Terra.
-		verify(ctx).chooseSummonInBzByMaxCostFreeCastRfgAfterUse(eq(3), any(), eq(true));
+		verify(ctx).chooseSummonInBzByMaxCostFreeCastRfgAfterUse(eq(3), any(), eq(true), isNull());
 	}
 
 	@Test
@@ -53756,7 +53952,7 @@ public class CardBehaviorTest {
 				"Choose 1 Summon of cost 4 or less in your Break Zone. Cast it without paying the "
 				+ "cost. Remove that Summon from the game after use instead of putting it in the "
 				+ "Break Zone.", makeForward("Iedolas", "Water", 4, 0)).accept(iedolas);
-		verify(iedolas).chooseSummonInBzByMaxCostFreeCastRfgAfterUse(eq(4), any(), eq(false));
+		verify(iedolas).chooseSummonInBzByMaxCostFreeCastRfgAfterUse(eq(4), any(), eq(false), isNull());
 	}
 
 	@Test

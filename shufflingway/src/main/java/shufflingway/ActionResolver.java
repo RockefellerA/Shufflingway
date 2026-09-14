@@ -854,6 +854,15 @@ public class ActionResolver {
         result = tryParseFieldPowerGrantPassive(effectText, source);
         if (result != null) return result;
 
+        // Must follow the grant guard above, which reads the same "If you have N or more … in your
+        // Break Zone," opening: a grant behind that condition is applied out of fieldPowerGrants()
+        // and keeps its no-op handling, so only the non-grant payoffs reach here. Must precede the
+        // payoff parsers far below (OpponentDiscard at ~1400, CastSummonFromHandFree at ~1470),
+        // each of which find()s its own verb and would run it with the condition dropped.
+        result = tryParseBreakZoneCountGate(effectText, source, xValue);
+        if (result != null) return result;
+        if (breakZoneCountGateUnreadable(effectText, source, xValue)) return null;
+
         result = tryParseAllForwardsSameElementAsNamedPowerBoost(effectText);
         if (result != null) return result;
 
@@ -2288,6 +2297,10 @@ public class ActionResolver {
             return FIELD_OPPONENT_DEBUFF_PASSIVE.matcher(trimmed).matches()
                     ? "FieldOpponentPowerDebuff" : "FieldPowerGrant";
         }
+        // Mirrors parse(): after the grant guard, ahead of the payoff parsers that would otherwise
+        // name the ability after its effect alone and hide the condition from the golden file.
+        if (tryParseBreakZoneCountGate(effectText, source, 0) != null) return "BreakZoneCountGate";
+        if (breakZoneCountGateUnreadable(effectText, source, 0)) return null;
         if (tryParseAllForwardsSameElementAsNamedPowerBoost(effectText) != null) return "AllForwardsSameElementAsNamedPowerBoost";
         if (tryParsePartyForwardsPowerBoost(effectText) != null) return "PartyForwardsPowerBoost";
         if (tryParseAllOppForwardsLoseTraitsEot(effectText) != null) return "AllOppForwardsLoseTraitsEot";
@@ -3702,6 +3715,15 @@ public class ActionResolver {
             }
             // Read off the whole followup, mirroring the Choose chain: "it" in the ban names the
             // card the bounce has already put in hand, so the two sentences are one clause.
+            // Mirrors the Choose chain: read off the whole followup, ahead of the plain reduce name
+            // below, which finds the upgrade's figure and reports the ability as an unconditional
+            // reduction of it.
+            {
+                Matcher reduceBzM = FOLLOWUP_POWER_REDUCE_BZ_COUNT_GATED_INSTEAD.matcher(followup.trim());
+                if (reduceBzM.matches()
+                        && ActionResolverGate.breakZoneCounterFor(reduceBzM.group("filter").trim()) != null)
+                    return "ChooseCharacter / PowerReduceBzCountGatedInstead";
+            }
             if (FOLLOWUP_RETURN_TO_HAND_THEN_BAN_COPIES.matcher(followup.trim()).matches())
                 return "ChooseCharacter / ReturnToOwnersHandAndBanCopies";
             // Its sibling, read off the whole followup for the same reason: the play's cost is the
@@ -3981,6 +4003,15 @@ public class ActionResolver {
             String trimmed = effectText.trim();
             return FIELD_OPPONENT_DEBUFF_PASSIVE.matcher(trimmed).matches()
                     ? "FieldOpponentPowerDebuff" : "FieldPowerGrant";
+        }
+        // Mirrors parse(). Named for the gate and what it guards, so the description says the
+        // condition is there — a bare payoff name reads exactly as it did while the condition was
+        // being dropped.
+        if (breakZoneCountGateUnreadable(effectText, source, 0)) return null;
+        if (tryParseBreakZoneCountGate(effectText, source, 0) != null) {
+            Matcher bzGateM = BREAK_ZONE_COUNT_GATE.matcher(effectText.trim());
+            String inner = bzGateM.matches() ? fullDescription(bzGateM.group("effect").trim(), source) : null;
+            return "IfBreakZoneCount(" + (inner != null ? inner : "?") + ")";
         }
         // Mirrors parse(): ahead of the mass power reader below, which finds the power loss
         // inside this text's first branch and describes the whole ability as that sweep.
