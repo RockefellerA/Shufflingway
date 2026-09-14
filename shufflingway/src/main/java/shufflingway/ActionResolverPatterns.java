@@ -3526,6 +3526,31 @@ final class ActionResolverPatterns {
         "any\\s+copies\\s+of\\s+(?:it|them)[.!]?\\s*$"
     );
     /**
+     * Matches "Return it to its owner's hand. [If you do so,|Then,] you may play 1 &lt;type&gt;
+     * [that costs N CP more/less than it|of the same cost as it] from your hand onto the field."
+     * — 12-083C Ninja and 12-098H Strago, the corpus's only two printings.
+     *
+     * <p>Read as one clause for the reason {@link #FOLLOWUP_RETURN_TO_HAND_THEN_BAN_COPIES} is: the
+     * second sentence's "it" names the card the first sentence has already put in hand. Here it is
+     * worse than a missing referent — the cost being asked for is that card's, so split, the play
+     * has no price at all and the whole second sentence was being dropped.
+     *
+     * <ul>
+     *   <li>{@code ifdoso} — non-null for Ninja's conditional wording; Strago's "Then," sequences
+     *       rather than conditions, and the play happens either way.</li>
+     *   <li>{@code delta} / {@code dir} — the offset from the returned card's cost. Both null for
+     *       the "same cost" wording, which is the offset zero.</li>
+     * </ul>
+     */
+    static final Pattern FOLLOWUP_RETURN_TO_HAND_THEN_PLAY_RELATIVE_COST = Pattern.compile(
+        "(?i)^Return\\s+it\\s+to\\s+its\\s+owner'?s?'?\\s+hand[.!]\\s+" +
+        "(?:(?<ifdoso>If\\s+you\\s+do\\s+so,)|Then,)\\s+you\\s+may\\s+play\\s+1\\s+" +
+        "(?<type>Forwards?|Backups?|Monsters?|Characters?)\\s+" +
+        "(?:that\\s+costs\\s+(?<delta>\\d+)\\s+CP\\s+(?<dir>more|less)\\s+than\\s+it" +
+            "|of\\s+the\\s+same\\s+cost\\s+as\\s+it)\\s+" +
+        "from\\s+your\\s+hand\\s+onto\\s+(?:the\\s+)?field[.!]?\\s*$"
+    );
+    /**
      * Matches "Halve its power until the end of the turn (round down to the nearest 1000)." —
      * 5-133H Bismarck's third option, and the corpus's only printing of "halve".
      *

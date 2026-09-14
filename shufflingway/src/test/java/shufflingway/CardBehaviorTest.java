@@ -10903,6 +10903,80 @@ public class CardBehaviorTest {
                         + "until the end of your opponent's turn.", null));
     }
 
+    private static final String NINJA_12_083C =
+            "choose 1 Forward you control. Return it to its owner's hand. If you do so, you may "
+            + "play 1 Forward that costs 1 CP more than it from your hand onto the field.";
+    private static final String STRAGO_12_098H =
+            "choose 1 Forward opponent controls. Return it to its owner's hand. Then, you may "
+            + "play 1 Character of the same cost as it from your hand onto the field.";
+
+    // 12-083C Ninja. The price of the play is the bounced card's cost, so it has to be read while
+    // the card is still at the target's coordinates — after the return the row has compacted and
+    // the index points at whatever slid into its place.
+    @Test
+    void ninjaOffersAPlayOneCostAboveTheForwardItBounced() {
+        ForwardTarget mine = new ForwardTarget(true, 0, ForwardTarget.CardZone.FORWARD);
+        GameContext ctx = ctxChoosing(List.of(mine));
+        when(ctx.targetCard(mine)).thenReturn(makeForward("Shadow", "Lightning", 3, 7000));
+
+        Consumer<GameContext> fn = ActionResolver.parse(NINJA_12_083C, null);
+        assertNotNull(fn);
+        fn.accept(ctx);
+
+        verify(ctx).returnP1ForwardToHand(0);
+        // Exact cost 4, not a ceiling: "1 CP more than it" names one number.
+        verify(ctx).playCharacterFromHand(true, false, false, 4, null, -1,
+                null, null, null, null, null, false, null, false, null);
+    }
+
+    // 12-098H Strago prints the offset-zero form and admits any Character, not just Forwards.
+    @Test
+    void stragoOffersAPlayAtTheSameCostAsTheForwardItBounced() {
+        ForwardTarget theirs = new ForwardTarget(false, 0, ForwardTarget.CardZone.FORWARD);
+        GameContext ctx = ctxChoosing(List.of(theirs));
+        when(ctx.targetCard(theirs)).thenReturn(makeForward("Kefka", "Water", 5, 9000));
+
+        ActionResolver.parse(STRAGO_12_098H, null).accept(ctx);
+
+        verify(ctx).returnP2ForwardToHand(0);
+        verify(ctx).playCharacterFromHand(true, true, true, 5, null, -1,
+                null, null, null, null, null, false, null, false, null);
+    }
+
+    // Nothing chosen means nothing returned, and with nothing returned there is no cost to derive
+    // — so no play is offered, and the ability reports that it did nothing.
+    @Test
+    void theBounceThenPlayOffersNoPlayWhenNothingWasReturned() {
+        GameContext ctx = ctxChoosing(List.of());
+
+        ActionResolver.parse(NINJA_12_083C, null).accept(ctx);
+
+        verify(ctx).markEffectFizzled();
+        verify(ctx, never()).playCharacterFromHand(anyBoolean(), anyBoolean(), anyBoolean(),
+                anyInt(), any(), anyInt(), any(), any(), any(), any(), any(), anyBoolean(), any(),
+                anyBoolean(), any());
+    }
+
+    // Both sentences are one clause. Read apart, the second reaches the secondary parser with no
+    // cost to ask for — which is how both cards resolved as a bare bounce.
+    @Test
+    void theBounceThenPlayIsNamedAsOneClause() {
+        assertEquals("ChooseCharacter / ReturnToOwnersHandAndPlayRelativeCost",
+                ActionResolver.fullDescription(NINJA_12_083C, null));
+        assertEquals("ChooseCharacter / ReturnToOwnersHandAndPlayRelativeCost",
+                ActionResolver.fullDescription(STRAGO_12_098H, null));
+    }
+
+    // Its sibling on the same first sentence keeps its own reading — the branch is anchored end to
+    // end, so neither can take the other's second sentence.
+    @Test
+    void theBounceThenBanCopiesSiblingIsUnaffected() {
+        assertEquals("ChooseCharacter / ReturnToOwnersHandAndBanCopies",
+                ActionResolver.fullDescription(
+                        "choose 1 Forward. Return it to its owner's hand. Until the end of the "
+                        + "next turn, your opponent cannot cast any copies of it.", null));
+    }
+
     private static final String KURASAME_22_024L_OPTION =
             "Choose up to the same number of Characters as the Ice Backups you control. "
             + "Dull them and Freeze them.";

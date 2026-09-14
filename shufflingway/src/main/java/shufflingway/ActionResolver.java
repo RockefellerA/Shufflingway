@@ -3704,6 +3704,10 @@ public class ActionResolver {
             // card the bounce has already put in hand, so the two sentences are one clause.
             if (FOLLOWUP_RETURN_TO_HAND_THEN_BAN_COPIES.matcher(followup.trim()).matches())
                 return "ChooseCharacter / ReturnToOwnersHandAndBanCopies";
+            // Its sibling, read off the whole followup for the same reason: the play's cost is the
+            // bounced card's, so the two sentences are one clause.
+            if (FOLLOWUP_RETURN_TO_HAND_THEN_PLAY_RELATIVE_COST.matcher(followup.trim()).matches())
+                return "ChooseCharacter / ReturnToOwnersHandAndPlayRelativeCost";
             {
                 Matcher dullShieldM = FOLLOWUP_DULL_THEN_DAMAGE_SHIELD.matcher(followup.trim());
                 if (dullShieldM.matches())

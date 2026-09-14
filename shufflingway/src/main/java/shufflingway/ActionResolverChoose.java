@@ -4053,6 +4053,63 @@ final class ActionResolverChoose {
             };
         }
 
+        // --- Return to hand, then play from hand at a cost read off the returned card ---
+        // 12-083C Ninja ("1 CP more than it") and 12-098H Strago ("of the same cost as it"). Read
+        // off the whole followup, like the ban branch above and for a sharper version of its
+        // reason: the second sentence's "it" is not just a referent, it is the price. Split, the
+        // play reaches the secondary parser with no cost to ask for and the sentence was dropped
+        // whole — both cards read as a bare bounce.
+        Matcher bouncePlayM = FOLLOWUP_RETURN_TO_HAND_THEN_PLAY_RELATIVE_COST.matcher(followup.trim());
+        if (bouncePlayM.matches()) {
+            String  playType = bouncePlayM.group("type");
+            String  typeLow  = playType.toLowerCase(Locale.ROOT);
+            final boolean playFwds = typeLow.startsWith("forward") || typeLow.startsWith("character");
+            final boolean playBkps = typeLow.startsWith("backup")  || typeLow.startsWith("character");
+            final boolean playMons = typeLow.startsWith("monster") || typeLow.startsWith("character");
+            // "of the same cost as it" prints no offset, which is the offset zero.
+            final int offset = bouncePlayM.group("delta") == null ? 0
+                    : Integer.parseInt(bouncePlayM.group("delta"))
+                        * ("less".equalsIgnoreCase(bouncePlayM.group("dir")) ? -1 : 1);
+            // Ninja's "If you do so," gates the play on the bounce having happened; Strago's
+            // "Then," only sequences. The bounce can fail for want of a target either way, and
+            // with nothing returned there is no cost to derive — so both readings need a card,
+            // and only the conditional one is documented as caring.
+            final boolean conditional = bouncePlayM.group("ifdoso") != null;
+            final String  relCostLabel = offset == 0 ? "the same cost as it"
+                    : Math.abs(offset) + " CP " + (offset > 0 ? "more" : "less") + " than it";
+            return ctx -> {
+                ctx.logChooseHeader(choosePrefix + " — Return to owner's hand, then may play 1 "
+                        + playType + " of " + relCostLabel + " from hand");
+                List<ForwardTarget> ts = selectTargets(ctx, maxCount, upTo,
+                        opponentOnly, selfOnly, condition, element, zone, opponentZone,
+                        costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters,
+                        jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, fExcludeElem, withoutMulticard);
+                // Read before the return, which is the only moment the card is still at the
+                // target's coordinates — afterwards the row has compacted and the index points at
+                // whatever slid into its place.
+                CardData returned = ts.isEmpty() ? null : chosenTargetCard(ctx, ts.get(0));
+                returnTargetsToOwnersHand(ctx, ts);
+                if (returned == null) {
+                    ctx.logEntry("Effect: nothing was returned — no play offered");
+                    ctx.markEffectFizzled();
+                    return;
+                }
+                int playCost = returned.cost() + offset;
+                if (playCost < 0) {
+                    // Only reachable through the "less than it" wording, which no printing uses
+                    // today; a negative price matches nothing and is not the same as "any cost".
+                    ctx.logEntry("Effect: " + relCostLabel + " is below 0 — no play offered");
+                    return;
+                }
+                ctx.logEntry("Effect: may play 1 " + playType + " of cost " + playCost
+                        + " from hand" + (conditional ? " (returned " + returned.name() + ")" : ""));
+                // Exact cost, so costCmp stays null: "the same cost as it" and "1 CP more than it"
+                // both name one number, not a ceiling.
+                ctx.playCharacterFromHand(playFwds, playBkps, playMons, playCost, null, -1,
+                        null, null, null, null, null, false, null, false, null);
+            };
+        }
+
         // --- Dull [and Freeze], then a turn-long damage shield (9-068H Mist Dragon, 23-024R Shiva) ---
         // Read off the whole followup and ahead of every dull branch below, for the reason the
         // Cockatrice branch gives: those scan primaryFollowup with find(), so each would claim the
