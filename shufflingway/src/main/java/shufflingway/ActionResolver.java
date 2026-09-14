@@ -2663,6 +2663,15 @@ public class ActionResolver {
         if (tryParseIfCastAtLeast(effectText, source, 0)               != null) return "IfCastAtLeast";
         if (tryParseIfSelfIsStateGate(effectText, source, 0)           != null) return "IfSelfIsStateGate";
         if (tryParseIfControlCondOtherThan(effectText, source, 0)      != null) return "IfControlCondOtherThan";
+        // The plain "If you control <condition>, <effect>" gate, at the position parse() reads it:
+        // after the two narrower control gates above and ahead of the counter gate below.
+        //
+        // This entry is what the naming gap mostly was — 34 of the 71 abilities that parse()
+        // resolves and matchedPatternName() could not label, roughly half the backlog in one line.
+        // Like the warp gate below it names the gate rather than the effect behind it; the
+        // description chain is where the condition and the inner effect are spelled out, as
+        // "IfControl(<condition>: <inner>)".
+        if (tryParseControlConditionGate(effectText, source, 0)        != null) return "ControlConditionGate";
         // Reports the gate itself, not the effect behind it. Without an entry here the whole
         // gated sentence falls through to RemoveNamedFromGame, which find()s a name out of the
         // counter clause and would answer for a parser that never runs.
