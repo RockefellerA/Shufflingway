@@ -2293,6 +2293,22 @@ final class ActionResolverPatterns {
         "If\\s+not,?\\s+deal\\s+it\\s+(?<dmg>\\d+)\\s+damage[.!]?"
     );
     /**
+     * Vorpal Bunny 28-091R: "Put the top card of your deck into the Break Zone. If the card put into
+     * the Break Zone is not a [Type], break the chosen Forward." The mill half is the same wording
+     * {@link #CANCEL_CHOSEN_MILL_TOP_IF_NOT_TYPE} reads for Siren (V), but the mismatch buys an
+     * effect on the chosen Forward here rather than cancelling the selection that named it.
+     * Group {@code type} — the card type the milled card must miss for the break to happen.
+     *
+     * <p>Anchored end to end: split at the ". ", the first sentence reads as a bare mill and the
+     * second as an unconditional break, which is strictly stronger than the printing.
+     */
+    static final Pattern FOLLOWUP_MILL_TOP_DECK_IF_NOT_TYPE_BREAK_CHOSEN = Pattern.compile(
+        "(?i)^Put\\s+the\\s+top\\s+card\\s+of\\s+your\\s+deck\\s+into\\s+the\\s+Break\\s+Zone\\.\\s+" +
+        "If\\s+the\\s+card\\s+put\\s+into\\s+the\\s+Break\\s+Zone\\s+is\\s+not\\s+an?\\s+" +
+        "(?<type>Forward|Backup|Monster|Summon)s?,?\\s+" +
+        "break\\s+the\\s+chosen\\s+(?:Forward|Backup|Monster|Character)s?[.!]?\\s*$"
+    );
+    /**
      * Matches the compound followup "Reveal the top N cards of your deck.
      * Deal it/them M damage for each CP required to play/cast the revealed cards.
      * Add all the revealed cards to your hand."
@@ -8973,6 +8989,30 @@ final class ActionResolverPatterns {
     static final Pattern FOLLOWUP_YOU_MAY_PAY_ELEMENT_IF_DO_SO = Pattern.compile(
         "(?i)^You\\s+may\\s+pay\\s+《(?<element>[^》]+)》(?<repeat>(?:\\s*《\\k<element>》)*)[.!]?\\s+" +
         "If\\s+you\\s+do\\s+so[,.]?\\s+(?<effect>.+)$",
+        Pattern.DOTALL
+    );
+    /**
+     * Matches "You may play [filters] from your hand onto the field. If you do so, [effect]." — the
+     * play-from-hand sibling of {@link #FOLLOWUP_YOU_MAY_PAY_ELEMENT_IF_DO_SO}, and used the same
+     * way: as the followup inside {@link #tryParseChooseCharacter}, where the payoff's "it" is the
+     * Forward the choose header already named rather than the card just played. 2-097H Al-Cid is
+     * the printing — "choose 1 active Forward opponent controls. You may play 1 Lightning Forward of
+     * cost 3 or less from your hand onto the field. If you do so, deal it 6000 damage."
+     *
+     * <p>The play clause is captured whole rather than re-specified here, so
+     * {@link #PLAY_FROM_HAND_PATTERN} reads its element, cost and job filters — this pattern only
+     * has to find the two halves and keep them together.
+     *
+     * <p>Anchored end to end. Split at the ". ", the play clause reads as unhandled and the payoff
+     * as an ordinary secondary, which is how Al-Cid dealt his 6000 damage whether or not a Forward
+     * was ever played — the optional half of the sentence being the half that was dropped.
+     *
+     * <p>Groups: {@code play} — the play clause, handed back to {@code parse}; {@code effect} — the
+     * conditional action text.
+     */
+    static final Pattern FOLLOWUP_MAY_PLAY_FROM_HAND_IF_DO_SO = Pattern.compile(
+        "(?i)^You\\s+may\\s+(?<play>play\\s+.+?\\s+from\\s+(?:your|his/her|his|her|their)\\s+hand\\s+" +
+        "onto\\s+the\\s+field)[.!]\\s+If\\s+you\\s+do\\s+so[,.]?\\s+(?<effect>.+)$",
         Pattern.DOTALL
     );
     /**

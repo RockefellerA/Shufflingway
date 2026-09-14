@@ -3771,6 +3771,11 @@ public class ActionResolver {
                 return "ChooseCharacter / RfpTopDeckIfForwardBreakElseDamage";
             if (FOLLOWUP_RFP_TOP_DECK_AND_DAMAGE_PER_CP.matcher(followup).find())
                 return "ChooseCharacter / RfpTopDeckDamagePerCp";
+            // Read off the whole followup beside them, and for the same reason: the ". " split
+            // described 28-091R Vorpal Bunny as "? + ?", neither half standing on its own.
+            Matcher millNotTypeM = FOLLOWUP_MILL_TOP_DECK_IF_NOT_TYPE_BREAK_CHOSEN.matcher(followup);
+            if (millNotTypeM.find())
+                return "ChooseCharacter / MillTopDeckIfNot" + cap(millNotTypeM.group("type")) + "Break";
             if (FOLLOWUP_REVEAL_TOP_N_DAMAGE_PER_CP_ADD_ALL_TO_HAND.matcher(followup).find())
                 return "ChooseCharacter / RevealTopNDamagePerCpAddAllToHand";
             if (FOLLOWUP_RFP_IF_SAME_TYPE_DRAW.matcher(followup).find())
@@ -3802,6 +3807,17 @@ public class ActionResolver {
                     String innerEff  = youMayPayM.group("effect").trim();
                     String innerDesc = matchedFollowupName(innerEff, source);
                     return "ChooseCharacter / YouMayPayElement[" + (innerDesc != null ? innerDesc : "?") + "]";
+                }
+            }
+            // Its play-from-hand sibling, described the same way and beside it for the same reason:
+            // the ". " split named 2-097H Al-Cid "? + Damage", a burn owed only when a Forward was
+            // actually played reported as one that always happens.
+            {
+                Matcher mayPlayM = FOLLOWUP_MAY_PLAY_FROM_HAND_IF_DO_SO.matcher(followup);
+                if (mayPlayM.matches()) {
+                    String innerEff  = mayPlayM.group("effect").trim();
+                    String innerDesc = matchedFollowupName(innerEff, source);
+                    return "ChooseCharacter / YouMayPlayFromHand[" + (innerDesc != null ? innerDesc : "?") + "]";
                 }
             }
             // Followups that span sentences by design, named off the whole text before the split

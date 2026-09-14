@@ -354,6 +354,18 @@ public interface GameContext {
     void millTopDeckCancelChosenIfNotType(String type);
 
     /**
+     * Vorpal Bunny (28-091R): mills the top card of the controller's deck into their Break Zone and
+     * answers whether that card is NOT of {@code type} (e.g. {@code "Forward"}) — the mismatch that
+     * buys the card's follow-up effect on the Forward it already chose. Mills exactly as
+     * {@link #millTopDeckCancelChosenIfNotType} does, but hands the comparison back to the caller
+     * instead of cancelling the selection with it.
+     *
+     * <p>An empty deck puts no card into the Break Zone, so there is nothing for "the card put into
+     * the Break Zone" to refer to and the answer is {@code false} — the follow-up does not happen.
+     */
+    boolean millTopDeckIsNotType(String type);
+
+    /**
      * Colkhab (18-041C): both players mill the top card of their deck; if the two milled cards share
      * a card type, the in-progress selection is cancelled. Two-sided sibling of
      * {@link #millTopDeckCancelChosenIfNotType}, and cancels on a match rather than on a mismatch.

@@ -1441,6 +1441,132 @@ public class CardBehaviorTest {
         verify(ctx, never()).breakTarget(t);
     }
 
+    // 28-091R Vorpal Bunny — the mill sibling of the block above: the chosen Forward is broken only
+    // when the milled card MISSES the printed type, so the two arms are the reverse of Gilgamesh's.
+    private static final String VORPAL_BUNNY_MILL =
+            "Choose 1 Forward of cost 3 or less opponent controls. Put the top card of your deck "
+            + "into the Break Zone. If the card put into the Break Zone is not a Forward, break the "
+            + "chosen Forward.";
+
+    private static GameContext millTopDeckMock(ForwardTarget t, boolean milledIsNotForward) {
+        GameContext ctx = mock(GameContext.class);
+        when(ctx.consumePreloadedTargets()).thenReturn(null);
+        when(ctx.selectCharacters(anyInt(), anyBoolean(), anyBoolean(), anyBoolean(), any(), any(),
+                anyInt(), any(), anyInt(), any(), anyBoolean(), anyBoolean(), anyBoolean(),
+                any(), any(), any(), any(), anyBoolean(), any(), anyBoolean())).thenReturn(List.of(t));
+        when(ctx.millTopDeckIsNotType("Forward")).thenReturn(milledIsNotForward);
+        return ctx;
+    }
+
+    @Test
+    void vorpalBunnyIsNamedForTheWholeCompoundFollowup() {
+        // The ". " split described it as "ChooseCharacter / ? + ?" — a mill that gates nothing and a
+        // break with no condition in front of it.
+        assertEquals("ChooseCharacter / MillTopDeckIfNotForwardBreak",
+                ActionResolver.fullDescription(VORPAL_BUNNY_MILL, null));
+    }
+
+    @Test
+    void vorpalBunnyBreaksChosenForwardWhenMilledCardIsNotAForward() {
+        Consumer<GameContext> fn = ActionResolver.parse(VORPAL_BUNNY_MILL, null);
+        assertNotNull(fn, "the mill-then-conditional-break ability should parse");
+        ForwardTarget t = new ForwardTarget(false, 0, ForwardTarget.CardZone.FORWARD);
+        GameContext ctx = millTopDeckMock(t, true);
+        fn.accept(ctx);
+        verify(ctx).millTopDeckIsNotType("Forward");
+        verify(ctx).breakTarget(t);
+    }
+
+    @Test
+    void vorpalBunnySparesChosenForwardWhenMilledCardIsAForward() {
+        Consumer<GameContext> fn = ActionResolver.parse(VORPAL_BUNNY_MILL, null);
+        assertNotNull(fn);
+        ForwardTarget t = new ForwardTarget(false, 0, ForwardTarget.CardZone.FORWARD);
+        GameContext ctx = millTopDeckMock(t, false);
+        fn.accept(ctx);
+        // The mill is unconditional; only the break is gated on the type mismatch.
+        verify(ctx).millTopDeckIsNotType("Forward");
+        verify(ctx, never()).breakTarget(any());
+    }
+
+    @Test
+    void vorpalBunnyMillsEvenWhenTheChoiceFindsNoForward() {
+        // "Choose" with no legal target still resolves the rest of the ability.
+        Consumer<GameContext> fn = ActionResolver.parse(VORPAL_BUNNY_MILL, null);
+        assertNotNull(fn);
+        GameContext ctx = mock(GameContext.class);
+        when(ctx.consumePreloadedTargets()).thenReturn(null);
+        when(ctx.selectCharacters(anyInt(), anyBoolean(), anyBoolean(), anyBoolean(), any(), any(),
+                anyInt(), any(), anyInt(), any(), anyBoolean(), anyBoolean(), anyBoolean(),
+                any(), any(), any(), any(), anyBoolean(), any(), anyBoolean())).thenReturn(List.of());
+        when(ctx.millTopDeckIsNotType("Forward")).thenReturn(true);
+        fn.accept(ctx);
+        verify(ctx).millTopDeckIsNotType("Forward");
+        verify(ctx, never()).breakTarget(any());
+    }
+
+    // 2-097H Al-Cid — "You may play …. If you do so, deal it N damage." inside a choose followup.
+    // The payoff's "it" is the Forward the header chose, not the Forward just played.
+    private static final String AL_CID_MAY_PLAY =
+            "Choose 1 active Forward opponent controls. You may play 1 Lightning Forward of cost 3 "
+            + "or less from your hand onto the field. If you do so, deal it 6000 damage.";
+
+    private static GameContext mayPlayFromHandMock(ForwardTarget t, boolean played) {
+        GameContext ctx = mock(GameContext.class);
+        when(ctx.consumePreloadedTargets()).thenReturn(null);
+        when(ctx.selectCharacters(anyInt(), anyBoolean(), anyBoolean(), anyBoolean(), any(), any(),
+                anyInt(), any(), anyInt(), any(), anyBoolean(), anyBoolean(), anyBoolean(),
+                any(), any(), any(), any(), anyBoolean(), any(), anyBoolean())).thenReturn(List.of(t));
+        // The real playCharacterFromHand marks the effect fizzled when nothing is played; a mock
+        // does neither, so the progress flag is stubbed directly.
+        when(ctx.effectMadeProgress()).thenReturn(played);
+        return ctx;
+    }
+
+    @Test
+    void alCidIsNamedForTheWholeOptionalPlayFollowup() {
+        // The ". " split described it as "ChooseCharacter / ? + Damage" — a burn owed only on the
+        // optional play reported as one that always happens.
+        assertEquals("ChooseCharacter / YouMayPlayFromHand[Damage]",
+                ActionResolver.fullDescription(AL_CID_MAY_PLAY, null));
+    }
+
+    @Test
+    void alCidOffersThePlayWithThePrintedElementAndCostFilters() {
+        Consumer<GameContext> fn = ActionResolver.parse(AL_CID_MAY_PLAY, null);
+        assertNotNull(fn, "the optional play-from-hand followup should parse");
+        ForwardTarget t = new ForwardTarget(false, 0, ForwardTarget.CardZone.FORWARD);
+        GameContext ctx = mayPlayFromHandMock(t, true);
+        fn.accept(ctx);
+        // Forwards only, Lightning only, cost 3 or less — read by PLAY_FROM_HAND_PATTERN, not
+        // re-specified by the new followup pattern.
+        verify(ctx).playCharacterFromHand(eq(true), eq(false), eq(false), eq(3), eq("less"),
+                anyInt(), any(), any(), any(), eq("Lightning"), any(), anyBoolean(), any(),
+                anyBoolean(), any());
+    }
+
+    @Test
+    void alCidDamagesTheChosenForwardOnlyWhenAForwardWasPlayed() {
+        Consumer<GameContext> fn = ActionResolver.parse(AL_CID_MAY_PLAY, null);
+        assertNotNull(fn);
+        ForwardTarget t = new ForwardTarget(false, 0, ForwardTarget.CardZone.FORWARD);
+        GameContext ctx = mayPlayFromHandMock(t, true);
+        fn.accept(ctx);
+        verify(ctx).damageTarget(t, 6000);
+    }
+
+    @Test
+    void alCidDealsNoDamageWhenThePlayIsDeclined() {
+        // The regression this wiring closes: the ". " split ran the damage unconditionally.
+        Consumer<GameContext> fn = ActionResolver.parse(AL_CID_MAY_PLAY, null);
+        assertNotNull(fn);
+        ForwardTarget t = new ForwardTarget(false, 0, ForwardTarget.CardZone.FORWARD);
+        GameContext ctx = mayPlayFromHandMock(t, false);
+        fn.accept(ctx);
+        verify(ctx).resetEffectProgress();
+        verify(ctx, never()).damageTarget(any(), anyInt());
+    }
+
     // Granted field abilities via "gains \"…\" until the end of the turn":
     // Tsukinowa (cannot be blocked by cost), Ace/Tifa (can attack twice, with traits/power).
     @Test

@@ -3156,6 +3156,14 @@ final class GameContextImpl implements GameContext {
 				}
 			}
 
+			@Override public boolean millTopDeckIsNotType(String type) {
+				CardData top = millTopForCancelCompare(isP1);
+				if (top == null) { logEntry("Your deck is empty — nothing to put into the Break Zone"); return false; }
+				boolean matches = ComputerPlayer.cardMatchesType(top, type);
+				logEntry("The milled card is " + (matches ? "a " + type : "not a " + type));
+				return !matches;
+			}
+
 			@Override public void millTopDeckBothCancelChosenIfSameType() {
 				CardData mine  = millTopForCancelCompare(isP1);
 				CardData theirs = millTopForCancelCompare(!isP1);

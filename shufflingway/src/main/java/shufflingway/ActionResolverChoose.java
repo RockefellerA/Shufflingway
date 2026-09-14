@@ -2254,6 +2254,46 @@ final class ActionResolverChoose {
             }
         }
 
+        // --- "You may play 1 [Elem] [Type] of cost N or less from your hand onto the field.
+        //      If you do so, [target action]." ---
+        // 2-097H Al-Cid. Beside the branch above and for the same reason: checked against the full
+        // followup before the primary/secondary split, which otherwise leaves the play clause
+        // unread and hands the payoff to the generic secondary — dealing the 6000 damage whether or
+        // not a Forward was ever played, which is the optional half of the sentence going missing.
+        //
+        // The play clause goes back through parse() rather than being re-specified, so
+        // PLAY_FROM_HAND_PATTERN reads its filters; the payoff goes through parseTargetAction, so
+        // its "it" resolves against the chosen Forward and not the card just played. Both halves
+        // must parse before the branch claims either.
+        {
+            Matcher mayPlayM = FOLLOWUP_MAY_PLAY_FROM_HAND_IF_DO_SO.matcher(followup);
+            if (mayPlayM.matches()) {
+                String playText   = mayPlayM.group("play").trim();
+                String payoffText = mayPlayM.group("effect").trim();
+                Consumer<GameContext> playEffect = parse(playText, source, xValue);
+                // The broader of the two target-action readers — it ends by delegating to
+                // parseTargetAction, which the sibling branch above uses, and adds the plain
+                // "deal it N damage" arm that Al-Cid's payoff needs.
+                BiConsumer<GameContext, List<ForwardTarget>> payoff =
+                        parseFormerLatterGroupAction(payoffText);
+                if (playEffect != null && payoff != null) {
+                    return ctx -> {
+                        ctx.logChooseHeader(choosePrefix + " — You may " + playText
+                                + "; if so: " + payoffText);
+                        List<ForwardTarget> ts = selectTargets(ctx, maxCount, upTo,
+                                opponentOnly, selfOnly, condition, element, zone, opponentZone,
+                                costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters,
+                                jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, fExcludeElem, withoutMulticard);
+                        // Declining, and having nothing eligible to play, both fizzle the play —
+                        // which is what gates the payoff. playCharacterFromHand marks that itself.
+                        ctx.resetEffectProgress();
+                        playEffect.accept(ctx);
+                        if (ctx.effectMadeProgress()) payoff.accept(ctx, ts);
+                    };
+                }
+            }
+        }
+
         // --- "[You may] search for N … (with the same name | of the same Element as the chosen
         //      Character) and add it to your hand." ---
         // 12-106R Relm, 23-078C Alisaie, 23-130H Luso. The search's filter is not written in the
@@ -2892,6 +2932,24 @@ final class ActionResolverChoose {
                     sortedByIdxDesc(ts, true) .forEach(t -> ctx.damageTarget(t, dmg));
                     sortedByIdxDesc(ts, false).forEach(t -> ctx.damageTarget(t, dmg));
                 }
+            };
+        }
+
+        // --- "Put the top card of your deck into the Break Zone. If the card put into the Break Zone is not a Forward, break the chosen Forward." ---
+        // 28-091R Vorpal Bunny. Read off the whole followup, like the two branches above: after the
+        // ". " split the mill loses the break it gates, and the break loses the condition in front
+        // of it — which would break the chosen Forward every time.
+        Matcher millIfNotTypeM = FOLLOWUP_MILL_TOP_DECK_IF_NOT_TYPE_BREAK_CHOSEN.matcher(followup);
+        if (millIfNotTypeM.find()) {
+            String milledType = cap(millIfNotTypeM.group("type"));
+            return ctx -> {
+                List<ForwardTarget> ts = selectTargets(ctx, maxCount, upTo,
+                        opponentOnly, selfOnly, condition, element, zone, opponentZone,
+                        costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters, jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, fExcludeElem, withoutMulticard);
+                if (!ctx.millTopDeckIsNotType(milledType)) return;
+                ctx.logChooseHeader(choosePrefix + " — the milled card is not a " + milledType + ": break the chosen target");
+                sortedByIdxDesc(ts, true) .forEach(ctx::breakTarget);
+                sortedByIdxDesc(ts, false).forEach(ctx::breakTarget);
             };
         }
 
