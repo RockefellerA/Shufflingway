@@ -1567,6 +1567,82 @@ public class CardBehaviorTest {
         verify(ctx, never()).damageTarget(any(), anyInt());
     }
 
+    // The Opus 23 "instead" cycle — "choose 1 Forward. <do X to it>. If you control 5 or more
+    // Backups, <do X to a whole row> instead." The word that carries the whole ability is
+    // "instead": one arm or the other, never both. Before this was read off the whole followup the
+    // split ran the base AND the gated sweep on top of it whenever the condition held.
+    private static final String DANCER_SWEEP_INSTEAD =
+            "Choose 1 Forward. It loses 2000 power until the end of the turn. If you control 5 or "
+            + "more Backups, all the Forwards opponent controls lose 4000 power until the end of "
+            + "the turn instead.";
+
+    private static final String PUPPETMASTER_SWEEP_INSTEAD =
+            "Choose 1 Forward. Dull it. If you control 5 or more Backups, dull all the Forwards "
+            + "opponent controls instead.";
+
+    private static GameContext sweepInsteadMock(ForwardTarget t, boolean conditionMet) {
+        GameContext ctx = mock(GameContext.class);
+        when(ctx.consumePreloadedTargets()).thenReturn(null);
+        when(ctx.selectCharacters(anyInt(), anyBoolean(), anyBoolean(), anyBoolean(), any(), any(),
+                anyInt(), any(), anyInt(), any(), anyBoolean(), anyBoolean(), anyBoolean(),
+                any(), any(), any(), any(), anyBoolean(), any(), anyBoolean())).thenReturn(List.of(t));
+        when(ctx.controlConditionMet(any())).thenReturn(conditionMet);
+        return ctx;
+    }
+
+    @Test
+    void dancerIsNamedForBothArmsOfTheInstead() {
+        assertEquals("ChooseCharacter / SweepInsteadIfControl(5+ Backup: PowerReduce -> AllFieldPowerBoost)",
+                ActionResolver.fullDescription(DANCER_SWEEP_INSTEAD, null));
+    }
+
+    @Test
+    void dancerReducesOnlyTheChosenForwardBelowTheBackupThreshold() {
+        Consumer<GameContext> fn = ActionResolver.parse(DANCER_SWEEP_INSTEAD, null);
+        assertNotNull(fn, "the control-gated sweep followup should parse");
+        ForwardTarget t = new ForwardTarget(false, 0, ForwardTarget.CardZone.FORWARD);
+        GameContext ctx = sweepInsteadMock(t, false);
+        fn.accept(ctx);
+        verify(ctx).reduceTarget(eq(t), eq(2000), any());
+        verify(ctx, never()).applyMassFieldPowerBoost(anyInt(), anyBoolean(), anyBoolean(),
+                anyBoolean(), anyBoolean(), any(), anyInt(), any(), any(), any(), any());
+    }
+
+    @Test
+    void dancerSweepsInsteadOfReducingAtFiveBackups() {
+        // The regression: "instead" means the chosen Forward is NOT also reduced.
+        Consumer<GameContext> fn = ActionResolver.parse(DANCER_SWEEP_INSTEAD, null);
+        assertNotNull(fn);
+        ForwardTarget t = new ForwardTarget(false, 0, ForwardTarget.CardZone.FORWARD);
+        GameContext ctx = sweepInsteadMock(t, true);
+        fn.accept(ctx);
+        // -4000 across the opponent's Forwards only.
+        verify(ctx).applyMassFieldPowerBoost(eq(-4000), eq(true), anyBoolean(), eq(true), eq(false),
+                any(), anyInt(), any(), any(), any(), any());
+        verify(ctx, never()).reduceTarget(any(), anyInt(), any());
+    }
+
+    @Test
+    void puppetmasterTakesTheSameBranchWithADullBase() {
+        // The second member of the cycle, and the reason the branch reads both halves through the
+        // existing parsers rather than spelling out a power reduction: nothing here is Dancer-shaped.
+        assertEquals("ChooseCharacter / SweepInsteadIfControl(5+ Backup: Dull -> AllFieldEffect)",
+                ActionResolver.fullDescription(PUPPETMASTER_SWEEP_INSTEAD, null));
+
+        Consumer<GameContext> fn = ActionResolver.parse(PUPPETMASTER_SWEEP_INSTEAD, null);
+        assertNotNull(fn);
+        ForwardTarget t = new ForwardTarget(false, 0, ForwardTarget.CardZone.FORWARD);
+
+        GameContext below = sweepInsteadMock(t, false);
+        fn.accept(below);
+        verify(below).dullTarget(t);
+
+        GameContext at = sweepInsteadMock(t, true);
+        fn.accept(at);
+        verify(at).controlConditionMet(any());
+        verify(at, never()).dullTarget(any());
+    }
+
     // Granted field abilities via "gains \"…\" until the end of the turn":
     // Tsukinowa (cannot be blocked by cost), Ace/Tifa (can attack twice, with traits/power).
     @Test

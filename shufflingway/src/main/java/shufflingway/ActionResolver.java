@@ -3750,6 +3750,22 @@ public class ActionResolver {
             // (FFTA2)'s doubling clause into an unrecognised tail.
             if (FOLLOWUP_POWER_BOOST_CONTROL_GATED_INSTEAD.matcher(followup).matches())
                 return "ChooseCharacter / PowerBoostControlGatedInstead";
+            // Behind both of those, mirroring the choose chain, where this general branch is placed
+            // after them for the same reason. The ". " split described 23-101C Dancer as
+            // "PowerReduce + IfControl(…)" — the base and the sweep reported as a card that does
+            // both, which is what it was also doing.
+            {
+                Matcher sweepInsteadM = FOLLOWUP_CONTROL_GATED_SWEEP_INSTEAD.matcher(followup.trim());
+                if (sweepInsteadM.matches()) {
+                    ControlCondition scc =
+                            CardData.parseControlCondition(sweepInsteadM.group("cond").trim());
+                    String baseName = matchedFollowupName(sweepInsteadM.group("base").trim(), source);
+                    String altName  = matchedPatternName(sweepInsteadM.group("alt").trim(), source);
+                    if (scc != null && baseName != null && altName != null)
+                        return "ChooseCharacter / SweepInsteadIfControl(" + scc + ": "
+                                + baseName + " -> " + altName + ")";
+                }
+            }
             if (FOLLOWUP_DAMAGE_SELF_POWER_DOUBLED_IF_SUMMON_DISCARD.matcher(followup).matches())
                 return "ChooseCharacter / DamageSelfPowerDoubledIfSummonDiscard";
             if (FOLLOWUP_MAY_DISCARD_NAMED_DEAL_DAMAGE.matcher(followup).matches())

@@ -1471,6 +1471,36 @@ final class ActionResolverPatterns {
         "until\\s+(?:the\\s+)?end\\s+of\\s+(?:the\\s+)?turn\\s+instead[.!]?$"
     );
     /**
+     * Matches "&lt;action on the chosen Character&gt;. If you control &lt;condition&gt;, &lt;field-wide
+     * sweep&gt; instead." — the Opus 23 common cycle, where the upgrade does not just change a figure
+     * but changes <em>who the effect hits</em>: 23-101C Dancer, 23-081C Puppetmaster, 23-049C Ninja
+     * and 23-058C Dark Knight all print "choose 1 Forward. &lt;do X to it&gt;. If you control 5 or
+     * more Backups, &lt;do X to a whole row&gt; instead."
+     *
+     * <p>That is what separates this from {@link #FOLLOWUP_POWER_BOOST_CONTROL_GATED_INSTEAD} and
+     * {@link #FOLLOWUP_POWER_REDUCE_BZ_COUNT_GATED_INSTEAD}, whose upgrades keep the chosen target
+     * and swap only the number. This one must be checked <em>after</em> both: its {@code base} and
+     * {@code alt} groups are deliberately unspecified, so it would otherwise claim their wordings
+     * and hand the upgrade's targetless "it gains +N power" to a parser with nothing to apply it to.
+     *
+     * <p>Neither half is spelled out here. {@code base} goes to the target-action reader and
+     * {@code alt} back through {@code parse} as a standalone sentence, so both halves are read by
+     * the machinery that already owns them and the branch claims nothing it cannot resolve.
+     *
+     * <p>{@code alt} must contain "all the" — the marker that the upgrade really is a sweep. It is
+     * the guard that keeps this general pattern off the two narrower ones above, whose alternatives
+     * name no row; without it, "it gains +2000 power ... instead" reads as an upgrade this branch
+     * would resolve against the wrong target set.
+     *
+     * <p>Groups: {@code base} — the action on the chosen Character; {@code cond} — the control
+     * condition, comma-free as {@code CardData.parseControlCondition} takes it; {@code alt} — the
+     * sweep that replaces the base when the condition holds.
+     */
+    static final Pattern FOLLOWUP_CONTROL_GATED_SWEEP_INSTEAD = Pattern.compile(
+        "(?is)^(?<base>.+?)[.!]\\s+If\\s+you\\s+control\\s+(?<cond>[^,]+),\\s+" +
+        "(?<alt>(?=.*?\\ball\\s+the\\b).+?)\\s+instead[.!]?\\s*$"
+    );
+    /**
      * Matches "Deal it damage equal to [Self]'s power. If you discarded a Summon to pay this
      * ability's cost, deal it double the damage of the power of [Self] instead." — 29-107C Seer
      * (FFTA2), whose 《Dull》, discard 1 card cost pays double when the discard was a Summon.

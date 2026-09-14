@@ -2490,6 +2490,47 @@ final class ActionResolverChoose {
             }
         }
 
+        // --- "<action on it>. If you control <cond>, <field-wide sweep> instead." ---
+        // The Opus 23 common cycle — 23-101C Dancer, 23-081C Puppetmaster — where the upgrade
+        // changes the target set rather than a figure. Read off the whole followup like the two
+        // branches above, and for a sharper version of their reason: split, the base runs AND the
+        // secondary control gate runs the sweep on top of it, so a card printed as "one or the
+        // other" did both whenever its condition held.
+        //
+        // Must follow those two. Its halves are unspecified, so ahead of them it would claim their
+        // wordings; the "all the" requirement in the pattern is what keeps the two families apart.
+        // Must precede the plain dull and power-reduce arms below, which scan with find() and would
+        // otherwise take the sweep's verb out of the middle of the upgrade sentence.
+        Matcher sweepInsteadM = FOLLOWUP_CONTROL_GATED_SWEEP_INSTEAD.matcher(followup.trim());
+        if (sweepInsteadM.matches()) {
+            ControlCondition scc = CardData.parseControlCondition(sweepInsteadM.group("cond").trim());
+            String baseText = sweepInsteadM.group("base").trim();
+            String altText  = sweepInsteadM.group("alt").trim();
+            // The base acts on what the header chose; the sweep names its own row and so goes back
+            // through parse() whole. Both must be understood before either is claimed — a branch
+            // that resolved one half would be a card doing half its text, with no sign of it.
+            BiConsumer<GameContext, List<ForwardTarget>> baseAction =
+                    parseFormerLatterGroupAction(baseText);
+            Consumer<GameContext> altAction = parse(altText, source, xValue);
+            if (scc != null && baseAction != null && altAction != null) {
+                return ctx -> {
+                    List<ForwardTarget> ts = selectTargets(ctx, maxCount, upTo,
+                            opponentOnly, selfOnly, condition, element, zone, opponentZone,
+                            costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters,
+                            jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, fExcludeElem, withoutMulticard);
+                    // The choice still happens either way: being chosen is an event of its own, and
+                    // the printed order chooses before the condition is read.
+                    if (ctx.controlConditionMet(scc)) {
+                        ctx.logChooseHeader(choosePrefix + " — you control " + scc + ": " + altText);
+                        altAction.accept(ctx);
+                    } else {
+                        ctx.logChooseHeader(choosePrefix + " — " + baseText);
+                        baseAction.accept(ctx, ts);
+                    }
+                };
+            }
+        }
+
         // --- "Deal it damage equal to [Self]'s power. If you discarded a Summon to pay this
         //      ability's cost, deal it double ... instead." (29-107C Seer (FFTA2)) ---
         Matcher seerM = FOLLOWUP_DAMAGE_SELF_POWER_DOUBLED_IF_SUMMON_DISCARD.matcher(followup);
