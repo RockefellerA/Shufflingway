@@ -5218,6 +5218,24 @@ final class ActionResolverChoose {
             };
         }
 
+        // --- Cannot attack until end of opponent's/next turn (persistent) followup ---
+        // 7-061H Wind Drake. Order against the branch above does not matter: each pattern pins its
+        // own duration, so neither finds inside the other's text.
+        if (FOLLOWUP_CANNOT_ATTACK_PERSISTENT.matcher(primaryFollowup).find()) {
+            return ctx -> {
+                ctx.logChooseHeader(choosePrefix + " — Cannot attack until end of next turn");
+                List<ForwardTarget> ts = selectTargets(ctx, maxCount, upTo,
+                        opponentOnly, selfOnly, condition, element, zone, opponentZone,
+                        costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters, jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, fExcludeElem, withoutMulticard);
+                for (ForwardTarget t : ts) {
+                    if (t.zone() != ForwardTarget.CardZone.FORWARD) continue;
+                    if (t.isP1()) ctx.setP1ForwardCannotAttackPersistent(t.idx());
+                    else          ctx.setP2ForwardCannotAttackPersistent(t.idx());
+                }
+                if (secondary != null) secondary.accept(ctx);
+            };
+        }
+
         // --- "Until the end of the turn, it gains "<clause>" and <Self> gains +N power." ---
         // Azul 23-077H. Must precede the must-attack branch below: the compulsion it hands out is
         // spelled "must attack once per turn", which that branch's pattern does not read, so left
@@ -6875,7 +6893,8 @@ final class ActionResolverChoose {
         };
     }
     /**
-     * Parses "Choose as many [Type] [opponent controls] as [the] [CountSource] you control. [Dull/Activate] them."
+     * Parses "Choose as many [Type] [opponent controls] as [the] [Element] [CountSource] you control.
+     * [Dull/Activate/Freeze/Dull-and-Freeze] them."
      * The count is computed at resolution time from the acting player's field cards matching the count source.
      */
     static Consumer<GameContext> tryParseChooseAsManyAsFieldCount(String text, CardData source) {
@@ -6884,6 +6903,7 @@ final class ActionResolverChoose {
 
         String targetTypeRaw = m.group("targetType").trim();
         String targetSide    = m.group("targetSide");
+        String countElem     = m.group("countElement");
         String countSrc      = m.group("countSrc").trim();
         String followupText  = m.group("followup").trim();
 
@@ -6892,8 +6912,13 @@ final class ActionResolverChoose {
         boolean inclBackups  = tgtLow.startsWith("backup")  || tgtLow.startsWith("character");
         boolean inclMonsters = tgtLow.startsWith("monster") || tgtLow.startsWith("character");
 
+        // An unqualified "Choose ... Characters" is both fields — the printing says "opponent
+        // controls" when it means one side, and 22-024L / 24-021H Kurasame are the same character
+        // printed both ways, so the omission on 22-024L is deliberate. Defaulting the absent side
+        // to self used to make a Dull-and-Freeze option land only on the player's own board, which
+        // is strictly worse than the printed card rather than merely narrower.
         boolean opponentOnly = targetSide != null && targetSide.toLowerCase().contains("opponent");
-        boolean selfOnly     = !opponentOnly;
+        boolean selfOnly     = targetSide != null && !opponentOnly;
 
         String  countJobFilter = null;
         String  countCatFilter = null;
@@ -6929,22 +6954,28 @@ final class ActionResolverChoose {
             }
         }
 
-        boolean doActivate = FOLLOWUP_ACTIVATE.matcher(followupText).find();
-        boolean doDull     = FOLLOWUP_DULL.matcher(followupText).find();
-        boolean doFreeze   = !doActivate && !doDull && FOLLOWUP_FREEZE.matcher(followupText).find();
-        if (!doActivate && !doDull && !doFreeze) return null;
+        // "Dull them and Freeze them." is one action, not a Dull that happens to mention freezing —
+        // checked ahead of the plain Dull and Freeze reads, both of which find() inside it.
+        boolean doActivate    = FOLLOWUP_ACTIVATE.matcher(followupText).find();
+        boolean doDullFreeze  = !doActivate && FOLLOWUP_DULL_AND_FREEZE.matcher(followupText).find();
+        boolean doDull        = !doActivate && !doDullFreeze && FOLLOWUP_DULL.matcher(followupText).find();
+        boolean doFreeze      = !doActivate && !doDullFreeze && !doDull
+                                && FOLLOWUP_FREEZE.matcher(followupText).find();
+        if (!doActivate && !doDullFreeze && !doDull && !doFreeze) return null;
 
-        final String  fJob = countJobFilter, fCat = countCatFilter;
+        final String  fJob = countJobFilter, fCat = countCatFilter, fElem = countElem;
         final boolean fCFwds = countFwds, fCBkps = countBkps, fCMons = countMons;
         final boolean fOppOnly = opponentOnly, fSelfOnly = selfOnly;
         final boolean fFwds = inclForwards, fBkps = inclBackups, fMons = inclMonsters;
-        final String  action = doActivate ? "Activate" : doDull ? "Dull" : "Freeze";
+        final boolean fDullFreeze = doDullFreeze;
+        final String  action = doActivate ? "Activate" : doDullFreeze ? "Dull and Freeze"
+                             : doDull ? "Dull" : "Freeze";
         final String  logPfx = "Choose up to as many " + targetTypeRaw
-                + (targetSide != null ? " " + targetSide : " you control")
-                + " as " + countSrc + " you control";
+                + (targetSide != null ? " " + targetSide : "")
+                + " as " + (countElem != null ? countElem + " " : "") + countSrc + " you control";
 
         return ctx -> {
-            int count = ctx.countSelfFieldCards(fCFwds, fCBkps, fCMons, fJob, null, fCat);
+            int count = ctx.countSelfFieldCards(fCFwds, fCBkps, fCMons, fJob, null, fCat, fElem);
             if (count <= 0) {
                 ctx.logEntry(logPfx + " — count=0, nothing to choose");
                 ctx.markEffectFizzled();
@@ -6958,6 +6989,9 @@ final class ActionResolverChoose {
             if (doActivate) {
                 sortedByIdxDesc(ts, true) .forEach(ctx::activateTarget);
                 sortedByIdxDesc(ts, false).forEach(ctx::activateTarget);
+            } else if (fDullFreeze) {
+                sortedByIdxDesc(ts, true) .forEach(ctx::dullAndFreezeTarget);
+                sortedByIdxDesc(ts, false).forEach(ctx::dullAndFreezeTarget);
             } else if (doDull) {
                 sortedByIdxDesc(ts, true) .forEach(ctx::dullTarget);
                 sortedByIdxDesc(ts, false).forEach(ctx::dullTarget);

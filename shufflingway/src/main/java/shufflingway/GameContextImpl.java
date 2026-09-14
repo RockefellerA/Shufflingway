@@ -2232,6 +2232,14 @@ final class GameContextImpl implements GameContext {
 			@Override public void setP2ForwardMustAttack(int idx) {
 				if (idx >= 0 && idx < mw.p2ForwardCards.size()) mw.p2MustAttack.add(mw.p2ForwardCards.get(idx));
 			}
+			@Override public void setP1ForwardCannotAttackPersistent(int idx) {
+				if (idx >= 0 && idx < mw.p1ForwardCards.size())
+					mw.p1CannotAttackPersistent.add(mw.p1ForwardCards.get(idx));
+			}
+			@Override public void setP2ForwardCannotAttackPersistent(int idx) {
+				if (idx >= 0 && idx < mw.p2ForwardCards.size())
+					mw.p2CannotAttackPersistent.add(mw.p2ForwardCards.get(idx));
+			}
 			@Override public void setP1ForwardCannotAttackOrBlockPersistent(int idx) {
 				if (idx >= 0 && idx < mw.p1ForwardCards.size()) {
 					CardData card = mw.p1ForwardCards.get(idx);

@@ -10903,6 +10903,122 @@ public class CardBehaviorTest {
                         + "until the end of your opponent's turn.", null));
     }
 
+    private static final String KURASAME_22_024L_OPTION =
+            "Choose up to the same number of Characters as the Ice Backups you control. "
+            + "Dull them and Freeze them.";
+
+    // 22-024L Kurasame's first selectable action. Two things it needs that the rest of the
+    // as-many-as family did not: an Element filter on what is counted, and a Dull-and-Freeze
+    // followup rather than one of Dull/Activate/Freeze alone.
+    @Test
+    void kurasameCountsOnlyIceBackupsAndDullAndFreezesTheChosen() {
+        ForwardTarget theirs = new ForwardTarget(false, 1, ForwardTarget.CardZone.FORWARD);
+        GameContext ctx = ctxChoosing(List.of(theirs));
+        when(ctx.countSelfFieldCards(false, true, false, null, null, null, "Ice")).thenReturn(2);
+
+        Consumer<GameContext> fn = ActionResolver.parse(KURASAME_22_024L_OPTION, null);
+        assertNotNull(fn);
+        fn.accept(ctx);
+
+        verify(ctx).countSelfFieldCards(false, true, false, null, null, null, "Ice");
+        verify(ctx).dullAndFreezeTarget(theirs);
+        // Not the plain Dull that "Dull them and Freeze them." contains, and not a bare Freeze.
+        verify(ctx, never()).dullTarget(any());
+        verify(ctx, never()).freezeTarget(any());
+    }
+
+    // The printing says "Characters", not "Characters you control" — 24-021H, the same character
+    // printed with an explicit side, is what shows the omission is deliberate. Choosing off the
+    // opponent's board is the whole point of a Dull-and-Freeze.
+    @Test
+    void kurasameChoosesFromEitherFieldBecauseNoSideIsPrinted() {
+        ForwardTarget theirs = new ForwardTarget(false, 1, ForwardTarget.CardZone.FORWARD);
+        GameContext ctx = ctxChoosing(List.of(theirs));
+        when(ctx.countSelfFieldCards(false, true, false, null, null, null, "Ice")).thenReturn(2);
+
+        ActionResolver.parse(KURASAME_22_024L_OPTION, null).accept(ctx);
+
+        verify(ctx).selectCharacters(eq(2), eq(true), eq(false), eq(false), any(), any(),
+                anyInt(), any(), anyInt(), any(), eq(true), eq(true), eq(true), any(), any(),
+                any(), any(), anyBoolean(), any(), anyBoolean());
+    }
+
+    // 24-021H prints the side, and keeps it.
+    @Test
+    void theOtherKurasameKeepsItsPrintedOpponentSide() {
+        ForwardTarget theirs = new ForwardTarget(false, 0, ForwardTarget.CardZone.FORWARD);
+        GameContext ctx = ctxChoosing(List.of(theirs));
+        when(ctx.countSelfFieldCards(false, true, false, null, null, null, null)).thenReturn(1);
+
+        ActionResolver.parse("choose up to the same number of Characters opponent controls as "
+                + "the Backups you control. Freeze them.", null).accept(ctx);
+
+        verify(ctx).selectCharacters(eq(1), eq(true), eq(true), eq(false), any(), any(),
+                anyInt(), any(), anyInt(), any(), anyBoolean(), anyBoolean(), anyBoolean(), any(),
+                any(), any(), any(), anyBoolean(), any(), anyBoolean());
+        verify(ctx).freezeTarget(theirs);
+    }
+
+    // A count of zero fizzles rather than offering a free choose.
+    @Test
+    void kurasameFizzlesWithNoIceBackups() {
+        GameContext ctx = ctxChoosing(List.of());
+        when(ctx.countSelfFieldCards(false, true, false, null, null, null, "Ice")).thenReturn(0);
+
+        ActionResolver.parse(KURASAME_22_024L_OPTION, null).accept(ctx);
+
+        verify(ctx).markEffectFizzled();
+        verify(ctx, never()).selectCharacters(anyInt(), anyBoolean(), anyBoolean(), anyBoolean(),
+                any(), any(), anyInt(), any(), anyInt(), any(), anyBoolean(), anyBoolean(),
+                anyBoolean(), any(), any(), any(), any(), anyBoolean(), any(), anyBoolean());
+    }
+
+    // The whole ability: the option must be readable from inside the select-1-of-2 wrapper, which
+    // re-parses each quoted action, or Kurasame offers a choice with a blank half.
+    @Test
+    void kurasameSelectOneOfTwoNamesBothOptions() {
+        assertEquals("SelectFollowingActions(1 of 2: ChooseAsManyAsFieldCount | OpponentDiscard)",
+                ActionResolver.fullDescription(
+                        "select 1 of the 2 following actions. \"" + KURASAME_22_024L_OPTION
+                        + "\"  \"Your opponent discards 1 card for each Ice Backup you control.\"",
+                        null));
+    }
+
+    private static final String WIND_DRAKE_7_061H =
+            "choose 1 Forward. It cannot attack until the end of your opponent's turn.";
+
+    // 7-061H Wind Drake is the attack-only member of the persistent family: the lock outlives the
+    // turn it was applied in, and blocking is never touched.
+    @Test
+    void windDrakeLocksAChosenForwardOutOfAttackingPastThisTurn() {
+        ForwardTarget theirs = new ForwardTarget(false, 0, ForwardTarget.CardZone.FORWARD);
+        GameContext ctx = ctxChoosing(List.of(theirs));
+
+        Consumer<GameContext> fn = ActionResolver.parse(WIND_DRAKE_7_061H, null);
+        assertNotNull(fn);
+        fn.accept(ctx);
+
+        verify(ctx).setP2ForwardCannotAttackPersistent(0);
+        verify(ctx, never()).setP2ForwardCannotAttack(anyInt());
+        // The or-block sibling is the only way to reach the block half of the persistent pair.
+        verify(ctx, never()).setP2ForwardCannotAttackOrBlockPersistent(anyInt());
+        verify(ctx, never()).setP2ForwardCannotBlock(anyInt());
+    }
+
+    // The three attack-lock durations stay apart: "this turn", "until the end of your opponent's
+    // turn", and the or-block form that prints the same duration.
+    @Test
+    void theAttackLockDurationsStayApart() {
+        assertEquals("ChooseCharacter / CannotAttackPersistent",
+                ActionResolver.fullDescription(WIND_DRAKE_7_061H, null));
+        assertEquals("ChooseCharacter / CannotAttack",
+                ActionResolver.fullDescription("choose 1 Forward. It cannot attack this turn.", null));
+        assertEquals("ChooseCharacter / CannotAttackOrBlockPersistent",
+                ActionResolver.fullDescription(
+                        "choose 1 Forward. It cannot attack or block until the end of your "
+                        + "opponent's turn.", null));
+    }
+
     @Test
     void zidaneSearchesTwoCategoryNineForwardsWithDifferentNames() {
         GameContext ctx = mock(GameContext.class);

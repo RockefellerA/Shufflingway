@@ -4038,6 +4038,20 @@ public interface GameContext {
     void setP2ForwardMustAttack(int idx);
 
     /**
+     * Prevents P1's forward at {@code idx} from attacking until the end of P1's turn (survives
+     * P2's end-phase clearing, cleared at P1's end phase) — 7-061H Wind Drake. Blocking is left
+     * alone, which is the whole difference from
+     * {@link #setP1ForwardCannotAttackOrBlockPersistent}.
+     */
+    void setP1ForwardCannotAttackPersistent(int idx);
+
+    /**
+     * Prevents P2's forward at {@code idx} from attacking until the end of P2's turn (survives
+     * P1's end-phase clearing, cleared at P2's end phase) — 7-061H Wind Drake.
+     */
+    void setP2ForwardCannotAttackPersistent(int idx);
+
+    /**
      * Prevents P1's forward at {@code idx} from attacking or blocking until the end of P1's turn
      * (survives P2's end-phase clearing, cleared at P1's end phase).
      */

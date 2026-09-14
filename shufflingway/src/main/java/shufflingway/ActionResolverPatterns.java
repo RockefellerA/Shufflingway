@@ -3356,6 +3356,23 @@ final class ActionResolverPatterns {
         ")\\.?"
     );
     /**
+     * Matches "it/they cannot attack until the end of your opponent's / the next turn", and the
+     * quoted-grant wording that says the same thing — 7-061H Wind Drake.
+     *
+     * <p>The attack-only sibling of {@link #FOLLOWUP_CANNOT_ATTACK_OR_BLOCK_PERSISTENT}, and it
+     * stands apart from {@link #FOLLOWUP_CANNOT_ATTACK} for the reason that one stands apart from
+     * the one-turn or-block form: the duration is the whole difference, and the shorter pattern
+     * pins itself to "this turn" so neither can claim the other under {@code find()}.
+     */
+    static final Pattern FOLLOWUP_CANNOT_ATTACK_PERSISTENT = Pattern.compile(
+        "(?i)(?:it|they)\\s+(?:" +
+            "cannot\\s+attack\\s+until\\s+the\\s+end\\s+of\\s+" +
+                "(?:your\\s+opponent's|the\\s+next)\\s+turn" +
+            "|gains?\\s+\"This\\s+(?:Forward|Character|Backup|Monster)\\s+cannot\\s+attack\\.\"\\s+until\\s+the\\s+end\\s+of\\s+" +
+                "(?:your\\s+opponent's|the\\s+next)\\s+turn" +
+        ")\\.?"
+    );
+    /**
      * Gestahlian Empire Cid 11-026H's followup: "Select 1 Counter placed on it, and place 1
      * additional Counter of the same type as the selected Counter on that Monster."
      *
@@ -8712,13 +8729,17 @@ final class ActionResolverPatterns {
      * Group {@code targetType} — card type to choose (Forward/Character/etc.).
      * Group {@code targetSide} — "opponent controls" if targeting the opponent's cards; null = self.
      * Group {@code countSrc} — job-bracket, "Category X Type", "Job X", or plain card-type count source.
-     * Group {@code followup} — effect to apply (Dull/Activate/Freeze).
+     * Group {@code countElement} — optional Element filter on the count source ("the Ice Backups
+     * you control", 22-024L Kurasame); null = count every Element. Only meaningful in front of a
+     * plain card-type {@code countSrc}, which is the only shape the printed corpus qualifies.
+     * Group {@code followup} — effect to apply (Dull/Activate/Freeze/Dull-and-Freeze).
      */
     static final Pattern CHOOSE_AS_MANY_AS_FIELD_COUNT = Pattern.compile(
         "(?i)^Choose\\s+(?:as\\s+many|up\\s+to\\s+the\\s+same\\s+number\\s+of)\\s+" +
         "(?<targetType>Forwards?|Characters?|Backups?|Monsters?)(?:\\s+Cards?)?\\s+" +
         "(?:(?<targetSide>(?:your\\s+)?opponent\\s+controls|you\\s+control)\\s+)?" +
         "as\\s+(?:the\\s+)?" +
+        "(?:(?<countElement>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)\\s+)?" +
         "(?<countSrc>\\[Job\\s*\\([^)]+\\)\\]|Category\\s+\\S+(?:\\s+(?:Forwards?|Characters?|Backups?|Monsters?))?|Job\\s+.+?(?=\\s+you\\s+control)|Forwards?|Backups?|Monsters?|Characters?)" +
         "\\s+you\\s+control[,.]?\\s+" +
         "(?<followup>.+)$"

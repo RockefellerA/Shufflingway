@@ -3015,6 +3015,7 @@ public class ActionResolver {
         if (FOLLOWUP_MUST_BLOCK_NAMED_INLINE.matcher(followupText).find())            return "MustBlockNamed";
         if (FOLLOWUP_MUST_BLOCK.matcher(followupText).find())                         return "MustBlock";
         if (FOLLOWUP_CANNOT_ATTACK.matcher(followupText).find())                      return "CannotAttack";
+        if (FOLLOWUP_CANNOT_ATTACK_PERSISTENT.matcher(followupText).find())            return "CannotAttackPersistent";
         // Mirrors the choose chain: the compound grant is read before the plain compulsion.
         if (FOLLOWUP_GAINS_QUOTED_EOT_AND_SELF_POWER_BOOST.matcher(followupText.trim()).matches())
             return "GainsQuotedEotAndSelfPowerBoost";
