@@ -144,13 +144,41 @@ final class ActionResolverGate {
         };
     }
 
+    /**
+     * Splits "if you control &lt;condition&gt;, &lt;effect&gt;" into its two halves, or {@code null}
+     * when the text is not one.
+     *
+     * <p>Shared by the parser and the description so the two cannot disagree about where the
+     * condition ends. The split is not simply the pattern's own groups: a condition that is a
+     * comma-separated Card Name list contains the very character the pattern splits on, so any
+     * such items left stranded at the head of the effect are walked back onto the condition. See
+     * {@link ActionResolverPatterns#CONTROL_GATE_NAMED_LIST_ITEM} for why this is done by absorbing
+     * named items rather than by making the group greedy.
+     *
+     * @return {@code {condition, effect}}, or {@code null}
+     */
+    static String[] splitControlGate(String text) {
+        Matcher m = CONTROL_CONDITION_GATE.matcher(text.trim());
+        if (!m.matches()) return null;
+        StringBuilder cond = new StringBuilder(m.group("cond").trim());
+        String effect = m.group("effect").trim();
+        for (Matcher item = CONTROL_GATE_NAMED_LIST_ITEM.matcher(effect);
+                item.lookingAt();
+                item = CONTROL_GATE_NAMED_LIST_ITEM.matcher(effect)) {
+            cond.append(", ").append(item.group("item").trim());
+            effect = effect.substring(item.end()).trim();
+        }
+        return new String[] { cond.toString(), effect };
+    }
+
     static Consumer<GameContext> tryParseControlConditionGate(String text, CardData source, int xValue) {
         Matcher m = CONTROL_CONDITION_GATE.matcher(text.trim());
         if (!m.matches()) return null;
-        ControlCondition cc = CardData.parseControlCondition(m.group("cond").trim());
+        String[] halves = splitControlGate(text);
+        ControlCondition cc = CardData.parseControlCondition(halves[0]);
         if (cc == null) return null;
         boolean negated = m.group("neg") != null;
-        Consumer<GameContext> inner = parse(m.group("effect").trim(), source, xValue);
+        Consumer<GameContext> inner = parse(halves[1], source, xValue);
         if (inner == null) return null;
         return ctx -> {
             if (ctx.controlConditionMet(cc) != negated) {

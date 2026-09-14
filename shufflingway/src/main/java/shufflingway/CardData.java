@@ -2876,16 +2876,25 @@ public record CardData(
     );
 
     /**
-     * Named-card mode: "Card Name X [<conj> [a] Card Name Y [<conj> [a] Card Name Z]]"
-     * where {@code conj} is {@code and} (AND semantics) or {@code or} (OR semantics).
-     * The optional "a" article is allowed before each name (including subsequent ones).
-     * Mixing conjunctions ("Card Name X and Card Name Y or Card Name Z") is parsed but
-     * treated as homogeneous — the {@code conj1} group's value wins.
+     * Named-card mode: "Card Name X [<sep> [a] Card Name Y [<sep> [a] Card Name Z]]"
+     * where {@code sep} is a comma, a conjunction, or both. {@code and} gives AND semantics and
+     * {@code or} gives OR; the optional "a" article is allowed before each name.
+     *
+     * <p>The comma form is the three-name list — "a Card Name Noctis Forward, Card Name Ignis
+     * Forward, and Card Name Gladiolus Forward" (27-068R Prompto, and eight others). Without it the
+     * separator had to be a bare conjunction, so the middle comma was swallowed into {@code n1} and
+     * the condition asked for a card named "Noctis Forward, Card Name Ignis Forward" — a name no
+     * card has. Splitting only ever happens at a literal "Card Name", so an epithet holding a comma
+     * ("Leviathan, Lord of the Whorl") is not at risk.
+     *
+     * <p>Either conjunction group may carry the word, since an Oxford list prints it only on the
+     * last separator; a single "or" anywhere makes the whole list OR, which is how these are
+     * printed.
      */
     private static final Pattern CONTROL_NAMED_CARDS_PATTERN = Pattern.compile(
         "(?i)(?:a\\s+)?Card\\s+Name\\s+(?<n1>.+?)" +
-        "(?:\\s+(?<conj1>and|or)\\s+(?:a\\s+)?Card\\s+Name\\s+(?<n2>.+?))?" +
-        "(?:\\s+(?:and|or)\\s+(?:a\\s+)?Card\\s+Name\\s+(?<n3>.+?))?" +
+        "(?:(?:\\s*,\\s*|\\s+)(?:(?<conj1>and|or)\\s+)?(?:a\\s+)?Card\\s+Name\\s+(?<n2>.+?))?" +
+        "(?:(?:\\s*,\\s*|\\s+)(?:(?<conj2>and|or)\\s+)?(?:a\\s+)?Card\\s+Name\\s+(?<n3>.+?))?" +
         "\\s*$"
     );
 
@@ -8885,7 +8894,10 @@ public record CardData(
             if (namedM.group("n1") != null) names.add(stripTrailingType(namedM.group("n1")));
             if (namedM.group("n2") != null) names.add(stripTrailingType(namedM.group("n2")));
             if (namedM.group("n3") != null) names.add(stripTrailingType(namedM.group("n3")));
-            boolean anyOf = "or".equalsIgnoreCase(namedM.group("conj1"));
+            // An Oxford list prints its conjunction only on the last separator, so either group may
+            // be the one carrying it.
+            boolean anyOf = "or".equalsIgnoreCase(namedM.group("conj1"))
+                    || "or".equalsIgnoreCase(namedM.group("conj2"));
             return new ControlCondition(names, 0, false, null, null, null, null, 0, List.of(), anyOf);
         }
 

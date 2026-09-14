@@ -6585,6 +6585,17 @@ final class ActionResolverChoose {
         String  followup  = m.group("followup").trim();
         int     costVal   = m.group("cost") != null ? Integer.parseInt(m.group("cost")) : -1;
         String  costCmp   = m.group("costcmp") != null ? m.group("costcmp").toLowerCase() : null;
+        // The superlative is resolved per-arm at execution time rather than here, because unlike
+        // selectTargets — which knows the sentinel and resolves it itself — the select path below
+        // goes through eligibleCharacters, where meetsCostConstraint short-circuits to true on a
+        // negative cost. An unresolved sentinel reaching that filter would offer the opponent every
+        // Forward they control instead of only their dearest.
+        final boolean highestCost = m.group("highest") != null;
+        // Only the put-to-Break-Zone arm below resolves it. Declining anywhere else is what keeps a
+        // future printing from reaching an arm that would hand the sentinel straight to the filter
+        // and let the opponent give up whichever Forward they liked.
+        if (highestCost && !FOLLOWUP_PUT_TO_BREAK_ZONE.matcher(m.group("followup").trim()).find())
+            return null;
         // "other than Light or Dark" (16-129L Chaos) — carried into the selection, not applied to
         // its result: the opponent must not be offered a Forward the card puts out of reach.
         String  excludeElem = m.group("excludeelem") != null ? m.group("excludeelem").trim() : null;
@@ -6625,7 +6636,14 @@ final class ActionResolverChoose {
         // replaces filtered to P2's side alone, so whenever the AI controlled one of these — its
         // opponent being P1 — the selection was made and then dropped, and the ability did nothing
         // at all.
-        if (FOLLOWUP_PUT_TO_BREAK_ZONE.matcher(followup).find()) {
+        Matcher putM = FOLLOWUP_PUT_TO_BREAK_ZONE.matcher(followup);
+        if (putM.find()) {
+            // "Put it into the Break Zone. Draw 1 card." — the put matches with find(), so anything
+            // after it was discarded. 27-068R Prompto's draw is the only such tail in the corpus.
+            // Left to run after the put rather than gating on it: if the tail cannot be read the
+            // ability still does the removal, which is weaker than printed rather than stronger.
+            String tailText = followup.substring(putM.end()).replaceFirst("^[.!\\s]+", "").trim();
+            final Consumer<GameContext> tail = tailText.isEmpty() ? null : parse(tailText, null);
             return ctx -> {
                 int n = perDamage > 0 ? baseCount * (ctx.selfDamageCount() / perDamage) : baseCount;
                 ctx.logEntry(prefix + " — Force to Break Zone"
@@ -6633,11 +6651,21 @@ final class ActionResolverChoose {
                 // Below the first whole unit of the rate there is nothing to select, and asking for
                 // none would put an empty picker in front of the player.
                 if (n <= 0) return;
+                int    cv = costVal;
+                String cc = costCmp;
+                if (highestCost) {
+                    cv = ctx.highestFieldCost(true, false, inclForwards, inclBackups, inclMonsters);
+                    cc = null;
+                    // No cards on their side means no highest cost among them, and a negative value
+                    // would wave every filter through.
+                    if (cv < 0) return;
+                }
                 List<ForwardTarget> ts = ctx.opponentSelectsOwnCharacters(n, asMany,
-                        condition, element, excludeElem, costVal, costCmp,
+                        condition, element, excludeElem, cv, cc,
                         inclForwards, inclBackups, inclMonsters, what);
                 sortedByIdxDesc(ts, true) .forEach(ctx::forceTargetToBreakZone);
                 sortedByIdxDesc(ts, false).forEach(ctx::forceTargetToBreakZone);
+                if (tail != null) tail.accept(ctx);
             };
         }
 

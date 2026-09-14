@@ -56470,4 +56470,78 @@ public class CardBehaviorTest {
 
 	// =========================================================================================
 
+	// =========================================================================================
+	// Effect wiring — 27-068R Prompto: "At the beginning of the Attack Phase during each of your
+	// turns, if you control a Card Name Noctis Forward, Card Name Ignis Forward, and Card Name
+	// Gladiolus Forward, your opponent selects 1 Forward of the highest cost they control. Put it
+	// into the Break Zone. Draw 1 card."
+	//
+	// Four separate failures, wrong in both directions at once. It fired on a Noctis alone, and
+	// then did nothing but draw a card:
+	//
+	//   * the gate's condition group is reluctant and stopped at the first comma, so the condition
+	//     read "a Card Name Noctis Forward" — a third of what the card demands;
+	//   * CONTROL_NAMED_CARDS_PATTERN separated names on a bare conjunction, so even given the
+	//     whole list it made a name of "Noctis Forward, Card Name Ignis Forward";
+	//   * OPPONENT_SELECTS_PATTERN had no arm for a superlative cost, so the selection sentence did
+	//     not match at all and the compound fallback kept only the trailing draw;
+	//   * the put-to-Break-Zone followup matches with find(), so the draw after it was discarded.
+	// =========================================================================================
+
+	private static final String PROMPTO_27_068R =
+			"if you control a Card Name Noctis Forward, Card Name Ignis Forward, and Card Name "
+			+ "Gladiolus Forward, your opponent selects 1 Forward of the highest cost they control. "
+			+ "Put it into the Break Zone. Draw 1 card.";
+
+	/** Calls made with every boolean query answered {@code answer}. */
+	private static List<String> callsWithBooleans(String text, boolean answer) {
+		GameContext ctx = mock(GameContext.class, inv ->
+				inv.getMethod().getReturnType() == boolean.class
+						? Boolean.valueOf(answer)
+						: Answers.RETURNS_DEFAULTS.answer(inv));
+		when(ctx.highestFieldCost(anyBoolean(), anyBoolean(), anyBoolean(), anyBoolean(), anyBoolean()))
+				.thenReturn(7);
+		ActionResolver.parse(text, null).accept(ctx);
+		return mockingDetails(ctx).getInvocations().stream()
+				.map(i -> i.getMethod().getName())
+				.filter(n -> !n.equals("logEntry") && !n.equals("logChooseHeader"))
+				.toList();
+	}
+
+	@Test
+	void promptoAsksForAllThreeNamesNotJustNoctis() {
+		ControlCondition cc = CardData.parseControlCondition(
+				"a Card Name Noctis Forward, Card Name Ignis Forward, and Card Name Gladiolus Forward");
+		assertNotNull(cc);
+		assertEquals(List.of("Noctis", "Ignis", "Gladiolus"), cc.requiredCardNames(),
+				"all three names, with the \"Forward\" suffix stripped from each");
+		assertFalse(cc.anyOf(), "\"and\" is every one of them, not any of them");
+	}
+
+	@Test
+	void promptoDoesNothingAtAllWhileTheConditionIsUnmet() {
+		// Asking the question is the gate doing its job; doing anything about the answer is not.
+		assertEquals(List.of("controlConditionMet"), callsWithBooleans(PROMPTO_27_068R, false),
+				"the draw is inside the gate, not beside it");
+	}
+
+	@Test
+	void promptoTakesTheirDearestForwardAndThenDraws() {
+		List<String> calls = callsWithBooleans(PROMPTO_27_068R, true);
+		assertTrue(calls.contains("opponentSelectsOwnCharacters"), "the opponent makes the choice");
+		assertTrue(calls.contains("drawCards"), "and the draw after the put is no longer discarded");
+		assertTrue(calls.indexOf("opponentSelectsOwnCharacters") < calls.indexOf("drawCards"),
+				"in printed order");
+	}
+
+	/** The superlative is read at resolution time — the dearest card is not knowable at parse. */
+	@Test
+	void theHighestCostFilterIsResolvedAgainstTheBoard() {
+		List<String> calls = callsWithBooleans(PROMPTO_27_068R, true);
+		assertTrue(calls.contains("highestFieldCost"),
+				"an unresolved sentinel would wave every Forward they control through the filter");
+	}
+
+	// =========================================================================================
+
 }

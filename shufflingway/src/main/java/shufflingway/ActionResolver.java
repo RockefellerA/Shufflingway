@@ -1978,6 +1978,13 @@ public class ActionResolver {
         String[] sentences = SENTENCE_BREAK.split(core.trim());
         if (sentences.length < 2) return null;
 
+        // A leading condition governs the whole ability, not just the sentence it shares a comma
+        // with. Composing sentences independently lifts every later one out of that gate: 27-068R
+        // Prompto's "if you control <three Forwards>, your opponent selects … Put it into the Break
+        // Zone. Draw 1 card." drew the card whether or not the condition held — and the draw is the
+        // half that costs the opponent nothing to ignore, so it was the easy half to not notice.
+        if (LEADING_CONDITION_SENTENCE.matcher(sentences[0].trim()).lookingAt()) return null;
+
         List<String> out = new ArrayList<>();
         for (int i = 0; i < sentences.length; i++) {
             String s = sentences[i].trim();
@@ -3422,13 +3429,16 @@ public class ActionResolver {
         if (tryParseControlConditionGate(effectText, source, 0)        != null) {
             Matcher ccg = CONTROL_CONDITION_GATE.matcher(effectText.trim());
             if (!ccg.matches()) return "ControlConditionGate";
-            String innerTxt  = ccg.group("effect").trim();
+            // Through the shared splitter, so the description names the same condition the parser
+            // gated on rather than the first comma-delimited slice of it.
+            String[] halves  = splitControlGate(effectText);
+            String innerTxt  = halves[1];
             String innerDesc = fullDescription(innerTxt, source);
             if (innerDesc == null) innerDesc = matchedPatternName(innerTxt, source);
             // Plain ASCII separator: "?" is this report's marker for an undescribed layer, and a
             // "→" degrades to "?" on a cp1252 console, which would read as exactly that.
             return "IfControl(" + (ccg.group("neg") != null ? "not " : "")
-                    + CardData.parseControlCondition(ccg.group("cond").trim())
+                    + CardData.parseControlCondition(halves[0])
                     + ": " + (innerDesc != null ? innerDesc : "?") + ")";
         }
         if (tryParseIfOppControlsNOrMoreCondTypeGate(effectText, source, 0) != null) return "IfOppControlsNOrMoreCondTypeDraw";

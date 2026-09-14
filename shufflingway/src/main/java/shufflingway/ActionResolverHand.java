@@ -276,6 +276,11 @@ final class ActionResolverHand {
 
         String head = m.group("head").trim();
         if (head.isEmpty()) return null;
+        // A head that opens with a condition governs the draw too, so splitting the draw off the
+        // end takes it out of the gate: 27-068R Prompto drew a card at the beginning of every
+        // Attack Phase whether or not he controlled the three Forwards his ability names. The
+        // whole text is left to the gate parsers, which read the draw as part of what they gate.
+        if (LEADING_CONDITION_SENTENCE.matcher(head).lookingAt()) return null;
 
         Consumer<GameContext> headEffect = parse(head, source, xValue);
         if (headEffect == null) return null;

@@ -5916,7 +5916,12 @@ final class ActionResolverPatterns {
         "(?:(?<condition>dull|damaged|attacking|blocking|active)\\s+)?" +
         "(?:(?<element>Fire|Ice|Wind|Earth|Lightning|Water|Light|Dark)\\s+)?" +
         "(?<targets>(?:Forwards?|Backups?|Characters?|Monsters?)(?:\\s+(?:and/or|or|and)\\s+(?:Forwards?|Backups?|Characters?|Monsters?))?)" +
-        "(?:\\s+of\\s+cost\\s+(?<cost>\\d+)\\s+or\\s+(?<costcmp>less|more))?" +
+        // "of the highest cost they control" — 27-068R Prompto, the only printing here that names a
+        // superlative rather than a number. The ceiling is not on the card; it is whatever is
+        // dearest on their board when this resolves, so it is carried as the
+        // COST_SUPERLATIVE_HIGHEST sentinel and read at resolution time.
+        "(?:\\s+of\\s+(?:cost\\s+(?<cost>\\d+)\\s+or\\s+(?<costcmp>less|more)" +
+            "|the\\s+(?<highest>highest)\\s+cost))?" +
         // "other than Light or Dark" — 16-129L Chaos, the only printing in this family to exclude
         // an Element. It narrows what the opponent may offer rather than what the effect then does,
         // so it has to reach the selection: filtering the picks afterwards would let them hand over
@@ -10474,6 +10479,41 @@ final class ActionResolverPatterns {
         "(?is)^if\\s+you\\s+control\\s+(?<basecount>\\d+)\\s+or\\s+more\\s+(?<noun>[^,]+?),\\s+" +
         "(?<base>.+?)[.!]\\s+If\\s+you\\s+control\\s+(?<upcount>\\d+)\\s+or\\s+more,\\s+" +
         "(?<upgrade>.+?)\\s+instead[.!]?\\s*$"
+    );
+
+    /**
+     * An opening "If &lt;condition&gt;," that governs everything after it, not merely the clause it
+     * shares a comma with.
+     *
+     * <p>Read by {@code independentSentencesOf} to refuse composition. Splitting such an ability
+     * into independent sentences lifts every sentence after the first clean out of the gate —
+     * 27-068R Prompto drew a card at the beginning of every Attack Phase regardless of whether he
+     * controlled the three Forwards his ability demands.
+     *
+     * <p>Anchored with {@code lookingAt()} at the first sentence only. A conditional appearing
+     * later is qualifying its own clause and says nothing about the sentences around it.
+     */
+    static final Pattern LEADING_CONDITION_SENTENCE = Pattern.compile(
+        "(?i)^If\\s+(?:you|your\\s+opponent|it|they|there)\\b"
+    );
+
+    /**
+     * One more "[and ]Card Name X," item at the head of what a control gate took for its effect.
+     *
+     * <p>{@link #CONTROL_CONDITION_GATE}'s condition group is reluctant and stops at the first
+     * comma, which is the wrong comma when the condition is itself a list — 27-068R Prompto's "if
+     * you control a Card Name Noctis Forward, Card Name Ignis Forward, and Card Name Gladiolus
+     * Forward, …" asked only for a Noctis, firing on a third of what the card demands.
+     *
+     * <p>Read by {@code ActionResolverGate.splitControlGate}, which walks these off the front of
+     * the effect and back onto the condition. Deliberately narrow: only a literal "Card Name" item
+     * is absorbed, so an ordinary "if you control X, do A, then do B" keeps the first comma as its
+     * split. Making the group greedy instead would have taken the last comma in the sentence, and
+     * the count-mode condition parser matches with {@code find()} — it would happily have read "a
+     * Forward" out of the head of "a Forward, draw 1 card" and called that the condition.
+     */
+    static final Pattern CONTROL_GATE_NAMED_LIST_ITEM = Pattern.compile(
+        "(?i)^(?:and\\s+)?(?<item>(?:an?\\s+)?Card\\s+Name\\s+[^,]+?),\\s+"
     );
 
     /** Matches a leading "If you [do not] control &lt;condition&gt;, &lt;effect&gt;" gate. */
