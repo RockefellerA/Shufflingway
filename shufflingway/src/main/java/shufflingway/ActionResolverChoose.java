@@ -5573,11 +5573,15 @@ final class ActionResolverChoose {
             };
         }
 
-        // --- "Until…, it gains +N power for each point of damage you have received." ---
+        // --- "it gains +N power for each point of damage you have received", either word order ---
         // Must be checked before FOLLOWUP_POWER_BOOST_UNTIL, which matches on the +N and drops the for-each.
         Matcher boostUntilSelfDmgM = FOLLOWUP_POWER_BOOST_UNTIL_FOR_EACH_SELF_DMG.matcher(primaryFollowup);
         if (boostUntilSelfDmgM.find()) {
-            int perUnit = Integer.parseInt(boostUntilSelfDmgM.group("perunit"));
+            // The trailing-duration arm carries no keywords, so its traits group is absent and
+            // parseTraits answers the empty set for it.
+            String selfDmgPerUnit = boostUntilSelfDmgM.group("perunit") != null
+                    ? boostUntilSelfDmgM.group("perunit") : boostUntilSelfDmgM.group("perunit2");
+            int perUnit = Integer.parseInt(selfDmgPerUnit);
             EnumSet<CardData.Trait> dmgTraits = parseTraits(boostUntilSelfDmgM.group("traits"));
             String dmgTraitStr = dmgTraits.isEmpty() ? "" : " and " + traitNamesOnly(dmgTraits);
             return ctx -> {

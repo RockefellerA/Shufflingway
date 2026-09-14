@@ -10903,6 +10903,60 @@ public class CardBehaviorTest {
                         + "until the end of your opponent's turn.", null));
     }
 
+    private static final String DARK_KNIGHT_4_074C =
+            "choose 1 Forward you control. It gains +1000 power for each point of damage you have "
+            + "received until the end of the turn.";
+
+    // 4-074C Dark Knight prints the trailing-duration order of a followup the resolver only knew
+    // in the leading order — 16-064C is the same character printed the other way round, and read
+    // fine. The boost scales off the ability user's own damage, not P1's.
+    @Test
+    void darkKnightScalesTheBoostOffDamageReceivedInTheTrailingWordOrder() {
+        ForwardTarget mine = new ForwardTarget(true, 0, ForwardTarget.CardZone.FORWARD);
+        GameContext ctx = ctxChoosing(List.of(mine));
+        when(ctx.selfDamageCount()).thenReturn(4);
+
+        Consumer<GameContext> fn = ActionResolver.parse(DARK_KNIGHT_4_074C, null);
+        assertNotNull(fn);
+        fn.accept(ctx);
+
+        verify(ctx).boostTarget(mine, 4000, EnumSet.noneOf(CardData.Trait.class));
+    }
+
+    // Both word orders are one reading, and the leading one keeps the keywords it can carry.
+    @Test
+    void bothWordOrdersOfTheDamageScaledBoostAreNamedTheSame() {
+        assertEquals("ChooseCharacter / PowerBoostUntilForEachSelfDmg",
+                ActionResolver.fullDescription(DARK_KNIGHT_4_074C, null));
+        assertEquals("ChooseCharacter / PowerBoostUntilForEachSelfDmg",
+                ActionResolver.fullDescription(
+                        "Choose 1 Forward. Until the end of the turn, it gains +1000 power for "
+                        + "each point of damage you have received.", null));
+    }
+
+    // 10-075C Warrior pairs the leading order with a keyword, which the trailing arm must not
+    // disturb: the traits group belongs to the leading arm alone.
+    @Test
+    void theLeadingOrderStillGrantsItsKeywordAlongsideTheBoost() {
+        ForwardTarget mine = new ForwardTarget(true, 0, ForwardTarget.CardZone.FORWARD);
+        GameContext ctx = ctxChoosing(List.of(mine));
+        when(ctx.selfDamageCount()).thenReturn(2);
+
+        ActionResolver.parse("Choose 1 Forward. Until the end of the turn, it gains Brave and it "
+                + "gains +1000 power for each point of damage you have received.", null).accept(ctx);
+
+        verify(ctx).boostTarget(mine, 2000, EnumSet.of(CardData.Trait.BRAVE));
+    }
+
+    // The plain trailing boost is a different followup and keeps its own reading — it needs
+    // "until" directly after the power clause, which is what stops it claiming the scaled form.
+    @Test
+    void thePlainTrailingBoostIsUnaffected() {
+        assertEquals("ChooseCharacter / PowerBoost",
+                ActionResolver.fullDescription(
+                        "choose 1 Forward. It gains +1000 power until the end of the turn.", null));
+    }
+
     /** The modifier a "During this turn, … is reduced by N" sentence hands the engine. */
     private static CostReductionModifier nextCastReduction(String text) {
         GameContext ctx = mock(GameContext.class);

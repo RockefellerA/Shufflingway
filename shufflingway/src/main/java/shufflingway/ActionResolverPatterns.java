@@ -7225,11 +7225,19 @@ final class ActionResolverPatterns {
         ")[.!]?"
     );
     /**
-     * Matches "Until the end of the turn, it gains [Keywords and] +N power for each point of damage
-     * you have received."
+     * Matches either word order of the "gains +N power for each point of damage you have received"
+     * followup:
+     * <ul>
+     *   <li>"Until the end of the turn, it gains [Keywords and] +N power for each point of damage
+     *       you have received." — 16-064C Dark Knight, 10-075C Warrior</li>
+     *   <li>"It gains +N power for each point of damage you have received until the end of the
+     *       turn." — 4-074C Dark Knight, the same character printed the other way round</li>
+     * </ul>
      * <ul>
      *   <li>Group {@code traits}  — keywords granted alongside the boost; empty when none</li>
-     *   <li>Group {@code perunit} — per-damage power amount</li>
+     *   <li>Group {@code perunit} / {@code perunit2} — per-damage power amount; the
+     *       {@code 2}-suffixed group belongs to the trailing-duration order, because a named group
+     *       may not repeat across alternatives</li>
      * </ul>
      * Must be checked before {@link #FOLLOWUP_POWER_BOOST_UNTIL}, which would match the +N and drop the rest.
      *
@@ -7239,12 +7247,26 @@ final class ActionResolverPatterns {
      * dropped — 23-058C Dark Knight granted Brave and no power at all, and 10-075C Warrior the
      * same. Warrior repeats the verb ("it gains Brave and it gains +1000 power …"), which is why
      * the separator admits an optional second "it gains".
+     *
+     * <p>The trailing arm takes no keywords, because no printing pairs them with that word order.
+     * One that did would fail to match and read as an unhandled followup, which is the right
+     * failure: {@link #FOLLOWUP_POWER_BOOST} cannot claim either arm — it needs "until" directly
+     * after the power clause, and here "for each …" sits between them — so nothing silently takes
+     * the boost and drops the scaling.
+     *
+     * <p>Kept in step with {@link #FOLLOWUP_POWER_BOOST_UNTIL_FOR_EACH}, which models both orders
+     * of the you-control sibling the same way.
      */
     static final Pattern FOLLOWUP_POWER_BOOST_UNTIL_FOR_EACH_SELF_DMG = Pattern.compile(
-        "(?i)Until\\s+(?:the\\s+)?end\\s+of\\s+(?:the\\s+)?turn\\s*,\\s+" +
-        "(?:it|they)\\s+gains?\\s+" +
-        "(?<traits>(?:(?:Haste|First\\s+Strike|Brave)(?:\\s*,\\s*|\\s+and\\s+)(?:(?:it|they)\\s+gains?\\s+)?)*)" +
-        "\\+(?<perunit>\\d+)\\s+[Pp]ower\\s+for\\s+each\\s+point\\s+of\\s+damage\\s+you\\s+have\\s+received[.!]?"
+        "(?i)(?:" +
+            "Until\\s+(?:the\\s+)?end\\s+of\\s+(?:the\\s+)?turn\\s*,\\s+" +
+            "(?:it|they)\\s+gains?\\s+" +
+            "(?<traits>(?:(?:Haste|First\\s+Strike|Brave)(?:\\s*,\\s*|\\s+and\\s+)(?:(?:it|they)\\s+gains?\\s+)?)*)" +
+            "\\+(?<perunit>\\d+)\\s+[Pp]ower\\s+for\\s+each\\s+point\\s+of\\s+damage\\s+you\\s+have\\s+received" +
+        "|" +
+            "(?:it|they)\\s+gains?\\s+\\+(?<perunit2>\\d+)\\s+[Pp]ower\\s+for\\s+each\\s+point\\s+of\\s+" +
+            "damage\\s+you\\s+have\\s+received\\s+until\\s+(?:the\\s+)?end\\s+of\\s+(?:(?:the|your)\\s+)?turn" +
+        ")[.!]?"
     );
     static final Pattern FOLLOWUP_POWER_BOOST_UNTIL = Pattern.compile(
         "(?i)Until\\s+(?:the\\s+)?end\\s+of\\s+(?:(?:the|your)\\s+)?turn\\s*,\\s+" +
