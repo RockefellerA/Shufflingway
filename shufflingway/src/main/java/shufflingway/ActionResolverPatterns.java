@@ -9437,11 +9437,26 @@ final class ActionResolverPatterns {
      *   <li>{@code element}  — optional element qualifier (e.g. "Wind")</li>
      *   <li>{@code category} — optional Category qualifier (e.g. "XIII")</li>
      *   <li>{@code job}      — optional Job qualifier (e.g. "Knight")</li>
+     *   <li>{@code jobonly}  — a Job with no type word after it, "your next Job SOLDIER" — see
+     *                          below for why it is a separate group and why it is read last</li>
      *   <li>{@code cardname} — specific card name (alternative to {@code type})</li>
      *   <li>{@code type}     — card type: Forward(s)/Backup(s)/Monster(s)/Summon(s)/card</li>
      *   <li>{@code amount}   — numeric reduction</li>
      *   <li>{@code floorone} — present when "(it cannot become 0)" clause is present</li>
      * </ul>
+     *
+     * <p>The type word is optional after a Job, for the reason
+     * {@link #FOLLOWUP_IF_SELF_CONTROLS_N_ELEMENT_TYPE_ACTION} states: Job is a Character
+     * attribute, so absent means Characters. Three printings spell it that way and all three were
+     * this pattern's blind spot — 24-025L Genesis ("Job SOLDIER") and 12-128L Faris ("Job Warrior
+     * of Light") each lost a whole selectable action, and 26-015H Fang's search dropped the
+     * reduction sentence that follows it while still reporting as parsed.
+     *
+     * <p>{@code jobonly} is read <b>last</b> of the three arms, so "Job Knight Forward" and "Job
+     * Warrior or Card Name Warrior" keep their more specific readings, and its Job group is pinned
+     * end to end by a lookahead at " is reduced by &lt;digit&gt;" rather than left to run lazily —
+     * this pattern scans with {@code find()}, and an unpinned tail would take the qualifier out of
+     * the middle of a longer sentence.
      */
     static final Pattern COST_REDUCTION_THIS_TURN = Pattern.compile(
         "(?i)During\\s+this\\s+turn,\\s+the\\s+cost\\s+required\\s+to\\s+cast\\s+your\\s+next\\s+" +
@@ -9452,6 +9467,8 @@ final class ActionResolverPatterns {
             "Job\\s+(?<joborg>.+?)\\s+(?:and/)?or\\s+Card\\s+Name\\s+(?<cnameborg>\\S+)" +
             // Existing: optional job then card-name or type
             "|(?:Job\\s+(?<job>.+?)\\s+)?(?:Card\\s+Name\\s+(?<cardname>\\S+)|(?<type>Forwards?|Backups?|Monsters?|Summons?|card))" +
+            // Job with no type word — last, and pinned to the clause that follows it
+            "|Job\\s+(?<jobonly>.+?)(?=\\s+is\\s+reduced\\s+by\\s+\\d)" +
         ")\\s+" +
         "is\\s+reduced\\s+by\\s+(?<amount>\\d+)" +
         "(?<floorone>\\s*\\(it\\s+cannot\\s+become\\s+0\\))?[.!]?"

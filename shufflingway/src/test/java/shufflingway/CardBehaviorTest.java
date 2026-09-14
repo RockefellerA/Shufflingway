@@ -10903,6 +10903,78 @@ public class CardBehaviorTest {
                         + "until the end of your opponent's turn.", null));
     }
 
+    /** The modifier a "During this turn, … is reduced by N" sentence hands the engine. */
+    private static CostReductionModifier nextCastReduction(String text) {
+        GameContext ctx = mock(GameContext.class);
+        Consumer<GameContext> fn = ActionResolver.parse(text, null);
+        assertNotNull(fn, "did not parse: " + text);
+        fn.accept(ctx);
+        ArgumentCaptor<CostReductionModifier> cap =
+                ArgumentCaptor.forClass(CostReductionModifier.class);
+        verify(ctx).applyNextCastCostReduction(cap.capture());
+        return cap.getValue();
+    }
+
+    // 24-025L Genesis's third selectable action. "Job SOLDIER" prints no type word, and the
+    // pattern required one — so the option read as "?" and the whole action was unavailable.
+    @Test
+    void genesisReducesTheNextSoldierByThreeWithAFloorOfOne() {
+        CostReductionModifier m = nextCastReduction(
+                "During this turn, the cost required to cast your next Job SOLDIER is reduced by 3 "
+                + "(it cannot become 0).");
+
+        assertEquals(3, m.amount());
+        assertTrue(m.floorAtOne());
+        assertTrue(m.consumeOnUse(), "\"your next\" is consumed by the first matching cast");
+        assertEquals("SOLDIER", m.jobFilter());
+        // Job is a Character attribute, so an absent type word means Characters — Summons carry no
+        // Job and are excluded rather than swept in by the "card" default.
+        assertTrue(m.inclForwards() && m.inclBackups() && m.inclMonsters());
+        assertFalse(m.inclSummons());
+        assertNull(m.cardNameFilter());
+        assertFalse(m.jobOrName());
+    }
+
+    // 12-128L Faris shares the gap with a multi-word Job, which is what makes the group's end
+    // have to be pinned rather than left to run lazily.
+    @Test
+    void farisReadsAMultiWordJobWithNoTypeWord() {
+        CostReductionModifier m = nextCastReduction(
+                "During this turn, the cost required to cast your next Job Warrior of Light is "
+                + "reduced by 2 (it cannot become 0).");
+
+        assertEquals(2, m.amount());
+        assertEquals("Warrior of Light", m.jobFilter());
+    }
+
+    // 26-015H Fang is the quiet one: it parsed, reported SearchDeck, and dropped the reduction
+    // sentence entirely. Its own action ability prints a card name instead and always read both.
+    @Test
+    void fangsSearchNoLongerDropsItsReductionSentence() {
+        assertEquals("SearchDeck + CostReductionThisTurn",
+                ActionResolver.fullDescription(
+                        "search for 1 Job L'Cie and add it to your hand. During this turn, the "
+                        + "cost required to cast your next Job L'Cie is reduced by 1.", null));
+    }
+
+    // The job-only arm is read last, so the two more specific readings keep theirs.
+    @Test
+    void theTypedAndOrNamedJobReadingsStillWin() {
+        CostReductionModifier typed = nextCastReduction(
+                "During this turn, the cost required to cast your next Job Knight Forward is "
+                + "reduced by 2 (it cannot become 0).");
+        assertEquals("Knight", typed.jobFilter());
+        assertTrue(typed.inclForwards());
+        assertFalse(typed.inclBackups(), "\"Job Knight Forward\" names a type and keeps it");
+
+        CostReductionModifier orName = nextCastReduction(
+                "During this turn, the cost required to cast your next Job Warrior or Card Name "
+                + "Warrior is reduced by 3.");
+        assertEquals("Warrior", orName.jobFilter());
+        assertEquals("Warrior", orName.cardNameFilter());
+        assertTrue(orName.jobOrName());
+    }
+
     private static final String NINJA_12_083C =
             "choose 1 Forward you control. Return it to its owner's hand. If you do so, you may "
             + "play 1 Forward that costs 1 CP more than it from your hand onto the field.";

@@ -377,7 +377,12 @@ final class ActionResolverCost {
         String jobOrRaw    = m.group("joborg");
         String cnameOrRaw  = m.group("cnameborg");
         boolean jobOrName  = jobOrRaw != null;
-        String jobRaw      = jobOrName ? jobOrRaw    : m.group("job");
+        // "your next Job SOLDIER" prints no type word. Job is a Character attribute, so absent
+        // means Characters — and Summons in particular are excluded rather than swept in by the
+        // "card" default, which is what an unqualified reading would have done.
+        String jobOnlyRaw  = m.group("jobonly");
+        String jobRaw      = jobOrName ? jobOrRaw
+                           : jobOnlyRaw != null ? jobOnlyRaw : m.group("job");
         String cardnameRaw = jobOrName ? cnameOrRaw  : m.group("cardname");
         String typeRaw     = m.group("type");
         int    amount      = Integer.parseInt(m.group("amount"));
@@ -386,6 +391,9 @@ final class ActionResolverCost {
         boolean inclForwards, inclBackups, inclMonsters, inclSummons;
         if (cardnameRaw != null) {
             inclForwards = inclBackups = inclMonsters = inclSummons = true;
+        } else if (jobOnlyRaw != null) {
+            inclForwards = inclBackups = inclMonsters = true;
+            inclSummons  = false;
         } else {
             String t = typeRaw != null ? typeRaw.toLowerCase(java.util.Locale.ROOT) : "card";
             inclForwards = t.matches("forwards?|characters?|card");
@@ -400,7 +408,8 @@ final class ActionResolverCost {
         final String cardname = cardnameRaw != null ? cardnameRaw.trim() : null;
         final String typeDesc = jobOrName   ? "or Card Name " + cardname
                               : cardname    != null ? "Card Name " + cardname
-                              : typeRaw     != null ? typeRaw : "card";
+                              : typeRaw     != null ? typeRaw
+                              : jobOnlyRaw  != null ? "Character" : "card";
 
         CostReductionModifier modifier = new CostReductionModifier(
                 amount, floorAtOne, true,
