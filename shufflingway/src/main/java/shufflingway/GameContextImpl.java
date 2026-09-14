@@ -4977,10 +4977,30 @@ final class GameContextImpl implements GameContext {
 			}
 
 			@Override public void selectControlledTypeAndBreak(boolean inclForwards, boolean inclBackups, boolean inclMonsters) {
+				ForwardTarget pick = pickOwnCharacterToLose(inclForwards, inclBackups, inclMonsters,
+						"Select 1 Character you control to put into the Break Zone");
+				if (pick != null) forceTargetToBreakZone(pick);
+			}
+
+			@Override public void selectControlledTypeAndBreakRespectingProtection(
+					boolean inclForwards, boolean inclBackups, boolean inclMonsters) {
+				ForwardTarget pick = pickOwnCharacterToLose(inclForwards, inclBackups, inclMonsters,
+						"Select 1 Character you control to break");
+				if (pick != null) breakTarget(pick);
+			}
+
+			/**
+			 * The selection the two methods above share: eligible cards, the AI's preference
+			 * order, the prompt, and the log line naming what was picked. Only what happens to the
+			 * pick differs, and that difference is the point — see
+			 * {@link GameContext#selectControlledTypeAndBreakRespectingProtection}.
+			 */
+			private ForwardTarget pickOwnCharacterToLose(boolean inclForwards, boolean inclBackups,
+					boolean inclMonsters, String prompt) {
 				List<ForwardTarget> eligible = ownCharacters(isP1, inclForwards, inclBackups, inclMonsters);
 				if (eligible.isEmpty()) {
 					logEntry((isP1 ? "P1" : "[P2]") + " has no eligible characters — skipping");
-					return;
+					return null;
 				}
 
 				// The AI works down the same preference order it always has: cheapest Forward
@@ -4996,14 +5016,11 @@ final class GameContextImpl implements GameContext {
 					return null;
 				};
 
-				ForwardTarget pick = mw.selectOwnFieldTarget(isP1, eligible,
-						"Select 1 Character you control to put into the Break Zone",
+				ForwardTarget pick = mw.selectOwnFieldTarget(isP1, eligible, prompt,
 						"Waiting for your opponent to select a Character to break...",
 						cpuPick);
-				if (pick != null) {
-					logSelectedOwnCard(isP1, pick);
-					forceTargetToBreakZone(pick);
-				}
+				if (pick != null) logSelectedOwnCard(isP1, pick);
+				return pick;
 			}
 
 			@Override

@@ -660,6 +660,19 @@ public interface GameContext {
     void selectControlledTypeAndBreak(boolean inclForwards, boolean inclBackups, boolean inclMonsters);
 
     /**
+     * The same selection as {@link #selectControlledTypeAndBreak}, but the card is <em>broken</em>
+     * rather than forced into the Break Zone — so a "cannot be broken" protection stops it.
+     *
+     * <p>Which of the two a card wants is decided by the verb it prints, and the distinction is
+     * not cosmetic. "Put it into the Break Zone" (10-004H Caius and its siblings) is not a break
+     * and no break protection answers it; "Break it" (13-111C Delita) is one and every such
+     * protection does. Kept as a separate method rather than a flag on the existing one so no
+     * caller silently changes meaning.
+     */
+    void selectControlledTypeAndBreakRespectingProtection(boolean inclForwards, boolean inclBackups,
+            boolean inclMonsters);
+
+    /**
      * 14-098R Ultimecia: the ability user puts one of their own Forwards into the Break Zone, then
      * chooses a Forward anywhere on the field costing exactly what the one they gave up cost, and
      * gains control of it permanently.

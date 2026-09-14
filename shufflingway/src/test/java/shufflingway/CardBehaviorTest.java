@@ -10973,6 +10973,58 @@ public class CardBehaviorTest {
                 anyBoolean(), any(), any(), any(), any(), anyBoolean(), any(), anyBoolean());
     }
 
+    private static final String QUISTIS_22_022R =
+            "choose up to the same number of Characters as the Category VIII Forwards you control. "
+            + "Dull them. If you control 3 or more Category VIII Forwards, also Freeze them.";
+
+    // 22-022R Quistis parsed before this, and dropped its whole third sentence: the primary verb
+    // read scanned the entire followup with find(), so the gated Freeze never ran and nothing in
+    // the repo could see it was missing.
+    @Test
+    void quistisFreezesOnTopOfTheDullWhenTheGateHolds() {
+        ForwardTarget theirs = new ForwardTarget(false, 0, ForwardTarget.CardZone.FORWARD);
+        GameContext ctx = ctxChoosing(List.of(theirs));
+        when(ctx.countSelfFieldCards(true, false, false, null, null, "VIII", null)).thenReturn(3);
+
+        Consumer<GameContext> fn = ActionResolver.parse(QUISTIS_22_022R, null);
+        assertNotNull(fn);
+        fn.accept(ctx);
+
+        verify(ctx).dullTarget(theirs);
+        verify(ctx).freezeTarget(theirs);
+    }
+
+    // Below the threshold the Dull still happens and the Freeze does not — the gate governs the
+    // second sentence only, not the choosing.
+    @Test
+    void quistisDullsButDoesNotFreezeBelowTheThreshold() {
+        ForwardTarget theirs = new ForwardTarget(false, 0, ForwardTarget.CardZone.FORWARD);
+        GameContext ctx = ctxChoosing(List.of(theirs));
+        when(ctx.countSelfFieldCards(true, false, false, null, null, "VIII", null)).thenReturn(2);
+
+        ActionResolver.parse(QUISTIS_22_022R, null).accept(ctx);
+
+        verify(ctx).dullTarget(theirs);
+        verify(ctx, never()).freezeTarget(any());
+    }
+
+    // And the description says the gated sentence is there, so a future regression that drops it
+    // again shows up in the golden file rather than only at the table.
+    @Test
+    void quistisNamesItsGatedSecondSentence() {
+        assertEquals("ChooseAsManyAsFieldCount + IfSelfControlsNElementTypeAction",
+                ActionResolver.fullDescription(QUISTIS_22_022R, null));
+    }
+
+    // A second sentence this parser cannot read declines the whole ability rather than silently
+    // resolving the first half — the failure mode the family is otherwise prone to.
+    @Test
+    void theAsManyParserDeclinesAnUnreadableSecondSentence() {
+        assertNull(ActionResolver.parse(
+                "choose up to the same number of Characters as the Category VIII Forwards you "
+                + "control. Dull them. Kweh kweh kweh, kweh.", null));
+    }
+
     // The whole ability: the option must be readable from inside the select-1-of-2 wrapper, which
     // re-parses each quoted action, or Kurasame offers a choice with a blank half.
     @Test
@@ -10982,6 +11034,44 @@ public class CardBehaviorTest {
                         "select 1 of the 2 following actions. \"" + KURASAME_22_024L_OPTION
                         + "\"  \"Your opponent discards 1 card for each Ice Backup you control.\"",
                         null));
+    }
+
+    // 13-111C Delita's first selectable action. "Break it." is a break, so it goes through the
+    // primitive that respects break protection — not the force-into-the-Break-Zone one its
+    // "Put it into the Break Zone." siblings use, which bypasses it.
+    @Test
+    void delitaBreaksTheSelectedCharacterRatherThanForcingItIntoTheBreakZone() {
+        GameContext ctx = mock(GameContext.class);
+
+        Consumer<GameContext> fn = ActionResolver.parse("Select 1 Character you control. Break it.", null);
+        assertNotNull(fn);
+        fn.accept(ctx);
+
+        verify(ctx).selectControlledTypeAndBreakRespectingProtection(true, true, true);
+        verify(ctx, never()).selectControlledTypeAndBreak(anyBoolean(), anyBoolean(), anyBoolean());
+    }
+
+    // Its sibling keeps the force-move: "put it into the Break Zone" is not a break and no break
+    // protection answers it.
+    @Test
+    void theSelectToBreakZoneSiblingStillForcesTheMove() {
+        GameContext ctx = mock(GameContext.class);
+        ActionResolver.parse("select 1 Forward you control. Put it into the Break Zone.", null)
+                .accept(ctx);
+
+        verify(ctx).selectControlledTypeAndBreak(true, false, false);
+        verify(ctx, never()).selectControlledTypeAndBreakRespectingProtection(
+                anyBoolean(), anyBoolean(), anyBoolean());
+    }
+
+    @Test
+    void delitaSelectOneOfTwoNamesBothOptions() {
+        assertEquals("SelectFollowingActions(1 of 2: SelectControlledCharacterBreak "
+                + "| ChooseCharacter / AddToHand)",
+                ActionResolver.fullDescription(
+                        "select 1 of the 2 following actions. \"Select 1 Character you control. "
+                        + "Break it.\" \"Choose 1 Character of cost 2 or less in your Break Zone. "
+                        + "Add it to your hand.\"", null));
     }
 
     private static final String WIND_DRAKE_7_061H =

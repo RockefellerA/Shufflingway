@@ -5629,6 +5629,18 @@ final class ActionResolverPatterns {
         "(?i)^[Ss]elect\\s+1\\s+(?<type>Forward|Backup|Monster|Character)\\s+you\\s+control[.!]?\\s+Put\\s+it\\s+into\\s+the\\s+Break\\s+Zone[.!]?$"
     );
     /**
+     * Matches "Select 1 [type] you control. Break it." — 13-111C Delita's first selectable action.
+     *
+     * <p>The break-verb sibling of {@link #SELECT_1_CHARACTER_YOU_CONTROL_TO_BZ}, and a separate
+     * pattern because the two verbs are separate operations: that one's "put it into the Break
+     * Zone" is not a break and no "cannot be broken" protection answers it, while this one's is
+     * and every such protection does. Anchored end to end like its sibling, so neither can take
+     * the other's followup off the front of a longer text.
+     */
+    static final Pattern SELECT_1_CHARACTER_YOU_CONTROL_BREAK = Pattern.compile(
+        "(?i)^[Ss]elect\\s+1\\s+(?<type>Forward|Backup|Monster|Character)\\s+you\\s+control[.!]?\\s+Break\\s+it[.!]?$"
+    );
+    /**
      * 14-098R Ultimecia: "Select 1 Forward you control. Put it into the Break Zone. When you do so,
      * choose 1 Forward of the same cost as the Forward you put into the Break Zone. You gain
      * control of it."

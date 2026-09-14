@@ -1355,6 +1355,9 @@ public class ActionResolver {
         result = tryParseSelectControlledCharacterToBz(effectText);
         if (result != null) return result;
 
+        result = tryParseSelectControlledCharacterBreak(effectText);
+        if (result != null) return result;
+
         result = tryParseEachPlayerSelectUpToNToBreakZone(effectText);
         if (result != null) return result;
 
@@ -2441,6 +2444,7 @@ public class ActionResolver {
         if (tryParseBothPlayersSelectForwardToBreakZone(effectText) != null) return "BothPlayersSelectForwardToBreakZone";
         if (tryParseSelectCharCostLeExclToBz(effectText)             != null) return "SelectCharCostLeExclToBz";
         if (tryParseSelectControlledCharacterToBz(effectText)        != null) return "SelectControlledCharacterToBz";
+        if (tryParseSelectControlledCharacterBreak(effectText)       != null) return "SelectControlledCharacterBreak";
         if (tryParseEachPlayerSelectUpToNToBreakZone(effectText)   != null) return "EachPlayerSelectUpToNToBreakZone";
         if (tryParseEachPlayerSelectUpToNActiveDullFreeze(effectText) != null)
             return "EachPlayerSelectUpToNActiveDullFreeze";
@@ -4148,6 +4152,7 @@ public class ActionResolver {
         if (tryParseBothPlayersSelectForwardToBreakZone(effectText) != null) return "BothPlayersSelectForwardToBreakZone";
         if (tryParseSelectCharCostLeExclToBz(effectText)             != null)  return "SelectCharCostLeExclToBz";
         if (tryParseSelectControlledCharacterToBz(effectText)        != null)  return "SelectControlledCharacterToBz";
+        if (tryParseSelectControlledCharacterBreak(effectText)       != null)  return "SelectControlledCharacterBreak";
         if (tryParseEachPlayerSelectUpToNToBreakZone(effectText) != null)   return "EachPlayerSelectUpToNToBreakZone";
         if (tryParseEachPlayerSelectUpToNActiveDullFreeze(effectText) != null)
             return "EachPlayerSelectUpToNActiveDullFreeze";
@@ -4318,7 +4323,12 @@ public class ActionResolver {
         if (tryParseChooseOppFwdGainsSpecialAbilityFreeOnce(effectText, source) != null) return "ChooseOppFwdGainsSpecialAbilityFreeOnce";
         if (tryParseUseSpecialAbilityUsedThisTurn(effectText, source) != null) return "UseSpecialAbilityUsedThisTurn";
         if (tryParseChooseOppDamagedFwdIfHasAbilityBreak(effectText)       != null) return "ChooseOppDamagedFwdIfHasAbilityBreak";
-        if (tryParseChooseAsManyAsFieldCount(effectText, source)           != null) return "ChooseAsManyAsFieldCount";
+        // Named with its gated second sentence when it has one — 22-022R Quistis's conditional
+        // Freeze. A bare name here would read exactly as it did while that sentence was being
+        // dropped, which is the state this description exists to make visible.
+        if (tryParseChooseAsManyAsFieldCount(effectText, source)           != null)
+            return "ChooseAsManyAsFieldCount"
+                    + ActionResolverChoose.asManyAsFieldCountGateSuffix(effectText);
         if (tryParseChooseAsManyAsBzRfgJobCount(effectText)               != null) return "ChooseAsManyAsBzRfgJobCount";
         if (tryParseChooseCounterScaleCharsActivate(effectText, 1)         != null) return "ChooseCounterScaleCharsActivate";
         if (tryParseCounterScaleLookAddToHand(effectText, 1)               != null) return "CounterScaleLookAddToHand";

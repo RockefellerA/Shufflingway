@@ -6322,6 +6322,26 @@ final class ActionResolverChoose {
         };
     }
     /**
+     * Parses "Select 1 [type] you control. Break it." — 13-111C Delita.
+     *
+     * <p>The break-verb sibling of {@link #tryParseSelectControlledCharacterToBz}, routed to the
+     * primitive that respects break protection. See
+     * {@link ActionResolverPatterns#SELECT_1_CHARACTER_YOU_CONTROL_BREAK} for why the two verbs
+     * are not interchangeable.
+     */
+    static Consumer<GameContext> tryParseSelectControlledCharacterBreak(String text) {
+        Matcher m = SELECT_1_CHARACTER_YOU_CONTROL_BREAK.matcher(text.trim());
+        if (!m.matches()) return null;
+        String type    = m.group("type");
+        boolean inclFwd = type.matches("(?i)Forward|Character");
+        boolean inclBkp = type.matches("(?i)Backup|Character");
+        boolean inclMon = type.matches("(?i)Monster|Character");
+        return ctx -> {
+            ctx.logEntry("Effect: select 1 " + type + " you control → break it");
+            ctx.selectControlledTypeAndBreakRespectingProtection(inclFwd, inclBkp, inclMon);
+        };
+    }
+    /**
      * Parses a bare "Cancel its/their effect(s)." — the consequent of a reactive "chosen by opponent's
      * Summons or abilities" auto-ability whose optional cost was already paid upstream (Phantasmal
      * Girl, Regis, Tama, Yuna). Unconditionally cancels the in-progress selection.
@@ -6954,6 +6974,37 @@ final class ActionResolverChoose {
             }
         }
 
+        // The followup can carry a second sentence gating one more action on the board — 22-022R
+        // Quistis's "Dull them. If you control 3 or more Category VIII Forwards, also Freeze them."
+        // The verb reads below scan with find(), so left whole that gated "Freeze" is taken as part
+        // of the primary and applied unconditionally; split first, and read them out of the first
+        // sentence only.
+        String secondaryText = null;
+        int secondaryAt = sentenceBreakOutsideQuotes(followupText);
+        if (secondaryAt >= 0) {
+            secondaryText = followupText.substring(secondaryAt + 2).trim();
+            followupText  = followupText.substring(0, secondaryAt).trim();
+        }
+        // A second sentence this cannot read declines the whole ability rather than resolving the
+        // first half alone. Fail closed: an ability that reports "?" is a known gap, while one that
+        // quietly drops a printed sentence is a bug nobody is looking for.
+        final BiConsumer<GameContext, List<ForwardTarget>> gatedAction;
+        final Predicate<GameContext> gate;
+        final String gateLabel;
+        if (secondaryText == null || secondaryText.isEmpty()) {
+            gatedAction = null; gate = null; gateLabel = null;
+        } else {
+            Matcher gateM = FOLLOWUP_IF_SELF_CONTROLS_N_ELEMENT_TYPE_ACTION.matcher(secondaryText);
+            if (!gateM.matches()) return null;
+            String gatedText = gateM.group("action").trim();
+            // Both halves have to be understood before either is claimed, exactly as the choose
+            // chain's copy of this gate requires: the pool being counted and the action it gates.
+            gatedAction = parseTargetAction(gatedText, 0);
+            gate        = selfControlsGate(gateM);
+            if (gatedAction == null || gate == null) return null;
+            gateLabel   = selfControlsGateLabel(gateM) + ", " + gatedText;
+        }
+
         // "Dull them and Freeze them." is one action, not a Dull that happens to mention freezing —
         // checked ahead of the plain Dull and Freeze reads, both of which find() inside it.
         boolean doActivate    = FOLLOWUP_ACTIVATE.matcher(followupText).find();
@@ -6999,7 +7050,34 @@ final class ActionResolverChoose {
                 sortedByIdxDesc(ts, true) .forEach(ctx::freezeTarget);
                 sortedByIdxDesc(ts, false).forEach(ctx::freezeTarget);
             }
+            // The gated second sentence acts on the same cards the first one chose.
+            if (gate != null) {
+                if (gate.test(ctx)) {
+                    ctx.logEntry("Effect: " + gateLabel);
+                    gatedAction.accept(ctx, ts);
+                } else {
+                    ctx.logEntry("Condition not met — " + gateLabel + " skipped");
+                }
+            }
         };
+    }
+    /**
+     * The {@code " + <name>"} that a {@link #tryParseChooseAsManyAsFieldCount} description appends
+     * when the followup carries a gated second sentence, and {@code ""} when it does not.
+     *
+     * <p>Split off the parser rather than re-derived in the naming chain so the two cannot drift on
+     * which sentence was claimed. Reaching a gate match here means the parser read it too — it
+     * returns null otherwise — so no second validation is needed.
+     */
+    static String asManyAsFieldCountGateSuffix(String text) {
+        Matcher m = CHOOSE_AS_MANY_AS_FIELD_COUNT.matcher(text.trim());
+        if (!m.matches()) return "";
+        String followup = m.group("followup").trim();
+        int at = sentenceBreakOutsideQuotes(followup);
+        if (at < 0) return "";
+        return FOLLOWUP_IF_SELF_CONTROLS_N_ELEMENT_TYPE_ACTION
+                .matcher(followup.substring(at + 2).trim()).matches()
+                        ? " + IfSelfControlsNElementTypeAction" : "";
     }
     /**
      * Parses "Choose up to the same number of Characters as the Job X in your Break Zone and/or
