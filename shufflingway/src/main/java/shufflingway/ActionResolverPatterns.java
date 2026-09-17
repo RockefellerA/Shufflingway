@@ -1333,6 +1333,27 @@ final class ActionResolverPatterns {
     );
 
     /**
+     * "Until the end of the turn, it gains +N power[, Haste/First Strike/Brave]." read as a grant to
+     * the card that fired an "enters your field" trigger — 13-009H Selphie, the one printing.
+     *
+     * <p>Deliberately <em>not</em> an arm of {@link #TRIGGERED_TARGET_ACTION_BARE}, which admits
+     * only the demonstrative "that Forward gains …" for the reason stated there: "it gains" is the
+     * Choose family's followup wording, and every other printing of this sentence has a choose in
+     * front of it. Three of them (11-066C Antlion, 25-056L Wol, 22-057R Carbuncle) reach
+     * {@link ActionResolver#parse} as a choose secondary and would start consuming preloaded
+     * targets instead of the card they chose.
+     *
+     * <p>So this is reachable only from {@link ActionResolver#parsePayGatedFollowup}, the followup
+     * slot of "pay 《…》. When you do so, …", where no choose can precede it and "it" has nothing to
+     * mean but the card that entered.
+     */
+    static final Pattern PAY_GATED_ENTERING_CARD_GRANT = Pattern.compile(
+        "(?i)^Until\\s+(?:the\\s+)?end\\s+of\\s+(?:(?:the|your)\\s+)?turn\\s*,\\s+" +
+        "(?:it|they)\\s+gains?\\s+\\+(?<amount>\\d+)\\s+power" +
+        "(?<traits>(?:\\s*,?\\s*(?:and\\s+)?(?:Haste|First\\s+Strike|Brave))*)\\s*[.!]?$"
+    );
+
+    /**
      * The demonstrative subject of a triggered-target sentence — "that Forward", "that Character".
      *
      * <p>Rewritten to "It" before {@link ActionResolver#parseTargetAction} sees the sentence, so
@@ -6490,6 +6511,18 @@ final class ActionResolverPatterns {
      */
     static final Pattern SEARCH_EACH_OF_A_DIFFERENT_ELEMENT = Pattern.compile(
         "(?i),?\\s+each\\s+of\\s+a\\s+different\\s+Element\\b"
+    );
+    /**
+     * The "each of a different Element and cost" constraint — 11-061L Yuna, the one printing that
+     * constrains a search two ways at once.
+     *
+     * <p>Must be lifted off ahead of {@link #SEARCH_EACH_OF_A_DIFFERENT_ELEMENT}, which is a prefix
+     * of it: that one takes ", each of a different Element" and leaves "and cost" standing where
+     * the destination clause belongs, so the search stops parsing rather than parsing with half a
+     * constraint.
+     */
+    static final Pattern SEARCH_EACH_OF_A_DIFFERENT_ELEMENT_AND_COST = Pattern.compile(
+        "(?i),?\\s+each\\s+of\\s+a\\s+different\\s+Element\\s+and\\s+cost\\b"
     );
     /**
      * A two-type search that states the same cost twice, once per type — "1 Forward of cost 1 or

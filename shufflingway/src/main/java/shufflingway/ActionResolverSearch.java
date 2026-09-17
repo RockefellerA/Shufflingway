@@ -1307,9 +1307,16 @@ final class ActionResolverSearch {
             gate = PickGate.DISTINCT_NAMES;
             text = SEARCH_WITH_DIFFERENT_NAMES.matcher(text).replaceFirst("");
         }
+        // Ahead of the Element-only rider below, which is a prefix of this one — see the pattern.
+        if (SEARCH_EACH_OF_A_DIFFERENT_ELEMENT_AND_COST.matcher(text).find()) {
+            if (gate != PickGate.ANY) return null;
+            gate = PickGate.DISTINCT_ELEMENTS_AND_COSTS;
+            text = SEARCH_EACH_OF_A_DIFFERENT_ELEMENT_AND_COST.matcher(text).replaceFirst("");
+        }
         if (SEARCH_EACH_OF_A_DIFFERENT_ELEMENT.matcher(text).find()) {
-            // No printing carries both riders, and a search constrained two ways is not something
-            // the selection can express, so the second one declines rather than replacing the first.
+            // A name rider and an element rider on one search have no combined gate, so the second
+            // one declines rather than replacing the first. The Element-and-cost pairing does have
+            // one and is read above.
             if (gate != PickGate.ANY) return null;
             gate = PickGate.DISTINCT_ELEMENTS;
             text = SEARCH_EACH_OF_A_DIFFERENT_ELEMENT.matcher(text).replaceFirst("");

@@ -4835,6 +4835,23 @@ final class AutoAbilityTriggers {
 		}
 		Consumer<GameContext> effect = ActionResolver.parse(subEffect, source, xValue);
 		if (effect == null) {
+			// "Until the end of the turn, it gains …" — 13-009H Selphie, whose "it" is the Forward
+			// whose arrival fired the trigger. Preloaded here rather than by the caller because this
+			// is where the wording is recognised; the cost has already been charged by the time a
+			// sub-effect is read, so a grant left unwired would be paid for and dropped.
+			effect = ActionResolver.parsePayGatedFollowup(subEffect, source, xValue);
+			if (effect != null) {
+				ForwardTarget entered = mw.triggeringEnteredCard != null
+						? enteringCardTarget(mw.triggeringEnteredCard, effectIsP1) : null;
+				if (entered == null) {
+					mw.logEntry("[AutoAbility] " + source.name()
+							+ " — entering card no longer on field; skipped");
+					return;
+				}
+				ctx.preloadTargets(List.of(entered));
+			}
+		}
+		if (effect == null) {
 			// A sub-effect measured in X has nothing to do at X = 0, and declines rather than
 			// resolving as an empty one. That is a payment of nothing, not an unread ability.
 			if (xValue == 0 && subEffect.matches("(?i).*\\bX\\b.*"))

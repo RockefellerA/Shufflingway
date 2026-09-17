@@ -144,7 +144,7 @@ final class ActionResolverCost {
         if (!m.find()) return null;
         String costDesc    = m.group("cost").trim();
         String followupText = m.group("followup").trim();
-        Consumer<GameContext> followup = parse(followupText, source, xValue);
+        Consumer<GameContext> followup = parsePayGatedFollowup(followupText, source, xValue);
         if (followup == null) return null;
         return ctx -> {
             ctx.logEntry("Effect: Pay " + costDesc + " CP, then: " + followupText);

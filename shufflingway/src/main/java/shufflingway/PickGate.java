@@ -41,7 +41,15 @@ public enum PickGate {
 	 * <p>The printed cost, not an effective one: the cards this reads are in a Break Zone, where
 	 * nothing is discounting anything.
 	 */
-	DISTINCT_COSTS;
+	DISTINCT_COSTS,
+
+	/**
+	 * Both of the above at once — "search for up to 6 Summons, <em>each of a different Element and
+	 * cost</em>" (11-061L Yuna, the one printing). A pick must clear the element rule and the cost
+	 * rule, so a second Fire Summon is refused however it is priced, and a second cost-2 Summon is
+	 * refused whatever its element.
+	 */
+	DISTINCT_ELEMENTS_AND_COSTS;
 
 	/** Whether {@code candidate} may join a selection that already holds {@code picked}. */
 	public boolean allows(List<CardData> picked, CardData candidate) {
@@ -62,6 +70,10 @@ public enum PickGate {
 				for (CardData c : picked)
 					if (c != null && c.cost() == candidate.cost()) return false;
 				return true;
+			}
+			case DISTINCT_ELEMENTS_AND_COSTS -> {
+				return DISTINCT_ELEMENTS.allows(picked, candidate)
+						&& DISTINCT_COSTS.allows(picked, candidate);
 			}
 		}
 		return true;
@@ -88,14 +100,17 @@ public enum PickGate {
 			case DISTINCT_NAMES   -> ", each with a different name";
 			case DISTINCT_ELEMENTS-> ", each of a different Element";
 			case DISTINCT_COSTS   -> ", each with a different cost";
+			case DISTINCT_ELEMENTS_AND_COSTS -> ", each of a different Element and cost";
 		};
 	}
 
 	/**
 	 * The largest selection this gate can admit from {@code pool}, which is what an "up to N"
 	 * selection can actually reach. Greedy in pool order, which is exact for the constraints
-	 * here: names and costs each partition the pool, and the element case is only ever asked
-	 * about small pools.
+	 * here: names and costs each partition the pool, and the element cases are only ever asked
+	 * about small pools. Greedy can undercount for the two element gates, where taking a
+	 * multi-element card early can rule out two later picks; it never overcounts, so an "up to N"
+	 * offer is at worst conservative about how many picks remain reachable.
 	 */
 	public int maxSelectable(List<CardData> pool, int cap) {
 		List<CardData> taken = new ArrayList<>();

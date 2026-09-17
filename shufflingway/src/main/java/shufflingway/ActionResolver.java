@@ -4245,7 +4245,12 @@ public class ActionResolver {
         if (tryParsePayCpWhenDoSo(effectText, source, 1) != null) {
             Matcher pc = PAY_CP_WHEN_DO_SO.matcher(effectText);
             if (!pc.find()) return "PayCpWhenDoSo";
-            return "PayCp(" + describeOrName(pc.group("followup").trim(), source) + ")";
+            String followup = pc.group("followup").trim();
+            // The one followup the general chain deliberately cannot name — see
+            // PAY_GATED_ENTERING_CARD_GRANT — so describeOrName would report it as "?".
+            if (tryParsePayGatedEnteringCardGrant(followup) != null)
+                return "PayCp(EnteringCardBoost)";
+            return "PayCp(" + describeOrName(followup, source) + ")";
         }
         if (tryParseDrawCards(effectText) != null)                          return "DrawCards";
         if (tryParseYouMayDiscardType(effectText) != null)                  return "YouMayDiscardType";
@@ -6813,6 +6818,24 @@ public class ActionResolver {
      */
     static boolean isTriggeredTargetAction(String text) {
         return tryParseTriggeredTargetAction(text, 0) != null;
+    }
+
+    /**
+     * Reads the followup of a "pay 《…》. When you do so, [followup]." ability — the ordinary chain
+     * first, then the one wording that only this position can mean.
+     *
+     * <p>The single door to {@link ActionResolverState#tryParsePayGatedEnteringCardGrant}, and the
+     * reason that parser is not a chain entry: its sentence is the Choose family's followup wording
+     * everywhere else it appears.
+     *
+     * <p>Called from both ends of the payment, which resolve it separately: {@code AutoAbilityTriggers}
+     * charges the cost and then reads the followup on its own, while
+     * {@link ActionResolverCost#tryParsePayCpWhenDoSo} reads the whole sentence for the name and
+     * description. They must agree on what the followup means, so they agree by calling this.
+     */
+    static Consumer<GameContext> parsePayGatedFollowup(String text, CardData source, int xValue) {
+        Consumer<GameContext> effect = parse(text, source, xValue);
+        return effect != null ? effect : tryParsePayGatedEnteringCardGrant(text);
     }
 
     /**

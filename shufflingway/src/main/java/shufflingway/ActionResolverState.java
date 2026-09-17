@@ -1148,4 +1148,30 @@ final class ActionResolverState {
             action.accept(ctx, ts);
         };
     }
+
+    /**
+     * "Until the end of the turn, it gains +N power and Haste." as the followup of a "pay 《…》. When
+     * you do so, …" trigger — 13-009H Selphie, where "it" is the Forward that entered the field.
+     *
+     * <p>Reached only through {@link ActionResolver#parsePayGatedFollowup}; see
+     * {@link ActionResolverPatterns#PAY_GATED_ENTERING_CARD_GRANT} for why it is kept off the
+     * general chain.
+     */
+    static Consumer<GameContext> tryParsePayGatedEnteringCardGrant(String text) {
+        String t = text.trim();
+        Matcher m = PAY_GATED_ENTERING_CARD_GRANT.matcher(t);
+        if (!m.matches()) return null;
+        int boost = Integer.parseInt(m.group("amount"));
+        EnumSet<CardData.Trait> traits = parseTraits(m.group("traits"));
+        return ctx -> {
+            List<ForwardTarget> ts = ctx.consumePreloadedTargets();
+            if (ts == null || ts.isEmpty()) {
+                ctx.logEntry("Triggered grant: no preloaded target — skipped");
+                return;
+            }
+            ctx.logEntry("Effect: " + t + " (on the card that entered)");
+            sortedByIdxDesc(ts, true) .forEach(ft -> ctx.boostTarget(ft, boost, traits));
+            sortedByIdxDesc(ts, false).forEach(ft -> ctx.boostTarget(ft, boost, traits));
+        };
+    }
 }

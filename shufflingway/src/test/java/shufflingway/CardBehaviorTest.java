@@ -44233,6 +44233,21 @@ public class CardBehaviorTest {
 	}
 
 	@Test
+	void distinctElementsAndCostsMustClearBothRules() {
+		CardData fire2 = makeForward("Fire Two", "Fire", 2, 5000);
+		CardData fire3 = makeForward("Fire Three", "Fire", 3, 5000);
+		CardData ice2  = makeForward("Ice Two",  "Ice",  2, 5000);
+		CardData ice3  = makeForward("Ice Three","Ice",  3, 5000);
+
+		assertFalse(PickGate.DISTINCT_ELEMENTS_AND_COSTS.allows(List.of(fire2), fire3),
+				"a shared Element is refused however it is priced");
+		assertFalse(PickGate.DISTINCT_ELEMENTS_AND_COSTS.allows(List.of(fire2), ice2),
+				"and a shared cost is refused whatever its Element");
+		assertTrue(PickGate.DISTINCT_ELEMENTS_AND_COSTS.allows(List.of(fire2), ice3),
+				"differing in both is what the rider asks for");
+	}
+
+	@Test
 	void aGateReportsHowLargeASelectionItCanActuallyAdmit() {
 		// What a mandatory "select as many as possible" confirms at, and what stops an ungated
 		// auto-pick from taking a whole pool that is not a legal hand.
@@ -44288,6 +44303,63 @@ public class CardBehaviorTest {
 		verify(ctx, never()).searchDeckForCardWithRiders(anyBoolean(), anyBoolean(), anyBoolean(),
 				anyBoolean(), anyInt(), any(), any(), any(), any(), any(), any(), any(), any(),
 				anyInt(), anyBoolean(), any(), any(), anyBoolean(), anyInt());
+	}
+
+	// =========================================================================================
+	// 11-061L Yuna: "When Yuna enters the field, you may pay 《Wind》《Wind》《Wind》《2》. When you do
+	// so, search for up to 6 Summons, each of a different Element and cost and add them to your
+	// hand."
+	//
+	// The one printing that constrains a search two ways at once, and it sits directly on Golbez's
+	// rider: "each of a different Element" is a prefix of "each of a different Element and cost", so
+	// the Element rider took its half and left "and cost" standing where the destination clause
+	// belongs. The search then did not parse at all — the same failure the Element rider was lifted
+	// out of the text to fix, one wording further along.
+	//
+	// Her cost run is priced by tallyPayRun, which counts an element token as the one CP it is and
+	// does not enforce *which* element — a simplification that predates her and applies to every
+	// printing in the family.
+	// =========================================================================================
+
+	private static final String YUNA_11_061L_SEARCH =
+			"search for up to 6 Summons, each of a different Element and cost and add them to your hand.";
+
+	@Test
+	void yunaIsNamedForTheSearchHerWindBuys() {
+		CardData yuna = makeForward("Yuna", "Wind", 3, 7000);
+		assertEquals("PayCp(SearchDeck)", ActionResolver.fullDescription(
+				"pay 《Wind》《Wind》《Wind》《2》. When you do so, " + YUNA_11_061L_SEARCH, yuna));
+	}
+
+	@Test
+	void yunasTwoRidersReachTheSelectionAsOneGate() {
+		GameContext ctx = mock(GameContext.class);
+		ActionResolver.parse(YUNA_11_061L_SEARCH, null).accept(ctx);
+
+		verify(ctx).searchDeckForCardWithRiders(false, false, false, true, -1, null,
+				null, null, null, null, null, null, "hand", 6, false, null,
+				PickGate.DISTINCT_ELEMENTS_AND_COSTS, false, -1);
+	}
+
+	@Test
+	void theElementRiderAloneStillMeansElementAlone() {
+		// The control for the prefix: drop "and cost" and the older gate is what reaches the
+		// selection, so a combined rider read too eagerly would show up here.
+		GameContext ctx = mock(GameContext.class);
+		ActionResolver.parse(
+				"search for up to 6 Summons, each of a different Element and add them to your hand.",
+				null).accept(ctx);
+
+		verify(ctx).searchDeckForCardWithRiders(false, false, false, true, -1, null,
+				null, null, null, null, null, null, "hand", 6, false, null,
+				PickGate.DISTINCT_ELEMENTS, false, -1);
+	}
+
+	@Test
+	void herMixedCostRunIsPricedAtFiveCp() {
+		int[] tally = AutoAbilityTriggers.tallyPayRun("《Wind》《Wind》《Wind》《2》");
+		assertEquals(5, tally[0], "three element tokens at 1 CP each, plus the generic 2");
+		assertEquals(0, tally[1], "no X in the run");
 	}
 
 	@Test
@@ -50106,6 +50178,97 @@ public class CardBehaviorTest {
 
 		assertEquals(10000, mw.p2ForwardDamage.get(mw.p2ForwardCards.indexOf(victim)),
 				"7000 printed plus the 3000 it is carrying");
+	}
+
+	// =========================================================================================
+	// 13-009H Selphie: "When a Multi-Element Forward enters your field, you may pay 《Fire》. When
+	// you do so, until the end of the turn, it gains +2000 power and Haste."
+	//
+	// The payment side was already here — AutoAbilityTriggers charges every "pay 《…》. When you do
+	// so, …" trigger before parse() sees the sub-effect, and prices an element token as the one CP
+	// it is. What was missing was the grant, and the reason it stayed missing is that its sentence
+	// belongs to somebody else everywhere it appears.
+	//
+	// "Until the end of the turn, it gains +N power" is the Choose family's followup wording: 11-066C
+	// Antlion and 25-056L Wol both reach parse() with it as a choose secondary, where "it" is the
+	// Forward they chose. Selphie is the only printing with no choose in front of it, so hers is the
+	// only one where "it" can mean the card that entered. Admitting the sentence to the general
+	// chain would have taken Antlion's and Wol's grants off the cards they picked and handed them to
+	// a preloaded target that is not there.
+	//
+	// So the parser is not a chain entry at all. It hangs off ActionResolver.parsePayGatedFollowup,
+	// which is reachable only from the followup slot of "pay 《…》. When you do so, …".
+	// =========================================================================================
+
+	private static final String SELPHIE_13_009H =
+			"pay 《Fire》. When you do so, until the end of the turn, it gains +2000 power and Haste.";
+
+	private static final String SELPHIE_GRANT =
+			"until the end of the turn, it gains +2000 power and Haste.";
+
+	@Test
+	void selphieIsNamedForTheGrantHerFireBuys() {
+		CardData selphie = makeForward("Selphie", "Fire", 2, 5000);
+		assertEquals("PayCpWhenDoSo", ActionResolver.matchedPatternName(SELPHIE_13_009H, selphie));
+		assertEquals("PayCp(EnteringCardBoost)",
+				ActionResolver.fullDescription(SELPHIE_13_009H, selphie));
+	}
+
+	@Test
+	void theGrantLandsOnTheArrivingForwardAndNotOnSelphie() {
+		MainWindow mw = new MainWindow();
+		CardData selphie = makeAutoAbilityForward("Selphie", "Fire", 5000,
+				"When a Multi-Element Forward enters your field, " + SELPHIE_13_009H);
+		placeP1Forward(mw, selphie);
+		CardData arrival = makeForward("Arriving", "Fire/Ice", 4, 7000);
+		placeP1Forward(mw, arrival);
+
+		int arrivalIdx = mw.p1ForwardCards.indexOf(arrival);
+		GameContext ctx = mw.buildGameContext(true);
+		ctx.preloadTargets(List.of(new ForwardTarget(true, arrivalIdx, ForwardTarget.CardZone.FORWARD)));
+		ActionResolver.parse(SELPHIE_13_009H, selphie).accept(ctx);
+
+		assertEquals(2000, mw.p1ForwardPowerBoost.get(arrivalIdx));
+		assertTrue(mw.p1ForwardTempTraits.get(arrivalIdx).contains(CardData.Trait.HASTE));
+		int selphieIdx = mw.p1ForwardCards.indexOf(selphie);
+		assertEquals(0, mw.p1ForwardPowerBoost.get(selphieIdx), "Selphie buys this for the arrival");
+		assertTrue(mw.p1ForwardTempTraits.get(selphieIdx).isEmpty());
+	}
+
+	@Test
+	void theGrantIsUnreachableFromTheGeneralChain() {
+		// The guard for Antlion and Wol: their secondary is this sentence, and a chain entry would
+		// claim it out from under the card they chose.
+		assertNull(ActionResolver.parse(SELPHIE_GRANT, makeForward("Probe", "Fire", 2, 5000)));
+		assertNull(ActionResolver.matchedPatternName(SELPHIE_GRANT, makeForward("Probe", "Fire", 2, 5000)));
+	}
+
+	@Test
+	void antlionAndWolStillGrantToTheForwardTheyChose() {
+		assertEquals("ChooseCharacter / Dull + PowerBoostUntil", ActionResolver.fullDescription(
+				"Choose 1 Forward you control. Dull it. Until the end of the turn, it gains +2000 "
+				+ "power and \"This Forward cannot be broken.\"", null));
+		assertEquals("ChooseCharacter / Dull + CannotBeBroken", ActionResolver.fullDescription(
+				"Choose 1 Earth Forward you control. Dull it. Until the end of the turn, it gains "
+				+ "\"This Forward cannot be broken.\"", null));
+	}
+
+	@Test
+	void withNothingPreloadedTheGrantDoesNothing() {
+		// The arriving Forward can have left the field between the trigger and the resolution.
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.consumePreloadedTargets()).thenReturn(null);
+
+		ActionResolver.parse(SELPHIE_13_009H, makeForward("Selphie", "Fire", 2, 5000)).accept(ctx);
+
+		verify(ctx, never()).boostTarget(any(), anyInt(), any());
+	}
+
+	@Test
+	void herSingleElementTokenIsPricedAtOneCp() {
+		int[] tally = AutoAbilityTriggers.tallyPayRun("《Fire》");
+		assertEquals(1, tally[0], "an element token is the one CP it is");
+		assertEquals(0, tally[1], "no X in the run");
 	}
 
 	// =========================================================================================
