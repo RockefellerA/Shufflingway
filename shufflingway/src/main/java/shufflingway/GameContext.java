@@ -2164,40 +2164,46 @@ public interface GameContext {
      * The two differ only for a stolen Character, which is the same approximation the set itself
      * already makes everywhere else it is read.
      *
-     * @param type {@code "Forward"} to count Forwards only, or {@code null} for any Character
-     *             (Forward, Backup or Monster) — a Summon never reaches the field, so it cannot
-     *             match either way
+     * @param type     {@code "Forward"} to count Forwards only, or {@code null} for any Character
+     *                 (Forward, Backup or Monster) — a Summon never reaches the field, so it cannot
+     *                 match either way
+     * @param category a Category to narrow to (19-010H Sabin's "Category VI Characters"), or
+     *                 {@code null} for any. Matched exactly rather than by substring, because the
+     *                 categories are Roman numerals and "VI" would otherwise take "VII" with it.
      */
-    int countP1PutFromFieldToBzThisTurn(String type);
+    int countP1PutFromFieldToBzThisTurn(String type, String category);
 
-    /** P2's side of {@link #countP1PutFromFieldToBzThisTurn(String)}. */
-    int countP2PutFromFieldToBzThisTurn(String type);
+    /** P2's side of {@link #countP1PutFromFieldToBzThisTurn}. */
+    int countP2PutFromFieldToBzThisTurn(String type, String category);
 
     /**
-     * The ability user's own side of {@link #countP1PutFromFieldToBzThisTurn(String)} — what
+     * The ability user's own side of {@link #countP1PutFromFieldToBzThisTurn} — what
      * "a Forward you controlled has been put from the field into the Break Zone this turn"
      * (15-035H Setzer, 16-021C Rain, 22-060H Ghido) asks about.
      */
-    default int countSelfPutFromFieldToBzThisTurn(String type) {
-        return isP1() ? countP1PutFromFieldToBzThisTurn(type) : countP2PutFromFieldToBzThisTurn(type);
+    default int countSelfPutFromFieldToBzThisTurn(String type, String category) {
+        return isP1() ? countP1PutFromFieldToBzThisTurn(type, category)
+                      : countP2PutFromFieldToBzThisTurn(type, category);
     }
 
     /**
-     * The opposing side of {@link #countP1PutFromFieldToBzThisTurn(String)} — what "2 or more
+     * The opposing side of {@link #countP1PutFromFieldToBzThisTurn} — what "2 or more
      * Forwards opponent controlled were put from the field into the Break Zone this turn"
      * (24-024R Shiva (XVI)) asks about.
      */
-    default int countOpponentPutFromFieldToBzThisTurn(String type) {
-        return isP1() ? countP2PutFromFieldToBzThisTurn(type) : countP1PutFromFieldToBzThisTurn(type);
+    default int countOpponentPutFromFieldToBzThisTurn(String type, String category) {
+        return isP1() ? countP2PutFromFieldToBzThisTurn(type, category)
+                      : countP1PutFromFieldToBzThisTurn(type, category);
     }
 
     /**
-     * Both sides of {@link #countP1PutFromFieldToBzThisTurn(String)} combined — what an unscoped
+     * Both sides of {@link #countP1PutFromFieldToBzThisTurn} combined — what an unscoped
      * "if a Forward has been put from the field into the Break Zone this turn" (15-100R Ragelise)
      * asks about, where the printed text names no controller at all.
      */
-    default int countEitherPutFromFieldToBzThisTurn(String type) {
-        return countP1PutFromFieldToBzThisTurn(type) + countP2PutFromFieldToBzThisTurn(type);
+    default int countEitherPutFromFieldToBzThisTurn(String type, String category) {
+        return countP1PutFromFieldToBzThisTurn(type, category)
+             + countP2PutFromFieldToBzThisTurn(type, category);
     }
 
     /**

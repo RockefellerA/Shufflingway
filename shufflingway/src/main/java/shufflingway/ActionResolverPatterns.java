@@ -8947,6 +8947,31 @@ final class ActionResolverPatterns {
         "(?<followup>.+)$"
     );
     /**
+     * Matches "Choose up to the same number of &lt;Type&gt; [opponent controls] as the
+     * &lt;CountType&gt; put in the Break Zone from your field during this turn. &lt;Followup&gt;" —
+     * 18-110H Xande, the third count source in this family after
+     * {@link #CHOOSE_AS_MANY_AS_FIELD_COUNT}'s board count and {@link #CHOOSE_AS_MANY_AS_BZ_RFG_JOB}'s
+     * Break Zone one. This one counts what happened during the turn, so it is answered from
+     * {@link GameContext#countSelfPutFromFieldToBzThisTurn} rather than from any zone.
+     *
+     * <p>Two printings: 18-110H Xande counts every Character, 19-010H Sabin narrows to "Category VI
+     * Characters". The optional {@code countCategory} is the whole of the difference — an absent one
+     * is the unnarrowed count, not a filter that failed to read.
+     *
+     * <p>Groups: {@code targetType} — what to choose; {@code targetSide} — whose, null for either;
+     * {@code countCategory} — the Category counted, or null for any; {@code countType} — the type
+     * being counted; {@code followup} — what is done to the picks.
+     */
+    static final Pattern CHOOSE_AS_MANY_AS_PUT_TO_BZ_THIS_TURN = Pattern.compile(
+        "(?i)^Choose\\s+(?:as\\s+many|up\\s+to\\s+the\\s+same\\s+number\\s+of)\\s+" +
+        "(?<targetType>Forwards?|Characters?|Backups?|Monsters?)(?:\\s+Cards?)?\\s+" +
+        "(?:(?<targetSide>(?:your\\s+)?opponent\\s+controls|you\\s+control)\\s+)?" +
+        "as\\s+(?:the\\s+)?(?:Category\\s+(?<countCategory>\\S+)\\s+)?" +
+        "(?<countType>Forwards?|Characters?|Backups?|Monsters?)\\s+" +
+        "put\\s+in(?:to)?\\s+the\\s+Break\\s+Zone\\s+from\\s+your\\s+field\\s+during\\s+this\\s+turn[,.]?\\s+" +
+        "(?<followup>.+)$"
+    );
+    /**
      * Matches "Choose up to the same number of Characters as the [Name] Counters placed on [card]. Activate them."
      * At resolution time {@code xValue} holds the counter count captured before the card was put into the Break Zone.
      * Group {@code counterName} — counter type (e.g. "Monster"); group {@code card} — source card name.

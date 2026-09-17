@@ -555,6 +555,9 @@ public class ActionResolver {
         result = tryParseChooseAsManyAsBzRfgJobCount(effectText);
         if (result != null) return result;
 
+        result = tryParseChooseAsManyAsPutToBzThisTurn(effectText);
+        if (result != null) return result;
+
         result = tryParseChooseCounterScaleCharsActivate(effectText, xValue);
         if (result != null) return result;
 
@@ -2181,6 +2184,7 @@ public class ActionResolver {
         if (tryParseChooseOppDamagedFwdIfHasAbilityBreak(effectText)     != null) return "ChooseOppDamagedFwdIfHasAbilityBreak";
         if (tryParseChooseAsManyAsFieldCount(effectText, source)         != null) return "ChooseAsManyAsFieldCount";
         if (tryParseChooseAsManyAsBzRfgJobCount(effectText)             != null) return "ChooseAsManyAsBzRfgJobCount";
+        if (tryParseChooseAsManyAsPutToBzThisTurn(effectText)           != null) return "ChooseAsManyAsPutToBzThisTurn";
         if (tryParseChooseCounterScaleCharsActivate(effectText, 1)    != null) return "ChooseCounterScaleCharsActivate";
         if (tryParseChooseAnyNumberReturnToHand(effectText)    != null) return "ChooseAnyNumberReturnToHand";
         if (tryParseCancelStackEntryUnlessPay(effectText)      != null) return "CancelStackEntryUnlessPay";
@@ -4406,6 +4410,7 @@ public class ActionResolver {
             return "ChooseAsManyAsFieldCount"
                     + ActionResolverChoose.asManyAsFieldCountGateSuffix(effectText);
         if (tryParseChooseAsManyAsBzRfgJobCount(effectText)               != null) return "ChooseAsManyAsBzRfgJobCount";
+        if (tryParseChooseAsManyAsPutToBzThisTurn(effectText)             != null) return "ChooseAsManyAsPutToBzThisTurn";
         if (tryParseChooseCounterScaleCharsActivate(effectText, 1)         != null) return "ChooseCounterScaleCharsActivate";
         if (tryParseCounterScaleLookAddToHand(effectText, 1)               != null) return "CounterScaleLookAddToHand";
         if (tryParseLookSelfFieldScaleAddToHandRestBottom(effectText)   != null) return "LookSelfFieldScaleAddToHandRestBottom";

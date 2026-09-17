@@ -7361,6 +7361,68 @@ final class ActionResolverChoose {
      * Job X you own removed from the game. [Dull/Activate/Freeze] them." (Jill 26-034L). The count
      * is computed at resolution time from the acting player's Break Zone and removed-from-game zone.
      */
+    /**
+     * Parses "Choose up to the same number of &lt;Type&gt; [opponent controls] as the [Category X]
+     * &lt;Type&gt; put in the Break Zone from your field during this turn. Deal them N damage." —
+     * 18-110H Xande, and 19-010H Sabin narrowed to Category VI.
+     *
+     * <p>The count is read when the ability resolves, from the turn tally rather than from a zone:
+     * a Break Zone count would include cards that were discarded, milled or put there on an earlier
+     * turn, none of which the sentence asks about.
+     *
+     * <p>Damage is the only followup read. Both printings of this count source deal it, and a verb
+     * this cannot read declines the whole ability rather than choosing targets and doing nothing to
+     * them.
+     */
+    static Consumer<GameContext> tryParseChooseAsManyAsPutToBzThisTurn(String text) {
+        Matcher m = CHOOSE_AS_MANY_AS_PUT_TO_BZ_THIS_TURN.matcher(text.trim());
+        if (!m.matches()) return null;
+
+        String targetTypeRaw = m.group("targetType").trim();
+        String targetSide    = m.group("targetSide");
+        String countTypeRaw  = m.group("countType").trim().toLowerCase(Locale.ROOT);
+        String followupText  = m.group("followup").trim();
+        final String countCategory = m.group("countCategory") != null
+                ? m.group("countCategory").trim() : null;
+
+        Matcher dmgM = FOLLOWUP_DAMAGE.matcher(followupText);
+        if (!dmgM.find()) return null;
+        final int damage = Integer.parseInt(dmgM.group("amount"));
+
+        String tgtLow = targetTypeRaw.toLowerCase(Locale.ROOT);
+        final boolean inclForwards = tgtLow.startsWith("forward") || tgtLow.startsWith("character");
+        final boolean inclBackups  = tgtLow.startsWith("backup")  || tgtLow.startsWith("character");
+        final boolean inclMonsters = tgtLow.startsWith("monster") || tgtLow.startsWith("character");
+
+        final boolean opponentOnly = targetSide != null && targetSide.toLowerCase(Locale.ROOT).contains("opponent");
+        final boolean selfOnly     = targetSide != null && !opponentOnly;
+
+        // null is the primitive's "any Character", which is what the unqualified wording means.
+        final String countType = countTypeRaw.startsWith("character") ? null
+                : countTypeRaw.startsWith("forward") ? "Forward"
+                : countTypeRaw.startsWith("backup")  ? "Backup" : "Monster";
+
+        final String logPfx = "Choose up to as many " + targetTypeRaw
+                + (targetSide != null ? " " + targetSide : "")
+                + " as the " + (countCategory != null ? "Category " + countCategory + " " : "")
+                + m.group("countType").trim()
+                + " put into the Break Zone from your field this turn";
+        return ctx -> {
+            int count = ctx.countSelfPutFromFieldToBzThisTurn(countType, countCategory);
+            if (count <= 0) {
+                ctx.logEntry(logPfx + " — count=0, nothing to choose");
+                ctx.markEffectFizzled();
+                return;
+            }
+            ctx.logEntry(logPfx + " (count=" + count + ") — Deal " + damage + " damage");
+            List<ForwardTarget> ts = selectTargets(ctx, count, true,
+                    opponentOnly, selfOnly, null, null, null, false,
+                    -1, null, -1, null,
+                    inclForwards, inclBackups, inclMonsters, null, null, null, null, false, null, false);
+            sortedByIdxDesc(ts, true) .forEach(t -> ctx.damageTarget(t, damage));
+            sortedByIdxDesc(ts, false).forEach(t -> ctx.damageTarget(t, damage));
+        };
+    }
     static Consumer<GameContext> tryParseChooseAsManyAsBzRfgJobCount(String text) {
         Matcher m = CHOOSE_AS_MANY_AS_BZ_RFG_JOB.matcher(text.trim());
         if (!m.matches()) return null;

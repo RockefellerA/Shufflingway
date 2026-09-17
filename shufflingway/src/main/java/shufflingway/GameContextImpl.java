@@ -229,15 +229,16 @@ final class GameContextImpl implements GameContext {
 
 	/**
 	 * Counts the cards one player had put <em>from the field</em> into their Break Zone this turn,
-	 * narrowed to {@code type}. Backs {@link GameContext#countP1PutFromFieldToBzThisTurn} and its
-	 * P2 twin; see that javadoc for what the underlying set does and does not promise.
+	 * narrowed to {@code type} and {@code category}. Backs
+	 * {@link GameContext#countP1PutFromFieldToBzThisTurn} and its P2 twin; see that javadoc for what
+	 * the underlying set does and does not promise.
 	 *
 	 * <p>The type test reads the printed type rather than what the card was doing on the field: a
 	 * Backup that a grant had made a Forward when it left counts as a Backup here. The gates that
 	 * read this ask about "a Forward"/"a Character" as printed, and the card is already in the
 	 * Break Zone by the time they run, where any such grant is long gone.
 	 */
-	private int countPutFromFieldToBzThisTurn(boolean sideIsP1, String type) {
+	private int countPutFromFieldToBzThisTurn(boolean sideIsP1, String type, String category) {
 		int count = 0;
 		for (CardData c : mw.turn(sideIsP1).putToBzFromFieldThisTurn) {
 			if (c == null) continue;
@@ -247,7 +248,7 @@ final class GameContextImpl implements GameContext {
 					: "Backup".equalsIgnoreCase(type)  ? c.isBackup()
 					: "Monster".equalsIgnoreCase(type) ? c.isMonster()
 					: false;
-			if (typeOk) count++;
+			if (typeOk && CardFilters.meetsCategoryFilter(c, category)) count++;
 		}
 		return count;
 	}
@@ -9930,12 +9931,12 @@ final class GameContextImpl implements GameContext {
 				return count;
 			}
 
-			@Override public int countP1PutFromFieldToBzThisTurn(String type) {
-				return countPutFromFieldToBzThisTurn(true, type);
+			@Override public int countP1PutFromFieldToBzThisTurn(String type, String category) {
+				return countPutFromFieldToBzThisTurn(true, type, category);
 			}
 
-			@Override public int countP2PutFromFieldToBzThisTurn(String type) {
-				return countPutFromFieldToBzThisTurn(false, type);
+			@Override public int countP2PutFromFieldToBzThisTurn(String type, String category) {
+				return countPutFromFieldToBzThisTurn(false, type, category);
 			}
 
 			@Override public int countP2FieldCards(boolean inclForwards, boolean inclBackups,

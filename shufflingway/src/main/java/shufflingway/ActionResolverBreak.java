@@ -487,9 +487,10 @@ final class ActionResolverBreak {
          * because the card names no controller.
          */
         boolean met(GameContext ctx) {
-            int actual = scope == null ? ctx.countEitherPutFromFieldToBzThisTurn(type)
-                    : "opponent".equalsIgnoreCase(scope) ? ctx.countOpponentPutFromFieldToBzThisTurn(type)
-                    : ctx.countSelfPutFromFieldToBzThisTurn(type);
+            // No printing in this gate family narrows by Category, so the filter is left open.
+            int actual = scope == null ? ctx.countEitherPutFromFieldToBzThisTurn(type, null)
+                    : "opponent".equalsIgnoreCase(scope) ? ctx.countOpponentPutFromFieldToBzThisTurn(type, null)
+                    : ctx.countSelfPutFromFieldToBzThisTurn(type, null);
             if (actual >= threshold) return true;
             ctx.logEntry("Condition not met: need " + threshold + "+ "
                     + (scope == null ? "" : scope.toLowerCase() + "-controlled ")

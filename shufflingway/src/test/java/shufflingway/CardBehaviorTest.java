@@ -11544,6 +11544,137 @@ public class CardBehaviorTest {
                 + "control. Dull them. Kweh kweh kweh, kweh.", null));
     }
 
+    // =========================================================================================
+    // 18-110H Xande: "When Xande enters the field, choose up to the same number of Forwards
+    // opponent controls as the Characters put in the Break Zone from your field during this turn.
+    // Deal them 9000 damage."
+    //
+    // The third count source in this family. Celes and Quistis count a board, Jill counts a Break
+    // Zone and an RFG pile; Xande counts what happened during the turn, which is neither. A Break
+    // Zone count would have been the easy reading and the wrong one — it holds cards that were
+    // discarded, milled or lost on an earlier turn, and the sentence asks about none of them.
+    //
+    // PlayerTurnState.putToBzFromFieldThisTurn already recorded exactly this, for the "1 Forward put
+    // in your Break Zone from the field during this turn" selections, so nothing new is tracked
+    // here. What is new is the count source and a damage followup: the two siblings read only
+    // Dull/Freeze/Activate.
+    // =========================================================================================
+
+    private static final String XANDE_18_110H =
+            "choose up to the same number of Forwards opponent controls as the Characters put in "
+            + "the Break Zone from your field during this turn. Deal them 9000 damage.";
+
+    @Test
+    void xandeIsNamedForTheTallyHeCounts() {
+        assertEquals("ChooseAsManyAsPutToBzThisTurn",
+                ActionResolver.matchedPatternName(XANDE_18_110H, null));
+        assertEquals("ChooseAsManyAsPutToBzThisTurn",
+                ActionResolver.fullDescription(XANDE_18_110H, null));
+    }
+
+    @Test
+    void xandeDamagesAsManyAsLeftHisFieldThisTurn() {
+        ForwardTarget a = new ForwardTarget(false, 0, ForwardTarget.CardZone.FORWARD);
+        ForwardTarget b = new ForwardTarget(false, 1, ForwardTarget.CardZone.FORWARD);
+        GameContext ctx = ctxChoosing(List.of(a, b));
+        when(ctx.countSelfPutFromFieldToBzThisTurn(null, null)).thenReturn(2);
+
+        ActionResolver.parse(XANDE_18_110H, null).accept(ctx);
+
+        verify(ctx).damageTarget(a, 9000);
+        verify(ctx).damageTarget(b, 9000);
+    }
+
+    @Test
+    void withNothingLostThisTurnXandeChoosesNothingAtAll() {
+        // Not "chooses 0 and deals 0" — the selection must not be offered, because being chosen is
+        // an event of its own that other cards trigger on.
+        GameContext ctx = ctxChoosing(List.of());
+        when(ctx.countSelfPutFromFieldToBzThisTurn(null, null)).thenReturn(0);
+
+        ActionResolver.parse(XANDE_18_110H, null).accept(ctx);
+
+        verify(ctx, never()).selectCharacters(anyInt(), anyBoolean(), anyBoolean(), anyBoolean(),
+                any(), any(), anyInt(), any(), anyInt(), any(), anyBoolean(), anyBoolean(),
+                anyBoolean(), any(), any(), any(), any(), anyBoolean(), any(), anyBoolean());
+        verify(ctx, never()).damageTarget(any(), anyInt());
+        verify(ctx).markEffectFizzled();
+    }
+
+    @Test
+    void onlyWhatLeftTheFieldCountsAndNotWhatElseIsInTheBreakZone() {
+        // Against a real board, because the distinction is made where the card arrives rather than
+        // by anything the parser can see: a discard reaches the same Break Zone and must not count.
+        MainWindow mw = new MainWindow();
+        CardData casualty = makeForward("Casualty", "Fire", 2, 5000);
+        placeP1Forward(mw, casualty);
+        mw.putP1ForwardIntoBreakZone(mw.p1ForwardCards.indexOf(casualty));
+
+        CardData discarded = makeForward("Discarded", "Fire", 2, 5000);
+        mw.gameState.getIdentity().put(discarded, true);
+        mw.addToBreakZone(discarded);
+
+        assertEquals(2, mw.gameState.getP1BreakZone().size(), "both are sitting in the Break Zone");
+        assertEquals(1, mw.buildGameContext(true).countSelfPutFromFieldToBzThisTurn(null, null),
+                "but only one of them was put there from the field");
+    }
+
+    // -- 19-010H Sabin: Xande's sentence narrowed to "Category VI Characters" --------------------
+    //
+    // The only difference between the two printings is the Category, so they share a parser and the
+    // filter is what is worth testing. countPutFromFieldToBzThisTurn matches it through
+    // CardFilters.meetsCategoryFilter, which is exact rather than substring — the categories are
+    // Roman numerals, and a "contains" test would have counted every Category VII Character towards
+    // Sabin's VI.
+
+    private static final String SABIN_19_010H =
+            "choose up to the same number of Forwards opponent controls as the Category VI "
+            + "Characters put in the Break Zone from your field during this turn. Deal them 8000 damage.";
+
+    @Test
+    void sabinIsNamedAlongsideXande() {
+        assertEquals("ChooseAsManyAsPutToBzThisTurn",
+                ActionResolver.fullDescription(SABIN_19_010H, null));
+    }
+
+    @Test
+    void sabinAsksTheTallyForHisCategoryAndXandeForNone() {
+        ForwardTarget a = new ForwardTarget(false, 0, ForwardTarget.CardZone.FORWARD);
+        GameContext sabinCtx = ctxChoosing(List.of(a));
+        when(sabinCtx.countSelfPutFromFieldToBzThisTurn(null, "VI")).thenReturn(1);
+        ActionResolver.parse(SABIN_19_010H, null).accept(sabinCtx);
+        verify(sabinCtx).damageTarget(a, 8000);
+
+        GameContext xandeCtx = ctxChoosing(List.of(a));
+        when(xandeCtx.countSelfPutFromFieldToBzThisTurn(null, null)).thenReturn(1);
+        ActionResolver.parse(XANDE_18_110H, null).accept(xandeCtx);
+        verify(xandeCtx).damageTarget(a, 9000);
+    }
+
+    @Test
+    void theCategoryIsMatchedExactlySoViDoesNotTakeVii() {
+        MainWindow mw = new MainWindow();
+        for (CardData c : List.of(makeCategoryForward("Sixer", "Fire", "VI"),
+                                  makeCategoryForward("Sevener", "Fire", "VII"))) {
+            placeP1Forward(mw, c);
+            mw.putP1ForwardIntoBreakZone(mw.p1ForwardCards.indexOf(c));
+        }
+        GameContext ctx = mw.buildGameContext(true);
+
+        assertEquals(2, ctx.countSelfPutFromFieldToBzThisTurn(null, null), "both left the field");
+        assertEquals(1, ctx.countSelfPutFromFieldToBzThisTurn(null, "VI"),
+                "but only one of them is Category VI");
+    }
+
+    @Test
+    void aFollowupThisCountSourceCannotReadDeclinesTheWholeAbility() {
+        // Damage is the only verb read here, and choosing targets to do nothing to them would be
+        // worse than reporting the ability unread.
+        assertNull(ActionResolver.parse(
+                "choose up to the same number of Forwards opponent controls as the Characters put "
+                + "in the Break Zone from your field during this turn. Dull them.", null));
+    }
+
     // The whole ability: the option must be readable from inside the select-1-of-2 wrapper, which
     // re-parses each quoted action, or Kurasame offers a choice with a blank half.
     @Test
@@ -53382,13 +53513,13 @@ public class CardBehaviorTest {
 	private static GameContext gateCtx(int self, int opp) {
 		GameContext ctx = mock(GameContext.class);
 		when(ctx.isP1()).thenReturn(true);
-		when(ctx.countP1PutFromFieldToBzThisTurn(any())).thenReturn(self);
-		when(ctx.countP2PutFromFieldToBzThisTurn(any())).thenReturn(opp);
+		when(ctx.countP1PutFromFieldToBzThisTurn(any(), any())).thenReturn(self);
+		when(ctx.countP2PutFromFieldToBzThisTurn(any(), any())).thenReturn(opp);
 		// The parsers call the routing defaults, and Mockito mocks default methods too — stubbing
 		// only the P1/P2 pair above leaves them returning 0 and every gate closed.
-		when(ctx.countSelfPutFromFieldToBzThisTurn(any())).thenReturn(self);
-		when(ctx.countOpponentPutFromFieldToBzThisTurn(any())).thenReturn(opp);
-		when(ctx.countEitherPutFromFieldToBzThisTurn(any())).thenReturn(self + opp);
+		when(ctx.countSelfPutFromFieldToBzThisTurn(any(), any())).thenReturn(self);
+		when(ctx.countOpponentPutFromFieldToBzThisTurn(any(), any())).thenReturn(opp);
+		when(ctx.countEitherPutFromFieldToBzThisTurn(any(), any())).thenReturn(self + opp);
 		when(ctx.consumePreloadedTargets()).thenReturn(null);
 		return ctx;
 	}
