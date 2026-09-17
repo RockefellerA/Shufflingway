@@ -8095,13 +8095,22 @@ final class ActionResolverPatterns {
         "\\s+until\\s+(?:the\\s+)?end\\s+of\\s+(?:the\\s+)?turn[.!]?"
     );
     /**
-     * Matches "All [the] Job X Forwards/Backups/Characters [you control | opponent controls]
-     * gain +N power until [the] end of [the] turn."
-     * Groups: {@code job}, {@code targets}, {@code control}, {@code verb}, {@code amount}.
+     * Matches "All [the] Job X Forwards/Backups/Characters [other than &lt;name&gt;]
+     * [you control | opponent controls] gain +N power until [the] end of [the] turn."
+     * Groups: {@code job}, {@code targets}, {@code excludename}, {@code control}, {@code verb},
+     * {@code amount}.
+     *
+     * <p>The exclusion is spelled and positioned exactly as
+     * {@link #ALL_FIELD_POWER_BOOST_PATTERN}'s — between the filters and the side clause, which is
+     * where 10-126R Rikken prints it ("all the Job Sky Pirate Forwards other than Rikken you
+     * control"). Each qualifier had a home before it was added: the Job filter here, the exclusion
+     * on the general pattern, and neither pattern would take both, so a card printing the pair went
+     * unread rather than half-read.
      */
     static final Pattern ALL_FIELD_JOB_POWER_BOOST_PATTERN = Pattern.compile(
         "(?i)All\\s+(?:the\\s+)?Job\\s+(?<job>[A-Za-z][A-Za-z\\s''\\-]*?)\\s+" +
         "(?<targets>Forwards?(?:\\s+and\\s+Monsters?)?|Backups?|Characters?)" +
+        "(?:\\s+other\\s+than\\s+(?<excludename>.+?))?" +
         "(?:\\s+(?<control>(?:your\\s+)?opponent\\s+controls?|you\\s+control))?" +
         "\\s+(?<verb>gains?|loses?)\\s+\\+?(?<amount>\\d+)\\s+[Pp]ower" +
         "\\s+until\\s+(?:the\\s+)?end\\s+of\\s+(?:the\\s+)?turn[.!]?"

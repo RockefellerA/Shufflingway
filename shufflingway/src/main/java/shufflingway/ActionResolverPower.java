@@ -807,7 +807,7 @@ final class ActionResolverPower {
         return ctx -> {
             ctx.logEntry("Effect: " + logMsg);
             ctx.applyMassFieldJobCardNamePowerBoost(amount, inclForwards, inclMonsters,
-                    opponentOnly, selfOnly, job, cardName);
+                    opponentOnly, selfOnly, job, cardName, null);
             if (!traits.isEmpty())
                 ctx.applyMassFieldJobCardNameKeywordGrant(traits, inclForwards, inclMonsters,
                         opponentOnly, selfOnly, job, cardName);
@@ -843,7 +843,7 @@ final class ActionResolverPower {
         return ctx -> {
             ctx.logEntry("Effect: " + logMsg);
             ctx.applyMassFieldJobCardNamePowerBoost(amount, true, true,
-                    opponentOnly, selfOnly, job, cardName);
+                    opponentOnly, selfOnly, job, cardName, null);
             if (secondary != null) secondary.accept(ctx);
         };
     }
@@ -871,7 +871,7 @@ final class ActionResolverPower {
         return ctx -> {
             ctx.logEntry("Effect: " + logMsg);
             ctx.applyMassFieldJobCardNamePowerBoost(amount, true, true,
-                    opponentOnly, selfOnly, null, cardNameFilter);
+                    opponentOnly, selfOnly, null, cardNameFilter, null);
         };
     }
     /**
@@ -911,7 +911,7 @@ final class ActionResolverPower {
         return ctx -> {
             ctx.logEntry("Effect: " + logMsg);
             ctx.applyMassFieldJobCardNamePowerBoost(amount, inclForwards, inclMonsters,
-                    opponentOnly, selfOnly, null, cardName);
+                    opponentOnly, selfOnly, null, cardName, null);
             if (secondary != null) secondary.accept(ctx);
         };
     }
@@ -935,9 +935,14 @@ final class ActionResolverPower {
         boolean isLose = m.group("verb").toLowerCase().startsWith("lose");
         int amount = Integer.parseInt(m.group("amount")) * (isLose ? -1 : 1);
 
+        String rawExclude    = m.group("excludename");
+        final String exclude = rawExclude != null ? rawExclude.trim() : null;
+
         String controlLabel = opponentOnly ? " (opponent)" : selfOnly ? " (yours)" : "";
+        String excludeLabel = exclude != null ? " (excl. " + exclude + ")" : "";
         String change       = isLose ? "-" + Math.abs(amount) : "+" + amount;
-        String logMsg       = "All Job " + job + " " + targets + controlLabel + " " + change + " power until end of turn";
+        String logMsg       = "All Job " + job + " " + targets + excludeLabel + controlLabel
+                + " " + change + " power until end of turn";
 
         String trailingRaw = text.substring(m.end()).trim().replaceAll("^[.!,]+\\s*", "").trim();
         Consumer<GameContext> secondary = trailingRaw.isEmpty() ? null : parse(trailingRaw, null);
@@ -945,7 +950,7 @@ final class ActionResolverPower {
         return ctx -> {
             ctx.logEntry("Effect: " + logMsg);
             ctx.applyMassFieldJobCardNamePowerBoost(amount, inclForwards, inclMonsters,
-                    opponentOnly, selfOnly, job, null);
+                    opponentOnly, selfOnly, job, null, exclude);
             if (secondary != null) secondary.accept(ctx);
         };
     }

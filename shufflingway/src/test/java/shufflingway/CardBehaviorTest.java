@@ -83,6 +83,14 @@ import org.mockito.InOrder;
  * </ul>
  */
 public class CardBehaviorTest {
+    /**
+     * A damage count past every printed "Damage N --" threshold, for the protection scans
+     * that now take one. These tests are about whether a sentence is recognised, not about
+     * the gate, so they assert against a controller for whom every gate is open; the gate
+     * itself is covered separately.
+     */
+    private static final int DMG_GATES_MET = 7;
+
 
     // =========================================================================================
     // Firion: "If you control 5 or more Characters, Firion gains Haste and 'When Firion attacks,
@@ -4886,7 +4894,7 @@ public class CardBehaviorTest {
     @Test
     void gilgameshNamedFieldAbilityBlocksOnlyOpponentReturnToHand() {
         CardData gilgamesh = makeForwardWithText("Gilgamesh", "Lightning", 4, 8000, GILGAMESH_TEXT);
-        assertTrue(ActionResolver.hasCannotBeReturnedToHandByOppFieldAbility(gilgamesh));
+        assertTrue(ActionResolver.hasCannotBeReturnedToHandByOppFieldAbility(gilgamesh, DMG_GATES_MET));
 
         MainWindow mw = new MainWindow();
         mw.gameState.getIdentity().put(gilgamesh, true);
@@ -4943,9 +4951,118 @@ public class CardBehaviorTest {
         assertEquals(3, fas.size(), "the compound sentence must split into three individual clauses: " + fas);
 
         CardData tortoise = makeForwardWithText("Black Tortoise l'Cie Gilgamesh", "Earth", 5, 9000, BLACK_TORTOISE_TEXT);
-        assertTrue(ActionResolver.hasCannotBeDulledByOppFieldAbility(tortoise));
-        assertTrue(ActionResolver.hasCannotBeReturnedToHandByOppFieldAbility(tortoise));
-        assertTrue(ActionResolver.hasCannotBePutIntoBzByOppFieldAbility(tortoise));
+        assertTrue(ActionResolver.hasCannotBeDulledByOppFieldAbility(tortoise, DMG_GATES_MET));
+        assertTrue(ActionResolver.hasCannotBeReturnedToHandByOppFieldAbility(tortoise, DMG_GATES_MET));
+        assertTrue(ActionResolver.hasCannotBePutIntoBzByOppFieldAbility(tortoise, DMG_GATES_MET));
+    }
+
+    // 8-006L Cloud: "choose 1 Forward opponent controls. Deal it 3000 damage and 1000 more damage
+    // for each point of damage you have received." The multiplier was read off p1DamageCount(), so
+    // when the AI cast it the scaling came from its opponent's damage zone — Cloud got stronger the
+    // more damage the player it was attacking had taken.
+    private static final String CLOUD_DAMAGE_SCALED =
+            "Choose 1 Forward opponent controls. Deal it 3000 damage and 1000 more damage "
+            + "for each point of damage you have received.";
+
+    @Test
+    void cloudScalesOffItsOwnControllersDamage() {
+        Consumer<GameContext> fn = ActionResolver.parse(CLOUD_DAMAGE_SCALED, null);
+        assertNotNull(fn);
+        ForwardTarget t = new ForwardTarget(true, 0, ForwardTarget.CardZone.FORWARD);
+        GameContext ctx = mock(GameContext.class);
+        when(ctx.consumePreloadedTargets()).thenReturn(null);
+        when(ctx.selectCharacters(anyInt(), anyBoolean(), anyBoolean(), anyBoolean(), any(), any(),
+                anyInt(), any(), anyInt(), any(), anyBoolean(), anyBoolean(), anyBoolean(),
+                any(), any(), any(), any(), anyBoolean(), any(), anyBoolean())).thenReturn(List.of(t));
+        // The seat-relative accessor is what the effect must ask for. It is a default method, so a
+        // mock intercepts it rather than delegating to p1DamageCount/p2DamageCount.
+        when(ctx.selfDamageCount()).thenReturn(2);
+        fn.accept(ctx);
+        verify(ctx).damageTarget(t, 5000);   // 3000 + 1000×2
+        verify(ctx).selfDamageCount();
+        verify(ctx, never()).p1DamageCount();
+    }
+
+    // 1-113R Lightning: "Choose 1 Forward. Dull it or activate it. You can only use this ability
+    // once per turn." The CPU spent it dulling a blocker with no attacker of its own on the board —
+    // a cost paid for nothing, and against a Dadaluma that refused the dull outright.
+    @Test
+    void theOffensiveDullGuardRecognisesTheTogglesAndThePlainDull() {
+        assertTrue(ActionResolver.isOffensiveDullEffect(
+                "Choose 1 Forward. Dull it or activate it. You can only use this ability once per turn."),
+                "the once-per-turn note is a usage restriction, not part of what the ability does");
+        assertTrue(ActionResolver.isOffensiveDullEffect("Choose 1 Forward. Dull it."));
+        assertTrue(ActionResolver.isOffensiveDullEffect("Choose 1 Forward opponent controls. Dull it."));
+        assertTrue(ActionResolver.isDullOrActivateToggle(
+                "Choose 1 Forward. Dull it or activate it. You can only use this ability once per turn."));
+        assertFalse(ActionResolver.isDullOrActivateToggle("Choose 1 Forward. Dull it."));
+    }
+
+    @Test
+    void theOffensiveDullGuardDoesNotClaimADullWithAnythingAttached() {
+        // Anchored on purpose: "no attacker, so no point" reasons about a bare dull only. A dull
+        // bundled with damage or a freeze is a different bargain, and skipping it on that reasoning
+        // would have the CPU sitting on abilities that are worth using.
+        assertFalse(ActionResolver.isOffensiveDullEffect("Choose 1 Forward. Dull it and deal it 3000 damage."));
+        assertFalse(ActionResolver.isOffensiveDullEffect("Choose 1 Forward. Dull it and freeze it."));
+        assertFalse(ActionResolver.isOffensiveDullEffect("Choose 1 Forward. Break it."));
+        assertFalse(ActionResolver.isOffensiveDullEffect("Activate all the Forwards you control."));
+        assertFalse(ActionResolver.isOffensiveDullEffect(null));
+    }
+
+    @Test
+    void ungatedProtectionsDoNotNeedAnyDamageAtAll() {
+        // The other side of the gate: a protection printed with no "Damage N --" prefix is live
+        // from turn one, and threading a damage count through must not have made it conditional.
+        CardData tortoise = makeForwardWithText("Black Tortoise l'Cie Gilgamesh", "Earth", 5, 9000, BLACK_TORTOISE_TEXT);
+        assertTrue(ActionResolver.hasCannotBeDulledByOppFieldAbility(tortoise, 0));
+        assertTrue(ActionResolver.hasCannotBeReturnedToHandByOppFieldAbility(tortoise, 0));
+        assertTrue(ActionResolver.hasCannotBePutIntoBzByOppFieldAbility(tortoise, 0));
+    }
+
+    // 11-011R Dadaluma: "Damage 3 -- Dadaluma gains Brave and "Dadaluma cannot become dull by your
+    // opponent's Summons or abilities."" The protection scans read effectText() alone and never
+    // consulted the threshold the "Damage 3 --" prefix parses into, so the shield was permanent —
+    // it turned away a dull on turn one, with the controller on no damage at all.
+    private static final String DADALUMA_DULL_SHIELD_TEXT =
+            "Damage 3 -- Dadaluma gains Brave and \"Dadaluma cannot become dull by your "
+            + "opponent's Summons or abilities.\"";
+
+    @Test
+    void dadalumaDullShieldIsOffBelowItsDamageThreshold() {
+        CardData dadaluma = makeForwardWithText("Dadaluma", "Fire", 4, 8000, DADALUMA_DULL_SHIELD_TEXT);
+        assertFalse(ActionResolver.hasCannotBeDulledByOppFieldAbility(dadaluma, 0),
+                "with no damage received the Damage 3 shield is not active");
+        assertFalse(ActionResolver.hasCannotBeDulledByOppFieldAbility(dadaluma, 2),
+                "and it is still not active one short of the threshold");
+    }
+
+    @Test
+    void dadalumaDullShieldTurnsOnAtItsDamageThreshold() {
+        CardData dadaluma = makeForwardWithText("Dadaluma", "Fire", 4, 8000, DADALUMA_DULL_SHIELD_TEXT);
+        assertTrue(ActionResolver.hasCannotBeDulledByOppFieldAbility(dadaluma, 3),
+                "at exactly 3 damage the shield is live");
+        assertTrue(ActionResolver.hasCannotBeDulledByOppFieldAbility(dadaluma, 5),
+                "and stays live above it");
+    }
+
+    @Test
+    void theDamageGateReadsTheControllersDamageNotTheChoosers() {
+        // The whole point of threading the count: dulling Dadaluma is something the opponent does,
+        // so the obvious wrong wiring is to hand this scan the damage of whoever is choosing.
+        // Against a real board, where the two sides can differ.
+        MainWindow mw = new MainWindow();
+        placeP1Forward(mw, makeForwardWithText("Dadaluma", "Fire", 4, 8000, DADALUMA_DULL_SHIELD_TEXT));
+
+        // P2 (the chooser) on 3 damage, P1 (Dadaluma's controller) on none: the shield is off, so
+        // P2's ability dulls it. Reading the chooser's damage would protect it here.
+        for (int i = 0; i < 3; i++) mw.gameState.getP2DamageZone().add(makeForward("Filler", "Fire", 1, 1000));
+        assertEquals(3, mw.damageReceivedBy(false));
+        assertEquals(0, mw.damageReceivedBy(true));
+
+        mw.buildGameContext(false).dullP1Forward(0);
+        assertEquals(CardState.DULL, mw.p1ForwardStates.get(0),
+                "Dadaluma's own controller has taken no damage, so the Damage 3 shield is off");
     }
 
     @Test
@@ -19954,17 +20071,17 @@ public class CardBehaviorTest {
 		// The four clean printings in the corpus, which the tightened tail must not disturb.
 		assertTrue(ActionResolver.hasCannotBeChosenByAnySummonFieldAbility(
 				makeForwardWithText("Belgemine", "Water", 4, 8000,
-						"Belgemine cannot be chosen by Summons.")));
+						"Belgemine cannot be chosen by Summons."), DMG_GATES_MET));
 		assertTrue(ActionResolver.hasCannotBeChosenByAnySummonFieldAbility(
 				makeForwardWithText("Mecha Chocobo", "Wind", 3, 7000,
-						"Mecha Chocobo cannot be chosen by Summons.")));
+						"Mecha Chocobo cannot be chosen by Summons."), DMG_GATES_MET));
 	}
 
 	@Test
 	void kamlanautIsOnlyImmuneToSummonsSharingHisElement() {
 		CardData kam = makeForwardWithText("Kam'lanaut", "Dark", 5, 9000, KAMLANAUT_5_148H_SHARED_ELEMENT);
 
-		assertFalse(ActionResolver.hasCannotBeChosenByAnySummonFieldAbility(kam),
+		assertFalse(ActionResolver.hasCannotBeChosenByAnySummonFieldAbility(kam, DMG_GATES_MET),
 				"the blanket shield was the bug: his printing qualifies which Summons");
 		assertTrue(ActionResolver.hasCannotBeChosenByOwnElementFieldAbility(kam));
 
@@ -20614,7 +20731,7 @@ public class CardBehaviorTest {
 		// Neither sibling may claim it: one would make the shield follow the card's Element, the
 		// other expects a player to name one.
 		assertFalse(ActionResolver.hasCannotBeChosenByOwnElementFieldAbility(ripeness));
-		assertFalse(ActionResolver.hasCannotBeChosenByAnySummonFieldAbility(ripeness),
+		assertFalse(ActionResolver.hasCannotBeChosenByAnySummonFieldAbility(ripeness, DMG_GATES_MET),
 				"the printing qualifies which Summons, so the blanket shield must not match");
 	}
 
@@ -22160,8 +22277,8 @@ public class CardBehaviorTest {
 	void theScionsAreShieldedFromEitherPlayer() {
 		CardData scions = makeFieldAbilityCard("The Scions of the Seventh Dawn", "Light", "Forward",
 				SCIONS_PR_150);
-		assertTrue(ActionResolver.hasCannotBeChosenByAnyFieldAbility(scions, true),  "by Summons");
-		assertTrue(ActionResolver.hasCannotBeChosenByAnyFieldAbility(scions, false), "by abilities");
+		assertTrue(ActionResolver.hasCannotBeChosenByAnyFieldAbility(scions, true, DMG_GATES_MET),  "by Summons");
+		assertTrue(ActionResolver.hasCannotBeChosenByAnyFieldAbility(scions, false, DMG_GATES_MET), "by abilities");
 
 		MainWindow mw = new MainWindow();
 		placeP1Forward(mw, scions);
@@ -22179,9 +22296,9 @@ public class CardBehaviorTest {
 		// against "your opponent's" alone would have mistaken for the unqualified form.
 		CardData terra = makeFieldAbilityCard("Terra", "Ice", "Forward",
 				"Terra cannot be chosen by opponent's Summons.");
-		assertFalse(ActionResolver.hasCannotBeChosenByAnyFieldAbility(terra, true),
+		assertFalse(ActionResolver.hasCannotBeChosenByAnyFieldAbility(terra, true, DMG_GATES_MET),
 				"\"opponent's\" is still a player named, with or without \"your\"");
-		assertTrue(ActionResolver.hasCannotBeChosenByOppFieldAbility(terra, true));
+		assertTrue(ActionResolver.hasCannotBeChosenByOppFieldAbility(terra, true, DMG_GATES_MET));
 
 		MainWindow mw = new MainWindow();
 		placeP1Forward(mw, terra);
@@ -22196,17 +22313,17 @@ public class CardBehaviorTest {
 		// end, neither reaches this reader — Bartz has his own, Jack Garland stays visibly unread.
 		CardData bartz = makeFieldAbilityCard("Bartz", "Wind", "Forward",
 				"Bartz cannot be chosen by your opponent's Summons or abilities that share its Element.");
-		assertFalse(ActionResolver.hasCannotBeChosenByAnyFieldAbility(bartz, true));
+		assertFalse(ActionResolver.hasCannotBeChosenByAnyFieldAbility(bartz, true, DMG_GATES_MET));
 
 		CardData garland = makeFieldAbilityCard("Jack Garland", "Dark", "Forward",
 				"Jack Garland cannot be chosen by your opponent's abilities of Characters with the named Job.");
-		assertFalse(ActionResolver.hasCannotBeChosenByAnyFieldAbility(garland, false));
+		assertFalse(ActionResolver.hasCannotBeChosenByAnyFieldAbility(garland, false, DMG_GATES_MET));
 	}
 
 	@Test
 	void theShieldHasToNameItsOwnCarrier() {
 		CardData impostor = makeFieldAbilityCard("Y'shtola", "Light", "Forward", SCIONS_PR_150);
-		assertFalse(ActionResolver.hasCannotBeChosenByAnyFieldAbility(impostor, true),
+		assertFalse(ActionResolver.hasCannotBeChosenByAnyFieldAbility(impostor, true, DMG_GATES_MET),
 				"a card's own name in its own text means that card");
 	}
 
@@ -28112,9 +28229,9 @@ public class CardBehaviorTest {
 	void terrasImmunityIsReadOffHerPrintingRatherThanResolved() {
 		CardData terra = makeFieldAbilityCard("Terra", "Ice", "Forward", TERRA_1_046H);
 
-		assertTrue(ActionResolver.hasCannotBeChosenByOppFieldAbility(terra, true),
+		assertTrue(ActionResolver.hasCannotBeChosenByOppFieldAbility(terra, true, DMG_GATES_MET),
 				"the printing omits \"your\", which is why the qualifier is optional");
-		assertFalse(ActionResolver.hasCannotBeChosenByOppFieldAbility(terra, false),
+		assertFalse(ActionResolver.hasCannotBeChosenByOppFieldAbility(terra, false, DMG_GATES_MET),
 				"it names Summons, so an ability may still choose her");
 	}
 
@@ -28137,13 +28254,13 @@ public class CardBehaviorTest {
 	void theScopeWordDecidesWhichHalfOfTheImmunityApplies() {
 		CardData seiryu = makeFieldAbilityCard("Seiryu", "Water", "Forward",
 				"Seiryu cannot be chosen by your opponent's abilities.");
-		assertFalse(ActionResolver.hasCannotBeChosenByOppFieldAbility(seiryu, true));
-		assertTrue(ActionResolver.hasCannotBeChosenByOppFieldAbility(seiryu, false));
+		assertFalse(ActionResolver.hasCannotBeChosenByOppFieldAbility(seiryu, true, DMG_GATES_MET));
+		assertTrue(ActionResolver.hasCannotBeChosenByOppFieldAbility(seiryu, false, DMG_GATES_MET));
 
 		CardData fina = makeFieldAbilityCard("Fina", "Water", "Forward",
 				"Fina cannot be chosen by your opponent's Summons or abilities.");
-		assertTrue(ActionResolver.hasCannotBeChosenByOppFieldAbility(fina, true));
-		assertTrue(ActionResolver.hasCannotBeChosenByOppFieldAbility(fina, false));
+		assertTrue(ActionResolver.hasCannotBeChosenByOppFieldAbility(fina, true, DMG_GATES_MET));
+		assertTrue(ActionResolver.hasCannotBeChosenByOppFieldAbility(fina, false, DMG_GATES_MET));
 	}
 
 	@Test
@@ -28153,19 +28270,19 @@ public class CardBehaviorTest {
 		// the reader is anchored precisely so it cannot.
 		CardData bartz = makeFieldAbilityCard("Bartz", "Wind", "Forward",
 				"Bartz cannot be chosen by your opponent's Summons or abilities that share its Element.");
-		assertFalse(ActionResolver.hasCannotBeChosenByOppFieldAbility(bartz, true));
-		assertFalse(ActionResolver.hasCannotBeChosenByOppFieldAbility(bartz, false));
+		assertFalse(ActionResolver.hasCannotBeChosenByOppFieldAbility(bartz, true, DMG_GATES_MET));
+		assertFalse(ActionResolver.hasCannotBeChosenByOppFieldAbility(bartz, false, DMG_GATES_MET));
 
 		CardData garland = makeFieldAbilityCard("Jack Garland", "Dark", "Forward",
 				"Jack Garland cannot be chosen by your opponent's abilities of Characters with the named Job.");
-		assertFalse(ActionResolver.hasCannotBeChosenByOppFieldAbility(garland, false));
+		assertFalse(ActionResolver.hasCannotBeChosenByOppFieldAbility(garland, false, DMG_GATES_MET));
 	}
 
 	@Test
 	void anImmunityNamingAnotherCardIsNotThisCardsOwn() {
 		CardData impostor = makeFieldAbilityCard("Bystander", "Ice", "Forward", TERRA_1_046H);
 
-		assertFalse(ActionResolver.hasCannotBeChosenByOppFieldAbility(impostor, true),
+		assertFalse(ActionResolver.hasCannotBeChosenByOppFieldAbility(impostor, true, DMG_GATES_MET),
 				"a card's own name in its own text means that card");
 	}
 
@@ -34845,7 +34962,7 @@ public class CardBehaviorTest {
 		fn.accept(ctx);
 
 		// Null job, name filled: the disjunction then selects on the name alone.
-		verify(ctx).applyMassFieldJobCardNamePowerBoost(1000, true, false, false, true, null, "SOLDIER Candidate");
+		verify(ctx).applyMassFieldJobCardNamePowerBoost(1000, true, false, false, true, null, "SOLDIER Candidate", null);
 	}
 
 	@Test
@@ -34855,7 +34972,7 @@ public class CardBehaviorTest {
 		ActionResolver.parse("All the Card Name Shadow Forwards opponent controls lose 2000 power "
 				+ "until the end of the turn.", null).accept(ctx);
 
-		verify(ctx).applyMassFieldJobCardNamePowerBoost(-2000, true, false, true, false, null, "Shadow");
+		verify(ctx).applyMassFieldJobCardNamePowerBoost(-2000, true, false, true, false, null, "Shadow", null);
 	}
 
 	// --- Madeen 29-116H -------------------------------------------------------------------
@@ -51240,7 +51357,7 @@ public class CardBehaviorTest {
 		ActionResolver.parse(TENZEN_24_115R, null).accept(ctx);
 
 		// Same job-or-name pair to all three, so all three reach the same Forwards.
-		verify(ctx).applyMassFieldJobCardNamePowerBoost(3000, true, false, false, true, "Samurai", "Samurai");
+		verify(ctx).applyMassFieldJobCardNamePowerBoost(3000, true, false, false, true, "Samurai", "Samurai", null);
 		verify(ctx).applyMassFieldJobCardNameKeywordGrant(
 				EnumSet.of(CardData.Trait.BRAVE), true, false, false, true, "Samurai", "Samurai");
 		verify(ctx).applyMassFieldJobCardNameMaxAttacks(2, false, true, "Samurai", "Samurai");
@@ -51282,7 +51399,7 @@ public class CardBehaviorTest {
 		placeP1Forward(mw, makeForward("Bystander", "Fire", 3, 7000));
 
 		mw.buildGameContext(true).applyMassFieldJobCardNamePowerBoost(
-				1000, true, false, false, true, null, "Ceodore|Cecil");
+				1000, true, false, false, true, null, "Ceodore|Cecil", null);
 
 		assertEquals(8000, mw.effectiveP1ForwardPower(0), "the named Forward is boosted");
 		assertEquals(7000, mw.effectiveP1ForwardPower(1), "and the one nobody named is not");
@@ -51295,10 +51412,50 @@ public class CardBehaviorTest {
 		placeP1Forward(mw, makeJobForwardWithAutos("Monk Guy", "Fire", 7000, "Monk", ""));
 
 		mw.buildGameContext(true).applyMassFieldJobCardNamePowerBoost(
-				1000, true, false, false, true, "Samurai", null);
+				1000, true, false, false, true, "Samurai", null, null);
 
 		assertEquals(8000, mw.effectiveP1ForwardPower(0));
 		assertEquals(7000, mw.effectiveP1ForwardPower(1));
+	}
+
+	// 10-126R Rikken: "all the Job Sky Pirate Forwards other than Rikken you control gain +2000
+	// power until the end of the turn." Each qualifier had a home already — the Job filter on the
+	// Job sweep, the exclusion on the general one — and neither pattern took both, so the sentence
+	// went unread rather than half-read.
+	private static final String RIKKEN_JOB_SWEEP =
+			"All the Job Sky Pirate Forwards other than Rikken you control gain +2000 power "
+			+ "until the end of the turn.";
+
+	@Test
+	void rikkenJobSweepReadsBothTheJobFilterAndTheExclusion() {
+		GameContext ctx = mock(GameContext.class);
+		Consumer<GameContext> fn = ActionResolver.parse(RIKKEN_JOB_SWEEP, null);
+		assertNotNull(fn, "a Job sweep carrying an exclusion should parse");
+		fn.accept(ctx);
+		verify(ctx).applyMassFieldJobCardNamePowerBoost(2000, true, false, false, true,
+				"Sky Pirate", null, "Rikken");
+	}
+
+	@Test
+	void rikkenIsNamedByTheJobSweepParser() {
+		assertEquals("AllFieldJobPowerBoost", ActionResolver.matchedPatternName(RIKKEN_JOB_SWEEP, null));
+	}
+
+	@Test
+	void theJobSweepExclusionLeavesTheNamedCardAlone() {
+		// Against a real board, not a mock: the argument reaching the primitive proves nothing
+		// about the four loops inside it that have to honour it.
+		MainWindow mw = new MainWindow();
+		placeP1Forward(mw, makeJobForwardWithAutos("Rikken", "Water", 7000, "Sky Pirate", ""));
+		placeP1Forward(mw, makeJobForwardWithAutos("Ayde", "Water", 7000, "Sky Pirate", ""));
+		placeP1Forward(mw, makeJobForwardWithAutos("Landlubber", "Water", 7000, "Monk", ""));
+
+		mw.buildGameContext(true).applyMassFieldJobCardNamePowerBoost(
+				2000, true, false, false, true, "Sky Pirate", null, "Rikken");
+
+		assertEquals(7000, mw.effectiveP1ForwardPower(0), "the excluded card is not boosted");
+		assertEquals(9000, mw.effectiveP1ForwardPower(1), "the other Sky Pirate is");
+		assertEquals(7000, mw.effectiveP1ForwardPower(2), "and a different Job is untouched");
 	}
 
 	// =========================================================================================

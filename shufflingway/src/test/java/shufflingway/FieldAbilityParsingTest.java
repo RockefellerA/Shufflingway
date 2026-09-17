@@ -12,6 +12,14 @@ import java.util.regex.Matcher;
 import org.junit.jupiter.api.Test;
 
 public class FieldAbilityParsingTest {
+    /**
+     * A damage count past every printed "Damage N --" threshold, for the protection scans
+     * that now take one. These tests are about whether a sentence is recognised, not about
+     * the gate, so they assert against a controller for whom every gate is open; the gate
+     * itself is covered separately.
+     */
+    private static final int DMG_GATES_MET = 7;
+
 
     private static final java.util.regex.Pattern LIMIT_BREAK_PREFIX =
             java.util.regex.Pattern.compile("(?i)^Limit\\s+Break\\s+--\\s+");
@@ -251,8 +259,8 @@ public class FieldAbilityParsingTest {
         // The Scions of the Seventh Dawn PR-150. Read per choice by MainWindow.isProtectedFromChoice
         // and by the sets GameContextImpl.selectCharacters builds; name-checked against the carrier
         // by both, so the has* call is asked here too.
-        if (ActionResolver.hasCannotBeChosenByAnyFieldAbility(source, true)
-                || ActionResolver.hasCannotBeChosenByAnyFieldAbility(source, false)) {
+        if (ActionResolver.hasCannotBeChosenByAnyFieldAbility(source, true, DMG_GATES_MET)
+                || ActionResolver.hasCannotBeChosenByAnyFieldAbility(source, false, DMG_GATES_MET)) {
             if (ActionResolverPatterns.FA_SELF_CANNOT_BE_CHOSEN_BY_ANY
                     .matcher(fa.effectText().trim()).matches()) return true;
         }
@@ -897,8 +905,8 @@ public class FieldAbilityParsingTest {
         if (fwdLockM.matches())
             return "OppForwardsCannotUseActionAbilities["
                     + (fwdLockM.group("turngate") != null ? "their turn" : "always") + "]";
-        if (ActionResolver.hasCannotBeChosenByAnyFieldAbility(source, true)
-                || ActionResolver.hasCannotBeChosenByAnyFieldAbility(source, false)) {
+        if (ActionResolver.hasCannotBeChosenByAnyFieldAbility(source, true, DMG_GATES_MET)
+                || ActionResolver.hasCannotBeChosenByAnyFieldAbility(source, false, DMG_GATES_MET)) {
             Matcher anyM = ActionResolverPatterns.FA_SELF_CANNOT_BE_CHOSEN_BY_ANY
                     .matcher(fa.effectText().trim());
             if (anyM.matches())

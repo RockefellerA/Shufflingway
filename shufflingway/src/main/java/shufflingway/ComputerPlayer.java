@@ -436,7 +436,6 @@ class ComputerPlayer implements OpponentController {
 			if (!p2ForwardCanAttack(i)) continue;
 			mw.p2Turn.attackDeclarationsThisTurn++;
 			CardData attacker = mw.p2ForwardPrimedTop.get(i) != null ? mw.p2ForwardPrimedTop.get(i) : mw.p2ForwardCards.get(i);
-			mw.logEntry("[P2] " + attacker.name() + " attacks!");
 			CardState p2SingleBefore = mw.p2ForwardStates.get(i);
 			if (!mw.effectiveP2HasTrait(i, CardData.Trait.BRAVE)) {
 				mw.p2ForwardStates.set(i, CardState.DULL);
@@ -463,7 +462,6 @@ class ComputerPlayer implements OpponentController {
 			}
 			mw.recordAttackDeclared(attacker);
 			mw.autoAbilityTriggers.triggerAutoAbilitiesForAttack(attacker, false);
-			mw.logEntry("[P2] " + attacker.name() + " attacks! (Forward — " + power + ")");
 			mw.pendingP2AttackerIsMonster = true;
 			mw.pendingP2AttackerPower     = power;
 			final int mi = i;
@@ -483,7 +481,6 @@ class ComputerPlayer implements OpponentController {
 			}
 			mw.recordAttackDeclared(attacker);
 			mw.autoAbilityTriggers.triggerAutoAbilitiesForAttack(attacker, false);
-			mw.logEntry("[P2] " + attacker.name() + " attacks! (Forward — " + power + ")");
 			mw.pendingP2AttackerIsBackup = true;
 			mw.pendingP2AttackerPower    = power;
 			final int bi = i;
@@ -1765,6 +1762,15 @@ class ComputerPlayer implements OpponentController {
 			// Reactive shields ("if [card] is dealt damage by Summons/abilities, damage becomes 0")
 			// are only useful on the opponent's turn; skip them here and let p2AutoPass handle them.
 			if (ActionResolver.isReactiveDamageShield(ability.effectText(), card)) continue;
+			// Dulling an opponent's Forward buys one thing: it cannot block. With no attacker of
+			// P2's own to walk past it, that is a cost paid for nothing — 1-113R Lightning was
+			// spending her once-per-turn dull on a Dadaluma with nothing behind it to attack.
+			// The dull-or-activate toggle survives the check when P2 has a dull Forward of its own,
+			// since the other half of the toggle is worth the cost on its own terms.
+			if (ActionResolver.isOffensiveDullEffect(ability.effectText())
+					&& !p2HasAnyAttacker()
+					&& !(ActionResolver.isDullOrActivateToggle(ability.effectText()) && p2HasDullForward()))
+				continue;
 			// Doublecast is only worth its cost when a chain can actually fire: a payable hand
 			// Summon with a strictly cheaper Summon alongside it (which would then cast free).
 			if (ActionResolver.isDoublecastFreeSummonsEffect(ability.effectText())
@@ -2055,6 +2061,31 @@ class ComputerPlayer implements OpponentController {
 	}
 
 	/** Mirror of {@link #p1HasAnyForward} for P2's own side, counting Monsters acting as Forwards. */
+	/**
+	 * Whether P2 has anything that could declare an attack this turn — Forwards, plus the Monsters
+	 * and Backups that are currently acting as Forwards.
+	 *
+	 * <p>Asks the same three predicates the attack phase itself loops over, so "the AI thinks it can
+	 * attack" and "the AI then attacks" cannot disagree. That matters for the dull guard above: the
+	 * whole value of dulling a blocker is the attack that follows it.
+	 */
+	private boolean p2HasAnyAttacker() {
+		for (int i = 0; i < mw.p2ForwardStates.size(); i++)
+			if (p2ForwardCanAttack(i)) return true;
+		for (int i = 0; i < mw.p2MonsterStates.size(); i++)
+			if (mw.p2MonsterCanAttackAsForward(i)) return true;
+		for (int i = 0; i < mw.p2BackupCards.length; i++)
+			if (mw.p2BackupCanAttackAsForward(i)) return true;
+		return false;
+	}
+
+	/** Whether P2 controls a dull Forward — something the activate half of a toggle could turn. */
+	private boolean p2HasDullForward() {
+		for (int i = 0; i < mw.p2ForwardStates.size(); i++)
+			if (mw.p2ForwardCards.get(i) != null && mw.p2ForwardStates.get(i) == CardState.DULL) return true;
+		return false;
+	}
+
 	private boolean p2HasAnyForward() {
 		for (int i = 0; i < mw.p2ForwardCards.size(); i++)
 			if (mw.p2ForwardCards.get(i) != null) return true;

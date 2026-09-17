@@ -4409,9 +4409,17 @@ public interface GameContext {
      * Applies a power boost until end of turn to all Forwards (and Monsters when
      * {@code inclMonsters} is true) that match {@code jobFilter} OR {@code cardNameFilter}.
      * Both filters use bar-separated OR semantics (see {@link CardFilters}).
+     *
+     * <p>{@code excludeName} drops one printing from the sweep by name — "all the Job Sky Pirate
+     * Forwards other than Rikken you control" (10-126R Rikken), the shape a card takes when it
+     * shares its own Job with what it is pumping. Matched by name rather than by identity, like
+     * every other exclusion here: {@code CardData} is a record, so a second copy of the printing is
+     * {@code equals()} to this one, and the printed words exclude the card by name too. {@code null}
+     * excludes nothing.
      */
     void applyMassFieldJobCardNamePowerBoost(int amount, boolean inclForwards, boolean inclMonsters,
-            boolean opponentOnly, boolean selfOnly, String jobFilter, String cardNameFilter);
+            boolean opponentOnly, boolean selfOnly, String jobFilter, String cardNameFilter,
+            String excludeName);
 
     /**
      * Applies a power debuff until end of turn to all opponent Forwards, where each Forward

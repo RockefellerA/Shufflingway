@@ -1180,15 +1180,15 @@ final class GameContextImpl implements GameContext {
 						for (CardData b : p1side ? mw.p1BackupCards : mw.p2BackupCards) if (b != null) zone.add(b);
 						zone.addAll(p1side ? mw.p1MonsterCards : mw.p2MonsterCards);
 						for (CardData c : zone) {
-							if (ActionResolver.hasCannotBeChosenByAnySummonFieldAbility(c)) sumTmp.add(c);
+							if (ActionResolver.hasCannotBeChosenByAnySummonFieldAbility(c, mw.damageReceivedBy(p1side))) sumTmp.add(c);
 							// PR-150 The Scions of the Seventh Dawn, printed with no player named.
 							// Seeds the symmetric sets, so its own controller cannot choose it either.
-							if (ActionResolver.hasCannotBeChosenByAnyFieldAbility(c, true))  sumTmp.add(c);
-							if (ActionResolver.hasCannotBeChosenByAnyFieldAbility(c, false)) ablTmp.add(c);
+							if (ActionResolver.hasCannotBeChosenByAnyFieldAbility(c, true,  mw.damageReceivedBy(p1side))) sumTmp.add(c);
+							if (ActionResolver.hasCannotBeChosenByAnyFieldAbility(c, false, mw.damageReceivedBy(p1side))) ablTmp.add(c);
 							// The opponent-scoped printing (Terra 1-046H, Seiryu 16-049R). Seeds the
 							// opponent-scoped sets, so the card's own controller can still choose it.
-							if (ActionResolver.hasCannotBeChosenByOppFieldAbility(c, true))  sumOpp.add(c);
-							if (ActionResolver.hasCannotBeChosenByOppFieldAbility(c, false)) ablOpp.add(c);
+							if (ActionResolver.hasCannotBeChosenByOppFieldAbility(c, true,  mw.damageReceivedBy(p1side))) sumOpp.add(c);
+							if (ActionResolver.hasCannotBeChosenByOppFieldAbility(c, false, mw.damageReceivedBy(p1side))) ablOpp.add(c);
 							// Royal Ripeness 5-007H: printed immunity to one named Element, both
 							// halves of it — its Summons and its abilities alike.
 							String pe = ActionResolver.cannotBeChosenByElementFieldAbility(c);
@@ -1832,7 +1832,7 @@ final class GameContextImpl implements GameContext {
 			@Override public void dullP1Forward(int idx) {
 				if (idx >= mw.p1ForwardStates.size()) return;
 				CardData c = p1Forward(idx);
-				if (!isP1 && (ActionResolver.hasCannotBeDulledByOppFieldAbility(c)
+				if (!isP1 && (ActionResolver.hasCannotBeDulledByOppFieldAbility(c, mw.damageReceivedBy(true))
 						|| mw.effectiveP1HasTrait(idx, CardData.Trait.CANNOT_BE_DULLED_BY_OPP))) {
 					logEntry(c.name() + " cannot become dull by opponent's effects");
 					return;
@@ -1854,7 +1854,7 @@ final class GameContextImpl implements GameContext {
 			@Override public void dullP2Forward(int idx) {
 				if (idx >= mw.p2ForwardStates.size()) return;
 				CardData c = mw.p2ForwardCards.get(idx);
-				if (isP1 && (ActionResolver.hasCannotBeDulledByOppFieldAbility(c)
+				if (isP1 && (ActionResolver.hasCannotBeDulledByOppFieldAbility(c, mw.damageReceivedBy(false))
 						|| mw.effectiveP2HasTrait(idx, CardData.Trait.CANNOT_BE_DULLED_BY_OPP))) {
 					logEntry("[P2] " + c.name() + " cannot become dull by opponent's effects");
 					return;
@@ -2277,7 +2277,7 @@ final class GameContextImpl implements GameContext {
 				if (!isP1 && idx >= 0 && idx < mw.p1ForwardCards.size()) {
 					CardData c = p1Forward(idx);
 					if (leaveFieldProtected(c, true)) return;
-					if (ActionResolver.hasCannotBeReturnedToHandByOppFieldAbility(c)
+					if (ActionResolver.hasCannotBeReturnedToHandByOppFieldAbility(c, mw.damageReceivedBy(true))
 							|| mw.effectiveP1HasTrait(idx, CardData.Trait.CANNOT_BE_RETURNED_TO_HAND_BY_OPP)
 							|| mw.charactersProtectedFromOppReturnToHand(true)) {
 						logEntry(c.name() + " cannot be returned to its owner's hand by opponent's effects");
@@ -2290,7 +2290,7 @@ final class GameContextImpl implements GameContext {
 				if (isP1 && idx >= 0 && idx < mw.p2ForwardCards.size()) {
 					CardData c = mw.p2ForwardCards.get(idx);
 					if (leaveFieldProtected(c, false)) return;
-					if (ActionResolver.hasCannotBeReturnedToHandByOppFieldAbility(c)
+					if (ActionResolver.hasCannotBeReturnedToHandByOppFieldAbility(c, mw.damageReceivedBy(false))
 							|| mw.effectiveP2HasTrait(idx, CardData.Trait.CANNOT_BE_RETURNED_TO_HAND_BY_OPP)
 							|| mw.charactersProtectedFromOppReturnToHand(false)) {
 						logEntry("[P2] " + c.name() + " cannot be returned to its owner's hand by opponent's effects");
@@ -2530,7 +2530,7 @@ final class GameContextImpl implements GameContext {
 
 			private boolean characterReturnToHandProtected(CardData card, boolean targetIsP1) {
 				if (leaveFieldProtected(card, targetIsP1)) return true;
-				if (ActionResolver.hasCannotBeReturnedToHandByOppFieldAbility(card)
+				if (ActionResolver.hasCannotBeReturnedToHandByOppFieldAbility(card, mw.damageReceivedBy(targetIsP1))
 						|| mw.charactersProtectedFromOppReturnToHand(targetIsP1)) {
 					logEntry((targetIsP1 ? "" : "[P2] ") + card.name()
 							+ " cannot be returned to its owner's hand by opponent's effects");
@@ -2581,7 +2581,7 @@ final class GameContextImpl implements GameContext {
 					return;
 				}
 				if (!isP1 && idx >= 0 && idx < mw.p1ForwardCards.size()
-						&& ActionResolver.hasCannotBePutIntoBzByOppFieldAbility(p1Forward(idx))) {
+						&& ActionResolver.hasCannotBePutIntoBzByOppFieldAbility(p1Forward(idx), mw.damageReceivedBy(true))) {
 					logEntry(p1Forward(idx).name() + " cannot be put into the Break Zone by opponent's effects");
 					return;
 				}
@@ -2594,7 +2594,7 @@ final class GameContextImpl implements GameContext {
 					return;
 				}
 				if (isP1 && idx >= 0 && idx < mw.p2ForwardCards.size()
-						&& ActionResolver.hasCannotBePutIntoBzByOppFieldAbility(mw.p2ForwardCards.get(idx))) {
+						&& ActionResolver.hasCannotBePutIntoBzByOppFieldAbility(mw.p2ForwardCards.get(idx), mw.damageReceivedBy(false))) {
 					logEntry("[P2] " + mw.p2ForwardCards.get(idx).name() + " cannot be put into the Break Zone by opponent's effects");
 					return;
 				}
@@ -9139,7 +9139,12 @@ final class GameContextImpl implements GameContext {
 			}
 
 			@Override public void applyMassFieldJobCardNamePowerBoost(int amount, boolean inclForwards, boolean inclMonsters,
-					boolean opponentOnly, boolean selfOnly, String jobFilter, String cardNameFilter) {
+					boolean opponentOnly, boolean selfOnly, String jobFilter, String cardNameFilter,
+					String excludeName) {
+				// One predicate for all four loops below rather than four copies of the guard, so
+				// the exclusion cannot end up applied to three of them.
+				Predicate<CardData> eligible = c -> matchesJobOrCardName(c, jobFilter, cardNameFilter)
+						&& !(excludeName != null && excludeName.equalsIgnoreCase(c.name()));
 				boolean touchP1 = isP1 ? !opponentOnly : !selfOnly;
 				boolean touchP2 = isP1 ? !selfOnly     : !opponentOnly;
 				boolean p1JobBoostSuppressed = inclForwards && amount > 0 && (mw.oppForwardPowerBoostSuppressedFor(true) || (isP1 && mw.oppForwardSelfBoostSuppressedFor(true)));
@@ -9148,7 +9153,7 @@ final class GameContextImpl implements GameContext {
 					if (inclForwards) {
 						for (int i = 0; i < mw.p1ForwardCards.size(); i++) {
 							CardData c = p1Forward(i);
-							if (!matchesJobOrCardName(c, jobFilter, cardNameFilter)) continue;
+							if (!eligible.test(c)) continue;
 							if (p1JobBoostSuppressed) { logEntry(c.name() + " — power boost suppressed"); continue; }
 							mw.p1ForwardPowerBoost.set(i, mw.p1ForwardPowerBoost.get(i) + amount);
 							logEntry(c.name() + " gains +" + amount + " power until end of turn");
@@ -9158,7 +9163,7 @@ final class GameContextImpl implements GameContext {
 					if (inclMonsters) {
 						for (int i = 0; i < mw.p1MonsterCards.size(); i++) {
 							CardData c = mw.p1MonsterCards.get(i);
-							if (!matchesJobOrCardName(c, jobFilter, cardNameFilter)) continue;
+							if (!eligible.test(c)) continue;
 							logEntry(c.name() + " gains +" + amount + " power until end of turn");
 						}
 					}
@@ -9167,7 +9172,7 @@ final class GameContextImpl implements GameContext {
 					if (inclForwards) {
 						for (int i = 0; i < mw.p2ForwardCards.size(); i++) {
 							CardData c = mw.p2ForwardCards.get(i);
-							if (!matchesJobOrCardName(c, jobFilter, cardNameFilter)) continue;
+							if (!eligible.test(c)) continue;
 							if (p2JobBoostSuppressed) { logEntry("[P2] " + c.name() + " — power boost suppressed"); continue; }
 							mw.p2ForwardPowerBoost.set(i, mw.p2ForwardPowerBoost.get(i) + amount);
 							logEntry("[P2] " + c.name() + " gains +" + amount + " power until end of turn");
@@ -9177,7 +9182,7 @@ final class GameContextImpl implements GameContext {
 					if (inclMonsters) {
 						for (int i = 0; i < mw.p2MonsterCards.size(); i++) {
 							CardData c = mw.p2MonsterCards.get(i);
-							if (!matchesJobOrCardName(c, jobFilter, cardNameFilter)) continue;
+							if (!eligible.test(c)) continue;
 							logEntry("[P2] " + c.name() + " gains +" + amount + " power until end of turn");
 						}
 					}

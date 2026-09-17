@@ -1075,7 +1075,9 @@ final class ActionResolverDamage {
             ctx.dealDamageToSelf(damageAmount);
             CardData chosen = target.isP1() ? ctx.p1Forward(target.idx()) : ctx.p2Forward(target.idx());
             int chosenCost = chosen != null ? chosen.cost() : -1;
-            int dmgCount   = ctx.p1DamageCount();
+            // The ability user's damage, not P1's — "the damage you have received" is the
+            // controller's, and the log line below already called it "own damage zone".
+            int dmgCount   = ctx.selfDamageCount();
             ctx.logEntry(dealerName + " damage dealt — own damage zone: " + dmgCount
                     + ", chosen Forward cost: " + chosenCost);
             if (chosenCost >= 0 && chosenCost <= dmgCount) {

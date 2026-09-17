@@ -7148,11 +7148,35 @@ public class ActionResolver {
     }
 
     /**
+     * Whether a field ability is live for a controller who has received {@code controllerDamage}
+     * points of damage — the "Damage N --" prefix that {@code CardData.parseFieldAbilities} strips
+     * into {@link FieldAbility#damageThreshold()}.
+     *
+     * <p>Every protection scan below runs through this. They used to read {@code effectText()}
+     * alone, which made a gated protection permanent: 11-011R Dadaluma's "Damage 3 -- Dadaluma
+     * gains … 'Dadaluma cannot become dull by your opponent's Summons or abilities.'" turned away
+     * a dull from turn one. Seven printings in the corpus gate a protection this way (Dadaluma,
+     * 17-066C Cardian, 18-019R Weiss, 18-079R Fujin, 18-083R Raijin, 22-104R Folka), and every one
+     * of them was always on.
+     *
+     * <p>{@code controllerDamage} is the damage received by the player controlling {@code card},
+     * not by whoever is pointing an effect at it — the prefix is about its own controller.
+     */
+    static boolean fieldAbilityGateMet(FieldAbility fa, int controllerDamage) {
+        return fa.damageThreshold() <= 0 || controllerDamage >= fa.damageThreshold();
+    }
+
+    /**
      * Returns {@code true} if the card has a permanent field ability of the form
      * "[CardName] cannot become dull by your opponent's Summons or abilities."
+     *
+     * @param controllerDamage damage received by the player controlling {@code card}, so a
+     *                         "Damage N --" gate on the ability is honoured (see
+     *                         {@link #fieldAbilityGateMet})
      */
-    static boolean hasCannotBeDulledByOppFieldAbility(CardData card) {
+    static boolean hasCannotBeDulledByOppFieldAbility(CardData card, int controllerDamage) {
         for (FieldAbility fa : card.fieldAbilities()) {
+            if (!fieldAbilityGateMet(fa, controllerDamage)) continue;
             Matcher m = STANDALONE_NAMED_CANNOT_BECOME_DULL_OPP.matcher(fa.effectText());
             if (m.find() && m.group("name").trim().equalsIgnoreCase(card.name())) return true;
         }
@@ -7162,9 +7186,12 @@ public class ActionResolver {
     /**
      * Returns {@code true} if the card has a permanent field ability of the form
      * "[CardName] cannot be returned to its owner's hand by [your] opponent's Summons or abilities."
+     *
+     * @param controllerDamage damage received by the player controlling {@code card}
      */
-    static boolean hasCannotBeReturnedToHandByOppFieldAbility(CardData card) {
+    static boolean hasCannotBeReturnedToHandByOppFieldAbility(CardData card, int controllerDamage) {
         for (FieldAbility fa : card.fieldAbilities()) {
+            if (!fieldAbilityGateMet(fa, controllerDamage)) continue;
             Matcher m = STANDALONE_NAMED_CANNOT_BE_RETURNED_TO_HAND_OPP.matcher(fa.effectText());
             if (m.find() && m.group("name").trim().equalsIgnoreCase(card.name())) return true;
         }
@@ -7186,9 +7213,12 @@ public class ActionResolver {
     /**
      * Returns {@code true} if the card has a permanent field ability of the form
      * "[CardName] cannot be put into the Break Zone by [your] opponent's Summons or abilities."
+     *
+     * @param controllerDamage damage received by the player controlling {@code card}
      */
-    static boolean hasCannotBePutIntoBzByOppFieldAbility(CardData card) {
+    static boolean hasCannotBePutIntoBzByOppFieldAbility(CardData card, int controllerDamage) {
         for (FieldAbility fa : card.fieldAbilities()) {
+            if (!fieldAbilityGateMet(fa, controllerDamage)) continue;
             Matcher m = STANDALONE_NAMED_CANNOT_BE_PUT_INTO_BZ_OPP.matcher(fa.effectText());
             if (m.find() && m.group("name").trim().equalsIgnoreCase(card.name())) return true;
         }
@@ -7417,8 +7447,9 @@ public class ActionResolver {
      * "[CardName] cannot be chosen by Summons." — i.e., a permanent self-targeting
      * immunity to any Summon while the card is on the field.
      */
-    static boolean hasCannotBeChosenByAnySummonFieldAbility(CardData card) {
+    static boolean hasCannotBeChosenByAnySummonFieldAbility(CardData card, int controllerDamage) {
         for (FieldAbility fa : card.fieldAbilities()) {
+            if (!fieldAbilityGateMet(fa, controllerDamage)) continue;
             Matcher m = STANDALONE_NAMED_CANNOT_BE_CHOSEN_ANY_SUMMON.matcher(fa.effectText());
             if (m.find() && m.group("name").trim().equalsIgnoreCase(card.name())) return true;
         }
@@ -7438,9 +7469,10 @@ public class ActionResolver {
      * <p>Self-named, checked by equality: a card's own name in its own text means that card, so a
      * second printing sharing the name is not covered by this one.
      */
-    static boolean hasCannotBeChosenByOppFieldAbility(CardData card, boolean bySummon) {
+    static boolean hasCannotBeChosenByOppFieldAbility(CardData card, boolean bySummon, int controllerDamage) {
         if (card == null) return false;
         for (FieldAbility fa : card.fieldAbilities()) {
+            if (!fieldAbilityGateMet(fa, controllerDamage)) continue;
             Matcher m = FA_SELF_CANNOT_BE_CHOSEN_BY_OPP.matcher(fa.effectText().trim());
             if (!m.matches() || !m.group("name").trim().equalsIgnoreCase(card.name())) continue;
             String scope = m.group("scope").toLowerCase(Locale.ROOT);
@@ -7461,9 +7493,10 @@ public class ActionResolver {
      *
      * <p>Self-named and checked by equality, like the rest of the family.
      */
-    static boolean hasCannotBeChosenByAnyFieldAbility(CardData card, boolean bySummon) {
+    static boolean hasCannotBeChosenByAnyFieldAbility(CardData card, boolean bySummon, int controllerDamage) {
         if (card == null) return false;
         for (FieldAbility fa : card.fieldAbilities()) {
+            if (!fieldAbilityGateMet(fa, controllerDamage)) continue;
             Matcher m = FA_SELF_CANNOT_BE_CHOSEN_BY_ANY.matcher(fa.effectText().trim());
             if (!m.matches() || !m.group("name").trim().equalsIgnoreCase(card.name())) continue;
             String scope = m.group("scope").toLowerCase(Locale.ROOT);
@@ -8075,6 +8108,49 @@ public class ActionResolver {
         // in the same turn, so an empty board is not proof it will do nothing.
         return t.contains("choose") || t.contains("all the forwards you control")
                 || t.contains("all forwards you control");
+    }
+
+    /**
+     * Returns {@code true} when {@code text}'s effect on an opponent's Forward is to dull it and
+     * nothing more — "Choose 1 Forward. Dull it." and the dull-or-activate toggle 1-113R Lightning
+     * prints ("Choose 1 Forward. Dull it or activate it.").
+     *
+     * <p>Dulling an opponent's Forward buys exactly one thing: it cannot block. So the play is
+     * worth its cost only when its controller is about to attack, which is what
+     * {@code ComputerPlayer} checks before spending one. The CPU was dulling a blocker with no
+     * attacker of its own on the board — a cost paid for nothing, and on a card whose own text
+     * ("Damage 3 -- … cannot become dull …") meant the dull was refused outright.
+     *
+     * <p>Says nothing about whether the toggle's <em>activate</em> half is worth using; that side
+     * lands on the controller's own board and the caller weighs it separately.
+     */
+    static boolean isOffensiveDullEffect(String text) {
+        if (text == null) return false;
+        Matcher m = CHOOSE_CHARACTER_PATTERN.matcher(text.trim());
+        if (!m.find()) return false;
+        String followup = stripUsageNote(m.group("followup"));
+        if (followup == null) return false;
+        // Anchored end to end. A dull that comes with anything else attached is a different
+        // bargain, and "no attacker, so no point" does not reason about the rest of it — so an
+        // unrecognised compound stays usable rather than being skipped on a guess.
+        return followup.matches("(?i)Dulls?\\s+(?:it|them)\\s+or\\s+activates?\\s+(?:it|them)[.!]?")
+            || followup.matches("(?i)Dulls?\\s+(?:it|them)[.!]?");
+    }
+
+    /** Whether {@code text} is the dull-or-activate toggle, whose other half helps its own side. */
+    static boolean isDullOrActivateToggle(String text) {
+        return text != null && FOLLOWUP_DULL_OR_ACTIVATE.matcher(text).find();
+    }
+
+    /**
+     * Drops a trailing "You can only use this ability once per turn." — a usage restriction that
+     * {@code ActionAbility} already carries as a flag, not part of what the ability does.
+     */
+    private static String stripUsageNote(String followup) {
+        if (followup == null) return null;
+        return followup.trim()
+                .replaceAll("(?i)\\s*You\\s+can\\s+only\\s+use\\s+this\\s+ability\\s+once\\s+per\\s+turn[.!]?\\s*$", "")
+                .trim();
     }
 
     /**

@@ -7057,7 +7057,13 @@ public class MainWindow {
 		// does the block step open and P1 get to choose a blocker.
 		setAttackSubStep(1);
 		refreshPhaseTracker();
-		combatPriorityRound(false, "[P2] " + attacker.name() + " (" + displayPow + ") attacks!", () -> {
+		// The one attack announcement for this side. ComputerPlayer and the remote-replay path
+		// each used to log their own before calling in here, which printed every P2 attack twice;
+		// the "Forward —" note is carried here so dropping those lost nothing.
+		String announce = "[P2] " + attacker.name() + " ("
+				+ ((pendingP2AttackerIsMonster || pendingP2AttackerIsBackup) ? "Forward — " : "")
+				+ displayPow + ") attacks!";
+		combatPriorityRound(false, announce, () -> {
 			if (survivingDeclaredAttackers(false).isEmpty()) {
 				logEntry("No attackers remain — Declare Blockers skipped.");
 				setAttackSubStep(-1);
@@ -7166,7 +7172,6 @@ public class MainWindow {
 				}
 				recordAttackDeclared(attacker);
 				autoAbilityTriggers.triggerAutoAbilitiesForAttack(attacker, false);
-				logEntry("[P2] " + attacker.name() + " attacks! (Forward — " + pendingP2AttackerPower + ")");
 				initP1BlockDeclaration(attacker, idx, onDone);
 			}
 			case BACKUP -> {
@@ -7177,13 +7182,11 @@ public class MainWindow {
 				}
 				recordAttackDeclared(attacker);
 				autoAbilityTriggers.triggerAutoAbilitiesForAttack(attacker, false);
-				logEntry("[P2] " + attacker.name() + " attacks! (Forward — " + pendingP2AttackerPower + ")");
 				initP1BlockDeclaration(attacker, idx, onDone);
 			}
 			default -> {
 				CardData attacker = p2ForwardPrimedTop.get(idx) != null
 						? p2ForwardPrimedTop.get(idx) : p2ForwardCards.get(idx);
-				logEntry("[P2] " + attacker.name() + " attacks!");
 				CardState before = p2ForwardStates.get(idx);
 				if (!effectiveP2HasTrait(idx, CardData.Trait.BRAVE)) {
 					p2ForwardStates.set(idx, CardState.DULL);
@@ -13198,19 +13201,32 @@ public class MainWindow {
 	 * first chosen but not when an effect is redirected is a card that stops being protected the
 	 * moment someone points a redirect at it.
 	 */
+	/**
+	 * Damage counters received by one player — the figure a "Damage N --" field-ability
+	 * prefix is measured against. Named once here because the protection scans read it per
+	 * card and per choice, and reading the wrong side's damage is the mistake worth making
+	 * hard: the prefix counts its own controller's damage, never the chooser's.
+	 */
+	int damageReceivedBy(boolean isP1) {
+		return isP1 ? gameState.getP1DamageZone().size() : gameState.getP2DamageZone().size();
+	}
+
 	boolean isProtectedFromChoice(CardData c, boolean sideIsP1, boolean chooserIsP1,
 			boolean bySummon, CardData chooserSource) {
 		if (c == null) return false;
+		// The card's own controller's damage, which is what a "Damage N --" prefix on one of the
+		// printed immunities below is counting — not the chooser's.
+		int ownerDamage = damageReceivedBy(sideIsP1);
 		List<String> chooserElems = chooserSource != null ? effectiveElements(chooserSource) : List.of();
 
 		// Unqualified grants: no player named, so both are bound.
 		if (bySummon && cannotBeChosenBySummonsAnyone.contains(c)) return true;
 		if (!bySummon && cannotBeChosenByAbilitiesAnyone.contains(c)) return true;
-		if (bySummon && ActionResolver.hasCannotBeChosenByAnySummonFieldAbility(c)) return true;
+		if (bySummon && ActionResolver.hasCannotBeChosenByAnySummonFieldAbility(c, ownerDamage)) return true;
 		// The Scions of the Seventh Dawn PR-150, printed with no player named. Read here rather
 		// than in the opponent-scoped block below for exactly that reason: it binds its own
 		// controller too, which is what the card is for.
-		if (ActionResolver.hasCannotBeChosenByAnyFieldAbility(c, bySummon)) return true;
+		if (ActionResolver.hasCannotBeChosenByAnyFieldAbility(c, bySummon, ownerDamage)) return true;
 		String immuneElem = cannotBeChosenByElement.get(c);
 		if (immuneElem != null && chooserElems.contains(immuneElem)) return true;
 		// The printed twin of the turn-scoped shield above (Royal Ripeness 5-007H): a literal
@@ -13230,7 +13246,7 @@ public class MainWindow {
 		// The printed, standing form (Terra 1-046H, Seiryu 16-049R, …). Read here rather than
 		// recorded in the sets below because those hold what some effect granted; this one is a
 		// property of the card's own text and lasts as long as it is on the field.
-		if (ActionResolver.hasCannotBeChosenByOppFieldAbility(c, bySummon)) return true;
+		if (ActionResolver.hasCannotBeChosenByOppFieldAbility(c, bySummon, ownerDamage)) return true;
 		if ((bySummon ? cannotBeChosenBySummons : cannotBeChosenByAbilities).contains(c)) return true;
 		// Aerith 14-126C's longer lease, read beside the turn-scoped store rather than folded into
 		// it: same answer, different sweep.

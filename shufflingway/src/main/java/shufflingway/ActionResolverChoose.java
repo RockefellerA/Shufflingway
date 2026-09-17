@@ -3198,7 +3198,9 @@ final class ActionResolverChoose {
             boolean unionBkp = srcJobUType != null && srcJobUType.matches("(?i)Backups?|Characters?");
             boolean unionMon = srcJobUType != null && srcJobUType.matches("(?i)Monsters?|Characters?");
             String sourceLabel;
-            if      (srcSelfDmg)           sourceLabel = "P1 damage";
+            // Seat-neutral: "damage you have received" is the controller's, and the AI plays
+            // these cards too. The old "P1 damage" label was honest about the bug beside it.
+            if      (srcSelfDmg)           sourceLabel = "damage you have received";
             else if (srcJobBracket != null) sourceLabel = "[Job (" + srcJobBracket + ")] you control";
             else if (srcJobUnion   != null) sourceLabel = "Job " + srcJobUnion + " or " + forEachM.group("jobuelement") + " " + srcJobUType + " you control";
             else if (srcJobCJob    != null) sourceLabel = "Job " + srcJobCJob + " or Card Name " + srcJobCCard + " you control";
@@ -3220,7 +3222,7 @@ final class ActionResolverChoose {
                     : baseDmg + "×[" + unitLabel + "]";
             return ctx -> {
                 int n;
-                if      (srcSelfDmg)           n = ctx.p1DamageCount();
+                if      (srcSelfDmg)           n = ctx.selfDamageCount();
                 else if (srcJobBracket != null) n = ctx.countSelfFieldCards(true, true, true, srcJobBracket, null);
                 // The three union sources all count distinct cards, not matches: one card can
                 // satisfy both halves (a Fire Warrior of Light; a card named Dragoon that was
