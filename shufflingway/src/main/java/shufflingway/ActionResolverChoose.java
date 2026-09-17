@@ -1377,6 +1377,57 @@ final class ActionResolverChoose {
     }
 
     /**
+     * "If it is &lt;filter&gt;, [Self] gains &lt;grant&gt;." — one or more branch sentences trailing a
+     * choose, each gated on what the chosen card is and each granting to the source. 12-075R Alba:
+     * "choose 1 card in your opponent's Break Zone. Remove it from the game. If it is a Summon, Alba
+     * gains Haste until the end of the turn. If it is a Character, Alba gains +3000 power until the
+     * end of the turn."
+     *
+     * <p>Every branch must read or the whole secondary declines, so a text whose second sentence
+     * nothing understands cannot have its first one paid out alone.
+     *
+     * <p>{@code chosenCards} is the snapshot the remove-from-game branch takes before it removes,
+     * and the gate has to come from there: the primary has emptied the Break Zone rows by the time a
+     * secondary runs, so reading {@code lastChosenTargets()} live answers for whichever card slid
+     * into the index. An empty snapshot means nothing was chosen, and no branch pays out.
+     *
+     * <p>The branches are independent rather than exclusive — each is tested against the same card,
+     * and a card satisfying two would collect both. Alba's cannot: a Break Zone card is a Summon or
+     * a Character, never both.
+     */
+    static Consumer<GameContext> secondaryChosenCardGatedSourceGrant(
+            String secondaryText, CardData source, List<CardData> chosenCards) {
+        if (source == null) return null;
+        List<String>              condLabels = new ArrayList<>();
+        List<Predicate<CardData>> gates      = new ArrayList<>();
+        List<Consumer<GameContext>> grants   = new ArrayList<>();
+        for (String sentence : secondaryText.trim().split("(?<=\\.)\\s+(?=[A-Z])")) {
+            Matcher m = SECONDARY_CHOSEN_CARD_GATED_SOURCE_GRANT.matcher(sentence.trim());
+            if (!m.matches()) return null;
+            if (!m.group("subject").trim().equalsIgnoreCase(source.name())) return null;
+            Predicate<CardData> gate = parseRevealCondition(m.group("cond").trim());
+            if (gate == null) return null;
+            Consumer<GameContext> grant = parse(m.group("grant").trim(), source);
+            if (grant == null) return null;
+            condLabels.add(m.group("cond").trim());
+            gates.add(gate);
+            grants.add(grant);
+        }
+        if (grants.isEmpty()) return null;
+        return ctx -> {
+            if (chosenCards.isEmpty()) {
+                ctx.logEntry("Effect: nothing was chosen — " + source.name() + " gains nothing");
+                return;
+            }
+            for (int i = 0; i < gates.size(); i++) {
+                boolean met = chosenCards.stream().anyMatch(gates.get(i));
+                ctx.logEntry("Effect: the chosen card is " + (met ? "" : "not ") + condLabels.get(i));
+                if (met) grants.get(i).accept(ctx);
+            }
+        };
+    }
+
+    /**
      * "If N [or more] &lt;nouns&gt; are removed from the game by this effect, &lt;effect&gt;." as the
      * secondary of a choose whose primary removes what it picked — Irvine 21-081L, "choose up to 2
      * cards in your opponent's Break Zone. Remove them from the game. If 2 Characters are removed
@@ -1436,6 +1487,21 @@ final class ActionResolverChoose {
         String payloadName = matchedFollowupName("it gains " + m.group("payload").trim(), source);
         return "IfChosenCard(" + m.group("cond").trim() + ": "
                 + (payloadName != null ? payloadName : "?") + ")";
+    }
+
+    /** The name {@link #secondaryChosenCardGatedSourceGrant} reports, or {@code null} if it declines. */
+    static String secondaryChosenCardGatedSourceGrantName(String secondaryText, CardData source) {
+        if (secondaryChosenCardGatedSourceGrant(secondaryText, source, List.of()) == null) return null;
+        List<String> parts = new ArrayList<>();
+        for (String sentence : secondaryText.trim().split("(?<=\\.)\\s+(?=[A-Z])")) {
+            Matcher m = SECONDARY_CHOSEN_CARD_GATED_SOURCE_GRANT.matcher(sentence.trim());
+            m.matches();
+            String grantName = fullDescription(m.group("grant").trim(), source);
+            if (grantName == null) grantName = matchedPatternName(m.group("grant").trim(), source);
+            parts.add("IfChosenCardSelf(" + m.group("cond").trim() + ": "
+                    + (grantName != null ? grantName : "?") + ")");
+        }
+        return String.join("+", parts);
     }
 
     /** The name {@link #secondaryConditionGatedActionAlso} reports, or {@code null} if it declines. */
@@ -1792,6 +1858,10 @@ final class ActionResolverChoose {
         // — the parsed Consumer is a long-lived singleton the engine reuses, so the count has to be
         // written and read inside one resolution.
         final int[] removedByEffect = new int[2];
+        // What a remove-from-game primary picked, read before the removal empties the Break Zone
+        // rows and left for the one secondary that asks what the chosen card was. Same single-holder
+        // reasoning as removedByEffect above.
+        final List<CardData> removedCards = new ArrayList<>();
         {
             int dotSpaceIdx = sentenceBreakOutsideQuotes(followup);
             // A few followups are one effect spread over two sentences, and splitting them leaves
@@ -1838,6 +1908,11 @@ final class ActionResolverChoose {
                         // "If it is <filter>, it also gains <payload>." — the same hazard and the
                         // same remedy, with the gate on the chosen card rather than the board.
                         if (alsoGated == null) alsoGated = secondaryChosenCardGatedGrantAlso(secondaryText);
+                        // "If it is <filter>, [Self] gains <grant>." — the same gate paying off on
+                        // the source. Must follow the branch above, whose "it also gains" texts this
+                        // pattern also matches and would then decline on the subject.
+                        if (alsoGated == null)
+                            alsoGated = secondaryChosenCardGatedSourceGrant(secondaryText, source, removedCards);
                         // "If N <nouns> are removed from the game by this effect, <effect>." —
                         // Irvine 21-081L, read here with the two above and for the same reason. The
                         // arms below scan with find(), and one was taking "+2000 power, Haste and
@@ -4624,6 +4699,13 @@ final class ActionResolverChoose {
                 List<ForwardTarget> ts = selectTargets(ctx, maxCount, upTo,
                         opponentOnly, selfOnly, condition, element, zone, opponentZone, bothZones,
                         costVal, costCmp, powerVal, powerCmp, inclForwards, inclBackups, inclMonsters, jobFilter, cardNameFilter, categoryFilter, excludeName, inclSummons, fExcludeElem, withoutMulticard);
+                // Read while the rows still hold what was picked, for the secondary that gates on
+                // what the chosen card is.
+                removedCards.clear();
+                for (ForwardTarget t : ts) {
+                    CardData card = chosenTargetCard(ctx, t);
+                    if (card != null) removedCards.add(card);
+                }
                 // Before and after, so what a "removed from the game by this effect" secondary
                 // reads is what actually went and not what was picked: a Break Zone shield can
                 // refuse one of these removals, and the tally behind the counts is cumulative over

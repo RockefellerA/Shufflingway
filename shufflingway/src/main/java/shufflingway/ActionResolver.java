@@ -3916,6 +3916,10 @@ public class ActionResolver {
             // grant out of this sentence and report it as unconditional.
             if (secondaryDesc == null && secondaryTxt != null && !secondaryTxt.isEmpty())
                 secondaryDesc = secondaryChosenCardGatedGrantAlsoName(secondaryTxt, source);
+            // Mirrors the choose chain, where this follows the branch above for the same reason:
+            // the two share a gate, and this pattern matches the "it also gains" texts too.
+            if (secondaryDesc == null && secondaryTxt != null && !secondaryTxt.isEmpty())
+                secondaryDesc = secondaryChosenCardGatedSourceGrantName(secondaryTxt, source);
             // Mirrors the choose chain, where this is read with the two above and for the same
             // reason: left to the fallbacks below, Irvine 21-081L's payoff was described as an
             // unconditional power boost, which is exactly how it was running.

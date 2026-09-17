@@ -7057,9 +7057,7 @@ public class MainWindow {
 		// does the block step open and P1 get to choose a blocker.
 		setAttackSubStep(1);
 		refreshPhaseTracker();
-		// The one attack announcement for this side. ComputerPlayer and the remote-replay path
-		// each used to log their own before calling in here, which printed every P2 attack twice;
-		// the "Forward —" note is carried here so dropping those lost nothing.
+		// The one attack announcement for this side.
 		String announce = "[P2] " + attacker.name() + " ("
 				+ ((pendingP2AttackerIsMonster || pendingP2AttackerIsBackup) ? "Forward — " : "")
 				+ displayPow + ") attacks!";

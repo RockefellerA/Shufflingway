@@ -7634,6 +7634,29 @@ final class ActionResolverPatterns {
     );
 
     /**
+     * "If it is [a] &lt;filter&gt;, [Self] gains &lt;grant&gt;." — a choose secondary gated on what the
+     * chosen card is, paying off on the <em>source</em> rather than on the card. 12-075R Alba, the
+     * one printing, who prints two of them: "choose 1 card in your opponent's Break Zone. Remove it
+     * from the game. If it is a Summon, Alba gains Haste until the end of the turn. If it is a
+     * Character, Alba gains +3000 power until the end of the turn."
+     *
+     * <p>The sibling of {@link #SECONDARY_CHOSEN_CARD_GATED_GRANT_ALSO}, sharing its gate and
+     * differing in where the grant lands. {@code subject} is what separates them and is checked
+     * against the source's name: every other printing of this sentence shape says "it", meaning the
+     * card the primary chose, and belongs to that one — 16-055C Chocobo Sam and 1-106C Golem say
+     * "it gains" without the "also", so they reach this pattern and are declined on the subject.
+     *
+     * <p>Groups: {@code cond} — the filter, in the wording {@link ActionResolver#parseRevealCondition}
+     * reads; {@code subject} — who is granted; {@code grant} — the whole payoff sentence, handed to
+     * {@code parse} so the self-boost family reads it as it would standing alone.
+     */
+    static final Pattern SECONDARY_CHOSEN_CARD_GATED_SOURCE_GRANT = Pattern.compile(
+        "(?i)^If\\s+it\\s+is\\s+(?<cond>[^,]+),\\s+" +
+        "(?<grant>(?<subject>.+?)\\s+gains\\s+.+?)[.!]?$",
+        Pattern.DOTALL
+    );
+
+    /**
      * The "you have cast Card Name X this turn" wording of
      * {@link #SECONDARY_CONDITION_GATED_ACTION_ALSO}'s condition — 1-043H Snow's gate. Read first
      * because it is not a control condition at all: it asks what was cast, not what is on the

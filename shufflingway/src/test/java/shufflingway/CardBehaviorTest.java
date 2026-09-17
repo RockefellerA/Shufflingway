@@ -23446,6 +23446,127 @@ public class CardBehaviorTest {
 				null, new int[2]));
 	}
 
+	// =========================================================================================
+	// Alba 12-075R: "When Alba enters the field or attacks, choose 1 card in your opponent's Break
+	// Zone. Remove it from the game. If it is a Summon, Alba gains Haste until the end of the turn.
+	// If it is a Character, Alba gains +3000 power until the end of the turn."
+	//
+	// Irvine's shape with the gate asking a different question: his counts what the removal took,
+	// Alba's asks what the one card he took *was*. The sentence shape is the one 6-004C Kiros
+	// prints, and the difference is where the grant lands — Kiros's "it also gains" goes to the
+	// chosen card, Alba's goes to Alba. Every other printing of the shape says "it", so the subject
+	// is what tells the two families apart.
+	//
+	// The gate has to read a card captured before the removal. lastChosenTargets() names Break Zone
+	// rows, and by the time a secondary runs the removal has emptied one — so index 0 no longer
+	// holds what was chosen, it holds whatever slid down into it. That is a wrong answer rather
+	// than an empty one, which is why the removal branch snapshots.
+	// =========================================================================================
+
+	private static final String ALBA_12_075R_EFFECT =
+			"choose 1 card in your opponent's Break Zone. Remove it from the game. If it is a "
+			+ "Summon, Alba gains Haste until the end of the turn. If it is a Character, Alba "
+			+ "gains +3000 power until the end of the turn.";
+
+	/** Alba on P1's Forward row with {@code oppBreakZone} sitting in P2's Break Zone. */
+	private static MainWindow albaFacing(List<CardData> oppBreakZone) {
+		MainWindow mw   = new MainWindow();
+		CardData   alba = makeForward("Alba", "Lightning", 2, 5000);
+		mw.gameState.getIdentity().put(alba, true);
+		mw.placeCardInForwardZone(alba);
+		mw.currentAbilitySource = alba;
+		mw.gameState.getP2BreakZone().addAll(oppBreakZone);
+		return mw;
+	}
+
+	private static CardData alba() {
+		return makeForward("Alba", "Lightning", 2, 5000);
+	}
+
+	@Test
+	void albaIsAttributedToBothOfHisBranches() {
+		assertEquals("ChooseCharacter / RemoveFromGame"
+				+ " + IfChosenCardSelf(a Summon: StandaloneSelfBoost)"
+				+ "+IfChosenCardSelf(a Character: StandaloneSelfBoost)",
+				ActionResolver.fullDescription(ALBA_12_075R_EFFECT, alba()));
+	}
+
+	@Test
+	void takingASummonGivesAlbaHasteAndNoPower() {
+		MainWindow mw = albaFacing(List.of(
+				makeSummon("Ifrit", "Fire", 2, "Choose 1 Forward. Deal it 7000 damage."),
+				makeForward("Dead Guy", "Fire", 1, 1000)));
+		GameContext ctx = mw.buildGameContext(true);
+		ctx.preloadTargets(List.of(new ForwardTarget(false, 0, ForwardTarget.CardZone.BREAK_ZONE)));
+
+		ActionResolver.parse(ALBA_12_075R_EFFECT, mw.currentAbilitySource).accept(ctx);
+
+		assertEquals(0, mw.p1ForwardPowerBoost.get(0), "a Summon is not a Character");
+		assertTrue(mw.p1ForwardTempTraits.get(0).contains(CardData.Trait.HASTE), "Alba should have Haste");
+	}
+
+	@Test
+	void takingACharacterGivesAlbaPowerAndNoHaste() {
+		MainWindow mw = albaFacing(List.of(
+				makeForward("Dead Guy", "Fire", 1, 1000),
+				makeSummon("Ifrit", "Fire", 2, "Choose 1 Forward. Deal it 7000 damage.")));
+		GameContext ctx = mw.buildGameContext(true);
+		ctx.preloadTargets(List.of(new ForwardTarget(false, 0, ForwardTarget.CardZone.BREAK_ZONE)));
+
+		ActionResolver.parse(ALBA_12_075R_EFFECT, mw.currentAbilitySource).accept(ctx);
+
+		assertEquals(3000, mw.p1ForwardPowerBoost.get(0), "a Forward is a Character");
+		assertFalse(mw.p1ForwardTempTraits.get(0).contains(CardData.Trait.HASTE), "a Forward is not a Summon");
+	}
+
+	@Test
+	void theGateReadsTheCardTakenAndNotTheOneThatSlidIntoItsRow() {
+		// Both branches would be answered the wrong way round by a read taken after the removal:
+		// the Summon at index 0 goes, the Forward behind it moves up, and index 0 now says
+		// "Character". This is the whole reason the removal branch snapshots.
+		MainWindow mw = albaFacing(List.of(
+				makeSummon("Ifrit", "Fire", 2, "Choose 1 Forward. Deal it 7000 damage."),
+				makeForward("Bystander", "Fire", 1, 1000)));
+		GameContext ctx = mw.buildGameContext(true);
+		ctx.preloadTargets(List.of(new ForwardTarget(false, 0, ForwardTarget.CardZone.BREAK_ZONE)));
+
+		ActionResolver.parse(ALBA_12_075R_EFFECT, mw.currentAbilitySource).accept(ctx);
+
+		assertEquals(1, mw.gameState.getP2BreakZone().size(), "only the Summon should have gone");
+		assertEquals("Bystander", mw.gameState.getP2BreakZone().get(0).name());
+		assertTrue(mw.p1ForwardTempTraits.get(0).contains(CardData.Trait.HASTE),
+				"the gate should answer for the Summon that was removed");
+		assertEquals(0, mw.p1ForwardPowerBoost.get(0),
+				"and not for the Forward now standing in its row");
+	}
+
+	@Test
+	void anEmptyBreakZoneGrantsNeitherBranch() {
+		MainWindow  mw  = albaFacing(List.of());
+		GameContext ctx = mw.buildGameContext(true);
+
+		ActionResolver.parse(ALBA_12_075R_EFFECT, mw.currentAbilitySource).accept(ctx);
+
+		assertEquals(0, mw.p1ForwardPowerBoost.get(0));
+		assertTrue(mw.p1ForwardTempTraits.get(0).isEmpty());
+	}
+
+	@Test
+	void aGrantToAnyoneButTheSourceBelongsToTheOtherFamily() {
+		// "it gains" is the chosen card's grant — 6-004C Kiros's family, read ahead of this one.
+		assertNull(ActionResolverChoose.secondaryChosenCardGatedSourceGrant(
+				"If it is a Summon, it gains Haste until the end of the turn.", alba(), List.of()));
+	}
+
+	@Test
+	void aBranchTheChainCannotReadDeclinesTheWholeSecondary() {
+		// Fail closed across branches: the readable half must not pay out alone.
+		assertNull(ActionResolverChoose.secondaryChosenCardGatedSourceGrant(
+				"If it is a Summon, Alba gains Haste until the end of the turn. If it is a "
+				+ "Quizzlewump, Alba gains +3000 power until the end of the turn.",
+				alba(), List.of()));
+	}
+
 	// -- Ozma 5-124H: "If Ozma is dealt damage by a Dark card, the damage becomes 0 instead." ----
 	// The one printing in the damage-modifier family whose source clause names an ELEMENT rather
 	// than a kind of effect. Every other arm answers "what sort of thing dealt this" and so confines
