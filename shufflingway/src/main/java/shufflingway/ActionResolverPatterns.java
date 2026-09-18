@@ -9380,9 +9380,13 @@ final class ActionResolverPatterns {
      * branch's question, not this pattern's: a grant of an ability nothing reads has to keep
      * falling through the chain and be reported as unhandled, rather than being accepted here and
      * resolving as a silent no-op.
+     *
+     * <p>"They gain" as well as "it gains", for the printings whose choose takes more than one
+     * card — 29-068L Titan (XVI)'s "choose up to 3 Forwards. They gain …". The grant is applied per
+     * chosen card either way, so the two spellings mean the same thing to the branch reading this.
      */
     static final Pattern FOLLOWUP_GAINS_QUOTED_ABILITY_UNTIL_EOT = Pattern.compile(
-        "(?i)(?<pre>Until\\s+the\\s+end\\s+of\\s+the\\s+turn,?\\s+)?it\\s+gains\\s+" +
+        "(?i)(?<pre>Until\\s+the\\s+end\\s+of\\s+the\\s+turn,?\\s+)?(?:it\\s+gains|they\\s+gain)\\s+" +
         "(?:\"(?<granted>[^\"]+)\"|'(?<gq>[^']+)')" +
         "(?<post>\\s+until\\s+the\\s+end\\s+of\\s+the\\s+turn)?"
     );

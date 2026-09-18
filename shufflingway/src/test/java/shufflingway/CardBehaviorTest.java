@@ -58943,4 +58943,155 @@ public class CardBehaviorTest {
 
 	// =========================================================================================
 
+	// =========================================================================================
+	// 29-068L Titan (XVI): "choose up to 3 Forwards. They gain "At the beginning of your
+	// opponent's Attack Phase, if you don't pay 《1》, break this Forward." until the end of the
+	// turn."
+	//
+	// Almost all of this card was already built, and by three separate earlier efforts: the
+	// quoted-ability grant that hands a chosen Forward a trigger for the turn, the
+	// "beginning of your opponent's Attack Phase" trigger (Ardyn 8-068L) and its dispatch, and the
+	// "if you don't pay 《1》, break this Forward" tax (Vayne 9-022L prints the same sentence under
+	// an end-of-turn trigger). CardData's pass for that trigger even names this card, skipping the
+	// wording where it appears inside quotes so the printing card does not claim its own grant.
+	//
+	// What stopped it was one word. The grant pattern read "it gains", and Titan chooses up to
+	// three Forwards, so he prints "They gain" — leaving the whole followup unread and the ability
+	// resolving as a choose that did nothing.
+	//
+	// The direction of the tax is worth stating, because it reads backwards at first: "you" in the
+	// granted ability is the *holder's* controller, and "your opponent's Attack Phase" is therefore
+	// Titan's controller's own. Priming in during Main Phase 1 and granting this to the opponent's
+	// Forwards bills them before blockers matter, in the same turn the grant expires.
+	// =========================================================================================
+
+	private static final String TITAN_XVI_PRIMED_GRANT =
+			"choose up to 3 Forwards. They gain \"At the beginning of your opponent's Attack Phase, "
+			+ "if you don't pay 《1》, break this Forward.\" until the end of the turn.";
+
+	private static final String TITAN_GRANTED_ABILITY =
+			"At the beginning of your opponent's Attack Phase, if you don't pay 《1》, "
+			+ "break this Forward.";
+
+	private static final String TITAN_GRANTED_EFFECT =
+			"if you don't pay 《1》, break this Forward.";
+
+	@Test
+	void titanHandsEveryChosenForwardTheQuotedAbility() {
+		CardData titan = makeForwardWithText("Titan (XVI)", "Earth", 4, 8000, "");
+		ForwardTarget a = new ForwardTarget(false, 0, ForwardTarget.CardZone.FORWARD);
+		ForwardTarget b = new ForwardTarget(false, 1, ForwardTarget.CardZone.FORWARD);
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.consumePreloadedTargets()).thenReturn(List.of(a, b));
+
+		Consumer<GameContext> fn = ActionResolver.parse(TITAN_XVI_PRIMED_GRANT, titan);
+		assertNotNull(fn, "the plural \"They gain\" is what used to leave this unread");
+		fn.accept(ctx);
+
+		verify(ctx).grantAutoAbilityUntilEndOfTurn(a, TITAN_GRANTED_ABILITY);
+		verify(ctx).grantAutoAbilityUntilEndOfTurn(b, TITAN_GRANTED_ABILITY);
+	}
+
+	@Test
+	void theGrantedTextIsATriggerTheEngineActuallyFires() {
+		// The grant branch only claims a quotation that reads as an auto-ability, so this is the
+		// condition under which Titan's followup is honoured rather than reported unhandled.
+		List<AutoAbility> granted = CardData.parseAutoAbilities(TITAN_GRANTED_ABILITY);
+
+		assertEquals(1, granted.size());
+		assertEquals("beginning of opponent's attack phase", granted.get(0).trigger(),
+				"the same trigger 8-068L Ardyn prints, and the one the Attack Phase dispatch fires");
+		assertEquals(TITAN_GRANTED_EFFECT, granted.get(0).effectText());
+	}
+
+	@Test
+	void theHolderPaysTheOneAndTheHolderIsWhatBreaks() {
+		// "you" is the Forward carrying the grant, not Titan's controller — the ability resolves
+		// from the holder's seat, so the bill and the break both land there.
+		CardData holder = makeForward("Victim", "Fire", 3, 7000);
+		GameContext ctx = mock(GameContext.class);
+		doAnswer(inv -> { ((Runnable) inv.getArgument(3)).run(); return null; })
+				.when(ctx).mayPayCostOrElse(eq(1), isNull(), eq(0), any());
+
+		ActionResolver.parse(TITAN_GRANTED_EFFECT, holder).accept(ctx);
+
+		verify(ctx).breakSourceCard(holder);
+	}
+
+	@Test
+	void payingTheOneKeepsTheForward() {
+		// Leaving the runnable uncalled is what a payment in full means to this primitive.
+		CardData holder = makeForward("Victim", "Fire", 3, 7000);
+		GameContext ctx = mock(GameContext.class);
+
+		ActionResolver.parse(TITAN_GRANTED_EFFECT, holder).accept(ctx);
+
+		verify(ctx).mayPayCostOrElse(eq(1), isNull(), eq(0), any());
+		verify(ctx, never()).breakSourceCard(any());
+	}
+
+	@Test
+	void titansGrantBreaksAnOpponentForwardThatCannotAffordTheTax() {
+		// End to end on a real board: the grant is applied, and the Attack Phase dispatch finds it
+		// through effectiveAutoAbilities exactly as it would a printed trigger. P2 has no CP on a
+		// fresh board, so the tax goes unpaid.
+		MainWindow mw = new MainWindow();
+		CardData titan  = makeForwardWithText("Titan (XVI)", "Earth", 4, 8000, "");
+		CardData victim = makeForward("Victim", "Fire", 3, 7000);
+		placeP1Forward(mw, titan);
+		placeP2Forward(mw, victim);
+
+		GameContext ctx = mw.buildGameContext(true);
+		ctx.preloadTargets(List.of(new ForwardTarget(false, 0, ForwardTarget.CardZone.FORWARD)));
+		ActionResolver.parse(TITAN_XVI_PRIMED_GRANT, titan).accept(ctx);
+
+		// P1's Attack Phase is "your opponent's Attack Phase" from the grantee's side. The granted
+		// trigger reaches the Stack like a printed one, which is the point — so it is drained here.
+		fireAndResolve(mw, () ->
+				mw.autoAbilityTriggers.triggerAutoAbilitiesForBeginningOfOppAttackPhase(true));
+
+		assertFalse(mw.p2ForwardCards.contains(victim), "unpaid, so the granted ability breaks it");
+		assertTrue(mw.p1ForwardCards.contains(titan), "Titan is not what the grant bills");
+	}
+
+	@Test
+	void anUngrantedForwardIsUntouchedByTheAttackPhaseSweep() {
+		// The grant is per chosen card, so a Forward that was not chosen carries no trigger at all.
+		MainWindow mw = new MainWindow();
+		CardData titan     = makeForwardWithText("Titan (XVI)", "Earth", 4, 8000, "");
+		CardData chosen    = makeForward("Chosen", "Fire", 3, 7000);
+		CardData bystander = makeForward("Bystander", "Fire", 3, 7000);
+		placeP1Forward(mw, titan);
+		placeP2Forward(mw, chosen);
+		placeP2Forward(mw, bystander);
+
+		GameContext ctx = mw.buildGameContext(true);
+		ctx.preloadTargets(List.of(new ForwardTarget(false, 0, ForwardTarget.CardZone.FORWARD)));
+		ActionResolver.parse(TITAN_XVI_PRIMED_GRANT, titan).accept(ctx);
+
+		fireAndResolve(mw, () ->
+				mw.autoAbilityTriggers.triggerAutoAbilitiesForBeginningOfOppAttackPhase(true));
+
+		assertFalse(mw.p2ForwardCards.contains(chosen));
+		assertTrue(mw.p2ForwardCards.contains(bystander), "nothing was granted to it");
+	}
+
+	@Test
+	void theSingularSpellingOfTheGrantStillReads() {
+		// The widening must not have disturbed the printings this branch already served —
+		// 27-104C Ninja's "It gains ... until the end of the turn."
+		CardData ninja = makeForwardWithText("Ninja", "Wind", 3, 7000, "");
+		ForwardTarget t = new ForwardTarget(true, 0, ForwardTarget.CardZone.FORWARD);
+		GameContext ctx = mock(GameContext.class);
+		when(ctx.consumePreloadedTargets()).thenReturn(List.of(t));
+
+		ActionResolver.parse("choose 1 Forward. It gains \"When this Forward deals damage to your "
+				+ "opponent, draw 1 card.\" until the end of the turn.", ninja).accept(ctx);
+
+		verify(ctx).grantAutoAbilityUntilEndOfTurn(t,
+				"When this Forward deals damage to your opponent, draw 1 card.");
+	}
+
+	// =========================================================================================
+
 }
